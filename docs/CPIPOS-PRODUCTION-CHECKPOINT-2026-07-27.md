@@ -18,10 +18,12 @@ Date: 2026-07-27
   - `NEXT_PUBLIC_SUPABASE_URL`
   - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
   - `SUPABASE_SERVICE_ROLE_KEY`
+- Vercel production also requires `POS_SESSION_HANDOFF_SECRET`; without it, valid store codes fail after tenant lookup because the pre-entry flow cookie cannot be signed.
 - Supabase project `deejlitaivfnsbwqdugy` is `ACTIVE_HEALTHY`.
 - Production `/login/store` returned `200`.
 - Production `/manifest.webmanifest` returned `200`.
 - Production `/api/auth/store-code/verify` with a valid-format fake store code returned `404 store_not_found`, confirming the API reached the existing Supabase database instead of failing on missing environment variables.
+- Production `/api/auth/store-code/verify` returned `200` for active existing store codes `SOLO-TH-001`, `NDL-TH-001`, and `BBQ-TH-002` after `POS_SESSION_HANDOFF_SECRET` was added and production was redeployed.
 
 ## Notes For Next AI
 
