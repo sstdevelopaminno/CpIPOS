@@ -24,9 +24,14 @@ Date: 2026-07-27
 - Production `/manifest.webmanifest` returned `200`.
 - Production `/api/auth/store-code/verify` with a valid-format fake store code returned `404 store_not_found`, confirming the API reached the existing Supabase database instead of failing on missing environment variables.
 - Production `/api/auth/store-code/verify` returned `200` for active existing store codes `SOLO-TH-001`, `NDL-TH-001`, and `BBQ-TH-002` after `POS_SESSION_HANDOFF_SECRET` was added and production was redeployed.
+- Production smoke on 2026-07-27 confirmed `/login/store`, `/login/branches`, `/login/employee`, `/login/devices`, and `/manifest.webmanifest` return `200`.
+- Production smoke confirmed unauthenticated `/preview/pos` and `/preview/pos/settings` redirect to `/login/store`.
+- Production smoke confirmed unauthenticated `/api/pos/session/current`, `/api/pos/features`, and `/api/pos/sales` return `401 missing_pos_session`.
+- Production smoke noted unauthenticated `/api/pos/members` returns `503 members_load_failed` with message `POS session is required`; this is an unauthenticated boundary response, not a database connection failure.
 
 ## Notes For Next AI
 
 - Do not commit `.vercel/`; it is local project-link metadata.
 - Do not write Vercel tokens, Supabase access tokens, database passwords, service-role keys, or `.env.local` values to source control.
 - Preview Supabase env was not confirmed because Vercel rejected the preview branch target. Production is the active verified environment.
+- Read `docs/AI-GUARDRAILS-CPIPOS.md` before making future CpIPOS changes.
