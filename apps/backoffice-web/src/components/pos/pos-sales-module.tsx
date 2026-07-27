@@ -739,10 +739,10 @@ const uiText = {
     selectTable: "เลือกโต๊ะ",
     tableSelectTitle: "เปิดบิล / เลือกโต๊ะ",
     tableSelectHint: "เมื่ออยู่ในโหมดนี้ รายการสินค้าในแถบจะถูกซ่อนจนกว่าจะเลือกโต๊ะเสร็จ",
-    tableListMode: "LIST",
-    tableFloorMode: "BOARD",
-    tableListModeSub: "รายการโต๊ะ",
-    tableFloorModeSub: "แผนผังร้าน",
+    tableListMode: "รายการโต๊ะ",
+    tableFloorMode: "แผนผังร้าน",
+    tableListModeSub: "เลือกจากรายการ",
+    tableFloorModeSub: "เลือกจากผังร้าน",
     deliveryAppTitle: "ช่องทางเดลิเวอรี่",
     deliveryAppHint: "เลือกแอป แล้วเปิดออเดอร์ก่อนเลือกสินค้า",
     deliveryMetaTitle: "รายละเอียดออเดอร์เดลิเวอรี่",
@@ -1080,8 +1080,8 @@ const uiText = {
     selectTable: "Select table",
     tableSelectTitle: "Open Bill / Select Table",
     tableSelectHint: "Product list will be hidden until a table is selected.",
-    tableListMode: "LIST",
-    tableFloorMode: "BOARD",
+    tableListMode: "List",
+    tableFloorMode: "Board",
     tableListModeSub: "Table List",
     tableFloorModeSub: "Floor Plan",
     deliveryAppTitle: "Delivery Channels",
@@ -7685,7 +7685,6 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
             onClick={() => updateTableViewMode("list")}
           >
             <span>{text.tableListMode}</span>
-            <small>{text.tableListModeSub}</small>
           </button>
           <button
             type="button"
@@ -7694,7 +7693,6 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
             onClick={() => updateTableViewMode("floor")}
           >
             <span>{text.tableFloorMode}</span>
-            <small>{text.tableFloorModeSub}</small>
           </button>
         </div>
         <div className="posui-table-browser__zones-inline">
