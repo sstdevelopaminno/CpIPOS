@@ -114,6 +114,34 @@ function isUniqueViolationError(error: { code?: string | null; message?: string 
   return error?.code === "23505" || message.includes("duplicate key value") || message.includes("unique constraint");
 }
 
+function splitModifierNotes(notes: string): string[] {
+  return notes
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function stripIngredientNoteQuantity(value: string): string {
+  return value
+    .replace(/\s*(?:x|X|×)\s*\d+$/u, "")
+    .replace(/\s*\((?:x|X|×)\s*\d+\)$/u, "")
+    .trim();
+}
+
+function readSelectedModifierIngredientQuantity(notes: string | null | undefined, ingredientName: string): number {
+  const normalizedName = ingredientName.trim().toLowerCase();
+  if (!normalizedName) return 0;
+
+  for (const part of splitModifierNotes(String(notes ?? ""))) {
+    if (stripIngredientNoteQuantity(part).toLowerCase() !== normalizedName) continue;
+    const match = part.match(/(?:x|X|×)\s*(\d+)$/u) ?? part.match(/\((?:x|X|×)\s*(\d+)\)$/u);
+    const quantity = Number(match?.[1] ?? 1);
+    return Number.isFinite(quantity) && quantity > 0 ? Math.trunc(quantity) : 1;
+  }
+
+  return 0;
+}
+
 type PosOrderTxRow = {
   order_id: string;
   order_no: string;
@@ -216,7 +244,7 @@ async function deductIngredientStockForOrderFallback(args: {
   auth: AuthContext;
   orderId: string;
   orderType: OrderType;
-  items: Array<{ product_id: string; quantity: number }>;
+  items: Array<{ product_id: string; quantity: number; notes?: string | null }>;
 }) {
   const { auth, orderId, orderType, items } = args;
   if (!auth.tenantId || !auth.branchId) {
@@ -328,6 +356,23 @@ async function deductIngredientStockForOrderFallback(args: {
     ])
   );
 
+  for (const item of items) {
+    const recipeLines = recipeByProduct.get(item.product_id) ?? [];
+    if (recipeLines.length === 0 || !String(item.notes ?? "").trim()) continue;
+    const itemQuantity = Number(item.quantity);
+    if (!Number.isFinite(itemQuantity) || itemQuantity <= 0) continue;
+
+    for (const line of recipeLines) {
+      const ingredient = ingredientMap.get(line.ingredientId);
+      if (!ingredient || line.usageInGrams <= 0) continue;
+      const selectedQuantity = readSelectedModifierIngredientQuantity(item.notes, ingredient.name);
+      if (selectedQuantity <= 0) continue;
+      const extraRequiredGrams = toIntegerGrams(line.usageInGrams * itemQuantity * selectedQuantity);
+      if (extraRequiredGrams <= 0) continue;
+      requiredByIngredient.set(line.ingredientId, (requiredByIngredient.get(line.ingredientId) ?? 0) + extraRequiredGrams);
+    }
+  }
+
   for (const ingredientId of ingredientIds) {
     const ingredient = ingredientMap.get(ingredientId);
     if (!ingredient) {
@@ -418,7 +463,7 @@ export async function deductIngredientStockForPaidOrderFallback(args: {
       .maybeSingle<{ id: string; order_type: OrderType }>(),
     supabase
       .from("order_items")
-      .select("product_id,quantity")
+      .select("product_id,quantity,notes")
       .eq("tenant_id", auth.tenantId)
       .eq("branch_id", auth.branchId)
       .eq("order_id", orderId)
@@ -439,7 +484,8 @@ export async function deductIngredientStockForPaidOrderFallback(args: {
     orderType: orderRow.order_type,
     items: (itemRows ?? []).map((item) => ({
       product_id: String(item.product_id),
-      quantity: Number(item.quantity)
+      quantity: Number(item.quantity),
+      notes: typeof item.notes === "string" ? item.notes : null
     }))
   });
 }

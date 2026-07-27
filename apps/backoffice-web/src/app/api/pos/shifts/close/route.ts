@@ -89,6 +89,31 @@ async function createSelfShiftCloseApproval(args: {
   return data?.id ?? null;
 }
 
+async function getOpenShiftBills(args: { tenantId: string; branchId: string; shiftId: string }) {
+  const supabase = getSupabaseServiceClient();
+  return supabase
+    .from("orders")
+    .select("id,order_no,status,order_type,table_id", { count: "exact" })
+    .eq("tenant_id", args.tenantId)
+    .eq("branch_id", args.branchId)
+    .eq("shift_id", args.shiftId)
+    .in("status", ["draft", "queued", "preparing"])
+    .order("created_at", { ascending: true })
+    .limit(5);
+}
+
+async function getOpenTableBillSessions(args: { tenantId: string; branchId: string }) {
+  const supabase = getSupabaseServiceClient();
+  return supabase
+    .from("table_bill_sessions")
+    .select("id,table_id,status", { count: "exact" })
+    .eq("tenant_id", args.tenantId)
+    .eq("branch_id", args.branchId)
+    .in("status", ["open", "ordering", "pending_payment"])
+    .order("opened_at", { ascending: true })
+    .limit(5);
+}
+
 export async function POST(request: Request) {
   try {
     const body = (await request.json().catch(() => null)) as {
@@ -123,6 +148,58 @@ export async function POST(request: Request) {
     }
 
     const supabase = getSupabaseServiceClient();
+    const openBills = await getOpenShiftBills({
+      tenantId: sessionScope.tenantId,
+      branchId: sessionScope.branchId,
+      shiftId: shift.id
+    });
+    if (openBills.error) {
+      return NextResponse.json(
+        { data: null, error: { code: "shift_open_bills_query_failed", message: openBills.error.message } },
+        { status: 500 }
+      );
+    }
+    if ((openBills.count ?? 0) > 0) {
+      const sampleBills = (openBills.data ?? [])
+        .map((order) => String((order as { order_no?: string | null }).order_no ?? "").trim())
+        .filter(Boolean)
+        .slice(0, 3);
+      const suffix = sampleBills.length > 0 ? ` (${sampleBills.join(", ")})` : "";
+      return NextResponse.json(
+        {
+          data: null,
+          error: {
+            code: "shift_has_open_bills",
+            message: `Please clear ${openBills.count} open bill(s) before closing shift${suffix}.`
+          }
+        },
+        { status: 409 }
+      );
+    }
+
+    const openTableSessions = await getOpenTableBillSessions({
+      tenantId: sessionScope.tenantId,
+      branchId: sessionScope.branchId
+    });
+    if (openTableSessions.error) {
+      return NextResponse.json(
+        { data: null, error: { code: "shift_open_tables_query_failed", message: openTableSessions.error.message } },
+        { status: 500 }
+      );
+    }
+    if ((openTableSessions.count ?? 0) > 0) {
+      return NextResponse.json(
+        {
+          data: null,
+          error: {
+            code: "shift_has_open_bills",
+            message: `Please clear ${openTableSessions.count} open table bill session(s) before closing shift.`
+          }
+        },
+        { status: 409 }
+      );
+    }
+
     const closedAtIso = new Date().toISOString();
     const closedByDifferentUser = shift.opened_by !== sessionScope.userId;
     const autoCloseWithoutCashCount = overdueAutoClose && closingCash === null;

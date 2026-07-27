@@ -25,6 +25,19 @@ type ApiResponse = {
   error?: { message?: string };
 };
 
+const POS_PAYMENT_SETTINGS_UPDATED_EVENT = "pos:payment-settings-updated";
+const POS_PAYMENT_SETTINGS_UPDATED_KEY = "pos_payment_settings_updated_at_v001";
+
+function signalPaymentSettingsUpdated() {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(POS_PAYMENT_SETTINGS_UPDATED_KEY, new Date().toISOString());
+  } catch {
+    // The settings save already succeeded; storage only wakes other POS tabs.
+  }
+  window.dispatchEvent(new CustomEvent(POS_PAYMENT_SETTINGS_UPDATED_EVENT));
+}
+
 async function fetchJson(input: RequestInfo | URL, init?: RequestInit) {
   const response = await fetch(input, { credentials: "include", cache: "no-store", ...init });
   const body = (await response.json().catch(() => ({}))) as ApiResponse;
@@ -163,6 +176,7 @@ export function InetNopsSettingsPanel({
       setMerchantId(next.merchant_id);
       setEnvironment(next.environment);
       setIsActive(next.is_active);
+      signalPaymentSettingsUpdated();
       reportStatus(copy.saved, { popup: true });
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : "INET QR settings request failed.");

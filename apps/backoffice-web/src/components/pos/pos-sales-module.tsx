@@ -5,6 +5,7 @@ import Image from "next/image";
 import type { OrderType } from "@pos/shared-types";
 import { ErrorState, LoadingState } from "@/components/backoffice/list-state";
 import { PosHeldBillsModal } from "@/components/pos/pos-held-bills-modal";
+import { PosMemberMaintenanceModal } from "@/components/pos/pos-member-maintenance-modal";
 import { PosPaymentModals } from "@/components/pos/pos-payment-modals";
 import { PosProductCatalog } from "@/components/pos/pos-product-catalog";
 import { PosRealtimeClock } from "@/components/pos/pos-realtime-clock";
@@ -184,6 +185,7 @@ type ModifierDraft = {
   quantity: number;
   notes: string;
   extraPrice: number;
+  linkedIngredientQuantity: number;
   editingCartLineId?: string | null;
 };
 
@@ -533,6 +535,8 @@ const POS_SCOPE_KEY = "pos_scope_v001";
 const POS_PROMPTPAY_PHONE_KEY = "pos_promptpay_phone_v001";
 const POS_TAX_SETTINGS_UPDATED_EVENT = "pos:tax-settings-updated";
 const POS_TAX_SETTINGS_UPDATED_KEY = "pos_tax_settings_updated_at_v001";
+const POS_PAYMENT_SETTINGS_UPDATED_EVENT = "pos:payment-settings-updated";
+const POS_PAYMENT_SETTINGS_UPDATED_KEY = "pos_payment_settings_updated_at_v001";
 const DEFAULT_PROMPTPAY_PHONE = process.env.NEXT_PUBLIC_PROMPTPAY_PHONE ?? "0843374982";
 const DEFAULT_PROMPTPAY_PAYEE = process.env.NEXT_PUBLIC_PROMPTPAY_PAYEE_NAME ?? "";
 const DELIVERY_ACTION_DEBOUNCE_MS = 450;
@@ -630,6 +634,8 @@ const uiText = {
     goHome: "กลับบ้าน",
     dineIn: "นั่งโต๊ะ",
     delivery: "เดลิเวอรี่",
+    deliveryMaintenanceTitle: "เดลิเวอรี่",
+    deliveryMaintenanceMessage: "อยู่ระหว่างพัฒนาระบบร่วมกับฝ่ายเดลิเวอรี่",
     switchMode: "เลือกโหมด",
     selectMode: "เลือกโหมดการขาย",
     selectModeHint: "เลือกวิธีรับออเดอร์ที่ต้องการใช้งาน",
@@ -869,6 +875,9 @@ const uiText = {
     transferQrImageSettingsHint: "QR นี้ดึงจากภาพ QR ในตั้งค่าชำระเงิน",
     transferPromptPayPhoneLabel: "เบอร์พร้อมเพย์",
     transferPaymentAccountLabel: "บัญชีรับเงิน",
+    transferPaymentSettingsRequiredTitle: "โปรดเปิดใช้งานชำระเงินก่อน",
+    transferPaymentSettingsRequiredBody: "ยังไม่มีบัญชี QR ที่เปิดใช้งานสำหรับสาขานี้ กรุณาไปที่เมนูตั้งค่าชำระเงิน แล้วเปิดใช้งานบัญชีรับเงินก่อนรับชำระด้วย QR",
+    transferPaymentSettingsRequiredClose: "ปิด POP UP",
     transferQrImageModeLabel: "ใช้ภาพ QR จากตั้งค่า",
     transferPromptPayAmountLabel: "ยอดชำระ",
     transferUploadSlipLabel: "อัปโหลดสลิป (รองรับถ่ายจากมือถือ)",
@@ -966,6 +975,8 @@ const uiText = {
     goHome: "Takeaway",
     dineIn: "Dine-in",
     delivery: "Delivery",
+    deliveryMaintenanceTitle: "Delivery",
+    deliveryMaintenanceMessage: "The delivery workflow is being developed with the delivery team.",
     switchMode: "Select Mode",
     selectMode: "Select Sales Mode",
     selectModeHint: "Choose how this order will be served",
@@ -1205,6 +1216,9 @@ const uiText = {
     transferQrImageSettingsHint: "This QR image comes from Payment Settings.",
     transferPromptPayPhoneLabel: "PromptPay phone",
     transferPaymentAccountLabel: "Receiving account",
+    transferPaymentSettingsRequiredTitle: "Enable payment settings first",
+    transferPaymentSettingsRequiredBody: "No active QR payment account is available for this branch. Open Payment Settings and enable a receiving account before accepting QR transfer payments.",
+    transferPaymentSettingsRequiredClose: "Close popup",
     transferQrImageModeLabel: "Settings QR image",
     transferPromptPayAmountLabel: "Amount due",
     transferUploadSlipLabel: "Upload slip (camera supported on mobile)",
@@ -1810,6 +1824,130 @@ function getTransferVerificationStatusTone(status: TableBillTransferVerification
   return "warn";
 }
 
+function formatIngredientUnit(unit: string | null | undefined, lang: Lang): string {
+  const normalized = String(unit ?? "").trim().toLowerCase();
+  const thaiUnits: Record<string, string> = {
+    g: "กรัม",
+    gram: "กรัม",
+    grams: "กรัม",
+    kg: "กิโลกรัม",
+    kilogram: "กิโลกรัม",
+    kilograms: "กิโลกรัม",
+    khid: "ขีด",
+    ml: "มิลลิลิตร",
+    milliliter: "มิลลิลิตร",
+    milliliters: "มิลลิลิตร",
+    l: "ลิตร",
+    liter: "ลิตร",
+    liters: "ลิตร",
+    piece: "ชิ้น",
+    pieces: "ชิ้น",
+    pcs: "ชิ้น",
+    unit: "ชิ้น",
+    units: "ชิ้น",
+    pack: "แพ็ก",
+    packs: "แพ็ก",
+    bottle: "ขวด",
+    bottles: "ขวด",
+    portion: "ส่วน",
+    portions: "ส่วน"
+  };
+  const englishUnits: Record<string, string> = {
+    g: "gram",
+    gram: "gram",
+    grams: "gram",
+    kg: "kg",
+    kilogram: "kg",
+    kilograms: "kg",
+    khid: "khid",
+    ml: "ml",
+    milliliter: "ml",
+    milliliters: "ml",
+    l: "liter",
+    liter: "liter",
+    liters: "liter",
+    piece: "piece",
+    pieces: "piece",
+    pcs: "piece",
+    unit: "piece",
+    units: "piece",
+    pack: "pack",
+    packs: "pack",
+    bottle: "bottle",
+    bottles: "bottle",
+    portion: "portion",
+    portions: "portion"
+  };
+  if (!normalized) return lang === "th" ? "หน่วย" : "unit";
+  return lang === "th" ? thaiUnits[normalized] ?? unit ?? "หน่วย" : englishUnits[normalized] ?? unit ?? "unit";
+}
+
+function formatIngredientAmount(value: number, lang: Lang): string {
+  return Number(value).toLocaleString(lang === "th" ? "th-TH" : "en-US", {
+    maximumFractionDigits: 2
+  });
+}
+
+function splitModifierNotes(notes: string): string[] {
+  return notes
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function stripIngredientNoteQuantity(value: string): string {
+  return value
+    .replace(/\s*(?:x|X|×)\s*\d+$/u, "")
+    .replace(/\s*\((?:x|X|×)\s*\d+\)$/u, "")
+    .trim();
+}
+
+function formatIngredientNote(name: string, quantity: number): string {
+  const normalizedQuantity = Math.max(1, Math.trunc(Number(quantity || 1)));
+  return normalizedQuantity > 1 ? `${name} x${normalizedQuantity}` : name;
+}
+
+function readIngredientNoteQuantity(notes: string): number {
+  for (const part of splitModifierNotes(notes)) {
+    const match = part.match(/(?:x|X|×)\s*(\d+)$/u) ?? part.match(/\((?:x|X|×)\s*(\d+)\)$/u);
+    const quantity = Number(match?.[1] ?? 0);
+    if (Number.isFinite(quantity) && quantity > 0) {
+      return Math.trunc(quantity);
+    }
+  }
+  return 1;
+}
+
+function isIngredientSelectedInNotes(notes: string, ingredientName: string): boolean {
+  const normalizedName = ingredientName.trim().toLowerCase();
+  return splitModifierNotes(notes).some((part) => stripIngredientNoteQuantity(part).toLowerCase() === normalizedName);
+}
+
+function hasSelectedIngredientInNotes(notes: string, ingredients: RecipeIngredientChoice[]): boolean {
+  return ingredients.some((ingredient) => isIngredientSelectedInNotes(notes, ingredient.name));
+}
+
+function toggleIngredientInNotes(notes: string, ingredientName: string, quantity: number): string {
+  const normalizedName = ingredientName.trim().toLowerCase();
+  const parts = splitModifierNotes(notes);
+  const exists = parts.some((part) => stripIngredientNoteQuantity(part).toLowerCase() === normalizedName);
+  const nextParts = exists
+    ? parts.filter((part) => stripIngredientNoteQuantity(part).toLowerCase() !== normalizedName)
+    : [...parts, formatIngredientNote(ingredientName.trim(), quantity)];
+  return nextParts.join(", ");
+}
+
+function updateSelectedIngredientNoteQuantity(notes: string, ingredients: RecipeIngredientChoice[], quantity: number): string {
+  const ingredientNames = new Map(ingredients.map((ingredient) => [ingredient.name.trim().toLowerCase(), ingredient.name.trim()]));
+  return splitModifierNotes(notes)
+    .map((part) => {
+      const baseName = stripIngredientNoteQuantity(part);
+      const canonicalName = ingredientNames.get(baseName.toLowerCase());
+      return canonicalName ? formatIngredientNote(canonicalName, quantity) : part;
+    })
+    .join(", ");
+}
+
 export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
   const text = uiText[lang];
   const localizeApiMessage = useCallback((message: string) => localizeApiErrorMessage({ message, lang }), [lang]);
@@ -1832,6 +1970,7 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
   const [modifierIngredientsLoading, setModifierIngredientsLoading] = useState(false);
   const [modifierIngredientsError, setModifierIngredientsError] = useState("");
   const [memberPickerOpen, setMemberPickerOpen] = useState(false);
+  const [memberMaintenanceOpen, setMemberMaintenanceOpen] = useState(false);
   const [memberSearch, setMemberSearch] = useState("");
   const [memberSearchResults, setMemberSearchResults] = useState<PosMemberChoice[]>([]);
   const [memberSearchLoading, setMemberSearchLoading] = useState(false);
@@ -1845,8 +1984,10 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
   const [discountEditMode, setDiscountEditMode] = useState<"percent" | "amount">("percent");
   const [quickMode, setQuickMode] = useState<QuickMode>("home");
   const [modeSelectorOpen, setModeSelectorOpen] = useState(false);
+  const [salesTopbarCollapsed, setSalesTopbarCollapsed] = useState(false);
   const [enabledFeatures, setEnabledFeatures] = useState<Record<string, boolean> | null>(null);
   const [packageLockOpen, setPackageLockOpen] = useState(false);
+  const [deliveryMaintenanceOpen, setDeliveryMaintenanceOpen] = useState(false);
   const [orderType, setOrderType] = useState<OrderType>("takeaway");
   const [submitting, setSubmitting] = useState(false);
   const [submitMessage, setSubmitMessage] = useState<string | null>(null);
@@ -1877,6 +2018,8 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
   const [heldBillsModalOpen, setHeldBillsModalOpen] = useState(false);
   const [heldBillSearch, setHeldBillSearch] = useState("");
   const [cartDrawerOpen, setCartDrawerOpen] = useState(false);
+  const [editingCartQtyLineId, setEditingCartQtyLineId] = useState<string | null>(null);
+  const [editingCartQtyInput, setEditingCartQtyInput] = useState("");
   const [tableZones, setTableZones] = useState<TableZoneItem[]>([]);
   const [posTables, setPosTables] = useState<DiningTableItem[]>([]);
   const [selectedTable, setSelectedTable] = useState<DiningTableItem | null>(null);
@@ -2037,6 +2180,7 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
   const selectedTableRef = useRef<DiningTableItem | null>(null);
   const cartRef = useRef<CartItem[]>([]);
   const dineInDraftByTableIdRef = useRef<Record<string, CartItem[]>>({});
+  const previousOrderTypeRef = useRef<OrderType>("takeaway");
 
   useEffect(() => {
     let cancelled = false;
@@ -2212,9 +2356,14 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
       try {
         const response = await fetch("/api/pos/session/current", { cache: "no-store" });
         const body = (await response.json().catch(() => null)) as {
+          error?: { code?: string; message?: string } | null;
           data?: { has_active_shift?: boolean; shift?: ShiftRow | null } | null;
         } | null;
         if (disposed) return;
+        if (!response.ok) {
+          if (body?.error?.code === "shift_lookup_degraded") return;
+          throw new Error(body?.error?.message ?? "Unable to confirm active shift.");
+        }
         const activeShift = body?.data?.has_active_shift && body.data.shift?.status === "open" ? body.data.shift : null;
         if (activeShift) {
           setShift(activeShift);
@@ -2331,6 +2480,17 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
       }
       return next;
     });
+  }
+
+  function readTakeawayCartDraft(): CartItem[] {
+    if (typeof window === "undefined") return [];
+    const savedCart = readStoredJson<CartItem[]>(CART_KEY);
+    return Array.isArray(savedCart) ? savedCart.map((entry) => ({ ...entry })) : [];
+  }
+
+  function persistTakeawayCartDraft(items: CartItem[]) {
+    if (typeof window === "undefined") return;
+    window.localStorage.setItem(CART_KEY, JSON.stringify(items.map((entry) => ({ ...entry }))));
   }
 
   function areCartItemsEqual(left: CartItem[], right: CartItem[]): boolean {
@@ -2639,6 +2799,56 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
     setDeliveryPopupCodeDigits("");
     setDeliveryPopupNotes("");
     setDeliveryCatalogOpen(false);
+  }
+
+  function clearClosedBillUiState(options: { clearReceipt?: boolean; tableId?: string | null; resetDelivery?: boolean } = {}) {
+    const tableId = options.tableId ?? selectedTableRef.current?.id ?? null;
+    setActiveOrder(null);
+    setLastCommittedCartSignature(null);
+    setCart([]);
+    persistTakeawayCartDraft([]);
+    if (tableId) {
+      rememberDineInDraft(tableId, []);
+    }
+    setTakeawayCreatingPreview(null);
+    setReviewOrder(null);
+    setCashReviewOrder(null);
+    setTransferReviewOrder(null);
+    setTransferReference("");
+    setTransferError(null);
+    setTransferSlipFile(null);
+    if (transferSlipPreviewUrl) {
+      URL.revokeObjectURL(transferSlipPreviewUrl);
+    }
+    setTransferSlipPreviewUrl(null);
+    setTransferSlipParsed(null);
+    setTransferSlipChecks(null);
+    setTransferSlipIssues([]);
+    setTransferSlipVerified(false);
+    setTransferSlipVerifiedAgainst(null);
+    setTransferSlipVerificationId(null);
+    setTransferOverrideApprovalId(null);
+    setTransferOverrideModalOpen(false);
+    setCashReceivedInput("");
+    setCashReplaceOnNextKey(false);
+    setCashError(null);
+    setReceiptError(null);
+    setReceiptSaving(false);
+    setTableTransferVerifications([]);
+    setBillPaymentMethod(null);
+    setCancelBillApprovalOpen(false);
+    setCancelBillTargetOrder(null);
+    if (options.clearReceipt !== false) {
+      setReceiptSession(null);
+      setReceiptSaved(false);
+    }
+    if (options.resetDelivery !== false && (orderType === "delivery_manual" || quickMode === "delivery")) {
+      resetDeliveryDraft();
+    }
+    if (typeof window !== "undefined") {
+      window.localStorage.removeItem(CART_KEY);
+      window.localStorage.removeItem(DINE_IN_SELECTED_TABLE_KEY);
+    }
   }
 
   function getDeliveryOrderPrefix(appId: DeliveryApp["id"] | null): string {
@@ -2977,8 +3187,9 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
   useEffect(() => {
     if (typeof window === "undefined") return;
 
+    const savedSelectedDineInTableId = localStorage.getItem(DINE_IN_SELECTED_TABLE_KEY);
     const savedCart = readStoredJson<CartItem[]>(CART_KEY);
-    if (savedCart) {
+    if (savedCart && !savedSelectedDineInTableId) {
       setCart(savedCart);
     }
 
@@ -3016,7 +3227,6 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
       setDineInDraftByTableId(savedDineInDraft);
     }
 
-    const savedSelectedDineInTableId = localStorage.getItem(DINE_IN_SELECTED_TABLE_KEY);
     if (savedSelectedDineInTableId) {
       setQuickMode("dine_in");
       setOrderType("dine_in");
@@ -3097,6 +3307,31 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
 
   useEffect(() => {
     if (!isHydrated || typeof window === "undefined") return;
+
+    const syncPaymentSettings = () => {
+      setReloadToken((current) => current + 1);
+    };
+    const onStorage = (event: StorageEvent) => {
+      if (event.key === POS_PAYMENT_SETTINGS_UPDATED_KEY) syncPaymentSettings();
+    };
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "visible") syncPaymentSettings();
+    };
+
+    window.addEventListener(POS_PAYMENT_SETTINGS_UPDATED_EVENT, syncPaymentSettings);
+    window.addEventListener("storage", onStorage);
+    window.addEventListener("focus", syncPaymentSettings);
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => {
+      window.removeEventListener(POS_PAYMENT_SETTINGS_UPDATED_EVENT, syncPaymentSettings);
+      window.removeEventListener("storage", onStorage);
+      window.removeEventListener("focus", syncPaymentSettings);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+    };
+  }, [isHydrated]);
+
+  useEffect(() => {
+    if (!isHydrated || typeof window === "undefined") return;
     void refreshTaxSettings();
   }, [isHydrated, refreshTaxSettings]);
 
@@ -3121,11 +3356,13 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
     if (!isHydrated || typeof window === "undefined") return;
     if (cartPersistTimerRef.current !== null) {
       window.clearTimeout(cartPersistTimerRef.current);
+      cartPersistTimerRef.current = null;
     }
+    if (orderType !== "takeaway") return;
     cartPersistTimerRef.current = window.setTimeout(() => {
       localStorage.setItem(CART_KEY, JSON.stringify(cart));
     }, 120);
-  }, [cart, isHydrated]);
+  }, [cart, isHydrated, orderType]);
 
   useEffect(() => {
     if (!isHydrated || typeof window === "undefined") return;
@@ -3762,23 +3999,25 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
   }, [lang, reloadToken]);
 
   useEffect(() => {
-    if (orderType !== "dine_in") {
-      invalidateTableUiContext();
-      const currentSelectedTable = selectedTableRef.current;
-      if (currentSelectedTable?.id) {
-        rememberDineInDraft(currentSelectedTable.id, cartRef.current);
-      }
-      setSelectedTable(null);
-      setTableBrowserOpen(false);
-      setDineInSessionBillNo(null);
-      setTableTransferVerifications([]);
-      setBillPaymentMethod(null);
-      setActiveOrder(null);
-      setLastCommittedCartSignature(null);
-      setCart([]);
-      tableBillPrefetchCacheRef.current.clear();
-      tableBillPrefetchCacheUpdatedAtRef.current.clear();
+    const previousOrderType = previousOrderTypeRef.current;
+    previousOrderTypeRef.current = orderType;
+    if (orderType === "dine_in" || previousOrderType !== "dine_in") return;
+
+    invalidateTableUiContext();
+    const currentSelectedTable = selectedTableRef.current;
+    if (currentSelectedTable?.id) {
+      rememberDineInDraft(currentSelectedTable.id, cartRef.current);
     }
+    setSelectedTable(null);
+    setTableBrowserOpen(false);
+    setDineInSessionBillNo(null);
+    setTableTransferVerifications([]);
+    setBillPaymentMethod(null);
+    setActiveOrder(null);
+    setLastCommittedCartSignature(null);
+    setCart(orderType === "takeaway" ? readTakeawayCartDraft() : []);
+    tableBillPrefetchCacheRef.current.clear();
+    tableBillPrefetchCacheUpdatedAtRef.current.clear();
   }, [orderType]);
 
   useEffect(() => {
@@ -3953,13 +4192,16 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
   const cashHasEnoughAmount = cashHasReceivedAmount && cashReceived + 0.009 >= cashTargetTotal;
   const cashConfirmNeedsAttention = Boolean(cashReviewOrder) && !cashHasEnoughAmount && !cashSubmitting;
   const transferPromptPayAmount = toPromptPayAmount(transferReviewOrder?.total_amount ?? 0);
-  const activePromptPayPhone = paymentAccount?.promptpay_phone ? sanitizePromptPayPhone(paymentAccount.promptpay_phone) : sanitizePromptPayPhone(promptPayPhone);
+  const activePromptPayPhone = paymentAccount?.promptpay_phone ? sanitizePromptPayPhone(paymentAccount.promptpay_phone) : "";
   const activePaymentQrMode = paymentAccount?.qr_mode ?? "promptpay_link";
   const promptPayQrUrl =
-    activePaymentQrMode === "qr_image" && paymentAccount?.qr_image_url
+    paymentAccount && activePaymentQrMode === "qr_image" && paymentAccount.qr_image_url
       ? paymentAccount.qr_image_url
-      : buildPromptPayQrUrl(activePromptPayPhone, transferPromptPayAmount);
+      : paymentAccount
+        ? buildPromptPayQrUrl(activePromptPayPhone, transferPromptPayAmount)
+        : null;
   const inetQrEnabled = paymentProviders.inet_nops?.is_active === true;
+  const visibleTransferPaymentMode = inetQrEnabled ? transferPaymentMode : "manual";
   const inetQrUrl = normalizeQrImageSource(inetPaymentIntent?.qr_code);
   const promptPayPhoneDisplay = formatPromptPayPhoneDisplay(activePromptPayPhone);
   const expectedPayeeName = (paymentAccount?.account_name || DEFAULT_PROMPTPAY_PAYEE).trim();
@@ -3977,6 +4219,14 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
     }
     return tableTransferVerifications.filter((entry) => entry.order_id === transferReviewOrder.order_id);
   }, [tableTransferVerifications, transferReviewOrder?.order_id]);
+
+  useEffect(() => {
+    if (inetQrEnabled || transferPaymentMode !== "inet_nops") return;
+    setTransferPaymentMode("manual");
+    setInetPaymentIntent(null);
+    setInetQrStatus("idle");
+    setTransferError(null);
+  }, [inetQrEnabled, transferPaymentMode]);
   const sidebarTransferVerificationHistory = useMemo(() => {
     if (!activeOrder?.id) {
       return [];
@@ -4162,6 +4412,13 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
         receiptSaving ||
         hasOpenDineInSession)
   );
+  const isTableSelectionSummaryIdle = quickMode === "dine_in" && tableBrowserOpen;
+  const hasTaxSummaryEnabled = taxSettings.is_enabled && taxSettings.lines.some((line) => line.is_active && Number(line.rate_pct) > 0);
+  const showSummaryBillNo = !isTableSelectionSummaryIdle && showSidebarOrderSummary && activeBillNo !== "-";
+  const showSummaryPaymentMethod = showSummaryBillNo;
+  const showSummaryStatus = !isTableSelectionSummaryIdle && (showSummaryBillNo || (orderType === "delivery_manual" && deliveryDraftTouched));
+  const showSummaryDiscount = !isTableSelectionSummaryIdle && summaryDiscount > 0;
+  const showSummaryTax = !isTableSelectionSummaryIdle && hasTaxSummaryEnabled;
   const isDeliveryPendingPanelMode = quickMode === "delivery";
   const heldBillPool = useMemo(
     () =>
@@ -4643,7 +4900,7 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
 
   function addToCart(product: ProductRow) {
     if (product.has_recipe_deduction) {
-      setModifierDraft({ product, quantity: 1, notes: "", extraPrice: 0 });
+      setModifierDraft({ product, quantity: 1, notes: "", extraPrice: 0, linkedIngredientQuantity: 1 });
       return;
     }
     addCartLine(product);
@@ -4674,6 +4931,54 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
         )
         .filter((row) => row.quantity > 0)
     );
+  }
+
+  function setCartLineQuantity(cartLineId: string, nextQuantityInput: number): boolean {
+    const nextQuantity = Math.max(1, Math.trunc(Number(nextQuantityInput || 1)));
+    const currentLine = cartRef.current.find((row) => (row.cart_line_id ?? row.product_id) === cartLineId);
+    if (!currentLine) return false;
+    const product = productById.get(currentLine.product_id);
+    const stockUnits = product?.stock_on_hand_units;
+    const otherQuantity = cartRef.current
+      .filter((row) => row.product_id === currentLine.product_id && (row.cart_line_id ?? row.product_id) !== cartLineId)
+      .reduce((sum, row) => sum + row.quantity, 0);
+    if (!allowNegativeStock && stockUnits !== null && stockUnits !== undefined && otherQuantity + nextQuantity > Number(stockUnits)) {
+      pushSubmitMessage(`${text.productOutOfStock}: ${product?.name ?? currentLine.name}`);
+      return false;
+    }
+    setCart((current) =>
+      current.map((row) =>
+        (row.cart_line_id ?? row.product_id) === cartLineId ? { ...row, quantity: nextQuantity } : row
+      )
+    );
+    return true;
+  }
+
+  function startCartQtyEdit(cartLineId: string, quantity: number) {
+    setEditingCartQtyLineId(cartLineId);
+    setEditingCartQtyInput(String(Math.max(1, Math.trunc(Number(quantity || 1)))));
+  }
+
+  function cancelCartQtyEdit() {
+    setEditingCartQtyLineId(null);
+    setEditingCartQtyInput("");
+  }
+
+  function commitCartQtyEdit(cartLineId: string) {
+    const parsed = Math.max(1, Math.trunc(Number(editingCartQtyInput || 1)));
+    if (setCartLineQuantity(cartLineId, parsed)) {
+      cancelCartQtyEdit();
+    }
+  }
+
+  function handleCartQtyInputChange(event: ChangeEvent<HTMLInputElement>) {
+    const digitsOnly = event.target.value.replace(/\D/g, "");
+    if (!digitsOnly) {
+      setEditingCartQtyInput("");
+      return;
+    }
+    const normalized = String(Math.max(1, Math.trunc(Number(digitsOnly))));
+    setEditingCartQtyInput(normalized);
   }
 
   function clearCart() {
@@ -4725,6 +5030,7 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
       quantity: item.quantity,
       notes: item.notes ?? "",
       extraPrice,
+      linkedIngredientQuantity: readIngredientNoteQuantity(item.notes ?? ""),
       editingCartLineId: item.cart_line_id ?? item.product_id
     });
   }
@@ -4734,13 +5040,20 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
     if (!value) return;
     setModifierDraft((current) => {
       if (!current) return current;
-      const parts = current.notes
-        .split(",")
-        .map((item) => item.trim())
-        .filter(Boolean);
-      const exists = parts.some((item) => item.toLowerCase() === value.toLowerCase());
-      const nextParts = exists ? parts.filter((item) => item.toLowerCase() !== value.toLowerCase()) : [...parts, value];
-      return { ...current, notes: nextParts.join(", ") };
+      return { ...current, notes: toggleIngredientInNotes(current.notes, value, current.linkedIngredientQuantity) };
+    });
+  }
+
+  function adjustLinkedIngredientQuantity(delta: number) {
+    setModifierDraft((current) => {
+      if (!current) return current;
+      if (!hasSelectedIngredientInNotes(current.notes, modifierIngredients)) return current;
+      const linkedIngredientQuantity = Math.max(1, current.linkedIngredientQuantity + delta);
+      return {
+        ...current,
+        linkedIngredientQuantity,
+        notes: updateSelectedIngredientNoteQuantity(current.notes, modifierIngredients, linkedIngredientQuantity)
+      };
     });
   }
 
@@ -5064,6 +5377,8 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
     const currentSelectedTable = selectedTableRef.current;
     if (currentSelectedTable?.id && orderType === "dine_in") {
       rememberDineInDraft(currentSelectedTable.id, cartRef.current);
+    } else if (orderType === "takeaway") {
+      persistTakeawayCartDraft(cartRef.current);
     }
     setTableBrowserOpen(true);
     setSelectedTable(null);
@@ -5084,6 +5399,13 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
     setQuickMode("dine_in");
     setOrderType("dine_in");
     setTableBrowserOpen(true);
+    setSelectedTable(null);
+    setDineInSessionBillNo(null);
+    setActiveOrder(null);
+    setLastCommittedCartSignature(null);
+    setCart([]);
+    setTableTransferVerifications([]);
+    setBillPaymentMethod(null);
     setTableMoveError(null);
     void fetchPosTables({ timeoutMs: 10000, retries: 0 }).catch(() => undefined);
   }
@@ -5105,7 +5427,7 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
       setSelectedTable(null);
       setActiveOrder(null);
       setLastCommittedCartSignature(null);
-      setCart([]);
+      setCart(readTakeawayCartDraft());
       setTableTransferVerifications([]);
       setBillPaymentMethod(null);
       pushSubmitMessage(text.goHome);
@@ -5132,6 +5454,8 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
 
     if (selectedTable?.id && orderType === "dine_in") {
       rememberDineInDraft(selectedTable.id, cart);
+    } else if (orderType === "takeaway") {
+      persistTakeawayCartDraft(cart);
     }
     invalidateTableUiContext();
     setQuickMode("delivery");
@@ -5154,6 +5478,11 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
   }
 
   function selectQuickMode(mode: QuickMode) {
+    if (mode === "delivery") {
+      setModeSelectorOpen(false);
+      setDeliveryMaintenanceOpen(true);
+      return;
+    }
     if (mode === quickMode) {
       setModeSelectorOpen(false);
       return;
@@ -5302,26 +5631,8 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
       if (!response.ok || body.error) {
         throw new Error(body.error?.message ?? "Failed to cancel bill.");
       }
-      setActiveOrder(null);
-      setLastCommittedCartSignature(null);
-      setCart([]);
-      setTakeawayCreatingPreview(null);
-      setReviewOrder(null);
-      setCashReviewOrder(null);
-      setTransferReviewOrder(null);
-      setTransferReference("");
-      setTransferError(null);
-      setCashReceivedInput("");
-      setCashError(null);
-      setReceiptSession(null);
-      setReceiptSaved(false);
-      setReceiptError(null);
-      if (selectedTable?.id) {
-        rememberDineInDraft(selectedTable.id, []);
-      }
+      clearClosedBillUiState({ clearReceipt: true, tableId: targetOrder.table_id ?? selectedTable?.id ?? null });
       setDineInSessionBillNo(null);
-      setTableTransferVerifications([]);
-      setBillPaymentMethod(null);
       setSelectedTable(null);
       if (targetOrder.table_id) {
         setPosTables((current) =>
@@ -5333,7 +5644,6 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
         );
       }
       if (orderType === "delivery_manual" || quickMode === "delivery") {
-        resetDeliveryDraft();
         setDeliveryFlowState("cancelled");
       }
       if (shouldReturnToTableBrowser) {
@@ -6358,14 +6668,7 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
 
       setReceiptSaved(true);
       setBillPaymentMethod("cash");
-      setActiveOrder((current) => (current?.id === cashReviewOrder.order_id ? null : current));
-      setCart([]);
-      setTakeawayCreatingPreview(null);
-      setReviewOrder(null);
-      setCashReviewOrder(null);
-      setCashReceivedInput("");
-      setCashReplaceOnNextKey(false);
-      setCashError(null);
+      clearClosedBillUiState({ clearReceipt: false, tableId: cashReviewOrder.table_id ?? null, resetDelivery: true });
       pushSubmitMessage(`${text.receiptSaved}: ${cashReviewOrder.order_no}`);
       if (orderType === "dine_in" || Boolean(cashReviewOrder.table_id)) {
         setReceiptSession(null);
@@ -6395,7 +6698,7 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
   async function confirmTransferPayment() {
     if (!transferReviewOrder || transferSubmitting || transferSlipChecking || receiptSaving) return;
     if (!promptPayQrUrl) {
-      setTransferError(lang === "th" ? "กรุณาตั้งค่าพร้อมเพย์หรือภาพ QR ก่อน" : "Please configure PromptPay phone or QR image first.");
+      setTransferError(text.transferPaymentSettingsRequiredBody);
       return;
     }
     const pendingPaymentEntry: PendingPaymentQueueItem = {
@@ -6447,11 +6750,20 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
       return;
     }
 
+    const paidTransferOrder = transferReviewOrder;
     setTransferSubmitting(true);
     setTransferError(null);
     try {
       enqueuePendingPayment(pendingPaymentEntry);
       await submitTransferPayment(pendingPaymentEntry, true);
+      clearClosedBillUiState({ clearReceipt: false, tableId: paidTransferOrder.table_id ?? null, resetDelivery: true });
+      if (orderType === "dine_in" || Boolean(paidTransferOrder.table_id)) {
+        setReceiptSession(null);
+        setReceiptSaved(false);
+        setReceiptError(null);
+        setReceiptSaving(false);
+        returnToDineInTableBrowserAfterPayment();
+      }
     } catch (transferPayError) {
       const rawMessage = transferPayError instanceof Error ? transferPayError.message : "Unknown error";
       const message = localizeApiMessage(rawMessage);
@@ -6657,6 +6969,7 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
       <div className={`posui-cart-items ${cart.length > 5 ? "posui-cart-items--capped" : ""}`}>
         {cart.map((item) => {
           const cartLineId = item.cart_line_id ?? item.product_id;
+          const isEditingQuantity = editingCartQtyLineId === cartLineId;
           return (
           <article key={cartLineId} className="posui-cart-item">
             <div className="posui-cart-thumb" aria-hidden>
@@ -6670,9 +6983,53 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
                 <button type="button" onClick={() => adjustQty(cartLineId, -1)} aria-label={`Decrease ${item.name}`}>
                   -
                 </button>
-                <span>{item.quantity}</span>
+                {isEditingQuantity ? (
+                  <input
+                    type="number"
+                    inputMode="numeric"
+                    min={1}
+                    step={1}
+                    value={editingCartQtyInput}
+                    aria-label={`${lang === "th" ? "จำนวน" : "Quantity"}: ${item.name}`}
+                    onChange={handleCartQtyInputChange}
+                    onBlur={() => commitCartQtyEdit(cartLineId)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") {
+                        event.preventDefault();
+                        commitCartQtyEdit(cartLineId);
+                      }
+                      if (event.key === "Escape") {
+                        event.preventDefault();
+                        cancelCartQtyEdit();
+                      }
+                    }}
+                  />
+                ) : (
+                  <span>{item.quantity}</span>
+                )}
                 <button type="button" onClick={() => adjustQty(cartLineId, 1)} aria-label={`Increase ${item.name}`}>
                   +
+                </button>
+                <button
+                  type="button"
+                  className={`posui-qty-edit ${isEditingQuantity ? "is-saving" : ""}`}
+                  aria-label={`${isEditingQuantity ? (lang === "th" ? "บันทึกจำนวน" : "Save quantity") : (lang === "th" ? "แก้ไขจำนวน" : "Edit quantity")}: ${item.name}`}
+                  onMouseDown={(event) => event.preventDefault()}
+                  onClick={() => {
+                    if (isEditingQuantity) {
+                      commitCartQtyEdit(cartLineId);
+                    } else {
+                      startCartQtyEdit(cartLineId, item.quantity);
+                    }
+                  }}
+                >
+                  <svg className="posui-edit-icon" viewBox="0 0 24 24" aria-hidden="true">
+                    {isEditingQuantity ? (
+                      <path d="M9.2 16.2 4.9 12l-1.4 1.4 5.7 5.7L21 7.3 19.6 6 9.2 16.2Z" fill="currentColor" />
+                    ) : (
+                      <path d="M4 17.5V20h2.5L17.8 8.7l-2.5-2.5L4 17.5Zm15.7-11.6c.4-.4.4-1 0-1.4l-1.2-1.2c-.4-.4-1-.4-1.4 0l-1 1 2.5 2.5 1.1-.9Z" fill="currentColor" />
+                    )}
+                  </svg>
                 </button>
               </div>
             </div>
@@ -7218,7 +7575,7 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
           onMember={
             orderType === "delivery_manual"
               ? undefined
-              : openMemberPicker
+              : () => setMemberMaintenanceOpen(true)
           }
           onTableQrOrder={() => setTableQrModalOpen(true)}
           onPromotion={openDiscountPopup}
@@ -7243,7 +7600,12 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
           pendingLabel={text.pendingSaved}
           message={submitMessage}
           pending={pendingSyncCount > 0}
-          billNo={showSidebarOrderSummary ? activeBillNo : "-"}
+          billNo={showSummaryBillNo ? activeBillNo : "-"}
+          showBillNo={showSummaryBillNo}
+          showPaymentMethod={showSummaryPaymentMethod}
+          showStatus={showSummaryStatus}
+          showDiscount={showSummaryDiscount}
+          showTax={showSummaryTax}
           actionsDisabled={isBusy}
           cancelBillDisabled={!canCancelFromSidebar}
           cancelLabel={undefined}
@@ -7289,6 +7651,22 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
     );
   }
 
+  const modifierHasSelectedIngredient = modifierDraft ? hasSelectedIngredientInNotes(modifierDraft.notes, modifierIngredients) : false;
+  const showInlineTopbarCategories = salesTopbarCollapsed && !showTableBrowser && !showDeliverySetup;
+
+  function renderSalesCategoryNav() {
+    if (showTableBrowser || showDeliverySetup) return null;
+    return (
+      <PosCategoryNav
+        items={categories.map((category) => ({ id: category, label: category }))}
+        activeId={activeCategory}
+        onSelect={setActiveCategory}
+        trailingActionLabel={text.manageMenu}
+        onTrailingAction={() => setMenuManagerOpen(true)}
+      />
+    );
+  }
+
   return (
     <section className="posui-page" aria-busy={loading}>
       {error && !hasRenderableData && !needsLogin ? (
@@ -7317,8 +7695,34 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
 
       <PosShell
         topBar={
-          <div className="posui-sales-topbar">
+          <div className={`posui-sales-topbar ${salesTopbarCollapsed ? "is-collapsed" : ""} ${showInlineTopbarCategories ? "has-inline-categories" : ""}`}>
             <div className="posui-mode-header-row">
+              <button
+                type="button"
+                className="posui-topbar-collapse-toggle"
+                onClick={() => setSalesTopbarCollapsed((current) => !current)}
+                aria-expanded={!salesTopbarCollapsed}
+                aria-label={
+                  salesTopbarCollapsed
+                    ? lang === "th"
+                      ? "ขยายแถบข้อมูลด้านบน"
+                      : "Expand top information bar"
+                    : lang === "th"
+                      ? "หุบแถบข้อมูลด้านบน"
+                      : "Collapse top information bar"
+                }
+                title={
+                  salesTopbarCollapsed
+                    ? lang === "th"
+                      ? "ขยายแถบบน"
+                      : "Expand top bar"
+                    : lang === "th"
+                      ? "หุบแถบบน"
+                      : "Collapse top bar"
+                }
+              >
+                <span className="posui-topbar-collapse-toggle__chevron" aria-hidden="true" />
+              </button>
               <div className="posui-filter-group">
                 <div className="posui-top-actions-card">
                   <button
@@ -7416,20 +7820,11 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
                   </div>
                 </section>
               </div>
+              {showInlineTopbarCategories ? <div className="posui-topbar-category-slot">{renderSalesCategoryNav()}</div> : null}
             </div>
           </div>
         }
-        categoryNav={
-          showTableBrowser || showDeliverySetup ? null : (
-            <PosCategoryNav
-              items={categories.map((category) => ({ id: category, label: category }))}
-              activeId={activeCategory}
-              onSelect={setActiveCategory}
-              trailingActionLabel={text.manageMenu}
-              onTrailingAction={() => setMenuManagerOpen(true)}
-            />
-          )
-        }
+        categoryNav={salesTopbarCollapsed ? null : renderSalesCategoryNav()}
         productGrid={
           showTableBrowser ? renderTableBrowser() : showDeliverySetup ? renderDeliveryApps() : (
             <PosProductCatalog
@@ -7464,6 +7859,8 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
           </PosCartDrawer>
         }
       />
+
+      <PosMemberMaintenanceModal open={memberMaintenanceOpen} lang={lang} onClose={() => setMemberMaintenanceOpen(false)} />
 
       {memberPickerOpen ? (
         <div className="posui-payment-modal-backdrop" role="dialog" aria-modal="true" aria-label={text.member} onClick={() => setMemberPickerOpen(false)}>
@@ -8007,7 +8404,7 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
           transferCanSubmit={transferCanSubmit}
           transferError={transferError}
           transferReference={transferReference}
-          transferPaymentMode={transferPaymentMode}
+          transferPaymentMode={visibleTransferPaymentMode}
           inetQrEnabled={inetQrEnabled}
           inetQrUrl={inetQrUrl}
           inetQrStatus={inetQrStatus}
@@ -8382,27 +8779,37 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
                 <span>{lang === "th" ? "วัตถุดิบที่ผูกไว้" : "Linked Ingredients"}</span>
                 {modifierIngredientsLoading ? <small>{lang === "th" ? "กำลังโหลดวัตถุดิบ..." : "Loading ingredients..."}</small> : null}
                 {modifierIngredientsError ? <small className="text-red-600">{modifierIngredientsError}</small> : null}
-                <div className="flex flex-wrap gap-2">
+                <div className="mt-2 flex flex-wrap gap-2">
                   {modifierIngredients.length === 0 && !modifierIngredientsLoading ? (
                     <small>{lang === "th" ? "ยังไม่มีรายการวัตถุดิบให้เลือก" : "No linked ingredients available."}</small>
                   ) : null}
                   {modifierIngredients.map((ingredient) => {
-                    const selected = modifierDraft.notes
-                      .split(",")
-                      .map((item) => item.trim().toLowerCase())
-                      .includes(ingredient.name.toLowerCase());
+                    const selected = isIngredientSelectedInNotes(modifierDraft.notes, ingredient.name);
                     return (
                       <button
                         key={ingredient.ingredient_id}
                         type="button"
                         onClick={() => toggleModifierIngredient(ingredient.name)}
-                        className={`rounded-full border px-3 py-2 text-xs font-bold transition ${
-                          selected ? "border-orange-500 bg-orange-500 text-white" : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
+                        aria-pressed={selected}
+                        className={`group inline-flex min-h-[44px] items-center gap-2 rounded-xl border px-3 py-2 text-left text-xs font-bold shadow-sm transition ${
+                          selected
+                            ? "border-orange-500 bg-orange-50 text-orange-800 ring-1 ring-orange-200"
+                            : "border-slate-200 bg-white text-slate-700 hover:border-orange-200 hover:bg-orange-50/60"
                         }`}
                       >
-                        {ingredient.name}
-                        <span className="ml-1 font-semibold opacity-75">
-                          {Number(ingredient.quantity_per_item).toLocaleString(lang === "th" ? "th-TH" : "en-US")} {ingredient.base_unit}
+                        <span
+                          className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full border text-[11px] ${
+                            selected ? "border-orange-500 bg-orange-500 text-white" : "border-slate-300 bg-slate-50 text-slate-400"
+                          }`}
+                          aria-hidden="true"
+                        >
+                          {selected ? "✓" : "+"}
+                        </span>
+                        <span className="min-w-0">
+                          <span className="block truncate text-slate-900">{ingredient.name}</span>
+                          <span className={`mt-0.5 block text-[11px] font-semibold ${selected ? "text-orange-700" : "text-slate-500"}`}>
+                            {formatIngredientAmount(Number(ingredient.quantity_per_item), lang)} {formatIngredientUnit(ingredient.base_unit, lang)}
+                          </span>
                         </span>
                       </button>
                     );
@@ -8420,13 +8827,13 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
               </label>
               <div className="grid gap-3 sm:grid-cols-2">
                 <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
-                  <span className="text-xs font-bold text-slate-600">{lang === "th" ? "จำนวน" : "Quantity"}</span>
+                  <span className="text-xs font-bold text-slate-600">{lang === "th" ? "จำนวนวัตถุดิบที่เลือก" : "Linked Ingredient Qty"}</span>
                   <div className="mt-2 flex items-center justify-between gap-2">
-                    <button type="button" className="posui-btn" onClick={() => setModifierDraft((current) => (current ? { ...current, quantity: Math.max(1, current.quantity - 1) } : current))}>
+                    <button type="button" className="posui-btn" disabled={!modifierHasSelectedIngredient} onClick={() => adjustLinkedIngredientQuantity(-1)}>
                       -
                     </button>
-                    <strong className="text-xl text-slate-900">{modifierDraft.quantity}</strong>
-                    <button type="button" className="posui-btn" onClick={() => setModifierDraft((current) => (current ? { ...current, quantity: current.quantity + 1 } : current))}>
+                    <strong className="text-xl text-slate-900">{modifierDraft.linkedIngredientQuantity}</strong>
+                    <button type="button" className="posui-btn" disabled={!modifierHasSelectedIngredient} onClick={() => adjustLinkedIngredientQuantity(1)}>
                       +
                     </button>
                   </div>
@@ -8469,6 +8876,13 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
         </div>
       ) : null}
       <PackageLockDialog lang={lang} open={packageLockOpen} onClose={() => setPackageLockOpen(false)} />
+      <PosMemberMaintenanceModal
+        open={deliveryMaintenanceOpen}
+        lang={lang}
+        title={text.deliveryMaintenanceTitle}
+        message={text.deliveryMaintenanceMessage}
+        onClose={() => setDeliveryMaintenanceOpen(false)}
+      />
     </section>
   );
 }

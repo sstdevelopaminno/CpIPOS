@@ -98,6 +98,7 @@ export function ManagerOverrideModal({
         }
         const response = await fetch("/api/backoffice/approvals/pin", {
           method: "POST",
+          credentials: "include",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             tenant_id: "",

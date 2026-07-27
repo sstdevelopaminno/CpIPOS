@@ -43,6 +43,11 @@ type Props = {
   message?: string | null;
   pending?: boolean;
   billNo?: string;
+  showBillNo?: boolean;
+  showPaymentMethod?: boolean;
+  showStatus?: boolean;
+  showDiscount?: boolean;
+  showTax?: boolean;
   actionsDisabled?: boolean;
   cancelBillDisabled?: boolean;
   cancelLabel?: string;
@@ -97,6 +102,11 @@ export function PosPaymentPanel({
   submitting,
   submittingLabel = "Submitting...",
   billNo = "BILL-2026-0001",
+  showBillNo = true,
+  showPaymentMethod = true,
+  showStatus = true,
+  showDiscount = true,
+  showTax = true,
   actionsDisabled = false,
   cancelBillDisabled = false,
   cancelLabel,
@@ -155,20 +165,24 @@ export function PosPaymentPanel({
   return (
     <section className="posui-payment-panel">
       <div className="posui-bill-summary-card">
-        <p>
-          <span>{text.billNo}</span>
-          <strong>{billNo}</strong>
-        </p>
-        {text.paymentMethod ? (
+        {showBillNo ? (
+          <p>
+            <span>{text.billNo}</span>
+            <strong>{billNo}</strong>
+          </p>
+        ) : null}
+        {showPaymentMethod && text.paymentMethod ? (
           <p>
             <span>{text.paymentMethod}</span>
             <strong>{paymentMethodValue ?? "-"}</strong>
           </p>
         ) : null}
-        <p>
-          <span>{text.status}</span>
-          <strong>{text.statusValue}</strong>
-        </p>
+        {showStatus ? (
+          <p>
+            <span>{text.status}</span>
+            <strong>{text.statusValue}</strong>
+          </p>
+        ) : null}
         {memberSummary ? (
           <div className="posui-bill-member-card">
             <span>{text.member ?? "Member"}</span>
@@ -187,16 +201,18 @@ export function PosPaymentPanel({
             <strong className={`posui-transfer-badge is-${transferVerificationBadge.tone}`}>{transferVerificationBadge.label}</strong>
           </p>
         ) : null}
-        <p>
-          <span>{text.subtotal}</span>
-          <strong>{formatMoney(Math.max(0, subtotal))}</strong>
-        </p>
-        {taxLines.length > 0 ? taxLines.map((line) => (
+        {showDiscount ? (
+          <p>
+            <span>{text.subtotal}</span>
+            <strong>{formatMoney(Math.max(0, subtotal))}</strong>
+          </p>
+        ) : null}
+        {showTax && taxLines.length > 0 ? taxLines.map((line) => (
           <p key={line.id}>
             <span>{line.label}</span>
             <strong>{line.amount < 0 ? "-" : "+"}{formatMoney(Math.abs(line.amount))}</strong>
           </p>
-        )) : text.tax ? (
+        )) : showTax && text.tax ? (
           <p>
             <span>{text.tax}</span>
             <strong>{formatMoney(Math.max(0, taxAmount ?? 0))}</strong>

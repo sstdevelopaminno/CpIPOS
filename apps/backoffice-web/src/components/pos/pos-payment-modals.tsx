@@ -584,38 +584,55 @@ export function PosPaymentModals({
                     />
                   </div>
                 ) : (
-                  <p className="posui-payment-modal__error">{lang === "th" ? "กรุณาตั้งค่าพร้อมเพย์หรือภาพ QR ก่อน" : "Please configure PromptPay phone or QR image first."}</p>
+                  <div className="rounded-2xl border border-orange-200 bg-orange-50 p-5 text-center shadow-sm" role="alert">
+                    <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-orange-500 text-xl font-black text-white" aria-hidden="true">
+                      !
+                    </div>
+                    <strong className="mt-3 block text-base font-black text-orange-950">{text.transferPaymentSettingsRequiredTitle}</strong>
+                    <p className="mt-2 text-sm font-semibold leading-6 text-orange-800">{text.transferPaymentSettingsRequiredBody}</p>
+                    <button type="button" className="posui-btn posui-btn--primary mt-4" onClick={onCloseTransfer} disabled={transferSubmitting}>
+                      {text.transferPaymentSettingsRequiredClose}
+                    </button>
+                  </div>
                 )}
-                <p className="posui-transfer-mobile-hint">
-                  {transferPaymentMode === "inet_nops"
-                    ? inetQrStatus === "paid"
-                      ? text.transferInetPaid
-                      : inetQrStatus === "pending"
-                        ? text.transferInetWaiting
-                        : text.transferInetHint
-                    : text.transferScanWithPhone}
-                </p>
+                {transferPaymentMode === "manual" && !promptPayQrUrl ? null : (
+                  <p className="posui-transfer-mobile-hint">
+                    {transferPaymentMode === "inet_nops"
+                      ? inetQrStatus === "paid"
+                        ? text.transferInetPaid
+                        : inetQrStatus === "pending"
+                          ? text.transferInetWaiting
+                          : text.transferInetHint
+                      : text.transferScanWithPhone}
+                  </p>
+                )}
                 {transferPaymentMode === "inet_nops" && inetProviderOrderId ? (
                   <p className="posui-transfer-mobile-hint">{`${text.transferInetOrderRef}: ${inetProviderOrderId}`}</p>
                 ) : null}
+                {transferError ? <p className="posui-payment-modal__error posui-payment-modal__error--transfer">{transferError}</p> : null}
+                <div className="posui-payment-modal__actions posui-payment-modal__actions--transfer">
+                  {transferPaymentMode === "inet_nops" ? (
+                    <button
+                      type="button"
+                      className="posui-btn posui-btn--primary"
+                      onClick={() => void onCreateInetQrPayment()}
+                      disabled={transferSubmitting || inetQrStatus === "creating" || inetQrStatus === "pending" || inetQrStatus === "paid"}
+                    >
+                      {inetQrStatus === "creating" ? text.submitting : inetQrUrl ? text.transferInetRetryQr : text.transferInetCreateQr}
+                    </button>
+                  ) : (
+                    promptPayQrUrl ? (
+                      <button type="button" className="posui-btn posui-btn--primary" onClick={() => void onConfirmTransfer()} disabled={transferSubmitting}>
+                        {transferSubmitting ? text.submitting : text.transferConfirm}
+                      </button>
+                    ) : (
+                      <button type="button" className="posui-btn" onClick={onCloseTransfer} disabled={transferSubmitting}>
+                        {text.transferPaymentSettingsRequiredClose}
+                      </button>
+                    )
+                  )}
+                </div>
               </section>
-            </div>
-            {transferError ? <p className="posui-payment-modal__error">{transferError}</p> : null}
-            <div className="posui-payment-modal__actions posui-payment-modal__actions--transfer">
-              {transferPaymentMode === "inet_nops" ? (
-                <button
-                  type="button"
-                  className="posui-btn posui-btn--primary"
-                  onClick={() => void onCreateInetQrPayment()}
-                  disabled={transferSubmitting || inetQrStatus === "creating" || inetQrStatus === "pending" || inetQrStatus === "paid"}
-                >
-                  {inetQrStatus === "creating" ? text.submitting : inetQrUrl ? text.transferInetRetryQr : text.transferInetCreateQr}
-                </button>
-              ) : (
-                <button type="button" className="posui-btn posui-btn--primary" onClick={() => void onConfirmTransfer()} disabled={transferSubmitting || !promptPayQrUrl}>
-                  {transferSubmitting ? text.submitting : text.transferConfirm}
-                </button>
-              )}
             </div>
           </section>
         </div>

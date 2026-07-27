@@ -338,38 +338,46 @@ function mapPaymentAccount(row: PaymentAccountRow): PaymentAccountSettings {
   };
 }
 
-async function assertNoActivePaymentAccountDuplicate(args: {
+async function deactivateConflictingActivePaymentAccounts(args: {
   tenantId: string;
   branchId: string;
   accountId?: string;
   appliesToAllBranches: boolean;
 }) {
   const supabase = getSupabaseServiceClient();
+
   let query = supabase
     .from("tenant_payment_accounts")
-    .select("id", { count: "exact", head: true })
+    .update({ is_active: false })
     .eq("tenant_id", args.tenantId)
-    .eq("is_active", true)
-    .eq("applies_to_all_branches", args.appliesToAllBranches);
+    .eq("is_active", true);
 
-  query = args.appliesToAllBranches ? query : query.eq("branch_id", args.branchId);
+  query = args.appliesToAllBranches
+    ? query
+    : query.or(`branch_id.eq.${args.branchId},applies_to_all_branches.eq.true`);
 
   if (args.accountId) {
     query = query.neq("id", args.accountId);
   }
 
-  const { count, error } = await query;
+  const { error } = await query;
   if (error) {
-    if (isMissingSchemaError(error, "tenant_payment_accounts")) return;
-    throw new Error(error.message);
-  }
-
-  if ((count ?? 0) > 0) {
-    throw new Error(
-      args.appliesToAllBranches
-        ? "Active tenant-wide payment account already exists."
-        : "Active payment account already exists for this branch."
-    );
+    if (!isMissingSchemaError(error, "tenant_payment_accounts")) {
+      throw new Error(error.message);
+    }
+    let legacyQuery = supabase
+      .from("tenant_payment_accounts")
+      .update({ is_active: false })
+      .eq("tenant_id", args.tenantId)
+      .eq("branch_id", args.branchId)
+      .eq("is_active", true);
+    if (args.accountId) {
+      legacyQuery = legacyQuery.neq("id", args.accountId);
+    }
+    const legacyResult = await legacyQuery;
+    if (legacyResult.error && !isMissingSchemaError(legacyResult.error, "tenant_payment_accounts")) {
+      throw new Error(legacyResult.error.message);
+    }
   }
 }
 
@@ -1078,7 +1086,7 @@ export async function savePaymentAccount(auth: AuthContext, input: PaymentAccoun
   const supabase = getSupabaseServiceClient();
   const accountId = trimText(input.id);
   if (isActive) {
-    await assertNoActivePaymentAccountDuplicate({
+    await deactivateConflictingActivePaymentAccounts({
       tenantId: auth.tenantId,
       branchId,
       accountId,

@@ -5,7 +5,7 @@ import { resolveShiftCycle, slotLabel, slotWindowLabel } from "@/lib/pos-shift-s
 
 type Lang = "th" | "en";
 type ModalKind = "open" | "close" | "active" | "receipt" | "details" | "summary" | null;
-type BusyState = "open" | "close" | "print" | "logout" | null;
+type BusyState = "open" | "close" | "print" | null;
 
 const BRANCH_FILTER_STORAGE_KEY = "pos_shift_history_branch_filter_v1";
 const POS_SKIP_ENTRY_GATE_SPLASH_KEY = "pos_skip_entry_gate_overlay_once_v1";
@@ -333,7 +333,7 @@ export function PosShiftHistoryModule({ lang }: { lang: Lang }) {
   const [closeReceipt, setCloseReceipt] = useState<ShiftCloseReceiptData | null>(null);
   const [receiptPrintJobs, setReceiptPrintJobs] = useState<BluetoothPrintJob[]>([]);
   const [receiptPrinted, setReceiptPrinted] = useState(false);
-  const [receiptPrintStatus, setReceiptPrintStatus] = useState<"idle" | "printing" | "printed" | "failed">("idle");
+  const [, setReceiptPrintStatus] = useState<"idle" | "printing" | "printed" | "failed">("idle");
   const [receiptPrintError, setReceiptPrintError] = useState<string | null>(null);
   const [modalKind, setModalKind] = useState<ModalKind>(null);
   const [selectedShift, setSelectedShift] = useState<ShiftHistoryItem | null>(null);
@@ -383,12 +383,12 @@ export function PosShiftHistoryModule({ lang }: { lang: Lang }) {
             popupDescOpen: "กรอกเงินตั้งต้นก่อนเปิดกะ",
             popupDescClose: "กรอกเงินสดปลายกะก่อนปิดกะ",
             popupDescActive: "ตรวจสอบสถานะกะปัจจุบันก่อนดำเนินการ",
-            popupDescReceipt: "ต้องพิมพ์ผ่านเครื่อง Bluetooth สำเร็จก่อน จึงจะไปหน้าเลือกสาขาได้",
+            popupDescReceipt: "ปิดกะสำเร็จแล้ว สามารถพิมพ์ใบสรุปหรือกดเสร็จสิ้นเพื่อปิดหน้าต่างได้ทันที",
             confirm: "ยืนยัน",
             cancel: "ยกเลิก",
             close: "ปิด",
             allBranches: "ทุกสาขา",
-            finishAndExit: "เสร็จสิ้นและไปเลือกสาขา",
+            finishAndExit: "เสร็จสิ้น",
             printing: "กำลังพิมพ์...",
             printReceipt: "พิมพ์ใบสรุปผ่าน Bluetooth",
             printRequiredHint: "ต้องมีสถานะพิมพ์ Bluetooth สำเร็จก่อน จึงจะไปหน้าเลือกสาขาได้",
@@ -446,12 +446,12 @@ export function PosShiftHistoryModule({ lang }: { lang: Lang }) {
             popupDescOpen: "Enter opening cash before opening this shift.",
             popupDescClose: "Enter closing cash before closing this shift.",
             popupDescActive: "Review current active shift status.",
-            popupDescReceipt: "Shift is closed. You can print via Bluetooth or go to branch selection now.",
+            popupDescReceipt: "Shift is closed. You can print the summary or finish to close this popup.",
             confirm: "Confirm",
             cancel: "Cancel",
             close: "Close",
             allBranches: "All branches",
-            finishAndExit: "Finish and go to branch selection",
+            finishAndExit: "Done",
             printing: "Printing...",
             printReceipt: "Print via Bluetooth",
             printRequiredHint: "Bluetooth printing is optional. The shift is already closed.",
@@ -689,6 +689,14 @@ export function PosShiftHistoryModule({ lang }: { lang: Lang }) {
       });
       const closeBody = (await closeRes.json().catch(() => null)) as CloseShiftResponse | null;
       if (!closeRes.ok || !closeBody?.data) {
+        const code = String(closeBody?.error?.code ?? "");
+        if (code === "shift_has_open_bills") {
+          throw new Error(
+            lang === "th"
+              ? "ยังมีบิลค้างอยู่ในหน้าขาย กรุณากลับไปเคลียร์หรือยกเลิกบิลให้เรียบร้อยก่อนปิดกะ"
+              : "There are open bills in sales. Please clear or cancel them before closing this shift."
+          );
+        }
         throw new Error(closeBody?.error?.message ?? "Close shift failed.");
       }
       setMessage(text.shiftClosed);
@@ -707,32 +715,8 @@ export function PosShiftHistoryModule({ lang }: { lang: Lang }) {
     }
   }
 
-  async function finishAndLogoutToBranchSelection() {
-    if (busy) return;
-    setBusy("logout");
-    setError(null);
-    try {
-      const logoutRes = await fetch("/api/auth/session/logout", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ mode: "switch_branch" })
-      });
-      const logoutBody = (await logoutRes.json().catch(() => null)) as {
-        data?: { redirect_to?: string } | null;
-        error?: { message?: string } | null;
-      } | null;
-      if (!logoutRes.ok) {
-        throw new Error(logoutBody?.error?.message ?? "Logout failed.");
-      }
-      window.location.assign(logoutBody?.data?.redirect_to ?? "/login/branches?flow=multi");
-    } catch (logoutError) {
-      setError(logoutError instanceof Error ? logoutError.message : "Logout failed.");
-      setBusy(null);
-    }
-  }
-
   async function printCloseReceipt() {
-    if (!closeReceipt || busy === "logout" || busy === "print") return;
+    if (!closeReceipt || busy === "print") return;
 
     setBusy("print");
     setReceiptPrintError(null);
@@ -838,17 +822,6 @@ export function PosShiftHistoryModule({ lang }: { lang: Lang }) {
     printWindow.document.write(receiptHtml);
     printWindow.document.close();
   }
-
-  const printStatusHint =
-    receiptPrintStatus === "printed"
-      ? text.printSuccessHint
-      : receiptPrintStatus === "printing"
-        ? text.printPendingHint
-        : receiptPrintStatus === "failed"
-          ? text.printFailedHint
-          : lang === "th"
-            ? "พิมพ์ Bluetooth เป็นทางเลือก ระบบปิดกะแล้ว"
-            : text.printRequiredHint;
 
   return (
     <section className="min-h-0 w-full overflow-auto pb-6 pr-2">
@@ -1079,7 +1052,7 @@ export function PosShiftHistoryModule({ lang }: { lang: Lang }) {
       </div>
 
       {modalMounted && modalKind ? (
-        <div className="fixed inset-0 z-[110] grid place-items-center p-4">
+        <div className="fixed inset-0 z-[110] grid place-items-center overflow-y-auto p-3 sm:p-4">
           <div
             className={`absolute inset-0 bg-slate-950/55 transition-opacity duration-200 ${
               modalVisible ? "opacity-100" : "opacity-0"
@@ -1089,12 +1062,16 @@ export function PosShiftHistoryModule({ lang }: { lang: Lang }) {
             }}
           />
           <section
-            className={`relative w-full max-w-md rounded-2xl border border-slate-200 bg-white p-4 shadow-2xl transition-all duration-200 ${
+            className={`relative w-full rounded-2xl border border-slate-200 bg-white shadow-2xl transition-all duration-200 ${
+              modalKind === "receipt"
+                ? "max-h-[calc(100dvh-1.5rem)] max-w-[440px] overflow-y-auto p-3 sm:max-h-[calc(100dvh-2rem)] sm:p-4"
+                : "max-w-md p-4"
+            } ${
               modalVisible ? "translate-y-0 scale-100 opacity-100" : "translate-y-2 scale-95 opacity-0"
             }`}
             onClick={(event) => event.stopPropagation()}
           >
-            <h3 className="text-lg font-extrabold text-slate-900">
+            <h3 className={modalKind === "receipt" ? "text-base font-extrabold text-slate-900 sm:text-lg" : "text-lg font-extrabold text-slate-900"}>
               {busy === "open"
                 ? text.openingShiftTitle
                 : modalKind === "open"
@@ -1109,7 +1086,7 @@ export function PosShiftHistoryModule({ lang }: { lang: Lang }) {
                       ? lang === "th" ? "ยอดสรุป" : "Summary totals"
                     : text.popupTitleReceipt}
             </h3>
-            <p className="mt-1 text-sm text-slate-600">
+            <p className={modalKind === "receipt" ? "mt-1 text-xs leading-5 text-slate-600 sm:text-sm" : "mt-1 text-sm text-slate-600"}>
               {busy === "open"
                 ? text.openingShiftDesc
                 : modalKind === "open"
@@ -1122,9 +1099,7 @@ export function PosShiftHistoryModule({ lang }: { lang: Lang }) {
                       ? detailsTitle
                     : modalKind === "summary"
                       ? lang === "th" ? "ดูยอดรวมตามช่วงเวลาและสาขาที่เลือก" : "Totals for the selected period and branch."
-                    : lang === "th"
-                      ? "ปิดกะสำเร็จแล้ว สามารถพิมพ์ Bluetooth หรือไปหน้าเลือกสาขาได้ทันที"
-                      : text.popupDescReceipt}
+                    : text.popupDescReceipt}
             </p>
 
             {busy === "open" ? (
@@ -1132,6 +1107,12 @@ export function PosShiftHistoryModule({ lang }: { lang: Lang }) {
                 <span className="h-5 w-5 animate-spin rounded-full border-2 border-blue-200 border-t-blue-700" aria-hidden />
                 <span>{text.openingShiftDesc}</span>
               </div>
+            ) : null}
+
+            {error ? (
+              <p className="mt-4 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm font-bold leading-5 text-rose-700">
+                {error}
+              </p>
             ) : null}
 
             {modalKind === "summary" ? (
@@ -1309,7 +1290,7 @@ export function PosShiftHistoryModule({ lang }: { lang: Lang }) {
             ) : null}
 
             {modalKind === "receipt" && closeReceipt ? (
-              <div className="mt-4 grid gap-2 rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
+              <div className="mt-3 grid max-h-[min(52dvh,420px)] gap-2 overflow-y-auto rounded-xl border border-slate-200 bg-slate-50 p-3 text-[13px] leading-5 text-slate-700 sm:text-sm">
                 <p>
                   {text.receiptStore}: <strong>{closeReceipt.receipt.tenant_name}</strong>
                 </p>
@@ -1360,49 +1341,37 @@ export function PosShiftHistoryModule({ lang }: { lang: Lang }) {
               </div>
             ) : null}
 
-            <div className="mt-4 flex justify-end gap-2">
+            <div className={modalKind === "receipt" ? "mt-4 grid gap-2 sm:grid-cols-[0.8fr_1.35fr_1fr]" : "mt-4 flex justify-end gap-2"}>
               {modalKind === "receipt" ? (
                 <>
                   {receiptPrintError ? (
-                    <p className="mr-auto rounded-lg border border-rose-200 bg-rose-50 px-2 py-1 text-xs font-semibold text-rose-700">
+                    <p className="rounded-lg border border-rose-200 bg-rose-50 px-2 py-1 text-xs font-semibold text-rose-700 sm:col-span-3">
                       {receiptPrintError}
                     </p>
-                  ) : (
-                    <p
-                      className={`mr-auto text-xs font-semibold ${
-                        receiptPrintStatus === "printed"
-                          ? "text-emerald-700"
-                          : receiptPrintStatus === "failed"
-                            ? "text-rose-700"
-                            : "text-slate-500"
-                      }`}
-                    >
-                      {printStatusHint}
-                    </p>
-                  )}
+                  ) : null}
                   <button
                     type="button"
                     onClick={() => closeModal()}
                     disabled={Boolean(busy)}
-                    className="h-10 rounded-xl border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-700 disabled:opacity-60"
+                    className="min-h-10 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm font-semibold leading-5 text-slate-700 disabled:opacity-60"
                   >
                     {text.close}
                   </button>
                   <button
                     type="button"
                     onClick={() => void printCloseReceipt()}
-                    disabled={busy === "logout" || busy === "print"}
-                    className="h-10 rounded-xl border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-700 disabled:opacity-60"
+                    disabled={busy === "print"}
+                    className="min-h-10 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm font-semibold leading-5 text-slate-700 disabled:opacity-60"
                   >
                     {busy === "print" ? text.printing : text.printReceipt}
                   </button>
                   <button
                     type="button"
-                    onClick={() => void finishAndLogoutToBranchSelection()}
-                    disabled={busy === "logout" || busy === "print"}
-                    className="h-10 rounded-xl bg-slate-900 px-4 text-sm font-bold text-white disabled:opacity-60"
+                    onClick={() => closeModal()}
+                    disabled={Boolean(busy)}
+                    className="min-h-10 w-full rounded-xl bg-slate-900 px-3 py-2 text-sm font-bold leading-5 text-white disabled:opacity-60"
                   >
-                    {busy === "logout" ? "..." : text.finishAndExit}
+                    {text.finishAndExit}
                   </button>
                 </>
               ) : (

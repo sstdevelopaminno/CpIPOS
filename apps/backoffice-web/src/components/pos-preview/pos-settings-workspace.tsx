@@ -25,6 +25,8 @@ type SettingsView = "menu" | "store" | "branches" | "devices" | "activity" | "pa
 type MenuIconName = "store" | "branch" | "payment" | "tax" | "users" | "display" | "terminal" | "activity" | "bell" | "tables" | "back" | "edit" | "trash" | "plus";
 const POS_TAX_SETTINGS_UPDATED_EVENT = "pos:tax-settings-updated";
 const POS_TAX_SETTINGS_UPDATED_KEY = "pos_tax_settings_updated_at_v001";
+const POS_PAYMENT_SETTINGS_UPDATED_EVENT = "pos:payment-settings-updated";
+const POS_PAYMENT_SETTINGS_UPDATED_KEY = "pos_payment_settings_updated_at_v001";
 
 type StoreForm = {
   display_name: string;
@@ -603,6 +605,32 @@ function makePreviewPaymentAccount(form: PaymentForm, fallbackBranchId: string):
   };
 }
 
+function isPaymentAccountScopeConflict(left: PaymentAccountSettings, right: PaymentAccountSettings): boolean {
+  if (left.id === right.id) return false;
+  if (left.applies_to_all_branches || right.applies_to_all_branches) return true;
+  return left.branch_id === right.branch_id;
+}
+
+function mergePaymentAccountUpdate(accounts: PaymentAccountSettings[], savedAccount: PaymentAccountSettings): PaymentAccountSettings[] {
+  const nextAccounts = accounts.some((account) => account.id === savedAccount.id)
+    ? accounts.map((account) => (account.id === savedAccount.id ? savedAccount : account))
+    : [...accounts, savedAccount];
+  if (!savedAccount.is_active) return nextAccounts;
+  return nextAccounts.map((account) =>
+    isPaymentAccountScopeConflict(savedAccount, account) ? { ...account, is_active: false } : account
+  );
+}
+
+function signalPaymentSettingsUpdated() {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(POS_PAYMENT_SETTINGS_UPDATED_KEY, new Date().toISOString());
+  } catch {
+    // The database/local save already succeeded; storage only wakes other POS tabs.
+  }
+  window.dispatchEvent(new CustomEvent(POS_PAYMENT_SETTINGS_UPDATED_EVENT));
+}
+
 function todayInputValue() {
   const now = new Date();
   const offsetMs = now.getTimezoneOffset() * 60_000;
@@ -964,29 +992,31 @@ function MenuButton({
   title,
   desc,
   onClick,
-  locked = false
+  locked = false,
+  compact = false
 }: {
   icon: MenuIconName;
   title: string;
   desc: string;
   onClick: () => void;
   locked?: boolean;
+  compact?: boolean;
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
       aria-disabled={locked}
-      className={`group grid min-h-[92px] grid-cols-[42px_1fr_28px] items-center gap-3 rounded-lg border p-4 text-left transition ${
+      className={`group grid ${compact ? "min-h-[64px] grid-cols-[36px_1fr_24px] p-3" : "min-h-[92px] grid-cols-[42px_1fr_28px] p-4"} items-center gap-3 rounded-lg border text-left transition ${
         locked ? "border-slate-200 bg-slate-50 text-slate-500 hover:border-blue-200" : "border-slate-200 bg-white hover:border-blue-200 hover:bg-blue-50/50"
       }`}
     >
-      <span className={`inline-flex h-10 w-10 items-center justify-center rounded-lg ${locked ? "bg-slate-100 text-slate-400" : "bg-slate-100 text-slate-700 group-hover:bg-blue-100 group-hover:text-blue-700"}`}>
+      <span className={`inline-flex ${compact ? "h-9 w-9" : "h-10 w-10"} items-center justify-center rounded-lg ${locked ? "bg-slate-100 text-slate-400" : "bg-slate-100 text-slate-700 group-hover:bg-blue-100 group-hover:text-blue-700"}`}>
         <Icon name={icon} />
       </span>
       <span className="min-w-0">
-        <span className="block text-base font-black text-slate-950">{title}</span>
-        <span className="mt-1 block text-sm font-medium leading-5 text-slate-500">{desc}</span>
+        <span className={`${compact ? "text-sm" : "text-base"} block font-black text-slate-950`}>{title}</span>
+        {compact ? null : <span className="mt-1 block text-sm font-medium leading-5 text-slate-500">{desc}</span>}
       </span>
       <span className="text-slate-400">›</span>
     </button>
@@ -2534,11 +2564,8 @@ function PaymentPanel({
             body: JSON.stringify(form)
           }, 8000)
         );
-        updateAccounts((current) =>
-          current.some((account) => account.id === data.account.id)
-            ? current.map((account) => (account.id === data.account.id ? data.account : account))
-            : [...current, data.account]
-        );
+        updateAccounts((current) => mergePaymentAccountUpdate(current, data.account));
+        signalPaymentSettingsUpdated();
         await keepPopupVisible(startedAt);
         setForm(initialPaymentForm);
         setIsPaymentFormOpen(false);
@@ -2548,11 +2575,8 @@ function PaymentPanel({
         const message = isTimeout ? labels.requestTimeout : error instanceof Error ? error.message : labels.failed;
         if (isTimeout || isRecoverablePaymentAccountError(message)) {
           const fallbackAccount = makePreviewPaymentAccount(form, fallbackBranchId);
-          updateAccounts((current) =>
-            current.some((account) => account.id === fallbackAccount.id)
-              ? current.map((account) => (account.id === fallbackAccount.id ? fallbackAccount : account))
-              : [...current, fallbackAccount]
-          );
+          updateAccounts((current) => mergePaymentAccountUpdate(current, fallbackAccount));
+          signalPaymentSettingsUpdated();
           await keepPopupVisible(startedAt);
           setForm(initialPaymentForm);
           setIsPaymentFormOpen(false);
@@ -2579,6 +2603,7 @@ function PaymentPanel({
         }, 8000)
       );
       updateAccounts((current) => current.filter((item) => item.id !== account.id));
+      signalPaymentSettingsUpdated();
       setDeleteTarget(null);
       reportStatus(labels.saved, { popup: true });
     } catch (error) {
@@ -2586,6 +2611,7 @@ function PaymentPanel({
       const message = isTimeout ? labels.requestTimeout : error instanceof Error ? error.message : labels.failed;
       if (isTimeout || isRecoverablePaymentAccountError(message)) {
         updateAccounts((current) => current.filter((item) => item.id !== account.id));
+        signalPaymentSettingsUpdated();
         setDeleteTarget(null);
         reportStatus(labels.saved, { popup: true });
       } else {
@@ -2610,12 +2636,14 @@ function PaymentPanel({
             body: JSON.stringify(next)
           }, 8000)
         );
-        updateAccounts((current) => current.map((item) => (item.id === data.account.id ? data.account : item)));
+        updateAccounts((current) => mergePaymentAccountUpdate(current, data.account));
+        signalPaymentSettingsUpdated();
       } catch (error) {
         const isTimeout = error instanceof Error && error.message === "__request_timeout__";
         const message = isTimeout ? labels.requestTimeout : error instanceof Error ? error.message : labels.failed;
         if (isTimeout || isRecoverablePaymentAccountError(message)) {
-          updateAccounts((current) => current.map((item) => (item.id === account.id ? makePreviewPaymentAccount(next, fallbackBranchId) : item)));
+          updateAccounts((current) => mergePaymentAccountUpdate(current, makePreviewPaymentAccount(next, fallbackBranchId)));
+          signalPaymentSettingsUpdated();
           reportStatus(labels.saved, { popup: true });
         } else {
           reportStatus(message, { popup: true });
@@ -2816,7 +2844,7 @@ function PaymentPanel({
                   <img src={promptpayPreviewUrl} alt={labels.qrModePromptPay} className="h-32 w-32 object-contain" />
                 ) : (
                   <p className="px-3 text-center text-xs font-semibold text-slate-500">
-                    {labels.qrPayload}: {promptpayPayload || "-"}
+                    {labels.qrImage}
                   </p>
                 )}
               </div>
@@ -2838,9 +2866,6 @@ function PaymentPanel({
                 <ActionButton variant="plain" disabled={!canManage || isBusy || !form.qr_image_url || isQrBusy} onClick={() => setForm((current) => ({ ...current, qr_image_url: "" }))}>
                   {labels.removeQr}
                 </ActionButton>
-                <p className="break-all rounded-lg border border-slate-200 bg-white p-3 text-xs font-semibold text-slate-600">
-                  {labels.promptpayLinkPreview}: {promptpayPayload || "-"}
-                </p>
               </div>
             </div>
           </div>
@@ -2958,7 +2983,7 @@ export function PosSettingsWorkspace({ lang, initialData }: { lang: Language; in
             <MenuButton icon="branch" title={labels.branches} desc={labels.branchesDesc} onClick={() => openSettingsView("branches")} locked={isSettingLocked("branches")} />
             <MenuButton icon="terminal" title={labels.devices} desc={labels.devicesDesc} onClick={() => openSettingsView("devices")} locked={isSettingLocked("devices")} />
             <MenuButton icon="activity" title={labels.activityAudit} desc={labels.activityAuditDesc} onClick={() => openSettingsView("activity")} locked={isSettingLocked("activity")} />
-            <MenuButton icon="payment" title={labels.payments} desc={labels.paymentsDesc} onClick={() => openSettingsView("payments")} locked={isSettingLocked("payments")} />
+            <MenuButton icon="payment" title={labels.payments} desc={labels.paymentsDesc} onClick={() => openSettingsView("payments")} locked={isSettingLocked("payments")} compact />
             <MenuButton
               icon="payment"
               title={lang === "en" ? "INET QR" : "INET QR"}

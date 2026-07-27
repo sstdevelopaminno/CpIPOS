@@ -1030,10 +1030,10 @@ a {
 
 .posui-topbar {
   border: 1px solid #e2e8f0;
-  border-radius: 18px;
+  border-radius: 16px;
   background: #ffffff;
-  box-shadow: 0 6px 18px rgba(15, 23, 42, 0.06);
-  padding: clamp(8px, 1vw, 10px) clamp(10px, 1.4vw, 14px);
+  box-shadow: 0 6px 16px rgba(15, 23, 42, 0.045);
+  padding: clamp(7px, 0.8vw, 9px);
   width: 100%;
   max-width: none;
 }
@@ -1052,19 +1052,55 @@ a {
 
 .posui-mode-header-row {
   display: grid;
-  grid-template-columns: minmax(170px, 188px) minmax(0, 1fr);
+  grid-template-columns: 34px minmax(160px, 184px) minmax(0, 1fr);
   align-items: stretch;
-  gap: 12px;
+  gap: 0;
 }
 
 .posui-mode-header-row > .posui-filter-group {
   min-width: 0;
   height: 100%;
+  border-left: 1px solid #e2e8f0;
+  padding: 0 12px;
+}
+
+.posui-topbar-collapse-toggle {
+  align-self: center;
+  display: grid;
+  width: 32px;
+  min-height: 42px;
+  place-items: center;
+  border: 1px solid #dbe3ef;
+  border-radius: 999px;
+  background: linear-gradient(180deg, #ffffff, #f1f5f9);
+  color: #1e40af;
+  box-shadow: 0 4px 10px rgba(15, 23, 42, 0.06);
+  transition: background 0.16s ease, border-color 0.16s ease, box-shadow 0.16s ease, transform 0.16s ease;
+}
+
+.posui-topbar-collapse-toggle:hover {
+  border-color: #93c5fd;
+  background: linear-gradient(180deg, #eff6ff, #ffffff);
+  box-shadow: 0 8px 18px rgba(37, 99, 235, 0.13);
+  transform: translateX(-1px);
+}
+
+.posui-topbar-collapse-toggle:focus-visible {
+  outline: 3px solid rgba(59, 130, 246, 0.22);
+  outline-offset: 2px;
+}
+
+.posui-topbar-collapse-toggle__chevron {
+  width: 9px;
+  height: 9px;
+  border-bottom: 2px solid currentColor;
+  border-right: 2px solid currentColor;
+  transform: translateX(2px) rotate(135deg);
 }
 
 .posui-mode-header-row .posui-top-actions-card {
   margin-bottom: 0;
-  min-height: 104px;
+  min-height: 76px;
   width: 100%;
   align-content: start;
   align-self: stretch;
@@ -1073,14 +1109,14 @@ a {
 .posui-sales-meta-card {
   min-width: 0;
   max-width: none;
-  min-height: 104px;
+  min-height: 76px;
   width: 100%;
   margin-left: 0;
-  border: 1px solid #e2e8f0;
-  border-radius: 14px;
-  background: #ffffff;
-  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.06);
-  padding: 8px 10px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  padding: 0;
 }
 
 .posui-sales-meta-group {
@@ -1090,7 +1126,17 @@ a {
 .posui-sales-meta-columns {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 6px;
+  gap: 0;
+  height: 100%;
+}
+
+.posui-sales-meta-list + .posui-sales-meta-list {
+  border-left: 1px solid #e2e8f0;
+  padding-left: 12px;
+}
+
+.posui-sales-meta-list:first-child {
+  padding-right: 12px;
 }
 
 .posui-sales-meta-list {
@@ -1123,11 +1169,15 @@ a {
 
 .posui-sales-meta-row dd {
   margin: 0;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
   color: #0f172a;
   font-size: 12px;
   font-weight: 800;
   text-align: left;
   justify-self: start;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
@@ -1172,11 +1222,11 @@ a {
   max-width: none;
   gap: 8px;
   margin-bottom: 0;
-  border: 1px solid #e2e8f0;
-  border-radius: 12px;
-  background: #ffffff;
-  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.06);
-  padding: 8px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  padding: 0;
 }
 
 .posui-top-actions-grid {
@@ -1258,9 +1308,13 @@ a {
 
 .posui-mode-switch-button__action {
   justify-self: start;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
   color: #2563eb;
   font-size: 14px;
   font-weight: 900;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
@@ -1790,6 +1844,80 @@ a {
 
 .posui-sales-topbar {
   display: block;
+}
+
+.posui-topbar-category-slot {
+  display: none;
+  min-width: 0;
+}
+
+.posui-sales-topbar.is-collapsed .posui-mode-header-row {
+  grid-template-columns: 34px minmax(156px, 188px);
+  align-items: center;
+}
+
+.posui-sales-topbar.is-collapsed.has-inline-categories .posui-mode-header-row {
+  grid-template-columns: 34px minmax(156px, 188px) minmax(0, 1fr);
+}
+
+.posui-sales-topbar.is-collapsed .posui-sales-meta-group {
+  display: none;
+}
+
+.posui-sales-topbar.is-collapsed .posui-topbar-collapse-toggle__chevron {
+  transform: translateX(-2px) rotate(-45deg);
+}
+
+.posui-sales-topbar.is-collapsed .posui-mode-header-row > .posui-filter-group {
+  padding-right: 0;
+}
+
+.posui-sales-topbar.is-collapsed .posui-topbar-category-slot {
+  display: block;
+  min-width: 0;
+  border-left: 1px solid #e2e8f0;
+  padding-left: 12px;
+}
+
+.posui-sales-topbar.is-collapsed .posui-topbar-category-slot .posui-category-row {
+  min-height: 42px;
+  align-items: center;
+}
+
+.posui-sales-topbar.is-collapsed .posui-topbar-category-slot .posui-chip {
+  min-height: 34px;
+}
+
+.posui-sales-topbar.is-collapsed .posui-mode-header-row .posui-top-actions-card {
+  min-height: 48px;
+  align-content: center;
+  gap: 0;
+}
+
+.posui-sales-topbar.is-collapsed .posui-mode-switch-button {
+  min-height: 42px;
+  grid-template-columns: 30px minmax(0, 1fr);
+  gap: 6px;
+  padding: 5px 7px;
+}
+
+.posui-sales-topbar.is-collapsed .posui-mode-switch-button__icon {
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+}
+
+.posui-sales-topbar.is-collapsed .posui-mode-switch-button__icon svg {
+  width: 17px;
+  height: 17px;
+}
+
+.posui-sales-topbar.is-collapsed .posui-mode-switch-button__action {
+  font-size: 13px;
+}
+
+.posui-sales-topbar.is-collapsed .posui-mode-stack-meta {
+  display: none;
 }
 
 .posui-sales-status {
@@ -2838,6 +2966,7 @@ a {
   border-radius: 10px;
   overflow: hidden;
   width: fit-content;
+  max-width: 100%;
 }
 
 .posui-qty-row button {
@@ -2856,12 +2985,49 @@ a {
 .posui-qty-row span {
   display: grid;
   min-width: 28px;
+  height: 30px;
   place-items: center;
   border-left: 1px solid #e2e8f0;
   border-right: 1px solid #e2e8f0;
   color: #0f172a;
   font-size: 13px;
   font-weight: 700;
+}
+
+.posui-qty-row input {
+  width: 42px;
+  height: 30px;
+  border: 0;
+  border-left: 1px solid #e2e8f0;
+  border-right: 1px solid #e2e8f0;
+  background: #f8fbff;
+  color: #0f172a;
+  font-size: 13px;
+  font-weight: 800;
+  text-align: center;
+  outline: none;
+}
+
+.posui-qty-row input:focus {
+  background: #ffffff;
+  box-shadow: inset 0 0 0 2px rgba(37, 99, 235, 0.22);
+}
+
+.posui-qty-row input::-webkit-outer-spin-button,
+.posui-qty-row input::-webkit-inner-spin-button {
+  margin: 0;
+  appearance: none;
+}
+
+.posui-qty-edit {
+  border-left: 1px solid #e2e8f0 !important;
+  background: #eff6ff !important;
+  color: #2563eb !important;
+}
+
+.posui-qty-edit.is-saving {
+  background: #ecfdf5 !important;
+  color: #059669 !important;
 }
 
 .posui-cart-item__sum {
@@ -4684,15 +4850,23 @@ a {
 }
 
 .posui-payment-modal--transfer-qr-only {
-  width: min(560px, calc(100vw - 24px));
-  max-height: min(94dvh, 760px);
-  padding: clamp(16px, 3vw, 24px);
-  gap: 14px;
+  width: min(500px, calc(100vw - 24px));
+  max-height: min(92dvh, 680px);
+  border: 0;
+  background: #ffffff;
+  box-shadow: 0 18px 46px rgba(15, 23, 42, 0.24);
+  padding: 16px;
+  gap: 10px;
   overflow-y: auto;
 }
 
 .posui-payment-modal--transfer-qr-only .posui-payment-modal__header {
-  align-items: flex-start;
+  align-items: center;
+}
+
+.posui-payment-modal--transfer-qr-only .posui-payment-modal__header h3 {
+  font-size: 22px;
+  line-height: 1.15;
 }
 
 .posui-payment-modal--transfer-qr-only .posui-transfer-layout {
@@ -4703,41 +4877,41 @@ a {
 
 .posui-payment-modal--transfer-qr-only .posui-transfer-qr-panel {
   width: 100%;
-  max-width: 468px;
+  max-width: 424px;
   border-color: #dbeafe;
-  border-radius: 8px;
-  background: linear-gradient(180deg, #ffffff 0%, #f8fbff 100%);
-  padding: clamp(16px, 3vw, 22px);
+  border-radius: 10px;
+  background: #fbfdff;
+  padding: 16px;
   justify-items: center;
-  gap: 12px;
-  box-shadow: 0 16px 36px rgba(15, 23, 42, 0.08);
+  gap: 9px;
+  box-shadow: none;
 }
 
 .posui-payment-modal--transfer-qr-only .posui-transfer-amount-card {
   width: 100%;
   border-bottom: 1px solid #dbeafe;
-  padding-bottom: 12px;
+  padding-bottom: 9px;
   justify-items: center;
   text-align: center;
 }
 
 .posui-payment-modal--transfer-qr-only .posui-transfer-amount-card span {
   color: #475569;
-  font-size: 14px;
+  font-size: 12px;
   font-weight: 900;
 }
 
 .posui-payment-modal--transfer-qr-only .posui-transfer-amount-card strong {
   max-width: 100%;
   color: #2563eb;
-  font-size: clamp(42px, 8vw, 58px);
+  font-size: clamp(34px, 6vw, 46px);
   letter-spacing: 0;
   overflow-wrap: anywhere;
 }
 
 .posui-payment-modal--transfer-qr-only .posui-transfer-section-title {
   color: #334155;
-  font-size: 16px;
+  font-size: 13px;
   text-align: center;
 }
 
@@ -4790,22 +4964,22 @@ a {
 
 .posui-payment-modal--transfer-qr-only .posui-transfer-qr-box {
   width: 100%;
-  max-width: 340px;
+  max-width: 286px;
   border-color: #dbe4f0;
   border-radius: 8px;
   background: #ffffff;
-  padding: 10px;
+  padding: 8px;
 }
 
 .posui-payment-modal--transfer-qr-only .posui-transfer-qr-image {
-  width: min(100%, 300px);
+  width: min(100%, 258px);
   border-radius: 6px;
 }
 
 .posui-payment-modal--transfer-qr-only .posui-transfer-mobile-hint {
   margin: 0;
   color: #64748b;
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 700;
   text-align: center;
 }
@@ -4842,15 +5016,26 @@ a {
 }
 
 .posui-payment-modal__actions--transfer {
+  position: static;
+  width: 100%;
+  bottom: auto;
+  z-index: auto;
   justify-content: center;
+  padding-top: 2px;
 }
 
 .posui-payment-modal__actions--transfer .posui-btn {
-  width: min(468px, 100%);
-  min-height: 48px;
+  width: 100%;
+  min-height: 42px;
   border-radius: 8px;
-  font-size: 18px;
+  font-size: 15px;
   font-weight: 900;
+}
+
+.posui-payment-modal__error--transfer {
+  width: 100%;
+  margin: 0;
+  text-align: center;
 }
 
 .posui-transfer-phone-readonly {
@@ -5447,31 +5632,31 @@ a {
   .posui-payment-modal--transfer-qr-only {
     width: calc(100vw - 24px);
     max-height: calc(100dvh - 24px);
-    padding: 14px;
-    gap: 12px;
+    padding: 12px;
+    gap: 8px;
   }
 
   .posui-payment-modal--transfer-qr-only .posui-payment-modal__header h3 {
-    font-size: 22px;
+    font-size: 20px;
   }
 
   .posui-payment-modal--transfer-qr-only .posui-transfer-qr-panel {
     max-width: 100%;
-    padding: 14px;
-    gap: 10px;
+    padding: 12px;
+    gap: 8px;
   }
 
   .posui-payment-modal--transfer-qr-only .posui-transfer-amount-card strong {
-    font-size: clamp(38px, 12vw, 46px);
+    font-size: clamp(32px, 10vw, 40px);
   }
 
   .posui-payment-modal--transfer-qr-only .posui-transfer-qr-box {
-    max-width: 280px;
-    padding: 8px;
+    max-width: 252px;
+    padding: 6px;
   }
 
   .posui-payment-modal--transfer-qr-only .posui-transfer-qr-image {
-    width: min(100%, 252px);
+    width: min(100%, 232px);
   }
 
   .posui-payment-modal__actions--transfer .posui-btn {
@@ -5947,11 +6132,21 @@ a {
 
 @media (max-width: 900px) {
   .posui-mode-header-row {
-    grid-template-columns: minmax(170px, 188px) minmax(0, 1fr);
+    grid-template-columns: 34px minmax(150px, 174px) minmax(0, 1fr);
   }
 
   .posui-mode-switch-button {
-    grid-template-columns: 36px minmax(0, 1fr);
+    grid-template-columns: 32px minmax(0, 1fr);
+    min-height: 46px;
+  }
+
+  .posui-mode-switch-button__icon {
+    width: 32px;
+    height: 32px;
+  }
+
+  .posui-mode-switch-button__action {
+    font-size: 13px;
   }
 
   .posui-chip--dine-view span {
@@ -6019,6 +6214,15 @@ a {
     margin-left: 0;
   }
 
+  .posui-sales-meta-list--left .posui-sales-meta-row,
+  .posui-sales-meta-row {
+    grid-template-columns: 46px minmax(0, 1fr);
+  }
+
+  .posui-sales-meta-list--right .posui-sales-meta-row {
+    grid-template-columns: 74px minmax(0, 1fr);
+  }
+
   .posui-product-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -6046,7 +6250,15 @@ a {
 
 @media (max-width: 760px) {
   .posui-mode-header-row {
-    grid-template-columns: 1fr;
+    grid-template-columns: 34px minmax(0, 1fr);
+  }
+
+  .posui-mode-header-row > .posui-filter-group {
+    padding-inline: 10px 0;
+  }
+
+  .posui-sales-meta-group {
+    display: none;
   }
 
   .posui-mode-selector__grid {

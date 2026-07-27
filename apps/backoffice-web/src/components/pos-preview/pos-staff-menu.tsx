@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { MouseEvent, useEffect, useMemo, useState, useTransition } from "react";
+import { PosMemberMaintenanceModal } from "@/components/pos/pos-member-maintenance-modal";
 import { t, type Language } from "@/lib/i18n";
 import {
   POS_MENU_LOCK_TITLE_EN,
@@ -161,6 +162,8 @@ const MENU_DEFS: Array<{
   { key: "pos_menu_shift", href: "/preview/pos/shift", icon: "shift", roles: ["owner", "manager", "staff"], feature: featureForPosRoute("/preview/pos/shift") }
 ];
 
+const MEMBERS_MENU_HREF = "/preview/pos/members";
+
 function resolveMenuRole(role: PosRole | null): PosRole {
   // Keep the full owner menu visible while the session role is still hydrating.
   if (!role) return "owner";
@@ -185,6 +188,7 @@ export function PosStaffMenu({
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [pendingHref, setPendingHref] = useState<string | null>(null);
+  const [memberMaintenanceOpen, setMemberMaintenanceOpen] = useState(false);
   const effectiveRole = resolveMenuRole(sessionRole);
   const menuItems = useMemo(
     () =>
@@ -215,6 +219,11 @@ export function PosStaffMenu({
     ) {
       return;
     }
+    if (href === MEMBERS_MENU_HREF) {
+      event.preventDefault();
+      setMemberMaintenanceOpen(true);
+      return;
+    }
     if (pathname === href) {
       event.preventDefault();
       return;
@@ -232,6 +241,7 @@ export function PosStaffMenu({
   }
 
   return (
+    <>
     <nav className="grid gap-1" aria-label={t(lang, "pos_menu_staff_aria")} suppressHydrationWarning>
       {menuItems.map((item) => {
         const isActive = pathname === item.href;
@@ -266,5 +276,7 @@ export function PosStaffMenu({
         );
       })}
     </nav>
+    <PosMemberMaintenanceModal open={memberMaintenanceOpen} lang={lang} onClose={() => setMemberMaintenanceOpen(false)} />
+    </>
   );
 }
