@@ -947,6 +947,8 @@ const uiText = {
     cashChange: "เงินทอน",
     cashConfirm: "ยืนยันชำระ",
     productOutOfStock: "สินค้าหมด",
+    productOutOfStockBody: "ไม่สามารถเพิ่มรายการนี้ได้ เพราะจำนวนคงเหลือไม่พอ",
+    productOutOfStockOk: "ตกลง",
     productStockRemaining: "คงเหลือ",
     member: "สมาชิก",
     memberComingSoon: "เปิดหน้าสมาชิก",
@@ -1288,6 +1290,8 @@ const uiText = {
     cashChange: "Change",
     cashConfirm: "Confirm payment",
     productOutOfStock: "Out of stock",
+    productOutOfStockBody: "This item cannot be added because available stock is not enough.",
+    productOutOfStockOk: "OK",
     productStockRemaining: "Stock",
     member: "Member",
     memberComingSoon: "Open members",
@@ -2000,6 +2004,7 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
   const [stockApprovalId, setStockApprovalId] = useState<string | null>(null);
   const [stockAdjusting, setStockAdjusting] = useState(false);
   const [stockAdjustError, setStockAdjustError] = useState<string | null>(null);
+  const [outOfStockNotice, setOutOfStockNotice] = useState<{ productName: string } | null>(null);
   const [reviewItemDeductingKey, setReviewItemDeductingKey] = useState<string | null>(null);
   const [reviewItemDeductingMode, setReviewItemDeductingMode] = useState<"deduct" | "restore" | null>(null);
   const [reviewRecipeProductIds, setReviewRecipeProductIds] = useState<Set<string>>(new Set());
@@ -4872,6 +4877,11 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
 
   function sendPendingDeliveryBill(heldBill: HeldBill) { queueDeliveryPendingAction(heldBill, "send", async (entry) => { await sendPendingDeliveryBillNow(entry); }); }
 
+  function showOutOfStockNotice(productName: string) {
+    pushSubmitMessage(`${text.productOutOfStock}: ${productName}`);
+    setOutOfStockNotice({ productName });
+  }
+
   function addCartLine(product: ProductRow, input?: { quantity?: number; notes?: string | null; extraPrice?: number }) {
     const stockUnits = product.stock_on_hand_units;
     const quantity = Math.max(1, Math.trunc(Number(input?.quantity ?? 1)));
@@ -4882,8 +4892,7 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
       .filter((row) => row.product_id === product.id)
       .reduce((sum, row) => sum + row.quantity, 0);
     if (!allowNegativeStock && stockUnits !== null && stockUnits !== undefined && cartQty + quantity > Number(stockUnits)) {
-      pushSubmitMessage(`${text.productOutOfStock}: ${product.name}`);
-      window.alert(`${text.productOutOfStock}: ${product.name}`);
+      showOutOfStockNotice(product.name);
       return;
     }
     const unitPrice = Number((getProductPriceForCurrentMode(product) + Math.max(0, Number(input?.extraPrice ?? 0))).toFixed(2));
@@ -4920,8 +4929,7 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
         .filter((row) => row.product_id === product?.id)
         .reduce((sum, row) => sum + row.quantity, 0);
       if (!allowNegativeStock && stockUnits !== null && stockUnits !== undefined && currentQty + delta > Number(stockUnits)) {
-        pushSubmitMessage(`${text.productOutOfStock}: ${product?.name ?? cartLineId}`);
-        window.alert(`${text.productOutOfStock}: ${product?.name ?? cartLineId}`);
+        showOutOfStockNotice(product?.name ?? cartLineId);
         return;
       }
     }
@@ -4944,7 +4952,7 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
       .filter((row) => row.product_id === currentLine.product_id && (row.cart_line_id ?? row.product_id) !== cartLineId)
       .reduce((sum, row) => sum + row.quantity, 0);
     if (!allowNegativeStock && stockUnits !== null && stockUnits !== undefined && otherQuantity + nextQuantity > Number(stockUnits)) {
-      pushSubmitMessage(`${text.productOutOfStock}: ${product?.name ?? currentLine.name}`);
+      showOutOfStockNotice(product?.name ?? currentLine.name);
       return false;
     }
     setCart((current) =>
@@ -8215,6 +8223,24 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
       ) : null}
 
       {stockAdjustError ? <ErrorState message={stockAdjustError} /> : null}
+
+      {outOfStockNotice ? (
+        <div className="posui-payment-modal-backdrop" role="alertdialog" aria-modal="true" aria-label={text.productOutOfStock}>
+          <section className="posui-payment-modal posui-payment-modal--stock-alert" onClick={(event) => event.stopPropagation()}>
+            <div className="posui-stock-alert__mark" aria-hidden="true">!</div>
+            <div className="posui-stock-alert__content">
+              <h3>{text.productOutOfStock}</h3>
+              <p>{text.productOutOfStockBody}</p>
+              <strong>{outOfStockNotice.productName}</strong>
+            </div>
+            <div className="posui-payment-modal__actions posui-stock-alert__actions">
+              <button type="button" className="posui-btn posui-btn--primary" onClick={() => setOutOfStockNotice(null)} autoFocus>
+                {text.productOutOfStockOk}
+              </button>
+            </div>
+          </section>
+        </div>
+      ) : null}
 
       {tableMoveModalOpen ? (
         <div className="posui-payment-modal-backdrop" role="dialog" aria-modal="true" aria-label={text.tableMoveTitle}>

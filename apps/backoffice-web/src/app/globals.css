@@ -1860,6 +1860,7 @@ a {
 .posui-sales-topbar.is-collapsed.has-inline-categories .posui-mode-header-row,
 .posui-sales-topbar.is-collapsed.has-inline-table-controls .posui-mode-header-row {
   grid-template-columns: 34px minmax(156px, 188px) minmax(0, 1fr);
+  column-gap: 10px;
 }
 
 .posui-sales-topbar.is-collapsed .posui-sales-meta-group {
@@ -1903,7 +1904,7 @@ a {
   min-height: 42px;
   align-items: center;
   flex-wrap: nowrap;
-  gap: 8px;
+  gap: 12px;
   width: 100%;
   overflow: hidden;
 }
@@ -1911,7 +1912,7 @@ a {
 .posui-sales-topbar.is-collapsed .posui-topbar-table-slot .posui-table-browser__view-switch {
   flex: 0 0 auto;
   flex-wrap: nowrap;
-  gap: 6px;
+  gap: 8px;
 }
 
 .posui-sales-topbar.is-collapsed .posui-topbar-table-slot .posui-table-browser__view-switch .posui-chip {
@@ -1940,7 +1941,7 @@ a {
   border: 0;
   border-radius: 0;
   flex-wrap: nowrap;
-  gap: 6px;
+  gap: 8px;
   margin: 0;
   overflow-x: auto;
   padding: 0;
@@ -3981,6 +3982,66 @@ a {
 
 .posui-payment-modal--review {
   width: min(680px, calc(100vw - 32px));
+}
+
+.posui-payment-modal--stock-alert {
+  width: min(440px, calc(100vw - 32px));
+  gap: 12px;
+  justify-items: center;
+  text-align: center;
+  border-color: #bfdbfe;
+  background: #ffffff;
+}
+
+.posui-stock-alert__mark {
+  width: 48px;
+  height: 48px;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  background: #dbeafe;
+  color: #1d4ed8;
+  font-size: 28px;
+  font-weight: 950;
+}
+
+.posui-stock-alert__content {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.posui-stock-alert__content h3 {
+  margin: 0;
+  color: #0f172a;
+  font-size: 22px;
+  font-weight: 950;
+  line-height: 1.2;
+}
+
+.posui-stock-alert__content p {
+  margin: 0;
+  color: #475569;
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1.5;
+}
+
+.posui-stock-alert__content strong {
+  color: #9a3412;
+  font-size: 15px;
+  font-weight: 900;
+  line-height: 1.35;
+  word-break: break-word;
+}
+
+.posui-stock-alert__actions {
+  width: 100%;
+  justify-content: center;
+}
+
+.posui-stock-alert__actions .posui-btn {
+  min-width: 128px;
 }
 
 .posui-payment-modal--review-bill {
