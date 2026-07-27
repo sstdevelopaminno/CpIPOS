@@ -24,6 +24,7 @@ import { PosPaymentPanel } from "@/components/pos-ui/pos-payment-panel";
 import { PosShell } from "@/components/pos-ui/pos-shell";
 import { PackageLockDialog } from "@/components/pos-preview/package-lock-dialog";
 import { sendPendingDeliveryBillNowWithEffects, submitOrderWithEffects, submitTransferPaymentWithEffects } from "@/components/pos/services/pos-sales-service-module";
+import { TableZoneTabs } from "@/components/tables/table-zone-tabs";
 import type { DiningTableItem, TableZoneItem } from "@/components/tables/types";
 import { calculateDeliveryPricingBreakdown } from "@/lib/delivery-pricing";
 import { POS_MODE_FEATURES } from "@/lib/pos-feature-map";
@@ -7484,6 +7485,7 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
         setTableZoom={setTableZoom}
         tablePan={tablePan}
         setTablePan={setTablePan}
+        hideControls={showInlineTopbarTableControls}
         onRetryLoad={() => {
           void fetchPosTables().catch((tableError) => {
             markConnectivityFromError(tableError);
@@ -7603,6 +7605,7 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
           billNo={showSummaryBillNo ? activeBillNo : "-"}
           showBillNo={showSummaryBillNo}
           showPaymentMethod={showSummaryPaymentMethod}
+          showModeStatus
           showStatus={showSummaryStatus}
           showDiscount={showSummaryDiscount}
           showTax={showSummaryTax}
@@ -7619,6 +7622,7 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
               : null
           }
           paymentMethodValue={getBillPaymentMethodLabel(sidebarPaymentMethod)}
+          modeStatusValue={getQuickModeLabel()}
           memberSummary={
             selectedMember
               ? {
@@ -7643,6 +7647,7 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
             promotion: text.promotion,
             billNo: text.billNo,
             status: text.status,
+            mode: text.modeLabel,
             paymentMethod: text.paymentMethod,
             statusValue: getStatusValue()
           }}
@@ -7653,6 +7658,7 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
 
   const modifierHasSelectedIngredient = modifierDraft ? hasSelectedIngredientInNotes(modifierDraft.notes, modifierIngredients) : false;
   const showInlineTopbarCategories = salesTopbarCollapsed && !showTableBrowser && !showDeliverySetup;
+  const showInlineTopbarTableControls = salesTopbarCollapsed && showTableBrowser;
 
   function renderSalesCategoryNav() {
     if (showTableBrowser || showDeliverySetup) return null;
@@ -7664,6 +7670,37 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
         trailingActionLabel={text.manageMenu}
         onTrailingAction={() => setMenuManagerOpen(true)}
       />
+    );
+  }
+
+  function renderTableBrowserControls() {
+    if (!showTableBrowser) return null;
+    return (
+      <div className="posui-table-browser__controls-row posui-table-browser__controls-row--topbar">
+        <div className="posui-table-browser__view-switch" role="tablist" aria-label={text.tableSelectTitle}>
+          <button
+            type="button"
+            role="tab"
+            className={`posui-chip posui-chip--dine-view ${lang === "th" ? "is-th" : ""} ${tableViewMode === "list" ? "is-active" : ""}`}
+            onClick={() => updateTableViewMode("list")}
+          >
+            <span>{text.tableListMode}</span>
+            <small>{text.tableListModeSub}</small>
+          </button>
+          <button
+            type="button"
+            role="tab"
+            className={`posui-chip posui-chip--dine-view ${lang === "th" ? "is-th" : ""} ${tableViewMode === "floor" ? "is-active" : ""}`}
+            onClick={() => updateTableViewMode("floor")}
+          >
+            <span>{text.tableFloorMode}</span>
+            <small>{text.tableFloorModeSub}</small>
+          </button>
+        </div>
+        <div className="posui-table-browser__zones-inline">
+          <TableZoneTabs zones={tableZones} activeZoneId={tableZoneFilter} onChange={setTableZoneFilter} lang={lang} />
+        </div>
+      </div>
     );
   }
 
@@ -7695,7 +7732,7 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
 
       <PosShell
         topBar={
-          <div className={`posui-sales-topbar ${salesTopbarCollapsed ? "is-collapsed" : ""} ${showInlineTopbarCategories ? "has-inline-categories" : ""}`}>
+          <div className={`posui-sales-topbar ${salesTopbarCollapsed ? "is-collapsed" : ""} ${showInlineTopbarCategories ? "has-inline-categories" : ""} ${showInlineTopbarTableControls ? "has-inline-table-controls" : ""}`}>
             <div className="posui-mode-header-row">
               <button
                 type="button"
@@ -7821,6 +7858,7 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
                 </section>
               </div>
               {showInlineTopbarCategories ? <div className="posui-topbar-category-slot">{renderSalesCategoryNav()}</div> : null}
+              {showInlineTopbarTableControls ? <div className="posui-topbar-table-slot">{renderTableBrowserControls()}</div> : null}
             </div>
           </div>
         }

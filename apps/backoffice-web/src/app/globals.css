@@ -1846,7 +1846,8 @@ a {
   display: block;
 }
 
-.posui-topbar-category-slot {
+.posui-topbar-category-slot,
+.posui-topbar-table-slot {
   display: none;
   min-width: 0;
 }
@@ -1856,7 +1857,8 @@ a {
   align-items: center;
 }
 
-.posui-sales-topbar.is-collapsed.has-inline-categories .posui-mode-header-row {
+.posui-sales-topbar.is-collapsed.has-inline-categories .posui-mode-header-row,
+.posui-sales-topbar.is-collapsed.has-inline-table-controls .posui-mode-header-row {
   grid-template-columns: 34px minmax(156px, 188px) minmax(0, 1fr);
 }
 
@@ -1872,7 +1874,8 @@ a {
   padding-right: 0;
 }
 
-.posui-sales-topbar.is-collapsed .posui-topbar-category-slot {
+.posui-sales-topbar.is-collapsed .posui-topbar-category-slot,
+.posui-sales-topbar.is-collapsed .posui-topbar-table-slot {
   display: block;
   min-width: 0;
   border-left: 1px solid #e2e8f0;
@@ -1886,6 +1889,49 @@ a {
 
 .posui-sales-topbar.is-collapsed .posui-topbar-category-slot .posui-chip {
   min-height: 34px;
+}
+
+.posui-sales-topbar.is-collapsed .posui-topbar-table-slot .posui-table-browser__controls-row {
+  min-height: 42px;
+  align-items: center;
+  flex-wrap: nowrap;
+  gap: 8px;
+}
+
+.posui-sales-topbar.is-collapsed .posui-topbar-table-slot .posui-table-browser__view-switch {
+  flex: 0 0 auto;
+}
+
+.posui-sales-topbar.is-collapsed .posui-topbar-table-slot .posui-table-browser__view-switch .posui-chip {
+  min-height: 34px;
+  min-width: 84px;
+  padding: 5px 9px;
+}
+
+.posui-sales-topbar.is-collapsed .posui-topbar-table-slot .posui-table-browser__view-switch .posui-chip span,
+.posui-sales-topbar.is-collapsed .posui-topbar-table-slot .posui-table-browser__view-switch .posui-chip.is-th span {
+  font-size: 14px;
+}
+
+.posui-sales-topbar.is-collapsed .posui-topbar-table-slot .posui-table-browser__view-switch .posui-chip small,
+.posui-sales-topbar.is-collapsed .posui-topbar-table-slot .posui-table-browser__view-switch .posui-chip.is-th small {
+  font-size: 10px;
+}
+
+.posui-sales-topbar.is-collapsed .posui-topbar-table-slot .posui-table-browser__zones-inline {
+  min-width: 0;
+  overflow: hidden;
+}
+
+.posui-sales-topbar.is-collapsed .posui-topbar-table-slot .table-zone-tabs {
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  padding-bottom: 1px;
+}
+
+.posui-sales-topbar.is-collapsed .posui-topbar-table-slot .table-zone-tabs button {
+  min-height: 34px;
+  white-space: nowrap;
 }
 
 .posui-sales-topbar.is-collapsed .posui-mode-header-row .posui-top-actions-card {

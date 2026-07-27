@@ -13,6 +13,7 @@ type PaymentText = {
   billNo: string;
   status: string;
   statusValue: string;
+  mode?: string;
   tax?: string;
   paymentMethod?: string;
 };
@@ -45,6 +46,7 @@ type Props = {
   billNo?: string;
   showBillNo?: boolean;
   showPaymentMethod?: boolean;
+  showModeStatus?: boolean;
   showStatus?: boolean;
   showDiscount?: boolean;
   showTax?: boolean;
@@ -57,6 +59,7 @@ type Props = {
     tone: "pass" | "fail" | "warn";
   } | null;
   paymentMethodValue?: string;
+  modeStatusValue?: string;
   memberSummary?: {
     name: string;
     code?: string | null;
@@ -104,6 +107,7 @@ export function PosPaymentPanel({
   billNo = "BILL-2026-0001",
   showBillNo = true,
   showPaymentMethod = true,
+  showModeStatus = false,
   showStatus = true,
   showDiscount = true,
   showTax = true,
@@ -113,6 +117,7 @@ export function PosPaymentPanel({
   transferVerificationLabel,
   transferVerificationBadge,
   paymentMethodValue,
+  modeStatusValue,
   memberSummary,
   text
 }: Props) {
@@ -175,6 +180,12 @@ export function PosPaymentPanel({
           <p>
             <span>{text.paymentMethod}</span>
             <strong>{paymentMethodValue ?? "-"}</strong>
+          </p>
+        ) : null}
+        {showModeStatus && text.mode ? (
+          <p>
+            <span>{text.mode}</span>
+            <strong>{modeStatusValue ?? text.statusValue}</strong>
           </p>
         ) : null}
         {showStatus ? (

@@ -43,6 +43,7 @@ type Props = {
   setTableZoom: (updater: (current: number) => number) => void;
   tablePan: { x: number; y: number };
   setTablePan: (value: { x: number; y: number }) => void;
+  hideControls?: boolean;
   onRetryLoad: () => void;
   onTablePrefetch: (table: DiningTableItem) => void;
   onSelectTable: (table: DiningTableItem) => void;
@@ -66,6 +67,7 @@ function PosTableBrowserInner({
   setTableZoom,
   tablePan,
   setTablePan,
+  hideControls = false,
   onRetryLoad,
   onTablePrefetch,
   onSelectTable
@@ -89,33 +91,35 @@ function PosTableBrowserInner({
     <section className="posui-table-browser" aria-label={text.tableSelectTitle}>
       {tableViewMode === "list" ? (
         <>
-          <div className="posui-table-browser__controls-card">
-            <div className="posui-table-browser__controls-row">
-              <div className="posui-table-browser__view-switch" role="tablist" aria-label={text.tableSelectTitle}>
-                <button
-                  type="button"
-                  role="tab"
-                  className={`posui-chip posui-chip--dine-view ${lang === "th" ? "is-th" : ""} is-active`}
-                  onClick={() => setTableViewMode("list")}
-                >
-                  <span>{text.tableListMode}</span>
-                  <small>{text.tableListModeSub}</small>
-                </button>
-                <button
-                  type="button"
-                  role="tab"
-                  className={`posui-chip posui-chip--dine-view ${lang === "th" ? "is-th" : ""}`}
-                  onClick={() => setTableViewMode("floor")}
-                >
-                  <span>{text.tableFloorMode}</span>
-                  <small>{text.tableFloorModeSub}</small>
-                </button>
-              </div>
-              <div className="posui-table-browser__zones-inline">
-                <TableZoneTabs zones={tableZones} activeZoneId={tableZoneFilter} onChange={setTableZoneFilter} lang={lang} />
+          {!hideControls ? (
+            <div className="posui-table-browser__controls-card">
+              <div className="posui-table-browser__controls-row">
+                <div className="posui-table-browser__view-switch" role="tablist" aria-label={text.tableSelectTitle}>
+                  <button
+                    type="button"
+                    role="tab"
+                    className={`posui-chip posui-chip--dine-view ${lang === "th" ? "is-th" : ""} is-active`}
+                    onClick={() => setTableViewMode("list")}
+                  >
+                    <span>{text.tableListMode}</span>
+                    <small>{text.tableListModeSub}</small>
+                  </button>
+                  <button
+                    type="button"
+                    role="tab"
+                    className={`posui-chip posui-chip--dine-view ${lang === "th" ? "is-th" : ""}`}
+                    onClick={() => setTableViewMode("floor")}
+                  >
+                    <span>{text.tableFloorMode}</span>
+                    <small>{text.tableFloorModeSub}</small>
+                  </button>
+                </div>
+                <div className="posui-table-browser__zones-inline">
+                  <TableZoneTabs zones={tableZones} activeZoneId={tableZoneFilter} onChange={setTableZoneFilter} lang={lang} />
+                </div>
               </div>
             </div>
-          </div>
+          ) : null}
           <div className="posui-table-strip" role="list">
             {visibleTables.length === 0 ? (
               renderTableEmptyState()
@@ -146,33 +150,35 @@ function PosTableBrowserInner({
         </>
       ) : (
         <>
-          <div className="posui-table-browser__controls-card">
-            <div className="posui-table-browser__controls-row">
-              <div className="posui-table-browser__view-switch" role="tablist" aria-label={text.tableSelectTitle}>
-                <button
-                  type="button"
-                  role="tab"
-                  className={`posui-chip posui-chip--dine-view ${lang === "th" ? "is-th" : ""}`}
-                  onClick={() => setTableViewMode("list")}
-                >
-                  <span>{text.tableListMode}</span>
-                  <small>{text.tableListModeSub}</small>
-                </button>
-                <button
-                  type="button"
-                  role="tab"
-                  className={`posui-chip posui-chip--dine-view ${lang === "th" ? "is-th" : ""} is-active`}
-                  onClick={() => setTableViewMode("floor")}
-                >
-                  <span>{text.tableFloorMode}</span>
-                  <small>{text.tableFloorModeSub}</small>
-                </button>
-              </div>
-              <div className="posui-table-browser__zones-inline">
-                <TableZoneTabs zones={tableZones} activeZoneId={tableZoneFilter} onChange={setTableZoneFilter} lang={lang} />
+          {!hideControls ? (
+            <div className="posui-table-browser__controls-card">
+              <div className="posui-table-browser__controls-row">
+                <div className="posui-table-browser__view-switch" role="tablist" aria-label={text.tableSelectTitle}>
+                  <button
+                    type="button"
+                    role="tab"
+                    className={`posui-chip posui-chip--dine-view ${lang === "th" ? "is-th" : ""}`}
+                    onClick={() => setTableViewMode("list")}
+                  >
+                    <span>{text.tableListMode}</span>
+                    <small>{text.tableListModeSub}</small>
+                  </button>
+                  <button
+                    type="button"
+                    role="tab"
+                    className={`posui-chip posui-chip--dine-view ${lang === "th" ? "is-th" : ""} is-active`}
+                    onClick={() => setTableViewMode("floor")}
+                  >
+                    <span>{text.tableFloorMode}</span>
+                    <small>{text.tableFloorModeSub}</small>
+                  </button>
+                </div>
+                <div className="posui-table-browser__zones-inline">
+                  <TableZoneTabs zones={tableZones} activeZoneId={tableZoneFilter} onChange={setTableZoneFilter} lang={lang} />
+                </div>
               </div>
             </div>
-          </div>
+          ) : null}
           <div className="posui-table-floor-wrap">
             {visibleTables.length === 0 ? renderTableEmptyState() : null}
             <FloorPlanToolbar
@@ -205,4 +211,3 @@ function PosTableBrowserInner({
 }
 
 export const PosTableBrowser = memo(PosTableBrowserInner);
-
