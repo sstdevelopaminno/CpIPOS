@@ -1,5 +1,5 @@
 import { getAuthContext } from "@/lib/auth-context";
-import { buildExcelCsvBytes, type CsvCellValue } from "@/lib/excel-csv";
+import { buildExcelHtmlBytes, type CsvCellValue } from "@/lib/excel-csv";
 import { fail } from "@/lib/http";
 import { POS_GUARDS } from "@/lib/pos-resilience";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
@@ -162,11 +162,11 @@ export async function GET(req: Request) {
       ]);
     }
 
-    const fileName = `pos-incidents-${dateInput}.csv`;
-    return new Response(buildExcelCsvBytes(csvRows), {
+    const fileName = `pos-incidents-${dateInput}.xls`;
+    return new Response(buildExcelHtmlBytes(csvRows), {
       status: 200,
       headers: {
-        "Content-Type": "text/csv; charset=utf-16le",
+        "Content-Type": "application/vnd.ms-excel; charset=utf-8",
         "Content-Disposition": `attachment; filename="${fileName}"`,
         "Cache-Control": "no-store",
         "x-admin-pos-incidents-export-ms": String(Date.now() - startedAt)

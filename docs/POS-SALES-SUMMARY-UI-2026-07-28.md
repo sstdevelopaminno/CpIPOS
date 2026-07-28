@@ -10,11 +10,11 @@ Updated `/preview/pos/sales-summary` in `apps/backoffice-web/src/components/pos-
 - Main page now starts with the shift summary table, reducing vertical clutter and UI load.
 - Replaced the fixed `.slice(0, 12)` shift table limit with pagination.
 - `Export CSV` now exports only the visible `สรุปกะ` table page instead of exporting all sales rows from a different dialog.
-- CSV export now uses the shared Excel CSV helper: UTF-16LE BOM, `sep=,`, CRLF line endings, quoted cells, formula escaping, and language-specific headers. This is more reliable for Thai text in Windows Excel than plain UTF-8 CSV.
+- Export now uses the shared Excel export helper and downloads an Excel-readable `.xls` HTML table with UTF-8 metadata and BOM. This avoids Windows Excel opening `.csv` as ANSI and corrupting Thai text.
 - The `ดูเพิ่มเติม` popup now has an `Export CSV` button on the right side of the header. It exports only the active tab table: payment methods, best-selling products, or cashier performance.
 - The `รายการขาย` popup also has its own `Export CSV` button and exports all visible columns in that sales-row table only.
 - The `ดูเพิ่มเติม` export button now shows the active table name, so staff can verify which table will be saved before clicking.
-- Added `tests/integration/excel-csv.integration.test.ts` to protect Thai text, column separators, formula escaping, and UTF-16LE BOM behavior.
+- Added `tests/integration/excel-csv.integration.test.ts` to protect Thai text, column separators, formula escaping, and Excel HTML UTF-8 BOM behavior.
 
 ## Printing Note From Attached Spec
 

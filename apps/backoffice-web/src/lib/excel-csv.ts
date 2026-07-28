@@ -6,38 +6,51 @@ function escapeCsvCell(value: CsvCellValue, delimiter: string) {
   return `"${safeText.replace(/"/g, '""')}"`;
 }
 
+function escapeHtml(value: CsvCellValue) {
+  const text = String(value ?? "");
+  const safeText = /^[=+\-@]/.test(text) ? `'${text}` : text;
+  return safeText
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
 export function buildExcelCsvText(rows: CsvCellValue[][], delimiter = ",") {
   const body = rows.map((row) => row.map((cell) => escapeCsvCell(cell, delimiter)).join(delimiter)).join("\r\n");
   return `sep=${delimiter}\r\n${body}\r\n`;
 }
 
-export function encodeUtf16LeWithBom(text: string) {
-  const bytes = new Uint8Array(2 + text.length * 2);
-  bytes[0] = 0xff;
-  bytes[1] = 0xfe;
-  for (let index = 0; index < text.length; index += 1) {
-    const code = text.charCodeAt(index);
-    const offset = 2 + index * 2;
-    bytes[offset] = code & 0xff;
-    bytes[offset + 1] = code >> 8;
-  }
-  return bytes;
+export function buildExcelHtmlText(rows: CsvCellValue[][]) {
+  const htmlRows = rows
+    .map(
+      (row) =>
+        `<tr>${row
+          .map((cell) => `<td style="mso-number-format:'\\@';white-space:nowrap;">${escapeHtml(cell)}</td>`)
+          .join("")}</tr>`
+    )
+    .join("");
+  return `<!doctype html><html><head><meta charset="utf-8"><style>table{border-collapse:collapse;}td{border:1px solid #d9e2ef;padding:4px 8px;font-family:Tahoma,Arial,sans-serif;font-size:11pt;}</style></head><body><table>${htmlRows}</table></body></html>`;
 }
 
-export function buildExcelCsvBytes(rows: CsvCellValue[][], delimiter = ",") {
-  return encodeUtf16LeWithBom(buildExcelCsvText(rows, delimiter));
+export function buildExcelHtmlBytes(rows: CsvCellValue[][]) {
+  return new TextEncoder().encode(`\uFEFF${buildExcelHtmlText(rows)}`);
 }
 
-export function buildExcelCsvBlob(rows: CsvCellValue[][], delimiter = ",") {
-  return new Blob([buildExcelCsvBytes(rows, delimiter)], { type: "text/csv;charset=utf-16le" });
+export function buildExcelHtmlBlob(rows: CsvCellValue[][]) {
+  return new Blob([buildExcelHtmlBytes(rows)], { type: "application/vnd.ms-excel;charset=utf-8" });
 }
 
-export function downloadExcelCsv(filename: string, rows: CsvCellValue[][], delimiter = ",") {
-  const blob = buildExcelCsvBlob(rows, delimiter);
+function toExcelHtmlFilename(filename: string) {
+  return filename.replace(/\.csv$/i, ".xls") || "export.xls";
+}
+
+export function downloadExcelCsv(filename: string, rows: CsvCellValue[][]) {
+  const blob = buildExcelHtmlBlob(rows);
   const url = window.URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;
-  link.download = filename;
+  link.download = toExcelHtmlFilename(filename);
   document.body.appendChild(link);
   link.click();
   link.remove();

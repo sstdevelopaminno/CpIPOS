@@ -10,7 +10,7 @@
 
 - Added `Export CSV` to the main `รายการขาย` toolbar.
 - CSV exports only the visible table page, not KPI cards and not hidden detail data.
-- CSV uses the shared Excel CSV helper with UTF-16LE BOM, `sep=,`, CRLF rows, localized Thai/English headers, quoted cells, and spreadsheet-formula escaping to prevent unreadable Thai text or collapsed columns in Windows Excel.
+- Export uses the shared Excel export helper and downloads an Excel-readable `.xls` HTML table with UTF-8 metadata and BOM. This prevents Windows Excel from opening Thai text as ANSI mojibake and keeps table columns stable.
 - Edit now opens a real edit popup after manager/owner PIN approval, instead of cycling local state.
 - Delete now calls the sales-list API after PIN approval and soft-hides the order with `metadata.sales_list_deleted = true`.
 - Sales-list loading filters out rows marked `sales_list_deleted`.
@@ -26,5 +26,5 @@
 ## Verification Notes
 
 - Run `corepack pnpm --filter backoffice-web typecheck` after changes.
-- Run `corepack pnpm --filter backoffice-web exec vitest run tests/integration/excel-csv.integration.test.ts` when changing CSV behavior.
+- Run `corepack pnpm --filter backoffice-web exec vitest run tests/integration/excel-csv.integration.test.ts` when changing export behavior.
 - On the follow-up round, the user explicitly requested commit, push, and deploy after verification.
