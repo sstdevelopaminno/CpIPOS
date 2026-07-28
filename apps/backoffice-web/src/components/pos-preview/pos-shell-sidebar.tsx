@@ -1,8 +1,8 @@
 ﻿"use client";
 
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
-import { MouseEvent, useEffect, useState, useTransition } from "react";
+import { usePathname } from "next/navigation";
+import { MouseEvent, useEffect, useState } from "react";
 import { LanguageSwitcher } from "@/components/language/language-switcher";
 import { PackageLockDialog } from "@/components/pos-preview/package-lock-dialog";
 import { PosStaffMenu } from "@/components/pos-preview/pos-staff-menu";
@@ -54,9 +54,6 @@ const COMPACT_SIDEBAR_QUERY = "(min-width: 768px) and (max-width: 1180px) and (o
 export function PosShellSidebar({ lang, settingsLabel, languageLabel, thaiLabel, englishLabel }: Props) {
   const [collapsed, setCollapsed] = useState(false);
   const pathname = usePathname();
-  const router = useRouter();
-  const [isPending, startTransition] = useTransition();
-  const [pendingHref, setPendingHref] = useState<string | null>(null);
   const [sessionRole, setSessionRole] = useState<PosRole | null>(null);
   const [enabledFeatures, setEnabledFeatures] = useState<Record<string, boolean> | null>(null);
   const [packageLockOpen, setPackageLockOpen] = useState(false);
@@ -113,12 +110,6 @@ export function PosShellSidebar({ lang, settingsLabel, languageLabel, thaiLabel,
   }, []);
 
   useEffect(() => {
-    if (!isPending) {
-      setPendingHref(null);
-    }
-  }, [isPending]);
-
-  useEffect(() => {
     let cancelled = false;
     async function loadFeatures() {
       try {
@@ -157,11 +148,6 @@ export function PosShellSidebar({ lang, settingsLabel, languageLabel, thaiLabel,
       setPackageLockOpen(true);
       return;
     }
-    event.preventDefault();
-    setPendingHref("/preview/pos/settings");
-    startTransition(() => {
-      router.push("/preview/pos/settings");
-    });
   }
 
   async function submitLogout(mode: "switch_device" | "full") {
@@ -235,7 +221,6 @@ export function PosShellSidebar({ lang, settingsLabel, languageLabel, thaiLabel,
         {showAdvancedMenus ? (
           <Link
             href="/preview/pos/settings"
-            prefetch={false}
             onClick={handleSettingsNavigate}
             className={`group relative mt-0.5 inline-flex min-h-[40px] w-full items-center px-2 text-[13px] font-semibold leading-tight transition ${
               collapsed ? "justify-center" : "justify-start gap-2"
@@ -245,9 +230,8 @@ export function PosShellSidebar({ lang, settingsLabel, languageLabel, thaiLabel,
                 : isSettingsLocked
                   ? "rounded-xl text-slate-400/70"
                   : "rounded-xl text-slate-100/90 hover:bg-white/5 hover:text-white"
-            } ${pendingHref === "/preview/pos/settings" && isPending ? "opacity-80" : ""}`}
+            }`}
             title={collapsed ? settingsLabel : isSettingsLocked ? (lang === "th" ? POS_MENU_LOCK_TITLE_TH : POS_MENU_LOCK_TITLE_EN) : undefined}
-            aria-busy={pendingHref === "/preview/pos/settings" && isPending}
             aria-disabled={isSettingsLocked}
           >
             <span className="inline-flex w-4 justify-center" aria-hidden>

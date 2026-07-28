@@ -24,16 +24,18 @@ export function PosCategoryNav({
   trailingActionLabel,
   onTrailingAction
 }: Props) {
-  const dragStateRef = useRef<{ pointerId: number; startX: number; scrollLeft: number } | null>(null);
+  const dragStateRef = useRef<{ pointerId: number; startX: number; scrollLeft: number; pointerType: string } | null>(null);
   const didDragRef = useRef(false);
 
   function startDrag(event: React.PointerEvent<HTMLElement>) {
-    if (event.pointerType === "mouse" && event.button !== 0) return;
+    if (event.pointerType !== "mouse") return;
+    if (event.button !== 0) return;
     const target = event.currentTarget;
     dragStateRef.current = {
       pointerId: event.pointerId,
       startX: event.clientX,
-      scrollLeft: target.scrollLeft
+      scrollLeft: target.scrollLeft,
+      pointerType: event.pointerType
     };
     didDragRef.current = false;
     target.setPointerCapture(event.pointerId);
@@ -43,7 +45,7 @@ export function PosCategoryNav({
     const dragState = dragStateRef.current;
     if (!dragState || dragState.pointerId !== event.pointerId) return;
     const deltaX = event.clientX - dragState.startX;
-    if (Math.abs(deltaX) > 4) {
+    if (Math.abs(deltaX) > 8) {
       didDragRef.current = true;
       event.currentTarget.scrollLeft = dragState.scrollLeft - deltaX;
     }

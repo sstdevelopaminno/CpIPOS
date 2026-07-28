@@ -1,8 +1,8 @@
 ﻿"use client";
 
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
-import { MouseEvent, useEffect, useMemo, useState, useTransition } from "react";
+import { usePathname } from "next/navigation";
+import { MouseEvent, useMemo, useState } from "react";
 import { PosMemberMaintenanceModal } from "@/components/pos/pos-member-maintenance-modal";
 import { t, type Language } from "@/lib/i18n";
 import {
@@ -185,9 +185,6 @@ export function PosStaffMenu({
   onLockedFeature: () => void;
 }) {
   const pathname = usePathname();
-  const router = useRouter();
-  const [isPending, startTransition] = useTransition();
-  const [pendingHref, setPendingHref] = useState<string | null>(null);
   const [memberMaintenanceOpen, setMemberMaintenanceOpen] = useState(false);
   const effectiveRole = resolveMenuRole(sessionRole);
   const menuItems = useMemo(
@@ -201,12 +198,6 @@ export function PosStaffMenu({
       })).filter((item) => item.roles.includes(effectiveRole)),
     [effectiveRole, lang]
   );
-
-  useEffect(() => {
-    if (!isPending) {
-      setPendingHref(null);
-    }
-  }, [isPending]);
 
   function handleNavigate(event: MouseEvent<HTMLAnchorElement>, href: string) {
     if (
@@ -228,11 +219,6 @@ export function PosStaffMenu({
       event.preventDefault();
       return;
     }
-    event.preventDefault();
-    setPendingHref(href);
-    startTransition(() => {
-      router.push(href);
-    });
   }
 
   function handleLockedNavigate(event: MouseEvent<HTMLAnchorElement>) {
@@ -245,14 +231,12 @@ export function PosStaffMenu({
     <nav className="grid gap-1" aria-label={t(lang, "pos_menu_staff_aria")} suppressHydrationWarning>
       {menuItems.map((item) => {
         const isActive = pathname === item.href;
-        const isNavigating = pendingHref === item.href && isPending;
         const isFeatureLoaded = enabledFeatures !== null;
         const isLocked = Boolean(isFeatureLoaded && item.feature && enabledFeatures?.[item.feature] === false);
         return (
           <Link
             key={item.href}
             href={item.href}
-            prefetch={false}
             onClick={(event) => (isLocked ? handleLockedNavigate(event) : handleNavigate(event, item.href))}
             className={`group relative inline-flex min-h-[42px] items-center px-2 text-[13px] font-semibold leading-tight transition ${
               collapsed ? "justify-center" : "justify-start gap-2"
@@ -262,9 +246,8 @@ export function PosStaffMenu({
                 : isLocked
                   ? "rounded-xl text-slate-400/85 hover:bg-white/5 hover:text-slate-200"
                   : "rounded-xl text-slate-100/90 hover:bg-white/8 hover:text-white"
-            } ${isNavigating ? "opacity-80" : ""}`}
+            }`}
             title={collapsed ? item.label : isLocked ? (lang === "th" ? POS_MENU_LOCK_TITLE_TH : POS_MENU_LOCK_TITLE_EN) : undefined}
-            aria-busy={isNavigating}
             aria-disabled={isLocked}
           >
             <span className="inline-flex w-4 justify-center" aria-hidden>
