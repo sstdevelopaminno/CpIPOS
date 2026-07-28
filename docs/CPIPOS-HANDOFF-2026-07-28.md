@@ -14,6 +14,7 @@ Run on 2026-07-28 from `E:\CpIPOS`:
 - `corepack pnpm --filter backoffice-web typecheck` passed.
 - `corepack pnpm --filter backoffice-web test` passed: 27 files, 65 tests.
 - `corepack pnpm --filter backoffice-web build` passed. First 5-minute attempt timed out; rerun with 10-minute timeout completed successfully.
+- Recheck after `345ba2f`: typecheck passed; tests passed 28 files / 68 tests; production Vercel inspect is Ready. Full lint timed out twice without visible ESLint errors, while targeted ESLint for QR customer/table issuing paths passed. See `docs/SYSTEM-RECHECK-2026-07-28.md`.
 
 ## Latest Code Fix In This Round
 
@@ -50,6 +51,10 @@ Run on 2026-07-28 from `E:\CpIPOS`:
 - `apps/backoffice-web/src/components/table-order/table-order-mobile.tsx`: customer table QR closed/paid states now appear as auto-hiding popup toast, not inline red alert. The page polls active QR menu status every 5 seconds while visible, refreshes on window focus, clears the cart, closes cart details, and disables ordering/service buttons when the bill is paid or closed.
 - `docs/POS-SALES-LIST-UI-2026-07-28.md`: records the sales-list CSV/edit/delete guardrails. User requested no commit, push, or deploy for this round until explicit instruction.
 - `docs/STABILITY-NETWORK-API-AUDIT-2026-07-28.md`: recorded current evidence for slow UI, unstable API behavior, local filesystem/cache pressure, slow Next dev compile, slow POS session/monitor endpoints, and deployment notes. `docs/ACTIVE-DOCS-INDEX.md` links to this audit.
+- `docs/SYSTEM-RECHECK-2026-07-28.md`: records the latest post-deploy verification and warns future AI that full lint currently behaves like a local tooling/filesystem bottleneck unless real ESLint errors are printed.
+- `docs/IT-BACKOFFICE-API-DESIGN-2026-07-28.md`: records the next IT Backoffice API design for tenant/store lifecycle, branch/user/device controls, package/contract/feature management, audit logging, and the required pagination/RPC approach for multi-tenant scale. This is a design document only until matching routes/tests/migrations are implemented.
+- IT Backoffice API Phase 1 is implemented locally and the production Supabase migration `20260728160924` is applied/verified: tenant summary RPC migration, `src/lib/services/it-admin/*`, `/api/it-admin/v1/*` routes, package management APIs, and old `/api/it-admin/admin/tenants` bottleneck reduction. Verification passed typecheck, targeted ESLint, tests, and build. Local Supabase DB was not running, so local migration verification remains blocked.
+- Supabase migration history still has older drift outside this change: six remote-only versions and several local-only 20260718-20260723 versions. Do not use broad `supabase db push --include-all` until that drift is reviewed.
 
 ## Workspace Notes
 

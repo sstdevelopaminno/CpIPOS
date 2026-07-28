@@ -1,6 +1,6 @@
 # Active Documentation Index
 
-Last reviewed: 2026-07-27
+Last reviewed: 2026-07-28
 
 Use this page as the first stop before new development. It separates active implementation guidance from historical QR-era material.
 
@@ -20,6 +20,8 @@ Use this page as the first stop before new development. It separates active impl
 - [CpIPOS Production Checkpoint](./CPIPOS-PRODUCTION-CHECKPOINT-2026-07-27.md)
 - [Local Dev Login Performance Checkpoint](./LOCAL-DEV-LOGIN-PERFORMANCE-2026-07-27.md)
 - [Stability / Network / API Audit 2026-07-28](./STABILITY-NETWORK-API-AUDIT-2026-07-28.md)
+- [System Recheck 2026-07-28](./SYSTEM-RECHECK-2026-07-28.md)
+- [IT Backoffice API Design 2026-07-28](./IT-BACKOFFICE-API-DESIGN-2026-07-28.md)
 - [POS Shift Clear Open Bills 2026-07-28](./POS-SHIFT-CLEAR-OPEN-BILLS-2026-07-28.md)
 - [POS Sales Summary UI 2026-07-28](./POS-SALES-SUMMARY-UI-2026-07-28.md)
 - [POS Sales List UI 2026-07-28](./POS-SALES-LIST-UI-2026-07-28.md)

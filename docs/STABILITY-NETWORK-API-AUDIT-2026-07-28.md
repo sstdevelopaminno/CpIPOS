@@ -19,6 +19,7 @@ Checked local development evidence for symptoms reported by the user: slow UI, u
   - Full Tailwind processing reached `13.0s`.
 - Next filesystem cache compaction took `69s`.
 - Local command execution itself is slow. Several file reads and process checks took tens of seconds or timed out during this round, which points to local filesystem/cache pressure in addition to application API latency.
+- 2026-07-28 recheck: full `corepack pnpm --filter backoffice-web lint` timed out twice, at about 184s and 304s, without visible ESLint errors. Targeted ESLint for current QR customer/table issuing paths passed but still took about 105-108s per run.
 
 ## Likely Causes
 
@@ -27,6 +28,7 @@ Checked local development evidence for symptoms reported by the user: slow UI, u
 3. POS session and monitor APIs were repeatedly slow, especially `session/current` and `pos/monitor`.
 4. Slow Supabase/network calls can surface as API delay because many POS routes resolve session, shift, device, features, and branch data before rendering.
 5. Previous API calls could block the UI on non-critical metrics, telemetry, or long-running lookup paths. Recent changes reduced some of this risk by adding degraded responses and timeouts.
+6. IT-admin tenant listing currently aggregates branch/session counts with separate broad queries. Before many tenants/branches are onboarded, replace this with paginated tenant summary via SQL view/RPC to avoid app-memory fan-out.
 
 ## Mitigations Already Added
 
@@ -36,6 +38,7 @@ Checked local development evidence for symptoms reported by the user: slow UI, u
 - Table QR issuing now checks `TABLE_QR_SIGNING_SECRET` before Supabase table/session queries or QR session writes. Missing signing config fails fast with a Thai operator message and the client does not retry non-recoverable configuration errors.
 - Customer table QR category chips now normalize duplicate/blank categories, reset safely when the menu payload changes, scroll the selected chip into view, and use a stricter horizontal touch rail so many categories can be swiped left/right without blocking taps.
 - Customer table QR closed/paid states now show an auto-hiding popup instead of an inline red alert. The QR page polls active menu status every 5 seconds while visible, refreshes on focus, clears the cart, and disables actions when the linked table bill is paid or closed.
+- IT-admin tenant summary now has a Phase 1 fix: a paginated service layer plus `get_it_admin_tenant_summary(...)` RPC migration. Production Supabase has the RPC/view applied and verified; if another environment misses the migration, the route still uses a compatibility fallback.
 - Shift close open-bill errors are Thai and appear as auto-hiding popup notifications.
 - Customer QR checkout is guarded until a food order exists, both in UI and API.
 
@@ -48,6 +51,7 @@ Checked local development evidence for symptoms reported by the user: slow UI, u
 5. For production, verify Supabase latency from the deployment region and keep auth/session timeouts fail-fast with Thai retry messages.
 6. Do not treat the first route after a dev restart as runtime slowness; retest after warm-up.
 7. Production table QR requires `TABLE_QR_SIGNING_SECRET` in Vercel. Code changes cannot create signed QR links until that secret is configured and redeployed.
+8. For IT Backoffice expansion, add `/api/it-admin/v1/*` as a versioned facade and keep large summary/list endpoints paginated. See `docs/IT-BACKOFFICE-API-DESIGN-2026-07-28.md`.
 
 ## Verification This Round
 
@@ -56,6 +60,9 @@ Checked local development evidence for symptoms reported by the user: slow UI, u
 - Focused `table-qr-ordering.integration.test.ts` passed: 5 tests.
 - Latest customer QR category fix: `corepack pnpm --filter backoffice-web typecheck` passed, and targeted ESLint passed for `src/components/table-order/table-order-mobile.tsx`.
 - Latest customer QR closed-link popup/status polling fix: `corepack pnpm --filter backoffice-web typecheck` passed, and targeted ESLint passed for `src/components/table-order/table-order-mobile.tsx`.
+- Latest system recheck: typecheck passed; Vitest passed 28 files / 68 tests; Vercel production inspect returned Ready. Full lint timeout is recorded as a tooling/performance bottleneck unless a future run prints actual lint errors.
+- IT Backoffice API Phase 1 verification: typecheck passed; targeted ESLint for IT-admin v1/services passed; Vitest passed 28 files / 68 tests; production build passed on the 10-minute run. Production Supabase migration `20260728160924` was applied and RPC sample query passed. Local Supabase migration verification was blocked because local Postgres was not running.
+- Supabase migration history has older drift outside this change, so avoid broad migration repair or `db push --include-all` until the missing local/remote history is reconciled.
 
 ## GitHub / Deployment Notes
 

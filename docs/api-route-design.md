@@ -23,6 +23,14 @@ Base: `apps/backoffice-web/src/app/api`
 - `POST /api/it-admin/tenants`
   - Activate/create new tenant and package link.
 
+## IT Backoffice API next design
+- See `docs/IT-BACKOFFICE-API-DESIGN-2026-07-28.md`.
+- Current platform UI routes live under `/api/it-admin/admin/*`.
+- Future stable facade should use `/api/it-admin/v1/*` while reusing shared service logic.
+- All list endpoints must be paginated for multi-tenant/multi-branch scale.
+- Tenant summary aggregation should move to a DB view/RPC instead of app-memory aggregation.
+- Phase 1 local implementation adds `/api/it-admin/v1/health`, `/api/it-admin/v1/tenants`, `/api/it-admin/v1/packages`, v1 facades for existing tenant branch/user/device/contract/feature operations, and a tenant summary RPC migration. Not deployed until commit/push/deploy and production migration are run.
+
 ## Contract endpoint
 - `GET /api/contracts`
   - Machine-readable contract summary for Android POS integration.
@@ -34,4 +42,3 @@ Base: `apps/backoffice-web/src/app/api`
 - `GET /api/backoffice/reports/stock`
 - `GET /api/backoffice/reports/audit`
 - `POST /api/qr-login/sessions`
-
