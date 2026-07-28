@@ -9,6 +9,10 @@ type OpenDrawerPayload = {
 
 function mapDrawerError(error: unknown) {
   const message = error instanceof Error ? error.message : "Unknown error";
+  const guard = error as { code?: unknown; status?: unknown } | null;
+  if (typeof guard?.code === "string" && typeof guard?.status === "number") {
+    return fail(guard.code, message, guard.status);
+  }
   if (message === "permission_denied") return fail("permission_denied", "Only owner or manager can open the cash drawer manually.", 403);
   if (message === "drawer_reason_required") return fail("drawer_reason_required", "reason is required for manual cash drawer opening.", 422);
   if (message === "printer_not_configured") return fail("printer_not_configured", "No enabled receipt printer is configured for this branch.", 422);
