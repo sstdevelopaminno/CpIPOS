@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
+import { PrintersModule } from "@/components/backoffice/printers-module";
 import { PosManagerApprovalModal } from "@/components/pos-ui/pos-manager-approval-modal";
 import { PosUsersModule } from "@/components/pos/pos-users-module";
 import { InetNopsSettingsPanel } from "@/components/pos-preview/inet-nops-settings-panel";
@@ -21,7 +22,7 @@ import type {
 import type { ActivityAuditItem, ActivityAuditPeriod } from "@/lib/services/activity-audit-service";
 import type { Language } from "@/lib/i18n";
 
-type SettingsView = "menu" | "store" | "branches" | "devices" | "activity" | "payments" | "inet_nops" | "taxes" | "notifications" | "users";
+type SettingsView = "menu" | "store" | "branches" | "devices" | "printers" | "activity" | "payments" | "inet_nops" | "taxes" | "notifications" | "users";
 type MenuIconName = "store" | "branch" | "payment" | "tax" | "users" | "display" | "terminal" | "activity" | "bell" | "tables" | "back" | "edit" | "trash" | "plus";
 const POS_TAX_SETTINGS_UPDATED_EVENT = "pos:tax-settings-updated";
 const POS_TAX_SETTINGS_UPDATED_KEY = "pos_tax_settings_updated_at_v001";
@@ -2982,6 +2983,13 @@ export function PosSettingsWorkspace({ lang, initialData }: { lang: Language; in
             <MenuButton icon="store" title={labels.store} desc={labels.storeDesc} onClick={() => openSettingsView("store")} locked={isSettingLocked("store")} />
             <MenuButton icon="branch" title={labels.branches} desc={labels.branchesDesc} onClick={() => openSettingsView("branches")} locked={isSettingLocked("branches")} />
             <MenuButton icon="terminal" title={labels.devices} desc={labels.devicesDesc} onClick={() => openSettingsView("devices")} locked={isSettingLocked("devices")} />
+            <MenuButton
+              icon="terminal"
+              title={lang === "en" ? "Printer Settings" : "ตั้งค่าเครื่องพิมพ์"}
+              desc={lang === "en" ? "Receipt printers, Print Agents, branch printers, and cash drawers" : "ตั้งค่าใบเสร็จ, Print Agents, เครื่องพิมพ์สาขา และลิ้นชักเก็บเงิน"}
+              onClick={() => openSettingsView("printers")}
+              locked={isSettingLocked("printers")}
+            />
             <MenuButton icon="activity" title={labels.activityAudit} desc={labels.activityAuditDesc} onClick={() => openSettingsView("activity")} locked={isSettingLocked("activity")} />
             <MenuButton icon="payment" title={labels.payments} desc={labels.paymentsDesc} onClick={() => openSettingsView("payments")} locked={isSettingLocked("payments")} compact />
             <MenuButton
@@ -3039,6 +3047,16 @@ export function PosSettingsWorkspace({ lang, initialData }: { lang: Language; in
             activeBranchId={initialData.metadata.branch_id}
             reportStatus={reportStatus}
           />
+        ) : null}
+        {view === "printers" ? (
+          <div className="grid gap-4">
+            <div>
+              <ActionButton variant="plain" onClick={() => setView("menu")}>
+                {labels.back}
+              </ActionButton>
+            </div>
+            <PrintersModule />
+          </div>
         ) : null}
         {view === "activity" ? (
           <ActivityAuditPanel

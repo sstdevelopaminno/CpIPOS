@@ -3683,6 +3683,10 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
 
   async function openCashDrawerManually() {
     if (cashDrawerOpening || Date.now() < cashDrawerCooldownUntil) return;
+    if (!cashDrawerConfigured) {
+      pushSubmitMessage(text.cashDrawerNotConfigured);
+      return;
+    }
     const reason = window.prompt(text.cashDrawerReasonPrompt, text.cashDrawerReasonDefault);
     if (reason === null) return;
     const normalizedReason = reason.trim();
@@ -7674,7 +7678,7 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
           }
           onTableQrOrder={() => setTableQrModalOpen(true)}
           onPromotion={openDiscountPopup}
-          onOpenCashDrawer={cashDrawerConfigured ? openCashDrawerManually : undefined}
+          onOpenCashDrawer={openCashDrawerManually}
           showHoldBill={quickMode === "home"}
           showTableQrOrder={
             orderType === "dine_in" &&

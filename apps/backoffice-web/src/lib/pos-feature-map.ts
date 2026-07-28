@@ -50,6 +50,7 @@ export const POS_SETTINGS_FEATURES = {
   store: "core_pos_sales",
   branches: "branch_management",
   devices: "mobile_device_enrollment",
+  printers: "core_pos_sales",
   activity: "core_pos_sales",
   payments: "core_pos_sales",
   inet_nops: "inet_nops_qr",
