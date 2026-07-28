@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { appendAuditLog } from "@/lib/audit-log";
+import { clearShiftOpenBills } from "@/lib/pos-shift-open-bills";
 import { resolveShiftCycle } from "@/lib/pos-shift-schedule";
 import {
   PosGuardError,
@@ -119,9 +120,11 @@ export async function POST(request: Request) {
     const body = (await request.json().catch(() => null)) as {
       closing_cash?: number | string | null;
       quick_close?: boolean | null;
+      clear_open_bills?: boolean | null;
       manager_pin?: string | null;
     } | null;
     const quickClose = body?.quick_close === true;
+    const shouldClearOpenBills = body?.clear_open_bills === true;
     const scope = await requirePosSessionForShiftClose();
     requirePermission(scope, "shift:close");
     const { shift } = await requireActiveShift(scope);
@@ -148,6 +151,30 @@ export async function POST(request: Request) {
     }
 
     const supabase = getSupabaseServiceClient();
+    if (shouldClearOpenBills) {
+      try {
+        await clearShiftOpenBills({
+          tenantId: sessionScope.tenantId,
+          branchId: sessionScope.branchId,
+          shiftId: shift.id,
+          userId: sessionScope.userId,
+          role: sessionScope.role,
+          posSessionId: scope.session.id
+        });
+      } catch (clearError) {
+        return NextResponse.json(
+          {
+            data: null,
+            error: {
+              code: "shift_clear_open_bills_failed",
+              message: clearError instanceof Error ? clearError.message : "Unable to clear open bills."
+            }
+          },
+          { status: 500 }
+        );
+      }
+    }
+
     const openBills = await getOpenShiftBills({
       tenantId: sessionScope.tenantId,
       branchId: sessionScope.branchId,

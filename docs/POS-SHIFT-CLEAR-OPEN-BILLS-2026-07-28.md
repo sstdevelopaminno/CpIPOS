@@ -6,13 +6,15 @@ When a shift has passed its scheduled window, the shift reminder blocks `ต่�
 
 ## Decision
 
-Add a guarded recovery action: `เคลียร์บิลค้างและต่อกะ`.
+Add a guarded recovery action and an automatic UI-side recovery flag for stuck shift close/handoff.
 
 This action must not delete rows and must not convert open bills into paid sales. It cancels the blocking records, releases tables, writes audit metadata, then lets the existing close-shift/open-shift flow continue.
 
 ## Implementation
 
 - API: `POST /api/pos/shifts/clear-open-bills`
+- Close API flag: `POST /api/pos/shifts/close` with `clear_open_bills: true`
+- Shared server helper: `apps/backoffice-web/src/lib/pos-shift-open-bills.ts`
 - Server file: `apps/backoffice-web/src/app/api/pos/shifts/clear-open-bills/route.ts`
 - UI file: `apps/backoffice-web/src/components/pos/pos-shift-cycle-guard.tsx`
 
@@ -27,14 +29,15 @@ Server behavior:
 
 UI behavior:
 
-- Normal `ต่อกะ` still tries the existing safe close/open flow first.
-- If `/api/pos/shifts/close` returns `shift_has_open_bills`, the popup toast appears in Thai and the modal shows `เคลียร์บิลค้างและต่อกะ`.
-- Pressing that button calls the clear endpoint, then closes the old shift and opens the next shift.
-- The button is only shown for the open-bill blocker, not for unrelated API errors.
+- The shift-cycle guard sends `clear_open_bills: true` when closing a shift from the modal, continuing to the next shift, or auto-closing an overdue shift.
+- If the UI still receives `shift_has_open_bills`, the popup toast appears in Thai and the modal keeps a manual recovery button visible.
+- In continue mode, the manual button clears/ closes the old shift and opens the next shift.
+- In urgent/auto-close mode, the manual button clears/ closes the old shift and redirects to branch selection.
 
 ## Guardrails For Future AI
 
 - Do not remove the close-shift blocker entirely; it prevents accidental unclosed sales.
 - Do not hard-delete orders or table sessions for this recovery path.
 - Keep the audit action `pos_shift_open_bills_cleared` if changing internals so operations can track who cleared a stuck shift.
+- Keep `clear_open_bills: true` in the POS shift-cycle UI unless replacing it with an equal or safer automatic recovery, because otherwise users can be trapped by old open bills after the shift window.
 - If stock reversal becomes required, add an explicit stock-compensation path before cancelling queued/preparing orders.

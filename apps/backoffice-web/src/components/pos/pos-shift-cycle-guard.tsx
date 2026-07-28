@@ -165,6 +165,8 @@ export function PosShiftCycleGuard({ lang }: { lang: Lang }) {
             continuingProgress: "กำลังต่อกะและเตรียมหน้าขาย...",
             clearOpenBillsLabel: "เคลียร์บิลค้างและต่อกะ",
             clearOpenBillsProgress: "กำลังเคลียร์บิลค้างและต่อกะ...",
+            clearOpenBillsCloseLabel: "เคลียร์บิลค้างและปิดกะ",
+            clearOpenBillsCloseProgress: "กำลังเคลียร์บิลค้างและปิดกะ...",
             requestTimeout: "ระบบใช้เวลานานเกินไป กรุณาลองอีกครั้ง",
             managerApprovalRequired: "กะนี้ค้างนานเกินไป ต้องใช้ PIN ผู้จัดการหรือเจ้าของร้าน",
             managerPinLabel: "PIN ผู้จัดการ/เจ้าของ",
@@ -200,6 +202,8 @@ export function PosShiftCycleGuard({ lang }: { lang: Lang }) {
             continuingProgress: "Continuing shift and preparing sales screen...",
             clearOpenBillsLabel: "Clear open bills and continue",
             clearOpenBillsProgress: "Clearing open bills and continuing shift...",
+            clearOpenBillsCloseLabel: "Clear open bills and close",
+            clearOpenBillsCloseProgress: "Clearing open bills and closing shift...",
             requestTimeout: "Request took too long. Please try again.",
             managerApprovalRequired: "This overdue shift can be closed automatically without manager approval.",
             managerPinLabel: "Manager / owner PIN",
@@ -339,7 +343,7 @@ export function PosShiftCycleGuard({ lang }: { lang: Lang }) {
   }, [copy.unknownError, logoutBusy, toErrorMessage]);
 
   const closeShift = useCallback(
-    async (closingCashValue: number | null, approvalPin = "") => {
+    async (closingCashValue: number | null, approvalPin = "", clearOpenBills = true) => {
       if (!shift) return;
       const { response, body } = await fetchJsonWithTimeout(
         "/api/pos/shifts/close",
@@ -349,6 +353,7 @@ export function PosShiftCycleGuard({ lang }: { lang: Lang }) {
           body: JSON.stringify({
             closing_cash: closingCashValue ?? undefined,
             quick_close: true,
+            clear_open_bills: clearOpenBills,
             manager_pin: approvalPin.trim() || undefined
           })
         },
@@ -415,22 +420,17 @@ export function PosShiftCycleGuard({ lang }: { lang: Lang }) {
     if (!shift || busy) return;
     const approvalPin = getApprovalPinOrFail();
     if (approvalPin === null) return;
+    const shouldCloseOnly = (phase === "urgent" || phase === "auto_close") && !needsManagerApproval;
     setBusy("clear_continue");
     setError(null);
     setShiftBlockerCode(null);
     try {
-      const { response, body } = await fetchJsonWithTimeout(
-        "/api/pos/shifts/clear-open-bills",
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" }
-        },
-        SHIFT_MUTATION_TIMEOUT_MS
-      );
-      if (!response.ok) {
-        throw new ShiftGuardApiError(body?.error?.code, body?.error?.message ?? copy.unknownError);
-      }
       await closeShift(null, approvalPin);
+      if (shouldCloseOnly) {
+        setManagerPin("");
+        await logoutToBranchSelection();
+        return;
+      }
       await openNextShift();
       setManagerPin("");
       await loadState();
@@ -476,7 +476,7 @@ export function PosShiftCycleGuard({ lang }: { lang: Lang }) {
     setBusy("autoclose");
     setError(null);
     setShiftBlockerCode(null);
-    void closeShift(null)
+    void closeShift(null, "", true)
       .then(() => logoutToBranchSelection())
       .catch((closeError) => {
         rememberBlockerFromError(closeError);
@@ -490,13 +490,15 @@ export function PosShiftCycleGuard({ lang }: { lang: Lang }) {
   const forceClose = (phase === "urgent" || phase === "auto_close") && !needsManagerApproval;
   const progressText =
     busy === "continue"
-      ? copy.continuingProgress
+        ? copy.continuingProgress
       : busy === "clear_continue"
-        ? copy.clearOpenBillsProgress
+        ? forceClose
+          ? copy.clearOpenBillsCloseProgress
+          : copy.clearOpenBillsProgress
         : busy
           ? copy.closingProgress
           : null;
-  const canClearOpenBills = shiftBlockerCode === "shift_has_open_bills" && !forceClose;
+  const canClearOpenBills = shiftBlockerCode === "shift_has_open_bills" || forceClose;
   const hasClosingCashInput = closingCash.trim().length > 0;
   const closingCashAmount = Number(closingCash.trim() || "0");
   const closingCashIsValid = Number.isFinite(closingCashAmount) && closingCashAmount >= 0;
@@ -603,7 +605,13 @@ export function PosShiftCycleGuard({ lang }: { lang: Lang }) {
               disabled={Boolean(busy)}
               className="h-10 rounded-xl border border-amber-300 bg-amber-50 px-4 text-sm font-bold text-amber-800 hover:bg-amber-100 disabled:opacity-60"
             >
-              {busy === "clear_continue" ? copy.clearOpenBillsProgress : copy.clearOpenBillsLabel}
+              {busy === "clear_continue"
+                ? forceClose
+                  ? copy.clearOpenBillsCloseProgress
+                  : copy.clearOpenBillsProgress
+                : forceClose
+                  ? copy.clearOpenBillsCloseLabel
+                  : copy.clearOpenBillsLabel}
             </button>
           ) : null}
           <button
