@@ -108,11 +108,22 @@ async function fetchJsonWithTimeout(url: string, init: RequestInit = {}, timeout
   }
 }
 
+class ShiftGuardApiError extends Error {
+  code: string | null;
+
+  constructor(code: string | null | undefined, message: string) {
+    super(message);
+    this.name = "ShiftGuardApiError";
+    this.code = code ?? null;
+  }
+}
+
 export function PosShiftCycleGuard({ lang }: { lang: Lang }) {
   const [loading, setLoading] = useState(true);
-  const [busy, setBusy] = useState<null | "continue" | "close" | "autoclose">(null);
+  const [busy, setBusy] = useState<null | "continue" | "clear_continue" | "close" | "autoclose">(null);
   const [logoutBusy, setLogoutBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [shiftBlockerCode, setShiftBlockerCode] = useState<string | null>(null);
   const [phase, setPhase] = useState<ShiftGuardPhase>("on_time");
   const [shift, setShift] = useState<{
     id: string;
@@ -152,6 +163,8 @@ export function PosShiftCycleGuard({ lang }: { lang: Lang }) {
             logoutHint: "หลังปิดกะ ระบบจะพาไปหน้าเลือกสาขาอัตโนมัติ",
             closingProgress: "กำลังปิดกะและออกจากหน้าขาย...",
             continuingProgress: "กำลังต่อกะและเตรียมหน้าขาย...",
+            clearOpenBillsLabel: "เคลียร์บิลค้างและต่อกะ",
+            clearOpenBillsProgress: "กำลังเคลียร์บิลค้างและต่อกะ...",
             requestTimeout: "ระบบใช้เวลานานเกินไป กรุณาลองอีกครั้ง",
             managerApprovalRequired: "กะนี้ค้างนานเกินไป ต้องใช้ PIN ผู้จัดการหรือเจ้าของร้าน",
             managerPinLabel: "PIN ผู้จัดการ/เจ้าของ",
@@ -185,6 +198,8 @@ export function PosShiftCycleGuard({ lang }: { lang: Lang }) {
             logoutHint: "After shift close, you will be redirected to branch selection.",
             closingProgress: "Closing shift and leaving sales screen...",
             continuingProgress: "Continuing shift and preparing sales screen...",
+            clearOpenBillsLabel: "Clear open bills and continue",
+            clearOpenBillsProgress: "Clearing open bills and continuing shift...",
             requestTimeout: "Request took too long. Please try again.",
             managerApprovalRequired: "This overdue shift can be closed automatically without manager approval.",
             managerPinLabel: "Manager / owner PIN",
@@ -340,11 +355,30 @@ export function PosShiftCycleGuard({ lang }: { lang: Lang }) {
         SHIFT_MUTATION_TIMEOUT_MS
       );
       if (!response.ok) {
-        throw new Error(body?.error?.message ?? copy.unknownError);
+        throw new ShiftGuardApiError(body?.error?.code, body?.error?.message ?? copy.unknownError);
       }
     },
     [copy.unknownError, shift]
   );
+
+  const openNextShift = useCallback(async () => {
+    const { response, body } = await fetchJsonWithTimeout(
+      "/api/pos/shifts/open",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ opening_cash: 0 })
+      },
+      SHIFT_MUTATION_TIMEOUT_MS
+    );
+    if (!response.ok) {
+      throw new ShiftGuardApiError(body?.error?.code, body?.error?.message ?? copy.unknownError);
+    }
+  }, [copy.unknownError]);
+
+  const rememberBlockerFromError = useCallback((unknownError: unknown) => {
+    setShiftBlockerCode(unknownError instanceof ShiftGuardApiError ? unknownError.code : null);
+  }, []);
 
   const needsManagerApproval = false;
 
@@ -362,24 +396,47 @@ export function PosShiftCycleGuard({ lang }: { lang: Lang }) {
     if (approvalPin === null) return;
     setBusy("continue");
     setError(null);
+    setShiftBlockerCode(null);
     try {
       await closeShift(null, approvalPin);
+      await openNextShift();
+      setManagerPin("");
+      await loadState();
+    } catch (continueError) {
+      rememberBlockerFromError(continueError);
+      setError(toErrorMessage(continueError));
+      await loadState();
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function handleClearOpenBillsAndContinue() {
+    if (!shift || busy) return;
+    const approvalPin = getApprovalPinOrFail();
+    if (approvalPin === null) return;
+    setBusy("clear_continue");
+    setError(null);
+    setShiftBlockerCode(null);
+    try {
       const { response, body } = await fetchJsonWithTimeout(
-        "/api/pos/shifts/open",
+        "/api/pos/shifts/clear-open-bills",
         {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ opening_cash: 0 })
+          headers: { "Content-Type": "application/json" }
         },
         SHIFT_MUTATION_TIMEOUT_MS
       );
       if (!response.ok) {
-        throw new Error(body?.error?.message ?? copy.unknownError);
+        throw new ShiftGuardApiError(body?.error?.code, body?.error?.message ?? copy.unknownError);
       }
+      await closeShift(null, approvalPin);
+      await openNextShift();
       setManagerPin("");
       await loadState();
-    } catch (continueError) {
-      setError(toErrorMessage(continueError));
+    } catch (clearError) {
+      rememberBlockerFromError(clearError);
+      setError(toErrorMessage(clearError));
       await loadState();
     } finally {
       setBusy(null);
@@ -397,11 +454,13 @@ export function PosShiftCycleGuard({ lang }: { lang: Lang }) {
     if (approvalPin === null) return;
     setBusy("close");
     setError(null);
+    setShiftBlockerCode(null);
     try {
       await closeShift(parsed, approvalPin);
       setManagerPin("");
       await logoutToBranchSelection();
     } catch (closeError) {
+      rememberBlockerFromError(closeError);
       setError(toErrorMessage(closeError));
       await loadState();
       setBusy(null);
@@ -416,18 +475,28 @@ export function PosShiftCycleGuard({ lang }: { lang: Lang }) {
     autoCloseRunRef.current = shift.id;
     setBusy("autoclose");
     setError(null);
+    setShiftBlockerCode(null);
     void closeShift(null)
       .then(() => logoutToBranchSelection())
       .catch((closeError) => {
+        rememberBlockerFromError(closeError);
         setError(toErrorMessage(closeError));
         setBusy(null);
       });
-  }, [closeShift, cycle, logoutToBranchSelection, needsManagerApproval, phase, shift, toErrorMessage]);
+  }, [closeShift, cycle, logoutToBranchSelection, needsManagerApproval, phase, rememberBlockerFromError, shift, toErrorMessage]);
 
   if (loading || !shift || !cycle || phase === "on_time") return null;
 
   const forceClose = (phase === "urgent" || phase === "auto_close") && !needsManagerApproval;
-  const progressText = busy === "continue" ? copy.continuingProgress : busy ? copy.closingProgress : null;
+  const progressText =
+    busy === "continue"
+      ? copy.continuingProgress
+      : busy === "clear_continue"
+        ? copy.clearOpenBillsProgress
+        : busy
+          ? copy.closingProgress
+          : null;
+  const canClearOpenBills = shiftBlockerCode === "shift_has_open_bills" && !forceClose;
   const hasClosingCashInput = closingCash.trim().length > 0;
   const closingCashAmount = Number(closingCash.trim() || "0");
   const closingCashIsValid = Number.isFinite(closingCashAmount) && closingCashAmount >= 0;
@@ -525,6 +594,16 @@ export function PosShiftCycleGuard({ lang }: { lang: Lang }) {
               className="h-10 rounded-xl border border-blue-200 bg-blue-50 px-4 text-sm font-bold text-blue-700 hover:bg-blue-100 disabled:opacity-60"
             >
               {busy === "continue" ? copy.continuingProgress : copy.continueLabel}
+            </button>
+          ) : null}
+          {canClearOpenBills ? (
+            <button
+              type="button"
+              onClick={() => void handleClearOpenBillsAndContinue()}
+              disabled={Boolean(busy)}
+              className="h-10 rounded-xl border border-amber-300 bg-amber-50 px-4 text-sm font-bold text-amber-800 hover:bg-amber-100 disabled:opacity-60"
+            >
+              {busy === "clear_continue" ? copy.clearOpenBillsProgress : copy.clearOpenBillsLabel}
             </button>
           ) : null}
           <button
