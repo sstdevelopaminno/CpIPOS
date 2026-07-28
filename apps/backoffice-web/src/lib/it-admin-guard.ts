@@ -34,7 +34,16 @@ function readIpAddress(headerStore: Headers): string | null {
 }
 
 export async function requireItAdmin(): Promise<ItAdminContext> {
-  const auth = await getAuthContext({ requireBranchScope: false });
+  let auth: AuthContext;
+  try {
+    auth = await getAuthContext({ requireBranchScope: false });
+  } catch (error) {
+    if (error instanceof Error && /not authenticated/i.test(error.message)) {
+      throw new ItAdminGuardError("unauthorized", "Authentication is required.", 401);
+    }
+    throw error;
+  }
+
   if (auth.platformRole !== "it_admin") {
     throw new ItAdminGuardError("forbidden", "Only platform admin can access this endpoint.", 403);
   }

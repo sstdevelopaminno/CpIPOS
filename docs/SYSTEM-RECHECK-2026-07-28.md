@@ -37,6 +37,7 @@ Date/time: 2026-07-28, after production deployment `345ba2f`.
 - `cmd /c supabase migration list --local`: could not verify local migration state because local Supabase Postgres was not running at `127.0.0.1:54322`.
 - Production Supabase verification passed for `public.it_admin_tenant_summary_v`, `public.get_it_admin_tenant_summary(...)`, and a limit-1 RPC sample query.
 - Migration history was repaired only for `20260728160924` after direct SQL execution. Existing older remote/local migration drift remains and must be reviewed separately before using broad `supabase db push --include-all`.
+- After the first Vercel deployment, unauthenticated `HEAD /api/it-admin/v1/health` returned 500. Root cause: `requireItAdmin()` treated missing login as a generic internal error. Fix: map the known unauthenticated auth-context error to `401 unauthorized`.
 
 ## Stability Notes
 

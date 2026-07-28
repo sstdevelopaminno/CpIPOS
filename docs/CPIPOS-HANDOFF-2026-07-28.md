@@ -54,6 +54,7 @@ Run on 2026-07-28 from `E:\CpIPOS`:
 - `docs/SYSTEM-RECHECK-2026-07-28.md`: records the latest post-deploy verification and warns future AI that full lint currently behaves like a local tooling/filesystem bottleneck unless real ESLint errors are printed.
 - `docs/IT-BACKOFFICE-API-DESIGN-2026-07-28.md`: records the next IT Backoffice API design for tenant/store lifecycle, branch/user/device controls, package/contract/feature management, audit logging, and the required pagination/RPC approach for multi-tenant scale. This is a design document only until matching routes/tests/migrations are implemented.
 - IT Backoffice API Phase 1 is implemented locally and the production Supabase migration `20260728160924` is applied/verified: tenant summary RPC migration, `src/lib/services/it-admin/*`, `/api/it-admin/v1/*` routes, package management APIs, and old `/api/it-admin/admin/tenants` bottleneck reduction. Verification passed typecheck, targeted ESLint, tests, and build. Local Supabase DB was not running, so local migration verification remains blocked.
+- IT-admin guard follow-up: unauthenticated IT-admin API calls now return `401 unauthorized` instead of generic 500, fixing the first production health-route smoke test after deploy.
 - Supabase migration history still has older drift outside this change: six remote-only versions and several local-only 20260718-20260723 versions. Do not use broad `supabase db push --include-all` until that drift is reviewed.
 
 ## Workspace Notes
