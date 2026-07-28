@@ -22,6 +22,7 @@ Use this page as the first stop before new development. It separates active impl
 - [Stability / Network / API Audit 2026-07-28](./STABILITY-NETWORK-API-AUDIT-2026-07-28.md)
 - [POS Shift Clear Open Bills 2026-07-28](./POS-SHIFT-CLEAR-OPEN-BILLS-2026-07-28.md)
 - [POS Sales Summary UI 2026-07-28](./POS-SALES-SUMMARY-UI-2026-07-28.md)
+- [POS Sales List UI 2026-07-28](./POS-SALES-LIST-UI-2026-07-28.md)
 - [Repository README](../README.md)
 - [Historical Context Handoff](../context.md)
 - [Project Audit Handoff](./PROJECT-AUDIT-HANDOFF-2026-06-02.md)

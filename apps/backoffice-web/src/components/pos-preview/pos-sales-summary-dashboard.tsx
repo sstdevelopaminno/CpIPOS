@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState, useTransition, type ReactNode } from "react";
+import { downloadExcelCsv, type CsvCellValue } from "@/lib/excel-csv";
 import type { Language } from "@/lib/i18n";
 import type { PosSalesSummaryPayload } from "@/lib/services/pos-sales-summary-service";
 
@@ -37,9 +38,6 @@ const paymentOptions = [
 const inputClass =
   "h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm font-semibold text-slate-900 outline-none transition focus:border-blue-400 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400";
 
-const CSV_DELIMITER = ",";
-const CSV_BOM = "\uFEFF";
-
 function money(value: number, lang: Language): string {
   return new Intl.NumberFormat(lang === "th" ? "th-TH" : "en-US", {
     style: "currency",
@@ -62,23 +60,17 @@ function dateTime(value: string | null, lang: Language): string {
   }).format(new Date(value));
 }
 
-function csvEscape(value: string | number | null): string {
-  const text = String(value ?? "");
-  const safeText = /^[=+\-@]/.test(text) ? `'${text}` : text;
-  return `"${safeText.replace(/"/g, '""')}"`;
-}
-
 function shiftSummaryCsvHeaders(lang: Language): string[] {
   return lang === "th"
     ? ["เปิดกะ", "ปิดกะ", "สาขา", "พนักงาน", "เงินต้น", "เงินสด", "คาดหวัง", "เงินจริง", "ต่าง"]
     : ["Opened at", "Closed at", "Branch", "Cashier", "Opening cash", "Cash sales", "Expected cash", "Actual cash", "Difference"];
 }
 
-function paymentLabel(label: string, method?: string): string {
-  if (method === "cash") return "เงินสด";
-  if (method === "bank_transfer") return "โอน / QR";
-  if (method === "card") return "บัตรเครดิต / เดบิต";
-  if (label.includes("เธ") || label.includes("เน")) return method === "other" ? "อื่น ๆ" : "ยังไม่ชำระ";
+function paymentLabel(label: string, method?: string, lang: Language = "th"): string {
+  if (method === "cash") return lang === "th" ? "เงินสด" : "Cash";
+  if (method === "bank_transfer") return lang === "th" ? "โอน / QR" : "Transfer / QR";
+  if (method === "card") return lang === "th" ? "บัตรเครดิต / เดบิต" : "Credit / Debit Card";
+  if (label.includes("เธ") || label.includes("เน")) return method === "other" ? (lang === "th" ? "อื่น ๆ" : "Other") : lang === "th" ? "ยังไม่ชำระ" : "Unpaid";
   return label || "-";
 }
 
@@ -107,6 +99,7 @@ export function PosSalesSummaryDashboard({ lang, initialPayload }: Props) {
     const start = (safePage - 1) * SHIFT_ROWS_PER_PAGE;
     return payload.shifts.slice(start, start + SHIFT_ROWS_PER_PAGE);
   }, [payload.shifts, shiftPage, shiftTotalPages]);
+  const activeMoreExport = useMemo(() => buildMoreDialogExport(payload, moreDialogTab, lang), [lang, moreDialogTab, payload]);
   const kpis = [
     { label: "ยอดขายรวม", value: money(payload.summary.grossSales, lang), tone: "text-slate-900" },
     { label: "ยอดขายสุทธิ", value: money(payload.summary.netSales, lang), tone: "text-blue-700" },
@@ -149,22 +142,46 @@ export function PosSalesSummaryDashboard({ lang, initialPayload }: Props) {
   }
 
   function exportCsv() {
-    const header = shiftSummaryCsvHeaders(lang);
-    const lines = visibleShifts.map((shift) =>
-      [dateTime(shift.openedAt, lang), dateTime(shift.closedAt, lang), shift.branchName, shift.cashierName, shift.openingCash, shift.cashSales, shift.expectedCash, shift.actualCash ?? "", shift.difference ?? ""]
-        .map(csvEscape)
-        .join(CSV_DELIMITER)
-    );
-    const csvBody = [`sep=${CSV_DELIMITER}`, header.map(csvEscape).join(CSV_DELIMITER), ...lines].join("\r\n");
-    const blob = new Blob([CSV_BOM, csvBody], { type: "text/csv;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = `shift-summary-${payload.filters.dateFrom}-${payload.filters.dateTo}-page-${shiftPage}.csv`;
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
-    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+    const rows: CsvCellValue[][] = [
+      shiftSummaryCsvHeaders(lang),
+      ...visibleShifts.map((shift) => [
+        dateTime(shift.openedAt, lang),
+        dateTime(shift.closedAt, lang),
+        shift.branchName,
+        shift.cashierName,
+        money(shift.openingCash, lang),
+        money(shift.cashSales, lang),
+        money(shift.expectedCash, lang),
+        shift.actualCash == null ? "-" : money(shift.actualCash, lang),
+        shift.difference == null ? "-" : money(shift.difference, lang)
+      ])
+    ];
+    downloadExcelCsv(`shift-summary-${payload.filters.dateFrom}-${payload.filters.dateTo}-page-${shiftPage}.csv`, rows);
+  }
+
+  function exportMoreDialogCsv() {
+    downloadExcelCsv(`sales-summary-${activeMoreExport.slug}-${payload.filters.dateFrom}-${payload.filters.dateTo}.csv`, activeMoreExport.rows);
+  }
+
+  function exportSalesRowsDialogCsv() {
+    const rows: CsvCellValue[][] = [
+      lang === "th"
+        ? ["เลขที่บิล", "วันเวลา", "สาขา", "พนักงาน", "ชำระเงิน", "ยอดรวม", "ส่วนลด", "ภาษี", "สุทธิ", "สถานะ"]
+        : ["Receipt No.", "DateTime", "Branch", "Cashier", "Payment", "Gross", "Discount", "Tax", "Net", "Status"],
+      ...payload.salesRows.map((row) => [
+        row.receiptNo,
+        dateTime(row.createdAt, lang),
+        row.branchName,
+        row.cashierName,
+        paymentLabel(row.paymentLabel, row.paymentMethod, lang),
+        money(row.grossTotal, lang),
+        money(row.discount, lang),
+        money(row.tax, lang),
+        money(row.netTotal, lang),
+        statusLabel(row.status, lang)
+      ])
+    ];
+    downloadExcelCsv(`sales-summary-sales-rows-${payload.filters.dateFrom}-${payload.filters.dateTo}.csv`, rows);
   }
 
   useEffect(() => {
@@ -276,7 +293,13 @@ export function PosSalesSummaryDashboard({ lang, initialPayload }: Props) {
           </DialogActions>
         </Dialog>
 
-        <Dialog open={moreDialogOpen} title="ดูเพิ่มเติม" onClose={() => setMoreDialogOpen(false)} wide>
+        <Dialog
+          open={moreDialogOpen}
+          title="ดูเพิ่มเติม"
+          onClose={() => setMoreDialogOpen(false)}
+          headerActions={<ActionButton onClick={exportMoreDialogCsv} disabled={activeMoreExport.rows.length <= 1}>Export CSV: {activeMoreExport.label}</ActionButton>}
+          wide
+        >
           <div className="grid gap-4">
             <div className="flex flex-wrap gap-2 rounded-2xl border border-slate-200 bg-slate-50 p-2">
               {[{ id: "payments" as const, label: "ช่องทางชำระเงิน" }, { id: "products" as const, label: "สินค้าขายดี" }, { id: "cashiers" as const, label: "ประสิทธิภาพพนักงาน" }].map((tab) => (
@@ -289,13 +312,19 @@ export function PosSalesSummaryDashboard({ lang, initialPayload }: Props) {
           </div>
         </Dialog>
 
-        <Dialog open={salesRowsDialogOpen} title="รายการขาย" onClose={() => setSalesRowsDialogOpen(false)} wide>
+        <Dialog
+          open={salesRowsDialogOpen}
+          title="รายการขาย"
+          onClose={() => setSalesRowsDialogOpen(false)}
+          headerActions={<ActionButton onClick={exportSalesRowsDialogCsv} disabled={payload.salesRows.length === 0}>Export CSV</ActionButton>}
+          wide
+        >
           <Panel title="รายการขาย">
             <ScrollTable minWidth="1040px">
               <thead><tr><Th>เลขที่บิล</Th><Th>วันเวลา</Th><Th>สาขา</Th><Th>พนักงาน</Th><Th>ชำระเงิน</Th><Th align="right">ยอดรวม</Th><Th align="right">ส่วนลด</Th><Th align="right">ภาษี</Th><Th align="right">สุทธิ</Th><Th>สถานะ</Th></tr></thead>
               <tbody>{payload.salesRows.length === 0 ? <EmptyRow colSpan={10} /> : payload.salesRows.map((row) => (
                 <tr key={row.id} className="border-t border-slate-100">
-                  <Td strong>{row.receiptNo}</Td><Td>{dateTime(row.createdAt, lang)}</Td><Td>{row.branchName}</Td><Td>{row.cashierName}</Td><Td>{paymentLabel(row.paymentLabel, row.paymentMethod)}</Td><Td align="right">{money(row.grossTotal, lang)}</Td><Td align="right">{money(row.discount, lang)}</Td><Td align="right">{money(row.tax, lang)}</Td><Td align="right" strong>{money(row.netTotal, lang)}</Td><Td><StatusBadge status={row.status} /></Td>
+                  <Td strong>{row.receiptNo}</Td><Td>{dateTime(row.createdAt, lang)}</Td><Td>{row.branchName}</Td><Td>{row.cashierName}</Td><Td>{paymentLabel(row.paymentLabel, row.paymentMethod, lang)}</Td><Td align="right">{money(row.grossTotal, lang)}</Td><Td align="right">{money(row.discount, lang)}</Td><Td align="right">{money(row.tax, lang)}</Td><Td align="right" strong>{money(row.netTotal, lang)}</Td><Td><StatusBadge status={row.status} lang={lang} /></Td>
                 </tr>
               ))}</tbody>
             </ScrollTable>
@@ -306,8 +335,53 @@ export function PosSalesSummaryDashboard({ lang, initialPayload }: Props) {
   );
 }
 
+function buildMoreDialogExport(payload: PosSalesSummaryPayload, tab: MoreDialogTab, lang: Language): { label: string; slug: string; rows: CsvCellValue[][] } {
+  if (tab === "products") {
+    return {
+      label: lang === "th" ? "สินค้าขายดี" : "Best Products",
+      slug: "best-products",
+      rows: [
+        lang === "th" ? ["ลำดับ", "สินค้า", "หมวดหมู่", "จำนวน", "ยอดรวม", "ยอดสุทธิ"] : ["No.", "Product", "Category", "Quantity", "Gross", "Net"],
+        ...payload.bestSellingProducts.slice(0, 10).map((product, index) => [
+          index + 1,
+          product.productName,
+          product.category,
+          number(product.quantitySold, lang),
+          money(product.grossAmount, lang),
+          money(product.netAmount, lang)
+        ])
+      ]
+    };
+  }
+  if (tab === "cashiers") {
+    return {
+      label: lang === "th" ? "ประสิทธิภาพพนักงาน" : "Cashier Performance",
+      slug: "cashiers",
+      rows: [
+        lang === "th" ? ["พนักงาน", "บิล", "ยอดรวม", "ยอดสุทธิ", "ยกเลิก", "เฉลี่ย/บิล"] : ["Cashier", "Bills", "Gross", "Net", "Cancelled", "Average / Bill"],
+        ...payload.cashiers.map((cashier) => [
+          cashier.cashierName,
+          number(cashier.receiptCount, lang),
+          money(cashier.grossSales, lang),
+          money(cashier.netSales, lang),
+          cashier.cancelledCount,
+          money(cashier.averageReceiptValue, lang)
+        ])
+      ]
+    };
+  }
+  return {
+    label: lang === "th" ? "ช่องทางชำระเงิน" : "Payment Methods",
+    slug: "payments",
+    rows: [
+      lang === "th" ? ["ช่องทางชำระเงิน", "จำนวนบิล", "ยอดรวม"] : ["Payment Method", "Bills", "Amount"],
+      ...payload.paymentMethods.map((method) => [paymentLabel(method.label, method.method, lang), method.receiptCount, money(method.amount, lang)])
+    ]
+  };
+}
+
 function PaymentsPanel({ payload, lang, maxPaymentAmount }: { payload: PosSalesSummaryPayload; lang: Language; maxPaymentAmount: number }) {
-  return <Panel title="ช่องทางชำระเงิน">{payload.paymentMethods.length === 0 ? <EmptyState /> : <div className="grid gap-3">{payload.paymentMethods.map((method) => <div key={method.method}><div className="flex items-baseline justify-between gap-3"><span className="text-sm font-bold text-slate-800">{paymentLabel(method.label, method.method)}</span><span className="text-sm font-black text-slate-950">{money(method.amount, lang)}</span></div><div className="mt-2 h-2 overflow-hidden rounded-full bg-slate-100"><div className="h-full rounded-full bg-blue-600" style={{ width: `${Math.max(5, (method.amount / maxPaymentAmount) * 100)}%` }} /></div><p className="mt-1 text-xs text-slate-500">{method.receiptCount} บิล</p></div>)}</div>}</Panel>;
+  return <Panel title="ช่องทางชำระเงิน">{payload.paymentMethods.length === 0 ? <EmptyState /> : <div className="grid gap-3">{payload.paymentMethods.map((method) => <div key={method.method}><div className="flex items-baseline justify-between gap-3"><span className="text-sm font-bold text-slate-800">{paymentLabel(method.label, method.method, lang)}</span><span className="text-sm font-black text-slate-950">{money(method.amount, lang)}</span></div><div className="mt-2 h-2 overflow-hidden rounded-full bg-slate-100"><div className="h-full rounded-full bg-blue-600" style={{ width: `${Math.max(5, (method.amount / maxPaymentAmount) * 100)}%` }} /></div><p className="mt-1 text-xs text-slate-500">{method.receiptCount} บิล</p></div>)}</div>}</Panel>;
 }
 
 function ProductsPanel({ payload, lang }: { payload: PosSalesSummaryPayload; lang: Language }) {
@@ -318,9 +392,23 @@ function CashiersPanel({ payload, lang }: { payload: PosSalesSummaryPayload; lan
   return <Panel title="ประสิทธิภาพพนักงาน"><ScrollTable minWidth="720px"><thead><tr><Th>พนักงาน</Th><Th align="right">บิล</Th><Th align="right">ยอดรวม</Th><Th align="right">ยอดสุทธิ</Th><Th align="right">ยกเลิก</Th><Th align="right">เฉลี่ย/บิล</Th></tr></thead><tbody>{payload.cashiers.length === 0 ? <EmptyRow colSpan={6} /> : payload.cashiers.map((cashier) => <tr key={cashier.cashierId} className="border-t border-slate-100"><Td strong>{cashier.cashierName}</Td><Td align="right">{number(cashier.receiptCount, lang)}</Td><Td align="right">{money(cashier.grossSales, lang)}</Td><Td align="right">{money(cashier.netSales, lang)}</Td><Td align="right">{cashier.cancelledCount}</Td><Td align="right">{money(cashier.averageReceiptValue, lang)}</Td></tr>)}</tbody></ScrollTable></Panel>;
 }
 
-function Dialog({ open, title, onClose, children, wide = false }: { open: boolean; title: string; onClose: () => void; children: ReactNode; wide?: boolean }) {
+function Dialog({
+  open,
+  title,
+  onClose,
+  children,
+  headerActions,
+  wide = false
+}: {
+  open: boolean;
+  title: string;
+  onClose: () => void;
+  children: ReactNode;
+  headerActions?: ReactNode;
+  wide?: boolean;
+}) {
   if (!open) return null;
-  return <div className="fixed inset-0 z-50 grid place-items-center bg-slate-950/45 p-4" role="presentation" onMouseDown={onClose}><section role="dialog" aria-modal="true" aria-label={title} className={`max-h-[86vh] w-full overflow-y-auto rounded-2xl border border-slate-200 bg-white p-4 shadow-2xl ${wide ? "max-w-6xl" : "max-w-4xl"}`} onMouseDown={(event) => event.stopPropagation()}><header className="mb-4 flex items-center justify-between gap-3 border-b border-slate-100 pb-3"><h2 className="text-lg font-black text-slate-950">{title}</h2><button type="button" onClick={onClose} aria-label="ปิด" className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 bg-white text-sm font-bold text-slate-700 transition hover:bg-slate-50">ปิด</button></header>{children}</section></div>;
+  return <div className="fixed inset-0 z-50 grid place-items-center bg-slate-950/45 p-4" role="presentation" onMouseDown={onClose}><section role="dialog" aria-modal="true" aria-label={title} className={`max-h-[86vh] w-full overflow-y-auto rounded-2xl border border-slate-200 bg-white p-4 shadow-2xl ${wide ? "max-w-6xl" : "max-w-4xl"}`} onMouseDown={(event) => event.stopPropagation()}><header className="mb-4 flex items-center justify-between gap-3 border-b border-slate-100 pb-3"><h2 className="text-lg font-black text-slate-950">{title}</h2><div className="flex items-center gap-2">{headerActions}<button type="button" onClick={onClose} aria-label="ปิด" className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 bg-white text-sm font-bold text-slate-700 transition hover:bg-slate-50">ปิด</button></div></header>{children}</section></div>;
 }
 
 function ActionButton({ children, onClick, disabled = false }: { children: ReactNode; onClick: () => void; disabled?: boolean }) {
@@ -386,8 +474,35 @@ function EmptyState() {
   return <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-8 text-center text-sm font-semibold text-slate-500">ยังไม่มีข้อมูลยอดขายในช่วงเวลานี้</div>;
 }
 
-function StatusBadge({ status }: { status: string }) {
-  const label = status === "completed" ? "สำเร็จ" : status === "cancelled" ? "ยกเลิก" : status === "draft" ? "ร่าง" : status === "queued" ? "รอทำ" : status === "preparing" ? "กำลังทำ" : status;
+function StatusBadge({ status, lang }: { status: string; lang: Language }) {
+  const label = statusLabel(status, lang);
   const tone = status === "completed" ? "border-green-200 bg-green-50 text-green-700" : status === "cancelled" ? "border-red-200 bg-red-50 text-red-700" : "border-amber-200 bg-amber-50 text-amber-700";
   return <span className={`inline-flex rounded-full border px-2 py-0.5 text-xs font-bold ${tone}`}>{label}</span>;
+}
+
+function statusLabel(status: string, lang: Language = "th") {
+  if (lang !== "th") {
+    return status === "completed"
+      ? "Completed"
+      : status === "cancelled"
+        ? "Cancelled"
+        : status === "draft"
+          ? "Draft"
+          : status === "queued"
+            ? "Queued"
+            : status === "preparing"
+              ? "Preparing"
+              : status;
+  }
+  return status === "completed"
+    ? "สำเร็จ"
+    : status === "cancelled"
+      ? "ยกเลิก"
+      : status === "draft"
+        ? "ร่าง"
+        : status === "queued"
+          ? "รอทำ"
+          : status === "preparing"
+            ? "กำลังทำ"
+            : status;
 }

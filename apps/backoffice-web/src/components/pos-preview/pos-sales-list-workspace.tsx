@@ -3,6 +3,7 @@
 import type { ApprovalAction, BranchRole, PaymentMethod, PlatformRole } from "@pos/shared-types";
 import { useEffect, useMemo, useState } from "react";
 import { PosManagerApprovalModal } from "@/components/pos-ui/pos-manager-approval-modal";
+import { downloadExcelCsv } from "@/lib/excel-csv";
 import { t, type Language, type TranslationKey } from "@/lib/i18n";
 import type { PosSalesBranchOption, PosSalesListRecord, PosSalesShiftOption } from "@/lib/services/pos-sales-list-service";
 
@@ -26,6 +27,24 @@ type PinAction = {
   type: "edit" | "delete";
   rowId: string;
   approvalAction: ApprovalAction;
+};
+
+type EditTarget = {
+  row: PosSalesListRecord;
+  approvalId: string | null;
+};
+
+type LocalText = {
+  exportCsv: string;
+  editTitle: string;
+  save: string;
+  saving: string;
+  note: string;
+  successEdit: string;
+  successDelete: string;
+  genericError: string;
+  paidNeedsPayment: string;
+  tableOnlyCsvNotice: string;
 };
 
 export function PosSalesListWorkspace({
@@ -58,6 +77,13 @@ export function PosSalesListWorkspace({
   const [pinAction, setPinAction] = useState<PinAction | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
   const [quickRange, setQuickRange] = useState<"none" | "day" | "month" | "year">("none");
+  const [editTarget, setEditTarget] = useState<EditTarget | null>(null);
+  const [editSaleStatus, setEditSaleStatus] = useState<SaleStatus>("open");
+  const [editPaymentStatus, setEditPaymentStatus] = useState<PaymentReceiptStatus>("unpaid");
+  const [editNotes, setEditNotes] = useState("");
+  const [mutationBusy, setMutationBusy] = useState(false);
+  const [mutationError, setMutationError] = useState("");
+  const [notice, setNotice] = useState("");
 
   const fallbackBranchId = liveBranchOptions[0]?.id ?? "";
   const normalizedBranchId =
@@ -68,6 +94,36 @@ export function PosSalesListWorkspace({
   const canViewAllBranches = effectiveRole === "owner" || effectiveRole === "manager" || effectiveRole === "it_admin";
   const effectiveBranchId = canViewAllBranches ? selectedBranchId : normalizedBranchId;
   const branchMap = useMemo(() => new Map(liveBranchOptions.map((branch) => [branch.id, branch])), [liveBranchOptions]);
+  const pauseLiveRefresh = Boolean(selectedDetailRow || pinAction || editTarget || filterPopupOpen);
+  const localText = useMemo<LocalText>(
+    () =>
+      lang === "th"
+        ? {
+            exportCsv: "Export CSV",
+            editTitle: "แก้ไขรายการขาย",
+            save: "บันทึก",
+            saving: "กำลังบันทึก...",
+            note: "หมายเหตุ",
+            successEdit: "บันทึกการแก้ไขรายการขายแล้ว",
+            successDelete: "ลบรายการขายออกจากตารางแล้ว",
+            genericError: "ทำรายการไม่สำเร็จ กรุณาลองใหม่",
+            paidNeedsPayment: "บิลที่ปิดแล้วต้องเลือกวิธีชำระเงิน",
+            tableOnlyCsvNotice: "บันทึก CSV เฉพาะตารางหน้านี้แล้ว"
+          }
+        : {
+            exportCsv: "Export CSV",
+            editTitle: "Edit Sales Record",
+            save: "Save",
+            saving: "Saving...",
+            note: "Note",
+            successEdit: "Sales record updated.",
+            successDelete: "Sales record removed from the table.",
+            genericError: "Action failed. Please try again.",
+            paidNeedsPayment: "Paid bills require a payment method.",
+            tableOnlyCsvNotice: "CSV saved for the visible table page only."
+          },
+    [lang]
+  );
 
   useEffect(() => {
     setRecords(initialRecords);
@@ -91,7 +147,7 @@ export function PosSalesListWorkspace({
     let mounted = true;
     let inFlight = false;
     const timer = setInterval(async () => {
-      if (inFlight || document.hidden) return;
+      if (inFlight || document.hidden || pauseLiveRefresh) return;
       inFlight = true;
       try {
         const response = await fetch(refreshEndpoint, { cache: "no-store" });
@@ -114,12 +170,12 @@ export function PosSalesListWorkspace({
       } finally {
         inFlight = false;
       }
-    }, 2000);
+    }, 5000);
     return () => {
       mounted = false;
       clearInterval(timer);
     };
-  }, [refreshEndpoint]);
+  }, [pauseLiveRefresh, refreshEndpoint]);
 
   const statusLabel: Record<SaleStatus, string> = {
     open: tt("sales_list_status_open"),
@@ -223,6 +279,12 @@ export function PosSalesListWorkspace({
     }
   }, [currentPage, totalPages]);
 
+  useEffect(() => {
+    if (!notice) return;
+    const timer = window.setTimeout(() => setNotice(""), 2200);
+    return () => window.clearTimeout(timer);
+  }, [notice]);
+
   const dateTimeFormatter = useMemo(
     () =>
       new Intl.DateTimeFormat(lang === "th" ? "th-TH" : "en-US", {
@@ -237,19 +299,115 @@ export function PosSalesListWorkspace({
     [lang]
   );
 
-  function runAuthorizedAction(action: PinAction) {
-    if (action.type === "edit") {
-      setRecords((prev) =>
-        prev.map((row) => {
-          if (row.id !== action.rowId) return row;
-          if (row.saleStatus === "open") return { ...row, saleStatus: "paid", paymentStatus: "cash" };
-          if (row.saleStatus === "paid") return { ...row, saleStatus: "void", paymentStatus: "bank_transfer" };
-          return { ...row, saleStatus: "open", paymentStatus: "unpaid" };
-        })
-      );
+  function openEditDialog(row: PosSalesListRecord, approvalId: string | null) {
+    setMutationError("");
+    setEditTarget({ row, approvalId });
+    setEditSaleStatus(row.saleStatus);
+    setEditPaymentStatus(row.paymentStatus);
+    setEditNotes(row.notes ?? "");
+  }
+
+  function patchLocalRecord(rowId: string, changes: Partial<PosSalesListRecord>) {
+    setRecords((prev) => prev.map((row) => (row.id === rowId ? { ...row, ...changes } : row)));
+    setSelectedDetailRow((prev) => (prev?.id === rowId ? { ...prev, ...changes } : prev));
+  }
+
+  async function readApiError(response: Response) {
+    const body = (await response.json().catch(() => null)) as { error?: { message?: string }; message?: string } | null;
+    return body?.error?.message ?? body?.message ?? localText.genericError;
+  }
+
+  async function saveEditRecord() {
+    if (!editTarget || mutationBusy) return;
+    if (editSaleStatus === "paid" && editPaymentStatus === "unpaid") {
+      setMutationError(localText.paidNeedsPayment);
       return;
     }
-    setRecords((prev) => prev.filter((row) => row.id !== action.rowId));
+
+    setMutationBusy(true);
+    setMutationError("");
+    try {
+      const response = await fetch(refreshEndpoint, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          order_id: editTarget.row.id,
+          approval_id: editTarget.approvalId,
+          sale_status: editSaleStatus,
+          payment_status: editSaleStatus === "paid" ? editPaymentStatus : "unpaid",
+          notes: editNotes
+        })
+      });
+      if (!response.ok) throw new Error(await readApiError(response));
+      patchLocalRecord(editTarget.row.id, {
+        saleStatus: editSaleStatus,
+        paymentStatus: editSaleStatus === "paid" ? editPaymentStatus : "unpaid",
+        notes: editNotes || null,
+        cashReceived: editSaleStatus === "paid" && editPaymentStatus === "cash" ? editTarget.row.total : null,
+        changeAmount: editSaleStatus === "paid" && editPaymentStatus === "cash" ? 0 : null,
+        paymentReceivedTotal: editSaleStatus === "paid" ? editTarget.row.total : 0
+      });
+      setEditTarget(null);
+      setNotice(localText.successEdit);
+    } catch (error) {
+      setMutationError(error instanceof Error ? error.message : localText.genericError);
+    } finally {
+      setMutationBusy(false);
+    }
+  }
+
+  async function deleteSalesRecord(rowId: string, approvalId: string | null) {
+    if (mutationBusy) return;
+    setMutationBusy(true);
+    setMutationError("");
+    try {
+      const response = await fetch(refreshEndpoint, {
+        method: "DELETE",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ order_id: rowId, approval_id: approvalId })
+      });
+      if (!response.ok) throw new Error(await readApiError(response));
+      setRecords((prev) => prev.filter((row) => row.id !== rowId));
+      setSelectedDetailRow((prev) => (prev?.id === rowId ? null : prev));
+      setNotice(localText.successDelete);
+    } catch (error) {
+      setMutationError(error instanceof Error ? error.message : localText.genericError);
+    } finally {
+      setMutationBusy(false);
+    }
+  }
+
+  function exportVisibleTableCsv() {
+    const headers =
+      lang === "th"
+        ? ["เลขบิล", "เวลาเปิดบิล", "โต๊ะ/ช่องทาง", "จำนวนรายการ", "สาขา", "ยอดรวม", "ชำระเงิน", "สถานะบิล", "ผู้ทำรายการ"]
+        : ["Bill No.", "Opened At", "Table / Channel", "Items", "Branch", "Total", "Payment", "Bill Status", "Cashier"];
+    const rows = pagedRows.map((row) => {
+      const branch = branchMap.get(row.branchId);
+      return [
+        row.billNo,
+        dateTimeFormatter.format(new Date(row.openedAt)),
+        `${row.tableLabel} / ${channelLabel[row.channel]}`,
+        row.items,
+        `${branch?.name ?? "-"} (${branch?.code ?? "-"})`,
+        amountFormatter.format(row.total),
+        paymentLabel[row.paymentStatus],
+        statusLabel[row.saleStatus],
+        row.cashier || "-"
+      ];
+    });
+    downloadExcelCsv(`sales-list-page-${safeCurrentPage}-${getBangkokTodayDate()}.csv`, [headers, ...rows]);
+    setNotice(localText.tableOnlyCsvNotice);
+  }
+
+  function runAuthorizedAction(action: PinAction, approvalId: string | null) {
+    const row = records.find((record) => record.id === action.rowId);
+    if (!row) return;
+    if (action.type === "edit") {
+      openEditDialog(row, approvalId);
+      return;
+    }
+    void deleteSalesRecord(row.id, approvalId);
   }
 
   function requestAction(action: PinAction) {
@@ -258,7 +416,7 @@ export function PosSalesListWorkspace({
       setPinAction(action);
       return;
     }
-    runAuthorizedAction(action);
+    runAuthorizedAction(action, null);
   }
 
   function clearFilters() {
@@ -317,6 +475,14 @@ export function PosSalesListWorkspace({
             <button type="button" onClick={() => setFilterPopupOpen(true)} className="h-10 rounded-lg border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-700 transition hover:bg-slate-50">
               {tt("sales_list_filter")}
             </button>
+            <button
+              type="button"
+              onClick={exportVisibleTableCsv}
+              disabled={pagedRows.length === 0}
+              className="h-10 rounded-lg border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-900 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-45"
+            >
+              {localText.exportCsv}
+            </button>
             <select
               value={canViewAllBranches ? selectedBranchId : normalizedBranchId}
               onChange={(event) => setSelectedBranchId(event.target.value)}
@@ -340,6 +506,16 @@ export function PosSalesListWorkspace({
         <MetricCard label={tt("sales_list_open_bills")} value={String(metrics.openBills)} />
         <MetricCard label={tt("sales_list_total_amount")} value={amountFormatter.format(metrics.totalAmount)} />
       </div>
+
+      {notice || mutationError ? (
+        <div
+          className={`mt-3 rounded-xl border px-3 py-2 text-sm font-semibold ${
+            mutationError ? "border-red-200 bg-red-50 text-red-700" : "border-green-200 bg-green-50 text-green-700"
+          }`}
+        >
+          {mutationError || notice}
+        </div>
+      ) : null}
 
       <div className="mt-4 overflow-hidden rounded-xl border border-slate-200">
         <div className="max-h-[460px] overflow-auto lg:max-h-[500px]">
@@ -480,12 +656,95 @@ export function PosSalesListWorkspace({
             closeAriaLabel: tt("sales_list_pin_close_aria")
           }}
           onClose={() => setPinAction(null)}
-          onApproved={() => {
+          onApproved={(approvalId) => {
             const action = pinAction;
             setPinAction(null);
-            runAuthorizedAction(action);
+            runAuthorizedAction(action, approvalId);
           }}
         />
+      ) : null}
+
+      {editTarget ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/45 p-4">
+          <div className="w-full max-w-xl rounded-2xl border border-slate-200 bg-white p-4 shadow-xl">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <h3 className="text-lg font-extrabold text-slate-900">{localText.editTitle}</h3>
+                <p className="mt-1 text-sm font-semibold text-slate-600">{editTarget.row.billNo}</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  if (!mutationBusy) setEditTarget(null);
+                }}
+                className="h-9 rounded-lg border border-slate-300 bg-white px-3 text-sm font-semibold text-slate-700"
+              >
+                {tt("sales_list_close")}
+              </button>
+            </div>
+            <div className="mt-4 grid gap-3 rounded-xl border border-slate-200 bg-slate-50 p-3">
+              <SelectField
+                label={tt("sales_list_bill_status")}
+                value={editSaleStatus}
+                onChange={(value) => {
+                  const nextStatus = value as SaleStatus;
+                  setEditSaleStatus(nextStatus);
+                  if (nextStatus !== "paid") {
+                    setEditPaymentStatus("unpaid");
+                    return;
+                  }
+                  if (editPaymentStatus === "unpaid") setEditPaymentStatus("cash");
+                }}
+                options={[
+                  { value: "open", label: statusLabel.open },
+                  { value: "paid", label: statusLabel.paid },
+                  { value: "void", label: statusLabel.void }
+                ]}
+                disabled={mutationBusy}
+              />
+              <SelectField
+                label={tt("sales_list_payment_method")}
+                value={editPaymentStatus}
+                onChange={(value) => setEditPaymentStatus(value as PaymentReceiptStatus)}
+                options={[
+                  { value: "unpaid", label: paymentLabel.unpaid },
+                  { value: "cash", label: paymentLabel.cash },
+                  { value: "bank_transfer", label: paymentLabel.bank_transfer }
+                ]}
+                disabled={mutationBusy || editSaleStatus !== "paid"}
+              />
+              <label className="grid gap-1 text-xs font-semibold text-slate-600">
+                {localText.note}
+                <textarea
+                  value={editNotes}
+                  onChange={(event) => setEditNotes(event.target.value)}
+                  disabled={mutationBusy}
+                  rows={3}
+                  className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition focus:border-blue-400 disabled:cursor-not-allowed disabled:bg-slate-100"
+                />
+              </label>
+            </div>
+            {mutationError ? <p className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm font-semibold text-red-700">{mutationError}</p> : null}
+            <div className="mt-4 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setEditTarget(null)}
+                disabled={mutationBusy}
+                className="h-9 rounded-lg border border-slate-300 bg-white px-3 text-sm font-semibold text-slate-700 disabled:cursor-not-allowed disabled:opacity-45"
+              >
+                {tt("sales_list_cancel")}
+              </button>
+              <button
+                type="button"
+                onClick={saveEditRecord}
+                disabled={mutationBusy || (editSaleStatus === "paid" && editPaymentStatus === "unpaid")}
+                className="h-9 rounded-lg bg-blue-600 px-3 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-300"
+              >
+                {mutationBusy ? localText.saving : localText.save}
+              </button>
+            </div>
+          </div>
+        </div>
       ) : null}
 
       {filterPopupOpen ? (
@@ -628,4 +887,3 @@ function Badge({ tone, children }: { tone: "green" | "blue" | "orange" | "red" |
   };
   return <span className={`inline-flex rounded-full border px-2 py-0.5 text-xs font-semibold ${toneClass[tone]}`}>{children}</span>;
 }
-

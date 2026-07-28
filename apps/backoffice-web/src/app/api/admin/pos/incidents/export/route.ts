@@ -1,4 +1,5 @@
 import { getAuthContext } from "@/lib/auth-context";
+import { buildExcelCsvBytes, type CsvCellValue } from "@/lib/excel-csv";
 import { fail } from "@/lib/http";
 import { POS_GUARDS } from "@/lib/pos-resilience";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
@@ -18,19 +19,6 @@ function toBangkokRange(dateIso: string): { fromIso: string; toIso: string } {
   const fromIso = new Date(`${dateIso}T00:00:00+07:00`).toISOString();
   const toIso = new Date(`${dateIso}T23:59:59.999+07:00`).toISOString();
   return { fromIso, toIso };
-}
-
-function csvEscape(value: unknown): string {
-  if (value === null || value === undefined) return "";
-  const raw = String(value);
-  if (raw.includes(",") || raw.includes("\"") || raw.includes("\n")) {
-    return `"${raw.replace(/"/g, "\"\"")}"`;
-  }
-  return raw;
-}
-
-function csvRow(values: unknown[]): string {
-  return `${values.map(csvEscape).join(",")}\n`;
 }
 
 function normalizeMetadataRecord(value: unknown): Record<string, unknown> {
@@ -136,31 +124,31 @@ export async function GET(req: Request) {
       entry.total += 1;
     }
 
-    let csv = "\uFEFF";
-    csv += csvRow(["POS Incident Daily Report"]);
-    csv += csvRow(["Tenant", auth.tenantId]);
-    csv += csvRow(["Date (Asia/Bangkok)", dateInput]);
-    csv += csvRow(["Exported At", new Date().toISOString()]);
-    csv += csvRow(["Dead-letter Window Minutes", POS_GUARDS.deadLetterWindowMinutes]);
-    csv += csvRow(["Window For Health Checks", `${deadLetterSinceIso} - ${toIso}`]);
-    csv += "\n";
-
-    csv += csvRow(["Branch Summary"]);
-    csv += csvRow(["Branch", "Order Incidents", "Payment Incidents", "Print Incidents", "Total Incidents"]);
+    const csvRows: CsvCellValue[][] = [
+      ["POS Incident Daily Report"],
+      ["Tenant", auth.tenantId],
+      ["Date (Asia/Bangkok)", dateInput],
+      ["Exported At", new Date().toISOString()],
+      ["Dead-letter Window Minutes", POS_GUARDS.deadLetterWindowMinutes],
+      ["Window For Health Checks", `${deadLetterSinceIso} - ${toIso}`],
+      [],
+      ["Branch Summary"],
+      ["Branch", "Order Incidents", "Payment Incidents", "Print Incidents", "Total Incidents"]
+    ];
     for (const row of summary.values()) {
-      csv += csvRow([row.branch_name, row.order, row.payment, row.print, row.total]);
+      csvRows.push([row.branch_name, row.order, row.payment, row.print, row.total]);
     }
     if (summary.size === 0) {
-      csv += csvRow(["-", 0, 0, 0, 0]);
+      csvRows.push(["-", 0, 0, 0, 0]);
     }
-    csv += "\n";
 
-    csv += csvRow(["Incident Detail"]);
-    csv += csvRow(["DateTime", "Branch", "Queue", "Action", "Target Table", "Target ID", "Reason", "Detail", "Actor Role", "Actor User ID"]);
+    csvRows.push([]);
+    csvRows.push(["Incident Detail"]);
+    csvRows.push(["DateTime", "Branch", "Queue", "Action", "Target Table", "Target ID", "Reason", "Detail", "Actor Role", "Actor User ID"]);
 
     for (const row of incidentRows ?? []) {
       const metadata = normalizeMetadataRecord(row.metadata);
-      csv += csvRow([
+      csvRows.push([
         row.created_at,
         branchMap.get(String(row.branch_id ?? "")) ?? String(row.branch_id ?? "-"),
         normalizeQueue(String(row.action ?? "")),
@@ -175,10 +163,10 @@ export async function GET(req: Request) {
     }
 
     const fileName = `pos-incidents-${dateInput}.csv`;
-    return new Response(csv, {
+    return new Response(buildExcelCsvBytes(csvRows), {
       status: 200,
       headers: {
-        "Content-Type": "text/csv; charset=utf-8",
+        "Content-Type": "text/csv; charset=utf-16le",
         "Content-Disposition": `attachment; filename="${fileName}"`,
         "Cache-Control": "no-store",
         "x-admin-pos-incidents-export-ms": String(Date.now() - startedAt)

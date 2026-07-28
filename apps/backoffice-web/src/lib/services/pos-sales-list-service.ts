@@ -76,6 +76,7 @@ type OrderRow = {
   cash_received?: number | null;
   change_amount?: number | null;
   notes?: string | null;
+  metadata?: Record<string, unknown> | null;
 };
 
 type PaymentRow = {
@@ -281,12 +282,21 @@ async function loadPosSalesListDataRaw(scope: PosSalesListScope): Promise<PosSal
     return query;
   };
 
+  let hasPaymentCompletedByColumn = true;
   let orderResult = await buildOrderQuery(
-    "id,order_no,order_type,channel,customer_name,external_order_code,total_amount,status,created_at,branch_id,shift_id,created_by,payment_completed_by,table_id,discount_amount,cash_received,change_amount,notes"
+    "id,order_no,order_type,channel,customer_name,external_order_code,total_amount,status,created_at,branch_id,shift_id,created_by,payment_completed_by,table_id,discount_amount,cash_received,change_amount,notes,metadata"
   );
   if (orderResult.error && isMissingColumnError(orderResult.error.message, "payment_completed_by")) {
+    hasPaymentCompletedByColumn = false;
     orderResult = await buildOrderQuery(
-      "id,order_no,order_type,channel,customer_name,external_order_code,total_amount,status,created_at,branch_id,shift_id,created_by,table_id"
+      "id,order_no,order_type,channel,customer_name,external_order_code,total_amount,status,created_at,branch_id,shift_id,created_by,table_id,metadata"
+    );
+  }
+  if (orderResult.error && isMissingColumnError(orderResult.error.message, "metadata")) {
+    orderResult = await buildOrderQuery(
+      hasPaymentCompletedByColumn
+        ? "id,order_no,order_type,channel,customer_name,external_order_code,total_amount,status,created_at,branch_id,shift_id,created_by,payment_completed_by,table_id,discount_amount,cash_received,change_amount,notes"
+        : "id,order_no,order_type,channel,customer_name,external_order_code,total_amount,status,created_at,branch_id,shift_id,created_by,table_id"
     );
   }
 
@@ -297,7 +307,7 @@ async function loadPosSalesListDataRaw(scope: PosSalesListScope): Promise<PosSal
   const orderRows: OrderRow[] = (orderRowsRaw ?? []).map((row) => ({
     ...row,
     payment_completed_by: row.payment_completed_by ?? null
-  }));
+  })).filter((row) => (row.metadata as { sales_list_deleted?: boolean } | null | undefined)?.sales_list_deleted !== true);
   if (!orderRows || orderRows.length === 0) {
     return { branchOptions, shiftOptions: [], records: [] };
   }
