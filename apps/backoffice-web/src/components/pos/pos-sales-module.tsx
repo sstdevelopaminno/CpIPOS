@@ -2113,7 +2113,7 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
   const [cashSubmitting, setCashSubmitting] = useState(false);
   const [cashError, setCashError] = useState<string | null>(null);
   const [cashDrawerOpening, setCashDrawerOpening] = useState(false);
-  const [cashDrawerCooldownUntil, setCashDrawerCooldownUntil] = useState(0);
+  const [cashDrawerCoolingDown, setCashDrawerCoolingDown] = useState(false);
   const [cashDrawerConfigured, setCashDrawerConfigured] = useState(false);
   const [receiptSession, setReceiptSession] = useState<ReceiptSession | null>(null);
   const [receiptSaving, setReceiptSaving] = useState(false);
@@ -3682,7 +3682,7 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
   }
 
   async function openCashDrawerManually() {
-    if (cashDrawerOpening || Date.now() < cashDrawerCooldownUntil) return;
+    if (cashDrawerOpening || cashDrawerCoolingDown) return;
     if (!cashDrawerConfigured) {
       pushSubmitMessage(text.cashDrawerNotConfigured);
       return;
@@ -3712,10 +3712,9 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
       }
       const suffix = body.data?.physical_status === "unsupported" ? ` (${text.cashDrawerUnsupportedStatus})` : "";
       pushSubmitMessage(`${text.cashDrawerCommandSent}${suffix}`);
-      const nextCooldown = Date.now() + 3000;
-      setCashDrawerCooldownUntil(nextCooldown);
+      setCashDrawerCoolingDown(true);
       window.setTimeout(() => {
-        setCashDrawerCooldownUntil((current) => (current === nextCooldown ? 0 : current));
+        setCashDrawerCoolingDown(false);
       }, 3100);
     } catch (error) {
       pushSubmitMessage(error instanceof Error ? error.message : text.cashDrawerOpenFailed);
@@ -7678,7 +7677,7 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
           }
           onTableQrOrder={() => setTableQrModalOpen(true)}
           onPromotion={openDiscountPopup}
-          onOpenCashDrawer={openCashDrawerManually}
+          onOpenCashDrawer={cashDrawerConfigured ? openCashDrawerManually : undefined}
           showHoldBill={quickMode === "home"}
           showTableQrOrder={
             orderType === "dine_in" &&
@@ -7711,7 +7710,7 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
           openCashDrawerLabel={text.openCashDrawer}
           openingCashDrawerLabel={text.openingCashDrawer}
           openingCashDrawer={cashDrawerOpening}
-          openCashDrawerDisabled={isBusy || Date.now() < cashDrawerCooldownUntil}
+          openCashDrawerDisabled={isBusy || cashDrawerCoolingDown}
           cancelBillDisabled={!canCancelFromSidebar}
           cancelLabel={undefined}
           transferVerificationLabel={text.transferVerificationSummaryLabel}

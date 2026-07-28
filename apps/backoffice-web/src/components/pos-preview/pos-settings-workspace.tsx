@@ -3055,7 +3055,7 @@ export function PosSettingsWorkspace({ lang, initialData }: { lang: Language; in
                 {labels.back}
               </ActionButton>
             </div>
-            <PrintersModule />
+            <PrintersModule lang={lang === "en" ? "en" : "th"} />
           </div>
         ) : null}
         {view === "activity" ? (

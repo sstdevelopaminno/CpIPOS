@@ -76,7 +76,192 @@ function sleep(ms: number) {
   });
 }
 
-export function PrintersModule() {
+async function fetchJsonWithTimeout(input: RequestInfo | URL, init: RequestInit, timeoutMs = 10000) {
+  const controller = new AbortController();
+  const timer = window.setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(input, { ...init, signal: controller.signal });
+    return { response, body: await readJson(response) };
+  } finally {
+    window.clearTimeout(timer);
+  }
+}
+
+const PRINTER_MODULE_TEXT = {
+  en: {
+    title: "Printer Settings",
+    description: "Adapter-based printing supports network printers, local print agents, Bluetooth bridge, and cash drawers.",
+    sectionsLabel: "Printer settings sections",
+    printers: "Printers",
+    agents: "Print Agents",
+    assignment: "Assignment",
+    localAgents: "Local Print Agents",
+    agentName: "Agent name",
+    deviceCode: "Device code, e.g. POS-COUNTER-01",
+    appVersion: "App version (optional)",
+    creating: "Creating...",
+    createAgentSecret: "Create agent secret",
+    copySecretNow: "Copy this secret now. It is shown once only.",
+    copySecret: "Copy secret",
+    agent: "Agent",
+    device: "Device",
+    status: "Status",
+    lastSeen: "Last seen",
+    actions: "Actions",
+    loadingAgents: "Loading agents...",
+    noAgents: "No print agents yet.",
+    revoke: "Revoke",
+    block: "Block",
+    assignmentTitle: "Printer Assignment",
+    assignmentHint: "For multiple cashier machines in one branch, bind a printer by adding metadata such as agent_device_code, agent_device_codes, assigned_agent_id, or assigned_agent_ids.",
+    drawerProfileExample: "Cash drawer profile example:",
+    printerName: "Printer name",
+    ipAddress: "IP address for network printer",
+    port: "Port, default 9100",
+    enabled: "Enabled",
+    saving: "Saving...",
+    addPrinter: "Add printer",
+    bluetoothTitle: "Bluetooth Discovery and Auto Connect",
+    bridgeStatus: "Bridge status",
+    online: "online",
+    offline: "offline",
+    checking: "checking",
+    bridgeUrl: "Bridge URL, e.g. http://127.0.0.1:3210/print",
+    scanning: "Scanning...",
+    scanBluetooth: "Scan Bluetooth",
+    bluetoothHint: "Select a device below to fill metadata and connect before saving.",
+    testingPrint: "Testing print...",
+    debugPrint58: "Debug Print 58mm",
+    address: "Address",
+    connected: "connected",
+    notConnected: "not connected",
+    paired: "paired",
+    notPaired: "not paired",
+    useDevice: "Use device",
+    connecting: "Connecting...",
+    autoConnect: "Auto connect",
+    debugPanel: "Bridge Debug Panel (raw response)",
+    bluetoothExamples: "Bluetooth metadata examples:",
+    loadingPrinters: "Loading printers...",
+    noPrinters: "No printers configured yet.",
+    name: "Name",
+    role: "Role",
+    connection: "Connection",
+    paper: "Paper",
+    yes: "yes",
+    no: "no",
+    testing: "Testing...",
+    testPrint: "Test print",
+    loadAgentsFailed: "Load print agents failed.",
+    appliedBluetooth: "Applied Bluetooth device",
+    discoveryFailed: "Bluetooth discovery failed.",
+    discoveryDone: "Discovery done.",
+    foundDevices: "Found",
+    devicesUnit: "device(s).",
+    connectFailed: "Bluetooth connect failed.",
+    connectedMessage: "Bluetooth connected",
+    printDebugFailed: "Bluetooth print debug failed.",
+    printDebugComplete: "Bluetooth print debug complete.",
+    metadataInvalid: "metadata_json must be a valid JSON object.",
+    createPrinterFailed: "Create printer failed.",
+    printerCreated: "Printer created",
+    testQueued: "Test print queued for printer",
+    updateAgentFailed: "Update print agent failed.",
+    createAgentFailed: "Create print agent failed.",
+    agentBlocked: "Print agent blocked.",
+    agentRevoked: "Print agent revoked.",
+    unknownError: "Unknown error",
+    bridgeHealthFailed: "Bridge health check failed."
+  },
+  th: {
+    title: "ตั้งค่าเครื่องพิมพ์",
+    description: "รองรับเครื่องพิมพ์ผ่านเครือข่าย, Local Print Agent, Bluetooth Bridge และลิ้นชักเก็บเงิน",
+    sectionsLabel: "หมวดตั้งค่าเครื่องพิมพ์",
+    printers: "เครื่องพิมพ์",
+    agents: "Print Agents",
+    assignment: "การผูกเครื่อง",
+    localAgents: "Local Print Agents",
+    agentName: "ชื่อ Agent",
+    deviceCode: "รหัสเครื่อง เช่น POS-COUNTER-01",
+    appVersion: "เวอร์ชันแอป (ไม่บังคับ)",
+    creating: "กำลังสร้าง...",
+    createAgentSecret: "สร้าง Agent Secret",
+    copySecretNow: "คัดลอก secret ตอนนี้ ระบบจะแสดงให้เห็นครั้งเดียวเท่านั้น",
+    copySecret: "คัดลอก secret",
+    agent: "Agent",
+    device: "เครื่อง",
+    status: "สถานะ",
+    lastSeen: "เห็นล่าสุด",
+    actions: "จัดการ",
+    loadingAgents: "กำลังโหลด Agents...",
+    noAgents: "ยังไม่มี Print Agent",
+    revoke: "ยกเลิกสิทธิ์",
+    block: "บล็อก",
+    assignmentTitle: "การผูกเครื่องพิมพ์",
+    assignmentHint: "ถ้าสาขาเดียวมีหลายเครื่อง POS ให้ผูกเครื่องพิมพ์ด้วย metadata เช่น agent_device_code, agent_device_codes, assigned_agent_id หรือ assigned_agent_ids",
+    drawerProfileExample: "ตัวอย่างโปรไฟล์ลิ้นชักเก็บเงิน:",
+    printerName: "ชื่อเครื่องพิมพ์",
+    ipAddress: "IP address สำหรับเครื่องพิมพ์เครือข่าย",
+    port: "พอร์ต ค่าเริ่มต้น 9100",
+    enabled: "เปิดใช้งาน",
+    saving: "กำลังบันทึก...",
+    addPrinter: "เพิ่มเครื่องพิมพ์",
+    bluetoothTitle: "ค้นหา Bluetooth และเชื่อมต่ออัตโนมัติ",
+    bridgeStatus: "สถานะ Bridge",
+    online: "ออนไลน์",
+    offline: "ออฟไลน์",
+    checking: "กำลังตรวจสอบ",
+    bridgeUrl: "Bridge URL เช่น http://127.0.0.1:3210/print",
+    scanning: "กำลังค้นหา...",
+    scanBluetooth: "ค้นหา Bluetooth",
+    bluetoothHint: "เลือกอุปกรณ์ด้านล่างเพื่อเติม metadata และเชื่อมต่อก่อนบันทึก",
+    testingPrint: "กำลังทดสอบพิมพ์...",
+    debugPrint58: "ทดสอบพิมพ์ 58mm",
+    address: "ที่อยู่",
+    connected: "เชื่อมต่อแล้ว",
+    notConnected: "ยังไม่เชื่อมต่อ",
+    paired: "จับคู่แล้ว",
+    notPaired: "ยังไม่จับคู่",
+    useDevice: "ใช้อุปกรณ์นี้",
+    connecting: "กำลังเชื่อมต่อ...",
+    autoConnect: "เชื่อมต่ออัตโนมัติ",
+    debugPanel: "ข้อมูล Debug ของ Bridge",
+    bluetoothExamples: "ตัวอย่าง metadata Bluetooth:",
+    loadingPrinters: "กำลังโหลดเครื่องพิมพ์...",
+    noPrinters: "ยังไม่ได้ตั้งค่าเครื่องพิมพ์",
+    name: "ชื่อ",
+    role: "หน้าที่",
+    connection: "การเชื่อมต่อ",
+    paper: "กระดาษ",
+    yes: "ใช่",
+    no: "ไม่ใช่",
+    testing: "กำลังทดสอบ...",
+    testPrint: "ทดสอบพิมพ์",
+    loadAgentsFailed: "โหลด Print Agents ไม่สำเร็จ",
+    appliedBluetooth: "เลือกอุปกรณ์ Bluetooth แล้ว",
+    discoveryFailed: "ค้นหา Bluetooth ไม่สำเร็จ",
+    discoveryDone: "ค้นหาเสร็จแล้ว",
+    foundDevices: "พบ",
+    devicesUnit: "อุปกรณ์",
+    connectFailed: "เชื่อมต่อ Bluetooth ไม่สำเร็จ",
+    connectedMessage: "เชื่อมต่อ Bluetooth แล้ว",
+    printDebugFailed: "ทดสอบพิมพ์ Bluetooth ไม่สำเร็จ",
+    printDebugComplete: "ทดสอบพิมพ์ Bluetooth เสร็จแล้ว",
+    metadataInvalid: "metadata_json ต้องเป็น JSON object ที่ถูกต้อง",
+    createPrinterFailed: "สร้างเครื่องพิมพ์ไม่สำเร็จ",
+    printerCreated: "สร้างเครื่องพิมพ์แล้ว",
+    testQueued: "ส่งทดสอบพิมพ์ไปยังเครื่อง",
+    updateAgentFailed: "อัปเดต Print Agent ไม่สำเร็จ",
+    createAgentFailed: "สร้าง Print Agent ไม่สำเร็จ",
+    agentBlocked: "บล็อก Print Agent แล้ว",
+    agentRevoked: "ยกเลิกสิทธิ์ Print Agent แล้ว",
+    unknownError: "ไม่ทราบสาเหตุ",
+    bridgeHealthFailed: "ตรวจสอบ Bridge ไม่สำเร็จ"
+  }
+} as const;
+
+export function PrintersModule({ lang = "en" }: { lang?: "th" | "en" }) {
+  const text = PRINTER_MODULE_TEXT[lang];
   const [activePanel, setActivePanel] = useState<"printers" | "agents" | "assignment">("printers");
   const [page, setPage] = useState(1);
   const [reloadKey, setReloadKey] = useState(0);
@@ -143,18 +328,17 @@ export function PrintersModule() {
   const loadAgents = useCallback(async () => {
     setAgentsLoading(true);
     try {
-      const response = await fetch("/api/backoffice/printers/agents", { cache: "no-store" });
-      const body = await readJson(response);
+      const { response, body } = await fetchJsonWithTimeout("/api/backoffice/printers/agents", { cache: "no-store" }, 9000);
       if (!response.ok || body?.error) {
-        throw new Error(body?.error?.message ?? "Load print agents failed.");
+        throw new Error(body?.error?.message ?? text.loadAgentsFailed);
       }
       setAgents(Array.isArray(body?.data?.items) ? body.data.items : []);
     } catch (agentError) {
-      setSubmitError(agentError instanceof Error ? agentError.message : "Load print agents failed.");
+      setSubmitError(agentError instanceof Error ? agentError.message : text.loadAgentsFailed);
     } finally {
       setAgentsLoading(false);
     }
-  }, []);
+  }, [text.loadAgentsFailed]);
 
   useEffect(() => {
     if (activePanel === "agents") {
@@ -174,13 +358,13 @@ export function PrintersModule() {
       try {
         while (attempts < 3) {
           attempts += 1;
-          const response = await fetch("/api/backoffice/printers/bluetooth/health", {
+          const { response, body } = await fetchJsonWithTimeout("/api/backoffice/printers/bluetooth/health", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(requestPayload)
-          });
-          const body = (await readJson(response)) as { data?: BridgeEnvelope<{ latency_ms?: number | null }> } | null;
-          const envelope = body?.data;
+          }, 5000);
+          const typedBody = body as { data?: BridgeEnvelope<{ latency_ms?: number | null }> } | null;
+          const envelope = typedBody?.data;
           if (!active || !envelope) return;
           setBridgeDebug((current) => ({
             ...current,
@@ -209,7 +393,7 @@ export function PrintersModule() {
         setBridgeHealth({
           ok: false,
           code: "bridge_health_check_failed",
-          message: "Bridge health check failed.",
+          message: text.bridgeHealthFailed,
           latencyMs: null
         });
         setBridgeDebug((current) => ({
@@ -235,7 +419,7 @@ export function PrintersModule() {
         window.clearTimeout(timer);
       }
     };
-  }, [bridgeUrlInput, isBluetoothMode]);
+  }, [bridgeUrlInput, isBluetoothMode, text.bridgeHealthFailed]);
 
   function applyBluetoothDevice(device: BluetoothDevice) {
     const candidateName = device.name.trim() || device.address || "Bluetooth Printer";
@@ -255,7 +439,7 @@ export function PrintersModule() {
     setIpAddress("");
     setPortValue("");
     setMetadataText(prettyJson(metadata));
-    setSubmitSuccess(`Applied Bluetooth device: ${candidateName}`);
+    setSubmitSuccess(`${text.appliedBluetooth}: ${candidateName}`);
   }
 
   async function handleDiscoverBluetooth() {
@@ -267,12 +451,11 @@ export function PrintersModule() {
         bridge_url: bridgeUrlInput.trim() || null,
         timeout_ms: 9000
       };
-      const response = await fetch("/api/backoffice/printers/bluetooth/discover", {
+      const { response, body } = await fetchJsonWithTimeout("/api/backoffice/printers/bluetooth/discover", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(requestPayload)
-      });
-      const body = await readJson(response);
+      }, 12000);
       setBridgeDebug((current) => ({
         ...current,
         discover: {
@@ -284,7 +467,7 @@ export function PrintersModule() {
         }
       }));
       if (!response.ok || body?.error) {
-        throw new Error(body?.error?.message ?? "Bluetooth discovery failed.");
+        throw new Error(body?.error?.message ?? text.discoveryFailed);
       }
       const envelope = body?.data as BridgeEnvelope<{ bridge_url?: string; devices?: BluetoothDevice[] }> | undefined;
       const devices = Array.isArray(envelope?.data?.devices) ? envelope!.data.devices! : [];
@@ -292,10 +475,10 @@ export function PrintersModule() {
       if (typeof envelope?.data?.bridge_url === "string" && envelope.data.bridge_url.trim().length > 0) {
         setBridgeUrlInput(envelope.data.bridge_url.trim());
       }
-      setSubmitSuccess(`${envelope?.message ?? "Discovery done."} Found ${devices.length} device(s).`);
+      setSubmitSuccess(`${envelope?.message ?? text.discoveryDone} ${text.foundDevices} ${devices.length} ${text.devicesUnit}`);
     } catch (discoverError) {
       setDiscoveredDevices([]);
-      setSubmitError(discoverError instanceof Error ? discoverError.message : "Unknown error");
+      setSubmitError(discoverError instanceof Error ? discoverError.message : text.unknownError);
     } finally {
       setDiscovering(false);
     }
@@ -320,12 +503,13 @@ export function PrintersModule() {
 
       while (attempts < 3) {
         attempts += 1;
-        response = await fetch("/api/backoffice/printers/bluetooth/connect", {
+        const result = await fetchJsonWithTimeout("/api/backoffice/printers/bluetooth/connect", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(requestPayload)
-        });
-        body = await readJson(response);
+        }, 10000);
+        response = result.response;
+        body = result.body;
         envelope = (body as { data?: BridgeEnvelope<Record<string, unknown>> } | null)?.data;
         setBridgeDebug((current) => ({
           ...current,
@@ -344,16 +528,16 @@ export function PrintersModule() {
           break;
         }
         if (attempts >= 3 || hasValidationError) {
-          throw new Error((body as { error?: { message?: string } } | null)?.error?.message ?? envelope?.message ?? "Bluetooth connect failed.");
+          throw new Error((body as { error?: { message?: string } } | null)?.error?.message ?? envelope?.message ?? text.connectFailed);
         }
         await sleep(backoffMs);
         backoffMs = Math.min(2400, backoffMs * 2);
       }
 
       applyBluetoothDevice(device);
-      setSubmitSuccess(envelope?.message ?? `Bluetooth connected: ${device.name || device.address || "device"}`);
+      setSubmitSuccess(envelope?.message ?? `${text.connectedMessage}: ${device.name || device.address || "device"}`);
     } catch (connectError) {
-      setSubmitError(connectError instanceof Error ? connectError.message : "Unknown error");
+      setSubmitError(connectError instanceof Error ? connectError.message : text.unknownError);
     } finally {
       setConnectingDeviceId(null);
     }
@@ -370,12 +554,11 @@ export function PrintersModule() {
       receipt_html: sampleHtml
     };
     try {
-      const response = await fetch("/api/pos/receipts/bluetooth", {
+      const { response, body } = await fetchJsonWithTimeout("/api/pos/receipts/bluetooth", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(requestPayload)
-      });
-      const body = await readJson(response);
+      }, 12000);
       setBridgeDebug((current) => ({
         ...current,
         print: {
@@ -387,12 +570,12 @@ export function PrintersModule() {
         }
       }));
       if (!response.ok || (body as { error?: unknown } | null)?.error) {
-        throw new Error((body as { error?: { message?: string } } | null)?.error?.message ?? "Bluetooth print debug failed.");
+        throw new Error((body as { error?: { message?: string } } | null)?.error?.message ?? text.printDebugFailed);
       }
-      const message = (body as { data?: { message?: string } } | null)?.data?.message ?? "Bluetooth print debug complete.";
+      const message = (body as { data?: { message?: string } } | null)?.data?.message ?? text.printDebugComplete;
       setSubmitSuccess(message);
     } catch (error) {
-      setSubmitError(error instanceof Error ? error.message : "Unknown error");
+      setSubmitError(error instanceof Error ? error.message : text.unknownError);
     } finally {
       setPrintingBridgeTest(false);
     }
@@ -409,7 +592,7 @@ export function PrintersModule() {
       try {
         metadata = JSON.parse(metadataText) as Record<string, unknown>;
       } catch {
-        setSubmitError("metadata_json must be a valid JSON object.");
+        setSubmitError(text.metadataInvalid);
         setSubmitting(false);
         return;
       }
@@ -427,16 +610,15 @@ export function PrintersModule() {
     };
 
     try {
-      const response = await fetch("/api/backoffice/printers", {
+      const { response, body } = await fetchJsonWithTimeout("/api/backoffice/printers", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload)
-      });
-      const body = await readJson(response);
+      }, 10000);
       if (!response.ok || body?.error) {
-        throw new Error(body?.error?.message ?? "Create printer failed.");
+        throw new Error(body?.error?.message ?? text.createPrinterFailed);
       }
-      setSubmitSuccess(`Printer created: ${body?.data?.printer_name ?? payload.printer_name}`);
+      setSubmitSuccess(`${text.printerCreated}: ${body?.data?.printer_name ?? payload.printer_name}`);
       setReloadKey((key) => key + 1);
       setPrinterName("");
       setIpAddress("");
@@ -444,7 +626,7 @@ export function PrintersModule() {
       setMetadataText("");
       setDiscoveredDevices([]);
     } catch (createError) {
-      setSubmitError(createError instanceof Error ? createError.message : "Unknown error");
+      setSubmitError(createError instanceof Error ? createError.message : text.unknownError);
     } finally {
       setSubmitting(false);
     }
@@ -455,19 +637,18 @@ export function PrintersModule() {
     setSubmitError(null);
     setSubmitSuccess(null);
     try {
-      const response = await fetch("/api/backoffice/printers/test", {
+      const { response, body } = await fetchJsonWithTimeout("/api/backoffice/printers/test", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ printer_id: printerId })
-      });
-      const body = await readJson(response);
+      }, 12000);
       if (!response.ok || body?.error) {
-        throw new Error(body?.error?.message ?? "Test print failed.");
+        throw new Error(body?.error?.message ?? text.printDebugFailed);
       }
-      setSubmitSuccess(`Test print queued for printer ${printerId}`);
+      setSubmitSuccess(`${text.testQueued} ${printerId}`);
       setReloadKey((key) => key + 1);
     } catch (testError) {
-      setSubmitError(testError instanceof Error ? testError.message : "Unknown error");
+      setSubmitError(testError instanceof Error ? testError.message : text.unknownError);
     } finally {
       setTestingId(null);
     }
@@ -485,7 +666,7 @@ export function PrintersModule() {
       try {
         metadata = JSON.parse(agentMetadataText) as Record<string, unknown>;
       } catch {
-        setSubmitError("agent metadata must be a valid JSON object.");
+        setSubmitError(text.metadataInvalid);
         setAgentSubmitting(false);
         return;
       }
@@ -498,28 +679,27 @@ export function PrintersModule() {
         app_version: agentVersion.trim() || null,
         metadata
       };
-      const response = await fetch("/api/backoffice/printers/agents", {
+      const { response, body } = await fetchJsonWithTimeout("/api/backoffice/printers/agents", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload)
-      });
-      const body = await readJson(response);
+      }, 10000);
       if (!response.ok || body?.error) {
-        throw new Error(body?.error?.message ?? "Create print agent failed.");
+        throw new Error(body?.error?.message ?? text.createAgentFailed);
       }
       setCreatedAgentKey({
         agentName: body?.data?.agent?.agent_name ?? payload.agent_name,
         deviceCode: body?.data?.agent?.device_code ?? payload.device_code,
         key: body?.data?.agent_key ?? ""
       });
-      setSubmitSuccess("Print agent created. Copy the secret now; it will not be shown again.");
+      setSubmitSuccess(text.copySecretNow);
       setAgentName("");
       setAgentDeviceCode("");
       setAgentVersion("");
       setAgentMetadataText("");
       setReloadKey((key) => key + 1);
     } catch (agentError) {
-      setSubmitError(agentError instanceof Error ? agentError.message : "Create print agent failed.");
+      setSubmitError(agentError instanceof Error ? agentError.message : text.createAgentFailed);
     } finally {
       setAgentSubmitting(false);
     }
@@ -530,19 +710,18 @@ export function PrintersModule() {
     setSubmitError(null);
     setSubmitSuccess(null);
     try {
-      const response = await fetch("/api/backoffice/printers/agents", {
+      const { response, body } = await fetchJsonWithTimeout("/api/backoffice/printers/agents", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ agent_id: agentId, action })
-      });
-      const body = await readJson(response);
+      }, 10000);
       if (!response.ok || body?.error) {
-        throw new Error(body?.error?.message ?? "Update print agent failed.");
+        throw new Error(body?.error?.message ?? text.updateAgentFailed);
       }
-      setSubmitSuccess(action === "block" ? "Print agent blocked." : "Print agent revoked.");
+      setSubmitSuccess(action === "block" ? text.agentBlocked : text.agentRevoked);
       setReloadKey((key) => key + 1);
     } catch (agentError) {
-      setSubmitError(agentError instanceof Error ? agentError.message : "Update print agent failed.");
+      setSubmitError(agentError instanceof Error ? agentError.message : text.updateAgentFailed);
     } finally {
       setAgentActionId(null);
     }
@@ -550,14 +729,14 @@ export function PrintersModule() {
 
   return (
     <section className="surface">
-      <h2>Printer Settings</h2>
-      <p style={{ color: "var(--muted)" }}>Adapter-based printing supports NETWORK_ESC_POS, STAR_WEBPRNT, LOCAL_BRIDGE, and BLUETOOTH_BRIDGE.</p>
+      <h2>{text.title}</h2>
+      <p style={{ color: "var(--muted)" }}>{text.description}</p>
 
-      <div style={{ display: "flex", flexWrap: "wrap", gap: 8, margin: "12px 0" }} aria-label="Printer settings sections">
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 8, margin: "12px 0" }} aria-label={text.sectionsLabel}>
         {[
-          ["printers", "Printers"],
-          ["agents", "Print Agents"],
-          ["assignment", "Assignment"]
+          ["printers", text.printers],
+          ["agents", text.agents],
+          ["assignment", text.assignment]
         ].map(([key, label]) => (
           <button
             key={key}
@@ -580,19 +759,19 @@ export function PrintersModule() {
 
       {activePanel === "agents" ? (
         <section style={{ marginBottom: 12, border: "1px solid var(--border)", borderRadius: 10, padding: 12, background: "#f8fafc" }}>
-          <h3 style={{ margin: "0 0 6px" }}>Local Print Agents</h3>
+          <h3 style={{ margin: "0 0 6px" }}>{text.localAgents}</h3>
           <form className="grid cols-4" onSubmit={handleCreateAgent} style={{ marginTop: 10 }}>
-            <input value={agentName} onChange={(event) => setAgentName(event.target.value)} placeholder="Agent name" required style={{ minHeight: 42, padding: "8px 10px" }} />
-            <input value={agentDeviceCode} onChange={(event) => setAgentDeviceCode(event.target.value)} placeholder="Device code เช่น POS-COUNTER-01" required style={{ minHeight: 42, padding: "8px 10px" }} />
-            <input value={agentVersion} onChange={(event) => setAgentVersion(event.target.value)} placeholder="App version (optional)" style={{ minHeight: 42, padding: "8px 10px" }} />
+            <input value={agentName} onChange={(event) => setAgentName(event.target.value)} placeholder={text.agentName} required style={{ minHeight: 42, padding: "8px 10px" }} />
+            <input value={agentDeviceCode} onChange={(event) => setAgentDeviceCode(event.target.value)} placeholder={text.deviceCode} required style={{ minHeight: 42, padding: "8px 10px" }} />
+            <input value={agentVersion} onChange={(event) => setAgentVersion(event.target.value)} placeholder={text.appVersion} style={{ minHeight: 42, padding: "8px 10px" }} />
             <input value={agentMetadataText} onChange={(event) => setAgentMetadataText(event.target.value)} placeholder='{"os":"windows","station":"counter"}' style={{ minHeight: 42, padding: "8px 10px" }} />
             <button type="submit" disabled={agentSubmitting} style={{ minHeight: 42 }}>
-              {agentSubmitting ? "Creating..." : "Create agent secret"}
+              {agentSubmitting ? text.creating : text.createAgentSecret}
             </button>
           </form>
           {createdAgentKey ? (
             <div style={{ marginTop: 10, border: "1px solid #fed7aa", background: "#fff7ed", borderRadius: 8, padding: 10 }}>
-              <strong>Copy this secret now. It is shown once only.</strong>
+              <strong>{text.copySecretNow}</strong>
               <p style={{ margin: "6px 0", color: "var(--muted)", fontSize: 12 }}>
                 {createdAgentKey.agentName} / {createdAgentKey.deviceCode}
               </p>
@@ -600,7 +779,7 @@ export function PrintersModule() {
                 {createdAgentKey.key}
               </code>
               <button type="button" onClick={() => void navigator.clipboard?.writeText(createdAgentKey.key)} style={{ marginTop: 8, minHeight: 34 }}>
-                Copy secret
+                {text.copySecret}
               </button>
             </div>
           ) : null}
@@ -608,21 +787,21 @@ export function PrintersModule() {
             <table style={{ width: "100%", borderCollapse: "collapse" }}>
               <thead>
                 <tr>
-                  <th style={{ textAlign: "left", borderBottom: "1px solid var(--border)", padding: 8 }}>Agent</th>
-                  <th style={{ textAlign: "left", borderBottom: "1px solid var(--border)", padding: 8 }}>Device</th>
-                  <th style={{ textAlign: "left", borderBottom: "1px solid var(--border)", padding: 8 }}>Status</th>
-                  <th style={{ textAlign: "left", borderBottom: "1px solid var(--border)", padding: 8 }}>Last seen</th>
-                  <th style={{ textAlign: "left", borderBottom: "1px solid var(--border)", padding: 8 }}>Actions</th>
+                  <th style={{ textAlign: "left", borderBottom: "1px solid var(--border)", padding: 8 }}>{text.agent}</th>
+                  <th style={{ textAlign: "left", borderBottom: "1px solid var(--border)", padding: 8 }}>{text.device}</th>
+                  <th style={{ textAlign: "left", borderBottom: "1px solid var(--border)", padding: 8 }}>{text.status}</th>
+                  <th style={{ textAlign: "left", borderBottom: "1px solid var(--border)", padding: 8 }}>{text.lastSeen}</th>
+                  <th style={{ textAlign: "left", borderBottom: "1px solid var(--border)", padding: 8 }}>{text.actions}</th>
                 </tr>
               </thead>
               <tbody>
                 {agentsLoading ? (
                   <tr>
-                    <td colSpan={5} style={{ padding: 8 }}>Loading agents...</td>
+                    <td colSpan={5} style={{ padding: 8 }}>{text.loadingAgents}</td>
                   </tr>
                 ) : agents.length === 0 ? (
                   <tr>
-                    <td colSpan={5} style={{ padding: 8 }}>No print agents yet.</td>
+                    <td colSpan={5} style={{ padding: 8 }}>{text.noAgents}</td>
                   </tr>
                 ) : (
                   agents.map((agent) => (
@@ -636,10 +815,10 @@ export function PrintersModule() {
                       <td style={{ borderBottom: "1px solid var(--border)", padding: 8 }}>{agent.last_seen_at ? new Date(agent.last_seen_at).toLocaleString() : "-"}</td>
                       <td style={{ borderBottom: "1px solid var(--border)", padding: 8, display: "flex", gap: 8 }}>
                         <button type="button" disabled={agentActionId === agent.id || agent.status !== "active"} onClick={() => void handleUpdateAgent(agent.id, "revoke")} style={{ minHeight: 34 }}>
-                          Revoke
+                          {text.revoke}
                         </button>
                         <button type="button" disabled={agentActionId === agent.id || agent.status === "blocked"} onClick={() => void handleUpdateAgent(agent.id, "block")} style={{ minHeight: 34 }}>
-                          Block
+                          {text.block}
                         </button>
                       </td>
                     </tr>
@@ -653,13 +832,13 @@ export function PrintersModule() {
 
       {activePanel === "assignment" ? (
         <section style={{ marginBottom: 12, border: "1px solid var(--border)", borderRadius: 10, padding: 12, background: "#f8fafc" }}>
-          <h3 style={{ margin: "0 0 6px" }}>Printer Assignment</h3>
+          <h3 style={{ margin: "0 0 6px" }}>{text.assignmentTitle}</h3>
           <p style={{ margin: "0 0 8px", color: "var(--muted)", fontSize: 13 }}>
-            For multiple cashier machines in one branch, bind a printer by adding metadata such as <code>agent_device_code</code>, <code>agent_device_codes</code>, <code>assigned_agent_id</code>, or <code>assigned_agent_ids</code>.
+            {text.assignmentHint}
           </p>
           <code>{'{"agent_device_code":"POS-COUNTER-01","bridge_timeout_ms":8000}'}</code>
           <p style={{ margin: "8px 0 0", color: "var(--muted)", fontSize: 13 }}>
-            Cash drawer profile example: <code>{'{"cash_drawer":{"enabled":true,"connectionMode":"printer-kick","openSupported":true,"statusSupported":false,"closeSupported":false,"kickPin":0,"pulseOnMs":50,"pulseOffMs":250,"autoOpenOnCashPayment":false}}'}</code>
+            {text.drawerProfileExample} <code>{'{"cash_drawer":{"enabled":true,"connectionMode":"printer-kick","openSupported":true,"statusSupported":false,"closeSupported":false,"kickPin":0,"pulseOnMs":50,"pulseOffMs":250,"autoOpenOnCashPayment":false}}'}</code>
           </p>
         </section>
       ) : null}
@@ -669,7 +848,7 @@ export function PrintersModule() {
           name="printer_name"
           value={printerName}
           onChange={(event) => setPrinterName(event.target.value)}
-          placeholder="Printer name"
+          placeholder={text.printerName}
           required
           style={{ minHeight: 42, padding: "8px 10px" }}
         />
@@ -702,7 +881,7 @@ export function PrintersModule() {
           name="ip_address"
           value={ipAddress}
           onChange={(event) => setIpAddress(event.target.value)}
-          placeholder="ip_address (for network printer)"
+          placeholder={text.ipAddress}
           style={{ minHeight: 42, padding: "8px 10px" }}
         />
         <input
@@ -710,7 +889,7 @@ export function PrintersModule() {
           type="number"
           value={portValue}
           onChange={(event) => setPortValue(event.target.value)}
-          placeholder="port (default 9100)"
+          placeholder={text.port}
           style={{ minHeight: 42, padding: "8px 10px" }}
         />
         <input
@@ -722,18 +901,18 @@ export function PrintersModule() {
         />
         <label style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
           <input name="enabled" type="checkbox" checked={enabled} onChange={(event) => setEnabled(event.target.checked)} />
-          Enabled
+          {text.enabled}
         </label>
         <button type="submit" disabled={submitting} style={{ minHeight: 42 }}>
-          {submitting ? "Saving..." : "Add printer"}
+          {submitting ? text.saving : text.addPrinter}
         </button>
       </form>
 
       {isBluetoothMode ? (
         <section style={{ marginTop: 12, border: "1px solid var(--border)", borderRadius: 10, padding: 12 }}>
-          <h3 style={{ margin: "0 0 8px" }}>Bluetooth Discovery & Auto Connect</h3>
+          <h3 style={{ margin: "0 0 8px" }}>{text.bluetoothTitle}</h3>
           <div style={{ marginBottom: 8, fontSize: 12, color: bridgeHealth?.ok ? "#067647" : "#b42318" }}>
-            Bridge status: {bridgeHealth ? (bridgeHealth.ok ? "online" : "offline") : "checking"}
+            {text.bridgeStatus}: {bridgeHealth ? (bridgeHealth.ok ? text.online : text.offline) : text.checking}
             {bridgeHealth?.latencyMs != null ? ` (${bridgeHealth.latencyMs}ms)` : ""}
             {bridgeHealth?.message ? ` - ${bridgeHealth.message}` : ""}
           </div>
@@ -741,19 +920,19 @@ export function PrintersModule() {
             <input
               value={bridgeUrlInput}
               onChange={(event) => setBridgeUrlInput(event.target.value)}
-              placeholder="bridge_url (e.g. http://127.0.0.1:3210/print)"
+              placeholder={text.bridgeUrl}
               style={{ minHeight: 40, padding: "8px 10px" }}
             />
             <button type="button" onClick={() => void handleDiscoverBluetooth()} disabled={discovering} style={{ minHeight: 40, padding: "0 16px" }}>
-              {discovering ? "Scanning..." : "Scan Bluetooth"}
+              {discovering ? text.scanning : text.scanBluetooth}
             </button>
           </div>
           <p style={{ margin: "8px 0 0", color: "var(--muted)", fontSize: 12 }}>
-            Select a device below to auto-fill metadata and auto-connect.
+            {text.bluetoothHint}
           </p>
           <div style={{ marginTop: 8 }}>
             <button type="button" onClick={() => void handleBridgePrint58Debug()} disabled={printingBridgeTest} style={{ minHeight: 34 }}>
-              {printingBridgeTest ? "Testing print..." : "Debug Print 58mm"}
+              {printingBridgeTest ? text.testingPrint : text.debugPrint58}
             </button>
           </div>
 
@@ -762,10 +941,10 @@ export function PrintersModule() {
               <table style={{ width: "100%", borderCollapse: "collapse" }}>
                 <thead>
                   <tr>
-                    <th style={{ textAlign: "left", borderBottom: "1px solid var(--border)", padding: 8 }}>Device</th>
-                    <th style={{ textAlign: "left", borderBottom: "1px solid var(--border)", padding: 8 }}>Address</th>
-                    <th style={{ textAlign: "left", borderBottom: "1px solid var(--border)", padding: 8 }}>Status</th>
-                    <th style={{ textAlign: "left", borderBottom: "1px solid var(--border)", padding: 8 }}>Actions</th>
+                    <th style={{ textAlign: "left", borderBottom: "1px solid var(--border)", padding: 8 }}>{text.device}</th>
+                    <th style={{ textAlign: "left", borderBottom: "1px solid var(--border)", padding: 8 }}>{text.address}</th>
+                    <th style={{ textAlign: "left", borderBottom: "1px solid var(--border)", padding: 8 }}>{text.status}</th>
+                    <th style={{ textAlign: "left", borderBottom: "1px solid var(--border)", padding: 8 }}>{text.actions}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -777,11 +956,11 @@ export function PrintersModule() {
                       </td>
                       <td style={{ borderBottom: "1px solid var(--border)", padding: 8 }}>{device.address ?? "-"}</td>
                       <td style={{ borderBottom: "1px solid var(--border)", padding: 8 }}>
-                        {device.connected ? "connected" : "not connected"} / {device.paired ? "paired" : "not paired"}
+                        {device.connected ? text.connected : text.notConnected} / {device.paired ? text.paired : text.notPaired}
                       </td>
                       <td style={{ borderBottom: "1px solid var(--border)", padding: 8, display: "flex", gap: 8 }}>
                         <button type="button" onClick={() => applyBluetoothDevice(device)} style={{ minHeight: 34 }}>
-                          Use device
+                          {text.useDevice}
                         </button>
                         <button
                           type="button"
@@ -789,7 +968,7 @@ export function PrintersModule() {
                           disabled={connectingDeviceId === device.id}
                           style={{ minHeight: 34 }}
                         >
-                          {connectingDeviceId === device.id ? "Connecting..." : "Auto connect"}
+                          {connectingDeviceId === device.id ? text.connecting : text.autoConnect}
                         </button>
                       </td>
                     </tr>
@@ -803,7 +982,7 @@ export function PrintersModule() {
 
       {isBluetoothMode ? (
         <details style={{ marginTop: 10 }}>
-          <summary>Bridge Debug Panel (raw response)</summary>
+          <summary>{text.debugPanel}</summary>
           <pre style={{ marginTop: 8, maxHeight: 260, overflow: "auto", background: "#f8fafc", border: "1px solid var(--border)", padding: 10, borderRadius: 8 }}>
             {JSON.stringify(bridgeDebug, null, 2)}
           </pre>
@@ -811,7 +990,7 @@ export function PrintersModule() {
       ) : null}
 
       <div style={{ marginTop: 10, fontSize: 12, color: "var(--muted)" }}>
-        <p style={{ margin: "0 0 6px" }}>Bluetooth metadata examples:</p>
+        <p style={{ margin: "0 0 6px" }}>{text.bluetoothExamples}</p>
         <p style={{ margin: "0 0 4px" }}>
           <code>{'{"bridge_url":"http://127.0.0.1:3210/print","bluetooth_address":"AA:BB:CC:DD:EE:FF","auto_connect":true}'}</code>
         </p>
@@ -823,9 +1002,9 @@ export function PrintersModule() {
       {submitError ? <ErrorState message={submitError} /> : null}
       {submitSuccess ? <p style={{ color: "#067647" }}>{submitSuccess}</p> : null}
 
-      {loading ? <LoadingState label="Loading printers..." /> : null}
+      {loading ? <LoadingState label={text.loadingPrinters} /> : null}
       {!loading && error ? <ErrorState message={error} /> : null}
-      {!loading && !error && items.length === 0 ? <EmptyState label="No printers configured yet." /> : null}
+      {!loading && !error && items.length === 0 ? <EmptyState label={text.noPrinters} /> : null}
 
       {!loading && !error && items.length > 0 ? (
         <>
@@ -833,13 +1012,13 @@ export function PrintersModule() {
             <table style={{ width: "100%", borderCollapse: "collapse" }}>
               <thead>
                 <tr>
-                  <th style={{ textAlign: "left", borderBottom: "1px solid var(--border)", padding: 8 }}>Name</th>
-                  <th style={{ textAlign: "left", borderBottom: "1px solid var(--border)", padding: 8 }}>Role</th>
-                  <th style={{ textAlign: "left", borderBottom: "1px solid var(--border)", padding: 8 }}>Connection</th>
-                  <th style={{ textAlign: "left", borderBottom: "1px solid var(--border)", padding: 8 }}>Address</th>
-                  <th style={{ textAlign: "left", borderBottom: "1px solid var(--border)", padding: 8 }}>Paper</th>
-                  <th style={{ textAlign: "left", borderBottom: "1px solid var(--border)", padding: 8 }}>Enabled</th>
-                  <th style={{ textAlign: "left", borderBottom: "1px solid var(--border)", padding: 8 }}>Actions</th>
+                  <th style={{ textAlign: "left", borderBottom: "1px solid var(--border)", padding: 8 }}>{text.name}</th>
+                  <th style={{ textAlign: "left", borderBottom: "1px solid var(--border)", padding: 8 }}>{text.role}</th>
+                  <th style={{ textAlign: "left", borderBottom: "1px solid var(--border)", padding: 8 }}>{text.connection}</th>
+                  <th style={{ textAlign: "left", borderBottom: "1px solid var(--border)", padding: 8 }}>{text.address}</th>
+                  <th style={{ textAlign: "left", borderBottom: "1px solid var(--border)", padding: 8 }}>{text.paper}</th>
+                  <th style={{ textAlign: "left", borderBottom: "1px solid var(--border)", padding: 8 }}>{text.enabled}</th>
+                  <th style={{ textAlign: "left", borderBottom: "1px solid var(--border)", padding: 8 }}>{text.actions}</th>
                 </tr>
               </thead>
               <tbody>
@@ -852,10 +1031,10 @@ export function PrintersModule() {
                       {printer.ip_address ? `${printer.ip_address}:${printer.port ?? 9100}` : "-"}
                     </td>
                     <td style={{ borderBottom: "1px solid var(--border)", padding: 8 }}>{printer.paper_width_mm}mm</td>
-                    <td style={{ borderBottom: "1px solid var(--border)", padding: 8 }}>{printer.enabled ? "yes" : "no"}</td>
+                    <td style={{ borderBottom: "1px solid var(--border)", padding: 8 }}>{printer.enabled ? text.yes : text.no}</td>
                     <td style={{ borderBottom: "1px solid var(--border)", padding: 8 }}>
                       <button type="button" disabled={testingId === printer.id} onClick={() => handleTestPrint(printer.id)} style={{ minHeight: 36 }}>
-                        {testingId === printer.id ? "Testing..." : "Test print"}
+                        {testingId === printer.id ? text.testing : text.testPrint}
                       </button>
                     </td>
                   </tr>
