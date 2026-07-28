@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { type WheelEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import styles from "./table-order-mobile.module.css";
 
 type MenuProduct = {
@@ -59,6 +59,7 @@ type SubmitItem = {
 
 const MENU_LOAD_TIMEOUT_MS = 45000;
 const SUBMIT_TIMEOUT_MS = 20000;
+const ALL_CATEGORY = "ทั้งหมด";
 
 function money(value: number) {
   return new Intl.NumberFormat("th-TH", { style: "currency", currency: "THB" }).format(value);
@@ -150,7 +151,7 @@ export function TableOrderMobile({ token }: { token: string }) {
   const [menu, setMenu] = useState<MenuResponse["data"] | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [activeCategory, setActiveCategory] = useState("ทั้งหมด");
+  const [activeCategory, setActiveCategory] = useState(ALL_CATEGORY);
   const [search, setSearch] = useState("");
   const [cart, setCart] = useState<Record<string, number>>({});
   const [cartOpen, setCartOpen] = useState(false);
@@ -159,6 +160,7 @@ export function TableOrderMobile({ token }: { token: string }) {
   const [successOrderNo, setSuccessOrderNo] = useState<string | null>(null);
   const [hasSubmittedFoodOrder, setHasSubmittedFoodOrder] = useState(false);
   const [toast, setToast] = useState<ToastMessage | null>(null);
+  const categoriesRef = useRef<HTMLElement | null>(null);
 
   const apiUrl = useMemo(() => `/api/table-order/${encodeURIComponent(token)}`, [token]);
 
@@ -214,10 +216,41 @@ export function TableOrderMobile({ token }: { token: string }) {
 
   const canOrder = menu?.can_order !== false;
 
+  const categoryOptions = useMemo(() => {
+    const seen = new Set<string>();
+    const options = [ALL_CATEGORY];
+    seen.add(ALL_CATEGORY);
+
+    for (const rawCategory of menu?.categories ?? []) {
+      const category = String(rawCategory ?? "").trim();
+      if (!category || seen.has(category)) continue;
+      seen.add(category);
+      options.push(category);
+    }
+
+    return options;
+  }, [menu?.categories]);
+
+  useEffect(() => {
+    if (!menu || categoryOptions.includes(activeCategory)) return;
+    setActiveCategory(ALL_CATEGORY);
+  }, [activeCategory, categoryOptions, menu]);
+
+  const selectCategory = useCallback((category: string, button?: HTMLButtonElement | null) => {
+    setActiveCategory(category);
+    button?.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "center" });
+  }, []);
+
+  const handleCategoryWheel = useCallback((event: WheelEvent<HTMLElement>) => {
+    const container = categoriesRef.current;
+    if (!container || Math.abs(event.deltaX) >= Math.abs(event.deltaY)) return;
+    container.scrollLeft += event.deltaY;
+  }, []);
+
   const filteredProducts = useMemo(() => {
     const normalizedSearch = search.trim().toLowerCase();
     return (menu?.products ?? []).filter((product) => {
-      const matchesCategory = activeCategory === "ทั้งหมด" || product.category === activeCategory;
+      const matchesCategory = activeCategory === ALL_CATEGORY || product.category === activeCategory;
       const matchesSearch = !normalizedSearch || product.name.toLowerCase().includes(normalizedSearch);
       return matchesCategory && matchesSearch;
     });
@@ -472,13 +505,14 @@ export function TableOrderMobile({ token }: { token: string }) {
           placeholder="ค้นหาเมนู"
           aria-label="ค้นหาเมนูอาหาร"
         />
-        <nav className={styles.categories} aria-label="ประเภทอาหาร">
-          {["ทั้งหมด", ...menu.categories].map((category) => (
+        <nav ref={categoriesRef} className={styles.categories} aria-label="ประเภทอาหาร" onWheel={handleCategoryWheel}>
+          {categoryOptions.map((category) => (
             <button
               key={category}
               type="button"
               className={activeCategory === category ? styles.activeCategory : ""}
-              onClick={() => setActiveCategory(category)}
+              aria-pressed={activeCategory === category}
+              onClick={(event) => selectCategory(category, event.currentTarget)}
             >
               {category}
             </button>
