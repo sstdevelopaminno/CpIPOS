@@ -1,4 +1,5 @@
 import { fail, ok } from "@/lib/http";
+import { PosTimeoutError, withTimeout } from "@/lib/pos-resilience";
 import { loadTableQrMenu, resolveTableQrContext, submitTableQrOrder, submitTableQrServiceRequest } from "@/lib/table-qr-ordering";
 
 type SubmitPayload = {
@@ -18,6 +19,7 @@ type PublicErrorMeta = {
 };
 
 const requestBuckets = new Map<string, { count: number; resetAt: number }>();
+const TABLE_ORDER_GET_TIMEOUT_MS = 30000;
 
 function getClientIp(request: Request): string {
   return request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || request.headers.get("x-real-ip") || "unknown";
@@ -84,6 +86,15 @@ function publicError(error: unknown, meta: PublicErrorMeta) {
     ])
   ) {
     return fail("table_order_link_expired", "ลิงก์สั่งอาหารหมดอายุหรือปิดบิลแล้ว", 410);
+  }
+
+  if (
+    includesAny(message, [
+      "FOOD_ORDER_REQUIRED_BEFORE_CHECKOUT",
+      "food_order_required_before_checkout"
+    ])
+  ) {
+    return fail("food_order_required_before_checkout", "กรุณาส่งรายการอาหารก่อนแจ้งชำระบิล", 409);
   }
 
   if (
@@ -159,6 +170,7 @@ function normalizeItems(body: SubmitPayload) {
 
 export async function GET(request: Request, context: { params: Promise<{ token: string }> }) {
   let token = "";
+  const startedAt = Date.now();
 
   try {
     const params = await context.params;
@@ -166,9 +178,23 @@ export async function GET(request: Request, context: { params: Promise<{ token: 
 
     if (!rateLimit(request, token)) return fail("rate_limited", "กรุณารอสักครู่แล้วลองใหม่", 429);
 
-    const qrContext = await resolveTableQrContext(token);
-    return ok(await loadTableQrMenu(qrContext));
+    const data = await withTimeout(
+      (async () => {
+        const qrContext = await resolveTableQrContext(token);
+        return loadTableQrMenu(qrContext);
+      })(),
+      TABLE_ORDER_GET_TIMEOUT_MS,
+      "table_order_menu_timeout"
+    );
+    const response = ok(data);
+    response.headers.set("x-table-order-ms", String(Date.now() - startedAt));
+    return response;
   } catch (error) {
+    if (error instanceof PosTimeoutError) {
+      const response = fail("table_order_menu_timeout", "โหลดเมนูใช้เวลานานเกินไป กรุณาลองสแกน QR ใหม่อีกครั้ง", 503);
+      response.headers.set("x-table-order-ms", String(Date.now() - startedAt));
+      return response;
+    }
     return publicError(error, { method: "GET", token });
   }
 }

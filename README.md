@@ -7,7 +7,8 @@ Production-oriented monorepo for a noodle shop and small restaurant POS platform
 - Web apps: Next.js 16 App Router + TypeScript
 - Database/Auth: Supabase (PostgreSQL + RLS)
 - Shared contracts: TypeScript packages for Android POS and web modules
-- Local workspace path: E:\SSTiPOS (renamed from E:\POS Preview on 2026-07-12 to match GitHub SSTiPOS)
+- Local workspace path: E:\CpIPOS
+- GitHub repo: https://github.com/sstdevelopaminno/CpIPOS.git
 
 ## Repository structure
 
@@ -173,6 +174,7 @@ Solo register demo (no branch-selection UI, one cashier device):
 - POS: `http://localhost:3000/preview/pos`
 
 ## Local troubleshooting (`/preview/pos`)
+- For slow local login on `localhost:3000`, start with `docs/LOCAL-DEV-LOGIN-PERFORMANCE-2026-07-27.md`.
 - Apply latest migrations (`supabase db push`) so `audit_logs` includes compatibility columns (e.g. `target_user_id`).
 - Restart local dev server after migration changes.
 - First request in `next dev` can be slow while routes compile. Re-test after the first compile before judging runtime speed.
@@ -185,13 +187,15 @@ Solo register demo (no branch-selection UI, one cashier device):
 
 ## Key docs
 - `docs/ACTIVE-DOCS-INDEX.md` (start here for active vs archived documentation)
+- `docs/AI-GUARDRAILS-CPIPOS.md` (current CpIPOS workspace/repo guardrails)
+- `docs/CPIPOS-PRODUCTION-CHECKPOINT-2026-07-27.md` (latest CpIPOS production checkpoint)
 - `docs/POS-SHIFT-CLOSE-RELIABILITY-2026-07-10.md` (shift continue/close timeout recovery + sidebar logo update)
 - `docs/PROJECT-AUDIT-HANDOFF-2026-06-02.md` (latest project audit + development handoff)
 - `docs/database-schema-plan.md`
 - `docs/rls-policy-plan.md`
 - `docs/api-route-design.md`
 - `docs/ui-route-structure.md`
-- `context.md` (authoritative GPT/Codex handoff context)
+- `context.md` (historical SST iPOS handoff; cross-check against CpIPOS guardrails before using)
 - `docs/POS-LOGIN-ARCHITECTURE-PHASE-NEXT.md`
 - `docs/POS-LOGIN-POS-BRIDGE-E2E-CHECKLIST.md`
 - `docs/definition-of-done.md`
@@ -421,7 +425,7 @@ Use this section as the current source of truth before changing the Payment Sett
 - POS order create, direct pay, shift open/join, and POS user management no longer block the HTTP response on audit-log writes. The business write still completes before success is returned; audit logging is now fire-and-forget like other POS routes.
 - Backoffice lint no longer runs as `eslint .`; it is scoped to source/config/test paths and uses `.eslintcache`.
 - Generated/build/cache outputs are ignored in ESLint and git: `.next`, `.next-local`, `.open-next`, coverage, `.eslintcache`, logs, and `tsconfig.tsbuildinfo`.
-- Windows dev startup defaults to webpack and validates the local Next cache junction target before using `.next-local`; if the cache target is not writable, dev falls back instead of hanging on a bad cache path.
+- Dev startup defaults to webpack on Windows because local Turbopack panics were observed with `.next/dev`; set `NEXT_DEV_BUNDLER=turbopack` only when intentionally testing Turbopack.
 
 ### Files/routes/components affected
 - Client fetch helper: `apps/backoffice-web/src/lib/client-fetch.ts`.

@@ -1,12 +1,15 @@
-# SST iPOS Project Context (Authoritative Handoff)
+# CpIPOS / SST iPOS Project Context (Historical Handoff)
 
-Last updated: 2026-07-12
-Workspace: `e:\SSTiPOS`
+Last reviewed for CpIPOS: 2026-07-27
+Current workspace: `E:\CpIPOS`
+Current repo: `https://github.com/sstdevelopaminno/CpIPOS.git`
+Current guardrail: read `docs/AI-GUARDRAILS-CPIPOS.md` first.
 
-Local folder rename note (2026-07-12): this checkout was renamed from `e:\POS Preview` to `e:\SSTiPOS` to match the GitHub repository name. Use `e:\SSTiPOS` for future local work.
+Historical note: older content in this file refers to `E:\SSTiPOS` and `sstdevelopaminno/SSTiPOS.git`. Do not use those values for new CpIPOS work.
 
-This file is the primary context handoff for future GPT/Codex runs.
-Read this file before making any code changes.
+This file preserves product and architecture context only. For current workspace, deployment, and environment facts, use the CpIPOS guardrails and production checkpoint.
+
+Local dev note: if `localhost:3000` login is slow or appears stuck, read `docs/LOCAL-DEV-LOGIN-PERFORMANCE-2026-07-27.md` before debugging. Do not spend tokens chasing port 3000 if `/login/store` loads; check `.env.local`, Supabase connectivity, dev warm-up logs, and first-route compile behavior.
 
 ## 1) Product and System Scope
 

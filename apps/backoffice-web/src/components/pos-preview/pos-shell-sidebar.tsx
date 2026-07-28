@@ -49,6 +49,8 @@ type Props = {
   englishLabel: string;
 };
 
+const COMPACT_SIDEBAR_QUERY = "(min-width: 768px) and (max-width: 1180px) and (orientation: landscape)";
+
 export function PosShellSidebar({ lang, settingsLabel, languageLabel, thaiLabel, englishLabel }: Props) {
   const [collapsed, setCollapsed] = useState(false);
   const pathname = usePathname();
@@ -65,6 +67,24 @@ export function PosShellSidebar({ lang, settingsLabel, languageLabel, thaiLabel,
   const showAdvancedMenus = sessionRole === null || sessionRole === "owner";
   const settingsFeature = featureForPosRoute("/preview/pos/settings");
   const isSettingsLocked = Boolean(enabledFeatures !== null && settingsFeature && enabledFeatures[settingsFeature] === false);
+
+  useEffect(() => {
+    const mediaQuery = window.matchMedia(COMPACT_SIDEBAR_QUERY);
+    if (mediaQuery.matches) {
+      setCollapsed(true);
+    }
+
+    const collapseForCompactWidth = (event: MediaQueryListEvent) => {
+      if (event.matches) {
+        setCollapsed(true);
+      }
+    };
+
+    mediaQuery.addEventListener("change", collapseForCompactWidth);
+    return () => {
+      mediaQuery.removeEventListener("change", collapseForCompactWidth);
+    };
+  }, []);
 
   useEffect(() => {
     const applyStoredRole = () => {
@@ -172,7 +192,7 @@ export function PosShellSidebar({ lang, settingsLabel, languageLabel, thaiLabel,
     <aside
       className={`pos-shell-sidebar hidden h-full min-h-0 shrink-0 overflow-hidden border-r border-slate-900/40 bg-[radial-gradient(circle_at_80%_-20%,rgba(56,189,248,0.28),transparent_45%),radial-gradient(circle_at_20%_120%,rgba(37,99,235,0.26),transparent_40%),linear-gradient(185deg,#07142c,#081c3b_45%,#071731)] p-3 text-white md:flex md:flex-col ${
         collapsed ? "md:w-[68px] xl:w-[70px]" : "md:w-[188px] xl:w-[214px]"
-      }`}
+      } ${collapsed ? "is-collapsed" : "is-expanded"}`}
     >
       <div className={`pos-shell-sidebar__brand shrink-0 ${collapsed ? "flex justify-center" : ""}`}>
         <div

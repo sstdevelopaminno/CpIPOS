@@ -1469,6 +1469,10 @@ function nowMs(): number {
   return Date.now();
 }
 
+function randomJitterMs(maxExclusive: number): number {
+  return Math.floor(Math.random() * maxExclusive);
+}
+
 function formatPromptPayPhoneDisplay(phone: string): string {
   const digits = sanitizePromptPayPhone(phone);
   if (digits.length === 10 && digits.startsWith("0")) {
@@ -2046,7 +2050,7 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
   const [tableMoveBusy, setTableMoveBusy] = useState(false);
   const [tableSwitching, setTableSwitching] = useState(false);
   const [tableQrModalOpen, setTableQrModalOpen] = useState(false);
-  const [tableQrBusy, setTableQrBusy] = useState(false);
+  const [, setTableQrBusy] = useState(false);
   const [tableMoveError, setTableMoveError] = useState<string | null>(null);
   const [tableLoading, setTableLoading] = useState(false);
   const [tableLoadError, setTableLoadError] = useState<string | null>(null);
@@ -3124,10 +3128,6 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
     }
   }
 
-  useEffect(() => {
-    loadTableBillContextRef.current = loadTableBillContext;
-  });
-
   async function fetchBranchMonitor(signal?: AbortSignal) {
     const { response, body } = await fetchJsonWithTimeout<{ data?: BranchMonitor } & ApiErrorBody>(
       "/api/pos/monitor",
@@ -3651,6 +3651,12 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
   }
 
   useEffect(() => {
+    fetchPosTablesRef.current = fetchPosTables;
+    loadTableBillContextRef.current = loadTableBillContext;
+    pushSubmitMessageRef.current = pushSubmitMessage;
+  });
+
+  useEffect(() => {
     if (
       transferPaymentMode !== "inet_nops" ||
       !transferReviewOrder ||
@@ -3716,10 +3722,10 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
           setReceiptSaved(true);
           setBillPaymentMethod("bank_transfer");
           setReceiptError(null);
-          pushSubmitMessage(`${text.receiptSaved}: ${transferReviewOrder.order_no}`);
+          pushSubmitMessageRef.current(`${text.receiptSaved}: ${transferReviewOrder.order_no}`);
           if (orderType === "dine_in" && selectedTable) {
-            void loadTableBillContext(selectedTable).catch(() => undefined);
-            void fetchPosTables({ timeoutMs: 10000, retries: 0 }).catch(() => undefined);
+            void loadTableBillContextRef.current(selectedTable).catch(() => undefined);
+            void fetchPosTablesRef.current({ timeoutMs: 10000, retries: 0 }).catch(() => undefined);
           }
         } else {
           setInetQrStatus("failed");
@@ -3737,12 +3743,9 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
       window.clearInterval(timer);
     };
   }, [
-    fetchPosTables,
     inetPaymentIntent?.payment_intent_id,
     inetQrStatus,
-    loadTableBillContext,
     orderType,
-    pushSubmitMessage,
     selectedTable,
     storeProfile,
     text,
@@ -3755,14 +3758,6 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
     if (nowPending && !lastPendingRef.current) setSubmitMessage(text.pendingSaved);
     lastPendingRef.current = nowPending;
   }, [pendingQueue.length, pendingPaymentQueue.length, text.pendingSaved]);
-
-  useEffect(() => {
-    fetchPosTablesRef.current = fetchPosTables;
-  });
-
-  useEffect(() => {
-    pushSubmitMessageRef.current = pushSubmitMessage;
-  });
 
   useEffect(() => {
     if (deviceSalesBlocked) return;
@@ -4147,8 +4142,7 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
     cashSubmitting ||
     transferSubmitting ||
     receiptSaving ||
-    tableSwitching ||
-    tableQrBusy;
+    tableSwitching;
   const processingOverlayLabel = tableSwitching
     ? text.openingTableBill
     : cashSubmitting || transferSubmitting || receiptSaving
@@ -4695,7 +4689,7 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
         if (isFinalAttempt) {
           throw error;
         }
-        const retryDelayMs = DELIVERY_ACTION_BACKOFF_MS * Math.pow(2, attempt) + Math.floor(Math.random() * 120);
+        const retryDelayMs = DELIVERY_ACTION_BACKOFF_MS * Math.pow(2, attempt) + randomJitterMs(120);
         const retryTrace = beginPosActionTrace("delivery.pending.retry_wait", {
           bill_id: heldBill.id,
           action,
@@ -4720,7 +4714,7 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
   ) {
     if (heldBill.order_type !== "delivery_manual") return;
     const debounceKey = `${action}:${heldBill.id}`;
-    const nowAt = Date.now();
+    const nowAt = nowMs();
     const lastAt = deliveryActionLastAtRef.current.get(debounceKey) ?? 0;
     if (nowAt - lastAt < DELIVERY_ACTION_DEBOUNCE_MS) {
       return;
@@ -7473,6 +7467,16 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
     }
   }
 
+  const handleTableBrowserRetryLoad = useCallback(() => {
+    void fetchPosTablesRef.current().catch((tableError) => {
+      const message = tableError instanceof Error ? tableError.message : "Failed to load table layout.";
+      if (isConnectivityIssueMessage(message)) {
+        setIsOnline(false);
+      }
+      pushSubmitMessageRef.current(message);
+    });
+  }, []);
+
   function renderTableBrowser() {
     return (
       <PosTableBrowser
@@ -7494,12 +7498,7 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
         tablePan={tablePan}
         setTablePan={setTablePan}
         hideControls={showInlineTopbarTableControls}
-        onRetryLoad={() => {
-          void fetchPosTables().catch((tableError) => {
-            markConnectivityFromError(tableError);
-            pushSubmitMessage(tableError instanceof Error ? tableError.message : "Failed to load table layout.");
-          });
-        }}
+        onRetryLoad={handleTableBrowserRetryLoad}
         onTablePrefetch={prefetchTableBillOnIntent}
         onSelectTable={(table) => {
           void selectTableFromBrowser(table);

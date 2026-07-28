@@ -170,7 +170,7 @@ export async function POST(request: Request) {
           data: null,
           error: {
             code: "shift_has_open_bills",
-            message: `Please clear ${openBills.count} open bill(s) before closing shift${suffix}.`
+            message: `กรุณาเคลียร์บิลที่ยังเปิดอยู่ ${openBills.count} บิลก่อนปิดกะ${suffix}`
           }
         },
         { status: 409 }
@@ -193,7 +193,7 @@ export async function POST(request: Request) {
           data: null,
           error: {
             code: "shift_has_open_bills",
-            message: `Please clear ${openTableSessions.count} open table bill session(s) before closing shift.`
+            message: `กรุณาปิดหรือชำระบิลโต๊ะที่ยังเปิดอยู่ ${openTableSessions.count} รายการก่อนปิดกะ`
           }
         },
         { status: 409 }

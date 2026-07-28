@@ -11,6 +11,8 @@ Date: 2026-07-27
 - Active production URL: `https://cp-ipos-web.vercel.app`
 - Active Supabase project: `POS-Preview`
 - Active Supabase ref: `deejlitaivfnsbwqdugy`
+- Latest handoff: `docs/CPIPOS-HANDOFF-2026-07-28.md`
+- Current collaboration preference: token-saving mode; wait for explicit user instructions before further development.
 
 ## Do Not Confuse With Old Project
 
@@ -27,8 +29,10 @@ Vercel production must include these server/runtime variables:
 - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
 - `SUPABASE_SERVICE_ROLE_KEY`
 - `POS_SESSION_HANDOFF_SECRET`
+- `TABLE_QR_SIGNING_SECRET`
 
 `POS_SESSION_HANDOFF_SECRET` is required for valid store-code login because the server signs the pre-entry login-flow cookie after tenant and branch lookup.
+`TABLE_QR_SIGNING_SECRET` must be separate from `SUPABASE_SERVICE_ROLE_KEY`; table QR tokens must not be signed with service-role credentials.
 
 ## Verified Login Store Codes
 
@@ -57,3 +61,4 @@ These store codes exist in the current Supabase project and were verified agains
 - Never commit `.vercel/`, `.env.local`, Vercel tokens, Supabase access tokens, database passwords, service-role keys, or generated local cache folders.
 - Keep Supabase service-role usage server-only.
 - If valid store-code login returns `500`, first check Vercel env for `POS_SESSION_HANDOFF_SECRET` before changing database schema.
+- For local `localhost:3000` login slowness or API timeouts, read `docs/LOCAL-DEV-LOGIN-PERFORMANCE-2026-07-27.md` before debugging. Most local delays are first-route compile, missing `.env.local`, sandboxed network, or slow `.next/dev` filesystem cache.

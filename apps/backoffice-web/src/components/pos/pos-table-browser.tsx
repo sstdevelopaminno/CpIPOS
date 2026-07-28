@@ -102,7 +102,6 @@ function PosTableBrowserInner({
                     onClick={() => setTableViewMode("list")}
                   >
                     <span>{text.tableListMode}</span>
-                    <small>{text.tableListModeSub}</small>
                   </button>
                   <button
                     type="button"
@@ -111,7 +110,6 @@ function PosTableBrowserInner({
                     onClick={() => setTableViewMode("floor")}
                   >
                     <span>{text.tableFloorMode}</span>
-                    <small>{text.tableFloorModeSub}</small>
                   </button>
                 </div>
                 <div className="posui-table-browser__zones-inline">
@@ -161,7 +159,6 @@ function PosTableBrowserInner({
                     onClick={() => setTableViewMode("list")}
                   >
                     <span>{text.tableListMode}</span>
-                    <small>{text.tableListModeSub}</small>
                   </button>
                   <button
                     type="button"
@@ -170,7 +167,6 @@ function PosTableBrowserInner({
                     onClick={() => setTableViewMode("floor")}
                   >
                     <span>{text.tableFloorMode}</span>
-                    <small>{text.tableFloorModeSub}</small>
                   </button>
                 </div>
                 <div className="posui-table-browser__zones-inline">

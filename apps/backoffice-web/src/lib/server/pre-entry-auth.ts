@@ -249,7 +249,7 @@ export async function resolveEmployeeByCode(input: {
     branchId: input.branchId,
     codeCandidates
   });
-  if (indexedMatch !== "relation_missing" && indexedMatch) return indexedMatch;
+  if (indexedMatch !== "relation_missing") return indexedMatch;
 
   const { data, error } = await supabase
     .from("user_branch_roles")

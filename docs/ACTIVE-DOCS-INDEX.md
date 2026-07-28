@@ -1,20 +1,27 @@
 # Active Documentation Index
 
-Last reviewed: 2026-07-22
+Last reviewed: 2026-07-27
 
 Use this page as the first stop before new development. It separates active implementation guidance from historical QR-era material.
 
 ## Current Runtime
 
 - App: `apps/backoffice-web`
+- Workspace: `E:\CpIPOS`
+- GitHub repo: `https://github.com/sstdevelopaminno/CpIPOS.git`
 - Login flow: `/login/store -> /login/branches|employee -> /login/devices -> /preview/pos`
 - Database: Supabase migrations in `supabase/migrations`
 - Verification baseline: run `typecheck`, `test`, `lint`, and `build` before closing implementation work.
 
 ## Read First
 
+- [CpIPOS Handoff 2026-07-28](./CPIPOS-HANDOFF-2026-07-28.md)
+- [CpIPOS AI Guardrails](./AI-GUARDRAILS-CPIPOS.md)
+- [CpIPOS Production Checkpoint](./CPIPOS-PRODUCTION-CHECKPOINT-2026-07-27.md)
+- [Local Dev Login Performance Checkpoint](./LOCAL-DEV-LOGIN-PERFORMANCE-2026-07-27.md)
+- [Stability / Network / API Audit 2026-07-28](./STABILITY-NETWORK-API-AUDIT-2026-07-28.md)
 - [Repository README](../README.md)
-- [Authoritative Context Handoff](../context.md)
+- [Historical Context Handoff](../context.md)
 - [Project Audit Handoff](./PROJECT-AUDIT-HANDOFF-2026-06-02.md)
 - [System Stability Audit](./system-stability-audit-2026-06-04.md)
 - [Definition of Done](./definition-of-done.md)

@@ -105,7 +105,8 @@ alter table tenant_feature_subscriptions enable row level security;
 create policy package_feature_catalog_read
 on package_feature_catalog
 for select
-using (auth.role() = 'authenticated');
+to authenticated
+using (true);
 
 create policy package_feature_catalog_it_admin_manage
 on package_feature_catalog

@@ -1,9 +1,36 @@
 import { execSync, spawn } from "node:child_process";
+import { existsSync, readFileSync } from "node:fs";
 
 const WINDOWS_SYSTEM32 = `${process.env.SystemRoot ?? "C:\\Windows"}\\System32`;
 const WINDOWS_CMD = process.env.ComSpec ?? `${WINDOWS_SYSTEM32}\\cmd.exe`;
 const WINDOWS_NETSTAT = `${WINDOWS_SYSTEM32}\\netstat.exe`;
 const WINDOWS_TASKKILL = `${WINDOWS_SYSTEM32}\\taskkill.exe`;
+
+function stripOptionalQuotes(value) {
+  const trimmed = String(value ?? "").trim();
+  if ((trimmed.startsWith('"') && trimmed.endsWith('"')) || (trimmed.startsWith("'") && trimmed.endsWith("'"))) {
+    return trimmed.slice(1, -1);
+  }
+  return trimmed;
+}
+
+function loadLocalEnvFile() {
+  const envPath = ".env.local";
+  if (!existsSync(envPath)) return;
+
+  const lines = readFileSync(envPath, "utf8").split(/\r?\n/);
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#")) continue;
+    const separatorIndex = trimmed.indexOf("=");
+    if (separatorIndex <= 0) continue;
+    const name = trimmed.slice(0, separatorIndex).trim();
+    if (!name || process.env[name] != null) continue;
+    process.env[name] = stripOptionalQuotes(trimmed.slice(separatorIndex + 1));
+  }
+}
+
+loadLocalEnvFile();
 
 function sleep(ms) {
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
@@ -54,7 +81,20 @@ function killPid(pid) {
     }
     return true;
   } catch {
-    return false;
+    try {
+      process.kill(pid, "SIGTERM");
+      return true;
+    } catch {
+      try {
+        if (process.platform === "win32") {
+          execSync(`powershell.exe -NoProfile -Command "Stop-Process -Id ${pid} -Force"`, { stdio: "ignore" });
+          return true;
+        }
+      } catch {
+        return false;
+      }
+      return false;
+    }
   }
 }
 
@@ -98,7 +138,7 @@ if (portResult?.remainingPids?.length) {
 }
 
 function resolveDevBundlerArgs() {
-  const defaultBundler = process.platform === "win32" ? "webpack" : "turbopack";
+  const defaultBundler = "webpack";
   const bundler = String(process.env.NEXT_DEV_BUNDLER ?? defaultBundler).trim().toLowerCase();
   if (bundler === "webpack") return ["--webpack"];
   if (bundler === "turbo" || bundler === "turbopack") return ["--turbo"];
@@ -121,6 +161,77 @@ const child =
         shell: false,
         env: childEnv
       });
+
+async function warmDevRoute(port, route, init = {}) {
+  const url = `http://127.0.0.1:${port}${route}`;
+  const startedAt = Date.now();
+  const response = await fetch(url, {
+    ...init,
+    redirect: "manual",
+    cache: "no-store"
+  });
+  console.log(`[dev-safe] Warmed ${init.method ?? "GET"} ${route} -> ${response.status} in ${Date.now() - startedAt}ms`);
+}
+
+async function warmDevRoutes(port) {
+  const enabled = String(process.env.NEXT_DEV_WARM_LOGIN_ROUTES ?? "true").trim().toLowerCase();
+  if (enabled === "0" || enabled === "false" || enabled === "no") return;
+
+  const routes = [
+    ["/login/store"],
+    ["/login/branches?flow=multi"],
+    ["/login/employee?flow=multi"],
+    ["/login/devices"],
+    ["/manifest.webmanifest"],
+    ["/api/auth/store-code/verify", { method: "DELETE" }]
+  ];
+
+  let ready = false;
+  for (let attempt = 1; attempt <= 30; attempt += 1) {
+    try {
+      const response = await fetch(`http://127.0.0.1:${port}/manifest.webmanifest`, { cache: "no-store" });
+      if (response.status < 500) {
+        ready = true;
+        break;
+      }
+    } catch {
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+    }
+  }
+  if (!ready) return;
+
+  for (const [route, init] of routes) {
+    try {
+      await warmDevRoute(port, route, init);
+    } catch (error) {
+      console.warn(`[dev-safe] Warm failed for ${route}`, {
+        error: error instanceof Error ? error.message : "Unknown error"
+      });
+    }
+  }
+
+  const warmStoreCode = String(process.env.NEXT_DEV_WARM_STORE_CODE ?? "").trim().toUpperCase();
+  if (warmStoreCode) {
+    for (let attempt = 1; attempt <= 2; attempt += 1) {
+      try {
+        await warmDevRoute(port, "/api/auth/store-code/verify", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ store_code: warmStoreCode })
+        });
+      } catch (error) {
+        console.warn("[dev-safe] Store code cache warm failed", {
+          attempt,
+          error: error instanceof Error ? error.message : "Unknown error"
+        });
+      }
+    }
+  }
+}
+
+setTimeout(() => {
+  void warmDevRoutes(port);
+}, 1000);
 
 child.on("exit", (code, signal) => {
   if (signal) {

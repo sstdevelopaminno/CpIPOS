@@ -19,6 +19,7 @@ Date: 2026-07-27
   - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
   - `SUPABASE_SERVICE_ROLE_KEY`
 - Vercel production also requires `POS_SESSION_HANDOFF_SECRET`; without it, valid store codes fail after tenant lookup because the pre-entry flow cookie cannot be signed.
+- Vercel production also requires `TABLE_QR_SIGNING_SECRET`; table QR tokens are signed with this dedicated secret and must not fall back to the Supabase service-role key.
 - Supabase project `deejlitaivfnsbwqdugy` is `ACTIVE_HEALTHY`.
 - Production `/login/store` returned `200`.
 - Production `/manifest.webmanifest` returned `200`.
@@ -35,3 +36,10 @@ Date: 2026-07-27
 - Do not write Vercel tokens, Supabase access tokens, database passwords, service-role keys, or `.env.local` values to source control.
 - Preview Supabase env was not confirmed because Vercel rejected the preview branch target. Production is the active verified environment.
 - Read `docs/AI-GUARDRAILS-CPIPOS.md` before making future CpIPOS changes.
+- For local login speed on port 3000, read `docs/LOCAL-DEV-LOGIN-PERFORMANCE-2026-07-27.md`; do not confuse first dev compile or sandboxed network with production behavior.
+
+## Local Source Fixes After Checkpoint
+
+- `/api/pos/session/current` returns `503 shift_lookup_degraded` when the active shift cannot be confirmed due to query timeout, instead of implying no active shift.
+- Employee-code login returns after the indexed `pos_user_profiles.employee_code` lookup when the relation exists; the branch-wide legacy scan is only used for databases missing the relation.
+- Table QR signing requires `TABLE_QR_SIGNING_SECRET` and no longer falls back to `SUPABASE_SERVICE_ROLE_KEY`.

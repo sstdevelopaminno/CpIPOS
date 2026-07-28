@@ -3,7 +3,7 @@ import "server-only";
 import { createHmac, timingSafeEqual } from "node:crypto";
 import QRCode from "qrcode";
 import type { AuthContext } from "@/lib/auth-context";
-import { readEnv } from "@/lib/env";
+import { readRequiredEnv } from "@/lib/env";
 import { enqueueKitchenTicketForOrderSnapshot } from "@/lib/printing/print-service";
 import { loadReceiptStoreProfile } from "@/lib/services/store-profile-service";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
@@ -43,14 +43,41 @@ type SubmitQrOrderRow = {
 
 type TableQrServiceRequestType = "call_staff" | "request_checkout";
 
-function signingSecret(): string {
-  const explicit = readEnv("TABLE_QR_SIGNING_SECRET");
-  const serviceRoleFallback = readEnv("SUPABASE_SERVICE_ROLE_KEY");
-  const secret = explicit || serviceRoleFallback;
-  if (!secret) {
-    throw new Error("table_qr_signing_secret_missing");
+type TableQrMenuProduct = {
+  id: string;
+  name: string;
+  category: string;
+  price: number;
+};
+
+type TableQrMenuCacheEntry = {
+  expiresAt: number;
+  products: TableQrMenuProduct[];
+};
+
+const TABLE_QR_MENU_CACHE_TTL_MS = 60_000;
+const tableQrMenuCache = new Map<string, TableQrMenuCacheEntry>();
+
+function readTableQrMenuCache(tenantId: string, branchId: string): TableQrMenuProduct[] | null {
+  const key = `${tenantId}:${branchId}`;
+  const entry = tableQrMenuCache.get(key);
+  if (!entry) return null;
+  if (entry.expiresAt <= Date.now()) {
+    tableQrMenuCache.delete(key);
+    return null;
   }
-  return secret;
+  return entry.products;
+}
+
+function writeTableQrMenuCache(tenantId: string, branchId: string, products: TableQrMenuProduct[]) {
+  tableQrMenuCache.set(`${tenantId}:${branchId}`, {
+    expiresAt: Date.now() + TABLE_QR_MENU_CACHE_TTL_MS,
+    products
+  });
+}
+
+function signingSecret(): string {
+  return readRequiredEnv("TABLE_QR_SIGNING_SECRET", "table_qr_signing_secret_missing");
 }
 
 function signatureFor(sessionId: string): string {
@@ -151,7 +178,7 @@ export async function issueTableQrSession(args: {
   const qrDataUrl = await QRCode.toDataURL(orderUrl, {
     errorCorrectionLevel: "M",
     margin: 1,
-    width: 720,
+    width: 420,
     color: { dark: "#000000", light: "#ffffff" }
   });
 
@@ -224,6 +251,21 @@ export async function resolveTableQrContext(token: string): Promise<QrContext> {
 
 export async function loadTableQrMenu(context: QrContext) {
   const supabase = getSupabaseServiceClient();
+  const hasSubmittedFoodOrder = await hasSubmittedFoodOrderForContext(context, supabase);
+  const cachedProducts = readTableQrMenuCache(context.tenant_id, context.branch_id);
+  if (cachedProducts) {
+    return {
+      store_name: context.store_name,
+      branch_name: context.branch_name,
+      table_code: context.table_code,
+      table_name: context.table_name,
+      expires_at: context.expires_at,
+      categories: Array.from(new Set(cachedProducts.map((product) => product.category))),
+      products: cachedProducts,
+      has_submitted_food_order: hasSubmittedFoodOrder
+    };
+  }
+
   const { data, error } = await supabase
     .from("products")
     .select("id,name,category,price,is_active")
@@ -240,6 +282,7 @@ export async function loadTableQrMenu(context: QrContext) {
     category: String(row.category ?? "เมนู"),
     price: Number(row.price ?? 0)
   }));
+  writeTableQrMenuCache(context.tenant_id, context.branch_id, products);
   return {
     store_name: context.store_name,
     branch_name: context.branch_name,
@@ -247,8 +290,24 @@ export async function loadTableQrMenu(context: QrContext) {
     table_name: context.table_name,
     expires_at: context.expires_at,
     categories: Array.from(new Set(products.map((product) => product.category))),
-    products
+    products,
+    has_submitted_food_order: hasSubmittedFoodOrder
   };
+}
+
+export async function hasSubmittedFoodOrderForContext(context: QrContext, supabase = getSupabaseServiceClient()) {
+  const { data, error } = await supabase
+    .from("table_qr_orders")
+    .select("id")
+    .eq("tenant_id", context.tenant_id)
+    .eq("branch_id", context.branch_id)
+    .eq("table_session_id", context.table_session_id)
+    .eq("event_type", "order")
+    .gt("item_count", 0)
+    .limit(1);
+
+  if (error) throw new Error(error.message);
+  return Boolean(data?.length);
 }
 
 export async function submitTableQrOrder(args: {
@@ -325,6 +384,11 @@ export async function submitTableQrServiceRequest(args: {
   if (!cleanRequestId) throw new Error("REQUEST_ID_REQUIRED");
 
   const supabase = getSupabaseServiceClient();
+  if (requestType === "request_checkout") {
+    const hasSubmittedFoodOrder = await hasSubmittedFoodOrderForContext(context, supabase);
+    if (!hasSubmittedFoodOrder) throw new Error("FOOD_ORDER_REQUIRED_BEFORE_CHECKOUT");
+  }
+
   const { data: existing, error: existingError } = await supabase
     .from("table_qr_orders")
     .select("id,created_at")

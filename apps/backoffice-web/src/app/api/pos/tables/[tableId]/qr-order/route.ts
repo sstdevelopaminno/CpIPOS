@@ -2,9 +2,13 @@ import { appendAuditLog } from "@/lib/audit-log";
 import { fail, ok } from "@/lib/http";
 import { getPosApiAuthContext } from "@/lib/pos-api-auth";
 import { featureGateFail, requirePosApiFeature } from "@/lib/pos-api-feature-guard";
+import { PosTimeoutError, withTimeout } from "@/lib/pos-resilience";
 import { issueTableQrSession } from "@/lib/table-qr-ordering";
 
+const TABLE_QR_ISSUE_TIMEOUT_MS = 45000;
+
 export async function POST(request: Request, context: { params: Promise<{ tableId: string }> }) {
+  const startedAt = Date.now();
   try {
     const auth = await getPosApiAuthContext({ requireBranchScope: true, requiredPermission: "tables:manage" });
     await requirePosApiFeature(auth, "qr_table_ordering");
@@ -16,7 +20,11 @@ export async function POST(request: Request, context: { params: Promise<{ tableI
     const requestUrl = new URL(request.url);
     const origin =
       forwardedHost && forwardedProto ? `${forwardedProto}://${forwardedHost}` : `${requestUrl.protocol}//${requestUrl.host}`;
-    const data = await issueTableQrSession({ auth, tableId, requestOrigin: origin });
+    const data = await withTimeout(
+      issueTableQrSession({ auth, tableId, requestOrigin: origin }),
+      TABLE_QR_ISSUE_TIMEOUT_MS,
+      "table_qr_issue_timeout"
+    );
 
     void appendAuditLog({
       tenantId: auth.tenantId!,
@@ -33,11 +41,18 @@ export async function POST(request: Request, context: { params: Promise<{ tableI
       }
     });
 
-    return ok(data, 201);
+    const response = ok(data, 201);
+    response.headers.set("x-pos-table-qr-ms", String(Date.now() - startedAt));
+    return response;
   } catch (error) {
     const featureError = featureGateFail(error);
     if (featureError) return featureError;
     const message = error instanceof Error ? error.message : "Unable to create table QR.";
+    if (error instanceof PosTimeoutError || message.includes("table_qr_issue_timeout")) {
+      const response = fail("table_qr_issue_timeout", "Creating the table QR took too long. Please retry.", 503);
+      response.headers.set("x-pos-table-qr-ms", String(Date.now() - startedAt));
+      return response;
+    }
     if (message === "table_not_open" || message === "table_session_not_open") {
       return fail(message, "Open the table bill before creating its ordering QR.", 409);
     }

@@ -55,6 +55,8 @@ describe("table QR ordering isolation", () => {
     expect(publicRoute).not.toContain("tenant_id:");
     expect(publicRoute).not.toContain("branch_id:");
     expect(qrService).toContain('createHmac("sha256"');
+    expect(qrService).toContain('readRequiredEnv("TABLE_QR_SIGNING_SECRET"');
+    expect(qrService).not.toContain("SUPABASE_SERVICE_ROLE_KEY");
     expect(migration).toContain("from products p");
     expect(migration).toContain("p.tenant_id = v_qr.tenant_id");
     expect(migration).toContain("p.branch_id = v_qr.branch_id");

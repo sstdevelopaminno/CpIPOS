@@ -18,6 +18,43 @@ type BranchSummary = {
   is_active: boolean;
 };
 
+type StoreLookupCacheEntry = {
+  expiresAt: number;
+  tenant: { id: string; code: string; name: string };
+  branches: BranchSummary[];
+};
+
+declare global {
+  var __posStoreLookupCache: Map<string, StoreLookupCacheEntry> | undefined;
+}
+
+const STORE_LOOKUP_CACHE_TTL_MS = 5 * 60_000;
+
+function getStoreLookupCache() {
+  if (!globalThis.__posStoreLookupCache) {
+    globalThis.__posStoreLookupCache = new Map<string, StoreLookupCacheEntry>();
+  }
+  return globalThis.__posStoreLookupCache;
+}
+
+function readStoreLookupCache(storeCode: string): StoreLookupCacheEntry | null {
+  const cache = getStoreLookupCache();
+  const entry = cache.get(storeCode);
+  if (!entry) return null;
+  if (entry.expiresAt <= Date.now()) {
+    cache.delete(storeCode);
+    return null;
+  }
+  return entry;
+}
+
+function writeStoreLookupCache(storeCode: string, entry: Omit<StoreLookupCacheEntry, "expiresAt">) {
+  getStoreLookupCache().set(storeCode, {
+    ...entry,
+    expiresAt: Date.now() + STORE_LOOKUP_CACHE_TTL_MS
+  });
+}
+
 function isAutoSkipEnabled() {
   const raw = String(process.env.POS_AUTO_SKIP_SINGLE_BRANCH ?? "true").trim().toLowerCase();
   return raw === "1" || raw === "true" || raw === "yes";
@@ -111,79 +148,95 @@ export async function POST(request: Request) {
 
   try {
     const supabase = getSupabaseServiceClient();
-    const { data: tenant, error: tenantError } = await withAuthTimeout(
-      supabase
-        .from("tenants")
-        .select("id,code,name,is_active")
-        .eq("code", storeCode)
-        .maybeSingle<{ id: string; code: string; name: string; is_active: boolean }>(),
-      "store_tenant_lookup_timeout"
-    );
+    const cachedLookup = readStoreLookupCache(storeCode);
+    let lookup: StoreLookupCacheEntry | null = cachedLookup;
 
-    if (tenantError) {
-      console.error("[auth/store-code/verify] tenant lookup failed", {
-        storeCode,
-        error: tenantError.message
+    if (!lookup) {
+      const { data: tenant, error: tenantError } = await withAuthTimeout(
+        supabase
+          .from("tenants")
+          .select("id,code,name,is_active")
+          .eq("code", storeCode)
+          .maybeSingle<{ id: string; code: string; name: string; is_active: boolean }>(),
+        "store_tenant_lookup_timeout"
+      );
+
+      if (tenantError) {
+        console.error("[auth/store-code/verify] tenant lookup failed", {
+          storeCode,
+          error: tenantError.message
+        });
+        const response = NextResponse.json(
+          { data: null, error: { code: "store_lookup_failed", message: "ไม่สามารถตรวจสอบรหัสร้านค้าได้ในขณะนี้" } },
+          { status: 500 }
+        );
+        const durationMs = Date.now() - startedAt;
+        response.headers.set("x-auth-api-ms", String(durationMs));
+        response.headers.set("server-timing", `total;dur=${durationMs}`);
+        return response;
+      }
+
+      if (!tenant || tenant.is_active === false) {
+        runInBackground(() =>
+          writeAuditLog({
+            actorRole: "system",
+            action: "store_code_login_attempt",
+            targetType: "store_code",
+            targetId: storeCode,
+            ipAddress,
+            userAgent,
+            metadata: { success: false, reason: "store_not_found" }
+          })
+        );
+        const response = NextResponse.json(
+          { data: null, error: { code: "store_not_found", message: "ไม่พบรหัสร้านค้านี้ หรือร้านค้าถูกปิดใช้งาน" } },
+          { status: 404 }
+        );
+        const durationMs = Date.now() - startedAt;
+        response.headers.set("x-auth-api-ms", String(durationMs));
+        response.headers.set("server-timing", `total;dur=${durationMs}`);
+        return response;
+      }
+
+      const { data: branchRows, error: branchError } = await withAuthTimeout(
+        supabase
+          .from("branches")
+          .select("id,code,name,address,is_active")
+          .eq("tenant_id", tenant.id)
+          .eq("is_active", true)
+          .order("name", { ascending: true }),
+        "store_branch_lookup_timeout"
+      );
+
+      if (branchError) {
+        console.error("[auth/store-code/verify] branch lookup failed", {
+          tenantId: tenant.id,
+          storeCode,
+          error: branchError.message
+        });
+        const response = NextResponse.json(
+          { data: null, error: { code: "branch_lookup_failed", message: "ไม่สามารถโหลดรายการสาขาได้ในขณะนี้" } },
+          { status: 500 }
+        );
+        const durationMs = Date.now() - startedAt;
+        response.headers.set("x-auth-api-ms", String(durationMs));
+        response.headers.set("server-timing", `total;dur=${durationMs}`);
+        return response;
+      }
+
+      lookup = {
+        expiresAt: 0,
+        tenant: { id: tenant.id, code: tenant.code, name: tenant.name },
+        branches: ((branchRows ?? []) as BranchSummary[]).filter((branch) => branch.is_active)
+      };
+      writeStoreLookupCache(storeCode, {
+        tenant: lookup.tenant,
+        branches: lookup.branches
       });
-      const response = NextResponse.json(
-        { data: null, error: { code: "store_lookup_failed", message: "ไม่สามารถตรวจสอบรหัสร้านค้าได้ในขณะนี้" } },
-        { status: 500 }
-      );
-      const durationMs = Date.now() - startedAt;
-      response.headers.set("x-auth-api-ms", String(durationMs));
-      response.headers.set("server-timing", `total;dur=${durationMs}`);
-      return response;
     }
 
-    if (!tenant || tenant.is_active === false) {
-      runInBackground(() =>
-        writeAuditLog({
-          actorRole: "system",
-          action: "store_code_login_attempt",
-          targetType: "store_code",
-          targetId: storeCode,
-          ipAddress,
-          userAgent,
-          metadata: { success: false, reason: "store_not_found" }
-        })
-      );
-      const response = NextResponse.json(
-        { data: null, error: { code: "store_not_found", message: "ไม่พบรหัสร้านค้านี้ หรือร้านค้าถูกปิดใช้งาน" } },
-        { status: 404 }
-      );
-      const durationMs = Date.now() - startedAt;
-      response.headers.set("x-auth-api-ms", String(durationMs));
-      response.headers.set("server-timing", `total;dur=${durationMs}`);
-      return response;
-    }
-
-    const { data: branchRows, error: branchError } = await withAuthTimeout(
-      supabase
-        .from("branches")
-        .select("id,code,name,address,is_active")
-        .eq("tenant_id", tenant.id)
-        .eq("is_active", true)
-        .order("name", { ascending: true }),
-      "store_branch_lookup_timeout"
-    );
-
-    if (branchError) {
-      console.error("[auth/store-code/verify] branch lookup failed", {
-        tenantId: tenant.id,
-        storeCode,
-        error: branchError.message
-      });
-      const response = NextResponse.json(
-        { data: null, error: { code: "branch_lookup_failed", message: "ไม่สามารถโหลดรายการสาขาได้ในขณะนี้" } },
-        { status: 500 }
-      );
-      const durationMs = Date.now() - startedAt;
-      response.headers.set("x-auth-api-ms", String(durationMs));
-      response.headers.set("server-timing", `total;dur=${durationMs}`);
-      return response;
-    }
-
-    const branches = ((branchRows ?? []) as BranchSummary[]).filter((branch) => branch.is_active);
+    const tenant = lookup.tenant;
+    const branches = lookup.branches;
     const autoSkip = isAutoSkipEnabled() && branches.length === 1;
     const selectedBranch = autoSkip ? branches[0] : null;
     const flowState = createFlowState({

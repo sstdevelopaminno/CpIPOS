@@ -35,7 +35,8 @@ type BluetoothPrintResponse = {
   };
 };
 
-const QR_CREATE_TIMEOUT_MS = 15000;
+const QR_CREATE_TIMEOUT_MS = 60000;
+const QR_CREATE_RETRY_DELAY_MS = 1200;
 const QR_PRINT_TIMEOUT_MS = 15000;
 
 function escapeHtml(value: string) {
@@ -127,6 +128,10 @@ ${safeTableName ? `<p>${safeTableName}</p>` : ""}
 </html>`;
 }
 
+function isAbortError(error: unknown): boolean {
+  return (error as { name?: string }).name === "AbortError";
+}
+
 export function TableQrOrderModal({
   open,
   tableId,
@@ -145,6 +150,7 @@ export function TableQrOrderModal({
   const [printing, setPrinting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [retryToken, setRetryToken] = useState(0);
 
   const displayTableCode = useMemo(() => data?.table_code ?? tableCode ?? "-", [data?.table_code, tableCode]);
 
@@ -155,6 +161,7 @@ export function TableQrOrderModal({
       setCopied(false);
       setLoading(false);
       setPrinting(false);
+      setRetryToken(0);
       onBusyChange?.(false);
       return;
     }
@@ -167,8 +174,8 @@ export function TableQrOrderModal({
       return;
     }
 
-    const controller = new AbortController();
-    const timeout = window.setTimeout(() => controller.abort(), QR_CREATE_TIMEOUT_MS);
+    let disposed = false;
+    const controllers: AbortController[] = [];
 
     setLoading(true);
     setError(null);
@@ -176,13 +183,18 @@ export function TableQrOrderModal({
     setData(null);
     onBusyChange?.(true);
 
-    void fetch(`/api/pos/tables/${encodeURIComponent(tableId)}/qr-order`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: "{}",
-      signal: controller.signal
-    })
-      .then(async (response) => {
+    const createQr = async (attempt: number): Promise<void> => {
+      const controller = new AbortController();
+      controllers.push(controller);
+      const timeout = window.setTimeout(() => controller.abort(), QR_CREATE_TIMEOUT_MS);
+
+      try {
+        const response = await fetch(`/api/pos/tables/${encodeURIComponent(tableId)}/qr-order`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: "{}",
+          signal: controller.signal
+        });
         const body = (await readJson<ApiResponse>(response)) ?? {};
 
         if (!response.ok || !body.data) {
@@ -196,28 +208,40 @@ export function TableQrOrderModal({
           throw new Error(getPublicErrorMessage(body, "สร้าง QR ไม่สำเร็จ"));
         }
 
+        if (disposed) return;
         setData(body.data);
-      })
-      .catch((loadError) => {
-        if ((loadError as { name?: string }).name === "AbortError") {
-          setError("สร้าง QR ไม่สำเร็จ เนื่องจากระบบใช้เวลานานเกินไป กรุณาลองใหม่อีกครั้ง");
+      } catch (loadError) {
+        if (disposed) return;
+
+        if (attempt === 0) {
+          await new Promise((resolve) => window.setTimeout(resolve, QR_CREATE_RETRY_DELAY_MS));
+          if (disposed) return;
+          return createQr(1);
+        }
+
+        if (isAbortError(loadError)) {
+          setError("สร้าง QR ไม่สำเร็จ เนื่องจากระบบใช้เวลานานเกินไป กรุณากดลองใหม่อีกครั้ง");
           return;
         }
 
         setError(loadError instanceof Error ? loadError.message : "สร้าง QR ไม่สำเร็จ");
-      })
-      .finally(() => {
+      } finally {
         window.clearTimeout(timeout);
-        setLoading(false);
-        onBusyChange?.(false);
-      });
+      }
+    };
+
+    void createQr(0).finally(() => {
+      if (disposed) return;
+      setLoading(false);
+      onBusyChange?.(false);
+    });
 
     return () => {
-      window.clearTimeout(timeout);
-      controller.abort();
+      disposed = true;
+      controllers.forEach((controller) => controller.abort());
       onBusyChange?.(false);
     };
-  }, [onBusyChange, open, tableId]);
+  }, [onBusyChange, open, retryToken, tableId]);
 
   const copyLink = useCallback(async () => {
     if (!data) return;
@@ -306,7 +330,7 @@ export function TableQrOrderModal({
             <h2 id="table-qr-title">QR สแกนสั่งอาหาร</h2>
             <p>โต๊ะ {displayTableCode}</p>
           </div>
-          <button type="button" className="posui-btn" onClick={onClose} disabled={loading || printing} aria-label="ปิดหน้าต่าง QR">
+          <button type="button" className="posui-btn" onClick={onClose} disabled={printing} aria-label="ปิดหน้าต่าง QR">
             ปิด
           </button>
         </header>
@@ -321,6 +345,9 @@ export function TableQrOrderModal({
             <div className="posui-table-qr-modal__state is-error">
               <strong>สร้าง QR ไม่สำเร็จ</strong>
               <p>{error}</p>
+              <button type="button" className="posui-btn posui-btn--primary" onClick={() => setRetryToken((value) => value + 1)}>
+                ลองสร้าง QR อีกครั้ง
+              </button>
             </div>
           ) : data ? (
             <>

@@ -22,6 +22,7 @@ type MenuResponse = {
     can_order?: boolean;
     order_status?: string | null;
     bill_status?: string | null;
+    has_submitted_food_order?: boolean;
   };
   error?: {
     code?: string;
@@ -45,12 +46,18 @@ type SubmitResponse = {
 
 type ServiceRequestAction = "call_staff" | "request_checkout";
 
+type ToastMessage = {
+  kind: "success" | "warning" | "error";
+  title: string;
+  detail?: string;
+};
+
 type SubmitItem = {
   product_id: string;
   quantity: number;
 };
 
-const MENU_LOAD_TIMEOUT_MS = 15000;
+const MENU_LOAD_TIMEOUT_MS = 45000;
 const SUBMIT_TIMEOUT_MS = 20000;
 
 function money(value: number) {
@@ -132,6 +139,13 @@ function buildSubmitItems(cartItems: Array<MenuProduct & { quantity: number }>):
     }));
 }
 
+function hasExistingSubmittedFoodOrder(menu: MenuResponse["data"] | null) {
+  if (!menu) return false;
+  if (menu.has_submitted_food_order) return true;
+  const orderStatus = String(menu.order_status ?? "").toLowerCase();
+  return ["queued", "preparing", "completed", "served"].includes(orderStatus);
+}
+
 export function TableOrderMobile({ token }: { token: string }) {
   const [menu, setMenu] = useState<MenuResponse["data"] | null>(null);
   const [loading, setLoading] = useState(true);
@@ -143,7 +157,8 @@ export function TableOrderMobile({ token }: { token: string }) {
   const [submitting, setSubmitting] = useState(false);
   const [serviceSubmitting, setServiceSubmitting] = useState<ServiceRequestAction | null>(null);
   const [successOrderNo, setSuccessOrderNo] = useState<string | null>(null);
-  const [serviceMessage, setServiceMessage] = useState<string | null>(null);
+  const [hasSubmittedFoodOrder, setHasSubmittedFoodOrder] = useState(false);
+  const [toast, setToast] = useState<ToastMessage | null>(null);
 
   const apiUrl = useMemo(() => `/api/table-order/${encodeURIComponent(token)}`, [token]);
 
@@ -169,6 +184,7 @@ export function TableOrderMobile({ token }: { token: string }) {
           throw new Error(publicOrderErrorMessage(response, body, "ไม่สามารถโหลดเมนูได้"));
         }
         setMenu(body.data);
+        setHasSubmittedFoodOrder(hasExistingSubmittedFoodOrder(body.data));
         setError(null);
       })
       .catch((loadError) => {
@@ -189,6 +205,12 @@ export function TableOrderMobile({ token }: { token: string }) {
       controller.abort();
     };
   }, [apiUrl]);
+
+  useEffect(() => {
+    if (!toast) return;
+    const timeout = window.setTimeout(() => setToast(null), 3600);
+    return () => window.clearTimeout(timeout);
+  }, [toast]);
 
   const canOrder = menu?.can_order !== false;
 
@@ -211,6 +233,7 @@ export function TableOrderMobile({ token }: { token: string }) {
 
   const cartCount = cartItems.reduce((sum, item) => sum + item.quantity, 0);
   const cartTotal = cartItems.reduce((sum, item) => sum + item.quantity * item.price, 0);
+  const canRequestCheckout = hasSubmittedFoodOrder || Boolean(successOrderNo) || hasExistingSubmittedFoodOrder(menu);
 
   function changeQuantity(productId: string, delta: number) {
     if (submitting || serviceSubmitting || !canOrder) return;
@@ -265,7 +288,7 @@ export function TableOrderMobile({ token }: { token: string }) {
 
     setSubmitting(true);
     setError(null);
-    setServiceMessage(null);
+    setToast(null);
 
     const requestId = buildRequestId();
 
@@ -311,7 +334,14 @@ export function TableOrderMobile({ token }: { token: string }) {
         throw new Error(publicOrderErrorMessage(response, body, "ไม่สามารถส่งรายการได้ กรุณาลองใหม่หรือติดต่อพนักงาน"));
       }
 
-      setSuccessOrderNo(body.data.order_no ?? "-");
+      const orderNo = body.data.order_no ?? "-";
+      setSuccessOrderNo(orderNo);
+      setHasSubmittedFoodOrder(true);
+      setToast({
+        kind: "success",
+        title: "ส่งรายการเข้าครัวแล้ว",
+        detail: `เลขบิล ${orderNo}`
+      });
       setCart({});
       setCartOpen(false);
     } catch (submitError) {
@@ -327,10 +357,18 @@ export function TableOrderMobile({ token }: { token: string }) {
 
   async function submitServiceRequest(action: ServiceRequestAction) {
     if (!menu || submitting || serviceSubmitting) return;
+    if (action === "request_checkout" && !canRequestCheckout) {
+      setToast({
+        kind: "warning",
+        title: "กรุณาส่งรายการอาหารก่อน",
+        detail: "เมื่อส่งอาหารเข้าครัวแล้วจึงแจ้งชำระบิลได้"
+      });
+      return;
+    }
 
     setServiceSubmitting(action);
     setError(null);
-    setServiceMessage(null);
+    setToast(null);
 
     const requestId = buildRequestId();
 
@@ -377,7 +415,12 @@ export function TableOrderMobile({ token }: { token: string }) {
         throw new Error(publicOrderErrorMessage(response, body, "ส่งคำขอไม่สำเร็จ"));
       }
 
-      setServiceMessage(action === "call_staff" ? "เรียกพนักงานแล้ว กรุณารอสักครู่" : "แจ้งต้องการชำระบิลแล้ว");
+      const nextMessage = action === "call_staff" ? "เรียกพนักงานแล้ว กรุณารอสักครู่" : "แจ้งต้องการชำระบิลแล้ว";
+      setToast({
+        kind: "success",
+        title: nextMessage,
+        detail: `โต๊ะ ${menu.table_code}`
+      });
     } catch (submitError) {
       if ((submitError as { name?: string }).name === "AbortError") {
         setError("ส่งคำขอไม่สำเร็จ เนื่องจากระบบใช้เวลานานเกินไป กรุณาลองใหม่อีกครั้ง");
@@ -449,19 +492,10 @@ export function TableOrderMobile({ token }: { token: string }) {
         </div>
       ) : null}
       {error ? <div className={styles.alert}>{error}</div> : null}
-      {successOrderNo ? (
-        <div className={styles.success}>
-          <strong>ส่งรายการเข้าครัวแล้ว</strong>
-          <span>เลขบิล {successOrderNo}</span>
-          <button type="button" onClick={() => setSuccessOrderNo(null)}>
-            สั่งเพิ่ม
-          </button>
-        </div>
-      ) : null}
-      {serviceMessage ? (
-        <div className={styles.success}>
-          <strong>{serviceMessage}</strong>
-          <span>โต๊ะ {menu.table_code}</span>
+      {toast ? (
+        <div className={`${styles.toast} ${styles[`toast${toast.kind}`]}`} role="status" aria-live="polite">
+          <strong>{toast.title}</strong>
+          {toast.detail ? <span>{toast.detail}</span> : null}
         </div>
       ) : null}
 
@@ -513,7 +547,7 @@ export function TableOrderMobile({ token }: { token: string }) {
           <button type="button" onClick={() => void submitServiceRequest("call_staff")} disabled={submitting || Boolean(serviceSubmitting)}>
             {serviceSubmitting === "call_staff" ? "กำลังเรียก..." : "เรียกพนักงาน"}
           </button>
-          <button type="button" onClick={() => void submitServiceRequest("request_checkout")} disabled={submitting || Boolean(serviceSubmitting)}>
+          <button type="button" onClick={() => void submitServiceRequest("request_checkout")} disabled={submitting || Boolean(serviceSubmitting) || !canRequestCheckout}>
             {serviceSubmitting === "request_checkout" ? "กำลังแจ้ง..." : "ต้องการชำระบิล"}
           </button>
         </div>
@@ -524,9 +558,6 @@ export function TableOrderMobile({ token }: { token: string }) {
           disabled={cartCount === 0 || submitting || Boolean(serviceSubmitting)}
         >
           ดูรายการตะกร้า ({cartCount})
-        </button>
-        <button type="button" className={styles.submitButton} onClick={() => void submitOrder()} disabled={submitting || cartCount === 0 || !canOrder}>
-          {submitting ? "กำลังส่งรายการ..." : "ยืนยันสั่งอาหาร"}
         </button>
       </section>
 
@@ -575,7 +606,10 @@ export function TableOrderMobile({ token }: { token: string }) {
             <footer className={styles.cartModalFooter}>
               <span>ยอดชำระ</span>
               <strong>{money(cartTotal)}</strong>
-              <button type="button" onClick={() => setCartOpen(false)}>
+              <button type="button" className={styles.submitButton} onClick={() => void submitOrder()} disabled={submitting || cartCount === 0 || !canOrder}>
+                {submitting ? "กำลังส่งรายการ..." : "ยืนยันสั่งอาหาร"}
+              </button>
+              <button type="button" className={styles.keepShoppingButton} onClick={() => setCartOpen(false)} disabled={submitting}>
                 เลือกเมนูต่อ
               </button>
             </footer>

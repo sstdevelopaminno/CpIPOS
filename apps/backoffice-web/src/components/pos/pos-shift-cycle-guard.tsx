@@ -34,7 +34,7 @@ type SessionResponse = {
 
 type ApiBody = {
   data?: unknown;
-  error?: { message?: string } | null;
+  error?: { code?: string; message?: string } | null;
 } | null;
 
 const POS_SESSION_EVENT_NAME = "pos-session-current-updated";
@@ -58,6 +58,37 @@ function formatMoney(value: number, lang: Lang) {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2
   }).format(value);
+}
+
+function localizeShiftError(message: string, lang: Lang) {
+  const normalized = message.toLowerCase();
+  if (lang !== "th") return message;
+
+  const openBillMatch = normalized.match(/please clear\s+(\d+)\s+open bill\(s\) before closing shift(?:\s*\(([^)]+)\))?/i);
+  if (openBillMatch) {
+    const count = openBillMatch[1] ?? "0";
+    const bills = openBillMatch[2] ? ` (${openBillMatch[2]})` : "";
+    return `กรุณาเคลียร์บิลที่ยังเปิดอยู่ ${count} บิลก่อนปิดกะ${bills}`;
+  }
+
+  const openTableMatch = normalized.match(/please clear\s+(\d+)\s+open table bill session\(s\) before closing shift/i);
+  if (openTableMatch) {
+    return `กรุณาปิดหรือชำระบิลโต๊ะที่ยังเปิดอยู่ ${openTableMatch[1] ?? "0"} รายการก่อนปิดกะ`;
+  }
+
+  if (normalized.includes("unpaid") || normalized.includes("open bill")) {
+    return "ยังมีบิลที่ยังไม่ปิด กรุณาเคลียร์บิลก่อนปิดกะ";
+  }
+
+  if (normalized.includes("mismatch")) {
+    return "ยอดเงินสดไม่ตรงกัน กรุณาตรวจสอบยอดก่อนปิดกะ";
+  }
+
+  if (normalized.includes("request_timeout")) {
+    return "ระบบใช้เวลานานเกินไป กรุณาลองอีกครั้ง";
+  }
+
+  return message;
 }
 
 async function fetchJsonWithTimeout(url: string, init: RequestInit = {}, timeoutMs = 12000) {
@@ -173,6 +204,12 @@ export function PosShiftCycleGuard({ lang }: { lang: Lang }) {
     [lang]
   );
 
+  useEffect(() => {
+    if (!error) return;
+    const timeout = window.setTimeout(() => setError(null), 4200);
+    return () => window.clearTimeout(timeout);
+  }, [error]);
+
   const cycle = useMemo(() => (shift ? resolveShiftCycle(shift.opened_at) : null), [shift]);
 
   const applySessionState = useCallback((sessionData: SessionResponse["data"]) => {
@@ -203,9 +240,10 @@ export function PosShiftCycleGuard({ lang }: { lang: Lang }) {
   const toErrorMessage = useCallback(
     (unknownError: unknown) => {
       if (unknownError instanceof Error && unknownError.message === "request_timeout") return copy.requestTimeout;
-      return unknownError instanceof Error ? unknownError.message : copy.unknownError;
+      const message = unknownError instanceof Error ? unknownError.message : copy.unknownError;
+      return localizeShiftError(message, lang);
     },
-    [copy.requestTimeout, copy.unknownError]
+    [copy.requestTimeout, copy.unknownError, lang]
   );
 
   const loadState = useCallback(async () => {
@@ -462,7 +500,12 @@ export function PosShiftCycleGuard({ lang }: { lang: Lang }) {
           </div>
         ) : null}
 
-        {error ? <p className="mt-3 text-sm font-semibold text-rose-600">{error}</p> : null}
+        {error ? (
+          <div className="fixed left-1/2 top-5 z-[130] w-[min(480px,calc(100vw-28px))] -translate-x-1/2 rounded-2xl border border-rose-200 bg-white px-4 py-3 text-sm font-semibold text-rose-700 shadow-2xl shift-close-toast" role="status" aria-live="polite">
+            <strong className="block text-rose-800">แจ้งเตือน</strong>
+            <span className="mt-1 block">{error}</span>
+          </div>
+        ) : null}
         <p className="mt-4 text-xs text-slate-500">{copy.logoutHint}</p>
 
         <div className="mt-4 flex flex-wrap justify-end gap-2">
@@ -590,6 +633,22 @@ export function PosShiftCycleGuard({ lang }: { lang: Lang }) {
           </div>
         </section>
       ) : null}
+      <style jsx>{`
+        .shift-close-toast {
+          animation: shiftCloseToastIn 180ms ease-out;
+        }
+
+        @keyframes shiftCloseToastIn {
+          from {
+            opacity: 0;
+            transform: translate(-50%, -10px) scale(0.98);
+          }
+          to {
+            opacity: 1;
+            transform: translate(-50%, 0) scale(1);
+          }
+        }
+      `}</style>
     </>
   );
 }

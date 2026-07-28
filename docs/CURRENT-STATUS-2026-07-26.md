@@ -2,7 +2,7 @@
 
 Date: 2026-07-26
 
-This is the current handoff pointer for SST iPOS. Use this file before older audit notes when deciding what is active.
+Superseded for CpIPOS on 2026-07-27. Use `docs/AI-GUARDRAILS-CPIPOS.md` and `docs/CPIPOS-PRODUCTION-CHECKPOINT-2026-07-27.md` as the current source of truth. The notes below are retained only as historical SST iPOS context.
 
 ## Active Scope
 
@@ -13,8 +13,8 @@ This is the current handoff pointer for SST iPOS. Use this file before older aud
 
 ## Current Fixes
 
-- Local workspace for all Web POS work is `E:\SSTiPOS` only. Do not create or develop from a parallel `SSTiPOS-webpos-current` copy.
-- Local Git repo was restored from `https://github.com/sstdevelopaminno/SSTiPOS.git`, branch `agent-docs-preflight-schema-drift`, commit `cdb3f63` (`Show POS member details on bills`).
+- Historical SST iPOS workspace was `E:\SSTiPOS`. Current CpIPOS workspace is `E:\CpIPOS`.
+- Historical SST iPOS repo was `https://github.com/sstdevelopaminno/SSTiPOS.git`. Current CpIPOS repo is `https://github.com/sstdevelopaminno/CpIPOS.git`.
 - Tracked source files currently match `origin/agent-docs-preflight-schema-drift` at `cdb3f63`; no local tracked code patch is pending after restore.
 - `/login/store` code at `cdb3f63` includes the current Vercel/GitHub-style login UI: centered `store-v2` card, language switcher, CpIPOS logo, masked store-code input, and visibility toggle button.
 - Admin POS monitor cache is now keyed by the authorized branch set instead of `auth.userId`, so users with the same permitted branch scope can share cached snapshots without crossing authorization boundaries.
@@ -37,9 +37,7 @@ Run on 2026-07-26 after dependency install:
 
 ## Remaining Priority Risks
 
-- `/api/pos/session/current` can still synthesize an open shift when shift lookup times out. This should be changed to a degraded/retry state before production traffic.
-- Employee-code login still scans branch roles before checking `pos_user_profiles.employee_code` directly. This should use the indexed profile lookup first.
-- `TABLE_QR_SIGNING_SECRET` should be mandatory in production instead of falling back to `SUPABASE_SERVICE_ROLE_KEY`.
+- Superseded by 2026-07-27 local fixes in CpIPOS: shift lookup timeout now returns a degraded retry response, employee-code login uses the indexed `pos_user_profiles.employee_code` path without branch-wide scan when the relation exists, and `TABLE_QR_SIGNING_SECRET` is mandatory for table QR signing.
 
 ## Read First
 
