@@ -59,7 +59,10 @@ type SubmitItem = {
 
 const MENU_LOAD_TIMEOUT_MS = 45000;
 const SUBMIT_TIMEOUT_MS = 20000;
+const MENU_STATUS_POLL_MS = 5000;
 const ALL_CATEGORY = "ทั้งหมด";
+const LINK_CLOSED_MESSAGE = "ลิงก์สั่งอาหารหมดอายุหรือปิดบิลแล้ว";
+const LINK_PAID_DETAIL = "ถูกชำระเงินแล้ว";
 
 function money(value: number) {
   return new Intl.NumberFormat("th-TH", { style: "currency", currency: "THB" }).format(value);
@@ -147,6 +150,28 @@ function hasExistingSubmittedFoodOrder(menu: MenuResponse["data"] | null) {
   return ["queued", "preparing", "completed", "served"].includes(orderStatus);
 }
 
+function isClosedMenu(menu: MenuResponse["data"] | null) {
+  if (!menu) return false;
+  const billStatus = String(menu.bill_status ?? "").toLowerCase();
+  const orderStatus = String(menu.order_status ?? "").toLowerCase();
+  return (
+    menu.can_order === false ||
+    ["paid", "closed", "cleared", "cancelled"].includes(billStatus) ||
+    ["paid", "closed", "cleared", "cancelled"].includes(orderStatus)
+  );
+}
+
+function isClosedOrderResponse(response: Response, body: MenuResponse | SubmitResponse | null) {
+  const code = body?.error?.code;
+  return (
+    code === "table_order_link_expired" ||
+    code === "table_order_not_available" ||
+    code === "expired_token" ||
+    code === "qr_expired" ||
+    response.status === 410
+  );
+}
+
 export function TableOrderMobile({ token }: { token: string }) {
   const [menu, setMenu] = useState<MenuResponse["data"] | null>(null);
   const [loading, setLoading] = useState(true);
@@ -160,9 +185,43 @@ export function TableOrderMobile({ token }: { token: string }) {
   const [successOrderNo, setSuccessOrderNo] = useState<string | null>(null);
   const [hasSubmittedFoodOrder, setHasSubmittedFoodOrder] = useState(false);
   const [toast, setToast] = useState<ToastMessage | null>(null);
+  const [linkClosed, setLinkClosed] = useState(false);
   const categoriesRef = useRef<HTMLElement | null>(null);
+  const linkClosedToastShownRef = useRef(false);
 
   const apiUrl = useMemo(() => `/api/table-order/${encodeURIComponent(token)}`, [token]);
+
+  const showLinkClosedPopup = useCallback((detail = LINK_PAID_DETAIL) => {
+    setLinkClosed(true);
+    setCart({});
+    setCartOpen(false);
+    setError(null);
+
+    if (linkClosedToastShownRef.current) return;
+    linkClosedToastShownRef.current = true;
+    setToast({
+      kind: "error",
+      title: LINK_CLOSED_MESSAGE,
+      detail
+    });
+  }, []);
+
+  const applyMenuData = useCallback(
+    (nextMenu: NonNullable<MenuResponse["data"]>) => {
+      setMenu(nextMenu);
+      setHasSubmittedFoodOrder(hasExistingSubmittedFoodOrder(nextMenu));
+      setError(null);
+
+      if (isClosedMenu(nextMenu)) {
+        showLinkClosedPopup(LINK_PAID_DETAIL);
+        return;
+      }
+
+      setLinkClosed(false);
+      linkClosedToastShownRef.current = false;
+    },
+    [showLinkClosedPopup]
+  );
 
   useEffect(() => {
     const controller = new AbortController();
@@ -170,6 +229,8 @@ export function TableOrderMobile({ token }: { token: string }) {
 
     setLoading(true);
     setError(null);
+    setLinkClosed(false);
+    linkClosedToastShownRef.current = false;
 
     void fetch(apiUrl, {
       cache: "no-store",
@@ -178,6 +239,7 @@ export function TableOrderMobile({ token }: { token: string }) {
       .then(async (response) => {
         const body = (await readJson<MenuResponse>(response)) ?? {};
         if (!response.ok || !body.data) {
+          if (isClosedOrderResponse(response, body)) showLinkClosedPopup(LINK_PAID_DETAIL);
           console.error("[table-order-mobile] menu load failed", {
             status: response.status,
             code: body.error?.code,
@@ -185,9 +247,7 @@ export function TableOrderMobile({ token }: { token: string }) {
           });
           throw new Error(publicOrderErrorMessage(response, body, "ไม่สามารถโหลดเมนูได้"));
         }
-        setMenu(body.data);
-        setHasSubmittedFoodOrder(hasExistingSubmittedFoodOrder(body.data));
-        setError(null);
+        applyMenuData(body.data);
       })
       .catch((loadError) => {
         if ((loadError as { name?: string }).name === "AbortError") {
@@ -206,7 +266,7 @@ export function TableOrderMobile({ token }: { token: string }) {
       window.clearTimeout(timeout);
       controller.abort();
     };
-  }, [apiUrl]);
+  }, [apiUrl, applyMenuData, showLinkClosedPopup]);
 
   useEffect(() => {
     if (!toast) return;
@@ -214,7 +274,55 @@ export function TableOrderMobile({ token }: { token: string }) {
     return () => window.clearTimeout(timeout);
   }, [toast]);
 
-  const canOrder = menu?.can_order !== false;
+  useEffect(() => {
+    if (!menu || linkClosed) return;
+    let cancelled = false;
+    let inFlight = false;
+
+    const refreshStatus = async () => {
+      if (cancelled || inFlight || document.visibilityState === "hidden" || submitting || serviceSubmitting) return;
+      inFlight = true;
+
+      try {
+        const { response, body } = await fetchJsonWithTimeout<MenuResponse>(
+          apiUrl,
+          { cache: "no-store" },
+          MENU_LOAD_TIMEOUT_MS
+        );
+        if (cancelled) return;
+
+        if (!response.ok || !body?.data) {
+          if (isClosedOrderResponse(response, body)) showLinkClosedPopup(LINK_PAID_DETAIL);
+          return;
+        }
+
+        applyMenuData(body.data);
+      } catch (refreshError) {
+        if ((refreshError as { name?: string }).name !== "AbortError") {
+          console.warn("[table-order-mobile] menu status refresh failed", refreshError);
+        }
+      } finally {
+        inFlight = false;
+      }
+    };
+
+    const onVisible = () => {
+      if (document.visibilityState === "visible") void refreshStatus();
+    };
+
+    const interval = window.setInterval(() => void refreshStatus(), MENU_STATUS_POLL_MS);
+    window.addEventListener("focus", refreshStatus);
+    document.addEventListener("visibilitychange", onVisible);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+      window.removeEventListener("focus", refreshStatus);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, [apiUrl, applyMenuData, linkClosed, menu, serviceSubmitting, showLinkClosedPopup, submitting]);
+
+  const canOrder = menu?.can_order !== false && !linkClosed;
 
   const categoryOptions = useMemo(() => {
     const seen = new Set<string>();
@@ -309,7 +417,7 @@ export function TableOrderMobile({ token }: { token: string }) {
     if (!menu || cartItems.length === 0 || submitting || serviceSubmitting) return;
 
     if (!canOrder) {
-      setError("โต๊ะนี้ไม่สามารถสั่งอาหารเพิ่มได้แล้ว อาจกำลังรอชำระเงินหรือปิดบิลแล้ว กรุณาติดต่อพนักงาน");
+      showLinkClosedPopup(LINK_PAID_DETAIL);
       return;
     }
 
@@ -363,6 +471,11 @@ export function TableOrderMobile({ token }: { token: string }) {
           itemCount: items.length,
           requestId
         });
+
+        if (isClosedOrderResponse(response, body)) {
+          showLinkClosedPopup(LINK_PAID_DETAIL);
+          return;
+        }
 
         throw new Error(publicOrderErrorMessage(response, body, "ไม่สามารถส่งรายการได้ กรุณาลองใหม่หรือติดต่อพนักงาน"));
       }
@@ -445,6 +558,11 @@ export function TableOrderMobile({ token }: { token: string }) {
           requestId
         });
 
+        if (isClosedOrderResponse(response, body)) {
+          showLinkClosedPopup(LINK_PAID_DETAIL);
+          return;
+        }
+
         throw new Error(publicOrderErrorMessage(response, body, "ส่งคำขอไม่สำเร็จ"));
       }
 
@@ -477,8 +595,14 @@ export function TableOrderMobile({ token }: { token: string }) {
   if (!menu) {
     return (
       <main className={styles.statePage}>
+        {toast ? (
+          <div className={`${styles.toast} ${styles[`toast${toast.kind}`]}`} role="status" aria-live="polite">
+            <strong>{toast.title}</strong>
+            {toast.detail ? <span>{toast.detail}</span> : null}
+          </div>
+        ) : null}
         <strong>ไม่สามารถสั่งอาหารผ่านลิงก์นี้ได้</strong>
-        <p>{error || "QR อาจหมดอายุหรือโต๊ะปิดบิลแล้ว กรุณาติดต่อพนักงาน"}</p>
+        {!linkClosed ? <p>{error || "QR อาจหมดอายุหรือโต๊ะปิดบิลแล้ว กรุณาติดต่อพนักงาน"}</p> : null}
       </main>
     );
   }
@@ -520,12 +644,7 @@ export function TableOrderMobile({ token }: { token: string }) {
         </nav>
       </section>
 
-      {!canOrder ? (
-        <div className={styles.alert}>
-          โต๊ะนี้ไม่สามารถสั่งอาหารเพิ่มได้แล้ว อาจกำลังรอชำระเงินหรือปิดบิลแล้ว กรุณาติดต่อพนักงาน
-        </div>
-      ) : null}
-      {error ? <div className={styles.alert}>{error}</div> : null}
+      {error && !linkClosed ? <div className={styles.alert}>{error}</div> : null}
       {toast ? (
         <div className={`${styles.toast} ${styles[`toast${toast.kind}`]}`} role="status" aria-live="polite">
           <strong>{toast.title}</strong>
@@ -578,10 +697,10 @@ export function TableOrderMobile({ token }: { token: string }) {
           <strong>ยอดชำระ {money(cartTotal)}</strong>
         </div>
         <div className={styles.serviceActions}>
-          <button type="button" onClick={() => void submitServiceRequest("call_staff")} disabled={submitting || Boolean(serviceSubmitting)}>
+          <button type="button" onClick={() => void submitServiceRequest("call_staff")} disabled={submitting || Boolean(serviceSubmitting) || !canOrder}>
             {serviceSubmitting === "call_staff" ? "กำลังเรียก..." : "เรียกพนักงาน"}
           </button>
-          <button type="button" onClick={() => void submitServiceRequest("request_checkout")} disabled={submitting || Boolean(serviceSubmitting) || !canRequestCheckout}>
+          <button type="button" onClick={() => void submitServiceRequest("request_checkout")} disabled={submitting || Boolean(serviceSubmitting) || !canOrder || !canRequestCheckout}>
             {serviceSubmitting === "request_checkout" ? "กำลังแจ้ง..." : "ต้องการชำระบิล"}
           </button>
         </div>

@@ -35,6 +35,7 @@ Checked local development evidence for symptoms reported by the user: slow UI, u
 - Table QR menu/product loading uses caching and longer client/server timeouts.
 - Table QR issuing now checks `TABLE_QR_SIGNING_SECRET` before Supabase table/session queries or QR session writes. Missing signing config fails fast with a Thai operator message and the client does not retry non-recoverable configuration errors.
 - Customer table QR category chips now normalize duplicate/blank categories, reset safely when the menu payload changes, scroll the selected chip into view, and use a stricter horizontal touch rail so many categories can be swiped left/right without blocking taps.
+- Customer table QR closed/paid states now show an auto-hiding popup instead of an inline red alert. The QR page polls active menu status every 5 seconds while visible, refreshes on focus, clears the cart, and disables actions when the linked table bill is paid or closed.
 - Shift close open-bill errors are Thai and appear as auto-hiding popup notifications.
 - Customer QR checkout is guarded until a food order exists, both in UI and API.
 
@@ -54,6 +55,7 @@ Checked local development evidence for symptoms reported by the user: slow UI, u
 - TypeScript typecheck passed after the latest UI/API fixes.
 - Focused `table-qr-ordering.integration.test.ts` passed: 5 tests.
 - Latest customer QR category fix: `corepack pnpm --filter backoffice-web typecheck` passed, and targeted ESLint passed for `src/components/table-order/table-order-mobile.tsx`.
+- Latest customer QR closed-link popup/status polling fix: `corepack pnpm --filter backoffice-web typecheck` passed, and targeted ESLint passed for `src/components/table-order/table-order-mobile.tsx`.
 
 ## GitHub / Deployment Notes
 
