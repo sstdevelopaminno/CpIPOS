@@ -57,7 +57,9 @@ export async function POST(request: Request, context: { params: Promise<{ tableI
       return fail(message, "Open the table bill before creating its ordering QR.", 409);
     }
     if (message.includes("signing_secret")) {
-      return fail("table_qr_configuration_missing", "Table QR signing configuration is missing.", 500);
+      const response = fail("table_qr_configuration_missing", "ยังไม่ได้ตั้งค่า TABLE_QR_SIGNING_SECRET สำหรับสร้าง QR โต๊ะ", 500);
+      response.headers.set("x-pos-table-qr-ms", String(Date.now() - startedAt));
+      return response;
     }
     return fail("table_qr_issue_failed", message, 400);
   }

@@ -38,6 +38,26 @@ type BluetoothPrintResponse = {
 const QR_CREATE_TIMEOUT_MS = 60000;
 const QR_CREATE_RETRY_DELAY_MS = 1200;
 const QR_PRINT_TIMEOUT_MS = 15000;
+const NON_RETRYABLE_QR_ERROR_CODES = new Set([
+  "table_qr_configuration_missing",
+  "table_not_open",
+  "table_session_not_open",
+  "invalid_table_id",
+  "feature_disabled",
+  "forbidden"
+]);
+
+class TableQrCreateError extends Error {
+  code: string | null;
+  retryable: boolean;
+
+  constructor(message: string, code: string | null, retryable: boolean) {
+    super(message);
+    this.name = "TableQrCreateError";
+    this.code = code;
+    this.retryable = retryable;
+  }
+}
 
 function escapeHtml(value: string) {
   return value.replace(/[&<>"']/g, (char) => {
@@ -59,6 +79,12 @@ function escapeHtml(value: string) {
 }
 
 function getPublicErrorMessage(payload: ApiResponse | BluetoothPrintResponse | null, fallback: string) {
+  if (payload?.error?.code === "table_qr_configuration_missing") {
+    return "ระบบยังไม่ได้ตั้งค่า QR โต๊ะ กรุณาแจ้งผู้ดูแลระบบตรวจสอบ TABLE_QR_SIGNING_SECRET";
+  }
+  if (payload?.error?.code === "table_not_open" || payload?.error?.code === "table_session_not_open") {
+    return "กรุณาเปิดบิลโต๊ะก่อนสร้าง QR สั่งอาหาร";
+  }
   const message = payload?.error?.message;
   return typeof message === "string" && message.trim() ? message.trim() : fallback;
 }
@@ -198,14 +224,19 @@ export function TableQrOrderModal({
         const body = (await readJson<ApiResponse>(response)) ?? {};
 
         if (!response.ok || !body.data) {
+          const code = body.error?.code ?? null;
           console.error("[table-qr-modal] create QR failed", {
             status: response.status,
-            code: body.error?.code,
+            code,
             message: body.error?.message,
             tableId
           });
 
-          throw new Error(getPublicErrorMessage(body, "สร้าง QR ไม่สำเร็จ"));
+          throw new TableQrCreateError(
+            getPublicErrorMessage(body, "สร้าง QR ไม่สำเร็จ"),
+            code,
+            response.status >= 500 && !NON_RETRYABLE_QR_ERROR_CODES.has(code ?? "")
+          );
         }
 
         if (disposed) return;
@@ -213,7 +244,8 @@ export function TableQrOrderModal({
       } catch (loadError) {
         if (disposed) return;
 
-        if (attempt === 0) {
+        const retryable = loadError instanceof TableQrCreateError ? loadError.retryable : true;
+        if (attempt === 0 && retryable) {
           await new Promise((resolve) => window.setTimeout(resolve, QR_CREATE_RETRY_DELAY_MS));
           if (disposed) return;
           return createQr(1);

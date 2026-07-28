@@ -33,6 +33,7 @@ Checked local development evidence for symptoms reported by the user: slow UI, u
 - `/api/pos/session/current` now has bounded shift metric loading and reports `shift_metrics_degraded` instead of allowing metrics to hold the whole response indefinitely.
 - Store-code lookup uses a short in-memory cache in development.
 - Table QR menu/product loading uses caching and longer client/server timeouts.
+- Table QR issuing now checks `TABLE_QR_SIGNING_SECRET` before Supabase table/session queries or QR session writes. Missing signing config fails fast with a Thai operator message and the client does not retry non-recoverable configuration errors.
 - Shift close open-bill errors are Thai and appear as auto-hiding popup notifications.
 - Customer QR checkout is guarded until a food order exists, both in UI and API.
 
@@ -44,6 +45,7 @@ Checked local development evidence for symptoms reported by the user: slow UI, u
 4. Add server timing headers consistently to slow POS APIs and log degraded paths.
 5. For production, verify Supabase latency from the deployment region and keep auth/session timeouts fail-fast with Thai retry messages.
 6. Do not treat the first route after a dev restart as runtime slowness; retest after warm-up.
+7. Production table QR requires `TABLE_QR_SIGNING_SECRET` in Vercel. Code changes cannot create signed QR links until that secret is configured and redeployed.
 
 ## Verification This Round
 

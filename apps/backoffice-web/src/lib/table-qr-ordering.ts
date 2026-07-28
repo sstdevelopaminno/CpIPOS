@@ -80,8 +80,8 @@ function signingSecret(): string {
   return readRequiredEnv("TABLE_QR_SIGNING_SECRET", "table_qr_signing_secret_missing");
 }
 
-function signatureFor(sessionId: string): string {
-  return createHmac("sha256", signingSecret()).update(`table-order:${sessionId}`).digest("base64url");
+function signatureFor(sessionId: string, secret = signingSecret()): string {
+  return createHmac("sha256", secret).update(`table-order:${sessionId}`).digest("base64url");
 }
 
 export function buildTableQrToken(sessionId: string): string {
@@ -106,6 +106,7 @@ export async function issueTableQrSession(args: {
 }) {
   const { auth, tableId, requestOrigin } = args;
   if (!auth.tenantId || !auth.branchId) throw new Error("missing_scope");
+  const secret = signingSecret();
   const supabase = getSupabaseServiceClient();
 
   const [{ data: table, error: tableError }, { data: tableSession, error: sessionError }] = await Promise.all([
@@ -173,7 +174,7 @@ export async function issueTableQrSession(args: {
     qrSession = created;
   }
 
-  const token = buildTableQrToken(qrSession.id);
+  const token = `${qrSession.id}.${signatureFor(qrSession.id, secret)}`;
   const orderUrl = `${requestOrigin.replace(/\/$/, "")}/table-order/${encodeURIComponent(token)}`;
   const qrDataUrl = await QRCode.toDataURL(orderUrl, {
     errorCorrectionLevel: "M",
