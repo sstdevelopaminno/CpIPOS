@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useTransition, type ReactNode } from "react";
+import { useEffect, useMemo, useState, useTransition, type ReactNode } from "react";
 import type { Language } from "@/lib/i18n";
 import type { PosSalesSummaryPayload } from "@/lib/services/pos-sales-summary-service";
 
@@ -14,6 +14,8 @@ type ApiBody = {
 };
 
 type MoreDialogTab = "payments" | "products" | "cashiers";
+
+const SHIFT_ROWS_PER_PAGE = 10;
 
 const statusOptions = [
   { value: "all", label: "ทุกสถานะ" },
@@ -81,12 +83,20 @@ export function PosSalesSummaryDashboard({ lang, initialPayload }: Props) {
   const [status, setStatus] = useState(initialPayload.filters.status);
   const [error, setError] = useState("");
   const [filterDialogOpen, setFilterDialogOpen] = useState(false);
+  const [summaryDialogOpen, setSummaryDialogOpen] = useState(false);
   const [moreDialogOpen, setMoreDialogOpen] = useState(false);
   const [moreDialogTab, setMoreDialogTab] = useState<MoreDialogTab>("payments");
   const [salesRowsDialogOpen, setSalesRowsDialogOpen] = useState(false);
+  const [shiftPage, setShiftPage] = useState(1);
   const [isPending, startTransition] = useTransition();
 
   const maxPaymentAmount = useMemo(() => Math.max(1, ...payload.paymentMethods.map((row) => row.amount)), [payload.paymentMethods]);
+  const shiftTotalPages = Math.max(1, Math.ceil(payload.shifts.length / SHIFT_ROWS_PER_PAGE));
+  const visibleShifts = useMemo(() => {
+    const safePage = Math.min(Math.max(shiftPage, 1), shiftTotalPages);
+    const start = (safePage - 1) * SHIFT_ROWS_PER_PAGE;
+    return payload.shifts.slice(start, start + SHIFT_ROWS_PER_PAGE);
+  }, [payload.shifts, shiftPage, shiftTotalPages]);
   const kpis = [
     { label: "ยอดขายรวม", value: money(payload.summary.grossSales, lang), tone: "text-slate-900" },
     { label: "ยอดขายสุทธิ", value: money(payload.summary.netSales, lang), tone: "text-blue-700" },
@@ -129,9 +139,9 @@ export function PosSalesSummaryDashboard({ lang, initialPayload }: Props) {
   }
 
   function exportCsv() {
-    const header = ["receipt_no", "created_at", "branch", "cashier", "payment", "gross", "discount", "tax", "net", "status"];
-    const lines = payload.salesRows.map((row) =>
-      [row.receiptNo, row.createdAt, row.branchName, row.cashierName, paymentLabel(row.paymentLabel, row.paymentMethod), row.grossTotal, row.discount, row.tax, row.netTotal, row.status]
+    const header = ["opened_at", "closed_at", "branch", "cashier", "opening_cash", "cash_sales", "expected_cash", "actual_cash", "difference"];
+    const lines = visibleShifts.map((shift) =>
+      [dateTime(shift.openedAt, lang), dateTime(shift.closedAt, lang), shift.branchName, shift.cashierName, shift.openingCash, shift.cashSales, shift.expectedCash, shift.actualCash ?? "", shift.difference ?? ""]
         .map(csvEscape)
         .join(",")
     );
@@ -139,10 +149,18 @@ export function PosSalesSummaryDashboard({ lang, initialPayload }: Props) {
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
-    link.download = `sales-summary-${payload.filters.dateFrom}-${payload.filters.dateTo}.csv`;
+    link.download = `shift-summary-${payload.filters.dateFrom}-${payload.filters.dateTo}-page-${shiftPage}.csv`;
     link.click();
     URL.revokeObjectURL(url);
   }
+
+  useEffect(() => {
+    setShiftPage(1);
+  }, [payload]);
+
+  useEffect(() => {
+    if (shiftPage > shiftTotalPages) setShiftPage(shiftTotalPages);
+  }, [shiftPage, shiftTotalPages]);
 
   return (
     <section className="min-h-[calc(100vh-48px)] bg-[#f6f7f9] p-4 lg:p-5">
@@ -154,27 +172,19 @@ export function PosSalesSummaryDashboard({ lang, initialPayload }: Props) {
               <p className="mt-1 max-w-3xl text-sm text-slate-600">ดูภาพรวมยอดขายตามวัน กะ พนักงาน ช่องทางชำระเงิน และสาขา</p>
             </div>
             <div className="flex flex-wrap gap-2">
+              <ActionButton onClick={() => setSummaryDialogOpen(true)}>สรุปยอดขาย</ActionButton>
               <ActionButton onClick={() => setFilterDialogOpen(true)}>คัดกรอง</ActionButton>
               <ActionButton onClick={() => setMoreDialogOpen(true)}>ดูเพิ่มเติม</ActionButton>
               <ActionButton onClick={() => setSalesRowsDialogOpen(true)}>รายการขาย</ActionButton>
               <button type="button" onClick={refresh} disabled={isPending} className="h-10 rounded-lg border border-blue-200 bg-blue-600 px-4 text-sm font-bold text-white transition hover:bg-blue-700 disabled:cursor-wait disabled:opacity-70">
                 {isPending ? "กำลังโหลด" : "รีเฟรช"}
               </button>
-              <ActionButton onClick={exportCsv} disabled={payload.salesRows.length === 0}>Export CSV</ActionButton>
+              <ActionButton onClick={exportCsv} disabled={visibleShifts.length === 0}>Export CSV</ActionButton>
             </div>
           </div>
         </header>
 
         {error ? <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">{error}</div> : null}
-
-        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-          {kpis.map((item) => (
-            <article key={item.label} className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-              <p className="text-xs font-semibold text-slate-500">{item.label}</p>
-              <p className={`mt-2 text-2xl font-black leading-tight ${item.tone}`}>{item.value}</p>
-            </article>
-          ))}
-        </div>
 
         <Panel title="สรุปกะ">
           <ScrollTable minWidth="860px">
@@ -195,7 +205,7 @@ export function PosSalesSummaryDashboard({ lang, initialPayload }: Props) {
               {payload.shifts.length === 0 ? (
                 <EmptyRow colSpan={9} />
               ) : (
-                payload.shifts.slice(0, 12).map((shift) => (
+                visibleShifts.map((shift) => (
                   <tr key={shift.id} className="border-t border-slate-100">
                     <Td>{dateTime(shift.openedAt, lang)}</Td>
                     <Td>{dateTime(shift.closedAt, lang)}</Td>
@@ -211,7 +221,25 @@ export function PosSalesSummaryDashboard({ lang, initialPayload }: Props) {
               )}
             </tbody>
           </ScrollTable>
+          <PaginationControls
+            page={Math.min(shiftPage, shiftTotalPages)}
+            totalPages={shiftTotalPages}
+            totalRows={payload.shifts.length}
+            onPrev={() => setShiftPage((page) => Math.max(1, page - 1))}
+            onNext={() => setShiftPage((page) => Math.min(shiftTotalPages, page + 1))}
+          />
         </Panel>
+
+        <Dialog open={summaryDialogOpen} title="สรุปยอดขาย" onClose={() => setSummaryDialogOpen(false)} wide>
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            {kpis.map((item) => (
+              <article key={item.label} className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+                <p className="text-xs font-semibold text-slate-500">{item.label}</p>
+                <p className={`mt-2 text-2xl font-black leading-tight ${item.tone}`}>{item.value}</p>
+              </article>
+            ))}
+          </div>
+        </Dialog>
 
         <Dialog open={filterDialogOpen} title="คัดกรองข้อมูล" onClose={() => setFilterDialogOpen(false)}>
           <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
@@ -284,6 +312,32 @@ function Dialog({ open, title, onClose, children, wide = false }: { open: boolea
 
 function ActionButton({ children, onClick, disabled = false }: { children: ReactNode; onClick: () => void; disabled?: boolean }) {
   return <button type="button" onClick={onClick} disabled={disabled} className="h-10 rounded-lg border border-slate-300 bg-white px-4 text-sm font-bold text-slate-800 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50">{children}</button>;
+}
+
+function PaginationControls({
+  page,
+  totalPages,
+  totalRows,
+  onPrev,
+  onNext
+}: {
+  page: number;
+  totalPages: number;
+  totalRows: number;
+  onPrev: () => void;
+  onNext: () => void;
+}) {
+  return (
+    <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-sm">
+      <span className="font-semibold text-slate-500">
+        ทั้งหมด {totalRows} รายการ · หน้า {page}/{totalPages}
+      </span>
+      <div className="flex gap-2">
+        <ActionButton onClick={onPrev} disabled={page <= 1}>ก่อนหน้า</ActionButton>
+        <ActionButton onClick={onNext} disabled={page >= totalPages}>ถัดไป</ActionButton>
+      </div>
+    </div>
+  );
 }
 
 function DialogActions({ children }: { children: ReactNode }) {
