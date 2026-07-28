@@ -64,6 +64,11 @@ export type Tables = {
       retry_count: number;
       max_retry_count: number;
       last_error: string | null;
+      claimed_by_agent_id: string | null;
+      claimed_at: string | null;
+      claim_expires_at: string | null;
+      agent_attempt_id: string | null;
+      agent_error_code: string | null;
       printed_at: string | null;
       failed_at: string | null;
       created_at: string;
@@ -71,5 +76,45 @@ export type Tables = {
       metadata: Record<string, unknown>;
     };
   };
+  print_agents: {
+    Row: {
+      id: string;
+      tenant_id: string;
+      branch_id: string;
+      device_id: string | null;
+      device_code: string;
+      agent_name: string;
+      api_key_hash: string;
+      status: "active" | "blocked" | "inactive";
+      last_seen_at: string | null;
+      last_claim_at: string | null;
+      app_version: string | null;
+      metadata: Record<string, unknown>;
+      created_by: string | null;
+      created_at: string;
+      updated_at: string;
+    };
+  };
+  cash_drawer_events: {
+    Row: {
+      id: string;
+      tenant_id: string;
+      branch_id: string;
+      pos_device_id: string | null;
+      printer_profile_id: string | null;
+      print_job_id: string | null;
+      user_id: string | null;
+      session_id: string | null;
+      shift_id: string | null;
+      order_id: string | null;
+      payment_id: string | null;
+      trigger_source: "manual" | "cash_payment";
+      reason: string | null;
+      command_status: "queued" | "sent" | "failed";
+      physical_status: "open" | "closed" | "unknown" | "unsupported" | "offline";
+      error_code: string | null;
+      metadata: Record<string, unknown>;
+      created_at: string;
+    };
+  };
 };
-

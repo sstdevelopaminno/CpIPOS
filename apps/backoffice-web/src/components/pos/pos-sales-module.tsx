@@ -663,6 +663,16 @@ const uiText = {
     noItems: "ยังไม่มีสินค้าในตะกร้า",
     remove: "ลบสินค้า",
     checkout: "สร้างออเดอร์ POS",
+    openCashDrawer: "เปิดลิ้นชักเก็บเงิน",
+    openingCashDrawer: "กำลังส่งคำสั่ง...",
+    cashDrawerReasonPrompt: "ระบุเหตุผลในการเปิดลิ้นชัก",
+    cashDrawerReasonDefault: "แลกเงิน",
+    cashDrawerCommandSent: "ส่งคำสั่งเปิดลิ้นชักแล้ว",
+    cashDrawerUnsupportedStatus: "เครื่องนี้ไม่รองรับสถานะเปิด/ปิดจริง",
+    cashDrawerNotConfigured: "ยังไม่ได้ตั้งค่าลิ้นชักกับเครื่องพิมพ์ใบเสร็จ",
+    cashDrawerPermissionDenied: "เฉพาะเจ้าของหรือผู้จัดการที่เปิดลิ้นชักได้",
+    cashDrawerCooldown: "กรุณารอสักครู่ก่อนเปิดลิ้นชักอีกครั้ง",
+    cashDrawerOpenFailed: "เปิดลิ้นชักไม่สำเร็จ",
     deliveryQueueCheckout: "รอส่งออเดอร์",
     deliveryQueueProcessing: "กำลังบันทึกบิลรอส่งออเดอร์...",
     tableQrOrder: "QR สั่งอาหาร",
@@ -1006,6 +1016,16 @@ const uiText = {
     noItems: "No items in cart.",
     remove: "Remove item",
     checkout: "Create POS order",
+    openCashDrawer: "Open cash drawer",
+    openingCashDrawer: "Sending command...",
+    cashDrawerReasonPrompt: "Enter reason for opening the drawer",
+    cashDrawerReasonDefault: "Cash exchange",
+    cashDrawerCommandSent: "Cash drawer command sent",
+    cashDrawerUnsupportedStatus: "This printer does not report physical drawer status",
+    cashDrawerNotConfigured: "Cash drawer is not configured on a receipt printer",
+    cashDrawerPermissionDenied: "Only owner or manager can open the drawer",
+    cashDrawerCooldown: "Please wait before opening the drawer again",
+    cashDrawerOpenFailed: "Cash drawer open failed",
     deliveryQueueCheckout: "Queue For Dispatch",
     deliveryQueueProcessing: "Saving pending dispatch bill...",
     tableQrOrder: "Table QR",
@@ -2092,6 +2112,9 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
   const [cashReplaceOnNextKey, setCashReplaceOnNextKey] = useState(false);
   const [cashSubmitting, setCashSubmitting] = useState(false);
   const [cashError, setCashError] = useState<string | null>(null);
+  const [cashDrawerOpening, setCashDrawerOpening] = useState(false);
+  const [cashDrawerCooldownUntil, setCashDrawerCooldownUntil] = useState(0);
+  const [cashDrawerConfigured, setCashDrawerConfigured] = useState(false);
   const [receiptSession, setReceiptSession] = useState<ReceiptSession | null>(null);
   const [receiptSaving, setReceiptSaving] = useState(false);
   const [receiptSaved, setReceiptSaved] = useState(false);
@@ -3649,6 +3672,69 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
       })
     );
   }
+
+  function mapCashDrawerError(body: ApiErrorBody | null | undefined, fallback: string) {
+    const code = body?.error?.code ?? "";
+    if (code === "drawer_not_configured" || code === "printer_not_configured") return text.cashDrawerNotConfigured;
+    if (code === "permission_denied") return text.cashDrawerPermissionDenied;
+    if (code === "drawer_cooldown") return text.cashDrawerCooldown;
+    return body?.error?.message ?? fallback;
+  }
+
+  async function openCashDrawerManually() {
+    if (cashDrawerOpening || Date.now() < cashDrawerCooldownUntil) return;
+    const reason = window.prompt(text.cashDrawerReasonPrompt, text.cashDrawerReasonDefault);
+    if (reason === null) return;
+    const normalizedReason = reason.trim();
+    if (!normalizedReason) {
+      pushSubmitMessage(text.cashDrawerReasonPrompt);
+      return;
+    }
+
+    setCashDrawerOpening(true);
+    try {
+      const { response, body } = await fetchJsonWithTimeout<ApiErrorBody & { data?: { physical_status?: string } }>(
+        "/api/pos/cash-drawer/open",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ reason: normalizedReason })
+        },
+        12000,
+        0
+      );
+      if (!response.ok || body.error) {
+        throw new Error(mapCashDrawerError(body, text.cashDrawerOpenFailed));
+      }
+      const suffix = body.data?.physical_status === "unsupported" ? ` (${text.cashDrawerUnsupportedStatus})` : "";
+      pushSubmitMessage(`${text.cashDrawerCommandSent}${suffix}`);
+      const nextCooldown = Date.now() + 3000;
+      setCashDrawerCooldownUntil(nextCooldown);
+      window.setTimeout(() => {
+        setCashDrawerCooldownUntil((current) => (current === nextCooldown ? 0 : current));
+      }, 3100);
+    } catch (error) {
+      pushSubmitMessage(error instanceof Error ? error.message : text.cashDrawerOpenFailed);
+    } finally {
+      setCashDrawerOpening(false);
+    }
+  }
+
+  useEffect(() => {
+    if (!isHydrated || typeof window === "undefined") return;
+    let active = true;
+    void fetchJsonWithTimeout<ApiErrorBody & { data?: { configured?: boolean } }>("/api/pos/cash-drawer/open", { cache: "no-store" }, 8000, 0)
+      .then(({ response, body }) => {
+        if (!active) return;
+        setCashDrawerConfigured(Boolean(response.ok && !body.error && body.data?.configured));
+      })
+      .catch(() => {
+        if (active) setCashDrawerConfigured(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [isHydrated]);
 
   useEffect(() => {
     fetchPosTablesRef.current = fetchPosTables;
@@ -7588,6 +7674,7 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
           }
           onTableQrOrder={() => setTableQrModalOpen(true)}
           onPromotion={openDiscountPopup}
+          onOpenCashDrawer={cashDrawerConfigured ? openCashDrawerManually : undefined}
           showHoldBill={quickMode === "home"}
           showTableQrOrder={
             orderType === "dine_in" &&
@@ -7617,6 +7704,10 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
           showDiscount={showSummaryDiscount}
           showTax={showSummaryTax}
           actionsDisabled={isBusy}
+          openCashDrawerLabel={text.openCashDrawer}
+          openingCashDrawerLabel={text.openingCashDrawer}
+          openingCashDrawer={cashDrawerOpening}
+          openCashDrawerDisabled={isBusy || Date.now() < cashDrawerCooldownUntil}
           cancelBillDisabled={!canCancelFromSidebar}
           cancelLabel={undefined}
           transferVerificationLabel={text.transferVerificationSummaryLabel}

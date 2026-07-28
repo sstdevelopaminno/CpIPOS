@@ -72,6 +72,29 @@ type QueueBluetoothReceiptInput = {
   receiptHtml: string;
 };
 
+type CashDrawerProfile = {
+  enabled: boolean;
+  connectionMode: "printer-kick" | "vendor-sdk" | "direct-usb";
+  openSupported: boolean;
+  statusSupported: boolean;
+  closeSupported: false;
+  kickPin: 0 | 1;
+  pulseOnMs: number;
+  pulseOffMs: number;
+  autoOpenOnCashPayment: boolean;
+};
+
+type OpenCashDrawerInput = {
+  triggerSource: "manual" | "cash_payment";
+  reason?: string | null;
+  sessionId?: string | null;
+  shiftId?: string | null;
+  posDeviceId?: string | null;
+  orderId?: string | null;
+  paymentId?: string | null;
+  metadata?: JsonRecord;
+};
+
 const adapters: Record<PrinterConnectionType, PrinterAdapter> = {
   NETWORK_ESC_POS: new NetworkEscPosAdapter(),
   STAR_WEBPRNT: new StarWebPrntAdapter(),
@@ -84,6 +107,34 @@ function asRecord(value: unknown): JsonRecord {
     return {};
   }
   return value as JsonRecord;
+}
+
+function asBool(value: unknown, fallback: boolean) {
+  if (typeof value === "boolean") return value;
+  return fallback;
+}
+
+function clampNumber(value: unknown, fallback: number, min: number, max: number) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.max(min, Math.min(max, Math.trunc(parsed)));
+}
+
+function readCashDrawerProfile(printer: PrinterProfileRow): CashDrawerProfile {
+  const metadata = asRecord(printer.metadata);
+  const drawer = asRecord(metadata.cash_drawer);
+  const connectionMode = drawer.connectionMode === "vendor-sdk" || drawer.connectionMode === "direct-usb" ? drawer.connectionMode : "printer-kick";
+  return {
+    enabled: asBool(drawer.enabled ?? metadata.cash_drawer_enabled, false),
+    connectionMode,
+    openSupported: asBool(drawer.openSupported ?? metadata.cash_drawer_open_supported, true),
+    statusSupported: asBool(drawer.statusSupported ?? metadata.cash_drawer_status_supported, false),
+    closeSupported: false,
+    kickPin: clampNumber(drawer.kickPin ?? metadata.drawer_kick_pin, 0, 0, 1) === 1 ? 1 : 0,
+    pulseOnMs: clampNumber(drawer.pulseOnMs ?? metadata.drawer_pulse_on_ms, 50, 20, 500),
+    pulseOffMs: clampNumber(drawer.pulseOffMs ?? metadata.drawer_pulse_off_ms, 250, 20, 500),
+    autoOpenOnCashPayment: asBool(drawer.autoOpenOnCashPayment ?? metadata.cash_drawer_auto_open_cash, false)
+  };
 }
 
 function normalizeText(value: string | null | undefined): string | null {
@@ -585,6 +636,215 @@ export async function queueAndProcessBluetoothReceiptHtml(auth: AuthContext, inp
   }
 
   return jobs;
+}
+
+async function assertCashDrawerCooldown(auth: AuthContext, input: OpenCashDrawerInput) {
+  const supabase = getSupabaseServiceClient();
+  const cooldownSince = new Date(Date.now() - 3000).toISOString();
+  let query = supabase
+    .from("cash_drawer_events")
+    .select("id")
+    .eq("tenant_id", auth.tenantId!)
+    .eq("branch_id", auth.branchId!)
+    .gte("created_at", cooldownSince)
+    .in("command_status", ["queued", "sent"])
+    .limit(1);
+
+  if (input.posDeviceId) {
+    query = query.eq("pos_device_id", input.posDeviceId);
+  }
+
+  const { data, error } = await query;
+  if (error) throw new Error(error.message);
+  if ((data ?? []).length > 0) throw new Error("drawer_cooldown");
+}
+
+async function writeCashDrawerEvent(
+  auth: AuthContext,
+  printer: PrinterProfileRow,
+  input: OpenCashDrawerInput,
+  patch?: Partial<{
+    print_job_id: string | null;
+    command_status: "queued" | "sent" | "failed";
+    physical_status: "open" | "closed" | "unknown" | "unsupported" | "offline";
+    error_code: string | null;
+    metadata: JsonRecord;
+  }>,
+  eventId?: string
+) {
+  const supabase = getSupabaseServiceClient();
+  const base = {
+    tenant_id: auth.tenantId!,
+    branch_id: auth.branchId!,
+    pos_device_id: input.posDeviceId ?? null,
+    printer_profile_id: printer.id,
+    print_job_id: patch?.print_job_id ?? null,
+    user_id: auth.userId,
+    session_id: input.sessionId ?? null,
+    shift_id: input.shiftId ?? null,
+    order_id: input.orderId ?? null,
+    payment_id: input.paymentId ?? null,
+    trigger_source: input.triggerSource,
+    reason: normalizeText(input.reason ?? undefined),
+    command_status: patch?.command_status ?? "queued",
+    physical_status: patch?.physical_status ?? "unknown",
+    error_code: patch?.error_code ?? null,
+    metadata: patch?.metadata ?? input.metadata ?? {}
+  };
+
+  if (eventId) {
+    const { data, error } = await supabase
+      .from("cash_drawer_events")
+      .update({
+        print_job_id: base.print_job_id,
+        command_status: base.command_status,
+        physical_status: base.physical_status,
+        error_code: base.error_code,
+        metadata: base.metadata
+      })
+      .eq("id", eventId)
+      .select("id")
+      .single();
+    if (error) throw new Error(error.message);
+    return data.id as string;
+  }
+
+  const { data, error } = await supabase.from("cash_drawer_events").insert(base).select("id").single();
+  if (error) throw new Error(error.message);
+  return data.id as string;
+}
+
+export async function queueAndProcessCashDrawerOpen(auth: AuthContext, input: OpenCashDrawerInput) {
+  if (auth.branchRole !== "manager" && auth.branchRole !== "owner" && input.triggerSource === "manual") {
+    throw new Error("permission_denied");
+  }
+  if (input.triggerSource === "manual" && !normalizeText(input.reason ?? undefined)) {
+    throw new Error("drawer_reason_required");
+  }
+
+  await assertCashDrawerCooldown(auth, input);
+
+  const receiptPrinters = await getEnabledPrintersByRole(auth, "receipt");
+  const printer = receiptPrinters.find((candidate) => {
+    const profile = readCashDrawerProfile(candidate);
+    return profile.enabled && profile.openSupported && profile.connectionMode === "printer-kick";
+  });
+  if (!printer) {
+    throw new Error(receiptPrinters.length > 0 ? "drawer_not_configured" : "printer_not_configured");
+  }
+
+  const drawerProfile = readCashDrawerProfile(printer);
+  const eventId = await writeCashDrawerEvent(auth, printer, input, {
+    command_status: "queued",
+    physical_status: drawerProfile.statusSupported ? "unknown" : "unsupported",
+    metadata: {
+      ...asRecord(input.metadata),
+      drawer_profile: {
+        enabled: drawerProfile.enabled,
+        connectionMode: drawerProfile.connectionMode,
+        openSupported: drawerProfile.openSupported,
+        statusSupported: drawerProfile.statusSupported,
+        closeSupported: false,
+        kickPin: drawerProfile.kickPin,
+        pulseOnMs: drawerProfile.pulseOnMs,
+        pulseOffMs: drawerProfile.pulseOffMs,
+        autoOpenOnCashPayment: drawerProfile.autoOpenOnCashPayment
+      }
+    }
+  });
+
+  const job = await enqueuePrintJob({
+    auth,
+    printer,
+    orderId: normalizeText(input.orderId ?? undefined),
+    printerRole: "receipt",
+    payloadText: "OPEN_CASH_DRAWER",
+    payloadJson: {},
+    metadata: {
+      request_source: "cash_drawer",
+      command: "open_cash_drawer",
+      trigger_source: input.triggerSource,
+      reason: normalizeText(input.reason ?? undefined),
+      cash_drawer_event_id: eventId,
+      drawer_kick_pin: drawerProfile.kickPin,
+      drawer_pulse_on_ms: drawerProfile.pulseOnMs,
+      drawer_pulse_off_ms: drawerProfile.pulseOffMs,
+      drawer_status_supported: drawerProfile.statusSupported
+    },
+    maxRetryCount: 1
+  });
+
+  const processed = await processPrintJob(job.id);
+  const commandStatus = processed?.status === "printed" ? "sent" : "failed";
+  const errorCode = commandStatus === "sent" ? null : processed?.last_error ?? "drawer_open_failed";
+  await writeCashDrawerEvent(
+    auth,
+    printer,
+    input,
+    {
+      print_job_id: job.id,
+      command_status: commandStatus,
+      physical_status: drawerProfile.statusSupported ? "unknown" : "unsupported",
+      error_code: errorCode,
+      metadata: {
+        ...asRecord(input.metadata),
+        print_job_status: processed?.status ?? job.status,
+        last_error: processed?.last_error ?? null
+      }
+    },
+    eventId
+  );
+
+  await appendAuditLog({
+    tenantId: auth.tenantId!,
+    branchId: auth.branchId!,
+    actorUserId: auth.userId,
+    actorRole: auth.branchRole ?? "staff",
+    action: "open_cash_drawer",
+    targetTable: "cash_drawer_events",
+    targetId: eventId,
+    metadata: {
+      printer_profile_id: printer.id,
+      print_job_id: job.id,
+      trigger_source: input.triggerSource,
+      reason: normalizeText(input.reason ?? undefined),
+      command_status: commandStatus,
+      physical_status: drawerProfile.statusSupported ? "unknown" : "unsupported",
+      error_code: errorCode
+    }
+  });
+
+  if (commandStatus !== "sent") {
+    throw new Error(errorCode ?? "drawer_open_failed");
+  }
+
+  return {
+    event_id: eventId,
+    job: processed ?? job,
+    printer: {
+      id: printer.id,
+      printer_name: printer.printer_name,
+      connection_type: printer.connection_type
+    },
+    physical_status: drawerProfile.statusSupported ? "unknown" : "unsupported"
+  };
+}
+
+export async function hasConfiguredCashDrawer(auth: AuthContext) {
+  const receiptPrinters = await getEnabledPrintersByRole(auth, "receipt");
+  const printer = receiptPrinters.find((candidate) => {
+    const profile = readCashDrawerProfile(candidate);
+    return profile.enabled && profile.openSupported && profile.connectionMode === "printer-kick";
+  });
+  if (!printer) return { configured: false, printer: null };
+  return {
+    configured: true,
+    printer: {
+      id: printer.id,
+      printer_name: printer.printer_name,
+      connection_type: printer.connection_type
+    }
+  };
 }
 
 export async function enqueueOrderPrintJobs(args: {

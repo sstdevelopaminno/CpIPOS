@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { EmptyState, ErrorState, LoadingState } from "@/components/backoffice/list-state";
 import { PaginationControls } from "@/components/backoffice/pagination-controls";
 import { usePaginatedApi } from "@/components/backoffice/use-paginated-api";
@@ -16,6 +16,20 @@ type PrinterRow = {
   enabled: boolean;
   metadata: Record<string, unknown>;
   created_at: string;
+};
+
+type PrintAgentRow = {
+  id: string;
+  device_id: string | null;
+  device_code: string;
+  agent_name: string;
+  status: "active" | "blocked" | "inactive";
+  last_seen_at: string | null;
+  last_claim_at: string | null;
+  app_version: string | null;
+  metadata: Record<string, unknown>;
+  created_at?: string;
+  updated_at?: string;
 };
 
 type BluetoothDevice = {
@@ -63,6 +77,7 @@ function sleep(ms: number) {
 }
 
 export function PrintersModule() {
+  const [activePanel, setActivePanel] = useState<"printers" | "agents" | "assignment">("printers");
   const [page, setPage] = useState(1);
   const [reloadKey, setReloadKey] = useState(0);
   const [submitError, setSubmitError] = useState<string | null>(null);
@@ -72,6 +87,15 @@ export function PrintersModule() {
   const [discovering, setDiscovering] = useState(false);
   const [connectingDeviceId, setConnectingDeviceId] = useState<string | null>(null);
   const [discoveredDevices, setDiscoveredDevices] = useState<BluetoothDevice[]>([]);
+  const [agents, setAgents] = useState<PrintAgentRow[]>([]);
+  const [agentsLoading, setAgentsLoading] = useState(false);
+  const [agentActionId, setAgentActionId] = useState<string | null>(null);
+  const [agentSubmitting, setAgentSubmitting] = useState(false);
+  const [agentName, setAgentName] = useState("");
+  const [agentDeviceCode, setAgentDeviceCode] = useState("");
+  const [agentVersion, setAgentVersion] = useState("");
+  const [agentMetadataText, setAgentMetadataText] = useState("");
+  const [createdAgentKey, setCreatedAgentKey] = useState<{ agentName: string; deviceCode: string; key: string } | null>(null);
 
   const [printerName, setPrinterName] = useState("");
   const [printerRole, setPrinterRole] = useState<PrinterRow["printer_role"]>("receipt");
@@ -102,12 +126,12 @@ export function PrintersModule() {
       return '{"webprnt_url":"http://printer.local/StarWebPRNT/SendMessage"}';
     }
     if (connectionType === "LOCAL_BRIDGE") {
-      return '{"bridge_url":"http://127.0.0.1:3210/print"}';
+      return '{"bridge_url":"http://127.0.0.1:3210/print","cash_drawer":{"enabled":true,"connectionMode":"printer-kick","openSupported":true,"statusSupported":false,"closeSupported":false,"kickPin":0,"pulseOnMs":50,"pulseOffMs":250,"autoOpenOnCashPayment":false}}';
     }
     if (connectionType === "BLUETOOTH_BRIDGE") {
-      return '{"bridge_url":"http://127.0.0.1:3210/print","bluetooth_address":"AA:BB:CC:DD:EE:FF","auto_connect":true}';
+      return '{"bridge_url":"http://127.0.0.1:3210/print","bluetooth_address":"AA:BB:CC:DD:EE:FF","auto_connect":true,"cash_drawer":{"enabled":true,"connectionMode":"printer-kick","openSupported":true,"statusSupported":false,"closeSupported":false,"kickPin":0,"pulseOnMs":50,"pulseOffMs":250,"autoOpenOnCashPayment":false}}';
     }
-    return "metadata JSON (optional)";
+    return '{"cash_drawer":{"enabled":true,"connectionMode":"printer-kick","openSupported":true,"statusSupported":false,"closeSupported":false,"kickPin":0,"pulseOnMs":50,"pulseOffMs":250,"autoOpenOnCashPayment":false}}';
   }, [connectionType]);
 
   const { loading, error, items, pagination } = usePaginatedApi<PrinterRow>("/api/backoffice/printers", {
@@ -115,6 +139,28 @@ export function PrintersModule() {
     page_size: 10,
     reload: reloadKey
   });
+
+  const loadAgents = useCallback(async () => {
+    setAgentsLoading(true);
+    try {
+      const response = await fetch("/api/backoffice/printers/agents", { cache: "no-store" });
+      const body = await readJson(response);
+      if (!response.ok || body?.error) {
+        throw new Error(body?.error?.message ?? "Load print agents failed.");
+      }
+      setAgents(Array.isArray(body?.data?.items) ? body.data.items : []);
+    } catch (agentError) {
+      setSubmitError(agentError instanceof Error ? agentError.message : "Load print agents failed.");
+    } finally {
+      setAgentsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (activePanel === "agents") {
+      void loadAgents();
+    }
+  }, [activePanel, loadAgents, reloadKey]);
 
   useEffect(() => {
     if (!isBluetoothMode) return;
@@ -427,10 +473,196 @@ export function PrintersModule() {
     }
   }
 
+  async function handleCreateAgent(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setAgentSubmitting(true);
+    setSubmitError(null);
+    setSubmitSuccess(null);
+    setCreatedAgentKey(null);
+
+    let metadata: Record<string, unknown> = {};
+    if (agentMetadataText.trim()) {
+      try {
+        metadata = JSON.parse(agentMetadataText) as Record<string, unknown>;
+      } catch {
+        setSubmitError("agent metadata must be a valid JSON object.");
+        setAgentSubmitting(false);
+        return;
+      }
+    }
+
+    try {
+      const payload = {
+        agent_name: agentName.trim(),
+        device_code: agentDeviceCode.trim(),
+        app_version: agentVersion.trim() || null,
+        metadata
+      };
+      const response = await fetch("/api/backoffice/printers/agents", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+      const body = await readJson(response);
+      if (!response.ok || body?.error) {
+        throw new Error(body?.error?.message ?? "Create print agent failed.");
+      }
+      setCreatedAgentKey({
+        agentName: body?.data?.agent?.agent_name ?? payload.agent_name,
+        deviceCode: body?.data?.agent?.device_code ?? payload.device_code,
+        key: body?.data?.agent_key ?? ""
+      });
+      setSubmitSuccess("Print agent created. Copy the secret now; it will not be shown again.");
+      setAgentName("");
+      setAgentDeviceCode("");
+      setAgentVersion("");
+      setAgentMetadataText("");
+      setReloadKey((key) => key + 1);
+    } catch (agentError) {
+      setSubmitError(agentError instanceof Error ? agentError.message : "Create print agent failed.");
+    } finally {
+      setAgentSubmitting(false);
+    }
+  }
+
+  async function handleUpdateAgent(agentId: string, action: "revoke" | "block") {
+    setAgentActionId(agentId);
+    setSubmitError(null);
+    setSubmitSuccess(null);
+    try {
+      const response = await fetch("/api/backoffice/printers/agents", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ agent_id: agentId, action })
+      });
+      const body = await readJson(response);
+      if (!response.ok || body?.error) {
+        throw new Error(body?.error?.message ?? "Update print agent failed.");
+      }
+      setSubmitSuccess(action === "block" ? "Print agent blocked." : "Print agent revoked.");
+      setReloadKey((key) => key + 1);
+    } catch (agentError) {
+      setSubmitError(agentError instanceof Error ? agentError.message : "Update print agent failed.");
+    } finally {
+      setAgentActionId(null);
+    }
+  }
+
   return (
     <section className="surface">
       <h2>Printer Settings</h2>
       <p style={{ color: "var(--muted)" }}>Adapter-based printing supports NETWORK_ESC_POS, STAR_WEBPRNT, LOCAL_BRIDGE, and BLUETOOTH_BRIDGE.</p>
+
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 8, margin: "12px 0" }} aria-label="Printer settings sections">
+        {[
+          ["printers", "Printers"],
+          ["agents", "Print Agents"],
+          ["assignment", "Assignment"]
+        ].map(([key, label]) => (
+          <button
+            key={key}
+            type="button"
+            onClick={() => setActivePanel(key as typeof activePanel)}
+            style={{
+              minHeight: 38,
+              borderRadius: 8,
+              border: "1px solid var(--border)",
+              padding: "0 14px",
+              fontWeight: 800,
+              background: activePanel === key ? "#0f172a" : "#fff",
+              color: activePanel === key ? "#fff" : "var(--text)"
+            }}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {activePanel === "agents" ? (
+        <section style={{ marginBottom: 12, border: "1px solid var(--border)", borderRadius: 10, padding: 12, background: "#f8fafc" }}>
+          <h3 style={{ margin: "0 0 6px" }}>Local Print Agents</h3>
+          <form className="grid cols-4" onSubmit={handleCreateAgent} style={{ marginTop: 10 }}>
+            <input value={agentName} onChange={(event) => setAgentName(event.target.value)} placeholder="Agent name" required style={{ minHeight: 42, padding: "8px 10px" }} />
+            <input value={agentDeviceCode} onChange={(event) => setAgentDeviceCode(event.target.value)} placeholder="Device code เช่น POS-COUNTER-01" required style={{ minHeight: 42, padding: "8px 10px" }} />
+            <input value={agentVersion} onChange={(event) => setAgentVersion(event.target.value)} placeholder="App version (optional)" style={{ minHeight: 42, padding: "8px 10px" }} />
+            <input value={agentMetadataText} onChange={(event) => setAgentMetadataText(event.target.value)} placeholder='{"os":"windows","station":"counter"}' style={{ minHeight: 42, padding: "8px 10px" }} />
+            <button type="submit" disabled={agentSubmitting} style={{ minHeight: 42 }}>
+              {agentSubmitting ? "Creating..." : "Create agent secret"}
+            </button>
+          </form>
+          {createdAgentKey ? (
+            <div style={{ marginTop: 10, border: "1px solid #fed7aa", background: "#fff7ed", borderRadius: 8, padding: 10 }}>
+              <strong>Copy this secret now. It is shown once only.</strong>
+              <p style={{ margin: "6px 0", color: "var(--muted)", fontSize: 12 }}>
+                {createdAgentKey.agentName} / {createdAgentKey.deviceCode}
+              </p>
+              <code style={{ display: "block", overflowX: "auto", padding: 8, background: "#fff", border: "1px solid var(--border)", borderRadius: 6 }}>
+                {createdAgentKey.key}
+              </code>
+              <button type="button" onClick={() => void navigator.clipboard?.writeText(createdAgentKey.key)} style={{ marginTop: 8, minHeight: 34 }}>
+                Copy secret
+              </button>
+            </div>
+          ) : null}
+          <div style={{ overflowX: "auto", marginTop: 12 }}>
+            <table style={{ width: "100%", borderCollapse: "collapse" }}>
+              <thead>
+                <tr>
+                  <th style={{ textAlign: "left", borderBottom: "1px solid var(--border)", padding: 8 }}>Agent</th>
+                  <th style={{ textAlign: "left", borderBottom: "1px solid var(--border)", padding: 8 }}>Device</th>
+                  <th style={{ textAlign: "left", borderBottom: "1px solid var(--border)", padding: 8 }}>Status</th>
+                  <th style={{ textAlign: "left", borderBottom: "1px solid var(--border)", padding: 8 }}>Last seen</th>
+                  <th style={{ textAlign: "left", borderBottom: "1px solid var(--border)", padding: 8 }}>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {agentsLoading ? (
+                  <tr>
+                    <td colSpan={5} style={{ padding: 8 }}>Loading agents...</td>
+                  </tr>
+                ) : agents.length === 0 ? (
+                  <tr>
+                    <td colSpan={5} style={{ padding: 8 }}>No print agents yet.</td>
+                  </tr>
+                ) : (
+                  agents.map((agent) => (
+                    <tr key={agent.id}>
+                      <td style={{ borderBottom: "1px solid var(--border)", padding: 8 }}>
+                        <strong>{agent.agent_name}</strong>
+                        <div style={{ color: "var(--muted)", fontSize: 12 }}>{agent.app_version ?? "-"}</div>
+                      </td>
+                      <td style={{ borderBottom: "1px solid var(--border)", padding: 8 }}>{agent.device_code}</td>
+                      <td style={{ borderBottom: "1px solid var(--border)", padding: 8 }}>{agent.status}</td>
+                      <td style={{ borderBottom: "1px solid var(--border)", padding: 8 }}>{agent.last_seen_at ? new Date(agent.last_seen_at).toLocaleString() : "-"}</td>
+                      <td style={{ borderBottom: "1px solid var(--border)", padding: 8, display: "flex", gap: 8 }}>
+                        <button type="button" disabled={agentActionId === agent.id || agent.status !== "active"} onClick={() => void handleUpdateAgent(agent.id, "revoke")} style={{ minHeight: 34 }}>
+                          Revoke
+                        </button>
+                        <button type="button" disabled={agentActionId === agent.id || agent.status === "blocked"} onClick={() => void handleUpdateAgent(agent.id, "block")} style={{ minHeight: 34 }}>
+                          Block
+                        </button>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      ) : null}
+
+      {activePanel === "assignment" ? (
+        <section style={{ marginBottom: 12, border: "1px solid var(--border)", borderRadius: 10, padding: 12, background: "#f8fafc" }}>
+          <h3 style={{ margin: "0 0 6px" }}>Printer Assignment</h3>
+          <p style={{ margin: "0 0 8px", color: "var(--muted)", fontSize: 13 }}>
+            For multiple cashier machines in one branch, bind a printer by adding metadata such as <code>agent_device_code</code>, <code>agent_device_codes</code>, <code>assigned_agent_id</code>, or <code>assigned_agent_ids</code>.
+          </p>
+          <code>{'{"agent_device_code":"POS-COUNTER-01","bridge_timeout_ms":8000}'}</code>
+          <p style={{ margin: "8px 0 0", color: "var(--muted)", fontSize: 13 }}>
+            Cash drawer profile example: <code>{'{"cash_drawer":{"enabled":true,"connectionMode":"printer-kick","openSupported":true,"statusSupported":false,"closeSupported":false,"kickPin":0,"pulseOnMs":50,"pulseOffMs":250,"autoOpenOnCashPayment":false}}'}</code>
+          </p>
+        </section>
+      ) : null}
 
       <form className="grid cols-4" onSubmit={handleCreatePrinter}>
         <input

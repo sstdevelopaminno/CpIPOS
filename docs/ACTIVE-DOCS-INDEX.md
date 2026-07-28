@@ -1,6 +1,6 @@
 # Active Documentation Index
 
-Last reviewed: 2026-07-28
+Last reviewed: 2026-07-29
 
 Use this page as the first stop before new development. It separates active implementation guidance from historical QR-era material.
 
@@ -22,6 +22,8 @@ Use this page as the first stop before new development. It separates active impl
 - [Stability / Network / API Audit 2026-07-28](./STABILITY-NETWORK-API-AUDIT-2026-07-28.md)
 - [System Recheck 2026-07-28](./SYSTEM-RECHECK-2026-07-28.md)
 - [IT Backoffice API Design 2026-07-28](./IT-BACKOFFICE-API-DESIGN-2026-07-28.md)
+- [POS Printing And Receipt Audit 2026-07-29](./POS-PRINTING-RECEIPT-AUDIT-2026-07-29.md)
+- [POS Print Agent v1 Design 2026-07-29](./POS-PRINT-AGENT-V1-DESIGN-2026-07-29.md)
 - [POS Shift Clear Open Bills 2026-07-28](./POS-SHIFT-CLEAR-OPEN-BILLS-2026-07-28.md)
 - [POS Sales Summary UI 2026-07-28](./POS-SALES-SUMMARY-UI-2026-07-28.md)
 - [POS Sales List UI 2026-07-28](./POS-SALES-LIST-UI-2026-07-28.md)
@@ -39,6 +41,8 @@ Use this page as the first stop before new development. It separates active impl
 - [POS Catalog Trash And Modifier Checkpoint](./POS-CATALOG-TRASH-MODIFIER-CHECKPOINT-2026-07-22.md)
 - [POS Menu Modifiers And Ingredient Options](./POS-MENU-MODIFIERS-INGREDIENTS-PLAN-2026-07-22.md)
 - [POS Shift Close Reliability](./POS-SHIFT-CLOSE-RELIABILITY-2026-07-10.md)
+- [POS Printing And Receipt Audit 2026-07-29](./POS-PRINTING-RECEIPT-AUDIT-2026-07-29.md)
+- [POS Print Agent v1 Design 2026-07-29](./POS-PRINT-AGENT-V1-DESIGN-2026-07-29.md)
 - [POS Login Device Splash](./POS-LOGIN-DEVICE-SPLASH-2026-07-11.md)
 - [Stock Engine Architecture](./STOCK-ENGINE-ARCHITECTURE.md)
 - [Table Management Floor Plan](./TABLE-MANAGEMENT-FLOOR-PLAN.md)

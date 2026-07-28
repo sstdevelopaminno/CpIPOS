@@ -31,6 +31,7 @@ type Props = {
   onMember?: () => void;
   onTableQrOrder?: () => void;
   onPromotion?: () => void;
+  onOpenCashDrawer?: () => void;
   showHoldBill?: boolean;
   showTableQrOrder?: boolean;
   tableQrOrderLabel?: string;
@@ -54,6 +55,10 @@ type Props = {
   cancelBillDisabled?: boolean;
   cancelLabel?: string;
   transferVerificationLabel?: string;
+  openCashDrawerLabel?: string;
+  openingCashDrawerLabel?: string;
+  openCashDrawerDisabled?: boolean;
+  openingCashDrawer?: boolean;
   transferVerificationBadge?: {
     label: string;
     tone: "pass" | "fail" | "warn";
@@ -95,6 +100,7 @@ export function PosPaymentPanel({
   onMember,
   onTableQrOrder,
   onPromotion,
+  onOpenCashDrawer,
   showHoldBill = true,
   showTableQrOrder = false,
   tableQrOrderLabel = "QR สั่งอาหาร",
@@ -115,6 +121,10 @@ export function PosPaymentPanel({
   cancelBillDisabled = false,
   cancelLabel,
   transferVerificationLabel,
+  openCashDrawerLabel = "เปิดลิ้นชักเก็บเงิน",
+  openingCashDrawerLabel = "กำลังส่งคำสั่ง...",
+  openCashDrawerDisabled = false,
+  openingCashDrawer = false,
   transferVerificationBadge,
   paymentMethodValue,
   modeStatusValue,
@@ -247,6 +257,16 @@ export function PosPaymentPanel({
       </div>
 
       <div className="posui-payment-actions posui-payment-actions--single" style={{ display: "grid", gridTemplateColumns: "1fr", gap: 8 }}>
+        {onOpenCashDrawer ? (
+          <button
+            type="button"
+            onClick={onOpenCashDrawer}
+            disabled={openCashDrawerDisabled || openingCashDrawer || submitting}
+            className="posui-btn posui-btn--cash-drawer"
+          >
+            {openingCashDrawer ? openingCashDrawerLabel : openCashDrawerLabel}
+          </button>
+        ) : null}
         <button
           type="button"
           onClick={onCheckout}

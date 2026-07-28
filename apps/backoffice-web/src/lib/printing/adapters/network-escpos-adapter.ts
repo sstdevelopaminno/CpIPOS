@@ -9,6 +9,20 @@ function toEscPosPayload(text: string): Buffer {
   return Buffer.concat([initialize, body, lineFeed, cut]);
 }
 
+function clampByte(value: unknown, fallback: number, min: number, max: number) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.max(min, Math.min(max, Math.trunc(parsed)));
+}
+
+function toCashDrawerPayload(metadata: Record<string, unknown>): Buffer {
+  const initialize = Buffer.from([0x1b, 0x40]);
+  const kickPin = clampByte(metadata.drawer_kick_pin, 0, 0, 1);
+  const pulseOnUnits = clampByte(Math.round(Number(metadata.drawer_pulse_on_ms ?? 50) / 2), 25, 10, 250);
+  const pulseOffUnits = clampByte(Math.round(Number(metadata.drawer_pulse_off_ms ?? 250) / 2), 125, 25, 250);
+  return Buffer.concat([initialize, Buffer.from([0x1b, 0x70, kickPin, pulseOnUnits, pulseOffUnits])]);
+}
+
 export class NetworkEscPosAdapter implements PrinterAdapter {
   readonly connectionType = "NETWORK_ESC_POS" as const;
 
@@ -18,7 +32,7 @@ export class NetworkEscPosAdapter implements PrinterAdapter {
     }
 
     const port = ctx.port ?? 9100;
-    const payload = toEscPosPayload(ctx.payloadText);
+    const payload = ctx.metadata.command === "open_cash_drawer" ? toCashDrawerPayload(ctx.metadata) : toEscPosPayload(ctx.payloadText);
 
     await new Promise<void>((resolve, reject) => {
       const socket = net.createConnection({ host: ctx.ipAddress!, port }, () => {
@@ -43,7 +57,8 @@ export class NetworkEscPosAdapter implements PrinterAdapter {
       bytesSent: payload.byteLength,
       metadata: {
         host: ctx.ipAddress,
-        port
+        port,
+        command: ctx.metadata.command === "open_cash_drawer" ? "open_cash_drawer" : "print"
       }
     };
   }
