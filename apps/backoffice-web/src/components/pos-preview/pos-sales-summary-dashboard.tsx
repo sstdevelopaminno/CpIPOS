@@ -37,6 +37,9 @@ const paymentOptions = [
 const inputClass =
   "h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm font-semibold text-slate-900 outline-none transition focus:border-blue-400 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400";
 
+const CSV_DELIMITER = ",";
+const CSV_BOM = "\uFEFF";
+
 function money(value: number, lang: Language): string {
   return new Intl.NumberFormat(lang === "th" ? "th-TH" : "en-US", {
     style: "currency",
@@ -61,7 +64,14 @@ function dateTime(value: string | null, lang: Language): string {
 
 function csvEscape(value: string | number | null): string {
   const text = String(value ?? "");
-  return `"${text.replace(/"/g, '""')}"`;
+  const safeText = /^[=+\-@]/.test(text) ? `'${text}` : text;
+  return `"${safeText.replace(/"/g, '""')}"`;
+}
+
+function shiftSummaryCsvHeaders(lang: Language): string[] {
+  return lang === "th"
+    ? ["เปิดกะ", "ปิดกะ", "สาขา", "พนักงาน", "เงินต้น", "เงินสด", "คาดหวัง", "เงินจริง", "ต่าง"]
+    : ["Opened at", "Closed at", "Branch", "Cashier", "Opening cash", "Cash sales", "Expected cash", "Actual cash", "Difference"];
 }
 
 function paymentLabel(label: string, method?: string): string {
@@ -139,19 +149,22 @@ export function PosSalesSummaryDashboard({ lang, initialPayload }: Props) {
   }
 
   function exportCsv() {
-    const header = ["opened_at", "closed_at", "branch", "cashier", "opening_cash", "cash_sales", "expected_cash", "actual_cash", "difference"];
+    const header = shiftSummaryCsvHeaders(lang);
     const lines = visibleShifts.map((shift) =>
       [dateTime(shift.openedAt, lang), dateTime(shift.closedAt, lang), shift.branchName, shift.cashierName, shift.openingCash, shift.cashSales, shift.expectedCash, shift.actualCash ?? "", shift.difference ?? ""]
         .map(csvEscape)
-        .join(",")
+        .join(CSV_DELIMITER)
     );
-    const blob = new Blob([[header.join(","), ...lines].join("\n")], { type: "text/csv;charset=utf-8" });
+    const csvBody = [`sep=${CSV_DELIMITER}`, header.map(csvEscape).join(CSV_DELIMITER), ...lines].join("\r\n");
+    const blob = new Blob([CSV_BOM, csvBody], { type: "text/csv;charset=utf-8" });
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
     link.download = `shift-summary-${payload.filters.dateFrom}-${payload.filters.dateTo}-page-${shiftPage}.csv`;
+    document.body.appendChild(link);
     link.click();
-    URL.revokeObjectURL(url);
+    link.remove();
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
 
   useEffect(() => {

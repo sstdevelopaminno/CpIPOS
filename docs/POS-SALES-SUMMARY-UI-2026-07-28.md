@@ -10,6 +10,7 @@ Updated `/preview/pos/sales-summary` in `apps/backoffice-web/src/components/pos-
 - Main page now starts with the shift summary table, reducing vertical clutter and UI load.
 - Replaced the fixed `.slice(0, 12)` shift table limit with pagination.
 - `Export CSV` now exports only the visible `สรุปกะ` table page instead of exporting all sales rows from a different dialog.
+- CSV export uses UTF-8 BOM, `sep=,`, CRLF line endings, and language-specific headers so Excel/Windows opens Thai/English text and columns correctly.
 
 ## Printing Note From Attached Spec
 

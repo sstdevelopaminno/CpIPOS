@@ -38,6 +38,7 @@ Run on 2026-07-28 from `E:\CpIPOS`:
 - Follow-up fix: `apps/backoffice-web/src/lib/pos-shift-open-bills.ts` now centralizes open-bill recovery, and `/api/pos/shifts/close` accepts `clear_open_bills: true`. The POS shift-cycle UI sends this flag for close/continue/auto-close so stale open bills do not trap overdue shift closure. The manual recovery button is also visible in urgent/auto-close mode.
 - `docs/POS-SHIFT-CLEAR-OPEN-BILLS-2026-07-28.md`: records the recovery design and guardrails so future AI does not remove the blocker or delete bills silently.
 - `apps/backoffice-web/src/components/pos-preview/pos-sales-summary-dashboard.tsx`: moved KPI sales summary cards into a `สรุปยอดขาย` popup button before `คัดกรอง`, added pagination to the shift summary table, and changed `Export CSV` to export only the visible shift-summary table page.
+- Follow-up CSV fix: sales-summary CSV export now includes UTF-8 BOM, `sep=,`, CRLF rows, and Thai/English headers based on the active language to prevent unreadable Thai text or collapsed columns in Excel.
 - `docs/POS-SALES-SUMMARY-UI-2026-07-28.md`: records the sales summary UI change and notes that the attached print-agent text is architecture guidance, not a shell command.
 - `docs/STABILITY-NETWORK-API-AUDIT-2026-07-28.md`: recorded current evidence for slow UI, unstable API behavior, local filesystem/cache pressure, slow Next dev compile, slow POS session/monitor endpoints, and deployment notes. `docs/ACTIVE-DOCS-INDEX.md` links to this audit.
 
