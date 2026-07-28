@@ -1,7 +1,5 @@
 "use client";
 
-import { useRef } from "react";
-
 type CategoryItem = {
   id: string;
   label: string;
@@ -24,40 +22,9 @@ export function PosCategoryNav({
   trailingActionLabel,
   onTrailingAction
 }: Props) {
-  const dragStateRef = useRef<{ pointerId: number; startX: number; scrollLeft: number; pointerType: string } | null>(null);
-  const didDragRef = useRef(false);
-
-  function startDrag(event: React.PointerEvent<HTMLElement>) {
-    if (event.pointerType !== "mouse") return;
-    if (event.button !== 0) return;
-    const target = event.currentTarget;
-    dragStateRef.current = {
-      pointerId: event.pointerId,
-      startX: event.clientX,
-      scrollLeft: target.scrollLeft,
-      pointerType: event.pointerType
-    };
-    didDragRef.current = false;
-    target.setPointerCapture(event.pointerId);
-  }
-
-  function moveDrag(event: React.PointerEvent<HTMLElement>) {
-    const dragState = dragStateRef.current;
-    if (!dragState || dragState.pointerId !== event.pointerId) return;
-    const deltaX = event.clientX - dragState.startX;
-    if (Math.abs(deltaX) > 8) {
-      didDragRef.current = true;
-      event.currentTarget.scrollLeft = dragState.scrollLeft - deltaX;
-    }
-  }
-
-  function endDrag(event: React.PointerEvent<HTMLElement>) {
-    if (dragStateRef.current?.pointerId === event.pointerId) {
-      dragStateRef.current = null;
-      window.setTimeout(() => {
-        didDragRef.current = false;
-      }, 0);
-    }
+  function handleWheel(event: React.WheelEvent<HTMLElement>) {
+    if (Math.abs(event.deltaY) <= Math.abs(event.deltaX)) return;
+    event.currentTarget.scrollLeft += event.deltaY;
   }
 
   return (
@@ -65,23 +32,13 @@ export function PosCategoryNav({
       <nav
         className="posui-category-nav"
         aria-label={ariaLabel}
-        onPointerDown={startDrag}
-        onPointerMove={moveDrag}
-        onPointerUp={endDrag}
-        onPointerCancel={endDrag}
-        onPointerLeave={endDrag}
+        onWheel={handleWheel}
       >
         {items.map((item) => (
           <button
             key={item.id}
             type="button"
-            onClick={(event) => {
-              if (didDragRef.current) {
-                event.preventDefault();
-                return;
-              }
-              onSelect(item.id);
-            }}
+            onClick={() => onSelect(item.id)}
             className={`posui-chip posui-chip--category ${activeId === item.id ? "is-active" : ""}`}
           >
             {item.label}

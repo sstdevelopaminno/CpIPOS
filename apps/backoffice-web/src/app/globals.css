@@ -2289,22 +2289,16 @@ a {
   overflow-x: auto;
   overflow-y: hidden;
   padding: 1px 2px 4px;
-  cursor: grab;
   overscroll-behavior-x: contain;
   scroll-padding-inline: 2px;
   scroll-snap-type: x proximity;
   scrollbar-width: none;
-  touch-action: pan-x;
+  touch-action: pan-x manipulation;
   -webkit-overflow-scrolling: touch;
-  user-select: none;
 }
 
 .posui-category-nav::-webkit-scrollbar {
   display: none;
-}
-
-.posui-category-nav:active {
-  cursor: grabbing;
 }
 
 .posui-chip--category,
