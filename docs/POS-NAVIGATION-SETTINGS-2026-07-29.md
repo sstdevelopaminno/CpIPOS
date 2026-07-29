@@ -11,7 +11,9 @@
   - Members: `/preview/pos/members`
 - Main sidebar keeps the high-frequency flow: Sales, Sales List, Open/Close Shift, More, Settings, and Logout.
 - Staff role must not see the More menu in the main navigation and direct `/preview/pos/more` access redirects back to `/preview/pos`.
+- The More page header uses `More` / `เพิ่มเติม` and does not include a Back to Sales button; the main POS navigation remains the return path.
 - Each moved page must keep a deterministic Back to More button that links to `/preview/pos/more`; do not rely only on browser history.
+- Sales List defaults to the daily quick range. Totals cards stay hidden until the user taps `View Totals` / `ดูยอด`.
 
 ## Main Menu Placement
 

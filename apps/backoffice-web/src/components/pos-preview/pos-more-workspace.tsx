@@ -3,7 +3,6 @@
 import Link from "next/link";
 import { MouseEvent, useEffect, useState } from "react";
 import { PackageLockDialog } from "@/components/pos-preview/package-lock-dialog";
-import { PosBackButton } from "@/components/pos-preview/pos-back-button";
 import { t, type Language } from "@/lib/i18n";
 import { featureForPosRoute } from "@/lib/pos-feature-map";
 
@@ -154,7 +153,6 @@ export function PosMoreWorkspace({ lang, role }: { lang: Language; role: PosRole
       <section className="min-h-full rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
         <header className="mb-5 flex flex-wrap items-start justify-between gap-3">
           <div>
-            <PosBackButton lang={lang} className="mb-3" />
             <h1 className="text-2xl font-black text-slate-950">{t(lang, "pos_menu_more_title")}</h1>
             <p className="mt-1 text-sm font-semibold text-slate-500">{t(lang, "pos_menu_more_desc")}</p>
           </div>
@@ -183,7 +181,7 @@ export function PosMoreWorkspace({ lang, role }: { lang: Language; role: PosRole
                   <span className="block text-base font-black text-slate-950">{t(lang, item.labelKey)}</span>
                   <span className="mt-1 block text-sm font-medium leading-5 text-slate-500">{item.desc[lang]}</span>
                 </span>
-                <span className="text-slate-400">›</span>
+                <span className="text-slate-400">&gt;</span>
               </Link>
             );
           })}

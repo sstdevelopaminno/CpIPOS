@@ -65,6 +65,7 @@ export function PosSalesListWorkspace({
   const [liveShiftOptions, setLiveShiftOptions] = useState<PosSalesShiftOption[]>(shiftOptions);
   const [selectedBranchId, setSelectedBranchId] = useState<string>("all");
   const [filterPopupOpen, setFilterPopupOpen] = useState(false);
+  const [totalsVisible, setTotalsVisible] = useState(false);
   const [selectedDetailRow, setSelectedDetailRow] = useState<PosSalesListRecord | null>(null);
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<"all" | SaleStatus>("all");
@@ -76,7 +77,7 @@ export function PosSalesListWorkspace({
   const [timeToFilter, setTimeToFilter] = useState("");
   const [pinAction, setPinAction] = useState<PinAction | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
-  const [quickRange, setQuickRange] = useState<"none" | "day" | "month" | "year">("none");
+  const [quickRange, setQuickRange] = useState<"none" | "day" | "month" | "year">("day");
   const [editTarget, setEditTarget] = useState<EditTarget | null>(null);
   const [editSaleStatus, setEditSaleStatus] = useState<SaleStatus>("open");
   const [editPaymentStatus, setEditPaymentStatus] = useState<PaymentReceiptStatus>("unpaid");
@@ -271,7 +272,7 @@ export function PosSalesListWorkspace({
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [query, statusFilter, paymentFilter, channelFilter, shiftFilter, dateFilter, timeFromFilter, timeToFilter, selectedBranchId]);
+  }, [query, statusFilter, paymentFilter, channelFilter, shiftFilter, dateFilter, timeFromFilter, timeToFilter, selectedBranchId, quickRange]);
 
   useEffect(() => {
     if (currentPage > totalPages) {
@@ -420,7 +421,7 @@ export function PosSalesListWorkspace({
   }
 
   function clearFilters() {
-    setQuickRange("none");
+    setQuickRange("day");
     setQuery("");
     setStatusFilter("all");
     setPaymentFilter("all");
@@ -441,8 +442,18 @@ export function PosSalesListWorkspace({
           <div className="flex flex-wrap items-end gap-2">
             <button
               type="button"
+              onClick={() => setTotalsVisible((prev) => !prev)}
+              aria-expanded={totalsVisible}
+              className={`h-10 rounded-lg border px-4 text-sm font-semibold transition ${
+                totalsVisible ? "border-blue-600 bg-blue-600 text-white shadow-sm" : "border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
+              }`}
+            >
+              {totalsVisible ? tt("sales_list_hide_totals") : tt("sales_list_view_totals")}
+            </button>
+            <button
+              type="button"
               onClick={() => {
-                setQuickRange((prev) => (prev === "day" ? "none" : "day"));
+                setQuickRange("day");
               }}
               className={`h-10 rounded-lg border px-4 text-sm font-semibold transition ${
                 quickRange === "day" ? "border-orange-500 bg-orange-500 text-white" : "border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
@@ -453,7 +464,7 @@ export function PosSalesListWorkspace({
             <button
               type="button"
               onClick={() => {
-                setQuickRange((prev) => (prev === "month" ? "none" : "month"));
+                setQuickRange("month");
               }}
               className={`h-10 rounded-lg border px-4 text-sm font-semibold transition ${
                 quickRange === "month" ? "border-orange-500 bg-orange-500 text-white" : "border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
@@ -464,7 +475,7 @@ export function PosSalesListWorkspace({
             <button
               type="button"
               onClick={() => {
-                setQuickRange((prev) => (prev === "year" ? "none" : "year"));
+                setQuickRange("year");
               }}
               className={`h-10 rounded-lg border px-4 text-sm font-semibold transition ${
                 quickRange === "year" ? "border-orange-500 bg-orange-500 text-white" : "border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
@@ -500,12 +511,14 @@ export function PosSalesListWorkspace({
         </div>
       </div>
 
-      <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <MetricCard label={tt("sales_list_total_bills")} value={String(metrics.totalBills)} />
-        <MetricCard label={tt("sales_list_paid_bills")} value={String(metrics.paidBills)} />
-        <MetricCard label={tt("sales_list_open_bills")} value={String(metrics.openBills)} />
-        <MetricCard label={tt("sales_list_total_amount")} value={amountFormatter.format(metrics.totalAmount)} />
-      </div>
+      {totalsVisible ? (
+        <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          <MetricCard label={tt("sales_list_total_bills")} value={String(metrics.totalBills)} />
+          <MetricCard label={tt("sales_list_paid_bills")} value={String(metrics.paidBills)} />
+          <MetricCard label={tt("sales_list_open_bills")} value={String(metrics.openBills)} />
+          <MetricCard label={tt("sales_list_total_amount")} value={amountFormatter.format(metrics.totalAmount)} />
+        </div>
+      ) : null}
 
       {notice || mutationError ? (
         <div

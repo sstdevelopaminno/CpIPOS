@@ -500,7 +500,9 @@ ORDER BY p.name;
 - POS sidebar main menu was simplified: Sales Summary, Receipt History, Table Management, Product Management, and Members moved into the `More` / `เพิ่มเติม` page at `/preview/pos/more`, shown after Open/Close Shift.
 - Staff role must not see the More menu and direct `/preview/pos/more` access redirects to `/preview/pos`.
 - Keep these moved route links feature-gated with `featureForPosRoute()` in `pos-more-workspace.tsx`; do not move them back to `pos-settings-workspace.tsx` unless product direction changes.
+- The `/preview/pos/more` page title should read `More` / `เพิ่มเติม` and should not show a Back to Sales button; users return through the main POS navigation.
 - Each moved page must keep a deterministic Back to More button linking to `/preview/pos/more`.
+- Sales List defaults to the daily quick range. The totals cards are hidden by default and opened with the `View Totals` / `ดูยอด` button in the header.
 - Settings now has `Change Language` and `Main Menu Position` popups.
 - Main menu placement moves the whole POS navigation bar: `left` keeps the original vertical sidebar, `top` uses a horizontal top bar, and `bottom` uses a horizontal bottom bar.
 - Main menu placement is client-side per terminal using localStorage key `pos_main_menu_bar_position_v2` and event `pos-main-menu-placement-updated`.
