@@ -30,6 +30,7 @@ export type PosPermissionKey =
 export const POS_ROUTE_FEATURES = {
   "/preview/pos": "core_pos_sales",
   "/preview/pos/sales-list": "advanced_sales_reports",
+  "/preview/pos/more": "core_pos_sales",
   "/preview/pos/stock": "stock_management",
   "/preview/pos/sales-summary": "advanced_sales_reports",
   "/preview/pos/receipts": "receipt_reprint_history",

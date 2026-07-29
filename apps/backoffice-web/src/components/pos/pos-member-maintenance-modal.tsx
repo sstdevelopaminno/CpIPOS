@@ -8,10 +8,11 @@ type Props = {
   title?: string;
   message?: string;
   closeLabel?: string;
+  onCloseHref?: string;
   onClose?: () => void;
 };
 
-export function PosMemberMaintenanceModal({ open, lang, title, message, closeLabel, onClose }: Props) {
+export function PosMemberMaintenanceModal({ open, lang, title, message, closeLabel, onCloseHref, onClose }: Props) {
   if (!open) return null;
 
   const defaultCopy =
@@ -38,7 +39,7 @@ export function PosMemberMaintenanceModal({ open, lang, title, message, closeLab
       onClose();
       return;
     }
-    window.location.assign("/preview/pos");
+    window.location.assign(onCloseHref ?? "/preview/pos");
   }
 
   return (

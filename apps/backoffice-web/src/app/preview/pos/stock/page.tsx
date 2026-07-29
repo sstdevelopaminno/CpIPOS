@@ -460,7 +460,7 @@ export default async function PosStockPage({
       <div className="border-b border-slate-200 bg-[linear-gradient(130deg,#f8fbff_0%,#f2f7ff_34%,#fff7ed_100%)] px-4 py-4 lg:px-6 lg:py-5">
         <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(320px,420px)_auto] lg:items-start">
           <div>
-            <PosBackButton lang={lang} className="mb-3" />
+            <PosBackButton lang={lang} href="/preview/pos/more" label={lang === "th" ? "กลับเมนูเพิ่มเติม" : "Back to More"} className="mb-3" />
             <h2 className="mt-1 text-xl font-extrabold text-slate-900 lg:text-2xl">
               {t(lang, "pos_stock_title")}
             </h2>
@@ -515,7 +515,6 @@ export default async function PosStockPage({
     </section>
   );
 }
-
 
 
 

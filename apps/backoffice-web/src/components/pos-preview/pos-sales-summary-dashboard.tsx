@@ -199,7 +199,7 @@ export function PosSalesSummaryDashboard({ lang, initialPayload }: Props) {
         <header className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm lg:p-5">
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div className="min-w-[260px]">
-              <PosBackButton lang={lang} className="mb-3" />
+              <PosBackButton lang={lang} href="/preview/pos/more" label={lang === "th" ? "กลับเมนูเพิ่มเติม" : "Back to More"} className="mb-3" />
               <h1 className="text-2xl font-black text-slate-950 lg:text-3xl">สรุปยอดขาย</h1>
               <p className="mt-1 max-w-3xl text-sm text-slate-600">ดูภาพรวมยอดขายตามวัน กะ พนักงาน ช่องทางชำระเงิน และสาขา</p>
             </div>

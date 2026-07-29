@@ -459,7 +459,7 @@ export function TableManagementPage({ lang = "th", initialRole = null }: { lang?
 
   function navigateBack() {
     if (typeof window === "undefined") return;
-    window.location.assign("/preview/pos");
+    window.location.assign("/preview/pos/more");
   }
 
   function openEditTableEditor(table: DiningTableItem) {
@@ -1139,7 +1139,7 @@ export function TableManagementPage({ lang = "th", initialRole = null }: { lang?
             onClick={navigateBack}
             disabled={saving}
           >
-            {lang === "th" ? "← กลับหน้าขาย" : "← Back to Sales"}
+            {lang === "th" ? "< กลับเมนูเพิ่มเติม" : "< Back to More"}
           </button>
           <button
             type="button"
