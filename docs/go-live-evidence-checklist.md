@@ -30,6 +30,19 @@ Required evidence:
 - Known local cache or permission issues:
 - Evidence link:
 
+Latest local evidence, 2026-07-29:
+- Git branch/commit: `agent-docs-preflight-schema-drift`, commit pending.
+- Node/npm/pnpm versions: Node 22 range project; pnpm `10.33.4` used by Corepack.
+- `typecheck` result: passed.
+- `test` result: passed, 30 files / 75 tests.
+- `lint` result: passed.
+- `schema:drift` result: passed, 75 migrations scanned.
+- `build` result: passed, Next.js production build generated 159 static pages.
+- Smoke result: production unauth HEAD `/login/store` 200, `/login/branches` 200, `/api/pos/session/current` 401 expected, POST `/api/print-agent/v1/heartbeat` without key 401 expected.
+- Known blockers: Supabase CLI unavailable in this shell, production migration compare/apply not performed; GitHub CI/Vercel deploy not run in this round.
+- Files changed: `.github/workflows/ci.yml`; print-agent/printer/cash-drawer API routes; `src/lib/printing/print-api-errors.ts`; print-agent and Bluetooth timeout integration tests; `scripts/schema-drift-check.mjs`; `supabase/migrations/20260728180311_cash_drawer_v1.sql`; README/context/active docs/handoff/readiness/evidence/print audit docs.
+- Evidence link: local command output in this Codex session.
+
 ## B) Secret Rotation Evidence
 
 Required evidence:

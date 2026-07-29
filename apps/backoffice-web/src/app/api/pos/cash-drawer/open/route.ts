@@ -1,6 +1,7 @@
 import type { AuthContext } from "@/lib/auth-context";
 import { fail, ok } from "@/lib/http";
 import { requirePosSession } from "@/lib/pos-session-guard";
+import { loggedPrintApiFail } from "@/lib/printing/print-api-errors";
 import { hasConfiguredCashDrawer, queueAndProcessCashDrawerOpen } from "@/lib/printing/print-service";
 
 type OpenDrawerPayload = {
@@ -20,7 +21,7 @@ function mapDrawerError(error: unknown) {
   if (message === "drawer_cooldown") return fail("drawer_cooldown", "Please wait a moment before opening the drawer again.", 429);
   if (message.includes("printer_not_found_or_disabled")) return fail("printer_not_configured", "Selected receipt printer is disabled.", 422);
   if (message.includes("timeout")) return fail("print_agent_unavailable", "Print agent or printer did not respond in time.", 504);
-  return fail("drawer_open_failed", message, 500);
+  return loggedPrintApiFail("cash drawer open failed", error, "drawer_open_failed", "Cash drawer command failed. Please check printer settings and retry.");
 }
 
 function buildAuthFromScope(scope: Awaited<ReturnType<typeof requirePosSession>>): AuthContext {

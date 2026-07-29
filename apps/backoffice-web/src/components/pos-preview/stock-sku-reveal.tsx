@@ -1,7 +1,5 @@
 ﻿"use client";
 
-import { useEffect, useState } from "react";
-
 function TagIcon() {
   return (
     <svg
@@ -21,31 +19,28 @@ function TagIcon() {
   );
 }
 
+function getNumericSku(sku: string | null) {
+  const digits = String(sku ?? "").replace(/\D+/g, "");
+  return digits || String(sku ?? "").trim();
+}
+
 export function StockSkuReveal({ sku, th }: { sku: string | null; th: boolean }) {
-  const [showCode, setShowCode] = useState(false);
+  const displaySku = getNumericSku(sku);
 
-  useEffect(() => {
-    if (!showCode) return;
-    const timer = window.setTimeout(() => setShowCode(false), 1500);
-    return () => window.clearTimeout(timer);
-  }, [showCode]);
-
-  if (!sku) {
+  if (!displaySku) {
     return <span className="text-sm font-semibold text-slate-400">-</span>;
   }
 
   return (
-    <button
-      type="button"
-      onClick={() => setShowCode(true)}
-      className="inline-flex min-h-8 items-center gap-1.5 rounded-lg border border-slate-200 px-2 py-1 text-xs font-bold text-slate-700 transition hover:bg-slate-50"
-      aria-label={th ? "แสดงรหัสสินค้า" : "Show product code"}
-      title={th ? "แสดงรหัสสินค้า" : "Show product code"}
+    <span
+      className="inline-flex min-h-8 min-w-[72px] items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2 py-1 text-sm font-extrabold tabular-nums text-slate-800"
+      aria-label={th ? `รหัสสินค้า ${displaySku}` : `SKU ${displaySku}`}
+      title={sku ?? displaySku}
     >
       <span className="inline-flex h-4 w-4 items-center justify-center">
         <TagIcon />
       </span>
-      {showCode ? <span className="text-sm">{sku}</span> : null}
-    </button>
+      <span>{displaySku}</span>
+    </span>
   );
 }

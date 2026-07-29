@@ -8,7 +8,7 @@ import { PosManagerApprovalModal } from "@/components/pos-ui/pos-manager-approva
 import { PosUsersModule } from "@/components/pos/pos-users-module";
 import { InetNopsSettingsPanel } from "@/components/pos-preview/inet-nops-settings-panel";
 import { PackageLockDialog } from "@/components/pos-preview/package-lock-dialog";
-import { POS_SETTINGS_FEATURES } from "@/lib/pos-feature-map";
+import { POS_SETTINGS_FEATURES, featureForPosRoute } from "@/lib/pos-feature-map";
 import type {
   BranchSettings,
   PaymentAccountSettings,
@@ -23,11 +23,28 @@ import type { ActivityAuditItem, ActivityAuditPeriod } from "@/lib/services/acti
 import type { Language } from "@/lib/i18n";
 
 type SettingsView = "menu" | "store" | "branches" | "devices" | "printers" | "activity" | "payments" | "inet_nops" | "taxes" | "notifications" | "users";
-type MenuIconName = "store" | "branch" | "payment" | "tax" | "users" | "display" | "terminal" | "activity" | "bell" | "tables" | "back" | "edit" | "trash" | "plus";
+type MenuIconName = "store" | "branch" | "payment" | "tax" | "users" | "display" | "terminal" | "activity" | "bell" | "tables" | "language" | "stock" | "summary" | "receipt" | "members" | "back" | "edit" | "trash" | "plus";
+type MainMenuPlacement = "top" | "bottom";
 const POS_TAX_SETTINGS_UPDATED_EVENT = "pos:tax-settings-updated";
 const POS_TAX_SETTINGS_UPDATED_KEY = "pos_tax_settings_updated_at_v001";
 const POS_PAYMENT_SETTINGS_UPDATED_EVENT = "pos:payment-settings-updated";
 const POS_PAYMENT_SETTINGS_UPDATED_KEY = "pos_payment_settings_updated_at_v001";
+const POS_MAIN_MENU_PLACEMENT_KEY = "pos_main_menu_placement_v1";
+const POS_MAIN_MENU_PLACEMENT_EVENT = "pos-main-menu-placement-updated";
+
+function persistPosLanguage(nextLang: Language) {
+  document.cookie = `pos_lang=${nextLang}; path=/; max-age=31536000; SameSite=Lax`;
+  window.localStorage.setItem("pos_lang", nextLang);
+}
+
+function normalizeMainMenuPlacement(value: string | null | undefined): MainMenuPlacement {
+  return value === "bottom" ? "bottom" : "top";
+}
+
+function persistMainMenuPlacement(placement: MainMenuPlacement) {
+  window.localStorage.setItem(POS_MAIN_MENU_PLACEMENT_KEY, placement);
+  window.dispatchEvent(new CustomEvent(POS_MAIN_MENU_PLACEMENT_EVENT, { detail: { placement } }));
+}
 
 type StoreForm = {
   display_name: string;
@@ -131,8 +148,31 @@ const TEXT = {
     taxesDesc: "กำหนด VAT และภาษีหัก ณ ที่จ่ายสำหรับสรุปยอดชำระ",
     users: "ผู้ใช้งาน",
     usersDesc: "จัดการพนักงาน สิทธิ์ และ PIN",
+    stockMenu: "จัดการสินค้า",
+    stockMenuDesc: "สินค้า สต็อก วัตถุดิบ ราคา และหมวดหมู่",
+    membersMenu: "สมาชิก",
+    membersMenuDesc: "ค้นหาและจัดการข้อมูลสมาชิกหน้าร้าน",
+    receiptsMenu: "ใบเสร็จย้อนหลัง",
+    receiptsMenuDesc: "ค้นหาใบเสร็จและสั่งพิมพ์ย้อนหลัง 58mm",
+    salesSummaryMenu: "สรุปยอดขาย",
+    salesSummaryMenuDesc: "ดูยอดขาย ภาษี เงินสด/โอน และรายงานประจำกะ",
     display: "จอลูกค้า",
     displayDesc: "ตั้งค่าหน้าจอลูกค้าและการแสดงผล",
+    language: "เปลี่ยนภาษา",
+    languageDesc: "สลับภาษาไทยหรืออังกฤษสำหรับหน้าขายและเมนูพนักงาน",
+    languageTitle: "เปลี่ยนภาษา",
+    languageCurrent: "ภาษาปัจจุบัน",
+    languageChoose: "เลือกภาษาที่ต้องการใช้งาน",
+    thai: "ไทย",
+    english: "English",
+    mainMenuPlacement: "สลับแถบเมนูหลัก",
+    mainMenuPlacementDesc: "เลือกให้เมนูหลักแสดงด้านบนหรือด้านล่างของแถบซ้าย",
+    mainMenuPlacementTitle: "สลับตำแหน่งแถบเมนูหลัก",
+    mainMenuPlacementChoose: "เลือกตำแหน่งที่เหมาะกับการใช้งานหน้าร้าน",
+    mainMenuTop: "ไว้ด้านบน",
+    mainMenuTopDesc: "เมนูหลักอยู่ใต้โลโก้ เหมาะกับจอกว้างและการใช้งานทั่วไป",
+    mainMenuBottom: "ไว้ด้านล่าง",
+    mainMenuBottomDesc: "เมนูหลักอยู่ใกล้ปุ่มออกจากระบบ เหมาะกับแท็บเล็ตหรือจอแนวตั้ง",
     activityAudit: "ตรวจสอบพฤติกรรมการใช้งาน",
     activityAuditDesc: "บันทึกว่าใครทำอะไร เมนูไหน เวลาใด พร้อม PIN และการอนุมัติ",
     pinConfirmTitle: "ยืนยัน PIN ก่อนเปิดดู",
@@ -251,8 +291,31 @@ const TEXT = {
     taxesDesc: "Configure VAT and withholding lines for payment summaries",
     users: "Users",
     usersDesc: "Manage staff, permissions, and PIN",
+    stockMenu: "Product Management",
+    stockMenuDesc: "Products, stock, ingredients, prices, and categories",
+    membersMenu: "Members",
+    membersMenuDesc: "Search and manage store member records",
+    receiptsMenu: "Receipt History",
+    receiptsMenuDesc: "Search receipts and reprint 58mm receipts",
+    salesSummaryMenu: "Sales Summary",
+    salesSummaryMenuDesc: "Review sales, tax, cash/transfer, and shift reports",
     display: "Customer Display",
     displayDesc: "Configure customer-facing display",
+    language: "Change Language",
+    languageDesc: "Switch Thai or English for sales screens and staff menu",
+    languageTitle: "Change Language",
+    languageCurrent: "Current language",
+    languageChoose: "Choose the interface language",
+    thai: "Thai",
+    english: "English",
+    mainMenuPlacement: "Main Menu Position",
+    mainMenuPlacementDesc: "Place the main menu at the top or bottom of the left sidebar",
+    mainMenuPlacementTitle: "Change Main Menu Position",
+    mainMenuPlacementChoose: "Choose the position that best fits the counter screen",
+    mainMenuTop: "Place at top",
+    mainMenuTopDesc: "Main menu sits under the logo for wide screens and general use",
+    mainMenuBottom: "Place at bottom",
+    mainMenuBottomDesc: "Main menu sits near logout for tablets or vertical screens",
     activityAudit: "Usage Behavior Audit",
     activityAuditDesc: "Track who did what, which menu, time, PIN, and approvals",
     pinConfirmTitle: "Confirm PIN before viewing",
@@ -465,6 +528,54 @@ function Icon({ name }: { name: MenuIconName }) {
         <path d="M6 10v8" />
         <path d="M18 10v8" />
         <path d="M4 18h16" />
+      </svg>
+    );
+  }
+  if (name === "stock") {
+    return (
+      <svg {...common}>
+        <rect x="4" y="6" width="16" height="12" rx="2" />
+        <path d="M8 10h8" />
+        <path d="M8 14h8" />
+      </svg>
+    );
+  }
+  if (name === "summary") {
+    return (
+      <svg {...common}>
+        <path d="M4 20h16" />
+        <rect x="6" y="11" width="3" height="7" />
+        <rect x="11" y="8" width="3" height="10" />
+        <rect x="16" y="5" width="3" height="13" />
+      </svg>
+    );
+  }
+  if (name === "receipt") {
+    return (
+      <svg {...common}>
+        <path d="M7 3h10v18l-2-1-2 1-2-1-2 1-2-1-2 1V3z" />
+        <path d="M9 8h6" />
+        <path d="M9 12h6" />
+      </svg>
+    );
+  }
+  if (name === "members") {
+    return (
+      <svg {...common}>
+        <circle cx="9" cy="8" r="3" />
+        <path d="M3.5 20c.7-3.2 2.9-5 5.5-5s4.8 1.8 5.5 5" />
+        <circle cx="17" cy="10" r="2.2" />
+        <path d="M14.5 17.5c.7-1.4 1.9-2.2 3.5-2.2 1.3 0 2.4.5 3.1 1.5" />
+      </svg>
+    );
+  }
+  if (name === "language") {
+    return (
+      <svg {...common}>
+        <circle cx="12" cy="12" r="9" />
+        <path d="M3 12h18" />
+        <path d="M12 3c2.2 2.4 3.3 5.4 3.3 9S14.2 18.6 12 21" />
+        <path d="M12 3c-2.2 2.4-3.3 5.4-3.3 9s1.1 6.6 3.3 9" />
       </svg>
     );
   }
@@ -1100,6 +1211,18 @@ function StorePanel({
   const [form, setForm] = useState<StoreForm>(() => storeToForm(store));
   const [isSaving, setIsSaving] = useState(false);
   const [isLogoBusy, setIsLogoBusy] = useState(false);
+  const displayForm = storeToForm(store);
+
+  function openEditor() {
+    setForm(storeToForm(store));
+    setEditing(true);
+  }
+
+  function closeEditor() {
+    if (isSaving) return;
+    setEditing(false);
+    setForm(storeToForm(store));
+  }
 
   function save(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -1143,36 +1266,31 @@ function StorePanel({
 
   return (
     <section>
-      <PanelHeader title={labels.store} onBack={onBack} labels={labels} />
-      <form onSubmit={save} className="grid gap-5">
-        <div className="flex flex-wrap items-center justify-between gap-3">
+      <PanelHeader
+        title={labels.store}
+        onBack={onBack}
+        labels={labels}
+        action={
+          canManage ? (
+            <ActionButton onClick={openEditor} disabled={isSaving}>
+              <Icon name="edit" />
+              {labels.edit}
+            </ActionButton>
+          ) : null
+        }
+      />
+      <div className="grid gap-5">
+        <div>
           <div>
-            <p className="text-sm font-semibold text-slate-500">{store?.name || form.display_name || "-"}</p>
+            <p className="text-sm font-semibold text-slate-500">{store?.name || displayForm.display_name || "-"}</p>
             <p className="mt-1 text-sm font-medium text-slate-400">{store?.code || "-"}</p>
           </div>
-          {canManage ? (
-            editing ? (
-              <div className="flex gap-2">
-                <ActionButton variant="plain" onClick={() => { setEditing(false); setForm(storeToForm(store)); }}>
-                  {labels.cancel}
-                </ActionButton>
-                <ActionButton type="submit" disabled={isSaving}>
-                  {labels.save}
-                </ActionButton>
-              </div>
-            ) : (
-              <ActionButton onClick={() => setEditing(true)}>
-                <Icon name="edit" />
-                {labels.edit}
-              </ActionButton>
-            )
-          ) : null}
         </div>
         <div className="grid gap-4 lg:grid-cols-[180px_1fr]">
           <div className="flex min-h-40 items-center justify-center rounded-lg border border-slate-200 bg-slate-50">
-            {form.logo_url ? (
+            {displayForm.logo_url ? (
               // eslint-disable-next-line @next/next/no-img-element
-              <img src={form.logo_url} alt={labels.logoUrl} className="max-h-32 max-w-[150px] object-contain" />
+              <img src={displayForm.logo_url} alt={labels.logoUrl} className="max-h-32 max-w-[150px] object-contain" />
             ) : (
               <span className="text-sm font-bold text-slate-400">LOGO</span>
             )}
@@ -1181,50 +1299,90 @@ function StorePanel({
             <Field label={labels.storeCode} value={store?.code ?? ""} disabled onChange={() => undefined} />
             <Field
               label={labels.displayName}
-              value={form.display_name}
-              disabled={!editing}
-                onChange={(value) => setForm((current) => ({ ...current, display_name: value }))}
-              />
-            <div className="grid gap-1.5 text-[13px] font-semibold text-slate-700">
-              <span>{labels.logoUrl}</span>
-              <div className="flex flex-wrap gap-2">
-                <label className={`inline-flex min-h-10 cursor-pointer items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-3 text-sm font-bold text-slate-800 transition hover:bg-slate-50 ${!editing || isLogoBusy ? "pointer-events-none opacity-60" : ""}`}>
-                  <Icon name="plus" />
-                  {isLogoBusy ? "..." : labels.uploadLogo}
-                  <input
-                    type="file"
-                    accept="image/png,image/jpeg,image/webp,image/svg+xml"
-                    disabled={!editing || isLogoBusy}
-                    className="sr-only"
-                    onChange={(event) => {
-                      uploadLogo(event.target.files?.[0]);
-                      event.target.value = "";
-                    }}
-                  />
-                </label>
-                <ActionButton variant="plain" disabled={!editing || !form.logo_url || isLogoBusy} onClick={() => setForm((current) => ({ ...current, logo_url: "" }))}>
-                  {labels.removeLogo}
-                </ActionButton>
-              </div>
-              <p className="text-xs font-medium text-slate-500">{labels.logoUploadHint}</p>
-            </div>
+              value={displayForm.display_name}
+              disabled
+              onChange={() => undefined}
+            />
             <Field
               label={labels.phone}
-              value={form.contact_phone}
-              disabled={!editing}
-              onChange={(value) => setForm((current) => ({ ...current, contact_phone: value }))}
+              value={displayForm.contact_phone}
+              disabled
+              onChange={() => undefined}
             />
             <div className="md:col-span-2">
               <TextArea
                 label={labels.address}
-                value={form.company_address}
-                disabled={!editing}
-                onChange={(value) => setForm((current) => ({ ...current, company_address: value }))}
+                value={displayForm.company_address}
+                disabled
+                onChange={() => undefined}
               />
             </div>
           </div>
         </div>
-      </form>
+      </div>
+
+      {editing ? (
+        <div className="store-settings-drawer-overlay" role="presentation" onClick={closeEditor}>
+          <form className="store-settings-drawer" role="dialog" aria-modal="true" aria-label={labels.store} onClick={(event) => event.stopPropagation()} onSubmit={save}>
+            <div className="store-settings-drawer__header">
+              <div>
+                <p className="text-xs font-bold uppercase text-blue-600">{labels.edit}</p>
+                <h3 className="text-lg font-black text-slate-950">{labels.store}</h3>
+              </div>
+              <button type="button" onClick={closeEditor} disabled={isSaving} className="store-settings-drawer__close" aria-label={labels.cancel}>
+                x
+              </button>
+            </div>
+
+            <div className="store-settings-drawer__body">
+              <div className="flex min-h-36 items-center justify-center rounded-lg border border-slate-200 bg-slate-50">
+                {form.logo_url ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={form.logo_url} alt={labels.logoUrl} className="max-h-28 max-w-[150px] object-contain" />
+                ) : (
+                  <span className="text-sm font-bold text-slate-400">LOGO</span>
+                )}
+              </div>
+              <Field label={labels.storeCode} value={store?.code ?? ""} disabled onChange={() => undefined} />
+              <Field label={labels.displayName} value={form.display_name} disabled={isSaving} onChange={(value) => setForm((current) => ({ ...current, display_name: value }))} />
+              <Field label={labels.phone} value={form.contact_phone} disabled={isSaving} onChange={(value) => setForm((current) => ({ ...current, contact_phone: value }))} />
+              <TextArea label={labels.address} value={form.company_address} disabled={isSaving} onChange={(value) => setForm((current) => ({ ...current, company_address: value }))} />
+              <div className="grid gap-1.5 text-[13px] font-semibold text-slate-700">
+                <span>{labels.logoUrl}</span>
+                <div className="flex flex-wrap gap-2">
+                  <label className={`inline-flex min-h-10 cursor-pointer items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-3 text-sm font-bold text-slate-800 transition hover:bg-slate-50 ${isSaving || isLogoBusy ? "pointer-events-none opacity-60" : ""}`}>
+                    <Icon name="plus" />
+                    {isLogoBusy ? "..." : labels.uploadLogo}
+                    <input
+                      type="file"
+                      accept="image/png,image/jpeg,image/webp,image/svg+xml"
+                      disabled={isSaving || isLogoBusy}
+                      className="sr-only"
+                      onChange={(event) => {
+                        uploadLogo(event.target.files?.[0]);
+                        event.target.value = "";
+                      }}
+                    />
+                  </label>
+                  <ActionButton variant="plain" disabled={isSaving || !form.logo_url || isLogoBusy} onClick={() => setForm((current) => ({ ...current, logo_url: "" }))}>
+                    {labels.removeLogo}
+                  </ActionButton>
+                </div>
+                <p className="text-xs font-medium text-slate-500">{labels.logoUploadHint}</p>
+              </div>
+            </div>
+
+            <div className="store-settings-drawer__footer">
+              <ActionButton variant="plain" onClick={closeEditor} disabled={isSaving}>
+                {labels.cancel}
+              </ActionButton>
+              <ActionButton type="submit" disabled={isSaving || isLogoBusy}>
+                {isSaving ? labels.saving : labels.save}
+              </ActionButton>
+            </div>
+          </form>
+        </div>
+      ) : null}
     </section>
   );
 }
@@ -1250,7 +1408,7 @@ function BranchPanel({
   const [isBusy, setIsBusy] = useState(false);
   const [isFormOpen, setIsFormOpen] = useState(false);
   const sortedBranches = useMemo(
-    () => [...branches].sort((a, b) => Number(b.is_active) - Number(a.is_active) || a.name.localeCompare(b.name)),
+    () => branches.filter((branch) => branch.is_active).sort((a, b) => a.name.localeCompare(b.name)),
     [branches]
   );
 
@@ -1269,7 +1427,11 @@ function BranchPanel({
             body: JSON.stringify(form)
           })
         );
-        setBranches(branches.some((branch) => branch.id === data.branch.id) ? branches.map((branch) => (branch.id === data.branch.id ? data.branch : branch)) : [...branches, data.branch]);
+        setBranches(
+          branches.some((branch) => branch.id === data.branch.id)
+            ? branches.map((branch) => (branch.id === data.branch.id ? data.branch : branch))
+            : [...branches, data.branch]
+        );
         setForm(emptyBranchForm);
         setIsFormOpen(false);
         reportStatus(isCreating ? labels.branchSaved : labels.saved, { popup: true });
@@ -1306,7 +1468,7 @@ function BranchPanel({
           await fetch(`/api/pos/settings/branches?branch_id=${encodeURIComponent(branch.id)}`, { method: "DELETE" })
         );
         setBranches(branches.map((item) => (item.id === data.branch.id ? data.branch : item)));
-        reportStatus(labels.saved);
+        reportStatus(labels.saved, { popup: true });
       } catch (error) {
         reportStatus(error instanceof Error ? error.message : labels.failed);
       } finally {
@@ -1794,8 +1956,10 @@ function TaxPanel({
   const [form, setForm] = useState<TaxSettings>(taxSettings);
   const [isSaving, setIsSaving] = useState(false);
   const [isLoadingBranch, setIsLoadingBranch] = useState(false);
+  const [editingTaxLineIndex, setEditingTaxLineIndex] = useState<number | null>(null);
   const previewBase = 1000;
   const selectedBranch = availableBranches.find((branch) => branch.id === selectedBranchId) ?? null;
+  const editingTaxLine = editingTaxLineIndex === null ? null : form.lines[editingTaxLineIndex] ?? null;
   const activeLines = form.is_enabled ? form.lines.filter((line) => line.is_active && Number(line.rate_pct) > 0) : [];
   const previewTaxTotal = Number(
     activeLines
@@ -1813,6 +1977,10 @@ function TaxPanel({
       is_enabled: patch.is_active === true ? true : current.is_enabled,
       lines: current.lines.map((line, lineIndex) => (lineIndex === index ? { ...line, ...patch } : line))
     }));
+  }
+
+  function taxModeLabel(mode: TaxLineMode) {
+    return mode === "deduct_from_bill" ? labels.taxDeduct : labels.taxAdd;
   }
 
   useEffect(() => {
@@ -1877,11 +2045,11 @@ function TaxPanel({
   }
 
   return (
-    <section>
+    <section className="min-w-0">
       <PanelHeader title={labels.taxes} onBack={onBack} labels={labels} />
-      <form onSubmit={save} className="grid gap-4">
-        <div className="flex flex-col gap-3 rounded-lg border border-blue-100 bg-blue-50/60 p-4 md:flex-row md:items-end md:justify-between">
-          <label className="grid w-full max-w-md gap-1.5 text-[13px] font-semibold text-slate-700">
+      <form onSubmit={save} className="grid min-w-0 gap-3 xl:gap-4">
+        <div className="grid min-w-0 gap-3 rounded-lg border border-blue-100 bg-blue-50/60 p-4 min-[900px]:grid-cols-[minmax(0,1fr)_auto] min-[900px]:items-end">
+          <label className="grid w-full min-w-0 max-w-xl gap-1.5 text-[13px] font-semibold text-slate-700">
             <span>{labels.taxBranch}</span>
             <select
               value={selectedBranchId}
@@ -1902,8 +2070,8 @@ function TaxPanel({
           </div>
         </div>
 
-        <div className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
-          <div className="flex flex-wrap items-start justify-between gap-4 border-b border-slate-100 pb-4">
+        <div className="min-w-0 rounded-lg border border-slate-200 bg-white p-4 shadow-sm xl:p-5">
+          <div className="flex flex-wrap items-start justify-between gap-3 border-b border-slate-100 pb-4">
             <div>
               <div className="flex items-center gap-2 text-base font-black text-slate-950">
                 <Icon name="tax" />
@@ -1922,33 +2090,36 @@ function TaxPanel({
             </label>
           </div>
 
-          <div className="mt-4 grid gap-3">
+          <div className="mt-4 grid min-w-0 gap-3 min-[720px]:grid-cols-2">
             {form.lines.map((line, index) => (
-              <div key={line.id} className="grid gap-3 rounded-lg border border-slate-200 bg-white p-4 md:grid-cols-[1.2fr_140px_180px_110px] md:items-end">
-                <Field label={labels.taxLine} value={line.label} disabled={!canManage || isSaving || isLoadingBranch} onChange={(value) => updateLine(index, { label: value })} />
-                <Field label={labels.taxRate} value={String(line.rate_pct)} type="number" disabled={!canManage || isSaving || isLoadingBranch} onChange={(value) => updateLine(index, { rate_pct: Number(value) })} />
-                <label className="grid gap-1.5 text-[13px] font-semibold text-slate-700">
-                  <span>{labels.taxMode}</span>
-                  <select
-                    value={line.mode}
-                    disabled={!canManage || isSaving || isLoadingBranch}
-                    onChange={(event) => updateLine(index, { mode: event.target.value as TaxLineMode })}
-                    className="min-h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-950 outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
-                  >
-                    <option value="add_to_bill">{labels.taxAdd}</option>
-                    <option value="deduct_from_bill">{labels.taxDeduct}</option>
-                  </select>
-                </label>
-                <label className="inline-flex min-h-10 items-center gap-2 text-sm font-bold text-slate-700">
-                  <input type="checkbox" checked={line.is_active} disabled={!canManage || isSaving || isLoadingBranch} onChange={(event) => updateLine(index, { is_active: event.target.checked })} />
-                  {labels.active}
-                </label>
-              </div>
+              <button
+                key={line.id}
+                type="button"
+                disabled={!canManage || isSaving || isLoadingBranch}
+                onClick={() => setEditingTaxLineIndex(index)}
+                className="group grid min-h-28 min-w-0 gap-3 rounded-lg border border-slate-200 bg-slate-50/70 p-4 text-left transition hover:border-blue-300 hover:bg-blue-50 focus:outline-none focus:ring-2 focus:ring-blue-100 disabled:cursor-not-allowed disabled:opacity-70"
+              >
+                <span className="flex min-w-0 items-start justify-between gap-3">
+                  <span className="min-w-0">
+                    <span className="block truncate text-base font-black text-slate-950">{line.label || labels.taxLine}</span>
+                    <span className="mt-1 block text-xs font-bold text-slate-500">{taxModeLabel(line.mode)}</span>
+                  </span>
+                  <span className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-black ${line.is_active ? "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200" : "bg-white text-slate-500 ring-1 ring-slate-200"}`}>
+                    {line.is_active ? labels.active : labels.inactive}
+                  </span>
+                </span>
+                <span className="flex items-end justify-between gap-3">
+                  <span className="text-3xl font-black text-blue-700">{Number(line.rate_pct || 0).toLocaleString()}%</span>
+                  <span className="rounded-lg bg-white px-3 py-2 text-sm font-black text-slate-700 ring-1 ring-slate-200 transition group-hover:text-blue-700">
+                    {labels.edit}
+                  </span>
+                </span>
+              </button>
             ))}
           </div>
         </div>
 
-        <div className="grid gap-4 lg:grid-cols-[1fr_320px]">
+        <div className="grid min-w-0 gap-3 min-[900px]:grid-cols-[minmax(0,1fr)_minmax(240px,320px)]">
           <div className="rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm font-semibold leading-6 text-slate-600">
             <p className="font-black text-slate-900">{labels.taxPreview}</p>
             <p>{labels.taxNetBase}</p>
@@ -1979,6 +2150,59 @@ function TaxPanel({
             <div className="store-v2-popup-card">
               <div className="store-v2-popup-spinner" aria-hidden="true" />
               <p className="store-v2-popup-title">{labels.saving}</p>
+            </div>
+          </div>
+        ) : null}
+        {editingTaxLine !== null && editingTaxLineIndex !== null ? (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 p-3 backdrop-blur-sm" role="dialog" aria-modal="true">
+            <div className="grid max-h-[calc(100dvh-24px)] w-full max-w-xl overflow-hidden rounded-xl border border-slate-200 bg-white shadow-2xl">
+              <div className="flex items-start justify-between gap-3 border-b border-slate-100 p-4">
+                <div className="min-w-0">
+                  <p className="flex items-center gap-2 text-base font-black text-slate-950">
+                    <Icon name="tax" />
+                    {editingTaxLine.label || labels.taxLine}
+                  </p>
+                  <p className="mt-1 text-sm font-semibold text-slate-500">{labels.taxNetBase}</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setEditingTaxLineIndex(null)}
+                  className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-slate-200 bg-white text-xl font-black text-slate-600 hover:bg-slate-50"
+                  aria-label={labels.cancel}
+                >
+                  ×
+                </button>
+              </div>
+              <div className="grid gap-4 overflow-auto p-4">
+                <Field label={labels.taxLine} value={editingTaxLine.label} disabled={!canManage || isSaving || isLoadingBranch} onChange={(value) => updateLine(editingTaxLineIndex, { label: value })} />
+                <div className="grid gap-3 min-[560px]:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+                  <Field label={labels.taxRate} value={String(editingTaxLine.rate_pct)} type="number" disabled={!canManage || isSaving || isLoadingBranch} onChange={(value) => updateLine(editingTaxLineIndex, { rate_pct: Number(value) })} />
+                  <label className="grid gap-1.5 text-[13px] font-semibold text-slate-700">
+                    <span>{labels.taxMode}</span>
+                    <select
+                      value={editingTaxLine.mode}
+                      disabled={!canManage || isSaving || isLoadingBranch}
+                      onChange={(event) => updateLine(editingTaxLineIndex, { mode: event.target.value as TaxLineMode })}
+                      className="min-h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-950 outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
+                    >
+                      <option value="add_to_bill">{labels.taxAdd}</option>
+                      <option value="deduct_from_bill">{labels.taxDeduct}</option>
+                    </select>
+                  </label>
+                </div>
+                <label className="inline-flex min-h-11 items-center gap-3 rounded-lg border border-slate-200 bg-slate-50 px-3 text-sm font-bold text-slate-700">
+                  <input type="checkbox" checked={editingTaxLine.is_active} disabled={!canManage || isSaving || isLoadingBranch} onChange={(event) => updateLine(editingTaxLineIndex, { is_active: event.target.checked })} />
+                  {editingTaxLine.is_active ? labels.active : labels.inactive}
+                </label>
+              </div>
+              <div className="flex justify-end gap-2 border-t border-slate-100 bg-slate-50 p-3">
+                <ActionButton variant="plain" onClick={() => setEditingTaxLineIndex(null)}>
+                  {labels.cancel}
+                </ActionButton>
+                <ActionButton onClick={() => setEditingTaxLineIndex(null)} disabled={!canManage || isSaving || isLoadingBranch}>
+                  {labels.confirm}
+                </ActionButton>
+              </div>
             </div>
           </div>
         ) : null}
@@ -2915,6 +3139,173 @@ function PaymentPanel({
   );
 }
 
+function LanguageSettingsPopup({ lang, labels, onClose }: { lang: Language; labels: Labels; onClose: () => void }) {
+  const options: Array<{ code: Language; label: string; shortLabel: string }> = [
+    { code: "th", label: labels.thai, shortLabel: "TH" },
+    { code: "en", label: labels.english, shortLabel: "EN" }
+  ];
+
+  function switchLanguage(nextLang: Language) {
+    if (nextLang === lang) {
+      onClose();
+      return;
+    }
+    persistPosLanguage(nextLang);
+    window.setTimeout(() => window.location.reload(), 80);
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-[95] grid place-items-center bg-slate-950/45 p-4"
+      role="dialog"
+      aria-modal="true"
+      aria-label={labels.languageTitle}
+      onClick={onClose}
+    >
+      <section
+        className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-5 shadow-2xl"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <h3 className="text-lg font-black text-slate-950">{labels.languageTitle}</h3>
+            <p className="mt-1 text-sm font-semibold text-slate-500">{labels.languageChoose}</p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="grid h-9 w-9 place-items-center rounded-lg border border-slate-300 bg-white text-sm font-black text-slate-700 hover:bg-slate-50"
+            aria-label={labels.cancel}
+          >
+            x
+          </button>
+        </div>
+        <p className="mt-4 rounded-xl border border-blue-100 bg-blue-50 px-3 py-2 text-sm font-bold text-blue-700">
+          {labels.languageCurrent}: {options.find((option) => option.code === lang)?.label ?? lang}
+        </p>
+        <div className="mt-4 grid gap-2 sm:grid-cols-2">
+          {options.map((option) => {
+            const active = option.code === lang;
+            return (
+              <button
+                key={option.code}
+                type="button"
+                onClick={() => switchLanguage(option.code)}
+                className={`flex min-h-[72px] items-center gap-3 rounded-xl border px-4 text-left transition ${
+                  active
+                    ? "border-blue-500 bg-blue-50 text-blue-700"
+                    : "border-slate-200 bg-white text-slate-800 hover:border-blue-200 hover:bg-slate-50"
+                }`}
+              >
+                <span
+                  className={`grid h-10 w-10 place-items-center rounded-full text-sm font-black ${
+                    active ? "bg-blue-600 text-white" : "bg-slate-100 text-slate-700"
+                  }`}
+                >
+                  {option.shortLabel}
+                </span>
+                <span className="font-black">{option.label}</span>
+              </button>
+            );
+          })}
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function MainMenuPlacementPopup({
+  labels,
+  onClose,
+  onSaved
+}: {
+  labels: Labels;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [selectedPlacement, setSelectedPlacement] = useState<MainMenuPlacement>(() => {
+    if (typeof window === "undefined") return "top";
+    try {
+      return normalizeMainMenuPlacement(window.localStorage.getItem(POS_MAIN_MENU_PLACEMENT_KEY));
+    } catch {
+      return "top";
+    }
+  });
+  const options: Array<{ value: MainMenuPlacement; title: string; desc: string }> = [
+    { value: "top", title: labels.mainMenuTop, desc: labels.mainMenuTopDesc },
+    { value: "bottom", title: labels.mainMenuBottom, desc: labels.mainMenuBottomDesc }
+  ];
+
+  function savePlacement() {
+    persistMainMenuPlacement(selectedPlacement);
+    onSaved();
+    onClose();
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-[95] grid place-items-center bg-slate-950/45 p-4"
+      role="dialog"
+      aria-modal="true"
+      aria-label={labels.mainMenuPlacementTitle}
+      onClick={onClose}
+    >
+      <section
+        className="w-full max-w-lg rounded-2xl border border-slate-200 bg-white p-5 shadow-2xl"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <h3 className="text-lg font-black text-slate-950">{labels.mainMenuPlacementTitle}</h3>
+            <p className="mt-1 text-sm font-semibold text-slate-500">{labels.mainMenuPlacementChoose}</p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="grid h-9 w-9 place-items-center rounded-lg border border-slate-300 bg-white text-sm font-black text-slate-700 hover:bg-slate-50"
+            aria-label={labels.cancel}
+          >
+            x
+          </button>
+        </div>
+        <div className="mt-4 grid gap-3">
+          {options.map((option) => {
+            const active = option.value === selectedPlacement;
+            return (
+              <button
+                key={option.value}
+                type="button"
+                onClick={() => setSelectedPlacement(option.value)}
+                className={`grid min-h-[84px] grid-cols-[42px_1fr] items-center gap-3 rounded-xl border p-4 text-left transition ${
+                  active
+                    ? "border-blue-500 bg-blue-50 text-blue-800"
+                    : "border-slate-200 bg-white text-slate-800 hover:border-blue-200 hover:bg-slate-50"
+                }`}
+              >
+                <span className={`grid h-10 w-10 place-items-center rounded-full ${active ? "bg-blue-600 text-white" : "bg-slate-100 text-slate-700"}`}>
+                  <Icon name={option.value === "top" ? "back" : "tables"} />
+                </span>
+                <span className="min-w-0">
+                  <span className="block text-base font-black">{option.title}</span>
+                  <span className="mt-1 block text-sm font-semibold text-slate-500">{option.desc}</span>
+                </span>
+              </button>
+            );
+          })}
+        </div>
+        <div className="mt-5 flex justify-end gap-2">
+          <ActionButton variant="plain" onClick={onClose}>
+            {labels.cancel}
+          </ActionButton>
+          <ActionButton onClick={savePlacement}>
+            {labels.save}
+          </ActionButton>
+        </div>
+      </section>
+    </div>
+  );
+}
+
 export function PosSettingsWorkspace({ lang, initialData }: { lang: Language; initialData: PosSettingsSnapshot }) {
   const labels = lang === "en" ? TEXT.en : TEXT.th;
   const [view, setView] = useState<SettingsView>("menu");
@@ -2929,6 +3320,8 @@ export function PosSettingsWorkspace({ lang, initialData }: { lang: Language; in
   const [savePopup, setSavePopup] = useState("");
   const [enabledFeatures, setEnabledFeatures] = useState<Record<string, boolean> | null>(null);
   const [packageLockOpen, setPackageLockOpen] = useState(false);
+  const [languagePopupOpen, setLanguagePopupOpen] = useState(false);
+  const [menuPlacementPopupOpen, setMenuPlacementPopupOpen] = useState(false);
   const canManage = initialData.metadata.can_manage;
 
   const reportStatus = useCallback((message: string, options?: { popup?: boolean }) => {
@@ -2959,6 +3352,11 @@ export function PosSettingsWorkspace({ lang, initialData }: { lang: Language; in
   function isSettingLocked(viewKey: keyof typeof POS_SETTINGS_FEATURES) {
     const feature = POS_SETTINGS_FEATURES[viewKey];
     return Boolean(enabledFeatures !== null && enabledFeatures[feature] === false);
+  }
+
+  function isRouteLocked(pathname: string) {
+    const feature = featureForPosRoute(pathname);
+    return Boolean(enabledFeatures !== null && feature && enabledFeatures[feature] === false);
   }
 
   function openSettingsView(viewKey: Exclude<SettingsView, "menu">) {
@@ -3000,6 +3398,38 @@ export function PosSettingsWorkspace({ lang, initialData }: { lang: Language; in
               locked={isSettingLocked("inet_nops")}
             />
             <MenuButton icon="tax" title={labels.taxes} desc={labels.taxesDesc} onClick={() => openSettingsView("taxes")} locked={isSettingLocked("taxes")} />
+            <MenuLink
+              icon="stock"
+              title={labels.stockMenu}
+              desc={labels.stockMenuDesc}
+              href="/preview/pos/stock"
+              locked={isRouteLocked("/preview/pos/stock")}
+              onLocked={() => setPackageLockOpen(true)}
+            />
+            <MenuLink
+              icon="members"
+              title={labels.membersMenu}
+              desc={labels.membersMenuDesc}
+              href="/preview/pos/members"
+              locked={isRouteLocked("/preview/pos/members")}
+              onLocked={() => setPackageLockOpen(true)}
+            />
+            <MenuLink
+              icon="receipt"
+              title={labels.receiptsMenu}
+              desc={labels.receiptsMenuDesc}
+              href="/preview/pos/receipts"
+              locked={isRouteLocked("/preview/pos/receipts")}
+              onLocked={() => setPackageLockOpen(true)}
+            />
+            <MenuLink
+              icon="summary"
+              title={labels.salesSummaryMenu}
+              desc={labels.salesSummaryMenuDesc}
+              href="/preview/pos/sales-summary"
+              locked={isRouteLocked("/preview/pos/sales-summary")}
+              onLocked={() => setPackageLockOpen(true)}
+            />
             <MenuButton
               icon="bell"
               title={lang === "en" ? "Notification Settings" : "ตั้งค่าการแจ้งเตือน"}
@@ -3008,6 +3438,8 @@ export function PosSettingsWorkspace({ lang, initialData }: { lang: Language; in
               locked={isSettingLocked("notifications")}
             />
             <MenuButton icon="users" title={labels.users} desc={labels.usersDesc} onClick={() => openSettingsView("users")} locked={isSettingLocked("users")} />
+            <MenuButton icon="language" title={labels.language} desc={labels.languageDesc} onClick={() => setLanguagePopupOpen(true)} />
+            <MenuButton icon="language" title={labels.mainMenuPlacement} desc={labels.mainMenuPlacementDesc} onClick={() => setMenuPlacementPopupOpen(true)} />
             <MenuLink
               icon="tables"
               title={lang === "en" ? "Table Management" : "จัดการโต๊ะ"}
@@ -3118,6 +3550,14 @@ export function PosSettingsWorkspace({ lang, initialData }: { lang: Language; in
         {view === "users" ? <PosUsersModule lang={lang === "en" ? "en" : "th"} embedded onBack={() => setView("menu")} /> : null}
       </section>
       {savePopup ? <SaveSuccessPopup labels={labels} message={savePopup} onClose={() => setSavePopup("")} /> : null}
+      {languagePopupOpen ? <LanguageSettingsPopup lang={lang} labels={labels} onClose={() => setLanguagePopupOpen(false)} /> : null}
+      {menuPlacementPopupOpen ? (
+        <MainMenuPlacementPopup
+          labels={labels}
+          onClose={() => setMenuPlacementPopupOpen(false)}
+          onSaved={() => reportStatus(labels.saved, { popup: true })}
+        />
+      ) : null}
       <PackageLockDialog lang={lang} open={packageLockOpen} onClose={() => setPackageLockOpen(false)} />
     </main>
   );

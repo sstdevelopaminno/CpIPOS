@@ -158,6 +158,14 @@ export async function POST(req: Request) {
         actual_cash: body.actual_cash,
         close_override_approval_id: body.manager_override_approval_id ?? null,
         closed_by: auth.userId,
+        closed_at: result.data.closed_at,
+        metadata: {
+          close_reason: "self_close",
+          system_auto_closed: false,
+          overdue_auto_close: false,
+          auto_close_uses_sales_total: false,
+          closed_by_user_id: auth.userId
+        },
         status: "closed"
       })
       .eq("tenant_id", auth.tenantId!)

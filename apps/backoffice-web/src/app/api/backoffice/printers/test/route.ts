@@ -1,5 +1,6 @@
 import { getAuthContext } from "@/lib/auth-context";
 import { fail, ok } from "@/lib/http";
+import { loggedPrintApiFail } from "@/lib/printing/print-api-errors";
 import { queueAndProcessTestPrint } from "@/lib/printing/print-service";
 
 export async function POST(req: Request) {
@@ -25,6 +26,7 @@ export async function POST(req: Request) {
     if (message === "printer_not_found") {
       return fail("printer_not_found", "Printer is not found in this branch.", 404);
     }
-    return fail("test_print_failed", message, 400);
+    if (message.includes("timeout")) return fail("print_agent_unavailable", "Print agent or printer did not respond in time.", 504);
+    return loggedPrintApiFail("test print failed", error, "test_print_failed", "Test print failed. Please check printer settings and retry.", 400);
   }
 }

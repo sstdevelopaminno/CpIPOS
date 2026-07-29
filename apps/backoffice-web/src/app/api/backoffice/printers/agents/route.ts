@@ -1,5 +1,6 @@
 import { getAuthContext } from "@/lib/auth-context";
 import { fail, ok } from "@/lib/http";
+import { loggedPrintApiFail } from "@/lib/printing/print-api-errors";
 import { createPrintAgent, listPrintAgents, revokePrintAgent } from "@/lib/printing/print-agent-service";
 
 type CreateAgentPayload = {
@@ -23,7 +24,7 @@ function mapAgentError(error: unknown, fallbackCode: string) {
   if (message === "agent_id_required") return fail("invalid_agent_id", "agent_id is required.", 422);
   if (message === "agent_not_found") return fail("agent_not_found", "Print agent was not found.", 404);
   if (message.includes("duplicate key value")) return fail("agent_conflict", "Print agent already exists for this device and branch.", 409);
-  return fail(fallbackCode, message, 400);
+  return loggedPrintApiFail("print agent settings failed", error, fallbackCode, "Print agent settings could not be updated. Please retry.", 400);
 }
 
 export async function GET() {

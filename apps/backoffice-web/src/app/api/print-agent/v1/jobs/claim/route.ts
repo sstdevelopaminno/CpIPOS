@@ -1,4 +1,5 @@
 import { fail, ok } from "@/lib/http";
+import { loggedPrintApiFail } from "@/lib/printing/print-api-errors";
 import { agentAuthFail, claimPrintJobs, requirePrintAgent } from "@/lib/printing/print-agent-service";
 
 type ClaimPayload = {
@@ -26,6 +27,6 @@ export async function POST(req: Request) {
   } catch (error) {
     const authError = agentAuthFail(error);
     if (authError) return authError;
-    return fail("print_agent_claim_failed", error instanceof Error ? error.message : "Claim failed.", 500);
+    return loggedPrintApiFail("claim failed", error, "print_agent_claim_failed", "Print agent could not claim jobs. Please retry.");
   }
 }

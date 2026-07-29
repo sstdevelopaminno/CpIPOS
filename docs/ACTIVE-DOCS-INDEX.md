@@ -12,6 +12,7 @@ Use this page as the first stop before new development. It separates active impl
 - Login flow: `/login/store -> /login/branches|employee -> /login/devices -> /preview/pos`
 - Database: Supabase migrations in `supabase/migrations`
 - Verification baseline: run `typecheck`, `test`, `lint`, and `build` before closing implementation work.
+- Latest local baseline on 2026-07-29 passed frozen install, typecheck, Vitest, full lint, schema drift, and production build for `backoffice-web`.
 
 ## Read First
 
@@ -23,6 +24,7 @@ Use this page as the first stop before new development. It separates active impl
 - [System Recheck 2026-07-28](./SYSTEM-RECHECK-2026-07-28.md)
 - [IT Backoffice API Design 2026-07-28](./IT-BACKOFFICE-API-DESIGN-2026-07-28.md)
 - [POS Printing And Receipt Audit 2026-07-29](./POS-PRINTING-RECEIPT-AUDIT-2026-07-29.md)
+- [POS Navigation Settings 2026-07-29](./POS-NAVIGATION-SETTINGS-2026-07-29.md)
 - [POS Print Agent v1 Design 2026-07-29](./POS-PRINT-AGENT-V1-DESIGN-2026-07-29.md)
 - [POS Shift Clear Open Bills 2026-07-28](./POS-SHIFT-CLEAR-OPEN-BILLS-2026-07-28.md)
 - [POS Sales Summary UI 2026-07-28](./POS-SALES-SUMMARY-UI-2026-07-28.md)
@@ -42,6 +44,7 @@ Use this page as the first stop before new development. It separates active impl
 - [POS Menu Modifiers And Ingredient Options](./POS-MENU-MODIFIERS-INGREDIENTS-PLAN-2026-07-22.md)
 - [POS Shift Close Reliability](./POS-SHIFT-CLOSE-RELIABILITY-2026-07-10.md)
 - [POS Printing And Receipt Audit 2026-07-29](./POS-PRINTING-RECEIPT-AUDIT-2026-07-29.md)
+- [POS Navigation Settings 2026-07-29](./POS-NAVIGATION-SETTINGS-2026-07-29.md)
 - [POS Print Agent v1 Design 2026-07-29](./POS-PRINT-AGENT-V1-DESIGN-2026-07-29.md)
 - [POS Login Device Splash](./POS-LOGIN-DEVICE-SPLASH-2026-07-11.md)
 - [Stock Engine Architecture](./STOCK-ENGINE-ARCHITECTURE.md)
@@ -82,3 +85,7 @@ corepack pnpm --filter backoffice-web build
 ```
 
 If build or lint fails with `EPERM` against `.next`, `.eslintcache`, or `node_modules/.vite`, clear the locked cache from an elevated/local user shell or use a clean checkout before treating it as a code failure.
+
+## Current CI Branch Coverage
+
+CI must cover `main`, `develop`, `hotfix/**`, and the current development/default branch `agent-docs-preflight-schema-drift` until the branch strategy is finalized in GitHub settings.

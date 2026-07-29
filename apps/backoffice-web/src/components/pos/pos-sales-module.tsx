@@ -25,7 +25,7 @@ import { PosShell } from "@/components/pos-ui/pos-shell";
 import { PackageLockDialog } from "@/components/pos-preview/package-lock-dialog";
 import { sendPendingDeliveryBillNowWithEffects, submitOrderWithEffects, submitTransferPaymentWithEffects } from "@/components/pos/services/pos-sales-service-module";
 import { TableZoneTabs } from "@/components/tables/table-zone-tabs";
-import type { DiningTableItem, TableZoneItem } from "@/components/tables/types";
+import type { DiningTableItem, FloorPlanObjectItem, TableZoneItem } from "@/components/tables/types";
 import { calculateDeliveryPricingBreakdown } from "@/lib/delivery-pricing";
 import { POS_MODE_FEATURES } from "@/lib/pos-feature-map";
 import { beginPosActionTrace, clearPosTraceEvents, endPosActionTrace, readPosTraceEvents, usePosRenderProfiler } from "@/lib/pos-ui-profiler";
@@ -2052,6 +2052,7 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
   const [editingCartQtyInput, setEditingCartQtyInput] = useState("");
   const [tableZones, setTableZones] = useState<TableZoneItem[]>([]);
   const [posTables, setPosTables] = useState<DiningTableItem[]>([]);
+  const [tableLayoutObjects, setTableLayoutObjects] = useState<FloorPlanObjectItem[]>([]);
   const [selectedTable, setSelectedTable] = useState<DiningTableItem | null>(null);
   const [dineInSessionBillNo, setDineInSessionBillNo] = useState<string | null>(null);
   const [tableBrowserOpen, setTableBrowserOpen] = useState(false);
@@ -2192,7 +2193,7 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
   const monitorPollInFlightRef = useRef(false);
   const taxSettingsSyncInFlightRef = useRef<Promise<TaxSettings | null> | null>(null);
   const tableListFetchInFlightRef = useRef<Promise<DiningTableItem[]> | null>(null);
-  const tableListCacheRef = useRef<{ at: number; zones: TableZoneItem[]; tables: DiningTableItem[] } | null>(null);
+  const tableListCacheRef = useRef<{ at: number; zones: TableZoneItem[]; tables: DiningTableItem[]; objects: FloorPlanObjectItem[] } | null>(null);
   const lastPendingRef = useRef(false);
   const transferSlipInputRef = useRef<HTMLInputElement | null>(null);
   const tableBillLoadRequestRef = useRef(0);
@@ -2700,6 +2701,7 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
     if (canReuseClientRequest && cachedTableList && nowMs() - cachedTableList.at <= 1500) {
       setTableZones(cachedTableList.zones);
       setPosTables(cachedTableList.tables);
+      setTableLayoutObjects(cachedTableList.objects);
       setTableLoadError(null);
       return cachedTableList.tables;
     }
@@ -2711,7 +2713,9 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
       const requestStartedAt = nowMs();
       setTableLoading(true);
       setTableLoadError(null);
-      const { response, body } = await fetchJsonWithTimeout<{ data: { zones?: TableZoneItem[]; tables?: DiningTableItem[] } } & ApiErrorBody>(
+      const { response, body } = await fetchJsonWithTimeout<
+        { data: { zones?: TableZoneItem[]; tables?: DiningTableItem[]; objects?: FloorPlanObjectItem[] } } & ApiErrorBody
+      >(
         "/api/pos/tables",
         { cache: "no-store", signal },
         timeoutMs,
@@ -2729,6 +2733,7 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
       setTableLoadError(null);
       const zones = (body.data?.zones ?? []) as TableZoneItem[];
       const tables = (body.data?.tables ?? []) as DiningTableItem[];
+      const objects = (body.data?.objects ?? []) as FloorPlanObjectItem[];
       const tableIds = new Set(tables.map((table) => table.id));
       for (const cachedTableId of tableBillPrefetchCacheRef.current.keys()) {
         if (!tableIds.has(cachedTableId)) {
@@ -2738,7 +2743,8 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
       }
       setTableZones(zones);
       setPosTables(tables);
-      tableListCacheRef.current = { at: nowMs(), zones, tables };
+      setTableLayoutObjects(objects);
+      tableListCacheRef.current = { at: nowMs(), zones, tables, objects };
       setSelectedTable((current) => {
         if (!current) return null;
         return tables.find((table) => table.id === current.id) ?? null;
@@ -4190,6 +4196,11 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
     const filtered = tableZoneFilter === "all" ? posTables : posTables.filter((table) => table.zone_id === tableZoneFilter);
     return [...filtered].sort((left, right) => naturalCompareTableCode(left.table_code, right.table_code));
   }, [posTables, tableZoneFilter]);
+
+  const visibleFloorObjects = useMemo(() => {
+    if (tableZoneFilter === "all") return tableLayoutObjects;
+    return tableLayoutObjects.filter((item) => item.zone_id === tableZoneFilter);
+  }, [tableLayoutObjects, tableZoneFilter]);
 
   const subtotal = useMemo(() => cart.reduce((sum, item) => sum + item.quantity * item.price, 0), [cart]);
   const discountAmount = useMemo(() => {
@@ -7574,6 +7585,7 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
         tableLoadError={tableLoadError}
         tableLoading={tableLoading}
         visibleTables={visibleTables}
+        visibleFloorObjects={visibleFloorObjects}
         tableViewMode={tableViewMode}
         setTableViewMode={updateTableViewMode}
         tableZones={tableZones}

@@ -4,6 +4,7 @@ import { fail, ok } from "@/lib/http";
 import { readThroughRuntimeCache } from "@/lib/route-runtime-cache";
 import { getEffectiveTableStatus, naturalCompareTableCode } from "@/lib/table-management";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
+import type { FloorPlanObjectType } from "@pos/shared-types";
 
 type ZoneRow = {
   id: string;
@@ -26,6 +27,22 @@ type TableRow = {
   width: number;
   height: number;
   rotation: number;
+  is_active: boolean;
+  metadata?: Record<string, unknown>;
+};
+
+type FloorObjectRow = {
+  id: string;
+  zone_id: string | null;
+  object_type: FloorPlanObjectType;
+  object_name: string | null;
+  color: string;
+  position_x: number;
+  position_y: number;
+  width: number;
+  height: number;
+  rotation: number;
+  z_index: number;
   is_active: boolean;
   metadata?: Record<string, unknown>;
 };
@@ -68,7 +85,7 @@ export async function GET() {
       ttlMs: 2000,
       loader: async () => {
         const supabase = getSupabaseServiceClient();
-        const [zoneResult, sessionResult, tableResult] = await Promise.all([
+        const [zoneResult, sessionResult, tableResult, objectResult] = await Promise.all([
           supabase
             .from("table_zones")
             .select("id,zone_name,color,display_order,is_active")
@@ -89,7 +106,15 @@ export async function GET() {
             .select("id,zone_id,table_code,table_name,capacity,status,shape,position_x,position_y,width,height,rotation,is_active")
             .eq("tenant_id", auth.tenantId!)
             .eq("branch_id", auth.branchId!)
-            .order("table_code", { ascending: true })
+            .order("table_code", { ascending: true }),
+          supabase
+            .from("table_layout_objects")
+            .select("id,zone_id,object_type,object_name,color,position_x,position_y,width,height,rotation,z_index,is_active,metadata")
+            .eq("tenant_id", auth.tenantId!)
+            .eq("branch_id", auth.branchId!)
+            .eq("is_active", true)
+            .order("z_index", { ascending: true })
+            .order("object_name", { ascending: true })
         ]);
 
         const zones = zoneResult.data;
@@ -98,6 +123,8 @@ export async function GET() {
         const sessionError = sessionResult.error;
         const tables = tableResult.data;
         const tableError = tableResult.error;
+        const objects = objectResult.data;
+        const objectError = objectResult.error;
 
         if (zoneError && !isMissingRelationError(zoneError, "table_zones")) {
           throw new Error(`zone_query_failed:${zoneError.message}`);
@@ -117,6 +144,12 @@ export async function GET() {
         if (tableError && !isMissingRelationError(tableError, "dining_tables")) {
           throw new Error(`table_query_failed:${tableError.message}`);
         }
+
+        if (objectError && !isMissingRelationError(objectError, "table_layout_objects")) {
+          throw new Error(`object_query_failed:${objectError.message}`);
+        }
+
+        const activeObjects = ((objectError ? [] : objects) ?? []) as FloorObjectRow[];
 
         if (tableError && isMissingRelationError(tableError, "dining_tables")) {
           const { data: legacyTables, error: legacyError } = await supabase
@@ -158,7 +191,8 @@ export async function GET() {
 
           return {
             zones: ((zoneError ? [] : zones) ?? []) as ZoneRow[],
-            tables: mappedLegacyTables
+            tables: mappedLegacyTables,
+            objects: activeObjects
           };
         }
 
@@ -180,7 +214,8 @@ export async function GET() {
 
         return {
           zones: ((zoneError ? [] : zones) ?? []) as ZoneRow[],
-          tables: sortedTables
+          tables: sortedTables,
+          objects: activeObjects
         };
       }
     });
@@ -196,6 +231,7 @@ export async function GET() {
       if (message.startsWith("zone_query_failed:")) return withTiming(fail("zone_query_failed", message.slice("zone_query_failed:".length), 500));
       if (message.startsWith("session_query_failed:")) return withTiming(fail("session_query_failed", message.slice("session_query_failed:".length), 500));
       if (message.startsWith("table_query_failed:")) return withTiming(fail("table_query_failed", message.slice("table_query_failed:".length), 500));
+      if (message.startsWith("object_query_failed:")) return withTiming(fail("object_query_failed", message.slice("object_query_failed:".length), 500));
       if (message.startsWith("legacy_table_query_failed:")) {
         return withTiming(fail("legacy_table_query_failed", message.slice("legacy_table_query_failed:".length), 500));
       }

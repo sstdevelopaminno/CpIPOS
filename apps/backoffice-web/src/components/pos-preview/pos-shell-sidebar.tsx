@@ -3,7 +3,6 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { MouseEvent, useEffect, useState } from "react";
-import { LanguageSwitcher } from "@/components/language/language-switcher";
 import { PackageLockDialog } from "@/components/pos-preview/package-lock-dialog";
 import { PosStaffMenu } from "@/components/pos-preview/pos-staff-menu";
 import { t, type Language } from "@/lib/i18n";
@@ -13,12 +12,19 @@ import {
   featureForPosRoute
 } from "@/lib/pos-feature-map";
 type PosRole = "owner" | "manager" | "staff" | "accountant";
+type MainMenuPlacement = "top" | "bottom";
 const POS_ROLE_STORAGE_KEY = "pos_session_role_v1";
 const POS_ROLE_EVENT_NAME = "pos-session-role-updated";
+const POS_MAIN_MENU_PLACEMENT_KEY = "pos_main_menu_placement_v1";
+const POS_MAIN_MENU_PLACEMENT_EVENT = "pos-main-menu-placement-updated";
 
 function normalizePosRole(value: string): PosRole | null {
   if (value === "owner" || value === "manager" || value === "staff" || value === "accountant") return value;
   return null;
+}
+
+function normalizeMenuPlacement(value: string | null | undefined): MainMenuPlacement {
+  return value === "bottom" ? "bottom" : "top";
 }
 
 function LogoutIcon() {
@@ -44,14 +50,11 @@ function LogoutIcon() {
 type Props = {
   lang: Language;
   settingsLabel: string;
-  languageLabel: string;
-  thaiLabel: string;
-  englishLabel: string;
 };
 
 const COMPACT_SIDEBAR_QUERY = "(min-width: 768px) and (max-width: 1180px) and (orientation: landscape)";
 
-export function PosShellSidebar({ lang, settingsLabel, languageLabel, thaiLabel, englishLabel }: Props) {
+export function PosShellSidebar({ lang, settingsLabel }: Props) {
   const [collapsed, setCollapsed] = useState(false);
   const pathname = usePathname();
   const [sessionRole, setSessionRole] = useState<PosRole | null>(null);
@@ -60,6 +63,7 @@ export function PosShellSidebar({ lang, settingsLabel, languageLabel, thaiLabel,
   const [logoutModalOpen, setLogoutModalOpen] = useState(false);
   const [logoutBusyMode, setLogoutBusyMode] = useState<"switch_device" | "full" | null>(null);
   const [logoutError, setLogoutError] = useState<string | null>(null);
+  const [menuPlacement, setMenuPlacement] = useState<MainMenuPlacement>("top");
   const isSettingsActive = pathname === "/preview/pos/settings";
   const showAdvancedMenus = sessionRole === null || sessionRole === "owner";
   const settingsFeature = featureForPosRoute("/preview/pos/settings");
@@ -80,6 +84,33 @@ export function PosShellSidebar({ lang, settingsLabel, languageLabel, thaiLabel,
     mediaQuery.addEventListener("change", collapseForCompactWidth);
     return () => {
       mediaQuery.removeEventListener("change", collapseForCompactWidth);
+    };
+  }, []);
+
+  useEffect(() => {
+    const readPlacement = () => {
+      try {
+        setMenuPlacement(normalizeMenuPlacement(window.localStorage.getItem(POS_MAIN_MENU_PLACEMENT_KEY)));
+      } catch {
+        setMenuPlacement("top");
+      }
+    };
+    const onPlacementUpdated = (event: Event) => {
+      const detail = (event as CustomEvent<{ placement?: string | null }>).detail;
+      setMenuPlacement(normalizeMenuPlacement(detail?.placement));
+    };
+    const onStorage = (event: StorageEvent) => {
+      if (event.key === POS_MAIN_MENU_PLACEMENT_KEY) {
+        setMenuPlacement(normalizeMenuPlacement(event.newValue));
+      }
+    };
+
+    readPlacement();
+    window.addEventListener(POS_MAIN_MENU_PLACEMENT_EVENT, onPlacementUpdated as EventListener);
+    window.addEventListener("storage", onStorage);
+    return () => {
+      window.removeEventListener(POS_MAIN_MENU_PLACEMENT_EVENT, onPlacementUpdated as EventListener);
+      window.removeEventListener("storage", onStorage);
     };
   }, []);
 
@@ -210,48 +241,50 @@ export function PosShellSidebar({ lang, settingsLabel, languageLabel, thaiLabel,
       </div>
 
       <div className="pos-shell-sidebar__menu-scroll mt-2 min-h-0 flex-1 overflow-y-auto overscroll-contain" suppressHydrationWarning>
-        <PosStaffMenu
-          lang={lang}
-          collapsed={collapsed}
-          sessionRole={sessionRole}
-          enabledFeatures={enabledFeatures}
-          onLockedFeature={() => setPackageLockOpen(true)}
-        />
+        <div className={`flex min-h-full flex-col ${menuPlacement === "bottom" ? "justify-end" : "justify-start"}`}>
+          <PosStaffMenu
+            lang={lang}
+            collapsed={collapsed}
+            sessionRole={sessionRole}
+            enabledFeatures={enabledFeatures}
+            onLockedFeature={() => setPackageLockOpen(true)}
+          />
 
-        {showAdvancedMenus ? (
-          <Link
-            href="/preview/pos/settings"
-            onClick={handleSettingsNavigate}
-            className={`group relative mt-0.5 inline-flex min-h-[40px] w-full items-center px-2 text-[13px] font-semibold leading-tight transition ${
-              collapsed ? "justify-center" : "justify-start gap-2"
-            } ${
-              isSettingsActive
-                ? "rounded-xl border border-blue-400/40 bg-blue-500/25 text-white"
-                : isSettingsLocked
-                  ? "rounded-xl text-slate-400/70"
-                  : "rounded-xl text-slate-100/90 hover:bg-white/5 hover:text-white"
-            }`}
-            title={collapsed ? settingsLabel : isSettingsLocked ? (lang === "th" ? POS_MENU_LOCK_TITLE_TH : POS_MENU_LOCK_TITLE_EN) : undefined}
-            aria-disabled={isSettingsLocked}
-          >
-            <span className="inline-flex w-4 justify-center" aria-hidden>
-              <svg
-                width="16"
-                height="16"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <circle cx="12" cy="12" r="3" />
-                <path d="M19.4 15a1.7 1.7 0 0 0 .33 1.82l.03.03a2 2 0 1 1-2.83 2.83l-.03-.03A1.7 1.7 0 0 0 15 19.4a1.7 1.7 0 0 0-1 .6 1.7 1.7 0 0 0-.4 1.1V21a2 2 0 1 1-4 0v-.04A1.7 1.7 0 0 0 8.6 19.4a1.7 1.7 0 0 0-1.82.33l-.03.03a2 2 0 1 1-2.83-2.83l.03-.03A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-.6-1 1.7 1.7 0 0 0-1.1-.4H2.96a2 2 0 1 1 0-4H3a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.33-1.82l-.03-.03a2 2 0 1 1 2.83-2.83l.03.03A1.7 1.7 0 0 0 9 4.6c.36 0 .7-.13 1-.38.27-.25.43-.6.4-.96V3a2 2 0 1 1 4 0v.04c-.03.37.12.72.4.96.3.25.64.38 1 .38a1.7 1.7 0 0 0 1.82-.33l.03-.03a2 2 0 1 1 2.83 2.83l-.03.03a1.7 1.7 0 0 0-.33 1.82c.1.38.35.73.72.95.29.18.62.27.95.25H21a2 2 0 1 1 0 4h-.04c-.37-.03-.72.12-.96.4-.24.3-.37.64-.36 1z" />
-              </svg>
-            </span>
-            {!collapsed ? <span className="truncate text-[13px]">{settingsLabel}</span> : null}
-          </Link>
-        ) : null}
+          {showAdvancedMenus ? (
+            <Link
+              href="/preview/pos/settings"
+              onClick={handleSettingsNavigate}
+              className={`group relative mt-0.5 inline-flex min-h-[40px] w-full items-center px-2 text-[13px] font-semibold leading-tight transition ${
+                collapsed ? "justify-center" : "justify-start gap-2"
+              } ${
+                isSettingsActive
+                  ? "rounded-xl border border-blue-400/40 bg-blue-500/25 text-white"
+                  : isSettingsLocked
+                    ? "rounded-xl text-slate-400/70"
+                    : "rounded-xl text-slate-100/90 hover:bg-white/5 hover:text-white"
+              }`}
+              title={collapsed ? settingsLabel : isSettingsLocked ? (lang === "th" ? POS_MENU_LOCK_TITLE_TH : POS_MENU_LOCK_TITLE_EN) : undefined}
+              aria-disabled={isSettingsLocked}
+            >
+              <span className="inline-flex w-4 justify-center" aria-hidden>
+                <svg
+                  width="16"
+                  height="16"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <circle cx="12" cy="12" r="3" />
+                  <path d="M19.4 15a1.7 1.7 0 0 0 .33 1.82l.03.03a2 2 0 1 1-2.83 2.83l-.03-.03A1.7 1.7 0 0 0 15 19.4a1.7 1.7 0 0 0-1 .6 1.7 1.7 0 0 0-.4 1.1V21a2 2 0 1 1-4 0v-.04A1.7 1.7 0 0 0 8.6 19.4a1.7 1.7 0 0 0-1.82.33l-.03.03a2 2 0 1 1-2.83-2.83l.03-.03A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-.6-1 1.7 1.7 0 0 0-1.1-.4H2.96a2 2 0 1 1 0-4H3a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.33-1.82l-.03-.03a2 2 0 1 1 2.83-2.83l.03.03A1.7 1.7 0 0 0 9 4.6c.36 0 .7-.13 1-.38.27-.25.43-.6.4-.96V3a2 2 0 1 1 4 0v.04c-.03.37.12.72.4.96.3.25.64.38 1 .38a1.7 1.7 0 0 0 1.82-.33l.03-.03a2 2 0 1 1 2.83 2.83l-.03.03a1.7 1.7 0 0 0-.33 1.82c.1.38.35.73.72.95.29.18.62.27.95.25H21a2 2 0 1 1 0 4h-.04c-.37-.03-.72.12-.96.4-.24.3-.37.64-.36 1z" />
+                </svg>
+              </span>
+              {!collapsed ? <span className="truncate text-[13px]">{settingsLabel}</span> : null}
+            </Link>
+          ) : null}
+        </div>
       </div>
 
       <div className="grid shrink-0 gap-2 pt-2">
@@ -272,17 +305,6 @@ export function PosShellSidebar({ lang, settingsLabel, languageLabel, thaiLabel,
           </span>
           {!collapsed ? <span className="truncate text-[13px]">{t(lang, "pos_menu_logout")}</span> : null}
         </button>
-        {!collapsed ? (
-          <div className="px-1 py-1 text-slate-900">
-            <LanguageSwitcher
-              currentLanguage={lang}
-              label={languageLabel}
-              thaiLabel={thaiLabel}
-              englishLabel={englishLabel}
-              compact
-            />
-          </div>
-        ) : null}
       </div>
 
       {logoutModalOpen ? (

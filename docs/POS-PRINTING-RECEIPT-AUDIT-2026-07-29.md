@@ -128,7 +128,7 @@ Cloud-only printing cannot reliably reach USB/Bluetooth printers inside the stor
 
 Recommended low-risk order:
 
-1. Add explicit timeout to local bridge and Bluetooth bridge adapters. Done locally in the print-agent v1 slice.
+1. Add explicit timeout to local bridge and Bluetooth bridge adapters. Done locally in the print-agent v1 slice. Bluetooth settings health/discover/connect API routes now use the same server-side timeout helper so a missing bridge cannot hold the request indefinitely.
 2. Add a versioned print-agent API contract document. Done locally in `docs/POS-PRINT-AGENT-V1-DESIGN-2026-07-29.md`.
 3. Add server routes for agent heartbeat, claim job, ack printed, fail/retry. Done locally under `/api/print-agent/v1/*`.
 4. Add settings UI for create/revoke print-agent secrets with one-time secret display. Done locally under printer settings.

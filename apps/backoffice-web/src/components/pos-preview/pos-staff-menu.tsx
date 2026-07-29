@@ -2,8 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { MouseEvent, useMemo, useState } from "react";
-import { PosMemberMaintenanceModal } from "@/components/pos/pos-member-maintenance-modal";
+import { MouseEvent, useMemo } from "react";
 import { t, type Language } from "@/lib/i18n";
 import {
   POS_MENU_LOCK_TITLE_EN,
@@ -155,14 +154,8 @@ const MENU_DEFS: Array<{
 }> = [
   { key: "pos_menu_sales", href: "/preview/pos", icon: "sales", roles: ["owner", "manager", "staff"], feature: featureForPosRoute("/preview/pos") },
   { key: "pos_menu_sales_list", href: "/preview/pos/sales-list", icon: "list", roles: ["owner", "manager", "staff"], feature: featureForPosRoute("/preview/pos/sales-list") },
-  { key: "pos_menu_stock", href: "/preview/pos/stock", icon: "stock", roles: ["owner", "manager", "accountant"], feature: featureForPosRoute("/preview/pos/stock") },
-  { key: "pos_menu_sales_summary", href: "/preview/pos/sales-summary", icon: "summary", roles: ["owner", "manager", "accountant"], feature: featureForPosRoute("/preview/pos/sales-summary") },
-  { key: "pos_menu_receipts", href: "/preview/pos/receipts", icon: "receipt", roles: ["owner", "manager", "accountant"], feature: featureForPosRoute("/preview/pos/receipts") },
-  { key: "pos_menu_members", href: "/preview/pos/members", icon: "members", roles: ["owner", "manager", "staff"], feature: featureForPosRoute("/preview/pos/members") },
   { key: "pos_menu_shift", href: "/preview/pos/shift", icon: "shift", roles: ["owner", "manager", "staff"], feature: featureForPosRoute("/preview/pos/shift") }
 ];
-
-const MEMBERS_MENU_HREF = "/preview/pos/members";
 
 function resolveMenuRole(role: PosRole | null): PosRole {
   // Keep the full owner menu visible while the session role is still hydrating.
@@ -185,7 +178,6 @@ export function PosStaffMenu({
   onLockedFeature: () => void;
 }) {
   const pathname = usePathname();
-  const [memberMaintenanceOpen, setMemberMaintenanceOpen] = useState(false);
   const effectiveRole = resolveMenuRole(sessionRole);
   const menuItems = useMemo(
     () =>
@@ -210,11 +202,6 @@ export function PosStaffMenu({
     ) {
       return;
     }
-    if (href === MEMBERS_MENU_HREF) {
-      event.preventDefault();
-      setMemberMaintenanceOpen(true);
-      return;
-    }
     if (pathname === href) {
       event.preventDefault();
       return;
@@ -227,7 +214,6 @@ export function PosStaffMenu({
   }
 
   return (
-    <>
     <nav className="grid gap-1" aria-label={t(lang, "pos_menu_staff_aria")} suppressHydrationWarning>
       {menuItems.map((item) => {
         const isActive = pathname === item.href;
@@ -259,7 +245,5 @@ export function PosStaffMenu({
         );
       })}
     </nav>
-    <PosMemberMaintenanceModal open={memberMaintenanceOpen} lang={lang} onClose={() => setMemberMaintenanceOpen(false)} />
-    </>
   );
 }

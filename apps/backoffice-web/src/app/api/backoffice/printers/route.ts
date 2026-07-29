@@ -2,6 +2,7 @@ import type { PrinterConnectionType } from "@pos/shared-types";
 import { getAuthContext } from "@/lib/auth-context";
 import { fail, ok } from "@/lib/http";
 import { buildPaginationMeta, parsePagination } from "@/lib/query-params";
+import { loggedPrintApiFail } from "@/lib/printing/print-api-errors";
 import { createPrinterProfile, listPrinterProfiles } from "@/lib/printing/print-service";
 
 type CreatePrinterPayload = {
@@ -35,7 +36,7 @@ export async function GET(req: Request) {
     if (message === "forbidden_role") {
       return fail("forbidden_role", "Only manager or owner can access printer settings.", 403);
     }
-    return fail("printer_list_failed", message, 400);
+    return loggedPrintApiFail("printer list failed", error, "printer_list_failed", "Printer settings could not be loaded. Please retry.", 400);
   }
 }
 
@@ -77,6 +78,6 @@ export async function POST(req: Request) {
     if (message.includes("duplicate key value violates unique constraint")) {
       return fail("printer_name_conflict", "Printer name already exists in this branch.", 409);
     }
-    return fail("printer_create_failed", message, 400);
+    return loggedPrintApiFail("printer create failed", error, "printer_create_failed", "Printer settings could not be saved. Please retry.", 400);
   }
 }

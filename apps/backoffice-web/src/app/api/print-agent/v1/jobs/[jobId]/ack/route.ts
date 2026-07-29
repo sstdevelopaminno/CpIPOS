@@ -1,4 +1,5 @@
 import { fail, ok } from "@/lib/http";
+import { loggedPrintApiFail } from "@/lib/printing/print-api-errors";
 import { acknowledgePrintJob, agentAuthFail, requirePrintAgent } from "@/lib/printing/print-agent-service";
 
 type AckPayload = {
@@ -25,6 +26,6 @@ export async function POST(req: Request, context: { params: Promise<{ jobId: str
     const message = error instanceof Error ? error.message : "Ack failed.";
     if (message === "print_job_not_found") return fail("print_job_not_found", "Print job was not found.", 404);
     if (message === "print_job_not_claimed_by_agent") return fail("print_job_not_claimed_by_agent", "Print job is not claimed by this agent.", 409);
-    return fail("print_agent_ack_failed", message, 500);
+    return loggedPrintApiFail("ack failed", error, "print_agent_ack_failed", "Print agent could not acknowledge this job. Please retry.");
   }
 }

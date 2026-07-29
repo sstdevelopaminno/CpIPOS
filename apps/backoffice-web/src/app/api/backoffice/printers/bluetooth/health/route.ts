@@ -2,9 +2,11 @@ import { readEnv } from "@/lib/env";
 import { fail, ok } from "@/lib/http";
 import { getAuthContext } from "@/lib/auth-context";
 import { buildBridgeEnvelope, parseBridgePayload } from "@/lib/printing/bridge-contract";
+import { fetchBridgeWithTimeout, resolveBridgeTimeoutMs } from "@/lib/printing/adapters/bridge-timeout";
 
 type BluetoothHealthPayload = {
   bridge_url?: string | null;
+  timeout_ms?: number | null;
 };
 
 function normalizeText(value: unknown): string | null {
@@ -31,19 +33,21 @@ export async function POST(req: Request) {
       return fail("bridge_url_required", "bridge_url is required or set PRINT_BLUETOOTH_BRIDGE_URL.", 422);
     }
 
+    const timeoutMs = resolveBridgeTimeoutMs({ timeout_ms: body.timeout_ms ?? null }, "PRINT_BLUETOOTH_BRIDGE_TIMEOUT_MS", 8000);
     const startedAt = Date.now();
-    const response = await fetch(bridgeUrl, {
+    const response = await fetchBridgeWithTimeout(bridgeUrl, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         action: "health",
         transport: "bluetooth",
+        timeout_ms: timeoutMs,
         metadata: {
           request_source: "backoffice_printer_settings",
           health_check: true
         }
       })
-    });
+    }, timeoutMs);
     const latencyMs = Date.now() - startedAt;
     const rawText = await response.text();
     const bridgePayload = parseBridgePayload(rawText);
@@ -57,6 +61,7 @@ export async function POST(req: Request) {
           action: "health",
           data: {
             bridge_url: bridgeUrl,
+            timeout_ms: timeoutMs,
             latency_ms: latencyMs,
             bridge_response: bridgePayload
           }
@@ -72,6 +77,7 @@ export async function POST(req: Request) {
         action: "health",
         data: {
           bridge_url: bridgeUrl,
+          timeout_ms: timeoutMs,
           latency_ms: latencyMs,
           bridge_response: bridgePayload
         }

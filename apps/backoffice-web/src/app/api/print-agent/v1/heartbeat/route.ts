@@ -1,4 +1,5 @@
 import { fail, ok } from "@/lib/http";
+import { loggedPrintApiFail } from "@/lib/printing/print-api-errors";
 import { agentAuthFail, requirePrintAgent, touchPrintAgent } from "@/lib/printing/print-agent-service";
 
 type HeartbeatPayload = {
@@ -27,6 +28,6 @@ export async function POST(req: Request) {
   } catch (error) {
     const authError = agentAuthFail(error);
     if (authError) return authError;
-    return fail("print_agent_heartbeat_failed", error instanceof Error ? error.message : "Heartbeat failed.", 500);
+    return loggedPrintApiFail("heartbeat failed", error, "print_agent_heartbeat_failed", "Print agent heartbeat failed. Please retry.");
   }
 }

@@ -58,6 +58,12 @@ function readMetadataString(metadata: unknown, key: string): string | null {
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
+function readMetadataArray(metadata: unknown, key: string): unknown[] {
+  if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) return [];
+  const value = (metadata as Record<string, unknown>)[key];
+  return Array.isArray(value) ? value : [];
+}
+
 export async function GET(req: Request) {
   const startedAt = Date.now();
   const withTiming = (response: Response) => {
@@ -80,7 +86,7 @@ export async function GET(req: Request) {
     let query = supabase
       .from("orders")
       .select(
-        "id,order_no,order_type,channel,table_id,customer_name,external_order_code,subtotal,discount_amount,gp_amount,total_amount,grand_total,paid_total,status,created_at,created_by,payment_completed_at,payment_completed_by,cash_received,change_amount,notes,metadata",
+        "id,order_no,order_type,channel,table_id,customer_name,external_order_code,subtotal,discount_amount,gp_amount,total_amount,grand_total,paid_total,tax_total,status,created_at,created_by,payment_completed_at,payment_completed_by,cash_received,change_amount,notes,metadata",
         { count: "exact" }
       )
       .eq("tenant_id", auth.tenantId!)
@@ -116,6 +122,7 @@ export async function GET(req: Request) {
       total_amount: number | null;
       grand_total: number | null;
       paid_total: number | null;
+      tax_total: number | null;
       status: string;
       created_at: string;
       created_by: string | null;
@@ -143,7 +150,7 @@ export async function GET(req: Request) {
       orderIds.length > 0
         ? supabase
             .from("order_items")
-            .select("order_id,product_id,name,quantity,unit_price,line_total")
+            .select("order_id,product_id,name,quantity,unit_price,line_total,notes")
             .eq("tenant_id", auth.tenantId!)
             .eq("branch_id", auth.branchId!)
             .in("order_id", orderIds)
@@ -223,7 +230,18 @@ export async function GET(req: Request) {
       paymentsByOrder.set(key, list);
     }
 
-    const itemsByOrder = new Map<string, Array<{ product_id: string; product_code: string; name: string; quantity: number; unit_price: number; line_total: number }>>();
+    const itemsByOrder = new Map<
+      string,
+      Array<{
+        product_id: string;
+        product_code: string;
+        name: string;
+        quantity: number;
+        unit_price: number;
+        line_total: number;
+        notes: string | null;
+      }>
+    >();
     for (const item of itemsResult.data ?? []) {
       const key = String(item.order_id);
       const list = itemsByOrder.get(key) ?? [];
@@ -237,7 +255,8 @@ export async function GET(req: Request) {
         name: nameLooksLikeId || !itemName ? product?.name ?? productId : itemName,
         quantity: Number(item.quantity ?? 0),
         unit_price: Number(item.unit_price ?? 0),
-        line_total: Number(item.line_total ?? 0)
+        line_total: Number(item.line_total ?? 0),
+        notes: item.notes == null ? null : String(item.notes)
       });
       itemsByOrder.set(key, list);
     }
@@ -262,6 +281,8 @@ export async function GET(req: Request) {
         subtotal: Number(row.subtotal ?? 0),
         discountAmount: Number(row.discount_amount ?? 0),
         gpAmount: Number(row.gp_amount ?? 0),
+        taxTotal: Number(row.tax_total ?? 0),
+        taxLines: readMetadataArray(row.metadata, "tax_lines"),
         totalAmount: total,
         paidTotal: Number(row.paid_total ?? paidTotal),
         status: row.status,

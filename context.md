@@ -484,3 +484,21 @@ ORDER BY p.name;
 - Merchant Key remains deployment-secret-only; the browser never receives it.
 - The package gate is enforced in both the POS sales snapshot and QR-creation route, not only the settings UI.
 - Saved pending questions for INET in `docs/INET-NOPS-QUESTIONS-FOR-INET.md`.
+
+## CI / Print Agent / Cash Drawer Hardening (2026-07-29)
+
+- Branch: `agent-docs-preflight-schema-drift`.
+- CI now includes the current branch on push and PR, keeps `main`, `develop`, and `hotfix/**`, and runs frozen install, typecheck, lint, tests, schema drift, and production build with timeouts.
+- Print Agent and printer/cash drawer API fallback errors now return safe public messages with server-side reference IDs instead of raw internal messages.
+- Bluetooth printer health/discover/connect routes now use server-side bridge timeouts.
+- Cash drawer migration now includes cooldown indexes for scope/status and device-scoped cooldown queries.
+- Verification passed locally: install, typecheck, tests, lint, schema drift, build, and unauth production smoke checks.
+- Production migration compare/apply and deployment are still blocked until Supabase CLI/linked project and operator confirmation are available.
+
+## POS Navigation Settings (2026-07-29)
+
+- POS sidebar main menu was simplified: Product Management, Members, Receipt History, and Sales Summary moved into `/preview/pos/settings` as submenu links.
+- Keep these moved route links feature-gated with `featureForPosRoute()` in `pos-settings-workspace.tsx`; do not re-add them to `pos-staff-menu.tsx` unless product direction changes.
+- Settings now has `Change Language` and `Main Menu Position` popups.
+- Main menu placement is client-side per terminal using localStorage key `pos_main_menu_placement_v1` and event `pos-main-menu-placement-updated`.
+- Detailed handoff: `docs/POS-NAVIGATION-SETTINGS-2026-07-29.md`.

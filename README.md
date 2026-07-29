@@ -185,6 +185,13 @@ Solo register demo (no branch-selection UI, one cashier device):
 - Auth API timeout is controlled by `AUTH_API_TIMEOUT_MS` in `apps/backoffice-web/.env.local` (default from `.env.example`: `8000` ms).
 - `POST /api/pos/perf` is non-blocking by design; telemetry write failures should not block POS preview rendering.
 
+## Production Baseline Note 2026-07-29
+
+- CI now verifies `agent-docs-preflight-schema-drift` in addition to `main`, `develop`, and `hotfix/**`.
+- CI baseline includes frozen install, typecheck, lint, tests, schema drift check, and production build with job/step timeouts.
+- Print Agent and Cash Drawer hardening is local-only until production migrations `20260728173858_print_agent_v1.sql` and `20260728180311_cash_drawer_v1.sql` are confirmed/applied.
+- Recommended final branch strategy: keep `main` as protected production branch, keep `develop` for integration, and either make `agent-docs-preflight-schema-drift` the temporary default until this work is merged or merge it back into the protected long-lived branch.
+
 ## Key docs
 - `docs/ACTIVE-DOCS-INDEX.md` (start here for active vs archived documentation)
 - `docs/AI-GUARDRAILS-CPIPOS.md` (current CpIPOS workspace/repo guardrails)

@@ -5,10 +5,12 @@ on:
     branches:
       - main
       - develop
+      - agent-docs-preflight-schema-drift
   push:
     branches:
       - main
       - develop
+      - agent-docs-preflight-schema-drift
       - hotfix/**
 
 concurrency:
@@ -18,38 +20,50 @@ concurrency:
 jobs:
   verify:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        timeout-minutes: 5
         with:
           fetch-depth: 0
 
       - name: Setup Node
         uses: actions/setup-node@v4
+        timeout-minutes: 5
         with:
           node-version: 22
 
       - name: Setup pnpm
-        run: |
-          corepack enable
-          corepack prepare pnpm@10.33.4 --activate
+        timeout-minutes: 5
+        run: corepack enable
 
       - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+        timeout-minutes: 8
+        run: corepack pnpm install --frozen-lockfile
 
       - name: Typecheck
-        run: pnpm run typecheck
+        timeout-minutes: 6
+        run: corepack pnpm run typecheck
 
       - name: Lint
-        run: pnpm run lint
+        timeout-minutes: 8
+        run: corepack pnpm run lint
 
       - name: Test
-        run: pnpm run test
+        timeout-minutes: 8
+        run: corepack pnpm run test
+
+      - name: Schema drift check
+        timeout-minutes: 5
+        run: corepack pnpm schema:drift
 
       - name: Build backoffice (PR)
         if: github.event_name == 'pull_request'
-        run: pnpm --filter backoffice-web build
+        timeout-minutes: 10
+        run: corepack pnpm --filter backoffice-web build
 
       - name: Build backoffice (push)
         if: github.event_name == 'push'
-        run: pnpm --filter backoffice-web build
+        timeout-minutes: 10
+        run: corepack pnpm --filter backoffice-web build

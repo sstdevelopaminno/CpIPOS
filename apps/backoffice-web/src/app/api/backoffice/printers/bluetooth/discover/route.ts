@@ -2,6 +2,8 @@ import { readEnv } from "@/lib/env";
 import { fail, ok } from "@/lib/http";
 import { getAuthContext } from "@/lib/auth-context";
 import { buildBridgeEnvelope, normalizeBridgeDevices, parseBridgePayload } from "@/lib/printing/bridge-contract";
+import { fetchBridgeWithTimeout, resolveBridgeTimeoutMs } from "@/lib/printing/adapters/bridge-timeout";
+import { loggedPrintApiFail } from "@/lib/printing/print-api-errors";
 
 type DiscoverBluetoothPayload = {
   bridge_url?: string | null;
@@ -32,8 +34,8 @@ export async function POST(req: Request) {
       return fail("bridge_url_required", "bridge_url is required or set PRINT_BLUETOOTH_BRIDGE_URL.", 422);
     }
 
-    const timeoutMs = Math.min(30000, Math.max(2000, Number(body.timeout_ms ?? 9000)));
-    const response = await fetch(bridgeUrl, {
+    const timeoutMs = resolveBridgeTimeoutMs({ timeout_ms: body.timeout_ms ?? null }, "PRINT_BLUETOOTH_BRIDGE_TIMEOUT_MS", 9000);
+    const response = await fetchBridgeWithTimeout(bridgeUrl, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -45,7 +47,7 @@ export async function POST(req: Request) {
           discover: true
         }
       })
-    });
+    }, timeoutMs);
 
     const rawText = await response.text();
     const bridgePayload = parseBridgePayload(rawText);
@@ -74,6 +76,7 @@ export async function POST(req: Request) {
     );
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error";
-    return fail("bluetooth_discover_failed", message, 400);
+    if (message.includes("timeout")) return fail("bluetooth_discover_timeout", "Bluetooth bridge did not respond in time.", 504);
+    return loggedPrintApiFail("bluetooth discover failed", error, "bluetooth_discover_failed", "Bluetooth printers could not be discovered. Please retry.", 400);
   }
 }

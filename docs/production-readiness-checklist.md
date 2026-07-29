@@ -25,9 +25,11 @@
 - [Done] Static schema drift preflight available (`corepack pnpm schema:drift`).
 - [Not done] Formal staged migration rehearsal record for each release.
 - [Must do before go-live] Production backup snapshot before migration.
+- [Must do before go-live] Confirm/apply `20260728173858_print_agent_v1.sql` and `20260728180311_cash_drawer_v1.sql` in production after `supabase migration list --linked` review; do not use `--include-all` while older drift remains.
 
 ## Deployment
 - [Done] GitHub CI workflow added (`.github/workflows/ci.yml`).
+- [Done] CI covers current development/default branch `agent-docs-preflight-schema-drift` and runs frozen install, typecheck, lint, tests, schema drift, and production build with timeouts.
 - [Done] Branch strategy + protection runbook documented.
 - [Done] Vercel deployment mapping and environment separation documented.
 - [Must do before go-live] Configure GitHub branch protection rules in repository settings.

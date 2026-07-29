@@ -15,6 +15,7 @@ Run on 2026-07-28 from `E:\CpIPOS`:
 - `corepack pnpm --filter backoffice-web test` passed: 27 files, 65 tests.
 - `corepack pnpm --filter backoffice-web build` passed. First 5-minute attempt timed out; rerun with 10-minute timeout completed successfully.
 - Recheck after `345ba2f`: typecheck passed; tests passed 28 files / 68 tests; production Vercel inspect is Ready. Full lint timed out twice without visible ESLint errors, while targeted ESLint for QR customer/table issuing paths passed. See `docs/SYSTEM-RECHECK-2026-07-28.md`.
+- 2026-07-29 hardening baseline: `corepack pnpm install --frozen-lockfile` passed; typecheck passed; Vitest passed 30 files / 75 tests; full lint passed; `corepack pnpm schema:drift` passed; production build passed.
 
 ## Latest Code Fix In This Round
 
@@ -62,6 +63,8 @@ Run on 2026-07-28 from `E:\CpIPOS`:
 - 2026-07-29 POS click responsiveness fix: POS category chips now use custom drag handling only for mouse, leaving touch scrolling/clicking native so category taps are not swallowed. Main POS sidebar links no longer intercept normal navigation through `startTransition`; they use normal Next Link navigation with prefetch for faster menu response.
 - 2026-07-29 printer settings follow-up: POS now hides the manual cash drawer button unless `/api/pos/cash-drawer/open` reports an enabled cash-drawer printer profile. `Printer Settings` receives the active language, translates the settings tabs/forms/Bluetooth discovery UI, and wraps Bluetooth/agent/printer actions with client-side timeouts so a missing local bridge does not freeze the UI.
 - 2026-07-29 urgent POS category fix: `PosCategoryNav` no longer uses custom pointer capture/drag suppression. Category chips are plain buttons with native click behavior, while horizontal overflow still supports touch/trackpad/wheel scrolling. This prevents category taps from being swallowed in the POS sales screen.
+- 2026-07-29 production hardening round: CI now includes `agent-docs-preflight-schema-drift` for push/PR and runs schema drift/build with timeouts. Print Agent, Cash Drawer, and printer settings fallback errors now log internal failures with request IDs and return safe public messages. Bluetooth settings bridge routes use server-side timeout helpers. Added Print Agent security tests and Bluetooth timeout tests.
+- 2026-07-29 migration status: local migrations include Print Agent v1 and Cash Drawer v1; Cash Drawer v1 now has cooldown indexes for tenant/branch/status and device-scoped cooldown. Production migration history could not be compared/applied because Supabase CLI is unavailable in this shell; operator must run `supabase migration list --linked` and only apply confirmed missing safe migrations.
 
 ## Workspace Notes
 

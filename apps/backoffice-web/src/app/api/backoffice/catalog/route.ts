@@ -277,17 +277,15 @@ function isMissingProductTrashColumnsError(error: PostgrestLikeError | null | un
   return text.includes("deleted_at") || text.includes("deleted_by") || text.includes("delete_reason") || text.includes("restore_until");
 }
 
-function normalizeSku(raw: string | undefined, name: string) {
-  const value = String(raw ?? "").trim();
-  if (value) return value.slice(0, 40).toUpperCase();
+function normalizeSku(raw: string | undefined) {
+  const digits = String(raw ?? "").replace(/\D+/g, "");
+  if (digits) return digits.slice(0, 40);
 
-  const compactName = name
-    .replace(/[^a-zA-Z0-9ก-๙]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 18)
-    .toUpperCase();
-  const suffix = Date.now().toString().slice(-6);
-  return `PRD-${compactName || "ITEM"}-${suffix}`;
+  const timestamp = Date.now().toString();
+  const randomSuffix = Math.floor(Math.random() * 1000000)
+    .toString()
+    .padStart(6, "0");
+  return `${timestamp}${randomSuffix}`.slice(0, 40);
 }
 
 async function softDeleteProducts(input: {
@@ -1012,7 +1010,7 @@ export async function POST(req: Request) {
     if (body.action === "create_product_with_stock_setup") {
       const name = body.name?.trim();
       const category = body.category?.trim();
-      const sku = normalizeSku(body.sku, name ?? "");
+      const sku = normalizeSku(body.sku);
       const stockQuantity = Number(body.stock_quantity ?? 0);
       const storePrice = Number(body.store_price);
       const deliveryPrice = Number(body.delivery_price);
@@ -1924,7 +1922,7 @@ export async function POST(req: Request) {
     }
 
     if (body.action === "upsert_product") {
-      const sku = body.sku?.trim();
+      const sku = normalizeSku(body.sku);
       const name = body.name?.trim();
       const category = body.category?.trim();
       const stockMode = body.stock_deduction_mode ?? "unit_only";

@@ -5,7 +5,7 @@ import { FloorPlanCanvas } from "@/components/tables/floor-plan-canvas";
 import { FloorPlanToolbar } from "@/components/tables/floor-plan-toolbar";
 import { getTableStatusLabel } from "@/components/tables/table-i18n";
 import { TableZoneTabs } from "@/components/tables/table-zone-tabs";
-import type { DiningTableItem, TableZoneItem } from "@/components/tables/types";
+import type { DiningTableItem, FloorPlanObjectItem, TableZoneItem } from "@/components/tables/types";
 import { tableStatusColorMap } from "@/lib/table-management";
 
 type Lang = "th" | "en";
@@ -31,6 +31,7 @@ type Props = {
   tableLoadError: string | null;
   tableLoading: boolean;
   visibleTables: DiningTableItem[];
+  visibleFloorObjects: FloorPlanObjectItem[];
   tableViewMode: TableViewMode;
   setTableViewMode: (value: TableViewMode) => void;
   tableZones: TableZoneItem[];
@@ -55,6 +56,7 @@ function PosTableBrowserInner({
   tableLoadError,
   tableLoading,
   visibleTables,
+  visibleFloorObjects,
   tableViewMode,
   setTableViewMode,
   tableZones,
@@ -189,6 +191,7 @@ function PosTableBrowserInner({
             />
             <FloorPlanCanvas
               tables={visibleTables}
+              objects={visibleFloorObjects}
               zones={tableZones}
               lang={lang}
               selectedTableId={selectedTableId}

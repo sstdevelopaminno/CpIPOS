@@ -227,8 +227,8 @@ function isOverdueAutoClosedShift(shift: ShiftHistoryItem) {
   return (
     shift.status !== "open" &&
     (metadata.close_reason === "system_auto_close_overdue_shift" ||
-      metadata.auto_close_uses_sales_total === true ||
-      metadata.overdue_auto_close === true)
+      metadata.close_reason === "auto_close_overdue_shift" ||
+      metadata.system_auto_closed === true)
   );
 }
 
@@ -249,6 +249,150 @@ function shiftStatusBadge(shift: ShiftHistoryItem, lang: Lang) {
     label: lang === "th" ? "ปิดกะแล้ว" : "Closed",
     className: "bg-emerald-100 text-emerald-700 ring-1 ring-emerald-200"
   };
+}
+
+type ShiftHistoryTableLabels = {
+  title: string;
+  branch: string;
+  shiftName: string;
+  openedAt: string;
+  closedAt: string;
+  status: string;
+  orders: string;
+  cancelled: string;
+  sales: string;
+  cashVariance: string;
+};
+
+type ShiftHistoryTableRow = {
+  shiftName: string;
+  branch: string;
+  openedAt: string;
+  closedAt: string;
+  status: string;
+  orders: string;
+  cancelled: string;
+  sales: string;
+  cashVariance: string;
+};
+
+function getShiftCashVariance(shift: ShiftHistoryItem) {
+  return shift.actual_cash === null ? null : Number((shift.actual_cash - shift.metrics.cash_total).toFixed(2));
+}
+
+function getShiftHistoryTableRows(shifts: ShiftHistoryItem[], lang: Lang): ShiftHistoryTableRow[] {
+  return shifts.map((shift) => {
+    const cycle = resolveShiftCycle(shift.opened_at);
+    const cashVariance = getShiftCashVariance(shift);
+    return {
+      shiftName: cycle ? slotLabel(cycle.slot, lang) : "-",
+      branch: shift.branch_name ?? shift.branch_code ?? "-",
+      openedAt: formatDateTime(shift.opened_at, lang),
+      closedAt: shift.closed_at ? formatDateTime(shift.closed_at, lang) : "-",
+      status: shiftStatusBadge(shift, lang).label,
+      orders: String(shift.metrics.order_count),
+      cancelled: String(shift.metrics.cancelled_order_count),
+      sales: formatMoney(shift.metrics.sales_total, lang),
+      cashVariance: cashVariance === null ? "-" : formatSignedMoney(cashVariance, lang)
+    };
+  });
+}
+
+function escapeCsvCell(value: string) {
+  if (!/[",\r\n]/.test(value)) return value;
+  return `"${value.replaceAll('"', '""')}"`;
+}
+
+function buildShiftHistoryCsv(args: {
+  rows: ShiftHistoryTableRow[];
+  labels: ShiftHistoryTableLabels;
+  includeBranch: boolean;
+}) {
+  const headers = [
+    args.labels.shiftName,
+    ...(args.includeBranch ? [args.labels.branch] : []),
+    args.labels.openedAt,
+    args.labels.closedAt,
+    args.labels.status,
+    args.labels.orders,
+    args.labels.cancelled,
+    args.labels.sales,
+    args.labels.cashVariance
+  ];
+  const body = args.rows.map((row) => [
+    row.shiftName,
+    ...(args.includeBranch ? [row.branch] : []),
+    row.openedAt,
+    row.closedAt,
+    row.status,
+    row.orders,
+    row.cancelled,
+    row.sales,
+    row.cashVariance
+  ]);
+  return [headers, ...body].map((cells) => cells.map(escapeCsvCell).join(",")).join("\r\n");
+}
+
+function buildShiftHistoryPrintHtml(args: {
+  rows: ShiftHistoryTableRow[];
+  labels: ShiftHistoryTableLabels;
+  includeBranch: boolean;
+  generatedAt: string;
+}) {
+  const headers = [
+    args.labels.shiftName,
+    ...(args.includeBranch ? [args.labels.branch] : []),
+    args.labels.openedAt,
+    args.labels.closedAt,
+    args.labels.status,
+    args.labels.orders,
+    args.labels.cancelled,
+    args.labels.sales,
+    args.labels.cashVariance
+  ];
+  const rows = args.rows.map((row) => [
+    row.shiftName,
+    ...(args.includeBranch ? [row.branch] : []),
+    row.openedAt,
+    row.closedAt,
+    row.status,
+    row.orders,
+    row.cancelled,
+    row.sales,
+    row.cashVariance
+  ]);
+  return `<!doctype html>
+<html><head><meta charset="utf-8"/>
+<title>${escapeHtml(args.labels.title)}</title>
+<style>
+@page{size:A4 landscape;margin:10mm;}
+*{box-sizing:border-box;}
+html,body{margin:0;padding:0;color:#0f172a;font:11px/1.45 Tahoma,'Noto Sans Thai','Segoe UI',sans-serif;}
+main{width:100%;}
+h1{margin:0 0 3mm;font-size:18px;}
+.meta{margin:0 0 4mm;color:#475569;font-size:10px;}
+table{width:100%;border-collapse:collapse;table-layout:auto;}
+th,td{border:1px solid #cbd5e1;padding:5px 6px;vertical-align:top;}
+th{background:#f1f5f9;text-align:left;font-weight:800;}
+td.num,th.num{text-align:right;}
+</style></head>
+<body><main>
+  <h1>${escapeHtml(args.labels.title)}</h1>
+  <p class="meta">${escapeHtml(args.generatedAt)}</p>
+  <table>
+    <thead><tr>${headers
+      .map((header, index) => `<th class="${index >= headers.length - 4 ? "num" : ""}">${escapeHtml(header)}</th>`)
+      .join("")}</tr></thead>
+    <tbody>${rows
+      .map(
+        (row) =>
+          `<tr>${row
+            .map((cell, index) => `<td class="${index >= row.length - 4 ? "num" : ""}">${escapeHtml(cell)}</td>`)
+            .join("")}</tr>`
+      )
+      .join("")}</tbody>
+  </table>
+</main><script>window.addEventListener('load',()=>setTimeout(()=>window.print(),80));</script></body></html>`;
 }
 
 function buildShiftDetailReceiptHtml(args: {
@@ -354,6 +498,7 @@ export function PosShiftHistoryModule({ lang }: { lang: Lang }) {
             period: "ช่วงเวลา",
             branchFilter: "สาขา",
             print: "พิมพ์รายงาน",
+            exportCsv: "Export CSV",
             reload: "รีเฟรช",
             shifts: "จำนวนกะ",
             orders: "จำนวนบิล",
@@ -417,6 +562,7 @@ export function PosShiftHistoryModule({ lang }: { lang: Lang }) {
             period: "Period",
             branchFilter: "Branch",
             print: "Print report",
+            exportCsv: "Export CSV",
             reload: "Reload",
             shifts: "Shifts",
             orders: "Bills",
@@ -501,6 +647,21 @@ export function PosShiftHistoryModule({ lang }: { lang: Lang }) {
   const previousLabel = lang === "th" ? "ก่อนหน้า" : "Previous";
   const nextLabel = lang === "th" ? "ถัดไป" : "Next";
   const pageLabel = lang === "th" ? "หน้า" : "Page";
+  const shiftTableLabels = useMemo<ShiftHistoryTableLabels>(
+    () => ({
+      title: text.title,
+      branch: text.branchFilter,
+      shiftName: text.shiftName,
+      openedAt: text.openedAt,
+      closedAt: text.closedAt,
+      status: text.status,
+      orders: text.orders,
+      cancelled: text.cancelled,
+      sales: text.sales,
+      cashVariance: text.expected
+    }),
+    [text]
+  );
   const rowsPerPage = 12;
   const pagedShifts = payload?.shifts.slice((page - 1) * rowsPerPage, page * rowsPerPage) ?? [];
   const totalPages = Math.max(1, Math.ceil((payload?.shifts.length ?? 0) / rowsPerPage));
@@ -715,6 +876,46 @@ export function PosShiftHistoryModule({ lang }: { lang: Lang }) {
     }
   }
 
+  function exportShiftHistoryCsv() {
+    if (!payload?.shifts.length) return;
+    const rows = getShiftHistoryTableRows(payload.shifts, lang);
+    const csv = buildShiftHistoryCsv({
+      rows,
+      labels: shiftTableLabels,
+      includeBranch: payload.filters.can_view_branch_wide
+    });
+    const fileDate = new Date().toISOString().slice(0, 10);
+    const rangePart = startDate || endDate ? `${startDate || "from"}-${endDate || "to"}` : `${days}d`;
+    const blob = new Blob(["\ufeff", csv], { type: "text/csv;charset=utf-8" });
+    const url = window.URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `shift-history-${rangePart}-${fileDate}.csv`;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    window.URL.revokeObjectURL(url);
+  }
+
+  function printShiftHistoryReport() {
+    if (!payload?.shifts.length) return;
+    const rows = getShiftHistoryTableRows(payload.shifts, lang);
+    const printHtml = buildShiftHistoryPrintHtml({
+      rows,
+      labels: shiftTableLabels,
+      includeBranch: payload.filters.can_view_branch_wide,
+      generatedAt: formatDateTime(new Date().toISOString(), lang)
+    });
+    const printWindow = window.open("", "_blank", "width=1120,height=760");
+    if (!printWindow) {
+      setError(lang === "th" ? "ไม่สามารถเปิดหน้าพิมพ์ได้" : "Unable to open print window.");
+      return;
+    }
+    printWindow.document.open();
+    printWindow.document.write(printHtml);
+    printWindow.document.close();
+  }
+
   async function printCloseReceipt() {
     if (!closeReceipt || busy === "print") return;
 
@@ -856,6 +1057,14 @@ export function PosShiftHistoryModule({ lang }: { lang: Lang }) {
               >
                 {toActionLabel("close", lang)}
               </button>
+              <button
+                type="button"
+                onClick={() => exportShiftHistoryCsv()}
+                disabled={!payload?.shifts.length}
+                className="h-10 rounded-xl border border-slate-300 bg-white px-4 text-sm font-bold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {text.exportCsv}
+              </button>
             </div>
           </div>
         </header>
@@ -932,8 +1141,9 @@ export function PosShiftHistoryModule({ lang }: { lang: Lang }) {
               </button>
               <button
                 type="button"
-                onClick={() => window.print()}
-                className="h-10 rounded-xl border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-700"
+                onClick={() => printShiftHistoryReport()}
+                disabled={!payload?.shifts.length}
+                className="h-10 rounded-xl border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {text.print}
               </button>
@@ -970,8 +1180,7 @@ export function PosShiftHistoryModule({ lang }: { lang: Lang }) {
                 <tbody>
                   {pagedShifts.map((shift) => {
                     const cycle = resolveShiftCycle(shift.opened_at);
-                    const cashVariance =
-                      shift.actual_cash === null ? null : Number((shift.actual_cash - shift.metrics.cash_total).toFixed(2));
+                    const cashVariance = getShiftCashVariance(shift);
                     const cashVarianceClass =
                       cashVariance === null
                         ? "text-slate-400"

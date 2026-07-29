@@ -102,7 +102,6 @@ type TableApprovalRequest =
     };
 
 export function TableManagementPage({ lang = "th", initialRole = null }: { lang?: Language; initialRole?: BranchRole | null | string }) {
-  const slowThresholdMs = 500;
   const text = getTableUiText(lang);
   const normalizedRole: BranchRole | null =
     initialRole === "owner" || initialRole === "manager" || initialRole === "staff" || initialRole === "accountant"
@@ -111,7 +110,7 @@ export function TableManagementPage({ lang = "th", initialRole = null }: { lang?
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [success, setSuccess] = useState<string | null>(null);
+  const [, setSuccess] = useState<string | null>(null);
   const [zones, setZones] = useState<TableZoneItem[]>([]);
   const [tables, setTables] = useState<DiningTableItem[]>([]);
   const [draftTables, setDraftTables] = useState<DiningTableItem[]>([]);
@@ -139,9 +138,7 @@ export function TableManagementPage({ lang = "th", initialRole = null }: { lang?
   const [confirmDialog, setConfirmDialog] = useState<ConfirmDialogState | null>(null);
   const [confirming, setConfirming] = useState(false);
   const [tableApprovalRequest, setTableApprovalRequest] = useState<TableApprovalRequest | null>(null);
-  const [perfWarning, setPerfWarning] = useState<{ label: string; durationMs: number } | null>(null);
   const loadRequestIdRef = useRef(0);
-  const perfWarningTimerRef = useRef<number | null>(null);
   const telemetryDisabledRef = useRef(false);
   const telemetryWarnedRef = useRef(false);
 
@@ -308,31 +305,13 @@ export function TableManagementPage({ lang = "th", initialRole = null }: { lang?
           });
       }
 
-      const isSlowApi = detail.event === "api" && detail.durationMs >= slowThresholdMs;
-      if (isSlowApi) {
-        setPerfWarning({
-          label: detail.label,
-          durationMs: detail.durationMs
-        });
-        if (perfWarningTimerRef.current !== null) {
-          window.clearTimeout(perfWarningTimerRef.current);
-        }
-        perfWarningTimerRef.current = window.setTimeout(() => {
-          setPerfWarning(null);
-          perfWarningTimerRef.current = null;
-        }, 6000);
-      }
     }
 
     window.addEventListener("table-management:perf", onPerfEvent as EventListener);
     return () => {
       window.removeEventListener("table-management:perf", onPerfEvent as EventListener);
-      if (perfWarningTimerRef.current !== null) {
-        window.clearTimeout(perfWarningTimerRef.current);
-        perfWarningTimerRef.current = null;
-      }
     };
-  }, [slowThresholdMs]);
+  }, []);
 
   useEffect(() => {
     if (!confirmDialog) return;
@@ -476,6 +455,15 @@ export function TableManagementPage({ lang = "th", initialRole = null }: { lang?
       capacity: "4"
     });
     setTableEditorOpen(true);
+  }
+
+  function navigateBack() {
+    if (typeof window === "undefined") return;
+    if (window.history.length > 1) {
+      window.history.back();
+      return;
+    }
+    window.location.assign("/preview/pos/settings");
   }
 
   function openEditTableEditor(table: DiningTableItem) {
@@ -1151,6 +1139,14 @@ export function TableManagementPage({ lang = "th", initialRole = null }: { lang?
         <div className="table-mgmt-view-switch">
           <button
             type="button"
+            className="table-mgmt-view-switch__btn table-mgmt-view-switch__back"
+            onClick={navigateBack}
+            disabled={saving}
+          >
+            {lang === "th" ? "← กลับ" : "← Back"}
+          </button>
+          <button
+            type="button"
             className={`table-mgmt-view-switch__btn ${viewMode === "sorted" ? "is-active" : ""}`}
             onClick={() => setViewMode("sorted")}
             disabled={saving}
@@ -1169,19 +1165,6 @@ export function TableManagementPage({ lang = "th", initialRole = null }: { lang?
       </header>
 
       {error ? <p className="table-mgmt-error">{error}</p> : null}
-      {success ? <p className="table-mgmt-success">{success}</p> : null}
-      {perfWarning ? (
-        <div className="table-mgmt-perf-warning" role="status" aria-live="polite">
-          <p>
-            {lang === "th"
-              ? `ระบบตอบสนองช้า (${Math.round(perfWarning.durationMs)}ms) ที่ ${perfWarning.label}`
-              : `Slow response detected (${Math.round(perfWarning.durationMs)}ms) at ${perfWarning.label}`}
-          </p>
-          <button type="button" onClick={() => setPerfWarning(null)}>
-            {lang === "th" ? "ปิด" : "Dismiss"}
-          </button>
-        </div>
-      ) : null}
 
       <div className={`table-mgmt-layout ${viewMode === "floor" ? "is-floor-view" : "is-list-view"}`}>
         <aside className="table-mgmt-left">
@@ -1619,6 +1602,5 @@ export function TableManagementPage({ lang = "th", initialRole = null }: { lang?
     </>
   );
 }
-
 
 

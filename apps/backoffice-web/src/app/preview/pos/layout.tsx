@@ -48,9 +48,6 @@ export default async function PosPreviewLayout({
         <PosShellSidebar
           lang={lang}
           settingsLabel={t(lang, "common_settings")}
-          languageLabel={t(lang, "language")}
-          thaiLabel={t(lang, "thai")}
-          englishLabel={t(lang, "english")}
         />
 
         <section className="pos-app-content-area flex min-h-0 min-w-0 flex-1 overflow-hidden py-4 pl-4 pr-2 lg:pl-5 lg:pr-3">

@@ -26,6 +26,14 @@ grant select, insert, update, delete on public.cash_drawer_events to service_rol
 create index if not exists idx_cash_drawer_events_scope_created
   on public.cash_drawer_events(tenant_id, branch_id, created_at desc);
 
+create index if not exists idx_cash_drawer_events_scope_status_cooldown
+  on public.cash_drawer_events(tenant_id, branch_id, command_status, created_at desc)
+  where command_status in ('queued', 'sent');
+
+create index if not exists idx_cash_drawer_events_device_cooldown
+  on public.cash_drawer_events(tenant_id, branch_id, pos_device_id, created_at desc)
+  where pos_device_id is not null and command_status in ('queued', 'sent');
+
 create index if not exists idx_cash_drawer_events_shift
   on public.cash_drawer_events(shift_id, created_at desc)
   where shift_id is not null;

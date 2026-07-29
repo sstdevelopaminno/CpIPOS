@@ -3,11 +3,13 @@ import { fail, ok } from "@/lib/http";
 import { validateManagerPin } from "@/lib/pin-approval";
 import { getPosApiAuthContext } from "@/lib/pos-api-auth";
 import { featureGateFail, requirePosApiFeature } from "@/lib/pos-api-feature-guard";
-import { reprintOrderReceipt } from "@/lib/printing/print-service";
+import { queueAndProcessBluetoothReceiptHtml, reprintOrderReceipt } from "@/lib/printing/print-service";
 
 type ReprintPayload = {
   manager_pin?: string | null;
   note?: string | null;
+  receipt_html?: string | null;
+  order_no?: string | null;
 };
 
 export async function POST(req: Request, context: { params: Promise<{ orderId: string }> }) {
@@ -61,7 +63,40 @@ export async function POST(req: Request, context: { params: Promise<{ orderId: s
       }
     });
 
-    const result = await reprintOrderReceipt(auth, orderId);
+    const receiptHtml = body?.receipt_html?.trim() ?? "";
+    const orderNo = body?.order_no?.trim() || null;
+    const result = receiptHtml
+      ? await queueAndProcessBluetoothReceiptHtml(auth, {
+          orderId,
+          orderNo,
+          receiptHtml
+        })
+          .then((jobs) => ({
+            mode: "html_58mm",
+            fallback_to_browser_print: false,
+            jobs: jobs.map((job) => ({
+              id: job.id,
+              status: job.status,
+              last_error: job.last_error,
+              printed_at: job.printed_at
+            }))
+          }))
+          .catch((printError) => {
+            const printMessage = printError instanceof Error ? printError.message : "Unknown error";
+            if (
+              printMessage === "bluetooth_receipt_printer_not_configured" ||
+              printMessage.startsWith("BLUETOOTH_BRIDGE request failed")
+            ) {
+              return {
+                mode: "browser_fallback_58mm",
+                fallback_to_browser_print: true,
+                message: printMessage,
+                jobs: []
+              };
+            }
+            throw printError;
+          })
+      : await reprintOrderReceipt(auth, orderId);
 
     await appendAuditLog({
       tenantId: auth.tenantId ?? undefined,

@@ -368,6 +368,7 @@ export function StockProductsTable({
         : scope === "all"
           ? filteredProducts.map((item) => item.id)
           : selectedFilteredProductIds;
+    setFilterPopupOpen(false);
     if (targetIds.length === 0) {
       setNotice(th ? "ไม่มีรายการตามตัวกรองให้ลบ" : "No filtered items available for bulk delete.");
       return;
@@ -385,6 +386,7 @@ export function StockProductsTable({
 
   function openBulkUnlinkPopup(scope: "all" | "selected") {
     const ids = scope === "all" ? filteredProducts.map((item) => item.id) : selectedFilteredProductIds;
+    setFilterPopupOpen(false);
     if (ids.length === 0) {
       setNotice(th ? "ไม่มีสินค้าตามตัวกรองให้ยกเลิกผูกวัตถุดิบ" : "No filtered products available to unlink recipes.");
       return;
@@ -437,7 +439,8 @@ export function StockProductsTable({
           : `Unlinked recipes for ${updatedCount} products${failedCount > 0 ? `, ${failedCount} failed` : ""}.`
       );
       setSelectedProductIds((prev) => prev.filter((id) => !ids.includes(id)));
-      closeBulkUnlinkPopup();
+      setBulkUnlinkScope(null);
+      setBulkUnlinkError("");
       router.refresh();
     } catch (error) {
       setBulkUnlinkError(error instanceof Error ? error.message : th ? "ยกเลิกผูกวัตถุดิบไม่สำเร็จ" : "Bulk unlink failed.");
@@ -537,7 +540,7 @@ export function StockProductsTable({
           action: "upsert_product",
           branch_id: branchId,
           id: item.id,
-          sku: item.sku ?? `SKU-${item.id.slice(0, 6).toUpperCase()}`,
+          sku: item.sku ?? Date.now().toString(),
           name: item.name,
           category: item.category ?? (th ? "ไม่ระบุหมวดหมู่" : "Uncategorized"),
           price: nextPrice,
@@ -977,6 +980,57 @@ export function StockProductsTable({
           {th ? `วัตถุดิบ (${ingredientList.length})` : `Ingredients (${ingredientList.length})`}
         </button>
       </div>
+
+      {canManageCatalog && (modeFilter === "ingredients" ? selectedFilteredIngredientIds.length > 0 : selectedFilteredProductIds.length > 0) ? (
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
+          <p className="text-xs font-bold text-slate-600">
+            {modeFilter === "ingredients"
+              ? th
+                ? `เลือกวัตถุดิบแล้ว ${selectedFilteredIngredientIds.length} รายการ`
+                : `${selectedFilteredIngredientIds.length} ingredients selected`
+              : th
+                ? `เลือกสินค้าแล้ว ${selectedFilteredProductIds.length} รายการ`
+                : `${selectedFilteredProductIds.length} products selected`}
+          </p>
+          <div className="flex flex-wrap gap-2">
+            {modeFilter !== "ingredients" ? (
+              <button
+                type="button"
+                onClick={() => openBulkUnlinkPopup("selected")}
+                className="inline-flex min-h-9 items-center rounded-lg border border-sky-200 bg-white px-3 text-xs font-bold text-sky-700 hover:bg-sky-50"
+              >
+                {th ? `ยกเลิกผูกวัตถุดิบที่เลือก (${selectedFilteredProductIds.length})` : `Unlink Selected (${selectedFilteredProductIds.length})`}
+              </button>
+            ) : null}
+            <button
+              type="button"
+              onClick={() => openBulkDeletePopup("selected")}
+              className="inline-flex min-h-9 items-center rounded-lg border border-red-200 bg-white px-3 text-xs font-bold text-red-700 hover:bg-red-50"
+            >
+              {modeFilter === "ingredients"
+                ? th
+                  ? `ลบวัตถุดิบที่เลือก (${selectedFilteredIngredientIds.length})`
+                  : `Delete Selected Ingredients (${selectedFilteredIngredientIds.length})`
+                : th
+                  ? `ลบ/ปิดการขายสินค้าที่เลือก (${selectedFilteredProductIds.length})`
+                  : `Delete/Deactivate Selected Products (${selectedFilteredProductIds.length})`}
+            </button>
+            <button
+              type="button"
+              onClick={() => openBulkDeletePopup("all")}
+              className="inline-flex min-h-9 items-center rounded-lg border border-amber-300 bg-amber-50 px-3 text-xs font-bold text-amber-800 hover:bg-amber-100"
+            >
+              {modeFilter === "ingredients"
+                ? th
+                  ? `ลบวัตถุดิบทั้งหมด (${filteredIngredients.length})`
+                  : `Delete All Ingredients (${filteredIngredients.length})`
+                : th
+                  ? `ลบ/ปิดการขายสินค้าทั้งหมด (${filteredProducts.length})`
+                  : `Delete/Deactivate All Products (${filteredProducts.length})`}
+            </button>
+          </div>
+        </div>
+      ) : null}
 
       {filterPopupOpen ? (
         <div className="fixed inset-0 z-[165] grid place-items-center bg-slate-900/35 p-4" onClick={() => setFilterPopupOpen(false)}>

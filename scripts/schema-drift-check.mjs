@@ -17,7 +17,9 @@ const requiredMigrations = [
   "202606040001_pos_settings_store_payment.sql",
   "202607120001_allow_overdue_shift_auto_close.sql",
   "202607180002_shared_recipe_stock_deduction.sql",
-  "202607180007_stock_realtime_publication.sql"
+  "202607180007_stock_realtime_publication.sql",
+  "20260728173858_print_agent_v1.sql",
+  "20260728180311_cash_drawer_v1.sql"
 ];
 
 const requiredSqlMarkers = [
@@ -28,6 +30,9 @@ const requiredSqlMarkers = [
   "create table if not exists branch_devices",
   "create table if not exists user_branch_roles",
   "create table if not exists pos_user_profiles",
+  "create table if not exists public.print_agents",
+  "create table if not exists public.cash_drawer_events",
+  "claimed_by_agent_id",
   "create or replace function app.enforce_shift_close_rules",
   "create or replace function app.consume_ingredient"
 ];
