@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { MouseEvent, useMemo } from "react";
+import { MouseEvent, useEffect, useMemo, useState } from "react";
 import { t, type Language } from "@/lib/i18n";
 import {
   POS_MENU_LOCK_TITLE_EN,
@@ -10,8 +10,17 @@ import {
   featureForPosRoute
 } from "@/lib/pos-feature-map";
 
-type IconName = "sales" | "list" | "stock" | "summary" | "receipt" | "tables" | "members" | "users" | "display" | "shift" | "logout";
+type IconName = "sales" | "list" | "stock" | "summary" | "receipt" | "tables" | "members" | "users" | "display" | "shift" | "logout" | "more";
 type PosRole = "owner" | "manager" | "staff" | "accountant";
+type MenuKey =
+  | "pos_menu_sales"
+  | "pos_menu_sales_list"
+  | "pos_menu_stock"
+  | "pos_menu_sales_summary"
+  | "pos_menu_receipts"
+  | "pos_menu_tables"
+  | "pos_menu_members"
+  | "pos_menu_shift";
 
 function LockIcon() {
   return (
@@ -129,6 +138,15 @@ function MenuIcon({ name }: { name: IconName }) {
       </svg>
     );
   }
+  if (name === "more") {
+    return (
+      <svg {...common}>
+        <circle cx="5" cy="12" r="1.6" />
+        <circle cx="12" cy="12" r="1.6" />
+        <circle cx="19" cy="12" r="1.6" />
+      </svg>
+    );
+  }
   return (
     <svg {...common}>
       <circle cx="12" cy="8" r="3" />
@@ -138,15 +156,7 @@ function MenuIcon({ name }: { name: IconName }) {
 }
 
 const MENU_DEFS: Array<{
-  key:
-    | "pos_menu_sales"
-    | "pos_menu_sales_list"
-    | "pos_menu_stock"
-    | "pos_menu_sales_summary"
-    | "pos_menu_receipts"
-    | "pos_menu_tables"
-    | "pos_menu_members"
-    | "pos_menu_shift";
+  key: MenuKey;
   href: string;
   icon: IconName;
   roles: PosRole[];
@@ -155,6 +165,20 @@ const MENU_DEFS: Array<{
   { key: "pos_menu_sales", href: "/preview/pos", icon: "sales", roles: ["owner", "manager", "staff"], feature: featureForPosRoute("/preview/pos") },
   { key: "pos_menu_sales_list", href: "/preview/pos/sales-list", icon: "list", roles: ["owner", "manager", "staff"], feature: featureForPosRoute("/preview/pos/sales-list") },
   { key: "pos_menu_shift", href: "/preview/pos/shift", icon: "shift", roles: ["owner", "manager", "staff"], feature: featureForPosRoute("/preview/pos/shift") }
+];
+
+const MORE_MENU_DEFS: Array<{
+  key: MenuKey;
+  href: string;
+  icon: IconName;
+  roles: PosRole[];
+  feature: ReturnType<typeof featureForPosRoute>;
+}> = [
+  { key: "pos_menu_sales_summary", href: "/preview/pos/sales-summary", icon: "summary", roles: ["owner", "manager", "staff"], feature: featureForPosRoute("/preview/pos/sales-summary") },
+  { key: "pos_menu_receipts", href: "/preview/pos/receipts", icon: "receipt", roles: ["owner", "manager", "staff"], feature: featureForPosRoute("/preview/pos/receipts") },
+  { key: "pos_menu_tables", href: "/preview/pos/tables", icon: "tables", roles: ["owner", "manager", "staff"], feature: featureForPosRoute("/preview/pos/tables") },
+  { key: "pos_menu_stock", href: "/preview/pos/stock", icon: "stock", roles: ["owner", "manager", "staff"], feature: featureForPosRoute("/preview/pos/stock") },
+  { key: "pos_menu_members", href: "/preview/pos/members", icon: "members", roles: ["owner", "manager", "staff"], feature: featureForPosRoute("/preview/pos/members") }
 ];
 
 function resolveMenuRole(role: PosRole | null): PosRole {
@@ -180,6 +204,7 @@ export function PosStaffMenu({
   onLockedFeature: () => void;
 }) {
   const pathname = usePathname();
+  const [moreOpen, setMoreOpen] = useState(false);
   const effectiveRole = resolveMenuRole(sessionRole);
   const menuItems = useMemo(
     () =>
@@ -192,6 +217,22 @@ export function PosStaffMenu({
       })).filter((item) => item.roles.includes(effectiveRole)),
     [effectiveRole, lang]
   );
+  const moreItems = useMemo(
+    () =>
+      MORE_MENU_DEFS.map((item) => ({
+        label: t(lang, item.key),
+        href: item.href,
+        icon: item.icon,
+        roles: item.roles,
+        feature: item.feature
+      })).filter((item) => item.roles.includes(effectiveRole)),
+    [effectiveRole, lang]
+  );
+  const isMoreActive = moreItems.some((item) => pathname === item.href);
+
+  useEffect(() => {
+    setMoreOpen(false);
+  }, [pathname]);
 
   function handleNavigate(event: MouseEvent<HTMLAnchorElement>, href: string) {
     if (
@@ -213,6 +254,7 @@ export function PosStaffMenu({
   function handleLockedNavigate(event: MouseEvent<HTMLAnchorElement>) {
     event.preventDefault();
     onLockedFeature();
+    setMoreOpen(false);
   }
 
   const isHorizontal = orientation === "horizontal";
@@ -256,6 +298,95 @@ export function PosStaffMenu({
           </Link>
         );
       })}
+      {moreItems.length > 0 ? (
+        <>
+          <button
+            type="button"
+            onClick={() => setMoreOpen((current) => !current)}
+            className={`group relative inline-flex min-h-[42px] items-center text-[13px] font-semibold leading-tight transition ${
+              isHorizontal
+                ? "shrink-0 justify-center gap-2 px-3"
+                : collapsed
+                  ? "justify-center px-2"
+                  : "justify-start gap-2 px-2"
+            } ${
+              isMoreActive || moreOpen
+                ? "rounded-xl border border-cyan-300/45 bg-[linear-gradient(145deg,rgba(59,130,246,0.45),rgba(14,165,233,0.35))] text-white shadow-[0_10px_24px_rgba(14,116,255,0.25),inset_0_1px_0_rgba(255,255,255,0.2)]"
+                : "rounded-xl text-slate-100/90 hover:bg-white/8 hover:text-white"
+            }`}
+            title={collapsed && !isHorizontal ? t(lang, "pos_menu_more") : undefined}
+            aria-expanded={moreOpen}
+            aria-haspopup="dialog"
+          >
+            <span className="inline-flex w-4 justify-center" aria-hidden>
+              <MenuIcon name="more" />
+            </span>
+            {(!collapsed || isHorizontal) ? <span className="truncate text-[13px]">{t(lang, "pos_menu_more")}</span> : null}
+          </button>
+
+          {moreOpen ? (
+            <div className="fixed inset-0 z-[88] grid place-items-center bg-slate-950/45 p-4" role="presentation" onMouseDown={() => setMoreOpen(false)}>
+              <section
+                role="dialog"
+                aria-modal="true"
+                aria-label={t(lang, "pos_menu_more_title")}
+                className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-4 text-slate-950 shadow-2xl"
+                onMouseDown={(event) => event.stopPropagation()}
+              >
+                <div className="flex items-start justify-between gap-3 border-b border-slate-100 pb-3">
+                  <div>
+                    <h3 className="text-lg font-black">{t(lang, "pos_menu_more_title")}</h3>
+                    <p className="mt-1 text-sm font-semibold text-slate-500">{t(lang, "pos_menu_more_desc")}</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setMoreOpen(false)}
+                    className="grid h-9 w-9 shrink-0 place-items-center rounded-lg border border-slate-200 bg-white text-sm font-black text-slate-700 hover:bg-slate-50"
+                    aria-label={lang === "th" ? "ปิด" : "Close"}
+                  >
+                    x
+                  </button>
+                </div>
+                <div className="mt-3 grid gap-2">
+                  {moreItems.map((item) => {
+                    const isActive = pathname === item.href;
+                    const isFeatureLoaded = enabledFeatures !== null;
+                    const isLocked = Boolean(isFeatureLoaded && item.feature && enabledFeatures?.[item.feature] === false);
+                    return (
+                      <Link
+                        key={item.href}
+                        href={item.href}
+                        onClick={(event) => {
+                          if (isLocked) {
+                            handleLockedNavigate(event);
+                            return;
+                          }
+                          handleNavigate(event, item.href);
+                          setMoreOpen(false);
+                        }}
+                        className={`grid min-h-[58px] grid-cols-[40px_1fr_auto] items-center gap-3 rounded-xl border px-3 py-2 text-left transition ${
+                          isActive
+                            ? "border-blue-400 bg-blue-50 text-blue-800"
+                            : isLocked
+                              ? "border-slate-200 bg-slate-50 text-slate-500"
+                              : "border-slate-200 bg-white text-slate-900 hover:border-blue-200 hover:bg-blue-50/60"
+                        }`}
+                        aria-disabled={isLocked}
+                      >
+                        <span className={`grid h-10 w-10 place-items-center rounded-lg ${isActive ? "bg-blue-600 text-white" : "bg-slate-100 text-slate-700"}`} aria-hidden>
+                          <MenuIcon name={item.icon} />
+                        </span>
+                        <span className="min-w-0 truncate text-sm font-black">{item.label}</span>
+                        {isLocked ? <LockIcon /> : <span className="text-slate-400" aria-hidden>›</span>}
+                      </Link>
+                    );
+                  })}
+                </div>
+              </section>
+            </div>
+          ) : null}
+        </>
+      ) : null}
     </nav>
   );
 }

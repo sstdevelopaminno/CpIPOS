@@ -459,11 +459,7 @@ export function TableManagementPage({ lang = "th", initialRole = null }: { lang?
 
   function navigateBack() {
     if (typeof window === "undefined") return;
-    if (window.history.length > 1) {
-      window.history.back();
-      return;
-    }
-    window.location.assign("/preview/pos/settings");
+    window.location.assign("/preview/pos");
   }
 
   function openEditTableEditor(table: DiningTableItem) {
@@ -1143,7 +1139,7 @@ export function TableManagementPage({ lang = "th", initialRole = null }: { lang?
             onClick={navigateBack}
             disabled={saving}
           >
-            {lang === "th" ? "← กลับ" : "← Back"}
+            {lang === "th" ? "← กลับหน้าขาย" : "← Back to Sales"}
           </button>
           <button
             type="button"
@@ -1602,5 +1598,3 @@ export function TableManagementPage({ lang = "th", initialRole = null }: { lang?
     </>
   );
 }
-
-

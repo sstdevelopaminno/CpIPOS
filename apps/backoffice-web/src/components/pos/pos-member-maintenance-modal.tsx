@@ -7,10 +7,11 @@ type Props = {
   lang: "th" | "en";
   title?: string;
   message?: string;
+  closeLabel?: string;
   onClose?: () => void;
 };
 
-export function PosMemberMaintenanceModal({ open, lang, title, message, onClose }: Props) {
+export function PosMemberMaintenanceModal({ open, lang, title, message, closeLabel, onClose }: Props) {
   if (!open) return null;
 
   const defaultCopy =
@@ -28,7 +29,8 @@ export function PosMemberMaintenanceModal({ open, lang, title, message, onClose 
   const copy = {
     ...defaultCopy,
     title: title ?? defaultCopy.title,
-    message: message ?? defaultCopy.message
+    message: message ?? defaultCopy.message,
+    close: closeLabel ?? defaultCopy.close
   };
 
   function close() {

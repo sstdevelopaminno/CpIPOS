@@ -8,7 +8,7 @@ import { PosManagerApprovalModal } from "@/components/pos-ui/pos-manager-approva
 import { PosUsersModule } from "@/components/pos/pos-users-module";
 import { InetNopsSettingsPanel } from "@/components/pos-preview/inet-nops-settings-panel";
 import { PackageLockDialog } from "@/components/pos-preview/package-lock-dialog";
-import { POS_SETTINGS_FEATURES, featureForPosRoute } from "@/lib/pos-feature-map";
+import { POS_SETTINGS_FEATURES } from "@/lib/pos-feature-map";
 import type {
   BranchSettings,
   PaymentAccountSettings,
@@ -3360,11 +3360,6 @@ export function PosSettingsWorkspace({ lang, initialData }: { lang: Language; in
     return Boolean(enabledFeatures !== null && enabledFeatures[feature] === false);
   }
 
-  function isRouteLocked(pathname: string) {
-    const feature = featureForPosRoute(pathname);
-    return Boolean(enabledFeatures !== null && feature && enabledFeatures[feature] === false);
-  }
-
   function openSettingsView(viewKey: Exclude<SettingsView, "menu">) {
     if (isSettingLocked(viewKey)) {
       setPackageLockOpen(true);
@@ -3374,8 +3369,8 @@ export function PosSettingsWorkspace({ lang, initialData }: { lang: Language; in
   }
 
   return (
-    <main className="min-h-full bg-slate-50 p-3 sm:p-5">
-      <section className="min-h-[calc(100vh-40px)] rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+    <main className="h-full min-h-0 overflow-y-auto bg-slate-50 p-3 sm:p-5">
+      <section className="min-h-full rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
         {status ? (
           <div className="mb-6 flex justify-end">
             <div className="rounded-lg border border-blue-100 bg-blue-50 px-3 py-2 text-sm font-bold text-blue-700">{status}</div>
@@ -3404,38 +3399,6 @@ export function PosSettingsWorkspace({ lang, initialData }: { lang: Language; in
               locked={isSettingLocked("inet_nops")}
             />
             <MenuButton icon="tax" title={labels.taxes} desc={labels.taxesDesc} onClick={() => openSettingsView("taxes")} locked={isSettingLocked("taxes")} />
-            <MenuLink
-              icon="stock"
-              title={labels.stockMenu}
-              desc={labels.stockMenuDesc}
-              href="/preview/pos/stock"
-              locked={isRouteLocked("/preview/pos/stock")}
-              onLocked={() => setPackageLockOpen(true)}
-            />
-            <MenuLink
-              icon="members"
-              title={labels.membersMenu}
-              desc={labels.membersMenuDesc}
-              href="/preview/pos/members"
-              locked={isRouteLocked("/preview/pos/members")}
-              onLocked={() => setPackageLockOpen(true)}
-            />
-            <MenuLink
-              icon="receipt"
-              title={labels.receiptsMenu}
-              desc={labels.receiptsMenuDesc}
-              href="/preview/pos/receipts"
-              locked={isRouteLocked("/preview/pos/receipts")}
-              onLocked={() => setPackageLockOpen(true)}
-            />
-            <MenuLink
-              icon="summary"
-              title={labels.salesSummaryMenu}
-              desc={labels.salesSummaryMenuDesc}
-              href="/preview/pos/sales-summary"
-              locked={isRouteLocked("/preview/pos/sales-summary")}
-              onLocked={() => setPackageLockOpen(true)}
-            />
             <MenuButton
               icon="bell"
               title={lang === "en" ? "Notification Settings" : "ตั้งค่าการแจ้งเตือน"}
@@ -3446,14 +3409,6 @@ export function PosSettingsWorkspace({ lang, initialData }: { lang: Language; in
             <MenuButton icon="users" title={labels.users} desc={labels.usersDesc} onClick={() => openSettingsView("users")} locked={isSettingLocked("users")} />
             <MenuButton icon="language" title={labels.language} desc={labels.languageDesc} onClick={() => setLanguagePopupOpen(true)} />
             <MenuButton icon="language" title={labels.mainMenuPlacement} desc={labels.mainMenuPlacementDesc} onClick={() => setMenuPlacementPopupOpen(true)} />
-            <MenuLink
-              icon="tables"
-              title={lang === "en" ? "Table Management" : "จัดการโต๊ะ"}
-              desc={lang === "en" ? "Manage dine-in tables, zones, and floor layout" : "จัดการโต๊ะ โซน และผังร้านสำหรับโหมดนั่งโต๊ะ"}
-              href="/preview/pos/tables"
-              locked={Boolean(enabledFeatures !== null && enabledFeatures.table_management === false)}
-              onLocked={() => setPackageLockOpen(true)}
-            />
             <MenuLink icon="display" title={labels.display} desc={labels.displayDesc} href="/preview/pos/customer-display" locked={isSettingLocked("display")} onLocked={() => setPackageLockOpen(true)} />
           </div>
         ) : null}

@@ -497,8 +497,9 @@ ORDER BY p.name;
 
 ## POS Navigation Settings (2026-07-29)
 
-- POS sidebar main menu was simplified: Product Management, Members, Receipt History, and Sales Summary moved into `/preview/pos/settings` as submenu links.
-- Keep these moved route links feature-gated with `featureForPosRoute()` in `pos-settings-workspace.tsx`; do not re-add them to `pos-staff-menu.tsx` unless product direction changes.
+- POS sidebar main menu was simplified: Sales Summary, Receipt History, Table Management, Product Management, and Members moved into the `More` / `เพิ่มเติม` popup shown after Open/Close Shift.
+- Keep these moved route links feature-gated with `featureForPosRoute()` in `pos-staff-menu.tsx`; do not move them back to `pos-settings-workspace.tsx` unless product direction changes.
+- Each moved page must keep a deterministic Back to Sales button linking to `/preview/pos`.
 - Settings now has `Change Language` and `Main Menu Position` popups.
 - Main menu placement moves the whole POS navigation bar: `left` keeps the original vertical sidebar, `top` uses a horizontal top bar, and `bottom` uses a horizontal bottom bar.
 - Main menu placement is client-side per terminal using localStorage key `pos_main_menu_bar_position_v2` and event `pos-main-menu-placement-updated`.

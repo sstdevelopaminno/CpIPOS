@@ -1,5 +1,6 @@
 ﻿import { AddProductPopupButton } from "@/components/pos-preview/add-product-popup-button";
 import type { BranchRole } from "@pos/shared-types";
+import { PosBackButton } from "@/components/pos-preview/pos-back-button";
 import { StockBranchSelector } from "@/components/pos-preview/stock-branch-selector";
 import { StockProductsTable } from "@/components/pos-preview/stock-products-table";
 import { cookies } from "next/headers";
@@ -459,6 +460,7 @@ export default async function PosStockPage({
       <div className="border-b border-slate-200 bg-[linear-gradient(130deg,#f8fbff_0%,#f2f7ff_34%,#fff7ed_100%)] px-4 py-4 lg:px-6 lg:py-5">
         <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(320px,420px)_auto] lg:items-start">
           <div>
+            <PosBackButton lang={lang} className="mb-3" />
             <h2 className="mt-1 text-xl font-extrabold text-slate-900 lg:text-2xl">
               {t(lang, "pos_stock_title")}
             </h2>
@@ -513,8 +515,6 @@ export default async function PosStockPage({
     </section>
   );
 }
-
-
 
 
 

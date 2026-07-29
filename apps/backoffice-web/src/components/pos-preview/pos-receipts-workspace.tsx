@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
+import { PosBackButton } from "@/components/pos-preview/pos-back-button";
 import type { Language } from "@/lib/i18n";
 
 type ReceiptItem = {
@@ -628,6 +629,7 @@ export function PosReceiptsWorkspace({ lang }: { lang: Language }) {
       <section className="mx-auto grid max-w-[1480px] gap-4">
         <header className="flex flex-wrap items-end justify-between gap-3">
           <div>
+            <PosBackButton lang={lang} className="mb-3" />
             <h1 className="m-0 text-[26px] font-black tracking-normal text-slate-950">{copy.title}</h1>
             <p className="mt-1 max-w-3xl text-sm text-slate-600">{copy.desc}</p>
           </div>
