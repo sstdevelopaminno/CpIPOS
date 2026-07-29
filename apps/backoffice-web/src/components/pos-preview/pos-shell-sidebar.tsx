@@ -12,19 +12,13 @@ import {
   featureForPosRoute
 } from "@/lib/pos-feature-map";
 type PosRole = "owner" | "manager" | "staff" | "accountant";
-type MainMenuPlacement = "top" | "bottom";
+type MainMenuPlacement = "left" | "top" | "bottom";
 const POS_ROLE_STORAGE_KEY = "pos_session_role_v1";
 const POS_ROLE_EVENT_NAME = "pos-session-role-updated";
-const POS_MAIN_MENU_PLACEMENT_KEY = "pos_main_menu_placement_v1";
-const POS_MAIN_MENU_PLACEMENT_EVENT = "pos-main-menu-placement-updated";
 
 function normalizePosRole(value: string): PosRole | null {
   if (value === "owner" || value === "manager" || value === "staff" || value === "accountant") return value;
   return null;
-}
-
-function normalizeMenuPlacement(value: string | null | undefined): MainMenuPlacement {
-  return value === "bottom" ? "bottom" : "top";
 }
 
 function LogoutIcon() {
@@ -50,11 +44,12 @@ function LogoutIcon() {
 type Props = {
   lang: Language;
   settingsLabel: string;
+  placement: MainMenuPlacement;
 };
 
 const COMPACT_SIDEBAR_QUERY = "(min-width: 768px) and (max-width: 1180px) and (orientation: landscape)";
 
-export function PosShellSidebar({ lang, settingsLabel }: Props) {
+export function PosShellSidebar({ lang, settingsLabel, placement }: Props) {
   const [collapsed, setCollapsed] = useState(false);
   const pathname = usePathname();
   const [sessionRole, setSessionRole] = useState<PosRole | null>(null);
@@ -63,7 +58,7 @@ export function PosShellSidebar({ lang, settingsLabel }: Props) {
   const [logoutModalOpen, setLogoutModalOpen] = useState(false);
   const [logoutBusyMode, setLogoutBusyMode] = useState<"switch_device" | "full" | null>(null);
   const [logoutError, setLogoutError] = useState<string | null>(null);
-  const [menuPlacement, setMenuPlacement] = useState<MainMenuPlacement>("top");
+  const isHorizontal = placement === "top" || placement === "bottom";
   const isSettingsActive = pathname === "/preview/pos/settings";
   const showAdvancedMenus = sessionRole === null || sessionRole === "owner";
   const settingsFeature = featureForPosRoute("/preview/pos/settings");
@@ -84,33 +79,6 @@ export function PosShellSidebar({ lang, settingsLabel }: Props) {
     mediaQuery.addEventListener("change", collapseForCompactWidth);
     return () => {
       mediaQuery.removeEventListener("change", collapseForCompactWidth);
-    };
-  }, []);
-
-  useEffect(() => {
-    const readPlacement = () => {
-      try {
-        setMenuPlacement(normalizeMenuPlacement(window.localStorage.getItem(POS_MAIN_MENU_PLACEMENT_KEY)));
-      } catch {
-        setMenuPlacement("top");
-      }
-    };
-    const onPlacementUpdated = (event: Event) => {
-      const detail = (event as CustomEvent<{ placement?: string | null }>).detail;
-      setMenuPlacement(normalizeMenuPlacement(detail?.placement));
-    };
-    const onStorage = (event: StorageEvent) => {
-      if (event.key === POS_MAIN_MENU_PLACEMENT_KEY) {
-        setMenuPlacement(normalizeMenuPlacement(event.newValue));
-      }
-    };
-
-    readPlacement();
-    window.addEventListener(POS_MAIN_MENU_PLACEMENT_EVENT, onPlacementUpdated as EventListener);
-    window.addEventListener("storage", onStorage);
-    return () => {
-      window.removeEventListener(POS_MAIN_MENU_PLACEMENT_EVENT, onPlacementUpdated as EventListener);
-      window.removeEventListener("storage", onStorage);
     };
   }, []);
 
@@ -207,14 +175,16 @@ export function PosShellSidebar({ lang, settingsLabel }: Props) {
 
   return (
     <aside
-      className={`pos-shell-sidebar hidden h-full min-h-0 shrink-0 overflow-hidden border-r border-slate-900/40 bg-[radial-gradient(circle_at_80%_-20%,rgba(56,189,248,0.28),transparent_45%),radial-gradient(circle_at_20%_120%,rgba(37,99,235,0.26),transparent_40%),linear-gradient(185deg,#07142c,#081c3b_45%,#071731)] p-3 text-white md:flex md:flex-col ${
-        collapsed ? "md:w-[68px] xl:w-[70px]" : "md:w-[188px] xl:w-[214px]"
-      } ${collapsed ? "is-collapsed" : "is-expanded"}`}
+      className={`pos-shell-sidebar pos-shell-sidebar--${placement} hidden min-h-0 shrink-0 overflow-hidden border-slate-900/40 bg-[radial-gradient(circle_at_80%_-20%,rgba(56,189,248,0.28),transparent_45%),radial-gradient(circle_at_20%_120%,rgba(37,99,235,0.26),transparent_40%),linear-gradient(185deg,#07142c,#081c3b_45%,#071731)] p-3 text-white md:flex ${
+        isHorizontal
+          ? "h-[78px] w-full flex-row items-center gap-3 border-r-0"
+          : `h-full flex-col border-r ${collapsed ? "md:w-[68px] xl:w-[70px]" : "md:w-[188px] xl:w-[214px]"}`
+      } ${!isHorizontal && collapsed ? "is-collapsed" : "is-expanded"}`}
     >
-      <div className={`pos-shell-sidebar__brand shrink-0 ${collapsed ? "flex justify-center" : ""}`}>
+      <div className={`pos-shell-sidebar__brand shrink-0 ${collapsed || isHorizontal ? "flex justify-center" : ""}`}>
         <div
           className={`pos-shell-sidebar__logo ${
-            collapsed ? "pos-shell-sidebar__logo--collapsed" : ""
+            collapsed || isHorizontal ? "pos-shell-sidebar__logo--collapsed" : ""
           }`}
         >
           <span
@@ -225,26 +195,29 @@ export function PosShellSidebar({ lang, settingsLabel }: Props) {
         </div>
       </div>
 
-      <div className={`mt-3 flex shrink-0 items-center ${collapsed ? "justify-center" : "justify-between"}`}>
-        {!collapsed ? <p className="text-[12px] font-semibold text-slate-200">{t(lang, "pos_sidebar_staff_menu")}</p> : null}
-        <button
-          type="button"
-          className="inline-flex h-[34px] min-w-[34px] items-center justify-center rounded-lg border border-white/20 bg-slate-900/45 p-0 text-slate-100 transition hover:bg-slate-900/70"
-          onClick={() => setCollapsed((current) => !current)}
-          aria-label={collapsed ? t(lang, "pos_sidebar_expand_labels") : t(lang, "pos_sidebar_collapse_labels")}
-          title={collapsed ? t(lang, "pos_sidebar_expand") : t(lang, "pos_sidebar_collapse")}
-        >
-          <svg viewBox="0 0 20 20" width="14" height="14" fill="currentColor" aria-hidden>
-            {collapsed ? <path d="M7 4l6 6-6 6" /> : <path d="M13 4l-6 6 6 6" />}
-          </svg>
-        </button>
-      </div>
+      {!isHorizontal ? (
+        <div className={`mt-3 flex shrink-0 items-center ${collapsed ? "justify-center" : "justify-between"}`}>
+          {!collapsed ? <p className="text-[12px] font-semibold text-slate-200">{t(lang, "pos_sidebar_staff_menu")}</p> : null}
+          <button
+            type="button"
+            className="inline-flex h-[34px] min-w-[34px] items-center justify-center rounded-lg border border-white/20 bg-slate-900/45 p-0 text-slate-100 transition hover:bg-slate-900/70"
+            onClick={() => setCollapsed((current) => !current)}
+            aria-label={collapsed ? t(lang, "pos_sidebar_expand_labels") : t(lang, "pos_sidebar_collapse_labels")}
+            title={collapsed ? t(lang, "pos_sidebar_expand") : t(lang, "pos_sidebar_collapse")}
+          >
+            <svg viewBox="0 0 20 20" width="14" height="14" fill="currentColor" aria-hidden>
+              {collapsed ? <path d="M7 4l6 6-6 6" /> : <path d="M13 4l-6 6 6 6" />}
+            </svg>
+          </button>
+        </div>
+      ) : null}
 
-      <div className="pos-shell-sidebar__menu-scroll mt-2 min-h-0 flex-1 overflow-y-auto overscroll-contain" suppressHydrationWarning>
-        <div className={`flex min-h-full flex-col ${menuPlacement === "bottom" ? "justify-end" : "justify-start"}`}>
+      <div className={`${isHorizontal ? "min-w-0 flex-1 overflow-hidden" : "pos-shell-sidebar__menu-scroll mt-2 min-h-0 flex-1 overflow-y-auto overscroll-contain"}`} suppressHydrationWarning>
+        <div className={`${isHorizontal ? "flex min-w-0 items-center gap-1" : "flex min-h-full flex-col justify-start"}`}>
           <PosStaffMenu
             lang={lang}
-            collapsed={collapsed}
+            collapsed={isHorizontal ? false : collapsed}
+            orientation={isHorizontal ? "horizontal" : "vertical"}
             sessionRole={sessionRole}
             enabledFeatures={enabledFeatures}
             onLockedFeature={() => setPackageLockOpen(true)}
@@ -254,8 +227,12 @@ export function PosShellSidebar({ lang, settingsLabel }: Props) {
             <Link
               href="/preview/pos/settings"
               onClick={handleSettingsNavigate}
-              className={`group relative mt-0.5 inline-flex min-h-[40px] w-full items-center px-2 text-[13px] font-semibold leading-tight transition ${
-                collapsed ? "justify-center" : "justify-start gap-2"
+              className={`group relative inline-flex min-h-[40px] items-center text-[13px] font-semibold leading-tight transition ${
+                isHorizontal
+                  ? "w-auto shrink-0 justify-center gap-2 px-3"
+                  : collapsed
+                    ? "mt-0.5 w-full justify-center px-2"
+                    : "mt-0.5 w-full justify-start gap-2 px-2"
               } ${
                 isSettingsActive
                   ? "rounded-xl border border-blue-400/40 bg-blue-500/25 text-white"
@@ -263,7 +240,7 @@ export function PosShellSidebar({ lang, settingsLabel }: Props) {
                     ? "rounded-xl text-slate-400/70"
                     : "rounded-xl text-slate-100/90 hover:bg-white/5 hover:text-white"
               }`}
-              title={collapsed ? settingsLabel : isSettingsLocked ? (lang === "th" ? POS_MENU_LOCK_TITLE_TH : POS_MENU_LOCK_TITLE_EN) : undefined}
+              title={collapsed && !isHorizontal ? settingsLabel : isSettingsLocked ? (lang === "th" ? POS_MENU_LOCK_TITLE_TH : POS_MENU_LOCK_TITLE_EN) : undefined}
               aria-disabled={isSettingsLocked}
             >
               <span className="inline-flex w-4 justify-center" aria-hidden>
@@ -281,29 +258,33 @@ export function PosShellSidebar({ lang, settingsLabel }: Props) {
                   <path d="M19.4 15a1.7 1.7 0 0 0 .33 1.82l.03.03a2 2 0 1 1-2.83 2.83l-.03-.03A1.7 1.7 0 0 0 15 19.4a1.7 1.7 0 0 0-1 .6 1.7 1.7 0 0 0-.4 1.1V21a2 2 0 1 1-4 0v-.04A1.7 1.7 0 0 0 8.6 19.4a1.7 1.7 0 0 0-1.82.33l-.03.03a2 2 0 1 1-2.83-2.83l.03-.03A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-.6-1 1.7 1.7 0 0 0-1.1-.4H2.96a2 2 0 1 1 0-4H3a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.33-1.82l-.03-.03a2 2 0 1 1 2.83-2.83l.03.03A1.7 1.7 0 0 0 9 4.6c.36 0 .7-.13 1-.38.27-.25.43-.6.4-.96V3a2 2 0 1 1 4 0v.04c-.03.37.12.72.4.96.3.25.64.38 1 .38a1.7 1.7 0 0 0 1.82-.33l.03-.03a2 2 0 1 1 2.83 2.83l-.03.03a1.7 1.7 0 0 0-.33 1.82c.1.38.35.73.72.95.29.18.62.27.95.25H21a2 2 0 1 1 0 4h-.04c-.37-.03-.72.12-.96.4-.24.3-.37.64-.36 1z" />
                 </svg>
               </span>
-              {!collapsed ? <span className="truncate text-[13px]">{settingsLabel}</span> : null}
+              {(!collapsed || isHorizontal) ? <span className="truncate text-[13px]">{settingsLabel}</span> : null}
             </Link>
           ) : null}
         </div>
       </div>
 
-      <div className="grid shrink-0 gap-2 pt-2">
+      <div className={`${isHorizontal ? "shrink-0" : "grid shrink-0 gap-2 pt-2"}`}>
         <button
           type="button"
           onClick={() => {
             if (!logoutBusyMode) setLogoutModalOpen(true);
           }}
           disabled={Boolean(logoutBusyMode)}
-          className={`group inline-flex min-h-[42px] w-full items-center px-2 text-[13px] font-semibold leading-tight text-slate-100/90 transition hover:bg-white/8 hover:text-white disabled:cursor-wait disabled:opacity-60 ${
-            collapsed ? "justify-center rounded-xl" : "justify-start gap-2 rounded-xl"
+          className={`group inline-flex min-h-[42px] items-center text-[13px] font-semibold leading-tight text-slate-100/90 transition hover:bg-white/8 hover:text-white disabled:cursor-wait disabled:opacity-60 ${
+            isHorizontal
+              ? "w-auto justify-center gap-2 rounded-xl px-3"
+              : collapsed
+                ? "w-full justify-center rounded-xl px-2"
+                : "w-full justify-start gap-2 rounded-xl px-2"
           }`}
-          title={collapsed ? t(lang, "pos_menu_logout") : undefined}
+          title={collapsed && !isHorizontal ? t(lang, "pos_menu_logout") : undefined}
           aria-label={t(lang, "pos_menu_logout")}
         >
           <span className="inline-flex w-4 justify-center">
             <LogoutIcon />
           </span>
-          {!collapsed ? <span className="truncate text-[13px]">{t(lang, "pos_menu_logout")}</span> : null}
+          {(!collapsed || isHorizontal) ? <span className="truncate text-[13px]">{t(lang, "pos_menu_logout")}</span> : null}
         </button>
       </div>
 

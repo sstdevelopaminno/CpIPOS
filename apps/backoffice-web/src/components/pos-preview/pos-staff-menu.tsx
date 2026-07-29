@@ -167,12 +167,14 @@ function resolveMenuRole(role: PosRole | null): PosRole {
 export function PosStaffMenu({
   lang,
   collapsed,
+  orientation = "vertical",
   sessionRole,
   enabledFeatures,
   onLockedFeature
 }: {
   lang: Language;
   collapsed: boolean;
+  orientation?: "vertical" | "horizontal";
   sessionRole: PosRole | null;
   enabledFeatures: Record<string, boolean> | null;
   onLockedFeature: () => void;
@@ -213,8 +215,14 @@ export function PosStaffMenu({
     onLockedFeature();
   }
 
+  const isHorizontal = orientation === "horizontal";
+
   return (
-    <nav className="grid gap-1" aria-label={t(lang, "pos_menu_staff_aria")} suppressHydrationWarning>
+    <nav
+      className={isHorizontal ? "flex min-w-0 flex-1 items-center gap-1 overflow-x-auto overscroll-contain" : "grid gap-1"}
+      aria-label={t(lang, "pos_menu_staff_aria")}
+      suppressHydrationWarning
+    >
       {menuItems.map((item) => {
         const isActive = pathname === item.href;
         const isFeatureLoaded = enabledFeatures !== null;
@@ -224,8 +232,12 @@ export function PosStaffMenu({
             key={item.href}
             href={item.href}
             onClick={(event) => (isLocked ? handleLockedNavigate(event) : handleNavigate(event, item.href))}
-            className={`group relative inline-flex min-h-[42px] items-center px-2 text-[13px] font-semibold leading-tight transition ${
-              collapsed ? "justify-center" : "justify-start gap-2"
+            className={`group relative inline-flex min-h-[42px] items-center text-[13px] font-semibold leading-tight transition ${
+              isHorizontal
+                ? "shrink-0 justify-center gap-2 px-3"
+                : collapsed
+                  ? "justify-center px-2"
+                  : "justify-start gap-2 px-2"
             } ${
               isActive
                 ? "rounded-xl border border-cyan-300/45 bg-[linear-gradient(145deg,rgba(59,130,246,0.45),rgba(14,165,233,0.35))] text-white shadow-[0_10px_24px_rgba(14,116,255,0.25),inset_0_1px_0_rgba(255,255,255,0.2)]"
@@ -233,14 +245,14 @@ export function PosStaffMenu({
                   ? "rounded-xl text-slate-400/85 hover:bg-white/5 hover:text-slate-200"
                   : "rounded-xl text-slate-100/90 hover:bg-white/8 hover:text-white"
             }`}
-            title={collapsed ? item.label : isLocked ? (lang === "th" ? POS_MENU_LOCK_TITLE_TH : POS_MENU_LOCK_TITLE_EN) : undefined}
+            title={collapsed && !isHorizontal ? item.label : isLocked ? (lang === "th" ? POS_MENU_LOCK_TITLE_TH : POS_MENU_LOCK_TITLE_EN) : undefined}
             aria-disabled={isLocked}
           >
             <span className="inline-flex w-4 justify-center" aria-hidden>
               <MenuIcon name={item.icon} />
             </span>
-            {!collapsed ? <span className="truncate text-[13px]">{item.label}</span> : null}
-            {isLocked ? <span className={`ml-auto inline-flex text-slate-300 ${collapsed ? "absolute right-1 top-1" : ""}`}><LockIcon /></span> : null}
+            {(!collapsed || isHorizontal) ? <span className="truncate text-[13px]">{item.label}</span> : null}
+            {isLocked ? <span className={`ml-auto inline-flex text-slate-300 ${collapsed && !isHorizontal ? "absolute right-1 top-1" : ""}`}><LockIcon /></span> : null}
           </Link>
         );
       })}

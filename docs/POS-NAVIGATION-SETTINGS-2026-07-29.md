@@ -13,11 +13,12 @@
 ## Main Menu Placement
 
 - The settings page includes a submenu named `Main Menu Position` / `สลับแถบเมนูหลัก`.
-- Clicking it opens a popup with two choices:
-  - `top`: main menu appears near the top under the brand.
-  - `bottom`: main menu appears at the bottom of the scroll area, above logout.
+- Clicking it opens a popup with three choices for the whole navigation bar, not just the item group inside the left sidebar:
+  - `left`: original vertical sidebar on the left.
+  - `top`: horizontal navigation bar at the top of the POS screen.
+  - `bottom`: horizontal navigation bar at the bottom of the POS screen.
 - The setting is client-side per POS terminal and intentionally does not require a schema migration.
-- Storage key: `pos_main_menu_placement_v1`.
+- Storage key: `pos_main_menu_bar_position_v2`.
 - Cross-component event: `pos-main-menu-placement-updated`.
 
 ## Implementation Files
@@ -26,9 +27,11 @@
   - Defines the daily POS sidebar items.
   - Do not re-add Product Management, Members, Receipt History, or Sales Summary here unless product direction changes.
 - `apps/backoffice-web/src/components/pos-preview/pos-shell-sidebar.tsx`
-  - Reads `pos_main_menu_placement_v1`.
+  - Renders left vertical and top/bottom horizontal navigation variants.
+- `apps/backoffice-web/src/components/pos-preview/pos-shell-frame.tsx`
+  - Reads `pos_main_menu_bar_position_v2`.
   - Listens for `pos-main-menu-placement-updated`.
-  - Applies top/bottom placement inside the sidebar scroll region.
+  - Reorders the sidebar and content area for left/top/bottom placement.
 - `apps/backoffice-web/src/components/pos-preview/pos-settings-workspace.tsx`
   - Owns settings submenu links for the moved menu items.
   - Owns the language popup and main menu placement popup.

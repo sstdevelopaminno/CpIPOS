@@ -3,8 +3,8 @@ import type { Viewport } from "next";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { PosShiftCycleGuard } from "@/components/pos/pos-shift-cycle-guard";
+import { PosShellFrame } from "@/components/pos-preview/pos-shell-frame";
 import { PosRoutePerformanceTracker } from "@/components/pos-preview/pos-route-performance-tracker";
-import { PosShellSidebar } from "@/components/pos-preview/pos-shell-sidebar";
 import { PosViewportGuard } from "@/components/pos-preview/pos-viewport-guard";
 import { getCurrentLanguage, t } from "@/lib/i18n";
 
@@ -44,16 +44,9 @@ export default async function PosPreviewLayout({
       <PosShiftCycleGuard lang={lang} />
       <PosViewportGuard lang={lang} />
 
-      <div className="pos-app-frame flex h-full min-h-0 w-full overflow-hidden">
-        <PosShellSidebar
-          lang={lang}
-          settingsLabel={t(lang, "common_settings")}
-        />
-
-        <section className="pos-app-content-area flex min-h-0 min-w-0 flex-1 overflow-hidden py-4 pl-4 pr-2 lg:pl-5 lg:pr-3">
-          {children}
-        </section>
-      </div>
+      <PosShellFrame lang={lang} settingsLabel={t(lang, "common_settings")}>
+        {children}
+      </PosShellFrame>
     </main>
   );
 }

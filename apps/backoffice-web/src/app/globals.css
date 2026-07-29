@@ -643,9 +643,34 @@ a {
 .pos-shell-sidebar {
   transition:
     width 0.28s ease,
+    height 0.28s ease,
     padding 0.28s ease,
     border-color 0.28s ease;
   will-change: width;
+}
+
+.pos-shell-sidebar--top {
+  border-bottom-width: 1px;
+}
+
+.pos-shell-sidebar--bottom {
+  border-top-width: 1px;
+}
+
+.pos-shell-sidebar--top,
+.pos-shell-sidebar--bottom {
+  min-width: 0;
+}
+
+.pos-shell-sidebar--top .pos-shell-sidebar__brand,
+.pos-shell-sidebar--bottom .pos-shell-sidebar__brand {
+  min-height: 42px;
+  width: 46px;
+}
+
+.pos-shell-sidebar--top .pos-shell-sidebar__menu-scroll,
+.pos-shell-sidebar--bottom .pos-shell-sidebar__menu-scroll {
+  min-width: 0;
 }
 
 .pos-shell-sidebar__logo {
@@ -9646,8 +9671,23 @@ body:has(.pos-app-root) {
   min-height: 0;
 }
 
+.pos-app-frame--left {
+  flex-direction: row;
+}
+
+.pos-app-frame--top,
+.pos-app-frame--bottom {
+  flex-direction: column;
+}
+
 .pos-app-content-area {
   justify-content: center;
+  padding: 16px 8px 16px 16px;
+}
+
+.pos-app-frame--top .pos-app-content-area,
+.pos-app-frame--bottom .pos-app-content-area {
+  padding: 12px;
 }
 
 .pos-app-content-area > * {
@@ -9783,19 +9823,24 @@ body:has(.pos-app-root) {
     padding: 8px 6px;
   }
 
-  .pos-shell-sidebar.is-collapsed {
+  .pos-app-frame--top .pos-app-content-area,
+  .pos-app-frame--bottom .pos-app-content-area {
+    padding: 6px;
+  }
+
+  .pos-shell-sidebar--left.is-collapsed {
     width: 68px !important;
     padding: 8px;
   }
 
-  .pos-shell-sidebar.is-collapsed nav a,
-  .pos-shell-sidebar.is-collapsed nav button {
+  .pos-shell-sidebar--left.is-collapsed nav a,
+  .pos-shell-sidebar--left.is-collapsed nav button {
     justify-content: center;
     min-height: 44px;
     padding-inline: 0;
   }
 
-  .pos-shell-sidebar.is-collapsed nav span:not([aria-hidden]) {
+  .pos-shell-sidebar--left.is-collapsed nav span:not([aria-hidden]) {
     display: none;
   }
 

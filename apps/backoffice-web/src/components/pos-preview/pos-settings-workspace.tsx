@@ -24,12 +24,12 @@ import type { Language } from "@/lib/i18n";
 
 type SettingsView = "menu" | "store" | "branches" | "devices" | "printers" | "activity" | "payments" | "inet_nops" | "taxes" | "notifications" | "users";
 type MenuIconName = "store" | "branch" | "payment" | "tax" | "users" | "display" | "terminal" | "activity" | "bell" | "tables" | "language" | "stock" | "summary" | "receipt" | "members" | "back" | "edit" | "trash" | "plus";
-type MainMenuPlacement = "top" | "bottom";
+type MainMenuPlacement = "left" | "top" | "bottom";
 const POS_TAX_SETTINGS_UPDATED_EVENT = "pos:tax-settings-updated";
 const POS_TAX_SETTINGS_UPDATED_KEY = "pos_tax_settings_updated_at_v001";
 const POS_PAYMENT_SETTINGS_UPDATED_EVENT = "pos:payment-settings-updated";
 const POS_PAYMENT_SETTINGS_UPDATED_KEY = "pos_payment_settings_updated_at_v001";
-const POS_MAIN_MENU_PLACEMENT_KEY = "pos_main_menu_placement_v1";
+const POS_MAIN_MENU_PLACEMENT_KEY = "pos_main_menu_bar_position_v2";
 const POS_MAIN_MENU_PLACEMENT_EVENT = "pos-main-menu-placement-updated";
 
 function persistPosLanguage(nextLang: Language) {
@@ -38,7 +38,8 @@ function persistPosLanguage(nextLang: Language) {
 }
 
 function normalizeMainMenuPlacement(value: string | null | undefined): MainMenuPlacement {
-  return value === "bottom" ? "bottom" : "top";
+  if (value === "top" || value === "bottom") return value;
+  return "left";
 }
 
 function persistMainMenuPlacement(placement: MainMenuPlacement) {
@@ -166,13 +167,15 @@ const TEXT = {
     thai: "ไทย",
     english: "English",
     mainMenuPlacement: "สลับแถบเมนูหลัก",
-    mainMenuPlacementDesc: "เลือกให้เมนูหลักแสดงด้านบนหรือด้านล่างของแถบซ้าย",
+    mainMenuPlacementDesc: "ย้ายแถบเมนูหลักไปซ้ายแบบเดิม ด้านบน หรือด้านล่างของหน้าจอ",
     mainMenuPlacementTitle: "สลับตำแหน่งแถบเมนูหลัก",
     mainMenuPlacementChoose: "เลือกตำแหน่งที่เหมาะกับการใช้งานหน้าร้าน",
-    mainMenuTop: "ไว้ด้านบน",
-    mainMenuTopDesc: "เมนูหลักอยู่ใต้โลโก้ เหมาะกับจอกว้างและการใช้งานทั่วไป",
-    mainMenuBottom: "ไว้ด้านล่าง",
-    mainMenuBottomDesc: "เมนูหลักอยู่ใกล้ปุ่มออกจากระบบ เหมาะกับแท็บเล็ตหรือจอแนวตั้ง",
+    mainMenuLeft: "ซ้ายแบบเดิม",
+    mainMenuLeftDesc: "ใช้แถบเมนูแนวตั้งด้านซ้ายเหมือนเดิม พร้อมโลโก้และปุ่มออกจากระบบด้านล่าง",
+    mainMenuTop: "ย้ายไปด้านบน",
+    mainMenuTopDesc: "แถบเมนูหลักเป็นแนวนอนด้านบน เหมาะกับจอกว้างหรือเคาน์เตอร์ที่ต้องการพื้นที่ซ้ายขวา",
+    mainMenuBottom: "ย้ายไปด้านล่าง",
+    mainMenuBottomDesc: "แถบเมนูหลักเป็นแนวนอนด้านล่าง เหมาะกับแท็บเล็ตหรือหน้าจอที่ต้องแตะจากขอบล่าง",
     activityAudit: "ตรวจสอบพฤติกรรมการใช้งาน",
     activityAuditDesc: "บันทึกว่าใครทำอะไร เมนูไหน เวลาใด พร้อม PIN และการอนุมัติ",
     pinConfirmTitle: "ยืนยัน PIN ก่อนเปิดดู",
@@ -309,13 +312,15 @@ const TEXT = {
     thai: "Thai",
     english: "English",
     mainMenuPlacement: "Main Menu Position",
-    mainMenuPlacementDesc: "Place the main menu at the top or bottom of the left sidebar",
+    mainMenuPlacementDesc: "Move the main menu bar to the original left side, the top, or the bottom of the screen",
     mainMenuPlacementTitle: "Change Main Menu Position",
     mainMenuPlacementChoose: "Choose the position that best fits the counter screen",
-    mainMenuTop: "Place at top",
-    mainMenuTopDesc: "Main menu sits under the logo for wide screens and general use",
-    mainMenuBottom: "Place at bottom",
-    mainMenuBottomDesc: "Main menu sits near logout for tablets or vertical screens",
+    mainMenuLeft: "Original left bar",
+    mainMenuLeftDesc: "Use the original vertical sidebar with logo and logout at the bottom",
+    mainMenuTop: "Move to top",
+    mainMenuTopDesc: "Use a horizontal main menu bar at the top for wide counter screens",
+    mainMenuBottom: "Move to bottom",
+    mainMenuBottomDesc: "Use a horizontal main menu bar at the bottom for tablets and lower-edge touch access",
     activityAudit: "Usage Behavior Audit",
     activityAuditDesc: "Track who did what, which menu, time, PIN, and approvals",
     pinConfirmTitle: "Confirm PIN before viewing",
@@ -3224,14 +3229,15 @@ function MainMenuPlacementPopup({
   onSaved: () => void;
 }) {
   const [selectedPlacement, setSelectedPlacement] = useState<MainMenuPlacement>(() => {
-    if (typeof window === "undefined") return "top";
+    if (typeof window === "undefined") return "left";
     try {
       return normalizeMainMenuPlacement(window.localStorage.getItem(POS_MAIN_MENU_PLACEMENT_KEY));
     } catch {
-      return "top";
+      return "left";
     }
   });
   const options: Array<{ value: MainMenuPlacement; title: string; desc: string }> = [
+    { value: "left", title: labels.mainMenuLeft, desc: labels.mainMenuLeftDesc },
     { value: "top", title: labels.mainMenuTop, desc: labels.mainMenuTopDesc },
     { value: "bottom", title: labels.mainMenuBottom, desc: labels.mainMenuBottomDesc }
   ];
@@ -3283,7 +3289,7 @@ function MainMenuPlacementPopup({
                 }`}
               >
                 <span className={`grid h-10 w-10 place-items-center rounded-full ${active ? "bg-blue-600 text-white" : "bg-slate-100 text-slate-700"}`}>
-                  <Icon name={option.value === "top" ? "back" : "tables"} />
+                  <Icon name={option.value === "left" ? "back" : option.value === "top" ? "terminal" : "tables"} />
                 </span>
                 <span className="min-w-0">
                   <span className="block text-base font-black">{option.title}</span>
