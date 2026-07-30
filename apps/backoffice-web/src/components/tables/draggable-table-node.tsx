@@ -154,6 +154,9 @@ function DraggableTableNodeComponent({ table, zoom, selected, editable = false, 
       onPointerEnter={() => onPrefetch?.(table)}
     >
       <strong>{table.table_code}</strong>
+      {table.qr_activity?.latest_event_id ? (
+        <span className="floor-node__qr-dot" aria-label={lang === "th" ? "มีรายการล่าสุดจาก QR" : "New QR activity"} />
+      ) : null}
       <small>{table.table_name ?? "-"}</small>
       <TableStatusBadge status={table.status} lang={lang} />
       {editable ? (

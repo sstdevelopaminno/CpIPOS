@@ -127,6 +127,16 @@ function PosTableBrowserInner({
               visibleTables.map((table) => {
                 const color = tableStatusColorMap[table.status] ?? "#94a3b8";
                 const hasBill = Boolean(table.active_session_id);
+                const qrActivity = table.qr_activity;
+                const hasQrActivity = Boolean(qrActivity?.latest_event_id);
+                const qrPendingItems = Math.max(0, Number(qrActivity?.pending_item_count ?? 0));
+                const qrStatusLabel = qrActivity?.latest_event_type === "request_checkout"
+                  ? lang === "th" ? "ขอชำระ" : "Checkout"
+                  : qrActivity?.latest_event_type === "call_staff"
+                    ? lang === "th" ? "เรียกพนักงาน" : "Call"
+                    : qrPendingItems > 0
+                      ? `${qrPendingItems} ${lang === "th" ? "รายการ" : "items"}`
+                      : null;
                 const selectable = table.status !== "disabled" && table.status !== "reserved";
                 return (
                   <button
@@ -139,8 +149,12 @@ function PosTableBrowserInner({
                     onPointerEnter={() => onTablePrefetch(table)}
                     onClick={() => onSelectTable(table)}
                   >
+                    {hasQrActivity ? (
+                      <span className="posui-table-chip__qr-dot" aria-label={lang === "th" ? "มีรายการล่าสุดจาก QR" : "New QR activity"} />
+                    ) : null}
                     <strong>{table.table_code}</strong>
                     <span>{getTableStatusLabel(lang, table.status)}</span>
+                    {qrStatusLabel ? <em className="posui-table-chip__qr-badge">{qrStatusLabel}</em> : null}
                     <small>{hasBill ? text.tableActionSelect : text.tableActionOpenBill}</small>
                   </button>
                 );

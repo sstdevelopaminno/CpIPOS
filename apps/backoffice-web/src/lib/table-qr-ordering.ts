@@ -27,6 +27,9 @@ type QrContext = QrSessionRow & {
   table_name: string | null;
   branch_name: string;
   store_name: string;
+  table_status: string;
+  table_session_status: string;
+  table_session_order_id: string | null;
 };
 
 type SubmitQrOrderRow = {
@@ -48,6 +51,18 @@ type TableQrMenuProduct = {
   name: string;
   category: string;
   price: number;
+};
+
+type SubmittedOrderSummary = {
+  item_count: number;
+  total_amount: number;
+  items: Array<{ name: string; quantity: number; line_total: number }>;
+};
+
+type SubmittedOrderItemRow = {
+  quantity: number | null;
+  line_total: number | null;
+  products: { name?: string | null } | null;
 };
 
 type TableQrMenuCacheEntry = {
@@ -212,12 +227,12 @@ export async function resolveTableQrContext(token: string): Promise<QrContext> {
   const [{ data: tableSession }, { data: table }, { data: branch }, store] = await Promise.all([
     supabase
       .from("table_bill_sessions")
-      .select("id,status,closed_at")
+      .select("id,status,closed_at,order_id")
       .eq("id", qr.table_session_id)
       .eq("tenant_id", qr.tenant_id)
       .eq("branch_id", qr.branch_id)
       .eq("table_id", qr.table_id)
-      .maybeSingle<{ id: string; status: string; closed_at: string | null }>(),
+      .maybeSingle<{ id: string; status: string; closed_at: string | null; order_id: string | null }>(),
     supabase
       .from("dining_tables")
       .select("id,table_code,table_name,status,is_active")
@@ -246,24 +261,83 @@ export async function resolveTableQrContext(token: string): Promise<QrContext> {
     table_code: table.table_code,
     table_name: table.table_name,
     branch_name: branch?.name?.trim() || "Branch",
-    store_name: store?.display_name?.trim() || store?.name?.trim() || "CpIPOS"
+    store_name: store?.display_name?.trim() || store?.name?.trim() || "CpIPOS",
+    table_status: table.status,
+    table_session_status: tableSession.status,
+    table_session_order_id: tableSession.order_id
+  };
+}
+
+function canAcceptTableQrOrder(context: QrContext) {
+  return context.table_session_status !== "pending_payment" && context.table_status !== "pending_payment";
+}
+
+function ensureTableQrOrderAcceptable(context: QrContext) {
+  if (!canAcceptTableQrOrder(context)) throw new Error("table_order_not_available_pending_payment");
+}
+
+async function loadSubmittedOrderSummary(context: QrContext, supabase = getSupabaseServiceClient()): Promise<SubmittedOrderSummary> {
+  const orderId = context.table_session_order_id;
+  if (!orderId) return { item_count: 0, total_amount: 0, items: [] };
+
+  const [{ data: orderRow, error: orderError }, { data: itemRows, error: itemError }] = await Promise.all([
+    supabase
+      .from("orders")
+      .select("id,total_amount,grand_total")
+      .eq("tenant_id", context.tenant_id)
+      .eq("branch_id", context.branch_id)
+      .eq("id", orderId)
+      .maybeSingle<{ id: string; total_amount: number | null; grand_total: number | null }>(),
+    supabase
+      .from("order_items")
+      .select("quantity,line_total,products(name)")
+      .eq("tenant_id", context.tenant_id)
+      .eq("branch_id", context.branch_id)
+      .eq("order_id", orderId)
+      .limit(80)
+  ]);
+
+  if (orderError) throw new Error(orderError.message);
+  if (itemError) throw new Error(itemError.message);
+
+  const items = ((itemRows ?? []) as SubmittedOrderItemRow[]).map((row) => ({
+    name: String(row.products?.name ?? "Item"),
+    quantity: Math.max(0, Number(row.quantity ?? 0)),
+    line_total: Math.max(0, Number(row.line_total ?? 0))
+  }));
+  return {
+    item_count: items.reduce((sum, item) => sum + item.quantity, 0),
+    total_amount: Number(orderRow?.grand_total ?? orderRow?.total_amount ?? items.reduce((sum, item) => sum + item.line_total, 0)),
+    items
   };
 }
 
 export async function loadTableQrMenu(context: QrContext) {
   const supabase = getSupabaseServiceClient();
-  const hasSubmittedFoodOrder = await hasSubmittedFoodOrderForContext(context, supabase);
+  const [hasSubmittedFoodOrder, submittedSummary] = await Promise.all([
+    hasSubmittedFoodOrderForContext(context, supabase),
+    loadSubmittedOrderSummary(context, supabase)
+  ]);
+  const canOrder = canAcceptTableQrOrder(context);
+  const common = {
+    store_name: context.store_name,
+    branch_name: context.branch_name,
+    table_code: context.table_code,
+    table_name: context.table_name,
+    expires_at: context.expires_at,
+    can_order: canOrder,
+    order_status: context.table_session_order_id ? "queued" : null,
+    bill_status: context.table_session_status,
+    has_submitted_food_order: hasSubmittedFoodOrder,
+    submitted_summary: submittedSummary
+  };
+
   const cachedProducts = readTableQrMenuCache(context.tenant_id, context.branch_id);
   if (cachedProducts) {
     return {
-      store_name: context.store_name,
-      branch_name: context.branch_name,
-      table_code: context.table_code,
-      table_name: context.table_name,
-      expires_at: context.expires_at,
+      ...common,
       categories: Array.from(new Set(cachedProducts.map((product) => product.category))),
-      products: cachedProducts,
-      has_submitted_food_order: hasSubmittedFoodOrder
+      products: cachedProducts
     };
   }
 
@@ -285,14 +359,9 @@ export async function loadTableQrMenu(context: QrContext) {
   }));
   writeTableQrMenuCache(context.tenant_id, context.branch_id, products);
   return {
-    store_name: context.store_name,
-    branch_name: context.branch_name,
-    table_code: context.table_code,
-    table_name: context.table_name,
-    expires_at: context.expires_at,
+    ...common,
     categories: Array.from(new Set(products.map((product) => product.category))),
-    products,
-    has_submitted_food_order: hasSubmittedFoodOrder
+    products
   };
 }
 
@@ -318,6 +387,7 @@ export async function submitTableQrOrder(args: {
   note?: string | null;
 }) {
   const { context, requestId, items, note } = args;
+  ensureTableQrOrderAcceptable(context);
   const supabase = getSupabaseServiceClient();
   const { data, error } = await supabase.rpc("submit_table_qr_order_tx", {
     p_qr_session_id: context.id,
@@ -383,6 +453,7 @@ export async function submitTableQrServiceRequest(args: {
   const { context, requestId, requestType, note } = args;
   const cleanRequestId = requestId.trim();
   if (!cleanRequestId) throw new Error("REQUEST_ID_REQUIRED");
+  ensureTableQrOrderAcceptable(context);
 
   const supabase = getSupabaseServiceClient();
   if (requestType === "request_checkout") {

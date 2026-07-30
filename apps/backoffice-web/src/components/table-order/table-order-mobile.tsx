@@ -23,6 +23,11 @@ type MenuResponse = {
     order_status?: string | null;
     bill_status?: string | null;
     has_submitted_food_order?: boolean;
+    submitted_summary?: {
+      item_count: number;
+      total_amount: number;
+      items: Array<{ name: string; quantity: number; line_total: number }>;
+    };
   };
   error?: {
     code?: string;
@@ -155,7 +160,6 @@ function isClosedMenu(menu: MenuResponse["data"] | null) {
   const billStatus = String(menu.bill_status ?? "").toLowerCase();
   const orderStatus = String(menu.order_status ?? "").toLowerCase();
   return (
-    menu.can_order === false ||
     ["paid", "closed", "cleared", "cancelled"].includes(billStatus) ||
     ["paid", "closed", "cleared", "cancelled"].includes(orderStatus)
   );
@@ -323,6 +327,9 @@ export function TableOrderMobile({ token }: { token: string }) {
   }, [apiUrl, applyMenuData, linkClosed, menu, serviceSubmitting, showLinkClosedPopup, submitting]);
 
   const canOrder = menu?.can_order !== false && !linkClosed;
+  const orderingLocked = menu?.can_order === false && !linkClosed;
+  const submittedSummary = menu?.submitted_summary ?? { item_count: 0, total_amount: 0, items: [] };
+  const submittedItems = submittedSummary.items ?? [];
 
   const categoryOptions = useMemo(() => {
     const seen = new Set<string>();
@@ -643,6 +650,32 @@ export function TableOrderMobile({ token }: { token: string }) {
           ))}
         </nav>
       </section>
+
+      {orderingLocked ? (
+        <div className={styles.lockedNotice} role="status" aria-live="polite">
+          <strong>โต๊ะนี้กำลังชำระเงิน</strong>
+          <span>ระบบล็อกการสั่งเพิ่มแล้ว กรุณาติดต่อพนักงานหากต้องการแก้ไขรายการ</span>
+        </div>
+      ) : null}
+
+      {submittedSummary.item_count > 0 ? (
+        <section className={styles.submittedSummary} aria-label="รายการที่สั่งแล้ว">
+          <div className={styles.submittedSummaryHead}>
+            <span>รายการที่สั่งแล้ว</span>
+            <strong>{money(submittedSummary.total_amount)}</strong>
+          </div>
+          <p>{submittedSummary.item_count} รายการในบิลนี้</p>
+          <div className={styles.submittedRows}>
+            {submittedItems.slice(0, 5).map((item, index) => (
+              <div key={`${item.name}-${index}`} className={styles.submittedRow}>
+                <span>{item.name} x {item.quantity}</span>
+                <strong>{money(item.line_total)}</strong>
+              </div>
+            ))}
+          </div>
+          {submittedItems.length > 5 ? <small>และอีก {submittedItems.length - 5} รายการ</small> : null}
+        </section>
+      ) : null}
 
       {error && !linkClosed ? <div className={styles.alert}>{error}</div> : null}
       {toast ? (

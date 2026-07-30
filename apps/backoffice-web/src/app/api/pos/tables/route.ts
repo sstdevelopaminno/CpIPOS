@@ -55,6 +55,25 @@ type SessionRow = {
   opened_at: string;
 };
 
+type QrOrderActivityRow = {
+  id: string;
+  table_id: string;
+  table_session_id: string;
+  event_type: "order" | "call_staff" | "request_checkout";
+  item_count: number | null;
+  subtotal: number | null;
+  created_at: string;
+};
+
+type QrTableActivity = {
+  latest_event_id: string | null;
+  latest_event_at: string | null;
+  latest_event_type: QrOrderActivityRow["event_type"] | null;
+  order_event_count: number;
+  pending_item_count: number;
+  subtotal: number;
+};
+
 type LegacyTableRow = {
   id: string;
   table_code: string;
@@ -67,6 +86,17 @@ function isMissingRelationError(error: { message?: string; code?: string } | nul
   const message = (error.message ?? "").toLowerCase();
   const relation = relationName.toLowerCase();
   return error.code === "42P01" || (message.includes(relation) && message.includes("does not exist"));
+}
+
+function emptyQrActivity(): QrTableActivity {
+  return {
+    latest_event_id: null,
+    latest_event_at: null,
+    latest_event_type: null,
+    order_event_count: 0,
+    pending_item_count: 0,
+    subtotal: 0
+  };
 }
 
 export async function GET() {
@@ -141,6 +171,38 @@ export async function GET() {
           }
         }
 
+        const activeSessionIds = Array.from(activeSessionMap.values()).map((session) => session.id);
+        const qrActivityByTable = new Map<string, QrTableActivity>();
+        if (activeSessionIds.length > 0) {
+          const { data: qrRows, error: qrError } = await supabase
+            .from("table_qr_orders")
+            .select("id,table_id,table_session_id,event_type,item_count,subtotal,created_at")
+            .eq("tenant_id", auth.tenantId!)
+            .eq("branch_id", auth.branchId!)
+            .in("table_session_id", activeSessionIds)
+            .order("created_at", { ascending: false })
+            .limit(250);
+
+          if (qrError && !isMissingRelationError(qrError, "table_qr_orders")) {
+            throw new Error(`table_qr_activity_query_failed:${qrError.message}`);
+          }
+
+          for (const row of ((qrError ? [] : qrRows) ?? []) as QrOrderActivityRow[]) {
+            const current = qrActivityByTable.get(row.table_id) ?? emptyQrActivity();
+            if (!current.latest_event_at || new Date(row.created_at).getTime() > new Date(current.latest_event_at).getTime()) {
+              current.latest_event_id = row.id;
+              current.latest_event_at = row.created_at;
+              current.latest_event_type = row.event_type;
+            }
+            if (row.event_type === "order") {
+              current.order_event_count += 1;
+              current.pending_item_count += Math.max(0, Number(row.item_count ?? 0));
+              current.subtotal = Number((current.subtotal + Math.max(0, Number(row.subtotal ?? 0))).toFixed(2));
+            }
+            qrActivityByTable.set(row.table_id, current);
+          }
+        }
+
         if (tableError && !isMissingRelationError(tableError, "dining_tables")) {
           throw new Error(`table_query_failed:${tableError.message}`);
         }
@@ -185,7 +247,8 @@ export async function GET() {
               is_active: Boolean(table.is_active),
               metadata: {},
               active_session_id: activeSession?.id ?? null,
-              active_order_id: activeSession?.order_id ?? null
+              active_order_id: activeSession?.order_id ?? null,
+              qr_activity: qrActivityByTable.get(table.id) ?? emptyQrActivity()
             };
           });
 
@@ -207,7 +270,8 @@ export async function GET() {
                 sessionStatus: activeSession?.status ?? null
               }),
               active_session_id: activeSession?.id ?? null,
-              active_order_id: activeSession?.order_id ?? null
+              active_order_id: activeSession?.order_id ?? null,
+              qr_activity: qrActivityByTable.get(table.id) ?? emptyQrActivity()
             };
           })
           .sort((a, b) => naturalCompareTableCode(a.table_code, b.table_code));

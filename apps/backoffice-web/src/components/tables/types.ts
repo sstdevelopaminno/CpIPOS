@@ -27,6 +27,14 @@ export type DiningTableItem = {
   metadata?: Record<string, unknown>;
   active_session_id?: string | null;
   active_order_id?: string | null;
+  qr_activity?: {
+    latest_event_id: string | null;
+    latest_event_at: string | null;
+    latest_event_type: "order" | "call_staff" | "request_checkout" | null;
+    order_event_count: number;
+    pending_item_count: number;
+    subtotal: number;
+  };
 };
 
 export type FloorPlanObjectItem = {

@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type PointerEvent as ReactPointerEvent } from "react";
 import Image from "next/image";
@@ -532,6 +532,7 @@ const SALES_SNAPSHOT_KEY = "pos_sales_snapshot_v001";
 const ACTIVE_ORDER_KEY = "pos_active_order_v001";
 const DINE_IN_DRAFT_KEY = "pos_dine_in_draft_v001";
 const DINE_IN_SELECTED_TABLE_KEY = "pos_dine_in_selected_table_v001";
+const TABLE_QR_ACTIVITY_SEEN_KEY = "pos_table_qr_activity_seen_v001";
 const POS_SCOPE_KEY = "pos_scope_v001";
 const POS_PROMPTPAY_PHONE_KEY = "pos_promptpay_phone_v001";
 const POS_TAX_SETTINGS_UPDATED_EVENT = "pos:tax-settings-updated";
@@ -2095,6 +2096,7 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
   const [taxSettings, setTaxSettings] = useState<TaxSettings>(DEFAULT_TAX_SETTINGS);
   const [tableQrNotificationSettings, setTableQrNotificationSettings] = useState<TableQrNotificationSettings>(DEFAULT_TABLE_QR_NOTIFICATION_SETTINGS);
   const [tableQrAlert, setTableQrAlert] = useState<{ id: string; type: "call_staff" | "request_checkout"; tableCode: string; note?: string | null } | null>(null);
+  const [seenTableQrActivity, setSeenTableQrActivity] = useState<Record<string, string>>(() => readStoredJson<Record<string, string>>(TABLE_QR_ACTIVITY_SEEN_KEY) ?? {});
   const [devicePolicy, setDevicePolicy] = useState<PosSalesDevicePolicy | null>(null);
   const [transferSlipFile, setTransferSlipFile] = useState<File | null>(null);
   const [transferSlipPreviewUrl, setTransferSlipPreviewUrl] = useState<string | null>(null);
@@ -2516,6 +2518,19 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
     });
   }
 
+  function markTableQrActivitySeen(table: DiningTableItem) {
+    const latestEventId = table.qr_activity?.latest_event_id;
+    if (!latestEventId) return;
+    setSeenTableQrActivity((current) => {
+      if (current[table.id] === latestEventId) return current;
+      const next = { ...current, [table.id]: latestEventId };
+      if (typeof window !== "undefined") {
+        window.localStorage.setItem(TABLE_QR_ACTIVITY_SEEN_KEY, JSON.stringify(next));
+      }
+      return next;
+    });
+  }
+
   function readTakeawayCartDraft(): CartItem[] {
     if (typeof window === "undefined") return [];
     const savedCart = readStoredJson<CartItem[]>(CART_KEY);
@@ -2823,7 +2838,7 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
       localStorage.removeItem(DINE_IN_SELECTED_TABLE_KEY);
     }
     window.setTimeout(() => {
-      void fetchPosTables({ timeoutMs: 10000, retries: 0 }).catch(() => undefined);
+      void fetchPosTablesRef.current({ timeoutMs: 10000, retries: 0 }).catch(() => undefined);
     }, 450);
   }
 
@@ -4007,7 +4022,9 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
             localStorage.removeItem(HELD_BILLS_KEY);
             localStorage.removeItem(DINE_IN_DRAFT_KEY);
             localStorage.removeItem(DINE_IN_SELECTED_TABLE_KEY);
+            localStorage.removeItem(TABLE_QR_ACTIVITY_SEEN_KEY);
             localStorage.removeItem(ACTIVE_ORDER_KEY);
+            setSeenTableQrActivity({});
             setCart([]);
             setPendingQueue([]);
             setPendingPaymentQueue([]);
@@ -4125,6 +4142,59 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
   }, [orderType, posTables, tableBrowserOpen]);
 
   useEffect(() => {
+    if (!isHydrated || orderType !== "dine_in" || !tableBrowserOpen) return;
+    let disposed = false;
+    const refreshTables = () => {
+      if (disposed || document.visibilityState !== "visible") return;
+      void fetchPosTablesRef.current({ timeoutMs: 10000, retries: 0 }).catch(() => undefined);
+    };
+    const interval = window.setInterval(refreshTables, 5000);
+    window.addEventListener("focus", refreshTables);
+    return () => {
+      disposed = true;
+      window.clearInterval(interval);
+      window.removeEventListener("focus", refreshTables);
+    };
+  }, [isHydrated, orderType, tableBrowserOpen]);
+
+  async function setTablePaymentLock(order: CheckoutReviewOrder, locked: boolean) {
+    const tableId = order.table_id ?? selectedTableRef.current?.id ?? null;
+    if (!tableId) return;
+    try {
+      const { response, body } = await fetchJsonWithTimeout<ApiErrorBody>(
+        `/api/pos/tables/${tableId}/payment-lock`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ order_id: order.order_id, locked })
+        },
+        10000,
+        0
+      );
+      if (!response.ok || body.error) {
+        throw new Error(body.error?.message ?? "Failed to update table payment status.");
+      }
+      const status = locked ? "pending_payment" : "ordering";
+      tableListCacheRef.current = null;
+      setSelectedTable((current) => (current?.id === tableId ? { ...current, status } : current));
+      setPosTables((current) =>
+        current.map((table) => (table.id === tableId ? { ...table, status } : table))
+      );
+    } catch (lockError) {
+      const message = lockError instanceof Error ? lockError.message : "Failed to update table payment status.";
+      if (locked) pushSubmitMessage(localizeApiMessage(message));
+      else console.warn("[pos-sales] table payment unlock failed", lockError);
+    }
+  }
+
+
+  useEffect(() => {
+    if (!reviewOrder?.table_id) return;
+    void setTablePaymentLock(reviewOrder, true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [reviewOrder?.order_id, reviewOrder?.table_id]);
+
+  useEffect(() => {
     if (cart.length > 0) return;
     setDiscountPercentInput("");
     setDiscountAmountInput("");
@@ -4194,8 +4264,24 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
 
   const visibleTables = useMemo(() => {
     const filtered = tableZoneFilter === "all" ? posTables : posTables.filter((table) => table.zone_id === tableZoneFilter);
-    return [...filtered].sort((left, right) => naturalCompareTableCode(left.table_code, right.table_code));
-  }, [posTables, tableZoneFilter]);
+    return filtered
+      .map((table) => {
+        const latestEventId = table.qr_activity?.latest_event_id;
+        if (!latestEventId || seenTableQrActivity[table.id] !== latestEventId) return table;
+        return {
+          ...table,
+          qr_activity: {
+            latest_event_id: null,
+            latest_event_at: null,
+            latest_event_type: null,
+            order_event_count: 0,
+            pending_item_count: 0,
+            subtotal: 0
+          }
+        };
+      })
+      .sort((left, right) => naturalCompareTableCode(left.table_code, right.table_code));
+  }, [posTables, seenTableQrActivity, tableZoneFilter]);
 
   const visibleFloorObjects = useMemo(() => {
     if (tableZoneFilter === "all") return tableLayoutObjects;
@@ -5676,6 +5762,9 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
     }
 
     if (table.active_session_id || table.status === "occupied" || table.status === "ordering" || table.status === "pending_payment") {
+      const latestQrEventId = table.qr_activity?.latest_event_id ?? null;
+      const shouldForceQrRefresh = Boolean(latestQrEventId && seenTableQrActivity[table.id] !== latestQrEventId);
+      markTableQrActivitySeen(table);
       setQuickMode("dine_in");
       setOrderType("dine_in");
       setTableBrowserOpen(false);
@@ -5693,7 +5782,7 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
       }
       pushSubmitMessage(`${text.tableSelected}: ${table.table_code}`);
       const cachedAt = tableBillPrefetchCacheUpdatedAtRef.current.get(table.id) ?? 0;
-      const shouldRefreshFromServer = !cached || nowMs() - cachedAt > 12000;
+      const shouldRefreshFromServer = shouldForceQrRefresh || !cached || nowMs() - cachedAt > 12000;
       if (shouldRefreshFromServer) {
         void loadTableBillContext(table).catch((loadError) => {
           markConnectivityFromError(loadError);
@@ -5758,7 +5847,7 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
       pushSubmitMessage(text.cancelBillSuccess);
       if (shouldReturnToTableBrowser) {
         window.setTimeout(() => {
-          void fetchPosTables({ timeoutMs: 10000, retries: 0 }).catch(() => undefined);
+          void fetchPosTablesRef.current({ timeoutMs: 10000, retries: 0 }).catch(() => undefined);
         }, 350);
       }
     } catch (cancelError) {
@@ -5966,7 +6055,7 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
           setSelectedTable(null);
           setLastCommittedCartSignature(null);
           setTableBrowserOpen(true);
-          void fetchPosTables({ timeoutMs: 10000, retries: 0 }).catch(() => undefined);
+          void fetchPosTablesRef.current({ timeoutMs: 10000, retries: 0 }).catch(() => undefined);
           pushSubmitMessage(`${text.tableNotReady}: ${message}`);
           return;
         }
@@ -6018,7 +6107,7 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
         dequeuePendingSubmit(pending.idempotencyKey);
       },
       onConflictTableNotAvailable: () => {
-        void fetchPosTables({ timeoutMs: 10000, retries: 0 }).catch(() => undefined);
+        void fetchPosTablesRef.current({ timeoutMs: 10000, retries: 0 }).catch(() => undefined);
         setTableBrowserOpen(true);
         setSelectedTable(null);
         setActiveOrder(null);
@@ -6260,7 +6349,7 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
 
       void loadTableBillContext(nextSelectedTable).catch(() => undefined);
       window.setTimeout(() => {
-        void fetchPosTables({ timeoutMs: 10000, retries: 0 }).catch(() => undefined);
+        void fetchPosTablesRef.current({ timeoutMs: 10000, retries: 0 }).catch(() => undefined);
       }, 350);
     } catch (moveError) {
       markConnectivityFromError(moveError);
@@ -6278,7 +6367,14 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
     }
   }
 
+  function closeCheckoutReviewPopup() {
+    const order = reviewOrder;
+    setReviewOrder(null);
+    if (order) void setTablePaymentLock(order, false);
+  }
+
   function openCashPaymentPopup(order: CheckoutReviewOrder) {
+    void setTablePaymentLock(order, true);
     setTakeawayCreatingPreview(null);
     setReviewOrder(null);
     setTransferReviewOrder(null);
@@ -6292,6 +6388,7 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
   }
 
   function openTransferPaymentPopup(order: CheckoutReviewOrder) {
+    void setTablePaymentLock(order, true);
     setTakeawayCreatingPreview(null);
     setReviewOrder(null);
     setCashReviewOrder(null);
@@ -6324,7 +6421,9 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
 
   function closeTransferPaymentPopup() {
     if (transferSubmitting || transferSlipChecking) return;
+    const order = transferReviewOrder;
     setTransferReviewOrder(null);
+    if (order) void setTablePaymentLock(order, false);
     setTransferPaymentMode("manual");
     setInetPaymentIntent(null);
     setInetQrStatus("idle");
@@ -6693,7 +6792,9 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
 
   function closeCashPaymentPopup() {
     if (cashSubmitting) return;
+    const order = cashReviewOrder;
     setCashReviewOrder(null);
+    if (order) void setTablePaymentLock(order, false);
     setCashError(null);
   }
 
@@ -8607,7 +8708,7 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
           ingredientDeductingKey={reviewItemDeductingKey}
           ingredientDeductingMode={reviewItemDeductingMode}
         normalizeTransferVerificationIssues={normalizeTransferVerificationIssues}
-        onCloseReview={() => setReviewOrder(null)}
+        onCloseReview={closeCheckoutReviewPopup}
         onCancelFromReview={requestCancelBillFromReview}
         onCancelFromCash={requestCancelBillFromCash}
         onCancelFromTransfer={requestCancelBillFromReview}
