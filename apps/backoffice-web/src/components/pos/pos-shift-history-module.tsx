@@ -599,7 +599,7 @@ export function PosShiftHistoryModule({ lang }: { lang: Lang }) {
             allBranches: "All branches",
             finishAndExit: "Done",
             printing: "Printing...",
-            printReceipt: "Print via Bluetooth",
+            printReceipt: "Print 58mm",
             printRequiredHint: "Bluetooth printing is optional. The shift is already closed.",
             printSuccessHint: "Bluetooth print succeeded. You can continue to branch selection.",
             printPendingHint: "Checking live printer status...",
@@ -975,10 +975,10 @@ export function PosShiftHistoryModule({ lang }: { lang: Lang }) {
         (noPrinterCode
           ? lang === "th"
             ? "ยังไม่ได้ตั้งค่าเครื่องพิมพ์ Bluetooth สำหรับใบเสร็จ"
-            : "Bluetooth receipt printer is not configured."
+            : "Receipt printer is not configured."
           : lang === "th"
             ? "พิมพ์ Bluetooth ไม่สำเร็จ"
-            : "Bluetooth print failed.");
+            : "Receipt print failed.");
       setReceiptPrintStatus("failed");
       setReceiptPrintError(messageFromApi);
     } catch (printError) {
@@ -988,7 +988,7 @@ export function PosShiftHistoryModule({ lang }: { lang: Lang }) {
           ? printError.message
           : lang === "th"
             ? "พิมพ์ Bluetooth ไม่สำเร็จ"
-            : "Bluetooth print failed."
+            : "Receipt print failed."
       );
     } finally {
       setBusy((current) => (current === "print" ? null : current));
@@ -1499,54 +1499,34 @@ export function PosShiftHistoryModule({ lang }: { lang: Lang }) {
             ) : null}
 
             {modalKind === "receipt" && closeReceipt ? (
-              <div className="mt-3 grid max-h-[min(52dvh,420px)] gap-2 overflow-y-auto rounded-xl border border-slate-200 bg-slate-50 p-3 text-[13px] leading-5 text-slate-700 sm:text-sm">
-                <p>
-                  {text.receiptStore}: <strong>{closeReceipt.receipt.tenant_name}</strong>
-                </p>
-                <p>
-                  {text.receiptBranch}: <strong>{closeReceipt.receipt.branch_name}</strong>
-                </p>
-                <p>
-                  {text.receiptSeller}: <strong>{closeReceipt.receipt.seller_name}</strong>
-                </p>
-                <p>
-                  {text.receiptOpenedAt}: <strong>{formatDateTime(closeReceipt.receipt.opened_at, lang)}</strong>
-                </p>
-                <p>
-                  {text.receiptClosedAt}: <strong>{formatDateTime(closeReceipt.closed_at, lang)}</strong>
-                </p>
-                <p>
-                  {text.receiptCutoffAt}: <strong>{formatDateTime(closeReceipt.summary_cutoff_at, lang)}</strong>
-                </p>
-                <hr className="border-slate-200" />
-                <p>
-                  {text.orders}: <strong>{closeReceipt.summary.order_count}</strong>
-                </p>
-                <p>
-                  {text.cancelled}: <strong>{closeReceipt.summary.cancelled_order_count}</strong>
-                </p>
-                <p>
-                  {text.sales}: <strong>{formatMoney(closeReceipt.summary.sales_total, lang)}</strong>
-                </p>
-                <p>
-                  {text.cash}: <strong>{formatMoney(closeReceipt.summary.cash_total, lang)}</strong>
-                </p>
-                <p>
-                  {text.transfer}: <strong>{formatMoney(closeReceipt.summary.transfer_total, lang)}</strong>
-                </p>
-                <hr className="border-slate-200" />
-                <p>
-                  {cashFloatLabel}: <strong>{formatMoney(closeReceipt.receipt.opening_cash, lang)}</strong>
-                </p>
-                <p>
-                  {text.receiptClosingCash}: <strong>{formatMoney(closeReceipt.receipt.closing_cash, lang)}</strong>
-                </p>
-                <p>
-                  {text.receiptExpectedCash}: <strong>{formatMoney(closeReceipt.receipt.expected_cash, lang)}</strong>
-                </p>
-                <p>
-                  {text.receiptActualCash}: <strong>{formatMoney(closeReceipt.receipt.actual_cash, lang)}</strong>
-                </p>
+              <div className="mt-3 max-h-[min(58dvh,520px)] overflow-y-auto rounded-xl border border-slate-200 bg-slate-100 p-3">
+                <article className="posui-print-receipt58 mx-auto bg-white shadow-sm" style={{ width: "58mm", minHeight: "auto", color: "#000" }}>
+                  <header className="posui-print-receipt58__head">
+                    <h1>{closeReceipt.receipt.tenant_name}</h1>
+                    <p>{closeReceipt.receipt.branch_name}</p>
+                  </header>
+                  <div className="posui-print-receipt58__divider" />
+                  <dl className="posui-print-receipt58__meta">
+                    <div><dt>{text.receiptSeller}</dt><dd>{closeReceipt.receipt.seller_name}</dd></div>
+                    <div><dt>{text.receiptOpenedAt}</dt><dd>{formatDateTime(closeReceipt.receipt.opened_at, lang)}</dd></div>
+                    <div><dt>{text.receiptClosedAt}</dt><dd>{formatDateTime(closeReceipt.closed_at, lang)}</dd></div>
+                    <div><dt>{text.receiptCutoffAt}</dt><dd>{formatDateTime(closeReceipt.summary_cutoff_at, lang)}</dd></div>
+                  </dl>
+                  <div className="posui-print-receipt58__divider" />
+                  <div className="posui-print-receipt58__summary">
+                    <p className="is-heading"><span>{text.orders}</span><strong>{closeReceipt.summary.order_count}</strong></p>
+                    <p className="is-muted"><span>{text.cancelled}</span><strong>{closeReceipt.summary.cancelled_order_count}</strong></p>
+                    <p className="is-aux"><span>{text.sales}</span><strong>{formatMoney(closeReceipt.summary.sales_total, lang)}</strong></p>
+                    <p className="is-aux"><span>{text.cash}</span><strong>{formatMoney(closeReceipt.summary.cash_total, lang)}</strong></p>
+                    <p className="is-aux"><span>{text.transfer}</span><strong>{formatMoney(closeReceipt.summary.transfer_total, lang)}</strong></p>
+                    <p className="is-due"><span>{text.receiptClosingCash}</span><strong>{formatMoney(closeReceipt.receipt.closing_cash, lang)}</strong></p>
+                    <p className="is-aux"><span>{cashFloatLabel}</span><strong>{formatMoney(closeReceipt.receipt.opening_cash, lang)}</strong></p>
+                    <p className="is-aux"><span>{text.receiptExpectedCash}</span><strong>{formatMoney(closeReceipt.receipt.expected_cash, lang)}</strong></p>
+                    <p className="is-aux"><span>{text.receiptActualCash}</span><strong>{formatMoney(closeReceipt.receipt.actual_cash, lang)}</strong></p>
+                  </div>
+                  <div className="posui-print-receipt58__divider" />
+                  <p className="posui-print-receipt58__footer">CpIPOS</p>
+                </article>
               </div>
             ) : null}
 
