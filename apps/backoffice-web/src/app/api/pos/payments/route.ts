@@ -1,4 +1,5 @@
 import type { PaymentMethod } from "@pos/shared-types";
+import { after } from "next/server";
 import { appendAuditLog } from "@/lib/audit-log";
 import { getPosApiAuthContext } from "@/lib/pos-api-auth";
 import { getDevicePolicyBlockMessage, loadPosRuntimeDevicePolicyForSession } from "@/lib/pos-device-status";
@@ -359,93 +360,97 @@ export async function POST(req: Request) {
       });
     }
 
-    let printJobsQueued = 0;
-    let printWarning: string | null = null;
-    let skipPrintEnqueue = false;
-    try {
-      const { count: printQueueDepth, error: printQueueDepthError } = await supabase
-        .from("print_jobs")
-        .select("id", { count: "exact", head: true })
-        .eq("tenant_id", auth.tenantId!)
-        .eq("branch_id", auth.branchId!)
-        .in("status", ["pending", "printing", "retrying"]);
-      if (printQueueDepthError) {
-        throw new Error(`print_queue_depth_query_failed: ${printQueueDepthError.message}`);
-      }
-      if ((printQueueDepth ?? 0) >= POS_GUARDS.printQueueHardLimit) {
-        printWarning = `print_queue_overloaded (${printQueueDepth}/${POS_GUARDS.printQueueHardLimit})`;
-        skipPrintEnqueue = true;
+    const printJobsQueued = 0;
+    const printWarning: string | null = null;
+    after(async () => {
+      let skipPrintEnqueue = false;
+      try {
+        const { count: printQueueDepth, error: printQueueDepthError } = await supabase
+          .from("print_jobs")
+          .select("id", { count: "exact", head: true })
+          .eq("tenant_id", auth.tenantId!)
+          .eq("branch_id", auth.branchId!)
+          .in("status", ["pending", "printing", "retrying"]);
+        if (printQueueDepthError) {
+          throw new Error(`print_queue_depth_query_failed: ${printQueueDepthError.message}`);
+        }
+        if ((printQueueDepth ?? 0) >= POS_GUARDS.printQueueHardLimit) {
+          const warning = `print_queue_overloaded (${printQueueDepth}/${POS_GUARDS.printQueueHardLimit})`;
+          skipPrintEnqueue = true;
+          appendPosDeadLetter({
+            auth,
+            channel: "print",
+            targetTable: "print_jobs",
+            targetId: body.order_id,
+            reason: "print_queue_overloaded",
+            metadata: {
+              queue_depth: printQueueDepth ?? 0,
+              queue_limit: POS_GUARDS.printQueueHardLimit,
+              detail: warning,
+              deferred: true
+            }
+          });
+        }
+        if (!skipPrintEnqueue) {
+          const [{ data: orderRow, error: orderError }, { data: itemRows, error: itemError }] = await Promise.all([
+            supabase
+              .from("orders")
+              .select("id,order_no,total_amount,discount_amount,notes,customer_name,table_id")
+              .eq("tenant_id", auth.tenantId!)
+              .eq("branch_id", auth.branchId!)
+              .eq("id", body.order_id)
+              .single(),
+            supabase
+              .from("order_items")
+              .select("quantity,unit_price,line_total,notes,products(name)")
+              .eq("tenant_id", auth.tenantId!)
+              .eq("branch_id", auth.branchId!)
+              .eq("order_id", body.order_id)
+          ]);
+
+          if (orderError) {
+            throw new Error(orderError.message);
+          }
+          if (itemError) {
+            throw new Error(itemError.message);
+          }
+
+          await enqueuePrintJobsForOrderSnapshot({
+            auth,
+            order: {
+              id: orderRow.id,
+              order_no: orderRow.order_no,
+              total_amount: Number(orderRow.total_amount),
+              discount_amount: Number(orderRow.discount_amount ?? 0),
+              notes: orderRow.notes,
+              customer_name: orderRow.customer_name
+            },
+            items: (itemRows ?? []).map((row) => ({
+              product_name: ((row.products as { name?: string } | null)?.name ?? "Item").toString(),
+              quantity: Number(row.quantity),
+              unit_price: Number(row.unit_price),
+              line_total: Number(row.line_total),
+              note: row.notes
+            })),
+            paymentMethod,
+            includeKitchenTicket: body.print_kitchen_ticket === true
+          });
+        }
+      } catch (printError) {
+        const warning = printError instanceof Error ? printError.message : "print_queue_failed";
         appendPosDeadLetter({
           auth,
           channel: "print",
           targetTable: "print_jobs",
           targetId: body.order_id,
-          reason: "print_queue_overloaded",
+          reason: "print_queue_failed",
           metadata: {
-            queue_depth: printQueueDepth ?? 0,
-            queue_limit: POS_GUARDS.printQueueHardLimit
+            detail: warning,
+            deferred: true
           }
         });
       }
-      if (!skipPrintEnqueue) {
-        const [{ data: orderRow, error: orderError }, { data: itemRows, error: itemError }] = await Promise.all([
-          supabase
-            .from("orders")
-            .select("id,order_no,total_amount,discount_amount,notes,customer_name,table_id")
-            .eq("tenant_id", auth.tenantId!)
-            .eq("branch_id", auth.branchId!)
-            .eq("id", body.order_id)
-            .single(),
-          supabase
-            .from("order_items")
-            .select("quantity,unit_price,line_total,notes,products(name)")
-            .eq("tenant_id", auth.tenantId!)
-            .eq("branch_id", auth.branchId!)
-            .eq("order_id", body.order_id)
-        ]);
-
-        if (orderError) {
-          throw new Error(orderError.message);
-        }
-        if (itemError) {
-          throw new Error(itemError.message);
-        }
-
-        const jobs = await enqueuePrintJobsForOrderSnapshot({
-          auth,
-          order: {
-            id: orderRow.id,
-            order_no: orderRow.order_no,
-            total_amount: Number(orderRow.total_amount),
-            discount_amount: Number(orderRow.discount_amount ?? 0),
-            notes: orderRow.notes,
-            customer_name: orderRow.customer_name
-          },
-          items: (itemRows ?? []).map((row) => ({
-            product_name: ((row.products as { name?: string } | null)?.name ?? "Item").toString(),
-            quantity: Number(row.quantity),
-            unit_price: Number(row.unit_price),
-            line_total: Number(row.line_total),
-            note: row.notes
-          })),
-          paymentMethod,
-          includeKitchenTicket: body.print_kitchen_ticket === true
-        });
-        printJobsQueued = jobs.length;
-      }
-    } catch (printError) {
-      printWarning = printError instanceof Error ? printError.message : "print_queue_failed";
-      appendPosDeadLetter({
-        auth,
-        channel: "print",
-        targetTable: "print_jobs",
-        targetId: body.order_id,
-        reason: "print_queue_failed",
-        metadata: {
-          detail: printWarning
-        }
-      });
-    }
+    });
 
     if (paymentOrder.table_id) {
       await Promise.all([
@@ -475,7 +480,8 @@ export async function POST(req: Request) {
       cash_received: receivedAmount,
       change_amount: changeAmount,
       print_jobs_queued: printJobsQueued,
-      print_warning: printWarning
+      print_warning: printWarning,
+      print_jobs_deferred: true
     });
     invalidatePosScopeRuntimeCaches({ tenantId: auth.tenantId!, branchId: auth.branchId! });
     invalidatePosSalesListCacheForScope({ tenantId: auth.tenantId!, branchId: auth.branchId! });
