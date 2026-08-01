@@ -5,7 +5,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { EmptyState, ErrorState, LoadingState } from "@/components/backoffice/list-state";
 import { PaginationControls } from "@/components/backoffice/pagination-controls";
 import { usePaginatedApi } from "@/components/backoffice/use-paginated-api";
-import { BROWSER_PRINT_AGENT_BAUD_KEY, BROWSER_PRINT_AGENT_CONFIG_EVENT, BROWSER_PRINT_AGENT_ENABLED_KEY, BROWSER_PRINT_AGENT_KEY, BROWSER_PRINT_AGENT_STATUS_EVENT, type BrowserPrintAgentStatus } from "@/components/printing/browser-print-agent";
+import { BROWSER_PRINT_AGENT_BAUD_KEY, BROWSER_PRINT_AGENT_CONFIG_EVENT, BROWSER_PRINT_AGENT_ENABLED_KEY, BROWSER_PRINT_AGENT_KEY, BROWSER_PRINT_AGENT_RESET_EVENT, BROWSER_PRINT_AGENT_STATUS_EVENT, type BrowserPrintAgentStatus } from "@/components/printing/browser-print-agent";
 
 type PrinterRole = "receipt" | "kitchen" | "report";
 type ConnectionType = "NETWORK_ESC_POS" | "STAR_WEBPRNT" | "LOCAL_BRIDGE" | "BLUETOOTH_BRIDGE";
@@ -139,6 +139,12 @@ const text = {
   printerUpdated: "Printer updated",
   disablePrinter: "Disable",
   enablePrinter: "Enable",
+  deletePrinter: "Delete",
+  printerDeleted: "Printer deleted",
+  deleteAgent: "Delete",
+  agentDeleted: "Print Agent deleted",
+  resetBrowserAgent: "Reset Agent",
+  browserAgentReset: "Browser Print Agent reset",
   setBrowserAgent: "Use Browser Agent",
   browserAgentRoute: "Browser Agent / Web Serial",
   printFlowHint: "Sales, payment, reprint, kitchen tickets, shift flow, and cash drawer use enabled printer profiles by role.",
@@ -393,7 +399,16 @@ export function PrintersModule({ lang: _lang = "th" }: { lang?: "th" | "en" }) {
   }
 
   async function openSerialPort(port: SerialPortLike) {
-    await port.open({ baudRate: browserAgentBaudNumber() });
+    if (port.writable) {
+      setBrowserAgentPortReady(true);
+      return port;
+    }
+    try {
+      await port.open({ baudRate: browserAgentBaudNumber() });
+    } catch (error) {
+      const message = error instanceof Error ? error.message.toLowerCase() : "";
+      if (!message.includes("already open")) throw error;
+    }
     setBrowserAgentPortReady(true);
     return port;
   }
@@ -426,6 +441,19 @@ export function PrintersModule({ lang: _lang = "th" }: { lang?: "th" | "en" }) {
     const ports = await serial.getPorts().catch(() => []);
     setBrowserAgentPortReady(ports.length > 0);
   }, []);
+
+  function handleResetBrowserAgent() {
+    window.localStorage.removeItem(BROWSER_PRINT_AGENT_ENABLED_KEY);
+    window.localStorage.removeItem(BROWSER_PRINT_AGENT_KEY);
+    setBrowserAgentEnabled(false);
+    setBrowserAgentSecret("");
+    setBrowserAgentStatus(null);
+    setBrowserAgentPortReady(false);
+    window.dispatchEvent(new Event(BROWSER_PRINT_AGENT_RESET_EVENT));
+    dispatchBrowserAgentConfig();
+    setSubmitError(null);
+    setSubmitSuccess(text.browserAgentReset);
+  }
 
   async function handleSaveBrowserAgent() {
     setSubmitError(null);
@@ -853,6 +881,24 @@ export function PrintersModule({ lang: _lang = "th" }: { lang?: "th" | "en" }) {
     await patchPrinter(printer, { enabled: !printer.enabled });
   }
 
+  async function handleDeletePrinter(printer: PrinterRow) {
+    if (!window.confirm(`Delete printer ${printer.printer_name}?`)) return;
+    setPrinterActionId(printer.id);
+    setSubmitError(null);
+    setSubmitSuccess(null);
+    try {
+      const { response, body } = await fetchJsonWithTimeout<ApiEnvelope<{ deleted?: unknown }>>("/api/backoffice/printers", { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ printer_id: printer.id }) }, 10000);
+      if (!response.ok || body?.error) throw new Error(body?.error?.message ?? text.createPrinterFailed);
+      if (editingPrinterId === printer.id) resetPrinterForm();
+      setSubmitSuccess(text.printerDeleted + ": " + printer.printer_name);
+      setReloadKey((key) => key + 1);
+    } catch (deleteError) {
+      setSubmitError(deleteError instanceof Error ? deleteError.message : text.createPrinterFailed);
+    } finally {
+      setPrinterActionId(null);
+    }
+  }
+
   async function handleTestPrint(printerId: string) {
     setTestingId(printerId);
     setSubmitError(null);
@@ -891,6 +937,23 @@ export function PrintersModule({ lang: _lang = "th" }: { lang?: "th" | "en" }) {
       setSubmitError(agentError instanceof Error ? agentError.message : text.createAgentFailed);
     } finally {
       setAgentSubmitting(false);
+    }
+  }
+
+  async function handleDeleteAgent(agent: PrintAgentRow) {
+    if (!window.confirm(`Delete Print Agent ${agent.agent_name}?`)) return;
+    setAgentActionId(agent.id);
+    setSubmitError(null);
+    setSubmitSuccess(null);
+    try {
+      const { response, body } = await fetchJsonWithTimeout<ApiEnvelope<{ agent?: PrintAgentRow }>>("/api/backoffice/printers/agents", { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ agent_id: agent.id }) }, 10000);
+      if (!response.ok || body?.error) throw new Error(body?.error?.message ?? text.updateAgentFailed);
+      setSubmitSuccess(text.agentDeleted + ": " + agent.agent_name);
+      setReloadKey((key) => key + 1);
+    } catch (agentError) {
+      setSubmitError(agentError instanceof Error ? agentError.message : text.updateAgentFailed);
+    } finally {
+      setAgentActionId(null);
     }
   }
 
@@ -955,6 +1018,7 @@ export function PrintersModule({ lang: _lang = "th" }: { lang?: "th" | "en" }) {
               <button type="button" onClick={() => void handleSelectBrowserSerialPrinter()} disabled={browserAgentBusy === "select"} style={buttonStyle}>{browserAgentBusy === "select" ? text.connecting : text.selectSerialPrinter}</button>
               <button type="button" onClick={() => void handleReconnectBrowserSerialPrinter()} disabled={browserAgentBusy === "reconnect"} style={buttonStyle}>{browserAgentBusy === "reconnect" ? text.connecting : text.reconnectSerialPrinter}</button>
               <button type="button" onClick={() => void handleBrowserSerialTestPrint()} disabled={browserAgentBusy === "test"} style={buttonStyle}>{browserAgentBusy === "test" ? text.testingPrint : text.testBrowserSerial}</button>
+              <button type="button" onClick={handleResetBrowserAgent} style={dangerButtonStyle}>{text.resetBrowserAgent}</button>
             </div>
             <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center", flexWrap: "wrap", marginTop: 12 }}>
               <label style={{ display: "inline-flex", alignItems: "center", gap: 8, fontWeight: 800 }}><input type="checkbox" checked={browserAgentEnabled} onChange={(event) => setBrowserAgentEnabled(event.target.checked)} />{text.browserAgentEnable}</label>
@@ -1047,7 +1111,7 @@ export function PrintersModule({ lang: _lang = "th" }: { lang?: "th" | "en" }) {
                       <div><strong>{printer.printer_name}</strong><div style={{ color: "#667085", fontSize: 12 }}>{printer.printer_role} / {printer.paper_width_mm}mm</div></div>
                       <div><strong style={{ fontSize: 13 }}>{printerConnectionLabel(printer)}</strong><div style={{ color: "#667085", fontSize: 12, overflowWrap: "anywhere" }}>{printerAddress(printer)}</div></div>
                       <span style={{ color: printer.enabled ? "#067647" : "#b42318", fontWeight: 800 }}>{printer.enabled ? text.yes : text.no}</span>
-                      <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}><button type="button" onClick={() => applyPrinterToForm(printer)} style={buttonStyle}>{text.editPrinter}</button><button type="button" disabled={printerActionId === printer.id} onClick={() => void handleSetPrinterBrowserAgent(printer)} style={buttonStyle}>{text.setBrowserAgent}</button><button type="button" disabled={printerActionId === printer.id} onClick={() => void handleTogglePrinterEnabled(printer)} style={printer.enabled ? dangerButtonStyle : buttonStyle}>{printer.enabled ? text.disablePrinter : text.enablePrinter}</button><button type="button" disabled={testingId === printer.id || !printer.enabled} onClick={() => void handleTestPrint(printer.id)} style={buttonStyle}>{testingId === printer.id ? text.testing : text.testPrint}</button></div>
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}><button type="button" onClick={() => applyPrinterToForm(printer)} style={buttonStyle}>{text.editPrinter}</button><button type="button" disabled={printerActionId === printer.id} onClick={() => void handleSetPrinterBrowserAgent(printer)} style={buttonStyle}>{text.setBrowserAgent}</button><button type="button" disabled={printerActionId === printer.id} onClick={() => void handleTogglePrinterEnabled(printer)} style={printer.enabled ? dangerButtonStyle : buttonStyle}>{printer.enabled ? text.disablePrinter : text.enablePrinter}</button><button type="button" disabled={printerActionId === printer.id} onClick={() => void handleDeletePrinter(printer)} style={dangerButtonStyle}>{text.deletePrinter}</button><button type="button" disabled={testingId === printer.id || !printer.enabled} onClick={() => void handleTestPrint(printer.id)} style={buttonStyle}>{testingId === printer.id ? text.testing : text.testPrint}</button></div>
                     </div>
                   ))}
                 </div>
@@ -1087,6 +1151,7 @@ export function PrintersModule({ lang: _lang = "th" }: { lang?: "th" | "en" }) {
                 <div style={{ display: "flex", gap: 8 }}>
                   <button type="button" disabled={agentActionId === agent.id || agent.status !== "active"} onClick={() => void handleUpdateAgent(agent.id, "revoke")} style={buttonStyle}>{text.revoke}</button>
                   <button type="button" disabled={agentActionId === agent.id || agent.status === "blocked"} onClick={() => void handleUpdateAgent(agent.id, "block")} style={buttonStyle}>{text.block}</button>
+                  <button type="button" disabled={agentActionId === agent.id} onClick={() => void handleDeleteAgent(agent)} style={dangerButtonStyle}>{text.deleteAgent}</button>
                 </div>
               </div>
             )) : null}

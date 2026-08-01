@@ -7,6 +7,7 @@ export const BROWSER_PRINT_AGENT_KEY = "cpi_browser_print_agent_key_v1";
 export const BROWSER_PRINT_AGENT_BAUD_KEY = "cpi_browser_print_agent_baud_v1";
 export const BROWSER_PRINT_AGENT_STATUS_EVENT = "cpi-browser-print-agent-status";
 export const BROWSER_PRINT_AGENT_CONFIG_EVENT = "cpi-browser-print-agent-config";
+export const BROWSER_PRINT_AGENT_RESET_EVENT = "cpi-browser-print-agent-reset";
 
 export type BrowserPrintAgentStatus = {
   enabled: boolean;
@@ -146,7 +147,12 @@ async function ensureSerialPort(portRef: { current: SerialPortLike | null }, bau
   const ports = await navigator.serial?.getPorts();
   const port = ports?.[0] ?? null;
   if (!port) return null;
-  await port.open({ baudRate });
+  try {
+    await port.open({ baudRate });
+  } catch (error) {
+    const message = error instanceof Error ? error.message.toLowerCase() : "";
+    if (!message.includes("already open")) throw error;
+  }
   portRef.current = port;
   return port;
 }
@@ -159,13 +165,32 @@ export function BrowserPrintAgent() {
 
   useEffect(() => {
     const reload = () => setConfig(readConfig());
+    const reset = () => {
+      const port = portRef.current;
+      portRef.current = null;
+      if (port) void port.close().catch(() => undefined);
+      jobsPrintedRef.current = 0;
+      lastJobIdRef.current = null;
+      reload();
+      dispatchStatus({
+        enabled: false,
+        supported: Boolean(navigator.serial),
+        connected: false,
+        code: "reset",
+        message: "Browser Print Agent was reset.",
+        jobsPrinted: 0,
+        lastJobId: null
+      });
+    };
     const onStorage = (event: StorageEvent) => {
       if ([BROWSER_PRINT_AGENT_ENABLED_KEY, BROWSER_PRINT_AGENT_KEY, BROWSER_PRINT_AGENT_BAUD_KEY].includes(event.key ?? "")) reload();
     };
     window.addEventListener(BROWSER_PRINT_AGENT_CONFIG_EVENT, reload);
+    window.addEventListener(BROWSER_PRINT_AGENT_RESET_EVENT, reset);
     window.addEventListener("storage", onStorage);
     return () => {
       window.removeEventListener(BROWSER_PRINT_AGENT_CONFIG_EVENT, reload);
+      window.removeEventListener(BROWSER_PRINT_AGENT_RESET_EVENT, reset);
       window.removeEventListener("storage", onStorage);
     };
   }, []);

@@ -468,6 +468,38 @@ export async function updatePrinterProfile(auth: AuthContext, printerId: string,
   return data as PrinterProfileRow;
 }
 
+export async function deletePrinterProfile(auth: AuthContext, printerId: string) {
+  ensureManagerOrOwner(auth);
+  const normalizedPrinterId = normalizeText(printerId);
+  if (!normalizedPrinterId) throw new Error("printer_id_required");
+
+  const supabase = getSupabaseServiceClient();
+  const { data, error } = await supabase
+    .from("printer_profiles")
+    .delete()
+    .eq("id", normalizedPrinterId)
+    .eq("tenant_id", auth.tenantId!)
+    .eq("branch_id", auth.branchId!)
+    .select("id,printer_name,printer_role,connection_type,paper_width_mm")
+    .maybeSingle();
+
+  if (error) throw new Error(error.message);
+  if (!data) throw new Error("printer_not_found");
+
+  await appendAuditLog({
+    tenantId: auth.tenantId!,
+    branchId: auth.branchId!,
+    actorUserId: auth.userId,
+    actorRole: auth.branchRole!,
+    action: "printer_profile_deleted",
+    targetTable: "printer_profiles",
+    targetId: normalizedPrinterId,
+    metadata: data as JsonRecord
+  });
+
+  return data as JsonRecord;
+}
+
 export async function enqueuePrintJob(input: EnqueuePrintJobInput): Promise<PrintJobRow> {
   const supabase = getSupabaseServiceClient();
   const retryLimit = Number.isFinite(input.maxRetryCount) ? Math.max(0, Number(input.maxRetryCount)) : DEFAULT_MAX_RETRY_COUNT;

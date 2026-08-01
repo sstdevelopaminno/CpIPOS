@@ -1,7 +1,7 @@
 import { getAuthContext } from "@/lib/auth-context";
 import { fail, ok } from "@/lib/http";
 import { loggedPrintApiFail } from "@/lib/printing/print-api-errors";
-import { createPrintAgent, listPrintAgents, revokePrintAgent } from "@/lib/printing/print-agent-service";
+import { createPrintAgent, deletePrintAgent, listPrintAgents, revokePrintAgent } from "@/lib/printing/print-agent-service";
 
 type CreateAgentPayload = {
   agent_name?: string | null;
@@ -14,6 +14,10 @@ type CreateAgentPayload = {
 type UpdateAgentPayload = {
   agent_id?: string | null;
   action?: "revoke" | "block" | null;
+};
+
+type DeleteAgentPayload = {
+  agent_id?: string | null;
 };
 
 function mapAgentError(error: unknown, fallbackCode: string) {
@@ -63,5 +67,17 @@ export async function PATCH(req: Request) {
     return ok({ agent });
   } catch (error) {
     return mapAgentError(error, "print_agent_update_failed");
+  }
+}
+
+
+export async function DELETE(req: Request) {
+  try {
+    const auth = await getAuthContext({ requireBranchScope: true });
+    const body = (await req.json()) as DeleteAgentPayload;
+    const agent = await deletePrintAgent(auth, body.agent_id ?? "");
+    return ok({ agent });
+  } catch (error) {
+    return mapAgentError(error, "print_agent_delete_failed");
   }
 }

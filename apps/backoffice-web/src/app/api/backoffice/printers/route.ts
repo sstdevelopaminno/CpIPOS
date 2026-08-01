@@ -3,7 +3,7 @@ import { getAuthContext } from "@/lib/auth-context";
 import { fail, ok } from "@/lib/http";
 import { buildPaginationMeta, parsePagination } from "@/lib/query-params";
 import { loggedPrintApiFail } from "@/lib/printing/print-api-errors";
-import { createPrinterProfile, listPrinterProfiles, updatePrinterProfile } from "@/lib/printing/print-service";
+import { createPrinterProfile, deletePrinterProfile, listPrinterProfiles, updatePrinterProfile } from "@/lib/printing/print-service";
 
 type CreatePrinterPayload = {
   printer_name: string;
@@ -17,6 +17,10 @@ type CreatePrinterPayload = {
 };
 
 type UpdatePrinterPayload = CreatePrinterPayload & {
+  printer_id?: string | null;
+};
+
+type DeletePrinterPayload = {
   printer_id?: string | null;
 };
 
@@ -124,5 +128,23 @@ export async function PATCH(req: Request) {
     if (message === "star_webprnt_url_required") return fail("invalid_webprnt_url", "STAR_WEBPRNT requires metadata.webprnt_url.", 422);
     if (message.includes("duplicate key value violates unique constraint")) return fail("printer_name_conflict", "Printer name already exists in this branch.", 409);
     return loggedPrintApiFail("printer update failed", error, "printer_update_failed", "Printer settings could not be updated. Please retry.", 400);
+  }
+}
+
+
+export async function DELETE(req: Request) {
+  try {
+    const auth = await getAuthContext({ requireBranchScope: true });
+    const body = (await req.json()) as DeletePrinterPayload;
+    const printerId = body.printer_id?.trim();
+    if (!printerId) return fail("invalid_printer_id", "printer_id is required.", 422);
+    const deleted = await deletePrinterProfile(auth, printerId);
+    return ok({ deleted });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unknown error";
+    if (message === "forbidden_role") return fail("forbidden_role", "Only manager or owner can delete printer settings.", 403);
+    if (message === "printer_not_found") return fail("printer_not_found", "Printer is not found in this branch.", 404);
+    if (message === "printer_id_required") return fail("invalid_printer_id", "printer_id is required.", 422);
+    return loggedPrintApiFail("printer delete failed", error, "printer_delete_failed", "Printer settings could not be deleted. Please retry.", 400);
   }
 }

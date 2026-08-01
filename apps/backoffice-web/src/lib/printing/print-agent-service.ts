@@ -264,6 +264,50 @@ export async function revokePrintAgent(auth: AuthContext, agentId: string, statu
   return toSafeAgent(agent);
 }
 
+export async function deletePrintAgent(auth: AuthContext, agentId: string) {
+  ensureManagerOrOwner(auth);
+  const normalizedAgentId = agentId.trim();
+  if (!normalizedAgentId) throw new Error("agent_id_required");
+  const supabase = getSupabaseServiceClient();
+
+  await supabase
+    .from("print_jobs")
+    .update({ claimed_by_agent_id: null, claim_expires_at: null, updated_at: new Date().toISOString() })
+    .eq("claimed_by_agent_id", normalizedAgentId)
+    .eq("tenant_id", auth.tenantId!)
+    .eq("branch_id", auth.branchId!);
+
+  const { data, error } = await supabase
+    .from("print_agents")
+    .delete()
+    .eq("id", normalizedAgentId)
+    .eq("tenant_id", auth.tenantId!)
+    .eq("branch_id", auth.branchId!)
+    .select(`${AGENT_SELECT},created_by,created_at,updated_at`)
+    .maybeSingle();
+
+  if (error) throw new Error(error.message);
+  if (!data) throw new Error("agent_not_found");
+
+  const agent = data as PrintAgentRow;
+  await appendAuditLog({
+    tenantId: auth.tenantId!,
+    branchId: auth.branchId!,
+    actorUserId: auth.userId,
+    actorRole: auth.branchRole ?? "staff",
+    action: "delete_print_agent",
+    targetTable: "print_agents",
+    targetId: agent.id,
+    metadata: {
+      agent_name: agent.agent_name,
+      device_code: agent.device_code,
+      status: agent.status
+    }
+  });
+
+  return toSafeAgent(agent);
+}
+
 export async function touchPrintAgent(agent: PrintAgentRow, input: { appVersion?: string | null; metadata?: JsonRecord | null } = {}) {
   const supabase = getSupabaseServiceClient();
   const now = new Date().toISOString();
