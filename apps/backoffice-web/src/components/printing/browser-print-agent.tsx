@@ -59,7 +59,7 @@ declare global {
 }
 
 const POLL_MS = 4000;
-const APP_VERSION = "browser-web-serial-1.0.0";
+const APP_VERSION = "browser-web-serial-1.0.1-html-raster";
 
 function readBool(value: string | null) {
   return value === "1" || value === "true";
@@ -155,10 +155,6 @@ function wrapCanvasLine(ctx: CanvasRenderingContext2D, line: string, maxWidth: n
   return wrapped;
 }
 
-function extractFirstImageSrc(html: string) {
-  return /<img[^>]+src=["']([^"']+)["']/i.exec(html)?.[1] ?? null;
-}
-
 function loadImage(src: string) {
   return new Promise<HTMLImageElement | null>((resolve) => {
     const img = new Image();
@@ -191,6 +187,165 @@ function rasterBytesFromCanvas(canvas: HTMLCanvasElement) {
   return output;
 }
 
+function paperWidthMmForJob(job: BrowserPrintJob): 58 | 80 {
+  return job.printer_profiles?.paper_width_mm === 80 ? 80 : 58;
+}
+
+function printerDotsForPaper(paperWidthMm: 58 | 80) {
+  return paperWidthMm === 80 ? 576 : 384;
+}
+
+function cssPxForMm(mm: number) {
+  return mm * (96 / 25.4);
+}
+
+function receiptCssFromHtml(html: string) {
+  const parsed = new DOMParser().parseFromString(html, "text/html");
+  return Array.from(parsed.querySelectorAll("style"))
+    .map((style) => style.textContent ?? "")
+    .join("\n");
+}
+
+function receiptBodyHtmlFromHtml(html: string) {
+  const parsed = new DOMParser().parseFromString(html, "text/html");
+  parsed.querySelectorAll("script,iframe,object,embed").forEach((node) => node.remove());
+  return parsed.body?.innerHTML?.trim() || html;
+}
+
+function normalizeReceiptCss(css: string) {
+  return css
+    .replace(/@page[^{}]*\{[^{}]*\}/gi, "")
+    .replace(/\bhtml\b/gi, ".receipt-print-page")
+    .replace(/\bbody\b/gi, ".receipt-print-page");
+}
+
+function baseReceiptCss(paperWidthMm: 58 | 80) {
+  return `
+.receipt-print-page {
+  box-sizing: border-box;
+  width: ${paperWidthMm}mm;
+  min-height: 1px;
+  margin: 0;
+  overflow: hidden;
+  background: #fff;
+  color: #000;
+  font-family: Tahoma, "Noto Sans Thai", Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: geometricPrecision;
+}
+.receipt-print-page * {
+  box-sizing: border-box;
+}
+.receipt-print-page img {
+  max-width: 100%;
+}
+`;
+}
+
+async function waitForReceiptAssets(root: HTMLElement) {
+  const fonts = "fonts" in document ? document.fonts : null;
+  await fonts?.ready.catch(() => undefined);
+
+  const images = Array.from(root.querySelectorAll("img"));
+  await Promise.allSettled(
+    images.map(
+      (image) =>
+        new Promise<void>((resolve) => {
+          if (image.complete) {
+            resolve();
+            return;
+          }
+          image.addEventListener("load", () => resolve(), { once: true });
+          image.addEventListener("error", () => resolve(), { once: true });
+        })
+    )
+  );
+
+  await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+}
+
+async function rasterBytesFromReceiptHtml(job: BrowserPrintJob, html: string) {
+  const paperWidthMm = paperWidthMmForJob(job);
+  const printerWidthPx = printerDotsForPaper(paperWidthMm);
+  const cssWidthPx = cssPxForMm(paperWidthMm);
+  const scale = printerWidthPx / cssWidthPx;
+  const styleText = `${baseReceiptCss(paperWidthMm)}\n${normalizeReceiptCss(receiptCssFromHtml(html))}`;
+  const bodyHtml = receiptBodyHtmlFromHtml(html);
+
+  const measureHost = document.createElement("div");
+  measureHost.style.position = "fixed";
+  measureHost.style.left = "-10000px";
+  measureHost.style.top = "0";
+  measureHost.style.width = `${cssWidthPx}px`;
+  measureHost.style.opacity = "0";
+  measureHost.style.pointerEvents = "none";
+  measureHost.style.zIndex = "-1";
+
+  const measurePage = document.createElement("div");
+  measurePage.className = "receipt-print-page";
+  measurePage.innerHTML = `<style>${styleText}</style>${bodyHtml}`;
+  measureHost.appendChild(measurePage);
+  document.body.appendChild(measureHost);
+
+  try {
+    await waitForReceiptAssets(measurePage);
+    const rect = measurePage.getBoundingClientRect();
+    const cssHeightPx = Math.ceil(Math.max(rect.height, measurePage.scrollHeight, 120));
+    const canvasHeightPx = Math.max(120, Math.ceil(cssHeightPx * scale));
+
+    const printPage = measurePage.cloneNode(true) as HTMLElement;
+    printPage.setAttribute("xmlns", "http://www.w3.org/1999/xhtml");
+    const serializedPage = new XMLSerializer().serializeToString(printPage);
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${cssWidthPx}" height="${cssHeightPx}" viewBox="0 0 ${cssWidthPx} ${cssHeightPx}"><foreignObject width="100%" height="100%">${serializedPage}</foreignObject></svg>`;
+    const image = await loadImage(`data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`);
+    if (!image) throw new Error("receipt_html_image_render_failed");
+
+    const canvas = document.createElement("canvas");
+    canvas.width = printerWidthPx;
+    canvas.height = canvasHeightPx;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) throw new Error("canvas_context_missing");
+    ctx.fillStyle = "#fff";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = "high";
+    ctx.drawImage(image, 0, 0, printerWidthPx, canvasHeightPx);
+    return rasterBytesFromCanvas(canvas);
+  } finally {
+    measureHost.remove();
+  }
+}
+
+async function rasterBytesFromReceiptText(job: BrowserPrintJob, html?: string | null) {
+  const lines = html ? htmlToLines(html) : textToLines(job.payload_text?.trim() || "CpIPOS print job");
+  const canvas = document.createElement("canvas");
+  const paperWidthMm = paperWidthMmForJob(job);
+  const width = printerDotsForPaper(paperWidthMm);
+  const padding = 14;
+  const lineHeight = 26;
+  const firstPass = canvas.getContext("2d");
+  if (!firstPass) throw new Error("canvas_context_missing");
+  firstPass.font = '700 21px "Tahoma", "Noto Sans Thai", sans-serif';
+  const wrapped = lines.flatMap((line) => wrapCanvasLine(firstPass, line, width - padding * 2));
+  canvas.width = width;
+  canvas.height = Math.max(120, padding * 2 + wrapped.length * lineHeight);
+  const ctx = canvas.getContext("2d");
+  if (!ctx) throw new Error("canvas_context_missing");
+  ctx.fillStyle = "#fff";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.fillStyle = "#000";
+  ctx.textBaseline = "top";
+  ctx.font = '700 21px "Tahoma", "Noto Sans Thai", sans-serif';
+  let y = padding;
+  for (const line of wrapped) {
+    const isCenter = y < padding + lineHeight * 5 || line === "CpIPOS";
+    ctx.textAlign = isCenter ? "center" : "left";
+    ctx.fillText(line, isCenter ? width / 2 : padding, y);
+    y += lineHeight;
+  }
+  return rasterBytesFromCanvas(canvas);
+}
+
 async function bytesForReceipt(job: BrowserPrintJob) {
   if (typeof document === "undefined") {
     const body = new TextEncoder().encode((job.payload_text?.trim() || "CpIPOS print job") + "\n\n\n");
@@ -202,43 +357,19 @@ async function bytesForReceipt(job: BrowserPrintJob) {
   }
 
   const html = receiptHtmlForJob(job);
-  const lines = html ? htmlToLines(html) : textToLines(job.payload_text?.trim() || "CpIPOS print job");
-  const canvas = document.createElement("canvas");
-  const width = job.printer_profiles?.paper_width_mm === 80 ? 576 : 384;
-  const padding = 14;
-  const lineHeight = 26;
-  const logoSrc = html ? extractFirstImageSrc(html) : null;
-  const firstPass = canvas.getContext("2d");
-  if (!firstPass) throw new Error("canvas_context_missing");
-  firstPass.font = '700 21px "Tahoma", "Noto Sans Thai", sans-serif';
-  const wrapped = lines.flatMap((line) => wrapCanvasLine(firstPass, line, width - padding * 2));
-  const logoHeight = logoSrc ? 54 : 0;
-  canvas.width = width;
-  canvas.height = Math.max(120, padding * 2 + logoHeight + wrapped.length * lineHeight);
-  const ctx = canvas.getContext("2d");
-  if (!ctx) throw new Error("canvas_context_missing");
-  ctx.fillStyle = "#fff";
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
-  ctx.fillStyle = "#000";
-  ctx.textBaseline = "top";
-  ctx.font = '700 21px "Tahoma", "Noto Sans Thai", sans-serif';
-  let y = padding;
-  if (logoSrc) {
-    const img = await loadImage(logoSrc);
-    if (img) {
-      const w = Math.min(120, img.width || 120);
-      const h = Math.min(42, img.height || 42);
-      ctx.drawImage(img, (width - w) / 2, y, w, h);
-      y += h + 8;
+  if (html) {
+    try {
+      return await rasterBytesFromReceiptHtml(job, html);
+    } catch (error) {
+      console.warn("[browser-print-agent] receipt HTML raster failed; falling back to text raster", {
+        jobId: job.id,
+        error: error instanceof Error ? error.message : "Unknown error"
+      });
+      return rasterBytesFromReceiptText(job, html);
     }
   }
-  for (const line of wrapped) {
-    const isCenter = y < padding + lineHeight * 5 || line === "CpIPOS";
-    ctx.textAlign = isCenter ? "center" : "left";
-    ctx.fillText(line, isCenter ? width / 2 : padding, y);
-    y += lineHeight;
-  }
-  return rasterBytesFromCanvas(canvas);
+
+  return rasterBytesFromReceiptText(job);
 }
 
 async function writeToPort(port: SerialPortLike, bytes: Uint8Array) {
