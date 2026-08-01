@@ -1,6 +1,6 @@
 # Active Documentation Index
 
-Last reviewed: 2026-08-01
+Last reviewed: 2026-08-02
 
 Use this page as the first stop before new development. It separates active implementation guidance from historical QR-era material.
 
@@ -9,14 +9,17 @@ Use this page as the first stop before new development. It separates active impl
 - App: `apps/backoffice-web`
 - Workspace: `E:\CpIPOS`
 - GitHub repo: `https://github.com/sstdevelopaminno/CpIPOS.git`
+- Active branch/default branch: `agent-docs-preflight-schema-drift`
 - Login flow: `/login/store -> /login/branches|employee -> /login/devices -> /preview/pos`
 - Database: Supabase migrations in `supabase/migrations`
 - Verification baseline: run `typecheck`, `test`, `lint`, `schema:drift`, and `build` before closing implementation work.
-- Latest local baseline on 2026-07-29 passed frozen install, typecheck, Vitest, full lint, schema drift, and production build for `backoffice-web`.
+- Latest production/Vercel print-performance handoff: commit `08afac88ce6e1bbc28f34310f1c43773e72ec104` was checked as Vercel `success` on 2026-08-02.
+- Latest local baseline on 2026-07-29 passed frozen install, typecheck, Vitest, full lint, schema drift, and production build for `backoffice-web`. Re-run the baseline locally after pulling 2026-08-02 changes.
 
 ## Read First
 
 - [AI Development Preflight](./AI-DEVELOPMENT-PREFLIGHT.md)
+- [CpIPOS Handoff 2026-08-02](./CPIPOS-HANDOFF-2026-08-02.md)
 - [CpIPOS Handoff 2026-07-28](./CPIPOS-HANDOFF-2026-07-28.md)
 - [CpIPOS AI Guardrails](./AI-GUARDRAILS-CPIPOS.md)
 - [CpIPOS Production Checkpoint](./CPIPOS-PRODUCTION-CHECKPOINT-2026-07-27.md)
@@ -25,6 +28,7 @@ Use this page as the first stop before new development. It separates active impl
 - [System Recheck 2026-07-28](./SYSTEM-RECHECK-2026-07-28.md)
 - [IT Backoffice API Design 2026-07-28](./IT-BACKOFFICE-API-DESIGN-2026-07-28.md)
 - [POS Printing And Receipt Audit 2026-07-29](./POS-PRINTING-RECEIPT-AUDIT-2026-07-29.md)
+- [Cross-Platform Web POS Printing 2026-08-02](./CROSS-PLATFORM-WEB-POS-PRINTING.md)
 - [POS Navigation Settings 2026-07-29](./POS-NAVIGATION-SETTINGS-2026-07-29.md)
 - [POS Table QR Live Order And Payment Lock 2026-07-30](./POS-TABLE-QR-LIVE-ORDER-LOCK-2026-07-30.md)
 - [POS Print Agent v1 Design 2026-07-29](./POS-PRINT-AGENT-V1-DESIGN-2026-07-29.md)
@@ -46,6 +50,8 @@ Use this page as the first stop before new development. It separates active impl
 - [POS Menu Modifiers And Ingredient Options](./POS-MENU-MODIFIERS-INGREDIENTS-PLAN-2026-07-22.md)
 - [POS Shift Close Reliability](./POS-SHIFT-CLOSE-RELIABILITY-2026-07-10.md)
 - [POS Printing And Receipt Audit 2026-07-29](./POS-PRINTING-RECEIPT-AUDIT-2026-07-29.md)
+- [Cross-Platform Web POS Printing 2026-08-02](./CROSS-PLATFORM-WEB-POS-PRINTING.md)
+- [CpIPOS Handoff 2026-08-02](./CPIPOS-HANDOFF-2026-08-02.md)
 - [POS Navigation Settings 2026-07-29](./POS-NAVIGATION-SETTINGS-2026-07-29.md)
 - [POS Table QR Live Order And Payment Lock 2026-07-30](./POS-TABLE-QR-LIVE-ORDER-LOCK-2026-07-30.md)
 - [POS Print Agent v1 Design 2026-07-29](./POS-PRINT-AGENT-V1-DESIGN-2026-07-29.md)
@@ -90,6 +96,34 @@ corepack pnpm --filter backoffice-web build
 ```
 
 If build or lint fails with `EPERM` against `.next`, `.eslintcache`, or `node_modules/.vite`, clear the locked cache from an elevated/local user shell or use a clean checkout before treating it as a code failure.
+
+## Pull Latest Local Source
+
+GitHub is the source of truth. Vercel deploys from GitHub; do not try to pull Vercel build output back into the repository.
+
+```powershell
+$env:Path="C:\Program Files\nodejs;C:\Program Files\Git\cmd;$env:Path"
+cd E:\CpIPOS
+git status -sb
+git fetch origin
+git checkout agent-docs-preflight-schema-drift
+git pull --ff-only origin agent-docs-preflight-schema-drift
+```
+
+If local changes exist:
+
+```powershell
+git stash push -u -m "local-backup-before-pull-2026-08-02"
+git pull --ff-only origin agent-docs-preflight-schema-drift
+```
+
+Pull Vercel env values only when needed and never commit `.env.local`:
+
+```powershell
+npx vercel login
+npx vercel link
+npx vercel env pull apps/backoffice-web/.env.local
+```
 
 ## Current CI Branch Coverage
 
