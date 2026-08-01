@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
+import { BrowserPrintAgent } from "@/components/printing/browser-print-agent";
 import { PosShellSidebar } from "@/components/pos-preview/pos-shell-sidebar";
 import type { Language } from "@/lib/i18n";
 
@@ -62,6 +63,7 @@ export function PosShellFrame({
 
   return (
     <div className={`pos-app-frame pos-app-frame--${placement} flex h-full min-h-0 w-full overflow-hidden`} data-menu-placement={placement}>
+      <BrowserPrintAgent />
       {placement === "bottom" ? (
         <>
           {content}

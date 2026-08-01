@@ -1,10 +1,11 @@
-﻿"use client";
+"use client";
 
 import type { CSSProperties, FormEvent } from "react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { EmptyState, ErrorState, LoadingState } from "@/components/backoffice/list-state";
 import { PaginationControls } from "@/components/backoffice/pagination-controls";
 import { usePaginatedApi } from "@/components/backoffice/use-paginated-api";
+import { BROWSER_PRINT_AGENT_BAUD_KEY, BROWSER_PRINT_AGENT_CONFIG_EVENT, BROWSER_PRINT_AGENT_ENABLED_KEY, BROWSER_PRINT_AGENT_KEY, BROWSER_PRINT_AGENT_STATUS_EVENT, type BrowserPrintAgentStatus } from "@/components/printing/browser-print-agent";
 
 type PrinterRole = "receipt" | "kitchen" | "report";
 type ConnectionType = "NETWORK_ESC_POS" | "STAR_WEBPRNT" | "LOCAL_BRIDGE" | "BLUETOOTH_BRIDGE";
@@ -39,6 +40,9 @@ type BluetoothDevice = { id: string; name: string; address: string | null; rssi:
 type ApiEnvelope<T> = { data?: T; error?: { message?: string; code?: string } };
 type BridgeEnvelope<TData> = { ok: boolean; code: string; message: string; action: string; timestamp: string; data: TData };
 type BridgeDebugEntry = { at: string; attempts: number; request: Record<string, unknown>; status: number | null; response: unknown };
+
+type SerialPortLike = { open(options: { baudRate: number }): Promise<void>; close(): Promise<void>; writable: WritableStream<Uint8Array> | null };
+type SerialLike = { getPorts(): Promise<SerialPortLike[]>; requestPort(options?: unknown): Promise<SerialPortLike> };
 
 const text = {
   title: "ตั้งค่าเครื่องพิมพ์",
@@ -112,6 +116,21 @@ const text = {
   testingPrint: "กำลังทดสอบพิมพ์...",
   printDebugComplete: "ทดสอบพิมพ์ Bluetooth เสร็จแล้ว",
   printDebugFailed: "ทดสอบพิมพ์ Bluetooth ไม่สำเร็จ",
+  browserAgentTitle: "Browser Print Agent (Web Serial/USB)",
+  browserAgentDesc: "สำหรับเปิด POS บนคอมด้วย Chrome/PWA ให้เลือกพอร์ต USB/COM หรือ Bluetooth SPP จาก Windows ครั้งแรก แล้วระบบจะรับคิวพิมพ์อัตโนมัติ",
+  browserAgentLimit: "เว็บไม่สามารถค้นหา/เชื่อม Bluetooth Classic แบบเงียบได้ ต้องให้ผู้ใช้เลือกพอร์ตหนึ่งครั้งตามข้อจำกัด browser",
+  browserAgentSecret: "Print Agent secret",
+  browserAgentBaud: "Baud rate",
+  browserAgentEnable: "เปิด Browser Print Agent",
+  saveBrowserAgent: "บันทึกค่า Agent ในเครื่องนี้",
+  selectSerialPrinter: "เลือกเครื่องจาก Windows",
+  reconnectSerialPrinter: "เชื่อมต่ออัตโนมัติ",
+  testBrowserSerial: "ทดสอบ Web Serial",
+  browserAgentUnsupported: "Browser นี้ไม่รองรับ Web Serial ให้ใช้ Chrome/Edge บน Windows หรือใช้ Windows POS app",
+  browserAgentSaved: "บันทึก Browser Print Agent แล้ว",
+  browserAgentPortSelected: "เลือกพอร์ตเครื่องพิมพ์แล้ว รอบถัดไประบบจะ reconnect อัตโนมัติ",
+  browserAgentPortMissing: "ยังไม่ได้เลือกพอร์ตเครื่องพิมพ์",
+  browserAgentReady: "พร้อมรับคิวพิมพ์",
   localAgents: "แอปพิมพ์ / Print Agent",
   agentName: "ชื่อ Agent",
   deviceCode: "รหัสเครื่อง",
@@ -295,6 +314,13 @@ export function PrintersModule({ lang: _lang = "th" }: { lang?: "th" | "en" }) {
   const [cashDrawerAutoOpen, setCashDrawerAutoOpen] = useState(false);
   const [metadataTextValue, setMetadataTextValue] = useState("");
   const [enabled, setEnabled] = useState(true);
+  const [browserAgentSecret, setBrowserAgentSecret] = useState("");
+  const [browserAgentBaud, setBrowserAgentBaud] = useState("9600");
+  const [browserAgentEnabled, setBrowserAgentEnabled] = useState(false);
+  const [browserAgentSupported, setBrowserAgentSupported] = useState(false);
+  const [browserAgentPortReady, setBrowserAgentPortReady] = useState(false);
+  const [browserAgentStatus, setBrowserAgentStatus] = useState<BrowserPrintAgentStatus | null>(null);
+  const [browserAgentBusy, setBrowserAgentBusy] = useState<string | null>(null);
 
   const isBridgeMode = connectionType === "LOCAL_BRIDGE" || connectionType === "BLUETOOTH_BRIDGE";
   const isBluetoothMode = connectionType === "BLUETOOTH_BRIDGE";
@@ -309,6 +335,140 @@ export function PrintersModule({ lang: _lang = "th" }: { lang?: "th" | "en" }) {
     { type: "STAR_WEBPRNT" as const, title: text.webTitle, desc: text.webDesc }
   ], []);
 
+  function getBrowserSerial() {
+    return typeof navigator !== "undefined" ? (navigator.serial as SerialLike | undefined) : undefined;
+  }
+
+  function browserAgentBaudNumber() {
+    const parsed = Number(browserAgentBaud);
+    return Number.isFinite(parsed) ? Math.min(921600, Math.max(1200, Math.trunc(parsed))) : 9600;
+  }
+
+  function dispatchBrowserAgentConfig() {
+    window.dispatchEvent(new Event(BROWSER_PRINT_AGENT_CONFIG_EVENT));
+  }
+
+  function buildBrowserAgentTestBytes() {
+    const body = new TextEncoder().encode(`CpIPOS Web Serial Test\n${new Date().toISOString()}\n\n\n`);
+    const bytes = new Uint8Array(2 + body.length + 3);
+    bytes.set([0x1b, 0x40], 0);
+    bytes.set(body, 2);
+    bytes.set([0x1d, 0x56, 0x00], 2 + body.length);
+    return bytes;
+  }
+
+  async function openSerialPort(port: SerialPortLike) {
+    await port.open({ baudRate: browserAgentBaudNumber() });
+    setBrowserAgentPortReady(true);
+    return port;
+  }
+
+  async function closeSerialPort(port: SerialPortLike) {
+    try {
+      await port.close();
+    } catch {
+      // Some browser serial drivers report close twice while the port is already released.
+    }
+  }
+
+  async function writeSerialBytes(port: SerialPortLike, bytes: Uint8Array) {
+    if (!port.writable) throw new Error("serial_port_not_writable");
+    const writer = port.writable.getWriter();
+    try {
+      await writer.write(bytes);
+    } finally {
+      writer.releaseLock();
+    }
+  }
+
+  const refreshBrowserAgentPortStatus = useCallback(async () => {
+    const serial = getBrowserSerial();
+    setBrowserAgentSupported(Boolean(serial));
+    if (!serial) {
+      setBrowserAgentPortReady(false);
+      return;
+    }
+    const ports = await serial.getPorts().catch(() => []);
+    setBrowserAgentPortReady(ports.length > 0);
+  }, []);
+
+  async function handleSaveBrowserAgent() {
+    setSubmitError(null);
+    setSubmitSuccess(null);
+    if (browserAgentEnabled && !browserAgentSecret.trim()) {
+      setSubmitError(text.browserAgentSecret);
+      return;
+    }
+    window.localStorage.setItem(BROWSER_PRINT_AGENT_ENABLED_KEY, browserAgentEnabled ? "1" : "0");
+    window.localStorage.setItem(BROWSER_PRINT_AGENT_KEY, browserAgentSecret.trim());
+    window.localStorage.setItem(BROWSER_PRINT_AGENT_BAUD_KEY, String(browserAgentBaudNumber()));
+    dispatchBrowserAgentConfig();
+    setSubmitSuccess(text.browserAgentSaved);
+  }
+
+  async function handleSelectBrowserSerialPrinter() {
+    setBrowserAgentBusy("select");
+    setSubmitError(null);
+    setSubmitSuccess(null);
+    try {
+      const serial = getBrowserSerial();
+      if (!serial?.requestPort) throw new Error(text.browserAgentUnsupported);
+      const port = await serial.requestPort();
+      await openSerialPort(port);
+      await closeSerialPort(port);
+      await refreshBrowserAgentPortStatus();
+      dispatchBrowserAgentConfig();
+      setSubmitSuccess(text.browserAgentPortSelected);
+    } catch (serialError) {
+      setSubmitError(serialError instanceof Error ? serialError.message : text.browserAgentPortMissing);
+    } finally {
+      setBrowserAgentBusy(null);
+    }
+  }
+
+  async function handleReconnectBrowserSerialPrinter() {
+    setBrowserAgentBusy("reconnect");
+    setSubmitError(null);
+    setSubmitSuccess(null);
+    try {
+      const serial = getBrowserSerial();
+      if (!serial) throw new Error(text.browserAgentUnsupported);
+      const ports = await serial.getPorts();
+      const port = ports[0];
+      if (!port) throw new Error(text.browserAgentPortMissing);
+      await openSerialPort(port);
+      await closeSerialPort(port);
+      await refreshBrowserAgentPortStatus();
+      dispatchBrowserAgentConfig();
+      setSubmitSuccess(text.browserAgentReady);
+    } catch (serialError) {
+      setSubmitError(serialError instanceof Error ? serialError.message : text.browserAgentPortMissing);
+    } finally {
+      setBrowserAgentBusy(null);
+    }
+  }
+
+  async function handleBrowserSerialTestPrint() {
+    setBrowserAgentBusy("test");
+    setSubmitError(null);
+    setSubmitSuccess(null);
+    try {
+      const serial = getBrowserSerial();
+      if (!serial) throw new Error(text.browserAgentUnsupported);
+      const ports = await serial.getPorts();
+      const port = ports[0] ?? await serial.requestPort();
+      await openSerialPort(port);
+      const bytes = buildBrowserAgentTestBytes();
+      await writeSerialBytes(port, bytes);
+      await closeSerialPort(port);
+      await refreshBrowserAgentPortStatus();
+      setSubmitSuccess(text.printDebugComplete);
+    } catch (serialError) {
+      setSubmitError(serialError instanceof Error ? serialError.message : text.printDebugFailed);
+    } finally {
+      setBrowserAgentBusy(null);
+    }
+  }
   const generatedMetadata = useMemo(() => {
     const metadata: Record<string, unknown> = {};
     if (isBridgeMode && bridgeUrlInput.trim()) metadata.bridge_url = bridgeUrlInput.trim();
@@ -343,6 +503,29 @@ export function PrintersModule({ lang: _lang = "th" }: { lang?: "th" | "en" }) {
   useEffect(() => {
     if (activePanel === "agents") void loadAgents();
   }, [activePanel, loadAgents, reloadKey]);
+
+  useEffect(() => {
+    const loadBrowserAgentConfig = () => {
+      setBrowserAgentSecret(window.localStorage.getItem(BROWSER_PRINT_AGENT_KEY)?.trim() ?? "");
+      setBrowserAgentBaud(window.localStorage.getItem(BROWSER_PRINT_AGENT_BAUD_KEY)?.trim() || "9600");
+      setBrowserAgentEnabled(window.localStorage.getItem(BROWSER_PRINT_AGENT_ENABLED_KEY) === "1");
+      void refreshBrowserAgentPortStatus();
+    };
+    const onBrowserAgentStatus = (event: Event) => {
+      setBrowserAgentStatus((event as CustomEvent<BrowserPrintAgentStatus>).detail ?? null);
+    };
+    const onStorage = (event: StorageEvent) => {
+      if ([BROWSER_PRINT_AGENT_KEY, BROWSER_PRINT_AGENT_BAUD_KEY, BROWSER_PRINT_AGENT_ENABLED_KEY].includes(event.key ?? "")) loadBrowserAgentConfig();
+    };
+
+    loadBrowserAgentConfig();
+    window.addEventListener(BROWSER_PRINT_AGENT_STATUS_EVENT, onBrowserAgentStatus as EventListener);
+    window.addEventListener("storage", onStorage);
+    return () => {
+      window.removeEventListener(BROWSER_PRINT_AGENT_STATUS_EVENT, onBrowserAgentStatus as EventListener);
+      window.removeEventListener("storage", onStorage);
+    };
+  }, [refreshBrowserAgentPortStatus]);
 
   useEffect(() => {
     if (!isBluetoothMode) return;
@@ -641,6 +824,30 @@ export function PrintersModule({ lang: _lang = "th" }: { lang?: "th" | "en" }) {
       {activePanel === "printers" ? (
         <>
           <div style={{ ...panelStyle, background: "#eff8ff", borderColor: "#b2ddff", color: "#1849a9", fontWeight: 700 }}>{text.browserBridgeHint}</div>
+          <section style={{ ...panelStyle, borderColor: browserAgentEnabled ? "#84caff" : "#d8e0ea", background: "#f8fbff" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap", alignItems: "flex-start" }}>
+              <div>
+                <h3 style={{ margin: 0, fontSize: 16 }}>{text.browserAgentTitle}</h3>
+                <p style={{ margin: "6px 0 0", color: "#475467", maxWidth: 820 }}>{text.browserAgentDesc}</p>
+                <p style={{ margin: "6px 0 0", color: "#b54708", fontWeight: 800 }}>{text.browserAgentLimit}</p>
+              </div>
+              <div style={{ ...panelStyle, minWidth: 230, padding: "8px 12px", background: browserAgentStatus?.connected || browserAgentPortReady ? "#ecfdf3" : "#fff7ed" }}>
+                <strong style={{ color: browserAgentStatus?.connected || browserAgentPortReady ? "#067647" : "#b54708" }}>{text.status}: {browserAgentStatus?.code ?? (browserAgentPortReady ? text.browserAgentReady : text.browserAgentPortMissing)}</strong>
+                <div style={{ color: "#475467", fontSize: 12 }}>{browserAgentStatus?.message ?? (browserAgentSupported ? "Web Serial" : text.browserAgentUnsupported)}</div>
+              </div>
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 10, alignItems: "end", marginTop: 14 }}>
+              <label style={labelStyle}>{text.browserAgentSecret}<input type="password" value={browserAgentSecret} onChange={(event) => setBrowserAgentSecret(event.target.value)} placeholder="cpi_pa_..." style={inputStyle} /></label>
+              <label style={labelStyle}>{text.browserAgentBaud}<select value={browserAgentBaud} onChange={(event) => setBrowserAgentBaud(event.target.value)} style={inputStyle}><option value="9600">9600</option><option value="19200">19200</option><option value="38400">38400</option><option value="57600">57600</option><option value="115200">115200</option></select></label>
+              <button type="button" onClick={() => void handleSelectBrowserSerialPrinter()} disabled={browserAgentBusy === "select"} style={buttonStyle}>{browserAgentBusy === "select" ? text.connecting : text.selectSerialPrinter}</button>
+              <button type="button" onClick={() => void handleReconnectBrowserSerialPrinter()} disabled={browserAgentBusy === "reconnect"} style={buttonStyle}>{browserAgentBusy === "reconnect" ? text.connecting : text.reconnectSerialPrinter}</button>
+              <button type="button" onClick={() => void handleBrowserSerialTestPrint()} disabled={browserAgentBusy === "test"} style={buttonStyle}>{browserAgentBusy === "test" ? text.testingPrint : text.testBrowserSerial}</button>
+            </div>
+            <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center", flexWrap: "wrap", marginTop: 12 }}>
+              <label style={{ display: "inline-flex", alignItems: "center", gap: 8, fontWeight: 800 }}><input type="checkbox" checked={browserAgentEnabled} onChange={(event) => setBrowserAgentEnabled(event.target.checked)} />{text.browserAgentEnable}</label>
+              <button type="button" onClick={() => void handleSaveBrowserAgent()} style={primaryButtonStyle}>{text.saveBrowserAgent}</button>
+            </div>
+          </section>
           <form onSubmit={handleCreatePrinter} style={{ display: "grid", gap: 14 }}>
             <section style={panelStyle}>
               <h3 style={{ margin: "0 0 12px", fontSize: 16 }}>{text.printPath}</h3>
