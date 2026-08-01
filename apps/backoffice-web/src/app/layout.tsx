@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
-import { BrowserPrintAgentAlert } from "@/components/printing/browser-print-agent-alert";
+import { BrowserPrintAgentPosHost } from "@/components/printing/browser-print-agent-pos-host";
 import { PwaBootstrap } from "@/components/pwa/pwa-bootstrap";
 import "./globals.css";
 
@@ -32,7 +32,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
       <body className="m-0 h-full w-full overflow-hidden p-0">
         {children}
         <PwaBootstrap />
-        <BrowserPrintAgentAlert />
+        <BrowserPrintAgentPosHost />
       </body>
     </html>
   );
