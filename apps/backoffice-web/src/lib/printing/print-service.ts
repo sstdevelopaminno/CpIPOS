@@ -262,6 +262,16 @@ export function renderReceiptTemplate(template: ReceiptTemplate, paperWidthMm: 5
   return lines.join("\n");
 }
 
+function escapeReceiptHtml(value: unknown): string {
+  return String(value ?? "").replace(/[&<>"]/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;" }[char] ?? char));
+}
+
+function renderReceiptPrintHtmlFromText(template: ReceiptTemplate, paperWidthMm: 58 | 80, textBody: string): string {
+  const logo = normalizeText(template.store_logo_url);
+  const pageHeightMm = Math.min(700, Math.max(125, 80 + template.items.length * 14));
+  const width = paperWidthMm === 58 ? 48 : 70;
+  return "<!doctype html><html lang=\"th\"><head><meta charset=\"utf-8\"><style>@page{size:" + paperWidthMm + "mm " + pageHeightMm + "mm;margin:0}body{width:" + paperWidthMm + "mm;margin:0;background:#fff;color:#000;font-family:Tahoma,sans-serif}.r{width:" + width + "mm;margin:0 auto;padding:2mm 0;font-size:17px;font-weight:800;line-height:1.34;white-space:pre-wrap}.logo{text-align:center;margin-bottom:1mm}.logo img{max-width:28mm;max-height:9mm;object-fit:contain}</style></head><body><main class=\"r\"><div class=\"logo\">" + (logo ? "<img src=\"" + escapeReceiptHtml(logo) + "\">" : "CpIPOS") + "</div>" + escapeReceiptHtml(textBody) + "</main></body></html>";
+}
 function receiptStoreTemplateFields(storeProfile: ReceiptStoreProfile | null) {
   return {
     store_name: storeProfile?.display_name || storeProfile?.name,
@@ -1271,6 +1281,9 @@ export async function enqueuePrintJobsForOrderSnapshot(args: {
     discount_amount: number;
     notes?: string | null;
     customer_name?: string | null;
+    mode_label?: string | null;
+    cash_received?: number | null;
+    change_amount?: number | null;
   };
   items: Array<{ product_name: string; quantity: number; unit_price: number; line_total: number; note?: string | null }>;
   paymentMethod: "cash" | "bank_transfer";
@@ -1314,7 +1327,8 @@ export async function enqueuePrintJobsForOrderSnapshot(args: {
       orderId: order.id,
       printerRole: "receipt",
       payloadText: receiptPayload,
-      payloadJson: { ...receiptStorePayload(storeProfile), branch_name: branchName, order_id: order.id, order_no: order.order_no }
+      payloadJson: { ...receiptStorePayload(storeProfile), branch_name: branchName, order_id: order.id, order_no: order.order_no },
+      metadata: { payload_html: renderReceiptPrintHtmlFromText({ ...receiptStoreTemplateFields(storeProfile), order_id: order.id, order_no: order.order_no, branch_name: branchName, cashier_name: auth.userId, paid_at_iso: nowIso(), currency: "THB", items: items.map((item) => ({ name: item.product_name, qty: item.quantity, unit_price: item.unit_price, line_total: item.line_total })), subtotal: order.total_amount + order.discount_amount, discount_amount: order.discount_amount, tax_amount: 0, total_amount: order.total_amount, payment_method: paymentMethod, cash_received: order.cash_received ?? null, change_amount: order.change_amount ?? null, mode_label: order.mode_label ?? null, note: order.notes ?? undefined }, printer.paper_width_mm, receiptPayload) }
     });
     queuedJobs.push(job);
     await processOrQueuePrintJob(job, printer);

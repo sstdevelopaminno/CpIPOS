@@ -207,14 +207,14 @@ async function bytesForReceipt(job: BrowserPrintJob) {
   const width = job.printer_profiles?.paper_width_mm === 80 ? 576 : 384;
   const padding = 14;
   const lineHeight = 26;
-  const qrSrc = html ? extractFirstImageSrc(html) : null;
+  const logoSrc = html ? extractFirstImageSrc(html) : null;
   const firstPass = canvas.getContext("2d");
   if (!firstPass) throw new Error("canvas_context_missing");
   firstPass.font = '700 21px "Tahoma", "Noto Sans Thai", sans-serif';
   const wrapped = lines.flatMap((line) => wrapCanvasLine(firstPass, line, width - padding * 2));
-  const qrHeight = qrSrc ? Math.min(width - padding * 2, 300) + 18 : 0;
+  const logoHeight = logoSrc ? 54 : 0;
   canvas.width = width;
-  canvas.height = Math.max(120, padding * 2 + wrapped.length * lineHeight + qrHeight);
+  canvas.height = Math.max(120, padding * 2 + logoHeight + wrapped.length * lineHeight);
   const ctx = canvas.getContext("2d");
   if (!ctx) throw new Error("canvas_context_missing");
   ctx.fillStyle = "#fff";
@@ -223,18 +223,20 @@ async function bytesForReceipt(job: BrowserPrintJob) {
   ctx.textBaseline = "top";
   ctx.font = '700 21px "Tahoma", "Noto Sans Thai", sans-serif';
   let y = padding;
+  if (logoSrc) {
+    const img = await loadImage(logoSrc);
+    if (img) {
+      const w = Math.min(120, img.width || 120);
+      const h = Math.min(42, img.height || 42);
+      ctx.drawImage(img, (width - w) / 2, y, w, h);
+      y += h + 8;
+    }
+  }
   for (const line of wrapped) {
     const isCenter = y < padding + lineHeight * 5 || line === "CpIPOS";
     ctx.textAlign = isCenter ? "center" : "left";
     ctx.fillText(line, isCenter ? width / 2 : padding, y);
     y += lineHeight;
-  }
-  if (qrSrc) {
-    const img = await loadImage(qrSrc);
-    if (img) {
-      const size = Math.min(width - padding * 2, 300);
-      ctx.drawImage(img, (width - size) / 2, y + 8, size, size);
-    }
   }
   return rasterBytesFromCanvas(canvas);
 }
