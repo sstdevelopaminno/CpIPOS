@@ -198,6 +198,7 @@ type Props = {
   onConfirmTransfer: () => Promise<void> | void;
   onPrintReceipt: () => void;
   onCloseReceipt: () => void;
+  receiptAutoPrinted?: boolean;
 };
 
 export function PosPaymentModals({
@@ -216,6 +217,7 @@ export function PosPaymentModals({
   transferReviewOrder,
   receiptSession,
   receiptSaving,
+  receiptAutoPrinted = false,
   cashSubmitting,
   transferSubmitting,
   transferError,
@@ -708,16 +710,18 @@ export function PosPaymentModals({
                 ) : null}
               </footer>
             </article>
-            <div className="posui-payment-modal__actions posui-payment-modal__actions--cash">
-              <button
-                type="button"
-                className="posui-btn posui-btn--primary"
-                onClick={onPrintReceipt}
-                disabled={receiptSaving}
-              >
-                {text.receiptPrint}
-              </button>
-            </div>
+            {!receiptAutoPrinted ? (
+              <div className="posui-payment-modal__actions posui-payment-modal__actions--cash">
+                <button
+                  type="button"
+                  className="posui-btn posui-btn--primary"
+                  onClick={onPrintReceipt}
+                  disabled={receiptSaving}
+                >
+                  {text.receiptPrint}
+                </button>
+              </div>
+            ) : null}
           </section>
         </div>
       ) : null}

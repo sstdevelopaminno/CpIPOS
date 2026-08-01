@@ -400,6 +400,12 @@ type ApiErrorBody = {
   };
 };
 
+type PosPaymentResponseBody = ApiErrorBody & {
+  data?: {
+    print_jobs_queued?: number | null;
+  };
+};
+
 type SlipExtractPayload = {
   payer_name: string | null;
   payee_name: string | null;
@@ -2131,6 +2137,7 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
   const [receiptSession, setReceiptSession] = useState<ReceiptSession | null>(null);
   const [receiptSaving, setReceiptSaving] = useState(false);
   const [receiptSaved, setReceiptSaved] = useState(false);
+  const [receiptAutoPrinted, setReceiptAutoPrinted] = useState(false);
   const [receiptError, setReceiptError] = useState<string | null>(null);
   const [cancelBillSubmitting, setCancelBillSubmitting] = useState(false);
 
@@ -6880,6 +6887,7 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
     receiptModalClosedRef.current = true;
     setReceiptSession(null);
     setReceiptSaved(false);
+    setReceiptAutoPrinted(false);
     setReceiptError(null);
     setReceiptSaving(false);
     if (!activeOrder && cartRef.current.length === 0) {
@@ -6924,7 +6932,7 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
     setReceiptError(null);
 
     try {
-      const { response, body } = await fetchJsonWithTimeout<ApiErrorBody>(
+      const { response, body } = await fetchJsonWithTimeout<PosPaymentResponseBody>(
         "/api/pos/payments",
         {
           method: "POST",
@@ -6947,6 +6955,7 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
       }
 
       setReceiptSaved(true);
+      setReceiptAutoPrinted(Number(body.data?.print_jobs_queued ?? 0) > 0);
       setBillPaymentMethod("cash");
       clearClosedBillUiState({ clearReceipt: false, tableId: cashReviewOrder.table_id ?? null, resetDelivery: true });
       pushSubmitMessage(`${text.receiptSaved}: ${cashReviewOrder.order_no}`);
@@ -8807,6 +8816,7 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
           onConfirmTransfer={confirmTransferPayment}
           onPrintReceipt={handleReceiptPrint}
           onCloseReceipt={closeReceiptPopup}
+          receiptAutoPrinted={receiptAutoPrinted}
       />
 
       {ingredientAdjustDialog ? (

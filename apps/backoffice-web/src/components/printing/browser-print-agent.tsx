@@ -97,19 +97,146 @@ function bytesForCashDrawer() {
   return new Uint8Array([0x1b, 0x40, 0x1b, 0x70, 0x00, 0x32, 0xfa]);
 }
 
-function bytesForReceipt(job: BrowserPrintJob) {
-  const lines = [
-    job.payload_text?.trim() || "CpIPOS print job",
-    "",
-    "",
-    ""
-  ].join("\n");
-  const body = new TextEncoder().encode(lines);
-  const output = new Uint8Array(2 + body.length + 3);
-  output.set([0x1b, 0x40], 0);
-  output.set(body, 2);
-  output.set([0x1d, 0x56, 0x00], 2 + body.length);
+function readRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
+}
+
+function readString(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function receiptHtmlForJob(job: BrowserPrintJob) {
+  const metadata = readRecord(job.metadata);
+  const payload = readRecord(job.payload_json);
+  return readString(metadata.payload_html) ?? readString(metadata.receipt_html) ?? readString(payload.payload_html) ?? readString(payload.receipt_html);
+}
+
+function decodeHtml(value: string) {
+  if (typeof document === "undefined") return value;
+  const textarea = document.createElement("textarea");
+  textarea.innerHTML = value;
+  return textarea.value;
+}
+
+function htmlToLines(html: string) {
+  const withBreaks = html
+    .replace(/<script[\s\S]*?<\/script>/gi, " ")
+    .replace(/<style[\s\S]*?<\/style>/gi, " ")
+    .replace(/<(br|hr)\s*\/?\s*>/gi, "\n")
+    .replace(/<\/(p|div|h1|h2|h3|tr|table|section|article|main|header|footer|dl)>/gi, "\n")
+    .replace(/<\/(td|th|dt|dd|span|strong)>/gi, " ")
+    .replace(/<[^>]+>/g, " ");
+  return decodeHtml(withBreaks)
+    .split(/\n+/)
+    .map((line) => line.replace(/\s+/g, " ").trim())
+    .filter(Boolean)
+    .slice(0, 80);
+}
+
+function textToLines(text: string) {
+  return text.split(/\r?\n/).map((line) => line.trim()).filter(Boolean).slice(0, 80);
+}
+
+function wrapCanvasLine(ctx: CanvasRenderingContext2D, line: string, maxWidth: number) {
+  if (ctx.measureText(line).width <= maxWidth) return [line];
+  const words = line.split(/\s+/).filter(Boolean);
+  const wrapped: string[] = [];
+  let current = "";
+  for (const word of words.length ? words : [line]) {
+    const next = current ? current + " " + word : word;
+    if (ctx.measureText(next).width <= maxWidth || !current) {
+      current = next;
+    } else {
+      wrapped.push(current);
+      current = word;
+    }
+  }
+  if (current) wrapped.push(current);
+  return wrapped;
+}
+
+function extractFirstImageSrc(html: string) {
+  return /<img[^>]+src=["']([^"']+)["']/i.exec(html)?.[1] ?? null;
+}
+
+function loadImage(src: string) {
+  return new Promise<HTMLImageElement | null>((resolve) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = () => resolve(null);
+    img.src = src;
+  });
+}
+
+function rasterBytesFromCanvas(canvas: HTMLCanvasElement) {
+  const ctx = canvas.getContext("2d");
+  if (!ctx) throw new Error("canvas_context_missing");
+  const image = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+  const widthBytes = Math.ceil(canvas.width / 8);
+  const raster = new Uint8Array(widthBytes * canvas.height);
+  for (let y = 0; y < canvas.height; y += 1) {
+    for (let x = 0; x < canvas.width; x += 1) {
+      const offset = (y * canvas.width + x) * 4;
+      const alpha = image[offset + 3] ?? 0;
+      const lum = ((image[offset] ?? 255) * 0.299) + ((image[offset + 1] ?? 255) * 0.587) + ((image[offset + 2] ?? 255) * 0.114);
+      if (alpha > 96 && lum < 190) raster[y * widthBytes + (x >> 3)] |= 0x80 >> (x & 7);
+    }
+  }
+  const header = new Uint8Array([0x1b, 0x40, 0x1d, 0x76, 0x30, 0x00, widthBytes & 0xff, (widthBytes >> 8) & 0xff, canvas.height & 0xff, (canvas.height >> 8) & 0xff]);
+  const cut = new Uint8Array([0x0a, 0x0a, 0x1d, 0x56, 0x00]);
+  const output = new Uint8Array(header.length + raster.length + cut.length);
+  output.set(header, 0);
+  output.set(raster, header.length);
+  output.set(cut, header.length + raster.length);
   return output;
+}
+
+async function bytesForReceipt(job: BrowserPrintJob) {
+  if (typeof document === "undefined") {
+    const body = new TextEncoder().encode((job.payload_text?.trim() || "CpIPOS print job") + "\n\n\n");
+    const output = new Uint8Array(2 + body.length + 3);
+    output.set([0x1b, 0x40], 0);
+    output.set(body, 2);
+    output.set([0x1d, 0x56, 0x00], 2 + body.length);
+    return output;
+  }
+
+  const html = receiptHtmlForJob(job);
+  const lines = html ? htmlToLines(html) : textToLines(job.payload_text?.trim() || "CpIPOS print job");
+  const canvas = document.createElement("canvas");
+  const width = job.printer_profiles?.paper_width_mm === 80 ? 576 : 384;
+  const padding = 14;
+  const lineHeight = 26;
+  const qrSrc = html ? extractFirstImageSrc(html) : null;
+  const firstPass = canvas.getContext("2d");
+  if (!firstPass) throw new Error("canvas_context_missing");
+  firstPass.font = '700 21px "Tahoma", "Noto Sans Thai", sans-serif';
+  const wrapped = lines.flatMap((line) => wrapCanvasLine(firstPass, line, width - padding * 2));
+  const qrHeight = qrSrc ? Math.min(width - padding * 2, 300) + 18 : 0;
+  canvas.width = width;
+  canvas.height = Math.max(120, padding * 2 + wrapped.length * lineHeight + qrHeight);
+  const ctx = canvas.getContext("2d");
+  if (!ctx) throw new Error("canvas_context_missing");
+  ctx.fillStyle = "#fff";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.fillStyle = "#000";
+  ctx.textBaseline = "top";
+  ctx.font = '700 21px "Tahoma", "Noto Sans Thai", sans-serif';
+  let y = padding;
+  for (const line of wrapped) {
+    const isCenter = y < padding + lineHeight * 5 || line === "CpIPOS";
+    ctx.textAlign = isCenter ? "center" : "left";
+    ctx.fillText(line, isCenter ? width / 2 : padding, y);
+    y += lineHeight;
+  }
+  if (qrSrc) {
+    const img = await loadImage(qrSrc);
+    if (img) {
+      const size = Math.min(width - padding * 2, 300);
+      ctx.drawImage(img, (width - size) / 2, y + 8, size, size);
+    }
+  }
+  return rasterBytesFromCanvas(canvas);
 }
 
 async function writeToPort(port: SerialPortLike, bytes: Uint8Array) {
@@ -244,7 +371,7 @@ export function BrowserPrintAgent() {
         const jobs = claim.body?.data?.jobs ?? [];
         for (const job of jobs) {
           try {
-            const bytes = isCashDrawerJob(job) ? bytesForCashDrawer() : bytesForReceipt(job);
+            const bytes = isCashDrawerJob(job) ? bytesForCashDrawer() : await bytesForReceipt(job);
             await writeToPort(port, bytes);
             await postAgentApi(`/api/print-agent/v1/jobs/${encodeURIComponent(job.id)}/ack`, config.agentKey, {
               provider_job_id: `browser:${Date.now()}`,

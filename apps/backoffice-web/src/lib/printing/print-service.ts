@@ -20,6 +20,7 @@ import { StarWebPrntAdapter } from "@/lib/printing/adapters/star-webprnt-adapter
 import type { PrinterAdapter } from "@/lib/printing/adapters/types";
 
 const DEFAULT_MAX_RETRY_COUNT = 3;
+const BROWSER_AGENT_BRIDGE_URL = "browser-agent://web-serial";
 
 type JsonRecord = Record<string, unknown>;
 
@@ -753,7 +754,6 @@ export async function queueAndProcessBluetoothReceiptHtml(auth: AuthContext, inp
     .eq("tenant_id", auth.tenantId!)
     .eq("branch_id", auth.branchId!)
     .eq("printer_role", "receipt")
-    .eq("connection_type", "BLUETOOTH_BRIDGE")
     .eq("enabled", true)
     .order("created_at", { ascending: true });
 
@@ -761,7 +761,10 @@ export async function queueAndProcessBluetoothReceiptHtml(auth: AuthContext, inp
     throw new Error(printerError.message);
   }
 
-  const bluetoothPrinters = (printers ?? []) as PrinterProfileRow[];
+  const bluetoothPrinters = ((printers ?? []) as PrinterProfileRow[]).filter((printer) => {
+    const metadata = asRecord(printer.metadata);
+    return printer.connection_type === "BLUETOOTH_BRIDGE" || printerHasAgentRoute(printer) || metadata.bridge_url === BROWSER_AGENT_BRIDGE_URL;
+  });
   if (bluetoothPrinters.length === 0) {
     throw new Error("bluetooth_receipt_printer_not_configured");
   }
