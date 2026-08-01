@@ -1,4 +1,4 @@
-import type {
+﻿import type {
   CreateManualDeliveryOrderInput,
   KitchenTicketTemplate,
   PaymentMethod,
@@ -293,6 +293,16 @@ export async function createPrinterProfile(auth: AuthContext, input: CreatePrint
 
   if (input.connection_type === "NETWORK_ESC_POS" && !ipAddress) {
     throw new Error("ip_address_required_for_network_esc_pos");
+  }
+  if (input.connection_type === "STAR_WEBPRNT" && !normalizeText(String(metadata.webprnt_url ?? ""))) {
+    throw new Error("star_webprnt_url_required");
+  }
+  if (input.connection_type === "LOCAL_BRIDGE") {
+    const metadataBridgeUrl = normalizeText(String(metadata.bridge_url ?? ""));
+    const envBridgeUrl = readEnv("PRINT_BRIDGE_URL") ?? null;
+    if (!metadataBridgeUrl && !envBridgeUrl) {
+      throw new Error("local_bridge_url_required");
+    }
   }
   if (input.connection_type === "BLUETOOTH_BRIDGE") {
     const metadataBluetoothAddress = normalizeText(String(metadata.bluetooth_address ?? metadata.bluetooth_mac ?? metadata.bt_address ?? ""));

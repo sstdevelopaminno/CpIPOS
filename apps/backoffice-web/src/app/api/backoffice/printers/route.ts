@@ -1,4 +1,4 @@
-import type { PrinterConnectionType } from "@pos/shared-types";
+﻿import type { PrinterConnectionType } from "@pos/shared-types";
 import { getAuthContext } from "@/lib/auth-context";
 import { fail, ok } from "@/lib/http";
 import { buildPaginationMeta, parsePagination } from "@/lib/query-params";
@@ -74,6 +74,12 @@ export async function POST(req: Request) {
     }
     if (message === "bluetooth_bridge_url_required") {
       return fail("invalid_bluetooth_bridge_url", "BLUETOOTH_BRIDGE requires metadata.bridge_url or PRINT_BLUETOOTH_BRIDGE_URL.", 422);
+    }
+    if (message === "local_bridge_url_required") {
+      return fail("invalid_local_bridge_url", "LOCAL_BRIDGE requires metadata.bridge_url or PRINT_BRIDGE_URL.", 422);
+    }
+    if (message === "star_webprnt_url_required") {
+      return fail("invalid_webprnt_url", "STAR_WEBPRNT requires metadata.webprnt_url.", 422);
     }
     if (message.includes("duplicate key value violates unique constraint")) {
       return fail("printer_name_conflict", "Printer name already exists in this branch.", 409);
