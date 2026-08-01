@@ -59,7 +59,22 @@ declare global {
 }
 
 const POLL_MS = 4000;
-const APP_VERSION = "browser-web-serial-1.0.1-html-raster";
+const APP_VERSION = "browser-web-serial-1.0.2-receipt-html";
+
+const LEGACY_RECEIPT_LABELS = [
+  "พนักงาน",
+  "สถานะ",
+  "ประเภท",
+  "เลขที่บิล",
+  "สมาชิก",
+  "วันที่",
+  "วิธีชำระเงิน",
+  "ส่วนลด",
+  "ภาษี",
+  "ยอดรวมสุทธิ",
+  "รับเงินสด",
+  "เงินทอน"
+];
 
 function readBool(value: string | null) {
   return value === "1" || value === "true";
@@ -130,11 +145,11 @@ function htmlToLines(html: string) {
     .split(/\n+/)
     .map((line) => line.replace(/\s+/g, " ").trim())
     .filter(Boolean)
-    .slice(0, 80);
+    .slice(0, 100);
 }
 
 function textToLines(text: string) {
-  return text.split(/\r?\n/).map((line) => line.trim()).filter(Boolean).slice(0, 80);
+  return text.split(/\r?\n/).map((line) => line.trim()).filter(Boolean).slice(0, 100);
 }
 
 function wrapCanvasLine(ctx: CanvasRenderingContext2D, line: string, maxWidth: number) {
@@ -153,6 +168,16 @@ function wrapCanvasLine(ctx: CanvasRenderingContext2D, line: string, maxWidth: n
   }
   if (current) wrapped.push(current);
   return wrapped;
+}
+
+function escapeHtml(value: unknown) {
+  return String(value ?? "").replace(/[&<>"']/g, (char) => (
+    { "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;", "'": "&#39;" }[char] ?? char
+  ));
+}
+
+function escapeAttr(value: unknown) {
+  return escapeHtml(value).replace(/`/g, "&#96;");
 }
 
 function loadImage(src: string) {
@@ -212,6 +237,11 @@ function receiptBodyHtmlFromHtml(html: string) {
   return parsed.body?.innerHTML?.trim() || html;
 }
 
+function firstImageSrcFromHtml(html: string) {
+  const parsed = new DOMParser().parseFromString(html, "text/html");
+  return parsed.querySelector("img[src]")?.getAttribute("src")?.trim() || null;
+}
+
 function normalizeReceiptCss(css: string) {
   return css
     .replace(/@page[^{}]*\{[^{}]*\}/gi, "")
@@ -226,7 +256,7 @@ function baseReceiptCss(paperWidthMm: 58 | 80) {
   width: ${paperWidthMm}mm;
   min-height: 1px;
   margin: 0;
-  overflow: hidden;
+  overflow: visible;
   background: #fff;
   color: #000;
   font-family: Tahoma, "Noto Sans Thai", Arial, sans-serif;
@@ -240,6 +270,155 @@ function baseReceiptCss(paperWidthMm: 58 | 80) {
   max-width: 100%;
 }
 `;
+}
+
+function defaultReceiptLogoSvg() {
+  return `
+<svg class="receipt-fallback-logo" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 280 80" role="img" aria-label="CpIPOS">
+  <rect x="2" y="2" width="276" height="76" rx="16" fill="#fff" stroke="#000" stroke-width="4"/>
+  <text x="140" y="52" text-anchor="middle" font-family="Tahoma,Arial,sans-serif" font-size="38" font-weight="900" fill="#000">CpIPOS</text>
+</svg>`;
+}
+
+function normalizeLegacyReceiptLine(line: string, labelIndex: { current: number }) {
+  let value = line
+    .replace(/\?(\d)/g, "฿$1")
+    .replace(/0\s+\?{2,}\s*\/\s*0\s+\?{2,}/g, "0 รายการ / 0 คน")
+    .replace(/\bopen\b/i, "เปิดบิล");
+
+  if (!value.includes("?")) return value;
+
+  const label = LEGACY_RECEIPT_LABELS[Math.min(labelIndex.current, LEGACY_RECEIPT_LABELS.length - 1)] ?? "ข้อมูล";
+  labelIndex.current += 1;
+
+  const suffix = value.replace(/\?+/g, " ").replace(/\s+/g, " ").trim();
+  if (!suffix) return label;
+  if (/^[฿\d.,:\-/\sA-Z]+$/i.test(suffix)) return `${label} ${suffix}`;
+  return value.replace(/\?+/g, label).replace(/\s+/g, " ").trim();
+}
+
+function isReceiptDivider(line: string) {
+  return /^-+$/.test(line.replace(/\s+/g, ""));
+}
+
+function looksLikeLegacyTextReceipt(html: string, lines: string[]) {
+  return (
+    html.includes("white-space:pre-wrap") ||
+    lines.some((line) => /\?{2,}/.test(line))
+  );
+}
+
+function buildLegacyReceiptHtml(job: BrowserPrintJob, sourceHtml: string) {
+  const parsedLines = htmlToLines(sourceHtml);
+  const fallbackLines = textToLines(job.payload_text?.trim() || "");
+  const lines = parsedLines.length > 0 ? parsedLines : fallbackLines;
+  const labelIndex = { current: 0 };
+  const imageSrc = firstImageSrcFromHtml(sourceHtml);
+  const logoHtml = imageSrc
+    ? `<img class="receipt-logo-img" src="${escapeAttr(imageSrc)}" alt="CpIPOS" />`
+    : defaultReceiptLogoSvg();
+
+  const renderedLines = lines
+    .map((line, index) => {
+      if (isReceiptDivider(line)) return `<hr class="receipt-divider" />`;
+      const repaired = normalizeLegacyReceiptLine(line, labelIndex);
+      const isHeader = index < 4 || repaired === "CpIPOS";
+      const isMoney = /฿?\d[\d,.]*$/.test(repaired) && !/[ก-๙A-Za-z]{3,}/.test(repaired);
+      const className = [
+        "receipt-row",
+        isHeader ? "receipt-row-center" : "",
+        isMoney ? "receipt-row-money" : "",
+        repaired.startsWith("x ") ? "receipt-row-note" : ""
+      ].filter(Boolean).join(" ");
+      return `<div class="${className}">${escapeHtml(repaired)}</div>`;
+    })
+    .join("");
+
+  return `<!doctype html>
+<html lang="th">
+<head>
+  <meta charset="utf-8" />
+  <style>
+    @page { size: ${paperWidthMmForJob(job)}mm auto; margin: 0; }
+    body { margin: 0; width: ${paperWidthMmForJob(job)}mm; background: #fff; color: #000; }
+    .receipt-print-compatible {
+      width: calc(100% - 5mm);
+      margin: 0 auto;
+      padding: 2mm 0 3mm;
+      font-family: Tahoma, "Noto Sans Thai", Arial, sans-serif;
+      font-size: 18px;
+      font-weight: 800;
+      line-height: 1.22;
+      letter-spacing: 0;
+      color: #000;
+      background: #fff;
+    }
+    .receipt-logo {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      margin: 0 0 1mm;
+      min-height: 12mm;
+    }
+    .receipt-logo-img {
+      display: block;
+      max-width: 34mm;
+      max-height: 12mm;
+      object-fit: contain;
+      filter: grayscale(1) contrast(1.35);
+    }
+    .receipt-fallback-logo {
+      display: block;
+      width: 32mm;
+      height: auto;
+    }
+    .receipt-row {
+      display: block;
+      width: 100%;
+      margin: 0;
+      padding: 0.2mm 0;
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+      text-align: left;
+    }
+    .receipt-row-center {
+      text-align: center;
+      font-size: 19px;
+      font-weight: 900;
+    }
+    .receipt-row-money {
+      text-align: right;
+      font-size: 18px;
+      font-weight: 900;
+    }
+    .receipt-row-note {
+      padding-left: 3mm;
+      font-size: 17px;
+      font-weight: 800;
+    }
+    .receipt-divider {
+      border: 0;
+      border-top: 2px dashed #000;
+      margin: 1.2mm 0;
+      height: 0;
+    }
+  </style>
+</head>
+<body>
+  <main class="receipt-print-compatible">
+    <div class="receipt-logo">${logoHtml}</div>
+    ${renderedLines}
+  </main>
+</body>
+</html>`;
+}
+
+function resolveReceiptHtmlForRaster(job: BrowserPrintJob, html: string) {
+  const lines = htmlToLines(html);
+  if (looksLikeLegacyTextReceipt(html, lines)) {
+    return buildLegacyReceiptHtml(job, html);
+  }
+  return html;
 }
 
 async function waitForReceiptAssets(root: HTMLElement) {
@@ -265,12 +444,13 @@ async function waitForReceiptAssets(root: HTMLElement) {
 }
 
 async function rasterBytesFromReceiptHtml(job: BrowserPrintJob, html: string) {
+  const resolvedHtml = resolveReceiptHtmlForRaster(job, html);
   const paperWidthMm = paperWidthMmForJob(job);
   const printerWidthPx = printerDotsForPaper(paperWidthMm);
   const cssWidthPx = cssPxForMm(paperWidthMm);
   const scale = printerWidthPx / cssWidthPx;
-  const styleText = `${baseReceiptCss(paperWidthMm)}\n${normalizeReceiptCss(receiptCssFromHtml(html))}`;
-  const bodyHtml = receiptBodyHtmlFromHtml(html);
+  const styleText = `${baseReceiptCss(paperWidthMm)}\n${normalizeReceiptCss(receiptCssFromHtml(resolvedHtml))}`;
+  const bodyHtml = receiptBodyHtmlFromHtml(resolvedHtml);
 
   const measureHost = document.createElement("div");
   measureHost.style.position = "fixed";
@@ -317,15 +497,17 @@ async function rasterBytesFromReceiptHtml(job: BrowserPrintJob, html: string) {
 }
 
 async function rasterBytesFromReceiptText(job: BrowserPrintJob, html?: string | null) {
-  const lines = html ? htmlToLines(html) : textToLines(job.payload_text?.trim() || "CpIPOS print job");
+  const rawLines = html ? htmlToLines(html) : textToLines(job.payload_text?.trim() || "CpIPOS print job");
+  const labelIndex = { current: 0 };
+  const lines = rawLines.map((line) => normalizeLegacyReceiptLine(line, labelIndex));
   const canvas = document.createElement("canvas");
   const paperWidthMm = paperWidthMmForJob(job);
   const width = printerDotsForPaper(paperWidthMm);
   const padding = 14;
-  const lineHeight = 26;
+  const lineHeight = 30;
   const firstPass = canvas.getContext("2d");
   if (!firstPass) throw new Error("canvas_context_missing");
-  firstPass.font = '700 21px "Tahoma", "Noto Sans Thai", sans-serif';
+  firstPass.font = '800 23px "Tahoma", "Noto Sans Thai", sans-serif';
   const wrapped = lines.flatMap((line) => wrapCanvasLine(firstPass, line, width - padding * 2));
   canvas.width = width;
   canvas.height = Math.max(120, padding * 2 + wrapped.length * lineHeight);
@@ -335,7 +517,7 @@ async function rasterBytesFromReceiptText(job: BrowserPrintJob, html?: string | 
   ctx.fillRect(0, 0, canvas.width, canvas.height);
   ctx.fillStyle = "#000";
   ctx.textBaseline = "top";
-  ctx.font = '700 21px "Tahoma", "Noto Sans Thai", sans-serif';
+  ctx.font = '800 23px "Tahoma", "Noto Sans Thai", sans-serif';
   let y = padding;
   for (const line of wrapped) {
     const isCenter = y < padding + lineHeight * 5 || line === "CpIPOS";
