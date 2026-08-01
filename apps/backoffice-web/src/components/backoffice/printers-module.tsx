@@ -130,7 +130,18 @@ const text = {
   browserAgentSaved: "บันทึก Browser Print Agent แล้ว",
   browserAgentPortSelected: "เลือกพอร์ตเครื่องพิมพ์แล้ว รอบถัดไประบบจะ reconnect อัตโนมัติ",
   browserAgentPortMissing: "ยังไม่ได้เลือกพอร์ตเครื่องพิมพ์",
-  browserAgentReady: "พร้อมรับคิวพิมพ์",
+  browserAgentReady: "????????????????",
+  browserAgentPrinterPreset: "Use Browser Agent",
+  browserAgentPrinterPresetHint: "This printer profile will queue jobs for the Browser Print Agent.",
+  editPrinter: "Edit",
+  cancelEdit: "Cancel edit",
+  updatePrinter: "Update printer",
+  printerUpdated: "Printer updated",
+  disablePrinter: "Disable",
+  enablePrinter: "Enable",
+  setBrowserAgent: "Use Browser Agent",
+  browserAgentRoute: "Browser Agent / Web Serial",
+  printFlowHint: "Sales, payment, reprint, kitchen tickets, shift flow, and cash drawer use enabled printer profiles by role.",
   localAgents: "แอปพิมพ์ / Print Agent",
   agentName: "ชื่อ Agent",
   deviceCode: "รหัสเครื่อง",
@@ -164,6 +175,8 @@ const labelStyle: CSSProperties = { display: "grid", gap: 6, color: "#344054", f
 const inputStyle: CSSProperties = { minHeight: 42, borderRadius: 8, border: "1px solid #cdd5df", padding: "8px 10px", background: "#fff", color: "#101828" };
 const buttonStyle: CSSProperties = { minHeight: 40, borderRadius: 8, border: "1px solid #cdd5df", background: "#fff", color: "#101828", padding: "0 14px", fontWeight: 800, cursor: "pointer" };
 const primaryButtonStyle: CSSProperties = { ...buttonStyle, borderColor: "#175cd3", background: "#175cd3", color: "#fff" };
+const dangerButtonStyle: CSSProperties = { ...buttonStyle, borderColor: "#fecaca", background: "#fff1f2", color: "#be123c" };
+const BROWSER_AGENT_BRIDGE_URL = "browser-agent://web-serial";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
@@ -274,6 +287,26 @@ function printerAddress(printer: PrinterRow) {
   return metadataValue(metadata, "bluetooth_address") ?? metadataValue(metadata, "bluetooth_name") ?? "-";
 }
 
+function isBrowserAgentPrinter(printer: PrinterRow) {
+  const metadata = printer.metadata ?? {};
+  return (
+    metadataValue(metadata, "bridge_url") === BROWSER_AGENT_BRIDGE_URL ||
+    metadata.print_mode === "agent" ||
+    metadata.processing_mode === "print_agent" ||
+    metadata.queue_only === true
+  );
+}
+
+function printerConnectionLabel(printer: PrinterRow) {
+  if (isBrowserAgentPrinter(printer)) return text.browserAgentRoute;
+  return connectionLabel(printer.connection_type);
+}
+
+function cashDrawerMetadata(metadata: Record<string, unknown>) {
+  const drawer = metadata.cash_drawer;
+  return drawer && typeof drawer === "object" && !Array.isArray(drawer) ? (drawer as Record<string, unknown>) : {};
+}
+
 export function PrintersModule({ lang: _lang = "th" }: { lang?: "th" | "en" }) {
   const [activePanel, setActivePanel] = useState<ActivePanel>("printers");
   const [page, setPage] = useState(1);
@@ -281,6 +314,8 @@ export function PrintersModule({ lang: _lang = "th" }: { lang?: "th" | "en" }) {
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [submitSuccess, setSubmitSuccess] = useState<string | null>(null);
   const [testingId, setTestingId] = useState<string | null>(null);
+  const [editingPrinterId, setEditingPrinterId] = useState<string | null>(null);
+  const [printerActionId, setPrinterActionId] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [discovering, setDiscovering] = useState(false);
   const [connectingDeviceId, setConnectingDeviceId] = useState<string | null>(null);
@@ -472,6 +507,12 @@ export function PrintersModule({ lang: _lang = "th" }: { lang?: "th" | "en" }) {
   const generatedMetadata = useMemo(() => {
     const metadata: Record<string, unknown> = {};
     if (isBridgeMode && bridgeUrlInput.trim()) metadata.bridge_url = bridgeUrlInput.trim();
+    if (isBridgeMode && bridgeUrlInput.trim() === BROWSER_AGENT_BRIDGE_URL) {
+      metadata.print_mode = "agent";
+      metadata.processing_mode = "print_agent";
+      metadata.queue_only = true;
+      metadata.provider = "browser_web_serial";
+    }
     if (isWebMode && webprntUrl.trim()) metadata.webprnt_url = webprntUrl.trim();
     if (isBluetoothMode) {
       if (bluetoothAddress.trim()) metadata.bluetooth_address = bluetoothAddress.trim();
@@ -579,6 +620,7 @@ export function PrintersModule({ lang: _lang = "th" }: { lang?: "th" | "en" }) {
     setAgentDeviceBinding("");
     setMetadataTextValue("");
     setDiscoveredDevices([]);
+    setEditingPrinterId(null);
   }
 
   function applyBluetoothDevice(device: BluetoothDevice) {
@@ -715,22 +757,65 @@ export function PrintersModule({ lang: _lang = "th" }: { lang?: "th" | "en" }) {
       setPrintingBridgeTest(false);
     }
   }
+  function applyPrinterToForm(printer: PrinterRow) {
+    const metadata = printer.metadata ?? {};
+    const drawer = cashDrawerMetadata(metadata);
+    setEditingPrinterId(printer.id);
+    setPrinterName(printer.printer_name);
+    setPrinterRole(printer.printer_role);
+    setConnectionType(printer.connection_type);
+    setPaperWidthMm(printer.paper_width_mm);
+    setIpAddress(printer.ip_address ?? "");
+    setPortValue(printer.port ? String(printer.port) : "9100");
+    setBridgeUrlInput(metadataValue(metadata, "bridge_url") ?? "");
+    setWebprntUrl(metadataValue(metadata, "webprnt_url") ?? "");
+    setBluetoothAddress(metadataValue(metadata, "bluetooth_address") ?? "");
+    setBluetoothName(metadataValue(metadata, "bluetooth_name") ?? "");
+    setAgentDeviceBinding(metadataValue(metadata, "agent_device_code") ?? metadataValue(metadata, "device_code") ?? "");
+    setAutoConnect(metadata.auto_connect !== false);
+    setConnectBeforePrint(metadata.connect_before_print !== false);
+    setCashDrawerEnabled(Boolean(drawer.enabled ?? metadata.cash_drawer_enabled));
+    setCashDrawerAutoOpen(Boolean(drawer.autoOpenOnCashPayment ?? metadata.cash_drawer_auto_open_cash));
+    setMetadataTextValue(JSON.stringify(metadata, null, 2));
+    setEnabled(printer.enabled);
+    setSubmitSuccess(text.editPrinter + ": " + printer.printer_name);
+    setSubmitError(null);
+  }
+
+  function applyBrowserAgentPreset() {
+    const knownAgentCode = agentDeviceBinding.trim() || createdAgentKey?.deviceCode || agents.find((agent) => agent.status === "active")?.device_code || "";
+    setConnectionType("LOCAL_BRIDGE");
+    setBridgeUrlInput(BROWSER_AGENT_BRIDGE_URL);
+    setBluetoothAddress("");
+    setBluetoothName("");
+    setIpAddress("");
+    setPortValue("");
+    setAgentDeviceBinding(knownAgentCode);
+    setMetadataTextValue(JSON.stringify({ print_mode: "agent", processing_mode: "print_agent", queue_only: true, provider: "browser_web_serial" }, null, 2));
+    setSubmitSuccess(text.browserAgentPrinterPresetHint);
+  }
+
+  function buildPrinterPayload() {
+    if (isNetworkMode && !normalizeText(ipAddress)) throw new Error(text.requiredNetwork);
+    if (isBridgeMode && !normalizeText(bridgeUrlInput)) throw new Error(text.requiredBridge);
+    if (isWebMode && !normalizeText(webprntUrl)) throw new Error(text.requiredWebprnt);
+    if (isBluetoothMode && !normalizeText(bluetoothAddress) && !normalizeText(bluetoothName)) throw new Error(text.requiredBluetooth);
+    const advancedMetadata = readJsonObject(metadataTextValue);
+    const metadata = { ...generatedMetadata, ...advancedMetadata };
+    return { printer_name: printerName.trim(), printer_role: printerRole, connection_type: connectionType, ip_address: isNetworkMode ? ipAddress.trim() : null, port: isNetworkMode ? Number(portValue || 0) || 9100 : null, paper_width_mm: paperWidthMm, enabled, metadata };
+  }
+
   async function handleCreatePrinter(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setSubmitting(true);
     setSubmitError(null);
     setSubmitSuccess(null);
     try {
-      if (isNetworkMode && !normalizeText(ipAddress)) throw new Error(text.requiredNetwork);
-      if (isBridgeMode && !normalizeText(bridgeUrlInput)) throw new Error(text.requiredBridge);
-      if (isWebMode && !normalizeText(webprntUrl)) throw new Error(text.requiredWebprnt);
-      if (isBluetoothMode && !normalizeText(bluetoothAddress) && !normalizeText(bluetoothName)) throw new Error(text.requiredBluetooth);
-      const advancedMetadata = readJsonObject(metadataTextValue);
-      const metadata = { ...generatedMetadata, ...advancedMetadata };
-      const payload = { printer_name: printerName.trim(), printer_role: printerRole, connection_type: connectionType, ip_address: isNetworkMode ? ipAddress.trim() : null, port: isNetworkMode ? Number(portValue || 0) || 9100 : null, paper_width_mm: paperWidthMm, enabled, metadata };
-      const { response, body } = await fetchJsonWithTimeout<ApiEnvelope<PrinterRow>>("/api/backoffice/printers", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) }, 10000);
+      const payload = buildPrinterPayload();
+      const requestBody = editingPrinterId ? { ...payload, printer_id: editingPrinterId } : payload;
+      const { response, body } = await fetchJsonWithTimeout<ApiEnvelope<PrinterRow>>("/api/backoffice/printers", { method: editingPrinterId ? "PATCH" : "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(requestBody) }, 10000);
       if (!response.ok || body?.error) throw new Error(body?.error?.message ?? text.createPrinterFailed);
-      setSubmitSuccess(`${text.printerCreated}: ${body?.data?.printer_name ?? payload.printer_name}`);
+      setSubmitSuccess((editingPrinterId ? text.printerUpdated : text.printerCreated) + ": " + (body?.data?.printer_name ?? payload.printer_name));
       setReloadKey((key) => key + 1);
       resetPrinterForm();
     } catch (createError) {
@@ -738,6 +823,34 @@ export function PrintersModule({ lang: _lang = "th" }: { lang?: "th" | "en" }) {
     } finally {
       setSubmitting(false);
     }
+  }
+
+  async function patchPrinter(printer: PrinterRow, patch: Partial<PrinterRow> & { metadata?: Record<string, unknown> }) {
+    setPrinterActionId(printer.id);
+    setSubmitError(null);
+    setSubmitSuccess(null);
+    try {
+      const payload = { printer_id: printer.id, printer_name: patch.printer_name ?? printer.printer_name, printer_role: patch.printer_role ?? printer.printer_role, connection_type: patch.connection_type ?? printer.connection_type, ip_address: patch.ip_address === undefined ? printer.ip_address : patch.ip_address, port: patch.port === undefined ? printer.port : patch.port, paper_width_mm: patch.paper_width_mm ?? printer.paper_width_mm, enabled: patch.enabled ?? printer.enabled, metadata: patch.metadata ?? printer.metadata ?? {} };
+      const { response, body } = await fetchJsonWithTimeout<ApiEnvelope<PrinterRow>>("/api/backoffice/printers", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) }, 10000);
+      if (!response.ok || body?.error) throw new Error(body?.error?.message ?? text.updatePrinter);
+      setSubmitSuccess(text.printerUpdated + ": " + (body?.data?.printer_name ?? printer.printer_name));
+      setReloadKey((key) => key + 1);
+    } catch (patchError) {
+      setSubmitError(patchError instanceof Error ? patchError.message : text.createPrinterFailed);
+    } finally {
+      setPrinterActionId(null);
+    }
+  }
+
+  async function handleSetPrinterBrowserAgent(printer: PrinterRow) {
+    const metadata: Record<string, unknown> = { ...(printer.metadata ?? {}), bridge_url: BROWSER_AGENT_BRIDGE_URL, print_mode: "agent", processing_mode: "print_agent", queue_only: true, provider: "browser_web_serial" };
+    const deviceCode = agentDeviceBinding.trim() || metadataValue(printer.metadata ?? {}, "agent_device_code") || metadataValue(printer.metadata ?? {}, "device_code");
+    if (deviceCode) metadata.agent_device_code = deviceCode;
+    await patchPrinter(printer, { connection_type: "LOCAL_BRIDGE", ip_address: null, port: null, enabled: true, metadata });
+  }
+
+  async function handleTogglePrinterEnabled(printer: PrinterRow) {
+    await patchPrinter(printer, { enabled: !printer.enabled });
   }
 
   async function handleTestPrint(printerId: string) {
@@ -823,7 +936,7 @@ export function PrintersModule({ lang: _lang = "th" }: { lang?: "th" | "en" }) {
 
       {activePanel === "printers" ? (
         <>
-          <div style={{ ...panelStyle, background: "#eff8ff", borderColor: "#b2ddff", color: "#1849a9", fontWeight: 700 }}>{text.browserBridgeHint}</div>
+          <div style={{ ...panelStyle, background: "#eff8ff", borderColor: "#b2ddff", color: "#1849a9", fontWeight: 700 }}>{text.browserBridgeHint}<div style={{ marginTop: 6, color: "#0b4a6f" }}>{text.printFlowHint}</div></div>
           <section style={{ ...panelStyle, borderColor: browserAgentEnabled ? "#84caff" : "#d8e0ea", background: "#f8fbff" }}>
             <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap", alignItems: "flex-start" }}>
               <div>
@@ -862,7 +975,7 @@ export function PrintersModule({ lang: _lang = "th" }: { lang?: "th" | "en" }) {
             </section>
 
             <section style={panelStyle}>
-              <h3 style={{ margin: "0 0 12px", fontSize: 16 }}>{text.newPrinter}</h3>
+              <div style={{ display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap", alignItems: "center", marginBottom: 12 }}><h3 style={{ margin: 0, fontSize: 16 }}>{editingPrinterId ? text.updatePrinter : text.newPrinter}</h3><div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}><button type="button" onClick={applyBrowserAgentPreset} style={buttonStyle}>{text.browserAgentPrinterPreset}</button>{editingPrinterId ? <button type="button" onClick={resetPrinterForm} style={buttonStyle}>{text.cancelEdit}</button> : null}</div></div>
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(210px, 1fr))", gap: 12 }}>
                 <label style={labelStyle}>{text.printerName}<input value={printerName} onChange={(event) => setPrinterName(event.target.value)} required style={inputStyle} /></label>
                 <label style={labelStyle}>{text.role}<select value={printerRole} onChange={(event) => setPrinterRole(event.target.value as PrinterRole)} style={inputStyle}><option value="receipt">{text.receipt}</option><option value="kitchen">{text.kitchen}</option><option value="report">{text.report}</option></select></label>
@@ -889,7 +1002,7 @@ export function PrintersModule({ lang: _lang = "th" }: { lang?: "th" | "en" }) {
                 <textarea value={metadataTextValue} onChange={(event) => setMetadataTextValue(event.target.value)} rows={5} placeholder={JSON.stringify(generatedMetadata, null, 2)} style={{ ...inputStyle, width: "100%", fontFamily: "Consolas, monospace" }} />
               </details>
               <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 14 }}>
-                <button type="submit" disabled={submitting} style={primaryButtonStyle}>{submitting ? text.saving : text.addPrinter}</button>
+                <button type="submit" disabled={submitting} style={primaryButtonStyle}>{submitting ? text.saving : editingPrinterId ? text.updatePrinter : text.addPrinter}</button>
               </div>
             </section>
           </form>
@@ -932,9 +1045,9 @@ export function PrintersModule({ lang: _lang = "th" }: { lang?: "th" | "en" }) {
                   {items.map((printer) => (
                     <div key={printer.id} style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: 12, alignItems: "center", borderBottom: "1px solid #edf2f7", padding: "10px 0" }}>
                       <div><strong>{printer.printer_name}</strong><div style={{ color: "#667085", fontSize: 12 }}>{printer.printer_role} / {printer.paper_width_mm}mm</div></div>
-                      <div><strong style={{ fontSize: 13 }}>{connectionLabel(printer.connection_type)}</strong><div style={{ color: "#667085", fontSize: 12, overflowWrap: "anywhere" }}>{printerAddress(printer)}</div></div>
+                      <div><strong style={{ fontSize: 13 }}>{printerConnectionLabel(printer)}</strong><div style={{ color: "#667085", fontSize: 12, overflowWrap: "anywhere" }}>{printerAddress(printer)}</div></div>
                       <span style={{ color: printer.enabled ? "#067647" : "#b42318", fontWeight: 800 }}>{printer.enabled ? text.yes : text.no}</span>
-                      <button type="button" disabled={testingId === printer.id || !printer.enabled} onClick={() => void handleTestPrint(printer.id)} style={buttonStyle}>{testingId === printer.id ? text.testing : text.testPrint}</button>
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}><button type="button" onClick={() => applyPrinterToForm(printer)} style={buttonStyle}>{text.editPrinter}</button><button type="button" disabled={printerActionId === printer.id} onClick={() => void handleSetPrinterBrowserAgent(printer)} style={buttonStyle}>{text.setBrowserAgent}</button><button type="button" disabled={printerActionId === printer.id} onClick={() => void handleTogglePrinterEnabled(printer)} style={printer.enabled ? dangerButtonStyle : buttonStyle}>{printer.enabled ? text.disablePrinter : text.enablePrinter}</button><button type="button" disabled={testingId === printer.id || !printer.enabled} onClick={() => void handleTestPrint(printer.id)} style={buttonStyle}>{testingId === printer.id ? text.testing : text.testPrint}</button></div>
                     </div>
                   ))}
                 </div>

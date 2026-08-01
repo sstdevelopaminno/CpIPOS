@@ -391,6 +391,83 @@ export async function createPrinterProfile(auth: AuthContext, input: CreatePrint
   return data as PrinterProfileRow;
 }
 
+
+export async function updatePrinterProfile(auth: AuthContext, printerId: string, input: CreatePrinterInput) {
+  ensureManagerOrOwner(auth);
+  const normalizedPrinterId = normalizeText(printerId);
+  if (!normalizedPrinterId) throw new Error("printer_id_required");
+
+  const supabase = getSupabaseServiceClient();
+  const ipAddress = normalizeText(input.ip_address);
+  const metadata = asRecord(input.metadata);
+
+  if (input.connection_type === "NETWORK_ESC_POS" && !ipAddress) {
+    throw new Error("ip_address_required_for_network_esc_pos");
+  }
+  if (input.connection_type === "STAR_WEBPRNT" && !normalizeText(String(metadata.webprnt_url ?? ""))) {
+    throw new Error("star_webprnt_url_required");
+  }
+  if (input.connection_type === "LOCAL_BRIDGE") {
+    const metadataBridgeUrl = normalizeText(String(metadata.bridge_url ?? ""));
+    const envBridgeUrl = readEnv("PRINT_BRIDGE_URL") ?? null;
+    if (!metadataBridgeUrl && !envBridgeUrl) {
+      throw new Error("local_bridge_url_required");
+    }
+  }
+  if (input.connection_type === "BLUETOOTH_BRIDGE") {
+    const metadataBluetoothAddress = normalizeText(String(metadata.bluetooth_address ?? metadata.bluetooth_mac ?? metadata.bt_address ?? ""));
+    const metadataBluetoothName = normalizeText(String(metadata.bluetooth_name ?? metadata.device_name ?? ""));
+    const metadataBridgeUrl = normalizeText(String(metadata.bridge_url ?? ""));
+    const envBridgeUrl = readEnv("PRINT_BLUETOOTH_BRIDGE_URL") ?? readEnv("PRINT_BRIDGE_URL") ?? null;
+    if (!metadataBluetoothAddress && !metadataBluetoothName) {
+      throw new Error("bluetooth_target_required");
+    }
+    if (!metadataBridgeUrl && !envBridgeUrl) {
+      throw new Error("bluetooth_bridge_url_required");
+    }
+  }
+
+  const { data, error } = await supabase
+    .from("printer_profiles")
+    .update({
+      printer_name: input.printer_name.trim(),
+      printer_role: input.printer_role,
+      connection_type: input.connection_type,
+      ip_address: ipAddress,
+      port: input.port ?? null,
+      paper_width_mm: input.paper_width_mm,
+      enabled: input.enabled ?? true,
+      metadata,
+      updated_at: nowIso()
+    })
+    .eq("id", normalizedPrinterId)
+    .eq("tenant_id", auth.tenantId!)
+    .eq("branch_id", auth.branchId!)
+    .select("id,tenant_id,branch_id,printer_name,printer_role,connection_type,ip_address,port,paper_width_mm,enabled,metadata,created_at,updated_at")
+    .maybeSingle();
+
+  if (error) throw new Error(error.message);
+  if (!data) throw new Error("printer_not_found");
+
+  await appendAuditLog({
+    tenantId: auth.tenantId!,
+    branchId: auth.branchId!,
+    actorUserId: auth.userId,
+    actorRole: auth.branchRole!,
+    action: "printer_profile_updated",
+    targetTable: "printer_profiles",
+    targetId: data.id,
+    metadata: {
+      printer_role: input.printer_role,
+      connection_type: input.connection_type,
+      paper_width_mm: input.paper_width_mm,
+      enabled: input.enabled ?? true
+    }
+  });
+
+  return data as PrinterProfileRow;
+}
+
 export async function enqueuePrintJob(input: EnqueuePrintJobInput): Promise<PrintJobRow> {
   const supabase = getSupabaseServiceClient();
   const retryLimit = Number.isFinite(input.maxRetryCount) ? Math.max(0, Number(input.maxRetryCount)) : DEFAULT_MAX_RETRY_COUNT;
