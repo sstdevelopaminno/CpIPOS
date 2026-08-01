@@ -94,6 +94,9 @@ const text = {
   testPrint: "ทดสอบพิมพ์",
   testing: "กำลังทดสอบ...",
   testQueued: "ส่งทดสอบพิมพ์แล้ว",
+  testQueuedAgent: "ส่งเข้าคิว Print Agent แล้ว ให้เปิดแอปพิมพ์ที่เครื่องแคชเชียร์",
+  browserBridgeHint: "โหมดเว็บแอปบน Vercel ต้องมี Local Bridge หรือ Print Agent ที่เครื่องแคชเชียร์ เพราะ Vercel มองไม่เห็น 127.0.0.1/IP LAN ของร้าน",
+  bridgeCorsHint: "ถ้า browser แจ้ง Failed to fetch ให้เปิด CORS/Private Network Access ใน Local Bridge",
   testFailed: "ทดสอบพิมพ์ไม่สำเร็จ",
   scanBluetooth: "ค้นหา Bluetooth",
   scanning: "กำลังค้นหา...",
@@ -181,6 +184,52 @@ async function fetchJsonWithTimeout<T = unknown>(input: RequestInfo | URL, init:
   } finally {
     window.clearTimeout(timer);
   }
+}
+async function postBridgeFromBrowser<T = unknown>(bridgeUrl: string, payload: Record<string, unknown>, timeoutMs = 10000) {
+  const url = normalizeText(bridgeUrl);
+  if (!url) throw new Error(text.requiredBridge);
+  const controller = new AbortController();
+  const timer = window.setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+      signal: controller.signal
+    });
+    return { response, body: await readJson<T>(response) };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : text.bridgeHealthFailed;
+    throw new Error(`${message}. ${text.bridgeCorsHint}`);
+  } finally {
+    window.clearTimeout(timer);
+  }
+}
+
+function normalizeBridgeDevice(value: unknown, index: number): BluetoothDevice | null {
+  if (!isRecord(value)) return null;
+  const name = typeof value.name === "string" ? value.name : typeof value.bluetooth_name === "string" ? value.bluetooth_name : "";
+  const address = typeof value.address === "string" ? value.address : typeof value.bluetooth_address === "string" ? value.bluetooth_address : null;
+  if (!name && !address) return null;
+  return {
+    id: typeof value.id === "string" ? value.id : `${address ?? name}-${index}`,
+    name,
+    address,
+    rssi: Number.isFinite(Number(value.rssi)) ? Number(value.rssi) : null,
+    paired: value.paired === true,
+    connected: value.connected === true
+  };
+}
+
+function normalizeBridgeDevices(value: unknown): BluetoothDevice[] {
+  if (!Array.isArray(value)) return [];
+  return value.map((item, index) => normalizeBridgeDevice(item, index)).filter((item): item is BluetoothDevice => Boolean(item));
+}
+
+function bridgeEnvelopeData(value: unknown): Record<string, unknown> {
+  if (!isRecord(value)) return {};
+  if (isRecord(value.data)) return value.data;
+  return value;
 }
 
 function sleep(ms: number) {
@@ -306,12 +355,19 @@ export function PrintersModule({ lang: _lang = "th" }: { lang?: "th" | "en" }) {
       try {
         while (attempts < 3) {
           attempts += 1;
-          const { response, body } = await fetchJsonWithTimeout<ApiEnvelope<BridgeEnvelope<{ latency_ms?: number | null }>>>("/api/backoffice/printers/bluetooth/health", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(requestPayload) }, 6500);
-          const envelope = body?.data;
-          if (!active || !envelope) return;
+          const startedAt = Date.now();
+          const { response, body } = await postBridgeFromBrowser<unknown>(bridgeUrlInput, {
+            action: "health",
+            transport: "bluetooth",
+            timeout_ms: 5000,
+            metadata: { request_source: "backoffice_printer_settings_browser", health_check: true }
+          }, 6500);
+          const bodyRecord = isRecord(body) ? body : {};
+          if (!active) return;
           setBridgeDebug((current) => ({ ...current, health: { at: new Date().toISOString(), attempts, request: requestPayload, status: response.status, response: body } }));
-          setBridgeHealth({ ok: envelope.ok === true, code: envelope.code, message: envelope.message, latencyMs: Number.isFinite(Number(envelope.data?.latency_ms)) ? Number(envelope.data?.latency_ms) : null });
-          if (envelope.ok || attempts >= 3) break;
+          const ok = response.ok && bodyRecord.ok !== false;
+          setBridgeHealth({ ok, code: ok ? "bridge_browser_ok" : "bridge_browser_unhealthy", message: typeof bodyRecord.message === "string" ? bodyRecord.message : "Bridge checked from this browser.", latencyMs: Date.now() - startedAt });
+          if (ok || attempts >= 3) break;
           await sleep(backoffMs);
           backoffMs = Math.min(2200, backoffMs * 2);
         }
@@ -361,17 +417,29 @@ export function PrintersModule({ lang: _lang = "th" }: { lang?: "th" | "en" }) {
     setDiscovering(true);
     setSubmitError(null);
     setSubmitSuccess(null);
+    const requestPayload = {
+      action: "discover_bluetooth_printers",
+      transport: "bluetooth",
+      timeout_ms: 9000,
+      metadata: { request_source: "backoffice_printer_settings_browser", discover: true }
+    };
     try {
-      const requestPayload = { bridge_url: bridgeUrlInput.trim() || null, timeout_ms: 9000 };
-      const { response, body } = await fetchJsonWithTimeout<ApiEnvelope<BridgeEnvelope<{ bridge_url?: string; devices?: BluetoothDevice[] }>>>("/api/backoffice/printers/bluetooth/discover", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(requestPayload) }, 12000);
+      const { response, body } = await postBridgeFromBrowser<unknown>(bridgeUrlInput, requestPayload, 12000);
       setBridgeDebug((current) => ({ ...current, discover: { at: new Date().toISOString(), attempts: 1, request: requestPayload, status: response.status, response: body } }));
-      if (!response.ok || body?.error) throw new Error(body?.error?.message ?? text.discoveryFailed);
-      const devices = Array.isArray(body?.data?.data?.devices) ? body.data.data.devices : [];
+      if (!response.ok) throw new Error(`${text.discoveryFailed} (${response.status})`);
+      const bodyRecord = isRecord(body) ? body : {};
+      const dataRecord = bridgeEnvelopeData(bodyRecord);
+      const devices = normalizeBridgeDevices(bodyRecord.devices).length > 0
+        ? normalizeBridgeDevices(bodyRecord.devices)
+        : normalizeBridgeDevices(dataRecord.devices).length > 0
+          ? normalizeBridgeDevices(dataRecord.devices)
+          : normalizeBridgeDevices(bodyRecord.results);
       setDiscoveredDevices(devices);
-      if (typeof body?.data?.data?.bridge_url === "string" && body.data.data.bridge_url.trim()) setBridgeUrlInput(body.data.data.bridge_url.trim());
+      setBridgeHealth({ ok: true, code: "bridge_browser_ok", message: "Bridge reachable from this browser.", latencyMs: null });
       setSubmitSuccess(`พบอุปกรณ์ Bluetooth: ${devices.length}`);
     } catch (discoverError) {
       setDiscoveredDevices([]);
+      setBridgeHealth({ ok: false, code: "bridge_browser_failed", message: discoverError instanceof Error ? discoverError.message : text.discoveryFailed, latencyMs: null });
       setSubmitError(discoverError instanceof Error ? discoverError.message : text.discoveryFailed);
     } finally {
       setDiscovering(false);
@@ -382,26 +450,38 @@ export function PrintersModule({ lang: _lang = "th" }: { lang?: "th" | "en" }) {
     setConnectingDeviceId(device.id);
     setSubmitError(null);
     setSubmitSuccess(null);
+    const requestPayload = {
+      action: "connect_bluetooth_printer",
+      transport: "bluetooth",
+      bluetooth_address: device.address,
+      bluetooth_name: device.name,
+      auto_connect: true,
+      metadata: { request_source: "backoffice_printer_settings_browser" }
+    };
     try {
-      const requestPayload = { bridge_url: bridgeUrlInput.trim() || null, bluetooth_address: device.address, bluetooth_name: device.name, auto_connect: true };
-      let envelope: BridgeEnvelope<Record<string, unknown>> | undefined;
+      let body: unknown = null;
+      let responseStatus: number | null = null;
       let attempts = 0;
       let backoffMs = 450;
       while (attempts < 3) {
         attempts += 1;
-        const { response, body } = await fetchJsonWithTimeout<ApiEnvelope<BridgeEnvelope<Record<string, unknown>>>>("/api/backoffice/printers/bluetooth/connect", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(requestPayload) }, 10000);
-        envelope = body?.data;
-        setBridgeDebug((current) => ({ ...current, connect: { at: new Date().toISOString(), attempts, request: requestPayload, status: response.status, response: body } }));
-        const hasValidationError = response.status === 403 || response.status === 422;
-        const isSuccess = response.ok && !body?.error && envelope?.ok !== false;
-        if (isSuccess) break;
-        if (attempts >= 3 || hasValidationError) throw new Error(body?.error?.message ?? envelope?.message ?? text.printDebugFailed);
+        const result = await postBridgeFromBrowser<unknown>(bridgeUrlInput, requestPayload, 10000);
+        body = result.body;
+        responseStatus = result.response.status;
+        setBridgeDebug((current) => ({ ...current, connect: { at: new Date().toISOString(), attempts, request: requestPayload, status: responseStatus, response: body } }));
+        const bodyRecord = isRecord(body) ? body : {};
+        const bridgeOk = result.response.ok && bodyRecord.ok !== false;
+        if (bridgeOk) break;
+        if (attempts >= 3) throw new Error(`${text.printDebugFailed} (${responseStatus})`);
         await sleep(backoffMs);
         backoffMs = Math.min(2400, backoffMs * 2);
       }
       applyBluetoothDevice(device);
-      setSubmitSuccess(envelope?.message ?? `${text.connectedMessage}: ${device.name || device.address || "device"}`);
+      const message = isRecord(body) && typeof body.message === "string" ? body.message : `${text.connectedMessage}: ${device.name || device.address || "device"}`;
+      setBridgeHealth({ ok: true, code: "bridge_browser_ok", message, latencyMs: null });
+      setSubmitSuccess(message);
     } catch (connectError) {
+      setBridgeHealth({ ok: false, code: "bridge_browser_failed", message: connectError instanceof Error ? connectError.message : text.printDebugFailed, latencyMs: null });
       setSubmitError(connectError instanceof Error ? connectError.message : text.printDebugFailed);
     } finally {
       setConnectingDeviceId(null);
@@ -412,20 +492,46 @@ export function PrintersModule({ lang: _lang = "th" }: { lang?: "th" | "en" }) {
     setPrintingBridgeTest(true);
     setSubmitError(null);
     setSubmitSuccess(null);
-    const sampleHtml = `<!doctype html><html><head><meta charset="utf-8"/><style>@page{size:58mm 120mm;margin:0}html,body{width:58mm;margin:0;padding:0;font-family:Tahoma,sans-serif;font-size:11px}main{padding:2mm}h1{font-size:12px;margin:0 0 2mm}p{margin:0 0 1mm}</style></head><body><main><h1>Bluetooth 58mm Test</h1><p>Bridge test from printer settings.</p><p>${new Date().toISOString()}</p></main></body></html>`;
-    const requestPayload = { order_id: null, order_no: `BT-TEST-${Date.now()}`, receipt_html: sampleHtml };
+    const targetAddress = normalizeText(bluetoothAddress);
+    const targetName = normalizeText(bluetoothName) ?? normalizeText(printerName) ?? "Bluetooth Printer";
+    if (!targetAddress && !targetName) {
+      setSubmitError(text.requiredBluetooth);
+      setPrintingBridgeTest(false);
+      return;
+    }
+    const sampleHtml = `<!doctype html><html><head><meta charset="utf-8"/><style>@page{size:58mm 120mm;margin:0}html,body{width:58mm;margin:0;padding:0;font-family:Tahoma,sans-serif;font-size:11px}main{padding:2mm}h1{font-size:12px;margin:0 0 2mm}p{margin:0 0 1mm}</style></head><body><main><h1>Bluetooth 58mm Test</h1><p>Browser bridge test from CpIPOS.</p><p>${new Date().toISOString()}</p></main></body></html>`;
+    const requestPayload = {
+      action: "print",
+      printer_id: "settings-browser-test",
+      printer_name: printerName.trim() || targetName,
+      connection_type: "BLUETOOTH_BRIDGE",
+      payload_text: `Bluetooth 58mm Test\n${new Date().toISOString()}\n`,
+      payload_html: sampleHtml,
+      metadata: {
+        ...generatedMetadata,
+        transport: "bluetooth",
+        print_format: "html_58mm",
+        bluetooth_address: targetAddress,
+        bluetooth_name: targetName,
+        auto_connect: autoConnect,
+        connect_before_print: connectBeforePrint,
+        request_source: "backoffice_printer_settings_browser"
+      }
+    };
     try {
-      const { response, body } = await fetchJsonWithTimeout<ApiEnvelope<{ message?: string }>>("/api/pos/receipts/bluetooth", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(requestPayload) }, 12000);
+      const { response, body } = await postBridgeFromBrowser<unknown>(bridgeUrlInput, requestPayload, 12000);
       setBridgeDebug((current) => ({ ...current, print: { at: new Date().toISOString(), attempts: 1, request: requestPayload, status: response.status, response: body } }));
-      if (!response.ok || body?.error) throw new Error(body?.error?.message ?? text.printDebugFailed);
-      setSubmitSuccess(body?.data?.message ?? text.printDebugComplete);
+      const bodyRecord = isRecord(body) ? body : {};
+      if (!response.ok || bodyRecord.ok === false) throw new Error(typeof bodyRecord.message === "string" ? bodyRecord.message : `${text.printDebugFailed} (${response.status})`);
+      setBridgeHealth({ ok: true, code: "bridge_browser_ok", message: text.printDebugComplete, latencyMs: null });
+      setSubmitSuccess(text.printDebugComplete);
     } catch (printError) {
+      setBridgeHealth({ ok: false, code: "bridge_browser_failed", message: printError instanceof Error ? printError.message : text.printDebugFailed, latencyMs: null });
       setSubmitError(printError instanceof Error ? printError.message : text.printDebugFailed);
     } finally {
       setPrintingBridgeTest(false);
     }
   }
-
   async function handleCreatePrinter(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setSubmitting(true);
@@ -456,9 +562,9 @@ export function PrintersModule({ lang: _lang = "th" }: { lang?: "th" | "en" }) {
     setSubmitError(null);
     setSubmitSuccess(null);
     try {
-      const { response, body } = await fetchJsonWithTimeout<ApiEnvelope<{ printer_id: string }>>("/api/backoffice/printers/test", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ printer_id: printerId }) }, 15000);
+      const { response, body } = await fetchJsonWithTimeout<ApiEnvelope<{ printer_id: string; job?: { status?: string | null } | null }>>("/api/backoffice/printers/test", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ printer_id: printerId }) }, 15000);
       if (!response.ok || body?.error) throw new Error(body?.error?.message ?? text.testFailed);
-      setSubmitSuccess(`${text.testQueued}: ${printerId}`);
+      setSubmitSuccess(body?.data?.job?.status === "pending" ? `${text.testQueuedAgent}: ${printerId}` : `${text.testQueued}: ${printerId}`);
       setReloadKey((key) => key + 1);
     } catch (testError) {
       setSubmitError(testError instanceof Error ? testError.message : text.testFailed);
@@ -534,6 +640,7 @@ export function PrintersModule({ lang: _lang = "th" }: { lang?: "th" | "en" }) {
 
       {activePanel === "printers" ? (
         <>
+          <div style={{ ...panelStyle, background: "#eff8ff", borderColor: "#b2ddff", color: "#1849a9", fontWeight: 700 }}>{text.browserBridgeHint}</div>
           <form onSubmit={handleCreatePrinter} style={{ display: "grid", gap: 14 }}>
             <section style={panelStyle}>
               <h3 style={{ margin: "0 0 12px", fontSize: 16 }}>{text.printPath}</h3>

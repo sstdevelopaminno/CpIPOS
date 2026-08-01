@@ -141,6 +141,40 @@ function normalizeText(value: string | null | undefined): string | null {
   const trimmed = value?.trim();
   return trimmed ? trimmed : null;
 }
+function readStringArray(value: unknown): string[] {
+  if (typeof value === "string") return [value.trim()].filter(Boolean);
+  if (!Array.isArray(value)) return [];
+  return value.map((item) => (typeof item === "string" ? item.trim() : "")).filter(Boolean);
+}
+
+function printerHasAgentRoute(printer: PrinterProfileRow) {
+  const metadata = asRecord(printer.metadata);
+  return (
+    readStringArray(metadata.agent_device_code ?? metadata.agent_device_codes ?? metadata.device_code ?? metadata.device_codes).length > 0 ||
+    readStringArray(metadata.assigned_agent_id ?? metadata.assigned_agent_ids ?? metadata.agent_id ?? metadata.agent_ids).length > 0 ||
+    metadata.print_mode === "agent" ||
+    metadata.processing_mode === "print_agent" ||
+    metadata.queue_only === true
+  );
+}
+
+function isCloudRuntime() {
+  return readEnv("VERCEL") === "1" || Boolean(readEnv("VERCEL_ENV"));
+}
+
+function shouldDeferPrintJobToAgent(printer: PrinterProfileRow) {
+  const metadata = asRecord(printer.metadata);
+  if (metadata.server_direct_print === true || metadata.process_on_server === true || metadata.print_mode === "server") return false;
+  if (printerHasAgentRoute(printer)) return true;
+  return isCloudRuntime();
+}
+
+async function processOrQueuePrintJob(job: PrintJobRow, printer: PrinterProfileRow) {
+  if (shouldDeferPrintJobToAgent(printer)) {
+    return job;
+  }
+  return (await processPrintJob(job.id)) ?? job;
+}
 
 function ensureManagerOrOwner(auth: AuthContext) {
   if (auth.branchRole !== "manager" && auth.branchRole !== "owner") {
@@ -591,7 +625,7 @@ export async function queueAndProcessTestPrint(auth: AuthContext, printerId: str
     metadata: { test_print: true }
   });
 
-  return processPrintJob(job.id);
+  return processOrQueuePrintJob(job, printer);
 }
 
 export async function queueAndProcessBluetoothReceiptHtml(auth: AuthContext, input: QueueBluetoothReceiptInput) {
@@ -641,7 +675,7 @@ export async function queueAndProcessBluetoothReceiptHtml(auth: AuthContext, inp
         payload_html: normalizedHtml
       }
     });
-    const processedJob = await processPrintJob(job.id);
+    const processedJob = await processOrQueuePrintJob(job, printer);
     jobs.push(processedJob ?? job);
   }
 
@@ -784,9 +818,9 @@ export async function queueAndProcessCashDrawerOpen(auth: AuthContext, input: Op
     maxRetryCount: 1
   });
 
-  const processed = await processPrintJob(job.id);
-  const commandStatus = processed?.status === "printed" ? "sent" : "failed";
-  const errorCode = commandStatus === "sent" ? null : processed?.last_error ?? "drawer_open_failed";
+  const processed = await processOrQueuePrintJob(job, printer);
+  const commandStatus = processed?.status === "printed" ? "sent" : processed?.status === "pending" || processed?.status === "retrying" || processed?.status === "printing" ? "queued" : "failed";
+  const errorCode = commandStatus === "failed" ? processed?.last_error ?? "drawer_open_failed" : null;
   await writeCashDrawerEvent(
     auth,
     printer,
@@ -824,7 +858,7 @@ export async function queueAndProcessCashDrawerOpen(auth: AuthContext, input: Op
     }
   });
 
-  if (commandStatus !== "sent") {
+  if (commandStatus === "failed") {
     throw new Error(errorCode ?? "drawer_open_failed");
   }
 
@@ -912,7 +946,7 @@ export async function enqueueOrderPrintJobs(args: {
         }
       });
       queuedJobs.push(job);
-      await processPrintJob(job.id);
+      await processOrQueuePrintJob(job, printer);
     }
   }
 
@@ -943,7 +977,7 @@ export async function enqueueOrderPrintJobs(args: {
         payloadText: kitchenPayload
       });
       queuedJobs.push(job);
-      await processPrintJob(job.id);
+      await processOrQueuePrintJob(job, printer);
     }
   }
 
@@ -1156,7 +1190,7 @@ export async function enqueuePrintJobsForOrderSnapshot(args: {
       payloadJson: { ...receiptStorePayload(storeProfile), branch_name: branchName, order_id: order.id, order_no: order.order_no }
     });
     queuedJobs.push(job);
-    await processPrintJob(job.id);
+    await processOrQueuePrintJob(job, printer);
   }
 
   if (includeKitchenTicket) {
@@ -1186,7 +1220,7 @@ export async function enqueuePrintJobsForOrderSnapshot(args: {
         payloadText: kitchenPayload
       });
       queuedJobs.push(job);
-      await processPrintJob(job.id);
+      await processOrQueuePrintJob(job, printer);
     }
   }
 
@@ -1236,7 +1270,7 @@ export async function enqueueKitchenTicketForOrderSnapshot(args: {
       }
     });
     queuedJobs.push(job);
-    await processPrintJob(job.id);
+    await processOrQueuePrintJob(job, printer);
   }
 
   return queuedJobs;
