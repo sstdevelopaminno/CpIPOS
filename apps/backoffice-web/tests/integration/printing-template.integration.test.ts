@@ -25,10 +25,11 @@ describe("printing template generation", () => {
       58
     );
 
-    expect(output).toContain("RECEIPT");
-    expect(output).toContain("Order: DLV-2026");
+    expect(output).toContain("CpIPOS");
+    expect(output).toContain("?????????");
+    expect(output).toContain("DLV-2026");
     expect(output).toContain("Pad Thai");
-    expect(output).toContain("TOTAL");
+    expect(output).toContain("??????????????");
     expect(output).toContain("181.90");
     expect(output).toContain("No spicy");
   });

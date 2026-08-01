@@ -214,36 +214,51 @@ export function renderReceiptTemplate(template: ReceiptTemplate, paperWidthMm: 5
   const storeName = normalizeText(template.store_name) ?? template.branch_name;
   const storeAddress = normalizeText(template.store_address);
   const storePhone = normalizeText(template.store_phone);
+  const paidAt = new Date(template.paid_at_iso);
+  const paidAtText = Number.isNaN(paidAt.getTime())
+    ? template.paid_at_iso.slice(0, 16).replace("T", " ")
+    : new Intl.DateTimeFormat("th-TH", { dateStyle: "short", timeStyle: "medium", timeZone: "Asia/Bangkok" }).format(paidAt);
+  const paymentLabel = template.payment_method === "cash" ? "??????????" : "???????";
+  const modeLabel = normalizeText(template.mode_label) ?? "????????";
+  const memberLabel = normalizeText(template.member_label) ?? "0 ????? / 0 ????";
   const lines = [
+    center("CpIPOS", width),
     center(storeName, width),
+    ...(storePhone ? [center(storePhone, width)] : []),
     ...(storeAddress ? [center(storeAddress.slice(0, width * 2), width)] : []),
-    ...(storePhone ? [center(`Tel: ${storePhone}`, width)] : []),
-    center(template.branch_name, width),
-    center("RECEIPT", width),
     line("-", width),
-    row(`Order: ${template.order_no}`, template.paid_at_iso.slice(0, 16).replace("T", " "), width),
-    row("Cashier", template.cashier_name, width),
+    row("??????????", template.cashier_name, width),
+    row("??", "open", width),
+    row("????", modeLabel, width),
+    row("?????????", template.order_no, width),
+    row("??????", memberLabel, width),
+    row("??????", paidAtText, width),
     line("-", width)
   ];
 
   for (const item of template.items) {
-    lines.push(row(`${item.qty}x ${item.name}`, money(item.line_total), width));
+    const qty = money(item.qty).replace(/\.00$/, "");
+    const name = item.name.length > 18 ? item.name.slice(0, 18) : item.name;
+    lines.push(row(name, `${qty} ${money(item.line_total)}`, width));
+    lines.push(`x ${money(item.unit_price)}`);
   }
 
   lines.push(line("-", width));
-  lines.push(row("Subtotal", money(template.subtotal), width));
-  lines.push(row("Discount", money(template.discount_amount), width));
-  lines.push(row("Tax", money(template.tax_amount), width));
-  lines.push(row("TOTAL", money(template.total_amount), width));
-  lines.push(row("Payment", template.payment_method, width));
+  lines.push(row("???????????", paymentLabel, width));
+  lines.push(row("??????", `?${money(template.discount_amount)}`, width));
+  if (template.tax_amount) lines.push(row("????", `?${money(template.tax_amount)}`, width));
+  lines.push(row("??????????????", `?${money(template.total_amount)}`, width));
+  if (template.payment_method === "cash") {
+    lines.push(row("????????????????", `?${money(template.cash_received ?? template.total_amount)}`, width));
+    lines.push(row("???????", `?${money(template.change_amount ?? 0)}`, width));
+  }
   if (template.note) {
     lines.push(line("-", width));
     lines.push(template.note.slice(0, width));
   }
   lines.push(line("-", width));
-  lines.push(center(`Thank you (${template.currency})`, width));
+  lines.push(center("CpIPOS", width));
   lines.push("");
-
   return lines.join("\n");
 }
 

@@ -419,6 +419,10 @@ export interface ReceiptTemplate {
   tax_amount: number;
   total_amount: number;
   payment_method: PaymentMethod;
+  cash_received?: number | null;
+  change_amount?: number | null;
+  mode_label?: string | null;
+  member_label?: string | null;
   note?: string;
 }
 
