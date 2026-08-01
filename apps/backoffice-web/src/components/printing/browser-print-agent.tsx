@@ -52,6 +52,13 @@ type ClaimResponse = {
   };
 };
 
+type ParsedReceiptItem = {
+  name: string;
+  qty: string;
+  total: string;
+  unit: string | null;
+};
+
 declare global {
   interface Navigator {
     serial?: SerialLike;
@@ -59,20 +66,20 @@ declare global {
 }
 
 const POLL_MS = 4000;
-const APP_VERSION = "browser-web-serial-1.0.2-receipt-html";
+const APP_VERSION = "browser-web-serial-1.0.3-auto-receipt-layout";
 
 const LEGACY_RECEIPT_LABELS = [
-  "พนักงาน",
-  "สถานะ",
-  "ประเภท",
+  "ชื่อผู้ขาย",
+  "กะ",
+  "โหมด",
   "เลขที่บิล",
   "สมาชิก",
   "วันที่",
-  "วิธีชำระเงิน",
+  "การชำระเงิน",
   "ส่วนลด",
   "ภาษี",
-  "ยอดรวมสุทธิ",
-  "รับเงินสด",
+  "ยอดที่ต้องชำระ",
+  "รับเงินจากลูกค้า",
   "เงินทอน"
 ];
 
@@ -145,11 +152,11 @@ function htmlToLines(html: string) {
     .split(/\n+/)
     .map((line) => line.replace(/\s+/g, " ").trim())
     .filter(Boolean)
-    .slice(0, 100);
+    .slice(0, 120);
 }
 
 function textToLines(text: string) {
-  return text.split(/\r?\n/).map((line) => line.trim()).filter(Boolean).slice(0, 100);
+  return text.split(/\r?\n/).map((line) => line.trim()).filter(Boolean).slice(0, 120);
 }
 
 function wrapCanvasLine(ctx: CanvasRenderingContext2D, line: string, maxWidth: number) {
@@ -274,17 +281,17 @@ function baseReceiptCss(paperWidthMm: 58 | 80) {
 
 function defaultReceiptLogoSvg() {
   return `
-<svg class="receipt-fallback-logo" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 280 80" role="img" aria-label="CpIPOS">
-  <rect x="2" y="2" width="276" height="76" rx="16" fill="#fff" stroke="#000" stroke-width="4"/>
-  <text x="140" y="52" text-anchor="middle" font-family="Tahoma,Arial,sans-serif" font-size="38" font-weight="900" fill="#000">CpIPOS</text>
+<svg class="receipt-fallback-logo" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 280 96" role="img" aria-label="CpIPOS">
+  <text x="140" y="38" text-anchor="middle" font-family="Tahoma,Arial,sans-serif" font-size="26" font-weight="900" fill="#000">CpIPOS</text>
+  <text x="140" y="70" text-anchor="middle" font-family="Tahoma,Arial,sans-serif" font-size="18" font-weight="800" fill="#000">CpIPOS</text>
 </svg>`;
 }
 
 function normalizeLegacyReceiptLine(line: string, labelIndex: { current: number }) {
   let value = line
     .replace(/\?(\d)/g, "฿$1")
-    .replace(/0\s+\?{2,}\s*\/\s*0\s+\?{2,}/g, "0 รายการ / 0 คน")
-    .replace(/\bopen\b/i, "เปิดบิล");
+    .replace(/0\s+\?{2,}\s*\/\s*0\s+\?{2,}/g, "0 คะแนน / 0 แต้ม")
+    .replace(/\bopen\b/i, "open");
 
   if (!value.includes("?")) return value;
 
@@ -293,7 +300,7 @@ function normalizeLegacyReceiptLine(line: string, labelIndex: { current: number 
 
   const suffix = value.replace(/\?+/g, " ").replace(/\s+/g, " ").trim();
   if (!suffix) return label;
-  if (/^[฿\d.,:\-/\sA-Z]+$/i.test(suffix)) return `${label} ${suffix}`;
+  if (/^[฿\d.,:\-/\sA-Zก-๙]+$/i.test(suffix)) return `${label} ${suffix}`;
   return value.replace(/\?+/g, label).replace(/\s+/g, " ").trim();
 }
 
@@ -308,30 +315,132 @@ function looksLikeLegacyTextReceipt(html: string, lines: string[]) {
   );
 }
 
+function dedupeReceiptLines(lines: string[]) {
+  const result: string[] = [];
+  for (const line of lines) {
+    const previous = result[result.length - 1];
+    if (line === "CpIPOS" && previous === "CpIPOS") continue;
+    result.push(line);
+  }
+  return result;
+}
+
+function splitReceiptSegments(lines: string[]) {
+  const segments: string[][] = [[]];
+  for (const line of lines) {
+    if (isReceiptDivider(line)) {
+      if (segments[segments.length - 1]!.length > 0) segments.push([]);
+      continue;
+    }
+    segments[segments.length - 1]!.push(line);
+  }
+  return segments.filter((segment) => segment.length > 0);
+}
+
+function parseLegacyItemRows(lines: string[]): ParsedReceiptItem[] {
+  const items: ParsedReceiptItem[] = [];
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index] ?? "";
+    const match = line.match(/^(.+?)\s+(\d+(?:\.\d+)?)\s+(\d[\d,.]*(?:\.\d{2})?)$/);
+    if (!match) continue;
+    const unitLine = lines[index + 1]?.match(/^x\s+(.+)$/i)?.[1]?.trim() ?? null;
+    items.push({
+      name: match[1]!.trim(),
+      qty: match[2]!.replace(/\.00$/, ""),
+      total: match[3]!.trim(),
+      unit: unitLine
+    });
+    if (unitLine) index += 1;
+  }
+  return items;
+}
+
+function parseLegacyMetaRows(lines: string[]) {
+  const labelIndex = { current: 0 };
+  return lines
+    .map((line) => normalizeLegacyReceiptLine(line, labelIndex))
+    .filter((line) => line !== "CpIPOS")
+    .map((line) => {
+      const knownLabel = LEGACY_RECEIPT_LABELS.find((label) => line.startsWith(label));
+      if (knownLabel) {
+        return {
+          label: knownLabel,
+          value: line.slice(knownLabel.length).replace(/^\s*[:：-]?\s*/, "").trim() || "-"
+        };
+      }
+      const parts = line.split(/\s{2,}|\s:\s|:\s/).filter(Boolean);
+      if (parts.length >= 2) return { label: parts[0]!, value: parts.slice(1).join(" ") };
+      return { label: "ข้อมูล", value: line };
+    });
+}
+
+function parseLegacySummaryRows(lines: string[]) {
+  const labelIndex = { current: 6 };
+  const rows = lines
+    .map((line) => normalizeLegacyReceiptLine(line, labelIndex))
+    .filter((line) => line !== "CpIPOS" && !/^x\s+/i.test(line));
+  return rows.map((line) => {
+    const knownLabel = LEGACY_RECEIPT_LABELS.find((label) => line.startsWith(label));
+    if (knownLabel) {
+      return {
+        label: knownLabel,
+        value: line.slice(knownLabel.length).replace(/^\s*[:：-]?\s*/, "").trim() || "-"
+      };
+    }
+    const match = line.match(/^(.+?)\s+(฿?\d[\d,.]*(?:\.\d{2})?)$/);
+    if (match) return { label: match[1]!.trim(), value: match[2]!.trim() };
+    return { label: line, value: "" };
+  });
+}
+
+function storeField(job: BrowserPrintJob, key: string) {
+  const payload = readRecord(job.payload_json);
+  const metadata = readRecord(job.metadata);
+  return readString(payload[key]) ?? readString(metadata[key]);
+}
+
 function buildLegacyReceiptHtml(job: BrowserPrintJob, sourceHtml: string) {
-  const parsedLines = htmlToLines(sourceHtml);
+  const parsedLines = dedupeReceiptLines(htmlToLines(sourceHtml));
   const fallbackLines = textToLines(job.payload_text?.trim() || "");
   const lines = parsedLines.length > 0 ? parsedLines : fallbackLines;
-  const labelIndex = { current: 0 };
-  const imageSrc = firstImageSrcFromHtml(sourceHtml);
+  const segments = splitReceiptSegments(lines);
+  const headerLines = segments[0] ?? [];
+  const metaLines = segments[1] ?? [];
+  const itemLines = segments[2] ?? [];
+  const summaryLines = segments[3] ?? [];
+  const imageSrc = firstImageSrcFromHtml(sourceHtml) ?? storeField(job, "store_logo_url");
   const logoHtml = imageSrc
     ? `<img class="receipt-logo-img" src="${escapeAttr(imageSrc)}" alt="CpIPOS" />`
     : defaultReceiptLogoSvg();
+  const headerWithoutBrand = headerLines.filter((line) => line !== "CpIPOS");
+  const storeName = storeField(job, "store_name") ?? headerWithoutBrand[0] ?? "CpIPOS";
+  const storePhone = storeField(job, "store_phone") ?? headerWithoutBrand.find((line) => /^[0-9+\-\s]{8,}$/.test(line)) ?? null;
+  const storeAddress = storeField(job, "store_address") ?? null;
+  const branchName = storeField(job, "branch_name") ?? headerWithoutBrand.find((line) => line !== storeName && line !== storePhone) ?? null;
+  const orderNo = storeField(job, "order_no");
+  const items = parseLegacyItemRows(itemLines);
+  const metaRows = parseLegacyMetaRows(metaLines).map((row) => {
+    if (row.label === "เลขที่บิล" && orderNo) return { ...row, value: orderNo };
+    return row;
+  });
+  const summaryRows = parseLegacySummaryRows(summaryLines);
+  const grandRowIndex = summaryRows.findIndex((row) => row.label.includes("ยอด") || row.label.includes("รวมสุทธิ"));
+  const grandRow = grandRowIndex >= 0 ? summaryRows[grandRowIndex] : null;
+  const otherSummaryRows = summaryRows.filter((_, index) => index !== grandRowIndex);
 
-  const renderedLines = lines
-    .map((line, index) => {
-      if (isReceiptDivider(line)) return `<hr class="receipt-divider" />`;
-      const repaired = normalizeLegacyReceiptLine(line, labelIndex);
-      const isHeader = index < 4 || repaired === "CpIPOS";
-      const isMoney = /฿?\d[\d,.]*$/.test(repaired) && !/[ก-๙A-Za-z]{3,}/.test(repaired);
-      const className = [
-        "receipt-row",
-        isHeader ? "receipt-row-center" : "",
-        isMoney ? "receipt-row-money" : "",
-        repaired.startsWith("x ") ? "receipt-row-note" : ""
-      ].filter(Boolean).join(" ");
-      return `<div class="${className}">${escapeHtml(repaired)}</div>`;
-    })
+  const metaHtml = metaRows
+    .map((row) => `<div class="meta-line"><span>${escapeHtml(row.label)}</span><strong>${escapeHtml(row.value)}</strong></div>`)
+    .join("");
+  const itemHtml = (items.length > 0 ? items : [{ name: lines.join(" ").slice(0, 80), qty: "1", total: "0.00", unit: null }])
+    .map((item) => `
+      <tr>
+        <td class="col-name"><div class="name">${escapeHtml(item.name)}</div>${item.unit ? `<div class="unit">x ${escapeHtml(item.unit)}</div>` : ""}</td>
+        <td class="col-qty">${escapeHtml(item.qty)}</td>
+        <td class="col-total">${escapeHtml(item.total)}</td>
+      </tr>`)
+    .join("");
+  const summaryHtml = otherSummaryRows
+    .map((row, index) => `<div class="summary-line ${index === 0 ? "is-heading" : ""}"><span>${escapeHtml(row.label)}</span><strong>${escapeHtml(row.value)}</strong></div>`)
     .join("");
 
   return `<!doctype html>
@@ -342,72 +451,58 @@ function buildLegacyReceiptHtml(job: BrowserPrintJob, sourceHtml: string) {
     @page { size: ${paperWidthMmForJob(job)}mm auto; margin: 0; }
     body { margin: 0; width: ${paperWidthMmForJob(job)}mm; background: #fff; color: #000; }
     .receipt-print-compatible {
-      width: calc(100% - 5mm);
+      width: ${paperWidthMmForJob(job) === 58 ? 48 : 70}mm;
       margin: 0 auto;
-      padding: 2mm 0 3mm;
+      padding: 1.2mm 0 2mm;
       font-family: Tahoma, "Noto Sans Thai", Arial, sans-serif;
-      font-size: 18px;
+      font-size: 14px;
       font-weight: 800;
       line-height: 1.22;
-      letter-spacing: 0;
       color: #000;
       background: #fff;
     }
-    .receipt-logo {
-      display: flex;
-      justify-content: center;
-      align-items: center;
-      margin: 0 0 1mm;
-      min-height: 12mm;
-    }
-    .receipt-logo-img {
-      display: block;
-      max-width: 34mm;
-      max-height: 12mm;
-      object-fit: contain;
-      filter: grayscale(1) contrast(1.35);
-    }
-    .receipt-fallback-logo {
-      display: block;
-      width: 32mm;
-      height: auto;
-    }
-    .receipt-row {
-      display: block;
-      width: 100%;
-      margin: 0;
-      padding: 0.2mm 0;
-      white-space: pre-wrap;
-      overflow-wrap: anywhere;
-      text-align: left;
-    }
-    .receipt-row-center {
-      text-align: center;
-      font-size: 19px;
-      font-weight: 900;
-    }
-    .receipt-row-money {
-      text-align: right;
-      font-size: 18px;
-      font-weight: 900;
-    }
-    .receipt-row-note {
-      padding-left: 3mm;
-      font-size: 17px;
-      font-weight: 800;
-    }
-    .receipt-divider {
-      border: 0;
-      border-top: 2px dashed #000;
-      margin: 1.2mm 0;
-      height: 0;
-    }
+    .receipt-logo { display: flex; justify-content: center; align-items: center; min-height: 10mm; margin-bottom: 1mm; }
+    .receipt-logo-img { display: block; max-width: 28mm; max-height: 9mm; object-fit: contain; filter: grayscale(1) contrast(1.35); }
+    .receipt-fallback-logo { display: block; width: 24mm; height: auto; }
+    .head-title { text-align: center; font-size: 18px; font-weight: 900; line-height: 1.1; margin-bottom: 0.6mm; }
+    .head-sub { text-align: center; font-size: 15px; font-weight: 900; line-height: 1.15; }
+    .head-muted { text-align: center; font-size: 14px; font-weight: 800; line-height: 1.15; }
+    .divider { border: 0; border-top: 1.6px dashed #000; margin: 1.4mm 0; height: 0; }
+    .meta-line { display: flex; justify-content: space-between; gap: 2mm; margin: 0.55mm 0; }
+    .meta-line span { font-weight: 800; }
+    .meta-line strong { max-width: 29mm; text-align: right; font-weight: 900; overflow-wrap: anywhere; }
+    table { width: 100%; border-collapse: collapse; }
+    td { padding: 0.6mm 0; vertical-align: top; }
+    .col-name { width: auto; }
+    .col-qty { width: 8mm; text-align: center; font-weight: 900; }
+    .col-total { width: 17mm; text-align: right; font-weight: 900; white-space: nowrap; }
+    .name { font-size: 14px; font-weight: 900; line-height: 1.16; overflow-wrap: anywhere; }
+    .unit { font-size: 13px; font-weight: 800; line-height: 1.1; margin-top: 0.2mm; }
+    .summary-line { display: flex; justify-content: space-between; align-items: baseline; gap: 2mm; margin: 0.55mm 0; }
+    .summary-line span { font-weight: 900; }
+    .summary-line strong { font-weight: 900; white-space: nowrap; }
+    .summary-line.is-heading { padding-bottom: 0.8mm; border-bottom: 1.4px dashed #000; margin-bottom: 0.8mm; }
+    .summary-line.grand { border-top: 1.8px solid #000; border-bottom: 1.8px solid #000; padding: 0.7mm 0; margin: 1mm 0; font-size: 18px; }
+    .summary-line.grand strong { font-size: 20px; }
+    .foot { text-align: center; margin-top: 1.4mm; font-size: 14px; font-weight: 500; }
   </style>
 </head>
 <body>
   <main class="receipt-print-compatible">
     <div class="receipt-logo">${logoHtml}</div>
-    ${renderedLines}
+    <div class="head-title">${escapeHtml(storeName)}</div>
+    ${storePhone ? `<div class="head-sub">${escapeHtml(storePhone)}</div>` : ""}
+    ${storeAddress ? `<div class="head-muted">${escapeHtml(storeAddress)}</div>` : ""}
+    ${branchName ? `<div class="head-muted">${escapeHtml(branchName)}</div>` : ""}
+    <hr class="divider" />
+    ${metaHtml}
+    <hr class="divider" />
+    <table><tbody>${itemHtml}</tbody></table>
+    <hr class="divider" />
+    ${summaryHtml}
+    ${grandRow ? `<div class="summary-line grand"><span>${escapeHtml(grandRow.label)}</span><strong>${escapeHtml(grandRow.value)}</strong></div>` : ""}
+    <hr class="divider" />
+    <div class="foot">CpIPOS</div>
   </main>
 </body>
 </html>`;
