@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
@@ -22,6 +22,7 @@ type DevicesResponse = {
     employee?: { id: string | null; code?: string | null; name?: string | null; role?: string | null };
     devices: DeviceItem[];
     single_device_mode: boolean;
+    auto_select_single_device?: boolean;
     can_override_in_use: boolean;
   } | null;
   error?: { code: string; message: string } | null;
@@ -129,6 +130,7 @@ function LoginDevicesPageContent() {
   const [error, setError] = useState("");
   const [popup, setPopup] = useState<PopupState>({ type: "none" });
   const loadStartedRef = useRef(false);
+  const autoSubmitCodeRef = useRef("");
 
   useEffect(() => {
     if (loadStartedRef.current) return;
@@ -167,6 +169,13 @@ function LoginDevicesPageContent() {
           data.devices.find((device) => canSelectDevice(device, data.can_override_in_use, data.employee?.id ?? "")) ??
           data.devices[0];
         setSelectedCode(firstAllowed?.deviceCode ?? "");
+        if (
+          data.auto_select_single_device &&
+          firstAllowed &&
+          canSelectDevice(firstAllowed, data.can_override_in_use, data.employee?.id ?? "")
+        ) {
+          autoSubmitCodeRef.current = firstAllowed.deviceCode;
+        }
       } catch (requestError) {
         if (mounted) {
           const message = mapNetworkErrorMessage(requestError);
@@ -205,20 +214,32 @@ function LoginDevicesPageContent() {
     };
   }, [submitting]);
 
+
+  useEffect(() => {
+    if (loading || submitting || !autoSubmitCodeRef.current) return;
+    const code = autoSubmitCodeRef.current;
+    autoSubmitCodeRef.current = "";
+    setSelectedCode(code);
+    void handleSelectDevice(code);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loading, submitting]);
   const selectedDevice = useMemo(() => devices.find((device) => device.deviceCode === selectedCode) ?? null, [devices, selectedCode]);
   const selectedDeviceCanOpen = selectedDevice ? canSelectDevice(selectedDevice, canOverride, employeeId) : false;
 
-  async function handleSelectDevice() {
+  async function handleSelectDevice(deviceCodeOverride?: string) {
     if (submitting || loading) return;
 
-    if (!selectedDevice) {
+    const targetDevice = deviceCodeOverride ? devices.find((device) => device.deviceCode === deviceCodeOverride) ?? null : selectedDevice;
+    const targetCanOpen = targetDevice ? canSelectDevice(targetDevice, canOverride, employeeId) : false;
+
+    if (!targetDevice) {
       const message = "กรุณาเลือกเครื่องแคชเชียร์";
       setError(message);
       setPopup({ type: "error", message });
       return;
     }
 
-    if (!selectedDeviceCanOpen) {
+    if (!targetCanOpen) {
       const message = "เครื่องที่เลือกยังไม่พร้อมใช้งาน";
       setError(message);
       setPopup({ type: "error", message });
@@ -227,7 +248,7 @@ function LoginDevicesPageContent() {
 
     setSubmitting(true);
     setError("");
-    const isOverridingDevice = selectedDevice.status === "in_use";
+    const isOverridingDevice = targetDevice.status === "in_use";
     setPopup({
       type: "loading",
       message: isOverridingDevice ? "กำลังปลดล็อกเครื่องที่กำลังใช้งาน..." : "กำลังเปิดเครื่องแคชเชียร์..."
@@ -243,7 +264,7 @@ function LoginDevicesPageContent() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          device_code: selectedDevice.deviceCode,
+          device_code: targetDevice.deviceCode,
           force_override: isOverridingDevice
         })
         },
@@ -374,7 +395,7 @@ function LoginDevicesPageContent() {
         <button type="button" className="ipos-outline-btn" onClick={() => void handleBack()} disabled={submitting}>
           ย้อนกลับ
         </button>
-        <button type="button" className="ipos-primary-btn ipos-btn-compact" onClick={handleSelectDevice} disabled={submitting || loading || !selectedDeviceCanOpen}>
+        <button type="button" className="ipos-primary-btn ipos-btn-compact" onClick={() => void handleSelectDevice()} disabled={submitting || loading || !selectedDeviceCanOpen}>
           {submitting ? "กำลังเข้าสู่ระบบ..." : "เปิดแคช"}
         </button>
       </div>

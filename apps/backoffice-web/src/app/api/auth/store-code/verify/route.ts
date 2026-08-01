@@ -1,10 +1,11 @@
-﻿import { NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
 import { getRequestMeta, writeAuditLog } from "@/lib/server/audit-log";
 import { AuthTimeoutError, withAuthTimeout } from "@/lib/server/auth-timeout";
 import { buildRateLimitKey, enforceRateLimit, getClientIpAddress, readRateLimitSetting, type RateLimitResult } from "@/lib/server/rate-limit";
 import { clearPreEntryFlowState, createFlowState, writePreEntryFlowState } from "@/lib/server/pre-entry-state";
 import { resolveSessionCookieConfig } from "@/lib/server/pos-session";
+import { resolveStoreLoginMode, shouldSkipBranchSelection } from "@/lib/server/store-login-mode";
 
 type RequestBody = {
   store_code?: string;
@@ -237,7 +238,8 @@ export async function POST(request: Request) {
 
     const tenant = lookup.tenant;
     const branches = lookup.branches;
-    const autoSkip = isAutoSkipEnabled() && branches.length === 1;
+    const storeMode = await withAuthTimeout(resolveStoreLoginMode(tenant.id), "store_login_mode_lookup_timeout");
+    const autoSkip = shouldSkipBranchSelection(storeMode, branches.length, isAutoSkipEnabled());
     const selectedBranch = autoSkip ? branches[0] : null;
     const flowState = createFlowState({
       stage: autoSkip ? "branch_selected" : "store_verified",
@@ -262,7 +264,14 @@ export async function POST(request: Request) {
           address: branch.address
         })),
         next_step: autoSkip ? "employee" : "branches",
-        auto_skip_branch_selection: autoSkip
+        auto_skip_branch_selection: autoSkip,
+        store_mode: {
+          single_register: storeMode.singleRegister,
+          branch_selection: storeMode.branchSelection,
+          max_branches: storeMode.maxBranches,
+          max_devices: storeMode.maxDevices,
+          package_code: storeMode.packageCode
+        }
       },
       error: null
     });

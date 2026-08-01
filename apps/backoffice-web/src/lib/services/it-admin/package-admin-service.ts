@@ -16,6 +16,11 @@ export type PackageMutationInput = {
   is_active?: boolean;
   status?: "active" | "inactive";
   metadata?: Record<string, unknown> | null;
+  store_mode?: "single_register" | "branch_register" | null;
+  no_branch_mode?: boolean | null;
+  single_device_mode?: boolean | null;
+  branch_selection?: "hidden" | "visible" | null;
+  max_cashier_devices?: number | null;
   features?: Record<string, boolean> | string[];
   reason?: string | null;
 };
@@ -71,6 +76,46 @@ function normalizeFeatureMap(features: PackageMutationInput["features"]): Map<st
   );
 }
 
+function normalizePackageMetadata(input: PackageMutationInput, current?: Record<string, unknown> | null) {
+  const metadata = { ...(current ?? {}), ...(input.metadata ?? {}) };
+  const singleRegister =
+    input.store_mode === "single_register" ||
+    input.no_branch_mode === true ||
+    input.single_device_mode === true ||
+    input.branch_selection === "hidden";
+
+  if (singleRegister) {
+    metadata.login_mode = "single_register";
+    metadata.branch_selection = "hidden";
+    metadata.max_cashier_devices = 1;
+    metadata.no_branch_mode = true;
+    metadata.single_device_mode = true;
+    return metadata;
+  }
+
+  if (input.store_mode === "branch_register" || input.no_branch_mode === false || input.single_device_mode === false || input.branch_selection === "visible") {
+    metadata.login_mode = "branch_register";
+    metadata.branch_selection = "visible";
+    metadata.no_branch_mode = false;
+    metadata.single_device_mode = false;
+  }
+
+  if (typeof input.max_cashier_devices === "number") {
+    metadata.max_cashier_devices = toPositiveInteger(input.max_cashier_devices, 1);
+  }
+
+  return metadata;
+}
+
+function hasPackageModeInput(input: PackageMutationInput) {
+  return Boolean(
+    input.store_mode ||
+      typeof input.no_branch_mode === "boolean" ||
+      typeof input.single_device_mode === "boolean" ||
+      input.branch_selection ||
+      typeof input.max_cashier_devices === "number"
+  );
+}
 async function syncPackageFeatures(context: ItAdminContext, packageId: string, features: PackageMutationInput["features"]) {
   const featureMap = normalizeFeatureMap(features);
   if (!featureMap) return [];
@@ -125,6 +170,11 @@ export async function createPackage(context: ItAdminContext, input: PackageMutat
   const name = normalizeText(input.name);
   const monthlyPrice = toMoney(input.monthly_price, null);
   const maxBranches = toPositiveInteger(input.max_branches, null);
+  const singleRegisterPackage =
+    input.store_mode === "single_register" ||
+    input.no_branch_mode === true ||
+    input.single_device_mode === true ||
+    input.branch_selection === "hidden";
 
   if (!code || !name || monthlyPrice == null || maxBranches == null) {
     throw new Error("invalid_package_payload: code, name, monthly_price and max_branches are required.");
@@ -135,12 +185,12 @@ export async function createPackage(context: ItAdminContext, input: PackageMutat
     name,
     monthly_price: monthlyPrice,
     yearly_price: toMoney(input.yearly_price, Number((monthlyPrice * 12).toFixed(2))),
-    max_branches: maxBranches,
-    max_devices: toPositiveInteger(input.max_devices, 1),
+    max_branches: singleRegisterPackage ? 1 : maxBranches,
+    max_devices: singleRegisterPackage ? 1 : toPositiveInteger(input.max_devices, 1),
     max_users: toPositiveInteger(input.max_users, 1),
     is_active: input.is_active ?? true,
     status: input.status ?? "active",
-    metadata: input.metadata ?? {}
+    metadata: normalizePackageMetadata(input)
   };
 
   const { data: created, error } = await supabase
@@ -180,6 +230,11 @@ export async function updatePackage(context: ItAdminContext, packageId: string, 
   if (!current) return null;
 
   const patch: Record<string, unknown> = {};
+  const singleRegisterPackage =
+    input.store_mode === "single_register" ||
+    input.no_branch_mode === true ||
+    input.single_device_mode === true ||
+    input.branch_selection === "hidden";
   if (typeof input.code === "string" && input.code.trim()) patch.code = normalizeCode(input.code);
   if (typeof input.name === "string" && input.name.trim()) patch.name = normalizeText(input.name);
   if (typeof input.monthly_price === "number") patch.monthly_price = toMoney(input.monthly_price, current.monthly_price);
@@ -189,7 +244,13 @@ export async function updatePackage(context: ItAdminContext, packageId: string, 
   if (typeof input.max_users === "number" || input.max_users === null) patch.max_users = input.max_users === null ? null : toPositiveInteger(input.max_users, current.max_users);
   if (typeof input.is_active === "boolean") patch.is_active = input.is_active;
   if (input.status === "active" || input.status === "inactive") patch.status = input.status;
-  if (input.metadata && typeof input.metadata === "object" && !Array.isArray(input.metadata)) patch.metadata = input.metadata;
+  if (singleRegisterPackage) {
+    patch.max_branches = 1;
+    patch.max_devices = 1;
+  }
+  if ((input.metadata && typeof input.metadata === "object" && !Array.isArray(input.metadata)) || hasPackageModeInput(input)) {
+    patch.metadata = normalizePackageMetadata(input, current.metadata);
+  }
 
   let updated = current;
   if (Object.keys(patch).length > 0) {

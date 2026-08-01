@@ -1,13 +1,21 @@
-﻿import { NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { getRequestMeta, writeAuditLog, writeLoginAttempt } from "@/lib/server/audit-log";
 import { AuthTimeoutError, withAuthTimeout } from "@/lib/server/auth-timeout";
 import { hasPermission, resolveEmployeeByCode } from "@/lib/server/pre-entry-auth";
 import { createFlowState, hasFlowStage, readPreEntryFlowState, writePreEntryFlowState } from "@/lib/server/pre-entry-state";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
+import { resolveStoreLoginMode, shouldSkipBranchSelection } from "@/lib/server/store-login-mode";
 
 type RequestBody = {
   employee_code?: string;
+};
+
+type BranchSummary = {
+  id: string;
+  code: string | null;
+  name: string | null;
+  is_active: boolean;
 };
 
 type BranchLoginPolicy = {
@@ -31,6 +39,44 @@ function withTimingHeaders<T extends NextResponse>(response: T, startedAt: numbe
   return response;
 }
 
+function isAutoSkipEnabled() {
+  const raw = String(process.env.POS_AUTO_SKIP_SINGLE_BRANCH ?? "true").trim().toLowerCase();
+  return raw === "1" || raw === "true" || raw === "yes";
+}
+
+async function recoverSingleBranchFlow(flow: NonNullable<ReturnType<typeof readPreEntryFlowState>>) {
+  if (hasFlowStage(flow, ["branch_selected", "employee_verified"]) && flow.branchId) return flow;
+  if (!hasFlowStage(flow, ["store_verified"])) return null;
+
+  const supabase = getSupabaseServiceClient();
+  const { data, error } = await supabase
+    .from("branches")
+    .select("id,code,name,is_active")
+    .eq("tenant_id", flow.tenantId)
+    .eq("is_active", true)
+    .order("name", { ascending: true });
+
+  if (error) {
+    console.error("[auth/employee/verify-code] single-branch recovery failed", {
+      tenantId: flow.tenantId,
+      error: error.message
+    });
+    return null;
+  }
+
+  const branches = ((data ?? []) as BranchSummary[]).filter((branch) => branch.is_active);
+  const mode = await resolveStoreLoginMode(flow.tenantId);
+  if (!shouldSkipBranchSelection(mode, branches.length, isAutoSkipEnabled())) return null;
+
+  const branch = branches[0];
+  return createFlowState({
+    ...flow,
+    stage: "branch_selected",
+    branchId: branch.id,
+    branchCode: branch.code,
+    branchName: branch.name
+  });
+}
 async function loadBranchEmployeeLoginPolicy({
   tenantId,
   branchId
@@ -96,7 +142,8 @@ export async function POST(request: Request) {
     );
   }
 
-  if (!hasFlowStage(flow, ["branch_selected", "employee_verified"]) || !flow.branchId) {
+  const branchFlow = await withAuthTimeout(recoverSingleBranchFlow(flow), "employee_branch_recovery_timeout");
+  if (!branchFlow?.branchId) {
     return withTimingHeaders(
       NextResponse.json(
         { data: null, error: { code: "missing_branch_context", message: "กรุณาเลือกสาขาก่อนยืนยันตัวตนพนักงาน" } },
@@ -111,8 +158,8 @@ export async function POST(request: Request) {
   try {
     const policy = await withAuthTimeout(
       loadBranchEmployeeLoginPolicy({
-        tenantId: flow.tenantId,
-        branchId: flow.branchId
+        tenantId: branchFlow.tenantId,
+        branchId: branchFlow.branchId
       }),
       "employee_policy_lookup_timeout"
     );
@@ -122,8 +169,8 @@ export async function POST(request: Request) {
     if (!policy || !allowEmployeeCodeLogin) {
       runInBackground(() =>
         writeAuditLog({
-          tenantId: flow.tenantId,
-          branchId: flow.branchId,
+          tenantId: branchFlow.tenantId,
+          branchId: branchFlow.branchId,
           actorRole: "system",
           action: "permission_denied",
           targetType: "branch_login_policy",
@@ -156,8 +203,8 @@ export async function POST(request: Request) {
 
     const employee = await withAuthTimeout(
       resolveEmployeeByCode({
-        tenantId: flow.tenantId,
-        branchId: flow.branchId,
+        tenantId: branchFlow.tenantId,
+        branchId: branchFlow.branchId,
         employeeCode: employeeCodeInput
       }),
       "employee_lookup_timeout"
@@ -166,8 +213,8 @@ export async function POST(request: Request) {
     if (!employee) {
       runInBackground(() =>
         writeLoginAttempt({
-          tenantId: flow.tenantId,
-          branchId: flow.branchId,
+          tenantId: branchFlow.tenantId,
+          branchId: branchFlow.branchId,
           loginMethod: "staff_card",
           success: false,
           failureReason: "auth_failed",
@@ -195,8 +242,8 @@ export async function POST(request: Request) {
     if (!hasPermission(employee.permissions, "pos.sales.access")) {
       runInBackground(() =>
         writeAuditLog({
-          tenantId: flow.tenantId,
-          branchId: flow.branchId,
+          tenantId: branchFlow.tenantId,
+          branchId: branchFlow.branchId,
           actorUserId: employee.userId,
           actorRole: employee.role,
           targetUserId: employee.userId,
@@ -222,7 +269,7 @@ export async function POST(request: Request) {
     }
 
     const nextFlow = createFlowState({
-      ...flow,
+      ...branchFlow,
       stage: "employee_verified",
       userId: employee.userId,
       userRole: employee.role,
@@ -250,8 +297,8 @@ export async function POST(request: Request) {
 
     runInBackground(() =>
       writeLoginAttempt({
-        tenantId: flow.tenantId,
-        branchId: flow.branchId,
+        tenantId: branchFlow.tenantId,
+        branchId: branchFlow.branchId,
         userId: employee.userId,
         loginMethod: "staff_card",
         success: true,
@@ -263,8 +310,8 @@ export async function POST(request: Request) {
 
     runInBackground(() =>
       writeAuditLog({
-        tenantId: flow.tenantId,
-        branchId: flow.branchId,
+        tenantId: branchFlow.tenantId,
+        branchId: branchFlow.branchId,
         actorUserId: employee.userId,
         actorRole: employee.role,
         targetUserId: employee.userId,
@@ -290,8 +337,8 @@ export async function POST(request: Request) {
     }
 
     console.error("[auth/employee/verify-code] unexpected error", {
-      tenantId: flow.tenantId,
-      branchId: flow.branchId,
+      tenantId: branchFlow.tenantId,
+      branchId: branchFlow.branchId,
       error: error instanceof Error ? error.message : "Unknown error"
     });
 

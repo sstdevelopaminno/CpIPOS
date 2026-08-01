@@ -1,6 +1,6 @@
 # Active Documentation Index
 
-Last reviewed: 2026-07-29
+Last reviewed: 2026-08-01
 
 Use this page as the first stop before new development. It separates active implementation guidance from historical QR-era material.
 
@@ -11,11 +11,12 @@ Use this page as the first stop before new development. It separates active impl
 - GitHub repo: `https://github.com/sstdevelopaminno/CpIPOS.git`
 - Login flow: `/login/store -> /login/branches|employee -> /login/devices -> /preview/pos`
 - Database: Supabase migrations in `supabase/migrations`
-- Verification baseline: run `typecheck`, `test`, `lint`, and `build` before closing implementation work.
+- Verification baseline: run `typecheck`, `test`, `lint`, `schema:drift`, and `build` before closing implementation work.
 - Latest local baseline on 2026-07-29 passed frozen install, typecheck, Vitest, full lint, schema drift, and production build for `backoffice-web`.
 
 ## Read First
 
+- [AI Development Preflight](./AI-DEVELOPMENT-PREFLIGHT.md)
 - [CpIPOS Handoff 2026-07-28](./CPIPOS-HANDOFF-2026-07-28.md)
 - [CpIPOS AI Guardrails](./AI-GUARDRAILS-CPIPOS.md)
 - [CpIPOS Production Checkpoint](./CPIPOS-PRODUCTION-CHECKPOINT-2026-07-27.md)
@@ -49,6 +50,7 @@ Use this page as the first stop before new development. It separates active impl
 - [POS Table QR Live Order And Payment Lock 2026-07-30](./POS-TABLE-QR-LIVE-ORDER-LOCK-2026-07-30.md)
 - [POS Print Agent v1 Design 2026-07-29](./POS-PRINT-AGENT-V1-DESIGN-2026-07-29.md)
 - [POS Login Device Splash](./POS-LOGIN-DEVICE-SPLASH-2026-07-11.md)
+- [POS Single Register Mode 2026-08-01](./POS-SINGLE-REGISTER-MODE-2026-08-01.md)
 - [Stock Engine Architecture](./STOCK-ENGINE-ARCHITECTURE.md)
 - [Table Management Floor Plan](./TABLE-MANAGEMENT-FLOOR-PLAN.md)
 - [INET NOPS QR Operations Manual](./INET-NOPS-QR-OPERATIONS-MANUAL.md)
@@ -69,6 +71,7 @@ Use this page as the first stop before new development. It separates active impl
 Do not use archived QR login docs as current implementation guidance. The active flow is store code, branch, employee, device, then POS.
 
 - [QR Login Decommission Record](./ARCHIVE-QR-DECOMMISSION-2026-05-31.md)
+- `docs/NEW-CHAT-BOOTSTRAP-PROMPT-2026-05-28.txt`
 - `docs/AI-HANDOFF-QRSCAN-REGISTER-2026-05-28.md`
 - `docs/AI-HANDOFF-I18N-QRSCAN-2026-05-28.md`
 - Older audit docs that mention `/scan`, `/qr-scan`, `/login/qr-*`, or `/api/auth/qr/*`

@@ -533,6 +533,16 @@ const ACTIVE_ORDER_KEY = "pos_active_order_v001";
 const DINE_IN_DRAFT_KEY = "pos_dine_in_draft_v001";
 const DINE_IN_SELECTED_TABLE_KEY = "pos_dine_in_selected_table_v001";
 const TABLE_QR_ACTIVITY_SEEN_KEY = "pos_table_qr_activity_seen_v001";
+const TABLE_QR_ORDER_POLL_LOOKBACK_MS = 15_000;
+const TABLE_QR_ORDER_CURSOR_SKEW_MS = 2_000;
+
+function buildTableQrOrderPollCursor(latestEventAt?: string | null): string {
+  const latestEventMs = latestEventAt ? new Date(latestEventAt).getTime() : Number.NaN;
+  if (Number.isFinite(latestEventMs)) {
+    return new Date(Math.max(0, latestEventMs - TABLE_QR_ORDER_CURSOR_SKEW_MS)).toISOString();
+  }
+  return new Date(Date.now() - TABLE_QR_ORDER_POLL_LOOKBACK_MS).toISOString();
+}
 const POS_SCOPE_KEY = "pos_scope_v001";
 const POS_PROMPTPAY_PHONE_KEY = "pos_promptpay_phone_v001";
 const POS_TAX_SETTINGS_UPDATED_EVENT = "pos:tax-settings-updated";
@@ -2203,10 +2213,12 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
   const tableBillPrefetchCacheUpdatedAtRef = useRef<Map<string, number>>(new Map());
   const tableBillPrefetchInFlightRef = useRef<Set<string>>(new Set());
   const tableBillLoadInFlightRef = useRef<Set<string>>(new Set());
+  const tableBillReloadPendingRef = useRef<Set<string>>(new Set());
   const tableBillIntentPrefetchedAtRef = useRef<Map<string, number>>(new Map());
   const tableQrOrderSeenRef = useRef<Set<string>>(new Set());
-  const tableQrOrderPollCursorRef = useRef<string>(new Date().toISOString());
+  const tableQrOrderPollCursorRef = useRef<string>("");
   const tableQrOrderPollInFlightRef = useRef(false);
+  const tableQrLatestEventByTableRef = useRef<Map<string, string>>(new Map());
   const tableQrAudioContextRef = useRef<AudioContext | null>(null);
   const loadTableBillContextRef = useRef<(table: DiningTableItem) => Promise<void>>(async () => {
     throw new Error("table_bill_loader_not_ready");
@@ -2216,6 +2228,7 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
   const selectedTableRef = useRef<DiningTableItem | null>(null);
   const cartRef = useRef<CartItem[]>([]);
   const dineInDraftByTableIdRef = useRef<Record<string, CartItem[]>>({});
+  const committedDineInCartByTableIdRef = useRef<Record<string, CartItem[]>>({});
   const previousOrderTypeRef = useRef<OrderType>("takeaway");
 
   useEffect(() => {
@@ -2518,6 +2531,10 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
     });
   }
 
+  function invalidateTableBillCache(tableId: string) {
+    tableBillPrefetchCacheRef.current.delete(tableId);
+    tableBillPrefetchCacheUpdatedAtRef.current.delete(tableId);
+  }
   function markTableQrActivitySeen(table: DiningTableItem) {
     const latestEventId = table.qr_activity?.latest_event_id;
     if (!latestEventId) return;
@@ -2569,13 +2586,13 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
       !table.active_session_id
     ) {
       tableQrOrderSeenRef.current.clear();
-      tableQrOrderPollCursorRef.current = new Date().toISOString();
+      tableQrOrderPollCursorRef.current = buildTableQrOrderPollCursor();
       return;
     }
 
     let disposed = false;
     tableQrOrderSeenRef.current.clear();
-    tableQrOrderPollCursorRef.current = new Date().toISOString();
+    tableQrOrderPollCursorRef.current = buildTableQrOrderPollCursor(table.qr_activity?.latest_event_at);
 
     const pollTableQrOrders = async () => {
       if (disposed || tableQrOrderPollInFlightRef.current || document.visibilityState !== "visible") return;
@@ -2618,40 +2635,12 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
         }
 
         const orderEvents = unseen.filter((entry) => !entry.event_type || entry.event_type === "order");
-        const incomingItems = orderEvents.flatMap((entry) =>
-          (entry.payload?.items ?? []).flatMap((item) => {
-            const productId = String(item.product_id ?? "").trim();
-            const quantity = Math.max(1, Math.floor(Number(item.quantity ?? 0)));
-            const product = productById.get(productId);
-            if (!product || !Number.isFinite(quantity)) return [];
-            return [{
-              product_id: product.id,
-              quantity,
-              price: Number(product.price),
-              name: product.name
-            } satisfies CartItem];
-          })
-        );
-        if (incomingItems.length === 0) return;
+        if (orderEvents.length === 0) return;
 
-        setCart((current) => {
-          const next = current.map((item) => ({ ...item }));
-          for (const incoming of incomingItems) {
-            const existingIndex = next.findIndex((item) => item.product_id === incoming.product_id);
-            if (existingIndex >= 0) {
-              next[existingIndex] = {
-                ...next[existingIndex],
-                quantity: next[existingIndex].quantity + incoming.quantity
-              };
-            } else {
-              next.push(incoming);
-            }
-          }
-          rememberDineInDraft(table.id, next);
-          return next;
-        });
+        invalidateTableBillCache(table.id);
         pushSubmitMessageRef.current(`${text.tableQrOrderReceived}: ${table.table_code}`);
         void loadTableBillContextRef.current(table).catch(() => undefined);
+        void fetchPosTablesRef.current({ timeoutMs: 8000, retries: 0 }).catch(() => undefined);
       } catch {
         // QR polling is best-effort; normal table bill loading remains available.
       } finally {
@@ -2756,6 +2745,7 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
           tableBillPrefetchCacheUpdatedAtRef.current.delete(cachedTableId);
         }
       }
+      const changedSelectedQrTable = syncTableQrActivityCache(tables);
       setTableZones(zones);
       setPosTables(tables);
       setTableLayoutObjects(objects);
@@ -2764,6 +2754,9 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
         if (!current) return null;
         return tables.find((table) => table.id === current.id) ?? null;
       });
+      if (changedSelectedQrTable && orderType === "dine_in" && !tableBrowserOpen) {
+        void loadTableBillContextRef.current(changedSelectedQrTable).catch(() => undefined);
+      }
       // Avoid aggressive background prefetch storms after table list loads.
       // We only prefetch on user intent (hover/focus) to keep table clicks responsive.
       return tables;
@@ -2811,6 +2804,77 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
       .join("|");
   }
 
+  function cloneCartItems(items: CartItem[]): CartItem[] {
+    return items.map((item) => ({ ...item }));
+  }
+
+  function buildCartMergeKey(item: CartItem): string {
+    return `${item.product_id}:${Number(item.price)}:${item.notes ?? ""}`;
+  }
+
+  function mergeServerCartWithLocalDraft(args: {
+    serverItems: CartItem[];
+    localDraft: CartItem[];
+    committedBaseline: CartItem[];
+  }): CartItem[] {
+    const { serverItems, localDraft, committedBaseline } = args;
+    if (localDraft.length === 0) return cloneCartItems(serverItems);
+    if (committedBaseline.length === 0 && serverItems.length === 0) return cloneCartItems(localDraft);
+
+    const committedQtyByKey = new Map<string, number>();
+    for (const item of committedBaseline) {
+      const key = buildCartMergeKey(item);
+      committedQtyByKey.set(key, (committedQtyByKey.get(key) ?? 0) + Number(item.quantity ?? 0));
+    }
+
+    const next = cloneCartItems(serverItems);
+    const nextIndexByKey = new Map<string, number>();
+    next.forEach((item, index) => nextIndexByKey.set(buildCartMergeKey(item), index));
+
+    for (const localItem of localDraft) {
+      const key = buildCartMergeKey(localItem);
+      const extraQuantity = Number(localItem.quantity ?? 0) - (committedQtyByKey.get(key) ?? 0);
+      if (!Number.isFinite(extraQuantity) || extraQuantity <= 0) continue;
+      const existingIndex = nextIndexByKey.get(key);
+      if (existingIndex !== undefined) {
+        next[existingIndex] = {
+          ...next[existingIndex],
+          quantity: next[existingIndex].quantity + extraQuantity
+        };
+      } else {
+        nextIndexByKey.set(key, next.length);
+        next.push({ ...localItem, quantity: extraQuantity });
+      }
+    }
+
+    return next;
+  }
+
+
+  function syncTableQrActivityCache(tables: DiningTableItem[]): DiningTableItem | null {
+    const previous = tableQrLatestEventByTableRef.current;
+    const next = new Map<string, string>();
+    let changedSelectedTable: DiningTableItem | null = null;
+    const selectedId = selectedTableRef.current?.id ?? null;
+
+    for (const table of tables) {
+      const latestEventId = table.qr_activity?.latest_event_id ?? null;
+      if (!latestEventId) continue;
+      next.set(table.id, latestEventId);
+      const previousEventId = previous.get(table.id) ?? null;
+      const latestEventAt = table.qr_activity?.latest_event_at;
+      const latestEventMs = latestEventAt ? new Date(latestEventAt).getTime() : Number.NaN;
+      const cachedAt = tableBillPrefetchCacheUpdatedAtRef.current.get(table.id) ?? 0;
+      const cacheIsOlderThanQr = cachedAt > 0 && Number.isFinite(latestEventMs) && latestEventMs > cachedAt;
+      if (previousEventId !== latestEventId || cacheIsOlderThanQr) {
+        invalidateTableBillCache(table.id);
+        if (selectedId === table.id) changedSelectedTable = table;
+      }
+    }
+
+    tableQrLatestEventByTableRef.current = next;
+    return changedSelectedTable;
+  }
   function returnToDineInTableBrowserAfterPayment() {
     invalidateTableUiContext();
     const lastSelectedTableId = selectedTableRef.current?.id ?? null;
@@ -2987,7 +3051,8 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
       product_id: item.product_id,
       quantity: Math.max(1, Number(item.quantity || 0)),
       price: Number(item.unit_price ?? 0),
-      name: getTableBillItemName(item)
+      name: getTableBillItemName(item),
+      notes: item.notes ?? null
     }));
     setTableTransferVerifications(transferVerifications);
     const latestPaymentMethod = normalizeBillPaymentMethod(payments[0]?.method ?? null);
@@ -3031,18 +3096,24 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
       table_id: order.table_id,
       created_at: order.created_at
     });
+    const committedBaseline = committedDineInCartByTableIdRef.current[table.id] ?? [];
+    const localDraftCandidate = activeCartSnapshot.length > 0 ? activeCartSnapshot : draftItems;
+    const nextCartFromServer = mergeServerCartWithLocalDraft({
+      serverItems: mappedOrderItems,
+      localDraft: localDraftCandidate,
+      committedBaseline
+    });
+    committedDineInCartByTableIdRef.current = {
+      ...committedDineInCartByTableIdRef.current,
+      [table.id]: cloneCartItems(mappedOrderItems)
+    };
     setLastCommittedCartSignature(buildCartSignature(mappedOrderItems));
 
-    if (draftItems.length > 0) {
-      setCart(draftItems);
+    if (nextCartFromServer.length > 0) {
+      rememberDineInDraft(table.id, nextCartFromServer);
+      setCart(nextCartFromServer);
       return;
     }
-
-    if (mappedOrderItems.length > 0) {
-      setCart(mappedOrderItems);
-      return;
-    }
-
     const normalizedStatus = String(order.status ?? "").toLowerCase();
     const isClosedOrder = normalizedStatus === "cancelled" || normalizedStatus === "completed" || normalizedStatus === "paid";
     if (isClosedOrder) {
@@ -3135,12 +3206,14 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
 
   async function loadTableBillContext(table: DiningTableItem) {
     if (tableBillLoadInFlightRef.current.has(table.id)) {
+      tableBillReloadPendingRef.current.add(table.id);
       return;
     }
     const contextVersion = tableContextVersionRef.current;
     const requestId = ++tableBillLoadRequestRef.current;
     const requestStartedAt = nowMs();
     tableBillLoadInFlightRef.current.add(table.id);
+    tableBillReloadPendingRef.current.delete(table.id);
     try {
       const { response, body } = await fetchJsonWithTimeout<TableBillResponseBody>(
         buildTableBillContextUrl(table.id),
@@ -3169,6 +3242,12 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
       applyTableBillPayload(table, payload);
     } finally {
       tableBillLoadInFlightRef.current.delete(table.id);
+      if (tableBillReloadPendingRef.current.has(table.id) && selectedTableRef.current?.id === table.id) {
+        tableBillReloadPendingRef.current.delete(table.id);
+        window.setTimeout(() => {
+          void loadTableBillContextRef.current(selectedTableRef.current ?? table).catch(() => undefined);
+        }, 150);
+      }
     }
   }
 
@@ -4142,13 +4221,13 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
   }, [orderType, posTables, tableBrowserOpen]);
 
   useEffect(() => {
-    if (!isHydrated || orderType !== "dine_in" || !tableBrowserOpen) return;
+    if (!isHydrated || orderType !== "dine_in") return;
     let disposed = false;
     const refreshTables = () => {
       if (disposed || document.visibilityState !== "visible") return;
-      void fetchPosTablesRef.current({ timeoutMs: 10000, retries: 0 }).catch(() => undefined);
+      void fetchPosTablesRef.current({ timeoutMs: 8000, retries: 0 }).catch(() => undefined);
     };
-    const interval = window.setInterval(refreshTables, 5000);
+    const interval = window.setInterval(refreshTables, tableBrowserOpen ? 3000 : 3500);
     window.addEventListener("focus", refreshTables);
     return () => {
       disposed = true;
@@ -5770,7 +5849,8 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
       setTableBrowserOpen(false);
       setSelectedTable(table);
       const cached = tableBillPrefetchCacheRef.current.get(table.id);
-      if (cached) {
+      const canApplyCachedBill = Boolean(cached && !shouldForceQrRefresh);
+      if (canApplyCachedBill && cached) {
         applyTableBillPayload(table, cached);
       } else {
         setActiveOrder(null);
@@ -5781,15 +5861,11 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
         setCart(dineInDraftByTableIdRef.current[table.id] ?? []);
       }
       pushSubmitMessage(`${text.tableSelected}: ${table.table_code}`);
-      const cachedAt = tableBillPrefetchCacheUpdatedAtRef.current.get(table.id) ?? 0;
-      const shouldRefreshFromServer = shouldForceQrRefresh || !cached || nowMs() - cachedAt > 12000;
-      if (shouldRefreshFromServer) {
-        void loadTableBillContext(table).catch((loadError) => {
-          markConnectivityFromError(loadError);
-          const message = loadError instanceof Error ? loadError.message : "Failed to load table bill details.";
-          pushSubmitMessage(localizeApiMessage(message));
-        });
-      }
+      void loadTableBillContext(table).catch((loadError) => {
+        markConnectivityFromError(loadError);
+        const message = loadError instanceof Error ? loadError.message : "Failed to load table bill details.";
+        pushSubmitMessage(localizeApiMessage(message));
+      });
       return;
     }
 

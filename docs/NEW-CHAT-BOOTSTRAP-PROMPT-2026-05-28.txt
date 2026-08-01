@@ -1,20 +1,19 @@
-﻿ARCHIVED (2026-05-31): Legacy QR login reference for historical/audit context only.
-Active runtime flow: apps/backoffice-web /login/store -> /login/branches|employee -> /login/devices
-See: docs/ARCHIVE-QR-DECOMMISSION-2026-05-31.md
-เนเธเธฃเธ”เธญเนเธฒเธเน€เธญเธเธชเธฒเธฃ handoff เธเนเธญเธเน€เธฃเธดเนเธกเธเธฒเธ เนเธฅเธฐเธ—เธณเธเธฒเธเธ•เนเธญเธเธฒเธเธชเธ–เธฒเธเธฐเธฅเนเธฒเธชเธธเธ”เธ—เธฑเธเธ—เธต
+ARCHIVED (2026-05-31): Legacy QR-login bootstrap prompt.
 
-เธฅเธณเธ”เธฑเธเธญเนเธฒเธ:
-1) docs/AI-HANDOFF-QRSCAN-REGISTER-2026-05-28.md
-2) docs/AI-HANDOFF-I18N-QRSCAN-2026-05-28.md
-3) docs/TEST-ACCOUNTS.md
+Do not use this file as current CpIPOS implementation guidance.
 
-เธเธฃเธดเธเธ—เธชเธณเธเธฑเธ:
-- เนเธเธฃเน€เธเธเธ•เนเธซเธฅเธฑเธเธ—เธตเนเธ—เธณเธ•เนเธญ: apps/qr-login-web
-- เธซเธเนเธฒเนเธเนเธเธฒเธเธซเธฅเธฑเธ: /qr-scan เนเธฅเธฐ /qr-scan/register
-- เธฃเนเธฒเธเธ—เธ”เธชเธญเธเธเธฑเธเธเธธเธเธฑเธ: NDL-TH-001
-- เน€เธเนเธฒเธซเธกเธฒเธขเธ–เธฑเธ”เนเธ: เธ—เธณ flow เธฅเธเธ—เธฐเน€เธเธตเธขเธเธเธนเนเนเธเนเธเธฒเธ + login + POS เนเธซเนเน€เธชเธ–เธตเธขเธฃ เนเธฅเนเธงเน€เธเนเธเธซเธฅเธฑเธเธเธฒเธ E2E เธเธฃเธเธเธธเธ”
+Current runtime:
+- Workspace: E:\CpIPOS
+- App: apps/backoffice-web
+- Login flow: /login/store -> /login/branches|employee -> /login/devices -> /preview/pos
 
-เธชเธดเนเธเธ—เธตเนเธ•เนเธญเธเธ•เธฃเธงเธเธ—เธฑเธเธ—เธต:
-- เธ•เธฃเธงเธเธงเนเธฒ dev server เนเธชเธ”เธ UI เธฅเนเธฒเธชเธธเธ”เธเธฃเธดเธ (เนเธกเนเธกเธต service worker cache เน€เธเนเธฒ)
-- เธ—เธ”เธชเธญเธเธเธญเธฃเนเธกเธฅเธเธ—เธฐเน€เธเธตเธขเธเธเธนเนเนเธเนเธเธฒเธเธ”เนเธงเธข NDL-TH-001 เนเธฅเธฐ EMP-000101/102/103
-- เธ–เนเธฒเธเธฃเนเธญเธกเนเธฅเนเธงเนเธซเนเธฃเธฑเธ E2E เนเธฅเธฐเธชเธฃเธธเธเธเธฅเนเธเธ go-live checklist
+Start new development from:
+1. docs/AI-DEVELOPMENT-PREFLIGHT.md
+2. docs/ACTIVE-DOCS-INDEX.md
+3. docs/AI-GUARDRAILS-CPIPOS.md
+4. docs/CPIPOS-HANDOFF-2026-07-28.md
+
+Historical QR-login context, if audit work explicitly requires it:
+- docs/ARCHIVE-QR-DECOMMISSION-2026-05-31.md
+- docs/AI-HANDOFF-QRSCAN-REGISTER-2026-05-28.md
+- docs/AI-HANDOFF-I18N-QRSCAN-2026-05-28.md

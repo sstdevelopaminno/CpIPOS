@@ -10,6 +10,14 @@ type MenuProduct = {
   price: number;
 };
 
+type SubmittedSummaryItem = {
+  product_id: string;
+  name: string;
+  quantity: number;
+  unit_price: number;
+  line_total: number;
+};
+
 type MenuResponse = {
   data?: {
     store_name: string;
@@ -26,7 +34,7 @@ type MenuResponse = {
     submitted_summary?: {
       item_count: number;
       total_amount: number;
-      items: Array<{ name: string; quantity: number; line_total: number }>;
+      items: SubmittedSummaryItem[];
     };
   };
   error?: {
@@ -135,6 +143,16 @@ function buildRequestId() {
   return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
 
+function buildCartFromSubmittedItems(items: SubmittedSummaryItem[]): Record<string, number> {
+  const next: Record<string, number> = {};
+  for (const item of items) {
+    const productId = String(item.product_id ?? "").trim();
+    const quantity = Math.max(0, Math.min(99, Math.trunc(Number(item.quantity ?? 0))));
+    if (!productId || quantity <= 0) continue;
+    next[productId] = Math.min(99, (next[productId] ?? 0) + quantity);
+  }
+  return next;
+}
 function buildSubmitItems(cartItems: Array<MenuProduct & { quantity: number }>): SubmitItem[] {
   return cartItems
     .map((item) => ({
@@ -183,6 +201,7 @@ export function TableOrderMobile({ token }: { token: string }) {
   const [activeCategory, setActiveCategory] = useState(ALL_CATEGORY);
   const [search, setSearch] = useState("");
   const [cart, setCart] = useState<Record<string, number>>({});
+  const [cartDirty, setCartDirty] = useState(false);
   const [cartOpen, setCartOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [serviceSubmitting, setServiceSubmitting] = useState<ServiceRequestAction | null>(null);
@@ -192,6 +211,7 @@ export function TableOrderMobile({ token }: { token: string }) {
   const [linkClosed, setLinkClosed] = useState(false);
   const categoriesRef = useRef<HTMLElement | null>(null);
   const linkClosedToastShownRef = useRef(false);
+  const cartDirtyRef = useRef(false);
 
   const apiUrl = useMemo(() => `/api/table-order/${encodeURIComponent(token)}`, [token]);
 
@@ -328,8 +348,7 @@ export function TableOrderMobile({ token }: { token: string }) {
 
   const canOrder = menu?.can_order !== false && !linkClosed;
   const orderingLocked = menu?.can_order === false && !linkClosed;
-  const submittedSummary = menu?.submitted_summary ?? { item_count: 0, total_amount: 0, items: [] };
-  const submittedItems = submittedSummary.items ?? [];
+  const submittedItems = useMemo(() => menu?.submitted_summary?.items ?? [], [menu?.submitted_summary?.items]);
 
   const categoryOptions = useMemo(() => {
     const seen = new Set<string>();
@@ -371,17 +390,40 @@ export function TableOrderMobile({ token }: { token: string }) {
     });
   }, [activeCategory, menu?.products, search]);
 
+  const cartCatalog = useMemo(() => {
+    const catalog = new Map<string, MenuProduct>();
+    for (const product of menu?.products ?? []) {
+      catalog.set(product.id, product);
+    }
+    for (const item of submittedItems) {
+      const productId = String(item.product_id ?? "").trim();
+      if (!productId || catalog.has(productId)) continue;
+      catalog.set(productId, {
+        id: productId,
+        name: item.name,
+        category: "รายการเดิม",
+        price: Number(item.unit_price ?? 0)
+      });
+    }
+    return catalog;
+  }, [menu?.products, submittedItems]);
+
   const cartItems = useMemo(
     () =>
-      (menu?.products ?? [])
-        .map((product) => ({ ...product, quantity: cart[product.id] ?? 0 }))
-        .filter((product) => product.quantity > 0),
-    [cart, menu?.products]
+      Object.entries(cart)
+        .flatMap(([productId, quantity]) => {
+          const product = cartCatalog.get(productId);
+          if (!product || quantity <= 0) return [];
+          return [{ ...product, quantity }];
+        }),
+    [cart, cartCatalog]
   );
 
   const cartCount = cartItems.reduce((sum, item) => sum + item.quantity, 0);
   const cartTotal = cartItems.reduce((sum, item) => sum + item.quantity * item.price, 0);
   const canRequestCheckout = hasSubmittedFoodOrder || Boolean(successOrderNo) || hasExistingSubmittedFoodOrder(menu);
+  const editingExistingBill = hasSubmittedFoodOrder || hasExistingSubmittedFoodOrder(menu);
+  const canSubmitCart = canOrder && (editingExistingBill ? cartDirty : cartCount > 0);
 
   function changeQuantity(productId: string, delta: number) {
     if (submitting || serviceSubmitting || !canOrder) return;
@@ -421,7 +463,8 @@ export function TableOrderMobile({ token }: { token: string }) {
   );
 
   async function submitOrder() {
-    if (!menu || cartItems.length === 0 || submitting || serviceSubmitting) return;
+    if (!menu || submitting || serviceSubmitting) return;
+    if (!editingExistingBill && cartItems.length === 0) return;
 
     if (!canOrder) {
       showLinkClosedPopup(LINK_PAID_DETAIL);
@@ -429,7 +472,7 @@ export function TableOrderMobile({ token }: { token: string }) {
     }
 
     const items = buildSubmitItems(cartItems);
-    if (!items.length) {
+    if (!items.length && !editingExistingBill) {
       setError("กรุณาเลือกจำนวนอาหารอย่างน้อย 1 รายการ");
       return;
     }
@@ -439,28 +482,30 @@ export function TableOrderMobile({ token }: { token: string }) {
     setToast(null);
 
     const requestId = buildRequestId();
+    const action = editingExistingBill ? "update_order" : "order";
 
     try {
       const primaryPayload = {
+        action,
         request_id: requestId,
+        note: null,
         items
       };
 
       let { response, body } = await submitPost(primaryPayload, requestId);
 
       if (!response.ok || !body?.data) {
-        const shouldRetryWithAction =
+        const shouldRetryWithoutAction =
+          action === "order" &&
           response.status === 400 &&
           (body?.error?.code === "invalid_action" ||
             body?.error?.code === "invalid_payload" ||
             String(body?.error?.message ?? "").toLowerCase().includes("action"));
 
-        if (shouldRetryWithAction) {
+        if (shouldRetryWithoutAction) {
           const retry = await submitPost(
             {
-              action: "order",
               request_id: requestId,
-              note: null,
               items
             },
             requestId
@@ -476,7 +521,8 @@ export function TableOrderMobile({ token }: { token: string }) {
           code: body?.error?.code,
           message: body?.error?.message,
           itemCount: items.length,
-          requestId
+          requestId,
+          action
         });
 
         if (isClosedOrderResponse(response, body)) {
@@ -489,13 +535,21 @@ export function TableOrderMobile({ token }: { token: string }) {
 
       const orderNo = body.data.order_no ?? "-";
       setSuccessOrderNo(orderNo);
-      setHasSubmittedFoodOrder(true);
+      setHasSubmittedFoodOrder(items.length > 0);
+      cartDirtyRef.current = false;
+      setCartDirty(false);
       setToast({
         kind: "success",
-        title: "ส่งรายการเข้าครัวแล้ว",
+        title: editingExistingBill ? "บันทึกรายการแล้ว" : "ส่งรายการเข้าครัวแล้ว",
         detail: `เลขบิล ${orderNo}`
       });
-      setCart({});
+
+      const refreshed = await fetchJsonWithTimeout<MenuResponse>(apiUrl, { cache: "no-store" }, MENU_LOAD_TIMEOUT_MS).catch(() => null);
+      if (refreshed?.response.ok && refreshed.body?.data) {
+        applyMenuData(refreshed.body.data);
+      } else if (!editingExistingBill) {
+        setCart({});
+      }
       setCartOpen(false);
     } catch (submitError) {
       if ((submitError as { name?: string }).name === "AbortError") {
@@ -658,24 +712,6 @@ export function TableOrderMobile({ token }: { token: string }) {
         </div>
       ) : null}
 
-      {submittedSummary.item_count > 0 ? (
-        <section className={styles.submittedSummary} aria-label="รายการที่สั่งแล้ว">
-          <div className={styles.submittedSummaryHead}>
-            <span>รายการที่สั่งแล้ว</span>
-            <strong>{money(submittedSummary.total_amount)}</strong>
-          </div>
-          <p>{submittedSummary.item_count} รายการในบิลนี้</p>
-          <div className={styles.submittedRows}>
-            {submittedItems.slice(0, 5).map((item, index) => (
-              <div key={`${item.name}-${index}`} className={styles.submittedRow}>
-                <span>{item.name} x {item.quantity}</span>
-                <strong>{money(item.line_total)}</strong>
-              </div>
-            ))}
-          </div>
-          {submittedItems.length > 5 ? <small>และอีก {submittedItems.length - 5} รายการ</small> : null}
-        </section>
-      ) : null}
 
       {error && !linkClosed ? <div className={styles.alert}>{error}</div> : null}
       {toast ? (
@@ -741,7 +777,7 @@ export function TableOrderMobile({ token }: { token: string }) {
           type="button"
           className={styles.cartOpenButton}
           onClick={() => setCartOpen(true)}
-          disabled={cartCount === 0 || submitting || Boolean(serviceSubmitting)}
+          disabled={(cartCount === 0 && !editingExistingBill) || submitting || Boolean(serviceSubmitting)}
         >
           ดูรายการตะกร้า ({cartCount})
         </button>
@@ -782,7 +818,7 @@ export function TableOrderMobile({ token }: { token: string }) {
                         +
                       </button>
                     </div>
-                    <button type="button" className={styles.deleteItemButton} onClick={() => removeItem(item.id)} disabled={submitting || Boolean(serviceSubmitting)}>
+                    <button type="button" className={styles.deleteItemButton} onClick={() => removeItem(item.id)} disabled={submitting || Boolean(serviceSubmitting) || !canOrder}>
                       ลบ
                     </button>
                   </div>

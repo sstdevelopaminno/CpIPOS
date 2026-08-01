@@ -1,10 +1,10 @@
 import { fail, ok } from "@/lib/http";
 import { PosTimeoutError, withTimeout } from "@/lib/pos-resilience";
-import { loadTableQrMenu, resolveTableQrContext, submitTableQrOrder, submitTableQrServiceRequest } from "@/lib/table-qr-ordering";
+import { loadTableQrMenu, resolveTableQrContext, submitTableQrOrder, submitTableQrServiceRequest, updateTableQrOrderItems } from "@/lib/table-qr-ordering";
 
 type SubmitPayload = {
-  action?: "order" | "call_staff" | "request_checkout";
-  event_type?: "order" | "call_staff" | "request_checkout";
+  action?: "order" | "update_order" | "call_staff" | "request_checkout";
+  event_type?: "order" | "update_order" | "call_staff" | "request_checkout";
   request_id?: string;
   note?: string | null;
   items?: Array<{ product_id?: string; quantity?: number; note?: string | null }>;
@@ -104,6 +104,8 @@ function publicError(error: unknown, meta: PublicErrorMeta) {
       "order_not_queued",
       "ORDER_NOT_APPENDABLE",
       "order_not_appendable",
+      "ORDER_NOT_FOUND",
+      "order_not_found",
       "TABLE_BILL_NOT_OPEN",
       "table_bill_not_open",
       "BILL_NOT_OPEN",
@@ -243,12 +245,12 @@ export async function POST(request: Request, context: { params: Promise<{ token:
       );
     }
 
-    if (action !== "order") return fail("invalid_action", "Invalid action.", 422);
+    if (action !== "order" && action !== "update_order") return fail("invalid_action", "Invalid action.", 422);
 
     const items = normalizeItems(body);
     itemCount = items.length;
 
-    if (items.length < 1 || items.length > 50) {
+    if ((action === "order" && items.length < 1) || items.length > 50) {
       return fail("invalid_items", "กรุณาเลือกเมนู 1-50 รายการ", 422);
     }
 
@@ -257,12 +259,19 @@ export async function POST(request: Request, context: { params: Promise<{ token:
     }
 
     const qrContext = await resolveTableQrContext(token);
-    const result = await submitTableQrOrder({
-      context: qrContext,
-      requestId,
-      items,
-      note: typeof body.note === "string" ? body.note.trim().slice(0, 500) : null
-    });
+    const result = action === "update_order"
+      ? await updateTableQrOrderItems({
+          context: qrContext,
+          requestId,
+          items,
+          note: typeof body.note === "string" ? body.note.trim().slice(0, 500) : null
+        })
+      : await submitTableQrOrder({
+          context: qrContext,
+          requestId,
+          items,
+          note: typeof body.note === "string" ? body.note.trim().slice(0, 500) : null
+        });
 
     return ok(
       {

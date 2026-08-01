@@ -38,6 +38,10 @@ type PlanPriceRow = {
   id: string;
   monthly_price: number | null;
   yearly_price: number | null;
+  max_branches: number | null;
+  max_devices: number | null;
+  max_users: number | null;
+  metadata: Record<string, unknown> | null;
 };
 
 const CONTRACT_SELECT =
@@ -144,19 +148,38 @@ export async function PATCH(req: Request, context: { params: Promise<{ tenantId:
     }
 
     const pricePackageId = String(patch.package_id ?? latestContract?.package_id ?? "");
-    if ((patch.package_id || patch.billing_interval) && patch.amount_per_cycle === undefined && pricePackageId) {
+    if ((patch.package_id || patch.billing_interval) && pricePackageId) {
       const billingInterval = String(patch.billing_interval ?? latestContract?.billing_interval ?? "monthly");
       const { data: planPrice, error: planPriceError } = await supabase
         .from("subscription_packages")
-        .select("id,monthly_price,yearly_price")
+        .select("id,monthly_price,yearly_price,max_branches,max_devices,max_users,metadata")
         .eq("id", pricePackageId)
         .maybeSingle<PlanPriceRow>();
       if (planPriceError) {
         throw new Error(planPriceError.message);
       }
       if (planPrice) {
-        patch.amount_per_cycle = billingInterval === "yearly" ? planPrice.yearly_price ?? planPrice.monthly_price ?? 0 : planPrice.monthly_price ?? 0;
-        patch.currency = patch.currency ?? "THB";
+        if (patch.amount_per_cycle === undefined) {
+          patch.amount_per_cycle = billingInterval === "yearly" ? planPrice.yearly_price ?? planPrice.monthly_price ?? 0 : planPrice.monthly_price ?? 0;
+          patch.currency = patch.currency ?? "THB";
+        }
+        const packageMetadata = planPrice.metadata ?? {};
+        const singleRegister =
+          String(packageMetadata.login_mode ?? "").toLowerCase() === "single_register" ||
+          String(packageMetadata.branch_selection ?? "").toLowerCase() === "hidden" ||
+          packageMetadata.no_branch_mode === true ||
+          packageMetadata.single_device_mode === true;
+        if (patch.max_branches === undefined) {
+          patch.max_branches = singleRegister ? 1 : Math.max(1, Math.trunc(Number(planPrice.max_branches ?? 1)));
+          patch.branch_limit = patch.max_branches;
+        }
+        if (patch.max_devices === undefined) {
+          patch.max_devices = singleRegister ? 1 : Math.max(1, Math.trunc(Number(planPrice.max_devices ?? 1)));
+          patch.terminal_limit_per_branch = patch.max_devices;
+        }
+        if (patch.max_users === undefined && planPrice.max_users != null) {
+          patch.max_users = Math.max(1, Math.trunc(Number(planPrice.max_users)));
+        }
       }
     }
 
