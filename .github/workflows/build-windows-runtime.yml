@@ -2,14 +2,6 @@ name: Build CpIPOS Windows Runtime
 
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - agent-docs-preflight-schema-drift
-      - main
-      - develop
-    paths:
-      - "apps/windows-runtime-native/**"
-      - ".github/workflows/build-windows-runtime.yml"
 
 permissions:
   contents: write
@@ -59,6 +51,10 @@ jobs:
           CpIPOS Windows Runtime
           ======================
 
+          This workflow is manual-only.
+          CpIPOS production customers should use the web/PWA runtime by default.
+          Build this EXE only when native Windows runtime testing is explicitly needed.
+
           Run:
             Cpipos.WindowsRuntime.exe
 
@@ -72,13 +68,6 @@ jobs:
             http://127.0.0.1:3210/printers
             http://127.0.0.1:3210/print/test
             http://127.0.0.1:3210/print
-
-          Notes:
-          - This is a Windows native WebView2 runtime shell.
-          - It uses the existing CpIPOS web UI.
-          - It includes a native local print bridge.
-          - It does not implement offline sales database/sync engine yet.
-          - Microsoft Edge WebView2 Runtime is required. Most Windows 10/11 machines already have it.
           '@ | Set-Content -Encoding UTF8 "$env:WINDOWS_RUNTIME_OUTPUT/README-WINDOWS-RUNTIME.txt"
 
       - name: Zip artifact
@@ -97,7 +86,6 @@ jobs:
           if-no-files-found: error
 
       - name: Publish latest release download
-        if: github.ref == 'refs/heads/agent-docs-preflight-schema-drift' || github.ref == 'refs/heads/main'
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
@@ -110,7 +98,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) {
             gh release create $tag `
               --title "CpIPOS Windows Runtime Latest" `
-              --notes "Latest CpIPOS Windows Runtime ZIP built automatically from GitHub Actions."
+              --notes "Manual CpIPOS Windows Runtime ZIP build. Web/PWA is the default customer runtime."
           }
 
           gh release upload $tag $assetPath --clobber
