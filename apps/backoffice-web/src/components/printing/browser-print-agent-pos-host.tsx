@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { usePathname } from "next/navigation";
 import { BrowserPrintAgent } from "@/components/printing/browser-print-agent";
 import { BrowserPrintAgentAlert } from "@/components/printing/browser-print-agent-alert";
+import { BrowserPrintAgentDeployReset } from "@/components/printing/browser-print-agent-deploy-reset";
 import { BrowserPrintAgentSerialRecovery } from "@/components/printing/browser-print-agent-serial-recovery";
 
 const POS_PATH_PREFIX = "/preview/pos";
@@ -110,6 +111,7 @@ export function BrowserPrintAgentPosHost() {
 
   return (
     <>
+      {shouldRunLocalAgent ? <BrowserPrintAgentDeployReset /> : null}
       {shouldRunLocalAgent ? <BrowserPrintAgentSerialRecovery /> : null}
       {shouldRunLocalAgent ? <BrowserPrintAgent /> : null}
       {shouldRunLocalAgent ? <BrowserPrintAgentAlert /> : null}
