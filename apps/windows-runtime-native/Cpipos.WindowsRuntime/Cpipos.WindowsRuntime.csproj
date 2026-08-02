@@ -12,7 +12,6 @@
     <FileVersion>0.1.4.0</FileVersion>
     <AssemblyVersion>0.1.4.0</AssemblyVersion>
     <ApplicationIcon>assets\cpipos.ico</ApplicationIcon>
-    <Win32Resource></Win32Resource>
   </PropertyGroup>
 
   <ItemGroup>
