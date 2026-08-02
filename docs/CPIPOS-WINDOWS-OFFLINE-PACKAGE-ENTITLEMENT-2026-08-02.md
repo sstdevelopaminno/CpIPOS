@@ -2,7 +2,7 @@
 
 ## Purpose
 
-This document defines the target architecture for CpIPOS Windows as an installable Windows runtime with local offline capability, native print bridge, package-controlled licensing, and future cloud sync governed by the IT Backoffice.
+This document defines the target architecture for CpIPOS Windows as an installable Windows runtime with local offline capability, native print bridge, package-controlled licensing, and future cloud sync governed by IT Backoffice.
 
 ## Universal Identity Model
 
@@ -18,11 +18,15 @@ Rules:
 
 1. Store code is created and controlled by IT Backoffice.
 2. Customers log in or activate from store code first.
-3. Store code resolves server-side to tenant, branch options, package, device rules, and permissions.
-4. CpIPOS Windows may store resolved tenant/branch context locally, but it must not treat client-side tenant/branch as trusted identity.
-5. If the store code is missing or invalid, CpIPOS Windows stays locked in `store_code_required` / `not_activated` mode.
-6. A customer can move from CpIPOS Web to CpIPOS Windows using the same store code.
-7. Future app runtimes must follow the same store-code-first model.
+3. First activation for CpIPOS Windows must be online so IT Backoffice can unlock the package.
+4. Store code resolves server-side to tenant, branch options, package, license, device rules, and permissions.
+5. CpIPOS Windows may store resolved tenant/branch context locally, but it must not treat client-side tenant/branch as trusted identity.
+6. If the store code is missing or invalid, CpIPOS Windows stays locked in `store_code_required` / `not_activated` mode.
+7. If IT Backoffice has not unlocked CpIPOS Windows for that store code, the installed Windows runtime remains locked.
+8. A customer can move from CpIPOS Web to CpIPOS Windows using the same store code.
+9. Future app runtimes must follow the same store-code-first model.
+
+There is no Windows-side full-access bypass. The installed program can run, but package features open only when IT Backoffice unlocks them for that store code.
 
 ## Product Boundary
 
@@ -37,6 +41,7 @@ CpIPOS Web remains the online source of truth for:
 - Supabase/cloud database
 - tenant, branch, user, role, device, feature, and contract management
 - store code creation and lifecycle
+- package entitlement unlock for Web, Windows, and future mobile app runtimes
 
 ### CpIPOS Windows
 
@@ -51,11 +56,11 @@ CpIPOS Windows is the installable runtime for Windows POS terminals:
 
 ## Commercial Model
 
-### Offline-only purchase
+### Offline-purchase / buy-out package
 
-A customer can buy/install CpIPOS Windows without a cloud package, but activation still starts from a store code created by IT Backoffice.
+A customer can buy/install CpIPOS Windows without cloud sync, but activation still starts from a store code created by IT Backoffice.
 
-Allowed after a valid offline-only store code/license:
+Allowed after IT Backoffice unlocks an offline-purchase package for that store code:
 
 - local offline sales
 - local cash payment
@@ -69,7 +74,7 @@ Locked:
 - cloud database connection
 - cloud dashboard/reporting
 - multi-branch cloud aggregation
-- package-only functions
+- package-only cloud functions
 
 ### Cloud package subscription
 
@@ -88,33 +93,36 @@ Cloud package can enable:
 - `online_payment_enabled`
 - `ai_feature_enabled`
 
+## Current Test Store Policy
+
+For sales demo and development, this store code is currently unlocked as full package:
+
+```text
+NDL-TH-001
+```
+
+Current behavior:
+
+- package code: `CPIPOS_FULL_TEST`
+- package type: cloud/full package for sales demo and development
+- all current feature flags enabled
+- cloud sync entitlement allowed by package
+- no `CPIPOS_WINDOWS_DEV_FULL_ACCESS` server env required
+- no `--dev-full-access` runtime bypass required
+
+This keeps development aligned with the real commercial model: IT Backoffice/store-code entitlement opens features, not the local machine.
+
 ## Entitlement Rules
 
-1. CpIPOS Windows can be installed on a machine, but features are controlled by store-code license/package.
-2. Store code is required before offline sales, cloud sync, or package features can activate.
-3. Offline-only customers must not sync to cloud.
+1. CpIPOS Windows can be installed on a machine, but features are controlled by store-code package entitlement.
+2. The first activation must be online.
+3. Offline-purchase customers must not sync to cloud.
 4. Cloud sync is allowed only when the server package allows `cloud_sync_enabled`.
 5. The server must validate store code, tenant, branch, device, package, and idempotency key on every sync.
 6. The local database is not the server source of truth.
 7. If the package expires, cloud features must lock when the runtime reconnects.
 8. If the machine stays offline beyond policy, local use can be limited by `max_offline_days`.
-9. Test machines can be granted `test_full_access` only through explicit dev configuration and a store code.
-
-## Test Machine Policy
-
-Internal development machines may run CpIPOS Windows with:
-
-```powershell
-Cpipos.WindowsRuntime.exe --store-code=NDL-TH-001 --dev-full-access
-```
-
-The web API only returns true full-access mode when the server environment allows it:
-
-```text
-CPIPOS_WINDOWS_DEV_FULL_ACCESS=1
-```
-
-This is for development only. Do not enable it for general customer production unless the IT Admin intentionally wants an internal test environment.
+9. Web, Windows, and future mobile apps share the same store-code-first entitlement model.
 
 ## Current API Foundation
 
@@ -156,18 +164,17 @@ Key tables:
 ### Phase 1: Contract and schema foundation
 
 - Add Windows entitlement API contract.
-- Require store code as the identity anchor.
 - Add local SQLite schema.
-- Add Windows runtime `--store-code=` and `--dev-full-access` flags.
-- Keep order/payment sync disabled.
+- Add store-code-first Windows runtime bootstrap.
+- Unlock `NDL-TH-001` as the current full sales demo/development package.
+- Keep order/payment sync writes disabled.
 
-### Phase 2: Store-code activation runtime
+### Phase 2: Local database runtime
 
 - Add SQLite dependency to CpIPOS Windows.
 - Create local database on first launch.
-- Store store-code context and bootstrap result locally.
-- Call server bootstrap by store code.
-- Cache license/entitlement bootstrap result locally.
+- Store license/entitlement bootstrap result locally.
+- Store catalog snapshot locally.
 
 ### Phase 3: Offline sale MVP
 
@@ -180,11 +187,10 @@ Key tables:
 - Add signed sync endpoints.
 - Push local orders/payments with idempotency keys.
 - Pull server catalog/package updates.
-- Server validates store code, package, and tenant/device boundaries.
+- Server validates package and tenant/device boundaries.
 
 ### Phase 5: IT Backoffice controls
 
-- Add store-code Windows license management UI.
 - Add device license management UI.
 - Add package entitlement matrix for Windows runtime.
 - Add sync queue monitoring.
@@ -192,12 +198,12 @@ Key tables:
 
 ## Acceptance Checklist
 
-- Store code is the identity anchor for Web, Windows, and future app runtimes.
 - CpIPOS Web remains the online source of truth.
 - CpIPOS Windows can run as an installable Windows runtime.
-- No store code means Windows runtime stays not activated.
-- Offline-only package does not receive cloud sync.
+- Store code is required before feature unlock.
+- Installed Windows runtime remains locked when IT Backoffice has not unlocked that store code.
+- Offline-purchase package does not receive cloud sync.
 - Cloud package can enable sync and higher features.
-- Test machine can be full-access only through explicit dev flag, server env, and store code.
+- `NDL-TH-001` is currently full-access by store-code entitlement for sales demo and development.
 - Local orders/payments must use idempotency keys before cloud sync is enabled.
 - Server must validate all synced store/tenant/branch/device/package decisions.
