@@ -16,7 +16,7 @@ env:
   WINDOWS_RUNTIME_RELEASE_TAG: windows-runtime-latest
   WINDOWS_RUNTIME_SETUP_ASSET_NAME: CpIPOS-WindowsRuntime-Setup.exe
   WINDOWS_RUNTIME_ZIP_ASSET_NAME: CpIPOS-WindowsRuntime-win-x64.zip
-  WINDOWS_RUNTIME_VERSION: 0.1.3
+  WINDOWS_RUNTIME_VERSION: 0.1.4
 
 jobs:
   build-windows-runtime:
@@ -139,6 +139,7 @@ jobs:
 
           Icon behavior:
           - CpIPOS uses the bundled assets/cpipos.ico for title bar and shortcuts.
+          - The installer also installs cpipos.ico at the app root for fallback.
           - If Windows still shows the old icon after reinstall, clear Windows icon cache.
 
           Notes:
@@ -179,6 +180,27 @@ jobs:
           if (!(Test-Path $env:WINDOWS_RUNTIME_SETUP)) {
             throw "Installer was not created: $env:WINDOWS_RUNTIME_SETUP"
           }
+
+      - name: Validate installer and packaged icon
+        shell: pwsh
+        run: |
+          $setupPath = $env:WINDOWS_RUNTIME_SETUP
+          if (!(Test-Path $setupPath)) {
+            throw "Installer missing: $setupPath"
+          }
+          $setupSize = (Get-Item $setupPath).Length
+          if ($setupSize -lt 1000000) {
+            throw "Installer size looks too small: $setupSize bytes"
+          }
+
+          $outputIcon = Join-Path $env:WINDOWS_RUNTIME_OUTPUT "assets\cpipos.ico"
+          $rootOutputIcon = Join-Path $env:WINDOWS_RUNTIME_OUTPUT "cpipos.ico"
+          foreach ($path in @($outputIcon, $rootOutputIcon)) {
+            if (!(Test-Path $path)) {
+              throw "Release package icon missing before upload: $path"
+            }
+          }
+          Write-Host "Installer ready with bundled CpIPOS icon: $setupPath ($setupSize bytes)"
 
       - name: Upload workflow artifacts
         uses: actions/upload-artifact@v4
