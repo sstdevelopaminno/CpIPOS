@@ -25,32 +25,35 @@ function Write-Warn2([string]$Message) {
   Write-Host "[WARN] $Message" -ForegroundColor Yellow
 }
 
-function Resolve-DotNetExe {
-  $cmd = Get-Command dotnet -ErrorAction SilentlyContinue
-  if ($cmd -and $cmd.Source -and (Test-Path $cmd.Source)) {
-    return $cmd.Source
-  }
-
+function Get-DotnetSdkExe {
   $candidates = @(
     "C:\Program Files\dotnet\dotnet.exe",
-    "C:\Program Files (x86)\dotnet\dotnet.exe",
+    "$env:ProgramFiles\dotnet\dotnet.exe",
     "$env:LOCALAPPDATA\Microsoft\dotnet\dotnet.exe"
   )
 
-  foreach ($candidate in $candidates) {
-    if ($candidate -and (Test-Path $candidate)) {
-      return $candidate
+  $pathDotnet = Get-Command dotnet -ErrorAction SilentlyContinue
+  if ($pathDotnet -and $pathDotnet.Source) {
+    $candidates += $pathDotnet.Source
+  }
+
+  # Keep x86 as a last resort only. It commonly contains runtime without SDK.
+  $candidates += @(
+    "${env:ProgramFiles(x86)}\dotnet\dotnet.exe"
+  )
+
+  foreach ($candidate in ($candidates | Where-Object { $_ } | Select-Object -Unique)) {
+    if (!(Test-Path $candidate)) { continue }
+    $sdks = & $candidate --list-sdks 2>$null
+    if ($LASTEXITCODE -eq 0 -and ($sdks | Select-String -Pattern "^8\." -Quiet)) {
+      return [pscustomobject]@{
+        Exe = $candidate
+        Sdks = ($sdks -join "`n")
+      }
     }
   }
 
-  return ""
-}
-
-function Invoke-DotNet([string[]]$Arguments) {
-  & $script:DotNetExe @Arguments
-  if ($LASTEXITCODE -ne 0) {
-    throw "dotnet command failed: $($Arguments -join ' ')"
-  }
+  return $null
 }
 
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
@@ -86,21 +89,14 @@ if (!$SkipPull) {
   }
 }
 
-$script:DotNetExe = Resolve-DotNetExe
-if ([string]::IsNullOrWhiteSpace($script:DotNetExe)) {
-  throw "dotnet was not found. Install .NET 8 SDK first, then reopen PowerShell/VS Code."
-}
-
 Write-Step "Checking .NET SDK"
-Write-Host "dotnet: $script:DotNetExe" -ForegroundColor White
-$sdkList = & $script:DotNetExe --list-sdks
-if ($LASTEXITCODE -ne 0) {
-  throw "dotnet --list-sdks failed. Reinstall .NET 8 SDK."
+$dotnetInfo = Get-DotnetSdkExe
+if (!$dotnetInfo) {
+  throw "No .NET 8 SDK was found. Install .NET 8 SDK first, then restart VS Code/PowerShell. Expected path: C:\Program Files\dotnet\dotnet.exe"
 }
-$sdkList | ForEach-Object { Write-Host $_ -ForegroundColor White }
-if (-not ($sdkList -match "^8\.")) {
-  throw "No .NET 8 SDK was found. Installed SDKs: $($sdkList -join ', ')"
-}
+$dotnetExe = $dotnetInfo.Exe
+Write-Host "dotnet: $dotnetExe" -ForegroundColor Green
+Write-Host $dotnetInfo.Sdks -ForegroundColor Green
 
 Write-Step "Cleaning previous output"
 if (Test-Path $outputDir) {
@@ -124,7 +120,7 @@ $publishArgs = @(
   "-p:EnableCompressionInSingleFile=true",
   "-o", $outputDir
 )
-Invoke-DotNet $publishArgs
+& $dotnetExe @publishArgs
 
 $exePath = Join-Path $outputDir "Cpipos.WindowsRuntime.exe"
 if (!(Test-Path $exePath)) {
