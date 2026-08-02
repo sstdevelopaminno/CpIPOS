@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 
 const releaseApiUrl = "https://api.github.com/repos/sstdevelopaminno/CpIPOS/releases/tags/windows-runtime-latest";
-const assetName = "CpIPOS-WindowsRuntime-win-x64.zip";
+const assetName = "CpIPOS-WindowsRuntime-Setup.exe";
 
 export const dynamic = "force-dynamic";
 
@@ -16,7 +16,7 @@ export async function GET() {
     });
 
     if (!response.ok) {
-      return notReady("ไฟล์ CpIPOS Windows กำลังถูกสร้าง กรุณารอสักครู่แล้วกดดาวน์โหลดอีกครั้ง");
+      return notReady("ไฟล์ติดตั้ง CpIPOS Windows กำลังถูกสร้าง กรุณารอสักครู่แล้วกดดาวน์โหลดอีกครั้ง");
     }
 
     const release = (await response.json()) as {
@@ -28,12 +28,12 @@ export async function GET() {
 
     const asset = release.assets?.find((item) => item.name === assetName);
     if (!asset?.browser_download_url) {
-      return notReady("พบหน้า Release แล้ว แต่ไฟล์ CpIPOS Windows ZIP ยังไม่ถูกแนบ กรุณารอสักครู่แล้วกดดาวน์โหลดอีกครั้ง");
+      return notReady("พบหน้า Release แล้ว แต่ไฟล์ติดตั้ง CpIPOS Windows ยังไม่ถูกแนบ กรุณารอสักครู่แล้วกดดาวน์โหลดอีกครั้ง");
     }
 
     return NextResponse.redirect(asset.browser_download_url, 302);
   } catch {
-    return notReady("ยังตรวจสอบไฟล์ดาวน์โหลดไม่ได้ กรุณาลองใหม่อีกครั้ง");
+    return notReady("ยังตรวจสอบไฟล์ติดตั้งไม่ได้ กรุณาลองใหม่อีกครั้ง");
   }
 }
 
@@ -43,7 +43,7 @@ function notReady(reason: string) {
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>CpIPOS Windows กำลังเตรียมไฟล์ดาวน์โหลด</title>
+  <title>CpIPOS Windows กำลังเตรียมตัวติดตั้ง</title>
   <style>
     body{margin:0;min-height:100vh;background:#020617;color:#f8fafc;font-family:Tahoma,Arial,sans-serif;display:flex;align-items:center;justify-content:center;padding:24px;box-sizing:border-box}
     main{max-width:780px;border:1px solid #334155;border-radius:24px;background:#0f172a;padding:28px;box-shadow:0 24px 80px rgba(0,0,0,.35)}
@@ -52,11 +52,11 @@ function notReady(reason: string) {
 </head>
 <body>
   <main>
-    <h1>CpIPOS Windows กำลังเตรียมไฟล์ดาวน์โหลด</h1>
-    <p>ระบบกำลังสร้างไฟล์ ZIP สำหรับ Windows Runtime ผ่าน GitHub Actions เมื่อสร้างเสร็จ ปุ่มดาวน์โหลดเดิมจะดาวน์โหลดไฟล์ได้ทันที</p>
+    <h1>CpIPOS Windows กำลังเตรียมตัวติดตั้ง</h1>
+    <p>ระบบกำลังสร้างไฟล์ติดตั้งสำหรับ Windows ผ่าน GitHub Actions เมื่อสร้างเสร็จ ปุ่มดาวน์โหลดเดิมจะดาวน์โหลดไฟล์ติดตั้งได้ทันที</p>
     <span class="note">${escapeHtml(reason)}</span>
     <a class="btn" href="/download/windows-runtime">กลับไปหน้าดาวน์โหลด</a>
-    <p class="muted">CpIPOS Web ยังใช้งานแยกได้ตามปกติ หน้านี้เป็นไฟล์ติดตั้ง/ZIP สำหรับ Windows เท่านั้น</p>
+    <p class="muted">CpIPOS Web ยังใช้งานแยกได้ตามปกติ หน้านี้เป็นไฟล์ติดตั้งสำหรับ Windows เท่านั้น</p>
   </main>
 </body>
 </html>`;
