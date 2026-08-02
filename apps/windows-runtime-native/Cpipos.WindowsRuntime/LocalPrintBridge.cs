@@ -13,14 +13,21 @@ internal sealed class LocalPrintBridge : IDisposable
     private readonly int _port;
     private readonly string _defaultPrinter;
     private readonly CancellationTokenSource _stopping = new();
+    private readonly SemaphoreSlim _printLock = new(1, 1);
+    private readonly DateTimeOffset _startedAt = DateTimeOffset.Now;
     private TcpListener? _listener;
+    private DateTimeOffset? _lastPrintAt;
+    private string? _lastPrinter;
+    private string? _lastError;
+    private int _printedJobs;
+    private int _failedJobs;
 
-    public string Version => "cpipos-windows-native-bridge-0.1.2";
+    public string Version => "cpipos-windows-native-bridge-0.1.3";
 
     public LocalPrintBridge(int port, string defaultPrinter)
     {
         _port = port;
-        _defaultPrinter = defaultPrinter;
+        _defaultPrinter = defaultPrinter.Trim();
     }
 
     public void Start()
@@ -45,8 +52,9 @@ internal sealed class LocalPrintBridge : IDisposable
             {
                 break;
             }
-            catch
+            catch (Exception ex)
             {
+                _lastError = ex.Message;
                 try
                 {
                     await Task.Delay(250, cancellationToken).ConfigureAwait(false);
@@ -72,6 +80,7 @@ internal sealed class LocalPrintBridge : IDisposable
             }
             catch (Exception ex)
             {
+                _lastError = ex.Message;
                 var response = HttpResponseData.Json(500, new
                 {
                     ok = false,
@@ -90,23 +99,9 @@ internal sealed class LocalPrintBridge : IDisposable
         }
 
         if (string.Equals(request.Method, "GET", StringComparison.OrdinalIgnoreCase) &&
-            (request.Path is "/" or "/health" or "/print/health"))
+            (request.Path is "/" or "/health" or "/print/health" or "/print/status"))
         {
-            return HttpResponseData.Json(200, new
-            {
-                ok = true,
-                data = new
-                {
-                    status = "online",
-                    app = "CpIPOS Windows Native Runtime",
-                    provider = "native_dotnet_print_bridge",
-                    bridge_version = Version,
-                    host = "127.0.0.1",
-                    port = _port,
-                    default_printer = string.IsNullOrWhiteSpace(_defaultPrinter) ? "Windows default" : _defaultPrinter,
-                    time = DateTimeOffset.Now
-                }
-            });
+            return HttpResponseData.Json(200, BuildHealthPayload());
         }
 
         if (string.Equals(request.Method, "GET", StringComparison.OrdinalIgnoreCase) && request.Path == "/capabilities")
@@ -121,34 +116,22 @@ internal sealed class LocalPrintBridge : IDisposable
                     supports_print_receipt = true,
                     supports_print_test = true,
                     supports_list_printers = true,
+                    supports_serialized_print_queue = true,
                     supports_cash_drawer = false,
                     supports_offline_sales_engine = false,
-                    endpoints = new[] { "/health", "/capabilities", "/printers", "/print/test", "/print" }
+                    endpoints = new[] { "/health", "/capabilities", "/printers", "/print/status", "/print/test", "/print" }
                 }
             });
         }
 
         if (string.Equals(request.Method, "GET", StringComparison.OrdinalIgnoreCase) && request.Path == "/printers")
         {
-            return HttpResponseData.Json(200, new
-            {
-                ok = true,
-                data = new
-                {
-                    default_printer = string.IsNullOrWhiteSpace(_defaultPrinter) ? GetSystemDefaultPrinter() : _defaultPrinter,
-                    printers = PrinterSettings.InstalledPrinters.Cast<string>().Select(name => new { name }).ToArray()
-                }
-            });
+            return HttpResponseData.Json(200, BuildPrintersPayload());
         }
 
         if (string.Equals(request.Method, "POST", StringComparison.OrdinalIgnoreCase) && request.Path == "/print/test")
         {
-            await PrintTextAsync(BuildTestReceipt(), _defaultPrinter, cancellationToken).ConfigureAwait(false);
-            return HttpResponseData.Json(200, new
-            {
-                ok = true,
-                data = new { printed = true, provider = "native_dotnet_print_document", bridge_version = Version }
-            });
+            return await HandleTestPrintAsync(request, cancellationToken).ConfigureAwait(false);
         }
 
         if (string.Equals(request.Method, "POST", StringComparison.OrdinalIgnoreCase) &&
@@ -164,76 +147,286 @@ internal sealed class LocalPrintBridge : IDisposable
         });
     }
 
-    private async Task<HttpResponseData> HandlePrintAsync(HttpRequestData request, CancellationToken cancellationToken)
+    private object BuildHealthPayload()
     {
-        using var document = JsonDocument.Parse(string.IsNullOrWhiteSpace(request.Body) ? "{}" : request.Body);
-        var root = document.RootElement;
-        var printerName = FirstString(root, "printer_name", "printerName", "windows_printer", "printer") ?? _defaultPrinter;
-        var text = ExtractPrintableText(root);
+        var printers = GetInstalledPrinterNames();
+        var resolved = ResolvePrinterNameOrNull(_defaultPrinter, printers);
+        var defaultPrinter = GetSystemDefaultPrinter();
 
-        if (string.IsNullOrWhiteSpace(text))
-        {
-            return HttpResponseData.Json(400, new
-            {
-                ok = false,
-                error = new { code = "empty_print_payload", message = "No printable text/html found." }
-            });
-        }
-
-        await PrintTextAsync(text, printerName, cancellationToken).ConfigureAwait(false);
-        return HttpResponseData.Json(200, new
+        return new
         {
             ok = true,
             data = new
             {
-                printed = true,
-                provider = "native_dotnet_print_document",
-                printer_name = string.IsNullOrWhiteSpace(printerName) ? "Windows default" : printerName,
-                chars_printed = text.Length,
-                bridge_version = Version
+                status = "online",
+                app = "CpIPOS Windows Native Runtime",
+                provider = "native_dotnet_print_bridge",
+                bridge_version = Version,
+                host = "127.0.0.1",
+                port = _port,
+                started_at = _startedAt,
+                uptime_seconds = Math.Max(0, (int)(DateTimeOffset.Now - _startedAt).TotalSeconds),
+                configured_printer = string.IsNullOrWhiteSpace(_defaultPrinter) ? null : _defaultPrinter,
+                system_default_printer = defaultPrinter,
+                resolved_printer = resolved,
+                selected_printer_valid = !string.IsNullOrWhiteSpace(resolved),
+                installed_printer_count = printers.Length,
+                print_queue_busy = _printLock.CurrentCount == 0,
+                printed_jobs = _printedJobs,
+                failed_jobs = _failedJobs,
+                last_print_at = _lastPrintAt,
+                last_printer = _lastPrinter,
+                last_error = _lastError,
+                time = DateTimeOffset.Now
             }
-        });
+        };
     }
 
-    private async Task PrintTextAsync(string text, string printerName, CancellationToken cancellationToken)
+    private object BuildPrintersPayload()
     {
-        await Task.Run(() =>
+        var names = GetInstalledPrinterNames();
+        var defaultPrinter = GetSystemDefaultPrinter();
+        var resolved = ResolvePrinterNameOrNull(_defaultPrinter, names);
+
+        return new
         {
-            cancellationToken.ThrowIfCancellationRequested();
-
-            using var font = new Font("Tahoma", 9, FontStyle.Regular, GraphicsUnit.Point);
-            using var document = new PrintDocument
+            ok = true,
+            data = new
             {
-                DocumentName = "CpIPOS Receipt"
-            };
+                default_printer = defaultPrinter,
+                configured_printer = string.IsNullOrWhiteSpace(_defaultPrinter) ? null : _defaultPrinter,
+                resolved_printer = resolved,
+                printers = names.Select(name => new
+                {
+                    name,
+                    is_default = string.Equals(name, defaultPrinter, StringComparison.OrdinalIgnoreCase),
+                    is_configured = string.Equals(name, resolved, StringComparison.OrdinalIgnoreCase),
+                    is_valid = IsPrinterValid(name)
+                }).ToArray()
+            }
+        };
+    }
 
-            if (!string.IsNullOrWhiteSpace(printerName))
+    private async Task<HttpResponseData> HandleTestPrintAsync(HttpRequestData request, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var printerName = _defaultPrinter;
+            if (!string.IsNullOrWhiteSpace(request.Body))
             {
-                document.PrinterSettings.PrinterName = printerName;
+                using var document = JsonDocument.Parse(request.Body);
+                printerName = FirstString(document.RootElement, "printer_name", "printerName", "windows_printer", "printer") ?? _defaultPrinter;
             }
 
-            if (!document.PrinterSettings.IsValid)
+            var result = await PrintTextAsync(BuildTestReceipt(), printerName, cancellationToken).ConfigureAwait(false);
+            return HttpResponseData.Json(200, new
             {
-                throw new InvalidOperationException($"Printer not found or not ready: {(string.IsNullOrWhiteSpace(printerName) ? "Windows default" : printerName)}");
+                ok = true,
+                data = new
+                {
+                    printed = true,
+                    provider = "native_dotnet_print_document",
+                    bridge_version = Version,
+                    printer_name = result.PrinterName,
+                    job_id = result.JobId
+                }
+            });
+        }
+        catch (Exception ex)
+        {
+            _failedJobs++;
+            _lastError = ex.Message;
+            return HttpResponseData.Json(500, new
+            {
+                ok = false,
+                error = new { code = "print_test_failed", message = ex.Message },
+                data = new { bridge_version = Version, health = BuildHealthPayload() }
+            });
+        }
+    }
+
+    private async Task<HttpResponseData> HandlePrintAsync(HttpRequestData request, CancellationToken cancellationToken)
+    {
+        try
+        {
+            using var document = JsonDocument.Parse(string.IsNullOrWhiteSpace(request.Body) ? "{}" : request.Body);
+            var root = document.RootElement;
+            var printerName = FirstString(root, "printer_name", "printerName", "windows_printer", "printer") ?? _defaultPrinter;
+            var text = ExtractPrintableText(root);
+
+            if (string.IsNullOrWhiteSpace(text))
+            {
+                return HttpResponseData.Json(400, new
+                {
+                    ok = false,
+                    error = new { code = "empty_print_payload", message = "No printable text/html found." }
+                });
             }
 
-            document.PrintPage += (_, eventArgs) =>
+            var result = await PrintTextAsync(text, printerName, cancellationToken).ConfigureAwait(false);
+            return HttpResponseData.Json(200, new
             {
-                var bounds = new RectangleF(2, 2, eventArgs.PageBounds.Width - 4, eventArgs.PageBounds.Height - 4);
-                eventArgs.Graphics.DrawString(text, font, Brushes.Black, bounds);
-                eventArgs.HasMorePages = false;
-            };
+                ok = true,
+                data = new
+                {
+                    printed = true,
+                    provider = "native_dotnet_print_document",
+                    printer_name = result.PrinterName,
+                    job_id = result.JobId,
+                    chars_printed = text.Length,
+                    bridge_version = Version
+                }
+            });
+        }
+        catch (Exception ex)
+        {
+            _failedJobs++;
+            _lastError = ex.Message;
+            return HttpResponseData.Json(500, new
+            {
+                ok = false,
+                error = new { code = "print_failed", message = ex.Message },
+                data = new { bridge_version = Version, health = BuildHealthPayload() }
+            });
+        }
+    }
 
-            document.Print();
-        }, cancellationToken).ConfigureAwait(false);
+    private async Task<PrintResult> PrintTextAsync(string text, string requestedPrinterName, CancellationToken cancellationToken)
+    {
+        if (!await _printLock.WaitAsync(TimeSpan.FromSeconds(20), cancellationToken).ConfigureAwait(false))
+        {
+            throw new InvalidOperationException("Print queue is busy. Please retry after the current print job finishes.");
+        }
+
+        try
+        {
+            var installed = GetInstalledPrinterNames();
+            var resolvedPrinter = ResolvePrinterNameOrThrow(requestedPrinterName, installed);
+            var jobId = "CPIPOS-" + DateTimeOffset.Now.ToString("yyyyMMddHHmmssfff");
+
+            await Task.Run(() =>
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+
+                using var font = new Font("Tahoma", 9, FontStyle.Regular, GraphicsUnit.Point);
+                using var document = new PrintDocument
+                {
+                    DocumentName = jobId,
+                    PrintController = new StandardPrintController()
+                };
+
+                document.PrinterSettings.PrinterName = resolvedPrinter;
+                document.OriginAtMargins = false;
+                document.DefaultPageSettings.Margins = new Margins(2, 2, 2, 2);
+
+                if (!document.PrinterSettings.IsValid)
+                {
+                    throw new InvalidOperationException($"Printer not found or not ready: {resolvedPrinter}");
+                }
+
+                document.PrintPage += (_, eventArgs) =>
+                {
+                    var bounds = eventArgs.MarginBounds;
+                    if (bounds.Width <= 0 || bounds.Height <= 0)
+                    {
+                        bounds = new Rectangle(2, 2, eventArgs.PageBounds.Width - 4, eventArgs.PageBounds.Height - 4);
+                    }
+
+                    eventArgs.Graphics.DrawString(text, font, Brushes.Black, bounds);
+                    eventArgs.HasMorePages = false;
+                };
+
+                document.Print();
+            }, cancellationToken).ConfigureAwait(false);
+
+            _printedJobs++;
+            _lastError = null;
+            _lastPrintAt = DateTimeOffset.Now;
+            _lastPrinter = resolvedPrinter;
+            return new PrintResult(jobId, resolvedPrinter);
+        }
+        finally
+        {
+            _printLock.Release();
+        }
+    }
+
+    private static string[] GetInstalledPrinterNames()
+    {
+        try
+        {
+            return PrinterSettings.InstalledPrinters.Cast<string>()
+                .Where(name => !string.IsNullOrWhiteSpace(name))
+                .OrderBy(name => name, StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+        }
+        catch
+        {
+            return Array.Empty<string>();
+        }
+    }
+
+    private static string ResolvePrinterNameOrNull(string requestedPrinterName, string[] installed)
+    {
+        try
+        {
+            return ResolvePrinterNameOrThrow(requestedPrinterName, installed);
+        }
+        catch
+        {
+            return string.Empty;
+        }
+    }
+
+    private static string ResolvePrinterNameOrThrow(string requestedPrinterName, string[] installed)
+    {
+        if (!string.IsNullOrWhiteSpace(requestedPrinterName))
+        {
+            var match = installed.FirstOrDefault(name => string.Equals(name, requestedPrinterName.Trim(), StringComparison.OrdinalIgnoreCase));
+            if (!string.IsNullOrWhiteSpace(match)) return match;
+
+            throw new InvalidOperationException($"Printer is not installed on this Windows machine: {requestedPrinterName}. Installed printers: {string.Join(", ", installed)}");
+        }
+
+        var defaultPrinter = GetSystemDefaultPrinter();
+        if (!string.IsNullOrWhiteSpace(defaultPrinter)) return defaultPrinter;
+
+        throw new InvalidOperationException("No Windows default printer found. Please install or select a Windows printer first.");
+    }
+
+    private static bool IsPrinterValid(string printerName)
+    {
+        try
+        {
+            using var document = new PrintDocument();
+            document.PrinterSettings.PrinterName = printerName;
+            return document.PrinterSettings.IsValid;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static string? GetSystemDefaultPrinter()
+    {
+        try
+        {
+            using var settings = new PrinterSettings();
+            return string.IsNullOrWhiteSpace(settings.PrinterName) ? null : settings.PrinterName;
+        }
+        catch
+        {
+            return null;
+        }
     }
 
     private static string BuildTestReceipt()
     {
         return string.Join("\r\n", new[]
         {
-            "CpIPOS Windows Runtime",
-            "ทดสอบพิมพ์ผ่านโปรแกรม Windows",
+            "CpIPOS",
+            "ทดสอบพิมพ์ผ่าน CpIPOS สำหรับ Windows",
             "------------------------------",
             "Local Bridge: 127.0.0.1",
             "Provider: .NET PrintDocument",
@@ -243,19 +436,6 @@ internal sealed class LocalPrintBridge : IDisposable
             "",
             ""
         });
-    }
-
-    private static string? GetSystemDefaultPrinter()
-    {
-        try
-        {
-            var settings = new PrinterSettings();
-            return settings.PrinterName;
-        }
-        catch
-        {
-            return null;
-        }
     }
 
     private static string ExtractPrintableText(JsonElement root)
@@ -360,8 +540,11 @@ internal sealed class LocalPrintBridge : IDisposable
     {
         _stopping.Cancel();
         try { _listener?.Stop(); } catch { }
+        _printLock.Dispose();
         _stopping.Dispose();
     }
+
+    private sealed record PrintResult(string JobId, string PrinterName);
 }
 
 internal sealed class HttpRequestData
