@@ -15,7 +15,7 @@ internal sealed class LocalPrintBridge : IDisposable
     private readonly CancellationTokenSource _stopping = new();
     private TcpListener? _listener;
 
-    public string Version => "cpipos-windows-native-bridge-0.1.0";
+    public string Version => "cpipos-windows-native-bridge-0.1.1";
 
     public LocalPrintBridge(int port, string defaultPrinter)
     {
@@ -54,23 +54,24 @@ internal sealed class LocalPrintBridge : IDisposable
 
     private async Task HandleClientAsync(TcpClient client, CancellationToken cancellationToken)
     {
-        await using var _ = client.ConfigureAwait(false);
-        using var stream = client.GetStream();
-
-        try
+        using (client)
+        using (var stream = client.GetStream())
         {
-            var request = await HttpRequestData.ReadAsync(stream, cancellationToken).ConfigureAwait(false);
-            var response = await RouteAsync(request, cancellationToken).ConfigureAwait(false);
-            await response.WriteAsync(stream, cancellationToken).ConfigureAwait(false);
-        }
-        catch (Exception ex)
-        {
-            var response = HttpResponseData.Json(500, new
+            try
             {
-                ok = false,
-                error = new { code = "bridge_unhandled_error", message = ex.Message }
-            });
-            await response.WriteAsync(stream, cancellationToken).ConfigureAwait(false);
+                var request = await HttpRequestData.ReadAsync(stream, cancellationToken).ConfigureAwait(false);
+                var response = await RouteAsync(request, cancellationToken).ConfigureAwait(false);
+                await response.WriteAsync(stream, cancellationToken).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                var response = HttpResponseData.Json(500, new
+                {
+                    ok = false,
+                    error = new { code = "bridge_unhandled_error", message = ex.Message }
+                });
+                await response.WriteAsync(stream, cancellationToken).ConfigureAwait(false);
+            }
         }
     }
 
