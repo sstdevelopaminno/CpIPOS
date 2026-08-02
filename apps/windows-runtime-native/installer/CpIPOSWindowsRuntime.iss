@@ -3,7 +3,7 @@
 #define AppExeName "Cpipos.WindowsRuntime.exe"
 
 #ifndef AppVersion
-#define AppVersion "0.1.2"
+#define AppVersion "0.1.3"
 #endif
 
 #ifndef SourceDir
@@ -38,9 +38,17 @@ UninstallDisplayName={#AppName}
 UninstallDisplayIcon={app}\{#AppExeName}
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
+CloseApplications=yes
+RestartApplications=no
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
+
+[InstallDelete]
+Type: files; Name: "{userdesktop}\CpIPOS Windows Runtime.lnk"
+Type: files; Name: "{userdesktop}\CpIpOS Mobile.lnk"
+Type: files; Name: "{group}\CpIPOS Windows Runtime.lnk"
+Type: files; Name: "{group}\CpIpOS Mobile.lnk"
 
 [Files]
 Source: "{#SourceDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
