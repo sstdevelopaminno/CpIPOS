@@ -130,6 +130,8 @@ internal sealed class MainForm : Form
         var payload = new
         {
             runtime = "windows_native_webview2",
+            identity_anchor = "store_code",
+            store_code = _options.StoreCode,
             native_app_version = "0.1.3",
             native_bridge_version = _bridge.Version,
             bridge_health_url = _options.BridgeHealthUrl,
@@ -147,6 +149,10 @@ internal sealed class MainForm : Form
     var payload = {json};
     window.CpIPOSWindowsRuntime = payload;
     window.localStorage.setItem('cpi_windows_runtime_enabled_v1', '1');
+    window.localStorage.setItem('cpi_windows_runtime_identity_anchor_v1', 'store_code');
+    if (payload.store_code) {{
+      window.localStorage.setItem('cpi_windows_runtime_store_code_v1', payload.store_code);
+    }}
     window.localStorage.setItem('cpi_windows_runtime_dev_full_access_v1', payload.dev_full_access ? '1' : '0');
     window.localStorage.setItem('cpi_windows_runtime_bootstrap_url_v1', payload.windows_runtime_bootstrap_url);
     window.localStorage.setItem('cpi_windows_runtime_entitlements_url_v1', payload.windows_runtime_entitlements_url);
