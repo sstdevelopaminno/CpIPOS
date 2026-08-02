@@ -1,6 +1,7 @@
 #define AppName "CpIPOS"
 #define AppPublisher "Cutting Point Tech Co., Ltd."
 #define AppExeName "Cpipos.WindowsRuntime.exe"
+#define AppIconName "cpipos.ico"
 
 #ifndef AppVersion
 #define AppVersion "0.1.3"
@@ -35,7 +36,7 @@ SolidCompression=yes
 WizardStyle=modern
 SetupLogging=yes
 UninstallDisplayName={#AppName}
-UninstallDisplayIcon={app}\{#AppExeName}
+UninstallDisplayIcon={app}\assets\{#AppIconName}
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 CloseApplications=yes
@@ -47,15 +48,17 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 [InstallDelete]
 Type: files; Name: "{userdesktop}\CpIPOS Windows Runtime.lnk"
 Type: files; Name: "{userdesktop}\CpIpOS Mobile.lnk"
+Type: files; Name: "{userdesktop}\CpIPOS Mobile.lnk"
 Type: files; Name: "{group}\CpIPOS Windows Runtime.lnk"
 Type: files; Name: "{group}\CpIpOS Mobile.lnk"
+Type: files; Name: "{group}\CpIPOS Mobile.lnk"
 
 [Files]
 Source: "{#SourceDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
-Name: "{group}\CpIPOS"; Filename: "{app}\{#AppExeName}"; IconFilename: "{app}\{#AppExeName}"
-Name: "{userdesktop}\CpIPOS"; Filename: "{app}\{#AppExeName}"; IconFilename: "{app}\{#AppExeName}"; Tasks: desktopicon
+Name: "{group}\CpIPOS"; Filename: "{app}\{#AppExeName}"; IconFilename: "{app}\assets\{#AppIconName}"
+Name: "{userdesktop}\CpIPOS"; Filename: "{app}\{#AppExeName}"; IconFilename: "{app}\assets\{#AppIconName}"; Tasks: desktopicon
 
 [Tasks]
 Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription: "Additional shortcuts:"; Flags: checkedonce
