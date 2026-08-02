@@ -29,6 +29,7 @@ type AlertCopy = {
 
 const OK_STATUS_CODES = new Set(["ready", "printed", "reset", "disabled", "serial_reconnect_waiting"]);
 const PROBLEM_STATUS_CODES = new Set([
+  "direct_web_serial_disabled_use_bridge",
   "web_serial_unsupported",
   "agent_key_missing",
   "serial_permission_required",
@@ -41,7 +42,13 @@ const PROBLEM_STATUS_CODES = new Set([
   "paper_jam",
   "printer_offline"
 ]);
-const SNOOZABLE_STATUS_CODES = new Set(["serial_permission_required", "serial_reselect_required", "serial_port_not_writable", "printer_offline"]);
+const SNOOZABLE_STATUS_CODES = new Set([
+  "direct_web_serial_disabled_use_bridge",
+  "serial_permission_required",
+  "serial_reselect_required",
+  "serial_port_not_writable",
+  "printer_offline"
+]);
 
 function isPosPath() {
   if (typeof window === "undefined") return false;
@@ -57,6 +64,14 @@ function isSnoozed(status: BrowserPrintAgentStatus) {
 }
 
 function copyForStatus(status: BrowserPrintAgentStatus): AlertCopy {
+  if (status.code === "direct_web_serial_disabled_use_bridge") {
+    return {
+      title: "ปิด Web Serial โดยตรงแล้ว",
+      detail: "เครื่องนี้เปิดพอร์ต Serial จาก Chrome ไม่เสถียร ระบบจึงหยุดปุ่มเลือกพอร์ต/ทดสอบ Web Serial เพื่อไม่ให้ค้าง Error เดิม",
+      actionHint: "ให้ใช้ Local Bridge / Print Station ที่ Bridge URL เช่น http://127.0.0.1:3210/print แทน",
+      severity: "warning"
+    };
+  }
   if (status.code === "paper_out") {
     return {
       title: "เครื่องพิมพ์กระดาษหมด",
@@ -97,19 +112,11 @@ function copyForStatus(status: BrowserPrintAgentStatus): AlertCopy {
       severity: "warning"
     };
   }
-  if (status.code === "serial_permission_required") {
+  if (status.code === "serial_permission_required" || status.code === "serial_reselect_required") {
     return {
-      title: "ต้องเลือกพอร์ตเครื่องพิมพ์",
-      detail: "ระบบยังไม่ได้รับสิทธิ์เข้าถึงพอร์ตเครื่องพิมพ์จาก Chrome",
-      actionHint: "กดเลือกเครื่องจาก Windows หนึ่งครั้ง แล้วระบบจะจดจำสิทธิ์สำหรับ auto reconnect รอบถัดไป",
-      severity: "warning"
-    };
-  }
-  if (status.code === "serial_reselect_required") {
-    return {
-      title: "ต้องเลือกพอร์ตเครื่องพิมพ์ใหม่",
-      detail: "Windows/Chrome ยังเปิดพอร์ตเดิมไม่ได้หลังปิด/เปิดเครื่องพิมพ์ พอร์ตเดิมอาจค้างหรือเปลี่ยนหมายเลข COM",
-      actionHint: "กด Reset Agent แล้วกดเลือกเครื่องจาก Windows ใหม่หนึ่งครั้ง จากนั้นระบบจะกลับไปเชื่อมต่ออัตโนมัติ",
+      title: "ไม่ใช้ Web Serial เป็นเส้นหลักแล้ว",
+      detail: "Chrome/Windows เปิดพอร์ตเครื่องพิมพ์เดิมไม่ได้ซ้ำ ๆ จึงไม่ควรใช้ปุ่มเลือกพอร์ต Web Serial กับเครื่องนี้",
+      actionHint: "ตั้งค่า Bridge URL เป็น Local Bridge แล้วให้ bridge เป็นตัวคุยกับเครื่องพิมพ์แทน",
       severity: "warning"
     };
   }
@@ -117,7 +124,7 @@ function copyForStatus(status: BrowserPrintAgentStatus): AlertCopy {
     return {
       title: "เครื่องพิมพ์ไม่พร้อมใช้งาน",
       detail: "ระบบเชื่อมต่อพอร์ตได้แต่ไม่สามารถส่งข้อมูลเข้าเครื่องพิมพ์ได้ อาจเกิดจากเครื่องปิด พอร์ตค้าง หรือสายหลุด",
-      actionHint: "เปิดเครื่องพิมพ์ใหม่ รอ 5-10 วินาที ถ้ายังไม่กลับมาให้กด Reset Agent แล้วเลือกพอร์ตใหม่",
+      actionHint: "เปิดเครื่องพิมพ์ใหม่ รอ 5-10 วินาที ถ้ายังไม่กลับมาให้ใช้ Local Bridge แทน Web Serial",
       severity: "danger"
     };
   }
@@ -125,7 +132,7 @@ function copyForStatus(status: BrowserPrintAgentStatus): AlertCopy {
     return {
       title: "พิมพ์ใบเสร็จไม่สำเร็จ",
       detail: "ระบบส่งงานพิมพ์ไม่สำเร็จ อาจเกิดจากกระดาษหมด กระดาษติด เครื่องหลุด หรือเครื่องไม่ตอบสนอง",
-      actionHint: "ตรวจสอบกระดาษ ฝาเครื่อง สายเชื่อมต่อ แล้วลองพิมพ์ซ้ำจากใบเสร็จ",
+      actionHint: "ตรวจสอบกระดาษ ฝาเครื่อง สายเชื่อมต่อ แล้วลองพิมพ์ซ้ำจากใบเสร็จ หรือใช้ Local Bridge",
       severity: "danger"
     };
   }
@@ -139,7 +146,6 @@ function copyForStatus(status: BrowserPrintAgentStatus): AlertCopy {
 
 function shouldShowStatus(status: BrowserPrintAgentStatus) {
   if (!isPosPath()) return false;
-  if (!status.enabled) return false;
   if (OK_STATUS_CODES.has(status.code)) return false;
   if (isSnoozed(status)) return false;
   if (PROBLEM_STATUS_CODES.has(status.code)) return true;
