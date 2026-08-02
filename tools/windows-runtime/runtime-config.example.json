@@ -1,0 +1,15 @@
+{
+  "app_url": "https://cp-ipos-web.vercel.app/login/store",
+  "bridge_url": "http://127.0.0.1:3210/print",
+  "bridge_health_url": "http://127.0.0.1:3210/health",
+  "windows_printer": "",
+  "fullscreen": true,
+  "browser": "edge",
+  "profile_dir": "%LOCALAPPDATA%\\CpIPOS\\WindowsRuntime\\BrowserProfile",
+  "notes": [
+    "Copy this file to runtime-config.json before customizing.",
+    "Set windows_printer to a Windows printer name such as MTP-II when needed.",
+    "This MVP launches the existing web POS UI in Edge app mode and starts the local print bridge.",
+    "Offline sales database and sync queue are a future phase; do not treat this MVP as a full offline engine."
+  ]
+}
