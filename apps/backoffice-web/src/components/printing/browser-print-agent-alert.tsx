@@ -7,6 +7,7 @@ const BROWSER_PRINT_AGENT_STATUS_EVENT = "cpi-browser-print-agent-status";
 const BROWSER_PRINT_AGENT_RESET_EVENT = "cpi-browser-print-agent-reset";
 const BROWSER_PRINT_AGENT_CONFIG_EVENT = "cpi-browser-print-agent-config";
 const POS_PATH_PREFIX = "/preview/pos";
+const MANUAL_SNOOZE_MS = 5 * 60 * 1000;
 
 type BrowserPrintAgentStatus = {
   enabled: boolean;
@@ -26,12 +27,12 @@ type AlertCopy = {
   severity: "warning" | "danger";
 };
 
-const OK_STATUS_CODES = new Set(["ready", "printed", "reset", "disabled"]);
+const OK_STATUS_CODES = new Set(["ready", "printed", "reset", "disabled", "serial_reconnect_waiting"]);
 const PROBLEM_STATUS_CODES = new Set([
   "web_serial_unsupported",
   "agent_key_missing",
   "serial_permission_required",
-  "agent_error",
+  "serial_reselect_required",
   "print_failed",
   "browser_serial_print_failed",
   "serial_port_not_writable",
@@ -40,7 +41,7 @@ const PROBLEM_STATUS_CODES = new Set([
   "paper_jam",
   "printer_offline"
 ]);
-const TRANSIENT_STATUS_CODES = new Set(["serial_permission_required", "agent_error", "serial_port_not_writable", "printer_offline"]);
+const SNOOZABLE_STATUS_CODES = new Set(["serial_permission_required", "serial_reselect_required", "serial_port_not_writable", "printer_offline"]);
 
 function isPosPath() {
   if (typeof window === "undefined") return false;
@@ -49,7 +50,7 @@ function isPosPath() {
 
 function isSnoozed(status: BrowserPrintAgentStatus) {
   if (typeof window === "undefined") return false;
-  if (!TRANSIENT_STATUS_CODES.has(status.code)) return false;
+  if (!SNOOZABLE_STATUS_CODES.has(status.code)) return false;
   if (status.lastJobId) return false;
   const until = Number(window.localStorage.getItem(BROWSER_PRINT_AGENT_ALERT_SNOOZE_UNTIL_KEY) ?? 0);
   return Number.isFinite(until) && until > Date.now();
@@ -84,7 +85,7 @@ function copyForStatus(status: BrowserPrintAgentStatus): AlertCopy {
     return {
       title: "เบราว์เซอร์นี้ไม่รองรับ Web Serial",
       detail: "ระบบไม่สามารถเชื่อมต่อเครื่องพิมพ์ผ่าน Browser Print Agent ได้จากเบราว์เซอร์นี้",
-      actionHint: "แนะนำใช้ Chrome หรือ Edge บนเครื่องที่ต่อเครื่องพิมพ์ หรือใช้เครื่องนี้เป็น POS แล้วให้ print station เครื่องอื่นพิมพ์",
+      actionHint: "ใช้ Chrome หรือ Edge บนเครื่องที่ต่อเครื่องพิมพ์ หรือให้เครื่องนี้เป็น POS แล้วให้ print station เครื่องอื่นพิมพ์",
       severity: "danger"
     };
   }
@@ -98,9 +99,17 @@ function copyForStatus(status: BrowserPrintAgentStatus): AlertCopy {
   }
   if (status.code === "serial_permission_required") {
     return {
+      title: "ต้องเลือกพอร์ตเครื่องพิมพ์",
+      detail: "ระบบยังไม่ได้รับสิทธิ์เข้าถึงพอร์ตเครื่องพิมพ์จาก Chrome",
+      actionHint: "กดเลือกเครื่องจาก Windows หนึ่งครั้ง แล้วระบบจะจดจำสิทธิ์สำหรับ auto reconnect รอบถัดไป",
+      severity: "warning"
+    };
+  }
+  if (status.code === "serial_reselect_required") {
+    return {
       title: "ต้องเลือกพอร์ตเครื่องพิมพ์ใหม่",
-      detail: "ระบบยังไม่ได้รับสิทธิ์เข้าถึงพอร์ตเครื่องพิมพ์ หรือพอร์ตเดิมหลุดหลังปิด/เปิดเครื่องพิมพ์",
-      actionHint: "กดเลือกพอร์ตเครื่องพิมพ์ใหม่จากหน้าตั้งค่า แล้วตรวจสอบสาย USB/Bluetooth/Serial",
+      detail: "Windows/Chrome ยังเปิดพอร์ตเดิมไม่ได้หลังปิด/เปิดเครื่องพิมพ์ พอร์ตเดิมอาจค้างหรือเปลี่ยนหมายเลข COM",
+      actionHint: "กด Reset Agent แล้วกดเลือกเครื่องจาก Windows ใหม่หนึ่งครั้ง จากนั้นระบบจะกลับไปเชื่อมต่ออัตโนมัติ",
       severity: "warning"
     };
   }
@@ -108,7 +117,7 @@ function copyForStatus(status: BrowserPrintAgentStatus): AlertCopy {
     return {
       title: "เครื่องพิมพ์ไม่พร้อมใช้งาน",
       detail: "ระบบเชื่อมต่อพอร์ตได้แต่ไม่สามารถส่งข้อมูลเข้าเครื่องพิมพ์ได้ อาจเกิดจากเครื่องปิด พอร์ตค้าง หรือสายหลุด",
-      actionHint: "เปิดเครื่องพิมพ์ใหม่ รอ 5-10 วินาที แล้วกดรีเซ็ต Agent หรือเลือกพอร์ตใหม่",
+      actionHint: "เปิดเครื่องพิมพ์ใหม่ รอ 5-10 วินาที ถ้ายังไม่กลับมาให้กด Reset Agent แล้วเลือกพอร์ตใหม่",
       severity: "danger"
     };
   }
@@ -117,14 +126,6 @@ function copyForStatus(status: BrowserPrintAgentStatus): AlertCopy {
       title: "พิมพ์ใบเสร็จไม่สำเร็จ",
       detail: "ระบบส่งงานพิมพ์ไม่สำเร็จ อาจเกิดจากกระดาษหมด กระดาษติด เครื่องหลุด หรือเครื่องไม่ตอบสนอง",
       actionHint: "ตรวจสอบกระดาษ ฝาเครื่อง สายเชื่อมต่อ แล้วลองพิมพ์ซ้ำจากใบเสร็จ",
-      severity: "danger"
-    };
-  }
-  if (status.code === "agent_error" && status.message.toLowerCase().includes("serial")) {
-    return {
-      title: "พอร์ตเครื่องพิมพ์ค้างหรือเปิดไม่สำเร็จ",
-      detail: status.message || "ระบบเปิดพอร์ตเครื่องพิมพ์ไม่สำเร็จหลังปิด/เปิดเครื่องพิมพ์",
-      actionHint: "ปิด/เปิดเครื่องพิมพ์ รอให้ Windows เห็นพอร์ต แล้วกดรีเซ็ต Agent หรือเลือกพอร์ตใหม่",
       severity: "danger"
     };
   }
@@ -142,8 +143,12 @@ function shouldShowStatus(status: BrowserPrintAgentStatus) {
   if (OK_STATUS_CODES.has(status.code)) return false;
   if (isSnoozed(status)) return false;
   if (PROBLEM_STATUS_CODES.has(status.code)) return true;
-  if (status.enabled && status.supported && !status.connected) return true;
-  return false;
+  return status.enabled && status.supported && !status.connected && status.lastJobId !== null;
+}
+
+function setSnooze(ms = MANUAL_SNOOZE_MS) {
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem(BROWSER_PRINT_AGENT_ALERT_SNOOZE_UNTIL_KEY, String(Date.now() + ms));
 }
 
 export function BrowserPrintAgentAlert() {
@@ -268,14 +273,14 @@ export function BrowserPrintAgentAlert() {
           <button
             type="button"
             onClick={() => {
-              window.localStorage.setItem(BROWSER_PRINT_AGENT_ALERT_SNOOZE_UNTIL_KEY, String(Date.now() + 5 * 60 * 1000));
+              setSnooze();
               dismissedSignatureRef.current = signature;
               setStatus(null);
             }}
             style={{
               border: "1px solid #cbd5e1",
-              background: "#f8fafc",
-              color: "#334155",
+              background: "#ffffff",
+              color: "#0f172a",
               borderRadius: 12,
               padding: "9px 12px",
               fontWeight: 900,
