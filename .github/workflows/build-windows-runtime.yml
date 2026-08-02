@@ -28,41 +28,18 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Restore app icon from CpIPOS Web
+      - name: Restore app icon from repository
         shell: pwsh
         run: |
+          if (!(Test-Path $env:WINDOWS_RUNTIME_ICON_B64)) {
+            throw "Icon source not found: $env:WINDOWS_RUNTIME_ICON_B64"
+          }
+
           $iconDir = Split-Path -Parent $env:WINDOWS_RUNTIME_ICON
           New-Item -ItemType Directory -Force -Path $iconDir | Out-Null
 
-          $webIconUrl = "https://cp-ipos-web.vercel.app/favicon.ico"
-          $downloadedIcon = "$env:RUNNER_TEMP\cpipos-web-favicon.ico"
-          $usedWebIcon = $false
-
-          try {
-            Invoke-WebRequest -Uri $webIconUrl -OutFile $downloadedIcon -UseBasicParsing -TimeoutSec 20
-            $bytes = [System.IO.File]::ReadAllBytes($downloadedIcon)
-            $isIco = $bytes.Length -gt 6 -and $bytes[0] -eq 0 -and $bytes[1] -eq 0 -and $bytes[2] -eq 1 -and $bytes[3] -eq 0
-            if ($isIco) {
-              Copy-Item -Force $downloadedIcon $env:WINDOWS_RUNTIME_ICON
-              $usedWebIcon = $true
-              Write-Host "Using CpIPOS Web favicon as Windows icon: $webIconUrl"
-            }
-            else {
-              Write-Warning "Downloaded web icon is not a valid .ico file. Falling back to repository icon source."
-            }
-          }
-          catch {
-            Write-Warning "Could not download CpIPOS Web favicon. Falling back to repository icon source. $($_.Exception.Message)"
-          }
-
-          if (-not $usedWebIcon) {
-            if (!(Test-Path $env:WINDOWS_RUNTIME_ICON_B64)) {
-              throw "Icon source not found: $env:WINDOWS_RUNTIME_ICON_B64"
-            }
-            $iconBase64 = (Get-Content $env:WINDOWS_RUNTIME_ICON_B64 -Raw).Trim()
-            [System.IO.File]::WriteAllBytes($env:WINDOWS_RUNTIME_ICON, [Convert]::FromBase64String($iconBase64))
-            Write-Host "Using repository fallback icon source: $env:WINDOWS_RUNTIME_ICON_B64"
-          }
+          $iconBase64 = (Get-Content $env:WINDOWS_RUNTIME_ICON_B64 -Raw).Trim()
+          [System.IO.File]::WriteAllBytes($env:WINDOWS_RUNTIME_ICON, [Convert]::FromBase64String($iconBase64))
 
           if (!(Test-Path $env:WINDOWS_RUNTIME_ICON)) {
             throw "Icon was not restored: $env:WINDOWS_RUNTIME_ICON"
@@ -72,7 +49,7 @@ jobs:
           if (!($finalBytes.Length -gt 6 -and $finalBytes[0] -eq 0 -and $finalBytes[1] -eq 0 -and $finalBytes[2] -eq 1 -and $finalBytes[3] -eq 0)) {
             throw "Final app icon is not a valid Windows .ico file: $env:WINDOWS_RUNTIME_ICON"
           }
-          Write-Host "Windows icon ready: $env:WINDOWS_RUNTIME_ICON ($($finalBytes.Length) bytes)"
+          Write-Host "Using uploaded CpIPOS repository icon: $env:WINDOWS_RUNTIME_ICON ($($finalBytes.Length) bytes)"
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
@@ -105,10 +82,15 @@ jobs:
           Recommended for customers:
             Run CpIPOS-WindowsRuntime-Setup.exe to install CpIPOS Windows Runtime.
 
+          Store-code activation:
+            CpIPOS Web, CpIPOS Windows, and future CpIPOS mobile apps use the same store code anchor.
+            First activation must be unlocked by IT Backoffice package entitlement.
+
           Portable fallback:
             Extract CpIPOS-WindowsRuntime-win-x64.zip and run Cpipos.WindowsRuntime.exe.
 
           Optional command line:
+            Cpipos.WindowsRuntime.exe --store-code=NDL-TH-001
             Cpipos.WindowsRuntime.exe --printer=MTP-II
             Cpipos.WindowsRuntime.exe --fullscreen
             Cpipos.WindowsRuntime.exe --windowed
@@ -127,7 +109,7 @@ jobs:
           - This package is the Windows runtime for Windows POS terminals.
           - It opens as a normal Windows window by default, with minimize/maximize/close controls.
           - It includes a native local print bridge with serialized print jobs.
-          - Offline sales database and sync queue are not included yet.
+          - Offline sales database and sync queue foundation are included as schema/contract only in this phase.
           '@ | Set-Content -Encoding UTF8 "$env:WINDOWS_RUNTIME_OUTPUT/README-WINDOWS-RUNTIME.txt"
 
       - name: Zip portable package
