@@ -11,9 +11,11 @@ Use this page as the first stop before new development. It separates active impl
 - GitHub repo: `https://github.com/sstdevelopaminno/CpIPOS.git`
 - Active branch/default branch: `agent-docs-preflight-schema-drift`
 - Login flow: `/login/store -> /login/branches|employee -> /login/devices -> /preview/pos`
+- Identity anchor: store code is the required starting identity for CpIPOS Web, CpIPOS Windows, and future CpIPOS app runtimes.
 - Database: Supabase migrations in `supabase/migrations`
 - Verification baseline: run `typecheck`, `test`, `lint`, `schema:drift`, and `build` before closing implementation work.
 - Latest printing decision: Web Serial is no longer the default. Use Print Adapter Architecture 2026-08-02; default small-shop adapter is `LOCAL_BRIDGE_WINDOWS`.
+- Latest Windows runtime direction: CpIPOS Windows is an installable WebView2 runtime with local SQLite offline foundation, local print bridge, and package/license entitlements resolved from store code.
 - Latest production/Vercel print-performance handoff: commit `08afac88ce6e1bbc28f34310f1c43773e72ec104` was checked as Vercel `success` on 2026-08-02.
 - Latest local baseline on 2026-07-29 passed frozen install, typecheck, Vitest, full lint, schema drift, and production build for `backoffice-web`. Re-run the baseline locally after pulling 2026-08-02 changes.
 
@@ -21,6 +23,8 @@ Use this page as the first stop before new development. It separates active impl
 
 - [AI Development Preflight](./AI-DEVELOPMENT-PREFLIGHT.md)
 - [CpIPOS Handoff 2026-08-02](./CPIPOS-HANDOFF-2026-08-02.md)
+- [CpIPOS Windows Offline + Package Entitlement 2026-08-02](./CPIPOS-WINDOWS-OFFLINE-PACKAGE-ENTITLEMENT-2026-08-02.md)
+- [CpIPOS Windows Runtime IT API Contract 2026-08-02](./CPIPOS-WINDOWS-RUNTIME-IT-API-CONTRACT-2026-08-02.md)
 - [Print Adapter Architecture 2026-08-02](./PRINT-ADAPTER-ARCHITECTURE-2026-08-02.md)
 - [Local Print Bridge Windows 2026-08-02](./LOCAL-PRINT-BRIDGE-WINDOWS-2026-08-02.md)
 - [CpIPOS Handoff 2026-07-28](./CPIPOS-HANDOFF-2026-07-28.md)
@@ -48,6 +52,8 @@ Use this page as the first stop before new development. It separates active impl
 
 - [POS UI System](./POS-UI-SYSTEM.md)
 - [POS Sales Flow](./POS-SALES-FLOW.md)
+- [CpIPOS Windows Offline + Package Entitlement 2026-08-02](./CPIPOS-WINDOWS-OFFLINE-PACKAGE-ENTITLEMENT-2026-08-02.md)
+- [CpIPOS Windows Runtime IT API Contract 2026-08-02](./CPIPOS-WINDOWS-RUNTIME-IT-API-CONTRACT-2026-08-02.md)
 - [POS Catalog And Stock Checkpoint](./POS-CATALOG-STOCK-CHECKPOINT-2026-07-22.md)
 - [POS Catalog Trash And Modifier Checkpoint](./POS-CATALOG-TRASH-MODIFIER-CHECKPOINT-2026-07-22.md)
 - [POS Menu Modifiers And Ingredient Options](./POS-MENU-MODIFIERS-INGREDIENTS-PLAN-2026-07-22.md)
@@ -92,10 +98,10 @@ Do not use archived QR login docs as current implementation guidance. The active
 When PATH is missing Node/Git, use the installed Windows paths:
 
 ```powershell
-$env:Path="C:\Program Files\nodejs;C:\Program Files\Git\cmd;$env:Path"
+$env:Path="C:\\Program Files\\nodejs;C:\\Program Files\\Git\\cmd;$env:Path"
 corepack pnpm --filter backoffice-web typecheck
 corepack pnpm --filter backoffice-web exec vitest run --cache false
-corepack pnpm --filter backoffice-web exec eslint src scripts tests next.config.ts eslint.config.mjs --cache --cache-location ..\..\.tmp-eslintcache --no-error-on-unmatched-pattern
+corepack pnpm --filter backoffice-web exec eslint src scripts tests next.config.ts eslint.config.mjs --cache --cache-location ..\\..\\.tmp-eslintcache --no-error-on-unmatched-pattern
 corepack pnpm schema:drift
 corepack pnpm --filter backoffice-web build
 ```
@@ -107,8 +113,8 @@ If build or lint fails with `EPERM` against `.next`, `.eslintcache`, or `node_mo
 GitHub is the source of truth. Vercel deploys from GitHub; do not try to pull Vercel build output back into the repository.
 
 ```powershell
-$env:Path="C:\Program Files\nodejs;C:\Program Files\Git\cmd;$env:Path"
-cd E:\CpIPOS
+$env:Path="C:\\Program Files\\nodejs;C:\\Program Files\\Git\\cmd;$env:Path"
+cd E:\\CpIPOS
 git status -sb
 git fetch origin
 git checkout agent-docs-preflight-schema-drift
@@ -118,18 +124,6 @@ git pull --ff-only origin agent-docs-preflight-schema-drift
 If local changes exist:
 
 ```powershell
-git stash push -u -m "local-backup-before-pull-2026-08-02"
+git stash push -u -m "local-backup-before-pull"
 git pull --ff-only origin agent-docs-preflight-schema-drift
 ```
-
-Pull Vercel env values only when needed and never commit `.env.local`:
-
-```powershell
-npx vercel login
-npx vercel link
-npx vercel env pull apps/backoffice-web/.env.local
-```
-
-## Current CI Branch Coverage
-
-CI must cover `main`, `develop`, `hotfix/**`, and the current development/default branch `agent-docs-preflight-schema-drift` until the branch strategy is finalized in GitHub settings.
