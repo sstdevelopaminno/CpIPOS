@@ -6,6 +6,7 @@ import { BrowserPrintAgent } from "@/components/printing/browser-print-agent";
 import { BrowserPrintAgentAlert } from "@/components/printing/browser-print-agent-alert";
 import { BrowserPrintAgentDeployReset } from "@/components/printing/browser-print-agent-deploy-reset";
 import { BrowserPrintAgentSerialRecovery } from "@/components/printing/browser-print-agent-serial-recovery";
+import { BrowserPrintAgentSerialSetupGuard } from "@/components/printing/browser-print-agent-serial-setup-guard";
 
 const POS_PATH_PREFIX = "/preview/pos";
 const MOBILE_DIRECT_AGENT_KEY = "cpi_browser_print_agent_mobile_direct_v1";
@@ -111,6 +112,7 @@ export function BrowserPrintAgentPosHost() {
 
   return (
     <>
+      {shouldRunLocalAgent ? <BrowserPrintAgentSerialSetupGuard /> : null}
       {shouldRunLocalAgent ? <BrowserPrintAgentDeployReset /> : null}
       {shouldRunLocalAgent ? <BrowserPrintAgentSerialRecovery /> : null}
       {shouldRunLocalAgent ? <BrowserPrintAgent /> : null}
