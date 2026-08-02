@@ -68,8 +68,8 @@ internal sealed class MainForm : Form
             try
             {
                 if (!File.Exists(candidatePath)) continue;
-                using var fileStream = File.OpenRead(candidatePath);
-                Icon = new Icon(fileStream);
+                using var loadedIcon = new Icon(candidatePath);
+                Icon = (Icon)loadedIcon.Clone();
                 return;
             }
             catch
@@ -155,7 +155,7 @@ internal sealed class MainForm : Form
             runtime = "windows_native_webview2",
             identity_anchor = "store_code",
             store_code = _options.StoreCode,
-            native_app_version = "0.1.3",
+            native_app_version = "0.1.4",
             native_bridge_version = _bridge.Version,
             bridge_health_url = _options.BridgeHealthUrl,
             bridge_print_url = _options.BridgePrintUrl,
