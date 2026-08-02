@@ -15,13 +15,15 @@ permissions:
 
 env:
   WINDOWS_RUNTIME_PROJECT: apps/windows-runtime-native/Cpipos.WindowsRuntime/Cpipos.WindowsRuntime.csproj
+  WINDOWS_RUNTIME_ICON_B64: apps/windows-runtime-native/Cpipos.WindowsRuntime/assets/cpipos.ico.b64
+  WINDOWS_RUNTIME_ICON: apps/windows-runtime-native/Cpipos.WindowsRuntime/assets/cpipos.ico
   WINDOWS_RUNTIME_OUTPUT: artifacts/CpIPOS-WindowsRuntime-win-x64
   WINDOWS_RUNTIME_ZIP: artifacts/CpIPOS-WindowsRuntime-win-x64.zip
   WINDOWS_RUNTIME_SETUP: artifacts/CpIPOS-WindowsRuntime-Setup.exe
   WINDOWS_RUNTIME_RELEASE_TAG: windows-runtime-latest
   WINDOWS_RUNTIME_SETUP_ASSET_NAME: CpIPOS-WindowsRuntime-Setup.exe
   WINDOWS_RUNTIME_ZIP_ASSET_NAME: CpIPOS-WindowsRuntime-win-x64.zip
-  WINDOWS_RUNTIME_VERSION: 0.1.1
+  WINDOWS_RUNTIME_VERSION: 0.1.2
 
 jobs:
   build-windows-runtime:
@@ -32,6 +34,20 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Restore app icon
+        shell: pwsh
+        run: |
+          if (!(Test-Path $env:WINDOWS_RUNTIME_ICON_B64)) {
+            throw "Icon source not found: $env:WINDOWS_RUNTIME_ICON_B64"
+          }
+          $iconDir = Split-Path -Parent $env:WINDOWS_RUNTIME_ICON
+          New-Item -ItemType Directory -Force -Path $iconDir | Out-Null
+          $iconBase64 = (Get-Content $env:WINDOWS_RUNTIME_ICON_B64 -Raw).Trim()
+          [System.IO.File]::WriteAllBytes($env:WINDOWS_RUNTIME_ICON, [Convert]::FromBase64String($iconBase64))
+          if (!(Test-Path $env:WINDOWS_RUNTIME_ICON)) {
+            throw "Icon was not restored: $env:WINDOWS_RUNTIME_ICON"
+          }
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
@@ -68,8 +84,10 @@ jobs:
             Extract CpIPOS-WindowsRuntime-win-x64.zip and run Cpipos.WindowsRuntime.exe.
 
           Optional command line:
-            Cpipos.WindowsRuntime.exe --printer MTP-II
+            Cpipos.WindowsRuntime.exe --printer=MTP-II
+            Cpipos.WindowsRuntime.exe --fullscreen
             Cpipos.WindowsRuntime.exe --windowed
+            Cpipos.WindowsRuntime.exe --devtools
             Cpipos.WindowsRuntime.exe --url=https://cp-ipos-web.vercel.app/login/store
 
           Local bridge inside the app:
@@ -81,6 +99,7 @@ jobs:
           Notes:
           - CpIPOS Web is still the main web app.
           - This package is the Windows runtime for Windows POS terminals.
+          - It opens as a normal Windows window by default, with minimize/maximize/close controls.
           - It includes a native local print bridge.
           - Offline sales database and sync queue are not included yet.
           '@ | Set-Content -Encoding UTF8 "$env:WINDOWS_RUNTIME_OUTPUT/README-WINDOWS-RUNTIME.txt"
@@ -109,7 +128,8 @@ jobs:
             "apps/windows-runtime-native/installer/CpIPOSWindowsRuntime.iss" `
             "/DAppVersion=$env:WINDOWS_RUNTIME_VERSION" `
             "/DSourceDir=$env:GITHUB_WORKSPACE\artifacts\CpIPOS-WindowsRuntime-win-x64" `
-            "/DOutputDir=$env:GITHUB_WORKSPACE\artifacts"
+            "/DOutputDir=$env:GITHUB_WORKSPACE\artifacts" `
+            "/DIconFile=$env:GITHUB_WORKSPACE\apps\windows-runtime-native\Cpipos.WindowsRuntime\assets\cpipos.ico"
 
           if (!(Test-Path $env:WINDOWS_RUNTIME_SETUP)) {
             throw "Installer was not created: $env:WINDOWS_RUNTIME_SETUP"
