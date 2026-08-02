@@ -1,0 +1,83 @@
+name: Build CpIPOS Windows Runtime
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - agent-docs-preflight-schema-drift
+      - main
+      - develop
+    paths:
+      - "apps/windows-runtime-native/**"
+      - ".github/workflows/build-windows-runtime.yml"
+
+jobs:
+  build-windows-runtime:
+    name: Build Windows Runtime EXE
+    runs-on: windows-latest
+    timeout-minutes: 25
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: Restore
+        run: dotnet restore apps/windows-runtime-native/Cpipos.WindowsRuntime/Cpipos.WindowsRuntime.csproj
+
+      - name: Publish win-x64 self-contained single file
+        shell: pwsh
+        run: |
+          dotnet publish apps/windows-runtime-native/Cpipos.WindowsRuntime/Cpipos.WindowsRuntime.csproj `
+            -c Release `
+            -r win-x64 `
+            --self-contained true `
+            -p:PublishSingleFile=true `
+            -p:IncludeNativeLibrariesForSelfExtract=true `
+            -p:EnableCompressionInSingleFile=true `
+            -o artifacts/CpIPOS-WindowsRuntime-win-x64
+
+      - name: Add run notes
+        shell: pwsh
+        run: |
+          @'
+          CpIPOS Windows Runtime
+          ======================
+
+          Run:
+            Cpipos.WindowsRuntime.exe
+
+          Optional command line:
+            Cpipos.WindowsRuntime.exe --printer="MTP-II"
+            Cpipos.WindowsRuntime.exe --windowed
+            Cpipos.WindowsRuntime.exe --url="https://cp-ipos-web.vercel.app/login/store"
+
+          Local bridge inside the EXE:
+            http://127.0.0.1:3210/health
+            http://127.0.0.1:3210/printers
+            http://127.0.0.1:3210/print/test
+            http://127.0.0.1:3210/print
+
+          Notes:
+          - This is a Windows native WebView2 runtime shell.
+          - It uses the existing CpIPOS web UI.
+          - It includes a native local print bridge.
+          - It does not implement offline sales database/sync engine yet.
+          - Microsoft Edge WebView2 Runtime is required. Most Windows 10/11 machines already have it.
+          '@ | Set-Content -Encoding UTF8 artifacts/CpIPOS-WindowsRuntime-win-x64/README-WINDOWS-RUNTIME.txt
+
+      - name: Zip artifact
+        shell: pwsh
+        run: |
+          Compress-Archive -Path artifacts/CpIPOS-WindowsRuntime-win-x64/* -DestinationPath artifacts/CpIPOS-WindowsRuntime-win-x64.zip -Force
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: CpIPOS-WindowsRuntime-win-x64
+          path: artifacts/CpIPOS-WindowsRuntime-win-x64.zip
+          if-no-files-found: error
