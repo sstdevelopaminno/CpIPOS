@@ -17,7 +17,7 @@ CREATE TABLE IF NOT EXISTS local_store_context (
   tenant_id TEXT,
   tenant_name TEXT,
   status TEXT NOT NULL CHECK (status IN ('pending_activation','active','expired','suspended')),
-  source TEXT NOT NULL CHECK (source IN ('it_backoffice','offline_import','test_full_access')),
+  source TEXT NOT NULL CHECK (source IN ('it_backoffice','offline_import','manual_it_override')),
   last_verified_at TEXT,
   updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
@@ -25,7 +25,7 @@ CREATE TABLE IF NOT EXISTS local_store_context (
 CREATE TABLE IF NOT EXISTS local_license (
   id TEXT PRIMARY KEY,
   store_code TEXT NOT NULL,
-  license_type TEXT NOT NULL CHECK (license_type IN ('store_code_required','offline_only','cloud_package','test_full_access')),
+  license_type TEXT NOT NULL CHECK (license_type IN ('store_code_required','offline_purchase','cloud_package')),
   status TEXT NOT NULL CHECK (status IN ('active','not_activated','expired','suspended')),
   package_code TEXT NOT NULL,
   package_name TEXT NOT NULL,
@@ -45,7 +45,7 @@ CREATE TABLE IF NOT EXISTS local_entitlements (
   store_code TEXT NOT NULL,
   feature_key TEXT NOT NULL,
   enabled INTEGER NOT NULL DEFAULT 0,
-  source TEXT NOT NULL CHECK (source IN ('store_code_required','offline_default','cloud_package','test_full_access','manual_it_override')),
+  source TEXT NOT NULL CHECK (source IN ('store_code_required','offline_purchase','cloud_package','manual_it_override')),
   expires_at TEXT,
   updated_at TEXT NOT NULL DEFAULT (datetime('now')),
   PRIMARY KEY (store_code, feature_key),
