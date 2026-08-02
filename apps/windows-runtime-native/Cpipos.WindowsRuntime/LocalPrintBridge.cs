@@ -10,6 +10,9 @@ namespace Cpipos.WindowsRuntime;
 
 internal sealed class LocalPrintBridge : IDisposable
 {
+    private const int MaxHeaderBytes = 1024 * 1024;
+    private const int MaxBodyBytes = 3_000_000;
+
     private readonly int _port;
     private readonly string _defaultPrinter;
     private readonly CancellationTokenSource _stopping = new();
@@ -47,7 +50,14 @@ internal sealed class LocalPrintBridge : IDisposable
             }
             catch
             {
-                await Task.Delay(250, cancellationToken).ConfigureAwait(false);
+                try
+                {
+                    await Task.Delay(250, cancellationToken).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException)
+                {
+                    break;
+                }
             }
         }
     }
@@ -193,9 +203,12 @@ internal sealed class LocalPrintBridge : IDisposable
         await Task.Run(() =>
         {
             cancellationToken.ThrowIfCancellationRequested();
+
             using var font = new Font("Tahoma", 9, FontStyle.Regular, GraphicsUnit.Point);
-            using var document = new PrintDocument();
-            document.DocumentName = "CpIPOS Receipt";
+            using var document = new PrintDocument
+            {
+                DocumentName = "CpIPOS Receipt"
+            };
 
             if (!string.IsNullOrWhiteSpace(printerName))
             {
@@ -239,7 +252,7 @@ internal sealed class LocalPrintBridge : IDisposable
     {
         try
         {
-            using var settings = new PrinterSettings();
+            var settings = new PrinterSettings();
             return settings.PrinterName;
         }
         catch
@@ -368,11 +381,11 @@ internal sealed class HttpRequestData
 
         while (headerEnd < 0)
         {
-            var read = await stream.ReadAsync(buffer, cancellationToken).ConfigureAwait(false);
+            var read = await stream.ReadAsync(buffer.AsMemory(0, buffer.Length), cancellationToken).ConfigureAwait(false);
             if (read <= 0) break;
             memory.Write(buffer, 0, read);
             headerEnd = FindHeaderEnd(memory.GetBuffer(), (int)memory.Length);
-            if (memory.Length > 1024 * 1024) throw new InvalidOperationException("request_header_too_large");
+            if (memory.Length > MaxHeaderBytes) throw new InvalidOperationException("request_header_too_large");
         }
 
         var bytes = memory.ToArray();
@@ -403,10 +416,10 @@ internal sealed class HttpRequestData
         var bodyBytes = bytes.Skip(bodyStart).ToArray();
         while (bodyBytes.Length < contentLength)
         {
-            var read = await stream.ReadAsync(buffer, cancellationToken).ConfigureAwait(false);
+            var read = await stream.ReadAsync(buffer.AsMemory(0, buffer.Length), cancellationToken).ConfigureAwait(false);
             if (read <= 0) break;
             bodyBytes = bodyBytes.Concat(buffer.Take(read)).ToArray();
-            if (bodyBytes.Length > 3_000_000) throw new InvalidOperationException("payload_too_large");
+            if (bodyBytes.Length > MaxBodyBytes) throw new InvalidOperationException("payload_too_large");
         }
 
         return new HttpRequestData
@@ -477,10 +490,10 @@ internal sealed class HttpResponseData
             ""
         });
         var headerBytes = Encoding.UTF8.GetBytes(header);
-        await stream.WriteAsync(headerBytes, cancellationToken).ConfigureAwait(false);
+        await stream.WriteAsync(headerBytes.AsMemory(0, headerBytes.Length), cancellationToken).ConfigureAwait(false);
         if (_body.Length > 0)
         {
-            await stream.WriteAsync(_body, cancellationToken).ConfigureAwait(false);
+            await stream.WriteAsync(_body.AsMemory(0, _body.Length), cancellationToken).ConfigureAwait(false);
         }
     }
 }
