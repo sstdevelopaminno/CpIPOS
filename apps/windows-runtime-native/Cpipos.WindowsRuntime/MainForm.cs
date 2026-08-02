@@ -130,7 +130,7 @@ internal sealed class MainForm : Form
         var payload = new
         {
             runtime = "windows_native_webview2",
-            native_app_version = "0.1.2",
+            native_app_version = "0.1.3",
             native_bridge_version = _bridge.Version,
             bridge_health_url = _options.BridgeHealthUrl,
             bridge_print_url = _options.BridgePrintUrl,
