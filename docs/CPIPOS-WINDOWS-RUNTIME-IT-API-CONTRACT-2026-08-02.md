@@ -17,15 +17,34 @@ This rule applies to:
 Rules:
 
 1. The runtime must start from the store code created by IT Backoffice.
-2. The runtime must not trust client-supplied `tenant_id`, `branch_id`, or `device_code` until the server resolves them from `store_code`.
-3. `tenant_id`, `branch_id`, package, license, and device binding are server-resolved context, not customer-entered identity.
-4. If `store_code` is missing, CpIPOS Windows must stay in `store_code_required` / `not_activated` mode.
-5. A customer moving from CpIPOS Web to CpIPOS Windows keeps the same store code.
-6. Future app runtimes must follow the same store-code-first flow.
+2. The first activation must be online so IT Backoffice can unlock the package attached to that store code.
+3. The runtime must not trust client-supplied `tenant_id`, `branch_id`, package, license, or device context until the server resolves it from `store_code`.
+4. `tenant_id`, `branch_id`, package, license, and device binding are server-resolved context, not customer-entered identity.
+5. If `store_code` is missing, CpIPOS Windows must stay in `store_code_required` / `not_activated` mode.
+6. If IT Backoffice has not unlocked CpIPOS Windows for that store code, CpIPOS Windows must stay locked even after installation.
+7. A customer moving from CpIPOS Web to CpIPOS Windows keeps the same store code.
+8. Future app runtimes must follow the same store-code-first flow.
+
+There is no customer-side or Windows-side full-access bypass. Feature access is controlled by IT Backoffice package entitlement only.
+
+## Current Test Store Unlock
+
+For the current sales demo and development flow, IT Backoffice policy unlocks this store code as full package:
+
+```text
+NDL-TH-001
+```
+
+Current foundation behavior:
+
+- `NDL-TH-001` receives `CPIPOS_FULL_TEST`.
+- All current feature flags are enabled for sales demo and development.
+- The unlock is tied to the store code, not to an environment flag or command-line bypass.
+- Cloud sync entitlement is allowed by package, but live order/payment sync write endpoints are still a later implementation step.
 
 ## API Boundary
 
-Customer Windows runtime routes:
+Customer runtime routes:
 
 - `GET|POST /api/windows-runtime/v1/bootstrap`
 - `GET|POST /api/windows-runtime/v1/entitlements`
@@ -47,7 +66,7 @@ IT Admin routes remain under:
 
 ### `GET /api/windows-runtime/v1/bootstrap`
 
-Returns the default runtime contract. Without a store code, the response must stay locked as `store_code_required`.
+Returns the default runtime contract. Without a store code, the response stays locked as `store_code_required`.
 
 ### `POST /api/windows-runtime/v1/bootstrap`
 
@@ -59,12 +78,11 @@ Request body:
   "runtime_device_id": "local-device-uuid",
   "device_code": "POS-COUNTER-01",
   "app_version": "0.1.3",
-  "bridge_version": "cpipos-windows-native-bridge-0.1.3",
-  "dev_full_access": true
+  "bridge_version": "cpipos-windows-native-bridge-0.1.3"
 }
 ```
 
-Do not send trusted tenant context from the runtime. These are optional diagnostics only until server resolution is implemented:
+Do not send trusted tenant context from the runtime. These are optional diagnostics only until server resolution is fully wired to IT Backoffice data:
 
 ```json
 {
@@ -79,8 +97,10 @@ Payload fields:
 
 - `contract_version`
 - `identity_anchor=store_code`
-- `mode=store_code_required|offline_only|cloud_package|test_full_access`
-- `runtime.store_code`
+- `mode=store_code_required|store_code_locked|offline_purchase|cloud_package`
+- `runtime`
+- `store`
+- `activation`
 - `license`
 - `entitlements.features`
 - `entitlements.limits`
@@ -88,41 +108,11 @@ Payload fields:
 - `sync`
 - `warnings`
 
-Missing store code response:
-
-```json
-{
-  "identity_anchor": "store_code",
-  "mode": "store_code_required",
-  "license": {
-    "status": "not_activated",
-    "license_type": "store_code_required",
-    "package_code": "STORE_CODE_REQUIRED",
-    "cloud_sync_allowed": false
-  },
-  "sync": {
-    "status": "disabled_store_code_required",
-    "order_sync_ready": false
-  }
-}
-```
-
 ## Entitlements API
 
 ### `GET|POST /api/windows-runtime/v1/entitlements`
 
 Returns license and feature matrix only. This is a lighter endpoint for refreshing cached feature flags.
-
-Request body should include the same `store_code` anchor:
-
-```json
-{
-  "store_code": "NDL-TH-001",
-  "runtime_device_id": "local-device-uuid",
-  "device_code": "POS-COUNTER-01",
-  "dev_full_access": true
-}
-```
 
 ## Sync Status API
 
@@ -139,54 +129,36 @@ Returns the current sync phase. As of this foundation phase:
 }
 ```
 
-## Test Machine Full Access
-
-CpIPOS Windows supports local development flag:
-
-```powershell
-Cpipos.WindowsRuntime.exe --store-code=NDL-TH-001 --dev-full-access
-```
-
-The server still controls whether full access is honored:
-
-```text
-CPIPOS_WINDOWS_DEV_FULL_ACCESS=1
-```
-
-When server env is not enabled, `dev_full_access=true` is ignored and the runtime receives offline-only features. Full-access testing still requires a store code so the test machine follows the same identity model as customers.
-
 ## Security Rules
 
 - No Supabase service role key in Windows runtime.
 - No admin secrets in Windows runtime.
-- `store_code` is the only customer-entered store identity.
+- Store code is required before package unlock.
+- Runtime-side feature flags are not trusted; server entitlement is the source of truth.
 - Do not trust local tenant/branch/device/package without server validation.
-- Server must resolve tenant/branch/device/package from store code and authenticated context.
 - Every future order/payment sync must carry an idempotency key.
 - Every cloud sync request must validate package entitlement server-side.
-- Offline-only license must not call cloud sync endpoints successfully.
+- Offline-purchase licenses must not call cloud sync endpoints successfully.
 - Cloud package expiry must lock cloud features after reconnect.
 
 ## Current Implementation Status
 
 Implemented now:
 
-- Bootstrap contract route.
-- Entitlements contract route.
+- Store-code-first bootstrap contract route.
+- Store-code-first entitlements contract route.
 - Sync status contract route.
-- Windows runtime `--store-code=` option.
-- Windows runtime `--dev-full-access` local flag.
-- Store-code-required response mode.
-- Local SQLite schema file with `store_code` as local identity anchor.
+- `NDL-TH-001` full-package policy for sales demo and development.
+- Windows runtime `--store-code=...` local option.
+- Local SQLite schema file for offline foundation.
 
 Not implemented yet:
 
 - Actual SQLite runtime data access from C#.
-- Server DB lookup that resolves store code to tenant/branch/device/package for this Windows endpoint.
 - Web UI offline order write path.
 - Sync orders/payments to server.
-- IT Admin UI for Windows licenses.
-- Production package tables and migration for this specific Windows entitlement layer.
+- IT Admin UI for Windows license management.
+- Production database-backed package entitlement lookup for this Windows runtime layer.
 
 ## Next Implementation Step
 
@@ -195,7 +167,6 @@ Implement the local SQLite runtime in CpIPOS Windows:
 1. Add SQLite package to Windows project.
 2. Create database at `%LOCALAPPDATA%\\CpIPOS\\WindowsRuntime\\data\\cpipos-local.db`.
 3. Run `cpipos-local-schema-v0.1.0.sql` on first launch.
-4. Call bootstrap API on launch when online with `store_code`.
-5. Cache `local_store_context`, `local_license`, and `local_entitlements`.
+4. Call bootstrap API on launch when online.
+5. Cache store context, license, and entitlements.
 6. Expose a native WebView bridge so the web UI can read local entitlements and offline status.
-7. Add IT Backoffice routes to issue/disable Windows runtime licenses by store code.
