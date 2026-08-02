@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="th">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>CpIPOS Offline</title>
+    <style>
+      :root { color-scheme: light; font-family: Tahoma, Arial, sans-serif; }
+      body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: #f5f7fb; color: #111827; }
+      main { width: min(720px, calc(100vw - 32px)); background: #fff; border: 1px solid #e5e7eb; border-radius: 18px; padding: 28px; box-shadow: 0 20px 60px rgba(15, 23, 42, 0.08); }
+      h1 { margin: 0 0 10px; font-size: 24px; }
+      p { line-height: 1.6; color: #374151; }
+      code { background: #eef2ff; padding: 2px 6px; border-radius: 6px; }
+      .warn { border-left: 4px solid #f59e0b; background: #fffbeb; padding: 12px 14px; border-radius: 10px; }
+      .ok { border-left: 4px solid #2563eb; background: #eff6ff; padding: 12px 14px; border-radius: 10px; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>CpIPOS Windows Runtime</h1>
+      <p class="warn">ขณะนี้เปิดหน้าเว็บ CpIPOS ไม่ได้ อาจเกิดจากอินเทอร์เน็ตหลุดหรือ DNS/Vercel เข้าไม่ได้</p>
+      <p>Windows Runtime MVP นี้ยังไม่ใช่ Offline Sales Engine เต็มรูปแบบ จึงยังไม่ควรใช้บันทึกยอดขายใหม่โดยไม่มีอินเทอร์เน็ตจนกว่าจะเพิ่ม local database และ sync queue</p>
+      <p class="ok">Local Print Bridge ยังสามารถเปิดที่ <code>http://127.0.0.1:3210/health</code> ได้ ถ้าโปรแกรม bridge ทำงานอยู่</p>
+      <p>เมื่ออินเทอร์เน็ตกลับมา ให้ปิดหน้านี้แล้วเปิด <code>CpIPOS-Windows-Runtime.bat</code> ใหม่อีกครั้ง</p>
+    </main>
+  </body>
+</html>
