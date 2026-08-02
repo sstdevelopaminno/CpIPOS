@@ -17,14 +17,17 @@ env:
   WINDOWS_RUNTIME_PROJECT: apps/windows-runtime-native/Cpipos.WindowsRuntime/Cpipos.WindowsRuntime.csproj
   WINDOWS_RUNTIME_OUTPUT: artifacts/CpIPOS-WindowsRuntime-win-x64
   WINDOWS_RUNTIME_ZIP: artifacts/CpIPOS-WindowsRuntime-win-x64.zip
+  WINDOWS_RUNTIME_SETUP: artifacts/CpIPOS-WindowsRuntime-Setup.exe
   WINDOWS_RUNTIME_RELEASE_TAG: windows-runtime-latest
-  WINDOWS_RUNTIME_ASSET_NAME: CpIPOS-WindowsRuntime-win-x64.zip
+  WINDOWS_RUNTIME_SETUP_ASSET_NAME: CpIPOS-WindowsRuntime-Setup.exe
+  WINDOWS_RUNTIME_ZIP_ASSET_NAME: CpIPOS-WindowsRuntime-win-x64.zip
+  WINDOWS_RUNTIME_VERSION: 0.1.1
 
 jobs:
   build-windows-runtime:
-    name: Build Windows Runtime ZIP
+    name: Build Windows Runtime Installer
     runs-on: windows-latest
-    timeout-minutes: 25
+    timeout-minutes: 30
 
     steps:
       - name: Checkout
@@ -58,15 +61,18 @@ jobs:
           CpIPOS Windows Runtime
           ======================
 
-          Run:
-            Cpipos.WindowsRuntime.exe
+          Recommended for customers:
+            Run CpIPOS-WindowsRuntime-Setup.exe to install CpIPOS Windows Runtime.
+
+          Portable fallback:
+            Extract CpIPOS-WindowsRuntime-win-x64.zip and run Cpipos.WindowsRuntime.exe.
 
           Optional command line:
             Cpipos.WindowsRuntime.exe --printer MTP-II
             Cpipos.WindowsRuntime.exe --windowed
             Cpipos.WindowsRuntime.exe --url=https://cp-ipos-web.vercel.app/login/store
 
-          Local bridge inside the EXE:
+          Local bridge inside the app:
             http://127.0.0.1:3210/health
             http://127.0.0.1:3210/printers
             http://127.0.0.1:3210/print/test
@@ -74,12 +80,12 @@ jobs:
 
           Notes:
           - CpIPOS Web is still the main web app.
-          - This ZIP is the Windows runtime package for Windows POS terminals.
+          - This package is the Windows runtime for Windows POS terminals.
           - It includes a native local print bridge.
           - Offline sales database and sync queue are not included yet.
           '@ | Set-Content -Encoding UTF8 "$env:WINDOWS_RUNTIME_OUTPUT/README-WINDOWS-RUNTIME.txt"
 
-      - name: Zip package
+      - name: Zip portable package
         shell: pwsh
         run: |
           if (Test-Path $env:WINDOWS_RUNTIME_ZIP) {
@@ -87,11 +93,35 @@ jobs:
           }
           Compress-Archive -Path "$env:WINDOWS_RUNTIME_OUTPUT/*" -DestinationPath $env:WINDOWS_RUNTIME_ZIP -Force
 
-      - name: Upload workflow artifact
+      - name: Install Inno Setup
+        shell: pwsh
+        run: choco install innosetup --no-progress -y
+
+      - name: Build Windows installer
+        shell: pwsh
+        run: |
+          $iscc = "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
+          if (!(Test-Path $iscc)) {
+            throw "Inno Setup compiler not found: $iscc"
+          }
+
+          & $iscc `
+            "apps/windows-runtime-native/installer/CpIPOSWindowsRuntime.iss" `
+            "/DAppVersion=$env:WINDOWS_RUNTIME_VERSION" `
+            "/DSourceDir=$env:GITHUB_WORKSPACE\artifacts\CpIPOS-WindowsRuntime-win-x64" `
+            "/DOutputDir=$env:GITHUB_WORKSPACE\artifacts"
+
+          if (!(Test-Path $env:WINDOWS_RUNTIME_SETUP)) {
+            throw "Installer was not created: $env:WINDOWS_RUNTIME_SETUP"
+          }
+
+      - name: Upload workflow artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: CpIPOS-WindowsRuntime-win-x64
-          path: ${{ env.WINDOWS_RUNTIME_ZIP }}
+          name: CpIPOS-WindowsRuntime
+          path: |
+            ${{ env.WINDOWS_RUNTIME_SETUP }}
+            ${{ env.WINDOWS_RUNTIME_ZIP }}
           if-no-files-found: error
 
       - name: Publish latest release download
@@ -100,16 +130,17 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           $tag = $env:WINDOWS_RUNTIME_RELEASE_TAG
-          $assetPath = $env:WINDOWS_RUNTIME_ZIP
-          $assetName = $env:WINDOWS_RUNTIME_ASSET_NAME
+          $setupPath = $env:WINDOWS_RUNTIME_SETUP
+          $zipPath = $env:WINDOWS_RUNTIME_ZIP
 
           gh release view $tag *> $null
           if ($LASTEXITCODE -ne 0) {
             gh release create $tag `
               --target "${{ github.sha }}" `
               --title "CpIPOS Windows Runtime Latest" `
-              --notes "Latest CpIPOS Windows Runtime ZIP built automatically from GitHub Actions."
+              --notes "Latest CpIPOS Windows Runtime installer and portable ZIP built automatically from GitHub Actions."
           }
 
-          gh release upload $tag $assetPath --clobber
-          Write-Host "Download URL: https://github.com/${{ github.repository }}/releases/download/$tag/$assetName"
+          gh release upload $tag $setupPath $zipPath --clobber
+          Write-Host "Installer URL: https://github.com/${{ github.repository }}/releases/download/$tag/$env:WINDOWS_RUNTIME_SETUP_ASSET_NAME"
+          Write-Host "Portable ZIP URL: https://github.com/${{ github.repository }}/releases/download/$tag/$env:WINDOWS_RUNTIME_ZIP_ASSET_NAME"
