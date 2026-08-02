@@ -1,0 +1,57 @@
+Read this first:
+
+docs/CODEX-HANDOFF-WEB-AND-WINDOWS-RUNTIME-2026-08-02.md
+
+Context:
+
+CpIPOS now has two active runtime surfaces:
+
+1. CpIPOS Web
+   - Main online web app in apps/backoffice-web
+   - Vercel deployed web/POS/backoffice runtime
+   - Store-code login, tenant/branch/device/session/shift/POS/table QR/IT Admin/package control
+
+2. CpIPOS Windows Runtime
+   - Installable Windows runtime in apps/windows-runtime-native/Cpipos.WindowsRuntime
+   - WebView2 shell + native local print bridge + installer + local offline schema foundation
+   - Not just a browser shortcut
+   - Uses bundled assets/cpipos.ico for EXE/installer/shortcut/title bar
+
+Main task:
+
+Inspect for bugs, slowness, disconnects, bottlenecks, stuck loading states, printer instability, icon packaging errors, and release/package mistakes.
+
+Rules:
+
+- Do not scan the whole repo.
+- Do not do broad refactors.
+- Inspect only the files listed in the handoff doc first.
+- Keep CpIPOS Web and CpIPOS Windows responsibilities separate.
+- Do not unlock package features from local Windows flags or environment variables.
+- Store code is the identity anchor for Web, Windows, and future mobile runtimes.
+- NDL-TH-001 is the current full sales/demo/development store-code policy.
+- Do not reintroduce web favicon download for Windows icon packaging.
+- Do not remove print job serialization.
+- Do not enable live offline order/payment sync until idempotency and server package validation are implemented.
+
+Files to inspect first:
+
+- apps/backoffice-web/src/lib/windows-runtime/entitlements.ts
+- apps/backoffice-web/src/app/api/windows-runtime/v1/bootstrap/route.ts
+- apps/backoffice-web/src/app/api/windows-runtime/v1/entitlements/route.ts
+- apps/backoffice-web/src/app/api/windows-runtime/v1/sync/status/route.ts
+- apps/windows-runtime-native/Cpipos.WindowsRuntime/Cpipos.WindowsRuntime.csproj
+- apps/windows-runtime-native/Cpipos.WindowsRuntime/Program.cs
+- apps/windows-runtime-native/Cpipos.WindowsRuntime/MainForm.cs
+- apps/windows-runtime-native/Cpipos.WindowsRuntime/LocalPrintBridge.cs
+- apps/windows-runtime-native/Cpipos.WindowsRuntime/Offline/cpipos-local-schema-v0.1.0.sql
+- apps/windows-runtime-native/installer/CpIPOSWindowsRuntime.iss
+- .github/workflows/build-windows-runtime.yml
+
+Expected output:
+
+1. List confirmed issues and likely risks.
+2. Apply only safe minimal patches.
+3. Keep version numbers consistent across Windows files.
+4. Update docs/CODEX-HANDOFF-WEB-AND-WINDOWS-RUNTIME-2026-08-02.md if runtime behavior changes.
+5. Provide exact verification commands for Web and Windows.
