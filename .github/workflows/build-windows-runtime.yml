@@ -2,6 +2,13 @@ name: Build CpIPOS Windows Runtime
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - agent-docs-preflight-schema-drift
+      - main
+    paths:
+      - "apps/windows-runtime-native/**"
+      - ".github/workflows/build-windows-runtime.yml"
 
 permissions:
   contents: write
@@ -15,7 +22,7 @@ env:
 
 jobs:
   build-windows-runtime:
-    name: Build Windows Runtime EXE
+    name: Build Windows Runtime ZIP
     runs-on: windows-latest
     timeout-minutes: 25
 
@@ -29,10 +36,10 @@ jobs:
           dotnet-version: "8.0.x"
 
       - name: Restore
-        run: dotnet restore $env:WINDOWS_RUNTIME_PROJECT
         shell: pwsh
+        run: dotnet restore $env:WINDOWS_RUNTIME_PROJECT
 
-      - name: Publish win-x64 self-contained single file
+      - name: Publish Windows x64 self-contained app
         shell: pwsh
         run: |
           dotnet publish $env:WINDOWS_RUNTIME_PROJECT `
@@ -44,16 +51,12 @@ jobs:
             -p:EnableCompressionInSingleFile=true `
             -o $env:WINDOWS_RUNTIME_OUTPUT
 
-      - name: Add run notes
+      - name: Add README
         shell: pwsh
         run: |
           @'
           CpIPOS Windows Runtime
           ======================
-
-          This workflow is manual-only.
-          CpIPOS production customers should use the web/PWA runtime by default.
-          Build this EXE only when native Windows runtime testing is explicitly needed.
 
           Run:
             Cpipos.WindowsRuntime.exe
@@ -68,9 +71,15 @@ jobs:
             http://127.0.0.1:3210/printers
             http://127.0.0.1:3210/print/test
             http://127.0.0.1:3210/print
+
+          Notes:
+          - CpIPOS Web is still the main web app.
+          - This ZIP is the Windows runtime package for Windows POS terminals.
+          - It includes a native local print bridge.
+          - Offline sales database and sync queue are not included yet.
           '@ | Set-Content -Encoding UTF8 "$env:WINDOWS_RUNTIME_OUTPUT/README-WINDOWS-RUNTIME.txt"
 
-      - name: Zip artifact
+      - name: Zip package
         shell: pwsh
         run: |
           if (Test-Path $env:WINDOWS_RUNTIME_ZIP) {
@@ -97,8 +106,9 @@ jobs:
           gh release view $tag *> $null
           if ($LASTEXITCODE -ne 0) {
             gh release create $tag `
+              --target "${{ github.sha }}" `
               --title "CpIPOS Windows Runtime Latest" `
-              --notes "Manual CpIPOS Windows Runtime ZIP build. Web/PWA is the default customer runtime."
+              --notes "Latest CpIPOS Windows Runtime ZIP built automatically from GitHub Actions."
           }
 
           gh release upload $tag $assetPath --clobber
