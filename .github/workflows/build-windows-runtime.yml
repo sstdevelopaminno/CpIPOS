@@ -28,19 +28,51 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Restore app icon
+      - name: Restore app icon from CpIPOS Web
         shell: pwsh
         run: |
-          if (!(Test-Path $env:WINDOWS_RUNTIME_ICON_B64)) {
-            throw "Icon source not found: $env:WINDOWS_RUNTIME_ICON_B64"
-          }
           $iconDir = Split-Path -Parent $env:WINDOWS_RUNTIME_ICON
           New-Item -ItemType Directory -Force -Path $iconDir | Out-Null
-          $iconBase64 = (Get-Content $env:WINDOWS_RUNTIME_ICON_B64 -Raw).Trim()
-          [System.IO.File]::WriteAllBytes($env:WINDOWS_RUNTIME_ICON, [Convert]::FromBase64String($iconBase64))
+
+          $webIconUrl = "https://cp-ipos-web.vercel.app/favicon.ico"
+          $downloadedIcon = "$env:RUNNER_TEMP\cpipos-web-favicon.ico"
+          $usedWebIcon = $false
+
+          try {
+            Invoke-WebRequest -Uri $webIconUrl -OutFile $downloadedIcon -UseBasicParsing -TimeoutSec 20
+            $bytes = [System.IO.File]::ReadAllBytes($downloadedIcon)
+            $isIco = $bytes.Length -gt 6 -and $bytes[0] -eq 0 -and $bytes[1] -eq 0 -and $bytes[2] -eq 1 -and $bytes[3] -eq 0
+            if ($isIco) {
+              Copy-Item -Force $downloadedIcon $env:WINDOWS_RUNTIME_ICON
+              $usedWebIcon = $true
+              Write-Host "Using CpIPOS Web favicon as Windows icon: $webIconUrl"
+            }
+            else {
+              Write-Warning "Downloaded web icon is not a valid .ico file. Falling back to repository icon source."
+            }
+          }
+          catch {
+            Write-Warning "Could not download CpIPOS Web favicon. Falling back to repository icon source. $($_.Exception.Message)"
+          }
+
+          if (-not $usedWebIcon) {
+            if (!(Test-Path $env:WINDOWS_RUNTIME_ICON_B64)) {
+              throw "Icon source not found: $env:WINDOWS_RUNTIME_ICON_B64"
+            }
+            $iconBase64 = (Get-Content $env:WINDOWS_RUNTIME_ICON_B64 -Raw).Trim()
+            [System.IO.File]::WriteAllBytes($env:WINDOWS_RUNTIME_ICON, [Convert]::FromBase64String($iconBase64))
+            Write-Host "Using repository fallback icon source: $env:WINDOWS_RUNTIME_ICON_B64"
+          }
+
           if (!(Test-Path $env:WINDOWS_RUNTIME_ICON)) {
             throw "Icon was not restored: $env:WINDOWS_RUNTIME_ICON"
           }
+
+          $finalBytes = [System.IO.File]::ReadAllBytes($env:WINDOWS_RUNTIME_ICON)
+          if (!($finalBytes.Length -gt 6 -and $finalBytes[0] -eq 0 -and $finalBytes[1] -eq 0 -and $finalBytes[2] -eq 1 -and $finalBytes[3] -eq 0)) {
+            throw "Final app icon is not a valid Windows .ico file: $env:WINDOWS_RUNTIME_ICON"
+          }
+          Write-Host "Windows icon ready: $env:WINDOWS_RUNTIME_ICON ($($finalBytes.Length) bytes)"
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
