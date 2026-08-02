@@ -12,6 +12,7 @@ internal sealed class MainForm : Form
     private readonly LocalPrintBridge _bridge;
     private readonly WebView2 _webView;
     private readonly Label _statusLabel;
+    private readonly Button _closeButton;
 
     public MainForm(RuntimeOptions options, LocalPrintBridge bridge)
     {
@@ -24,6 +25,7 @@ internal sealed class MainForm : Form
         KeyPreview = true;
         Width = 1280;
         Height = 800;
+        MinimumSize = new Size(960, 640);
 
         if (_options.Fullscreen)
         {
@@ -31,15 +33,50 @@ internal sealed class MainForm : Form
             WindowState = FormWindowState.Maximized;
         }
 
+        var titleBar = new Panel
+        {
+            Dock = DockStyle.Top,
+            Height = 40,
+            BackColor = Color.FromArgb(7, 40, 86),
+            Padding = new Padding(12, 4, 8, 4)
+        };
+
+        var titleLabel = new Label
+        {
+            Dock = DockStyle.Fill,
+            ForeColor = Color.White,
+            BackColor = Color.Transparent,
+            TextAlign = ContentAlignment.MiddleLeft,
+            Font = new Font("Tahoma", 9, FontStyle.Bold, GraphicsUnit.Point),
+            Text = "CpIPOS Windows Runtime"
+        };
+
+        _closeButton = new Button
+        {
+            Dock = DockStyle.Right,
+            Width = 118,
+            Text = "ปิดโปรแกรม",
+            BackColor = Color.FromArgb(180, 35, 45),
+            ForeColor = Color.White,
+            FlatStyle = FlatStyle.Flat,
+            Font = new Font("Tahoma", 9, FontStyle.Bold, GraphicsUnit.Point),
+            TabStop = false
+        };
+        _closeButton.FlatAppearance.BorderSize = 0;
+        _closeButton.Click += (_, _) => Close();
+
+        titleBar.Controls.Add(titleLabel);
+        titleBar.Controls.Add(_closeButton);
+
         _statusLabel = new Label
         {
             Dock = DockStyle.Top,
             Height = 28,
             ForeColor = Color.White,
-            BackColor = Color.FromArgb(7, 40, 86),
+            BackColor = Color.FromArgb(8, 47, 100),
             TextAlign = ContentAlignment.MiddleLeft,
             Padding = new Padding(12, 0, 0, 0),
-            Text = $"CpIPOS Windows Runtime | Bridge: {_options.BridgeHealthUrl} | Printer: {(_options.WindowsPrinter.Length > 0 ? _options.WindowsPrinter : "Windows default")}" 
+            Text = $"Bridge: {_options.BridgeHealthUrl} | Printer: {(_options.WindowsPrinter.Length > 0 ? _options.WindowsPrinter : "Windows default")} | F11 เต็มจอ | Esc ปิด"
         };
 
         _webView = new WebView2
@@ -50,6 +87,7 @@ internal sealed class MainForm : Form
 
         Controls.Add(_webView);
         Controls.Add(_statusLabel);
+        Controls.Add(titleBar);
 
         Shown += async (_, _) => await InitializeWebViewAsync();
         KeyDown += HandleKeyDown;
@@ -81,6 +119,12 @@ internal sealed class MainForm : Form
                 if (string.Equals(message, "retry", StringComparison.OrdinalIgnoreCase))
                 {
                     NavigateToApp();
+                    return;
+                }
+
+                if (string.Equals(message, "exit", StringComparison.OrdinalIgnoreCase))
+                {
+                    Close();
                 }
             };
 
@@ -111,7 +155,7 @@ internal sealed class MainForm : Form
         var payload = new
         {
             runtime = "windows_native_webview2",
-            native_app_version = "0.1.0",
+            native_app_version = "0.1.1",
             native_bridge_version = _bridge.Version,
             bridge_health_url = _options.BridgeHealthUrl,
             bridge_print_url = _options.BridgePrintUrl,
@@ -136,18 +180,25 @@ internal sealed class MainForm : Form
     private void NavigateToApp()
     {
         if (_webView.CoreWebView2 == null) return;
-        _statusLabel.Text = $"CpIPOS Windows Runtime | Loading: {_options.AppUrl} | Bridge: {_options.BridgeHealthUrl}";
+        _statusLabel.Text = $"Loading: {_options.AppUrl} | Bridge: {_options.BridgeHealthUrl} | F11 เต็มจอ | Esc ปิด";
         _webView.CoreWebView2.Navigate(_options.AppUrl);
     }
 
     private void ShowOfflinePage(string reason)
     {
-        _statusLabel.Text = $"CpIPOS Windows Runtime | Offline fallback | {reason}";
+        _statusLabel.Text = $"Offline fallback | {reason} | Esc ปิด";
         _webView.NavigateToString(OfflinePage.Build(reason, _options));
     }
 
     private void HandleKeyDown(object? sender, KeyEventArgs eventArgs)
     {
+        if (eventArgs.KeyCode == Keys.Escape || (eventArgs.Alt && eventArgs.KeyCode == Keys.F4) || (eventArgs.Control && eventArgs.KeyCode == Keys.Q))
+        {
+            Close();
+            eventArgs.Handled = true;
+            return;
+        }
+
         if (eventArgs.KeyCode == Keys.F11)
         {
             ToggleFullscreen();
@@ -177,11 +228,13 @@ internal sealed class MainForm : Form
             WindowState = FormWindowState.Normal;
             Width = 1280;
             Height = 800;
+            _closeButton.Text = "ปิดโปรแกรม";
         }
         else
         {
             FormBorderStyle = FormBorderStyle.None;
             WindowState = FormWindowState.Maximized;
+            _closeButton.Text = "ปิดโปรแกรม";
         }
     }
 }
@@ -207,7 +260,8 @@ internal static class OfflinePage
     h1 { margin:0 0 12px; font-size:28px; }
     p { color:#dce8ff; line-height:1.65; }
     code { display:block; background:#06152c; border:1px solid #274a82; border-radius:12px; padding:12px; color:#b8d4ff; overflow:auto; }
-    button { border:0; border-radius:12px; padding:12px 18px; font-weight:700; background:#2b7cff; color:white; cursor:pointer; margin-right:8px; }
+    button { border:0; border-radius:12px; padding:12px 18px; font-weight:700; background:#2b7cff; color:white; cursor:pointer; margin-right:8px; margin-top:8px; }
+    button.exit { background:#b4232d; }
     .muted { color:#a7bee7; font-size:13px; }
   </style>
 </head>
@@ -219,7 +273,8 @@ internal static class OfflinePage
     <p>การขาย offline เต็มรูปแบบยังเป็นเฟสถัดไป ต้องมี local database, order queue, payment queue และ sync engine ก่อนใช้งานจริง</p>
     <button onclick="chrome.webview.postMessage('retry')">ลองโหลด POS ใหม่</button>
     <button onclick="location.href='{{healthUrl}}'">เช็ก Bridge</button>
-    <p class="muted">ปุ่มลัด: F11 สลับเต็มจอ, Ctrl+R โหลดใหม่, Ctrl+Shift+D เปิด DevTools</p>
+    <button class="exit" onclick="chrome.webview.postMessage('exit')">ปิดโปรแกรม</button>
+    <p class="muted">ปุ่มลัด: Esc ปิดโปรแกรม, F11 สลับเต็มจอ, Ctrl+R โหลดใหม่, Ctrl+Shift+D เปิด DevTools</p>
   </main>
 </body>
 </html>
