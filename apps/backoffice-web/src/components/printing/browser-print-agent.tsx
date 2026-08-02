@@ -29,6 +29,8 @@ type SerialPortLike = {
 type SerialLike = {
   getPorts(): Promise<SerialPortLike[]>;
   requestPort(options?: unknown): Promise<SerialPortLike>;
+  addEventListener?(type: "connect" | "disconnect", listener: EventListener): void;
+  removeEventListener?(type: "connect" | "disconnect", listener: EventListener): void;
 };
 
 type BrowserPrintJob = {
@@ -52,13 +54,6 @@ type ClaimResponse = {
   };
 };
 
-type ParsedReceiptItem = {
-  name: string;
-  qty: string;
-  total: string;
-  unit: string | null;
-};
-
 declare global {
   interface Navigator {
     serial?: SerialLike;
@@ -66,22 +61,9 @@ declare global {
 }
 
 const POLL_MS = 4000;
-const APP_VERSION = "browser-web-serial-1.0.3-auto-receipt-layout";
-
-const LEGACY_RECEIPT_LABELS = [
-  "ชื่อผู้ขาย",
-  "กะ",
-  "โหมด",
-  "เลขที่บิล",
-  "สมาชิก",
-  "วันที่",
-  "การชำระเงิน",
-  "ส่วนลด",
-  "ภาษี",
-  "ยอดที่ต้องชำระ",
-  "รับเงินจากลูกค้า",
-  "เงินทอน"
-];
+const SERIAL_RETRY_DELAY_MS = 350;
+const SERIAL_MAX_OPEN_FAILURES_BEFORE_RESELECT = 4;
+const APP_VERSION = "browser-web-serial-1.0.4-stable-reconnect";
 
 function readBool(value: string | null) {
   return value === "1" || value === "true";
@@ -104,9 +86,23 @@ function readConfig() {
 
 function dispatchStatus(status: Omit<BrowserPrintAgentStatus, "updatedAt">) {
   if (typeof window === "undefined") return;
-  window.dispatchEvent(new CustomEvent<BrowserPrintAgentStatus>(BROWSER_PRINT_AGENT_STATUS_EVENT, {
-    detail: { ...status, updatedAt: new Date().toISOString() }
-  }));
+  window.dispatchEvent(
+    new CustomEvent<BrowserPrintAgentStatus>(BROWSER_PRINT_AGENT_STATUS_EVENT, {
+      detail: { ...status, updatedAt: new Date().toISOString() }
+    })
+  );
+}
+
+function readRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
+}
+
+function readString(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function sleep(ms: number) {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
 }
 
 function isCashDrawerJob(job: BrowserPrintJob) {
@@ -117,14 +113,6 @@ function isCashDrawerJob(job: BrowserPrintJob) {
 
 function bytesForCashDrawer() {
   return new Uint8Array([0x1b, 0x40, 0x1b, 0x70, 0x00, 0x32, 0xfa]);
-}
-
-function readRecord(value: unknown): Record<string, unknown> {
-  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
-}
-
-function readString(value: unknown): string | null {
-  return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
 function receiptHtmlForJob(job: BrowserPrintJob) {
@@ -140,7 +128,7 @@ function decodeHtml(value: string) {
   return textarea.value;
 }
 
-function htmlToLines(html: string) {
+function stripHtmlToLines(html: string) {
   const withBreaks = html
     .replace(/<script[\s\S]*?<\/script>/gi, " ")
     .replace(/<style[\s\S]*?<\/style>/gi, " ")
@@ -152,71 +140,11 @@ function htmlToLines(html: string) {
     .split(/\n+/)
     .map((line) => line.replace(/\s+/g, " ").trim())
     .filter(Boolean)
-    .slice(0, 120);
+    .slice(0, 160);
 }
 
 function textToLines(text: string) {
-  return text.split(/\r?\n/).map((line) => line.trim()).filter(Boolean).slice(0, 120);
-}
-
-function wrapCanvasLine(ctx: CanvasRenderingContext2D, line: string, maxWidth: number) {
-  if (ctx.measureText(line).width <= maxWidth) return [line];
-  const words = line.split(/\s+/).filter(Boolean);
-  const wrapped: string[] = [];
-  let current = "";
-  for (const word of words.length ? words : [line]) {
-    const next = current ? current + " " + word : word;
-    if (ctx.measureText(next).width <= maxWidth || !current) {
-      current = next;
-    } else {
-      wrapped.push(current);
-      current = word;
-    }
-  }
-  if (current) wrapped.push(current);
-  return wrapped;
-}
-
-function escapeHtml(value: unknown) {
-  return String(value ?? "").replace(/[&<>"']/g, (char) => (
-    { "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;", "'": "&#39;" }[char] ?? char
-  ));
-}
-
-function escapeAttr(value: unknown) {
-  return escapeHtml(value).replace(/`/g, "&#96;");
-}
-
-function loadImage(src: string) {
-  return new Promise<HTMLImageElement | null>((resolve) => {
-    const img = new Image();
-    img.onload = () => resolve(img);
-    img.onerror = () => resolve(null);
-    img.src = src;
-  });
-}
-
-function rasterBytesFromCanvas(canvas: HTMLCanvasElement) {
-  const ctx = canvas.getContext("2d");
-  if (!ctx) throw new Error("canvas_context_missing");
-  const image = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
-  const widthBytes = Math.ceil(canvas.width / 8);
-  const raster = new Uint8Array(widthBytes * canvas.height);
-  for (let y = 0; y < canvas.height; y += 1) {
-    for (let x = 0; x < canvas.width; x += 1) {
-      const offset = (y * canvas.width + x) * 4;
-      const alpha = image[offset + 3] ?? 0;
-      const lum = ((image[offset] ?? 255) * 0.299) + ((image[offset + 1] ?? 255) * 0.587) + ((image[offset + 2] ?? 255) * 0.114);
-      if (alpha > 96 && lum < 190) raster[y * widthBytes + (x >> 3)] |= 0x80 >> (x & 7);
-    }
-  }
-  const header = new Uint8Array([0x1b, 0x40, 0x1d, 0x76, 0x30, 0x00, widthBytes & 0xff, (widthBytes >> 8) & 0xff, canvas.height & 0xff, (canvas.height >> 8) & 0xff]);
-  const cut = new Uint8Array([0x0a, 0x0a, 0x1d, 0x56, 0x00]);
-  const output = new Uint8Array(header.length + raster.length + cut.length);
-  output.set(header, 0);
-  output.set(raster, header.length);
-  output.set(cut, header.length + raster.length);
-  return output;
+  return text.split(/\r?\n/).map((line) => line.trim()).filter(Boolean).slice(0, 160);
 }
 
 function paperWidthMmForJob(job: BrowserPrintJob): 58 | 80 {
@@ -231,295 +159,70 @@ function cssPxForMm(mm: number) {
   return mm * (96 / 25.4);
 }
 
-function receiptCssFromHtml(html: string) {
-  const parsed = new DOMParser().parseFromString(html, "text/html");
-  return Array.from(parsed.querySelectorAll("style"))
-    .map((style) => style.textContent ?? "")
-    .join("\n");
-}
-
-function receiptBodyHtmlFromHtml(html: string) {
-  const parsed = new DOMParser().parseFromString(html, "text/html");
-  parsed.querySelectorAll("script,iframe,object,embed").forEach((node) => node.remove());
-  return parsed.body?.innerHTML?.trim() || html;
-}
-
-function firstImageSrcFromHtml(html: string) {
-  const parsed = new DOMParser().parseFromString(html, "text/html");
-  return parsed.querySelector("img[src]")?.getAttribute("src")?.trim() || null;
-}
-
-function normalizeReceiptCss(css: string) {
-  return css
-    .replace(/@page[^{}]*\{[^{}]*\}/gi, "")
-    .replace(/\bhtml\b/gi, ".receipt-print-page")
-    .replace(/\bbody\b/gi, ".receipt-print-page");
-}
-
-function baseReceiptCss(paperWidthMm: 58 | 80) {
-  return `
-.receipt-print-page {
-  box-sizing: border-box;
-  width: ${paperWidthMm}mm;
-  min-height: 1px;
-  margin: 0;
-  overflow: visible;
-  background: #fff;
-  color: #000;
-  font-family: Tahoma, "Noto Sans Thai", Arial, sans-serif;
-  -webkit-font-smoothing: antialiased;
-  text-rendering: geometricPrecision;
-}
-.receipt-print-page * {
-  box-sizing: border-box;
-}
-.receipt-print-page img {
-  max-width: 100%;
-}
-`;
-}
-
-function defaultReceiptLogoSvg() {
-  return `
-<svg class="receipt-fallback-logo" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 280 96" role="img" aria-label="CpIPOS">
-  <text x="140" y="38" text-anchor="middle" font-family="Tahoma,Arial,sans-serif" font-size="26" font-weight="900" fill="#000">CpIPOS</text>
-  <text x="140" y="70" text-anchor="middle" font-family="Tahoma,Arial,sans-serif" font-size="18" font-weight="800" fill="#000">CpIPOS</text>
-</svg>`;
-}
-
-function normalizeLegacyReceiptLine(line: string, labelIndex: { current: number }) {
-  let value = line
-    .replace(/\?(\d)/g, "฿$1")
-    .replace(/0\s+\?{2,}\s*\/\s*0\s+\?{2,}/g, "0 คะแนน / 0 แต้ม")
-    .replace(/\bopen\b/i, "open");
-
-  if (!value.includes("?")) return value;
-
-  const label = LEGACY_RECEIPT_LABELS[Math.min(labelIndex.current, LEGACY_RECEIPT_LABELS.length - 1)] ?? "ข้อมูล";
-  labelIndex.current += 1;
-
-  const suffix = value.replace(/\?+/g, " ").replace(/\s+/g, " ").trim();
-  if (!suffix) return label;
-  if (/^[฿\d.,:\-/\sA-Zก-๙]+$/i.test(suffix)) return `${label} ${suffix}`;
-  return value.replace(/\?+/g, label).replace(/\s+/g, " ").trim();
-}
-
-function isReceiptDivider(line: string) {
-  return /^-+$/.test(line.replace(/\s+/g, ""));
-}
-
-function looksLikeLegacyTextReceipt(html: string, lines: string[]) {
-  return (
-    html.includes("white-space:pre-wrap") ||
-    lines.some((line) => /\?{2,}/.test(line))
-  );
-}
-
-function dedupeReceiptLines(lines: string[]) {
-  const result: string[] = [];
-  for (const line of lines) {
-    const previous = result[result.length - 1];
-    if (line === "CpIPOS" && previous === "CpIPOS") continue;
-    result.push(line);
-  }
-  return result;
-}
-
-function splitReceiptSegments(lines: string[]) {
-  const segments: string[][] = [[]];
-  for (const line of lines) {
-    if (isReceiptDivider(line)) {
-      if (segments[segments.length - 1]!.length > 0) segments.push([]);
-      continue;
+function wrapCanvasLine(ctx: CanvasRenderingContext2D, line: string, maxWidth: number) {
+  if (ctx.measureText(line).width <= maxWidth) return [line];
+  const words = line.split(/\s+/).filter(Boolean);
+  const wrapped: string[] = [];
+  let current = "";
+  for (const word of words.length ? words : [line]) {
+    const next = current ? `${current} ${word}` : word;
+    if (ctx.measureText(next).width <= maxWidth || !current) {
+      current = next;
+    } else {
+      wrapped.push(current);
+      current = word;
     }
-    segments[segments.length - 1]!.push(line);
   }
-  return segments.filter((segment) => segment.length > 0);
+  if (current) wrapped.push(current);
+  return wrapped;
 }
 
-function parseLegacyItemRows(lines: string[]): ParsedReceiptItem[] {
-  const items: ParsedReceiptItem[] = [];
-  for (let index = 0; index < lines.length; index += 1) {
-    const line = lines[index] ?? "";
-    const match = line.match(/^(.+?)\s+(\d+(?:\.\d+)?)\s+(\d[\d,.]*(?:\.\d{2})?)$/);
-    if (!match) continue;
-    const unitLine = lines[index + 1]?.match(/^x\s+(.+)$/i)?.[1]?.trim() ?? null;
-    items.push({
-      name: match[1]!.trim(),
-      qty: match[2]!.replace(/\.00$/, ""),
-      total: match[3]!.trim(),
-      unit: unitLine
-    });
-    if (unitLine) index += 1;
-  }
-  return items;
-}
-
-function parseLegacyMetaRows(lines: string[]) {
-  const labelIndex = { current: 0 };
-  return lines
-    .map((line) => normalizeLegacyReceiptLine(line, labelIndex))
-    .filter((line) => line !== "CpIPOS")
-    .map((line) => {
-      const knownLabel = LEGACY_RECEIPT_LABELS.find((label) => line.startsWith(label));
-      if (knownLabel) {
-        return {
-          label: knownLabel,
-          value: line.slice(knownLabel.length).replace(/^\s*[:：-]?\s*/, "").trim() || "-"
-        };
-      }
-      const parts = line.split(/\s{2,}|\s:\s|:\s/).filter(Boolean);
-      if (parts.length >= 2) return { label: parts[0]!, value: parts.slice(1).join(" ") };
-      return { label: "ข้อมูล", value: line };
-    });
-}
-
-function parseLegacySummaryRows(lines: string[]) {
-  const labelIndex = { current: 6 };
-  const rows = lines
-    .map((line) => normalizeLegacyReceiptLine(line, labelIndex))
-    .filter((line) => line !== "CpIPOS" && !/^x\s+/i.test(line));
-  return rows.map((line) => {
-    const knownLabel = LEGACY_RECEIPT_LABELS.find((label) => line.startsWith(label));
-    if (knownLabel) {
-      return {
-        label: knownLabel,
-        value: line.slice(knownLabel.length).replace(/^\s*[:：-]?\s*/, "").trim() || "-"
-      };
+function rasterBytesFromCanvas(canvas: HTMLCanvasElement) {
+  const ctx = canvas.getContext("2d");
+  if (!ctx) throw new Error("canvas_context_missing");
+  const image = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+  const widthBytes = Math.ceil(canvas.width / 8);
+  const raster = new Uint8Array(widthBytes * canvas.height);
+  for (let y = 0; y < canvas.height; y += 1) {
+    for (let x = 0; x < canvas.width; x += 1) {
+      const offset = (y * canvas.width + x) * 4;
+      const alpha = image[offset + 3] ?? 0;
+      const lum = (image[offset] ?? 255) * 0.299 + (image[offset + 1] ?? 255) * 0.587 + (image[offset + 2] ?? 255) * 0.114;
+      if (alpha > 96 && lum < 190) raster[y * widthBytes + (x >> 3)] |= 0x80 >> (x & 7);
     }
-    const match = line.match(/^(.+?)\s+(฿?\d[\d,.]*(?:\.\d{2})?)$/);
-    if (match) return { label: match[1]!.trim(), value: match[2]!.trim() };
-    return { label: line, value: "" };
+  }
+  const header = new Uint8Array([
+    0x1b,
+    0x40,
+    0x1d,
+    0x76,
+    0x30,
+    0x00,
+    widthBytes & 0xff,
+    (widthBytes >> 8) & 0xff,
+    canvas.height & 0xff,
+    (canvas.height >> 8) & 0xff
+  ]);
+  const cut = new Uint8Array([0x0a, 0x0a, 0x1d, 0x56, 0x00]);
+  const output = new Uint8Array(header.length + raster.length + cut.length);
+  output.set(header, 0);
+  output.set(raster, header.length);
+  output.set(cut, header.length + raster.length);
+  return output;
+}
+
+function loadImage(src: string) {
+  return new Promise<HTMLImageElement | null>((resolve) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = () => resolve(null);
+    img.src = src;
   });
 }
 
-function storeField(job: BrowserPrintJob, key: string) {
-  const payload = readRecord(job.payload_json);
-  const metadata = readRecord(job.metadata);
-  return readString(payload[key]) ?? readString(metadata[key]);
-}
-
-function buildLegacyReceiptHtml(job: BrowserPrintJob, sourceHtml: string) {
-  const parsedLines = dedupeReceiptLines(htmlToLines(sourceHtml));
-  const fallbackLines = textToLines(job.payload_text?.trim() || "");
-  const lines = parsedLines.length > 0 ? parsedLines : fallbackLines;
-  const segments = splitReceiptSegments(lines);
-  const headerLines = segments[0] ?? [];
-  const metaLines = segments[1] ?? [];
-  const itemLines = segments[2] ?? [];
-  const summaryLines = segments[3] ?? [];
-  const imageSrc = firstImageSrcFromHtml(sourceHtml) ?? storeField(job, "store_logo_url");
-  const logoHtml = imageSrc
-    ? `<img class="receipt-logo-img" src="${escapeAttr(imageSrc)}" alt="CpIPOS" />`
-    : defaultReceiptLogoSvg();
-  const headerWithoutBrand = headerLines.filter((line) => line !== "CpIPOS");
-  const storeName = storeField(job, "store_name") ?? headerWithoutBrand[0] ?? "CpIPOS";
-  const storePhone = storeField(job, "store_phone") ?? headerWithoutBrand.find((line) => /^[0-9+\-\s]{8,}$/.test(line)) ?? null;
-  const storeAddress = storeField(job, "store_address") ?? null;
-  const branchName = storeField(job, "branch_name") ?? headerWithoutBrand.find((line) => line !== storeName && line !== storePhone) ?? null;
-  const orderNo = storeField(job, "order_no");
-  const items = parseLegacyItemRows(itemLines);
-  const metaRows = parseLegacyMetaRows(metaLines).map((row) => {
-    if (row.label === "เลขที่บิล" && orderNo) return { ...row, value: orderNo };
-    return row;
-  });
-  const summaryRows = parseLegacySummaryRows(summaryLines);
-  const grandRowIndex = summaryRows.findIndex((row) => row.label.includes("ยอด") || row.label.includes("รวมสุทธิ"));
-  const grandRow = grandRowIndex >= 0 ? summaryRows[grandRowIndex] : null;
-  const otherSummaryRows = summaryRows.filter((_, index) => index !== grandRowIndex);
-
-  const metaHtml = metaRows
-    .map((row) => `<div class="meta-line"><span>${escapeHtml(row.label)}</span><strong>${escapeHtml(row.value)}</strong></div>`)
-    .join("");
-  const itemHtml = (items.length > 0 ? items : [{ name: lines.join(" ").slice(0, 80), qty: "1", total: "0.00", unit: null }])
-    .map((item) => `
-      <tr>
-        <td class="col-name"><div class="name">${escapeHtml(item.name)}</div>${item.unit ? `<div class="unit">x ${escapeHtml(item.unit)}</div>` : ""}</td>
-        <td class="col-qty">${escapeHtml(item.qty)}</td>
-        <td class="col-total">${escapeHtml(item.total)}</td>
-      </tr>`)
-    .join("");
-  const summaryHtml = otherSummaryRows
-    .map((row, index) => `<div class="summary-line ${index === 0 ? "is-heading" : ""}"><span>${escapeHtml(row.label)}</span><strong>${escapeHtml(row.value)}</strong></div>`)
-    .join("");
-
-  return `<!doctype html>
-<html lang="th">
-<head>
-  <meta charset="utf-8" />
-  <style>
-    @page { size: ${paperWidthMmForJob(job)}mm auto; margin: 0; }
-    body { margin: 0; width: ${paperWidthMmForJob(job)}mm; background: #fff; color: #000; }
-    .receipt-print-compatible {
-      width: ${paperWidthMmForJob(job) === 58 ? 48 : 70}mm;
-      margin: 0 auto;
-      padding: 1.2mm 0 2mm;
-      font-family: Tahoma, "Noto Sans Thai", Arial, sans-serif;
-      font-size: 14px;
-      font-weight: 800;
-      line-height: 1.22;
-      color: #000;
-      background: #fff;
-    }
-    .receipt-logo { display: flex; justify-content: center; align-items: center; min-height: 10mm; margin-bottom: 1mm; }
-    .receipt-logo-img { display: block; max-width: 28mm; max-height: 9mm; object-fit: contain; filter: grayscale(1) contrast(1.35); }
-    .receipt-fallback-logo { display: block; width: 24mm; height: auto; }
-    .head-title { text-align: center; font-size: 18px; font-weight: 900; line-height: 1.1; margin-bottom: 0.6mm; }
-    .head-sub { text-align: center; font-size: 15px; font-weight: 900; line-height: 1.15; }
-    .head-muted { text-align: center; font-size: 14px; font-weight: 800; line-height: 1.15; }
-    .divider { border: 0; border-top: 1.6px dashed #000; margin: 1.4mm 0; height: 0; }
-    .meta-line { display: flex; justify-content: space-between; gap: 2mm; margin: 0.55mm 0; }
-    .meta-line span { font-weight: 800; }
-    .meta-line strong { max-width: 29mm; text-align: right; font-weight: 900; overflow-wrap: anywhere; }
-    table { width: 100%; border-collapse: collapse; }
-    td { padding: 0.6mm 0; vertical-align: top; }
-    .col-name { width: auto; }
-    .col-qty { width: 8mm; text-align: center; font-weight: 900; }
-    .col-total { width: 17mm; text-align: right; font-weight: 900; white-space: nowrap; }
-    .name { font-size: 14px; font-weight: 900; line-height: 1.16; overflow-wrap: anywhere; }
-    .unit { font-size: 13px; font-weight: 800; line-height: 1.1; margin-top: 0.2mm; }
-    .summary-line { display: flex; justify-content: space-between; align-items: baseline; gap: 2mm; margin: 0.55mm 0; }
-    .summary-line span { font-weight: 900; }
-    .summary-line strong { font-weight: 900; white-space: nowrap; }
-    .summary-line.is-heading { padding-bottom: 0.8mm; border-bottom: 1.4px dashed #000; margin-bottom: 0.8mm; }
-    .summary-line.grand { border-top: 1.8px solid #000; border-bottom: 1.8px solid #000; padding: 0.7mm 0; margin: 1mm 0; font-size: 18px; }
-    .summary-line.grand strong { font-size: 20px; }
-    .foot { text-align: center; margin-top: 1.4mm; font-size: 14px; font-weight: 500; }
-  </style>
-</head>
-<body>
-  <main class="receipt-print-compatible">
-    <div class="receipt-logo">${logoHtml}</div>
-    <div class="head-title">${escapeHtml(storeName)}</div>
-    ${storePhone ? `<div class="head-sub">${escapeHtml(storePhone)}</div>` : ""}
-    ${storeAddress ? `<div class="head-muted">${escapeHtml(storeAddress)}</div>` : ""}
-    ${branchName ? `<div class="head-muted">${escapeHtml(branchName)}</div>` : ""}
-    <hr class="divider" />
-    ${metaHtml}
-    <hr class="divider" />
-    <table><tbody>${itemHtml}</tbody></table>
-    <hr class="divider" />
-    ${summaryHtml}
-    ${grandRow ? `<div class="summary-line grand"><span>${escapeHtml(grandRow.label)}</span><strong>${escapeHtml(grandRow.value)}</strong></div>` : ""}
-    <hr class="divider" />
-    <div class="foot">CpIPOS</div>
-  </main>
-</body>
-</html>`;
-}
-
-function resolveReceiptHtmlForRaster(job: BrowserPrintJob, html: string) {
-  const lines = htmlToLines(html);
-  if (looksLikeLegacyTextReceipt(html, lines)) {
-    return buildLegacyReceiptHtml(job, html);
-  }
-  return html;
-}
-
-async function waitForReceiptAssets(root: HTMLElement) {
+async function waitForAssets(root: HTMLElement) {
   const fonts = "fonts" in document ? document.fonts : null;
   await fonts?.ready.catch(() => undefined);
-
   const images = Array.from(root.querySelectorAll("img"));
   await Promise.allSettled(
     images.map(
@@ -534,41 +237,51 @@ async function waitForReceiptAssets(root: HTMLElement) {
         })
     )
   );
-
   await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
 }
 
+function sanitizeReceiptHtml(html: string) {
+  const parsed = new DOMParser().parseFromString(html, "text/html");
+  parsed.querySelectorAll("script,iframe,object,embed").forEach((node) => node.remove());
+  return {
+    styles: Array.from(parsed.querySelectorAll("style")).map((style) => style.textContent ?? "").join("\n"),
+    body: parsed.body?.innerHTML?.trim() || html
+  };
+}
+
 async function rasterBytesFromReceiptHtml(job: BrowserPrintJob, html: string) {
-  const resolvedHtml = resolveReceiptHtmlForRaster(job, html);
   const paperWidthMm = paperWidthMmForJob(job);
   const printerWidthPx = printerDotsForPaper(paperWidthMm);
   const cssWidthPx = cssPxForMm(paperWidthMm);
   const scale = printerWidthPx / cssWidthPx;
-  const styleText = `${baseReceiptCss(paperWidthMm)}\n${normalizeReceiptCss(receiptCssFromHtml(resolvedHtml))}`;
-  const bodyHtml = receiptBodyHtmlFromHtml(resolvedHtml);
+  const sanitized = sanitizeReceiptHtml(html);
+  const styleText = `
+.receipt-print-page{box-sizing:border-box;width:${paperWidthMm}mm;min-height:1px;margin:0;overflow:visible;background:#fff;color:#000;font-family:Tahoma,"Noto Sans Thai",Arial,sans-serif;text-rendering:geometricPrecision;}
+.receipt-print-page *{box-sizing:border-box;}
+.receipt-print-page img{max-width:100%;}
+${sanitized.styles.replace(/@page[^{}]*\{[^{}]*\}/gi, "")}`;
 
-  const measureHost = document.createElement("div");
-  measureHost.style.position = "fixed";
-  measureHost.style.left = "-10000px";
-  measureHost.style.top = "0";
-  measureHost.style.width = `${cssWidthPx}px`;
-  measureHost.style.opacity = "0";
-  measureHost.style.pointerEvents = "none";
-  measureHost.style.zIndex = "-1";
+  const host = document.createElement("div");
+  host.style.position = "fixed";
+  host.style.left = "-10000px";
+  host.style.top = "0";
+  host.style.width = `${cssWidthPx}px`;
+  host.style.opacity = "0";
+  host.style.pointerEvents = "none";
+  host.style.zIndex = "-1";
 
-  const measurePage = document.createElement("div");
-  measurePage.className = "receipt-print-page";
-  measurePage.innerHTML = `<style>${styleText}</style>${bodyHtml}`;
-  measureHost.appendChild(measurePage);
-  document.body.appendChild(measureHost);
+  const page = document.createElement("div");
+  page.className = "receipt-print-page";
+  page.innerHTML = `<style>${styleText}</style>${sanitized.body}`;
+  host.appendChild(page);
+  document.body.appendChild(host);
 
   try {
-    await waitForReceiptAssets(measurePage);
-    const rect = measurePage.getBoundingClientRect();
-    const cssHeightPx = Math.ceil(Math.max(rect.height, measurePage.scrollHeight, 120));
+    await waitForAssets(page);
+    const rect = page.getBoundingClientRect();
+    const cssHeightPx = Math.ceil(Math.max(rect.height, page.scrollHeight, 120));
     const canvasHeightPx = Math.max(120, Math.ceil(cssHeightPx * scale));
-
-    const printPage = measurePage.cloneNode(true) as HTMLElement;
+    const printPage = page.cloneNode(true) as HTMLElement;
     printPage.setAttribute("xmlns", "http://www.w3.org/1999/xhtml");
     const serializedPage = new XMLSerializer().serializeToString(printPage);
     const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${cssWidthPx}" height="${cssHeightPx}" viewBox="0 0 ${cssWidthPx} ${cssHeightPx}"><foreignObject width="100%" height="100%">${serializedPage}</foreignObject></svg>`;
@@ -587,23 +300,21 @@ async function rasterBytesFromReceiptHtml(job: BrowserPrintJob, html: string) {
     ctx.drawImage(image, 0, 0, printerWidthPx, canvasHeightPx);
     return rasterBytesFromCanvas(canvas);
   } finally {
-    measureHost.remove();
+    host.remove();
   }
 }
 
 async function rasterBytesFromReceiptText(job: BrowserPrintJob, html?: string | null) {
-  const rawLines = html ? htmlToLines(html) : textToLines(job.payload_text?.trim() || "CpIPOS print job");
-  const labelIndex = { current: 0 };
-  const lines = rawLines.map((line) => normalizeLegacyReceiptLine(line, labelIndex));
-  const canvas = document.createElement("canvas");
+  const lines = html ? stripHtmlToLines(html) : textToLines(job.payload_text?.trim() || "CpIPOS print job");
   const paperWidthMm = paperWidthMmForJob(job);
   const width = printerDotsForPaper(paperWidthMm);
-  const padding = 14;
-  const lineHeight = 30;
+  const canvas = document.createElement("canvas");
   const firstPass = canvas.getContext("2d");
   if (!firstPass) throw new Error("canvas_context_missing");
+  const padding = 14;
+  const lineHeight = 30;
   firstPass.font = '800 23px "Tahoma", "Noto Sans Thai", sans-serif';
-  const wrapped = lines.flatMap((line) => wrapCanvasLine(firstPass, line, width - padding * 2));
+  const wrapped = lines.flatMap((line) => wrapCanvasLine(firstPass, line.replace(/\?(\d)/g, "฿$1"), width - padding * 2));
   canvas.width = width;
   canvas.height = Math.max(120, padding * 2 + wrapped.length * lineHeight);
   const ctx = canvas.getContext("2d");
@@ -615,7 +326,7 @@ async function rasterBytesFromReceiptText(job: BrowserPrintJob, html?: string | 
   ctx.font = '800 23px "Tahoma", "Noto Sans Thai", sans-serif';
   let y = padding;
   for (const line of wrapped) {
-    const isCenter = y < padding + lineHeight * 5 || line === "CpIPOS";
+    const isCenter = y < padding + lineHeight * 4 || line === "CpIPOS";
     ctx.textAlign = isCenter ? "center" : "left";
     ctx.fillText(line, isCenter ? width / 2 : padding, y);
     y += lineHeight;
@@ -645,18 +356,7 @@ async function bytesForReceipt(job: BrowserPrintJob) {
       return rasterBytesFromReceiptText(job, html);
     }
   }
-
   return rasterBytesFromReceiptText(job);
-}
-
-async function writeToPort(port: SerialPortLike, bytes: Uint8Array) {
-  if (!port.writable) throw new Error("serial_port_not_writable");
-  const writer = port.writable.getWriter();
-  try {
-    await writer.write(bytes);
-  } finally {
-    writer.releaseLock();
-  }
 }
 
 async function readJson<T>(response: Response): Promise<T | null> {
@@ -679,19 +379,93 @@ async function postAgentApi<T>(path: string, agentKey: string, body: Record<stri
   return { response, body: await readJson<T>(response) };
 }
 
-async function ensureSerialPort(portRef: { current: SerialPortLike | null }, baudRate: number) {
-  if (portRef.current?.writable) return portRef.current;
-  const ports = await navigator.serial?.getPorts();
-  const port = ports?.[0] ?? null;
-  if (!port) return null;
+async function safeClosePort(port: SerialPortLike | null) {
+  if (!port) return;
+  try {
+    await port.close();
+  } catch {
+    // Ignore close errors from already-disconnected or already-closed ports.
+  }
+}
+
+async function tryOpenPort(port: SerialPortLike, baudRate: number) {
+  if (port.writable) return true;
   try {
     await port.open({ baudRate });
+    return Boolean(port.writable);
   } catch (error) {
     const message = error instanceof Error ? error.message.toLowerCase() : "";
-    if (!message.includes("already open")) throw error;
+    if (message.includes("already open") && port.writable) return true;
+    await safeClosePort(port);
+    await sleep(SERIAL_RETRY_DELAY_MS);
+    try {
+      await port.open({ baudRate });
+      return Boolean(port.writable);
+    } catch {
+      await safeClosePort(port);
+      return false;
+    }
   }
-  portRef.current = port;
-  return port;
+}
+
+type EnsureSerialPortResult =
+  | { ok: true; port: SerialPortLike }
+  | { ok: false; code: "serial_permission_required" | "serial_reconnect_waiting" | "serial_reselect_required"; message: string };
+
+async function ensureSerialPort(
+  portRef: { current: SerialPortLike | null },
+  baudRate: number,
+  consecutiveOpenFailuresRef: { current: number }
+): Promise<EnsureSerialPortResult> {
+  if (portRef.current?.writable) return { ok: true, port: portRef.current };
+
+  if (portRef.current) {
+    await safeClosePort(portRef.current);
+    portRef.current = null;
+  }
+
+  const ports = await navigator.serial?.getPorts().catch(() => []);
+  if (!ports || ports.length === 0) {
+    consecutiveOpenFailuresRef.current = 0;
+    return {
+      ok: false,
+      code: "serial_permission_required",
+      message: "ยังไม่ได้เลือกพอร์ตเครื่องพิมพ์ กรุณากดเลือกเครื่องจาก Windows อีกครั้ง"
+    };
+  }
+
+  for (const port of ports) {
+    if (await tryOpenPort(port, baudRate)) {
+      portRef.current = port;
+      consecutiveOpenFailuresRef.current = 0;
+      return { ok: true, port };
+    }
+  }
+
+  consecutiveOpenFailuresRef.current += 1;
+  if (consecutiveOpenFailuresRef.current >= SERIAL_MAX_OPEN_FAILURES_BEFORE_RESELECT) {
+    return {
+      ok: false,
+      code: "serial_reselect_required",
+      message: "Windows/Chrome ยังเปิดพอร์ตเดิมไม่ได้ กรุณากด Reset Agent แล้วเลือกเครื่องจาก Windows ใหม่หนึ่งครั้ง"
+    };
+  }
+
+  return {
+    ok: false,
+    code: "serial_reconnect_waiting",
+    message: "กำลังรอเครื่องพิมพ์กลับมาเชื่อมต่อ ระบบจะลองเปิดพอร์ตให้อัตโนมัติ"
+  };
+}
+
+async function writeToPort(port: SerialPortLike, bytes: Uint8Array) {
+  if (!port.writable) throw new Error("serial_port_not_writable");
+  const writer = port.writable.getWriter();
+  try {
+    await writer.write(bytes);
+  } finally {
+    writer.releaseLock();
+  }
 }
 
 export function BrowserPrintAgent() {
@@ -699,18 +473,20 @@ export function BrowserPrintAgent() {
   const portRef = useRef<SerialPortLike | null>(null);
   const jobsPrintedRef = useRef(0);
   const lastJobIdRef = useRef<string | null>(null);
+  const consecutiveOpenFailuresRef = useRef(0);
 
   useEffect(() => {
     const reload = () => setConfig(readConfig());
     const reset = () => {
       const port = portRef.current;
       portRef.current = null;
-      if (port) void port.close().catch(() => undefined);
+      consecutiveOpenFailuresRef.current = 0;
+      void safeClosePort(port);
       jobsPrintedRef.current = 0;
       lastJobIdRef.current = null;
       reload();
       dispatchStatus({
-        enabled: false,
+        enabled: readConfig().enabled,
         supported: Boolean(navigator.serial),
         connected: false,
         code: "reset",
@@ -719,16 +495,39 @@ export function BrowserPrintAgent() {
         lastJobId: null
       });
     };
+    const handleSerialDisconnect = () => {
+      const port = portRef.current;
+      portRef.current = null;
+      void safeClosePort(port);
+      dispatchStatus({
+        enabled: readConfig().enabled,
+        supported: Boolean(navigator.serial),
+        connected: false,
+        code: "serial_reconnect_waiting",
+        message: "เครื่องพิมพ์หลุดการเชื่อมต่อ ระบบจะลองเชื่อมต่อใหม่อัตโนมัติเมื่อเครื่องกลับมา",
+        jobsPrinted: jobsPrintedRef.current,
+        lastJobId: lastJobIdRef.current
+      });
+    };
+    const handleSerialConnect = () => {
+      consecutiveOpenFailuresRef.current = 0;
+      window.setTimeout(reload, 350);
+      window.setTimeout(reload, 1800);
+    };
     const onStorage = (event: StorageEvent) => {
       if ([BROWSER_PRINT_AGENT_ENABLED_KEY, BROWSER_PRINT_AGENT_KEY, BROWSER_PRINT_AGENT_BAUD_KEY].includes(event.key ?? "")) reload();
     };
     window.addEventListener(BROWSER_PRINT_AGENT_CONFIG_EVENT, reload);
     window.addEventListener(BROWSER_PRINT_AGENT_RESET_EVENT, reset);
     window.addEventListener("storage", onStorage);
+    navigator.serial?.addEventListener?.("disconnect", handleSerialDisconnect);
+    navigator.serial?.addEventListener?.("connect", handleSerialConnect);
     return () => {
       window.removeEventListener(BROWSER_PRINT_AGENT_CONFIG_EVENT, reload);
       window.removeEventListener(BROWSER_PRINT_AGENT_RESET_EVENT, reset);
       window.removeEventListener("storage", onStorage);
+      navigator.serial?.removeEventListener?.("disconnect", handleSerialDisconnect);
+      navigator.serial?.removeEventListener?.("connect", handleSerialConnect);
     };
   }, []);
 
@@ -737,7 +536,7 @@ export function BrowserPrintAgent() {
     let timer: number | null = null;
     const supported = Boolean(navigator.serial);
 
-    const stopWithStatus = (code: string, message: string) => {
+    const publish = (code: string, message: string) => {
       dispatchStatus({
         enabled: config.enabled,
         supported,
@@ -753,21 +552,21 @@ export function BrowserPrintAgent() {
       if (!active) return;
       try {
         if (!config.enabled) {
-          stopWithStatus("disabled", "Browser Print Agent is disabled.");
+          publish("disabled", "Browser Print Agent is disabled.");
           return;
         }
         if (!supported) {
-          stopWithStatus("web_serial_unsupported", "This browser does not support Web Serial.");
+          publish("web_serial_unsupported", "This browser does not support Web Serial.");
           return;
         }
         if (!config.agentKey) {
-          stopWithStatus("agent_key_missing", "Print Agent secret is missing.");
+          publish("agent_key_missing", "Print Agent secret is missing.");
           return;
         }
 
-        const port = await ensureSerialPort(portRef, config.baudRate);
-        if (!port) {
-          stopWithStatus("serial_permission_required", "Select a printer port once to allow auto reconnect.");
+        const ensured = await ensureSerialPort(portRef, config.baudRate, consecutiveOpenFailuresRef);
+        if (!ensured.ok) {
+          publish(ensured.code, ensured.message);
           return;
         }
 
@@ -782,27 +581,33 @@ export function BrowserPrintAgent() {
         for (const job of jobs) {
           try {
             const bytes = isCashDrawerJob(job) ? bytesForCashDrawer() : await bytesForReceipt(job);
-            await writeToPort(port, bytes);
+            await writeToPort(ensured.port, bytes);
             await postAgentApi(`/api/print-agent/v1/jobs/${encodeURIComponent(job.id)}/ack`, config.agentKey, {
               provider_job_id: `browser:${Date.now()}`,
               bytes_sent: bytes.length,
-              metadata: { provider: "browser_web_serial", baud_rate: config.baudRate }
+              metadata: { provider: "browser_web_serial", baud_rate: config.baudRate, app_version: APP_VERSION }
             });
             jobsPrintedRef.current += 1;
             lastJobIdRef.current = job.id;
           } catch (jobError) {
+            lastJobIdRef.current = job.id;
+            const message = jobError instanceof Error ? jobError.message : "browser_serial_print_failed";
+            const port = portRef.current;
+            portRef.current = null;
+            void safeClosePort(port);
             await postAgentApi(`/api/print-agent/v1/jobs/${encodeURIComponent(job.id)}/fail`, config.agentKey, {
-              error_message: jobError instanceof Error ? jobError.message : "browser_serial_print_failed",
+              error_message: message,
               error_code: "browser_serial_print_failed",
               retryable: true,
-              metadata: { provider: "browser_web_serial", baud_rate: config.baudRate }
+              metadata: { provider: "browser_web_serial", baud_rate: config.baudRate, app_version: APP_VERSION }
             });
+            publish("browser_serial_print_failed", message);
           }
         }
 
-        stopWithStatus(jobs.length > 0 ? "printed" : "ready", jobs.length > 0 ? `Printed ${jobs.length} job(s).` : "Ready.");
+        publish(jobs.length > 0 ? "printed" : "ready", jobs.length > 0 ? `Printed ${jobs.length} job(s).` : "Ready.");
       } catch (error) {
-        stopWithStatus("agent_error", error instanceof Error ? error.message : "Browser Print Agent failed.");
+        publish("agent_error", error instanceof Error ? error.message : "Browser Print Agent failed.");
       } finally {
         if (active) timer = window.setTimeout(tick, POLL_MS);
       }
