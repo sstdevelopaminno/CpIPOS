@@ -4,7 +4,7 @@
 #define AppIconName "cpipos.ico"
 
 #ifndef AppVersion
-#define AppVersion "0.1.3"
+#define AppVersion "0.1.4"
 #endif
 
 #ifndef SourceDir
@@ -41,24 +41,31 @@ ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 CloseApplications=yes
 RestartApplications=no
+ChangesAssociations=yes
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [InstallDelete]
+Type: files; Name: "{userdesktop}\CpIPOS.lnk"
 Type: files; Name: "{userdesktop}\CpIPOS Windows Runtime.lnk"
 Type: files; Name: "{userdesktop}\CpIpOS Mobile.lnk"
 Type: files; Name: "{userdesktop}\CpIPOS Mobile.lnk"
+Type: files; Name: "{group}\CpIPOS.lnk"
 Type: files; Name: "{group}\CpIPOS Windows Runtime.lnk"
 Type: files; Name: "{group}\CpIpOS Mobile.lnk"
 Type: files; Name: "{group}\CpIPOS Mobile.lnk"
+Type: files; Name: "{app}\cpipos.ico"
+Type: files; Name: "{app}\assets\cpipos.ico"
 
 [Files]
 Source: "{#SourceDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "{#IconFile}"; DestDir: "{app}"; DestName: "{#AppIconName}"; Flags: ignoreversion
+Source: "{#IconFile}"; DestDir: "{app}\assets"; DestName: "{#AppIconName}"; Flags: ignoreversion
 
 [Icons]
-Name: "{group}\CpIPOS"; Filename: "{app}\{#AppExeName}"; IconFilename: "{app}\assets\{#AppIconName}"
-Name: "{userdesktop}\CpIPOS"; Filename: "{app}\{#AppExeName}"; IconFilename: "{app}\assets\{#AppIconName}"; Tasks: desktopicon
+Name: "{group}\CpIPOS"; Filename: "{app}\{#AppExeName}"; IconFilename: "{app}\assets\{#AppIconName}"; IconIndex: 0
+Name: "{userdesktop}\CpIPOS"; Filename: "{app}\{#AppExeName}"; IconFilename: "{app}\assets\{#AppIconName}"; IconIndex: 0; Tasks: desktopicon
 
 [Tasks]
 Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription: "Additional shortcuts:"; Flags: checkedonce
