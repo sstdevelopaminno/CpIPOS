@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { usePathname } from "next/navigation";
 import { BrowserPrintAgent } from "@/components/printing/browser-print-agent";
 import { BrowserPrintAgentAlert } from "@/components/printing/browser-print-agent-alert";
+import { BrowserPrintAgentSerialRecovery } from "@/components/printing/browser-print-agent-serial-recovery";
 
 const POS_PATH_PREFIX = "/preview/pos";
 const MOBILE_DIRECT_AGENT_KEY = "cpi_browser_print_agent_mobile_direct_v1";
@@ -83,6 +84,7 @@ export function BrowserPrintAgentPosHost() {
   const platform = useMemo(() => detectPlatform(), []);
   const mode = resolveMode(platform, allowMobileDirectAgent);
   const isPosPath = Boolean(pathname?.startsWith(POS_PATH_PREFIX));
+  const shouldRunLocalAgent = mode === "desktop_local_agent";
 
   useEffect(() => {
     setAllowMobileDirectAgent(readMobileDirectOverride());
@@ -108,8 +110,9 @@ export function BrowserPrintAgentPosHost() {
 
   return (
     <>
-      {mode === "desktop_local_agent" ? <BrowserPrintAgent /> : null}
-      <BrowserPrintAgentAlert />
+      {shouldRunLocalAgent ? <BrowserPrintAgentSerialRecovery /> : null}
+      {shouldRunLocalAgent ? <BrowserPrintAgent /> : null}
+      {shouldRunLocalAgent ? <BrowserPrintAgentAlert /> : null}
     </>
   );
 }
