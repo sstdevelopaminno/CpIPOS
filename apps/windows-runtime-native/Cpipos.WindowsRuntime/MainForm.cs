@@ -134,7 +134,11 @@ internal sealed class MainForm : Form
             native_bridge_version = _bridge.Version,
             bridge_health_url = _options.BridgeHealthUrl,
             bridge_print_url = _options.BridgePrintUrl,
-            windows_printer = _options.WindowsPrinter
+            windows_printer = _options.WindowsPrinter,
+            dev_full_access = _options.DevFullAccess,
+            windows_runtime_bootstrap_url = _options.WindowsRuntimeBootstrapUrl,
+            windows_runtime_entitlements_url = _options.WindowsRuntimeEntitlementsUrl,
+            windows_runtime_sync_status_url = _options.WindowsRuntimeSyncStatusUrl
         };
         var json = JsonSerializer.Serialize(payload);
         return $@"
@@ -143,6 +147,10 @@ internal sealed class MainForm : Form
     var payload = {json};
     window.CpIPOSWindowsRuntime = payload;
     window.localStorage.setItem('cpi_windows_runtime_enabled_v1', '1');
+    window.localStorage.setItem('cpi_windows_runtime_dev_full_access_v1', payload.dev_full_access ? '1' : '0');
+    window.localStorage.setItem('cpi_windows_runtime_bootstrap_url_v1', payload.windows_runtime_bootstrap_url);
+    window.localStorage.setItem('cpi_windows_runtime_entitlements_url_v1', payload.windows_runtime_entitlements_url);
+    window.localStorage.setItem('cpi_windows_runtime_sync_status_url_v1', payload.windows_runtime_sync_status_url);
     window.localStorage.setItem('cpi_print_adapter_mode_v1', 'LOCAL_BRIDGE_WINDOWS');
     window.localStorage.setItem('cpi_local_bridge_print_url_v1', payload.bridge_print_url);
     window.localStorage.setItem('cpi_local_bridge_health_url_v1', payload.bridge_health_url);
