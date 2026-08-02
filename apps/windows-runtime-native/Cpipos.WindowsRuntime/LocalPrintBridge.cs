@@ -10,15 +10,12 @@ namespace Cpipos.WindowsRuntime;
 
 internal sealed class LocalPrintBridge : IDisposable
 {
-    private const int MaxHeaderBytes = 1024 * 1024;
-    private const int MaxBodyBytes = 3_000_000;
-
     private readonly int _port;
     private readonly string _defaultPrinter;
     private readonly CancellationTokenSource _stopping = new();
     private TcpListener? _listener;
 
-    public string Version => "cpipos-windows-native-bridge-0.1.1";
+    public string Version => "cpipos-windows-native-bridge-0.1.2";
 
     public LocalPrintBridge(int port, string defaultPrinter)
     {
@@ -369,6 +366,9 @@ internal sealed class LocalPrintBridge : IDisposable
 
 internal sealed class HttpRequestData
 {
+    private const int MaxHeaderBytes = 1024 * 1024;
+    private const int MaxBodyBytes = 3_000_000;
+
     public string Method { get; init; } = "GET";
     public string Path { get; init; } = "/";
     public string Body { get; init; } = string.Empty;
