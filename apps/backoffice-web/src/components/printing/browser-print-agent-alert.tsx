@@ -1,9 +1,11 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { BROWSER_PRINT_AGENT_ALERT_SNOOZE_UNTIL_KEY } from "@/components/printing/browser-print-agent-serial-recovery";
 
 const BROWSER_PRINT_AGENT_STATUS_EVENT = "cpi-browser-print-agent-status";
 const BROWSER_PRINT_AGENT_RESET_EVENT = "cpi-browser-print-agent-reset";
+const BROWSER_PRINT_AGENT_CONFIG_EVENT = "cpi-browser-print-agent-config";
 const POS_PATH_PREFIX = "/preview/pos";
 
 type BrowserPrintAgentStatus = {
@@ -24,9 +26,8 @@ type AlertCopy = {
   severity: "warning" | "danger";
 };
 
-const OK_STATUS_CODES = new Set(["ready", "printed", "reset"]);
+const OK_STATUS_CODES = new Set(["ready", "printed", "reset", "disabled"]);
 const PROBLEM_STATUS_CODES = new Set([
-  "disabled",
   "web_serial_unsupported",
   "agent_key_missing",
   "serial_permission_required",
@@ -39,10 +40,19 @@ const PROBLEM_STATUS_CODES = new Set([
   "paper_jam",
   "printer_offline"
 ]);
+const TRANSIENT_STATUS_CODES = new Set(["serial_permission_required", "agent_error", "serial_port_not_writable", "printer_offline"]);
 
 function isPosPath() {
   if (typeof window === "undefined") return false;
   return window.location.pathname.startsWith(POS_PATH_PREFIX);
+}
+
+function isSnoozed(status: BrowserPrintAgentStatus) {
+  if (typeof window === "undefined") return false;
+  if (!TRANSIENT_STATUS_CODES.has(status.code)) return false;
+  if (status.lastJobId) return false;
+  const until = Number(window.localStorage.getItem(BROWSER_PRINT_AGENT_ALERT_SNOOZE_UNTIL_KEY) ?? 0);
+  return Number.isFinite(until) && until > Date.now();
 }
 
 function copyForStatus(status: BrowserPrintAgentStatus): AlertCopy {
@@ -70,19 +80,11 @@ function copyForStatus(status: BrowserPrintAgentStatus): AlertCopy {
       severity: "danger"
     };
   }
-  if (status.code === "disabled") {
-    return {
-      title: "ยังไม่ได้เปิด Browser Print Agent",
-      detail: "ระบบพิมพ์อัตโนมัติยังปิดอยู่ ใบเสร็จอาจไม่ออกจากเครื่องพิมพ์จนกว่าจะเปิด Agent",
-      actionHint: "เปิด Browser Print Agent ในหน้าตั้งค่าเครื่องพิมพ์ก่อนใช้งานจริง",
-      severity: "warning"
-    };
-  }
   if (status.code === "web_serial_unsupported") {
     return {
       title: "เบราว์เซอร์นี้ไม่รองรับ Web Serial",
       detail: "ระบบไม่สามารถเชื่อมต่อเครื่องพิมพ์ผ่าน Browser Print Agent ได้จากเบราว์เซอร์นี้",
-      actionHint: "แนะนำใช้ Chrome หรือ Edge บนเครื่องที่ต่อเครื่องพิมพ์",
+      actionHint: "แนะนำใช้ Chrome หรือ Edge บนเครื่องที่ต่อเครื่องพิมพ์ หรือใช้เครื่องนี้เป็น POS แล้วให้ print station เครื่องอื่นพิมพ์",
       severity: "danger"
     };
   }
@@ -90,23 +92,23 @@ function copyForStatus(status: BrowserPrintAgentStatus): AlertCopy {
     return {
       title: "ยังไม่ได้ตั้งค่า Print Agent Secret",
       detail: "Browser Print Agent ยังไม่มีรหัสเชื่อมต่อ จึงรับงานพิมพ์จากระบบไม่ได้",
-      actionHint: "ตั้งค่า Agent Secret ให้ตรงกับระบบหลังบ้าน",
+      actionHint: "ตั้งค่า Agent Secret ให้ตรงกับระบบหลังบ้าน หรือปิด Agent หากยังไม่ต้องการพิมพ์จากเครื่องนี้",
       severity: "warning"
     };
   }
   if (status.code === "serial_permission_required") {
     return {
-      title: "ยังไม่ได้เลือกพอร์ตเครื่องพิมพ์",
-      detail: "ระบบยังไม่ได้รับสิทธิ์เข้าถึงพอร์ตเครื่องพิมพ์ หรือเครื่องพิมพ์หลุดจากเครื่องนี้",
-      actionHint: "เลือกพอร์ตเครื่องพิมพ์ใหม่ แล้วตรวจสอบสาย USB/Bluetooth/Serial",
+      title: "ต้องเลือกพอร์ตเครื่องพิมพ์ใหม่",
+      detail: "ระบบยังไม่ได้รับสิทธิ์เข้าถึงพอร์ตเครื่องพิมพ์ หรือพอร์ตเดิมหลุดหลังปิด/เปิดเครื่องพิมพ์",
+      actionHint: "กดเลือกพอร์ตเครื่องพิมพ์ใหม่จากหน้าตั้งค่า แล้วตรวจสอบสาย USB/Bluetooth/Serial",
       severity: "warning"
     };
   }
   if (status.code === "serial_port_not_writable" || status.code === "printer_offline") {
     return {
       title: "เครื่องพิมพ์ไม่พร้อมใช้งาน",
-      detail: "ระบบเชื่อมต่อพอร์ตได้แต่ไม่สามารถส่งข้อมูลเข้าเครื่องพิมพ์ได้",
-      actionHint: "ตรวจสอบสายเชื่อมต่อ ไฟเครื่องพิมพ์ กระดาษ และลองเปิดเครื่องใหม่",
+      detail: "ระบบเชื่อมต่อพอร์ตได้แต่ไม่สามารถส่งข้อมูลเข้าเครื่องพิมพ์ได้ อาจเกิดจากเครื่องปิด พอร์ตค้าง หรือสายหลุด",
+      actionHint: "เปิดเครื่องพิมพ์ใหม่ รอ 5-10 วินาที แล้วกดรีเซ็ต Agent หรือเลือกพอร์ตใหม่",
       severity: "danger"
     };
   }
@@ -115,6 +117,14 @@ function copyForStatus(status: BrowserPrintAgentStatus): AlertCopy {
       title: "พิมพ์ใบเสร็จไม่สำเร็จ",
       detail: "ระบบส่งงานพิมพ์ไม่สำเร็จ อาจเกิดจากกระดาษหมด กระดาษติด เครื่องหลุด หรือเครื่องไม่ตอบสนอง",
       actionHint: "ตรวจสอบกระดาษ ฝาเครื่อง สายเชื่อมต่อ แล้วลองพิมพ์ซ้ำจากใบเสร็จ",
+      severity: "danger"
+    };
+  }
+  if (status.code === "agent_error" && status.message.toLowerCase().includes("serial")) {
+    return {
+      title: "พอร์ตเครื่องพิมพ์ค้างหรือเปิดไม่สำเร็จ",
+      detail: status.message || "ระบบเปิดพอร์ตเครื่องพิมพ์ไม่สำเร็จหลังปิด/เปิดเครื่องพิมพ์",
+      actionHint: "ปิด/เปิดเครื่องพิมพ์ รอให้ Windows เห็นพอร์ต แล้วกดรีเซ็ต Agent หรือเลือกพอร์ตใหม่",
       severity: "danger"
     };
   }
@@ -128,7 +138,9 @@ function copyForStatus(status: BrowserPrintAgentStatus): AlertCopy {
 
 function shouldShowStatus(status: BrowserPrintAgentStatus) {
   if (!isPosPath()) return false;
+  if (!status.enabled) return false;
   if (OK_STATUS_CODES.has(status.code)) return false;
+  if (isSnoozed(status)) return false;
   if (PROBLEM_STATUS_CODES.has(status.code)) return true;
   if (status.enabled && status.supported && !status.connected) return true;
   return false;
@@ -148,7 +160,7 @@ export function BrowserPrintAgentAlert() {
         return;
       }
 
-      const signature = `${detail.code}:${detail.lastJobId ?? "none"}`;
+      const signature = `${detail.code}:${detail.lastJobId ?? "none"}:${detail.message}`;
       if (dismissedSignatureRef.current === signature) return;
       setStatus(detail);
     }
@@ -161,7 +173,7 @@ export function BrowserPrintAgentAlert() {
 
   if (!status || !copy) return null;
 
-  const signature = `${status.code}:${status.lastJobId ?? "none"}`;
+  const signature = `${status.code}:${status.lastJobId ?? "none"}:${status.message}`;
   const borderColor = copy.severity === "danger" ? "#dc2626" : "#f59e0b";
   const badgeBg = copy.severity === "danger" ? "#fee2e2" : "#fef3c7";
   const badgeText = copy.severity === "danger" ? "#991b1b" : "#92400e";
@@ -176,7 +188,7 @@ export function BrowserPrintAgentAlert() {
         right: 18,
         bottom: 18,
         zIndex: 2147483647,
-        width: "min(420px, calc(100vw - 32px))",
+        width: "min(430px, calc(100vw - 32px))",
         border: `2px solid ${borderColor}`,
         borderRadius: 18,
         background: "#ffffff",
@@ -235,7 +247,12 @@ export function BrowserPrintAgentAlert() {
         <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", flexWrap: "wrap", marginTop: 4 }}>
           <button
             type="button"
-            onClick={() => window.dispatchEvent(new CustomEvent(BROWSER_PRINT_AGENT_RESET_EVENT))}
+            onClick={() => {
+              window.dispatchEvent(new CustomEvent(BROWSER_PRINT_AGENT_RESET_EVENT));
+              window.setTimeout(() => window.dispatchEvent(new CustomEvent(BROWSER_PRINT_AGENT_CONFIG_EVENT)), 500);
+              dismissedSignatureRef.current = signature;
+              setStatus(null);
+            }}
             style={{
               border: "1px solid #cbd5e1",
               background: "#ffffff",
@@ -247,6 +264,25 @@ export function BrowserPrintAgentAlert() {
             }}
           >
             รีเซ็ต Agent
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              window.localStorage.setItem(BROWSER_PRINT_AGENT_ALERT_SNOOZE_UNTIL_KEY, String(Date.now() + 5 * 60 * 1000));
+              dismissedSignatureRef.current = signature;
+              setStatus(null);
+            }}
+            style={{
+              border: "1px solid #cbd5e1",
+              background: "#f8fafc",
+              color: "#334155",
+              borderRadius: 12,
+              padding: "9px 12px",
+              fontWeight: 900,
+              cursor: "pointer"
+            }}
+          >
+            ปิดเตือน 5 นาที
           </button>
           <button
             type="button"
