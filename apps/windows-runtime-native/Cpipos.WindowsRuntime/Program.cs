@@ -26,7 +26,6 @@ internal sealed class RuntimeOptions
     public int BridgePort { get; init; } = 3210;
     public bool Fullscreen { get; init; }
     public bool EnableDevTools { get; init; }
-    public bool DevFullAccess { get; init; }
 
     public string BridgePrintUrl => $"http://127.0.0.1:{BridgePort}/print";
     public string BridgeHealthUrl => $"http://127.0.0.1:{BridgePort}/health";
@@ -42,7 +41,6 @@ internal sealed class RuntimeOptions
         var bridgePort = ReadIntEnv("CPIPOS_PRINT_BRIDGE_PORT", 3210);
         var fullscreen = string.Equals(ReadEnv("CPIPOS_FULLSCREEN", "0"), "1", StringComparison.OrdinalIgnoreCase);
         var enableDevTools = string.Equals(ReadEnv("CPIPOS_ENABLE_DEVTOOLS", "0"), "1", StringComparison.OrdinalIgnoreCase);
-        var devFullAccess = string.Equals(ReadEnv("CPIPOS_WINDOWS_DEV_FULL_ACCESS", "0"), "1", StringComparison.OrdinalIgnoreCase);
 
         foreach (var arg in args)
         {
@@ -79,11 +77,6 @@ internal sealed class RuntimeOptions
             if (string.Equals(arg, "--devtools", StringComparison.OrdinalIgnoreCase))
             {
                 enableDevTools = true;
-                continue;
-            }
-            if (string.Equals(arg, "--dev-full-access", StringComparison.OrdinalIgnoreCase))
-            {
-                devFullAccess = true;
             }
         }
 
@@ -94,8 +87,7 @@ internal sealed class RuntimeOptions
             WindowsPrinter = printer,
             BridgePort = bridgePort,
             Fullscreen = fullscreen,
-            EnableDevTools = enableDevTools,
-            DevFullAccess = devFullAccess
+            EnableDevTools = enableDevTools
         };
     }
 
