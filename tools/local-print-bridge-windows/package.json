@@ -1,9 +1,9 @@
 {
   "name": "cpipos-local-print-bridge-windows",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
-  "description": "Local Windows print bridge for CpIPOS web POS. Listens on 127.0.0.1:3210 and prints without Chrome Web Serial.",
+  "description": "Local Windows print bridge for CpIPOS web POS. Local Bridge is the default print adapter; Web Serial is experimental only.",
   "scripts": {
     "start": "node server.mjs"
   },
