@@ -8,6 +8,7 @@ export const BROWSER_PRINT_AGENT_BAUD_KEY = "cpi_browser_print_agent_baud_v1";
 export const BROWSER_PRINT_AGENT_STATUS_EVENT = "cpi-browser-print-agent-status";
 export const BROWSER_PRINT_AGENT_CONFIG_EVENT = "cpi-browser-print-agent-config";
 export const BROWSER_PRINT_AGENT_RESET_EVENT = "cpi-browser-print-agent-reset";
+export const BROWSER_PRINT_AGENT_FORGET_PORTS_EVENT = "cpi-browser-print-agent-forget-ports";
 
 export type BrowserPrintAgentStatus = {
   enabled: boolean;
@@ -23,6 +24,7 @@ export type BrowserPrintAgentStatus = {
 type SerialPortLike = {
   open(options: { baudRate: number }): Promise<void>;
   close(): Promise<void>;
+  forget?: () => Promise<void>;
   writable: WritableStream<Uint8Array> | null;
 };
 
@@ -62,8 +64,8 @@ declare global {
 
 const POLL_MS = 4000;
 const SERIAL_RETRY_DELAY_MS = 350;
-const SERIAL_MAX_OPEN_FAILURES_BEFORE_RESELECT = 4;
-const APP_VERSION = "browser-web-serial-1.0.4-stable-reconnect";
+const SERIAL_MAX_OPEN_FAILURES_BEFORE_FORGET = 3;
+const APP_VERSION = "browser-web-serial-1.0.5-hard-serial-reset";
 
 function readBool(value: string | null) {
   return value === "1" || value === "true";
@@ -388,6 +390,21 @@ async function safeClosePort(port: SerialPortLike | null) {
   }
 }
 
+async function forgetPort(port: SerialPortLike | null) {
+  if (!port) return;
+  await safeClosePort(port);
+  try {
+    await port.forget?.();
+  } catch {
+    // Some browser/adapter combinations do not support forget() yet.
+  }
+}
+
+async function forgetRememberedPorts() {
+  const ports = await navigator.serial?.getPorts().catch(() => []);
+  await Promise.allSettled((ports ?? []).map((port) => forgetPort(port)));
+}
+
 async function tryOpenPort(port: SerialPortLike, baudRate: number) {
   if (port.writable) return true;
   try {
@@ -443,11 +460,14 @@ async function ensureSerialPort(
   }
 
   consecutiveOpenFailuresRef.current += 1;
-  if (consecutiveOpenFailuresRef.current >= SERIAL_MAX_OPEN_FAILURES_BEFORE_RESELECT) {
+  if (consecutiveOpenFailuresRef.current >= SERIAL_MAX_OPEN_FAILURES_BEFORE_FORGET) {
+    await forgetRememberedPorts();
+    consecutiveOpenFailuresRef.current = 0;
+    portRef.current = null;
     return {
       ok: false,
-      code: "serial_reselect_required",
-      message: "Windows/Chrome ยังเปิดพอร์ตเดิมไม่ได้ กรุณากด Reset Agent แล้วเลือกเครื่องจาก Windows ใหม่หนึ่งครั้ง"
+      code: "serial_permission_required",
+      message: "Chrome ล้างพอร์ตเดิมที่เปิดไม่ได้แล้ว กรุณากดเลือกเครื่องจาก Windows ใหม่หนึ่งครั้ง"
     };
   }
 
@@ -495,6 +515,27 @@ export function BrowserPrintAgent() {
         lastJobId: null
       });
     };
+    const forgetAndReset = () => {
+      const port = portRef.current;
+      portRef.current = null;
+      consecutiveOpenFailuresRef.current = 0;
+      void forgetPort(port)
+        .then(forgetRememberedPorts)
+        .finally(() => {
+          jobsPrintedRef.current = 0;
+          lastJobIdRef.current = null;
+          reload();
+          dispatchStatus({
+            enabled: readConfig().enabled,
+            supported: Boolean(navigator.serial),
+            connected: false,
+            code: "serial_permission_required",
+            message: "ระบบล้างพอร์ตเดิมแล้ว กรุณากดเลือกเครื่องจาก Windows ใหม่หนึ่งครั้ง",
+            jobsPrinted: 0,
+            lastJobId: null
+          });
+        });
+    };
     const handleSerialDisconnect = () => {
       const port = portRef.current;
       portRef.current = null;
@@ -519,12 +560,14 @@ export function BrowserPrintAgent() {
     };
     window.addEventListener(BROWSER_PRINT_AGENT_CONFIG_EVENT, reload);
     window.addEventListener(BROWSER_PRINT_AGENT_RESET_EVENT, reset);
+    window.addEventListener(BROWSER_PRINT_AGENT_FORGET_PORTS_EVENT, forgetAndReset);
     window.addEventListener("storage", onStorage);
     navigator.serial?.addEventListener?.("disconnect", handleSerialDisconnect);
     navigator.serial?.addEventListener?.("connect", handleSerialConnect);
     return () => {
       window.removeEventListener(BROWSER_PRINT_AGENT_CONFIG_EVENT, reload);
       window.removeEventListener(BROWSER_PRINT_AGENT_RESET_EVENT, reset);
+      window.removeEventListener(BROWSER_PRINT_AGENT_FORGET_PORTS_EVENT, forgetAndReset);
       window.removeEventListener("storage", onStorage);
       navigator.serial?.removeEventListener?.("disconnect", handleSerialDisconnect);
       navigator.serial?.removeEventListener?.("connect", handleSerialConnect);
