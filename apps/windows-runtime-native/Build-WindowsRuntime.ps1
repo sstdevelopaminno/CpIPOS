@@ -25,6 +25,34 @@ function Write-Warn2([string]$Message) {
   Write-Host "[WARN] $Message" -ForegroundColor Yellow
 }
 
+function Resolve-DotNetExe {
+  $cmd = Get-Command dotnet -ErrorAction SilentlyContinue
+  if ($cmd -and $cmd.Source -and (Test-Path $cmd.Source)) {
+    return $cmd.Source
+  }
+
+  $candidates = @(
+    "C:\Program Files\dotnet\dotnet.exe",
+    "C:\Program Files (x86)\dotnet\dotnet.exe",
+    "$env:LOCALAPPDATA\Microsoft\dotnet\dotnet.exe"
+  )
+
+  foreach ($candidate in $candidates) {
+    if ($candidate -and (Test-Path $candidate)) {
+      return $candidate
+    }
+  }
+
+  return ""
+}
+
+function Invoke-DotNet([string[]]$Arguments) {
+  & $script:DotNetExe @Arguments
+  if ($LASTEXITCODE -ne 0) {
+    throw "dotnet command failed: $($Arguments -join ' ')"
+  }
+}
+
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $repoRootInfo = Resolve-Path (Join-Path $scriptDir "..\..")
 $repoRoot = $repoRootInfo.Path
@@ -58,13 +86,21 @@ if (!$SkipPull) {
   }
 }
 
-$dotnet = Get-Command dotnet -ErrorAction SilentlyContinue
-if (!$dotnet) {
-  throw "dotnet was not found. Please install .NET 8 SDK first: https://dotnet.microsoft.com/download/dotnet/8.0"
+$script:DotNetExe = Resolve-DotNetExe
+if ([string]::IsNullOrWhiteSpace($script:DotNetExe)) {
+  throw "dotnet was not found. Install .NET 8 SDK first, then reopen PowerShell/VS Code."
 }
 
 Write-Step "Checking .NET SDK"
-dotnet --version
+Write-Host "dotnet: $script:DotNetExe" -ForegroundColor White
+$sdkList = & $script:DotNetExe --list-sdks
+if ($LASTEXITCODE -ne 0) {
+  throw "dotnet --list-sdks failed. Reinstall .NET 8 SDK."
+}
+$sdkList | ForEach-Object { Write-Host $_ -ForegroundColor White }
+if (-not ($sdkList -match "^8\.")) {
+  throw "No .NET 8 SDK was found. Installed SDKs: $($sdkList -join ', ')"
+}
 
 Write-Step "Cleaning previous output"
 if (Test-Path $outputDir) {
@@ -88,7 +124,7 @@ $publishArgs = @(
   "-p:EnableCompressionInSingleFile=true",
   "-o", $outputDir
 )
-& dotnet @publishArgs
+Invoke-DotNet $publishArgs
 
 $exePath = Join-Path $outputDir "Cpipos.WindowsRuntime.exe"
 if (!(Test-Path $exePath)) {
