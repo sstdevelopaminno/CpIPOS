@@ -11,6 +11,16 @@ on:
       - "apps/windows-runtime-native/**"
       - ".github/workflows/build-windows-runtime.yml"
 
+permissions:
+  contents: write
+
+env:
+  WINDOWS_RUNTIME_PROJECT: apps/windows-runtime-native/Cpipos.WindowsRuntime/Cpipos.WindowsRuntime.csproj
+  WINDOWS_RUNTIME_OUTPUT: artifacts/CpIPOS-WindowsRuntime-win-x64
+  WINDOWS_RUNTIME_ZIP: artifacts/CpIPOS-WindowsRuntime-win-x64.zip
+  WINDOWS_RUNTIME_RELEASE_TAG: windows-runtime-latest
+  WINDOWS_RUNTIME_ASSET_NAME: CpIPOS-WindowsRuntime-win-x64.zip
+
 jobs:
   build-windows-runtime:
     name: Build Windows Runtime EXE
@@ -27,19 +37,20 @@ jobs:
           dotnet-version: "8.0.x"
 
       - name: Restore
-        run: dotnet restore apps/windows-runtime-native/Cpipos.WindowsRuntime/Cpipos.WindowsRuntime.csproj
+        run: dotnet restore $env:WINDOWS_RUNTIME_PROJECT
+        shell: pwsh
 
       - name: Publish win-x64 self-contained single file
         shell: pwsh
         run: |
-          dotnet publish apps/windows-runtime-native/Cpipos.WindowsRuntime/Cpipos.WindowsRuntime.csproj `
+          dotnet publish $env:WINDOWS_RUNTIME_PROJECT `
             -c Release `
             -r win-x64 `
             --self-contained true `
             -p:PublishSingleFile=true `
             -p:IncludeNativeLibrariesForSelfExtract=true `
             -p:EnableCompressionInSingleFile=true `
-            -o artifacts/CpIPOS-WindowsRuntime-win-x64
+            -o $env:WINDOWS_RUNTIME_OUTPUT
 
       - name: Add run notes
         shell: pwsh
@@ -52,9 +63,9 @@ jobs:
             Cpipos.WindowsRuntime.exe
 
           Optional command line:
-            Cpipos.WindowsRuntime.exe --printer="MTP-II"
+            Cpipos.WindowsRuntime.exe --printer MTP-II
             Cpipos.WindowsRuntime.exe --windowed
-            Cpipos.WindowsRuntime.exe --url="https://cp-ipos-web.vercel.app/login/store"
+            Cpipos.WindowsRuntime.exe --url=https://cp-ipos-web.vercel.app/login/store
 
           Local bridge inside the EXE:
             http://127.0.0.1:3210/health
@@ -68,16 +79,39 @@ jobs:
           - It includes a native local print bridge.
           - It does not implement offline sales database/sync engine yet.
           - Microsoft Edge WebView2 Runtime is required. Most Windows 10/11 machines already have it.
-          '@ | Set-Content -Encoding UTF8 artifacts/CpIPOS-WindowsRuntime-win-x64/README-WINDOWS-RUNTIME.txt
+          '@ | Set-Content -Encoding UTF8 "$env:WINDOWS_RUNTIME_OUTPUT/README-WINDOWS-RUNTIME.txt"
 
       - name: Zip artifact
         shell: pwsh
         run: |
-          Compress-Archive -Path artifacts/CpIPOS-WindowsRuntime-win-x64/* -DestinationPath artifacts/CpIPOS-WindowsRuntime-win-x64.zip -Force
+          if (Test-Path $env:WINDOWS_RUNTIME_ZIP) {
+            Remove-Item -Force $env:WINDOWS_RUNTIME_ZIP
+          }
+          Compress-Archive -Path "$env:WINDOWS_RUNTIME_OUTPUT/*" -DestinationPath $env:WINDOWS_RUNTIME_ZIP -Force
 
-      - name: Upload artifact
+      - name: Upload workflow artifact
         uses: actions/upload-artifact@v4
         with:
           name: CpIPOS-WindowsRuntime-win-x64
-          path: artifacts/CpIPOS-WindowsRuntime-win-x64.zip
+          path: ${{ env.WINDOWS_RUNTIME_ZIP }}
           if-no-files-found: error
+
+      - name: Publish latest release download
+        if: github.ref == 'refs/heads/agent-docs-preflight-schema-drift' || github.ref == 'refs/heads/main'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $tag = $env:WINDOWS_RUNTIME_RELEASE_TAG
+          $assetPath = $env:WINDOWS_RUNTIME_ZIP
+          $assetName = $env:WINDOWS_RUNTIME_ASSET_NAME
+
+          gh release view $tag *> $null
+          if ($LASTEXITCODE -ne 0) {
+            gh release create $tag `
+              --title "CpIPOS Windows Runtime Latest" `
+              --notes "Latest CpIPOS Windows Runtime ZIP built automatically from GitHub Actions."
+          }
+
+          gh release upload $tag $assetPath --clobber
+          Write-Host "Download URL: https://github.com/${{ github.repository }}/releases/download/$tag/$assetName"
