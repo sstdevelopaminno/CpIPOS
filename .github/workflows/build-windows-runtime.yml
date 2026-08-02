@@ -72,6 +72,39 @@ jobs:
             -p:EnableCompressionInSingleFile=true `
             -o $env:WINDOWS_RUNTIME_OUTPUT
 
+      - name: Bundle and validate CpIPOS icon
+        shell: pwsh
+        run: |
+          $outputIconDir = Join-Path $env:WINDOWS_RUNTIME_OUTPUT "assets"
+          $outputIcon = Join-Path $outputIconDir "cpipos.ico"
+          $rootOutputIcon = Join-Path $env:WINDOWS_RUNTIME_OUTPUT "cpipos.ico"
+          New-Item -ItemType Directory -Force -Path $outputIconDir | Out-Null
+          Copy-Item -Force $env:WINDOWS_RUNTIME_ICON $outputIcon
+          Copy-Item -Force $env:WINDOWS_RUNTIME_ICON $rootOutputIcon
+
+          foreach ($path in @($outputIcon, $rootOutputIcon)) {
+            if (!(Test-Path $path)) {
+              throw "Bundled icon missing: $path"
+            }
+            $bytes = [System.IO.File]::ReadAllBytes($path)
+            if (!($bytes.Length -gt 6 -and $bytes[0] -eq 0 -and $bytes[1] -eq 0 -and $bytes[2] -eq 1 -and $bytes[3] -eq 0)) {
+              throw "Bundled icon is not a valid Windows .ico file: $path"
+            }
+            Write-Host "Bundled icon ready: $path ($($bytes.Length) bytes)"
+          }
+
+          $exePath = Join-Path $env:WINDOWS_RUNTIME_OUTPUT "Cpipos.WindowsRuntime.exe"
+          if (!(Test-Path $exePath)) {
+            throw "Published app executable missing: $exePath"
+          }
+
+          Add-Type -AssemblyName System.Drawing
+          $icon = [System.Drawing.Icon]::ExtractAssociatedIcon($exePath)
+          if ($null -eq $icon) {
+            throw "Published executable did not return an associated icon: $exePath"
+          }
+          Write-Host "Published executable associated icon size: $($icon.Width)x$($icon.Height)"
+
       - name: Add README
         shell: pwsh
         run: |
@@ -103,6 +136,10 @@ jobs:
             http://127.0.0.1:3210/print/status
             http://127.0.0.1:3210/print/test
             http://127.0.0.1:3210/print
+
+          Icon behavior:
+          - CpIPOS uses the bundled assets/cpipos.ico for title bar and shortcuts.
+          - If Windows still shows the old icon after reinstall, clear Windows icon cache.
 
           Notes:
           - CpIPOS Web is still the main web app.
