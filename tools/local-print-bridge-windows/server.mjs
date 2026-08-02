@@ -7,7 +7,7 @@ import { spawn } from "node:child_process";
 const HOST = process.env.CPIPOS_PRINT_BRIDGE_HOST || "127.0.0.1";
 const PORT = Number(process.env.CPIPOS_PRINT_BRIDGE_PORT || 3210);
 const DEFAULT_PRINTER = process.env.CPIPOS_WINDOWS_PRINTER || "";
-const APP_VERSION = "cpipos-local-print-bridge-windows-0.1.0";
+const APP_VERSION = "cpipos-local-print-bridge-windows-0.2.0";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -155,6 +155,28 @@ function runPowerShell(script) {
   });
 }
 
+async function listWindowsPrinters() {
+  const script = `
+$ErrorActionPreference = 'Stop'
+Add-Type -AssemblyName System.Drawing
+$installed = [System.Drawing.Printing.PrinterSettings]::InstalledPrinters
+$default = (New-Object System.Drawing.Printing.PrinterSettings).PrinterName
+$items = @()
+foreach ($printer in $installed) {
+  $items += [PSCustomObject]@{
+    name = [string]$printer
+    is_default = ([string]$printer -eq [string]$default)
+  }
+}
+$items | ConvertTo-Json -Depth 3
+`;
+  const { stdout } = await runPowerShell(script);
+  const trimmed = stdout.trim();
+  if (!trimmed) return [];
+  const parsed = JSON.parse(trimmed);
+  return Array.isArray(parsed) ? parsed : [parsed];
+}
+
 async function printTextViaWindows(text, printerName) {
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "cpipos-print-"));
   const textPath = path.join(tempDir, "receipt.txt");
@@ -179,8 +201,66 @@ $doc.add_PrintPage({
 $doc.Print()
 "printed"
 `;
-  await runPowerShell(script);
-  fs.rm(tempDir, { recursive: true, force: true }).catch(() => undefined);
+  try {
+    await runPowerShell(script);
+  } finally {
+    fs.rm(tempDir, { recursive: true, force: true }).catch(() => undefined);
+  }
+}
+
+function getCapabilities() {
+  return {
+    ok: true,
+    data: {
+      app: "CpIPOS Local Print Bridge",
+      app_version: APP_VERSION,
+      host: HOST,
+      port: PORT,
+      default_printer: DEFAULT_PRINTER || "Windows default",
+      default_adapter: "LOCAL_BRIDGE_WINDOWS",
+      adapters: [
+        {
+          code: "LOCAL_BRIDGE_WINDOWS",
+          label: "Windows Local Bridge",
+          status: "supported",
+          transport: "http://127.0.0.1:3210/print",
+          printer_driver: "Windows PrintDocument",
+          recommended_for: ["small_shop", "single_register", "windows_cashier"]
+        },
+        {
+          code: "LAN_PRINTER_BRIDGE",
+          label: "LAN / Network Printer Bridge",
+          status: HOST === "0.0.0.0" ? "supported_by_current_host" : "available_when_host_is_lan_bound",
+          transport: "http://<print-station-ip>:3210/print",
+          recommended_for: ["local_lan", "tablet_to_print_station"]
+        },
+        {
+          code: "ANDROID_PRINT_BRIDGE",
+          label: "Android Print Bridge",
+          status: "planned_external_adapter",
+          recommended_for: ["android_tablet", "bluetooth_or_usb_otg_printer"]
+        },
+        {
+          code: "AIRPRINT_OR_LAN_BRIDGE",
+          label: "iPad / iOS AirPrint or LAN Bridge",
+          status: "planned_external_adapter",
+          recommended_for: ["ipad", "ios", "lan_or_airprint_printer"]
+        },
+        {
+          code: "CLOUD_PRINT_QUEUE",
+          label: "Cloud Queue + Store Print Station",
+          status: "uses_existing_print_jobs_queue",
+          recommended_for: ["multi_register", "multi_branch", "kitchen_printer"]
+        },
+        {
+          code: "WEB_SERIAL_EXPERIMENTAL",
+          label: "Chrome Web Serial",
+          status: "experimental_not_default",
+          recommended_for: ["lab_test_only"]
+        }
+      ]
+    }
+  };
 }
 
 async function handlePrint(req, res) {
@@ -199,12 +279,19 @@ async function handlePrint(req, res) {
     data: {
       printed: true,
       provider: "windows_print_document",
+      adapter: "LOCAL_BRIDGE_WINDOWS",
       printer_name: printerName || "default",
       bytes_received: Buffer.byteLength(raw, "utf8"),
       chars_printed: text.length,
       app_version: APP_VERSION
     }
   });
+}
+
+async function handleTestPrint(res) {
+  const now = new Date().toLocaleString("th-TH", { timeZone: "Asia/Bangkok" });
+  await printTextViaWindows(`CpIPOS Local Bridge Test\r\n${now}\r\n------------------------------\r\nLOCAL_BRIDGE_WINDOWS OK\r\n\r\n`, DEFAULT_PRINTER);
+  sendJson(res, 200, { ok: true, data: { printed: true, adapter: "LOCAL_BRIDGE_WINDOWS", app_version: APP_VERSION } });
 }
 
 const server = http.createServer(async (req, res) => {
@@ -222,6 +309,7 @@ const server = http.createServer(async (req, res) => {
           status: "online",
           app: "CpIPOS Local Print Bridge",
           app_version: APP_VERSION,
+          adapter: "LOCAL_BRIDGE_WINDOWS",
           host: HOST,
           port: PORT,
           default_printer: DEFAULT_PRINTER || "Windows default"
@@ -229,11 +317,23 @@ const server = http.createServer(async (req, res) => {
       });
       return;
     }
+    if (req.method === "GET" && url.pathname === "/capabilities") {
+      sendJson(res, 200, getCapabilities());
+      return;
+    }
+    if (req.method === "GET" && url.pathname === "/printers") {
+      sendJson(res, 200, { ok: true, data: { printers: await listWindowsPrinters(), app_version: APP_VERSION } });
+      return;
+    }
+    if (req.method === "POST" && (url.pathname === "/print/test" || url.pathname === "/test")) {
+      await handleTestPrint(res);
+      return;
+    }
     if (req.method === "POST" && (url.pathname === "/print" || url.pathname === "/api/print")) {
       await handlePrint(req, res);
       return;
     }
-    sendJson(res, 404, { ok: false, error: { code: "not_found", message: "Use GET /health or POST /print." } });
+    sendJson(res, 404, { ok: false, error: { code: "not_found", message: "Use GET /health, GET /printers, GET /capabilities, POST /print/test, or POST /print." } });
   } catch (error) {
     sendJson(res, 500, {
       ok: false,
@@ -248,5 +348,7 @@ const server = http.createServer(async (req, res) => {
 server.listen(PORT, HOST, () => {
   console.log(`[CpIPOS Print Bridge] listening on http://${HOST}:${PORT}`);
   console.log(`[CpIPOS Print Bridge] health: http://${HOST}:${PORT}/health`);
+  console.log(`[CpIPOS Print Bridge] capabilities: http://${HOST}:${PORT}/capabilities`);
+  console.log(`[CpIPOS Print Bridge] printers: http://${HOST}:${PORT}/printers`);
   console.log(`[CpIPOS Print Bridge] printer: ${DEFAULT_PRINTER || "Windows default printer"}`);
 });
