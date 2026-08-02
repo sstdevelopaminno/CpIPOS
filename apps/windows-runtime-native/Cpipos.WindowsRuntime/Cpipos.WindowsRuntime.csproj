@@ -8,9 +8,9 @@
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <AssemblyName>Cpipos.WindowsRuntime</AssemblyName>
     <RootNamespace>Cpipos.WindowsRuntime</RootNamespace>
-    <Version>0.1.2</Version>
-    <FileVersion>0.1.2.0</FileVersion>
-    <AssemblyVersion>0.1.2.0</AssemblyVersion>
+    <Version>0.1.3</Version>
+    <FileVersion>0.1.3.0</FileVersion>
+    <AssemblyVersion>0.1.3.0</AssemblyVersion>
     <ApplicationIcon Condition="Exists('assets\cpipos.ico')">assets\cpipos.ico</ApplicationIcon>
   </PropertyGroup>
 
