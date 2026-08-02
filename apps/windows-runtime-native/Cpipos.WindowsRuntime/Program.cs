@@ -21,6 +21,7 @@ internal static class Program
 internal sealed class RuntimeOptions
 {
     public string AppUrl { get; init; } = "https://cp-ipos-web.vercel.app/login/store";
+    public string StoreCode { get; init; } = string.Empty;
     public string WindowsPrinter { get; init; } = string.Empty;
     public int BridgePort { get; init; } = 3210;
     public bool Fullscreen { get; init; }
@@ -36,6 +37,7 @@ internal sealed class RuntimeOptions
     public static RuntimeOptions FromArgs(string[] args)
     {
         var appUrl = ReadEnv("CPIPOS_APP_URL", "https://cp-ipos-web.vercel.app/login/store");
+        var storeCode = NormalizeStoreCode(ReadEnv("CPIPOS_STORE_CODE", string.Empty));
         var printer = ReadEnv("CPIPOS_WINDOWS_PRINTER", string.Empty);
         var bridgePort = ReadIntEnv("CPIPOS_PRINT_BRIDGE_PORT", 3210);
         var fullscreen = string.Equals(ReadEnv("CPIPOS_FULLSCREEN", "0"), "1", StringComparison.OrdinalIgnoreCase);
@@ -47,6 +49,11 @@ internal sealed class RuntimeOptions
             if (TryReadValue(arg, "--url=", out var url) && !string.IsNullOrWhiteSpace(url))
             {
                 appUrl = url.Trim();
+                continue;
+            }
+            if (TryReadValue(arg, "--store-code=", out var code))
+            {
+                storeCode = NormalizeStoreCode(code);
                 continue;
             }
             if (TryReadValue(arg, "--printer=", out var printerName))
@@ -83,6 +90,7 @@ internal sealed class RuntimeOptions
         return new RuntimeOptions
         {
             AppUrl = appUrl,
+            StoreCode = storeCode,
             WindowsPrinter = printer,
             BridgePort = bridgePort,
             Fullscreen = fullscreen,
@@ -112,5 +120,10 @@ internal sealed class RuntimeOptions
         }
         value = string.Empty;
         return false;
+    }
+
+    private static string NormalizeStoreCode(string value)
+    {
+        return string.IsNullOrWhiteSpace(value) ? string.Empty : value.Trim().ToUpperInvariant().Replace(" ", string.Empty);
     }
 }
