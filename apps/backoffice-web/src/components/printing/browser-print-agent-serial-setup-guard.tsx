@@ -25,10 +25,12 @@ type SerialLike = {
   requestPort(options?: unknown): Promise<SerialPortLike>;
 };
 
-declare global {
-  interface Navigator {
-    serial?: SerialLike;
-  }
+type NavigatorWithOptionalSerial = Navigator & {
+  serial?: SerialLike;
+};
+
+function getSerial() {
+  return (window.navigator as NavigatorWithOptionalSerial).serial;
 }
 
 function nowPlus(ms: number) {
@@ -52,7 +54,7 @@ function dispatchStatus(code: string, message: string) {
     new CustomEvent(BROWSER_PRINT_AGENT_STATUS_EVENT, {
       detail: {
         enabled: false,
-        supported: Boolean(window.navigator.serial),
+        supported: Boolean(getSerial()),
         connected: false,
         code,
         message,
@@ -132,7 +134,7 @@ function blockDirectSerialUi(event: Event) {
 
 export function BrowserPrintAgentSerialSetupGuard() {
   useEffect(() => {
-    const serial = window.navigator.serial;
+    const serial = getSerial();
 
     window.addEventListener("click", blockDirectSerialUi, true);
     window.addEventListener("pointerdown", blockDirectSerialUi, true);
