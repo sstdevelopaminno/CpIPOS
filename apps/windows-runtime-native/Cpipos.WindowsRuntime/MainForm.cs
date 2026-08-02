@@ -137,7 +137,6 @@ internal sealed class MainForm : Form
             bridge_health_url = _options.BridgeHealthUrl,
             bridge_print_url = _options.BridgePrintUrl,
             windows_printer = _options.WindowsPrinter,
-            dev_full_access = _options.DevFullAccess,
             windows_runtime_bootstrap_url = _options.WindowsRuntimeBootstrapUrl,
             windows_runtime_entitlements_url = _options.WindowsRuntimeEntitlementsUrl,
             windows_runtime_sync_status_url = _options.WindowsRuntimeSyncStatusUrl
@@ -152,14 +151,16 @@ internal sealed class MainForm : Form
     window.localStorage.setItem('cpi_windows_runtime_identity_anchor_v1', 'store_code');
     if (payload.store_code) {{
       window.localStorage.setItem('cpi_windows_runtime_store_code_v1', payload.store_code);
+    }} else {{
+      window.localStorage.removeItem('cpi_windows_runtime_store_code_v1');
     }}
-    window.localStorage.setItem('cpi_windows_runtime_dev_full_access_v1', payload.dev_full_access ? '1' : '0');
     window.localStorage.setItem('cpi_windows_runtime_bootstrap_url_v1', payload.windows_runtime_bootstrap_url);
     window.localStorage.setItem('cpi_windows_runtime_entitlements_url_v1', payload.windows_runtime_entitlements_url);
     window.localStorage.setItem('cpi_windows_runtime_sync_status_url_v1', payload.windows_runtime_sync_status_url);
     window.localStorage.setItem('cpi_print_adapter_mode_v1', 'LOCAL_BRIDGE_WINDOWS');
     window.localStorage.setItem('cpi_local_bridge_print_url_v1', payload.bridge_print_url);
     window.localStorage.setItem('cpi_local_bridge_health_url_v1', payload.bridge_health_url);
+    window.localStorage.removeItem('cpi_windows_runtime_dev_full_access_v1');
   }} catch (error) {{
     console.warn('CpIPOS Windows Runtime bootstrap failed', error);
   }}
@@ -272,7 +273,7 @@ internal static class OfflinePage
     <h1>CpIPOS</h1>
     <p>ยังเชื่อมต่อระบบออนไลน์ไม่ได้ กรุณาตรวจสอบอินเทอร์เน็ตแล้วลองใหม่อีกครั้ง</p>
     <code>สถานะ: {{safeReason}}</code>
-    <p>ระบบขาย offline เต็มรูปแบบยังเป็นเฟสถัดไป ต้องมี local database, order queue, payment queue และ sync engine ก่อนใช้งานจริง</p>
+    <p>การใช้งานครั้งแรกต้องออนไลน์เพื่อให้ระบบหลังบ้าน IT ตรวจรหัสร้านและปลดล็อกแพ็กเกจก่อน จากนั้นจึงใช้ความสามารถ offline ตามแพ็กเกจที่ได้รับ</p>
     <button onclick="chrome.webview.postMessage('retry')">ลองใหม่</button>
     <button class="secondary" onclick="chrome.webview.postMessage('close')">ปิดโปรแกรม</button>
     <p class="muted">ปุ่มลัด: F11 เต็มจอ, Esc ออกจากเต็มจอ, Ctrl+R โหลดใหม่, Ctrl+Q ปิดโปรแกรม</p>
