@@ -26,6 +26,10 @@ type SerialEventTarget = EventTarget & {
   removeEventListener(type: "connect" | "disconnect", listener: EventListener): void;
 };
 
+type NavigatorWithSerial = Navigator & {
+  serial?: SerialEventTarget;
+};
+
 function setAlertSnooze(ms = SERIAL_TRANSIENT_SNOOZE_MS) {
   if (typeof window === "undefined") return;
   window.localStorage.setItem(BROWSER_PRINT_AGENT_ALERT_SNOOZE_UNTIL_KEY, String(Date.now() + ms));
@@ -59,7 +63,7 @@ export function BrowserPrintAgentSerialRecovery() {
   const lastRecoveryAtRef = useRef(0);
 
   useEffect(() => {
-    const serial = navigator.serial as SerialEventTarget | undefined;
+    const serial = (navigator as NavigatorWithSerial).serial;
     if (!serial) return undefined;
 
     const requestRecovery = (options: { snooze?: boolean; immediate?: boolean } = {}) => {
