@@ -13,6 +13,7 @@ Use this page as the first stop before new development. It separates active impl
 - Login flow: `/login/store -> /login/branches|employee -> /login/devices -> /preview/pos`
 - Database: Supabase migrations in `supabase/migrations`
 - Verification baseline: run `typecheck`, `test`, `lint`, `schema:drift`, and `build` before closing implementation work.
+- Latest printing decision: Web Serial is no longer the default. Use Print Adapter Architecture 2026-08-02; default small-shop adapter is `LOCAL_BRIDGE_WINDOWS`.
 - Latest production/Vercel print-performance handoff: commit `08afac88ce6e1bbc28f34310f1c43773e72ec104` was checked as Vercel `success` on 2026-08-02.
 - Latest local baseline on 2026-07-29 passed frozen install, typecheck, Vitest, full lint, schema drift, and production build for `backoffice-web`. Re-run the baseline locally after pulling 2026-08-02 changes.
 
@@ -20,6 +21,8 @@ Use this page as the first stop before new development. It separates active impl
 
 - [AI Development Preflight](./AI-DEVELOPMENT-PREFLIGHT.md)
 - [CpIPOS Handoff 2026-08-02](./CPIPOS-HANDOFF-2026-08-02.md)
+- [Print Adapter Architecture 2026-08-02](./PRINT-ADAPTER-ARCHITECTURE-2026-08-02.md)
+- [Local Print Bridge Windows 2026-08-02](./LOCAL-PRINT-BRIDGE-WINDOWS-2026-08-02.md)
 - [CpIPOS Handoff 2026-07-28](./CPIPOS-HANDOFF-2026-07-28.md)
 - [CpIPOS AI Guardrails](./AI-GUARDRAILS-CPIPOS.md)
 - [CpIPOS Production Checkpoint](./CPIPOS-PRODUCTION-CHECKPOINT-2026-07-27.md)
@@ -50,6 +53,8 @@ Use this page as the first stop before new development. It separates active impl
 - [POS Menu Modifiers And Ingredient Options](./POS-MENU-MODIFIERS-INGREDIENTS-PLAN-2026-07-22.md)
 - [POS Shift Close Reliability](./POS-SHIFT-CLOSE-RELIABILITY-2026-07-10.md)
 - [POS Printing And Receipt Audit 2026-07-29](./POS-PRINTING-RECEIPT-AUDIT-2026-07-29.md)
+- [Print Adapter Architecture 2026-08-02](./PRINT-ADAPTER-ARCHITECTURE-2026-08-02.md)
+- [Local Print Bridge Windows 2026-08-02](./LOCAL-PRINT-BRIDGE-WINDOWS-2026-08-02.md)
 - [Cross-Platform Web POS Printing 2026-08-02](./CROSS-PLATFORM-WEB-POS-PRINTING.md)
 - [CpIPOS Handoff 2026-08-02](./CPIPOS-HANDOFF-2026-08-02.md)
 - [POS Navigation Settings 2026-07-29](./POS-NAVIGATION-SETTINGS-2026-07-29.md)
