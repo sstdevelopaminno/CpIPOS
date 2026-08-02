@@ -55,6 +55,29 @@ internal sealed class MainForm : Form
 
     private void TryLoadApplicationIcon()
     {
+        var candidatePaths = new[]
+        {
+            Path.Combine(AppContext.BaseDirectory, "assets", "cpipos.ico"),
+            Path.Combine(AppContext.BaseDirectory, "cpipos.ico"),
+            Path.Combine(Application.StartupPath, "assets", "cpipos.ico"),
+            Path.Combine(Application.StartupPath, "cpipos.ico")
+        };
+
+        foreach (var candidatePath in candidatePaths)
+        {
+            try
+            {
+                if (!File.Exists(candidatePath)) continue;
+                using var fileStream = File.OpenRead(candidatePath);
+                Icon = new Icon(fileStream);
+                return;
+            }
+            catch
+            {
+                // Try the next candidate path.
+            }
+        }
+
         try
         {
             var associatedIcon = Icon.ExtractAssociatedIcon(Application.ExecutablePath);
@@ -65,7 +88,7 @@ internal sealed class MainForm : Form
         }
         catch
         {
-            // Keep the default Windows icon when a custom icon is not embedded.
+            // Keep the default Windows icon when a custom icon is not embedded or bundled.
         }
     }
 
@@ -273,7 +296,7 @@ internal static class OfflinePage
     <h1>CpIPOS</h1>
     <p>ยังเชื่อมต่อระบบออนไลน์ไม่ได้ กรุณาตรวจสอบอินเทอร์เน็ตแล้วลองใหม่อีกครั้ง</p>
     <code>สถานะ: {{safeReason}}</code>
-    <p>การใช้งานครั้งแรกต้องออนไลน์เพื่อให้ระบบหลังบ้าน IT ตรวจรหัสร้านและปลดล็อกแพ็กเกจก่อน จากนั้นจึงใช้ความสามารถ offline ตามแพ็กเกจที่ได้รับ</p>
+    <p>ระบบขาย offline เต็มรูปแบบยังเป็นเฟสถัดไป ต้องมี local database, order queue, payment queue และ sync engine ก่อนใช้งานจริง</p>
     <button onclick="chrome.webview.postMessage('retry')">ลองใหม่</button>
     <button class="secondary" onclick="chrome.webview.postMessage('close')">ปิดโปรแกรม</button>
     <p class="muted">ปุ่มลัด: F11 เต็มจอ, Esc ออกจากเต็มจอ, Ctrl+R โหลดใหม่, Ctrl+Q ปิดโปรแกรม</p>
