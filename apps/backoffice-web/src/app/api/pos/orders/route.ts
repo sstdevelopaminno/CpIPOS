@@ -1,5 +1,4 @@
 import crypto from "node:crypto";
-import { getPosApiAuthContext } from "@/lib/pos-api-auth";
 import { fail, ok } from "@/lib/http";
 import { appendAuditLog } from "@/lib/audit-log";
 import { FeatureGateError, requireTenantFeature } from "@/lib/feature-gate";
@@ -10,7 +9,9 @@ import { getSupabaseServiceClient } from "@/lib/supabase-admin";
 
 export async function GET(req: Request) {
   try {
-    const auth = await getPosApiAuthContext({ requireBranchScope: true, requiredPermission: "sales:list:view" });
+    const scope = await requirePosSession();
+    requirePermission(scope, "sales:list:view");
+    const { shift } = await requireActiveShift(scope);
     const supabase = getSupabaseServiceClient();
     const { searchParams } = new URL(req.url);
     const { page, pageSize } = parsePagination(searchParams, 12);
@@ -25,8 +26,9 @@ export async function GET(req: Request) {
         "id,order_no,order_type,channel,customer_name,external_order_code,total_amount,status,created_at,shift_id,notes,created_by,cash_received,change_amount,payment_completed_at,payment_completed_by",
         { count: "exact" }
       )
-      .eq("tenant_id", auth.tenantId!)
-      .eq("branch_id", auth.branchId!)
+      .eq("tenant_id", scope.session.tenant_id)
+      .eq("branch_id", scope.session.branch_id)
+      .eq("shift_id", shift.id)
       .order("created_at", { ascending: false })
       .range(from, to);
 
@@ -73,7 +75,7 @@ export async function GET(req: Request) {
       shiftIds.length > 0
         ? supabase.from("shifts").select("id,status,opened_at").in("id", shiftIds)
         : Promise.resolve({ data: [], error: null } as { data: Array<{ id: string; status: string; opened_at: string }>; error: null }),
-      supabase.from("branches").select("name").eq("tenant_id", auth.tenantId!).eq("id", auth.branchId!).maybeSingle<{ name: string | null }>()
+      supabase.from("branches").select("name").eq("tenant_id", scope.session.tenant_id).eq("id", scope.session.branch_id).maybeSingle<{ name: string | null }>()
     ]);
 
     if (usersResult.error) {
@@ -88,7 +90,7 @@ export async function GET(req: Request) {
 
     const userMap = new Map((usersResult.data ?? []).map((row) => [row.id, row.full_name ?? row.id]));
     const shiftMap = new Map((shiftsResult.data ?? []).map((row) => [row.id, { status: row.status, opened_at: row.opened_at }]));
-    const branchName = branchResult.data?.name ?? auth.branchId!;
+    const branchName = branchResult.data?.name ?? scope.session.branch_id;
 
     const items = rows.map((row) => ({
       ...row,
@@ -101,9 +103,17 @@ export async function GET(req: Request) {
 
     return ok({
       items,
+      scope: {
+        mode: "current_cashier_shift",
+        shift_id: shift.id,
+        device_code: scope.session.device_code
+      },
       pagination: buildPaginationMeta(page, pageSize, count)
     });
   } catch (error) {
+    if (error instanceof PosGuardError) {
+      return fail(error.code, error.message, error.status);
+    }
     return fail("unauthorized", error instanceof Error ? error.message : "Authentication failed.", 401);
   }
 }
@@ -274,6 +284,7 @@ export async function POST(request: Request) {
       targetId: orderRow.id,
       metadata: {
         shift_id: shift.id,
+        device_code: scope.session.device_code,
         pos_session_id: scope.session.id,
         item_count: pricing.pricedItems.length,
         subtotal: orderRow.subtotal,
