@@ -2,6 +2,7 @@ using System.Drawing;
 using System.Drawing.Printing;
 using System.Net;
 using System.Net.Sockets;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
@@ -10,10 +11,19 @@ namespace Cpipos.WindowsRuntime;
 
 internal sealed class LocalPrintBridge : IDisposable
 {
+    private static readonly HashSet<string> AllowedOrigins = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "https://cp-ipos-web.vercel.app",
+        "http://localhost:3000",
+        "http://127.0.0.1:3000"
+    };
+
     private readonly int _port;
     private readonly string _defaultPrinter;
+    private readonly string _bridgeToken;
     private readonly CancellationTokenSource _stopping = new();
     private readonly SemaphoreSlim _printLock = new(1, 1);
+    private readonly SemaphoreSlim _requestSlots = new(16, 16);
     private readonly DateTimeOffset _startedAt = DateTimeOffset.Now;
     private TcpListener? _listener;
     private DateTimeOffset? _lastPrintAt;
@@ -21,19 +31,24 @@ internal sealed class LocalPrintBridge : IDisposable
     private string? _lastError;
     private int _printedJobs;
     private int _failedJobs;
+    private bool _disposed;
 
-    public string Version => "cpipos-windows-native-bridge-0.1.3";
+    public string Version => "cpipos-windows-native-bridge-0.1.5";
+    public bool IsRunning { get; private set; }
 
-    public LocalPrintBridge(int port, string defaultPrinter)
+    public LocalPrintBridge(int port, string defaultPrinter, string bridgeToken)
     {
         _port = port;
         _defaultPrinter = defaultPrinter.Trim();
+        _bridgeToken = bridgeToken;
     }
 
     public void Start()
     {
+        ObjectDisposedException.ThrowIf(_disposed, this);
         _listener = new TcpListener(IPAddress.Parse("127.0.0.1"), _port);
         _listener.Start();
+        IsRunning = true;
         _ = Task.Run(() => AcceptLoopAsync(_stopping.Token));
     }
 
@@ -67,41 +82,89 @@ internal sealed class LocalPrintBridge : IDisposable
         }
     }
 
-    private async Task HandleClientAsync(TcpClient client, CancellationToken cancellationToken)
+    private async Task HandleClientAsync(TcpClient client, CancellationToken bridgeCancellationToken)
     {
-        using (client)
-        using (var stream = client.GetStream())
+        HttpRequestData? request = null;
+        var slotTaken = false;
+
+        try
         {
-            try
+            slotTaken = await _requestSlots.WaitAsync(TimeSpan.FromSeconds(5), bridgeCancellationToken).ConfigureAwait(false);
+            if (!slotTaken)
             {
-                var request = await HttpRequestData.ReadAsync(stream, cancellationToken).ConfigureAwait(false);
-                var response = await RouteAsync(request, cancellationToken).ConfigureAwait(false);
-                await response.WriteAsync(stream, cancellationToken).ConfigureAwait(false);
+                using (client)
+                using (var stream = client.GetStream())
+                {
+                    var busy = HttpResponseData.Json(503, new
+                    {
+                        ok = false,
+                        error = new { code = "bridge_busy", message = "Local print bridge has too many open requests." }
+                    }, null);
+                    await busy.WriteAsync(stream, bridgeCancellationToken).ConfigureAwait(false);
+                }
+                return;
             }
-            catch (Exception ex)
+
+            using (client)
+            using (var stream = client.GetStream())
+            using (var timeout = CancellationTokenSource.CreateLinkedTokenSource(bridgeCancellationToken))
             {
-                _lastError = ex.Message;
-                var response = HttpResponseData.Json(500, new
+                timeout.CancelAfter(TimeSpan.FromSeconds(30));
+                request = await HttpRequestData.ReadAsync(stream, timeout.Token).ConfigureAwait(false);
+                var response = await RouteAsync(request, timeout.Token).ConfigureAwait(false);
+                await response.WriteAsync(stream, timeout.Token).ConfigureAwait(false);
+            }
+        }
+        catch (OperationCanceledException ex)
+        {
+            _lastError = ex.Message;
+            await TryWriteErrorAsync(client, 504, "bridge_request_timeout", "Local bridge request timed out.", ResolveCorsOrigin(request)).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            _lastError = ex.Message;
+            await TryWriteErrorAsync(client, 500, "bridge_unhandled_error", ex.Message, ResolveCorsOrigin(request)).ConfigureAwait(false);
+        }
+        finally
+        {
+            if (slotTaken) _requestSlots.Release();
+        }
+    }
+
+    private static async Task TryWriteErrorAsync(TcpClient client, int status, string code, string message, string? corsOrigin)
+    {
+        try
+        {
+            using (client)
+            using (var stream = client.GetStream())
+            {
+                var response = HttpResponseData.Json(status, new
                 {
                     ok = false,
-                    error = new { code = "bridge_unhandled_error", message = ex.Message }
-                });
-                await response.WriteAsync(stream, cancellationToken).ConfigureAwait(false);
+                    error = new { code, message }
+                }, corsOrigin);
+                await response.WriteAsync(stream, CancellationToken.None).ConfigureAwait(false);
             }
+        }
+        catch
+        {
+            // The client may already be disconnected or disposed.
         }
     }
 
     private async Task<HttpResponseData> RouteAsync(HttpRequestData request, CancellationToken cancellationToken)
     {
+        var corsOrigin = ResolveCorsOrigin(request);
+
         if (string.Equals(request.Method, "OPTIONS", StringComparison.OrdinalIgnoreCase))
         {
-            return HttpResponseData.Empty(204);
+            return HttpResponseData.Empty(204, corsOrigin);
         }
 
         if (string.Equals(request.Method, "GET", StringComparison.OrdinalIgnoreCase) &&
             (request.Path is "/" or "/health" or "/print/health" or "/print/status"))
         {
-            return HttpResponseData.Json(200, BuildHealthPayload());
+            return HttpResponseData.Json(200, BuildHealthPayload(), corsOrigin);
         }
 
         if (string.Equals(request.Method, "GET", StringComparison.OrdinalIgnoreCase) && request.Path == "/capabilities")
@@ -113,6 +176,8 @@ internal sealed class LocalPrintBridge : IDisposable
                 {
                     adapter = "LOCAL_BRIDGE_WINDOWS_NATIVE",
                     bridge_version = Version,
+                    token_required = true,
+                    allowed_origins = AllowedOrigins.ToArray(),
                     supports_print_receipt = true,
                     supports_print_test = true,
                     supports_list_printers = true,
@@ -121,30 +186,58 @@ internal sealed class LocalPrintBridge : IDisposable
                     supports_offline_sales_engine = false,
                     endpoints = new[] { "/health", "/capabilities", "/printers", "/print/status", "/print/test", "/print" }
                 }
-            });
+            }, corsOrigin);
         }
 
         if (string.Equals(request.Method, "GET", StringComparison.OrdinalIgnoreCase) && request.Path == "/printers")
         {
-            return HttpResponseData.Json(200, BuildPrintersPayload());
+            if (!IsAuthorizedBridgeRequest(request)) return Unauthorized(corsOrigin);
+            return HttpResponseData.Json(200, BuildPrintersPayload(), corsOrigin);
         }
 
         if (string.Equals(request.Method, "POST", StringComparison.OrdinalIgnoreCase) && request.Path == "/print/test")
         {
-            return await HandleTestPrintAsync(request, cancellationToken).ConfigureAwait(false);
+            if (!IsAuthorizedBridgeRequest(request)) return Unauthorized(corsOrigin);
+            return await HandleTestPrintAsync(request, corsOrigin, cancellationToken).ConfigureAwait(false);
         }
 
         if (string.Equals(request.Method, "POST", StringComparison.OrdinalIgnoreCase) &&
             (request.Path == "/print" || request.Path == "/api/print"))
         {
-            return await HandlePrintAsync(request, cancellationToken).ConfigureAwait(false);
+            if (!IsAuthorizedBridgeRequest(request)) return Unauthorized(corsOrigin);
+            return await HandlePrintAsync(request, corsOrigin, cancellationToken).ConfigureAwait(false);
         }
 
         return HttpResponseData.Json(404, new
         {
             ok = false,
             error = new { code = "not_found", message = "Use GET /health, GET /printers, POST /print/test, or POST /print." }
-        });
+        }, corsOrigin);
+    }
+
+    private static HttpResponseData Unauthorized(string? corsOrigin)
+    {
+        return HttpResponseData.Json(401, new
+        {
+            ok = false,
+            error = new { code = "bridge_token_required", message = "Missing or invalid CpIPOS bridge token." }
+        }, corsOrigin);
+    }
+
+    private bool IsAuthorizedBridgeRequest(HttpRequestData request)
+    {
+        var provided = request.Header("X-CpIPOS-Bridge-Token") ?? request.Header("X-Cpipos-Bridge-Token");
+        if (string.IsNullOrWhiteSpace(provided) || string.IsNullOrWhiteSpace(_bridgeToken)) return false;
+        var providedBytes = Encoding.UTF8.GetBytes(provided.Trim());
+        var expectedBytes = Encoding.UTF8.GetBytes(_bridgeToken);
+        return providedBytes.Length == expectedBytes.Length && CryptographicOperations.FixedTimeEquals(providedBytes, expectedBytes);
+    }
+
+    private static string? ResolveCorsOrigin(HttpRequestData? request)
+    {
+        var origin = request?.Header("Origin");
+        if (string.IsNullOrWhiteSpace(origin)) return null;
+        return AllowedOrigins.Contains(origin.Trim()) ? origin.Trim() : string.Empty;
     }
 
     private object BuildHealthPayload()
@@ -158,10 +251,11 @@ internal sealed class LocalPrintBridge : IDisposable
             ok = true,
             data = new
             {
-                status = "online",
+                status = IsRunning ? "online" : "bridge_not_started",
                 app = "CpIPOS Windows Native Runtime",
                 provider = "native_dotnet_print_bridge",
                 bridge_version = Version,
+                token_required = true,
                 host = "127.0.0.1",
                 port = _port,
                 started_at = _startedAt,
@@ -172,6 +266,7 @@ internal sealed class LocalPrintBridge : IDisposable
                 selected_printer_valid = !string.IsNullOrWhiteSpace(resolved),
                 installed_printer_count = printers.Length,
                 print_queue_busy = _printLock.CurrentCount == 0,
+                request_slots_available = _requestSlots.CurrentCount,
                 printed_jobs = _printedJobs,
                 failed_jobs = _failedJobs,
                 last_print_at = _lastPrintAt,
@@ -207,7 +302,7 @@ internal sealed class LocalPrintBridge : IDisposable
         };
     }
 
-    private async Task<HttpResponseData> HandleTestPrintAsync(HttpRequestData request, CancellationToken cancellationToken)
+    private async Task<HttpResponseData> HandleTestPrintAsync(HttpRequestData request, string? corsOrigin, CancellationToken cancellationToken)
     {
         try
         {
@@ -230,7 +325,7 @@ internal sealed class LocalPrintBridge : IDisposable
                     printer_name = result.PrinterName,
                     job_id = result.JobId
                 }
-            });
+            }, corsOrigin);
         }
         catch (Exception ex)
         {
@@ -241,11 +336,11 @@ internal sealed class LocalPrintBridge : IDisposable
                 ok = false,
                 error = new { code = "print_test_failed", message = ex.Message },
                 data = new { bridge_version = Version, health = BuildHealthPayload() }
-            });
+            }, corsOrigin);
         }
     }
 
-    private async Task<HttpResponseData> HandlePrintAsync(HttpRequestData request, CancellationToken cancellationToken)
+    private async Task<HttpResponseData> HandlePrintAsync(HttpRequestData request, string? corsOrigin, CancellationToken cancellationToken)
     {
         try
         {
@@ -260,7 +355,7 @@ internal sealed class LocalPrintBridge : IDisposable
                 {
                     ok = false,
                     error = new { code = "empty_print_payload", message = "No printable text/html found." }
-                });
+                }, corsOrigin);
             }
 
             var result = await PrintTextAsync(text, printerName, cancellationToken).ConfigureAwait(false);
@@ -276,7 +371,7 @@ internal sealed class LocalPrintBridge : IDisposable
                     chars_printed = text.Length,
                     bridge_version = Version
                 }
-            });
+            }, corsOrigin);
         }
         catch (Exception ex)
         {
@@ -287,7 +382,7 @@ internal sealed class LocalPrintBridge : IDisposable
                 ok = false,
                 error = new { code = "print_failed", message = ex.Message },
                 data = new { bridge_version = Version, health = BuildHealthPayload() }
-            });
+            }, corsOrigin);
         }
     }
 
@@ -304,9 +399,12 @@ internal sealed class LocalPrintBridge : IDisposable
             var resolvedPrinter = ResolvePrinterNameOrThrow(requestedPrinterName, installed);
             var jobId = "CPIPOS-" + DateTimeOffset.Now.ToString("yyyyMMddHHmmssfff");
 
+            using var printTimeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            printTimeout.CancelAfter(TimeSpan.FromSeconds(45));
+
             await Task.Run(() =>
             {
-                cancellationToken.ThrowIfCancellationRequested();
+                printTimeout.Token.ThrowIfCancellationRequested();
 
                 using var font = new Font("Tahoma", 9, FontStyle.Regular, GraphicsUnit.Point);
                 using var document = new PrintDocument
@@ -324,20 +422,39 @@ internal sealed class LocalPrintBridge : IDisposable
                     throw new InvalidOperationException($"Printer not found or not ready: {resolvedPrinter}");
                 }
 
+                var remainingText = text;
                 document.PrintPage += (_, eventArgs) =>
                 {
+                    printTimeout.Token.ThrowIfCancellationRequested();
                     var bounds = eventArgs.MarginBounds;
                     if (bounds.Width <= 0 || bounds.Height <= 0)
                     {
-                        bounds = new Rectangle(2, 2, eventArgs.PageBounds.Width - 4, eventArgs.PageBounds.Height - 4);
+                        bounds = new Rectangle(2, 2, Math.Max(1, eventArgs.PageBounds.Width - 4), Math.Max(1, eventArgs.PageBounds.Height - 4));
                     }
 
-                    eventArgs.Graphics.DrawString(text, font, Brushes.Black, bounds);
-                    eventArgs.HasMorePages = false;
+                    var layout = new RectangleF(bounds.Left, bounds.Top, bounds.Width, bounds.Height);
+                    var measureSize = new SizeF(Math.Max(1, bounds.Width), Math.Max(1, bounds.Height));
+                    int charsFitted;
+                    int linesFilled;
+                    eventArgs.Graphics.MeasureString(remainingText, font, measureSize, StringFormat.GenericTypographic, out charsFitted, out linesFilled);
+
+                    if (charsFitted <= 0 || charsFitted >= remainingText.Length)
+                    {
+                        eventArgs.Graphics.DrawString(remainingText, font, Brushes.Black, layout);
+                        eventArgs.HasMorePages = false;
+                        remainingText = string.Empty;
+                    }
+                    else
+                    {
+                        var pageText = remainingText[..charsFitted];
+                        eventArgs.Graphics.DrawString(pageText, font, Brushes.Black, layout);
+                        remainingText = remainingText[charsFitted..].TrimStart('\r', '\n');
+                        eventArgs.HasMorePages = remainingText.Length > 0;
+                    }
                 };
 
                 document.Print();
-            }, cancellationToken).ConfigureAwait(false);
+            }, printTimeout.Token).ConfigureAwait(false);
 
             _printedJobs++;
             _lastError = null;
@@ -412,7 +529,7 @@ internal sealed class LocalPrintBridge : IDisposable
     {
         try
         {
-            using var settings = new PrinterSettings();
+            var settings = new PrinterSettings();
             return string.IsNullOrWhiteSpace(settings.PrinterName) ? null : settings.PrinterName;
         }
         catch
@@ -538,9 +655,13 @@ internal sealed class LocalPrintBridge : IDisposable
 
     public void Dispose()
     {
-        _stopping.Cancel();
+        if (_disposed) return;
+        _disposed = true;
+        IsRunning = false;
+        try { _stopping.Cancel(); } catch { }
         try { _listener?.Stop(); } catch { }
         _printLock.Dispose();
+        _requestSlots.Dispose();
         _stopping.Dispose();
     }
 
@@ -555,6 +676,12 @@ internal sealed class HttpRequestData
     public string Method { get; init; } = "GET";
     public string Path { get; init; } = "/";
     public string Body { get; init; } = string.Empty;
+    public IReadOnlyDictionary<string, string> Headers { get; init; } = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+    public string? Header(string name)
+    {
+        return Headers.TryGetValue(name, out var value) ? value : null;
+    }
 
     public static async Task<HttpRequestData> ReadAsync(NetworkStream stream, CancellationToken cancellationToken)
     {
@@ -577,11 +704,12 @@ internal sealed class HttpRequestData
 
         var headerText = Encoding.UTF8.GetString(bytes, 0, headerEnd);
         var lines = headerText.Split(new[] { "\r\n" }, StringSplitOptions.None);
-        var first = lines[0].Split(' ');
+        var first = lines[0].Split(' ', StringSplitOptions.RemoveEmptyEntries);
         var method = first.Length > 0 ? first[0] : "GET";
         var rawPath = first.Length > 1 ? first[1] : "/";
         var path = rawPath.Split('?')[0];
         var contentLength = 0;
+        var headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
         foreach (var line in lines.Skip(1))
         {
@@ -589,27 +717,39 @@ internal sealed class HttpRequestData
             if (index <= 0) continue;
             var key = line[..index].Trim();
             var value = line[(index + 1)..].Trim();
+            headers[key] = value;
             if (string.Equals(key, "Content-Length", StringComparison.OrdinalIgnoreCase))
             {
                 int.TryParse(value, out contentLength);
             }
         }
 
+        if (contentLength < 0 || contentLength > MaxBodyBytes) throw new InvalidOperationException("payload_too_large");
+
         var bodyStart = headerEnd + 4;
-        var bodyBytes = bytes.Skip(bodyStart).ToArray();
-        while (bodyBytes.Length < contentLength)
+        using var bodyMemory = new MemoryStream();
+        if (bodyStart < bytes.Length)
         {
-            var read = await stream.ReadAsync(buffer.AsMemory(0, buffer.Length), cancellationToken).ConfigureAwait(false);
-            if (read <= 0) break;
-            bodyBytes = bodyBytes.Concat(buffer.Take(read)).ToArray();
-            if (bodyBytes.Length > MaxBodyBytes) throw new InvalidOperationException("payload_too_large");
+            var initialBodyLength = Math.Min(contentLength, bytes.Length - bodyStart);
+            bodyMemory.Write(bytes, bodyStart, initialBodyLength);
         }
 
+        while (bodyMemory.Length < contentLength)
+        {
+            var remaining = contentLength - (int)bodyMemory.Length;
+            var read = await stream.ReadAsync(buffer.AsMemory(0, Math.Min(buffer.Length, remaining)), cancellationToken).ConfigureAwait(false);
+            if (read <= 0) break;
+            bodyMemory.Write(buffer, 0, read);
+            if (bodyMemory.Length > MaxBodyBytes) throw new InvalidOperationException("payload_too_large");
+        }
+
+        var bodyBytes = bodyMemory.ToArray();
         return new HttpRequestData
         {
             Method = method,
             Path = string.IsNullOrWhiteSpace(path) ? "/" : path,
-            Body = Encoding.UTF8.GetString(bodyBytes, 0, Math.Min(bodyBytes.Length, contentLength))
+            Body = Encoding.UTF8.GetString(bodyBytes, 0, bodyBytes.Length),
+            Headers = headers
         };
     }
 
@@ -628,22 +768,24 @@ internal sealed class HttpResponseData
     private readonly int _status;
     private readonly string _contentType;
     private readonly byte[] _body;
+    private readonly string? _corsOrigin;
 
-    private HttpResponseData(int status, string contentType, byte[] body)
+    private HttpResponseData(int status, string contentType, byte[] body, string? corsOrigin)
     {
         _status = status;
         _contentType = contentType;
         _body = body;
+        _corsOrigin = corsOrigin;
     }
 
-    public static HttpResponseData Json(int status, object body)
+    public static HttpResponseData Json(int status, object body, string? corsOrigin)
     {
-        return new HttpResponseData(status, "application/json; charset=utf-8", JsonSerializer.SerializeToUtf8Bytes(body));
+        return new HttpResponseData(status, "application/json; charset=utf-8", JsonSerializer.SerializeToUtf8Bytes(body), corsOrigin);
     }
 
-    public static HttpResponseData Empty(int status)
+    public static HttpResponseData Empty(int status, string? corsOrigin)
     {
-        return new HttpResponseData(status, "text/plain; charset=utf-8", Array.Empty<byte>());
+        return new HttpResponseData(status, "text/plain; charset=utf-8", Array.Empty<byte>(), corsOrigin);
     }
 
     public async Task WriteAsync(NetworkStream stream, CancellationToken cancellationToken)
@@ -653,25 +795,35 @@ internal sealed class HttpResponseData
             200 => "OK",
             204 => "No Content",
             400 => "Bad Request",
+            401 => "Unauthorized",
             404 => "Not Found",
             500 => "Internal Server Error",
+            503 => "Service Unavailable",
+            504 => "Gateway Timeout",
             _ => "OK"
         };
-        var header = string.Join("\r\n", new[]
+        var headers = new List<string>
         {
             $"HTTP/1.1 {_status} {reason}",
-            "Access-Control-Allow-Origin: *",
             "Access-Control-Allow-Methods: GET,POST,OPTIONS",
-            "Access-Control-Allow-Headers: Content-Type, Authorization, X-Requested-With, X-Cpipos-Bridge-Test",
-            "Access-Control-Allow-Private-Network: true",
+            "Access-Control-Allow-Headers: Content-Type, Authorization, X-Requested-With, X-CpIPOS-Bridge-Token, X-Cpipos-Bridge-Token",
             "Access-Control-Max-Age: 86400",
             "Cache-Control: no-store",
             $"Content-Type: {_contentType}",
             $"Content-Length: {_body.Length}",
-            "Connection: close",
-            "",
-            ""
-        });
+            "Connection: close"
+        };
+
+        if (!string.IsNullOrEmpty(_corsOrigin))
+        {
+            headers.Insert(1, $"Access-Control-Allow-Origin: {_corsOrigin}");
+            headers.Insert(2, "Vary: Origin");
+            headers.Insert(3, "Access-Control-Allow-Private-Network: true");
+        }
+
+        headers.Add(string.Empty);
+        headers.Add(string.Empty);
+        var header = string.Join("\r\n", headers);
         var headerBytes = Encoding.UTF8.GetBytes(header);
         await stream.WriteAsync(headerBytes.AsMemory(0, headerBytes.Length), cancellationToken).ConfigureAwait(false);
         if (_body.Length > 0)
