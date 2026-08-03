@@ -50,7 +50,6 @@ internal sealed class MainForm : Form
 
         Shown += async (_, _) => await InitializeWebViewAsync();
         KeyDown += HandleKeyDown;
-        FormClosing += (_, _) => _bridge.Dispose();
     }
 
     private void TryLoadApplicationIcon()
@@ -157,8 +156,12 @@ internal sealed class MainForm : Form
             store_code = _options.StoreCode,
             native_app_version = "0.1.4",
             native_bridge_version = _bridge.Version,
+            native_bridge_available = _bridge.IsRunning,
             bridge_health_url = _options.BridgeHealthUrl,
+            bridge_printers_url = _options.BridgePrintersUrl,
             bridge_print_url = _options.BridgePrintUrl,
+            bridge_token = _options.BridgeToken,
+            bridge_token_header = "X-CpIPOS-Bridge-Token",
             windows_printer = _options.WindowsPrinter,
             windows_runtime_bootstrap_url = _options.WindowsRuntimeBootstrapUrl,
             windows_runtime_entitlements_url = _options.WindowsRuntimeEntitlementsUrl,
@@ -183,6 +186,9 @@ internal sealed class MainForm : Form
     window.localStorage.setItem('cpi_print_adapter_mode_v1', 'LOCAL_BRIDGE_WINDOWS');
     window.localStorage.setItem('cpi_local_bridge_print_url_v1', payload.bridge_print_url);
     window.localStorage.setItem('cpi_local_bridge_health_url_v1', payload.bridge_health_url);
+    window.localStorage.setItem('cpi_local_bridge_printers_url_v1', payload.bridge_printers_url);
+    window.sessionStorage.setItem('cpi_local_bridge_token_v1', payload.bridge_token);
+    window.sessionStorage.setItem('cpi_local_bridge_token_header_v1', payload.bridge_token_header);
     window.localStorage.removeItem('cpi_windows_runtime_dev_full_access_v1');
   }} catch (error) {{
     console.warn('CpIPOS Windows Runtime bootstrap failed', error);
