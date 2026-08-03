@@ -60,10 +60,15 @@ jobs:
           $bridge = Get-Content "apps/windows-runtime-native/Cpipos.WindowsRuntime/LocalPrintBridge.cs" -Raw
           $installer = Get-Content "apps/windows-runtime-native/installer/CpIPOSWindowsRuntime.iss" -Raw
 
-          if ($csproj -notmatch "<Version>$expected</Version>") { throw "csproj Version does not match $expected" }
-          if ($mainForm -notmatch "native_app_version = \"$expected\"") { throw "MainForm native_app_version does not match $expected" }
-          if ($bridge -notmatch "cpipos-windows-native-bridge-$expected") { throw "LocalPrintBridge version does not match $expected" }
-          if ($installer -notmatch "#define AppVersion \"$expected\"") { throw "Installer default AppVersion does not match $expected" }
+          $csprojVersion = "<Version>$expected</Version>"
+          $nativeAppVersion = 'native_app_version = "' + $expected + '"'
+          $bridgeVersion = "cpipos-windows-native-bridge-$expected"
+          $installerVersion = '#define AppVersion "' + $expected + '"'
+
+          if (-not $csproj.Contains($csprojVersion)) { throw "csproj Version does not match $expected" }
+          if (-not $mainForm.Contains($nativeAppVersion)) { throw "MainForm native_app_version does not match $expected" }
+          if (-not $bridge.Contains($bridgeVersion)) { throw "LocalPrintBridge version does not match $expected" }
+          if (-not $installer.Contains($installerVersion)) { throw "Installer default AppVersion does not match $expected" }
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
