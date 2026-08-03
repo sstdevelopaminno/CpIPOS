@@ -5,6 +5,7 @@ using System.Drawing.Printing;
 using System.IO;
 using System.Linq;
 using System.Net;
+using System.Net.Http;
 using System.Net.Sockets;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
@@ -30,13 +31,17 @@ internal sealed class LocalPrintBridge : IDisposable
     private readonly string _bridgeToken;
     private readonly CancellationTokenSource _stopping = new();
     private readonly SemaphoreSlim _printLock = new(1, 1);
+    private readonly SemaphoreSlim _drawerLock = new(1, 1);
     private readonly SemaphoreSlim _requestSlots = new(16, 16);
     private readonly DateTimeOffset _startedAt = DateTimeOffset.Now;
     private TcpListener? _listener;
     private DateTimeOffset? _lastPrintAt;
+    private DateTimeOffset? _lastDrawerAt;
     private string? _lastPrinter;
+    private string? _lastDrawerDevice;
     private string? _lastError;
     private int _printedJobs;
+    private int _drawerCommands;
     private int _failedJobs;
     private bool _disposed;
 
@@ -190,6 +195,12 @@ internal sealed class LocalPrintBridge : IDisposable
                     supports_list_printers = true,
                     supports_serialized_print_queue = true,
                     supports_cash_drawer = true,
+                    supports_cash_drawer_printer_kick = true,
+                    supports_cash_drawer_emergency_printer_kick = true,
+                    supports_external_serial_drawer_controller = true,
+                    supports_external_network_drawer_controller = true,
+                    supports_external_usb_drawer_controller = false,
+                    supports_vendor_sdk_drawer_controller = false,
                     supports_offline_sales_engine = false,
                     endpoints = new[]
                     {
@@ -288,12 +299,18 @@ internal sealed class LocalPrintBridge : IDisposable
                 selected_printer_valid = !string.IsNullOrWhiteSpace(resolved),
                 installed_printer_count = printers.Length,
                 print_queue_busy = _printLock.CurrentCount == 0,
+                drawer_queue_busy = _drawerLock.CurrentCount == 0,
                 request_slots_available = _requestSlots.CurrentCount,
                 supports_cash_drawer = true,
+                supports_external_serial_drawer_controller = true,
+                supports_external_network_drawer_controller = true,
                 printed_jobs = _printedJobs,
+                drawer_commands = _drawerCommands,
                 failed_jobs = _failedJobs,
                 last_print_at = _lastPrintAt,
+                last_drawer_at = _lastDrawerAt,
                 last_printer = _lastPrinter,
+                last_drawer_device = _lastDrawerDevice,
                 last_error = _lastError,
                 time = DateTimeOffset.Now
             }
@@ -368,24 +385,21 @@ internal sealed class LocalPrintBridge : IDisposable
         try
         {
             using var document = JsonDocument.Parse(string.IsNullOrWhiteSpace(request.Body) ? "{}" : request.Body);
-            var root = document.RootElement;
-            var printerName = FirstString(root, "printer_name", "printerName", "windows_printer", "printer") ?? _defaultPrinter;
-            var metadata = GetObject(root, "metadata");
-            var kickPin = ReadInt(root, "drawer_kick_pin", "kick_pin", "pin") ?? ReadInt(metadata, "drawer_kick_pin", "kick_pin", "pin") ?? 0;
-            var pulseOnMs = ReadInt(root, "drawer_pulse_on_ms", "pulse_on_ms") ?? ReadInt(metadata, "drawer_pulse_on_ms", "pulse_on_ms") ?? 50;
-            var pulseOffMs = ReadInt(root, "drawer_pulse_off_ms", "pulse_off_ms") ?? ReadInt(metadata, "drawer_pulse_off_ms", "pulse_off_ms") ?? 250;
-
-            var result = await OpenCashDrawerAsync(printerName, kickPin, pulseOnMs, pulseOffMs, cancellationToken).ConfigureAwait(false);
+            var command = CashDrawerCommand.FromJson(_defaultPrinter, document.RootElement);
+            var result = await OpenCashDrawerAsync(command, cancellationToken).ConfigureAwait(false);
             return HttpResponseData.Json(200, new
             {
                 ok = true,
                 data = new
                 {
                     opened = true,
-                    provider = "windows_raw_escpos_cash_drawer",
+                    provider = result.Provider,
                     bridge_version = Version,
-                    printer_name = result.PrinterName,
+                    connection_mode = result.ConnectionMode,
+                    device_name = result.DeviceName,
+                    printer_name = result.DeviceName,
                     job_id = result.JobId,
+                    bytes_sent = result.BytesSent,
                     kick_pin = result.KickPin,
                     pulse_on_ms = result.PulseOnMs,
                     pulse_off_ms = result.PulseOffMs
@@ -538,37 +552,148 @@ internal sealed class LocalPrintBridge : IDisposable
         }
     }
 
-    private async Task<CashDrawerResult> OpenCashDrawerAsync(string requestedPrinterName, int kickPin, int pulseOnMs, int pulseOffMs, CancellationToken cancellationToken)
+    private async Task<CashDrawerResult> OpenCashDrawerAsync(CashDrawerCommand command, CancellationToken cancellationToken)
     {
-        if (!await _printLock.WaitAsync(TimeSpan.FromSeconds(20), cancellationToken).ConfigureAwait(false))
+        if (!await _drawerLock.WaitAsync(TimeSpan.FromSeconds(10), cancellationToken).ConfigureAwait(false))
         {
-            throw new InvalidOperationException("Print queue is busy. Please retry after the current cash drawer command finishes.");
+            throw new InvalidOperationException("Cash drawer queue is busy. Please retry after the current drawer command finishes.");
         }
 
         try
         {
-            var installed = GetInstalledPrinterNames();
-            var resolvedPrinter = ResolvePrinterNameOrThrow(requestedPrinterName, installed);
-            var jobId = "CPIPOS-DRAWER-" + DateTimeOffset.Now.ToString("yyyyMMddHHmmssfff");
-            var safeKickPin = Math.Clamp(kickPin, 0, 1);
-            var safePulseOnMs = Math.Clamp(pulseOnMs, 20, 500);
-            var safePulseOffMs = Math.Clamp(pulseOffMs, 20, 500);
-            var onUnits = Math.Clamp((int)Math.Round(safePulseOnMs / 2.0), 1, 255);
-            var offUnits = Math.Clamp((int)Math.Round(safePulseOffMs / 2.0), 1, 255);
-            var bytes = new byte[] { 0x1b, 0x40, 0x1b, 0x70, (byte)safeKickPin, (byte)onUnits, (byte)offUnits };
+            var normalizedMode = NormalizeMode(command.ConnectionMode);
+            var result = normalizedMode switch
+            {
+                "printer-kick" or "emergency-printer-kick" => await OpenPrinterKickDrawerAsync(command, normalizedMode, cancellationToken).ConfigureAwait(false),
+                "external-serial-controller" => await OpenSerialDrawerControllerAsync(command, normalizedMode, cancellationToken).ConfigureAwait(false),
+                "external-network-controller" => await OpenNetworkDrawerControllerAsync(command, normalizedMode, cancellationToken).ConfigureAwait(false),
+                "external-usb-controller" => await OpenUsbDrawerControllerAsync(command, normalizedMode, cancellationToken).ConfigureAwait(false),
+                "vendor-sdk" => throw new NotSupportedException("vendor-sdk drawer controller mode requires a vendor-specific Windows adapter and is not enabled in this runtime yet."),
+                _ => await OpenPrinterKickDrawerAsync(command, "printer-kick", cancellationToken).ConfigureAwait(false)
+            };
 
-            await Task.Run(() => RawPrinterWriter.SendBytes(resolvedPrinter, jobId, bytes), cancellationToken).ConfigureAwait(false);
-
-            _printedJobs++;
+            _drawerCommands++;
             _lastError = null;
-            _lastPrintAt = DateTimeOffset.Now;
-            _lastPrinter = resolvedPrinter;
-            return new CashDrawerResult(jobId, resolvedPrinter, safeKickPin, safePulseOnMs, safePulseOffMs);
+            _lastDrawerAt = DateTimeOffset.Now;
+            _lastDrawerDevice = result.DeviceName;
+            return result;
         }
         finally
         {
-            _printLock.Release();
+            _drawerLock.Release();
         }
+    }
+
+    private async Task<CashDrawerResult> OpenPrinterKickDrawerAsync(CashDrawerCommand command, string connectionMode, CancellationToken cancellationToken)
+    {
+        var installed = GetInstalledPrinterNames();
+        var resolvedPrinter = ResolvePrinterNameOrThrow(command.PrinterName, installed);
+        var jobId = "CPIPOS-DRAWER-" + DateTimeOffset.Now.ToString("yyyyMMddHHmmssfff");
+        var bytes = command.CommandBytes();
+        await Task.Run(() => RawPrinterWriter.SendBytes(resolvedPrinter, jobId, bytes), cancellationToken).ConfigureAwait(false);
+        return new CashDrawerResult(jobId, "windows_raw_escpos_cash_drawer", resolvedPrinter, connectionMode, command.KickPin, command.PulseOnMs, command.PulseOffMs, bytes.Length);
+    }
+
+    private async Task<CashDrawerResult> OpenSerialDrawerControllerAsync(CashDrawerCommand command, string connectionMode, CancellationToken cancellationToken)
+    {
+        var port = command.ControllerPort?.Trim();
+        if (string.IsNullOrWhiteSpace(port))
+        {
+            throw new InvalidOperationException("external-serial-controller requires drawer_controller_port, serial_port, or com_port metadata such as COM3.");
+        }
+
+        var devicePath = NormalizeComPortPath(port);
+        var jobId = "CPIPOS-DRAWER-SERIAL-" + DateTimeOffset.Now.ToString("yyyyMMddHHmmssfff");
+        var bytes = command.CommandBytes();
+        await using var stream = new FileStream(devicePath, FileMode.Open, FileAccess.Write, FileShare.None, 0, FileOptions.Asynchronous);
+        await stream.WriteAsync(bytes.AsMemory(0, bytes.Length), cancellationToken).ConfigureAwait(false);
+        await stream.FlushAsync(cancellationToken).ConfigureAwait(false);
+        return new CashDrawerResult(jobId, "windows_com_raw_cash_drawer_controller", port, connectionMode, command.KickPin, command.PulseOnMs, command.PulseOffMs, bytes.Length);
+    }
+
+    private async Task<CashDrawerResult> OpenNetworkDrawerControllerAsync(CashDrawerCommand command, string connectionMode, CancellationToken cancellationToken)
+    {
+        var bytes = command.CommandBytes();
+        var jobId = "CPIPOS-DRAWER-NET-" + DateTimeOffset.Now.ToString("yyyyMMddHHmmssfff");
+        var url = command.ControllerUrl?.Trim();
+
+        if (!string.IsNullOrWhiteSpace(url) && (url.StartsWith("http://", StringComparison.OrdinalIgnoreCase) || url.StartsWith("https://", StringComparison.OrdinalIgnoreCase)))
+        {
+            using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(8) };
+            using var content = new ByteArrayContent(bytes);
+            content.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/octet-stream");
+            using var response = await client.PostAsync(url, content, cancellationToken).ConfigureAwait(false);
+            if (!response.IsSuccessStatusCode)
+            {
+                throw new InvalidOperationException($"Network drawer HTTP controller returned {(int)response.StatusCode} {response.ReasonPhrase}.");
+            }
+            return new CashDrawerResult(jobId, "http_cash_drawer_controller", url, connectionMode, command.KickPin, command.PulseOnMs, command.PulseOffMs, bytes.Length);
+        }
+
+        var (host, port) = ResolveNetworkEndpoint(command);
+        using var tcp = new TcpClient();
+        await tcp.ConnectAsync(host, port, cancellationToken).ConfigureAwait(false);
+        await using var stream = tcp.GetStream();
+        await stream.WriteAsync(bytes.AsMemory(0, bytes.Length), cancellationToken).ConfigureAwait(false);
+        await stream.FlushAsync(cancellationToken).ConfigureAwait(false);
+        return new CashDrawerResult(jobId, "tcp_cash_drawer_controller", $"{host}:{port}", connectionMode, command.KickPin, command.PulseOnMs, command.PulseOffMs, bytes.Length);
+    }
+
+    private async Task<CashDrawerResult> OpenUsbDrawerControllerAsync(CashDrawerCommand command, string connectionMode, CancellationToken cancellationToken)
+    {
+        if (!string.IsNullOrWhiteSpace(command.ControllerPort) && command.ControllerPort.Trim().StartsWith("COM", StringComparison.OrdinalIgnoreCase))
+        {
+            return await OpenSerialDrawerControllerAsync(command, "external-usb-controller", cancellationToken).ConfigureAwait(false);
+        }
+        throw new NotSupportedException("external-usb-controller requires a COM-compatible USB trigger in this runtime. Native HID/vendor USB drawer triggers need a vendor SDK adapter.");
+    }
+
+    private static (string host, int port) ResolveNetworkEndpoint(CashDrawerCommand command)
+    {
+        if (!string.IsNullOrWhiteSpace(command.ControllerUrl))
+        {
+            var raw = command.ControllerUrl.Trim();
+            if (raw.StartsWith("tcp://", StringComparison.OrdinalIgnoreCase))
+            {
+                var uri = new Uri(raw);
+                if (!string.IsNullOrWhiteSpace(uri.Host) && uri.Port > 0) return (uri.Host, uri.Port);
+            }
+            var parts = raw.Split(':', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            if (parts.Length == 2 && int.TryParse(parts[1], out var parsedPort)) return (parts[0], parsedPort);
+        }
+
+        if (!string.IsNullOrWhiteSpace(command.ControllerHost) && command.ControllerTcpPort is > 0)
+        {
+            return (command.ControllerHost.Trim(), command.ControllerTcpPort.Value);
+        }
+
+        throw new InvalidOperationException("external-network-controller requires drawer_controller_url such as tcp://192.168.1.50:9100, or drawer_controller_host plus drawer_controller_tcp_port.");
+    }
+
+    private static string NormalizeComPortPath(string port)
+    {
+        var trimmed = port.Trim();
+        if (trimmed.StartsWith("\\\\.\\", StringComparison.OrdinalIgnoreCase)) return trimmed;
+        if (!Regex.IsMatch(trimmed, "^COM\\d+$", RegexOptions.IgnoreCase))
+        {
+            throw new InvalidOperationException($"Invalid serial drawer controller port: {port}. Expected COM3, COM5, etc.");
+        }
+        return "\\\\.\\" + trimmed.ToUpperInvariant();
+    }
+
+    private static string NormalizeMode(string? mode)
+    {
+        var normalized = (mode ?? "printer-kick").Trim().ToLowerInvariant().Replace('_', '-');
+        return normalized switch
+        {
+            "printer" or "printerkick" or "printer-kick" => "printer-kick",
+            "emergency" or "emergency-printer" or "emergency-printer-kick" => "emergency-printer-kick",
+            "serial" or "com" or "external-serial" or "external-serial-controller" => "external-serial-controller",
+            "network" or "tcp" or "lan" or "external-network" or "external-network-controller" => "external-network-controller",
+            "usb" or "external-usb" or "external-usb-controller" => "external-usb-controller",
+            "vendor" or "sdk" or "vendor-sdk" => "vendor-sdk",
+            _ => "printer-kick"
+        };
     }
 
     private static string[] GetInstalledPrinterNames()
@@ -650,7 +775,7 @@ internal sealed class LocalPrintBridge : IDisposable
             "------------------------------",
             "Local Bridge: 127.0.0.1",
             "Provider: .NET PrintDocument",
-            "Cash drawer: ESC/POS raw pulse supported",
+            "Cash drawer: printer, emergency, serial, and network controller modes",
             "เวลา: " + DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"),
             "------------------------------",
             "ขอบคุณครับ",
@@ -802,12 +927,87 @@ internal sealed class LocalPrintBridge : IDisposable
         try { _stopping.Cancel(); } catch { }
         try { _listener?.Stop(); } catch { }
         _printLock.Dispose();
+        _drawerLock.Dispose();
         _requestSlots.Dispose();
         _stopping.Dispose();
     }
 
     private sealed record PrintResult(string JobId, string PrinterName);
-    private sealed record CashDrawerResult(string JobId, string PrinterName, int KickPin, int PulseOnMs, int PulseOffMs);
+    private sealed record CashDrawerResult(string JobId, string Provider, string DeviceName, string ConnectionMode, int KickPin, int PulseOnMs, int PulseOffMs, int BytesSent);
+
+    private sealed record CashDrawerCommand(
+        string PrinterName,
+        string? ConnectionMode,
+        string? ControllerPort,
+        string? ControllerUrl,
+        string? ControllerHost,
+        int? ControllerTcpPort,
+        string? CommandHex,
+        string? CommandText,
+        int KickPin,
+        int PulseOnMs,
+        int PulseOffMs)
+    {
+        public static CashDrawerCommand FromJson(string defaultPrinter, JsonElement root)
+        {
+            var metadata = GetObject(root, "metadata");
+            var printerName = FirstString(root, "printer_name", "printerName", "windows_printer", "printer")
+                              ?? FirstString(metadata, "printer_name", "printerName", "windows_printer", "printer")
+                              ?? defaultPrinter;
+            var mode = FirstString(root, "drawer_connection_mode", "connection_mode", "mode")
+                       ?? FirstString(metadata, "drawer_connection_mode", "connection_mode", "mode")
+                       ?? "printer-kick";
+            var controllerPort = FirstString(root, "drawer_controller_port", "controller_port", "serial_port", "com_port", "port_name")
+                                 ?? FirstString(metadata, "drawer_controller_port", "controller_port", "serial_port", "com_port", "port_name");
+            var controllerUrl = FirstString(root, "drawer_controller_url", "controller_url", "url")
+                                ?? FirstString(metadata, "drawer_controller_url", "controller_url", "url");
+            var controllerHost = FirstString(root, "drawer_controller_host", "controller_host", "host", "ip_address")
+                                 ?? FirstString(metadata, "drawer_controller_host", "controller_host", "host", "ip_address");
+            var controllerTcpPort = ReadInt(root, "drawer_controller_tcp_port", "controller_tcp_port", "tcp_port", "port")
+                                    ?? ReadInt(metadata, "drawer_controller_tcp_port", "controller_tcp_port", "tcp_port", "port");
+            var commandHex = FirstString(root, "drawer_command_hex", "command_hex", "open_command_hex")
+                             ?? FirstString(metadata, "drawer_command_hex", "command_hex", "open_command_hex");
+            var commandText = FirstString(root, "drawer_command_text", "command_text", "open_command_text")
+                              ?? FirstString(metadata, "drawer_command_text", "command_text", "open_command_text");
+            var kickPin = ReadInt(root, "drawer_kick_pin", "kick_pin", "pin") ?? ReadInt(metadata, "drawer_kick_pin", "kick_pin", "pin") ?? 0;
+            var pulseOnMs = ReadInt(root, "drawer_pulse_on_ms", "pulse_on_ms") ?? ReadInt(metadata, "drawer_pulse_on_ms", "pulse_on_ms") ?? 50;
+            var pulseOffMs = ReadInt(root, "drawer_pulse_off_ms", "pulse_off_ms") ?? ReadInt(metadata, "drawer_pulse_off_ms", "pulse_off_ms") ?? 250;
+
+            return new CashDrawerCommand(
+                printerName,
+                mode,
+                controllerPort,
+                controllerUrl,
+                controllerHost,
+                controllerTcpPort,
+                commandHex,
+                commandText,
+                Math.Clamp(kickPin, 0, 1),
+                Math.Clamp(pulseOnMs, 20, 500),
+                Math.Clamp(pulseOffMs, 20, 500));
+        }
+
+        public byte[] CommandBytes()
+        {
+            if (!string.IsNullOrWhiteSpace(CommandHex)) return ParseHexBytes(CommandHex);
+            if (!string.IsNullOrEmpty(CommandText)) return Encoding.ASCII.GetBytes(CommandText);
+            var onUnits = Math.Clamp((int)Math.Round(PulseOnMs / 2.0), 1, 255);
+            var offUnits = Math.Clamp((int)Math.Round(PulseOffMs / 2.0), 1, 255);
+            return new byte[] { 0x1b, 0x40, 0x1b, 0x70, (byte)KickPin, (byte)onUnits, (byte)offUnits };
+        }
+
+        private static byte[] ParseHexBytes(string value)
+        {
+            var compact = Regex.Replace(value, @"[^0-9a-fA-F]", string.Empty);
+            if (compact.Length == 0 || compact.Length % 2 != 0) throw new InvalidOperationException("drawer_command_hex must contain an even number of hex digits.");
+            var bytes = new byte[compact.Length / 2];
+            for (var i = 0; i < bytes.Length; i++)
+            {
+                bytes[i] = Convert.ToByte(compact.Substring(i * 2, 2), 16);
+            }
+            return bytes;
+        }
+    }
 }
 
 internal static class RawPrinterWriter
