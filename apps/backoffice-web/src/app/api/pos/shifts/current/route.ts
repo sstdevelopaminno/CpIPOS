@@ -63,7 +63,9 @@ export async function GET() {
       .limit(20);
     let rows = currentShiftQuery.data as ShiftRow[] | null;
     let error = currentShiftQuery.error;
+    let legacyWithoutDeviceColumn = false;
     if (isMissingShiftDeviceCodeColumnError(error)) {
+      legacyWithoutDeviceColumn = true;
       const legacyShiftQuery = await supabase
         .from("shifts")
         .select("id,status,opened_at,closed_at,opening_cash,opened_by")
@@ -98,11 +100,15 @@ export async function GET() {
     const roleScopedShifts = isStaffRole
       ? openShiftsAll.filter((shift) => shift.opened_by === scope.session.user_id)
       : openShiftsAll;
-    const openShifts = scope.session.device_code
-      ? roleScopedShifts.filter(
-          (shift) => !shift.device_code || shift.device_code === scope.session.device_code
-        )
-      : roleScopedShifts.filter((shift) => !shift.device_code);
+
+    // In current schema, device_code is the terminal boundary. A cashier terminal must not
+    // auto-join another terminal's legacy/shared branch shift because that mixes sales totals
+    // and causes one device to appear empty while another device owns all rows.
+    const openShifts = legacyWithoutDeviceColumn
+      ? roleScopedShifts
+      : scope.session.device_code
+        ? roleScopedShifts.filter((shift) => shift.device_code === scope.session.device_code)
+        : roleScopedShifts.filter((shift) => !shift.device_code);
     const activeShift = pickActiveShift({
       sessionShiftId: scope.session.shift_id,
       deviceCode: scope.session.device_code,
