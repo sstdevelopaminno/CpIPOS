@@ -86,6 +86,7 @@ internal sealed class LocalPrintBridge : IDisposable
     {
         HttpRequestData? request = null;
         var slotTaken = false;
+
         try
         {
             slotTaken = await _requestSlots.WaitAsync(TimeSpan.FromSeconds(5), bridgeCancellationToken).ConfigureAwait(false);
@@ -94,11 +95,12 @@ internal sealed class LocalPrintBridge : IDisposable
                 using (client)
                 using (var stream = client.GetStream())
                 {
-                    await HttpResponseData.Json(503, new
+                    var busy = HttpResponseData.Json(503, new
                     {
                         ok = false,
                         error = new { code = "bridge_busy", message = "Local print bridge has too many open requests." }
-                    }, null).WriteAsync(stream, bridgeCancellationToken).ConfigureAwait(false);
+                    }, null);
+                    await busy.WriteAsync(stream, bridgeCancellationToken).ConfigureAwait(false);
                 }
                 return;
             }
@@ -116,47 +118,37 @@ internal sealed class LocalPrintBridge : IDisposable
         catch (OperationCanceledException ex)
         {
             _lastError = ex.Message;
-            try
-            {
-                using (client)
-                using (var stream = client.GetStream())
-                {
-                    await HttpResponseData.Json(504, new
-                    {
-                        ok = false,
-                        error = new { code = "bridge_request_timeout", message = "Local bridge request timed out." }
-                    }, ResolveCorsOrigin(request)).WriteAsync(stream, CancellationToken.None).ConfigureAwait(false);
-                }
-            }
-            catch
-            {
-                // The client may already be gone.
-            }
+            await TryWriteErrorAsync(client, 504, "bridge_request_timeout", "Local bridge request timed out.", ResolveCorsOrigin(request)).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
             _lastError = ex.Message;
-            try
-            {
-                using (client)
-                using (var stream = client.GetStream())
-                {
-                    var response = HttpResponseData.Json(500, new
-                    {
-                        ok = false,
-                        error = new { code = "bridge_unhandled_error", message = ex.Message }
-                    }, ResolveCorsOrigin(request));
-                    await response.WriteAsync(stream, CancellationToken.None).ConfigureAwait(false);
-                }
-            }
-            catch
-            {
-                // Avoid throwing from a fire-and-forget connection task.
-            }
+            await TryWriteErrorAsync(client, 500, "bridge_unhandled_error", ex.Message, ResolveCorsOrigin(request)).ConfigureAwait(false);
         }
         finally
         {
             if (slotTaken) _requestSlots.Release();
+        }
+    }
+
+    private static async Task TryWriteErrorAsync(TcpClient client, int status, string code, string message, string? corsOrigin)
+    {
+        try
+        {
+            using (client)
+            using (var stream = client.GetStream())
+            {
+                var response = HttpResponseData.Json(status, new
+                {
+                    ok = false,
+                    error = new { code, message }
+                }, corsOrigin);
+                await response.WriteAsync(stream, CancellationToken.None).ConfigureAwait(false);
+            }
+        }
+        catch
+        {
+            // The client may already be disconnected or disposed.
         }
     }
 
@@ -223,7 +215,7 @@ internal sealed class LocalPrintBridge : IDisposable
         }, corsOrigin);
     }
 
-    private HttpResponseData Unauthorized(string? corsOrigin)
+    private static HttpResponseData Unauthorized(string? corsOrigin)
     {
         return HttpResponseData.Json(401, new
         {
@@ -440,17 +432,22 @@ internal sealed class LocalPrintBridge : IDisposable
                         bounds = new Rectangle(2, 2, Math.Max(1, eventArgs.PageBounds.Width - 4), Math.Max(1, eventArgs.PageBounds.Height - 4));
                     }
 
-                    eventArgs.Graphics.MeasureString(remainingText, font, bounds.Size, StringFormat.GenericTypographic, out var charsFitted, out _);
+                    var layout = new RectangleF(bounds.Left, bounds.Top, bounds.Width, bounds.Height);
+                    var measureSize = new SizeF(Math.Max(1, bounds.Width), Math.Max(1, bounds.Height));
+                    int charsFitted;
+                    int linesFilled;
+                    eventArgs.Graphics.MeasureString(remainingText, font, measureSize, StringFormat.GenericTypographic, out charsFitted, out linesFilled);
+
                     if (charsFitted <= 0 || charsFitted >= remainingText.Length)
                     {
-                        eventArgs.Graphics.DrawString(remainingText, font, Brushes.Black, bounds);
+                        eventArgs.Graphics.DrawString(remainingText, font, Brushes.Black, layout);
                         eventArgs.HasMorePages = false;
                         remainingText = string.Empty;
                     }
                     else
                     {
                         var pageText = remainingText[..charsFitted];
-                        eventArgs.Graphics.DrawString(pageText, font, Brushes.Black, bounds);
+                        eventArgs.Graphics.DrawString(pageText, font, Brushes.Black, layout);
                         remainingText = remainingText[charsFitted..].TrimStart('\r', '\n');
                         eventArgs.HasMorePages = remainingText.Length > 0;
                     }
@@ -532,7 +529,7 @@ internal sealed class LocalPrintBridge : IDisposable
     {
         try
         {
-            using var settings = new PrinterSettings();
+            var settings = new PrinterSettings();
             return string.IsNullOrWhiteSpace(settings.PrinterName) ? null : settings.PrinterName;
         }
         catch
