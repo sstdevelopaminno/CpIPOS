@@ -1,5 +1,9 @@
+using System;
+using System.Collections.Generic;
 using System.Drawing;
 using System.Drawing.Printing;
+using System.IO;
+using System.Linq;
 using System.Net;
 using System.Net.Sockets;
 using System.Runtime.InteropServices;
@@ -7,6 +11,8 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using System.Threading;
+using System.Threading.Tasks;
 
 namespace Cpipos.WindowsRuntime;
 
@@ -185,7 +191,16 @@ internal sealed class LocalPrintBridge : IDisposable
                     supports_serialized_print_queue = true,
                     supports_cash_drawer = true,
                     supports_offline_sales_engine = false,
-                    endpoints = new[] { "/health", "/capabilities", "/printers", "/print/status", "/print/test", "/print", "/cash-drawer/open" }
+                    endpoints = new[]
+                    {
+                        "/health",
+                        "/capabilities",
+                        "/printers",
+                        "/print/status",
+                        "/print/test",
+                        "/print",
+                        "/cash-drawer/open"
+                    }
                 }
             }, corsOrigin);
         }
@@ -400,6 +415,7 @@ internal sealed class LocalPrintBridge : IDisposable
             {
                 return await HandleCashDrawerOpenAsync(request, corsOrigin, cancellationToken).ConfigureAwait(false);
             }
+
             var printerName = FirstString(root, "printer_name", "printerName", "windows_printer", "printer") ?? _defaultPrinter;
             var text = ExtractPrintableText(root);
 
@@ -638,8 +654,8 @@ internal sealed class LocalPrintBridge : IDisposable
             "เวลา: " + DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"),
             "------------------------------",
             "ขอบคุณครับ",
-            "",
-            ""
+            string.Empty,
+            string.Empty
         });
     }
 
@@ -647,18 +663,25 @@ internal sealed class LocalPrintBridge : IDisposable
     {
         var action = FirstString(root, "action", "command");
         if (IsDrawerCommandValue(action)) return true;
+
         var metadata = GetObject(root, "metadata");
         if (IsDrawerCommandValue(FirstString(metadata, "action", "command"))) return true;
+
         var payloadJson = GetObject(root, "payload_json");
         if (IsDrawerCommandValue(FirstString(payloadJson, "action", "command"))) return true;
+
         var text = FirstString(root, "text", "payload_text", "receipt_text", "content");
         return IsDrawerCommandValue(text);
     }
 
     private static bool IsDrawerCommandValue(string? value)
     {
-        var normalized = String(value ?? string.Empty).Trim().ToLowerInvariant();
-        return normalized is "open_cash_drawer" or "cash_drawer_open" or "open-cash-drawer" or "open drawer" or "open_cashdrawer" or "open_cash_drawer\r\n" or "open_cash_drawer\n" or "open_cash_drawer\r" or "open_cash_drawer " or "open_cash_drawer\t" or "open_cash_drawer;" or "open_cash_drawer." or "open_cash_drawer," or "open_cash_drawer:" or "open_cash_drawer|" or "open_cash_drawer/" or "open_cash_drawer\\" or "open_cash_drawer#" or "open_cash_drawer!" or "open_cash_drawer?" or "open_cash_drawer=" or "open_cash_drawer+" or "open_cash_drawer-" or "open_cash_drawer_" or "open_cash_drawer*" or "open_cash_drawer@" or "open_cash_drawer$" or "open_cash_drawer%" or "open_cash_drawer^" or "open_cash_drawer&" or "open_cash_drawer(" or "open_cash_drawer)" or "open_cash_drawer[" or "open_cash_drawer]" or "open_cash_drawer{" or "open_cash_drawer}" or "open_cash_drawer<" or "open_cash_drawer>" or "open_cash_drawer~" or "open_cash_drawer`" or "open_cash_drawer'" or "open_cash_drawer\"" or "open_cash_drawer\u0000" or "open_cash_drawer\u001b" or "open_cash_drawer\u001d" or "open_cash_drawer\u001f" or "open_cash_drawer\u007f" or "open_cash_drawer\ufeff" or "open_cash_drawer\u200b" or "open_cash_drawer\u200c" or "open_cash_drawer\u200d" or "open_cash_drawer\u2060" or "open_cash_drawer\u00a0" or "open_cash_drawer\u202f" or "open_cash_drawer\u205f" or "open_cash_drawer\u3000" or "open_cash_drawer\u180e" or "open_cash_drawer\u200e" or "open_cash_drawer\u200f" or "open_cash_drawer\u202a" or "open_cash_drawer\u202b" or "open_cash_drawer\u202c" or "open_cash_drawer\u202d" or "open_cash_drawer\u202e" or "open_cash_drawer\u2066" or "open_cash_drawer\u2067" or "open_cash_drawer\u2068" or "open_cash_drawer\u2069" or "open_cash_drawer\ufffe" or "open_cash_drawer\uffff" or "open_cash_drawer\r\n\r\n" or "open_cash_drawer\n\n" or "open_cash_drawer\r\r" or "open_cash_drawer open" or "open_cash_drawer true" or "open_cash_drawer 1" or "open_cash_drawer yes" or "open_cash_drawer ok" or "open_cash_drawer sent" or "open_cash_drawer queued" or "open_cash_drawer command" or "open_cash_drawer pulse" or "open_cash_drawer escpos" or "open_cash_drawer printer" or "open_cash_drawer receipt" or "open_cash_drawer drawer" or "open_cash_drawer kick" or "open_cash_drawer pin" or "open_cash_drawer cash" or "open_cash_drawer manual" or "open_cash_drawer payment" or "open_cash_drawer cash_payment" or "open_cash_drawer pos" or "open_cash_drawer cpipos" or "open_cash_drawer windows" or "open_cash_drawer bridge" or "open_cash_drawer local" or "open_cash_drawer native" or "open_cash_drawer raw" or "open_cash_drawer bytes" or "open_cash_drawer winspool" or "open_cash_drawer test" or "open_cash_drawer test_print" or "open_cash_drawer command_test" or "open_cash_drawer route" or "open_cash_drawer api" or "open_cash_drawer endpoint" or "open_cash_drawer localhost" or "open_cash_drawer 127.0.0.1";
+        var normalized = (value ?? string.Empty).Trim().Trim('\0').ToLowerInvariant().Replace('-', '_');
+        if (normalized.Length == 0) return false;
+        if (normalized is "open_cash_drawer" or "cash_drawer_open" or "open_cashdrawer" or "drawer_open") return true;
+
+        var tokenized = Regex.Replace(normalized, @"[\s\p{P}\p{C}]+", " ").Trim();
+        return tokenized is "open cash drawer" or "cash drawer open" or "open drawer";
     }
 
     private static string ExtractPrintableText(JsonElement root)
@@ -838,12 +861,14 @@ internal static class RawPrinterWriter
             {
                 throw new InvalidOperationException($"Cannot start raw print document. Win32={Marshal.GetLastWin32Error()}");
             }
+
             try
             {
                 if (!StartPagePrinter(handle))
                 {
                     throw new InvalidOperationException($"Cannot start raw print page. Win32={Marshal.GetLastWin32Error()}");
                 }
+
                 try
                 {
                     if (!WritePrinter(handle, bytes, bytes.Length, out var written) || written != bytes.Length)
@@ -997,6 +1022,8 @@ internal sealed class HttpResponseData
             400 => "Bad Request",
             401 => "Unauthorized",
             404 => "Not Found",
+            422 => "Unprocessable Entity",
+            429 => "Too Many Requests",
             500 => "Internal Server Error",
             503 => "Service Unavailable",
             504 => "Gateway Timeout",
