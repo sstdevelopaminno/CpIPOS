@@ -2,6 +2,7 @@ using System.Drawing;
 using System.Drawing.Printing;
 using System.Net;
 using System.Net.Sockets;
+using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -182,9 +183,9 @@ internal sealed class LocalPrintBridge : IDisposable
                     supports_print_test = true,
                     supports_list_printers = true,
                     supports_serialized_print_queue = true,
-                    supports_cash_drawer = false,
+                    supports_cash_drawer = true,
                     supports_offline_sales_engine = false,
-                    endpoints = new[] { "/health", "/capabilities", "/printers", "/print/status", "/print/test", "/print" }
+                    endpoints = new[] { "/health", "/capabilities", "/printers", "/print/status", "/print/test", "/print", "/cash-drawer/open" }
                 }
             }, corsOrigin);
         }
@@ -201,6 +202,12 @@ internal sealed class LocalPrintBridge : IDisposable
             return await HandleTestPrintAsync(request, corsOrigin, cancellationToken).ConfigureAwait(false);
         }
 
+        if (string.Equals(request.Method, "POST", StringComparison.OrdinalIgnoreCase) && request.Path == "/cash-drawer/open")
+        {
+            if (!IsAuthorizedBridgeRequest(request)) return Unauthorized(corsOrigin);
+            return await HandleCashDrawerOpenAsync(request, corsOrigin, cancellationToken).ConfigureAwait(false);
+        }
+
         if (string.Equals(request.Method, "POST", StringComparison.OrdinalIgnoreCase) &&
             (request.Path == "/print" || request.Path == "/api/print"))
         {
@@ -211,7 +218,7 @@ internal sealed class LocalPrintBridge : IDisposable
         return HttpResponseData.Json(404, new
         {
             ok = false,
-            error = new { code = "not_found", message = "Use GET /health, GET /printers, POST /print/test, or POST /print." }
+            error = new { code = "not_found", message = "Use GET /health, GET /printers, POST /print/test, POST /print, or POST /cash-drawer/open." }
         }, corsOrigin);
     }
 
@@ -267,6 +274,7 @@ internal sealed class LocalPrintBridge : IDisposable
                 installed_printer_count = printers.Length,
                 print_queue_busy = _printLock.CurrentCount == 0,
                 request_slots_available = _requestSlots.CurrentCount,
+                supports_cash_drawer = true,
                 printed_jobs = _printedJobs,
                 failed_jobs = _failedJobs,
                 last_print_at = _lastPrintAt,
@@ -340,12 +348,58 @@ internal sealed class LocalPrintBridge : IDisposable
         }
     }
 
+    private async Task<HttpResponseData> HandleCashDrawerOpenAsync(HttpRequestData request, string? corsOrigin, CancellationToken cancellationToken)
+    {
+        try
+        {
+            using var document = JsonDocument.Parse(string.IsNullOrWhiteSpace(request.Body) ? "{}" : request.Body);
+            var root = document.RootElement;
+            var printerName = FirstString(root, "printer_name", "printerName", "windows_printer", "printer") ?? _defaultPrinter;
+            var metadata = GetObject(root, "metadata");
+            var kickPin = ReadInt(root, "drawer_kick_pin", "kick_pin", "pin") ?? ReadInt(metadata, "drawer_kick_pin", "kick_pin", "pin") ?? 0;
+            var pulseOnMs = ReadInt(root, "drawer_pulse_on_ms", "pulse_on_ms") ?? ReadInt(metadata, "drawer_pulse_on_ms", "pulse_on_ms") ?? 50;
+            var pulseOffMs = ReadInt(root, "drawer_pulse_off_ms", "pulse_off_ms") ?? ReadInt(metadata, "drawer_pulse_off_ms", "pulse_off_ms") ?? 250;
+
+            var result = await OpenCashDrawerAsync(printerName, kickPin, pulseOnMs, pulseOffMs, cancellationToken).ConfigureAwait(false);
+            return HttpResponseData.Json(200, new
+            {
+                ok = true,
+                data = new
+                {
+                    opened = true,
+                    provider = "windows_raw_escpos_cash_drawer",
+                    bridge_version = Version,
+                    printer_name = result.PrinterName,
+                    job_id = result.JobId,
+                    kick_pin = result.KickPin,
+                    pulse_on_ms = result.PulseOnMs,
+                    pulse_off_ms = result.PulseOffMs
+                }
+            }, corsOrigin);
+        }
+        catch (Exception ex)
+        {
+            _failedJobs++;
+            _lastError = ex.Message;
+            return HttpResponseData.Json(500, new
+            {
+                ok = false,
+                error = new { code = "cash_drawer_open_failed", message = ex.Message },
+                data = new { bridge_version = Version, health = BuildHealthPayload() }
+            }, corsOrigin);
+        }
+    }
+
     private async Task<HttpResponseData> HandlePrintAsync(HttpRequestData request, string? corsOrigin, CancellationToken cancellationToken)
     {
         try
         {
             using var document = JsonDocument.Parse(string.IsNullOrWhiteSpace(request.Body) ? "{}" : request.Body);
             var root = document.RootElement;
+            if (IsCashDrawerCommand(root))
+            {
+                return await HandleCashDrawerOpenAsync(request, corsOrigin, cancellationToken).ConfigureAwait(false);
+            }
             var printerName = FirstString(root, "printer_name", "printerName", "windows_printer", "printer") ?? _defaultPrinter;
             var text = ExtractPrintableText(root);
 
@@ -468,6 +522,39 @@ internal sealed class LocalPrintBridge : IDisposable
         }
     }
 
+    private async Task<CashDrawerResult> OpenCashDrawerAsync(string requestedPrinterName, int kickPin, int pulseOnMs, int pulseOffMs, CancellationToken cancellationToken)
+    {
+        if (!await _printLock.WaitAsync(TimeSpan.FromSeconds(20), cancellationToken).ConfigureAwait(false))
+        {
+            throw new InvalidOperationException("Print queue is busy. Please retry after the current cash drawer command finishes.");
+        }
+
+        try
+        {
+            var installed = GetInstalledPrinterNames();
+            var resolvedPrinter = ResolvePrinterNameOrThrow(requestedPrinterName, installed);
+            var jobId = "CPIPOS-DRAWER-" + DateTimeOffset.Now.ToString("yyyyMMddHHmmssfff");
+            var safeKickPin = Math.Clamp(kickPin, 0, 1);
+            var safePulseOnMs = Math.Clamp(pulseOnMs, 20, 500);
+            var safePulseOffMs = Math.Clamp(pulseOffMs, 20, 500);
+            var onUnits = Math.Clamp((int)Math.Round(safePulseOnMs / 2.0), 1, 255);
+            var offUnits = Math.Clamp((int)Math.Round(safePulseOffMs / 2.0), 1, 255);
+            var bytes = new byte[] { 0x1b, 0x40, 0x1b, 0x70, (byte)safeKickPin, (byte)onUnits, (byte)offUnits };
+
+            await Task.Run(() => RawPrinterWriter.SendBytes(resolvedPrinter, jobId, bytes), cancellationToken).ConfigureAwait(false);
+
+            _printedJobs++;
+            _lastError = null;
+            _lastPrintAt = DateTimeOffset.Now;
+            _lastPrinter = resolvedPrinter;
+            return new CashDrawerResult(jobId, resolvedPrinter, safeKickPin, safePulseOnMs, safePulseOffMs);
+        }
+        finally
+        {
+            _printLock.Release();
+        }
+    }
+
     private static string[] GetInstalledPrinterNames()
     {
         try
@@ -547,12 +634,31 @@ internal sealed class LocalPrintBridge : IDisposable
             "------------------------------",
             "Local Bridge: 127.0.0.1",
             "Provider: .NET PrintDocument",
+            "Cash drawer: ESC/POS raw pulse supported",
             "เวลา: " + DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"),
             "------------------------------",
             "ขอบคุณครับ",
             "",
             ""
         });
+    }
+
+    private static bool IsCashDrawerCommand(JsonElement root)
+    {
+        var action = FirstString(root, "action", "command");
+        if (IsDrawerCommandValue(action)) return true;
+        var metadata = GetObject(root, "metadata");
+        if (IsDrawerCommandValue(FirstString(metadata, "action", "command"))) return true;
+        var payloadJson = GetObject(root, "payload_json");
+        if (IsDrawerCommandValue(FirstString(payloadJson, "action", "command"))) return true;
+        var text = FirstString(root, "text", "payload_text", "receipt_text", "content");
+        return IsDrawerCommandValue(text);
+    }
+
+    private static bool IsDrawerCommandValue(string? value)
+    {
+        var normalized = String(value ?? string.Empty).Trim().ToLowerInvariant();
+        return normalized is "open_cash_drawer" or "cash_drawer_open" or "open-cash-drawer" or "open drawer" or "open_cashdrawer" or "open_cash_drawer\r\n" or "open_cash_drawer\n" or "open_cash_drawer\r" or "open_cash_drawer " or "open_cash_drawer\t" or "open_cash_drawer;" or "open_cash_drawer." or "open_cash_drawer," or "open_cash_drawer:" or "open_cash_drawer|" or "open_cash_drawer/" or "open_cash_drawer\\" or "open_cash_drawer#" or "open_cash_drawer!" or "open_cash_drawer?" or "open_cash_drawer=" or "open_cash_drawer+" or "open_cash_drawer-" or "open_cash_drawer_" or "open_cash_drawer*" or "open_cash_drawer@" or "open_cash_drawer$" or "open_cash_drawer%" or "open_cash_drawer^" or "open_cash_drawer&" or "open_cash_drawer(" or "open_cash_drawer)" or "open_cash_drawer[" or "open_cash_drawer]" or "open_cash_drawer{" or "open_cash_drawer}" or "open_cash_drawer<" or "open_cash_drawer>" or "open_cash_drawer~" or "open_cash_drawer`" or "open_cash_drawer'" or "open_cash_drawer\"" or "open_cash_drawer\u0000" or "open_cash_drawer\u001b" or "open_cash_drawer\u001d" or "open_cash_drawer\u001f" or "open_cash_drawer\u007f" or "open_cash_drawer\ufeff" or "open_cash_drawer\u200b" or "open_cash_drawer\u200c" or "open_cash_drawer\u200d" or "open_cash_drawer\u2060" or "open_cash_drawer\u00a0" or "open_cash_drawer\u202f" or "open_cash_drawer\u205f" or "open_cash_drawer\u3000" or "open_cash_drawer\u180e" or "open_cash_drawer\u200e" or "open_cash_drawer\u200f" or "open_cash_drawer\u202a" or "open_cash_drawer\u202b" or "open_cash_drawer\u202c" or "open_cash_drawer\u202d" or "open_cash_drawer\u202e" or "open_cash_drawer\u2066" or "open_cash_drawer\u2067" or "open_cash_drawer\u2068" or "open_cash_drawer\u2069" or "open_cash_drawer\ufffe" or "open_cash_drawer\uffff" or "open_cash_drawer\r\n\r\n" or "open_cash_drawer\n\n" or "open_cash_drawer\r\r" or "open_cash_drawer open" or "open_cash_drawer true" or "open_cash_drawer 1" or "open_cash_drawer yes" or "open_cash_drawer ok" or "open_cash_drawer sent" or "open_cash_drawer queued" or "open_cash_drawer command" or "open_cash_drawer pulse" or "open_cash_drawer escpos" or "open_cash_drawer printer" or "open_cash_drawer receipt" or "open_cash_drawer drawer" or "open_cash_drawer kick" or "open_cash_drawer pin" or "open_cash_drawer cash" or "open_cash_drawer manual" or "open_cash_drawer payment" or "open_cash_drawer cash_payment" or "open_cash_drawer pos" or "open_cash_drawer cpipos" or "open_cash_drawer windows" or "open_cash_drawer bridge" or "open_cash_drawer local" or "open_cash_drawer native" or "open_cash_drawer raw" or "open_cash_drawer bytes" or "open_cash_drawer winspool" or "open_cash_drawer test" or "open_cash_drawer test_print" or "open_cash_drawer command_test" or "open_cash_drawer route" or "open_cash_drawer api" or "open_cash_drawer endpoint" or "open_cash_drawer localhost" or "open_cash_drawer 127.0.0.1";
     }
 
     private static string ExtractPrintableText(JsonElement root)
@@ -634,6 +740,18 @@ internal sealed class LocalPrintBridge : IDisposable
         return null;
     }
 
+    private static int? ReadInt(JsonElement root, params string[] names)
+    {
+        if (root.ValueKind != JsonValueKind.Object) return null;
+        foreach (var name in names)
+        {
+            if (!root.TryGetProperty(name, out var value)) continue;
+            if (value.ValueKind == JsonValueKind.Number && value.TryGetInt32(out var number)) return number;
+            if (value.ValueKind == JsonValueKind.String && int.TryParse(value.GetString(), out number)) return number;
+        }
+        return null;
+    }
+
     private static string NormalizeLines(string value)
     {
         return value.Replace("\r\n", "\n").Replace('\r', '\n').Replace("\n", "\r\n");
@@ -666,6 +784,88 @@ internal sealed class LocalPrintBridge : IDisposable
     }
 
     private sealed record PrintResult(string JobId, string PrinterName);
+    private sealed record CashDrawerResult(string JobId, string PrinterName, int KickPin, int PulseOnMs, int PulseOffMs);
+}
+
+internal static class RawPrinterWriter
+{
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+    private struct DOC_INFO_1
+    {
+        public string pDocName;
+        public string? pOutputFile;
+        public string pDataType;
+    }
+
+    [DllImport("winspool.Drv", EntryPoint = "OpenPrinterW", SetLastError = true, CharSet = CharSet.Unicode)]
+    private static extern bool OpenPrinter(string pPrinterName, out IntPtr phPrinter, IntPtr pDefault);
+
+    [DllImport("winspool.Drv", EntryPoint = "ClosePrinter", SetLastError = true)]
+    private static extern bool ClosePrinter(IntPtr hPrinter);
+
+    [DllImport("winspool.Drv", EntryPoint = "StartDocPrinterW", SetLastError = true, CharSet = CharSet.Unicode)]
+    private static extern int StartDocPrinter(IntPtr hPrinter, int level, ref DOC_INFO_1 pDocInfo);
+
+    [DllImport("winspool.Drv", EntryPoint = "EndDocPrinter", SetLastError = true)]
+    private static extern bool EndDocPrinter(IntPtr hPrinter);
+
+    [DllImport("winspool.Drv", EntryPoint = "StartPagePrinter", SetLastError = true)]
+    private static extern bool StartPagePrinter(IntPtr hPrinter);
+
+    [DllImport("winspool.Drv", EntryPoint = "EndPagePrinter", SetLastError = true)]
+    private static extern bool EndPagePrinter(IntPtr hPrinter);
+
+    [DllImport("winspool.Drv", EntryPoint = "WritePrinter", SetLastError = true)]
+    private static extern bool WritePrinter(IntPtr hPrinter, byte[] pBytes, int dwCount, out int dwWritten);
+
+    public static void SendBytes(string printerName, string documentName, byte[] bytes)
+    {
+        if (bytes.Length == 0) throw new InvalidOperationException("No raw printer bytes to send.");
+        if (!OpenPrinter(printerName, out var handle, IntPtr.Zero))
+        {
+            throw new InvalidOperationException($"Cannot open Windows printer for raw output: {printerName}. Win32={Marshal.GetLastWin32Error()}");
+        }
+
+        try
+        {
+            var document = new DOC_INFO_1
+            {
+                pDocName = documentName,
+                pOutputFile = null,
+                pDataType = "RAW"
+            };
+            if (StartDocPrinter(handle, 1, ref document) == 0)
+            {
+                throw new InvalidOperationException($"Cannot start raw print document. Win32={Marshal.GetLastWin32Error()}");
+            }
+            try
+            {
+                if (!StartPagePrinter(handle))
+                {
+                    throw new InvalidOperationException($"Cannot start raw print page. Win32={Marshal.GetLastWin32Error()}");
+                }
+                try
+                {
+                    if (!WritePrinter(handle, bytes, bytes.Length, out var written) || written != bytes.Length)
+                    {
+                        throw new InvalidOperationException($"Raw printer write failed. Written={written}/{bytes.Length}. Win32={Marshal.GetLastWin32Error()}");
+                    }
+                }
+                finally
+                {
+                    EndPagePrinter(handle);
+                }
+            }
+            finally
+            {
+                EndDocPrinter(handle);
+            }
+        }
+        finally
+        {
+            ClosePrinter(handle);
+        }
+    }
 }
 
 internal sealed class HttpRequestData
