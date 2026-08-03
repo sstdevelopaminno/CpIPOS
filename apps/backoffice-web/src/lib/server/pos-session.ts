@@ -45,25 +45,10 @@ export async function createPosSession(input: {
   const ttlHours = Number.isFinite(ttlHoursRaw) && ttlHoursRaw > 0 && ttlHoursRaw <= 72 ? ttlHoursRaw : 12;
   const expiresAt = new Date(Date.now() + ttlHours * 60 * 60 * 1000).toISOString();
 
-  const revokePreviousActive = supabase
-    .from("pos_sessions")
-    .update({ status: "revoked", revoked_at: nowIso })
-    .eq("tenant_id", input.tenantId)
-    .eq("branch_id", input.branchId)
-    .eq("user_id", input.userId)
-    .eq("status", "active");
-
-  const previousActiveResult = await revokePreviousActive;
-  const revokeError = previousActiveResult.error;
-  if (revokeError) {
-    console.error("[pos-session] revoke previous active sessions failed", {
-      tenantId: input.tenantId,
-      branchId: input.branchId,
-      userId: input.userId,
-      error: revokeError.message
-    });
-  }
-
+  // Important multi-cashier rule:
+  // Do not revoke every active session for the same employee in the same branch.
+  // A single employee code may legitimately operate multiple registered cashier devices.
+  // Device exclusivity is enforced in /api/auth/devices/select before this insert.
   async function revokeExpiredDeviceSessions() {
     const expiredDeviceRevokes = [];
     if (input.deviceId) {
@@ -124,6 +109,7 @@ export async function createPosSession(input: {
       .maybeSingle<PosSessionRow>();
   }
 
+  await revokeExpiredDeviceSessions();
   let { data, error } = await insertSession();
   if (isUniqueConflictError(error)) {
     await revokeExpiredDeviceSessions();
