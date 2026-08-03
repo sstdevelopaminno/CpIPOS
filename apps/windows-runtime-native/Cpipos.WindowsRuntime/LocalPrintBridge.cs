@@ -33,7 +33,7 @@ internal sealed class LocalPrintBridge : IDisposable
     private int _failedJobs;
     private bool _disposed;
 
-    public string Version => "cpipos-windows-native-bridge-0.1.4";
+    public string Version => "cpipos-windows-native-bridge-0.1.5";
     public bool IsRunning { get; private set; }
 
     public LocalPrintBridge(int port, string defaultPrinter, string bridgeToken)
