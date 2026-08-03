@@ -6,6 +6,13 @@ function normalizeBridgeUrl(value: string) {
   return value.replace(/\/+$/, "");
 }
 
+function resolveBridgeBaseUrl(value: string) {
+  const normalized = normalizeBridgeUrl(value);
+  if (normalized.endsWith("/api/print")) return normalized.slice(0, -"/api/print".length);
+  if (normalized.endsWith("/print")) return normalized.slice(0, -"/print".length);
+  return normalized;
+}
+
 function isCashDrawerCommand(metadata: Record<string, unknown>) {
   const command = String(metadata.command ?? metadata.action ?? "").trim().toLowerCase();
   return command === "open_cash_drawer" || command === "cash_drawer_open";
@@ -35,7 +42,7 @@ export class LocalBridgeAdapter implements PrinterAdapter {
           : null;
     const drawerCommand = isCashDrawerCommand(ctx.metadata);
     const timeoutMs = resolveBridgeTimeoutMs(ctx.metadata, "PRINT_LOCAL_BRIDGE_TIMEOUT_MS");
-    const endpoint = drawerCommand ? `${normalizeBridgeUrl(bridgeUrl)}/cash-drawer/open` : bridgeUrl;
+    const endpoint = drawerCommand ? `${resolveBridgeBaseUrl(bridgeUrl)}/cash-drawer/open` : bridgeUrl;
     const response = await fetchBridgeWithTimeout(endpoint, {
       method: "POST",
       headers: {
