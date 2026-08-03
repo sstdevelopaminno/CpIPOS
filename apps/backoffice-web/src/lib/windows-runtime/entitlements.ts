@@ -148,13 +148,13 @@ const NDL_TH_001_POLICY: StoreCodeEntitlementPolicy = {
   limits: {
     max_local_devices: null,
     max_branches: null,
-    max_offline_days: null,
-    max_pending_sync_items: null
+    max_offline_days: 7,
+    max_pending_sync_items: 10000
   },
   warnings: [
-    "NDL-TH-001 is unlocked by IT Backoffice policy as the current full-access sales demo and development store code.",
-    "This unlock is tied to the store code, not to a Windows command-line bypass or client-side flag.",
-    "Order/payment cloud sync endpoints are contract-ready but live sync writes are still a later implementation step."
+    "NDL-TH-001 is unlocked only when WINDOWS_RUNTIME_ENABLE_DEMO_STORE_CODE is enabled on the server.",
+    "This temporary policy must be replaced by Supabase/IT Backoffice package resolution before production customer activation.",
+    "Order/payment cloud sync endpoints are contract-ready but live sync writes are still disabled."
   ]
 };
 
@@ -173,7 +173,6 @@ export function buildWindowsRuntimeBootstrap(input: WindowsRuntimeBootstrapReque
   const runtimeDeviceId = readString(input.runtime_device_id);
   const appVersion = readString(input.app_version);
   const bridgeVersion = readString(input.bridge_version);
-  const branchId = readString(input.branch_id);
 
   if (!storeCode) {
     return buildLockedPayload({
@@ -184,7 +183,6 @@ export function buildWindowsRuntimeBootstrap(input: WindowsRuntimeBootstrapReque
       runtimeDeviceId,
       appVersion,
       bridgeVersion,
-      branchId,
       packageCode: "STORE_CODE_REQUIRED",
       packageName: "Store code required",
       warning: "Store code is required before CpIPOS Windows, CpIPOS Web, or future CpIPOS mobile runtimes can activate package features."
@@ -201,10 +199,9 @@ export function buildWindowsRuntimeBootstrap(input: WindowsRuntimeBootstrapReque
       runtimeDeviceId,
       appVersion,
       bridgeVersion,
-      branchId,
       packageCode: "STORE_CODE_LOCKED",
       packageName: "Store code is not unlocked for CpIPOS Windows",
-      warning: "This store code has not been unlocked by IT Backoffice for CpIPOS Windows package use yet."
+      warning: "This store code has not been unlocked by server-side IT Backoffice package policy for CpIPOS Windows yet."
     });
   }
 
@@ -212,13 +209,18 @@ export function buildWindowsRuntimeBootstrap(input: WindowsRuntimeBootstrapReque
     deviceCode,
     runtimeDeviceId,
     appVersion,
-    bridgeVersion,
-    branchId
+    bridgeVersion
   });
 }
 
 function resolveStoreCodePolicy(storeCode: string): StoreCodeEntitlementPolicy | null {
+  if (!isDemoStoreCodeUnlockEnabled()) return null;
   return STORE_CODE_POLICIES[storeCode] ?? null;
+}
+
+function isDemoStoreCodeUnlockEnabled() {
+  const raw = String(process.env.WINDOWS_RUNTIME_ENABLE_DEMO_STORE_CODE ?? "").trim().toLowerCase();
+  return raw === "1" || raw === "true" || raw === "yes";
 }
 
 function buildPolicyPayload(
@@ -228,7 +230,6 @@ function buildPolicyPayload(
     runtimeDeviceId: string | null;
     appVersion: string | null;
     bridgeVersion: string | null;
-    branchId: string | null;
   }
 ): WindowsRuntimeBootstrapPayload {
   return {
@@ -250,7 +251,7 @@ function buildPolicyPayload(
       resolved_by_server: true,
       tenant_id: policy.tenant_id,
       tenant_name: policy.tenant_name,
-      branch_id: input.branchId
+      branch_id: null
     },
     activation: {
       requires_online_first_activation: true,
@@ -297,7 +298,6 @@ function buildLockedPayload(input: {
   runtimeDeviceId: string | null;
   appVersion: string | null;
   bridgeVersion: string | null;
-  branchId: string | null;
   packageCode: Extract<WindowsRuntimePackageCode, "STORE_CODE_REQUIRED" | "STORE_CODE_LOCKED">;
   packageName: string;
   warning: string;
@@ -321,7 +321,7 @@ function buildLockedPayload(input: {
       resolved_by_server: false,
       tenant_id: null,
       tenant_name: null,
-      branch_id: input.branchId
+      branch_id: null
     },
     activation: {
       requires_online_first_activation: true,
@@ -364,6 +364,7 @@ function buildLockedPayload(input: {
     warnings: [
       input.warning,
       "The first activation must be online so IT Backoffice can resolve and unlock the package from the store code.",
+      "Client-supplied tenant_id and branch_id are intentionally ignored by this Windows runtime contract.",
       "CpIPOS Web, CpIPOS Windows, and future CpIPOS mobile apps use the same store-code-first model."
     ]
   };
