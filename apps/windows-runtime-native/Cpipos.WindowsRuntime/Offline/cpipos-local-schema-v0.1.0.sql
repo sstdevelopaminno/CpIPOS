@@ -2,6 +2,8 @@
 -- Purpose: local offline-first foundation for Windows POS terminals.
 -- This database is local to the Windows runtime and must never be treated as the server source of truth.
 -- Store code is the required identity anchor across CpIPOS Web, CpIPOS Windows, and future CpIPOS app runtimes.
+-- Money is stored as integer satang. Do not use floating-point REAL for accounting amounts.
+-- Live offline order/payment sync must remain disabled until signed activation, idempotency, package validation, and conflict handling are complete.
 
 PRAGMA foreign_keys = ON;
 PRAGMA journal_mode = WAL;
@@ -20,6 +22,23 @@ CREATE TABLE IF NOT EXISTS local_store_context (
   source TEXT NOT NULL CHECK (source IN ('it_backoffice','offline_import','manual_it_override')),
   last_verified_at TEXT,
   updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS local_activation_leases (
+  activation_lease_id TEXT PRIMARY KEY,
+  store_code TEXT NOT NULL,
+  runtime_device_id TEXT NOT NULL,
+  device_code TEXT NOT NULL,
+  package_code TEXT NOT NULL,
+  license_status TEXT NOT NULL CHECK (license_status IN ('active','not_activated','expired','suspended')),
+  lease_payload_json TEXT NOT NULL,
+  lease_signature TEXT NOT NULL,
+  issued_at TEXT NOT NULL,
+  expires_at TEXT,
+  revoked_at TEXT,
+  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+  UNIQUE (store_code, runtime_device_id),
+  FOREIGN KEY (store_code) REFERENCES local_store_context(store_code)
 );
 
 CREATE TABLE IF NOT EXISTS local_license (
@@ -102,12 +121,24 @@ CREATE TABLE IF NOT EXISTS local_products (
   category_id TEXT,
   name TEXT NOT NULL,
   sku TEXT,
-  price REAL NOT NULL DEFAULT 0,
-  tax_rate REAL NOT NULL DEFAULT 0,
+  price_satang INTEGER NOT NULL DEFAULT 0,
+  tax_rate_bps INTEGER NOT NULL DEFAULT 0,
   is_active INTEGER NOT NULL DEFAULT 1,
   updated_at TEXT NOT NULL DEFAULT (datetime('now')),
   FOREIGN KEY (store_code) REFERENCES local_store_context(store_code),
   FOREIGN KEY (category_id) REFERENCES local_categories(category_id)
+);
+
+CREATE TABLE IF NOT EXISTS local_catalog_snapshots (
+  snapshot_id TEXT PRIMARY KEY,
+  store_code TEXT NOT NULL,
+  tenant_id TEXT NOT NULL,
+  branch_id TEXT,
+  catalog_version TEXT NOT NULL,
+  payload_json TEXT NOT NULL,
+  downloaded_at TEXT NOT NULL DEFAULT (datetime('now')),
+  expires_at TEXT,
+  FOREIGN KEY (store_code) REFERENCES local_store_context(store_code)
 );
 
 CREATE TABLE IF NOT EXISTS local_shifts (
@@ -121,8 +152,8 @@ CREATE TABLE IF NOT EXISTS local_shifts (
   status TEXT NOT NULL CHECK (status IN ('open','closed','sync_pending','synced','sync_failed')),
   opened_at TEXT NOT NULL,
   closed_at TEXT,
-  opening_cash REAL NOT NULL DEFAULT 0,
-  closing_cash REAL,
+  opening_cash_satang INTEGER NOT NULL DEFAULT 0,
+  closing_cash_satang INTEGER,
   idempotency_key TEXT NOT NULL UNIQUE,
   sync_state TEXT NOT NULL DEFAULT 'pending',
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
@@ -140,10 +171,10 @@ CREATE TABLE IF NOT EXISTS local_orders (
   local_shift_id TEXT,
   order_no TEXT,
   status TEXT NOT NULL CHECK (status IN ('draft','paid','cancelled','refunded','sync_pending','synced','sync_failed')),
-  subtotal REAL NOT NULL DEFAULT 0,
-  discount_total REAL NOT NULL DEFAULT 0,
-  tax_total REAL NOT NULL DEFAULT 0,
-  total REAL NOT NULL DEFAULT 0,
+  subtotal_satang INTEGER NOT NULL DEFAULT 0,
+  discount_total_satang INTEGER NOT NULL DEFAULT 0,
+  tax_total_satang INTEGER NOT NULL DEFAULT 0,
+  total_satang INTEGER NOT NULL DEFAULT 0,
   created_by_user_id TEXT NOT NULL,
   created_offline_at TEXT NOT NULL,
   idempotency_key TEXT NOT NULL UNIQUE,
@@ -161,11 +192,11 @@ CREATE TABLE IF NOT EXISTS local_order_items (
   local_order_id TEXT NOT NULL,
   product_id TEXT,
   name TEXT NOT NULL,
-  qty REAL NOT NULL DEFAULT 1,
-  unit_price REAL NOT NULL DEFAULT 0,
-  discount_total REAL NOT NULL DEFAULT 0,
-  tax_total REAL NOT NULL DEFAULT 0,
-  line_total REAL NOT NULL DEFAULT 0,
+  qty_milli INTEGER NOT NULL DEFAULT 1000,
+  unit_price_satang INTEGER NOT NULL DEFAULT 0,
+  discount_total_satang INTEGER NOT NULL DEFAULT 0,
+  tax_total_satang INTEGER NOT NULL DEFAULT 0,
+  line_total_satang INTEGER NOT NULL DEFAULT 0,
   modifiers_json TEXT NOT NULL DEFAULT '[]',
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   FOREIGN KEY (local_order_id) REFERENCES local_orders(local_order_id) ON DELETE CASCADE
@@ -179,7 +210,7 @@ CREATE TABLE IF NOT EXISTS local_payments (
   tenant_id TEXT NOT NULL,
   branch_id TEXT NOT NULL,
   method TEXT NOT NULL CHECK (method IN ('cash','bank_transfer','qr','card','other')),
-  amount REAL NOT NULL DEFAULT 0,
+  amount_satang INTEGER NOT NULL DEFAULT 0,
   status TEXT NOT NULL CHECK (status IN ('pending','paid','void','sync_pending','synced','sync_failed')),
   paid_offline_at TEXT NOT NULL,
   idempotency_key TEXT NOT NULL UNIQUE,
@@ -199,6 +230,7 @@ CREATE TABLE IF NOT EXISTS local_print_jobs (
   tenant_id TEXT NOT NULL,
   branch_id TEXT NOT NULL,
   printer_name TEXT,
+  paper_width_mm INTEGER CHECK (paper_width_mm IN (58,80)),
   job_type TEXT NOT NULL CHECK (job_type IN ('receipt','kitchen_ticket','cash_drawer','test')),
   payload_text TEXT,
   payload_json TEXT,
@@ -230,6 +262,25 @@ CREATE TABLE IF NOT EXISTS sync_queue (
   FOREIGN KEY (store_code) REFERENCES local_store_context(store_code)
 );
 
+CREATE TABLE IF NOT EXISTS sync_conflicts (
+  conflict_id TEXT PRIMARY KEY,
+  sync_item_id TEXT,
+  store_code TEXT NOT NULL,
+  tenant_id TEXT NOT NULL,
+  branch_id TEXT NOT NULL,
+  entity_type TEXT NOT NULL,
+  entity_local_id TEXT NOT NULL,
+  server_entity_id TEXT,
+  conflict_type TEXT NOT NULL,
+  local_payload_json TEXT NOT NULL,
+  server_payload_json TEXT,
+  resolution_status TEXT NOT NULL CHECK (resolution_status IN ('pending','resolved','ignored')),
+  resolved_at TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  FOREIGN KEY (sync_item_id) REFERENCES sync_queue(sync_item_id),
+  FOREIGN KEY (store_code) REFERENCES local_store_context(store_code)
+);
+
 CREATE TABLE IF NOT EXISTS sync_logs (
   sync_log_id TEXT PRIMARY KEY,
   sync_item_id TEXT,
@@ -240,6 +291,7 @@ CREATE TABLE IF NOT EXISTS sync_logs (
   FOREIGN KEY (sync_item_id) REFERENCES sync_queue(sync_item_id)
 );
 
+CREATE INDEX IF NOT EXISTS idx_local_activation_leases_store_device ON local_activation_leases(store_code, runtime_device_id);
 CREATE INDEX IF NOT EXISTS idx_local_license_store_code ON local_license(store_code, status);
 CREATE INDEX IF NOT EXISTS idx_local_device_context_store_code ON local_device_context(store_code, device_code);
 CREATE INDEX IF NOT EXISTS idx_local_orders_sync ON local_orders(sync_state, created_offline_at);
@@ -248,5 +300,6 @@ CREATE INDEX IF NOT EXISTS idx_sync_queue_status ON sync_queue(status, next_retr
 CREATE INDEX IF NOT EXISTS idx_sync_queue_store_code ON sync_queue(store_code, status, created_at);
 CREATE INDEX IF NOT EXISTS idx_local_orders_tenant_branch ON local_orders(store_code, tenant_id, branch_id, created_offline_at);
 CREATE INDEX IF NOT EXISTS idx_local_print_jobs_status ON local_print_jobs(status, created_at);
+CREATE INDEX IF NOT EXISTS idx_sync_conflicts_status ON sync_conflicts(resolution_status, created_at);
 
 INSERT OR IGNORE INTO local_schema_migrations(version) VALUES ('0.1.0');
