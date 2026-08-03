@@ -16,7 +16,7 @@ env:
   WINDOWS_RUNTIME_RELEASE_TAG: windows-runtime-latest
   WINDOWS_RUNTIME_SETUP_ASSET_NAME: CpIPOS-WindowsRuntime-Setup.exe
   WINDOWS_RUNTIME_ZIP_ASSET_NAME: CpIPOS-WindowsRuntime-win-x64.zip
-  WINDOWS_RUNTIME_VERSION: 0.1.4
+  WINDOWS_RUNTIME_VERSION: 0.1.5
 
 jobs:
   build-windows-runtime:
@@ -50,6 +50,20 @@ jobs:
             throw "Final app icon is not a valid Windows .ico file: $env:WINDOWS_RUNTIME_ICON"
           }
           Write-Host "Using uploaded CpIPOS repository icon: $env:WINDOWS_RUNTIME_ICON ($($finalBytes.Length) bytes)"
+
+      - name: Validate Windows runtime version consistency
+        shell: pwsh
+        run: |
+          $expected = $env:WINDOWS_RUNTIME_VERSION
+          $csproj = Get-Content $env:WINDOWS_RUNTIME_PROJECT -Raw
+          $mainForm = Get-Content "apps/windows-runtime-native/Cpipos.WindowsRuntime/MainForm.cs" -Raw
+          $bridge = Get-Content "apps/windows-runtime-native/Cpipos.WindowsRuntime/LocalPrintBridge.cs" -Raw
+          $installer = Get-Content "apps/windows-runtime-native/installer/CpIPOSWindowsRuntime.iss" -Raw
+
+          if ($csproj -notmatch "<Version>$expected</Version>") { throw "csproj Version does not match $expected" }
+          if ($mainForm -notmatch "native_app_version = \"$expected\"") { throw "MainForm native_app_version does not match $expected" }
+          if ($bridge -notmatch "cpipos-windows-native-bridge-$expected") { throw "LocalPrintBridge version does not match $expected" }
+          if ($installer -notmatch "#define AppVersion \"$expected\"") { throw "Installer default AppVersion does not match $expected" }
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
@@ -118,6 +132,7 @@ jobs:
           Store-code activation:
             CpIPOS Web, CpIPOS Windows, and future CpIPOS mobile apps use the same store code anchor.
             First activation must be unlocked by IT Backoffice package entitlement.
+            Temporary NDL-TH-001 demo unlock requires WINDOWS_RUNTIME_ENABLE_DEMO_STORE_CODE on the server.
 
           Portable fallback:
             Extract CpIPOS-WindowsRuntime-win-x64.zip and run Cpipos.WindowsRuntime.exe.
@@ -128,7 +143,7 @@ jobs:
             Cpipos.WindowsRuntime.exe --fullscreen
             Cpipos.WindowsRuntime.exe --windowed
             Cpipos.WindowsRuntime.exe --devtools
-            Cpipos.WindowsRuntime.exe --url=https://cp-ipos-web.vercel.app/login/store
+            Cpipos.WindowsRuntime.exe --url=http://localhost:3000/login/store --allow-custom-url
 
           Local bridge inside the app:
             http://127.0.0.1:3210/health
@@ -136,6 +151,11 @@ jobs:
             http://127.0.0.1:3210/print/status
             http://127.0.0.1:3210/print/test
             http://127.0.0.1:3210/print
+
+          Bridge security:
+          - /printers, /print/test, and /print require X-CpIPOS-Bridge-Token.
+          - The token is generated per app launch and injected into the WebView session.
+          - Production runtime URLs are restricted to https://cp-ipos-web.vercel.app unless --allow-custom-url is used for local development.
 
           Icon behavior:
           - CpIPOS uses the bundled assets/cpipos.ico for title bar and shortcuts.
