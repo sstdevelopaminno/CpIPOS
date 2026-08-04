@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type PointerEvent as ReactPointerEvent } from "react";
 import Image from "next/image";
@@ -6898,6 +6898,141 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
     }
   }
 
+
+  async function openCashDrawerAfterCashPayment(orderNo: string) {
+    if (typeof window === "undefined") return;
+
+    type LocalBridgeRuntimePayload = {
+      bridge_health_url?: string;
+      bridge_print_url?: string;
+      bridge_token?: string;
+      bridge_token_header?: string;
+      windows_printer?: string;
+    };
+
+    type LocalBridgeHealthBody = {
+      ok?: boolean;
+      data?: {
+        resolved_printer?: string | null;
+        system_default_printer?: string | null;
+      } | null;
+    };
+
+    type LocalBridgeCommandBody = {
+      ok?: boolean;
+      error?: unknown;
+    };
+
+    const runtime = (window as Window & { CpIPOSWindowsRuntime?: LocalBridgeRuntimePayload }).CpIPOSWindowsRuntime ?? null;
+    const token = String(window.sessionStorage.getItem("cpi_local_bridge_token_v1") ?? runtime?.bridge_token ?? "").trim();
+    const tokenHeader = String(
+      window.sessionStorage.getItem("cpi_local_bridge_token_header_v1") ?? runtime?.bridge_token_header ?? "X-CpIPOS-Bridge-Token"
+    ).trim();
+    const printUrl = String(
+      window.localStorage.getItem("cpi_local_bridge_print_url_v1") ?? runtime?.bridge_print_url ?? "http://127.0.0.1:3210/print"
+    ).trim();
+    const healthUrl = String(
+      window.localStorage.getItem("cpi_local_bridge_health_url_v1") ?? runtime?.bridge_health_url ?? "http://127.0.0.1:3210/health"
+    ).trim();
+
+    if (!token || !tokenHeader || !printUrl || !healthUrl) {
+      pushSubmitMessage(
+        lang === "th"
+          ? `รับเงินสดสำเร็จ แต่ยังไม่พบรหัสเชื่อมต่อ Windows Runtime สำหรับเปิดลิ้นชัก: ${orderNo}`
+          : `Cash payment saved, but Windows Runtime bridge token was not available for drawer open: ${orderNo}`
+      );
+      return;
+    }
+
+    const buildDrawerUrl = (urlText: string) => {
+      try {
+        const url = new URL(urlText);
+        if (url.pathname.endsWith("/print/test")) {
+          url.pathname = url.pathname.replace(/\/print\/test$/u, "/cash-drawer/open");
+          return url.toString();
+        }
+        if (url.pathname.endsWith("/print")) {
+          url.pathname = url.pathname.replace(/\/print$/u, "/cash-drawer/open");
+          return url.toString();
+        }
+        url.pathname = "/cash-drawer/open";
+        return url.toString();
+      } catch {
+        return urlText.replace(/\/print(?:\/test)?\/?$/u, "/cash-drawer/open");
+      }
+    };
+
+    let printerName = String(runtime?.windows_printer ?? "").trim();
+
+    if (!printerName) {
+      const controller = new AbortController();
+      const timeoutId = window.setTimeout(() => controller.abort(), 2500);
+      try {
+        const healthResponse = await fetch(healthUrl, { cache: "no-store", signal: controller.signal });
+        const healthBody = (await healthResponse.json().catch(() => null)) as LocalBridgeHealthBody | null;
+        printerName = String(healthBody?.data?.resolved_printer ?? healthBody?.data?.system_default_printer ?? "").trim();
+      } catch {
+        printerName = "";
+      } finally {
+        window.clearTimeout(timeoutId);
+      }
+    }
+
+    const body: Record<string, unknown> = {
+      drawer_connection_mode: "printer-kick",
+      drawer_kick_pin: 0,
+      drawer_pulse_on_ms: 80,
+      drawer_pulse_off_ms: 250,
+      metadata: {
+        source: "pos_sales_module",
+        trigger: "cash_payment_success",
+        order_no: orderNo,
+        drawer_connection_mode: "printer-kick",
+        drawer_kick_pin: 0,
+        drawer_pulse_on_ms: 80,
+        drawer_pulse_off_ms: 250
+      }
+    };
+
+    if (printerName) {
+      body.printer_name = printerName;
+    }
+
+    try {
+      const response = await fetch(buildDrawerUrl(printUrl), {
+        method: "POST",
+        cache: "no-store",
+        headers: {
+          "Content-Type": "application/json",
+          [tokenHeader]: token
+        },
+        body: JSON.stringify(body)
+      });
+
+      const result = (await response.json().catch(() => null)) as LocalBridgeCommandBody | null;
+
+      if (response.ok && result?.ok !== false && !result?.error) {
+        pushSubmitMessage(
+          lang === "th"
+            ? `รับเงินสดสำเร็จ และเปิดลิ้นชักแล้ว: ${orderNo}`
+            : `Cash payment saved and drawer opened: ${orderNo}`
+        );
+        return;
+      }
+
+      pushSubmitMessage(
+        lang === "th"
+          ? `รับเงินสดสำเร็จ แต่เปิดลิ้นชักไม่สำเร็จ กรุณากดปุ่มเปิดลิ้นชักเอง: ${orderNo}`
+          : `Cash payment saved, but drawer open failed. Please open the drawer manually: ${orderNo}`
+      );
+    } catch {
+      pushSubmitMessage(
+        lang === "th"
+          ? `รับเงินสดสำเร็จ แต่เชื่อมต่อ Windows Runtime เพื่อเปิดลิ้นชักไม่ได้: ${orderNo}`
+          : `Cash payment saved, but Windows Runtime drawer bridge was unavailable: ${orderNo}`
+      );
+    }
+  }
   async function confirmCashPayment() {
     if (!cashReviewOrder || cashSubmitting || receiptSaving) {
       return;
@@ -6959,6 +7094,7 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
       setBillPaymentMethod("cash");
       clearClosedBillUiState({ clearReceipt: false, tableId: cashReviewOrder.table_id ?? null, resetDelivery: true });
       pushSubmitMessage(`${text.receiptSaved}: ${cashReviewOrder.order_no}`);
+      void openCashDrawerAfterCashPayment(cashReviewOrder.order_no);
       if (orderType === "dine_in" || Boolean(cashReviewOrder.table_id)) {
         setReceiptSession(null);
         setReceiptSaved(false);
@@ -9240,6 +9376,7 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
     </section>
   );
 }
+
 
 
 
