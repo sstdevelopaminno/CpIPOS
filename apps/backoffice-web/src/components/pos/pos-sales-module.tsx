@@ -30,6 +30,7 @@ import { calculateDeliveryPricingBreakdown } from "@/lib/delivery-pricing";
 import { POS_MODE_FEATURES } from "@/lib/pos-feature-map";
 import { beginPosActionTrace, clearPosTraceEvents, endPosActionTrace, readPosTraceEvents, usePosRenderProfiler } from "@/lib/pos-ui-profiler";
 import { naturalCompareTableCode } from "@/lib/table-management";
+import { cachePosSalesOfflineCatalogSnapshot } from "@/lib/pos-offline-catalog-snapshot";
 
 type Lang = "th" | "en";
 type QuickMode = "home" | "dine_in" | "delivery";
@@ -2784,6 +2785,7 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
         tableListFetchInFlightRef.current = null;
       }
       if (!signal?.aborted) {
+
         setTableLoading(false);
       }
     }
@@ -4144,6 +4146,25 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
         }
         setDeliveryConfigs(nextDeliveryConfigs);
         setDeliveryPricesByProduct(nextDeliveryPricesByProduct);
+        if (tenantId && branchId) {
+          void cachePosSalesOfflineCatalogSnapshot({
+            tenant_id: tenantId,
+            branch_id: branchId,
+            branch_code: null,
+            device_code: null,
+            products: nextProducts,
+            categories: nextCategories,
+            tax_settings: nextTaxSettings,
+            inventory_settings: { allow_negative_stock: nextAllowNegativeStock },
+            store_profile: nextStoreProfile,
+            payment_account: nextPaymentAccount,
+            payment_providers: nextPaymentProviders,
+            notification_settings: nextNotificationSettings,
+            device_policy: nextDevicePolicy,
+            delivery_configs: nextDeliveryConfigs,
+            delivery_prices_by_product: nextDeliveryPricesByProduct
+          }).catch(() => undefined);
+        }
         setActiveCategory((current) => current || nextCategories[0] || "");
         hasRenderableDataRef.current = true;
         setHasRenderableData(true);
@@ -9376,6 +9397,9 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
     </section>
   );
 }
+
+
+
 
 
 
