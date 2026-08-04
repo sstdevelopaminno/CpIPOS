@@ -1,4 +1,6 @@
-﻿"use client";
+"use client";
+
+import { useState } from "react";
 
 type PaymentText = {
   subtotal: string;
@@ -83,8 +85,134 @@ type SecondaryAction = {
   label: string;
 };
 
+type LocalBridgeRuntimePayload = {
+  bridge_health_url?: string;
+  bridge_print_url?: string;
+  bridge_token?: string;
+  bridge_token_header?: string;
+  windows_printer?: string;
+};
+
+type LocalBridgeHealthBody = {
+  ok?: boolean;
+  data?: {
+    resolved_printer?: string | null;
+    system_default_printer?: string | null;
+  } | null;
+};
+
+type LocalBridgeCommandBody = {
+  ok?: boolean;
+  error?: unknown;
+};
+
 function formatMoney(value: number): string {
   return `฿${new Intl.NumberFormat("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value)}`;
+}
+
+function readWindowsRuntimePayload(): LocalBridgeRuntimePayload | null {
+  if (typeof window === "undefined") return null;
+  return (window as Window & { CpIPOSWindowsRuntime?: LocalBridgeRuntimePayload }).CpIPOSWindowsRuntime ?? null;
+}
+
+function buildCashDrawerBridgeUrl(printUrl: string): string {
+  try {
+    const url = new URL(printUrl);
+    if (url.pathname.endsWith("/print/test")) {
+      url.pathname = url.pathname.replace(/\/print\/test$/u, "/cash-drawer/open");
+      return url.toString();
+    }
+    if (url.pathname.endsWith("/print")) {
+      url.pathname = url.pathname.replace(/\/print$/u, "/cash-drawer/open");
+      return url.toString();
+    }
+    url.pathname = "/cash-drawer/open";
+    return url.toString();
+  } catch {
+    return printUrl.replace(/\/print(?:\/test)?\/?$/u, "/cash-drawer/open");
+  }
+}
+
+async function resolveLocalBridgePrinterName(args: {
+  healthUrl: string;
+  runtimePrinter?: string | null;
+}): Promise<string | undefined> {
+  const runtimePrinter = String(args.runtimePrinter ?? "").trim();
+  if (runtimePrinter) return runtimePrinter;
+
+  const controller = new AbortController();
+  const timeoutId = window.setTimeout(() => controller.abort(), 2500);
+  try {
+    const response = await fetch(args.healthUrl, { cache: "no-store", signal: controller.signal });
+    if (!response.ok) return undefined;
+    const body = (await response.json().catch(() => null)) as LocalBridgeHealthBody | null;
+    const resolvedPrinter = String(body?.data?.resolved_printer ?? "").trim();
+    if (resolvedPrinter) return resolvedPrinter;
+    const systemDefaultPrinter = String(body?.data?.system_default_printer ?? "").trim();
+    return systemDefaultPrinter || undefined;
+  } catch {
+    return undefined;
+  } finally {
+    window.clearTimeout(timeoutId);
+  }
+}
+
+async function tryOpenLocalBridgeCashDrawer(): Promise<boolean> {
+  if (typeof window === "undefined") return false;
+
+  const runtime = readWindowsRuntimePayload();
+  const token = String(
+    window.sessionStorage.getItem("cpi_local_bridge_token_v1") ?? runtime?.bridge_token ?? ""
+  ).trim();
+  const tokenHeader = String(
+    window.sessionStorage.getItem("cpi_local_bridge_token_header_v1") ?? runtime?.bridge_token_header ?? "X-CpIPOS-Bridge-Token"
+  ).trim();
+  const printUrl = String(
+    window.localStorage.getItem("cpi_local_bridge_print_url_v1") ?? runtime?.bridge_print_url ?? ""
+  ).trim();
+  const healthUrl = String(
+    window.localStorage.getItem("cpi_local_bridge_health_url_v1") ?? runtime?.bridge_health_url ?? ""
+  ).trim();
+
+  if (!token || !tokenHeader || !printUrl || !healthUrl) return false;
+
+  const printerName = await resolveLocalBridgePrinterName({
+    healthUrl,
+    runtimePrinter: runtime?.windows_printer
+  });
+  const body: Record<string, unknown> = {
+    drawer_connection_mode: "printer-kick",
+    drawer_kick_pin: 0,
+    drawer_pulse_on_ms: 80,
+    drawer_pulse_off_ms: 250,
+    metadata: {
+      source: "pos_payment_panel",
+      trigger: "manual_cash_drawer_button",
+      drawer_connection_mode: "printer-kick",
+      drawer_kick_pin: 0,
+      drawer_pulse_on_ms: 80,
+      drawer_pulse_off_ms: 250
+    }
+  };
+  if (printerName) {
+    body.printer_name = printerName;
+  }
+
+  try {
+    const response = await fetch(buildCashDrawerBridgeUrl(printUrl), {
+      method: "POST",
+      cache: "no-store",
+      headers: {
+        "Content-Type": "application/json",
+        [tokenHeader]: token
+      },
+      body: JSON.stringify(body)
+    });
+    const result = (await response.json().catch(() => null)) as LocalBridgeCommandBody | null;
+    return response.ok && result?.ok !== false && !result?.error;
+  } catch {
+    return false;
+  }
 }
 
 export function PosPaymentPanel({
@@ -131,6 +259,21 @@ export function PosPaymentPanel({
   memberSummary,
   text
 }: Props) {
+  const [localCashDrawerOpening, setLocalCashDrawerOpening] = useState(false);
+  const cashDrawerBusy = openingCashDrawer || localCashDrawerOpening;
+
+  async function handleOpenCashDrawerClick() {
+    if (!onOpenCashDrawer || openCashDrawerDisabled || cashDrawerBusy || submitting) return;
+    setLocalCashDrawerOpening(true);
+    try {
+      const openedViaLocalBridge = await tryOpenLocalBridgeCashDrawer();
+      if (openedViaLocalBridge) return;
+      onOpenCashDrawer();
+    } finally {
+      setLocalCashDrawerOpening(false);
+    }
+  }
+
   const secondaryActions = ([
     showHoldBill
       ? {
@@ -260,11 +403,11 @@ export function PosPaymentPanel({
         {onOpenCashDrawer ? (
           <button
             type="button"
-            onClick={onOpenCashDrawer}
-            disabled={openCashDrawerDisabled || openingCashDrawer || submitting}
+            onClick={handleOpenCashDrawerClick}
+            disabled={openCashDrawerDisabled || cashDrawerBusy || submitting}
             className="posui-btn posui-btn--cash-drawer"
           >
-            {openingCashDrawer ? openingCashDrawerLabel : openCashDrawerLabel}
+            {cashDrawerBusy ? openingCashDrawerLabel : openCashDrawerLabel}
           </button>
         ) : null}
         <button
