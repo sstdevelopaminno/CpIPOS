@@ -7893,6 +7893,94 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
     const receiptHtml = buildReceiptPrintHtml(receiptSession);
     let bluetoothFallbackReason: string | null = null;
 
+    if (typeof window !== "undefined") {
+      type RuntimePayload = {
+        bridge_token?: string | null;
+        bridge_token_header?: string | null;
+        bridge_print_url?: string | null;
+        windows_printer?: string | null;
+      };
+
+      type BridgePrintResponse = {
+        ok?: boolean;
+        error?: { message?: string } | unknown;
+        data?: { printed?: boolean; printer_name?: string; job_id?: string; html_printed?: boolean } | null;
+      };
+
+      const runtime = (window as Window & { CpIPOSWindowsRuntime?: RuntimePayload }).CpIPOSWindowsRuntime ?? null;
+      const token = String(window.sessionStorage.getItem("cpi_local_bridge_token_v1") ?? runtime?.bridge_token ?? "").trim();
+      const tokenHeader = String(
+        window.sessionStorage.getItem("cpi_local_bridge_token_header_v1") ?? runtime?.bridge_token_header ?? "X-CpIPOS-Bridge-Token"
+      ).trim();
+      const printUrl = String(
+        window.localStorage.getItem("cpi_local_bridge_print_url_v1") ?? runtime?.bridge_print_url ?? "http://127.0.0.1:3210/print"
+      ).trim();
+      const printerName = String(runtime?.windows_printer ?? "").trim();
+
+      if (token && tokenHeader && printUrl) {
+        const controller = new AbortController();
+        const timeoutId = window.setTimeout(() => controller.abort(), 12000);
+
+        try {
+          const payload: Record<string, unknown> = {
+            receipt_html: receiptHtml,
+            order_no: receiptSession.order_no,
+            metadata: {
+              source: "pos_sales_module",
+              trigger: "manual_receipt_print",
+              order_no: receiptSession.order_no,
+              payment_method: receiptSession.payment_method
+            }
+          };
+
+          if (printerName) {
+            payload.printer_name = printerName;
+          }
+
+          const response = await fetch(printUrl, {
+            method: "POST",
+            cache: "no-store",
+            headers: {
+              "Content-Type": "application/json",
+              [tokenHeader]: token
+            },
+            body: JSON.stringify(payload),
+            signal: controller.signal
+          });
+
+          const result = (await response.json().catch(() => null)) as BridgePrintResponse | null;
+          if (response.ok && result?.ok !== false && !result?.error) {
+            setReceiptAutoPrinted(true);
+            pushSubmitMessage(
+              lang === "th"
+                ? `ส่งพิมพ์ใบเสร็จผ่าน Windows Runtime แล้ว: ${receiptSession.order_no}`
+                : `Receipt sent to Windows Runtime: ${receiptSession.order_no}`
+            );
+            endPosActionTrace(printTrace, "ok", {
+              order_no: receiptSession.order_no,
+              transport: "local_bridge_windows_runtime",
+              html_printed: Boolean(result?.data?.html_printed)
+            });
+            return;
+          }
+
+          bluetoothFallbackReason =
+            lang === "th"
+              ? `พิมพ์ผ่าน Windows Runtime ไม่สำเร็จ กำลังใช้โหมดสำรอง: ${receiptSession.order_no}`
+              : `Windows Runtime print failed. Falling back: ${receiptSession.order_no}`;
+        } catch (error) {
+          bluetoothFallbackReason =
+            error instanceof Error && error.message
+              ? `${lang === "th" ? "เชื่อมต่อ Windows Runtime ไม่สำเร็จ" : "Windows Runtime print failed"}: ${error.message}`
+              : lang === "th"
+                ? "เชื่อมต่อ Windows Runtime ไม่สำเร็จ กำลังใช้โหมดสำรอง"
+                : "Windows Runtime print failed. Falling back.";
+        } finally {
+          window.clearTimeout(timeoutId);
+        }
+      }
+    }
+
     try {
       const { response, body } = await fetchJsonWithTimeout<BluetoothReceiptPrintResponseBody>(
         "/api/pos/receipts/bluetooth",
@@ -9580,6 +9668,7 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
     </section>
   );
 }
+
 
 
 
