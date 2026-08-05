@@ -1,4 +1,4 @@
-const CACHE_NAME = "cpipos-shell-v4";
+const CACHE_NAME = "cpipos-shell-v5";
 const OFFLINE_POS_URL = "/offline-pos.html";
 const ASSETS_TO_CACHE = [
   "/",
