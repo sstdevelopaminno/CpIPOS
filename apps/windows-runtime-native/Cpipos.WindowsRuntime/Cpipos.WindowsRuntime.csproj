@@ -1,4 +1,4 @@
-<Project Sdk="Microsoft.NET.Sdk">
+﻿<Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
     <TargetFramework>net8.0-windows</TargetFramework>
@@ -8,9 +8,9 @@
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <AssemblyName>Cpipos.WindowsRuntime</AssemblyName>
     <RootNamespace>Cpipos.WindowsRuntime</RootNamespace>
-    <Version>0.1.5</Version>
-    <FileVersion>0.1.5.0</FileVersion>
-    <AssemblyVersion>0.1.5.0</AssemblyVersion>
+    <Version>0.1.6</Version>
+    <FileVersion>0.1.6.0</FileVersion>
+    <AssemblyVersion>0.1.6.0</AssemblyVersion>
     <ApplicationIcon>assets\cpipos.ico</ApplicationIcon>
   </PropertyGroup>
 
@@ -31,3 +31,4 @@
     <Exec Command="powershell.exe -NoProfile -ExecutionPolicy Bypass -File &quot;$(CpiposRestoreIconScript)&quot; -SourceBase64 &quot;$(CpiposIconBase64)&quot; -DestinationIcon &quot;$(CpiposIconOutput)&quot;" />
   </Target>
 </Project>
+
