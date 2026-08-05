@@ -5,6 +5,8 @@ import Image from "next/image";
 import type { OrderType } from "@pos/shared-types";
 import { ErrorState, LoadingState } from "@/components/backoffice/list-state";
 import { PosHeldBillsModal } from "@/components/pos/pos-held-bills-modal";
+import { PosBuffetPricePickerModal } from "@/components/pos/pos-buffet-price-picker-modal";
+import { PosBuffetTableModeButton } from "@/components/pos/features/pos-buffet-table-mode-button";
 import { PosMemberMaintenanceModal } from "@/components/pos/pos-member-maintenance-modal";
 import { PosPaymentModals } from "@/components/pos/pos-payment-modals";
 import { PosProductCatalog } from "@/components/pos/pos-product-catalog";
@@ -13,6 +15,7 @@ import { TableQrOrderModal } from "@/components/pos/table-qr-order-modal";
 import { buildCheckoutSubmitPayload, buildReviewOrder, getCheckoutBlockingReason, shouldSkipDineInSubmit } from "@/components/pos/features/checkout-flow";
 import { applyStagedDeliveryToHeldBills, buildNewStagedDeliveryHeldBill, getDeliveryStageBlockingReason } from "@/components/pos/features/delivery-flow";
 import { runPendingPaymentRetry, runPendingSubmitRetry } from "@/components/pos/features/retry-flow";
+import { appendConfirmedBuffetItem, isTableSalesMode, orderTypeForQuickMode, type BuffetTablePickerState } from "@/components/pos/features/buffet-table-sales-wire";
 import { extractApiErrorCode, isConflictErrorCode, isConnectivityIssueMessage, localizeApiErrorMessage } from "@/components/pos/pos-sales-errors";
 import { dequeuePendingItem, enqueuePendingItem, markPendingItemFailed } from "@/components/pos/features/pending-queue";
 import { PosTableBrowser } from "@/components/pos/pos-table-browser";
@@ -33,7 +36,7 @@ import { naturalCompareTableCode } from "@/lib/table-management";
 import { cachePosSalesOfflineCatalogSnapshot } from "@/lib/pos-offline-catalog-snapshot";
 
 type Lang = "th" | "en";
-type QuickMode = "home" | "dine_in" | "delivery";
+type QuickMode = "home" | "dine_in" | "delivery" | "buffet_table";
 type TableViewMode = "list" | "floor";
 
 const POS_TABLE_VIEW_MODE_STORAGE_KEY = "pos_table_view_mode_v1";
@@ -2072,6 +2075,11 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
   const [posTables, setPosTables] = useState<DiningTableItem[]>([]);
   const [tableLayoutObjects, setTableLayoutObjects] = useState<FloorPlanObjectItem[]>([]);
   const [selectedTable, setSelectedTable] = useState<DiningTableItem | null>(null);
+  const [buffetPicker, setBuffetPicker] = useState<BuffetTablePickerState>({
+    open: false,
+    table: null,
+    prompted_table_id: null
+  });
   const [dineInSessionBillNo, setDineInSessionBillNo] = useState<string | null>(null);
   const [tableBrowserOpen, setTableBrowserOpen] = useState(false);
   const [tableViewMode, setTableViewModeState] = useState<TableViewMode>(() => {
@@ -4452,7 +4460,7 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
     Boolean(transferReviewOrder) ||
     Boolean(receiptSession) ||
     receiptSaving;
-  const hasOpenDineInSession = quickMode === "dine_in" && Boolean(selectedTable?.active_session_id);
+  const hasOpenDineInSession = isTableSalesMode(quickMode) && Boolean(selectedTable?.active_session_id);
   const activeBillNo = activeOrder?.order_no ?? (orderType === "delivery_manual" ? deliveryDraftBillNo : null) ?? dineInSessionBillNo ?? "-";
   const pendingSyncCount = pendingQueue.length + pendingPaymentQueue.length;
   const hasRetryablePending = useMemo(
@@ -4649,7 +4657,7 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
   const receiptFallbackLogoPath = "/brand/cpipos-logo.png";
   const receiptStoreLogoPath = normalizeReceiptLogoPath(activeReceiptStoreProfile?.logo_url);
   const receiptLogoPath = receiptStoreLogoPath ?? receiptFallbackLogoPath;
-  const showTableBrowser = quickMode === "dine_in" && tableBrowserOpen;
+  const showTableBrowser = isTableSalesMode(quickMode) && tableBrowserOpen;
   const showDeliverySetup = quickMode === "delivery" && !deliveryCatalogOpen;
   const isDeliveryMode = quickMode === "delivery" || orderType === "delivery_manual";
   const deliveryDraftTouched =
@@ -4705,7 +4713,7 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
         receiptSaving ||
         hasOpenDineInSession)
   );
-  const isTableSelectionSummaryIdle = quickMode === "dine_in" && tableBrowserOpen;
+  const isTableSelectionSummaryIdle = isTableSalesMode(quickMode) && tableBrowserOpen;
   const hasTaxSummaryEnabled = taxSettings.is_enabled && taxSettings.lines.some((line) => line.is_active && Number(line.rate_pct) > 0);
   const showSummaryBillNo = !isTableSelectionSummaryIdle && showSidebarOrderSummary && activeBillNo !== "-";
   const showSummaryPaymentMethod = showSummaryBillNo;
@@ -5400,6 +5408,40 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
     setMemberPickerOpen(false);
   }
 
+  function openBuffetPickerForTable(table: DiningTableItem) {
+    setBuffetPicker((current) => ({
+      open: true,
+      table,
+      prompted_table_id: table.id ?? current.prompted_table_id
+    }));
+  }
+
+  function closeBuffetPicker() {
+    setBuffetPicker((current) => ({
+      ...current,
+      open: false
+    }));
+  }
+
+  function confirmBuffetPickerItem(item: CartItem) {
+    const targetTable = buffetPicker.table ?? selectedTable;
+    const nextCart = appendConfirmedBuffetItem(cartRef.current, item);
+    setCart(nextCart);
+    if (targetTable?.id) {
+      rememberDineInDraft(targetTable.id, nextCart);
+    }
+    setBuffetPicker((current) => ({
+      ...current,
+      open: false,
+      prompted_table_id: targetTable?.id ?? current.prompted_table_id
+    }));
+    pushSubmitMessage(
+      lang === "th"
+        ? `เพิ่มชุดบุฟเฟ่ลงตะกร้า: ${item.name}`
+        : `Buffet item added: ${item.name}`
+    );
+  }
+
   function moveMenuProduct(productId: string, direction: -1 | 1) {
     setProductOrderByBranch((current) => {
       const currentIds = visibleProducts.map((product) => product.id);
@@ -5730,14 +5772,14 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
       return;
     }
 
-    if (mode === "dine_in") {
+    if (mode === "dine_in" || mode === "buffet_table") {
       if (orderType === "delivery_manual") {
         resetDeliveryDraft();
       }
-      setQuickMode("dine_in");
-      setOrderType("dine_in");
+      setQuickMode(mode);
+      setOrderType(orderTypeForQuickMode(mode));
       openDineInTableBrowser();
-      pushSubmitMessage(text.dineIn);
+      pushSubmitMessage(mode === "buffet_table" ? (lang === "th" ? "โต๊ะบุฟเฟ่" : "Buffet table") : text.dineIn);
       if (posTables.length === 0 || tableLoadError) {
         void fetchPosTables().catch((tableError) => {
           markConnectivityFromError(tableError);
@@ -5769,7 +5811,14 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
   }
 
   function isQuickModeLocked(mode: QuickMode) {
-    const feature = mode === "dine_in" ? POS_MODE_FEATURES.dine_in : mode === "delivery" ? POS_MODE_FEATURES.delivery : null;
+    const feature =
+      mode === "dine_in"
+        ? POS_MODE_FEATURES.dine_in
+        : mode === "buffet_table"
+          ? POS_MODE_FEATURES.buffet_table
+          : mode === "delivery"
+            ? POS_MODE_FEATURES.delivery
+            : null;
     return Boolean(enabledFeatures !== null && feature && enabledFeatures[feature] === false);
   }
 
@@ -5872,7 +5921,8 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
       const latestQrEventId = table.qr_activity?.latest_event_id ?? null;
       const shouldForceQrRefresh = Boolean(latestQrEventId && seenTableQrActivity[table.id] !== latestQrEventId);
       markTableQrActivitySeen(table);
-      setQuickMode("dine_in");
+      const nextTableMode: QuickMode = quickMode === "buffet_table" ? "buffet_table" : "dine_in";
+      setQuickMode(nextTableMode);
       setOrderType("dine_in");
       setTableBrowserOpen(false);
       setSelectedTable(table);
@@ -5889,6 +5939,9 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
         setCart(dineInDraftByTableIdRef.current[table.id] ?? []);
       }
       pushSubmitMessage(`${text.tableSelected}: ${table.table_code}`);
+      if (nextTableMode === "buffet_table") {
+        openBuffetPickerForTable(table);
+      }
       void loadTableBillContext(table).catch((loadError) => {
         markConnectivityFromError(loadError);
         const message = loadError instanceof Error ? loadError.message : "Failed to load table bill details.";
@@ -5898,6 +5951,9 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
     }
 
     await openBillForTable(table);
+    if (quickMode === "buffet_table") {
+      openBuffetPickerForTable(table);
+    }
   }
 
   async function cancelActiveOrder(targetOrder: ActiveOrder, approvalId?: string) {
@@ -7522,6 +7578,7 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
   }
 
   function getQuickModeLabel() {
+    if (quickMode === "buffet_table") return lang === "th" ? "โต๊ะบุฟเฟ่" : "Buffet table";
     if (quickMode === "dine_in") return text.dineIn;
     if (quickMode === "delivery") return text.delivery;
     return text.goHome;
@@ -8225,7 +8282,7 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
                     aria-label={`${text.switchMode}: ${getQuickModeLabel()}`}
                   >
                     <span className="posui-mode-switch-button__icon" aria-hidden="true">
-                      <QuickModeIcon mode={quickMode} />
+                      <QuickModeIcon mode={quickMode === "buffet_table" ? "dine_in" : quickMode} />
                     </span>
                     <span className="posui-mode-switch-button__action">{text.switchMode}</span>
                   </button>
@@ -8239,7 +8296,7 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
                       >
                         {`${text.deliveryPendingBillsTitle}: ${heldBillPool.length}`}
                       </button>
-                    ) : quickMode !== "dine_in" ? (
+                    ) : !isTableSalesMode(quickMode) ? (
                       <button
                         type="button"
                         className="posui-held-bill-btn"
@@ -8249,12 +8306,12 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
                         {`${text.heldBills}: ${heldBillPool.length}`}
                       </button>
                     ) : null}
-                    {quickMode === "dine_in" ? (
+                    {isTableSalesMode(quickMode) ? (
                       <span className="posui-sales-status-item">
                         {text.tableLabel}: {selectedTable ? selectedTable.table_code : "-"}
                       </span>
                     ) : null}
-                    {quickMode === "dine_in" && selectedTable?.active_session_id ? (
+                    {isTableSalesMode(quickMode) && selectedTable?.active_session_id ? (
                       <button
                         type="button"
                         className="posui-held-bill-btn"
@@ -8270,7 +8327,7 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
                         {text.tableMove}
                       </button>
                     ) : null}
-                    {quickMode === "dine_in" && selectedTable && !tableBrowserOpen ? (
+                    {isTableSalesMode(quickMode) && selectedTable && !tableBrowserOpen ? (
                       <button
                         type="button"
                         className="posui-held-bill-btn"
@@ -8535,6 +8592,15 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
                 </span>
                 <span className="posui-mode-option__check" aria-hidden="true">✓</span>
               </button>
+              <PosBuffetTableModeButton
+                label={lang === "th" ? "โต๊ะบุฟเฟ่" : "Buffet table"}
+                hint={lang === "th" ? "เปิดโต๊ะแล้วเลือกชุดราคาบุฟเฟ่" : "Open table and select buffet price"}
+                active={quickMode === "buffet_table"}
+                locked={isQuickModeLocked("buffet_table")}
+                lockTitle={isQuickModeLocked("buffet_table") ? (lang === "th" ? "แพ็กเกจปัจจุบันยังไม่เปิดใช้งานฟีเจอร์นี้" : "This feature is not enabled in your package") : undefined}
+                icon={<QuickModeIcon mode="dine_in" />}
+                onClick={() => selectQuickMode("buffet_table")}
+              />
               <button
                 type="button"
                 className={`posui-mode-option ${quickMode === "delivery" ? "is-active" : ""} ${isQuickModeLocked("delivery") ? "is-locked" : ""}`}
@@ -8888,7 +8954,7 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
           lang={lang}
           shiftStatus={shift?.status}
           sellerName={sellerName}
-          quickMode={quickMode}
+          quickMode={quickMode === "buffet_table" ? "dine_in" : quickMode}
           receiptLogoPath={receiptLogoPath}
           receiptStoreName={receiptStoreName}
           receiptStoreAddress={receiptStoreAddress}
@@ -9192,6 +9258,15 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
         </section>
       ) : null}
 
+      <PosBuffetPricePickerModal
+        open={buffetPicker.open}
+        lang={lang}
+        tableCode={buffetPicker.table?.table_code ?? selectedTable?.table_code ?? null}
+        isBusy={isBusy}
+        onClose={closeBuffetPicker}
+        onConfirm={(item) => confirmBuffetPickerItem(item)}
+      />
+
       <TableQrOrderModal
         open={tableQrModalOpen}
         tableId={selectedTable?.id ?? null}
@@ -9397,6 +9472,8 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
     </section>
   );
 }
+
+
 
 
 
