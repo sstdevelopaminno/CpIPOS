@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 type PaymentText = {
   subtotal: string;
@@ -106,6 +106,8 @@ type LocalBridgeCommandBody = {
   error?: unknown;
 };
 
+const ACTIVE_SALES_MODE_LABEL_KEY = "cpipos_active_sales_mode_label";
+
 function formatMoney(value: number): string {
   return `฿${new Intl.NumberFormat("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value)}`;
 }
@@ -113,6 +115,29 @@ function formatMoney(value: number): string {
 function readWindowsRuntimePayload(): LocalBridgeRuntimePayload | null {
   if (typeof window === "undefined") return null;
   return (window as Window & { CpIPOSWindowsRuntime?: LocalBridgeRuntimePayload }).CpIPOSWindowsRuntime ?? null;
+}
+
+function readActiveSalesModeLabel(): string | null {
+  if (typeof window === "undefined") return null;
+  return window.sessionStorage.getItem(ACTIVE_SALES_MODE_LABEL_KEY);
+}
+
+function isDineInModeLabel(value: string | null | undefined): boolean {
+  const normalized = String(value ?? "").trim().toLowerCase();
+  return normalized === "นั่งโต๊ะ" || normalized === "dine in" || normalized === "dine-in" || normalized === "dine_in";
+}
+
+function resolveDisplayModeStatusValue(args: {
+  modeStatusValue?: string;
+  fallbackStatusValue: string;
+  activeSalesModeLabel: string | null;
+  modeLabel?: string;
+}): string {
+  const currentValue = args.modeStatusValue ?? args.fallbackStatusValue;
+  if (args.activeSalesModeLabel === "buffet_table" && isDineInModeLabel(currentValue)) {
+    return args.modeLabel === "โหมด" ? "โต๊ะบุฟเฟ่" : "Buffet table";
+  }
+  return currentValue;
 }
 
 function buildCashDrawerBridgeUrl(printUrl: string): string {
@@ -260,7 +285,34 @@ export function PosPaymentPanel({
   text
 }: Props) {
   const [localCashDrawerOpening, setLocalCashDrawerOpening] = useState(false);
+  const [activeSalesModeLabel, setActiveSalesModeLabel] = useState<string | null>(() => readActiveSalesModeLabel());
   const cashDrawerBusy = openingCashDrawer || localCashDrawerOpening;
+  const displayModeStatusValue = resolveDisplayModeStatusValue({
+    modeStatusValue,
+    fallbackStatusValue: text.statusValue,
+    activeSalesModeLabel,
+    modeLabel: text.mode
+  });
+
+  useEffect(() => {
+    if (typeof window === "undefined") return undefined;
+    const syncActiveSalesModeLabel = () => setActiveSalesModeLabel(readActiveSalesModeLabel());
+    window.addEventListener("cpipos:sales-mode-label-change", syncActiveSalesModeLabel);
+    window.addEventListener("storage", syncActiveSalesModeLabel);
+    syncActiveSalesModeLabel();
+    return () => {
+      window.removeEventListener("cpipos:sales-mode-label-change", syncActiveSalesModeLabel);
+      window.removeEventListener("storage", syncActiveSalesModeLabel);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (activeSalesModeLabel && modeStatusValue && !isDineInModeLabel(modeStatusValue)) {
+      window.sessionStorage.removeItem(ACTIVE_SALES_MODE_LABEL_KEY);
+      setActiveSalesModeLabel(null);
+    }
+  }, [activeSalesModeLabel, modeStatusValue]);
 
   async function handleOpenCashDrawerClick() {
     if (!onOpenCashDrawer || openCashDrawerDisabled || cashDrawerBusy || submitting) return;
@@ -338,7 +390,7 @@ export function PosPaymentPanel({
         {showModeStatus && text.mode ? (
           <p>
             <span>{text.mode}</span>
-            <strong>{modeStatusValue ?? text.statusValue}</strong>
+            <strong>{displayModeStatusValue}</strong>
           </p>
         ) : null}
         {showStatus ? (
