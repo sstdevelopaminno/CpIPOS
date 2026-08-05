@@ -7175,11 +7175,10 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
       setBillPaymentMethod("cash");
       clearClosedBillUiState({ clearReceipt: false, tableId: cashReviewOrder.table_id ?? null, resetDelivery: true });
       pushSubmitMessage(`${text.receiptSaved}: ${cashReviewOrder.order_no}`);
-      void openCashDrawerAfterCashPayment(cashReviewOrder.order_no);
+      runPostPaymentSideEffects(nextReceiptSession);
       if (orderType === "dine_in" || Boolean(cashReviewOrder.table_id)) {
         setQuickMode(quickMode === "buffet_table" ? "buffet_table" : "dine_in");
         setOrderType("dine_in");
-        pushSubmitMessage(`${text.receiptSaved}: ${cashReviewOrder.order_no}`);
       }
     } catch (paymentError) {
       const message = paymentError instanceof Error ? paymentError.message : "Unknown error";
@@ -7260,6 +7259,13 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
     try {
       enqueuePendingPayment(pendingPaymentEntry);
       await submitTransferPayment(pendingPaymentEntry, true);
+      runPostPaymentSideEffects({
+        ...paidTransferOrder,
+        payment_method: "bank_transfer",
+        cash_received: paidTransferOrder.total_amount,
+        change_amount: 0,
+        store_profile: storeProfile
+      });
       clearClosedBillUiState({ clearReceipt: false, tableId: paidTransferOrder.table_id ?? null, resetDelivery: true });
       if (orderType === "dine_in" || Boolean(paidTransferOrder.table_id)) {
         setQuickMode(quickMode === "buffet_table" ? "buffet_table" : "dine_in");
@@ -7966,6 +7972,109 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
     }
   }
 
+  async function autoPrintReceiptToWindowsRuntime(session: ReceiptSession, trigger: string) {
+    if (typeof window === "undefined") return;
+
+    type RuntimePayload = {
+      bridge_token?: string | null;
+      bridge_token_header?: string | null;
+      bridge_print_url?: string | null;
+      windows_printer?: string | null;
+    };
+
+    type BridgePrintResponse = {
+      ok?: boolean;
+      error?: { message?: string } | unknown;
+      data?: { printed?: boolean; printer_name?: string; job_id?: string } | null;
+    };
+
+    const runtime = (window as Window & { CpIPOSWindowsRuntime?: RuntimePayload }).CpIPOSWindowsRuntime ?? null;
+    const token = String(window.sessionStorage.getItem("cpi_local_bridge_token_v1") ?? runtime?.bridge_token ?? "").trim();
+    const tokenHeader = String(
+      window.sessionStorage.getItem("cpi_local_bridge_token_header_v1") ?? runtime?.bridge_token_header ?? "X-CpIPOS-Bridge-Token"
+    ).trim();
+    const printUrl = String(
+      window.localStorage.getItem("cpi_local_bridge_print_url_v1") ?? runtime?.bridge_print_url ?? "http://127.0.0.1:3210/print"
+    ).trim();
+    const printerName = String(runtime?.windows_printer ?? "").trim();
+
+    if (!token || !tokenHeader || !printUrl) {
+      setReceiptAutoPrinted(false);
+      return;
+    }
+
+    const receiptHtml = buildReceiptPrintHtml(session);
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(() => controller.abort(), 9000);
+
+    try {
+      const payload: Record<string, unknown> = {
+        receipt_html: receiptHtml,
+        order_no: session.order_no,
+        metadata: {
+          source: "pos_sales_module",
+          trigger,
+          order_no: session.order_no,
+          payment_method: session.payment_method
+        }
+      };
+
+      if (printerName) {
+        payload.printer_name = printerName;
+      }
+
+      const response = await fetch(printUrl, {
+        method: "POST",
+        cache: "no-store",
+        headers: {
+          "Content-Type": "application/json",
+          [tokenHeader]: token
+        },
+        body: JSON.stringify(payload),
+        signal: controller.signal
+      });
+
+      const result = (await response.json().catch(() => null)) as BridgePrintResponse | null;
+      if (response.ok && result?.ok !== false && !result?.error) {
+        setReceiptAutoPrinted(true);
+        pushSubmitMessage(
+          lang === "th"
+            ? `บันทึกชำระสำเร็จ และส่งพิมพ์ใบเสร็จแล้ว: ${session.order_no}`
+            : `Payment saved and receipt print sent: ${session.order_no}`
+        );
+        return;
+      }
+
+      setReceiptAutoPrinted(false);
+      pushSubmitMessage(
+        lang === "th"
+          ? `บันทึกชำระสำเร็จ แต่พิมพ์ใบเสร็จอัตโนมัติไม่สำเร็จ กรุณากดพิมพ์เอง: ${session.order_no}`
+          : `Payment saved, but automatic receipt print failed. Please print manually: ${session.order_no}`
+      );
+    } catch {
+      setReceiptAutoPrinted(false);
+      pushSubmitMessage(
+        lang === "th"
+          ? `บันทึกชำระสำเร็จ แต่เชื่อมต่อเครื่องพิมพ์อัตโนมัติไม่ได้ กรุณากดพิมพ์เอง: ${session.order_no}`
+          : `Payment saved, but automatic printer bridge was unavailable. Please print manually: ${session.order_no}`
+      );
+    } finally {
+      window.clearTimeout(timeoutId);
+    }
+  }
+
+  function runPostPaymentSideEffects(session: ReceiptSession) {
+    if (session.payment_method === "cash") {
+      void openCashDrawerAfterCashPayment(session.order_no);
+    }
+
+    window.setTimeout(() => {
+      void autoPrintReceiptToWindowsRuntime(
+        session,
+        session.payment_method === "cash" ? "cash_payment_success" : "transfer_payment_success"
+      );
+    }, session.payment_method === "cash" ? 120 : 0);
+  }
   const handleTableBrowserRetryLoad = useCallback(() => {
     void fetchPosTablesRef.current().catch((tableError) => {
       const message = tableError instanceof Error ? tableError.message : "Failed to load table layout.";
@@ -9471,6 +9580,7 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
     </section>
   );
 }
+
 
 
 
