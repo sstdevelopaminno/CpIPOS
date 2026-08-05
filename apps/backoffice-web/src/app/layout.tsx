@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import { BrowserPrintAgentPosHost } from "@/components/printing/browser-print-agent-pos-host";
 import { PwaBootstrap } from "@/components/pwa/pwa-bootstrap";
 import "./globals.css";
+import "./pos-buffet-ui-polish.css";
 
 export const metadata: Metadata = {
   title: "CpIPOS",
