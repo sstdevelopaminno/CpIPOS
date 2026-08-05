@@ -5731,10 +5731,11 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
   function returnToDineInTableBrowserKeepingBill() {
     if (isBusy || tableSwitching) return;
     const currentSelectedTable = selectedTableRef.current;
+    const nextTableMode: QuickMode = quickMode === "buffet_table" ? "buffet_table" : "dine_in";
     if (currentSelectedTable?.id && orderType === "dine_in") {
       rememberDineInDraft(currentSelectedTable.id, cartRef.current);
     }
-    setQuickMode("dine_in");
+    setQuickMode(nextTableMode);
     setOrderType("dine_in");
     setTableBrowserOpen(true);
     setSelectedTable(null);
@@ -5962,7 +5963,8 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
       pushSubmitMessage(text.cancelBillPinRequired);
       return;
     }
-    const shouldReturnToTableBrowser = orderType === "dine_in" || quickMode === "dine_in" || Boolean(targetOrder.table_id);
+    const shouldReturnToTableBrowser = orderType === "dine_in" || isTableSalesMode(quickMode) || Boolean(targetOrder.table_id);
+    const returnTableMode: QuickMode = quickMode === "buffet_table" ? "buffet_table" : "dine_in";
     setCancelBillSubmitting(true);
     pushSubmitMessage(text.cancelBillProcessing);
     try {
@@ -6000,7 +6002,7 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
       }
       if (shouldReturnToTableBrowser) {
         invalidateTableUiContext();
-        setQuickMode("dine_in");
+        setQuickMode(returnTableMode);
         setOrderType("dine_in");
         setTableBrowserOpen(true);
       }
@@ -6324,9 +6326,10 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
     if (isBusy || tableSwitching) return;
     const previousSelectedTable = selectedTableRef.current;
     const previousTableBrowserOpen = tableBrowserOpen;
+    const openingTableMode: QuickMode = quickMode === "buffet_table" ? "buffet_table" : "dine_in";
     setTableSwitching(true);
     pushSubmitMessage(null);
-    setQuickMode("dine_in");
+    setQuickMode(openingTableMode);
     setOrderType("dine_in");
     setSelectedTable(table);
     setTableBrowserOpen(false);
@@ -6387,7 +6390,7 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
       setTableTransferVerifications([]);
       setBillPaymentMethod(null);
       rememberDineInDraft(nextTable.id, liveCartAfterOpen);
-      setQuickMode("dine_in");
+      setQuickMode(openingTableMode);
       setOrderType("dine_in");
       setTableBrowserOpen(false);
       pushSubmitMessage(`${text.tableOpenSuccess}: ${table.table_code}`);
@@ -6426,6 +6429,7 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
       target_table_id: targetTableId,
       cart_items: cartSnapshot.length
     });
+    const nextMoveQuickMode: QuickMode = quickMode === "buffet_table" ? "buffet_table" : "dine_in";
 
     setTableMoveBusy(true);
     setTableMoveError(null);
@@ -6498,7 +6502,7 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
       setTableMoveModalOpen(false);
       setTableMoveTargetId("");
       setTableMoveReason("");
-      setQuickMode("dine_in");
+      setQuickMode(nextMoveQuickMode);
       setOrderType("dine_in");
       setTableBrowserOpen(false);
       pushSubmitMessage(`${text.tableMoveSuccess}: ${sourceTableCode}  ${targetTableCode}`);
@@ -7173,11 +7177,9 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
       pushSubmitMessage(`${text.receiptSaved}: ${cashReviewOrder.order_no}`);
       void openCashDrawerAfterCashPayment(cashReviewOrder.order_no);
       if (orderType === "dine_in" || Boolean(cashReviewOrder.table_id)) {
-        setReceiptSession(null);
-        setReceiptSaved(false);
-        setReceiptError(null);
-        setReceiptSaving(false);
-        returnToDineInTableBrowserAfterPayment();
+        setQuickMode(quickMode === "buffet_table" ? "buffet_table" : "dine_in");
+        setOrderType("dine_in");
+        pushSubmitMessage(`${text.receiptSaved}: ${cashReviewOrder.order_no}`);
       }
     } catch (paymentError) {
       const message = paymentError instanceof Error ? paymentError.message : "Unknown error";
@@ -7260,11 +7262,8 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
       await submitTransferPayment(pendingPaymentEntry, true);
       clearClosedBillUiState({ clearReceipt: false, tableId: paidTransferOrder.table_id ?? null, resetDelivery: true });
       if (orderType === "dine_in" || Boolean(paidTransferOrder.table_id)) {
-        setReceiptSession(null);
-        setReceiptSaved(false);
-        setReceiptError(null);
-        setReceiptSaving(false);
-        returnToDineInTableBrowserAfterPayment();
+        setQuickMode(quickMode === "buffet_table" ? "buffet_table" : "dine_in");
+        setOrderType("dine_in");
       }
     } catch (transferPayError) {
       const rawMessage = transferPayError instanceof Error ? transferPayError.message : "Unknown error";
@@ -9472,6 +9471,7 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
     </section>
   );
 }
+
 
 
 
