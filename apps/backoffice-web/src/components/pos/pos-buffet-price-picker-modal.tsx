@@ -31,6 +31,16 @@ type BuffetOption = {
   icon: ReactNode;
 };
 
+type BuffetProductResolveBody = {
+  error?: {
+    code?: string;
+    message?: string;
+  } | null;
+  data?: {
+    product_id?: string | null;
+  } | null;
+};
+
 function PerPersonIcon() {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true" className="h-8 w-8">
@@ -62,6 +72,34 @@ function rememberBuffetMode() {
   window.dispatchEvent(new CustomEvent("cpipos:sales-mode-label-change", { detail: { mode: "buffet_table" } }));
 }
 
+async function resolveBuffetProductId(plan: PosBuffetPricePlan): Promise<string> {
+  const response = await fetch("/api/pos/buffet-products/resolve", {
+    method: "POST",
+    credentials: "include",
+    cache: "no-store",
+    headers: {
+      Accept: "application/json",
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      plan_id: plan.id,
+      code: plan.code,
+      name: plan.name,
+      mode: plan.mode,
+      price: plan.price
+    })
+  });
+  const body = (await response.json().catch(() => null)) as BuffetProductResolveBody | null;
+  if (!response.ok || body?.error) {
+    throw new Error(body?.error?.message ?? "Failed to resolve buffet product.");
+  }
+  const productId = String(body?.data?.product_id ?? "").trim();
+  if (!productId) {
+    throw new Error("Buffet product resolver returned no product_id.");
+  }
+  return productId;
+}
+
 export function PosBuffetPricePickerModal({
   open,
   lang = "th",
@@ -74,15 +112,20 @@ export function PosBuffetPricePickerModal({
   const activePlans = useMemo(() => plans.filter((plan) => plan.is_active), [plans]);
   const [selectedPlan, setSelectedPlan] = useState<PosBuffetPricePlan | null>(null);
   const [quantityInput, setQuantityInput] = useState("1");
+  const [resolvingProduct, setResolvingProduct] = useState(false);
+  const [resolveError, setResolveError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!open) return;
     setSelectedPlan(null);
     setQuantityInput("1");
+    setResolvingProduct(false);
+    setResolveError(null);
   }, [open]);
 
   if (!open) return null;
 
+  const actionBusy = isBusy || resolvingProduct;
   const money = (value: number) =>
     value.toLocaleString(lang === "th" ? "th-TH" : "en-US", { style: "currency", currency: "THB" });
 
@@ -113,14 +156,16 @@ export function PosBuffetPricePickerModal({
   const keypadKeys = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "0", "00"];
 
   const closeModal = () => {
-    if (isBusy) return;
+    if (actionBusy) return;
     setSelectedPlan(null);
     setQuantityInput("1");
+    setResolveError(null);
     onClose();
   };
 
   const appendKey = (key: string) => {
-    if (isBusy) return;
+    if (actionBusy) return;
+    setResolveError(null);
     setQuantityInput((current) => {
       const next = `${current}${key}`.replace(/[^0-9]/g, "").replace(/^0+(?=\d)/u, "");
       return next.slice(0, 3);
@@ -128,21 +173,33 @@ export function PosBuffetPricePickerModal({
   };
 
   const clearQuantity = () => {
-    if (isBusy) return;
+    if (actionBusy) return;
+    setResolveError(null);
     setQuantityInput("");
   };
 
   const deleteQuantity = () => {
-    if (isBusy) return;
+    if (actionBusy) return;
+    setResolveError(null);
     setQuantityInput((current) => current.slice(0, -1));
   };
 
-  const confirmQuantity = () => {
-    if (!selectedPlan || isBusy || quantity <= 0) return;
-    rememberBuffetMode();
-    onConfirm(buildBuffetCartItem({ plan: selectedPlan, quantity, tableCode }), selectedPlan);
-    setSelectedPlan(null);
-    setQuantityInput("1");
+  const confirmQuantity = async () => {
+    if (!selectedPlan || actionBusy || quantity <= 0) return;
+    setResolvingProduct(true);
+    setResolveError(null);
+    try {
+      const productId = await resolveBuffetProductId(selectedPlan);
+      rememberBuffetMode();
+      const virtualItem = buildBuffetCartItem({ plan: selectedPlan, quantity, tableCode });
+      onConfirm({ ...virtualItem, product_id: productId }, selectedPlan);
+      setSelectedPlan(null);
+      setQuantityInput("1");
+    } catch (error) {
+      setResolveError(error instanceof Error ? error.message : "Failed to prepare buffet product.");
+    } finally {
+      setResolvingProduct(false);
+    }
   };
 
   return (
@@ -164,7 +221,7 @@ export function PosBuffetPricePickerModal({
                   : "Select a buffet price type first, then enter quantity."}
             </p>
           </div>
-          <button type="button" className="posui-icon-button shrink-0" onClick={closeModal} disabled={isBusy} aria-label={lang === "th" ? "ปิด" : "Close"}>
+          <button type="button" className="posui-icon-button shrink-0" onClick={closeModal} disabled={actionBusy} aria-label={lang === "th" ? "ปิด" : "Close"}>
             ×
           </button>
         </header>
@@ -173,7 +230,7 @@ export function PosBuffetPricePickerModal({
           <div className="mt-2 grid gap-5 md:grid-cols-2" role="list" aria-label={lang === "th" ? "เลือกประเภทราคาบุฟเฟ่" : "Buffet price type"}>
             {packageOptions.map((option) => {
               const plan = option.plan;
-              const disabled = !plan || isBusy;
+              const disabled = !plan || actionBusy;
               return (
                 <button
                   key={option.mode}
@@ -184,6 +241,7 @@ export function PosBuffetPricePickerModal({
                     if (!plan) return;
                     setSelectedPlan(plan);
                     setQuantityInput("1");
+                    setResolveError(null);
                   }}
                   disabled={disabled}
                 >
@@ -233,6 +291,7 @@ export function PosBuffetPricePickerModal({
                 <span className="text-sm font-black text-slate-500">{lang === "th" ? "รวมรายการบุฟเฟ่" : "Buffet total"}</span>
                 <strong className="text-4xl font-black text-orange-600">{money(total)}</strong>
               </div>
+              {resolveError ? <p className="mt-4 rounded-2xl bg-red-50 p-3 text-sm font-bold text-red-700">{resolveError}</p> : null}
             </section>
 
             <section className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm" aria-label={lang === "th" ? "แป้นตัวเลข" : "Numeric keypad"}>
@@ -247,7 +306,7 @@ export function PosBuffetPricePickerModal({
                     type="button"
                     className="h-14 rounded-2xl border border-slate-200 bg-slate-50 text-xl font-black text-slate-950 transition hover:border-blue-300 hover:bg-blue-50"
                     onClick={() => appendKey(key)}
-                    disabled={isBusy}
+                    disabled={actionBusy}
                   >
                     {key}
                   </button>
@@ -256,7 +315,7 @@ export function PosBuffetPricePickerModal({
                   type="button"
                   className="h-14 rounded-2xl border border-slate-200 bg-white text-sm font-black text-slate-700 transition hover:bg-slate-50"
                   onClick={clearQuantity}
-                  disabled={isBusy}
+                  disabled={actionBusy}
                 >
                   {lang === "th" ? "ล้าง" : "Clear"}
                 </button>
@@ -264,7 +323,7 @@ export function PosBuffetPricePickerModal({
                   type="button"
                   className="col-span-2 h-14 rounded-2xl border border-slate-200 bg-white text-sm font-black text-slate-700 transition hover:bg-slate-50"
                   onClick={deleteQuantity}
-                  disabled={isBusy}
+                  disabled={actionBusy}
                 >
                   {lang === "th" ? "ลบ" : "Delete"}
                 </button>
@@ -273,18 +332,18 @@ export function PosBuffetPricePickerModal({
           </div>
         )}
 
-        <footer className="posui-modal__actions mt-8 flex flex-wrap items-center justify-end gap-4 border-t border-slate-100 pt-6">
+        <footer className="posui-modal__actions mt-7 flex flex-wrap justify-end gap-4 pt-2">
           {selectedPlan ? (
-            <button type="button" className="posui-btn posui-btn--ghost min-w-[112px]" onClick={() => setSelectedPlan(null)} disabled={isBusy}>
+            <button type="button" className="posui-btn posui-btn--ghost min-w-28" onClick={() => setSelectedPlan(null)} disabled={actionBusy}>
               {lang === "th" ? "ย้อนกลับ" : "Back"}
             </button>
           ) : null}
-          <button type="button" className="posui-btn posui-btn--ghost min-w-[112px]" onClick={closeModal} disabled={isBusy}>
+          <button type="button" className="posui-btn posui-btn--ghost min-w-28" onClick={closeModal} disabled={actionBusy}>
             {lang === "th" ? "ยกเลิก" : "Cancel"}
           </button>
           {selectedPlan ? (
-            <button type="button" className="posui-btn posui-btn--primary min-w-[112px]" disabled={isBusy || quantity <= 0} onClick={confirmQuantity}>
-              {lang === "th" ? "ยืนยัน" : "Confirm"}
+            <button type="button" className="posui-btn posui-btn--primary min-w-28" disabled={actionBusy || quantity <= 0} onClick={() => { void confirmQuantity(); }}>
+              {resolvingProduct ? (lang === "th" ? "กำลังเตรียม..." : "Preparing...") : lang === "th" ? "ยืนยัน" : "Confirm"}
             </button>
           ) : null}
         </footer>
