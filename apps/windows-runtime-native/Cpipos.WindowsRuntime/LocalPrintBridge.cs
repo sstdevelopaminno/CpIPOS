@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Drawing.Printing;
@@ -45,7 +45,10 @@ internal sealed class LocalPrintBridge : IDisposable
     private int _failedJobs;
     private bool _disposed;
 
-    public string Version => "cpipos-windows-native-bridge-0.1.5";
+    [DllImport("winspool.drv", CharSet = CharSet.Auto, SetLastError = true)]
+    private static extern bool SetDefaultPrinter(string name);
+
+    public string Version => "cpipos-windows-native-bridge-0.1.6";
     public bool IsRunning { get; private set; }
 
     public LocalPrintBridge(int port, string defaultPrinter, string bridgeToken)
@@ -191,6 +194,7 @@ internal sealed class LocalPrintBridge : IDisposable
                     token_required = true,
                     allowed_origins = AllowedOrigins.ToArray(),
                     supports_print_receipt = true,
+                    supports_html_receipt_print = true,
                     supports_print_test = true,
                     supports_list_printers = true,
                     supports_serialized_print_queue = true,
@@ -210,6 +214,7 @@ internal sealed class LocalPrintBridge : IDisposable
                         "/print/status",
                         "/print/test",
                         "/print",
+                        "/print/html",
                         "/cash-drawer/open"
                     }
                 }
@@ -235,7 +240,7 @@ internal sealed class LocalPrintBridge : IDisposable
         }
 
         if (string.Equals(request.Method, "POST", StringComparison.OrdinalIgnoreCase) &&
-            (request.Path == "/print" || request.Path == "/api/print"))
+            (request.Path == "/print" || request.Path == "/api/print" || request.Path == "/print/html"))
         {
             if (!IsAuthorizedBridgeRequest(request)) return Unauthorized(corsOrigin);
             return await HandlePrintAsync(request, corsOrigin, cancellationToken).ConfigureAwait(false);
@@ -431,6 +436,26 @@ internal sealed class LocalPrintBridge : IDisposable
             }
 
             var printerName = FirstString(root, "printer_name", "printerName", "windows_printer", "printer") ?? _defaultPrinter;
+            var html = ExtractPrintableHtml(root);
+
+            if (!string.IsNullOrWhiteSpace(html))
+            {
+                var htmlResult = await PrintHtmlAsync(html, printerName, cancellationToken).ConfigureAwait(false);
+                return HttpResponseData.Json(200, new
+                {
+                    ok = true,
+                    data = new
+                    {
+                        printed = true,
+                        provider = "native_winforms_html_receipt",
+                        printer_name = htmlResult.PrinterName,
+                        job_id = htmlResult.JobId,
+                        html_printed = true,
+                        bridge_version = Version
+                    }
+                }, corsOrigin);
+            }
+
             var text = ExtractPrintableText(root);
 
             if (string.IsNullOrWhiteSpace(text))
@@ -469,7 +494,178 @@ internal sealed class LocalPrintBridge : IDisposable
             }, corsOrigin);
         }
     }
+    private async Task<PrintResult> PrintHtmlAsync(string html, string requestedPrinterName, CancellationToken cancellationToken)
+    {
+        if (!await _printLock.WaitAsync(TimeSpan.FromSeconds(20), cancellationToken).ConfigureAwait(false))
+        {
+            throw new InvalidOperationException("Print queue is busy. Please retry after the current print job finishes.");
+        }
 
+        try
+        {
+            var installed = GetInstalledPrinterNames();
+            var resolvedPrinter = ResolvePrinterNameOrThrow(requestedPrinterName, installed);
+            var jobId = "CPIPOS-HTML-" + DateTimeOffset.Now.ToString("yyyyMMddHHmmssfff");
+            var htmlToPrint = NormalizeHtmlForReceiptPrint(html);
+
+            using var printTimeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            printTimeout.CancelAfter(TimeSpan.FromSeconds(25));
+
+            var completion = new TaskCompletionSource<PrintResult>(TaskCreationOptions.RunContinuationsAsynchronously);
+            using var registration = printTimeout.Token.Register(() =>
+            {
+                completion.TrySetException(new TimeoutException("HTML receipt print timed out."));
+            });
+
+            var printThread = new Thread(() =>
+            {
+                string? originalDefaultPrinter = null;
+                var defaultPrinterChanged = false;
+                System.Windows.Forms.ApplicationContext? context = null;
+                System.Windows.Forms.WebBrowser? browser = null;
+                System.Windows.Forms.Timer? timeoutTimer = null;
+
+                void Finish(Exception? error)
+                {
+                    try { timeoutTimer?.Stop(); } catch { }
+
+                    try
+                    {
+                        if (defaultPrinterChanged && !string.IsNullOrWhiteSpace(originalDefaultPrinter))
+                        {
+                            SetDefaultPrinter(originalDefaultPrinter);
+                        }
+                    }
+                    catch
+                    {
+                        // Restoring default printer should not fail the sale.
+                    }
+
+                    if (error != null)
+                    {
+                        completion.TrySetException(error);
+                    }
+                    else
+                    {
+                        completion.TrySetResult(new PrintResult(jobId, resolvedPrinter));
+                    }
+
+                    try { context?.ExitThread(); } catch { }
+                }
+
+                try
+                {
+                    originalDefaultPrinter = GetSystemDefaultPrinter();
+
+                    if (
+                        !string.IsNullOrWhiteSpace(resolvedPrinter) &&
+                        !string.Equals(originalDefaultPrinter, resolvedPrinter, StringComparison.OrdinalIgnoreCase)
+                    )
+                    {
+                        defaultPrinterChanged = SetDefaultPrinter(resolvedPrinter);
+                    }
+
+                    context = new System.Windows.Forms.ApplicationContext();
+                    browser = new System.Windows.Forms.WebBrowser
+                    {
+                        ScriptErrorsSuppressed = true,
+                        ScrollBarsEnabled = false,
+                        Width = 420,
+                        Height = 1800
+                    };
+
+                    timeoutTimer = new System.Windows.Forms.Timer { Interval = 12000 };
+                    timeoutTimer.Tick += (_, _) =>
+                    {
+                        Finish(new TimeoutException("HTML receipt render timed out."));
+                    };
+
+                    browser.DocumentCompleted += (_, _) =>
+                    {
+                        if (browser.ReadyState != System.Windows.Forms.WebBrowserReadyState.Complete)
+                        {
+                            return;
+                        }
+
+                        try
+                        {
+                            timeoutTimer.Stop();
+                            browser.Print();
+                            Finish(null);
+                        }
+                        catch (Exception printError)
+                        {
+                            Finish(printError);
+                        }
+                    };
+
+                    timeoutTimer.Start();
+                    browser.DocumentText = htmlToPrint;
+                    System.Windows.Forms.Application.Run(context);
+                }
+                catch (Exception error)
+                {
+                    Finish(error);
+                }
+                finally
+                {
+                    try { timeoutTimer?.Dispose(); } catch { }
+                    try { browser?.Dispose(); } catch { }
+                }
+            });
+
+            printThread.IsBackground = true;
+            printThread.SetApartmentState(ApartmentState.STA);
+            printThread.Start();
+
+            var result = await completion.Task.ConfigureAwait(false);
+
+            _printedJobs++;
+            _lastError = null;
+            _lastPrintAt = DateTimeOffset.Now;
+            _lastPrinter = resolvedPrinter;
+            return result;
+        }
+        finally
+        {
+            _printLock.Release();
+        }
+    }
+
+    private static string NormalizeHtmlForReceiptPrint(string html)
+    {
+        var trimmed = html.Trim();
+        var normalized = trimmed.Contains("<html", StringComparison.OrdinalIgnoreCase)
+            ? trimmed
+            : "<!doctype html><html><head><meta charset=\"utf-8\"></head><body>" + trimmed + "</body></html>";
+
+        const string runtimeStyle = """
+<style id="cpipos-runtime-html-receipt-print">
+@page { margin: 0; }
+html, body {
+  margin: 0 !important;
+  padding: 0 !important;
+  background: #fff !important;
+  color: #000 !important;
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
+}
+img { max-width: 100%; }
+</style>
+""";
+
+        if (normalized.Contains("cpipos-runtime-html-receipt-print", StringComparison.OrdinalIgnoreCase))
+        {
+            return normalized;
+        }
+
+        if (Regex.IsMatch(normalized, "</head>", RegexOptions.IgnoreCase))
+        {
+            return Regex.Replace(normalized, "</head>", runtimeStyle + "</head>", RegexOptions.IgnoreCase);
+        }
+
+        return runtimeStyle + normalized;
+    }
     private async Task<PrintResult> PrintTextAsync(string text, string requestedPrinterName, CancellationToken cancellationToken)
     {
         if (!await _printLock.WaitAsync(TimeSpan.FromSeconds(20), cancellationToken).ConfigureAwait(false))
@@ -807,6 +1003,16 @@ internal sealed class LocalPrintBridge : IDisposable
 
         var tokenized = Regex.Replace(normalized, @"[\s\p{P}\p{C}]+", " ").Trim();
         return tokenized is "open cash drawer" or "cash drawer open" or "open drawer";
+    }
+
+    private static string? ExtractPrintableHtml(JsonElement root)
+    {
+        var metadata = GetObject(root, "metadata");
+        var payloadJson = GetObject(root, "payload_json");
+
+        return FirstString(root, "html", "payload_html", "receipt_html")
+               ?? FirstString(metadata, "payload_html", "receipt_html")
+               ?? FirstString(payloadJson, "payload_html", "receipt_html");
     }
 
     private static string ExtractPrintableText(JsonElement root)
@@ -1259,3 +1465,5 @@ internal sealed class HttpResponseData
         }
     }
 }
+
+

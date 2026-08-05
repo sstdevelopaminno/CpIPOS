@@ -1,4 +1,4 @@
-using System.Globalization;
+﻿using System.Globalization;
 using System.Security.Cryptography;
 using System.Windows.Forms;
 
@@ -173,3 +173,4 @@ internal sealed class RuntimeOptions
         return Convert.ToBase64String(RandomNumberGenerator.GetBytes(32));
     }
 }
+
