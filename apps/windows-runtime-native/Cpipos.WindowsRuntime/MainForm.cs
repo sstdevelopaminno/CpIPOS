@@ -154,6 +154,7 @@ internal sealed class MainForm : Form
             runtime = "windows_native_webview2",
             identity_anchor = "store_code",
             store_code = _options.StoreCode,
+            app_url = _options.AppUrl,
             native_app_version = "0.1.5",
             native_bridge_version = _bridge.Version,
             native_bridge_available = _bridge.IsRunning,
@@ -165,10 +166,11 @@ internal sealed class MainForm : Form
             windows_printer = _options.WindowsPrinter,
             windows_runtime_bootstrap_url = _options.WindowsRuntimeBootstrapUrl,
             windows_runtime_entitlements_url = _options.WindowsRuntimeEntitlementsUrl,
-            windows_runtime_sync_status_url = _options.WindowsRuntimeSyncStatusUrl
+            windows_runtime_sync_status_url = _options.WindowsRuntimeSyncStatusUrl,
+            windows_runtime_device_heartbeat_url = BuildAppEndpointUrl("/api/pos/device-heartbeat")
         };
         var json = JsonSerializer.Serialize(payload);
-        return $@"
+        var bootstrapScript = $@"
 (function() {{
   try {{
     var payload = {json};
@@ -183,6 +185,7 @@ internal sealed class MainForm : Form
     window.localStorage.setItem('cpi_windows_runtime_bootstrap_url_v1', payload.windows_runtime_bootstrap_url);
     window.localStorage.setItem('cpi_windows_runtime_entitlements_url_v1', payload.windows_runtime_entitlements_url);
     window.localStorage.setItem('cpi_windows_runtime_sync_status_url_v1', payload.windows_runtime_sync_status_url);
+    window.localStorage.setItem('cpi_windows_runtime_device_heartbeat_url_v1', payload.windows_runtime_device_heartbeat_url);
     window.localStorage.setItem('cpi_print_adapter_mode_v1', 'LOCAL_BRIDGE_WINDOWS');
     window.localStorage.setItem('cpi_local_bridge_print_url_v1', payload.bridge_print_url);
     window.localStorage.setItem('cpi_local_bridge_health_url_v1', payload.bridge_health_url);
@@ -194,6 +197,13 @@ internal sealed class MainForm : Form
     console.warn('CpIPOS Windows Runtime bootstrap failed', error);
   }}
 }})();";
+        return bootstrapScript + Environment.NewLine + WindowsRuntimeHeartbeatScript.Build();
+    }
+
+    private string BuildAppEndpointUrl(string path)
+    {
+        if (!Uri.TryCreate(_options.AppUrl, UriKind.Absolute, out var appUri)) return path;
+        return new Uri(appUri, path).ToString();
     }
 
     private void NavigateToApp()
