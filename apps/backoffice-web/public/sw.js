@@ -1,4 +1,4 @@
-const CACHE_NAME = "cpipos-shell-v2";
+const CACHE_NAME = "cpipos-shell-v3";
 const OFFLINE_POS_URL = "/offline-pos.html";
 const ASSETS_TO_CACHE = [
   "/",
@@ -19,31 +19,8 @@ self.addEventListener("message", (event) => {
 function shouldBypassRuntimeCache(url) {
   return (
     url.pathname.startsWith("/api/auth") ||
-    url.pathname.startsWith("/api/pos") ||
-    url.pathname.startsWith("/api/windows-runtime")
+    url.pathname.startsWith("/api/pos")
   );
-}
-
-async function putCache(request, response) {
-  try {
-    const cache = await caches.open(CACHE_NAME);
-    await cache.put(request, response.clone());
-  } catch {
-    // Cache storage must never block navigation.
-  }
-}
-
-async function offlineNavigationFallback(request) {
-  const cachedPage = await caches.match(request);
-  if (cachedPage) return cachedPage;
-  const offlineShell = await caches.match(OFFLINE_POS_URL);
-  if (offlineShell) return offlineShell;
-  const root = await caches.match("/");
-  if (root) return root;
-  return new Response("CpIPOS offline shell is not cached yet.", {
-    status: 503,
-    headers: { "Content-Type": "text/plain; charset=utf-8" }
-  });
 }
 
 self.addEventListener("install", (event) => {
@@ -74,7 +51,6 @@ self.addEventListener("activate", (event) => {
 
 self.addEventListener("fetch", (event) => {
   const request = event.request;
-
   if (request.method !== "GET") return;
 
   const url = new URL(request.url);
@@ -84,10 +60,16 @@ self.addEventListener("fetch", (event) => {
     event.respondWith(
       fetch(request)
         .then((response) => {
-          void putCache(request, response);
+          const copy = response.clone();
+          void caches.open(CACHE_NAME).then((cache) => cache.put(request, copy));
           return response;
         })
-        .catch(() => offlineNavigationFallback(request))
+        .catch(async () => {
+          const offlineShell = await caches.match(OFFLINE_POS_URL);
+          if (offlineShell) return offlineShell;
+          const cached = await caches.match(request);
+          return cached ?? caches.match("/");
+        })
     );
     return;
   }
@@ -97,43 +79,19 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  if (url.pathname === OFFLINE_POS_URL) {
+  if (url.pathname.startsWith("/_next/") || url.pathname.startsWith("/brand/") || url.pathname.startsWith("/icons/") || url.pathname === OFFLINE_POS_URL) {
     event.respondWith(
       fetch(request)
         .then((response) => {
-          void putCache(request, response);
-          return response;
-        })
-        .catch(async () => (await caches.match(OFFLINE_POS_URL)) ?? offlineNavigationFallback(request))
-    );
-    return;
-  }
-
-  if (url.pathname.startsWith("/_next/")) {
-    event.respondWith(
-      fetch(request)
-        .then((response) => {
-          void putCache(request, response);
+          const copy = response.clone();
+          void caches.open(CACHE_NAME).then((cache) => cache.put(request, copy));
           return response;
         })
         .catch(async () => {
           const cached = await caches.match(request);
           if (cached) return cached;
-          throw new Error("Next asset unavailable.");
+          throw new Error("Cached asset unavailable.");
         })
-    );
-    return;
-  }
-
-  if (url.pathname.startsWith("/brand/") || url.pathname.startsWith("/icons/")) {
-    event.respondWith(
-      caches.match(request).then((cached) => {
-        if (cached) return cached;
-        return fetch(request).then((response) => {
-          void putCache(request, response);
-          return response;
-        });
-      })
     );
   }
 });
