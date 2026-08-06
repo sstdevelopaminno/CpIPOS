@@ -21,6 +21,7 @@ Use this page as the first stop before new development. It separates active impl
 
 ## Read First
 
+- [CpIPOS Mobile + IT Admin Consolidation Plan 2026-08-06](./CPIPOS-MOBILE-AND-IT-ADMIN-CONSOLIDATION-PLAN-2026-08-06.md)
 - [Android APK Phase 1 2026-08-06](./ANDROID-APK-PHASE1-2026-08-06.md)
 - [POS Bluetooth Print + Cash Drawer 2026-08-06](./POS-BLUETOOTH-PRINT-DRAWER-2026-08-06.md)
 - [POS Stability Fixes 2026-08-06](./POS-STABILITY-FIXES-2026-08-06.md)
