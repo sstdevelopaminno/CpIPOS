@@ -2664,7 +2664,7 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
         invalidateTableBillCache(table.id);
         pushSubmitMessageRef.current(`${text.tableQrOrderReceived}: ${table.table_code}`);
         void loadTableBillContextRef.current(table).catch(() => undefined);
-        void fetchPosTablesRef.current({ timeoutMs: 8000, retries: 0 }).catch(() => undefined);
+        void fetchPosTablesRef.current({ timeoutMs: 8000, retries: 0, silent: true }).catch(() => undefined);
       } catch {
         // QR polling is best-effort; normal table bill loading remains available.
       } finally {
@@ -2720,10 +2720,16 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [deliveryPricesByProduct, orderType, productById, selectedDeliveryApp]);
 
-  async function fetchPosTables(options?: { signal?: AbortSignal; timeoutMs?: number; retries?: number }) {
+  async function fetchPosTables(options?: {
+    signal?: AbortSignal;
+    timeoutMs?: number;
+    retries?: number;
+    silent?: boolean;
+  }) {
     const timeoutMs = options?.timeoutMs ?? 25000;
     const retries = options?.retries ?? 2;
     const signal = options?.signal;
+    const silent = options?.silent ?? false;
     const canReuseClientRequest = !signal;
     const cachedTableList = tableListCacheRef.current;
     if (canReuseClientRequest && cachedTableList && nowMs() - cachedTableList.at <= 1500) {
@@ -2739,7 +2745,7 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
 
     const loadPromise = (async () => {
       const requestStartedAt = nowMs();
-      setTableLoading(true);
+      if (!silent) setTableLoading(true);
       setTableLoadError(null);
       const { response, body } = await fetchJsonWithTimeout<
         { data: { zones?: TableZoneItem[]; tables?: DiningTableItem[]; objects?: FloorPlanObjectItem[] } } & ApiErrorBody
@@ -2800,8 +2806,7 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
       if (canReuseClientRequest && tableListFetchInFlightRef.current === loadPromise) {
         tableListFetchInFlightRef.current = null;
       }
-      if (!signal?.aborted) {
-
+      if (!signal?.aborted && !silent) {
         setTableLoading(false);
       }
     }
@@ -4269,7 +4274,7 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
     let disposed = false;
     const refreshTables = () => {
       if (disposed || document.visibilityState !== "visible") return;
-      void fetchPosTablesRef.current({ timeoutMs: 8000, retries: 0 }).catch(() => undefined);
+      void fetchPosTablesRef.current({ timeoutMs: 8000, retries: 0, silent: true }).catch(() => undefined);
     };
     const interval = window.setInterval(refreshTables, tableBrowserOpen ? 3000 : 3500);
     window.addEventListener("focus", refreshTables);
