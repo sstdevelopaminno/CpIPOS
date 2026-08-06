@@ -1,0 +1,1 @@
+﻿export function Button(props:React.ButtonHTMLAttributes<HTMLButtonElement>){return <button {...props} className={`rounded-lg bg-navy px-4 py-3 text-sm font-semibold text-white disabled:opacity-60 ${props.className??""}`} />}

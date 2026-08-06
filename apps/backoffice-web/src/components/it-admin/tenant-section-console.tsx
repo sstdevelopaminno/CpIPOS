@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import type { CSSProperties } from "react";
+import Link from "next/link";
 import { TenantAdminNav } from "@/components/it-admin/tenant-admin-nav";
 
 type SectionKey = "branches" | "users" | "devices" | "login-policies" | "sessions" | "shifts" | "features";
@@ -658,6 +659,7 @@ function DevicesPane({
                   <button type="button" className="pos-monitor-btn" disabled={busy} onClick={() => void patchDevice(device.id, "activate")}>Activate</button>
                   <button type="button" className="pos-monitor-btn" disabled={busy} onClick={() => void patchDevice(device.id, "deactivate")}>Deactivate</button>
                   <button type="button" className="pos-monitor-btn" disabled={busy} onClick={() => void patchDevice(device.id, "block")}>Block</button>
+                  <Link className="pos-monitor-btn" href={`/tenants/${tenantId}/devices/${device.id}/health`}>Health</Link>
                 </div>
               </td>
             </tr>

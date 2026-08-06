@@ -7,6 +7,9 @@ Use this page as the first stop before new development. It separates active impl
 ## Current Runtime
 
 - App: `apps/backoffice-web`
+- Mobile app: `apps/pos-mobile-web` (CpIPOS Mobile). Deployed 2026-08-06 as its own Vercel project `cp-ipos-mobile` (team `sstdevelopaminnos-projects`), production tracking branch `agent/revert-raster-print-to-stable` — live at `https://cp-ipos-mobile-sstdevelopaminnos-projects.vercel.app`.
+- Real `backoffice-web` Vercel project is named **`cp-ipos-web`** (`prj_NLRmnCWPvQfSJZvoJE224zqVT4dj`) — the local `.vercel/project.json` previously pointed at a stale/wrong project id, corrected 2026-08-06. Preview deployments require Vercel team SSO (expected, not an app bug).
+- IT Admin desktop app: `apps/windows-runtime-it-admin` (`Cpipos.ITAdminRuntime`, added 2026-08-06 — minimal WebView2 shell wrapping `backoffice-web`'s own `/it-admin` surface, new sign-in page at `/it-admin/login`; download page `/download/it-admin`; CI workflow `build-it-admin-runtime.yml`, tag `it-admin-runtime-latest`. Not yet built/released — no `it_admin` Supabase account provisioned yet.)
 - Workspace: `E:\CpIPOS`
 - GitHub repo: `https://github.com/sstdevelopaminno/CpIPOS.git`
 - Active branch/default branch: `agent-docs-preflight-schema-drift`
@@ -21,6 +24,7 @@ Use this page as the first stop before new development. It separates active impl
 
 ## Read First
 
+- [CpIPOS MDM Design 2026-08-06](./CPIPOS-MDM-DESIGN-2026-08-06.md) — security model confirmed, Phase MDM-A (heartbeat unification) implemented; migration apply + Windows Runtime release build still need explicit confirmation
 - [CpIPOS Mobile + IT Admin Consolidation Plan 2026-08-06](./CPIPOS-MOBILE-AND-IT-ADMIN-CONSOLIDATION-PLAN-2026-08-06.md)
 - [Android APK Phase 1 2026-08-06](./ANDROID-APK-PHASE1-2026-08-06.md)
 - [POS Bluetooth Print + Cash Drawer 2026-08-06](./POS-BLUETOOTH-PRINT-DRAWER-2026-08-06.md)

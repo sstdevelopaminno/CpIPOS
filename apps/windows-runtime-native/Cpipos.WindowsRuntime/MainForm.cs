@@ -8,10 +8,15 @@ namespace Cpipos.WindowsRuntime;
 
 internal sealed class MainForm : Form
 {
+    private const int WebViewInitTimeoutMs = 20000;
+
     private readonly RuntimeOptions _options;
     private readonly LocalPrintBridge _bridge;
     private readonly WebView2 _webView;
     private bool _isFullscreen;
+    private bool _initializing;
+    private bool _coreWebView2Configured;
+    private Panel? _initTimeoutPanel;
 
     public MainForm(RuntimeOptions options, LocalPrintBridge bridge)
     {
@@ -93,6 +98,8 @@ internal sealed class MainForm : Form
 
     private async Task InitializeWebViewAsync()
     {
+        if (_initializing) return;
+        _initializing = true;
         try
         {
             var userDataFolder = Path.Combine(
@@ -102,39 +109,17 @@ internal sealed class MainForm : Form
                 "WebView2Profile");
             Directory.CreateDirectory(userDataFolder);
 
-            var environment = await CoreWebView2Environment.CreateAsync(userDataFolder: userDataFolder);
-            await _webView.EnsureCoreWebView2Async(environment);
+            var environment = await WithTimeoutAsync(
+                CoreWebView2Environment.CreateAsync(userDataFolder: userDataFolder),
+                WebViewInitTimeoutMs);
+            await WithTimeoutAsync(_webView.EnsureCoreWebView2Async(environment), WebViewInitTimeoutMs);
 
-            _webView.CoreWebView2.Settings.AreDefaultContextMenusEnabled = _options.EnableDevTools;
-            _webView.CoreWebView2.Settings.AreDevToolsEnabled = _options.EnableDevTools;
-            _webView.CoreWebView2.Settings.IsStatusBarEnabled = false;
-            _webView.CoreWebView2.Settings.IsZoomControlEnabled = true;
-
-            _webView.CoreWebView2.WebMessageReceived += (_, eventArgs) =>
-            {
-                var message = eventArgs.TryGetWebMessageAsString();
-                if (string.Equals(message, "retry", StringComparison.OrdinalIgnoreCase))
-                {
-                    NavigateToApp();
-                    return;
-                }
-
-                if (string.Equals(message, "close", StringComparison.OrdinalIgnoreCase))
-                {
-                    Close();
-                }
-            };
-
-            _webView.CoreWebView2.NavigationCompleted += (_, eventArgs) =>
-            {
-                if (!eventArgs.IsSuccess)
-                {
-                    ShowOfflinePage(eventArgs.WebErrorStatus.ToString());
-                }
-            };
-
-            await _webView.CoreWebView2.AddScriptToExecuteOnDocumentCreatedAsync(BuildRuntimeBootstrapScript());
-            NavigateToApp();
+            HideInitTimeoutFallback();
+            await ConfigureCoreWebView2AndNavigateAsync();
+        }
+        catch (TimeoutException)
+        {
+            ShowInitTimeoutFallback("หมดเวลารอ WebView2 เริ่มการทำงาน");
         }
         catch (Exception ex)
         {
@@ -145,6 +130,162 @@ internal sealed class MainForm : Form
                 MessageBoxButtons.OK,
                 MessageBoxIcon.Error);
         }
+        finally
+        {
+            _initializing = false;
+        }
+    }
+
+    private async Task ConfigureCoreWebView2AndNavigateAsync()
+    {
+        if (_coreWebView2Configured)
+        {
+            NavigateToApp();
+            return;
+        }
+        _coreWebView2Configured = true;
+
+        _webView.CoreWebView2.Settings.AreDefaultContextMenusEnabled = _options.EnableDevTools;
+        _webView.CoreWebView2.Settings.AreDevToolsEnabled = _options.EnableDevTools;
+        _webView.CoreWebView2.Settings.IsStatusBarEnabled = false;
+        _webView.CoreWebView2.Settings.IsZoomControlEnabled = true;
+
+        _webView.CoreWebView2.WebMessageReceived += (_, eventArgs) =>
+        {
+            var message = eventArgs.TryGetWebMessageAsString();
+            if (string.Equals(message, "retry", StringComparison.OrdinalIgnoreCase))
+            {
+                NavigateToApp();
+                return;
+            }
+
+            if (string.Equals(message, "close", StringComparison.OrdinalIgnoreCase))
+            {
+                Close();
+            }
+        };
+
+        _webView.CoreWebView2.NavigationCompleted += (_, eventArgs) =>
+        {
+            if (!eventArgs.IsSuccess)
+            {
+                ShowOfflinePage(eventArgs.WebErrorStatus.ToString());
+            }
+        };
+
+        await _webView.CoreWebView2.AddScriptToExecuteOnDocumentCreatedAsync(BuildRuntimeBootstrapScript());
+        NavigateToApp();
+    }
+
+    private static async Task<T> WithTimeoutAsync<T>(Task<T> task, int timeoutMs)
+    {
+        var timeoutTask = Task.Delay(timeoutMs);
+        var completed = await Task.WhenAny(task, timeoutTask);
+        if (completed == timeoutTask)
+        {
+            ObserveLateFailure(task);
+            throw new TimeoutException();
+        }
+        return await task;
+    }
+
+    private static async Task WithTimeoutAsync(Task task, int timeoutMs)
+    {
+        var timeoutTask = Task.Delay(timeoutMs);
+        var completed = await Task.WhenAny(task, timeoutTask);
+        if (completed == timeoutTask)
+        {
+            ObserveLateFailure(task);
+            throw new TimeoutException();
+        }
+        await task;
+    }
+
+    private static void ObserveLateFailure(Task task)
+    {
+        _ = task.ContinueWith(
+            t => _ = t.Exception,
+            CancellationToken.None,
+            TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously,
+            TaskScheduler.Default);
+    }
+
+    private void ShowInitTimeoutFallback(string reason)
+    {
+        if (_initTimeoutPanel != null)
+        {
+            _initTimeoutPanel.BringToFront();
+            return;
+        }
+
+        var overlay = new Panel
+        {
+            Dock = DockStyle.Fill,
+            BackColor = Color.FromArgb(241, 245, 249)
+        };
+
+        var card = new Panel
+        {
+            Size = new Size(520, 240),
+            BackColor = Color.White,
+            Anchor = AnchorStyles.None
+        };
+        void RecenterCard()
+        {
+            card.Location = new Point(
+                Math.Max(0, (overlay.Width - card.Width) / 2),
+                Math.Max(0, (overlay.Height - card.Height) / 2));
+        }
+        overlay.Resize += (_, _) => RecenterCard();
+
+        var title = new Label
+        {
+            Text = "CpIPOS",
+            Font = new Font("Tahoma", 18, FontStyle.Bold),
+            AutoSize = true,
+            Location = new Point(24, 20)
+        };
+        var message = new Label
+        {
+            Text = "เปิดระบบไม่สำเร็จ: " + reason +
+                   "\n\nกรุณาตรวจสอบ Microsoft Edge WebView2 Runtime และอินเทอร์เน็ตของเครื่อง แล้วลองใหม่",
+            Font = new Font("Tahoma", 10),
+            Size = new Size(470, 90),
+            Location = new Point(24, 60)
+        };
+        var retryButton = new Button
+        {
+            Text = "ลองใหม่",
+            Size = new Size(120, 36),
+            Location = new Point(24, 170)
+        };
+        retryButton.Click += async (_, _) => await InitializeWebViewAsync();
+        var closeButton = new Button
+        {
+            Text = "ปิดโปรแกรม",
+            Size = new Size(120, 36),
+            Location = new Point(160, 170)
+        };
+        closeButton.Click += (_, _) => Close();
+
+        card.Controls.Add(title);
+        card.Controls.Add(message);
+        card.Controls.Add(retryButton);
+        card.Controls.Add(closeButton);
+        overlay.Controls.Add(card);
+
+        Controls.Add(overlay);
+        RecenterCard();
+        overlay.BringToFront();
+        _initTimeoutPanel = overlay;
+    }
+
+    private void HideInitTimeoutFallback()
+    {
+        if (_initTimeoutPanel == null) return;
+        Controls.Remove(_initTimeoutPanel);
+        _initTimeoutPanel.Dispose();
+        _initTimeoutPanel = null;
     }
 
     private string BuildRuntimeBootstrapScript()
@@ -155,7 +296,7 @@ internal sealed class MainForm : Form
             identity_anchor = "store_code",
             store_code = _options.StoreCode,
             app_url = _options.AppUrl,
-            native_app_version = "0.1.6",
+            native_app_version = "0.1.8",
             native_bridge_version = _bridge.Version,
             native_bridge_available = _bridge.IsRunning,
             bridge_health_url = _options.BridgeHealthUrl,
@@ -197,7 +338,7 @@ internal sealed class MainForm : Form
     console.warn('CpIPOS Windows Runtime bootstrap failed', error);
   }}
 }})();";
-        return bootstrapScript + Environment.NewLine + WindowsRuntimeHeartbeatScript.Build();
+        return bootstrapScript;
     }
 
     private string BuildAppEndpointUrl(string path)

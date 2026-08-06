@@ -10,6 +10,7 @@ import {
   type DeviceMdmSecuritySignal,
   type DeviceMdmSystemHealth
 } from "@/lib/device-mdm-diagnostics";
+import type { PendingDeviceAction } from "@/lib/device-commands";
 import { fail, ok } from "@/lib/http";
 import { requirePosSession } from "@/lib/pos-session-guard";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
@@ -45,6 +46,52 @@ function sanitizeSecuritySignals(value: unknown): DeviceMdmSecuritySignal[] | nu
       captured_at: sanitizeText(item.captured_at, new Date().toISOString()),
       metadata: isRecord(item.metadata) ? item.metadata : null
     }));
+}
+
+type PendingDeviceCommandRow = {
+  id: string;
+  command_type: string;
+  issued_at: string;
+};
+
+async function deliverPendingDeviceCommands(
+  supabase: ReturnType<typeof getSupabaseServiceClient>,
+  posDeviceId: string | null
+): Promise<PendingDeviceAction[]> {
+  if (!posDeviceId) return [];
+
+  const nowIso = new Date().toISOString();
+
+  await supabase
+    .from("device_commands")
+    .update({ status: "expired" })
+    .eq("pos_device_id", posDeviceId)
+    .eq("status", "pending")
+    .lte("expires_at", nowIso);
+
+  const { data: pendingRows, error: pendingError } = await supabase
+    .from("device_commands")
+    .select("id,command_type,issued_at")
+    .eq("pos_device_id", posDeviceId)
+    .eq("status", "pending")
+    .gt("expires_at", nowIso)
+    .order("issued_at", { ascending: true })
+    .limit(10)
+    .returns<PendingDeviceCommandRow[]>();
+
+  if (pendingError || !pendingRows || pendingRows.length === 0) return [];
+
+  const ids = pendingRows.map((row) => row.id);
+  await supabase
+    .from("device_commands")
+    .update({ status: "delivered", delivered_at: nowIso })
+    .in("id", ids);
+
+  return pendingRows.map((row) => ({
+    id: row.id,
+    command_type: row.command_type as PendingDeviceAction["command_type"],
+    issued_at: row.issued_at
+  }));
 }
 
 function mapDeviceHeartbeatError(error: unknown) {
@@ -197,6 +244,8 @@ export async function POST(req: Request) {
       if (incidentError) throw incidentError;
     }
 
+    const pendingActions = await deliverPendingDeviceCommands(supabase, scope.session.device_id ?? null);
+
     return ok({
       accepted: true,
       latest_id: latestRow?.id ?? null,
@@ -204,7 +253,8 @@ export async function POST(req: Request) {
       status: snapshot.status,
       summary,
       incident_count: snapshot.incidents.length,
-      captured_at: snapshot.captured_at
+      captured_at: snapshot.captured_at,
+      pending_actions: pendingActions
     });
   } catch (error) {
     return mapDeviceHeartbeatError(error);

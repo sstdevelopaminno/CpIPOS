@@ -16,7 +16,7 @@ env:
   ITADMIN_RUNTIME_RELEASE_TAG: it-admin-runtime-latest
   ITADMIN_RUNTIME_SETUP_ASSET_NAME: CpIPOS-ITAdminRuntime-Setup.exe
   ITADMIN_RUNTIME_ZIP_ASSET_NAME: CpIPOS-ITAdminRuntime-win-x64.zip
-  ITADMIN_RUNTIME_VERSION: 0.1.0
+  ITADMIN_RUNTIME_VERSION: 0.1.1
 
 jobs:
   build-it-admin-runtime:

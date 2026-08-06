@@ -3,6 +3,7 @@ import type { Viewport } from "next";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { PosShiftCycleGuard } from "@/components/pos/pos-shift-cycle-guard";
+import { PosDeviceHeartbeatSender } from "@/components/pos/pos-device-heartbeat-sender";
 import { PosShellFrame } from "@/components/pos-preview/pos-shell-frame";
 import { PosRoutePerformanceTracker } from "@/components/pos-preview/pos-route-performance-tracker";
 import { PosViewportGuard } from "@/components/pos-preview/pos-viewport-guard";
@@ -42,6 +43,7 @@ export default async function PosPreviewLayout({
     <main className="pos-app-root flex h-screen w-screen overflow-hidden bg-slate-50">
       <PosRoutePerformanceTracker />
       <PosShiftCycleGuard lang={lang} />
+      <PosDeviceHeartbeatSender />
       <PosViewportGuard lang={lang} />
 
       <PosShellFrame lang={lang} settingsLabel={t(lang, "common_settings")}>
