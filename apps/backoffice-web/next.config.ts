@@ -1,5 +1,7 @@
 import type { NextConfig } from "next";
 
+// Deploy marker: force fresh build after fixing NEXT_PUBLIC_ env var sensitivity (2026-08-07, v2).
+
 const securityHeaders = [
   { key: "X-Content-Type-Options", value: "nosniff" },
   { key: "X-Frame-Options", value: "DENY" },
