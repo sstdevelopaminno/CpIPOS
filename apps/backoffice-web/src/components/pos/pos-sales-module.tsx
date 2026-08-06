@@ -7885,6 +7885,82 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
     primeReceiptPrintFrameRef.current = primeReceiptPrintFrame;
   });
 
+  async function renderReceiptHtmlToPngBase64(receiptHtml: string): Promise<string | null> {
+    if (typeof window === "undefined" || typeof document === "undefined") return null;
+
+    const receiptWidthPx = 384;
+    const parser = new DOMParser();
+    const parsed = parser.parseFromString(receiptHtml, "text/html");
+    const styleHtml = Array.from(parsed.querySelectorAll("style"))
+      .map((node) => node.outerHTML)
+      .join("\n");
+    const bodyHtml = parsed.body?.innerHTML?.trim() || receiptHtml;
+
+    const wrapper = document.createElement("div");
+    wrapper.style.position = "fixed";
+    wrapper.style.left = "-10000px";
+    wrapper.style.top = "0";
+    wrapper.style.width = `${receiptWidthPx}px`;
+    wrapper.style.background = "#fff";
+    wrapper.style.color = "#000";
+    wrapper.style.pointerEvents = "none";
+    wrapper.innerHTML = `${styleHtml}<div class="cpipos-raster-receipt-host">${bodyHtml}</div>`;
+
+    document.body.appendChild(wrapper);
+
+    try {
+      await new Promise<void>((resolve) => window.setTimeout(resolve, 80));
+
+      const measuredHeight = Math.max(
+        wrapper.scrollHeight,
+        wrapper.getBoundingClientRect().height,
+        240
+      );
+      const receiptHeightPx = Math.min(Math.ceil(measuredHeight + 24), 6000);
+
+      const xhtml = new XMLSerializer().serializeToString(wrapper);
+      const svg = `
+<svg xmlns="http://www.w3.org/2000/svg" width="${receiptWidthPx}" height="${receiptHeightPx}" viewBox="0 0 ${receiptWidthPx} ${receiptHeightPx}">
+  <foreignObject x="0" y="0" width="100%" height="100%">
+    ${xhtml}
+  </foreignObject>
+</svg>`.trim();
+
+      const svgBlob = new Blob([svg], { type: "image/svg+xml;charset=utf-8" });
+      const svgUrl = URL.createObjectURL(svgBlob);
+
+      try {
+        const image = await new Promise<HTMLImageElement>((resolve, reject) => {
+          const img = document.createElement("img");
+          img.onload = () => resolve(img);
+          img.onerror = () => reject(new Error("receipt_raster_image_load_failed"));
+          img.src = svgUrl;
+        });
+
+        const canvas = document.createElement("canvas");
+        canvas.width = receiptWidthPx;
+        canvas.height = receiptHeightPx;
+
+        const ctx = canvas.getContext("2d");
+        if (!ctx) return null;
+
+        ctx.fillStyle = "#ffffff";
+        ctx.fillRect(0, 0, receiptWidthPx, receiptHeightPx);
+        ctx.drawImage(image, 0, 0, receiptWidthPx, receiptHeightPx);
+
+        const dataUrl = canvas.toDataURL("image/png");
+        const marker = "base64,";
+        const markerIndex = dataUrl.indexOf(marker);
+        return markerIndex >= 0 ? dataUrl.slice(markerIndex + marker.length) : null;
+      } finally {
+        URL.revokeObjectURL(svgUrl);
+      }
+    } catch {
+      return null;
+    } finally {
+      wrapper.remove();
+    }
+  }
   async function handleReceiptPrint() {
     if (!receiptSession || receiptSaving) return;
     const printTrace = beginPosActionTrace("receipt.print", {
@@ -7922,8 +7998,13 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
         const timeoutId = window.setTimeout(() => controller.abort(), 12000);
 
         try {
+          const receiptImageBase64 = await renderReceiptHtmlToPngBase64(receiptHtml);
+
           const payload: Record<string, unknown> = {
             receipt_html: receiptHtml,
+            receipt_image_base64: receiptImageBase64,
+            receipt_image_format: "png",
+            receipt_raster_width_px: 384,
             order_no: receiptSession.order_no,
             metadata: {
               source: "pos_sales_module",
@@ -8096,8 +8177,13 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
     const timeoutId = window.setTimeout(() => controller.abort(), 9000);
 
     try {
+      const receiptImageBase64 = await renderReceiptHtmlToPngBase64(receiptHtml);
+
       const payload: Record<string, unknown> = {
         receipt_html: receiptHtml,
+        receipt_image_base64: receiptImageBase64,
+        receipt_image_format: "png",
+        receipt_raster_width_px: 384,
         order_no: session.order_no,
         metadata: {
           source: "pos_sales_module",
@@ -9668,6 +9754,8 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
     </section>
   );
 }
+
+
 
 
 
