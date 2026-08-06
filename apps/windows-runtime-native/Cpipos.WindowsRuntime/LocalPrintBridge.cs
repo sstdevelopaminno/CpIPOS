@@ -1,7 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Drawing;
-using System.Drawing.Drawing2D;
 using System.Drawing.Printing;
 using System.IO;
 using System.Linq;
@@ -49,7 +48,7 @@ internal sealed class LocalPrintBridge : IDisposable
     [DllImport("winspool.drv", CharSet = CharSet.Auto, SetLastError = true)]
     private static extern bool SetDefaultPrinter(string name);
 
-    public string Version => "cpipos-windows-native-bridge-0.1.7";
+    public string Version => "cpipos-windows-native-bridge-0.1.6";
     public bool IsRunning { get; private set; }
 
     public LocalPrintBridge(int port, string defaultPrinter, string bridgeToken)
@@ -196,7 +195,6 @@ internal sealed class LocalPrintBridge : IDisposable
                     allowed_origins = AllowedOrigins.ToArray(),
                     supports_print_receipt = true,
                     supports_html_receipt_print = true,
-                    supports_raster_receipt_print = true,
                     supports_print_test = true,
                     supports_list_printers = true,
                     supports_serialized_print_queue = true,
@@ -438,25 +436,6 @@ internal sealed class LocalPrintBridge : IDisposable
             }
 
             var printerName = FirstString(root, "printer_name", "printerName", "windows_printer", "printer") ?? _defaultPrinter;
-            var imageBase64 = ExtractPrintableImageBase64(root);
-            if (!string.IsNullOrWhiteSpace(imageBase64))
-            {
-                var imageResult = await PrintRasterImageAsync(imageBase64, printerName, cancellationToken).ConfigureAwait(false);
-                return HttpResponseData.Json(200, new
-                {
-                    ok = true,
-                    data = new
-                    {
-                        printed = true,
-                        provider = "native_escpos_raster_image",
-                        printer_name = imageResult.PrinterName,
-                        job_id = imageResult.JobId,
-                        raster_printed = true,
-                        bridge_version = Version
-                    }
-                }, corsOrigin);
-            }
-
             var html = ExtractPrintableHtml(root);
 
             if (!string.IsNullOrWhiteSpace(html))
@@ -514,115 +493,6 @@ internal sealed class LocalPrintBridge : IDisposable
                 data = new { bridge_version = Version, health = BuildHealthPayload() }
             }, corsOrigin);
         }
-    }
-    private async Task<PrintResult> PrintRasterImageAsync(string imageBase64, string requestedPrinterName, CancellationToken cancellationToken)
-    {
-        if (!await _printLock.WaitAsync(TimeSpan.FromSeconds(20), cancellationToken).ConfigureAwait(false))
-        {
-            throw new InvalidOperationException("Print queue is busy. Please retry after the current print job finishes.");
-        }
-
-        try
-        {
-            var installed = GetInstalledPrinterNames();
-            var resolvedPrinter = ResolvePrinterNameOrThrow(requestedPrinterName, installed);
-            var jobId = "CPIPOS-RASTER-" + DateTimeOffset.Now.ToString("yyyyMMddHHmmssfff");
-
-            var imageBytes = DecodeBase64Payload(imageBase64);
-            using var input = new MemoryStream(imageBytes);
-            using var source = new Bitmap(input);
-            using var receiptBitmap = ResizeReceiptBitmap(source, 384);
-
-            var escposBytes = BuildEscPosRasterBytes(receiptBitmap);
-            RawPrinterWriter.SendBytes(resolvedPrinter, jobId, escposBytes);
-
-            _printedJobs++;
-            _lastError = null;
-            _lastPrintAt = DateTimeOffset.Now;
-            _lastPrinter = resolvedPrinter;
-
-            return new PrintResult(jobId, resolvedPrinter);
-        }
-        finally
-        {
-            _printLock.Release();
-        }
-    }
-
-    private static byte[] DecodeBase64Payload(string value)
-    {
-        var normalized = value.Trim();
-        var markerIndex = normalized.IndexOf("base64,", StringComparison.OrdinalIgnoreCase);
-        if (markerIndex >= 0)
-        {
-            normalized = normalized[(markerIndex + "base64,".Length)..];
-        }
-
-        normalized = Regex.Replace(normalized, @"\s+", string.Empty);
-        return Convert.FromBase64String(normalized);
-    }
-
-    private static Bitmap ResizeReceiptBitmap(Bitmap source, int targetWidth)
-    {
-        var safeWidth = Math.Max(1, source.Width);
-        var safeHeight = Math.Max(1, source.Height);
-        var width = Math.Clamp(targetWidth, 128, 576);
-        var height = Math.Max(1, (int)Math.Round(safeHeight * (width / (double)safeWidth)));
-
-        var bitmap = new Bitmap(width, height);
-        bitmap.SetResolution(203, 203);
-
-        using var graphics = Graphics.FromImage(bitmap);
-        graphics.Clear(Color.White);
-        graphics.CompositingQuality = CompositingQuality.HighQuality;
-        graphics.InterpolationMode = InterpolationMode.HighQualityBicubic;
-        graphics.SmoothingMode = SmoothingMode.HighQuality;
-        graphics.PixelOffsetMode = PixelOffsetMode.HighQuality;
-        graphics.DrawImage(source, new Rectangle(0, 0, width, height));
-
-        return bitmap;
-    }
-
-    private static byte[] BuildEscPosRasterBytes(Bitmap bitmap)
-    {
-        var output = new List<byte>(bitmap.Width * bitmap.Height / 8 + 64);
-        output.AddRange(new byte[] { 0x1b, 0x40 });
-
-        const int chunkHeight = 1024;
-        var widthBytes = (bitmap.Width + 7) / 8;
-
-        for (var top = 0; top < bitmap.Height; top += chunkHeight)
-        {
-            var height = Math.Min(chunkHeight, bitmap.Height - top);
-            var raster = new byte[widthBytes * height];
-
-            for (var y = 0; y < height; y++)
-            {
-                for (var x = 0; x < bitmap.Width; x++)
-                {
-                    var pixel = bitmap.GetPixel(x, top + y);
-                    var luminance = (pixel.R * 299 + pixel.G * 587 + pixel.B * 114) / 1000;
-                    var isBlack = pixel.A > 80 && luminance < 190;
-                    if (!isBlack) continue;
-
-                    var byteIndex = y * widthBytes + x / 8;
-                    raster[byteIndex] |= (byte)(0x80 >> (x % 8));
-                }
-            }
-
-            output.AddRange(new byte[]
-            {
-                0x1d, 0x76, 0x30, 0x00,
-                (byte)(widthBytes & 0xff),
-                (byte)((widthBytes >> 8) & 0xff),
-                (byte)(height & 0xff),
-                (byte)((height >> 8) & 0xff)
-            });
-            output.AddRange(raster);
-        }
-
-        output.AddRange(new byte[] { 0x0a, 0x0a, 0x0a });
-        return output.ToArray();
     }
     private async Task<PrintResult> PrintHtmlAsync(string html, string requestedPrinterName, CancellationToken cancellationToken)
     {
@@ -1135,16 +1005,6 @@ img { max-width: 100%; }
         return tokenized is "open cash drawer" or "cash drawer open" or "open drawer";
     }
 
-    private static string? ExtractPrintableImageBase64(JsonElement root)
-    {
-        var metadata = GetObject(root, "metadata");
-        var payloadJson = GetObject(root, "payload_json");
-
-        return FirstString(root, "receipt_image_base64", "receipt_png_base64", "image_base64", "payload_image_base64")
-               ?? FirstString(metadata, "receipt_image_base64", "receipt_png_base64", "image_base64", "payload_image_base64")
-               ?? FirstString(payloadJson, "receipt_image_base64", "receipt_png_base64", "image_base64", "payload_image_base64");
-    }
-
     private static string? ExtractPrintableHtml(JsonElement root)
     {
         var metadata = GetObject(root, "metadata");
@@ -1605,6 +1465,5 @@ internal sealed class HttpResponseData
         }
     }
 }
-
 
 
