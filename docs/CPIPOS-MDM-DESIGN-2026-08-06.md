@@ -1,0 +1,84 @@
+# CpIPOS MDM (Remote Device Management) Design
+
+Date: 2026-08-06
+Status: **Design confirmed by user 2026-08-06 (see Sign-off section below). Not yet implemented.** Satisfies the `docs/CPIPOS-MOBILE-AND-IT-ADMIN-CONSOLIDATION-PLAN-2026-08-06.md` Part 3 guardrail requiring a dedicated design doc + explicit security-model sign-off before any MDM code is written.
+
+## Purpose
+
+The user's stated goal: from the CpIPOS IT Admin console (web + the new `Cpipos.ITAdminRuntime` Windows app from Part 2), remotely diagnose issues on customer devices and push fixes/updates, covering all CpIPOS surfaces — Web, Windows Runtime (POS terminals), Android APK, and CpIPOS Mobile.
+
+Nothing resembling MDM exists yet in CpIPOS, SSTiPOSMobile, or SSTiPOSSupport (confirmed in the Part 1/2 investigation). But CpIPOS already has real, working foundation this design must reuse rather than duplicate — see below.
+
+## What already exists (reuse this, don't rebuild it)
+
+- **A working heartbeat pipeline.** `POST /api/pos/device-heartbeat` (`apps/backoffice-web/src/app/api/pos/device-heartbeat/route.ts`), guarded by `requirePosSession()` (tenant/branch/device identity always resolved server-side from the session, never trusted from the request body). Writes to three Supabase tables: `pos_device_health_latest` (upsert, one row per device), `pos_device_health_snapshots` (append-only history), `pos_device_incidents` (derived problems: `internet_offline`, `printer_error`, `offline_sale_grace_expired`, etc. — 17 codes already enumerated in `docs/device-mdm-diagnostics-foundation.md`). Shared derivation logic lives in `apps/backoffice-web/src/lib/device-mdm-diagnostics.ts`. Currently only the Windows Runtime sends heartbeats (injected via `WindowsRuntimeHeartbeatScript.cs`, every 5 minutes while a POS session is active). **The response today is acknowledgment-only** (`{accepted, latest_id, snapshot_id, status, summary, incident_count}`) — no command/instruction is ever returned. This is the natural place to add a push-down channel (see below) rather than building a second, parallel transport.
+- **Two disconnected device registries.** `branch_devices` (fixed POS terminal registry per branch, used for shift/session gating — `status: active|inactive|maintenance`) and `device_enrollments` (mobile/phone trust workflow, `enrollment_status: pending|active|revoked|blocked`, approve/revoke routes already exist under `/api/it-admin/admin/device-enrollments/**`, already audit-logged). **Neither table is linked to the heartbeat tables**, and critically: **`device_enrollments` revocation has zero live effect on any running client today** — no client anywhere checks it; it only matters if a future flow re-checks it at next login. This is worth knowing going in: "revoke" today is a database write with no enforcement, not a kill-switch.
+- **A pull-only entitlement model.** Windows Runtime resolves `store_code → tenant/branch/package/license/entitlements` via `/api/windows-runtime/v1/{bootstrap,entitlements,sync/status}`, caches locally, never trusts the cache as source of truth, and re-checks on reconnect. There is no existing push transport — everything today is device-initiated pull.
+- **A version-surface model already designed for Android** (`docs/ANDROID-NATIVE-BRIDGE-VERSIONING.md`): `web_ui_version` (web deploy, changes without any native update), `api_contract_version`, `native_app_version` (APK/exe, requires reinstall), `native_bridge_version` (native hardware bridge contract). Worth extending to all surfaces uniformly rather than inventing new terminology.
+- **Confirmation that most "push an update" scenarios are already solved by the existing architecture, not something MDM needs to build.** Both `docs/ANDROID-WEB-UI-AUTO-UPDATE-STRATEGY.md` and the Windows Runtime shell already establish: the web deployment is the UI source of truth, and both native shells (Windows WebView2, Android WebView) just load the live site. A UI/business-logic fix ships via a normal Vercel deploy and every shell picks it up on next navigation/reload — no MDM machinery required. **This significantly narrows real MDM scope** to what's genuinely native/local per device: native shell binary versions (still manual install, this design does not change that), local print-bridge health, and device-level administrative actions.
+- **A working (if narrow) push-notification precedent.** `apps/pos-mobile-web`'s `/api/system/notifications/deploy` already pushes a web-push "updated" notification to subscribed PWA clients, secret-protected via a header. Confirms a push-to-client channel is achievable for that surface, though it's presently a fire-and-forget notification, not a command/ack loop.
+
+## Proposed scope for v1 (what this design actually builds)
+
+**In scope:**
+1. Extend the existing heartbeat response to carry a small `pending_actions` array, and add a new `device_commands` table so the IT Admin console can queue a command that a device picks up and acknowledges on its **next regular heartbeat** (poll-based, reusing the existing 5-minute cadence — no new persistent connection, no WebSocket/SignalR, smallest possible new attack surface).
+2. A **fixed, conservative allowlist** of command types for v1 — deliberately matching what `docs/device-mdm-diagnostics-foundation.md`'s own unbuilt "Phase MDM-5" already scoped:
+   - `request_diagnostics_bundle` — device uploads its current health snapshot immediately instead of waiting for the next cycle.
+   - `reload_ui` — WebView reloads the page (recovers a stuck UI without a site visit).
+   - `clear_print_queue` — local bridge clears a stuck print queue.
+   - `restart_local_bridge` — Windows Runtime restarts `LocalPrintBridge`.
+   - `refresh_config` — device re-pulls entitlements/config immediately (already-existing pull endpoint, just triggered early).
+   - `disable_device` / `enable_device` — the one genuinely administrative pair: blocks/unblocks sales on that device (writes to `branch_devices.status`, already an enforced field per `pos-device-status.ts`), for a lost/stolen/compromised terminal.
+3. Unify device identity: give `branch_devices` a canonical link to the heartbeat tables (currently only loosely joined by `device_code` text match, no FK) so IT Admin sees one device record with health + status + command history together, not three disconnected views.
+4. Move heartbeat-sending into the **web app's own POS-session client code** (a client component active during any POS session) instead of the current native-injected-script-only approach. This is the key design lever for covering every surface with one implementation: since Windows Runtime, Android, and a plain browser POS session are all just the same web app in different shells, a heartbeat sender living in the web app's own POS session JS automatically covers **Windows Runtime, Android, and desktop browser POS** at once. CpIPOS Mobile (`pos-mobile-web`) is a separate codebase (no shared `@pos/*` package with `backoffice-web` today) and needs its own equivalent sender — flagged as its own phase, not a blocker for the others.
+5. IT Admin UI: a device list/health view (the already-designed-but-unbuilt "Device Health Center" from `device-mdm-diagnostics-foundation.md` Phase MDM-4) plus a command-issue action, built into the existing `(it-admin)` route group — which the new `Cpipos.ITAdminRuntime` Windows wrapper from Part 2 already gives IT staff a dedicated place to use.
+
+**Explicitly out of scope for v1** (these are the parts that would need their own additional security review before ever being considered, per the original consolidation doc's own caution):
+- Remote binary/APK/EXE push or auto-update. Native app releases stay manual (re-download/reinstall) exactly as today — this design does not change that.
+- Arbitrary remote code/script execution, remote control, screen capture, key logging, or reading customer files/data. The command set is a fixed allowlist; there is no "run this payload" command, ever.
+- Any command that would let one compromised or over-broad IT Admin action affect many devices at once without an explicit, itemized confirmation (see Security below) — no "apply to all devices" without the operator seeing and confirming the exact device list first.
+
+## Security model
+
+This is the part the user must explicitly confirm before implementation starts.
+
+- **Auth**: only `it_admin` platform-role users can issue commands, via the existing `requireItAdmin()` guard (`apps/backoffice-web/src/lib/it-admin-guard.ts`) — the same gate already protecting `/api/it-admin/**`. No new auth mechanism.
+- **Scoping**: every command is issued against an explicit `tenant_id + branch_id + device_id` — never a wildcard. Multi-device issuance (e.g., "reload all devices in this branch") is allowed in the UI but must resolve to and display an explicit device list before the operator confirms, and is recorded as N individual command rows, not one fuzzy batch row.
+- **Audit logging**: every command issuance writes to the existing `audit_log` table (same table `device_enrollments` approve/revoke already use), recording actor (it_admin user id), action (`device_command_issued`), target device, command type, and params. Every command execution/ack from the device also gets logged, so there's a full issue→pickup→result trail per command.
+- **TTL / staleness**: commands expire (default: 30 minutes) if the target device hasn't picked them up. A device that's been offline for hours should not suddenly execute a stale command when it reconnects. Expired commands are marked `expired`, not silently retried.
+- **Allowlist enforcement, not payload execution**: the device-side handler for `pending_actions` is a fixed `switch` over the known command types (mirrored on both client and server) — there is no generic "execute this JSON" path. A command type not in the allowlist is rejected server-side before it's ever stored, and rejected client-side if somehow received.
+- **Reversibility**: `disable_device` is the only destructive action, and it's paired with `enable_device` as an explicit, equally-logged reverse action. There is no delete/wipe command in v1.
+- **Rate limiting**: command issuance is rate-limited per operator (reuse the existing `rate-limit.ts` pattern already used elsewhere in the codebase) to blunt any single compromised IT Admin session from mass-issuing commands quickly.
+- **No new secrets, no new transport**: reuses the existing session-cookie auth and the existing heartbeat HTTPS endpoint. No new bridge token, no new open port, no new always-on listener on the device side (Windows Runtime's `LocalPrintBridge` already binds `127.0.0.1` only and stays that way).
+
+## Coverage by surface
+
+| Surface | Heartbeat sender | Command execution | Notes |
+| --- | --- | --- | --- |
+| Windows Runtime (POS) | Exists today (native-injected script) | New: reads `pending_actions` from heartbeat response, executes allowlisted actions (has `LocalPrintBridge` for `clear_print_queue`/`restart_local_bridge`) | Full coverage, builds directly on existing pipeline |
+| Android APK | None today — new, via shared web-app POS-session sender (§4 above) | Same handler as web, since it's the same WebView'd page | No `restart_local_bridge`/`clear_print_queue` (no local bridge on Android) — those two commands are Windows-only in the allowlist |
+| Desktop browser POS | None today — new, via shared web-app POS-session sender | Same handler as web | Same limitation as Android (no local bridge) |
+| CpIPOS Mobile (`pos-mobile-web`) | None today — separate codebase, own future phase | Own future phase | Not blocking Phase MDM-A/B; already has a working push-notification precedent to build from |
+| CpIPOS IT Admin (Web + `Cpipos.ITAdminRuntime`) | N/A (not a monitored device) | N/A — this is where commands are *issued*, not received | Built on the `(it-admin)` route group added in Part 2 |
+
+## Implementation phases
+
+- **Phase MDM-A (Foundation unification) — done 2026-08-06**: `supabase/migrations/202608060001_device_heartbeat_branch_device_fk.sql` adds the `pos_device_id → branch_devices(id)` FK + supporting index to all three heartbeat tables. `apps/backoffice-web/src/lib/pos/device-heartbeat-client.ts` + `apps/backoffice-web/src/components/pos/pos-device-heartbeat-sender.tsx` (mounted in `preview/pos/layout.tsx`) replace the Windows-Runtime-only native sender with one shared implementation covering Windows Runtime, Android, and browser POS. The native `WindowsRuntimeHeartbeatScript.cs` injection was removed from `MainForm.cs` and the file deleted to avoid duplicate heartbeats; Windows Runtime bumped to `0.1.7`. Migration apply + Windows Runtime release build are pending separate explicit confirmation (production-touching actions, not bundled into code-writing approval).
+- **Phase MDM-B (Command channel)**: `device_commands` table, `pending_actions` in the heartbeat response, the fixed v1 allowlist, full audit logging, TTL/expiry, rate limiting.
+- **Phase MDM-C (IT Admin UI)**: Device Health Center (list + incident timeline + command history) and command-issue UI inside `(it-admin)`, usable from both the web console and `Cpipos.ITAdminRuntime`.
+- **Phase MDM-D (CpIPOS Mobile parity)**: heartbeat sender + command execution for `pos-mobile-web`, reusing the same `device_commands`/allowlist server-side, building on its existing push-notification plumbing.
+- **Deferred indefinitely, needs its own separate security review if ever pursued**: remote binary/update push, remote code execution, screen capture/remote control.
+
+## Verification plan (once implementation starts)
+
+- New `device_commands` table covered by RLS matching the existing heartbeat tables' pattern (service-role write, no direct client access).
+- Integration tests mirroring the existing `tests/integration/pos-device-session-rules.integration.test.ts` style: command issuance requires `it_admin`, rejects unknown command types, respects TTL expiry, `disable_device` actually blocks a subsequent sale attempt via the existing `pos-device-status.ts` gate.
+- Manual verification: issue `reload_ui` from IT Admin against a real Windows Runtime instance running locally, confirm it reloads within one heartbeat cycle; issue `disable_device`, confirm the device is blocked from opening a shift; issue `enable_device`, confirm it's unblocked again.
+
+## Sign-off (user confirmed 2026-08-06)
+
+1. **Command latency**: 5-minute heartbeat-cadence delivery is acceptable. No WebSocket/SSE transport — stays poll-based on the existing heartbeat.
+2. **Command allowlist**: the six v1 commands (request diagnostics bundle, reload UI, clear print queue, restart local bridge, refresh config, disable/enable device) are sufficient for v1. New command types get added later as real support needs surface, not speculatively now.
+3. **Phase order**: A → B → C → D confirmed, CpIPOS Mobile (Phase D) intentionally trails Windows Runtime/Android/browser.
+
+Security model, scope, and phase order are now confirmed. Implementation may proceed starting with Phase MDM-A.

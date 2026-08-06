@@ -50,7 +50,7 @@ internal sealed class LocalPrintBridge : IDisposable
     [DllImport("winspool.drv", CharSet = CharSet.Auto, SetLastError = true)]
     private static extern bool SetDefaultPrinter(string name);
 
-    public string Version => "cpipos-windows-native-bridge-0.1.6";
+    public string Version => "cpipos-windows-native-bridge-0.1.7";
     public bool IsRunning { get; private set; }
 
     public LocalPrintBridge(int port, string defaultPrinter, string bridgeToken)
