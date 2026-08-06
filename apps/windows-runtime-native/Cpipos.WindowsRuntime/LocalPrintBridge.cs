@@ -49,7 +49,7 @@ internal sealed class LocalPrintBridge : IDisposable
     [DllImport("winspool.drv", CharSet = CharSet.Auto, SetLastError = true)]
     private static extern bool SetDefaultPrinter(string name);
 
-    public string Version => "cpipos-windows-native-bridge-0.1.7";
+    public string Version => "cpipos-windows-native-bridge-0.1.8";
     public bool IsRunning { get; private set; }
 
     public LocalPrintBridge(int port, string defaultPrinter, string bridgeToken)
@@ -448,7 +448,7 @@ internal sealed class LocalPrintBridge : IDisposable
                     data = new
                     {
                         printed = true,
-                        provider = "native_escpos_raster_image",
+                        provider = "native_gdi_raster_image",
                         printer_name = imageResult.PrinterName,
                         job_id = imageResult.JobId,
                         raster_printed = true,
@@ -526,15 +526,14 @@ internal sealed class LocalPrintBridge : IDisposable
         {
             var installed = GetInstalledPrinterNames();
             var resolvedPrinter = ResolvePrinterNameOrThrow(requestedPrinterName, installed);
-            var jobId = "CPIPOS-RASTER-" + DateTimeOffset.Now.ToString("yyyyMMddHHmmssfff");
+            var jobId = "CPIPOS-GDI-RASTER-" + DateTimeOffset.Now.ToString("yyyyMMddHHmmssfff");
 
             var imageBytes = DecodeBase64Payload(imageBase64);
             using var input = new MemoryStream(imageBytes);
             using var source = new Bitmap(input);
             using var receiptBitmap = ResizeReceiptBitmap(source, 384);
 
-            var escposBytes = BuildEscPosRasterBytes(receiptBitmap);
-            RawPrinterWriter.SendBytes(resolvedPrinter, jobId, escposBytes);
+            await PrintBitmapWithWindowsDriverAsync(receiptBitmap, resolvedPrinter, jobId, cancellationToken).ConfigureAwait(false);
 
             _printedJobs++;
             _lastError = null;
@@ -548,7 +547,67 @@ internal sealed class LocalPrintBridge : IDisposable
             _printLock.Release();
         }
     }
+    private static Task PrintBitmapWithWindowsDriverAsync(Bitmap bitmap, string printerName, string jobId, CancellationToken cancellationToken)
+    {
+        var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 
+        using var registration = cancellationToken.Register(() =>
+        {
+            completion.TrySetException(new OperationCanceledException(cancellationToken));
+        });
+
+        var printThread = new Thread(() =>
+        {
+            PrintDocument? document = null;
+
+            try
+            {
+                document = new PrintDocument
+                {
+                    DocumentName = jobId
+                };
+
+                document.PrinterSettings.PrinterName = printerName;
+                document.PrinterSettings.Copies = 1;
+                document.PrintController = new StandardPrintController();
+
+                var widthHundredths = Math.Max(1, (int)Math.Ceiling(bitmap.Width / bitmap.HorizontalResolution * 100.0));
+                var heightHundredths = Math.Max(1, (int)Math.Ceiling(bitmap.Height / bitmap.VerticalResolution * 100.0));
+
+                document.DefaultPageSettings.Margins = new Margins(0, 0, 0, 0);
+                document.DefaultPageSettings.PaperSize = new PaperSize("CpIPOS Receipt", widthHundredths, heightHundredths);
+
+                document.PrintPage += (_, e) =>
+                {
+                    e.Graphics.PageUnit = GraphicsUnit.Pixel;
+                    e.Graphics.InterpolationMode = InterpolationMode.NearestNeighbor;
+                    e.Graphics.SmoothingMode = SmoothingMode.None;
+                    e.Graphics.PixelOffsetMode = PixelOffsetMode.Half;
+                    e.Graphics.CompositingQuality = CompositingQuality.HighSpeed;
+
+                    e.Graphics.DrawImageUnscaled(bitmap, 0, 0);
+                    e.HasMorePages = false;
+                };
+
+                document.Print();
+                completion.TrySetResult();
+            }
+            catch (Exception error)
+            {
+                completion.TrySetException(error);
+            }
+            finally
+            {
+                try { document?.Dispose(); } catch { }
+            }
+        });
+
+        printThread.IsBackground = true;
+        printThread.SetApartmentState(ApartmentState.STA);
+        printThread.Start();
+
+        return completion.Task;
+    }
     private static byte[] DecodeBase64Payload(string value)
     {
         var normalized = value.Trim();
@@ -1605,6 +1664,9 @@ internal sealed class HttpResponseData
         }
     }
 }
+
+
+
 
 
 
