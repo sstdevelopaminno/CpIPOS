@@ -6,6 +6,8 @@ import android.net.NetworkCapabilities
 import android.net.NetworkRequest
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.view.View
 import android.webkit.JavascriptInterface
 import android.webkit.WebResourceError
@@ -35,10 +37,18 @@ class MainActivity : AppCompatActivity() {
     private lateinit var binding: ActivityMainBinding
     private lateinit var connectivityManager: ConnectivityManager
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
+    private val mainHandler = Handler(Looper.getMainLooper())
+    private var pageLoadTimeoutRunnable: Runnable? = null
 
     companion object {
         private const val DEFAULT_START_URL = "https://cp-ipos-web.vercel.app/login/store"
         private const val NATIVE_BRIDGE_VERSION = "1.0.0"
+
+        // If loadUrl/reload doesn't reach onPageFinished or onReceivedError within this
+        // window (e.g. a stalled DNS/TLS handshake on flaky store Wi-Fi), the fullscreen
+        // WebView gives the user no way out on its own — surface the offline banner so
+        // there's a visible reload affordance instead of an indefinitely frozen screen.
+        private const val PAGE_LOAD_TIMEOUT_MS = 20000L
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -52,9 +62,26 @@ class MainActivity : AppCompatActivity() {
         setupWebView()
         setupNetworkMonitor()
         setupBackNavigation()
-        binding.reloadButton.setOnClickListener { binding.webView.reload() }
+        binding.reloadButton.setOnClickListener {
+            binding.offlineBanner.visibility = View.GONE
+            binding.webView.reload()
+            schedulePageLoadTimeout()
+        }
 
         binding.webView.loadUrl(DEFAULT_START_URL)
+        schedulePageLoadTimeout()
+    }
+
+    private fun schedulePageLoadTimeout() {
+        cancelPageLoadTimeout()
+        val runnable = Runnable { binding.offlineBanner.visibility = View.VISIBLE }
+        pageLoadTimeoutRunnable = runnable
+        mainHandler.postDelayed(runnable, PAGE_LOAD_TIMEOUT_MS)
+    }
+
+    private fun cancelPageLoadTimeout() {
+        pageLoadTimeoutRunnable?.let { mainHandler.removeCallbacks(it) }
+        pageLoadTimeoutRunnable = null
     }
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {
@@ -90,6 +117,7 @@ class MainActivity : AppCompatActivity() {
 
             override fun onPageFinished(view: WebView, url: String?) {
                 super.onPageFinished(view, url)
+                cancelPageLoadTimeout()
                 if (isNetworkAvailable()) {
                     binding.offlineBanner.visibility = View.GONE
                 }
@@ -98,6 +126,7 @@ class MainActivity : AppCompatActivity() {
             override fun onReceivedError(view: WebView, request: WebResourceRequest, error: WebResourceError) {
                 super.onReceivedError(view, request, error)
                 if (request.isForMainFrame) {
+                    cancelPageLoadTimeout()
                     binding.offlineBanner.visibility = View.VISIBLE
                 }
             }
@@ -145,6 +174,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onDestroy() {
+        cancelPageLoadTimeout()
         networkCallback?.let { connectivityManager.unregisterNetworkCallback(it) }
         super.onDestroy()
     }

@@ -2431,7 +2431,15 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
         }
         const activeShift = body?.data?.has_active_shift && body.data.shift?.status === "open" ? body.data.shift : null;
         if (activeShift) {
-          setShift(activeShift);
+          setShift((prev) =>
+            prev &&
+            prev.id === activeShift.id &&
+            prev.status === activeShift.status &&
+            prev.opened_at === activeShift.opened_at &&
+            prev.opening_cash === activeShift.opening_cash
+              ? prev
+              : activeShift
+          );
           return;
         }
         setShift(null);
