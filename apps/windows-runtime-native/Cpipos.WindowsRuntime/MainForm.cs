@@ -155,7 +155,7 @@ internal sealed class MainForm : Form
             identity_anchor = "store_code",
             store_code = _options.StoreCode,
             app_url = _options.AppUrl,
-            native_app_version = "0.1.5",
+            native_app_version = "0.1.6",
             native_bridge_version = _bridge.Version,
             native_bridge_available = _bridge.IsRunning,
             bridge_health_url = _options.BridgeHealthUrl,

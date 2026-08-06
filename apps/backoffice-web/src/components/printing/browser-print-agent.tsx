@@ -63,6 +63,8 @@ declare global {
 }
 
 const POLL_MS = 4000;
+const HIDDEN_POLL_MS = 15000;
+const MAX_ERROR_BACKOFF_MS = 60000;
 const SERIAL_RETRY_DELAY_MS = 350;
 const SERIAL_MAX_OPEN_FAILURES_BEFORE_FORGET = 3;
 const APP_VERSION = "browser-web-serial-1.0.5-hard-serial-reset";
@@ -577,6 +579,7 @@ export function BrowserPrintAgent() {
   useEffect(() => {
     let active = true;
     let timer: number | null = null;
+    let errorStreak = 0;
     const supported = Boolean(navigator.serial);
 
     const publish = (code: string, message: string) => {
@@ -591,8 +594,18 @@ export function BrowserPrintAgent() {
       });
     };
 
+    const scheduleNext = (delayMs: number) => {
+      if (!active) return;
+      if (timer) window.clearTimeout(timer);
+      timer = window.setTimeout(tick, delayMs);
+    };
+
     const tick = async () => {
       if (!active) return;
+      if (typeof document !== "undefined" && document.visibilityState === "hidden") {
+        scheduleNext(HIDDEN_POLL_MS);
+        return;
+      }
       try {
         if (!config.enabled) {
           publish("disabled", "Browser Print Agent is disabled.");
@@ -648,18 +661,29 @@ export function BrowserPrintAgent() {
           }
         }
 
+        errorStreak = 0;
         publish(jobs.length > 0 ? "printed" : "ready", jobs.length > 0 ? `Printed ${jobs.length} job(s).` : "Ready.");
       } catch (error) {
+        errorStreak = Math.min(errorStreak + 1, 10);
         publish("agent_error", error instanceof Error ? error.message : "Browser Print Agent failed.");
       } finally {
-        if (active) timer = window.setTimeout(tick, POLL_MS);
+        const backoffDelay = errorStreak > 0 ? Math.min(POLL_MS * 2 ** errorStreak, MAX_ERROR_BACKOFF_MS) : POLL_MS;
+        scheduleNext(backoffDelay);
       }
     };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        void tick();
+      }
+    };
+    document.addEventListener("visibilitychange", handleVisibilityChange);
 
     void tick();
     return () => {
       active = false;
       if (timer) window.clearTimeout(timer);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
   }, [config]);
 

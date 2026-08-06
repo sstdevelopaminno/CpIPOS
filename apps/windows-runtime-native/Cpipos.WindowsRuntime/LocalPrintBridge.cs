@@ -33,6 +33,8 @@ internal sealed class LocalPrintBridge : IDisposable
     private readonly SemaphoreSlim _printLock = new(1, 1);
     private readonly SemaphoreSlim _drawerLock = new(1, 1);
     private readonly SemaphoreSlim _requestSlots = new(16, 16);
+    private const int MaxTextPrintPages = 100;
+    private static readonly HttpClient DrawerHttpClient = new();
     private readonly DateTimeOffset _startedAt = DateTimeOffset.Now;
     private TcpListener? _listener;
     private DateTimeOffset? _lastPrintAt;
@@ -703,9 +705,17 @@ img { max-width: 100%; }
                 }
 
                 var remainingText = text;
+                var pageCount = 0;
                 document.PrintPage += (_, eventArgs) =>
                 {
                     printTimeout.Token.ThrowIfCancellationRequested();
+                    pageCount++;
+                    if (pageCount > MaxTextPrintPages)
+                    {
+                        throw new InvalidOperationException($"Print job exceeded the maximum of {MaxTextPrintPages} pages; aborting to avoid runaway printing on malformed input.");
+                    }
+
+                    var graphics = eventArgs.Graphics ?? throw new InvalidOperationException("Print page graphics context was not available.");
                     var bounds = eventArgs.MarginBounds;
                     if (bounds.Width <= 0 || bounds.Height <= 0)
                     {
@@ -716,18 +726,18 @@ img { max-width: 100%; }
                     var measureSize = new SizeF(Math.Max(1, bounds.Width), Math.Max(1, bounds.Height));
                     int charsFitted;
                     int linesFilled;
-                    eventArgs.Graphics.MeasureString(remainingText, font, measureSize, StringFormat.GenericTypographic, out charsFitted, out linesFilled);
+                    graphics.MeasureString(remainingText, font, measureSize, StringFormat.GenericTypographic, out charsFitted, out linesFilled);
 
                     if (charsFitted <= 0 || charsFitted >= remainingText.Length)
                     {
-                        eventArgs.Graphics.DrawString(remainingText, font, Brushes.Black, layout);
+                        graphics.DrawString(remainingText, font, Brushes.Black, layout);
                         eventArgs.HasMorePages = false;
                         remainingText = string.Empty;
                     }
                     else
                     {
                         var pageText = remainingText[..charsFitted];
-                        eventArgs.Graphics.DrawString(pageText, font, Brushes.Black, layout);
+                        graphics.DrawString(pageText, font, Brushes.Black, layout);
                         remainingText = remainingText[charsFitted..].TrimStart('\r', '\n');
                         eventArgs.HasMorePages = remainingText.Length > 0;
                     }
@@ -786,7 +796,24 @@ img { max-width: 100%; }
         var resolvedPrinter = ResolvePrinterNameOrThrow(command.PrinterName, installed);
         var jobId = "CPIPOS-DRAWER-" + DateTimeOffset.Now.ToString("yyyyMMddHHmmssfff");
         var bytes = command.CommandBytes();
-        await Task.Run(() => RawPrinterWriter.SendBytes(resolvedPrinter, jobId, bytes), cancellationToken).ConfigureAwait(false);
+
+        // The printer-kick drawer pulse writes raw bytes to the same physical printer that
+        // PrintHtmlAsync/PrintTextAsync use through the GDI spooler. Take _printLock too so a
+        // rapid double-tap payment (print + drawer-open near-simultaneously) can't interleave
+        // raw ESC/POS bytes with an in-flight spooled receipt job on the same device.
+        if (!await _printLock.WaitAsync(TimeSpan.FromSeconds(20), cancellationToken).ConfigureAwait(false))
+        {
+            throw new InvalidOperationException("Print queue is busy. Please retry the cash drawer command after the current print job finishes.");
+        }
+        try
+        {
+            await Task.Run(() => RawPrinterWriter.SendBytes(resolvedPrinter, jobId, bytes), cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            _printLock.Release();
+        }
+
         return new CashDrawerResult(jobId, "windows_raw_escpos_cash_drawer", resolvedPrinter, connectionMode, command.KickPin, command.PulseOnMs, command.PulseOffMs, bytes.Length);
     }
 
@@ -815,10 +842,11 @@ img { max-width: 100%; }
 
         if (!string.IsNullOrWhiteSpace(url) && (url.StartsWith("http://", StringComparison.OrdinalIgnoreCase) || url.StartsWith("https://", StringComparison.OrdinalIgnoreCase)))
         {
-            using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(8) };
             using var content = new ByteArrayContent(bytes);
             content.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/octet-stream");
-            using var response = await client.PostAsync(url, content, cancellationToken).ConfigureAwait(false);
+            using var requestTimeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            requestTimeout.CancelAfter(TimeSpan.FromSeconds(8));
+            using var response = await DrawerHttpClient.PostAsync(url, content, requestTimeout.Token).ConfigureAwait(false);
             if (!response.IsSuccessStatusCode)
             {
                 throw new InvalidOperationException($"Network drawer HTTP controller returned {(int)response.StatusCode} {response.ReasonPhrase}.");

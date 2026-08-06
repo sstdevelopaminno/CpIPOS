@@ -16,7 +16,7 @@ env:
   WINDOWS_RUNTIME_RELEASE_TAG: windows-runtime-latest
   WINDOWS_RUNTIME_SETUP_ASSET_NAME: CpIPOS-WindowsRuntime-Setup.exe
   WINDOWS_RUNTIME_ZIP_ASSET_NAME: CpIPOS-WindowsRuntime-win-x64.zip
-  WINDOWS_RUNTIME_VERSION: 0.1.5
+  WINDOWS_RUNTIME_VERSION: 0.1.6
 
 jobs:
   build-windows-runtime:

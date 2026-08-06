@@ -14,6 +14,24 @@ type ShiftRow = {
 };
 type ShiftRowWithoutDeviceCode = Omit<ShiftRow, "device_code">;
 
+const SHIFTS_QUERY_TIMEOUT_MS = 2500;
+
+async function withQueryTimeout<T>(queryPromise: Promise<T>, timeoutMs: number): Promise<T | null> {
+  let timeoutId: ReturnType<typeof setTimeout> | null = null;
+  try {
+    return await Promise.race<T | null>([
+      queryPromise,
+      new Promise<null>((resolve) => {
+        timeoutId = setTimeout(() => resolve(null), timeoutMs);
+      })
+    ]);
+  } finally {
+    if (timeoutId) {
+      clearTimeout(timeoutId);
+    }
+  }
+}
+
 function isMissingShiftDeviceCodeColumnError(error: { code?: string; message?: string } | null | undefined) {
   if (!error) return false;
   const message = String(error.message ?? "").toLowerCase();
@@ -53,28 +71,64 @@ export async function GET() {
     await requireTenantFeature(scope.session.tenant_id, "attendance_tracking", scope.session.branch_id);
     const supabase = getSupabaseServiceClient();
 
-    const currentShiftQuery = await supabase
-      .from("shifts")
-      .select("id,status,opened_at,closed_at,opening_cash,opened_by,device_code")
-      .eq("tenant_id", scope.session.tenant_id)
-      .eq("branch_id", scope.session.branch_id)
-      .eq("status", "open")
-      .order("opened_at", { ascending: false })
-      .limit(20);
+    const currentShiftQuery = await withQueryTimeout(
+      Promise.resolve(
+        supabase
+          .from("shifts")
+          .select("id,status,opened_at,closed_at,opening_cash,opened_by,device_code")
+          .eq("tenant_id", scope.session.tenant_id)
+          .eq("branch_id", scope.session.branch_id)
+          .eq("status", "open")
+          .order("opened_at", { ascending: false })
+          .limit(20)
+      ) as Promise<{ data: ShiftRow[] | null; error?: { code?: string; message?: string } | null }>,
+      SHIFTS_QUERY_TIMEOUT_MS
+    );
+
+    if (!currentShiftQuery) {
+      const response = NextResponse.json(
+        { data: null, error: { code: "shifts_current_lookup_degraded", message: "Unable to confirm current shifts. Please retry." } },
+        { status: 503 }
+      );
+      response.headers.set("x-pos-shifts-current-fallback", "1");
+      const durationMs = Date.now() - startedAt;
+      response.headers.set("x-pos-api-ms", String(durationMs));
+      response.headers.set("server-timing", `total;dur=${durationMs}`);
+      return response;
+    }
+
     let rows = currentShiftQuery.data as ShiftRow[] | null;
     let error = currentShiftQuery.error;
     let legacyWithoutDeviceColumn = false;
     if (isMissingShiftDeviceCodeColumnError(error)) {
       legacyWithoutDeviceColumn = true;
-      const legacyShiftQuery = await supabase
-        .from("shifts")
-        .select("id,status,opened_at,closed_at,opening_cash,opened_by")
-        .eq("tenant_id", scope.session.tenant_id)
-        .eq("branch_id", scope.session.branch_id)
-        .eq("status", "open")
-        .order("opened_at", { ascending: false })
-        .limit(20);
-      rows = (legacyShiftQuery.data ?? []).map((row) => withNullDeviceCode(row as ShiftRowWithoutDeviceCode));
+      const legacyShiftQuery = await withQueryTimeout(
+        Promise.resolve(
+          supabase
+            .from("shifts")
+            .select("id,status,opened_at,closed_at,opening_cash,opened_by")
+            .eq("tenant_id", scope.session.tenant_id)
+            .eq("branch_id", scope.session.branch_id)
+            .eq("status", "open")
+            .order("opened_at", { ascending: false })
+            .limit(20)
+        ) as Promise<{ data: ShiftRowWithoutDeviceCode[] | null; error?: { code?: string; message?: string } | null }>,
+        SHIFTS_QUERY_TIMEOUT_MS
+      );
+
+      if (!legacyShiftQuery) {
+        const response = NextResponse.json(
+          { data: null, error: { code: "shifts_current_lookup_degraded", message: "Unable to confirm current shifts. Please retry." } },
+          { status: 503 }
+        );
+        response.headers.set("x-pos-shifts-current-fallback", "1");
+        const durationMs = Date.now() - startedAt;
+        response.headers.set("x-pos-api-ms", String(durationMs));
+        response.headers.set("server-timing", `total;dur=${durationMs}`);
+        return response;
+      }
+
+      rows = (legacyShiftQuery.data ?? []).map((row) => withNullDeviceCode(row));
       error = legacyShiftQuery.error;
     }
 
