@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { usePathname } from "next/navigation";
+import { BrowserBluetoothPrintAgent, BROWSER_PRINT_AGENT_BLUETOOTH_ENABLED_KEY } from "@/components/printing/browser-bluetooth-print-agent";
 import { BrowserPrintAgent } from "@/components/printing/browser-print-agent";
 import { BrowserPrintAgentAlert } from "@/components/printing/browser-print-agent-alert";
 import { BrowserPrintAgentDeployReset } from "@/components/printing/browser-print-agent-deploy-reset";
@@ -13,7 +14,12 @@ const WEB_SERIAL_EXPERIMENTAL_KEY = "cpi_browser_print_agent_web_serial_experime
 const LEGACY_MOBILE_DIRECT_AGENT_KEY = "cpi_browser_print_agent_mobile_direct_v1";
 const PRINT_AGENT_MODE_EVENT = "cpi-browser-print-agent-mode";
 
-type PrintAgentMode = "bridge_print_station" | "mobile_remote_station" | "web_serial_experimental" | "unsupported_remote_station";
+type PrintAgentMode =
+  | "bridge_print_station"
+  | "mobile_remote_station"
+  | "web_serial_experimental"
+  | "bluetooth_experimental"
+  | "unsupported_remote_station";
 
 type PlatformInfo = {
   isMobile: boolean;
@@ -21,6 +27,7 @@ type PlatformInfo = {
   isAndroid: boolean;
   isDesktop: boolean;
   webSerialSupported: boolean;
+  webBluetoothSupported: boolean;
   userAgent: string;
 };
 
@@ -32,6 +39,11 @@ function readWebSerialExperimentalOverride() {
   );
 }
 
+function readBluetoothExperimentalOverride() {
+  if (typeof window === "undefined") return false;
+  return window.localStorage.getItem(BROWSER_PRINT_AGENT_BLUETOOTH_ENABLED_KEY) === "1";
+}
+
 function detectPlatform(): PlatformInfo {
   if (typeof window === "undefined") {
     return {
@@ -40,6 +52,7 @@ function detectPlatform(): PlatformInfo {
       isAndroid: false,
       isDesktop: true,
       webSerialSupported: false,
+      webBluetoothSupported: false,
       userAgent: ""
     };
   }
@@ -52,6 +65,7 @@ function detectPlatform(): PlatformInfo {
   const isIos = /iPad|iPhone|iPod/i.test(userAgent) || isIpadOs;
   const isMobile = isAndroid || isIos || /Mobile|Tablet/i.test(userAgent);
   const webSerialSupported = "serial" in window.navigator;
+  const webBluetoothSupported = "bluetooth" in window.navigator;
 
   return {
     isMobile,
@@ -59,11 +73,13 @@ function detectPlatform(): PlatformInfo {
     isAndroid,
     isDesktop: !isMobile,
     webSerialSupported,
+    webBluetoothSupported,
     userAgent
   };
 }
 
-function resolveMode(platform: PlatformInfo, allowWebSerialExperimental: boolean): PrintAgentMode {
+function resolveMode(platform: PlatformInfo, allowWebSerialExperimental: boolean, allowBluetoothExperimental: boolean): PrintAgentMode {
+  if (allowBluetoothExperimental && platform.webBluetoothSupported) return "bluetooth_experimental";
   if (allowWebSerialExperimental && platform.webSerialSupported) return "web_serial_experimental";
   if (platform.isDesktop) return "bridge_print_station";
   if (platform.isMobile) return "mobile_remote_station";
@@ -78,14 +94,17 @@ function publishMode(mode: PrintAgentMode, platform: PlatformInfo) {
         mode,
         platform: platform.isIos ? "ios" : platform.isAndroid ? "android" : platform.isDesktop ? "desktop" : "unknown",
         webSerialSupported: platform.webSerialSupported,
+        webBluetoothSupported: platform.webBluetoothSupported,
         recommendedAdapter:
           mode === "web_serial_experimental"
             ? "WEB_SERIAL_EXPERIMENTAL"
-            : platform.isAndroid
-              ? "ANDROID_PRINT_BRIDGE"
-              : platform.isIos
-                ? "AIRPRINT_OR_LAN_BRIDGE"
-                : "LOCAL_BRIDGE_WINDOWS",
+            : mode === "bluetooth_experimental"
+              ? "WEB_BLUETOOTH_EXPERIMENTAL"
+              : platform.isAndroid
+                ? "ANDROID_PRINT_BRIDGE"
+                : platform.isIos
+                  ? "AIRPRINT_OR_LAN_BRIDGE"
+                  : "LOCAL_BRIDGE_WINDOWS",
         updatedAt: new Date().toISOString()
       }
     })
@@ -95,17 +114,23 @@ function publishMode(mode: PrintAgentMode, platform: PlatformInfo) {
 export function BrowserPrintAgentPosHost() {
   const pathname = usePathname();
   const [allowWebSerialExperimental, setAllowWebSerialExperimental] = useState(false);
+  const [allowBluetoothExperimental, setAllowBluetoothExperimental] = useState(false);
   const platform = useMemo(() => detectPlatform(), []);
-  const mode = resolveMode(platform, allowWebSerialExperimental);
+  const mode = resolveMode(platform, allowWebSerialExperimental, allowBluetoothExperimental);
   const isPosPath = Boolean(pathname?.startsWith(POS_PATH_PREFIX));
   const shouldRunWebSerialAgent = mode === "web_serial_experimental";
+  const shouldRunBluetoothAgent = mode === "bluetooth_experimental";
 
   useEffect(() => {
     setAllowWebSerialExperimental(readWebSerialExperimentalOverride());
+    setAllowBluetoothExperimental(readBluetoothExperimentalOverride());
 
     function handleStorage(event: StorageEvent) {
       if (event.key === WEB_SERIAL_EXPERIMENTAL_KEY || event.key === LEGACY_MOBILE_DIRECT_AGENT_KEY) {
         setAllowWebSerialExperimental(readWebSerialExperimentalOverride());
+      }
+      if (event.key === BROWSER_PRINT_AGENT_BLUETOOTH_ENABLED_KEY) {
+        setAllowBluetoothExperimental(readBluetoothExperimentalOverride());
       }
     }
 
@@ -128,7 +153,8 @@ export function BrowserPrintAgentPosHost() {
       {shouldRunWebSerialAgent ? <BrowserPrintAgentDeployReset /> : null}
       {shouldRunWebSerialAgent ? <BrowserPrintAgentSerialRecovery /> : null}
       {shouldRunWebSerialAgent ? <BrowserPrintAgent /> : null}
-      {shouldRunWebSerialAgent ? <BrowserPrintAgentAlert /> : null}
+      {shouldRunBluetoothAgent ? <BrowserBluetoothPrintAgent /> : null}
+      {shouldRunWebSerialAgent || shouldRunBluetoothAgent ? <BrowserPrintAgentAlert /> : null}
     </>
   );
 }

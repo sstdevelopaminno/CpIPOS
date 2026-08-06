@@ -30,7 +30,7 @@
   - `POST /api/admin/pos/monitor/retry-all` body `{ "queue": "order" | "payment" }`
 - Incident export:
   - `GET /api/admin/pos/incidents/export?date=YYYY-MM-DD`
-- Poll interval: `NEXT_PUBLIC_POS_MONITOR_POLL_MS` (default `5000`)
+- Poll interval: `NEXT_PUBLIC_POS_MONITOR_POLL_MS` (default `30000`, clamped to `15000`-`120000`)
 - Track per branch:
   - queued orders
   - stale queued orders

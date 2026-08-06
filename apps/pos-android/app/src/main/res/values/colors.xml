@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="cpipos_primary">#0EA5E9</color>
+    <color name="cpipos_primary_dark">#0369A1</color>
+    <color name="cpipos_background">#020617</color>
+    <color name="cpipos_offline_banner">#DC2626</color>
+</resources>

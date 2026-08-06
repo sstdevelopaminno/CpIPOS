@@ -1,7 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Drawing;
-using System.Drawing.Drawing2D;
 using System.Drawing.Printing;
 using System.IO;
 using System.Linq;
@@ -34,6 +33,8 @@ internal sealed class LocalPrintBridge : IDisposable
     private readonly SemaphoreSlim _printLock = new(1, 1);
     private readonly SemaphoreSlim _drawerLock = new(1, 1);
     private readonly SemaphoreSlim _requestSlots = new(16, 16);
+    private const int MaxTextPrintPages = 100;
+    private static readonly HttpClient DrawerHttpClient = new();
     private readonly DateTimeOffset _startedAt = DateTimeOffset.Now;
     private TcpListener? _listener;
     private DateTimeOffset? _lastPrintAt;
@@ -49,7 +50,7 @@ internal sealed class LocalPrintBridge : IDisposable
     [DllImport("winspool.drv", CharSet = CharSet.Auto, SetLastError = true)]
     private static extern bool SetDefaultPrinter(string name);
 
-    public string Version => "cpipos-windows-native-bridge-0.1.7";
+    public string Version => "cpipos-windows-native-bridge-0.1.6";
     public bool IsRunning { get; private set; }
 
     public LocalPrintBridge(int port, string defaultPrinter, string bridgeToken)
@@ -196,7 +197,6 @@ internal sealed class LocalPrintBridge : IDisposable
                     allowed_origins = AllowedOrigins.ToArray(),
                     supports_print_receipt = true,
                     supports_html_receipt_print = true,
-                    supports_raster_receipt_print = true,
                     supports_print_test = true,
                     supports_list_printers = true,
                     supports_serialized_print_queue = true,
@@ -438,25 +438,6 @@ internal sealed class LocalPrintBridge : IDisposable
             }
 
             var printerName = FirstString(root, "printer_name", "printerName", "windows_printer", "printer") ?? _defaultPrinter;
-            var imageBase64 = ExtractPrintableImageBase64(root);
-            if (!string.IsNullOrWhiteSpace(imageBase64))
-            {
-                var imageResult = await PrintRasterImageAsync(imageBase64, printerName, cancellationToken).ConfigureAwait(false);
-                return HttpResponseData.Json(200, new
-                {
-                    ok = true,
-                    data = new
-                    {
-                        printed = true,
-                        provider = "native_escpos_raster_image",
-                        printer_name = imageResult.PrinterName,
-                        job_id = imageResult.JobId,
-                        raster_printed = true,
-                        bridge_version = Version
-                    }
-                }, corsOrigin);
-            }
-
             var html = ExtractPrintableHtml(root);
 
             if (!string.IsNullOrWhiteSpace(html))
@@ -514,115 +495,6 @@ internal sealed class LocalPrintBridge : IDisposable
                 data = new { bridge_version = Version, health = BuildHealthPayload() }
             }, corsOrigin);
         }
-    }
-    private async Task<PrintResult> PrintRasterImageAsync(string imageBase64, string requestedPrinterName, CancellationToken cancellationToken)
-    {
-        if (!await _printLock.WaitAsync(TimeSpan.FromSeconds(20), cancellationToken).ConfigureAwait(false))
-        {
-            throw new InvalidOperationException("Print queue is busy. Please retry after the current print job finishes.");
-        }
-
-        try
-        {
-            var installed = GetInstalledPrinterNames();
-            var resolvedPrinter = ResolvePrinterNameOrThrow(requestedPrinterName, installed);
-            var jobId = "CPIPOS-RASTER-" + DateTimeOffset.Now.ToString("yyyyMMddHHmmssfff");
-
-            var imageBytes = DecodeBase64Payload(imageBase64);
-            using var input = new MemoryStream(imageBytes);
-            using var source = new Bitmap(input);
-            using var receiptBitmap = ResizeReceiptBitmap(source, 384);
-
-            var escposBytes = BuildEscPosRasterBytes(receiptBitmap);
-            RawPrinterWriter.SendBytes(resolvedPrinter, jobId, escposBytes);
-
-            _printedJobs++;
-            _lastError = null;
-            _lastPrintAt = DateTimeOffset.Now;
-            _lastPrinter = resolvedPrinter;
-
-            return new PrintResult(jobId, resolvedPrinter);
-        }
-        finally
-        {
-            _printLock.Release();
-        }
-    }
-
-    private static byte[] DecodeBase64Payload(string value)
-    {
-        var normalized = value.Trim();
-        var markerIndex = normalized.IndexOf("base64,", StringComparison.OrdinalIgnoreCase);
-        if (markerIndex >= 0)
-        {
-            normalized = normalized[(markerIndex + "base64,".Length)..];
-        }
-
-        normalized = Regex.Replace(normalized, @"\s+", string.Empty);
-        return Convert.FromBase64String(normalized);
-    }
-
-    private static Bitmap ResizeReceiptBitmap(Bitmap source, int targetWidth)
-    {
-        var safeWidth = Math.Max(1, source.Width);
-        var safeHeight = Math.Max(1, source.Height);
-        var width = Math.Clamp(targetWidth, 128, 576);
-        var height = Math.Max(1, (int)Math.Round(safeHeight * (width / (double)safeWidth)));
-
-        var bitmap = new Bitmap(width, height);
-        bitmap.SetResolution(203, 203);
-
-        using var graphics = Graphics.FromImage(bitmap);
-        graphics.Clear(Color.White);
-        graphics.CompositingQuality = CompositingQuality.HighQuality;
-        graphics.InterpolationMode = InterpolationMode.HighQualityBicubic;
-        graphics.SmoothingMode = SmoothingMode.HighQuality;
-        graphics.PixelOffsetMode = PixelOffsetMode.HighQuality;
-        graphics.DrawImage(source, new Rectangle(0, 0, width, height));
-
-        return bitmap;
-    }
-
-    private static byte[] BuildEscPosRasterBytes(Bitmap bitmap)
-    {
-        var output = new List<byte>(bitmap.Width * bitmap.Height / 8 + 64);
-        output.AddRange(new byte[] { 0x1b, 0x40 });
-
-        const int chunkHeight = 1024;
-        var widthBytes = (bitmap.Width + 7) / 8;
-
-        for (var top = 0; top < bitmap.Height; top += chunkHeight)
-        {
-            var height = Math.Min(chunkHeight, bitmap.Height - top);
-            var raster = new byte[widthBytes * height];
-
-            for (var y = 0; y < height; y++)
-            {
-                for (var x = 0; x < bitmap.Width; x++)
-                {
-                    var pixel = bitmap.GetPixel(x, top + y);
-                    var luminance = (pixel.R * 299 + pixel.G * 587 + pixel.B * 114) / 1000;
-                    var isBlack = pixel.A > 80 && luminance < 190;
-                    if (!isBlack) continue;
-
-                    var byteIndex = y * widthBytes + x / 8;
-                    raster[byteIndex] |= (byte)(0x80 >> (x % 8));
-                }
-            }
-
-            output.AddRange(new byte[]
-            {
-                0x1d, 0x76, 0x30, 0x00,
-                (byte)(widthBytes & 0xff),
-                (byte)((widthBytes >> 8) & 0xff),
-                (byte)(height & 0xff),
-                (byte)((height >> 8) & 0xff)
-            });
-            output.AddRange(raster);
-        }
-
-        output.AddRange(new byte[] { 0x0a, 0x0a, 0x0a });
-        return output.ToArray();
     }
     private async Task<PrintResult> PrintHtmlAsync(string html, string requestedPrinterName, CancellationToken cancellationToken)
     {
@@ -833,9 +705,17 @@ img { max-width: 100%; }
                 }
 
                 var remainingText = text;
+                var pageCount = 0;
                 document.PrintPage += (_, eventArgs) =>
                 {
                     printTimeout.Token.ThrowIfCancellationRequested();
+                    pageCount++;
+                    if (pageCount > MaxTextPrintPages)
+                    {
+                        throw new InvalidOperationException($"Print job exceeded the maximum of {MaxTextPrintPages} pages; aborting to avoid runaway printing on malformed input.");
+                    }
+
+                    var graphics = eventArgs.Graphics ?? throw new InvalidOperationException("Print page graphics context was not available.");
                     var bounds = eventArgs.MarginBounds;
                     if (bounds.Width <= 0 || bounds.Height <= 0)
                     {
@@ -846,18 +726,18 @@ img { max-width: 100%; }
                     var measureSize = new SizeF(Math.Max(1, bounds.Width), Math.Max(1, bounds.Height));
                     int charsFitted;
                     int linesFilled;
-                    eventArgs.Graphics.MeasureString(remainingText, font, measureSize, StringFormat.GenericTypographic, out charsFitted, out linesFilled);
+                    graphics.MeasureString(remainingText, font, measureSize, StringFormat.GenericTypographic, out charsFitted, out linesFilled);
 
                     if (charsFitted <= 0 || charsFitted >= remainingText.Length)
                     {
-                        eventArgs.Graphics.DrawString(remainingText, font, Brushes.Black, layout);
+                        graphics.DrawString(remainingText, font, Brushes.Black, layout);
                         eventArgs.HasMorePages = false;
                         remainingText = string.Empty;
                     }
                     else
                     {
                         var pageText = remainingText[..charsFitted];
-                        eventArgs.Graphics.DrawString(pageText, font, Brushes.Black, layout);
+                        graphics.DrawString(pageText, font, Brushes.Black, layout);
                         remainingText = remainingText[charsFitted..].TrimStart('\r', '\n');
                         eventArgs.HasMorePages = remainingText.Length > 0;
                     }
@@ -916,7 +796,24 @@ img { max-width: 100%; }
         var resolvedPrinter = ResolvePrinterNameOrThrow(command.PrinterName, installed);
         var jobId = "CPIPOS-DRAWER-" + DateTimeOffset.Now.ToString("yyyyMMddHHmmssfff");
         var bytes = command.CommandBytes();
-        await Task.Run(() => RawPrinterWriter.SendBytes(resolvedPrinter, jobId, bytes), cancellationToken).ConfigureAwait(false);
+
+        // The printer-kick drawer pulse writes raw bytes to the same physical printer that
+        // PrintHtmlAsync/PrintTextAsync use through the GDI spooler. Take _printLock too so a
+        // rapid double-tap payment (print + drawer-open near-simultaneously) can't interleave
+        // raw ESC/POS bytes with an in-flight spooled receipt job on the same device.
+        if (!await _printLock.WaitAsync(TimeSpan.FromSeconds(20), cancellationToken).ConfigureAwait(false))
+        {
+            throw new InvalidOperationException("Print queue is busy. Please retry the cash drawer command after the current print job finishes.");
+        }
+        try
+        {
+            await Task.Run(() => RawPrinterWriter.SendBytes(resolvedPrinter, jobId, bytes), cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            _printLock.Release();
+        }
+
         return new CashDrawerResult(jobId, "windows_raw_escpos_cash_drawer", resolvedPrinter, connectionMode, command.KickPin, command.PulseOnMs, command.PulseOffMs, bytes.Length);
     }
 
@@ -945,10 +842,11 @@ img { max-width: 100%; }
 
         if (!string.IsNullOrWhiteSpace(url) && (url.StartsWith("http://", StringComparison.OrdinalIgnoreCase) || url.StartsWith("https://", StringComparison.OrdinalIgnoreCase)))
         {
-            using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(8) };
             using var content = new ByteArrayContent(bytes);
             content.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/octet-stream");
-            using var response = await client.PostAsync(url, content, cancellationToken).ConfigureAwait(false);
+            using var requestTimeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            requestTimeout.CancelAfter(TimeSpan.FromSeconds(8));
+            using var response = await DrawerHttpClient.PostAsync(url, content, requestTimeout.Token).ConfigureAwait(false);
             if (!response.IsSuccessStatusCode)
             {
                 throw new InvalidOperationException($"Network drawer HTTP controller returned {(int)response.StatusCode} {response.ReasonPhrase}.");
@@ -1133,16 +1031,6 @@ img { max-width: 100%; }
 
         var tokenized = Regex.Replace(normalized, @"[\s\p{P}\p{C}]+", " ").Trim();
         return tokenized is "open cash drawer" or "cash drawer open" or "open drawer";
-    }
-
-    private static string? ExtractPrintableImageBase64(JsonElement root)
-    {
-        var metadata = GetObject(root, "metadata");
-        var payloadJson = GetObject(root, "payload_json");
-
-        return FirstString(root, "receipt_image_base64", "receipt_png_base64", "image_base64", "payload_image_base64")
-               ?? FirstString(metadata, "receipt_image_base64", "receipt_png_base64", "image_base64", "payload_image_base64")
-               ?? FirstString(payloadJson, "receipt_image_base64", "receipt_png_base64", "image_base64", "payload_image_base64");
     }
 
     private static string? ExtractPrintableHtml(JsonElement root)
@@ -1605,6 +1493,5 @@ internal sealed class HttpResponseData
         }
     }
 }
-
 
 

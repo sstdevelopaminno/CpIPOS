@@ -32,3 +32,12 @@ typecheck-output.txt
 .codex_worktrees/
 
 .vercel
+
+# .NET build output (Windows runtime native app)
+bin/
+obj/
+artifacts/
+*.bak-*
+
+# ESLint cache
+.tmp-eslintcache
