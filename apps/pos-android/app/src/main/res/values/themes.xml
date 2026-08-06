@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.CpiposPos" parent="Theme.MaterialComponents.DayNight.NoActionBar">
+        <item name="colorPrimary">@color/cpipos_primary</item>
+        <item name="colorPrimaryDark">@color/cpipos_primary_dark</item>
+        <item name="android:windowBackground">@color/cpipos_background</item>
+        <item name="android:windowFullscreen">true</item>
+        <item name="windowActionBar">false</item>
+        <item name="windowNoTitle">true</item>
+    </style>
+
+    <style name="Theme.CpiposPos.Splash" parent="Theme.SplashScreen">
+        <item name="windowSplashScreenBackground">@color/cpipos_primary_dark</item>
+        <item name="windowSplashScreenAnimatedIcon">@mipmap/ic_launcher</item>
+        <item name="postSplashScreenTheme">@style/Theme.CpiposPos</item>
+    </style>
+</resources>
