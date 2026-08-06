@@ -1,4 +1,5 @@
 import { BottomNav } from "@/components/layout/bottom-nav";
+import { MobileDeviceHeartbeatSender } from "@/components/layout/mobile-device-heartbeat-sender";
 import type { MobileScope } from "@/types/contracts";
 
 export function MobileAppShell({ children, title, subtitle, brand, action, scope, showBottomNav = true }: { children: React.ReactNode; title?: string; subtitle?: string; brand?: React.ReactNode; action?: React.ReactNode; scope?: MobileScope; showBottomNav?: boolean }) {
@@ -37,6 +38,7 @@ export function MobileAppShell({ children, title, subtitle, brand, action, scope
         </header>
       ) : null}
       {children}
+      {scope ? <MobileDeviceHeartbeatSender deviceCode={scope.deviceCode} /> : null}
       {showBottomNav && scope ? <BottomNav role={scope.role} /> : null}
     </main>
   );
