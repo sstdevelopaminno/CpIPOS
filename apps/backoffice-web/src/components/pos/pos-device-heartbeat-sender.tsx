@@ -4,6 +4,7 @@ import { useEffect, useRef } from "react";
 import {
   buildHeartbeatPayload,
   detectSurface,
+  executePendingActions,
   resolveDeviceCode,
   resolveMachineId,
   sendDeviceHeartbeat,
@@ -58,8 +59,11 @@ export function PosDeviceHeartbeatSender() {
           reason
         });
         if (!cancelled) {
-          await sendDeviceHeartbeat(payload);
+          const pendingActions = await sendDeviceHeartbeat(payload);
           lastSentAtRef.current = Date.now();
+          if (pendingActions.length > 0) {
+            await executePendingActions(pendingActions);
+          }
         }
       } finally {
         inFlightRef.current = false;

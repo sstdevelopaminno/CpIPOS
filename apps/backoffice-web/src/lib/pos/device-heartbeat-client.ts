@@ -6,6 +6,7 @@ import type {
   DeviceMdmSecuritySignal,
   DeviceMdmSystemHealth
 } from "@/lib/device-mdm-diagnostics";
+import { UNSUPPORTED_DEVICE_COMMAND_TYPES, type PendingDeviceAction } from "@/lib/device-commands";
 
 type WindowsRuntimeGlobal = {
   store_code?: string;
@@ -214,7 +215,13 @@ export async function buildHeartbeatPayload(input: BuildHeartbeatPayloadInput): 
   };
 }
 
-export async function sendDeviceHeartbeat(payload: DeviceHeartbeatPayload): Promise<boolean> {
+type DeviceHeartbeatResponse = {
+  data?: {
+    pending_actions?: PendingDeviceAction[];
+  } | null;
+};
+
+export async function sendDeviceHeartbeat(payload: DeviceHeartbeatPayload): Promise<PendingDeviceAction[]> {
   try {
     const response = await fetch("/api/pos/device-heartbeat", {
       method: "POST",
@@ -223,8 +230,71 @@ export async function sendDeviceHeartbeat(payload: DeviceHeartbeatPayload): Prom
       cache: "no-store",
       body: JSON.stringify(payload)
     });
+    if (!response.ok) return [];
+    const body = (await response.json().catch(() => null)) as DeviceHeartbeatResponse | null;
+    return body?.data?.pending_actions ?? [];
+  } catch {
+    return [];
+  }
+}
+
+export type ExecutedDeviceAction = {
+  id: string;
+  command_type: PendingDeviceAction["command_type"];
+  applied: boolean;
+};
+
+async function refreshWindowsRuntimeConfig(): Promise<boolean> {
+  const runtimeGlobal = getWindowsRuntimeGlobal();
+  const entitlementsUrl = (runtimeGlobal as { windows_runtime_entitlements_url?: string } | null)?.windows_runtime_entitlements_url;
+  if (!entitlementsUrl) return false;
+  try {
+    const response = await fetch(entitlementsUrl, { cache: "no-store", credentials: "include" });
     return response.ok;
   } catch {
     return false;
   }
+}
+
+// Executes the safe, fixed allowlist of device commands delivered via heartbeat
+// responses. Never accepts or evaluates arbitrary code/payloads - only the known
+// command_type values from DEVICE_COMMAND_TYPES are ever acted on.
+export async function executePendingActions(actions: readonly PendingDeviceAction[]): Promise<ExecutedDeviceAction[]> {
+  const results: ExecutedDeviceAction[] = [];
+
+  for (const action of actions) {
+    if (UNSUPPORTED_DEVICE_COMMAND_TYPES.includes(action.command_type)) {
+      // Delivered and acknowledged, but no native endpoint exists yet to act on it
+      // (see UNSUPPORTED_DEVICE_COMMAND_TYPES in @/lib/device-commands).
+      results.push({ id: action.id, command_type: action.command_type, applied: false });
+      continue;
+    }
+
+    switch (action.command_type) {
+      case "reload_ui":
+        results.push({ id: action.id, command_type: action.command_type, applied: true });
+        if (typeof window !== "undefined") window.location.reload();
+        break;
+      case "request_diagnostics_bundle":
+        // The heartbeat that delivered this command already carried a fresh
+        // snapshot; nothing further to do beyond acknowledging delivery.
+        results.push({ id: action.id, command_type: action.command_type, applied: true });
+        break;
+      case "refresh_config": {
+        const applied = await refreshWindowsRuntimeConfig();
+        results.push({ id: action.id, command_type: action.command_type, applied });
+        break;
+      }
+      case "disable_device":
+      case "enable_device":
+        // Applied immediately server-side (branch_devices.status) when issued -
+        // nothing for the device to do.
+        results.push({ id: action.id, command_type: action.command_type, applied: true });
+        break;
+      default:
+        results.push({ id: action.id, command_type: action.command_type, applied: false });
+    }
+  }
+
+  return results;
 }

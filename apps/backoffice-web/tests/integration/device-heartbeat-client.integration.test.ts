@@ -1,5 +1,11 @@
-import { afterEach, describe, expect, it } from "vitest";
-import { buildHeartbeatPayload, detectSurface, resolveDeviceCode, resolveMachineId } from "@/lib/pos/device-heartbeat-client";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import {
+  buildHeartbeatPayload,
+  detectSurface,
+  executePendingActions,
+  resolveDeviceCode,
+  resolveMachineId
+} from "@/lib/pos/device-heartbeat-client";
 
 const originalFetch = globalThis.fetch;
 
@@ -77,5 +83,44 @@ describe("device heartbeat client", () => {
     expect(payload.runtime.bridge_version).toBe("1.2.3");
     expect(payload.peripherals.default_printer).toBe("MTP-II");
     expect(payload.metadata.source).toBe("web_pos_session_heartbeat_windows_runtime");
+  });
+});
+
+describe("executePendingActions", () => {
+  it("marks unsupported commands as not applied without side effects", async () => {
+    const results = await executePendingActions([
+      { id: "1", command_type: "clear_print_queue", issued_at: "2026-08-06T00:00:00Z" },
+      { id: "2", command_type: "restart_local_bridge", issued_at: "2026-08-06T00:00:00Z" }
+    ]);
+
+    expect(results).toEqual([
+      { id: "1", command_type: "clear_print_queue", applied: false },
+      { id: "2", command_type: "restart_local_bridge", applied: false }
+    ]);
+  });
+
+  it("applies disable_device/enable_device and request_diagnostics_bundle as already-satisfied", async () => {
+    const results = await executePendingActions([
+      { id: "3", command_type: "disable_device", issued_at: "2026-08-06T00:00:00Z" },
+      { id: "4", command_type: "enable_device", issued_at: "2026-08-06T00:00:00Z" },
+      { id: "5", command_type: "request_diagnostics_bundle", issued_at: "2026-08-06T00:00:00Z" }
+    ]);
+
+    expect(results.every((result) => result.applied)).toBe(true);
+  });
+
+  it("reloads the page for reload_ui", async () => {
+    const reload = vi.fn();
+    (globalThis as { window?: unknown }).window = { location: { reload } };
+
+    const results = await executePendingActions([{ id: "6", command_type: "reload_ui", issued_at: "2026-08-06T00:00:00Z" }]);
+
+    expect(results).toEqual([{ id: "6", command_type: "reload_ui", applied: true }]);
+    expect(reload).toHaveBeenCalledTimes(1);
+  });
+
+  it("refresh_config is not applied without a Windows Runtime entitlements URL", async () => {
+    const results = await executePendingActions([{ id: "7", command_type: "refresh_config", issued_at: "2026-08-06T00:00:00Z" }]);
+    expect(results).toEqual([{ id: "7", command_type: "refresh_config", applied: false }]);
   });
 });

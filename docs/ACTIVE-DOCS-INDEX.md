@@ -7,7 +7,8 @@ Use this page as the first stop before new development. It separates active impl
 ## Current Runtime
 
 - App: `apps/backoffice-web`
-- Mobile app: `apps/pos-mobile-web` (CpIPOS Mobile, imported 2026-08-06 from `E:\SSTiPOSMobile` — see consolidation plan below; not yet deployed)
+- Mobile app: `apps/pos-mobile-web` (CpIPOS Mobile). Deployed 2026-08-06 as its own Vercel project `cp-ipos-mobile` (team `sstdevelopaminnos-projects`), production tracking branch `agent/revert-raster-print-to-stable` — live at `https://cp-ipos-mobile-sstdevelopaminnos-projects.vercel.app`.
+- Real `backoffice-web` Vercel project is named **`cp-ipos-web`** (`prj_NLRmnCWPvQfSJZvoJE224zqVT4dj`) — the local `.vercel/project.json` previously pointed at a stale/wrong project id, corrected 2026-08-06. Preview deployments require Vercel team SSO (expected, not an app bug).
 - IT Admin desktop app: `apps/windows-runtime-it-admin` (`Cpipos.ITAdminRuntime`, added 2026-08-06 — minimal WebView2 shell wrapping `backoffice-web`'s own `/it-admin` surface, new sign-in page at `/it-admin/login`; download page `/download/it-admin`; CI workflow `build-it-admin-runtime.yml`, tag `it-admin-runtime-latest`. Not yet built/released — no `it_admin` Supabase account provisioned yet.)
 - Workspace: `E:\CpIPOS`
 - GitHub repo: `https://github.com/sstdevelopaminno/CpIPOS.git`
