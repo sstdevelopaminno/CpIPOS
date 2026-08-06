@@ -69,14 +69,20 @@ export default function ItAdminLoginPage() {
       });
 
       if (signInError) {
-        setError(signInError.status === 400 ? copy.invalidCredentialsError : copy.defaultError);
+        const detail = `[status=${signInError.status ?? "n/a"} name=${signInError.name ?? "n/a"}] ${signInError.message ?? ""}`;
+        setError(
+          signInError.status === 400
+            ? copy.invalidCredentialsError
+            : `${copy.defaultError} ${detail}`
+        );
         return;
       }
 
       router.push("/it-admin");
       router.refresh();
-    } catch {
-      setError(copy.defaultError);
+    } catch (ex) {
+      const detail = ex instanceof Error ? `${ex.name}: ${ex.message}` : String(ex);
+      setError(`${copy.defaultError} [${detail}]`);
     } finally {
       setLoading(false);
     }
