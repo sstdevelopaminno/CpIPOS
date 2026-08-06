@@ -49,6 +49,44 @@ export function WindowsPosIllustration() {
   );
 }
 
+export function ItAdminIllustration() {
+  return (
+    <svg viewBox="0 0 400 320" className="h-auto w-full" role="img" aria-label="หน้าจอ CpIPOS IT Admin แสดงแดชบอร์ดจัดการร้านค้าและอุปกรณ์">
+      <defs>
+        <linearGradient id="ita-screen" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0%" stopColor="#a78bfa" />
+          <stop offset="100%" stopColor="#4c1d95" />
+        </linearGradient>
+        <linearGradient id="ita-body" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor="#1e293b" />
+          <stop offset="100%" stopColor="#0f172a" />
+        </linearGradient>
+      </defs>
+
+      <ellipse cx="200" cy="284" rx="150" ry="14" fill="#000000" opacity="0.35" />
+
+      <rect x="150" y="252" width="10" height="26" fill="#1e293b" />
+      <rect x="114" y="276" width="82" height="12" rx="4" fill="#0f172a" stroke="#334155" />
+
+      <rect x="60" y="24" width="280" height="188" rx="16" fill="url(#ita-body)" stroke="#334155" strokeWidth="2" />
+      <rect x="76" y="40" width="248" height="152" rx="8" fill="url(#ita-screen)" />
+
+      <rect x="90" y="54" width="80" height="20" rx="6" fill="#ffffff" opacity="0.9" />
+      <circle cx="234" cy="64" r="12" fill="#ffffff" opacity="0.85" />
+      <path d="M228 64l4 4 8-8" stroke="#4c1d95" strokeWidth="2.5" fill="none" strokeLinecap="round" strokeLinejoin="round" />
+
+      <rect x="90" y="88" width="70" height="42" rx="6" fill="#ffffff" opacity="0.82" />
+      <rect x="168" y="88" width="70" height="42" rx="6" fill="#ffffff" opacity="0.68" />
+      <rect x="246" y="88" width="62" height="42" rx="6" fill="#ffffff" opacity="0.55" />
+
+      <rect x="90" y="140" width="218" height="38" rx="6" fill="#0f172a" opacity="0.45" />
+      <rect x="100" y="150" width="120" height="8" rx="2" fill="#e2e8f0" opacity="0.85" />
+      <rect x="100" y="164" width="80" height="8" rx="2" fill="#e2e8f0" opacity="0.6" />
+      <rect x="264" y="150" width="34" height="18" rx="5" fill="#34d399" opacity="0.9" />
+    </svg>
+  );
+}
+
 export function AndroidPosIllustration() {
   return (
     <svg viewBox="0 0 420 280" className="h-auto w-full" role="img" aria-label="แท็บเล็ต Android แสดงหน้าจอขาย CpIPOS แนวนอน">

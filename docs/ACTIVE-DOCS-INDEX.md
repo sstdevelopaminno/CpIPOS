@@ -8,6 +8,7 @@ Use this page as the first stop before new development. It separates active impl
 
 - App: `apps/backoffice-web`
 - Mobile app: `apps/pos-mobile-web` (CpIPOS Mobile, imported 2026-08-06 from `E:\SSTiPOSMobile` — see consolidation plan below; not yet deployed)
+- IT Admin desktop app: `apps/windows-runtime-it-admin` (`Cpipos.ITAdminRuntime`, added 2026-08-06 — minimal WebView2 shell wrapping `backoffice-web`'s own `/it-admin` surface, new sign-in page at `/it-admin/login`; download page `/download/it-admin`; CI workflow `build-it-admin-runtime.yml`, tag `it-admin-runtime-latest`. Not yet built/released — no `it_admin` Supabase account provisioned yet.)
 - Workspace: `E:\CpIPOS`
 - GitHub repo: `https://github.com/sstdevelopaminno/CpIPOS.git`
 - Active branch/default branch: `agent-docs-preflight-schema-drift`
