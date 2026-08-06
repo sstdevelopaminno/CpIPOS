@@ -1,10 +1,16 @@
 # Bluetooth Bridge Setup (Web + App)
 
 Date: 2026-05-25
+Updated: 2026-08-06 — see `docs/POS-BLUETOOTH-PRINT-DRAWER-2026-08-06.md` for the current, verified state of both Bluetooth paths (Windows OS-paired printer, and the new direct browser Web Bluetooth agent for Android/tablets).
 
 This guide enables 58mm receipt printing through Bluetooth for:
 - POS web app (desktop browser)
 - POS app integration (calling same backend print path)
+
+Two distinct paths exist today. Do not confuse them:
+
+1. **Windows + OS-paired Bluetooth printer**: pair the printer in Windows first (`Devices > Bluetooth & other devices > Add printer`), then configure it as a normal `LOCAL_BRIDGE` printer profile (recommended) or `BLUETOOTH_BRIDGE` profile (also fixed and working as of 2026-08-06). Windows' print driver handles the Bluetooth transport; the bridge never talks Bluetooth directly.
+2. **Android/tablet browser with no PC or native app**: the browser connects directly to the printer over Web Bluetooth (GATT). See `docs/POS-BLUETOOTH-PRINT-DRAWER-2026-08-06.md` section "Android Web Bluetooth agent".
 
 ## 1. Pair Printer at OS Level
 1. Pair Bluetooth printer on cashier machine.

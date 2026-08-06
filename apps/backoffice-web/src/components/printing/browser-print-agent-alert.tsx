@@ -40,14 +40,20 @@ const PROBLEM_STATUS_CODES = new Set([
   "paper_out",
   "cover_open",
   "paper_jam",
-  "printer_offline"
+  "printer_offline",
+  "bluetooth_unsupported",
+  "bluetooth_permission_required",
+  "bluetooth_gatt_connect_failed",
+  "browser_bluetooth_print_failed"
 ]);
 const SNOOZABLE_STATUS_CODES = new Set([
   "direct_web_serial_disabled_use_bridge",
   "serial_permission_required",
   "serial_reselect_required",
   "serial_port_not_writable",
-  "printer_offline"
+  "printer_offline",
+  "bluetooth_permission_required",
+  "bluetooth_gatt_connect_failed"
 ]);
 
 function isPosPath() {
@@ -93,6 +99,38 @@ function copyForStatus(status: BrowserPrintAgentStatus): AlertCopy {
       title: "เครื่องพิมพ์อาจมีกระดาษติด",
       detail: "ระบบตรวจพบปัญหาระหว่างพิมพ์ อาจเกิดจากกระดาษติด หัวพิมพ์ หรือ cutter ค้าง",
       actionHint: "ตรวจสอบกระดาษ หัวพิมพ์ และช่องทางออกกระดาษ",
+      severity: "danger"
+    };
+  }
+  if (status.code === "bluetooth_unsupported") {
+    return {
+      title: "เบราว์เซอร์นี้ไม่รองรับ Bluetooth",
+      detail: "ระบบไม่สามารถเชื่อมต่อเครื่องพิมพ์ Bluetooth ผ่านเบราว์เซอร์นี้ได้",
+      actionHint: "ใช้ Chrome บน Android หรือ Windows/Mac ที่รองรับ Web Bluetooth",
+      severity: "danger"
+    };
+  }
+  if (status.code === "bluetooth_permission_required") {
+    return {
+      title: "ยังไม่ได้จับคู่เครื่องพิมพ์ Bluetooth",
+      detail: "ระบบยังไม่ได้รับสิทธิ์เชื่อมต่อเครื่องพิมพ์ Bluetooth เครื่องนี้",
+      actionHint: "กดปุ่ม \"เชื่อมต่อเครื่องพิมพ์ Bluetooth\" ที่มุมจอ แล้วเลือกเครื่องพิมพ์จากรายการ",
+      severity: "warning"
+    };
+  }
+  if (status.code === "bluetooth_gatt_connect_failed") {
+    return {
+      title: "เชื่อมต่อเครื่องพิมพ์ Bluetooth ไม่สำเร็จ",
+      detail: "ระบบเชื่อมต่ออุปกรณ์ Bluetooth ได้แต่คุยกับเครื่องพิมพ์ผ่าน GATT ไม่สำเร็จ",
+      actionHint: "ตรวจสอบว่าเครื่องพิมพ์เปิดอยู่และอยู่ใกล้พอ หรือระบุ Service/Characteristic UUID ของรุ่นเครื่องพิมพ์นี้ในหน้าตั้งค่า",
+      severity: "danger"
+    };
+  }
+  if (status.code === "browser_bluetooth_print_failed") {
+    return {
+      title: "พิมพ์ผ่าน Bluetooth ไม่สำเร็จ",
+      detail: "ระบบส่งข้อมูลพิมพ์ผ่าน Bluetooth ไม่สำเร็จ อาจเกิดจากเครื่องพิมพ์หลุดการเชื่อมต่อหรืออยู่ไกลเกินไป",
+      actionHint: "ตรวจสอบระยะห่างและแบตเตอรี่เครื่องพิมพ์ แล้วลองพิมพ์ซ้ำ",
       severity: "danger"
     };
   }

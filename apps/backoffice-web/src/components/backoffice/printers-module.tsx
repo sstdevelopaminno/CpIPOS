@@ -6,6 +6,11 @@ import { EmptyState, ErrorState, LoadingState } from "@/components/backoffice/li
 import { PaginationControls } from "@/components/backoffice/pagination-controls";
 import { usePaginatedApi } from "@/components/backoffice/use-paginated-api";
 import { BROWSER_PRINT_AGENT_BAUD_KEY, BROWSER_PRINT_AGENT_CONFIG_EVENT, BROWSER_PRINT_AGENT_ENABLED_KEY, BROWSER_PRINT_AGENT_KEY, BROWSER_PRINT_AGENT_RESET_EVENT, BROWSER_PRINT_AGENT_STATUS_EVENT, type BrowserPrintAgentStatus } from "@/components/printing/browser-print-agent";
+import {
+  BROWSER_PRINT_AGENT_BLUETOOTH_CHARACTERISTIC_UUID_KEY,
+  BROWSER_PRINT_AGENT_BLUETOOTH_ENABLED_KEY,
+  BROWSER_PRINT_AGENT_BLUETOOTH_SERVICE_UUID_KEY
+} from "@/components/printing/browser-bluetooth-print-agent";
 
 type PrinterRole = "receipt" | "kitchen" | "report";
 type ConnectionType = "NETWORK_ESC_POS" | "STAR_WEBPRNT" | "LOCAL_BRIDGE" | "BLUETOOTH_BRIDGE";
@@ -173,7 +178,17 @@ const text = {
   debugPanel: "ข้อมูล Debug Bridge",
   address: "ที่อยู่",
   yes: "ใช่",
-  no: "ไม่ใช่"
+  no: "ไม่ใช่",
+  bleAgentTitle: "Bluetooth Print Agent (Web Bluetooth, ไม่ต้องมีเครื่อง PC)",
+  bleAgentDesc: "สำหรับแท็บเล็ต/มือถือ Android ที่ใช้ Chrome เปิด POS โดยตรง เชื่อมต่อเครื่องพิมพ์ Bluetooth ผ่านเบราว์เซอร์ ไม่ต้องมีบริดจ์บนคอมพิวเตอร์",
+  bleAgentLimit: "ต้องใช้ Chrome บน Android หรือ Windows/Mac ที่รองรับ Web Bluetooth เท่านั้น และต้องกดปุ่มเชื่อมต่อเองครั้งแรกตามข้อจำกัดของเบราว์เซอร์",
+  bleAgentEnable: "เปิด Bluetooth Print Agent",
+  bleServiceUuid: "Service UUID (ไม่บังคับ)",
+  bleCharacteristicUuid: "Characteristic UUID (ไม่บังคับ)",
+  bleUuidHint: "เว้นว่างไว้เพื่อให้ระบบลอง UUID ที่พบบ่อยในเครื่องพิมพ์ Bluetooth ทั่วไปโดยอัตโนมัติ ถ้าเชื่อมต่อไม่ติดให้ระบุ UUID ของเครื่องพิมพ์รุ่นนี้ตามคู่มือ",
+  bleAgentSaved: "บันทึกค่า Bluetooth Print Agent แล้ว",
+  bleAgentPairHint: "หลังบันทึกและเปิดใช้งาน ให้กลับไปที่หน้าขาย POS แล้วกดปุ่ม \"เชื่อมต่อเครื่องพิมพ์ Bluetooth\" ที่มุมจอเพื่อจับคู่เครื่องพิมพ์ครั้งแรก",
+  resetBleAgent: "Reset Bluetooth Agent"
 } as const;
 
 const panelStyle: CSSProperties = { border: "1px solid #d8e0ea", borderRadius: 8, padding: 14, background: "#fff" };
@@ -362,6 +377,9 @@ export function PrintersModule({ lang: _lang = "th" }: { lang?: "th" | "en" }) {
   const [browserAgentPortReady, setBrowserAgentPortReady] = useState(false);
   const [browserAgentStatus, setBrowserAgentStatus] = useState<BrowserPrintAgentStatus | null>(null);
   const [browserAgentBusy, setBrowserAgentBusy] = useState<string | null>(null);
+  const [bleAgentEnabled, setBleAgentEnabled] = useState(false);
+  const [bleServiceUuid, setBleServiceUuid] = useState("");
+  const [bleCharacteristicUuid, setBleCharacteristicUuid] = useState("");
 
   const isBridgeMode = connectionType === "LOCAL_BRIDGE" || connectionType === "BLUETOOTH_BRIDGE";
   const isBluetoothMode = connectionType === "BLUETOOTH_BRIDGE";
@@ -467,6 +485,39 @@ export function PrintersModule({ lang: _lang = "th" }: { lang?: "th" | "en" }) {
     window.localStorage.setItem(BROWSER_PRINT_AGENT_BAUD_KEY, String(browserAgentBaudNumber()));
     dispatchBrowserAgentConfig();
     setSubmitSuccess(text.browserAgentSaved);
+  }
+
+  function handleResetBleAgent() {
+    window.localStorage.removeItem(BROWSER_PRINT_AGENT_BLUETOOTH_ENABLED_KEY);
+    window.localStorage.removeItem(BROWSER_PRINT_AGENT_BLUETOOTH_SERVICE_UUID_KEY);
+    window.localStorage.removeItem(BROWSER_PRINT_AGENT_BLUETOOTH_CHARACTERISTIC_UUID_KEY);
+    setBleAgentEnabled(false);
+    setBleServiceUuid("");
+    setBleCharacteristicUuid("");
+    setBrowserAgentStatus(null);
+    window.dispatchEvent(new Event(BROWSER_PRINT_AGENT_RESET_EVENT));
+    dispatchBrowserAgentConfig();
+    setSubmitError(null);
+    setSubmitSuccess(text.browserAgentReset);
+  }
+
+  async function handleSaveBleAgent() {
+    setSubmitError(null);
+    setSubmitSuccess(null);
+    if (bleAgentEnabled && !browserAgentSecret.trim()) {
+      setSubmitError(text.browserAgentSecret);
+      return;
+    }
+    window.localStorage.setItem(BROWSER_PRINT_AGENT_BLUETOOTH_ENABLED_KEY, bleAgentEnabled ? "1" : "0");
+    window.localStorage.setItem(BROWSER_PRINT_AGENT_BLUETOOTH_SERVICE_UUID_KEY, bleServiceUuid.trim());
+    window.localStorage.setItem(BROWSER_PRINT_AGENT_BLUETOOTH_CHARACTERISTIC_UUID_KEY, bleCharacteristicUuid.trim());
+    if (!browserAgentSecret.trim()) {
+      // Bluetooth agent reuses the same Print Agent secret as Browser Print Agent (Web Serial).
+    } else {
+      window.localStorage.setItem(BROWSER_PRINT_AGENT_KEY, browserAgentSecret.trim());
+    }
+    dispatchBrowserAgentConfig();
+    setSubmitSuccess(text.bleAgentSaved);
   }
 
   async function handleSelectBrowserSerialPrinter() {
@@ -578,13 +629,26 @@ export function PrintersModule({ lang: _lang = "th" }: { lang?: "th" | "en" }) {
       setBrowserAgentSecret(window.localStorage.getItem(BROWSER_PRINT_AGENT_KEY)?.trim() ?? "");
       setBrowserAgentBaud(window.localStorage.getItem(BROWSER_PRINT_AGENT_BAUD_KEY)?.trim() || "9600");
       setBrowserAgentEnabled(window.localStorage.getItem(BROWSER_PRINT_AGENT_ENABLED_KEY) === "1");
+      setBleAgentEnabled(window.localStorage.getItem(BROWSER_PRINT_AGENT_BLUETOOTH_ENABLED_KEY) === "1");
+      setBleServiceUuid(window.localStorage.getItem(BROWSER_PRINT_AGENT_BLUETOOTH_SERVICE_UUID_KEY)?.trim() ?? "");
+      setBleCharacteristicUuid(window.localStorage.getItem(BROWSER_PRINT_AGENT_BLUETOOTH_CHARACTERISTIC_UUID_KEY)?.trim() ?? "");
       void refreshBrowserAgentPortStatus();
     };
     const onBrowserAgentStatus = (event: Event) => {
       setBrowserAgentStatus((event as CustomEvent<BrowserPrintAgentStatus>).detail ?? null);
     };
     const onStorage = (event: StorageEvent) => {
-      if ([BROWSER_PRINT_AGENT_KEY, BROWSER_PRINT_AGENT_BAUD_KEY, BROWSER_PRINT_AGENT_ENABLED_KEY].includes(event.key ?? "")) loadBrowserAgentConfig();
+      if (
+        [
+          BROWSER_PRINT_AGENT_KEY,
+          BROWSER_PRINT_AGENT_BAUD_KEY,
+          BROWSER_PRINT_AGENT_ENABLED_KEY,
+          BROWSER_PRINT_AGENT_BLUETOOTH_ENABLED_KEY,
+          BROWSER_PRINT_AGENT_BLUETOOTH_SERVICE_UUID_KEY,
+          BROWSER_PRINT_AGENT_BLUETOOTH_CHARACTERISTIC_UUID_KEY
+        ].includes(event.key ?? "")
+      )
+        loadBrowserAgentConfig();
     };
 
     loadBrowserAgentConfig();
@@ -1024,6 +1088,31 @@ export function PrintersModule({ lang: _lang = "th" }: { lang?: "th" | "en" }) {
               <label style={{ display: "inline-flex", alignItems: "center", gap: 8, fontWeight: 800 }}><input type="checkbox" checked={browserAgentEnabled} onChange={(event) => setBrowserAgentEnabled(event.target.checked)} />{text.browserAgentEnable}</label>
               <button type="button" onClick={() => void handleSaveBrowserAgent()} style={primaryButtonStyle}>{text.saveBrowserAgent}</button>
             </div>
+          </section>
+          <section style={{ ...panelStyle, borderColor: bleAgentEnabled ? "#84caff" : "#d8e0ea", background: "#f8fbff" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap", alignItems: "flex-start" }}>
+              <div>
+                <h3 style={{ margin: 0, fontSize: 16 }}>{text.bleAgentTitle}</h3>
+                <p style={{ margin: "6px 0 0", color: "#475467", maxWidth: 820 }}>{text.bleAgentDesc}</p>
+                <p style={{ margin: "6px 0 0", color: "#b54708", fontWeight: 800 }}>{text.bleAgentLimit}</p>
+              </div>
+              <div style={{ ...panelStyle, minWidth: 230, padding: "8px 12px", background: browserAgentStatus?.connected ? "#ecfdf3" : "#fff7ed" }}>
+                <strong style={{ color: browserAgentStatus?.connected ? "#067647" : "#b54708" }}>{text.status}: {browserAgentStatus?.code ?? text.browserAgentPortMissing}</strong>
+                <div style={{ color: "#475467", fontSize: 12 }}>{browserAgentStatus?.message ?? "Web Bluetooth"}</div>
+              </div>
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 10, alignItems: "end", marginTop: 14 }}>
+              <label style={labelStyle}>{text.browserAgentSecret}<input type="password" value={browserAgentSecret} onChange={(event) => setBrowserAgentSecret(event.target.value)} placeholder="cpi_pa_..." style={inputStyle} /></label>
+              <label style={labelStyle}>{text.bleServiceUuid}<input value={bleServiceUuid} onChange={(event) => setBleServiceUuid(event.target.value)} placeholder="000018f0-0000-1000-8000-00805f9b34fb" style={inputStyle} /></label>
+              <label style={labelStyle}>{text.bleCharacteristicUuid}<input value={bleCharacteristicUuid} onChange={(event) => setBleCharacteristicUuid(event.target.value)} placeholder="00002af1-0000-1000-8000-00805f9b34fb" style={inputStyle} /></label>
+              <button type="button" onClick={handleResetBleAgent} style={dangerButtonStyle}>{text.resetBleAgent}</button>
+            </div>
+            <p style={{ margin: "10px 0 0", color: "#475467", fontSize: 12 }}>{text.bleUuidHint}</p>
+            <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center", flexWrap: "wrap", marginTop: 12 }}>
+              <label style={{ display: "inline-flex", alignItems: "center", gap: 8, fontWeight: 800 }}><input type="checkbox" checked={bleAgentEnabled} onChange={(event) => setBleAgentEnabled(event.target.checked)} />{text.bleAgentEnable}</label>
+              <button type="button" onClick={() => void handleSaveBleAgent()} style={primaryButtonStyle}>{text.saveBrowserAgent}</button>
+            </div>
+            {bleAgentEnabled ? <p style={{ margin: "10px 0 0", color: "#1849a9", fontWeight: 700 }}>{text.bleAgentPairHint}</p> : null}
           </section>
           <form onSubmit={handleCreatePrinter} style={{ display: "grid", gap: 14 }}>
             <section style={panelStyle}>
