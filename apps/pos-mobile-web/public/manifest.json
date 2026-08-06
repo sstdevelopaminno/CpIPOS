@@ -1,0 +1,42 @@
+{
+  "id": "/",
+  "name": "CpIPOS Mobile",
+  "short_name": "CpIPOS",
+  "description": "Mobile-first POS app for CpIPOS stores",
+  "start_url": "/login/store",
+  "scope": "/",
+  "display": "standalone",
+  "display_override": ["standalone", "minimal-ui", "browser"],
+  "orientation": "portrait",
+  "background_color": "#f7fbff",
+  "theme_color": "#061b33",
+  "categories": ["business", "productivity"],
+  "icons": [
+    {
+      "src": "/brand/cpipos-icon-transparent-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/brand/cpipos-icon-transparent-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "ขาย",
+      "short_name": "ขาย",
+      "url": "/sales",
+      "icons": [{ "src": "/brand/cpipos-icon-transparent-192.png", "sizes": "192x192", "type": "image/png" }]
+    },
+    {
+      "name": "รายการขาย",
+      "short_name": "รายการขาย",
+      "url": "/orders",
+      "icons": [{ "src": "/brand/cpipos-icon-transparent-192.png", "sizes": "192x192", "type": "image/png" }]
+    }
+  ]
+}

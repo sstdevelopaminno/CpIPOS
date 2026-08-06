@@ -7,6 +7,7 @@ Use this page as the first stop before new development. It separates active impl
 ## Current Runtime
 
 - App: `apps/backoffice-web`
+- Mobile app: `apps/pos-mobile-web` (CpIPOS Mobile, imported 2026-08-06 from `E:\SSTiPOSMobile` — see consolidation plan below; not yet deployed)
 - Workspace: `E:\CpIPOS`
 - GitHub repo: `https://github.com/sstdevelopaminno/CpIPOS.git`
 - Active branch/default branch: `agent-docs-preflight-schema-drift`

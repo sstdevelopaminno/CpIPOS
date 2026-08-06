@@ -67,3 +67,43 @@ jobs:
         if: github.event_name == 'push'
         timeout-minutes: 10
         run: corepack pnpm --filter backoffice-web build
+
+  verify-mobile:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        timeout-minutes: 5
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        timeout-minutes: 5
+        with:
+          node-version: 22
+
+      - name: Setup pnpm
+        timeout-minutes: 5
+        run: corepack enable
+
+      - name: Install dependencies
+        timeout-minutes: 8
+        run: corepack pnpm install --frozen-lockfile
+
+      - name: Typecheck (pos-mobile-web)
+        timeout-minutes: 6
+        run: corepack pnpm run typecheck:mobile
+
+      - name: Lint (pos-mobile-web)
+        timeout-minutes: 8
+        run: corepack pnpm run lint:mobile
+
+      - name: Test (pos-mobile-web)
+        timeout-minutes: 8
+        run: corepack pnpm run test:mobile
+
+      - name: Build (pos-mobile-web)
+        timeout-minutes: 10
+        run: corepack pnpm run build:mobile

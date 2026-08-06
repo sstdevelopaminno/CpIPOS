@@ -19,7 +19,12 @@
     "build:turbo": "corepack pnpm --filter backoffice-web build",
     "lint": "corepack pnpm --filter backoffice-web lint",
     "typecheck": "corepack pnpm --filter backoffice-web typecheck",
-    "test": "corepack pnpm --filter backoffice-web test"
+    "test": "corepack pnpm --filter backoffice-web test",
+    "dev:mobile": "corepack pnpm --filter pos-mobile-web dev",
+    "build:mobile": "corepack pnpm --filter pos-mobile-web build",
+    "lint:mobile": "corepack pnpm --filter pos-mobile-web lint",
+    "typecheck:mobile": "corepack pnpm --filter pos-mobile-web typecheck",
+    "test:mobile": "corepack pnpm --filter pos-mobile-web test"
   },
   "devDependencies": {
     "playwright": "1.55.0",

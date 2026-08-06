@@ -1,6 +1,12 @@
 packages:
   - apps/backoffice-web
   - apps/pos-android
+  - apps/pos-mobile-web
   - packages/*
+
+onlyBuiltDependencies:
+  - esbuild
+  - sharp
+  - unrs-resolver
 
 
