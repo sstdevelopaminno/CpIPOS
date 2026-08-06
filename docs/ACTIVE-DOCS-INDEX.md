@@ -21,6 +21,7 @@ Use this page as the first stop before new development. It separates active impl
 
 ## Read First
 
+- [POS Stability Fixes 2026-08-06](./POS-STABILITY-FIXES-2026-08-06.md)
 - [AI Development Preflight](./AI-DEVELOPMENT-PREFLIGHT.md)
 - [CpIPOS Handoff 2026-08-02](./CPIPOS-HANDOFF-2026-08-02.md)
 - [CpIPOS Windows Offline + Package Entitlement 2026-08-02](./CPIPOS-WINDOWS-OFFLINE-PACKAGE-ENTITLEMENT-2026-08-02.md)
