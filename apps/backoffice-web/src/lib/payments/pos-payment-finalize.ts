@@ -38,8 +38,15 @@ export async function finalizePosPayment(args: FinalizePosPaymentArgs) {
     return { ok: false as const, code: "missing_scope", status: 401, message: "Missing tenant/branch scope." };
   }
 
+  // INET callbacks are asynchronous and can arrive after the cashier POS session
+  // expires. The callback route validates provider order, merchant, amount and
+  // intent claim before using auditAction=inet_payment_paid. That internal marker
+  // selects the service-role-only provider transaction without weakening the
+  // normal POS runtime-lease payment path.
+  const effectiveTrustedProvider = trustedProvider ?? (auditAction === "inet_payment_paid" ? "inet_nops" : undefined);
+
   const supabase = getSupabaseServiceClient();
-  const txResult = trustedProvider
+  const txResult = effectiveTrustedProvider
     ? await completeTrustedProviderPayment({
         tenantId: auth.tenantId,
         branchId: auth.branchId,
@@ -48,7 +55,7 @@ export async function finalizePosPayment(args: FinalizePosPaymentArgs) {
         amount,
         referenceNo,
         requestGroupId,
-        provider: trustedProvider
+        provider: effectiveTrustedProvider
       })
     : await executeCompletePosPaymentTransaction({
         auth,
@@ -202,7 +209,7 @@ export async function finalizePosPayment(args: FinalizePosPaymentArgs) {
         method,
         reference_no: referenceNo,
         request_group_id: requestGroupId,
-        trusted_provider: trustedProvider ?? null
+        trusted_provider: effectiveTrustedProvider ?? null
       }
     });
   }
