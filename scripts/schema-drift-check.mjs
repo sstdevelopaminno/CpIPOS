@@ -19,7 +19,8 @@ const requiredMigrations = [
   "202607180002_shared_recipe_stock_deduction.sql",
   "202607180007_stock_realtime_publication.sql",
   "20260728173858_print_agent_v1.sql",
-  "20260728180311_cash_drawer_v1.sql"
+  "20260728180311_cash_drawer_v1.sql",
+  "20260807152000_add_safe_scope_lookup_indexes.sql"
 ];
 
 const requiredSqlMarkers = [
@@ -37,12 +38,30 @@ const requiredSqlMarkers = [
   "create or replace function app.consume_ingredient"
 ];
 
+// The default reset path is intentionally tenant-neutral. Package/feature catalog
+// data is migration-managed; tenant/demo fixtures must be explicit opt-in scripts.
 const requiredSeedMarkers = [
-  "NDL-TH-001",
-  "SOLO-TH-001",
+  "default seed is intentionally tenant-neutral",
+  "select 1;"
+];
+
+const forbiddenSeedMarkers = [
+  "insert into tenants",
+  "insert into auth.users",
+  "insert into branches",
+  "insert into branch_devices",
+  "insert into user_branch_roles",
   "insert into products",
   "insert into dine_in_tables",
-  "insert into user_branch_roles"
+  "ndl-th-001",
+  "bbq-th-002",
+  "test-th-003",
+  "solo-th-001",
+  "caf-th-001",
+  "sfd-th-003",
+  "bak-th-004",
+  "tea-th-005",
+  "piz-th-006"
 ];
 
 function normalizeSql(value) {
@@ -68,10 +87,12 @@ async function main() {
 
   const missingSqlMarkers = requiredSqlMarkers.filter((marker) => !migrationBundle.includes(marker));
   const missingSeedMarkers = requiredSeedMarkers.filter((marker) => !normalizedSeed.includes(marker.toLowerCase()));
+  const forbiddenSeedHits = forbiddenSeedMarkers.filter((marker) => normalizedSeed.includes(marker.toLowerCase()));
   const failures = [
     ...missingMigrations.map((file) => `missing migration: ${file}`),
     ...missingSqlMarkers.map((marker) => `missing SQL marker: ${marker}`),
-    ...missingSeedMarkers.map((marker) => `missing seed marker: ${marker}`)
+    ...missingSeedMarkers.map((marker) => `missing tenant-neutral seed marker: ${marker}`),
+    ...forbiddenSeedHits.map((marker) => `forbidden default seed marker: ${marker}`)
   ];
 
   if (failures.length > 0) {
@@ -84,7 +105,8 @@ async function main() {
   console.log(`- migrations scanned: ${entries.filter((file) => file.endsWith(".sql")).length}`);
   console.log(`- required migrations: ${requiredMigrations.length}`);
   console.log(`- required SQL markers: ${requiredSqlMarkers.length}`);
-  console.log(`- required seed markers: ${requiredSeedMarkers.length}`);
+  console.log(`- required tenant-neutral seed markers: ${requiredSeedMarkers.length}`);
+  console.log(`- forbidden default seed markers checked: ${forbiddenSeedMarkers.length}`);
 }
 
 main().catch((error) => {
