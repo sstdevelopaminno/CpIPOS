@@ -38,6 +38,53 @@ function resolveEnvName(base: string, environment: InetEnvironment): string {
   return `${base}_${environment === "production" ? "PROD" : "UAT"}`;
 }
 
+function parseHttpsUrl(value: string, errorCode: string): URL {
+  let parsed: URL;
+  try {
+    parsed = new URL(value);
+  } catch {
+    throw new Error(errorCode);
+  }
+  if (parsed.protocol !== "https:" || parsed.username || parsed.password || !parsed.hostname) {
+    throw new Error(errorCode);
+  }
+  return parsed;
+}
+
+function normalizeHostname(value: string): string {
+  return value.trim().toLowerCase().replace(/\.$/, "");
+}
+
+function readAdditionalPaymentHosts(environment: InetEnvironment): Set<string> {
+  const raw = process.env[resolveEnvName("INET_NOPS_ALLOWED_PAYMENT_HOSTS", environment)] ?? "";
+  return new Set(
+    raw
+      .split(",")
+      .map(normalizeHostname)
+      .filter(Boolean)
+  );
+}
+
+function assertTrustedPaymentLink(
+  value: string,
+  environment: InetEnvironment,
+  trustedEndpointUrls: string[]
+): string {
+  const paymentUrl = parseHttpsUrl(value, "inet_nops_untrusted_payment_url");
+  const allowedHosts = readAdditionalPaymentHosts(environment);
+
+  for (const endpoint of trustedEndpointUrls) {
+    const endpointUrl = parseHttpsUrl(endpoint, "inet_nops_invalid_provider_endpoint");
+    allowedHosts.add(normalizeHostname(endpointUrl.hostname));
+  }
+
+  if (!allowedHosts.has(normalizeHostname(paymentUrl.hostname))) {
+    throw new Error("inet_nops_untrusted_payment_host");
+  }
+
+  return paymentUrl.toString();
+}
+
 function buildConnectionProbeOrderId() {
   const timestamp = new Date().toISOString().replace(/[-:TZ.]/g, "").slice(2, 14);
   const random = crypto.randomUUID().replace(/-/g, "").slice(0, 14).toUpperCase();
@@ -57,10 +104,15 @@ export function allowsInetNopsUatWithoutMerchantId(environment: InetEnvironment)
 }
 
 function resolveInetNopsConfig(environment: InetEnvironment) {
+  const oauthUrl = requireEnv(resolveEnvName("INET_NOPS_OAUTH_URL", environment));
+  const accessTokenUrl = requireEnv(resolveEnvName("INET_NOPS_ACCESS_TOKEN_URL", environment));
+  parseHttpsUrl(oauthUrl, "inet_nops_invalid_oauth_url");
+  parseHttpsUrl(accessTokenUrl, "inet_nops_invalid_access_token_url");
+
   return {
     merchantKey: requireEnv(resolveEnvName("INET_NOPS_MERCHANT_KEY", environment)),
-    oauthUrl: requireEnv(resolveEnvName("INET_NOPS_OAUTH_URL", environment)),
-    accessTokenUrl: requireEnv(resolveEnvName("INET_NOPS_ACCESS_TOKEN_URL", environment)),
+    oauthUrl,
+    accessTokenUrl,
     apUrl: requireEnv(resolveEnvName("INET_NOPS_AP_URL", environment))
   };
 }
@@ -110,10 +162,11 @@ function requireInetSuccessCode(stage: "oauth" | "access_token" | "create_paymen
 }
 
 async function postJson(stage: "oauth" | "access_token" | "create_payment", url: string, body: JsonObject, headers: HeadersInit = {}): Promise<JsonObject> {
+  const safeUrl = parseHttpsUrl(url, `inet_nops_${stage}_invalid_url`).toString();
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), INET_TIMEOUT_MS);
   try {
-    const response = await fetch(url, {
+    const response = await fetch(safeUrl, {
       method: "POST",
       headers: {
         Accept: "application/json",
@@ -145,7 +198,7 @@ async function postJson(stage: "oauth" | "access_token" | "create_payment", url:
     }
     return parsed;
   } catch (error) {
-    if (error instanceof DOMException && error.name === "AbortError") {
+    if (error instanceof Error && error.name === "AbortError") {
       throw new Error("inet_nops_request_timeout");
     }
     throw error;
@@ -197,7 +250,11 @@ export async function createInetNopsQrPayment(args: InetCreateQrArgs): Promise<I
     throw new Error("inet_nops_access_token_response_invalid");
   }
 
-  const createResponse = await postJson("create_payment", createPaymentLink, { accessToken });
+  const trustedPaymentLink = assertTrustedPaymentLink(createPaymentLink, args.environment, [
+    config.oauthUrl,
+    config.accessTokenUrl
+  ]);
+  const createResponse = await postJson("create_payment", trustedPaymentLink, { accessToken });
   requireInetSuccessCode("create_payment", createResponse, 200);
   const qrCode = findString(createResponse, ["qrCode", "qr_code", "qrcode", "qr"]);
   if (!qrCode) {
