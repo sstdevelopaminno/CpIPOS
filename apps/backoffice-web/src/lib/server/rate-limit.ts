@@ -6,6 +6,7 @@ type RateLimitBucket = {
 };
 
 type RateLimitStore = Map<string, RateLimitBucket>;
+type RateLimitBackend = "memory" | "upstash";
 
 type EnforceRateLimitInput = {
   namespace: string;
@@ -28,12 +29,14 @@ export type RateLimitResult = {
 const DEFAULT_MAX = 20;
 const DEFAULT_WINDOW_MS = 60_000;
 const CLEANUP_INTERVAL_MS = 60_000;
-const DEFAULT_BACKEND = "memory";
+const DEFAULT_BACKEND: RateLimitBackend = "memory";
 const DEFAULT_REDIS_PREFIX = "pos:rate-limit";
+const DEFAULT_BACKEND_TIMEOUT_MS = 2500;
 
 declare global {
   var __qrLoginRateLimitStore: RateLimitStore | undefined;
   var __qrLoginRateLimitLastCleanupAt: number | undefined;
+  var __rateLimitInvalidBackendWarned: boolean | undefined;
 }
 
 function getStore(): RateLimitStore {
@@ -43,11 +46,31 @@ function getStore(): RateLimitStore {
   return globalThis.__qrLoginRateLimitStore;
 }
 
-function resolveBackend(): "memory" | "upstash" | "redis" {
+function hasUpstashConfig(): boolean {
+  return Boolean(
+    String(process.env.UPSTASH_REDIS_REST_URL ?? "").trim() &&
+      String(process.env.UPSTASH_REDIS_REST_TOKEN ?? "").trim()
+  );
+}
+
+function resolveBackend(): RateLimitBackend {
   const raw = String(process.env.RATE_LIMIT_BACKEND ?? DEFAULT_BACKEND).trim().toLowerCase();
   if (raw === "upstash") return "upstash";
-  if (raw === "redis") return "redis";
-  return "memory";
+  if (raw === "memory" || !raw) return "memory";
+
+  // `redis` used to be accepted here even though no Redis TCP implementation
+  // existed; that silently routed into the Upstash REST code path. Treat any
+  // unsupported production value as Upstash only when its credentials exist,
+  // otherwise fall back explicitly and emit one process-level warning.
+  const fallback: RateLimitBackend = hasUpstashConfig() ? "upstash" : "memory";
+  if (!globalThis.__rateLimitInvalidBackendWarned) {
+    globalThis.__rateLimitInvalidBackendWarned = true;
+    console.warn("[rate-limit] Unsupported RATE_LIMIT_BACKEND; using safe fallback", {
+      configuredBackend: raw,
+      fallback
+    });
+  }
+  return fallback;
 }
 
 function shouldFailClosed(input: EnforceRateLimitInput): boolean {
@@ -71,6 +94,12 @@ function cleanupExpiredBuckets(now: number, store: RateLimitStore) {
 function clampPositiveInteger(value: number, fallback: number): number {
   if (!Number.isFinite(value) || value <= 0) return fallback;
   return Math.trunc(value);
+}
+
+function readBackendTimeoutMs(): number {
+  const raw = Number(process.env.RATE_LIMIT_BACKEND_TIMEOUT_MS ?? DEFAULT_BACKEND_TIMEOUT_MS);
+  if (!Number.isFinite(raw)) return DEFAULT_BACKEND_TIMEOUT_MS;
+  return Math.min(10_000, Math.max(500, Math.trunc(raw)));
 }
 
 export function getClientIpAddress(request: Request): string {
@@ -150,31 +179,43 @@ async function executeUpstashPipeline(commands: Array<Array<string>>): Promise<P
     throw new Error("Missing UPSTASH_REDIS_REST_URL or UPSTASH_REDIS_REST_TOKEN");
   }
 
-  const response = await fetch(`${config.url}/pipeline`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${config.token}`,
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify(commands),
-    cache: "no-store"
-  });
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), readBackendTimeoutMs());
+  try {
+    const response = await fetch(`${config.url}/pipeline`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${config.token}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify(commands),
+      signal: controller.signal,
+      cache: "no-store"
+    });
 
-  if (!response.ok) {
-    throw new Error(`Upstash REST pipeline failed (${response.status})`);
-  }
-
-  const payload = (await response.json().catch(() => null)) as unknown;
-  if (!Array.isArray(payload)) {
-    throw new Error("Invalid Upstash pipeline payload");
-  }
-
-  return payload.map((item) => {
-    if (item && typeof item === "object") {
-      return item as PipelineResultItem;
+    if (!response.ok) {
+      throw new Error(`Upstash REST pipeline failed (${response.status})`);
     }
-    return { result: item };
-  });
+
+    const payload = (await response.json().catch(() => null)) as unknown;
+    if (!Array.isArray(payload)) {
+      throw new Error("Invalid Upstash pipeline payload");
+    }
+
+    return payload.map((item) => {
+      if (item && typeof item === "object") {
+        return item as PipelineResultItem;
+      }
+      return { result: item };
+    });
+  } catch (error) {
+    if (error instanceof DOMException && error.name === "AbortError") {
+      throw new Error("Upstash REST pipeline timed out");
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeoutId);
+  }
 }
 
 function readPipelineNumber(items: PipelineResultItem[], index: number, fallback: number): number {
