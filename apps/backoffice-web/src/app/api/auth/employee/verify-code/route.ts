@@ -4,6 +4,7 @@ import { getRequestMeta, writeAuditLog, writeLoginAttempt } from "@/lib/server/a
 import { AuthTimeoutError, withAuthTimeout } from "@/lib/server/auth-timeout";
 import { hasPermission, resolveEmployeeByCode } from "@/lib/server/pre-entry-auth";
 import { createFlowState, hasFlowStage, readPreEntryFlowState, writePreEntryFlowState } from "@/lib/server/pre-entry-state";
+import { buildRateLimitKey, enforceRateLimit, getClientIpAddress, readRateLimitSetting } from "@/lib/server/rate-limit";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
 import { resolveStoreLoginMode, shouldSkipBranchSelection } from "@/lib/server/store-login-mode";
 
@@ -77,6 +78,7 @@ async function recoverSingleBranchFlow(flow: NonNullable<ReturnType<typeof readP
     branchName: branch.name
   });
 }
+
 async function loadBranchEmployeeLoginPolicy({
   tenantId,
   branchId
@@ -151,6 +153,29 @@ export async function POST(request: Request) {
       ),
       startedAt
     );
+  }
+
+  const clientIp = getClientIpAddress(request);
+  const rateLimitResult = await enforceRateLimit({
+    namespace: "auth_employee_verify",
+    key: buildRateLimitKey({
+      namespace: "scope",
+      parts: [branchFlow.tenantId, branchFlow.branchId, clientIp]
+    }),
+    max: readRateLimitSetting("AUTH_EMPLOYEE_RATE_LIMIT_MAX", 10, { min: 3, max: 60 }),
+    windowMs: readRateLimitSetting("AUTH_EMPLOYEE_RATE_LIMIT_WINDOW_MS", 60_000, { min: 10_000, max: 15 * 60_000 }),
+    failClosedOnBackendError: true
+  });
+
+  if (!rateLimitResult.ok) {
+    const response = NextResponse.json(
+      { data: null, error: { code: "rate_limited", message: "ลองหลายครั้งเกินไป กรุณารอสักครู่แล้วลองใหม่" } },
+      { status: 429 }
+    );
+    response.headers.set("retry-after", String(Math.max(rateLimitResult.retryAfterSeconds, 1)));
+    response.headers.set("x-ratelimit-limit", String(rateLimitResult.limit));
+    response.headers.set("x-ratelimit-remaining", String(rateLimitResult.remaining));
+    return withTimingHeaders(response, startedAt);
   }
 
   const { ipAddress, userAgent } = getRequestMeta(request);
