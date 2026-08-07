@@ -1,6 +1,6 @@
 # AI Guardrails For CpIPOS
 
-Date: 2026-07-27
+Date: 2026-08-07
 
 ## Current Project
 
@@ -21,6 +21,23 @@ Date: 2026-07-27
 - Do not create parallel worktrees or sibling copies unless the user explicitly requests it.
 - Use `E:\CpIPOS` as the single source of truth for the new CpIPOS Web POS.
 
+## Production Database Baseline
+
+Production business data is intentionally limited to these tenant/store codes:
+
+- `NDL-TH-001`
+- `BBQ-TH-002`
+- `TEST-TH-003`
+
+Rules:
+
+- `SOLO-TH-001` was removed from Production on 2026-08-07 and must not be re-seeded.
+- Package code `solo` / `Solo Register` is a valid system package and is not a tenant/store code; keep the package catalog entry.
+- The default `supabase/seed.sql` must remain tenant-neutral. Do not hard-code production/demo tenants, branches, devices, users, passwords, PINs, orders, products, or inventory into the default reset path.
+- Temporary demo fixtures, if ever needed, must be explicit opt-in scripts and must not reuse production store codes or credentials.
+- Do not rename live tables, columns, constraints, RPCs, or RLS policies merely for style. Use additive compatibility-safe migrations and verify runtime consumers first.
+- Database housekeeping migration `20260807152000_add_safe_scope_lookup_indexes` is the current zero-behavior-change indexing baseline.
+
 ## Required Production Env
 
 Vercel production must include these server/runtime variables:
@@ -36,12 +53,12 @@ Vercel production must include these server/runtime variables:
 
 ## Verified Login Store Codes
 
-These store codes exist in the current Supabase project and were verified against production:
+These store codes are the current Production business baseline:
 
-- `SOLO-TH-001`: returns `200`, one branch, next step `employee`
-- `NDL-TH-001`: returns `200`, two branches, next step `branches`
-- `BBQ-TH-002`: returns `200`, one branch, next step `employee`
-- `ABC999`: returns `404 store_not_found`, expected for a fake code
+- `NDL-TH-001`: valid production tenant
+- `BBQ-TH-002`: valid production tenant
+- `TEST-TH-003`: valid production test/trial tenant
+- `ABC999`: expected fake code; must return `404 store_not_found`
 
 ## Production Smoke Expectations
 
