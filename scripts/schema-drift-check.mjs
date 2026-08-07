@@ -24,7 +24,8 @@ const requiredMigrations = [
   "20260807154613_optimize_rls_auth_initplan_phase2.sql",
   "20260807155636_restrict_service_only_security_definer_rpcs.sql",
   "20260807155747_lock_app_function_search_paths.sql",
-  "20260807155904_add_hot_relationship_indexes_phase2.sql"
+  "20260807155904_add_hot_relationship_indexes_phase2.sql",
+  "20260807164920_restrict_authenticated_helper_policies.sql"
 ];
 
 const requiredSqlMarkers = [
@@ -44,7 +45,8 @@ const requiredSqlMarkers = [
   "set search_path = pg_catalog, public, app, extensions",
   "idx_orders_shift_open_dine_in",
   "idx_table_qr_orders_order_id",
-  "idx_table_bill_sessions_order_id"
+  "idx_table_bill_sessions_order_id",
+  "alter policy %i on %i.%i to authenticated"
 ];
 
 // The default reset path is intentionally tenant-neutral. Package/feature catalog
