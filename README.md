@@ -6,125 +6,97 @@ Production-oriented multi-tenant / multi-branch POS platform.
 
 - Repository: `sstdevelopaminno/CpIPOS`
 - Active integration branch: `agent-docs-preflight-schema-drift`
-- Web/POS production project: `cp-ipos-web`
-- Mobile production project: `cp-ipos-mobile`
-- Supabase project: `POS-Preview`
-- Supabase ref: `deejlitaivfnsbwqdugy`
+- Web/POS Vercel project: `cp-ipos-web`
+- Mobile Vercel project: `cp-ipos-mobile`
+- **CpiPOS-001 / Primary:** Supabase ref `deejlitaivfnsbwqdugy`
+- **CpiPOS-002 / Trial Data Plane:** Supabase ref `kawenyvpentwgugtzqec`
 - Primary guardrails: `docs/AI-GUARDRAILS-CPIPOS.md`
-- Database housekeeping baseline: `docs/DATABASE-HOUSEKEEPING-2026-08-07.md`
+- Trial data-plane status/runbook: `docs/CPIPOS-TRIAL-DATA-PLANE-2026-08-08.md`
+- Database housekeeping: `docs/DATABASE-HOUSEKEEPING-2026-08-07.md`
 - Historical handoff: `docs/CPIPOS-HANDOFF-2026-07-28.md`
 
-Before changing authentication, tenant isolation, database schema, POS transactions, payment flows, devices, or production configuration, read `docs/AI-GUARDRAILS-CPIPOS.md` first.
+Read the guardrails before changing authentication, tenant isolation, database routing, POS transactions, payments, devices, migrations or production configuration.
 
-## Architecture
-
-```text
-tenant
-  -> branches
-      -> branch devices/registers
-      -> users + user_branch_roles
-      -> shifts
-      -> orders / order_items / payments
-      -> products / recipes / ingredients / stock movements
-```
-
-Applications:
+## Applications
 
 ```text
 apps/
-  backoffice-web/            # Back Office + IT Admin + Web POS + APIs
+  backoffice-web/            # Back Office + IT Admin + Web POS + server APIs
   pos-mobile-web/            # Mobile web runtime
   pos-android/               # Android runtime
   windows-runtime-it-admin/  # Windows IT Admin runtime
   windows-runtime-native/    # Windows POS/native runtime
-
 packages/
   shared-types/
   pos-domain/
   ui/
-
-supabase/
-  migrations/
-  seed.sql
 ```
 
-Core stack:
+Core stack: Next.js / TypeScript, pnpm, Supabase PostgreSQL/Auth/RLS, GitHub Actions and Vercel.
 
-- Next.js / TypeScript
-- pnpm monorepo
-- Supabase PostgreSQL + Auth + RLS
-- GitHub Actions
-- Vercel
+## Database architecture
+
+### CpiPOS-001 — Primary / Control Plane
+
+CpiPOS-001 remains authoritative for:
+
+- Supabase Auth/JWT;
+- tenants and public store codes;
+- branches, users and roles;
+- devices/login policy;
+- POS sessions and shifts;
+- tenant lifecycle/data-home routing;
+- subscriptions/features;
+- IT Admin/control configuration;
+- audit/control records;
+- INET NOPS payment intent/callback integration records.
+
+Primary migrations live only in:
+
+```text
+supabase/migrations/
+```
+
+### CpiPOS-002 — Trial Data Plane
+
+CpiPOS-002 stores selected high-churn Trial business data:
+
+- product/category catalog;
+- ingredients/recipes/inventory movements;
+- orders/order items/payments;
+- dine-in tables/table sessions/Table QR business state;
+- branch inventory/tax business settings used by those transaction paths.
+
+Trial migrations live only in:
+
+```text
+supabase/trial-data-plane/migrations/
+```
+
+Never put Trial migrations into the Primary migration folder.
+
+Clients never choose a database. `apps/backoffice-web/src/lib/tenant-data-router.ts` resolves the server data plane from trusted CpiPOS-001 lifecycle state. `tenant_data_lifecycle.data_home` is authoritative; `desired_data_home` is not a routing signal.
+
+If a tenant is marked `data_home=trial` but Trial routing or credentials are unavailable, the request fails closed. Do not silently fall back to Primary because that can create split-brain writes.
 
 ## Security model
 
 CpIPOS is tenant-scoped and server-trusted.
 
-- Never trust client-provided `tenant_id`, `branch_id`, device scope, role, or permission as authoritative.
-- Resolve trusted scope from authenticated server/POS session state.
-- Keep `SUPABASE_SERVICE_ROLE_KEY` server-only.
-- Browser/mobile public clients use only the public Supabase key and server APIs designed for them.
-- RLS remains enabled for client-reachable tables.
-- Privileged POS transaction RPCs are server/service-role only.
-- Device registration and branch/device scope enforcement remain active.
-- Shift gate and permission gates remain active before sales operations.
-- Audit logs are retained for security-sensitive and financial actions.
-- Login/session tokens are opaque, short-lived where applicable, scope checked, and replay protected.
+- Never trust client-provided tenant, branch, role, device or permission scope.
+- Keep Primary and Trial service-role credentials server-only.
+- Browser/mobile clients call CpIPOS APIs; they do not receive or select CpiPOS-002 credentials.
+- RLS remains enabled for client-reachable or server-only protected tables as designed.
+- Privileged POS transaction RPCs are service-role only.
+- Device, branch, POS-session, shift, feature and permission gates remain authoritative.
+- Sensitive/financial actions remain auditable and idempotent where required.
+- Table QR anonymous requests resolve their QR-session object through the server-side routing registry; the browser does not choose tenant/data home.
 
-Do not weaken tenant/branch/device/RLS boundaries merely to make a failing request pass.
+Do not weaken RLS, device/session checks or service-role boundaries to make a failing request pass.
 
-## Production database baseline
+## Transaction baseline
 
-The Production business-data baseline is intentionally limited to the approved current tenants documented in `docs/AI-GUARDRAILS-CPIPOS.md`.
-
-Important rules:
-
-- The deleted legacy tenant `SOLO-TH-001` must not be recreated from default seed/reset paths.
-- Package code `solo` / `Solo Register` is a valid global subscription package and is not a tenant.
-- `supabase/seed.sql` is intentionally tenant-neutral.
-- Default reset must not create demo tenants, branches, auth users, employee codes, passwords, PINs, devices, products, orders, tables, or inventory.
-- Demo/test fixtures, if needed, must live in explicit opt-in scripts outside the default reset path.
-- Do not add known/default credentials to this README or to `supabase/seed.sql`.
-
-Current housekeeping migrations include:
-
-```text
-20260807152000_add_safe_scope_lookup_indexes
-20260807154613_optimize_rls_auth_initplan_phase2
-20260807155636_restrict_service_only_security_definer_rpcs
-20260807155747_lock_app_function_search_paths
-20260807155904_add_hot_relationship_indexes_phase2
-20260807164920_restrict_authenticated_helper_policies
-```
-
-The schema-drift CI check protects this baseline.
-
-## POS login flow
-
-Current pre-entry flow:
-
-```text
-/login/store
-  -> /login/branches   (when branch selection is required)
-  -> /login/employee
-  -> /login/devices
-  -> /preview/pos
-```
-
-Server APIs resolve store/tenant/branch/device/session scope. The client must not be treated as the authority for these values.
-
-Typical unauthenticated expectations:
-
-- `/preview/pos` redirects to login without a valid POS session.
-- `/api/pos/session/current` returns an authentication error without a valid POS session.
-- `/api/pos/features` returns an authentication error without a valid POS session.
-- sales/payment mutations require a valid POS session, active shift where required, device policy, feature policy, and permission checks.
-
-## Transaction and idempotency baseline
-
-Order creation and payment completion are transaction-first.
-
-Production defaults:
+Order creation and payment completion are transaction-first:
 
 ```env
 POS_FORCE_DIRECT_CREATE_NON_DELIVERY=false
@@ -134,83 +106,28 @@ POS_SOFT_BYPASS_INSUFFICIENT_STOCK=false
 
 Rules:
 
-- `create_pos_order_tx` is the authoritative atomic order-creation path.
-- `complete_pos_payment_tx` is the authoritative atomic payment-completion path.
-- Direct multi-request fallbacks are emergency compatibility paths only and must never become the silent default.
-- Negative-stock behavior is controlled by branch-aware database policy, not a generic application bypass.
-- If an API timeout occurs, the database request may still finish. Retry money/order mutations only with the same idempotency/request key.
-- Never automatically retry a money-changing external provider request unless the provider contract explicitly guarantees safe idempotency.
+- `create_pos_order_tx` is the authoritative atomic order path.
+- `complete_pos_payment_tx` is the authoritative atomic payment path.
+- `create_stock_adjustment_tx` is the atomic stock-adjustment path on the Trial data plane.
+- Table QR ordering uses a transactional RPC.
+- Retry order/payment mutations only with the same idempotency/request key after a timeout.
+- Negative-stock behavior is branch policy, not a generic bypass.
+- Dine-in/takeaway order-item price is enforced at the database boundary against the active catalog price; a modified client `unit_price` is rejected.
+- Delivery prices may differ from catalog only through the reviewed server-resolved channel pricing flow.
 
-## API reliability baseline
+## Cross-plane INET NOPS rule
 
-### Internal APIs
+INET provider intent/callback records remain CpiPOS-001 because provider callbacks arrive without a trusted POS session/tenant route.
 
-- Avoid server-to-server HTTP calls back into the same Next.js deployment when the shared handler/service can be called in-process.
-- Bound external network operations with timeouts.
-- Keep auth/session/feature resolution single-flight or cached only where security semantics remain unchanged.
-- Prefer transaction RPCs or bounded batch operations over N+1 mutation loops.
-- Do not expose raw Supabase/provider errors or secrets to the browser.
+`pos_payment_intents.order_id` is therefore a cross-plane UUID, not a same-database FK. Database trigger validation checks that order/tenant/branch exists either as a Primary order or in the server-only `tenant_data_object_routes` registry for a Trial order.
 
-### Rate limiting
+Provider credentials/tokens remain server-only. Dynamic provider URLs must be HTTPS and hostname-allowlisted. Duplicate callbacks remain idempotent.
 
-Local development may use process memory:
+## Required production environment
 
-```env
-RATE_LIMIT_BACKEND=memory
-```
+Start from `apps/backoffice-web/.env.example`.
 
-Production/serverless should use distributed Upstash:
-
-```env
-RATE_LIMIT_BACKEND=upstash
-RATE_LIMIT_BACKEND_TIMEOUT_MS=2500
-RATE_LIMIT_REDIS_PREFIX=sstipos
-UPSTASH_REDIS_REST_URL=
-UPSTASH_REDIS_REST_TOKEN=
-```
-
-There is no Redis TCP backend implementation in the current application. Do not set `RATE_LIMIT_BACKEND=redis`.
-
-High-risk authentication endpoints may fail closed when the configured distributed backend is unavailable. Other flows may degrade to process-local memory only where explicitly designed.
-
-## External payment API: INET NOPS
-
-INET NOPS QR is optional. Manual PromptPay / configured QR image / bank-transfer workflows remain separate.
-
-Server-only configuration uses variables such as:
-
-```env
-INET_NOPS_ENV=uat
-INET_NOPS_MERCHANT_KEY_UAT=
-INET_NOPS_MERCHANT_ID_UAT=
-INET_NOPS_OAUTH_URL_UAT=https://new-ops-poc.inet.co.th/uat/oauth/api/v1/oauth-token
-INET_NOPS_ACCESS_TOKEN_URL_UAT=https://new-ops-poc.inet.co.th/uat/api/v1/sandbox/payment-transactions/access-token
-INET_NOPS_ALLOWED_PAYMENT_HOSTS_UAT=
-INET_NOPS_AP_URL_UAT=https://YOUR_DOMAIN/payment/inet/result
-INET_NOPS_CALLBACK_PUBLIC_URL=https://YOUR_DOMAIN/api/payments/inet/callback
-```
-
-Production credentials and URLs use the corresponding `_PROD` variables.
-
-Security/reliability rules:
-
-- Merchant keys and provider access tokens stay server-only.
-- Provider OAuth/access-token/payment requests have bounded timeouts.
-- Provider-supplied dynamic payment URLs must be HTTPS.
-- Dynamic payment hostname must match a configured trusted provider endpoint hostname or an explicit `INET_NOPS_ALLOWED_PAYMENT_HOSTS_*` allowlist entry.
-- Callback settlement validates the pending payment intent, provider order ID, merchant, amount, and payment event/result before financial finalization.
-- Duplicate callbacks must remain idempotent.
-- Do not invent a provider signature header unless INET's official contract specifies one; provider-authentication changes require a contract-backed integration test.
-
-Operational details: `docs/INET-NOPS-QR-OPERATIONS-MANUAL.md`.
-
-## Required environment
-
-Start from:
-
-`apps/backoffice-web/.env.example`
-
-Core production variables include:
+Primary:
 
 ```env
 NEXT_PUBLIC_SUPABASE_URL=
@@ -220,141 +137,134 @@ POS_SESSION_HANDOFF_SECRET=
 TABLE_QR_SIGNING_SECRET=
 ```
 
-Use strong, distinct secrets. Never commit `.env.local`, Vercel tokens, Supabase access tokens, service-role keys, provider merchant keys, or database passwords.
+Trial data plane:
 
-## Local setup
-
-Requirements:
-
-- Node `>=22 <25`
-- pnpm `10.33.4`
-- Supabase CLI when running local database workflows
-
-Install:
-
-```bash
-pnpm install
+```env
+TRIAL_SUPABASE_URL=https://kawenyvpentwgugtzqec.supabase.co
+TRIAL_SUPABASE_SERVICE_ROLE_KEY=
+TRIAL_DATA_ROUTING_ENABLED=false
 ```
 
-Create local environment:
+`TRIAL_SUPABASE_SERVICE_ROLE_KEY` must never be committed, logged, placed in `NEXT_PUBLIC_*`, or sent to a browser. Keep `TRIAL_DATA_ROUTING_ENABLED=false` until the production server secret and final canary are verified.
 
-```text
-apps/backoffice-web/.env.example
-  -> apps/backoffice-web/.env.local
+Production/serverless auth rate limiting should use distributed Upstash:
+
+```env
+RATE_LIMIT_BACKEND=upstash
+RATE_LIMIT_BACKEND_TIMEOUT_MS=2500
+UPSTASH_REDIS_REST_URL=
+UPSTASH_REDIS_REST_TOKEN=
 ```
 
-Run:
+There is no Redis TCP backend implementation; do not set `RATE_LIMIT_BACKEND=redis`.
 
-```bash
-pnpm dev
-```
+## Seed / tenant safety
 
-Do not expect the default seed to create a ready-made demo store. Provision test tenants/users/devices explicitly in a controlled development environment.
+- `supabase/seed.sql` must stay tenant-neutral.
+- Do not put production/demo tenants, branches, devices, users, passwords, PINs, products, orders or inventory in the default seed.
+- Deleted `SOLO-TH-001` must not be recreated.
+- Package code `solo` / `Solo Register` is a valid global package and is not the deleted tenant.
+- Demo/test fixtures must be explicit opt-in scripts.
 
-## Database migration workflow
+## Migration workflow
 
-Review migrations before applying them to Production.
+For Primary changes:
 
-Do not run broad historical migration replay commands blindly on Production because the repository contains legacy migration history and previous drift.
+1. inspect CpiPOS-001 state;
+2. create an additive compatible migration;
+3. apply and verify;
+4. mirror the exact migration/version in `supabase/migrations/`;
+5. run Primary schema drift and CI.
 
-For new changes:
+For Trial changes:
 
-1. Inspect current Production schema/state.
-2. Create an additive migration.
-3. Apply and verify invariants.
-4. Mirror the exact migration into `supabase/migrations`.
-5. Update schema-drift requirements where the change is part of the protected baseline.
-6. Run CI and production build.
-7. Verify deployment and Supabase advisors.
+1. inspect CpiPOS-002 state;
+2. create an additive Trial migration;
+3. apply and verify security/transaction invariants;
+4. mirror the exact migration/version in `supabase/trial-data-plane/migrations/`;
+5. run `schema:drift:trial` and CI.
 
-Never rename live tables/RPCs/policies merely for style without compatibility analysis.
+Do not blindly replay historical migrations on production projects.
 
-## Verification
+## CI / verification
 
-Primary CI workflow:
+Primary workflow: `.github/workflows/ci.yml`.
 
-```text
-.github/workflows/ci.yml
-```
-
-Expected checks include:
+Expected gates:
 
 - Web TypeScript
 - Web lint
 - Web tests
-- Schema drift preflight
+- CpiPOS-001 schema drift
+- CpiPOS-002 schema drift
 - Web production build
 - Mobile TypeScript
 - Mobile lint
 - Mobile tests
 - Mobile build
 
-Useful local commands:
+Useful commands:
 
 ```powershell
 corepack pnpm --filter backoffice-web typecheck
 corepack pnpm --filter backoffice-web exec vitest run --cache false
-corepack pnpm --filter backoffice-web exec eslint src scripts tests next.config.ts eslint.config.mjs --cache --cache-location ..\..\.tmp-eslintcache --no-error-on-unmatched-pattern
 corepack pnpm schema:drift
+corepack pnpm schema:drift:trial
 corepack pnpm --filter backoffice-web build
+corepack pnpm run typecheck:mobile
+corepack pnpm run test:mobile
+corepack pnpm run build:mobile
 ```
+
+## Trial cutover discipline
+
+Until the server-only CpiPOS-002 credential is confirmed in Vercel, current Trial tenants remain authoritative on Primary even if a verified snapshot exists on CpiPOS-002.
+
+Cutover sequence:
+
+1. keep `data_home=primary` while configuring server Trial credentials;
+2. run final delta copy and reconciliation;
+3. refresh object-route registry;
+4. canary `TEST-TH-003` first;
+5. verify session/shift, catalog, inventory, order, payment, receipt/print, Table QR, provider payment path where enabled, retries and outage fail-closed behavior;
+6. then cut over `BBQ-TH-002`;
+7. keep `NDL-TH-001` Primary;
+8. retain an explicit cutback/reconciliation plan.
+
+Detailed evidence/runbook: `docs/CPIPOS-TRIAL-DATA-PLANE-2026-08-08.md`.
 
 ## Performance guidance
 
-Production profiling shows the PostgreSQL engine is generally fast; request amplification and repeated API round-trips are a more important optimization target than indiscriminately adding indexes.
+Measure workload before broad optimization. Current priorities are request/round-trip amplification rather than indiscriminate index creation:
 
-Priorities:
-
-- reduce repeated session/shift/order polling where correctness permits;
-- use single-flight/cache boundaries for repeated auth/feature resolution without changing permission semantics;
-- reduce N+1 updates in order/payment metadata enrichment;
-- avoid unnecessary internal HTTP hops;
-- keep customer-display and print-agent liveness writes deliberate because their timestamps are operational signals;
-- add FK indexes only when workload/cardinality/relationship operations justify them;
-- do not delete indexes merely because an Advisor reports `unused_index` shortly after deployment.
+- reduce unnecessary polling;
+- keep auth/feature resolution single-flight where security semantics are unchanged;
+- remove N+1 mutations in sales enrichment;
+- avoid internal HTTP hops inside the same Next.js deployment;
+- preserve operational heartbeat semantics for print/customer-display systems;
+- add/remove indexes only with workload evidence.
 
 ## Supabase Advisor notes
 
-Some Advisor entries are intentionally not zero:
+Not every Advisor INFO/WARN should be mechanically silenced.
 
-- `RLS Enabled No Policy` on server-only tables can be correct deny-by-default behavior.
-- `Multiple Permissive Policies` requires permission-equivalence testing before merging policies.
-- `Unindexed Foreign Keys` are reviewed against workload rather than mass-created.
-- `Unused Index` requires a meaningful observation window before removal.
-- Supabase Auth `Leaked Password Protection` should be enabled in the project Auth settings before customer onboarding when the project plan supports it.
+- `RLS Enabled No Policy` is expected on deliberate server-only deny-by-default tables.
+- `Multiple Permissive Policies` requires permission-equivalence testing before consolidation.
+- `Unindexed Foreign Keys` and `Unused Index` require workload evidence.
+- Enable Supabase Auth Leaked Password Protection before customer onboarding when the project plan supports it.
 
 ## Documentation
 
-Current operational references:
+Current references:
 
 - `docs/AI-GUARDRAILS-CPIPOS.md`
+- `docs/CPIPOS-TRIAL-DATA-PLANE-2026-08-08.md`
 - `docs/DATABASE-HOUSEKEEPING-2026-08-07.md`
 - `docs/ACTIVE-DOCS-INDEX.md`
 - `docs/INET-NOPS-QR-OPERATIONS-MANUAL.md`
-- `docs/POS-SHIFT-CLOSE-RELIABILITY-2026-07-10.md`
-- `docs/POS-LOGIN-ARCHITECTURE-PHASE-NEXT.md`
-- `docs/POS-LOGIN-POS-BRIDGE-E2E-CHECKLIST.md`
 - `docs/production-readiness-checklist.md`
 - `docs/go-live-evidence-checklist.md`
 - `docs/manual-qa-checklist.md`
 - `context.md`
 
-Historical/archive documents are reference material only. Current behavior and security decisions are governed by the latest migrations, tests, `README.md`, and `docs/AI-GUARDRAILS-CPIPOS.md`.
-
-## Production change discipline
-
-Before customer data is present:
-
-- finish configuration verification;
-- keep tenant/branch/device/RLS isolation intact;
-- keep transaction/idempotency paths authoritative;
-- enable supported Auth security controls;
-- keep distributed rate limiting configured;
-- confirm backups/restore and rollback procedures.
-
-After customer data is present:
-
-- prefer additive, backward-compatible migrations;
-- do not perform destructive cleanup without an explicit backup/rollback plan;
-- measure real workload before index/polling changes;
-- treat financial/payment and tenant-isolation changes as high-risk and require regression evidence.
+Current behavior/security decisions are governed by the latest migrations, CI/tests, this README and `docs/AI-GUARDRAILS-CPIPOS.md`.
