@@ -58,28 +58,6 @@ async function revokePosSessionById(sessionId: string) {
   }
 }
 
-async function revokeUserBranchSessions(input: { tenantId: string; branchId: string; userId: string }) {
-  const supabase = getSupabaseServiceClient();
-  const { error } = await supabase
-    .from("pos_sessions")
-    .update({
-      status: "revoked",
-      revoked_at: new Date().toISOString()
-    })
-    .eq("tenant_id", input.tenantId)
-    .eq("branch_id", input.branchId)
-    .eq("user_id", input.userId)
-    .eq("status", "active");
-  if (error) {
-    console.warn("[auth/session/logout] revoke user sessions warning", {
-      tenantId: input.tenantId,
-      branchId: input.branchId,
-      userId: input.userId,
-      error: error.message
-    });
-  }
-}
-
 async function writeLogoutAudit(request: Request, scope: PosSessionScope, mode: NonNullable<LogoutPayload["mode"]>) {
   const loggedOutAt = new Date().toISOString();
   const { ipAddress, userAgent } = getRequestMeta(request);
@@ -143,19 +121,11 @@ export async function POST(request: Request) {
 
   try {
     const scope = await requirePosSession();
+    // A logout/switch action belongs to this browser/device session only. Never revoke
+    // every active session owned by the same user; the same employee may be signed in
+    // concurrently on other registered devices.
     await revokePosSessionById(scope.session.id);
     await writeLogoutAudit(request, scope, mode);
-    if (mode === "switch_employee") {
-      await withAuthTimeout(
-        revokeUserBranchSessions({
-          tenantId: scope.session.tenant_id,
-          branchId: scope.session.branch_id,
-          userId: scope.session.user_id
-        }),
-        "logout_revoke_user_sessions_timeout",
-        3000
-      ).catch(() => null);
-    }
 
     if (mode === "switch_branch" || mode === "switch_employee") {
       const [tenantRow, branchRow] = await Promise.all([
@@ -251,11 +221,9 @@ export async function POST(request: Request) {
       if (mode === "switch_device" || mode === "switch_employee") {
         const flow = readPreEntryFlowState(await cookies());
         if (flow?.tenantId && flow.branchId && flow.userId) {
-          await withAuthTimeout(
-            revokeUserBranchSessions({ tenantId: flow.tenantId, branchId: flow.branchId, userId: flow.userId }),
-            "logout_revoke_user_sessions_timeout",
-            3000
-          ).catch(() => null);
+          // There is no validated current POS session here, so there is no safe session
+          // identifier to revoke. In particular, never fall back to revoking all active
+          // sessions for this user/branch because those may belong to other devices.
           const response = NextResponse.json({
             data: { ok: true, mode, redirect_to: mode === "switch_employee" ? "/login/employee?flow=multi" : "/login/employee?flow=multi" },
             error: null
