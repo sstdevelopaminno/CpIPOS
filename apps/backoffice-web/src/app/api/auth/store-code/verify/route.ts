@@ -6,6 +6,7 @@ import { buildRateLimitKey, enforceRateLimit, getClientIpAddress, readRateLimitS
 import { clearPreEntryFlowState, createFlowState, writePreEntryFlowState } from "@/lib/server/pre-entry-state";
 import { resolveSessionCookieConfig } from "@/lib/server/pos-session";
 import { resolveStoreLoginMode, shouldSkipBranchSelection } from "@/lib/server/store-login-mode";
+import { normalizeStoreCodeLookup, resolveTenantByStoreCode } from "@/lib/server/tenant-store-code";
 
 type RequestBody = {
   store_code?: string;
@@ -21,7 +22,7 @@ type BranchSummary = {
 
 type StoreLookupCacheEntry = {
   expiresAt: number;
-  tenant: { id: string; code: string; name: string };
+  tenant: { id: string; code: string; publicCode: string; name: string };
   branches: BranchSummary[];
 };
 
@@ -96,7 +97,7 @@ function runInBackground(task: () => Promise<unknown>) {
 export async function POST(request: Request) {
   const startedAt = Date.now();
   const body = (await request.json().catch(() => null)) as RequestBody | null;
-  const storeCode = String(body?.store_code ?? "").trim().toUpperCase();
+  const storeCode = normalizeStoreCodeLookup(body?.store_code).value;
   const clientIp = getClientIpAddress(request);
   const { ipAddress, userAgent } = getRequestMeta(request);
 
@@ -153,31 +154,9 @@ export async function POST(request: Request) {
     let lookup: StoreLookupCacheEntry | null = cachedLookup;
 
     if (!lookup) {
-      const { data: tenant, error: tenantError } = await withAuthTimeout(
-        supabase
-          .from("tenants")
-          .select("id,code,name,is_active")
-          .eq("code", storeCode)
-          .maybeSingle<{ id: string; code: string; name: string; is_active: boolean }>(),
-        "store_tenant_lookup_timeout"
-      );
+      const resolvedTenant = await withAuthTimeout(resolveTenantByStoreCode(storeCode), "store_tenant_lookup_timeout");
 
-      if (tenantError) {
-        console.error("[auth/store-code/verify] tenant lookup failed", {
-          storeCode,
-          error: tenantError.message
-        });
-        const response = NextResponse.json(
-          { data: null, error: { code: "store_lookup_failed", message: "ไม่สามารถตรวจสอบรหัสร้านค้าได้ในขณะนี้" } },
-          { status: 500 }
-        );
-        const durationMs = Date.now() - startedAt;
-        response.headers.set("x-auth-api-ms", String(durationMs));
-        response.headers.set("server-timing", `total;dur=${durationMs}`);
-        return response;
-      }
-
-      if (!tenant || tenant.is_active === false) {
+      if (!resolvedTenant || resolvedTenant.isActive === false) {
         runInBackground(() =>
           writeAuditLog({
             actorRole: "system",
@@ -203,7 +182,7 @@ export async function POST(request: Request) {
         supabase
           .from("branches")
           .select("id,code,name,address,is_active")
-          .eq("tenant_id", tenant.id)
+          .eq("tenant_id", resolvedTenant.tenantId)
           .eq("is_active", true)
           .order("name", { ascending: true }),
         "store_branch_lookup_timeout"
@@ -211,7 +190,7 @@ export async function POST(request: Request) {
 
       if (branchError) {
         console.error("[auth/store-code/verify] branch lookup failed", {
-          tenantId: tenant.id,
+          tenantId: resolvedTenant.tenantId,
           storeCode,
           error: branchError.message
         });
@@ -227,7 +206,12 @@ export async function POST(request: Request) {
 
       lookup = {
         expiresAt: 0,
-        tenant: { id: tenant.id, code: tenant.code, name: tenant.name },
+        tenant: {
+          id: resolvedTenant.tenantId,
+          code: resolvedTenant.internalCode,
+          publicCode: resolvedTenant.publicCode,
+          name: resolvedTenant.name
+        },
         branches: ((branchRows ?? []) as BranchSummary[]).filter((branch) => branch.is_active)
       };
       writeStoreLookupCache(storeCode, {
@@ -255,7 +239,7 @@ export async function POST(request: Request) {
       data: {
         tenant: {
           name: tenant.name,
-          code: tenant.code
+          code: tenant.publicCode
         },
         branches: branches.map((branch) => ({
           id: branch.id,
@@ -290,7 +274,8 @@ export async function POST(request: Request) {
         metadata: {
           success: true,
           branch_count: branches.length,
-          auto_skip_branch_selection: autoSkip
+          auto_skip_branch_selection: autoSkip,
+          store_code_kind: storeCode === tenant.code ? "legacy" : "access_code"
         }
       })
     );
