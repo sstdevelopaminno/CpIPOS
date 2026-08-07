@@ -26,7 +26,8 @@ const requiredMigrations = [
   "20260807155747_lock_app_function_search_paths.sql",
   "20260807155904_add_hot_relationship_indexes_phase2.sql",
   "20260807164920_restrict_authenticated_helper_policies.sql",
-  "20260807181344_tenant_lifecycle_short_store_codes.sql"
+  "20260807181344_tenant_lifecycle_short_store_codes.sql",
+  "20260807182453_auto_provision_tenant_lifecycle_defaults.sql"
 ];
 
 const requiredSqlMarkers = [
@@ -51,6 +52,8 @@ const requiredSqlMarkers = [
   "create table if not exists public.tenant_access_codes",
   "create table if not exists public.tenant_data_lifecycle",
   "create or replace function app.enforce_tenant_access_code_immutable",
+  "create or replace function app.provision_tenant_lifecycle_defaults",
+  "trg_tenant_lifecycle_defaults",
   "idx_tenant_data_lifecycle_migration"
 ];
 
