@@ -15,6 +15,7 @@
     "qa:login-bottleneck-load": "node scripts/pos-login-session-bottleneck-load-test.mjs",
     "qa:seed-health": "node scripts/seed-health-check.mjs",
     "schema:drift": "node scripts/schema-drift-check.mjs",
+    "schema:drift:trial": "node scripts/trial-schema-drift-check.mjs",
     "build": "corepack pnpm --filter backoffice-web build",
     "build:turbo": "corepack pnpm --filter backoffice-web build",
     "lint": "corepack pnpm --filter backoffice-web lint",
