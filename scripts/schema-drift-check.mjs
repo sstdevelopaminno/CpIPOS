@@ -25,7 +25,8 @@ const requiredMigrations = [
   "20260807155636_restrict_service_only_security_definer_rpcs.sql",
   "20260807155747_lock_app_function_search_paths.sql",
   "20260807155904_add_hot_relationship_indexes_phase2.sql",
-  "20260807164920_restrict_authenticated_helper_policies.sql"
+  "20260807164920_restrict_authenticated_helper_policies.sql",
+  "20260807181344_tenant_lifecycle_short_store_codes.sql"
 ];
 
 const requiredSqlMarkers = [
@@ -46,7 +47,11 @@ const requiredSqlMarkers = [
   "idx_orders_shift_open_dine_in",
   "idx_table_qr_orders_order_id",
   "idx_table_bill_sessions_order_id",
-  "alter policy %i on %i.%i to authenticated"
+  "alter policy %i on %i.%i to authenticated",
+  "create table if not exists public.tenant_access_codes",
+  "create table if not exists public.tenant_data_lifecycle",
+  "create or replace function app.enforce_tenant_access_code_immutable",
+  "idx_tenant_data_lifecycle_migration"
 ];
 
 // The default reset path is intentionally tenant-neutral. Package/feature catalog
