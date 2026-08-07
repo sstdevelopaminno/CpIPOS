@@ -45,6 +45,7 @@ const API_ERROR_I18N = {
     order_queue_overloaded: "คิวบิลหนาแน่นเกินกำหนด กรุณาเคลียร์คิวก่อนทำรายการใหม่",
     order_tx_timeout: "ระบบใช้เวลานานเกินไป กรุณาลองใหม่อีกครั้ง",
     rpc_not_available: "บริการธุรกรรมชั่วคราวไม่พร้อมใช้งาน กรุณาลองใหม่",
+    stock_deduction_failed: "ตัดสต๊อกเพื่อปิดการขายไม่สำเร็จ กรุณาตรวจสอบสต๊อกหรือการตั้งค่าสต๊อกแล้วลองใหม่",
     pos_sales_create_failed: "สร้างออเดอร์ไม่สำเร็จ กรุณาลองใหม่",
     cancel_order_failed: "ยกเลิกบิลไม่สำเร็จ กรุณาลองใหม่"
   },
@@ -71,6 +72,7 @@ const API_ERROR_I18N = {
     order_queue_overloaded: "Order queue is overloaded. Please clear queued bills first.",
     order_tx_timeout: "Request timed out. Please try again.",
     rpc_not_available: "Transaction service is temporarily unavailable. Please retry.",
+    stock_deduction_failed: "Unable to deduct stock while completing payment. Check stock settings and try again.",
     pos_sales_create_failed: "Unable to create order. Please try again.",
     cancel_order_failed: "Unable to cancel order. Please try again."
   }
