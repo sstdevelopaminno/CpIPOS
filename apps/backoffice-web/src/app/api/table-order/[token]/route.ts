@@ -1,5 +1,6 @@
 import { fail, ok } from "@/lib/http";
 import { PosTimeoutError, withTimeout } from "@/lib/pos-resilience";
+import { enforceRateLimit, getClientIpAddress, type RateLimitResult } from "@/lib/server/rate-limit";
 import { loadTableQrMenu, resolveTableQrContext, submitTableQrOrder, submitTableQrServiceRequest, updateTableQrOrderItems } from "@/lib/table-qr-ordering";
 
 type SubmitPayload = {
@@ -18,32 +19,33 @@ type PublicErrorMeta = {
   itemCount?: number;
 };
 
-const requestBuckets = new Map<string, { count: number; resetAt: number }>();
 const TABLE_ORDER_GET_TIMEOUT_MS = 30000;
+const TABLE_ORDER_RATE_LIMIT_MAX = 20;
+const TABLE_ORDER_RATE_LIMIT_WINDOW_MS = 60_000;
 
-function getClientIp(request: Request): string {
-  return request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || request.headers.get("x-real-ip") || "unknown";
+async function checkRateLimit(request: Request, token: string): Promise<RateLimitResult> {
+  const sessionId = token.split(".", 1)[0]?.slice(0, 36) || "invalid";
+  return enforceRateLimit({
+    namespace: "table-order-public",
+    key: `${getClientIpAddress(request)}:${sessionId}`,
+    max: TABLE_ORDER_RATE_LIMIT_MAX,
+    windowMs: TABLE_ORDER_RATE_LIMIT_WINDOW_MS,
+    failClosedOnBackendError: true
+  });
 }
 
-function rateLimit(request: Request, token: string): boolean {
-  const now = Date.now();
-  if (requestBuckets.size > 2000) {
-    for (const [bucketKey, bucket] of requestBuckets) {
-      if (bucket.resetAt <= now) requestBuckets.delete(bucketKey);
-    }
+function rateLimitFailure(result: RateLimitResult) {
+  const backendUnavailable = result.source === "backend_unavailable";
+  const response = backendUnavailable
+    ? fail("rate_limit_unavailable", "ระบบป้องกันคำขอไม่พร้อมใช้งานชั่วคราว กรุณาลองใหม่", 503)
+    : fail("rate_limited", "กรุณารอสักครู่แล้วลองใหม่", 429);
+
+  if (result.retryAfterSeconds > 0) {
+    response.headers.set("retry-after", String(result.retryAfterSeconds));
   }
-
-  const key = `${getClientIp(request)}:${token.slice(0, 36)}`;
-  const current = requestBuckets.get(key);
-
-  if (!current || current.resetAt <= now) {
-    requestBuckets.set(key, { count: 1, resetAt: now + 60_000 });
-    return true;
-  }
-
-  if (current.count >= 20) return false;
-  current.count += 1;
-  return true;
+  response.headers.set("x-ratelimit-limit", String(result.limit));
+  response.headers.set("x-ratelimit-remaining", String(result.remaining));
+  return response;
 }
 
 function getErrorMessage(error: unknown) {
@@ -178,7 +180,8 @@ export async function GET(request: Request, context: { params: Promise<{ token: 
     const params = await context.params;
     token = params.token;
 
-    if (!rateLimit(request, token)) return fail("rate_limited", "กรุณารอสักครู่แล้วลองใหม่", 429);
+    const rateLimit = await checkRateLimit(request, token);
+    if (!rateLimit.ok) return rateLimitFailure(rateLimit);
 
     const data = await withTimeout(
       (async () => {
@@ -211,7 +214,8 @@ export async function POST(request: Request, context: { params: Promise<{ token:
     const params = await context.params;
     token = params.token;
 
-    if (!rateLimit(request, token)) return fail("rate_limited", "กรุณารอสักครู่แล้วลองใหม่", 429);
+    const rateLimit = await checkRateLimit(request, token);
+    if (!rateLimit.ok) return rateLimitFailure(rateLimit);
 
     const body = (await request.json().catch(() => null)) as SubmitPayload | null;
     if (!body || typeof body !== "object") {
