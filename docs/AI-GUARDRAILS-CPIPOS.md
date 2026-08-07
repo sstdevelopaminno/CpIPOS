@@ -1,6 +1,6 @@
 # AI Guardrails For CpIPOS
 
-Date: 2026-08-07
+Date: 2026-08-08
 
 ## Current Project
 
@@ -36,8 +36,9 @@ Rules:
 - The default `supabase/seed.sql` must remain tenant-neutral. Do not hard-code production/demo tenants, branches, devices, users, passwords, PINs, orders, products, or inventory into the default reset path.
 - Temporary demo fixtures, if ever needed, must be explicit opt-in scripts and must not reuse production store codes or credentials.
 - Do not rename live tables, columns, constraints, RPCs, or RLS policies merely for style. Use additive compatibility-safe migrations and verify runtime consumers first.
-- Database housekeeping migrations `20260807152000`, `20260807154613`, `20260807155636`, `20260807155747`, and `20260807155904` are the current Production-safe baseline.
+- Database housekeeping migrations `20260807152000`, `20260807154613`, `20260807155636`, `20260807155747`, `20260807155904`, and `20260807164920` are the current Production-safe baseline.
 - Privileged `public` `SECURITY DEFINER` RPCs used by POS/Web/Mobile server paths must remain non-executable by `anon` and `authenticated`; trusted server callers use `service_role`.
+- Policies that call authenticated-only helper functions such as `app.has_branch_access`, `app.has_role`, or `app.is_it_admin` must not be restored to `TO public`; use an explicitly authenticated target unless a separately reviewed anonymous contract exists.
 - Do not add RLS policies to server-only tables merely to silence `RLS Enabled No Policy` Advisor notices. RLS with no policy is intentionally deny-by-default unless a direct-client access contract is explicitly designed.
 - Do not remove an index solely because Supabase marks it unused; require a meaningful Production observation window and workload evidence first.
 - Supabase Auth `Leaked Password Protection` should be enabled in project Auth Settings before customer onboarding; it is a project-level Auth setting, not a SQL migration.
@@ -54,6 +55,19 @@ Vercel production must include these server/runtime variables:
 
 `POS_SESSION_HANDOFF_SECRET` is required for valid store-code login because the server signs the pre-entry login-flow cookie after tenant and branch lookup.
 `TABLE_QR_SIGNING_SECRET` must be separate from `SUPABASE_SERVICE_ROLE_KEY`; table QR tokens must not be signed with service-role credentials.
+
+Production/serverless auth rate limiting should use the distributed Upstash backend (`RATE_LIMIT_BACKEND=upstash` with valid `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN`). In-memory limiting is process-local and is only an acceptable local/degraded fallback.
+
+## Transaction And API Reliability Rules
+
+- Production order creation and payment completion are transaction-RPC first. Keep `POS_FORCE_DIRECT_CREATE_NON_DELIVERY=false` and `POS_FORCE_DIRECT_PAYMENT_COMPLETE=false` unless an explicitly reviewed emergency compatibility rollback requires otherwise.
+- Keep `POS_SOFT_BYPASS_INSUFFICIENT_STOCK=false` by default. Negative-stock behavior must come from the branch-aware database policy, not a generic application bypass.
+- Direct multi-request order/payment fallbacks are not atomic and must never become the silent default again.
+- A timeout implemented around a Supabase promise does not prove the database mutation was cancelled. After a timeout, retry a mutation only with the same idempotency/request key so a late first attempt cannot duplicate an order or payment.
+- Do not introduce internal HTTP calls from one Next.js route to another route in the same deployment when the canonical handler/service can be invoked in-process.
+- External API calls must have a bounded timeout and must not retry money-changing operations automatically unless the provider contract and idempotency semantics explicitly make the retry safe.
+- Provider-supplied outbound URLs must be validated before server-side fetch. For INET NOPS, dynamic payment URLs must use HTTPS and an approved provider hostname (configured endpoint host or explicit `INET_NOPS_ALLOWED_PAYMENT_HOSTS_*`).
+- Do not expose service-role credentials, provider merchant keys, access tokens, or raw provider error bodies to browser responses or logs.
 
 ## Verified Login Store Codes
 
