@@ -1,0 +1,7 @@
+alter policy pos_user_approval_permissions_owner_manage
+on public.pos_user_approval_permissions
+to authenticated;
+
+alter policy pos_user_approval_permissions_select
+on public.pos_user_approval_permissions
+to authenticated;
