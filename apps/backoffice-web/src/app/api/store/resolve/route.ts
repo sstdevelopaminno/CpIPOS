@@ -1,5 +1,6 @@
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
 import { buildRateLimitKey, enforceRateLimit, getClientIpAddress, readRateLimitSetting } from "@/lib/server/rate-limit";
+import { normalizeStoreCodeLookup, resolveTenantByStoreCode } from "@/lib/server/tenant-store-code";
 
 type BranchPolicyRow = {
   branch_id: string;
@@ -19,7 +20,8 @@ type BranchRow = {
 
 export async function POST(request: Request) {
   const body = (await request.json().catch(() => null)) as { store_code?: string } | null;
-  const storeCode = String(body?.store_code ?? "").trim().toUpperCase();
+  const normalizedStoreCode = normalizeStoreCodeLookup(body?.store_code);
+  const storeCode = normalizedStoreCode.value;
   if (!storeCode) {
     return Response.json({ data: null, error: { code: "store_code_required", message: "store_code is required." } }, { status: 400 });
   }
@@ -51,29 +53,20 @@ export async function POST(request: Request) {
 
   try {
     const supabase = getSupabaseServiceClient();
-    const { data: tenantRow, error: tenantError } = await supabase
-      .from("tenants")
-      .select("id,code,name,is_active")
-      .eq("code", storeCode)
-      .maybeSingle<{ id: string; code: string; name: string; is_active: boolean }>();
-
-    if (tenantError) {
-      console.error("[store-resolve] Tenant lookup failed", { storeCode, error: tenantError.message });
-      return Response.json({ data: null, error: { code: "store_lookup_failed", message: "Unable to resolve store at this time." } }, { status: 500 });
-    }
-    if (!tenantRow || tenantRow.is_active === false) {
+    const resolvedTenant = await resolveTenantByStoreCode(storeCode);
+    if (!resolvedTenant || resolvedTenant.isActive === false) {
       return Response.json({ data: null, error: { code: "store_not_found", message: "Store code not found or inactive." } }, { status: 404 });
     }
 
     const { data: branchRows, error: branchError } = await supabase
       .from("branches")
       .select("id,code,name,is_active")
-      .eq("tenant_id", tenantRow.id)
+      .eq("tenant_id", resolvedTenant.tenantId)
       .eq("is_active", true)
       .order("name", { ascending: true });
 
     if (branchError) {
-      console.error("[store-resolve] Branch lookup failed", { tenantId: tenantRow.id, error: branchError.message });
+      console.error("[store-resolve] Branch lookup failed", { tenantId: resolvedTenant.tenantId, error: branchError.message });
       return Response.json({ data: null, error: { code: "store_lookup_failed", message: "Unable to resolve store at this time." } }, { status: 500 });
     }
 
@@ -84,7 +77,7 @@ export async function POST(request: Request) {
       const { data, error } = await supabase
         .from("branch_login_policies")
         .select("branch_id,max_devices,allow_shared_devices,require_registered_device,allow_pin_login,allow_staff_card_login")
-        .eq("tenant_id", tenantRow.id)
+        .eq("tenant_id", resolvedTenant.tenantId)
         .in("branch_id", branchIds);
       if (!error) {
         policyRows = (data ?? []) as BranchPolicyRow[];
@@ -93,12 +86,12 @@ export async function POST(request: Request) {
 
     const policyMap = new Map(policyRows.map((row) => [String(row.branch_id), row]));
 
-    let deviceCountByBranch = new Map<string, number>();
+    const deviceCountByBranch = new Map<string, number>();
     if (branchIds.length > 0) {
       const { data: deviceRows, error } = await supabase
         .from("branch_devices")
         .select("branch_id,status")
-        .eq("tenant_id", tenantRow.id)
+        .eq("tenant_id", resolvedTenant.tenantId)
         .in("branch_id", branchIds)
         .eq("status", "active");
       if (!error) {
@@ -132,9 +125,9 @@ export async function POST(request: Request) {
     return Response.json({
       data: {
         tenant: {
-          id: tenantRow.id,
-          code: tenantRow.code,
-          name: tenantRow.name
+          id: resolvedTenant.tenantId,
+          code: resolvedTenant.publicCode,
+          name: resolvedTenant.name
         },
         branches,
         can_direct_access: branches.length === 0
