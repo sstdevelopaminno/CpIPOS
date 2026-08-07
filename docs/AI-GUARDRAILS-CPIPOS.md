@@ -42,9 +42,10 @@ Rules:
 - The default `supabase/seed.sql` must remain tenant-neutral. Do not hard-code production/demo tenants, branches, devices, users, passwords, PINs, orders, products, or inventory into the default reset path.
 - Temporary demo fixtures, if ever needed, must be explicit opt-in scripts and must not reuse production store codes or credentials.
 - Do not rename live tables, columns, constraints, RPCs, or RLS policies merely for style. Use additive compatibility-safe migrations and verify runtime consumers first.
-- Database housekeeping/control-plane migrations `20260807152000`, `20260807154613`, `20260807155636`, `20260807155747`, `20260807155904`, `20260807164920`, and `20260807181344` are the current Production-safe baseline.
+- Database housekeeping/control-plane migrations `20260807152000`, `20260807154613`, `20260807155636`, `20260807155747`, `20260807155904`, `20260807164920`, `20260807181344`, `20260807182453`, and `20260807183126` are the current Production-safe baseline.
 - Privileged `public` `SECURITY DEFINER` RPCs used by POS/Web/Mobile server paths must remain non-executable by `anon` and `authenticated`; trusted server callers use `service_role`.
 - Policies that call authenticated-only helper functions such as `app.has_branch_access`, `app.has_role`, or `app.is_it_admin` must not be restored to `TO public`; use an explicitly authenticated target unless a separately reviewed anonymous contract exists.
+- `pos_user_approval_permissions_owner_manage` and `pos_user_approval_permissions_select` must remain targeted to `authenticated`, not `public`.
 - Do not add RLS policies to server-only tables merely to silence `RLS Enabled No Policy` Advisor notices. RLS with no policy is intentionally deny-by-default unless a direct-client access contract is explicitly designed.
 - Do not remove an index solely because Supabase marks it unused; require a meaningful Production observation window and workload evidence first.
 - Supabase Auth `Leaked Password Protection` should be enabled in project Auth Settings before customer onboarding; it is a project-level Auth setting, not a SQL migration.
