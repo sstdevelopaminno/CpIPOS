@@ -20,7 +20,11 @@ const requiredMigrations = [
   "202607180007_stock_realtime_publication.sql",
   "20260728173858_print_agent_v1.sql",
   "20260728180311_cash_drawer_v1.sql",
-  "20260807152000_add_safe_scope_lookup_indexes.sql"
+  "20260807152000_add_safe_scope_lookup_indexes.sql",
+  "20260807154613_optimize_rls_auth_initplan_phase2.sql",
+  "20260807155636_restrict_service_only_security_definer_rpcs.sql",
+  "20260807155747_lock_app_function_search_paths.sql",
+  "20260807155904_add_hot_relationship_indexes_phase2.sql"
 ];
 
 const requiredSqlMarkers = [
@@ -35,7 +39,12 @@ const requiredSqlMarkers = [
   "create table if not exists public.cash_drawer_events",
   "claimed_by_agent_id",
   "create or replace function app.enforce_shift_close_rules",
-  "create or replace function app.consume_ingredient"
+  "create or replace function app.consume_ingredient",
+  "revoke execute on function public.complete_pos_payment_tx",
+  "set search_path = pg_catalog, public, app, extensions",
+  "idx_orders_shift_open_dine_in",
+  "idx_table_qr_orders_order_id",
+  "idx_table_bill_sessions_order_id"
 ];
 
 // The default reset path is intentionally tenant-neutral. Package/feature catalog
