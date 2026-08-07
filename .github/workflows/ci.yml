@@ -54,9 +54,13 @@ jobs:
         timeout-minutes: 8
         run: corepack pnpm run test
 
-      - name: Schema drift check
+      - name: Primary schema drift check
         timeout-minutes: 5
         run: corepack pnpm schema:drift
+
+      - name: CpiPOS-002 schema drift check
+        timeout-minutes: 5
+        run: corepack pnpm schema:drift:trial
 
       - name: Build backoffice (PR)
         if: github.event_name == 'pull_request'
