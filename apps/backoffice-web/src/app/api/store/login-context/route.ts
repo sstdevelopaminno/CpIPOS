@@ -1,13 +1,8 @@
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
-import { normalizeDeviceCode, normalizeStoreCode } from "@/lib/server/login-security";
+import { normalizeDeviceCode } from "@/lib/server/login-security";
 import { buildRateLimitKey, enforceRateLimit, getClientIpAddress, readRateLimitSetting } from "@/lib/server/rate-limit";
+import { normalizeStoreCodeLookup, resolveTenantByStoreCode } from "@/lib/server/tenant-store-code";
 import { cookies } from "next/headers";
-
-type TenantRow = {
-  id: string;
-  code: string;
-  is_active: boolean;
-};
 
 type BranchRow = {
   id: string;
@@ -32,7 +27,7 @@ export async function POST(request: Request) {
       }
     | null;
 
-  const storeCode = normalizeStoreCode(body?.store_code);
+  const storeCode = normalizeStoreCodeLookup(body?.store_code).value;
   const branchId = String(body?.branch_id ?? "").trim();
   const requestedDeviceCode = normalizeDeviceCode(body?.device_code);
 
@@ -79,12 +74,8 @@ export async function POST(request: Request) {
 
   try {
     const supabase = getSupabaseServiceClient();
-    const [{ data: tenantRow, error: tenantError }, { data: branchRow, error: branchError }] = await Promise.all([
-      supabase
-        .from("tenants")
-        .select("id,code,is_active")
-        .eq("code", storeCode)
-        .maybeSingle<TenantRow>(),
+    const [resolvedTenant, branchResult] = await Promise.all([
+      resolveTenantByStoreCode(storeCode),
       supabase
         .from("branches")
         .select("id,tenant_id,is_active")
@@ -92,21 +83,19 @@ export async function POST(request: Request) {
         .maybeSingle<BranchRow>()
     ]);
 
-    if (tenantError) {
-      console.error("[store-login-context] Tenant lookup failed", { storeCode, branchId, error: tenantError.message });
+    if (branchResult.error) {
+      console.error("[store-login-context] Branch lookup failed", { storeCode, branchId, error: branchResult.error.message });
       return Response.json({ data: null, error: { code: "context_create_failed", message: "Unable to prepare login context." } }, { status: 500 });
     }
-    if (branchError) {
-      console.error("[store-login-context] Branch lookup failed", { storeCode, branchId, error: branchError.message });
-      return Response.json({ data: null, error: { code: "context_create_failed", message: "Unable to prepare login context." } }, { status: 500 });
-    }
-    if (!tenantRow || tenantRow.is_active === false) {
+    if (!resolvedTenant || resolvedTenant.isActive === false) {
       return Response.json({ data: null, error: { code: "inactive_tenant", message: "Tenant is not active." } }, { status: 403 });
     }
+
+    const branchRow = branchResult.data;
     if (!branchRow || branchRow.is_active === false) {
       return Response.json({ data: null, error: { code: "inactive_branch", message: "Branch is not active." } }, { status: 403 });
     }
-    if (branchRow.tenant_id !== tenantRow.id) {
+    if (branchRow.tenant_id !== resolvedTenant.tenantId) {
       return Response.json(
         { data: null, error: { code: "branch_tenant_mismatch", message: "Branch does not belong to the provided store." } },
         { status: 403 }
@@ -117,14 +106,18 @@ export async function POST(request: Request) {
     const { data: inserted, error: insertError } = await supabase
       .from("pos_login_contexts")
       .insert({
-        tenant_id: tenantRow.id,
+        tenant_id: resolvedTenant.tenantId,
         branch_id: branchRow.id,
-        store_code: tenantRow.code,
+        // Keep the internal code in the signed/opaque login context so all
+        // downstream validation remains compatible with the existing tenant invariant.
+        store_code: resolvedTenant.internalCode,
         device_code: resolvedDeviceCode,
         expires_at: expiresAt,
         status: "active",
         metadata: {
           requested_device_code: requestedDeviceCode,
+          requested_store_code: resolvedTenant.publicCode,
+          store_code_kind: resolvedTenant.codeKind,
           device_cookie_name: deviceCookieName,
           device_source: cookieDeviceCode ? "cookie" : "none"
         }
@@ -134,7 +127,7 @@ export async function POST(request: Request) {
 
     if (insertError || !inserted) {
       console.error("[store-login-context] Context insert failed", {
-        tenantId: tenantRow.id,
+        tenantId: resolvedTenant.tenantId,
         branchId: branchRow.id,
         error: insertError?.message ?? "Unknown insert error"
       });
