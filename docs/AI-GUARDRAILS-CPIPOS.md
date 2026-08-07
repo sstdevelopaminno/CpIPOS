@@ -12,6 +12,7 @@ Date: 2026-08-08
 - Active Supabase project: `POS-Preview`
 - Active Supabase ref: `deejlitaivfnsbwqdugy`
 - Latest handoff: `docs/CPIPOS-HANDOFF-2026-07-28.md`
+- Tenant data lifecycle design: `docs/TENANT-DATA-LIFECYCLE-2026-08-08.md`
 - Current collaboration preference: token-saving mode; wait for explicit user instructions before further development.
 
 ## Do Not Confuse With Old Project
@@ -23,25 +24,43 @@ Date: 2026-08-08
 
 ## Production Database Baseline
 
-Production business data is intentionally limited to these tenant/store codes:
+There is no real customer business data in the three current pre-launch tenants. Their roles are:
 
-- `NDL-TH-001`
-- `BBQ-TH-002`
-- `TEST-TH-003`
+- legacy `NDL-TH-001` -> public code `900001` -> Sales/IT demo tenant
+- legacy `BBQ-TH-002` -> public code `800001` -> internal trial/test tenant
+- legacy `TEST-TH-003` -> public code `800002` -> internal trial/test tenant
 
 Rules:
 
+- The six-digit `tenant_access_codes.access_code` is the human-facing store identifier. It is allocated once and must never change during Trial -> Paid -> Archive lifecycle transitions.
+- Real customer store codes use random values in `100000-799999` from the first trial/onboarding day and keep the same value after conversion to paid.
+- `800000-899999` is reserved for internal/test tenants. `900000-999999` is reserved for Sales/IT demo tenants.
+- Legacy `tenants.code` values remain internal compatibility identifiers. Do not rename them merely to improve the login UX.
+- Store code is an identifier, not an authentication secret. Employee/PIN/staff-card, device, POS session, tenant/branch scope, rate limit, feature gate, and audit controls remain authoritative.
 - `SOLO-TH-001` was removed from Production on 2026-08-07 and must not be re-seeded.
 - Package code `solo` / `Solo Register` is a valid system package and is not a tenant/store code; keep the package catalog entry.
 - The default `supabase/seed.sql` must remain tenant-neutral. Do not hard-code production/demo tenants, branches, devices, users, passwords, PINs, orders, products, or inventory into the default reset path.
 - Temporary demo fixtures, if ever needed, must be explicit opt-in scripts and must not reuse production store codes or credentials.
 - Do not rename live tables, columns, constraints, RPCs, or RLS policies merely for style. Use additive compatibility-safe migrations and verify runtime consumers first.
-- Database housekeeping migrations `20260807152000`, `20260807154613`, `20260807155636`, `20260807155747`, `20260807155904`, and `20260807164920` are the current Production-safe baseline.
+- Database housekeeping/control-plane migrations `20260807152000`, `20260807154613`, `20260807155636`, `20260807155747`, `20260807155904`, `20260807164920`, and `20260807181344` are the current Production-safe baseline.
 - Privileged `public` `SECURITY DEFINER` RPCs used by POS/Web/Mobile server paths must remain non-executable by `anon` and `authenticated`; trusted server callers use `service_role`.
 - Policies that call authenticated-only helper functions such as `app.has_branch_access`, `app.has_role`, or `app.is_it_admin` must not be restored to `TO public`; use an explicitly authenticated target unless a separately reviewed anonymous contract exists.
 - Do not add RLS policies to server-only tables merely to silence `RLS Enabled No Policy` Advisor notices. RLS with no policy is intentionally deny-by-default unless a direct-client access contract is explicitly designed.
 - Do not remove an index solely because Supabase marks it unused; require a meaningful Production observation window and workload evidence first.
 - Supabase Auth `Leaked Password Protection` should be enabled in project Auth Settings before customer onboarding; it is a project-level Auth setting, not a SQL migration.
+
+## Tenant Data Routing Rules
+
+- Database 1 remains the identity/control-plane authority for all tenants, including trials.
+- Database 2 is a future Trial Data Plane for high-churn business data. It is not a backup and it is not yet connected/visible to the current Supabase connector.
+- `tenant_data_lifecycle.data_home` is the only authoritative current business-data location. `desired_data_home` is a migration target and must never route traffic by itself.
+- Existing tenants remain `data_home=primary` until Trial DB schema/security/copy verification passes.
+- `NDL` Sales/IT demo remains desired `primary` for reliable demonstrations.
+- `BBQ` and `TEST` are marked Trial with desired `trial`, but their current authoritative home remains Primary until cutover.
+- Never silently fallback a tenant whose authoritative `data_home=trial` to Primary when Trial DB is unavailable; fail closed to prevent split-brain writes.
+- Trial -> Paid migration must preserve tenant UUIDs, store access code, business row UUIDs, and idempotency keys; verify row counts, financial totals, inventory reconciliation, and checksums before cutover.
+- Supabase Auth/JWT authority should remain in Database 1. Do not move customer Auth merely because business data moves between Trial and Primary.
+- Android, Windows, Web, Mobile, and IT Backoffice must keep calling CpIPOS APIs; client code must never choose a Supabase project or trusted `data_home` itself.
 
 ## Required Production Env
 
@@ -55,6 +74,14 @@ Vercel production must include these server/runtime variables:
 
 `POS_SESSION_HANDOFF_SECRET` is required for valid store-code login because the server signs the pre-entry login-flow cookie after tenant and branch lookup.
 `TABLE_QR_SIGNING_SECRET` must be separate from `SUPABASE_SERVICE_ROLE_KEY`; table QR tokens must not be signed with service-role credentials.
+
+Trial routing variables are server-only:
+
+- `TRIAL_DATA_ROUTING_ENABLED=false` until the second project is connected and verified
+- `TRIAL_SUPABASE_URL`
+- `TRIAL_SUPABASE_SERVICE_ROLE_KEY`
+
+Never expose Trial service credentials through `NEXT_PUBLIC_*` variables.
 
 Production/serverless auth rate limiting should use the distributed Upstash backend (`RATE_LIMIT_BACKEND=upstash` with valid `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN`). In-memory limiting is process-local and is only an acceptable local/degraded fallback.
 
@@ -71,12 +98,13 @@ Production/serverless auth rate limiting should use the distributed Upstash back
 
 ## Verified Login Store Codes
 
-These store codes are the current Production business baseline:
+Human-facing pre-launch codes:
 
-- `NDL-TH-001`: valid production tenant
-- `BBQ-TH-002`: valid production tenant
-- `TEST-TH-003`: valid production test/trial tenant
-- `ABC999`: expected fake code; must return `404 store_not_found`
+- `900001`: Sales/IT demo (`NDL-TH-001` internal)
+- `800001`: internal trial (`BBQ-TH-002` internal)
+- `800002`: internal trial (`TEST-TH-003` internal)
+
+Legacy alpha-numeric codes remain temporarily accepted server-side for compatibility, but new onboarding and operator instructions should use the six-digit code.
 
 ## Production Smoke Expectations
 
@@ -93,8 +121,8 @@ These store codes are the current Production business baseline:
 
 ## Security Rules
 
-- Never commit `.vercel/`, `.env.local`, Vercel tokens, Supabase access tokens, database passwords, service-role keys, or generated local cache folders.
-- Keep Supabase service-role usage server-only.
+- Never commit `.vercel/`, `.env.local`, Vercel tokens, Supabase access tokens, database passwords, service-role keys, Trial service-role keys, or generated local cache folders.
+- Keep all Supabase service-role usage server-only.
 - Never restore direct `anon`/`authenticated` EXECUTE on privileged POS transaction wrappers without a separately reviewed direct-client security design.
 - If valid store-code login returns `500`, first check Vercel env for `POS_SESSION_HANDOFF_SECRET` before changing database schema.
 - For local `localhost:3000` login slowness or API timeouts, read `docs/LOCAL-DEV-LOGIN-PERFORMANCE-2026-07-27.md` before debugging. Most local delays are first-route compile, missing `.env.local`, sandboxed network, or slow `.next/dev` filesystem cache.
