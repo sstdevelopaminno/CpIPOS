@@ -8,6 +8,7 @@ import { appendPosDeadLetter, POS_GUARDS } from "@/lib/pos-resilience";
 import { enqueuePrintJobsForOrderSnapshot } from "@/lib/printing/print-service";
 import { invalidatePosSalesListCacheForScope } from "@/lib/services/pos-sales-list-service";
 import { executeCompletePosPaymentTransaction } from "@/lib/services/pos-sales-service";
+import { completeTrustedProviderPayment } from "@/lib/payments/provider-payment-router";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
 
 type FinalizePosPaymentArgs = {
@@ -18,6 +19,7 @@ type FinalizePosPaymentArgs = {
   referenceNo: string | null;
   requestGroupId: string;
   auditAction?: string;
+  trustedProvider?: "inet_nops";
 };
 
 function isMissingOrderSnapshotColumn(message: string): boolean {
@@ -31,26 +33,37 @@ function isMissingOrderSnapshotColumn(message: string): boolean {
 }
 
 export async function finalizePosPayment(args: FinalizePosPaymentArgs) {
-  const { auth, orderId, amount, method, referenceNo, requestGroupId, auditAction } = args;
+  const { auth, orderId, amount, method, referenceNo, requestGroupId, auditAction, trustedProvider } = args;
   if (!auth.tenantId || !auth.branchId) {
     return { ok: false as const, code: "missing_scope", status: 401, message: "Missing tenant/branch scope." };
   }
 
   const supabase = getSupabaseServiceClient();
-  const txResult = await executeCompletePosPaymentTransaction({
-    auth,
-    input: {
-      order_id: orderId,
-      payment_lines: [
-        {
-          method,
-          amount,
-          reference_no: referenceNo
-        }
-      ]
-    },
-    requestGroupId
-  });
+  const txResult = trustedProvider
+    ? await completeTrustedProviderPayment({
+        tenantId: auth.tenantId,
+        branchId: auth.branchId,
+        orderId,
+        receivedBy: auth.userId,
+        amount,
+        referenceNo,
+        requestGroupId,
+        provider: trustedProvider
+      })
+    : await executeCompletePosPaymentTransaction({
+        auth,
+        input: {
+          order_id: orderId,
+          payment_lines: [
+            {
+              method,
+              amount,
+              reference_no: referenceNo
+            }
+          ]
+        },
+        requestGroupId
+      });
 
   if (!txResult.ok) {
     return txResult;
@@ -188,7 +201,8 @@ export async function finalizePosPayment(args: FinalizePosPaymentArgs) {
         amount,
         method,
         reference_no: referenceNo,
-        request_group_id: requestGroupId
+        request_group_id: requestGroupId,
+        trusted_provider: trustedProvider ?? null
       }
     });
   }
