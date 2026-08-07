@@ -1,6 +1,11 @@
 import { fail, ok } from "@/lib/http";
 import { guardItAdminError, requireItAdmin, type ItAdminContext } from "@/lib/it-admin-guard";
-import { createTenant, listTenantSummaries, type TenantSummaryStatus } from "@/lib/services/it-admin/tenant-admin-service";
+import {
+  createTenant,
+  listTenantSummaries,
+  type TenantCreateInput,
+  type TenantSummaryStatus
+} from "@/lib/services/it-admin/tenant-admin-service";
 
 type AccessCodeRow = {
   tenant_id: string;
@@ -115,7 +120,7 @@ export async function POST(req: Request) {
   try {
     const context = await requireItAdmin();
     const rawBody = await req.json().catch(() => ({}));
-    const body = rawBody && typeof rawBody === "object" ? { ...(rawBody as Record<string, unknown>) } : {};
+    const body = (rawBody && typeof rawBody === "object" ? { ...(rawBody as Record<string, unknown>) } : {}) as TenantCreateInput;
 
     // `tenants.code` is now an internal compatibility identifier. New onboarding
     // does not require an operator to invent a long store code; the DB trigger
