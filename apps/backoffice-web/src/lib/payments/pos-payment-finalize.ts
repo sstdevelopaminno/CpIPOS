@@ -9,7 +9,7 @@ import { enqueuePrintJobsForOrderSnapshot } from "@/lib/printing/print-service";
 import { invalidatePosSalesListCacheForScope } from "@/lib/services/pos-sales-list-service";
 import { executeCompletePosPaymentTransaction } from "@/lib/services/pos-sales-service";
 import { completeTrustedProviderPayment } from "@/lib/payments/provider-payment-router";
-import { getSupabaseServiceClient } from "@/lib/supabase-admin";
+import { getPrimarySupabaseServiceClient, getSupabaseServiceClient } from "@/lib/supabase-admin";
 
 type FinalizePosPaymentArgs = {
   auth: AuthContext;
@@ -30,6 +30,52 @@ function isMissingOrderSnapshotColumn(message: string): boolean {
     normalized.includes("payment_completed_at") ||
     normalized.includes("payment_completed_by")
   );
+}
+
+async function registerCompletedPaymentRoutes(args: {
+  auth: AuthContext;
+  orderId: string;
+  requestGroupId: string;
+}) {
+  if (!args.auth.tenantId || !args.auth.branchId) return null;
+
+  const routed = getSupabaseServiceClient();
+  const { data: paymentRows, error: paymentQueryError } = await routed
+    .from("payments")
+    .select("id,tenant_id,branch_id")
+    .eq("tenant_id", args.auth.tenantId)
+    .eq("branch_id", args.auth.branchId)
+    .eq("order_id", args.orderId)
+    .eq("request_group_id", args.requestGroupId);
+
+  if (paymentQueryError) {
+    return `payment_route_query_failed:${paymentQueryError.message}`;
+  }
+
+  const routes = (paymentRows ?? [])
+    .map((row) => ({
+      object_type: "payments",
+      object_id: String(row.id ?? "").trim(),
+      tenant_id: String(row.tenant_id ?? args.auth.tenantId),
+      branch_id: String(row.branch_id ?? args.auth.branchId),
+      metadata: {
+        source: "payment_finalize",
+        order_id: args.orderId,
+        request_group_id: args.requestGroupId
+      }
+    }))
+    .filter((row) => Boolean(row.object_id));
+
+  if (routes.length === 0) {
+    return "payment_route_missing_after_commit";
+  }
+
+  const primary = getPrimarySupabaseServiceClient();
+  const { error: routeError } = await primary
+    .from("tenant_data_object_routes")
+    .upsert(routes, { onConflict: "object_type,object_id" });
+
+  return routeError ? `payment_route_registry_failed:${routeError.message}` : null;
 }
 
 export async function finalizePosPayment(args: FinalizePosPaymentArgs) {
@@ -74,6 +120,33 @@ export async function finalizePosPayment(args: FinalizePosPaymentArgs) {
 
   if (!txResult.ok) {
     return txResult;
+  }
+
+  // The financial transaction may already be committed at this point. Registry
+  // synchronization is therefore best-effort and must never turn a committed
+  // payment into a retryable "payment failed" response.
+  const routeRegistryWarning = await registerCompletedPaymentRoutes({ auth, orderId, requestGroupId });
+  if (routeRegistryWarning) {
+    console.error("[pos-payment-finalize] payment route registry sync failed", {
+      tenant_id: auth.tenantId,
+      branch_id: auth.branchId,
+      order_id: orderId,
+      request_group_id: requestGroupId,
+      detail: routeRegistryWarning
+    });
+    void appendAuditLog({
+      tenantId: auth.tenantId,
+      branchId: auth.branchId,
+      actorUserId: auth.userId,
+      actorRole: auth.branchRole ?? auth.platformRole,
+      action: "pos_payment_route_registry_warning",
+      targetTable: "payments",
+      targetId: orderId,
+      metadata: {
+        request_group_id: requestGroupId,
+        detail: routeRegistryWarning
+      }
+    });
   }
 
   const nowIso = new Date().toISOString();
@@ -209,7 +282,8 @@ export async function finalizePosPayment(args: FinalizePosPaymentArgs) {
         method,
         reference_no: referenceNo,
         request_group_id: requestGroupId,
-        trusted_provider: effectiveTrustedProvider ?? null
+        trusted_provider: effectiveTrustedProvider ?? null,
+        route_registry_warning: routeRegistryWarning
       }
     });
   }
@@ -225,7 +299,8 @@ export async function finalizePosPayment(args: FinalizePosPaymentArgs) {
       cash_received: amount,
       change_amount: 0,
       print_jobs_queued: printJobsQueued,
-      print_warning: printWarning
+      print_warning: printWarning,
+      route_registry_warning: routeRegistryWarning
     }
   };
 }
