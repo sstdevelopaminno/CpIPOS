@@ -27,7 +27,8 @@ const requiredMigrations = [
   "20260807155904_add_hot_relationship_indexes_phase2.sql",
   "20260807164920_restrict_authenticated_helper_policies.sql",
   "20260807181344_tenant_lifecycle_short_store_codes.sql",
-  "20260807182453_auto_provision_tenant_lifecycle_defaults.sql"
+  "20260807182453_auto_provision_tenant_lifecycle_defaults.sql",
+  "20260807183126_restrict_pos_approval_policies_authenticated.sql"
 ];
 
 const requiredSqlMarkers = [
@@ -54,6 +55,8 @@ const requiredSqlMarkers = [
   "create or replace function app.enforce_tenant_access_code_immutable",
   "create or replace function app.provision_tenant_lifecycle_defaults",
   "trg_tenant_lifecycle_defaults",
+  "alter policy pos_user_approval_permissions_owner_manage",
+  "alter policy pos_user_approval_permissions_select",
   "idx_tenant_data_lifecycle_migration"
 ];
 
