@@ -321,6 +321,7 @@ async function findActiveSession(args: { tenantId: string; branchId: string; use
     cookieSession &&
     cookieSession.tenant_id === args.tenantId &&
     cookieSession.branch_id === args.branchId &&
+    cookieSession.shift_id === args.shiftId &&
     (!args.userId || cookieSession.user_id === args.userId)
   ) return cookieSession;
 
@@ -329,12 +330,13 @@ async function findActiveSession(args: { tenantId: string; branchId: string; use
     .select("id,tenant_id,branch_id,user_id,device_code,shift_id,status,issued_at,expires_at")
     .eq("tenant_id", args.tenantId)
     .eq("branch_id", args.branchId)
+    .eq("shift_id", args.shiftId)
     .eq("status", "active")
     .gt("expires_at", new Date().toISOString());
   if (args.userId) query = query.eq("user_id", args.userId);
   const { data, error } = await query.order("issued_at", { ascending: false }).limit(1).maybeSingle();
   if (error) throw new TenantDataRoutingError("trial_runtime_session_lookup_failed", error.message);
-  if (!data) throw new TenantDataRoutingError("trial_runtime_session_missing", "An active CpiPOS-001 POS session is required for Trial transactions.");
+  if (!data) throw new TenantDataRoutingError("trial_runtime_session_missing", "An active CpiPOS-001 POS session for the selected open shift is required for Trial transactions.");
   return data as PosSessionRouteRow;
 }
 
