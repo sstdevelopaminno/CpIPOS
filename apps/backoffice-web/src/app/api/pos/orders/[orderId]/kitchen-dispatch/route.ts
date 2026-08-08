@@ -77,7 +77,7 @@ export async function POST(req: Request, context: { params: Promise<{ orderId: s
     });
 
     if (!result.ok) {
-      return fail(result.code, result.message, 500, { event_key: result.eventKey });
+      return fail(result.code, `${result.message} (event: ${result.eventKey})`, 500);
     }
 
     return ok({
