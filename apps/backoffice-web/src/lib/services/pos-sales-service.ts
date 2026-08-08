@@ -187,18 +187,15 @@ async function nextSharedOrderNo(orderType: OrderType, tenantId: string, branchI
 
 const POS_ALLOW_NEGATIVE_STOCK_FALLBACK =
   process.env.POS_ALLOW_NEGATIVE_STOCK === "1" || process.env.POS_ALLOW_NEGATIVE_STOCK?.toLowerCase() === "true";
-const POS_SOFT_BYPASS_INSUFFICIENT_STOCK =
-  process.env.POS_SOFT_BYPASS_INSUFFICIENT_STOCK === undefined ||
-  process.env.POS_SOFT_BYPASS_INSUFFICIENT_STOCK === "1" ||
-  process.env.POS_SOFT_BYPASS_INSUFFICIENT_STOCK?.toLowerCase() === "true";
-const POS_FORCE_DIRECT_CREATE_NON_DELIVERY =
-  process.env.POS_FORCE_DIRECT_CREATE_NON_DELIVERY === undefined ||
-  process.env.POS_FORCE_DIRECT_CREATE_NON_DELIVERY === "1" ||
-  process.env.POS_FORCE_DIRECT_CREATE_NON_DELIVERY?.toLowerCase() === "true";
-const POS_FORCE_DIRECT_PAYMENT_COMPLETE =
-  process.env.POS_FORCE_DIRECT_PAYMENT_COMPLETE === undefined ||
-  process.env.POS_FORCE_DIRECT_PAYMENT_COMPLETE === "1" ||
-  process.env.POS_FORCE_DIRECT_PAYMENT_COMPLETE?.toLowerCase() === "true";
+
+function readExplicitOptInEnvFlag(name: string): boolean {
+  const value = process.env[name]?.trim().toLowerCase();
+  return value === "1" || value === "true";
+}
+
+const POS_SOFT_BYPASS_INSUFFICIENT_STOCK = readExplicitOptInEnvFlag("POS_SOFT_BYPASS_INSUFFICIENT_STOCK");
+const POS_FORCE_DIRECT_CREATE_NON_DELIVERY = readExplicitOptInEnvFlag("POS_FORCE_DIRECT_CREATE_NON_DELIVERY");
+const POS_FORCE_DIRECT_PAYMENT_COMPLETE = readExplicitOptInEnvFlag("POS_FORCE_DIRECT_PAYMENT_COMPLETE");
 
 function isMissingTableErrorMessage(message: string) {
   const normalized = message.toLowerCase();
@@ -214,7 +211,7 @@ function shouldSoftBypassInsufficientStock(orderType: OrderType) {
 }
 
 function shouldPreferDirectCreatePath(orderType: OrderType) {
-  return POS_FORCE_DIRECT_CREATE_NON_DELIVERY;
+  return POS_FORCE_DIRECT_CREATE_NON_DELIVERY && orderType !== "delivery_manual";
 }
 
 async function resolveAllowNegativeStock(auth: AuthContext) {
