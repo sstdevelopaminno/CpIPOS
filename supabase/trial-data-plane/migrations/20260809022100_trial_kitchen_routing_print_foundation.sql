@@ -37,7 +37,7 @@ create table if not exists public.kitchen_zones (
   unique (tenant_id, branch_id, zone_code),
   unique (tenant_id, branch_id, id),
   foreign key (tenant_id, branch_id) references public.trial_branch_scopes(tenant_id, branch_id) on delete cascade,
-  foreign key (tenant_id, branch_id, default_printer_id) references public.printer_profiles(tenant_id, branch_id, id) on delete set null
+  foreign key (tenant_id, branch_id, default_printer_id) references public.printer_profiles(tenant_id, branch_id, id) on delete set null (default_printer_id)
 );
 
 create table if not exists public.kitchen_routing_rules (
@@ -138,9 +138,9 @@ create table if not exists public.print_jobs (
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   foreign key (tenant_id, branch_id) references public.trial_branch_scopes(tenant_id, branch_id) on delete cascade,
-  foreign key (tenant_id, branch_id, order_id) references public.orders(tenant_id, branch_id, id) on delete set null,
-  foreign key (tenant_id, branch_id, printer_id) references public.printer_profiles(tenant_id, branch_id, id) on delete set null,
-  foreign key (tenant_id, branch_id, kitchen_ticket_id) references public.kitchen_tickets(tenant_id, branch_id, id) on delete set null
+  foreign key (tenant_id, branch_id, order_id) references public.orders(tenant_id, branch_id, id) on delete set null (order_id),
+  foreign key (tenant_id, branch_id, printer_id) references public.printer_profiles(tenant_id, branch_id, id) on delete set null (printer_id),
+  foreign key (tenant_id, branch_id, kitchen_ticket_id) references public.kitchen_tickets(tenant_id, branch_id, id) on delete set null (kitchen_ticket_id)
 );
 create unique index if not exists ux_trial_print_jobs_scope_idempotency
   on public.print_jobs(tenant_id, branch_id, idempotency_key) where idempotency_key is not null;
