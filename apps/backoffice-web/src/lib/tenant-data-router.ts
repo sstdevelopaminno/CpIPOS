@@ -43,6 +43,12 @@ const BUSINESS_TABLES = new Set([
   "table_bill_sessions",
   "table_qr_sessions",
   "table_qr_orders",
+  "printer_profiles",
+  "print_jobs",
+  "kitchen_zones",
+  "kitchen_routing_rules",
+  "kitchen_tickets",
+  "kitchen_ticket_items",
   "orders",
   "order_items",
   "payments",
@@ -54,7 +60,9 @@ const BUSINESS_RPCS = new Set([
   "create_pos_order_tx",
   "complete_pos_payment_tx",
   "submit_table_qr_order_tx",
-  "create_stock_adjustment_tx"
+  "create_stock_adjustment_tx",
+  "replace_kitchen_routes",
+  "set_kitchen_ticket_status"
 ]);
 
 const MUTATION_METHODS = new Set(["insert", "upsert", "update", "delete"]);
@@ -516,6 +524,8 @@ async function registerRpcRoutes(fn: string, result: unknown, tenantId: string, 
       add("table_qr_orders", asString(row.submission_id));
     }
     if (fn === "create_stock_adjustment_tx") add("stock_movements", asString(row.movement_id));
+    if (fn === "replace_kitchen_routes") add("kitchen_routing_rules", asString(row.route_id));
+    if (fn === "set_kitchen_ticket_status") add("kitchen_tickets", asString(row.ticket_id));
   }
   if (!entries.length) return;
   const { error } = await getPrimarySupabaseServiceClient()

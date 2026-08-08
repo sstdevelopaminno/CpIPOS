@@ -210,3 +210,56 @@ revoke all on function app.replace_kitchen_routes(uuid,uuid,text,uuid[],uuid,tex
 revoke all on function app.set_kitchen_ticket_status(uuid,uuid,uuid,text) from public, anon, authenticated;
 grant execute on function app.replace_kitchen_routes(uuid,uuid,text,uuid[],uuid,text,uuid) to service_role;
 grant execute on function app.set_kitchen_ticket_status(uuid,uuid,uuid,text) to service_role;
+
+create or replace function public.replace_kitchen_routes(
+  p_tenant_id uuid,
+  p_branch_id uuid,
+  p_scope_type text,
+  p_zone_ids uuid[],
+  p_product_id uuid default null,
+  p_category_name text default null,
+  p_actor_user_id uuid default null
+)
+returns table (route_id uuid, zone_id uuid)
+language sql
+security definer
+set search_path = pg_catalog, public, app, extensions
+as $$
+  select *
+  from app.replace_kitchen_routes(
+    p_tenant_id,
+    p_branch_id,
+    p_scope_type,
+    p_zone_ids,
+    p_product_id,
+    p_category_name,
+    p_actor_user_id
+  );
+$$;
+
+create or replace function public.set_kitchen_ticket_status(
+  p_tenant_id uuid,
+  p_branch_id uuid,
+  p_ticket_id uuid,
+  p_status text
+)
+returns table (
+  ticket_id uuid,
+  ticket_status text,
+  event_type text,
+  updated_at timestamptz
+)
+language sql
+security definer
+set search_path = pg_catalog, public, app, extensions
+as $$
+  select *
+  from app.set_kitchen_ticket_status(p_tenant_id, p_branch_id, p_ticket_id, p_status);
+$$;
+
+revoke all on function public.replace_kitchen_routes(uuid,uuid,text,uuid[],uuid,text,uuid) from public, anon, authenticated;
+revoke all on function public.set_kitchen_ticket_status(uuid,uuid,uuid,text) from public, anon, authenticated;
+grant execute on function public.replace_kitchen_routes(uuid,uuid,text,uuid[],uuid,text,uuid) to service_role;
+grant execute on function public.set_kitchen_ticket_status(uuid,uuid,uuid,text) to service_role;
+
+notify pgrst, 'reload schema';
