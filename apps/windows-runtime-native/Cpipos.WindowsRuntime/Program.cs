@@ -1,4 +1,4 @@
-﻿using System.Globalization;
+using System.Globalization;
 using System.Security.Cryptography;
 using System.Windows.Forms;
 
@@ -26,7 +26,7 @@ internal static class Program
                 MessageBoxIcon.Warning);
         }
 
-        Application.Run(new MainForm(options, bridge));
+        Application.Run(options.UseLegacyWebPos ? new MainForm(options, bridge) : new NativePosForm(options, bridge));
     }
 }
 
@@ -41,6 +41,7 @@ internal sealed class RuntimeOptions
     public bool Fullscreen { get; init; }
     public bool EnableDevTools { get; init; }
     public bool AllowCustomAppUrl { get; init; }
+    public bool UseLegacyWebPos { get; init; }
     public string BridgeToken { get; init; } = GenerateBridgeToken();
 
     public string BridgePrintUrl => $"http://127.0.0.1:{BridgePort}/print";
@@ -59,6 +60,7 @@ internal sealed class RuntimeOptions
         var fullscreen = string.Equals(ReadEnv("CPIPOS_FULLSCREEN", "0"), "1", StringComparison.OrdinalIgnoreCase);
         var enableDevTools = string.Equals(ReadEnv("CPIPOS_ENABLE_DEVTOOLS", "0"), "1", StringComparison.OrdinalIgnoreCase);
         var allowCustomAppUrl = string.Equals(ReadEnv("CPIPOS_ALLOW_CUSTOM_APP_URL", "0"), "1", StringComparison.OrdinalIgnoreCase);
+        var useLegacyWebPos = string.Equals(ReadEnv("CPIPOS_LEGACY_WEB_POS", "0"), "1", StringComparison.OrdinalIgnoreCase);
 
         foreach (var arg in args)
         {
@@ -100,6 +102,11 @@ internal sealed class RuntimeOptions
             if (string.Equals(arg, "--allow-custom-url", StringComparison.OrdinalIgnoreCase))
             {
                 allowCustomAppUrl = true;
+                continue;
+            }
+            if (string.Equals(arg, "--legacy-web-pos", StringComparison.OrdinalIgnoreCase))
+            {
+                useLegacyWebPos = true;
             }
         }
 
@@ -114,6 +121,7 @@ internal sealed class RuntimeOptions
             Fullscreen = fullscreen,
             EnableDevTools = enableDevTools,
             AllowCustomAppUrl = allowCustomAppUrl,
+            UseLegacyWebPos = useLegacyWebPos,
             BridgeToken = GenerateBridgeToken()
         };
     }

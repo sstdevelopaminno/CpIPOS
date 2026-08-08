@@ -1,36 +1,38 @@
-# CpIPOS Android Runtime (Phase 1)
+# CpIPOS POS - Android Tablet
 
-Fullscreen Android WebView shell around the existing CpIPOS web POS UI. Read
-`docs/ANDROID-APK-PHASE1-2026-08-06.md` and `docs/ANDROID-FULLSCREEN-APK-RUNTIME-PLAN.md`
-before changing anything here.
+`apps/pos-android` is the native Android tablet POS implementation.
+
+## Product boundary
 
 - Package: `com.cpipos.pos`
-- Min SDK: 33 (Android 13+), target SDK 34
-- Loads `https://cp-ipos-web.vercel.app/login/store` fullscreen, landscape-locked, tablet+ only
-- Native bridge (`window.CpIPOSBridge`): read-only `getAppVersion`/`getBridgeVersion`/`getDeviceInfo`/`getNetworkStatus` only — no print/drawer/order/payment methods yet
+- UI/runtime: Kotlin + Jetpack Compose
+- Browser shell: **none**
+- PWA/browser runtime: **none**
+- Business database writes: **none directly from Android**
+- Server/control plane: `apps/backoffice-web` through existing `/api/auth/**` and `/api/pos/**` endpoints
+- Default API base URL: `https://cp-ipos-web.vercel.app`
+- Landscape-first tablet POS shell
 
-This app does **not** reimplement POS UI natively. `apps/backoffice-web` remains the
-source of truth for login, sales, payment, receipts, and backoffice screens.
+The app reuses the same server-authoritative login, device, POS session, shift, order, payment, cookie, and idempotency pattern as `apps/cpipos-mobile-android`, but remains a separate Tablet POS product and package.
+
+## Native operating path
+
+- Store code -> branch -> employee -> device
+- POS session bootstrap and shift open/close
+- Catalog, category/search surface, cart
+- Atomic server-side order creation
+- Cash and transfer payment submission
+- Current order history
+- Member lookup/save
+- Logout/session clear
 
 ## Build
 
-No Android SDK is assumed to be installed locally for this repo's AI/CI setup. The
-GitHub Actions workflow `.github/workflows/build-android-runtime.yml`
-(`workflow_dispatch`, manual trigger) builds a debug APK and publishes it to the
-`android-runtime-latest` GitHub Release, downloadable from `/download/android` on the
-web app.
+Requires JDK 17 and Android SDK 34.
 
-If you have Android Studio / a local Android SDK, you can build directly:
-
-```
+```bash
 cd apps/pos-android
 gradle :app:assembleDebug
 ```
 
-There is no committed Gradle wrapper (`gradlew`/`gradle-wrapper.jar` are binary and are
-intentionally not hand-authored here — see the doc above for why). Generate one locally
-if you want `./gradlew`:
-
-```
-gradle wrapper --gradle-version 8.9
-```
+GitHub Actions workflow `.github/workflows/build-android-runtime.yml` publishes the APK to the existing `android-runtime-latest` release source used by `/download/android/latest`.

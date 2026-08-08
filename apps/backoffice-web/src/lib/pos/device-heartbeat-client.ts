@@ -272,10 +272,13 @@ export async function executePendingActions(actions: readonly PendingDeviceActio
 
     switch (action.command_type) {
       case "reload_ui":
+      case "restart_app":
         results.push({ id: action.id, command_type: action.command_type, applied: true });
         if (typeof window !== "undefined") window.location.reload();
         break;
       case "request_diagnostics_bundle":
+      case "request_diagnostics":
+      case "test_network":
         // The heartbeat that delivered this command already carried a fresh
         // snapshot; nothing further to do beyond acknowledging delivery.
         results.push({ id: action.id, command_type: action.command_type, applied: true });

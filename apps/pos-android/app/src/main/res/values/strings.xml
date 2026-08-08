@@ -1,6 +1,4 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">CpIPOS</string>
-    <string name="offline_banner_text">ไม่มีการเชื่อมต่ออินเทอร์เน็ต กำลังลองเชื่อมต่อใหม่</string>
-    <string name="reload_action">โหลดใหม่</string>
+    <string name="app_name">CpIPOS Tablet POS</string>
 </resources>

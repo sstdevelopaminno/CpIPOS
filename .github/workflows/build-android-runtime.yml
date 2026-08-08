@@ -1,4 +1,4 @@
-name: Build CpIPOS Android Runtime
+name: Build CpIPOS Android Tablet POS
 
 on:
   workflow_dispatch:
@@ -8,13 +8,13 @@ permissions:
 
 env:
   ANDROID_RUNTIME_MODULE: apps/pos-android
-  ANDROID_RUNTIME_VERSION: 0.1.1
+  ANDROID_RUNTIME_VERSION: 0.2.0
   ANDROID_RUNTIME_RELEASE_TAG: android-runtime-latest
   ANDROID_RUNTIME_APK_ASSET_NAME: CpIPOS-Android-debug.apk
 
 jobs:
   build-android-runtime:
-    name: Build Android Runtime APK
+    name: Build Android Tablet POS APK
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -81,8 +81,8 @@ jobs:
           if ! gh release view "$tag" >/dev/null 2>&1; then
             gh release create "$tag" \
               --target "${{ github.sha }}" \
-              --title "CpIPOS Android Runtime Latest" \
-              --notes "Latest CpIPOS Android Runtime debug APK built manually from GitHub Actions. Sideload only; not distributed through Google Play."
+              --title "CpIPOS Android Tablet POS Latest" \
+              --notes "Latest CpIPOS Android Tablet POS debug APK built manually from GitHub Actions. Sideload only; not distributed through Google Play."
           fi
 
           gh release upload "$tag" "$apkPath" --clobber
