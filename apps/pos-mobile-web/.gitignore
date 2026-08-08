@@ -1,9 +1,0 @@
-﻿.env*
-!.env.example
-.next
-.next-stale-*
-node_modules
-coverage
-.vercel
-*.log
-tsconfig.tsbuildinfo
