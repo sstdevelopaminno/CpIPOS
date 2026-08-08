@@ -140,6 +140,9 @@ begin
   if v_job.status<>'printing' or v_job.claimed_by_agent_id is distinct from p_agent_id or v_job.agent_attempt_id is distinct from v_attempt then
     raise exception 'PRINT_JOB_ATTEMPT_STALE';
   end if;
+  if v_job.claim_expires_at is null or v_job.claim_expires_at <= v_now then
+    raise exception 'PRINT_JOB_ATTEMPT_STALE';
+  end if;
   update public.print_job_attempts a
   set status='printed',completed_at=v_now,provider_job_id=nullif(btrim(coalesce(p_provider_job_id,'')),''),bytes_sent=p_bytes_sent,
       metadata=coalesce(a.metadata,'{}'::jsonb)||coalesce(p_metadata,'{}'::jsonb),updated_at=v_now
@@ -173,6 +176,9 @@ begin
     select exists(select 1 from public.print_job_attempts a where a.tenant_id=p_tenant_id and a.branch_id=p_branch_id
       and a.print_job_id=p_job_id and a.agent_id=p_agent_id and a.agent_attempt_id=v_attempt and a.status='failed') into v_previous_failed;
     if v_previous_failed then job_id:=v_job.id;job_status:=v_job.status;retry_count:=v_job.retry_count;failed_at:=v_job.failed_at;return next;return;end if;
+    raise exception 'PRINT_JOB_ATTEMPT_STALE';
+  end if;
+  if v_job.claim_expires_at is null or v_job.claim_expires_at <= v_now then
     raise exception 'PRINT_JOB_ATTEMPT_STALE';
   end if;
   update public.print_job_attempts a

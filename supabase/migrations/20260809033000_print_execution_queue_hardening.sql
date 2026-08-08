@@ -225,6 +225,10 @@ begin
     raise exception 'PRINT_JOB_ATTEMPT_STALE';
   end if;
 
+  if v_job.claim_expires_at is null or v_job.claim_expires_at <= v_now then
+    raise exception 'PRINT_JOB_ATTEMPT_STALE';
+  end if;
+
   update public.print_job_attempts a
   set status = 'printed',
       completed_at = v_now,
@@ -304,6 +308,10 @@ begin
       job_id := v_job.id; job_status := v_job.status::text; retry_count := v_job.retry_count; failed_at := v_job.failed_at;
       return next; return;
     end if;
+    raise exception 'PRINT_JOB_ATTEMPT_STALE';
+  end if;
+
+  if v_job.claim_expires_at is null or v_job.claim_expires_at <= v_now then
     raise exception 'PRINT_JOB_ATTEMPT_STALE';
   end if;
 
