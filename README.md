@@ -7,7 +7,7 @@ Production-oriented multi-tenant / multi-branch POS platform.
 - Repository: `sstdevelopaminno/CpIPOS`
 - Active integration branch: `agent-docs-preflight-schema-drift`
 - Web/POS Vercel project: `cp-ipos-web`
-- Mobile Vercel project: `cp-ipos-mobile`
+- CpIPOS Mobile distribution: Native Android APK via GitHub Releases + `/download/mobile` on `cp-ipos-web`; there is no Mobile web runtime in the repository
 - **CpiPOS-001 / Primary:** Supabase ref `deejlitaivfnsbwqdugy`
 - **CpiPOS-002 / Trial Data Plane:** Supabase ref `kawenyvpentwgugtzqec`
 - Primary guardrails: `docs/AI-GUARDRAILS-CPIPOS.md`
@@ -21,9 +21,9 @@ Read the guardrails before changing authentication, tenant isolation, database r
 
 ```text
 apps/
-  backoffice-web/            # Back Office + IT Admin + Web POS + server APIs
-  pos-mobile-web/            # Mobile web runtime
-  pos-android/               # Android runtime
+  backoffice-web/            # Back Office + IT Admin + Web POS + server APIs + APK download pages
+  cpipos-mobile-android/     # CpIPOS Mobile Native Android (Kotlin + Jetpack Compose, no WebView)
+  pos-android/               # Android POS runtime
   windows-runtime-it-admin/  # Windows IT Admin runtime
   windows-runtime-native/    # Windows POS/native runtime
 packages/
@@ -32,7 +32,14 @@ packages/
   ui/
 ```
 
-Core stack: Next.js / TypeScript, pnpm, Supabase PostgreSQL/Auth/RLS, GitHub Actions and Vercel.
+CpIPOS Mobile is not a separately hosted web application. Customer distribution uses:
+
+```text
+/download/mobile          # customer-facing APK download landing page
+/download/mobile/latest   # redirects to the latest CpIPOS-Mobile.apk release asset
+```
+
+Core stack: Next.js / TypeScript, pnpm, Supabase PostgreSQL/Auth/RLS, GitHub Actions, Vercel, Kotlin and Jetpack Compose.
 
 ## Database architecture
 
@@ -188,7 +195,8 @@ Do not blindly replay historical migrations on production projects.
 
 ## CI / verification
 
-Primary workflow: `.github/workflows/ci.yml`.
+Primary web/server workflow: `.github/workflows/ci.yml`.
+CpIPOS Mobile Native Android build/release workflow: `.github/workflows/build-cpipos-mobile-android.yml`.
 
 Expected gates:
 
@@ -198,10 +206,9 @@ Expected gates:
 - CpiPOS-001 schema drift
 - CpiPOS-002 schema drift
 - Web production build
-- Mobile TypeScript
-- Mobile lint
-- Mobile tests
-- Mobile build
+- Native Android architecture/version validation
+- Native Android APK build
+- APK artifact/release publication on eligible runs
 
 Useful commands:
 
@@ -211,10 +218,9 @@ corepack pnpm --filter backoffice-web exec vitest run --cache false
 corepack pnpm schema:drift
 corepack pnpm schema:drift:trial
 corepack pnpm --filter backoffice-web build
-corepack pnpm run typecheck:mobile
-corepack pnpm run test:mobile
-corepack pnpm run build:mobile
 ```
+
+The retired `pos-mobile-web` package and its `*:mobile` pnpm scripts must not be reintroduced. Mobile customer distribution is APK-first through `/download/mobile`.
 
 ## Trial cutover discipline
 
