@@ -355,3 +355,35 @@ $$;
 
 revoke all on function app.enqueue_kitchen_order(uuid,uuid,uuid,text,text,uuid[]) from public, anon, authenticated;
 grant execute on function app.enqueue_kitchen_order(uuid,uuid,uuid,text,text,uuid[]) to service_role;
+create or replace function public.enqueue_kitchen_order(
+  p_tenant_id uuid,
+  p_branch_id uuid,
+  p_order_id uuid,
+  p_event_key text,
+  p_action text default 'new',
+  p_order_item_ids uuid[] default null
+)
+returns table (
+  kitchen_ticket_id uuid,
+  zone_id uuid,
+  print_job_id uuid
+)
+language sql
+security definer
+set search_path = pg_catalog, public, app, extensions
+as $$
+  select *
+  from app.enqueue_kitchen_order(
+    p_tenant_id,
+    p_branch_id,
+    p_order_id,
+    p_event_key,
+    p_action,
+    p_order_item_ids
+  );
+$$;
+
+revoke all on function public.enqueue_kitchen_order(uuid,uuid,uuid,text,text,uuid[]) from public, anon, authenticated;
+grant execute on function public.enqueue_kitchen_order(uuid,uuid,uuid,text,text,uuid[]) to service_role;
+
+notify pgrst, 'reload schema';
