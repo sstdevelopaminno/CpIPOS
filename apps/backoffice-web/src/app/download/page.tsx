@@ -6,5 +6,9 @@ export const metadata = {
 };
 
 export default function CpiposDownloadCenterPage() {
-  return <DownloadCenterClient />;
+  return (
+    <div className="h-dvh overflow-y-auto overscroll-y-contain">
+      <DownloadCenterClient />
+    </div>
+  );
 }
