@@ -1,30 +1,26 @@
 # CpIPOS POS - Android Tablet
 
-`apps/pos-android` is the native Android tablet POS implementation.
+`apps/pos-android` is the native Android tablet POS runtime shell.
 
 ## Product boundary
 
 - Package: `com.cpipos.pos`
-- UI/runtime: Kotlin + Jetpack Compose
-- Browser shell: **none**
-- PWA/browser runtime: **none**
-- Business database writes: **none directly from Android**
-- Server/control plane: `apps/backoffice-web` through existing `/api/auth/**` and `/api/pos/**` endpoints
-- Default API base URL: `https://cp-ipos-web.vercel.app`
-- Landscape-first tablet POS shell
+- UI/runtime: thin Android WebView wrapper over the authoritative CpIPOS Web App
+- Start URL: `https://cp-ipos-web.vercel.app/login/store`
+- Business database writes: none directly from Android
+- Server/control plane: `apps/backoffice-web` through authenticated Web App/API session cookies
+- Native responsibilities: fullscreen tablet shell, trusted-host WebView session, CpIPOSBridge, MDM heartbeat/actions, connectivity recovery, diagnostics, and future hardware capabilities
+- Not included: duplicate native POS screens, Compose UI, native ViewModel state, direct OkHttp API stack, or native coroutine polling loops
 
-The app reuses the same server-authoritative login, device, POS session, shift, order, payment, cookie, and idempotency pattern as `apps/cpipos-mobile-android`, but remains a separate Tablet POS product and package.
+The Web App remains the source of truth for POS UI, responsive layout, permissions, session behavior, orders, payments, package gates, and tenant/data-home routing. Android must not inject CSS, hide/show Web buttons, or fork business rules.
 
-## Native operating path
+## Runtime behavior
 
-- Store code -> branch -> employee -> device
-- POS session bootstrap and shift open/close
-- Catalog, category/search surface, cart
-- Atomic server-side order creation
-- Cash and transfer payment submission
-- Current order history
-- Member lookup/save
-- Logout/session clear
+- Loads only the trusted CpIPOS production host in WebView
+- Keeps first-party cookies, JavaScript, and DOM storage enabled for the Web App session
+- Blocks mixed content and disables Android/WebView forced darkening so Web CSS colors remain authoritative
+- Uses a single 5-minute MDM heartbeat scheduler while active on the trusted host
+- Uses a 20-second page-load watchdog, offline banner, reload control, and bounded renderer recovery
 
 ## Build
 
@@ -35,4 +31,4 @@ cd apps/pos-android
 gradle :app:assembleDebug
 ```
 
-GitHub Actions workflow `.github/workflows/build-android-runtime.yml` publishes the APK to the existing `android-runtime-latest` release source used by `/download/android/latest`.
+GitHub Actions workflow `.github/workflows/build-android-runtime.yml` can build and upload an APK artifact from `workflow_dispatch`. It publishes `android-runtime-latest` only when `publish_release=true`.

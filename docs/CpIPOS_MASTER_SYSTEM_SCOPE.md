@@ -39,17 +39,17 @@ CpIPOS is a **multi-tenant / multi-owner / multi-branch POS SaaS**.
 
 ```text
 CpIPOS SaaS
-└── Tenant / Owner
-    ├── Branch A
-    │   ├── users / roles
-    │   ├── POS devices
-    │   ├── tables / customer QR
-    │   ├── orders / payments
-    │   ├── inventory
-    │   ├── Kitchen
-    │   └── printers
-    ├── Branch B
-    └── Branch ...
+โ””โ”€โ”€ Tenant / Owner
+    โ”โ”€โ”€ Branch A
+    โ”   โ”โ”€โ”€ users / roles
+    โ”   โ”โ”€โ”€ POS devices
+    โ”   โ”โ”€โ”€ tables / customer QR
+    โ”   โ”โ”€โ”€ orders / payments
+    โ”   โ”โ”€โ”€ inventory
+    โ”   โ”โ”€โ”€ Kitchen
+    โ”   โ””โ”€โ”€ printers
+    โ”โ”€โ”€ Branch B
+    โ””โ”€โ”€ Branch ...
 ```
 
 Mandatory isolation:
@@ -90,8 +90,8 @@ Native/Web clients must not fork critical rules for:
 
 Live Supabase projects audited:
 
-- **CpiPOS-001 / Primary** — project ref `deejlitaivfnsbwqdugy`.
-- **CpiPOS-002 / Trial Data Plane** — project ref `kawenyvpentwgugtzqec`.
+- **CpiPOS-001 / Primary** โ€” project ref `deejlitaivfnsbwqdugy`.
+- **CpiPOS-002 / Trial Data Plane** โ€” project ref `kawenyvpentwgugtzqec`.
 
 Routing invariants:
 
@@ -126,7 +126,7 @@ Any verification error must fail closed. Partial cutover is not acceptable.
 
 ---
 
-## 4. Package / Subscription — VERIFIED AS EXISTING
+## 4. Package / Subscription โ€” VERIFIED AS EXISTING
 
 Do **not** rebuild the package system from scratch. It exists in live Primary.
 
@@ -200,7 +200,7 @@ August 8 migration source drift recovery:
 
 ## 5. Canonical 12-requirement audit
 
-Legend: ✅ verified complete at audited layer; 🟡 foundation/core exists but E2E/Go-Live work remains; 🔴 current open defect/blocker.
+Legend: โ… verified complete at audited layer; ๐ก foundation/core exists but E2E/Go-Live work remains; ๐”ด current open defect/blocker.
 
 | # | Requirement | Status | Current truth / remaining work |
 |---|---|---|---|
@@ -209,7 +209,7 @@ Legend: ✅ verified complete at audited layer; 🟡 foundation/core exists but 
 | 3 | Two DBs; Trial -> Paid migrates data to Primary | 🟡 | Both DBs and lifecycle/routing foundations exist. Full migration/checksum/rollback/cutover E2E remains a Go-Live gate. |
 | 4 | Tablet + Windows apps + web downloads | 🟡 | Android Tablet is a thin WebView shell over the authoritative Web App; Windows runtime and release/download infrastructure exist. Final release/version/installer/entitlement E2E remains. |
 | 5 | Mobile application | 🟡 | Separate native Android project exists at `apps/cpipos-mobile-android`. Feature parity/current release QA remains. |
-| 6 | Native UI follows Web App | 🟡 | Web App is authoritative. Tablet WebView receives responsive UI/runtime updates from Web deployment; native APK rebuild is required only for native bridge, MDM, hardware, wrapper/runtime, or OS-level changes. |
+| 6 | Native UI follows Web App | 🟡 | Web App is authoritative. Tablet WebView receives responsive UI/runtime updates from Web deployment; native APK rebuild is required only for native bridge, MDM, hardware, wrapper/runtime, or OS-level changes. Every material Web/backend change still requires native impact/parity review. |
 | 7 | Kitchen | 🟡 | Kitchen routing/dispatch/config/queue foundations exist in GitHub. Aug-9 Kitchen schema was not live in Primary/Trial at audit time; KDS/config/realtime/E2E remains. |
 | 8 | Printer / physical printer | 🟡 | **Browser worker compatibility blocker is CLOSED at `9160dc6`.** Claim/lease/retry/stale-attempt protections and server-issued attempt propagation are aligned. Physical-printer E2E, migration/live rollout and load/soak remain. |
 | 9 | Finish POS sales + dine-in/table mode | 🟡 | Core flows exist. Table lifecycle, edge cases, transaction correctness and responsiveness QA remain. |
@@ -235,7 +235,7 @@ Do not infer legacy/removed app folders from old chats.
 
 ### Android Tablet POS
 
-`apps/pos-android` is the Android Tablet WebView shell. The Web App remains the authoritative POS UI/business flow; Android owns the wrapper runtime, authenticated WebView session, CpIPOS native bridge, MDM/device diagnostics and future hardware capabilities. Web UI parity, scroll behavior, and runtime update notification are delivered by the Web App; APK rebuild is required only for native bridge/MDM/hardware/runtime changes.
+`apps/pos-android` is the Android Tablet WebView shell. The Web App remains the authoritative POS UI/business flow; Android owns only the wrapper runtime, authenticated WebView session, CpIPOS native bridge, MDM/device diagnostics and future hardware capabilities. Web UI parity, scroll behavior, and runtime update notification are delivered by the Web App; APK rebuild is required only for native bridge/MDM/hardware/runtime changes. The old duplicate native POS stack was removed; DB/package/data_home rules are unchanged.
 
 ### Mobile
 
@@ -326,7 +326,7 @@ Remaining gates: migration readiness/drift reconciliation, secure Primary/Trial 
 
 ---
 
-## 9. Printing safety contract — UPDATED AFTER CODEX PASS
+## 9. Printing safety contract โ€” UPDATED AFTER CODEX PASS
 
 Printing is asynchronous and must not freeze selling UI while waiting for hardware.
 
