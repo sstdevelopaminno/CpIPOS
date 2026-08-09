@@ -264,6 +264,17 @@ Recommended channels: `internal`, `pilot`, `stable`.
 
 ---
 
+
+### Web + Android 0.2.2 runtime integration checkpoint (2026-08-10)
+
+- Web source checkpoint: `fae73672cd290711ab0889846467af21879fe847`.
+- Android source checkpoint: `0922c8c320ca986a173b72a21ef48921631e6eef`.
+- Web App is the authoritative POS UI and business frontend.
+- Android Tablet is a thin WebView/native capability shell; do not duplicate POS business logic in Android.
+- Runtime update watcher lets a Web deployment update the WebView UI without an APK rebuild.
+- Native APK version changes are required only for bridge, MDM, printer, scanner, Bluetooth/USB/network hardware, device runtime, or OS capability changes.
+- Tenant isolation, Primary/Trial routing, package/subscription contracts, Kitchen/Print contracts, and security rules remain unchanged.
+
 ## 7. MDM / CpIPOS Device Manager
 
 Recovered native/MDM work proves real foundation work exists, including device heartbeat and server-delivered commands.

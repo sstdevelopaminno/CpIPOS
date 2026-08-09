@@ -27,6 +27,15 @@
 - [Must do before go-live] Production backup snapshot before migration.
 - [Must do before go-live] Confirm/apply `20260728173858_print_agent_v1.sql` and `20260728180311_cash_drawer_v1.sql` in production after `supabase migration list --linked` review; do not use `--include-all` while older drift remains.
 
+
+## Web + Android 0.2.2 Runtime Status
+- [Done] Web UI/runtime parity implemented on integration branch and local typecheck/tests passed before checkpoint handoff.
+- [Not done] Production rollout for Web UI/runtime parity is pending.
+- [Done] Android Tablet 0.2.2 local build/lint passed before checkpoint handoff.
+- [Not done] Android 0.2.2 GitHub release/APK publication is pending.
+- [Not done] Production Web QA is pending.
+- [Not done] Physical Android Tablet QA is pending.
+
 ## Deployment
 - [Done] GitHub CI workflow added (`.github/workflows/ci.yml`).
 - [Done] CI covers current development/default branch `agent-docs-preflight-schema-drift` and runs frozen install, typecheck, lint, tests, schema drift, and production build with timeouts.

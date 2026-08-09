@@ -507,3 +507,81 @@ ORDER BY p.name;
 - Main menu placement moves the whole POS navigation bar: `left` keeps the original vertical sidebar, `top` uses a horizontal top bar, and `bottom` uses a horizontal bottom bar.
 - Main menu placement is client-side per terminal using localStorage key `pos_main_menu_bar_position_v2` and event `pos-main-menu-placement-updated`.
 - Detailed handoff: `docs/POS-NAVIGATION-SETTINGS-2026-07-29.md`.
+## 2026-08-10 Web + Android Runtime Checkpoint
+
+### Exact source checkpoints
+
+- WEB SOURCE: `fae73672cd290711ab0889846467af21879fe847`
+- ANDROID SOURCE: `0922c8c320ca986a173b72a21ef48921631e6eef`
+- Integration branch: `agent/web-android-0.2.2-integration`
+- Exact Android integration source is `0922c8c320ca986a173b72a21ef48921631e6eef`; do not integrate housekeeping/no-op commits that followed it.
+- Old temporary branches should be cleaned only after Production and Android 0.2.2 physical QA passes.
+
+### Architecture
+
+- Web App is the authoritative customer UI and business frontend.
+- Android Tablet 0.2.2 is a thin WebView shell.
+- Android must not reintroduce duplicate native POS business UI.
+- MDM is preserved.
+- Native Bridge is preserved.
+- Future Kitchen/Printer integrations should use native bridge/services where native device access is required.
+- Windows is postponed and was not touched for this checkpoint.
+
+### Web improvements
+
+- Login/pre-entry pages can center naturally while still scrolling on small screens.
+- Tablet sidebar/menu remains accessible.
+- CSS/button/color parity follows the Web App reference UI.
+- Vertical scroll ownership is explicit.
+- Wide tables support horizontal scrolling.
+- Modals fit the viewport and scroll internally when needed.
+- Runtime version endpoint exists at `/api/runtime/version`.
+- Web runtime update watcher detects deployment version changes.
+- Pre-entry pages can safely refresh automatically after a runtime update.
+- Active sale/payment route is protected from automatic reload and shows a manual update action instead.
+
+### Android 0.2.2 improvements
+
+- Compose/native POS stack removed.
+- Obsolete AppViewModel/API/native models removed.
+- Dependencies cleaned.
+- Renderer crash recovery added.
+- Renderer unresponsive detection added.
+- Lifecycle pause/resume cleanup added.
+- Forced darkening disabled.
+- One MDM heartbeat scheduler retained.
+- Trusted host WebView is the production entry.
+- First-party session cookies are preserved.
+- 20s watchdog retained.
+- Offline/reload handling retained.
+- `versionName` is `0.2.2`.
+- `versionCode` is `5`.
+- APK local build/lint previously passed at the Android clean checkpoint.
+
+### Important update behavior
+
+Web UI, CSS, and ordinary Web features deploy through the Web App. Android Tablet receives them inside the WebView without a new APK. APK rebuild is required only for native runtime, MDM, bridge, hardware, or device capability changes.
+
+### Unchanged boundaries
+
+- Database rules: UNCHANGED.
+- Package/subscription: UNCHANGED.
+- `tenant_data_lifecycle.data_home`: UNCHANGED.
+- Supabase/live database: NOT TOUCHED.
+- Migrations: NONE.
+
+### Pending rollout
+
+- Integration QA.
+- Production merge/deploy.
+- Production Web QA.
+- Android 0.2.2 workflow validation.
+- Android 0.2.2 release.
+- Physical Tablet QA.
+
+### Next development
+
+1. MDM/admin device management.
+2. Kitchen configuration/runtime.
+3. Printer/hardware integration.
+4. Remaining P0/P1 items.

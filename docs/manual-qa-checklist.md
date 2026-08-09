@@ -93,6 +93,28 @@ Use this checklist before go-live. Record pass/fail, tester, timestamp, tenant, 
 - [ ] Role/policy/feature changes are logged.
 - [ ] Public API errors do not expose raw DB/internal details.
 
+
+## Web + Android Tablet Runtime QA
+- [ ] Login card is centered on desktop/tablet and remains reachable on small screens.
+- [ ] Branch selection screen renders and scrolls correctly.
+- [ ] Employee code screen renders and scrolls correctly.
+- [ ] Device selection screen renders and scrolls correctly.
+- [ ] POS sidebar is visible/usable on tablet portrait and landscape.
+- [ ] Active menu colors match the Web App reference UI.
+- [ ] Submenu and button colors match the Web App reference UI.
+- [ ] Shift page vertical scrolling works without page lock issues.
+- [ ] Sales table supports horizontal and vertical scrolling.
+- [ ] Modal content remains reachable within the viewport.
+- [ ] CSS colors are identical between desktop Web and Android WebView.
+- [ ] Web runtime update detection calls `/api/runtime/version` and detects changed versions.
+- [ ] Pre-entry pages refresh safely after a runtime update.
+- [ ] Active transaction route does not auto refresh during sale/payment.
+- [ ] Android WebView retains first-party cookies/session across app lifecycle events.
+- [ ] Android renderer crash/unresponsive recovery returns to a usable state.
+- [ ] Android offline/reload handling shows recovery path and reloads when network returns.
+- [ ] MDM heartbeat continues on the expected scheduler and stops cleanly on lifecycle teardown.
+- [ ] Native bridge info remains available to the WebView.
+- [ ] APK installs, opens, reaches `https://cp-ipos-web.vercel.app/login/store`, and completes login.
 ## Signoff
 1. QA Lead:
 2. Engineering Lead:

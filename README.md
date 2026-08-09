@@ -5,7 +5,7 @@ Production-oriented multi-tenant / multi-branch POS platform.
 ## Current source of truth
 
 - Repository: `sstdevelopaminno/CpIPOS`
-- Active integration branch: `agent-docs-preflight-schema-drift`
+- Active integration branch: `agent/web-android-0.2.2-integration`
 - Web/POS Vercel project: `cp-ipos-web`
 - CpIPOS Mobile distribution: Native Android APK via GitHub Releases + `/download/mobile` on `cp-ipos-web`; there is no Mobile web runtime in the repository
 - **CpiPOS-001 / Primary:** Supabase ref `deejlitaivfnsbwqdugy`
@@ -14,6 +14,7 @@ Production-oriented multi-tenant / multi-branch POS platform.
 - Trial data-plane status/runbook: `docs/CPIPOS-TRIAL-DATA-PLANE-2026-08-08.md`
 - Database housekeeping: `docs/DATABASE-HOUSEKEEPING-2026-08-07.md`
 - Historical handoff: `docs/CPIPOS-HANDOFF-2026-07-28.md`
+- Web + Android runtime handoff: `docs/CpIPOS_WEB_ANDROID_RUNTIME_HANDOFF_2026-08-10.md`
 
 Read the guardrails before changing authentication, tenant isolation, database routing, POS transactions, payments, devices, migrations or production configuration.
 
@@ -21,11 +22,11 @@ Read the guardrails before changing authentication, tenant isolation, database r
 
 ```text
 apps/
-  backoffice-web/            # Back Office + IT Admin + Web POS + server APIs + APK download pages
+  backoffice-web/            # Authoritative Web App: Back Office + IT Admin + customer POS UI + server APIs + APK download pages
   cpipos-mobile-android/     # CpIPOS Mobile Native Android (Kotlin + Jetpack Compose, no WebView)
-  pos-android/               # Android POS runtime
-  windows-runtime-it-admin/  # Windows IT Admin runtime
-  windows-runtime-native/    # Windows POS/native runtime
+  pos-android/               # Android Tablet 0.2.2 thin WebView runtime: MDM, native bridge, diagnostics, future hardware
+  windows-runtime-it-admin/  # Windows IT Admin runtime - postponed, not current release target
+  windows-runtime-native/    # Windows POS/native runtime - postponed, not current release target
 packages/
   shared-types/
   pos-domain/
@@ -39,7 +40,14 @@ CpIPOS Mobile is not a separately hosted web application. Customer distribution 
 /download/mobile/latest   # redirects to the latest CpIPOS-Mobile.apk release asset
 ```
 
-Core stack: Next.js / TypeScript, pnpm, Supabase PostgreSQL/Auth/RLS, GitHub Actions, Vercel, Kotlin and Jetpack Compose.
+Core stack: Next.js / TypeScript, pnpm, Supabase PostgreSQL/Auth/RLS, GitHub Actions, Vercel, Kotlin for native Mobile and Android runtime shell.
+Current architecture checkpoint:
+
+- CpIPOS Web App is the authoritative customer UI and business frontend.
+- Android Tablet 0.2.2 is a thin WebView runtime. It owns MDM, native bridge, diagnostics, and future device/hardware capability work, not duplicate native POS business UI.
+- Windows runtime work is postponed and is not the current release target.
+
+Resume current Web/Android runtime work from `context.md`, `docs/CpIPOS_MASTER_SYSTEM_SCOPE.md`, and `docs/CpIPOS_WEB_ANDROID_RUNTIME_HANDOFF_2026-08-10.md`.
 
 ## Database architecture
 
