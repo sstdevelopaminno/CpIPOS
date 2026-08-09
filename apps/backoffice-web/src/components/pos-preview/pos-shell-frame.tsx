@@ -1,5 +1,6 @@
 "use client";
 
+import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import { BrowserPrintAgent } from "@/components/printing/browser-print-agent";
@@ -26,6 +27,8 @@ export function PosShellFrame({
   settingsLabel: string;
 }) {
   const [placement, setPlacement] = useState<MainMenuPlacement>("left");
+  const pathname = usePathname();
+  const isSalesRuntimeRoute = pathname === "/preview/pos";
 
   useEffect(() => {
     const readPlacement = () => {
@@ -56,7 +59,7 @@ export function PosShellFrame({
 
   const sidebar = <PosShellSidebar lang={lang} settingsLabel={settingsLabel} placement={placement} />;
   const content = (
-    <section className={`pos-app-content-area pos-app-content-area--${placement} flex min-h-0 min-w-0 flex-1 overflow-hidden`}>
+    <section className={`pos-app-content-area pos-app-content-area--${placement} ${isSalesRuntimeRoute ? "pos-app-content-area--sales" : "pos-app-content-area--scroll"} flex min-h-0 min-w-0 flex-1`}>
       {children}
     </section>
   );

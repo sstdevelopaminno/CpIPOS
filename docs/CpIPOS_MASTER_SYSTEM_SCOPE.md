@@ -67,7 +67,7 @@ Mandatory isolation:
 
 ### Web App = reference UI/UX
 
-The Web App is the reference implementation for CpIPOS UI/UX. Android Tablet, Windows, and Mobile should follow the same terminology, navigation intent, workflow, important visual hierarchy, state meanings, permission behavior, and transaction flow.
+The Web App is the reference implementation for CpIPOS UI/UX. Android Tablet, Windows, and Mobile should follow the same terminology, navigation intent, workflow, important visual hierarchy, state meanings, permission behavior, and transaction flow. Current Tablet WebView runtime must render the same Web UI naturally, including tablet-responsive navigation, scroll ownership, modal/table behavior, and Web CSS colors.
 
 Native clients may adapt controls to the platform, but must not invent conflicting business flows.
 
@@ -207,9 +207,9 @@ Legend: ✅ verified complete at audited layer; 🟡 foundation/core exists but 
 | 1 | Package / Subscription | 🟡 | Core/live data exists: 9 active packages and 2 contracts. Normalize overlapping catalog and complete entitlement enforcement audit. |
 | 2 | Real production system + Web App Trial | 🟡 | Lifecycle/routing foundation exists. Trial tenant remains locked/verifying; Web App is reference UI. |
 | 3 | Two DBs; Trial -> Paid migrates data to Primary | 🟡 | Both DBs and lifecycle/routing foundations exist. Full migration/checksum/rollback/cutover E2E remains a Go-Live gate. |
-| 4 | Tablet + Windows apps + web downloads | 🟡 | Native Tablet POS and Windows runtime exist; release/download infrastructure exists. Final release/version/installer/entitlement E2E remains. |
+| 4 | Tablet + Windows apps + web downloads | 🟡 | Android Tablet is a thin WebView shell over the authoritative Web App; Windows runtime and release/download infrastructure exist. Final release/version/installer/entitlement E2E remains. |
 | 5 | Mobile application | 🟡 | Separate native Android project exists at `apps/cpipos-mobile-android`. Feature parity/current release QA remains. |
-| 6 | Native UI follows Web App | 🟡 | Canonical rule is documented. Every material Web/backend change requires native impact/parity review. |
+| 6 | Native UI follows Web App | 🟡 | Web App is authoritative. Tablet WebView receives responsive UI/runtime updates from Web deployment; native APK rebuild is required only for native bridge, MDM, hardware, wrapper/runtime, or OS-level changes. |
 | 7 | Kitchen | 🟡 | Kitchen routing/dispatch/config/queue foundations exist in GitHub. Aug-9 Kitchen schema was not live in Primary/Trial at audit time; KDS/config/realtime/E2E remains. |
 | 8 | Printer / physical printer | 🟡 | **Browser worker compatibility blocker is CLOSED at `9160dc6`.** Claim/lease/retry/stale-attempt protections and server-issued attempt propagation are aligned. Physical-printer E2E, migration/live rollout and load/soak remain. |
 | 9 | Finish POS sales + dine-in/table mode | 🟡 | Core flows exist. Table lifecycle, edge cases, transaction correctness and responsiveness QA remain. |
@@ -235,7 +235,7 @@ Do not infer legacy/removed app folders from old chats.
 
 ### Android Tablet POS
 
-`apps/pos-android` is the native Android Tablet POS direction. The recovered native checkpoint changed the Android workflow from generic Android Runtime to **Android Tablet POS**, version `0.2.0`, and moved beyond the previous generic Web-shell framing.
+`apps/pos-android` is the Android Tablet WebView shell. The Web App remains the authoritative POS UI/business flow; Android owns the wrapper runtime, authenticated WebView session, CpIPOS native bridge, MDM/device diagnostics and future hardware capabilities. Web UI parity, scroll behavior, and runtime update notification are delivered by the Web App; APK rebuild is required only for native bridge/MDM/hardware/runtime changes.
 
 ### Mobile
 
@@ -258,7 +258,7 @@ When a released Web reference flow, backend contract, or UI behavior materially 
 7. verify installation and health;
 8. retain rollback/recovery capability.
 
-Do not assume Web deployment updates native applications.
+For Android Tablet WebView, Web deployment updates the rendered POS UI and runtime watcher behavior without a new APK. Do not assume Web deployment updates native bridge, MDM, hardware integration, OS permissions, installer, or Windows/native application code.
 
 Recommended channels: `internal`, `pilot`, `stable`.
 

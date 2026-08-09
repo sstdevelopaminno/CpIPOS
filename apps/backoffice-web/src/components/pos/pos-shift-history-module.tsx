@@ -1161,8 +1161,8 @@ export function PosShiftHistoryModule({ lang }: { lang: Lang }) {
           {!loading && payload && payload.shifts.length === 0 ? <p className="mt-4 text-sm text-slate-500">{text.noData}</p> : null}
 
           {!loading && payload && payload.shifts.length > 0 ? (
-            <div className="mt-4 overflow-x-auto rounded-2xl border border-slate-200">
-              <table className="min-w-full border-collapse text-sm">
+            <div className="mt-4 max-w-full overflow-x-auto rounded-2xl border border-slate-200">
+              <table className="min-w-[1180px] border-collapse text-sm">
                 <thead className="bg-slate-50">
                   <tr className="text-left text-xs uppercase tracking-[0.1em] text-slate-500">
                     <th className="px-3 py-3">{text.shiftName}</th>

@@ -10073,3 +10073,161 @@ body:has(.pos-app-root) {
 .pos-settings-device-modal-scroll::-webkit-scrollbar-track {
   background: transparent;
 }
+/* Web runtime parity: pre-entry centering, POS scroll ownership, tablet sidebar, and update banner. */
+html,
+body {
+  min-height: 100%;
+}
+
+body:has(.pos-app-root) {
+  height: 100dvh;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.ipos-entry-page,
+.store-v2-page {
+  min-height: 100dvh;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: max(12px, env(safe-area-inset-top)) max(12px, env(safe-area-inset-right)) max(12px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left));
+  -webkit-overflow-scrolling: touch;
+}
+
+.ipos-entry-shell,
+.store-v2-card {
+  min-width: 0;
+}
+
+.store-v2-popup-overlay,
+.posui-payment-modal-backdrop,
+.posui-held-modal-backdrop,
+.posui-modal-backdrop,
+.posui-held-modal-backdrop,
+.posui-app-channel-modal__backdrop,
+.table-editor-overlay,
+.table-confirm-overlay,
+.table-modal-overlay,
+.pos-app-root [role="dialog"][aria-modal="true"],
+.pos-app-root [role="alertdialog"][aria-modal="true"] {
+  position: fixed;
+  inset: 0;
+}
+
+.store-v2-popup-card,
+.posui-payment-modal,
+.posui-held-modal,
+.posui-modal,
+.posui-app-channel-modal,
+.table-editor-dialog,
+.table-confirm-dialog,
+.table-modal,
+.pos-app-root [role="dialog"][aria-modal="true"] > section,
+.pos-app-root [role="alertdialog"][aria-modal="true"] > section {
+  max-height: calc(100dvh - 32px);
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.pos-app-root,
+.pos-app-frame,
+.pos-app-content-area {
+  min-width: 0;
+  min-height: 0;
+}
+
+.pos-app-root {
+  height: 100dvh;
+  max-height: 100dvh;
+}
+
+.pos-app-content-area--scroll {
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
+.pos-app-content-area--sales {
+  overflow: hidden;
+}
+
+.pos-app-content-area--scroll > * {
+  min-width: 0;
+}
+
+.pos-app-content-area--scroll .overflow-x-auto {
+  max-width: 100%;
+  min-width: 0;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+@media screen and (min-width: 740px) and (max-width: 900px) and (orientation: portrait) {
+  .pos-shell-sidebar {
+    display: flex !important;
+  }
+
+  .pos-app-frame--left .pos-shell-sidebar--left {
+    width: clamp(74px, 12vw, 104px);
+    padding: 8px;
+  }
+
+  .pos-app-frame--left .pos-shell-sidebar--left nav span:not([aria-hidden]) {
+    display: none;
+  }
+
+  .pos-app-frame--left .pos-shell-sidebar--left nav a,
+  .pos-app-frame--left .pos-shell-sidebar--left nav button {
+    justify-content: center;
+    min-height: 44px;
+    padding-inline: 8px;
+  }
+}
+
+@media (max-height: 720px) {
+  .ipos-entry-page,
+  .store-v2-page {
+    align-items: flex-start;
+  }
+}
+
+.runtime-update-banner {
+  position: fixed;
+  right: max(14px, env(safe-area-inset-right));
+  bottom: max(14px, env(safe-area-inset-bottom));
+  z-index: 120;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  max-width: min(420px, calc(100vw - 28px));
+  border: 1px solid #bfdbfe;
+  border-radius: 14px;
+  background: #ffffff;
+  box-shadow: 0 18px 40px rgba(15, 23, 42, 0.18);
+  color: #0f172a;
+  padding: 10px 12px;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.runtime-update-banner button {
+  min-height: 34px;
+  border: 0;
+  border-radius: 10px;
+  background: #2563eb;
+  color: #ffffff;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 800;
+  padding: 8px 10px;
+  white-space: nowrap;
+}
+
+.runtime-update-banner button:hover {
+  background: #1d4ed8;
+}

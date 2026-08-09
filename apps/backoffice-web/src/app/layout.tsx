@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import type { ReactNode } from "react";
 import { BrowserPrintAgentPosHost } from "@/components/printing/browser-print-agent-pos-host";
 import { PwaBootstrap } from "@/components/pwa/pwa-bootstrap";
+import { WebRuntimeUpdateWatcher } from "@/components/runtime/web-runtime-update-watcher";
 import "./globals.css";
 import "./pos-buffet-ui-polish.css";
 
@@ -29,11 +30,12 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
-    <html lang="th" className="m-0 h-full w-full p-0">
-      <body className="m-0 h-full w-full overflow-hidden p-0">
+    <html lang="th" className="m-0 min-h-full w-full p-0">
+      <body className="m-0 min-h-dvh w-full p-0">
         {children}
         <PwaBootstrap />
         <BrowserPrintAgentPosHost />
+        <WebRuntimeUpdateWatcher />
       </body>
     </html>
   );
