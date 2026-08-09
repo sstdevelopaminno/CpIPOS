@@ -185,6 +185,17 @@ Live contracts audited:
 - NDL has an active paid yearly contract on `Y3490`.
 - Trial tenant has an active `trial` contract without a paid package.
 
+August 8 migration source drift recovery:
+
+- restored `supabase/migrations/20260808133850_subscription_trial_manual_it_demo_baseline.sql`;
+- restored `supabase/migrations/20260808134014_internal_demo_30_day_reset.sql`;
+- restored `supabase/migrations/20260808134053_subscription_lock_scheduler.sql`;
+- restored `supabase/trial-data-plane/migrations/20260808133811_trial_7_day_retention_and_seed_cleanup.sql`;
+- restored `supabase/trial-data-plane/migrations/20260808134120_trial_retention_scheduler.sql`;
+- live Primary/Trial databases were not modified and no migrations were applied during source recovery;
+- Aug-9 Kitchen/Print migrations remain GitHub-side only until explicit live rollout approval;
+- next migration gate is Kitchen/Print readiness and controlled Primary/Trial application.
+
 ---
 
 ## 5. Canonical 12-requirement audit
@@ -202,11 +213,11 @@ Legend: ✅ verified complete at audited layer; 🟡 foundation/core exists but 
 | 7 | Kitchen | 🟡 | Kitchen routing/dispatch/config/queue foundations exist in GitHub. Aug-9 Kitchen schema was not live in Primary/Trial at audit time; KDS/config/realtime/E2E remains. |
 | 8 | Printer / physical printer | 🟡 | **Browser worker compatibility blocker is CLOSED at `9160dc6`.** Claim/lease/retry/stale-attempt protections and server-issued attempt propagation are aligned. Physical-printer E2E, migration/live rollout and load/soak remain. |
 | 9 | Finish POS sales + dine-in/table mode | 🟡 | Core flows exist. Table lifecycle, edge cases, transaction correctness and responsiveness QA remain. |
-| 10 | Table QR negative-stock bug | 🔴 | Current reported defect: QR -> table POS stock/negative-stock behavior is inconsistent with intended branch policy. Reproduce and unify with authoritative POS stock policy. |
+| 10 | Table QR negative-stock bug | 🟡 | Code fix exists at `084fc2cb3af6cef13a6e967d8b5df4ad3f6f7b70`; physical/E2E verification is not complete yet. |
 | 11 | Native/Windows updates through MDM | 🟡 | MDM/device-command and heartbeat foundation exists, but full staged download/verify/install/health/rollback update E2E is not proven. |
 | 12 | MDM installed/bundled with Tablet + Windows | 🟡 | Native management foundations exist, but final installer/bootstrap/enrollment bundling for both platforms is not yet proven E2E. |
 
-**Conclusion:** CpIPOS matches the intended 12-part architecture, but it is **not yet 12/12 Go-Live complete**. Most remaining work is integration, E2E, migration rollout, package policy normalization, Kitchen/KDS, native release/update, Table QR correction, and reliability/load validation.
+**Conclusion:** CpIPOS matches the intended 12-part architecture, but it is **not yet 12/12 Go-Live complete**. Most remaining work is integration, E2E, migration rollout, package policy normalization, Kitchen/KDS, native release/update, Table QR physical/E2E verification, and reliability/load validation.
 
 ---
 
@@ -376,16 +387,21 @@ Codex reported PASS for retry/re-claim, parallel-job safety, stale-attempt prote
 
 Counter POS, dine-in/table, customer QR, Kitchen, payment, receipt, and inventory are one business system and must converge on authoritative server transactions/policies.
 
-### Current QR negative-stock defect
+### QR negative-stock status
 
 ```text
 Customer Table QR
  -> submit order
  -> appears in POS table mode
- -> negative-stock behavior is inconsistent with intended branch policy
+ -> negative-stock behavior must follow the authoritative branch policy
 ```
 
-Expected:
+Code status:
+
+- implementation fix exists at `084fc2cb3af6cef13a6e967d8b5df4ad3f6f7b70`;
+- physical/E2E verification is still required before Go-Live completion.
+
+Expected behavior:
 
 - if branch policy allows negative stock, POS and QR consistently permit it according to the same authoritative rule;
 - if policy forbids it, both consistently reject transactionally;
@@ -536,6 +552,6 @@ Final report must state branch, old/new HEAD, exact files changed, behavior fixe
 
 Do not reopen the browser `agent_attempt_id` worker compatibility issue unless regression evidence appears.
 
-Next work should be selected from live verification of the remaining red/yellow gates. Current highest-confidence open functional defect is **Table QR negative-stock consistency (#10)**. Kitchen live migration/KDS, physical-printer E2E, package normalization, Trial migration E2E, and MDM update/install remain major Go-Live workstreams.
+Next work should be selected from live verification of the remaining yellow gates. **Table QR negative-stock consistency (#10)** has a code fix at `084fc2cb3af6cef13a6e967d8b5df4ad3f6f7b70`, but physical/E2E verification remains. Kitchen/Print migration readiness and live rollout, KDS, physical-printer E2E, package normalization, Trial migration E2E, and MDM update/install remain major Go-Live workstreams.
 
 Before starting any of them, re-fetch GitHub and live Supabase read-only because the current branch may have moved after this document commit.
