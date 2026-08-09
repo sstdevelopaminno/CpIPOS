@@ -4,7 +4,9 @@ import { acknowledgePrintJob, claimPrintJobs, createPrintAgent, requirePrintAgen
 
 const mocks = vi.hoisted(() => ({
   appendAuditLog: vi.fn(),
-  getSupabaseServiceClient: vi.fn()
+  getPrimarySupabaseServiceClient: vi.fn(),
+  getSupabaseServiceClient: vi.fn(),
+  getPrintExecutionDataPlaneClient: vi.fn()
 }));
 
 vi.mock("@/lib/audit-log", () => ({
@@ -12,11 +14,33 @@ vi.mock("@/lib/audit-log", () => ({
 }));
 
 vi.mock("@/lib/supabase-admin", () => ({
+  getPrimarySupabaseServiceClient: mocks.getPrimarySupabaseServiceClient,
   getSupabaseServiceClient: mocks.getSupabaseServiceClient
+}));
+
+vi.mock("@/lib/printing/print-execution-data-plane", () => ({
+  getPrintExecutionDataPlaneClient: mocks.getPrintExecutionDataPlaneClient
 }));
 
 function hashAgentKey(value: string) {
   return createHash("sha256").update(value, "utf8").digest("hex");
+}
+
+function activeAgent() {
+  return {
+    id: "agent-1",
+    tenant_id: "t1",
+    branch_id: "b1",
+    device_id: null,
+    device_code: "POS-01",
+    agent_name: "Counter Agent",
+    api_key_hash: "hash",
+    status: "active" as const,
+    last_seen_at: null,
+    last_claim_at: null,
+    app_version: null,
+    metadata: {}
+  };
 }
 
 describe("print agent security rules", () => {
@@ -39,7 +63,7 @@ describe("print agent security rules", () => {
       inserted = payload;
       return { select };
     });
-    mocks.getSupabaseServiceClient.mockReturnValue({ from: vi.fn(() => ({ insert })) });
+    mocks.getPrimarySupabaseServiceClient.mockReturnValue({ from: vi.fn(() => ({ insert })) });
 
     const result = await createPrintAgent(
       {
@@ -62,24 +86,18 @@ describe("print agent security rules", () => {
     const agentKey = "cpi_pa_test";
     const maybeSingle = vi.fn(async () => ({
       data: {
-        id: "agent-1",
-        tenant_id: "t1",
-        branch_id: "b1",
-        device_id: null,
-        device_code: "POS-01",
-        agent_name: "Counter Agent",
+        ...activeAgent(),
         api_key_hash: hashAgentKey(agentKey),
-        status: "inactive",
-        last_seen_at: null,
-        last_claim_at: null,
-        app_version: null,
-        metadata: {}
+        status: "inactive"
       },
       error: null
     }));
-    const eq = vi.fn(() => ({ maybeSingle }));
-    const select = vi.fn(() => ({ eq }));
-    mocks.getSupabaseServiceClient.mockReturnValue({ from: vi.fn(() => ({ select })) });
+    const query: Record<string, unknown> = {
+      select: vi.fn(() => query),
+      eq: vi.fn(() => query),
+      maybeSingle
+    };
+    mocks.getPrimarySupabaseServiceClient.mockReturnValue({ from: vi.fn(() => query) });
 
     await expect(
       requirePrintAgent(
@@ -91,115 +109,95 @@ describe("print agent security rules", () => {
     ).rejects.toThrow("agent_inactive");
   });
 
-  it("does not let one agent acknowledge another agent's claimed job", async () => {
-    const maybeSingle = vi.fn(async () => ({
-      data: {
-        id: "job-1",
-        tenant_id: "t1",
-        branch_id: "b1",
-        status: "printing",
-        metadata: {},
-        claimed_by_agent_id: "agent-2"
-      },
-      error: null
-    }));
-    const currentQuery: Record<string, unknown> = {
-      eq: vi.fn(() => currentQuery),
-      maybeSingle
+  it("does not let stale or wrong attempts acknowledge a job", async () => {
+    const executionClient = {
+      rpc: vi.fn(async () => ({ data: null, error: { message: "PRINT_JOB_ATTEMPT_STALE" } }))
     };
-    const select = vi.fn(() => currentQuery);
-    mocks.getSupabaseServiceClient.mockReturnValue({ from: vi.fn(() => ({ select })) });
+    mocks.getPrintExecutionDataPlaneClient.mockResolvedValue({ client: executionClient, home: "primary" });
 
     await expect(
-      acknowledgePrintJob(
-        {
-          id: "agent-1",
-          tenant_id: "t1",
-          branch_id: "b1",
-          device_id: null,
-          device_code: "POS-01",
-          agent_name: "Counter Agent",
-          api_key_hash: "hash",
-          status: "active",
-          last_seen_at: null,
-          last_claim_at: null,
-          app_version: null,
-          metadata: {}
-        },
-        "job-1",
-        {}
-      )
-    ).rejects.toThrow("print_job_not_claimed_by_agent");
+      acknowledgePrintJob(activeAgent(), "job-1", {
+        agent_attempt_id: "attempt-1",
+        metadata: { provider: "test" }
+      })
+    ).rejects.toThrow("PRINT_JOB_ATTEMPT_STALE");
   });
 
-  it("does not return a job when a concurrent claim wins first", async () => {
-    const candidateJob = {
-      id: "job-1",
-      tenant_id: "t1",
-      branch_id: "b1",
-      order_id: null,
-      printer_id: "printer-1",
-      printer_role: "receipt",
-      connection_type: "NETWORK_ESC_POS",
-      status: "pending",
-      payload_text: "receipt",
-      payload_json: {},
-      retry_count: 0,
-      max_retry_count: 3,
-      last_error: null,
-      metadata: {},
-      created_at: "2026-07-29T00:00:00.000Z",
-      claimed_by_agent_id: null,
-      claim_expires_at: null,
-      printer_profiles: {
-        id: "printer-1",
-        printer_name: "Receipt",
-        printer_role: "receipt",
-        connection_type: "NETWORK_ESC_POS",
-        ip_address: "127.0.0.1",
-        port: 9100,
-        paper_width_mm: 58,
-        enabled: true,
-        metadata: {}
-      }
+  it("returns claimed jobs with the server-issued attempt id", async () => {
+    const agent = activeAgent();
+    const updateAgentQuery: Record<string, unknown> = {
+      eq: vi.fn(() => updateAgentQuery),
+      then: (resolve: (value: unknown) => void) => resolve({ data: null, error: null })
     };
-    const selectJobsQuery: Record<string, unknown> = {
-      eq: vi.fn(() => selectJobsQuery),
-      in: vi.fn(() => selectJobsQuery),
-      order: vi.fn(() => selectJobsQuery),
-      limit: vi.fn(async () => ({ data: [candidateJob], error: null }))
-    };
-    const updateClaimQuery: Record<string, unknown> = {
-      eq: vi.fn(() => updateClaimQuery),
-      in: vi.fn(() => updateClaimQuery),
-      select: vi.fn(() => ({ maybeSingle: vi.fn(async () => ({ data: null, error: null })) }))
-    };
-    const updateAgentQuery = { eq: vi.fn(async () => ({ data: null, error: null })) };
-    const update = vi.fn((payload: Record<string, unknown>) => (payload.claimed_by_agent_id ? updateClaimQuery : updateAgentQuery));
-    const from = vi.fn((table: string) => ({
-      select: vi.fn(() => selectJobsQuery),
-      update: table === "print_jobs" ? update : vi.fn(() => updateAgentQuery)
-    }));
-    mocks.getSupabaseServiceClient.mockReturnValue({ from });
+    mocks.getPrimarySupabaseServiceClient.mockReturnValue({
+      from: vi.fn(() => ({ update: vi.fn(() => updateAgentQuery) }))
+    });
 
-    const jobs = await claimPrintJobs(
-      {
-        id: "agent-1",
-        tenant_id: "t1",
-        branch_id: "b1",
-        device_id: null,
-        device_code: "POS-01",
-        agent_name: "Counter Agent",
-        api_key_hash: "hash",
-        status: "active",
-        last_seen_at: null,
-        last_claim_at: null,
-        app_version: null,
-        metadata: {}
-      },
-      { limit: 1 }
-    );
+    const printerQuery: Record<string, unknown> = {
+      select: vi.fn(() => printerQuery),
+      eq: vi.fn(() => printerQuery),
+      then: (resolve: (value: unknown) => void) =>
+        resolve({
+          data: [
+            {
+              id: "printer-1",
+              printer_name: "Receipt",
+              printer_role: "receipt",
+              connection_type: "NETWORK_ESC_POS",
+              ip_address: "127.0.0.1",
+              port: 9100,
+              paper_width_mm: 58,
+              enabled: true,
+              metadata: {}
+            }
+          ],
+          error: null
+        })
+    };
+    const jobsQuery: Record<string, unknown> = {
+      select: vi.fn(() => jobsQuery),
+      eq: vi.fn(() => jobsQuery),
+      in: vi.fn(async () => ({
+        data: [
+          {
+            id: "job-1",
+            tenant_id: "t1",
+            branch_id: "b1",
+            order_id: null,
+            printer_id: "printer-1",
+            printer_role: "receipt",
+            connection_type: "NETWORK_ESC_POS",
+            status: "printing",
+            payload_text: "receipt",
+            payload_json: {},
+            retry_count: 0,
+            max_retry_count: 3,
+            last_error: null,
+            metadata: {},
+            created_at: "2026-07-29T00:00:00.000Z",
+            claimed_by_agent_id: "agent-1",
+            claimed_at: "2026-07-29T00:00:00.000Z",
+            claim_expires_at: "2026-07-29T00:01:00.000Z",
+            agent_attempt_id: null,
+            agent_error_code: null,
+            printer_profiles: null
+          }
+        ],
+        error: null
+      }))
+    };
+    const executionClient = {
+      from: vi.fn((table: string) => (table === "printer_profiles" ? printerQuery : jobsQuery)),
+      rpc: vi.fn(async () => ({
+        data: [{ job_id: "job-1", agent_attempt_id: "attempt-1" }],
+        error: null
+      }))
+    };
+    mocks.getPrintExecutionDataPlaneClient.mockResolvedValue({ client: executionClient, home: "primary" });
 
-    expect(jobs).toEqual([]);
+    const jobs = await claimPrintJobs(agent, { limit: 1 });
+
+    expect(jobs).toHaveLength(1);
+    expect(jobs[0]?.agent_attempt_id).toBe("attempt-1");
   });
 });

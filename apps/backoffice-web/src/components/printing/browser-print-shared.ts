@@ -11,6 +11,7 @@ export type BrowserPrintAgentStatus = {
 
 export type BrowserPrintJob = {
   id: string;
+  agent_attempt_id: string;
   payload_text?: string | null;
   payload_json?: Record<string, unknown> | null;
   metadata?: Record<string, unknown> | null;
@@ -40,6 +41,12 @@ export function readString(value: unknown): string | null {
 
 export function sleep(ms: number) {
   return new Promise((resolve) => window.setTimeout(resolve, ms));
+}
+
+export function agentAttemptIdForJob(job: BrowserPrintJob) {
+  const attemptId = readString(job.agent_attempt_id);
+  if (!attemptId) throw new Error("print_attempt_id_missing_from_claim");
+  return attemptId;
 }
 
 export function isCashDrawerJob(job: BrowserPrintJob) {

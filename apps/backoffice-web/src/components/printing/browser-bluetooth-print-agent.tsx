@@ -9,6 +9,7 @@ import {
   type BrowserPrintAgentStatus
 } from "@/components/printing/browser-print-agent";
 import {
+  agentAttemptIdForJob,
   bytesForCashDrawer,
   bytesForReceipt,
   dispatchStatus as dispatchSharedStatus,
@@ -308,10 +309,12 @@ export function BrowserBluetoothPrintAgent() {
 
         const jobs = claim.body?.data?.jobs ?? [];
         for (const job of jobs) {
+          const agentAttemptId = agentAttemptIdForJob(job);
           try {
             const bytes = isCashDrawerJob(job) ? bytesForCashDrawer() : await bytesForReceipt(job);
             await writeBytesInChunks(connection.characteristic, bytes);
             await postAgentApi(`/api/print-agent/v1/jobs/${encodeURIComponent(job.id)}/ack`, config.agentKey, {
+              agent_attempt_id: agentAttemptId,
               provider_job_id: `bluetooth:${Date.now()}`,
               bytes_sent: bytes.length,
               metadata: { provider: "browser_web_bluetooth", device_name: connection.deviceName, app_version: APP_VERSION }
@@ -323,6 +326,7 @@ export function BrowserBluetoothPrintAgent() {
             const message = jobError instanceof Error ? jobError.message : "browser_bluetooth_print_failed";
             characteristicRef.current = null;
             await postAgentApi(`/api/print-agent/v1/jobs/${encodeURIComponent(job.id)}/fail`, config.agentKey, {
+              agent_attempt_id: agentAttemptId,
               error_message: message,
               error_code: "browser_bluetooth_print_failed",
               retryable: true,

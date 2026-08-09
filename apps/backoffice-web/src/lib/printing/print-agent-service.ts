@@ -63,6 +63,10 @@ type AgentJobRow = {
   printer_profiles: null | PrinterProfileRow | PrinterProfileRow[];
 };
 
+type ClaimedAgentJobRow = AgentJobRow & {
+  agent_attempt_id: string;
+};
+
 const AGENT_SELECT =
   "id,tenant_id,branch_id,device_id,device_code,agent_name,api_key_hash,status,last_seen_at,last_claim_at,app_version,metadata";
 
@@ -312,7 +316,10 @@ export async function touchPrintAgent(agent: PrintAgentRow, input: { appVersion?
   return data as PrintAgentRow;
 }
 
-export async function claimPrintJobs(agent: PrintAgentRow, input: { limit?: unknown; lease_seconds?: unknown; app_version?: string | null }) {
+export async function claimPrintJobs(
+  agent: PrintAgentRow,
+  input: { limit?: unknown; lease_seconds?: unknown; app_version?: string | null }
+): Promise<ClaimedAgentJobRow[]> {
   const nowIso = new Date().toISOString();
   const primary = getPrimarySupabaseServiceClient();
   await primary
@@ -359,7 +366,12 @@ export async function claimPrintJobs(agent: PrintAgentRow, input: { limit?: unkn
   if (jobsError) throw new Error(jobsError.message);
 
   const byId = new Map(((jobs ?? []) as unknown as AgentJobRow[]).map((job) => [job.id, job]));
-  return claimedRows.map((row) => byId.get(row.job_id)).filter((job): job is AgentJobRow => Boolean(job));
+  return claimedRows
+    .map((row) => {
+      const job = byId.get(row.job_id);
+      return job ? { ...job, agent_attempt_id: row.agent_attempt_id } : null;
+    })
+    .filter((job): job is ClaimedAgentJobRow => Boolean(job));
 }
 
 export async function acknowledgePrintJob(

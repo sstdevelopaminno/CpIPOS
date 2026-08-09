@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import {
+  agentAttemptIdForJob,
   bytesForCashDrawer,
   bytesForReceipt,
   isCashDrawerJob,
@@ -325,10 +326,12 @@ export function BrowserPrintAgent() {
 
         const jobs = claim.body?.data?.jobs ?? [];
         for (const job of jobs) {
+          const agentAttemptId = agentAttemptIdForJob(job);
           try {
             const bytes = isCashDrawerJob(job) ? bytesForCashDrawer() : await bytesForReceipt(job);
             await writeToPort(ensured.port, bytes);
             await postAgentApi(`/api/print-agent/v1/jobs/${encodeURIComponent(job.id)}/ack`, config.agentKey, {
+              agent_attempt_id: agentAttemptId,
               provider_job_id: `browser:${Date.now()}`,
               bytes_sent: bytes.length,
               metadata: { provider: "browser_web_serial", baud_rate: config.baudRate, app_version: APP_VERSION }
@@ -342,6 +345,7 @@ export function BrowserPrintAgent() {
             portRef.current = null;
             void safeClosePort(port);
             await postAgentApi(`/api/print-agent/v1/jobs/${encodeURIComponent(job.id)}/fail`, config.agentKey, {
+              agent_attempt_id: agentAttemptId,
               error_message: message,
               error_code: "browser_serial_print_failed",
               retryable: true,
