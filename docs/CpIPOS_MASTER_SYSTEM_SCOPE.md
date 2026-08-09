@@ -1,149 +1,136 @@
 # CpIPOS Master System Scope & Architecture
 
-> Canonical project continuity document for ChatGPT, Codex, maintainers, and future sessions.
+> Canonical continuity document for ChatGPT, Codex, maintainers, and future sessions.
 >
 > Audit snapshot: 2026-08-09 15:02 ICT
 >
 > Repository: `sstdevelopaminno/CpIPOS`
 >
-> Documentation branch created from Print Execution Queue checkpoint `155dad21f4aa445c5948543e2045fcadd9e3e2e0` (`agent/printer-execution-queue`).
+> Documentation branch: `docs/master-system-scope-20260809`
+>
+> Base checkpoint used for the audit: Print Execution Queue commit `155dad21f4aa445c5948543e2045fcadd9e3e2e0`.
 
-## 0. How to use this document
+## 0. Continuity and source-of-truth rule
 
-Read these files before changing CpIPOS:
+Before changing CpIPOS, read:
 
 1. `README.md`
 2. `context.md`
-3. `docs/CpIPOS_MASTER_SYSTEM_SCOPE.md` **(this file)**
-4. Only then inspect the files directly related to the current task.
+3. `AGENTS.md`
+4. `docs/CpIPOS_MASTER_SYSTEM_SCOPE.md`
+5. Only then inspect files directly related to the task.
 
-Priority when facts conflict:
+When facts conflict, use this priority:
 
-1. Live GitHub branch / commit being worked on.
-2. Live Supabase schema, migration history, and data state.
-3. This master scope and `context.md`.
-4. Old chat history or memory only as a fallback.
+1. Current live GitHub working branch/commit.
+2. Live Supabase schema, migration history, and data when database state matters.
+3. This document and `context.md`.
+4. Old ChatGPT/Codex conversation history only as fallback.
 
-This document is intentionally persistent so that a lost ChatGPT conversation, a new chat, a recovered Codex conversation, or a new Codex run does not cause the project to restart from old assumptions.
+A checkpoint SHA in a document is a snapshot, not a permanent HEAD. Re-fetch GitHub before each work package.
 
-**Important:** the checkpoint SHA in this file is a snapshot, not a permanent branch head. Re-fetch GitHub before every new work package.
+If ChatGPT/Codex history disappears or a new session starts, recover the latest pushed GitHub checkpoint first. Never infer that an unpushed or unverified chat instruction was completed.
 
 ---
 
-## 1. System identity and mandatory architecture
+## 1. System identity: multi-owner / multi-branch SaaS
 
 CpIPOS is a **multi-tenant / multi-owner / multi-branch POS SaaS**.
 
-Canonical hierarchy:
-
 ```text
 CpIPOS SaaS
-└── Tenant / Owner (shop owner account)
+└── Tenant / Owner
     ├── Branch A
-    │   ├── Users / roles
+    │   ├── users / roles
     │   ├── POS devices
-    │   ├── Tables / QR
-    │   ├── Orders / payments
-    │   ├── Inventory
+    │   ├── tables / customer QR
+    │   ├── orders / payments
+    │   ├── inventory
     │   ├── Kitchen
-    │   └── Printers
+    │   └── printers
     ├── Branch B
     └── Branch ...
 ```
 
-Non-negotiable isolation rules:
+Mandatory isolation:
 
-- Every tenant-scoped business operation must be isolated by `tenant_id`.
-- Branch-scoped operations must additionally enforce `branch_id`.
-- Never trust tenant, branch, role, device, price, totals, or authorization scope merely because the client sends it.
-- Server-side session/context is authoritative.
-- No cross-tenant or cross-branch data leakage is acceptable.
-- A feature working for one tenant/branch is not sufficient evidence that it is safe for many tenants and many branches.
+- every tenant-scoped operation must enforce `tenant_id`;
+- every branch-scoped operation must also enforce `branch_id`;
+- never trust tenant, branch, role, device, price, totals, permissions, or authorization scope just because the client sends it;
+- authenticated server context and authoritative DB rules win;
+- no cross-tenant/cross-branch leakage is acceptable;
+- a feature working for one shop/branch is not sufficient proof for a SaaS release.
 
 ---
 
-## 2. Canonical UI and business-rule doctrine
+## 2. UI and business-rule doctrine
 
-### Web App is the reference UI
+### Web App = reference UI/UX
 
-The Web App is the **reference implementation / master UI & UX** for CpIPOS.
+The Web App is the reference implementation for CpIPOS UI/UX. Android Tablet, Windows, and Mobile should follow the same terminology, navigation intent, workflow, important visual hierarchy, state meanings, permission behavior, and transaction flow.
 
-Tablet, Windows, and Mobile clients must follow the same:
+Native clients may adapt controls to the platform, but must not invent conflicting business flows.
 
-- terminology and labels;
-- navigation and operating flow;
-- business state and error meaning;
-- permissions and feature gates;
-- transaction behavior;
-- visual hierarchy and important interaction patterns.
+### Backend/API/DB = business-rule source of truth
 
-Native clients do not need to be pixel-identical where the operating system requires a native adaptation, but they must not invent a conflicting workflow or business rule.
+Native/Web clients must not fork critical rules for:
 
-### Backend is the business-rule source of truth
-
-Backend/API/database transaction rules are authoritative. Native clients must not fork critical business logic for:
-
-- price/trusted price calculations;
-- stock policy;
-- order totals;
-- payments;
+- trusted prices and totals;
+- inventory / negative-stock policy;
+- orders and payments;
 - Table QR submission;
 - Kitchen routing;
 - Print execution;
-- subscription entitlement;
+- package entitlement;
 - tenant/branch/device authorization.
 
 ---
 
-## 3. Production / Trial data-plane architecture
+## 3. Production / Trial architecture
 
-Live Supabase projects audited on 2026-08-09:
+Live Supabase projects audited:
 
-- **CpiPOS-001 / Primary**: `deejlitaivfnsbwqdugy`
-- **CpiPOS-002 / Trial Data Plane**: `kawenyvpentwgugtzqec`
+- **CpiPOS-001 / Primary** — project ref `deejlitaivfnsbwqdugy`.
+- **CpiPOS-002 / Trial Data Plane** — project ref `kawenyvpentwgugtzqec`.
 
-Routing doctrine:
+Routing invariants:
 
-- `tenant_data_lifecycle.data_home` is the **runtime routing authority**.
-- `desired_data_home` is intent/state only and MUST NOT be used as the runtime routing signal.
-- Control-plane data remains on Primary.
-- Trial business-data routing requires server-only Trial credentials.
-- If Trial is authoritative and Trial routing cannot be completed safely, **fail closed**.
-- Never silently fall back to Primary for an authoritative Trial business operation.
-- Never expose a Supabase service-role key to browser/mobile/native clients.
+- `tenant_data_lifecycle.data_home` is the runtime routing authority;
+- `desired_data_home` is migration/lifecycle intent, not runtime routing authority;
+- control-plane data stays on Primary;
+- Trial business routing uses server-only Trial credentials;
+- if Trial is authoritative and routing fails, fail closed;
+- never silently fall back to Primary;
+- never expose service-role credentials to Web/Mobile/Native clients.
 
-### Current audited lifecycle state
+### Audited lifecycle state
 
-At this audit snapshot:
+- NDL tenant: `data_home=primary`, unlocked.
+- Trial tenant: `lifecycle_status=trial`, `data_home=primary`, `desired_data_home=trial`, `migration_status=verifying`, `access_locked=true`.
 
-- NDL tenant is on `data_home=primary`, unlocked.
-- Trial tenant is still `lifecycle_status=trial`, `data_home=primary`, `desired_data_home=trial`, `migration_status=verifying`, and `access_locked=true`.
-
-Therefore the Trial tenant has **not completed Trial data-plane cutover**. Do not automatically unlock or cut it over.
+Therefore Trial cutover is **not completed**. Do not automatically unlock or change `data_home`.
 
 ### Required Trial -> Paid conversion
 
-When a Trial customer purchases a real package, the required flow is:
+1. Acquire migration lease / stop unsafe tenant writes.
+2. Snapshot/export only the tenant's Trial business data.
+3. Import to Primary while preserving relationships/IDs or deterministic mappings.
+4. Verify row counts, checksums, FK/business invariants, order/payment/stock totals.
+5. Register routed object IDs where required.
+6. Atomically switch authoritative `data_home=primary` only after verification.
+7. Unlock access.
+8. Retain Trial data according to rollback/retention policy.
+9. Audit each migration phase.
 
-1. Acquire migration lease / lock writes for the tenant.
-2. Snapshot/export only tenant-scoped business data from Trial.
-3. Import into Primary while preserving IDs/relationships or using deterministic mappings.
-4. Verify row counts, checksums, foreign-key/business invariants, order/payment/stock totals.
-5. Register/update routed object IDs when the router architecture requires it.
-6. Only after verification, atomically switch authoritative `data_home` to `primary`.
-7. Unlock tenant access.
-8. Retain Trial snapshot/data according to rollback/retention policy.
-9. Audit every migration phase.
-
-Any verification error must fail closed. Data must not be partially cut over.
+Any verification error must fail closed. Partial cutover is not acceptable.
 
 ---
 
-## 4. Package / Subscription system — VERIFIED IMPLEMENTED
+## 4. Package / Subscription — VERIFIED AS EXISTING
 
-The package system is **not missing**. It already exists in the live Primary database.
+Do **not** rebuild the package system from scratch. It exists in live Primary.
 
-Audited control-plane tables:
+Audited tables:
 
 - `package_feature_catalog`
 - `subscription_package_features`
@@ -153,30 +140,17 @@ Audited control-plane tables:
 - `tenant_subscription_approval_events`
 - `tenant_data_lifecycle`
 
-Audit counts:
+Audited counts:
 
-- package feature catalog: 10
+- feature catalog: 10
 - package-feature mappings: 6
 - subscription packages: 9
 - tenant subscription contracts: 2
 - tenant lifecycle rows: 2
 
-`subscription_packages` already supports quota and application entitlements such as:
+Package records already carry quotas/entitlements including branch/device/user/product limits, bill limits, storage/retention, staff/manager/owner limits, CSV export, and `tablet_pos_enabled`, `windows_pos_enabled`, `mobile_app_enabled`.
 
-- branch/device/user/product limits;
-- monthly bill limit;
-- storage and retention;
-- owner/manager/staff limits;
-- CSV export;
-- `tablet_pos_enabled`;
-- `windows_pos_enabled`;
-- `mobile_app_enabled`;
-- quota mode;
-- active/status/display order.
-
-### Active package catalog found in live DB
-
-Current active codes:
+### Active package codes found
 
 - `S45`
 - `BASIC`
@@ -188,244 +162,224 @@ Current active codes:
 - `Q1490`
 - `Y3490`
 
-Important audit finding: there are overlapping active package families:
+Audit finding: there are overlapping active catalog families:
 
 ```text
 BASIC / PRO / PRO_M / ENT
-and
 F45 / B599 / Q1490 / Y3490
 plus S45
 ```
 
-This is a **catalog normalization/product-policy task**, not a reason to rebuild the package system.
+This is **package catalog normalization**, not missing implementation.
 
 Before Go-Live:
 
-- decide which catalog family is canonical;
-- map/migrate existing contracts safely;
-- deactivate obsolete packages instead of deleting historical contract references;
-- audit the currently partial package-feature mappings;
-- verify that tablet/windows/mobile entitlements are enforced at download, enrollment, login/session, and runtime feature gates where applicable.
+- choose the canonical product catalog;
+- safely map existing contracts;
+- deactivate obsolete packages rather than deleting historical references;
+- review the partial feature mapping (10 feature definitions vs 6 mappings at audit time);
+- verify tablet/windows/mobile entitlement enforcement at relevant download, enrollment, login/session, and runtime gates.
 
-### Live contracts audited
+Live contracts audited:
 
-- NDL has an active paid yearly contract using `Y3490`.
-- Trial tenant has an active `trial` contract with no paid package assigned.
+- NDL has an active paid yearly contract on `Y3490`.
+- Trial tenant has an active `trial` contract without a paid package.
 
 ---
 
-## 5. Master 12-requirement audit
+## 5. Canonical 12-requirement audit
 
-Status legend:
+Legend: ✅ verified complete at audited layer; 🟡 foundation/core exists but E2E/Go-Live work remains; 🔴 current open defect/blocker.
 
-- ✅ Implemented and verified at the audited layer.
-- 🟡 Foundation/core exists but completion/E2E/Go-Live verification remains.
-- 🔴 Known open defect/blocker.
-
-| # | Requirement | Audit status | Current truth / remaining work |
+| # | Requirement | Status | Current truth / remaining work |
 |---|---|---|---|
-| 1 | Package / Subscription | 🟡 | Core and live data are implemented. 9 active packages + 2 contracts verified. Normalize overlapping package catalogs and finish entitlement mapping/enforcement audit. |
-| 2 | Real system + Web App Trial | 🟡 | Production/Trial lifecycle architecture exists. Trial tenant is still locked/verifying and has not completed data-plane cutover. Web App remains reference UI. |
-| 3 | Two databases; Trial -> Paid moves data to Primary | 🟡 | Both live DBs and routing/lifecycle foundations exist. Full migration/checksum/rollback/cutover E2E is not yet proven and must be a Go-Live gate. |
-| 4 | Tablet + Windows apps + download web | 🟡 | Separate Android Tablet POS and Windows native/runtime codebases exist; build/download infrastructure exists. Current release/version/installer/entitlement E2E still needs final verification. |
-| 5 | Mobile application | 🟡 | A separate native Android mobile project exists (`apps/cpipos-mobile-android`). Feature parity and current release QA still need final verification. |
-| 6 | Native UI follows Web App | 🟡 | This is now a canonical project rule. Existing clients need parity audit whenever Web UI/flow changes. Backend remains business-rule authority. |
-| 7 | Kitchen system | 🟡 | Kitchen schema/routing/dispatch/config/queue foundations exist in GitHub. At this audit, Kitchen Aug-9 schema is not live in Primary/Trial; complete KDS/config UI/realtime/E2E remains. |
-| 8 | Printer / physical printer | 🟡 | Print execution queue has claim/lease/retry/stale-attempt hardening. Current checkpoint still has browser-worker compatibility blocker (`agent_attempt_id`) until Codex push is verified. Physical printer E2E remains mandatory. |
-| 9 | Finish POS sales + dine-in/table mode | 🟡 | Core flows exist. Edge cases, responsiveness, table lifecycle and full transaction QA remain before Go-Live. |
-| 10 | Table QR negative-stock bug | 🔴 | Known open defect: QR -> table POS stock behavior can reject/handle negative stock differently from intended branch policy. Must reproduce and make QR use the same authoritative stock policy/transaction behavior as POS. |
-| 11 | Native/Windows version updates through MDM | 🟡 | Version/build and device-management foundations exist, but staged update/download/verify/install/health/rollback E2E is not yet proven. |
-| 12 | MDM installed/bundled with Tablet + Windows | 🟡 | Device-agent/native management foundations exist. Installer/bootstrap/enrollment bundling for both platforms must be verified E2E. |
+| 1 | Package / Subscription | 🟡 | Core/live data exists: 9 active packages and 2 contracts. Normalize overlapping catalog and complete entitlement audit. |
+| 2 | Real production system + Web App Trial | 🟡 | Lifecycle/routing foundation exists. Trial tenant remains locked/verifying; Web App is reference UI. |
+| 3 | Two DBs; Trial -> Paid migrates data to Primary | 🟡 | Both DBs and lifecycle/routing foundations exist. Full migration/checksum/rollback/cutover E2E remains a Go-Live gate. |
+| 4 | Tablet + Windows apps + web downloads | 🟡 | Native Tablet POS and Windows runtime exist; release/download work exists. Final release/version/installer/entitlement E2E remains. |
+| 5 | Mobile application | 🟡 | Separate native Android project exists at `apps/cpipos-mobile-android`. Feature parity/current release QA remains. |
+| 6 | Native UI follows Web App | 🟡 | Canonical rule is now documented. Each material Web/backend change requires native impact/parity review. |
+| 7 | Kitchen | 🟡 | Kitchen routing/dispatch/config/queue foundations exist in GitHub. Aug-9 Kitchen schema is not live in Primary/Trial at audit time; KDS/config/realtime/E2E remains. |
+| 8 | Printer / physical printer | 🟡 | Claim/lease/retry/stale-attempt hardening exists. At base checkpoint the active blocker was browser-worker `agent_attempt_id`; verify Codex's newer push before changing status. Physical-printer E2E remains mandatory. |
+| 9 | Finish POS sales + dine-in/table mode | 🟡 | Core flows exist. Table lifecycle, edge cases, transaction correctness and responsiveness QA remain. |
+| 10 | Table QR negative-stock bug | 🔴 | Current reported defect: QR -> table POS stock/negative-stock behavior is inconsistent with intended branch policy. Reproduce and unify with authoritative POS stock policy. |
+| 11 | Native/Windows updates through MDM | 🟡 | MDM/device-command and heartbeat foundation exists, but full staged download/verify/install/health/rollback update E2E is not proven. `check_update` was still unsupported in audited command handling. |
+| 12 | MDM installed/bundled with Tablet + Windows | 🟡 | Native management foundations exist, but final installer/bootstrap/enrollment bundling for both platforms is not yet proven E2E. |
 
-**Conclusion:** the architecture matches the intended 12-part system direction, but the system is **not yet 12/12 Go-Live complete**. Most items have real implementation foundations; remaining work is integration, E2E, policy normalization, UI finishing, migration rollout, and reliability verification.
+**Conclusion:** CpIPOS matches the intended 12-part architecture, but it is **not yet 12/12 Go-Live complete**. Most remaining work is integration, E2E, migration rollout, package policy normalization, UI finishing, native release/update, and reliability testing.
 
 ---
 
-## 6. Applications and release doctrine
+## 6. Current application inventory verified in `apps/`
 
-Repository application families include:
+At the audited GitHub branch, `apps/` contains exactly:
 
 - `apps/backoffice-web`
-- `apps/pos-android` — Tablet POS
-- `apps/cpipos-mobile-android` — Mobile application
-- `apps/windows-runtime`
+- `apps/cpipos-mobile-android`
+- `apps/pos-android`
+- `apps/windows-runtime-it-admin`
 - `apps/windows-runtime-native`
-- `apps/pos-device-agent`
-- IT Admin / desktop support applications
 
-### Version rule
+Do not infer legacy/removed app folders from old chats.
 
-Whenever a released Web reference flow, backend contract, or UI behavior changes in a way that affects a native application:
+### Android Tablet POS
 
-1. assess Android Tablet, Windows, and Mobile impact;
-2. update affected native implementation;
-3. bump version/build number;
-4. produce release artifact;
+`apps/pos-android` is the native Android Tablet POS direction. The recovered native checkpoint changed the Android workflow from generic Android Runtime to **Android Tablet POS**, version `0.2.0`, and moved away from the previous generic Web-shell framing.
+
+### Mobile
+
+`apps/cpipos-mobile-android` is a separate native Android Mobile application and uses the CpIPOS server ecosystem rather than becoming an independent business system.
+
+### Windows
+
+`apps/windows-runtime-native` is the native Windows POS/runtime application. `apps/windows-runtime-it-admin` is the Windows IT Admin runtime. Keep IT Admin and cashier POS responsibilities distinct.
+
+### Version/release rule
+
+When a released Web reference flow, backend contract, or UI behavior materially affects a native app:
+
+1. assess Tablet/Windows/Mobile impact;
+2. update the affected native client;
+3. bump version/build;
+4. build/publish artifact;
 5. publish release metadata/download;
-6. deploy by staged Device Manager/MDM policy;
-7. verify installation and post-update health;
-8. retain rollback capability.
+6. deploy through staged Device Manager/MDM policy;
+7. verify installation and health;
+8. retain rollback/recovery capability.
 
-Do not assume Web deployment automatically updates native clients.
+Do not assume a Web deployment updates native applications.
 
-Recommended release channels:
+Recommended channels: `internal`, `pilot`, `stable`.
 
-- `internal`
-- `pilot`
-- `stable`
-
-A release manifest should include at least:
-
-- platform;
-- app version;
-- build number;
-- minimum supported version;
-- artifact/hash/signature metadata;
-- release channel;
-- release notes;
-- rollout policy.
+Release metadata should include platform, version, build number, minimum supported version, artifact hash/signature metadata, channel, release notes, and rollout policy.
 
 ---
 
-## 7. MDM / CpIPOS Device Manager target
+## 7. MDM / CpIPOS Device Manager — audited foundation vs target
 
-CpIPOS Device Manager/MDM is responsible for device fleet control, not POS business logic.
+Recovered native/MDM work proves real foundation work exists, including device heartbeat and server-delivered device commands.
 
-Required functions:
+Android Tablet code sends periodic device heartbeat and handles command types. The audited command model includes actions such as reload/config/diagnostics/enable-disable, but several commands remained explicitly unsupported, including:
 
-- enrollment and device identity;
+- `clear_print_queue`
+- `restart_local_bridge`
+- `restart_print_service`
+- `test_printer` in the shared unsupported-command registry at that checkpoint
+- `check_update`
+
+Therefore do **not** call MDM finished.
+
+Target responsibilities:
+
+- enrollment/device identity;
 - tenant/branch/device assignment;
 - heartbeat/health;
 - app/agent version reporting;
 - policy/config refresh;
 - diagnostics;
-- disable/enable device;
+- enable/disable;
 - staged update rollout;
-- artifact download and integrity verification;
+- artifact download/integrity verification;
 - install/restart orchestration;
-- post-update health verification;
+- post-update health;
 - rollback/recovery;
-- printer/bridge/service diagnostics where supported;
+- printer/bridge/service diagnostics;
 - audit trail.
 
-Tablet and Windows installers must ultimately bootstrap/install the required Device Manager/agent components and enroll them safely. Do not require store staff to assemble multiple technical components manually in the final customer installation flow.
+Final customer installers must bootstrap/install required Device Manager/management components and enroll safely. Store staff should not manually assemble technical components.
 
 ---
 
-## 8. Kitchen system
+## 8. Kitchen
 
-Recovered Kitchen work includes foundations for:
+Recovered GitHub work includes foundations for:
 
 - Kitchen zones;
-- Kitchen routing rules;
+- routing rules;
 - Kitchen tickets/items;
-- Kitchen dispatch;
-- Kitchen configuration APIs;
-- Kitchen queue/status APIs;
-- order-item/cancellation event routing;
+- dispatch;
+- configuration APIs;
+- queue/status APIs;
+- order-item and cancellation events;
 - Print Queue linkage;
-- Primary/Trial data-plane variants.
+- Primary/Trial variants.
 
 Intended flow:
 
 ```text
 POS / Table QR
-  -> Order + Order Items
-  -> Kitchen Dispatch
-  -> Routing Rules
-  -> Kitchen Zone
-  -> Kitchen Ticket / Items
-  -> KDS and/or Print Queue
-  -> Preparing
-  -> Ready
-  -> Served/complete flow
+ -> Order + Items
+ -> Kitchen Dispatch
+ -> Routing Rules
+ -> Kitchen Zone
+ -> Kitchen Ticket / Items
+ -> KDS and/or Print Queue
+ -> Preparing
+ -> Ready
+ -> served/complete flow
 ```
 
-At this audit, live Primary contains `print_jobs` but the new Kitchen tables were not found live, and Trial likewise has not received the Aug-9 Kitchen schema. Therefore GitHub implementation must not be mistaken for a production-applied Kitchen system.
+Live audit: Primary contained `print_jobs`, but new Kitchen tables were not found live; Trial also had not received the Aug-9 Kitchen schema. GitHub implementation must not be mistaken for production-applied Kitchen.
 
-Remaining Kitchen gates include:
-
-- migration readiness and drift reconciliation;
-- secure Primary + Trial migration application;
-- KDS UI;
-- Kitchen configuration UI;
-- realtime/reconnect behavior;
-- branch/tenant isolation QA;
-- cancellation/add-item/reprint E2E;
-- physical printer E2E;
-- load/soak tests.
+Remaining gates: migration-drift readiness, secure Primary/Trial migration application, KDS UI, configuration UI, realtime/reconnect, tenant/branch isolation, add/cancel/reprint E2E, physical printing, load/soak.
 
 ---
 
 ## 9. Printing safety contract
 
-Print execution is asynchronous and must never make the selling UI wait indefinitely for a physical printer.
-
-Hardened model:
+Printing is asynchronous and must not freeze selling UI while waiting for hardware.
 
 ```text
-pending/retryable job
+pending/retryable
  -> atomic claim
  -> lease
  -> server-issued agent_attempt_id
  -> physical execution
- -> ACK or FAIL with the same attempt ID
+ -> ACK/FAIL with the same attempt ID
  -> retry/re-claim when allowed
 ```
 
-Safety rules:
+Rules:
 
-- `agent_attempt_id` is generated/issued by the server claim flow.
-- ACK/FAIL must include the exact attempt ID for that job attempt.
-- Workers must not generate their own attempt ID.
-- A stale/expired attempt must be rejected.
-- New re-claim may produce a new attempt ID; the old one must not regain ownership.
-- Attempt IDs are per job/per attempt, not a global worker value.
-- Print failure must be observable/retryable without losing the business order.
+- attempt ID comes from server claim;
+- ACK/FAIL must send the exact same attempt ID;
+- worker must not invent it;
+- stale/expired attempt must be rejected;
+- re-claim may produce a new attempt ID and old ownership must not return;
+- attempt IDs are per-job/per-attempt;
+- print failure must be observable/retryable without losing the business order.
 
-Volatile checkpoint as of this document creation:
+Base audit checkpoint:
 
-- branch: `agent/printer-execution-queue`
-- HEAD: `155dad21f4aa445c5948543e2045fcadd9e3e2e0`
-- server/SQL QA largely passed;
-- existing browser print workers still needed to propagate `agent_attempt_id` to ACK/FAIL;
-- Codex was working on that compatibility fix when this document was created.
+- branch `agent/printer-execution-queue`;
+- base HEAD `155dad21f4aa445c5948543e2045fcadd9e3e2e0`;
+- SQL/claim/lease/retry/idempotency/stale protection/routing/security QA passed;
+- browser worker compatibility still needed `agent_attempt_id` propagation at that exact checkpoint.
 
-**Future agents must re-fetch the branch; do not assume this is still the latest HEAD.**
+Always re-fetch branch before using this volatile status.
 
 ---
 
-## 10. POS sales / dine-in / Table QR
+## 10. POS / dine-in / Table QR
 
-Required operating modes are part of one business system, not separate stock/payment engines:
+Counter POS, dine-in/table, customer QR, Kitchen, payment, receipt, and inventory are one business system and must converge on authoritative server transactions/policies.
 
-- normal counter POS;
-- dine-in/table mode;
-- customer Table QR ordering;
-- Kitchen/printing;
-- payment/receipt;
-- stock movement.
-
-All must converge on authoritative server-side transaction and policy behavior.
-
-### Known Table QR stock defect
-
-Open defect to reproduce and fix:
+### Current QR negative-stock defect
 
 ```text
 Customer Table QR
  -> submit order
  -> appears in POS table mode
- -> stock/negative-stock behavior is not consistent with intended branch policy
+ -> negative-stock behavior is inconsistent with intended branch policy
 ```
 
-Expected rule:
+Expected:
 
-- if the branch policy allows negative stock, QR and POS must consistently allow the transaction according to that policy;
-- if it forbids negative stock, both channels must reject consistently and transactionally;
-- QR must not maintain a separate conflicting stock-rule implementation.
+- if branch policy allows negative stock, POS and QR consistently permit it according to the same authoritative rule;
+- if policy forbids it, both consistently reject transactionally;
+- QR must not maintain a conflicting stock engine.
 
-Audit end-to-end:
+Audit path:
 
 ```text
 QR context/session
@@ -439,195 +393,156 @@ QR context/session
 
 ---
 
-## 11. Performance, bottleneck, UI responsiveness and reliability requirements
+## 11. Performance, bottlenecks, hangs and UI responsiveness
 
-Because CpIPOS serves many tenants and many branches, correctness alone is insufficient. Performance and responsiveness are Go-Live requirements.
+Because CpIPOS serves many owners and many branches, performance/reliability is a Go-Live requirement, not optional polish.
 
-### Database and API
+### DB/API
 
-- Index hot paths using tenant/branch plus common status/time/object keys.
-- Avoid unbounded queries; paginate and cap list/history endpoints.
-- Select only required columns on high-frequency paths.
-- Avoid N+1/fan-out requests across branches.
-- Keep cross-data-plane routing explicit and fail closed.
-- Use transactions for order/payment/stock/QR state transitions.
-- Use idempotency keys/attempt IDs where retry can duplicate effects.
-- Put printing, Kitchen delivery, device commands, updates, and other slow external work behind queues/background execution.
-- Add/query timeouts and cancellation where safe.
-- Do not hold a customer-facing request open waiting for printer/update/diagnostic work.
+- index hot paths around tenant/branch plus common status/time/object keys;
+- avoid unbounded reads; paginate/cap history and lists;
+- select only required columns on hot endpoints;
+- avoid N+1 and branch fan-out;
+- keep cross-data-plane routing explicit/fail-closed;
+- transactions for order/payment/stock/QR state transitions;
+- idempotency for retryable side effects;
+- queue/background execution for printing, Kitchen delivery, diagnostics, device commands, and updates;
+- use timeouts/cancellation where safe;
+- never hold customer UI indefinitely waiting for printer/update/external work.
 
-### Web / Tablet / Windows / Mobile UI
+### Web/Tablet/Windows/Mobile UI
 
-- No permanent spinner state.
-- Every long operation must have loading, success, error, timeout, and retry behavior.
-- Disable duplicate submission while preserving recovery from timeout.
-- Cancel stale requests when navigation/context changes where appropriate.
-- Do not run heavy synchronous loops on the browser/native UI thread.
-- Realtime reconnect must use bounded exponential backoff and avoid duplicate subscriptions.
-- Background printer/update/diagnostic work must not freeze POS interaction.
-- Optimistic UI is allowed only when rollback/state reconciliation is safe.
-- A button that appears clickable must not silently ignore input.
+- no permanent spinner;
+- loading/success/error/timeout/retry states for long actions;
+- prevent duplicate submission while allowing recovery;
+- cancel stale requests when context/navigation changes where appropriate;
+- no heavy synchronous UI-thread work;
+- bounded realtime reconnect/backoff with no duplicate subscription;
+- background print/update/diagnostic work must not freeze POS interaction;
+- clickable controls must not silently ignore input.
 
 ### Observability
 
-Instrument at minimum:
+Measure at minimum:
 
-- API p50/p95/p99 latency;
-- database query latency / slow-query rate;
-- error and timeout rate;
-- Table QR submit latency/failure rate;
+- API p50/p95/p99;
+- DB query latency / slow-query rate;
+- error/timeout rate;
+- Table QR submit latency/fail rate;
 - POS order/payment latency;
-- Print queue depth/age and claim-to-ACK duration;
-- Kitchen ticket queue age;
-- realtime disconnect/reconnect events;
+- Print queue depth/age and claim-to-ACK time;
+- Kitchen queue age;
+- realtime reconnect events;
 - device heartbeat age;
 - native crash/update failure rate.
 
-### Load / soak tests
+### Load / soak
 
-Test mixed workloads, not a single-tenant happy path:
+Use mixed production-like load:
 
 - many tenants;
-- many branches per tenant;
+- multiple branches per tenant;
 - simultaneous POS sales;
 - Table QR bursts;
-- Kitchen ticket bursts;
-- Print Queue bursts;
+- Kitchen bursts;
+- Print bursts;
 - manager/backoffice reads;
-- device heartbeat/update traffic.
+- heartbeat/update traffic.
 
-Verify both throughput and tenant isolation under load.
-
-Recommended targets may be defined separately, but do not claim an SLA is achieved until measured in production-like tests.
+Verify both throughput and tenant isolation. Do not claim an SLA until measured.
 
 ---
 
 ## 12. Security invariants
 
-- Tenant/branch isolation is mandatory at API, router, DB policy/transaction, queue, Kitchen, Print, and MDM layers.
-- Service-role secrets stay server-side.
-- RLS/service-only design must not be weakened merely to fix a client compatibility bug.
-- Sensitive SECURITY DEFINER functions must use hardened search paths and minimal grants.
-- Client-supplied price/totals/scope are untrusted.
-- Audit important auth, device, payment, migration, package, Kitchen, Print, and MDM changes.
-- Trial routing and tenant migration fail closed.
+- tenant/branch isolation at API/router/DB/queue/Kitchen/Print/MDM layers;
+- service-role secrets stay server-side;
+- never weaken RLS/service-only design for a compatibility shortcut;
+- hardened search path/minimal grants for sensitive SECURITY DEFINER functions;
+- client price/totals/scope are untrusted;
+- audit auth/device/payment/migration/package/Kitchen/Print/MDM changes;
+- Trial routing/migration fails closed.
 
 ---
 
-## 13. Definition of Done / Go-Live gates
+## 13. Go-Live gates
 
-CpIPOS is not Go-Live complete merely because typecheck/build succeeds.
+Do not call CpIPOS Go-Live complete just because typecheck/build passes.
 
 Required gates include:
 
-- package catalog and entitlement policy normalized;
-- production/trial lifecycle E2E verified;
-- Trial -> Primary paid conversion tested with verification + rollback;
-- database migrations reconciled and reproducible from GitHub;
-- POS/table/QR transaction correctness verified;
+- package catalog/entitlements normalized;
+- Production/Trial lifecycle E2E;
+- Trial -> Primary paid conversion with verify + rollback;
+- GitHub/Supabase migrations reproducible and reconciled;
+- POS/table/QR transaction correctness;
 - QR negative-stock defect closed;
-- Kitchen migrations + KDS/config/realtime E2E verified;
-- Print Queue worker compatibility + physical printer E2E verified;
-- Android Tablet, Windows, Mobile release QA complete for applicable packages;
-- MDM enrollment/update/rollback E2E complete;
+- Kitchen migration + KDS/config/realtime E2E;
+- Print worker compatibility + physical printer E2E;
+- Tablet/Windows/Mobile release QA where package permits;
+- MDM enrollment/update/rollback E2E;
 - download/release artifacts verified;
-- tenant/branch isolation tests pass;
-- load/soak/UI responsiveness tests pass;
-- monitoring and operational runbooks exist.
+- tenant/branch isolation tests;
+- load/soak/UI responsiveness tests;
+- monitoring and operational runbooks.
 
 ---
 
-## 14. Standard Codex work protocol
+## 14. Standard Codex protocol
 
-Every Codex task should follow this pattern unless the task explicitly requires something else.
-
-### Before edits
+Before edits:
 
 ```text
-Read README.md, context.md, and docs/CpIPOS_MASTER_SYSTEM_SCOPE.md first.
-Run git status.
-Fetch origin.
-Checkout the explicitly named working branch.
-Pull with --ff-only.
-Verify HEAD/ancestor expected by the task.
+Read README.md, context.md, AGENTS.md, docs/CpIPOS_MASTER_SYSTEM_SCOPE.md.
+git status
+git fetch origin
+git checkout <explicit branch>
+git pull --ff-only origin <explicit branch>
+git log -8 --oneline --decorate
 ```
 
-If unrelated local changes exist: **STOP**. Do not reset, stash, discard, or overwrite without explicit instruction.
+If unrelated local changes exist: STOP. Do not reset/stash/discard/overwrite without explicit authorization.
 
-### Scope
+During work:
 
-- Inspect only files directly related to the task.
-- No broad refactor while fixing a focused defect.
-- Do not change Supabase/live data unless the task explicitly authorizes it.
-- Do not change `data_home`, unlock Trial, or perform cutover unless explicitly authorized after audit.
-- Do not merge or force-push unless explicitly authorized.
-- Do not weaken security/tenant isolation to make tests pass.
+- narrow scope;
+- no broad refactor during focused fixes;
+- no live Supabase changes unless explicitly authorized;
+- no migration apply unless explicitly authorized;
+- no `data_home`/Trial unlock/cutover unless explicitly authorized;
+- no merge/force-push unless explicitly authorized;
+- no secrets;
+- do not weaken security/isolation/fail-closed behavior.
 
-### Validation
+Validation: smallest relevant checks first, targeted typecheck/lint/tests, `git diff --check`, then final diff/security review.
 
-Use the smallest relevant checks first, then targeted typecheck/lint/tests, `git diff --check`, and inspect the final diff for unrelated changes or secrets.
+Final report must state branch, old/new HEAD, exact files changed, behavior fixed, tests, diff-check, final git status, commit/push, DB/migration impact, secrets, merge status, blockers/TODOs.
 
-### Final Codex report
-
-Always return:
-
-- branch;
-- previous checkpoint and new HEAD;
-- exact files changed;
-- behavior fixed;
-- tests/typecheck/lint results;
-- `git diff --check`;
-- `git status --short` after push;
-- commit SHA;
-- push status;
-- whether Supabase/live DB was touched;
-- whether migrations were changed/applied;
-- whether secrets were added;
-- whether a merge occurred;
-- blockers/TODOs.
-
-After Codex pushes, ChatGPT/maintainer must verify GitHub commit/diff before authorizing the next work package.
+After Codex pushes, ChatGPT/maintainer verifies the actual GitHub commit/diff before authorizing the next work package.
 
 ---
 
 ## 15. Current prioritized roadmap
 
-Do not restart completed foundations. Continue from live GitHub and DB state.
-
-1. Finish browser Print Worker `agent_attempt_id` compatibility; verify pushed commit.
-2. Re-run Print execution QA and physical/E2E readiness.
-3. Reconcile GitHub <-> Supabase migration history/drift before applying new Kitchen/Print migrations.
-4. Apply audited Kitchen/Print migrations to Primary + Trial only after readiness checks.
-5. Test Trial lifecycle and Trial -> Primary paid conversion E2E with verification/rollback.
-6. Reproduce and fix Table QR negative-stock policy defect.
+1. Verify/finish browser Print Worker `agent_attempt_id` compatibility.
+2. Print execution QA + physical printer E2E readiness.
+3. Reconcile GitHub <-> Supabase migration history before applying new Kitchen/Print migrations.
+4. Apply audited Kitchen/Print migrations to Primary + Trial only after readiness approval.
+5. Trial lifecycle and Trial -> Primary paid conversion E2E with verification/rollback.
+6. Reproduce/fix Table QR negative-stock policy defect.
 7. Finish POS sales + dine-in/table edge cases and responsiveness.
-8. Complete Kitchen KDS/config/realtime and Kitchen/Print E2E.
-9. Normalize package catalog and complete entitlement enforcement audit.
-10. Audit Web UI -> Tablet/Windows/Mobile parity; update affected native versions.
+8. Complete Kitchen KDS/config/realtime + Kitchen/Print E2E.
+9. Normalize package catalog and audit entitlement enforcement.
+10. Audit Web UI -> Tablet/Windows/Mobile parity; version affected clients.
 11. Complete MDM bundling/enrollment + staged auto-update + rollback.
-12. Verify download center/release artifacts.
-13. Run multi-tenant/multi-branch load, soak, failure-recovery, UI responsiveness, and isolation tests.
+12. Verify download/release artifacts.
+13. Multi-tenant/multi-branch load, soak, failure-recovery, UI responsiveness, and isolation tests.
 14. Final Go-Live audit.
 
 ---
 
-## 16. Do not reopen old bugs without live evidence
+## 16. Do not reopen stale bugs without evidence
 
-Historical issues such as device selection, employee login, shift popup, or older Table QR submit failures must not automatically be treated as current blockers unless live verification reproduces them.
+Historical issues such as old device selection, employee login, shift popup, or older Table QR failures are not current blockers unless live verification reproduces them.
 
-The explicit current Table QR **negative-stock policy** issue in Section 10 remains an open item because it was reported as current project scope.
-
----
-
-## 17. Continuity rule
-
-If ChatGPT chat history disappears, Codex history disappears, or a new session starts:
-
-1. fetch the current GitHub branch/HEAD;
-2. read this document + `context.md` + `README.md`;
-3. inspect live Supabase read-only if database state matters;
-4. recover the last pushed commit before issuing new edits;
-5. never infer that an unpushed or unverified chat instruction was completed;
-6. continue from the verified checkpoint rather than rebuilding prior work.
-
-This document is the stable architecture/scope compass. Live code and live database remain the ultimate operational evidence.
+The **Table QR negative-stock policy** issue remains explicitly open because it is part of the current requested scope.
