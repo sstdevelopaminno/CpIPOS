@@ -9,6 +9,13 @@ import android.os.StatFs
 import java.net.InetSocketAddress
 import java.net.Socket
 
+data class PrinterDiagnostic(
+    val host: String?,
+    val port: Int?,
+    val reachable: Boolean?,
+    val error: String?
+)
+
 class AndroidDiagnostics(context: Context) {
     private val appContext = context.applicationContext
     private val printerPrefs = appContext.getSharedPreferences("cpipos_tablet_pos_printer", Context.MODE_PRIVATE)

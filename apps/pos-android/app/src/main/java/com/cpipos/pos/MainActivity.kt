@@ -13,6 +13,7 @@ import android.os.Looper
 import android.view.View
 import android.webkit.CookieManager
 import android.webkit.JavascriptInterface
+import android.webkit.RenderProcessGoneDetail
 import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
 import android.webkit.WebSettings
@@ -20,10 +21,16 @@ import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.activity.OnBackPressedCallback
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.content.ContextCompat
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
+import androidx.webkit.WebViewCompat
+import androidx.webkit.WebViewFeature
+import androidx.webkit.WebViewRenderProcess
+import androidx.webkit.WebViewRenderProcessClient
+import androidx.webkit.WebSettingsCompat
 import com.cpipos.pos.databinding.ActivityMainBinding
 import org.json.JSONArray
 import org.json.JSONObject
@@ -46,6 +53,9 @@ class MainActivity : AppCompatActivity() {
     private val mainHandler = Handler(Looper.getMainLooper())
     private var pageLoadTimeoutRunnable: Runnable? = null
     private var mdmHeartbeatRunnable: Runnable? = null
+    private var isActivityActive = false
+    private var isDestroyingWebView = false
+    private var rendererRecoveryAttempted = false
 
     companion object {
         private const val DEFAULT_START_URL = "https://cp-ipos-web.vercel.app/login/store"
@@ -53,11 +63,16 @@ class MainActivity : AppCompatActivity() {
         private const val NATIVE_BRIDGE_VERSION = "1.1.0"
         private const val PAGE_LOAD_TIMEOUT_MS = 20_000L
         private const val MDM_HEARTBEAT_INTERVAL_MS = 5 * 60 * 1000L
+        private const val STATE_RENDERER_RECOVERY_ATTEMPTED = "renderer_recovery_attempted"
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         installSplashScreen()
         super.onCreate(savedInstanceState)
+
+        rendererRecoveryAttempted = savedInstanceState?.getBoolean(STATE_RENDERER_RECOVERY_ATTEMPTED) ?: false
+        isActivityActive = true
+        WebView.setWebContentsDebuggingEnabled(BuildConfig.DEBUG)
 
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
@@ -77,6 +92,11 @@ class MainActivity : AppCompatActivity() {
         schedulePageLoadTimeout()
     }
 
+    override fun onSaveInstanceState(outState: Bundle) {
+        outState.putBoolean(STATE_RENDERER_RECOVERY_ATTEMPTED, rendererRecoveryAttempted)
+        super.onSaveInstanceState(outState)
+    }
+
     private fun applyFullscreen() {
         WindowCompat.setDecorFitsSystemWindows(window, false)
         WindowInsetsControllerCompat(window, binding.root).apply {
@@ -88,6 +108,29 @@ class MainActivity : AppCompatActivity() {
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)
         if (hasFocus) applyFullscreen()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        isActivityActive = true
+        binding.webView.onResume()
+        binding.webView.resumeTimers()
+        applyFullscreen()
+        if (currentUriIsTrusted()) startMdmHeartbeat()
+    }
+
+    override fun onPause() {
+        isActivityActive = false
+        cancelPageLoadTimeout()
+        binding.webView.onPause()
+        binding.webView.pauseTimers()
+        super.onPause()
+    }
+
+    override fun onStop() {
+        cancelPageLoadTimeout()
+        stopMdmHeartbeat()
+        super.onStop()
     }
 
     private fun setupWebView() {
@@ -102,6 +145,7 @@ class MainActivity : AppCompatActivity() {
         settings.cacheMode = WebSettings.LOAD_DEFAULT
         settings.mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
         settings.userAgentString = "${settings.userAgentString} CpIPOSAndroidRuntime/${BuildConfig.VERSION_NAME}"
+        disableWebViewDarkening(settings)
 
         CookieManager.getInstance().apply {
             setAcceptCookie(true)
@@ -142,6 +186,54 @@ class MainActivity : AppCompatActivity() {
                     binding.offlineBanner.visibility = View.VISIBLE
                 }
             }
+
+            override fun onRenderProcessGone(view: WebView, detail: RenderProcessGoneDetail): Boolean {
+                cancelPageLoadTimeout()
+                stopMdmHeartbeat()
+                binding.offlineBanner.visibility = View.VISIBLE
+                recoverRendererOnce(view)
+                return true
+            }
+        }
+
+        if (WebViewFeature.isFeatureSupported(WebViewFeature.WEB_VIEW_RENDERER_CLIENT_BASIC_USAGE)) {
+            WebViewCompat.setWebViewRenderProcessClient(
+                webView,
+                ContextCompat.getMainExecutor(this),
+                object : WebViewRenderProcessClient() {
+                    override fun onRenderProcessUnresponsive(view: WebView, renderer: WebViewRenderProcess?) {
+                        binding.offlineBanner.visibility = View.VISIBLE
+                    }
+
+                    override fun onRenderProcessResponsive(view: WebView, renderer: WebViewRenderProcess?) {
+                        if (isNetworkAvailable()) binding.offlineBanner.visibility = View.GONE
+                    }
+                }
+            )
+        }
+    }
+
+    private fun disableWebViewDarkening(settings: WebSettings) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            settings.isAlgorithmicDarkeningAllowed = false
+        } else if (WebViewFeature.isFeatureSupported(WebViewFeature.FORCE_DARK)) {
+            WebSettingsCompat.setForceDark(settings, WebSettingsCompat.FORCE_DARK_OFF)
+        }
+
+        if (WebViewFeature.isFeatureSupported(WebViewFeature.ALGORITHMIC_DARKENING)) {
+            WebSettingsCompat.setAlgorithmicDarkeningAllowed(settings, false)
+        }
+    }
+
+    private fun recoverRendererOnce(view: WebView) {
+        if (!isActivityActive || rendererRecoveryAttempted || isDestroyingWebView) return
+        rendererRecoveryAttempted = true
+        mainHandler.post {
+            runCatching {
+                view.stopLoading()
+                view.loadUrl("about:blank")
+            }
+            if (!isFinishing && !isDestroyed) recreate()
         }
     }
 
@@ -150,7 +242,15 @@ class MainActivity : AppCompatActivity() {
             uri.host.equals(ALLOWED_HOST, ignoreCase = true)
     }
 
+    private fun currentUriIsTrusted(): Boolean {
+        val currentUri = binding.webView.url
+            ?.let { runCatching { Uri.parse(it) }.getOrNull() }
+            ?: return false
+        return isTrustedCpiposUri(currentUri)
+    }
+
     private fun schedulePageLoadTimeout() {
+        if (!isActivityActive) return
         cancelPageLoadTimeout()
         val runnable = Runnable { binding.offlineBanner.visibility = View.VISIBLE }
         pageLoadTimeoutRunnable = runnable
@@ -163,6 +263,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun setupNetworkMonitor() {
+        if (networkCallback != null) return
         connectivityManager = getSystemService(ConnectivityManager::class.java)
         val request = NetworkRequest.Builder()
             .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
@@ -172,7 +273,10 @@ class MainActivity : AppCompatActivity() {
             override fun onAvailable(network: Network) {
                 runOnUiThread {
                     binding.offlineBanner.visibility = View.GONE
-                    if (binding.webView.url.isNullOrBlank()) binding.webView.loadUrl(DEFAULT_START_URL)
+                    if (binding.webView.url.isNullOrBlank()) {
+                        binding.webView.loadUrl(DEFAULT_START_URL)
+                        schedulePageLoadTimeout()
+                    }
                 }
             }
 
@@ -212,7 +316,7 @@ class MainActivity : AppCompatActivity() {
      * of maintaining a second native login/session stack.
      */
     private fun startMdmHeartbeat() {
-        if (mdmHeartbeatRunnable != null) return
+        if (mdmHeartbeatRunnable != null || !isActivityActive) return
 
         sendMdmHeartbeat("startup")
         val runnable = object : Runnable {
@@ -231,6 +335,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun sendMdmHeartbeat(reason: String) {
+        if (!isActivityActive || isDestroyingWebView) return
         val currentUri = binding.webView.url
             ?.let { runCatching { Uri.parse(it) }.getOrNull() }
             ?: return
@@ -344,6 +449,7 @@ class MainActivity : AppCompatActivity() {
         fun handleMdmActions(actionsJson: String) {
             val actions = runCatching { JSONArray(actionsJson) }.getOrNull() ?: return
             mainHandler.post {
+                if (!isActivityActive || isDestroyingWebView) return@post
                 var reloadRequested = false
                 for (index in 0 until actions.length()) {
                     val command = actions.optJSONObject(index)?.optString("command_type").orEmpty()
@@ -354,7 +460,7 @@ class MainActivity : AppCompatActivity() {
                         "restart_local_bridge", "restart_print_service", "check_update" -> Unit
                     }
                 }
-                if (reloadRequested) binding.webView.reload()
+                if (reloadRequested && isActivityActive) binding.webView.reload()
             }
         }
 
@@ -370,10 +476,15 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onDestroy() {
+        isActivityActive = false
+        isDestroyingWebView = true
         cancelPageLoadTimeout()
         stopMdmHeartbeat()
+        mainHandler.removeCallbacksAndMessages(null)
         networkCallback?.let { callback -> runCatching { connectivityManager.unregisterNetworkCallback(callback) } }
+        networkCallback = null
         binding.webView.removeJavascriptInterface("CpIPOSBridge")
+        binding.webView.webViewClient = WebViewClient()
         binding.webView.stopLoading()
         binding.webView.destroy()
         super.onDestroy()

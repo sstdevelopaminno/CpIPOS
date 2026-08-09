@@ -39,17 +39,17 @@ CpIPOS is a **multi-tenant / multi-owner / multi-branch POS SaaS**.
 
 ```text
 CpIPOS SaaS
-└── Tenant / Owner
-    ├── Branch A
-    │   ├── users / roles
-    │   ├── POS devices
-    │   ├── tables / customer QR
-    │   ├── orders / payments
-    │   ├── inventory
-    │   ├── Kitchen
-    │   └── printers
-    ├── Branch B
-    └── Branch ...
+โ””โ”€โ”€ Tenant / Owner
+    โ”โ”€โ”€ Branch A
+    โ”   โ”โ”€โ”€ users / roles
+    โ”   โ”โ”€โ”€ POS devices
+    โ”   โ”โ”€โ”€ tables / customer QR
+    โ”   โ”โ”€โ”€ orders / payments
+    โ”   โ”โ”€โ”€ inventory
+    โ”   โ”โ”€โ”€ Kitchen
+    โ”   โ””โ”€โ”€ printers
+    โ”โ”€โ”€ Branch B
+    โ””โ”€โ”€ Branch ...
 ```
 
 Mandatory isolation:
@@ -90,8 +90,8 @@ Native/Web clients must not fork critical rules for:
 
 Live Supabase projects audited:
 
-- **CpiPOS-001 / Primary** — project ref `deejlitaivfnsbwqdugy`.
-- **CpiPOS-002 / Trial Data Plane** — project ref `kawenyvpentwgugtzqec`.
+- **CpiPOS-001 / Primary** โ€” project ref `deejlitaivfnsbwqdugy`.
+- **CpiPOS-002 / Trial Data Plane** โ€” project ref `kawenyvpentwgugtzqec`.
 
 Routing invariants:
 
@@ -126,7 +126,7 @@ Any verification error must fail closed. Partial cutover is not acceptable.
 
 ---
 
-## 4. Package / Subscription — VERIFIED AS EXISTING
+## 4. Package / Subscription โ€” VERIFIED AS EXISTING
 
 Do **not** rebuild the package system from scratch. It exists in live Primary.
 
@@ -200,22 +200,22 @@ August 8 migration source drift recovery:
 
 ## 5. Canonical 12-requirement audit
 
-Legend: ✅ verified complete at audited layer; 🟡 foundation/core exists but E2E/Go-Live work remains; 🔴 current open defect/blocker.
+Legend: โ… verified complete at audited layer; ๐ก foundation/core exists but E2E/Go-Live work remains; ๐”ด current open defect/blocker.
 
 | # | Requirement | Status | Current truth / remaining work |
 |---|---|---|---|
-| 1 | Package / Subscription | 🟡 | Core/live data exists: 9 active packages and 2 contracts. Normalize overlapping catalog and complete entitlement enforcement audit. |
-| 2 | Real production system + Web App Trial | 🟡 | Lifecycle/routing foundation exists. Trial tenant remains locked/verifying; Web App is reference UI. |
-| 3 | Two DBs; Trial -> Paid migrates data to Primary | 🟡 | Both DBs and lifecycle/routing foundations exist. Full migration/checksum/rollback/cutover E2E remains a Go-Live gate. |
-| 4 | Tablet + Windows apps + web downloads | 🟡 | Native Tablet POS and Windows runtime exist; release/download infrastructure exists. Final release/version/installer/entitlement E2E remains. |
-| 5 | Mobile application | 🟡 | Separate native Android project exists at `apps/cpipos-mobile-android`. Feature parity/current release QA remains. |
-| 6 | Native UI follows Web App | 🟡 | Canonical rule is documented. Every material Web/backend change requires native impact/parity review. |
-| 7 | Kitchen | 🟡 | Kitchen routing/dispatch/config/queue foundations exist in GitHub. Aug-9 Kitchen schema was not live in Primary/Trial at audit time; KDS/config/realtime/E2E remains. |
-| 8 | Printer / physical printer | 🟡 | **Browser worker compatibility blocker is CLOSED at `9160dc6`.** Claim/lease/retry/stale-attempt protections and server-issued attempt propagation are aligned. Physical-printer E2E, migration/live rollout and load/soak remain. |
-| 9 | Finish POS sales + dine-in/table mode | 🟡 | Core flows exist. Table lifecycle, edge cases, transaction correctness and responsiveness QA remain. |
-| 10 | Table QR negative-stock bug | 🟡 | Code fix exists at `084fc2cb3af6cef13a6e967d8b5df4ad3f6f7b70`; physical/E2E verification is not complete yet. |
-| 11 | Native/Windows updates through MDM | 🟡 | MDM/device-command and heartbeat foundation exists, but full staged download/verify/install/health/rollback update E2E is not proven. |
-| 12 | MDM installed/bundled with Tablet + Windows | 🟡 | Native management foundations exist, but final installer/bootstrap/enrollment bundling for both platforms is not yet proven E2E. |
+| 1 | Package / Subscription | ๐ก | Core/live data exists: 9 active packages and 2 contracts. Normalize overlapping catalog and complete entitlement enforcement audit. |
+| 2 | Real production system + Web App Trial | ๐ก | Lifecycle/routing foundation exists. Trial tenant remains locked/verifying; Web App is reference UI. |
+| 3 | Two DBs; Trial -> Paid migrates data to Primary | ๐ก | Both DBs and lifecycle/routing foundations exist. Full migration/checksum/rollback/cutover E2E remains a Go-Live gate. |
+| 4 | Tablet + Windows apps + web downloads | ๐ก | Android Tablet is a thin WebView shell over the authoritative Web App; Windows runtime and release/download infrastructure exist. Final release/version/installer/entitlement E2E remains. |
+| 5 | Mobile application | ๐ก | Separate native Android project exists at `apps/cpipos-mobile-android`. Feature parity/current release QA remains. |
+| 6 | Native UI follows Web App | ๐ก | Canonical rule is documented. Every material Web/backend change requires native impact/parity review. |
+| 7 | Kitchen | ๐ก | Kitchen routing/dispatch/config/queue foundations exist in GitHub. Aug-9 Kitchen schema was not live in Primary/Trial at audit time; KDS/config/realtime/E2E remains. |
+| 8 | Printer / physical printer | ๐ก | **Browser worker compatibility blocker is CLOSED at `9160dc6`.** Claim/lease/retry/stale-attempt protections and server-issued attempt propagation are aligned. Physical-printer E2E, migration/live rollout and load/soak remain. |
+| 9 | Finish POS sales + dine-in/table mode | ๐ก | Core flows exist. Table lifecycle, edge cases, transaction correctness and responsiveness QA remain. |
+| 10 | Table QR negative-stock bug | ๐ก | Code fix exists at `084fc2cb3af6cef13a6e967d8b5df4ad3f6f7b70`; physical/E2E verification is not complete yet. |
+| 11 | Native/Windows updates through MDM | ๐ก | MDM/device-command and heartbeat foundation exists, but full staged download/verify/install/health/rollback update E2E is not proven. |
+| 12 | MDM installed/bundled with Tablet + Windows | ๐ก | Native management foundations exist, but final installer/bootstrap/enrollment bundling for both platforms is not yet proven E2E. |
 
 **Conclusion:** CpIPOS matches the intended 12-part architecture, but it is **not yet 12/12 Go-Live complete**. Most remaining work is integration, E2E, migration rollout, package policy normalization, Kitchen/KDS, native release/update, Table QR physical/E2E verification, and reliability/load validation.
 
@@ -235,7 +235,7 @@ Do not infer legacy/removed app folders from old chats.
 
 ### Android Tablet POS
 
-`apps/pos-android` is the native Android Tablet POS direction. The recovered native checkpoint changed the Android workflow from generic Android Runtime to **Android Tablet POS**, version `0.2.0`, and moved beyond the previous generic Web-shell framing.
+`apps/pos-android` is the Android Tablet WebView shell. The Web App remains the authoritative POS UI/business flow; Android owns only the wrapper runtime, authenticated WebView session, CpIPOS native bridge, MDM/device diagnostics and future hardware capabilities. The old duplicate native POS stack was removed; DB/package/data_home rules are unchanged.
 
 ### Mobile
 
@@ -326,7 +326,7 @@ Remaining gates: migration readiness/drift reconciliation, secure Primary/Trial 
 
 ---
 
-## 9. Printing safety contract — UPDATED AFTER CODEX PASS
+## 9. Printing safety contract โ€” UPDATED AFTER CODEX PASS
 
 Printing is asynchronous and must not freeze selling UI while waiting for hardware.
 
