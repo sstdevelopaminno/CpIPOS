@@ -1,7 +1,7 @@
 import "server-only";
 
 import { appendAuditLog } from "@/lib/audit-log";
-import { getSupabaseServiceClient } from "@/lib/supabase-admin";
+import { getRoutedSupabaseServiceClient } from "@/lib/tenant-data-router";
 
 type KitchenAction = "new" | "add" | "cancel" | "reprint";
 
@@ -46,7 +46,7 @@ export async function dispatchOrderToKitchen(args: {
     };
   }
 
-  const supabase = getSupabaseServiceClient();
+  const supabase = getRoutedSupabaseServiceClient();
   const { data, error } = await supabase.rpc("enqueue_kitchen_order", {
     p_tenant_id: args.tenantId,
     p_branch_id: args.branchId,

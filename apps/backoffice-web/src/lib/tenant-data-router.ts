@@ -61,6 +61,7 @@ const BUSINESS_RPCS = new Set([
   "complete_pos_payment_tx",
   "submit_table_qr_order_tx",
   "create_stock_adjustment_tx",
+  "enqueue_kitchen_order",
   "replace_kitchen_routes",
   "set_kitchen_ticket_status"
 ]);
@@ -524,6 +525,10 @@ async function registerRpcRoutes(fn: string, result: unknown, tenantId: string, 
       add("table_qr_orders", asString(row.submission_id));
     }
     if (fn === "create_stock_adjustment_tx") add("stock_movements", asString(row.movement_id));
+    if (fn === "enqueue_kitchen_order") {
+      add("kitchen_tickets", asString(row.kitchen_ticket_id));
+      add("print_jobs", asString(row.print_job_id));
+    }
     if (fn === "replace_kitchen_routes") add("kitchen_routing_rules", asString(row.route_id));
     if (fn === "set_kitchen_ticket_status") add("kitchen_tickets", asString(row.ticket_id));
   }
