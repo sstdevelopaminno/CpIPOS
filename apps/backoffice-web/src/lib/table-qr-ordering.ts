@@ -5,7 +5,6 @@ import QRCode from "qrcode";
 import type { AuthContext } from "@/lib/auth-context";
 import { readRequiredEnv } from "@/lib/env";
 import { invalidatePosBranchRuntimeCaches } from "@/lib/pos-cache-invalidation";
-import { enqueueKitchenTicketForOrderSnapshot } from "@/lib/printing/print-service";
 import { loadReceiptStoreProfile } from "@/lib/services/store-profile-service";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
 
@@ -31,6 +30,7 @@ type QrContext = QrSessionRow & {
   table_status: string;
   table_session_status: string;
   table_session_order_id: string | null;
+  table_session_updated_at: string | null;
 };
 
 type SubmitQrOrderRow = {
@@ -238,12 +238,12 @@ export async function resolveTableQrContext(token: string): Promise<QrContext> {
   const [{ data: tableSession }, { data: table }, { data: branch }, store] = await Promise.all([
     supabase
       .from("table_bill_sessions")
-      .select("id,status,closed_at,order_id")
+      .select("id,status,closed_at,order_id,updated_at")
       .eq("id", qr.table_session_id)
       .eq("tenant_id", qr.tenant_id)
       .eq("branch_id", qr.branch_id)
       .eq("table_id", qr.table_id)
-      .maybeSingle<{ id: string; status: string; closed_at: string | null; order_id: string | null }>(),
+      .maybeSingle<{ id: string; status: string; closed_at: string | null; order_id: string | null; updated_at: string | null }>(),
     supabase
       .from("dining_tables")
       .select("id,table_code,table_name,status,is_active")
@@ -275,7 +275,8 @@ export async function resolveTableQrContext(token: string): Promise<QrContext> {
     store_name: store?.display_name?.trim() || store?.name?.trim() || "CpIPOS",
     table_status: table.status,
     table_session_status: tableSession.status,
-    table_session_order_id: tableSession.order_id
+    table_session_order_id: tableSession.order_id,
+    table_session_updated_at: tableSession.updated_at
   };
 }
 
@@ -342,25 +343,33 @@ async function loadSubmittedOrderSummary(context: QrContext, supabase = getSupab
   };
 }
 
-export async function loadTableQrMenu(context: QrContext) {
-  const supabase = getSupabaseServiceClient();
+async function loadTableQrCommonState(context: QrContext, supabase = getSupabaseServiceClient()) {
   const [hasSubmittedFoodOrder, submittedSummary] = await Promise.all([
     hasSubmittedFoodOrderForContext(context, supabase),
     loadSubmittedOrderSummary(context, supabase)
   ]);
-  const canOrder = canAcceptTableQrOrder(context);
-  const common = {
+  return {
     store_name: context.store_name,
     branch_name: context.branch_name,
     table_code: context.table_code,
     table_name: context.table_name,
     expires_at: context.expires_at,
-    can_order: canOrder,
+    can_order: canAcceptTableQrOrder(context),
     order_status: context.table_session_order_id ? "queued" : null,
     bill_status: context.table_session_status,
     has_submitted_food_order: hasSubmittedFoodOrder,
-    submitted_summary: submittedSummary
+    submitted_summary: submittedSummary,
+    server_revision: context.table_session_updated_at ?? context.expires_at
   };
+}
+
+export async function loadTableQrState(context: QrContext) {
+  return loadTableQrCommonState(context);
+}
+
+export async function loadTableQrMenu(context: QrContext) {
+  const supabase = getSupabaseServiceClient();
+  const common = await loadTableQrCommonState(context, supabase);
 
   const cachedProducts = readTableQrMenuCache(context.tenant_id, context.branch_id);
   if (cachedProducts) {
@@ -431,45 +440,6 @@ export async function submitTableQrOrder(args: {
 
   if (!row.duplicate_request) {
     invalidatePosBranchRuntimeCaches({ tenantId: context.tenant_id, branchId: context.branch_id });
-    const productIds = items.map((item) => item.product_id);
-    const { data: productRows } = await supabase
-      .from("products")
-      .select("id,name,price")
-      .eq("tenant_id", context.tenant_id)
-      .eq("branch_id", context.branch_id)
-      .in("id", productIds);
-    const productMap = new Map((productRows ?? []).map((product) => [String(product.id), product]));
-    const printItems = items.map((item) => {
-      const product = productMap.get(item.product_id);
-      const unitPrice = Number(product?.price ?? 0);
-      return {
-        product_name: String(product?.name ?? "Item"),
-        quantity: item.quantity,
-        unit_price: unitPrice,
-        line_total: Number((unitPrice * item.quantity).toFixed(2)),
-        note: item.note ?? null
-      };
-    });
-    const printAuth: AuthContext = {
-      userId: context.created_by,
-      platformRole: "tenant_user",
-      tenantId: context.tenant_id,
-      branchId: context.branch_id,
-      branchRole: "staff"
-    };
-    try {
-      await enqueueKitchenTicketForOrderSnapshot({
-        auth: printAuth,
-        order: {
-          id: row.order_id,
-          order_no: row.order_no
-        },
-        items: printItems,
-        station: `Table ${context.table_code} QR`
-      });
-    } catch {
-      // The order is already committed. Printing can be retried from the POS print queue without duplicating the order.
-    }
   }
 
   return row;

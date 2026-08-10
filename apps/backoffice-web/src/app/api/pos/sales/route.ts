@@ -559,6 +559,53 @@ async function updateQueuedPosOrder(args: {
     return { ok: false as const, code: "invalid_order_id", status: 422, message: "order_id is required for update." };
   }
 
+  if (body.order_type === "dine_in") {
+    const tableId = body.table_id?.trim();
+    if (!tableId) {
+      return { ok: false as const, code: "table_id_required", status: 422, message: "table_id is required for dine-in update." };
+    }
+    const { data: rpcData, error: rpcError } = await supabase.rpc("replace_queued_dine_in_order_tx", {
+      p_tenant_id: auth.tenantId!,
+      p_branch_id: auth.branchId!,
+      p_shift_id: body.shift_id,
+      p_actor_user_id: auth.userId,
+      p_order_id: targetOrderId,
+      p_table_id: tableId,
+      p_items: body.items,
+      p_app_total_amount: body.app_total_amount,
+      p_discount_amount: body.discount_amount ?? 0,
+      p_gp_amount: body.gp_amount ?? 0,
+      p_tax_total: body.tax_total ?? 0,
+      p_grand_total: body.grand_total ?? null,
+      p_tax_lines: body.tax_lines ?? []
+    });
+    if (rpcError) {
+      const message = rpcError.message || "Unable to update queued dine-in order.";
+      const code = message.includes("ORDER_NOT_QUEUED") ? "order_not_updatable"
+        : message.includes("ORDER_NOT_FOUND") ? "order_not_found"
+          : message.includes("TABLE_BILL_ORDER_CONFLICT") ? "table_bill_order_conflict"
+            : message.includes("TABLE_BILL_NOT_OPEN") ? "table_bill_not_open"
+              : "dine_in_order_update_failed";
+      return { ok: false as const, code, status: code === "dine_in_order_update_failed" ? 500 : 409, message };
+    }
+    const updatedOrder = (Array.isArray(rpcData) ? rpcData[0] : rpcData) as { order_id: string; order_no: string; order_status: string; created_at: string; total_amount: number } | null;
+    if (!updatedOrder) {
+      return { ok: false as const, code: "dine_in_order_update_failed", status: 500, message: "Unable to update queued dine-in order." };
+    }
+    return {
+      ok: true as const,
+      data: {
+        id: updatedOrder.order_id,
+        order_no: updatedOrder.order_no,
+        status: updatedOrder.order_status,
+        total_amount: updatedOrder.total_amount,
+        created_at: updatedOrder.created_at,
+        duplicate_request: false,
+        updated_existing: true
+      }
+    };
+  }
+
   const { data: existingOrder, error: existingOrderError } = await supabase
     .from("orders")
     .select("id,order_no,status,created_at")
@@ -1112,7 +1159,7 @@ export async function POST(req: Request) {
     if (normalizedBody.order_id) {
       const updated = await updateQueuedPosOrder({ auth, body: normalizedBody });
       if (!updated.ok) {
-        if (updated.code === "order_not_updatable" || updated.code === "order_not_found") {
+        if (normalizedBody.order_type !== "dine_in" && (updated.code === "order_not_updatable" || updated.code === "order_not_found")) {
           normalizedBody.order_id = undefined;
         } else {
           const response = fail(updated.code, updated.message, updated.status);

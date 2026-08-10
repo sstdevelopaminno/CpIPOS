@@ -17,6 +17,11 @@ Production-oriented multi-tenant / multi-branch POS platform.
 
 Read the guardrails before changing authentication, tenant isolation, database routing, POS transactions, payments, devices, migrations or production configuration.
 
+## Task #44 source readiness
+
+- Branch `agent/table-order-concurrency-dinein-sync` hardens Table QR read/write rate-limit lanes, lightweight status polling, dine-in queued bill sync, and empty open-bill cancellation.
+- Database changes are source migrations only: Primary `20260810075709_table_order_concurrency_dinein_sync.sql` and Trial mirror `20260810075709_trial_table_order_concurrency_dinein_sync.sql`. Do not treat these as applied until an explicit migration-apply task runs.
+
 ## Applications
 
 ```text

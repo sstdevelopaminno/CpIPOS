@@ -237,15 +237,18 @@ export async function attachOrderToTableSession(args: {
   const supabase = args.supabaseClient ?? getSupabaseServiceClient();
   const { data: activeSession } = await supabase
     .from("table_bill_sessions")
-    .select("id")
+    .select("id,order_id,metadata")
     .eq("tenant_id", auth.tenantId)
     .eq("branch_id", auth.branchId)
     .eq("table_id", tableId)
     .in("status", ["open", "ordering", "pending_payment"])
     .limit(1)
-    .maybeSingle<{ id: string }>();
+    .maybeSingle<{ id: string; order_id: string | null; metadata: Record<string, unknown> | null }>();
 
   if (!activeSession) {
+    return;
+  }
+  if (activeSession.order_id && activeSession.order_id !== orderId) {
     return;
   }
 
@@ -255,13 +258,15 @@ export async function attachOrderToTableSession(args: {
       status: "ordering",
       order_id: orderId,
       metadata: {
+        ...(activeSession.metadata ?? {}),
         last_order_id: orderId,
         last_order_no: orderNo
       }
     })
     .eq("tenant_id", auth.tenantId)
     .eq("branch_id", auth.branchId)
-    .eq("id", activeSession.id);
+    .eq("id", activeSession.id)
+    .or('order_id.is.null,order_id.eq.' + orderId);
   if (sessionUpdateError) {
     return;
   }
@@ -272,4 +277,49 @@ export async function attachOrderToTableSession(args: {
     .eq("tenant_id", auth.tenantId)
     .eq("branch_id", auth.branchId)
     .eq("id", tableId);
+}
+
+export async function cancelEmptyTableBillSession(args: {
+  auth: AuthContext;
+  tableId: string;
+  appendAudit?: AuditFn;
+  supabaseClient?: ReturnType<typeof getSupabaseServiceClient>;
+}) {
+  const { auth, tableId, appendAudit = appendAuditLog } = args;
+  if (!auth.tenantId || !auth.branchId) {
+    return { ok: false as const, code: "missing_scope", message: "Missing tenant/branch scope.", status: 401 };
+  }
+
+  const supabase = args.supabaseClient ?? getSupabaseServiceClient();
+  const { data, error } = await supabase.rpc("cancel_empty_table_bill_session_tx", {
+    p_tenant_id: auth.tenantId,
+    p_branch_id: auth.branchId,
+    p_table_id: tableId,
+    p_actor_user_id: auth.userId
+  });
+  if (error) {
+    const message = error.message || "Unable to cancel empty bill.";
+    const code = message.includes("TABLE_BILL_NOT_EMPTY") ? "table_bill_not_empty"
+      : message.includes("TABLE_BILL_NOT_OPEN") ? "table_bill_not_open"
+        : "empty_bill_cancel_failed";
+    return { ok: false as const, code, message, status: code === "empty_bill_cancel_failed" ? 500 : 409 };
+  }
+
+  const row = (Array.isArray(data) ? data[0] : data) as { table_session_id?: string; table_id?: string; cancelled?: boolean } | null;
+  if (!row?.cancelled) {
+    return { ok: false as const, code: "empty_bill_cancel_failed", message: "Unable to cancel empty bill.", status: 500 };
+  }
+
+  await appendAudit({
+    tenantId: auth.tenantId,
+    branchId: auth.branchId,
+    actorUserId: auth.userId,
+    actorRole: auth.branchRole ?? auth.platformRole ?? "tenant_user",
+    action: "table_bill.empty_cancelled",
+    targetTable: "table_bill_sessions",
+    targetId: row.table_session_id,
+    metadata: { table_id: tableId }
+  });
+
+  return { ok: true as const, data: row };
 }
