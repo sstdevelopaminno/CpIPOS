@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import type { Viewport } from "next";
-import { cookies } from "next/headers";
+import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { PosShiftCycleGuard } from "@/components/pos/pos-shift-cycle-guard";
 import { PosDeviceHeartbeatSender } from "@/components/pos/pos-device-heartbeat-sender";
@@ -18,10 +18,19 @@ export const viewport: Viewport = {
   viewportFit: "cover"
 };
 
+const POS_MAIN_MENU_PLACEMENT_KEY = "pos_main_menu_bar_position_v2";
+
+type MainMenuPlacement = "left" | "top" | "bottom";
+
 function resolvePosSessionCookieNames() {
   const handoffName = String(process.env.POS_SESSION_COOKIE_NAME ?? "pos_session_handoff").trim() || "pos_session_handoff";
   const sessionIdName = String(process.env.POS_SESSION_ID_COOKIE_NAME ?? "pos_session_id").trim() || "pos_session_id";
   return { handoffName, sessionIdName };
+}
+
+function parseMenuPlacement(value: string | null | undefined): MainMenuPlacement | null {
+  if (value === "left" || value === "top" || value === "bottom") return value;
+  return null;
 }
 
 export default async function PosPreviewLayout({ children }: { children: ReactNode }) {
@@ -29,6 +38,11 @@ export default async function PosPreviewLayout({ children }: { children: ReactNo
   const { handoffName, sessionIdName } = resolvePosSessionCookieNames();
   const hasPosSession = Boolean(cookieStore.get(sessionIdName)?.value || cookieStore.get(handoffName)?.value);
   if (!hasPosSession) redirect("/login/store");
+
+  const requestHeaders = await headers();
+  const userAgent = requestHeaders.get("user-agent") ?? "";
+  const storedPlacement = parseMenuPlacement(cookieStore.get(POS_MAIN_MENU_PLACEMENT_KEY)?.value);
+  const initialPlacement: MainMenuPlacement = storedPlacement ?? (userAgent.includes("CpIPOS-Tablet/") ? "top" : "left");
 
   const lang = await getCurrentLanguage();
   return (
@@ -38,7 +52,7 @@ export default async function PosPreviewLayout({ children }: { children: ReactNo
       <PosDeviceHeartbeatSender />
       <PosViewportGuard lang={lang} />
       <PosTableQrGlobalAlert lang={lang} />
-      <PosShellFrame lang={lang} settingsLabel={t(lang, "common_settings")}>
+      <PosShellFrame lang={lang} settingsLabel={t(lang, "common_settings")} initialPlacement={initialPlacement}>
         {children}
       </PosShellFrame>
     </main>
