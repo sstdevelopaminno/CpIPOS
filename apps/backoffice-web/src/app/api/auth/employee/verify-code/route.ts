@@ -303,6 +303,7 @@ export async function POST(request: Request) {
       employeeAuthMethod: "employee_code",
       permissions: employee.permissions
     });
+    const rememberedDeviceCode = String(branchFlow.deviceCode ?? "").trim().toUpperCase();
 
     const response = NextResponse.json({
       data: {
@@ -313,7 +314,13 @@ export async function POST(request: Request) {
           role: employee.role
         },
         permissions: employee.permissions,
-        next_step: "devices"
+        next_step: rememberedDeviceCode ? "remembered_device" : "devices",
+        remembered_device: rememberedDeviceCode
+          ? {
+              id: branchFlow.deviceId ?? null,
+              code: rememberedDeviceCode
+            }
+          : null
       },
       error: null
     });
@@ -345,7 +352,7 @@ export async function POST(request: Request) {
         targetId: employee.userId,
         ipAddress,
         userAgent,
-        metadata: { source: "employee_code" }
+        metadata: { source: "employee_code", remembered_device_code: rememberedDeviceCode || null }
       })
     );
 
