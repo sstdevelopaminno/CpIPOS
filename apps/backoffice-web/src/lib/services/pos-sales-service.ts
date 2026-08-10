@@ -34,6 +34,12 @@ function parseOrderTxError(message: string) {
   if (message.includes("SHIFT_NOT_OPEN")) {
     return { code: "shift_not_open", status: 409, message: "Open shift is required before creating POS sale." };
   }
+  if (message.includes("TABLE_BILL_ORDER_CONFLICT")) {
+    return { code: "table_bill_order_conflict", status: 409, message: "Another order is already bound to this table bill. Reload the table bill." };
+  }
+  if (message.includes("TABLE_BILL_NOT_OPEN")) {
+    return { code: "table_bill_not_open", status: 409, message: "The selected table bill is no longer open. Reload the table." };
+  }
   if (message.includes("ORDER_ITEMS_REQUIRED")) {
     return { code: "invalid_items", status: 422, message: "Order items are required." };
   }
@@ -464,6 +470,7 @@ export async function deductIngredientStockForPaidOrderFallback(args: {
       .eq("tenant_id", auth.tenantId)
       .eq("branch_id", auth.branchId)
       .eq("order_id", orderId)
+      .gt("quantity", 0)
   ]);
   if (orderError) {
     return { ok: false as const, code: "order_query_failed", status: 500, message: orderError.message };
@@ -770,6 +777,10 @@ async function executeCreatePosOrderDirectFallback(args: {
   }
 
   if (orderInsertError) {
+    const parsed = parseOrderTxError(orderInsertError.message);
+    if (parsed.code === "table_bill_order_conflict" || parsed.code === "table_bill_not_open") {
+      return { ok: false as const, code: parsed.code, status: parsed.status, message: parsed.message };
+    }
     return { ok: false as const, code: "order_insert_failed", status: 500, message: orderInsertError.message };
   }
 

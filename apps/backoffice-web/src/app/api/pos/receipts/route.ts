@@ -146,6 +146,7 @@ export async function GET(req: Request) {
             .eq("tenant_id", auth.tenantId!)
             .eq("branch_id", auth.branchId!)
             .in("order_id", orderIds)
+            .gt("quantity", 0)
         : Promise.resolve({ data: [], error: null }),
       orderIds.length > 0
         ? supabase

@@ -206,6 +206,7 @@ export async function finalizePosPayment(args: FinalizePosPaymentArgs) {
           .eq("tenant_id", auth.tenantId)
           .eq("branch_id", auth.branchId)
           .eq("order_id", orderId)
+          .gt("quantity", 0)
       ]);
       if (orderError) throw new Error(orderError.message);
       if (itemError) throw new Error(itemError.message);

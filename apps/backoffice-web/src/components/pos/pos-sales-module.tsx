@@ -6141,7 +6141,9 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
     }
     setSubmitting(true);
     pushSubmitMessage(text.submitting);
-    const latestTaxSettings = await refreshTaxSettings();
+    let payload: PendingSubmit | null = null;
+    try {
+      const latestTaxSettings = await refreshTaxSettings();
     const effectiveTaxBreakdown = latestTaxSettings
       ? calculateClientTaxBreakdown(taxBaseTotal, latestTaxSettings)
       : taxBreakdown;
@@ -6185,7 +6187,7 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
       return;
     }
 
-    const payload: PendingSubmit = buildCheckoutSubmitPayload({
+      payload = buildCheckoutSubmitPayload({
       idempotencyKey: newIdempotencyKey(),
       activeOrder: activeOrder?.status === "queued" ? activeOrder : null,
       shiftId: shift!.id,
@@ -6204,29 +6206,29 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
           }
         : null
     });
-    payload.payload.tax_total = effectiveTaxBreakdown.tax_total;
-    payload.payload.grand_total = effectiveTotal;
-    payload.payload.tax_lines = effectiveTaxBreakdown.lines;
+      payload.payload.tax_total = effectiveTaxBreakdown.tax_total;
+      payload.payload.grand_total = effectiveTotal;
+      payload.payload.tax_lines = effectiveTaxBreakdown.lines;
 
-    if (orderType === "takeaway") {
-      setTakeawayCreatingPreview({
+      if (orderType === "takeaway") {
+        setTakeawayCreatingPreview({
         items: cartSnapshot,
         total_amount: effectiveTotal
-      });
-    }
+        });
+      }
 
-    if (!isOnline) {
+      if (!isOnline) {
       setTakeawayCreatingPreview(null);
       enqueuePendingSubmit(payload);
       setCart([]);
       setCartDrawerOpen(false);
       pushSubmitMessage(text.offlineStaged);
       setSubmitting(false);
-      checkoutRequestLockRef.current = false;
-      return;
-    }
+        checkoutRequestLockRef.current = false;
+        return;
+      }
 
-    try {
+      if (!payload) throw new Error("Checkout payload is missing.");
       const createdOrder = await submitOrder(payload);
       if (orderType === "takeaway" || orderType === "dine_in") {
         if (!createdOrder) {
@@ -6289,6 +6291,15 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
           pushSubmitMessage(text.openShiftRequired);
           return;
         }
+        if (errorCode === "table_bill_order_conflict" || errorCode === "table_bill_not_open") {
+          const table = selectedTableRef.current;
+          if (table) {
+            void loadTableBillContextRef.current(table).catch(() => undefined);
+            void fetchPosTablesRef.current({ timeoutMs: 10000, retries: 0, silent: true }).catch(() => undefined);
+          }
+          pushSubmitMessage(message);
+          return;
+        }
         if (errorCode === "order_not_updatable" || errorCode === "order_not_found") {
           setActiveOrder(null);
           setLastCommittedCartSignature(null);
@@ -6298,7 +6309,7 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
       }
 
       markConnectivityFromError(submitError);
-      if (isConnectivityIssueMessage(rawMessage)) {
+      if (isConnectivityIssueMessage(rawMessage) && payload) {
         enqueuePendingSubmit(payload, rawMessage);
         setCart([]);
         setCartDrawerOpen(false);

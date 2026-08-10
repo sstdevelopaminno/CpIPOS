@@ -410,7 +410,7 @@ export async function loadPosSalesSummaryData(
 
   const [paymentsResult, itemsResult, shiftsResult, usersResult] = await Promise.all([
     supabase.from("payments").select("order_id,method,amount").eq("tenant_id", scope.tenantId).in("order_id", orderIds),
-    supabase.from("order_items").select("order_id,product_id,quantity,line_total").eq("tenant_id", scope.tenantId).in("order_id", orderIds),
+    supabase.from("order_items").select("order_id,product_id,quantity,line_total").eq("tenant_id", scope.tenantId).in("order_id", orderIds).gt("quantity", 0),
     shiftIds.length
       ? supabase
           .from("shifts")

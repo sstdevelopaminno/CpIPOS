@@ -108,7 +108,8 @@ export async function GET(req: Request, context: { params: Promise<{ tableId: st
           .select("id,product_id,quantity,unit_price,line_total,notes,products(name)")
           .eq("tenant_id", auth.tenantId!)
           .eq("branch_id", auth.branchId!)
-          .eq("order_id", session.order_id),
+          .eq("order_id", session.order_id)
+          .gt("quantity", 0),
         liteMode
           ? Promise.resolve({ data: [], error: null })
           : supabase

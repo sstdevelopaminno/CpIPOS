@@ -113,6 +113,51 @@ grant execute on function app.complete_pos_payment_tx(uuid,uuid,uuid,uuid,jsonb,
 grant execute on function app.submit_table_qr_order_tx(uuid,text,jsonb,text) to service_role;
 
 
+
+create or replace function app.lock_dine_in_order_table_session_before_insert()
+returns trigger
+language plpgsql
+security definer
+set search_path = pg_catalog, public, app, extensions
+as $
+declare
+  v_session public.table_bill_sessions%rowtype;
+begin
+  if new.order_type <> 'dine_in' or new.status <> 'queued' or new.table_id is null then
+    return new;
+  end if;
+
+  select *
+  into v_session
+  from public.table_bill_sessions s
+  where s.tenant_id = new.tenant_id
+    and s.branch_id = new.branch_id
+    and s.table_id = new.table_id
+    and s.status in ('open', 'ordering')
+    and s.closed_at is null
+  order by s.opened_at desc
+  limit 1
+  for update;
+
+  if not found then
+    raise exception 'TABLE_BILL_NOT_OPEN';
+  end if;
+  if v_session.order_id is not null and v_session.order_id <> new.id then
+    raise exception 'TABLE_BILL_ORDER_CONFLICT';
+  end if;
+
+  return new;
+end;
+$;
+
+drop trigger if exists trg_lock_dine_in_order_table_session_before_insert on public.orders;
+create trigger trg_lock_dine_in_order_table_session_before_insert
+before insert on public.orders
+for each row execute function app.lock_dine_in_order_table_session_before_insert();
+
+revoke all on function app.lock_dine_in_order_table_session_before_insert() from public, anon, authenticated;
+grant execute on function app.lock_dine_in_order_table_session_before_insert() to service_role;
+
 create unique index if not exists ux_orders_one_queued_dine_in_table
   on public.orders (tenant_id, branch_id, table_id)
   where order_type = 'dine_in'
@@ -179,6 +224,246 @@ for each row execute function app.bind_dine_in_order_to_table_session();
 revoke all on function app.bind_dine_in_order_to_table_session() from public;
 grant execute on function app.bind_dine_in_order_to_table_session() to service_role;
 
+create or replace function app.enqueue_kitchen_order(
+  p_tenant_id uuid,
+  p_branch_id uuid,
+  p_order_id uuid,
+  p_event_key text,
+  p_action text default 'new'::text,
+  p_order_item_ids uuid[] default null::uuid[]
+)
+returns table(kitchen_ticket_id uuid, zone_id uuid, print_job_id uuid)
+language plpgsql
+security definer
+set search_path to 'pg_catalog', 'public', 'app', 'extensions'
+as $function$
+declare
+  v_order orders%rowtype;
+  v_zone_id uuid;
+  v_ticket_id uuid;
+  v_printer_id uuid;
+  v_connection_type printer_connection_type;
+  v_print_job_id uuid;
+  v_payload jsonb;
+  v_payload_text text;
+begin
+  if p_event_key is null or btrim(p_event_key) = '' then
+    raise exception 'KITCHEN_EVENT_KEY_REQUIRED';
+  end if;
+  if p_action not in ('new','add','cancel','reprint') then
+    raise exception 'KITCHEN_ACTION_INVALID';
+  end if;
+
+  select * into v_order
+  from orders o
+  where o.id = p_order_id
+    and o.tenant_id = p_tenant_id
+    and o.branch_id = p_branch_id;
+
+  if not found then
+    raise exception 'KITCHEN_ORDER_NOT_FOUND';
+  end if;
+
+  for v_zone_id in
+    with base_items as (
+      select oi.id as order_item_id, oi.product_id, p.category
+      from order_items oi
+      join products p
+        on p.id = oi.product_id
+       and p.tenant_id = oi.tenant_id
+       and p.branch_id = oi.branch_id
+      where oi.tenant_id = p_tenant_id
+        and oi.branch_id = p_branch_id
+        and oi.order_id = p_order_id
+        and (p_order_item_ids is null or oi.id = any(p_order_item_ids))
+    ), candidates as (
+      select bi.order_item_id,
+             r.zone_id,
+             case
+               when r.product_id = bi.product_id then 1
+               when r.product_id is null and r.category_name is not null and lower(r.category_name) = lower(bi.category) then 2
+               else 3
+             end as precedence
+      from base_items bi
+      join kitchen_routing_rules r
+        on r.tenant_id = p_tenant_id
+       and r.branch_id = p_branch_id
+       and r.is_active = true
+       and (
+         r.product_id = bi.product_id
+         or (r.product_id is null and r.category_name is not null and lower(r.category_name) = lower(bi.category))
+         or (r.product_id is null and r.category_name is null)
+       )
+      join kitchen_zones z
+        on z.id = r.zone_id
+       and z.tenant_id = r.tenant_id
+       and z.branch_id = r.branch_id
+       and z.is_active = true
+    ), ranked as (
+      select c.*, min(c.precedence) over (partition by c.order_item_id) as best_precedence
+      from candidates c
+    )
+    select distinct r.zone_id
+    from ranked r
+    where r.precedence = r.best_precedence
+  loop
+    insert into kitchen_tickets (
+      tenant_id, branch_id, order_id, zone_id, event_key, event_type,
+      order_no, order_type, table_id, customer_name, order_notes,
+      metadata
+    ) values (
+      p_tenant_id, p_branch_id, p_order_id, v_zone_id, p_event_key, p_action,
+      v_order.order_no, v_order.order_type::text, v_order.table_id,
+      v_order.customer_name, v_order.notes,
+      jsonb_build_object('source','app.enqueue_kitchen_order')
+    )
+    on conflict on constraint kitchen_tickets_tenant_id_branch_id_event_key_zone_id_key do nothing
+    returning id into v_ticket_id;
+
+    if v_ticket_id is null then
+      select kt.id into v_ticket_id
+      from kitchen_tickets kt
+      where kt.tenant_id = p_tenant_id
+        and kt.branch_id = p_branch_id
+        and kt.event_key = p_event_key
+        and kt.zone_id = v_zone_id;
+    end if;
+
+    insert into kitchen_ticket_items (
+      tenant_id, branch_id, kitchen_ticket_id, order_item_id, product_id,
+      action, product_name, category_name, quantity, notes, metadata
+    )
+    with base_items as (
+      select oi.id as order_item_id, oi.product_id,
+             case
+               when p_action in ('add','cancel') and oi.metadata ? 'kitchen_delta_quantity'
+                 then greatest(0, (oi.metadata->>'kitchen_delta_quantity')::numeric)
+               else oi.quantity
+             end as quantity,
+             oi.notes,
+             coalesce(nullif(oi.name,''), p.name) as product_name,
+             p.category
+      from order_items oi
+      join products p
+        on p.id = oi.product_id
+       and p.tenant_id = oi.tenant_id
+       and p.branch_id = oi.branch_id
+      where oi.tenant_id = p_tenant_id
+        and oi.branch_id = p_branch_id
+        and oi.order_id = p_order_id
+        and (p_order_item_ids is null or oi.id = any(p_order_item_ids))
+    ), candidates as (
+      select bi.*,
+             r.zone_id,
+             case
+               when r.product_id = bi.product_id then 1
+               when r.product_id is null and r.category_name is not null and lower(r.category_name) = lower(bi.category) then 2
+               else 3
+             end as precedence
+      from base_items bi
+      join kitchen_routing_rules r
+        on r.tenant_id = p_tenant_id
+       and r.branch_id = p_branch_id
+       and r.is_active = true
+       and (
+         r.product_id = bi.product_id
+         or (r.product_id is null and r.category_name is not null and lower(r.category_name) = lower(bi.category))
+         or (r.product_id is null and r.category_name is null)
+       )
+    ), ranked as (
+      select c.*, min(c.precedence) over (partition by c.order_item_id) as best_precedence
+      from candidates c
+    )
+    select p_tenant_id, p_branch_id, v_ticket_id, r.order_item_id, r.product_id,
+           p_action, r.product_name, r.category, r.quantity, r.notes,
+           jsonb_build_object('source','app.enqueue_kitchen_order')
+    from ranked r
+    where r.zone_id = v_zone_id
+      and r.precedence = r.best_precedence
+    on conflict (kitchen_ticket_id, order_item_id, action) do nothing;
+
+    select z.default_printer_id, pp.connection_type
+      into v_printer_id, v_connection_type
+    from kitchen_zones z
+    join printer_profiles pp
+      on pp.id = z.default_printer_id
+     and pp.tenant_id = z.tenant_id
+     and pp.branch_id = z.branch_id
+     and pp.enabled = true
+     and pp.printer_role = 'kitchen'
+    where z.id = v_zone_id
+      and z.tenant_id = p_tenant_id
+      and z.branch_id = p_branch_id;
+
+    v_print_job_id := null;
+    if v_printer_id is not null then
+      select jsonb_build_object(
+        'schema_version', 1,
+        'kind', 'kitchen_ticket',
+        'ticket_id', kt.id,
+        'event_type', kt.event_type,
+        'order_id', kt.order_id,
+        'order_no', kt.order_no,
+        'order_type', kt.order_type,
+        'table_id', kt.table_id,
+        'zone', jsonb_build_object('id', z.id, 'code', z.zone_code, 'name', z.zone_name),
+        'customer_name', kt.customer_name,
+        'order_notes', kt.order_notes,
+        'created_at', kt.created_at,
+        'items', coalesce((
+          select jsonb_agg(jsonb_build_object(
+            'order_item_id', ki.order_item_id,
+            'product_id', ki.product_id,
+            'name', ki.product_name,
+            'category', ki.category_name,
+            'quantity', ki.quantity,
+            'notes', ki.notes,
+            'action', ki.action
+          ) order by ki.created_at, ki.id)
+          from kitchen_ticket_items ki
+          where ki.kitchen_ticket_id = kt.id
+        ), '[]'::jsonb)
+      ) into v_payload
+      from kitchen_tickets kt
+      join kitchen_zones z on z.id = kt.zone_id
+      where kt.id = v_ticket_id;
+
+      v_payload_text := concat(
+        '[', coalesce(v_payload #>> '{zone,name}','Kitchen'), '] ',
+        coalesce(v_payload ->> 'order_no',''), ' ', upper(p_action)
+      );
+
+      insert into print_jobs (
+        tenant_id, branch_id, order_id, printer_id, printer_role,
+        connection_type, status, payload_text, payload_json,
+        kitchen_ticket_id, idempotency_key, metadata
+      ) values (
+        p_tenant_id, p_branch_id, p_order_id, v_printer_id, 'kitchen',
+        v_connection_type, 'pending', v_payload_text, v_payload,
+        v_ticket_id, 'kitchen:' || v_ticket_id::text,
+        jsonb_build_object('source','app.enqueue_kitchen_order','schema_version',1)
+      )
+      on conflict do nothing
+      returning id into v_print_job_id;
+
+      if v_print_job_id is null then
+        select pj.id into v_print_job_id
+        from print_jobs pj
+        where pj.tenant_id = p_tenant_id
+          and pj.branch_id = p_branch_id
+          and pj.idempotency_key = 'kitchen:' || v_ticket_id::text;
+      end if;
+    end if;
+
+    kitchen_ticket_id := v_ticket_id;
+    zone_id := v_zone_id;
+    print_job_id := v_print_job_id;
+    return next;
+  end loop;
+end;
+$function$;revoke all on function app.enqueue_kitchen_order(uuid,uuid,uuid,text,text,uuid[]) from public, anon, authenticated;
+grant execute on function app.enqueue_kitchen_order(uuid,uuid,uuid,text,text,uuid[]) to service_role;
+
 create or replace function app.replace_queued_dine_in_order_tx(
   p_tenant_id uuid,
   p_branch_id uuid,
@@ -198,13 +483,16 @@ returns table(order_id uuid, order_no text, order_status text, created_at timest
 language plpgsql
 security definer
 set search_path = pg_catalog, public, app, extensions
-as $$
+as $
 declare
   v_session public.table_bill_sessions%rowtype;
   v_order public.orders%rowtype;
   v_subtotal numeric(12,2) := round(coalesce(p_app_total_amount, 0), 2);
   v_total numeric(12,2) := round(coalesce(p_grand_total, p_app_total_amount - coalesce(p_discount_amount,0) - coalesce(p_gp_amount,0) + coalesce(p_tax_total,0)), 2);
   v_item_count numeric := 0;
+  v_add_item_ids uuid[] := array[]::uuid[];
+  v_cancel_item_ids uuid[] := array[]::uuid[];
+  v_event_hash text;
 begin
   select * into v_session
   from public.table_bill_sessions s
@@ -233,45 +521,142 @@ begin
     raise exception 'SHIFT_NOT_OPEN';
   end if;
 
+  create temporary table if not exists pg_temp.dine_in_target_items(
+    product_id uuid not null,
+    notes text,
+    quantity numeric(12,3) not null,
+    unit_price numeric(12,2) not null,
+    line_total numeric(12,2) not null,
+    product_name text,
+    order_item_id uuid,
+    existing_quantity numeric(12,3),
+    delta numeric(12,3)
+  ) on commit drop;
+  truncate table pg_temp.dine_in_target_items;
+
+  insert into pg_temp.dine_in_target_items(product_id, notes, quantity, unit_price, line_total, product_name)
   with normalized_items as (
     select
       nullif(value->>'product_id', '')::uuid as product_id,
+      nullif(left(trim(coalesce(value->>'notes', value->>'note', '')), 240), '') as notes,
       sum(nullif(value->>'quantity', '')::numeric) as quantity,
-      max(nullif(value->>'unit_price', '')::numeric) as unit_price,
-      nullif(left(trim(coalesce(value->>'notes', value->>'note', '')), 240), '') as notes
+      max(nullif(value->>'unit_price', '')::numeric) as unit_price
     from jsonb_array_elements(p_items) value
-    group by 1, 4
+    group by 1, 2
   )
-  select coalesce(sum(quantity), 0) into v_item_count
-  from normalized_items
-  where product_id is not null and quantity > 0 and quantity <= 999;
+  select p.id, ni.notes, ni.quantity, coalesce(ni.unit_price, p.price), round(ni.quantity * coalesce(ni.unit_price, p.price), 2), p.name
+  from normalized_items ni
+  join public.products p on p.id = ni.product_id
+    and p.tenant_id = p_tenant_id
+    and p.branch_id = p_branch_id
+    and p.is_active = true
+  where ni.product_id is not null
+    and ni.quantity > 0
+    and ni.quantity <= 999;
+
+  select coalesce(sum(quantity), 0) into v_item_count from pg_temp.dine_in_target_items;
   if v_item_count < 1 then raise exception 'ITEMS_REQUIRED'; end if;
 
-  delete from public.order_items oi
+  update pg_temp.dine_in_target_items ti
+  set order_item_id = oi.id,
+      existing_quantity = oi.quantity,
+      delta = ti.quantity - oi.quantity
+  from public.order_items oi
   where oi.tenant_id = p_tenant_id
+    and oi.branch_id = p_branch_id
+    and oi.order_id = p_order_id
+    and oi.product_id = ti.product_id
+    and coalesce(oi.notes, '') = coalesce(ti.notes, '')
+    and oi.quantity > 0
+    and coalesce(oi.metadata->>'bill_line_state', 'active') <> 'cancelled';
+
+  update public.order_items oi
+  set quantity = ti.quantity,
+      unit_price = ti.unit_price,
+      line_total = ti.line_total,
+      notes = ti.notes,
+      name = coalesce(ti.product_name, oi.name),
+      metadata = (coalesce(oi.metadata, '{}'::jsonb) - 'bill_line_state' - 'kitchen_delta_quantity' - 'kitchen_delta_kind') ||
+        jsonb_build_object('pos_edit_updated_at', now())
+  from pg_temp.dine_in_target_items ti
+  where ti.order_item_id = oi.id
+    and oi.tenant_id = p_tenant_id
     and oi.branch_id = p_branch_id
     and oi.order_id = p_order_id;
 
-  with normalized_items as (
-    select
-      nullif(value->>'product_id', '')::uuid as product_id,
-      sum(nullif(value->>'quantity', '')::numeric) as quantity,
-      max(nullif(value->>'unit_price', '')::numeric) as unit_price,
-      nullif(left(trim(coalesce(value->>'notes', value->>'note', '')), 240), '') as notes
-    from jsonb_array_elements(p_items) value
-    group by 1, 4
-  ), product_rows as (
-    select p.id, coalesce(ni.unit_price, p.price) as unit_price, ni.quantity, ni.notes
-    from normalized_items ni
-    join public.products p on p.id = ni.product_id
-      and p.tenant_id = p_tenant_id
-      and p.branch_id = p_branch_id
-      and p.is_active = true
-    where ni.quantity > 0 and ni.quantity <= 999
-  )
-  insert into public.order_items(tenant_id, branch_id, order_id, product_id, quantity, unit_price, line_total, notes)
-  select p_tenant_id, p_branch_id, p_order_id, pr.id, pr.quantity, pr.unit_price, round(pr.quantity * pr.unit_price, 2), pr.notes
-  from product_rows pr;
+  insert into public.order_items(tenant_id, branch_id, order_id, product_id, quantity, unit_price, line_total, notes, name, metadata)
+  select p_tenant_id, p_branch_id, p_order_id, ti.product_id, ti.quantity, ti.unit_price, ti.line_total, ti.notes, ti.product_name,
+         jsonb_build_object('source', 'pos_dine_in_edit')
+  from pg_temp.dine_in_target_items ti
+  where ti.order_item_id is null;
+
+  update public.order_items oi
+  set metadata = coalesce(oi.metadata, '{}'::jsonb) || jsonb_build_object('kitchen_delta_quantity', ti.delta, 'kitchen_delta_kind', 'add')
+  from pg_temp.dine_in_target_items ti
+  where ti.order_item_id = oi.id
+    and ti.delta > 0
+    and oi.tenant_id = p_tenant_id
+    and oi.branch_id = p_branch_id
+    and oi.order_id = p_order_id;
+
+  select coalesce(array_agg(order_item_id order by order_item_id), array[]::uuid[])
+  into v_add_item_ids
+  from pg_temp.dine_in_target_items
+  where order_item_id is not null and delta > 0;
+
+  if coalesce(array_length(v_add_item_ids, 1), 0) > 0 then
+    select md5(string_agg(id::text || ':' || (metadata->>'kitchen_delta_quantity'), ',' order by id)) into v_event_hash
+    from public.order_items
+    where id = any(v_add_item_ids);
+    perform * from app.enqueue_kitchen_order(p_tenant_id, p_branch_id, p_order_id, 'order:' || p_order_id::text || ':pos-edit:add:' || v_event_hash, 'add', v_add_item_ids);
+    update public.order_items set metadata = metadata - 'kitchen_delta_quantity' - 'kitchen_delta_kind' where id = any(v_add_item_ids);
+  end if;
+
+  update public.order_items oi
+  set quantity = 0,
+      line_total = 0,
+      metadata = coalesce(oi.metadata, '{}'::jsonb) || jsonb_build_object(
+        'bill_line_state', 'cancelled',
+        'cancelled_quantity', oi.quantity,
+        'kitchen_delta_quantity', oi.quantity,
+        'kitchen_delta_kind', 'cancel',
+        'pos_edit_cancelled_at', now()
+      )
+  where oi.tenant_id = p_tenant_id
+    and oi.branch_id = p_branch_id
+    and oi.order_id = p_order_id
+    and oi.quantity > 0
+    and coalesce(oi.metadata->>'bill_line_state', 'active') <> 'cancelled'
+    and not exists (
+      select 1 from pg_temp.dine_in_target_items ti
+      where ti.order_item_id = oi.id
+    );
+
+  update public.order_items oi
+  set metadata = coalesce(oi.metadata, '{}'::jsonb) || jsonb_build_object('kitchen_delta_quantity', abs(ti.delta), 'kitchen_delta_kind', 'cancel')
+  from pg_temp.dine_in_target_items ti
+  where ti.order_item_id = oi.id
+    and ti.delta < 0
+    and oi.tenant_id = p_tenant_id
+    and oi.branch_id = p_branch_id
+    and oi.order_id = p_order_id;
+
+  select coalesce(array_agg(oi.id order by oi.id), array[]::uuid[])
+  into v_cancel_item_ids
+  from public.order_items oi
+  where oi.tenant_id = p_tenant_id
+    and oi.branch_id = p_branch_id
+    and oi.order_id = p_order_id
+    and oi.metadata->>'kitchen_delta_kind' = 'cancel'
+    and coalesce((oi.metadata->>'kitchen_delta_quantity')::numeric, 0) > 0;
+
+  if coalesce(array_length(v_cancel_item_ids, 1), 0) > 0 then
+    select md5(string_agg(id::text || ':' || (metadata->>'kitchen_delta_quantity'), ',' order by id)) into v_event_hash
+    from public.order_items
+    where id = any(v_cancel_item_ids);
+    perform * from app.enqueue_kitchen_order(p_tenant_id, p_branch_id, p_order_id, 'order:' || p_order_id::text || ':pos-edit:cancel:' || v_event_hash, 'cancel', v_cancel_item_ids);
+    update public.order_items set metadata = metadata - 'kitchen_delta_quantity' - 'kitchen_delta_kind' where id = any(v_cancel_item_ids);
+  end if;
 
   update public.orders o
   set shift_id = p_shift_id,
@@ -298,7 +683,7 @@ begin
 
   return query select v_order.id, v_order.order_no, v_order.status::text, v_order.created_at, v_order.total_amount;
 end;
-$$;
+$;
 
 revoke all on function app.replace_queued_dine_in_order_tx(uuid, uuid, uuid, uuid, uuid, uuid, jsonb, numeric, numeric, numeric, numeric, numeric, jsonb) from public;
 grant execute on function app.replace_queued_dine_in_order_tx(uuid, uuid, uuid, uuid, uuid, uuid, jsonb, numeric, numeric, numeric, numeric, numeric, jsonb) to service_role;

@@ -306,6 +306,7 @@ async function loadSubmittedOrderSummary(context: QrContext, supabase = getSupab
       .eq("tenant_id", context.tenant_id)
       .eq("branch_id", context.branch_id)
       .eq("order_id", orderId)
+      .gt("quantity", 0)
       .limit(80)
   ]);
 

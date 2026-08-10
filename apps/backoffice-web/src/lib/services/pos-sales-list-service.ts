@@ -350,7 +350,7 @@ async function loadPosSalesListDataRaw(scope: PosSalesListScope): Promise<PosSal
   };
 
   const [itemsResult, paymentsResult, usersResult, shiftsResult, tablesResult] = await Promise.all([
-    supabase.from("order_items").select("order_id,quantity").in("order_id", orderIds),
+    supabase.from("order_items").select("order_id,quantity").in("order_id", orderIds).gt("quantity", 0),
     loadPayments(),
     userIds.length > 0
       ? supabase.from("users_profiles").select("id,full_name").in("id", userIds)
