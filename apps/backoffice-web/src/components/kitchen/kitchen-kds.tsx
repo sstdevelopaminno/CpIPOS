@@ -21,13 +21,8 @@ type KitchenTicket = {
 };
 
 type QueueResponse = { data?: { tickets?: KitchenTicket[] }; error?: { message?: string } };
-
-const COLUMNS: Array<{ status: KitchenStatus; label: string; empty: string }> = [
-  { status: "queued", label: "รายการใหม่", empty: "ยังไม่มีรายการใหม่" },
-  { status: "acknowledged", label: "รับแล้ว", empty: "ยังไม่มีรายการที่รับแล้ว" },
-  { status: "preparing", label: "กำลังทำ", empty: "ยังไม่มีรายการกำลังทำ" },
-  { status: "ready", label: "พร้อมเสิร์ฟ", empty: "ยังไม่มีรายการพร้อมเสิร์ฟ" }
-];
+type ItemPhase = "pending" | "accepted" | "cleared";
+type TicketGroup = { key: string; tickets: KitchenTicket[] };
 
 function ageText(createdAt: string, now: number) {
   const ms = Math.max(0, now - new Date(createdAt).getTime());
@@ -37,27 +32,32 @@ function ageText(createdAt: string, now: number) {
   return `${Math.floor(minutes / 60)} ชม. ${minutes % 60} นาที`;
 }
 
-function nextStatus(status: KitchenStatus): KitchenStatus | null {
-  if (status === "queued") return "acknowledged";
-  if (status === "acknowledged") return "preparing";
-  if (status === "preparing") return "ready";
-  return null;
+function initialItemPhase(status: KitchenStatus): ItemPhase {
+  if (status === "ready" || status === "cancelled") return "cleared";
+  if (status === "acknowledged" || status === "preparing") return "accepted";
+  return "pending";
 }
 
-function nextLabel(status: KitchenStatus) {
-  if (status === "queued") return "รับงาน";
-  if (status === "acknowledged") return "เริ่มทำ";
-  if (status === "preparing") return "พร้อมเสิร์ฟ";
-  return "";
+function itemKey(ticketId: string, itemId: string) {
+  return `${ticketId}:${itemId}`;
+}
+
+function orderTypeLabel(orderType: string) {
+  const normalized = orderType.toLowerCase();
+  if (normalized.includes("dine") || normalized.includes("table")) return "นั่งโต๊ะ";
+  if (normalized.includes("take")) return "กลับบ้าน";
+  if (normalized.includes("delivery")) return "เดลิเวอรี";
+  return orderType || "ออเดอร์";
 }
 
 export function KitchenKds() {
   const [tickets, setTickets] = useState<KitchenTicket[]>([]);
+  const [itemPhases, setItemPhases] = useState<Record<string, ItemPhase>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [busyId, setBusyId] = useState<string | null>(null);
   const [now, setNow] = useState(() => Date.now());
   const inFlightRef = useRef(false);
+  const boardRef = useRef<HTMLDivElement | null>(null);
 
   const load = useCallback(async (silent = false) => {
     if (inFlightRef.current) return;
@@ -67,7 +67,18 @@ export function KitchenKds() {
       const response = await fetch("/api/pos/kitchen/queue?status=queued,acknowledged,preparing,ready&limit=100", { cache: "no-store" });
       const body = (await response.json().catch(() => null)) as QueueResponse | null;
       if (!response.ok || !body?.data) throw new Error(body?.error?.message ?? "โหลดคิวครัวไม่สำเร็จ");
-      setTickets(body.data.tickets ?? []);
+      const nextTickets = body.data.tickets ?? [];
+      setTickets(nextTickets);
+      setItemPhases((current) => {
+        const next = { ...current };
+        for (const ticket of nextTickets) {
+          for (const item of ticket.items) {
+            const key = itemKey(ticket.id, item.id);
+            if (!next[key]) next[key] = initialItemPhase(ticket.status);
+          }
+        }
+        return next;
+      });
       setError(null);
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : "โหลดคิวครัวไม่สำเร็จ");
@@ -92,81 +103,181 @@ export function KitchenKds() {
     };
   }, [load]);
 
-  const byStatus = useMemo(() => {
-    const map = new Map<KitchenStatus, KitchenTicket[]>();
-    for (const column of COLUMNS) map.set(column.status, []);
-    for (const ticket of tickets) map.get(ticket.status)?.push(ticket);
-    return map;
-  }, [tickets]);
+  const groups = useMemo<TicketGroup[]>(() => {
+    const grouped = new Map<string, KitchenTicket[]>();
+    const orderedTickets = [...tickets]
+      .filter((ticket) => ticket.status !== "cancelled")
+      .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
 
-  async function transition(ticket: KitchenTicket) {
-    const status = nextStatus(ticket.status);
-    if (!status || busyId) return;
-    setBusyId(ticket.id);
-    try {
-      const response = await fetch(`/api/pos/kitchen/tickets/${ticket.id}/status`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status })
-      });
-      const body = (await response.json().catch(() => null)) as { error?: { message?: string } } | null;
-      if (!response.ok) throw new Error(body?.error?.message ?? "เปลี่ยนสถานะไม่สำเร็จ");
-      setTickets((current) => current.map((row) => (row.id === ticket.id ? { ...row, status } : row)));
-      setError(null);
-    } catch (transitionError) {
-      setError(transitionError instanceof Error ? transitionError.message : "เปลี่ยนสถานะไม่สำเร็จ");
-    } finally {
-      setBusyId(null);
+    for (const ticket of orderedTickets) {
+      const key = ticket.table_id ? `table:${ticket.table_id}` : `order:${ticket.order_id}`;
+      const rows = grouped.get(key) ?? [];
+      rows.push(ticket);
+      grouped.set(key, rows);
     }
+
+    return Array.from(grouped, ([key, rows]) => ({ key, tickets: rows })).filter((group) =>
+      group.tickets.some((ticket) =>
+        ticket.items.some((item) => (itemPhases[itemKey(ticket.id, item.id)] ?? initialItemPhase(ticket.status)) !== "cleared")
+      )
+    );
+  }, [itemPhases, tickets]);
+
+  const counters = useMemo(() => {
+    let active = 0;
+    let accepted = 0;
+    let partialBills = 0;
+
+    for (const group of groups) {
+      let total = 0;
+      let cleared = 0;
+      for (const ticket of group.tickets) {
+        for (const item of ticket.items) {
+          total += 1;
+          const phase = itemPhases[itemKey(ticket.id, item.id)] ?? initialItemPhase(ticket.status);
+          if (phase === "cleared") cleared += 1;
+          else {
+            active += 1;
+            if (phase === "accepted") accepted += 1;
+          }
+        }
+      }
+      if (cleared > 0 && cleared < total) partialBills += 1;
+    }
+
+    return { active, accepted, partialBills };
+  }, [groups, itemPhases]);
+
+  function advanceItem(ticket: KitchenTicket, item: KitchenItem) {
+    const key = itemKey(ticket.id, item.id);
+    setItemPhases((current) => {
+      const phase = current[key] ?? initialItemPhase(ticket.status);
+      const nextPhase: ItemPhase = phase === "pending" ? "accepted" : "cleared";
+      return { ...current, [key]: nextPhase };
+    });
+  }
+
+  function scrollBoard(direction: -1 | 1) {
+    boardRef.current?.scrollBy({ left: direction * 420, behavior: "smooth" });
   }
 
   return (
     <section className="flex h-full min-h-0 w-full flex-col overflow-hidden bg-slate-100 text-slate-900">
-      <header className="flex shrink-0 items-center justify-between gap-4 border-b border-slate-200 bg-white px-5 py-4">
-        <div>
-          <h1 className="text-xl font-black">ครัว · Kitchen Display</h1>
-          <p className="mt-1 text-sm text-slate-500">ออเดอร์จากหน้าขายและ QR โต๊ะ · อัปเดตอัตโนมัติทุก 3 วินาที</p>
-        </div>
-        <div className="flex items-center gap-2">
-          <span className="rounded-full bg-blue-50 px-3 py-1.5 text-xs font-bold text-blue-700">งานค้าง {tickets.filter((ticket) => ticket.status !== "ready").length}</span>
-          <button type="button" onClick={() => void load()} className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm font-bold">รีเฟรช</button>
+      <header className="shrink-0 border-b border-slate-200 bg-white px-5 py-4">
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <div>
+            <h1 className="text-xl font-black">ครัว · Kitchen Display</h1>
+            <p className="mt-1 text-sm text-slate-500">บิลออเดอร์เรียงตามเวลาที่เข้าครัว · อัปเดตอัตโนมัติทุก 3 วินาที</p>
+          </div>
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            <span className="rounded-full bg-red-50 px-3 py-1.5 text-xs font-bold text-red-700">ค้าง {counters.active}</span>
+            <span className="rounded-full bg-blue-50 px-3 py-1.5 text-xs font-bold text-blue-700">รับแล้ว {counters.accepted}</span>
+            {counters.partialBills > 0 ? <span className="rounded-full bg-orange-50 px-3 py-1.5 text-xs font-bold text-orange-700">เคลียร์บางส่วน {counters.partialBills} บิล</span> : null}
+            <button type="button" onClick={() => void load()} className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm font-bold shadow-sm hover:bg-slate-50">รีเฟรช</button>
+          </div>
         </div>
       </header>
 
       {error ? <div className="mx-5 mt-3 shrink-0 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">{error}</div> : null}
-      {loading ? <div className="grid flex-1 place-items-center text-sm font-semibold text-slate-500">กำลังโหลดคิวครัว...</div> : (
-        <div className="grid min-h-0 flex-1 grid-cols-1 gap-3 overflow-auto p-4 md:grid-cols-2 xl:grid-cols-4">
-          {COLUMNS.map((column) => {
-            const columnTickets = byStatus.get(column.status) ?? [];
-            return (
-              <section key={column.status} className="flex min-h-[320px] min-w-0 flex-col rounded-2xl border border-slate-200 bg-slate-50 shadow-sm">
-                <header className="flex items-center justify-between border-b border-slate-200 px-4 py-3">
-                  <strong>{column.label}</strong>
-                  <span className="grid h-7 min-w-7 place-items-center rounded-full bg-white px-2 text-xs font-black shadow-sm">{columnTickets.length}</span>
-                </header>
-                <div className="grid content-start gap-3 overflow-y-auto p-3">
-                  {columnTickets.length === 0 ? <p className="py-8 text-center text-sm text-slate-400">{column.empty}</p> : null}
-                  {columnTickets.map((ticket) => {
-                    const minutes = Math.floor(Math.max(0, now - new Date(ticket.created_at).getTime()) / 60_000);
-                    const isLate = ticket.status !== "ready" && minutes >= 10;
-                    return (
-                      <article key={ticket.id} className={`rounded-2xl border bg-white p-4 shadow-sm ${isLate ? "border-red-300 ring-2 ring-red-100" : "border-slate-200"}`}>
-                        <div className="flex items-start justify-between gap-2">
-                          <div><strong className="text-lg">#{ticket.order_no}</strong><p className="text-xs font-semibold text-slate-500">{ticket.zone?.zone_name ?? "ครัว"}</p></div>
-                          <span className={`rounded-full px-2 py-1 text-[11px] font-bold ${isLate ? "bg-red-100 text-red-700" : "bg-slate-100 text-slate-600"}`}>{ageText(ticket.created_at, now)}</span>
+
+      {loading ? (
+        <div className="grid flex-1 place-items-center text-sm font-semibold text-slate-500">กำลังโหลดคิวครัว...</div>
+      ) : groups.length === 0 ? (
+        <div className="grid min-h-0 flex-1 place-items-center p-6">
+          <div className="max-w-md rounded-2xl border border-dashed border-slate-300 bg-white px-8 py-10 text-center shadow-sm">
+            <div className="mx-auto mb-3 grid h-12 w-12 place-items-center rounded-full bg-emerald-50 text-xl">✓</div>
+            <p className="font-black text-slate-800">ยังไม่มีบิลค้างในครัว</p>
+            <p className="mt-1 text-sm text-slate-500">เมื่อมีออเดอร์เข้าครัว บิลจะแสดงเรียงจากซ้ายไปขวาที่หน้านี้</p>
+          </div>
+        </div>
+      ) : (
+        <div className="relative min-h-0 flex-1 overflow-hidden">
+          <div className="pointer-events-none absolute inset-x-0 top-0 z-10 flex justify-between px-4 pt-3">
+            <button type="button" aria-label="เลื่อนบิลไปทางซ้าย" onClick={() => scrollBoard(-1)} className="pointer-events-auto grid h-10 w-10 place-items-center rounded-full border border-slate-200 bg-white/95 text-xl font-black shadow-md backdrop-blur hover:bg-white">‹</button>
+            <button type="button" aria-label="เลื่อนบิลไปทางขวา" onClick={() => scrollBoard(1)} className="pointer-events-auto grid h-10 w-10 place-items-center rounded-full border border-slate-200 bg-white/95 text-xl font-black shadow-md backdrop-blur hover:bg-white">›</button>
+          </div>
+
+          <div ref={boardRef} className="flex h-full min-h-0 snap-x snap-mandatory gap-4 overflow-x-auto overflow-y-hidden px-5 pb-5 pt-16">
+            {groups.map((group) => {
+              const first = group.tickets[0];
+              const allItems = group.tickets.flatMap((ticket) => ticket.items.map((item) => ({ ticket, item })));
+              const clearedCount = allItems.filter(({ ticket, item }) => (itemPhases[itemKey(ticket.id, item.id)] ?? initialItemPhase(ticket.status)) === "cleared").length;
+              const activeCount = allItems.length - clearedCount;
+              const isPartial = clearedCount > 0;
+              const oldestCreatedAt = first.created_at;
+              const accentClass = isPartial ? "border-orange-400 bg-orange-500" : "border-red-400 bg-red-600";
+              const surfaceClass = isPartial ? "border-orange-200" : "border-red-200";
+
+              return (
+                <article key={group.key} className={`flex h-full min-h-[430px] w-[340px] min-w-[340px] max-w-[340px] snap-start flex-col overflow-hidden rounded-2xl border bg-white shadow-lg ${surfaceClass}`}>
+                  <header className={`shrink-0 border-b px-4 py-3 text-white ${accentClass}`}>
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2">
+                          <strong className="truncate text-lg">#{first.order_no}</strong>
+                          <span className="rounded-full bg-white/20 px-2 py-0.5 text-[11px] font-bold">{orderTypeLabel(first.order_type)}</span>
                         </div>
-                        <div className="mt-3 grid gap-2">
-                          {ticket.items.map((item) => <div key={item.id} className="flex items-start justify-between gap-3 border-t border-slate-100 pt-2 first:border-0 first:pt-0"><div><span className="font-bold">{item.product_name}</span>{item.notes ? <small className="block text-xs text-orange-600">{item.notes}</small> : null}</div><strong className="text-lg">×{item.quantity}</strong></div>)}
-                        </div>
-                        {ticket.order_notes ? <p className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800">หมายเหตุ: {ticket.order_notes}</p> : null}
-                        {nextStatus(ticket.status) ? <button type="button" onClick={() => void transition(ticket)} disabled={Boolean(busyId)} className="mt-4 w-full rounded-xl bg-blue-600 px-3 py-2.5 text-sm font-black text-white disabled:opacity-50">{busyId === ticket.id ? "กำลังบันทึก..." : nextLabel(ticket.status)}</button> : <div className="mt-4 rounded-xl bg-emerald-50 px-3 py-2 text-center text-sm font-black text-emerald-700">พร้อมเสิร์ฟแล้ว</div>}
-                      </article>
-                    );
-                  })}
-                </div>
-              </section>
-            );
-          })}
+                        <p className="mt-0.5 truncate text-xs font-semibold text-white/85">{first.customer_name || first.zone?.zone_name || "ครัว"}</p>
+                      </div>
+                      <span className="shrink-0 rounded-lg bg-black/15 px-2 py-1 text-[11px] font-black">{ageText(oldestCreatedAt, now)}</span>
+                    </div>
+                    <div className="mt-3 flex items-center justify-between gap-2 text-xs font-bold">
+                      <span>{isPartial ? "เคลียร์บางส่วน" : "ยังไม่เคลียร์"}</span>
+                      <span>เหลือ {activeCount}/{allItems.length} รายการ</span>
+                    </div>
+                  </header>
+
+                  <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain bg-white">
+                    {group.tickets.map((ticket, ticketIndex) => {
+                      const visibleItems = ticket.items.filter((item) => (itemPhases[itemKey(ticket.id, item.id)] ?? initialItemPhase(ticket.status)) !== "cleared");
+                      if (visibleItems.length === 0) return null;
+
+                      return (
+                        <section key={ticket.id} className={ticketIndex > 0 ? "border-t-4 border-orange-100" : ""}>
+                          {ticketIndex > 0 ? (
+                            <div className="flex items-center justify-between bg-orange-50 px-4 py-2 text-xs font-black text-orange-700">
+                              <span>+ เพิ่มรายการอาหาร</span>
+                              <span>{ageText(ticket.created_at, now)}</span>
+                            </div>
+                          ) : null}
+
+                          <div className="divide-y divide-slate-100">
+                            {visibleItems.map((item) => {
+                              const phase = itemPhases[itemKey(ticket.id, item.id)] ?? initialItemPhase(ticket.status);
+                              return (
+                                <div key={item.id} className="px-4 py-3">
+                                  <div className="flex items-start gap-3">
+                                    <span className="grid h-8 min-w-8 place-items-center rounded-lg bg-slate-100 px-2 text-sm font-black text-slate-700">×{item.quantity}</span>
+                                    <div className="min-w-0 flex-1">
+                                      <p className="font-black leading-5 text-slate-900">{item.product_name}</p>
+                                      {item.notes ? <p className="mt-1 text-xs font-semibold leading-4 text-orange-600">{item.notes}</p> : null}
+                                    </div>
+                                  </div>
+                                  <button
+                                    type="button"
+                                    onClick={() => advanceItem(ticket, item)}
+                                    className={`mt-3 w-full rounded-xl px-3 py-2.5 text-sm font-black shadow-sm transition active:scale-[0.99] ${phase === "pending" ? "bg-slate-900 text-white hover:bg-slate-800" : "bg-emerald-600 text-white hover:bg-emerald-700"}`}
+                                  >
+                                    {phase === "pending" ? "รับออเดอร์" : "พร้อมเสิร์ฟ"}
+                                  </button>
+                                </div>
+                              );
+                            })}
+                          </div>
+
+                          {ticket.order_notes ? <div className="mx-4 mb-3 rounded-xl bg-amber-50 px-3 py-2 text-xs font-semibold leading-5 text-amber-800">หมายเหตุ: {ticket.order_notes}</div> : null}
+                        </section>
+                      );
+                    })}
+                  </div>
+
+                  <footer className="shrink-0 border-t border-slate-200 bg-slate-50 px-4 py-2 text-[11px] font-semibold text-slate-500">
+                    แตะทีละรายการ: รับออเดอร์ → พร้อมเสิร์ฟ → เคลียร์ออกจากบิล
+                  </footer>
+                </article>
+              );
+            })}
+          </div>
         </div>
       )}
     </section>
