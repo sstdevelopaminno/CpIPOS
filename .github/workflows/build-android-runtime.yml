@@ -14,7 +14,7 @@ permissions:
 
 env:
   ANDROID_RUNTIME_MODULE: apps/pos-android
-  ANDROID_RUNTIME_VERSION: 0.2.1
+  ANDROID_RUNTIME_VERSION: 0.2.2
   ANDROID_RUNTIME_RELEASE_TAG: android-runtime-latest
   ANDROID_RUNTIME_APK_ASSET_NAME: CpIPOS-Android-debug.apk
 
