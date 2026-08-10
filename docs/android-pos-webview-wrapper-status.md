@@ -1,6 +1,6 @@
 # Android POS WebView Wrapper Status
 
-Last updated: 2026-08-11 03:15 ICT
+Last updated: 2026-08-11 03:22 ICT
 Owner direction: คุณเอส / CpIPOS
 Current assistant role: continue Android POS development only after owner instruction, document every change, and keep continuity across long or restarted chats.
 
@@ -8,16 +8,19 @@ Current assistant role: continue Android POS development only after owner instru
 
 `CpIPOS POS - Android Tablet` is the active Android POS runtime for near-final POS-machine testing.
 
-The current runtime direction is **Web App wrapper first** with an embedded **MDM-lite development bridge**:
+The current runtime direction is **Web App wrapper first** with embedded **app-scoped MDM-lite for development diagnostics and temporary safe control**.
+
+Current published test build:
 
 - Android package: `com.cpipos.pos`
 - Source module: `apps/pos-android`
-- Current test release in source: `0.2.2` / `versionCode = 5`
-- Previous published test release: `0.2.1` / `versionCode = 4`
+- Current published test release: `0.2.2` / `versionCode = 5`
 - Web entrypoint: `https://cp-ipos-web.vercel.app/login/store`
 - Download Center route: `/download/android/latest`
 - Release tag: `android-runtime-latest`
 - APK asset name: `CpIPOS-Android-debug.apk`
+- APK SHA256: `0c46918daec511ccba5d18c40907039140ddffbae3d11686de4660e4fc05556e`
+- APK size: `9,439,941 bytes`
 - Latest release purpose: test on the real POS Android machine before final hardening.
 
 The Android POS app must behave as a tablet/POS-machine shell around the CpIPOS Web App login and POS flow. It must not be confused with `apps/cpipos-mobile-android`, Windows POS Runtime, or IT Admin Runtime.
@@ -48,6 +51,7 @@ This release adds an **MDM-lite development bridge** inside the Android POS APK:
 - stable app install id stored in Android shared preferences;
 - periodic heartbeat payload with app version, install id, Android/device model, network, battery, memory, storage, WebView state, and printer configuration state;
 - heartbeat target configured as `https://cp-ipos-web.vercel.app/api/android-pos/mdm/heartbeat`;
+- backend heartbeat endpoint added at `apps/backoffice-web/src/app/api/android-pos/mdm/heartbeat/route.ts`;
 - safe WebView JavaScript bridge exposed as `window.CpiposMdm` for the trusted CpIPOS Web App shell;
 - safe app-level commands only:
   - `ping`
@@ -62,23 +66,16 @@ This release adds an **MDM-lite development bridge** inside the Android POS APK:
 
 This is intentionally **not** full Android Enterprise Device Owner MDM yet. It does not provide remote shell, arbitrary file access, app install/uninstall, wipe, SMS/camera/microphone access, or device-wide control. It is an app-scoped temporary control and diagnostics bridge for development and printer testing.
 
-## Current completion status
-
-Owner-provided status: about **90% complete** for Android POS.
-
-Do not mark Android POS as final production-complete yet. The current purpose is to create a fresh APK for POS-machine testing and finish remaining hardware/runtime tasks.
-
 ## Last verified release state
 
-As of 2026-08-11 03:15 ICT:
+As of 2026-08-11 03:22 ICT:
 
-- Android POS version `0.2.1` / `versionCode = 4` has already been built and published.
-- Workflow `Build CpIPOS Android Tablet POS` run `31425815489` completed successfully.
-- Important workflow steps passed: build debug APK, validate APK, upload workflow artifact, and publish latest release download.
-- GitHub Release tag `android-runtime-latest` contains the latest published `CpIPOS-Android-debug.apk` from v0.2.1.
-- Vercel Production deployment for commit `4e6512fbe36d9278bf05c5e13bf99159ce6e07b8` is `READY`.
-- `/download/android/latest` redirects to the latest published Android runtime APK.
-- Source has now been advanced to `0.2.2` / `versionCode = 5` with MDM-lite embedded. This must pass the Android workflow and publish a new APK before it is treated as the latest downloadable build.
+- Android POS version `0.2.2` / `versionCode = 5` has been built by GitHub Actions.
+- Workflow `Build CpIPOS Android Tablet POS` run `31427774213` completed successfully.
+- Important workflow steps passed: version consistency, build debug APK, validate APK, upload workflow artifact, and publish latest release download.
+- GitHub Release tag `android-runtime-latest` contains the latest published `CpIPOS-Android-debug.apk` for v0.2.2.
+- `/download/android/latest` continues to redirect to the `android-runtime-latest` APK asset.
+- Backend heartbeat endpoint commit `aab52079a7e49d97906d231dbdfa26643de3e461` has been pushed and Vercel production deployment is expected to make `/api/android-pos/mdm/heartbeat` available after Vercel reports READY.
 
 ## Owner operating rules for all future Android POS work
 
@@ -115,7 +112,7 @@ Next development should continue around real POS-machine readiness, not unrelate
 
 Priority areas:
 
-1. Build and publish Android POS v0.2.2 after MDM-lite source changes.
+1. Confirm Vercel production heartbeat endpoint is `READY` and `/api/android-pos/mdm/heartbeat` responds.
 2. Test v0.2.2 on the real POS Android device.
 3. Verify MDM-lite heartbeat and command bridge do not disturb POS login/session flow.
 4. WebView session behavior: cookies, login persistence, branch/device selection, back button, redirect handling, and reconnect behavior.
@@ -144,8 +141,8 @@ Android POS should only be called 100% complete for this cycle when all of the f
 
 ## Remaining work before final release
 
-1. Build and publish `CpIPOS POS - Android Tablet v0.2.2`.
-2. Test v0.2.2 on the real POS Android device.
+1. Confirm Vercel production heartbeat endpoint is live.
+2. Install and test `CpIPOS POS - Android Tablet v0.2.2` on the real POS Android device.
 3. Verify login, branch selection, device selection, active session, shift gate, POS sales flow, and receipt flow inside WebView.
 4. Verify MDM-lite diagnostics, heartbeat, `window.CpiposMdm`, safe commands, and printer connection test command.
 5. Complete printer work. Printer status is **not complete** until real hardware is tested.
@@ -169,4 +166,4 @@ Treat older statements that describe Android POS as a native Compose POS client 
 
 If the chat is restarted, summarize this as the current continuity point:
 
-> Android POS is now a WebView wrapper around the CpIPOS Web App with embedded app-scoped MDM-lite for development diagnostics and safe temporary control. Current source version is v0.2.2 / versionCode 5. Published v0.2.1 is already downloadable; v0.2.2 must pass Android workflow and publish before testing. Android POS remains about 90% complete per owner direction. Only Android POS is ready for download; Mobile, Windows, and IT Admin remain developing. Next work should focus on v0.2.2 build/publish, real POS device testing, WebView stability, MDM-lite diagnostics/commands, POS flow verification, and printer hardware integration. Every future change must update documentation before being considered complete.
+> Android POS is now a WebView wrapper around the CpIPOS Web App with embedded app-scoped MDM-lite for development diagnostics and safe temporary control. Current published version is v0.2.2 / versionCode 5. It is downloadable through `/download/android/latest`. Android POS remains about 90% complete per owner direction. Only Android POS is ready for download; Mobile, Windows, and IT Admin remain developing. Next work should confirm Vercel heartbeat endpoint, test v0.2.2 on the real POS device, verify WebView stability, MDM-lite diagnostics/commands, POS flow, and printer hardware integration. Every future change must update documentation before being considered complete.
