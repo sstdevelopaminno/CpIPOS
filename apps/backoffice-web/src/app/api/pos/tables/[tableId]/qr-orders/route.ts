@@ -19,6 +19,7 @@ export async function GET(request: Request, context: { params: Promise<{ tableId
       .eq("tenant_id", auth.tenantId!)
       .eq("branch_id", auth.branchId!)
       .eq("table_id", tableId)
+      .eq("event_type", "order")
       .lte("created_at", cursorBoundary)
       .order("created_at", { ascending: true })
       .limit(25);
