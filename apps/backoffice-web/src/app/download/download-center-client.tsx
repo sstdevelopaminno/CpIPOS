@@ -19,23 +19,10 @@ type Product = {
 
 const products: Product[] = [
   {
-    title: "CpIPOS Mobile - Android",
-    platform: "Android Phone / Tablet",
-    description:
-      "Native Android app สำหรับเจ้าของร้าน ผู้จัดการ และพนักงาน ใช้ Kotlin + Jetpack Compose และเชื่อมต่อ CpIPOS API โดยตรง ไม่ใช้ WebView หรือ mobile hosting แยก",
-    status: "ready",
-    statusLabel: "พร้อมดาวน์โหลด",
-    file: "CpIPOS-Mobile.apk",
-    downloadUrl: "/download/mobile/latest",
-    downloadLabel: "CpIPOS Mobile"
-  ,
-    icon: "mobile"
-  },
-  {
     title: "CpIPOS POS - Android Tablet",
     platform: "Android Tablet POS",
     description:
-      "Android Tablet POS runtime สำหรับเครื่องขายหน้าร้าน ใช้ UI และฟีเจอร์เดียวกับ CpIPOS Web App พร้อม route ดาวน์โหลด APK ล่าสุดจาก GitHub Release",
+      "Android POS ตัวล่าสุดที่กำลังปิดงาน เป็นแอปห่อ CpIPOS Web App สำหรับเครื่องขายหน้าร้านบน Android Tablet เพื่อให้พนักงานเข้าใช้งาน POS ได้เหมือน Web App พร้อม route ดาวน์โหลด APK ล่าสุดจาก GitHub Release",
     status: "ready",
     statusLabel: "พร้อมดาวน์โหลด",
     file: "CpIPOS-Android-debug.apk",
@@ -44,27 +31,42 @@ const products: Product[] = [
     icon: "tablet"
   },
   {
+    title: "CpIPOS Mobile - Android",
+    platform: "Android Phone / Tablet",
+    description:
+      "แอปสำหรับเจ้าของร้าน ผู้จัดการ และพนักงานบนมือถือ Android แยกจาก Android POS หน้าร้าน",
+    status: "developing",
+    statusLabel: "กำลังพัฒนา",
+    file: "CpIPOS-Mobile.apk",
+    downloadLabel: "CpIPOS Mobile",
+    modalBody:
+      "CpIPOS Mobile - Android ยังไม่เปิดให้ดาวน์โหลดจากหน้าเว็บหลักในรอบนี้ เพื่อป้องกันผู้ใช้สับสนกับ Android POS ที่เป็นงานหลักใกล้ปิดตอนนี้",
+    icon: "mobile"
+  },
+  {
     title: "CpIPOS POS - Windows",
     platform: "Windows POS Terminal",
     description:
-      "Windows POS Runtime สำหรับเครื่องขายหน้าร้าน รองรับ WebView2 shell, local runtime bridge, printer/cash-drawer integration และดาวน์โหลดตัวติดตั้งล่าสุดจาก release คงที่",
-    status: "ready",
-    statusLabel: "พร้อมดาวน์โหลด",
+      "Windows POS Runtime สำหรับเครื่องขายหน้าร้าน รองรับ WebView2 shell, local runtime bridge, printer/cash-drawer integration และงานเครื่อง POS Windows",
+    status: "developing",
+    statusLabel: "กำลังพัฒนา",
     file: "CpIPOS-WindowsRuntime-Setup.exe",
-    downloadUrl: "/download/windows-runtime/latest",
     downloadLabel: "Windows POS",
+    modalBody:
+      "CpIPOS POS - Windows ยังถูกปิดไว้เป็นสถานะกำลังพัฒนาใน Download Center จนกว่าจะผ่าน QA และพร้อมปล่อยใช้งานจริง",
     icon: "windows"
   },
   {
     title: "CpIPOS IT Admin Runtime",
     platform: "Windows IT Admin",
     description:
-      "Windows Runtime สำหรับงาน IT Admin, device management, diagnostics และ MDM operation แยกจากเครื่อง POS หน้าร้าน พร้อมดาวน์โหลดตัวติดตั้งล่าสุด",
-    status: "ready",
-    statusLabel: "พร้อมดาวน์โหลด",
+      "Windows Runtime สำหรับงาน IT Admin, device management, diagnostics และ MDM operation แยกจากเครื่อง POS หน้าร้าน",
+    status: "developing",
+    statusLabel: "กำลังพัฒนา",
     file: "CpIPOS-ITAdminRuntime-Setup.exe",
-    downloadUrl: "/download/it-admin/latest",
     downloadLabel: "IT Admin",
+    modalBody:
+      "CpIPOS IT Admin Runtime ยังถูกปิดไว้เป็นสถานะกำลังพัฒนาใน Download Center จนกว่าจะพร้อมเปิดให้ใช้งานจริง",
     icon: "admin"
   }
 ];
@@ -152,18 +154,18 @@ export function DownloadCenterClient() {
             CpIPOS Applications
           </div>
           <h1 className="text-4xl font-black leading-tight tracking-tight text-white sm:text-6xl">
-            ดาวน์โหลดแอป CpIPOS
+            ดาวน์โหลด Android POS
           </h1>
           <p className="mx-auto mt-5 max-w-2xl text-base leading-7 text-slate-300 sm:text-lg">
-            เลือกดาวน์โหลดแอป CpIPOS เวอร์ชันล่าสุดสำหรับ Mobile Android, Android Tablet POS, Windows POS และ IT Admin Runtime จาก release ล่าสุดของระบบ
+            เปิดดาวน์โหลดเฉพาะ CpIPOS POS - Android Tablet ซึ่งเป็นแอปห่อ Web App สำหรับเครื่องขายหน้าร้าน ส่วน Mobile, Windows POS และ IT Admin ยังปิดไว้เป็นสถานะกำลังพัฒนา
           </p>
 
           <div className="mt-7 flex flex-wrap items-center justify-center gap-3 text-xs font-semibold">
             <span className="rounded-full border border-emerald-400/20 bg-emerald-400/10 px-3 py-1.5 text-emerald-300">
-              Android / Windows พร้อมดาวน์โหลด
+              Android POS พร้อมดาวน์โหลด
             </span>
-            <span className="rounded-full border border-sky-400/20 bg-sky-400/10 px-3 py-1.5 text-sky-200">
-              Latest release assets
+            <span className="rounded-full border border-amber-400/20 bg-amber-400/10 px-3 py-1.5 text-amber-200">
+              รุ่นอื่นกำลังพัฒนา
             </span>
           </div>
         </section>
@@ -272,7 +274,7 @@ export function DownloadCenterClient() {
             </div>
 
             <span className="mt-6 inline-flex rounded-full border border-amber-400/20 bg-amber-400/10 px-3 py-1.5 text-xs font-bold text-amber-200">
-              อยู่ระหว่างพัฒนา
+              กำลังพัฒนา
             </span>
             <h2 id="development-modal-title" className="mt-4 text-2xl font-black text-white">
               {modalProduct.title}
