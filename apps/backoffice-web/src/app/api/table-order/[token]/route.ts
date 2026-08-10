@@ -1,7 +1,7 @@
 import { fail, ok } from "@/lib/http";
 import { PosTimeoutError, withTimeout } from "@/lib/pos-resilience";
 import { enforceRateLimit, getClientIpAddress, type RateLimitResult } from "@/lib/server/rate-limit";
-import { loadTableQrMenu, resolveTableQrContext, submitTableQrOrder, submitTableQrServiceRequest, updateTableQrOrderItems } from "@/lib/table-qr-ordering";
+import { loadTableQrMenu, resolveTableQrContext, submitTableQrOrder, submitTableQrServiceRequest } from "@/lib/table-qr-ordering";
 
 type SubmitPayload = {
   action?: "order" | "update_order" | "call_staff" | "request_checkout";
@@ -40,9 +40,7 @@ function rateLimitFailure(result: RateLimitResult) {
     ? fail("rate_limit_unavailable", "ระบบป้องกันคำขอไม่พร้อมใช้งานชั่วคราว กรุณาลองใหม่", 503)
     : fail("rate_limited", "กรุณารอสักครู่แล้วลองใหม่", 429);
 
-  if (result.retryAfterSeconds > 0) {
-    response.headers.set("retry-after", String(result.retryAfterSeconds));
-  }
+  if (result.retryAfterSeconds > 0) response.headers.set("retry-after", String(result.retryAfterSeconds));
   response.headers.set("x-ratelimit-limit", String(result.limit));
   response.headers.set("x-ratelimit-remaining", String(result.remaining));
   return response;
@@ -51,11 +49,7 @@ function rateLimitFailure(result: RateLimitResult) {
 function getErrorMessage(error: unknown) {
   if (error instanceof Error) return error.message;
   if (typeof error === "string") return error;
-  try {
-    return JSON.stringify(error);
-  } catch {
-    return "Table ordering is unavailable.";
-  }
+  try { return JSON.stringify(error); } catch { return "Table ordering is unavailable."; }
 }
 
 function includesAny(message: string, values: string[]) {
@@ -76,88 +70,28 @@ function publicError(error: unknown, meta: PublicErrorMeta) {
     message
   });
 
-  if (
-    includesAny(message, [
-      "invalid_qr_token",
-      "qr_session_expired",
-      "QR_SESSION_EXPIRED",
-      "TABLE_SESSION_CLOSED",
-      "table_session_closed",
-      "token_expired",
-      "expired_token"
-    ])
-  ) {
+  if (includesAny(message, ["invalid_qr_token", "qr_session_expired", "QR_SESSION_EXPIRED", "TABLE_SESSION_CLOSED", "table_session_closed", "token_expired", "expired_token"])) {
     return fail("table_order_link_expired", "ลิงก์สั่งอาหารหมดอายุหรือปิดบิลแล้ว", 410);
   }
-
-  if (
-    includesAny(message, [
-      "FOOD_ORDER_REQUIRED_BEFORE_CHECKOUT",
-      "food_order_required_before_checkout"
-    ])
-  ) {
+  if (includesAny(message, ["FOOD_ORDER_REQUIRED_BEFORE_CHECKOUT", "food_order_required_before_checkout"])) {
     return fail("food_order_required_before_checkout", "กรุณาส่งรายการอาหารก่อนแจ้งชำระบิล", 409);
   }
-
-  if (
-    includesAny(message, [
-      "table_order_not_available",
-      "ORDER_NOT_QUEUED",
-      "order_not_queued",
-      "ORDER_NOT_APPENDABLE",
-      "order_not_appendable",
-      "ORDER_NOT_FOUND",
-      "order_not_found",
-      "TABLE_BILL_NOT_OPEN",
-      "table_bill_not_open",
-      "BILL_NOT_OPEN",
-      "bill_not_open",
-      "pending_payment",
-      "closed",
-      "cancelled"
-    ])
-  ) {
-    return fail(
-      "table_order_not_available",
-      "โต๊ะนี้ไม่สามารถสั่งอาหารเพิ่มได้แล้ว อาจกำลังรอชำระเงินหรือปิดบิลแล้ว กรุณาติดต่อพนักงาน",
-      409
-    );
+  if (includesAny(message, ["table_order_not_available", "ORDER_NOT_QUEUED", "order_not_queued", "ORDER_NOT_APPENDABLE", "order_not_appendable", "ORDER_NOT_FOUND", "order_not_found", "TABLE_BILL_NOT_OPEN", "table_bill_not_open", "BILL_NOT_OPEN", "bill_not_open", "pending_payment", "closed", "cancelled"])) {
+    return fail("table_order_not_available", "โต๊ะนี้ไม่สามารถสั่งอาหารเพิ่มได้แล้ว อาจกำลังรอชำระเงินหรือปิดบิลแล้ว กรุณาติดต่อพนักงาน", 409);
   }
-
   if (includesAny(message, ["SHIFT_NOT_OPEN", "shift_not_open", "active_shift_not_found", "no_open_shift"])) {
     return fail("shift_not_open", "ร้านยังไม่พร้อมรับรายการในขณะนี้", 409);
   }
-
-  if (includesAny(message, ["PRODUCT_NOT_AVAILABLE", "product_unavailable", "product_not_found", "product_inactive"])) {
-    return fail("product_unavailable", "มีเมนูที่ไม่พร้อมจำหน่าย กรุณาโหลดใหม่", 409);
+  if (includesAny(message, ["PRODUCT_NOT_AVAILABLE", "product_unavailable", "product_not_found", "product_inactive", "INSUFFICIENT_STOCK", "insufficient_stock"])) {
+    return fail("product_unavailable", "มีเมนูที่สต๊อกไม่เพียงพอ กรุณาโหลดเมนูใหม่", 409);
   }
-
   if (includesAny(message, ["INVALID_ITEM", "ITEMS_REQUIRED", "invalid_items", "invalid_order_items"])) {
     return fail("invalid_items", "กรุณาเลือกรายการอาหารให้ถูกต้อง", 422);
   }
-
-  if (
-    includesAny(message, [
-      "submit_table_qr_order_tx",
-      "could not find",
-      "schema cache",
-      "function",
-      "PGRST202",
-      "rpc"
-    ])
-  ) {
-    return fail(
-      "table_order_rpc_failed",
-      isDev ? message : "ระบบส่งรายการอาหารยังไม่พร้อมใช้งาน กรุณาติดต่อพนักงาน",
-      500
-    );
+  if (includesAny(message, ["submit_table_qr_order_tx", "could not find", "schema cache", "function", "PGRST202", "rpc"])) {
+    return fail("table_order_rpc_failed", isDev ? message : "ระบบส่งรายการอาหารยังไม่พร้อมใช้งาน กรุณาติดต่อพนักงาน", 500);
   }
-
-  return fail(
-    "table_order_failed",
-    isDev ? message : "ไม่สามารถส่งรายการได้ กรุณาลองใหม่หรือติดต่อพนักงาน",
-    500
-  );
+  return fail("table_order_failed", isDev ? message : "ไม่สามารถส่งรายการได้ กรุณาลองใหม่หรือติดต่อพนักงาน", 500);
 }
 
 function normalizeAction(body: SubmitPayload) {
@@ -175,22 +109,12 @@ function normalizeItems(body: SubmitPayload) {
 export async function GET(request: Request, context: { params: Promise<{ token: string }> }) {
   let token = "";
   const startedAt = Date.now();
-
   try {
     const params = await context.params;
     token = params.token;
-
     const rateLimit = await checkRateLimit(request, token);
     if (!rateLimit.ok) return rateLimitFailure(rateLimit);
-
-    const data = await withTimeout(
-      (async () => {
-        const qrContext = await resolveTableQrContext(token);
-        return loadTableQrMenu(qrContext);
-      })(),
-      TABLE_ORDER_GET_TIMEOUT_MS,
-      "table_order_menu_timeout"
-    );
+    const data = await withTimeout((async () => loadTableQrMenu(await resolveTableQrContext(token)))(), TABLE_ORDER_GET_TIMEOUT_MS, "table_order_menu_timeout");
     const response = ok(data);
     response.headers.set("x-table-order-ms", String(Date.now() - startedAt));
     return response;
@@ -209,86 +133,45 @@ export async function POST(request: Request, context: { params: Promise<{ token:
   let action = "order";
   let requestId = "";
   let itemCount = 0;
-
   try {
     const params = await context.params;
     token = params.token;
-
     const rateLimit = await checkRateLimit(request, token);
     if (!rateLimit.ok) return rateLimitFailure(rateLimit);
 
     const body = (await request.json().catch(() => null)) as SubmitPayload | null;
-    if (!body || typeof body !== "object") {
-      return fail("invalid_payload", "Invalid request body.", 422);
-    }
-
+    if (!body || typeof body !== "object") return fail("invalid_payload", "Invalid request body.", 422);
     action = normalizeAction(body);
     requestId = String(body.request_id ?? request.headers.get("x-idempotency-key") ?? "").trim();
-
-    if (!requestId || requestId.length > 120) {
-      return fail("invalid_request_id", "Invalid request id.", 422);
-    }
+    if (!requestId || requestId.length > 120) return fail("invalid_request_id", "Invalid request id.", 422);
 
     if (action === "call_staff" || action === "request_checkout") {
       const qrContext = await resolveTableQrContext(token);
-      const result = await submitTableQrServiceRequest({
-        context: qrContext,
-        requestId,
-        requestType: action,
-        note: typeof body.note === "string" ? body.note.trim().slice(0, 500) : null
-      });
-
-      return ok(
-        {
-          submission_id: result.submission_id,
-          table_code: qrContext.table_code,
-          action,
-          duplicate_request: result.duplicate_request
-        },
-        result.duplicate_request ? 200 : 201
-      );
+      const result = await submitTableQrServiceRequest({ context: qrContext, requestId, requestType: action, note: typeof body.note === "string" ? body.note.trim().slice(0, 500) : null });
+      return ok({ submission_id: result.submission_id, table_code: qrContext.table_code, action, duplicate_request: result.duplicate_request }, result.duplicate_request ? 200 : 201);
     }
 
-    if (action !== "order" && action !== "update_order") return fail("invalid_action", "Invalid action.", 422);
+    if (action === "update_order") {
+      return fail("table_order_locked_after_submit", "รายการที่ยืนยันแล้วแก้ไขหรือลบจากมือถือไม่ได้ กรุณาเรียกพนักงาน", 409);
+    }
+    if (action !== "order") return fail("invalid_action", "Invalid action.", 422);
 
     const items = normalizeItems(body);
     itemCount = items.length;
-
-    if ((action === "order" && items.length < 1) || items.length > 50) {
-      return fail("invalid_items", "กรุณาเลือกเมนู 1-50 รายการ", 422);
-    }
-
-    if (items.some((item) => !item.product_id || !Number.isInteger(item.quantity) || item.quantity < 1 || item.quantity > 99)) {
-      return fail("invalid_items", "จำนวนอาหารไม่ถูกต้อง", 422);
-    }
+    if (items.length < 1 || items.length > 50) return fail("invalid_items", "กรุณาเลือกเมนู 1-50 รายการ", 422);
+    if (items.some((item) => !item.product_id || !Number.isInteger(item.quantity) || item.quantity < 1 || item.quantity > 99)) return fail("invalid_items", "จำนวนอาหารไม่ถูกต้อง", 422);
 
     const qrContext = await resolveTableQrContext(token);
-    const result = action === "update_order"
-      ? await updateTableQrOrderItems({
-          context: qrContext,
-          requestId,
-          items,
-          note: typeof body.note === "string" ? body.note.trim().slice(0, 500) : null
-        })
-      : await submitTableQrOrder({
-          context: qrContext,
-          requestId,
-          items,
-          note: typeof body.note === "string" ? body.note.trim().slice(0, 500) : null
-        });
-
-    return ok(
-      {
-        submission_id: result.submission_id,
-        order_no: result.order_no,
-        table_code: qrContext.table_code,
-        subtotal: Number(result.subtotal),
-        tax_total: Number(result.tax_total),
-        grand_total: Number(result.grand_total),
-        duplicate_request: result.duplicate_request
-      },
-      result.duplicate_request ? 200 : 201
-    );
+    const result = await submitTableQrOrder({ context: qrContext, requestId, items, note: typeof body.note === "string" ? body.note.trim().slice(0, 500) : null });
+    return ok({
+      submission_id: result.submission_id,
+      order_no: result.order_no,
+      table_code: qrContext.table_code,
+      subtotal: Number(result.subtotal),
+      tax_total: Number(result.tax_total),
+      grand_total: Number(result.grand_total),
+      duplicate_request: result.duplicate_request
+    }, result.duplicate_request ? 200 : 201);
   } catch (error) {
     return publicError(error, { method: "POST", token, action, requestId, itemCount });
   }
