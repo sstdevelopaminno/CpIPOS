@@ -93,9 +93,12 @@ async function writeLogoutAudit(request: Request, scope: PosSessionScope, mode: 
 export async function POST(request: Request) {
   const payload = (await request.json().catch(() => null)) as LogoutPayload | null;
   const mode =
-    payload?.mode === "switch_employee" || payload?.mode === "switch_device" || payload?.mode === "switch_branch"
+    payload?.mode === "full" ||
+    payload?.mode === "switch_employee" ||
+    payload?.mode === "switch_device" ||
+    payload?.mode === "switch_branch"
       ? payload.mode
-      : "full";
+      : "switch_employee";
 
   if (mode === "full") {
     try {
@@ -149,6 +152,8 @@ export async function POST(request: Request) {
         branchId: mode === "switch_employee" ? scope.session.branch_id : null,
         branchCode: mode === "switch_employee" ? (branchRow.data?.code ?? null) : null,
         branchName: mode === "switch_employee" ? (branchRow.data?.name ?? null) : null,
+        deviceId: mode === "switch_employee" ? (scope.session.device_id ?? null) : null,
+        deviceCode: mode === "switch_employee" ? (scope.session.device_code ?? null) : null,
         userId: null,
         userRole: null,
         employeeCode: null,
@@ -197,6 +202,8 @@ export async function POST(request: Request) {
       branchId: scope.session.branch_id,
       branchCode: branchRow.data?.code ?? null,
       branchName: branchRow.data?.name ?? null,
+      deviceId: null,
+      deviceCode: null,
       userId: employee.userId,
       userRole: employee.role,
       employeeCode: employee.employeeCode,
@@ -225,7 +232,7 @@ export async function POST(request: Request) {
           // identifier to revoke. In particular, never fall back to revoking all active
           // sessions for this user/branch because those may belong to other devices.
           const response = NextResponse.json({
-            data: { ok: true, mode, redirect_to: mode === "switch_employee" ? "/login/employee?flow=multi" : "/login/employee?flow=multi" },
+            data: { ok: true, mode, redirect_to: "/login/employee?flow=multi" },
             error: null
           });
           if (mode === "switch_employee") {

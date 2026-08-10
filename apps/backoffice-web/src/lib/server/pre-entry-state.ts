@@ -15,6 +15,8 @@ export type PreEntryFlowState = {
   branchId?: string | null;
   branchCode?: string | null;
   branchName?: string | null;
+  deviceId?: string | null;
+  deviceCode?: string | null;
   userId?: string | null;
   userRole?: "owner" | "manager" | "staff" | "accountant" | null;
   employeeCode?: string | null;

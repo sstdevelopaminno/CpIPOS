@@ -21,7 +21,16 @@ type SessionContextResponse = {
 
 type VerifyCodeResponse = {
   data?: {
-    next_step?: "devices";
+    next_step?: "devices" | "remembered_device";
+    remembered_device?: { id: string | null; code: string } | null;
+  } | null;
+  error?: { code?: string; message?: string } | null;
+};
+
+type DeviceSelectResponse = {
+  data?: {
+    redirect_to?: string;
+    session_id?: string;
   } | null;
   error?: { code?: string; message?: string } | null;
 };
@@ -234,13 +243,37 @@ function LoginEmployeePageContent() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ employee_code: normalizedCode })
       });
-      if (!response.ok || body?.data?.next_step !== "devices") {
+      if (!response.ok || !body?.data?.next_step) {
         const message = mapVerifyCodeError(body?.error?.code, body?.error?.message, copy);
         setError(message);
         setPopup({ type: "error", message });
         return;
       }
+
       setPopup({ type: "loading", message: copy.popupEnteringPos });
+      const rememberedDeviceCode = String(body.data.remembered_device?.code ?? "").trim().toUpperCase();
+      if (body.data.next_step === "remembered_device" && rememberedDeviceCode) {
+        try {
+          const { response: deviceResponse, body: deviceBody } = await fetchJsonWithRetry<DeviceSelectResponse>(
+            "/api/auth/devices/select",
+            {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ device_code: rememberedDeviceCode }),
+              cache: "no-store"
+            },
+            1
+          );
+          const redirectTo = String(deviceBody?.data?.redirect_to ?? "").trim();
+          if (deviceResponse.ok && redirectTo) {
+            window.location.assign(redirectTo);
+            return;
+          }
+        } catch {
+          // Fall through to manual device selection when the remembered device cannot be reused.
+        }
+      }
+
       warmRoute(router, `/login/devices?flow=${flow}`);
       router.push(`/login/devices?flow=${flow}`);
     } catch (requestError) {
