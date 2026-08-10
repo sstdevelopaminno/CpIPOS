@@ -33,6 +33,10 @@ function parseMenuPlacement(value: string | null | undefined): MainMenuPlacement
   return null;
 }
 
+function isAndroidPosUserAgent(userAgent: string): boolean {
+  return userAgent.includes("CpIPOS-AndroidPOS/") || userAgent.includes("CpIPOS-Tablet/");
+}
+
 export default async function PosPreviewLayout({ children }: { children: ReactNode }) {
   const cookieStore = await cookies();
   const { handoffName, sessionIdName } = resolvePosSessionCookieNames();
@@ -42,7 +46,7 @@ export default async function PosPreviewLayout({ children }: { children: ReactNo
   const requestHeaders = await headers();
   const userAgent = requestHeaders.get("user-agent") ?? "";
   const storedPlacement = parseMenuPlacement(cookieStore.get(POS_MAIN_MENU_PLACEMENT_KEY)?.value);
-  const initialPlacement: MainMenuPlacement = storedPlacement ?? (userAgent.includes("CpIPOS-Tablet/") ? "top" : "left");
+  const initialPlacement: MainMenuPlacement = storedPlacement ?? (isAndroidPosUserAgent(userAgent) ? "top" : "left");
 
   const lang = await getCurrentLanguage();
   return (
