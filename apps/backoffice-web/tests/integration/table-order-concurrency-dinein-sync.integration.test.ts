@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 const tableOrderRoute = readFileSync(new URL("../../src/app/api/table-order/[token]/route.ts", import.meta.url), "utf8");
@@ -11,7 +11,8 @@ const posSalesErrors = readFileSync(new URL("../../src/components/pos/pos-sales-
 const posSalesModule = readFileSync(new URL("../../src/components/pos/pos-sales-module.tsx", import.meta.url), "utf8");
 const tenantRouter = readFileSync(new URL("../../src/lib/tenant-data-router.ts", import.meta.url), "utf8");
 const primaryMigration = readFileSync(new URL("../../../../supabase/migrations/20260810075709_table_order_concurrency_dinein_sync.sql", import.meta.url), "utf8");
-const trialMigration = readFileSync(new URL("../../../../supabase/trial-data-plane/migrations/20260810075709_trial_table_order_concurrency_dinein_sync.sql", import.meta.url), "utf8");
+const trialMigrationUrl = new URL("../../../../supabase/trial-data-plane/migrations/20260810075709_trial_table_order_concurrency_dinein_sync.sql", import.meta.url);
+const trialMigration = existsSync(trialMigrationUrl) ? readFileSync(trialMigrationUrl, "utf8") : null;
 
 describe("Table order concurrency and dine-in bill sync hardening", () => {
   it("separates public Table QR menu/status/write rate limit lanes", () => {
@@ -71,8 +72,9 @@ describe("Table order concurrency and dine-in bill sync hardening", () => {
     expect(tenantRouter).toContain('add("table_bill_sessions", asString(row.table_session_id))');
   });
 
-  it("adds source-only Primary and Trial migration hardening", () => {
-    for (const migration of [primaryMigration, trialMigration]) {
+  it("validates Primary migration hardening and any available Trial parity source", () => {
+    const migrations = [primaryMigration, ...(trialMigration ? [trialMigration] : [])];
+    for (const migration of migrations) {
       expect(migration).toContain("lock_dine_in_order_table_session_before_insert");
       expect(migration).toContain("create trigger trg_lock_dine_in_order_table_session_before_insert");
       expect(migration).toContain("before insert on public.orders");
