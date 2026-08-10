@@ -162,6 +162,7 @@ export async function POST(req: Request) {
           .eq("tenant_id", auth.tenantId!)
           .eq("branch_id", auth.branchId!)
           .eq("order_id", body.order_id)
+              .gt("quantity", 0)
           .eq("id", transferVerificationId)
           .maybeSingle<TransferVerificationRow>();
 

@@ -1,7 +1,7 @@
 import { fail, ok } from "@/lib/http";
 import { PosTimeoutError, withTimeout } from "@/lib/pos-resilience";
-import { enforceRateLimit, getClientIpAddress, type RateLimitResult } from "@/lib/server/rate-limit";
-import { loadTableQrMenu, resolveTableQrContext, submitTableQrOrder, submitTableQrServiceRequest } from "@/lib/table-qr-ordering";
+import { buildRateLimitKey, enforceRateLimit, getClientIpAddress, type RateLimitResult } from "@/lib/server/rate-limit";
+import { loadTableQrMenu, loadTableQrState, resolveTableQrContext, submitTableQrOrder, submitTableQrServiceRequest } from "@/lib/table-qr-ordering";
 import { assertTableQrStockAvailable, loadTableQrStockStates } from "@/lib/table-qr-stock";
 
 type SubmitPayload = {
@@ -14,12 +14,38 @@ type SubmitPayload = {
 
 type PublicErrorMeta = { method: "GET" | "POST"; token?: string; action?: string; requestId?: string; itemCount?: number };
 const TABLE_ORDER_GET_TIMEOUT_MS = 30000;
-const TABLE_ORDER_RATE_LIMIT_MAX = 20;
 const TABLE_ORDER_RATE_LIMIT_WINDOW_MS = 60_000;
+const TABLE_ORDER_MENU_RATE_LIMIT_MAX = 80;
+const TABLE_ORDER_STATUS_RATE_LIMIT_MAX = 360;
+const TABLE_ORDER_WRITE_RATE_LIMIT_MAX = 48;
+const TABLE_ORDER_SESSION_READ_RATE_LIMIT_MAX = 1200;
+const TABLE_ORDER_SESSION_WRITE_RATE_LIMIT_MAX = 240;
 
-async function checkRateLimit(request: Request, token: string): Promise<RateLimitResult> {
+function getTableOrderClientId(request: Request) {
+  const raw = request.headers.get("x-table-order-client-id") ?? "";
+  const normalized = raw.trim().toLowerCase();
+  return /^[a-z0-9_-]{8,80}$/.test(normalized) ? normalized : "anonymous";
+}
+
+async function checkRateLimit(request: Request, token: string, lane: "menu" | "status" | "write"): Promise<RateLimitResult> {
   const sessionId = token.split(".", 1)[0]?.slice(0, 36) || "invalid";
-  return enforceRateLimit({ namespace: "table-order-public", key: `${getClientIpAddress(request)}:${sessionId}`, max: TABLE_ORDER_RATE_LIMIT_MAX, windowMs: TABLE_ORDER_RATE_LIMIT_WINDOW_MS, failClosedOnBackendError: true });
+  const ip = getClientIpAddress(request);
+  const clientId = getTableOrderClientId(request);
+  const sessionLimit = await enforceRateLimit({
+    namespace: lane === "write" ? "table_order_public_write_session" : "table_order_public_read_session",
+    key: buildRateLimitKey({ namespace: "table-order", parts: [lane, ip, sessionId] }),
+    max: lane === "write" ? TABLE_ORDER_SESSION_WRITE_RATE_LIMIT_MAX : TABLE_ORDER_SESSION_READ_RATE_LIMIT_MAX,
+    windowMs: TABLE_ORDER_RATE_LIMIT_WINDOW_MS,
+    failClosedOnBackendError: true
+  });
+  if (!sessionLimit.ok) return sessionLimit;
+  return enforceRateLimit({
+    namespace: `table_order_public_${lane}`,
+    key: buildRateLimitKey({ namespace: "table-order", parts: [lane, ip, sessionId, clientId] }),
+    max: lane === "write" ? TABLE_ORDER_WRITE_RATE_LIMIT_MAX : lane === "status" ? TABLE_ORDER_STATUS_RATE_LIMIT_MAX : TABLE_ORDER_MENU_RATE_LIMIT_MAX,
+    windowMs: TABLE_ORDER_RATE_LIMIT_WINDOW_MS,
+    failClosedOnBackendError: true
+  });
 }
 
 function rateLimitFailure(result: RateLimitResult) {
@@ -63,10 +89,13 @@ export async function GET(request: Request, context: { params: Promise<{ token: 
   const startedAt = Date.now();
   try {
     token = (await context.params).token;
-    const rateLimit = await checkRateLimit(request, token);
+    const url = new URL(request.url);
+    const wantsStatus = url.searchParams.get("view") === "status" || url.searchParams.get("state") === "1";
+    const rateLimit = await checkRateLimit(request, token, wantsStatus ? "status" : "menu");
     if (!rateLimit.ok) return rateLimitFailure(rateLimit);
     const data = await withTimeout((async () => {
       const qrContext = await resolveTableQrContext(token);
+      if (wantsStatus) return loadTableQrState(qrContext);
       const menu = await loadTableQrMenu(qrContext);
       const states = await loadTableQrStockStates({ tenantId: qrContext.tenant_id, branchId: qrContext.branch_id, productIds: menu.products.map((product) => product.id) });
       return { ...menu, products: menu.products.map((product) => ({ ...product, ...(states.get(product.id) ?? { stock_on_hand_units: null, allow_negative_stock: false, is_available: true, is_low_stock: false }) })) };
@@ -91,7 +120,7 @@ export async function POST(request: Request, context: { params: Promise<{ token:
   let itemCount = 0;
   try {
     token = (await context.params).token;
-    const rateLimit = await checkRateLimit(request, token);
+    const rateLimit = await checkRateLimit(request, token, "write");
     if (!rateLimit.ok) return rateLimitFailure(rateLimit);
     const body = (await request.json().catch(() => null)) as SubmitPayload | null;
     if (!body || typeof body !== "object") return fail("invalid_payload", "Invalid request body.", 422);

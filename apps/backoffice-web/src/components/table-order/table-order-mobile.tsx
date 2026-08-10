@@ -29,8 +29,8 @@ type MenuResponse = {
     table_code: string;
     table_name: string | null;
     expires_at: string;
-    categories: string[];
-    products: MenuProduct[];
+    categories?: string[];
+    products?: MenuProduct[];
     can_order?: boolean;
     order_status?: string | null;
     bill_status?: string | null;
@@ -65,6 +65,7 @@ const MENU_STATUS_POLL_MS = 5_000;
 const ALL_CATEGORY = "ทั้งหมด";
 const LINK_CLOSED_MESSAGE = "ลิงก์สั่งอาหารหมดอายุหรือปิดบิลแล้ว";
 const LINK_PAID_DETAIL = "ถูกชำระเงินแล้ว";
+const TABLE_ORDER_CLIENT_ID_STORAGE_PREFIX = "cpipos_table_order_client_id_v1:";
 
 function money(value: number) {
   return new Intl.NumberFormat("th-TH", { style: "currency", currency: "THB" }).format(value);
@@ -121,6 +122,16 @@ function buildRequestId() {
   return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
 
+function getTableOrderClientId(token: string) {
+  const fallback = `client_${buildRequestId().replace(/[^a-z0-9_-]/gi, "_")}`.slice(0, 80).toLowerCase();
+  if (typeof window === "undefined") return fallback;
+  const key = `${TABLE_ORDER_CLIENT_ID_STORAGE_PREFIX}${token.slice(0, 64)}`;
+  const existing = window.localStorage.getItem(key);
+  if (existing && /^[a-z0-9_-]{8,80}$/.test(existing)) return existing;
+  window.localStorage.setItem(key, fallback);
+  return fallback;
+}
+
 function buildSubmitItems(cartItems: Array<MenuProduct & { quantity: number }>): SubmitItem[] {
   return cartItems
     .map((item) => ({ product_id: String(item.id ?? "").trim(), quantity: Number(item.quantity) }))
@@ -162,7 +173,16 @@ export function TableOrderMobile({ token }: { token: string }) {
   const [linkClosed, setLinkClosed] = useState(false);
   const categoriesRef = useRef<HTMLElement | null>(null);
   const linkClosedToastShownRef = useRef(false);
+  const clientIdRef = useRef<string | null>(null);
   const apiUrl = useMemo(() => `/api/table-order/${encodeURIComponent(token)}`, [token]);
+  const statusUrl = useMemo(() => `${apiUrl}?view=status`, [apiUrl]);
+
+  useEffect(() => { clientIdRef.current = getTableOrderClientId(token); }, [token]);
+
+  const tableOrderHeaders = useCallback((headers?: HeadersInit): HeadersInit => ({
+    ...(headers ?? {}),
+    "x-table-order-client-id": clientIdRef.current ?? "anonymous"
+  }), []);
 
   const showLinkClosedPopup = useCallback((detail = LINK_PAID_DETAIL) => {
     setLinkClosed(true);
@@ -186,6 +206,20 @@ export function TableOrderMobile({ token }: { token: string }) {
     linkClosedToastShownRef.current = false;
   }, [showLinkClosedPopup]);
 
+  const applyStatusData = useCallback((nextState: NonNullable<MenuResponse["data"]>) => {
+    setMenu((current) => {
+      const merged = current ? { ...current, ...nextState, categories: current.categories ?? [], products: current.products ?? [] } : nextState;
+      setHasSubmittedFoodOrder(hasExistingSubmittedFoodOrder(merged));
+      if (isClosedMenu(merged)) showLinkClosedPopup(LINK_PAID_DETAIL);
+      else {
+        setError(null);
+        setLinkClosed(false);
+        linkClosedToastShownRef.current = false;
+      }
+      return merged;
+    });
+  }, [showLinkClosedPopup]);
+
   useEffect(() => {
     const controller = new AbortController();
     const timeout = window.setTimeout(() => controller.abort(), MENU_LOAD_TIMEOUT_MS);
@@ -193,7 +227,7 @@ export function TableOrderMobile({ token }: { token: string }) {
     setError(null);
     setLinkClosed(false);
     linkClosedToastShownRef.current = false;
-    void fetch(apiUrl, { cache: "no-store", signal: controller.signal })
+    void fetch(apiUrl, { cache: "no-store", headers: tableOrderHeaders(), signal: controller.signal })
       .then(async (response) => {
         const body = (await readJson<MenuResponse>(response)) ?? {};
         if (!response.ok || !body.data) {
@@ -208,7 +242,7 @@ export function TableOrderMobile({ token }: { token: string }) {
       })
       .finally(() => { window.clearTimeout(timeout); setLoading(false); });
     return () => { window.clearTimeout(timeout); controller.abort(); };
-  }, [apiUrl, applyMenuData, showLinkClosedPopup]);
+  }, [apiUrl, applyMenuData, showLinkClosedPopup, tableOrderHeaders]);
 
   useEffect(() => {
     if (!toast) return;
@@ -224,8 +258,8 @@ export function TableOrderMobile({ token }: { token: string }) {
       if (cancelled || inFlight || document.visibilityState === "hidden" || submitting || serviceSubmitting) return;
       inFlight = true;
       try {
-        const result = await fetchJsonWithTimeout<MenuResponse>(apiUrl, { cache: "no-store" }, MENU_LOAD_TIMEOUT_MS);
-        if (!cancelled && result.response.ok && result.body?.data) applyMenuData(result.body.data);
+        const result = await fetchJsonWithTimeout<MenuResponse>(statusUrl, { cache: "no-store", headers: tableOrderHeaders() }, MENU_LOAD_TIMEOUT_MS);
+        if (!cancelled && result.response.ok && result.body?.data) applyStatusData(result.body.data);
         else if (!cancelled && isClosedOrderResponse(result.response, result.body)) showLinkClosedPopup();
       } catch (refreshError) {
         if ((refreshError as { name?: string }).name !== "AbortError") console.warn("[table-order-mobile] refresh failed", refreshError);
@@ -241,7 +275,7 @@ export function TableOrderMobile({ token }: { token: string }) {
       window.removeEventListener("focus", refresh);
       document.removeEventListener("visibilitychange", onVisible);
     };
-  }, [apiUrl, applyMenuData, linkClosed, menu, serviceSubmitting, showLinkClosedPopup, submitting]);
+  }, [applyStatusData, linkClosed, menu, serviceSubmitting, showLinkClosedPopup, statusUrl, submitting, tableOrderHeaders]);
 
   const canOrder = menu?.can_order !== false && !linkClosed;
   const orderingLocked = menu?.can_order === false && !linkClosed;
@@ -305,9 +339,9 @@ export function TableOrderMobile({ token }: { token: string }) {
 
   const submitPost = useCallback((payload: unknown, requestId: string) => fetchJsonWithTimeout<SubmitResponse>(apiUrl, {
     method: "POST",
-    headers: { "Content-Type": "application/json", "x-idempotency-key": requestId },
+    headers: tableOrderHeaders({ "Content-Type": "application/json", "x-idempotency-key": requestId }),
     body: JSON.stringify(payload)
-  }, SUBMIT_TIMEOUT_MS), [apiUrl]);
+  }, SUBMIT_TIMEOUT_MS), [apiUrl, tableOrderHeaders]);
 
   async function submitOrder() {
     if (!menu || submitting || serviceSubmitting || cartItems.length === 0) return;
@@ -335,8 +369,8 @@ export function TableOrderMobile({ token }: { token: string }) {
       setCart({});
       setCartOpen(false);
       setToast({ kind: "success", title: "ส่งรายการเข้าครัวแล้ว", detail: `เลขบิล ${orderNo} · หากต้องการแก้ไขรายการที่ส่งแล้ว กรุณาเรียกพนักงาน` });
-      const refreshed = await fetchJsonWithTimeout<MenuResponse>(apiUrl, { cache: "no-store" }, MENU_LOAD_TIMEOUT_MS).catch(() => null);
-      if (refreshed?.response.ok && refreshed.body?.data) applyMenuData(refreshed.body.data);
+      const refreshed = await fetchJsonWithTimeout<MenuResponse>(statusUrl, { cache: "no-store", headers: tableOrderHeaders() }, MENU_LOAD_TIMEOUT_MS).catch(() => null);
+      if (refreshed?.response.ok && refreshed.body?.data) applyStatusData(refreshed.body.data);
     } catch (submitError) {
       if ((submitError as { name?: string }).name === "AbortError") setError("ส่งรายการไม่สำเร็จ เนื่องจากระบบใช้เวลานานเกินไป กรุณาลองใหม่");
       else setError(submitError instanceof Error ? submitError.message : "ส่งรายการไม่สำเร็จ");

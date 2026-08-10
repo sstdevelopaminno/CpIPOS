@@ -4713,8 +4713,9 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
     setTableMoveError(text.tableMoveNoTarget);
   }, [moveTableCandidates, tableMoveModalOpen, tableMoveTargetId, text.tableMoveNoTarget]);
   const canCancelActiveOrder = Boolean(activeOrder && activeOrder.status === "queued");
+  const isEmptyOpenDineInBill = orderType === "dine_in" && Boolean(selectedTable?.id && selectedTable.active_session_id) && !activeOrder && cart.length === 0;
   const canClearWorkingCart = cart.length > 0 || deliveryDraftTouched;
-  const canCancelFromSidebar = canCancelActiveOrder || canClearWorkingCart;
+  const canCancelFromSidebar = canCancelActiveOrder || canClearWorkingCart || isEmptyOpenDineInBill;
   const showSidebarOrderSummary = Boolean(
     (activeOrder || hasOpenDineInSession || (orderType === "delivery_manual" && deliveryDraftBillNo)) &&
       (orderType !== "takeaway" ||
@@ -5854,6 +5855,43 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
     applyQuickMode(mode);
   }
 
+  async function cancelEmptyOpenBill() {
+    const table = selectedTableRef.current;
+    if (isBusy || !table?.id || !table.active_session_id || activeOrder || cartRef.current.length > 0) return;
+    setCancelBillSubmitting(true);
+    pushSubmitMessage(text.cancelBillProcessing);
+    try {
+      const { response, body } = await fetchJsonWithTimeout<ApiErrorBody>(
+        `/api/pos/tables/${table.id}/cancel-empty-bill`,
+        { method: "POST" },
+        15000,
+        1
+      );
+      if (!response.ok || body.error) throw new Error(body.error?.message ?? "Failed to cancel empty bill.");
+      clearClosedBillUiState({ clearReceipt: true, tableId: table.id });
+      setDineInSessionBillNo(null);
+      setSelectedTable(null);
+      setActiveOrder(null);
+      setLastCommittedCartSignature(null);
+      setCart([]);
+      invalidateTableUiContext();
+      setQuickMode(quickMode === "buffet_table" ? "buffet_table" : "dine_in");
+      setOrderType("dine_in");
+      setTableBrowserOpen(true);
+      setPosTables((current) =>
+        current.map((entry) => entry.id === table.id ? { ...entry, status: "available", active_session_id: null, active_order_id: null } : entry)
+      );
+      pushSubmitMessage(text.cancelBillSuccess);
+      void fetchPosTablesRef.current({ timeoutMs: 10000, retries: 0 }).catch(() => undefined);
+    } catch (cancelError) {
+      markConnectivityFromError(cancelError);
+      const message = cancelError instanceof Error ? cancelError.message : "Unknown error";
+      pushSubmitMessage(localizeApiMessage(message));
+    } finally {
+      setCancelBillSubmitting(false);
+    }
+  }
+
   function requestCancelBill() {
     if (orderType === "dine_in") {
       if (activeOrder?.status === "queued") {
@@ -5867,6 +5905,10 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
       }
       const hasCartItems = cartRef.current.length > 0;
       if (!hasCartItems) {
+        if (isEmptyOpenDineInBill) {
+          void cancelEmptyOpenBill();
+          return;
+        }
         pushSubmitMessage(text.addItemsFirst);
         return;
       }
@@ -6048,6 +6090,14 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
   async function handleCheckout() {
     if (isBusy || checkoutRequestLockRef.current) return;
     checkoutRequestLockRef.current = true;
+    if (isEmptyOpenDineInBill) {
+      try {
+        await cancelEmptyOpenBill();
+      } finally {
+        checkoutRequestLockRef.current = false;
+      }
+      return;
+    }
     const blockingReason = getCheckoutBlockingReason({
       shiftId: shift?.id,
       cartSize: cart.length,
@@ -6091,7 +6141,9 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
     }
     setSubmitting(true);
     pushSubmitMessage(text.submitting);
-    const latestTaxSettings = await refreshTaxSettings();
+    let payload: PendingSubmit | null = null;
+    try {
+      const latestTaxSettings = await refreshTaxSettings();
     const effectiveTaxBreakdown = latestTaxSettings
       ? calculateClientTaxBreakdown(taxBaseTotal, latestTaxSettings)
       : taxBreakdown;
@@ -6135,7 +6187,7 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
       return;
     }
 
-    const payload: PendingSubmit = buildCheckoutSubmitPayload({
+      payload = buildCheckoutSubmitPayload({
       idempotencyKey: newIdempotencyKey(),
       activeOrder: activeOrder?.status === "queued" ? activeOrder : null,
       shiftId: shift!.id,
@@ -6154,29 +6206,29 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
           }
         : null
     });
-    payload.payload.tax_total = effectiveTaxBreakdown.tax_total;
-    payload.payload.grand_total = effectiveTotal;
-    payload.payload.tax_lines = effectiveTaxBreakdown.lines;
+      payload.payload.tax_total = effectiveTaxBreakdown.tax_total;
+      payload.payload.grand_total = effectiveTotal;
+      payload.payload.tax_lines = effectiveTaxBreakdown.lines;
 
-    if (orderType === "takeaway") {
-      setTakeawayCreatingPreview({
+      if (orderType === "takeaway") {
+        setTakeawayCreatingPreview({
         items: cartSnapshot,
         total_amount: effectiveTotal
-      });
-    }
+        });
+      }
 
-    if (!isOnline) {
+      if (!isOnline) {
       setTakeawayCreatingPreview(null);
       enqueuePendingSubmit(payload);
       setCart([]);
       setCartDrawerOpen(false);
       pushSubmitMessage(text.offlineStaged);
       setSubmitting(false);
-      checkoutRequestLockRef.current = false;
-      return;
-    }
+        checkoutRequestLockRef.current = false;
+        return;
+      }
 
-    try {
+      if (!payload) throw new Error("Checkout payload is missing.");
       const createdOrder = await submitOrder(payload);
       if (orderType === "takeaway" || orderType === "dine_in") {
         if (!createdOrder) {
@@ -6239,6 +6291,15 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
           pushSubmitMessage(text.openShiftRequired);
           return;
         }
+        if (errorCode === "table_bill_order_conflict" || errorCode === "table_bill_not_open") {
+          const table = selectedTableRef.current;
+          if (table) {
+            void loadTableBillContextRef.current(table).catch(() => undefined);
+            void fetchPosTablesRef.current({ timeoutMs: 10000, retries: 0, silent: true }).catch(() => undefined);
+          }
+          pushSubmitMessage(message);
+          return;
+        }
         if (errorCode === "order_not_updatable" || errorCode === "order_not_found") {
           setActiveOrder(null);
           setLastCommittedCartSignature(null);
@@ -6248,7 +6309,7 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
       }
 
       markConnectivityFromError(submitError);
-      if (isConnectivityIssueMessage(rawMessage)) {
+      if (isConnectivityIssueMessage(rawMessage) && payload) {
         enqueuePendingSubmit(payload, rawMessage);
         setCart([]);
         setCartDrawerOpen(false);
@@ -8289,7 +8350,7 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
           taxLines={taxBreakdown.lines}
           onCheckout={handleCheckout}
           onRetry={showEmergencyRetry ? handleEmergencyRetry : undefined}
-          onCancelBill={canCancelActiveOrder ? requestCancelBill : undefined}
+          onCancelBill={canCancelActiveOrder || isEmptyOpenDineInBill ? requestCancelBill : undefined}
           onHoldBill={holdBill}
           onMember={
             orderType === "delivery_manual"
@@ -8306,11 +8367,11 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
             Boolean(selectedTable?.id && selectedTable.active_session_id)
           }
           tableQrOrderLabel={text.tableQrOrder}
-          checkoutLabel={orderType === "dine_in" ? text.dineInCheckout : orderType === "delivery_manual" ? text.deliveryQueueCheckout : text.checkout}
+          checkoutLabel={isEmptyOpenDineInBill ? text.cancelBill : orderType === "dine_in" ? text.dineInCheckout : orderType === "delivery_manual" ? text.deliveryQueueCheckout : text.checkout}
           checkoutDisabled={
             isBusy ||
             !shift?.id ||
-            cart.length === 0 ||
+            (cart.length === 0 && !activeOrder && !isEmptyOpenDineInBill) ||
             (orderType === "dine_in" && (!selectedTable || !selectedTable.active_session_id)) ||
             (orderType === "delivery_manual" && (!selectedDeliveryApp || !deliveryExternalCode.trim()))
           }

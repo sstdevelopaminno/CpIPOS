@@ -11,6 +11,8 @@ This file preserves product and architecture context only. For current workspace
 
 Local dev note: if `localhost:3000` login is slow or appears stuck, read `docs/LOCAL-DEV-LOGIN-PERFORMANCE-2026-07-27.md` before debugging. Do not spend tokens chasing port 3000 if `/login/store` loads; check `.env.local`, Supabase connectivity, dev warm-up logs, and first-route compile behavior.
 
+Task #44 table-order concurrency checkpoint: source branch `agent/table-order-concurrency-dinein-sync` separates Table QR menu/status/write rate-limit lanes, changes mobile QR polling to `?view=status`, routes POS dine-in queued edits through `replace_queued_dine_in_order_tx`, and adds empty-bill cancellation through `cancel_empty_table_bill_session_tx`. Primary/Trial migrations are source-only and must not be considered applied without a later explicit DB task.
+
 ## 1) Product and System Scope
 
 SST iPOS is a multi-owner, multi-branch POS platform with 4 logical surfaces:

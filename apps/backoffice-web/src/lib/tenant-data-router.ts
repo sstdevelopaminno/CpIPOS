@@ -60,6 +60,8 @@ const BUSINESS_RPCS = new Set([
   "create_pos_order_tx",
   "complete_pos_payment_tx",
   "submit_table_qr_order_tx",
+  "replace_queued_dine_in_order_tx",
+  "cancel_empty_table_bill_session_tx",
   "create_stock_adjustment_tx",
   "enqueue_kitchen_order",
   "replace_kitchen_routes",
@@ -520,6 +522,8 @@ async function registerRpcRoutes(fn: string, result: unknown, tenantId: string, 
       if (objectId) entries.push({ object_type: objectType, object_id: objectId, tenant_id: tenantId, branch_id: branchId, metadata: { source_home: "trial" } });
     };
     if (fn === "create_pos_order_tx") add("orders", asString(row.order_id));
+    if (fn === "replace_queued_dine_in_order_tx") add("orders", asString(row.order_id));
+    if (fn === "cancel_empty_table_bill_session_tx") add("table_bill_sessions", asString(row.table_session_id));
     if (fn === "submit_table_qr_order_tx") {
       add("orders", asString(row.order_id));
       add("table_qr_orders", asString(row.submission_id));

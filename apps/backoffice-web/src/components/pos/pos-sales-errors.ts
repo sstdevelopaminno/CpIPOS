@@ -18,7 +18,7 @@ export function extractApiErrorCode(message: string): string | null {
 
 export function isConflictErrorCode(code: string | null): boolean {
   if (!code) return false;
-  return code === "table_not_available" || code === "shift_not_open" || code === "order_not_updatable" || code === "order_not_found";
+  return code === "table_not_available" || code === "shift_not_open" || code === "order_not_updatable" || code === "order_not_found" || code === "table_bill_order_conflict" || code === "table_bill_not_open";
 }
 
 const API_ERROR_I18N = {
@@ -29,6 +29,8 @@ const API_ERROR_I18N = {
     table_required: "ต้องเลือกโต๊ะก่อนทำรายการทานในร้าน",
     order_not_found: "ไม่พบบิลนี้ในสาขาปัจจุบัน",
     order_not_updatable: "บิลนี้ไม่สามารถแก้ไขได้แล้ว กรุณาสร้างบิลใหม่",
+    table_bill_order_conflict: "This table bill already has a new order. Reloading the latest bill.",
+    table_bill_not_open: "This table bill is no longer open for editing.",
     order_not_cancelable: "สถานะบิลนี้ยังยกเลิกไม่ได้",
     cancellation_approval_required: "ต้องยืนยัน PIN ก่อนยกเลิกบิล",
     cancellation_approval_invalid: "ไม่พบการอนุมัติยกเลิกบิล",
@@ -56,6 +58,8 @@ const API_ERROR_I18N = {
     table_required: "A table is required for dine-in orders.",
     order_not_found: "Order was not found in the current branch.",
     order_not_updatable: "This order can no longer be edited. Please create a new order.",
+    table_bill_order_conflict: "This table bill already has a new order. Reloading the latest bill.",
+    table_bill_not_open: "This table bill is no longer open for editing.",
     order_not_cancelable: "This order status cannot be cancelled.",
     cancellation_approval_required: "PIN approval is required before cancelling bill.",
     cancellation_approval_invalid: "Cancellation approval was not found.",
