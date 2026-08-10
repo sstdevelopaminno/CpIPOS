@@ -15,6 +15,12 @@ type ActivityRow = {
   created_at: string;
 };
 
+type ServiceEventRow = {
+  id: string;
+  event_type: ServiceEventType;
+  payload: Record<string, unknown> | null;
+};
+
 function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
 }
@@ -85,15 +91,16 @@ export async function POST(request: Request) {
     if (!eventId) return fail("table_qr_activity_event_required", "event_id is required.", 422);
 
     const supabase = getRoutedSupabaseServiceClient();
-    const { data: eventRow, error: readError } = await supabase
+    const { data: eventData, error: readError } = await supabase
       .from("table_qr_orders")
       .select("id,event_type,payload")
       .eq("tenant_id", auth.tenantId!)
       .eq("branch_id", auth.branchId!)
       .eq("id", eventId)
       .in("event_type", ["call_staff", "request_checkout"])
-      .maybeSingle<{ id: string; event_type: ServiceEventType; payload: Record<string, unknown> | null }>();
+      .maybeSingle();
     if (readError) throw new Error(readError.message);
+    const eventRow = (eventData ?? null) as ServiceEventRow | null;
     if (!eventRow) return fail("table_qr_activity_event_not_found", "Table QR service event was not found.", 404);
 
     const currentPayload = asRecord(eventRow.payload);
