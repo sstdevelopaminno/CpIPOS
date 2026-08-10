@@ -222,6 +222,7 @@ class PosMdmAgent(
 
     private fun buildSnapshot(reason: String): JSONObject {
         val printer = lastPrinterDiagnostic
+        val webViewPackage = WebView.getCurrentWebViewPackage()
         return JSONObject()
             .put("reason", reason)
             .put("install_id", installId)
@@ -269,6 +270,8 @@ class PosMdmAgent(
                     .put("title", currentTitle)
                     .put("can_go_back", canGoBackState)
                     .put("last_page_error", lastPageError)
+                    .put("package_name", webViewPackage?.packageName)
+                    .put("package_version_name", webViewPackage?.versionName)
             )
             .put(
                 "printer",
