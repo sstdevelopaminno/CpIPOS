@@ -10,10 +10,11 @@ type Product = {
   description: string;
   status: ProductStatus;
   statusLabel: string;
-  file?: string;
+  file: string;
   downloadUrl?: string;
+  downloadLabel: string;
   modalBody?: string;
-  icon: "mobile" | "tablet" | "windows";
+  icon: "mobile" | "tablet" | "windows" | "admin";
 };
 
 const products: Product[] = [
@@ -21,36 +22,50 @@ const products: Product[] = [
     title: "CpIPOS Mobile - Android",
     platform: "Android Phone / Tablet",
     description:
-      "แอปสำหรับเจ้าของร้าน ผู้จัดการ และพนักงาน กำลังอยู่ระหว่างการพัฒนาและปรับปรุงประสบการณ์ใช้งานให้สมบูรณ์ยิ่งขึ้น",
-    status: "developing",
-    statusLabel: "อยู่ระหว่างพัฒนา",
+      "Native Android app สำหรับเจ้าของร้าน ผู้จัดการ และพนักงาน ใช้ Kotlin + Jetpack Compose และเชื่อมต่อ CpIPOS API โดยตรง ไม่ใช้ WebView หรือ mobile hosting แยก",
+    status: "ready",
+    statusLabel: "พร้อมดาวน์โหลด",
     file: "CpIPOS-Mobile.apk",
-    modalBody:
-      "CpIPOS Mobile - Android อยู่ระหว่างการพัฒนาและปรับปรุงระบบเพิ่มเติม กรุณาใช้งานผ่าน CpIPOS Web App ไปก่อนในช่วงนี้ เมื่อแอปพร้อมใช้งาน เราจะเปิดดาวน์โหลดจากหน้านี้โดยตรง",
+    downloadUrl: "/download/mobile/latest",
+    downloadLabel: "CpIPOS Mobile"
+  ,
     icon: "mobile"
   },
   {
     title: "CpIPOS POS - Android Tablet",
     platform: "Android Tablet POS",
     description:
-      "Web App Wrapper สำหรับ Android Tablet POS ใช้ UI และฟีเจอร์เดียวกับ CpIPOS Web App อัปเดตได้ทันที พร้อมรองรับ MDM และการต่อยอดฮาร์ดแวร์ในอนาคต",
+      "Android Tablet POS runtime สำหรับเครื่องขายหน้าร้าน ใช้ UI และฟีเจอร์เดียวกับ CpIPOS Web App พร้อม route ดาวน์โหลด APK ล่าสุดจาก GitHub Release",
     status: "ready",
     statusLabel: "พร้อมดาวน์โหลด",
     file: "CpIPOS-Android-debug.apk",
     downloadUrl: "/download/android/latest",
+    downloadLabel: "Android POS",
     icon: "tablet"
   },
   {
     title: "CpIPOS POS - Windows",
     platform: "Windows POS Terminal",
     description:
-      "Windows POS สำหรับเครื่องขายหน้าร้าน ระบบพิมพ์ ลิ้นชักเก็บเงิน การวินิจฉัยอุปกรณ์ และ MDM อยู่ระหว่างการปรับปรุงให้ทำงานร่วมกับ Web App อย่างสมบูรณ์",
-    status: "developing",
-    statusLabel: "อยู่ระหว่างพัฒนา",
+      "Windows POS Runtime สำหรับเครื่องขายหน้าร้าน รองรับ WebView2 shell, local runtime bridge, printer/cash-drawer integration และดาวน์โหลดตัวติดตั้งล่าสุดจาก release คงที่",
+    status: "ready",
+    statusLabel: "พร้อมดาวน์โหลด",
     file: "CpIPOS-WindowsRuntime-Setup.exe",
-    modalBody:
-      "CpIPOS POS - Windows อยู่ระหว่างการพัฒนาและปรับปรุงให้สอดคล้องกับ CpIPOS Web App รวมถึงระบบเครื่องพิมพ์และฮาร์ดแวร์ กรุณาใช้งานผ่าน Web App ไปก่อนในช่วงนี้",
+    downloadUrl: "/download/windows-runtime/latest",
+    downloadLabel: "Windows POS",
     icon: "windows"
+  },
+  {
+    title: "CpIPOS IT Admin Runtime",
+    platform: "Windows IT Admin",
+    description:
+      "Windows Runtime สำหรับงาน IT Admin, device management, diagnostics และ MDM operation แยกจากเครื่อง POS หน้าร้าน พร้อมดาวน์โหลดตัวติดตั้งล่าสุด",
+    status: "ready",
+    statusLabel: "พร้อมดาวน์โหลด",
+    file: "CpIPOS-ITAdminRuntime-Setup.exe",
+    downloadUrl: "/download/it-admin/latest",
+    downloadLabel: "IT Admin",
+    icon: "admin"
   }
 ];
 
@@ -68,6 +83,15 @@ function ProductIcon({ type }: { type: Product["icon"] }) {
       <svg viewBox="0 0 24 24" className="h-7 w-7" fill="none" aria-hidden="true">
         <rect x="4" y="2.5" width="16" height="19" rx="2.5" stroke="currentColor" strokeWidth="1.8" />
         <path d="M9 18.5h6" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+      </svg>
+    );
+  }
+
+  if (type === "admin") {
+    return (
+      <svg viewBox="0 0 24 24" className="h-7 w-7" fill="none" aria-hidden="true">
+        <path d="M12 3 5 6v5c0 4.3 2.7 8.2 7 10 4.3-1.8 7-5.7 7-10V6l-7-3Z" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
+        <path d="M9.2 12.1 11 13.9l3.9-4.2" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
       </svg>
     );
   }
@@ -131,20 +155,20 @@ export function DownloadCenterClient() {
             ดาวน์โหลดแอป CpIPOS
           </h1>
           <p className="mx-auto mt-5 max-w-2xl text-base leading-7 text-slate-300 sm:text-lg">
-            เลือกแอปให้เหมาะกับอุปกรณ์ของคุณ Android Tablet POS พร้อมดาวน์โหลดแล้ว ส่วน Mobile และ Windows อยู่ระหว่างการพัฒนา
+            เลือกดาวน์โหลดแอป CpIPOS เวอร์ชันล่าสุดสำหรับ Mobile Android, Android Tablet POS, Windows POS และ IT Admin Runtime จาก release ล่าสุดของระบบ
           </p>
 
           <div className="mt-7 flex flex-wrap items-center justify-center gap-3 text-xs font-semibold">
             <span className="rounded-full border border-emerald-400/20 bg-emerald-400/10 px-3 py-1.5 text-emerald-300">
-              Android POS พร้อมใช้งาน
+              Android / Windows พร้อมดาวน์โหลด
             </span>
-            <span className="rounded-full border border-amber-400/20 bg-amber-400/10 px-3 py-1.5 text-amber-200">
-              Mobile / Windows กำลังพัฒนา
+            <span className="rounded-full border border-sky-400/20 bg-sky-400/10 px-3 py-1.5 text-sky-200">
+              Latest release assets
             </span>
           </div>
         </section>
 
-        <section className="mt-12 grid gap-5 lg:mt-16 lg:grid-cols-3">
+        <section className="mt-12 grid gap-5 md:grid-cols-2 xl:grid-cols-4 lg:mt-16">
           {products.map((product) => {
             const ready = product.status === "ready";
 
@@ -159,7 +183,7 @@ export function DownloadCenterClient() {
               >
                 {ready ? (
                   <div className="absolute right-0 top-0 rounded-bl-2xl bg-sky-400 px-4 py-2 text-[11px] font-black uppercase tracking-wide text-slate-950">
-                    Recommended
+                    Latest
                   </div>
                 ) : null}
 
@@ -197,7 +221,7 @@ export function DownloadCenterClient() {
                       <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" aria-hidden="true">
                         <path d="M12 3v12m0 0 4-4m-4 4-4-4M5 20h14" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
                       </svg>
-                      ดาวน์โหลด Android POS
+                      ดาวน์โหลด {product.downloadLabel}
                     </a>
                   ) : (
                     <button
@@ -261,7 +285,7 @@ export function DownloadCenterClient() {
                 onClick={() => setModalProduct(null)}
                 className="min-h-11 rounded-xl border border-slate-700 bg-slate-800 px-4 text-sm font-bold text-slate-200 transition hover:bg-slate-700"
               >
-                ปิด
+                ปิดหน้าต่าง
               </button>
               <a
                 href="/login/store"
