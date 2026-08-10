@@ -11,11 +11,13 @@ android {
         applicationId = "com.cpipos.pos"
         minSdk = 26
         targetSdk = 34
-        versionCode = 4
-        versionName = "0.2.1"
+        versionCode = 5
+        versionName = "0.2.2"
 
         buildConfigField("String", "CPIPOS_API_BASE_URL", "\"https://cp-ipos-web.vercel.app\"")
         buildConfigField("String", "CPIPOS_POS_WEB_URL", "\"https://cp-ipos-web.vercel.app/login/store\"")
+        buildConfigField("String", "CPIPOS_MDM_HEARTBEAT_URL", "\"https://cp-ipos-web.vercel.app/api/android-pos/mdm/heartbeat\"")
+        buildConfigField("String", "CPIPOS_ANDROID_POS_ALLOWED_HOST", "\"cp-ipos-web.vercel.app\"")
     }
 
     buildTypes {
