@@ -1,0 +1,464 @@
+-- CpIPOS Kitchen item lifecycle, running queue, cashier lock, and dine-in payment gate.
+-- Trial data plane (CpiPOS-002) mirror of the Primary Kitchen lifecycle migration.
+-- Source migration only: apply through the controlled migration runbook.
+
+alter table public.kitchen_zones
+  add column if not exists kds_enabled boolean not null default true;
+
+alter table public.kitchen_tickets
+  add column if not exists queue_no integer;
+
+alter table public.kitchen_ticket_items
+  add column if not exists status text not null default 'queued',
+  add column if not exists accepted_at timestamptz,
+  add column if not exists accepted_by uuid,
+  add column if not exists ready_at timestamptz,
+  add column if not exists ready_by uuid,
+  add column if not exists updated_at timestamptz not null default now();
+
+do $$
+begin
+  if not exists (
+    select 1
+    from pg_constraint
+    where conname = 'kitchen_ticket_items_status_check'
+      and conrelid = 'public.kitchen_ticket_items'::regclass
+  ) then
+    alter table public.kitchen_ticket_items
+      add constraint kitchen_ticket_items_status_check
+      check (status in ('queued','accepted','ready','cancelled'));
+  end if;
+end;
+$$;
+
+create index if not exists idx_kitchen_ticket_items_scope_status
+  on public.kitchen_ticket_items(tenant_id, branch_id, status, order_item_id);
+create index if not exists idx_kitchen_tickets_scope_queue
+  on public.kitchen_tickets(tenant_id, branch_id, created_at, queue_no);
+
+update public.kitchen_ticket_items ki
+set status = case kt.status
+  when 'ready' then 'ready'
+  when 'cancelled' then 'cancelled'
+  when 'acknowledged' then 'accepted'
+  when 'preparing' then 'accepted'
+  else 'queued'
+end,
+accepted_at = case when kt.status in ('acknowledged','preparing','ready') then coalesce(ki.accepted_at, kt.updated_at) else ki.accepted_at end,
+ready_at = case when kt.status = 'ready' then coalesce(ki.ready_at, kt.updated_at) else ki.ready_at end,
+updated_at = now()
+from public.kitchen_tickets kt
+where kt.id = ki.kitchen_ticket_id;
+
+create or replace function app.assign_kitchen_ticket_queue_no()
+returns trigger
+language plpgsql
+security definer
+set search_path = pg_catalog, public, app, extensions
+as $$
+declare
+  v_existing integer;
+  v_business_date date;
+begin
+  if new.queue_no is not null then return new; end if;
+
+  select kt.queue_no into v_existing
+  from public.kitchen_tickets kt
+  where kt.tenant_id = new.tenant_id
+    and kt.branch_id = new.branch_id
+    and kt.event_key = new.event_key
+    and kt.queue_no is not null
+  order by kt.created_at, kt.id
+  limit 1;
+
+  if v_existing is not null then
+    new.queue_no := v_existing;
+    return new;
+  end if;
+
+  v_business_date := timezone('Asia/Bangkok', coalesce(new.created_at, now()))::date;
+  perform pg_advisory_xact_lock(hashtextextended(
+    new.tenant_id::text || ':' || new.branch_id::text || ':' || v_business_date::text || ':kitchen_queue',
+    0
+  ));
+
+  select kt.queue_no into v_existing
+  from public.kitchen_tickets kt
+  where kt.tenant_id = new.tenant_id
+    and kt.branch_id = new.branch_id
+    and kt.event_key = new.event_key
+    and kt.queue_no is not null
+  order by kt.created_at, kt.id
+  limit 1;
+
+  if v_existing is not null then
+    new.queue_no := v_existing;
+    return new;
+  end if;
+
+  select coalesce(max(kt.queue_no), 0) + 1
+  into new.queue_no
+  from public.kitchen_tickets kt
+  where kt.tenant_id = new.tenant_id
+    and kt.branch_id = new.branch_id
+    and timezone('Asia/Bangkok', kt.created_at)::date = v_business_date;
+
+  return new;
+end;
+$$;
+
+drop trigger if exists trg_kitchen_ticket_queue_no on public.kitchen_tickets;
+create trigger trg_kitchen_ticket_queue_no
+before insert on public.kitchen_tickets
+for each row
+execute function app.assign_kitchen_ticket_queue_no();
+
+create or replace function app.enforce_accepted_kitchen_order_item_lock()
+returns trigger
+language plpgsql
+security definer
+set search_path = pg_catalog, public, app, extensions
+as $$
+declare
+  v_locked boolean := false;
+  v_is_dine_in boolean := false;
+begin
+  select exists (
+    select 1
+    from public.orders o
+    where o.id = old.order_id
+      and o.tenant_id = old.tenant_id
+      and o.branch_id = old.branch_id
+      and o.order_type::text = 'dine_in'
+  ) into v_is_dine_in;
+
+  if not v_is_dine_in then
+    if tg_op = 'DELETE' then return old; end if;
+    return new;
+  end if;
+
+  select exists (
+    select 1
+    from public.kitchen_ticket_items ki
+    join public.kitchen_tickets kt
+      on kt.id = ki.kitchen_ticket_id
+     and kt.tenant_id = ki.tenant_id
+     and kt.branch_id = ki.branch_id
+    join public.kitchen_zones kz
+      on kz.id = kt.zone_id
+     and kz.tenant_id = kt.tenant_id
+     and kz.branch_id = kt.branch_id
+    where ki.tenant_id = old.tenant_id
+      and ki.branch_id = old.branch_id
+      and ki.order_item_id = old.id
+      and ki.action in ('new','add')
+      and ki.status in ('accepted','ready')
+      and kz.kds_enabled = true
+  ) into v_locked;
+
+  if not v_locked then
+    if tg_op = 'DELETE' then return old; end if;
+    return new;
+  end if;
+
+  if tg_op = 'DELETE' then
+    raise exception 'KITCHEN_ITEM_LOCKED';
+  end if;
+
+  if new.product_id is distinct from old.product_id
+     or new.notes is distinct from old.notes
+     or new.unit_price is distinct from old.unit_price
+     or new.quantity < old.quantity then
+    raise exception 'KITCHEN_ITEM_LOCKED';
+  end if;
+
+  return new;
+end;
+$$;
+
+drop trigger if exists trg_order_items_kitchen_accept_lock on public.order_items;
+create trigger trg_order_items_kitchen_accept_lock
+before update of product_id, quantity, unit_price, notes or delete
+on public.order_items
+for each row
+execute function app.enforce_accepted_kitchen_order_item_lock();
+
+create or replace function app.apply_kitchen_cancel_delta()
+returns trigger
+language plpgsql
+security definer
+set search_path = pg_catalog, public, app, extensions
+as $$
+declare
+  v_zone_id uuid;
+  v_remaining numeric(12,3);
+  v_row record;
+begin
+  if new.action <> 'cancel' then return new; end if;
+
+  select kt.zone_id into v_zone_id
+  from public.kitchen_tickets kt
+  where kt.id = new.kitchen_ticket_id
+    and kt.tenant_id = new.tenant_id
+    and kt.branch_id = new.branch_id;
+
+  v_remaining := greatest(new.quantity, 0);
+
+  for v_row in
+    select ki.id, ki.quantity, ki.kitchen_ticket_id
+    from public.kitchen_ticket_items ki
+    join public.kitchen_tickets kt on kt.id = ki.kitchen_ticket_id
+    where ki.tenant_id = new.tenant_id
+      and ki.branch_id = new.branch_id
+      and ki.order_item_id = new.order_item_id
+      and ki.action in ('new','add')
+      and ki.status = 'queued'
+      and kt.zone_id = v_zone_id
+      and kt.id <> new.kitchen_ticket_id
+    order by kt.created_at desc, ki.created_at desc, ki.id desc
+    for update of ki
+  loop
+    exit when v_remaining <= 0;
+    if v_row.quantity <= v_remaining then
+      update public.kitchen_ticket_items
+      set status = 'cancelled', updated_at = now()
+      where id = v_row.id;
+      v_remaining := v_remaining - v_row.quantity;
+    else
+      update public.kitchen_ticket_items
+      set quantity = quantity - v_remaining, updated_at = now()
+      where id = v_row.id;
+      v_remaining := 0;
+    end if;
+  end loop;
+
+  new.status := 'cancelled';
+  new.updated_at := now();
+  return new;
+end;
+$$;
+
+drop trigger if exists trg_kitchen_cancel_delta on public.kitchen_ticket_items;
+create trigger trg_kitchen_cancel_delta
+before insert on public.kitchen_ticket_items
+for each row
+execute function app.apply_kitchen_cancel_delta();
+
+create or replace function app.rollup_kitchen_ticket_from_items()
+returns trigger
+language plpgsql
+security definer
+set search_path = pg_catalog, public, app, extensions
+as $$
+declare
+  v_ticket_id uuid := coalesce(new.kitchen_ticket_id, old.kitchen_ticket_id);
+  v_event_type text;
+  v_open_count integer;
+  v_accepted_count integer;
+  v_ready_count integer;
+begin
+  select kt.event_type into v_event_type
+  from public.kitchen_tickets kt
+  where kt.id = v_ticket_id;
+
+  if not found then return coalesce(new, old); end if;
+
+  if v_event_type = 'cancel' then
+    update public.kitchen_tickets
+    set status = 'cancelled', updated_at = now()
+    where id = v_ticket_id and status <> 'cancelled';
+    return coalesce(new, old);
+  end if;
+
+  select
+    count(*) filter (where ki.status in ('queued','accepted')),
+    count(*) filter (where ki.status = 'accepted'),
+    count(*) filter (where ki.status = 'ready')
+  into v_open_count, v_accepted_count, v_ready_count
+  from public.kitchen_ticket_items ki
+  where ki.kitchen_ticket_id = v_ticket_id
+    and ki.action in ('new','add','reprint')
+    and ki.status <> 'cancelled';
+
+  if v_open_count = 0 and v_ready_count > 0 then
+    update public.kitchen_tickets set status = 'ready', updated_at = now() where id = v_ticket_id;
+  elsif v_open_count = 0 and v_ready_count = 0 then
+    update public.kitchen_tickets set status = 'cancelled', updated_at = now() where id = v_ticket_id;
+  elsif v_accepted_count > 0 or v_ready_count > 0 then
+    update public.kitchen_tickets set status = 'acknowledged', updated_at = now() where id = v_ticket_id and status not in ('ready','cancelled');
+  else
+    update public.kitchen_tickets set status = 'queued', updated_at = now() where id = v_ticket_id and status not in ('ready','cancelled');
+  end if;
+
+  return coalesce(new, old);
+end;
+$$;
+
+drop trigger if exists trg_kitchen_item_rollup on public.kitchen_ticket_items;
+create trigger trg_kitchen_item_rollup
+after insert or update of status on public.kitchen_ticket_items
+for each row
+execute function app.rollup_kitchen_ticket_from_items();
+
+create or replace function app.set_kitchen_item_status(
+  p_tenant_id uuid,
+  p_branch_id uuid,
+  p_item_id uuid,
+  p_status text,
+  p_actor_user_id uuid default null
+)
+returns table (
+  item_id uuid,
+  kitchen_ticket_id uuid,
+  item_status text,
+  ticket_status text,
+  updated_at timestamptz
+)
+language plpgsql
+security definer
+set search_path = pg_catalog, public, app, extensions
+as $$
+declare
+  v_current text;
+  v_next text := lower(btrim(coalesce(p_status, '')));
+  v_ticket_id uuid;
+  v_ticket_status text;
+begin
+  if v_next not in ('accepted','ready') then raise exception 'KITCHEN_ITEM_STATUS_INVALID'; end if;
+
+  select ki.status, ki.kitchen_ticket_id
+  into v_current, v_ticket_id
+  from public.kitchen_ticket_items ki
+  join public.kitchen_tickets kt
+    on kt.id = ki.kitchen_ticket_id
+   and kt.tenant_id = ki.tenant_id
+   and kt.branch_id = ki.branch_id
+  join public.kitchen_zones kz
+    on kz.id = kt.zone_id
+   and kz.tenant_id = kt.tenant_id
+   and kz.branch_id = kt.branch_id
+  where ki.id = p_item_id
+    and ki.tenant_id = p_tenant_id
+    and ki.branch_id = p_branch_id
+    and ki.action in ('new','add','reprint')
+    and kz.kds_enabled = true
+  for update of ki;
+
+  if not found then raise exception 'KITCHEN_ITEM_NOT_FOUND'; end if;
+
+  if v_current = 'cancelled' or v_current = 'ready' then
+    if v_current <> v_next then raise exception 'KITCHEN_ITEM_TERMINAL'; end if;
+  elsif v_next = 'accepted' then
+    if v_current <> 'queued' then raise exception 'KITCHEN_ITEM_TRANSITION_INVALID'; end if;
+    update public.kitchen_ticket_items
+    set status = 'accepted',
+        accepted_at = coalesce(accepted_at, now()),
+        accepted_by = coalesce(accepted_by, p_actor_user_id),
+        updated_at = now()
+    where id = p_item_id;
+  elsif v_next = 'ready' then
+    if v_current <> 'accepted' then raise exception 'KITCHEN_ITEM_MUST_BE_ACCEPTED'; end if;
+    update public.kitchen_ticket_items
+    set status = 'ready',
+        ready_at = coalesce(ready_at, now()),
+        ready_by = coalesce(ready_by, p_actor_user_id),
+        updated_at = now()
+    where id = p_item_id;
+  end if;
+
+  select kt.status into v_ticket_status
+  from public.kitchen_tickets kt
+  where kt.id = v_ticket_id;
+
+  return query
+  select ki.id, ki.kitchen_ticket_id, ki.status, v_ticket_status, ki.updated_at
+  from public.kitchen_ticket_items ki
+  where ki.id = p_item_id;
+end;
+$$;
+
+create or replace function public.set_kitchen_item_status(
+  p_tenant_id uuid,
+  p_branch_id uuid,
+  p_item_id uuid,
+  p_status text,
+  p_actor_user_id uuid default null
+)
+returns table (
+  item_id uuid,
+  kitchen_ticket_id uuid,
+  item_status text,
+  ticket_status text,
+  updated_at timestamptz
+)
+language sql
+security definer
+set search_path = pg_catalog, public, app, extensions
+as $$
+  select * from app.set_kitchen_item_status(
+    p_tenant_id, p_branch_id, p_item_id, p_status, p_actor_user_id
+  );
+$$;
+
+revoke all on function app.set_kitchen_item_status(uuid,uuid,uuid,text,uuid) from public, anon, authenticated;
+revoke all on function public.set_kitchen_item_status(uuid,uuid,uuid,text,uuid) from public, anon, authenticated;
+grant execute on function app.set_kitchen_item_status(uuid,uuid,uuid,text,uuid) to service_role;
+grant execute on function public.set_kitchen_item_status(uuid,uuid,uuid,text,uuid) to service_role;
+
+create or replace function app.assert_dine_in_kitchen_ready_for_completion()
+returns trigger
+language plpgsql
+security definer
+set search_path = pg_catalog, public, app, extensions
+as $$
+begin
+  if new.status::text <> 'completed'
+     or old.status::text = 'completed'
+     or new.order_type::text <> 'dine_in' then
+    return new;
+  end if;
+
+  if exists (
+    select 1
+    from public.kitchen_ticket_items ki
+    join public.kitchen_tickets kt
+      on kt.id = ki.kitchen_ticket_id
+     and kt.tenant_id = ki.tenant_id
+     and kt.branch_id = ki.branch_id
+    join public.kitchen_zones kz
+      on kz.id = kt.zone_id
+     and kz.tenant_id = kt.tenant_id
+     and kz.branch_id = kt.branch_id
+    where kt.tenant_id = new.tenant_id
+      and kt.branch_id = new.branch_id
+      and kt.order_id = new.id
+      and kt.event_type in ('new','add','reprint')
+      and ki.action in ('new','add','reprint')
+      and ki.status not in ('ready','cancelled')
+      and kz.kds_enabled = true
+  ) then
+    raise exception 'KITCHEN_NOT_READY';
+  end if;
+
+  return new;
+end;
+$$;
+
+drop trigger if exists trg_orders_kitchen_completion_gate on public.orders;
+create trigger trg_orders_kitchen_completion_gate
+before update of status on public.orders
+for each row
+execute function app.assert_dine_in_kitchen_ready_for_completion();
+
+revoke all on function app.assign_kitchen_ticket_queue_no() from public, anon, authenticated;
+revoke all on function app.enforce_accepted_kitchen_order_item_lock() from public, anon, authenticated;
+revoke all on function app.apply_kitchen_cancel_delta() from public, anon, authenticated;
+revoke all on function app.rollup_kitchen_ticket_from_items() from public, anon, authenticated;
+revoke all on function app.assert_dine_in_kitchen_ready_for_completion() from public, anon, authenticated;
+grant execute on function app.assign_kitchen_ticket_queue_no() to service_role;
+grant execute on function app.enforce_accepted_kitchen_order_item_lock() to service_role;
+grant execute on function app.apply_kitchen_cancel_delta() to service_role;
+grant execute on function app.rollup_kitchen_ticket_from_items() to service_role;
+grant execute on function app.assert_dine_in_kitchen_ready_for_completion() to service_role;
+
+notify pgrst, 'reload schema';
