@@ -11,7 +11,7 @@ describe("POS device session access rules", () => {
 
     expect(result).toEqual({
       ok: true,
-      shouldRevokeExistingSession: false,
+      shouldRevokeExistingSession: true,
       overrideApplied: false
     });
   });
@@ -53,7 +53,7 @@ describe("POS device session access rules", () => {
 
     expect(result).toEqual({
       ok: true,
-      shouldRevokeExistingSession: false,
+      shouldRevokeExistingSession: true,
       overrideApplied: false
     });
   });
