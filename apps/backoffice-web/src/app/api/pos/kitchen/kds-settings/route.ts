@@ -1,5 +1,5 @@
-import { getAuthContext } from "@/lib/auth-context";
 import { fail, ok } from "@/lib/http";
+import { getPosApiAuthContext } from "@/lib/pos-api-auth";
 import { KitchenConfigError } from "@/lib/services/kitchen-config-service";
 import {
   loadKitchenKdsSettings,
@@ -15,7 +15,7 @@ function configFail(error: unknown) {
 
 export async function GET() {
   try {
-    const auth = await getAuthContext({ requireBranchScope: true });
+    const auth = await getPosApiAuthContext({ requireBranchScope: true, requiredPermission: "settings:view" });
     return ok(await loadKitchenKdsSettings(auth));
   } catch (error) {
     return configFail(error);
@@ -24,7 +24,7 @@ export async function GET() {
 
 export async function POST(req: Request) {
   try {
-    const auth = await getAuthContext({ requireBranchScope: true });
+    const auth = await getPosApiAuthContext({ requireBranchScope: true, requiredPermission: "settings:view" });
     const body = (await req.json().catch(() => null)) as { zone_id?: string; kds_enabled?: boolean } | null;
     const zoneId = String(body?.zone_id ?? "").trim();
     if (!zoneId || typeof body?.kds_enabled !== "boolean") {
