@@ -39,6 +39,7 @@ class PosMdmAgent(
 
     @Volatile private var currentUrl: String? = null
     @Volatile private var currentTitle: String? = null
+    @Volatile private var canGoBackState: Boolean = false
     @Volatile private var lastPageError: String? = null
     @Volatile private var lastCommandAction: String? = null
     @Volatile private var lastCommandSource: String? = null
@@ -75,17 +76,20 @@ class PosMdmAgent(
 
     fun notifyPageStarted(url: String?) {
         currentUrl = url
+        canGoBackState = webView.canGoBack()
         lastPageError = null
     }
 
     fun notifyPageFinished(url: String?) {
         currentUrl = url
         currentTitle = webView.title
+        canGoBackState = webView.canGoBack()
         sendHeartbeat("page_finished")
     }
 
     fun notifyPageError(url: String?, description: String?) {
         currentUrl = url
+        canGoBackState = webView.canGoBack()
         lastPageError = description?.take(240)
         sendHeartbeat("page_error")
     }
@@ -114,10 +118,19 @@ class PosMdmAgent(
             "collect_diagnostics" -> sendHeartbeat("command_collect_diagnostics")
             "reload_webview" -> mainHandler.post {
                 if (webView.url.isNullOrBlank()) webView.loadUrl(BuildConfig.CPIPOS_POS_WEB_URL) else webView.reload()
+                currentUrl = webView.url
+                currentTitle = webView.title
+                canGoBackState = webView.canGoBack()
             }
-            "navigate_home" -> mainHandler.post { webView.loadUrl(BuildConfig.CPIPOS_POS_WEB_URL) }
+            "navigate_home" -> mainHandler.post {
+                webView.loadUrl(BuildConfig.CPIPOS_POS_WEB_URL)
+                currentUrl = BuildConfig.CPIPOS_POS_WEB_URL
+                currentTitle = webView.title
+                canGoBackState = webView.canGoBack()
+            }
             "clear_webview_cache" -> mainHandler.post {
                 webView.clearCache(true)
+                canGoBackState = webView.canGoBack()
                 sendHeartbeat("command_clear_webview_cache")
             }
             "clear_cookies" -> mainHandler.post {
@@ -131,6 +144,9 @@ class PosMdmAgent(
                 CookieManager.getInstance().removeAllCookies(null)
                 CookieManager.getInstance().flush()
                 webView.loadUrl(BuildConfig.CPIPOS_POS_WEB_URL)
+                currentUrl = BuildConfig.CPIPOS_POS_WEB_URL
+                currentTitle = webView.title
+                canGoBackState = false
                 sendHeartbeat("command_clear_webview_data")
             }
             "test_printer_connection" -> executor?.execute {
@@ -249,9 +265,9 @@ class PosMdmAgent(
             .put(
                 "webview",
                 JSONObject()
-                    .put("url", currentUrl ?: webView.url)
-                    .put("title", currentTitle ?: webView.title)
-                    .put("can_go_back", webView.canGoBack())
+                    .put("url", currentUrl)
+                    .put("title", currentTitle)
+                    .put("can_go_back", canGoBackState)
                     .put("last_page_error", lastPageError)
             )
             .put(
