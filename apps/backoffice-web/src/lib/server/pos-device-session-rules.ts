@@ -30,7 +30,10 @@ export function resolveDeviceSessionAccess(input: DeviceSessionAccessInput): Dev
   }
 
   if (activeSessionUserId === input.employeeUserId) {
-    return { ok: true, shouldRevokeExistingSession: false, overrideApplied: false };
+    // Recycle the stale/current browser session before creating the replacement session.
+    // Without this, the database active-device uniqueness guard turns a valid re-entry
+    // by the same operator into session_scope_conflict / device_in_use.
+    return { ok: true, shouldRevokeExistingSession: true, overrideApplied: false };
   }
 
   if (!canOverrideInUseDevice(input.employeePermissions)) {
