@@ -6,43 +6,62 @@ import { BrowserPrintAgent } from "@/components/printing/browser-print-agent";
 import { PosShellSidebar } from "@/components/pos-preview/pos-shell-sidebar";
 import type { Language } from "@/lib/i18n";
 
-type MainMenuPlacement = "left" | "top" | "bottom";
+export type MainMenuPlacement = "left" | "top" | "bottom";
 
 const POS_MAIN_MENU_PLACEMENT_KEY = "pos_main_menu_bar_position_v2";
 const POS_MAIN_MENU_PLACEMENT_EVENT = "pos-main-menu-placement-updated";
 
-function normalizeMenuPlacement(value: string | null | undefined): MainMenuPlacement {
-  if (value === "top" || value === "bottom") return value;
-  return "left";
+function parseMenuPlacement(value: string | null | undefined): MainMenuPlacement | null {
+  if (value === "left" || value === "top" || value === "bottom") return value;
+  return null;
+}
+
+function persistPlacementCookie(placement: MainMenuPlacement) {
+  document.cookie = `${POS_MAIN_MENU_PLACEMENT_KEY}=${placement}; path=/; max-age=31536000; SameSite=Lax`;
 }
 
 export function PosShellFrame({
   children,
   lang,
-  settingsLabel
+  settingsLabel,
+  initialPlacement = "left"
 }: {
   children: ReactNode;
   lang: Language;
   settingsLabel: string;
+  initialPlacement?: MainMenuPlacement;
 }) {
-  const [placement, setPlacement] = useState<MainMenuPlacement>("left");
+  const [placement, setPlacement] = useState<MainMenuPlacement>(initialPlacement);
 
   useEffect(() => {
+    const applyPlacement = (nextPlacement: MainMenuPlacement) => {
+      setPlacement((current) => (current === nextPlacement ? current : nextPlacement));
+      persistPlacementCookie(nextPlacement);
+    };
+
     const readPlacement = () => {
       try {
-        setPlacement(normalizeMenuPlacement(window.localStorage.getItem(POS_MAIN_MENU_PLACEMENT_KEY)));
+        const storedPlacement = parseMenuPlacement(window.localStorage.getItem(POS_MAIN_MENU_PLACEMENT_KEY));
+        const nextPlacement = storedPlacement ?? initialPlacement;
+        if (!storedPlacement) {
+          window.localStorage.setItem(POS_MAIN_MENU_PLACEMENT_KEY, nextPlacement);
+        }
+        applyPlacement(nextPlacement);
       } catch {
-        setPlacement("left");
+        applyPlacement(initialPlacement);
       }
     };
+
     const onPlacementUpdated = (event: Event) => {
       const detail = (event as CustomEvent<{ placement?: string | null }>).detail;
-      setPlacement(normalizeMenuPlacement(detail?.placement));
+      const nextPlacement = parseMenuPlacement(detail?.placement);
+      if (!nextPlacement) return;
+      applyPlacement(nextPlacement);
     };
+
     const onStorage = (event: StorageEvent) => {
-      if (event.key === POS_MAIN_MENU_PLACEMENT_KEY) {
-        setPlacement(normalizeMenuPlacement(event.newValue));
-      }
+      if (event.key !== POS_MAIN_MENU_PLACEMENT_KEY) return;
+      applyPlacement(parseMenuPlacement(event.newValue) ?? "left");
     };
 
     readPlacement();
@@ -52,7 +71,7 @@ export function PosShellFrame({
       window.removeEventListener(POS_MAIN_MENU_PLACEMENT_EVENT, onPlacementUpdated as EventListener);
       window.removeEventListener("storage", onStorage);
     };
-  }, []);
+  }, [initialPlacement]);
 
   const sidebar = <PosShellSidebar lang={lang} settingsLabel={settingsLabel} placement={placement} />;
   const content = (
