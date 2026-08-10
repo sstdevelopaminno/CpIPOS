@@ -105,14 +105,18 @@ export function shouldSkipDineInSubmit(args: {
   cartSnapshotSignature: string;
   total: number;
 }): boolean {
-  const { orderType, currentQueuedOrder, selectedTable, lastCommittedCartSignature, cartSnapshotSignature, total } = args;
+  const { orderType, currentQueuedOrder, selectedTable, lastCommittedCartSignature, cartSnapshotSignature } = args;
+  // An unchanged dine-in bill is already authoritative on the server. Payment must not
+  // resubmit the same items through create_pos_order_tx merely because current tax/total
+  // presentation differs from the stored bill; doing so can re-run stock validation on
+  // items that were already committed. Any real cart edit changes the signature and still
+  // goes through the normal update path and stock checks.
   return (
     orderType === "dine_in" &&
     Boolean(currentQueuedOrder?.id) &&
     Boolean(selectedTable?.active_session_id) &&
     Boolean(lastCommittedCartSignature) &&
-    lastCommittedCartSignature === cartSnapshotSignature &&
-    Math.abs(Number(currentQueuedOrder?.total_amount ?? 0) - total) < 0.01
+    lastCommittedCartSignature === cartSnapshotSignature
   );
 }
 
