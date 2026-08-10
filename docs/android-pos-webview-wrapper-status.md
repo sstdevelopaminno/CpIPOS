@@ -1,169 +1,170 @@
-# Android POS WebView Wrapper Status
+# CpIPOS POS - Android Tablet WebView Wrapper Status
 
-Last updated: 2026-08-11 03:22 ICT
-Owner direction: คุณเอส / CpIPOS
-Current assistant role: continue Android POS development only after owner instruction, document every change, and keep continuity across long or restarted chats.
+## Current source of truth
 
-## Current product decision
-
-`CpIPOS POS - Android Tablet` is the active Android POS runtime for near-final POS-machine testing.
-
-The current runtime direction is **Web App wrapper first** with embedded **app-scoped MDM-lite for development diagnostics and temporary safe control**.
-
-Current published test build:
-
+- Product/runtime: **CpIPOS POS - Android Tablet**
 - Android package: `com.cpipos.pos`
-- Source module: `apps/pos-android`
-- Current published test release: `0.2.2` / `versionCode = 5`
+- Current APK version: **v0.2.2**
+- Current `versionCode`: **5**
+- Runtime strategy: **CpIPOS Web App wrapper first** with **MDM-lite development bridge**
 - Web entrypoint: `https://cp-ipos-web.vercel.app/login/store`
-- Download Center route: `/download/android/latest`
+- MDM-lite heartbeat endpoint: `https://cp-ipos-web.vercel.app/api/android-pos/mdm/heartbeat`
+- Download route: `/download/android/latest`
+- Latest release asset: `CpIPOS-Android-debug.apk`
 - Release tag: `android-runtime-latest`
-- APK asset name: `CpIPOS-Android-debug.apk`
-- APK SHA256: `0c46918daec511ccba5d18c40907039140ddffbae3d11686de4660e4fc05556e`
-- APK size: `9,439,941 bytes`
-- Latest release purpose: test on the real POS Android machine before final hardening.
+- Latest published APK size: `9,439,941 bytes`
+- Latest published APK SHA256: `0c46918daec511ccba5d18c40907039140ddffbae3d11686de4660e4fc05556e`
+- Latest Android build run: `31427774213`
+- Latest Android build result: `success`
+- Current user checkpoint: **APK v0.2.2 has been installed on the real company POS machine for testing.**
 
-The Android POS app must behave as a tablet/POS-machine shell around the CpIPOS Web App login and POS flow. It must not be confused with `apps/cpipos-mobile-android`, Windows POS Runtime, or IT Admin Runtime.
+This file is the main handoff document for future Android POS work. If a new chat starts, read this file first before changing Android POS, MDM, printer, download, release, or IT Admin code.
 
-## Download Center rule
+## Business role of the POS machine
 
-Only `CpIPOS POS - Android Tablet` should show as ready for download while this POS-machine testing cycle is active.
+The Android POS machine is a company-owned device that will be sold or provided to customers together with the CpIPOS monthly rental/subscription POS system.
 
-The following products must remain marked as developing until they pass separate QA:
+The company must be able to support and control the POS device during service, maintenance, development, printer integration, and customer support. The control scope must be business-safe and limited to the company-owned POS stack.
 
-- `CpIPOS Mobile - Android`
-- `CpIPOS POS - Windows`
-- `CpIPOS IT Admin Runtime`
+## Current status
 
-## What changed in v0.2.1
+### Done
 
-`MainActivity.kt` became the WebView runtime entrypoint. It loads the CpIPOS Web App login flow and keeps the user inside the Android POS app shell for normal web navigation.
+- Android POS has been aligned as a WebView wrapper around the CpIPOS Web App.
+- Download Center must expose only **CpIPOS POS - Android Tablet** as downloadable.
+- CpIPOS Mobile, Windows POS, and IT Admin Runtime must remain **กำลังพัฒนา** until explicitly approved.
+- APK v0.2.2 / versionCode 5 has been built and published through GitHub Actions.
+- `/download/android/latest` redirects to the latest Android POS APK release asset.
+- MDM-lite is embedded in the Android POS APK for the current development/testing phase.
+- MDM-lite heartbeat endpoint exists in the web backend.
+- APK v0.2.2 has been installed on the real company POS machine for testing.
 
-The existing Kotlin/Compose/native API implementation files are intentionally retained in `apps/pos-android`. They are not the primary runtime entrypoint for this test release. Keep them available for later native device work, printer bridge work, offline/cache work, or rollback analysis.
+### Not done yet
 
-## What changed in v0.2.2
+- Printer hardware integration is not complete.
+- Real printer behavior must be tested on the actual POS machine.
+- Full MDM / Device Owner / Android Enterprise control is not implemented yet.
+- IT Admin Device Console is not implemented yet.
+- CPU usage, full RAM telemetry, GPS/province verification, POS problem telemetry, app uninstall/update control, and full remote diagnostics are not complete yet.
+- Signed production APK is not complete yet.
 
-Owner requested that MDM be embedded because temporary control is needed while developing printer and POS-machine hardware work.
+## Current MDM-lite scope in v0.2.2
 
-This release adds an **MDM-lite development bridge** inside the Android POS APK:
+MDM-lite is intentionally limited to app-level diagnostics and safe app-level commands while the POS machine and printer are being developed.
 
-- new `PosMdmAgent.kt` in `apps/pos-android/app/src/main/java/com/cpipos/pos/`;
-- stable app install id stored in Android shared preferences;
-- periodic heartbeat payload with app version, install id, Android/device model, network, battery, memory, storage, WebView state, and printer configuration state;
-- heartbeat target configured as `https://cp-ipos-web.vercel.app/api/android-pos/mdm/heartbeat`;
-- backend heartbeat endpoint added at `apps/backoffice-web/src/app/api/android-pos/mdm/heartbeat/route.ts`;
-- safe WebView JavaScript bridge exposed as `window.CpiposMdm` for the trusted CpIPOS Web App shell;
-- safe app-level commands only:
-  - `ping`
-  - `collect_diagnostics`
-  - `reload_webview`
-  - `navigate_home`
-  - `clear_webview_cache`
-  - `clear_cookies`
-  - `clear_webview_data`
-  - `test_printer_connection`
-- WebView navigation is restricted to the configured CpIPOS production host for in-app browsing; other URI schemes/hosts open externally.
+Allowed MDM-lite commands:
 
-This is intentionally **not** full Android Enterprise Device Owner MDM yet. It does not provide remote shell, arbitrary file access, app install/uninstall, wipe, SMS/camera/microphone access, or device-wide control. It is an app-scoped temporary control and diagnostics bridge for development and printer testing.
+- `ping`
+- `collect_diagnostics`
+- `reload_webview`
+- `navigate_home`
+- `clear_webview_cache`
+- `clear_cookies`
+- `clear_webview_data`
+- `test_printer_connection`
 
-## Last verified release state
+MDM-lite diagnostics currently cover:
 
-As of 2026-08-11 03:22 ICT:
+- app package
+- app version name/code
+- install id
+- device manufacturer/brand/model
+- Android version / SDK
+- uptime
+- network online/type
+- battery percentage
+- app memory
+- available app storage
+- WebView URL/title/back state/page error
+- configured printer host/port and last printer test result
 
-- Android POS version `0.2.2` / `versionCode = 5` has been built by GitHub Actions.
-- Workflow `Build CpIPOS Android Tablet POS` run `31427774213` completed successfully.
-- Important workflow steps passed: version consistency, build debug APK, validate APK, upload workflow artifact, and publish latest release download.
-- GitHub Release tag `android-runtime-latest` contains the latest published `CpIPOS-Android-debug.apk` for v0.2.2.
-- `/download/android/latest` continues to redirect to the `android-runtime-latest` APK asset.
-- Backend heartbeat endpoint commit `aab52079a7e49d97906d231dbdfa26643de3e461` has been pushed and Vercel production deployment is expected to make `/api/android-pos/mdm/heartbeat` available after Vercel reports READY.
+MDM-lite is **not** a full MDM. It does not provide remote shell, file browsing, camera/microphone access, app installation, app removal, device wipe, full kiosk policy, OS-level control, or device-owner policy.
 
-## Owner operating rules for all future Android POS work
+## Required next phase after POS reaches 100%
 
-These rules must be followed by the assistant or any future agent continuing this project:
+After the POS flow is completed and stable, the next major phase must be:
 
-1. Treat `CpIPOS POS - Android Tablet` as the current primary app under active development.
-2. Do not mix Android POS with `CpIPOS Mobile - Android`, Windows POS Runtime, or IT Admin Runtime.
-3. Wait for owner instruction before making new functional code changes.
-4. Every code change, behavior change, workflow change, release change, or deployment change must be documented in this file or a clearly linked project document.
-5. Update documentation in the same working session as the code change. Do not leave documentation for later.
-6. Do not claim a task is 100% complete until code, documentation, build checks, APK/release state, and owner-required hardware testing are accounted for.
-7. Do not update or ask the owner to sync code into the local computer / VS Code until the relevant task is completed and verified to the agreed level.
-8. If a chat becomes too long, restarts, or loses context, read this document first and continue from the current state here.
-9. When changing Android POS, inspect only relevant files first to save tokens and avoid unrelated refactors.
-10. Keep production/download changes controlled. Publish a new APK only when the owner asks or when the task explicitly requires a test build.
+**CpIPOS Full MDM + IT Admin Device Console**
 
-## Required workflow for every future change
+This must be treated as a separate controlled architecture phase, not a small patch inside the POS screen.
 
-Use this process for Android POS work:
+### Target business requirements
 
-1. Confirm the exact task from the owner.
-2. Read this document before changing code.
-3. Inspect only the relevant files for the requested task.
-4. Make the smallest safe change that satisfies the task.
-5. Update this document and any directly affected docs.
-6. Run or verify the relevant checks/builds.
-7. If a new APK is required, bump version appropriately and publish through the Android workflow.
-8. Report exact evidence: commit SHA, workflow run, APK version, release asset, Vercel deployment if affected, and remaining work.
-9. Only after the task is verified as complete, provide the owner with local VS Code sync commands or next local steps.
+Full MDM must help the company support rented/sold POS machines by showing and controlling:
 
-## Development direction from here
+- online/offline status
+- last heartbeat time
+- network status and network type
+- backend reachability
+- printer status and printer test result
+- CPU usage
+- RAM usage
+- used/free storage
+- battery/charging/uptime
+- POS app version and build version
+- WebView/POS runtime error
+- POS usage problem signals such as login fail, shift fail, sales fail, print fail, sync fail, network fail
+- tenant / branch / registered device code
+- machine serial/device identifier
+- location/province of the physical device
+- comparison between device location/province and branch/customer document location
+- device health score for support triage
 
-Next development should continue around real POS-machine readiness, not unrelated product expansion.
+### Target safe control commands
 
-Priority areas:
+Full MDM should allow IT Admin to control only the company POS stack, including:
 
-1. Confirm Vercel production heartbeat endpoint is `READY` and `/api/android-pos/mdm/heartbeat` responds.
-2. Test v0.2.2 on the real POS Android device.
-3. Verify MDM-lite heartbeat and command bridge do not disturb POS login/session flow.
-4. WebView session behavior: cookies, login persistence, branch/device selection, back button, redirect handling, and reconnect behavior.
-5. Tablet/POS usability: fullscreen, keep-screen-on, orientation, touch target sizing, Thai font readability, and slow-device performance.
-6. POS flow verification inside WebView: store login, branch selection, device selection, shift gate, sales flow, payment flow, receipt preview.
-7. Printer work: hardware connection, print bridge design, receipt format, ESC/POS or vendor-specific commands, and real printer proof.
-8. Decide final Android printer bridge architecture:
-   - WebView JavaScript bridge to native Android printing,
-   - local/native print agent bridge, or
-   - API-driven print queue with hardware agent.
-9. Decide whether full Android Enterprise Device Owner MDM is required after app-level MDM-lite proves insufficient.
-10. Prepare signed release build only after debug APK testing and hardware proof are acceptable.
+- reload POS app
+- restart POS app
+- clear POS cache/cookies
+- update POS app
+- reinstall POS app
+- uninstall only the company POS app package `com.cpipos.pos`
+- test printer
+- update printer configuration
+- collect diagnostics
+- lock the device into POS/kiosk mode when appropriate
+- temporarily disable the POS device for rental/subscription enforcement when contract/payment status requires it
 
-## Definition of 100% for the current Android POS cycle
+### Correct full MDM architecture decision
 
-Android POS should only be called 100% complete for this cycle when all of the following are true:
+Full MDM should not remain only inside the POS app.
 
-- Latest APK installs on the real POS Android machine.
-- App opens the CpIPOS Web App through the Android wrapper reliably.
-- Login, branch, device, session, shift, sales, payment, and receipt flows work on the real device.
-- MDM-lite or final device-management bridge works without interrupting POS flow.
-- Printer workflow is proven against the real printer hardware required by the owner.
-- Remaining UX issues on POS screen size are fixed or explicitly accepted by the owner.
-- Documentation is updated with final status, known limits, test evidence, and next release notes.
-- The owner confirms the version is ready to sync into local VS Code / computer workflow.
+Recommended structure:
 
-## Remaining work before final release
+- POS app: `com.cpipos.pos`
+- MDM/Device Agent app: `com.cpipos.mdm`
+- IT Admin backend console: device list, device detail, commands, diagnostics, health history, printer diagnostics, location/document match, support logs
 
-1. Confirm Vercel production heartbeat endpoint is live.
-2. Install and test `CpIPOS POS - Android Tablet v0.2.2` on the real POS Android device.
-3. Verify login, branch selection, device selection, active session, shift gate, POS sales flow, and receipt flow inside WebView.
-4. Verify MDM-lite diagnostics, heartbeat, `window.CpiposMdm`, safe commands, and printer connection test command.
-5. Complete printer work. Printer status is **not complete** until real hardware is tested.
-6. Decide the printer bridge architecture for Android POS.
-7. Validate device policy, cookie/session behavior, fullscreen/tablet usability, reconnect behavior, and WebView error states.
-8. Create a signed release build when ready for non-debug distribution.
+Reason: if the MDM logic lives only inside `com.cpipos.pos`, then uninstalling or repairing the POS app also removes the controller. A separate Device Agent is required for stable device management.
 
-## Printer note
+For company-owned POS machines, the full MDM phase should use Android Enterprise / Device Owner / Dedicated Device mode where possible, configured during device preparation before sending to customers.
 
-Printer work must remain explicitly open. Existing print architecture discussions mention ticket/print-job style flows, but hardware proof is still required. Do not claim printer complete until the APK is tested against actual printer hardware on the POS machine.
+## Development rules from user
 
-## MDM-lite safety note
+- The assistant is responsible for helping develop, improve, and fix Android POS code when the user gives instructions.
+- Every code, behavior, workflow, release, deployment, or architecture change must update the relevant documentation in the same work cycle.
+- Do not mix Android POS with CpIPOS Mobile, Windows POS, or IT Admin Runtime.
+- Do not claim 100% completion until real POS-machine and printer tests are passed.
+- Do not sync or ask the user to update local VS Code/computer until the current change is complete and verified.
+- If a new chat starts, continue from this document and the latest GitHub/Vercel state.
 
-MDM-lite is allowed only for app-scoped temporary control while developing the POS machine and printer workflow. It must stay allowlist-based. Do not add remote shell, arbitrary command execution, hidden surveillance, device wipe, file exfiltration, camera/microphone access, or install/uninstall control without a separate owner-approved security design.
+## Current testing focus
 
-## Working memory for future chats and agents
+The current installed version on the POS machine is v0.2.2. The next testing focus is:
 
-When continuing Android POS work, use this document as the current source of truth.
+1. Confirm WebView opens `/login/store` correctly on the physical POS machine.
+2. Confirm login/session/cookie behavior survives app background/foreground and device sleep.
+3. Confirm branch/device/shift/sales flow on the physical POS machine.
+4. Confirm MDM-lite heartbeat reaches the backend.
+5. Confirm MDM-lite diagnostics can identify network and WebView status.
+6. Configure and test printer host/port.
+7. Run `test_printer_connection` against real printer hardware.
+8. Decide printer architecture: JavaScript bridge, native print bridge, API print queue, or hybrid.
+9. After POS flow and printer reach production readiness, start the Full MDM + IT Admin Device Console phase.
 
-Treat older statements that describe Android POS as a native Compose POS client as historical implementation detail unless the owner explicitly changes the direction again.
+## Current version history
 
-If the chat is restarted, summarize this as the current continuity point:
-
-> Android POS is now a WebView wrapper around the CpIPOS Web App with embedded app-scoped MDM-lite for development diagnostics and safe temporary control. Current published version is v0.2.2 / versionCode 5. It is downloadable through `/download/android/latest`. Android POS remains about 90% complete per owner direction. Only Android POS is ready for download; Mobile, Windows, and IT Admin remain developing. Next work should confirm Vercel heartbeat endpoint, test v0.2.2 on the real POS device, verify WebView stability, MDM-lite diagnostics/commands, POS flow, and printer hardware integration. Every future change must update documentation before being considered complete.
+- v0.2.0 / versionCode 3: previous Android POS APK before WebView wrapper alignment.
+- v0.2.1 / versionCode 4: WebView wrapper runtime aligned to CpIPOS Web App.
+- v0.2.2 / versionCode 5: WebView wrapper with MDM-lite development bridge and heartbeat endpoint; installed on the real company POS machine for testing.
