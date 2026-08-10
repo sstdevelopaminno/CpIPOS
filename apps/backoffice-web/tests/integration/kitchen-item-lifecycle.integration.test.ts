@@ -43,7 +43,7 @@ describe("Kitchen item lifecycle and dine-in payment gate", () => {
   });
 
   it("shows table, queue, time and same-table additional batches on the ticket board", () => {
-    expect(kitchenKds).toContain("table.table_code");
+    expect(kitchenKds).toContain("first.table?.table_code");
     expect(kitchenKds).toContain("queueLabel");
     expect(kitchenKds).toContain('timeZone: "Asia/Bangkok"');
     expect(kitchenKds).toContain("+ เพิ่มรายการอาหาร");
