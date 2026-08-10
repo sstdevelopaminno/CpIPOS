@@ -348,7 +348,7 @@ returns trigger
 language plpgsql
 security definer
 set search_path = pg_catalog, public, app, extensions
-as $
+as $$
 declare
   v_session public.table_bill_sessions%rowtype;
 begin
@@ -377,7 +377,7 @@ begin
 
   return new;
 end;
-$;
+$$;
 
 drop trigger if exists trg_lock_dine_in_order_table_session_before_insert on public.orders;
 create trigger trg_lock_dine_in_order_table_session_before_insert
@@ -690,7 +690,8 @@ begin
     return next;
   end loop;
 end;
-$function$;revoke all on function app.enqueue_kitchen_order(uuid,uuid,uuid,text,text,uuid[]) from public, anon, authenticated;
+$function$;
+revoke all on function app.enqueue_kitchen_order(uuid,uuid,uuid,text,text,uuid[]) from public, anon, authenticated;
 grant execute on function app.enqueue_kitchen_order(uuid,uuid,uuid,text,text,uuid[]) to service_role;
 
 create or replace function app.replace_queued_dine_in_order_tx(
@@ -712,7 +713,7 @@ returns table(order_id uuid, order_no text, order_status text, created_at timest
 language plpgsql
 security definer
 set search_path = pg_catalog, public, app, extensions
-as $
+as $$
 declare
   v_session public.table_bill_sessions%rowtype;
   v_order public.orders%rowtype;
@@ -912,7 +913,7 @@ begin
 
   return query select v_order.id, v_order.order_no, v_order.status::text, v_order.created_at, v_order.total_amount;
 end;
-$;
+$$;
 
 revoke all on function app.replace_queued_dine_in_order_tx(uuid, uuid, uuid, uuid, uuid, uuid, jsonb, numeric, numeric, numeric, numeric, numeric, jsonb) from public;
 grant execute on function app.replace_queued_dine_in_order_tx(uuid, uuid, uuid, uuid, uuid, uuid, jsonb, numeric, numeric, numeric, numeric, numeric, jsonb) to service_role;
