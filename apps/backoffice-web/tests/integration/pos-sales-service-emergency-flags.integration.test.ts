@@ -103,6 +103,7 @@ function createQueryMock(table: string, calls: Array<{ kind: string; table?: str
       calls.push({ kind: "delete", table });
       return query;
     }),
+    gt: vi.fn(() => query),
     gte: vi.fn(async () => ({ error: null })),
     neq: vi.fn(async () => ({ error: null })),
     then: (onFulfilled: (value: unknown) => unknown, onRejected?: (reason: unknown) => unknown) =>
