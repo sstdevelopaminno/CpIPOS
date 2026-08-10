@@ -7,6 +7,7 @@ import android.os.Bundle
 import android.view.WindowManager
 import android.webkit.CookieManager
 import android.webkit.WebChromeClient
+import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
 import android.webkit.WebView
 import android.webkit.WebViewClient
@@ -15,6 +16,7 @@ import androidx.activity.OnBackPressedCallback
 
 class MainActivity : ComponentActivity() {
     private lateinit var webView: WebView
+    private var mdmAgent: PosMdmAgent? = null
 
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -36,31 +38,58 @@ class MainActivity : ComponentActivity() {
                 append(settings.userAgentString)
                 append(" CpIPOS-AndroidPOS/")
                 append(BuildConfig.VERSION_NAME)
-                append(" POS-WebView-Wrapper")
+                append(" POS-WebView-Wrapper MDM-Lite")
             }
 
             CookieManager.getInstance().setAcceptCookie(true)
             CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
 
             webChromeClient = WebChromeClient()
-            webViewClient = object : WebViewClient() {
-                override fun shouldOverrideUrlLoading(
-                    view: WebView,
-                    request: WebResourceRequest
-                ): Boolean {
-                    val uri = request.url
-                    return if (uri.scheme == "http" || uri.scheme == "https") {
-                        false
-                    } else {
-                        openExternalUri(uri)
-                        true
-                    }
+        }
+
+        val agent = PosMdmAgent(this, webView)
+        mdmAgent = agent
+        webView.addJavascriptInterface(agent, "CpiposMdm")
+
+        webView.webViewClient = object : WebViewClient() {
+            override fun shouldOverrideUrlLoading(
+                view: WebView,
+                request: WebResourceRequest
+            ): Boolean {
+                val uri = request.url
+                return if (isAllowedWebUri(uri)) {
+                    false
+                } else {
+                    openExternalUri(uri)
+                    true
+                }
+            }
+
+            override fun onPageStarted(view: WebView, url: String?, favicon: android.graphics.Bitmap?) {
+                super.onPageStarted(view, url, favicon)
+                mdmAgent?.notifyPageStarted(url)
+            }
+
+            override fun onPageFinished(view: WebView, url: String?) {
+                super.onPageFinished(view, url)
+                mdmAgent?.notifyPageFinished(url)
+            }
+
+            override fun onReceivedError(
+                view: WebView,
+                request: WebResourceRequest,
+                error: WebResourceError
+            ) {
+                super.onReceivedError(view, request, error)
+                if (request.isForMainFrame) {
+                    mdmAgent?.notifyPageError(request.url?.toString(), error.description?.toString())
                 }
             }
         }
 
         setContentView(webView)
         registerBackNavigation()
+        agent.start()
 
         if (savedInstanceState == null) {
             webView.loadUrl(BuildConfig.CPIPOS_POS_WEB_URL)
@@ -85,6 +114,8 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
+        mdmAgent?.stop()
+        mdmAgent = null
         if (::webView.isInitialized) {
             webView.stopLoading()
             webView.destroy()
@@ -105,6 +136,12 @@ class MainActivity : ComponentActivity() {
                 }
             }
         )
+    }
+
+    private fun isAllowedWebUri(uri: Uri): Boolean {
+        val scheme = uri.scheme?.lowercase()
+        if (scheme != "http" && scheme != "https") return false
+        return uri.host.equals(BuildConfig.CPIPOS_ANDROID_POS_ALLOWED_HOST, ignoreCase = true)
     }
 
     private fun openExternalUri(uri: Uri) {
