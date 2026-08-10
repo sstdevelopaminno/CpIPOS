@@ -2,7 +2,8 @@ import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import type { AuthContext } from "@/lib/auth-context";
 import { appendAuditLog } from "@/lib/audit-log";
 import { fail } from "@/lib/http";
-import { getSupabaseServiceClient } from "@/lib/supabase-admin";
+import { getPrimarySupabaseServiceClient, getSupabaseServiceClient } from "@/lib/supabase-admin";
+import { getPrintExecutionDataPlaneClient } from "@/lib/printing/print-execution-data-plane";
 
 type JsonRecord = Record<string, unknown>;
 
@@ -26,6 +27,18 @@ type PrintAgentRow = {
 
 export type SafePrintAgentRow = Omit<PrintAgentRow, "api_key_hash">;
 
+type PrinterProfileRow = {
+  id: string;
+  printer_name: string;
+  printer_role: "receipt" | "kitchen" | "report";
+  connection_type: string;
+  ip_address: string | null;
+  port: number | null;
+  paper_width_mm: 58 | 80;
+  enabled: boolean;
+  metadata: JsonRecord;
+};
+
 type AgentJobRow = {
   id: string;
   tenant_id: string;
@@ -43,47 +56,32 @@ type AgentJobRow = {
   metadata: JsonRecord;
   created_at: string;
   claimed_by_agent_id: string | null;
+  claimed_at: string | null;
   claim_expires_at: string | null;
-  printer_profiles:
-    | null
-    | {
-    id: string;
-    printer_name: string;
-    printer_role: "receipt" | "kitchen" | "report";
-    connection_type: string;
-    ip_address: string | null;
-    port: number | null;
-    paper_width_mm: 58 | 80;
-    enabled: boolean;
-    metadata: JsonRecord;
-  }
-    | Array<{
-        id: string;
-        printer_name: string;
-        printer_role: "receipt" | "kitchen" | "report";
-        connection_type: string;
-        ip_address: string | null;
-        port: number | null;
-        paper_width_mm: 58 | 80;
-        enabled: boolean;
-        metadata: JsonRecord;
-      }>;
+  agent_attempt_id: string | null;
+  agent_error_code: string | null;
+  printer_profiles: null | PrinterProfileRow | PrinterProfileRow[];
+};
+
+type ClaimedAgentJobRow = AgentJobRow & {
+  agent_attempt_id: string;
 };
 
 const AGENT_SELECT =
   "id,tenant_id,branch_id,device_id,device_code,agent_name,api_key_hash,status,last_seen_at,last_claim_at,app_version,metadata";
 
 const AGENT_JOB_SELECT =
-  "id,tenant_id,branch_id,order_id,printer_id,printer_role,connection_type,status,payload_text,payload_json,retry_count,max_retry_count,last_error,metadata,created_at,claimed_by_agent_id,claim_expires_at,printer_profiles(id,printer_name,printer_role,connection_type,ip_address,port,paper_width_mm,enabled,metadata)";
+  "id,tenant_id,branch_id,order_id,printer_id,printer_role,connection_type,status,payload_text,payload_json,retry_count,max_retry_count,last_error,metadata,created_at,claimed_by_agent_id,claimed_at,claim_expires_at,agent_attempt_id,agent_error_code,printer_profiles(id,printer_name,printer_role,connection_type,ip_address,port,paper_width_mm,enabled,metadata)";
+
+const PRINTER_SELECT =
+  "id,printer_name,printer_role,connection_type,ip_address,port,paper_width_mm,enabled,metadata";
 
 function hashAgentKey(value: string) {
   return createHash("sha256").update(value, "utf8").digest("hex");
 }
 
 function ensureManagerOrOwner(auth: AuthContext) {
-  if (auth.branchRole !== "manager" && auth.branchRole !== "owner") {
-    throw new Error("forbidden_role");
-  }
+  if (auth.branchRole !== "manager" && auth.branchRole !== "owner") throw new Error("forbidden_role");
 }
 
 function toSafeAgent(row: PrintAgentRow): SafePrintAgentRow {
@@ -117,15 +115,12 @@ function readStringArray(value: unknown): string[] {
   return value.map((item) => (typeof item === "string" ? item.trim() : "")).filter(Boolean);
 }
 
-function getPrinter(job: AgentJobRow) {
-  return Array.isArray(job.printer_profiles) ? (job.printer_profiles[0] ?? null) : job.printer_profiles;
-}
-
-function printerMatchesAgent(job: AgentJobRow, agent: PrintAgentRow) {
-  const printer = getPrinter(job);
-  if (!printer?.enabled) return false;
+function printerMatchesAgent(printer: PrinterProfileRow, agent: PrintAgentRow) {
+  if (!printer.enabled) return false;
   const metadata = asRecord(printer.metadata);
-  const assignedAgentIds = readStringArray(metadata.assigned_agent_id ?? metadata.assigned_agent_ids ?? metadata.agent_id ?? metadata.agent_ids);
+  const assignedAgentIds = readStringArray(
+    metadata.assigned_agent_id ?? metadata.assigned_agent_ids ?? metadata.agent_id ?? metadata.agent_ids
+  );
   const assignedDeviceCodes = readStringArray(
     metadata.agent_device_code ?? metadata.agent_device_codes ?? metadata.device_code ?? metadata.device_codes
   ).map((code) => code.toUpperCase());
@@ -133,6 +128,24 @@ function printerMatchesAgent(job: AgentJobRow, agent: PrintAgentRow) {
   if (assignedAgentIds.length > 0) return assignedAgentIds.includes(agent.id);
   if (assignedDeviceCodes.length > 0) return assignedDeviceCodes.includes(agent.device_code.toUpperCase());
   return true;
+}
+
+function leaseSeconds(value: unknown) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return 45;
+  return Math.min(300, Math.max(15, Math.trunc(parsed)));
+}
+
+function claimLimit(value: unknown) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return 5;
+  return Math.min(10, Math.max(1, Math.trunc(parsed)));
+}
+
+function normalizeAttemptId(value: string) {
+  const normalized = value.trim();
+  if (!normalized) throw new Error("print_attempt_id_required");
+  return normalized;
 }
 
 export function agentAuthFail(error: unknown) {
@@ -147,7 +160,7 @@ export async function requirePrintAgent(req: Request): Promise<PrintAgentRow> {
   const rawKey = readAgentKey(req);
   if (!rawKey) throw new Error("agent_key_required");
   const keyHash = hashAgentKey(rawKey);
-  const supabase = getSupabaseServiceClient();
+  const supabase = getPrimarySupabaseServiceClient();
   const { data, error } = await supabase.from("print_agents").select(AGENT_SELECT).eq("api_key_hash", keyHash).maybeSingle();
   if (error) throw new Error(error.message);
   const agent = data as PrintAgentRow | null;
@@ -158,7 +171,7 @@ export async function requirePrintAgent(req: Request): Promise<PrintAgentRow> {
 
 export async function listPrintAgents(auth: AuthContext): Promise<SafePrintAgentRow[]> {
   ensureManagerOrOwner(auth);
-  const supabase = getSupabaseServiceClient();
+  const supabase = getPrimarySupabaseServiceClient();
   const { data, error } = await supabase
     .from("print_agents")
     .select(`${AGENT_SELECT},created_by,created_at,updated_at`)
@@ -186,7 +199,7 @@ export async function createPrintAgent(
   if (!deviceCode) throw new Error("device_code_required");
 
   const rawKey = `cpi_pa_${randomBytes(32).toString("base64url")}`;
-  const supabase = getSupabaseServiceClient();
+  const supabase = getPrimarySupabaseServiceClient();
   const { data, error } = await supabase
     .from("print_agents")
     .insert({
@@ -214,29 +227,20 @@ export async function createPrintAgent(
     action: "create_print_agent",
     targetTable: "print_agents",
     targetId: agent.id,
-    metadata: {
-      agent_name: agent.agent_name,
-      device_code: agent.device_code
-    }
+    metadata: { agent_name: agent.agent_name, device_code: agent.device_code }
   });
 
-  return {
-    agent: toSafeAgent(agent),
-    agent_key: rawKey
-  };
+  return { agent: toSafeAgent(agent), agent_key: rawKey };
 }
 
 export async function revokePrintAgent(auth: AuthContext, agentId: string, status: "blocked" | "inactive" = "inactive") {
   ensureManagerOrOwner(auth);
   const normalizedAgentId = agentId.trim();
   if (!normalizedAgentId) throw new Error("agent_id_required");
-  const supabase = getSupabaseServiceClient();
+  const supabase = getPrimarySupabaseServiceClient();
   const { data, error } = await supabase
     .from("print_agents")
-    .update({
-      status,
-      updated_at: new Date().toISOString()
-    })
+    .update({ status, updated_at: new Date().toISOString() })
     .eq("id", normalizedAgentId)
     .eq("tenant_id", auth.tenantId!)
     .eq("branch_id", auth.branchId!)
@@ -254,13 +258,8 @@ export async function revokePrintAgent(auth: AuthContext, agentId: string, statu
     action: "revoke_print_agent",
     targetTable: "print_agents",
     targetId: agent.id,
-    metadata: {
-      agent_name: agent.agent_name,
-      device_code: agent.device_code,
-      status
-    }
+    metadata: { agent_name: agent.agent_name, device_code: agent.device_code, status }
   });
-
   return toSafeAgent(agent);
 }
 
@@ -268,15 +267,16 @@ export async function deletePrintAgent(auth: AuthContext, agentId: string) {
   ensureManagerOrOwner(auth);
   const normalizedAgentId = agentId.trim();
   if (!normalizedAgentId) throw new Error("agent_id_required");
-  const supabase = getSupabaseServiceClient();
 
-  await supabase
+  const routed = getSupabaseServiceClient();
+  await routed
     .from("print_jobs")
-    .update({ claimed_by_agent_id: null, claim_expires_at: null, updated_at: new Date().toISOString() })
+    .update({ claimed_by_agent_id: null, claimed_at: null, claim_expires_at: null, agent_attempt_id: null, updated_at: new Date().toISOString() })
     .eq("claimed_by_agent_id", normalizedAgentId)
     .eq("tenant_id", auth.tenantId!)
     .eq("branch_id", auth.branchId!);
 
+  const supabase = getPrimarySupabaseServiceClient();
   const { data, error } = await supabase
     .from("print_agents")
     .delete()
@@ -285,7 +285,6 @@ export async function deletePrintAgent(auth: AuthContext, agentId: string) {
     .eq("branch_id", auth.branchId!)
     .select(`${AGENT_SELECT},created_by,created_at,updated_at`)
     .maybeSingle();
-
   if (error) throw new Error(error.message);
   if (!data) throw new Error("agent_not_found");
 
@@ -298,31 +297,18 @@ export async function deletePrintAgent(auth: AuthContext, agentId: string) {
     action: "delete_print_agent",
     targetTable: "print_agents",
     targetId: agent.id,
-    metadata: {
-      agent_name: agent.agent_name,
-      device_code: agent.device_code,
-      status: agent.status
-    }
+    metadata: { agent_name: agent.agent_name, device_code: agent.device_code, status: agent.status }
   });
-
   return toSafeAgent(agent);
 }
 
 export async function touchPrintAgent(agent: PrintAgentRow, input: { appVersion?: string | null; metadata?: JsonRecord | null } = {}) {
-  const supabase = getSupabaseServiceClient();
+  const supabase = getPrimarySupabaseServiceClient();
   const now = new Date().toISOString();
-  const metadata = {
-    ...asRecord(agent.metadata),
-    ...asRecord(input.metadata),
-    last_heartbeat_at: now
-  };
+  const metadata = { ...asRecord(agent.metadata), ...asRecord(input.metadata), last_heartbeat_at: now };
   const { data, error } = await supabase
     .from("print_agents")
-    .update({
-      last_seen_at: now,
-      app_version: input.appVersion ?? agent.app_version,
-      metadata
-    })
+    .update({ last_seen_at: now, app_version: input.appVersion ?? agent.app_version, metadata })
     .eq("id", agent.id)
     .select(AGENT_SELECT)
     .single();
@@ -330,157 +316,133 @@ export async function touchPrintAgent(agent: PrintAgentRow, input: { appVersion?
   return data as PrintAgentRow;
 }
 
-function leaseSeconds(value: unknown) {
-  const parsed = Number(value);
-  if (!Number.isFinite(parsed)) return 45;
-  return Math.min(300, Math.max(15, Math.trunc(parsed)));
-}
-
-function claimLimit(value: unknown) {
-  const parsed = Number(value);
-  if (!Number.isFinite(parsed)) return 5;
-  return Math.min(10, Math.max(1, Math.trunc(parsed)));
-}
-
-export async function claimPrintJobs(agent: PrintAgentRow, input: { limit?: unknown; lease_seconds?: unknown; app_version?: string | null }) {
-  const supabase = getSupabaseServiceClient();
-  const now = new Date();
-  const nowIso = now.toISOString();
-  const expiresAt = new Date(now.getTime() + leaseSeconds(input.lease_seconds) * 1000).toISOString();
-  const maxJobs = claimLimit(input.limit);
-
-  await supabase
+export async function claimPrintJobs(
+  agent: PrintAgentRow,
+  input: { limit?: unknown; lease_seconds?: unknown; app_version?: string | null }
+): Promise<ClaimedAgentJobRow[]> {
+  const nowIso = new Date().toISOString();
+  const primary = getPrimarySupabaseServiceClient();
+  await primary
     .from("print_agents")
     .update({ last_seen_at: nowIso, last_claim_at: nowIso, app_version: input.app_version ?? agent.app_version })
-    .eq("id", agent.id);
+    .eq("id", agent.id)
+    .eq("tenant_id", agent.tenant_id)
+    .eq("branch_id", agent.branch_id);
 
-  const { data, error } = await supabase
+  const { client } = await getPrintExecutionDataPlaneClient(agent.tenant_id);
+  const { data: printerData, error: printerError } = await client
+    .from("printer_profiles")
+    .select(PRINTER_SELECT)
+    .eq("tenant_id", agent.tenant_id)
+    .eq("branch_id", agent.branch_id)
+    .eq("enabled", true);
+  if (printerError) throw new Error(printerError.message);
+
+  const printerIds = ((printerData ?? []) as PrinterProfileRow[])
+    .filter((printer) => printerMatchesAgent(printer, agent))
+    .map((printer) => printer.id);
+  if (printerIds.length === 0) return [];
+
+  const { data: claimedData, error: claimError } = await client.rpc("claim_print_jobs_v2", {
+    p_tenant_id: agent.tenant_id,
+    p_branch_id: agent.branch_id,
+    p_agent_id: agent.id,
+    p_printer_ids: printerIds,
+    p_limit: claimLimit(input.limit),
+    p_lease_seconds: leaseSeconds(input.lease_seconds)
+  });
+  if (claimError) throw new Error(claimError.message);
+
+  const claimedRows = (claimedData ?? []) as Array<{ job_id: string; agent_attempt_id: string }>;
+  const jobIds = claimedRows.map((row) => row.job_id);
+  if (jobIds.length === 0) return [];
+
+  const { data: jobs, error: jobsError } = await client
     .from("print_jobs")
     .select(AGENT_JOB_SELECT)
     .eq("tenant_id", agent.tenant_id)
     .eq("branch_id", agent.branch_id)
-    .in("status", ["pending", "retrying", "printing"])
-    .order("created_at", { ascending: true })
-    .limit(30);
-  if (error) throw new Error(error.message);
+    .in("id", jobIds);
+  if (jobsError) throw new Error(jobsError.message);
 
-  const claimed: AgentJobRow[] = [];
-  for (const row of ((data ?? []) as unknown as AgentJobRow[])) {
-    if (claimed.length >= maxJobs) break;
-    const expiredClaim = row.status === "printing" && (!row.claim_expires_at || row.claim_expires_at < nowIso);
-    if (row.status === "printing" && !expiredClaim) continue;
-    if (!printerMatchesAgent(row, agent)) continue;
-
-    let updateQuery = supabase
-      .from("print_jobs")
-      .update({
-        status: "printing",
-        claimed_by_agent_id: agent.id,
-        claimed_at: nowIso,
-        claim_expires_at: expiresAt,
-        agent_attempt_id: `${agent.id}:${row.id}:${now.getTime()}`,
-        last_error: null,
-        failed_at: null,
-        updated_at: nowIso
-      })
-      .eq("id", row.id)
-      .eq("tenant_id", agent.tenant_id)
-      .eq("branch_id", agent.branch_id);
-
-    updateQuery =
-      row.status === "printing"
-        ? updateQuery.eq("status", "printing").lt("claim_expires_at", nowIso)
-        : updateQuery.in("status", ["pending", "retrying"]);
-
-    const { data: updated, error: updateError } = await updateQuery.select(AGENT_JOB_SELECT).maybeSingle();
-    if (updateError) throw new Error(updateError.message);
-    if (updated) claimed.push(updated as unknown as AgentJobRow);
-  }
-  return claimed;
+  const byId = new Map(((jobs ?? []) as unknown as AgentJobRow[]).map((job) => [job.id, job]));
+  return claimedRows
+    .map((row) => {
+      const job = byId.get(row.job_id);
+      return job ? { ...job, agent_attempt_id: row.agent_attempt_id } : null;
+    })
+    .filter((job): job is ClaimedAgentJobRow => Boolean(job));
 }
 
-export async function acknowledgePrintJob(agent: PrintAgentRow, jobId: string, input: { provider_job_id?: string | null; bytes_sent?: number | null; metadata?: JsonRecord | null }) {
-  const supabase = getSupabaseServiceClient();
-  const nowIso = new Date().toISOString();
-  const { data: current, error: currentError } = await supabase
+export async function acknowledgePrintJob(
+  agent: PrintAgentRow,
+  jobId: string,
+  input: {
+    agent_attempt_id: string;
+    provider_job_id?: string | null;
+    bytes_sent?: number | null;
+    metadata?: JsonRecord | null;
+  }
+) {
+  const attemptId = normalizeAttemptId(input.agent_attempt_id);
+  const { client } = await getPrintExecutionDataPlaneClient(agent.tenant_id);
+  const bytesSent = Number(input.bytes_sent);
+  const { error } = await client.rpc("ack_print_job_v2", {
+    p_tenant_id: agent.tenant_id,
+    p_branch_id: agent.branch_id,
+    p_job_id: jobId,
+    p_agent_id: agent.id,
+    p_agent_attempt_id: attemptId,
+    p_provider_job_id: input.provider_job_id?.trim() || null,
+    p_bytes_sent: Number.isFinite(bytesSent) && bytesSent >= 0 ? Math.trunc(bytesSent) : null,
+    p_metadata: asRecord(input.metadata)
+  });
+  if (error) throw new Error(error.message);
+
+  const { data, error: fetchError } = await client
     .from("print_jobs")
-    .select("id,tenant_id,branch_id,status,metadata,claimed_by_agent_id")
+    .select(AGENT_JOB_SELECT)
     .eq("id", jobId)
     .eq("tenant_id", agent.tenant_id)
     .eq("branch_id", agent.branch_id)
-    .maybeSingle();
-  if (currentError) throw new Error(currentError.message);
-  if (!current) throw new Error("print_job_not_found");
-  if ((current as { claimed_by_agent_id?: string | null }).claimed_by_agent_id !== agent.id) throw new Error("print_job_not_claimed_by_agent");
-
-  const metadata = {
-    ...asRecord((current as { metadata?: unknown }).metadata),
-    ...asRecord(input.metadata),
-    agent_id: agent.id,
-    agent_device_code: agent.device_code,
-    provider_job_id: input.provider_job_id ?? null,
-    bytes_sent: input.bytes_sent ?? null
-  };
-  const { data, error } = await supabase
-    .from("print_jobs")
-    .update({
-      status: "printed",
-      printed_at: nowIso,
-      failed_at: null,
-      last_error: null,
-      claim_expires_at: null,
-      metadata,
-      updated_at: nowIso
-    })
-    .eq("id", jobId)
-    .eq("claimed_by_agent_id", agent.id)
-    .select(AGENT_JOB_SELECT)
     .single();
-  if (error) throw new Error(error.message);
+  if (fetchError) throw new Error(fetchError.message);
   return data as unknown as AgentJobRow;
 }
 
-export async function failPrintJob(agent: PrintAgentRow, jobId: string, input: { error_message?: string | null; error_code?: string | null; retryable?: boolean | null; metadata?: JsonRecord | null }) {
-  const supabase = getSupabaseServiceClient();
-  const nowIso = new Date().toISOString();
-  const { data: current, error: currentError } = await supabase
+export async function failPrintJob(
+  agent: PrintAgentRow,
+  jobId: string,
+  input: {
+    agent_attempt_id: string;
+    error_message?: string | null;
+    error_code?: string | null;
+    retryable?: boolean | null;
+    metadata?: JsonRecord | null;
+  }
+) {
+  const attemptId = normalizeAttemptId(input.agent_attempt_id);
+  const { client } = await getPrintExecutionDataPlaneClient(agent.tenant_id);
+  const { error } = await client.rpc("fail_print_job_v2", {
+    p_tenant_id: agent.tenant_id,
+    p_branch_id: agent.branch_id,
+    p_job_id: jobId,
+    p_agent_id: agent.id,
+    p_agent_attempt_id: attemptId,
+    p_error_message: input.error_message?.trim() || null,
+    p_error_code: input.error_code?.trim() || null,
+    p_retryable: input.retryable !== false,
+    p_metadata: asRecord(input.metadata)
+  });
+  if (error) throw new Error(error.message);
+
+  const { data, error: fetchError } = await client
     .from("print_jobs")
-    .select("id,tenant_id,branch_id,status,retry_count,max_retry_count,metadata,claimed_by_agent_id")
+    .select(AGENT_JOB_SELECT)
     .eq("id", jobId)
     .eq("tenant_id", agent.tenant_id)
     .eq("branch_id", agent.branch_id)
-    .maybeSingle();
-  if (currentError) throw new Error(currentError.message);
-  const row = current as null | { retry_count: number; max_retry_count: number; metadata?: unknown; claimed_by_agent_id?: string | null };
-  if (!row) throw new Error("print_job_not_found");
-  if (row.claimed_by_agent_id !== agent.id) throw new Error("print_job_not_claimed_by_agent");
-
-  const nextRetryCount = Number(row.retry_count ?? 0) + 1;
-  const canRetry = input.retryable !== false && nextRetryCount < Number(row.max_retry_count ?? 0);
-  const metadata = {
-    ...asRecord(row.metadata),
-    ...asRecord(input.metadata),
-    agent_id: agent.id,
-    agent_device_code: agent.device_code
-  };
-
-  const { data, error } = await supabase
-    .from("print_jobs")
-    .update({
-      status: canRetry ? "retrying" : "failed",
-      retry_count: nextRetryCount,
-      claimed_by_agent_id: null,
-      claim_expires_at: null,
-      last_error: input.error_message ?? input.error_code ?? "agent_print_failed",
-      agent_error_code: input.error_code ?? null,
-      failed_at: canRetry ? null : nowIso,
-      metadata,
-      updated_at: nowIso
-    })
-    .eq("id", jobId)
-    .eq("claimed_by_agent_id", agent.id)
-    .select(AGENT_JOB_SELECT)
     .single();
-  if (error) throw new Error(error.message);
+  if (fetchError) throw new Error(fetchError.message);
   return data as unknown as AgentJobRow;
 }
