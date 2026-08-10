@@ -1,6 +1,6 @@
 import "server-only";
 
-import { getSupabaseServiceClient } from "@/lib/supabase-admin";
+import { getRoutedSupabaseServiceClient } from "@/lib/tenant-data-router";
 
 type RecipeStockRow = {
   product_id: string;
@@ -24,7 +24,7 @@ export async function loadTableQrStockStates(args: {
   const states = new Map<string, TableQrStockState>();
   if (ids.length === 0) return states;
 
-  const supabase = getSupabaseServiceClient();
+  const supabase = getRoutedSupabaseServiceClient();
   const [{ data: recipeRows, error: recipeError }, { data: settings, error: settingsError }] = await Promise.all([
     supabase
       .from("recipes")
@@ -37,7 +37,7 @@ export async function loadTableQrStockStates(args: {
       .select("allow_negative_stock")
       .eq("tenant_id", args.tenantId)
       .eq("branch_id", args.branchId)
-      .maybeSingle<{ allow_negative_stock: boolean | null }>()
+      .maybeSingle()
   ]);
 
   if (recipeError) throw new Error(recipeError.message);
@@ -84,8 +84,6 @@ export async function assertTableQrStockAvailable(args: {
   for (const item of args.items) {
     const state = states.get(item.product_id);
     if (!state || state.allow_negative_stock || state.stock_on_hand_units === null) continue;
-    if (!state.is_available || item.quantity > state.stock_on_hand_units) {
-      throw new Error("INSUFFICIENT_STOCK");
-    }
+    if (!state.is_available || item.quantity > state.stock_on_hand_units) throw new Error("INSUFFICIENT_STOCK");
   }
 }
