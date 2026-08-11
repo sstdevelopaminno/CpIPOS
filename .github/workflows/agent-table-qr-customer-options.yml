@@ -1,0 +1,270 @@
+name: Agent Table QR Customer Options Patch
+
+on:
+  push:
+    branches:
+      - agent/table-qr-customer-options-dinein-return
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/table-qr-customer-options-dinein-return
+          fetch-depth: 0
+
+      - name: Apply narrow patch
+        shell: python
+        run: |
+          from pathlib import Path
+
+          def read(path):
+              return Path(path).read_text(encoding="utf-8-sig")
+
+          def write(path, text):
+              Path(path).write_text(text, encoding="utf-8")
+
+          def replace_once(path, old, new):
+              text = read(path)
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f"{path}: expected exactly one match, found {count}\n--- needle ---\n{old[:500]}")
+              write(path, text.replace(old, new, 1))
+
+          # 1) POS dine-in: return to table browser after closing any paid table receipt (cash or transfer).
+          replace_once(
+              "apps/backoffice-web/src/components/pos/pos-sales-module.tsx",
+              '''  function closeReceiptPopup() {
+            const shouldReturnToTableBrowser =
+              receiptSession?.payment_method === "bank_transfer" && (orderType === "dine_in" || quickMode === "dine_in");'''.replace("            ", "    "),
+              '''  function closeReceiptPopup() {
+    const shouldReturnToTableBrowser =
+      Boolean(receiptSession?.table_id) &&
+      (receiptSession?.order_type === "dine_in" || orderType === "dine_in" || quickMode === "dine_in");'''
+          )
+
+          # 2) Product edit: persist a customer-selectable recipe flag.
+          edit_path = "apps/backoffice-web/src/components/pos-preview/edit-product-popup-button.tsx"
+          replace_once(
+              edit_path,
+              '''  const [useIngredientRecipe, setUseIngredientRecipe] = useState(true);\n  const [ingredientLines, setIngredientLines] = useState<IngredientDraftLine[]>(...'''.replace("...", ""),
+              '''  const [useIngredientRecipe, setUseIngredientRecipe] = useState(true);\n  const [customerIngredientSelectionEnabled, setCustomerIngredientSelectionEnabled] = useState(false);\n  const [ingredientLines, setIngredientLines] = useState<IngredientDraftLine[]>(...'''.replace("...", "")
+          )
+          replace_once(
+              edit_path,
+              '''    setStockQuantity("0");\n    setUseIngredientRecipe(true);\n    setIngredientLines(''',
+              '''    setStockQuantity("0");\n    setUseIngredientRecipe(true);\n    setCustomerIngredientSelectionEnabled(false);\n    setIngredientLines('''
+          )
+          replace_once(
+              edit_path,
+              '''      const body = (await response.json()) as ApiEnvelope<{ items: RecipeLineItem[] }>;''',
+              '''      const body = (await response.json()) as ApiEnvelope<{\n        items: RecipeLineItem[];\n        customer_ingredient_selection_enabled?: boolean;\n      }>;'''
+          )
+          replace_once(
+              edit_path,
+              '''      const recipeItems = body.data.items ?? [];\n      const hasFallbackBridge = recipeItems.some((line) => {''',
+              '''      const recipeItems = body.data.items ?? [];\n      const customerSelectionEnabled = body.data.customer_ingredient_selection_enabled === true;\n      const hasFallbackBridge = recipeItems.some((line) => {'''
+          )
+          replace_once(
+              edit_path,
+              '''      if (hasFallbackBridge) {\n        setUseIngredientRecipe(false);''',
+              '''      if (hasFallbackBridge) {\n        setUseIngredientRecipe(false);\n        setCustomerIngredientSelectionEnabled(false);'''
+          )
+          replace_once(
+              edit_path,
+              '''      } else {\n        setUseIngredientRecipe(true);\n        setStockQuantity("0");''',
+              '''      } else {\n        setUseIngredientRecipe(true);\n        setCustomerIngredientSelectionEnabled(customerSelectionEnabled);\n        setStockQuantity("0");'''
+          )
+          replace_once(
+              edit_path,
+              '''          use_ingredient_recipe: useIngredientRecipe,\n          ingredient_lines: selectedIngredientLines''',
+              '''          use_ingredient_recipe: useIngredientRecipe,\n          customer_ingredient_selection_enabled: useIngredientRecipe && customerIngredientSelectionEnabled,\n          ingredient_lines: selectedIngredientLines'''
+          )
+          replace_once(
+              edit_path,
+              '''              <label className="inline-flex min-h-9 cursor-pointer items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 text-sm font-bold text-slate-800">\n                <input type="checkbox" checked={useIngredientRecipe} onChange={(event) => setUseIngredientRecipe(event.target.checked)} className="h-4 w-4 rounded border-slate-300" />\n                <span>{th ? "เปิดโหมดสูตรวัตถุดิบ" : "Enable ingredient recipe mode"}</span>\n              </label>''',
+              '''              <div className="flex flex-wrap items-center gap-2">\n                <label className="inline-flex min-h-9 cursor-pointer items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 text-sm font-bold text-slate-800">\n                  <input\n                    type="checkbox"\n                    checked={useIngredientRecipe}\n                    onChange={(event) => {\n                      const checked = event.target.checked;\n                      setUseIngredientRecipe(checked);\n                      if (!checked) setCustomerIngredientSelectionEnabled(false);\n                    }}\n                    className="h-4 w-4 rounded border-slate-300"\n                  />\n                  <span>{th ? "เปิดโหมดสูตรวัตถุดิบ" : "Enable ingredient recipe mode"}</span>\n                </label>\n                <label\n                  className={`inline-flex min-h-9 items-center gap-2 rounded-lg border px-3 text-sm font-bold ${\n                    useIngredientRecipe\n                      ? "cursor-pointer border-blue-200 bg-blue-50 text-blue-800"\n                      : "cursor-not-allowed border-slate-200 bg-slate-100 text-slate-400"\n                  }`}\n                >\n                  <input\n                    type="checkbox"\n                    checked={customerIngredientSelectionEnabled}\n                    disabled={!useIngredientRecipe}\n                    onChange={(event) => setCustomerIngredientSelectionEnabled(event.target.checked)}\n                    className="h-4 w-4 rounded border-slate-300"\n                  />\n                  <span>{th ? "สำหรับลูกค้าเลือก" : "Customer selectable"}</span>\n                </label>\n              </div>\n              {customerIngredientSelectionEnabled && useIngredientRecipe ? (\n                <p className="mt-2 text-xs font-medium text-blue-700">\n                  {th\n                    ? "ลูกค้า Table QR จะเลือกติ๊กวัตถุดิบในสูตรได้ โดยไม่แก้ราคาและไม่แก้จำนวนสูตร"\n                    : "Table QR customers may tick recipe ingredients without changing price or recipe quantities."}\n                </p>\n              ) : null}'''
+          )
+
+          # 3) Backoffice catalog API: expose + persist the flag using existing recipe view/update flow.
+          catalog_path = "apps/backoffice-web/src/app/api/backoffice/catalog/route.ts"
+          replace_once(
+              catalog_path,
+              '''type UpdateProductWithStockSetupPayload = {\n  action: "update_product_with_stock_setup";\n  product_id: string;\n  name: string;\n  category: string;\n  stock_quantity: number;\n  store_price: number;\n  delivery_price: number;\n  delivery_prices_by_channel?: {\n    line_man?: number;\n    grab?: number;\n    shopee?: number;\n  };\n  use_ingredient_recipe: boolean;\n  ingredient_lines?: Array<{''',
+              '''type UpdateProductWithStockSetupPayload = {\n  action: "update_product_with_stock_setup";\n  product_id: string;\n  name: string;\n  category: string;\n  stock_quantity: number;\n  store_price: number;\n  delivery_price: number;\n  delivery_prices_by_channel?: {\n    line_man?: number;\n    grab?: number;\n    shopee?: number;\n  };\n  use_ingredient_recipe: boolean;\n  customer_ingredient_selection_enabled?: boolean;\n  ingredient_lines?: Array<{'''
+          )
+          replace_once(
+              catalog_path,
+              '''      return ok({\n        view: "recipes",\n        items: data ?? [],\n        pagination: buildPaginationMeta(page, pageSize, count)\n      });''',
+              '''      const { data: productSettings, error: productSettingsError } = await supabase\n        .from("products")\n        .select("customer_ingredient_selection_enabled")\n        .eq("tenant_id", auth.tenantId!)\n        .eq("branch_id", scopedBranchId)\n        .eq("id", productId)\n        .maybeSingle<{ customer_ingredient_selection_enabled: boolean | null }>();\n      if (productSettingsError) {\n        return fail("recipe_product_settings_query_failed", productSettingsError.message, 500);\n      }\n\n      return ok({\n        view: "recipes",\n        items: data ?? [],\n        customer_ingredient_selection_enabled: productSettings?.customer_ingredient_selection_enabled === true,\n        pagination: buildPaginationMeta(page, pageSize, count)\n      });'''
+          )
+          replace_once(
+              catalog_path,
+              '''      const useIngredientRecipe = Boolean(body.use_ingredient_recipe);\n      const ingredientLines = Array.isArray(body.ingredient_lines) ? body.ingredient_lines : [];''',
+              '''      const useIngredientRecipe = Boolean(body.use_ingredient_recipe);\n      const customerIngredientSelectionEnabled =\n        useIngredientRecipe && Boolean(body.customer_ingredient_selection_enabled);\n      const ingredientLines = Array.isArray(body.ingredient_lines) ? body.ingredient_lines : [];'''
+          )
+          replace_once(
+              catalog_path,
+              '''      let updateProductError: PostgrestLikeError | null = null;\n      for (let i = 0; i < updatePayloadCandidates.length; i += 1) {\n        const result = await supabase\n          .from("products")\n          .update(updatePayloadCandidates[i])''',
+              '''      const updatePayloadCandidatesWithCustomerSelection = updatePayloadCandidates.map((candidate) => ({\n        ...candidate,\n        customer_ingredient_selection_enabled: customerIngredientSelectionEnabled\n      }));\n\n      let updateProductError: PostgrestLikeError | null = null;\n      for (let i = 0; i < updatePayloadCandidatesWithCustomerSelection.length; i += 1) {\n        const result = await supabase\n          .from("products")\n          .update(updatePayloadCandidatesWithCustomerSelection[i])'''
+          )
+
+          # 4) Table QR server menu: include selectable recipe ingredient names.
+          qr_lib_path = "apps/backoffice-web/src/lib/table-qr-ordering.ts"
+          replace_once(
+              qr_lib_path,
+              '''type TableQrMenuProduct = {\n  id: string;\n  name: string;\n  category: string;\n  price: number;\n};''',
+              '''type TableQrCustomerIngredientOption = {\n  ingredient_id: string;\n  name: string;\n};\n\ntype TableQrMenuProduct = {\n  id: string;\n  name: string;\n  category: string;\n  price: number;\n  customer_ingredient_selection_enabled: boolean;\n  customer_ingredient_options: TableQrCustomerIngredientOption[];\n};'''
+          )
+          replace_once(
+              qr_lib_path,
+              '''type TableQrProductRow = {\n  id: string;\n  name: string;\n  price: number;\n  is_active?: boolean;\n};''',
+              '''type TableQrProductRow = {\n  id: string;\n  name: string;\n  price: number;\n  is_active?: boolean;\n};\n\ntype TableQrRecipeChoiceRow = {\n  product_id: string;\n  ingredient_id: string;\n  ingredients: { name?: string | null } | Array<{ name?: string | null }> | null;\n};'''
+          )
+          replace_once(
+              qr_lib_path,
+              '''    .select("id,name,category,price,is_active")''',
+              '''    .select("id,name,category,price,is_active,customer_ingredient_selection_enabled")'''
+          )
+          replace_once(
+              qr_lib_path,
+              '''  if (error) throw new Error(error.message);\n\n  const products = (data ?? []).map((row) => ({\n    id: String(row.id),\n    name: String(row.name ?? ""),\n    category: String(row.category ?? "เมนู"),\n    price: Number(row.price ?? 0)\n  }));''',
+              '''  if (error) throw new Error(error.message);\n\n  const selectableProductIds = (data ?? [])\n    .filter((row) => row.customer_ingredient_selection_enabled === true)\n    .map((row) => String(row.id));\n  const customerIngredientOptionsByProduct = new Map<string, TableQrCustomerIngredientOption[]>();\n\n  if (selectableProductIds.length > 0) {\n    const { data: recipeRows, error: recipeError } = await supabase\n      .from("recipes")\n      .select("product_id,ingredient_id,ingredients(name)")\n      .eq("tenant_id", context.tenant_id)\n      .eq("branch_id", context.branch_id)\n      .eq("applies_when_takeaway_only", false)\n      .in("product_id", selectableProductIds);\n    if (recipeError) throw new Error(recipeError.message);\n\n    for (const row of (recipeRows ?? []) as TableQrRecipeChoiceRow[]) {\n      const productId = String(row.product_id ?? "").trim();\n      const ingredientId = String(row.ingredient_id ?? "").trim();\n      const ingredientRecord = Array.isArray(row.ingredients) ? row.ingredients[0] : row.ingredients;\n      const name = String(ingredientRecord?.name ?? "").trim();\n      if (!productId || !ingredientId || !name || name.startsWith("STOCK:")) continue;\n      const current = customerIngredientOptionsByProduct.get(productId) ?? [];\n      current.push({ ingredient_id: ingredientId, name });\n      customerIngredientOptionsByProduct.set(productId, current);\n    }\n  }\n\n  const products = (data ?? []).map((row) => {\n    const productId = String(row.id);\n    const customerSelectable = row.customer_ingredient_selection_enabled === true;\n    return {\n      id: productId,\n      name: String(row.name ?? ""),\n      category: String(row.category ?? "เมนู"),\n      price: Number(row.price ?? 0),\n      customer_ingredient_selection_enabled: customerSelectable,\n      customer_ingredient_options: customerSelectable ? customerIngredientOptionsByProduct.get(productId) ?? [] : []\n    };\n  });'''
+          )
+
+          # 5) Table QR mobile UI: submitted history button/modal, transient action toasts, ingredient picker.
+          mobile_path = "apps/backoffice-web/src/components/table-order/table-order-mobile.tsx"
+          replace_once(
+              mobile_path,
+              '''type MenuProduct = {\n  id: string;\n  name: string;\n  category: string;\n  price: number;\n  image_url?: string | null;''',
+              '''type CustomerIngredientOption = {\n  ingredient_id: string;\n  name: string;\n};\n\ntype MenuProduct = {\n  id: string;\n  name: string;\n  category: string;\n  price: number;\n  customer_ingredient_selection_enabled?: boolean;\n  customer_ingredient_options?: CustomerIngredientOption[];\n  image_url?: string | null;'''
+          )
+          replace_once(
+              mobile_path,
+              '''type SubmitItem = { product_id: string; quantity: number };''',
+              '''type SubmitItem = { product_id: string; quantity: number; note?: string | null };'''
+          )
+          replace_once(
+              mobile_path,
+              '''function buildSubmitItems(cartItems: Array<MenuProduct & { quantity: number }>): SubmitItem[] {\n  return cartItems\n    .map((item) => ({ product_id: String(item.id ?? "").trim(), quantity: Number(item.quantity) }))\n    .filter((item) => item.product_id && Number.isFinite(item.quantity) && item.quantity > 0)\n    .map((item) => ({ product_id: item.product_id, quantity: Math.max(1, Math.min(99, Math.trunc(item.quantity))) }));\n}''',
+              '''function buildCustomerIngredientNote(product: MenuProduct, selectedIngredientIds: string[] | undefined) {\n  if (!product.customer_ingredient_selection_enabled || !selectedIngredientIds?.length) return null;\n  const selected = new Set(selectedIngredientIds);\n  const names = (product.customer_ingredient_options ?? [])\n    .filter((option) => selected.has(option.ingredient_id))\n    .map((option) => option.name.trim())\n    .filter(Boolean);\n  if (!names.length) return null;\n  return `ลูกค้าเลือก: ${names.join(", ")}`.slice(0, 240);\n}\n\nfunction buildSubmitItems(\n  cartItems: Array<MenuProduct & { quantity: number }>,\n  customerIngredientChoices: Record<string, string[]>\n): SubmitItem[] {\n  return cartItems\n    .map((item) => ({\n      product_id: String(item.id ?? "").trim(),\n      quantity: Number(item.quantity),\n      note: buildCustomerIngredientNote(item, customerIngredientChoices[item.id])\n    }))\n    .filter((item) => item.product_id && Number.isFinite(item.quantity) && item.quantity > 0)\n    .map((item) => ({\n      product_id: item.product_id,\n      quantity: Math.max(1, Math.min(99, Math.trunc(item.quantity))),\n      note: item.note\n    }));\n}'''
+          )
+          replace_once(
+              mobile_path,
+              '''  const [toast, setToast] = useState<ToastMessage | null>(null);\n  const [linkClosed, setLinkClosed] = useState(false);''',
+              '''  const [toast, setToast] = useState<ToastMessage | null>(null);\n  const [submittedOpen, setSubmittedOpen] = useState(false);\n  const [ingredientPickerProduct, setIngredientPickerProduct] = useState<MenuProduct | null>(null);\n  const [ingredientPickerSelection, setIngredientPickerSelection] = useState<string[]>([]);\n  const [customerIngredientChoices, setCustomerIngredientChoices] = useState<Record<string, string[]>>({});\n  const [linkClosed, setLinkClosed] = useState(false);'''
+          )
+          replace_once(
+              mobile_path,
+              '''  function removeItem(productId: string) {\n    if (submitting || serviceSubmitting) return;\n    setCart((current) => { const next = { ...current }; delete next[productId]; return next; });\n  }''',
+              '''  function addProduct(product: MenuProduct) {\n    if (submitting || serviceSubmitting || !canOrder) return;\n    const options = product.customer_ingredient_options ?? [];\n    if (product.customer_ingredient_selection_enabled && options.length > 0 && (cart[product.id] ?? 0) === 0) {\n      setIngredientPickerProduct(product);\n      setIngredientPickerSelection(customerIngredientChoices[product.id] ?? []);\n      return;\n    }\n    changeQuantity(product.id, 1);\n  }\n\n  function closeIngredientPicker() {\n    setIngredientPickerProduct(null);\n    setIngredientPickerSelection([]);\n  }\n\n  function confirmIngredientPicker() {\n    if (!ingredientPickerProduct) return;\n    const productId = ingredientPickerProduct.id;\n    setCustomerIngredientChoices((current) => ({ ...current, [productId]: ingredientPickerSelection }));\n    closeIngredientPicker();\n    changeQuantity(productId, 1);\n  }\n\n  function removeItem(productId: string) {\n    if (submitting || serviceSubmitting) return;\n    setCart((current) => { const next = { ...current }; delete next[productId]; return next; });\n    setCustomerIngredientChoices((current) => {\n      const next = { ...current };\n      delete next[productId];\n      return next;\n    });\n  }'''
+          )
+          replace_once(
+              mobile_path,
+              '''    const items = buildSubmitItems(cartItems);\n    if (!items.length) return setError("กรุณาเลือกจำนวนอาหารอย่างน้อย 1 รายการ");''',
+              '''    const items = buildSubmitItems(cartItems, customerIngredientChoices);\n    if (!items.length) {\n      setToast({ kind: "warning", title: "ยังไม่มีรายการอาหาร", detail: "กรุณาเลือกอาหารอย่างน้อย 1 รายการ" });\n      return;\n    }'''
+          )
+          replace_once(
+              mobile_path,
+              '''      setCart({});\n      setCartOpen(false);\n      setToast({ kind: "success", title: "ส่งรายการเข้าครัวแล้ว", detail: `เลขบิล ${orderNo} · หากต้องการแก้ไขรายการที่ส่งแล้ว กรุณาเรียกพนักงาน` });''',
+              '''      setCart({});\n      setCustomerIngredientChoices({});\n      setCartOpen(false);\n      setToast({ kind: "success", title: "ส่งรายการเข้าครัวแล้ว", detail: `เลขบิล ${orderNo} · หากต้องการแก้ไขรายการที่ส่งแล้ว กรุณาเรียกพนักงาน` });'''
+          )
+          replace_once(
+              mobile_path,
+              '''    } catch (submitError) {\n      if ((submitError as { name?: string }).name === "AbortError") setError("ส่งรายการไม่สำเร็จ เนื่องจากระบบใช้เวลานานเกินไป กรุณาลองใหม่");\n      else setError(submitError instanceof Error ? submitError.message : "ส่งรายการไม่สำเร็จ");\n    } finally { setSubmitting(false); }''',
+              '''    } catch (submitError) {\n      const detail =\n        (submitError as { name?: string }).name === "AbortError"\n          ? "ระบบใช้เวลานานเกินไป กรุณาลองใหม่"\n          : submitError instanceof Error\n            ? submitError.message\n            : "กรุณาลองใหม่";\n      setError(null);\n      setToast({ kind: "error", title: "ส่งรายการไม่สำเร็จ", detail });\n    } finally { setSubmitting(false); }'''
+          )
+          replace_once(
+              mobile_path,
+              '''    } catch (submitError) {\n      if ((submitError as { name?: string }).name === "AbortError") setError("ส่งคำขอไม่สำเร็จ ระบบใช้เวลานานเกินไป");\n      else setError(submitError instanceof Error ? submitError.message : "ส่งคำขอไม่สำเร็จ");\n    } finally { setServiceSubmitting(null); }''',
+              '''    } catch (submitError) {\n      const detail =\n        (submitError as { name?: string }).name === "AbortError"\n          ? "ระบบใช้เวลานานเกินไป กรุณาลองใหม่"\n          : submitError instanceof Error\n            ? submitError.message\n            : "กรุณาลองใหม่";\n      setError(null);\n      setToast({ kind: "error", title: "ส่งคำขอไม่สำเร็จ", detail });\n    } finally { setServiceSubmitting(null); }'''
+          )
+          replace_once(
+              mobile_path,
+              '''        <span className={styles.tableBadge}>{menu.table_code}</span>''',
+              '''        {submittedItems.length > 0 ? (\n          <button\n            type="button"\n            className={styles.submittedHistoryButton}\n            onClick={() => setSubmittedOpen(true)}\n            aria-label={`ดูรายการที่ส่งแล้ว ${menu.submitted_summary?.item_count ?? 0} รายการ`}\n            title="ดูรายการที่ส่งแล้ว"\n          >\n            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>\n              <path d="M6 2h12v20l-3-2-3 2-3-2-3 2V2Z" />\n              <path d="M9 7h6M9 11h6M9 15h4" />\n            </svg>\n            <span>{menu.submitted_summary?.item_count ?? 0}</span>\n          </button>\n        ) : null}\n        <span className={styles.tableBadge}>{menu.table_code}</span>'''
+          )
+          replace_once(
+              mobile_path,
+              '''      {submittedItems.length > 0 ? (\n        <section className={styles.submittedSummary} aria-label="รายการที่ส่งแล้ว">\n          <div className={styles.submittedSummaryHead}><div><strong>รายการที่ส่งแล้ว</strong><span> {menu.submitted_summary?.item_count ?? 0} รายการ</span></div><strong>{money(menu.submitted_summary?.total_amount ?? 0)}</strong></div>\n          <div className={styles.submittedRows}>{submittedItems.map((item, index) => <div className={styles.submittedRow} key={`${item.product_id}-${index}`}><span>{item.name} × {item.quantity}</span><strong>{money(item.line_total)}</strong></div>)}</div>\n          <p className={styles.submittedLockedNote}>รายการที่ยืนยันแล้วแก้ไขหรือลบจากมือถือไม่ได้ หากต้องการแก้ไขกรุณาเรียกพนักงาน</p>\n        </section>\n      ) : null}\n''',
+              ''''''
+          )
+          replace_once(
+              mobile_path,
+              '''            <button type="button" className={styles.productPickButton} onClick={() => changeQuantity(product.id, 1)} disabled={submitting || Boolean(serviceSubmitting) || !canOrder || !available} aria-label={available ? `เพิ่ม ${product.name} ลงตะกร้า` : `${product.name} สต๊อกไม่เพียงพอ`}>''',
+              '''            <button type="button" className={styles.productPickButton} onClick={() => addProduct(product)} disabled={submitting || Boolean(serviceSubmitting) || !canOrder || !available} aria-label={available ? `เพิ่ม ${product.name} ลงตะกร้า` : `${product.name} สต๊อกไม่เพียงพอ`}>'''
+          )
+          replace_once(
+              mobile_path,
+              '''              <button type="button" onClick={() => changeQuantity(product.id, 1)} disabled={submitting || Boolean(serviceSubmitting) || !canOrder || !available || quantity >= productMaxQuantity(product)}>+</button>''',
+              '''              <button type="button" onClick={() => addProduct(product)} disabled={submitting || Boolean(serviceSubmitting) || !canOrder || !available || quantity >= productMaxQuantity(product)}>+</button>'''
+          )
+          replace_once(
+              mobile_path,
+              '''      {submitting ? <div className={styles.processing}>''',
+              '''      {submittedOpen ? (\n        <div className={styles.submittedModalBackdrop} role="presentation" onMouseDown={() => setSubmittedOpen(false)}>\n          <section className={styles.submittedModal} role="dialog" aria-modal="true" aria-label="รายการที่ส่งแล้ว" onMouseDown={(event) => event.stopPropagation()}>\n            <header className={styles.submittedModalHead}>\n              <div><strong>รายการที่ส่งแล้ว</strong><span>{menu.submitted_summary?.item_count ?? 0} รายการ</span></div>\n              <button type="button" onClick={() => setSubmittedOpen(false)} aria-label="ปิด">×</button>\n            </header>\n            <div className={styles.submittedModalRows}>\n              {submittedItems.map((item, index) => (\n                <div className={styles.submittedModalRow} key={`${item.product_id}-${index}`}>\n                  <span>{item.name} × {item.quantity}</span><strong>{money(item.line_total)}</strong>\n                </div>\n              ))}\n            </div>\n            <footer className={styles.submittedModalFooter}>\n              <div><span>รวมรายการที่ส่งแล้ว</span><strong>{money(menu.submitted_summary?.total_amount ?? 0)}</strong></div>\n              <p>รายการที่ยืนยันแล้วแก้ไขหรือลบจากมือถือไม่ได้ หากต้องการแก้ไขกรุณาเรียกพนักงาน</p>\n              <button type="button" onClick={() => setSubmittedOpen(false)}>ปิด</button>\n            </footer>\n          </section>\n        </div>\n      ) : null}\n\n      {ingredientPickerProduct ? (\n        <div className={styles.ingredientPickerBackdrop} role="presentation" onMouseDown={closeIngredientPicker}>\n          <section className={styles.ingredientPicker} role="dialog" aria-modal="true" aria-label={`เลือกวัตถุดิบ ${ingredientPickerProduct.name}`} onMouseDown={(event) => event.stopPropagation()}>\n            <header className={styles.ingredientPickerHead}>\n              <div><strong>เลือกวัตถุดิบ</strong><span>{ingredientPickerProduct.name}</span></div>\n              <button type="button" onClick={closeIngredientPicker} aria-label="ปิด">×</button>\n            </header>\n            <p className={styles.ingredientPickerHint}>เลือกได้ตามต้องการ · ไม่มีการเพิ่มราคาและไม่มีการแก้จำนวนสูตร</p>\n            <div className={styles.ingredientPickerOptions}>\n              {(ingredientPickerProduct.customer_ingredient_options ?? []).map((option) => {\n                const checked = ingredientPickerSelection.includes(option.ingredient_id);\n                return (\n                  <label className={checked ? styles.ingredientPickerOptionSelected : styles.ingredientPickerOption} key={option.ingredient_id}>\n                    <input\n                      type="checkbox"\n                      checked={checked}\n                      onChange={(event) => {\n                        setIngredientPickerSelection((current) =>\n                          event.target.checked\n                            ? Array.from(new Set([...current, option.ingredient_id]))\n                            : current.filter((id) => id !== option.ingredient_id)\n                        );\n                      }}\n                    />\n                    <span>{option.name}</span>\n                  </label>\n                );\n              })}\n            </div>\n            <footer className={styles.ingredientPickerFooter}>\n              <button type="button" onClick={closeIngredientPicker}>ยกเลิก</button>\n              <button type="button" className={styles.ingredientPickerConfirm} onClick={confirmIngredientPicker}>เพิ่มลงตะกร้า</button>\n            </footer>\n          </section>\n        </div>\n      ) : null}\n\n      {submitting ? <div className={styles.processing}>'''
+          )
+
+          # 6) Table QR styles for compact receipt button and two modal sheets.
+          css_path = "apps/backoffice-web/src/components/table-order/table-order-mobile.module.css"
+          replace_once(
+              css_path,
+              '''.hero > div:first-child {\n  min-width: 0;\n  max-width: calc(100% - 82px);\n}''',
+              '''.hero > div:first-child {\n  min-width: 0;\n  max-width: calc(100% - 138px);\n}'''
+          )
+          replace_once(
+              css_path,
+              '''.tableBadge::before {\n  content: "โต๊ะ ";\n  margin-right: 4px;\n  color: #4f89bf;\n  font-size: 13px;\n  font-weight: 800;\n}\n\n.cartSheet''',
+              '''.tableBadge::before {\n  content: "โต๊ะ ";\n  margin-right: 4px;\n  color: #4f89bf;\n  font-size: 13px;\n  font-weight: 800;\n}\n\n.submittedHistoryButton {\n  position: absolute;\n  right: 96px;\n  bottom: 18px;\n  display: inline-flex;\n  min-width: 44px;\n  min-height: 38px;\n  align-items: center;\n  justify-content: center;\n  gap: 5px;\n  padding: 0 9px;\n  border: 1px solid #b8d8f6;\n  border-radius: 999px;\n  background: #f6fbff;\n  color: #0871d7;\n  font-weight: 900;\n  box-shadow: 0 4px 12px rgba(8, 113, 215, 0.08);\n  cursor: pointer;\n  touch-action: manipulation;\n}\n.submittedHistoryButton span { min-width: 16px; font-size: 12px; text-align: center; }\n.submittedHistoryButton:active { transform: translateY(1px); }\n\n.cartSheet'''
+          )
+          replace_once(
+              css_path,
+              '''.submittedSummary { display: grid; gap: 8px; margin: 8px 10px 10px; padding: 12px; border: 1px solid #bdd9f2; border-radius: 12px; background: #f6fbff; }\n.submittedSummaryHead, .submittedRow { display: flex; align-items: center; justify-content: space-between; gap: 10px; }\n.submittedSummaryHead span { color:#64748b; font-size:12px; }\n.submittedSummaryHead strong { color:#0875df; font-size:16px; }\n.submittedRows { display: grid; gap: 6px; }\n.submittedRow { padding-top: 6px; border-top: 1px solid #dbeafe; font-size:13px; }\n.submittedLockedNote { margin:0; color:#64748b; font-size:12px; }''',
+              '''.submittedModalBackdrop, .ingredientPickerBackdrop { position: fixed; inset: 0; z-index: 26; display: grid; align-items: end; padding: 18px 9px 0; background: rgba(3, 24, 47, 0.61); backdrop-filter: blur(4px); }\n.submittedModal, .ingredientPicker { width: min(100%, 660px); max-height: min(78dvh, 720px); margin: 0 auto; overflow: hidden; border: 1px solid rgba(218, 228, 238, 0.95); border-radius: 22px 22px 0 0; background: #fff; box-shadow: 0 -18px 42px rgba(2, 31, 61, 0.24); animation: cartUp 0.2s ease-out; }\n.submittedModalHead, .ingredientPickerHead { display: flex; min-height: 66px; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 15px; border-bottom: 1px solid #e0e8ef; }\n.submittedModalHead > div, .ingredientPickerHead > div { display: grid; gap: 2px; }\n.submittedModalHead strong, .ingredientPickerHead strong { font-size: 17px; }\n.submittedModalHead span, .ingredientPickerHead span { color: #71869a; font-size: 12px; }\n.submittedModalHead > button, .ingredientPickerHead > button { width: 38px; height: 38px; border: 1px solid #d4dee8; border-radius: 50%; background: #f7f9fb; color: #45627e; font-size: 24px; cursor: pointer; }\n.submittedModalRows { max-height: 45vh; overflow-y: auto; padding: 4px 15px; }\n.submittedModalRow { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 0; border-bottom: 1px solid #e7edf3; font-size: 14px; }\n.submittedModalRow strong { color: #0875df; white-space: nowrap; }\n.submittedModalFooter { display: grid; gap: 9px; padding: 12px 15px calc(12px + env(safe-area-inset-bottom)); border-top: 1px solid #dce6ef; background: #f8fafc; }\n.submittedModalFooter > div { display: flex; align-items: center; justify-content: space-between; gap: 12px; }\n.submittedModalFooter > div strong { color: #0875df; font-size: 18px; }\n.submittedModalFooter p { margin: 0; color: #64748b; font-size: 12px; line-height: 1.45; }\n.submittedModalFooter button { min-height: 44px; border: 0; border-radius: 12px; background: #087df0; color: #fff; font-weight: 900; cursor: pointer; }\n.ingredientPickerHint { margin: 0; padding: 11px 15px 0; color: #64748b; font-size: 12px; line-height: 1.45; }\n.ingredientPickerOptions { display: grid; max-height: 48vh; gap: 8px; overflow-y: auto; padding: 12px 15px; }\n.ingredientPickerOption, .ingredientPickerOptionSelected { display: flex; min-height: 46px; align-items: center; gap: 10px; padding: 9px 12px; border: 1px solid #dbe4ee; border-radius: 12px; background: #fff; color: #263547; font-size: 14px; font-weight: 800; cursor: pointer; }\n.ingredientPickerOptionSelected { border-color: #82bff4; background: #eef7ff; color: #075fae; }\n.ingredientPickerOption input, .ingredientPickerOptionSelected input { width: 18px; height: 18px; accent-color: #087df0; }\n.ingredientPickerFooter { display: grid; grid-template-columns: 1fr 1.35fr; gap: 9px; padding: 12px 15px calc(12px + env(safe-area-inset-bottom)); border-top: 1px solid #dce6ef; background: #f8fafc; }\n.ingredientPickerFooter button { min-height: 46px; border: 1px solid #cbd8e5; border-radius: 12px; background: #fff; color: #52687d; font-weight: 900; cursor: pointer; }\n.ingredientPickerFooter .ingredientPickerConfirm { border-color: #087df0; background: #087df0; color: #fff; }'''
+          )
+          replace_once(
+              css_path,
+              '''  .tableBadge { right: 12px; bottom: 16px; min-width: 64px; min-height: 35px; }''',
+              '''  .tableBadge { right: 12px; bottom: 16px; min-width: 64px; min-height: 35px; }\n  .submittedHistoryButton { right: 84px; bottom: 16px; min-width: 40px; min-height: 35px; padding-inline: 7px; }'''
+          )
+
+          # 7) Migration source of truth. Live DB migration is applied separately to both projects.
+          migration = Path("supabase/migrations/20260811143000_table_qr_customer_ingredient_selection.sql")
+          migration.write_text('''alter table public.products\n  add column if not exists customer_ingredient_selection_enabled boolean not null default false;\n\ncomment on column public.products.customer_ingredient_selection_enabled is\n  'When true, Table QR customers may select recipe ingredients as order preferences. This flag does not change catalog price or recipe quantities.';\n''', encoding="utf-8")
+
+          # 8) Project handoff docs.
+          doc_note = '''\n\n## 2026-08-11 — Dine-in payment return + Table QR customer recipe choices\n\n- Fixed dine-in receipt close behavior: after a paid table receipt is closed (cash or bank transfer), POS returns to the table browser instead of staying inside the settled table.\n- Table QR submitted-order history is hidden from normal menu flow and opened from a receipt icon beside the table badge.\n- Table QR action success/failure notifications use transient toast messages; fatal QR/menu load failures remain inline.\n- Product edit now has `สำหรับลูกค้าเลือก` / `Customer selectable` beside ingredient recipe mode.\n- When enabled, Table QR opens a checkbox-only recipe ingredient picker. Customer selections do not change product price or recipe quantities and are persisted as the order-item note for downstream kitchen/printing work.\n- Added `products.customer_ingredient_selection_enabled` migration; default is `false`.\n- Scope intentionally excludes Kitchen PR #47 and printer logic.\n'''
+          for doc in ["README.md", "context.md"]:
+              text = read(doc)
+              if "## 2026-08-11 — Dine-in payment return + Table QR customer recipe choices" not in text:
+                  write(doc, text.rstrip() + doc_note + "\n")
+
+      - name: Verify patch shape
+        run: |
+          git diff --check
+          git diff --stat
+          grep -n "customer_ingredient_selection_enabled" apps/backoffice-web/src/app/api/backoffice/catalog/route.ts apps/backoffice-web/src/lib/table-qr-ordering.ts apps/backoffice-web/src/components/pos-preview/edit-product-popup-button.tsx
+          grep -n "Boolean(receiptSession?.table_id)" apps/backoffice-web/src/components/pos/pos-sales-module.tsx
+
+      - name: Commit patch and remove temporary workflow
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          rm .github/workflows/agent-table-qr-customer-options.yml
+          git add apps/backoffice-web/src/components/pos/pos-sales-module.tsx \
+                  apps/backoffice-web/src/components/pos-preview/edit-product-popup-button.tsx \
+                  apps/backoffice-web/src/app/api/backoffice/catalog/route.ts \
+                  apps/backoffice-web/src/lib/table-qr-ordering.ts \
+                  apps/backoffice-web/src/components/table-order/table-order-mobile.tsx \
+                  apps/backoffice-web/src/components/table-order/table-order-mobile.module.css \
+                  supabase/migrations/20260811143000_table_qr_customer_ingredient_selection.sql \
+                  README.md context.md \
+                  .github/workflows/agent-table-qr-customer-options.yml
+          git commit -m "fix(pos): stabilize dine-in return and Table QR choices"
+          git push origin HEAD:agent/table-qr-customer-options-dinein-return
