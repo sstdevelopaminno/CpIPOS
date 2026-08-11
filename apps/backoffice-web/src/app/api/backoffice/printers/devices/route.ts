@@ -6,6 +6,7 @@ import {
   disconnectPrinterDevice,
   getPrinterSettingsRegistry,
   markPrinterDeviceDeleted,
+  reconnectPrinterDevice,
   syncPrinterDevice,
   type CustomerConnectionMode,
   type PrinterPurpose
@@ -116,6 +117,15 @@ function validate(body: Payload) {
   return { name, mode, paper, purposes };
 }
 
+function validationFailure(message: string) {
+  if (message === "lan_ip_required") return fail(message, "LAN ต้องมี IP ของเครื่องพิมพ์", 422);
+  return fail(message, "ข้อมูลเครื่องพิมพ์ไม่ครบ", 422);
+}
+
+function isValidationError(message: string) {
+  return message === "printer_name_required" || message === "connection_mode_invalid" || message === "paper_width_invalid" || message === "purpose_required" || message === "lan_ip_required";
+}
+
 export async function GET() {
   try {
     const auth = await getAuthContext({ requireBranchScope: true });
@@ -154,7 +164,7 @@ export async function POST(req: Request) {
   } catch (error) {
     const message = error instanceof Error ? error.message : "unknown";
     if (message === "forbidden_role") return fail("forbidden_role", "Only manager or owner can configure printers.", 403);
-    if (message === "printer_name_required" || message === "connection_mode_invalid" || message === "paper_width_invalid" || message === "purpose_required" || message === "lan_ip_required") return fail(message, message === "lan_ip_required" ? "LAN ต้องมี IP ของเครื่องพิมพ์" : "ข้อมูลเครื่องพิมพ์ไม่ครบ", 422);
+    if (isValidationError(message)) return validationFailure(message);
     if (message.includes("duplicate key")) return fail("printer_conflict", "เครื่องพิมพ์นี้ถูกบันทึกไว้แล้ว สามารถเลือกเชื่อมต่ออีกครั้งจากประวัติได้", 409);
     return fail("printer_create_failed", "บันทึกเครื่องพิมพ์ไม่สำเร็จ กรุณาลองใหม่", 400);
   }
@@ -166,10 +176,16 @@ export async function PATCH(req: Request) {
     const body = (await req.json()) as Payload;
     const printerId = clean(body.printer_id);
     if (!printerId) return fail("printer_id_required", "printer_id is required", 422);
+
     if (body.action === "disconnect") {
       const device = await disconnectPrinterDevice(auth, printerId);
       return ok({ device, disconnected: true });
     }
+    if (body.action === "reconnect") {
+      const device = await reconnectPrinterDevice(auth, printerId);
+      return ok({ device, reconnected: true });
+    }
+
     const { name, mode, paper, purposes } = validate(body);
     const metadata = profileMetadata(body, mode, purposes);
     const profile = await updatePrinterProfile(auth, printerId, {
@@ -185,13 +201,14 @@ export async function PATCH(req: Request) {
     const device = await syncPrinterDevice(auth, {
       printerProfileId: profile.id, displayName: name, brand: clean(body.brand), model: clean(body.model), connectionMode: mode,
       paperWidthMm: paper, purposes, deviceFingerprint: buildFingerprint(body, mode), runtimeDeviceCode: clean(body.runtime_device_code),
-      capabilities: (metadata.capabilities ?? {}) as Record<string, unknown>, metadata: { source: "printer_settings_v3" }, eventType: body.action === "reconnect" ? "reconnected" : "updated"
+      capabilities: (metadata.capabilities ?? {}) as Record<string, unknown>, metadata: { source: "printer_settings_v3" }, eventType: "updated"
     });
     return ok({ profile, device });
   } catch (error) {
     const message = error instanceof Error ? error.message : "unknown";
     if (message === "forbidden_role") return fail("forbidden_role", "Only manager or owner can configure printers.", 403);
-    if (message === "printer_not_found") return fail("printer_not_found", "ไม่พบเครื่องพิมพ์นี้", 404);
+    if (message === "printer_not_found" || message === "printer_device_not_found") return fail("printer_not_found", "ไม่พบเครื่องพิมพ์นี้", 404);
+    if (isValidationError(message)) return validationFailure(message);
     return fail("printer_update_failed", "อัปเดตเครื่องพิมพ์ไม่สำเร็จ กรุณาลองใหม่", 400);
   }
 }
