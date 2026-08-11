@@ -12,6 +12,7 @@ permissions:
 
 jobs:
   finalize:
+    # Retry after EOF normalization in the staged finalizer script.
     runs-on: ubuntu-latest
     steps:
       - name: Checkout branch
