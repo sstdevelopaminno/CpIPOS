@@ -20,10 +20,7 @@ const config = [
     }
   },
   {
-    files: [
-      "src/components/backoffice/printer-connection-manager-v2.tsx",
-      "src/components/backoffice/printer-connection-manager-v3.tsx"
-    ],
+    files: ["src/components/backoffice/printer-connection-manager-v2.tsx"],
     rules: {
       "react-hooks/rules-of-hooks": "off"
     }
