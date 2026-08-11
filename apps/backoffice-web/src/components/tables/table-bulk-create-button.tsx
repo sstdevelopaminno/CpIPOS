@@ -231,7 +231,8 @@ export function TableBulkCreateButton({
           start_number: startNumber,
           prefix: normalizedPrefix,
           capacity,
-          name_mode: form.name_mode
+          name_mode: form.name_mode,
+          locale: lang
         })
       });
       const body = await readJson(response);
