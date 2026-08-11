@@ -1,4 +1,4 @@
-﻿import { AddProductPopupButton } from "@/components/pos-preview/add-product-popup-button";
+import { AddProductPopupButton } from "@/components/pos-preview/add-product-popup-button";
 import type { BranchRole } from "@pos/shared-types";
 import { PosBackButton } from "@/components/pos-preview/pos-back-button";
 import { StockBranchSelector } from "@/components/pos-preview/stock-branch-selector";
@@ -455,32 +455,42 @@ export default async function PosStockPage({
 
   return (
     <section className="pos-section-card w-full self-start overflow-hidden rounded-2xl border border-slate-300 bg-white">
-      <div className="border-b border-slate-200 bg-[linear-gradient(130deg,#f8fbff_0%,#f2f7ff_34%,#fff7ed_100%)] px-4 py-4 lg:px-6 lg:py-5">
-        <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(320px,420px)_auto] lg:items-start">
+      <div className="border-b border-slate-200 bg-[linear-gradient(130deg,#f8fbff_0%,#f2f7ff_34%,#fff7ed_100%)] px-4 py-3 lg:px-6 lg:py-4">
+        <div className="grid gap-3 lg:grid-cols-[minmax(260px,1fr)_minmax(360px,520px)_auto] lg:items-start">
           <div>
             <PosBackButton lang={lang} href="/preview/pos/more" label={lang === "th" ? "กลับเมนูเพิ่มเติม" : "Back to More"} className="mb-3" />
             <h2 className="mt-1 text-xl font-extrabold text-slate-900 lg:text-2xl">
               {t(lang, "pos_stock_title")}
             </h2>
+          </div>
+
+          <div className="lg:pt-1 [&>div]:mt-0">
             <StockBranchSelector
               th={th}
               canManageCatalog={canManageCatalog}
               branchOptions={branchOptions}
               selectedBranchId={selectedBranchId}
             />
-            {branchScopeWarning ? <p className="mt-2 text-xs font-semibold text-amber-700">{branchScopeWarning}</p> : null}
+            {branchScopeWarning ? <p className="mt-1 text-xs font-semibold text-amber-700">{branchScopeWarning}</p> : null}
           </div>
-          <div className="grid grid-cols-2 gap-2">
-            <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
-              <p className="text-[11px] text-slate-500">{t(lang, "pos_stock_total_products")}</p>
-              <p className="mt-0.5 text-2xl font-extrabold leading-none text-slate-900">{totalProducts}</p>
-            </div>
-            <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2">
-              <p className="text-[11px] text-amber-700">{t(lang, "pos_stock_low_ingredients")}</p>
-              <p className="mt-0.5 text-2xl font-extrabold leading-none text-amber-900">{lowStockCount}</p>
-            </div>
-          </div>
+
           <div className="flex flex-wrap items-center justify-end gap-2">
+            <details className="group relative">
+              <summary className="inline-flex min-h-10 cursor-pointer list-none items-center rounded-xl border border-slate-300 bg-white px-3 text-xs font-bold text-slate-700 shadow-sm transition hover:bg-slate-50">
+                <span className="group-open:hidden">{th ? "แสดงสรุป" : "Show Summary"}</span>
+                <span className="hidden group-open:inline">{th ? "ซ่อนสรุป" : "Hide Summary"}</span>
+              </summary>
+              <div className="absolute right-0 top-full z-50 mt-2 grid w-80 grid-cols-2 gap-2 rounded-xl border border-slate-200 bg-white p-2 shadow-xl">
+                <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
+                  <p className="text-[11px] text-slate-500">{t(lang, "pos_stock_total_products")}</p>
+                  <p className="mt-0.5 text-2xl font-extrabold leading-none text-slate-900">{totalProducts}</p>
+                </div>
+                <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2">
+                  <p className="text-[11px] text-amber-700">{t(lang, "pos_stock_low_ingredients")}</p>
+                  <p className="mt-0.5 text-2xl font-extrabold leading-none text-amber-900">{lowStockCount}</p>
+                </div>
+              </div>
+            </details>
             <AddProductPopupButton
               th={th}
               categories={categoryList}
@@ -492,29 +502,68 @@ export default async function PosStockPage({
             />
           </div>
         </div>
+
         <div
           id="stock-page-action-toolbar"
-          className="mt-3 flex min-h-9 flex-wrap items-center justify-end gap-2 border-t border-slate-200/80 pt-3"
+          className="mt-2 flex min-h-9 flex-wrap items-center justify-end gap-2 border-t border-slate-200/80 pt-2"
           aria-label={th ? "เครื่องมือจัดการสินค้า" : "Product management tools"}
         />
       </div>
 
-      <div className="grid gap-4 px-4 py-4 lg:px-6 lg:py-5">
-        <StockProductsTable
-          th={th}
-          products={productsForTable}
-          categoryList={categoryList}
-          ingredientList={ingredientList}
-          deliveryRates={deliveryRatesForAddProduct}
-          unitStockList={unitStockList}
-          allowNegativeStock={allowNegativeStock}
-          inventorySettingsReady={inventorySettingsReady}
-          inventorySettingsMessage={inventorySettingsMessage}
-          branchId={selectedBranchId}
-          branchOptions={branchOptions}
-          canManageCatalog={canManageCatalog}
-        />
+      <div className="grid gap-3 px-4 py-3 lg:px-6 lg:py-3">
+        <div id="stock-products-table-area">
+          <StockProductsTable
+            th={th}
+            products={productsForTable}
+            categoryList={categoryList}
+            ingredientList={ingredientList}
+            deliveryRates={deliveryRatesForAddProduct}
+            unitStockList={unitStockList}
+            allowNegativeStock={allowNegativeStock}
+            inventorySettingsReady={inventorySettingsReady}
+            inventorySettingsMessage={inventorySettingsMessage}
+            branchId={selectedBranchId}
+            branchOptions={branchOptions}
+            canManageCatalog={canManageCatalog}
+          />
+        </div>
       </div>
+
+      <style>{`
+        #stock-products-table-area > div > div:last-of-type:not(.fixed) {
+          border-color: #bfdbfe !important;
+          background: #ffffff !important;
+          box-shadow: 0 6px 18px rgba(15, 23, 42, 0.08);
+        }
+        #stock-products-table-area > div > div:last-of-type:not(.fixed) > span {
+          color: #334155 !important;
+          font-weight: 700 !important;
+        }
+        #stock-products-table-area > div > div:last-of-type:not(.fixed) > div:last-child > strong {
+          min-width: 6rem;
+          border: 1px solid #e2e8f0;
+          border-radius: 0.5rem;
+          background: #f1f5f9;
+          padding: 0.5rem 0.75rem;
+          color: #334155;
+          font-weight: 800;
+        }
+        #stock-products-table-area > div > div:last-of-type:not(.fixed) > div:last-child > button {
+          min-height: 2.25rem;
+          padding-left: 1rem;
+          padding-right: 1rem;
+          font-weight: 700;
+        }
+        #stock-products-table-area > div > div:last-of-type:not(.fixed) > div:last-child > button:last-child:not(:disabled) {
+          border-color: #2563eb !important;
+          background: #2563eb !important;
+          color: #ffffff !important;
+          box-shadow: 0 2px 6px rgba(37, 99, 235, 0.24);
+        }
+        #stock-products-table-area > div > div:last-of-type:not(.fixed) > div:last-child > button:last-child:not(:disabled):hover {
+          background: #1d4ed8 !important;
+        }
+      `}</style>
     </section>
   );
 }
