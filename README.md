@@ -321,3 +321,13 @@ Current behavior/security decisions are governed by the latest migrations, CI/te
 - POS product cards now use published thumbnails and registered POS sessions can warm/read the local media cache. Table QR menu responses include published image URLs; image lookup is fail-soft so media failure cannot block menu/order flow.
 - Product media mutations are tenant/branch scoped from trusted POS session data, require Owner/Manager, verify the product on its routed data plane, and emit audit events. The browser never chooses a tenant, data plane, or service-role credential.
 - Migration `20260811072000_product_media_v1.sql` was applied to CpiPOS-001 and verified for Storage configuration, RLS, service-role-only RPC execution and quota behavior. No product/order/payment/shift/stock transaction semantics changed.
+
+
+## Product Media UI follow-up — 2026-08-11
+
+- `/preview/pos/stock/media` hides the three storage-summary cards by default and exposes a `Show Summary / Hide Summary` toggle without changing quota calculations.
+- Product-image rows use a POS-friendly bounded vertical scroll area and 10 items per page with visible range text plus Previous / Page / Next controls.
+- Search resets the media list to page 1; changing pages scrolls the list container back to the top.
+- Upload activation uses a real button backed by one shared file input with `showPicker()` and `.click()` fallback for better Web/POS wrapper compatibility.
+- Upload/replace/delete APIs, Cloud quota rules, POS cache behavior, Web POS sales images and Table QR media behavior remain unchanged.
+- PR #50 passed Typecheck, Lint, Tests, Primary schema drift, Trial schema drift and PR production build before merge.

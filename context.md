@@ -553,3 +553,12 @@ ORDER BY p.name;
 - Migration `supabase/migrations/20260811072000_product_media_v1.sql` was applied to CpiPOS-001 and verified live: Storage bucket config, RLS, service-role-only RPC privilege, package metadata and rollback-only quota probe all passed. The probe left zero test media rows.
 - Feature PR #49 passed Typecheck, Lint, Tests, Primary schema drift, Trial schema drift and production build, then merged to `agent-docs-preflight-schema-drift` as `9f091bcd6a98195ff8b6999aca4f73fdeadd9962`; its Vercel Production deployment reached READY.
 - No order, payment, stock deduction, shift, pricing or receipt transaction semantics were changed by Product Media v1.
+
+
+## Product Media UI follow-up — 2026-08-11
+
+- Product Media management defaults storage summary cards to hidden with an in-page Show/Hide Summary toggle.
+- Product media rows use a bounded scroll region and 10-row client pagination with range text, Previous / Page / Next, search-to-page-1 reset and scroll-to-top on page changes.
+- Product upload activation uses a real button and a shared file input (`showPicker()` with `.click()` fallback) instead of a label around a hidden file input, improving POS WebView/desktop wrapper compatibility while preserving the same upload API.
+- No auth, tenant isolation, package quota calculation, stock/order/payment/shift transaction or Table QR ordering semantics changed.
+- PR #50 CI passed Typecheck, Lint, Tests, both schema drift checks and PR build before Production merge.
