@@ -31,6 +31,7 @@ export type OpenCashDrawerControllerInput = {
   posDeviceId?: string | null;
   orderId?: string | null;
   paymentId?: string | null;
+  printerId?: string | null;
   requestedMode?: CashDrawerConnectionMode | null;
   metadata?: JsonRecord;
 };
@@ -147,6 +148,7 @@ async function assertCashDrawerCooldown(auth: AuthContext, input: OpenCashDrawer
     .limit(1);
 
   if (input.posDeviceId) query = query.eq("pos_device_id", input.posDeviceId);
+  if (input.printerId) query = query.eq("printer_profile_id", input.printerId);
 
   const { data, error } = await query;
   if (error) throw new Error(error.message);
@@ -172,6 +174,15 @@ function selectDrawerCandidate(printers: PrinterProfileRow[], input: OpenCashDra
   const candidates = printers
     .map((printer) => ({ printer, drawer: readCashDrawerControllerProfile(printer) }))
     .filter((candidate) => candidate.drawer.enabled && candidate.drawer.openSupported);
+
+  const requestedPrinterId = normalizeText(input.printerId ?? asRecord(input.metadata).requested_printer_id);
+  if (requestedPrinterId) {
+    const scoped = candidates.filter((candidate) => candidate.printer.id === requestedPrinterId);
+    if (input.requestedMode) {
+      return scoped.find((candidate) => candidate.drawer.connectionMode === input.requestedMode) ?? null;
+    }
+    return scoped[0] ?? null;
+  }
 
   if (input.requestedMode) {
     return candidates.find((candidate) => candidate.drawer.connectionMode === input.requestedMode) ?? null;
@@ -282,13 +293,14 @@ export async function openCashDrawerController(auth: AuthContext, input: OpenCas
   if (manualLike && !canOpenDrawerManually(auth, candidate.drawer)) throw new Error("permission_denied");
   if (manualLike && candidate.drawer.requireReason && !normalizeText(input.reason)) throw new Error("drawer_reason_required");
 
-  await assertCashDrawerCooldown(auth, input);
+  await assertCashDrawerCooldown(auth, { ...input, printerId: candidate.printer.id });
 
   const eventId = await writeCashDrawerEvent(auth, candidate, input, {
     command_status: "queued",
     physical_status: candidate.drawer.statusSupported ? "unknown" : "unsupported",
     metadata: {
       ...asRecord(input.metadata),
+      requested_printer_id: input.printerId ?? null,
       drawer_profile: candidate.drawer,
       controller_mode: candidate.drawer.connectionMode
     }
@@ -307,6 +319,8 @@ export async function openCashDrawerController(auth: AuthContext, input: OpenCas
       trigger_source: input.triggerSource,
       reason: normalizeText(input.reason),
       cash_drawer_event_id: eventId,
+      requested_printer_id: input.printerId ?? null,
+      selected_printer_id: candidate.printer.id,
       drawer_connection_mode: candidate.drawer.connectionMode,
       drawer_controller_port: candidate.drawer.controllerPort,
       drawer_controller_url: candidate.drawer.controllerUrl,
@@ -314,7 +328,8 @@ export async function openCashDrawerController(auth: AuthContext, input: OpenCas
       drawer_kick_pin: candidate.drawer.kickPin,
       drawer_pulse_on_ms: candidate.drawer.pulseOnMs,
       drawer_pulse_off_ms: candidate.drawer.pulseOffMs,
-      drawer_status_supported: candidate.drawer.statusSupported
+      drawer_status_supported: candidate.drawer.statusSupported,
+      quarantine_replay_allowed: false
     },
     maxRetryCount: 1
   });
@@ -340,10 +355,13 @@ export async function openCashDrawerController(auth: AuthContext, input: OpenCas
       error_code: errorCode,
       metadata: {
         ...asRecord(input.metadata),
+        requested_printer_id: input.printerId ?? null,
+        selected_printer_id: candidate.printer.id,
         controller_mode: candidate.drawer.connectionMode,
         deferred_to_agent: !shouldProcessDrawerCommandOnServer(candidate.printer),
         print_job_status: processed?.status ?? job.status,
-        last_error: processed?.last_error ?? null
+        last_error: processed?.last_error ?? null,
+        quarantine_replay_allowed: false
       }
     },
     eventId
@@ -359,13 +377,15 @@ export async function openCashDrawerController(auth: AuthContext, input: OpenCas
     targetId: eventId,
     metadata: {
       printer_profile_id: candidate.printer.id,
+      requested_printer_id: input.printerId ?? null,
       print_job_id: job.id,
       trigger_source: input.triggerSource,
       reason: normalizeText(input.reason),
       controller_mode: candidate.drawer.connectionMode,
       command_status: commandStatus,
       physical_status: candidate.drawer.statusSupported ? "unknown" : "unsupported",
-      error_code: errorCode
+      error_code: errorCode,
+      quarantine_replay_allowed: false
     }
   });
 
