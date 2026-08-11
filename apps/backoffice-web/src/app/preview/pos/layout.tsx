@@ -4,6 +4,7 @@ import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { PosShiftCycleGuard } from "@/components/pos/pos-shift-cycle-guard";
 import { PosDeviceHeartbeatSender } from "@/components/pos/pos-device-heartbeat-sender";
+import { PosProductMediaToolbarLink } from "@/components/pos-preview/pos-product-media-toolbar-link";
 import { PosShellFrame } from "@/components/pos-preview/pos-shell-frame";
 import { PosRoutePerformanceTracker } from "@/components/pos-preview/pos-route-performance-tracker";
 import { PosTableQrGlobalAlert } from "@/components/pos-preview/pos-table-qr-global-alert";
@@ -54,6 +55,7 @@ export default async function PosPreviewLayout({ children }: { children: ReactNo
       <PosRoutePerformanceTracker />
       <PosShiftCycleGuard lang={lang} />
       <PosDeviceHeartbeatSender />
+      <PosProductMediaToolbarLink th={lang === "th"} />
       <PosViewportGuard lang={lang} />
       <PosTableQrGlobalAlert lang={lang} />
       <PosShellFrame lang={lang} settingsLabel={t(lang, "common_settings")} initialPlacement={initialPlacement}>
