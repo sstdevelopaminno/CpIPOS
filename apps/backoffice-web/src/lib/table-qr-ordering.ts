@@ -48,11 +48,18 @@ type SubmitQrOrderRow = {
 type TableQrServiceRequestType = "call_staff" | "request_checkout";
 type TableQrOrderItemInput = { product_id: string; quantity: number; note?: string | null };
 
+type TableQrCustomerIngredientOption = {
+  ingredient_id: string;
+  name: string;
+};
+
 type TableQrMenuProduct = {
   id: string;
   name: string;
   category: string;
   price: number;
+  customer_ingredient_selection_enabled: boolean;
+  customer_ingredient_options: TableQrCustomerIngredientOption[];
 };
 
 type SubmittedOrderSummary = {
@@ -74,6 +81,12 @@ type TableQrProductRow = {
   name: string;
   price: number;
   is_active?: boolean;
+};
+
+type TableQrRecipeChoiceRow = {
+  product_id: string;
+  ingredient_id: string;
+  ingredients: { name?: string | null } | Array<{ name?: string | null }> | null;
 };
 
 type TableQrMenuCacheEntry = {
@@ -383,7 +396,7 @@ export async function loadTableQrMenu(context: QrContext) {
 
   const { data, error } = await supabase
     .from("products")
-    .select("id,name,category,price,is_active")
+    .select("id,name,category,price,is_active,customer_ingredient_selection_enabled")
     .eq("tenant_id", context.tenant_id)
     .eq("branch_id", context.branch_id)
     .eq("is_active", true)
@@ -391,12 +404,45 @@ export async function loadTableQrMenu(context: QrContext) {
     .order("name", { ascending: true });
   if (error) throw new Error(error.message);
 
-  const products = (data ?? []).map((row) => ({
-    id: String(row.id),
-    name: String(row.name ?? ""),
-    category: String(row.category ?? "เมนู"),
-    price: Number(row.price ?? 0)
-  }));
+  const selectableProductIds = (data ?? [])
+    .filter((row) => row.customer_ingredient_selection_enabled === true)
+    .map((row) => String(row.id));
+  const customerIngredientOptionsByProduct = new Map<string, TableQrCustomerIngredientOption[]>();
+
+  if (selectableProductIds.length > 0) {
+    const { data: recipeRows, error: recipeError } = await supabase
+      .from("recipes")
+      .select("product_id,ingredient_id,ingredients(name)")
+      .eq("tenant_id", context.tenant_id)
+      .eq("branch_id", context.branch_id)
+      .eq("applies_when_takeaway_only", false)
+      .in("product_id", selectableProductIds);
+    if (recipeError) throw new Error(recipeError.message);
+
+    for (const row of (recipeRows ?? []) as TableQrRecipeChoiceRow[]) {
+      const productId = String(row.product_id ?? "").trim();
+      const ingredientId = String(row.ingredient_id ?? "").trim();
+      const ingredientRecord = Array.isArray(row.ingredients) ? row.ingredients[0] : row.ingredients;
+      const name = String(ingredientRecord?.name ?? "").trim();
+      if (!productId || !ingredientId || !name || name.startsWith("STOCK:")) continue;
+      const current = customerIngredientOptionsByProduct.get(productId) ?? [];
+      current.push({ ingredient_id: ingredientId, name });
+      customerIngredientOptionsByProduct.set(productId, current);
+    }
+  }
+
+  const products = (data ?? []).map((row) => {
+    const productId = String(row.id);
+    const customerSelectable = row.customer_ingredient_selection_enabled === true;
+    return {
+      id: productId,
+      name: String(row.name ?? ""),
+      category: String(row.category ?? "เมนู"),
+      price: Number(row.price ?? 0),
+      customer_ingredient_selection_enabled: customerSelectable,
+      customer_ingredient_options: customerSelectable ? customerIngredientOptionsByProduct.get(productId) ?? [] : []
+    };
+  });
   writeTableQrMenuCache(context.tenant_id, context.branch_id, products);
   return {
     ...common,

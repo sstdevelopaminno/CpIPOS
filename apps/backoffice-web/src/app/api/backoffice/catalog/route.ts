@@ -1,4 +1,4 @@
-﻿import { getAuthContext } from "@/lib/auth-context";
+import { getAuthContext } from "@/lib/auth-context";
 import { fail, ok } from "@/lib/http";
 import { convertToGrams, toIntegerGrams } from "@/lib/ingredient-stock";
 import { featureGateFail, requirePosApiFeature } from "@/lib/pos-api-feature-guard";
@@ -96,6 +96,7 @@ type UpdateProductWithStockSetupPayload = {
     shopee?: number;
   };
   use_ingredient_recipe: boolean;
+  customer_ingredient_selection_enabled?: boolean;
   ingredient_lines?: Array<{
     ingredient_id: string;
     quantity: number;
@@ -476,9 +477,21 @@ export async function GET(req: Request) {
         return fail("recipes_query_failed", error.message, 500);
       }
 
+      const { data: productSettings, error: productSettingsError } = await supabase
+        .from("products")
+        .select("customer_ingredient_selection_enabled")
+        .eq("tenant_id", auth.tenantId!)
+        .eq("branch_id", scopedBranchId)
+        .eq("id", productId)
+        .maybeSingle<{ customer_ingredient_selection_enabled: boolean | null }>();
+      if (productSettingsError) {
+        return fail("recipe_product_settings_query_failed", productSettingsError.message, 500);
+      }
+
       return ok({
         view: "recipes",
         items: data ?? [],
+        customer_ingredient_selection_enabled: productSettings?.customer_ingredient_selection_enabled === true,
         pagination: buildPaginationMeta(page, pageSize, count)
       });
     }
@@ -1415,6 +1428,8 @@ export async function POST(req: Request) {
         deliveryPricesByChannel: body.delivery_prices_by_channel
       });
       const useIngredientRecipe = Boolean(body.use_ingredient_recipe);
+      const customerIngredientSelectionEnabled =
+        useIngredientRecipe && Boolean(body.customer_ingredient_selection_enabled);
       const ingredientLines = Array.isArray(body.ingredient_lines) ? body.ingredient_lines : [];
 
       if (!productId) {
@@ -1525,11 +1540,16 @@ export async function POST(req: Request) {
         }
       ];
 
+      const updatePayloadCandidatesWithCustomerSelection = updatePayloadCandidates.map((candidate) => ({
+        ...candidate,
+        customer_ingredient_selection_enabled: customerIngredientSelectionEnabled
+      }));
+
       let updateProductError: PostgrestLikeError | null = null;
-      for (let i = 0; i < updatePayloadCandidates.length; i += 1) {
+      for (let i = 0; i < updatePayloadCandidatesWithCustomerSelection.length; i += 1) {
         const result = await supabase
           .from("products")
-          .update(updatePayloadCandidates[i])
+          .update(updatePayloadCandidatesWithCustomerSelection[i])
           .eq("tenant_id", auth.tenantId!)
           .eq("branch_id", productBranchId)
           .eq("id", productId);

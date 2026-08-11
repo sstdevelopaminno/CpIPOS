@@ -3,11 +3,18 @@
 import { type WheelEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import styles from "./table-order-mobile.module.css";
 
+type CustomerIngredientOption = {
+  ingredient_id: string;
+  name: string;
+};
+
 type MenuProduct = {
   id: string;
   name: string;
   category: string;
   price: number;
+  customer_ingredient_selection_enabled?: boolean;
+  customer_ingredient_options?: CustomerIngredientOption[];
   image_url?: string | null;
   thumbnail_url?: string | null;
   stock_on_hand_units?: number | null;
@@ -59,7 +66,7 @@ type SubmitResponse = {
 
 type ServiceRequestAction = "call_staff" | "request_checkout";
 type ToastMessage = { kind: "success" | "warning" | "error"; title: string; detail?: string };
-type SubmitItem = { product_id: string; quantity: number };
+type SubmitItem = { product_id: string; quantity: number; note?: string | null };
 
 const MENU_LOAD_TIMEOUT_MS = 45_000;
 const SUBMIT_TIMEOUT_MS = 20_000;
@@ -134,11 +141,33 @@ function getTableOrderClientId(token: string) {
   return fallback;
 }
 
-function buildSubmitItems(cartItems: Array<MenuProduct & { quantity: number }>): SubmitItem[] {
+function buildCustomerIngredientNote(product: MenuProduct, selectedIngredientIds: string[] | undefined) {
+  if (!product.customer_ingredient_selection_enabled || !selectedIngredientIds?.length) return null;
+  const selected = new Set(selectedIngredientIds);
+  const names = (product.customer_ingredient_options ?? [])
+    .filter((option) => selected.has(option.ingredient_id))
+    .map((option) => option.name.trim())
+    .filter(Boolean);
+  if (!names.length) return null;
+  return `ลูกค้าเลือก: ${names.join(", ")}`.slice(0, 240);
+}
+
+function buildSubmitItems(
+  cartItems: Array<MenuProduct & { quantity: number }>,
+  customerIngredientChoices: Record<string, string[]>
+): SubmitItem[] {
   return cartItems
-    .map((item) => ({ product_id: String(item.id ?? "").trim(), quantity: Number(item.quantity) }))
+    .map((item) => ({
+      product_id: String(item.id ?? "").trim(),
+      quantity: Number(item.quantity),
+      note: buildCustomerIngredientNote(item, customerIngredientChoices[item.id])
+    }))
     .filter((item) => item.product_id && Number.isFinite(item.quantity) && item.quantity > 0)
-    .map((item) => ({ product_id: item.product_id, quantity: Math.max(1, Math.min(99, Math.trunc(item.quantity))) }));
+    .map((item) => ({
+      product_id: item.product_id,
+      quantity: Math.max(1, Math.min(99, Math.trunc(item.quantity))),
+      note: item.note
+    }));
 }
 
 function hasExistingSubmittedFoodOrder(menu: MenuResponse["data"] | null) {
@@ -172,6 +201,10 @@ export function TableOrderMobile({ token }: { token: string }) {
   const [successOrderNo, setSuccessOrderNo] = useState<string | null>(null);
   const [hasSubmittedFoodOrder, setHasSubmittedFoodOrder] = useState(false);
   const [toast, setToast] = useState<ToastMessage | null>(null);
+  const [submittedOpen, setSubmittedOpen] = useState(false);
+  const [ingredientPickerProduct, setIngredientPickerProduct] = useState<MenuProduct | null>(null);
+  const [ingredientPickerSelection, setIngredientPickerSelection] = useState<string[]>([]);
+  const [customerIngredientChoices, setCustomerIngredientChoices] = useState<Record<string, string[]>>({});
   const [linkClosed, setLinkClosed] = useState(false);
   const categoriesRef = useRef<HTMLElement | null>(null);
   const linkClosedToastShownRef = useRef(false);
@@ -334,9 +367,38 @@ export function TableOrderMobile({ token }: { token: string }) {
     });
   }
 
+  function addProduct(product: MenuProduct) {
+    if (submitting || serviceSubmitting || !canOrder) return;
+    const options = product.customer_ingredient_options ?? [];
+    if (product.customer_ingredient_selection_enabled && options.length > 0 && (cart[product.id] ?? 0) === 0) {
+      setIngredientPickerProduct(product);
+      setIngredientPickerSelection(customerIngredientChoices[product.id] ?? []);
+      return;
+    }
+    changeQuantity(product.id, 1);
+  }
+
+  function closeIngredientPicker() {
+    setIngredientPickerProduct(null);
+    setIngredientPickerSelection([]);
+  }
+
+  function confirmIngredientPicker() {
+    if (!ingredientPickerProduct) return;
+    const productId = ingredientPickerProduct.id;
+    setCustomerIngredientChoices((current) => ({ ...current, [productId]: ingredientPickerSelection }));
+    closeIngredientPicker();
+    changeQuantity(productId, 1);
+  }
+
   function removeItem(productId: string) {
     if (submitting || serviceSubmitting) return;
     setCart((current) => { const next = { ...current }; delete next[productId]; return next; });
+    setCustomerIngredientChoices((current) => {
+      const next = { ...current };
+      delete next[productId];
+      return next;
+    });
   }
 
   const submitPost = useCallback((payload: unknown, requestId: string) => fetchJsonWithTimeout<SubmitResponse>(apiUrl, {
@@ -353,8 +415,11 @@ export function TableOrderMobile({ token }: { token: string }) {
       setToast({ kind: "warning", title: "สต๊อกเมนูเปลี่ยนแปลง", detail: `${unavailable.name} กรุณาเลือกใหม่` });
       return;
     }
-    const items = buildSubmitItems(cartItems);
-    if (!items.length) return setError("กรุณาเลือกจำนวนอาหารอย่างน้อย 1 รายการ");
+    const items = buildSubmitItems(cartItems, customerIngredientChoices);
+    if (!items.length) {
+      setToast({ kind: "warning", title: "ยังไม่มีรายการอาหาร", detail: "กรุณาเลือกอาหารอย่างน้อย 1 รายการ" });
+      return;
+    }
     setSubmitting(true);
     setError(null);
     setToast(null);
@@ -369,13 +434,20 @@ export function TableOrderMobile({ token }: { token: string }) {
       setSuccessOrderNo(orderNo);
       setHasSubmittedFoodOrder(true);
       setCart({});
+      setCustomerIngredientChoices({});
       setCartOpen(false);
       setToast({ kind: "success", title: "ส่งรายการเข้าครัวแล้ว", detail: `เลขบิล ${orderNo} · หากต้องการแก้ไขรายการที่ส่งแล้ว กรุณาเรียกพนักงาน` });
       const refreshed = await fetchJsonWithTimeout<MenuResponse>(statusUrl, { cache: "no-store", headers: tableOrderHeaders() }, MENU_LOAD_TIMEOUT_MS).catch(() => null);
       if (refreshed?.response.ok && refreshed.body?.data) applyStatusData(refreshed.body.data);
     } catch (submitError) {
-      if ((submitError as { name?: string }).name === "AbortError") setError("ส่งรายการไม่สำเร็จ เนื่องจากระบบใช้เวลานานเกินไป กรุณาลองใหม่");
-      else setError(submitError instanceof Error ? submitError.message : "ส่งรายการไม่สำเร็จ");
+      const detail =
+        (submitError as { name?: string }).name === "AbortError"
+          ? "ระบบใช้เวลานานเกินไป กรุณาลองใหม่"
+          : submitError instanceof Error
+            ? submitError.message
+            : "กรุณาลองใหม่";
+      setError(null);
+      setToast({ kind: "error", title: "ส่งรายการไม่สำเร็จ", detail });
     } finally { setSubmitting(false); }
   }
 
@@ -397,8 +469,14 @@ export function TableOrderMobile({ token }: { token: string }) {
       }
       setToast({ kind: "success", title: action === "call_staff" ? "เรียกพนักงานแล้ว กรุณารอสักครู่" : "แจ้งต้องการชำระบิลแล้ว", detail: `โต๊ะ ${menu.table_code}` });
     } catch (submitError) {
-      if ((submitError as { name?: string }).name === "AbortError") setError("ส่งคำขอไม่สำเร็จ ระบบใช้เวลานานเกินไป");
-      else setError(submitError instanceof Error ? submitError.message : "ส่งคำขอไม่สำเร็จ");
+      const detail =
+        (submitError as { name?: string }).name === "AbortError"
+          ? "ระบบใช้เวลานานเกินไป กรุณาลองใหม่"
+          : submitError instanceof Error
+            ? submitError.message
+            : "กรุณาลองใหม่";
+      setError(null);
+      setToast({ kind: "error", title: "ส่งคำขอไม่สำเร็จ", detail });
     } finally { setServiceSubmitting(null); }
   }
 
@@ -409,6 +487,21 @@ export function TableOrderMobile({ token }: { token: string }) {
     <main className={styles.page}>
       <header className={styles.hero}>
         <div><p className={styles.brand}>{menu.store_name}</p><h1>สั่งอาหารที่โต๊ะ {menu.table_code}</h1><p>{menu.branch_name}{menu.table_name ? ` · ${menu.table_name}` : ""}</p></div>
+        {submittedItems.length > 0 ? (
+          <button
+            type="button"
+            className={styles.submittedHistoryButton}
+            onClick={() => setSubmittedOpen(true)}
+            aria-label={`ดูรายการที่ส่งแล้ว ${menu.submitted_summary?.item_count ?? 0} รายการ`}
+            title="ดูรายการที่ส่งแล้ว"
+          >
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+              <path d="M6 2h12v20l-3-2-3 2-3-2-3 2V2Z" />
+              <path d="M9 7h6M9 11h6M9 15h4" />
+            </svg>
+            <span>{menu.submitted_summary?.item_count ?? 0}</span>
+          </button>
+        ) : null}
         <span className={styles.tableBadge}>{menu.table_code}</span>
       </header>
 
@@ -420,13 +513,6 @@ export function TableOrderMobile({ token }: { token: string }) {
       </section>
 
       {orderingLocked ? <div className={styles.lockedNotice}><strong>โต๊ะนี้กำลังชำระเงิน</strong><span>ระบบล็อกการสั่งเพิ่มแล้ว กรุณาติดต่อพนักงาน</span></div> : null}
-      {submittedItems.length > 0 ? (
-        <section className={styles.submittedSummary} aria-label="รายการที่ส่งแล้ว">
-          <div className={styles.submittedSummaryHead}><div><strong>รายการที่ส่งแล้ว</strong><span> {menu.submitted_summary?.item_count ?? 0} รายการ</span></div><strong>{money(menu.submitted_summary?.total_amount ?? 0)}</strong></div>
-          <div className={styles.submittedRows}>{submittedItems.map((item, index) => <div className={styles.submittedRow} key={`${item.product_id}-${index}`}><span>{item.name} × {item.quantity}</span><strong>{money(item.line_total)}</strong></div>)}</div>
-          <p className={styles.submittedLockedNote}>รายการที่ยืนยันแล้วแก้ไขหรือลบจากมือถือไม่ได้ หากต้องการแก้ไขกรุณาเรียกพนักงาน</p>
-        </section>
-      ) : null}
       {error && !linkClosed ? <div className={styles.alert}>{error}</div> : null}
       {toast ? <div className={`${styles.toast} ${styles[`toast${toast.kind}`]}`} role="status"><strong>{toast.title}</strong>{toast.detail ? <span>{toast.detail}</span> : null}</div> : null}
 
@@ -436,14 +522,14 @@ export function TableOrderMobile({ token }: { token: string }) {
           const available = productAvailable(product);
           const productImage = product.thumbnail_url || product.image_url;
           return <article className={`${styles.productCard} ${!available ? styles.productCardUnavailable : ""}`} key={product.id}>
-            <button type="button" className={styles.productPickButton} onClick={() => changeQuantity(product.id, 1)} disabled={submitting || Boolean(serviceSubmitting) || !canOrder || !available} aria-label={available ? `เพิ่ม ${product.name} ลงตะกร้า` : `${product.name} สต๊อกไม่เพียงพอ`}>
+            <button type="button" className={styles.productPickButton} onClick={() => addProduct(product)} disabled={submitting || Boolean(serviceSubmitting) || !canOrder || !available} aria-label={available ? `เพิ่ม ${product.name} ลงตะกร้า` : `${product.name} สต๊อกไม่เพียงพอ`}>
               <div className={`${styles.productVisual} ${styles[`tone${index % 5}`]}`}>{productImage ? <img src={productImage} alt="" loading="lazy" decoding="async" style={{ width: "100%", height: "100%", display: "block", objectFit: "cover" }} /> : <span>{productMark(product.name)}</span>}</div>
               <div className={styles.productBody}><p className={styles.productCategory}>{product.category}</p><h2>{product.name}</h2><strong>{money(product.price)}</strong>{!available ? <small className={styles.stockNotice}>สต๊อกไม่เพียงพอ</small> : null}</div>
             </button>
             <div className={styles.productActions}><div className={styles.stepper}>
               <button type="button" onClick={() => changeQuantity(product.id, -1)} disabled={quantity === 0 || submitting || Boolean(serviceSubmitting)}>−</button>
               <span>{quantity}</span>
-              <button type="button" onClick={() => changeQuantity(product.id, 1)} disabled={submitting || Boolean(serviceSubmitting) || !canOrder || !available || quantity >= productMaxQuantity(product)}>+</button>
+              <button type="button" onClick={() => addProduct(product)} disabled={submitting || Boolean(serviceSubmitting) || !canOrder || !available || quantity >= productMaxQuantity(product)}>+</button>
             </div></div>
           </article>;
         })}
@@ -464,6 +550,66 @@ export function TableOrderMobile({ token }: { token: string }) {
         <div className={styles.cartRows}>{cartItems.map((item) => <article className={styles.cartRow} key={item.id}><div className={styles.cartRowMeta}><strong>{item.name}</strong><span>{money(item.price * item.quantity)}</span></div><div className={styles.cartRowControls}><div className={styles.stepper}><button type="button" onClick={() => changeQuantity(item.id, -1)}>−</button><span>{item.quantity}</span><button type="button" onClick={() => changeQuantity(item.id, 1)} disabled={!productAvailable(item) || item.quantity >= productMaxQuantity(item)}>+</button></div><button type="button" className={styles.deleteItemButton} onClick={() => removeItem(item.id)}>ลบ</button></div></article>)}</div>
         <footer className={styles.cartModalFooter}><span>ยอดชำระ</span><strong>{money(cartTotal)}</strong><button type="button" className={styles.submitButton} onClick={() => void submitOrder()} disabled={submitting || cartCount === 0 || !canOrder}>{submitting ? "กำลังส่งรายการ..." : "ยืนยันสั่งอาหาร"}</button><button type="button" className={styles.keepShoppingButton} onClick={() => setCartOpen(false)} disabled={submitting}>เลือกเมนูต่อ</button></footer>
       </section></div> : null}
+
+      {submittedOpen ? (
+        <div className={styles.submittedModalBackdrop} role="presentation" onMouseDown={() => setSubmittedOpen(false)}>
+          <section className={styles.submittedModal} role="dialog" aria-modal="true" aria-label="รายการที่ส่งแล้ว" onMouseDown={(event) => event.stopPropagation()}>
+            <header className={styles.submittedModalHead}>
+              <div><strong>รายการที่ส่งแล้ว</strong><span>{menu.submitted_summary?.item_count ?? 0} รายการ</span></div>
+              <button type="button" onClick={() => setSubmittedOpen(false)} aria-label="ปิด">×</button>
+            </header>
+            <div className={styles.submittedModalRows}>
+              {submittedItems.map((item, index) => (
+                <div className={styles.submittedModalRow} key={`${item.product_id}-${index}`}>
+                  <span>{item.name} × {item.quantity}</span><strong>{money(item.line_total)}</strong>
+                </div>
+              ))}
+            </div>
+            <footer className={styles.submittedModalFooter}>
+              <div><span>รวมรายการที่ส่งแล้ว</span><strong>{money(menu.submitted_summary?.total_amount ?? 0)}</strong></div>
+              <p>รายการที่ยืนยันแล้วแก้ไขหรือลบจากมือถือไม่ได้ หากต้องการแก้ไขกรุณาเรียกพนักงาน</p>
+              <button type="button" onClick={() => setSubmittedOpen(false)}>ปิด</button>
+            </footer>
+          </section>
+        </div>
+      ) : null}
+
+      {ingredientPickerProduct ? (
+        <div className={styles.ingredientPickerBackdrop} role="presentation" onMouseDown={closeIngredientPicker}>
+          <section className={styles.ingredientPicker} role="dialog" aria-modal="true" aria-label={`เลือกวัตถุดิบ ${ingredientPickerProduct.name}`} onMouseDown={(event) => event.stopPropagation()}>
+            <header className={styles.ingredientPickerHead}>
+              <div><strong>เลือกวัตถุดิบ</strong><span>{ingredientPickerProduct.name}</span></div>
+              <button type="button" onClick={closeIngredientPicker} aria-label="ปิด">×</button>
+            </header>
+            <p className={styles.ingredientPickerHint}>เลือกได้ตามต้องการ · ไม่มีการเพิ่มราคาและไม่มีการแก้จำนวนสูตร</p>
+            <div className={styles.ingredientPickerOptions}>
+              {(ingredientPickerProduct.customer_ingredient_options ?? []).map((option) => {
+                const checked = ingredientPickerSelection.includes(option.ingredient_id);
+                return (
+                  <label className={checked ? styles.ingredientPickerOptionSelected : styles.ingredientPickerOption} key={option.ingredient_id}>
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      onChange={(event) => {
+                        setIngredientPickerSelection((current) =>
+                          event.target.checked
+                            ? Array.from(new Set([...current, option.ingredient_id]))
+                            : current.filter((id) => id !== option.ingredient_id)
+                        );
+                      }}
+                    />
+                    <span>{option.name}</span>
+                  </label>
+                );
+              })}
+            </div>
+            <footer className={styles.ingredientPickerFooter}>
+              <button type="button" onClick={closeIngredientPicker}>ยกเลิก</button>
+              <button type="button" className={styles.ingredientPickerConfirm} onClick={confirmIngredientPicker}>เพิ่มลงตะกร้า</button>
+            </footer>
+          </section>
+        </div>
+      ) : null}
 
       {submitting ? <div className={styles.processing}><div><span className={styles.spinner} /><strong>กำลังส่งรายการเข้าระบบ POS</strong><p>กรุณาอย่าปิดหน้านี้</p></div></div> : null}
       {serviceSubmitting ? <div className={styles.processing}><div><span className={styles.spinner} /><strong>{serviceSubmitting === "call_staff" ? "กำลังเรียกพนักงาน" : "กำลังแจ้งต้องการชำระบิล"}</strong><p>กรุณารอสักครู่</p></div></div> : null}
