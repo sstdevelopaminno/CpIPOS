@@ -92,6 +92,13 @@ export function TableListGrid({
   return (
     <>
       <style>{`
+        .table-mgmt-page.surface {
+          border: 0 !important;
+          border-radius: 0 !important;
+          padding: 0 !important;
+          background: transparent !important;
+          box-shadow: none !important;
+        }
         .table-mgmt-layout.is-list-view .table-mgmt-center {
           border: 1px solid #dbe3ef !important;
           border-radius: 12px !important;
