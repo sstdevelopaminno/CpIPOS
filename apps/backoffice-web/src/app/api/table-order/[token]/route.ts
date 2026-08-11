@@ -1,4 +1,5 @@
 import { fail, ok } from "@/lib/http";
+import { loadProductMediaMap } from "@/lib/product-media";
 import { PosTimeoutError, withTimeout } from "@/lib/pos-resilience";
 import { buildRateLimitKey, enforceRateLimit, getClientIpAddress, type RateLimitResult } from "@/lib/server/rate-limit";
 import { loadTableQrMenu, loadTableQrState, resolveTableQrContext, submitTableQrOrder, submitTableQrServiceRequest } from "@/lib/table-qr-ordering";
@@ -97,8 +98,26 @@ export async function GET(request: Request, context: { params: Promise<{ token: 
       const qrContext = await resolveTableQrContext(token);
       if (wantsStatus) return loadTableQrState(qrContext);
       const menu = await loadTableQrMenu(qrContext);
-      const states = await loadTableQrStockStates({ tenantId: qrContext.tenant_id, branchId: qrContext.branch_id, productIds: menu.products.map((product) => product.id) });
-      return { ...menu, products: menu.products.map((product) => ({ ...product, ...(states.get(product.id) ?? { stock_on_hand_units: null, allow_negative_stock: false, is_available: true, is_low_stock: false }) })) };
+      const productIds = menu.products.map((product) => product.id);
+      const [states, mediaMap] = await Promise.all([
+        loadTableQrStockStates({ tenantId: qrContext.tenant_id, branchId: qrContext.branch_id, productIds }),
+        loadProductMediaMap({ tenantId: qrContext.tenant_id, branchId: qrContext.branch_id, productIds }).catch((error) => {
+          console.error("[table-order-api] product media lookup failed; continuing without images", error);
+          return new Map();
+        })
+      ]);
+      return {
+        ...menu,
+        products: menu.products.map((product) => {
+          const media = mediaMap.get(product.id);
+          return {
+            ...product,
+            ...(states.get(product.id) ?? { stock_on_hand_units: null, allow_negative_stock: false, is_available: true, is_low_stock: false }),
+            image_url: media?.image_url ?? null,
+            thumbnail_url: media?.thumbnail_url ?? null
+          };
+        })
+      };
     })(), TABLE_ORDER_GET_TIMEOUT_MS, "table_order_menu_timeout");
     const response = ok(data);
     response.headers.set("x-table-order-ms", String(Date.now() - startedAt));

@@ -8,6 +8,8 @@ type MenuProduct = {
   name: string;
   category: string;
   price: number;
+  image_url?: string | null;
+  thumbnail_url?: string | null;
   stock_on_hand_units?: number | null;
   allow_negative_stock?: boolean;
   is_available?: boolean;
@@ -432,9 +434,10 @@ export function TableOrderMobile({ token }: { token: string }) {
         {filteredProducts.map((product, index) => {
           const quantity = cart[product.id] ?? 0;
           const available = productAvailable(product);
+          const productImage = product.thumbnail_url || product.image_url;
           return <article className={`${styles.productCard} ${!available ? styles.productCardUnavailable : ""}`} key={product.id}>
             <button type="button" className={styles.productPickButton} onClick={() => changeQuantity(product.id, 1)} disabled={submitting || Boolean(serviceSubmitting) || !canOrder || !available} aria-label={available ? `เพิ่ม ${product.name} ลงตะกร้า` : `${product.name} สต๊อกไม่เพียงพอ`}>
-              <div className={`${styles.productVisual} ${styles[`tone${index % 5}`]}`}><span>{productMark(product.name)}</span></div>
+              <div className={`${styles.productVisual} ${styles[`tone${index % 5}`]}`}>{productImage ? <img src={productImage} alt="" loading="lazy" decoding="async" style={{ width: "100%", height: "100%", display: "block", objectFit: "cover" }} /> : <span>{productMark(product.name)}</span>}</div>
               <div className={styles.productBody}><p className={styles.productCategory}>{product.category}</p><h2>{product.name}</h2><strong>{money(product.price)}</strong>{!available ? <small className={styles.stockNotice}>สต๊อกไม่เพียงพอ</small> : null}</div>
             </button>
             <div className={styles.productActions}><div className={styles.stepper}>
