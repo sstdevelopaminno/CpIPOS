@@ -2,6 +2,12 @@ name: Build CpIPOS Android Tablet POS
 
 on:
   workflow_dispatch:
+  pull_request:
+    branches:
+      - agent-docs-preflight-schema-drift
+    paths:
+      - "apps/pos-android/**"
+      - ".github/workflows/build-android-runtime.yml"
   push:
     branches:
       - agent-docs-preflight-schema-drift
@@ -14,9 +20,10 @@ permissions:
 
 env:
   ANDROID_RUNTIME_MODULE: apps/pos-android
-  ANDROID_RUNTIME_VERSION: 0.2.2
+  ANDROID_RUNTIME_VERSION: 1.0.0
   ANDROID_RUNTIME_RELEASE_TAG: android-runtime-latest
   ANDROID_RUNTIME_APK_ASSET_NAME: CpIPOS-Android-debug.apk
+  ANDROID_RUNTIME_VERSIONED_ASSET_NAME: CpIPOS-Android-POS-1.0.0.apk
 
 jobs:
   build-android-runtime:
@@ -68,28 +75,34 @@ jobs:
           fi
           mkdir -p artifacts
           cp "$apkPath" "artifacts/${{ env.ANDROID_RUNTIME_APK_ASSET_NAME }}"
-          echo "APK ready: artifacts/${{ env.ANDROID_RUNTIME_APK_ASSET_NAME }} ($apkSize bytes)"
+          cp "$apkPath" "artifacts/${{ env.ANDROID_RUNTIME_VERSIONED_ASSET_NAME }}"
+          echo "APK ready: $apkSize bytes"
 
       - name: Upload workflow artifact
         uses: actions/upload-artifact@v4
         with:
-          name: CpIPOS-Android-Runtime
-          path: artifacts/${{ env.ANDROID_RUNTIME_APK_ASSET_NAME }}
+          name: CpIPOS-Android-POS-${{ env.ANDROID_RUNTIME_VERSION }}
+          path: |
+            artifacts/${{ env.ANDROID_RUNTIME_APK_ASSET_NAME }}
+            artifacts/${{ env.ANDROID_RUNTIME_VERSIONED_ASSET_NAME }}
           if-no-files-found: error
 
       - name: Publish latest release download
+        if: github.event_name == 'push' && github.ref == 'refs/heads/agent-docs-preflight-schema-drift'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           tag="${{ env.ANDROID_RUNTIME_RELEASE_TAG }}"
           apkPath="artifacts/${{ env.ANDROID_RUNTIME_APK_ASSET_NAME }}"
+          versionedApkPath="artifacts/${{ env.ANDROID_RUNTIME_VERSIONED_ASSET_NAME }}"
 
           if ! gh release view "$tag" >/dev/null 2>&1; then
             gh release create "$tag" \
               --target "${{ github.sha }}" \
               --title "CpIPOS Android Tablet POS Latest" \
-              --notes "Latest CpIPOS Android Tablet POS WebView wrapper debug APK built from GitHub Actions. Sideload only; not distributed through Google Play."
+              --notes "CpIPOS Android Tablet POS managed-device release. Native document picker, printer connectivity permissions, Web App launcher icon parity, and Android Device Admin / Device Owner readiness. Sideload distribution."
           fi
 
-          gh release upload "$tag" "$apkPath" --clobber
-          echo "APK URL: https://github.com/${{ github.repository }}/releases/download/$tag/${{ env.ANDROID_RUNTIME_APK_ASSET_NAME }}"
+          gh release upload "$tag" "$apkPath" "$versionedApkPath" --clobber
+          echo "Compatibility APK URL: https://github.com/${{ github.repository }}/releases/download/$tag/${{ env.ANDROID_RUNTIME_APK_ASSET_NAME }}"
+          echo "Versioned APK URL: https://github.com/${{ github.repository }}/releases/download/$tag/${{ env.ANDROID_RUNTIME_VERSIONED_ASSET_NAME }}"

@@ -562,3 +562,10 @@ ORDER BY p.name;
 - Product upload activation uses a real button and a shared file input (`showPicker()` with `.click()` fallback) instead of a label around a hidden file input, improving POS WebView/desktop wrapper compatibility while preserving the same upload API.
 - No auth, tenant isolation, package quota calculation, stock/order/payment/shift transaction or Table QR ordering semantics changed.
 - PR #50 CI passed Typecheck, Lint, Tests, both schema drift checks and PR build before Production merge.
+
+## Android POS 1.0.0 / Product Media final UI checkpoint — 2026-08-11
+
+- Product Media promotes the summary toggle into the header on POS/desktop screens, removes the nested inner frame, and reduces the bounded list height so Previous / Page / Next is surfaced earlier on 1365x768 terminals.
+- Android Tablet POS is version 1.0.0 (versionCode 6) with Android System Document Picker support for Photos / Files / Google Drive, scoped storage, Bluetooth/Nearby/network/USB printer readiness, Device Admin / Device Owner enrollment foundation, and Web App launcher icon parity.
+- Broad All-files access and destructive unaudited MDM commands remain intentionally disabled. Full Device Owner provisioning, staged signed updates, rollback, and destructive policy authorization belong to the next IT Admin control-plane phase.
+- Detailed checkpoint: `docs/ANDROID-POS-1.0.0-RELEASE-2026-08-11.md`.

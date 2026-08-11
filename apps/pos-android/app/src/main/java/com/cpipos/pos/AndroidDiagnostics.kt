@@ -1,10 +1,11 @@
 package com.cpipos.pos
 
+import android.app.admin.DevicePolicyManager
+import android.content.ComponentName
 import android.content.Context
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.os.BatteryManager
-import android.os.Build
 import android.os.StatFs
 import java.net.InetSocketAddress
 import java.net.Socket
@@ -12,6 +13,8 @@ import java.net.Socket
 class AndroidDiagnostics(context: Context) {
     private val appContext = context.applicationContext
     private val printerPrefs = appContext.getSharedPreferences("cpipos_tablet_pos_printer", Context.MODE_PRIVATE)
+    private val devicePolicyManager = appContext.getSystemService(DevicePolicyManager::class.java)
+    private val deviceAdminComponent = ComponentName(appContext, CpiposDeviceAdminReceiver::class.java)
 
     fun networkOnline(): Boolean {
         val manager = appContext.getSystemService(ConnectivityManager::class.java) ?: return false
@@ -48,7 +51,9 @@ class AndroidDiagnostics(context: Context) {
         return value.takeIf { it >= 0 }
     }
 
-    fun isDeviceOwnerKnown(): Boolean? = if (Build.VERSION.SDK_INT >= 21) false else null
+    fun isDeviceOwnerKnown(): Boolean? = devicePolicyManager?.isDeviceOwnerApp(appContext.packageName)
+
+    fun isDeviceAdminActive(): Boolean = devicePolicyManager?.isAdminActive(deviceAdminComponent) == true
 
     fun printerHost(): String? = printerPrefs.getString("host", null)?.trim()?.takeIf { it.isNotBlank() }
 
