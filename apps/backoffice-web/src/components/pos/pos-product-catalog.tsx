@@ -41,7 +41,7 @@ function PosProductCatalogInner({ products, isDeliveryMode, storefrontPriceLabel
 
   useEffect(() => {
     let cancelled = false;
-    let dispose = () => undefined;
+    let dispose: () => void = () => undefined;
     if (!productIdsKey) {
       setImageUrls({});
       return () => undefined;
