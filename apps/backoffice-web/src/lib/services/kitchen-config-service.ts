@@ -102,6 +102,43 @@ async function requireKitchenPrinter(args: { tenantId: string; branchId: string;
   return data;
 }
 
+async function syncZonePrinterAssignment(args: { tenantId: string; branchId: string; zoneCode: string; printerId: string | null }) {
+  const supabase = getSupabaseServiceClient();
+  const zoneCode = normalizeZoneCode(args.zoneCode);
+  const { error: clearError } = await supabase
+    .from("printer_device_assignments")
+    .delete()
+    .eq("tenant_id", args.tenantId)
+    .eq("branch_id", args.branchId)
+    .eq("purpose", "kitchen")
+    .eq("zone_key", zoneCode);
+  if (clearError) throw new KitchenConfigError("kitchen_printer_assignment_sync_failed", clearError.message, 500);
+  if (!args.printerId) return;
+
+  const { data: device, error: deviceError } = await supabase
+    .from("printer_devices")
+    .select("id")
+    .eq("tenant_id", args.tenantId)
+    .eq("branch_id", args.branchId)
+    .eq("printer_profile_id", args.printerId)
+    .eq("is_active", true)
+    .maybeSingle();
+  if (deviceError) throw new KitchenConfigError("kitchen_printer_device_query_failed", deviceError.message, 500);
+  if (!device) return;
+
+  const { error: assignmentError } = await supabase.from("printer_device_assignments").insert({
+    tenant_id: args.tenantId,
+    branch_id: args.branchId,
+    printer_device_id: device.id,
+    purpose: "kitchen",
+    zone_key: zoneCode,
+    is_enabled: true,
+    is_default: true,
+    copies: 1
+  });
+  if (assignmentError) throw new KitchenConfigError("kitchen_printer_assignment_sync_failed", assignmentError.message, 500);
+}
+
 export async function loadKitchenConfiguration(auth: AuthContext) {
   assertKitchenManager(auth);
   const { tenantId, branchId } = requireScope(auth);
@@ -211,13 +248,14 @@ export async function mutateKitchenConfiguration(auth: AuthContext, input: Kitch
   if (input.action === "zone.printer") {
     const zoneId = input.zone_id.trim();
     if (!zoneId) throw new KitchenConfigError("invalid_zone_id", "zone_id is required.", 422);
-    if (input.printer_id) {
-      await requireKitchenPrinter({ tenantId, branchId, printerId: input.printer_id.trim() });
+    const printerId = input.printer_id?.trim() || null;
+    if (printerId) {
+      await requireKitchenPrinter({ tenantId, branchId, printerId });
     }
 
     const { data, error } = await supabase
       .from("kitchen_zones")
-      .update({ default_printer_id: input.printer_id?.trim() || null, updated_at: new Date().toISOString() })
+      .update({ default_printer_id: printerId, updated_at: new Date().toISOString() })
       .eq("tenant_id", tenantId)
       .eq("branch_id", branchId)
       .eq("id", zoneId)
@@ -225,6 +263,8 @@ export async function mutateKitchenConfiguration(auth: AuthContext, input: Kitch
       .maybeSingle();
     if (error) throw new KitchenConfigError("kitchen_printer_mapping_failed", error.message, 500);
     if (!data) throw new KitchenConfigError("kitchen_zone_not_found", "Kitchen zone was not found in this branch.", 404);
+
+    await syncZonePrinterAssignment({ tenantId, branchId, zoneCode: data.zone_code, printerId });
 
     void appendAuditLog({
       tenantId,
@@ -234,7 +274,7 @@ export async function mutateKitchenConfiguration(auth: AuthContext, input: Kitch
       action: "kitchen_zone_printer_mapped",
       targetTable: "kitchen_zones",
       targetId: zoneId,
-      metadata: { printer_id: input.printer_id?.trim() || null }
+      metadata: { printer_id: printerId, zone_code: data.zone_code }
     });
     return { zone: data };
   }
@@ -252,6 +292,14 @@ export async function mutateKitchenConfiguration(auth: AuthContext, input: Kitch
       .maybeSingle();
     if (error) throw new KitchenConfigError("kitchen_zone_disable_failed", error.message, 500);
     if (!data) throw new KitchenConfigError("kitchen_zone_not_found", "Kitchen zone was not found in this branch.", 404);
+
+    const { error: assignmentCleanupError } = await supabase
+      .from("printer_device_assignments")
+      .delete()
+      .eq("tenant_id", tenantId)
+      .eq("branch_id", branchId)
+      .eq("zone_key", String(data.zone_code).toUpperCase());
+    if (assignmentCleanupError) throw new KitchenConfigError("kitchen_zone_assignment_cleanup_failed", assignmentCleanupError.message, 500);
 
     void appendAuditLog({
       tenantId,
