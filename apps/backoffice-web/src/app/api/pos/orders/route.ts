@@ -1,9 +1,11 @@
 import crypto from "node:crypto";
+import { after } from "next/server";
 import { fail, ok } from "@/lib/http";
 import { appendAuditLog } from "@/lib/audit-log";
 import { FeatureGateError, requireTenantFeature } from "@/lib/feature-gate";
 import { PosGuardError, requireActiveShift, requirePermission, requirePosSession } from "@/lib/pos-session-guard";
 import { buildPaginationMeta, parsePagination } from "@/lib/query-params";
+import { dispatchOrderToKitchen } from "@/lib/services/kitchen-routing-service";
 import { resolveOrderPricing } from "@/lib/services/pos-sales-mvp-service";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
 
@@ -289,6 +291,27 @@ export async function POST(request: Request) {
         item_count: pricing.pricedItems.length,
         subtotal: orderRow.subtotal,
         grand_total: orderRow.grand_total ?? pricing.totals.grand_total
+      }
+    });
+
+    after(async () => {
+      const kitchenResult = await dispatchOrderToKitchen({
+        tenantId: scope.session.tenant_id,
+        branchId: scope.session.branch_id,
+        orderId: orderRow.id,
+        eventKey: `pos-order:${requestId}`,
+        action: "new",
+        actorUserId: scope.session.user_id,
+        actorRole: scope.session.role
+      });
+      if (!kitchenResult.ok) {
+        console.error("pos_order_kitchen_dispatch_failed", {
+          tenant_id: scope.session.tenant_id,
+          branch_id: scope.session.branch_id,
+          order_id: orderRow.id,
+          event_key: kitchenResult.eventKey,
+          error: kitchenResult.message
+        });
       }
     });
 
