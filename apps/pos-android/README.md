@@ -1,30 +1,34 @@
 # CpIPOS POS - Android Tablet
 
-`apps/pos-android` is the native Android tablet POS implementation.
+`apps/pos-android` is the managed Android Tablet POS runtime for the shared CpIPOS Web POS reference UI.
 
-## Product boundary
+## Version 1.0.0 baseline
 
 - Package: `com.cpipos.pos`
-- UI/runtime: Kotlin + Jetpack Compose
-- Browser shell: **none**
-- PWA/browser runtime: **none**
-- Business database writes: **none directly from Android**
-- Server/control plane: `apps/backoffice-web` through existing `/api/auth/**` and `/api/pos/**` endpoints
-- Default API base URL: `https://cp-ipos-web.vercel.app`
-- Landscape-first tablet POS shell
+- Runtime: hardened Android WebView shell using the shared Web POS UI and server APIs
+- Default entrypoint: `https://cp-ipos-web.vercel.app/login/store`
+- Product/file selection: Android System Document Picker (`ACTION_OPEN_DOCUMENT`) so operators can choose permitted files from Photos, Files, Google Drive, and compatible document providers
+- Storage model: scoped app/WebView storage; **no** broad `MANAGE_EXTERNAL_STORAGE` / All-files permission
+- Printer readiness: network + Bluetooth/Nearby connectivity permissions and USB-host capability declaration
+- MDM: app-level heartbeat/diagnostics plus Android Device Admin / Device Owner enrollment foundation
+- Launcher icon: canonical CpIPOS Web App 512px icon
+- Server remains authoritative for tenant/branch/device/session/order/payment/stock rules
 
-The app reuses the same server-authoritative login, device, POS session, shift, order, payment, cookie, and idempotency pattern as `apps/cpipos-mobile-android`, but remains a separate Tablet POS product and package.
+## Managed-device provisioning
 
-## Native operating path
+Interactive Device Admin enrollment is bundled and requested once on an unmanaged install. Full Android Enterprise Device Owner provisioning must be performed by IT on a freshly provisioned/factory-reset managed POS terminal during enrollment.
 
-- Store code -> branch -> employee -> device
-- POS session bootstrap and shift open/close
-- Catalog, category/search surface, cart
-- Atomic server-side order creation
-- Cash and transfer payment submission
-- Current order history
-- Member lookup/save
-- Logout/session clear
+Device Owner capability is a management foundation, not permission to bypass CpIPOS authorization. Destructive/device-wide policies must be issued only from the authenticated and audited IT Admin control plane.
+
+The app deliberately does **not** expose remote shell, silent wipe, arbitrary file browsing, or unaudited destructive commands through the public/app-level MDM heartbeat endpoint.
+
+## Printer and nearby-device permissions
+
+Android 12+ requests Bluetooth Scan/Connect when needed. Android 13+ also requests Nearby Wi-Fi Devices. Network printers continue to use normal network access. USB-host capability is declared for compatible native printer bridges; per-device USB consent still follows Android's USB permission model.
+
+## APK update note
+
+`REQUEST_INSTALL_PACKAGES` is declared as groundwork for a future authenticated/staged MDM updater. It does not grant automatic silent install by itself. Silent managed updates require Device Owner/enterprise provisioning plus the IT Admin rollout policy.
 
 ## Build
 
@@ -35,4 +39,6 @@ cd apps/pos-android
 gradle :app:assembleDebug
 ```
 
-GitHub Actions workflow `.github/workflows/build-android-runtime.yml` publishes the APK to the existing `android-runtime-latest` release source used by `/download/android/latest`.
+GitHub Actions workflow `.github/workflows/build-android-runtime.yml` validates pull-request builds and publishes the latest APK on the production integration branch. `/download/android/latest` continues to resolve the compatibility asset `CpIPOS-Android-debug.apk`; release `android-runtime-latest` also includes `CpIPOS-Android-POS-1.0.0.apk`.
+
+Current workflow output is a debug-signed sideload APK. Before long-term production distribution/automatic update, configure a stable protected Android signing keystore so installed versions share the same signing identity across CI runs.
