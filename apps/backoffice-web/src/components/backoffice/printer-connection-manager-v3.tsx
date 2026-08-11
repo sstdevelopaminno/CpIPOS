@@ -1,0 +1,173 @@
+"use client";
+
+import { useCallback, useEffect, useMemo, useState } from "react";
+import styles from "./printer-connection-manager-v3.module.css";
+
+type Mode = "lan" | "usb" | "bluetooth";
+type Purpose = "receipt" | "kitchen" | "drink" | "bar" | "reprint" | "shift_report" | "payment_slip" | "cash_drawer";
+type Assignment = { id: string; purpose: Purpose; zone_key: string; is_enabled: boolean; is_default: boolean; copies: number };
+type Device = {
+  id: string; printer_profile_id: string | null; display_name: string; brand: string | null; model: string | null;
+  connection_mode: Mode; paper_width_mm: 58 | 80; runtime_device_code: string | null; status: string;
+  capabilities: Record<string, unknown>; last_seen_at: string | null; disconnected_at: string | null; is_active: boolean;
+  metadata: Record<string, unknown>; created_at: string; updated_at: string; printer_device_assignments: Assignment[];
+};
+type History = { id: string; event_type: string; device_name: string; brand: string | null; model: string | null; connection_mode: Mode | null; paper_width_mm: number | null; created_at: string };
+type Registry = { branch: { id: string; code: string | null; name: string | null }; devices: Device[]; history: History[] };
+type Candidate = { id: string; name: string; mode: Mode; paper_width_mm: 58 | 80; source: string; status: string; runtime_device_code: string | null; printer_profile_id: string | null; functions: string[]; helper: string };
+type Discovery = { items: Candidate[]; note: string };
+type Envelope<T> = { data?: T; error?: { message?: string } };
+
+const modeCards: Array<{ mode: Mode; title: string; icon: string; desc: string; help: string }> = [
+  { mode: "lan", title: "LAN", icon: "▣", desc: "เชื่อมต่อผ่านเครือข่ายร้าน", help: "เหมาะกับครัวและเครื่องพิมพ์ประจำจุด" },
+  { mode: "usb", title: "USB", icon: "⌁", desc: "ต่อสายตรงกับเครื่อง POS", help: "แนะนำสำหรับแคชเชียร์และลิ้นชัก" },
+  { mode: "bluetooth", title: "Bluetooth", icon: "ᛒ", desc: "เชื่อมต่อไร้สายใกล้เครื่อง", help: "เหมาะกับ Android และจุดขายเคลื่อนที่" }
+];
+const purposes: Array<{ value: Purpose; label: string }> = [
+  { value: "receipt", label: "ใบเสร็จ" }, { value: "kitchen", label: "ครัวร้อน" }, { value: "drink", label: "เครื่องดื่ม" },
+  { value: "bar", label: "บาร์" }, { value: "reprint", label: "พิมพ์ซ้ำ" }, { value: "shift_report", label: "รายงานกะ" },
+  { value: "payment_slip", label: "สลิปชำระเงิน" }, { value: "cash_drawer", label: "ลิ้นชักเงินสด" }
+];
+const PAGE_SIZE = 5;
+
+async function api<T>(url: string, init?: RequestInit): Promise<T> {
+  const response = await fetch(url, { ...init, headers: { "Content-Type": "application/json", ...(init?.headers ?? {}) }, cache: "no-store" });
+  const body = (await response.json().catch(() => ({}))) as Envelope<T> & T;
+  if (!response.ok || body.error) throw new Error(body.error?.message ?? "ดำเนินการไม่สำเร็จ");
+  return (body.data ?? body) as T;
+}
+function fmt(value?: string | null) {
+  if (!value) return "-";
+  const date = new Date(value); if (Number.isNaN(date.getTime())) return "-";
+  return new Intl.DateTimeFormat("th-TH", { dateStyle: "short", timeStyle: "short", timeZone: "Asia/Bangkok" }).format(date);
+}
+function purposeLabel(value: Purpose) { return purposes.find((item) => item.value === value)?.label ?? value; }
+function statusClass(status: string) { return status === "online" ? styles.dotOnline : status === "offline" || status === "disconnected" ? styles.dotOffline : styles.dotWarn; }
+function statusLabel(status: string) {
+  const map: Record<string,string> = { online:"ออนไลน์",offline:"ออฟไลน์",checking:"กำลังตรวจสอบ",connecting:"กำลังเชื่อมต่อ",needs_check:"ต้องตรวจสอบ",disabled:"ปิดใช้งาน",disconnected:"ยกเลิกการเชื่อมต่อ" };
+  return map[status] ?? status;
+}
+
+export function PrinterConnectionManagerV3() {
+  const [registry, setRegistry] = useState<Registry | null>(null);
+  const [mode, setMode] = useState<Mode>("lan");
+  const [purposeFilter, setPurposeFilter] = useState<Purpose | "all">("all");
+  const [page, setPage] = useState(1);
+  const [discovering, setDiscovering] = useState(false);
+  const [candidates, setCandidates] = useState<Candidate[]>([]);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [editId, setEditId] = useState<string | null>(null);
+  const [name, setName] = useState("");
+  const [brand, setBrand] = useState("");
+  const [model, setModel] = useState("");
+  const [paper, setPaper] = useState<58 | 80>(58);
+  const [selectedPurposes, setSelectedPurposes] = useState<Purpose[]>(["receipt"]);
+  const [ip, setIp] = useState("");
+  const [port, setPort] = useState("9100");
+  const [runtimeCode, setRuntimeCode] = useState("");
+
+  const load = useCallback(async () => {
+    try { setError(null); setRegistry(await api<Registry>("/api/backoffice/printers/devices")); }
+    catch (err) { setError(err instanceof Error ? err.message : "โหลดข้อมูลไม่สำเร็จ"); }
+  }, []);
+  useEffect(() => { void load(); }, [load]);
+
+  const filtered = useMemo(() => (registry?.devices ?? []).filter((device) => {
+    if (purposeFilter === "all") return true;
+    return device.printer_device_assignments.some((a) => a.is_enabled && a.purpose === purposeFilter);
+  }), [registry, purposeFilter]);
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const pageItems = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+  useEffect(() => { if (page > totalPages) setPage(totalPages); }, [page, totalPages]);
+
+  function resetForm(nextMode: Mode = mode) {
+    setEditId(null); setMode(nextMode); setName(""); setBrand(""); setModel(""); setPaper(58); setSelectedPurposes(["receipt"]); setIp(""); setPort("9100"); setRuntimeCode("");
+  }
+  function useCandidate(item: Candidate) {
+    setMode(item.mode); setName(item.name); setModel(item.name); setPaper(item.paper_width_mm); setRuntimeCode(item.runtime_device_code ?? "");
+    const fromCandidate = item.functions.filter((value): value is Purpose => purposes.some((p) => p.value === value));
+    setSelectedPurposes(fromCandidate.length ? fromCandidate : ["receipt"]); setNotice(`เลือก ${item.name} แล้ว ตรวจสอบหน้าที่ใช้งานและกดบันทึก`);
+    document.getElementById("printer-v3-config")?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+  function edit(device: Device) {
+    setEditId(device.printer_profile_id); setMode(device.connection_mode); setName(device.display_name); setBrand(device.brand ?? ""); setModel(device.model ?? ""); setPaper(device.paper_width_mm);
+    setSelectedPurposes(device.printer_device_assignments.filter((a) => a.is_enabled).map((a) => a.purpose)); setRuntimeCode(device.runtime_device_code ?? ""); setIp(""); setPort("9100");
+    document.getElementById("printer-v3-config")?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+  function togglePurpose(value: Purpose) { setSelectedPurposes((current) => current.includes(value) ? current.filter((item) => item !== value) : [...current, value]); }
+
+  async function discover() {
+    setDiscovering(true); setError(null); setNotice(null);
+    try {
+      const data = await api<Discovery>(`/api/backoffice/printers/discover?mode=${mode}`); setCandidates(data.items); setNotice(data.note || `ค้นหา ${mode.toUpperCase()} เสร็จแล้ว`);
+    } catch (err) { setError(err instanceof Error ? err.message : "ค้นหาเครื่องพิมพ์ไม่สำเร็จ"); }
+    finally { setDiscovering(false); }
+  }
+
+  async function save() {
+    setError(null); setNotice(null);
+    if (!name.trim()) { setError("กรุณาตั้งชื่อเครื่องพิมพ์"); return; }
+    if (!selectedPurposes.length) { setError("กรุณาเลือกอย่างน้อย 1 หน้าที่"); return; }
+    if (mode === "lan" && !ip.trim() && !editId) { setError("LAN ต้องระบุ IP ในตัวเลือกเพิ่มเติม"); return; }
+    setBusy("save");
+    try {
+      const payload = { printer_id: editId, printer_name: name.trim(), brand: brand.trim() || null, model: model.trim() || null, connection_mode: mode, paper_width_mm: paper, purposes: selectedPurposes, ip_address: ip.trim() || null, port: Number(port || 9100), runtime_device_code: runtimeCode.trim() || null, enabled: true };
+      await api("/api/backoffice/printers/devices", { method: editId ? "PATCH" : "POST", body: JSON.stringify(payload) });
+      setNotice(editId ? "อัปเดตเครื่องพิมพ์แล้ว" : "เชื่อมต่อและบันทึกเครื่องพิมพ์แล้ว"); resetForm(mode); await load();
+    } catch (err) { setError(err instanceof Error ? err.message : "บันทึกไม่สำเร็จ"); }
+    finally { setBusy(null); }
+  }
+
+  async function runAction(device: Device, action: "test" | "drawer" | "disconnect" | "delete") {
+    if (!device.printer_profile_id) return;
+    if (action === "delete" && !confirm(`ลบ ${device.display_name} ออกจากรายการใช้งาน? ประวัติจะยังเก็บไว้`)) return;
+    setBusy(`${action}:${device.id}`); setError(null); setNotice(null);
+    try {
+      if (action === "test") await api("/api/backoffice/printers/test", { method: "POST", body: JSON.stringify({ printer_id: device.printer_profile_id }) });
+      if (action === "drawer") await api("/api/backoffice/printers/drawer-test", { method: "POST", body: JSON.stringify({ printer_id: device.printer_profile_id }) });
+      if (action === "disconnect") await api("/api/backoffice/printers/devices", { method: "PATCH", body: JSON.stringify({ printer_id: device.printer_profile_id, action: "disconnect" }) });
+      if (action === "delete") await api("/api/backoffice/printers/devices", { method: "DELETE", body: JSON.stringify({ printer_id: device.printer_profile_id }) });
+      setNotice(action === "test" ? "ส่งงานพิมพ์ทดสอบแล้ว" : action === "drawer" ? "ส่งคำสั่งทดสอบลิ้นชักแล้ว" : action === "disconnect" ? "ยกเลิกการเชื่อมต่อแล้ว สามารถเชื่อมต่อใหม่จากประวัติได้" : "ลบเครื่องพิมพ์แล้ว และเก็บประวัติไว้");
+      await load();
+    } catch (err) { setError(err instanceof Error ? err.message : "ดำเนินการไม่สำเร็จ"); }
+    finally { setBusy(null); }
+  }
+
+  return <div className={styles.page}>
+    <div className={styles.header}>
+      <div className={styles.titleWrap}><div className={styles.titleIcon}>▤</div><div><h1 className={styles.title}>ตั้งค่าเครื่องพิมพ์</h1><p className={styles.subtitle}>เชื่อมต่อง่ายสำหรับใบเสร็จ ครัว เครื่องดื่ม บาร์ และลิ้นชักเงินสด — Web App / Android / Runtime</p></div></div>
+      <div className={styles.topActions}><span className={styles.branchBadge}>⌂ {registry?.branch?.name ?? "สาขาปัจจุบัน"}{registry?.branch?.code ? ` · ${registry.branch.code}` : ""}</span><button className={styles.ghost} onClick={() => void load()}>รีเฟรช</button></div>
+    </div>
+
+    {notice ? <div className={styles.notice}>{notice}</div> : null}{error ? <div className={styles.error}>{error}</div> : null}
+
+    <section className={styles.panel}>
+      <div className={styles.toolbar}><div><span className={styles.label}>สาขา</span><select className={styles.select} value={registry?.branch?.id ?? ""} disabled><option value={registry?.branch?.id ?? ""}>{registry?.branch?.name ?? "สาขาปัจจุบัน"}</option></select></div>
+      <div><span className={styles.label}>โซนพิมพ์ / วัตถุประสงค์</span><div className={styles.purposeTabs}><button className={`${styles.tab} ${purposeFilter === "all" ? styles.tabActive : ""}`} onClick={() => { setPurposeFilter("all"); setPage(1); }}>ทั้งหมด</button>{purposes.map((p) => <button key={p.value} className={`${styles.tab} ${purposeFilter === p.value ? styles.tabActive : ""}`} onClick={() => { setPurposeFilter(p.value); setPage(1); }}>{p.label}</button>)}</div></div></div>
+      <div className={styles.modeGrid}>{modeCards.map((card) => <button key={card.mode} className={`${styles.mode} ${mode === card.mode ? styles.modeActive : ""}`} onClick={() => { setMode(card.mode); setCandidates([]); }}><span className={styles.modeIcon}>{card.icon}</span><span><strong>{card.title}</strong><p>{card.desc}<br/>{card.help}</p></span></button>)}</div>
+    </section>
+
+    <section className={`${styles.panel} ${styles.discovery}`}>
+      <div className={styles.sectionHead}><div><h2 className={styles.sectionTitle}>✣ เชื่อมต่ออัตโนมัติ</h2><span className={styles.hint}>ระบบจะแสดงอุปกรณ์ที่ Runtime / Android / MDM หรือประวัติเดิมตรวจพบ โดยไม่สั่งพิมพ์เอง</span></div><button className={styles.primary} onClick={() => void discover()} disabled={discovering}>{discovering ? "กำลังค้นหา..." : "⌕ ค้นหาเครื่องพิมพ์อัตโนมัติ"}</button></div>
+      {candidates.length ? <div className={styles.candidateGrid}>{candidates.map((item) => <div className={styles.candidate} key={item.id}><div className={styles.candidateIcon}>▤</div><div className={styles.candidateInfo}><div className={styles.candidateName}>{item.name}</div><div className={styles.meta}>{item.mode.toUpperCase()} · {item.paper_width_mm}mm · {item.helper}</div></div><button className={styles.secondary} onClick={() => useCandidate(item)}>ใช้เครื่องนี้</button></div>)}</div> : <div className={styles.empty}>กดค้นหาเพื่อดูเครื่องที่ Runtime / Android / MDM ตรวจพบ หรือเพิ่มเครื่องเองด้านล่าง</div>}
+    </section>
+
+    <section id="printer-v3-config" className={`${styles.panel} ${styles.config}`}>
+      <div className={styles.sectionHead}><div><h2 className={styles.sectionTitle}>{editId ? "แก้ไขเครื่องพิมพ์" : "+ เพิ่มเครื่องพิมพ์"}</h2><span className={styles.hint}>ค่าเทคนิคถูกซ่อนไว้ใน “ตั้งค่าขั้นสูง”</span></div>{editId ? <button className={styles.ghost} onClick={() => resetForm(mode)}>ยกเลิกแก้ไข</button> : null}</div>
+      <div className={styles.formGrid}><div className={styles.wide}><span className={styles.label}>ชื่อเครื่องพิมพ์</span><input className={styles.input} value={name} onChange={(e)=>setName(e.target.value)} placeholder="เช่น เคาน์เตอร์ 1, ครัวร้อน"/></div><div><span className={styles.label}>ยี่ห้อ</span><input className={styles.input} value={brand} onChange={(e)=>setBrand(e.target.value)} placeholder="เช่น Epson, Xprinter"/></div><div><span className={styles.label}>รุ่น</span><input className={styles.input} value={model} onChange={(e)=>setModel(e.target.value)} placeholder="เช่น TM-T82, XP-58"/></div><div><span className={styles.label}>รูปแบบเชื่อมต่อ</span><select className={styles.select} value={mode} onChange={(e)=>setMode(e.target.value as Mode)}><option value="lan">LAN</option><option value="usb">USB</option><option value="bluetooth">Bluetooth</option></select></div><div><span className={styles.label}>ขนาดกระดาษ</span><select className={styles.select} value={paper} onChange={(e)=>setPaper(Number(e.target.value) as 58|80)}><option value={58}>58 mm</option><option value={80}>80 mm</option></select></div></div>
+      <div className={styles.purposeGrid}>{purposes.map((p)=><label className={styles.check} key={p.value}><input type="checkbox" checked={selectedPurposes.includes(p.value)} onChange={()=>togglePurpose(p.value)}/><span>{p.label}</span></label>)}</div>
+      <details className={styles.advanced}><summary>⚙ ตั้งค่าขั้นสูง (ปกติไม่ต้องแก้)</summary><div className={styles.advancedGrid}>{mode === "lan" ? <><div><span className={styles.label}>IP เครื่องพิมพ์</span><input className={styles.input} value={ip} onChange={(e)=>setIp(e.target.value)} placeholder="192.168.1.50"/></div><div><span className={styles.label}>Port</span><input className={styles.input} inputMode="numeric" value={port} onChange={(e)=>setPort(e.target.value)} placeholder="9100"/></div></> : <div><span className={styles.label}>รหัสเครื่อง POS / Runtime</span><input className={styles.input} value={runtimeCode} onChange={(e)=>setRuntimeCode(e.target.value)} placeholder="เช่น POS-COUNTER-01"/></div>}</div></details>
+      <div className={styles.formActions}><button className={styles.ghost} onClick={() => resetForm(mode)}>ล้างค่า</button><button className={styles.primary} onClick={() => void save()} disabled={busy === "save"}>{busy === "save" ? "กำลังบันทึก..." : editId ? "บันทึกการเปลี่ยนแปลง" : "เชื่อมต่อและบันทึก"}</button></div>
+    </section>
+
+    <section className={`${styles.panel} ${styles.tablePanel}`}>
+      <div className={styles.tableHeader}><div><h2 className={styles.sectionTitle}>รายการเครื่องพิมพ์ <span className={styles.hint}>({filtered.length} เครื่อง)</span></h2><span className={styles.hint}>1 เครื่องสามารถรับหลายหน้าที่ได้ และครัวใช้ Kitchen Zone routing เดิมร่วมกัน</span></div><button className={styles.primary} onClick={() => resetForm(mode)}>+ เพิ่มเครื่องพิมพ์</button></div>
+      <div className={styles.tableWrap}><table className={styles.table}><thead><tr><th>สถานะ</th><th>ชื่อเครื่อง</th><th>รุ่น / ยี่ห้อ</th><th>โหมด</th><th>สาขา</th><th>โซน / หน้าที่</th><th>กระดาษ</th><th>ออนไลน์ล่าสุด</th><th>การทำงาน</th><th>จัดการ</th></tr></thead><tbody>{pageItems.map((device)=>{ const f=device.printer_device_assignments.filter(a=>a.is_enabled).map(a=>a.purpose); const hasDrawer=f.includes("cash_drawer"); return <tr key={device.id}><td><span className={styles.status}><span className={`${styles.dot} ${statusClass(device.status)}`}/>{statusLabel(device.status)}</span></td><td><div className={styles.deviceName}>{device.display_name}</div><div className={styles.meta}>{device.printer_profile_id ? "พร้อมเข้าคิวพิมพ์" : "ยังไม่ผูก profile"}</div></td><td>{device.brand || "ทั่วไป"}<div className={styles.meta}>{device.model || "ไม่ระบุรุ่น"}</div></td><td>{device.connection_mode.toUpperCase()}</td><td>{registry?.branch?.name ?? "สาขาปัจจุบัน"}</td><td><div className={styles.chips}>{f.map((value)=><span className={styles.chip} key={value}>{purposeLabel(value)}</span>)}</div></td><td>{device.paper_width_mm}mm</td><td>{fmt(device.last_seen_at ?? device.updated_at)}</td><td><div className={styles.actions}><button className={styles.iconButton} title="พิมพ์ทดสอบ" onClick={()=>void runAction(device,"test")}>▤</button>{hasDrawer ? <button className={styles.iconButton} title="เปิดลิ้นชักทดสอบ" onClick={()=>void runAction(device,"drawer")}>⌑</button>:null}<button className={styles.iconButton} title="แก้ไข" onClick={()=>edit(device)}>✎</button></div></td><td><div className={styles.actions}>{!device.is_active || device.status === "disconnected" ? <button className={styles.secondary} onClick={()=>edit(device)}>เชื่อมต่อใหม่</button> : <button className={styles.ghost} onClick={()=>void runAction(device,"disconnect")}>ยกเลิกเชื่อมต่อ</button>}<button className={styles.danger} onClick={()=>void runAction(device,"delete")}>ลบ</button></div></td></tr>})}</tbody></table>{pageItems.length===0?<div className={styles.empty}>ยังไม่มีเครื่องพิมพ์ในตัวกรองนี้</div>:null}</div>
+      <div className={styles.pager}><button className={styles.pageButton} disabled={page<=1} onClick={()=>setPage(p=>Math.max(1,p-1))}>‹</button>{Array.from({length:totalPages},(_,i)=>i+1).slice(Math.max(0,page-3),Math.max(5,page+2)).map((n)=><button key={n} className={`${styles.pageButton} ${page===n?styles.pageActive:""}`} onClick={()=>setPage(n)}>{n}</button>)}<button className={styles.pageButton} disabled={page>=totalPages} onClick={()=>setPage(p=>Math.min(totalPages,p+1))}>›</button></div>
+    </section>
+
+    <section className={`${styles.panel} ${styles.history}`}><div className={styles.sectionHead}><div><h2 className={styles.sectionTitle}>ประวัติเครื่องที่เคยเชื่อมต่อ</h2><span className={styles.hint}>เก็บไว้เพื่อซื้อเครื่องรุ่นเดิมแล้วตั้งค่าใหม่ได้เร็ว โดยการลบ profile ไม่ลบประวัติ</span></div></div><div className={styles.historyList}>{(registry?.history ?? []).length ? registry!.history.map((item)=><div className={styles.historyRow} key={item.id}><strong>{item.device_name}</strong><span>{item.brand || "ทั่วไป"} {item.model || ""}</span><span>{item.connection_mode?.toUpperCase() || "-"} · {item.paper_width_mm || "-"}mm</span><span>{item.event_type}</span><span>{fmt(item.created_at)}</span></div>) : <div className={styles.empty}>ยังไม่มีประวัติการเชื่อมต่อ</div>}</div></section>
+  </div>;
+}
