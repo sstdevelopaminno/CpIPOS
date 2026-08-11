@@ -3,7 +3,7 @@ import "server-only";
 import type { PaymentMethod } from "@pos/shared-types";
 import type { AuthContext } from "@/lib/auth-context";
 import { readEnv } from "@/lib/env";
-import { enqueuePrintJob, processPrintJob, renderReceiptTemplate } from "@/lib/printing/print-service";
+import { enqueuePrintJob, processPrintJob, renderKitchenTicketTemplate, renderReceiptTemplate } from "@/lib/printing/print-service";
 import { resolvePrinterRoutes, type ResolvedPrinterRoute } from "@/lib/printing/printer-routing-service";
 import { loadReceiptStoreProfile } from "@/lib/services/store-profile-service";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
@@ -171,6 +171,79 @@ export async function queueRoutedSalesReceipt(args: {
   return jobs;
 }
 
+export async function queueRoutedKitchenFallback(args: {
+  auth: AuthContext;
+  orderId: string;
+  runtimeDeviceCode?: string | null;
+  action?: "new" | "reprint";
+}) {
+  const supabase = getSupabaseServiceClient();
+  const [{ data: order, error: orderError }, { data: items, error: itemsError }] = await Promise.all([
+    supabase
+      .from("orders")
+      .select("id,order_no")
+      .eq("tenant_id", args.auth.tenantId!)
+      .eq("branch_id", args.auth.branchId!)
+      .eq("id", args.orderId)
+      .maybeSingle<{ id: string; order_no: string }>(),
+    supabase
+      .from("order_items")
+      .select("id,product_id,name,quantity,notes")
+      .eq("tenant_id", args.auth.tenantId!)
+      .eq("branch_id", args.auth.branchId!)
+      .eq("order_id", args.orderId)
+  ]);
+  if (orderError) throw new Error(orderError.message);
+  if (itemsError) throw new Error(itemsError.message);
+  if (!order) throw new Error("order_not_found");
+  if (!items?.length) return [];
+
+  const routes = await resolvePrinterRoutes({
+    auth: args.auth,
+    purpose: "kitchen",
+    runtimeDeviceCode: args.runtimeDeviceCode,
+    legacyRole: "kitchen"
+  });
+  if (routes.length === 0) return [];
+
+  const branchName = await loadBranchName(args.auth);
+  const jobs = [];
+  for (const route of routes) {
+    const payload = renderKitchenTicketTemplate({
+      order_id: order.id,
+      order_no: order.order_no,
+      branch_name: branchName,
+      station: "KITCHEN",
+      ticket_at_iso: new Date().toISOString(),
+      items: items.map((item) => ({
+        name: String(item.name ?? item.product_id ?? "Item"),
+        qty: Number(item.quantity ?? 0),
+        note: item.notes ? String(item.notes) : undefined
+      }))
+    }, route.printer.paper_width_mm);
+    jobs.push(...await queueOnRoute({
+      auth: args.auth,
+      route,
+      orderId: order.id,
+      printerRole: "kitchen",
+      payloadText: payload,
+      payloadJson: {
+        order_id: order.id,
+        order_no: order.order_no,
+        station: "KITCHEN",
+        items: items.map((item) => ({ id: item.id, product_id: item.product_id, name: item.name, quantity: item.quantity, notes: item.notes }))
+      },
+      metadata: {
+        request_source: "kitchen_branch_fallback",
+        fallback_no_kitchen_zones: true,
+        kitchen_action: args.action ?? "new",
+        paper_width_mm: route.printer.paper_width_mm
+      }
+    }));
+  }
+  return jobs;
+}
+
 export async function queueRoutedReceiptReprint(args: {
   auth: AuthContext;
   orderId: string;
@@ -210,7 +283,7 @@ export async function queueRoutedReceiptReprint(args: {
   if (routes.length === 0) throw new Error("receipt_printer_not_configured");
 
   const totalAmount = Number(order.grand_total ?? order.total_amount ?? 0);
-  const items = (itemsResult.data ?? []).map((item) => ({
+  const receiptItems = (itemsResult.data ?? []).map((item) => ({
     name: String(item.name ?? item.product_id ?? "Item"),
     qty: Number(item.quantity ?? 0),
     unit_price: Number(item.unit_price ?? 0),
@@ -226,7 +299,7 @@ export async function queueRoutedReceiptReprint(args: {
       cashier_name: String(order.created_by ?? args.auth.userId),
       paid_at_iso: String(order.payment_completed_at ?? order.created_at ?? new Date().toISOString()),
       currency: "THB",
-      items: items.length > 0 ? items : [{ name: "Reprint copy", qty: 1, unit_price: 0, line_total: 0 }],
+      items: receiptItems.length > 0 ? receiptItems : [{ name: "Reprint copy", qty: 1, unit_price: 0, line_total: 0 }],
       subtotal: Number(order.subtotal ?? order.total_amount ?? 0),
       discount_amount: Number(order.discount_amount ?? 0),
       tax_amount: Number(order.tax_total ?? 0),
