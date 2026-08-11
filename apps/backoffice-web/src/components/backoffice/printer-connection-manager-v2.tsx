@@ -1,6 +1,6 @@
 "use client";
 
-import type { CSSProperties, FormEvent } from "react";
+import type { ButtonHTMLAttributes, CSSProperties, FormEvent, ReactNode } from "react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 type ConnectionMode = "lan" | "usb" | "bluetooth";
@@ -17,6 +17,7 @@ type PrinterFunction =
   | "payment_slip"
   | "cash_drawer";
 type PrinterStatus = "online" | "offline" | "checking" | "connecting" | "needs_check" | "disabled";
+type DiscoverySource = "windows_runtime" | "android_mdm" | "configured_profile" | "manual_lan";
 
 type PrinterRow = {
   id: string;
@@ -65,39 +66,40 @@ type AgentListResponse = {
 type DiscoveryCandidate = {
   id: string;
   name: string;
-  brand: string;
-  model: string;
   mode: ConnectionMode;
-  paper: PrinterPaperWidth;
-  hint: string;
+  paper_width_mm: PrinterPaperWidth;
+  source: DiscoverySource;
   status: PrinterStatus;
+  runtime_device_code: string | null;
+  printer_profile_id: string | null;
+  functions: string[];
+  capabilities: Record<string, boolean>;
+  helper: string;
+};
+
+type DiscoveryResponse = {
+  items: DiscoveryCandidate[];
+  mode: ConnectionMode | "all";
+  note: string;
+};
+
+type DrawerTestResponse = {
+  command_sent: boolean;
+  command_queued: boolean;
+  drawer_mode: string;
+  physical_status: string;
+  event_id: string;
+  job_id: string;
+  job_status: string;
 };
 
 const PAGE_SIZE = 8;
 const BROWSER_AGENT_BRIDGE_URL = "browser-agent://web-serial";
 
 const modeCards: Array<{ mode: ConnectionMode; title: string; icon: string; description: string; helper: string }> = [
-  {
-    mode: "lan",
-    title: "LAN",
-    icon: "🌐",
-    description: "เครื่องพิมพ์ผ่าน IP / สาย LAN / Wi‑Fi",
-    helper: "เหมาะกับครัวหรือจุดพิมพ์หลายจุดในร้าน"
-  },
-  {
-    mode: "usb",
-    title: "USB",
-    icon: "🔌",
-    description: "เครื่องพิมพ์ต่อกับเครื่อง POS หลัก",
-    helper: "แนะนำสำหรับแคชเชียร์และลิ้นชักเงินสด"
-  },
-  {
-    mode: "bluetooth",
-    title: "Bluetooth",
-    icon: "🔵",
-    description: "เครื่องพิมพ์ Bluetooth / Android / MDM",
-    helper: "เหมาะกับ Android หรือจุดขายเคลื่อนที่"
-  }
+  { mode: "lan", title: "LAN", icon: "🌐", description: "เครื่องพิมพ์ผ่าน IP / สาย LAN / Wi‑Fi", helper: "เหมาะกับครัวหรือจุดพิมพ์หลายจุดในร้าน" },
+  { mode: "usb", title: "USB", icon: "🔌", description: "เครื่องพิมพ์ต่อกับเครื่อง POS หลัก", helper: "แนะนำสำหรับแคชเชียร์และลิ้นชักเงินสด" },
+  { mode: "bluetooth", title: "Bluetooth", icon: "🔵", description: "เครื่องพิมพ์ Bluetooth / Android / MDM", helper: "เหมาะกับ Android หรือจุดขายเคลื่อนที่" }
 ];
 
 const functionOptions: Array<{ value: PrinterFunction; label: string; description: string }> = [
@@ -126,6 +128,13 @@ const modeText: Record<ConnectionMode, string> = {
   bluetooth: "Bluetooth"
 };
 
+const sourceText: Record<DiscoverySource, string> = {
+  windows_runtime: "Windows Runtime / Local Bridge",
+  android_mdm: "Android / MDM",
+  configured_profile: "ประวัติเครื่องเดิม",
+  manual_lan: "เพิ่ม LAN เอง"
+};
+
 const pageSteps = ["เลือกสาขา", "เลือกโซนพิมพ์", "เลือกโหมด", "ค้นหาอัตโนมัติ", "ทดสอบพิมพ์", "บันทึก"];
 
 function asRecord(value: unknown): Record<string, unknown> {
@@ -142,11 +151,17 @@ function readStringArray(value: unknown): string[] {
   return value.map((item) => (typeof item === "string" ? item.trim() : "")).filter(Boolean);
 }
 
+function isPrinterFunction(value: string): value is PrinterFunction {
+  return functionOptions.some((option) => option.value === value);
+}
+
+function normalizeFunctions(values: string[]): PrinterFunction[] {
+  return values.filter(isPrinterFunction);
+}
+
 function readFunctions(row: PrinterRow): PrinterFunction[] {
   const metadata = asRecord(row.metadata);
-  const fromMetadata = readStringArray(metadata.print_functions).filter((item): item is PrinterFunction =>
-    functionOptions.some((option) => option.value === item)
-  );
+  const fromMetadata = normalizeFunctions(readStringArray(metadata.print_functions));
   if (fromMetadata.length > 0) return fromMetadata;
   if (row.printer_role === "kitchen") return ["kitchen"];
   if (row.printer_role === "report") return ["shift_report"];
@@ -193,13 +208,9 @@ function formatDate(value: string | null | undefined) {
 }
 
 async function fetchApi<T>(url: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(url, {
-    ...init,
-    headers: {
-      "Content-Type": "application/json",
-      ...(init?.headers ?? {})
-    }
-  });
+  const headers = new Headers(init?.headers);
+  headers.set("Content-Type", "application/json");
+  const response = await fetch(url, { ...init, headers });
   const envelope = (await response.json().catch(() => ({}))) as ApiEnvelope<T> | T;
   const maybeEnvelope = envelope as ApiEnvelope<T>;
   if (!response.ok || maybeEnvelope.error) {
@@ -259,38 +270,27 @@ function buildMetadata(params: {
       esc_pos: true
     },
     production_path: params.mode === "lan" ? "lan_or_runtime" : "windows_runtime_or_android_mdm",
+    quarantine_replay_allowed: false,
     legacy_transport_note:
       "Customer-facing setup is limited to LAN/USB/Bluetooth. Browser Web Serial, Local Bridge, Windows Runtime, Android Bridge and MDM are internal transports."
   };
 }
 
-function makeDiscoveryCandidates(mode: ConnectionMode, agents: PrintAgentRow[]): DiscoveryCandidate[] {
+function buildFallbackCandidates(mode: ConnectionMode, agents: PrintAgentRow[]): DiscoveryCandidate[] {
   if (mode === "lan") {
     return [
       {
-        id: "lan-kitchen-80",
-        name: "เครื่องพิมพ์ครัว LAN",
-        brand: "Epson / Xprinter",
-        model: "ESC/POS 80mm",
+        id: "manual:lan-escpos",
+        name: "เครื่องพิมพ์ LAN / ESC/POS",
         mode,
-        paper: 80,
-        hint: "ค้นหาจาก IP/Port หรือเพิ่ม IP เองในขั้นสูง",
-        status: "checking"
-      }
-    ];
-  }
-
-  if (mode === "bluetooth") {
-    return [
-      {
-        id: "android-bluetooth-58",
-        name: "Android Bluetooth Printer",
-        brand: "Sunmi / XP / Generic",
-        model: "Bluetooth 58mm",
-        mode,
-        paper: 58,
-        hint: "เชื่อมผ่าน Android/MDM หรือ Bluetooth Bridge",
-        status: "connecting"
+        paper_width_mm: 80,
+        source: "manual_lan",
+        status: "checking",
+        runtime_device_code: null,
+        printer_profile_id: null,
+        functions: ["kitchen"],
+        capabilities: { receipt: true, kitchen: true, cash_drawer: false },
+        helper: "ถ้าไม่พบอัตโนมัติ ให้กรอก IP/Port เฉพาะขั้นสูง"
       }
     ];
   }
@@ -298,32 +298,38 @@ function makeDiscoveryCandidates(mode: ConnectionMode, agents: PrintAgentRow[]):
   const activeAgents = agents.filter((agent) => agent.status === "active");
   if (activeAgents.length > 0) {
     return activeAgents.slice(0, 3).map((agent) => ({
-      id: agent.id,
+      id: `agent:${agent.id}`,
       name: agent.agent_name || agent.device_code,
-      brand: "Windows Runtime / Local Bridge",
-      model: agent.app_version ?? "runtime",
       mode,
-      paper: 58,
-      hint: `พบ Runtime ที่เครื่อง ${agent.device_code}`,
-      status: "online"
+      paper_width_mm: 58,
+      source: mode === "bluetooth" ? "android_mdm" : "windows_runtime",
+      status: "online",
+      runtime_device_code: agent.device_code,
+      printer_profile_id: null,
+      functions: ["receipt", "reprint", "cash_drawer"],
+      capabilities: { receipt: true, kitchen: false, cash_drawer: true },
+      helper: `พบ Runtime/Agent ที่เครื่อง ${agent.device_code}`
     }));
   }
 
   return [
     {
-      id: "xp58-pos-counter-01",
-      name: "XP-58",
-      brand: "Xprinter / Generic ESC/POS",
-      model: "58mm USB",
+      id: mode === "bluetooth" ? "fallback:android-bluetooth" : "fallback:xp58-usb",
+      name: mode === "bluetooth" ? "Android Bluetooth Printer" : "XP-58",
       mode,
-      paper: 58,
-      hint: "ต่อผ่าน Windows Runtime / Local Bridge ที่ POS-COUNTER-01",
-      status: "checking"
+      paper_width_mm: 58,
+      source: mode === "bluetooth" ? "android_mdm" : "windows_runtime",
+      status: "checking",
+      runtime_device_code: "POS-COUNTER-01",
+      printer_profile_id: null,
+      functions: ["receipt", "reprint", "cash_drawer"],
+      capabilities: { receipt: true, kitchen: false, cash_drawer: true },
+      helper: mode === "bluetooth" ? "เชื่อมผ่าน Android/MDM หรือ Bluetooth Bridge" : "ต่อผ่าน Windows Runtime / Local Bridge ที่ POS-COUNTER-01"
     }
   ];
 }
 
-function Card({ children, style }: { children: React.ReactNode; style?: CSSProperties }) {
+function Card({ children, style }: { children: ReactNode; style?: CSSProperties }) {
   return <section style={{ border: "1px solid #dbe7f5", borderRadius: 18, background: "#fff", boxShadow: "0 10px 30px rgba(15, 23, 42, 0.05)", ...style }}>{children}</section>;
 }
 
@@ -339,9 +345,11 @@ function StatusBadge({ status }: { status: PrinterStatus }) {
   return <span style={{ display: "inline-flex", alignItems: "center", border: "1px solid", borderRadius: 999, padding: "5px 10px", fontSize: 12, fontWeight: 800, ...palette[status] }}>{statusText[status]}</span>;
 }
 
-function Button(props: React.ButtonHTMLAttributes<HTMLButtonElement> & { variant?: "primary" | "secondary" | "danger" | "ghost" }) {
-  const variant = props.variant ?? "secondary";
-  const variants: Record<NonNullable<typeof props.variant>, CSSProperties> = {
+type ButtonVariant = "primary" | "secondary" | "danger" | "ghost";
+type ButtonProps = ButtonHTMLAttributes<HTMLButtonElement> & { variant?: ButtonVariant };
+
+function Button({ variant = "secondary", style, ...props }: ButtonProps) {
+  const variants: Record<ButtonVariant, CSSProperties> = {
     primary: { background: "#2563eb", color: "#fff", borderColor: "#2563eb" },
     secondary: { background: "#fff", color: "#0f172a", borderColor: "#cbd5e1" },
     danger: { background: "#fff1f2", color: "#be123c", borderColor: "#fecdd3" },
@@ -359,13 +367,13 @@ function Button(props: React.ButtonHTMLAttributes<HTMLButtonElement> & { variant
         cursor: props.disabled ? "not-allowed" : "pointer",
         opacity: props.disabled ? 0.55 : 1,
         ...variants[variant],
-        ...(props.style ?? {})
+        ...style
       }}
     />
   );
 }
 
-function Field({ label, children, hint }: { label: string; children: React.ReactNode; hint?: string }) {
+function Field({ label, children, hint }: { label: string; children: ReactNode; hint?: string }) {
   return (
     <label style={{ display: "grid", gap: 8, color: "#0f172a", fontWeight: 800 }}>
       <span>{label}</span>
@@ -394,6 +402,7 @@ export function PrinterConnectionManagerV2() {
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [discoverLoading, setDiscoverLoading] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -408,6 +417,7 @@ export function PrinterConnectionManagerV2() {
   const [selectedFunctions, setSelectedFunctions] = useState<PrinterFunction[]>(["receipt", "cash_drawer", "reprint"]);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [historyFilter, setHistoryFilter] = useState<ConnectionMode | "all">("all");
+  const [discoveryCandidates, setDiscoveryCandidates] = useState<DiscoveryCandidate[]>([]);
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -427,11 +437,34 @@ export function PrinterConnectionManagerV2() {
     }
   }, [page]);
 
+  const runDiscovery = useCallback(
+    async (showSuccessNotice = true) => {
+      setDiscoverLoading(true);
+      setError(null);
+      try {
+        const result = await fetchApi<DiscoveryResponse>(`/api/backoffice/printers/discover?mode=${mode}`);
+        setDiscoveryCandidates(result.items ?? []);
+        if (showSuccessNotice) setNotice(`ค้นหาอัตโนมัติแล้ว พบ ${result.items?.length ?? 0} รายการในโหมด ${modeText[mode]}`);
+      } catch (err) {
+        const fallback = buildFallbackCandidates(mode, agents);
+        setDiscoveryCandidates(fallback);
+        setError(err instanceof Error ? err.message : "ค้นหาอัตโนมัติไม่สำเร็จ ใช้รายการแนะนำสำรองแทน");
+      } finally {
+        setDiscoverLoading(false);
+      }
+    },
+    [agents, mode]
+  );
+
   useEffect(() => {
     void loadData();
   }, [loadData]);
 
-  const discoveryCandidates = useMemo(() => makeDiscoveryCandidates(mode, agents), [mode, agents]);
+  useEffect(() => {
+    void runDiscovery(false);
+  }, [runDiscovery]);
+
+  const visibleDiscoveryCandidates = discoveryCandidates.length > 0 ? discoveryCandidates : buildFallbackCandidates(mode, agents);
   const rememberedPrinters = useMemo(() => {
     const rows = printers.map((printer) => ({ printer, mode: inferConnectionMode(printer), functions: readFunctions(printer), status: inferStatus(printer) }));
     return rows.filter((row) => historyFilter === "all" || row.mode === historyFilter).slice(0, 5);
@@ -441,10 +474,19 @@ export function PrinterConnectionManagerV2() {
   const drawerReady = printers.some((printer) => printer.enabled && readFunctions(printer).includes("cash_drawer"));
 
   function toggleFunction(value: PrinterFunction) {
-    setSelectedFunctions((current) => {
-      if (current.includes(value)) return current.filter((item) => item !== value);
-      return [...current, value];
-    });
+    setSelectedFunctions((current) => (current.includes(value) ? current.filter((item) => item !== value) : [...current, value]));
+  }
+
+  function useCandidate(candidate: DiscoveryCandidate) {
+    const candidateFunctions = normalizeFunctions(candidate.functions);
+    setMode(candidate.mode);
+    setPrinterName(candidate.name);
+    setPaperWidth(candidate.paper_width_mm);
+    setSelectedFunctions(candidateFunctions.length > 0 ? candidateFunctions : ["receipt"]);
+    if (candidate.runtime_device_code) setAgentDeviceCode(candidate.runtime_device_code);
+    if (candidate.mode === "bluetooth") setBluetoothName(candidate.name);
+    if (candidate.mode === "lan") setPort(9100);
+    setNotice(`เลือก ${candidate.name} แล้ว กดบันทึกเพื่อสร้าง/เชื่อมโปรไฟล์เครื่องพิมพ์`);
   }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -474,6 +516,7 @@ export function PrinterConnectionManagerV2() {
 
       setNotice("บันทึกเครื่องพิมพ์แล้ว ระบบจะใช้กติกา LAN / USB / Bluetooth ตามที่เลือก");
       await loadData();
+      await runDiscovery(false);
     } catch (err) {
       setError(err instanceof Error ? err.message : "บันทึกเครื่องพิมพ์ไม่สำเร็จ");
     } finally {
@@ -489,9 +532,28 @@ export function PrinterConnectionManagerV2() {
         method: "POST",
         body: JSON.stringify({ printer_id: printerId })
       });
-      setNotice("ส่งคำสั่งทดสอบพิมพ์แล้ว โปรดตรวจสถานะ printed ที่คิว/Runtime");
+      setNotice("ส่งคำสั่งทดสอบพิมพ์แล้ว โปรดตรวจ Runtime/Agent ว่าสถานะ job เป็น printed");
     } catch (err) {
       setError(err instanceof Error ? err.message : "ทดสอบพิมพ์ไม่สำเร็จ");
+    }
+  }
+
+  async function testDrawer(printer: PrinterRow) {
+    setNotice(null);
+    setError(null);
+    try {
+      const metadata = asRecord(printer.metadata);
+      const result = await fetchApi<DrawerTestResponse>("/api/backoffice/printers/drawer-test", {
+        method: "POST",
+        body: JSON.stringify({
+          printer_id: printer.id,
+          runtime_device_code: readString(metadata.agent_device_code ?? metadata.runtime_device_code ?? metadata.device_code) ?? agentDeviceCode,
+          reason: "printer_settings_v2_drawer_test"
+        })
+      });
+      setNotice(`ส่งคำสั่งเปิดลิ้นชักแล้ว job=${result.job_id} event=${result.event_id} status=${result.job_status} (${result.command_queued ? "รอ Runtime/MDM รับงาน" : "ส่งแล้ว"})`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "ทดสอบลิ้นชักไม่สำเร็จ");
     }
   }
 
@@ -515,13 +577,14 @@ export function PrinterConnectionManagerV2() {
       });
       setNotice(printer.enabled ? "ยกเลิกการเชื่อมต่อเครื่องพิมพ์แล้ว" : "เปิดใช้งานเครื่องพิมพ์แล้ว");
       await loadData();
+      await runDiscovery(false);
     } catch (err) {
       setError(err instanceof Error ? err.message : "อัปเดตเครื่องพิมพ์ไม่สำเร็จ");
     }
   }
 
   async function deletePrinter(printerId: string) {
-    if (!confirm("ลบเครื่องพิมพ์นี้ออกจากรายการใช้งาน? ประวัติการตั้งค่าจะยังอยู่ใน metadata/audit ตามระบบเดิม")) return;
+    if (!confirm("ลบเครื่องพิมพ์นี้ออกจากรายการใช้งาน? ประวัติที่อยู่ใน audit/metadata เดิมจะยังตรวจสอบย้อนหลังได้")) return;
     setNotice(null);
     setError(null);
     try {
@@ -531,17 +594,10 @@ export function PrinterConnectionManagerV2() {
       });
       setNotice("ลบเครื่องพิมพ์แล้ว");
       await loadData();
+      await runDiscovery(false);
     } catch (err) {
       setError(err instanceof Error ? err.message : "ลบเครื่องพิมพ์ไม่สำเร็จ");
     }
-  }
-
-  function useCandidate(candidate: DiscoveryCandidate) {
-    setMode(candidate.mode);
-    setPrinterName(candidate.name);
-    setPaperWidth(candidate.paper);
-    if (candidate.mode === "bluetooth") setBluetoothName(candidate.name);
-    setNotice(`เลือก ${candidate.name} แล้ว กดบันทึกเพื่อสร้างโปรไฟล์เครื่องพิมพ์`);
   }
 
   return (
@@ -554,14 +610,17 @@ export function PrinterConnectionManagerV2() {
             ตั้งค่าเครื่องพิมพ์แบบง่ายสำหรับเจ้าของร้าน เลือกแค่ LAN / USB / Bluetooth ระบบจะจัดการ Runtime, Local Bridge, Android และ MDM เป็นงานเบื้องหลัง
           </p>
         </div>
-        <Button type="button" onClick={() => void loadData()}>รีเฟรชสถานะ</Button>
+        <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+          <Button type="button" onClick={() => void runDiscovery()}>ค้นหาอัตโนมัติ</Button>
+          <Button type="button" onClick={() => void loadData()}>รีเฟรชสถานะ</Button>
+        </div>
       </header>
 
       <Card style={{ padding: 16 }}>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(6, minmax(0, 1fr))", gap: 10 }}>
           {pageSteps.map((step, index) => (
             <div key={step} style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
-              <span style={{ display: "grid", placeItems: "center", width: 28, height: 28, borderRadius: 999, background: index < 3 ? "#2563eb" : "#e2e8f0", color: index < 3 ? "#fff" : "#475569", fontWeight: 900 }}>{index + 1}</span>
+              <span style={{ display: "grid", placeItems: "center", width: 28, height: 28, borderRadius: 999, background: index < 4 ? "#2563eb" : "#e2e8f0", color: index < 4 ? "#fff" : "#475569", fontWeight: 900 }}>{index + 1}</span>
               <span style={{ fontSize: 13, fontWeight: 800, color: "#334155", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{step}</span>
             </div>
           ))}
@@ -593,19 +652,7 @@ export function PrinterConnectionManagerV2() {
                   {functionOptions.map((option) => {
                     const active = selectedFunctions.includes(option.value);
                     return (
-                      <button
-                        key={option.value}
-                        type="button"
-                        onClick={() => toggleFunction(option.value)}
-                        style={{
-                          textAlign: "left",
-                          border: `1px solid ${active ? "#2563eb" : "#dbe7f5"}`,
-                          background: active ? "#eff6ff" : "#fff",
-                          borderRadius: 14,
-                          padding: 12,
-                          cursor: "pointer"
-                        }}
-                      >
+                      <button key={option.value} type="button" onClick={() => toggleFunction(option.value)} style={{ textAlign: "left", border: `1px solid ${active ? "#2563eb" : "#dbe7f5"}`, background: active ? "#eff6ff" : "#fff", borderRadius: 14, padding: 12, cursor: "pointer" }}>
                         <strong style={{ display: "block", color: active ? "#1d4ed8" : "#0f172a" }}>{option.label}</strong>
                         <small style={{ color: "#64748b", fontWeight: 700 }}>{option.description}</small>
                       </button>
@@ -620,22 +667,7 @@ export function PrinterConnectionManagerV2() {
                   {modeCards.map((card) => {
                     const active = mode === card.mode;
                     return (
-                      <button
-                        key={card.mode}
-                        type="button"
-                        onClick={() => setMode(card.mode)}
-                        style={{
-                          border: `1px solid ${active ? "#2563eb" : "#dbe7f5"}`,
-                          background: active ? "linear-gradient(180deg, #eff6ff, #ffffff)" : "#fff",
-                          borderRadius: 18,
-                          padding: 16,
-                          display: "grid",
-                          gap: 8,
-                          textAlign: "left",
-                          cursor: "pointer",
-                          boxShadow: active ? "0 12px 24px rgba(37, 99, 235, 0.12)" : "none"
-                        }}
-                      >
+                      <button key={card.mode} type="button" onClick={() => setMode(card.mode)} style={{ border: `1px solid ${active ? "#2563eb" : "#dbe7f5"}`, background: active ? "linear-gradient(180deg, #eff6ff, #ffffff)" : "#fff", borderRadius: 18, padding: 16, display: "grid", gap: 8, textAlign: "left", cursor: "pointer", boxShadow: active ? "0 12px 24px rgba(37, 99, 235, 0.12)" : "none" }}>
                         <span style={{ fontSize: 24 }}>{card.icon}</span>
                         <strong style={{ fontSize: 18, color: active ? "#1d4ed8" : "#0f172a" }}>{card.title}</strong>
                         <span style={{ color: "#334155", fontWeight: 700 }}>{card.description}</span>
@@ -651,20 +683,21 @@ export function PrinterConnectionManagerV2() {
                   <div>
                     <h2 style={{ margin: 0, fontSize: 18 }}>ค้นหาเครื่องพิมพ์อัตโนมัติ</h2>
                     <p style={{ margin: "6px 0 0", color: "#64748b" }}>
-                      ระบบจะแนะนำเครื่องจาก Windows Runtime / Local Bridge / Android MDM โดยไม่ให้ลูกค้ากรอกค่าขั้นสูงเอง
+                      ดึงข้อมูลจากโปรไฟล์เดิม, Windows Runtime / Local Bridge, Android และ MDM โดยซ่อนค่าขั้นสูงจากผู้ใช้ทั่วไป
                     </p>
                   </div>
-                  <Button type="button" variant="primary" onClick={() => setNotice("กำลังใช้ข้อมูล Runtime/Agent ที่ระบบรู้จักอยู่ หากต้องสแกนจริงให้เปิด Windows Runtime 0.1.8 หรือ Android MDM")}>ค้นหาอัตโนมัติ</Button>
+                  <Button type="button" variant="primary" disabled={discoverLoading} onClick={() => void runDiscovery()}>{discoverLoading ? "กำลังค้นหา..." : "ค้นหาอัตโนมัติ"}</Button>
                 </div>
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 10 }}>
-                  {discoveryCandidates.map((candidate) => (
+                  {visibleDiscoveryCandidates.map((candidate) => (
                     <div key={candidate.id} style={{ border: "1px solid #dbe7f5", borderRadius: 16, background: "#fff", padding: 12, display: "grid", gap: 8 }}>
                       <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
                         <strong>{candidate.name}</strong>
                         <StatusBadge status={candidate.status} />
                       </div>
-                      <span style={{ color: "#475569", fontSize: 13, fontWeight: 700 }}>{candidate.brand} • {candidate.model}</span>
-                      <span style={{ color: "#64748b", fontSize: 13 }}>{candidate.hint}</span>
+                      <span style={{ color: "#475569", fontSize: 13, fontWeight: 800 }}>{modeText[candidate.mode]} • {candidate.paper_width_mm}mm • {sourceText[candidate.source]}</span>
+                      <span style={{ color: "#64748b", fontSize: 13 }}>{candidate.helper}</span>
+                      {candidate.runtime_device_code ? <small style={{ color: "#2563eb", fontWeight: 900 }}>เครื่อง: {candidate.runtime_device_code}</small> : null}
                       <Button type="button" onClick={() => useCandidate(candidate)}>ใช้เครื่องนี้</Button>
                     </div>
                   ))}
@@ -703,7 +736,7 @@ export function PrinterConnectionManagerV2() {
                   <div style={{ marginTop: 12, border: "1px dashed #cbd5e1", borderRadius: 14, padding: 14, background: "#f8fafc", color: "#475569" }}>
                     <strong style={{ color: "#0f172a" }}>ค่าขั้นสูงถูกจัดการอัตโนมัติ</strong>
                     <p style={{ margin: "8px 0 0" }}>
-                      โหมด USB/Bluetooth จะบันทึกเป็นงาน Print Agent/Runtime พร้อม `bridge_url` ภายใน ส่วน LAN จะใช้ IP/Port ESC/POS ผู้ใช้ทั่วไปไม่ต้องกรอก secret, UUID, baud rate หรือ metadata JSON
+                      โหมด USB/Bluetooth จะบันทึกเป็นงาน Runtime/Agent พร้อม `agent_device_code` ส่วน LAN จะใช้ IP/Port ESC/POS ผู้ใช้ทั่วไปไม่ต้องกรอก secret, UUID, baud rate หรือ metadata JSON
                     </p>
                   </div>
                 ) : null}
@@ -731,7 +764,7 @@ export function PrinterConnectionManagerV2() {
               <div style={{ padding: 24, color: "#64748b", fontWeight: 800 }}>ยังไม่มีเครื่องพิมพ์ กดบันทึกเครื่องพิมพ์ด้านบนเพื่อเริ่มใช้งาน</div>
             ) : (
               <div style={{ overflowX: "auto" }}>
-                <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 980 }}>
+                <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 1020 }}>
                   <thead>
                     <tr style={{ background: "#f8fafc", color: "#475569" }}>
                       {["สถานะ", "ชื่อเครื่องพิมพ์", "โหมด", "สาขา", "โซน/เมนูที่เชื่อม", "กระดาษ", "ล่าสุด", "การทำงาน", "จัดการ"].map((heading) => (
@@ -762,7 +795,7 @@ export function PrinterConnectionManagerV2() {
                           <td style={{ padding: 14 }}>
                             <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                               <Button type="button" onClick={() => void testPrinter(printer.id)}>พิมพ์ทดสอบ</Button>
-                              {functions.includes("cash_drawer") ? <Button type="button" onClick={() => setNotice("ใช้เมนู POS ที่มี session/shift เพื่อทดสอบเปิดลิ้นชักและตรวจ event drawer_kicked")}>เปิดลิ้นชัก</Button> : null}
+                              {functions.includes("cash_drawer") ? <Button type="button" onClick={() => void testDrawer(printer)}>เปิดลิ้นชัก</Button> : null}
                             </div>
                           </td>
                           <td style={{ padding: 14 }}>
@@ -822,17 +855,7 @@ export function PrinterConnectionManagerV2() {
             <div style={{ display: "grid", gap: 10 }}>
               {rememberedPrinters.length === 0 ? <p style={{ color: "#64748b", margin: 0 }}>ยังไม่มีประวัติ</p> : null}
               {rememberedPrinters.map(({ printer, mode: itemMode, functions }) => (
-                <button
-                  key={printer.id}
-                  type="button"
-                  onClick={() => {
-                    setMode(itemMode);
-                    setPrinterName(printer.printer_name);
-                    setPaperWidth(printer.paper_width_mm);
-                    setSelectedFunctions(functions);
-                  }}
-                  style={{ border: "1px solid #dbe7f5", borderRadius: 14, background: "#fff", padding: 12, textAlign: "left", cursor: "pointer" }}
-                >
+                <button key={printer.id} type="button" onClick={() => { setMode(itemMode); setPrinterName(printer.printer_name); setPaperWidth(printer.paper_width_mm); setSelectedFunctions(functions); }} style={{ border: "1px solid #dbe7f5", borderRadius: 14, background: "#fff", padding: 12, textAlign: "left", cursor: "pointer" }}>
                   <strong>{printer.printer_name}</strong>
                   <div style={{ color: "#64748b", fontSize: 13, marginTop: 4 }}>{modeText[itemMode]} • {printer.paper_width_mm}mm • {formatFunctions(functions)}</div>
                   <span style={{ display: "inline-block", color: "#2563eb", fontWeight: 900, marginTop: 8 }}>เชื่อมต่ออีกครั้ง</span>
@@ -842,7 +865,7 @@ export function PrinterConnectionManagerV2() {
           </Card>
 
           <Card style={{ padding: 16, background: "#f0fdf4", borderColor: "#bbf7d0" }}>
-            <h2 style={{ margin: "0 0 8px", fontSize: 18 }}>กฎสำคัญ Production</h2>
+            <h2 style={{ margin: "0 0 8px", fontSize: 18 }}>กฎสำคัญก่อน Deploy</h2>
             <p style={{ margin: 0, color: "#166534", fontWeight: 800 }}>
               คิวเก่าที่ quarantine แล้วห้าม replay และการปิดงานจริงต้องเห็น `printed` กับ `drawer_kicked` จาก Runtime/Event log
             </p>
