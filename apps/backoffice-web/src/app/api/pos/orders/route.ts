@@ -1,13 +1,20 @@
 import crypto from "node:crypto";
 import { after } from "next/server";
+import type { AuthContext } from "@/lib/auth-context";
 import { fail, ok } from "@/lib/http";
 import { appendAuditLog } from "@/lib/audit-log";
 import { FeatureGateError, requireTenantFeature } from "@/lib/feature-gate";
 import { PosGuardError, requireActiveShift, requirePermission, requirePosSession } from "@/lib/pos-session-guard";
+import { queueRoutedKitchenFallback } from "@/lib/printing/routed-print-service";
 import { buildPaginationMeta, parsePagination } from "@/lib/query-params";
 import { dispatchOrderToKitchen } from "@/lib/services/kitchen-routing-service";
 import { resolveOrderPricing } from "@/lib/services/pos-sales-mvp-service";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
+
+function normalizeBranchRole(role: string): AuthContext["branchRole"] {
+  if (role === "owner" || role === "manager" || role === "staff" || role === "accountant") return role;
+  return "staff";
+}
 
 export async function GET(req: Request) {
   try {
@@ -34,17 +41,11 @@ export async function GET(req: Request) {
       .order("created_at", { ascending: false })
       .range(from, to);
 
-    if (status) {
-      query = query.eq("status", status);
-    }
-    if (q) {
-      query = query.or(`order_no.ilike.%${q}%,customer_name.ilike.%${q}%,external_order_code.ilike.%${q}%`);
-    }
+    if (status) query = query.eq("status", status);
+    if (q) query = query.or(`order_no.ilike.%${q}%,customer_name.ilike.%${q}%,external_order_code.ilike.%${q}%`);
 
     const { data, error, count } = await query;
-    if (error) {
-      return fail("orders_query_failed", error.message, 500);
-    }
+    if (error) return fail("orders_query_failed", error.message, 500);
 
     const rows = (data ?? []) as Array<{
       id: string;
@@ -65,9 +66,7 @@ export async function GET(req: Request) {
       payment_completed_by: string | null;
     }>;
 
-    const userIds = Array.from(
-      new Set(rows.flatMap((row) => [row.created_by, row.payment_completed_by]).filter((id): id is string => Boolean(id)))
-    );
+    const userIds = Array.from(new Set(rows.flatMap((row) => [row.created_by, row.payment_completed_by]).filter((id): id is string => Boolean(id))));
     const shiftIds = Array.from(new Set(rows.map((row) => row.shift_id).filter((id): id is string => Boolean(id))));
 
     const [usersResult, shiftsResult, branchResult] = await Promise.all([
@@ -80,15 +79,9 @@ export async function GET(req: Request) {
       supabase.from("branches").select("name").eq("tenant_id", scope.session.tenant_id).eq("id", scope.session.branch_id).maybeSingle<{ name: string | null }>()
     ]);
 
-    if (usersResult.error) {
-      return fail("orders_users_query_failed", usersResult.error.message, 500);
-    }
-    if (shiftsResult.error) {
-      return fail("orders_shifts_query_failed", shiftsResult.error.message, 500);
-    }
-    if (branchResult.error) {
-      return fail("orders_branch_query_failed", branchResult.error.message, 500);
-    }
+    if (usersResult.error) return fail("orders_users_query_failed", usersResult.error.message, 500);
+    if (shiftsResult.error) return fail("orders_shifts_query_failed", shiftsResult.error.message, 500);
+    if (branchResult.error) return fail("orders_branch_query_failed", branchResult.error.message, 500);
 
     const userMap = new Map((usersResult.data ?? []).map((row) => [row.id, row.full_name ?? row.id]));
     const shiftMap = new Map((shiftsResult.data ?? []).map((row) => [row.id, { status: row.status, opened_at: row.opened_at }]));
@@ -105,26 +98,17 @@ export async function GET(req: Request) {
 
     return ok({
       items,
-      scope: {
-        mode: "current_cashier_shift",
-        shift_id: shift.id,
-        device_code: scope.session.device_code
-      },
+      scope: { mode: "current_cashier_shift", shift_id: shift.id, device_code: scope.session.device_code },
       pagination: buildPaginationMeta(page, pageSize, count)
     });
   } catch (error) {
-    if (error instanceof PosGuardError) {
-      return fail(error.code, error.message, error.status);
-    }
+    if (error instanceof PosGuardError) return fail(error.code, error.message, error.status);
     return fail("unauthorized", error instanceof Error ? error.message : "Authentication failed.", 401);
   }
 }
 
 type CreateOrderPayload = {
-  items?: Array<{
-    product_id?: string;
-    quantity?: number;
-  }>;
+  items?: Array<{ product_id?: string; quantity?: number }>;
   discount_total?: number;
   notes?: string | null;
 };
@@ -142,10 +126,7 @@ export async function POST(request: Request) {
       actorRole: scopeForAudit.role as "owner" | "manager" | "staff" | "accountant",
       action: "order_failed",
       targetTable: "orders",
-      metadata: {
-        reason,
-        ...(metadata ?? {})
-      }
+      metadata: { reason, ...(metadata ?? {}) }
     });
   };
 
@@ -168,7 +149,6 @@ export async function POST(request: Request) {
       items: (body?.items ?? []) as Array<{ product_id: string; quantity: number }>,
       discountTotal: body?.discount_total
     });
-
     if (!pricing.ok) {
       await writeOrderFailedAudit(pricing.code);
       return fail(pricing.code, pricing.message, pricing.status);
@@ -176,7 +156,6 @@ export async function POST(request: Request) {
 
     const requestId = request.headers.get("x-idempotency-key")?.trim() || crypto.randomUUID();
     const orderNote = String(body?.notes ?? "").trim() || null;
-
     const { data: rpcRows, error: rpcError } = await supabase.rpc("create_pos_order_tx", {
       p_tenant_id: scope.session.tenant_id,
       p_branch_id: scope.session.branch_id,
@@ -191,14 +170,10 @@ export async function POST(request: Request) {
       p_app_total_amount: pricing.totals.subtotal,
       p_discount_amount: pricing.totals.discount_total,
       p_gp_amount: 0,
-      p_items: pricing.pricedItems.map((item) => ({
-        product_id: item.product_id,
-        quantity: item.quantity
-      })),
+      p_items: pricing.pricedItems.map((item) => ({ product_id: item.product_id, quantity: item.quantity })),
       p_request_id: requestId,
       p_order_no: null
     });
-
     if (rpcError) {
       await writeOrderFailedAudit("rpc_create_pos_order_tx_failed", { message: rpcError.message });
       return fail("order_create_failed", rpcError.message, 500);
@@ -220,10 +195,7 @@ export async function POST(request: Request) {
         tax_total: pricing.totals.tax_total,
         grand_total: pricing.totals.grand_total,
         paid_total: 0,
-        metadata: {
-          source: "pos_sales_mvp",
-          request_id: requestId
-        }
+        metadata: { source: "pos_sales_mvp", request_id: requestId }
       })
       .eq("tenant_id", scope.session.tenant_id)
       .eq("branch_id", scope.session.branch_id)
@@ -239,15 +211,9 @@ export async function POST(request: Request) {
     const nameByProduct = new Map(pricing.pricedItems.map((item) => [item.product_id, item.name]));
     for (const row of itemRows ?? []) {
       const productId = String(row.product_id ?? "");
-      const name = nameByProduct.get(productId) ?? "Unknown Item";
       await supabase
         .from("order_items")
-        .update({
-          name,
-          metadata: {
-            source: "pos_sales_mvp"
-          }
-        })
+        .update({ name: nameByProduct.get(productId) ?? "Unknown Item", metadata: { source: "pos_sales_mvp" } })
         .eq("id", row.id)
         .eq("tenant_id", scope.session.tenant_id)
         .eq("branch_id", scope.session.branch_id);
@@ -270,7 +236,6 @@ export async function POST(request: Request) {
         paid_total: number | null;
         created_at: string;
       }>();
-
     if (orderError || !orderRow) {
       await writeOrderFailedAudit("order_reload_failed", { message: orderError?.message ?? null });
       return fail("order_create_failed", orderError?.message ?? "Cannot load created order.", 500);
@@ -312,25 +277,41 @@ export async function POST(request: Request) {
           event_key: kitchenResult.eventKey,
           error: kitchenResult.message
         });
+        return;
+      }
+      if (kitchenResult.routedZoneCount === 0) {
+        try {
+          await queueRoutedKitchenFallback({
+            auth: {
+              userId: scope.session.user_id,
+              tenantId: scope.session.tenant_id,
+              branchId: scope.session.branch_id,
+              branchRole: normalizeBranchRole(scope.session.role),
+              platformRole: "tenant_user"
+            },
+            orderId: orderRow.id,
+            runtimeDeviceCode: scope.session.device_code,
+            action: "new"
+          });
+        } catch (fallbackError) {
+          console.error("pos_order_kitchen_fallback_failed", {
+            tenant_id: scope.session.tenant_id,
+            branch_id: scope.session.branch_id,
+            order_id: orderRow.id,
+            runtime_device_code: scope.session.device_code,
+            error: fallbackError instanceof Error ? fallbackError.message : "unknown"
+          });
+        }
       }
     });
 
-    return ok({
-      order: orderRow,
-      items: pricing.pricedItems,
-      shift: {
-        id: shift.id,
-        status: shift.status
-      }
-    }, 201);
+    return ok({ order: orderRow, items: pricing.pricedItems, shift: { id: shift.id, status: shift.status } }, 201);
   } catch (error) {
     if (error instanceof FeatureGateError) {
       await writeOrderFailedAudit("feature_not_enabled", { message: error.message });
       return fail(error.code, error.message, error.status);
     }
-    if (error instanceof PosGuardError) {
-      return fail(error.code, error.message, error.status);
-    }
+    if (error instanceof PosGuardError) return fail(error.code, error.message, error.status);
     await writeOrderFailedAudit("order_create_unhandled_error", { message: error instanceof Error ? error.message : "Unknown error." });
     return fail("order_create_failed", error instanceof Error ? error.message : "Unknown error.", 500);
   }
