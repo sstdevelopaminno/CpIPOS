@@ -4,6 +4,12 @@ import { getSupabaseServiceClient } from "@/lib/supabase-admin";
 type JsonRecord = Record<string, unknown>;
 export type PrinterPurpose = "receipt" | "kitchen" | "drink" | "bar" | "reprint" | "shift_report" | "payment_slip" | "cash_drawer";
 export type CustomerConnectionMode = "lan" | "usb" | "bluetooth";
+export type PrinterAssignmentInput = {
+  purpose: PrinterPurpose;
+  zoneKey?: string | null;
+  isDefault?: boolean;
+  copies?: number;
+};
 
 export type SyncPrinterDeviceInput = {
   printerProfileId: string;
@@ -13,6 +19,7 @@ export type SyncPrinterDeviceInput = {
   connectionMode: CustomerConnectionMode;
   paperWidthMm: 58 | 80;
   purposes: PrinterPurpose[];
+  assignments?: PrinterAssignmentInput[];
   deviceFingerprint?: string | null;
   runtimeDeviceCode?: string | null;
   capabilities?: JsonRecord;
@@ -32,6 +39,83 @@ function uniquePurposes(values: PrinterPurpose[]) {
   return Array.from(new Set(values));
 }
 
+function normalizeZoneKey(value: unknown) {
+  return clean(value)?.toUpperCase() ?? "";
+}
+
+function normalizeAssignments(input: SyncPrinterDeviceInput) {
+  const source = input.assignments?.length
+    ? input.assignments
+    : uniquePurposes(input.purposes).map((purpose) => ({ purpose, zoneKey: "", isDefault: false, copies: 1 }));
+  const byKey = new Map<string, Required<PrinterAssignmentInput>>();
+  for (const assignment of source) {
+    const purpose = assignment.purpose;
+    const zoneKey = purpose === "kitchen" || purpose === "drink" || purpose === "bar" ? normalizeZoneKey(assignment.zoneKey) : "";
+    const key = `${purpose}:${zoneKey}`;
+    byKey.set(key, {
+      purpose,
+      zoneKey,
+      isDefault: assignment.isDefault === true,
+      copies: Math.max(1, Math.min(20, Math.trunc(Number(assignment.copies) || 1)))
+    });
+  }
+  return Array.from(byKey.values());
+}
+
+async function syncKitchenZoneDefaults(auth: AuthContext, printerProfileId: string, assignments: Array<Required<PrinterAssignmentInput>>) {
+  const supabase = getSupabaseServiceClient();
+  const assignedZoneCodes = Array.from(new Set(assignments
+    .filter((assignment) => assignment.purpose === "kitchen" || assignment.purpose === "drink" || assignment.purpose === "bar")
+    .map((assignment) => assignment.zoneKey)
+    .filter(Boolean)));
+
+  if (assignedZoneCodes.length > 0) {
+    const { data: zones, error: zoneError } = await supabase
+      .from("kitchen_zones")
+      .select("id,zone_code")
+      .eq("tenant_id", auth.tenantId!)
+      .eq("branch_id", auth.branchId!)
+      .eq("is_active", true)
+      .in("zone_code", assignedZoneCodes);
+    if (zoneError) throw new Error(zoneError.message);
+    const foundCodes = new Set((zones ?? []).map((zone) => String(zone.zone_code).toUpperCase()));
+    const missingZone = assignedZoneCodes.find((zoneCode) => !foundCodes.has(zoneCode));
+    if (missingZone) throw new Error(`printer_zone_invalid:${missingZone}`);
+  }
+
+  const { data: existingMappedZones, error: existingError } = await supabase
+    .from("kitchen_zones")
+    .select("id,zone_code")
+    .eq("tenant_id", auth.tenantId!)
+    .eq("branch_id", auth.branchId!)
+    .eq("default_printer_id", printerProfileId);
+  if (existingError) throw new Error(existingError.message);
+
+  const keep = new Set(assignedZoneCodes);
+  const staleIds = (existingMappedZones ?? [])
+    .filter((zone) => !keep.has(String(zone.zone_code).toUpperCase()))
+    .map((zone) => String(zone.id));
+  if (staleIds.length > 0) {
+    const { error: clearError } = await supabase
+      .from("kitchen_zones")
+      .update({ default_printer_id: null, updated_at: new Date().toISOString() })
+      .eq("tenant_id", auth.tenantId!)
+      .eq("branch_id", auth.branchId!)
+      .in("id", staleIds);
+    if (clearError) throw new Error(clearError.message);
+  }
+
+  if (assignedZoneCodes.length > 0) {
+    const { error: assignError } = await supabase
+      .from("kitchen_zones")
+      .update({ default_printer_id: printerProfileId, updated_at: new Date().toISOString() })
+      .eq("tenant_id", auth.tenantId!)
+      .eq("branch_id", auth.branchId!)
+      .in("zone_code", assignedZoneCodes);
+    if (assignError) throw new Error(assignError.message);
+  }
+}
+
 export async function getPrinterSettingsRegistry(auth: AuthContext) {
   ensureManagerOrOwner(auth);
   const supabase = getSupabaseServiceClient();
@@ -39,7 +123,8 @@ export async function getPrinterSettingsRegistry(auth: AuthContext) {
     { data: branch },
     { data: devices, error: deviceError },
     { data: history, error: historyError },
-    { data: profiles, error: profileError }
+    { data: profiles, error: profileError },
+    { data: kitchenZones, error: kitchenZoneError }
   ] = await Promise.all([
     supabase.from("branches").select("id,code,name").eq("tenant_id", auth.tenantId!).eq("id", auth.branchId!).maybeSingle(),
     supabase
@@ -61,11 +146,20 @@ export async function getPrinterSettingsRegistry(auth: AuthContext) {
       .from("printer_profiles")
       .select("id,ip_address,port,enabled")
       .eq("tenant_id", auth.tenantId!)
+      .eq("branch_id", auth.branchId!),
+    supabase
+      .from("kitchen_zones")
+      .select("id,zone_code,zone_name,display_order,is_active,default_printer_id")
+      .eq("tenant_id", auth.tenantId!)
       .eq("branch_id", auth.branchId!)
+      .eq("is_active", true)
+      .order("display_order", { ascending: true })
+      .order("zone_name", { ascending: true })
   ]);
   if (deviceError) throw new Error(deviceError.message);
   if (historyError) throw new Error(historyError.message);
   if (profileError) throw new Error(profileError.message);
+  if (kitchenZoneError) throw new Error(kitchenZoneError.message);
 
   const profileMap = new Map((profiles ?? []).map((profile) => [profile.id, profile]));
   const currentDevices = (devices ?? []).flatMap((device) => {
@@ -92,7 +186,8 @@ export async function getPrinterSettingsRegistry(auth: AuthContext) {
   return {
     branch: branch ?? { id: auth.branchId, code: null, name: "สาขาปัจจุบัน" },
     devices: currentDevices,
-    history: decoratedHistory
+    history: decoratedHistory,
+    kitchen_zones: kitchenZones ?? []
   };
 }
 
@@ -115,16 +210,29 @@ export async function syncPrinterDevice(auth: AuthContext, input: SyncPrinterDev
   const { data: device, error } = await query.select("id,printer_profile_id,display_name,brand,model,connection_mode,paper_width_mm,status,capabilities,last_seen_at,is_active,metadata,created_at,updated_at").single();
   if (error) throw new Error(error.message);
 
-  await supabase.from("printer_device_assignments").delete().eq("printer_device_id", device.id).eq("tenant_id", auth.tenantId!).eq("branch_id", auth.branchId!);
-  const purposes = uniquePurposes(input.purposes);
-  if (purposes.length) {
-    const { error: assignmentError } = await supabase.from("printer_device_assignments").insert(purposes.map((purpose) => ({ tenant_id: auth.tenantId!, branch_id: auth.branchId!, printer_device_id: device.id, purpose, zone_key: "", is_enabled: true })));
+  const assignments = normalizeAssignments(input);
+  await syncKitchenZoneDefaults(auth, input.printerProfileId, assignments);
+
+  const { error: assignmentDeleteError } = await supabase.from("printer_device_assignments").delete().eq("printer_device_id", device.id).eq("tenant_id", auth.tenantId!).eq("branch_id", auth.branchId!);
+  if (assignmentDeleteError) throw new Error(assignmentDeleteError.message);
+  if (assignments.length) {
+    const { error: assignmentError } = await supabase.from("printer_device_assignments").insert(assignments.map((assignment) => ({
+      tenant_id: auth.tenantId!,
+      branch_id: auth.branchId!,
+      printer_device_id: device.id,
+      purpose: assignment.purpose,
+      zone_key: assignment.zoneKey,
+      is_enabled: true,
+      is_default: assignment.isDefault,
+      copies: assignment.copies
+    })));
     if (assignmentError) throw new Error(assignmentError.message);
   }
+  const purposes = uniquePurposes(assignments.map((assignment) => assignment.purpose));
   await appendPrinterDeviceHistory(auth, {
     printerDeviceId: device.id, printerProfileId: input.printerProfileId, eventType: input.eventType ?? (existing ? "updated" : "connected"),
     deviceName: input.displayName, brand: input.brand, model: input.model, connectionMode: input.connectionMode,
-    paperWidthMm: input.paperWidthMm, details: { purposes, fingerprint, runtime_device_code: clean(input.runtimeDeviceCode) }
+    paperWidthMm: input.paperWidthMm, details: { assignments, purposes, fingerprint, runtime_device_code: clean(input.runtimeDeviceCode) }
   });
   return device;
 }
@@ -248,6 +356,8 @@ export async function markPrinterDeviceDeleted(auth: AuthContext, printerProfile
   if (readError) throw new Error(readError.message);
   if (!device) return;
   await appendPrinterDeviceHistory(auth, { printerDeviceId: device.id, printerProfileId, eventType: "deleted", deviceName: device.display_name, brand: device.brand, model: device.model, connectionMode: device.connection_mode, paperWidthMm: device.paper_width_mm, details: {} });
+  const { error: zoneClearError } = await supabase.from("kitchen_zones").update({ default_printer_id: null, updated_at: new Date().toISOString() }).eq("tenant_id", auth.tenantId!).eq("branch_id", auth.branchId!).eq("default_printer_id", printerProfileId);
+  if (zoneClearError) throw new Error(zoneClearError.message);
   const { error } = await supabase.from("printer_devices").update({ is_active: false, status: "disconnected", disconnected_at: new Date().toISOString(), updated_at: new Date().toISOString() }).eq("tenant_id", auth.tenantId!).eq("branch_id", auth.branchId!).eq("id", device.id);
   if (error) throw new Error(error.message);
 }
