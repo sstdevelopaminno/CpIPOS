@@ -5,6 +5,7 @@ import {
   type CashDrawerConnectionMode
 } from "@/lib/printing/cash-drawer-controller-service";
 import { loggedPrintApiFail } from "@/lib/printing/print-api-errors";
+import { recordPrinterDeviceActionHistory } from "@/lib/printing/printer-device-registry";
 
 type DrawerTestPayload = {
   reason?: string | null;
@@ -25,21 +26,24 @@ function mapDrawerTestError(error: unknown) {
 }
 
 export async function POST(req: Request) {
+  let auth: Awaited<ReturnType<typeof getAuthContext>> | null = null;
+  let printerId: string | null = null;
+
   try {
-    const auth = await getAuthContext({ requireBranchScope: true });
+    auth = await getAuthContext({ requireBranchScope: true });
     if (auth.branchRole !== "manager" && auth.branchRole !== "owner") {
       throw new Error("forbidden_role");
     }
 
     const body = (await req.json().catch(() => ({}))) as DrawerTestPayload;
-    const printerId = body.printer_id?.trim() || null;
+    printerId = body.printer_id?.trim() || null;
     const result = await openCashDrawerController(auth, {
       triggerSource: "manual",
-      reason: body.reason?.trim() || "printer_settings_v2_drawer_test",
+      reason: body.reason?.trim() || "printer_settings_v3_drawer_test",
       printerId,
       requestedMode: body.mode ?? null,
       metadata: {
-        source: "printer_settings_v2",
+        source: "printer_settings_v3",
         requested_printer_id: printerId,
         runtime_device_code: body.runtime_device_code ?? null,
         mdm_runtime_test: true,
@@ -47,6 +51,15 @@ export async function POST(req: Request) {
         note: "Settings drawer test queues a new drawer command only; it never replays quarantined print jobs."
       }
     });
+
+    if (printerId) {
+      await recordPrinterDeviceActionHistory(auth, printerId, "drawer_test_requested", {
+        source: "printer_settings_v3",
+        outcome: result.deferred_to_agent ? "queued" : "sent",
+        job_id: result.job.id,
+        job_status: result.job.status
+      }).catch(() => undefined);
+    }
 
     return ok({
       command_sent: !result.deferred_to_agent,
@@ -59,6 +72,12 @@ export async function POST(req: Request) {
       job_status: result.job.status
     });
   } catch (error) {
+    if (auth && printerId) {
+      await recordPrinterDeviceActionHistory(auth, printerId, "drawer_test_failed", {
+        source: "printer_settings_v3",
+        outcome: "failed"
+      }).catch(() => undefined);
+    }
     return mapDrawerTestError(error);
   }
 }
