@@ -35,14 +35,14 @@ function readTextArray(value: unknown): string[] {
   return value.map((item) => (typeof item === "string" ? item.trim() : "")).filter(Boolean);
 }
 
-function normalizeMode(value: unknown, fallback: CustomerConnectionMode): CustomerConnectionMode {
+function parseRequestedMode(value: unknown): CustomerConnectionMode | null {
   const text = readText(value);
   if (text === "lan" || text === "usb" || text === "bluetooth") return text;
-  return fallback;
+  return null;
 }
 
 function normalizeProfileMode(connectionType: string, metadata: Record<string, unknown>): CustomerConnectionMode {
-  const saved = normalizeMode(metadata.user_connection_mode ?? metadata.connection_mode ?? metadata.transport_mode, "usb");
+  const saved = parseRequestedMode(metadata.user_connection_mode ?? metadata.connection_mode ?? metadata.transport_mode);
   if (saved) return saved;
   if (connectionType === "NETWORK_ESC_POS") return "lan";
   if (connectionType === "BLUETOOTH_BRIDGE") return "bluetooth";
@@ -69,6 +69,17 @@ function isRequestedMode(candidate: DiscoveryCandidate, mode: CustomerConnection
   return mode === "all" || candidate.mode === mode;
 }
 
+function profileCapabilities(functions: string[], metadata: Record<string, unknown>) {
+  return {
+    receipt: functions.includes("receipt"),
+    kitchen: functions.includes("kitchen") || functions.includes("drink") || functions.includes("bar"),
+    cash_drawer: functions.includes("cash_drawer") || metadata.cash_drawer_enabled === true,
+    reprint: functions.includes("reprint"),
+    shift_report: functions.includes("shift_report"),
+    payment_slip: functions.includes("payment_slip")
+  };
+}
+
 export async function GET(req: Request) {
   try {
     const auth = await getAuthContext({ requireBranchScope: true });
@@ -77,9 +88,8 @@ export async function GET(req: Request) {
     }
 
     const url = new URL(req.url);
-    const requestedMode = normalizeMode(url.searchParams.get("mode"), "usb");
-    const allModes = url.searchParams.get("mode") === "all";
-    const modeFilter: CustomerConnectionMode | "all" = allModes ? "all" : requestedMode;
+    const rawMode = url.searchParams.get("mode");
+    const modeFilter: CustomerConnectionMode | "all" = rawMode === "all" ? "all" : parseRequestedMode(rawMode) ?? "usb";
 
     const [profiles, agents] = await Promise.all([listPrinterProfiles(auth), listPrintAgents(auth)]);
     const candidates: DiscoveryCandidate[] = [];
@@ -87,6 +97,7 @@ export async function GET(req: Request) {
     for (const profile of profiles) {
       const metadata = asRecord(profile.metadata);
       const mode = normalizeProfileMode(profile.connection_type, metadata);
+      const functions = normalizeFunctions(profile.printer_role, metadata);
       candidates.push({
         id: `profile:${profile.id}`,
         name: profile.printer_name,
@@ -96,19 +107,16 @@ export async function GET(req: Request) {
         status: normalizeStatus(profile.enabled, metadata),
         runtime_device_code: readText(metadata.agent_device_code ?? metadata.runtime_device_code ?? metadata.device_code),
         printer_profile_id: profile.id,
-        functions: normalizeFunctions(profile.printer_role, metadata),
-        capabilities: {
-          receipt: normalizeFunctions(profile.printer_role, metadata).includes("receipt"),
-          kitchen: normalizeFunctions(profile.printer_role, metadata).includes("kitchen"),
-          cash_drawer: normalizeFunctions(profile.printer_role, metadata).includes("cash_drawer") || metadata.cash_drawer_enabled === true
-        },
+        functions,
+        capabilities: profileCapabilities(functions, metadata),
         helper: "โปรไฟล์ที่เคยบันทึกไว้ สามารถกดเชื่อมต่ออีกครั้งหรือแก้ไขเมนูที่ผูกได้"
       });
     }
 
     for (const agent of agents) {
       const metadata = asRecord(agent.metadata);
-      const supportsBluetooth = metadata.android_mdm === true || metadata.supports_bluetooth === true || readText(agent.app_version)?.toLowerCase().includes("android");
+      const appVersion = readText(agent.app_version)?.toLowerCase() ?? "";
+      const supportsBluetooth = metadata.android_mdm === true || metadata.supports_bluetooth === true || appVersion.includes("android");
       candidates.push({
         id: `agent:${agent.id}`,
         name: agent.agent_name || agent.device_code,
@@ -122,7 +130,10 @@ export async function GET(req: Request) {
         capabilities: {
           receipt: true,
           kitchen: false,
-          cash_drawer: true
+          cash_drawer: true,
+          reprint: true,
+          shift_report: false,
+          payment_slip: false
         },
         helper: supportsBluetooth
           ? "พบ Android/MDM bridge ที่สามารถใช้ Bluetooth printer ได้"
@@ -143,7 +154,10 @@ export async function GET(req: Request) {
       capabilities: {
         receipt: true,
         kitchen: true,
-        cash_drawer: false
+        cash_drawer: false,
+        reprint: false,
+        shift_report: false,
+        payment_slip: false
       },
       helper: "ถ้าเครื่อง LAN ไม่ถูกค้นหาอัตโนมัติ ให้กรอก IP/Port เฉพาะขั้นสูง"
     });
