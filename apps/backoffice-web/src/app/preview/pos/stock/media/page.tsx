@@ -107,7 +107,7 @@ export default async function ProductMediaPage({
         @media (min-width: 1000px) {
           #product-media-page .product-media-body > div > div.flex.justify-end {
             position: absolute;
-            top: 94px;
+            top: 86px;
             right: 220px;
             z-index: 20;
             margin: 0;
