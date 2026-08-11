@@ -3,7 +3,8 @@ import { fail, ok } from "@/lib/http";
 import { validateManagerPin } from "@/lib/pin-approval";
 import { getPosApiAuthContext } from "@/lib/pos-api-auth";
 import { featureGateFail, requirePosApiFeature } from "@/lib/pos-api-feature-guard";
-import { queueAndProcessBluetoothReceiptHtml, reprintOrderReceipt } from "@/lib/printing/print-service";
+import { requirePosSession } from "@/lib/pos-session-guard";
+import { queueRoutedReceiptReprint } from "@/lib/printing/routed-print-service";
 
 type ReprintPayload = {
   manager_pin?: string | null;
@@ -15,6 +16,7 @@ type ReprintPayload = {
 export async function POST(req: Request, context: { params: Promise<{ orderId: string }> }) {
   try {
     const auth = await getPosApiAuthContext({ requireBranchScope: true, requiredPermission: "receipts:view" });
+    const scope = await requirePosSession();
     await requirePosApiFeature(auth, "receipt_reprint_history");
     const { orderId } = await context.params;
     const body = (await req.json().catch(() => null)) as ReprintPayload | null;
@@ -22,6 +24,9 @@ export async function POST(req: Request, context: { params: Promise<{ orderId: s
 
     if (!orderId?.trim()) {
       return fail("invalid_order_id", "orderId is required.", 422);
+    }
+    if (scope.session.tenant_id !== auth.tenantId || scope.session.branch_id !== auth.branchId) {
+      return fail("pos_scope_mismatch", "POS session does not match the active tenant/branch.", 403);
     }
     if (auth.branchRole !== "manager" && auth.branchRole !== "owner") {
       return fail("forbidden_role", "Only manager or owner can reprint receipt.", 403);
@@ -59,44 +64,17 @@ export async function POST(req: Request, context: { params: Promise<{ orderId: s
       targetId: orderId,
       metadata: {
         requested_by: auth.userId,
-        note: body?.note ?? null
+        note: body?.note ?? null,
+        runtime_device_code: scope.session.device_code
       }
     });
 
-    const receiptHtml = body?.receipt_html?.trim() ?? "";
-    const orderNo = body?.order_no?.trim() || null;
-    const result = receiptHtml
-      ? await queueAndProcessBluetoothReceiptHtml(auth, {
-          orderId,
-          orderNo,
-          receiptHtml
-        })
-          .then((jobs) => ({
-            mode: "html_58mm",
-            fallback_to_browser_print: false,
-            jobs: jobs.map((job) => ({
-              id: job.id,
-              status: job.status,
-              last_error: job.last_error,
-              printed_at: job.printed_at
-            }))
-          }))
-          .catch((printError) => {
-            const printMessage = printError instanceof Error ? printError.message : "Unknown error";
-            if (
-              printMessage === "bluetooth_receipt_printer_not_configured" ||
-              printMessage.startsWith("BLUETOOTH_BRIDGE request failed")
-            ) {
-              return {
-                mode: "browser_fallback_58mm",
-                fallback_to_browser_print: true,
-                message: printMessage,
-                jobs: []
-              };
-            }
-            throw printError;
-          })
-      : await reprintOrderReceipt(auth, orderId);
+    const result = await queueRoutedReceiptReprint({
+      auth,
+      orderId,
+      runtimeDeviceCode: scope.session.device_code,
+      receiptHtml: body?.receipt_html?.trim() || null
+    });
 
     await appendAuditLog({
       tenantId: auth.tenantId ?? undefined,
@@ -109,7 +87,8 @@ export async function POST(req: Request, context: { params: Promise<{ orderId: s
       metadata: {
         approved_by: approval.approverUserId,
         mode: result.mode,
-        job_count: result.jobs.length
+        job_count: result.jobs.length,
+        runtime_device_code: scope.session.device_code
       }
     });
 
@@ -123,6 +102,9 @@ export async function POST(req: Request, context: { params: Promise<{ orderId: s
     }
     if (message === "order_not_found") {
       return fail("order_not_found", "Order was not found in this branch.", 404);
+    }
+    if (message === "receipt_printer_not_configured") {
+      return fail("receipt_printer_not_configured", "No receipt/reprint printer is configured for this POS or branch.", 422);
     }
     return fail("receipt_reprint_failed", message, 400);
   }
