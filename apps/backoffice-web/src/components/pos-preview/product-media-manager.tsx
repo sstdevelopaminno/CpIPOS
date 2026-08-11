@@ -366,7 +366,7 @@ export function ProductMediaManager({ th, branchId, branchName, products, canMan
 
         {error ? <p className="mt-3 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm font-semibold text-red-700">{error}</p> : null}
         {notice ? <p className="mt-3 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-700">{notice}</p> : null}
-        {!canManage ? <p className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-800">{th ? "สิทธิ์ปัจจุบันดูรูปได้ แต่การเพิ่ม/เปลี่ยน/ลบรูปต้องเป็น Owner หรือ Manager" : "Current role can view images; Owner or Manager is required to change them."}</p> : null}
+        {!canManage ? <p className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-800">{th ? "สิทธิ์ปัจจุบันดูรูปได้ แต่การเพิ่ม/แก้ไข/ลบรูปต้องเป็น Owner หรือ Manager" : "Current role can view images; Owner or Manager is required to add, edit, or delete them."}</p> : null}
 
         {loading ? <div className="py-12 text-center text-sm font-semibold text-slate-500">{th ? "กำลังโหลดรูปสินค้า..." : "Loading product images..."}</div> : (
           <div ref={listScrollRef} className="mt-4 max-h-[46vh] overflow-y-auto overscroll-contain pr-1 [scrollbar-gutter:stable]">
@@ -386,11 +386,12 @@ export function ProductMediaManager({ th, branchId, branchName, products, canMan
                         type="button"
                         onClick={() => openFilePicker(product)}
                         disabled={disabled}
+                        aria-label={asset ? (th ? `แก้ไขรูป ${product.name}` : `Edit image for ${product.name}`) : (th ? `เพิ่มรูป ${product.name}` : `Add image for ${product.name}`)}
                         className="inline-flex min-h-10 items-center rounded-lg border border-blue-600 bg-blue-600 px-4 text-xs font-bold text-white shadow-sm transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-400"
                       >
-                        {busy ? (th ? "กำลังประมวลผล..." : "Processing...") : asset ? (th ? "เปลี่ยนรูป" : "Replace") : (th ? "เพิ่มรูป" : "Add Image")}
+                        {busy ? (th ? "กำลังประมวลผล..." : "Processing...") : asset ? (th ? "แก้ไขรูป" : "Edit Image") : (th ? "เพิ่มรูป" : "Add Image")}
                       </button>
-                      {asset ? <button type="button" onClick={() => void remove(product)} disabled={!canManage || Boolean(busyProductId)} className="inline-flex min-h-10 items-center rounded-lg border border-red-200 bg-white px-3 text-xs font-bold text-red-600 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50">{th ? "ลบรูป" : "Delete"}</button> : null}
+                      {asset ? <button type="button" onClick={() => void remove(product)} disabled={!canManage || Boolean(busyProductId)} aria-label={th ? `ลบรูป ${product.name}` : `Delete image for ${product.name}`} className="inline-flex min-h-10 items-center rounded-lg border border-red-200 bg-white px-3 text-xs font-bold text-red-600 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50">{th ? "ลบรูป" : "Delete Image"}</button> : null}
                     </div>
                   </article>
                 );
