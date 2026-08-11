@@ -66,8 +66,8 @@ async function syncKitchenZoneDefaults(auth: AuthContext, printerProfileId: stri
   const supabase = getSupabaseServiceClient();
   const assignedZoneCodes = Array.from(new Set(assignments
     .filter((assignment) => assignment.purpose === "kitchen" || assignment.purpose === "drink" || assignment.purpose === "bar")
-    .map((assignment) => assignment.zoneKey)
-    .filter(Boolean)));
+    .map((assignment) => assignment.zoneKey ?? "")
+    .filter((zoneCode) => Boolean(zoneCode))));
 
   if (assignedZoneCodes.length > 0) {
     const { data: zones, error: zoneError } = await supabase
