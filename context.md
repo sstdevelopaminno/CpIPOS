@@ -222,6 +222,7 @@ For every sensitive route:
 - `docs/incident-runbook.md`
 - `docs/go-live-evidence-checklist.md`
 - `docs/TABLE-MANAGEMENT-UI-CLEANUP-2026-08-11.md`
+- `docs/PRODUCT-MANAGEMENT-UI-CLEANUP-2026-08-11.md`
 
 ## 7) Environment and Secrets
 
@@ -524,3 +525,14 @@ ORDER BY p.name;
 - No schema migration was required; existing `(tenant_id, branch_id, table_code)` uniqueness remains authoritative.
 - Production data was not mutated merely to validate implementation. Functional create testing should use a disposable/test branch.
 - Detailed handoff and acceptance checks: `docs/TABLE-MANAGEMENT-UI-CLEANUP-2026-08-11.md`.
+
+## Product Management UI/UX Cleanup (2026-08-11)
+
+- Scope is system-wide Web POS Product/Stock Management; the physical POS terminal remains the primary test device only.
+- `/preview/pos/stock` now provides a top-header action slot and the existing Best Sellers, Search/Filter, Manage Categories, Unit Stock, and Stock Settings controls render there through a React portal, preserving the same client state and popup behavior.
+- Removed the prior `.limit(60)` cap from active-product loading and the legacy fallback so branches with more than 60 active products are not silently truncated at 60 by this page query.
+- Product and ingredient list modes use 10 rows per page, a bounded scroll region, sticky table headers, visible range text, and Previous / page count / Next controls.
+- Search/filter and mode changes reset pagination to page 1 while existing edit, deactivate, stock adjustment, selection, bulk-delete, bulk-recipe-unlink, category, unit-stock, and stock-settings actions continue to use their original server paths.
+- No database migration or sales/order/payment/shift transaction logic changed.
+- Vercel production build for feature commit `99c568f5662243f2502c3516b6cfe28f5c09ef07` completed and reached READY.
+- Detailed handoff and acceptance checks: `docs/PRODUCT-MANAGEMENT-UI-CLEANUP-2026-08-11.md`.
