@@ -203,8 +203,7 @@ export default async function PosStockPage({
         .eq("tenant_id", auth.tenantId!)
         .eq("branch_id", selectedBranchId)
         .eq("is_active", true)
-        .order("updated_at", { ascending: false })
-        .limit(60);
+        .order("updated_at", { ascending: false });
 
     const productResponseWithStockMode = await queryActiveProducts();
 
@@ -216,14 +215,13 @@ export default async function PosStockPage({
     let productsError: PostgrestErrorLike | null = productResponseWithStockMode.error as PostgrestErrorLike | null;
 
     if (productsError && isMissingColumnError(productsError, "stock_deduction_mode")) {
-      let legacyProducts = await supabase
+      const legacyProducts = await supabase
         .from("products")
         .select("id,sku,name,category,price,is_active,updated_at", { count: "exact" })
         .eq("tenant_id", auth.tenantId!)
         .eq("branch_id", selectedBranchId)
         .eq("is_active", true)
-        .order("updated_at", { ascending: false })
-        .limit(60);
+        .order("updated_at", { ascending: false });
 
       productsData = (legacyProducts.data ?? []).map((row) => ({ ...row, stock_deduction_mode: "unit_only" as const }));
       productsCount = legacyProducts.count ?? 0;
@@ -494,6 +492,11 @@ export default async function PosStockPage({
             />
           </div>
         </div>
+        <div
+          id="stock-page-action-toolbar"
+          className="mt-3 flex min-h-9 flex-wrap items-center justify-end gap-2 border-t border-slate-200/80 pt-3"
+          aria-label={th ? "เครื่องมือจัดการสินค้า" : "Product management tools"}
+        />
       </div>
 
       <div className="grid gap-4 px-4 py-4 lg:px-6 lg:py-5">
@@ -515,7 +518,3 @@ export default async function PosStockPage({
     </section>
   );
 }
-
-
-
-
