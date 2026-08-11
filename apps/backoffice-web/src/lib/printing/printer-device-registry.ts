@@ -35,20 +35,65 @@ function uniquePurposes(values: PrinterPurpose[]) {
 export async function getPrinterSettingsRegistry(auth: AuthContext) {
   ensureManagerOrOwner(auth);
   const supabase = getSupabaseServiceClient();
-  const [{ data: branch }, { data: devices, error: deviceError }, { data: history, error: historyError }] = await Promise.all([
+  const [
+    { data: branch },
+    { data: devices, error: deviceError },
+    { data: history, error: historyError },
+    { data: profiles, error: profileError }
+  ] = await Promise.all([
     supabase.from("branches").select("id,code,name").eq("tenant_id", auth.tenantId!).eq("id", auth.branchId!).maybeSingle(),
     supabase
       .from("printer_devices")
       .select("id,printer_profile_id,display_name,brand,model,connection_mode,paper_width_mm,device_fingerprint,runtime_device_code,status,capabilities,last_seen_at,disconnected_at,is_active,metadata,created_at,updated_at,printer_device_assignments(id,purpose,zone_key,is_enabled,is_default,copies,metadata)")
-      .eq("tenant_id", auth.tenantId!).eq("branch_id", auth.branchId!).order("updated_at", { ascending: false }),
+      .eq("tenant_id", auth.tenantId!)
+      .eq("branch_id", auth.branchId!)
+      .eq("is_active", true)
+      .not("printer_profile_id", "is", null)
+      .order("updated_at", { ascending: false }),
     supabase
       .from("printer_device_history")
       .select("id,printer_device_id,printer_profile_id,event_type,device_name,brand,model,connection_mode,paper_width_mm,details,created_at")
-      .eq("tenant_id", auth.tenantId!).eq("branch_id", auth.branchId!).order("created_at", { ascending: false }).limit(100)
+      .eq("tenant_id", auth.tenantId!)
+      .eq("branch_id", auth.branchId!)
+      .order("created_at", { ascending: false })
+      .limit(100),
+    supabase
+      .from("printer_profiles")
+      .select("id,ip_address,port,enabled")
+      .eq("tenant_id", auth.tenantId!)
+      .eq("branch_id", auth.branchId!)
   ]);
   if (deviceError) throw new Error(deviceError.message);
   if (historyError) throw new Error(historyError.message);
-  return { branch: branch ?? { id: auth.branchId, code: null, name: "สาขาปัจจุบัน" }, devices: devices ?? [], history: history ?? [] };
+  if (profileError) throw new Error(profileError.message);
+
+  const profileMap = new Map((profiles ?? []).map((profile) => [profile.id, profile]));
+  const currentDevices = (devices ?? []).flatMap((device) => {
+    const profileId = device.printer_profile_id;
+    if (!profileId) return [];
+    const profile = profileMap.get(profileId);
+    if (!profile) return [];
+    return [{
+      ...device,
+      ip_address: profile.ip_address ?? null,
+      port: profile.port ?? null,
+      profile_enabled: profile.enabled !== false
+    }];
+  });
+  const activeProfileIds = new Set(currentDevices.map((device) => device.printer_profile_id));
+  const decoratedHistory = (history ?? []).map((item) => {
+    const profileId = item.printer_profile_id;
+    return {
+      ...item,
+      can_reconnect: Boolean(profileId && profileMap.has(profileId) && !activeProfileIds.has(profileId))
+    };
+  });
+
+  return {
+    branch: branch ?? { id: auth.branchId, code: null, name: "สาขาปัจจุบัน" },
+    devices: currentDevices,
+    history: decoratedHistory
+  };
 }
 
 export async function syncPrinterDevice(auth: AuthContext, input: SyncPrinterDeviceInput) {
@@ -84,24 +129,127 @@ export async function syncPrinterDevice(auth: AuthContext, input: SyncPrinterDev
   return device;
 }
 
-export async function disconnectPrinterDevice(auth: AuthContext, printerProfileId: string) {
+async function setPrinterConnectionState(auth: AuthContext, printerProfileId: string, connected: boolean) {
   ensureManagerOrOwner(auth);
   const supabase = getSupabaseServiceClient();
-  const { data: device, error } = await supabase.from("printer_devices").update({ status: "disconnected", is_active: false, disconnected_at: new Date().toISOString(), updated_at: new Date().toISOString() })
-    .eq("tenant_id", auth.tenantId!).eq("branch_id", auth.branchId!).eq("printer_profile_id", printerProfileId)
-    .select("id,display_name,brand,model,connection_mode,paper_width_mm").maybeSingle();
+  const [{ data: profile, error: profileReadError }, { data: device, error: deviceReadError }] = await Promise.all([
+    supabase
+      .from("printer_profiles")
+      .select("id,enabled")
+      .eq("tenant_id", auth.tenantId!)
+      .eq("branch_id", auth.branchId!)
+      .eq("id", printerProfileId)
+      .maybeSingle(),
+    supabase
+      .from("printer_devices")
+      .select("id,display_name,brand,model,connection_mode,paper_width_mm")
+      .eq("tenant_id", auth.tenantId!)
+      .eq("branch_id", auth.branchId!)
+      .eq("printer_profile_id", printerProfileId)
+      .maybeSingle()
+  ]);
+  if (profileReadError) throw new Error(profileReadError.message);
+  if (deviceReadError) throw new Error(deviceReadError.message);
+  if (!profile) throw new Error("printer_not_found");
+  if (!device) throw new Error("printer_device_not_found");
+
+  const previousEnabled = profile.enabled !== false;
+  const { error: profileUpdateError } = await supabase
+    .from("printer_profiles")
+    .update({ enabled: connected })
+    .eq("tenant_id", auth.tenantId!)
+    .eq("branch_id", auth.branchId!)
+    .eq("id", printerProfileId);
+  if (profileUpdateError) throw new Error(profileUpdateError.message);
+
+  const now = new Date().toISOString();
+  const { data: updatedDevice, error: deviceUpdateError } = await supabase
+    .from("printer_devices")
+    .update({
+      status: connected ? "checking" : "disconnected",
+      is_active: connected,
+      disconnected_at: connected ? null : now,
+      updated_at: now
+    })
+    .eq("tenant_id", auth.tenantId!)
+    .eq("branch_id", auth.branchId!)
+    .eq("id", device.id)
+    .select("id,printer_profile_id,display_name,brand,model,connection_mode,paper_width_mm,status,capabilities,last_seen_at,disconnected_at,is_active,metadata,created_at,updated_at")
+    .single();
+
+  if (deviceUpdateError) {
+    const { error: compensationError } = await supabase
+      .from("printer_profiles")
+      .update({ enabled: previousEnabled })
+      .eq("tenant_id", auth.tenantId!)
+      .eq("branch_id", auth.branchId!)
+      .eq("id", printerProfileId);
+    if (compensationError) console.error("printer_connection_state_compensation_failed", compensationError.message);
+    throw new Error(deviceUpdateError.message);
+  }
+
+  try {
+    await appendPrinterDeviceHistory(auth, {
+      printerDeviceId: device.id,
+      printerProfileId,
+      eventType: connected ? "reconnected" : "disconnected",
+      deviceName: device.display_name,
+      brand: device.brand,
+      model: device.model,
+      connectionMode: device.connection_mode,
+      paperWidthMm: device.paper_width_mm,
+      details: { profile_enabled: connected }
+    });
+  } catch (historyError) {
+    console.error("printer_connection_history_write_failed", historyError);
+  }
+
+  return updatedDevice;
+}
+
+export async function disconnectPrinterDevice(auth: AuthContext, printerProfileId: string) {
+  return setPrinterConnectionState(auth, printerProfileId, false);
+}
+
+export async function reconnectPrinterDevice(auth: AuthContext, printerProfileId: string) {
+  return setPrinterConnectionState(auth, printerProfileId, true);
+}
+
+export async function recordPrinterDeviceActionHistory(auth: AuthContext, printerProfileId: string, eventType: string, details: JsonRecord = {}) {
+  ensureManagerOrOwner(auth);
+  const supabase = getSupabaseServiceClient();
+  const { data: device, error } = await supabase
+    .from("printer_devices")
+    .select("id,display_name,brand,model,connection_mode,paper_width_mm")
+    .eq("tenant_id", auth.tenantId!)
+    .eq("branch_id", auth.branchId!)
+    .eq("printer_profile_id", printerProfileId)
+    .maybeSingle();
   if (error) throw new Error(error.message);
-  if (device) await appendPrinterDeviceHistory(auth, { printerDeviceId: device.id, printerProfileId, eventType: "disconnected", deviceName: device.display_name, brand: device.brand, model: device.model, connectionMode: device.connection_mode, paperWidthMm: device.paper_width_mm, details: {} });
-  return device;
+  if (!device) return false;
+  await appendPrinterDeviceHistory(auth, {
+    printerDeviceId: device.id,
+    printerProfileId,
+    eventType,
+    deviceName: device.display_name,
+    brand: device.brand,
+    model: device.model,
+    connectionMode: device.connection_mode,
+    paperWidthMm: device.paper_width_mm,
+    details
+  });
+  return true;
 }
 
 export async function markPrinterDeviceDeleted(auth: AuthContext, printerProfileId: string) {
   ensureManagerOrOwner(auth);
   const supabase = getSupabaseServiceClient();
-  const { data: device } = await supabase.from("printer_devices").select("id,display_name,brand,model,connection_mode,paper_width_mm").eq("tenant_id", auth.tenantId!).eq("branch_id", auth.branchId!).eq("printer_profile_id", printerProfileId).maybeSingle();
+  const { data: device, error: readError } = await supabase.from("printer_devices").select("id,display_name,brand,model,connection_mode,paper_width_mm").eq("tenant_id", auth.tenantId!).eq("branch_id", auth.branchId!).eq("printer_profile_id", printerProfileId).maybeSingle();
+  if (readError) throw new Error(readError.message);
   if (!device) return;
   await appendPrinterDeviceHistory(auth, { printerDeviceId: device.id, printerProfileId, eventType: "deleted", deviceName: device.display_name, brand: device.brand, model: device.model, connectionMode: device.connection_mode, paperWidthMm: device.paper_width_mm, details: {} });
-  await supabase.from("printer_devices").update({ is_active: false, status: "disconnected", disconnected_at: new Date().toISOString(), updated_at: new Date().toISOString() }).eq("id", device.id);
+  const { error } = await supabase.from("printer_devices").update({ is_active: false, status: "disconnected", disconnected_at: new Date().toISOString(), updated_at: new Date().toISOString() }).eq("tenant_id", auth.tenantId!).eq("branch_id", auth.branchId!).eq("id", device.id);
+  if (error) throw new Error(error.message);
 }
 
 export async function appendPrinterDeviceHistory(auth: AuthContext, input: { printerDeviceId?: string | null; printerProfileId?: string | null; eventType: string; deviceName: string; brand?: string | null; model?: string | null; connectionMode?: string | null; paperWidthMm?: number | null; details?: JsonRecord }) {
