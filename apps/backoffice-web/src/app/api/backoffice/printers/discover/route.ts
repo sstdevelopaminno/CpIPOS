@@ -109,7 +109,9 @@ export async function GET(req: Request) {
         printer_profile_id: profile.id,
         functions,
         capabilities: profileCapabilities(functions, metadata),
-        helper: "โปรไฟล์ที่เคยบันทึกไว้ สามารถกดเชื่อมต่ออีกครั้งหรือแก้ไขเมนูที่ผูกได้"
+        helper: profile.enabled
+          ? "โปรไฟล์เครื่องพิมพ์ที่ระบบบันทึกไว้แล้ว"
+          : "โปรไฟล์ที่ถูกตัดการเชื่อมต่อ สามารถกดเชื่อมต่อใหม่ได้"
       });
     }
 
@@ -159,13 +161,13 @@ export async function GET(req: Request) {
         shift_report: false,
         payment_slip: false
       },
-      helper: "ถ้าเครื่อง LAN ไม่ถูกค้นหาอัตโนมัติ ให้กรอก IP/Port เฉพาะขั้นสูง"
+      helper: "Web App ไม่สแกนวง LAN โดยตรง กรุณากรอก IP/Port ของเครื่องพิมพ์ LAN ในตั้งค่าขั้นสูง"
     });
 
     return ok({
       items: candidates.filter((candidate) => isRequestedMode(candidate, modeFilter)),
       mode: modeFilter,
-      note: "Customer-facing modes are LAN, USB and Bluetooth only; Browser Web Serial, Local Bridge, Windows Runtime, Android Bridge and MDM are internal transports."
+      note: "ระบบจะแสดงเฉพาะ Runtime / Android / MDM และโปรไฟล์ที่ระบบรู้จักอยู่แล้ว ส่วนเครื่องพิมพ์ LAN ต้องระบุ IP/Port เอง; LAN, USB และ Bluetooth เป็นโหมดที่ผู้ใช้เลือก ส่วน Bridge/Runtime/MDM เป็น transport ภายใน"
     });
   } catch (error) {
     return loggedPrintApiFail("printer discovery failed", error, "printer_discovery_failed", "Printer discovery could not be loaded. Please retry.", 400);
