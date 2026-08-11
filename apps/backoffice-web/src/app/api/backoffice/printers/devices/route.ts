@@ -9,8 +9,10 @@ import {
   reconnectPrinterDevice,
   syncPrinterDevice,
   type CustomerConnectionMode,
+  type PrinterAssignmentInput,
   type PrinterPurpose
 } from "@/lib/printing/printer-device-registry";
+import { getSupabaseServiceClient } from "@/lib/supabase-admin";
 
 type Payload = {
   printer_id?: string | null;
@@ -20,6 +22,12 @@ type Payload = {
   connection_mode?: CustomerConnectionMode | null;
   paper_width_mm?: 58 | 80 | null;
   purposes?: PrinterPurpose[] | null;
+  assignments?: Array<{
+    purpose?: PrinterPurpose | null;
+    zone_key?: string | null;
+    is_default?: boolean | null;
+    copies?: number | null;
+  }> | null;
   ip_address?: string | null;
   port?: number | null;
   runtime_device_code?: string | null;
@@ -30,6 +38,7 @@ type Payload = {
 };
 
 const PURPOSES = new Set<PrinterPurpose>(["receipt","kitchen","drink","bar","reprint","shift_report","payment_slip","cash_drawer"]);
+const ZONED_PURPOSES = new Set<PrinterPurpose>(["kitchen", "drink", "bar"]);
 
 function clean(value: unknown) {
   return typeof value === "string" && value.trim() ? value.trim() : null;
@@ -38,6 +47,27 @@ function clean(value: unknown) {
 function normalizePurposes(values: unknown): PrinterPurpose[] {
   if (!Array.isArray(values)) return [];
   return Array.from(new Set(values.filter((value): value is PrinterPurpose => typeof value === "string" && PURPOSES.has(value as PrinterPurpose))));
+}
+
+function normalizeAssignments(body: Payload): PrinterAssignmentInput[] {
+  if (!Array.isArray(body.assignments) || body.assignments.length === 0) {
+    return normalizePurposes(body.purposes).map((purpose) => ({ purpose, zoneKey: "", isDefault: false, copies: 1 }));
+  }
+
+  const byKey = new Map<string, PrinterAssignmentInput>();
+  for (const raw of body.assignments) {
+    const purpose = raw?.purpose;
+    if (!purpose || !PURPOSES.has(purpose)) continue;
+    const zoneKey = ZONED_PURPOSES.has(purpose) ? (clean(raw.zone_key)?.toUpperCase() ?? "") : "";
+    const key = `${purpose}:${zoneKey}`;
+    byKey.set(key, {
+      purpose,
+      zoneKey,
+      isDefault: raw.is_default === true,
+      copies: Math.max(1, Math.min(20, Math.trunc(Number(raw.copies) || 1)))
+    });
+  }
+  return Array.from(byKey.values());
 }
 
 function roleFor(purposes: PrinterPurpose[]): "receipt" | "kitchen" | "report" {
@@ -62,20 +92,22 @@ function buildFingerprint(body: Payload, mode: CustomerConnectionMode) {
   return [mode, brand, model, runtime ?? ip ?? clean(body.printer_name)?.toLowerCase() ?? "device"].join(":");
 }
 
-function profileMetadata(body: Payload, mode: CustomerConnectionMode, purposes: PrinterPurpose[]) {
+function profileMetadata(body: Payload, mode: CustomerConnectionMode, purposes: PrinterPurpose[], assignments: PrinterAssignmentInput[]) {
   const drawer = purposes.includes("cash_drawer");
   const runtimeCode = clean(body.runtime_device_code);
   const base = body.metadata && typeof body.metadata === "object" ? body.metadata : {};
   return {
     ...base,
     setup_version: "printer_settings_v3",
+    routing_version: "tenant_branch_pos_zone_v1",
     user_connection_mode: mode,
     transport_mode: mode,
     brand: clean(body.brand),
     model: clean(body.model),
     device_fingerprint: buildFingerprint(body, mode),
     print_functions: purposes,
-    print_zones: purposes,
+    print_zones: assignments.filter((assignment) => Boolean(assignment.zoneKey)).map((assignment) => assignment.zoneKey),
+    printer_assignments: assignments,
     agent_device_code: runtimeCode ?? undefined,
     agent_device_codes: runtimeCode ? [runtimeCode] : [],
     print_mode: mode === "lan" ? "server" : "agent",
@@ -96,6 +128,9 @@ function profileMetadata(body: Payload, mode: CustomerConnectionMode, purposes: 
     capabilities: {
       receipt: purposes.includes("receipt"),
       kitchen: purposes.some((value) => value === "kitchen" || value === "drink" || value === "bar"),
+      reprint: purposes.includes("reprint"),
+      shift_report: purposes.includes("shift_report"),
+      payment_slip: purposes.includes("payment_slip"),
       cash_drawer: drawer,
       paper_58: body.paper_width_mm === 58,
       paper_80: body.paper_width_mm === 80
@@ -108,22 +143,45 @@ function validate(body: Payload) {
   const name = clean(body.printer_name);
   const mode = body.connection_mode;
   const paper = body.paper_width_mm;
-  const purposes = normalizePurposes(body.purposes);
+  const assignments = normalizeAssignments(body);
+  const purposes = Array.from(new Set(assignments.map((assignment) => assignment.purpose)));
   if (!name) throw new Error("printer_name_required");
   if (mode !== "lan" && mode !== "usb" && mode !== "bluetooth") throw new Error("connection_mode_invalid");
   if (paper !== 58 && paper !== 80) throw new Error("paper_width_invalid");
-  if (!purposes.length) throw new Error("purpose_required");
+  if (!assignments.length) throw new Error("purpose_required");
   if (mode === "lan" && !clean(body.ip_address)) throw new Error("lan_ip_required");
-  return { name, mode, paper, purposes };
+  return { name, mode, paper, purposes, assignments };
+}
+
+async function validateKitchenZones(tenantId: string, branchId: string, assignments: PrinterAssignmentInput[]) {
+  const zoneKeys = Array.from(new Set(assignments
+    .filter((assignment) => ZONED_PURPOSES.has(assignment.purpose))
+    .map((assignment) => clean(assignment.zoneKey)?.toUpperCase() ?? "")
+    .filter(Boolean)));
+  if (zoneKeys.length === 0) return;
+
+  const supabase = getSupabaseServiceClient();
+  const { data, error } = await supabase
+    .from("kitchen_zones")
+    .select("zone_code")
+    .eq("tenant_id", tenantId)
+    .eq("branch_id", branchId)
+    .eq("is_active", true)
+    .in("zone_code", zoneKeys);
+  if (error) throw new Error(error.message);
+  const found = new Set((data ?? []).map((zone) => String(zone.zone_code).toUpperCase()));
+  const missing = zoneKeys.find((zoneKey) => !found.has(zoneKey));
+  if (missing) throw new Error(`printer_zone_invalid:${missing}`);
 }
 
 function validationFailure(message: string) {
   if (message === "lan_ip_required") return fail(message, "LAN ต้องมี IP ของเครื่องพิมพ์", 422);
+  if (message.startsWith("printer_zone_invalid:")) return fail("printer_zone_invalid", `ไม่พบโซนครัว ${message.split(":")[1] ?? ""} ในสาขาปัจจุบัน`, 422);
   return fail(message, "ข้อมูลเครื่องพิมพ์ไม่ครบ", 422);
 }
 
 function isValidationError(message: string) {
-  return message === "printer_name_required" || message === "connection_mode_invalid" || message === "paper_width_invalid" || message === "purpose_required" || message === "lan_ip_required";
+  return message === "printer_name_required" || message === "connection_mode_invalid" || message === "paper_width_invalid" || message === "purpose_required" || message === "lan_ip_required" || message.startsWith("printer_zone_invalid:");
 }
 
 export async function GET() {
@@ -141,8 +199,9 @@ export async function POST(req: Request) {
   try {
     const auth = await getAuthContext({ requireBranchScope: true });
     const body = (await req.json()) as Payload;
-    const { name, mode, paper, purposes } = validate(body);
-    const metadata = profileMetadata(body, mode, purposes);
+    const { name, mode, paper, purposes, assignments } = validate(body);
+    await validateKitchenZones(auth.tenantId!, auth.branchId!, assignments);
+    const metadata = profileMetadata(body, mode, purposes, assignments);
     const profile = await createPrinterProfile(auth, {
       printer_name: name,
       printer_role: roleFor(purposes),
@@ -153,14 +212,19 @@ export async function POST(req: Request) {
       enabled: body.enabled ?? true,
       metadata
     });
-    const device = await syncPrinterDevice(auth, {
-      printerProfileId: profile.id,
-      displayName: name,
-      brand: clean(body.brand), model: clean(body.model), connectionMode: mode, paperWidthMm: paper,
-      purposes, deviceFingerprint: buildFingerprint(body, mode), runtimeDeviceCode: clean(body.runtime_device_code),
-      capabilities: (metadata.capabilities ?? {}) as Record<string, unknown>, metadata: { source: "printer_settings_v3" }, eventType: "connected"
-    });
-    return ok({ profile, device }, 201);
+    try {
+      const device = await syncPrinterDevice(auth, {
+        printerProfileId: profile.id,
+        displayName: name,
+        brand: clean(body.brand), model: clean(body.model), connectionMode: mode, paperWidthMm: paper,
+        purposes, assignments, deviceFingerprint: buildFingerprint(body, mode), runtimeDeviceCode: clean(body.runtime_device_code),
+        capabilities: (metadata.capabilities ?? {}) as Record<string, unknown>, metadata: { source: "printer_settings_v3" }, eventType: "connected"
+      });
+      return ok({ profile, device }, 201);
+    } catch (syncError) {
+      await deletePrinterProfile(auth, profile.id).catch(() => undefined);
+      throw syncError;
+    }
   } catch (error) {
     const message = error instanceof Error ? error.message : "unknown";
     if (message === "forbidden_role") return fail("forbidden_role", "Only manager or owner can configure printers.", 403);
@@ -186,8 +250,9 @@ export async function PATCH(req: Request) {
       return ok({ device, reconnected: true });
     }
 
-    const { name, mode, paper, purposes } = validate(body);
-    const metadata = profileMetadata(body, mode, purposes);
+    const { name, mode, paper, purposes, assignments } = validate(body);
+    await validateKitchenZones(auth.tenantId!, auth.branchId!, assignments);
+    const metadata = profileMetadata(body, mode, purposes, assignments);
     const profile = await updatePrinterProfile(auth, printerId, {
       printer_name: name,
       printer_role: roleFor(purposes),
@@ -200,7 +265,7 @@ export async function PATCH(req: Request) {
     });
     const device = await syncPrinterDevice(auth, {
       printerProfileId: profile.id, displayName: name, brand: clean(body.brand), model: clean(body.model), connectionMode: mode,
-      paperWidthMm: paper, purposes, deviceFingerprint: buildFingerprint(body, mode), runtimeDeviceCode: clean(body.runtime_device_code),
+      paperWidthMm: paper, purposes, assignments, deviceFingerprint: buildFingerprint(body, mode), runtimeDeviceCode: clean(body.runtime_device_code),
       capabilities: (metadata.capabilities ?? {}) as Record<string, unknown>, metadata: { source: "printer_settings_v3" }, eventType: "updated"
     });
     return ok({ profile, device });
