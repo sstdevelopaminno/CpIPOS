@@ -181,12 +181,53 @@ function deriveDeviceStatus(incidents: readonly DeviceMdmIncident[], connectivit
   return "healthy";
 }
 
+type DeviceMdmTelemetryProfile = "windows_runtime" | "android" | "browser" | "generic";
+
+function resolveDeviceMdmTelemetryProfile(input: DeviceMdmHealthInput): DeviceMdmTelemetryProfile {
+  const networkType = String(input.connectivity.network_type ?? "").trim().toLowerCase();
+  const source = String(input.metadata?.source ?? "").trim().toLowerCase();
+  const osName = String(input.system.os_name ?? "").trim().toLowerCase();
+  const machineId = String(input.identity.machine_id ?? "").trim().toLowerCase();
+  const runtimeVersion = String(input.identity.runtime_version ?? "").trim();
+  const bridgeVersion = String(input.runtime.bridge_version ?? "").trim();
+
+  if (
+    networkType === "windows_runtime" ||
+    source.includes("windows_runtime") ||
+    osName.includes("windows") ||
+    machineId.startsWith("win-") ||
+    runtimeVersion.length > 0 ||
+    bridgeVersion.length > 0 ||
+    input.runtime.bridge_port != null
+  ) {
+    return "windows_runtime";
+  }
+
+  if (
+    networkType === "android" ||
+    source.includes("_android") ||
+    osName.includes("android") ||
+    machineId.startsWith("and-")
+  ) {
+    return "android";
+  }
+
+  if (networkType === "browser" || source.includes("_browser") || machineId.startsWith("web-")) {
+    return "browser";
+  }
+
+  return "generic";
+}
+
 export function deriveDeviceMdmIncidents(
   input: DeviceMdmHealthInput,
   thresholds: DeviceMdmThresholds = DEVICE_MDM_DEFAULT_THRESHOLDS
 ): DeviceMdmIncident[] {
   const detectedAt = input.captured_at ?? new Date().toISOString();
   const incidents: DeviceMdmIncident[] = [];
+  const telemetryProfile = resolveDeviceMdmTelemetryProfile(input);
+  const shouldEvaluateWindowsRuntime = telemetryProfile === "windows_runtime";
+  const shouldEvaluatePeripheralHealth = telemetryProfile === "windows_runtime";
 
   if (!input.connectivity.internet_online) {
     addIncident(
@@ -289,7 +330,7 @@ export function deriveDeviceMdmIncidents(
     );
   }
 
-  if (!input.runtime.cpi_windows_runtime_running) {
+  if (shouldEvaluateWindowsRuntime && !input.runtime.cpi_windows_runtime_running) {
     addIncident(
       incidents,
       {
@@ -302,7 +343,7 @@ export function deriveDeviceMdmIncidents(
     );
   }
 
-  if (!input.runtime.local_bridge_online) {
+  if (shouldEvaluateWindowsRuntime && !input.runtime.local_bridge_online) {
     addIncident(
       incidents,
       {
@@ -315,7 +356,7 @@ export function deriveDeviceMdmIncidents(
     );
   }
 
-  if (input.peripherals.selected_printer_valid === false || !input.peripherals.selected_printer) {
+  if (shouldEvaluatePeripheralHealth && (input.peripherals.selected_printer_valid === false || !input.peripherals.selected_printer)) {
     addIncident(
       incidents,
       {
@@ -330,7 +371,7 @@ export function deriveDeviceMdmIncidents(
   }
 
   const printerStatus = String(input.peripherals.printer_status ?? "").trim().toLowerCase();
-  if (printerStatus && printerStatus !== "normal" && printerStatus !== "ready") {
+  if (shouldEvaluatePeripheralHealth && printerStatus && printerStatus !== "normal" && printerStatus !== "ready") {
     addIncident(
       incidents,
       {
@@ -345,7 +386,7 @@ export function deriveDeviceMdmIncidents(
   }
 
   const printQueueCount = toFiniteNumber(input.peripherals.print_queue_count);
-  if (input.runtime.print_queue_busy || (printQueueCount !== null && printQueueCount >= thresholds.print_queue_warning_count)) {
+  if (shouldEvaluatePeripheralHealth && (input.runtime.print_queue_busy || (printQueueCount !== null && printQueueCount >= thresholds.print_queue_warning_count))) {
     addIncident(
       incidents,
       {
@@ -359,7 +400,7 @@ export function deriveDeviceMdmIncidents(
     );
   }
 
-  if (input.runtime.drawer_queue_busy || input.runtime.last_error?.toLowerCase().includes("drawer")) {
+  if (shouldEvaluatePeripheralHealth && (input.runtime.drawer_queue_busy || input.runtime.last_error?.toLowerCase().includes("drawer"))) {
     addIncident(
       incidents,
       {

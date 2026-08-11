@@ -579,3 +579,11 @@ ORDER BY p.name;
 - When enabled, Table QR opens a checkbox-only recipe ingredient picker. Customer selections do not change product price or recipe quantities and are persisted as the order-item note for downstream kitchen/printing work.
 - Added `products.customer_ingredient_selection_enabled` migration; default is `false`.
 - Scope intentionally excludes Kitchen PR #47 and printer logic.
+
+## 2026-08-11 — MDM telemetry profile hardening
+
+- MDM health derivation now distinguishes Windows Runtime, Android, and plain browser heartbeat profiles before evaluating runtime/peripheral incidents.
+- Browser/Android heartbeats no longer produce false `runtime_offline`, `local_bridge_offline`, `printer_missing`, `printer_error`, print-queue, or drawer incidents when those telemetry capabilities are not present.
+- Windows Runtime heartbeat behavior remains strict: Local Bridge, printer, print queue, and drawer failures still generate MDM incidents.
+- Browser heartbeat no longer writes page uptime into `latency_ms`; uptime is retained separately as `metadata.heartbeat_uptime_ms` and `latency_ms` stays unknown until a real network RTT measurement exists.
+- Added unit regression coverage for browser, Android, and Windows Runtime MDM profiles.
