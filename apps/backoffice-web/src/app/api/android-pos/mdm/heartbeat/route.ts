@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { getSupabaseServiceClient } from "@/lib/supabase-admin";
 
 const SAFE_MDM_COMMANDS = new Set([
   "ping",
@@ -11,101 +12,132 @@ const SAFE_MDM_COMMANDS = new Set([
   "test_printer_connection"
 ]);
 
-// Bump this value once, at the end of a completed product-change batch.
-// Android POS heartbeats only receive reload_webview when their last recorded
-// reload is older than this generation, preventing a 60-second reload loop.
 const MDM_RELOAD_GENERATION_MS = 1786478151547;
 
-type AndroidPosMdmCommand = {
-  id?: string;
-  action?: string;
-  reason?: string;
-};
+type AndroidPosMdmCommand = { id?: string; action?: string; reason?: string };
+type PairedDevice = { id: string; device_code: string; metadata: Record<string, unknown> | null };
+type PendingPrinterCommand = { id: string; issued_at: string };
 
 function noStoreHeaders() {
-  return {
-    "Cache-Control": "no-store, no-cache, must-revalidate",
-    "X-CpIPOS-MDM-Lite": "android-pos"
-  };
+  return { "Cache-Control": "no-store, no-cache, must-revalidate", "X-CpIPOS-MDM-Lite": "android-pos" };
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
 }
 
 function parseSafeCommandsFromEnv(): AndroidPosMdmCommand[] {
   const raw = process.env.CPIPOS_ANDROID_POS_MDM_COMMANDS_JSON?.trim();
   if (!raw) return [];
-
   try {
     const parsed = JSON.parse(raw) as unknown;
     if (!Array.isArray(parsed)) return [];
-
-    return parsed
-      .map((value): AndroidPosMdmCommand | null => {
-        if (!value || typeof value !== "object") return null;
-        const row = value as Record<string, unknown>;
-        const action = String(row.action ?? "").trim().toLowerCase();
-        if (!SAFE_MDM_COMMANDS.has(action)) return null;
-        return {
-          id: String(row.id ?? `env-${action}`).slice(0, 80),
-          action,
-          reason: String(row.reason ?? "env_control").slice(0, 160)
-        };
-      })
-      .filter((value): value is AndroidPosMdmCommand => Boolean(value))
-      .slice(0, 5);
+    return parsed.map((value): AndroidPosMdmCommand | null => {
+      if (!value || typeof value !== "object") return null;
+      const row = value as Record<string, unknown>;
+      const action = String(row.action ?? "").trim().toLowerCase();
+      if (!SAFE_MDM_COMMANDS.has(action)) return null;
+      return { id: String(row.id ?? `env-${action}`).slice(0, 80), action, reason: String(row.reason ?? "env_control").slice(0, 160) };
+    }).filter((value): value is AndroidPosMdmCommand => Boolean(value)).slice(0, 5);
   } catch {
     return [];
   }
 }
 
 function getLastReloadAtMs(payload: Record<string, unknown> | null): number {
-  const rawLastCommand = payload?.last_command;
-  if (!rawLastCommand || typeof rawLastCommand !== "object" || Array.isArray(rawLastCommand)) {
-    return 0;
-  }
-
-  const lastCommand = rawLastCommand as Record<string, unknown>;
-  const action = String(lastCommand.action ?? "").trim().toLowerCase();
-  if (action !== "reload_webview") return 0;
-
+  const lastCommand = asRecord(payload?.last_command);
+  if (String(lastCommand.action ?? "").trim().toLowerCase() !== "reload_webview") return 0;
   const atMs = Number(lastCommand.at_ms ?? 0);
   return Number.isFinite(atMs) && atMs > 0 ? atMs : 0;
 }
 
 function buildHeartbeatCommands(payload: Record<string, unknown> | null): AndroidPosMdmCommand[] {
-  const envCommands = parseSafeCommandsFromEnv();
+  const envCommands = parseSafeCommandsFromEnv().filter((command) => command.action !== "reload_webview");
+  if (getLastReloadAtMs(payload) >= MDM_RELOAD_GENERATION_MS) return envCommands.slice(0, 5);
+  return [...envCommands, { id: `deploy-reload-${MDM_RELOAD_GENERATION_MS}`, action: "reload_webview", reason: "post_deploy_refresh" }].slice(0, 5);
+}
 
-  // reload_webview is controlled by the one-time generation below rather than
-  // a persistent env command, because the Android agent polls every 60 seconds.
-  const nonReloadEnvCommands = envCommands.filter((command) => command.action !== "reload_webview");
-  const lastReloadAtMs = getLastReloadAtMs(payload);
-
-  if (lastReloadAtMs >= MDM_RELOAD_GENERATION_MS) {
-    return nonReloadEnvCommands.slice(0, 5);
+async function findPairedDevice(installId: string | null): Promise<PairedDevice | null> {
+  if (!installId) return null;
+  const supabase = getSupabaseServiceClient();
+  const { data, error } = await supabase
+    .from("branch_devices")
+    .select("id,device_code,metadata")
+    .eq("is_active", true)
+    .contains("metadata", { android_mdm_install_id: installId })
+    .maybeSingle<PairedDevice>();
+  if (error) {
+    console.error("[android-pos-mdm] paired device lookup failed", { message: error.message });
+    return null;
   }
+  return data ?? null;
+}
 
-  return [
-    ...nonReloadEnvCommands,
-    {
-      id: `deploy-reload-${MDM_RELOAD_GENERATION_MS}`,
-      action: "reload_webview",
-      reason: "post_deploy_refresh"
+async function acknowledgePreviousPrinterTest(device: PairedDevice, payload: Record<string, unknown> | null, appVersion: string | null) {
+  const lastCommand = asRecord(payload?.last_command);
+  if (String(lastCommand.action ?? "").trim().toLowerCase() !== "test_printer_connection") return;
+  const printer = asRecord(payload?.printer);
+  const supabase = getSupabaseServiceClient();
+  const { data: row } = await supabase
+    .from("device_commands")
+    .select("id")
+    .eq("pos_device_id", device.id)
+    .eq("command_type", "test_printer")
+    .eq("status", "delivered")
+    .order("delivered_at", { ascending: false })
+    .limit(1)
+    .maybeSingle<{ id: string }>();
+  if (!row) return;
+  await supabase.from("device_commands").update({
+    result: {
+      applied: true,
+      mdm_action: "test_printer_connection",
+      app_version: appVersion,
+      printer,
+      acknowledged_at: new Date().toISOString()
     }
-  ].slice(0, 5);
+  }).eq("id", row.id);
+}
+
+async function persistNativeMdmState(device: PairedDevice, payload: Record<string, unknown> | null, appVersion: string | null) {
+  const supabase = getSupabaseServiceClient();
+  const metadata = asRecord(device.metadata);
+  await supabase.from("branch_devices").update({
+    last_seen_at: new Date().toISOString(),
+    metadata: {
+      ...metadata,
+      android_mdm_last_seen_at: new Date().toISOString(),
+      android_mdm_app_version: appVersion,
+      android_mdm_printer: asRecord(payload?.printer),
+      android_mdm_last_command: asRecord(payload?.last_command),
+      android_mdm_runtime: asRecord(payload?.app)
+    },
+    updated_at: new Date().toISOString()
+  }).eq("id", device.id);
+}
+
+async function deliverPrinterTestCommands(device: PairedDevice): Promise<AndroidPosMdmCommand[]> {
+  const supabase = getSupabaseServiceClient();
+  const now = new Date();
+  await supabase.from("device_commands").update({ status: "expired" })
+    .eq("pos_device_id", device.id).eq("command_type", "test_printer").eq("status", "pending").lte("expires_at", now.toISOString());
+  const { data: rows, error } = await supabase.from("device_commands")
+    .select("id,issued_at")
+    .eq("pos_device_id", device.id)
+    .eq("command_type", "test_printer")
+    .eq("status", "pending")
+    .gt("expires_at", now.toISOString())
+    .order("issued_at", { ascending: true })
+    .limit(3)
+    .returns<PendingPrinterCommand[]>();
+  if (error || !rows?.length) return [];
+  const ids = rows.map((row) => row.id);
+  await supabase.from("device_commands").update({ status: "delivered", delivered_at: now.toISOString() }).in("id", ids);
+  return rows.map((row) => ({ id: row.id, action: "test_printer_connection", reason: "printer_settings_mdm" }));
 }
 
 export async function GET() {
-  return NextResponse.json(
-    {
-      data: {
-        ok: true,
-        service: "android-pos-mdm-lite-heartbeat",
-        safe_commands: Array.from(SAFE_MDM_COMMANDS),
-        reload_generation_ms: MDM_RELOAD_GENERATION_MS,
-        commands: []
-      },
-      error: null
-    },
-    { headers: noStoreHeaders() }
-  );
+  return NextResponse.json({ data: { ok: true, service: "android-pos-mdm-lite-heartbeat", safe_commands: Array.from(SAFE_MDM_COMMANDS), reload_generation_ms: MDM_RELOAD_GENERATION_MS, commands: [] }, error: null }, { headers: noStoreHeaders() });
 }
 
 export async function POST(request: Request) {
@@ -113,33 +145,35 @@ export async function POST(request: Request) {
   const appVersion = String(request.headers.get("x-cpipos-app-version") ?? "").trim().slice(0, 40) || null;
   const isAndroidPos = request.headers.get("x-cpipos-android-pos") === "true";
   const payload = (await request.json().catch(() => null)) as Record<string, unknown> | null;
+  let commands = isAndroidPos ? buildHeartbeatCommands(payload) : [];
+  let pairedDeviceCode: string | null = null;
 
-  // This endpoint stays app-scoped and low-risk. It accepts diagnostics and
-  // returns only allowlisted commands; it does not mutate tenant business data.
-  const commands = isAndroidPos ? buildHeartbeatCommands(payload) : [];
-
-  if (commands.some((command) => command.action === "reload_webview")) {
-    console.info("[android-pos-mdm] one-time reload issued", {
-      install_id_suffix: installId?.slice(-8) ?? null,
-      app_version: appVersion,
-      generation_ms: MDM_RELOAD_GENERATION_MS
-    });
+  if (isAndroidPos) {
+    const device = await findPairedDevice(installId);
+    if (device) {
+      pairedDeviceCode = device.device_code;
+      await acknowledgePreviousPrinterTest(device, payload, appVersion);
+      await persistNativeMdmState(device, payload, appVersion);
+      commands = [...commands, ...(await deliverPrinterTestCommands(device))].slice(0, 5);
+    }
   }
 
-  return NextResponse.json(
-    {
-      data: {
-        ok: true,
-        accepted_at: new Date().toISOString(),
-        service: "android-pos-mdm-lite-heartbeat",
-        install_id: installId,
-        app_version: appVersion,
-        payload_received: Boolean(payload),
-        reload_generation_ms: MDM_RELOAD_GENERATION_MS,
-        commands
-      },
-      error: null
+  if (commands.some((command) => command.action === "reload_webview")) {
+    console.info("[android-pos-mdm] one-time reload issued", { install_id_suffix: installId?.slice(-8) ?? null, app_version: appVersion, generation_ms: MDM_RELOAD_GENERATION_MS });
+  }
+
+  return NextResponse.json({
+    data: {
+      ok: true,
+      accepted_at: new Date().toISOString(),
+      service: "android-pos-mdm-lite-heartbeat",
+      install_id: installId,
+      app_version: appVersion,
+      paired_device_code: pairedDeviceCode,
+      payload_received: Boolean(payload),
+      reload_generation_ms: MDM_RELOAD_GENERATION_MS,
+      commands
     },
-    { headers: noStoreHeaders() }
-  );
+    error: null
+  }, { headers: noStoreHeaders() });
 }
