@@ -14,7 +14,7 @@ const SAFE_MDM_COMMANDS = new Set([
 // Bump this value once, at the end of a completed product-change batch.
 // Android POS heartbeats only receive reload_webview when their last recorded
 // reload is older than this generation, preventing a 60-second reload loop.
-const MDM_RELOAD_GENERATION_MS = 1786425420000;
+const MDM_RELOAD_GENERATION_MS = 1786426940000;
 
 type AndroidPosMdmCommand = {
   id?: string;
