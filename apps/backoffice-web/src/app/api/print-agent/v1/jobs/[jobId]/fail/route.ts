@@ -1,4 +1,5 @@
 import { fail, ok } from "@/lib/http";
+import { markDrawerEventFailedByPrintAgent } from "@/lib/printing/drawer-event-agent-sync";
 import { loggedPrintApiFail } from "@/lib/printing/print-api-errors";
 import { agentAuthFail, failPrintJob, requirePrintAgent } from "@/lib/printing/print-agent-service";
 
@@ -26,6 +27,20 @@ export async function POST(req: Request, context: { params: Promise<{ jobId: str
       retryable: body?.retryable ?? null,
       metadata: body?.metadata ?? null
     });
+
+    try {
+      await markDrawerEventFailedByPrintAgent(agent, job, {
+        errorCode: body?.error_code ?? "print_agent_drawer_failed",
+        metadata: body?.metadata ?? null
+      });
+    } catch (drawerEventError) {
+      console.warn("[print-agent] drawer event sync failed after failure", {
+        job_id: job.id,
+        agent_id: agent.id,
+        error: drawerEventError instanceof Error ? drawerEventError.message : String(drawerEventError)
+      });
+    }
+
     return ok({ job });
   } catch (error) {
     const authError = agentAuthFail(error);
