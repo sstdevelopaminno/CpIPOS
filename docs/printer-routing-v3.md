@@ -101,3 +101,7 @@ Legacy `printer_role` (`receipt`, `kitchen`, `report`) remains a fallback for te
 - Do not invent LAN IP addresses or physical device identifiers.
 - Printer failure must not roll back a completed sale or shift close; queue/dead-letter/audit instead.
 - Kitchen Zone names/codes are business configuration and must not be invented when a branch has not defined them.
+
+## Production rollout verification
+
+The production rollout gate is: deploy the current branch HEAD, verify the Printer Settings screen and branch/POS assignments, then execute physical E2E against the designated test POS/printer. The physical gate must cover test print, checkout receipt, historical reprint, shift report, cash drawer where supported, kitchen fallback/zone routing, and multi-POS isolation. Record a pass only from actual runtime/print-agent evidence; do not infer physical success from CI alone.
