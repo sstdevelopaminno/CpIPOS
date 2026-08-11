@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { PosBackButton } from "@/components/pos-preview/pos-back-button";
 import type { Language } from "@/lib/i18n";
@@ -80,6 +80,9 @@ type ReceiptPayload = {
 };
 
 type DateMode = "day" | "month" | "year" | "custom";
+
+const RECEIPTS_PAGE_SIZE = 10;
+const RECEIPT_SUMMARY_VISIBILITY_KEY = "cpipos_receipts_summary_visible_v1";
 
 type ReprintState = {
   order: ReceiptRecord;
@@ -429,7 +432,7 @@ function buildQuery(params: {
   search.set("mode", params.mode);
   search.set("status", params.status);
   search.set("page", String(params.page));
-  search.set("page_size", "20");
+  search.set("page_size", String(RECEIPTS_PAGE_SIZE));
   if (params.mode === "day") search.set("date", params.date);
   if (params.mode === "month") search.set("month", params.month);
   if (params.mode === "year") search.set("year", params.year);
@@ -443,6 +446,7 @@ function buildQuery(params: {
 
 export function PosReceiptsWorkspace({ lang }: { lang: Language }) {
   const today = useMemo(() => getBangkokToday(), []);
+  const tableScrollRef = useRef<HTMLDivElement | null>(null);
   const [mode, setMode] = useState<DateMode>("day");
   const [date, setDate] = useState(today);
   const [month, setMonth] = useState(today.slice(0, 7));
@@ -455,6 +459,7 @@ export function PosReceiptsWorkspace({ lang }: { lang: Language }) {
   const [payload, setPayload] = useState<ReceiptPayload | null>(null);
   const [selected, setSelected] = useState<ReceiptRecord | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
+  const [summaryVisible, setSummaryVisible] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [reprint, setReprint] = useState<ReprintState | null>(null);
@@ -468,6 +473,8 @@ export function PosReceiptsWorkspace({ lang }: { lang: Language }) {
         month: "รายเดือน",
         year: "รายปี",
         custom: "กำหนดเอง",
+        showSummary: "แสดงสรุป",
+        hideSummary: "ซ่อนสรุป",
         statusAll: "ทุกสถานะ",
         statusPaid: "ชำระแล้ว",
         statusQueued: "รอชำระ",
@@ -506,6 +513,8 @@ export function PosReceiptsWorkspace({ lang }: { lang: Language }) {
         month: "Month",
         year: "Year",
         custom: "Custom",
+        showSummary: "Show summary",
+        hideSummary: "Hide summary",
         statusAll: "All status",
         statusPaid: "Paid",
         statusQueued: "Queued",
@@ -554,6 +563,9 @@ export function PosReceiptsWorkspace({ lang }: { lang: Language }) {
         return nextData.records.find((record) => record.id === current.id) ?? nextData.records[0] ?? null;
       });
       setPage(nextPage);
+      window.requestAnimationFrame(() => {
+        tableScrollRef.current?.scrollTo({ top: 0, behavior: "smooth" });
+      });
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : "Cannot load receipts.");
     } finally {
@@ -562,9 +574,29 @@ export function PosReceiptsWorkspace({ lang }: { lang: Language }) {
   }
 
   useEffect(() => {
+    try {
+      setSummaryVisible(window.localStorage.getItem(RECEIPT_SUMMARY_VISIBILITY_KEY) === "1");
+    } catch {
+      setSummaryVisible(false);
+    }
+  }, []);
+
+  useEffect(() => {
     void load(1);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mode, status]);
+
+  function toggleSummary() {
+    setSummaryVisible((current) => {
+      const next = !current;
+      try {
+        window.localStorage.setItem(RECEIPT_SUMMARY_VISIBILITY_KEY, next ? "1" : "0");
+      } catch {
+        // Keep the in-memory preference when storage is unavailable.
+      }
+      return next;
+    });
+  }
 
   function openBrowserReceiptPrint(record: ReceiptRecord) {
     const receiptHtml = buildReceiptPrintHtml({
@@ -629,17 +661,19 @@ export function PosReceiptsWorkspace({ lang }: { lang: Language }) {
       <section className="mx-auto grid max-w-[1480px] gap-4">
         <header className="flex flex-wrap items-end justify-between gap-3">
           <div>
-            <PosBackButton lang={lang} href="/preview/pos/more" label={lang === "th" ? "กลับเมนูเพิ่มเติม" : "Back to More"} className="mb-3" />
             <h1 className="m-0 text-[26px] font-black tracking-normal text-slate-950">{copy.title}</h1>
             <p className="mt-1 max-w-3xl text-sm text-slate-600">{copy.desc}</p>
           </div>
-          <button
-            type="button"
-            onClick={() => void load(1)}
-            className="h-10 rounded-lg border border-slate-300 bg-white px-4 text-sm font-bold text-slate-700 shadow-sm hover:bg-slate-100"
-          >
-            {copy.refresh}
-          </button>
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            <PosBackButton lang={lang} href="/preview/pos/more" label={lang === "th" ? "กลับเมนูเพิ่มเติม" : "Back to More"} />
+            <button
+              type="button"
+              onClick={() => void load(1)}
+              className="h-10 rounded-lg border border-slate-300 bg-white px-4 text-sm font-bold text-slate-700 shadow-sm hover:bg-slate-100"
+            >
+              {copy.refresh}
+            </button>
+          </div>
         </header>
 
         <section className="grid gap-3 rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
@@ -664,6 +698,18 @@ export function PosReceiptsWorkspace({ lang }: { lang: Language }) {
                 {label}
               </button>
             ))}
+            <button
+              type="button"
+              onClick={toggleSummary}
+              aria-expanded={summaryVisible}
+              className={`h-9 rounded-lg border px-3 text-sm font-bold ${
+                summaryVisible
+                  ? "border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100"
+                  : "border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100"
+              }`}
+            >
+              {summaryVisible ? copy.hideSummary : copy.showSummary}
+            </button>
           </div>
 
           <div className="grid gap-2 lg:grid-cols-[1fr_180px_180px_auto]">
@@ -703,20 +749,22 @@ export function PosReceiptsWorkspace({ lang }: { lang: Language }) {
           </div>
         </section>
 
-        <section className="grid gap-3 md:grid-cols-4">
-          <Metric label={copy.receipts} value={String(payload?.summary.receiptCount ?? 0)} />
-          <Metric label={copy.completed} value={String(payload?.summary.completedCount ?? 0)} />
-          <Metric label={copy.gross} value={formatMoney(payload?.summary.grossTotal ?? 0, lang)} />
-          <Metric label={copy.paid} value={formatMoney(payload?.summary.paidTotal ?? 0, lang)} />
-        </section>
+        {summaryVisible ? (
+          <section className="grid gap-3 md:grid-cols-4">
+            <Metric label={copy.receipts} value={String(payload?.summary.receiptCount ?? 0)} />
+            <Metric label={copy.completed} value={String(payload?.summary.completedCount ?? 0)} />
+            <Metric label={copy.gross} value={formatMoney(payload?.summary.grossTotal ?? 0, lang)} />
+            <Metric label={copy.paid} value={formatMoney(payload?.summary.paidTotal ?? 0, lang)} />
+          </section>
+        ) : null}
 
         {error ? <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm font-bold text-red-700">{error}</p> : null}
 
         <section>
           <div className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
-            <div className="max-h-[58vh] overflow-auto">
+            <div ref={tableScrollRef} className="max-h-[52vh] min-h-[260px] overflow-auto overscroll-contain">
               <table className="w-full min-w-[920px] border-collapse text-left text-sm">
-                <thead className="sticky top-0 bg-slate-100 text-xs uppercase text-slate-500">
+                <thead className="sticky top-0 z-10 bg-slate-100 text-xs uppercase text-slate-500 shadow-[0_1px_0_rgba(148,163,184,0.25)]">
                   <tr>
                     <Th>{copy.bill}</Th>
                     <Th>{copy.time}</Th>
@@ -769,15 +817,15 @@ export function PosReceiptsWorkspace({ lang }: { lang: Language }) {
                 </tbody>
               </table>
             </div>
-            <div className="flex items-center justify-between border-t border-slate-200 px-3 py-2 text-sm text-slate-600">
+            <div className="flex flex-wrap items-center justify-between gap-2 border-t border-slate-200 px-3 py-2 text-sm text-slate-600">
               <span>
-                {pagination ? `${pagination.page} / ${Math.max(1, pagination.total_pages)}` : "-"}
+                {pagination ? `${pagination.page} / ${Math.max(1, pagination.total_pages)} · ${pagination.total} ${copy.receipts}` : "-"}
               </span>
               <div className="flex gap-2">
-                <button disabled={!pagination || pagination.page <= 1} onClick={() => void load(page - 1)} className="h-8 rounded-lg border border-slate-300 px-3 font-bold disabled:opacity-40">
+                <button type="button" disabled={!pagination || pagination.page <= 1} onClick={() => void load(page - 1)} className="h-8 rounded-lg border border-slate-300 px-3 font-bold disabled:opacity-40">
                   {copy.prev}
                 </button>
-                <button disabled={!pagination || pagination.page >= pagination.total_pages} onClick={() => void load(page + 1)} className="h-8 rounded-lg border border-slate-300 px-3 font-bold disabled:opacity-40">
+                <button type="button" disabled={!pagination || pagination.page >= pagination.total_pages} onClick={() => void load(page + 1)} className="h-8 rounded-lg border border-slate-300 px-3 font-bold disabled:opacity-40">
                   {copy.next}
                 </button>
               </div>
