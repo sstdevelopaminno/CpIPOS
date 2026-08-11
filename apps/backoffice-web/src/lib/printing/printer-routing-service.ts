@@ -62,14 +62,13 @@ function readStringArray(value: unknown) {
   return value.map((item) => (typeof item === "string" ? item.trim() : "")).filter(Boolean);
 }
 
-function profileTargetsRuntime(printer: PrinterProfileRow, runtimeDeviceCode: string) {
+function profileRuntimeCodes(printer: PrinterProfileRow) {
   const metadata = printer.metadata && typeof printer.metadata === "object" && !Array.isArray(printer.metadata)
     ? (printer.metadata as Record<string, unknown>)
     : {};
-  const codes = readStringArray(
+  return readStringArray(
     metadata.agent_device_code ?? metadata.agent_device_codes ?? metadata.runtime_device_code ?? metadata.device_code ?? metadata.device_codes
   );
-  return codes.length === 0 || codes.includes(runtimeDeviceCode);
 }
 
 async function loadLegacyRoleRoutes(args: {
@@ -92,8 +91,12 @@ async function loadLegacyRoleRoutes(args: {
   const runtimeCode = clean(args.runtimeDeviceCode);
   let profiles = (data ?? []) as PrinterProfileRow[];
   if (runtimeCode) {
-    const targeted = profiles.filter((profile) => profileTargetsRuntime(profile, runtimeCode));
-    if (targeted.length > 0) profiles = targeted;
+    const exact = profiles.filter((profile) => profileRuntimeCodes(profile).includes(runtimeCode));
+    if (exact.length > 0) {
+      profiles = exact;
+    } else {
+      profiles = profiles.filter((profile) => profileRuntimeCodes(profile).length === 0);
+    }
   }
 
   return profiles.map<ResolvedPrinterRoute>((printer) => ({
@@ -139,8 +142,7 @@ function selectAssignmentRows(args: {
         const device = args.devicesById.get(assignment.printer_device_id);
         return !clean(device?.runtime_device_code);
       });
-      if (branchDefault.length > 0) assignments = branchDefault;
-      else assignments = [];
+      assignments = branchDefault.length > 0 ? branchDefault : [];
     }
   } else {
     const explicitDefaults = assignments.filter((assignment) => assignment.is_default);
