@@ -1,7 +1,9 @@
+import { after } from "next/server";
 import type { AuthContext } from "@/lib/auth-context";
 import { appendAuditLog } from "@/lib/audit-log";
 import { fail, ok } from "@/lib/http";
 import { PosGuardError, requirePermission, requirePosSession, type PosSessionScope } from "@/lib/pos-session-guard";
+import { queueRoutedShiftReport } from "@/lib/printing/routed-print-service";
 import { executeShiftClose } from "@/lib/services/shift-close-service";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
 import { FeatureGateError, requireTenantFeature } from "@/lib/feature-gate";
@@ -175,6 +177,24 @@ export async function POST(req: Request) {
     if (closeError) {
       return fail("shift_close_update_failed", closeError.message, 500);
     }
+
+    after(async () => {
+      try {
+        await queueRoutedShiftReport({
+          auth,
+          shiftId: body.shift_id,
+          runtimeDeviceCode: scope.session.device_code
+        });
+      } catch (printError) {
+        console.error("shift_close_report_print_failed", {
+          tenant_id: auth.tenantId,
+          branch_id: auth.branchId,
+          shift_id: body.shift_id,
+          runtime_device_code: scope.session.device_code,
+          error: printError instanceof Error ? printError.message : "unknown"
+        });
+      }
+    });
 
     return ok(result.data);
   } catch (error) {
