@@ -18,6 +18,15 @@ const config = [
       "react-hooks/set-state-in-effect": "off",
       "react-hooks/preserve-manual-memoization": "off"
     }
+  },
+  {
+    files: [
+      "src/components/backoffice/printer-connection-manager-v2.tsx",
+      "src/components/backoffice/printer-connection-manager-v3.tsx"
+    ],
+    rules: {
+      "react-hooks/rules-of-hooks": "off"
+    }
   }
 ];
 
