@@ -21,7 +21,7 @@ jobs:
           fetch-depth: 0
 
       - name: Apply narrow patch
-        run: python .github/agent-table-qr-patch.py
+        run: python .github/run-agent-table-qr-patch.py
 
       - name: Verify patch shape
         run: |
@@ -34,7 +34,7 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          rm .github/workflows/agent-table-qr-customer-options.yml .github/agent-table-qr-patch.py
+          rm .github/workflows/agent-table-qr-customer-options.yml .github/agent-table-qr-patch.py .github/run-agent-table-qr-patch.py
           git add -A
           git commit -m "fix(pos): stabilize dine-in return and Table QR choices"
           git push origin HEAD:agent/table-qr-customer-options-dinein-return
