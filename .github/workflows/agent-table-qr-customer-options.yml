@@ -23,6 +23,15 @@ jobs:
       - name: Apply narrow patch
         run: python .github/run-agent-table-qr-patch.py
 
+      - name: Normalize documentation EOF
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          for name in ("README.md", "context.md"):
+              path = Path(name)
+              path.write_text(path.read_text(encoding="utf-8-sig").rstrip() + "\n", encoding="utf-8")
+          PY
+
       - name: Verify patch shape
         run: |
           git diff --check
