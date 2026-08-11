@@ -754,7 +754,23 @@ export function StockProductsTable({
     }
   }
 
-  const headerTools = (
+  const modeTabs = (
+  <div className="flex flex-wrap items-center gap-2">
+    <button type="button" onClick={() => selectMode("all")} className={`rounded-lg border px-3 py-1.5 text-xs font-bold transition ${modeFilter === "all" ? "border-blue-600 bg-blue-600 text-white" : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"}`}>
+      {th ? `ทั้งหมด (${products.length})` : `All (${products.length})`}
+    </button>
+    <button type="button" onClick={() => selectMode("unit_only")} className={`rounded-lg border px-3 py-1.5 text-xs font-bold transition ${modeFilter === "unit_only" ? "border-emerald-600 bg-emerald-600 text-white" : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"}`}>
+      {th ? `ตัดแบบชิ้น (${unitCount})` : `Unit Only (${unitCount})`}
+    </button>
+    <button type="button" onClick={() => selectMode("ingredients")} className={`rounded-lg border px-3 py-1.5 text-xs font-bold transition ${modeFilter === "ingredients" ? "border-sky-600 bg-sky-600 text-white" : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"}`}>
+      {th ? `วัตถุดิบ (${ingredientList.length})` : `Ingredients (${ingredientList.length})`}
+    </button>
+  </div>
+);
+
+const headerTools = (
+  <div className="flex w-full flex-wrap items-center justify-between gap-2">
+    {modeTabs}
     <div className="flex flex-wrap items-center justify-end gap-2">
       <BestSellersPopupButton th={th} branchId={branchId} branchOptions={branchOptions} canViewAllBranches={canManageCatalog && branchOptions.length > 1} />
       <button
@@ -774,32 +790,17 @@ export function StockProductsTable({
         <StockSettingsPopupButton th={th} initialAllowNegativeStock={allowNegativeStock} storageReady={inventorySettingsReady} initialStorageMessage={inventorySettingsMessage} />
       </div>
     </div>
-  );
+  </div>
+);
 
   return (
     <div className="min-w-0">
       {toolbarTarget ? createPortal(headerTools, toolbarTarget) : null}
-      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-        <h3 className="text-base font-extrabold text-slate-900 lg:text-lg">{th ? "รายการสินค้า" : "Product List"}</h3>
-      </div>
-
       {!canManageCatalog ? (
         <p className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-700">
           {th ? "สิทธิ์พนักงาน: ดูข้อมูลได้ แต่เพิ่ม/แก้ไข/ลบสินค้าไม่ได้" : "Staff role: view only. Add/edit/delete is disabled."}
         </p>
       ) : null}
-
-      <div className="mb-3 flex flex-wrap gap-2">
-        <button type="button" onClick={() => selectMode("all")} className={`rounded-lg border px-3 py-1.5 text-xs font-bold transition ${modeFilter === "all" ? "border-blue-600 bg-blue-600 text-white" : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"}`}>
-          {th ? `ทั้งหมด (${products.length})` : `All (${products.length})`}
-        </button>
-        <button type="button" onClick={() => selectMode("unit_only")} className={`rounded-lg border px-3 py-1.5 text-xs font-bold transition ${modeFilter === "unit_only" ? "border-emerald-600 bg-emerald-600 text-white" : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"}`}>
-          {th ? `ตัดแบบชิ้น (${unitCount})` : `Unit Only (${unitCount})`}
-        </button>
-        <button type="button" onClick={() => selectMode("ingredients")} className={`rounded-lg border px-3 py-1.5 text-xs font-bold transition ${modeFilter === "ingredients" ? "border-sky-600 bg-sky-600 text-white" : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"}`}>
-          {th ? `วัตถุดิบ (${ingredientList.length})` : `Ingredients (${ingredientList.length})`}
-        </button>
-      </div>
 
       {canManageCatalog && (modeFilter === "ingredients" ? selectedFilteredIngredientIds.length > 0 : selectedFilteredProductIds.length > 0) ? (
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
@@ -898,7 +899,7 @@ export function StockProductsTable({
       ) : null}
 
       {modeFilter === "ingredients" ? (
-        <div className="max-h-[56vh] overflow-auto rounded-xl border border-slate-200">
+        <div className="max-h-[45vh] overflow-auto rounded-xl border border-slate-200">
           <table className="min-w-[820px] w-full border-collapse">
             <thead className="sticky top-0 z-10 bg-slate-50">
               <tr className="bg-slate-50">
@@ -929,7 +930,7 @@ export function StockProductsTable({
           </table>
         </div>
       ) : (
-        <div className="max-h-[56vh] overflow-auto rounded-xl border border-slate-200">
+        <div className="max-h-[45vh] overflow-auto rounded-xl border border-slate-200">
           <table className="min-w-[1040px] w-full border-collapse">
             <thead className="sticky top-0 z-10 bg-slate-50">
               <tr className="bg-slate-50">
@@ -966,7 +967,7 @@ export function StockProductsTable({
         </div>
       )}
 
-      <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
+      <div className="mt-2 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
         <span className="text-xs font-semibold text-slate-600">{th ? `${rangeStart} - ${rangeEnd} / ${totalItems} รายการ` : `${rangeStart} - ${rangeEnd} / ${totalItems} items`}</span>
         <div className="flex items-center gap-2">
           <button type="button" onClick={() => setCurrentPage((prev) => Math.max(1, prev - 1))} disabled={currentPage <= 1} className="inline-flex min-h-8 items-center rounded-lg border border-slate-300 bg-white px-3 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50">{th ? "ก่อนหน้า" : "Previous"}</button>
