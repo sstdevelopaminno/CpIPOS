@@ -82,6 +82,21 @@ function isFreshWithin(value: string | null | undefined, minutes: number) {
   return Date.now() - date.getTime() <= minutes * 60_000;
 }
 
+function latestIso(values: Array<string | null | undefined>) {
+  const sorted = values.filter((value): value is string => Boolean(value)).sort();
+  return sorted.length > 0 ? sorted[sorted.length - 1] : null;
+}
+
+function drawerEventHasSentEvidence(event: RecentDrawerEvent) {
+  const metadata = asRecord(event.metadata);
+  return (
+    event.command_status === "sent" ||
+    event.physical_status === "open" ||
+    metadata.print_job_status === "printed" ||
+    Boolean(metadata.synced_from_print_agent_at)
+  );
+}
+
 async function readRecentPrintJobs(auth: Awaited<ReturnType<typeof getAuthContext>>, limit: number) {
   const supabase = getSupabaseServiceClient();
   const { data, error } = await supabase
@@ -143,15 +158,10 @@ export async function GET(req: Request) {
     const targetJobs = recentPrintJobs.filter((job) => matchedProfileIds.has(String(job.printer_id ?? "")) || jobTargetsRuntime(asRecord(job.metadata), targetDevice));
     const targetDrawerEvents = recentDrawerEvents.filter((event) => matchedProfileIds.has(String(event.printer_profile_id ?? "")) || jobTargetsRuntime(asRecord(event.metadata), targetDevice));
 
-    const latestAgentSeenAt = matchedAgents
-      .map((agent) => agent.last_seen_at)
-      .filter((value): value is string => Boolean(value))
-      .sort()
-      .at(-1) ?? null;
-
+    const latestAgentSeenAt = latestIso(matchedAgents.map((agent) => agent.last_seen_at));
     const hasFreshRuntimeHeartbeat = matchedAgents.some((agent) => agent.status === "active" && isFreshWithin(agent.last_seen_at, 10));
     const hasPrintedReceipt = targetJobs.some((job) => job.status === "printed" && job.printer_role === "receipt");
-    const hasDrawerEvent = targetDrawerEvents.some((event) => event.command_status === "sent" || event.physical_status === "open" || event.physical_status === "unsupported");
+    const hasDrawerEvent = targetDrawerEvents.some(drawerEventHasSentEvidence);
     const hasQuarantineReplay = [...targetJobs, ...targetDrawerEvents].some((row) => asRecord(row.metadata).quarantine_replay_allowed === true);
 
     return ok({
