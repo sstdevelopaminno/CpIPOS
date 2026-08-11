@@ -17,7 +17,7 @@ function mapDrawerTestError(error: unknown) {
   const message = error instanceof Error ? error.message : "Unknown error";
   if (message === "forbidden_role") return fail("forbidden_role", "Only manager or owner can test the cash drawer from printer settings.", 403);
   if (message === "printer_not_configured") return fail("printer_not_configured", "No enabled receipt printer or drawer controller is configured for this branch.", 422);
-  if (message === "drawer_not_configured") return fail("drawer_not_configured", "Cash drawer is not enabled on any receipt printer or drawer controller profile.", 422);
+  if (message === "drawer_not_configured") return fail("drawer_not_configured", "Cash drawer is not enabled on the selected receipt printer or drawer controller profile.", 422);
   if (message === "drawer_reason_required") return fail("drawer_reason_required", "reason is required for cash drawer testing.", 422);
   if (message === "drawer_cooldown") return fail("drawer_cooldown", "Please wait a moment before testing the drawer again.", 429);
   if (message.includes("timeout")) return fail("print_agent_unavailable", "Print agent, Runtime, drawer controller, or printer did not respond in time.", 504);
@@ -32,13 +32,15 @@ export async function POST(req: Request) {
     }
 
     const body = (await req.json().catch(() => ({}))) as DrawerTestPayload;
+    const printerId = body.printer_id?.trim() || null;
     const result = await openCashDrawerController(auth, {
       triggerSource: "manual",
       reason: body.reason?.trim() || "printer_settings_v2_drawer_test",
+      printerId,
       requestedMode: body.mode ?? null,
       metadata: {
         source: "printer_settings_v2",
-        requested_printer_id: body.printer_id ?? null,
+        requested_printer_id: printerId,
         runtime_device_code: body.runtime_device_code ?? null,
         mdm_runtime_test: true,
         quarantine_replay_allowed: false,
