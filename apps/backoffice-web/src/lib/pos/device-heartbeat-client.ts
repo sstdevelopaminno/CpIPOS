@@ -163,7 +163,7 @@ export async function buildHeartbeatPayload(input: BuildHeartbeatPayloadInput): 
       dns_healthy: null,
       network_type: surface,
       ip_address: null,
-      latency_ms: Date.now() - startedAt,
+      latency_ms: null,
       offline_since: null,
       last_seen_at: capturedAt
     },
@@ -208,7 +208,9 @@ export async function buildHeartbeatPayload(input: BuildHeartbeatPayloadInput): 
     security_signals: [],
     metadata: {
       source: `web_pos_session_heartbeat_${surface}`,
+      telemetry_profile: surface,
       reason,
+      heartbeat_uptime_ms: Math.max(0, Date.now() - startedAt),
       app_url: typeof location === "undefined" ? null : location.origin
     },
     captured_at: capturedAt
