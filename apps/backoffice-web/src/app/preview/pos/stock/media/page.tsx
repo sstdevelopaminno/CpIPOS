@@ -68,17 +68,58 @@ export default async function ProductMediaPage({
   const canManage = branchRole === "owner" || branchRole === "manager";
 
   return (
-    <section className="pos-section-card w-full self-start overflow-hidden rounded-2xl border border-slate-300 bg-white">
-      <header className="border-b border-slate-200 bg-[linear-gradient(130deg,#f8fbff_0%,#f2f7ff_45%,#f5f3ff_100%)] px-4 py-3 lg:px-6 lg:py-4">
-        <PosBackButton lang={lang} href={`/preview/pos/stock?branch_id=${encodeURIComponent(branchId)}`} label={th ? "กลับจัดการสินค้า" : "Back to Product Management"} className="mb-3" />
+    <section id="product-media-page" className="pos-section-card relative w-full self-start overflow-hidden rounded-2xl border border-slate-300 bg-white">
+      <header className="border-b border-slate-200 bg-[linear-gradient(130deg,#f8fbff_0%,#f2f7ff_45%,#f5f3ff_100%)] px-4 py-3 lg:px-6 lg:py-3">
+        <PosBackButton lang={lang} href={`/preview/pos/stock?branch_id=${encodeURIComponent(branchId)}`} label={th ? "กลับจัดการสินค้า" : "Back to Product Management"} className="mb-2" />
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div><h1 className="text-xl font-extrabold text-slate-950 lg:text-2xl">{th ? "รูปสินค้า" : "Product Images"}</h1><p className="mt-1 text-sm font-semibold text-slate-600">{th ? `จัดการรูปสำหรับหน้าขายและ QR โต๊ะ · ${branchName}` : `Manage images for Sales and Table QR · ${branchName}`}</p></div>
-          <span className="rounded-full border border-violet-200 bg-white px-3 py-1.5 text-xs font-bold text-violet-700">{th ? "Cloud Published + POS Cache" : "Cloud Published + POS Cache"}</span>
+          <span className="rounded-full border border-violet-200 bg-white px-3 py-1.5 text-xs font-bold text-violet-700">Cloud Published + POS Cache</span>
         </div>
       </header>
-      <div className="px-4 py-4 lg:px-6">
+      <div className="product-media-body px-4 py-2 lg:px-6 lg:py-2">
         <ProductMediaManager th={th} branchId={branchId} branchName={branchName} products={products} canManage={canManage} />
       </div>
+      <style>{`
+        #product-media-page .product-media-body > div {
+          gap: 0.5rem;
+        }
+
+        #product-media-page .product-media-body > div > section.rounded-2xl {
+          border: 0 !important;
+          border-radius: 0 !important;
+          box-shadow: none !important;
+          padding: 0 !important;
+        }
+
+        #product-media-page .product-media-body div.overflow-y-auto {
+          max-height: 34vh !important;
+          margin-top: 0.5rem !important;
+        }
+
+        #product-media-page .product-media-body > div > section.rounded-2xl > div:last-child {
+          margin-top: 0.5rem !important;
+          border-left: 0 !important;
+          border-right: 0 !important;
+          border-bottom: 0 !important;
+          border-radius: 0 !important;
+        }
+
+        @media (min-width: 1000px) {
+          #product-media-page .product-media-body > div > div.flex.justify-end {
+            position: absolute;
+            top: 94px;
+            right: 220px;
+            z-index: 20;
+            margin: 0;
+          }
+        }
+
+        @media (min-width: 1000px) and (min-height: 900px) {
+          #product-media-page .product-media-body div.overflow-y-auto {
+            max-height: 42vh !important;
+          }
+        }
+      `}</style>
     </section>
   );
 }
