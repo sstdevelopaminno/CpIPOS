@@ -24,7 +24,6 @@ export const UNSUPPORTED_DEVICE_COMMAND_TYPES: readonly DeviceCommandType[] = [
   "clear_print_queue",
   "restart_local_bridge",
   "restart_print_service",
-  "test_printer",
   "check_update"
 ];
 
