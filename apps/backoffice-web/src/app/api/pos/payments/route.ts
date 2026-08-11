@@ -7,7 +7,8 @@ import { requirePermission, requirePosSession } from "@/lib/pos-session-guard";
 import { fail, ok } from "@/lib/http";
 import { invalidatePosScopeRuntimeCaches } from "@/lib/pos-cache-invalidation";
 import { appendPosDeadLetter, POS_GUARDS } from "@/lib/pos-resilience";
-import { enqueuePrintJobsForOrderSnapshot } from "@/lib/printing/print-service";
+import { queueRoutedSalesReceipt } from "@/lib/printing/routed-print-service";
+import { dispatchOrderToKitchen } from "@/lib/services/kitchen-routing-service";
 import { invalidatePosSalesListCacheForScope } from "@/lib/services/pos-sales-list-service";
 import { executeCompletePosPaymentTransaction } from "@/lib/services/pos-sales-service";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
@@ -162,7 +163,6 @@ export async function POST(req: Request) {
           .eq("tenant_id", auth.tenantId!)
           .eq("branch_id", auth.branchId!)
           .eq("order_id", body.order_id)
-              .gt("quantity", 0)
           .eq("id", transferVerificationId)
           .maybeSingle<TransferVerificationRow>();
 
@@ -409,22 +409,20 @@ export async function POST(req: Request) {
               .eq("order_id", body.order_id)
           ]);
 
-          if (orderError) {
-            throw new Error(orderError.message);
-          }
-          if (itemError) {
-            throw new Error(itemError.message);
-          }
+          if (orderError) throw new Error(orderError.message);
+          if (itemError) throw new Error(itemError.message);
 
-          await enqueuePrintJobsForOrderSnapshot({
+          await queueRoutedSalesReceipt({
             auth,
+            runtimeDeviceCode: scope.session.device_code,
             order: {
               id: orderRow.id,
               order_no: orderRow.order_no,
               total_amount: Number(orderRow.total_amount),
               discount_amount: Number(orderRow.discount_amount ?? 0),
               notes: orderRow.notes,
-              customer_name: orderRow.customer_name
+              cash_received: receivedAmount,
+              change_amount: changeAmount
             },
             items: (itemRows ?? []).map((row) => ({
               product_name: ((row.products as { name?: string } | null)?.name ?? "Item").toString(),
@@ -433,9 +431,21 @@ export async function POST(req: Request) {
               line_total: Number(row.line_total),
               note: row.notes
             })),
-            paymentMethod,
-            includeKitchenTicket: body.print_kitchen_ticket === true
+            paymentMethod
           });
+
+          if (body.print_kitchen_ticket === true) {
+            const kitchenResult = await dispatchOrderToKitchen({
+              tenantId: auth.tenantId!,
+              branchId: auth.branchId!,
+              orderId: body.order_id,
+              eventKey: `payment-kitchen:${requestGroupId}`,
+              action: "reprint",
+              actorUserId: auth.userId,
+              actorRole: auth.branchRole ?? auth.platformRole
+            });
+            if (!kitchenResult.ok) throw new Error(kitchenResult.message);
+          }
         }
       } catch (printError) {
         const warning = printError instanceof Error ? printError.message : "print_queue_failed";
@@ -447,6 +457,7 @@ export async function POST(req: Request) {
           reason: "print_queue_failed",
           metadata: {
             detail: warning,
+            runtime_device_code: scope.session.device_code,
             deferred: true
           }
         });
