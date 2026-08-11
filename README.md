@@ -310,3 +310,14 @@ Current behavior/security decisions are governed by the latest migrations, CI/te
 - Reduced the bounded product/ingredient table height from `56vh` to `45vh` and tightened pagination spacing so Previous / Page / Next sits higher on POS-class 1365x768 displays.
 - Pagination remains 10 rows per page and no catalog, stock mutation, sales, receipt, shift, payment, tenant, or branch authorization logic changed.
 - This is system-wide Web POS behavior; the physical POS terminal is the primary acceptance-test device only.
+
+## Product Media v1 — 2026-08-11
+
+- Added canonical product-image storage on **CpiPOS-001 Primary** so the same published media can be used for both Primary- and Trial-routed product IDs without exposing Trial credentials to clients.
+- New Storage bucket `product-media` is public-read for customer-facing menu images, WebP-only, with server-side writes/deletes through the service role. Asset metadata lives in server-only `product_media_assets` with RLS enabled and no anon/authenticated table privileges.
+- Package/contract media quotas are enforced atomically by `upsert_product_media_asset_tx`: Starter = 250 MB Cloud + 1 GB POS cache, Growth = 1 GB Cloud + 4 GB POS cache, Custom default = 5 GB Cloud + 16 GB POS cache. Contract metadata can override either allowance.
+- `/preview/pos/stock/media` provides Owner/Manager upload, replace and delete controls. Source JPG/PNG/WebP up to 20 MB is center-cropped to 1:1 and optimized client-side to WebP: display up to 1200px and thumbnail up to 400px before upload.
+- **Cloud Published** is the source of truth and is visible on Web POS, POS Sales and customer Table QR. **POS Local Cache** is an additional best-effort CacheStorage copy capped by the package device-cache allowance; cache failure never blocks sales and local-only media is not treated as QR-visible media.
+- POS product cards now use published thumbnails and registered POS sessions can warm/read the local media cache. Table QR menu responses include published image URLs; image lookup is fail-soft so media failure cannot block menu/order flow.
+- Product media mutations are tenant/branch scoped from trusted POS session data, require Owner/Manager, verify the product on its routed data plane, and emit audit events. The browser never chooses a tenant, data plane, or service-role credential.
+- Migration `20260811072000_product_media_v1.sql` was applied to CpiPOS-001 and verified for Storage configuration, RLS, service-role-only RPC execution and quota behavior. No product/order/payment/shift/stock transaction semantics changed.
