@@ -14,6 +14,7 @@ Production-oriented multi-tenant / multi-branch POS platform.
 - Trial data-plane status/runbook: `docs/CPIPOS-TRIAL-DATA-PLANE-2026-08-08.md`
 - Database housekeeping: `docs/DATABASE-HOUSEKEEPING-2026-08-07.md`
 - Table Management UI/UX checkpoint: `docs/TABLE-MANAGEMENT-UI-CLEANUP-2026-08-11.md`
+- Product Management UI/UX checkpoint: `docs/PRODUCT-MANAGEMENT-UI-CLEANUP-2026-08-11.md`
 - Historical handoff: `docs/CPIPOS-HANDOFF-2026-07-28.md`
 
 Read the guardrails before changing authentication, tenant isolation, database routing, POS transactions, payments, devices, migrations or production configuration.
@@ -32,6 +33,15 @@ Read the guardrails before changing authentication, tenant isolation, database r
 - BOARD remains full-list and is not paginated by LIST presentation logic.
 - The POS terminal is a primary test device only; these changes apply to the shared Web POS system.
 - Detailed acceptance notes: `docs/TABLE-MANAGEMENT-UI-CLEANUP-2026-08-11.md`.
+
+## Product Management UI/UX checkpoint — 2026-08-11
+
+- `/preview/pos/stock` now places Best Sellers, Search/Filter, Manage Categories, Unit Stock, and Stock Settings in the top page header while preserving their existing client state/popups through a React portal.
+- Removed the old 60-product query cap so the selected branch can expose the complete product result returned by Supabase instead of silently stopping at 60.
+- Product and ingredient lists use 10 rows per client page with bounded vertical scrolling, sticky table headers, visible range text, Previous / page count / Next controls, and page-1 reset after filter/mode changes.
+- No database migration or sales/order/payment/shift transaction logic changed.
+- The Android POS terminal remains the primary test device only; these are shared Web POS behaviors.
+- Detailed acceptance notes: `docs/PRODUCT-MANAGEMENT-UI-CLEANUP-2026-08-11.md`.
 
 ## Applications
 
@@ -283,6 +293,7 @@ Current references:
 - `docs/CPIPOS-TRIAL-DATA-PLANE-2026-08-08.md`
 - `docs/DATABASE-HOUSEKEEPING-2026-08-07.md`
 - `docs/TABLE-MANAGEMENT-UI-CLEANUP-2026-08-11.md`
+- `docs/PRODUCT-MANAGEMENT-UI-CLEANUP-2026-08-11.md`
 - `docs/ACTIVE-DOCS-INDEX.md`
 - `docs/INET-NOPS-QR-OPERATIONS-MANUAL.md`
 - `docs/production-readiness-checklist.md`
