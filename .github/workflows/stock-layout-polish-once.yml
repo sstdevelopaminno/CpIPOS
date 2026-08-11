@@ -1,0 +1,160 @@
+name: Stock layout polish once
+
+on:
+  push:
+    branches:
+      - agent-docs-preflight-schema-drift
+    paths:
+      - .github/workflows/stock-layout-polish-once.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent-docs-preflight-schema-drift
+          fetch-depth: 0
+
+      - name: Apply guarded stock layout polish
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          page_path = Path('apps/backoffice-web/src/app/preview/pos/stock/page.tsx')
+          table_path = Path('apps/backoffice-web/src/components/pos-preview/stock-products-table.tsx')
+          page = page_path.read_text(encoding='utf-8-sig')
+          table = table_path.read_text(encoding='utf-8-sig')
+
+          def replace_once(text: str, old: str, new: str, label: str) -> str:
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f'{label}: expected 1 occurrence, found {count}')
+              return text.replace(old, new, 1)
+
+          page = replace_once(
+              page,
+              'lg:grid-cols-[minmax(0,1fr)_minmax(320px,420px)_auto]',
+              'lg:grid-cols-[minmax(260px,1fr)_minmax(360px,520px)_auto]',
+              'header grid columns'
+          )
+
+          old_branch_left = '''            <StockBranchSelector
+              th={th}
+              canManageCatalog={canManageCatalog}
+              branchOptions={branchOptions}
+              selectedBranchId={selectedBranchId}
+            />
+            {branchScopeWarning ? <p className="mt-2 text-xs font-semibold text-amber-700">{branchScopeWarning}</p> : null}
+'''
+          page = replace_once(page, old_branch_left, '', 'remove old branch selector')
+
+          old_kpis = '''          <div className="grid grid-cols-2 gap-2">
+            <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
+              <p className="text-[11px] text-slate-500">{t(lang, "pos_stock_total_products")}</p>
+              <p className="mt-0.5 text-2xl font-extrabold leading-none text-slate-900">{totalProducts}</p>
+            </div>
+            <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2">
+              <p className="text-[11px] text-amber-700">{t(lang, "pos_stock_low_ingredients")}</p>
+              <p className="mt-0.5 text-2xl font-extrabold leading-none text-amber-900">{lowStockCount}</p>
+            </div>
+          </div>
+'''
+          new_branch_middle = '''          <div className="lg:pt-1 [&>div]:mt-0">
+            <StockBranchSelector
+              th={th}
+              canManageCatalog={canManageCatalog}
+              branchOptions={branchOptions}
+              selectedBranchId={selectedBranchId}
+            />
+            {branchScopeWarning ? <p className="mt-1 text-xs font-semibold text-amber-700">{branchScopeWarning}</p> : null}
+          </div>
+'''
+          page = replace_once(page, old_kpis, new_branch_middle, 'move branch selector into KPI slot')
+
+          action_anchor = '''          <div className="flex flex-wrap items-center justify-end gap-2">
+            <AddProductPopupButton
+'''
+          action_replacement = '''          <div className="flex flex-wrap items-center justify-end gap-2">
+            <details className="group relative">
+              <summary className="inline-flex min-h-10 cursor-pointer list-none items-center rounded-xl border border-slate-300 bg-white px-3 text-xs font-bold text-slate-700 shadow-sm transition hover:bg-slate-50">
+                <span className="group-open:hidden">{th ? "แสดงสรุป" : "Show Summary"}</span>
+                <span className="hidden group-open:inline">{th ? "ซ่อนสรุป" : "Hide Summary"}</span>
+              </summary>
+              <div className="absolute right-0 top-full z-50 mt-2 grid w-80 grid-cols-2 gap-2 rounded-xl border border-slate-200 bg-white p-2 shadow-xl">
+                <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
+                  <p className="text-[11px] text-slate-500">{t(lang, "pos_stock_total_products")}</p>
+                  <p className="mt-0.5 text-2xl font-extrabold leading-none text-slate-900">{totalProducts}</p>
+                </div>
+                <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2">
+                  <p className="text-[11px] text-amber-700">{t(lang, "pos_stock_low_ingredients")}</p>
+                  <p className="mt-0.5 text-2xl font-extrabold leading-none text-amber-900">{lowStockCount}</p>
+                </div>
+              </div>
+            </details>
+            <AddProductPopupButton
+'''
+          page = replace_once(page, action_anchor, action_replacement, 'insert summary toggle')
+
+          page = replace_once(
+              page,
+              'className="mt-3 flex min-h-9 flex-wrap items-center justify-end gap-2 border-t border-slate-200/80 pt-3"',
+              'className="mt-2 flex min-h-9 flex-wrap items-center justify-end gap-2 border-t border-slate-200/80 pt-2"',
+              'raise stock action toolbar'
+          )
+          page = replace_once(
+              page,
+              'className="border-b border-slate-200 bg-[linear-gradient(130deg,#f8fbff_0%,#f2f7ff_34%,#fff7ed_100%)] px-4 py-4 lg:px-6 lg:py-5"',
+              'className="border-b border-slate-200 bg-[linear-gradient(130deg,#f8fbff_0%,#f2f7ff_34%,#fff7ed_100%)] px-4 py-3 lg:px-6 lg:py-4"',
+              'compact stock header padding'
+          )
+          page = replace_once(
+              page,
+              'className="grid gap-4 px-4 py-4 lg:px-6 lg:py-5"',
+              'className="grid gap-3 px-4 py-3 lg:px-6 lg:py-3"',
+              'compact table section padding'
+          )
+
+          old_footer = 'className="mt-2 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2"'
+          new_footer = 'className="mt-2 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-blue-200 bg-white px-3 py-2 shadow-[0_6px_18px_rgba(15,23,42,0.08)]"'
+          table = replace_once(table, old_footer, new_footer, 'pagination footer')
+
+          old_range = 'className="text-xs font-semibold text-slate-600"'
+          if table.count(old_range) < 1:
+              raise SystemExit('pagination range: expected at least 1 occurrence')
+          footer_pos = table.index(new_footer)
+          range_pos = table.index(old_range, footer_pos)
+          table = table[:range_pos] + 'className="text-xs font-bold text-slate-700"' + table[range_pos + len(old_range):]
+
+          old_prev = 'className="inline-flex min-h-8 items-center rounded-lg border border-slate-300 bg-white px-3 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50">{th ? "ก่อนหน้า" : "Previous"}</button>'
+          new_prev = 'className="inline-flex min-h-9 items-center rounded-lg border border-blue-200 bg-white px-4 text-xs font-bold text-blue-700 shadow-sm hover:bg-blue-50 disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-400 disabled:shadow-none">{th ? "ก่อนหน้า" : "Previous"}</button>'
+          table = replace_once(table, old_prev, new_prev, 'previous button')
+
+          old_page = 'className="min-w-20 text-center text-xs font-bold text-slate-600">{th ? `หน้า ${currentPage} / ${totalPages}` : `Page ${currentPage} / ${totalPages}`}</strong>'
+          new_page = 'className="min-w-24 rounded-lg border border-slate-200 bg-slate-100 px-3 py-2 text-center text-xs font-extrabold text-slate-700">{th ? `หน้า ${currentPage} / ${totalPages}` : `Page ${currentPage} / ${totalPages}`}</strong>'
+          table = replace_once(table, old_page, new_page, 'page indicator')
+
+          old_next = 'className="inline-flex min-h-8 items-center rounded-lg border border-slate-300 bg-white px-3 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50">{th ? "ถัดไป" : "Next"}</button>'
+          new_next = 'className="inline-flex min-h-9 items-center rounded-lg border border-blue-600 bg-blue-600 px-4 text-xs font-extrabold text-white shadow-sm hover:bg-blue-700 disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-400 disabled:shadow-none">{th ? "ถัดไป" : "Next"}</button>'
+          table = replace_once(table, old_next, new_next, 'next button')
+
+          page_path.write_text(page, encoding='utf-8')
+          table_path.write_text(table, encoding='utf-8')
+          PY
+
+          git diff --check
+          git diff -- apps/backoffice-web/src/app/preview/pos/stock/page.tsx apps/backoffice-web/src/components/pos-preview/stock-products-table.tsx
+
+      - name: Commit patch
+        shell: bash
+        run: |
+          git config user.name "SST-CRUD"
+          git config user.email "sstdevelopaminno@gmail.com"
+          git add apps/backoffice-web/src/app/preview/pos/stock/page.tsx apps/backoffice-web/src/components/pos-preview/stock-products-table.tsx
+          git diff --cached --quiet && exit 0
+          git commit -m "fix(stock-ui): compact header and highlight pagination"
+          git push origin HEAD:agent-docs-preflight-schema-drift
