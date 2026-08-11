@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
@@ -151,6 +151,7 @@ export function EditProductPopupButton({
     normalizedDeliveryRates[0]?.channel ?? "line_man"
   );
   const [useIngredientRecipe, setUseIngredientRecipe] = useState(true);
+  const [customerIngredientSelectionEnabled, setCustomerIngredientSelectionEnabled] = useState(false);
   const [ingredientLines, setIngredientLines] = useState<IngredientDraftLine[]>(
     ingredients.map((item) => ({
       ingredientId: item.id,
@@ -198,6 +199,7 @@ export function EditProductPopupButton({
     setAutoDeliveryChannel(normalizedDeliveryRates[0]?.channel ?? "line_man");
     setStockQuantity("0");
     setUseIngredientRecipe(true);
+    setCustomerIngredientSelectionEnabled(false);
     setIngredientLines(
       ingredients.map((item) => ({
         ingredientId: item.id,
@@ -222,12 +224,16 @@ export function EditProductPopupButton({
         }
       );
 
-      const body = (await response.json()) as ApiEnvelope<{ items: RecipeLineItem[] }>;
+      const body = (await response.json()) as ApiEnvelope<{
+        items: RecipeLineItem[];
+        customer_ingredient_selection_enabled?: boolean;
+      }>;
       if (!response.ok || body.error || !body.data) {
         throw new Error(body.error?.message ?? (th ? "โหลดสูตรไม่สำเร็จ" : "Failed to load recipes."));
       }
 
       const recipeItems = body.data.items ?? [];
+      const customerSelectionEnabled = body.data.customer_ingredient_selection_enabled === true;
       const hasFallbackBridge = recipeItems.some((line) => {
         const ingredientRecord = Array.isArray(line.ingredients) ? line.ingredients[0] : line.ingredients;
         return String(ingredientRecord?.name ?? "").startsWith("STOCK:");
@@ -235,6 +241,7 @@ export function EditProductPopupButton({
 
       if (hasFallbackBridge) {
         setUseIngredientRecipe(false);
+        setCustomerIngredientSelectionEnabled(false);
         const fallbackLine = recipeItems.find((line) => {
           const ingredientRecord = Array.isArray(line.ingredients) ? line.ingredients[0] : line.ingredients;
           return String(ingredientRecord?.name ?? "").startsWith("STOCK:");
@@ -251,6 +258,7 @@ export function EditProductPopupButton({
         );
       } else {
         setUseIngredientRecipe(true);
+        setCustomerIngredientSelectionEnabled(customerSelectionEnabled);
         setStockQuantity("0");
         setIngredientLines(toDraftLinesFromRecipes(ingredients, recipeItems));
       }
@@ -372,6 +380,7 @@ export function EditProductPopupButton({
           delivery_price: resolvedDeliveryPrice,
           delivery_prices_by_channel: deliveryPriceByChannel,
           use_ingredient_recipe: useIngredientRecipe,
+          customer_ingredient_selection_enabled: useIngredientRecipe && customerIngredientSelectionEnabled,
           ingredient_lines: selectedIngredientLines
         })
       });
@@ -530,10 +539,44 @@ export function EditProductPopupButton({
             </div>
 
             <div className="mt-3 rounded-xl border border-slate-200 p-3">
-              <label className="inline-flex min-h-9 cursor-pointer items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 text-sm font-bold text-slate-800">
-                <input type="checkbox" checked={useIngredientRecipe} onChange={(event) => setUseIngredientRecipe(event.target.checked)} className="h-4 w-4 rounded border-slate-300" />
-                <span>{th ? "เปิดโหมดสูตรวัตถุดิบ" : "Enable ingredient recipe mode"}</span>
-              </label>
+              <div className="flex flex-wrap items-center gap-2">
+                <label className="inline-flex min-h-9 cursor-pointer items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 text-sm font-bold text-slate-800">
+                  <input
+                    type="checkbox"
+                    checked={useIngredientRecipe}
+                    onChange={(event) => {
+                      const checked = event.target.checked;
+                      setUseIngredientRecipe(checked);
+                      if (!checked) setCustomerIngredientSelectionEnabled(false);
+                    }}
+                    className="h-4 w-4 rounded border-slate-300"
+                  />
+                  <span>{th ? "เปิดโหมดสูตรวัตถุดิบ" : "Enable ingredient recipe mode"}</span>
+                </label>
+                <label
+                  className={`inline-flex min-h-9 items-center gap-2 rounded-lg border px-3 text-sm font-bold ${
+                    useIngredientRecipe
+                      ? "cursor-pointer border-blue-200 bg-blue-50 text-blue-800"
+                      : "cursor-not-allowed border-slate-200 bg-slate-100 text-slate-400"
+                  }`}
+                >
+                  <input
+                    type="checkbox"
+                    checked={customerIngredientSelectionEnabled}
+                    disabled={!useIngredientRecipe}
+                    onChange={(event) => setCustomerIngredientSelectionEnabled(event.target.checked)}
+                    className="h-4 w-4 rounded border-slate-300"
+                  />
+                  <span>{th ? "สำหรับลูกค้าเลือก" : "Customer selectable"}</span>
+                </label>
+              </div>
+              {customerIngredientSelectionEnabled && useIngredientRecipe ? (
+                <p className="mt-2 text-xs font-medium text-blue-700">
+                  {th
+                    ? "ลูกค้า Table QR จะเลือกติ๊กวัตถุดิบในสูตรได้ โดยไม่แก้ราคาและไม่แก้จำนวนสูตร"
+                    : "Table QR customers may tick recipe ingredients without changing price or recipe quantities."}
+                </p>
+              ) : null}
 
               {loadingRecipe ? <p className="mt-2 text-sm text-slate-500">{th ? "กำลังโหลดสูตร..." : "Loading recipes..."}</p> : null}
 

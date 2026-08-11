@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type PointerEvent as ReactPointerEvent } from "react";
 import Image from "next/image";
@@ -7038,7 +7038,8 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
 
   function closeReceiptPopup() {
     const shouldReturnToTableBrowser =
-      receiptSession?.payment_method === "bank_transfer" && (orderType === "dine_in" || quickMode === "dine_in");
+      Boolean(receiptSession?.table_id) &&
+      (receiptSession?.order_type === "dine_in" || orderType === "dine_in" || quickMode === "dine_in");
     receiptModalClosedRef.current = true;
     setReceiptSession(null);
     setReceiptSaved(false);

@@ -338,3 +338,13 @@ Current behavior/security decisions are governed by the latest migrations, CI/te
 - Android Tablet POS is version 1.0.0 (versionCode 6) with Android System Document Picker support for Photos / Files / Google Drive, scoped storage, Bluetooth/Nearby/network/USB printer readiness, Device Admin / Device Owner enrollment foundation, and Web App launcher icon parity.
 - Broad All-files access and destructive unaudited MDM commands remain intentionally disabled. Full Device Owner provisioning, staged signed updates, rollback, and destructive policy authorization belong to the next IT Admin control-plane phase.
 - Detailed checkpoint: `docs/ANDROID-POS-1.0.0-RELEASE-2026-08-11.md`.
+
+## 2026-08-11 — Dine-in payment return + Table QR customer recipe choices
+
+- Fixed dine-in receipt close behavior: after a paid table receipt is closed (cash or bank transfer), POS returns to the table browser instead of staying inside the settled table.
+- Table QR submitted-order history is hidden from normal menu flow and opened from a receipt icon beside the table badge.
+- Table QR action success/failure notifications use transient toast messages; fatal QR/menu load failures remain inline.
+- Product edit now has `สำหรับลูกค้าเลือก` / `Customer selectable` beside ingredient recipe mode.
+- When enabled, Table QR opens a checkbox-only recipe ingredient picker. Customer selections do not change product price or recipe quantities and are persisted as the order-item note for downstream kitchen/printing work.
+- Added `products.customer_ingredient_selection_enabled` migration; default is `false`.
+- Scope intentionally excludes Kitchen PR #47 and printer logic.
