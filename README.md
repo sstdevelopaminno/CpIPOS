@@ -13,6 +13,7 @@ Production-oriented multi-tenant / multi-branch POS platform.
 - Primary guardrails: `docs/AI-GUARDRAILS-CPIPOS.md`
 - Trial data-plane status/runbook: `docs/CPIPOS-TRIAL-DATA-PLANE-2026-08-08.md`
 - Database housekeeping: `docs/DATABASE-HOUSEKEEPING-2026-08-07.md`
+- Table Management UI/UX checkpoint: `docs/TABLE-MANAGEMENT-UI-CLEANUP-2026-08-11.md`
 - Historical handoff: `docs/CPIPOS-HANDOFF-2026-07-28.md`
 
 Read the guardrails before changing authentication, tenant isolation, database routing, POS transactions, payments, devices, migrations or production configuration.
@@ -21,6 +22,16 @@ Read the guardrails before changing authentication, tenant isolation, database r
 
 - Branch `agent/table-order-concurrency-dinein-sync` hardens Table QR read/write rate-limit lanes, lightweight status polling, dine-in queued bill sync, and empty open-bill cancellation.
 - Database changes are source migrations only: Primary `20260810075709_table_order_concurrency_dinein_sync.sql` and Trial mirror `20260810075709_trial_table_order_concurrency_dinein_sync.sql`. Do not treat these as applied until an explicit migration-apply task runs.
+
+## Table Management UI/UX checkpoint — 2026-08-11
+
+- Table Management LIST view now has one visual content frame rather than nested borders.
+- LIST rows use bounded scrolling and 10-table client pagination with Previous / page count / Next controls.
+- Added system-wide bulk table creation for 5–100 tables with presets 5/10/20, branch/zone/seats/start-number/prefix/name-mode inputs, preview, duplicate validation, and one-batch insert semantics.
+- Bulk creation remains server-authorized by tenant/branch scope and table-management role, and emits one `table_bulk_create` audit event per successful batch.
+- BOARD remains full-list and is not paginated by LIST presentation logic.
+- The POS terminal is a primary test device only; these changes apply to the shared Web POS system.
+- Detailed acceptance notes: `docs/TABLE-MANAGEMENT-UI-CLEANUP-2026-08-11.md`.
 
 ## Applications
 
@@ -271,6 +282,7 @@ Current references:
 - `docs/AI-GUARDRAILS-CPIPOS.md`
 - `docs/CPIPOS-TRIAL-DATA-PLANE-2026-08-08.md`
 - `docs/DATABASE-HOUSEKEEPING-2026-08-07.md`
+- `docs/TABLE-MANAGEMENT-UI-CLEANUP-2026-08-11.md`
 - `docs/ACTIVE-DOCS-INDEX.md`
 - `docs/INET-NOPS-QR-OPERATIONS-MANUAL.md`
 - `docs/production-readiness-checklist.md`
