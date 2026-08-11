@@ -1,6 +1,6 @@
 # CpIPOS / SST iPOS Project Context (Historical Handoff)
 
-Last reviewed for CpIPOS: 2026-07-27
+Last reviewed for CpIPOS: 2026-08-11
 Current workspace: `E:\CpIPOS`
 Current repo: `https://github.com/sstdevelopaminno/CpIPOS.git`
 Current guardrail: read `docs/AI-GUARDRAILS-CPIPOS.md` first.
@@ -121,11 +121,7 @@ Primary architectural goals:
   - branches
   - devices
   - users
-- Thai-market package matrix update:
-  - `solo`: THB 350 monthly / THB 3,850 yearly, 1 branch, 1 device, 3 users
-  - `starter`: THB 690 monthly / THB 7,590 yearly, 1 branch, 2 devices, 5 users
-  - `growth`: THB 1,290 monthly / THB 14,190 yearly, 2 branches, 2 devices per branch, 10 users
-  - `enterprise`: THB 2,490 monthly / THB 27,390 yearly, 5 branches, 4 devices per branch, 30 users
+- Historical package examples in this section may be superseded by the current live package catalog; resolve current package limits from CpiPOS-001 before changing commercial entitlements.
 - POS menu and API package locks are centralized through `apps/backoffice-web/src/lib/pos-feature-map.ts` plus server-side feature checks. Locked APIs return `feature_not_enabled`.
 - Stock remains mapped to `core_pos_sales` until `stock_management` is production-ready as a separate entitlement.
 
@@ -544,3 +540,16 @@ ORDER BY p.name;
 - Reduced the bounded product/ingredient table height from `56vh` to `45vh` and tightened pagination spacing so Previous / Page / Next sits higher on POS-class 1365x768 displays.
 - Pagination remains 10 rows per page and no catalog, stock mutation, sales, receipt, shift, payment, tenant, or branch authorization logic changed.
 - This is system-wide Web POS behavior; the physical POS terminal is the primary acceptance-test device only.
+
+## Product Media v1 — 2026-08-11
+
+- Product images are now a control-plane media layer on **CpiPOS-001 Primary**, while product existence is still validated against the tenant's trusted routed product data plane. `product_id` in `product_media_assets` is intentionally cross-plane and has no same-database FK to `products`.
+- Storage bucket `product-media` is customer-public read, WebP-only and capped at 2 MiB/object; browser clients never receive service-role credentials and all upload/delete mutations go through authenticated server APIs.
+- `product_media_assets` is server-only with RLS enabled and no anon/authenticated table grants. `upsert_product_media_asset_tx` is SECURITY DEFINER but service-role executable only and uses a tenant advisory lock so concurrent uploads cannot bypass quota accounting.
+- Current media allowances are package metadata: Starter 250 MB Cloud + 1 GB POS cache; Growth 1 GB Cloud + 4 GB POS cache; Custom default 5 GB Cloud + 16 GB POS cache. Active contract metadata may override `product_media_cloud_quota_mb` and `product_media_device_cache_mb`.
+- Product image management route is `/preview/pos/stock/media`. Owner/Manager may upload, replace or delete; Staff remains view-only. Source JPG/PNG/WebP up to 20 MB is center-cropped 1:1 and converted client-side to WebP display (up to 1200px) plus thumbnail (up to 400px) before server upload.
+- **Cloud Published** is canonical and shared across Web POS, POS Sales and customer Table QR. **POS Local Cache** uses browser CacheStorage with a package-capped best-effort ledger for faster/offline display; cache errors are non-blocking and Cloud URL remains the fallback.
+- POS Sales `PosProductCard` now receives published thumbnails. Table QR menu GET loads media in parallel with stock state and returns `image_url`/`thumbnail_url`; media lookup is fail-soft so image infrastructure cannot break menu/order submission.
+- Migration `supabase/migrations/20260811072000_product_media_v1.sql` was applied to CpiPOS-001 and verified live: Storage bucket config, RLS, service-role-only RPC privilege, package metadata and rollback-only quota probe all passed. The probe left zero test media rows.
+- Feature PR #49 passed Typecheck, Lint, Tests, Primary schema drift, Trial schema drift and production build, then merged to `agent-docs-preflight-schema-drift` as `9f091bcd6a98195ff8b6999aca4f73fdeadd9962`; its Vercel Production deployment reached READY.
+- No order, payment, stock deduction, shift, pricing or receipt transaction semantics were changed by Product Media v1.
