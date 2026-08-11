@@ -1,0 +1,153 @@
+name: One-time stock UI layout patch
+
+on:
+  push:
+    branches:
+      - agent-docs-preflight-schema-drift
+    paths:
+      - .github/workflows/one-time-stock-ui-layout-patch.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch-stock-ui:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v4
+        with:
+          ref: agent-docs-preflight-schema-drift
+          fetch-depth: 0
+
+      - name: Apply focused stock UI patch
+        shell: python
+        run: |
+          from pathlib import Path
+
+          path = Path("apps/backoffice-web/src/components/pos-preview/stock-products-table.tsx")
+          raw = path.read_bytes()
+          has_bom = raw.startswith(b"\xef\xbb\xbf")
+          text = raw.decode("utf-8-sig")
+
+          old_header = '''  const headerTools = (
+            <div className="flex flex-wrap items-center justify-end gap-2">
+              <BestSellersPopupButton th={th} branchId={branchId} branchOptions={branchOptions} canViewAllBranches={canManageCatalog && branchOptions.length > 1} />
+              <button
+                type="button"
+                onClick={() => setFilterPopupOpen(true)}
+                className="inline-flex min-h-8 items-center rounded-lg border border-slate-300 bg-white px-3 text-xs font-bold text-slate-700 shadow-sm hover:bg-slate-50"
+              >
+                {th ? `ค้นหา/กรอง${activeFilterCount > 0 ? ` (${activeFilterCount})` : ""}` : `Search/Filter${activeFilterCount > 0 ? ` (${activeFilterCount})` : ""}`}
+              </button>
+              <div className={canManageCatalog ? "" : "pointer-events-none opacity-60"}>
+                <CategoryManagePopupButton th={th} categories={categoryList} branchId={branchId} />
+              </div>
+              <div className={canManageCatalog ? "" : "pointer-events-none opacity-60"}>
+                <UnitStockPopupButton th={th} items={unitStockList} />
+              </div>
+              <div className={canManageCatalog ? "" : "pointer-events-none opacity-60"}>
+                <StockSettingsPopupButton th={th} initialAllowNegativeStock={allowNegativeStock} storageReady={inventorySettingsReady} initialStorageMessage={inventorySettingsMessage} />
+              </div>
+            </div>
+          );'''
+
+          new_header = '''  const modeTabs = (
+            <div className="flex flex-wrap items-center gap-2">
+              <button type="button" onClick={() => selectMode("all")} className={`rounded-lg border px-3 py-1.5 text-xs font-bold transition ${modeFilter === "all" ? "border-blue-600 bg-blue-600 text-white" : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"}`}>
+                {th ? `ทั้งหมด (${products.length})` : `All (${products.length})`}
+              </button>
+              <button type="button" onClick={() => selectMode("unit_only")} className={`rounded-lg border px-3 py-1.5 text-xs font-bold transition ${modeFilter === "unit_only" ? "border-emerald-600 bg-emerald-600 text-white" : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"}`}>
+                {th ? `ตัดแบบชิ้น (${unitCount})` : `Unit Only (${unitCount})`}
+              </button>
+              <button type="button" onClick={() => selectMode("ingredients")} className={`rounded-lg border px-3 py-1.5 text-xs font-bold transition ${modeFilter === "ingredients" ? "border-sky-600 bg-sky-600 text-white" : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"}`}>
+                {th ? `วัตถุดิบ (${ingredientList.length})` : `Ingredients (${ingredientList.length})`}
+              </button>
+            </div>
+          );
+
+          const headerTools = (
+            <div className="flex w-full flex-wrap items-center justify-between gap-2">
+              {modeTabs}
+              <div className="flex flex-wrap items-center justify-end gap-2">
+                <BestSellersPopupButton th={th} branchId={branchId} branchOptions={branchOptions} canViewAllBranches={canManageCatalog && branchOptions.length > 1} />
+                <button
+                  type="button"
+                  onClick={() => setFilterPopupOpen(true)}
+                  className="inline-flex min-h-8 items-center rounded-lg border border-slate-300 bg-white px-3 text-xs font-bold text-slate-700 shadow-sm hover:bg-slate-50"
+                >
+                  {th ? `ค้นหา/กรอง${activeFilterCount > 0 ? ` (${activeFilterCount})` : ""}` : `Search/Filter${activeFilterCount > 0 ? ` (${activeFilterCount})` : ""}`}
+                </button>
+                <div className={canManageCatalog ? "" : "pointer-events-none opacity-60"}>
+                  <CategoryManagePopupButton th={th} categories={categoryList} branchId={branchId} />
+                </div>
+                <div className={canManageCatalog ? "" : "pointer-events-none opacity-60"}>
+                  <UnitStockPopupButton th={th} items={unitStockList} />
+                </div>
+                <div className={canManageCatalog ? "" : "pointer-events-none opacity-60"}>
+                  <StockSettingsPopupButton th={th} initialAllowNegativeStock={allowNegativeStock} storageReady={inventorySettingsReady} initialStorageMessage={inventorySettingsMessage} />
+                </div>
+              </div>
+            </div>
+          );'''
+
+          old_lower = '''      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+            <h3 className="text-base font-extrabold text-slate-900 lg:text-lg">{th ? "รายการสินค้า" : "Product List"}</h3>
+          </div>
+
+          {!canManageCatalog ? (
+            <p className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-700">
+              {th ? "สิทธิ์พนักงาน: ดูข้อมูลได้ แต่เพิ่ม/แก้ไข/ลบสินค้าไม่ได้" : "Staff role: view only. Add/edit/delete is disabled."}
+            </p>
+          ) : null}
+
+          <div className="mb-3 flex flex-wrap gap-2">
+            <button type="button" onClick={() => selectMode("all")} className={`rounded-lg border px-3 py-1.5 text-xs font-bold transition ${modeFilter === "all" ? "border-blue-600 bg-blue-600 text-white" : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"}`}>
+              {th ? `ทั้งหมด (${products.length})` : `All (${products.length})`}
+            </button>
+            <button type="button" onClick={() => selectMode("unit_only")} className={`rounded-lg border px-3 py-1.5 text-xs font-bold transition ${modeFilter === "unit_only" ? "border-emerald-600 bg-emerald-600 text-white" : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"}`}>
+              {th ? `ตัดแบบชิ้น (${unitCount})` : `Unit Only (${unitCount})`}
+            </button>
+            <button type="button" onClick={() => selectMode("ingredients")} className={`rounded-lg border px-3 py-1.5 text-xs font-bold transition ${modeFilter === "ingredients" ? "border-sky-600 bg-sky-600 text-white" : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"}`}>
+              {th ? `วัตถุดิบ (${ingredientList.length})` : `Ingredients (${ingredientList.length})`}
+            </button>
+          </div>'''
+
+          new_lower = '''      {!canManageCatalog ? (
+            <p className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-700">
+              {th ? "สิทธิ์พนักงาน: ดูข้อมูลได้ แต่เพิ่ม/แก้ไข/ลบสินค้าไม่ได้" : "Staff role: view only. Add/edit/delete is disabled."}
+            </p>
+          ) : null}'''
+
+          checks = {
+              "header": text.count(old_header),
+              "lower_heading_tabs": text.count(old_lower),
+              "table_height": text.count('max-h-[56vh]'),
+          }
+          if checks != {"header": 1, "lower_heading_tabs": 1, "table_height": 2}:
+              raise SystemExit(f"Unexpected source shape; refusing patch: {checks}")
+
+          text = text.replace(old_header, new_header, 1)
+          text = text.replace(old_lower, new_lower, 1)
+          text = text.replace('max-h-[56vh]', 'max-h-[45vh]')
+          footer_old = '<div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">'
+          if text.count(footer_old) != 1:
+              raise SystemExit(f"Unexpected pagination footer count: {text.count(footer_old)}")
+          text = text.replace(footer_old, '<div className="mt-2 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">', 1)
+
+          encoded = text.encode("utf-8")
+          if has_bom:
+              encoded = b"\xef\xbb\xbf" + encoded
+          path.write_bytes(encoded)
+
+          workflow = Path(".github/workflows/one-time-stock-ui-layout-patch.yml")
+          workflow.unlink()
+
+      - name: Commit focused patch and remove one-time workflow
+        run: |
+          git config user.name "SST-CRUD"
+          git config user.email "sstdevelopaminno@gmail.com"
+          git add apps/backoffice-web/src/components/pos-preview/stock-products-table.tsx .github/workflows/one-time-stock-ui-layout-patch.yml
+          git diff --cached --check
+          git commit -m "refine(stock-ui): move mode tabs to header and raise pagination"
+          git push origin HEAD:agent-docs-preflight-schema-drift
