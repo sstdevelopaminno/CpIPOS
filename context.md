@@ -536,3 +536,11 @@ ORDER BY p.name;
 - No database migration or sales/order/payment/shift transaction logic changed.
 - Vercel production build for feature commit `99c568f5662243f2502c3516b6cfe28f5c09ef07` completed and reached READY.
 - Detailed handoff and acceptance checks: `docs/PRODUCT-MANAGEMENT-UI-CLEANUP-2026-08-11.md`.
+
+## Product Management header tabs + pagination follow-up — 2026-08-11
+
+- Moved the existing `All / Unit Only / Ingredients` mode tabs into the top Stock Management action toolbar; the same React state and handlers remain authoritative.
+- Removed the redundant `Product List` / `รายการสินค้า` heading from the body.
+- Reduced the bounded product/ingredient table height from `56vh` to `45vh` and tightened pagination spacing so Previous / Page / Next sits higher on POS-class 1365x768 displays.
+- Pagination remains 10 rows per page and no catalog, stock mutation, sales, receipt, shift, payment, tenant, or branch authorization logic changed.
+- This is system-wide Web POS behavior; the physical POS terminal is the primary acceptance-test device only.
