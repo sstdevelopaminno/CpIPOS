@@ -221,6 +221,7 @@ For every sensitive route:
 - `docs/monitoring-alerting-runbook.md`
 - `docs/incident-runbook.md`
 - `docs/go-live-evidence-checklist.md`
+- `docs/TABLE-MANAGEMENT-UI-CLEANUP-2026-08-11.md`
 
 ## 7) Environment and Secrets
 
@@ -323,7 +324,6 @@ All security invariants regarding tenant/branch/device/role scoping remain **str
 - Customer QR submit succeeded and returned a DIN-QR bill number.
 - Submitted QR customer items appeared back in the correct POS table cart/order.
 - pnpm build passed locally.
-
 
 ## POS Stock Deduction Investigation Handoff (2026-06-11)
 
@@ -509,3 +509,18 @@ ORDER BY p.name;
 - Main menu placement moves the whole POS navigation bar: `left` keeps the original vertical sidebar, `top` uses a horizontal top bar, and `bottom` uses a horizontal bottom bar.
 - Main menu placement is client-side per terminal using localStorage key `pos_main_menu_bar_position_v2` and event `pos-main-menu-placement-updated`.
 - Detailed handoff: `docs/POS-NAVIGATION-SETTINGS-2026-07-29.md`.
+
+## Table Management UI/UX Cleanup (2026-08-11)
+
+- Scope is system-wide Web POS Table Management; the physical POS terminal is a primary test device only, not a device-specific implementation target.
+- LIST view now has one visual owner frame. The old nested `.surface`, center, and list borders are flattened while BOARD keeps its existing layout behavior.
+- LIST uses 10 tables per page, bounded vertical scrolling, always-visible Previous / page count / Next controls, and scroll-to-top when changing pages.
+- Added `+ เพิ่มหลายโต๊ะ` / `+ Bulk add tables` with 5/10/20 presets and custom 5–100 count.
+- Bulk creation supports branch, zone, seats, sequential start number, prefix, and table-name mode with a pre-submit preview.
+- Added `POST /api/backoffice/tables/bulk` with server-side feature/role/tenant/branch/zone validation and duplicate checks.
+- Bulk rows are sent as one PostgREST array INSERT, preserving all-or-nothing statement behavior on database failure.
+- New BOARD coordinates are seeded on a simple grid so a bulk batch does not overlap entirely at 0,0.
+- Successful batches emit one `table_bulk_create` audit event.
+- No schema migration was required; existing `(tenant_id, branch_id, table_code)` uniqueness remains authoritative.
+- Production data was not mutated merely to validate implementation. Functional create testing should use a disposable/test branch.
+- Detailed handoff and acceptance checks: `docs/TABLE-MANAGEMENT-UI-CLEANUP-2026-08-11.md`.
