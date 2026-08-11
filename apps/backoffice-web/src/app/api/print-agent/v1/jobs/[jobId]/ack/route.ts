@@ -1,4 +1,5 @@
 import { fail, ok } from "@/lib/http";
+import { markDrawerEventSentByPrintAgent } from "@/lib/printing/drawer-event-agent-sync";
 import { loggedPrintApiFail } from "@/lib/printing/print-api-errors";
 import { acknowledgePrintJob, agentAuthFail, requirePrintAgent } from "@/lib/printing/print-agent-service";
 
@@ -24,6 +25,24 @@ export async function POST(req: Request, context: { params: Promise<{ jobId: str
       bytes_sent: body?.bytes_sent ?? null,
       metadata: body?.metadata ?? null
     });
+
+    // Drawer commands are queued as ordinary print jobs so Runtime/Local Bridge can execute them.
+    // Once the agent ACKs the fresh job, also move the matching drawer event from queued -> sent.
+    // This never replays quarantined jobs; it only annotates the newly acknowledged job/event pair.
+    try {
+      await markDrawerEventSentByPrintAgent(agent, job, {
+        providerJobId: body?.provider_job_id ?? null,
+        bytesSent: body?.bytes_sent ?? null,
+        metadata: body?.metadata ?? null
+      });
+    } catch (drawerEventError) {
+      console.warn("[print-agent] drawer event sync failed after ack", {
+        job_id: job.id,
+        agent_id: agent.id,
+        error: drawerEventError instanceof Error ? drawerEventError.message : String(drawerEventError)
+      });
+    }
+
     return ok({ job });
   } catch (error) {
     const authError = agentAuthFail(error);
