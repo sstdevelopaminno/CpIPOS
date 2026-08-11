@@ -5,7 +5,9 @@ import styles from "./printer-connection-manager-v3.module.css";
 
 type Mode = "lan" | "usb" | "bluetooth";
 type Purpose = "receipt" | "kitchen" | "drink" | "bar" | "reprint" | "shift_report" | "payment_slip" | "cash_drawer";
+type ZonedPurpose = "kitchen" | "drink" | "bar";
 type Assignment = { id: string; purpose: Purpose; zone_key: string; is_enabled: boolean; is_default: boolean; copies: number };
+type KitchenZone = { id: string; zone_code: string; zone_name: string; display_order: number; is_active: boolean; default_printer_id: string | null };
 type Device = {
   id: string;
   printer_profile_id: string | null;
@@ -40,7 +42,12 @@ type History = {
   created_at: string;
   can_reconnect: boolean;
 };
-type Registry = { branch: { id: string; code: string | null; name: string | null }; devices: Device[]; history: History[] };
+type Registry = {
+  branch: { id: string; code: string | null; name: string | null };
+  devices: Device[];
+  history: History[];
+  kitchen_zones: KitchenZone[];
+};
 type Candidate = { id: string; name: string; mode: Mode; paper_width_mm: 58 | 80; source: string; status: string; runtime_device_code: string | null; printer_profile_id: string | null; functions: string[]; helper: string };
 type Discovery = { items: Candidate[]; note: string };
 type Envelope<T> = { data?: T; error?: { message?: string } };
@@ -51,15 +58,16 @@ const modeCards: Array<{ mode: Mode; title: string; icon: string; desc: string; 
   { mode: "bluetooth", title: "Bluetooth", icon: "ᛒ", desc: "เชื่อมต่อไร้สายใกล้เครื่อง", help: "เหมาะกับ Android และจุดขายเคลื่อนที่" }
 ];
 const purposes: Array<{ value: Purpose; label: string }> = [
-  { value: "receipt", label: "ใบเสร็จ" },
-  { value: "kitchen", label: "ครัวร้อน" },
+  { value: "receipt", label: "ใบเสร็จหน้าขาย" },
+  { value: "kitchen", label: "ครัว" },
   { value: "drink", label: "เครื่องดื่ม" },
   { value: "bar", label: "บาร์" },
-  { value: "reprint", label: "พิมพ์ซ้ำ" },
-  { value: "shift_report", label: "รายงานกะ" },
+  { value: "reprint", label: "ใบเสร็จย้อนหลัง" },
+  { value: "shift_report", label: "ปิดกะ / รายงานกะ" },
   { value: "payment_slip", label: "สลิปชำระเงิน" },
   { value: "cash_drawer", label: "ลิ้นชักเงินสด" }
 ];
+const zonedPurposes: ZonedPurpose[] = ["kitchen", "drink", "bar"];
 const PAGE_SIZE = 5;
 
 async function api<T>(url: string, init?: RequestInit): Promise<T> {
@@ -113,6 +121,10 @@ function historyLabel(eventType: string) {
   return map[eventType] ?? eventType;
 }
 
+function emptyZoneSelections(): Record<ZonedPurpose, string[]> {
+  return { kitchen: [], drink: [], bar: [] };
+}
+
 export function PrinterConnectionManagerV3() {
   const [registry, setRegistry] = useState<Registry | null>(null);
   const [mode, setMode] = useState<Mode>("lan");
@@ -129,6 +141,7 @@ export function PrinterConnectionManagerV3() {
   const [model, setModel] = useState("");
   const [paper, setPaper] = useState<58 | 80>(58);
   const [selectedPurposes, setSelectedPurposes] = useState<Purpose[]>(["receipt"]);
+  const [zoneSelections, setZoneSelections] = useState<Record<ZonedPurpose, string[]>>(emptyZoneSelections());
   const [ip, setIp] = useState("");
   const [port, setPort] = useState("9100");
   const [runtimeCode, setRuntimeCode] = useState("");
@@ -152,6 +165,7 @@ export function PrinterConnectionManagerV3() {
   }), [registry, purposeFilter]);
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const pageItems = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+  const zoneNameByCode = useMemo(() => new Map((registry?.kitchen_zones ?? []).map((zone) => [zone.zone_code.toUpperCase(), zone.zone_name])), [registry]);
 
   useEffect(() => {
     if (page > totalPages) setPage(totalPages);
@@ -165,6 +179,7 @@ export function PrinterConnectionManagerV3() {
     setModel("");
     setPaper(58);
     setSelectedPurposes(["receipt"]);
+    setZoneSelections(emptyZoneSelections());
     setIp("");
     setPort("9100");
     setRuntimeCode("");
@@ -179,6 +194,7 @@ export function PrinterConnectionManagerV3() {
     setRuntimeCode(item.runtime_device_code ?? "");
     setIp("");
     setPort("9100");
+    setZoneSelections(emptyZoneSelections());
     const fromCandidate = item.functions.filter((value): value is Purpose => purposes.some((candidatePurpose) => candidatePurpose.value === value));
     setSelectedPurposes(fromCandidate.length ? fromCandidate : ["receipt"]);
     setNotice(`เลือก ${item.name} แล้ว ตรวจสอบหน้าที่ใช้งานและกดบันทึก`);
@@ -192,7 +208,13 @@ export function PrinterConnectionManagerV3() {
     setBrand(device.brand ?? "");
     setModel(device.model ?? "");
     setPaper(device.paper_width_mm);
-    setSelectedPurposes(device.printer_device_assignments.filter((assignment) => assignment.is_enabled).map((assignment) => assignment.purpose));
+    const enabledAssignments = device.printer_device_assignments.filter((assignment) => assignment.is_enabled);
+    setSelectedPurposes(Array.from(new Set(enabledAssignments.map((assignment) => assignment.purpose))));
+    const nextZones = emptyZoneSelections();
+    for (const purpose of zonedPurposes) {
+      nextZones[purpose] = Array.from(new Set(enabledAssignments.filter((assignment) => assignment.purpose === purpose && assignment.zone_key).map((assignment) => assignment.zone_key.toUpperCase())));
+    }
+    setZoneSelections(nextZones);
     setRuntimeCode(device.runtime_device_code ?? "");
     setIp(device.ip_address ?? "");
     setPort(String(device.port ?? 9100));
@@ -201,6 +223,26 @@ export function PrinterConnectionManagerV3() {
 
   function togglePurpose(value: Purpose) {
     setSelectedPurposes((current) => current.includes(value) ? current.filter((item) => item !== value) : [...current, value]);
+  }
+
+  function toggleZone(purpose: ZonedPurpose, zoneCode: string) {
+    const normalized = zoneCode.toUpperCase();
+    setZoneSelections((current) => ({
+      ...current,
+      [purpose]: current[purpose].includes(normalized)
+        ? current[purpose].filter((value) => value !== normalized)
+        : [...current[purpose], normalized]
+    }));
+  }
+
+  function buildAssignments() {
+    return selectedPurposes.flatMap((purpose) => {
+      if (purpose === "kitchen" || purpose === "drink" || purpose === "bar") {
+        const zones = zoneSelections[purpose];
+        if (zones.length > 0) return zones.map((zoneKey) => ({ purpose, zone_key: zoneKey, is_default: true, copies: 1 }));
+      }
+      return [{ purpose, zone_key: "", is_default: false, copies: 1 }];
+    });
   }
 
   async function discover() {
@@ -243,13 +285,14 @@ export function PrinterConnectionManagerV3() {
         connection_mode: mode,
         paper_width_mm: paper,
         purposes: selectedPurposes,
+        assignments: buildAssignments(),
         ip_address: ip.trim() || null,
         port: Number(port || 9100),
         runtime_device_code: runtimeCode.trim() || null,
         enabled: true
       };
       await api("/api/backoffice/printers/devices", { method: editId ? "PATCH" : "POST", body: JSON.stringify(payload) });
-      setNotice(editId ? "อัปเดตเครื่องพิมพ์แล้ว" : "เชื่อมต่อและบันทึกเครื่องพิมพ์แล้ว");
+      setNotice(editId ? "อัปเดตเครื่องพิมพ์และเส้นทางพิมพ์แล้ว" : "เชื่อมต่อ บันทึก และตั้งเส้นทางพิมพ์แล้ว");
       resetForm(mode);
       await load();
     } catch (err) {
@@ -318,7 +361,7 @@ export function PrinterConnectionManagerV3() {
         <div className={styles.titleIcon}>▤</div>
         <div>
           <h1 className={styles.title}>ตั้งค่าเครื่องพิมพ์</h1>
-          <p className={styles.subtitle}>เชื่อมต่อง่ายสำหรับใบเสร็จ ครัว เครื่องดื่ม บาร์ และลิ้นชักเงินสด — Web App / Android / Runtime</p>
+          <p className={styles.subtitle}>แยกการตั้งค่าตามเจ้าของร้าน → สาขา → เครื่อง POS → หน้าที่พิมพ์/โซนครัว รองรับกระดาษ 58 และ 80 mm</p>
         </div>
       </div>
       <div className={styles.topActions}>
@@ -339,7 +382,7 @@ export function PrinterConnectionManagerV3() {
           </select>
         </div>
         <div>
-          <span className={styles.label}>โซนพิมพ์ / วัตถุประสงค์</span>
+          <span className={styles.label}>คำสั่งพิมพ์ / วัตถุประสงค์</span>
           <div className={styles.purposeTabs}>
             <button className={`${styles.tab} ${purposeFilter === "all" ? styles.tabActive : ""}`} onClick={() => { setPurposeFilter("all"); setPage(1); }}>ทั้งหมด</button>
             {purposes.map((purpose) => <button key={purpose.value} className={`${styles.tab} ${purposeFilter === purpose.value ? styles.tabActive : ""}`} onClick={() => { setPurposeFilter(purpose.value); setPage(1); }}>{purpose.label}</button>)}
@@ -377,8 +420,8 @@ export function PrinterConnectionManagerV3() {
     <section id="printer-v3-config" className={`${styles.panel} ${styles.config}`}>
       <div className={styles.sectionHead}>
         <div>
-          <h2 className={styles.sectionTitle}>{editId ? "แก้ไขเครื่องพิมพ์" : "+ เพิ่มเครื่องพิมพ์"}</h2>
-          <span className={styles.hint}>ค่าเทคนิคถูกซ่อนไว้ใน “ตั้งค่าขั้นสูง”</span>
+          <h2 className={styles.sectionTitle}>{editId ? "แก้ไขเครื่องพิมพ์และเส้นทาง" : "+ เพิ่มเครื่องพิมพ์"}</h2>
+          <span className={styles.hint}>การตั้งค่านี้มีผลเฉพาะสาขาปัจจุบัน เครื่อง POS และเครื่องพิมพ์ของสาขาอื่นไม่ถูกแก้ไข</span>
         </div>
         {editId ? <button className={styles.ghost} onClick={() => resetForm(mode)}>ยกเลิกแก้ไข</button> : null}
       </div>
@@ -410,8 +453,20 @@ export function PrinterConnectionManagerV3() {
           <span>{purpose.label}</span>
         </label>)}
       </div>
+
+      {zonedPurposes.filter((purpose) => selectedPurposes.includes(purpose)).map((purpose) => <div className={styles.advanced} key={purpose}>
+        <div className={styles.label}>{purposeLabel(purpose)} — แยกตามโซนครัว</div>
+        {(registry?.kitchen_zones ?? []).length > 0 ? <div className={styles.purposeGrid}>
+          {(registry?.kitchen_zones ?? []).map((zone) => <label className={styles.check} key={`${purpose}:${zone.id}`}>
+            <input type="checkbox" checked={zoneSelections[purpose].includes(zone.zone_code.toUpperCase())} onChange={() => toggleZone(purpose, zone.zone_code)} />
+            <span>{zone.zone_name} · {zone.zone_code}</span>
+          </label>)}
+        </div> : <div className={styles.hint}>สาขานี้ยังไม่มี Kitchen Zone — เครื่องจะเป็นค่าเริ่มต้นแบบทั้งสาขา จนกว่าจะสร้างโซนครัว</div>}
+        <div className={styles.hint}>{zoneSelections[purpose].length === 0 ? "ไม่ได้เลือกโซน: ใช้เป็นเส้นทางสำรองของทั้งสาขา" : `เลือก ${zoneSelections[purpose].length} โซน: งานของแต่ละโซนจะส่งไปเครื่องนี้`}</div>
+      </div>)}
+
       <details className={styles.advanced}>
-        <summary>⚙ ตั้งค่าขั้นสูง (ปกติไม่ต้องแก้)</summary>
+        <summary>⚙ ตั้งค่าขั้นสูง / ผูกเครื่อง POS</summary>
         <div className={styles.advancedGrid}>
           {mode === "lan" ? <>
             <div>
@@ -425,6 +480,7 @@ export function PrinterConnectionManagerV3() {
           </> : <div>
             <span className={styles.label}>รหัสเครื่อง POS / Runtime</span>
             <input className={styles.input} value={runtimeCode} onChange={(event) => setRuntimeCode(event.target.value)} placeholder="เช่น POS-COUNTER-01" />
+            <div className={styles.meta}>กรอกเมื่อเครื่องพิมพ์นี้ต้องรับงานจาก POS เครื่องนี้โดยเฉพาะ; เว้นว่างเพื่อเป็นเครื่องประจำสาขา</div>
           </div>}
         </div>
       </details>
@@ -438,23 +494,27 @@ export function PrinterConnectionManagerV3() {
       <div className={styles.tableHeader}>
         <div>
           <h2 className={styles.sectionTitle}>รายการเครื่องพิมพ์ <span className={styles.hint}>({filtered.length} เครื่อง)</span></h2>
-          <span className={styles.hint}>แสดงเฉพาะเครื่องที่กำลังใช้งาน 1 เครื่องสามารถรับหลายหน้าที่ได้ และครัวใช้ Kitchen Zone routing เดิมร่วมกัน</span>
+          <span className={styles.hint}>Routing แยกตามสาขาและ POS; ครัวใช้ Kitchen Zone เดียวกับระบบเมนู/ครัว</span>
         </div>
         <button className={styles.primary} onClick={() => resetForm(mode)}>+ เพิ่มเครื่องพิมพ์</button>
       </div>
       <div className={styles.tableWrap}>
         <table className={styles.table}>
-          <thead><tr><th>สถานะ</th><th>ชื่อเครื่อง</th><th>รุ่น / ยี่ห้อ</th><th>โหมด</th><th>สาขา</th><th>โซน / หน้าที่</th><th>กระดาษ</th><th>ออนไลน์ล่าสุด</th><th>การทำงาน</th><th>จัดการ</th></tr></thead>
+          <thead><tr><th>สถานะ</th><th>ชื่อเครื่อง</th><th>รุ่น / ยี่ห้อ</th><th>โหมด / POS</th><th>สาขา</th><th>โซน / หน้าที่</th><th>กระดาษ</th><th>ออนไลน์ล่าสุด</th><th>การทำงาน</th><th>จัดการ</th></tr></thead>
           <tbody>{pageItems.map((device) => {
-            const devicePurposes = device.printer_device_assignments.filter((assignment) => assignment.is_enabled).map((assignment) => assignment.purpose);
-            const hasDrawer = devicePurposes.includes("cash_drawer");
+            const assignments = device.printer_device_assignments.filter((assignment) => assignment.is_enabled);
+            const hasDrawer = assignments.some((assignment) => assignment.purpose === "cash_drawer");
             return <tr key={device.id}>
               <td><span className={styles.status}><span className={`${styles.dot} ${statusClass(device.status)}`} />{statusLabel(device.status)}</span></td>
               <td><div className={styles.deviceName}>{device.display_name}</div><div className={styles.meta}>{device.printer_profile_id ? "พร้อมเข้าคิวพิมพ์" : "ยังไม่ผูก profile"}</div></td>
               <td>{device.brand || "ทั่วไป"}<div className={styles.meta}>{device.model || "ไม่ระบุรุ่น"}</div></td>
-              <td>{device.connection_mode.toUpperCase()}</td>
+              <td>{device.connection_mode.toUpperCase()}<div className={styles.meta}>{device.runtime_device_code ? `POS: ${device.runtime_device_code}` : "ทั้งสาขา"}</div></td>
               <td>{registry?.branch?.name ?? "สาขาปัจจุบัน"}</td>
-              <td><div className={styles.chips}>{devicePurposes.map((value) => <span className={styles.chip} key={value}>{purposeLabel(value)}</span>)}</div></td>
+              <td><div className={styles.chips}>{assignments.map((assignment) => {
+                const zoneCode = assignment.zone_key?.toUpperCase();
+                const zoneLabel = zoneCode ? zoneNameByCode.get(zoneCode) ?? zoneCode : null;
+                return <span className={styles.chip} key={`${assignment.purpose}:${assignment.zone_key}`}>{purposeLabel(assignment.purpose)}{zoneLabel ? ` · ${zoneLabel}` : ""}</span>;
+              })}</div></td>
               <td>{device.paper_width_mm}mm</td>
               <td>{fmt(device.last_seen_at ?? device.updated_at)}</td>
               <td><div className={styles.actions}>
