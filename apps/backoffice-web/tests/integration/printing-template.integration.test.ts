@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { renderReceiptHtml } from "@/lib/printing/receipt-html-template";
 import { loadReceiptSellerName, renderReceiptTemplate, resolveReceiptSellerName } from "@/lib/printing/print-service";
@@ -25,6 +26,35 @@ vi.mock("@/lib/supabase-admin", () => ({
     }
   })
 }));
+function sampleReceiptHtml(paperWidthMm: 58 | 80) {
+  return renderReceiptHtml({
+    paperWidthMm,
+    storeName: "SST Foods",
+    branchName: "Branch A",
+    storeAddress: "99 Test Road Bangkok",
+    storePhone: "02-000-0000",
+    logoUrl: null,
+    sellerName: "Cashier One",
+    orderNo: "POS-1001",
+    modeLabel: "\u0e2b\u0e19\u0e49\u0e32\u0e02\u0e32\u0e22",
+    paidAtIso: "2026-05-18T10:30:00.000Z",
+    items: [{ name: "Pad Thai with a longer receipt item name", quantity: 2, unitPrice: 80, lineTotal: 160, note: "No spicy" }],
+    discountAmount: 5,
+    taxAmount: 0,
+    totalAmount: 155,
+    paymentMethod: "cash",
+    cashReceived: 200,
+    changeAmount: 45,
+    note: null
+  });
+}
+
+function cssNumber(html: string, property: string) {
+  const escaped = property.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const match = html.match(new RegExp(`${escaped}:\\s*([0-9.]+)`));
+  if (!match) throw new Error(`missing css number ${property}`);
+  return Number(match[1]);
+}
 
 describe("printing template generation", () => {
   beforeEach(() => {
@@ -146,5 +176,48 @@ describe("printing template generation", () => {
     expect(employeeCall?.filters).toContainEqual({ column: "tenant_id", value: "tenant-1" });
     expect(employeeCall?.filters).toContainEqual({ column: "user_id", value: auth.userId });
     expect(employeeCall?.filters.map((filter) => filter.column)).not.toContain("branch_id");
+  });
+
+  it("renders native 58mm receipt layout sizing", () => {
+    const html = sampleReceiptHtml(58);
+
+    expect(html).toContain("@page { size: 58mm auto");
+    expect(html).toContain("width: 58mm");
+    expect(cssNumber(html, "--receipt-printable-width-mm")).toBe(49);
+    expect(cssNumber(html, "--receipt-base-font-px")).toBeCloseTo(12.75);
+    expect(cssNumber(html, "--receipt-title-font-px")).toBeCloseTo(16.5);
+    expect(cssNumber(html, "--receipt-grand-font-px")).toBeCloseTo(15.5);
+  });
+
+  it("renders native 80mm receipt layout sizing", () => {
+    const html = sampleReceiptHtml(80);
+
+    expect(html).toContain("@page { size: 80mm auto");
+    expect(html).toContain("width: 80mm");
+    expect(cssNumber(html, "--receipt-printable-width-mm")).toBe(70);
+    expect(cssNumber(html, "--receipt-base-font-px")).toBeCloseTo(13.5);
+    expect(cssNumber(html, "--receipt-title-font-px")).toBeCloseTo(19);
+    expect(cssNumber(html, "--receipt-grand-font-px")).toBeCloseTo(17.5);
+  });
+
+  it("uses a wider and not-smaller 80mm layout than 58mm", () => {
+    const html58 = sampleReceiptHtml(58);
+    const html80 = sampleReceiptHtml(80);
+
+    expect(cssNumber(html80, "--receipt-printable-width-mm")).toBeGreaterThan(cssNumber(html58, "--receipt-printable-width-mm"));
+    expect(cssNumber(html80, "--receipt-base-font-px")).toBeGreaterThanOrEqual(cssNumber(html58, "--receipt-base-font-px"));
+    expect(cssNumber(html80, "--receipt-title-font-px")).toBeGreaterThanOrEqual(cssNumber(html58, "--receipt-title-font-px"));
+    expect(cssNumber(html80, "--receipt-grand-font-px")).toBeGreaterThanOrEqual(cssNumber(html58, "--receipt-grand-font-px"));
+  });
+
+  it("passes printer profile paper width into routed sales receipt HTML", () => {
+    const source = readFileSync("src/lib/printing/routed-print-service.ts", "utf8");
+    const start = source.indexOf("export async function queueRoutedSalesReceipt");
+    const end = source.indexOf("export async function queueRoutedKitchenFallback");
+    const salesReceiptSource = source.slice(start, end);
+
+    expect(salesReceiptSource).toContain("}, route.printer.paper_width_mm)");
+    expect(salesReceiptSource).toContain("paperWidthMm: route.printer.paper_width_mm");
+    expect(salesReceiptSource).not.toContain("paperWidthMm: 58");
   });
 });

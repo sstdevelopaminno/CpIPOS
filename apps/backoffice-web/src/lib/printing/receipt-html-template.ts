@@ -70,9 +70,9 @@ function dateTime(value: string) {
 
 export function renderReceiptHtml(input: ReceiptHtmlInput) {
   const paper = input.paperWidthMm;
-  const printable = paper === 58 ? 48 : 70;
-  const fontSize = paper === 58 ? 11 : 12;
-  const logoUrl = clean(input.logoUrl) ?? DEFAULT_RECEIPT_LOGO_URL;
+  const layout = paper === 58
+    ? { printableMm: 49, basePx: 12.75, titlePx: 16.5, mutedPx: 11.75, metaPx: 12.5, unitPx: 10.75, summaryPx: 12, grandPx: 15.5, footerPx: 11, logoMaxWidthMm: 30, logoMaxHeightMm: 11, qtyMm: 8.5, totalMm: 16.5 }
+    : { printableMm: 70, basePx: 13.5, titlePx: 19, mutedPx: 12.5, metaPx: 13.25, unitPx: 11.5, summaryPx: 12.75, grandPx: 17.5, footerPx: 11.75, logoMaxWidthMm: 42, logoMaxHeightMm: 13, qtyMm: 11, totalMm: 22 };  const logoUrl = clean(input.logoUrl) ?? DEFAULT_RECEIPT_LOGO_URL;
   const storeName = clean(input.storeName) ?? clean(input.branchName) ?? "CpIPOS";
   const branchName = clean(input.branchName);
   const itemRows = input.items.map((item) => `
@@ -105,28 +105,30 @@ export function renderReceiptHtml(input: ReceiptHtmlInput) {
     @page { size: ${paper}mm auto; margin: 0; }
     html, body { margin: 0; padding: 0; width: ${paper}mm; background: #fff; color: #000; font-family: "Noto Sans Thai", "Tahoma", "Segoe UI", sans-serif; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
     * { box-sizing: border-box; }
-    .receipt { width: ${printable}mm; margin: 0 auto; padding: 1.2mm 0 2mm; font-size: ${fontSize}px; line-height: 1.28; }
+    .receipt { --receipt-paper-width-mm: ${paper}; --receipt-printable-width-mm: ${layout.printableMm}; --receipt-base-font-px: ${layout.basePx}; --receipt-title-font-px: ${layout.titlePx}; --receipt-grand-font-px: ${layout.grandPx}; width: ${layout.printableMm}mm; margin: 0 auto; padding: 1.2mm 0 2mm; font-size: ${layout.basePx}px; line-height: 1.3; }
     .logo-wrap { text-align: center; margin-bottom: .8mm; }
-    .logo-wrap img { max-width: ${paper === 58 ? 28 : 38}mm; max-height: 10mm; object-fit: contain; }
-    .head-title { font-weight: 900; font-size: ${paper === 58 ? 14 : 16}px; margin-bottom: .6mm; text-align: center; }
-    .muted { color: #222; font-size: ${paper === 58 ? 10 : 11}px; font-weight: 700; text-align: center; }
+    .logo-wrap img { max-width: ${layout.logoMaxWidthMm}mm; max-height: ${layout.logoMaxHeightMm}mm; object-fit: contain; }
+    .head-title { font-weight: 900; font-size: ${layout.titlePx}px; margin-bottom: .6mm; text-align: center; }
+    .muted { color: #222; font-size: ${layout.mutedPx}px; font-weight: 700; text-align: center; }
     .reprint { margin: 1mm 0; text-align: center; font-weight: 900; }
     .hr { border-top: 1px dashed #111; margin: 1.4mm 0; }
     .meta-line, .summary-line { display: flex; justify-content: space-between; align-items: baseline; gap: 1mm; margin: .6mm 0; }
+    .meta-line { font-size: ${layout.metaPx}px; }
     .meta-line span:last-child, .summary-line strong { text-align: right; }
-    table { width: 100%; border-collapse: collapse; margin-top: .6mm; }
+    table { width: 100%; table-layout: fixed; border-collapse: collapse; margin-top: .6mm; }
     th, td { padding: .6mm 0; vertical-align: top; }
-    .col-qty { width: ${paper === 58 ? 8 : 10}mm; text-align: center; }
-    .col-total { width: ${paper === 58 ? 16 : 20}mm; text-align: right; white-space: nowrap; }
+    .col-name { padding-right: 1mm; overflow-wrap: anywhere; word-break: break-word; }
+    .col-qty { width: ${layout.qtyMm}mm; text-align: center; }
+    .col-total { width: ${layout.totalMm}mm; text-align: right; white-space: nowrap; }
     .name { font-weight: 700; line-height: 1.25; }
-    .unit { font-size: ${paper === 58 ? 9.5 : 10.5}px; color: #333; }
+    .unit { font-size: ${layout.unitPx}px; color: #333; }
     .note { margin-top: .35mm; color: #333; font-style: italic; }
-    .summary-line { font-size: ${paper === 58 ? 10 : 11}px; }
+    .summary-line { font-size: ${layout.summaryPx}px; }
     .summary-line.is-heading { padding-bottom: .8mm; border-bottom: 1px dashed #111; }
-    .summary-line.grand { margin: 1.1mm 0 .9mm; padding: .7mm 0; border-top: 1px solid #111; border-bottom: 1px solid #111; font-size: ${paper === 58 ? 13 : 15}px; }
+    .summary-line.grand { margin: 1.1mm 0 .9mm; padding: .7mm 0; border-top: 1px solid #111; border-bottom: 1px solid #111; font-size: ${layout.grandPx}px; }
     .summary-line.grand span, .summary-line.grand strong { font-weight: 900; }
-    .note-block { font-size: ${paper === 58 ? 9.5 : 10.5}px; }
-    .foot { margin-top: 1.5mm; font-size: 10px; text-align: center; }
+    .note-block { font-size: ${layout.unitPx}px; }
+    .foot { margin-top: 1.5mm; font-size: ${layout.footerPx}px; text-align: center; }
   </style>
 </head>
 <body>
