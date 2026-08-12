@@ -14,7 +14,13 @@ type NativeAndroidIdentity = {
 
 function readNativeAndroidIdentity(): NativeAndroidIdentity | null {
   try {
-    const bridge = (window as Window & { CpIPOSMdm?: CpIPOSMdmBridge }).CpIPOSMdm;
+    const nativeWindow = window as Window & {
+      CpIPOSMdm?: CpIPOSMdmBridge;
+      CpiposMdm?: CpIPOSMdmBridge;
+    };
+    // CpiposMdm is the bridge name shipped by Android POS 1.0.2.
+    // Keep CpIPOSMdm as a forward-compatible alias for newer runtimes.
+    const bridge = nativeWindow.CpIPOSMdm ?? nativeWindow.CpiposMdm;
     const raw = bridge?.diagnosticsJson?.();
     if (!raw) return null;
 
