@@ -3,23 +3,38 @@
 Date: 2026-08-12
 Runtime: `apps/pos-android`
 Package: `com.cpipos.pos`
-Target runtime: `1.0.2` (`versionCode 8`)
+Target runtime: `1.0.3` (`versionCode 9`)
 
-## Why the current 1.0.2 cannot update the installed 1.0.1
+## Current migration state
 
-Android requires an APK update to use the same application ID and the same signing certificate as the installed package.
+The installed 1.0.2 test terminal is still an ephemeral-debug-signed build. Android requires an APK update to use the same application ID and the same signing certificate as the installed package, so the first stable-signed release cannot update that debug installation in place.
 
-The previous CpIPOS Android workflow built `assembleDebug` on an ephemeral GitHub Actions runner. A new runner-generated Android debug keystore was therefore used for separate release runs. The installed 1.0.1 and the first published 1.0.2 were signed by different private keys/certificates, so Android correctly reports that the package conflicts with the existing package.
+The Android 1.0.3 source contains the deterministic HTML receipt raster fix and the stable release signing configuration. The re-pair flow is also implemented: after a fresh install and authenticated device selection, the native Android install id is rebound to the selected POS device before the print agent bootstrap continues.
 
-The private key that signed the already-installed 1.0.1 is not present in the repository and cannot be reconstructed from the APK certificate. Therefore there is no safe cryptographic way to create an APK that updates that particular 1.0.1 installation in place.
+This means the one-time uninstall/install migration should be performed only after the stable 1.0.3 release APK has been successfully built, certificate-verified and published.
 
 ## Permanent signing identity
 
-From the stable-signing migration onward, publishable Android POS APKs must use the dedicated CpIPOS release signing key stored only as GitHub Actions repository secrets / secure offline backup.
+From the stable-signing migration onward, publishable Android POS APKs must use one dedicated CpIPOS release signing key stored only as GitHub Actions repository secrets plus a secure offline backup.
 
-Expected stable certificate SHA-256:
+The repository includes a local Windows helper:
 
-`89e73a475a0e08091d79b24b40638a905ab9fcb96fe8cf186cfb763d378c05f0`
+`scripts/android/create-stable-signing.ps1`
+
+Run it from the repository root in PowerShell:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\android\create-stable-signing.ps1 -ConfigureGitHub
+```
+
+The helper:
+
+- creates `cpipos-android-release.jks` under `%USERPROFILE%\CpIPOS-Signing`, outside the repository;
+- generates strong local signing passwords;
+- prints the certificate SHA-256 fingerprint;
+- writes a private local `github-actions-secrets.txt` recovery/setup file;
+- when `gh` is installed and authenticated, configures the four required GitHub Actions repository secrets automatically;
+- refuses to overwrite an existing stable keystore.
 
 Required GitHub Actions repository secrets:
 
@@ -28,50 +43,52 @@ Required GitHub Actions repository secrets:
 - `ANDROID_SIGNING_KEY_ALIAS`
 - `ANDROID_SIGNING_KEY_PASSWORD`
 
+After generating the new permanent signing key, update `ANDROID_SIGNING_CERT_SHA256` in `.github/workflows/build-android-runtime.yml` to the SHA-256 value printed by the helper. Only the public certificate fingerprint should be shared for this update; never share the keystore or passwords in chat or commit them to Git.
+
 The workflow validates the keystore certificate fingerprint before building and validates the produced APK certificate again before upload/release publication. A debug APK must never be published as the managed Android POS release again.
 
-## One-time device migration from ephemeral-debug 1.0.1
+## One-time device migration from debug 1.0.2 to stable 1.0.3
 
-This is a one-time migration only for devices that already have the old ephemeral-debug-signed package installed.
-
-1. Open CpIPOS POS 1.0.1 and log out if possible so the server-side POS session is closed/cleared cleanly.
-2. Record local printer configuration (printer IP/host and port, normally TCP 9100) because uninstalling the package removes local SharedPreferences.
-3. If Android refuses uninstall because CpIPOS POS is an active Device Admin, deactivate the CpIPOS POS Device Admin role first. Do not factory-reset a managed device merely for this signing migration.
-4. Uninstall the old `com.cpipos.pos` 1.0.1 package.
-5. Install the stable-signed CpIPOS Android POS 1.0.2 package.
-6. Re-authorize any Android permissions requested for printer connectivity / nearby devices.
-7. Log in again, select the intended store/branch/device, and restore the printer host/port.
-8. Run printer connectivity test, then print the CpIPOS Printer Test receipt.
-9. Verify Thai text on a real receipt. Runtime 1.0.2 contains the HTML receipt raster path intended to avoid printer code-page corruption such as `????`.
+1. Do not uninstall 1.0.2 until the stable-signed 1.0.3 APK is published and its signing certificate is verified by CI.
+2. Open CpIPOS POS 1.0.2 and log out if possible so the server-side POS session is closed cleanly.
+3. If Android refuses uninstall because CpIPOS POS is an active Device Admin, deactivate only the CpIPOS POS Device Admin role first. Do not factory-reset the device.
+4. Uninstall the old debug-signed `com.cpipos.pos` package.
+5. Install the stable-signed CpIPOS Android POS 1.0.3 APK.
+6. Re-authorize Android permissions requested for USB/Bluetooth/nearby-device printer connectivity.
+7. Log in again and select the intended POS device. The authenticated device-selection flow will bind the new Android install id to that POS device.
+8. Wait for the Android Print Agent to bootstrap and heartbeat.
+9. Run XP-58 printer connectivity/test print.
+10. Print a real Thai receipt and verify that HTML-to-raster rendering completes without `receipt_html_render_timeout` or mojibake/`????` output.
+11. Verify the printer device status changes from `needs_check` to `online` only after a real successful print result.
+12. Proceed to Kitchen E2E only after receipt printing is stable across app restart/reconnect.
 
 ## Data impact
 
-`AndroidManifest.xml` intentionally uses `android:allowBackup="false"`. Uninstall therefore removes the app-local state rather than preserving it through Android backup.
+`AndroidManifest.xml` uses `android:allowBackup="false"`. Uninstall removes app-local state such as HTTP/session cookies, local Android MDM install id and native runtime preferences. Business data such as tenants, branches, products, orders, payments and shifts remains server-side and is not deleted by uninstalling the Android package.
 
-Known local state includes:
-
-- HTTP/session cookies used by the Android runtime;
-- printer host/port SharedPreferences;
-- Android MDM machine ID SharedPreferences.
-
-Business records such as tenants, branches, products, orders, payments and shifts are server-side and are not deleted by uninstalling the Android package. A fresh local login/device selection is expected after the one-time migration.
+The printer configuration used by the web/server-side printer settings remains in Supabase. Native runtime permissions may need to be granted again after the one-time reinstall.
 
 ## Release pipeline requirements
 
 - Production/distributed APK: `assembleRelease`, stable signed only.
-- Debug builds may be used only as CI smoke builds when signing secrets are unavailable; they are not uploaded or published as releases.
-- The workflow must fail a manually requested release if stable signing secrets are absent.
-- The expected signing certificate fingerprint is pinned in the workflow.
-- Preserve the stable keystore indefinitely. Losing the key means future versions cannot update devices already migrated to stable signing.
-- Never commit `.jks` or `.keystore` files, base64 keystore material, store passwords, key passwords or private keys to the public repository.
+- Debug builds are CI smoke builds only and must never be published as production release assets.
+- A manual release must fail when stable signing secrets are unavailable.
+- The expected signing certificate fingerprint must be pinned in the workflow.
+- Preserve the stable keystore indefinitely. Losing the private key prevents future in-place updates for all devices migrated to the stable signing identity.
+- Keep an offline backup of `cpipos-android-release.jks` and its credentials in a secure location separate from the repository.
+- Never commit `.jks`, `.keystore`, base64 keystore material, passwords or private keys.
 
 ## Acceptance criteria
 
-The migration is complete only when all of the following are true:
+The printer/runtime migration is complete only when all of the following are true:
 
 - GitHub Actions has all four stable signing secrets configured.
-- A manual/push workflow produces a signed release APK and the certificate fingerprint equals the pinned stable SHA-256.
-- The GitHub Release asset is the stable-signed APK, not a runner debug APK.
-- A migrated test terminal shows version 1.0.2 after installation.
-- The next test build (for example 1.0.3) can install over the stable-signed 1.0.2 without uninstalling it.
-- Thai printer output is re-tested on the physical Xprinter after stable 1.0.2 is running.
+- The workflow fingerprint matches the permanent signing certificate.
+- CI builds `assembleRelease`, verifies the APK signature and publishes `CpIPOS-Android-POS-1.0.3.apk`.
+- The test terminal runs version 1.0.3 after the one-time migration.
+- Authenticated POS device selection automatically re-pairs the new Android install id.
+- Print Agent heartbeat and claim remain active after app restart.
+- XP-58 test print succeeds.
+- Thai receipt content prints correctly through HTML-to-raster ESC/POS without timeout or corrupted Thai characters.
+- XP-58 status becomes `online` after a successful physical print.
+- A future stable-signed version can update over 1.0.3 without uninstalling the app.
