@@ -2,6 +2,7 @@ import { fail, ok } from "@/lib/http";
 import { markDrawerEventSentByPrintAgent } from "@/lib/printing/drawer-event-agent-sync";
 import { loggedPrintApiFail } from "@/lib/printing/print-api-errors";
 import { acknowledgePrintJob, agentAuthFail, requirePrintAgent } from "@/lib/printing/print-agent-service";
+import { getPrimarySupabaseServiceClient } from "@/lib/supabase-admin";
 
 type AckPayload = {
   agent_attempt_id?: string | null;
@@ -9,6 +10,26 @@ type AckPayload = {
   bytes_sent?: number | null;
   metadata?: Record<string, unknown> | null;
 };
+
+async function markPrinterOnline(agent: Awaited<ReturnType<typeof requirePrintAgent>>, printerId: string | null) {
+  if (!printerId) return;
+  const now = new Date().toISOString();
+  const supabase = getPrimarySupabaseServiceClient();
+  const { error } = await supabase
+    .from("printer_devices")
+    .update({ status: "online", last_seen_at: now, updated_at: now })
+    .eq("tenant_id", agent.tenant_id)
+    .eq("branch_id", agent.branch_id)
+    .eq("printer_profile_id", printerId)
+    .eq("is_active", true);
+  if (error) {
+    console.warn("[print-agent] printer device online sync failed", {
+      printer_id: printerId,
+      agent_id: agent.id,
+      error: error.message
+    });
+  }
+}
 
 export async function POST(req: Request, context: { params: Promise<{ jobId: string }> }) {
   try {
@@ -25,6 +46,8 @@ export async function POST(req: Request, context: { params: Promise<{ jobId: str
       bytes_sent: body?.bytes_sent ?? null,
       metadata: body?.metadata ?? null
     });
+
+    await markPrinterOnline(agent, job.printer_id ?? null);
 
     // Drawer commands are queued as ordinary print jobs so Runtime/Local Bridge can execute them.
     // Once the agent ACKs the fresh job, also move the matching drawer event from queued -> sent.
