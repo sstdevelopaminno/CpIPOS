@@ -129,6 +129,9 @@ type Props = {
   transferReviewOrder: CheckoutReviewOrder | null;
   receiptSession: ReceiptSession | null;
   receiptSaving: boolean;
+  receiptSaved: boolean;
+  receiptAutoPrinted: boolean;
+  receiptError: string | null;
   cashSubmitting: boolean;
   transferSubmitting: boolean;
   transferSlipChecking: boolean;
@@ -214,6 +217,9 @@ export function PosPaymentModals({
   transferReviewOrder,
   receiptSession,
   receiptSaving,
+  receiptSaved,
+  receiptAutoPrinted,
+  receiptError,
   cashSubmitting,
   transferSubmitting,
   transferError,
@@ -298,6 +304,16 @@ export function PosPaymentModals({
       }
     ];
   }
+
+  const receiptStatusText = receiptError
+    ? receiptError
+    : receiptSaving
+      ? text.receiptSaving
+      : receiptSaved
+        ? receiptAutoPrinted
+          ? (lang === "th" ? "บันทึกสำเร็จ และส่งพิมพ์แล้ว" : "Saved and print queued")
+          : (lang === "th" ? "บันทึกสำเร็จ กำลังรอคิวพิมพ์" : "Saved, print queue pending")
+        : text.receiptSaving;
 
   function renderTaxSummaryRows(
     order: Pick<CheckoutReviewOrder, "tax_lines" | "tax_total"> | null | undefined,
@@ -618,14 +634,18 @@ export function PosPaymentModals({
 
       {receiptSession ? (
         <div className="posui-payment-modal-backdrop" role="dialog" aria-modal="true" aria-label={text.receiptTitle}>
-          <section className="posui-payment-modal posui-payment-modal--receipt" onClick={(event) => event.stopPropagation()}>
+          <section className="posui-payment-modal posui-payment-modal--receipt posui-payment-modal--receipt-final" onClick={(event) => event.stopPropagation()}>
             <header className="posui-payment-modal__header">
-              <h3>{text.receiptTitle}</h3>
+              <div className="posui-payment-modal__title-wrap">
+                <h3>{receiptSession.payment_method === "cash" ? (lang === "th" ? "สรุปชำระเงินสดสำเร็จ" : "Cash payment complete") : text.receiptTitle}</h3>
+                <p className={receiptError ? "posui-payment-modal__subtitle posui-payment-modal__subtitle--error" : "posui-payment-modal__subtitle"} aria-live="polite">{receiptStatusText}</p>
+              </div>
               <button type="button" className="posui-btn" onClick={onCloseReceipt}>
                 {text.receiptClose}
               </button>
             </header>
-            <article className="posui-receipt-card-preview" aria-label={text.receiptTitle}>
+            {receiptError ? <p className="posui-payment-modal__error" role="alert">{receiptError}</p> : null}
+            <article className="posui-receipt-card-preview posui-receipt-card-preview--final" aria-label={text.receiptTitle}>
               <header className="posui-receipt-card-preview__head">
                 <ReceiptLogoImage src={receiptLogoPath} alt="Receipt logo" className="posui-receipt-card-preview__logo" />
                 <h4>{receiptStoreName}</h4>

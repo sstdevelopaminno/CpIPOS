@@ -4366,6 +4366,29 @@ a {
   width: min(480px, calc(100vw - 32px));
 }
 
+.posui-payment-modal--receipt-final {
+  width: min(760px, calc(100vw - 24px));
+  max-height: min(92vh, 860px);
+  padding: 24px;
+}
+
+.posui-payment-modal--receipt-final .posui-payment-modal__header h3 {
+  font-size: 24px;
+  line-height: 1.18;
+}
+
+.posui-payment-modal__subtitle {
+  margin: 4px 0 0;
+  color: #475569;
+  font-size: 14px;
+  font-weight: 800;
+  line-height: 1.35;
+}
+
+.posui-payment-modal__subtitle--error {
+  color: #b42318;
+}
+
 .posui-payment-modal__header {
   display: flex;
   align-items: center;
@@ -5896,6 +5919,43 @@ a {
   overflow: auto;
   display: grid;
   gap: 10px;
+}
+
+.posui-receipt-card-preview--final {
+  padding: 18px;
+  max-height: min(68vh, 620px);
+  gap: 14px;
+  font-size: 15px;
+}
+
+.posui-receipt-card-preview--final .posui-receipt-card-preview__logo {
+  max-width: 184px;
+  max-height: 48px;
+}
+
+.posui-receipt-card-preview--final .posui-receipt-card-preview__head h4 {
+  font-size: 22px;
+}
+
+.posui-receipt-card-preview--final .posui-receipt-card-preview__head p,
+.posui-receipt-card-preview--final .posui-receipt-card-preview__meta p,
+.posui-receipt-card-preview--final .posui-receipt-card-preview__summary p {
+  font-size: 14px;
+}
+
+.posui-receipt-card-preview--final .posui-receipt-card-preview__items-head,
+.posui-receipt-card-preview--final .posui-receipt-card-preview__item {
+  grid-template-columns: minmax(0, 1fr) 64px minmax(92px, auto);
+}
+
+.posui-receipt-card-preview--final .posui-receipt-card-preview__item-main strong,
+.posui-receipt-card-preview--final .posui-receipt-card-preview__item-total,
+.posui-receipt-card-preview--final .posui-receipt-card-preview__summary strong {
+  font-size: 16px;
+}
+
+.posui-receipt-card-preview--final .posui-receipt-card-preview__qty {
+  font-size: 15px;
 }
 
 .posui-receipt-card-preview__head {

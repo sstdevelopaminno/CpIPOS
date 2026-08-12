@@ -407,6 +407,7 @@ type ApiErrorBody = {
 type PosPaymentResponseBody = ApiErrorBody & {
   data?: {
     print_jobs_queued?: number | null;
+    print_jobs_deferred?: boolean | null;
   };
 };
 
@@ -1351,6 +1352,10 @@ const uiText = {
     receiptClose: "Close"
   }
 } as const;
+
+const RECEIPT_MODAL_MIN_VISIBLE_MS = 2200;
+const RECEIPT_MODAL_SAFE_TIMEOUT_MS = 8000;
+
 function newIdempotencyKey() {
   return `pos-sale-${crypto.randomUUID()}`;
 }
@@ -2193,6 +2198,9 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
     !hasRenderableData &&
     /(missing_pos_session|not authenticated|tenant\/branch claims|authentication failed|unauthorized)/i.test(errorText);
   const receiptModalClosedRef = useRef(false);
+  const receiptModalOpenedAtRef = useRef(0);
+  const receiptAutoCloseTimerRef = useRef<number | null>(null);
+  const receiptErrorRef = useRef<string | null>(null);
   const checkoutRequestLockRef = useRef(false);
   const cartPersistTimerRef = useRef<number | null>(null);
   const heldPersistTimerRef = useRef<number | null>(null);
@@ -7023,10 +7031,15 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
   }
 
   function closeReceiptPopup() {
+    if (receiptAutoCloseTimerRef.current !== null) {
+      window.clearTimeout(receiptAutoCloseTimerRef.current);
+      receiptAutoCloseTimerRef.current = null;
+    }
     const shouldReturnToTableBrowser =
       Boolean(receiptSession?.table_id) &&
       (receiptSession?.order_type === "dine_in" || orderType === "dine_in" || quickMode === "dine_in");
     receiptModalClosedRef.current = true;
+    receiptErrorRef.current = null;
     setReceiptSession(null);
     setReceiptSaved(false);
     setReceiptAutoPrinted(false);
@@ -7201,6 +7214,8 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
     };
 
     receiptModalClosedRef.current = false;
+    receiptModalOpenedAtRef.current = Date.now();
+    receiptErrorRef.current = null;
     setCashSubmitting(true);
     setCashReviewOrder(null);
     setReceiptSession(nextReceiptSession);
@@ -7231,12 +7246,14 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
         throw new Error(body.error?.message ?? "Failed to complete payment.");
       }
 
+      const printQueued = Number(body.data?.print_jobs_queued ?? 0) > 0 || body.data?.print_jobs_deferred === true;
+      console.info("[pos-payment] payment_saved", { order_id: cashReviewOrder.order_id, order_no: cashReviewOrder.order_no, payment_method: "cash", print_deferred: body.data?.print_jobs_deferred === true });
       setReceiptSaved(true);
-      setReceiptAutoPrinted(Number(body.data?.print_jobs_queued ?? 0) > 0);
+      setReceiptAutoPrinted(printQueued);
       setBillPaymentMethod("cash");
       clearClosedBillUiState({ clearReceipt: false, tableId: cashReviewOrder.table_id ?? null, resetDelivery: true });
       pushSubmitMessage(`${text.receiptSaved}: ${cashReviewOrder.order_no}`);
-      runPostPaymentSideEffects(nextReceiptSession);
+      runPostPaymentSideEffects(nextReceiptSession, { printQueued });
       if (orderType === "dine_in" || Boolean(cashReviewOrder.table_id)) {
         setQuickMode(quickMode === "buffet_table" ? "buffet_table" : "dine_in");
         setOrderType("dine_in");
@@ -7244,6 +7261,7 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
     } catch (paymentError) {
       const message = paymentError instanceof Error ? paymentError.message : "Unknown error";
       markConnectivityFromError(paymentError);
+      receiptErrorRef.current = message;
       setReceiptSession(null);
       setReceiptSaved(false);
       setReceiptError(message);
@@ -7319,6 +7337,7 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
         0
       );
       if (!response.ok || body.error) throw new Error(body.error?.message ?? "payment_notice_print_failed");
+      if (Number(body.data?.print_jobs_queued ?? 0) <= 0) throw new Error("payment_notice_printer_not_configured");
       pushSubmitMessage(lang === "th" ? "ส่งพิมพ์ใบแจ้งชำระเงินแล้ว" : "Payment notice queued");
     } catch (error) {
       const message = error instanceof Error ? error.message : "payment_notice_print_failed";
@@ -7388,6 +7407,8 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
     setTransferError(null);
     try {
       enqueuePendingPayment(pendingPaymentEntry);
+      receiptModalOpenedAtRef.current = Date.now();
+      receiptErrorRef.current = null;
       await submitTransferPayment(pendingPaymentEntry, true);
       runPostPaymentSideEffects({
         ...paidTransferOrder,
@@ -7395,7 +7416,7 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
         cash_received: paidTransferOrder.total_amount,
         change_amount: 0,
         store_profile: storeProfile
-      });
+      }, { printQueued: true });
       clearClosedBillUiState({ clearReceipt: false, tableId: paidTransferOrder.table_id ?? null, resetDelivery: true });
       if (orderType === "dine_in" || Boolean(paidTransferOrder.table_id)) {
         setQuickMode(quickMode === "buffet_table" ? "buffet_table" : "dine_in");
@@ -8281,8 +8302,17 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
     }
   }
 
-  function runPostPaymentSideEffects(session: ReceiptSession) {
-    window.setTimeout(() => {
+  function runPostPaymentSideEffects(session: ReceiptSession, options: { printQueued: boolean }) {
+    if (receiptAutoCloseTimerRef.current !== null) {
+      window.clearTimeout(receiptAutoCloseTimerRef.current);
+      receiptAutoCloseTimerRef.current = null;
+    }
+    const elapsedMs = Math.max(0, Date.now() - (receiptModalOpenedAtRef.current || Date.now()));
+    const minimumWaitMs = Math.max(0, RECEIPT_MODAL_MIN_VISIBLE_MS - elapsedMs);
+    const closeDelayMs = options.printQueued ? minimumWaitMs : RECEIPT_MODAL_SAFE_TIMEOUT_MS;
+    receiptAutoCloseTimerRef.current = window.setTimeout(() => {
+      receiptAutoCloseTimerRef.current = null;
+      if (receiptErrorRef.current) return;
       receiptModalClosedRef.current = true;
       setReceiptSession(null);
       setReceiptSaved(false);
@@ -8292,8 +8322,10 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
       if (session.table_id && (session.order_type === "dine_in" || orderType === "dine_in" || quickMode === "dine_in")) {
         returnToDineInTableBrowserAfterPayment();
       }
-    }, 500);
-  }  const handleTableBrowserRetryLoad = useCallback(() => {
+    }, closeDelayMs);
+  }
+
+  const handleTableBrowserRetryLoad = useCallback(() => {
     void fetchPosTablesRef.current().catch((tableError) => {
       const message = tableError instanceof Error ? tableError.message : "Failed to load table layout.";
       if (isConnectivityIssueMessage(message)) {
@@ -9320,6 +9352,9 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
           transferReviewOrder={transferReviewOrder}
           receiptSession={receiptSession}
           receiptSaving={receiptSaving}
+          receiptSaved={receiptSaved}
+          receiptAutoPrinted={receiptAutoPrinted}
+          receiptError={receiptError}
           cashSubmitting={cashSubmitting}
           transferSubmitting={transferSubmitting}
           transferSlipChecking={transferSlipChecking}

@@ -245,7 +245,8 @@ export async function queueRoutedPaymentNotice(args: {
 }) {
   const routes = await resolvePrinterRoutes({
     auth: args.auth,
-    purpose: "receipt",
+    purpose: "payment_slip",
+    fallbackPurposes: ["receipt"],
     runtimeDeviceCode: args.runtimeDeviceCode,
     legacyRole: "receipt"
   });
@@ -288,6 +289,7 @@ export async function queueRoutedPaymentNotice(args: {
         order_no: args.order.order_no,
         document_type: "payment_notice",
         total_amount: args.order.total_amount,
+        qr_data_uri: args.qrDataUri,
         items: args.items
       },
       metadata: {

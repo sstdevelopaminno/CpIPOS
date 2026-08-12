@@ -199,4 +199,62 @@ describe("POS payment stability hotfix", () => {
     expect(noticeSource).toContain("paperWidthMm: route.printer.paper_width_mm");
     expect(noticeSource).not.toContain("paperWidthMm: 58");
   });
+  it("manual drawer click enters loading state before issuing the request", () => {
+    const salesSource = source("src/components/pos/pos-sales-module.tsx");
+    const start = salesSource.indexOf("async function openCashDrawerManually");
+    const end = salesSource.indexOf("useEffect", start);
+    const drawerSource = salesSource.slice(start, end);
+    expect(drawerSource.indexOf("setCashDrawerOpening(true)")).toBeGreaterThanOrEqual(0);
+    expect(drawerSource.indexOf("setCashDrawerOpening(true)")).toBeLessThan(drawerSource.indexOf("fetchJsonWithTimeout"));
+  });
+
+  it("cash payment queues drawer and receipt side effects without serial blocking", () => {
+    const paymentsSource = source("src/app/api/pos/payments/route.ts");
+    expect(paymentsSource).toContain("const drawerTask = paymentMethod === \"cash\"");
+    expect(paymentsSource).toContain("const receiptTask = (async () =>");
+    expect(paymentsSource).toContain("await Promise.all([drawerTask, receiptTask])");
+    expect(paymentsSource).toContain("[pos-payment] payment_saved");
+    expect(paymentsSource).toContain("[pos-payment] cash_drawer_queued");
+    expect(paymentsSource).toContain("[pos-payment] receipt_print_queued");
+  });
+
+  it("cash success popup waits for saved print state and does not close too early", () => {
+    const salesSource = source("src/components/pos/pos-sales-module.tsx");
+    const start = salesSource.indexOf("function runPostPaymentSideEffects");
+    const end = salesSource.indexOf("const handleTableBrowserRetryLoad", start);
+    const sideEffectSource = salesSource.slice(start, end);
+    expect(salesSource).toContain("const RECEIPT_MODAL_MIN_VISIBLE_MS = 2200");
+    expect(sideEffectSource).toContain("options: { printQueued: boolean }");
+    expect(sideEffectSource).toContain("RECEIPT_MODAL_MIN_VISIBLE_MS - elapsedMs");
+    expect(sideEffectSource).toContain("RECEIPT_MODAL_SAFE_TIMEOUT_MS");
+    expect(sideEffectSource).not.toContain("}, 500)");
+    expect(salesSource).toContain("setReceiptSaved(true)");
+    expect(salesSource).toContain("setReceiptAutoPrinted(printQueued)");
+  });
+
+  it("receipt print failure guard keeps the popup from auto closing", () => {
+    const salesSource = source("src/components/pos/pos-sales-module.tsx");
+    const modalSource = source("src/components/pos/pos-payment-modals.tsx");
+    const start = salesSource.indexOf("function runPostPaymentSideEffects");
+    const end = salesSource.indexOf("const handleTableBrowserRetryLoad", start);
+    const sideEffectSource = salesSource.slice(start, end);
+    expect(sideEffectSource).toContain("if (receiptErrorRef.current) return");
+    expect(modalSource).toContain("posui-payment-modal--receipt-final");
+    expect(modalSource).toContain("receiptStatusText");
+    expect(modalSource).toContain("receiptError ? <p className=\"posui-payment-modal__error\"");
+  });
+
+  it("payment notice route queues print jobs through payment slip with receipt fallback", () => {
+    const routeSource = source("src/app/api/pos/payment-notice/route.ts");
+    const routedSource = source("src/lib/printing/routed-print-service.ts");
+    const start = routedSource.indexOf("export async function queueRoutedPaymentNotice");
+    const end = routedSource.indexOf("export async function queueRoutedKitchenFallback", start);
+    const noticeSource = routedSource.slice(start, end);
+    expect(routeSource).toContain("queueRoutedPaymentNotice");
+    expect(routeSource).toContain("return ok({ queued: true, print_jobs_queued: jobs.length");
+    expect(noticeSource).toContain('purpose: "payment_slip"');
+    expect(noticeSource).toContain('fallbackPurposes: ["receipt"]');
+    expect(noticeSource).toContain("payload_html: html");
+    expect(noticeSource).toContain("qr_data_uri: args.qrDataUri");
+  });
 });
