@@ -39,5 +39,9 @@ obj/
 artifacts/
 *.bak-*
 
+# Android signing keys must never be committed
+*.jks
+*.keystore
+
 # ESLint cache
 .tmp-eslintcache
