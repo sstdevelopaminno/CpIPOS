@@ -50,7 +50,7 @@ type Registry = {
 };
 type Candidate = { id: string; name: string; mode: Mode; paper_width_mm: 58 | 80; source: string; status: string; runtime_device_code: string | null; printer_profile_id: string | null; functions: string[]; helper: string };
 type Discovery = { items: Candidate[]; note: string };
-type Envelope<T> = { data?: T; error?: { message?: string } };
+type Envelope<T> = { data?: T; error?: { code?: string; message?: string } };
 
 const modeCards: Array<{ mode: Mode; title: string; icon: string; desc: string; help: string }> = [
   { mode: "lan", title: "LAN", icon: "▣", desc: "เชื่อมต่อผ่านเครือข่ายร้าน", help: "เหมาะกับครัวและเครื่องพิมพ์ประจำจุด" },
@@ -69,12 +69,75 @@ const purposes: Array<{ value: Purpose; label: string }> = [
 ];
 const zonedPurposes: ZonedPurpose[] = ["kitchen", "drink", "bar"];
 const PAGE_SIZE = 5;
+const API_TIMEOUT_MS = 10_000;
+let sessionRedirectInFlight = false;
+
+class ApiClientError extends Error {
+  status: number;
+  code: string | null;
+
+  constructor(message: string, status: number, code: string | null) {
+    super(message);
+    this.name = "ApiClientError";
+    this.status = status;
+    this.code = code;
+  }
+}
+
+async function redirectExpiredPosSession() {
+  if (sessionRedirectInFlight || typeof window === "undefined") return;
+  sessionRedirectInFlight = true;
+
+  const controller = new AbortController();
+  const timer = window.setTimeout(() => controller.abort(), 1500);
+  try {
+    await fetch("/api/auth/session/logout", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ mode: "full" }),
+      cache: "no-store",
+      signal: controller.signal
+    });
+  } catch {
+    // The failed protected API response also clears stale POS cookies. Redirect even if
+    // this best-effort logout call times out so the user is never stranded on settings.
+  } finally {
+    window.clearTimeout(timer);
+    window.location.replace("/login/store");
+  }
+}
 
 async function api<T>(url: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(url, { ...init, headers: { "Content-Type": "application/json", ...(init?.headers ?? {}) }, cache: "no-store" });
-  const body = (await response.json().catch(() => ({}))) as Envelope<T> & T;
-  if (!response.ok || body.error) throw new Error(body.error?.message ?? "ดำเนินการไม่สำเร็จ");
-  return (body.data ?? body) as T;
+  const controller = new AbortController();
+  const timer = window.setTimeout(() => controller.abort(), API_TIMEOUT_MS);
+
+  try {
+    const response = await fetch(url, {
+      ...init,
+      headers: { "Content-Type": "application/json", ...(init?.headers ?? {}) },
+      cache: "no-store",
+      signal: init?.signal ?? controller.signal
+    });
+    const body = (await response.json().catch(() => ({}))) as Envelope<T> & T;
+    const code = body.error?.code?.trim() || null;
+
+    if (!response.ok || body.error) {
+      const error = new ApiClientError(body.error?.message ?? "ดำเนินการไม่สำเร็จ", response.status, code);
+      if (response.status === 401 || code === "session_expired" || code === "session_not_active") {
+        void redirectExpiredPosSession();
+      }
+      throw error;
+    }
+
+    return (body.data ?? body) as T;
+  } catch (error) {
+    if (error instanceof DOMException && error.name === "AbortError") {
+      throw new Error("การเชื่อมต่อใช้เวลานานเกิน 10 วินาที กรุณาลองใหม่");
+    }
+    throw error;
+  } finally {
+    window.clearTimeout(timer);
+  }
 }
 
 function fmt(value?: string | null) {
