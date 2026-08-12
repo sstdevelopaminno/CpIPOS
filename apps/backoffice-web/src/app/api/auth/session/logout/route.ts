@@ -235,6 +235,7 @@ export async function POST(request: Request) {
             data: { ok: true, mode, redirect_to: "/login/employee?flow=multi" },
             error: null
           });
+          clearPosSessionCookies(response);
           if (mode === "switch_employee") {
             writePreEntryFlowState(
               response,
@@ -253,7 +254,9 @@ export async function POST(request: Request) {
           return response;
         }
       }
-      return jsonError(error.status, error.code, error.message);
+      const response = jsonError(error.status, error.code, error.message);
+      clearPosSessionCookies(response);
+      return response;
     }
     return jsonError(500, "logout_failed", error instanceof Error ? error.message : "Unknown error.");
   }
