@@ -218,21 +218,21 @@ export function renderReceiptTemplate(template: ReceiptTemplate, paperWidthMm: 5
   const paidAtText = Number.isNaN(paidAt.getTime())
     ? template.paid_at_iso.slice(0, 16).replace("T", " ")
     : new Intl.DateTimeFormat("th-TH", { dateStyle: "short", timeStyle: "medium", timeZone: "Asia/Bangkok" }).format(paidAt);
-  const paymentLabel = template.payment_method === "cash" ? "??????????" : "???????";
-  const modeLabel = normalizeText(template.mode_label) ?? "????????";
-  const memberLabel = normalizeText(template.member_label) ?? "0 ????? / 0 ????";
+  const paymentLabel = template.payment_method === "cash" ? "\u0e40\u0e07\u0e34\u0e19\u0e2a\u0e14" : "\u0e42\u0e2d\u0e19\u0e40\u0e07\u0e34\u0e19";
+  const modeLabel = normalizeText(template.mode_label) ?? "\u0e2b\u0e19\u0e49\u0e32\u0e23\u0e49\u0e32\u0e19";
+  const memberLabel = normalizeText(template.member_label) ?? "0 \u0e04\u0e19 / 0 \u0e04\u0e30\u0e41\u0e19\u0e19";
   const lines = [
     center("CpIPOS", width),
     center(storeName, width),
     ...(storePhone ? [center(storePhone, width)] : []),
     ...(storeAddress ? [center(storeAddress.slice(0, width * 2), width)] : []),
     line("-", width),
-    row("??????????", template.cashier_name, width),
-    row("??", "open", width),
-    row("????", modeLabel, width),
-    row("?????????", template.order_no, width),
-    row("??????", memberLabel, width),
-    row("??????", paidAtText, width),
+    row("\u0e2a\u0e32\u0e02\u0e32", template.branch_name, width),
+    row("\u0e43\u0e1a\u0e40\u0e2a\u0e23\u0e47\u0e08\u0e40\u0e25\u0e02\u0e17\u0e35\u0e48", template.order_no, width),
+    row("\u0e27\u0e31\u0e19\u0e17\u0e35\u0e48", paidAtText, width),
+    row("\u0e1e\u0e19\u0e31\u0e01\u0e07\u0e32\u0e19", template.cashier_name, width),
+    row("\u0e1b\u0e23\u0e30\u0e40\u0e20\u0e17", modeLabel, width),
+    row("\u0e2a\u0e21\u0e32\u0e0a\u0e34\u0e01", memberLabel, width),
     line("-", width)
   ];
 
@@ -244,20 +244,21 @@ export function renderReceiptTemplate(template: ReceiptTemplate, paperWidthMm: 5
   }
 
   lines.push(line("-", width));
-  lines.push(row("???????????", paymentLabel, width));
-  lines.push(row("??????", `?${money(template.discount_amount)}`, width));
-  if (template.tax_amount) lines.push(row("????", `?${money(template.tax_amount)}`, width));
-  lines.push(row("??????????????", `?${money(template.total_amount)}`, width));
+  lines.push(row("\u0e22\u0e2d\u0e14\u0e23\u0e27\u0e21\u0e01\u0e48\u0e2d\u0e19\u0e2a\u0e48\u0e27\u0e19\u0e25\u0e14", `${money(template.subtotal)} \u0e1a\u0e32\u0e17`, width));
+  lines.push(row("\u0e2a\u0e48\u0e27\u0e19\u0e25\u0e14", `${money(template.discount_amount)} \u0e1a\u0e32\u0e17`, width));
+  if (template.tax_amount) lines.push(row("\u0e20\u0e32\u0e29\u0e35", `${money(template.tax_amount)} \u0e1a\u0e32\u0e17`, width));
+  lines.push(row("\u0e22\u0e2d\u0e14\u0e2a\u0e38\u0e17\u0e18\u0e34", `${money(template.total_amount)} \u0e1a\u0e32\u0e17`, width));
+  lines.push(row("\u0e0a\u0e33\u0e23\u0e30\u0e42\u0e14\u0e22", paymentLabel, width));
   if (template.payment_method === "cash") {
-    lines.push(row("????????????????", `?${money(template.cash_received ?? template.total_amount)}`, width));
-    lines.push(row("???????", `?${money(template.change_amount ?? 0)}`, width));
+    lines.push(row("\u0e23\u0e31\u0e1a\u0e40\u0e07\u0e34\u0e19", `${money(template.cash_received ?? template.total_amount)} \u0e1a\u0e32\u0e17`, width));
+    lines.push(row("\u0e40\u0e07\u0e34\u0e19\u0e17\u0e2d\u0e19", `${money(template.change_amount ?? 0)} \u0e1a\u0e32\u0e17`, width));
   }
   if (template.note) {
     lines.push(line("-", width));
     lines.push(template.note.slice(0, width));
   }
   lines.push(line("-", width));
-  lines.push(center("CpIPOS", width));
+  lines.push(center("\u0e02\u0e2d\u0e1a\u0e04\u0e38\u0e13\u0e17\u0e35\u0e48\u0e43\u0e0a\u0e49\u0e1a\u0e23\u0e34\u0e01\u0e32\u0e23", width));
   lines.push("");
   return lines.join("\n");
 }
@@ -272,6 +273,29 @@ function renderReceiptPrintHtmlFromText(template: ReceiptTemplate, paperWidthMm:
   const width = paperWidthMm === 58 ? 48 : 70;
   return "<!doctype html><html lang=\"th\"><head><meta charset=\"utf-8\"><style>@page{size:" + paperWidthMm + "mm " + pageHeightMm + "mm;margin:0}body{width:" + paperWidthMm + "mm;margin:0;background:#fff;color:#000;font-family:Tahoma,sans-serif}.r{width:" + width + "mm;margin:0 auto;padding:2mm 0;font-size:17px;font-weight:800;line-height:1.34;white-space:pre-wrap}.logo{text-align:center;margin-bottom:1mm}.logo img{max-width:28mm;max-height:9mm;object-fit:contain}</style></head><body><main class=\"r\"><div class=\"logo\">" + (logo ? "<img src=\"" + escapeReceiptHtml(logo) + "\">" : "CpIPOS") + "</div>" + escapeReceiptHtml(textBody) + "</main></body></html>";
 }
+function renderTestPrintPayload(printer: PrinterProfileRow): string {
+  const width = printer.paper_width_mm === 58 ? 32 : 42;
+  const metadata = asRecord(printer.metadata);
+  const agentDevice = normalizeText(String(metadata.agent_device_code ?? metadata.device_code ?? ""));
+  const lines = [
+    center("\u0e17\u0e14\u0e2a\u0e2d\u0e1a\u0e40\u0e04\u0e23\u0e37\u0e48\u0e2d\u0e07\u0e1e\u0e34\u0e21\u0e1e\u0e4c", width),
+    line("-", width),
+    "\u0e20\u0e32\u0e29\u0e32\u0e44\u0e17\u0e22: \u0e17\u0e14\u0e2a\u0e2d\u0e1a\u0e01\u0e32\u0e23\u0e1e\u0e34\u0e21\u0e1e\u0e4c\u0e20\u0e32\u0e29\u0e32\u0e44\u0e17\u0e22",
+    row("Printer", printer.printer_name, width),
+    row("Role", printer.printer_role, width),
+    row("Connection", printer.connection_type, width),
+    row("Paper", `${printer.paper_width_mm}mm`, width),
+    ...(printer.ip_address ? [row("IP", printer.ip_address, width)] : []),
+    ...(printer.port ? [row("Port", String(printer.port), width)] : []),
+    ...(agentDevice ? [row("Agent", agentDevice, width)] : []),
+    row("Time", nowIso(), width),
+    line("-", width),
+    center("\u0e02\u0e2d\u0e1a\u0e04\u0e38\u0e13\u0e17\u0e35\u0e48\u0e43\u0e0a\u0e49\u0e1a\u0e23\u0e34\u0e01\u0e32\u0e23", width),
+    ""
+  ];
+  return lines.join("\n");
+}
+
 function receiptStoreTemplateFields(storeProfile: ReceiptStoreProfile | null) {
   return {
     store_name: storeProfile?.display_name || storeProfile?.name,
@@ -732,24 +756,23 @@ export async function queueAndProcessTestPrint(auth: AuthContext, printerId: str
   }
 
   const printer = data as PrinterProfileRow;
-  const receiptText = renderReceiptTemplate(
-    {
-      order_id: "00000000-0000-0000-0000-000000000000",
-      order_no: "TEST-PRINT",
-      branch_name: "Printer Test",
-      cashier_name: "System",
-      paid_at_iso: nowIso(),
-      currency: "THB",
-      items: [{ name: "Connectivity check", qty: 1, unit_price: 0, line_total: 0 }],
-      subtotal: 0,
-      discount_amount: 0,
-      tax_amount: 0,
-      total_amount: 0,
-      payment_method: "cash",
-      note: `Adapter: ${printer.connection_type}`
-    },
-    printer.paper_width_mm
-  );
+  const receiptText = renderTestPrintPayload(printer);
+  const receiptTemplate: ReceiptTemplate = {
+    order_id: "00000000-0000-0000-0000-000000000000",
+    order_no: "TEST-PRINT",
+    branch_name: "Printer Test",
+    cashier_name: "System",
+    paid_at_iso: nowIso(),
+    currency: "THB",
+    items: [{ name: "Connectivity check", qty: 1, unit_price: 0, line_total: 0 }],
+    subtotal: 0,
+    discount_amount: 0,
+    tax_amount: 0,
+    total_amount: 0,
+    payment_method: "cash",
+    note: `Adapter: ${printer.connection_type}`
+  };
+  const receiptHtml = renderReceiptPrintHtmlFromText(receiptTemplate, printer.paper_width_mm, receiptText);
 
   const job = await enqueuePrintJob({
     auth,
@@ -757,7 +780,7 @@ export async function queueAndProcessTestPrint(auth: AuthContext, printerId: str
     orderId: null,
     printerRole: printer.printer_role,
     payloadText: receiptText,
-    metadata: { test_print: true }
+    metadata: { test_print: true, payload_html: receiptHtml }
   });
 
   return processOrQueuePrintJob(job, printer);

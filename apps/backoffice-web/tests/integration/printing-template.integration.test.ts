@@ -26,10 +26,10 @@ describe("printing template generation", () => {
     );
 
     expect(output).toContain("CpIPOS");
-    expect(output).toContain("?????????");
+    expect(output).toContain("\u0e43\u0e1a\u0e40\u0e2a\u0e23\u0e47\u0e08\u0e40\u0e25\u0e02\u0e17\u0e35\u0e48");
     expect(output).toContain("DLV-2026");
     expect(output).toContain("Pad Thai");
-    expect(output).toContain("??????????????");
+    expect(output).toContain("\u0e22\u0e2d\u0e14\u0e2a\u0e38\u0e17\u0e18\u0e34");
     expect(output).toContain("181.90");
     expect(output).toContain("No spicy");
   });
