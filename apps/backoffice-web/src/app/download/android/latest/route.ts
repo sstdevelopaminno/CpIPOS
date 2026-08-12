@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 
 const releaseApiUrl = "https://api.github.com/repos/sstdevelopaminno/CpIPOS/releases/tags/android-runtime-latest";
-const assetName = "CpIPOS-Android-POS-1.0.3.apk";
+const assetName = "CpIPOS-Android-POS-1.0.4.apk";
 
 export const dynamic = "force-dynamic";
 
