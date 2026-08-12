@@ -47,7 +47,7 @@ type PendingSubmit = {
     tax_total?: number;
     grand_total?: number;
     tax_lines?: Array<{ id: string; label: string; rate_pct: number; mode: string; amount: number }>;
-    items: Array<{ product_id: string; quantity: number; unit_price?: number }>;
+    items: Array<{ product_id: string; quantity: number; unit_price?: number; notes?: string | null }>;
   };
 };
 
@@ -178,7 +178,7 @@ function validatePendingSubmitPayload(payload: PendingSubmit): void {
   }
 }
 
-function buildSanitizedOrderSubmitPayload(payload: PendingSubmit["payload"]): PendingSubmit["payload"] {
+export function buildSanitizedOrderSubmitPayload(payload: PendingSubmit["payload"]): PendingSubmit["payload"] {
   return {
     ...payload,
     shift_id: String(payload.shift_id ?? "").trim(),
@@ -197,7 +197,8 @@ function buildSanitizedOrderSubmitPayload(payload: PendingSubmit["payload"]): Pe
     items: payload.items.map((item) => ({
       product_id: String(item.product_id ?? "").trim(),
       quantity: Number(item.quantity),
-      unit_price: item.unit_price === undefined ? undefined : toSafeNumber(item.unit_price, 0)
+      unit_price: item.unit_price === undefined ? undefined : toSafeNumber(item.unit_price, 0),
+      notes: String(item.notes ?? "").trim() || null
     }))
   };
 }
@@ -298,9 +299,6 @@ export async function submitOrderWithEffects(args: {
   if (applyUiResult) {
     setActiveOrder(createdOrder);
     pushSubmitMessage(`${createdOrder.updated_existing ? text.orderUpdated : text.orderCreated}: ${createdOrder.order_no}`);
-    if (sanitizedPayload.order_type !== "takeaway") {
-      setCart([]);
-    }
     setCartDrawerOpen(false);
     if (sanitizedPayload.order_type === "dine_in") {
       refreshTables();

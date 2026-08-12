@@ -172,14 +172,10 @@ type Props = {
   getTransferVerificationStatusTone: (status: TransferVerification["verification_status"]) => "pass" | "fail" | "warn";
   getTransferVerificationStatusLabel: (status: TransferVerification["verification_status"]) => string;
   normalizeTransferVerificationIssues: (value: unknown) => string[];
-  canDeductIngredientForItem: (productId: string) => boolean;
-  ingredientDeductingKey: string | null;
-  ingredientDeductingMode: "deduct" | "restore" | null;
   onCloseReview: () => void;
   onCancelFromReview: (order: CheckoutReviewOrder) => void;
   onCancelFromCash: (order: CheckoutReviewOrder) => void;
   onCancelFromTransfer: (order: CheckoutReviewOrder) => void;
-  onDeductIngredientForItem: (order: CheckoutReviewOrder, item: CartItem) => void;
   onOpenCash: (order: CheckoutReviewOrder) => void;
   onOpenTransfer: (order: CheckoutReviewOrder) => void;
   onCloseCash: () => void;
@@ -196,9 +192,10 @@ type Props = {
   onRequestTransferOverride: () => void;
   onTransferReferenceChange: (value: string) => void;
   onConfirmTransfer: () => Promise<void> | void;
-  onPrintReceipt: () => void;
+  onPrintPaymentNotice?: () => Promise<void> | void;
+  paymentNoticeSubmitting?: boolean;
+  paymentNoticeError?: string | null;
   onCloseReceipt: () => void;
-  receiptAutoPrinted?: boolean;
 };
 
 export function PosPaymentModals({
@@ -217,7 +214,6 @@ export function PosPaymentModals({
   transferReviewOrder,
   receiptSession,
   receiptSaving,
-  receiptAutoPrinted = false,
   cashSubmitting,
   transferSubmitting,
   transferError,
@@ -240,13 +236,9 @@ export function PosPaymentModals({
   renderExternalOrderCode,
   getQuickModeLabel,
   getReceiptPaymentMethodLabel,
-  canDeductIngredientForItem,
-  ingredientDeductingKey,
-  ingredientDeductingMode,
   onCloseReview,
   onCancelFromReview,
   onCancelFromCash,
-  onDeductIngredientForItem,
   onOpenCash,
   onOpenTransfer,
   onCloseCash,
@@ -259,7 +251,9 @@ export function PosPaymentModals({
   onSelectTransferPaymentMode,
   onCreateInetQrPayment,
   onConfirmTransfer,
-  onPrintReceipt,
+  onPrintPaymentNotice,
+  paymentNoticeSubmitting = false,
+  paymentNoticeError = null,
   onCloseReceipt
 }: Props) {
   function resolveReceiptDiscountAmount(session: ReceiptSession): number {
@@ -385,41 +379,17 @@ export function PosPaymentModals({
                     <span>{text.reviewLineTotalLabel}</span>
                   </div>
                   {reviewOrder.items.map((item) => (
-                    <div key={`${reviewOrder.order_id}-${item.product_id}`} className="posui-payment-modal__item-row">
-                      {(() => {
-                        const lineKey = `${reviewOrder.order_id}:${item.product_id}`;
-                        const isBusy = ingredientDeductingKey === lineKey;
-                        const actionLabel = isBusy
-                          ? ingredientDeductingMode === "restore"
-                            ? text.reviewItemIngredientRestoring
-                            : text.reviewItemIngredientDeducting
-                          : text.reviewItemIngredientDeductAction;
-                        return (
-                          <>
+                    <div key={`${reviewOrder.order_id}-${item.product_id}-${item.notes ?? ""}`} className="posui-payment-modal__item-row">
                       <div className="posui-payment-modal__item-main">
                         <strong className="posui-payment-modal__item-name">{item.name}</strong>
                         <small className="posui-payment-modal__item-meta">
                           {text.reviewQtyPriceLabel}: {formatQuantity(item.quantity)} x {formatMoney(item.price)}
                         </small>
-                        {canDeductIngredientForItem(item.product_id) ? (
-                          <button
-                            type="button"
-                            className="posui-payment-modal__item-ingredient-btn"
-                            disabled={isBusy}
-                            onClick={() => onDeductIngredientForItem(reviewOrder, item)}
-                          >
-                            {actionLabel}
-                          </button>
-                        ) : null}
                       </div>
                       <span className="posui-payment-modal__item-qty">{formatQuantity(item.quantity)}</span>
                       <strong className="posui-payment-modal__item-total">{formatMoney(item.price * item.quantity)}</strong>
-                          </>
-                        );
-                      })()}
                     </div>
-                  ))}
-                </div>
+                  ))}                </div>
                 {renderTaxSummaryRows(reviewOrder, "posui-payment-modal__tax-row")}
                 <div className="posui-payment-modal__total">
                   <span>{text.reviewGrandTotalLabel}</span>
@@ -612,7 +582,13 @@ export function PosPaymentModals({
                   <p className="posui-transfer-mobile-hint">{`${text.transferInetOrderRef}: ${inetProviderOrderId}`}</p>
                 ) : null}
                 {transferError ? <p className="posui-payment-modal__error posui-payment-modal__error--transfer">{transferError}</p> : null}
+                {paymentNoticeError ? <p className="posui-payment-modal__error posui-payment-modal__error--transfer">{paymentNoticeError}</p> : null}
                 <div className="posui-payment-modal__actions posui-payment-modal__actions--transfer">
+                  {onPrintPaymentNotice && Boolean(transferReviewOrder.table_id) ? (
+                    <button type="button" className="posui-btn" onClick={() => void onPrintPaymentNotice()} disabled={transferSubmitting || paymentNoticeSubmitting}>
+                      {paymentNoticeSubmitting ? text.submitting : (text.printPaymentNotice ?? "พิมพ์ใบแจ้งชำระเงิน")}
+                    </button>
+                  ) : null}
                   {transferPaymentMode === "inet_nops" ? (
                     <button
                       type="button"
@@ -710,18 +686,6 @@ export function PosPaymentModals({
                 ) : null}
               </footer>
             </article>
-            {!receiptAutoPrinted ? (
-              <div className="posui-payment-modal__actions posui-payment-modal__actions--cash">
-                <button
-                  type="button"
-                  className="posui-btn posui-btn--primary"
-                  onClick={onPrintReceipt}
-                  disabled={receiptSaving}
-                >
-                  {text.receiptPrint}
-                </button>
-              </div>
-            ) : null}
           </section>
         </div>
       ) : null}

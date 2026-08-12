@@ -2143,6 +2143,10 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
   const [cashDrawerOpening, setCashDrawerOpening] = useState(false);
   const [cashDrawerCoolingDown, setCashDrawerCoolingDown] = useState(false);
   const [cashDrawerConfigured, setCashDrawerConfigured] = useState(false);
+  const [cashDrawerReady, setCashDrawerReady] = useState(false);
+  const [cashDrawerModal, setCashDrawerModal] = useState<{ open: boolean; status: "opening" | "success" | "error"; message: string }>({ open: false, status: "opening", message: "" });
+  const [paymentNoticeSubmitting, setPaymentNoticeSubmitting] = useState(false);
+  const [paymentNoticeError, setPaymentNoticeError] = useState<string | null>(null);
   const [receiptSession, setReceiptSession] = useState<ReceiptSession | null>(null);
   const [receiptSaving, setReceiptSaving] = useState(false);
   const [receiptSaved, setReceiptSaved] = useState(false);
@@ -3813,19 +3817,15 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
 
   async function openCashDrawerManually() {
     if (cashDrawerOpening || cashDrawerCoolingDown) return;
-    if (!cashDrawerConfigured) {
+    if (!cashDrawerReady) {
       pushSubmitMessage(text.cashDrawerNotConfigured);
+      setCashDrawerModal({ open: true, status: "error", message: text.cashDrawerNotConfigured });
       return;
     }
-    const reason = window.prompt(text.cashDrawerReasonPrompt, text.cashDrawerReasonDefault);
-    if (reason === null) return;
-    const normalizedReason = reason.trim();
-    if (!normalizedReason) {
-      pushSubmitMessage(text.cashDrawerReasonPrompt);
-      return;
-    }
+    const normalizedReason = text.cashDrawerReasonDefault;
 
     setCashDrawerOpening(true);
+    setCashDrawerModal({ open: true, status: "opening", message: text.openingCashDrawer });
     try {
       const { response, body } = await fetchJsonWithTimeout<ApiErrorBody & { data?: { physical_status?: string } }>(
         "/api/pos/cash-drawer/open",
@@ -3841,34 +3841,46 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
         throw new Error(mapCashDrawerError(body, text.cashDrawerOpenFailed));
       }
       const suffix = body.data?.physical_status === "unsupported" ? ` (${text.cashDrawerUnsupportedStatus})` : "";
-      pushSubmitMessage(`${text.cashDrawerCommandSent}${suffix}`);
+      const message = `${text.cashDrawerCommandSent}${suffix}`;
+      pushSubmitMessage(message);
+      setCashDrawerModal({ open: true, status: "success", message });
       setCashDrawerCoolingDown(true);
-      window.setTimeout(() => {
-        setCashDrawerCoolingDown(false);
-      }, 3100);
+      window.setTimeout(() => setCashDrawerCoolingDown(false), 3100);
+      window.setTimeout(() => setCashDrawerModal((current) => current.status === "success" ? { ...current, open: false } : current), 400);
     } catch (error) {
-      pushSubmitMessage(error instanceof Error ? error.message : text.cashDrawerOpenFailed);
+      const message = error instanceof Error ? error.message : text.cashDrawerOpenFailed;
+      pushSubmitMessage(message);
+      setCashDrawerModal({ open: true, status: "error", message });
     } finally {
       setCashDrawerOpening(false);
     }
   }
-
   useEffect(() => {
     if (!isHydrated || typeof window === "undefined") return;
     let active = true;
-    void fetchJsonWithTimeout<ApiErrorBody & { data?: { configured?: boolean } }>("/api/pos/cash-drawer/open", { cache: "no-store" }, 8000, 0)
-      .then(({ response, body }) => {
-        if (!active) return;
-        setCashDrawerConfigured(Boolean(response.ok && !body.error && body.data?.configured));
-      })
-      .catch(() => {
-        if (active) setCashDrawerConfigured(false);
-      });
+    const refreshCashDrawerReadiness = () => {
+      void fetchJsonWithTimeout<ApiErrorBody & { data?: { configured?: boolean; ready?: boolean } }>("/api/pos/cash-drawer/open", { cache: "no-store" }, 8000, 0)
+        .then(({ response, body }) => {
+          if (!active) return;
+          setCashDrawerConfigured(Boolean(response.ok && !body.error && body.data?.configured));
+          setCashDrawerReady(Boolean(response.ok && !body.error && body.data?.ready));
+        })
+        .catch(() => {
+          if (active) {
+            setCashDrawerConfigured(false);
+            setCashDrawerReady(false);
+          }
+        });
+    };
+    refreshCashDrawerReadiness();
+    window.addEventListener("focus", refreshCashDrawerReadiness);
+    window.addEventListener("online", refreshCashDrawerReadiness);
     return () => {
       active = false;
+      window.removeEventListener("focus", refreshCashDrawerReadiness);
+      window.removeEventListener("online", refreshCashDrawerReadiness);
     };
-  }, [isHydrated]);
-
+  }, [isHydrated, fetchJsonWithTimeout]);
   useEffect(() => {
     fetchPosTablesRef.current = fetchPosTables;
     loadTableBillContextRef.current = loadTableBillContext;
@@ -4591,51 +4603,9 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
     setReviewRecipeProductIdsLoaded(false);
   }, [reviewOrderId]);
   useEffect(() => {
-    if (!reviewOrderId) return;
-    let cancelled = false;
-
-    async function loadReviewRecipeProducts() {
-      if (reviewOrderItemProductIds.length === 0) {
-        if (!cancelled) {
-          setReviewRecipeProductIds(new Set());
-          setReviewRecipeProductIdsLoaded(true);
-        }
-        return;
-      }
-
-      try {
-        const query = encodeURIComponent(reviewOrderItemProductIds.join(","));
-        const { response, body } = await fetchJsonWithTimeout<PosRecipeProductsResponseBody>(
-          `/api/pos/recipe-products?product_ids=${query}`,
-          { cache: "no-store" },
-          12000
-        );
-
-        if (!response.ok || body.error) {
-          throw new Error(body.error?.message ?? "Failed to load review recipe products.");
-        }
-
-        const productIds = Array.isArray(body.data?.product_ids)
-          ? body.data!.product_ids!.map((id) => normalizeProductId(id)).filter(Boolean)
-          : [];
-
-        if (!cancelled) {
-          setReviewRecipeProductIds(new Set(productIds));
-          setReviewRecipeProductIdsLoaded(true);
-        }
-      } catch {
-        if (!cancelled) {
-          setReviewRecipeProductIds(new Set());
-          setReviewRecipeProductIdsLoaded(true);
-        }
-      }
-    }
-
-    void loadReviewRecipeProducts();
-    return () => {
-      cancelled = true;
-    };
-  }, [reviewOrderId, reviewOrderItemProductIds]);
+    setReviewRecipeProductIds(new Set());
+    setReviewRecipeProductIdsLoaded(true);
+  }, [reviewOrderId]);
   const canDeductIngredientForItem = useCallback(
     (productId: string) => {
       const normalizedProductId = normalizeProductId(productId);
@@ -7273,6 +7243,75 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
     }
   }
 
+  async function imageSourceToDataUri(source: string): Promise<string> {
+    if (source.startsWith("data:image/")) return source;
+    const response = await fetch(source, { cache: "no-store" });
+    if (!response.ok) throw new Error("payment_notice_qr_fetch_failed");
+    const blob = await response.blob();
+    if (!blob.type.startsWith("image/")) throw new Error("payment_notice_qr_not_image");
+    if (blob.size <= 0 || blob.size > 500_000) throw new Error("payment_notice_qr_invalid_size");
+    return await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result ?? ""));
+      reader.onerror = () => reject(new Error("payment_notice_qr_read_failed"));
+      reader.readAsDataURL(blob);
+    });
+  }
+
+  async function printTransferPaymentNotice() {
+    if (!transferReviewOrder || paymentNoticeSubmitting || transferSubmitting) return;
+    const isDineInNotice = transferReviewOrder.order_type === "dine_in" || Boolean(transferReviewOrder.table_id);
+    if (!isDineInNotice) return;
+    const qrSource = visibleTransferPaymentMode === "inet_nops" ? inetQrUrl : promptPayQrUrl;
+    if (!qrSource) {
+      setPaymentNoticeError(text.transferPaymentSettingsRequiredBody);
+      return;
+    }
+
+    setPaymentNoticeSubmitting(true);
+    setPaymentNoticeError(null);
+    try {
+      const qrDataUri = await imageSourceToDataUri(qrSource);
+      if (!qrDataUri.startsWith("data:image/")) throw new Error("payment_notice_qr_required");
+      const { response, body } = await fetchJsonWithTimeout<ApiErrorBody & { data?: { print_jobs_queued?: number } }>(
+        "/api/pos/payment-notice",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            order_id: transferReviewOrder.order_id,
+            order_no: transferReviewOrder.order_no,
+            table_label: selectedTable?.table_code ?? transferReviewOrder.table_id ?? null,
+            total_amount: transferReviewOrder.total_amount,
+            discount_amount: transferReviewOrder.discount_amount ?? 0,
+            tax_amount: transferReviewOrder.tax_total ?? 0,
+            created_at: transferReviewOrder.created_at,
+            seller_name: sellerName,
+            qr_data_uri: qrDataUri,
+            account_label: paymentAccount ? [paymentAccount.bank_name, paymentAccount.account_name, paymentAccount.account_number].filter(Boolean).join(" / ") : "",
+            promptpay_label: visibleTransferPaymentMode === "manual" ? promptPayPhoneDisplay : inetPaymentIntent?.provider_order_id ?? null,
+            items: transferReviewOrder.items.map((item) => ({
+              name: item.name,
+              quantity: item.quantity,
+              unit_price: item.price,
+              line_total: item.price * item.quantity,
+              note: item.notes ?? null
+            }))
+          })
+        },
+        20000,
+        0
+      );
+      if (!response.ok || body.error) throw new Error(body.error?.message ?? "payment_notice_print_failed");
+      pushSubmitMessage(lang === "th" ? "ส่งพิมพ์ใบแจ้งชำระเงินแล้ว" : "Payment notice queued");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "payment_notice_print_failed";
+      setPaymentNoticeError(message);
+      pushSubmitMessage(message);
+    } finally {
+      setPaymentNoticeSubmitting(false);
+    }
+  }
   async function confirmTransferPayment() {
     if (!transferReviewOrder || transferSubmitting || transferSlipChecking || receiptSaving) return;
     if (!promptPayQrUrl) {
@@ -8227,18 +8266,18 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
   }
 
   function runPostPaymentSideEffects(session: ReceiptSession) {
-    if (session.payment_method === "cash") {
-      void openCashDrawerAfterCashPayment(session.order_no);
-    }
-
     window.setTimeout(() => {
-      void autoPrintReceiptToWindowsRuntime(
-        session,
-        session.payment_method === "cash" ? "cash_payment_success" : "transfer_payment_success"
-      );
-    }, session.payment_method === "cash" ? 120 : 0);
-  }
-  const handleTableBrowserRetryLoad = useCallback(() => {
+      receiptModalClosedRef.current = true;
+      setReceiptSession(null);
+      setReceiptSaved(false);
+      setReceiptAutoPrinted(false);
+      setReceiptError(null);
+      setReceiptSaving(false);
+      if (session.table_id && (session.order_type === "dine_in" || orderType === "dine_in" || quickMode === "dine_in")) {
+        returnToDineInTableBrowserAfterPayment();
+      }
+    }, 500);
+  }  const handleTableBrowserRetryLoad = useCallback(() => {
     void fetchPosTablesRef.current().catch((tableError) => {
       const message = tableError instanceof Error ? tableError.message : "Failed to load table layout.";
       if (isConnectivityIssueMessage(message)) {
@@ -8360,7 +8399,7 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
           }
           onTableQrOrder={() => setTableQrModalOpen(true)}
           onPromotion={openDiscountPopup}
-          onOpenCashDrawer={cashDrawerConfigured ? openCashDrawerManually : undefined}
+          onOpenCashDrawer={cashDrawerReady ? openCashDrawerManually : undefined}
           showHoldBill={quickMode === "home"}
           showTableQrOrder={
             orderType === "dine_in" &&
@@ -9220,6 +9259,34 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
           setTransferError(null);
         }}
       />
+      {cashDrawerModal.open ? (
+        <div className="posui-payment-modal-backdrop" role="dialog" aria-modal="true" aria-label={text.openCashDrawer}>
+          <section className="posui-payment-modal posui-payment-modal--cash-drawer" onClick={(event) => event.stopPropagation()}>
+            <header className="posui-payment-modal__header">
+              <h3>{text.openCashDrawer}</h3>
+              {cashDrawerModal.status === "opening" ? null : (
+                <button type="button" className="posui-btn" onClick={() => setCashDrawerModal((current) => ({ ...current, open: false }))}>
+                  {text.close}
+                </button>
+              )}
+            </header>
+            <p className="posui-payment-modal__hint">
+              {cashDrawerModal.status === "opening" ? text.openingCashDrawer : cashDrawerModal.message}
+            </p>
+            {cashDrawerModal.status === "opening" ? <div className="posui-loading-strip" aria-hidden="true" /> : null}
+            {cashDrawerModal.status === "error" ? (
+              <div className="posui-payment-modal__actions posui-payment-modal__actions--cash">
+                <button type="button" className="posui-btn posui-btn--primary" onClick={() => void openCashDrawerManually()} disabled={cashDrawerOpening || cashDrawerCoolingDown}>
+                  {cashDrawerOpening ? text.submitting : "Retry"}
+                </button>
+                <button type="button" className="posui-btn" onClick={() => setCashDrawerModal((current) => ({ ...current, open: false }))}>
+                  {text.close}
+                </button>
+              </div>
+            ) : null}
+          </section>
+        </div>
+      ) : null}
       <PosPaymentModals
           text={text}
           lang={lang}
@@ -9283,15 +9350,11 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
           getReceiptPaymentMethodLabel={getReceiptPaymentMethodLabel}
           getTransferVerificationStatusTone={getTransferVerificationStatusTone}
           getTransferVerificationStatusLabel={getTransferVerificationStatusLabel}
-          canDeductIngredientForItem={canDeductIngredientForItem}
-          ingredientDeductingKey={reviewItemDeductingKey}
-          ingredientDeductingMode={reviewItemDeductingMode}
         normalizeTransferVerificationIssues={normalizeTransferVerificationIssues}
         onCloseReview={closeCheckoutReviewPopup}
         onCancelFromReview={requestCancelBillFromReview}
         onCancelFromCash={requestCancelBillFromCash}
         onCancelFromTransfer={requestCancelBillFromReview}
-        onDeductIngredientForItem={openIngredientAdjustDialog}
         onOpenCash={openCashPaymentPopup}
           onOpenTransfer={openTransferPaymentPopup}
           onCloseCash={closeCashPaymentPopup}
@@ -9308,9 +9371,10 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
           onRequestTransferOverride={() => setTransferOverrideModalOpen(true)}
           onTransferReferenceChange={setTransferReference}
           onConfirmTransfer={confirmTransferPayment}
-          onPrintReceipt={handleReceiptPrint}
+          onPrintPaymentNotice={printTransferPaymentNotice}
+          paymentNoticeSubmitting={paymentNoticeSubmitting}
+          paymentNoticeError={paymentNoticeError}
           onCloseReceipt={closeReceiptPopup}
-          receiptAutoPrinted={receiptAutoPrinted}
       />
 
       {ingredientAdjustDialog ? (

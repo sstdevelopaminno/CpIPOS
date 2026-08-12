@@ -4,6 +4,7 @@ import type { PaymentMethod } from "@pos/shared-types";
 import type { AuthContext } from "@/lib/auth-context";
 import { readEnv } from "@/lib/env";
 import { enqueuePrintJob, loadReceiptSellerName, processPrintJob, renderKitchenTicketTemplate, renderReceiptTemplate } from "@/lib/printing/print-service";
+import { renderPaymentNoticeHtml, type PaymentNoticeItem } from "@/lib/printing/payment-notice-html-template";
 import { renderReceiptHtml } from "@/lib/printing/receipt-html-template";
 import { resolvePrinterRoutes, type ResolvedPrinterRoute } from "@/lib/printing/printer-routing-service";
 import { loadReceiptStoreProfile } from "@/lib/services/store-profile-service";
@@ -223,6 +224,84 @@ export async function queueRoutedSalesReceipt(args: {
   return jobs;
 }
 
+
+export async function queueRoutedPaymentNotice(args: {
+  auth: AuthContext;
+  runtimeDeviceCode?: string | null;
+  order: {
+    id: string;
+    order_no: string;
+    total_amount: number;
+    discount_amount: number;
+    tax_amount?: number | null;
+    table_label?: string | null;
+    created_at?: string | null;
+  };
+  items: PaymentNoticeItem[];
+  sellerName?: string | null;
+  qrDataUri: string;
+  accountLabel?: string | null;
+  promptPayLabel?: string | null;
+}) {
+  const routes = await resolvePrinterRoutes({
+    auth: args.auth,
+    purpose: "receipt",
+    runtimeDeviceCode: args.runtimeDeviceCode,
+    legacyRole: "receipt"
+  });
+  if (routes.length === 0) return [];
+
+  const storeProfile = await loadReceiptStoreProfile(args.auth.tenantId!);
+  const branchName = await loadBranchName(args.auth, storeProfile?.display_name ?? storeProfile?.name);
+  const sellerName = await loadReceiptSellerName(args.auth, args.auth.userId, { seller_name: args.sellerName ?? null });
+  const jobs = [];
+  for (const route of routes) {
+    const html = renderPaymentNoticeHtml({
+      paperWidthMm: route.printer.paper_width_mm,
+      storeName: String(storeProfile?.display_name ?? storeProfile?.name ?? branchName),
+      branchName,
+      storeAddress: storeProfile?.company_address ?? null,
+      storePhone: storeProfile?.contact_phone ?? null,
+      logoUrl: storeProfile?.logo_url ?? null,
+      sellerName,
+      tableLabel: args.order.table_label ?? null,
+      orderNo: args.order.order_no,
+      createdAtIso: args.order.created_at ?? new Date().toISOString(),
+      items: args.items,
+      discountAmount: args.order.discount_amount,
+      taxAmount: args.order.tax_amount ?? 0,
+      totalAmount: args.order.total_amount,
+      accountLabel: args.accountLabel ?? null,
+      promptPayLabel: args.promptPayLabel ?? null,
+      qrDataUri: args.qrDataUri
+    });
+    jobs.push(...await queueOnRoute({
+      auth: args.auth,
+      route,
+      orderId: args.order.id,
+      printerRole: "receipt",
+      payloadText: `PAYMENT NOTICE\n${args.order.order_no}\n${args.order.total_amount.toFixed(2)}`,
+      payloadJson: {
+        ...storePayload(storeProfile),
+        branch_name: branchName,
+        order_id: args.order.id,
+        order_no: args.order.order_no,
+        document_type: "payment_notice",
+        total_amount: args.order.total_amount,
+        items: args.items
+      },
+      metadata: {
+        request_source: "pos_payment_notice",
+        document_type: "payment_notice",
+        payment_status: "pending",
+        payload_format: "payment_notice_html_v1",
+        paper_width_mm: route.printer.paper_width_mm,
+        payload_html: html
+      }
+    }));
+  }
+  return jobs;
+}
 export async function queueRoutedKitchenFallback(args: {
   auth: AuthContext;
   orderId: string;

@@ -270,6 +270,8 @@ export async function hasConfiguredCashDrawerController(auth: AuthContext) {
 
   return {
     configured: candidates.length > 0,
+    ready: Boolean(selected),
+    reason: selected ? "ready" : candidates.length > 0 ? "drawer_route_not_ready" : "drawer_not_configured",
     supported_modes: candidates.map((candidate) => candidate.drawer.connectionMode),
     selected_mode: selected?.drawer.connectionMode ?? null,
     printer: selected

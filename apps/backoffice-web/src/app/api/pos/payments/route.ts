@@ -7,6 +7,7 @@ import { requirePermission, requirePosSession } from "@/lib/pos-session-guard";
 import { fail, ok } from "@/lib/http";
 import { invalidatePosScopeRuntimeCaches } from "@/lib/pos-cache-invalidation";
 import { appendPosDeadLetter, POS_GUARDS } from "@/lib/pos-resilience";
+import { openCashDrawerController } from "@/lib/printing/cash-drawer-controller-service";
 import { queueRoutedKitchenFallback, queueRoutedSalesReceipt } from "@/lib/printing/routed-print-service";
 import { dispatchOrderToKitchen } from "@/lib/services/kitchen-routing-service";
 import { invalidatePosSalesListCacheForScope } from "@/lib/services/pos-sales-list-service";
@@ -283,6 +284,25 @@ export async function POST(req: Request) {
           const warning = `print_queue_overloaded (${printQueueDepth}/${POS_GUARDS.printQueueHardLimit})`;
           skipPrintEnqueue = true;
           appendPosDeadLetter({ auth, channel: "print", targetTable: "print_jobs", targetId: body.order_id, reason: "print_queue_overloaded", metadata: { queue_depth: printQueueDepth ?? 0, queue_limit: POS_GUARDS.printQueueHardLimit, detail: warning, deferred: true } });
+        }
+        if (!skipPrintEnqueue && paymentMethod === "cash") {
+          try {
+            await openCashDrawerController(auth, {
+              triggerSource: "cash_payment",
+              reason: "cash_payment",
+              orderId: body.order_id,
+              sessionId: scope.session.id,
+              shiftId: scope.session.shift_id,
+              posDeviceId: scope.session.device_id,
+              metadata: {
+                device_code: scope.session.device_code ?? null,
+                request_group_id: requestGroupId,
+                payment_method: paymentMethod
+              }
+            });
+          } catch (drawerError) {
+            appendPosDeadLetter({ auth, channel: "print", targetTable: "cash_drawer_events", targetId: body.order_id, reason: "cash_drawer_auto_open_failed", metadata: { detail: drawerError instanceof Error ? drawerError.message : "cash_drawer_auto_open_failed", deferred: true } });
+          }
         }
         if (!skipPrintEnqueue) {
           const [{ data: orderRow, error: orderError }, { data: itemRows, error: itemError }] = await Promise.all([
