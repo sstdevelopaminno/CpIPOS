@@ -177,6 +177,30 @@ async function validateKitchenZones(tenantId: string, branchId: string, assignme
   if (missing) throw new Error(`printer_zone_invalid:${missing}`);
 }
 
+async function relinkRecoverableDevice(tenantId: string, branchId: string, fingerprint: string, printerProfileId: string) {
+  const supabase = getSupabaseServiceClient();
+  const { data: recoverable, error: lookupError } = await supabase
+    .from("printer_devices")
+    .select("id")
+    .eq("tenant_id", tenantId)
+    .eq("branch_id", branchId)
+    .eq("device_fingerprint", fingerprint)
+    .eq("is_active", false)
+    .is("printer_profile_id", null)
+    .maybeSingle<{ id: string }>();
+  if (lookupError) throw new Error(lookupError.message);
+  if (!recoverable?.id) return null;
+
+  const { error: relinkError } = await supabase
+    .from("printer_devices")
+    .update({ printer_profile_id: printerProfileId, updated_at: new Date().toISOString() })
+    .eq("tenant_id", tenantId)
+    .eq("branch_id", branchId)
+    .eq("id", recoverable.id);
+  if (relinkError) throw new Error(relinkError.message);
+  return recoverable.id;
+}
+
 function validationFailure(message: string) {
   if (message === "lan_ip_required") return fail(message, "LAN ต้องมี IP ของเครื่องพิมพ์", 422);
   if (message.startsWith("printer_zone_invalid:")) return fail("printer_zone_invalid", `ไม่พบโซนครัว ${message.split(":")[1] ?? ""} ในสาขาปัจจุบัน`, 422);
@@ -205,6 +229,7 @@ export async function POST(req: Request) {
     const { name, mode, paper, purposes, assignments } = validate(body);
     await validateKitchenZones(auth.tenantId!, auth.branchId!, assignments);
     const metadata = profileMetadata(body, mode, purposes, assignments);
+    const fingerprint = buildFingerprint(body, mode);
     const profile = await createPrinterProfile(auth, {
       printer_name: name,
       printer_role: roleFor(purposes),
@@ -216,11 +241,12 @@ export async function POST(req: Request) {
       metadata
     });
     try {
+      await relinkRecoverableDevice(auth.tenantId!, auth.branchId!, fingerprint, profile.id);
       const device = await syncPrinterDevice(auth, {
         printerProfileId: profile.id,
         displayName: name,
         brand: clean(body.brand), model: clean(body.model), connectionMode: mode, paperWidthMm: paper,
-        purposes, assignments, deviceFingerprint: buildFingerprint(body, mode), runtimeDeviceCode: clean(body.runtime_device_code),
+        purposes, assignments, deviceFingerprint: fingerprint, runtimeDeviceCode: clean(body.runtime_device_code),
         capabilities: (metadata.capabilities ?? {}) as Record<string, unknown>, metadata: { source: "printer_settings_v3" }, eventType: "connected"
       });
       return ok({ profile, device }, 201);
@@ -287,9 +313,13 @@ export async function DELETE(req: Request) {
     const body = (await req.json()) as Payload;
     const printerId = clean(body.printer_id);
     if (!printerId) return fail("printer_id_required", "printer_id is required", 422);
+
+    // Keep the profile as a disabled, recoverable configuration. This makes "ลบ"
+    // remove it from the active registry without destroying the exact transport/routing
+    // information needed by the history "เชื่อมต่อใหม่" action.
+    await disconnectPrinterDevice(auth, printerId);
     await markPrinterDeviceDeleted(auth, printerId);
-    const deleted = await deletePrinterProfile(auth, printerId);
-    return ok({ deleted });
+    return ok({ deleted: true, recoverable: true, printer_id: printerId });
   } catch (error) {
     const message = error instanceof Error ? error.message : "unknown";
     if (message === "forbidden_role") return fail("forbidden_role", "Only manager or owner can delete printers.", 403);
