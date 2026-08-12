@@ -6,6 +6,7 @@ import android.graphics.Canvas
 import android.graphics.Color
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.view.View
 import android.webkit.WebView
 import android.webkit.WebViewClient
@@ -35,29 +36,48 @@ internal class HtmlReceiptRasterizer(context: Context) {
         var renderError: Throwable? = null
         var webView: WebView? = null
 
-        fun finishRenderOnMain() {
-            val view = webView ?: return
+        fun cleanupRenderOnMain(view: WebView?) {
+            view?.let {
+                runCatching { it.stopLoading() }
+                runCatching { it.destroy() }
+            }
+            webView = null
+            latch.countDown()
+        }
+
+        fun failRenderOnMain(code: String, message: String, cause: Throwable? = null) {
+            val view = webView
             if (!completed.compareAndSet(false, true)) return
+            renderError = NativePrintException(code, true, message, cause)
+            cleanupRenderOnMain(view)
+        }
+
+        fun finishRenderOnMain(deadlineMs: Long) {
+            val view = webView ?: return
             try {
                 val widthSpec = View.MeasureSpec.makeMeasureSpec(renderWidth, View.MeasureSpec.EXACTLY)
                 view.measure(widthSpec, View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED))
-                val contentHeight = max(
-                    view.measuredHeight,
-                    (view.contentHeight * view.scale).roundToInt()
-                ).coerceIn(1, MAX_RENDER_HEIGHT_PX)
+                val measuredContentHeight = usableRenderHeight(view.measuredHeight, view.contentHeight, view.scale)
+                if (measuredContentHeight <= MIN_USABLE_RENDER_HEIGHT_PX) {
+                    if (SystemClock.uptimeMillis() < deadlineMs) {
+                        mainHandler.postDelayed({ finishRenderOnMain(deadlineMs) }, HEIGHT_POLL_INTERVAL_MS)
+                    } else {
+                        failRenderOnMain("receipt_html_render_empty_height", "HTML receipt content height did not become usable")
+                    }
+                    return
+                }
+
+                if (!completed.compareAndSet(false, true)) return
+                val contentHeight = measuredContentHeight.coerceAtMost(MAX_RENDER_HEIGHT_PX)
                 view.layout(0, 0, renderWidth, contentHeight)
                 rendered = Bitmap.createBitmap(renderWidth, contentHeight, Bitmap.Config.ARGB_8888).also { bitmap ->
                     val canvas = Canvas(bitmap)
                     canvas.drawColor(Color.WHITE)
                     view.draw(canvas)
                 }
+                cleanupRenderOnMain(view)
             } catch (error: Throwable) {
-                renderError = error
-            } finally {
-                runCatching { view.stopLoading() }
-                runCatching { view.destroy() }
-                webView = null
-                latch.countDown()
+                failRenderOnMain("receipt_html_render_failed", error.message ?: "HTML receipt rendering failed", error)
             }
         }
 
@@ -65,6 +85,7 @@ internal class HtmlReceiptRasterizer(context: Context) {
             try {
                 val view = WebView(appContext)
                 webView = view
+                view.setLayerType(View.LAYER_TYPE_SOFTWARE, null)
                 view.setBackgroundColor(Color.WHITE)
                 view.settings.javaScriptEnabled = false
                 view.settings.loadsImagesAutomatically = true
@@ -78,7 +99,7 @@ internal class HtmlReceiptRasterizer(context: Context) {
                         // This WebView is intentionally never attached to a window. Using
                         // View.postDelayed() here can leave the Runnable queued forever on
                         // some POS firmware. Always schedule through the main Looper instead.
-                        mainHandler.postDelayed({ finishRenderOnMain() }, PAGE_SETTLE_DELAY_MS)
+                        mainHandler.postDelayed({ finishRenderOnMain(renderDeadlineMs()) }, PAGE_SETTLE_DELAY_MS)
                     }
                 }
 
@@ -94,7 +115,7 @@ internal class HtmlReceiptRasterizer(context: Context) {
                 // onPageFinished() for an unattached, off-screen WebView. The fallback
                 // keeps receipt printing deterministic while still giving HTML/fonts and
                 // data-URI images enough time to lay out.
-                mainHandler.postDelayed({ finishRenderOnMain() }, FALLBACK_RENDER_DELAY_MS)
+                mainHandler.postDelayed({ finishRenderOnMain(renderDeadlineMs()) }, FALLBACK_RENDER_DELAY_MS)
             } catch (error: Throwable) {
                 if (completed.compareAndSet(false, true)) {
                     renderError = error
@@ -121,16 +142,24 @@ internal class HtmlReceiptRasterizer(context: Context) {
             throw NativePrintException("receipt_html_render_timeout", true, "HTML receipt rendering timed out")
         }
         renderError?.let { error ->
+            if (error is NativePrintException) throw error
             throw NativePrintException("receipt_html_render_failed", true, error.message ?: "HTML receipt rendering failed", error)
         }
         val source = rendered ?: throw NativePrintException("receipt_html_render_failed", true, "HTML receipt bitmap was not created")
 
         return try {
             val cropped = cropWhiteMargins(source)
+            if (!hasMeaningfulDarkPixels(cropped)) {
+                throw NativePrintException("receipt_html_render_blank", true, "HTML receipt rendered a blank bitmap")
+            }
             val scaledHeight = max(1, (cropped.height.toDouble() * targetDots / cropped.width).roundToInt())
             val scaled = if (cropped.width == targetDots) cropped else Bitmap.createScaledBitmap(cropped, targetDots, scaledHeight, true)
             try {
-                bitmapToEscPosRaster(scaled)
+                bitmapToEscPosRaster(scaled).also { bytes ->
+                    if (isRasterOutputTooSmallForTest(bytes.size)) {
+                        throw NativePrintException("receipt_html_render_blank", true, "HTML receipt raster output was too small")
+                    }
+                }
             } finally {
                 if (scaled !== cropped) scaled.recycle()
                 if (cropped !== source) cropped.recycle()
@@ -138,6 +167,12 @@ internal class HtmlReceiptRasterizer(context: Context) {
         } finally {
             source.recycle()
         }
+    }
+
+    private fun renderDeadlineMs() = SystemClock.uptimeMillis() + HEIGHT_POLL_TIMEOUT_MS
+
+    private fun usableRenderHeight(measuredHeight: Int, contentHeight: Int, scale: Float): Int {
+        return usableRenderHeightForTest(measuredHeight, contentHeight, scale).coerceAtMost(MAX_RENDER_HEIGHT_PX)
     }
 
     private fun normalizeHtmlForRaster(html: String): String {
@@ -189,6 +224,25 @@ internal class HtmlReceiptRasterizer(context: Context) {
         return Bitmap.createBitmap(source, cropLeft, cropTop, cropRight - cropLeft + 1, cropBottom - cropTop + 1)
     }
 
+    private fun hasMeaningfulDarkPixels(bitmap: Bitmap): Boolean {
+        var darkPixels = 0
+        val step = if (bitmap.width > 600) 2 else 1
+        var y = 0
+        while (y < bitmap.height) {
+            var x = 0
+            while (x < bitmap.width) {
+                val pixel = bitmap.getPixel(x, y)
+                if (isMeaningfullyDarkForTest(Color.red(pixel), Color.green(pixel), Color.blue(pixel))) {
+                    darkPixels += 1
+                    if (darkPixels >= MIN_DARK_PIXELS) return true
+                }
+                x += step
+            }
+            y += step
+        }
+        return false
+    }
+
     private fun bitmapToEscPosRaster(bitmap: Bitmap): ByteArray {
         val widthBytes = (bitmap.width + 7) / 8
         val output = ByteArrayOutputStream()
@@ -225,10 +279,34 @@ internal class HtmlReceiptRasterizer(context: Context) {
         return output.toByteArray()
     }
 
-    private companion object {
+    internal companion object {
         const val PAGE_SETTLE_DELAY_MS = 120L
         const val FALLBACK_RENDER_DELAY_MS = 900L
         const val RENDER_TIMEOUT_SECONDS = 6L
         const val MAX_RENDER_HEIGHT_PX = 16_000
+        const val HEIGHT_POLL_INTERVAL_MS = 80L
+        const val HEIGHT_POLL_TIMEOUT_MS = 3_500L
+        const val MIN_USABLE_RENDER_HEIGHT_PX = 1
+        const val MIN_DARK_PIXELS = 8
+        const val MIN_VALID_RASTER_BYTES = 59
+
+        fun usableRenderHeightForTest(measuredHeight: Int, contentHeight: Int, scale: Float): Int {
+            return max(measuredHeight, (contentHeight * scale).roundToInt())
+        }
+
+        fun isMeaningfullyDarkForTest(red: Int, green: Int, blue: Int): Boolean {
+            val luminance = (red * 299 + green * 587 + blue * 114) / 1000
+            return luminance < 220
+        }
+
+        fun isRasterOutputTooSmallForTest(byteCount: Int): Boolean {
+            return byteCount <= MIN_VALID_RASTER_BYTES
+        }
+
+        fun escPosRasterSizeForTest(widthPixels: Int, heightPixels: Int): Int {
+            val widthBytes = (widthPixels + 7) / 8
+            val stripCount = max(1, (heightPixels + 191) / 192)
+            return stripCount * 8 + widthBytes * heightPixels + 3
+        }
     }
 }

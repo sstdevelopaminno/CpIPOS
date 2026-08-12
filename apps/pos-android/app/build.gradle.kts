@@ -22,8 +22,8 @@ android {
         applicationId = "com.cpipos.pos"
         minSdk = 26
         targetSdk = 34
-        versionCode = 9
-        versionName = "1.0.3"
+        versionCode = 10
+        versionName = "1.0.4"
 
         buildConfigField("String", "CPIPOS_API_BASE_URL", "\"https://cp-ipos-web.vercel.app\"")
         buildConfigField("String", "CPIPOS_POS_WEB_URL", "\"https://cp-ipos-web.vercel.app/login/store\"")
@@ -86,6 +86,8 @@ dependencies {
 
     implementation(composeBom)
     androidTestImplementation(composeBom)
+
+    testImplementation("junit:junit:4.13.2")
 
     implementation("androidx.core:core-ktx:1.13.1")
     implementation("androidx.activity:activity-compose:1.9.0")
