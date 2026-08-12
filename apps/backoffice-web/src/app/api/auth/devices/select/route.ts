@@ -1,502 +1,174 @@
-﻿import { NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
-import { isFeatureUnlockEnabled } from "@/lib/feature-unlock";
-import { getRequestMeta, writeAuditLog, writeLoginAttempt } from "@/lib/server/audit-log";
-import { AuthTimeoutError, withAuthTimeout } from "@/lib/server/auth-timeout";
-import { hasBranchFeatureSafe } from "@/lib/server/feature-gate-safe";
-import { consumeLoginContext } from "@/lib/server/login-context";
-import { resolveDeviceSessionAccess } from "@/lib/server/pos-device-session-rules";
-import { createPosSession, createSessionHandoffToken, resolvePosRedirectTarget, resolveSessionCookieConfig } from "@/lib/server/pos-session";
-import { hasPermission, resolveEmployeeByUserId } from "@/lib/server/pre-entry-auth";
-import { clearPreEntryFlowState, hasFlowStage, readPreEntryFlowState } from "@/lib/server/pre-entry-state";
+import { readPreEntryFlowState } from "@/lib/server/pre-entry-state";
+import { POST as selectDevice } from "./select-handler";
 
-type RequestBody = {
+type JsonRecord = Record<string, unknown>;
+
+type PairingRequestBody = {
   device_code?: string;
-  force_override?: boolean;
+  android_install_id?: string | null;
+  android_app_version?: string | null;
 };
 
-type DeviceRow = {
+type PairingDeviceRow = {
   id: string;
   device_code: string;
-  device_name: string;
-  status: "active" | "inactive" | "maintenance";
+  metadata: JsonRecord | null;
 };
 
-type ActiveSessionRow = {
+type PairingConflictRow = {
   id: string;
-  user_id: string;
-  issued_at: string;
+  device_code: string;
 };
 
-type UserDeviceScopeRow = {
-  scope_mode: "all_devices" | "single_device";
-  device_id: string | null;
-};
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
-type BranchFeatureOverrideRow = {
-  enabled: boolean | null;
-};
-
-type SupabaseServiceClient = ReturnType<typeof getSupabaseServiceClient>;
-
-function isMissingRelationError(error: { code?: string | null; message?: string | null } | null | undefined, relationName: string) {
-  if (!error) return false;
-  const code = String(error.code ?? "");
-  const message = String(error.message ?? "").toLowerCase();
-  return code === "42P01" || message.includes("does not exist") || message.includes(relationName.toLowerCase());
+function asRecord(value: unknown): JsonRecord {
+  return value && typeof value === "object" && !Array.isArray(value) ? (value as JsonRecord) : {};
 }
 
 function jsonError(status: number, code: string, message: string) {
   return NextResponse.json({ data: null, error: { code, message } }, { status });
 }
 
-function withTimingHeaders<T extends NextResponse>(response: T, startedAt: number): T {
-  const durationMs = Date.now() - startedAt;
-  response.headers.set("x-auth-api-ms", String(durationMs));
-  response.headers.set("server-timing", `total;dur=${durationMs}`);
-  return response;
-}
-
-function isSafeDeviceCode(value: string) {
-  return /^[A-Z0-9_-]{1,64}$/.test(value);
-}
-
-async function runBestEffort(label: string, action: () => PromiseLike<unknown> | unknown) {
-  try {
-    await action();
-  } catch (error) {
-    console.error(`[auth/devices/select] best-effort task failed: ${label}`, {
-      error: error instanceof Error ? error.message : "Unknown error"
-    });
-  }
-}
-
-function pickNewestActiveSession(rows: Array<ActiveSessionRow | null | undefined>) {
-  return rows
-    .filter((row): row is ActiveSessionRow => Boolean(row))
-    .sort((a, b) => new Date(b.issued_at).getTime() - new Date(a.issued_at).getTime())[0] ?? null;
-}
-
-const POS_SALES_FEATURE_KEYS = ["pos.sales.access", "pos_sales", "core_pos_sales"] as const;
-const DEVICE_SELECT_AUTH_TIMEOUT_MS = 30000;
-
-function isMissingBranchFeatureOverrideError(error: { code?: string | null; message?: string | null } | null | undefined) {
-  if (!error) return false;
-  const code = String(error.code ?? "");
-  const message = String(error.message ?? "").toLowerCase();
-  return code === "42P01" || message.includes("branch_feature_overrides") || message.includes("does not exist");
-}
-
-async function readBranchFeatureOverride(
-  supabase: SupabaseServiceClient,
-  tenantId: string,
-  branchId: string,
-  featureKey: string
-): Promise<boolean | null> {
-  const { data, error } = await supabase
-    .from("branch_feature_overrides")
-    .select("enabled")
-    .eq("tenant_id", tenantId)
-    .eq("branch_id", branchId)
-    .eq("feature_key", featureKey)
-    .maybeSingle<BranchFeatureOverrideRow>();
-
-  if (error) {
-    if (isMissingBranchFeatureOverrideError(error)) return null;
-
-    console.error("[auth/devices/select] branch feature override lookup failed", {
-      tenantId,
-      branchId,
-      featureKey,
-      error: error.message
-    });
-    return null;
-  }
-
-  if (!data) return null;
-  return Boolean(data.enabled);
-}
-
-async function hasAnyPosSalesFeature(supabase: SupabaseServiceClient, tenantId: string, branchId: string) {
-  if (isFeatureUnlockEnabled()) return true;
-  for (const featureKey of POS_SALES_FEATURE_KEYS) {
-    const directOverrideEnabled = await readBranchFeatureOverride(supabase, tenantId, branchId, featureKey);
-    if (directOverrideEnabled === true) return true;
-  }
-
-  for (const featureKey of POS_SALES_FEATURE_KEYS) {
-    try {
-      const enabled = await hasBranchFeatureSafe(tenantId, branchId, featureKey);
-      if (enabled) return true;
-    } catch (error) {
-      console.error("[auth/devices/select] POS sales feature lookup failed", {
-        tenantId,
-        branchId,
-        featureKey,
-        error: error instanceof Error ? error.message : "Unknown error"
-      });
-    }
-  }
-
-  return false;
-}
-
 export async function POST(request: Request) {
-  const startedAt = Date.now();
-  const timedJsonError = (status: number, code: string, message: string) =>
-    withTimingHeaders(jsonError(status, code, message), startedAt);
-  const body = (await request.json().catch(() => null)) as RequestBody | null;
-  const selectedDeviceCode = String(body?.device_code ?? "").trim().toUpperCase();
-  const forceOverride = Boolean(body?.force_override);
+  const forwardedRequest = request.clone();
+  const body = (await request.json().catch(() => null)) as PairingRequestBody | null;
+  const installId = String(body?.android_install_id ?? "").trim();
 
-  if (!selectedDeviceCode) {
-    return timedJsonError(400, "device_required", "กรุณาเลือกเครื่องแคชเชียร์");
+  // Normal browser/device-selection behavior remains unchanged. Pairing is only
+  // activated when the trusted Android WebView bridge supplies its install id.
+  if (!installId) return selectDevice(forwardedRequest);
+
+  if (request.headers.get("x-cpipos-android-pos") !== "true") {
+    return jsonError(401, "android_pos_required", "Android POS runtime is required for device pairing.");
   }
-  if (!isSafeDeviceCode(selectedDeviceCode)) {
-    return timedJsonError(422, "device_required", "รูปแบบรหัสเครื่องไม่ถูกต้อง");
+  if (!UUID_PATTERN.test(installId)) {
+    return jsonError(422, "android_install_id_invalid", "Android install id ไม่ถูกต้อง กรุณาเปิดแอป CpiPOS ใหม่แล้วลองอีกครั้ง");
   }
+
+  const selectedDeviceCode = String(body?.device_code ?? "").trim().toUpperCase();
+  const appVersion = String(body?.android_app_version ?? "").trim().slice(0, 40) || null;
+  if (!selectedDeviceCode) return selectDevice(forwardedRequest);
 
   const cookieStore = await cookies();
   const flow = readPreEntryFlowState(cookieStore);
-  if (!flow) {
-    return timedJsonError(401, "missing_employee_context", "กรุณายืนยันตัวตนพนักงานก่อนเลือกเครื่องแคชเชียร์");
-  }
-  if (!hasFlowStage(flow, ["employee_verified"]) || !flow.branchId || !flow.userId || !flow.userRole || !flow.permissions) {
-    return timedJsonError(401, "missing_employee_context", "กรุณายืนยันตัวตนพนักงานก่อนเลือกเครื่องแคชเชียร์");
+  if (!flow?.tenantId || !flow.branchId || !flow.userId) {
+    return selectDevice(forwardedRequest);
   }
 
-  const { ipAddress, userAgent } = getRequestMeta(request);
-  const nowIso = new Date().toISOString();
+  const supabase = getSupabaseServiceClient();
+  const { data: device, error: deviceError } = await supabase
+    .from("branch_devices")
+    .select("id,device_code,metadata")
+    .eq("tenant_id", flow.tenantId)
+    .eq("branch_id", flow.branchId)
+    .eq("device_code", selectedDeviceCode)
+    .maybeSingle<PairingDeviceRow>();
 
-  try {
-    const supabase = getSupabaseServiceClient();
-
-    const [posSalesEnabled, deviceQuery, employee] = await withAuthTimeout(
-      Promise.all([
-        hasAnyPosSalesFeature(supabase, flow.tenantId, flow.branchId),
-        supabase
-          .from("branch_devices")
-          .select("id,device_code,device_name,status")
-          .eq("tenant_id", flow.tenantId)
-          .eq("branch_id", flow.branchId)
-          .eq("device_code", selectedDeviceCode)
-          .maybeSingle<DeviceRow>(),
-        resolveEmployeeByUserId({
-          tenantId: flow.tenantId,
-          branchId: flow.branchId,
-          userId: flow.userId
-        })
-      ]),
-      "device_select_core_lookup_timeout",
-      DEVICE_SELECT_AUTH_TIMEOUT_MS
-    );
-
-    if (!posSalesEnabled) {
-      return timedJsonError(403, "feature_not_enabled", "แพ็กเกจปัจจุบันยังไม่รองรับการเข้าใช้งานหน้าขาย");
-    }
-    if (!employee) {
-      return timedJsonError(401, "employee_not_found", "ไม่พบผู้ใช้งานในสาขานี้ หรือผู้ใช้งานไม่พร้อมใช้งาน");
-    }
-    if (!hasPermission(employee.permissions, "pos.sales.access")) {
-      return timedJsonError(403, "permission_denied", "ผู้ใช้งานไม่มีสิทธิ์เข้าใช้งานหน้าขาย");
-    }
-
-    if (deviceQuery.error) {
-      return timedJsonError(500, "device_select_failed", "ไม่สามารถตรวจสอบข้อมูลเครื่องแคชเชียร์ได้");
-    }
-
-    const device = deviceQuery.data;
-    if (!device) {
-      return timedJsonError(404, "device_not_found", "ไม่พบเครื่องแคชเชียร์ที่เลือก");
-    }
-
-    if (device.status === "inactive") {
-      return timedJsonError(403, "device_disabled", "เครื่องที่เลือกถูกปิดใช้งาน");
-    }
-
-    if (device.status === "maintenance") {
-      return timedJsonError(403, "device_offline", "เครื่องที่เลือกออฟไลน์หรืออยู่ระหว่างบำรุงรักษา");
-    }
-
-    const deviceScopeQueryPromise = withAuthTimeout(
-      supabase
-        .from("pos_user_device_scopes")
-        .select("scope_mode,device_id")
-        .eq("tenant_id", flow.tenantId)
-        .eq("branch_id", flow.branchId)
-        .eq("user_id", employee.userId)
-        .maybeSingle<UserDeviceScopeRow>(),
-      "device_scope_lookup_timeout",
-      DEVICE_SELECT_AUTH_TIMEOUT_MS
-    );
-
-    const [activeSessionById, activeSessionByCode] = await withAuthTimeout(
-      Promise.all([
-        supabase
-          .from("pos_sessions")
-          .select("id,user_id,issued_at")
-          .eq("tenant_id", flow.tenantId)
-          .eq("branch_id", flow.branchId)
-          .eq("status", "active")
-          .eq("device_id", device.id)
-          .gt("expires_at", nowIso)
-          .order("issued_at", { ascending: false })
-          .limit(1)
-          .maybeSingle<ActiveSessionRow>(),
-        supabase
-          .from("pos_sessions")
-          .select("id,user_id,issued_at")
-          .eq("tenant_id", flow.tenantId)
-          .eq("branch_id", flow.branchId)
-          .eq("status", "active")
-          .eq("device_code", selectedDeviceCode)
-          .gt("expires_at", nowIso)
-          .order("issued_at", { ascending: false })
-          .limit(1)
-          .maybeSingle<ActiveSessionRow>()
-      ]),
-      "device_active_session_lookup_timeout",
-      DEVICE_SELECT_AUTH_TIMEOUT_MS
-    );
-
-    if (activeSessionById.error || activeSessionByCode.error) {
-      return timedJsonError(500, "device_select_failed", "ไม่สามารถตรวจสอบสถานะเครื่องได้");
-    }
-
-    const activeSession = pickNewestActiveSession([activeSessionById.data, activeSessionByCode.data]);
-    let overrideApplied = false;
-    if (activeSession) {
-      const accessDecision = resolveDeviceSessionAccess({
-        activeSessionUserId: activeSession.user_id,
-        employeeUserId: employee.userId,
-        employeePermissions: employee.permissions
-      });
-      if (!accessDecision.ok) {
-        return timedJsonError(accessDecision.status, accessDecision.code, accessDecision.message);
-      }
-
-      overrideApplied = accessDecision.overrideApplied;
-      if (accessDecision.shouldRevokeExistingSession) {
-        const [revokeByDeviceId, revokeByDeviceCode] = await withAuthTimeout(
-          Promise.all([
-            supabase
-              .from("pos_sessions")
-              .update({ status: "revoked", revoked_at: nowIso })
-              .eq("tenant_id", flow.tenantId)
-              .eq("branch_id", flow.branchId)
-              .eq("status", "active")
-              .eq("device_id", device.id),
-            supabase
-              .from("pos_sessions")
-              .update({ status: "revoked", revoked_at: nowIso })
-              .eq("tenant_id", flow.tenantId)
-              .eq("branch_id", flow.branchId)
-              .eq("status", "active")
-              .eq("device_code", selectedDeviceCode)
-          ]),
-          "device_session_revoke_timeout",
-          DEVICE_SELECT_AUTH_TIMEOUT_MS
-        );
-
-        if (revokeByDeviceId.error || revokeByDeviceCode.error) {
-          return timedJsonError(500, "device_select_failed", "ไม่สามารถปลดล็อกเครื่องที่กำลังใช้งานอยู่ได้");
-        }
-      }
-    }
-
-    const deviceScopeQuery = await deviceScopeQueryPromise;
-
-    if (deviceScopeQuery.error && !isMissingRelationError(deviceScopeQuery.error, "pos_user_device_scopes")) {
-      return timedJsonError(500, "device_select_failed", "ไม่สามารถตรวจสอบขอบเขตอุปกรณ์ของผู้ใช้งานได้");
-    }
-
-    const scopeMode = deviceScopeQuery.data?.scope_mode ?? "all_devices";
-    const scopedDeviceId = deviceScopeQuery.data?.device_id ?? null;
-    if (scopeMode === "single_device" && scopedDeviceId && scopedDeviceId !== device.id) {
-      return timedJsonError(403, "device_scope_denied", "ผู้ใช้งานนี้ไม่ได้รับสิทธิ์ใช้เครื่องที่เลือก");
-    }
-
-    const contextExpiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString();
-    const contextResult = await withAuthTimeout(
-      supabase
-        .from("pos_login_contexts")
-        .insert({
-          tenant_id: flow.tenantId,
-          branch_id: flow.branchId,
-          store_code: flow.storeCode,
-          device_code: selectedDeviceCode,
-          status: "active",
-          expires_at: contextExpiresAt,
-          metadata: {
-            context_type: "pre_entry_device_selection",
-            employee_user_id: employee.userId,
-            employee_role: employee.role,
-            employee_auth_method: flow.employeeAuthMethod ?? "employee_code"
-          }
-        })
-        .select("id")
-        .single<{ id: string }>(),
-      "device_context_create_timeout",
-      DEVICE_SELECT_AUTH_TIMEOUT_MS
-    );
-
-    if (contextResult.error || !contextResult.data?.id) {
-      return timedJsonError(500, "context_create_failed", "ไม่สามารถสร้างบริบทการเข้าสู่ระบบได้");
-    }
-
-    const contextId = contextResult.data.id;
-    const loginMethod = "staff_card";
-
-    const sessionCreated = await withAuthTimeout(
-      createPosSession({
-        tenantId: flow.tenantId,
-        branchId: flow.branchId,
-        deviceId: device.id,
-        deviceCode: selectedDeviceCode,
-        userId: employee.userId,
-        role: employee.role,
-        loginContextId: contextId,
-        loginMethod,
-        metadata: {
-          source: "pre_entry_flow",
-          employee_auth_method: flow.employeeAuthMethod ?? "employee_code",
-          employee_code: employee.employeeCode ?? flow.employeeCode ?? null,
-          override_in_use_device: overrideApplied,
-          overridden_session_id: overrideApplied ? activeSession?.id ?? null : null,
-          force_override_requested: forceOverride
-        }
-      }),
-      "device_session_create_timeout",
-      DEVICE_SELECT_AUTH_TIMEOUT_MS
-    );
-
-    if (!sessionCreated.ok) {
-      if (sessionCreated.code === "session_scope_conflict") {
-        return timedJsonError(409, "device_in_use", "เครื่องนี้กำลังถูกใช้งานอยู่");
-      }
-      return timedJsonError(500, sessionCreated.code, "ไม่สามารถสร้าง POS Session ได้");
-    }
-
-    void runBestEffort("consume_login_context", () => consumeLoginContext(contextId));
-
-    const token = createSessionHandoffToken({
-      sessionId: sessionCreated.session.id,
+  if (deviceError) {
+    console.error("[auth/devices/select] android pairing device lookup failed", {
       tenantId: flow.tenantId,
       branchId: flow.branchId,
-      userId: employee.userId,
-      role: employee.role
-    });
-
-    const cookieConfig = resolveSessionCookieConfig();
-    const response = NextResponse.json({
-      data: {
-        redirect_to: resolvePosRedirectTarget(),
-        session_id: sessionCreated.session.id
-      },
-      error: null
-    });
-
-    response.cookies.set({
-      name: cookieConfig.name,
-      value: token,
-      httpOnly: true,
-      secure: cookieConfig.secure,
-      sameSite: "lax",
-      path: "/",
-      domain: cookieConfig.domain,
-      maxAge: 120
-    });
-    response.cookies.set({
-      name: cookieConfig.sessionIdName,
-      value: sessionCreated.session.id,
-      httpOnly: true,
-      secure: cookieConfig.secure,
-      sameSite: "lax",
-      path: "/",
-      domain: cookieConfig.domain,
-      maxAge: cookieConfig.sessionMaxAgeSeconds
-    });
-
-    void Promise.allSettled([
-      runBestEffort("touch_branch_device", () => supabase.from("branch_devices").update({ last_seen_at: nowIso }).eq("id", device.id)),
-      runBestEffort("write_login_attempt", () =>
-        writeLoginAttempt({
-          tenantId: flow.tenantId,
-          branchId: flow.branchId,
-          userId: employee.userId,
-          deviceCode: selectedDeviceCode,
-          loginContextId: contextId,
-          loginMethod,
-          success: true,
-          ipAddress,
-          userAgent,
-          metadata: {
-            source: "pre_entry_flow_device_select"
-          }
-        })
-      ),
-      runBestEffort("write_audit_device_selected", () =>
-        writeAuditLog({
-          tenantId: flow.tenantId,
-          branchId: flow.branchId,
-          actorUserId: employee.userId,
-          actorRole: employee.role,
-          targetUserId: employee.userId,
-          deviceCode: selectedDeviceCode,
-          posSessionId: sessionCreated.session.id,
-          action: "device_selected",
-          targetType: "branch_devices",
-          targetId: device.id,
-          ipAddress,
-          userAgent,
-          metadata: {
-            device_code: selectedDeviceCode,
-            device_name: device.device_name,
-            override_in_use_device: overrideApplied,
-            overridden_session_id: overrideApplied ? activeSession?.id ?? null : null
-          }
-        })
-      ),
-      runBestEffort("write_audit_session_created", () =>
-        writeAuditLog({
-          tenantId: flow.tenantId,
-          branchId: flow.branchId,
-          actorUserId: employee.userId,
-          actorRole: employee.role,
-          targetUserId: employee.userId,
-          deviceCode: selectedDeviceCode,
-          posSessionId: sessionCreated.session.id,
-          action: "session_created",
-          targetType: "pos_session",
-          targetId: sessionCreated.session.id,
-          ipAddress,
-          userAgent,
-          metadata: {
-            login_method: loginMethod,
-            device_code: selectedDeviceCode,
-            device_name: device.device_name,
-            logged_in_at: nowIso,
-            override_in_use_device: overrideApplied,
-            overridden_session_id: overrideApplied ? activeSession?.id ?? null : null
-          }
-        })
-      )
-    ]);
-
-    clearPreEntryFlowState(response);
-    return withTimingHeaders(response, startedAt);
-  } catch (error) {
-    if (error instanceof AuthTimeoutError) {
-      return timedJsonError(504, "auth_timeout", "ระบบตอบสนองช้าเกินไป กรุณาลองใหม่อีกครั้ง");
-    }
-    console.error("[auth/devices/select] unexpected error", {
-      tenantId: flow.tenantId,
-      branchId: flow.branchId,
-      userId: flow.userId,
       deviceCode: selectedDeviceCode,
-      error: error instanceof Error ? error.message : "Unknown error"
+      error: deviceError.message
     });
-    return timedJsonError(500, "device_select_failed", "ไม่สามารถเข้าใช้งานเครื่องที่เลือกได้");
+    return jsonError(500, "android_pairing_failed", "ไม่สามารถตรวจสอบการจับคู่ Android POS ได้ กรุณาลองใหม่");
   }
+  if (!device) return selectDevice(forwardedRequest);
+
+  const { data: conflictingDevices, error: conflictError } = await supabase
+    .from("branch_devices")
+    .select("id,device_code")
+    .eq("tenant_id", flow.tenantId)
+    .eq("is_active", true)
+    .contains("metadata", { android_mdm_install_id: installId })
+    .neq("id", device.id)
+    .limit(1)
+    .returns<PairingConflictRow[]>();
+
+  if (conflictError) {
+    console.error("[auth/devices/select] android pairing conflict lookup failed", {
+      tenantId: flow.tenantId,
+      branchId: flow.branchId,
+      deviceCode: selectedDeviceCode,
+      error: conflictError.message
+    });
+    return jsonError(500, "android_pairing_failed", "ไม่สามารถตรวจสอบการจับคู่ Android POS ได้ กรุณาลองใหม่");
+  }
+
+  const conflict = conflictingDevices?.[0] ?? null;
+  if (conflict) {
+    return jsonError(
+      409,
+      "android_install_id_conflict",
+      `Android POS เครื่องนี้ถูกจับคู่กับ ${conflict.device_code} อยู่แล้ว กรุณายกเลิกการจับคู่เครื่องเดิมก่อน`
+    );
+  }
+
+  // Let the existing, fully validated selection/session flow decide first. We
+  // only persist the native pairing after device selection succeeds.
+  const response = await selectDevice(forwardedRequest);
+  if (!response.ok) return response;
+
+  const { data: currentDevice, error: currentDeviceError } = await supabase
+    .from("branch_devices")
+    .select("id,device_code,metadata")
+    .eq("id", device.id)
+    .eq("tenant_id", flow.tenantId)
+    .eq("branch_id", flow.branchId)
+    .single<PairingDeviceRow>();
+
+  if (currentDeviceError || !currentDevice) {
+    console.error("[auth/devices/select] android pairing refresh failed", {
+      tenantId: flow.tenantId,
+      branchId: flow.branchId,
+      deviceCode: selectedDeviceCode,
+      error: currentDeviceError?.message ?? "device_not_found"
+    });
+    response.headers.set("x-cpipos-android-pairing", "failed");
+    return response;
+  }
+
+  const now = new Date().toISOString();
+  const currentMetadata = asRecord(currentDevice.metadata);
+  const previousInstallId = String(currentMetadata.android_mdm_install_id ?? "").trim();
+  const nextMetadata: JsonRecord = {
+    ...currentMetadata,
+    android_mdm_install_id: installId,
+    android_mdm_app_version: appVersion,
+    android_mdm_pair_source: "authenticated_device_select",
+    android_mdm_last_pair_confirmed_at: now
+  };
+  if (previousInstallId !== installId || !currentMetadata.android_mdm_paired_at) {
+    nextMetadata.android_mdm_paired_at = now;
+  }
+
+  const { error: pairingError } = await supabase
+    .from("branch_devices")
+    .update({
+      metadata: nextMetadata,
+      last_seen_at: now,
+      updated_at: now
+    })
+    .eq("id", currentDevice.id)
+    .eq("tenant_id", flow.tenantId)
+    .eq("branch_id", flow.branchId);
+
+  if (pairingError) {
+    console.error("[auth/devices/select] android pairing update failed", {
+      tenantId: flow.tenantId,
+      branchId: flow.branchId,
+      deviceCode: selectedDeviceCode,
+      installId,
+      error: pairingError.message
+    });
+    response.headers.set("x-cpipos-android-pairing", "failed");
+    return response;
+  }
+
+  response.headers.set("x-cpipos-android-pairing", previousInstallId === installId ? "confirmed" : "paired");
+  return response;
 }
