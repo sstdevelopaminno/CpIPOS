@@ -13,7 +13,6 @@ import android.hardware.usb.UsbEndpoint
 import android.hardware.usb.UsbInterface
 import android.hardware.usb.UsbManager
 import android.os.Build
-import android.text.Html
 import androidx.core.content.ContextCompat
 import org.json.JSONObject
 import java.io.ByteArrayOutputStream
@@ -56,6 +55,7 @@ internal class NativePrintTransport(context: Context) {
     private val appContext = context.applicationContext
     private val usbManager = appContext.getSystemService(UsbManager::class.java)
     private val bluetoothManager = appContext.getSystemService(BluetoothManager::class.java)
+    private val htmlRasterizer = HtmlReceiptRasterizer(appContext)
 
     fun print(job: NativePrintJob): NativePrintResult {
         val mode = job.printer.metadata.optString("transport_mode", "").trim().lowercase()
@@ -88,14 +88,9 @@ internal class NativePrintTransport(context: Context) {
         }
 
         val html = job.metadata.optString("payload_html", "").trim()
-        val printableText = if (html.isNotEmpty()) {
-            Html.fromHtml(html, Html.FROM_HTML_MODE_LEGACY).toString()
-                .replace("\u00a0", " ")
-                .replace(Regex("\n{3,}"), "\n\n")
-                .trim()
-                .ifEmpty { job.payloadText }
-        } else {
-            job.payloadText
+        if (html.isNotEmpty()) {
+            val paperWidthMm = job.metadata.optInt("paper_width_mm", 58).let { if (it >= 80) 80 else 58 }
+            return htmlRasterizer.render(html, paperWidthMm)
         }
 
         val profileMetadata = job.printer.metadata
@@ -108,7 +103,7 @@ internal class NativePrintTransport(context: Context) {
         val output = ByteArrayOutputStream()
         output.write(byteArrayOf(0x1B, 0x40))
         output.write(byteArrayOf(0x1B, 0x74, codeTable.toByte()))
-        output.write(printableText.replace("\r\n", "\n").toByteArray(charset))
+        output.write(job.payloadText.replace("\r\n", "\n").toByteArray(charset))
         repeat(feedLines) { output.write('\n'.code) }
         if (autoCut) output.write(byteArrayOf(0x1D, 0x56, 0x00))
         return output.toByteArray()
