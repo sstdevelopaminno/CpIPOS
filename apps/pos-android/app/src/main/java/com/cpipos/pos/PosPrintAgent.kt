@@ -38,10 +38,13 @@ class PosPrintAgent(
         executor = Executors.newSingleThreadScheduledExecutor { runnable ->
             Thread(runnable, "cpipos-native-print-agent").apply { isDaemon = true }
         }.also { service ->
+            // Start immediately and keep foreground POS printing responsive. One-second
+            // polling is the fallback transport wake-up; the server still owns leases,
+            // idempotency and retry limits so multiple branches remain isolated.
             service.scheduleWithFixedDelay(
                 { runCatching { tick() }.onFailure { lastError = it.message ?: it::class.java.simpleName } },
-                4,
-                2,
+                0,
+                1,
                 TimeUnit.SECONDS
             )
         }
