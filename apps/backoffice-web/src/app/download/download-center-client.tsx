@@ -20,14 +20,14 @@ type Product = {
 const products: Product[] = [
   {
     title: "CpIPOS POS - Android Tablet",
-    platform: "Android Tablet POS · v1.0.3",
+    platform: "Android Tablet POS · v1.0.4",
     description:
-      "CpIPOS Android POS 1.0.3 Stable สำหรับเครื่องขายหน้าร้านบน Android Tablet พร้อม stable signing, Native Print Agent และการแก้ HTML receipt raster สำหรับงานพิมพ์ภาษาไทยบนเครื่อง POS จริง",
+      "CpIPOS Android POS 1.0.4 Stable สำหรับเครื่องขายหน้าร้านบน Android Tablet พร้อม stable signing, Native Print Agent และแก้ HTML receipt raster ไม่ให้จบด้วย bitmap ว่าง/ความสูง 1px บนเครื่อง POS จริง",
     status: "ready",
-    statusLabel: "1.0.3 Stable · พร้อมดาวน์โหลด",
-    file: "CpIPOS-Android-POS-1.0.3.apk",
+    statusLabel: "1.0.4 Stable · พร้อมดาวน์โหลด",
+    file: "CpIPOS-Android-POS-1.0.4.apk",
     downloadUrl: "/download/android/latest",
-    downloadLabel: "Android POS 1.0.3",
+    downloadLabel: "Android POS 1.0.4",
     icon: "tablet"
   },
   {
@@ -157,12 +157,12 @@ export function DownloadCenterClient() {
             ดาวน์โหลด Android POS
           </h1>
           <p className="mx-auto mt-5 max-w-2xl text-base leading-7 text-slate-300 sm:text-lg">
-            เปิดดาวน์โหลด CpIPOS POS - Android Tablet เวอร์ชัน 1.0.3 Stable สำหรับเครื่องขายหน้าร้าน ส่วน Mobile, Windows POS และ IT Admin ยังปิดไว้เป็นสถานะกำลังพัฒนา
+            เปิดดาวน์โหลด CpIPOS POS - Android Tablet เวอร์ชัน 1.0.4 Stable สำหรับเครื่องขายหน้าร้าน ส่วน Mobile, Windows POS และ IT Admin ยังปิดไว้เป็นสถานะกำลังพัฒนา
           </p>
 
           <div className="mt-7 flex flex-wrap items-center justify-center gap-3 text-xs font-semibold">
             <span className="rounded-full border border-emerald-400/20 bg-emerald-400/10 px-3 py-1.5 text-emerald-300">
-              Android POS 1.0.3 Stable พร้อมดาวน์โหลด
+              Android POS 1.0.4 Stable พร้อมดาวน์โหลด
             </span>
             <span className="rounded-full border border-amber-400/20 bg-amber-400/10 px-3 py-1.5 text-amber-200">
               รุ่นอื่นกำลังพัฒนา
