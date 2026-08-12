@@ -1,6 +1,7 @@
 import type { PrinterConnectionType } from "@pos/shared-types";
 import { getAuthContext } from "@/lib/auth-context";
 import { fail, ok } from "@/lib/http";
+import { loggedPrintApiFail } from "@/lib/printing/print-api-errors";
 import { createPrinterProfile, deletePrinterProfile, updatePrinterProfile } from "@/lib/printing/print-service";
 import {
   disconnectPrinterDevice,
@@ -191,7 +192,7 @@ export async function GET() {
   } catch (error) {
     const message = error instanceof Error ? error.message : "unknown";
     if (message === "forbidden_role") return fail("forbidden_role", "Only manager or owner can access printer settings.", 403);
-    return fail("printer_registry_load_failed", "ไม่สามารถโหลดรายการเครื่องพิมพ์ได้ กรุณาลองใหม่", 400);
+    return loggedPrintApiFail("printer registry load failed", error, "printer_registry_load_failed", "ไม่สามารถโหลดรายการเครื่องพิมพ์ได้ กรุณาลองใหม่", 400);
   }
 }
 
@@ -230,7 +231,7 @@ export async function POST(req: Request) {
     if (message === "forbidden_role") return fail("forbidden_role", "Only manager or owner can configure printers.", 403);
     if (isValidationError(message)) return validationFailure(message);
     if (message.includes("duplicate key")) return fail("printer_conflict", "เครื่องพิมพ์นี้ถูกบันทึกไว้แล้ว สามารถเลือกเชื่อมต่ออีกครั้งจากประวัติได้", 409);
-    return fail("printer_create_failed", "บันทึกเครื่องพิมพ์ไม่สำเร็จ กรุณาลองใหม่", 400);
+    return loggedPrintApiFail("printer create failed", error, "printer_create_failed", "บันทึกเครื่องพิมพ์ไม่สำเร็จ กรุณาลองใหม่", 400);
   }
 }
 
@@ -274,7 +275,7 @@ export async function PATCH(req: Request) {
     if (message === "forbidden_role") return fail("forbidden_role", "Only manager or owner can configure printers.", 403);
     if (message === "printer_not_found" || message === "printer_device_not_found") return fail("printer_not_found", "ไม่พบเครื่องพิมพ์นี้", 404);
     if (isValidationError(message)) return validationFailure(message);
-    return fail("printer_update_failed", "อัปเดตเครื่องพิมพ์ไม่สำเร็จ กรุณาลองใหม่", 400);
+    return loggedPrintApiFail("printer update failed", error, "printer_update_failed", "อัปเดตเครื่องพิมพ์ไม่สำเร็จ กรุณาลองใหม่", 400);
   }
 }
 
@@ -291,6 +292,6 @@ export async function DELETE(req: Request) {
     const message = error instanceof Error ? error.message : "unknown";
     if (message === "forbidden_role") return fail("forbidden_role", "Only manager or owner can delete printers.", 403);
     if (message === "printer_not_found") return fail("printer_not_found", "ไม่พบเครื่องพิมพ์นี้", 404);
-    return fail("printer_delete_failed", "ลบเครื่องพิมพ์ไม่สำเร็จ กรุณาลองใหม่", 400);
+    return loggedPrintApiFail("printer delete failed", error, "printer_delete_failed", "ลบเครื่องพิมพ์ไม่สำเร็จ กรุณาลองใหม่", 400);
   }
 }
