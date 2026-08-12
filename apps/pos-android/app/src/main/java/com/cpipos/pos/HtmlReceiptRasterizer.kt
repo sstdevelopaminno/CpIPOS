@@ -12,8 +12,6 @@ import android.os.ParcelFileDescriptor
 import android.os.SystemClock
 import android.print.PageRange
 import android.print.PrintAttributes
-import android.print.PrintDocumentAdapter
-import android.print.PrintDocumentInfo
 import android.view.View
 import android.webkit.WebView
 import android.webkit.WebViewClient
@@ -75,77 +73,64 @@ internal class HtmlReceiptRasterizer(context: Context) {
         }
 
         fun writePdfOnMain(view: WebView, contentHeightPx: Int) {
+            val adapter = view.createPrintDocumentAdapter("CpIPOS Receipt")
+            val attributes = buildPrintAttributes(paperWidthMm, contentHeightPx, renderWidth)
+            val cancellation = CancellationSignal()
+            printCancellation = cancellation
+            val file = File.createTempFile("cpipos-receipt-", ".pdf", appContext.cacheDir)
+            var output: ParcelFileDescriptor? = null
             try {
-                val adapter = view.createPrintDocumentAdapter("CpIPOS Receipt")
-                val attributes = buildPrintAttributes(paperWidthMm, contentHeightPx, renderWidth)
-                val cancellation = CancellationSignal()
-                printCancellation = cancellation
-                val file = File.createTempFile("cpipos-receipt-", ".pdf", appContext.cacheDir)
-
-                adapter.onLayout(
-                    null,
+                output = ParcelFileDescriptor.open(
+                    file,
+                    ParcelFileDescriptor.MODE_READ_WRITE or ParcelFileDescriptor.MODE_TRUNCATE or ParcelFileDescriptor.MODE_CREATE
+                )
+                PrintDocumentAdapterPdfWriter.write(
+                    adapter,
                     attributes,
                     cancellation,
-                    object : PrintDocumentAdapter.LayoutResultCallback() {
-                        override fun onLayoutFinished(info: PrintDocumentInfo?, changed: Boolean) {
-                            var output: ParcelFileDescriptor? = null
-                            try {
-                                output = ParcelFileDescriptor.open(
-                                    file,
-                                    ParcelFileDescriptor.MODE_READ_WRITE or ParcelFileDescriptor.MODE_TRUNCATE or ParcelFileDescriptor.MODE_CREATE
-                                )
-                                adapter.onWrite(
-                                    arrayOf(PageRange.ALL_PAGES),
-                                    output,
-                                    cancellation,
-                                    object : PrintDocumentAdapter.WriteResultCallback() {
-                                        override fun onWriteFinished(pages: Array<out PageRange>?) {
-                                            runCatching { output?.close() }
-                                            if (file.length() <= 0L) {
-                                                runCatching { file.delete() }
-                                                failRenderOnMain("receipt_html_pdf_empty", "HTML receipt PDF was empty")
-                                                return
-                                            }
-                                            finishWithPdf(view, file)
-                                        }
-
-                                        override fun onWriteFailed(error: CharSequence?) {
-                                            runCatching { output?.close() }
-                                            runCatching { file.delete() }
-                                            failRenderOnMain("receipt_html_pdf_write_failed", error?.toString() ?: "HTML receipt PDF write failed")
-                                        }
-
-                                        override fun onWriteCancelled() {
-                                            runCatching { output?.close() }
-                                            runCatching { file.delete() }
-                                            failRenderOnMain("receipt_html_pdf_cancelled", "HTML receipt PDF write was cancelled")
-                                        }
-                                    }
-                                )
-                            } catch (error: Throwable) {
-                                runCatching { output?.close() }
+                    output,
+                    object : PrintDocumentAdapterPdfWriter.Events {
+                        override fun onWriteFinished(pages: Array<PageRange>?) {
+                            runCatching { output?.close() }
+                            if (file.length() <= 0L) {
                                 runCatching { file.delete() }
-                                failRenderOnMain("receipt_html_pdf_write_failed", error.message ?: "HTML receipt PDF write failed", error)
+                                failRenderOnMain("receipt_html_pdf_empty", "HTML receipt PDF was empty")
+                                return
                             }
+                            finishWithPdf(view, file)
+                        }
+
+                        override fun onWriteFailed(error: CharSequence?) {
+                            runCatching { output?.close() }
+                            runCatching { file.delete() }
+                            failRenderOnMain("receipt_html_pdf_write_failed", error?.toString() ?: "HTML receipt PDF write failed")
+                        }
+
+                        override fun onWriteCancelled() {
+                            runCatching { output?.close() }
+                            runCatching { file.delete() }
+                            failRenderOnMain("receipt_html_pdf_cancelled", "HTML receipt PDF write was cancelled")
                         }
 
                         override fun onLayoutFailed(error: CharSequence?) {
+                            runCatching { output?.close() }
                             runCatching { file.delete() }
                             failRenderOnMain("receipt_html_pdf_layout_failed", error?.toString() ?: "HTML receipt PDF layout failed")
                         }
 
                         override fun onLayoutCancelled() {
+                            runCatching { output?.close() }
                             runCatching { file.delete() }
                             failRenderOnMain("receipt_html_pdf_cancelled", "HTML receipt PDF layout was cancelled")
                         }
-                    },
-                    null
+                    }
                 )
             } catch (error: Throwable) {
-                failRenderOnMain("receipt_html_pdf_failed", error.message ?: "HTML receipt PDF generation failed", error)
+                runCatching { output?.close() }
+                runCatching { file.delete() }
+                failRenderOnMain("receipt_html_pdf_write_failed", error.message ?: "HTML receipt PDF write failed", error)
             }
         }
-
         fun preparePdfOnMain(deadlineMs: Long) {
             val view = webView ?: return
             try {
