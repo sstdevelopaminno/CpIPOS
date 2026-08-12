@@ -12,6 +12,7 @@ import android.os.ParcelFileDescriptor
 import android.os.SystemClock
 import android.print.PageRange
 import android.print.PrintAttributes
+import android.print.CpiposPrintDocumentAdapterCallbacks
 import android.view.View
 import android.webkit.WebView
 import android.webkit.WebViewClient
@@ -84,12 +85,12 @@ internal class HtmlReceiptRasterizer(context: Context) {
                     file,
                     ParcelFileDescriptor.MODE_READ_WRITE or ParcelFileDescriptor.MODE_TRUNCATE or ParcelFileDescriptor.MODE_CREATE
                 )
-                PrintDocumentAdapterPdfWriter.write(
+                CpiposPrintDocumentAdapterCallbacks.write(
                     adapter,
                     attributes,
                     cancellation,
                     output,
-                    object : PrintDocumentAdapterPdfWriter.Events {
+                    object : CpiposPrintDocumentAdapterCallbacks.Events {
                         override fun onWriteFinished(pages: Array<PageRange>?) {
                             runCatching { output?.close() }
                             if (file.length() <= 0L) {

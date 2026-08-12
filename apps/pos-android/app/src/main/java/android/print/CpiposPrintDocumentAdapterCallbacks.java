@@ -1,14 +1,10 @@
-package com.cpipos.pos;
+package android.print;
 
 import android.os.CancellationSignal;
 import android.os.ParcelFileDescriptor;
-import android.print.PageRange;
-import android.print.PrintAttributes;
-import android.print.PrintDocumentAdapter;
-import android.print.PrintDocumentInfo;
 
-final class PrintDocumentAdapterPdfWriter {
-    interface Events {
+public final class CpiposPrintDocumentAdapterCallbacks {
+    public interface Events {
         void onWriteFinished(PageRange[] pages);
         void onWriteFailed(CharSequence error);
         void onWriteCancelled();
@@ -16,10 +12,10 @@ final class PrintDocumentAdapterPdfWriter {
         void onLayoutCancelled();
     }
 
-    private PrintDocumentAdapterPdfWriter() {
+    private CpiposPrintDocumentAdapterCallbacks() {
     }
 
-    static void write(
+    public static void write(
             PrintDocumentAdapter adapter,
             PrintAttributes attributes,
             CancellationSignal cancellation,
