@@ -2,6 +2,7 @@ import { fail, ok } from "@/lib/http";
 import { markDrawerEventFailedByPrintAgent } from "@/lib/printing/drawer-event-agent-sync";
 import { loggedPrintApiFail } from "@/lib/printing/print-api-errors";
 import { agentAuthFail, failPrintJob, requirePrintAgent } from "@/lib/printing/print-agent-service";
+import { getPrimarySupabaseServiceClient } from "@/lib/supabase-admin";
 
 type FailPayload = {
   agent_attempt_id?: string | null;
@@ -10,6 +11,31 @@ type FailPayload = {
   retryable?: boolean | null;
   metadata?: Record<string, unknown> | null;
 };
+
+async function markPrinterNeedsCheck(
+  agent: Awaited<ReturnType<typeof requirePrintAgent>>,
+  printerId: string | null,
+  finalStatus: string
+) {
+  if (!printerId) return;
+  const now = new Date().toISOString();
+  const status = finalStatus === "failed" ? "needs_check" : "checking";
+  const supabase = getPrimarySupabaseServiceClient();
+  const { error } = await supabase
+    .from("printer_devices")
+    .update({ status, updated_at: now })
+    .eq("tenant_id", agent.tenant_id)
+    .eq("branch_id", agent.branch_id)
+    .eq("printer_profile_id", printerId)
+    .eq("is_active", true);
+  if (error) {
+    console.warn("[print-agent] printer device failure sync failed", {
+      printer_id: printerId,
+      agent_id: agent.id,
+      error: error.message
+    });
+  }
+}
 
 export async function POST(req: Request, context: { params: Promise<{ jobId: string }> }) {
   try {
@@ -27,6 +53,8 @@ export async function POST(req: Request, context: { params: Promise<{ jobId: str
       retryable: body?.retryable ?? null,
       metadata: body?.metadata ?? null
     });
+
+    await markPrinterNeedsCheck(agent, job.printer_id ?? null, job.status);
 
     try {
       await markDrawerEventFailedByPrintAgent(agent, job, {
