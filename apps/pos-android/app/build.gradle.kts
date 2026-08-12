@@ -3,6 +3,17 @@ plugins {
     id("org.jetbrains.kotlin.android")
 }
 
+val releaseKeystorePath = System.getenv("CPIPOS_ANDROID_KEYSTORE_PATH")
+val releaseStorePassword = System.getenv("CPIPOS_ANDROID_STORE_PASSWORD")
+val releaseKeyAlias = System.getenv("CPIPOS_ANDROID_KEY_ALIAS")
+val releaseKeyPassword = System.getenv("CPIPOS_ANDROID_KEY_PASSWORD")
+val releaseSigningReady = listOf(
+    releaseKeystorePath,
+    releaseStorePassword,
+    releaseKeyAlias,
+    releaseKeyPassword
+).all { !it.isNullOrBlank() }
+
 android {
     namespace = "com.cpipos.pos"
     compileSdk = 34
@@ -20,9 +31,27 @@ android {
         buildConfigField("String", "CPIPOS_ANDROID_POS_ALLOWED_HOST", "\"cp-ipos-web.vercel.app\"")
     }
 
+    signingConfigs {
+        if (releaseSigningReady) {
+            create("release") {
+                storeFile = file(releaseKeystorePath!!)
+                storePassword = releaseStorePassword
+                keyAlias = releaseKeyAlias
+                keyPassword = releaseKeyPassword
+                enableV1Signing = true
+                enableV2Signing = true
+                enableV3Signing = true
+                enableV4Signing = true
+            }
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false
+            if (releaseSigningReady) {
+                signingConfig = signingConfigs.getByName("release")
+            }
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
     }
