@@ -4,6 +4,7 @@ import type { PaymentMethod } from "@pos/shared-types";
 import type { AuthContext } from "@/lib/auth-context";
 import { readEnv } from "@/lib/env";
 import { enqueuePrintJob, processPrintJob, renderKitchenTicketTemplate, renderReceiptTemplate } from "@/lib/printing/print-service";
+import { renderReceiptHtml } from "@/lib/printing/receipt-html-template";
 import { resolvePrinterRoutes, type ResolvedPrinterRoute } from "@/lib/printing/printer-routing-service";
 import { loadReceiptStoreProfile } from "@/lib/services/store-profile-service";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
@@ -139,13 +140,14 @@ export async function queueRoutedSalesReceipt(args: {
   const branchName = await loadBranchName(args.auth, storeProfile?.display_name ?? storeProfile?.name);
   const jobs = [];
   for (const route of routes) {
+    const paidAtIso = new Date().toISOString();
     const payload = renderReceiptTemplate({
       ...storeTemplateFields(storeProfile),
       order_id: args.order.id,
       order_no: args.order.order_no,
       branch_name: branchName,
       cashier_name: args.auth.userId,
-      paid_at_iso: new Date().toISOString(),
+      paid_at_iso: paidAtIso,
       currency: "THB",
       items: args.items.map((item) => ({ name: item.product_name, qty: item.quantity, unit_price: item.unit_price, line_total: item.line_total })),
       subtotal: args.order.total_amount + args.order.discount_amount,
@@ -158,14 +160,50 @@ export async function queueRoutedSalesReceipt(args: {
       mode_label: args.order.mode_label ?? null,
       note: args.order.notes ?? undefined
     }, route.printer.paper_width_mm);
+    const receiptHtml = renderReceiptHtml({
+      paperWidthMm: route.printer.paper_width_mm,
+      storeName: String(storeProfile?.display_name ?? storeProfile?.name ?? branchName),
+      branchName,
+      storeAddress: storeProfile?.company_address ?? null,
+      storePhone: storeProfile?.contact_phone ?? null,
+      logoUrl: storeProfile?.logo_url ?? null,
+      sellerName: args.auth.userId,
+      orderNo: args.order.order_no,
+      modeLabel: args.order.mode_label ?? "หน้าขาย",
+      paidAtIso,
+      items: args.items.map((item) => ({ name: item.product_name, quantity: item.quantity, unitPrice: item.unit_price, lineTotal: item.line_total, note: item.note ?? null })),
+      discountAmount: args.order.discount_amount,
+      taxAmount: 0,
+      totalAmount: args.order.total_amount,
+      paymentMethod: args.paymentMethod,
+      cashReceived: args.order.cash_received ?? null,
+      changeAmount: args.order.change_amount ?? null,
+      note: args.order.notes ?? null
+    });
     jobs.push(...await queueOnRoute({
       auth: args.auth,
       route,
       orderId: args.order.id,
       printerRole: "receipt",
       payloadText: payload,
-      payloadJson: { ...storePayload(storeProfile), branch_name: branchName, order_id: args.order.id, order_no: args.order.order_no },
-      metadata: { request_source: "pos_payment", paper_width_mm: route.printer.paper_width_mm }
+      payloadJson: {
+        ...storePayload(storeProfile),
+        branch_name: branchName,
+        order_id: args.order.id,
+        order_no: args.order.order_no,
+        items: args.items,
+        total_amount: args.order.total_amount,
+        discount_amount: args.order.discount_amount,
+        cash_received: args.order.cash_received ?? null,
+        change_amount: args.order.change_amount ?? null,
+        payment_method: args.paymentMethod
+      },
+      metadata: {
+        request_source: "pos_payment",
+        paper_width_mm: route.printer.paper_width_mm,
+        payload_format: "receipt_html_v1",
+        payload_html: receiptHtml
+      }
     }));
   }
   return jobs;
@@ -262,7 +300,7 @@ export async function queueRoutedReceiptReprint(args: {
   if (!order) throw new Error("order_not_found");
 
   const [itemsResult, paymentsResult, branchResult, storeProfile] = await Promise.all([
-    supabase.from("order_items").select("product_id,name,quantity,unit_price,line_total").eq("tenant_id", args.auth.tenantId!).eq("branch_id", args.auth.branchId!).eq("order_id", args.orderId),
+    supabase.from("order_items").select("product_id,name,quantity,unit_price,line_total,notes").eq("tenant_id", args.auth.tenantId!).eq("branch_id", args.auth.branchId!).eq("order_id", args.orderId),
     supabase.from("payments").select("method,amount,created_at").eq("tenant_id", args.auth.tenantId!).eq("branch_id", args.auth.branchId!).eq("order_id", args.orderId).order("created_at", { ascending: false }),
     supabase.from("branches").select("name").eq("tenant_id", args.auth.tenantId!).eq("id", args.auth.branchId!).maybeSingle<{ name: string | null }>(),
     loadReceiptStoreProfile(args.auth.tenantId!)
@@ -287,17 +325,20 @@ export async function queueRoutedReceiptReprint(args: {
     name: String(item.name ?? item.product_id ?? "Item"),
     qty: Number(item.quantity ?? 0),
     unit_price: Number(item.unit_price ?? 0),
-    line_total: Number(item.line_total ?? 0)
+    line_total: Number(item.line_total ?? 0),
+    note: item.notes ? String(item.notes) : null
   }));
+  const branchName = String(branchResult.data?.name ?? storeProfile?.display_name ?? "Branch POS");
+  const paidAtIso = String(order.payment_completed_at ?? order.created_at ?? new Date().toISOString());
   const jobs = [];
   for (const route of routes) {
     const payload = renderReceiptTemplate({
       ...storeTemplateFields(storeProfile),
       order_id: args.orderId,
       order_no: String(order.order_no),
-      branch_name: String(branchResult.data?.name ?? storeProfile?.display_name ?? "Branch POS"),
+      branch_name: branchName,
       cashier_name: String(order.created_by ?? args.auth.userId),
-      paid_at_iso: String(order.payment_completed_at ?? order.created_at ?? new Date().toISOString()),
+      paid_at_iso: paidAtIso,
       currency: "THB",
       items: receiptItems.length > 0 ? receiptItems : [{ name: "Reprint copy", qty: 1, unit_price: 0, line_total: 0 }],
       subtotal: Number(order.subtotal ?? order.total_amount ?? 0),
@@ -309,18 +350,40 @@ export async function queueRoutedReceiptReprint(args: {
       change_amount: Number(order.change_amount ?? 0),
       note: `Reprint for order ${order.order_no}`
     }, route.printer.paper_width_mm);
+    const fallbackHtml = renderReceiptHtml({
+      paperWidthMm: route.printer.paper_width_mm,
+      storeName: String(storeProfile?.display_name ?? storeProfile?.name ?? branchName),
+      branchName,
+      storeAddress: storeProfile?.company_address ?? null,
+      storePhone: storeProfile?.contact_phone ?? null,
+      logoUrl: storeProfile?.logo_url ?? null,
+      sellerName: String(order.created_by ?? args.auth.userId),
+      orderNo: String(order.order_no),
+      modeLabel: "ใบเสร็จย้อนหลัง",
+      paidAtIso,
+      items: receiptItems.map((item) => ({ name: item.name, quantity: item.qty, unitPrice: item.unit_price, lineTotal: item.line_total, note: item.note })),
+      discountAmount: Number(order.discount_amount ?? 0),
+      taxAmount: Number(order.tax_total ?? 0),
+      totalAmount,
+      paymentMethod,
+      cashReceived: Number(order.cash_received ?? totalAmount),
+      changeAmount: Number(order.change_amount ?? 0),
+      note: order.notes ? String(order.notes) : null,
+      reprint: true
+    });
     jobs.push(...await queueOnRoute({
       auth: args.auth,
       route,
       orderId: args.orderId,
       printerRole: "receipt",
       payloadText: payload,
-      payloadJson: storePayload(storeProfile),
+      payloadJson: { ...storePayload(storeProfile), branch_name: branchName, order_id: args.orderId, order_no: String(order.order_no), items: receiptItems },
       metadata: {
         request_source: "receipt_history_reprint",
         reprint: true,
         paper_width_mm: route.printer.paper_width_mm,
-        ...(args.receiptHtml?.trim() ? { payload_html: args.receiptHtml.trim() } : {})
+        payload_format: "receipt_html_v1",
+        payload_html: args.receiptHtml?.trim() || fallbackHtml
       }
     }));
   }
