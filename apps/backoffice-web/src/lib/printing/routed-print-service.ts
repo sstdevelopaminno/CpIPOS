@@ -3,7 +3,7 @@ import "server-only";
 import type { PaymentMethod } from "@pos/shared-types";
 import type { AuthContext } from "@/lib/auth-context";
 import { readEnv } from "@/lib/env";
-import { enqueuePrintJob, processPrintJob, renderKitchenTicketTemplate, renderReceiptTemplate } from "@/lib/printing/print-service";
+import { enqueuePrintJob, loadReceiptSellerName, processPrintJob, renderKitchenTicketTemplate, renderReceiptTemplate } from "@/lib/printing/print-service";
 import { renderReceiptHtml } from "@/lib/printing/receipt-html-template";
 import { resolvePrinterRoutes, type ResolvedPrinterRoute } from "@/lib/printing/printer-routing-service";
 import { loadReceiptStoreProfile } from "@/lib/services/store-profile-service";
@@ -94,20 +94,32 @@ async function loadBranchName(auth: AuthContext, fallback?: string | null) {
 }
 
 function storeTemplateFields(profile: Awaited<ReturnType<typeof loadReceiptStoreProfile>>) {
+  const storeName = profile?.display_name || profile?.name || "CpIPOS";
   return {
-    store_name: profile?.display_name || profile?.name,
+    store_name: storeName,
+    business_name: storeName,
+    company_name: profile?.name || storeName,
     store_logo_url: profile?.logo_url,
+    logo_url: profile?.logo_url,
     store_address: profile?.company_address,
-    store_phone: profile?.contact_phone
+    address: profile?.company_address,
+    store_phone: profile?.contact_phone,
+    phone: profile?.contact_phone
   };
 }
 
 function storePayload(profile: Awaited<ReturnType<typeof loadReceiptStoreProfile>>): JsonRecord {
   return {
-    store_name: profile?.display_name ?? null,
+    store_name: profile?.display_name ?? profile?.name ?? null,
+    business_name: profile?.display_name ?? profile?.name ?? null,
+    company_name: profile?.name ?? null,
     store_logo_url: profile?.logo_url ?? null,
+    logo_url: profile?.logo_url ?? null,
+    logo: profile?.logo_url ?? null,
     store_address: profile?.company_address ?? null,
+    address: profile?.company_address ?? null,
     store_phone: profile?.contact_phone ?? null,
+    phone: profile?.contact_phone ?? null,
     store_code: profile?.code ?? null
   };
 }
@@ -127,6 +139,7 @@ export async function queueRoutedSalesReceipt(args: {
   };
   items: ReceiptSnapshotItem[];
   paymentMethod: "cash" | "bank_transfer";
+  sellerName?: string | null;
 }) {
   const routes = await resolvePrinterRoutes({
     auth: args.auth,
@@ -138,6 +151,7 @@ export async function queueRoutedSalesReceipt(args: {
 
   const storeProfile = await loadReceiptStoreProfile(args.auth.tenantId!);
   const branchName = await loadBranchName(args.auth, storeProfile?.display_name ?? storeProfile?.name);
+  const sellerName = await loadReceiptSellerName(args.auth, args.auth.userId, { seller_name: args.sellerName ?? null });
   const jobs = [];
   for (const route of routes) {
     const paidAtIso = new Date().toISOString();
@@ -146,7 +160,7 @@ export async function queueRoutedSalesReceipt(args: {
       order_id: args.order.id,
       order_no: args.order.order_no,
       branch_name: branchName,
-      cashier_name: args.auth.userId,
+      cashier_name: sellerName,
       paid_at_iso: paidAtIso,
       currency: "THB",
       items: args.items.map((item) => ({ name: item.product_name, qty: item.quantity, unit_price: item.unit_price, line_total: item.line_total })),
@@ -167,7 +181,7 @@ export async function queueRoutedSalesReceipt(args: {
       storeAddress: storeProfile?.company_address ?? null,
       storePhone: storeProfile?.contact_phone ?? null,
       logoUrl: storeProfile?.logo_url ?? null,
-      sellerName: args.auth.userId,
+      sellerName,
       orderNo: args.order.order_no,
       modeLabel: args.order.mode_label ?? "หน้าขาย",
       paidAtIso,
@@ -330,6 +344,7 @@ export async function queueRoutedReceiptReprint(args: {
   }));
   const branchName = String(branchResult.data?.name ?? storeProfile?.display_name ?? "Branch POS");
   const paidAtIso = String(order.payment_completed_at ?? order.created_at ?? new Date().toISOString());
+  const sellerName = await loadReceiptSellerName(args.auth, String(order.created_by ?? args.auth.userId));
   const jobs = [];
   for (const route of routes) {
     const payload = renderReceiptTemplate({
@@ -337,7 +352,7 @@ export async function queueRoutedReceiptReprint(args: {
       order_id: args.orderId,
       order_no: String(order.order_no),
       branch_name: branchName,
-      cashier_name: String(order.created_by ?? args.auth.userId),
+      cashier_name: sellerName,
       paid_at_iso: paidAtIso,
       currency: "THB",
       items: receiptItems.length > 0 ? receiptItems : [{ name: "Reprint copy", qty: 1, unit_price: 0, line_total: 0 }],
@@ -357,7 +372,7 @@ export async function queueRoutedReceiptReprint(args: {
       storeAddress: storeProfile?.company_address ?? null,
       storePhone: storeProfile?.contact_phone ?? null,
       logoUrl: storeProfile?.logo_url ?? null,
-      sellerName: String(order.created_by ?? args.auth.userId),
+      sellerName,
       orderNo: String(order.order_no),
       modeLabel: "ใบเสร็จย้อนหลัง",
       paidAtIso,

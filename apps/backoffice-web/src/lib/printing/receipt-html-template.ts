@@ -28,6 +28,13 @@ export type ReceiptHtmlInput = {
   reprint?: boolean;
 };
 
+const DEFAULT_RECEIPT_LOGO_URL = "/brand/cpipos-logo.png";
+
+function clean(value: unknown) {
+  const trimmed = String(value ?? "").trim();
+  return trimmed ? trimmed : null;
+}
+
 function escapeHtml(value: unknown) {
   return String(value ?? "")
     .replaceAll("&", "&amp;")
@@ -65,6 +72,9 @@ export function renderReceiptHtml(input: ReceiptHtmlInput) {
   const paper = input.paperWidthMm;
   const printable = paper === 58 ? 48 : 70;
   const fontSize = paper === 58 ? 11 : 12;
+  const logoUrl = clean(input.logoUrl) ?? DEFAULT_RECEIPT_LOGO_URL;
+  const storeName = clean(input.storeName) ?? clean(input.branchName) ?? "CpIPOS";
+  const branchName = clean(input.branchName);
   const itemRows = input.items.map((item) => `
     <tr>
       <td class="col-name">
@@ -74,14 +84,14 @@ export function renderReceiptHtml(input: ReceiptHtmlInput) {
       <td class="col-qty">${escapeHtml(qty(item.quantity))}</td>
       <td class="col-total">${escapeHtml(money(item.lineTotal))}</td>
     </tr>`).join("");
-  const logo = input.logoUrl?.trim() ? `<div class="logo-wrap"><img src="${escapeHtml(input.logoUrl)}" alt="logo" /></div>` : "";
+  const logo = `<div class="logo-wrap"><img src="${escapeHtml(logoUrl)}" alt="receipt logo" /></div>`;
   const address = input.storeAddress?.trim() ? `<div class="muted">${escapeHtml(input.storeAddress)}</div>` : "";
   const phone = input.storePhone?.trim() ? `<div class="muted">${escapeHtml(input.storePhone)}</div>` : "";
   const note = input.note?.trim() ? `<div class="hr"></div><div class="note-block"><strong>หมายเหตุ:</strong> ${escapeHtml(input.note)}</div>` : "";
   const tax = Number(input.taxAmount ?? 0);
   const taxLine = Math.abs(tax) >= 0.005 ? `<div class="summary-line is-muted"><span>ภาษี</span><strong>฿${escapeHtml(money(tax))}</strong></div>` : "";
   const cashLines = input.paymentMethod === "cash" ? `
-    <div class="summary-line is-aux"><span>รับเงินจากลูกค้า</span><strong>฿${escapeHtml(money(input.cashReceived ?? input.totalAmount))}</strong></div>
+    <div class="summary-line is-aux"><span>รับเงิน</span><strong>฿${escapeHtml(money(input.cashReceived ?? input.totalAmount))}</strong></div>
     <div class="summary-line is-aux"><span>เงินทอน</span><strong>฿${escapeHtml(money(input.changeAmount ?? 0))}</strong></div>` : "";
   const reprintLine = input.reprint ? `<div class="reprint">สำเนาใบเสร็จ / REPRINT</div>` : "";
 
@@ -90,7 +100,7 @@ export function renderReceiptHtml(input: ReceiptHtmlInput) {
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>${escapeHtml(input.storeName)} - ${escapeHtml(input.orderNo)}</title>
+  <title>${escapeHtml(storeName)} - ${escapeHtml(input.orderNo)}</title>
   <style>
     @page { size: ${paper}mm auto; margin: 0; }
     html, body { margin: 0; padding: 0; width: ${paper}mm; background: #fff; color: #000; font-family: "Noto Sans Thai", "Tahoma", "Segoe UI", sans-serif; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
@@ -122,12 +132,12 @@ export function renderReceiptHtml(input: ReceiptHtmlInput) {
 <body>
   <main class="receipt">
     ${logo}
-    <div class="head-title">${escapeHtml(input.storeName || input.branchName)}</div>
+    <div class="head-title">${escapeHtml(storeName)}</div>
     ${address}${phone}
-    <div class="muted">${escapeHtml(input.branchName)}</div>
+    ${branchName ? `<div class="muted">${escapeHtml(branchName)}</div>` : ""}
     ${reprintLine}
     <div class="hr"></div>
-    <div class="meta-line"><span>ชื่อผู้ขาย</span><span>${escapeHtml(input.sellerName)}</span></div>
+    <div class="meta-line"><span>ผู้ขาย</span><span>${escapeHtml(input.sellerName)}</span></div>
     <div class="meta-line"><span>โหมด</span><span>${escapeHtml(input.modeLabel || "หน้าขาย")}</span></div>
     <div class="meta-line"><span>เลขที่บิล</span><span>${escapeHtml(input.orderNo)}</span></div>
     <div class="meta-line"><span>วันที่</span><span>${escapeHtml(dateTime(input.paidAtIso))}</span></div>
@@ -137,11 +147,11 @@ export function renderReceiptHtml(input: ReceiptHtmlInput) {
     <div class="summary-line is-heading"><span>ชำระเงิน</span><strong>${escapeHtml(paymentLabel(input.paymentMethod))}</strong></div>
     <div class="summary-line is-muted"><span>ส่วนลด</span><strong>฿${escapeHtml(money(input.discountAmount))}</strong></div>
     ${taxLine}
-    <div class="summary-line grand"><span>ยอดที่ต้องชำระ</span><strong>฿${escapeHtml(money(input.totalAmount))}</strong></div>
+    <div class="summary-line grand"><span>ยอดสุทธิ</span><strong>฿${escapeHtml(money(input.totalAmount))}</strong></div>
     ${cashLines}
     ${note}
     <div class="hr"></div>
-    <div class="foot">CpIPOS</div>
+    <div class="foot">ขอบคุณที่ใช้บริการ</div>
   </main>
 </body>
 </html>`;

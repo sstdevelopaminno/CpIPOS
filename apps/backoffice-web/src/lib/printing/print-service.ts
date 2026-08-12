@@ -1,4 +1,4 @@
-﻿import type {
+import type {
   CreateManualDeliveryOrderInput,
   KitchenTicketTemplate,
   PaymentMethod,
@@ -21,6 +21,7 @@ import type { PrinterAdapter } from "@/lib/printing/adapters/types";
 
 const DEFAULT_MAX_RETRY_COUNT = 3;
 const BROWSER_AGENT_BRIDGE_URL = "browser-agent://web-serial";
+const DEFAULT_RECEIPT_LOGO_URL = "/brand/cpipos-logo.png";
 
 type JsonRecord = Record<string, unknown>;
 
@@ -142,6 +143,60 @@ function normalizeText(value: string | null | undefined): string | null {
   const trimmed = value?.trim();
   return trimmed ? trimmed : null;
 }
+function firstNormalizedText(values: unknown[]): string | null {
+  for (const value of values) {
+    const normalized = normalizeText(typeof value === "string" ? value : value == null ? undefined : String(value));
+    if (normalized) return normalized;
+  }
+  return null;
+}
+
+function readReceiptField(record: JsonRecord, names: string[]): string | null {
+  return firstNormalizedText(names.map((name) => record[name]));
+}
+
+function receiptStoreHeader(template: ReceiptTemplate) {
+  const record = asRecord(template);
+  const storeName = readReceiptField(record, ["business_name", "store_name", "company_name", "display_name", "name"]) ?? template.branch_name ?? "CpIPOS";
+  return {
+    storeName,
+    logoUrl: readReceiptField(record, ["store_logo_url", "logo_url", "logo"]) ?? DEFAULT_RECEIPT_LOGO_URL,
+    address: readReceiptField(record, ["store_address", "address", "company_address"]),
+    phone: readReceiptField(record, ["store_phone", "phone", "contact_phone"])
+  };
+}
+
+export function resolveReceiptSellerName(source: unknown): string {
+  const record = asRecord(source);
+  return (
+    readReceiptField(record, ["seller_name", "display_name", "full_name", "nickname", "name", "employee_code", "user_id"]) ??
+    "-"
+  );
+}
+
+export async function loadReceiptSellerName(auth: AuthContext, userId: string | null | undefined = auth.userId, overrides: JsonRecord = {}): Promise<string> {
+  const normalizedUserId = normalizeText(userId ?? undefined);
+  const overrideName = readReceiptField(overrides, ["seller_name", "display_name", "full_name", "nickname", "name", "employee_code"]);
+  if (overrideName) return overrideName;
+  if (!normalizedUserId) return "-";
+
+  try {
+    const supabase = getSupabaseServiceClient();
+    const [profileResult, employeeResult] = await Promise.all([
+      supabase.from("users_profiles").select("full_name").eq("id", normalizedUserId).maybeSingle<{ full_name: string | null }>(),
+      auth.tenantId
+        ? supabase.from("pos_user_profiles").select("employee_code").eq("tenant_id", auth.tenantId).eq("user_id", normalizedUserId).maybeSingle<{ employee_code: string | null }>()
+        : Promise.resolve({ data: null, error: null })
+    ]);
+    return resolveReceiptSellerName({
+      full_name: profileResult.data?.full_name,
+      employee_code: employeeResult.data?.employee_code,
+      user_id: normalizedUserId
+    });
+  } catch {
+    return normalizedUserId;
+  }
+}
 function readStringArray(value: unknown): string[] {
   if (typeof value === "string") return [value.trim()].filter(Boolean);
   if (!Array.isArray(value)) return [];
@@ -211,9 +266,11 @@ function row(left: string, right: string, width: number): string {
 
 export function renderReceiptTemplate(template: ReceiptTemplate, paperWidthMm: 58 | 80): string {
   const width = paperWidthMm === 58 ? 32 : 42;
-  const storeName = normalizeText(template.store_name) ?? template.branch_name;
-  const storeAddress = normalizeText(template.store_address);
-  const storePhone = normalizeText(template.store_phone);
+  const header = receiptStoreHeader(template);
+  const storeName = header.storeName;
+  const storeAddress = header.address;
+  const storePhone = header.phone;
+  const sellerName = resolveReceiptSellerName({ ...asRecord(template), user_id: template.cashier_name });
   const paidAt = new Date(template.paid_at_iso);
   const paidAtText = Number.isNaN(paidAt.getTime())
     ? template.paid_at_iso.slice(0, 16).replace("T", " ")
@@ -222,7 +279,6 @@ export function renderReceiptTemplate(template: ReceiptTemplate, paperWidthMm: 5
   const modeLabel = normalizeText(template.mode_label) ?? "\u0e2b\u0e19\u0e49\u0e32\u0e23\u0e49\u0e32\u0e19";
   const memberLabel = normalizeText(template.member_label) ?? "0 \u0e04\u0e19 / 0 \u0e04\u0e30\u0e41\u0e19\u0e19";
   const lines = [
-    center("CpIPOS", width),
     center(storeName, width),
     ...(storePhone ? [center(storePhone, width)] : []),
     ...(storeAddress ? [center(storeAddress.slice(0, width * 2), width)] : []),
@@ -230,7 +286,7 @@ export function renderReceiptTemplate(template: ReceiptTemplate, paperWidthMm: 5
     row("\u0e2a\u0e32\u0e02\u0e32", template.branch_name, width),
     row("\u0e43\u0e1a\u0e40\u0e2a\u0e23\u0e47\u0e08\u0e40\u0e25\u0e02\u0e17\u0e35\u0e48", template.order_no, width),
     row("\u0e27\u0e31\u0e19\u0e17\u0e35\u0e48", paidAtText, width),
-    row("\u0e1e\u0e19\u0e31\u0e01\u0e07\u0e32\u0e19", template.cashier_name, width),
+    row("ผู้ขาย", sellerName, width),
     row("\u0e1b\u0e23\u0e30\u0e40\u0e20\u0e17", modeLabel, width),
     row("\u0e2a\u0e21\u0e32\u0e0a\u0e34\u0e01", memberLabel, width),
     line("-", width)
@@ -268,10 +324,10 @@ function escapeReceiptHtml(value: unknown): string {
 }
 
 function renderReceiptPrintHtmlFromText(template: ReceiptTemplate, paperWidthMm: 58 | 80, textBody: string): string {
-  const logo = normalizeText(template.store_logo_url);
+  const logo = receiptStoreHeader(template).logoUrl;
   const pageHeightMm = Math.min(700, Math.max(125, 80 + template.items.length * 14));
   const width = paperWidthMm === 58 ? 48 : 70;
-  return "<!doctype html><html lang=\"th\"><head><meta charset=\"utf-8\"><style>@page{size:" + paperWidthMm + "mm " + pageHeightMm + "mm;margin:0}body{width:" + paperWidthMm + "mm;margin:0;background:#fff;color:#000;font-family:Tahoma,sans-serif}.r{width:" + width + "mm;margin:0 auto;padding:2mm 0;font-size:17px;font-weight:800;line-height:1.34;white-space:pre-wrap}.logo{text-align:center;margin-bottom:1mm}.logo img{max-width:28mm;max-height:9mm;object-fit:contain}</style></head><body><main class=\"r\"><div class=\"logo\">" + (logo ? "<img src=\"" + escapeReceiptHtml(logo) + "\">" : "CpIPOS") + "</div>" + escapeReceiptHtml(textBody) + "</main></body></html>";
+  return "<!doctype html><html lang=\"th\"><head><meta charset=\"utf-8\"><style>@page{size:" + paperWidthMm + "mm " + pageHeightMm + "mm;margin:0}body{width:" + paperWidthMm + "mm;margin:0;background:#fff;color:#000;font-family:Tahoma,sans-serif}.r{width:" + width + "mm;margin:0 auto;padding:2mm 0;font-size:17px;font-weight:800;line-height:1.34;white-space:pre-wrap}.logo{text-align:center;margin-bottom:1mm}.logo img{max-width:28mm;max-height:9mm;object-fit:contain}</style></head><body><main class=\"r\"><div class=\"logo\">" + "<img src=\"" + escapeReceiptHtml(logo) + "\">" + "</div>" + escapeReceiptHtml(textBody) + "</main></body></html>";
 }
 function renderTestPrintPayload(printer: PrinterProfileRow): string {
   const width = printer.paper_width_mm === 58 ? 32 : 42;
@@ -297,20 +353,32 @@ function renderTestPrintPayload(printer: PrinterProfileRow): string {
 }
 
 function receiptStoreTemplateFields(storeProfile: ReceiptStoreProfile | null) {
+  const storeName = firstNormalizedText([storeProfile?.display_name, storeProfile?.name, "CpIPOS"]);
   return {
-    store_name: storeProfile?.display_name || storeProfile?.name,
+    store_name: storeName ?? undefined,
+    business_name: storeName ?? undefined,
+    company_name: storeProfile?.name || storeName || undefined,
     store_logo_url: storeProfile?.logo_url,
+    logo_url: storeProfile?.logo_url,
     store_address: storeProfile?.company_address,
-    store_phone: storeProfile?.contact_phone
+    address: storeProfile?.company_address,
+    store_phone: storeProfile?.contact_phone,
+    phone: storeProfile?.contact_phone
   };
 }
 
 function receiptStorePayload(storeProfile: ReceiptStoreProfile | null): JsonRecord {
   return {
-    store_name: storeProfile?.display_name ?? null,
+    store_name: storeProfile?.display_name ?? storeProfile?.name ?? null,
+    business_name: storeProfile?.display_name ?? storeProfile?.name ?? null,
+    company_name: storeProfile?.name ?? null,
     store_logo_url: storeProfile?.logo_url ?? null,
+    logo_url: storeProfile?.logo_url ?? null,
+    logo: storeProfile?.logo_url ?? null,
     store_address: storeProfile?.company_address ?? null,
+    address: storeProfile?.company_address ?? null,
     store_phone: storeProfile?.contact_phone ?? null,
+    phone: storeProfile?.contact_phone ?? null,
     store_code: storeProfile?.code ?? null
   };
 }
@@ -1063,6 +1131,7 @@ export async function enqueueOrderPrintJobs(args: {
   const queuedJobs: PrintJobRow[] = [];
   const storeProfile = await loadReceiptStoreProfile(auth.tenantId!);
   const branchName = await loadReceiptBranchName(auth, storeProfile?.display_name ?? storeProfile?.name);
+  const sellerName = await loadReceiptSellerName(auth);
   const receiptPrinters = await getEnabledPrintersByRole(auth, "receipt");
 
   if (receiptPrinters.length > 0) {
@@ -1073,7 +1142,7 @@ export async function enqueueOrderPrintJobs(args: {
           order_id: orderId,
           order_no: orderNo,
           branch_name: branchName,
-          cashier_name: auth.userId,
+          cashier_name: sellerName,
           paid_at_iso: nowIso(),
           currency: "THB",
           items: input.items.map((item) => ({
@@ -1316,6 +1385,7 @@ export async function enqueuePrintJobsForOrderSnapshot(args: {
   const queuedJobs: PrintJobRow[] = [];
   const storeProfile = await loadReceiptStoreProfile(auth.tenantId!);
   const branchName = await loadReceiptBranchName(auth, storeProfile?.display_name ?? storeProfile?.name);
+  const sellerName = await loadReceiptSellerName(auth);
   const receiptPrinters = await getEnabledPrintersByRole(auth, "receipt");
 
   for (const printer of receiptPrinters) {
@@ -1325,7 +1395,7 @@ export async function enqueuePrintJobsForOrderSnapshot(args: {
         order_id: order.id,
         order_no: order.order_no,
         branch_name: branchName,
-        cashier_name: auth.userId,
+        cashier_name: sellerName,
         paid_at_iso: nowIso(),
         currency: "THB",
         items: items.map((item) => ({
@@ -1351,7 +1421,7 @@ export async function enqueuePrintJobsForOrderSnapshot(args: {
       printerRole: "receipt",
       payloadText: receiptPayload,
       payloadJson: { ...receiptStorePayload(storeProfile), branch_name: branchName, order_id: order.id, order_no: order.order_no },
-      metadata: { payload_html: renderReceiptPrintHtmlFromText({ ...receiptStoreTemplateFields(storeProfile), order_id: order.id, order_no: order.order_no, branch_name: branchName, cashier_name: auth.userId, paid_at_iso: nowIso(), currency: "THB", items: items.map((item) => ({ name: item.product_name, qty: item.quantity, unit_price: item.unit_price, line_total: item.line_total })), subtotal: order.total_amount + order.discount_amount, discount_amount: order.discount_amount, tax_amount: 0, total_amount: order.total_amount, payment_method: paymentMethod, cash_received: order.cash_received ?? null, change_amount: order.change_amount ?? null, mode_label: order.mode_label ?? null, note: order.notes ?? undefined }, printer.paper_width_mm, receiptPayload) }
+      metadata: { payload_html: renderReceiptPrintHtmlFromText({ ...receiptStoreTemplateFields(storeProfile), order_id: order.id, order_no: order.order_no, branch_name: branchName, cashier_name: sellerName, paid_at_iso: nowIso(), currency: "THB", items: items.map((item) => ({ name: item.product_name, qty: item.quantity, unit_price: item.unit_price, line_total: item.line_total })), subtotal: order.total_amount + order.discount_amount, discount_amount: order.discount_amount, tax_amount: 0, total_amount: order.total_amount, payment_method: paymentMethod, cash_received: order.cash_received ?? null, change_amount: order.change_amount ?? null, mode_label: order.mode_label ?? null, note: order.notes ?? undefined }, printer.paper_width_mm, receiptPayload) }
     });
     queuedJobs.push(job);
     await processOrQueuePrintJob(job, printer);
