@@ -70,7 +70,7 @@ Write-Host "Creating permanent CpIPOS Android release signing key..."
     -genkeypair `
     -v `
     -keystore $keystorePath `
-    -storetype JKS `
+    -storetype PKCS12 `
     -alias $alias `
     -keyalg RSA `
     -keysize 4096 `
@@ -83,7 +83,7 @@ if ($LASTEXITCODE -ne 0) {
     throw "keytool failed while creating the release keystore."
 }
 
-$listing = (& $keytool.Source -list -v -keystore $keystorePath -storepass $password -alias $alias 2>&1 | Out-String)
+$listing = (& $keytool.Source -list -v -keystore $keystorePath -storepass $password -alias $alias 2>$null | Out-String)
 $shaMatch = [regex]::Match($listing, "SHA256:\s*([0-9A-F:]+)", [System.Text.RegularExpressions.RegexOptions]::IgnoreCase)
 if (-not $shaMatch.Success) {
     throw "Could not read SHA-256 certificate fingerprint from the generated keystore."
