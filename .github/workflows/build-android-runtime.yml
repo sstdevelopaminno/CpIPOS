@@ -22,8 +22,10 @@ env:
   ANDROID_RUNTIME_MODULE: apps/pos-android
   ANDROID_RUNTIME_VERSION: 1.0.2
   ANDROID_RUNTIME_RELEASE_TAG: android-runtime-latest
-  ANDROID_RUNTIME_APK_ASSET_NAME: CpIPOS-Android-debug.apk
+  ANDROID_RUNTIME_APK_ASSET_NAME: CpIPOS-Android-POS.apk
+  ANDROID_RUNTIME_LEGACY_ASSET_NAME: CpIPOS-Android-debug.apk
   ANDROID_RUNTIME_VERSIONED_ASSET_NAME: CpIPOS-Android-POS-1.0.2.apk
+  ANDROID_SIGNING_CERT_SHA256: 89e73a475a0e08091d79b24b40638a905ab9fcb96fe8cf186cfb763d378c05f0
 
 jobs:
   build-android-runtime:
@@ -57,52 +59,134 @@ jobs:
             exit 1
           fi
 
-      - name: Build debug APK
+      - name: Detect stable signing secrets
+        id: signing
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_SIGNING_KEYSTORE_BASE64 }}
+          STORE_PASSWORD: ${{ secrets.ANDROID_SIGNING_STORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_SIGNING_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_SIGNING_KEY_PASSWORD }}
+        run: |
+          if [ -n "$KEYSTORE_BASE64" ] && [ -n "$STORE_PASSWORD" ] && [ -n "$KEY_ALIAS" ] && [ -n "$KEY_PASSWORD" ]; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+            echo "Stable Android signing secrets are available."
+          else
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            echo "Stable Android signing secrets are not configured; release publication will be skipped."
+          fi
+
+      - name: Materialize and validate stable signing keystore
+        if: steps.signing.outputs.ready == 'true'
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_SIGNING_KEYSTORE_BASE64 }}
+          STORE_PASSWORD: ${{ secrets.ANDROID_SIGNING_STORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_SIGNING_KEY_ALIAS }}
+        run: |
+          signingDir="$RUNNER_TEMP/cpipos-android-signing"
+          keystorePath="$signingDir/cpipos-android-release.jks"
+          mkdir -p "$signingDir"
+          printf '%s' "$KEYSTORE_BASE64" | base64 --decode > "$keystorePath"
+          chmod 600 "$keystorePath"
+
+          certSha=$(keytool -list -v \
+            -keystore "$keystorePath" \
+            -storepass "$STORE_PASSWORD" \
+            -alias "$KEY_ALIAS" \
+            | awk -F': ' '/SHA256:/{gsub(":", "", $2); print tolower($2); exit}')
+
+          if [ "$certSha" != "${{ env.ANDROID_SIGNING_CERT_SHA256 }}" ]; then
+            echo "Signing certificate mismatch. Expected ${{ env.ANDROID_SIGNING_CERT_SHA256 }}, got $certSha"
+            exit 1
+          fi
+          echo "Stable signing certificate verified: $certSha"
+
+      - name: Build stable signed release APK
+        if: steps.signing.outputs.ready == 'true'
+        working-directory: ${{ env.ANDROID_RUNTIME_MODULE }}
+        env:
+          CPIPOS_ANDROID_KEYSTORE_PATH: ${{ runner.temp }}/cpipos-android-signing/cpipos-android-release.jks
+          CPIPOS_ANDROID_STORE_PASSWORD: ${{ secrets.ANDROID_SIGNING_STORE_PASSWORD }}
+          CPIPOS_ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_SIGNING_KEY_ALIAS }}
+          CPIPOS_ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_SIGNING_KEY_PASSWORD }}
+        run: gradle :app:assembleRelease --no-daemon --stacktrace
+
+      - name: Build debug smoke APK when signing is unavailable
+        if: steps.signing.outputs.ready != 'true'
         working-directory: ${{ env.ANDROID_RUNTIME_MODULE }}
         run: gradle :app:assembleDebug --no-daemon --stacktrace
 
-      - name: Locate and validate APK
+      - name: Require signing secrets for manual release
+        if: github.event_name == 'workflow_dispatch' && steps.signing.outputs.ready != 'true'
         run: |
-          apkPath="${{ env.ANDROID_RUNTIME_MODULE }}/app/build/outputs/apk/debug/app-debug.apk"
+          echo "Manual Android release requires the four ANDROID_SIGNING_* repository secrets."
+          exit 1
+
+      - name: Locate, verify and stage signed APK
+        if: steps.signing.outputs.ready == 'true'
+        run: |
+          apkPath="${{ env.ANDROID_RUNTIME_MODULE }}/app/build/outputs/apk/release/app-release.apk"
           if [ ! -f "$apkPath" ]; then
-            echo "Built APK not found at $apkPath"
+            echo "Built release APK not found at $apkPath"
             exit 1
           fi
+
           apkSize=$(stat -c%s "$apkPath")
           if [ "$apkSize" -lt 1000000 ]; then
             echo "APK size looks too small: $apkSize bytes"
             exit 1
           fi
+
+          apksignerPath=$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)
+          if [ -z "$apksignerPath" ]; then
+            echo "apksigner not found under $ANDROID_HOME/build-tools"
+            exit 1
+          fi
+          "$apksignerPath" verify --verbose --print-certs "$apkPath"
+          certSha=$("$apksignerPath" verify --print-certs "$apkPath" \
+            | sed -n 's/^Signer #1 certificate SHA-256 digest: //p' \
+            | head -n 1 \
+            | tr -d ':' \
+            | tr '[:upper:]' '[:lower:]')
+          if [ "$certSha" != "${{ env.ANDROID_SIGNING_CERT_SHA256 }}" ]; then
+            echo "APK certificate mismatch. Expected ${{ env.ANDROID_SIGNING_CERT_SHA256 }}, got $certSha"
+            exit 1
+          fi
+
           mkdir -p artifacts
           cp "$apkPath" "artifacts/${{ env.ANDROID_RUNTIME_APK_ASSET_NAME }}"
+          cp "$apkPath" "artifacts/${{ env.ANDROID_RUNTIME_LEGACY_ASSET_NAME }}"
           cp "$apkPath" "artifacts/${{ env.ANDROID_RUNTIME_VERSIONED_ASSET_NAME }}"
-          echo "APK ready: $apkSize bytes"
+          echo "Stable signed APK ready: $apkSize bytes; certificate=$certSha"
 
-      - name: Upload workflow artifact
+      - name: Upload signed workflow artifact
+        if: steps.signing.outputs.ready == 'true'
         uses: actions/upload-artifact@v4
         with:
-          name: CpIPOS-Android-POS-${{ env.ANDROID_RUNTIME_VERSION }}
+          name: CpIPOS-Android-POS-${{ env.ANDROID_RUNTIME_VERSION }}-stable-signed
           path: |
             artifacts/${{ env.ANDROID_RUNTIME_APK_ASSET_NAME }}
+            artifacts/${{ env.ANDROID_RUNTIME_LEGACY_ASSET_NAME }}
             artifacts/${{ env.ANDROID_RUNTIME_VERSIONED_ASSET_NAME }}
           if-no-files-found: error
 
-      - name: Publish latest release download
-        if: github.event_name == 'push' && github.ref == 'refs/heads/agent-docs-preflight-schema-drift'
+      - name: Publish stable signed latest release download
+        if: github.event_name == 'push' && github.ref == 'refs/heads/agent-docs-preflight-schema-drift' && steps.signing.outputs.ready == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           tag="${{ env.ANDROID_RUNTIME_RELEASE_TAG }}"
           apkPath="artifacts/${{ env.ANDROID_RUNTIME_APK_ASSET_NAME }}"
+          legacyApkPath="artifacts/${{ env.ANDROID_RUNTIME_LEGACY_ASSET_NAME }}"
           versionedApkPath="artifacts/${{ env.ANDROID_RUNTIME_VERSIONED_ASSET_NAME }}"
 
           if ! gh release view "$tag" >/dev/null 2>&1; then
             gh release create "$tag" \
               --target "${{ github.sha }}" \
               --title "CpIPOS Android Tablet POS Latest" \
-              --notes "CpIPOS Android Tablet POS managed-device release. Native LAN/USB/Bluetooth ESC/POS print agent, WebView POS runtime, MDM diagnostics, and managed-device readiness."
+              --notes "CpIPOS Android Tablet POS stable-signed managed-device release. Native LAN/USB/Bluetooth ESC/POS print agent, HTML receipt raster printing, WebView POS runtime, MDM diagnostics, and managed-device readiness."
           fi
 
-          gh release upload "$tag" "$apkPath" "$versionedApkPath" --clobber
-          echo "Compatibility APK URL: https://github.com/${{ github.repository }}/releases/download/$tag/${{ env.ANDROID_RUNTIME_APK_ASSET_NAME }}"
+          gh release upload "$tag" "$apkPath" "$legacyApkPath" "$versionedApkPath" --clobber
+          echo "Stable APK URL: https://github.com/${{ github.repository }}/releases/download/$tag/${{ env.ANDROID_RUNTIME_APK_ASSET_NAME }}"
+          echo "Compatibility APK URL: https://github.com/${{ github.repository }}/releases/download/$tag/${{ env.ANDROID_RUNTIME_LEGACY_ASSET_NAME }}"
           echo "Versioned APK URL: https://github.com/${{ github.repository }}/releases/download/$tag/${{ env.ANDROID_RUNTIME_VERSIONED_ASSET_NAME }}"
