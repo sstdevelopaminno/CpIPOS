@@ -32,8 +32,9 @@ function hashAgentKey(value: string) {
   return createHash("sha256").update(value, "utf8").digest("hex");
 }
 
-function noStoreHeaders() {
-  return { "Cache-Control": "no-store, no-cache, must-revalidate" };
+function noStore(response: Response) {
+  response.headers.set("Cache-Control", "no-store, no-cache, must-revalidate");
+  return response;
 }
 
 async function findPairedDevice(installId: string) {
@@ -51,20 +52,21 @@ async function findPairedDevice(installId: string) {
 export async function POST(request: Request) {
   try {
     if (request.headers.get("x-cpipos-android-pos") !== "true") {
-      return fail("android_pos_required", "Android POS runtime is required.", 401, noStoreHeaders());
+      return noStore(fail("android_pos_required", "Android POS runtime is required.", 401));
     }
 
     const installId = String(request.headers.get("x-cpipos-install-id") ?? "").trim().slice(0, 120);
     const appVersion = String(request.headers.get("x-cpipos-app-version") ?? "").trim().slice(0, 40) || null;
-    if (!installId) return fail("android_install_id_required", "Android install id is required.", 401, noStoreHeaders());
+    if (!installId) return noStore(fail("android_install_id_required", "Android install id is required.", 401));
 
     const device = await findPairedDevice(installId);
     if (!device) {
-      return fail(
-        "android_device_not_paired",
-        "Android POS เครื่องนี้ยังไม่ได้จับคู่กับเครื่อง POS ของสาขา กรุณาเปิดหน้าตั้งค่าเครื่องและจับคู่เครื่องก่อน",
-        403,
-        noStoreHeaders()
+      return noStore(
+        fail(
+          "android_device_not_paired",
+          "Android POS เครื่องนี้ยังไม่ได้จับคู่กับเครื่อง POS ของสาขา กรุณาเปิดหน้าตั้งค่าเครื่องและจับคู่เครื่องก่อน",
+          403
+        )
       );
     }
 
@@ -152,8 +154,8 @@ export async function POST(request: Request) {
       .eq("tenant_id", device.tenant_id)
       .eq("branch_id", device.branch_id);
 
-    return ok(
-      {
+    return noStore(
+      ok({
         agent: {
           id: agent.id,
           tenant_id: agent.tenant_id,
@@ -165,19 +167,18 @@ export async function POST(request: Request) {
         },
         agent_key: rawKey,
         transports: ["lan", "usb", "bluetooth"]
-      },
-      200,
-      noStoreHeaders()
+      })
     );
   } catch (error) {
     console.error("[android-pos-print-agent] bootstrap failed", {
       error: error instanceof Error ? error.message : String(error)
     });
-    return fail(
-      "android_print_agent_bootstrap_failed",
-      "ไม่สามารถเตรียม Android Print Agent ได้ กรุณาตรวจการจับคู่เครื่อง POS แล้วลองใหม่",
-      500,
-      noStoreHeaders()
+    return noStore(
+      fail(
+        "android_print_agent_bootstrap_failed",
+        "ไม่สามารถเตรียม Android Print Agent ได้ กรุณาตรวจการจับคู่เครื่อง POS แล้วลองใหม่",
+        500
+      )
     );
   }
 }
