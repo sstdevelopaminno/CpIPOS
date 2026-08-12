@@ -2,12 +2,35 @@ import { fail } from "@/lib/http";
 
 type ErrorContext = Record<string, string | number | boolean | null | undefined>;
 
+type PosGuardLikeError = Error & {
+  code?: unknown;
+  status?: unknown;
+};
+
 function errorSummary(error: unknown) {
   if (!(error instanceof Error)) return { name: "UnknownError", message: String(error) };
   return {
     name: error.name,
     message: error.message
   };
+}
+
+function readPosGuardError(error: unknown): { code: string; status: number; message: string } | null {
+  if (!(error instanceof Error) || error.name !== "PosGuardError") return null;
+
+  const candidate = error as PosGuardLikeError;
+  const code = typeof candidate.code === "string" && candidate.code.trim() ? candidate.code.trim() : null;
+  const status = typeof candidate.status === "number" && Number.isInteger(candidate.status) ? candidate.status : null;
+  if (!code || !status || status < 400 || status > 599) return null;
+
+  let message = error.message || "POS session validation failed.";
+  if (code === "session_expired") {
+    message = "เซสชัน POS หมดอายุ กรุณาเข้าสู่ระบบใหม่ แล้วลองอีกครั้ง";
+  } else if (code === "session_not_active") {
+    message = "เซสชัน POS ไม่พร้อมใช้งาน กรุณาเข้าสู่ระบบใหม่ แล้วลองอีกครั้ง";
+  }
+
+  return { code, status, message };
 }
 
 export function loggedPrintApiFail(
@@ -24,6 +47,14 @@ export function loggedPrintApiFail(
     error: errorSummary(error),
     ...context
   });
+
+  const posGuard = readPosGuardError(error);
+  if (posGuard) {
+    const response = fail(posGuard.code, `${posGuard.message} Reference: ${requestId}`, posGuard.status);
+    response.headers.set("x-request-id", requestId);
+    return response;
+  }
+
   const response = fail(code, `${message} Reference: ${requestId}`, status);
   response.headers.set("x-request-id", requestId);
   return response;
