@@ -1,4 +1,5 @@
 import { fail } from "@/lib/http";
+import { resolveSessionCookieConfig } from "@/lib/server/pos-session";
 
 type ErrorContext = Record<string, string | number | boolean | null | undefined>;
 
@@ -33,6 +34,22 @@ function readPosGuardError(error: unknown): { code: string; status: number; mess
   return { code, status, message };
 }
 
+function clearStalePosSessionCookies(response: Response) {
+  const config = resolveSessionCookieConfig();
+  const attributes = [
+    "Path=/",
+    "Max-Age=0",
+    "HttpOnly",
+    "SameSite=Lax",
+    config.secure ? "Secure" : null,
+    config.domain ? `Domain=${config.domain}` : null
+  ].filter((value): value is string => Boolean(value));
+
+  response.headers.append("Set-Cookie", `${config.name}=; ${attributes.join("; ")}`);
+  response.headers.append("Set-Cookie", `${config.sessionIdName}=; ${attributes.join("; ")}`);
+  response.headers.set("x-pos-session-cleared", "1");
+}
+
 export function loggedPrintApiFail(
   scope: string,
   error: unknown,
@@ -52,6 +69,9 @@ export function loggedPrintApiFail(
   if (posGuard) {
     const response = fail(posGuard.code, `${posGuard.message} Reference: ${requestId}`, posGuard.status);
     response.headers.set("x-request-id", requestId);
+    if (posGuard.status === 401) {
+      clearStalePosSessionCookies(response);
+    }
     return response;
   }
 
