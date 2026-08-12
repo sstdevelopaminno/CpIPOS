@@ -23,16 +23,32 @@ function New-HexSecret {
 }
 
 function Require-Command {
-    param([Parameter(Mandatory = $true)][string]$Name)
+    param(
+        [Parameter(Mandatory = $true)][string]$Name,
+        [string]$InstallHint = ""
+    )
 
     $command = Get-Command $Name -ErrorAction SilentlyContinue
     if (-not $command) {
-        throw "Required command '$Name' was not found. Install JDK 17 (Android Studio JBR is also acceptable) and reopen PowerShell."
+        $suffix = if ($InstallHint) { " $InstallHint" } else { "" }
+        throw "Required command '$Name' was not found.$suffix"
     }
     return $command
 }
 
-$keytool = Require-Command -Name "keytool"
+$keytool = Require-Command -Name "keytool" -InstallHint "Install JDK 17 (Android Studio JBR is also acceptable) and reopen PowerShell."
+$gh = $null
+
+# If automatic GitHub secret configuration was requested, prove the CLI and
+# authentication are ready before a permanent signing identity is created.
+# This prevents a half-completed setup caused only by a missing/unauthed gh CLI.
+if ($ConfigureGitHub) {
+    $gh = Require-Command -Name "gh" -InstallHint "Install GitHub CLI, run 'gh auth login', then execute this command again."
+    & $gh.Source auth status
+    if ($LASTEXITCODE -ne 0) {
+        throw "GitHub CLI is not authenticated. Run 'gh auth login' and execute this command again. No signing key has been created yet."
+    }
+}
 
 if (-not (Test-Path -LiteralPath $OutputDirectory)) {
     New-Item -ItemType Directory -Path $OutputDirectory -Force | Out-Null
@@ -89,24 +105,19 @@ ANDROID_SIGNING_CERT_SHA256=$fingerprint
 [IO.File]::WriteAllText($secretExportPath, $secretExport, [Text.Encoding]::UTF8)
 
 if ($ConfigureGitHub) {
-    $gh = Require-Command -Name "gh"
-    & $gh.Source auth status
-    if ($LASTEXITCODE -ne 0) {
-        throw "GitHub CLI is not authenticated. Run 'gh auth login' and execute this script again with -ConfigureGitHub."
-    }
-
     Write-Host "Uploading the four private signing values to GitHub Actions repository secrets..."
+
     $keystoreBase64 | & $gh.Source secret set ANDROID_SIGNING_KEYSTORE_BASE64 --repo $Repository
-    if ($LASTEXITCODE -ne 0) { throw "Failed to set ANDROID_SIGNING_KEYSTORE_BASE64." }
+    if ($LASTEXITCODE -ne 0) { throw "Failed to set ANDROID_SIGNING_KEYSTORE_BASE64. The generated files remain in $OutputDirectory for manual recovery." }
 
     $password | & $gh.Source secret set ANDROID_SIGNING_STORE_PASSWORD --repo $Repository
-    if ($LASTEXITCODE -ne 0) { throw "Failed to set ANDROID_SIGNING_STORE_PASSWORD." }
+    if ($LASTEXITCODE -ne 0) { throw "Failed to set ANDROID_SIGNING_STORE_PASSWORD. The generated files remain in $OutputDirectory for manual recovery." }
 
     $alias | & $gh.Source secret set ANDROID_SIGNING_KEY_ALIAS --repo $Repository
-    if ($LASTEXITCODE -ne 0) { throw "Failed to set ANDROID_SIGNING_KEY_ALIAS." }
+    if ($LASTEXITCODE -ne 0) { throw "Failed to set ANDROID_SIGNING_KEY_ALIAS. The generated files remain in $OutputDirectory for manual recovery." }
 
     $password | & $gh.Source secret set ANDROID_SIGNING_KEY_PASSWORD --repo $Repository
-    if ($LASTEXITCODE -ne 0) { throw "Failed to set ANDROID_SIGNING_KEY_PASSWORD." }
+    if ($LASTEXITCODE -ne 0) { throw "Failed to set ANDROID_SIGNING_KEY_PASSWORD. The generated files remain in $OutputDirectory for manual recovery." }
 
     Write-Host "GitHub Actions signing secrets configured for $Repository."
 }
