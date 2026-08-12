@@ -1,4 +1,4 @@
-﻿export type PaymentNoticeItem = {
+export type PaymentNoticeItem = {
   name: string;
   quantity: number;
   unitPrice: number;
@@ -69,6 +69,7 @@ export function renderPaymentNoticeHtml(input: PaymentNoticeHtmlInput) {
   const tableLabel = clean(input.tableLabel);
   const accountLabel = clean(input.accountLabel);
   const promptPayLabel = clean(input.promptPayLabel);
+  const subtotal = input.items.reduce((sum, item) => sum + Number(item.lineTotal ?? 0), 0);
   const itemRows = input.items.map((item) => `
     <tr>
       <td class="col-name"><strong>${escapeHtml(item.name)}</strong><div class="unit">x ${escapeHtml(money(item.unitPrice))}${item.note ? `<div>${escapeHtml(item.note)}</div>` : ""}</div></td>
@@ -96,6 +97,7 @@ export function renderPaymentNoticeHtml(input: PaymentNoticeHtmlInput) {
     .title { margin: 1mm 0; padding: 1mm 0; border-top: 1px solid #000; border-bottom: 1px solid #000; font-size: ${layout.titlePx}px; font-weight: 900; }
     .meta, .summary-line { display: flex; justify-content: space-between; gap: 1mm; margin: .55mm 0; }
     table { width: 100%; table-layout: fixed; border-collapse: collapse; margin: 1mm 0; }
+    th { padding: .6mm 0; border-bottom: 1px solid #000; font-size: ${paper === 58 ? 10.75 : 11.5}px; text-align: left; }
     td { padding: .6mm 0; vertical-align: top; }
     .col-name { padding-right: 1mm; overflow-wrap: anywhere; }
     .col-qty { width: ${layout.qtyMm}mm; text-align: center; }
@@ -114,14 +116,15 @@ export function renderPaymentNoticeHtml(input: PaymentNoticeHtmlInput) {
     ${input.storeAddress ? `<div class="center muted">${escapeHtml(input.storeAddress)}</div>` : ""}
     ${input.storePhone ? `<div class="center muted">${escapeHtml(input.storePhone)}</div>` : ""}
     <div class="center muted">${escapeHtml(input.branchName)}</div>
-    <div class="center title"><div>ใบแจ้งชำระเงิน</div><div>PAYMENT NOTICE</div></div>
+    <div class="center title"><div>ใบแจ้งชำระเงิน</div><div>PAYMENT NOTICE / รอชำระ</div></div>
     <div class="meta"><span>ผู้ขาย</span><strong>${escapeHtml(input.sellerName)}</strong></div>
     ${tableLabel ? `<div class="meta"><span>โต๊ะ</span><strong>${escapeHtml(tableLabel)}</strong></div>` : ""}
     <div class="meta"><span>เลขที่บิล</span><strong>${escapeHtml(input.orderNo)}</strong></div>
     <div class="meta"><span>วันที่</span><strong>${escapeHtml(dateTime(input.createdAtIso))}</strong></div>
     <div class="hr"></div>
-    <table><tbody>${itemRows}</tbody></table>
+    <table><thead><tr><th class="col-name">รายการ</th><th class="col-qty">จำนวน</th><th class="col-total">รวม</th></tr></thead><tbody>${itemRows}</tbody></table>
     <div class="hr"></div>
+    <div class="summary-line"><span>ยอดรวมก่อนส่วนลด</span><strong>฿${escapeHtml(money(subtotal))}</strong></div>
     <div class="summary-line"><span>ส่วนลด</span><strong>฿${escapeHtml(money(input.discountAmount))}</strong></div>
     ${taxLine}
     <div class="summary-line"><span>ชำระโดย</span><strong>โอนเงิน</strong></div>
@@ -132,7 +135,8 @@ export function renderPaymentNoticeHtml(input: PaymentNoticeHtmlInput) {
     <div class="center scan">สแกน QR เพื่อชำระเงิน</div>
     <div class="center due">฿${escapeHtml(money(input.totalAmount))}</div>
     <div class="hr"></div>
-    <div class="center foot">เอกสารนี้ไม่ใช่ใบเสร็จรับเงิน</div>
+    <div class="center foot">ใบแจ้งนี้ใช้สำหรับชำระเงินเท่านั้น</div>
+    <div class="center foot">ยังไม่ใช่ใบเสร็จรับเงิน</div>
     <div class="center foot">กรุณารอพนักงานยืนยันการชำระเงิน</div>
   </main>
 </body>

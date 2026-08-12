@@ -601,7 +601,7 @@ export function PosPaymentModals({
                 {paymentNoticeError ? <p className="posui-payment-modal__error posui-payment-modal__error--transfer">{paymentNoticeError}</p> : null}
                 <div className="posui-payment-modal__actions posui-payment-modal__actions--transfer">
                   {onPrintPaymentNotice && Boolean(transferReviewOrder.table_id) ? (
-                    <button type="button" className="posui-btn" onClick={() => void onPrintPaymentNotice()} disabled={transferSubmitting || paymentNoticeSubmitting}>
+                    <button type="button" className="posui-btn posui-btn--payment-notice" onClick={() => void onPrintPaymentNotice()} disabled={transferSubmitting || paymentNoticeSubmitting}>
                       {paymentNoticeSubmitting ? text.submitting : (text.printPaymentNotice ?? "พิมพ์ใบแจ้งชำระเงิน")}
                     </button>
                   ) : null}
@@ -616,7 +616,7 @@ export function PosPaymentModals({
                     </button>
                   ) : (
                     promptPayQrUrl ? (
-                      <button type="button" className="posui-btn posui-btn--primary" onClick={() => void onConfirmTransfer()} disabled={transferSubmitting}>
+                      <button type="button" className="posui-btn posui-btn--primary posui-btn--transfer-confirm" onClick={() => void onConfirmTransfer()} disabled={transferSubmitting}>
                         {transferSubmitting ? text.submitting : text.transferConfirm}
                       </button>
                     ) : (

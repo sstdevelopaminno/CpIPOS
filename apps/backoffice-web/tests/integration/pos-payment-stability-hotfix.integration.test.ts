@@ -141,6 +141,8 @@ describe("POS payment stability hotfix", () => {
     expect(html).toContain("PAYMENT NOTICE");
     expect(html).toContain("ใบแจ้งชำระเงิน");
     expect(html).toContain("data:image/png;base64,aGVsbG8=");
+    expect(html).toContain("ยอดรวมก่อนส่วนลด");
+    expect(html).toContain("ยังไม่ใช่ใบเสร็จรับเงิน");
   });
 
   it("payment notice supports native 58mm and 80mm layouts", () => {
@@ -212,7 +214,8 @@ describe("POS payment stability hotfix", () => {
     const paymentsSource = source("src/app/api/pos/payments/route.ts");
     expect(paymentsSource).toContain("const drawerTask = paymentMethod === \"cash\"");
     expect(paymentsSource).toContain("const receiptTask = (async () =>");
-    expect(paymentsSource).toContain("await Promise.all([drawerTask, receiptTask])");
+    expect(paymentsSource).toContain("await Promise.all([receiptTask, drawerTask])");
+    expect(paymentsSource).toContain("print_jobs_deferred: false");
     expect(paymentsSource).toContain("[pos-payment] payment_saved");
     expect(paymentsSource).toContain("[pos-payment] cash_drawer_queued");
     expect(paymentsSource).toContain("[pos-payment] receipt_print_queued");
@@ -227,6 +230,7 @@ describe("POS payment stability hotfix", () => {
     expect(sideEffectSource).toContain("options: { printQueued: boolean }");
     expect(sideEffectSource).toContain("RECEIPT_MODAL_MIN_VISIBLE_MS - elapsedMs");
     expect(sideEffectSource).toContain("RECEIPT_MODAL_SAFE_TIMEOUT_MS");
+    expect(salesSource).toContain("receiptErrorRef.current = printWarning");
     expect(sideEffectSource).not.toContain("}, 500)");
     expect(salesSource).toContain("setReceiptSaved(true)");
     expect(salesSource).toContain("setReceiptAutoPrinted(printQueued)");

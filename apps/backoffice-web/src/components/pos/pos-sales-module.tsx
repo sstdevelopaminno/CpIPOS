@@ -408,6 +408,7 @@ type PosPaymentResponseBody = ApiErrorBody & {
   data?: {
     print_jobs_queued?: number | null;
     print_jobs_deferred?: boolean | null;
+    print_warning?: string | null;
   };
 };
 
@@ -7247,9 +7248,12 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
       }
 
       const printQueued = Number(body.data?.print_jobs_queued ?? 0) > 0 || body.data?.print_jobs_deferred === true;
-      console.info("[pos-payment] payment_saved", { order_id: cashReviewOrder.order_id, order_no: cashReviewOrder.order_no, payment_method: "cash", print_deferred: body.data?.print_jobs_deferred === true });
+      const printWarning = body.data?.print_warning ?? (printQueued ? null : "receipt_print_not_queued");
+      console.info("[pos-payment] payment_saved", { order_id: cashReviewOrder.order_id, order_no: cashReviewOrder.order_no, payment_method: "cash", print_deferred: body.data?.print_jobs_deferred === true, print_jobs_queued: body.data?.print_jobs_queued ?? 0 });
       setReceiptSaved(true);
       setReceiptAutoPrinted(printQueued);
+      receiptErrorRef.current = printWarning;
+      setReceiptError(printWarning);
       setBillPaymentMethod("cash");
       clearClosedBillUiState({ clearReceipt: false, tableId: cashReviewOrder.table_id ?? null, resetDelivery: true });
       pushSubmitMessage(`${text.receiptSaved}: ${cashReviewOrder.order_no}`);

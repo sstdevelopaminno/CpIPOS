@@ -5239,8 +5239,11 @@ a {
   width: 100%;
   bottom: auto;
   z-index: auto;
-  justify-content: center;
-  padding-top: 2px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 10px;
+  justify-content: stretch;
+  padding-top: 6px;
 }
 
 .posui-payment-modal__actions--transfer .posui-btn {
@@ -5249,6 +5252,20 @@ a {
   border-radius: 8px;
   font-size: 15px;
   font-weight: 900;
+}
+
+.posui-payment-modal__actions--transfer .posui-btn--payment-notice {
+  border-color: #93c5fd;
+  background: linear-gradient(180deg, #eff6ff, #dbeafe);
+  color: #1d4ed8;
+}
+
+.posui-payment-modal__actions--transfer .posui-btn--transfer-confirm {
+  min-height: 48px;
+  border-color: #ea580c;
+  background: linear-gradient(180deg, #fb923c, #f97316);
+  color: #ffffff;
+  box-shadow: 0 10px 22px rgba(249, 115, 22, 0.25);
 }
 
 .posui-payment-modal__error--transfer {
