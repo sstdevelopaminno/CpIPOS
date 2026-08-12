@@ -2223,6 +2223,7 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
   const deliveryActionLastAtRef = useRef<Map<string, number>>(new Map());
   const deliveryActionPendingKeyRef = useRef<Set<string>>(new Set());
   const monitorPollInFlightRef = useRef(false);
+  const cashDrawerReadinessInFlightRef = useRef(false);
   const taxSettingsSyncInFlightRef = useRef<Promise<TaxSettings | null> | null>(null);
   const tableListFetchInFlightRef = useRef<Promise<DiningTableItem[]> | null>(null);
   const tableListCacheRef = useRef<{ at: number; zones: TableZoneItem[]; tables: DiningTableItem[]; objects: FloorPlanObjectItem[] } | null>(null);
@@ -3810,11 +3811,11 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
   function mapCashDrawerError(body: ApiErrorBody | null | undefined, fallback: string) {
     const code = body?.error?.code ?? "";
     if (code === "drawer_not_configured" || code === "printer_not_configured") return text.cashDrawerNotConfigured;
+    if (code === "drawer_route_not_ready" || code === "print_agent_unavailable") return body?.error?.message ?? text.cashDrawerNotConfigured;
     if (code === "permission_denied") return text.cashDrawerPermissionDenied;
     if (code === "drawer_cooldown") return text.cashDrawerCooldown;
     return body?.error?.message ?? fallback;
   }
-
   async function openCashDrawerManually() {
     if (cashDrawerOpening || cashDrawerCoolingDown) return;
     if (!cashDrawerReady) {
@@ -3859,6 +3860,10 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
     if (!isHydrated || typeof window === "undefined") return;
     let active = true;
     const refreshCashDrawerReadiness = () => {
+      if (cashDrawerReadinessInFlightRef.current) return;
+      if (typeof document !== "undefined" && document.visibilityState !== "visible") return;
+      if (typeof navigator !== "undefined" && !navigator.onLine) return;
+      cashDrawerReadinessInFlightRef.current = true;
       void fetchJsonWithTimeout<ApiErrorBody & { data?: { configured?: boolean; ready?: boolean } }>("/api/pos/cash-drawer/open", { cache: "no-store" }, 8000, 0)
         .then(({ response, body }) => {
           if (!active) return;
@@ -3870,15 +3875,26 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
             setCashDrawerConfigured(false);
             setCashDrawerReady(false);
           }
+        })
+        .finally(() => {
+          cashDrawerReadinessInFlightRef.current = false;
         });
     };
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "visible") refreshCashDrawerReadiness();
+    };
     refreshCashDrawerReadiness();
+    const readinessTimer = window.setInterval(refreshCashDrawerReadiness, 25000);
     window.addEventListener("focus", refreshCashDrawerReadiness);
     window.addEventListener("online", refreshCashDrawerReadiness);
+    document.addEventListener("visibilitychange", onVisibilityChange);
     return () => {
       active = false;
+      cashDrawerReadinessInFlightRef.current = false;
+      window.clearInterval(readinessTimer);
       window.removeEventListener("focus", refreshCashDrawerReadiness);
       window.removeEventListener("online", refreshCashDrawerReadiness);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
     };
   }, [isHydrated, fetchJsonWithTimeout]);
   useEffect(() => {

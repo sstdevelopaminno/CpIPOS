@@ -24,7 +24,10 @@ function mapDrawerError(error: unknown) {
   if (message === "drawer_reason_required") return fail("drawer_reason_required", "reason is required for manual cash drawer opening.", 422);
   if (message === "printer_not_configured") return fail("printer_not_configured", "No enabled receipt printer or drawer controller is configured for this branch.", 422);
   if (message === "drawer_not_configured") return fail("drawer_not_configured", "Cash drawer is not enabled on any receipt printer or drawer controller profile.", 422);
+  if (message === "drawer_route_not_ready") return fail("drawer_route_not_ready", "Cash drawer printer or controller is not online right now.", 409);
   if (message === "drawer_cooldown") return fail("drawer_cooldown", "Please wait a moment before opening the drawer again.", 429);
+  if (message === "printer_device_missing" || message === "printer_offline") return fail("drawer_route_not_ready", "Cash drawer printer or controller is not online right now.", 409);
+  if (message === "agent_missing" || message === "agent_inactive" || message === "agent_stale") return fail("print_agent_unavailable", "Print Agent is not ready for this cash drawer printer.", 503);
   if (message.includes("printer_not_found_or_disabled")) return fail("printer_not_configured", "Selected receipt printer or drawer controller is disabled.", 422);
   if (message.includes("timeout")) return fail("print_agent_unavailable", "Print agent, drawer controller, or printer did not respond in time.", 504);
   return loggedPrintApiFail("cash drawer open failed", error, "drawer_open_failed", "Cash drawer command failed. Please check drawer controller settings and retry.");
