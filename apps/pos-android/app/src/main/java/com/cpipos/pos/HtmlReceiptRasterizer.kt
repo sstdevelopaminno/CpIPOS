@@ -4,13 +4,21 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.pdf.PdfRenderer
+import android.os.CancellationSignal
 import android.os.Handler
 import android.os.Looper
+import android.os.ParcelFileDescriptor
 import android.os.SystemClock
+import android.print.PageRange
+import android.print.PrintAttributes
+import android.print.PrintDocumentAdapter
+import android.print.PrintDocumentInfo
 import android.view.View
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import java.io.ByteArrayOutputStream
+import java.io.File
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
@@ -32,16 +40,29 @@ internal class HtmlReceiptRasterizer(context: Context) {
         val renderWidth = targetDots * 2
         val latch = CountDownLatch(1)
         val completed = AtomicBoolean(false)
-        var rendered: Bitmap? = null
+        val pdfStarted = AtomicBoolean(false)
+        var pdfFile: File? = null
         var renderError: Throwable? = null
+        var printCancellation: CancellationSignal? = null
         var webView: WebView? = null
 
-        fun cleanupRenderOnMain(view: WebView?) {
+        fun cleanupWebViewOnMain(view: WebView?) {
+            runCatching { printCancellation?.cancel() }
+            printCancellation = null
             view?.let {
                 runCatching { it.stopLoading() }
                 runCatching { it.destroy() }
             }
             webView = null
+        }
+
+        fun finishWithPdf(view: WebView?, file: File) {
+            if (!completed.compareAndSet(false, true)) {
+                runCatching { file.delete() }
+                return
+            }
+            pdfFile = file
+            cleanupWebViewOnMain(view)
             latch.countDown()
         }
 
@@ -49,10 +70,83 @@ internal class HtmlReceiptRasterizer(context: Context) {
             val view = webView
             if (!completed.compareAndSet(false, true)) return
             renderError = NativePrintException(code, true, message, cause)
-            cleanupRenderOnMain(view)
+            cleanupWebViewOnMain(view)
+            latch.countDown()
         }
 
-        fun finishRenderOnMain(deadlineMs: Long) {
+        fun writePdfOnMain(view: WebView, contentHeightPx: Int) {
+            try {
+                val adapter = view.createPrintDocumentAdapter("CpIPOS Receipt")
+                val attributes = buildPrintAttributes(paperWidthMm, contentHeightPx, renderWidth)
+                val cancellation = CancellationSignal()
+                printCancellation = cancellation
+                val file = File.createTempFile("cpipos-receipt-", ".pdf", appContext.cacheDir)
+
+                adapter.onLayout(
+                    null,
+                    attributes,
+                    cancellation,
+                    object : PrintDocumentAdapter.LayoutResultCallback() {
+                        override fun onLayoutFinished(info: PrintDocumentInfo?, changed: Boolean) {
+                            var output: ParcelFileDescriptor? = null
+                            try {
+                                output = ParcelFileDescriptor.open(
+                                    file,
+                                    ParcelFileDescriptor.MODE_READ_WRITE or ParcelFileDescriptor.MODE_TRUNCATE or ParcelFileDescriptor.MODE_CREATE
+                                )
+                                adapter.onWrite(
+                                    arrayOf(PageRange.ALL_PAGES),
+                                    output,
+                                    cancellation,
+                                    object : PrintDocumentAdapter.WriteResultCallback() {
+                                        override fun onWriteFinished(pages: Array<out PageRange>?) {
+                                            runCatching { output?.close() }
+                                            if (file.length() <= 0L) {
+                                                runCatching { file.delete() }
+                                                failRenderOnMain("receipt_html_pdf_empty", "HTML receipt PDF was empty")
+                                                return
+                                            }
+                                            finishWithPdf(view, file)
+                                        }
+
+                                        override fun onWriteFailed(error: CharSequence?) {
+                                            runCatching { output?.close() }
+                                            runCatching { file.delete() }
+                                            failRenderOnMain("receipt_html_pdf_write_failed", error?.toString() ?: "HTML receipt PDF write failed")
+                                        }
+
+                                        override fun onWriteCancelled() {
+                                            runCatching { output?.close() }
+                                            runCatching { file.delete() }
+                                            failRenderOnMain("receipt_html_pdf_cancelled", "HTML receipt PDF write was cancelled")
+                                        }
+                                    }
+                                )
+                            } catch (error: Throwable) {
+                                runCatching { output?.close() }
+                                runCatching { file.delete() }
+                                failRenderOnMain("receipt_html_pdf_write_failed", error.message ?: "HTML receipt PDF write failed", error)
+                            }
+                        }
+
+                        override fun onLayoutFailed(error: CharSequence?) {
+                            runCatching { file.delete() }
+                            failRenderOnMain("receipt_html_pdf_layout_failed", error?.toString() ?: "HTML receipt PDF layout failed")
+                        }
+
+                        override fun onLayoutCancelled() {
+                            runCatching { file.delete() }
+                            failRenderOnMain("receipt_html_pdf_cancelled", "HTML receipt PDF layout was cancelled")
+                        }
+                    },
+                    null
+                )
+            } catch (error: Throwable) {
+                failRenderOnMain("receipt_html_pdf_failed", error.message ?: "HTML receipt PDF generation failed", error)
+            }
+        }
+
+        fun preparePdfOnMain(deadlineMs: Long) {
             val view = webView ?: return
             try {
                 val widthSpec = View.MeasureSpec.makeMeasureSpec(renderWidth, View.MeasureSpec.EXACTLY)
@@ -60,22 +154,17 @@ internal class HtmlReceiptRasterizer(context: Context) {
                 val measuredContentHeight = usableRenderHeight(view.measuredHeight, view.contentHeight, view.scale)
                 if (measuredContentHeight <= MIN_USABLE_RENDER_HEIGHT_PX) {
                     if (SystemClock.uptimeMillis() < deadlineMs) {
-                        mainHandler.postDelayed({ finishRenderOnMain(deadlineMs) }, HEIGHT_POLL_INTERVAL_MS)
+                        mainHandler.postDelayed({ preparePdfOnMain(deadlineMs) }, HEIGHT_POLL_INTERVAL_MS)
                     } else {
                         failRenderOnMain("receipt_html_render_empty_height", "HTML receipt content height did not become usable")
                     }
                     return
                 }
 
-                if (!completed.compareAndSet(false, true)) return
                 val contentHeight = measuredContentHeight.coerceAtMost(MAX_RENDER_HEIGHT_PX)
                 view.layout(0, 0, renderWidth, contentHeight)
-                rendered = Bitmap.createBitmap(renderWidth, contentHeight, Bitmap.Config.ARGB_8888).also { bitmap ->
-                    val canvas = Canvas(bitmap)
-                    canvas.drawColor(Color.WHITE)
-                    view.draw(canvas)
-                }
-                cleanupRenderOnMain(view)
+                if (!pdfStarted.compareAndSet(false, true)) return
+                writePdfOnMain(view, contentHeight)
             } catch (error: Throwable) {
                 failRenderOnMain("receipt_html_render_failed", error.message ?: "HTML receipt rendering failed", error)
             }
@@ -96,10 +185,7 @@ internal class HtmlReceiptRasterizer(context: Context) {
                 view.isHorizontalScrollBarEnabled = false
                 view.webViewClient = object : WebViewClient() {
                     override fun onPageFinished(view: WebView, url: String?) {
-                        // This WebView is intentionally never attached to a window. Using
-                        // View.postDelayed() here can leave the Runnable queued forever on
-                        // some POS firmware. Always schedule through the main Looper instead.
-                        mainHandler.postDelayed({ finishRenderOnMain(renderDeadlineMs()) }, PAGE_SETTLE_DELAY_MS)
+                        mainHandler.postDelayed({ preparePdfOnMain(renderDeadlineMs()) }, PAGE_SETTLE_DELAY_MS)
                     }
                 }
 
@@ -111,19 +197,11 @@ internal class HtmlReceiptRasterizer(context: Context) {
                     null
                 )
 
-                // Some embedded Android WebView builds do not reliably dispatch
-                // onPageFinished() for an unattached, off-screen WebView. The fallback
-                // keeps receipt printing deterministic while still giving HTML/fonts and
-                // data-URI images enough time to lay out.
-                mainHandler.postDelayed({ finishRenderOnMain(renderDeadlineMs()) }, FALLBACK_RENDER_DELAY_MS)
+                mainHandler.postDelayed({ preparePdfOnMain(renderDeadlineMs()) }, FALLBACK_RENDER_DELAY_MS)
             } catch (error: Throwable) {
                 if (completed.compareAndSet(false, true)) {
                     renderError = error
-                    webView?.let { view ->
-                        runCatching { view.stopLoading() }
-                        runCatching { view.destroy() }
-                    }
-                    webView = null
+                    cleanupWebViewOnMain(webView)
                     latch.countDown()
                 }
             }
@@ -131,13 +209,7 @@ internal class HtmlReceiptRasterizer(context: Context) {
 
         if (!latch.await(RENDER_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
             if (completed.compareAndSet(false, true)) {
-                mainHandler.post {
-                    webView?.let { view ->
-                        runCatching { view.stopLoading() }
-                        runCatching { view.destroy() }
-                    }
-                    webView = null
-                }
+                mainHandler.post { cleanupWebViewOnMain(webView) }
             }
             throw NativePrintException("receipt_html_render_timeout", true, "HTML receipt rendering timed out")
         }
@@ -145,7 +217,13 @@ internal class HtmlReceiptRasterizer(context: Context) {
             if (error is NativePrintException) throw error
             throw NativePrintException("receipt_html_render_failed", true, error.message ?: "HTML receipt rendering failed", error)
         }
-        val source = rendered ?: throw NativePrintException("receipt_html_render_failed", true, "HTML receipt bitmap was not created")
+        val sourcePdf = pdfFile ?: throw NativePrintException("receipt_html_pdf_missing", true, "HTML receipt PDF was not created")
+
+        val source = try {
+            renderPdfToBitmap(sourcePdf, targetDots)
+        } finally {
+            runCatching { sourcePdf.delete() }
+        }
 
         return try {
             val cropped = cropWhiteMargins(source)
@@ -173,6 +251,68 @@ internal class HtmlReceiptRasterizer(context: Context) {
 
     private fun usableRenderHeight(measuredHeight: Int, contentHeight: Int, scale: Float): Int {
         return usableRenderHeightForTest(measuredHeight, contentHeight, scale).coerceAtMost(MAX_RENDER_HEIGHT_PX)
+    }
+
+    private fun buildPrintAttributes(paperWidthMm: Int, contentHeightPx: Int, renderWidthPx: Int): PrintAttributes {
+        val widthMm = if (paperWidthMm <= 58) 58 else 80
+        val widthMils = mmToMils(widthMm.toDouble())
+        val heightMils = receiptMediaHeightMilsForTest(contentHeightPx, renderWidthPx, widthMm)
+        return PrintAttributes.Builder()
+            .setMediaSize(PrintAttributes.MediaSize("CPIPOS_RECEIPT_${widthMm}", "CpIPOS ${widthMm}mm Receipt", widthMils, heightMils))
+            .setMinMargins(PrintAttributes.Margins.NO_MARGINS)
+            .setColorMode(PrintAttributes.COLOR_MODE_MONOCHROME)
+            .setResolution(PrintAttributes.Resolution("CPIPOS_RECEIPT_RASTER", "CpIPOS Receipt Raster", PDF_RENDER_DPI, PDF_RENDER_DPI))
+            .build()
+    }
+
+    private fun renderPdfToBitmap(pdfFile: File, targetWidthPx: Int): Bitmap {
+        var descriptor: ParcelFileDescriptor? = null
+        var renderer: PdfRenderer? = null
+        val pageBitmaps = mutableListOf<Bitmap>()
+        try {
+            descriptor = ParcelFileDescriptor.open(pdfFile, ParcelFileDescriptor.MODE_READ_ONLY)
+            renderer = PdfRenderer(descriptor)
+            if (!hasUsablePdfPagesForTest(renderer.pageCount)) {
+                throw NativePrintException("receipt_html_pdf_no_pages", true, "HTML receipt PDF had no pages")
+            }
+
+            for (index in 0 until renderer.pageCount) {
+                val page = renderer.openPage(index)
+                try {
+                    val pageHeight = pageBitmapHeightForTest(page.width, page.height, targetWidthPx)
+                    val currentTotal = pageBitmaps.sumOf { it.height }
+                    if (currentTotal + pageHeight > MAX_RENDER_HEIGHT_PX) {
+                        throw NativePrintException("receipt_html_pdf_too_tall", true, "HTML receipt PDF was too tall to rasterize")
+                    }
+                    val bitmap = Bitmap.createBitmap(targetWidthPx, pageHeight, Bitmap.Config.ARGB_8888)
+                    bitmap.eraseColor(Color.WHITE)
+                    page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_PRINT)
+                    pageBitmaps += bitmap
+                } finally {
+                    page.close()
+                }
+            }
+
+            val totalHeight = concatenatedHeightForTest(pageBitmaps.map { it.height })
+            if (totalHeight <= 0) throw NativePrintException("receipt_html_pdf_no_pages", true, "HTML receipt PDF had no usable page content")
+            return Bitmap.createBitmap(targetWidthPx, totalHeight, Bitmap.Config.ARGB_8888).also { output ->
+                val canvas = Canvas(output)
+                canvas.drawColor(Color.WHITE)
+                var offsetY = 0f
+                for (bitmap in pageBitmaps) {
+                    canvas.drawBitmap(bitmap, 0f, offsetY, null)
+                    offsetY += bitmap.height
+                }
+            }
+        } catch (error: NativePrintException) {
+            throw error
+        } catch (error: Throwable) {
+            throw NativePrintException("receipt_html_pdf_render_failed", true, error.message ?: "HTML receipt PDF render failed", error)
+        } finally {
+            pageBitmaps.forEach { it.recycle() }
+            runCatching { renderer?.close() }
+            runCatching { descriptor?.close() }
+        }
     }
 
     private fun normalizeHtmlForRaster(html: String): String {
@@ -282,16 +422,45 @@ internal class HtmlReceiptRasterizer(context: Context) {
     internal companion object {
         const val PAGE_SETTLE_DELAY_MS = 120L
         const val FALLBACK_RENDER_DELAY_MS = 900L
-        const val RENDER_TIMEOUT_SECONDS = 6L
+        const val RENDER_TIMEOUT_SECONDS = 8L
         const val MAX_RENDER_HEIGHT_PX = 16_000
         const val HEIGHT_POLL_INTERVAL_MS = 80L
         const val HEIGHT_POLL_TIMEOUT_MS = 3_500L
         const val MIN_USABLE_RENDER_HEIGHT_PX = 1
         const val MIN_DARK_PIXELS = 8
         const val MIN_VALID_RASTER_BYTES = 59
+        const val PDF_RENDER_DPI = 203
+        const val MAX_RECEIPT_MEDIA_HEIGHT_MILS = 48_000
+        const val MIN_RECEIPT_MEDIA_HEIGHT_MILS = 4_000
 
         fun usableRenderHeightForTest(measuredHeight: Int, contentHeight: Int, scale: Float): Int {
             return max(measuredHeight, (contentHeight * scale).roundToInt())
+        }
+
+        fun mmToMils(mm: Double): Int {
+            return (mm / 25.4 * 1000.0).roundToInt().coerceAtLeast(1)
+        }
+
+        fun receiptMediaHeightMilsForTest(contentHeightPx: Int, renderWidthPx: Int, paperWidthMm: Int): Int {
+            if (contentHeightPx <= 0 || renderWidthPx <= 0) return MIN_RECEIPT_MEDIA_HEIGHT_MILS
+            val heightMm = paperWidthMm.toDouble() * contentHeightPx.toDouble() / renderWidthPx.toDouble()
+            return mmToMils(heightMm).coerceIn(MIN_RECEIPT_MEDIA_HEIGHT_MILS, MAX_RECEIPT_MEDIA_HEIGHT_MILS)
+        }
+
+        fun pageBitmapHeightForTest(pageWidth: Int, pageHeight: Int, targetWidth: Int): Int {
+            if (pageWidth <= 0 || pageHeight <= 0 || targetWidth <= 0) return 0
+            return max(1, (pageHeight.toDouble() * targetWidth.toDouble() / pageWidth.toDouble()).roundToInt())
+                .coerceAtMost(MAX_RENDER_HEIGHT_PX)
+        }
+
+        fun concatenatedHeightForTest(pageHeights: List<Int>): Int {
+            if (pageHeights.isEmpty() || pageHeights.any { it <= 0 }) return 0
+            val total = pageHeights.sum()
+            return if (total > MAX_RENDER_HEIGHT_PX) 0 else total
+        }
+
+        fun hasUsablePdfPagesForTest(pageCount: Int): Boolean {
+            return pageCount > 0
         }
 
         fun isMeaningfullyDarkForTest(red: Int, green: Int, blue: Int): Boolean {
