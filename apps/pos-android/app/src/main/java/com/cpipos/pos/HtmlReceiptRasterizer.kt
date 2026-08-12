@@ -12,6 +12,7 @@ import android.webkit.WebViewClient
 import java.io.ByteArrayOutputStream
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.math.max
 import kotlin.math.roundToInt
 
@@ -22,66 +23,101 @@ import kotlin.math.roundToInt
  */
 internal class HtmlReceiptRasterizer(context: Context) {
     private val appContext = context.applicationContext
+    private val mainHandler = Handler(Looper.getMainLooper())
 
     fun render(html: String, paperWidthMm: Int): ByteArray {
         if (html.isBlank()) throw NativePrintException("receipt_html_empty", false, "Receipt HTML is empty")
         val targetDots = if (paperWidthMm <= 58) 384 else 576
         val renderWidth = targetDots * 2
         val latch = CountDownLatch(1)
+        val completed = AtomicBoolean(false)
         var rendered: Bitmap? = null
         var renderError: Throwable? = null
+        var webView: WebView? = null
 
-        Handler(Looper.getMainLooper()).post {
+        fun finishRenderOnMain() {
+            val view = webView ?: return
+            if (!completed.compareAndSet(false, true)) return
             try {
-                val webView = WebView(appContext)
-                webView.setBackgroundColor(Color.WHITE)
-                webView.settings.javaScriptEnabled = false
-                webView.settings.loadsImagesAutomatically = true
-                webView.settings.blockNetworkImage = false
-                webView.settings.allowFileAccess = false
-                webView.settings.allowContentAccess = false
-                webView.isVerticalScrollBarEnabled = false
-                webView.isHorizontalScrollBarEnabled = false
-                webView.webViewClient = object : WebViewClient() {
+                val widthSpec = View.MeasureSpec.makeMeasureSpec(renderWidth, View.MeasureSpec.EXACTLY)
+                view.measure(widthSpec, View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED))
+                val contentHeight = max(
+                    view.measuredHeight,
+                    (view.contentHeight * view.scale).roundToInt()
+                ).coerceIn(1, MAX_RENDER_HEIGHT_PX)
+                view.layout(0, 0, renderWidth, contentHeight)
+                rendered = Bitmap.createBitmap(renderWidth, contentHeight, Bitmap.Config.ARGB_8888).also { bitmap ->
+                    val canvas = Canvas(bitmap)
+                    canvas.drawColor(Color.WHITE)
+                    view.draw(canvas)
+                }
+            } catch (error: Throwable) {
+                renderError = error
+            } finally {
+                runCatching { view.stopLoading() }
+                runCatching { view.destroy() }
+                webView = null
+                latch.countDown()
+            }
+        }
+
+        mainHandler.post {
+            try {
+                val view = WebView(appContext)
+                webView = view
+                view.setBackgroundColor(Color.WHITE)
+                view.settings.javaScriptEnabled = false
+                view.settings.loadsImagesAutomatically = true
+                view.settings.blockNetworkImage = false
+                view.settings.allowFileAccess = false
+                view.settings.allowContentAccess = false
+                view.isVerticalScrollBarEnabled = false
+                view.isHorizontalScrollBarEnabled = false
+                view.webViewClient = object : WebViewClient() {
                     override fun onPageFinished(view: WebView, url: String?) {
-                        view.postDelayed({
-                            try {
-                                val widthSpec = View.MeasureSpec.makeMeasureSpec(renderWidth, View.MeasureSpec.EXACTLY)
-                                view.measure(widthSpec, View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED))
-                                val contentHeight = max(
-                                    view.measuredHeight,
-                                    (view.contentHeight * view.scale).roundToInt()
-                                ).coerceIn(1, 24_000)
-                                view.layout(0, 0, renderWidth, contentHeight)
-                                rendered = Bitmap.createBitmap(renderWidth, contentHeight, Bitmap.Config.ARGB_8888).also { bitmap ->
-                                    val canvas = Canvas(bitmap)
-                                    canvas.drawColor(Color.WHITE)
-                                    view.draw(canvas)
-                                }
-                            } catch (error: Throwable) {
-                                renderError = error
-                            } finally {
-                                runCatching { view.destroy() }
-                                latch.countDown()
-                            }
-                        }, 120)
+                        // This WebView is intentionally never attached to a window. Using
+                        // View.postDelayed() here can leave the Runnable queued forever on
+                        // some POS firmware. Always schedule through the main Looper instead.
+                        mainHandler.postDelayed({ finishRenderOnMain() }, PAGE_SETTLE_DELAY_MS)
                     }
                 }
 
-                webView.loadDataWithBaseURL(
+                view.loadDataWithBaseURL(
                     BuildConfig.CPIPOS_API_BASE_URL,
                     normalizeHtmlForRaster(html),
                     "text/html",
                     "UTF-8",
                     null
                 )
+
+                // Some embedded Android WebView builds do not reliably dispatch
+                // onPageFinished() for an unattached, off-screen WebView. The fallback
+                // keeps receipt printing deterministic while still giving HTML/fonts and
+                // data-URI images enough time to lay out.
+                mainHandler.postDelayed({ finishRenderOnMain() }, FALLBACK_RENDER_DELAY_MS)
             } catch (error: Throwable) {
-                renderError = error
-                latch.countDown()
+                if (completed.compareAndSet(false, true)) {
+                    renderError = error
+                    webView?.let { view ->
+                        runCatching { view.stopLoading() }
+                        runCatching { view.destroy() }
+                    }
+                    webView = null
+                    latch.countDown()
+                }
             }
         }
 
-        if (!latch.await(7, TimeUnit.SECONDS)) {
+        if (!latch.await(RENDER_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
+            if (completed.compareAndSet(false, true)) {
+                mainHandler.post {
+                    webView?.let { view ->
+                        runCatching { view.stopLoading() }
+                        runCatching { view.destroy() }
+                    }
+                    webView = null
+                }
+            }
             throw NativePrintException("receipt_html_render_timeout", true, "HTML receipt rendering timed out")
         }
         renderError?.let { error ->
@@ -187,5 +223,12 @@ internal class HtmlReceiptRasterizer(context: Context) {
         output.write('\n'.code)
         output.write('\n'.code)
         return output.toByteArray()
+    }
+
+    private companion object {
+        const val PAGE_SETTLE_DELAY_MS = 120L
+        const val FALLBACK_RENDER_DELAY_MS = 900L
+        const val RENDER_TIMEOUT_SECONDS = 6L
+        const val MAX_RENDER_HEIGHT_PX = 16_000
     }
 }

@@ -22,8 +22,8 @@ android {
         applicationId = "com.cpipos.pos"
         minSdk = 26
         targetSdk = 34
-        versionCode = 8
-        versionName = "1.0.2"
+        versionCode = 9
+        versionName = "1.0.3"
 
         buildConfigField("String", "CPIPOS_API_BASE_URL", "\"https://cp-ipos-web.vercel.app\"")
         buildConfigField("String", "CPIPOS_POS_WEB_URL", "\"https://cp-ipos-web.vercel.app/login/store\"")
