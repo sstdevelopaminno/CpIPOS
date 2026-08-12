@@ -26,6 +26,7 @@ import androidx.core.content.ContextCompat
 class MainActivity : ComponentActivity() {
     private lateinit var webView: WebView
     private var mdmAgent: PosMdmAgent? = null
+    private var printAgent: PosPrintAgent? = null
     private var filePathCallback: ValueCallback<Array<Uri>>? = null
 
     private val fileChooserLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
@@ -61,7 +62,7 @@ class MainActivity : ComponentActivity() {
                 append(settings.userAgentString)
                 append(" CpIPOS-AndroidPOS/")
                 append(BuildConfig.VERSION_NAME)
-                append(" POS-WebView-Wrapper MDM-Ready")
+                append(" POS-WebView-Wrapper MDM-Ready Native-Print-Agent")
             }
 
             CookieManager.getInstance().setAcceptCookie(true)
@@ -92,7 +93,7 @@ class MainActivity : ComponentActivity() {
                         }
                         putExtra(
                             Intent.EXTRA_ALLOW_MULTIPLE,
-                            fileChooserParams?.mode == FileChooserParams.MODE_OPEN_MULTIPLE
+                            fileChooserParams?.mode == WebChromeClient.FileChooserParams.MODE_OPEN_MULTIPLE
                         )
                     }
 
@@ -111,6 +112,9 @@ class MainActivity : ComponentActivity() {
         val agent = PosMdmAgent(this, webView)
         mdmAgent = agent
         webView.addJavascriptInterface(agent, "CpiposMdm")
+
+        val nativePrintAgent = PosPrintAgent(this, agent.installId)
+        printAgent = nativePrintAgent
 
         webView.webViewClient = object : WebViewClient() {
             override fun shouldOverrideUrlLoading(
@@ -151,6 +155,7 @@ class MainActivity : ComponentActivity() {
         setContentView(webView)
         registerBackNavigation()
         agent.start()
+        nativePrintAgent.start()
         requestRuntimeCapabilities()
         requestDeviceAdminEnrollmentOnce()
 
@@ -179,6 +184,8 @@ class MainActivity : ComponentActivity() {
     override fun onDestroy() {
         filePathCallback?.onReceiveValue(null)
         filePathCallback = null
+        printAgent?.stop()
+        printAgent = null
         mdmAgent?.stop()
         mdmAgent = null
         if (::webView.isInitialized) {
