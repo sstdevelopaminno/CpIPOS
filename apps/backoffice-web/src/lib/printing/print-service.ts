@@ -174,18 +174,22 @@ export function resolveReceiptSellerName(source: unknown): string {
   );
 }
 
+function isUuidShaped(value: string): boolean {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+}
+
 export async function loadReceiptSellerName(auth: AuthContext, userId: string | null | undefined = auth.userId, overrides: JsonRecord = {}): Promise<string> {
-  const normalizedUserId = normalizeText(userId ?? undefined);
+  const normalizedUserId = normalizeText(auth.userId ?? userId ?? undefined);
   const overrideName = readReceiptField(overrides, ["seller_name", "display_name", "full_name", "nickname", "name", "employee_code"]);
-  if (overrideName) return overrideName;
+  if (overrideName && overrideName !== normalizedUserId && !isUuidShaped(overrideName)) return overrideName;
   if (!normalizedUserId) return "-";
 
   try {
     const supabase = getSupabaseServiceClient();
     const [profileResult, employeeResult] = await Promise.all([
-      supabase.from("users_profiles").select("full_name").eq("id", normalizedUserId).maybeSingle<{ full_name: string | null }>(),
+      supabase.from("users_profiles").select("full_name").eq("id", auth.userId).maybeSingle<{ full_name: string | null }>(),
       auth.tenantId
-        ? supabase.from("pos_user_profiles").select("employee_code").eq("tenant_id", auth.tenantId).eq("user_id", normalizedUserId).maybeSingle<{ employee_code: string | null }>()
+        ? supabase.from("pos_user_profiles").select("employee_code").eq("tenant_id", auth.tenantId).eq("user_id", auth.userId).maybeSingle<{ employee_code: string | null }>()
         : Promise.resolve({ data: null, error: null })
     ]);
     return resolveReceiptSellerName({

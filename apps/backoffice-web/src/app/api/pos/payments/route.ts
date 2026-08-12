@@ -298,7 +298,7 @@ export async function POST(req: Request) {
             order: { id: orderRow.id, order_no: orderRow.order_no, total_amount: Number(orderRow.total_amount), discount_amount: Number(orderRow.discount_amount ?? 0), notes: orderRow.notes, cash_received: receivedAmount, change_amount: changeAmount },
             items: (itemRows ?? []).map((row) => ({ product_name: ((row.products as { name?: string } | null)?.name ?? "Item").toString(), quantity: Number(row.quantity), unit_price: Number(row.unit_price), line_total: Number(row.line_total), note: row.notes })),
             paymentMethod,
-            sellerName: scope.user.full_name ?? auth.userId
+            sellerName: scope.user.full_name ?? null
           });
 
           if (body.print_kitchen_ticket === true) {
