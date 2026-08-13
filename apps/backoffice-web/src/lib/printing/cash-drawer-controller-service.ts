@@ -2,7 +2,7 @@ import type { PrinterConnectionType, PrinterProfile, PrintJob } from "@pos/share
 import type { AuthContext } from "@/lib/auth-context";
 import { appendAuditLog } from "@/lib/audit-log";
 import { readEnv } from "@/lib/env";
-import { getPrimarySupabaseServiceClient, getSupabaseServiceClient } from "@/lib/supabase-admin";
+import { getSupabaseServiceClient } from "@/lib/supabase-admin";
 import { enqueuePrintJob, processPrintJob } from "@/lib/printing/print-service";
 
 type JsonRecord = Record<string, unknown>;
@@ -56,46 +56,6 @@ type CashDrawerControllerProfile = {
 type DrawerCandidate = {
   printer: PrinterProfileRow;
   drawer: CashDrawerControllerProfile;
-};
-export const CASH_DRAWER_AGENT_HEARTBEAT_FRESH_MS = 120_000;
-
-export type CashDrawerReadinessReason =
-  | "ready"
-  | "drawer_not_configured"
-  | "drawer_route_not_ready"
-  | "printer_device_missing"
-  | "printer_offline"
-  | "agent_missing"
-  | "agent_inactive"
-  | "agent_stale";
-
-export type CashDrawerPrinterDeviceSnapshot = {
-  id: string;
-  printer_profile_id: string | null;
-  display_name?: string | null;
-  runtime_device_code: string | null;
-  status: string | null;
-  is_active: boolean | null;
-  last_seen_at: string | null;
-  disconnected_at: string | null;
-};
-
-export type CashDrawerPrintAgentSnapshot = {
-  id: string;
-  device_id: string | null;
-  device_code: string;
-  status: string | null;
-  last_seen_at: string | null;
-  last_claim_at: string | null;
-  app_version: string | null;
-};
-
-type CashDrawerPhysicalReadiness = {
-  configured: boolean;
-  ready: boolean;
-  reason: CashDrawerReadinessReason;
-  printer_device: CashDrawerPrinterDeviceSnapshot | null;
-  agent_status: (CashDrawerPrintAgentSnapshot & { heartbeat_age_ms: number | null }) | null;
 };
 
 function asRecord(value: unknown): JsonRecord {
@@ -174,80 +134,6 @@ function canOpenDrawerManually(auth: AuthContext, drawer: CashDrawerControllerPr
   if (auth.branchRole === "owner" || auth.branchRole === "manager") return true;
   return drawer.allowStaffManualOpen === true;
 }
-function normalizeDeviceCode(value: unknown) {
-  return normalizeText(value)?.toUpperCase() ?? null;
-}
-
-function heartbeatAgeMs(lastSeenAt: string | null, nowMs: number) {
-  if (!lastSeenAt) return null;
-  const seenMs = Date.parse(lastSeenAt);
-  if (!Number.isFinite(seenMs)) return null;
-  return Math.max(0, nowMs - seenMs);
-}
-
-function agentWithAge(agent: CashDrawerPrintAgentSnapshot, nowMs: number) {
-  return { ...agent, heartbeat_age_ms: heartbeatAgeMs(agent.last_seen_at, nowMs) };
-}
-
-function isAgentFresh(agent: CashDrawerPrintAgentSnapshot, nowMs: number) {
-  const ageMs = heartbeatAgeMs(agent.last_seen_at, nowMs);
-  return ageMs !== null && ageMs <= CASH_DRAWER_AGENT_HEARTBEAT_FRESH_MS;
-}
-
-function isPrinterDeviceCommandOnline(device: CashDrawerPrinterDeviceSnapshot) {
-  const status = normalizeText(device.status)?.toLowerCase() ?? "";
-  if (!status) return false;
-  return !["disconnected", "offline", "inactive", "disabled", "failed", "error"].includes(status);
-}
-
-export function evaluateCashDrawerReadinessForTest(input: {
-  configured: boolean;
-  printerEnabled: boolean;
-  printerDevice: CashDrawerPrinterDeviceSnapshot | null;
-  agents: CashDrawerPrintAgentSnapshot[];
-  nowMs?: number;
-}): CashDrawerPhysicalReadiness {
-  const nowMs = input.nowMs ?? Date.now();
-  if (!input.configured) {
-    return { configured: false, ready: false, reason: "drawer_not_configured", printer_device: null, agent_status: null };
-  }
-  if (!input.printerEnabled) {
-    return { configured: true, ready: false, reason: "drawer_route_not_ready", printer_device: null, agent_status: null };
-  }
-
-  const device = input.printerDevice;
-  if (!device) {
-    return { configured: true, ready: false, reason: "printer_device_missing", printer_device: null, agent_status: null };
-  }
-  if (device.is_active !== true || device.disconnected_at || !isPrinterDeviceCommandOnline(device)) {
-    return { configured: true, ready: false, reason: "printer_offline", printer_device: device, agent_status: null };
-  }
-
-  const runtimeDeviceCode = normalizeDeviceCode(device.runtime_device_code);
-  if (!runtimeDeviceCode) {
-    return { configured: true, ready: false, reason: "agent_missing", printer_device: device, agent_status: null };
-  }
-
-  const matchingAgents = input.agents.filter((agent) => {
-    if (agent.device_id && agent.device_id === device.id) return true;
-    return normalizeDeviceCode(agent.device_code) === runtimeDeviceCode;
-  });
-  if (matchingAgents.length === 0) {
-    return { configured: true, ready: false, reason: "agent_missing", printer_device: device, agent_status: null };
-  }
-
-  const activeAgents = matchingAgents.filter((agent) => agent.status === "active");
-  if (activeAgents.length === 0) {
-    return { configured: true, ready: false, reason: "agent_inactive", printer_device: device, agent_status: agentWithAge(matchingAgents[0]!, nowMs) };
-  }
-
-  const freshAgent = activeAgents.find((agent) => isAgentFresh(agent, nowMs));
-  if (!freshAgent) {
-    return { configured: true, ready: false, reason: "agent_stale", printer_device: device, agent_status: agentWithAge(activeAgents[0]!, nowMs) };
-  }
-
-  return { configured: true, ready: true, reason: "ready", printer_device: device, agent_status: agentWithAge(freshAgent, nowMs) };
-}
 
 async function assertCashDrawerCooldown(auth: AuthContext, input: OpenCashDrawerControllerInput) {
   const supabase = getSupabaseServiceClient();
@@ -282,58 +168,6 @@ async function getEnabledReceiptPrinters(auth: AuthContext) {
 
   if (error) throw new Error(error.message);
   return (data ?? []) as PrinterProfileRow[];
-}
-async function resolveCashDrawerPhysicalReadiness(
-  auth: AuthContext,
-  candidate: DrawerCandidate | null,
-  configured: boolean
-): Promise<CashDrawerPhysicalReadiness> {
-  if (!candidate) {
-    return {
-      configured,
-      ready: false,
-      reason: configured ? "drawer_route_not_ready" : "drawer_not_configured",
-      printer_device: null,
-      agent_status: null
-    };
-  }
-
-  const routed = getSupabaseServiceClient();
-  const { data: deviceData, error: deviceError } = await routed
-    .from("printer_devices")
-    .select("id,printer_profile_id,display_name,runtime_device_code,status,is_active,last_seen_at,disconnected_at")
-    .eq("tenant_id", auth.tenantId!)
-    .eq("branch_id", auth.branchId!)
-    .eq("printer_profile_id", candidate.printer.id)
-    .order("updated_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-  if (deviceError) throw new Error(deviceError.message);
-
-  const primary = getPrimarySupabaseServiceClient();
-  const { data: agentsData, error: agentsError } = await primary
-    .from("print_agents")
-    .select("id,device_id,device_code,status,last_seen_at,last_claim_at,app_version")
-    .eq("tenant_id", auth.tenantId!)
-    .eq("branch_id", auth.branchId!)
-    .order("last_seen_at", { ascending: false, nullsFirst: false })
-    .limit(20);
-  if (agentsError) throw new Error(agentsError.message);
-
-  return evaluateCashDrawerReadinessForTest({
-    configured: true,
-    printerEnabled: candidate.printer.enabled !== false,
-    printerDevice: (deviceData ?? null) as CashDrawerPrinterDeviceSnapshot | null,
-    agents: (agentsData ?? []) as CashDrawerPrintAgentSnapshot[]
-  });
-}
-
-function throwIfDrawerRouteNotReady(readiness: CashDrawerPhysicalReadiness): asserts readiness is CashDrawerPhysicalReadiness & { ready: true } {
-  if (readiness.ready) return;
-  const error = new Error(readiness.reason) as Error & { code?: string; status?: number };
-  error.code = readiness.reason.startsWith("agent_") ? "print_agent_unavailable" : "drawer_route_not_ready";
-  error.status = readiness.reason.startsWith("agent_") ? 503 : 409;
-  throw error;
 }
 
 function selectDrawerCandidate(printers: PrinterProfileRow[], input: OpenCashDrawerControllerInput): DrawerCandidate | null {
@@ -433,12 +267,11 @@ export async function hasConfiguredCashDrawerController(auth: AuthContext) {
     .filter((candidate) => candidate.drawer.enabled && candidate.drawer.openSupported);
 
   const selected = selectDrawerCandidate(printers, {} as OpenCashDrawerControllerInput);
-  const readiness = await resolveCashDrawerPhysicalReadiness(auth, selected, candidates.length > 0);
 
   return {
     configured: candidates.length > 0,
-    ready: readiness.ready,
-    reason: readiness.reason,
+    ready: Boolean(selected),
+    reason: selected ? "ready" : candidates.length > 0 ? "drawer_route_not_ready" : "drawer_not_configured",
     supported_modes: candidates.map((candidate) => candidate.drawer.connectionMode),
     selected_mode: selected?.drawer.connectionMode ?? null,
     printer: selected
@@ -447,9 +280,7 @@ export async function hasConfiguredCashDrawerController(auth: AuthContext) {
           printer_name: selected.printer.printer_name,
           connection_type: selected.printer.connection_type
         }
-      : null,
-    printer_device: readiness.printer_device,
-    agent_status: readiness.agent_status
+      : null
   };
 }
 
@@ -463,8 +294,6 @@ export async function openCashDrawerController(auth: AuthContext, input: OpenCas
   const manualLike = input.triggerSource === "manual" || input.triggerSource === "emergency_manual";
   if (manualLike && !canOpenDrawerManually(auth, candidate.drawer)) throw new Error("permission_denied");
   if (manualLike && candidate.drawer.requireReason && !normalizeText(input.reason)) throw new Error("drawer_reason_required");
-  const readiness = await resolveCashDrawerPhysicalReadiness(auth, candidate, true);
-  throwIfDrawerRouteNotReady(readiness);
 
   await assertCashDrawerCooldown(auth, { ...input, printerId: candidate.printer.id });
 
