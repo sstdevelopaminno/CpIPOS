@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 
 const releaseApiUrl = "https://api.github.com/repos/sstdevelopaminno/CpIPOS/releases/tags/android-runtime-latest";
-const assetName = "CpIPOS-Android-POS-1.0.5.apk";
+const assetNames = ["CpIPOS-Android-POS-1.0.7.apk", "CpIPOS-Android-POS.apk"] as const;
 
 export const dynamic = "force-dynamic";
 
@@ -26,9 +26,12 @@ export async function GET() {
       }>;
     };
 
-    const asset = release.assets?.find((item) => item.name === assetName);
+    const asset = assetNames
+      .map((name) => release.assets?.find((item) => item.name === name))
+      .find((item) => Boolean(item?.browser_download_url));
+
     if (!asset?.browser_download_url) {
-      return notReady("พบหน้า Release แล้ว แต่ไฟล์ APK ของ CpIPOS Android ยังไม่ถูกแนบ กรุณารอสักครู่แล้วกดดาวน์โหลดอีกครั้ง");
+      return notReady("พบหน้า Release แล้ว แต่ไฟล์ APK ของ CpIPOS Android POS 1.0.7 ยังไม่ถูกแนบ กรุณารอสักครู่แล้วกดดาวน์โหลดอีกครั้ง");
     }
 
     return NextResponse.redirect(asset.browser_download_url, 302);
@@ -46,7 +49,7 @@ function notReady(reason: string) {
   <title>CpIPOS Android กำลังเตรียม APK</title>
   <style>
     body{margin:0;min-height:100vh;background:#020617;color:#f8fafc;font-family:Tahoma,Arial,sans-serif;display:flex;align-items:center;justify-content:center;padding:24px;box-sizing:border-box}
-    main{max-width:780px;border:1px solid #334155;border-radius:24px;background:#0f172a;padding:28px;box-shadow:0 24px 80px rgba(0,0,0,.35)}
+    main{max-width:780px;border:1px solid #334155;border-radius:24px;background:#0f172a;padding:28px;box-sizing:border-box;box-shadow:0 24px 80px rgba(0,0,0,.35)}
     h1{font-size:28px;margin:0 0 12px}p{line-height:1.7;color:#cbd5e1}.note{display:block;background:#020617;border:1px solid #334155;border-radius:12px;padding:12px;color:#bae6fd}.btn{display:inline-block;margin-top:16px;border-radius:14px;background:#0ea5e9;color:white;padding:12px 18px;text-decoration:none;font-weight:700}.muted{color:#94a3b8;font-size:13px}
   </style>
 </head>
