@@ -4,8 +4,8 @@ export const dynamic = "force-dynamic";
 
 const SOURCE_VERSIONS = {
   windows_runtime: "0.1.8",
-  android_pos: "1.0.5",
-  hotfix: "pos-printer-kitchen-2026-08-13"
+  android_pos: "1.0.7",
+  hotfix: "receipt-speed-payment-notice-printer-ui-2026-08-13"
 } as const;
 
 export async function GET() {
