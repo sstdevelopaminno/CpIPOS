@@ -1,5 +1,6 @@
 import "server-only";
 
+import type { AuthContext } from "@/lib/auth-context";
 import { appendAuditLog } from "@/lib/audit-log";
 import { queueRoutedKitchenTicketPrint } from "@/lib/printing/routed-print-service";
 import { getRoutedSupabaseServiceClient } from "@/lib/tenant-data-router";
@@ -29,6 +30,74 @@ export type KitchenDispatchResult =
       message: string;
     };
 
+
+export async function queueMissingKitchenPrintJobsForOrder(args: {
+  auth: AuthContext;
+  orderId: string;
+  runtimeDeviceCode?: string | null;
+}) {
+  if (!args.auth.tenantId || !args.auth.branchId) throw new Error("missing_scope");
+  const supabase = getRoutedSupabaseServiceClient();
+  const { data: tickets, error: ticketError } = await supabase
+    .from("kitchen_tickets")
+    .select("id,zone_id,queue_no,round_no")
+    .eq("tenant_id", args.auth.tenantId)
+    .eq("branch_id", args.auth.branchId)
+    .eq("order_id", args.orderId)
+    .order("created_at", { ascending: true });
+  if (ticketError) throw new Error(ticketError.message);
+
+  const ticketRows = (tickets ?? []) as Array<{ id: string; zone_id: string | null; queue_no: number | null; round_no: number | null }>;
+  if (ticketRows.length === 0) return { ticketCount: 0, queuedPrintJobCount: 0, skippedExistingPrintJobCount: 0 };
+
+  const ticketIds = ticketRows.map((ticket) => ticket.id);
+  const { data: existingJobs, error: jobError } = await supabase
+    .from("print_jobs")
+    .select("kitchen_ticket_id")
+    .eq("tenant_id", args.auth.tenantId)
+    .eq("branch_id", args.auth.branchId)
+    .in("kitchen_ticket_id", ticketIds);
+  if (jobError) throw new Error(jobError.message);
+
+  const ticketsWithJobs = new Set(((existingJobs ?? []) as Array<{ kitchen_ticket_id?: string | null }>).map((job) => String(job.kitchen_ticket_id ?? "")).filter(Boolean));
+  const printAuth = args.auth;
+
+  let queuedPrintJobCount = 0;
+  for (const ticket of ticketRows) {
+    if (ticketsWithJobs.has(ticket.id)) continue;
+    const jobs = await queueRoutedKitchenTicketPrint({
+      auth: printAuth,
+      kitchenTicketId: ticket.id,
+      runtimeDeviceCode: args.runtimeDeviceCode ?? null
+    });
+    queuedPrintJobCount += jobs.length;
+    if (jobs.length > 0 && args.auth.userId) {
+      void appendAuditLog({
+        tenantId: args.auth.tenantId,
+        branchId: args.auth.branchId,
+        actorUserId: args.auth.userId,
+        actorRole: printAuth.branchRole ?? "staff",
+        action: "kitchen_print_queued",
+        targetTable: "kitchen_tickets",
+        targetId: ticket.id,
+        metadata: {
+          source: "queue_missing_kitchen_print_jobs",
+          order_id: args.orderId,
+          zone_id: ticket.zone_id,
+          queue_no: ticket.queue_no,
+          round_no: ticket.round_no,
+          print_job_count: jobs.length
+        }
+      });
+    }
+  }
+
+  return {
+    ticketCount: ticketRows.length,
+    queuedPrintJobCount,
+    skippedExistingPrintJobCount: ticketsWithJobs.size
+  };
+}
 export async function dispatchOrderToKitchen(args: {
   tenantId: string;
   branchId: string;
@@ -111,7 +180,7 @@ export async function dispatchOrderToKitchen(args: {
             tenantId: args.tenantId,
             branchId: args.branchId,
             actorUserId: args.actorUserId,
-            actorRole: printAuth.branchRole,
+            actorRole: printAuth.branchRole ?? "staff",
             action: "kitchen_print_queued",
             targetTable: "kitchen_tickets",
             targetId: ticket.kitchen_ticket_id,
@@ -129,7 +198,7 @@ export async function dispatchOrderToKitchen(args: {
           tenantId: args.tenantId,
           branchId: args.branchId,
           actorUserId: args.actorUserId,
-          actorRole: printAuth.branchRole,
+          actorRole: printAuth.branchRole ?? "staff",
           action: "kitchen_print_failed",
           targetTable: "kitchen_tickets",
           targetId: ticket.kitchen_ticket_id,

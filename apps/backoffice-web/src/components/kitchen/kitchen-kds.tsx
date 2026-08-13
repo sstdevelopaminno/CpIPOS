@@ -58,6 +58,7 @@ function trimSeenSet(seen: Set<string>) {
     seen.delete(first);
   }
 }
+
 function ageText(createdAt: string, now: number) {
   const ms = Math.max(0, now - new Date(createdAt).getTime());
   const minutes = Math.floor(ms / 60_000);
@@ -188,6 +189,7 @@ export function KitchenKds() {
     setTickets(nextTickets);
     if (fresh.length > 0) showNewTicketAlert(fresh[fresh.length - 1], fresh.length);
   }, [showNewTicketAlert, unlockedZone?.id]);
+
   const loadUnlockedZone = useCallback(async () => {
     try {
       const response = await fetch("/api/pos/kitchen/unlock", { cache: "no-store" });
@@ -199,30 +201,30 @@ export function KitchenKds() {
   }, []);
 
   async function unlockZone() {
-    const code = accessCode.trim();
-    if (!/^[0-9]{6}$/.test(code) || unlocking) return;
+    if (unlocking || accessCode.length !== 6) return;
     setUnlocking(true);
-    setError(null);
     try {
       const response = await fetch("/api/pos/kitchen/unlock", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ access_code: code })
+        body: JSON.stringify({ access_code: accessCode })
       });
       const body = (await response.json().catch(() => null)) as { data?: { zone?: UnlockedZone }; error?: { message?: string } } | null;
-      if (!response.ok || !body?.data?.zone) throw new Error(body?.error?.message ?? "�Դ⫹������������");
+      if (!response.ok || !body?.data?.zone) throw new Error(body?.error?.message ?? "เปิดจอครัวไม่สำเร็จ");
       baselineReadyRef.current = false;
-      seenAlertKeysRef.current.clear();
-      setTickets([]);
+      seenAlertKeysRef.current = new Set();
+      closeAlert();
       setUnlockedZone(body.data.zone);
       setAccessCode("");
+      setError(null);
       await armAlertSound();
     } catch (unlockError) {
-      setError(unlockError instanceof Error ? unlockError.message : "�Դ⫹������������");
+      setError(unlockError instanceof Error ? unlockError.message : "เปิดจอครัวไม่สำเร็จ");
     } finally {
       setUnlocking(false);
     }
   }
+
   const load = useCallback(async (silent = false) => {
     if (inFlightRef.current || !unlockedZone?.id) return;
     inFlightRef.current = true;
@@ -292,8 +294,8 @@ export function KitchenKds() {
     return (
       <section className="grid h-full min-h-0 w-full place-items-center bg-slate-100 p-4 text-slate-950">
         <div className="w-full max-w-sm border border-slate-200 bg-white p-5 shadow-sm">
-          <h1 className="text-2xl font-black">�Դ�ͤ���</h1>
-          <p className="mt-2 text-sm font-semibold text-slate-500">��� Kitchen ID 6 ��ѡ�����Դ੾��⫹���ǹ��</p>
+          <h1 className="text-2xl font-black">เปิดจอครัว</h1>
+          <p className="mt-2 text-sm font-semibold text-slate-500">ใส่ Kitchen ID 6 หลักเพื่อเปิดเฉพาะโซนครัวนี้</p>
           <input
             value={accessCode}
             onChange={(event) => setAccessCode(event.target.value.replace(/\D/g, "").slice(0, 6))}
@@ -304,19 +306,20 @@ export function KitchenKds() {
             placeholder="000000"
           />
           <button type="button" onClick={() => void unlockZone()} disabled={unlocking || accessCode.length !== 6} className="mt-4 w-full rounded-lg bg-blue-600 px-4 py-3 text-lg font-black text-white disabled:opacity-50">
-            {unlocking ? "���ѧ�Դ..." : "�Դ�ͤ���"}
+            {unlocking ? "กำลังเปิด..." : "เปิดจอครัว"}
           </button>
           {error ? <p className="mt-3 rounded-lg bg-red-50 px-3 py-2 text-sm font-bold text-red-700">{error}</p> : null}
         </div>
       </section>
     );
   }
+
   return (
     <section className="flex h-full min-h-0 w-full flex-col overflow-hidden bg-slate-100 text-slate-900">
       <header className="flex shrink-0 items-center justify-between gap-4 border-b border-slate-200 bg-white px-5 py-4">
         <div>
-          <h1 className="text-xl font-black">{unlockedZone.zone_name} ? Kitchen Display</h1>
-          <p className="mt-1 text-sm text-slate-500">ออเดอร์จากหน้าขายและ QR โต๊ะ · อัปเดตอัตโนมัติทุก 3 วินาที</p>
+          <h1 className="text-xl font-black">{unlockedZone.zone_name} - Kitchen Display</h1>
+          <p className="mt-1 text-sm text-slate-500">ออเดอร์จากหน้าขายและ QR โต๊ะ อัปเดตอัตโนมัติทุก 3 วินาที</p>
         </div>
         <div className="flex items-center gap-2">
           <span className="rounded-full bg-blue-50 px-3 py-1.5 text-xs font-bold text-blue-700">งานค้าง {tickets.filter((ticket) => ticket.status !== "ready").length}</span>
@@ -326,30 +329,32 @@ export function KitchenKds() {
 
       {alertState.soundBlocked ? (
         <button type="button" onClick={() => void armAlertSound()} className="mx-5 mt-3 shrink-0 rounded-lg border border-amber-300 bg-amber-50 px-4 py-2 text-sm font-black text-amber-800">
-          �������Դ���§����͹
+          แตะเพื่อเปิดเสียงแจ้งเตือน
         </button>
       ) : null}
       {alertState.open && alertState.latest ? (
         <div className="fixed inset-x-3 top-4 z-50 mx-auto max-w-lg rounded-xl border-4 border-amber-400 bg-white p-5 text-slate-950 shadow-2xl sm:top-8" role="alertdialog" aria-live="assertive">
           <div className="flex items-start justify-between gap-3">
             <div>
-              <h2 className="text-2xl font-black">������������{alertState.count > 1 ? ` ${alertState.count} ��¡��` : ""}</h2>
-              <p className="mt-1 text-sm font-bold text-slate-600">����¡�������������Ҥ���</p>
+              <h2 className="text-2xl font-black">มีออเดอร์ใหม่{alertState.count > 1 ? ` ${alertState.count} รายการ` : ""}</h2>
+              <p className="mt-1 text-sm font-bold text-slate-600">มีรายการอาหารใหม่เข้าครัว</p>
             </div>
-            <button type="button" onClick={closeAlert} className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-black">�Դ</button>
+            <button type="button" onClick={closeAlert} className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-black">ปิด</button>
           </div>
           <div className="mt-4 grid grid-cols-2 gap-3 text-lg font-black">
-            <div className="rounded-lg bg-slate-100 p-3">���<br /><span className="text-3xl">{String(alertState.latest.queue_no ?? "-").padStart(2, "0")}</span></div>
-            <div className="rounded-lg bg-slate-100 p-3">�ͺ���<br /><span className="text-3xl">{alertState.latest.round_no ?? 1}</span></div>
-            <div className="col-span-2 rounded-lg bg-slate-100 p-3">⫹: {alertState.latest.zone?.zone_name ?? "����"}</div>
-            <div className="rounded-lg bg-slate-100 p-3">���<br /><span>{alertState.latest.table_id ?? "-"}</span></div>
-            <div className="rounded-lg bg-slate-100 p-3">���<br /><span>{alertState.latest.order_no}</span></div>
+            <div className="rounded-lg bg-slate-100 p-3">คิว<br /><span className="text-3xl">{String(alertState.latest.queue_no ?? "-").padStart(2, "0")}</span></div>
+            <div className="rounded-lg bg-slate-100 p-3">รอบที่<br /><span className="text-3xl">{alertState.latest.round_no ?? 1}</span></div>
+            <div className="col-span-2 rounded-lg bg-slate-100 p-3">โซน: {alertState.latest.zone?.zone_name ?? "ครัว"}</div>
+            <div className="rounded-lg bg-slate-100 p-3">โต๊ะ<br /><span>{alertState.latest.table_id ?? "-"}</span></div>
+            <div className="rounded-lg bg-slate-100 p-3">บิล<br /><span>{alertState.latest.order_no}</span></div>
           </div>
           <button type="button" onClick={closeAlert} className="mt-5 w-full rounded-lg bg-blue-600 px-4 py-4 text-lg font-black text-white">
-            �Ѻ��Һ / �Դ����͹
+            รับทราบ / ปิดแจ้งเตือน
           </button>
         </div>
-      ) : null}      {error ? <div className="mx-5 mt-3 shrink-0 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">{error}</div> : null}
+      ) : null}
+
+      {error ? <div className="mx-5 mt-3 shrink-0 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">{error}</div> : null}
       {loading ? <div className="grid flex-1 place-items-center text-sm font-semibold text-slate-500">กำลังโหลดคิวครัว...</div> : (
         <div className="grid min-h-0 flex-1 grid-cols-1 gap-3 overflow-auto p-4 md:grid-cols-2 xl:grid-cols-4">
           {COLUMNS.map((column) => {
@@ -368,14 +373,30 @@ export function KitchenKds() {
                     return (
                       <article key={ticket.id} className={`rounded-2xl border bg-white p-4 shadow-sm ${isLate ? "border-red-300 ring-2 ring-red-100" : "border-slate-200"}`}>
                         <div className="flex items-start justify-between gap-2">
-                          <div><strong className="text-lg">Q{ticket.queue_no ?? "-"} / R{ticket.round_no ?? 1}</strong><p className="text-xs font-semibold text-slate-500">#{ticket.order_no} ? {ticket.zone?.zone_name ?? "ครัว"}</p></div>
+                          <div>
+                            <strong className="text-lg">Q{ticket.queue_no ?? "-"} / R{ticket.round_no ?? 1}</strong>
+                            <p className="text-xs font-semibold text-slate-500">#{ticket.order_no} - {ticket.zone?.zone_name ?? "ครัว"}</p>
+                          </div>
                           <span className={`rounded-full px-2 py-1 text-[11px] font-bold ${isLate ? "bg-red-100 text-red-700" : "bg-slate-100 text-slate-600"}`}>{ageText(ticket.created_at, now)}</span>
                         </div>
                         <div className="mt-3 grid gap-2">
-                          {ticket.items.map((item) => <div key={item.id} className="flex items-start justify-between gap-3 border-t border-slate-100 pt-2 first:border-0 first:pt-0"><div><span className="font-bold">{item.product_name}</span>{item.notes ? <small className="block text-xs text-orange-600">{item.notes}</small> : null}</div><strong className="text-lg">×{item.quantity}</strong></div>)}
+                          {ticket.items.map((item) => (
+                            <div key={item.id} className="flex items-start justify-between gap-3 border-t border-slate-100 pt-2 first:border-0 first:pt-0">
+                              <div>
+                                <span className="font-bold">{item.product_name}</span>
+                                {item.notes ? <small className="block text-xs text-orange-600">{item.notes}</small> : null}
+                              </div>
+                              <strong className="text-lg">x{item.quantity}</strong>
+                            </div>
+                          ))}
                         </div>
-                        <p className="mt-3 rounded-lg bg-slate-50 px-3 py-2 text-xs font-black text-slate-700">{ticket.event_type.toUpperCase()} ? {ticket.order_type}</p>{ticket.order_notes ? <p className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800">หมายเหตุ: {ticket.order_notes}</p> : null}
-                        {nextStatus(ticket.status) ? <button type="button" onClick={() => void transition(ticket)} disabled={Boolean(busyId)} className="mt-4 w-full rounded-xl bg-blue-600 px-3 py-2.5 text-sm font-black text-white disabled:opacity-50">{busyId === ticket.id ? "กำลังบันทึก..." : nextLabel(ticket.status)}</button> : <div className="mt-4 rounded-xl bg-emerald-50 px-3 py-2 text-center text-sm font-black text-emerald-700">พร้อมเสิร์ฟแล้ว</div>}
+                        <p className="mt-3 rounded-lg bg-slate-50 px-3 py-2 text-xs font-black text-slate-700">{ticket.event_type.toUpperCase()} - {ticket.order_type}</p>
+                        {ticket.order_notes ? <p className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800">หมายเหตุ: {ticket.order_notes}</p> : null}
+                        {nextStatus(ticket.status) ? (
+                          <button type="button" onClick={() => void transition(ticket)} disabled={Boolean(busyId)} className="mt-4 w-full rounded-xl bg-blue-600 px-3 py-2.5 text-sm font-black text-white disabled:opacity-50">
+                            {busyId === ticket.id ? "กำลังบันทึก..." : nextLabel(ticket.status)}
+                          </button>
+                        ) : <div className="mt-4 rounded-xl bg-emerald-50 px-3 py-2 text-center text-sm font-black text-emerald-700">พร้อมเสิร์ฟแล้ว</div>}
                       </article>
                     );
                   })}

@@ -1,22 +1,6 @@
 -- CpIPOS Kitchen K1 foundation.
 -- Source-only migration; do not apply to Primary/Trial without review.
 
-create table if not exists public.kitchen_queue_counters (
-  tenant_id uuid not null references public.tenants(id) on delete cascade,
-  branch_id uuid not null references public.branches(id) on delete cascade,
-  zone_id uuid not null,
-  work_date date not null,
-  last_queue_no integer not null default 0 check (last_queue_no >= 0),
-  updated_at timestamptz not null default now(),
-  primary key (tenant_id, branch_id, zone_id, work_date),
-  foreign key (tenant_id, branch_id, zone_id)
-    references public.kitchen_zones(tenant_id, branch_id, id) on delete cascade
-);
-
-alter table public.kitchen_queue_counters enable row level security;
-revoke all on public.kitchen_queue_counters from anon, authenticated;
-grant all on public.kitchen_queue_counters to service_role;
-
 alter table public.kitchen_zones
   add column if not exists access_code text,
   add column if not exists kds_enabled boolean not null default true;
@@ -43,6 +27,51 @@ begin
   return lpad((v_value % 1000000)::text, 6, '0');
 end;
 $$;
+create or replace function app.assign_kitchen_zone_access_code()
+returns trigger
+language plpgsql
+set search_path = pg_catalog, public, app, extensions
+as $$
+declare
+  v_code text;
+  v_attempt integer := 0;
+begin
+  if nullif(btrim(coalesce(new.access_code, '')), '') is not null then
+    if coalesce(current_setting('app.allow_kitchen_access_code_rotation', true), '') <> 'on' then
+      raise exception 'KITCHEN_ACCESS_CODE_SERVER_CONTROL_REQUIRED';
+    end if;
+    return new;
+  end if;
+
+  perform pg_advisory_xact_lock(hashtextextended(
+    'kitchen-access-code:' || new.tenant_id::text || ':' || new.branch_id::text,
+    0
+  ));
+
+  loop
+    v_attempt := v_attempt + 1;
+    v_code := app.generate_kitchen_access_code();
+    exit when not exists (
+      select 1
+      from public.kitchen_zones z
+      where z.tenant_id = new.tenant_id
+        and z.branch_id = new.branch_id
+        and z.access_code = v_code
+    );
+    if v_attempt >= 32 then
+      raise exception 'KITCHEN_ACCESS_CODE_COLLISION_RETRY_EXHAUSTED';
+    end if;
+  end loop;
+
+  new.access_code := v_code;
+  return new;
+end;
+$$;
+
+drop trigger if exists trg_kitchen_zone_assign_access_code on public.kitchen_zones;
+create trigger trg_kitchen_zone_assign_access_code
+before insert on public.kitchen_zones
+for each row execute function app.assign_kitchen_zone_access_code();
 
 do $$
 declare
@@ -106,7 +135,7 @@ set queue_no = seq.queue_no,
 from (
   select id,
          dense_rank() over (
-           partition by tenant_id, branch_id, zone_id, (created_at at time zone 'Asia/Bangkok')::date
+           partition by tenant_id, branch_id, (created_at at time zone 'Asia/Bangkok')::date
            order by order_id
          ) as queue_no,
          row_number() over (
@@ -411,9 +440,9 @@ declare
   v_order public.orders%rowtype;
   v_zone_id uuid;
   v_ticket_id uuid;
-  v_queue_no integer;
+  v_order_queue_no integer;
   v_round_no integer;
-  v_work_date date := (now() at time zone 'Asia/Bangkok')::date;
+  v_zone_max_round integer;
 begin
   if p_event_key is null or btrim(p_event_key) = '' then
     raise exception 'KITCHEN_EVENT_KEY_REQUIRED';
@@ -431,6 +460,15 @@ begin
   if not found then
     raise exception 'KITCHEN_ORDER_NOT_FOUND';
   end if;
+
+  select kt.queue_no into v_order_queue_no
+  from public.kitchen_tickets kt
+  where kt.tenant_id = p_tenant_id
+    and kt.branch_id = p_branch_id
+    and kt.order_id = p_order_id
+    and kt.queue_no is not null
+  order by kt.created_at, kt.id
+  limit 1;
 
   for v_zone_id in
     with base_items as (
@@ -488,11 +526,10 @@ begin
     ));
 
     v_ticket_id := null;
-    v_queue_no := null;
     v_round_no := null;
 
     select kt.id, kt.queue_no, kt.round_no
-      into v_ticket_id, v_queue_no, v_round_no
+      into v_ticket_id, v_order_queue_no, v_round_no
     from public.kitchen_tickets kt
     where kt.tenant_id = p_tenant_id
       and kt.branch_id = p_branch_id
@@ -501,7 +538,7 @@ begin
 
     if v_ticket_id is null and p_action = 'reprint' then
       select kt.id, kt.queue_no, kt.round_no
-        into v_ticket_id, v_queue_no, v_round_no
+        into v_ticket_id, v_order_queue_no, v_round_no
       from public.kitchen_tickets kt
       where kt.tenant_id = p_tenant_id
         and kt.branch_id = p_branch_id
@@ -512,27 +549,20 @@ begin
     end if;
 
     if v_ticket_id is null and p_action <> 'reprint' then
-      select min(kt.queue_no), max(kt.round_no) + 1
-        into v_queue_no, v_round_no
+      select max(kt.round_no)
+        into v_zone_max_round
       from public.kitchen_tickets kt
       where kt.tenant_id = p_tenant_id
         and kt.branch_id = p_branch_id
         and kt.order_id = p_order_id
         and kt.zone_id = v_zone_id;
 
-      if v_queue_no is null then
-        insert into public.kitchen_queue_counters (
-          tenant_id, branch_id, zone_id, work_date, last_queue_no, updated_at
-        ) values (
-          p_tenant_id, p_branch_id, v_zone_id, v_work_date, 1, now()
-        )
-        on conflict (tenant_id, branch_id, zone_id, work_date)
-        do update set last_queue_no = public.kitchen_queue_counters.last_queue_no + 1,
-                      updated_at = now()
-        returning last_queue_no into v_queue_no;
-        v_round_no := 1;
+      if p_action = 'add' then
+        v_round_no := coalesce(v_zone_max_round, 0) + 1;
+      elsif p_action = 'cancel' then
+        v_round_no := greatest(1, coalesce(v_zone_max_round, 1));
       else
-        v_round_no := greatest(1, coalesce(v_round_no, 1));
+        v_round_no := case when v_zone_max_round is null then 1 else v_zone_max_round + 1 end;
       end if;
 
       insert into public.kitchen_tickets (
@@ -542,17 +572,17 @@ begin
         metadata
       ) values (
         p_tenant_id, p_branch_id, p_order_id, v_zone_id, p_event_key, p_action,
-        'queued', v_queue_no, v_round_no,
+        'queued', v_order_queue_no, v_round_no,
         v_order.order_no, v_order.order_type::text, v_order.table_id,
         v_order.customer_name, v_order.notes,
-        jsonb_build_object('source','app.enqueue_kitchen_order','work_date',v_work_date)
+        jsonb_build_object('source','app.enqueue_kitchen_order','queue_source','trg_kitchen_ticket_queue_no')
       )
       on conflict on constraint kitchen_tickets_tenant_id_branch_id_event_key_zone_id_key do nothing
-      returning id into v_ticket_id;
+      returning id, queue_no, round_no into v_ticket_id, v_order_queue_no, v_round_no;
 
       if v_ticket_id is null then
         select kt.id, kt.queue_no, kt.round_no
-          into v_ticket_id, v_queue_no, v_round_no
+          into v_ticket_id, v_order_queue_no, v_round_no
         from public.kitchen_tickets kt
         where kt.tenant_id = p_tenant_id
           and kt.branch_id = p_branch_id
@@ -619,7 +649,7 @@ begin
       kitchen_ticket_id := v_ticket_id;
       zone_id := v_zone_id;
       print_job_id := null;
-      queue_no := v_queue_no;
+      queue_no := v_order_queue_no;
       round_no := v_round_no;
       return next;
     end if;
@@ -769,51 +799,5 @@ grant execute on function public.get_kitchen_clearance_for_order(uuid, uuid, uui
 grant execute on function app.assert_kitchen_clearance_for_order(uuid, uuid, uuid) to service_role;
 grant execute on function public.assert_kitchen_clearance_for_order(uuid, uuid, uuid) to service_role;
 
-create or replace function app.prevent_pos_item_change_after_kitchen_acceptance()
-returns trigger
-language plpgsql
-set search_path = pg_catalog, public, app, extensions
-as $$
-declare
-  v_locked boolean;
-begin
-  if tg_op = 'UPDATE' and coalesce(new.quantity, 0) >= coalesce(old.quantity, 0) then
-    return new;
-  end if;
-
-  select exists (
-    select 1
-    from public.kitchen_ticket_items ki
-    join public.kitchen_tickets kt
-      on kt.id = ki.kitchen_ticket_id
-     and kt.tenant_id = ki.tenant_id
-     and kt.branch_id = ki.branch_id
-    join public.kitchen_zones z
-      on z.id = kt.zone_id
-     and z.tenant_id = kt.tenant_id
-     and z.branch_id = kt.branch_id
-     and z.is_active = true
-     and z.kds_enabled = true
-    where ki.tenant_id = old.tenant_id
-      and ki.branch_id = old.branch_id
-      and ki.order_item_id = old.id
-      and kt.status in ('acknowledged','preparing','ready')
-  ) into v_locked;
-
-  if v_locked then
-    raise exception 'KITCHEN_POS_ITEM_LOCKED';
-  end if;
-
-  if tg_op = 'DELETE' then
-    return old;
-  end if;
-  return new;
-end;
-$$;
-
-drop trigger if exists trg_order_items_kitchen_acceptance_lock on public.order_items;
-create trigger trg_order_items_kitchen_acceptance_lock
-before update of quantity or delete on public.order_items
-for each row execute function app.prevent_pos_item_change_after_kitchen_acceptance();
 
 notify pgrst, 'reload schema';

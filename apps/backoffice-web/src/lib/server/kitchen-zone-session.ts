@@ -50,7 +50,7 @@ function resolveCookieDomain() {
 }
 
 function sign(encoded: string) {
-  return crypto.createHmac("sha256", kitchenZoneSecret()).update(encoded).digest("base64url");
+  return crypto.createHmac("sha256", kitchenZoneSecret()).update(`cpipos:kitchen-zone:v1:${encoded}`).digest("base64url");
 }
 
 function secureEquals(left: string, right: string) {

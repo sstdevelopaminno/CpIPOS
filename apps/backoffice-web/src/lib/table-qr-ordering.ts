@@ -5,7 +5,7 @@ import QRCode from "qrcode";
 import type { AuthContext } from "@/lib/auth-context";
 import { readRequiredEnv } from "@/lib/env";
 import { invalidatePosBranchRuntimeCaches } from "@/lib/pos-cache-invalidation";
-import { dispatchOrderToKitchen } from "@/lib/services/kitchen-routing-service";
+import { queueMissingKitchenPrintJobsForOrder } from "@/lib/services/kitchen-routing-service";
 import { loadReceiptStoreProfile } from "@/lib/services/store-profile-service";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
 
@@ -438,7 +438,7 @@ export async function loadTableQrMenu(context: QrContext) {
     return {
       id: productId,
       name: String(row.name ?? ""),
-      category: String(row.category ?? "เมนู"),
+      category: String(row.category ?? "เน€เธโฌเน€เธเธเน€เธยเน€เธเธ"),
       price: Number(row.price ?? 0),
       customer_ingredient_selection_enabled: customerSelectable,
       customer_ingredient_options: customerSelectable ? customerIngredientOptionsByProduct.get(productId) ?? [] : []
@@ -467,24 +467,23 @@ export async function hasSubmittedFoodOrderForContext(context: QrContext, supaba
   return Boolean(data?.length);
 }
 
-async function dispatchTableQrItemsToKitchen(args: { context: QrContext; orderId: string; requestId: string; orderItemIds?: string[] | null }) {
-  const orderItemIds = Array.from(new Set((args.orderItemIds ?? []).map((value) => String(value).trim()).filter(Boolean)));
-  const result = await dispatchOrderToKitchen({
-    tenantId: args.context.tenant_id,
-    branchId: args.context.branch_id,
-    orderId: args.orderId,
-    eventKey: `table-qr:${args.context.id}:${args.requestId}:items:${orderItemIds.length ? orderItemIds.sort().join("-") : "all"}`,
-    action: "add",
-    orderItemIds: orderItemIds.length ? orderItemIds : null,
-    actorUserId: args.context.created_by,
-    actorRole: "staff"
-  });
-  if (!result.ok) {
-    console.warn("[table-qr-ordering] kitchen dispatch failed", {
+async function queueTableQrKitchenPrints(args: { context: QrContext; orderId: string; requestId: string }) {
+  try {
+    await queueMissingKitchenPrintJobsForOrder({
+      auth: {
+        userId: args.context.created_by,
+        tenantId: args.context.tenant_id,
+        branchId: args.context.branch_id,
+        branchRole: "staff",
+        platformRole: "tenant_user"
+      },
+      orderId: args.orderId
+    });
+  } catch (error) {
+    console.warn("[table-qr-ordering] kitchen print recovery failed", {
       orderId: args.orderId,
       requestId: args.requestId,
-      eventKey: result.eventKey,
-      message: result.message
+      message: error instanceof Error ? error.message : "kitchen_print_recovery_failed"
     });
   }
 }
@@ -508,15 +507,7 @@ export async function submitTableQrOrder(args: {
   if (!row) throw new Error("table_qr_order_failed");
 
   if (!row.duplicate_request) {
-    const { data: acceptedItems, error: acceptedItemsError } = await supabase
-      .from("order_items")
-      .select("id")
-      .eq("tenant_id", context.tenant_id)
-      .eq("branch_id", context.branch_id)
-      .eq("order_id", row.order_id);
-    if (!acceptedItemsError) {
-      await dispatchTableQrItemsToKitchen({ context, orderId: row.order_id, requestId, orderItemIds: (acceptedItems ?? []).map((item) => String(item.id)) });
-    }
+    await queueTableQrKitchenPrints({ context, orderId: row.order_id, requestId });
     invalidatePosBranchRuntimeCaches({ tenantId: context.tenant_id, branchId: context.branch_id });
   }
 
@@ -668,13 +659,14 @@ export async function updateTableQrOrderItems(args: {
 
   const { data: orderRow, error: orderError } = await supabase
     .from("orders")
-    .select("id,order_no,status,subtotal,discount_amount,gp_amount,tax_total,total_amount,grand_total,metadata")
+    .select("id,order_no,status,shift_id,discount_amount,gp_amount")
     .eq("tenant_id", context.tenant_id)
     .eq("branch_id", context.branch_id)
     .eq("id", context.table_session_order_id)
-    .maybeSingle<{ id: string; order_no: string; status: string; subtotal: number | null; discount_amount: number | null; gp_amount: number | null; tax_total: number | null; total_amount: number | null; grand_total: number | null; metadata: Record<string, unknown> | null }>();
+    .maybeSingle<{ id: string; order_no: string; status: string; shift_id: string | null; discount_amount: number | null; gp_amount: number | null }>();
   if (orderError) throw new Error(orderError.message);
   if (!orderRow) throw new Error("ORDER_NOT_FOUND");
+  if (!orderRow.shift_id) throw new Error("SHIFT_NOT_OPEN");
   if (["paid", "closed", "cleared", "cancelled", "completed"].includes(String(orderRow.status ?? "").toLowerCase())) {
     throw new Error("ORDER_NOT_APPENDABLE");
   }
@@ -698,104 +690,40 @@ export async function updateTableQrOrderItems(args: {
     }
   }
 
-  const orderItemsPayload = cleanItems.map((item) => {
+  const rpcItems = cleanItems.map((item) => {
     const product = productMap.get(item.product_id);
     const unitPrice = Number(product?.price ?? 0);
     return {
-      tenant_id: context.tenant_id,
-      branch_id: context.branch_id,
-      order_id: orderRow.id,
       product_id: item.product_id,
       quantity: item.quantity,
       unit_price: unitPrice,
-      line_total: round2(unitPrice * item.quantity),
-      notes: item.note
+      notes: item.note,
+      note: item.note
     };
   });
-  const subtotal = round2(orderItemsPayload.reduce((sum, item) => sum + item.line_total, 0));
+  const subtotal = round2(rpcItems.reduce((sum, item) => sum + round2(item.unit_price * item.quantity), 0));
   const discountAmount = Math.min(subtotal, Math.max(0, Number(orderRow.discount_amount ?? 0)));
   const gpAmount = Math.min(Math.max(0, subtotal - discountAmount), Math.max(0, Number(orderRow.gp_amount ?? 0)));
   const totals = await calculateQrOrderTotals({ context, subtotal, discountAmount, gpAmount, supabase });
 
-  const { data: oldItems, error: oldItemsError } = await supabase
-    .from("order_items")
-    .select("tenant_id,branch_id,order_id,product_id,quantity,unit_price,line_total,notes")
-    .eq("tenant_id", context.tenant_id)
-    .eq("branch_id", context.branch_id)
-    .eq("order_id", orderRow.id);
-  if (oldItemsError) throw new Error(oldItemsError.message);
-
-  const { error: deleteError } = await supabase
-    .from("order_items")
-    .delete()
-    .eq("tenant_id", context.tenant_id)
-    .eq("branch_id", context.branch_id)
-    .eq("order_id", orderRow.id);
-  if (deleteError) throw new Error(deleteError.message);
-
-  let insertedOrderItemIds: string[] = [];
-  if (orderItemsPayload.length > 0) {
-    const { data: insertedItems, error: insertError } = await supabase.from("order_items").insert(orderItemsPayload).select("id");
-    if (insertError) {
-      if ((oldItems ?? []).length > 0) await supabase.from("order_items").insert(oldItems);
-      throw new Error(insertError.message);
-    }
-    insertedOrderItemIds = (insertedItems ?? []).map((item) => String(item.id));
-  }
-
-  const updatedMetadata = {
-    ...(orderRow.metadata ?? {}),
-    tax_lines: totals.tax_lines,
-    last_table_qr_order_at: new Date().toISOString(),
-    last_table_qr_update: "replace_order"
-  };
-  const { error: updateOrderError } = await supabase
-    .from("orders")
-    .update({
-      subtotal: totals.subtotal,
-      discount_amount: discountAmount,
-      gp_amount: gpAmount,
-      tax_total: totals.tax_total,
-      total_amount: totals.grand_total,
-      grand_total: totals.grand_total,
-      metadata: updatedMetadata
-    })
-    .eq("tenant_id", context.tenant_id)
-    .eq("branch_id", context.branch_id)
-    .eq("id", orderRow.id);
-  if (updateOrderError) {
-    await supabase.from("order_items").delete().eq("tenant_id", context.tenant_id).eq("branch_id", context.branch_id).eq("order_id", orderRow.id);
-    if ((oldItems ?? []).length > 0) await supabase.from("order_items").insert(oldItems);
-    throw new Error(updateOrderError.message);
-  }
-
-  const { error: sessionStatusError } = await supabase
-    .from("table_bill_sessions")
-    .update({ status: "ordering" })
-    .eq("tenant_id", context.tenant_id)
-    .eq("branch_id", context.branch_id)
-    .eq("id", context.table_session_id);
-  if (sessionStatusError) {
-    console.warn("[table-qr-ordering] table bill session status update failed after bill update", {
-      tableSessionId: context.table_session_id,
-      orderId: orderRow.id,
-      message: sessionStatusError.message
-    });
-  }
-
-  const { error: tableStatusError } = await supabase
-    .from("dining_tables")
-    .update({ status: "ordering" })
-    .eq("tenant_id", context.tenant_id)
-    .eq("branch_id", context.branch_id)
-    .eq("id", context.table_id);
-  if (tableStatusError) {
-    console.warn("[table-qr-ordering] dining table status update failed after bill update", {
-      tableId: context.table_id,
-      orderId: orderRow.id,
-      message: tableStatusError.message
-    });
-  }
+  const { data: rpcData, error: rpcError } = await supabase.rpc("replace_queued_dine_in_order_tx", {
+    p_tenant_id: context.tenant_id,
+    p_branch_id: context.branch_id,
+    p_shift_id: orderRow.shift_id,
+    p_actor_user_id: context.created_by,
+    p_order_id: orderRow.id,
+    p_table_id: context.table_id,
+    p_items: rpcItems,
+    p_app_total_amount: totals.subtotal,
+    p_discount_amount: discountAmount,
+    p_gp_amount: gpAmount,
+    p_tax_total: totals.tax_total,
+    p_grand_total: totals.grand_total,
+    p_tax_lines: totals.tax_lines
+  });
+  if (rpcError) throw new Error(rpcError.message);
+  const updatedOrder = (Array.isArray(rpcData) ? rpcData[0] : rpcData) as { order_id: string; order_no: string; order_status: string; created_at: string; total_amount: number } | null;
+  if (!updatedOrder) throw new Error("TABLE_QR_ORDER_UPDATE_FAILED");
 
   const submissionId = randomUUID();
   const { error: eventError } = await supabase.from("table_qr_orders").insert({
@@ -805,7 +733,7 @@ export async function updateTableQrOrderItems(args: {
     table_id: context.table_id,
     table_session_id: context.table_session_id,
     qr_session_id: context.id,
-    order_id: orderRow.id,
+    order_id: updatedOrder.order_id,
     request_id: cleanRequestId,
     event_type: "order",
     item_count: cleanItems.reduce((sum, item) => sum + item.quantity, 0),
@@ -813,25 +741,24 @@ export async function updateTableQrOrderItems(args: {
     payload: {
       items: cleanItems,
       note: note?.trim() ? note.trim().slice(0, 500) : null,
-      update_type: "replace_order"
+      update_type: "replace_queued_dine_in_order_tx"
     }
   });
   if (eventError) {
     console.warn("[table-qr-ordering] table_qr_orders event insert failed after bill update", {
       tableSessionId: context.table_session_id,
-      orderId: orderRow.id,
+      orderId: updatedOrder.order_id,
       message: eventError.message
     });
   }
 
-  await dispatchTableQrItemsToKitchen({ context, orderId: orderRow.id, requestId: cleanRequestId, orderItemIds: insertedOrderItemIds });
-
+  await queueTableQrKitchenPrints({ context, orderId: updatedOrder.order_id, requestId: cleanRequestId });
   invalidatePosBranchRuntimeCaches({ tenantId: context.tenant_id, branchId: context.branch_id });
 
   return loadOrderTotalsForQrResult({
     context,
     submissionId,
-    orderId: orderRow.id,
+    orderId: updatedOrder.order_id,
     duplicateRequest: false,
     supabase
   });
