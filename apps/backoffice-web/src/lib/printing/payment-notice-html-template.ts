@@ -62,13 +62,33 @@ function dateTime(value: string) {
 export function renderPaymentNoticeHtml(input: PaymentNoticeHtmlInput) {
   const paper = input.paperWidthMm;
   const layout = paper === 58
-    ? { printableMm: 49, basePx: 12.75, titlePx: 16, grandPx: 17, qrMm: 36, logoMaxWidthMm: 30, qtyMm: 8.5, totalMm: 16.5 }
-    : { printableMm: 70, basePx: 13.5, titlePx: 19, grandPx: 19, qrMm: 48, logoMaxWidthMm: 42, qtyMm: 11, totalMm: 22 };
+    ? {
+        printableMm: 49,
+        basePx: 12.5,
+        titleMainPx: 15.75,
+        titleSubPx: 13.25,
+        grandPx: 16.5,
+        qrMm: 36,
+        logoMaxWidthMm: 34,
+        logoMaxHeightMm: 14,
+        qtyMm: 8.5,
+        totalMm: 16.5
+      }
+    : {
+        printableMm: 70,
+        basePx: 13.25,
+        titleMainPx: 18,
+        titleSubPx: 15.5,
+        grandPx: 18.5,
+        qrMm: 48,
+        logoMaxWidthMm: 48,
+        logoMaxHeightMm: 17,
+        qtyMm: 11,
+        totalMm: 22
+      };
   const logoUrl = clean(input.logoUrl) ?? DEFAULT_RECEIPT_LOGO_URL;
   const storeName = clean(input.storeName) ?? clean(input.branchName) ?? "CpIPOS";
   const tableLabel = clean(input.tableLabel);
-  const accountLabel = clean(input.accountLabel);
-  const promptPayLabel = clean(input.promptPayLabel);
   const subtotal = input.items.reduce((sum, item) => sum + Number(item.lineTotal ?? 0), 0);
   const itemRows = input.items.map((item) => `
     <tr>
@@ -87,26 +107,68 @@ export function renderPaymentNoticeHtml(input: PaymentNoticeHtmlInput) {
   <title>PAYMENT NOTICE - ${escapeHtml(input.orderNo)}</title>
   <style>
     @page { size: ${paper}mm auto; margin: 0; }
-    html, body { margin: 0; padding: 0; width: ${paper}mm; background: #fff; color: #000; font-family: "Noto Sans Thai", "Tahoma", "Segoe UI", sans-serif; }
-    * { box-sizing: border-box; }
-    .notice { --notice-paper-width-mm: ${paper}; --notice-printable-width-mm: ${layout.printableMm}; width: ${layout.printableMm}mm; margin: 0 auto; padding: 1.2mm 0 2mm; font-size: ${layout.basePx}px; line-height: 1.3; }
+    html, body {
+      margin: 0;
+      padding: 0;
+      width: ${paper}mm;
+      background: #fff;
+      color: #000;
+      font-family: "Noto Sans Thai", "Noto Sans", "Tahoma", "Segoe UI", sans-serif;
+      font-synthesis: none;
+      font-kerning: normal;
+      letter-spacing: 0;
+      word-spacing: 0;
+      text-rendering: optimizeLegibility;
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
+    }
+    * { box-sizing: border-box; letter-spacing: 0; word-spacing: 0; }
+    .notice {
+      --notice-paper-width-mm: ${paper};
+      --notice-printable-width-mm: ${layout.printableMm};
+      width: ${layout.printableMm}mm;
+      margin: 0 auto;
+      padding: .8mm 0 1.6mm;
+      font-size: ${layout.basePx}px;
+      line-height: 1.38;
+    }
     .center { text-align: center; }
-    .logo { max-width: ${layout.logoMaxWidthMm}mm; max-height: 12mm; object-fit: contain; }
-    .store { font-size: ${layout.titlePx}px; font-weight: 900; }
-    .muted { font-size: ${paper === 58 ? 11.5 : 12.5}px; font-weight: 700; color: #222; }
-    .title { margin: 1mm 0; padding: 1mm 0; border-top: 1px solid #000; border-bottom: 1px solid #000; font-size: ${layout.titlePx}px; font-weight: 900; }
-    .meta, .summary-line { display: flex; justify-content: space-between; gap: 1mm; margin: .55mm 0; }
-    table { width: 100%; table-layout: fixed; border-collapse: collapse; margin: 1mm 0; }
-    th { padding: .6mm 0; border-bottom: 1px solid #000; font-size: ${paper === 58 ? 10.75 : 11.5}px; text-align: left; }
-    td { padding: .6mm 0; vertical-align: top; }
-    .col-name { padding-right: 1mm; overflow-wrap: anywhere; }
+    .logo {
+      display: block;
+      width: auto;
+      max-width: ${layout.logoMaxWidthMm}mm;
+      max-height: ${layout.logoMaxHeightMm}mm;
+      margin: 0 auto .35mm;
+      object-fit: contain;
+    }
+    .store { font-size: ${paper === 58 ? 15.5 : 18}px; font-weight: 800; line-height: 1.25; }
+    .muted { font-size: ${paper === 58 ? 11.25 : 12.25}px; font-weight: 600; color: #111; line-height: 1.32; }
+    .title {
+      margin: .7mm 0 .8mm;
+      padding: .7mm 0 .65mm;
+      border-top: 1px solid #000;
+      border-bottom: 1px solid #000;
+      font-weight: 800;
+      line-height: 1.16;
+    }
+    .title-main { font-size: ${layout.titleMainPx}px; }
+    .title-sub { margin-top: .35mm; font-size: ${layout.titleSubPx}px; white-space: nowrap; }
+    .meta, .summary-line { display: flex; justify-content: space-between; align-items: baseline; gap: 1mm; margin: .42mm 0; }
+    .meta strong, .summary-line strong { font-weight: 700; }
+    table { width: 100%; table-layout: fixed; border-collapse: collapse; margin: .65mm 0; }
+    th { padding: .5mm 0; border-bottom: 1px solid #000; font-size: ${paper === 58 ? 10.5 : 11.25}px; font-weight: 700; text-align: left; }
+    td { padding: .5mm 0; vertical-align: top; }
+    .col-name { padding-right: 1mm; overflow-wrap: break-word; word-break: normal; line-break: auto; }
+    .col-name strong { font-weight: 700; }
     .col-qty { width: ${layout.qtyMm}mm; text-align: center; }
     .col-total { width: ${layout.totalMm}mm; text-align: right; white-space: nowrap; }
-    .unit, .foot { font-size: ${paper === 58 ? 10.75 : 11.5}px; }
-    .due { margin: 1mm 0; padding: 1mm 0; border-top: 1px solid #000; border-bottom: 1px solid #000; font-size: ${layout.grandPx}px; font-weight: 900; }
-    .qr { width: ${layout.qrMm}mm; height: ${layout.qrMm}mm; object-fit: contain; image-rendering: pixelated; }
-    .scan { font-weight: 900; margin-top: .8mm; }
-    .hr { border-top: 1px dashed #111; margin: 1.2mm 0; }
+    .unit, .foot { font-size: ${paper === 58 ? 10.5 : 11.25}px; line-height: 1.32; }
+    .due { margin: .7mm 0 0; padding: .8mm 0; border-top: 1px solid #000; border-bottom: 1px solid #000; font-size: ${layout.grandPx}px; font-weight: 800; }
+    .due strong { font-weight: 800; }
+    .qr-block { margin-top: -1.8mm; page-break-inside: avoid; break-inside: avoid; }
+    .qr { display: block; width: ${layout.qrMm}mm; height: ${layout.qrMm}mm; margin: 0 auto; object-fit: contain; image-rendering: pixelated; }
+    .scan { margin-top: -.7mm; font-weight: 700; }
+    .hr { border-top: 1px dashed #111; margin: .9mm 0; }
   </style>
 </head>
 <body>
@@ -116,7 +178,7 @@ export function renderPaymentNoticeHtml(input: PaymentNoticeHtmlInput) {
     ${input.storeAddress ? `<div class="center muted">${escapeHtml(input.storeAddress)}</div>` : ""}
     ${input.storePhone ? `<div class="center muted">${escapeHtml(input.storePhone)}</div>` : ""}
     <div class="center muted">${escapeHtml(input.branchName)}</div>
-    <div class="center title"><div>ใบแจ้งชำระเงิน</div><div>PAYMENT NOTICE / รอชำระ</div></div>
+    <div class="center title"><div class="title-main">ใบแจ้งชำระเงิน</div><div class="title-sub">PAYMENT NOTICE / รอชำระ</div></div>
     <div class="meta"><span>ผู้ขาย</span><strong>${escapeHtml(input.sellerName)}</strong></div>
     ${tableLabel ? `<div class="meta"><span>โต๊ะ</span><strong>${escapeHtml(tableLabel)}</strong></div>` : ""}
     <div class="meta"><span>เลขที่บิล</span><strong>${escapeHtml(input.orderNo)}</strong></div>
@@ -128,12 +190,12 @@ export function renderPaymentNoticeHtml(input: PaymentNoticeHtmlInput) {
     <div class="summary-line"><span>ส่วนลด</span><strong>฿${escapeHtml(money(input.discountAmount))}</strong></div>
     ${taxLine}
     <div class="summary-line"><span>ชำระโดย</span><strong>โอนเงิน</strong></div>
-    ${accountLabel ? `<div class="summary-line"><span>บัญชี</span><strong>${escapeHtml(accountLabel)}</strong></div>` : ""}
-    ${promptPayLabel ? `<div class="summary-line"><span>PromptPay</span><strong>${escapeHtml(promptPayLabel)}</strong></div>` : ""}
     <div class="summary-line due"><span>ยอดที่ต้องชำระ</span><strong>฿${escapeHtml(money(input.totalAmount))}</strong></div>
-    <div class="center"><img class="qr" src="${escapeHtml(input.qrDataUri)}" alt="Payment QR" /></div>
-    <div class="center scan">สแกน QR เพื่อชำระเงิน</div>
-    <div class="center due">฿${escapeHtml(money(input.totalAmount))}</div>
+    <div class="qr-block">
+      <div class="center"><img class="qr" src="${escapeHtml(input.qrDataUri)}" alt="Payment QR" /></div>
+      <div class="center scan">สแกน QR เพื่อชำระเงิน</div>
+      <div class="center due">฿${escapeHtml(money(input.totalAmount))}</div>
+    </div>
     <div class="hr"></div>
     <div class="center foot">ใบแจ้งนี้ใช้สำหรับชำระเงินเท่านั้น</div>
     <div class="center foot">ยังไม่ใช่ใบเสร็จรับเงิน</div>
