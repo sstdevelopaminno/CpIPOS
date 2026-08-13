@@ -56,6 +56,7 @@ internal class NativePrintTransport(context: Context) {
     private val usbManager = appContext.getSystemService(UsbManager::class.java)
     private val bluetoothManager = appContext.getSystemService(BluetoothManager::class.java)
     private val htmlRasterizer = HtmlReceiptRasterizer(appContext)
+    private val usbBindingPrefs = appContext.getSharedPreferences(USB_BINDING_PREFS, Context.MODE_PRIVATE)
 
     fun print(job: NativePrintJob): NativePrintResult {
         val mode = job.printer.metadata.optString("transport_mode", "").trim().lowercase()
@@ -137,7 +138,7 @@ internal class NativePrintTransport(context: Context) {
 
     private fun printUsb(printer: NativePrinterProfile, payload: ByteArray): NativePrintResult {
         val manager = usbManager ?: throw NativePrintException("usb_not_supported", false, "USB host is not available")
-        val target = findUsbTarget(printer.metadata)
+        val target = findUsbTarget(printer)
             ?: throw NativePrintException("usb_printer_not_found", true, "No USB ESC/POS printer is connected")
 
         if (!manager.hasPermission(target.device)) {
@@ -154,6 +155,10 @@ internal class NativePrintTransport(context: Context) {
                 "Android USB permission is required. Approve the printer permission dialog once."
             )
         }
+
+        // Once Android grants access we can persist the strongest available identity. This
+        // keeps identical VID/PID printers pinned to the same logical CpIPOS printer profile.
+        persistUsbBinding(printer.id, target.device)
 
         var connection: UsbDeviceConnection? = null
         try {
@@ -188,30 +193,150 @@ internal class NativePrintTransport(context: Context) {
         }
     }
 
-    private fun findUsbTarget(metadata: JSONObject): UsbTarget? {
+    /**
+     * Resolves one physical USB printer deterministically.
+     *
+     * Older builds returned the first device that matched VID/PID. Android is free to change
+     * enumeration order, so 3-4 identical printers could swap jobs. The resolver now supports
+     * explicit device/serial/index selectors and also persists an exclusive profile -> device
+     * binding. When several identical devices are present, an unbound profile is allocated the
+     * first unclaimed physical path in sorted order and that assignment is retained.
+     */
+    private fun findUsbTarget(printer: NativePrinterProfile): UsbTarget? {
         val manager = usbManager ?: return null
+        val metadata = printer.metadata
         val requiredVendorId = intOrNull(metadata, "usb_vendor_id")
         val requiredProductId = intOrNull(metadata, "usb_product_id")
+        val requiredDeviceId = intOrNull(metadata, "usb_device_id")
+        val requestedDeviceName = metadata.optString("usb_device_name", "").trim()
+        val requestedSerial = metadata.optString("usb_serial_number", metadata.optString("usb_serial", "")).trim()
+        val requestedIndex = intOrNull(metadata, "usb_device_index") ?: intOrNull(metadata, "usb_slot")
 
-        for (device in manager.deviceList.values) {
-            if (requiredVendorId != null && device.vendorId != requiredVendorId) continue
-            if (requiredProductId != null && device.productId != requiredProductId) continue
+        val candidates = manager.deviceList.values
+            .asSequence()
+            .filter { device -> requiredVendorId == null || device.vendorId == requiredVendorId }
+            .filter { device -> requiredProductId == null || device.productId == requiredProductId }
+            .filter { device -> requiredDeviceId == null || device.deviceId == requiredDeviceId }
+            .mapNotNull(::findPrintableUsbTarget)
+            .sortedWith(compareBy<UsbTarget>({ it.device.vendorId }, { it.device.productId }, { it.device.deviceName }, { it.device.deviceId }))
+            .toList()
 
-            var fallback: UsbTarget? = null
-            for (interfaceIndex in 0 until device.interfaceCount) {
-                val usbInterface = device.getInterface(interfaceIndex)
-                for (endpointIndex in 0 until usbInterface.endpointCount) {
-                    val endpoint = usbInterface.getEndpoint(endpointIndex)
-                    if (endpoint.direction != UsbConstants.USB_DIR_OUT) continue
-                    if (endpoint.type != UsbConstants.USB_ENDPOINT_XFER_BULK && endpoint.type != UsbConstants.USB_ENDPOINT_XFER_INT) continue
-                    val candidate = UsbTarget(device, usbInterface, endpoint)
-                    if (usbInterface.interfaceClass == UsbConstants.USB_CLASS_PRINTER) return candidate
-                    if (fallback == null) fallback = candidate
-                }
-            }
-            if (fallback != null) return fallback
+        if (candidates.isEmpty()) return null
+
+        if (requestedDeviceName.isNotEmpty()) {
+            return candidates.firstOrNull { it.device.deviceName == requestedDeviceName }
+                ?: throw NativePrintException("usb_printer_not_found", true, "Configured USB device path is not connected")
         }
-        return null
+
+        if (requestedSerial.isNotEmpty()) {
+            val serialMatch = candidates.firstOrNull { safeUsbSerial(manager, it.device)?.equals(requestedSerial, ignoreCase = true) == true }
+            return serialMatch
+                ?: throw NativePrintException("usb_printer_not_found", true, "Configured USB serial number is not connected or permission has not been granted")
+        }
+
+        if (requestedIndex != null) {
+            val normalizedIndex = if (requestedIndex > 0) requestedIndex - 1 else requestedIndex
+            return candidates.getOrNull(normalizedIndex)
+                ?: throw NativePrintException("usb_printer_not_found", true, "Configured USB slot is outside the connected printer range")
+        }
+
+        val savedBinding = readUsbBinding(printer.id)
+        if (savedBinding != null) {
+            val bound = candidates.firstOrNull { target -> bindingMatches(manager, savedBinding, target.device) }
+            if (bound != null) return bound
+            // Device path can legitimately change after a reboot/replug. Drop only this stale
+            // profile binding and allocate a currently unclaimed target below.
+            clearUsbBinding(printer.id)
+        }
+
+        if (candidates.size == 1) {
+            persistUsbBinding(printer.id, candidates.first().device)
+            return candidates.first()
+        }
+
+        val claimedBindings = usbBindingPrefs.all
+            .filterKeys { it.startsWith(USB_BINDING_KEY_PREFIX) && it != usbBindingKey(printer.id) }
+            .values
+            .mapNotNull { it as? String }
+            .toSet()
+
+        val unclaimed = candidates.firstOrNull { target ->
+            claimedBindings.none { binding -> bindingMatches(manager, binding, target.device) }
+        }
+        if (unclaimed != null) {
+            persistUsbBinding(printer.id, unclaimed.device)
+            return unclaimed
+        }
+
+        throw NativePrintException(
+            "usb_printer_ambiguous",
+            false,
+            "Multiple identical USB printers are connected and all physical targets are already bound. Reconnect/reset the intended printer binding or configure usb_device_name, usb_serial_number, or usb_slot."
+        )
+    }
+
+    private fun findPrintableUsbTarget(device: UsbDevice): UsbTarget? {
+        var fallback: UsbTarget? = null
+        for (interfaceIndex in 0 until device.interfaceCount) {
+            val usbInterface = device.getInterface(interfaceIndex)
+            for (endpointIndex in 0 until usbInterface.endpointCount) {
+                val endpoint = usbInterface.getEndpoint(endpointIndex)
+                if (endpoint.direction != UsbConstants.USB_DIR_OUT) continue
+                if (endpoint.type != UsbConstants.USB_ENDPOINT_XFER_BULK && endpoint.type != UsbConstants.USB_ENDPOINT_XFER_INT) continue
+                val candidate = UsbTarget(device, usbInterface, endpoint)
+                if (usbInterface.interfaceClass == UsbConstants.USB_CLASS_PRINTER) return candidate
+                if (fallback == null) fallback = candidate
+            }
+        }
+        return fallback
+    }
+
+    private fun usbBindingKey(printerId: String) = "$USB_BINDING_KEY_PREFIX${printerId.ifBlank { "unknown" }}"
+
+    private fun readUsbBinding(printerId: String): String? =
+        usbBindingPrefs.getString(usbBindingKey(printerId), null)?.trim()?.takeIf { it.isNotEmpty() }
+
+    private fun clearUsbBinding(printerId: String) {
+        usbBindingPrefs.edit().remove(usbBindingKey(printerId)).apply()
+    }
+
+    private fun persistUsbBinding(printerId: String, device: UsbDevice) {
+        if (printerId.isBlank()) return
+        val manager = usbManager
+        val serial = if (manager != null) safeUsbSerial(manager, device) else null
+        val binding = if (!serial.isNullOrBlank()) {
+            "serial:${device.vendorId}:${device.productId}:$serial"
+        } else {
+            "path:${device.vendorId}:${device.productId}:${device.deviceName}"
+        }
+        usbBindingPrefs.edit().putString(usbBindingKey(printerId), binding).apply()
+    }
+
+    private fun bindingMatches(manager: UsbManager, binding: String, device: UsbDevice): Boolean {
+        if (binding.startsWith("serial:")) {
+            val parts = binding.split(":", limit = 4)
+            if (parts.size != 4) return false
+            val vendorId = parts[1].toIntOrNull() ?: return false
+            val productId = parts[2].toIntOrNull() ?: return false
+            val serial = parts[3]
+            return device.vendorId == vendorId &&
+                device.productId == productId &&
+                safeUsbSerial(manager, device)?.equals(serial, ignoreCase = true) == true
+        }
+        if (binding.startsWith("path:")) {
+            val parts = binding.split(":", limit = 4)
+            if (parts.size != 4) return false
+            val vendorId = parts[1].toIntOrNull() ?: return false
+            val productId = parts[2].toIntOrNull() ?: return false
+            val deviceName = parts[3]
+            return device.vendorId == vendorId && device.productId == productId && device.deviceName == deviceName
+        }
+        return false
+    }
+
+    private fun safeUsbSerial(manager: UsbManager, device: UsbDevice): String? {
+        if (!manager.hasPermission(device)) return null
+        return runCatching { device.serialNumber?.trim()?.takeIf { it.isNotEmpty() } }.getOrNull()
     }
 
     @Suppress("DEPRECATION")
@@ -274,6 +399,8 @@ internal class NativePrintTransport(context: Context) {
 
     companion object {
         private const val USB_PERMISSION_ACTION = "com.cpipos.pos.USB_PRINTER_PERMISSION"
+        private const val USB_BINDING_PREFS = "cpipos_usb_printer_binding_v2"
+        private const val USB_BINDING_KEY_PREFIX = "profile:"
         private val SPP_UUID: UUID = UUID.fromString("00001101-0000-1000-8000-00805F9B34FB")
     }
 }
