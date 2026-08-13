@@ -118,6 +118,11 @@ export function KitchenManagement({ lang }: { lang: Language }) {
     void load();
   }, []);
 
+  function closeDrawer() {
+    if (saving) return;
+    setDrawerOpen(false);
+  }
+
   function openAddZone() {
     setForm(emptyForm);
     setError(null);
@@ -153,6 +158,18 @@ export function KitchenManagement({ lang }: { lang: Language }) {
   }
 
   async function saveZone() {
+    if (saving) return;
+    const zoneName = form.zone_name.trim();
+    const zoneCode = form.zone_code.trim().toUpperCase();
+    if (!zoneName) {
+      setError(text(lang, "กรุณาระบุชื่อโซนครัว", "Zone name is required"));
+      return;
+    }
+    if (!/^[A-Z0-9_-]{1,32}$/.test(zoneCode)) {
+      setError(text(lang, "รหัสโซนใช้ได้เฉพาะ A-Z, 0-9, _ และ - สูงสุด 32 ตัวอักษร", "Zone code must use A-Z, 0-9, _ or - (max 32 characters)"));
+      return;
+    }
+
     setSaving(true);
     setError(null);
     try {
@@ -162,6 +179,8 @@ export function KitchenManagement({ lang }: { lang: Language }) {
         body: JSON.stringify({
           action: "zone.upsert",
           ...form,
+          zone_name: zoneName,
+          zone_code: zoneCode,
           default_printer_id: form.default_printer_id || null
         })
       });
@@ -169,7 +188,7 @@ export function KitchenManagement({ lang }: { lang: Language }) {
       if (!response.ok) throw new Error(body?.error?.message ?? "Kitchen zone save failed");
       setForm(emptyForm);
       setDrawerOpen(false);
-      setMessage(text(lang, "เธเธฑเธเธ—เธถเธเนเธเธเธเธฃเธฑเธงเธชเธณเน€เธฃเนเธ", "Kitchen zone saved"));
+      setMessage(text(lang, "บันทึกโซนครัวสำเร็จ", "Kitchen zone saved"));
       await load();
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : "Kitchen zone save failed");
@@ -179,6 +198,7 @@ export function KitchenManagement({ lang }: { lang: Language }) {
   }
 
   async function disableZone(zone: Zone) {
+    if (saving) return;
     setSaving(true);
     setError(null);
     try {
@@ -189,7 +209,7 @@ export function KitchenManagement({ lang }: { lang: Language }) {
       });
       const body = await response.json().catch(() => null);
       if (!response.ok) throw new Error(body?.error?.message ?? "Kitchen zone disable failed");
-      setMessage(text(lang, "เธเธดเธ”เนเธเนเธเธฒเธเนเธเธเธเธฃเธฑเธงเนเธฅเนเธง", "Kitchen zone disabled"));
+      setMessage(text(lang, "ปิดใช้งานโซนครัวแล้ว", "Kitchen zone disabled"));
       await load();
     } catch (disableError) {
       setError(disableError instanceof Error ? disableError.message : "Kitchen zone disable failed");
@@ -199,6 +219,7 @@ export function KitchenManagement({ lang }: { lang: Language }) {
   }
 
   async function rotateCode(zone: Zone) {
+    if (saving) return;
     setSaving(true);
     setError(null);
     try {
@@ -209,7 +230,7 @@ export function KitchenManagement({ lang }: { lang: Language }) {
       });
       const body = await response.json().catch(() => null);
       if (!response.ok) throw new Error(body?.error?.message ?? "Access code rotation failed");
-      setMessage(text(lang, "เน€เธเธฅเธตเนเธขเธ Kitchen ID เนเธฅเนเธง", "Kitchen ID rotated"));
+      setMessage(text(lang, "เปลี่ยน Kitchen ID แล้ว", "Kitchen ID rotated"));
       await load();
     } catch (rotateError) {
       setError(rotateError instanceof Error ? rotateError.message : "Access code rotation failed");
@@ -223,20 +244,20 @@ export function KitchenManagement({ lang }: { lang: Language }) {
       <div className="mx-auto flex h-full min-h-0 w-full max-w-7xl flex-col gap-4 overflow-hidden p-3 sm:p-5">
         <header className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-b border-slate-200 bg-white px-4 py-3">
           <div>
-            <Link href="/preview/pos/more" className="text-sm font-bold text-slate-500">&lt; {text(lang, "เธเธฅเธฑเธเน€เธกเธเธนเน€เธเธดเนเธกเน€เธ•เธดเธก", "Back to More")}</Link>
-            <h1 className="mt-1 text-2xl font-black">{text(lang, "เธเธฑเธ”เธเธฒเธฃเธเธฃเธฑเธง", "Kitchen Management")}</h1>
+            <Link href="/preview/pos/more" className="text-sm font-bold text-slate-500">&lt; {text(lang, "กลับเมนูเพิ่มเติม", "Back to More")}</Link>
+            <h1 className="mt-1 text-2xl font-black">{text(lang, "จัดการครัว", "Kitchen Management")}</h1>
           </div>
           <button type="button" onClick={openAddZone} className="rounded-md bg-blue-600 px-4 py-2 text-sm font-black text-white">
-            + {text(lang, "เน€เธเธดเนเธกเนเธเธเธเธฃเธฑเธง", "Add Kitchen Zone")}
+            + {text(lang, "เพิ่มโซนครัว", "Add Kitchen Zone")}
           </button>
         </header>
 
         <section className="grid shrink-0 gap-3 sm:grid-cols-2 xl:grid-cols-4">
           {[
-            [text(lang, "เนเธเธเธเธฃเธฑเธงเธ—เธฑเนเธเธซเธกเธ”", "Total zones"), kpi.total],
-            [text(lang, "เน€เธเธดเธ”เนเธเนเธเธฒเธ", "Active"), kpi.active],
-            [text(lang, "เธเธดเธ”เนเธเนเธเธฒเธ", "Inactive"), kpi.inactive],
-            [text(lang, "เน€เธเธดเธ”เธฃเธฐเธเธเธเธญเธเธฃเธฑเธง", "KDS enabled"), kpi.kds]
+            [text(lang, "โซนครัวทั้งหมด", "Total zones"), kpi.total],
+            [text(lang, "เปิดใช้งาน", "Active"), kpi.active],
+            [text(lang, "ปิดใช้งาน", "Inactive"), kpi.inactive],
+            [text(lang, "เปิดระบบจอครัว", "KDS enabled"), kpi.kds]
           ].map(([label, value]) => (
             <div key={label} className="border border-slate-200 bg-white px-4 py-3">
               <div className="text-xs font-bold text-slate-500">{label}</div>
@@ -245,23 +266,23 @@ export function KitchenManagement({ lang }: { lang: Language }) {
           ))}
         </section>
 
-        {error ? <div className="shrink-0 border border-red-200 bg-red-50 px-4 py-2 text-sm font-bold text-red-700">{error}</div> : null}
+        {error ? <div className="shrink-0 border border-red-200 bg-red-50 px-4 py-2 text-sm font-bold text-red-700" role="alert">{error}</div> : null}
 
         <section className="min-h-0 flex-1 overflow-hidden border border-slate-200 bg-white">
           <div className="h-full overflow-auto">
             <table className="min-w-[980px] w-full border-collapse text-sm">
               <thead className="sticky top-0 z-10 bg-slate-100 text-left text-xs uppercase text-slate-500">
                 <tr>
-                  {["Kitchen ID", text(lang, "เธเธทเนเธญเนเธเธ", "Zone"), text(lang, "เธฃเธซเธฑเธชเนเธเธ", "Code"), text(lang, "เธซเธกเธงเธ”เธซเธกเธนเนเธญเธฒเธซเธฒเธฃ", "Categories"), "KDS", text(lang, "เน€เธเธฃเธทเนเธญเธเธเธดเธกเธเน", "Printer"), text(lang, "เธชเธ–เธฒเธเธฐ", "Status"), text(lang, "เนเธเนเนเธ", "Edit"), text(lang, "เธฅเธ/เธเธดเธ”เนเธเนเธเธฒเธ", "Disable")].map((head) => (
+                  {["Kitchen ID", text(lang, "ชื่อโซน", "Zone"), text(lang, "รหัสโซน", "Code"), text(lang, "หมวดหมู่อาหาร", "Categories"), "KDS", text(lang, "เครื่องพิมพ์", "Printer"), text(lang, "สถานะ", "Status"), text(lang, "แก้ไข", "Edit"), text(lang, "ลบ/ปิดใช้งาน", "Disable")].map((head) => (
                     <th key={head} className="border-b border-slate-200 px-3 py-2 font-black">{head}</th>
                   ))}
                 </tr>
               </thead>
               <tbody>
                 {loading ? (
-                  <tr><td colSpan={9} className="px-3 py-12 text-center font-bold text-slate-500">{text(lang, "เธเธณเธฅเธฑเธเนเธซเธฅเธ”...", "Loading...")}</td></tr>
+                  <tr><td colSpan={9} className="px-3 py-12 text-center font-bold text-slate-500">{text(lang, "กำลังโหลด...", "Loading...")}</td></tr>
                 ) : (config?.zones ?? []).length === 0 ? (
-                  <tr><td colSpan={9} className="px-3 py-12 text-center font-bold text-slate-500">{text(lang, "เธขเธฑเธเนเธกเนเธกเธตเนเธเธเธเธฃเธฑเธง", "No kitchen zones")}</td></tr>
+                  <tr><td colSpan={9} className="px-3 py-12 text-center font-bold text-slate-500">{text(lang, "ยังไม่มีโซนครัว", "No kitchen zones")}</td></tr>
                 ) : (config?.zones ?? []).map((zone) => {
                   const printer = config?.kitchen_printers.find((item) => item.id === zone.default_printer_id);
                   return (
@@ -272,12 +293,12 @@ export function KitchenManagement({ lang }: { lang: Language }) {
                       <td className="px-3 py-3">{(categoriesByZone.get(zone.id) ?? []).join(", ") || "-"}</td>
                       <td className="px-3 py-3">{zone.kds_enabled ? "ON" : "OFF"}</td>
                       <td className="px-3 py-3">{printer ? `${printer.printer_name} (${printer.paper_width_mm}mm)` : "-"}</td>
-                      <td className="px-3 py-3">{zone.is_active ? text(lang, "เน€เธเธดเธ”", "Active") : text(lang, "เธเธดเธ”", "Inactive")}</td>
-                      <td className="px-3 py-3"><button type="button" onClick={() => editZone(zone)} className="rounded-md border border-slate-300 px-3 py-1.5 font-bold">{text(lang, "เนเธเนเนเธ", "Edit")}</button></td>
+                      <td className="px-3 py-3">{zone.is_active ? text(lang, "เปิด", "Active") : text(lang, "ปิด", "Inactive")}</td>
+                      <td className="px-3 py-3"><button type="button" onClick={() => editZone(zone)} className="rounded-md border border-slate-300 px-3 py-1.5 font-bold">{text(lang, "แก้ไข", "Edit")}</button></td>
                       <td className="px-3 py-3">
                         <div className="flex gap-2">
-                          <button type="button" onClick={() => rotateCode(zone)} disabled={saving} className="rounded-md border border-slate-300 px-3 py-1.5 font-bold disabled:opacity-50">ID</button>
-                          <button type="button" onClick={() => disableZone(zone)} disabled={saving || !zone.is_active} className="rounded-md border border-red-200 px-3 py-1.5 font-bold text-red-700 disabled:opacity-50">{text(lang, "เธเธดเธ”", "Disable")}</button>
+                          <button type="button" onClick={() => void rotateCode(zone)} disabled={saving} className="rounded-md border border-slate-300 px-3 py-1.5 font-bold disabled:opacity-50">ID</button>
+                          <button type="button" onClick={() => void disableZone(zone)} disabled={saving || !zone.is_active} className="rounded-md border border-red-200 px-3 py-1.5 font-bold text-red-700 disabled:opacity-50">{text(lang, "ปิด", "Disable")}</button>
                         </div>
                       </td>
                     </tr>
@@ -290,51 +311,55 @@ export function KitchenManagement({ lang }: { lang: Language }) {
       </div>
 
       {message ? (
-        <div className="fixed right-4 top-4 z-50 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-black text-emerald-700 shadow-lg" role="status">
+        <div className="fixed right-4 top-4 z-[60] rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-black text-emerald-700 shadow-lg" role="status">
           {message}
         </div>
       ) : null}
 
-      {drawerOpen ? <button type="button" aria-label="Close Kitchen form" onClick={() => setDrawerOpen(false)} className="fixed inset-0 z-40 bg-slate-950/35" /> : null}
-      <aside className={`fixed inset-y-0 right-0 z-50 flex w-full max-w-md transform flex-col border-l border-slate-200 bg-white shadow-2xl transition-transform duration-200 ${drawerOpen ? "translate-x-0" : "translate-x-full"}`} aria-hidden={!drawerOpen}>
-        <header className="flex shrink-0 items-center justify-between gap-3 border-b border-slate-200 px-5 py-4">
-          <h2 className="text-lg font-black">{form.zone_id ? text(lang, "เนเธเนเนเธเนเธเธเธเธฃเธฑเธง", "Edit Kitchen Zone") : text(lang, "เน€เธเธดเนเธกเนเธเธเธเธฃเธฑเธง", "Add Kitchen Zone")}</h2>
-          <button type="button" onClick={() => setDrawerOpen(false)} className="rounded-md border border-slate-300 px-3 py-1.5 text-sm font-black">เธเธดเธ”</button>
-        </header>
-        <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
-          <div className="grid gap-3">
-            <label className="grid gap-1 text-sm font-bold">{text(lang, "เธเธทเนเธญเนเธเธเธเธฃเธฑเธง", "Zone name")}<input className="rounded-md border border-slate-300 px-3 py-2" value={form.zone_name} onChange={(e) => setForm({ ...form, zone_name: e.target.value })} /></label>
-            <label className="grid gap-1 text-sm font-bold">zone_code<input className="rounded-md border border-slate-300 px-3 py-2 uppercase" value={form.zone_code} onChange={(e) => setForm({ ...form, zone_code: e.target.value })} /></label>
-            <label className="grid gap-1 text-sm font-bold">{text(lang, "เธเธณเธญเธเธดเธเธฒเธข", "Description")}<input className="rounded-md border border-slate-300 px-3 py-2" value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} /></label>
-            <label className="grid gap-1 text-sm font-bold">{text(lang, "เน€เธเธฃเธทเนเธญเธเธเธดเธกเธเนเธซเธฅเธฑเธ", "Default printer")}
-              <select className="rounded-md border border-slate-300 px-3 py-2" value={form.default_printer_id} onChange={(e) => setForm({ ...form, default_printer_id: e.target.value })}>
-                <option value="">-</option>
-                {(config?.kitchen_printers ?? []).map((printer) => <option key={printer.id} value={printer.id}>{printer.printer_name} ({printer.paper_width_mm}mm)</option>)}
-              </select>
-            </label>
-            <label className="grid gap-1 text-sm font-bold">{text(lang, "เธฅเธณเธ”เธฑเธเนเธชเธ”เธเธเธฅ", "Display order")}<input type="number" className="rounded-md border border-slate-300 px-3 py-2" value={form.display_order} onChange={(e) => setForm({ ...form, display_order: Number(e.target.value) || 0 })} /></label>
-            <div className="grid gap-2">
-              <span className="text-sm font-black">{text(lang, "เธซเธกเธงเธ”เธซเธกเธนเนเธญเธฒเธซเธฒเธฃ", "Categories")}</span>
-              <div className="grid max-h-52 gap-2 overflow-auto border border-slate-200 p-2">
-                {(config?.categories ?? []).length === 0 ? <span className="text-sm font-semibold text-slate-400">-</span> : null}
-                {(config?.categories ?? []).map((category) => (
-                  <label key={category} className="flex items-center gap-2 text-sm font-semibold">
-                    <input type="checkbox" checked={form.category_names.includes(category)} onChange={() => toggleCategory(category)} />
-                    <span>{category}</span>
-                  </label>
-                ))}
+      {drawerOpen ? (
+        <>
+          <button type="button" aria-label={text(lang, "ปิดฟอร์มจัดการครัว", "Close Kitchen form")} onClick={closeDrawer} className="fixed inset-0 z-40 bg-slate-950/35" />
+          <aside className="fixed inset-y-0 right-0 z-50 flex w-full max-w-md flex-col border-l border-slate-200 bg-white shadow-2xl" role="dialog" aria-modal="true" aria-label={form.zone_id ? text(lang, "แก้ไขโซนครัว", "Edit Kitchen Zone") : text(lang, "เพิ่มโซนครัว", "Add Kitchen Zone")}>
+            <header className="flex shrink-0 items-center justify-between gap-3 border-b border-slate-200 px-5 py-4">
+              <h2 className="text-lg font-black">{form.zone_id ? text(lang, "แก้ไขโซนครัว", "Edit Kitchen Zone") : text(lang, "เพิ่มโซนครัว", "Add Kitchen Zone")}</h2>
+              <button type="button" onClick={closeDrawer} disabled={saving} className="rounded-md border border-slate-300 px-3 py-1.5 text-sm font-black disabled:opacity-50">{text(lang, "ปิด", "Close")}</button>
+            </header>
+            <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
+              <div className="grid gap-3">
+                <label className="grid gap-1 text-sm font-bold">{text(lang, "ชื่อโซนครัว", "Zone name")}<input className="rounded-md border border-slate-300 px-3 py-2" value={form.zone_name} onChange={(e) => setForm({ ...form, zone_name: e.target.value })} /></label>
+                <label className="grid gap-1 text-sm font-bold">{text(lang, "รหัสโซน", "Zone code")}<input className="rounded-md border border-slate-300 px-3 py-2 uppercase" value={form.zone_code} maxLength={32} onChange={(e) => setForm({ ...form, zone_code: e.target.value.toUpperCase() })} /></label>
+                <label className="grid gap-1 text-sm font-bold">{text(lang, "คำอธิบาย", "Description")}<input className="rounded-md border border-slate-300 px-3 py-2" value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} /></label>
+                <label className="grid gap-1 text-sm font-bold">{text(lang, "เครื่องพิมพ์หลัก", "Default printer")}
+                  <select className="rounded-md border border-slate-300 px-3 py-2" value={form.default_printer_id} onChange={(e) => setForm({ ...form, default_printer_id: e.target.value })}>
+                    <option value="">-</option>
+                    {(config?.kitchen_printers ?? []).filter((printer) => printer.enabled).map((printer) => <option key={printer.id} value={printer.id}>{printer.printer_name} ({printer.paper_width_mm}mm)</option>)}
+                  </select>
+                </label>
+                <label className="grid gap-1 text-sm font-bold">{text(lang, "ลำดับแสดงผล", "Display order")}<input type="number" className="rounded-md border border-slate-300 px-3 py-2" value={form.display_order} onChange={(e) => setForm({ ...form, display_order: Number(e.target.value) || 0 })} /></label>
+                <div className="grid gap-2">
+                  <span className="text-sm font-black">{text(lang, "หมวดหมู่อาหาร", "Categories")}</span>
+                  <div className="grid max-h-52 gap-2 overflow-auto border border-slate-200 p-2">
+                    {(config?.categories ?? []).length === 0 ? <span className="text-sm font-semibold text-slate-400">-</span> : null}
+                    {(config?.categories ?? []).map((category) => (
+                      <label key={category} className="flex items-center gap-2 text-sm font-semibold">
+                        <input type="checkbox" checked={form.category_names.includes(category)} onChange={() => toggleCategory(category)} />
+                        <span>{category}</span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+                <label className="flex items-center gap-2 text-sm font-bold"><input type="checkbox" checked={form.kds_enabled} onChange={(e) => setForm({ ...form, kds_enabled: e.target.checked })} />{text(lang, "เปิดระบบจอครัว", "KDS enabled")}</label>
+                <label className="flex items-center gap-2 text-sm font-bold"><input type="checkbox" checked={form.is_active} onChange={(e) => setForm({ ...form, is_active: e.target.checked })} />{text(lang, "เปิดใช้งานโซน", "Zone active")}</label>
               </div>
             </div>
-            <label className="flex items-center gap-2 text-sm font-bold"><input type="checkbox" checked={form.kds_enabled} onChange={(e) => setForm({ ...form, kds_enabled: e.target.checked })} />{text(lang, "เน€เธเธดเธ”เธฃเธฐเธเธเธเธญเธเธฃเธฑเธง", "KDS enabled")}</label>
-            <label className="flex items-center gap-2 text-sm font-bold"><input type="checkbox" checked={form.is_active} onChange={(e) => setForm({ ...form, is_active: e.target.checked })} />{text(lang, "เน€เธเธดเธ”เนเธเนเธเธฒเธ zone", "Zone active")}</label>
-          </div>
-        </div>
-        <footer className="shrink-0 border-t border-slate-200 p-5">
-          <button type="button" onClick={() => void saveZone()} disabled={saving || !form.zone_name.trim() || !form.zone_code.trim()} className="w-full rounded-md bg-blue-600 px-4 py-3 text-sm font-black text-white disabled:opacity-50">
-            {saving ? text(lang, "เธเธณเธฅเธฑเธเธเธฑเธเธ—เธถเธ...", "Saving...") : text(lang, "เธเธฑเธเธ—เธถเธ", "Save")}
-          </button>
-        </footer>
-      </aside>
+            <footer className="shrink-0 border-t border-slate-200 p-5">
+              <button type="button" onClick={() => void saveZone()} disabled={saving || !form.zone_name.trim() || !form.zone_code.trim()} className="w-full rounded-md bg-blue-600 px-4 py-3 text-sm font-black text-white disabled:opacity-50">
+                {saving ? text(lang, "กำลังบันทึก...", "Saving...") : text(lang, "บันทึก", "Save")}
+              </button>
+            </footer>
+          </aside>
+        </>
+      ) : null}
     </main>
   );
 }
