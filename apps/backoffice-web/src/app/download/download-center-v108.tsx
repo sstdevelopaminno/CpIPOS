@@ -1,6 +1,7 @@
 "use client";
 
-const ANDROID_POS_108_URL = "/download/android/latest";
+const ANDROID_POS_108_URL =
+  "https://github.com/sstdevelopaminno/CpIPOS/releases/download/android-runtime-latest/CpIPOS-Android-POS-1.0.8.apk";
 
 const apps = [
   {
