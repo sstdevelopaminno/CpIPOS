@@ -1,5 +1,7 @@
+import { cookies } from "next/headers";
 import { fail, ok } from "@/lib/http";
 import { getPosApiAuthContext } from "@/lib/pos-api-auth";
+import { readKitchenZoneSession } from "@/lib/server/kitchen-zone-session";
 import {
   KitchenQueueError,
   loadKitchenQueue,
@@ -16,7 +18,15 @@ export async function GET(req: Request) {
       .map((value) => value.trim())
       .filter(Boolean);
     const statuses = statusParams.length > 0 ? parseKitchenStatuses(statusParams) : undefined;
-    const zoneId = searchParams.get("zone_id")?.trim() || null;
+    const requestedZoneId = searchParams.get("zone_id")?.trim() || null;
+    const zoneSession = readKitchenZoneSession(await cookies(), { tenantId: auth.tenantId!, branchId: auth.branchId! });
+    if (!zoneSession) {
+      return fail("kitchen_zone_session_required", "Kitchen display must be unlocked before loading a zone queue.", 403);
+    }
+    if (requestedZoneId && requestedZoneId !== zoneSession.kitchen_zone_id) {
+      return fail("kitchen_zone_unlock_mismatch", "Kitchen display is unlocked to a different zone.", 403);
+    }
+    const zoneId = zoneSession.kitchen_zone_id;
     const rawLimit = Number(searchParams.get("limit") ?? 60);
     const limit = Number.isFinite(rawLimit) ? Math.trunc(rawLimit) : 60;
 

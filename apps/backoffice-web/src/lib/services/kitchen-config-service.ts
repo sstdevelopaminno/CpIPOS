@@ -21,8 +21,12 @@ type ZoneUpsertInput = {
   zone_id?: string | null;
   zone_code: string;
   zone_name: string;
+  description?: string | null;
   display_order?: number;
   is_active?: boolean;
+  kds_enabled?: boolean;
+  default_printer_id?: string | null;
+  category_names?: string[];
 };
 
 type ZonePrinterInput = {
@@ -36,6 +40,11 @@ type ZoneDisableInput = {
   zone_id: string;
 };
 
+type ZoneRotateCodeInput = {
+  action: "zone.rotate_access_code";
+  zone_id: string;
+};
+
 type RoutesReplaceInput = {
   action: "routes.replace";
   scope_type: "product" | "category" | "default";
@@ -44,13 +53,17 @@ type RoutesReplaceInput = {
   category_name?: string | null;
 };
 
-export type KitchenConfigMutation = ZoneUpsertInput | ZonePrinterInput | ZoneDisableInput | RoutesReplaceInput;
+export type KitchenConfigMutation = ZoneUpsertInput | ZonePrinterInput | ZoneDisableInput | ZoneRotateCodeInput | RoutesReplaceInput;
 
 function requireScope(auth: AuthContext) {
   if (!auth.tenantId || !auth.branchId) {
     throw new KitchenConfigError("missing_scope", "Tenant and branch scope are required.", 401);
   }
   return { tenantId: auth.tenantId, branchId: auth.branchId };
+}
+
+function auditRole(auth: AuthContext) {
+  return (auth.branchRole ?? auth.platformRole ?? "staff") as "owner" | "manager" | "staff" | "accountant";
 }
 
 export function assertKitchenManager(auth: AuthContext) {
@@ -81,6 +94,10 @@ function uniqueIds(values: string[]) {
   return Array.from(new Set(values.map((value) => value.trim()).filter(Boolean)));
 }
 
+function uniqueCategories(values: string[] | undefined) {
+  return Array.from(new Set((values ?? []).map((value) => value.trim()).filter(Boolean)));
+}
+
 async function requireKitchenPrinter(args: { tenantId: string; branchId: string; printerId: string }) {
   const supabase = getSupabaseServiceClient();
   const { data, error } = await supabase
@@ -93,12 +110,8 @@ async function requireKitchenPrinter(args: { tenantId: string; branchId: string;
     .eq("enabled", true)
     .maybeSingle();
 
-  if (error) {
-    throw new KitchenConfigError("printer_query_failed", error.message, 500);
-  }
-  if (!data) {
-    throw new KitchenConfigError("invalid_kitchen_printer", "The selected printer is not an enabled Kitchen printer in this branch.", 422);
-  }
+  if (error) throw new KitchenConfigError("printer_query_failed", error.message, 500);
+  if (!data) throw new KitchenConfigError("invalid_kitchen_printer", "The selected printer is not an enabled Kitchen printer in this branch.", 422);
   return data;
 }
 
@@ -139,6 +152,46 @@ async function syncZonePrinterAssignment(args: { tenantId: string; branchId: str
   if (assignmentError) throw new KitchenConfigError("kitchen_printer_assignment_sync_failed", assignmentError.message, 500);
 }
 
+async function replaceCategoryRoute(args: { tenantId: string; branchId: string; categoryName: string; zoneIds: string[]; actorUserId: string }) {
+  const supabase = getSupabaseServiceClient();
+  const { error } = await supabase.rpc("replace_kitchen_routes", {
+    p_tenant_id: args.tenantId,
+    p_branch_id: args.branchId,
+    p_scope_type: "category",
+    p_zone_ids: args.zoneIds,
+    p_product_id: null,
+    p_category_name: args.categoryName,
+    p_actor_user_id: args.actorUserId
+  });
+  if (error) throw new KitchenConfigError("kitchen_routes_replace_failed", error.message, 500);
+}
+
+async function syncZoneCategories(args: { tenantId: string; branchId: string; zoneId: string; categoryNames: string[]; actorUserId: string }) {
+  const supabase = getSupabaseServiceClient();
+  const desired = uniqueCategories(args.categoryNames);
+  const { data: currentRows, error } = await supabase
+    .from("kitchen_routing_rules")
+    .select("category_name")
+    .eq("tenant_id", args.tenantId)
+    .eq("branch_id", args.branchId)
+    .eq("zone_id", args.zoneId)
+    .eq("is_active", true)
+    .is("product_id", null)
+    .not("category_name", "is", null);
+  if (error) throw new KitchenConfigError("kitchen_routes_query_failed", error.message, 500);
+
+  const current = uniqueCategories((currentRows ?? []).map((row) => String(row.category_name ?? "")));
+  const desiredSet = new Set(desired.map((category) => category.toLowerCase()));
+  for (const category of current) {
+    if (!desiredSet.has(category.toLowerCase())) {
+      await replaceCategoryRoute({ tenantId: args.tenantId, branchId: args.branchId, categoryName: category, zoneIds: [], actorUserId: args.actorUserId });
+    }
+  }
+  for (const category of desired) {
+    await replaceCategoryRoute({ tenantId: args.tenantId, branchId: args.branchId, categoryName: category, zoneIds: [args.zoneId], actorUserId: args.actorUserId });
+  }
+}
+
 export async function loadKitchenConfiguration(auth: AuthContext) {
   assertKitchenManager(auth);
   const { tenantId, branchId } = requireScope(auth);
@@ -147,7 +200,7 @@ export async function loadKitchenConfiguration(auth: AuthContext) {
   const [zonesResult, rulesResult, printersResult, productsResult] = await Promise.all([
     supabase
       .from("kitchen_zones")
-      .select("id,zone_code,zone_name,display_order,is_active,default_printer_id,metadata,created_at,updated_at")
+      .select("id,access_code,zone_code,zone_name,kds_enabled,display_order,is_active,default_printer_id,metadata,created_at,updated_at")
       .eq("tenant_id", tenantId)
       .eq("branch_id", branchId)
       .order("display_order", { ascending: true })
@@ -176,9 +229,7 @@ export async function loadKitchenConfiguration(auth: AuthContext) {
   ]);
 
   for (const result of [zonesResult, rulesResult, printersResult, productsResult]) {
-    if (result.error) {
-      throw new KitchenConfigError("kitchen_config_query_failed", result.error.message, 500);
-    }
+    if (result.error) throw new KitchenConfigError("kitchen_config_query_failed", result.error.message, 500);
   }
 
   const products = (productsResult.data ?? []) as Array<{ id: string; name: string; category: string | null; is_active: boolean }>;
@@ -199,37 +250,40 @@ export async function mutateKitchenConfiguration(auth: AuthContext, input: Kitch
   assertKitchenManager(auth);
   const { tenantId, branchId } = requireScope(auth);
   const supabase = getSupabaseServiceClient();
-  const actorRole = auth.branchRole ?? auth.platformRole;
+  const actorRole = auditRole(auth);
 
   if (input.action === "zone.upsert") {
     const zoneCode = normalizeZoneCode(input.zone_code);
     const zoneName = normalizeZoneName(input.zone_name);
     const displayOrder = Number.isFinite(Number(input.display_order)) ? Math.trunc(Number(input.display_order)) : 0;
+    const printerId = input.default_printer_id?.trim() || null;
+    if (printerId) await requireKitchenPrinter({ tenantId, branchId, printerId });
+
+    const metadata = input.description?.trim() ? { description: input.description.trim() } : {};
     const payload = {
       zone_code: zoneCode,
       zone_name: zoneName,
       display_order: displayOrder,
       is_active: input.is_active ?? true,
+      kds_enabled: input.kds_enabled ?? true,
+      default_printer_id: printerId,
+      metadata,
       updated_at: new Date().toISOString()
     };
 
     const query = input.zone_id?.trim()
-      ? supabase
-          .from("kitchen_zones")
-          .update(payload)
-          .eq("tenant_id", tenantId)
-          .eq("branch_id", branchId)
-          .eq("id", input.zone_id.trim())
+      ? supabase.from("kitchen_zones").update(payload).eq("tenant_id", tenantId).eq("branch_id", branchId).eq("id", input.zone_id.trim())
       : supabase.from("kitchen_zones").insert({ ...payload, tenant_id: tenantId, branch_id: branchId, created_by: auth.userId });
 
     const { data, error } = await query
-      .select("id,zone_code,zone_name,display_order,is_active,default_printer_id,metadata,created_at,updated_at")
+      .select("id,access_code,zone_code,zone_name,kds_enabled,display_order,is_active,default_printer_id,metadata,created_at,updated_at")
       .maybeSingle();
-    if (error) {
-      throw new KitchenConfigError("kitchen_zone_save_failed", error.message, 500);
-    }
-    if (!data) {
-      throw new KitchenConfigError("kitchen_zone_not_found", "Kitchen zone was not found in this branch.", 404);
+    if (error) throw new KitchenConfigError("kitchen_zone_save_failed", error.message, 500);
+    if (!data) throw new KitchenConfigError("kitchen_zone_not_found", "Kitchen zone was not found in this branch.", 404);
+
+    await syncZonePrinterAssignment({ tenantId, branchId, zoneCode: data.zone_code, printerId });
+    if (input.category_names) {
+      await syncZoneCategories({ tenantId, branchId, zoneId: String(data.id), categoryNames: input.category_names, actorUserId: auth.userId });
     }
 
     void appendAuditLog({
@@ -240,7 +294,13 @@ export async function mutateKitchenConfiguration(auth: AuthContext, input: Kitch
       action: input.zone_id ? "kitchen_zone_updated" : "kitchen_zone_created",
       targetTable: "kitchen_zones",
       targetId: String(data.id),
-      metadata: { zone_code: zoneCode, zone_name: zoneName }
+      metadata: {
+        zone_code: zoneCode,
+        zone_name: zoneName,
+        kds_enabled: data.kds_enabled,
+        default_printer_id: printerId,
+        category_names: input.category_names ?? null
+      }
     });
     return { zone: data };
   }
@@ -249,9 +309,7 @@ export async function mutateKitchenConfiguration(auth: AuthContext, input: Kitch
     const zoneId = input.zone_id.trim();
     if (!zoneId) throw new KitchenConfigError("invalid_zone_id", "zone_id is required.", 422);
     const printerId = input.printer_id?.trim() || null;
-    if (printerId) {
-      await requireKitchenPrinter({ tenantId, branchId, printerId });
-    }
+    if (printerId) await requireKitchenPrinter({ tenantId, branchId, printerId });
 
     const { data, error } = await supabase
       .from("kitchen_zones")
@@ -301,16 +359,23 @@ export async function mutateKitchenConfiguration(auth: AuthContext, input: Kitch
       .eq("zone_key", String(data.zone_code).toUpperCase());
     if (assignmentCleanupError) throw new KitchenConfigError("kitchen_zone_assignment_cleanup_failed", assignmentCleanupError.message, 500);
 
-    void appendAuditLog({
-      tenantId,
-      branchId,
-      actorUserId: auth.userId,
-      actorRole,
-      action: "kitchen_zone_disabled",
-      targetTable: "kitchen_zones",
-      targetId: zoneId
-    });
+    void appendAuditLog({ tenantId, branchId, actorUserId: auth.userId, actorRole, action: "kitchen_zone_disabled", targetTable: "kitchen_zones", targetId: zoneId });
     return { zone: data };
+  }
+
+  if (input.action === "zone.rotate_access_code") {
+    const zoneId = input.zone_id.trim();
+    if (!zoneId) throw new KitchenConfigError("invalid_zone_id", "zone_id is required.", 422);
+    const { data, error } = await supabase.rpc("rotate_kitchen_zone_access_code", {
+      p_tenant_id: tenantId,
+      p_branch_id: branchId,
+      p_zone_id: zoneId,
+      p_actor_user_id: auth.userId
+    });
+    if (error) throw new KitchenConfigError("kitchen_zone_access_code_rotate_failed", error.message, 500);
+    const row = Array.isArray(data) ? data[0] : data;
+    void appendAuditLog({ tenantId, branchId, actorUserId: auth.userId, actorRole, action: "kitchen_zone_access_code_rotated", targetTable: "kitchen_zones", targetId: zoneId });
+    return { zone: row };
   }
 
   const zoneIds = uniqueIds(input.zone_ids ?? []);
@@ -325,7 +390,7 @@ export async function mutateKitchenConfiguration(auth: AuthContext, input: Kitch
   });
   if (error) {
     const message = error.message || "Kitchen routing update failed.";
-    const status = message.includes("NOT_FOUND") ? 404 : message.includes("INVALID") || message.includes("REQUIRED") ? 422 : 500;
+    const status = message.includes("NOT_FOUND") ? 404 : message.includes("INVALID") || message.includes("REQUIRED") || message.includes("SINGLE_ZONE") ? 422 : 500;
     throw new KitchenConfigError("kitchen_routes_replace_failed", message, status);
   }
 
@@ -334,7 +399,7 @@ export async function mutateKitchenConfiguration(auth: AuthContext, input: Kitch
     branchId,
     actorUserId: auth.userId,
     actorRole,
-    action: "kitchen_routes_replaced",
+    action: "kitchen_routes_updated",
     targetTable: "kitchen_routing_rules",
     metadata: {
       scope_type: input.scope_type,

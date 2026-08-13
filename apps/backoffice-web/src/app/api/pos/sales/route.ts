@@ -14,6 +14,7 @@ import { fail, ok } from "@/lib/http";
 import { invalidatePosScopeRuntimeCaches } from "@/lib/pos-cache-invalidation";
 import { POS_GUARDS } from "@/lib/pos-resilience";
 import { invalidatePosSalesListCacheForScope } from "@/lib/services/pos-sales-list-service";
+import { queueMissingKitchenPrintJobsForOrder } from "@/lib/services/kitchen-routing-service";
 import { executeCreatePosOrderTransaction } from "@/lib/services/pos-sales-service";
 import { calculateTaxBreakdown, loadPosNotificationSettings, loadTaxSettings } from "@/lib/services/pos-settings-service";
 import { loadReceiptStoreProfile } from "@/lib/services/store-profile-service";
@@ -111,6 +112,22 @@ function authFromPosScope(scope: PosSessionScope): PosSalesAuthContext {
   };
 }
 
+
+async function queueKitchenPrintRecoveryForPosOrder(args: { auth: PosSalesAuthContext; orderId: string; runtimeDeviceCode?: string | null }) {
+  if (!args.orderId) return;
+  try {
+    await queueMissingKitchenPrintJobsForOrder({
+      auth: args.auth,
+      orderId: args.orderId,
+      runtimeDeviceCode: args.runtimeDeviceCode ?? null
+    });
+  } catch (error) {
+    console.warn("[pos-sales] kitchen print recovery failed", {
+      orderId: args.orderId,
+      message: error instanceof Error ? error.message : "kitchen_print_recovery_failed"
+    });
+  }
+}
 async function requireSalesSessionContext(permission: "sales:enter"): Promise<{
   auth: PosSalesAuthContext;
   devicePolicy: PosRuntimeDevicePolicy;
@@ -1054,7 +1071,7 @@ export async function GET(request: Request) {
 export async function POST(req: Request) {
   const startedAt = Date.now();
   try {
-    const { auth, devicePolicy } = await requireSalesSessionContext("sales:enter");
+    const { auth, devicePolicy, scope } = await requireSalesSessionContext("sales:enter");
     if (devicePolicy.block_sales) {
       const response = fail(devicePolicy.reason_code ?? "pos_device_unavailable", getDevicePolicyBlockMessage(devicePolicy), 423);
       response.headers.set("x-pos-sales-device-status", devicePolicy.status);
@@ -1167,6 +1184,7 @@ export async function POST(req: Request) {
           return response;
         }
       } else {
+        await queueKitchenPrintRecoveryForPosOrder({ auth, orderId: updated.data.id, runtimeDeviceCode: scope.session.device_code });
         invalidatePosScopeRuntimeCaches({ tenantId: auth.tenantId!, branchId: auth.branchId! });
         invalidatePosSalesListCacheForScope({ tenantId: auth.tenantId!, branchId: auth.branchId! });
         const response = ok(updated.data, 200);
@@ -1210,6 +1228,8 @@ export async function POST(req: Request) {
       return response;
     }
 
+    const createdOrderId = String((result.data as { id?: unknown; order_id?: unknown }).id ?? (result.data as { id?: unknown; order_id?: unknown }).order_id ?? "");
+    if (!result.data.duplicate_request) await queueKitchenPrintRecoveryForPosOrder({ auth, orderId: createdOrderId, runtimeDeviceCode: scope.session.device_code });
     invalidatePosScopeRuntimeCaches({ tenantId: auth.tenantId!, branchId: auth.branchId! });
     invalidatePosSalesListCacheForScope({ tenantId: auth.tenantId!, branchId: auth.branchId! });
     const response = ok(result.data, result.data.duplicate_request ? 200 : 201);

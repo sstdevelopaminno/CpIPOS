@@ -2203,6 +2203,8 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
   const receiptAutoCloseTimerRef = useRef<number | null>(null);
   const receiptErrorRef = useRef<string | null>(null);
   const checkoutRequestLockRef = useRef(false);
+  const dineInAutoSendTimerRef = useRef<number | null>(null);
+  const dineInAutoSendInFlightRef = useRef(false);
   const cartPersistTimerRef = useRef<number | null>(null);
   const heldPersistTimerRef = useRef<number | null>(null);
   const dineInDraftPersistTimerRef = useRef<number | null>(null);
@@ -6082,6 +6084,72 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
     });
   }
 
+  async function autoSendDineInKitchenOrder() {
+    if (dineInAutoSendInFlightRef.current || checkoutRequestLockRef.current || isBusy) return;
+    if (orderType !== "dine_in" || !selectedTable?.id || !selectedTable.active_session_id || !shift || shift.status !== "open" || cart.length === 0 || !isOnline) return;
+    const latestTaxSettings = await refreshTaxSettings();
+    const effectiveTaxBreakdown = latestTaxSettings ? calculateClientTaxBreakdown(taxBaseTotal, latestTaxSettings) : taxBreakdown;
+    const cartSnapshot = cart.map((item) => ({ ...item }));
+    const cartSnapshotSignature = buildCartSignature(cartSnapshot);
+    if (cartSnapshotSignature === lastCommittedCartSignature) return;
+
+    dineInAutoSendInFlightRef.current = true;
+    try {
+      const payload = buildCheckoutSubmitPayload({
+        idempotencyKey: `pos-dine-kitchen-${selectedTable.id}-${encodeURIComponent(cartSnapshotSignature).slice(0, 120)}`,
+        activeOrder: activeOrder?.status === "queued" ? activeOrder : null,
+        shiftId: shift.id,
+        orderType,
+        selectedTableId: selectedTable.id,
+        subtotal,
+        summaryDiscount,
+        cart,
+        member: selectedMember
+          ? {
+              name: selectedMember.name,
+              phone: selectedMember.phone,
+              code: selectedMember.member_token ?? selectedMember.id,
+              points: selectedMember.points,
+              stamps: selectedMember.stamps
+            }
+          : null
+      });
+      payload.payload.tax_total = effectiveTaxBreakdown.tax_total;
+      payload.payload.grand_total = effectiveTaxBreakdown.grand_total;
+      payload.payload.tax_lines = effectiveTaxBreakdown.lines;
+      const syncedOrder = await submitOrder(payload, { applyUiResult: false });
+      if (syncedOrder) {
+        setActiveOrder(syncedOrder);
+        rememberDineInDraft(selectedTable.id, cartSnapshot);
+        setLastCommittedCartSignature(cartSnapshotSignature);
+        void fetchPosTables().catch(() => undefined);
+      }
+    } catch (autoSendError) {
+      const rawMessage = autoSendError instanceof Error ? autoSendError.message : "Kitchen auto-send failed";
+      pushSubmitMessage(localizeApiMessage(rawMessage));
+    } finally {
+      dineInAutoSendInFlightRef.current = false;
+    }
+  }
+
+  useEffect(() => {
+    if (dineInAutoSendTimerRef.current) {
+      window.clearTimeout(dineInAutoSendTimerRef.current);
+      dineInAutoSendTimerRef.current = null;
+    }
+    if (orderType !== "dine_in" || !selectedTable?.id || !selectedTable.active_session_id || !shift || shift.status !== "open" || cart.length === 0 || !isOnline || isBusy) return;
+    const signature = buildCartSignature(cart);
+    if (signature === lastCommittedCartSignature) return;
+    dineInAutoSendTimerRef.current = window.setTimeout(() => {
+      void autoSendDineInKitchenOrder();
+    }, 5000);
+    return () => {
+      if (dineInAutoSendTimerRef.current) {
+        window.clearTimeout(dineInAutoSendTimerRef.current);
+        dineInAutoSendTimerRef.current = null;
+      }
+    };
+  }, [orderType, selectedTable?.id, selectedTable?.active_session_id, shift?.id, shift?.status, cart, isOnline, isBusy, lastCommittedCartSignature]);
   async function handleCheckout() {
     if (isBusy || checkoutRequestLockRef.current) return;
     checkoutRequestLockRef.current = true;
