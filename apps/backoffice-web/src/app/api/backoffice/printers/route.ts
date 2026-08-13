@@ -1,4 +1,4 @@
-﻿import type { PrinterConnectionType } from "@pos/shared-types";
+import type { PrinterConnectionType } from "@pos/shared-types";
 import { getAuthContext } from "@/lib/auth-context";
 import { fail, ok } from "@/lib/http";
 import { buildPaginationMeta, parsePagination } from "@/lib/query-params";
@@ -23,6 +23,20 @@ type UpdatePrinterPayload = CreatePrinterPayload & {
 type DeletePrinterPayload = {
   printer_id?: string | null;
 };
+
+function resolvePrinterRole(body: CreatePrinterPayload): "receipt" | "kitchen" | "report" {
+  const rawFunctions = body.metadata?.print_functions;
+  const functions = Array.isArray(rawFunctions)
+    ? rawFunctions.filter((value): value is string => typeof value === "string")
+    : typeof rawFunctions === "string"
+      ? [rawFunctions]
+      : [];
+
+  if (functions.some((value) => value === "kitchen" || value === "drink" || value === "bar")) return "kitchen";
+  if (functions.some((value) => value === "receipt" || value === "cash_drawer" || value === "payment_slip" || value === "reprint")) return "receipt";
+  if (functions.includes("shift_report")) return "report";
+  return body.printer_role;
+}
 
 export async function GET(req: Request) {
   try {
@@ -59,7 +73,7 @@ export async function POST(req: Request) {
 
     const created = await createPrinterProfile(auth, {
       printer_name: body.printer_name,
-      printer_role: body.printer_role,
+      printer_role: resolvePrinterRole(body),
       connection_type: body.connection_type,
       ip_address: body.ip_address ?? null,
       port: body.port ?? null,
@@ -107,7 +121,7 @@ export async function PATCH(req: Request) {
 
     const updated = await updatePrinterProfile(auth, printerId, {
       printer_name: body.printer_name,
-      printer_role: body.printer_role,
+      printer_role: resolvePrinterRole(body),
       connection_type: body.connection_type,
       ip_address: body.ip_address ?? null,
       port: body.port ?? null,
@@ -130,7 +144,6 @@ export async function PATCH(req: Request) {
     return loggedPrintApiFail("printer update failed", error, "printer_update_failed", "Printer settings could not be updated. Please retry.", 400);
   }
 }
-
 
 export async function DELETE(req: Request) {
   try {
