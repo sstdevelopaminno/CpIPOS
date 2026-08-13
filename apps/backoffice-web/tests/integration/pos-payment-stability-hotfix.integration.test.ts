@@ -8,7 +8,6 @@ function source(path: string) {
   return readFileSync(path, "utf8");
 }
 
-
 const DRAWER_NOW_MS = Date.parse("2026-08-13T03:00:00.000Z");
 
 function drawerDevice(overrides: Partial<CashDrawerPrinterDeviceSnapshot> = {}): CashDrawerPrinterDeviceSnapshot {
@@ -37,6 +36,7 @@ function drawerAgent(overrides: Partial<CashDrawerPrintAgentSnapshot> = {}): Cas
     ...overrides
   };
 }
+
 function sampleNotice(paperWidthMm: 58 | 80) {
   return renderPaymentNoticeHtml({
     paperWidthMm,
@@ -150,7 +150,6 @@ describe("POS payment stability hotfix", () => {
     expect(sampleNotice(80)).toContain("@page { size: 80mm auto");
   });
 
-
   it("requires live printer device and fresh active agent for drawer readiness", () => {
     expect(evaluateCashDrawerReadinessForTest({ configured: true, printerEnabled: true, printerDevice: null, agents: [], nowMs: DRAWER_NOW_MS })).toMatchObject({ ready: false, reason: "printer_device_missing" });
     expect(evaluateCashDrawerReadinessForTest({ configured: true, printerEnabled: true, printerDevice: drawerDevice({ status: "offline" }), agents: [drawerAgent()], nowMs: DRAWER_NOW_MS })).toMatchObject({ ready: false, reason: "printer_offline" });
@@ -201,6 +200,7 @@ describe("POS payment stability hotfix", () => {
     expect(noticeSource).toContain("paperWidthMm: route.printer.paper_width_mm");
     expect(noticeSource).not.toContain("paperWidthMm: 58");
   });
+
   it("manual drawer click enters loading state before issuing the request", () => {
     const salesSource = source("src/components/pos/pos-sales-module.tsx");
     const start = salesSource.indexOf("async function openCashDrawerManually");
@@ -210,12 +210,13 @@ describe("POS payment stability hotfix", () => {
     expect(drawerSource.indexOf("setCashDrawerOpening(true)")).toBeLessThan(drawerSource.indexOf("fetchJsonWithTimeout"));
   });
 
-  it("cash payment queues drawer and receipt side effects without serial blocking", () => {
+  it("cash payment defers drawer and receipt side effects so checkout is not blocked by printer latency", () => {
     const paymentsSource = source("src/app/api/pos/payments/route.ts");
+    expect(paymentsSource).toContain("after(async () => {");
     expect(paymentsSource).toContain("const drawerTask = paymentMethod === \"cash\"");
     expect(paymentsSource).toContain("const receiptTask = (async () =>");
-    expect(paymentsSource).toContain("await Promise.all([receiptTask, drawerTask])");
-    expect(paymentsSource).toContain("print_jobs_deferred: false");
+    expect(paymentsSource).toContain("await Promise.all([drawerTask, receiptTask])");
+    expect(paymentsSource).toContain("print_jobs_deferred: true");
     expect(paymentsSource).toContain("[pos-payment] payment_saved");
     expect(paymentsSource).toContain("[pos-payment] cash_drawer_queued");
     expect(paymentsSource).toContain("[pos-payment] receipt_print_queued");
