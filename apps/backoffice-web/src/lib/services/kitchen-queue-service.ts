@@ -8,6 +8,12 @@ export type KitchenTicketStatus = "queued" | "acknowledged" | "preparing" | "rea
 
 const VALID_STATUSES = new Set<KitchenTicketStatus>(["queued", "acknowledged", "preparing", "ready", "cancelled"]);
 
+const KITCHEN_TICKET_SELECT_WITH_ROUND = "id,order_id,zone_id,event_key,event_type,status,queue_no,round_no,order_no,order_type,table_id,customer_name,order_notes,metadata,created_at,updated_at";
+const KITCHEN_TICKET_SELECT_BASE = "id,order_id,zone_id,event_key,event_type,status,queue_no,order_no,order_type,table_id,customer_name,order_notes,metadata,created_at,updated_at";
+
+function isMissingRoundNoError(error: { message?: string } | null | undefined) {
+  return Boolean(error?.message?.includes("kitchen_tickets.round_no") || error?.message?.includes("round_no does not exist"));
+}
 export class KitchenQueueError extends Error {
   code: string;
   status: number;
@@ -39,22 +45,34 @@ export async function loadKitchenQueue(args: {
   const statuses = args.statuses?.length ? args.statuses : (["queued", "acknowledged", "preparing"] as KitchenTicketStatus[]);
   const limit = Math.min(100, Math.max(1, Math.trunc(args.limit ?? 60)));
 
-  let ticketQuery = supabase
-    .from("kitchen_tickets")
-    .select("id,order_id,zone_id,event_key,event_type,status,queue_no,round_no,order_no,order_type,table_id,customer_name,order_notes,metadata,created_at,updated_at")
-    .eq("tenant_id", args.tenantId)
-    .eq("branch_id", args.branchId)
-    .in("status", statuses)
-    .order("queue_no", { ascending: true })
-    .order("round_no", { ascending: true })
-    .order("created_at", { ascending: true })
-    .limit(limit);
+  const buildTicketQuery = (selectColumns: string, includeRoundNo: boolean) => {
+    let query = supabase
+      .from("kitchen_tickets")
+      .select(selectColumns)
+      .eq("tenant_id", args.tenantId)
+      .eq("branch_id", args.branchId)
+      .in("status", statuses)
+      .order("queue_no", { ascending: true });
 
-  if (args.zoneId?.trim()) {
-    ticketQuery = ticketQuery.eq("zone_id", args.zoneId.trim());
+    if (includeRoundNo) query = query.order("round_no", { ascending: true });
+    query = query.order("created_at", { ascending: true }).limit(limit);
+
+    if (args.zoneId?.trim()) {
+      query = query.eq("zone_id", args.zoneId.trim());
+    }
+    return query;
+  };
+
+  let ticketResult = await buildTicketQuery(KITCHEN_TICKET_SELECT_WITH_ROUND, true);
+  if (isMissingRoundNoError(ticketResult.error)) {
+    const fallback = await buildTicketQuery(KITCHEN_TICKET_SELECT_BASE, false);
+    ticketResult = {
+      data: (fallback.data ?? []).map((ticket) => ({ ...ticket, round_no: null })),
+      error: fallback.error
+    };
   }
 
-  const { data: tickets, error: ticketError } = await ticketQuery;
+  const { data: tickets, error: ticketError } = ticketResult;
   if (ticketError) throw new KitchenQueueError("kitchen_queue_query_failed", ticketError.message, 500);
 
   const ticketRows = (tickets ?? []) as Array<{
@@ -92,9 +110,7 @@ export async function loadKitchenQueue(args: {
       .eq("tenant_id", args.tenantId)
       .eq("branch_id", args.branchId)
       .in("kitchen_ticket_id", ticketIds)
-      .order("queue_no", { ascending: true })
-    .order("round_no", { ascending: true })
-    .order("created_at", { ascending: true }),
+      .order("created_at", { ascending: true }),
     supabase
       .from("print_jobs")
       .select("id,kitchen_ticket_id,printer_id,status,retry_count,max_retry_count,last_error,printed_at,failed_at,created_at")

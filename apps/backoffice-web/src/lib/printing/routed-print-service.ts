@@ -49,6 +49,12 @@ function shouldDefer(route: ResolvedPrinterRoute) {
   return readEnv("VERCEL") === "1" || Boolean(readEnv("VERCEL_ENV"));
 }
 
+const KITCHEN_TICKET_PRINT_SELECT_WITH_ROUND = "id,order_id,zone_id,event_type,order_no,order_type,table_id,customer_name,order_notes,queue_no,round_no,created_at,kitchen_zones(id,zone_code,zone_name,kds_enabled,default_printer_id)";
+const KITCHEN_TICKET_PRINT_SELECT_BASE = "id,order_id,zone_id,event_type,order_no,order_type,table_id,customer_name,order_notes,queue_no,created_at,kitchen_zones(id,zone_code,zone_name,kds_enabled,default_printer_id)";
+
+function isMissingRoundNoError(error: { message?: string } | null | undefined) {
+  return Boolean(error?.message?.includes("kitchen_tickets.round_no") || error?.message?.includes("round_no does not exist"));
+}
 async function queueOnRoute(args: {
   auth: AuthContext;
   route: ResolvedPrinterRoute;
@@ -189,7 +195,7 @@ export async function queueRoutedSalesReceipt(args: {
       logoUrl: storeProfile?.logo_url ?? null,
       sellerName,
       orderNo: args.order.order_no,
-      modeLabel: args.order.mode_label ?? "หน้าขาย",
+      modeLabel: args.order.mode_label ?? "เธซเธเนเธฒเธเธฒเธข",
       paidAtIso,
       items: args.items.map((item) => ({ name: item.product_name, quantity: item.quantity, unitPrice: item.unit_price, lineTotal: item.line_total, note: item.note ?? null })),
       discountAmount: args.order.discount_amount,
@@ -328,22 +334,31 @@ export async function queueRoutedKitchenTicketPrint(args: {
     if ((existing ?? []).length > 0) return existing;
   }
 
-  const [{ data: ticket, error: ticketError }, { data: items, error: itemsError }] = await Promise.all([
-    supabase
-      .from("kitchen_tickets")
-      .select("id,order_id,zone_id,event_type,order_no,order_type,table_id,customer_name,order_notes,queue_no,round_no,created_at,kitchen_zones(id,zone_code,zone_name,kds_enabled,default_printer_id)")
-      .eq("tenant_id", args.auth.tenantId!)
-      .eq("branch_id", args.auth.branchId!)
-      .eq("id", args.kitchenTicketId)
-      .maybeSingle(),
-    supabase
-      .from("kitchen_ticket_items")
-      .select("id,product_name,quantity,notes,action,metadata")
-      .eq("tenant_id", args.auth.tenantId!)
-      .eq("branch_id", args.auth.branchId!)
-      .eq("kitchen_ticket_id", args.kitchenTicketId)
-      .order("created_at", { ascending: true })
-  ]);
+  const ticketQuery = (selectColumns: string) => supabase
+    .from("kitchen_tickets")
+    .select(selectColumns)
+    .eq("tenant_id", args.auth.tenantId!)
+    .eq("branch_id", args.auth.branchId!)
+    .eq("id", args.kitchenTicketId)
+    .maybeSingle();
+
+  let ticketResult = await ticketQuery(KITCHEN_TICKET_PRINT_SELECT_WITH_ROUND);
+  if (isMissingRoundNoError(ticketResult.error)) {
+    const fallback = await ticketQuery(KITCHEN_TICKET_PRINT_SELECT_BASE);
+    ticketResult = {
+      data: fallback.data ? { ...fallback.data, round_no: null } : null,
+      error: fallback.error
+    };
+  }
+
+  const { data: items, error: itemsError } = await supabase
+    .from("kitchen_ticket_items")
+    .select("id,product_name,quantity,notes,action,metadata")
+    .eq("tenant_id", args.auth.tenantId!)
+    .eq("branch_id", args.auth.branchId!)
+    .eq("kitchen_ticket_id", args.kitchenTicketId)
+    .order("created_at", { ascending: true });
+  const { data: ticket, error: ticketError } = ticketResult;
   if (ticketError) throw new Error(ticketError.message);
   if (itemsError) throw new Error(itemsError.message);
   if (!ticket) throw new Error("kitchen_ticket_not_found");
@@ -589,7 +604,7 @@ export async function queueRoutedReceiptReprint(args: {
       logoUrl: storeProfile?.logo_url ?? null,
       sellerName,
       orderNo: String(order.order_no),
-      modeLabel: "ใบเสร็จย้อนหลัง",
+      modeLabel: "เนเธเน€เธชเธฃเนเธเธขเนเธญเธเธซเธฅเธฑเธ",
       paidAtIso,
       items: receiptItems.map((item) => ({ name: item.name, quantity: item.qty, unitPrice: item.unit_price, lineTotal: item.line_total, note: item.note })),
       discountAmount: Number(order.discount_amount ?? 0),

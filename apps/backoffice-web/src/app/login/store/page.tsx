@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
@@ -175,9 +175,22 @@ export default function LoginStorePage() {
   const activeControllerRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
+    let active = true;
+    void fetch("/api/pos/session/current", { cache: "no-store" })
+      .then((response) => {
+        if (active && response.ok) router.replace("/preview/pos");
+      })
+      .catch(() => {
+        // No active POS session; keep the store-code form visible.
+      });
+
     clearPreEntryClientCache();
     warmRoute(router, "/login/branches?flow=multi");
     warmRoute(router, "/login/employee?flow=single");
+
+    return () => {
+      active = false;
+    };
   }, [router]);
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {

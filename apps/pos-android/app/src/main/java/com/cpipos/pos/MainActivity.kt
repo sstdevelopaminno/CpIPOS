@@ -138,6 +138,7 @@ class MainActivity : ComponentActivity() {
             override fun onPageFinished(view: WebView, url: String?) {
                 super.onPageFinished(view, url)
                 mdmAgent?.notifyPageFinished(url)
+                CookieManager.getInstance().flush()
             }
 
             override fun onReceivedError(
@@ -177,8 +178,14 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onPause() {
+        CookieManager.getInstance().flush()
         if (::webView.isInitialized) webView.onPause()
         super.onPause()
+    }
+
+    override fun onStop() {
+        CookieManager.getInstance().flush()
+        super.onStop()
     }
 
     override fun onDestroy() {

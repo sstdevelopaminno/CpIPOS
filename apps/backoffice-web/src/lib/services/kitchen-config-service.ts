@@ -192,19 +192,45 @@ async function syncZoneCategories(args: { tenantId: string; branchId: string; zo
   }
 }
 
+const KITCHEN_ZONE_SELECT_WITH_ACCESS_CODE = "id,access_code,zone_code,zone_name,kds_enabled,display_order,is_active,default_printer_id,metadata,created_at,updated_at";
+const KITCHEN_ZONE_SELECT_BASE = "id,zone_code,zone_name,kds_enabled,display_order,is_active,default_printer_id,metadata,created_at,updated_at";
+
+function isMissingAccessCodeError(error: { message?: string; code?: string } | null | undefined) {
+  return Boolean(error?.message?.includes("kitchen_zones.access_code") || error?.message?.includes("access_code does not exist"));
+}
+
+async function selectKitchenZones(args: { tenantId: string; branchId: string }) {
+  const supabase = getSupabaseServiceClient();
+  const withAccessCode = await supabase
+    .from("kitchen_zones")
+    .select(KITCHEN_ZONE_SELECT_WITH_ACCESS_CODE)
+    .eq("tenant_id", args.tenantId)
+    .eq("branch_id", args.branchId)
+    .order("display_order", { ascending: true })
+    .order("zone_name", { ascending: true });
+
+  if (!isMissingAccessCodeError(withAccessCode.error)) return withAccessCode;
+
+  const fallback = await supabase
+    .from("kitchen_zones")
+    .select(KITCHEN_ZONE_SELECT_BASE)
+    .eq("tenant_id", args.tenantId)
+    .eq("branch_id", args.branchId)
+    .order("display_order", { ascending: true })
+    .order("zone_name", { ascending: true });
+
+  return {
+    data: (fallback.data ?? []).map((zone) => ({ ...zone, access_code: null })),
+    error: fallback.error
+  };
+}
 export async function loadKitchenConfiguration(auth: AuthContext) {
   assertKitchenManager(auth);
   const { tenantId, branchId } = requireScope(auth);
   const supabase = getSupabaseServiceClient();
 
   const [zonesResult, rulesResult, printersResult, productsResult] = await Promise.all([
-    supabase
-      .from("kitchen_zones")
-      .select("id,access_code,zone_code,zone_name,kds_enabled,display_order,is_active,default_printer_id,metadata,created_at,updated_at")
-      .eq("tenant_id", tenantId)
-      .eq("branch_id", branchId)
-      .order("display_order", { ascending: true })
-      .order("zone_name", { ascending: true }),
+    selectKitchenZones({ tenantId, branchId }),
     supabase
       .from("kitchen_routing_rules")
       .select("id,zone_id,product_id,category_name,priority,is_active,metadata,created_at,updated_at")
@@ -276,7 +302,7 @@ export async function mutateKitchenConfiguration(auth: AuthContext, input: Kitch
       : supabase.from("kitchen_zones").insert({ ...payload, tenant_id: tenantId, branch_id: branchId, created_by: auth.userId });
 
     const { data, error } = await query
-      .select("id,access_code,zone_code,zone_name,kds_enabled,display_order,is_active,default_printer_id,metadata,created_at,updated_at")
+      .select(KITCHEN_ZONE_SELECT_BASE)
       .maybeSingle();
     if (error) throw new KitchenConfigError("kitchen_zone_save_failed", error.message, 500);
     if (!data) throw new KitchenConfigError("kitchen_zone_not_found", "Kitchen zone was not found in this branch.", 404);

@@ -31,6 +31,12 @@ export type KitchenDispatchResult =
     };
 
 
+const KITCHEN_PRINT_TICKET_SELECT_WITH_ROUND = "id,zone_id,queue_no,round_no";
+const KITCHEN_PRINT_TICKET_SELECT_BASE = "id,zone_id,queue_no";
+
+function isMissingRoundNoError(error: { message?: string } | null | undefined) {
+  return Boolean(error?.message?.includes("kitchen_tickets.round_no") || error?.message?.includes("round_no does not exist"));
+}
 export async function queueMissingKitchenPrintJobsForOrder(args: {
   auth: AuthContext;
   orderId: string;
@@ -38,13 +44,24 @@ export async function queueMissingKitchenPrintJobsForOrder(args: {
 }) {
   if (!args.auth.tenantId || !args.auth.branchId) throw new Error("missing_scope");
   const supabase = getRoutedSupabaseServiceClient();
-  const { data: tickets, error: ticketError } = await supabase
+  const ticketQuery = (selectColumns: string) => supabase
     .from("kitchen_tickets")
-    .select("id,zone_id,queue_no,round_no")
+    .select(selectColumns)
     .eq("tenant_id", args.auth.tenantId)
     .eq("branch_id", args.auth.branchId)
     .eq("order_id", args.orderId)
     .order("created_at", { ascending: true });
+
+  let ticketResult = await ticketQuery(KITCHEN_PRINT_TICKET_SELECT_WITH_ROUND);
+  if (isMissingRoundNoError(ticketResult.error)) {
+    const fallback = await ticketQuery(KITCHEN_PRINT_TICKET_SELECT_BASE);
+    ticketResult = {
+      data: (fallback.data ?? []).map((ticket) => ({ ...ticket, round_no: null })),
+      error: fallback.error
+    };
+  }
+
+  const { data: tickets, error: ticketError } = ticketResult;
   if (ticketError) throw new Error(ticketError.message);
 
   const ticketRows = (tickets ?? []) as Array<{ id: string; zone_id: string | null; queue_no: number | null; round_no: number | null }>;
