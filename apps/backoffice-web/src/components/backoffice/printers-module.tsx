@@ -1,13 +1,14 @@
 "use client";
 
-import { PrinterConnectionManagerV3 } from "@/components/backoffice/printer-connection-manager-v3";
+import { PrinterConnectionManagerV2 } from "@/components/backoffice/printer-connection-manager-v2";
 
 /**
  * Stable settings entry point.
- * Printer Settings v3 keeps legacy printer_profiles / print_jobs as the
- * execution source of truth while presenting customer-facing LAN / USB /
- * Bluetooth setup, device registry, assignments and connection history.
+ *
+ * Keep the customer-facing printer settings on v2 for the production
+ * hotfix. v2 retains the proven LAN / USB / Bluetooth workflows while
+ * v3 remains available for further validation without blocking stores.
  */
 export function PrintersModule({ lang: _lang = "th" }: { lang?: "th" | "en" }) {
-  return <PrinterConnectionManagerV3 />;
+  return <PrinterConnectionManagerV2 />;
 }
