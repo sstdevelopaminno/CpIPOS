@@ -23,6 +23,8 @@ type PerfLogRow = {
   metadata: Record<string, unknown> | null;
 };
 
+const SUCCESS_SAMPLE_PERCENT = 10;
+
 function clampMetric(value: unknown, min: number, max: number): number | null {
   if (value === null || value === undefined || value === "") return null;
   const parsed = Number(value);
@@ -43,6 +45,15 @@ function parseErrorCode(value: unknown): string | null {
   const normalized = value.trim().toLowerCase().replace(/[^a-z0-9_]/g, "");
   if (!normalized) return null;
   return normalized.slice(0, 80);
+}
+
+function shouldSampleSuccess(sampleKey: string): boolean {
+  let hash = 2166136261;
+  for (let index = 0; index < sampleKey.length; index += 1) {
+    hash ^= sampleKey.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0) % 100 < SUCCESS_SAMPLE_PERCENT;
 }
 
 export async function GET(req: Request) {
@@ -151,6 +162,14 @@ export async function POST(req: Request) {
     const errorCode = parseErrorCode(body.error_code);
     const httpMethod = typeof body.http_method === "string" ? body.http_method.trim().toUpperCase().slice(0, 12) : null;
     const capturedAt = typeof body.captured_at === "string" ? body.captured_at : new Date().toISOString();
+    const isError = errorCode !== null || (statusCode !== null && statusCode >= 400);
+
+    if (!isError) {
+      const sampleKey = [auth.tenantId ?? "", auth.branchId ?? "", auth.userId, route, fromRoute ?? "", source, capturedAt].join("|");
+      if (!shouldSampleSuccess(sampleKey)) {
+        return ok({ ok: true, logged: false, sampled: true }, 202);
+      }
+    }
 
     const userAgent = req.headers.get("user-agent") ?? undefined;
 
@@ -173,7 +192,8 @@ export async function POST(req: Request) {
         http_method: httpMethod,
         resource_name: resourceName,
         source,
-        captured_at: capturedAt
+        captured_at: capturedAt,
+        sample_rate_percent: isError ? 100 : SUCCESS_SAMPLE_PERCENT
       },
       userAgent
     });
