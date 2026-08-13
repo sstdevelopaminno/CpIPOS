@@ -1,14 +1,14 @@
 "use client";
 
-import { PrinterConnectionManagerV2 } from "@/components/backoffice/printer-connection-manager-v2";
+import { PrinterConnectionManagerV3 } from "@/components/backoffice/printer-connection-manager-v3";
 
 /**
- * Stable settings entry point.
+ * Customer-facing printer settings entry point.
  *
- * Keep the customer-facing printer settings on v2 for the production
- * hotfix. v2 retains the proven LAN / USB / Bluetooth workflows while
- * v3 remains available for further validation without blocking stores.
+ * V3 is the current UI. Transport compatibility is handled by the discovery
+ * and device registry APIs so LAN / USB / Bluetooth remain user-facing modes
+ * while Runtime / Print Agent stays an internal transport detail.
  */
 export function PrintersModule({ lang: _lang = "th" }: { lang?: "th" | "en" }) {
-  return <PrinterConnectionManagerV2 />;
+  return <PrinterConnectionManagerV3 />;
 }
