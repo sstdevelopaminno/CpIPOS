@@ -67,6 +67,11 @@ type ClaimedAgentJobRow = AgentJobRow & {
   agent_attempt_id: string;
 };
 
+type PrinterRouteCacheEntry = {
+  expiresAt: number;
+  printerIds: string[];
+};
+
 const AGENT_SELECT =
   "id,tenant_id,branch_id,device_id,device_code,agent_name,api_key_hash,status,last_seen_at,last_claim_at,app_version,metadata";
 
@@ -75,6 +80,10 @@ const AGENT_JOB_SELECT =
 
 const PRINTER_SELECT =
   "id,printer_name,printer_role,connection_type,ip_address,port,paper_width_mm,enabled,metadata";
+
+const CLAIM_HEARTBEAT_WRITE_INTERVAL_MS = 5_000;
+const PRINTER_ROUTE_CACHE_TTL_MS = 5_000;
+const printerRouteCache = new Map<string, PrinterRouteCacheEntry>();
 
 function hashAgentKey(value: string) {
   return createHash("sha256").update(value, "utf8").digest("hex");
@@ -128,6 +137,17 @@ function printerMatchesAgent(printer: PrinterProfileRow, agent: PrintAgentRow) {
   if (assignedAgentIds.length > 0) return assignedAgentIds.includes(agent.id);
   if (assignedDeviceCodes.length > 0) return assignedDeviceCodes.includes(agent.device_code.toUpperCase());
   return true;
+}
+
+function shouldWriteClaimHeartbeat(agent: PrintAgentRow, requestedVersion: string | null | undefined, nowMs: number) {
+  const normalizedVersion = requestedVersion?.trim() || null;
+  if (normalizedVersion && normalizedVersion !== agent.app_version) return true;
+  const lastClaimMs = agent.last_claim_at ? Date.parse(agent.last_claim_at) : Number.NaN;
+  return !Number.isFinite(lastClaimMs) || nowMs - lastClaimMs >= CLAIM_HEARTBEAT_WRITE_INTERVAL_MS;
+}
+
+function printerRouteCacheKey(agent: PrintAgentRow) {
+  return `${agent.tenant_id}:${agent.branch_id}:${agent.id}:${agent.device_code.toUpperCase()}`;
 }
 
 function leaseSeconds(value: unknown) {
@@ -320,27 +340,43 @@ export async function claimPrintJobs(
   agent: PrintAgentRow,
   input: { limit?: unknown; lease_seconds?: unknown; app_version?: string | null }
 ): Promise<ClaimedAgentJobRow[]> {
-  const nowIso = new Date().toISOString();
-  const primary = getPrimarySupabaseServiceClient();
-  await primary
-    .from("print_agents")
-    .update({ last_seen_at: nowIso, last_claim_at: nowIso, app_version: input.app_version ?? agent.app_version })
-    .eq("id", agent.id)
-    .eq("tenant_id", agent.tenant_id)
-    .eq("branch_id", agent.branch_id);
+  const nowMs = Date.now();
+  const nowIso = new Date(nowMs).toISOString();
+  if (shouldWriteClaimHeartbeat(agent, input.app_version, nowMs)) {
+    const primary = getPrimarySupabaseServiceClient();
+    await primary
+      .from("print_agents")
+      .update({ last_seen_at: nowIso, last_claim_at: nowIso, app_version: input.app_version ?? agent.app_version })
+      .eq("id", agent.id)
+      .eq("tenant_id", agent.tenant_id)
+      .eq("branch_id", agent.branch_id);
+  }
 
   const { client } = await getPrintExecutionDataPlaneClient(agent.tenant_id);
-  const { data: printerData, error: printerError } = await client
-    .from("printer_profiles")
-    .select(PRINTER_SELECT)
-    .eq("tenant_id", agent.tenant_id)
-    .eq("branch_id", agent.branch_id)
-    .eq("enabled", true);
-  if (printerError) throw new Error(printerError.message);
+  const routeKey = printerRouteCacheKey(agent);
+  const cachedRoute = printerRouteCache.get(routeKey);
+  let printerIds: string[];
 
-  const printerIds = ((printerData ?? []) as PrinterProfileRow[])
-    .filter((printer) => printerMatchesAgent(printer, agent))
-    .map((printer) => printer.id);
+  if (cachedRoute && cachedRoute.expiresAt > nowMs) {
+    printerIds = cachedRoute.printerIds;
+  } else {
+    const { data: printerData, error: printerError } = await client
+      .from("printer_profiles")
+      .select(PRINTER_SELECT)
+      .eq("tenant_id", agent.tenant_id)
+      .eq("branch_id", agent.branch_id)
+      .eq("enabled", true);
+    if (printerError) throw new Error(printerError.message);
+
+    printerIds = ((printerData ?? []) as PrinterProfileRow[])
+      .filter((printer) => printerMatchesAgent(printer, agent))
+      .map((printer) => printer.id);
+    printerRouteCache.set(routeKey, {
+      expiresAt: nowMs + PRINTER_ROUTE_CACHE_TTL_MS,
+      printerIds
+    });
+  }
+
   if (printerIds.length === 0) return [];
 
   const { data: claimedData, error: claimError } = await client.rpc("claim_print_jobs_v2", {
