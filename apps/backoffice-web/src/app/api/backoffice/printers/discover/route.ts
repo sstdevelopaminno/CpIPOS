@@ -36,7 +36,7 @@ function readTextArray(value: unknown): string[] {
 }
 
 function parseRequestedMode(value: unknown): CustomerConnectionMode | null {
-  const text = readText(value);
+  const text = readText(value)?.toLowerCase();
   if (text === "lan" || text === "usb" || text === "bluetooth") return text;
   return null;
 }
@@ -80,6 +80,40 @@ function profileCapabilities(functions: string[], metadata: Record<string, unkno
   };
 }
 
+function isAndroidNativeAgent(metadata: Record<string, unknown>, appVersion: string) {
+  const source = readText(metadata.source)?.toLowerCase() ?? "";
+  const runtime = readText(metadata.runtime)?.toLowerCase() ?? "";
+  return metadata.native_runtime === true || metadata.android_mdm === true || source.includes("android") || runtime.includes("android") || appVersion.includes("android");
+}
+
+function agentModes(metadata: Record<string, unknown>, appVersion: string): CustomerConnectionMode[] {
+  const declared = readTextArray(metadata.transports ?? metadata.supported_transports)
+    .map((value) => parseRequestedMode(value))
+    .filter((value): value is CustomerConnectionMode => value !== null);
+  if (declared.length > 0) return Array.from(new Set(declared));
+
+  const androidNative = isAndroidNativeAgent(metadata, appVersion);
+  if (androidNative) return ["lan", "usb", "bluetooth"];
+  if (metadata.supports_bluetooth === true) return ["usb", "bluetooth"];
+  return ["usb"];
+}
+
+function agentHelper(mode: CustomerConnectionMode, androidNative: boolean, deviceCode: string) {
+  if (mode === "lan") {
+    return androidNative
+      ? `Android Print Agent ${deviceCode} รองรับ LAN — เลือกแล้วกรอก IP/Port ของเครื่องพิมพ์`
+      : `Print Agent ${deviceCode} รองรับ LAN — เลือกแล้วกรอก IP/Port ของเครื่องพิมพ์`;
+  }
+  if (mode === "bluetooth") {
+    return androidNative
+      ? `Android Print Agent ${deviceCode} รองรับ Bluetooth ที่จับคู่กับเครื่อง POS แล้ว`
+      : `Print Agent ${deviceCode} ประกาศความสามารถ Bluetooth`;
+  }
+  return androidNative
+    ? `Android Print Agent ${deviceCode} รองรับ USB printer และ cash drawer`
+    : `Windows Runtime / Local Bridge ${deviceCode} รองรับ USB printer และ cash drawer`;
+}
+
 export async function GET(req: Request) {
   try {
     const auth = await getAuthContext({ requireBranchScope: true });
@@ -118,29 +152,30 @@ export async function GET(req: Request) {
     for (const agent of agents) {
       const metadata = asRecord(agent.metadata);
       const appVersion = readText(agent.app_version)?.toLowerCase() ?? "";
-      const supportsBluetooth = metadata.android_mdm === true || metadata.supports_bluetooth === true || appVersion.includes("android");
-      candidates.push({
-        id: `agent:${agent.id}`,
-        name: agent.agent_name || agent.device_code,
-        mode: supportsBluetooth ? "bluetooth" : "usb",
-        paper_width_mm: 58,
-        source: supportsBluetooth ? "android_mdm" : "windows_runtime",
-        status: agent.status === "active" ? "online" : agent.status === "blocked" ? "disabled" : "offline",
-        runtime_device_code: agent.device_code,
-        printer_profile_id: null,
-        functions: ["receipt", "reprint", "cash_drawer"],
-        capabilities: {
-          receipt: true,
-          kitchen: false,
-          cash_drawer: true,
-          reprint: true,
-          shift_report: false,
-          payment_slip: false
-        },
-        helper: supportsBluetooth
-          ? "พบ Android/MDM bridge ที่สามารถใช้ Bluetooth printer ได้"
-          : "พบ Windows Runtime / Local Bridge ที่เหมาะกับ USB printer และ cash drawer"
-      });
+      const androidNative = isAndroidNativeAgent(metadata, appVersion);
+      const modes = agentModes(metadata, appVersion);
+      for (const agentMode of modes) {
+        candidates.push({
+          id: `agent:${agent.id}:${agentMode}`,
+          name: agent.agent_name || agent.device_code,
+          mode: agentMode,
+          paper_width_mm: 58,
+          source: androidNative ? "android_mdm" : "windows_runtime",
+          status: agent.status === "active" ? "online" : agent.status === "blocked" ? "disabled" : "offline",
+          runtime_device_code: agent.device_code,
+          printer_profile_id: null,
+          functions: ["receipt", "reprint", "cash_drawer"],
+          capabilities: {
+            receipt: true,
+            kitchen: true,
+            cash_drawer: true,
+            reprint: true,
+            shift_report: true,
+            payment_slip: true
+          },
+          helper: agentHelper(agentMode, androidNative, agent.device_code)
+        });
+      }
     }
 
     candidates.push({
@@ -161,13 +196,13 @@ export async function GET(req: Request) {
         shift_report: false,
         payment_slip: false
       },
-      helper: "Web App ไม่สแกนวง LAN โดยตรง กรุณากรอก IP/Port ของเครื่องพิมพ์ LAN ในตั้งค่าขั้นสูง"
+      helper: "ถ้าใช้ Print Agent ในร้าน ให้เลือก Runtime/Agent ด้านบน; ถ้าตั้งค่าเองให้กรอก IP/Port ของเครื่องพิมพ์ LAN"
     });
 
     return ok({
       items: candidates.filter((candidate) => isRequestedMode(candidate, modeFilter)),
       mode: modeFilter,
-      note: "ระบบจะแสดงเฉพาะ Runtime / Android / MDM และโปรไฟล์ที่ระบบรู้จักอยู่แล้ว ส่วนเครื่องพิมพ์ LAN ต้องระบุ IP/Port เอง; LAN, USB และ Bluetooth เป็นโหมดที่ผู้ใช้เลือก ส่วน Bridge/Runtime/MDM เป็น transport ภายใน"
+      note: "LAN / USB / Bluetooth คือโหมดที่ผู้ใช้เลือก ส่วน Windows Runtime / Android Print Agent / MDM เป็น transport ภายใน ระบบจะแสดง Agent ในทุกโหมดที่ Agent ประกาศว่ารองรับ"
     });
   } catch (error) {
     return loggedPrintApiFail("printer discovery failed", error, "printer_discovery_failed", "Printer discovery could not be loaded. Please retry.", 400);
