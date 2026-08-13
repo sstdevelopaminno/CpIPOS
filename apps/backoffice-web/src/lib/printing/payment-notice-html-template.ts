@@ -67,8 +67,6 @@ export function renderPaymentNoticeHtml(input: PaymentNoticeHtmlInput) {
   const logoUrl = clean(input.logoUrl) ?? DEFAULT_RECEIPT_LOGO_URL;
   const storeName = clean(input.storeName) ?? clean(input.branchName) ?? "CpIPOS";
   const tableLabel = clean(input.tableLabel);
-  const accountLabel = clean(input.accountLabel);
-  const promptPayLabel = clean(input.promptPayLabel);
   const subtotal = input.items.reduce((sum, item) => sum + Number(item.lineTotal ?? 0), 0);
   const itemRows = input.items.map((item) => `
     <tr>
@@ -128,8 +126,6 @@ export function renderPaymentNoticeHtml(input: PaymentNoticeHtmlInput) {
     <div class="summary-line"><span>ส่วนลด</span><strong>฿${escapeHtml(money(input.discountAmount))}</strong></div>
     ${taxLine}
     <div class="summary-line"><span>ชำระโดย</span><strong>โอนเงิน</strong></div>
-    ${accountLabel ? `<div class="summary-line"><span>บัญชี</span><strong>${escapeHtml(accountLabel)}</strong></div>` : ""}
-    ${promptPayLabel ? `<div class="summary-line"><span>PromptPay</span><strong>${escapeHtml(promptPayLabel)}</strong></div>` : ""}
     <div class="summary-line due"><span>ยอดที่ต้องชำระ</span><strong>฿${escapeHtml(money(input.totalAmount))}</strong></div>
     <div class="center"><img class="qr" src="${escapeHtml(input.qrDataUri)}" alt="Payment QR" /></div>
     <div class="center scan">สแกน QR เพื่อชำระเงิน</div>
