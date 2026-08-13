@@ -73,13 +73,13 @@ export function renderReceiptHtml(input: ReceiptHtmlInput) {
   const layout = paper === 58
     ? {
         printableMm: 49,
-        basePx: 12.5,
-        titlePx: 16,
+        basePx: 12.75,
+        titlePx: 16.5,
         mutedPx: 11.4,
         metaPx: 12.25,
         unitPx: 10.5,
         summaryPx: 11.9,
-        grandPx: 15.25,
+        grandPx: 15.5,
         footerPx: 10.75,
         logoMaxWidthMm: 34,
         logoMaxHeightMm: 14,
@@ -88,13 +88,13 @@ export function renderReceiptHtml(input: ReceiptHtmlInput) {
       }
     : {
         printableMm: 70,
-        basePx: 13.25,
-        titlePx: 18.5,
+        basePx: 13.5,
+        titlePx: 19,
         mutedPx: 12.25,
         metaPx: 13,
         unitPx: 11.25,
         summaryPx: 12.5,
-        grandPx: 17,
+        grandPx: 17.5,
         footerPx: 11.5,
         logoMaxWidthMm: 48,
         logoMaxHeightMm: 17,
