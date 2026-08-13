@@ -28,6 +28,11 @@ import kotlin.math.roundToInt
  * Renders the same HTML receipt used by the POS receipt screen with Android's
  * font engine, then converts it to ESC/POS raster bytes. This avoids relying on
  * printer firmware Thai code pages and keeps LAN/USB/Bluetooth output identical.
+ *
+ * The normal path captures the laid-out WebView directly at printer resolution.
+ * The Android PrintDocument/PDF renderer remains as a compatibility fallback.
+ * Avoiding WebView -> PDF -> PdfRenderer removes several seconds of work on
+ * lower-powered POS tablets while preserving Thai text rendering.
  */
 internal class HtmlReceiptRasterizer(context: Context) {
     private val appContext = context.applicationContext
@@ -36,10 +41,13 @@ internal class HtmlReceiptRasterizer(context: Context) {
     fun render(html: String, paperWidthMm: Int): ByteArray {
         if (html.isBlank()) throw NativePrintException("receipt_html_empty", false, "Receipt HTML is empty")
         val targetDots = if (paperWidthMm <= 58) 384 else 576
-        val renderWidth = targetDots * 2
+        // Capture at the printer's native horizontal resolution. The previous 2x
+        // intermediate surface doubled layout/raster work and was downscaled again.
+        val renderWidth = targetDots
         val latch = CountDownLatch(1)
         val completed = AtomicBoolean(false)
-        val pdfStarted = AtomicBoolean(false)
+        val renderStarted = AtomicBoolean(false)
+        var capturedBitmap: Bitmap? = null
         var pdfFile: File? = null
         var renderError: Throwable? = null
         var printCancellation: CancellationSignal? = null
@@ -53,6 +61,16 @@ internal class HtmlReceiptRasterizer(context: Context) {
                 runCatching { it.destroy() }
             }
             webView = null
+        }
+
+        fun finishWithBitmap(view: WebView?, bitmap: Bitmap) {
+            if (!completed.compareAndSet(false, true)) {
+                bitmap.recycle()
+                return
+            }
+            capturedBitmap = bitmap
+            cleanupWebViewOnMain(view)
+            latch.countDown()
         }
 
         fun finishWithPdf(view: WebView?, file: File) {
@@ -132,15 +150,40 @@ internal class HtmlReceiptRasterizer(context: Context) {
                 failRenderOnMain("receipt_html_pdf_write_failed", error.message ?: "HTML receipt PDF write failed", error)
             }
         }
-        fun preparePdfOnMain(deadlineMs: Long) {
+
+        fun captureWebViewOnMain(view: WebView, contentHeightPx: Int): Boolean {
+            var bitmap: Bitmap? = null
+            return try {
+                bitmap = Bitmap.createBitmap(renderWidth, contentHeightPx, Bitmap.Config.ARGB_8888)
+                bitmap.eraseColor(Color.WHITE)
+                val canvas = Canvas(bitmap)
+                view.draw(canvas)
+                // Text must already be present after onPageFinished. A very small dark
+                // pixel check guards against OEM WebView builds returning a blank frame;
+                // those devices transparently fall back to the PDF path.
+                if (!hasMeaningfulDarkPixels(bitmap)) {
+                    bitmap.recycle()
+                    false
+                } else {
+                    finishWithBitmap(view, bitmap)
+                    true
+                }
+            } catch (_: Throwable) {
+                runCatching { bitmap?.recycle() }
+                false
+            }
+        }
+
+        fun prepareRenderOnMain(deadlineMs: Long) {
             val view = webView ?: return
+            if (completed.get()) return
             try {
                 val widthSpec = View.MeasureSpec.makeMeasureSpec(renderWidth, View.MeasureSpec.EXACTLY)
                 view.measure(widthSpec, View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED))
                 val measuredContentHeight = usableRenderHeight(view.measuredHeight, view.contentHeight, view.scale)
                 if (measuredContentHeight <= MIN_USABLE_RENDER_HEIGHT_PX) {
                     if (SystemClock.uptimeMillis() < deadlineMs) {
-                        mainHandler.postDelayed({ preparePdfOnMain(deadlineMs) }, HEIGHT_POLL_INTERVAL_MS)
+                        mainHandler.postDelayed({ prepareRenderOnMain(deadlineMs) }, HEIGHT_POLL_INTERVAL_MS)
                     } else {
                         failRenderOnMain("receipt_html_render_empty_height", "HTML receipt content height did not become usable")
                     }
@@ -149,8 +192,11 @@ internal class HtmlReceiptRasterizer(context: Context) {
 
                 val contentHeight = measuredContentHeight.coerceAtMost(MAX_RENDER_HEIGHT_PX)
                 view.layout(0, 0, renderWidth, contentHeight)
-                if (!pdfStarted.compareAndSet(false, true)) return
-                writePdfOnMain(view, contentHeight)
+                if (!renderStarted.compareAndSet(false, true)) return
+
+                if (!captureWebViewOnMain(view, contentHeight)) {
+                    writePdfOnMain(view, contentHeight)
+                }
             } catch (error: Throwable) {
                 failRenderOnMain("receipt_html_render_failed", error.message ?: "HTML receipt rendering failed", error)
             }
@@ -171,7 +217,7 @@ internal class HtmlReceiptRasterizer(context: Context) {
                 view.isHorizontalScrollBarEnabled = false
                 view.webViewClient = object : WebViewClient() {
                     override fun onPageFinished(view: WebView, url: String?) {
-                        mainHandler.postDelayed({ preparePdfOnMain(renderDeadlineMs()) }, PAGE_SETTLE_DELAY_MS)
+                        mainHandler.postDelayed({ prepareRenderOnMain(renderDeadlineMs()) }, PAGE_SETTLE_DELAY_MS)
                     }
                 }
 
@@ -183,7 +229,7 @@ internal class HtmlReceiptRasterizer(context: Context) {
                     null
                 )
 
-                mainHandler.postDelayed({ preparePdfOnMain(renderDeadlineMs()) }, FALLBACK_RENDER_DELAY_MS)
+                mainHandler.postDelayed({ prepareRenderOnMain(renderDeadlineMs()) }, FALLBACK_RENDER_DELAY_MS)
             } catch (error: Throwable) {
                 if (completed.compareAndSet(false, true)) {
                     renderError = error
@@ -203,12 +249,14 @@ internal class HtmlReceiptRasterizer(context: Context) {
             if (error is NativePrintException) throw error
             throw NativePrintException("receipt_html_render_failed", true, error.message ?: "HTML receipt rendering failed", error)
         }
-        val sourcePdf = pdfFile ?: throw NativePrintException("receipt_html_pdf_missing", true, "HTML receipt PDF was not created")
 
-        val source = try {
-            renderPdfToBitmap(sourcePdf, targetDots)
-        } finally {
-            runCatching { sourcePdf.delete() }
+        val source = capturedBitmap ?: run {
+            val sourcePdf = pdfFile ?: throw NativePrintException("receipt_html_render_missing", true, "HTML receipt bitmap/PDF was not created")
+            try {
+                renderPdfToBitmap(sourcePdf, targetDots)
+            } finally {
+                runCatching { sourcePdf.delete() }
+            }
         }
 
         return try {
@@ -305,7 +353,7 @@ internal class HtmlReceiptRasterizer(context: Context) {
         val override = """
             <style id="cpipos-native-raster">
               html,body{margin:0!important;padding:0!important;width:100%!important;min-height:0!important;background:#fff!important;color:#000!important;overflow:visible!important}
-              .receipt58,.receipt{width:calc(100% - 28px)!important;margin:0 auto!important;min-height:0!important}
+              .receipt58,.receipt,.notice{width:calc(100% - 14px)!important;margin:0 auto!important;min-height:0!important}
               img{max-width:72%!important;height:auto!important}
             </style>
         """.trimIndent()
@@ -322,11 +370,13 @@ internal class HtmlReceiptRasterizer(context: Context) {
         var right = -1
         var bottom = -1
         val step = if (source.width > 600) 2 else 1
+        val rowPixels = IntArray(source.width)
         var y = 0
         while (y < source.height) {
+            source.getPixels(rowPixels, 0, source.width, 0, y, source.width, 1)
             var x = 0
             while (x < source.width) {
-                val pixel = source.getPixel(x, y)
+                val pixel = rowPixels[x]
                 val r = Color.red(pixel)
                 val g = Color.green(pixel)
                 val b = Color.blue(pixel)
@@ -341,7 +391,7 @@ internal class HtmlReceiptRasterizer(context: Context) {
             y += step
         }
         if (right < left || bottom < top) return source
-        val padding = 10
+        val padding = 6
         val cropLeft = (left - padding).coerceAtLeast(0)
         val cropTop = (top - padding).coerceAtLeast(0)
         val cropRight = (right + padding).coerceAtMost(source.width - 1)
@@ -353,11 +403,13 @@ internal class HtmlReceiptRasterizer(context: Context) {
     private fun hasMeaningfulDarkPixels(bitmap: Bitmap): Boolean {
         var darkPixels = 0
         val step = if (bitmap.width > 600) 2 else 1
+        val rowPixels = IntArray(bitmap.width)
         var y = 0
         while (y < bitmap.height) {
+            bitmap.getPixels(rowPixels, 0, bitmap.width, 0, y, bitmap.width, 1)
             var x = 0
             while (x < bitmap.width) {
-                val pixel = bitmap.getPixel(x, y)
+                val pixel = rowPixels[x]
                 if (isMeaningfullyDarkForTest(Color.red(pixel), Color.green(pixel), Color.blue(pixel))) {
                     darkPixels += 1
                     if (darkPixels >= MIN_DARK_PIXELS) return true
@@ -383,14 +435,16 @@ internal class HtmlReceiptRasterizer(context: Context) {
                 (rows and 0xFF).toByte(),
                 ((rows shr 8) and 0xFF).toByte()
             ))
+            val pixels = IntArray(bitmap.width * rows)
+            bitmap.getPixels(pixels, 0, bitmap.width, 0, startY, bitmap.width, rows)
             for (row in 0 until rows) {
-                val y = startY + row
+                val rowOffset = row * bitmap.width
                 for (byteIndex in 0 until widthBytes) {
                     var packed = 0
                     for (bit in 0..7) {
                         val x = byteIndex * 8 + bit
                         if (x >= bitmap.width) continue
-                        val pixel = bitmap.getPixel(x, y)
+                        val pixel = pixels[rowOffset + x]
                         val luminance = (Color.red(pixel) * 299 + Color.green(pixel) * 587 + Color.blue(pixel) * 114) / 1000
                         if (luminance < 185) packed = packed or (1 shl (7 - bit))
                     }
@@ -406,12 +460,12 @@ internal class HtmlReceiptRasterizer(context: Context) {
     }
 
     internal companion object {
-        const val PAGE_SETTLE_DELAY_MS = 120L
-        const val FALLBACK_RENDER_DELAY_MS = 900L
+        const val PAGE_SETTLE_DELAY_MS = 60L
+        const val FALLBACK_RENDER_DELAY_MS = 500L
         const val RENDER_TIMEOUT_SECONDS = 8L
         const val MAX_RENDER_HEIGHT_PX = 16_000
-        const val HEIGHT_POLL_INTERVAL_MS = 80L
-        const val HEIGHT_POLL_TIMEOUT_MS = 3_500L
+        const val HEIGHT_POLL_INTERVAL_MS = 60L
+        const val HEIGHT_POLL_TIMEOUT_MS = 2_500L
         const val MIN_USABLE_RENDER_HEIGHT_PX = 1
         const val MIN_DARK_PIXELS = 8
         const val MIN_VALID_RASTER_BYTES = 59
