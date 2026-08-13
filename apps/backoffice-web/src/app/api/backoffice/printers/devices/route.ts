@@ -72,6 +72,11 @@ function normalizeAssignments(body: Payload): PrinterAssignmentInput[] {
 }
 
 function roleFor(purposes: PrinterPurpose[]): "receipt" | "kitchen" | "report" {
+  // A mixed-use cashier printer must remain a receipt profile. Cash drawer and
+  // receipt routing still use printer_role as a compatibility anchor even
+  // though V3 also stores explicit assignments. Do not let shift_report or a
+  // secondary kitchen purpose demote a cashier printer to report/kitchen.
+  if (purposes.some((value) => value === "receipt" || value === "cash_drawer" || value === "reprint" || value === "payment_slip")) return "receipt";
   if (purposes.some((value) => value === "kitchen" || value === "drink" || value === "bar")) return "kitchen";
   if (purposes.includes("shift_report")) return "report";
   return "receipt";
@@ -103,6 +108,7 @@ function profileMetadata(body: Payload, mode: CustomerConnectionMode, purposes: 
     routing_version: "tenant_branch_pos_zone_v1",
     user_connection_mode: mode,
     transport_mode: mode,
+    agent_transport_mode: mode,
     native_transport: true,
     brand: clean(body.brand),
     model: clean(body.model),
@@ -115,7 +121,10 @@ function profileMetadata(body: Payload, mode: CustomerConnectionMode, purposes: 
     print_mode: "agent",
     processing_mode: "print_agent",
     queue_only: true,
-    bridge_url: mode === "lan" ? undefined : "browser-agent://web-serial",
+    // V3 native printing is executed by the Print Agent. Do not label Bluetooth
+    // as browser Web Serial; that old bridge metadata caused transport-mode
+    // confusion in the UI and diagnostics.
+    bridge_url: undefined,
     bluetooth_name: mode === "bluetooth" ? (clean(body.model) ?? clean(body.printer_name)) : undefined,
     cash_drawer_enabled: drawer,
     cash_drawer: drawer ? {
