@@ -22,8 +22,8 @@ android {
         applicationId = "com.cpipos.pos"
         minSdk = 26
         targetSdk = 34
-        versionCode = 11
-        versionName = "1.0.5"
+        versionCode = 12
+        versionName = "1.0.6"
 
         buildConfigField("String", "CPIPOS_API_BASE_URL", "\"https://cp-ipos-web.vercel.app\"")
         buildConfigField("String", "CPIPOS_POS_WEB_URL", "\"https://cp-ipos-web.vercel.app/login/store\"")
@@ -95,12 +95,6 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.3")
     implementation("androidx.lifecycle:lifecycle-viewmodel-ktx:2.8.3")
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.3")
-
-    implementation("androidx.compose.ui:ui")
-    implementation("androidx.compose.ui:ui-tooling-preview")
-    implementation("androidx.compose.foundation:foundation")
-    implementation("androidx.compose.material3:material3")
-    debugImplementation("androidx.compose.ui:ui-tooling")
 
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")

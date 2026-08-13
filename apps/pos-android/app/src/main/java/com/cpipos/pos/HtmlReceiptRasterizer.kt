@@ -212,20 +212,21 @@ internal class HtmlReceiptRasterizer(context: Context) {
         }
 
         return try {
+            // Keep the full printer width. Older builds cropped left/right whitespace and
+            // then stretched the cropped image back to targetDots with bilinear filtering.
+            // That enlarged Thai glyphs, blurred edges and distorted the intended 58/80mm
+            // margins. Only trim vertical white space so the raster stays pixel-aligned.
             val cropped = cropWhiteMargins(source)
             if (!hasMeaningfulDarkPixels(cropped)) {
                 throw NativePrintException("receipt_html_render_blank", true, "HTML receipt rendered a blank bitmap")
             }
-            val scaledHeight = max(1, (cropped.height.toDouble() * targetDots / cropped.width).roundToInt())
-            val scaled = if (cropped.width == targetDots) cropped else Bitmap.createScaledBitmap(cropped, targetDots, scaledHeight, true)
             try {
-                bitmapToEscPosRaster(scaled).also { bytes ->
+                bitmapToEscPosRaster(cropped).also { bytes ->
                     if (isRasterOutputTooSmallForTest(bytes.size)) {
                         throw NativePrintException("receipt_html_render_blank", true, "HTML receipt raster output was too small")
                     }
                 }
             } finally {
-                if (scaled !== cropped) scaled.recycle()
                 if (cropped !== source) cropped.recycle()
             }
         } finally {
@@ -317,9 +318,7 @@ internal class HtmlReceiptRasterizer(context: Context) {
     }
 
     private fun cropWhiteMargins(source: Bitmap): Bitmap {
-        var left = source.width
         var top = source.height
-        var right = -1
         var bottom = -1
         val step = if (source.width > 600) 2 else 1
         var y = 0
@@ -331,8 +330,6 @@ internal class HtmlReceiptRasterizer(context: Context) {
                 val g = Color.green(pixel)
                 val b = Color.blue(pixel)
                 if (r < 248 || g < 248 || b < 248) {
-                    if (x < left) left = x
-                    if (x > right) right = x
                     if (y < top) top = y
                     if (y > bottom) bottom = y
                 }
@@ -340,14 +337,12 @@ internal class HtmlReceiptRasterizer(context: Context) {
             }
             y += step
         }
-        if (right < left || bottom < top) return source
+        if (bottom < top) return source
         val padding = 10
-        val cropLeft = (left - padding).coerceAtLeast(0)
         val cropTop = (top - padding).coerceAtLeast(0)
-        val cropRight = (right + padding).coerceAtMost(source.width - 1)
         val cropBottom = (bottom + padding).coerceAtMost(source.height - 1)
-        if (cropLeft == 0 && cropTop == 0 && cropRight == source.width - 1 && cropBottom == source.height - 1) return source
-        return Bitmap.createBitmap(source, cropLeft, cropTop, cropRight - cropLeft + 1, cropBottom - cropTop + 1)
+        if (cropTop == 0 && cropBottom == source.height - 1) return source
+        return Bitmap.createBitmap(source, 0, cropTop, source.width, cropBottom - cropTop + 1)
     }
 
     private fun hasMeaningfulDarkPixels(bitmap: Bitmap): Boolean {
