@@ -52,19 +52,18 @@ export async function queueMissingKitchenPrintJobsForOrder(args: {
     .eq("order_id", args.orderId)
     .order("created_at", { ascending: true });
 
-  let ticketResult = await ticketQuery(KITCHEN_PRINT_TICKET_SELECT_WITH_ROUND);
-  if (isMissingRoundNoError(ticketResult.error)) {
+  const ticketResult = await ticketQuery(KITCHEN_PRINT_TICKET_SELECT_WITH_ROUND);
+  let tickets = ticketResult.data as unknown[] | null;
+  let ticketError = ticketResult.error;
+  if (isMissingRoundNoError(ticketError)) {
     const fallback = await ticketQuery(KITCHEN_PRINT_TICKET_SELECT_BASE);
-    ticketResult = {
-      data: (fallback.data ?? []).map((ticket) => ({ ...ticket, round_no: null })),
-      error: fallback.error
-    };
+    tickets = ((fallback.data ?? []) as unknown[]).map((ticket) => ({ ...(ticket as Record<string, unknown>), round_no: null }));
+    ticketError = fallback.error;
   }
 
-  const { data: tickets, error: ticketError } = ticketResult;
   if (ticketError) throw new Error(ticketError.message);
 
-  const ticketRows = (tickets ?? []) as Array<{ id: string; zone_id: string | null; queue_no: number | null; round_no: number | null }>;
+  const ticketRows = (tickets ?? []) as unknown as Array<{ id: string; zone_id: string | null; queue_no: number | null; round_no: number | null }>;
   if (ticketRows.length === 0) return { ticketCount: 0, queuedPrintJobCount: 0, skippedExistingPrintJobCount: 0 };
 
   const ticketIds = ticketRows.map((ticket) => ticket.id);

@@ -63,19 +63,18 @@ export async function loadKitchenQueue(args: {
     return query;
   };
 
-  let ticketResult = await buildTicketQuery(KITCHEN_TICKET_SELECT_WITH_ROUND, true);
-  if (isMissingRoundNoError(ticketResult.error)) {
+  const ticketResult = await buildTicketQuery(KITCHEN_TICKET_SELECT_WITH_ROUND, true);
+  let tickets = ticketResult.data as unknown[] | null;
+  let ticketError = ticketResult.error;
+  if (isMissingRoundNoError(ticketError)) {
     const fallback = await buildTicketQuery(KITCHEN_TICKET_SELECT_BASE, false);
-    ticketResult = {
-      data: (fallback.data ?? []).map((ticket) => ({ ...ticket, round_no: null })),
-      error: fallback.error
-    };
+    tickets = ((fallback.data ?? []) as unknown[]).map((ticket) => ({ ...(ticket as Record<string, unknown>), round_no: null }));
+    ticketError = fallback.error;
   }
 
-  const { data: tickets, error: ticketError } = ticketResult;
   if (ticketError) throw new KitchenQueueError("kitchen_queue_query_failed", ticketError.message, 500);
 
-  const ticketRows = (tickets ?? []) as Array<{
+  const ticketRows = (tickets ?? []) as unknown as Array<{
     id: string;
     order_id: string;
     zone_id: string;

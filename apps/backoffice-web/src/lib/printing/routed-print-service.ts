@@ -342,13 +342,13 @@ export async function queueRoutedKitchenTicketPrint(args: {
     .eq("id", args.kitchenTicketId)
     .maybeSingle();
 
-  let ticketResult = await ticketQuery(KITCHEN_TICKET_PRINT_SELECT_WITH_ROUND);
-  if (isMissingRoundNoError(ticketResult.error)) {
+  const ticketResult = await ticketQuery(KITCHEN_TICKET_PRINT_SELECT_WITH_ROUND);
+  let ticket = ticketResult.data as Record<string, unknown> | null;
+  let ticketError = ticketResult.error;
+  if (isMissingRoundNoError(ticketError)) {
     const fallback = await ticketQuery(KITCHEN_TICKET_PRINT_SELECT_BASE);
-    ticketResult = {
-      data: fallback.data ? { ...fallback.data, round_no: null } : null,
-      error: fallback.error
-    };
+    ticket = fallback.data && typeof fallback.data === "object" ? { ...(fallback.data as Record<string, unknown>), round_no: null } : null;
+    ticketError = fallback.error;
   }
 
   const { data: items, error: itemsError } = await supabase
@@ -358,7 +358,6 @@ export async function queueRoutedKitchenTicketPrint(args: {
     .eq("branch_id", args.auth.branchId!)
     .eq("kitchen_ticket_id", args.kitchenTicketId)
     .order("created_at", { ascending: true });
-  const { data: ticket, error: ticketError } = ticketResult;
   if (ticketError) throw new Error(ticketError.message);
   if (itemsError) throw new Error(itemsError.message);
   if (!ticket) throw new Error("kitchen_ticket_not_found");
@@ -383,7 +382,7 @@ export async function queueRoutedKitchenTicketPrint(args: {
     loadReceiptStoreProfile(args.auth.tenantId!)
   ]);
   const storeName = String(storeProfile?.display_name ?? storeProfile?.name ?? "CpIPOS");
-  const row = ticket as {
+  const row = ticket as unknown as {
     id: string;
     order_id: string;
     zone_id: string;
