@@ -2,6 +2,7 @@ package com.cpipos.pos
 
 import android.content.Context
 import android.os.Build
+import android.os.SystemClock
 import org.json.JSONArray
 import org.json.JSONObject
 import java.net.HttpURLConnection
@@ -143,8 +144,10 @@ class PosPrintAgent(
             return
         }
 
+        val printStartedAt = SystemClock.elapsedRealtime()
         try {
             val result = transport.print(parsed)
+            val nativePrintMs = (SystemClock.elapsedRealtime() - printStartedAt).coerceAtLeast(0L)
             val ack = postJson(
                 url = "${BuildConfig.CPIPOS_API_BASE_URL}/api/print-agent/v1/jobs/$jobId/ack",
                 body = JSONObject()
@@ -158,6 +161,8 @@ class PosPrintAgent(
                             .put("transport", result.transport)
                             .put("device_model", Build.MODEL)
                             .put("app_version", BuildConfig.VERSION_NAME)
+                            .put("native_print_ms", nativePrintMs)
+                            .put("bytes_sent", result.bytesSent)
                     ),
                 agentKey = agentKey
             )
@@ -182,6 +187,8 @@ class PosPrintAgent(
                     .put("runtime", "android_native")
                     .put("transport", parsed.printer.metadata.optString("transport_mode", parsed.printer.connectionType))
                     .put("device_model", Build.MODEL)
+                    .put("app_version", BuildConfig.VERSION_NAME)
+                    .put("native_print_ms", (SystemClock.elapsedRealtime() - printStartedAt).coerceAtLeast(0L))
             )
         } catch (error: Throwable) {
             lastError = error.message ?: "native_print_failed"
@@ -192,7 +199,11 @@ class PosPrintAgent(
                 "native_print_failed",
                 error.message ?: "Native print failed",
                 true,
-                JSONObject().put("runtime", "android_native").put("device_model", Build.MODEL)
+                JSONObject()
+                    .put("runtime", "android_native")
+                    .put("device_model", Build.MODEL)
+                    .put("app_version", BuildConfig.VERSION_NAME)
+                    .put("native_print_ms", (SystemClock.elapsedRealtime() - printStartedAt).coerceAtLeast(0L))
             )
         }
     }
