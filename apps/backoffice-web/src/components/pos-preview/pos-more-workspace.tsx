@@ -41,6 +41,13 @@ const MORE_ITEMS: MoreItem[] = [
     desc: { th: "จัดการโต๊ะ โซน และผังร้านสำหรับโหมดนั่งโต๊ะ", en: "Manage dine-in tables, zones, and floor layout" }
   },
   {
+    href: "/preview/pos/kitchen/manage",
+    icon: "kitchen",
+    label: { th: "จัดการครัว", en: "Kitchen Management" },
+    roles: ["owner", "manager"],
+    desc: { th: "ตั้งค่าโซนครัว เส้นทางหมวดหมู่อาหาร และจอ KDS", en: "Set kitchen zones, category routing, and KDS screens" }
+  },
+  {
     href: "/preview/pos/stock",
     icon: "stock",
     labelKey: "pos_menu_stock",

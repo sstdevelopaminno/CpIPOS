@@ -35,6 +35,8 @@ export const POS_ROUTE_FEATURES = {
   "/preview/pos/sales-summary": "advanced_sales_reports",
   "/preview/pos/receipts": "receipt_reprint_history",
   "/preview/pos/tables": "table_management",
+  "/preview/pos/kitchen": "kitchen_printing",
+  "/preview/pos/kitchen/manage": "kitchen_printing",
   "/preview/pos/members": "core_pos_sales",
   "/preview/pos/customer-display": "customer_facing_display",
   "/preview/pos/users": "user_management",
