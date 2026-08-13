@@ -121,10 +121,10 @@ function profileMetadata(body: Payload, mode: CustomerConnectionMode, purposes: 
     print_mode: "agent",
     processing_mode: "print_agent",
     queue_only: true,
-    // V3 native printing is executed by the Print Agent. Do not label Bluetooth
-    // as browser Web Serial; that old bridge metadata caused transport-mode
-    // confusion in the UI and diagnostics.
-    bridge_url: undefined,
+    // print-service keeps legacy bridge validation for server/browser adapters.
+    // Native Android transport is executed by the Print Agent, so use a marker
+    // that satisfies validation without mislabelling it as Web Serial.
+    bridge_url: mode === "usb" || mode === "bluetooth" ? "native-agent://android-pos" : undefined,
     bluetooth_name: mode === "bluetooth" ? (clean(body.model) ?? clean(body.printer_name)) : undefined,
     cash_drawer_enabled: drawer,
     cash_drawer: drawer ? {
