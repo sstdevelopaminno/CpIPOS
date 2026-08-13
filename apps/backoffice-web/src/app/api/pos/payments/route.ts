@@ -1,5 +1,5 @@
-import { after } from "next/server";
 import type { PaymentMethod } from "@pos/shared-types";
+import { after } from "next/server";
 import { appendAuditLog } from "@/lib/audit-log";
 import { getPosApiAuthContext } from "@/lib/pos-api-auth";
 import { getDevicePolicyBlockMessage, loadPosRuntimeDevicePolicyForSession } from "@/lib/pos-device-status";
@@ -268,95 +268,86 @@ export async function POST(req: Request) {
       void appendAuditLog({ tenantId: auth.tenantId!, branchId: auth.branchId!, actorUserId: auth.userId, actorRole: auth.branchRole ?? auth.platformRole, action: "transfer_payment_qr_only_settled", targetTable: "orders", targetId: body.order_id, metadata: { order_id: body.order_id, order_type: paymentOrder.order_type, external_order_code: paymentOrder.external_order_code } });
     }
 
-    let printJobsQueued = 0;
-    let printWarning: string | null = null;
+    const printJobsQueued = 0;
+    const printWarning: string | null = null;
     console.info("[pos-payment] payment_saved", { order_id: body.order_id, request_group_id: requestGroupId, payment_method: paymentMethod });
-
-    let skipPrintEnqueue = false;
-    try {
-      const { count: printQueueDepth, error: printQueueDepthError } = await supabase
-        .from("print_jobs")
-        .select("id", { count: "exact", head: true })
-        .eq("tenant_id", auth.tenantId!)
-        .eq("branch_id", auth.branchId!)
-        .in("status", ["pending", "printing", "retrying"]);
-      if (printQueueDepthError) throw new Error(`print_queue_depth_query_failed: ${printQueueDepthError.message}`);
-      if ((printQueueDepth ?? 0) >= POS_GUARDS.printQueueHardLimit) {
-        printWarning = `print_queue_overloaded (${printQueueDepth}/${POS_GUARDS.printQueueHardLimit})`;
-        skipPrintEnqueue = true;
-        appendPosDeadLetter({ auth, channel: "print", targetTable: "print_jobs", targetId: body.order_id, reason: "print_queue_overloaded", metadata: { queue_depth: printQueueDepth ?? 0, queue_limit: POS_GUARDS.printQueueHardLimit, detail: printWarning, deferred: false } });
-      }
-
-      if (!skipPrintEnqueue) {
-        const drawerTask = paymentMethod === "cash"
-          ? (async () => {
-              try {
-                const drawerJob = await openCashDrawerController(auth, {
-                  triggerSource: "cash_payment",
-                  reason: "cash_payment",
-                  orderId: body.order_id,
-                  sessionId: scope.session.id,
-                  shiftId: scope.session.shift_id,
-                  posDeviceId: scope.session.device_id,
-                  metadata: {
-                    device_code: scope.session.device_code ?? null,
-                    request_group_id: requestGroupId,
-                    payment_method: paymentMethod
-                  }
-                });
-                console.info("[pos-payment] cash_drawer_queued", { order_id: body.order_id, request_group_id: requestGroupId, job_id: drawerJob.job.id });
-              } catch (drawerError) {
-                appendPosDeadLetter({ auth, channel: "print", targetTable: "cash_drawer_events", targetId: body.order_id, reason: "cash_drawer_auto_open_failed", metadata: { detail: drawerError instanceof Error ? drawerError.message : "cash_drawer_auto_open_failed", deferred: false } });
-              }
-            })()
-          : Promise.resolve();
-
-        const receiptTask = (async () => {
-          const [{ data: orderRow, error: orderError }, { data: itemRows, error: itemError }] = await Promise.all([
-            supabase.from("orders").select("id,order_no,total_amount,discount_amount,notes,customer_name,table_id").eq("tenant_id", auth.tenantId!).eq("branch_id", auth.branchId!).eq("id", body.order_id).single(),
-            supabase.from("order_items").select("quantity,unit_price,line_total,notes,products(name)").eq("tenant_id", auth.tenantId!).eq("branch_id", auth.branchId!).eq("order_id", body.order_id)
-          ]);
-          if (orderError) throw new Error(orderError.message);
-          if (itemError) throw new Error(itemError.message);
-
-          const receiptJobs = await queueRoutedSalesReceipt({
-            auth,
-            runtimeDeviceCode: scope.session.device_code,
-            order: { id: orderRow.id, order_no: orderRow.order_no, total_amount: Number(orderRow.total_amount), discount_amount: Number(orderRow.discount_amount ?? 0), notes: orderRow.notes, cash_received: receivedAmount, change_amount: changeAmount },
-            items: (itemRows ?? []).map((row) => ({ product_name: ((row.products as { name?: string } | null)?.name ?? "Item").toString(), quantity: Number(row.quantity), unit_price: Number(row.unit_price), line_total: Number(row.line_total), note: row.notes })),
-            paymentMethod,
-            sellerName: scope.user.full_name ?? null
-          });
-          console.info("[pos-payment] receipt_print_queued", { order_id: body.order_id, request_group_id: requestGroupId, print_jobs_queued: receiptJobs.length });
-          return receiptJobs.length;
-        })().catch((printError) => {
-          printWarning = printError instanceof Error ? printError.message : "print_queue_failed";
-          appendPosDeadLetter({ auth, channel: "print", targetTable: "print_jobs", targetId: body.order_id, reason: "print_queue_failed", metadata: { detail: printWarning, runtime_device_code: scope.session.device_code, deferred: false } });
-          return 0;
-        });
-
-        const [queuedCount] = await Promise.all([receiptTask, drawerTask]);
-        printJobsQueued = queuedCount;
-        if (printJobsQueued <= 0 && !printWarning) printWarning = "receipt_print_not_queued";
-      }
-    } catch (printError) {
-      printWarning = printError instanceof Error ? printError.message : "print_queue_failed";
-      appendPosDeadLetter({ auth, channel: "print", targetTable: "print_jobs", targetId: body.order_id, reason: "print_queue_failed", metadata: { detail: printWarning, runtime_device_code: scope.session.device_code, deferred: false } });
-    }
-
-    if (body.print_kitchen_ticket === true) {
-      after(async () => {
-        try {
-          const kitchenResult = await dispatchOrderToKitchen({ tenantId: auth.tenantId!, branchId: auth.branchId!, orderId: body.order_id, eventKey: `payment-kitchen:${requestGroupId}`, action: "reprint", actorUserId: auth.userId, actorRole: auth.branchRole ?? auth.platformRole });
-          if (!kitchenResult.ok) throw new Error(kitchenResult.message);
-          if (kitchenResult.routedZoneCount === 0) {
-            await queueRoutedKitchenFallback({ auth, orderId: body.order_id, runtimeDeviceCode: scope.session.device_code, action: "reprint" });
-          }
-        } catch (kitchenError) {
-          appendPosDeadLetter({ auth, channel: "print", targetTable: "print_jobs", targetId: body.order_id, reason: "kitchen_reprint_failed", metadata: { detail: kitchenError instanceof Error ? kitchenError.message : "kitchen_reprint_failed", runtime_device_code: scope.session.device_code, deferred: true } });
+    after(async () => {
+      let skipPrintEnqueue = false;
+      try {
+        const { count: printQueueDepth, error: printQueueDepthError } = await supabase
+          .from("print_jobs")
+          .select("id", { count: "exact", head: true })
+          .eq("tenant_id", auth.tenantId!)
+          .eq("branch_id", auth.branchId!)
+          .in("status", ["pending", "printing", "retrying"]);
+        if (printQueueDepthError) throw new Error(`print_queue_depth_query_failed: ${printQueueDepthError.message}`);
+        if ((printQueueDepth ?? 0) >= POS_GUARDS.printQueueHardLimit) {
+          const warning = `print_queue_overloaded (${printQueueDepth}/${POS_GUARDS.printQueueHardLimit})`;
+          skipPrintEnqueue = true;
+          appendPosDeadLetter({ auth, channel: "print", targetTable: "print_jobs", targetId: body.order_id, reason: "print_queue_overloaded", metadata: { queue_depth: printQueueDepth ?? 0, queue_limit: POS_GUARDS.printQueueHardLimit, detail: warning, deferred: true } });
         }
-      });
-    }
+        if (!skipPrintEnqueue) {
+          const drawerTask = paymentMethod === "cash"
+            ? (async () => {
+                try {
+                  const drawerJob = await openCashDrawerController(auth, {
+                    triggerSource: "cash_payment",
+                    reason: "cash_payment",
+                    orderId: body.order_id,
+                    sessionId: scope.session.id,
+                    shiftId: scope.session.shift_id,
+                    posDeviceId: scope.session.device_id,
+                    metadata: {
+                      device_code: scope.session.device_code ?? null,
+                      request_group_id: requestGroupId,
+                      payment_method: paymentMethod
+                    }
+                  });
+                  console.info("[pos-payment] cash_drawer_queued", { order_id: body.order_id, request_group_id: requestGroupId, job_id: drawerJob.job.id });
+                } catch (drawerError) {
+                  appendPosDeadLetter({ auth, channel: "print", targetTable: "cash_drawer_events", targetId: body.order_id, reason: "cash_drawer_auto_open_failed", metadata: { detail: drawerError instanceof Error ? drawerError.message : "cash_drawer_auto_open_failed", deferred: true } });
+                }
+              })()
+            : Promise.resolve();
+
+          const receiptTask = (async () => {
+            const [{ data: orderRow, error: orderError }, { data: itemRows, error: itemError }] = await Promise.all([
+              supabase.from("orders").select("id,order_no,total_amount,discount_amount,notes,customer_name,table_id").eq("tenant_id", auth.tenantId!).eq("branch_id", auth.branchId!).eq("id", body.order_id).single(),
+              supabase.from("order_items").select("quantity,unit_price,line_total,notes,products(name)").eq("tenant_id", auth.tenantId!).eq("branch_id", auth.branchId!).eq("order_id", body.order_id)
+            ]);
+            if (orderError) throw new Error(orderError.message);
+            if (itemError) throw new Error(itemError.message);
+
+            const receiptJobs = await queueRoutedSalesReceipt({
+              auth,
+              runtimeDeviceCode: scope.session.device_code,
+              order: { id: orderRow.id, order_no: orderRow.order_no, total_amount: Number(orderRow.total_amount), discount_amount: Number(orderRow.discount_amount ?? 0), notes: orderRow.notes, cash_received: receivedAmount, change_amount: changeAmount },
+              items: (itemRows ?? []).map((row) => ({ product_name: ((row.products as { name?: string } | null)?.name ?? "Item").toString(), quantity: Number(row.quantity), unit_price: Number(row.unit_price), line_total: Number(row.line_total), note: row.notes })),
+              paymentMethod,
+              sellerName: scope.user.full_name ?? null
+            });
+            console.info("[pos-payment] receipt_print_queued", { order_id: body.order_id, request_group_id: requestGroupId, print_jobs_queued: receiptJobs.length });
+
+            if (body.print_kitchen_ticket === true) {
+              const kitchenResult = await dispatchOrderToKitchen({ tenantId: auth.tenantId!, branchId: auth.branchId!, orderId: body.order_id, eventKey: `payment-kitchen:${requestGroupId}`, action: "reprint", actorUserId: auth.userId, actorRole: auth.branchRole ?? auth.platformRole });
+              if (!kitchenResult.ok) throw new Error(kitchenResult.message);
+              if (kitchenResult.routedZoneCount === 0) {
+                await queueRoutedKitchenFallback({ auth, orderId: body.order_id, runtimeDeviceCode: scope.session.device_code, action: "reprint" });
+              }
+            }
+          })().catch((printError) => {
+            const warning = printError instanceof Error ? printError.message : "print_queue_failed";
+            appendPosDeadLetter({ auth, channel: "print", targetTable: "print_jobs", targetId: body.order_id, reason: "print_queue_failed", metadata: { detail: warning, runtime_device_code: scope.session.device_code, deferred: true } });
+          });
+
+          await Promise.all([drawerTask, receiptTask]);
+        }
+      } catch (printError) {
+        const warning = printError instanceof Error ? printError.message : "print_queue_failed";
+        appendPosDeadLetter({ auth, channel: "print", targetTable: "print_jobs", targetId: body.order_id, reason: "print_queue_failed", metadata: { detail: warning, runtime_device_code: scope.session.device_code, deferred: true } });
+      }
+    });
+
     if (paymentOrder.table_id) {
       await Promise.all([
         supabase.from("table_bill_sessions").update({ status: "closed", closed_by: auth.userId, closed_at: new Date().toISOString() }).eq("tenant_id", auth.tenantId!).eq("branch_id", auth.branchId!).eq("table_id", paymentOrder.table_id).in("status", ["open", "ordering", "pending_payment"]),
@@ -364,7 +355,7 @@ export async function POST(req: Request) {
       ]);
     }
 
-    const response = ok({ ...txResult.data, request_group_id: requestGroupId, cash_received: receivedAmount, change_amount: changeAmount, print_jobs_queued: printJobsQueued, print_warning: printWarning, print_jobs_deferred: false });
+    const response = ok({ ...txResult.data, request_group_id: requestGroupId, cash_received: receivedAmount, change_amount: changeAmount, print_jobs_queued: printJobsQueued, print_warning: printWarning, print_jobs_deferred: true });
     invalidatePosScopeRuntimeCaches({ tenantId: auth.tenantId!, branchId: auth.branchId! });
     invalidatePosSalesListCacheForScope({ tenantId: auth.tenantId!, branchId: auth.branchId! });
     response.headers.set("x-pos-payments-ms", String(Date.now() - startedAt));
