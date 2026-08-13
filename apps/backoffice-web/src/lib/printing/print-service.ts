@@ -41,6 +41,8 @@ type EnqueuePrintJobInput = {
   auth: AuthContext;
   printer: PrinterProfileRow;
   orderId: string | null;
+  kitchenTicketId?: string | null;
+  idempotencyKey?: string | null;
   printerRole: "receipt" | "kitchen" | "report";
   payloadText: string;
   payloadJson?: JsonRecord;
@@ -632,6 +634,8 @@ export async function enqueuePrintJob(input: EnqueuePrintJobInput): Promise<Prin
       tenant_id: input.auth.tenantId,
       branch_id: input.auth.branchId,
       order_id: input.orderId,
+      kitchen_ticket_id: input.kitchenTicketId ?? null,
+      idempotency_key: input.idempotencyKey ?? null,
       printer_id: input.printer.id,
       printer_role: input.printerRole,
       connection_type: input.printer.connection_type,
@@ -644,7 +648,7 @@ export async function enqueuePrintJob(input: EnqueuePrintJobInput): Promise<Prin
       metadata: input.metadata ?? {}
     })
     .select(
-      "id,tenant_id,branch_id,order_id,printer_id,printer_role,connection_type,status,payload_text,payload_json,retry_count,max_retry_count,last_error,printed_at,failed_at,created_at,updated_at,metadata"
+      "id,tenant_id,branch_id,order_id,kitchen_ticket_id,idempotency_key,printer_id,printer_role,connection_type,status,payload_text,payload_json,retry_count,max_retry_count,last_error,printed_at,failed_at,created_at,updated_at,metadata"
     )
     .single();
 
@@ -676,7 +680,7 @@ async function updatePrintJobStatus(
     })
     .eq("id", jobId)
     .select(
-      "id,tenant_id,branch_id,order_id,printer_id,printer_role,connection_type,status,payload_text,payload_json,retry_count,max_retry_count,last_error,printed_at,failed_at,created_at,updated_at,metadata"
+      "id,tenant_id,branch_id,order_id,kitchen_ticket_id,idempotency_key,printer_id,printer_role,connection_type,status,payload_text,payload_json,retry_count,max_retry_count,last_error,printed_at,failed_at,created_at,updated_at,metadata"
     )
     .single();
 
@@ -692,7 +696,7 @@ async function getPrintJobWithPrinter(jobId: string) {
   const { data, error } = await supabase
     .from("print_jobs")
     .select(
-      "id,tenant_id,branch_id,order_id,printer_id,printer_role,connection_type,status,payload_text,payload_json,retry_count,max_retry_count,last_error,printed_at,failed_at,created_at,updated_at,metadata,printer_profiles(id,tenant_id,branch_id,printer_name,printer_role,connection_type,ip_address,port,paper_width_mm,enabled,metadata,created_at,updated_at)"
+      "id,tenant_id,branch_id,order_id,kitchen_ticket_id,idempotency_key,printer_id,printer_role,connection_type,status,payload_text,payload_json,retry_count,max_retry_count,last_error,printed_at,failed_at,created_at,updated_at,metadata,printer_profiles(id,tenant_id,branch_id,printer_name,printer_role,connection_type,ip_address,port,paper_width_mm,enabled,metadata,created_at,updated_at)"
     )
     .eq("id", jobId)
     .maybeSingle();
@@ -1225,7 +1229,7 @@ export async function reprintOrderReceipt(auth: AuthContext, orderId: string, de
   const { data: failedRows, error: failedError } = await supabase
     .from("print_jobs")
     .select(
-      "id,tenant_id,branch_id,order_id,printer_id,printer_role,connection_type,status,payload_text,payload_json,retry_count,max_retry_count,last_error,printed_at,failed_at,created_at,updated_at,metadata"
+      "id,tenant_id,branch_id,order_id,kitchen_ticket_id,idempotency_key,printer_id,printer_role,connection_type,status,payload_text,payload_json,retry_count,max_retry_count,last_error,printed_at,failed_at,created_at,updated_at,metadata"
     )
     .eq("tenant_id", auth.tenantId!)
     .eq("branch_id", auth.branchId!)

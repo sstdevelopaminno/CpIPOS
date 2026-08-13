@@ -6,13 +6,14 @@ import { PackageLockDialog } from "@/components/pos-preview/package-lock-dialog"
 import { t, type Language } from "@/lib/i18n";
 import { featureForPosRoute } from "@/lib/pos-feature-map";
 
-type MoreIconName = "summary" | "receipt" | "tables" | "stock" | "members";
+type MoreIconName = "summary" | "receipt" | "tables" | "stock" | "members" | "kitchen";
 type PosRole = "owner" | "manager" | "staff" | "accountant";
 
 type MoreItem = {
   href: string;
   icon: MoreIconName;
-  labelKey: "pos_menu_sales_summary" | "pos_menu_receipts" | "pos_menu_tables" | "pos_menu_stock" | "pos_menu_members";
+  labelKey?: "pos_menu_sales_summary" | "pos_menu_receipts" | "pos_menu_tables" | "pos_menu_stock" | "pos_menu_members";
+  label?: Record<Language, string>;
   roles: PosRole[];
   desc: Record<Language, string>;
 };
@@ -96,7 +97,18 @@ function MoreIcon({ name }: { name: MoreIconName }) {
       </svg>
     );
   }
-  if (name === "stock") {
+  if (name === "kitchen") {
+    return (
+      <svg {...common}>
+        <path d="M4 19h16" />
+        <path d="M6 19v-2a6 6 0 0 1 12 0v2" />
+        <path d="M12 7V4" />
+        <path d="M9 5.5 8 3" />
+        <path d="m15 5.5 1-2.5" />
+        <path d="M5 10h14" />
+      </svg>
+    );
+  }  if (name === "stock") {
     return (
       <svg {...common}>
         <path d="M5 7h14v12H5z" />
@@ -178,7 +190,7 @@ export function PosMoreWorkspace({ lang, role }: { lang: Language; role: PosRole
                   <MoreIcon name={item.icon} />
                 </span>
                 <span className="min-w-0">
-                  <span className="block text-base font-black text-slate-950">{t(lang, item.labelKey)}</span>
+                  <span className="block text-base font-black text-slate-950">{item.label ? item.label[lang] : t(lang, item.labelKey!)}</span>
                   <span className="mt-1 block text-sm font-medium leading-5 text-slate-500">{item.desc[lang]}</span>
                 </span>
                 <span className="text-slate-400">&gt;</span>

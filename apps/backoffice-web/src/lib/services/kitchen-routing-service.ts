@@ -1,6 +1,7 @@
 import "server-only";
 
 import { appendAuditLog } from "@/lib/audit-log";
+import { queueRoutedKitchenTicketPrint } from "@/lib/printing/routed-print-service";
 import { getRoutedSupabaseServiceClient } from "@/lib/tenant-data-router";
 
 type KitchenAction = "new" | "add" | "cancel" | "reprint";
@@ -9,6 +10,8 @@ type KitchenDispatchRow = {
   kitchen_ticket_id: string;
   zone_id: string;
   print_job_id: string | null;
+  queue_no?: number | null;
+  round_no?: number | null;
 };
 
 export type KitchenDispatchResult =
@@ -84,6 +87,61 @@ export async function dispatchOrderToKitchen(args: {
   }
 
   const tickets = (Array.isArray(data) ? data : []) as KitchenDispatchRow[];
+  let queuedPrintJobCount = tickets.filter((row) => Boolean(row.print_job_id)).length;
+
+  if (tickets.length > 0 && args.actorUserId) {
+    const printAuth = {
+      userId: args.actorUserId,
+      tenantId: args.tenantId,
+      branchId: args.branchId,
+      branchRole: (args.actorRole === "owner" || args.actorRole === "manager" || args.actorRole === "staff" || args.actorRole === "accountant" ? args.actorRole : "staff") as "owner" | "manager" | "staff" | "accountant",
+      platformRole: "tenant_user" as const
+    };
+
+    for (const ticket of tickets) {
+      try {
+        const jobs = await queueRoutedKitchenTicketPrint({
+          auth: printAuth,
+          kitchenTicketId: ticket.kitchen_ticket_id,
+          forceReprint: (args.action ?? "new") === "reprint"
+        });
+        queuedPrintJobCount += jobs.length;
+        if (jobs.length > 0) {
+          void appendAuditLog({
+            tenantId: args.tenantId,
+            branchId: args.branchId,
+            actorUserId: args.actorUserId,
+            actorRole: printAuth.branchRole,
+            action: "kitchen_print_queued",
+            targetTable: "kitchen_tickets",
+            targetId: ticket.kitchen_ticket_id,
+            metadata: {
+              event_key: eventKey,
+              zone_id: ticket.zone_id,
+              queue_no: ticket.queue_no ?? null,
+              round_no: ticket.round_no ?? null,
+              print_job_count: jobs.length
+            }
+          });
+        }
+      } catch (printError) {
+        void appendAuditLog({
+          tenantId: args.tenantId,
+          branchId: args.branchId,
+          actorUserId: args.actorUserId,
+          actorRole: printAuth.branchRole,
+          action: "kitchen_print_failed",
+          targetTable: "kitchen_tickets",
+          targetId: ticket.kitchen_ticket_id,
+          metadata: {
+            event_key: eventKey,
+            zone_id: ticket.zone_id,
+            error: printError instanceof Error ? printError.message : "kitchen_print_failed"
+          }
+        });
+      }
+    }
+  }
 
   if (args.actorUserId) {
     void appendAuditLog({
@@ -99,7 +157,7 @@ export async function dispatchOrderToKitchen(args: {
         kitchen_action: args.action ?? "new",
         order_item_ids: args.orderItemIds ?? null,
         routed_zone_count: tickets.length,
-        queued_print_job_count: tickets.filter((row) => Boolean(row.print_job_id)).length
+        queued_print_job_count: queuedPrintJobCount
       }
     });
   }
@@ -109,6 +167,6 @@ export async function dispatchOrderToKitchen(args: {
     eventKey,
     tickets,
     routedZoneCount: tickets.length,
-    queuedPrintJobCount: tickets.filter((row) => Boolean(row.print_job_id)).length
+    queuedPrintJobCount: queuedPrintJobCount
   };
 }

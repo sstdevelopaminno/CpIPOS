@@ -31,7 +31,7 @@ export async function POST(req: Request) {
     if (!body || typeof body !== "object" || !("action" in body)) {
       return fail("invalid_kitchen_config_payload", "Kitchen configuration action is required.", 422);
     }
-    if (!["zone.upsert", "zone.printer", "zone.disable", "routes.replace"].includes(String(body.action))) {
+    if (!["zone.upsert", "zone.printer", "zone.disable", "zone.rotate_access_code", "routes.replace"].includes(String(body.action))) {
       return fail("invalid_kitchen_config_action", "Unsupported Kitchen configuration action.", 422);
     }
     const result = await mutateKitchenConfiguration(auth, body);

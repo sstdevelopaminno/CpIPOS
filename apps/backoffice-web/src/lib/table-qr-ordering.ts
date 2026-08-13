@@ -5,6 +5,7 @@ import QRCode from "qrcode";
 import type { AuthContext } from "@/lib/auth-context";
 import { readRequiredEnv } from "@/lib/env";
 import { invalidatePosBranchRuntimeCaches } from "@/lib/pos-cache-invalidation";
+import { dispatchOrderToKitchen } from "@/lib/services/kitchen-routing-service";
 import { loadReceiptStoreProfile } from "@/lib/services/store-profile-service";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
 
@@ -466,6 +467,27 @@ export async function hasSubmittedFoodOrderForContext(context: QrContext, supaba
   return Boolean(data?.length);
 }
 
+async function dispatchTableQrItemsToKitchen(args: { context: QrContext; orderId: string; requestId: string; orderItemIds?: string[] | null }) {
+  const orderItemIds = Array.from(new Set((args.orderItemIds ?? []).map((value) => String(value).trim()).filter(Boolean)));
+  const result = await dispatchOrderToKitchen({
+    tenantId: args.context.tenant_id,
+    branchId: args.context.branch_id,
+    orderId: args.orderId,
+    eventKey: `table-qr:${args.context.id}:${args.requestId}:items:${orderItemIds.length ? orderItemIds.sort().join("-") : "all"}`,
+    action: "add",
+    orderItemIds: orderItemIds.length ? orderItemIds : null,
+    actorUserId: args.context.created_by,
+    actorRole: "staff"
+  });
+  if (!result.ok) {
+    console.warn("[table-qr-ordering] kitchen dispatch failed", {
+      orderId: args.orderId,
+      requestId: args.requestId,
+      eventKey: result.eventKey,
+      message: result.message
+    });
+  }
+}
 export async function submitTableQrOrder(args: {
   context: QrContext;
   requestId: string;
@@ -486,6 +508,15 @@ export async function submitTableQrOrder(args: {
   if (!row) throw new Error("table_qr_order_failed");
 
   if (!row.duplicate_request) {
+    const { data: acceptedItems, error: acceptedItemsError } = await supabase
+      .from("order_items")
+      .select("id")
+      .eq("tenant_id", context.tenant_id)
+      .eq("branch_id", context.branch_id)
+      .eq("order_id", row.order_id);
+    if (!acceptedItemsError) {
+      await dispatchTableQrItemsToKitchen({ context, orderId: row.order_id, requestId, orderItemIds: (acceptedItems ?? []).map((item) => String(item.id)) });
+    }
     invalidatePosBranchRuntimeCaches({ tenantId: context.tenant_id, branchId: context.branch_id });
   }
 
@@ -702,12 +733,14 @@ export async function updateTableQrOrderItems(args: {
     .eq("order_id", orderRow.id);
   if (deleteError) throw new Error(deleteError.message);
 
+  let insertedOrderItemIds: string[] = [];
   if (orderItemsPayload.length > 0) {
-    const { error: insertError } = await supabase.from("order_items").insert(orderItemsPayload);
+    const { data: insertedItems, error: insertError } = await supabase.from("order_items").insert(orderItemsPayload).select("id");
     if (insertError) {
       if ((oldItems ?? []).length > 0) await supabase.from("order_items").insert(oldItems);
       throw new Error(insertError.message);
     }
+    insertedOrderItemIds = (insertedItems ?? []).map((item) => String(item.id));
   }
 
   const updatedMetadata = {
@@ -790,6 +823,8 @@ export async function updateTableQrOrderItems(args: {
       message: eventError.message
     });
   }
+
+  await dispatchTableQrItemsToKitchen({ context, orderId: orderRow.id, requestId: cleanRequestId, orderItemIds: insertedOrderItemIds });
 
   invalidatePosBranchRuntimeCaches({ tenantId: context.tenant_id, branchId: context.branch_id });
 

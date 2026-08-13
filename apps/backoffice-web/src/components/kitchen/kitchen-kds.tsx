@@ -13,14 +13,24 @@ type KitchenTicket = {
   customer_name: string | null;
   order_notes: string | null;
   event_type: string;
+  queue_no: number | null;
+  round_no: number | null;
   status: KitchenStatus;
   created_at: string;
-  zone: { id: string; zone_code: string; zone_name: string } | null;
+  zone: { id: string; zone_code: string; zone_name: string; kds_enabled?: boolean } | null;
   items: KitchenItem[];
   print_jobs: Array<{ id: string; status: string; last_error: string | null }>;
 };
 
 type QueueResponse = { data?: { tickets?: KitchenTicket[] }; error?: { message?: string } };
+type UnlockedZone = { id: string; zone_code: string; zone_name: string; kds_enabled: boolean };
+
+type KitchenAlertState = {
+  open: boolean;
+  count: number;
+  latest: KitchenTicket | null;
+  soundBlocked: boolean;
+};
 
 const COLUMNS: Array<{ status: KitchenStatus; label: string; empty: string }> = [
   { status: "queued", label: "‡∏£‡∏≤‡∏¢‡∏Å‡∏≤‡∏£‡πÉ‡∏´‡∏°‡πà", empty: "‡∏¢‡∏±‡∏á‡πÑ‡∏°‡πà‡∏°‡∏µ‡∏£‡∏≤‡∏¢‡∏Å‡∏≤‡∏£‡πÉ‡∏´‡∏°‡πà" },
@@ -29,6 +39,25 @@ const COLUMNS: Array<{ status: KitchenStatus; label: string; empty: string }> = 
   { status: "ready", label: "‡∏û‡∏£‡πâ‡∏≠‡∏°‡πÄ‡∏™‡∏¥‡∏£‡πå‡∏ü", empty: "‡∏¢‡∏±‡∏á‡πÑ‡∏°‡πà‡∏°‡∏µ‡∏£‡∏≤‡∏¢‡∏Å‡∏≤‡∏£‡∏û‡∏£‡πâ‡∏≠‡∏°‡πÄ‡∏™‡∏¥‡∏£‡πå‡∏ü" }
 ];
 
+const ALERT_DURATION_MS = 15_000;
+const SEEN_TICKET_LIMIT = 300;
+const ALERT_EVENT_TYPES = new Set(["new", "add"]);
+
+function ticketAlertKey(ticket: KitchenTicket) {
+  return `${ticket.id}:${ticket.event_type}:${ticket.round_no ?? 1}`;
+}
+
+function shouldAlertTicket(ticket: KitchenTicket) {
+  return ALERT_EVENT_TYPES.has(ticket.event_type) && ticket.zone?.kds_enabled === true;
+}
+
+function trimSeenSet(seen: Set<string>) {
+  while (seen.size > SEEN_TICKET_LIMIT) {
+    const first = seen.values().next().value as string | undefined;
+    if (!first) break;
+    seen.delete(first);
+  }
+}
 function ageText(createdAt: string, now: number) {
   const ms = Math.max(0, now - new Date(createdAt).getTime());
   const minutes = Math.floor(ms / 60_000);
@@ -56,18 +85,154 @@ export function KitchenKds() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [unlockedZone, setUnlockedZone] = useState<UnlockedZone | null>(null);
+  const [accessCode, setAccessCode] = useState("");
+  const [unlocking, setUnlocking] = useState(false);
   const [now, setNow] = useState(() => Date.now());
   const inFlightRef = useRef(false);
+  const baselineReadyRef = useRef(false);
+  const seenAlertKeysRef = useRef<Set<string>>(new Set());
+  const alertTimerRef = useRef<number | null>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const audioLoopTimerRef = useRef<number | null>(null);
+  const [alertState, setAlertState] = useState<KitchenAlertState>({ open: false, count: 0, latest: null, soundBlocked: false });
 
+  const stopAlertSound = useCallback(() => {
+    if (audioLoopTimerRef.current) {
+      window.clearInterval(audioLoopTimerRef.current);
+      audioLoopTimerRef.current = null;
+    }
+    const audio = audioRef.current;
+    if (audio) {
+      audio.pause();
+      audio.currentTime = 0;
+    }
+  }, []);
+
+  const closeAlert = useCallback(() => {
+    if (alertTimerRef.current) {
+      window.clearTimeout(alertTimerRef.current);
+      alertTimerRef.current = null;
+    }
+    stopAlertSound();
+    setAlertState((current) => ({ ...current, open: false, count: 0 }));
+  }, [stopAlertSound]);
+
+  const armAlertSound = useCallback(async () => {
+    if (!audioRef.current) audioRef.current = new Audio("/sounds/kitchen-alert.wav");
+    const audio = audioRef.current;
+    audio.preload = "auto";
+    audio.loop = false;
+    audio.volume = 0;
+    try {
+      audio.currentTime = 0;
+      await audio.play();
+      audio.pause();
+      audio.currentTime = 0;
+      audio.volume = 1;
+      setAlertState((current) => ({ ...current, soundBlocked: false }));
+    } catch {
+      audio.volume = 1;
+      setAlertState((current) => ({ ...current, soundBlocked: true }));
+    }
+  }, []);
+
+  const playAlertSound = useCallback(() => {
+    if (!audioRef.current) audioRef.current = new Audio("/sounds/kitchen-alert.wav");
+    const audio = audioRef.current;
+    audio.preload = "auto";
+    audio.loop = false;
+    audio.volume = 1;
+    const playOnce = () => {
+      audio.currentTime = 0;
+      audio.play()
+        .then(() => setAlertState((current) => ({ ...current, soundBlocked: false })))
+        .catch(() => setAlertState((current) => ({ ...current, soundBlocked: true })));
+    };
+    stopAlertSound();
+    playOnce();
+    audioLoopTimerRef.current = window.setInterval(playOnce, 2400);
+  }, [stopAlertSound]);
+
+  const showNewTicketAlert = useCallback((ticket: KitchenTicket, increment: number) => {
+    setAlertState((current) => ({
+      open: true,
+      count: current.open ? current.count + increment : increment,
+      latest: ticket,
+      soundBlocked: current.soundBlocked
+    }));
+    playAlertSound();
+    if (alertTimerRef.current) window.clearTimeout(alertTimerRef.current);
+    alertTimerRef.current = window.setTimeout(() => {
+      closeAlert();
+    }, ALERT_DURATION_MS);
+  }, [closeAlert, playAlertSound]);
+
+  const applyTickets = useCallback((nextTickets: KitchenTicket[]) => {
+    const alertable = nextTickets.filter((ticket) => shouldAlertTicket(ticket) && ticket.zone?.id === unlockedZone?.id);
+    if (!baselineReadyRef.current) {
+      for (const ticket of alertable) seenAlertKeysRef.current.add(ticketAlertKey(ticket));
+      trimSeenSet(seenAlertKeysRef.current);
+      baselineReadyRef.current = true;
+      setTickets(nextTickets);
+      return;
+    }
+
+    const fresh = alertable.filter((ticket) => {
+      const key = ticketAlertKey(ticket);
+      if (seenAlertKeysRef.current.has(key)) return false;
+      seenAlertKeysRef.current.add(key);
+      return true;
+    });
+    trimSeenSet(seenAlertKeysRef.current);
+    setTickets(nextTickets);
+    if (fresh.length > 0) showNewTicketAlert(fresh[fresh.length - 1], fresh.length);
+  }, [showNewTicketAlert, unlockedZone?.id]);
+  const loadUnlockedZone = useCallback(async () => {
+    try {
+      const response = await fetch("/api/pos/kitchen/unlock", { cache: "no-store" });
+      const body = (await response.json().catch(() => null)) as { data?: { zone?: UnlockedZone | null }; error?: { message?: string } } | null;
+      if (response.ok) setUnlockedZone(body?.data?.zone ?? null);
+    } catch {
+      setUnlockedZone(null);
+    }
+  }, []);
+
+  async function unlockZone() {
+    const code = accessCode.trim();
+    if (!/^[0-9]{6}$/.test(code) || unlocking) return;
+    setUnlocking(true);
+    setError(null);
+    try {
+      const response = await fetch("/api/pos/kitchen/unlock", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ access_code: code })
+      });
+      const body = (await response.json().catch(() => null)) as { data?: { zone?: UnlockedZone }; error?: { message?: string } } | null;
+      if (!response.ok || !body?.data?.zone) throw new Error(body?.error?.message ?? "‡ª‘¥‚´π§√—«‰¡Ë ”‡√Á®");
+      baselineReadyRef.current = false;
+      seenAlertKeysRef.current.clear();
+      setTickets([]);
+      setUnlockedZone(body.data.zone);
+      setAccessCode("");
+      await armAlertSound();
+    } catch (unlockError) {
+      setError(unlockError instanceof Error ? unlockError.message : "‡ª‘¥‚´π§√—«‰¡Ë ”‡√Á®");
+    } finally {
+      setUnlocking(false);
+    }
+  }
   const load = useCallback(async (silent = false) => {
-    if (inFlightRef.current) return;
+    if (inFlightRef.current || !unlockedZone?.id) return;
     inFlightRef.current = true;
     if (!silent) setLoading(true);
     try {
-      const response = await fetch("/api/pos/kitchen/queue?status=queued,acknowledged,preparing,ready&limit=100", { cache: "no-store" });
+      const params = new URLSearchParams({ status: "queued,acknowledged,preparing,ready", limit: "100", zone_id: unlockedZone.id });
+      const response = await fetch(`/api/pos/kitchen/queue?${params.toString()}`, { cache: "no-store" });
       const body = (await response.json().catch(() => null)) as QueueResponse | null;
       if (!response.ok || !body?.data) throw new Error(body?.error?.message ?? "‡πÇ‡∏´‡∏•‡∏î‡∏Ñ‡∏¥‡∏ß‡∏Ñ‡∏£‡∏±‡∏ß‡πÑ‡∏°‡πà‡∏™‡∏≥‡πÄ‡∏£‡πá‡∏à");
-      setTickets(body.data.tickets ?? []);
+      applyTickets(body.data.tickets ?? []);
       setError(null);
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : "‡πÇ‡∏´‡∏•‡∏î‡∏Ñ‡∏¥‡∏ß‡∏Ñ‡∏£‡∏±‡∏ß‡πÑ‡∏°‡πà‡∏™‡∏≥‡πÄ‡∏£‡πá‡∏à");
@@ -75,9 +240,10 @@ export function KitchenKds() {
       inFlightRef.current = false;
       if (!silent) setLoading(false);
     }
-  }, []);
+  }, [applyTickets, unlockedZone?.id]);
 
   useEffect(() => {
+    void loadUnlockedZone();
     void load();
     const poll = window.setInterval(() => {
       if (document.visibilityState === "visible") void load(true);
@@ -89,8 +255,10 @@ export function KitchenKds() {
       window.clearInterval(poll);
       window.clearInterval(clock);
       window.removeEventListener("focus", onFocus);
+      if (alertTimerRef.current) window.clearTimeout(alertTimerRef.current);
+      stopAlertSound();
     };
-  }, [load]);
+  }, [load, loadUnlockedZone, stopAlertSound]);
 
   const byStatus = useMemo(() => {
     const map = new Map<KitchenStatus, KitchenTicket[]>();
@@ -120,11 +288,34 @@ export function KitchenKds() {
     }
   }
 
+  if (!unlockedZone) {
+    return (
+      <section className="grid h-full min-h-0 w-full place-items-center bg-slate-100 p-4 text-slate-950">
+        <div className="w-full max-w-sm border border-slate-200 bg-white p-5 shadow-sm">
+          <h1 className="text-2xl font-black">‡ª‘¥®Õ§√—«</h1>
+          <p className="mt-2 text-sm font-semibold text-slate-500">„ Ë Kitchen ID 6 À≈—°‡æ◊ËÕ‡ª‘¥‡©æ“–‚´π§√—«π’È</p>
+          <input
+            value={accessCode}
+            onChange={(event) => setAccessCode(event.target.value.replace(/\D/g, "").slice(0, 6))}
+            onKeyDown={(event) => { if (event.key === "Enter") void unlockZone(); }}
+            inputMode="numeric"
+            pattern="[0-9]*"
+            className="mt-4 w-full rounded-lg border border-slate-300 px-4 py-3 text-center font-mono text-3xl font-black tracking-[0.25em]"
+            placeholder="000000"
+          />
+          <button type="button" onClick={() => void unlockZone()} disabled={unlocking || accessCode.length !== 6} className="mt-4 w-full rounded-lg bg-blue-600 px-4 py-3 text-lg font-black text-white disabled:opacity-50">
+            {unlocking ? "°”≈—ß‡ª‘¥..." : "‡ª‘¥®Õ§√—«"}
+          </button>
+          {error ? <p className="mt-3 rounded-lg bg-red-50 px-3 py-2 text-sm font-bold text-red-700">{error}</p> : null}
+        </div>
+      </section>
+    );
+  }
   return (
     <section className="flex h-full min-h-0 w-full flex-col overflow-hidden bg-slate-100 text-slate-900">
       <header className="flex shrink-0 items-center justify-between gap-4 border-b border-slate-200 bg-white px-5 py-4">
         <div>
-          <h1 className="text-xl font-black">‡∏Ñ‡∏£‡∏±‡∏ß ¬∑ Kitchen Display</h1>
+          <h1 className="text-xl font-black">{unlockedZone.zone_name} ? Kitchen Display</h1>
           <p className="mt-1 text-sm text-slate-500">‡∏≠‡∏≠‡πÄ‡∏î‡∏≠‡∏£‡πå‡∏à‡∏≤‡∏Å‡∏´‡∏ô‡πâ‡∏≤‡∏Ç‡∏≤‡∏¢‡πÅ‡∏•‡∏∞ QR ‡πÇ‡∏ï‡πä‡∏∞ ¬∑ ‡∏≠‡∏±‡∏õ‡πÄ‡∏î‡∏ï‡∏≠‡∏±‡∏ï‡πÇ‡∏ô‡∏°‡∏±‡∏ï‡∏¥‡∏ó‡∏∏‡∏Å 3 ‡∏ß‡∏¥‡∏ô‡∏≤‡∏ó‡∏µ</p>
         </div>
         <div className="flex items-center gap-2">
@@ -133,7 +324,32 @@ export function KitchenKds() {
         </div>
       </header>
 
-      {error ? <div className="mx-5 mt-3 shrink-0 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">{error}</div> : null}
+      {alertState.soundBlocked ? (
+        <button type="button" onClick={() => void armAlertSound()} className="mx-5 mt-3 shrink-0 rounded-lg border border-amber-300 bg-amber-50 px-4 py-2 text-sm font-black text-amber-800">
+          ·µ–‡æ◊ËÕ‡ª‘¥‡ ’¬ß·®Èß‡µ◊Õπ
+        </button>
+      ) : null}
+      {alertState.open && alertState.latest ? (
+        <div className="fixed inset-x-3 top-4 z-50 mx-auto max-w-lg rounded-xl border-4 border-amber-400 bg-white p-5 text-slate-950 shadow-2xl sm:top-8" role="alertdialog" aria-live="assertive">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <h2 className="text-2xl font-black">¡’ÕÕ‡¥Õ√Ï„À¡Ë{alertState.count > 1 ? ` ${alertState.count} √“¬°“√` : ""}</h2>
+              <p className="mt-1 text-sm font-bold text-slate-600">¡’√“¬°“√Õ“À“√„À¡Ë‡¢È“§√—«</p>
+            </div>
+            <button type="button" onClick={closeAlert} className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-black">ª‘¥</button>
+          </div>
+          <div className="mt-4 grid grid-cols-2 gap-3 text-lg font-black">
+            <div className="rounded-lg bg-slate-100 p-3">§‘«<br /><span className="text-3xl">{String(alertState.latest.queue_no ?? "-").padStart(2, "0")}</span></div>
+            <div className="rounded-lg bg-slate-100 p-3">√Õ∫∑’Ë<br /><span className="text-3xl">{alertState.latest.round_no ?? 1}</span></div>
+            <div className="col-span-2 rounded-lg bg-slate-100 p-3">‚´π: {alertState.latest.zone?.zone_name ?? "§√—«"}</div>
+            <div className="rounded-lg bg-slate-100 p-3">‚µÍ–<br /><span>{alertState.latest.table_id ?? "-"}</span></div>
+            <div className="rounded-lg bg-slate-100 p-3">∫‘≈<br /><span>{alertState.latest.order_no}</span></div>
+          </div>
+          <button type="button" onClick={closeAlert} className="mt-5 w-full rounded-lg bg-blue-600 px-4 py-4 text-lg font-black text-white">
+            √—∫∑√“∫ / ª‘¥·®Èß‡µ◊Õπ
+          </button>
+        </div>
+      ) : null}      {error ? <div className="mx-5 mt-3 shrink-0 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">{error}</div> : null}
       {loading ? <div className="grid flex-1 place-items-center text-sm font-semibold text-slate-500">‡∏Å‡∏≥‡∏•‡∏±‡∏á‡πÇ‡∏´‡∏•‡∏î‡∏Ñ‡∏¥‡∏ß‡∏Ñ‡∏£‡∏±‡∏ß...</div> : (
         <div className="grid min-h-0 flex-1 grid-cols-1 gap-3 overflow-auto p-4 md:grid-cols-2 xl:grid-cols-4">
           {COLUMNS.map((column) => {
@@ -152,13 +368,13 @@ export function KitchenKds() {
                     return (
                       <article key={ticket.id} className={`rounded-2xl border bg-white p-4 shadow-sm ${isLate ? "border-red-300 ring-2 ring-red-100" : "border-slate-200"}`}>
                         <div className="flex items-start justify-between gap-2">
-                          <div><strong className="text-lg">#{ticket.order_no}</strong><p className="text-xs font-semibold text-slate-500">{ticket.zone?.zone_name ?? "‡∏Ñ‡∏£‡∏±‡∏ß"}</p></div>
+                          <div><strong className="text-lg">Q{ticket.queue_no ?? "-"} / R{ticket.round_no ?? 1}</strong><p className="text-xs font-semibold text-slate-500">#{ticket.order_no} ? {ticket.zone?.zone_name ?? "‡∏Ñ‡∏£‡∏±‡∏ß"}</p></div>
                           <span className={`rounded-full px-2 py-1 text-[11px] font-bold ${isLate ? "bg-red-100 text-red-700" : "bg-slate-100 text-slate-600"}`}>{ageText(ticket.created_at, now)}</span>
                         </div>
                         <div className="mt-3 grid gap-2">
                           {ticket.items.map((item) => <div key={item.id} className="flex items-start justify-between gap-3 border-t border-slate-100 pt-2 first:border-0 first:pt-0"><div><span className="font-bold">{item.product_name}</span>{item.notes ? <small className="block text-xs text-orange-600">{item.notes}</small> : null}</div><strong className="text-lg">√ó{item.quantity}</strong></div>)}
                         </div>
-                        {ticket.order_notes ? <p className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800">‡∏´‡∏°‡∏≤‡∏¢‡πÄ‡∏´‡∏ï‡∏∏: {ticket.order_notes}</p> : null}
+                        <p className="mt-3 rounded-lg bg-slate-50 px-3 py-2 text-xs font-black text-slate-700">{ticket.event_type.toUpperCase()} ? {ticket.order_type}</p>{ticket.order_notes ? <p className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800">‡∏´‡∏°‡∏≤‡∏¢‡πÄ‡∏´‡∏ï‡∏∏: {ticket.order_notes}</p> : null}
                         {nextStatus(ticket.status) ? <button type="button" onClick={() => void transition(ticket)} disabled={Boolean(busyId)} className="mt-4 w-full rounded-xl bg-blue-600 px-3 py-2.5 text-sm font-black text-white disabled:opacity-50">{busyId === ticket.id ? "‡∏Å‡∏≥‡∏•‡∏±‡∏á‡∏ö‡∏±‡∏ô‡∏ó‡∏∂‡∏Å..." : nextLabel(ticket.status)}</button> : <div className="mt-4 rounded-xl bg-emerald-50 px-3 py-2 text-center text-sm font-black text-emerald-700">‡∏û‡∏£‡πâ‡∏≠‡∏°‡πÄ‡∏™‡∏¥‡∏£‡πå‡∏ü‡πÅ‡∏•‡πâ‡∏ß</div>}
                       </article>
                     );

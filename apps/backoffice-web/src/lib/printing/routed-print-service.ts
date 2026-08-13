@@ -5,6 +5,7 @@ import type { AuthContext } from "@/lib/auth-context";
 import { readEnv } from "@/lib/env";
 import { enqueuePrintJob, loadReceiptSellerName, processPrintJob, renderKitchenTicketTemplate, renderReceiptTemplate } from "@/lib/printing/print-service";
 import { renderPaymentNoticeHtml, type PaymentNoticeItem } from "@/lib/printing/payment-notice-html-template";
+import { renderKitchenTicketHtml } from "@/lib/printing/kitchen-ticket-html-template";
 import { renderReceiptHtml } from "@/lib/printing/receipt-html-template";
 import { resolvePrinterRoutes, type ResolvedPrinterRoute } from "@/lib/printing/printer-routing-service";
 import { loadReceiptStoreProfile } from "@/lib/services/store-profile-service";
@@ -52,6 +53,8 @@ async function queueOnRoute(args: {
   auth: AuthContext;
   route: ResolvedPrinterRoute;
   orderId: string | null;
+  kitchenTicketId?: string | null;
+  idempotencyKey?: string | null;
   printerRole: "receipt" | "kitchen" | "report";
   payloadText: string;
   payloadJson?: JsonRecord;
@@ -63,6 +66,8 @@ async function queueOnRoute(args: {
       auth: args.auth,
       printer: args.route.printer,
       orderId: args.orderId,
+      kitchenTicketId: args.kitchenTicketId ?? null,
+      idempotencyKey: args.idempotencyKey ?? null,
       printerRole: args.printerRole,
       payloadText: args.payloadText,
       payloadJson: args.payloadJson ?? {},
@@ -303,6 +308,135 @@ export async function queueRoutedPaymentNotice(args: {
     }));
   }
   return jobs;
+}
+export async function queueRoutedKitchenTicketPrint(args: {
+  auth: AuthContext;
+  kitchenTicketId: string;
+  runtimeDeviceCode?: string | null;
+  forceReprint?: boolean;
+}) {
+  const supabase = getSupabaseServiceClient();
+  if (!args.forceReprint) {
+    const { data: existing, error: existingError } = await supabase
+      .from("print_jobs")
+      .select("id,tenant_id,branch_id,order_id,kitchen_ticket_id,idempotency_key,printer_id,printer_role,connection_type,status,payload_text,payload_json,retry_count,max_retry_count,last_error,printed_at,failed_at,created_at,updated_at,metadata")
+      .eq("tenant_id", args.auth.tenantId!)
+      .eq("branch_id", args.auth.branchId!)
+      .eq("kitchen_ticket_id", args.kitchenTicketId)
+      .limit(1);
+    if (existingError) throw new Error(existingError.message);
+    if ((existing ?? []).length > 0) return existing;
+  }
+
+  const [{ data: ticket, error: ticketError }, { data: items, error: itemsError }] = await Promise.all([
+    supabase
+      .from("kitchen_tickets")
+      .select("id,order_id,zone_id,event_type,order_no,order_type,table_id,customer_name,order_notes,queue_no,round_no,created_at,kitchen_zones(id,zone_code,zone_name,kds_enabled,default_printer_id)")
+      .eq("tenant_id", args.auth.tenantId!)
+      .eq("branch_id", args.auth.branchId!)
+      .eq("id", args.kitchenTicketId)
+      .maybeSingle(),
+    supabase
+      .from("kitchen_ticket_items")
+      .select("id,product_name,quantity,notes,action,metadata")
+      .eq("tenant_id", args.auth.tenantId!)
+      .eq("branch_id", args.auth.branchId!)
+      .eq("kitchen_ticket_id", args.kitchenTicketId)
+      .order("created_at", { ascending: true })
+  ]);
+  if (ticketError) throw new Error(ticketError.message);
+  if (itemsError) throw new Error(itemsError.message);
+  if (!ticket) throw new Error("kitchen_ticket_not_found");
+
+  const zoneRelation = (ticket as { kitchen_zones?: unknown }).kitchen_zones;
+  const zone = Array.isArray(zoneRelation) ? zoneRelation[0] : zoneRelation;
+  const zoneRecord = zone && typeof zone === "object" ? zone as { zone_code?: string | null; zone_name?: string | null } : {};
+  const zoneCode = String(zoneRecord.zone_code ?? "").trim().toUpperCase();
+  if (!zoneCode) throw new Error("kitchen_ticket_zone_missing");
+
+  const routes = await resolvePrinterRoutes({
+    auth: args.auth,
+    purpose: "kitchen",
+    zoneKey: zoneCode,
+    runtimeDeviceCode: args.runtimeDeviceCode,
+    legacyRole: "kitchen"
+  });
+  if (routes.length === 0) return [];
+
+  const [branchName, storeProfile] = await Promise.all([
+    loadBranchName(args.auth),
+    loadReceiptStoreProfile(args.auth.tenantId!)
+  ]);
+  const storeName = String(storeProfile?.display_name ?? storeProfile?.name ?? "CpIPOS");
+  const row = ticket as {
+    id: string;
+    order_id: string;
+    zone_id: string;
+    event_type: string;
+    order_no: string;
+    order_type: string;
+    table_id: string | null;
+    queue_no: number | null;
+    round_no: number | null;
+    created_at: string;
+  };
+  const printJobs = [];
+  for (const route of routes) {
+    const paperWidth = route.printer.paper_width_mm === 80 ? 80 : 58;
+    const html = renderKitchenTicketHtml({
+      storeName,
+      branchName,
+      zoneName: String(zoneRecord.zone_name ?? zoneCode),
+      zoneCode,
+      queueNo: Number(row.queue_no ?? 0),
+      roundNo: Number(row.round_no ?? 1),
+      orderNo: row.order_no,
+      orderType: row.order_type,
+      tableLabel: row.table_id,
+      ticketId: row.id,
+      eventType: row.event_type,
+      createdAtIso: row.created_at,
+      paperWidthMm: paperWidth,
+      items: (items ?? []).map((item) => ({
+        name: String(item.product_name ?? "Item"),
+        quantity: Number(item.quantity ?? 0),
+        notes: item.notes ? String(item.notes) : null,
+        action: item.action ? String(item.action) : null
+      }))
+    });
+    printJobs.push(...await queueOnRoute({
+      auth: args.auth,
+      route,
+      orderId: row.order_id,
+      kitchenTicketId: row.id,
+      idempotencyKey: args.forceReprint ? null : `kitchen:${row.id}:${route.printer.id}`,
+      printerRole: "kitchen",
+      payloadText: `[${zoneCode}] ${row.order_no} Q${row.queue_no ?? "-"} R${row.round_no ?? 1}`,
+      payloadJson: {
+        ...storePayload(storeProfile),
+        document_type: "kitchen_ticket",
+        kitchen_ticket_id: row.id,
+        zone_code: zoneCode,
+        queue_no: row.queue_no,
+        round_no: row.round_no,
+        items: items ?? []
+      },
+      metadata: {
+        request_source: args.forceReprint ? "kitchen_ticket_reprint" : "kitchen_ticket_dispatch",
+        document_type: "kitchen_ticket",
+        kitchen_ticket_id: row.id,
+        zone_id: row.zone_id,
+        zone_code: zoneCode,
+        queue_no: row.queue_no,
+        round_no: row.round_no,
+        event_type: row.event_type,
+        payload_format: "kitchen_ticket_html_v1",
+        paper_width_mm: paperWidth,
+        payload_html: html
+      }
+    }));
+  }
+  return printJobs;
 }
 export async function queueRoutedKitchenFallback(args: {
   auth: AuthContext;

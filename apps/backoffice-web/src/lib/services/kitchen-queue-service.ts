@@ -41,10 +41,12 @@ export async function loadKitchenQueue(args: {
 
   let ticketQuery = supabase
     .from("kitchen_tickets")
-    .select("id,order_id,zone_id,event_key,event_type,status,order_no,order_type,table_id,customer_name,order_notes,metadata,created_at,updated_at")
+    .select("id,order_id,zone_id,event_key,event_type,status,queue_no,round_no,order_no,order_type,table_id,customer_name,order_notes,metadata,created_at,updated_at")
     .eq("tenant_id", args.tenantId)
     .eq("branch_id", args.branchId)
     .in("status", statuses)
+    .order("queue_no", { ascending: true })
+    .order("round_no", { ascending: true })
     .order("created_at", { ascending: true })
     .limit(limit);
 
@@ -62,6 +64,8 @@ export async function loadKitchenQueue(args: {
     event_key: string;
     event_type: string;
     status: KitchenTicketStatus;
+    queue_no: number | null;
+    round_no: number | null;
     order_no: string;
     order_type: string;
     table_id: string | null;
@@ -88,7 +92,9 @@ export async function loadKitchenQueue(args: {
       .eq("tenant_id", args.tenantId)
       .eq("branch_id", args.branchId)
       .in("kitchen_ticket_id", ticketIds)
-      .order("created_at", { ascending: true }),
+      .order("queue_no", { ascending: true })
+    .order("round_no", { ascending: true })
+    .order("created_at", { ascending: true }),
     supabase
       .from("print_jobs")
       .select("id,kitchen_ticket_id,printer_id,status,retry_count,max_retry_count,last_error,printed_at,failed_at,created_at")
@@ -98,7 +104,7 @@ export async function loadKitchenQueue(args: {
       .order("created_at", { ascending: true }),
     supabase
       .from("kitchen_zones")
-      .select("id,zone_code,zone_name,display_order,is_active,default_printer_id")
+      .select("id,zone_code,zone_name,display_order,is_active,kds_enabled,default_printer_id")
       .eq("tenant_id", args.tenantId)
       .eq("branch_id", args.branchId)
       .in("id", zoneIds)
