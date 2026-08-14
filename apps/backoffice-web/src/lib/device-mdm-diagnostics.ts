@@ -148,6 +148,8 @@ export type DeviceMdmSummary = {
   can_continue_offline_sale: boolean;
 };
 
+export type DeviceMdmTelemetryProfile = "windows_runtime" | "android" | "browser" | "generic";
+
 export const DEVICE_MDM_DEFAULT_THRESHOLDS: DeviceMdmThresholds = {
   disk_low_percent_free: 10,
   memory_high_percent: 90,
@@ -181,39 +183,50 @@ function deriveDeviceStatus(incidents: readonly DeviceMdmIncident[], connectivit
   return "healthy";
 }
 
-type DeviceMdmTelemetryProfile = "windows_runtime" | "android" | "browser" | "generic";
+export function resolveDeviceMdmTelemetryProfile(input: DeviceMdmHealthInput): DeviceMdmTelemetryProfile {
+  const explicitProfile = String(input.metadata?.telemetry_profile ?? "").trim().toLowerCase();
+  if (explicitProfile === "windows_runtime" || explicitProfile === "android" || explicitProfile === "browser" || explicitProfile === "generic") {
+    return explicitProfile;
+  }
 
-function resolveDeviceMdmTelemetryProfile(input: DeviceMdmHealthInput): DeviceMdmTelemetryProfile {
   const networkType = String(input.connectivity.network_type ?? "").trim().toLowerCase();
   const source = String(input.metadata?.source ?? "").trim().toLowerCase();
   const osName = String(input.system.os_name ?? "").trim().toLowerCase();
   const machineId = String(input.identity.machine_id ?? "").trim().toLowerCase();
-  const runtimeVersion = String(input.identity.runtime_version ?? "").trim();
-  const bridgeVersion = String(input.runtime.bridge_version ?? "").trim();
+  const runtimeVersion = String(input.identity.runtime_version ?? "").trim().toLowerCase();
+  const bridgeVersion = String(input.runtime.bridge_version ?? "").trim().toLowerCase();
 
-  if (
-    networkType === "windows_runtime" ||
-    source.includes("windows_runtime") ||
-    osName.includes("windows") ||
-    machineId.startsWith("win-") ||
-    runtimeVersion.length > 0 ||
-    bridgeVersion.length > 0 ||
-    input.runtime.bridge_port != null
-  ) {
-    return "windows_runtime";
-  }
-
+  // Platform-specific signals take precedence over generic runtime/bridge fields.
+  // Android WebView MDM intentionally reports runtime_version and bridge_version,
+  // so those fields alone must never classify the device as Windows.
   if (
     networkType === "android" ||
     source.includes("_android") ||
     osName.includes("android") ||
-    machineId.startsWith("and-")
+    machineId.startsWith("and-") ||
+    runtimeVersion.includes("android") ||
+    bridgeVersion === "cpiposmdm"
   ) {
     return "android";
   }
 
   if (networkType === "browser" || source.includes("_browser") || machineId.startsWith("web-")) {
     return "browser";
+  }
+
+  if (
+    networkType === "windows_runtime" ||
+    source.includes("windows_runtime") ||
+    osName.includes("windows") ||
+    machineId.startsWith("win-")
+  ) {
+    return "windows_runtime";
+  }
+
+  // Backward-compatible fallback for older Windows agents that did not send an
+  // explicit profile or OS/machine marker.
+  if (runtimeVersion.length > 0 || bridgeVersion.length > 0 || input.runtime.bridge_port != null) {
+    return "windows_runtime";
   }
 
   return "generic";
@@ -322,7 +335,7 @@ export function deriveDeviceMdmIncidents(
       {
         code: "clock_drift",
         severity: clockDriftSeconds >= 1800 ? "critical" : "warning",
-        title: "Windows clock drift detected",
+        title: "Device clock drift detected",
         message: "The device clock differs from server time and can affect receipt timestamps and offline sync.",
         metadata: { clock_drift_seconds: clockDriftSeconds }
       },
