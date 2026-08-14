@@ -24,6 +24,7 @@ type PerfLogRow = {
   metadata: Record<string, unknown> | null;
 };
 
+// Onsite safeguard: coalesce only normal telemetry; error telemetry always bypasses sampling.
 const PERF_SAMPLE_TTL_MS = 10_000;
 
 function clampMetric(value: unknown, min: number, max: number): number | null {
