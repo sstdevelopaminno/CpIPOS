@@ -65,6 +65,8 @@ async function findPairedDevice(installId: string | null): Promise<PairedDevice 
     .select("id,device_code,metadata")
     .eq("is_active", true)
     .contains("metadata", { android_mdm_install_id: installId })
+    .order("updated_at", { ascending: false })
+    .limit(1)
     .maybeSingle<PairedDevice>();
   if (error) {
     console.error("[android-pos-mdm] paired device lookup failed", { message: error.message });
