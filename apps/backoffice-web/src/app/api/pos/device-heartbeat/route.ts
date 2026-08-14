@@ -54,6 +54,40 @@ type PendingDeviceCommandRow = {
   issued_at: string;
 };
 
+type AndroidMdmCommand = {
+  id: string;
+  action: "collect_diagnostics" | "reload_webview" | "ping" | "test_printer_connection";
+  issued_at: string;
+};
+
+function mapPendingActionToAndroidCommand(action: PendingDeviceAction): AndroidMdmCommand | null {
+  let nativeAction: AndroidMdmCommand["action"] | null = null;
+
+  switch (action.command_type) {
+    case "request_diagnostics_bundle":
+    case "request_diagnostics":
+      nativeAction = "collect_diagnostics";
+      break;
+    case "reload_ui":
+      nativeAction = "reload_webview";
+      break;
+    case "test_network":
+      nativeAction = "ping";
+      break;
+    case "test_printer":
+      nativeAction = "test_printer_connection";
+      break;
+    default:
+      return null;
+  }
+
+  return {
+    id: action.id,
+    action: nativeAction,
+    issued_at: action.issued_at
+  };
+}
+
 async function deliverPendingDeviceCommands(
   supabase: ReturnType<typeof getSupabaseServiceClient>,
   posDeviceId: string | null
@@ -245,6 +279,9 @@ export async function POST(req: Request) {
     }
 
     const pendingActions = await deliverPendingDeviceCommands(supabase, scope.session.device_id ?? null);
+    const commands = pendingActions
+      .map(mapPendingActionToAndroidCommand)
+      .filter((command): command is AndroidMdmCommand => command !== null);
 
     return ok({
       accepted: true,
@@ -254,7 +291,8 @@ export async function POST(req: Request) {
       summary,
       incident_count: snapshot.incidents.length,
       captured_at: snapshot.captured_at,
-      pending_actions: pendingActions
+      pending_actions: pendingActions,
+      commands
     });
   } catch (error) {
     return mapDeviceHeartbeatError(error);
