@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
-import { acknowledgePrintJob, claimPrintJobs, createPrintAgent, requirePrintAgent } from "@/lib/printing/print-agent-service";
+import { acknowledgePrintJob, claimPrintJobs, createPrintAgent, requirePrintAgent, touchPrintAgent } from "@/lib/printing/print-agent-service";
 
 const mocks = vi.hoisted(() => ({
   appendAuditLog: vi.fn(),
@@ -109,6 +109,15 @@ describe("print agent security rules", () => {
     ).rejects.toThrow("agent_inactive");
   });
 
+  it("skips redundant print agent heartbeat writes inside the throttle window", async () => {
+    vi.clearAllMocks();
+    const agent = { ...activeAgent(), last_seen_at: new Date().toISOString() };
+
+    const result = await touchPrintAgent(agent);
+
+    expect(result).toBe(agent);
+    expect(mocks.getPrimarySupabaseServiceClient).not.toHaveBeenCalled();
+  });
   it("does not let stale or wrong attempts acknowledge a job", async () => {
     const executionClient = {
       rpc: vi.fn(async () => ({ data: null, error: { message: "PRINT_JOB_ATTEMPT_STALE" } }))

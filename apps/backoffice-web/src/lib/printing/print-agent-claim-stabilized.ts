@@ -57,7 +57,9 @@ type CachedPrinterIds = {
 };
 
 const PRINTER_CONFIG_CACHE_MS = 45_000;
+const EMPTY_CLAIM_BACKOFF_MS = 1_500;
 const printerIdCache = new Map<string, CachedPrinterIds>();
+const emptyClaimBackoff = new Map<string, number>();
 
 const PRINTER_SELECT =
   "id,printer_name,printer_role,connection_type,ip_address,port,paper_width_mm,enabled,metadata";
@@ -130,6 +132,9 @@ export async function claimPrintJobsStabilized(
   const printerIds = await eligiblePrinterIds(agent);
   if (printerIds.length === 0) return [];
 
+  const backoffKey = `${agent.tenant_id}:${agent.branch_id}:${agent.id}`;
+  if ((emptyClaimBackoff.get(backoffKey) ?? 0) > Date.now()) return [];
+
   const { client } = await getPrintExecutionDataPlaneClient(agent.tenant_id);
   const { data: claimedData, error: claimError } = await client.rpc("claim_print_jobs_v2", {
     p_tenant_id: agent.tenant_id,
@@ -143,7 +148,11 @@ export async function claimPrintJobsStabilized(
 
   const claimedRows = (claimedData ?? []) as Array<{ job_id: string; agent_attempt_id: string }>;
   const jobIds = claimedRows.map((row) => row.job_id);
-  if (jobIds.length === 0) return [];
+  if (jobIds.length === 0) {
+    emptyClaimBackoff.set(backoffKey, Date.now() + EMPTY_CLAIM_BACKOFF_MS);
+    return [];
+  }
+  emptyClaimBackoff.delete(backoffKey);
 
   // Claim activity is not a heartbeat. Record last_claim_at only when work was actually claimed.
   const nowIso = new Date().toISOString();
