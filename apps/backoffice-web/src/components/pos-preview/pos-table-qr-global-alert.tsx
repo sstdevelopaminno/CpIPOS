@@ -19,7 +19,7 @@ type ActivityResponse = {
 };
 
 const CURSOR_KEY = "pos_global_table_qr_cursor_v1";
-const POLL_MS = 3000;
+const IDLE_POLL_MS = [3000, 5000, 10000, 15000] as const;
 
 function titleFor(event: ActivityEvent, lang: Language) {
   const table = event.table?.table_code || "-";
@@ -90,38 +90,84 @@ export function PosTableQrGlobalAlert({ lang }: { lang: Language }) {
     }
 
     let disposed = false;
+    let timer: number | null = null;
+    let idleIndex = 0;
+
+    const clearTimer = () => {
+      if (timer !== null) {
+        window.clearTimeout(timer);
+        timer = null;
+      }
+    };
+
+    const schedule = (delayMs: number) => {
+      clearTimer();
+      if (disposed || document.visibilityState === "hidden") return;
+      timer = window.setTimeout(() => void poll(), delayMs);
+    };
+
     const poll = async () => {
-      if (disposed || inFlightRef.current || document.visibilityState === "hidden") return;
+      if (disposed || document.visibilityState === "hidden") return;
+      if (inFlightRef.current) {
+        schedule(IDLE_POLL_MS[idleIndex]);
+        return;
+      }
+
       inFlightRef.current = true;
+      let sawEvent = false;
       try {
         const since = cursorRef.current || new Date().toISOString();
         const response = await fetch(`/api/pos/table-qr-activity?since=${encodeURIComponent(since)}`, { cache: "no-store" });
         const body = (await response.json().catch(() => null)) as ActivityResponse | null;
-        if (!response.ok || !body?.data) return;
-        const events = body.data.events ?? [];
-        const cursor = body.data.cursor || body.data.server_time || since;
-        cursorRef.current = cursor;
-        try { sessionStorage.setItem(CURSOR_KEY, cursor); } catch { /* ignore */ }
-        const latest = events.at(-1);
-        if (latest) {
-          setAckError(null);
-          setEvent(latest);
-          playAlert();
+        if (response.ok && body?.data) {
+          const events = body.data.events ?? [];
+          const cursor = body.data.cursor || body.data.server_time || since;
+          cursorRef.current = cursor;
+          try { sessionStorage.setItem(CURSOR_KEY, cursor); } catch { /* ignore */ }
+          const latest = events.at(-1);
+          if (latest) {
+            sawEvent = true;
+            setAckError(null);
+            setEvent(latest);
+            playAlert();
+          }
         }
       } catch {
-        // Keep the POS usable while alert polling recovers on the next interval.
+        // Fail soft. The adaptive schedule below backs off instead of hammering the API.
       } finally {
         inFlightRef.current = false;
+        if (!disposed && document.visibilityState !== "hidden") {
+          if (sawEvent) {
+            idleIndex = 0;
+          } else if (idleIndex < IDLE_POLL_MS.length - 1) {
+            idleIndex += 1;
+          }
+          schedule(IDLE_POLL_MS[idleIndex]);
+        }
       }
     };
 
-    const timer = window.setInterval(() => void poll(), POLL_MS);
-    const onFocus = () => void poll();
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "hidden") {
+        clearTimer();
+        return;
+      }
+      idleIndex = 0;
+      schedule(0);
+    };
+    const onFocus = () => {
+      idleIndex = 0;
+      schedule(0);
+    };
+
+    document.addEventListener("visibilitychange", onVisibilityChange);
     window.addEventListener("focus", onFocus);
-    void poll();
+    schedule(0);
+
     return () => {
       disposed = true;
-      window.clearInterval(timer);
+      clearTimer();
+      document.removeEventListener("visibilitychange", onVisibilityChange);
       window.removeEventListener("focus", onFocus);
     };
   }, [playAlert]);
