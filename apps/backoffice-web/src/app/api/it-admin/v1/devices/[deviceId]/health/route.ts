@@ -1,5 +1,5 @@
 import { fail, ok } from "@/lib/http";
-import { guardItAdminError, requireItAdmin } from "@/lib/it-admin-guard";
+import { guardItAdminError, requireItSupport } from "@/lib/it-admin-guard";
 
 type BranchDeviceRow = {
   id: string;
@@ -45,7 +45,7 @@ export async function GET(_req: Request, context: { params: Promise<{ deviceId: 
   const startedAt = Date.now();
 
   try {
-    const { supabase } = await requireItAdmin();
+    const { supabase, auth } = await requireItSupport();
     const { deviceId } = await context.params;
     const id = String(deviceId ?? "").trim();
     if (!id) return fail("invalid_device_id", "Device id is required.", 422);
@@ -86,12 +86,17 @@ export async function GET(_req: Request, context: { params: Promise<{ deviceId: 
       device,
       health: latest ?? null,
       incidents: incidents ?? [],
-      commands: commands ?? []
+      commands: commands ?? [],
+      permissions: {
+        can_issue_commands: auth.platformRole === "it_admin"
+      }
     });
+    response.headers.set("cache-control", "no-store");
     response.headers.set("x-admin-api-ms", String(Date.now() - startedAt));
     return response;
   } catch (error) {
     const response = guardItAdminError(error);
+    response.headers.set("cache-control", "no-store");
     response.headers.set("x-admin-api-ms", String(Date.now() - startedAt));
     return response;
   }

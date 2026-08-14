@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
+import { acknowledgeDeviceCommands } from "@/lib/pos/device-command-ack-client";
 import {
   buildHeartbeatPayload,
   detectSurface,
@@ -62,7 +63,33 @@ export function PosDeviceHeartbeatSender() {
           const pendingActions = await sendDeviceHeartbeat(payload);
           lastSentAtRef.current = Date.now();
           if (pendingActions.length > 0) {
-            await executePendingActions(pendingActions);
+            // Reload commands must be acknowledged before execution because the
+            // navigation would otherwise terminate the acknowledgement request.
+            const reloadActions = pendingActions.filter(
+              (action) => action.command_type === "reload_ui" || action.command_type === "restart_app"
+            );
+            const executableWithoutReload = pendingActions.filter(
+              (action) => action.command_type !== "reload_ui" && action.command_type !== "restart_app"
+            );
+
+            if (executableWithoutReload.length > 0) {
+              const results = await executePendingActions(executableWithoutReload);
+              await acknowledgeDeviceCommands(results, surface, payload.identity.app_version ?? null);
+            }
+
+            if (reloadActions.length > 0) {
+              await acknowledgeDeviceCommands(
+                reloadActions.map((action) => ({
+                  id: action.id,
+                  command_type: action.command_type,
+                  applied: true,
+                  phase: "accepted" as const
+                })),
+                surface,
+                payload.identity.app_version ?? null
+              );
+              await executePendingActions(reloadActions);
+            }
           }
         }
       } finally {
