@@ -448,7 +448,7 @@ export async function getSupportCenterSnapshot(supabase: SupportSupabase, rawQue
     const system = asRecord(row.system_health);
     const native = asRecord(asRecord(row.metadata).native_android_diagnostics);
     const nativeHealth = asRecord(native.health);
-    const incidents = snapshot.incidents.map((incident) => ({
+    const incidents: SupportDevice["incidents"] = snapshot.incidents.map((incident) => ({
       code: incident.code,
       severity: incident.severity,
       title: incident.title,
