@@ -31,6 +31,13 @@ const POS_PAYMENT_SETTINGS_UPDATED_EVENT = "pos:payment-settings-updated";
 const POS_PAYMENT_SETTINGS_UPDATED_KEY = "pos_payment_settings_updated_at_v001";
 const POS_MAIN_MENU_PLACEMENT_KEY = "pos_main_menu_bar_position_v2";
 const POS_MAIN_MENU_PLACEMENT_EVENT = "pos-main-menu-placement-updated";
+const FG0003_SETTINGS_TENANT_ID = "2d38bd23-bf2d-4b9a-a7cf-adb2547297ed";
+const FG0003_SETTINGS_TENANT_CODE = "FG0003";
+const FG0003_HIDDEN_SETTINGS = new Set<keyof typeof POS_SETTINGS_FEATURES>(["branches", "activity", "taxes", "display"]);
+
+function normalizeSettingsStoreCode(value: string | null | undefined) {
+  return String(value ?? "").trim().toUpperCase();
+}
 
 function persistPosLanguage(nextLang: Language) {
   document.cookie = `pos_lang=${nextLang}; path=/; max-age=31536000; SameSite=Lax`;
@@ -3329,6 +3336,13 @@ export function PosSettingsWorkspace({ lang, initialData }: { lang: Language; in
   const [languagePopupOpen, setLanguagePopupOpen] = useState(false);
   const [menuPlacementPopupOpen, setMenuPlacementPopupOpen] = useState(false);
   const canManage = initialData.metadata.can_manage;
+  const isFg0003SettingsScope =
+    initialData.metadata.tenant_id === FG0003_SETTINGS_TENANT_ID ||
+    normalizeSettingsStoreCode(store?.code) === FG0003_SETTINGS_TENANT_CODE;
+
+  function isStoreSpecificSettingHidden(viewKey: keyof typeof POS_SETTINGS_FEATURES) {
+    return isFg0003SettingsScope && FG0003_HIDDEN_SETTINGS.has(viewKey);
+  }
 
   const reportStatus = useCallback((message: string, options?: { popup?: boolean }) => {
     setStatus(message);
@@ -3380,7 +3394,7 @@ export function PosSettingsWorkspace({ lang, initialData }: { lang: Language; in
         {view === "menu" ? (
           <div className="grid gap-4 lg:grid-cols-2 xl:grid-cols-3">
             <MenuButton icon="store" title={labels.store} desc={labels.storeDesc} onClick={() => openSettingsView("store")} locked={isSettingLocked("store")} />
-            <MenuButton icon="branch" title={labels.branches} desc={labels.branchesDesc} onClick={() => openSettingsView("branches")} locked={isSettingLocked("branches")} />
+            {!isStoreSpecificSettingHidden("branches") ? <MenuButton icon="branch" title={labels.branches} desc={labels.branchesDesc} onClick={() => openSettingsView("branches")} locked={isSettingLocked("branches")} /> : null}
             <MenuButton icon="terminal" title={labels.devices} desc={labels.devicesDesc} onClick={() => openSettingsView("devices")} locked={isSettingLocked("devices")} />
             <MenuButton
               icon="terminal"
@@ -3389,7 +3403,7 @@ export function PosSettingsWorkspace({ lang, initialData }: { lang: Language; in
               onClick={() => openSettingsView("printers")}
               locked={isSettingLocked("printers")}
             />
-            <MenuButton icon="activity" title={labels.activityAudit} desc={labels.activityAuditDesc} onClick={() => openSettingsView("activity")} locked={isSettingLocked("activity")} />
+            {!isStoreSpecificSettingHidden("activity") ? <MenuButton icon="activity" title={labels.activityAudit} desc={labels.activityAuditDesc} onClick={() => openSettingsView("activity")} locked={isSettingLocked("activity")} /> : null}
             <MenuButton icon="payment" title={labels.payments} desc={labels.paymentsDesc} onClick={() => openSettingsView("payments")} locked={isSettingLocked("payments")} compact />
             <MenuButton
               icon="payment"
@@ -3398,7 +3412,7 @@ export function PosSettingsWorkspace({ lang, initialData }: { lang: Language; in
               onClick={() => openSettingsView("inet_nops")}
               locked={isSettingLocked("inet_nops")}
             />
-            <MenuButton icon="tax" title={labels.taxes} desc={labels.taxesDesc} onClick={() => openSettingsView("taxes")} locked={isSettingLocked("taxes")} />
+            {!isStoreSpecificSettingHidden("taxes") ? <MenuButton icon="tax" title={labels.taxes} desc={labels.taxesDesc} onClick={() => openSettingsView("taxes")} locked={isSettingLocked("taxes")} /> : null}
             <MenuButton
               icon="bell"
               title={lang === "en" ? "Notification Settings" : "ตั้งค่าการแจ้งเตือน"}
@@ -3409,7 +3423,7 @@ export function PosSettingsWorkspace({ lang, initialData }: { lang: Language; in
             <MenuButton icon="users" title={labels.users} desc={labels.usersDesc} onClick={() => openSettingsView("users")} locked={isSettingLocked("users")} />
             <MenuButton icon="language" title={labels.language} desc={labels.languageDesc} onClick={() => setLanguagePopupOpen(true)} />
             <MenuButton icon="language" title={labels.mainMenuPlacement} desc={labels.mainMenuPlacementDesc} onClick={() => setMenuPlacementPopupOpen(true)} />
-            <MenuLink icon="display" title={labels.display} desc={labels.displayDesc} href="/preview/pos/customer-display" locked={isSettingLocked("display")} onLocked={() => setPackageLockOpen(true)} />
+            {!isStoreSpecificSettingHidden("display") ? <MenuLink icon="display" title={labels.display} desc={labels.displayDesc} href="/preview/pos/customer-display" locked={isSettingLocked("display")} onLocked={() => setPackageLockOpen(true)} /> : null}
           </div>
         ) : null}
 
