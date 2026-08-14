@@ -69,26 +69,26 @@ export function renderKitchenTicketHtml(input: KitchenTicketHtmlInput) {
       background: #fff;
       color: #111;
       font-family: "Noto Sans Thai", "Tahoma", "Arial", sans-serif;
-      font-size: ${input.paperWidthMm === 58 ? "11px" : "14px"};
-      line-height: ${input.paperWidthMm === 58 ? "1.28" : "1.35"};
+      font-size: ${input.paperWidthMm === 58 ? "10.5px" : "14px"};
+      line-height: ${input.paperWidthMm === 58 ? "1.24" : "1.35"};
     }
-    .ticket { width: ${width}; padding: ${input.paperWidthMm === 58 ? "8px" : "10px"}; }
+    .ticket { width: ${width}; padding: ${input.paperWidthMm === 58 ? "7px 6px" : "10px"}; }
     .center { text-align: center; }
     .store { font-weight: 800; font-size: 1.05em; }
-    .zone { margin-top: 6px; font-size: 1.75em; font-weight: 900; line-height: 1.1; }
-    .badge { display: inline-block; margin-top: 4px; border: 2px solid #111; padding: 2px 8px; font-weight: 900; }
-    .queue { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin: ${input.paperWidthMm === 58 ? "8px 0" : "10px 0"}; }
-    .queue div { border: 2px solid #111; padding: ${input.paperWidthMm === 58 ? "5px" : "6px"}; text-align: center; }
-    .queue strong { display: block; font-size: 2.25em; line-height: 1; }
-    .meta { border-top: 1px dashed #111; border-bottom: 1px dashed #111; padding: ${input.paperWidthMm === 58 ? "5px 0" : "6px 0"}; }
-    .row { display: flex; justify-content: space-between; gap: 8px; }
-    .items { margin-top: ${input.paperWidthMm === 58 ? "6px" : "8px"}; }
-    .item { padding: ${input.paperWidthMm === 58 ? "5px 0" : "7px 0"}; border-bottom: 1px solid #ddd; }
-    .item-main { display: flex; gap: 8px; align-items: baseline; }
-    .qty { min-width: 2.6em; font-size: 1.35em; font-weight: 900; }
-    .name { flex: 1; font-size: 1.25em; font-weight: 800; overflow-wrap: anywhere; }
-    .notes { margin-left: 3.3em; margin-top: 2px; font-weight: 700; }
-    .footer { margin-top: ${input.paperWidthMm === 58 ? "6px" : "8px"}; font-size: .85em; border-top: 1px dashed #111; padding-top: ${input.paperWidthMm === 58 ? "5px" : "6px"}; overflow-wrap: anywhere; }
+    .zone { margin-top: ${input.paperWidthMm === 58 ? "5px" : "6px"}; font-size: ${input.paperWidthMm === 58 ? "1.65em" : "1.75em"}; font-weight: 900; line-height: 1.1; }
+    .badge { display: inline-block; margin-top: 4px; border: 2px solid #111; padding: ${input.paperWidthMm === 58 ? "2px 7px" : "2px 8px"}; font-weight: 900; }
+    .queue { display: grid; grid-template-columns: 1fr 1fr; gap: ${input.paperWidthMm === 58 ? "5px" : "6px"}; margin: ${input.paperWidthMm === 58 ? "7px 0" : "10px 0"}; }
+    .queue div { border: 2px solid #111; padding: ${input.paperWidthMm === 58 ? "4px" : "6px"}; text-align: center; }
+    .queue strong { display: block; font-size: ${input.paperWidthMm === 58 ? "2.1em" : "2.25em"}; line-height: 1; }
+    .meta { border-top: 1px dashed #111; border-bottom: 1px dashed #111; padding: ${input.paperWidthMm === 58 ? "4px 0" : "6px 0"}; }
+    .row { display: flex; justify-content: space-between; gap: ${input.paperWidthMm === 58 ? "6px" : "8px"}; }
+    .items { margin-top: ${input.paperWidthMm === 58 ? "5px" : "8px"}; }
+    .item { padding: ${input.paperWidthMm === 58 ? "4px 0" : "7px 0"}; border-bottom: 1px solid #ddd; }
+    .item-main { display: flex; gap: ${input.paperWidthMm === 58 ? "5px" : "8px"}; align-items: baseline; min-width: 0; }
+    .qty { min-width: ${input.paperWidthMm === 58 ? "2.2em" : "2.6em"}; font-size: ${input.paperWidthMm === 58 ? "1.22em" : "1.35em"}; font-weight: 900; }
+    .name { flex: 1; min-width: 0; font-size: ${input.paperWidthMm === 58 ? "1.18em" : "1.25em"}; font-weight: 800; line-height: ${input.paperWidthMm === 58 ? "1.22" : "normal"}; white-space: normal; overflow-wrap: anywhere; word-break: break-word; }
+    .notes { margin-left: ${input.paperWidthMm === 58 ? "2.7em" : "3.3em"}; margin-top: 2px; font-weight: 700; overflow-wrap: anywhere; }
+    .footer { margin-top: ${input.paperWidthMm === 58 ? "5px" : "8px"}; font-size: ${input.paperWidthMm === 58 ? ".8em" : ".85em"}; border-top: 1px dashed #111; padding-top: ${input.paperWidthMm === 58 ? "4px" : "6px"}; overflow-wrap: anywhere; }
   </style>
 </head>
 <body>
