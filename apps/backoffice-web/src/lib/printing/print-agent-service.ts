@@ -75,6 +75,7 @@ const AGENT_JOB_SELECT =
 
 const PRINTER_SELECT =
   "id,printer_name,printer_role,connection_type,ip_address,port,paper_width_mm,enabled,metadata";
+const HEARTBEAT_WRITE_MIN_INTERVAL_MS = 15_000;
 
 function hashAgentKey(value: string) {
   return createHash("sha256").update(value, "utf8").digest("hex");
@@ -303,13 +304,25 @@ export async function deletePrintAgent(auth: AuthContext, agentId: string) {
 }
 
 export async function touchPrintAgent(agent: PrintAgentRow, input: { appVersion?: string | null; metadata?: JsonRecord | null } = {}) {
+  const metadataPatch = asRecord(input.metadata);
+  const requestedVersion = input.appVersion ?? agent.app_version;
+  const lastSeenMs = agent.last_seen_at ? new Date(agent.last_seen_at).getTime() : 0;
+  const shouldSkipWrite =
+    lastSeenMs > 0 &&
+    Date.now() - lastSeenMs < HEARTBEAT_WRITE_MIN_INTERVAL_MS &&
+    requestedVersion === agent.app_version &&
+    Object.keys(metadataPatch).length === 0;
+  if (shouldSkipWrite) return agent;
+
   const supabase = getPrimarySupabaseServiceClient();
   const now = new Date().toISOString();
-  const metadata = { ...asRecord(agent.metadata), ...asRecord(input.metadata), last_heartbeat_at: now };
+  const metadata = { ...asRecord(agent.metadata), ...metadataPatch, last_heartbeat_at: now };
   const { data, error } = await supabase
     .from("print_agents")
-    .update({ last_seen_at: now, app_version: input.appVersion ?? agent.app_version, metadata })
+    .update({ last_seen_at: now, app_version: requestedVersion, metadata })
     .eq("id", agent.id)
+    .eq("tenant_id", agent.tenant_id)
+    .eq("branch_id", agent.branch_id)
     .select(AGENT_SELECT)
     .single();
   if (error) throw new Error(error.message);

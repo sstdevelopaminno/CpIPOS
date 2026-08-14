@@ -22,8 +22,8 @@ android {
         applicationId = "com.cpipos.pos"
         minSdk = 26
         targetSdk = 34
-        versionCode = 14
-        versionName = "1.0.8"
+        versionCode = 15
+        versionName = "1.0.9"
 
         buildConfigField("String", "CPIPOS_API_BASE_URL", "\"https://cp-ipos-web.vercel.app\"")
         buildConfigField("String", "CPIPOS_POS_WEB_URL", "\"https://cp-ipos-web.vercel.app/login/store\"")
@@ -96,6 +96,8 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-viewmodel-ktx:2.8.3")
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.3")
 
+    // MobileApp.kt uses Foundation layouts/lists/gestures and Material 3 controls directly.
+    // Keep all Compose artifacts on the BOM so Kotlin/Compose versions stay aligned in CI and release builds.
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.ui:ui-tooling-preview")
     implementation("androidx.compose.foundation:foundation")
