@@ -161,9 +161,11 @@ export async function queueRoutedSalesReceipt(args: {
   });
   if (routes.length === 0) return [];
 
-  const storeProfile = await loadReceiptStoreProfile(args.auth.tenantId!);
+  const [storeProfile, sellerName] = await Promise.all([
+    loadReceiptStoreProfile(args.auth.tenantId!),
+    loadReceiptSellerName(args.auth, args.auth.userId, { seller_name: args.sellerName ?? null })
+  ]);
   const branchName = await loadBranchName(args.auth, storeProfile?.display_name ?? storeProfile?.name);
-  const sellerName = await loadReceiptSellerName(args.auth, args.auth.userId, { seller_name: args.sellerName ?? null });
   const jobs = [];
   for (const route of routes) {
     const paidAtIso = new Date().toISOString();
@@ -263,9 +265,11 @@ export async function queueRoutedPaymentNotice(args: {
   });
   if (routes.length === 0) return [];
 
-  const storeProfile = await loadReceiptStoreProfile(args.auth.tenantId!);
+  const [storeProfile, sellerName] = await Promise.all([
+    loadReceiptStoreProfile(args.auth.tenantId!),
+    loadReceiptSellerName(args.auth, args.auth.userId, { seller_name: args.sellerName ?? null })
+  ]);
   const branchName = await loadBranchName(args.auth, storeProfile?.display_name ?? storeProfile?.name);
-  const sellerName = await loadReceiptSellerName(args.auth, args.auth.userId, { seller_name: args.sellerName ?? null });
   const jobs = [];
   for (const route of routes) {
     const html = renderPaymentNoticeHtml({

@@ -8,8 +8,7 @@ import { fail, ok } from "@/lib/http";
 import { invalidatePosScopeRuntimeCaches } from "@/lib/pos-cache-invalidation";
 import { appendPosDeadLetter, POS_GUARDS } from "@/lib/pos-resilience";
 import { openCashDrawerController } from "@/lib/printing/cash-drawer-controller-service";
-import { queueRoutedKitchenFallback, queueRoutedSalesReceipt } from "@/lib/printing/routed-print-service";
-import { dispatchOrderToKitchen } from "@/lib/services/kitchen-routing-service";
+import { queueRoutedSalesReceipt } from "@/lib/printing/routed-print-service";
 import { invalidatePosSalesListCacheForScope } from "@/lib/services/pos-sales-list-service";
 import { executeCompletePosPaymentTransaction } from "@/lib/services/pos-sales-service";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
@@ -26,7 +25,6 @@ type CompletePaymentPayload = {
   skip_transfer_verification?: boolean;
   cash_received?: number;
   change_amount?: number;
-  print_kitchen_ticket?: boolean;
 };
 
 type TransferVerificationRow = {
@@ -271,15 +269,37 @@ export async function POST(req: Request) {
     const printJobsQueued = 0;
     const printWarning: string | null = null;
     console.info("[pos-payment] payment_saved", { order_id: body.order_id, request_group_id: requestGroupId, payment_method: paymentMethod });
+
+    // Start the read-only print preflight immediately after the payment has been persisted.
+    // The promise is consumed inside `after()`, so payment response latency stays decoupled
+    // while the receipt queue no longer waits for these independent reads to start.
+    const deferredPrintPreflight = Promise.all([
+      supabase
+        .from("print_jobs")
+        .select("id", { count: "exact", head: true })
+        .eq("tenant_id", auth.tenantId!)
+        .eq("branch_id", auth.branchId!)
+        .in("status", ["pending", "printing", "retrying"]),
+      supabase
+        .from("orders")
+        .select("id,order_no,total_amount,discount_amount,notes,customer_name,table_id")
+        .eq("tenant_id", auth.tenantId!)
+        .eq("branch_id", auth.branchId!)
+        .eq("id", body.order_id)
+        .single(),
+      supabase
+        .from("order_items")
+        .select("quantity,unit_price,line_total,notes,products(name)")
+        .eq("tenant_id", auth.tenantId!)
+        .eq("branch_id", auth.branchId!)
+        .eq("order_id", body.order_id)
+    ]);
+
     after(async () => {
       let skipPrintEnqueue = false;
       try {
-        const { count: printQueueDepth, error: printQueueDepthError } = await supabase
-          .from("print_jobs")
-          .select("id", { count: "exact", head: true })
-          .eq("tenant_id", auth.tenantId!)
-          .eq("branch_id", auth.branchId!)
-          .in("status", ["pending", "printing", "retrying"]);
+        const [printQueueResult, orderResult, itemResult] = await deferredPrintPreflight;
+        const { count: printQueueDepth, error: printQueueDepthError } = printQueueResult;
         if (printQueueDepthError) throw new Error(`print_queue_depth_query_failed: ${printQueueDepthError.message}`);
         if ((printQueueDepth ?? 0) >= POS_GUARDS.printQueueHardLimit) {
           const warning = `print_queue_overloaded (${printQueueDepth}/${POS_GUARDS.printQueueHardLimit})`;
@@ -311,12 +331,11 @@ export async function POST(req: Request) {
             : Promise.resolve();
 
           const receiptTask = (async () => {
-            const [{ data: orderRow, error: orderError }, { data: itemRows, error: itemError }] = await Promise.all([
-              supabase.from("orders").select("id,order_no,total_amount,discount_amount,notes,customer_name,table_id").eq("tenant_id", auth.tenantId!).eq("branch_id", auth.branchId!).eq("id", body.order_id).single(),
-              supabase.from("order_items").select("quantity,unit_price,line_total,notes,products(name)").eq("tenant_id", auth.tenantId!).eq("branch_id", auth.branchId!).eq("order_id", body.order_id)
-            ]);
+            const { data: orderRow, error: orderError } = orderResult;
+            const { data: itemRows, error: itemError } = itemResult;
             if (orderError) throw new Error(orderError.message);
             if (itemError) throw new Error(itemError.message);
+            if (!orderRow) throw new Error("receipt_order_not_found");
 
             const receiptJobs = await queueRoutedSalesReceipt({
               auth,
@@ -328,13 +347,8 @@ export async function POST(req: Request) {
             });
             console.info("[pos-payment] receipt_print_queued", { order_id: body.order_id, request_group_id: requestGroupId, print_jobs_queued: receiptJobs.length });
 
-            if (body.print_kitchen_ticket === true) {
-              const kitchenResult = await dispatchOrderToKitchen({ tenantId: auth.tenantId!, branchId: auth.branchId!, orderId: body.order_id, eventKey: `payment-kitchen:${requestGroupId}`, action: "reprint", actorUserId: auth.userId, actorRole: auth.branchRole ?? auth.platformRole });
-              if (!kitchenResult.ok) throw new Error(kitchenResult.message);
-              if (kitchenResult.routedZoneCount === 0) {
-                await queueRoutedKitchenFallback({ auth, orderId: body.order_id, runtimeDeviceCode: scope.session.device_code, action: "reprint" });
-              }
-            }
+            // Payment completion must never dispatch or reprint kitchen tickets.
+            // Kitchen item dispatch/recovery is handled when the order is created or changed in /api/pos/sales.
           })().catch((printError) => {
             const warning = printError instanceof Error ? printError.message : "print_queue_failed";
             appendPosDeadLetter({ auth, channel: "print", targetTable: "print_jobs", targetId: body.order_id, reason: "print_queue_failed", metadata: { detail: warning, runtime_device_code: scope.session.device_code, deferred: true } });
