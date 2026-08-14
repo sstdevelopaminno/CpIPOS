@@ -76,27 +76,29 @@ type HealthResponse = {
 type Tone = "ok" | "warn" | "danger" | "muted" | "info";
 
 const COMMAND_LABELS: Record<DeviceCommandType, string> = {
-  request_diagnostics_bundle: "Collect diagnostics",
+  request_diagnostics_bundle: "Collect diagnostics bundle",
+  request_diagnostics: "Refresh diagnostics",
   reload_ui: "Reload POS UI",
+  restart_app: "Restart POS app",
+  test_network: "Test network",
+  test_printer: "Test printer",
   clear_print_queue: "Clear print queue",
   restart_local_bridge: "Restart local bridge",
-  refresh_config: "Refresh runtime config",
-  disable_device: "Disable device",
-  enable_device: "Enable device",
-  test_printer: "Test printer",
-  collect_logs: "Collect logs",
-  restart_app: "Restart app",
   restart_print_service: "Restart print service",
-  retry_failed_print_jobs: "Retry failed print jobs",
-  check_update: "Check update"
+  refresh_config: "Refresh runtime config",
+  check_update: "Check update",
+  disable_device: "Disable device",
+  enable_device: "Enable device"
 };
 
 const SAFE_PRIMARY_COMMANDS: DeviceCommandType[] = [
   "request_diagnostics_bundle",
+  "request_diagnostics",
+  "test_network",
   "test_printer",
   "refresh_config",
-  "retry_failed_print_jobs",
   "reload_ui",
+  "restart_app",
   "disable_device",
   "enable_device"
 ];
