@@ -4,6 +4,9 @@ export function invalidatePosBranchRuntimeCaches(args: { tenantId: string; branc
   const { tenantId, branchId } = args;
   invalidateRuntimeCacheByPrefix(`pos-monitor:${tenantId}:${branchId}`);
   invalidateRuntimeCacheByPrefix(`pos-tables:${tenantId}:${branchId}`);
+  invalidateRuntimeCacheByPrefix(`pos-table-bill:${tenantId}:${branchId}:`);
+  invalidateRuntimeCacheByPrefix(`pos-table-qr-orders:${tenantId}:${branchId}:`);
+  invalidateRuntimeCacheByPrefix(`pos-table-qr-activity:${tenantId}:${branchId}:`);
   invalidateRuntimeCacheByPrefix(`pos-sales:${tenantId}:${branchId}`);
 }
 
