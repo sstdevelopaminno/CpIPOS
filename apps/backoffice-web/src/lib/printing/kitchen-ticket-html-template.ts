@@ -69,26 +69,26 @@ export function renderKitchenTicketHtml(input: KitchenTicketHtmlInput) {
       background: #fff;
       color: #111;
       font-family: "Noto Sans Thai", "Tahoma", "Arial", sans-serif;
-      font-size: ${input.paperWidthMm === 58 ? "12px" : "14px"};
-      line-height: 1.35;
+      font-size: ${input.paperWidthMm === 58 ? "11px" : "14px"};
+      line-height: ${input.paperWidthMm === 58 ? "1.28" : "1.35"};
     }
-    .ticket { width: ${width}; padding: 10px; }
+    .ticket { width: ${width}; padding: ${input.paperWidthMm === 58 ? "8px" : "10px"}; }
     .center { text-align: center; }
     .store { font-weight: 800; font-size: 1.05em; }
     .zone { margin-top: 6px; font-size: 1.75em; font-weight: 900; line-height: 1.1; }
     .badge { display: inline-block; margin-top: 4px; border: 2px solid #111; padding: 2px 8px; font-weight: 900; }
-    .queue { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin: 10px 0; }
-    .queue div { border: 2px solid #111; padding: 6px; text-align: center; }
+    .queue { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin: ${input.paperWidthMm === 58 ? "8px 0" : "10px 0"}; }
+    .queue div { border: 2px solid #111; padding: ${input.paperWidthMm === 58 ? "5px" : "6px"}; text-align: center; }
     .queue strong { display: block; font-size: 2.25em; line-height: 1; }
-    .meta { border-top: 1px dashed #111; border-bottom: 1px dashed #111; padding: 6px 0; }
+    .meta { border-top: 1px dashed #111; border-bottom: 1px dashed #111; padding: ${input.paperWidthMm === 58 ? "5px 0" : "6px 0"}; }
     .row { display: flex; justify-content: space-between; gap: 8px; }
-    .items { margin-top: 8px; }
-    .item { padding: 7px 0; border-bottom: 1px solid #ddd; }
+    .items { margin-top: ${input.paperWidthMm === 58 ? "6px" : "8px"}; }
+    .item { padding: ${input.paperWidthMm === 58 ? "5px 0" : "7px 0"}; border-bottom: 1px solid #ddd; }
     .item-main { display: flex; gap: 8px; align-items: baseline; }
     .qty { min-width: 2.6em; font-size: 1.35em; font-weight: 900; }
     .name { flex: 1; font-size: 1.25em; font-weight: 800; overflow-wrap: anywhere; }
     .notes { margin-left: 3.3em; margin-top: 2px; font-weight: 700; }
-    .footer { margin-top: 8px; font-size: .85em; border-top: 1px dashed #111; padding-top: 6px; overflow-wrap: anywhere; }
+    .footer { margin-top: ${input.paperWidthMm === 58 ? "6px" : "8px"}; font-size: .85em; border-top: 1px dashed #111; padding-top: ${input.paperWidthMm === 58 ? "5px" : "6px"}; overflow-wrap: anywhere; }
   </style>
 </head>
 <body>
