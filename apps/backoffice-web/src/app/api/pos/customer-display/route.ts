@@ -22,6 +22,37 @@ type DisplayReadScope = {
   source: "token" | "auth";
 };
 
+type DisplayWriteFingerprint = {
+  signature: string;
+  updatedAt: string;
+  expiresAt: number;
+};
+
+const DISPLAY_WRITE_DEDUPE_MS = 30_000;
+const DISPLAY_WRITE_DEDUPE_MAX_ENTRIES = 256;
+const displayWriteFingerprints = new Map<string, DisplayWriteFingerprint>();
+
+function displayPayloadSignature(payload: Record<string, unknown>) {
+  const { updated_at: _ignoredUpdatedAt, ...stablePayload } = payload;
+  return JSON.stringify(stablePayload);
+}
+
+function rememberDisplayWrite(key: string, signature: string, updatedAt: string) {
+  const now = Date.now();
+  for (const [entryKey, entry] of displayWriteFingerprints.entries()) {
+    if (entry.expiresAt <= now) displayWriteFingerprints.delete(entryKey);
+  }
+  if (displayWriteFingerprints.size >= DISPLAY_WRITE_DEDUPE_MAX_ENTRIES) {
+    const oldestKey = displayWriteFingerprints.keys().next().value as string | undefined;
+    if (oldestKey) displayWriteFingerprints.delete(oldestKey);
+  }
+  displayWriteFingerprints.set(key, {
+    signature,
+    updatedAt,
+    expiresAt: now + DISPLAY_WRITE_DEDUPE_MS
+  });
+}
+
 function isSchemaMissingError(message: string): boolean {
   const normalized = message.toLowerCase();
   return (
@@ -132,6 +163,7 @@ export async function GET(req: Request) {
     const { value: data, source: cacheSource } = await readThroughRuntimeCache<DisplayStateRow | null>({
       key: cacheKey,
       ttlMs: 500,
+      staleIfErrorMs: 5000,
       loader: async () => {
         const { data: row, error } = await supabase
           .from("pos_customer_display_states")
@@ -229,6 +261,22 @@ export async function POST(req: Request) {
       return response;
     }
 
+    const dedupeKey = `${auth.tenantId}:${auth.branchId}:${channel}`;
+    const signature = displayPayloadSignature(payload);
+    const rememberedWrite = displayWriteFingerprints.get(dedupeKey);
+    if (rememberedWrite && rememberedWrite.expiresAt > Date.now() && rememberedWrite.signature === signature) {
+      const response = ok({
+        channel,
+        updated_at: rememberedWrite.updatedAt,
+        fallback_mode: false,
+        duplicate: true
+      });
+      response.headers.set("x-pos-customer-display-write", "deduped");
+      response.headers.set("x-pos-customer-display-ms", String(Date.now() - startedAt));
+      return response;
+    }
+
+    const updatedAt = new Date().toISOString();
     const { error } = await supabase.from("pos_customer_display_states").upsert(
       {
         tenant_id: auth.tenantId!,
@@ -236,7 +284,7 @@ export async function POST(req: Request) {
         channel,
         payload,
         updated_by: auth.userId,
-        updated_at: new Date().toISOString()
+        updated_at: updatedAt
       },
       { onConflict: "tenant_id,branch_id,channel" }
     );
@@ -247,13 +295,16 @@ export async function POST(req: Request) {
       return response;
     }
 
+    rememberDisplayWrite(dedupeKey, signature, updatedAt);
     invalidateRuntimeCacheByPrefix(`pos-customer-display:${auth.tenantId}:${auth.branchId}:${channel}`);
 
     const response = ok({
       channel,
-      updated_at: new Date().toISOString(),
-      fallback_mode: Boolean(error && isSchemaMissingError(error.message))
+      updated_at: updatedAt,
+      fallback_mode: Boolean(error && isSchemaMissingError(error.message)),
+      duplicate: false
     });
+    response.headers.set("x-pos-customer-display-write", "upsert");
     response.headers.set("x-pos-customer-display-ms", String(Date.now() - startedAt));
     return response;
   } catch (error) {

@@ -1,7 +1,8 @@
-type CacheSource = "hit" | "miss" | "inflight";
+type CacheSource = "hit" | "miss" | "inflight" | "stale";
 
 type CacheEntry = {
   expiresAt: number;
+  staleUntil: number;
   value: unknown;
   touchedAt: number;
 };
@@ -12,7 +13,7 @@ const MAX_ENTRIES = 512;
 
 function pruneCache(now: number) {
   for (const [key, entry] of valueCache.entries()) {
-    if (entry.expiresAt <= now) {
+    if (entry.staleUntil <= now) {
       valueCache.delete(key);
     }
   }
@@ -27,9 +28,11 @@ function pruneCache(now: number) {
 export async function readThroughRuntimeCache<T>(args: {
   key: string;
   ttlMs: number;
+  staleIfErrorMs?: number;
   loader: () => Promise<T>;
 }): Promise<{ value: T; source: CacheSource }> {
   const { key, ttlMs, loader } = args;
+  const staleIfErrorMs = Math.max(0, Number(args.staleIfErrorMs ?? 0));
   const now = Date.now();
   pruneCache(now);
 
@@ -39,17 +42,29 @@ export async function readThroughRuntimeCache<T>(args: {
     return { value: cached.value as T, source: "hit" };
   }
 
+  const stale = cached && cached.staleUntil > now ? cached : null;
   const inflight = inflightCache.get(key);
   if (inflight) {
-    return { value: (await inflight) as T, source: "inflight" };
+    try {
+      return { value: (await inflight) as T, source: "inflight" };
+    } catch (error) {
+      if (stale) {
+        stale.touchedAt = Date.now();
+        return { value: stale.value as T, source: "stale" };
+      }
+      throw error;
+    }
   }
 
   const promise = (async () => {
     const loaded = await loader();
+    const storedAt = Date.now();
+    const freshForMs = Math.max(50, ttlMs);
     valueCache.set(key, {
       value: loaded,
-      expiresAt: Date.now() + Math.max(50, ttlMs),
-      touchedAt: Date.now()
+      expiresAt: storedAt + freshForMs,
+      staleUntil: storedAt + freshForMs + staleIfErrorMs,
+      touchedAt: storedAt
     });
     return loaded;
   })().finally(() => {
@@ -57,7 +72,15 @@ export async function readThroughRuntimeCache<T>(args: {
   });
 
   inflightCache.set(key, promise);
-  return { value: (await promise) as T, source: "miss" };
+  try {
+    return { value: (await promise) as T, source: "miss" };
+  } catch (error) {
+    if (stale) {
+      stale.touchedAt = Date.now();
+      return { value: stale.value as T, source: "stale" };
+    }
+    throw error;
+  }
 }
 
 export function invalidateRuntimeCacheByPrefix(prefix: string) {

@@ -112,7 +112,8 @@ export async function GET() {
     const cacheKey = `pos-tables:${auth.tenantId}:${auth.branchId}`;
     const { value: payload, source: cacheSource } = await readThroughRuntimeCache({
       key: cacheKey,
-      ttlMs: 2000,
+      ttlMs: 5000,
+      staleIfErrorMs: 15000,
       loader: async () => {
         const supabase = getSupabaseServiceClient();
         const [zoneResult, sessionResult, tableResult, objectResult] = await Promise.all([
