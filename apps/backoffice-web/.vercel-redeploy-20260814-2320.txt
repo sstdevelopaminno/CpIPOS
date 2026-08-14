@@ -1,0 +1,2 @@
+Preview redeploy trigger for PR #75 (2026-08-14 23:20 ICT).
+No runtime or production code changes.
