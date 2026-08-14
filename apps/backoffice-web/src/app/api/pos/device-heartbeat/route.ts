@@ -92,10 +92,10 @@ function resolveTelemetryProfile(body: DeviceHeartbeatPayload, machineId: string
   return "generic";
 }
 
-function androidInstallIdFromMachineId(machineId: string): string | null {
-  const normalized = machineId.trim();
-  if (!normalized.toLowerCase().startsWith("and-")) return null;
-  return normalized.slice(4).trim() || null;
+function readNativeAndroidInstallId(body: DeviceHeartbeatPayload): string | null {
+  const metadata = sanitizeRecord(body.metadata);
+  const diagnostics = sanitizeRecord(metadata.native_android_diagnostics);
+  return sanitizeText(diagnostics.install_id) || null;
 }
 
 async function requireCurrentAndroidInstallBinding(
@@ -104,15 +104,13 @@ async function requireCurrentAndroidInstallBinding(
     tenantId: string;
     branchId: string;
     posDeviceId: string | null;
-    machineId: string;
+    nativeInstallId: string | null;
     telemetryProfile: "windows_runtime" | "android" | "browser" | "generic";
   }
 ) {
   if (input.telemetryProfile !== "android") return;
   if (!input.posDeviceId) throw new Error("android_device_binding_required");
-
-  const installId = androidInstallIdFromMachineId(input.machineId);
-  if (!installId) throw new Error("android_install_id_required");
+  if (!input.nativeInstallId) throw new Error("android_install_id_required");
 
   const { data, error } = await supabase
     .from("branch_devices")
@@ -128,7 +126,7 @@ async function requireCurrentAndroidInstallBinding(
 
   const metadata = sanitizeRecord(data.metadata);
   const boundInstallId = sanitizeText(metadata.android_mdm_install_id);
-  if (!boundInstallId || boundInstallId !== installId) {
+  if (!boundInstallId || boundInstallId !== input.nativeInstallId) {
     throw new Error("android_install_binding_mismatch");
   }
 }
@@ -210,13 +208,14 @@ export async function POST(req: Request) {
     const capturedAt = sanitizeText(body.captured_at, new Date().toISOString());
     const telemetryProfile = resolveTelemetryProfile(body, machineId);
     const isAndroidTelemetry = telemetryProfile === "android";
+    const nativeAndroidInstallId = readNativeAndroidInstallId(body);
     const supabase = getSupabaseServiceClient();
 
     await requireCurrentAndroidInstallBinding(supabase, {
       tenantId: scope.session.tenant_id,
       branchId: scope.session.branch_id,
       posDeviceId: scope.session.device_id ?? null,
-      machineId,
+      nativeInstallId: nativeAndroidInstallId,
       telemetryProfile
     });
 
@@ -268,7 +267,8 @@ export async function POST(req: Request) {
       security_signals: sanitizeSecuritySignals(body.security_signals),
       metadata: {
         ...sanitizeRecord(body.metadata),
-        telemetry_profile: telemetryProfile
+        telemetry_profile: telemetryProfile,
+        verified_android_install_id: isAndroidTelemetry ? nativeAndroidInstallId : null
       },
       captured_at: capturedAt
     };
