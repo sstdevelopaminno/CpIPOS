@@ -18,6 +18,11 @@ import java.util.concurrent.atomic.AtomicBoolean
  * Vercel remains the queue/control plane. This worker claims branch-scoped jobs
  * using the existing Print Agent lease protocol and performs the physical I/O
  * locally so LAN/USB/Bluetooth printers are reachable at the customer site.
+ *
+ * P0 stability contract:
+ * - heartbeat is independent from job polling and runs every 45 seconds;
+ * - empty claims back off 2 -> 5 -> 10 -> 15 seconds;
+ * - any claimed work resets the idle backoff to 2 seconds.
  */
 class PosPrintAgent(
     context: Context,
@@ -28,33 +33,29 @@ class PosPrintAgent(
     private val transport = NativePrintTransport(appContext)
     private val started = AtomicBoolean(false)
     private var executor: ScheduledExecutorService? = null
+    private var idleBackoffIndex = 0
 
     @Volatile private var lastError: String? = null
     @Volatile private var lastJobId: String? = null
     @Volatile private var lastTransport: String? = null
     @Volatile private var lastSuccessAtMs: Long? = null
+    @Volatile private var lastHeartbeatElapsedMs: Long = 0L
 
     fun start() {
         if (!started.compareAndSet(false, true)) return
+        idleBackoffIndex = 0
         executor = Executors.newSingleThreadScheduledExecutor { runnable ->
             Thread(runnable, "cpipos-native-print-agent").apply { isDaemon = true }
-        }.also { service ->
-            // Start immediately and keep foreground POS printing responsive. One-second
-            // polling is the fallback transport wake-up; the server still owns leases,
-            // idempotency and retry limits so multiple branches remain isolated.
-            service.scheduleWithFixedDelay(
-                { runCatching { tick() }.onFailure { lastError = it.message ?: it::class.java.simpleName } },
-                0,
-                1,
-                TimeUnit.SECONDS
-            )
         }
+        scheduleNext(0L)
     }
 
     fun stop() {
         if (!started.compareAndSet(true, false)) return
         executor?.shutdownNow()
         executor = null
+        idleBackoffIndex = 0
+        lastHeartbeatElapsedMs = 0L
     }
 
     fun diagnosticsJson(): JSONObject = JSONObject()
@@ -64,11 +65,37 @@ class PosPrintAgent(
         .put("last_transport", lastTransport)
         .put("last_success_at_ms", lastSuccessAtMs)
         .put("last_error", lastError)
+        .put("idle_backoff_seconds", IDLE_BACKOFF_SECONDS[idleBackoffIndex.coerceIn(0, IDLE_BACKOFF_SECONDS.lastIndex)])
+        .put("heartbeat_interval_seconds", HEARTBEAT_INTERVAL_SECONDS)
         .put("supported_transports", JSONArray(listOf("lan", "usb", "bluetooth")))
 
-    private fun tick() {
-        if (!started.get()) return
-        val key = getOrBootstrapKey() ?: return
+    private fun scheduleNext(delaySeconds: Long) {
+        val service = executor ?: return
+        if (!started.get() || service.isShutdown) return
+        service.schedule({
+            if (started.get()) {
+                val claimedJobs = runCatching { tick() }.getOrElse { error ->
+                    lastError = error.message ?: error::class.java.simpleName
+                    0
+                }
+                val nextDelay = if (claimedJobs > 0) {
+                    idleBackoffIndex = 0
+                    IDLE_BACKOFF_SECONDS.first()
+                } else {
+                    val delay = IDLE_BACKOFF_SECONDS[idleBackoffIndex.coerceIn(0, IDLE_BACKOFF_SECONDS.lastIndex)]
+                    if (idleBackoffIndex < IDLE_BACKOFF_SECONDS.lastIndex) idleBackoffIndex += 1
+                    delay
+                }
+                scheduleNext(nextDelay)
+            }
+        }, delaySeconds, TimeUnit.SECONDS)
+    }
+
+    private fun tick(): Int {
+        if (!started.get()) return 0
+        val key = getOrBootstrapKey() ?: return 0
+        sendHeartbeatIfDue(key)
+
         val claim = postJson(
             url = "${BuildConfig.CPIPOS_API_BASE_URL}/api/print-agent/v1/jobs/claim",
             body = JSONObject()
@@ -81,18 +108,48 @@ class PosPrintAgent(
         if (claim.status == 401 || claim.status == 403) {
             clearAgentKey()
             lastError = "print_agent_auth_expired"
-            return
+            return 0
         }
         if (claim.status !in 200..299) {
             lastError = readApiError(claim.body) ?: "print_agent_claim_http_${claim.status}"
-            return
+            return 0
         }
 
-        val data = claim.body?.optJSONObject("data") ?: claim.body ?: return
-        val jobs = data.optJSONArray("jobs") ?: return
+        val data = claim.body?.optJSONObject("data") ?: claim.body ?: return 0
+        val jobs = data.optJSONArray("jobs") ?: return 0
         for (index in 0 until jobs.length()) {
             val row = jobs.optJSONObject(index) ?: continue
             processJob(key, row)
+        }
+        return jobs.length()
+    }
+
+    private fun sendHeartbeatIfDue(agentKey: String) {
+        val now = SystemClock.elapsedRealtime()
+        if (lastHeartbeatElapsedMs != 0L && now - lastHeartbeatElapsedMs < HEARTBEAT_INTERVAL_MS) return
+
+        val response = postJson(
+            url = "${BuildConfig.CPIPOS_API_BASE_URL}/api/print-agent/v1/heartbeat",
+            body = JSONObject()
+                .put("app_version", BuildConfig.VERSION_NAME)
+                .put(
+                    "metadata",
+                    JSONObject()
+                        .put("runtime", "android_native_print_agent")
+                        .put("device_model", Build.MODEL)
+                ),
+            agentKey = agentKey
+        )
+
+        if (response.status == 401 || response.status == 403) {
+            clearAgentKey()
+            lastError = "print_agent_auth_expired"
+            return
+        }
+        if (response.status in 200..299) {
+            lastHeartbeatElapsedMs = now
+        } else {
+            lastError = readApiError(response.body) ?: "print_agent_heartbeat_http_${response.status}"
         }
     }
 
@@ -121,6 +178,7 @@ class PosPrintAgent(
             .putString(PREF_AGENT_ID, agent?.optString("id", ""))
             .putString(PREF_DEVICE_CODE, agent?.optString("device_code", ""))
             .apply()
+        lastHeartbeatElapsedMs = 0L
         lastError = null
         return key
     }
@@ -306,11 +364,15 @@ class PosPrintAgent(
 
     private fun clearAgentKey() {
         prefs.edit().remove(PREF_AGENT_KEY).remove(PREF_AGENT_ID).apply()
+        lastHeartbeatElapsedMs = 0L
     }
 
     companion object {
         private const val PREF_AGENT_KEY = "agent_key"
         private const val PREF_AGENT_ID = "agent_id"
         private const val PREF_DEVICE_CODE = "device_code"
+        private const val HEARTBEAT_INTERVAL_SECONDS = 45L
+        private const val HEARTBEAT_INTERVAL_MS = HEARTBEAT_INTERVAL_SECONDS * 1_000L
+        private val IDLE_BACKOFF_SECONDS = longArrayOf(2L, 5L, 10L, 15L)
     }
 }
