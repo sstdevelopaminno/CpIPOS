@@ -136,7 +136,7 @@ export function PosTableQrGlobalAlert({ lang }: { lang: Language }) {
         // Fail soft. The adaptive schedule below backs off instead of hammering the API.
       } finally {
         inFlightRef.current = false;
-        if (!disposed && document.visibilityState !== "hidden") {
+        if (!disposed) {
           if (sawEvent) {
             idleIndex = 0;
           } else if (idleIndex < IDLE_POLL_MS.length - 1) {
