@@ -7,13 +7,13 @@ import { getSupabaseServiceClient } from "@/lib/supabase-admin";
 export type KitchenTicketStatus = "queued" | "acknowledged" | "preparing" | "ready" | "cancelled";
 
 const VALID_STATUSES = new Set<KitchenTicketStatus>(["queued", "acknowledged", "preparing", "ready", "cancelled"]);
-
 const KITCHEN_TICKET_SELECT_WITH_ROUND = "id,order_id,zone_id,event_key,event_type,status,queue_no,round_no,order_no,order_type,table_id,customer_name,order_notes,metadata,created_at,updated_at";
 const KITCHEN_TICKET_SELECT_BASE = "id,order_id,zone_id,event_key,event_type,status,queue_no,order_no,order_type,table_id,customer_name,order_notes,metadata,created_at,updated_at";
 
 function isMissingRoundNoError(error: { message?: string } | null | undefined) {
   return Boolean(error?.message?.includes("kitchen_tickets.round_no") || error?.message?.includes("round_no does not exist"));
 }
+
 export class KitchenQueueError extends Error {
   code: string;
   status: number;
@@ -56,10 +56,7 @@ export async function loadKitchenQueue(args: {
 
     if (includeRoundNo) query = query.order("round_no", { ascending: true });
     query = query.order("created_at", { ascending: true }).limit(limit);
-
-    if (args.zoneId?.trim()) {
-      query = query.eq("zone_id", args.zoneId.trim());
-    }
+    if (args.zoneId?.trim()) query = query.eq("zone_id", args.zoneId.trim());
     return query;
   };
 
@@ -71,7 +68,6 @@ export async function loadKitchenQueue(args: {
     tickets = ((fallback.data ?? []) as unknown[]).map((ticket) => ({ ...(ticket as Record<string, unknown>), round_no: null }));
     ticketError = fallback.error;
   }
-
   if (ticketError) throw new KitchenQueueError("kitchen_queue_query_failed", ticketError.message, 500);
 
   const ticketRows = (tickets ?? []) as unknown as Array<{
@@ -92,27 +88,19 @@ export async function loadKitchenQueue(args: {
     created_at: string;
     updated_at: string;
   }>;
+
   const ticketIds = ticketRows.map((ticket) => ticket.id);
   const zoneIds = Array.from(new Set(ticketRows.map((ticket) => ticket.zone_id)));
+  const tableIds = Array.from(new Set(ticketRows.map((ticket) => ticket.table_id).filter((value): value is string => Boolean(value))));
 
   if (ticketIds.length === 0) {
-    return {
-      tickets: [],
-      summary: { queued: 0, acknowledged: 0, preparing: 0, ready: 0, cancelled: 0 }
-    };
+    return { tickets: [], summary: { queued: 0, acknowledged: 0, preparing: 0, ready: 0, cancelled: 0 } };
   }
 
-  const [itemsResult, jobsResult, zonesResult] = await Promise.all([
+  const [itemsResult, zonesResult, tablesResult] = await Promise.all([
     supabase
       .from("kitchen_ticket_items")
       .select("id,kitchen_ticket_id,order_item_id,product_id,action,product_name,category_name,quantity,notes,metadata,created_at")
-      .eq("tenant_id", args.tenantId)
-      .eq("branch_id", args.branchId)
-      .in("kitchen_ticket_id", ticketIds)
-      .order("created_at", { ascending: true }),
-    supabase
-      .from("print_jobs")
-      .select("id,kitchen_ticket_id,printer_id,status,retry_count,max_retry_count,last_error,printed_at,failed_at,created_at")
       .eq("tenant_id", args.tenantId)
       .eq("branch_id", args.branchId)
       .in("kitchen_ticket_id", ticketIds)
@@ -122,35 +110,20 @@ export async function loadKitchenQueue(args: {
       .select("id,zone_code,zone_name,display_order,is_active,kds_enabled,default_printer_id")
       .eq("tenant_id", args.tenantId)
       .eq("branch_id", args.branchId)
-      .in("id", zoneIds)
+      .in("id", zoneIds),
+    tableIds.length
+      ? supabase
+          .from("dining_tables")
+          .select("id,table_code,table_name")
+          .eq("tenant_id", args.tenantId)
+          .eq("branch_id", args.branchId)
+          .in("id", tableIds)
+      : Promise.resolve({ data: [], error: null })
   ]);
 
-  for (const result of [itemsResult, jobsResult, zonesResult]) {
+  for (const result of [itemsResult, zonesResult, tablesResult]) {
     if (result.error) throw new KitchenQueueError("kitchen_queue_detail_failed", result.error.message, 500);
   }
-
-  const jobs = (jobsResult.data ?? []) as Array<{
-    id: string;
-    kitchen_ticket_id: string;
-    printer_id: string | null;
-    status: string;
-    retry_count: number;
-    max_retry_count: number;
-    last_error: string | null;
-    printed_at: string | null;
-    failed_at: string | null;
-    created_at: string;
-  }>;
-  const printerIds = Array.from(new Set(jobs.map((job) => job.printer_id).filter((value): value is string => Boolean(value))));
-  const printersResult = printerIds.length
-    ? await supabase
-        .from("printer_profiles")
-        .select("id,printer_name,connection_type,ip_address,port,paper_width_mm,enabled")
-        .eq("tenant_id", args.tenantId)
-        .eq("branch_id", args.branchId)
-        .in("id", printerIds)
-    : { data: [], error: null };
-  if (printersResult.error) throw new KitchenQueueError("kitchen_printer_query_failed", printersResult.error.message, 500);
 
   const itemsByTicket = new Map<string, unknown[]>();
   for (const item of itemsResult.data ?? []) {
@@ -160,31 +133,25 @@ export async function loadKitchenQueue(args: {
     itemsByTicket.set(ticketId, list);
   }
 
-  const jobsByTicket = new Map<string, typeof jobs>();
-  for (const job of jobs) {
-    const list = jobsByTicket.get(job.kitchen_ticket_id) ?? [];
-    list.push(job);
-    jobsByTicket.set(job.kitchen_ticket_id, list);
-  }
-
   const zonesById = new Map((zonesResult.data ?? []).map((zone) => [String((zone as { id: string }).id), zone]));
-  const printersById = new Map((printersResult.data ?? []).map((printer) => [String((printer as { id: string }).id), printer]));
+  const tableLabelsById = new Map(
+    (tablesResult.data ?? []).map((table) => {
+      const row = table as { id: string; table_code?: string | null; table_name?: string | null };
+      return [String(row.id), String(row.table_code || row.table_name || row.id)] as const;
+    })
+  );
 
   const hydratedTickets = ticketRows.map((ticket) => ({
     ...ticket,
+    table_uuid: ticket.table_id,
+    table_id: ticket.table_id ? tableLabelsById.get(ticket.table_id) ?? ticket.table_id : null,
     zone: zonesById.get(ticket.zone_id) ?? null,
     items: itemsByTicket.get(ticket.id) ?? [],
-    print_jobs: (jobsByTicket.get(ticket.id) ?? []).map((job) => ({
-      ...job,
-      printer: job.printer_id ? printersById.get(job.printer_id) ?? null : null
-    }))
+    print_jobs: []
   }));
 
   const summary = { queued: 0, acknowledged: 0, preparing: 0, ready: 0, cancelled: 0 };
-  for (const ticket of hydratedTickets) {
-    summary[ticket.status] += 1;
-  }
-
+  for (const ticket of hydratedTickets) summary[ticket.status] += 1;
   return { tickets: hydratedTickets, summary };
 }
 
