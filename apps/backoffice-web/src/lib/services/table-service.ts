@@ -59,6 +59,8 @@ type OpenBillSessionFailure = {
   perf: OpenBillSessionPerf;
 };
 
+const TERMINAL_ORDER_STATUSES = new Set(["paid", "closed", "cleared", "cancelled", "completed"]);
+
 export async function openTableBillSession(args: {
   auth: AuthContext;
   tableId: string;
@@ -149,6 +151,7 @@ export async function openTableBillSession(args: {
       table_id: tableId,
       opened_by: auth.userId,
       status: "open",
+      order_id: null,
       metadata
     })
     .select("id,table_id,status,order_id,opened_at")
@@ -237,18 +240,46 @@ export async function attachOrderToTableSession(args: {
   const supabase = args.supabaseClient ?? getSupabaseServiceClient();
   const { data: activeSession } = await supabase
     .from("table_bill_sessions")
-    .select("id,order_id,metadata")
+    .select("id,order_id,metadata,opened_at")
     .eq("tenant_id", auth.tenantId)
     .eq("branch_id", auth.branchId)
     .eq("table_id", tableId)
     .in("status", ["open", "ordering", "pending_payment"])
+    .order("opened_at", { ascending: false })
     .limit(1)
-    .maybeSingle<{ id: string; order_id: string | null; metadata: Record<string, unknown> | null }>();
+    .maybeSingle<{ id: string; order_id: string | null; metadata: Record<string, unknown> | null; opened_at: string }>();
 
   if (!activeSession) {
     return;
   }
   if (activeSession.order_id && activeSession.order_id !== orderId) {
+    return;
+  }
+
+  // A retried/stale POS autosend can return an order from a previous table session.
+  // Never let that old order get rebound to a newly opened bill: it makes the bill
+  // appear duplicated and causes Table QR append requests to fail with ORDER_NOT_UPDATABLE.
+  const { data: orderRow, error: orderLookupError } = await supabase
+    .from("orders")
+    .select("id,table_id,status,created_at")
+    .eq("tenant_id", auth.tenantId)
+    .eq("branch_id", auth.branchId)
+    .eq("id", orderId)
+    .eq("table_id", tableId)
+    .maybeSingle<{ id: string; table_id: string | null; status: string; created_at: string }>();
+
+  if (orderLookupError || !orderRow) {
+    return;
+  }
+
+  const normalizedStatus = String(orderRow.status ?? "").trim().toLowerCase();
+  if (TERMINAL_ORDER_STATUSES.has(normalizedStatus)) {
+    return;
+  }
+
+  const sessionOpenedAt = Date.parse(activeSession.opened_at);
+  const orderCreatedAt = Date.parse(orderRow.created_at);
+  if (Number.isFinite(sessionOpenedAt) && Number.isFinite(orderCreatedAt) && orderCreatedAt < sessionOpenedAt) {
     return;
   }
 
