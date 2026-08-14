@@ -23,6 +23,12 @@ type SupabaseInsertResult = {
   id?: string | null;
 };
 
+type AndroidDeviceBindingRow = {
+  id: string;
+  is_active: boolean;
+  metadata: Record<string, unknown> | null;
+};
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
@@ -48,6 +54,85 @@ function sanitizeSecuritySignals(value: unknown): DeviceMdmSecuritySignal[] | nu
     }));
 }
 
+function resolveTelemetryProfile(body: DeviceHeartbeatPayload, machineId: string): "windows_runtime" | "android" | "browser" | "generic" {
+  const metadata = sanitizeRecord(body.metadata);
+  const explicit = sanitizeText(metadata.telemetry_profile).toLowerCase();
+  if (explicit === "windows_runtime" || explicit === "android" || explicit === "browser") return explicit;
+
+  const source = sanitizeText(metadata.source).toLowerCase();
+  const networkType = sanitizeText(body.connectivity?.network_type).toLowerCase();
+  const osName = sanitizeText(body.system?.os_name).toLowerCase();
+  const normalizedMachineId = machineId.toLowerCase();
+
+  // Strong platform identity wins over generic runtime/bridge fields. Android
+  // diagnostics legitimately include runtime and bridge version strings, so those
+  // fields must never be used to classify an Android POS as a Windows runtime.
+  if (
+    normalizedMachineId.startsWith("and-") ||
+    networkType === "android" ||
+    osName.includes("android") ||
+    source.includes("_android")
+  ) {
+    return "android";
+  }
+
+  if (normalizedMachineId.startsWith("web-") || networkType === "browser" || source.includes("_browser")) {
+    return "browser";
+  }
+
+  if (
+    normalizedMachineId.startsWith("win-") ||
+    networkType === "windows_runtime" ||
+    osName.includes("windows") ||
+    source.includes("windows_runtime")
+  ) {
+    return "windows_runtime";
+  }
+
+  return "generic";
+}
+
+function androidInstallIdFromMachineId(machineId: string): string | null {
+  const normalized = machineId.trim();
+  if (!normalized.toLowerCase().startsWith("and-")) return null;
+  return normalized.slice(4).trim() || null;
+}
+
+async function requireCurrentAndroidInstallBinding(
+  supabase: ReturnType<typeof getSupabaseServiceClient>,
+  input: {
+    tenantId: string;
+    branchId: string;
+    posDeviceId: string | null;
+    machineId: string;
+    telemetryProfile: "windows_runtime" | "android" | "browser" | "generic";
+  }
+) {
+  if (input.telemetryProfile !== "android") return;
+  if (!input.posDeviceId) throw new Error("android_device_binding_required");
+
+  const installId = androidInstallIdFromMachineId(input.machineId);
+  if (!installId) throw new Error("android_install_id_required");
+
+  const { data, error } = await supabase
+    .from("branch_devices")
+    .select("id,is_active,metadata")
+    .eq("id", input.posDeviceId)
+    .eq("tenant_id", input.tenantId)
+    .eq("branch_id", input.branchId)
+    .eq("is_active", true)
+    .maybeSingle<AndroidDeviceBindingRow>();
+
+  if (error) throw error;
+  if (!data) throw new Error("android_device_binding_not_found");
+
+  const metadata = sanitizeRecord(data.metadata);
+  const boundInstallId = sanitizeText(metadata.android_mdm_install_id);
+  if (!boundInstallId || boundInstallId !== installId) {
+    throw new Error("android_install_binding_mismatch");
+  }
+}
+
 type PendingDeviceCommandRow = {
   id: string;
   command_type: string;
@@ -56,23 +141,27 @@ type PendingDeviceCommandRow = {
 
 async function deliverPendingDeviceCommands(
   supabase: ReturnType<typeof getSupabaseServiceClient>,
-  posDeviceId: string | null
+  scope: { tenantId: string; branchId: string; posDeviceId: string | null }
 ): Promise<PendingDeviceAction[]> {
-  if (!posDeviceId) return [];
+  if (!scope.posDeviceId) return [];
 
   const nowIso = new Date().toISOString();
 
   await supabase
     .from("device_commands")
     .update({ status: "expired" })
-    .eq("pos_device_id", posDeviceId)
+    .eq("tenant_id", scope.tenantId)
+    .eq("branch_id", scope.branchId)
+    .eq("pos_device_id", scope.posDeviceId)
     .eq("status", "pending")
     .lte("expires_at", nowIso);
 
   const { data: pendingRows, error: pendingError } = await supabase
     .from("device_commands")
     .select("id,command_type,issued_at")
-    .eq("pos_device_id", posDeviceId)
+    .eq("tenant_id", scope.tenantId)
+    .eq("branch_id", scope.branchId)
+    .eq("pos_device_id", scope.posDeviceId)
     .eq("status", "pending")
     .gt("expires_at", nowIso)
     .order("issued_at", { ascending: true })
@@ -85,6 +174,9 @@ async function deliverPendingDeviceCommands(
   await supabase
     .from("device_commands")
     .update({ status: "delivered", delivered_at: nowIso })
+    .eq("tenant_id", scope.tenantId)
+    .eq("branch_id", scope.branchId)
+    .eq("pos_device_id", scope.posDeviceId)
     .in("id", ids);
 
   return pendingRows.map((row) => ({
@@ -98,6 +190,12 @@ function mapDeviceHeartbeatError(error: unknown) {
   const message = error instanceof Error ? error.message : "Unknown error";
   if (message.includes("JSON")) return fail("invalid_payload", "Invalid device heartbeat payload.", 400);
   if (message.includes("pos_session")) return fail("pos_session_required", "A valid POS session is required to send device heartbeat.", 401);
+  if (message === "android_install_id_required" || message === "android_device_binding_required") {
+    return fail("android_mdm_binding_required", "Android MDM heartbeat requires the active native install binding.", 409);
+  }
+  if (message === "android_device_binding_not_found" || message === "android_install_binding_mismatch") {
+    return fail("android_mdm_binding_mismatch", "This Android install is no longer the active MDM binding for the POS device.", 409);
+  }
   return fail("device_heartbeat_failed", "Device heartbeat could not be saved.", 500);
 }
 
@@ -110,6 +208,17 @@ export async function POST(req: Request) {
     const deviceCode = sanitizeText(bodyIdentity.device_code, scope.session.device_code ?? "POS-DEVICE");
     const machineId = sanitizeText(bodyIdentity.machine_id, deviceCode);
     const capturedAt = sanitizeText(body.captured_at, new Date().toISOString());
+    const telemetryProfile = resolveTelemetryProfile(body, machineId);
+    const isAndroidTelemetry = telemetryProfile === "android";
+    const supabase = getSupabaseServiceClient();
+
+    await requireCurrentAndroidInstallBinding(supabase, {
+      tenantId: scope.session.tenant_id,
+      branchId: scope.session.branch_id,
+      posDeviceId: scope.session.device_id ?? null,
+      machineId,
+      telemetryProfile
+    });
 
     const input: DeviceMdmHealthInput = {
       identity: {
@@ -119,25 +228,32 @@ export async function POST(req: Request) {
         machine_id: machineId,
         hostname: typeof bodyIdentity.hostname === "string" ? bodyIdentity.hostname : null,
         windows_username: typeof bodyIdentity.windows_username === "string" ? bodyIdentity.windows_username : null,
-        runtime_version: typeof bodyIdentity.runtime_version === "string" ? bodyIdentity.runtime_version : null,
+        // The shared diagnostic classifier historically treated any runtime version
+        // as proof of Windows. Android runtime details remain available in metadata
+        // native_android_diagnostics and app_version, while this field is normalized
+        // until all producers consume explicit telemetry_profile first.
+        runtime_version: !isAndroidTelemetry && typeof bodyIdentity.runtime_version === "string" ? bodyIdentity.runtime_version : null,
         app_version: typeof bodyIdentity.app_version === "string" ? bodyIdentity.app_version : null
       },
       connectivity: {
         internet_online: body.connectivity?.internet_online !== false,
         server_reachable: body.connectivity?.server_reachable ?? true,
         dns_healthy: body.connectivity?.dns_healthy ?? null,
-        network_type: body.connectivity?.network_type ?? null,
+        network_type: isAndroidTelemetry ? "android" : body.connectivity?.network_type ?? null,
         ip_address: body.connectivity?.ip_address ?? null,
         latency_ms: body.connectivity?.latency_ms ?? null,
         offline_since: body.connectivity?.offline_since ?? null,
         last_seen_at: body.connectivity?.last_seen_at ?? capturedAt
       } satisfies DeviceMdmConnectivity,
-      system: (isRecord(body.system) ? body.system : {}) as DeviceMdmSystemHealth,
+      system: {
+        ...((isRecord(body.system) ? body.system : {}) as DeviceMdmSystemHealth),
+        ...(isAndroidTelemetry ? { os_name: "Android" } : {})
+      },
       runtime: {
-        cpi_windows_runtime_running: body.runtime?.cpi_windows_runtime_running !== false,
+        cpi_windows_runtime_running: isAndroidTelemetry ? false : body.runtime?.cpi_windows_runtime_running !== false,
         local_bridge_online: body.runtime?.local_bridge_online !== false,
-        bridge_version: body.runtime?.bridge_version ?? null,
-        bridge_port: body.runtime?.bridge_port ?? null,
+        bridge_version: isAndroidTelemetry ? null : body.runtime?.bridge_version ?? null,
+        bridge_port: isAndroidTelemetry ? null : body.runtime?.bridge_port ?? null,
         token_required: body.runtime?.token_required ?? null,
         request_slots_available: body.runtime?.request_slots_available ?? null,
         print_queue_busy: body.runtime?.print_queue_busy ?? null,
@@ -150,13 +266,15 @@ export async function POST(req: Request) {
       peripherals: (isRecord(body.peripherals) ? body.peripherals : {}) as DeviceMdmPeripheralHealth,
       offline_sale: body.offline_sale ? ((isRecord(body.offline_sale) ? body.offline_sale : {}) as DeviceMdmOfflineSaleHealth) : null,
       security_signals: sanitizeSecuritySignals(body.security_signals),
-      metadata: sanitizeRecord(body.metadata),
+      metadata: {
+        ...sanitizeRecord(body.metadata),
+        telemetry_profile: telemetryProfile
+      },
       captured_at: capturedAt
     };
 
     const snapshot = buildDeviceMdmHealthSnapshot(input);
     const summary = summarizeDeviceMdmHealth(snapshot);
-    const supabase = getSupabaseServiceClient();
 
     const latestPayload = {
       tenant_id: scope.session.tenant_id,
@@ -244,7 +362,11 @@ export async function POST(req: Request) {
       if (incidentError) throw incidentError;
     }
 
-    const pendingActions = await deliverPendingDeviceCommands(supabase, scope.session.device_id ?? null);
+    const pendingActions = await deliverPendingDeviceCommands(supabase, {
+      tenantId: scope.session.tenant_id,
+      branchId: scope.session.branch_id,
+      posDeviceId: scope.session.device_id ?? null
+    });
 
     return ok({
       accepted: true,
