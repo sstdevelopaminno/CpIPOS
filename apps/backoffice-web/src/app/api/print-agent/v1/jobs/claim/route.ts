@@ -1,6 +1,7 @@
-import { fail, ok } from "@/lib/http";
+import { ok } from "@/lib/http";
 import { loggedPrintApiFail } from "@/lib/printing/print-api-errors";
-import { agentAuthFail, claimPrintJobs, requirePrintAgent } from "@/lib/printing/print-agent-service";
+import { agentAuthFail, requirePrintAgent } from "@/lib/printing/print-agent-service";
+import { claimPrintJobsStabilized } from "@/lib/printing/print-agent-claim-stabilized";
 
 type ClaimPayload = {
   limit?: number | null;
@@ -30,7 +31,7 @@ export async function POST(req: Request) {
   try {
     const agent = await requirePrintAgent(req);
     const body = (await req.json().catch(() => null)) as ClaimPayload | null;
-    const jobs = await claimPrintJobs(agent, {
+    const jobs = await claimPrintJobsStabilized(agent, {
       limit: body?.limit,
       lease_seconds: body?.lease_seconds,
       app_version: body?.app_version ?? null
