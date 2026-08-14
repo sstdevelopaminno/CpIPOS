@@ -1,3 +1,3 @@
 "use client";
 
-export { DownloadCenterV108 as DownloadCenterClient } from "./download-center-v108";
+export { DownloadCenterLatest as DownloadCenterClient } from "./download-center-latest";
