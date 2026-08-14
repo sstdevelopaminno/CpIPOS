@@ -20,11 +20,11 @@ permissions:
 
 env:
   ANDROID_RUNTIME_MODULE: apps/pos-android
-  ANDROID_RUNTIME_VERSION: 1.0.8
+  ANDROID_RUNTIME_VERSION: 1.0.9
   ANDROID_RUNTIME_RELEASE_TAG: android-runtime-latest
   ANDROID_RUNTIME_APK_ASSET_NAME: CpIPOS-Android-POS.apk
   ANDROID_RUNTIME_LEGACY_ASSET_NAME: CpIPOS-Android-debug.apk
-  ANDROID_RUNTIME_VERSIONED_ASSET_NAME: CpIPOS-Android-POS-1.0.8.apk
+  ANDROID_RUNTIME_VERSIONED_ASSET_NAME: CpIPOS-Android-POS-1.0.9.apk
   ANDROID_SIGNING_CERT_SHA256: 6be0a9aef346a5b47162c8928c5018a01d0e7d81b4eb177bf2fb89922dc2a27a
 
 jobs:
@@ -187,7 +187,7 @@ jobs:
             gh release create "$tag" \
               --target "${{ github.sha }}" \
               --title "CpIPOS Android Tablet POS Latest" \
-              --notes "CpIPOS Android Tablet POS stable-signed managed-device release. Native LAN/USB/Bluetooth ESC/POS print agent, fast direct HTML receipt raster capture with PDF fallback, WebView POS runtime, MDM diagnostics, and managed-device readiness."
+              --notes "CpIPOS Android Tablet POS stable-signed managed-device release. Native LAN/USB/Bluetooth ESC/POS print agent, adaptive idle claim polling, WebView POS runtime, MDM diagnostics, and managed-device readiness."
           fi
 
           gh release upload "$tag" "$apkPath" "$legacyApkPath" "$versionedApkPath" --clobber
