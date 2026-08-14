@@ -1,8 +1,3 @@
-export default function PlatformUsersPage() {
-  return (
-    <section className="surface">
-      <h2>Platform Users</h2>
-      <p>จัดการ IT Admin users และสิทธิ์เข้าถึง portal</p>
-    </section>
-  );
-}
+import { requireItAdmin } from "@/lib/it-admin-guard";
+export const dynamic="force-dynamic";
+export default async function PlatformUsersPage(){const {supabase}=await requireItAdmin();const {data,error}=await supabase.from("users_profiles").select("id,email,full_name,platform_role,is_active,updated_at").in("platform_role",["it_admin","it_support"]).order("platform_role");if(error)throw new Error(error.message);return <section className="surface"><h2>ผู้ใช้ระบบกลาง</h2><p>บัญชี IT Admin / IT Support ที่มีสิทธิ์เข้า Control Plane</p><div style={{overflowX:"auto"}}><table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}><thead><tr style={{textAlign:"left",color:"#718096"}}><th style={{padding:10}}>ชื่อ</th><th>อีเมล</th><th>Role</th><th>สถานะ</th><th>อัปเดตล่าสุด</th></tr></thead><tbody>{(data??[]).map(row=><tr key={row.id} style={{borderTop:"1px solid #e8edf3"}}><td style={{padding:12}}>{row.full_name??"-"}</td><td>{row.email??"-"}</td><td><strong>{row.platform_role}</strong></td><td>{row.is_active?"Active":"Inactive"}</td><td>{row.updated_at?new Date(row.updated_at).toLocaleString("th-TH"):"-"}</td></tr>)}</tbody></table></div></section>}

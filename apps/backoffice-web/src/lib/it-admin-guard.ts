@@ -2,9 +2,10 @@ import "server-only";
 
 import type { PlatformRole } from "@pos/shared-types";
 import { headers } from "next/headers";
-import { getAuthContext, type AuthContext } from "@/lib/auth-context";
+import type { AuthContext } from "@/lib/auth-context";
 import { FeatureGateError } from "@/lib/feature-gate";
 import { fail } from "@/lib/http";
+import { getPlatformAuthContext } from "@/lib/platform-auth-context";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
 
 export type ItAdminContext = {
@@ -37,7 +38,7 @@ function readIpAddress(headerStore: Headers): string | null {
 async function requirePlatformOperator(allowedRoles: readonly PlatformRole[]): Promise<ItAdminContext> {
   let auth: AuthContext;
   try {
-    auth = await getAuthContext({ requireBranchScope: false });
+    auth = await getPlatformAuthContext();
   } catch (error) {
     if (error instanceof Error && /not authenticated/i.test(error.message)) {
       throw new ItAdminGuardError("unauthorized", "Authentication is required.", 401);
@@ -64,19 +65,13 @@ export async function requireItAdmin(): Promise<ItAdminContext> {
   return requirePlatformOperator(["it_admin"]);
 }
 
-/**
- * Read-only platform support guard. IT admins inherit support access; callers
- * must still use requireItAdmin() for commands, tenant changes, and other writes.
- */
 export async function requireItSupport(): Promise<ItAdminContext> {
   return requirePlatformOperator(["it_admin", "it_support"]);
 }
 
 export function parseTenantParam(raw: string | undefined): string {
   const value = String(raw ?? "").trim();
-  if (!value) {
-    throw new ItAdminGuardError("missing_tenant_id", "tenantId is required.", 422);
-  }
+  if (!value) throw new ItAdminGuardError("missing_tenant_id", "tenantId is required.", 422);
   return value;
 }
 
@@ -87,12 +82,7 @@ export function parseBranchParam(raw: unknown): string | null {
 }
 
 export function guardItAdminError(error: unknown): Response {
-  if (error instanceof ItAdminGuardError) {
-    return fail(error.code, error.message, error.status);
-  }
-  if (error instanceof FeatureGateError) {
-    return fail(error.code, error.message, error.status);
-  }
-
+  if (error instanceof ItAdminGuardError) return fail(error.code, error.message, error.status);
+  if (error instanceof FeatureGateError) return fail(error.code, error.message, error.status);
   return fail("it_admin_internal_error", error instanceof Error ? error.message : "Internal server error.", 500);
 }
