@@ -58,12 +58,14 @@ export function PosSalesListWorkspace({
   refreshEndpoint = "/api/pos/sales-list"
 }: Props) {
   const PAGE_SIZE = 20;
+  const REFRESH_INTERVAL_MS = 15000;
   const tt = (key: TranslationKey) => t(lang, key);
 
   const [records, setRecords] = useState<PosSalesListRecord[]>(initialRecords);
   const [liveBranchOptions, setLiveBranchOptions] = useState<PosSalesBranchOption[]>(branchOptions);
   const [liveShiftOptions, setLiveShiftOptions] = useState<PosSalesShiftOption[]>(shiftOptions);
   const [selectedBranchId, setSelectedBranchId] = useState<string>("all");
+  const [selectedCategory, setSelectedCategory] = useState<string>("all");
   const [filterPopupOpen, setFilterPopupOpen] = useState(false);
   const [totalsVisible, setTotalsVisible] = useState(false);
   const [selectedDetailRow, setSelectedDetailRow] = useState<PosSalesListRecord | null>(null);
@@ -171,7 +173,7 @@ export function PosSalesListWorkspace({
       } finally {
         inFlight = false;
       }
-    }, 5000);
+    }, REFRESH_INTERVAL_MS);
     return () => {
       mounted = false;
       clearInterval(timer);
@@ -199,7 +201,21 @@ export function PosSalesListWorkspace({
     delivery_manual: tt("sales_list_mode_delivery")
   };
 
-  const filteredRows = useMemo(() => {
+  const categoryFilterLabel = lang === "th" ? "หมวดหมู่" : "Category";
+  const allCategoriesLabel = lang === "th" ? "ทุกหมวด" : "All Categories";
+  const uncategorizedLabel = lang === "th" ? "ไม่ระบุหมวดหมู่" : "Uncategorized";
+  const billUnitLabel = lang === "th" ? "บิล" : "bills";
+  const itemUnitLabel = lang === "th" ? "รายการ" : "items";
+
+  function displayCategoryName(name: string) {
+    return name === "Uncategorized" ? uncategorizedLabel : name;
+  }
+
+  function rowCategoryAmount(row: PosSalesListRecord, categoryName: string) {
+    return (row.categoryTotals ?? []).find((item) => item.name === categoryName)?.totalAmount ?? 0;
+  }
+
+  const baseFilteredRows = useMemo(() => {
     const normalized = query.trim().toLowerCase();
     const today = getBangkokTodayDate();
     const thisMonth = today.slice(0, 7);
@@ -218,15 +234,16 @@ export function PosSalesListWorkspace({
       const matchesShift = shiftFilter === "all" || row.shiftId === shiftFilter;
       const rowDate = toBangkokDate(row.openedAt);
       const rowTime = toBangkokTime(row.openedAt);
-      const matchesDate = !dateFilter || rowDate === dateFilter;
-      const matchesQuickRange =
-        quickRange === "none"
-          ? true
-          : quickRange === "day"
-            ? rowDate === today
-            : quickRange === "month"
-              ? rowDate.startsWith(thisMonth)
-              : rowDate.startsWith(thisYear);
+      const matchesDate =
+        dateFilter.length > 0
+          ? rowDate === dateFilter
+          : quickRange === "none"
+            ? true
+            : quickRange === "day"
+              ? rowDate === today
+              : quickRange === "month"
+                ? rowDate.startsWith(thisMonth)
+                : rowDate.startsWith(thisYear);
       const matchesTimeFrom = !timeFromFilter || rowTime >= timeFromFilter;
       const matchesTimeTo = !timeToFilter || rowTime <= timeToFilter;
       return (
@@ -237,12 +254,32 @@ export function PosSalesListWorkspace({
         matchesChannel &&
         matchesShift &&
         matchesDate &&
-        matchesQuickRange &&
         matchesTimeFrom &&
         matchesTimeTo
       );
     });
   }, [channelFilter, dateFilter, effectiveBranchId, paymentFilter, query, quickRange, records, shiftFilter, statusFilter, timeFromFilter, timeToFilter]);
+
+  const categoryOptions = useMemo(() => {
+    const buckets = new Map<string, { billIds: Set<string>; itemQuantity: number; totalAmount: number }>();
+    for (const row of baseFilteredRows) {
+      for (const item of row.categoryTotals ?? []) {
+        const bucket = buckets.get(item.name) ?? { billIds: new Set<string>(), itemQuantity: 0, totalAmount: 0 };
+        bucket.billIds.add(row.id);
+        bucket.itemQuantity += item.itemQuantity;
+        bucket.totalAmount += item.totalAmount;
+        buckets.set(item.name, bucket);
+      }
+    }
+    return Array.from(buckets.entries())
+      .map(([name, bucket]) => ({ name, billCount: bucket.billIds.size, itemQuantity: bucket.itemQuantity, totalAmount: bucket.totalAmount }))
+      .sort((a, b) => b.totalAmount - a.totalAmount || a.name.localeCompare(b.name));
+  }, [baseFilteredRows]);
+
+  const filteredRows = useMemo(() => {
+    if (selectedCategory === "all") return baseFilteredRows;
+    return baseFilteredRows.filter((row) => rowCategoryAmount(row, selectedCategory) > 0);
+  }, [baseFilteredRows, selectedCategory]);
 
   const sortedFilteredRows = useMemo(
     () =>
@@ -266,13 +303,19 @@ export function PosSalesListWorkspace({
     const totalBills = filteredRows.length;
     const paidBills = filteredRows.filter((row) => row.paymentStatus !== "unpaid").length;
     const openBills = filteredRows.filter((row) => row.saleStatus === "open").length;
-    const totalAmount = filteredRows.reduce((sum, row) => sum + row.total, 0);
+    const totalAmount = filteredRows.reduce((sum, row) => sum + (selectedCategory === "all" ? row.total : rowCategoryAmount(row, selectedCategory)), 0);
     return { totalBills, paidBills, openBills, totalAmount };
-  }, [filteredRows]);
+  }, [filteredRows, selectedCategory]);
+
+  useEffect(() => {
+    if (selectedCategory !== "all" && !categoryOptions.some((item) => item.name === selectedCategory)) {
+      setSelectedCategory("all");
+    }
+  }, [categoryOptions, selectedCategory]);
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [query, statusFilter, paymentFilter, channelFilter, shiftFilter, dateFilter, timeFromFilter, timeToFilter, selectedBranchId, quickRange]);
+  }, [query, statusFilter, paymentFilter, channelFilter, shiftFilter, dateFilter, timeFromFilter, timeToFilter, selectedBranchId, selectedCategory, quickRange]);
 
   useEffect(() => {
     if (currentPage > totalPages) {
@@ -427,6 +470,7 @@ export function PosSalesListWorkspace({
     setPaymentFilter("all");
     setChannelFilter("all");
     setShiftFilter("all");
+    setSelectedCategory("all");
     setDateFilter("");
     setTimeFromFilter("");
     setTimeToFilter("");
@@ -440,6 +484,21 @@ export function PosSalesListWorkspace({
             <h2 className="text-2xl font-extrabold text-slate-900">{tt("sales_list_title")}</h2>
           </div>
           <div className="flex flex-wrap items-end gap-2">
+            <label className="sr-only" htmlFor="sales-list-category-filter">{categoryFilterLabel}</label>
+            <select
+              id="sales-list-category-filter"
+              value={selectedCategory}
+              onChange={(event) => setSelectedCategory(event.target.value)}
+              className="h-10 min-w-[220px] rounded-lg border border-slate-300 bg-white px-3 text-sm font-semibold text-slate-900 outline-none transition focus:border-blue-400"
+              aria-label={categoryFilterLabel}
+            >
+              <option value="all">{allCategoriesLabel} ({baseFilteredRows.length} {billUnitLabel})</option>
+              {categoryOptions.map((category) => (
+                <option key={category.name} value={category.name}>
+                  {displayCategoryName(category.name)} | {category.itemQuantity} {itemUnitLabel} | {amountFormatter.format(category.totalAmount)}
+                </option>
+              ))}
+            </select>
             <button
               type="button"
               onClick={() => setTotalsVisible((prev) => !prev)}

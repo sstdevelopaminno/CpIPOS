@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
@@ -66,7 +66,8 @@ export function CategoryManagePopupButton({ th, categories, branchId }: Props) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingName, setEditingName] = useState("");
   const [errorText, setErrorText] = useState("");
-  const [busy, setBusy] = useState(false);
+  const [busyAction, setBusyAction] = useState<{ type: "create" | "rename" | "delete" } | null>(null);
+  const busy = busyAction !== null;
   const closeTimerRef = useRef<number | null>(null);
 
   useEffect(() => {
@@ -102,16 +103,28 @@ export function CategoryManagePopupButton({ th, categories, branchId }: Props) {
   }
 
   async function submitCategoryAction<T>(payload: Record<string, unknown>) {
-    const response = await fetch("/api/backoffice/catalog", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ ...payload, branch_id: branchId })
-    });
-    const body = (await response.json().catch(() => null)) as ApiEnvelope<T> | null;
-    if (!response.ok || !body || body.error) {
-      throw new Error(body?.error?.message ?? "Request failed.");
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), 10000);
+    try {
+      const response = await fetch("/api/backoffice/catalog", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...payload, branch_id: branchId }),
+        signal: controller.signal
+      });
+      const body = (await response.json().catch(() => null)) as ApiEnvelope<T> | null;
+      if (!response.ok || !body || body.error) {
+        throw new Error(body?.error?.message ?? "Request failed.");
+      }
+      return body.data;
+    } catch (error) {
+      if (error instanceof DOMException && error.name === "AbortError") {
+        throw new Error(th ? "ระบบตอบสนองช้า กรุณาลองใหม่" : "Request timed out. Please try again.");
+      }
+      throw error;
+    } finally {
+      window.clearTimeout(timeout);
     }
-    return body.data;
   }
 
   async function addCategory() {
@@ -125,7 +138,7 @@ export function CategoryManagePopupButton({ th, categories, branchId }: Props) {
       return;
     }
 
-    setBusy(true);
+    setBusyAction({ type: "create" });
     try {
       const result = await submitCategoryAction<{ category?: { name?: string; productCount?: number }; persisted?: boolean }>({
         action: "create_category",
@@ -142,7 +155,7 @@ export function CategoryManagePopupButton({ th, categories, branchId }: Props) {
     } catch (error) {
       setErrorText(error instanceof Error ? error.message : th ? "เพิ่มหมวดหมู่ไม่สำเร็จ" : "Failed to add category.");
     } finally {
-      setBusy(false);
+      setBusyAction(null);
     }
   }
 
@@ -166,7 +179,7 @@ export function CategoryManagePopupButton({ th, categories, branchId }: Props) {
     }
     if (!currentRow) return;
 
-    setBusy(true);
+    setBusyAction({ type: "rename" });
     try {
       const result = await submitCategoryAction<{ persisted?: boolean }>({ action: "rename_category", old_name: currentRow.name, name: value });
       writeStoredCategoryNames(
@@ -183,7 +196,7 @@ export function CategoryManagePopupButton({ th, categories, branchId }: Props) {
     } catch (error) {
       setErrorText(error instanceof Error ? error.message : th ? "แก้ไขหมวดหมู่ไม่สำเร็จ" : "Failed to update category.");
     } finally {
-      setBusy(false);
+      setBusyAction(null);
     }
   }
 
@@ -194,7 +207,7 @@ export function CategoryManagePopupButton({ th, categories, branchId }: Props) {
       setErrorText(th ? "ลบไม่ได้ เพราะยังมีสินค้าในหมวดนี้" : "Cannot delete a category that still has products.");
       return;
     }
-    setBusy(true);
+    setBusyAction({ type: "delete" });
     try {
       const result = await submitCategoryAction<{ persisted?: boolean }>({ action: "delete_category", name: row.name });
       writeStoredCategoryNames(
@@ -213,7 +226,7 @@ export function CategoryManagePopupButton({ th, categories, branchId }: Props) {
     } catch (error) {
       setErrorText(error instanceof Error ? error.message : th ? "ลบหมวดหมู่ไม่สำเร็จ" : "Failed to delete category.");
     } finally {
-      setBusy(false);
+      setBusyAction(null);
     }
   }
 
@@ -270,7 +283,7 @@ export function CategoryManagePopupButton({ th, categories, branchId }: Props) {
                 disabled={busy}
                 className="inline-flex min-h-10 items-center justify-center rounded-lg border border-blue-600 bg-blue-600 px-4 text-sm font-bold text-white shadow-[0_8px_18px_rgba(37,99,235,0.24)] hover:bg-blue-700"
               >
-                {busy ? "..." : th ? "+ เพิ่มหมวดหมู่" : "+ Add Category"}
+                {busyAction?.type === "create" ? "..." : th ? "+ เพิ่มหมวดหมู่" : "+ Add Category"}
               </button>
             </div>
 
@@ -312,7 +325,7 @@ export function CategoryManagePopupButton({ th, categories, branchId }: Props) {
                                 disabled={busy}
                                 className="inline-flex min-h-8 items-center rounded-lg border border-emerald-300 bg-emerald-50 px-3 text-xs font-bold text-emerald-700 hover:bg-emerald-100"
                               >
-                                {th ? "บันทึก" : "Save"}
+                                {busyAction?.type === "rename" ? "..." : th ? "บันทึก" : "Save"}
                               </button>
                               <button
                                 type="button"
@@ -330,18 +343,18 @@ export function CategoryManagePopupButton({ th, categories, branchId }: Props) {
                             <>
                               <button
                                 type="button"
-                                onClick={() => startEdit(row.id, row.name)}
+                                onClick={(event) => { event.preventDefault(); event.stopPropagation(); startEdit(row.id, row.name); }}
                                 className="inline-flex min-h-8 items-center rounded-lg border border-blue-200 bg-blue-50 px-3 text-xs font-bold text-blue-700 hover:bg-blue-100"
                               >
                                 {th ? "แก้ไข" : "Edit"}
                               </button>
                               <button
                                 type="button"
-                                onClick={() => void deleteCategory(row.id)}
+                                onClick={(event) => { event.preventDefault(); event.stopPropagation(); void deleteCategory(row.id); }}
                                 disabled={busy || row.productCount > 0}
                                 className="inline-flex min-h-8 items-center rounded-lg border border-red-200 bg-red-50 px-3 text-xs font-bold text-red-700 hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-50"
                               >
-                                {th ? "ลบ" : "Delete"}
+                                {busyAction?.type === "delete" ? "..." : th ? "ลบ" : "Delete"}
                               </button>
                             </>
                           )}

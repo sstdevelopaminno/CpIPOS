@@ -34,6 +34,8 @@ export type PosSalesListRecord = {
   cashier: string;
   branchId: string;
   shiftId: string | null;
+  categories?: string[];
+  categoryTotals?: Array<{ name: string; itemQuantity: number; totalAmount: number }>;
 };
 
 export type PosSalesListScope = {
@@ -350,7 +352,11 @@ async function loadPosSalesListDataRaw(scope: PosSalesListScope): Promise<PosSal
   };
 
   const [itemsResult, paymentsResult, usersResult, shiftsResult, tablesResult] = await Promise.all([
-    supabase.from("order_items").select("order_id,quantity").in("order_id", orderIds).gt("quantity", 0),
+    supabase
+      .from("order_items")
+      .select("order_id,product_id,quantity,line_total,products(category)")
+      .in("order_id", orderIds)
+      .gt("quantity", 0),
     loadPayments(),
     userIds.length > 0
       ? supabase.from("users_profiles").select("id,full_name").in("id", userIds)
@@ -364,7 +370,18 @@ async function loadPosSalesListDataRaw(scope: PosSalesListScope): Promise<PosSal
   ]);
 
   const itemRows = unwrapData(
-    itemsResult as { data: Array<{ order_id: string; quantity: number | null }> | null; error: { message: string } | null },
+    itemsResult as {
+      data:
+        | Array<{
+            order_id: string;
+            product_id: string | null;
+            quantity: number | null;
+            line_total: number | null;
+            products?: { category?: string | null } | Array<{ category?: string | null }> | null;
+          }>
+        | null;
+      error: { message: string } | null;
+    },
     "order_items_query"
   );
   const paymentRows = unwrapData(
@@ -385,8 +402,18 @@ async function loadPosSalesListDataRaw(scope: PosSalesListScope): Promise<PosSal
   );
 
   const itemCountMap = new Map<string, number>();
+  const categoryTotalsByOrder = new Map<string, Map<string, { itemQuantity: number; totalAmount: number }>>();
   for (const row of itemRows ?? []) {
-    itemCountMap.set(row.order_id, (itemCountMap.get(row.order_id) ?? 0) + Number(row.quantity ?? 0));
+    const quantity = Number(row.quantity ?? 0);
+    itemCountMap.set(row.order_id, (itemCountMap.get(row.order_id) ?? 0) + quantity);
+    const productRecord = Array.isArray(row.products) ? row.products[0] : row.products;
+    const categoryName = String(productRecord?.category ?? "").trim() || "Uncategorized";
+    const orderCategories = categoryTotalsByOrder.get(row.order_id) ?? new Map<string, { itemQuantity: number; totalAmount: number }>();
+    const current = orderCategories.get(categoryName) ?? { itemQuantity: 0, totalAmount: 0 };
+    current.itemQuantity += quantity;
+    current.totalAmount += Number(row.line_total ?? 0);
+    orderCategories.set(categoryName, current);
+    categoryTotalsByOrder.set(row.order_id, orderCategories);
   }
 
   const paymentMethodMap = new Map<string, PaymentMethod>();
@@ -425,6 +452,13 @@ async function loadPosSalesListDataRaw(scope: PosSalesListScope): Promise<PosSal
   const records: PosSalesListRecord[] = orderRows.map((row) => {
     const cashierId = row.payment_completed_by ?? row.created_by ?? "";
     const tableName = row.table_id ? tableMap.get(row.table_id) ?? null : null;
+    const categoryTotals = Array.from(categoryTotalsByOrder.get(row.id)?.entries() ?? [])
+      .map(([name, totals]) => ({
+        name,
+        itemQuantity: totals.itemQuantity,
+        totalAmount: Number(totals.totalAmount.toFixed(2))
+      }))
+      .sort((a, b) => a.name.localeCompare(b.name));
     return {
       id: row.id,
       billNo: row.order_no ?? row.id,
@@ -445,7 +479,9 @@ async function loadPosSalesListDataRaw(scope: PosSalesListScope): Promise<PosSal
       notes: row.notes ?? null,
       cashier: cashierId ? userMap.get(cashierId) ?? cashierId : "-",
       branchId: row.branch_id,
-      shiftId: row.shift_id
+      shiftId: row.shift_id,
+      categories: categoryTotals.map((item) => item.name),
+      categoryTotals
     };
   });
 

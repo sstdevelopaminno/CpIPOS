@@ -6,7 +6,7 @@ import { MouseEvent, useMemo } from "react";
 import { t, type Language } from "@/lib/i18n";
 import { POS_MENU_LOCK_TITLE_EN, POS_MENU_LOCK_TITLE_TH, featureForPosRoute } from "@/lib/pos-feature-map";
 
-type IconName = "sales" | "list" | "kitchen" | "stock" | "summary" | "receipt" | "tables" | "members" | "users" | "display" | "shift" | "logout" | "more";
+type IconName = "sales" | "list" | "kitchen" | "stock" | "summary" | "receipt" | "tables" | "members" | "users" | "display" | "shift" | "logout" | "more" | "payment";
 type PosRole = "owner" | "manager" | "staff" | "accountant";
 type MenuKey = "pos_menu_sales" | "pos_menu_sales_list" | "pos_menu_stock" | "pos_menu_sales_summary" | "pos_menu_receipts" | "pos_menu_tables" | "pos_menu_members" | "pos_menu_shift" | "pos_menu_more";
 type MenuDef = {
@@ -37,6 +37,7 @@ function MenuIcon({ name }: { name: IconName }) {
   if (name === "shift") return <svg {...common}><circle cx="12" cy="12" r="8" /><line x1="12" y1="8" x2="12" y2="12" /><line x1="12" y1="12" x2="15" y2="14" /></svg>;
   if (name === "logout") return <svg {...common}><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" /><polyline points="16 17 21 12 16 7" /><line x1="21" y1="12" x2="9" y2="12" /></svg>;
   if (name === "more") return <svg {...common}><rect x="4" y="4" width="7" height="7" rx="1.5" /><rect x="13" y="4" width="7" height="7" rx="1.5" /><rect x="4" y="13" width="7" height="7" rx="1.5" /><rect x="13" y="13" width="7" height="7" rx="1.5" /></svg>;
+  if (name === "payment") return <svg {...common}><rect x="3" y="6" width="18" height="12" rx="2" /><line x1="3" y1="10" x2="21" y2="10" /><path d="M7 15h3" /><path d="M15 15h2" /></svg>;
   return <svg {...common}><circle cx="12" cy="8" r="3" /><path d="M5 20c0-3.5 3-6 7-6s7 2.5 7 6" /></svg>;
 }
 
@@ -81,6 +82,8 @@ export function PosStaffMenu({ lang, collapsed, orientation = "vertical", sessio
   const moreItems = useMemo(() => MORE_MENU_DEFS.map((item) => ({ ...item, label: labelFor(item, lang) })).filter((item) => item.roles.includes(effectiveRole)), [effectiveRole, lang]);
   const isMoreActive = moreItems.some((item) => pathname === item.href);
   const isMoreMenuActive = pathname === "/preview/pos/more" || isMoreActive;
+  const paymentMenuLabel = lang === "th" ? "ชำระเงิน" : "Payment";
+  const isPaymentMenuActive = pathname === "/preview/pos/payments";
 
   function handleNavigate(event: MouseEvent<HTMLAnchorElement>, href: string) {
     if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
@@ -113,6 +116,12 @@ export function PosStaffMenu({ lang, collapsed, orientation = "vertical", sessio
           {(!collapsed || isHorizontal) ? <span className="truncate text-[13px]">{t(lang, "pos_menu_more")}</span> : null}
         </Link>
       ) : null}
+      <Link href="/preview/pos/payments" onClick={(event) => handleNavigate(event, "/preview/pos/payments")}
+        className={`group relative inline-flex min-h-[42px] items-center text-[13px] font-semibold leading-tight transition ${isHorizontal ? "shrink-0 justify-center gap-2 px-3" : collapsed ? "justify-center px-2" : "justify-start gap-2 px-2"} ${isPaymentMenuActive ? "rounded-xl border border-cyan-300/45 bg-[linear-gradient(145deg,rgba(59,130,246,0.45),rgba(14,165,233,0.35))] text-white shadow-[0_10px_24px_rgba(14,116,255,0.25),inset_0_1px_0_rgba(255,255,255,0.2)]" : "rounded-xl text-slate-100/90 hover:bg-white/8 hover:text-white"}`}
+        title={collapsed && !isHorizontal ? paymentMenuLabel : undefined}>
+        <span className="inline-flex w-4 justify-center" aria-hidden><MenuIcon name="payment" /></span>
+        {(!collapsed || isHorizontal) ? <span className="truncate text-[13px]">{paymentMenuLabel}</span> : null}
+      </Link>
     </nav>
   );
 }
