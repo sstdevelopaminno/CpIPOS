@@ -1,6 +1,7 @@
 import { getPosApiAuthContext } from "@/lib/pos-api-auth";
 import { appendAuditLog } from "@/lib/audit-log";
 import { fail, ok } from "@/lib/http";
+import { readThroughRuntimeCache } from "@/lib/route-runtime-cache";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
 
 type PerfPayload = {
@@ -22,6 +23,8 @@ type PerfLogRow = {
   action: string;
   metadata: Record<string, unknown> | null;
 };
+
+const PERF_SAMPLE_TTL_MS = 10_000;
 
 function clampMetric(value: unknown, min: number, max: number): number | null {
   if (value === null || value === undefined || value === "") return null;
@@ -151,32 +154,60 @@ export async function POST(req: Request) {
     const errorCode = parseErrorCode(body.error_code);
     const httpMethod = typeof body.http_method === "string" ? body.http_method.trim().toUpperCase().slice(0, 12) : null;
     const capturedAt = typeof body.captured_at === "string" ? body.captured_at : new Date().toISOString();
-
     const userAgent = req.headers.get("user-agent") ?? undefined;
 
-    const result = await appendAuditLog({
-      tenantId: auth.tenantId ?? undefined,
-      branchId: auth.branchId ?? undefined,
-      actorUserId: auth.userId,
-      actorRole: auth.branchRole ?? auth.platformRole,
-      action: "pos_route_perf",
-      targetTable: "pos_routes",
-      module: "pos_performance",
-      entityType: "route_perf",
-      metadata: {
+    const writeAudit = () =>
+      appendAuditLog({
+        tenantId: auth.tenantId ?? undefined,
+        branchId: auth.branchId ?? undefined,
+        actorUserId: auth.userId,
+        actorRole: auth.branchRole ?? auth.platformRole,
+        action: "pos_route_perf",
+        targetTable: "pos_routes",
+        module: "pos_performance",
+        entityType: "route_perf",
+        metadata: {
+          route,
+          from_route: fromRoute,
+          nav_duration_ms: navDuration,
+          ttfb_ms: ttfb,
+          status_code: statusCode,
+          error_code: errorCode,
+          http_method: httpMethod,
+          resource_name: resourceName,
+          source,
+          captured_at: capturedAt
+        },
+        userAgent
+      });
+
+    const isErrorTelemetry = errorCode !== null || (statusCode !== null && statusCode >= 400);
+    let result: Awaited<ReturnType<typeof appendAuditLog>>;
+    let sampled = false;
+
+    if (isErrorTelemetry) {
+      result = await writeAudit();
+    } else {
+      const sampleKey = [
+        "pos-perf",
+        auth.tenantId ?? "unknown-tenant",
+        auth.branchId ?? "unknown-branch",
+        auth.userId ?? "unknown-user",
         route,
-        from_route: fromRoute,
-        nav_duration_ms: navDuration,
-        ttfb_ms: ttfb,
-        status_code: statusCode,
-        error_code: errorCode,
-        http_method: httpMethod,
-        resource_name: resourceName,
-        source,
-        captured_at: capturedAt
-      },
-      userAgent
-    });
+        source
+      ].join(":");
+      const cached = await readThroughRuntimeCache({
+        key: sampleKey,
+        ttlMs: PERF_SAMPLE_TTL_MS,
+        loader: writeAudit
+      });
+      result = cached.value;
+      sampled = cached.source !== "miss";
+    }
+
+    if (sampled) {
+      return ok({ ok: true, logged: false, sampled: true }, 202);
+    }
 
     if (!result.inserted) {
       console.error("[pos-perf] audit log insert skipped", {
