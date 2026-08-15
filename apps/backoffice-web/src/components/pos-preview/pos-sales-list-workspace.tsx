@@ -590,7 +590,7 @@ export function PosSalesListWorkspace({
       ) : null}
 
       <div className="mt-4 overflow-hidden rounded-xl border border-slate-200">
-        <div className="max-h-[460px] overflow-auto lg:max-h-[500px]">
+        <div className="max-h-[calc(100vh-300px)] min-h-[260px] overflow-auto lg:max-h-[calc(100vh-280px)]">
           <table className="min-w-full divide-y divide-slate-200">
             <thead className="sticky top-0 z-10 bg-slate-100 text-left">
               <tr className="text-xs uppercase tracking-wide text-slate-600">

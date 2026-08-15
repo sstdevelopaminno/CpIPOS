@@ -73,7 +73,8 @@ type SubmitItem = { product_id: string; quantity: number; note?: string | null }
 const MENU_LOAD_TIMEOUT_MS = 45_000;
 const SUBMIT_TIMEOUT_MS = 20_000;
 const MENU_STATUS_POLL_MS = 5_000;
-const ALL_CATEGORY = "ทั้งหมด";
+const ALL_CATEGORY = "\u0E17\u0E31\u0E49\u0E07\u0E2B\u0E21\u0E14";
+const RECOMMENDED_CATEGORY = "\u0E41\u0E19\u0E30\u0E19\u0E33";
 const LINK_CLOSED_MESSAGE = "ลิงก์สั่งอาหารหมดอายุหรือปิดบิลแล้ว";
 const LINK_PAID_DETAIL = "ถูกชำระเงินแล้ว";
 const TABLE_ORDER_CLIENT_ID_STORAGE_PREFIX = "cpipos_table_order_client_id_v1:";
@@ -317,7 +318,11 @@ export function TableOrderMobile({ token }: { token: string }) {
   const canOrder = menu?.can_order !== false && !linkClosed;
   const orderingLocked = menu?.can_order === false && !linkClosed;
   const submittedItems = useMemo(() => menu?.submitted_summary?.items ?? [], [menu?.submitted_summary?.items]);
-  const categoryOptions = useMemo(() => [ALL_CATEGORY, ...mergeCategoryNames(menu?.categories ?? [])], [menu?.categories]);
+  const hasRecommendedProducts = useMemo(() => (menu?.products ?? []).some((product) => product.is_recommended === true), [menu?.products]);
+  const categoryOptions = useMemo(() => {
+    const regularCategories = mergeCategoryNames(menu?.categories ?? []).filter((category) => category !== RECOMMENDED_CATEGORY);
+    return [ALL_CATEGORY, ...(hasRecommendedProducts ? [RECOMMENDED_CATEGORY] : []), ...regularCategories];
+  }, [hasRecommendedProducts, menu?.categories]);
 
   useEffect(() => {
     if (menu && !categoryOptions.includes(activeCategory)) setActiveCategory(ALL_CATEGORY);
@@ -336,9 +341,12 @@ export function TableOrderMobile({ token }: { token: string }) {
 
   const filteredProducts = useMemo(() => {
     const text = search.trim().toLowerCase();
-    return (menu?.products ?? []).filter((product) =>
-      (activeCategory === ALL_CATEGORY || product.category === activeCategory) && (!text || product.name.toLowerCase().includes(text))
-    );
+    return (menu?.products ?? []).filter((product) => {
+      const matchesCategory =
+        activeCategory === ALL_CATEGORY ||
+        (activeCategory === RECOMMENDED_CATEGORY ? product.is_recommended === true : product.category === activeCategory);
+      return matchesCategory && (!text || product.name.toLowerCase().includes(text));
+    });
   }, [activeCategory, menu?.products, search]);
 
   const catalog = useMemo(() => new Map((menu?.products ?? []).map((product) => [product.id, product])), [menu?.products]);

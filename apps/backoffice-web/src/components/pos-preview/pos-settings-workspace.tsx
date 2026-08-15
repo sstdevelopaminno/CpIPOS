@@ -1598,6 +1598,8 @@ function DevicePanel({
   onBack,
   canManage,
   activeBranchId,
+  cashierDeviceLimit,
+  onPackageLocked,
   reportStatus
 }: {
   labels: Labels;
@@ -1609,9 +1611,12 @@ function DevicePanel({
   onBack: () => void;
   canManage: boolean;
   activeBranchId: string | null;
+  cashierDeviceLimit: number | null;
+  onPackageLocked: () => void;
   reportStatus: StatusReporter;
 }) {
-  const initialDeviceForm = { ...emptyDeviceForm, branch_id: activeBranchId ?? branches[0]?.id ?? "" };
+  const defaultCreateBranchId = activeBranchId ?? branches[0]?.id ?? "";
+  const initialDeviceForm = { ...emptyDeviceForm, branch_id: defaultCreateBranchId };
   const [form, setForm] = useState<DeviceForm>(initialDeviceForm);
   const [branchFilter, setBranchFilter] = useState("all");
   const [isDeviceFormOpen, setIsDeviceFormOpen] = useState(false);
@@ -1626,6 +1631,17 @@ function DevicePanel({
     [branchFilter, devices]
   );
   const isBusy = isMutating;
+  const effectiveCreateBranchId = branchFilter === "all" ? defaultCreateBranchId : branchFilter;
+  const activeDeviceCountForCreateBranch = useMemo(
+    () => devices.filter((device) => device.branch_id === effectiveCreateBranchId && device.status === "active").length,
+    [devices, effectiveCreateBranchId]
+  );
+  const activeDeviceCountForFormBranch = useMemo(
+    () => devices.filter((device) => device.branch_id === form.branch_id && device.status === "active" && device.id !== form.id).length,
+    [devices, form.branch_id, form.id]
+  );
+  const isCreateDeviceLimitReached = Boolean(effectiveCreateBranchId && cashierDeviceLimit !== null && activeDeviceCountForCreateBranch >= cashierDeviceLimit);
+  const isFormDeviceLimitReached = Boolean(form.branch_id && !form.id && form.status === "active" && cashierDeviceLimit !== null && activeDeviceCountForFormBranch >= cashierDeviceLimit);
 
   function revealScrollbarBriefly() {
     setIsScrollbarVisible(true);
@@ -1679,6 +1695,10 @@ function DevicePanel({
   function save(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (isBusy) return;
+    if (isFormDeviceLimitReached) {
+      onPackageLocked();
+      return;
+    }
     const method = form.id ? "PATCH" : "POST";
     setIsMutating(true);
     void (async () => {
@@ -1722,7 +1742,11 @@ function DevicePanel({
   }
 
   function openCreateDevice() {
-    setForm(initialDeviceForm);
+    if (isCreateDeviceLimitReached) {
+      onPackageLocked();
+      return;
+    }
+    setForm({ ...initialDeviceForm, branch_id: effectiveCreateBranchId });
     setIsDeviceFormOpen(true);
   }
 
@@ -1758,10 +1782,17 @@ function DevicePanel({
                 ))}
               </select>
             </label>
-            <ActionButton onClick={openCreateDevice} disabled={!canManage || isBusy}>
-              <Icon name="terminal" />
-              {labels.devices}
-            </ActionButton>
+            <div className="grid justify-items-end gap-1">
+              <ActionButton onClick={openCreateDevice} disabled={!canManage || isBusy}>
+                <Icon name="terminal" />
+                {labels.devices}
+              </ActionButton>
+              {cashierDeviceLimit !== null ? (
+                <span className={`text-xs font-bold ${isCreateDeviceLimitReached ? "text-red-600" : "text-slate-500"}`}>
+                  {activeDeviceCountForCreateBranch}/{cashierDeviceLimit}
+                </span>
+              ) : null}
+            </div>
           </div>
           <div className="grid grid-cols-[1fr_140px_130px_120px] gap-3 border-b border-slate-100 bg-slate-50 px-4 py-3 text-xs font-black text-slate-500">
             <span>{labels.deviceName}</span>
@@ -3370,6 +3401,7 @@ export function PosSettingsWorkspace({ lang, initialData }: { lang: Language; in
   }, []);
 
   function isSettingLocked(viewKey: keyof typeof POS_SETTINGS_FEATURES) {
+    if (viewKey === "devices") return false;
     const feature = POS_SETTINGS_FEATURES[viewKey];
     return Boolean(enabledFeatures !== null && enabledFeatures[feature] === false);
   }
@@ -3452,6 +3484,8 @@ export function PosSettingsWorkspace({ lang, initialData }: { lang: Language; in
             onBack={() => setView("menu")}
             canManage={canManage}
             activeBranchId={initialData.metadata.branch_id}
+            cashierDeviceLimit={initialData.metadata.cashier_device_limit}
+            onPackageLocked={() => setPackageLockOpen(true)}
             reportStatus={reportStatus}
           />
         ) : null}
