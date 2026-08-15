@@ -55,6 +55,15 @@ export function getVisiblePosSalesModeOrder(order: PosSalesMode[], tenantId: str
   return normalizePosSalesModeOrder(order).filter((mode) => !hidden.has(mode));
 }
 
+export function canManageBranchSalesModeOrder(
+  branchRole: string | null | undefined,
+  platformRole?: string | null | undefined
+): boolean {
+  if (String(platformRole ?? "").trim() === "it_admin") return true;
+  const role = String(branchRole ?? "").trim();
+  return role === "owner" || role === "manager";
+}
+
 export function parsePosScopeIdentity(value: string | null | undefined): PosScopeIdentity | null {
   const [tenantId = "", branchId = ""] = String(value ?? "").split(":", 2).map((entry) => entry.trim());
   if (!tenantId || !branchId) return null;

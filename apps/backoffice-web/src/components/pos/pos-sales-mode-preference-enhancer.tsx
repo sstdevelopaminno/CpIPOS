@@ -13,8 +13,17 @@ import {
 } from "@/lib/pos-sales-mode-preferences";
 
 type Lang = "th" | "en";
+type StatusTone = "info" | "error";
+
+type BranchSalesModeOrderApiData = {
+  order: PosSalesMode[];
+  configured: boolean;
+  can_manage: boolean;
+  updated_at: string | null;
+};
 
 const POS_SCOPE_KEY = "pos_scope_v001";
+const SALES_MODE_ORDER_API = "/api/pos/settings/sales-mode-order";
 const SELECTOR_QUERY = ".posui-mode-selector";
 const GRID_QUERY = ".posui-mode-selector__grid";
 const HEADER_QUERY = ".posui-mode-selector__header";
@@ -23,6 +32,7 @@ const ENHANCED_ATTRIBUTE = "data-pos-mode-preferences-enhanced";
 const MODE_ATTRIBUTE = "data-pos-sale-mode";
 const HIDDEN_ATTRIBUTE = "data-pos-mode-hidden";
 const RANK_ATTRIBUTE = "data-pos-mode-rank";
+const SOURCE_ATTRIBUTE = "data-pos-mode-order-source";
 
 function readStoredModeOrder(scope: PosScopeIdentity): PosSalesMode[] {
   try {
@@ -38,7 +48,7 @@ function writeStoredModeOrder(scope: PosScopeIdentity, order: PosSalesMode[]) {
   try {
     window.localStorage.setItem(buildPosSalesModeOrderStorageKey(scope), JSON.stringify(normalizePosSalesModeOrder(order)));
   } catch {
-    // Local storage can be unavailable in private/restricted browser modes.
+    // Cache persistence is optional. The branch-level server preference remains authoritative.
   }
 }
 
@@ -54,6 +64,45 @@ function isPosSalesMode(value: string | null | undefined): value is PosSalesMode
   return DEFAULT_POS_SALES_MODE_ORDER.includes(value as PosSalesMode);
 }
 
+function parseApiData(payload: unknown): BranchSalesModeOrderApiData | null {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) return null;
+  const envelope = payload as { data?: unknown };
+  if (!envelope.data || typeof envelope.data !== "object" || Array.isArray(envelope.data)) return null;
+  const data = envelope.data as Record<string, unknown>;
+  return {
+    order: normalizePosSalesModeOrder(data.order),
+    configured: data.configured === true,
+    can_manage: data.can_manage === true,
+    updated_at: typeof data.updated_at === "string" ? data.updated_at : null
+  };
+}
+
+function parseApiError(payload: unknown): string {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) return "";
+  const envelope = payload as { error?: unknown };
+  if (!envelope.error || typeof envelope.error !== "object" || Array.isArray(envelope.error)) return "";
+  const message = (envelope.error as Record<string, unknown>).message;
+  return typeof message === "string" ? message : "";
+}
+
+async function requestBranchModeOrder(method: "GET" | "PATCH", order?: PosSalesMode[]): Promise<BranchSalesModeOrderApiData> {
+  const response = await fetch(SALES_MODE_ORDER_API, {
+    method,
+    credentials: "same-origin",
+    cache: "no-store",
+    headers: method === "PATCH" ? { "content-type": "application/json" } : undefined,
+    body: method === "PATCH" ? JSON.stringify({ order: normalizePosSalesModeOrder(order) }) : undefined
+  });
+
+  const payload = (await response.json().catch(() => null)) as unknown;
+  if (!response.ok) {
+    throw new Error(parseApiError(payload) || `Sales mode preference request failed (${response.status}).`);
+  }
+  const data = parseApiData(payload);
+  if (!data) throw new Error("Sales mode preference response is invalid.");
+  return data;
+}
+
 function createTextButton(className: string, label: string) {
   const button = document.createElement("button");
   button.type = "button";
@@ -66,8 +115,9 @@ function createOrderButton(lang: Lang) {
   const button = document.createElement("button");
   button.type = "button";
   button.className = "pos-mode-order-button";
-  button.setAttribute("aria-label", lang === "th" ? "จัดเรียงโหมดการขาย" : "Arrange sales modes");
-  button.title = lang === "th" ? "จัดเรียงโหมดการขาย" : "Arrange sales modes";
+  button.hidden = true;
+  button.setAttribute("aria-label", lang === "th" ? "จัดเรียงโหมดการขายของสาขา" : "Arrange branch sales modes");
+  button.title = lang === "th" ? "จัดเรียงลำดับโหมดของสาขานี้" : "Arrange the sales mode order for this branch";
 
   const icon = document.createElement("span");
   icon.className = "pos-mode-order-button__icon";
@@ -93,11 +143,15 @@ function createNotice(lang: Lang) {
   const hint = document.createElement("small");
   hint.textContent =
     lang === "th"
-      ? "กดบันทึกเมื่อลำดับถูกต้อง การตั้งค่านี้แยกตามร้าน สาขา และเครื่องขายนี้"
-      : "Save when the order is correct. This preference is scoped to this store, branch, and POS browser.";
+      ? "บันทึกครั้งเดียว ทุกเครื่อง POS ในสาขานี้จะใช้ลำดับเดียวกัน"
+      : "Save once and every POS in this branch will use the same order.";
 
-  notice.append(title, hint);
-  return notice;
+  const status = document.createElement("small");
+  status.className = "pos-mode-order-notice__status";
+  status.hidden = true;
+
+  notice.append(title, hint, status);
+  return { notice, status };
 }
 
 function createFooter(lang: Lang) {
@@ -110,7 +164,7 @@ function createFooter(lang: Lang) {
 
   const saveButton = createTextButton(
     "pos-mode-order-footer__button pos-mode-order-footer__button--primary",
-    lang === "th" ? "บันทึกลำดับ" : "Save order"
+    lang === "th" ? "บันทึกทั้งสาขา" : "Save for branch"
   );
   saveButton.dataset.action = "save";
 
@@ -142,7 +196,7 @@ function enhanceModeSelector(selector: HTMLElement, lang: Lang): (() => void) | 
   selector.setAttribute(ENHANCED_ATTRIBUTE, "1");
 
   const orderButton = createOrderButton(lang);
-  const notice = createNotice(lang);
+  const { notice, status } = createNotice(lang);
   const { footer, cancelButton, saveButton } = createFooter(lang);
   header.insertBefore(orderButton, closeButton);
   selector.insertBefore(notice, modeGrid);
@@ -152,10 +206,14 @@ function enhanceModeSelector(selector: HTMLElement, lang: Lang): (() => void) | 
   let scopeKey = "";
   let appliedOrder = [...DEFAULT_POS_SALES_MODE_ORDER];
   let draftOrder = [...DEFAULT_POS_SALES_MODE_ORDER];
+  let canManageBranchOrder = false;
   let arranging = false;
+  let saving = false;
   let draggingMode: PosSalesMode | null = null;
   let draggingPointerId: number | null = null;
   let savedLabelTimer: number | null = null;
+  let syncSequence = 0;
+  let destroyed = false;
 
   function getModeElementFromTarget(target: EventTarget | null): HTMLElement | null {
     if (!(target instanceof Element)) return null;
@@ -169,6 +227,25 @@ function enhanceModeSelector(selector: HTMLElement, lang: Lang): (() => void) | 
       const element = modeElements.get(mode);
       if (element) element.style.order = String(index);
     });
+  }
+
+  function setStatus(message = "", tone: StatusTone = "info") {
+    status.textContent = message;
+    status.dataset.tone = tone;
+    status.hidden = !message;
+  }
+
+  function setSaving(next: boolean) {
+    saving = next;
+    saveButton.disabled = next;
+    cancelButton.disabled = next;
+    saveButton.textContent = next
+      ? lang === "th"
+        ? "กำลังบันทึก..."
+        : "Saving..."
+      : lang === "th"
+        ? "บันทึกทั้งสาขา"
+        : "Save for branch";
   }
 
   function clearDragState() {
@@ -196,13 +273,7 @@ function enhanceModeSelector(selector: HTMLElement, lang: Lang): (() => void) | 
     }
   }
 
-  function applyScopePolicy() {
-    const nextScope = readCurrentScope();
-    const nextScopeKey = nextScope ? `${nextScope.tenantId}:${nextScope.branchId}` : "";
-    if (nextScopeKey === scopeKey) return;
-
-    scope = nextScope;
-    scopeKey = nextScopeKey;
+  function applyVisibilityPolicy() {
     const hiddenModes = new Set(getHiddenPosSalesModes(scope?.tenantId));
     for (const [mode, element] of modeElements) {
       if (hiddenModes.has(mode)) {
@@ -213,39 +284,89 @@ function enhanceModeSelector(selector: HTMLElement, lang: Lang): (() => void) | 
         element.removeAttribute("aria-hidden");
       }
     }
-
-    if (!arranging) {
-      appliedOrder = scope ? readStoredModeOrder(scope) : [...DEFAULT_POS_SALES_MODE_ORDER];
-      draftOrder = [...appliedOrder];
-      applyOrder(appliedOrder);
-    }
-    updateArrangementDecorations();
   }
 
-  function finishArrange(useDraft: boolean) {
-    if (useDraft) {
-      appliedOrder = normalizePosSalesModeOrder(draftOrder);
-      if (scope) writeStoredModeOrder(scope, appliedOrder);
-    } else {
-      draftOrder = [...appliedOrder];
+  function finishArrange(nextOrder?: PosSalesMode[]) {
+    if (nextOrder) {
+      appliedOrder = normalizePosSalesModeOrder(nextOrder);
     }
-
+    draftOrder = [...appliedOrder];
     applyOrder(appliedOrder);
     arranging = false;
     selector.removeAttribute("data-pos-mode-arranging");
     notice.hidden = true;
     footer.hidden = true;
-    orderButton.hidden = false;
+    orderButton.hidden = !canManageBranchOrder;
+    setStatus();
     clearDragState();
     updateArrangementDecorations();
   }
 
+  function showSavedLabel() {
+    const label = orderButton.querySelector<HTMLElement>(".pos-mode-order-button__label");
+    if (!label) return;
+    label.textContent = lang === "th" ? "บันทึกทั้งสาขาแล้ว" : "Saved for branch";
+    if (savedLabelTimer !== null) window.clearTimeout(savedLabelTimer);
+    savedLabelTimer = window.setTimeout(() => {
+      label.textContent = lang === "th" ? "จัดเรียงโหมด" : "Arrange modes";
+      savedLabelTimer = null;
+    }, 1600);
+  }
+
+  async function syncFromBranch(targetScope: PosScopeIdentity, targetScopeKey: string) {
+    const requestId = ++syncSequence;
+    try {
+      const data = await requestBranchModeOrder("GET");
+      if (destroyed || requestId !== syncSequence || targetScopeKey !== scopeKey || arranging) return;
+
+      appliedOrder = normalizePosSalesModeOrder(data.order);
+      draftOrder = [...appliedOrder];
+      canManageBranchOrder = data.can_manage;
+      applyOrder(appliedOrder);
+      writeStoredModeOrder(targetScope, appliedOrder);
+      selector.setAttribute(SOURCE_ATTRIBUTE, "branch");
+      orderButton.hidden = !canManageBranchOrder;
+      orderButton.title = canManageBranchOrder
+        ? lang === "th"
+          ? "จัดเรียงลำดับโหมดของสาขานี้"
+          : "Arrange the sales mode order for this branch"
+        : lang === "th"
+          ? "Owner หรือ Manager เท่านั้นที่จัดเรียงระดับสาขาได้"
+          : "Only an owner or manager can change branch ordering";
+      updateArrangementDecorations();
+    } catch {
+      if (destroyed || requestId !== syncSequence || targetScopeKey !== scopeKey) return;
+      // Keep the cached order already applied. Branch save remains unavailable until auth/API recovers.
+      selector.setAttribute(SOURCE_ATTRIBUTE, "cache");
+    }
+  }
+
+  function applyScopePolicy() {
+    const nextScope = readCurrentScope();
+    const nextScopeKey = nextScope ? `${nextScope.tenantId}:${nextScope.branchId}` : "";
+    if (nextScopeKey === scopeKey) return;
+
+    scope = nextScope;
+    scopeKey = nextScopeKey;
+    syncSequence += 1;
+    canManageBranchOrder = false;
+    orderButton.hidden = true;
+    applyVisibilityPolicy();
+
+    if (!arranging) {
+      appliedOrder = scope ? readStoredModeOrder(scope) : [...DEFAULT_POS_SALES_MODE_ORDER];
+      draftOrder = [...appliedOrder];
+      applyOrder(appliedOrder);
+      selector.setAttribute(SOURCE_ATTRIBUTE, scope ? "cache" : "default");
+    }
+    updateArrangementDecorations();
+
+    if (scope) void syncFromBranch(scope, scopeKey);
+  }
+
   function startArrange() {
     applyScopePolicy();
-    if (!scope) {
-      orderButton.title = lang === "th" ? "กำลังโหลดขอบเขตร้าน กรุณาลองอีกครั้ง" : "Store scope is still loading. Please try again.";
-      return;
-    }
+    if (!scope || !canManageBranchOrder || saving) return;
 
     draftOrder = [...appliedOrder];
     arranging = true;
@@ -253,12 +374,13 @@ function enhanceModeSelector(selector: HTMLElement, lang: Lang): (() => void) | 
     notice.hidden = false;
     footer.hidden = false;
     orderButton.hidden = true;
+    setStatus();
     clearDragState();
     updateArrangementDecorations();
   }
 
   function onPointerDown(event: PointerEvent) {
-    if (!arranging || (event.pointerType === "mouse" && event.button !== 0)) return;
+    if (!arranging || saving || (event.pointerType === "mouse" && event.button !== 0)) return;
     const card = getModeElementFromTarget(event.target);
     const mode = card?.getAttribute(MODE_ATTRIBUTE);
     if (!card || !isPosSalesMode(mode) || card.getAttribute(HIDDEN_ATTRIBUTE) === "true") return;
@@ -276,7 +398,7 @@ function enhanceModeSelector(selector: HTMLElement, lang: Lang): (() => void) | 
   }
 
   function onPointerMove(event: PointerEvent) {
-    if (!arranging || !draggingMode || draggingPointerId !== event.pointerId) return;
+    if (!arranging || saving || !draggingMode || draggingPointerId !== event.pointerId) return;
     event.preventDefault();
 
     const pointed = document.elementFromPoint(event.clientX, event.clientY);
@@ -305,19 +427,46 @@ function enhanceModeSelector(selector: HTMLElement, lang: Lang): (() => void) | 
     event.stopImmediatePropagation();
   }
 
-  function onSave() {
-    finishArrange(true);
-    const label = orderButton.querySelector<HTMLElement>(".pos-mode-order-button__label");
-    if (!label) return;
-    label.textContent = lang === "th" ? "บันทึกแล้ว" : "Saved";
-    if (savedLabelTimer !== null) window.clearTimeout(savedLabelTimer);
-    savedLabelTimer = window.setTimeout(() => {
-      label.textContent = lang === "th" ? "จัดเรียงโหมด" : "Arrange modes";
-      savedLabelTimer = null;
-    }, 1200);
+  async function onSave() {
+    if (saving || !arranging || !scope || !canManageBranchOrder) return;
+    const savingScope = scope;
+    const savingScopeKey = scopeKey;
+    const nextOrder = normalizePosSalesModeOrder(draftOrder);
+    setSaving(true);
+    setStatus(lang === "th" ? "กำลังบันทึกลำดับให้ทุกเครื่องในสาขา..." : "Saving this order for every POS in the branch...");
+
+    try {
+      const data = await requestBranchModeOrder("PATCH", nextOrder);
+      if (destroyed || savingScopeKey !== scopeKey) return;
+
+      canManageBranchOrder = data.can_manage;
+      writeStoredModeOrder(savingScope, data.order);
+      selector.setAttribute(SOURCE_ATTRIBUTE, "branch");
+      finishArrange(data.order);
+      showSavedLabel();
+    } catch (error) {
+      if (destroyed || savingScopeKey !== scopeKey) return;
+      const message = error instanceof Error ? error.message : "Unknown error";
+      setStatus(
+        lang === "th"
+          ? `บันทึกระดับสาขาไม่สำเร็จ — ยังไม่มีการเปลี่ยนเครื่องอื่น (${message})`
+          : `Branch save failed; other POS devices were not changed (${message})`,
+        "error"
+      );
+    } finally {
+      if (!destroyed && savingScopeKey === scopeKey) setSaving(false);
+    }
   }
 
-  const onCancel = () => finishArrange(false);
+  function onCancel() {
+    if (saving) return;
+    finishArrange();
+  }
+
+  function onWindowFocus() {
+    if (!selector.isConnected || arranging || !scope) return;
+    void syncFromBranch(scope, scopeKey);
+  }
 
   orderButton.addEventListener("click", startArrange);
   cancelButton.addEventListener("click", onCancel);
@@ -328,6 +477,7 @@ function enhanceModeSelector(selector: HTMLElement, lang: Lang): (() => void) | 
   modeGrid.addEventListener("pointercancel", onPointerEnd);
   modeGrid.addEventListener("click", blockModeActivationWhileArranging, true);
   modeGrid.addEventListener("keydown", blockModeActivationWhileArranging, true);
+  window.addEventListener("focus", onWindowFocus);
 
   applyScopePolicy();
   const scopeTimer = window.setInterval(() => {
@@ -339,6 +489,8 @@ function enhanceModeSelector(selector: HTMLElement, lang: Lang): (() => void) | 
   }, 400);
 
   return () => {
+    destroyed = true;
+    syncSequence += 1;
     window.clearInterval(scopeTimer);
     if (savedLabelTimer !== null) window.clearTimeout(savedLabelTimer);
     orderButton.removeEventListener("click", startArrange);
@@ -350,8 +502,10 @@ function enhanceModeSelector(selector: HTMLElement, lang: Lang): (() => void) | 
     modeGrid.removeEventListener("pointercancel", onPointerEnd);
     modeGrid.removeEventListener("click", blockModeActivationWhileArranging, true);
     modeGrid.removeEventListener("keydown", blockModeActivationWhileArranging, true);
+    window.removeEventListener("focus", onWindowFocus);
     selector.removeAttribute(ENHANCED_ATTRIBUTE);
     selector.removeAttribute("data-pos-mode-arranging");
+    selector.removeAttribute(SOURCE_ATTRIBUTE);
     for (const element of modeElements.values()) {
       element.style.removeProperty("order");
       element.removeAttribute(MODE_ATTRIBUTE);
@@ -460,6 +614,10 @@ export function PosSalesModePreferenceEnhancer({ lang }: { lang: Lang }) {
         font-size: 11px;
         font-weight: 650;
       }
+      .pos-mode-order-notice__status[data-tone="error"] {
+        color: #b91c1c;
+        font-weight: 800;
+      }
       .pos-mode-order-footer {
         justify-content: flex-end;
         gap: 8px;
@@ -481,6 +639,10 @@ export function PosSalesModePreferenceEnhancer({ lang }: { lang: Lang }) {
         font-size: 13px;
         font-weight: 850;
         cursor: pointer;
+      }
+      .pos-mode-order-footer__button:disabled {
+        cursor: wait;
+        opacity: 0.65;
       }
       .pos-mode-order-footer__button--primary {
         border-color: #2563eb;
