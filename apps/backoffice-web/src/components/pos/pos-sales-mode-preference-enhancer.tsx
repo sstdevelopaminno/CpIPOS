@@ -22,6 +22,7 @@ const CLOSE_QUERY = ".posui-mode-selector__close";
 const ENHANCED_ATTRIBUTE = "data-pos-mode-preferences-enhanced";
 const MODE_ATTRIBUTE = "data-pos-sale-mode";
 const HIDDEN_ATTRIBUTE = "data-pos-mode-hidden";
+const RANK_ATTRIBUTE = "data-pos-mode-rank";
 
 function readStoredModeOrder(scope: PosScopeIdentity): PosSalesMode[] {
   try {
@@ -163,10 +164,10 @@ function enhanceModeSelector(selector: HTMLElement, lang: Lang): (() => void) | 
 
   function applyOrder(order: PosSalesMode[]) {
     const normalized = normalizePosSalesModeOrder(order);
-    for (const mode of normalized) {
+    normalized.forEach((mode, index) => {
       const element = modeElements.get(mode);
-      if (element) grid.appendChild(element);
-    }
+      if (element) element.style.order = String(index);
+    });
   }
 
   function clearDragState() {
@@ -183,32 +184,13 @@ function enhanceModeSelector(selector: HTMLElement, lang: Lang): (() => void) | 
 
     for (const [mode, element] of modeElements) {
       const visibleIndex = visibleOrder.indexOf(mode);
-      let rank = element.querySelector<HTMLElement>(".pos-mode-order-rank");
-      let handle = element.querySelector<HTMLElement>(".pos-mode-order-drag-handle");
-
       if (!arranging || visibleIndex < 0) {
-        rank?.remove();
-        handle?.remove();
+        element.removeAttribute(RANK_ATTRIBUTE);
         element.removeAttribute("aria-grabbed");
         continue;
       }
 
-      if (!rank) {
-        rank = document.createElement("span");
-        rank.className = "pos-mode-order-rank";
-        rank.setAttribute("aria-hidden", "true");
-        element.appendChild(rank);
-      }
-      rank.textContent = String(visibleIndex + 1);
-
-      if (!handle) {
-        handle = document.createElement("span");
-        handle.className = "pos-mode-order-drag-handle";
-        handle.setAttribute("aria-hidden", "true");
-        handle.textContent = "⋮⋮";
-        element.appendChild(handle);
-      }
-
+      element.setAttribute(RANK_ATTRIBUTE, String(visibleIndex + 1));
       element.setAttribute("aria-grabbed", draggingMode === mode ? "true" : "false");
     }
   }
@@ -334,8 +316,10 @@ function enhanceModeSelector(selector: HTMLElement, lang: Lang): (() => void) | 
     }, 1200);
   }
 
+  const onCancel = () => finishArrange(false);
+
   orderButton.addEventListener("click", startArrange);
-  cancelButton.addEventListener("click", () => finishArrange(false));
+  cancelButton.addEventListener("click", onCancel);
   saveButton.addEventListener("click", onSave);
   grid.addEventListener("pointerdown", onPointerDown);
   grid.addEventListener("pointermove", onPointerMove);
@@ -357,6 +341,7 @@ function enhanceModeSelector(selector: HTMLElement, lang: Lang): (() => void) | 
     window.clearInterval(scopeTimer);
     if (savedLabelTimer !== null) window.clearTimeout(savedLabelTimer);
     orderButton.removeEventListener("click", startArrange);
+    cancelButton.removeEventListener("click", onCancel);
     saveButton.removeEventListener("click", onSave);
     grid.removeEventListener("pointerdown", onPointerDown);
     grid.removeEventListener("pointermove", onPointerMove);
@@ -364,6 +349,20 @@ function enhanceModeSelector(selector: HTMLElement, lang: Lang): (() => void) | 
     grid.removeEventListener("pointercancel", onPointerEnd);
     grid.removeEventListener("click", blockModeActivationWhileArranging, true);
     grid.removeEventListener("keydown", blockModeActivationWhileArranging, true);
+    selector.removeAttribute(ENHANCED_ATTRIBUTE);
+    selector.removeAttribute("data-pos-mode-arranging");
+    for (const element of modeElements.values()) {
+      element.style.removeProperty("order");
+      element.removeAttribute(MODE_ATTRIBUTE);
+      element.removeAttribute(HIDDEN_ATTRIBUTE);
+      element.removeAttribute(RANK_ATTRIBUTE);
+      element.removeAttribute("aria-hidden");
+      element.removeAttribute("aria-grabbed");
+      element.classList.remove("is-pos-mode-dragging");
+    }
+    orderButton.remove();
+    notice.remove();
+    footer.remove();
   };
 }
 
@@ -491,6 +490,7 @@ export function PosSalesModePreferenceEnhancer({ lang }: { lang: Lang }) {
         touch-action: none;
       }
       .posui-mode-selector[data-pos-mode-arranging="true"] .posui-mode-option {
+        position: relative;
         cursor: grab;
         user-select: none;
         touch-action: none;
@@ -509,8 +509,8 @@ export function PosSalesModePreferenceEnhancer({ lang }: { lang: Lang }) {
         border-color: #2563eb;
         box-shadow: 0 14px 30px rgba(37, 99, 235, 0.18);
       }
-      .pos-mode-order-rank,
-      .pos-mode-order-drag-handle {
+      .posui-mode-selector[data-pos-mode-arranging="true"] .posui-mode-option[${RANK_ATTRIBUTE}]::before,
+      .posui-mode-selector[data-pos-mode-arranging="true"] .posui-mode-option[${RANK_ATTRIBUTE}]::after {
         position: absolute;
         top: 10px;
         z-index: 2;
@@ -519,7 +519,8 @@ export function PosSalesModePreferenceEnhancer({ lang }: { lang: Lang }) {
         border-radius: 999px;
         pointer-events: none;
       }
-      .pos-mode-order-rank {
+      .posui-mode-selector[data-pos-mode-arranging="true"] .posui-mode-option[${RANK_ATTRIBUTE}]::before {
+        content: attr(${RANK_ATTRIBUTE});
         right: 42px;
         width: 24px;
         height: 24px;
@@ -528,7 +529,8 @@ export function PosSalesModePreferenceEnhancer({ lang }: { lang: Lang }) {
         font-size: 11px;
         font-weight: 950;
       }
-      .pos-mode-order-drag-handle {
+      .posui-mode-selector[data-pos-mode-arranging="true"] .posui-mode-option[${RANK_ATTRIBUTE}]::after {
+        content: "⋮⋮";
         right: 10px;
         width: 26px;
         height: 24px;
