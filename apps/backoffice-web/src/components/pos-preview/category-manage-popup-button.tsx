@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { findSimilarCategoryName } from "@/lib/pos/category-duplicate-guard";
 import { mergeCategoryCountItems, mergeCategoryNames, normalizeCategoryKey, normalizeCategoryName } from "@/lib/pos/category-normalization";
 
 type CategoryListItem = {
@@ -18,6 +19,13 @@ type Props = {
 type ApiEnvelope<T> = {
   data: T | null;
   error: { code: string; message: string } | null;
+};
+
+type SimilarityWarning = {
+  action: "create" | "rename";
+  valueKey: string;
+  matchName: string;
+  editingId?: string;
 };
 
 function createId() {
@@ -67,6 +75,7 @@ export function CategoryManagePopupButton({ th, categories, branchId }: Props) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingName, setEditingName] = useState("");
   const [errorText, setErrorText] = useState("");
+  const [similarityWarning, setSimilarityWarning] = useState<SimilarityWarning | null>(null);
   const [busyAction, setBusyAction] = useState<{ type: "create" | "rename" | "delete" } | null>(null);
   const busy = busyAction !== null;
   const closeTimerRef = useRef<number | null>(null);
@@ -98,12 +107,29 @@ export function CategoryManagePopupButton({ th, categories, branchId }: Props) {
       setEditingId(null);
       setEditingName("");
       setErrorText("");
+      setSimilarityWarning(null);
     }, 180);
   }
 
   function isDuplicateName(value: string, excludeId?: string) {
     const key = normalizeCategoryKey(value);
     return rows.some((row) => row.id !== excludeId && normalizeCategoryKey(row.name) === key);
+  }
+
+  function getSimilarName(value: string, excludeId?: string) {
+    return findSimilarCategoryName(
+      value,
+      rows.filter((row) => row.id !== excludeId).map((row) => row.name)
+    );
+  }
+
+  function hasConfirmedSimilarity(action: "create" | "rename", value: string, targetEditingId?: string) {
+    if (!similarityWarning) return false;
+    return (
+      similarityWarning.action === action &&
+      similarityWarning.valueKey === normalizeCategoryKey(value) &&
+      (action === "create" || similarityWarning.editingId === targetEditingId)
+    );
   }
 
   async function submitCategoryAction<T>(payload: Record<string, unknown>) {
@@ -134,14 +160,28 @@ export function CategoryManagePopupButton({ th, categories, branchId }: Props) {
   async function addCategory() {
     const value = newName.trim();
     if (!value) {
+      setSimilarityWarning(null);
       setErrorText(th ? "กรุณากรอกชื่อหมวดหมู่" : "Please enter category name.");
       return;
     }
     if (isDuplicateName(value)) {
+      setSimilarityWarning(null);
       setErrorText(th ? "มีหมวดหมู่นี้แล้ว" : "This category already exists.");
       return;
     }
 
+    const similar = getSimilarName(value);
+    if (similar && !hasConfirmedSimilarity("create", value)) {
+      setErrorText("");
+      setSimilarityWarning({
+        action: "create",
+        valueKey: normalizeCategoryKey(value),
+        matchName: similar.name
+      });
+      return;
+    }
+
+    setSimilarityWarning(null);
     setBusyAction({ type: "create" });
     try {
       const result = await submitCategoryAction<{ category?: { name?: string; productCount?: number }; persisted?: boolean }>({
@@ -172,6 +212,7 @@ export function CategoryManagePopupButton({ th, categories, branchId }: Props) {
     setEditingId(id);
     setEditingName(currentName);
     setErrorText("");
+    setSimilarityWarning(null);
   }
 
   async function saveEdit() {
@@ -179,15 +220,30 @@ export function CategoryManagePopupButton({ th, categories, branchId }: Props) {
     const value = editingName.trim();
     const currentRow = rows.find((row) => row.id === editingId);
     if (!value) {
+      setSimilarityWarning(null);
       setErrorText(th ? "ชื่อหมวดหมู่ห้ามว่าง" : "Category name cannot be empty.");
       return;
     }
     if (isDuplicateName(value, editingId)) {
+      setSimilarityWarning(null);
       setErrorText(th ? "มีหมวดหมู่นี้แล้ว" : "This category already exists.");
       return;
     }
     if (!currentRow) return;
 
+    const similar = getSimilarName(value, editingId);
+    if (similar && !hasConfirmedSimilarity("rename", value, editingId)) {
+      setErrorText("");
+      setSimilarityWarning({
+        action: "rename",
+        valueKey: normalizeCategoryKey(value),
+        matchName: similar.name,
+        editingId
+      });
+      return;
+    }
+
+    setSimilarityWarning(null);
     setBusyAction({ type: "rename" });
     try {
       const result = await submitCategoryAction<{ persisted?: boolean }>({ action: "rename_category", old_name: currentRow.name, name: value });
@@ -216,6 +272,7 @@ export function CategoryManagePopupButton({ th, categories, branchId }: Props) {
       setErrorText(th ? "ลบไม่ได้ เพราะยังมีสินค้าในหมวดนี้" : "Cannot delete a category that still has products.");
       return;
     }
+    setSimilarityWarning(null);
     setBusyAction({ type: "delete" });
     try {
       const result = await submitCategoryAction<{ persisted?: boolean }>({ action: "delete_category", name: row.name });
@@ -281,7 +338,10 @@ export function CategoryManagePopupButton({ th, categories, branchId }: Props) {
             <div className="mb-3 grid gap-2 rounded-xl border border-slate-200 bg-slate-50 p-3 md:grid-cols-[minmax(0,1fr)_auto]">
               <input
                 value={newName}
-                onChange={(event) => setNewName(event.target.value)}
+                onChange={(event) => {
+                  setNewName(event.target.value);
+                  setSimilarityWarning(null);
+                }}
                 disabled={busy}
                 placeholder={th ? "ชื่อหมวดหมู่ใหม่" : "New category name"}
                 className="min-h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 outline-none ring-blue-200 focus:ring-2"
@@ -292,9 +352,36 @@ export function CategoryManagePopupButton({ th, categories, branchId }: Props) {
                 disabled={busy}
                 className="inline-flex min-h-10 items-center justify-center rounded-lg border border-blue-600 bg-blue-600 px-4 text-sm font-bold text-white shadow-[0_8px_18px_rgba(37,99,235,0.24)] hover:bg-blue-700"
               >
-                {busyAction?.type === "create" ? "..." : th ? "+ เพิ่มหมวดหมู่" : "+ Add Category"}
+                {busyAction?.type === "create"
+                  ? "..."
+                  : similarityWarning?.action === "create" && similarityWarning.valueKey === normalizeCategoryKey(newName)
+                    ? th
+                      ? "ยืนยันเพิ่มชื่อนี้"
+                      : "Confirm Similar Name"
+                    : th
+                      ? "+ เพิ่มหมวดหมู่"
+                      : "+ Add Category"}
               </button>
             </div>
+
+            {similarityWarning ? (
+              <div className="mb-2 rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+                <p className="font-bold">
+                  {th
+                    ? `พบชื่อหมวดหมู่ที่ใกล้เคียง: “${similarityWarning.matchName}”`
+                    : `A similar category already exists: “${similarityWarning.matchName}”`}
+                </p>
+                <p className="mt-1 text-xs">
+                  {th
+                    ? similarityWarning.action === "create"
+                      ? "ตรวจสอบการสะกดก่อน หากตั้งใจสร้างเป็นคนละหมวด ให้กด “ยืนยันเพิ่มชื่อนี้” อีกครั้ง"
+                      : "ตรวจสอบการสะกดก่อน หากตั้งใจใช้ชื่อใหม่นี้ ให้กด “ยืนยันบันทึกชื่อนี้” อีกครั้ง"
+                    : similarityWarning.action === "create"
+                      ? "Check the spelling first. If this is intentionally a separate category, confirm again."
+                      : "Check the spelling first. If this rename is intentional, confirm again."}
+                </p>
+              </div>
+            ) : null}
 
             {errorText ? <p className="mb-2 text-sm font-semibold text-red-600">{errorText}</p> : null}
 
@@ -311,7 +398,10 @@ export function CategoryManagePopupButton({ th, categories, branchId }: Props) {
                           {isEditing ? (
                             <input
                               value={editingName}
-                              onChange={(event) => setEditingName(event.target.value)}
+                              onChange={(event) => {
+                                setEditingName(event.target.value);
+                                setSimilarityWarning(null);
+                              }}
                               disabled={busy}
                               className="min-h-9 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 outline-none ring-blue-200 focus:ring-2"
                             />
@@ -334,7 +424,17 @@ export function CategoryManagePopupButton({ th, categories, branchId }: Props) {
                                 disabled={busy}
                                 className="inline-flex min-h-8 items-center rounded-lg border border-emerald-300 bg-emerald-50 px-3 text-xs font-bold text-emerald-700 hover:bg-emerald-100"
                               >
-                                {busyAction?.type === "rename" ? "..." : th ? "บันทึก" : "Save"}
+                                {busyAction?.type === "rename"
+                                  ? "..."
+                                  : similarityWarning?.action === "rename" &&
+                                      similarityWarning.editingId === row.id &&
+                                      similarityWarning.valueKey === normalizeCategoryKey(editingName)
+                                    ? th
+                                      ? "ยืนยันบันทึกชื่อนี้"
+                                      : "Confirm Similar Name"
+                                    : th
+                                      ? "บันทึก"
+                                      : "Save"}
                               </button>
                               <button
                                 type="button"
@@ -342,6 +442,7 @@ export function CategoryManagePopupButton({ th, categories, branchId }: Props) {
                                   setEditingId(null);
                                   setEditingName("");
                                   setErrorText("");
+                                  setSimilarityWarning(null);
                                 }}
                                 className="inline-flex min-h-8 items-center rounded-lg border border-slate-300 px-3 text-xs font-bold text-slate-700 hover:bg-slate-50"
                               >
@@ -352,14 +453,22 @@ export function CategoryManagePopupButton({ th, categories, branchId }: Props) {
                             <>
                               <button
                                 type="button"
-                                onClick={(event) => { event.preventDefault(); event.stopPropagation(); startEdit(row.id, row.name); }}
+                                onClick={(event) => {
+                                  event.preventDefault();
+                                  event.stopPropagation();
+                                  startEdit(row.id, row.name);
+                                }}
                                 className="inline-flex min-h-8 items-center rounded-lg border border-blue-200 bg-blue-50 px-3 text-xs font-bold text-blue-700 hover:bg-blue-100"
                               >
                                 {th ? "แก้ไข" : "Edit"}
                               </button>
                               <button
                                 type="button"
-                                onClick={(event) => { event.preventDefault(); event.stopPropagation(); void deleteCategory(row.id); }}
+                                onClick={(event) => {
+                                  event.preventDefault();
+                                  event.stopPropagation();
+                                  void deleteCategory(row.id);
+                                }}
                                 disabled={busy || row.productCount > 0}
                                 className="inline-flex min-h-8 items-center rounded-lg border border-red-200 bg-red-50 px-3 text-xs font-bold text-red-700 hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-50"
                               >
