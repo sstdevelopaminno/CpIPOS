@@ -66,13 +66,22 @@ async function findPairedDevice(installId: string | null): Promise<PairedDevice 
     .eq("is_active", true)
     .contains("metadata", { android_mdm_install_id: installId })
     .order("updated_at", { ascending: false })
-    .limit(1)
-    .maybeSingle<PairedDevice>();
+    .limit(2)
+    .returns<PairedDevice[]>();
   if (error) {
     console.error("[android-pos-mdm] paired device lookup failed", { message: error.message });
     return null;
   }
-  return data ?? null;
+
+  const rows = data ?? [];
+  if (rows.length > 1) {
+    console.error("[android-pos-mdm] duplicate install id binding blocked", {
+      install_id_suffix: installId.slice(-8),
+      matched_device_codes: rows.map((row) => row.device_code)
+    });
+    return null;
+  }
+  return rows[0] ?? null;
 }
 
 async function acknowledgePreviousPrinterTest(device: PairedDevice, payload: Record<string, unknown> | null, appVersion: string | null) {
