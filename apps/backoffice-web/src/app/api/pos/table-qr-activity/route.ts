@@ -3,12 +3,13 @@ import { getPosApiAuthContext } from "@/lib/pos-api-auth";
 import { getRoutedSupabaseServiceClient } from "@/lib/tenant-data-router";
 
 type ServiceEventType = "call_staff" | "request_checkout";
+type ActivityEventType = "order" | ServiceEventType;
 type AckAction = "acknowledge" | "go_to_table";
 
 type ActivityRow = {
   id: string;
   table_id: string;
-  event_type: ServiceEventType;
+  event_type: ActivityEventType;
   item_count: number | null;
   subtotal: number | null;
   payload: Record<string, unknown> | null;
@@ -42,14 +43,14 @@ export async function GET(request: Request) {
       .select("id,table_id,event_type,item_count,subtotal,payload,created_at")
       .eq("tenant_id", auth.tenantId!)
       .eq("branch_id", auth.branchId!)
-      .in("event_type", ["call_staff", "request_checkout"])
+      .in("event_type", ["order", "call_staff", "request_checkout"])
       .gt("created_at", since)
       .order("created_at", { ascending: true })
       .limit(50);
     if (error) throw new Error(error.message);
 
     const rawRows = (rows ?? []) as ActivityRow[];
-    const visibleRows = rawRows.filter((row) => !isAcknowledged(row.payload));
+    const visibleRows = rawRows.filter((row) => row.event_type === "order" || !isAcknowledged(row.payload));
     const tableIds = Array.from(new Set(visibleRows.map((row) => String(row.table_id ?? "")).filter(Boolean)));
     const tableResult = tableIds.length
       ? await supabase
