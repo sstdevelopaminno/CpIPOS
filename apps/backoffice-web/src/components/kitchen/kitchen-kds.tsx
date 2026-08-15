@@ -35,7 +35,6 @@ type BillGroup = {
   tickets: KitchenTicket[];
 };
 
-const ALERT_DURATION_MS = 15_000;
 const POLL_INTERVAL_MS = 2_000;
 const SEEN_TICKET_LIMIT = 300;
 const ALERT_EVENT_TYPES = new Set(["new", "add"]);
@@ -141,7 +140,6 @@ export function KitchenKds() {
   const inFlightRef = useRef(false);
   const baselineReadyRef = useRef(false);
   const seenAlertKeysRef = useRef<Set<string>>(new Set());
-  const alertTimerRef = useRef<number | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const audioLoopTimerRef = useRef<number | null>(null);
 
@@ -167,10 +165,6 @@ export function KitchenKds() {
   }, []);
 
   const closeAlert = useCallback(() => {
-    if (alertTimerRef.current) {
-      window.clearTimeout(alertTimerRef.current);
-      alertTimerRef.current = null;
-    }
     stopAlertSound();
     setAlertState((current) => ({ ...current, open: false, count: 0 }));
   }, [stopAlertSound]);
@@ -219,9 +213,7 @@ export function KitchenKds() {
       soundBlocked: current.soundBlocked
     }));
     playAlertSound();
-    if (alertTimerRef.current) window.clearTimeout(alertTimerRef.current);
-    alertTimerRef.current = window.setTimeout(closeAlert, ALERT_DURATION_MS);
-  }, [closeAlert, playAlertSound]);
+  }, [playAlertSound]);
 
   const applyTickets = useCallback((nextTickets: KitchenTicket[]) => {
     const alertable = nextTickets.filter((ticket) => shouldAlertTicket(ticket) && ticket.zone?.id === unlockedZone?.id);
@@ -323,7 +315,6 @@ export function KitchenKds() {
   }, [load, unlockedZone?.id]);
 
   useEffect(() => () => {
-    if (alertTimerRef.current) window.clearTimeout(alertTimerRef.current);
     stopAlertSound();
   }, [stopAlertSound]);
 
@@ -479,7 +470,7 @@ export function KitchenKds() {
           <div className="flex items-start justify-between gap-3">
             <div>
               <h2 className="text-2xl font-black">มีออเดอร์ใหม่{alertState.count > 1 ? ` ${alertState.count} รายการ` : ""}</h2>
-              <p className="mt-1 text-sm font-bold text-slate-600">แจ้งเตือนพร้อมเสียงเป็นเวลา 15 วินาที</p>
+              <p className="mt-1 text-sm font-bold text-slate-600">แจ้งเตือนพร้อมเสียงจนกว่าจะกดรับทราบ</p>
             </div>
             <button type="button" onClick={closeAlert} className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-black">ปิด</button>
           </div>
