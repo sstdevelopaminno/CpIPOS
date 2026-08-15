@@ -69,16 +69,18 @@ describe("Kitchen K1/K2 checkpoint security and contracts", () => {
     expect(queueRouteSource).not.toContain('get("cpipos_kds_zone_id")');
   });
 
-  it("keeps KDS alerts scoped, deduped, bounded, timer-driven, and valid UTF-8", () => {
+  it("keeps KDS alerts scoped, deduped, bounded, acknowledgement-driven, and valid UTF-8", () => {
     expect(kdsSource).toContain('new Set(["new", "add"])');
     expect(kdsSource).toContain("baselineReadyRef");
     expect(kdsSource).toContain("ticket.zone?.kds_enabled === true");
     expect(kdsSource).toContain("ticket.zone?.id === unlockedZone?.id");
     expect(kdsSource).toContain("SEEN_TICKET_LIMIT = 300");
     expect(kdsSource).toContain("current.open ? current.count + increment : increment");
-    expect(kdsSource).toContain("ALERT_DURATION_MS = 15_000");
+    expect(kdsSource).not.toContain("ALERT_DURATION_MS");
+    expect(kdsSource).not.toContain("window.setTimeout(closeAlert");
+    expect(kdsSource).toContain("แจ้งเตือนพร้อมเสียงจนกว่าจะกดรับทราบ");
+    expect(kdsSource).toContain("onClick={closeAlert}");
     expect(kdsSource).toContain("window.clearInterval");
-    expect(kdsSource).toContain("window.clearTimeout");
     expect(kdsSource).toContain("/sounds/kitchen-alert.wav");
     expect(kdsSource).not.toContain("\\uFFFD");
     expect(kdsSource).not.toContain("http://");
