@@ -50,7 +50,7 @@ function readCurrentScope(): PosScopeIdentity | null {
   }
 }
 
-function isPosSalesMode(value: string | undefined): value is PosSalesMode {
+function isPosSalesMode(value: string | null | undefined): value is PosSalesMode {
   return DEFAULT_POS_SALES_MODE_ORDER.includes(value as PosSalesMode);
 }
 
@@ -126,7 +126,8 @@ function enhanceModeSelector(selector: HTMLElement, lang: Lang): (() => void) | 
   const closeButton = selector.querySelector<HTMLElement>(CLOSE_QUERY);
   if (!grid || !header || !closeButton) return null;
 
-  const initialChildren = Array.from(grid.children).filter((node): node is HTMLElement => node instanceof HTMLElement);
+  const modeGrid = grid;
+  const initialChildren = Array.from(modeGrid.children).filter((node): node is HTMLElement => node instanceof HTMLElement);
   if (initialChildren.length < DEFAULT_POS_SALES_MODE_ORDER.length) return null;
 
   const modeElements = new Map<PosSalesMode, HTMLElement>();
@@ -144,8 +145,8 @@ function enhanceModeSelector(selector: HTMLElement, lang: Lang): (() => void) | 
   const notice = createNotice(lang);
   const { footer, cancelButton, saveButton } = createFooter(lang);
   header.insertBefore(orderButton, closeButton);
-  selector.insertBefore(notice, grid);
-  grid.insertAdjacentElement("afterend", footer);
+  selector.insertBefore(notice, modeGrid);
+  modeGrid.insertAdjacentElement("afterend", footer);
 
   let scope: PosScopeIdentity | null = null;
   let scopeKey = "";
@@ -159,7 +160,7 @@ function enhanceModeSelector(selector: HTMLElement, lang: Lang): (() => void) | 
   function getModeElementFromTarget(target: EventTarget | null): HTMLElement | null {
     if (!(target instanceof Element)) return null;
     const card = target.closest<HTMLElement>(`[${MODE_ATTRIBUTE}]`);
-    return card && grid.contains(card) ? card : null;
+    return card && modeGrid.contains(card) ? card : null;
   }
 
   function applyOrder(order: PosSalesMode[]) {
@@ -281,7 +282,7 @@ function enhanceModeSelector(selector: HTMLElement, lang: Lang): (() => void) | 
     const pointed = document.elementFromPoint(event.clientX, event.clientY);
     const targetCard = pointed?.closest<HTMLElement>(`[${MODE_ATTRIBUTE}]`) ?? null;
     const targetMode = targetCard?.getAttribute(MODE_ATTRIBUTE);
-    if (!targetCard || !grid.contains(targetCard) || !isPosSalesMode(targetMode)) return;
+    if (!targetCard || !modeGrid.contains(targetCard) || !isPosSalesMode(targetMode)) return;
     if (targetCard.getAttribute(HIDDEN_ATTRIBUTE) === "true" || targetMode === draggingMode) return;
 
     draftOrder = swapPosSalesModes(draftOrder, draggingMode, targetMode);
@@ -321,12 +322,12 @@ function enhanceModeSelector(selector: HTMLElement, lang: Lang): (() => void) | 
   orderButton.addEventListener("click", startArrange);
   cancelButton.addEventListener("click", onCancel);
   saveButton.addEventListener("click", onSave);
-  grid.addEventListener("pointerdown", onPointerDown);
-  grid.addEventListener("pointermove", onPointerMove);
-  grid.addEventListener("pointerup", onPointerEnd);
-  grid.addEventListener("pointercancel", onPointerEnd);
-  grid.addEventListener("click", blockModeActivationWhileArranging, true);
-  grid.addEventListener("keydown", blockModeActivationWhileArranging, true);
+  modeGrid.addEventListener("pointerdown", onPointerDown);
+  modeGrid.addEventListener("pointermove", onPointerMove);
+  modeGrid.addEventListener("pointerup", onPointerEnd);
+  modeGrid.addEventListener("pointercancel", onPointerEnd);
+  modeGrid.addEventListener("click", blockModeActivationWhileArranging, true);
+  modeGrid.addEventListener("keydown", blockModeActivationWhileArranging, true);
 
   applyScopePolicy();
   const scopeTimer = window.setInterval(() => {
@@ -343,12 +344,12 @@ function enhanceModeSelector(selector: HTMLElement, lang: Lang): (() => void) | 
     orderButton.removeEventListener("click", startArrange);
     cancelButton.removeEventListener("click", onCancel);
     saveButton.removeEventListener("click", onSave);
-    grid.removeEventListener("pointerdown", onPointerDown);
-    grid.removeEventListener("pointermove", onPointerMove);
-    grid.removeEventListener("pointerup", onPointerEnd);
-    grid.removeEventListener("pointercancel", onPointerEnd);
-    grid.removeEventListener("click", blockModeActivationWhileArranging, true);
-    grid.removeEventListener("keydown", blockModeActivationWhileArranging, true);
+    modeGrid.removeEventListener("pointerdown", onPointerDown);
+    modeGrid.removeEventListener("pointermove", onPointerMove);
+    modeGrid.removeEventListener("pointerup", onPointerEnd);
+    modeGrid.removeEventListener("pointercancel", onPointerEnd);
+    modeGrid.removeEventListener("click", blockModeActivationWhileArranging, true);
+    modeGrid.removeEventListener("keydown", blockModeActivationWhileArranging, true);
     selector.removeAttribute(ENHANCED_ATTRIBUTE);
     selector.removeAttribute("data-pos-mode-arranging");
     for (const element of modeElements.values()) {
