@@ -35,4 +35,15 @@ describe("printer settings v3 regression coverage", () => {
     expect(reportFallback).toBeGreaterThan(kitchenFallback);
     expect(deviceRouteSource).not.toContain('bridge_url: mode === "lan" ? undefined : "browser-agent://web-serial"');
   });
+  it("fans out kitchen-zone routes instead of reducing them to one default printer", () => {
+    const routingSource = source("src/lib/printing/printer-routing-service.ts");
+    const selectionStart = routingSource.indexOf("function selectAssignmentRows");
+    const selectionEnd = routingSource.indexOf("export async function resolvePrinterRoutes", selectionStart);
+    const selectionSource = routingSource.slice(selectionStart, selectionEnd);
+
+    expect(selectionSource).toContain('const canFanOut = args.purpose === "kitchen" || args.purpose === "drink" || args.purpose === "bar";');
+    expect(selectionSource).toContain("if (!canFanOut)");
+    expect(selectionSource).toContain("} else if (!assignments.some((assignment) => assignment.is_default)) {");
+    expect(routingSource.replace(/\r\n/g, "\n")).toContain("purpose,\n      runtimeDeviceCode: args.runtimeDeviceCode");
+  });
 });

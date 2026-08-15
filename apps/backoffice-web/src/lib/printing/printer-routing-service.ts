@@ -114,11 +114,13 @@ async function loadLegacyRoleRoutes(args: {
 function selectAssignmentRows(args: {
   assignments: AssignmentRow[];
   devicesById: Map<string, DeviceRow>;
+  purpose: PrinterRoutingPurpose;
   runtimeDeviceCode?: string | null;
   zoneKey?: string | null;
 }) {
   const runtimeCode = clean(args.runtimeDeviceCode);
   const requestedZone = normalizeZone(args.zoneKey);
+  const canFanOut = args.purpose === "kitchen" || args.purpose === "drink" || args.purpose === "bar";
 
   let assignments = args.assignments.filter((assignment) => args.devicesById.has(assignment.printer_device_id));
 
@@ -145,10 +147,18 @@ function selectAssignmentRows(args: {
       assignments = branchDefault.length > 0 ? branchDefault : [];
     }
   } else {
-    const explicitDefaults = assignments.filter((assignment) => assignment.is_default);
-    if (explicitDefaults.length > 0) {
-      assignments = explicitDefaults;
-    } else {
+    if (!canFanOut) {
+      const explicitDefaults = assignments.filter((assignment) => assignment.is_default);
+      if (explicitDefaults.length > 0) {
+        assignments = explicitDefaults;
+      } else {
+        const branchDefault = assignments.filter((assignment) => {
+          const device = args.devicesById.get(assignment.printer_device_id);
+          return !clean(device?.runtime_device_code);
+        });
+        if (branchDefault.length > 0) assignments = branchDefault;
+      }
+    } else if (!assignments.some((assignment) => assignment.is_default)) {
       const branchDefault = assignments.filter((assignment) => {
         const device = args.devicesById.get(assignment.printer_device_id);
         return !clean(device?.runtime_device_code);
@@ -211,6 +221,7 @@ export async function resolvePrinterRoutes(args: {
     const selectedAssignments = selectAssignmentRows({
       assignments,
       devicesById,
+      purpose,
       runtimeDeviceCode: args.runtimeDeviceCode,
       zoneKey: args.zoneKey
     });
