@@ -79,10 +79,12 @@ export async function POST(request: Request) {
   }
   if (!device) return selectDevice(forwardedRequest);
 
+  // install_id identifies one physical Android app installation and must be
+  // globally unique across tenants. Scoping this lookup to the current tenant
+  // can leave a stale native MDM/Print Agent key authenticated to another store.
   const { data: conflictingDevices, error: conflictError } = await supabase
     .from("branch_devices")
     .select("id,device_code")
-    .eq("tenant_id", flow.tenantId)
     .eq("is_active", true)
     .contains("metadata", { android_mdm_install_id: installId })
     .neq("id", device.id)
