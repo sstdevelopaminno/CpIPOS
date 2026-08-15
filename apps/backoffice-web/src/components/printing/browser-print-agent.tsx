@@ -45,7 +45,10 @@ declare global {
 }
 
 const POLL_MS = 4000;
-const HIDDEN_POLL_MS = 15000;
+const IDLE_POLL_MS = 10000;
+const DEEP_IDLE_POLL_MS = 20000;
+const HIDDEN_POLL_MS = 30000;
+const DEEP_IDLE_AFTER_EMPTY_POLLS = 6;
 const MAX_ERROR_BACKOFF_MS = 60000;
 const SERIAL_RETRY_DELAY_MS = 350;
 const SERIAL_MAX_OPEN_FAILURES_BEFORE_FORGET = 3;
@@ -271,6 +274,7 @@ export function BrowserPrintAgent() {
     let active = true;
     let timer: number | null = null;
     let errorStreak = 0;
+    let emptyPollStreak = 0;
     const supported = Boolean(navigator.serial);
 
     const publish = (code: string, message: string) => {
@@ -325,6 +329,7 @@ export function BrowserPrintAgent() {
         if (!claim.response.ok || claim.body?.error) throw new Error(claim.body?.error?.message ?? `claim_failed_${claim.response.status}`);
 
         const jobs = claim.body?.data?.jobs ?? [];
+        emptyPollStreak = jobs.length > 0 ? 0 : Math.min(emptyPollStreak + 1, DEEP_IDLE_AFTER_EMPTY_POLLS);
         for (const job of jobs) {
           const agentAttemptId = agentAttemptIdForJob(job);
           try {
@@ -359,15 +364,18 @@ export function BrowserPrintAgent() {
         publish(jobs.length > 0 ? "printed" : "ready", jobs.length > 0 ? `Printed ${jobs.length} job(s).` : "Ready.");
       } catch (error) {
         errorStreak = Math.min(errorStreak + 1, 10);
+        emptyPollStreak = 0;
         publish("agent_error", error instanceof Error ? error.message : "Browser Print Agent failed.");
       } finally {
-        const backoffDelay = errorStreak > 0 ? Math.min(POLL_MS * 2 ** errorStreak, MAX_ERROR_BACKOFF_MS) : POLL_MS;
+        const idleDelay = emptyPollStreak >= DEEP_IDLE_AFTER_EMPTY_POLLS ? DEEP_IDLE_POLL_MS : emptyPollStreak > 0 ? IDLE_POLL_MS : POLL_MS;
+        const backoffDelay = errorStreak > 0 ? Math.min(POLL_MS * 2 ** errorStreak, MAX_ERROR_BACKOFF_MS) : idleDelay;
         scheduleNext(backoffDelay);
       }
     };
 
     const handleVisibilityChange = () => {
       if (document.visibilityState === "visible") {
+        emptyPollStreak = 0;
         void tick();
       }
     };

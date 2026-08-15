@@ -312,6 +312,7 @@ export async function PATCH(req: Request) {
     if (message === "forbidden_role") return fail("forbidden_role", "Only manager or owner can configure printers.", 403);
     if (message === "printer_not_found" || message === "printer_device_not_found") return fail("printer_not_found", "ไม่พบเครื่องพิมพ์นี้", 404);
     if (isValidationError(message)) return validationFailure(message);
+    if (message.includes("duplicate key")) return fail("printer_conflict", "Printer name already exists in this branch.", 409);
     return loggedPrintApiFail("printer update failed", error, "printer_update_failed", "อัปเดตเครื่องพิมพ์ไม่สำเร็จ กรุณาลองใหม่", 400);
   }
 }
