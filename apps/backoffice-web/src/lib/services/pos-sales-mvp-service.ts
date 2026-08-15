@@ -1,6 +1,7 @@
 import "server-only";
 
 import type { PaymentMethod } from "@pos/shared-types";
+import { isProductRecommended } from "@/lib/pos/product-metadata";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
 
 export type SalesMvpCartItemInput = {
@@ -15,6 +16,8 @@ export type SalesMvpProductRow = {
   category: string | null;
   price: number;
   is_active: boolean;
+  metadata?: Record<string, unknown> | null;
+  is_recommended?: boolean;
 };
 
 export type CalculatedSalesTotals = {
@@ -41,7 +44,7 @@ export async function resolveBranchProducts(args: {
   const supabase = getSupabaseServiceClient();
   const { data, error } = await supabase
     .from("products")
-    .select("id,name,sku,category,price,is_active")
+    .select("id,name,sku,category,price,is_active,metadata")
     .eq("tenant_id", args.tenantId)
     .eq("branch_id", args.branchId)
     .eq("is_active", true)
@@ -55,7 +58,8 @@ export async function resolveBranchProducts(args: {
   const products = ((data ?? []) as SalesMvpProductRow[]).map((row) => ({
     ...row,
     price: Number(row.price ?? 0),
-    is_active: Boolean(row.is_active)
+    is_active: Boolean(row.is_active),
+    is_recommended: isProductRecommended(row.metadata)
   }));
   return { products };
 }

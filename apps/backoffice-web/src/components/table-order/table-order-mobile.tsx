@@ -1,6 +1,7 @@
 "use client";
 
 import { type WheelEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { mergeCategoryNames } from "@/lib/pos/category-normalization";
 import styles from "./table-order-mobile.module.css";
 
 type CustomerIngredientOption = {
@@ -13,6 +14,7 @@ type MenuProduct = {
   name: string;
   category: string;
   price: number;
+  is_recommended?: boolean;
   customer_ingredient_selection_enabled?: boolean;
   customer_ingredient_options?: CustomerIngredientOption[];
   image_url?: string | null;
@@ -315,7 +317,7 @@ export function TableOrderMobile({ token }: { token: string }) {
   const canOrder = menu?.can_order !== false && !linkClosed;
   const orderingLocked = menu?.can_order === false && !linkClosed;
   const submittedItems = useMemo(() => menu?.submitted_summary?.items ?? [], [menu?.submitted_summary?.items]);
-  const categoryOptions = useMemo(() => [ALL_CATEGORY, ...Array.from(new Set((menu?.categories ?? []).map((value) => String(value).trim()).filter(Boolean)))], [menu?.categories]);
+  const categoryOptions = useMemo(() => [ALL_CATEGORY, ...mergeCategoryNames(menu?.categories ?? [])], [menu?.categories]);
 
   useEffect(() => {
     if (menu && !categoryOptions.includes(activeCategory)) setActiveCategory(ALL_CATEGORY);
@@ -524,7 +526,7 @@ export function TableOrderMobile({ token }: { token: string }) {
           return <article className={`${styles.productCard} ${!available ? styles.productCardUnavailable : ""}`} key={product.id}>
             <button type="button" className={styles.productPickButton} onClick={() => addProduct(product)} disabled={submitting || Boolean(serviceSubmitting) || !canOrder || !available} aria-label={available ? `เพิ่ม ${product.name} ลงตะกร้า` : `${product.name} สต๊อกไม่เพียงพอ`}>
               <div className={`${styles.productVisual} ${styles[`tone${index % 5}`]}`}>{productImage ? <img src={productImage} alt="" loading="lazy" decoding="async" style={{ width: "100%", height: "100%", display: "block", objectFit: "cover" }} /> : <span>{productMark(product.name)}</span>}</div>
-              <div className={styles.productBody}><p className={styles.productCategory}>{product.category}</p><h2>{product.name}</h2><strong>{money(product.price)}</strong>{!available ? <small className={styles.stockNotice}>สต๊อกไม่เพียงพอ</small> : null}</div>
+              <div className={styles.productBody}><p className={styles.productCategory}>{product.category}</p>{product.is_recommended ? <span className={styles.recommendedBadge}>แนะนำ</span> : null}<h2>{product.name}</h2><strong>{money(product.price)}</strong>{!available ? <small className={styles.stockNotice}>สต๊อกไม่เพียงพอ</small> : null}</div>
             </button>
             <div className={styles.productActions}><div className={styles.stepper}>
               <button type="button" onClick={() => changeQuantity(product.id, -1)} disabled={quantity === 0 || submitting || Boolean(serviceSubmitting)}>−</button>

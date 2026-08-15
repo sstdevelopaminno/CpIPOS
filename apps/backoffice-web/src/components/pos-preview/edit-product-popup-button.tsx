@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { mergeCategoryCountItems } from "@/lib/pos/category-normalization";
 
 type CategoryItem = {
   name: string;
@@ -21,6 +22,7 @@ type ProductItem = {
   category: string | null;
   price: number;
   deliveryPrice: number;
+  isRecommended?: boolean;
 };
 
 type RecipeLineItem = {
@@ -143,6 +145,7 @@ export function EditProductPopupButton({
   const [categoryCustomMode, setCategoryCustomMode] = useState(false);
   const [categoryCustomName, setCategoryCustomName] = useState("");
   const [productName, setProductName] = useState(product.name);
+  const [isRecommended, setIsRecommended] = useState(product.isRecommended === true);
   const [stockQuantity, setStockQuantity] = useState("0");
   const [storePrice, setStorePrice] = useState(String(product.price));
   const [deliveryPrice, setDeliveryPrice] = useState(String(product.deliveryPrice));
@@ -152,6 +155,7 @@ export function EditProductPopupButton({
   );
   const [useIngredientRecipe, setUseIngredientRecipe] = useState(true);
   const [customerIngredientSelectionEnabled, setCustomerIngredientSelectionEnabled] = useState(false);
+  const categoryOptions = useMemo(() => mergeCategoryCountItems(categories, th ? "th" : "en"), [categories, th]);
   const [ingredientLines, setIngredientLines] = useState<IngredientDraftLine[]>(
     ingredients.map((item) => ({
       ingredientId: item.id,
@@ -168,7 +172,8 @@ export function EditProductPopupButton({
     setDeliveryPrice(String(product.deliveryPrice));
     setAutoDeliveryPricing(false);
     setAutoDeliveryChannel(normalizedDeliveryRates[0]?.channel ?? "line_man");
-  }, [normalizedDeliveryRates, product.category, product.deliveryPrice, product.name, product.price]);
+    setIsRecommended(product.isRecommended === true);
+  }, [normalizedDeliveryRates, product.category, product.deliveryPrice, product.isRecommended, product.name, product.price]);
 
   useEffect(() => {
     if (!autoDeliveryPricing) return;
@@ -197,6 +202,7 @@ export function EditProductPopupButton({
     setDeliveryPrice(String(product.deliveryPrice));
     setAutoDeliveryPricing(false);
     setAutoDeliveryChannel(normalizedDeliveryRates[0]?.channel ?? "line_man");
+    setIsRecommended(product.isRecommended === true);
     setStockQuantity("0");
     setUseIngredientRecipe(true);
     setCustomerIngredientSelectionEnabled(false);
@@ -379,6 +385,7 @@ export function EditProductPopupButton({
           store_price: resolvedStorePrice,
           delivery_price: resolvedDeliveryPrice,
           delivery_prices_by_channel: deliveryPriceByChannel,
+          is_recommended: isRecommended,
           use_ingredient_recipe: useIngredientRecipe,
           customer_ingredient_selection_enabled: useIngredientRecipe && customerIngredientSelectionEnabled,
           ingredient_lines: selectedIngredientLines
@@ -465,7 +472,7 @@ export function EditProductPopupButton({
                     setCategoryName(value);
                   }} className="min-h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900">
                     <option value="">{th ? "เลือกหมวดหมู่" : "Select category"}</option>
-                    {categories.map((item) => (
+                    {categoryOptions.map((item) => (
                       <option key={item.name} value={item.name}>{item.name} ({item.productCount})</option>
                     ))}
                     <option value="__new__">{th ? "เพิ่มหมวดหมู่ใหม่..." : "Add new category..."}</option>
@@ -531,6 +538,19 @@ export function EditProductPopupButton({
                       : "Auto pricing will be applied to LINE MAN, GrabFood, and ShopeeFood."}
                   </p>
                 ) : null}
+              </label>
+
+              <label className="grid gap-1 text-xs font-semibold text-slate-700">
+                <span>{th ? "สินค้าแนะนำ" : "Recommended"}</span>
+                <span className="inline-flex min-h-10 items-center gap-2 rounded-lg border border-red-200 bg-red-50 px-3 text-sm font-bold text-red-700">
+                  <input
+                    type="checkbox"
+                    checked={isRecommended}
+                    onChange={(event) => setIsRecommended(event.target.checked)}
+                    className="h-4 w-4 rounded border-red-300"
+                  />
+                  {th ? "สินค้าแนะนำ" : "Recommended item"}
+                </span>
               </label>
 
               {!useIngredientRecipe ? (

@@ -3,6 +3,8 @@ import { fail, ok } from "@/lib/http";
 import { convertToGrams, toIntegerGrams } from "@/lib/ingredient-stock";
 import { featureGateFail, requirePosApiFeature } from "@/lib/pos-api-feature-guard";
 import { buildPaginationMeta, parsePagination, sanitizeSearchTerm } from "@/lib/query-params";
+import { mergeCategoryCountItems } from "@/lib/pos/category-normalization";
+import { withProductRecommendedMetadata } from "@/lib/pos/product-metadata";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
 
 type UpsertProductPayload = {
@@ -15,6 +17,7 @@ type UpsertProductPayload = {
   sell_unit?: string;
   stock_deduction_mode?: "unit_only" | "recipe_deduction";
   is_active?: boolean;
+  is_recommended?: boolean;
 };
 
 type UpsertIngredientPayload = {
@@ -75,6 +78,7 @@ type CreateProductWithStockSetupPayload = {
     shopee?: number;
   };
   use_ingredient_recipe: boolean;
+  is_recommended?: boolean;
   ingredient_lines?: Array<{
     ingredient_id: string;
     quantity: number;
@@ -96,6 +100,7 @@ type UpdateProductWithStockSetupPayload = {
     shopee?: number;
   };
   use_ingredient_recipe: boolean;
+  is_recommended?: boolean;
   customer_ingredient_selection_enabled?: boolean;
   ingredient_lines?: Array<{
     ingredient_id: string;
@@ -169,7 +174,7 @@ type PostgrestLikeError = {
   hint?: string | null;
 };
 
-const PRODUCT_SELECT = "id,sku,name,category,price,stock_deduction_mode,is_active,updated_at";
+const PRODUCT_SELECT = "id,sku,name,category,price,stock_deduction_mode,is_active,updated_at,metadata";
 const DELIVERY_CHANNELS = ["line_man", "grab", "shopee"] as const;
 type DeliveryChannel = (typeof DELIVERY_CHANNELS)[number];
 const ARCHIVED_INGREDIENT_PREFIX = "__archived__:";
@@ -773,20 +778,16 @@ export async function GET(req: Request) {
         return fail("categories_registry_query_failed", registryResult.error.message, 500);
       }
 
-      const counts = new Map<string, number>();
-      for (const row of data ?? []) {
-        const category = String(row.category ?? "").trim();
-        if (!category) continue;
-        counts.set(category, (counts.get(category) ?? 0) + 1);
-      }
-      for (const row of registryResult.error ? [] : registryResult.data ?? []) {
-        const category = String((row as { name?: string | null }).name ?? "").trim();
-        if (!category || counts.has(category)) continue;
-        counts.set(category, 0);
-      }
-      const items = Array.from(counts.entries())
-        .map(([category, count]) => ({ category, count }))
-        .sort((a, b) => a.category.localeCompare(b.category));
+      const items = mergeCategoryCountItems(
+        [
+          ...(data ?? []).map((row) => ({ name: String(row.category ?? ""), productCount: 1 })),
+          ...(registryResult.error ? [] : registryResult.data ?? []).map((row) => ({
+            name: String((row as { name?: string | null }).name ?? ""),
+            productCount: 0
+          }))
+        ],
+        "th"
+      ).map((item) => ({ category: item.name, count: item.productCount }));
 
       return ok({
         view: "categories",
@@ -1032,6 +1033,7 @@ export async function POST(req: Request) {
         deliveryPricesByChannel: body.delivery_prices_by_channel
       });
       const useIngredientRecipe = Boolean(body.use_ingredient_recipe);
+      const isRecommended = Boolean(body.is_recommended);
       const ingredientLines = Array.isArray(body.ingredient_lines) ? body.ingredient_lines : [];
 
       if (!name || !category) {
@@ -1078,7 +1080,7 @@ export async function POST(req: Request) {
 
       const { data: existingProductRows, error: existingProductByNameError } = await supabase
         .from("products")
-        .select("id,sku")
+        .select("id,sku,metadata")
         .eq("tenant_id", auth.tenantId!)
         .eq("branch_id", scopedBranchId)
         .eq("name", name)
@@ -1089,7 +1091,7 @@ export async function POST(req: Request) {
         return fail("product_query_failed", existingProductByNameError.message, 500);
       }
 
-      const existingProductByName = existingProductRows?.[0] as { id: string; sku?: string | null } | undefined;
+      const existingProductByName = existingProductRows?.[0] as { id: string; sku?: string | null; metadata?: Record<string, unknown> | null } | undefined;
       const baseProductInsertPayload = {
         tenant_id: auth.tenantId!,
         branch_id: scopedBranchId,
@@ -1097,7 +1099,8 @@ export async function POST(req: Request) {
         name,
         category,
         price: Number(storePrice.toFixed(2)),
-        is_active: true
+        is_active: true,
+        metadata: withProductRecommendedMetadata(null, isRecommended)
       };
 
       const insertPayloadVariants = [
@@ -1170,8 +1173,13 @@ export async function POST(req: Request) {
             }
           ];
 
+          const updatePayloadCandidatesWithMetadata = updatePayloadCandidates.map((candidate) => ({
+            ...candidate,
+            metadata: withProductRecommendedMetadata(existingProductByName?.metadata, isRecommended)
+          }));
+
           let updateExistingProductError: PostgrestLikeError | null = null;
-          for (const payload of updatePayloadCandidates) {
+          for (const payload of updatePayloadCandidatesWithMetadata) {
             const result = await supabase
               .from("products")
               .update(payload)
@@ -1373,7 +1381,7 @@ export async function POST(req: Request) {
             .eq("branch_id", scopedBranchId)
             .eq("id", createdProductId)
             .single();
-          finalProduct = retry.data ? { ...retry.data, stock_deduction_mode: "recipe_deduction" } : null;
+          finalProduct = retry.data ? { ...retry.data, stock_deduction_mode: "recipe_deduction", metadata: null } : null;
           finalProductError = retry.error;
         }
         if (finalProductError) {
@@ -1430,6 +1438,7 @@ export async function POST(req: Request) {
       const useIngredientRecipe = Boolean(body.use_ingredient_recipe);
       const customerIngredientSelectionEnabled =
         useIngredientRecipe && Boolean(body.customer_ingredient_selection_enabled);
+      const isRecommended = Boolean(body.is_recommended);
       const ingredientLines = Array.isArray(body.ingredient_lines) ? body.ingredient_lines : [];
 
       if (!productId) {
@@ -1455,14 +1464,14 @@ export async function POST(req: Request) {
       }
 
       let productBranchId = scopedBranchId;
-      let existingProduct: { id: string; sku: string; branch_id: string } | null = null;
+      let existingProduct: { id: string; sku: string; branch_id: string; metadata?: Record<string, unknown> | null } | null = null;
       const { data: scopedProduct, error: scopedProductError } = await supabase
         .from("products")
-        .select("id,sku,branch_id")
+        .select("id,sku,branch_id,metadata")
         .eq("tenant_id", auth.tenantId!)
         .eq("branch_id", scopedBranchId)
         .eq("id", productId)
-        .maybeSingle<{ id: string; sku: string; branch_id: string }>();
+        .maybeSingle<{ id: string; sku: string; branch_id: string; metadata?: Record<string, unknown> | null }>();
       if (scopedProductError) {
         return fail("product_query_failed", scopedProductError.message, 500);
       }
@@ -1472,10 +1481,10 @@ export async function POST(req: Request) {
       } else {
         const { data: tenantProduct, error: tenantProductError } = await supabase
           .from("products")
-          .select("id,sku,branch_id")
+          .select("id,sku,branch_id,metadata")
           .eq("tenant_id", auth.tenantId!)
           .eq("id", productId)
-          .maybeSingle<{ id: string; sku: string; branch_id: string }>();
+          .maybeSingle<{ id: string; sku: string; branch_id: string; metadata?: Record<string, unknown> | null }>();
         if (tenantProductError) {
           return fail("product_query_failed", tenantProductError.message, 500);
         }
@@ -1542,7 +1551,8 @@ export async function POST(req: Request) {
 
       const updatePayloadCandidatesWithCustomerSelection = updatePayloadCandidates.map((candidate) => ({
         ...candidate,
-        customer_ingredient_selection_enabled: customerIngredientSelectionEnabled
+        customer_ingredient_selection_enabled: customerIngredientSelectionEnabled,
+        metadata: withProductRecommendedMetadata(existingProduct?.metadata, isRecommended)
       }));
 
       let updateProductError: PostgrestLikeError | null = null;
@@ -1759,7 +1769,7 @@ export async function POST(req: Request) {
             .eq("branch_id", productBranchId)
             .eq("id", productId)
           .single();
-        finalProduct = retry.data ? { ...retry.data, stock_deduction_mode: "recipe_deduction" } : null;
+        finalProduct = retry.data ? { ...retry.data, stock_deduction_mode: "recipe_deduction", metadata: null } : null;
         finalProductError = retry.error;
       }
       if (finalProductError) {
@@ -1947,6 +1957,7 @@ export async function POST(req: Request) {
       const category = body.category?.trim();
       const stockMode = body.stock_deduction_mode ?? "unit_only";
       const price = Number(body.price);
+      const isRecommended = Boolean(body.is_recommended);
 
       if (!sku || !name || !category) {
         return fail("invalid_product_fields", "sku, name and category are required.", 422);
@@ -2004,7 +2015,8 @@ export async function POST(req: Request) {
         price: Number(price.toFixed(2)),
         sell_unit: "ชิ้น",
         stock_deduction_mode: stockMode,
-        is_active: body.is_active ?? true
+        is_active: body.is_active ?? true,
+        metadata: withProductRecommendedMetadata(null, isRecommended)
       };
       const payloadWithoutSellUnit = {
         tenant_id: auth.tenantId!,
@@ -2014,7 +2026,8 @@ export async function POST(req: Request) {
         category,
         price: Number(price.toFixed(2)),
         stock_deduction_mode: stockMode,
-        is_active: body.is_active ?? true
+        is_active: body.is_active ?? true,
+        metadata: withProductRecommendedMetadata(null, isRecommended)
       };
       const payloadWithoutStockDeductionMode = {
         tenant_id: auth.tenantId!,
@@ -2024,7 +2037,8 @@ export async function POST(req: Request) {
         category,
         price: Number(price.toFixed(2)),
         sell_unit: "ชิ้น",
-        is_active: body.is_active ?? true
+        is_active: body.is_active ?? true,
+        metadata: withProductRecommendedMetadata(null, isRecommended)
       };
       const legacyPayload = {
         tenant_id: auth.tenantId!,
@@ -2033,7 +2047,8 @@ export async function POST(req: Request) {
         name,
         category,
         price: Number(price.toFixed(2)),
-        is_active: body.is_active ?? true
+        is_active: body.is_active ?? true,
+        metadata: withProductRecommendedMetadata(null, isRecommended)
       };
       const LEGACY_PRODUCT_SELECT = "id,sku,name,category,price,is_active,updated_at";
 

@@ -2949,6 +2949,17 @@ a {
   font-size: 11px;
 }
 
+.posui-product-card__recommend {
+  width: fit-content;
+  margin: 0;
+  border-radius: 999px;
+  background: #fee2e2;
+  color: #b91c1c;
+  padding: 3px 8px;
+  font-size: 11px;
+  font-weight: 900;
+}
+
 .posui-product-card__badge {
   width: fit-content;
   margin: 0;

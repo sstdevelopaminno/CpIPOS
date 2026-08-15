@@ -53,6 +53,7 @@ type ProductRow = {
   has_recipe_deduction?: boolean;
   stock_on_hand_units?: number | null;
   is_out_of_stock?: boolean;
+  is_recommended?: boolean;
 };
 
 type DeliveryChannelConfigRow = {

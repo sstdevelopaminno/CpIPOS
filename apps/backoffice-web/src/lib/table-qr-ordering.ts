@@ -5,6 +5,8 @@ import QRCode from "qrcode";
 import type { AuthContext } from "@/lib/auth-context";
 import { readRequiredEnv } from "@/lib/env";
 import { invalidatePosBranchRuntimeCaches } from "@/lib/pos-cache-invalidation";
+import { mergeCategoryNames } from "@/lib/pos/category-normalization";
+import { isProductRecommended } from "@/lib/pos/product-metadata";
 import { queueMissingKitchenPrintJobsForOrder } from "@/lib/services/kitchen-routing-service";
 import { loadReceiptStoreProfile } from "@/lib/services/store-profile-service";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
@@ -59,6 +61,7 @@ type TableQrMenuProduct = {
   name: string;
   category: string;
   price: number;
+  is_recommended: boolean;
   customer_ingredient_selection_enabled: boolean;
   customer_ingredient_options: TableQrCustomerIngredientOption[];
 };
@@ -390,14 +393,14 @@ export async function loadTableQrMenu(context: QrContext) {
   if (cachedProducts) {
     return {
       ...common,
-      categories: Array.from(new Set(cachedProducts.map((product) => product.category))),
+      categories: mergeCategoryNames(cachedProducts.map((product) => product.category)),
       products: cachedProducts
     };
   }
 
   const { data, error } = await supabase
     .from("products")
-    .select("id,name,category,price,is_active,customer_ingredient_selection_enabled")
+    .select("id,name,category,price,is_active,customer_ingredient_selection_enabled,metadata")
     .eq("tenant_id", context.tenant_id)
     .eq("branch_id", context.branch_id)
     .eq("is_active", true)
@@ -440,6 +443,7 @@ export async function loadTableQrMenu(context: QrContext) {
       name: String(row.name ?? ""),
       category: String(row.category ?? "เน€เธโฌเน€เธเธเน€เธยเน€เธเธ"),
       price: Number(row.price ?? 0),
+      is_recommended: isProductRecommended((row as { metadata?: unknown }).metadata),
       customer_ingredient_selection_enabled: customerSelectable,
       customer_ingredient_options: customerSelectable ? customerIngredientOptionsByProduct.get(productId) ?? [] : []
     };
@@ -447,7 +451,7 @@ export async function loadTableQrMenu(context: QrContext) {
   writeTableQrMenuCache(context.tenant_id, context.branch_id, products);
   return {
     ...common,
-    categories: Array.from(new Set(products.map((product) => product.category))),
+    categories: mergeCategoryNames(products.map((product) => product.category)),
     products
   };
 }

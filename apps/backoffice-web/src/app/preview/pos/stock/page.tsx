@@ -7,6 +7,8 @@ import { cookies } from "next/headers";
 import { DEFAULT_DELIVERY_CHANNEL_CONFIGS } from "@/lib/delivery-pricing";
 import { getCurrentLanguage, t } from "@/lib/i18n";
 import { requirePosPagePermission } from "@/lib/pos-page-guard";
+import { mergeCategoryCountItems } from "@/lib/pos/category-normalization";
+import { isProductRecommended } from "@/lib/pos/product-metadata";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
 
 const ARCHIVED_INGREDIENT_PREFIX = "__archived__:";
@@ -22,6 +24,8 @@ type ProductRow = {
   is_active: boolean;
   updated_at: string;
   stock_deduction_mode?: "unit_only" | "recipe_deduction" | null;
+  metadata?: Record<string, unknown> | null;
+  is_recommended?: boolean;
   delivery_price_preview?: number;
   stock_on_hand_units?: number | null;
   stock_on_hand_note?: string;
@@ -199,7 +203,7 @@ export default async function PosStockPage({
     const queryActiveProducts = () =>
       supabase
         .from("products")
-        .select("id,sku,name,category,price,is_active,updated_at,stock_deduction_mode", { count: "exact" })
+        .select("id,sku,name,category,price,is_active,updated_at,stock_deduction_mode,metadata", { count: "exact" })
         .eq("tenant_id", auth.tenantId!)
         .eq("branch_id", selectedBranchId)
         .eq("is_active", true)
@@ -209,6 +213,7 @@ export default async function PosStockPage({
 
     let productsData = ((productResponseWithStockMode.data ?? []) as ProductRow[]).map((row) => ({
       ...row,
+      is_recommended: isProductRecommended(row.metadata),
       stock_deduction_mode: row.stock_deduction_mode ?? "unit_only"
     }));
     let productsCount = productResponseWithStockMode.count ?? 0;
@@ -223,7 +228,7 @@ export default async function PosStockPage({
         .eq("is_active", true)
         .order("updated_at", { ascending: false });
 
-      productsData = (legacyProducts.data ?? []).map((row) => ({ ...row, stock_deduction_mode: "unit_only" as const }));
+      productsData = (legacyProducts.data ?? []).map((row) => ({ ...row, metadata: null, is_recommended: false, stock_deduction_mode: "unit_only" as const }));
       productsCount = legacyProducts.count ?? 0;
       productsError = legacyProducts.error as PostgrestErrorLike | null;
     }
@@ -367,25 +372,19 @@ export default async function PosStockPage({
       };
     });
 
-    const categoryMap = new Map<string, number>();
-    for (const item of productsForTable) {
-      const categoryName = (item.category ?? "").trim();
-      if (!categoryName) continue;
-      categoryMap.set(categoryName, (categoryMap.get(categoryName) ?? 0) + 1);
-    }
     if (categoriesRegistryResult.error && !isMissingTableError(categoriesRegistryResult.error as PostgrestErrorLike)) {
       throw new Error("Failed to load category registry.");
     }
-    if (!categoriesRegistryResult.error) {
-      for (const row of categoriesRegistryResult.data ?? []) {
-        const categoryName = String((row as { name?: string | null }).name ?? "").trim();
-        if (!categoryName || categoryMap.has(categoryName)) continue;
-        categoryMap.set(categoryName, 0);
-      }
-    }
-    categoryList = Array.from(categoryMap.entries())
-      .map(([name, productCount]) => ({ name, productCount }))
-      .sort((a, b) => a.name.localeCompare(b.name, th ? "th" : "en"));
+    categoryList = mergeCategoryCountItems(
+      [
+        ...productsForTable.map((item) => ({ name: item.category ?? "", productCount: 1 })),
+        ...(categoriesRegistryResult.error ? [] : categoriesRegistryResult.data ?? []).map((row) => ({
+          name: String((row as { name?: string | null }).name ?? ""),
+          productCount: 0
+        }))
+      ],
+      th ? "th" : "en"
+    );
 
     const productById = new Map(productsForTable.map((item) => [String(item.id), item]));
     const unitStockMap = new Map<string, number>();

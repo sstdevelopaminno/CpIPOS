@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { mergeCategoryCountItems, mergeCategoryNames, normalizeCategoryKey, normalizeCategoryName } from "@/lib/pos/category-normalization";
 
 type CategoryItem = {
   name: string;
@@ -69,7 +70,7 @@ function readStoredCategoryNames(branchId: string) {
   try {
     const parsed = JSON.parse(window.localStorage.getItem(categoryStorageKey(branchId)) ?? "[]") as unknown;
     if (!Array.isArray(parsed)) return [];
-    return parsed.map((item) => String(item ?? "").trim()).filter(Boolean);
+    return mergeCategoryNames(parsed);
   } catch {
     return [];
   }
@@ -77,18 +78,16 @@ function readStoredCategoryNames(branchId: string) {
 
 function writeStoredCategoryNames(branchId: string, names: string[]) {
   if (typeof window === "undefined") return;
-  const uniqueNames = Array.from(new Set(names.map((item) => item.trim()).filter(Boolean))).sort((a, b) => a.localeCompare(b));
+  const uniqueNames = mergeCategoryNames(names);
   window.localStorage.setItem(categoryStorageKey(branchId), JSON.stringify(uniqueNames));
   window.dispatchEvent(new CustomEvent(CATEGORY_FALLBACK_EVENT, { detail: { branchId, names: uniqueNames } }));
 }
 
 function mergeCategoryItems(categories: CategoryItem[], names: string[], locale: "th" | "en") {
-  const merged = [...categories];
-  for (const name of names) {
-    if (merged.some((item) => item.name.trim().toLowerCase() === name.trim().toLowerCase())) continue;
-    merged.push({ name, productCount: 0 });
-  }
-  return merged.sort((a, b) => a.name.localeCompare(b.name, locale));
+  return mergeCategoryCountItems(
+    [...categories, ...names.map((name) => ({ name, productCount: 0 }))],
+    locale
+  );
 }
 
 function calculateAutoDeliveryPrice(storePrice: number, commissionRatePct: number, commissionVatRatePct: number) {
@@ -159,6 +158,7 @@ export function AddProductPopupButton({
   const [categoryCustomName, setCategoryCustomName] = useState("");
   const [categoryCreating, setCategoryCreating] = useState(false);
   const [productName, setProductName] = useState("");
+  const [isRecommended, setIsRecommended] = useState(false);
   const [stockQuantity, setStockQuantity] = useState("0");
   const [storePrice, setStorePrice] = useState("0");
   const [deliveryPrice, setDeliveryPrice] = useState("0");
@@ -318,9 +318,10 @@ export function AddProductPopupButton({
       setErrorText(th ? "กรุณากรอกชื่อหมวดหมู่" : "Please enter category name.");
       return;
     }
-    const duplicated = localCategories.some((item) => item.name.trim().toLowerCase() === value.toLowerCase());
+    const valueKey = normalizeCategoryKey(value);
+    const duplicated = localCategories.some((item) => normalizeCategoryKey(item.name) === valueKey);
     if (duplicated) {
-      setCategoryName(localCategories.find((item) => item.name.trim().toLowerCase() === value.toLowerCase())?.name ?? value);
+      setCategoryName(localCategories.find((item) => normalizeCategoryKey(item.name) === valueKey)?.name ?? value);
       setCategoryCustomMode(false);
       setCategoryCustomName("");
       setErrorText("");
@@ -342,14 +343,13 @@ export function AddProductPopupButton({
       if (!response.ok || body?.error) {
         throw new Error(body?.error?.message ?? "Create category failed.");
       }
-      const nextCategory = body?.data?.category?.name?.trim() || value;
+      const nextCategory = normalizeCategoryName(body?.data?.category?.name ?? value);
       writeStoredCategoryNames(branchId, [...readStoredCategoryNames(branchId), nextCategory]);
       setLocalCategories((prev) =>
-        prev.some((item) => item.name.trim().toLowerCase() === nextCategory.toLowerCase())
-          ? prev
-          : [...prev, { name: nextCategory, productCount: Number(body?.data?.category?.productCount ?? 0) }].sort((a, b) =>
-              a.name.localeCompare(b.name, th ? "th" : "en")
-            )
+        mergeCategoryCountItems(
+          [...prev, { name: nextCategory, productCount: Number(body?.data?.category?.productCount ?? 0) }],
+          th ? "th" : "en"
+        )
       );
       setCategoryName(nextCategory);
       setCategoryCustomMode(false);
@@ -427,6 +427,7 @@ export function AddProductPopupButton({
           store_price: resolvedStorePrice,
           delivery_price: resolvedDeliveryPrice,
           delivery_prices_by_channel: deliveryPriceByChannel,
+          is_recommended: isRecommended,
           use_ingredient_recipe: useIngredientRecipe,
           ingredient_lines: selectedIngredientLines
         })
@@ -439,6 +440,7 @@ export function AddProductPopupButton({
 
       showNotice(th ? "เพิ่มสินค้าและตั้งค่าการตัดสต๊อกเรียบร้อยแล้ว" : "Product created and stock deduction setup completed.");
       resetProductFormAfterSuccess();
+      setIsRecommended(false);
       router.refresh();
     } catch (error) {
       setErrorText(error instanceof Error ? error.message : "Unknown error.");
@@ -814,7 +816,20 @@ export function AddProductPopupButton({
                   </label>
 
                   <label className="grid gap-1 text-xs font-semibold text-slate-700">
-                    <span>{th ? "5. ราคาเดลิเวอรี่" : "5. Delivery Price"}</span>
+                    <span>{th ? "5. สินค้าแนะนำ" : "5. Recommended"}</span>
+                    <span className="inline-flex min-h-10 items-center gap-2 rounded-lg border border-red-200 bg-red-50 px-3 text-sm font-bold text-red-700">
+                      <input
+                        type="checkbox"
+                        checked={isRecommended}
+                        onChange={(event) => setIsRecommended(event.target.checked)}
+                        className="h-4 w-4 rounded border-red-300"
+                      />
+                      {th ? "สินค้าแนะนำ" : "Recommended item"}
+                    </span>
+                  </label>
+
+                  <label className="grid gap-1 text-xs font-semibold text-slate-700">
+                    <span>{th ? "6. ราคาเดลิเวอรี่" : "6. Delivery Price"}</span>
                     <div className="inline-flex w-fit max-w-full items-center gap-2 rounded-lg border border-slate-200 bg-white px-2 py-1 text-[11px] font-semibold text-slate-700">
                       <input
                         type="checkbox"

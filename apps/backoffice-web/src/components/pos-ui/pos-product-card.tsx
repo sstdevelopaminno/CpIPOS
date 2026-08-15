@@ -8,6 +8,7 @@ type Props = {
   subtitle?: string;
   imageUrl?: string;
   badge?: string;
+  recommended?: boolean;
   disabled?: boolean;
   onAdd: () => void;
 };
@@ -16,7 +17,7 @@ function formatPrice(value: number): string {
   return Number.isInteger(value) ? `฿${value}` : `฿${value.toFixed(2)}`;
 }
 
-export function PosProductCard({ title, price, secondaryPrice, secondaryLabel, subtitle, imageUrl, badge, disabled = false, onAdd }: Props) {
+export function PosProductCard({ title, price, secondaryPrice, secondaryLabel, subtitle, imageUrl, badge, recommended = false, disabled = false, onAdd }: Props) {
   const hasSecondaryPrice = Number.isFinite(secondaryPrice) && Number(secondaryPrice) >= 0;
   return (
     <button type="button" className={`posui-product-card ${disabled ? "is-disabled" : ""}`} onClick={onAdd} disabled={disabled}>
@@ -29,6 +30,7 @@ export function PosProductCard({ title, price, secondaryPrice, secondaryLabel, s
       </div>
       <div className="posui-product-card__body">
         <p className="posui-product-card__title">{title}</p>
+        {recommended ? <p className="posui-product-card__recommend">แนะนำ</p> : null}
         {subtitle ? <p className="posui-product-card__subtitle">{subtitle}</p> : null}
         {badge ? <p className={`posui-product-card__badge ${disabled ? "is-danger" : ""}`}>{badge}</p> : null}
         <p className="posui-product-card__price">{formatPrice(price)}</p>

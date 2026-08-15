@@ -10,6 +10,7 @@ import { StockSettingsPopupButton } from "@/components/pos-preview/stock-setting
 import { StockRowActionIcons } from "@/components/pos-preview/stock-row-action-icons";
 import { StockSkuReveal } from "@/components/pos-preview/stock-sku-reveal";
 import { UnitStockPopupButton } from "@/components/pos-preview/unit-stock-popup-button";
+import { mergeCategoryNames } from "@/lib/pos/category-normalization";
 
 type CategoryItem = {
   name: string;
@@ -50,6 +51,7 @@ type ProductRow = {
   stock_on_hand_note?: string;
   has_ingredient_recipe?: boolean;
   stock_deduction_mode?: "unit_only" | "recipe_deduction" | null;
+  is_recommended?: boolean;
 };
 
 type SellableStockStatus = {
@@ -206,13 +208,13 @@ export function StockProductsTable({
     [ingredientList, th]
   );
   const productCategoryOptions = useMemo(() => {
-    const options = Array.from(
-      new Set([
-        ...categoryList.map((item) => item.name.trim()).filter((category) => category.length > 0),
-        ...baseProductsByMode.map((item) => String(item.category ?? "").trim()).filter((category) => category.length > 0)
-      ])
+    return mergeCategoryNames(
+      [
+        ...categoryList.map((item) => item.name),
+        ...baseProductsByMode.map((item) => item.category)
+      ],
+      th ? "th" : "en"
     );
-    return options.sort((a, b) => a.localeCompare(b, th ? "th" : "en"));
   }, [baseProductsByMode, categoryList, th]);
 
   const filteredProducts = useMemo(() => {
@@ -957,7 +959,7 @@ const headerTools = (
                   <td className="border-b border-slate-100 px-3 py-3 text-right text-sm font-bold text-orange-600">{formatMoney(item.delivery_price_preview ?? item.price)}</td>
                   <td className="border-b border-slate-100 px-3 py-3">{(() => { const status = getSellableStockStatus(item.stock_on_hand_units, item.is_active, th); return <span className={`inline-flex min-h-7 items-center rounded-full border px-2.5 text-xs font-bold ${status.className}`}>{status.label}</span>; })()}</td>
                   <td className="border-b border-slate-100 px-3 py-3"><div className="flex flex-wrap items-center gap-1.5">
-                    <EditProductPopupButton th={th} compact product={{ id: item.id, name: item.name, category: item.category, price: item.price, deliveryPrice: item.delivery_price_preview ?? item.price }} categories={categoryList} ingredients={ingredientList} deliveryRates={deliveryRates} branchId={branchId} disabled={!canManageCatalog} />
+                    <EditProductPopupButton th={th} compact product={{ id: item.id, name: item.name, category: item.category, price: item.price, deliveryPrice: item.delivery_price_preview ?? item.price, isRecommended: item.is_recommended === true }} categories={categoryList} ingredients={ingredientList} deliveryRates={deliveryRates} branchId={branchId} disabled={!canManageCatalog} />
                     <StockRowActionIcons th={th} busy={busyProductId === item.id} onDelete={() => openDeactivateProductPopup(item)} onStock={() => openStockPopup(item)} disabled={!canManageCatalog} />
                   </div></td>
                 </tr>

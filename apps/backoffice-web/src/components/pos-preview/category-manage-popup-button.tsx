@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { mergeCategoryCountItems, mergeCategoryNames, normalizeCategoryKey, normalizeCategoryName } from "@/lib/pos/category-normalization";
 
 type CategoryListItem = {
   name: string;
@@ -34,7 +35,7 @@ function readStoredCategoryNames(branchId: string) {
   try {
     const parsed = JSON.parse(window.localStorage.getItem(storageKey(branchId)) ?? "[]") as unknown;
     if (!Array.isArray(parsed)) return [];
-    return parsed.map((item) => String(item ?? "").trim()).filter(Boolean);
+    return mergeCategoryNames(parsed);
   } catch {
     return [];
   }
@@ -42,7 +43,7 @@ function readStoredCategoryNames(branchId: string) {
 
 function writeStoredCategoryNames(branchId: string, names: string[]) {
   if (typeof window === "undefined") return;
-  const uniqueNames = Array.from(new Set(names.map((item) => item.trim()).filter(Boolean))).sort((a, b) => a.localeCompare(b));
+  const uniqueNames = mergeCategoryNames(names);
   window.localStorage.setItem(storageKey(branchId), JSON.stringify(uniqueNames));
   window.dispatchEvent(new CustomEvent(CATEGORY_FALLBACK_EVENT, { detail: { branchId, names: uniqueNames } }));
 }
@@ -51,12 +52,12 @@ export function CategoryManagePopupButton({ th, categories, branchId }: Props) {
   const router = useRouter();
   const initialRows = useMemo(
     () =>
-      categories.map((item) => ({
+      mergeCategoryCountItems(categories, th ? "th" : "en").map((item) => ({
         id: createId(),
         name: item.name,
         productCount: item.productCount
       })),
-    [categories]
+    [categories, th]
   );
 
   const [rows, setRows] = useState(initialRows);
@@ -71,12 +72,14 @@ export function CategoryManagePopupButton({ th, categories, branchId }: Props) {
   const closeTimerRef = useRef<number | null>(null);
 
   useEffect(() => {
-    const merged = [...initialRows];
-    for (const name of readStoredCategoryNames(branchId)) {
-      if (merged.some((row) => row.name.trim().toLowerCase() === name.toLowerCase())) continue;
-      merged.push({ id: createId(), name, productCount: 0 });
-    }
-    setRows(merged.sort((a, b) => a.name.localeCompare(b.name, th ? "th" : "en")));
+    const merged = mergeCategoryCountItems(
+      [
+        ...initialRows.map((row) => ({ name: row.name, productCount: row.productCount })),
+        ...readStoredCategoryNames(branchId).map((name) => ({ name, productCount: 0 }))
+      ],
+      th ? "th" : "en"
+    ).map((item) => ({ id: createId(), name: item.name, productCount: item.productCount }));
+    setRows(merged);
   }, [branchId, initialRows, th]);
 
   function openPopup() {
@@ -99,7 +102,8 @@ export function CategoryManagePopupButton({ th, categories, branchId }: Props) {
   }
 
   function isDuplicateName(value: string, excludeId?: string) {
-    return rows.some((row) => row.id !== excludeId && row.name.trim().toLowerCase() === value.trim().toLowerCase());
+    const key = normalizeCategoryKey(value);
+    return rows.some((row) => row.id !== excludeId && normalizeCategoryKey(row.name) === key);
   }
 
   async function submitCategoryAction<T>(payload: Record<string, unknown>) {
@@ -144,9 +148,14 @@ export function CategoryManagePopupButton({ th, categories, branchId }: Props) {
         action: "create_category",
         name: value
       });
-      const nextName = result?.category?.name?.trim() || value;
+      const nextName = normalizeCategoryName(result?.category?.name ?? value);
       writeStoredCategoryNames(branchId, [...readStoredCategoryNames(branchId), nextName]);
-      setRows((prev) => [{ id: createId(), name: nextName, productCount: Number(result?.category?.productCount ?? 0) }, ...prev]);
+      setRows((prev) =>
+        mergeCategoryCountItems(
+          [{ name: nextName, productCount: Number(result?.category?.productCount ?? 0) }, ...prev],
+          th ? "th" : "en"
+        ).map((item) => ({ id: createId(), name: item.name, productCount: item.productCount }))
+      );
       setNewName("");
       setErrorText("");
       if (result?.persisted) {
@@ -184,7 +193,7 @@ export function CategoryManagePopupButton({ th, categories, branchId }: Props) {
       const result = await submitCategoryAction<{ persisted?: boolean }>({ action: "rename_category", old_name: currentRow.name, name: value });
       writeStoredCategoryNames(
         branchId,
-        readStoredCategoryNames(branchId).map((name) => (name.trim().toLowerCase() === currentRow.name.trim().toLowerCase() ? value : name))
+        readStoredCategoryNames(branchId).map((name) => (normalizeCategoryKey(name) === normalizeCategoryKey(currentRow.name) ? value : name))
       );
       setRows((prev) => prev.map((row) => (row.id === editingId ? { ...row, name: value } : row)));
       setEditingId(null);
@@ -212,7 +221,7 @@ export function CategoryManagePopupButton({ th, categories, branchId }: Props) {
       const result = await submitCategoryAction<{ persisted?: boolean }>({ action: "delete_category", name: row.name });
       writeStoredCategoryNames(
         branchId,
-        readStoredCategoryNames(branchId).filter((name) => name.trim().toLowerCase() !== row.name.trim().toLowerCase())
+        readStoredCategoryNames(branchId).filter((name) => normalizeCategoryKey(name) !== normalizeCategoryKey(row.name))
       );
       setRows((prev) => prev.filter((item) => item.id !== id));
       if (editingId === id) {

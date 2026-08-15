@@ -15,6 +15,7 @@ type ProductCatalogItem = {
   stock_on_hand_units?: number | null;
   is_out_of_stock?: boolean;
   has_recipe_deduction?: boolean;
+  is_recommended?: boolean;
 };
 
 type Props = {
@@ -89,6 +90,7 @@ function PosProductCatalogInner({ products, isDeliveryMode, storefrontPriceLabel
           price={getProductPrice(product)}
           secondaryPrice={isDeliveryMode ? Number(product.price) : null}
           secondaryLabel={isDeliveryMode ? storefrontPriceLabel : undefined}
+          recommended={product.is_recommended === true}
           badge={
             product.is_out_of_stock
               ? outOfStockLabel
