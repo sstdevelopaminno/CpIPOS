@@ -3,12 +3,12 @@ import { findSimilarCategoryName } from "@/lib/pos/category-duplicate-guard";
 
 describe("category duplicate guard", () => {
   it("warns on a one-character Thai typo", () => {
-    expect(findSimilarCategoryName("จี้มจุ่ม", ["จิ้มจุ่ม", "เครื่องดื่ม"]))?.name).toBe("จิ้มจุ่ม");
+    expect(findSimilarCategoryName("จี้มจุ่ม", ["จิ้มจุ่ม", "เครื่องดื่ม"])?.name).toBe("จิ้มจุ่ม");
   });
 
   it("warns when only punctuation differs", () => {
-    expect(findSimilarCategoryName("ต้มแซ่บ$ทอด", ["ต้มแซ่บ&ทอด"]))?.reason).toBe("punctuation");
-    expect(findSimilarCategoryName("ตำเกาเหลา&ตำเส้นสด", ["ตำเกาเหลา/ตำเส้นสด"]))?.reason).toBe("punctuation");
+    expect(findSimilarCategoryName("ต้มแซ่บ$ทอด", ["ต้มแซ่บ&ทอด"])?.reason).toBe("punctuation");
+    expect(findSimilarCategoryName("ตำเกาเหลา&ตำเส้นสด", ["ตำเกาเหลา/ตำเส้นสด"])?.reason).toBe("punctuation");
   });
 
   it("does not warn for clearly different intended categories", () => {
