@@ -356,3 +356,15 @@ Current behavior/security decisions are governed by the latest migrations, CI/te
 - Windows Runtime heartbeat behavior remains strict: Local Bridge, printer, print queue, and drawer failures still generate MDM incidents.
 - Browser heartbeat no longer writes page uptime into `latency_ms`; uptime is retained separately as `metadata.heartbeat_uptime_ms` and `latency_ms` stays unknown until a real network RTT measurement exists.
 - Added unit regression coverage for browser, Android, and Windows Runtime MDM profiles.
+
+## Kitchen role production checkpoint — 2026-08-17
+
+- PR #103 added the additive `kitchen` branch role and merged to `agent-docs-preflight-schema-drift` as production commit `0d65e49f35ba3d5ea63204cdb99c3966b46fbdd5`.
+- CpiPOS-001 migration `202608170001_add_kitchen_branch_role.sql` is applied; the live `public.branch_role` enum now contains `owner`, `manager`, `staff`, and `kitchen`.
+- Kitchen login remains Store -> Branch -> Employee Code/PIN. After server-side role resolution and membership revalidation, Kitchen receives a device-less POS session and is redirected directly to `/preview/pos/kitchen`; owner/manager/staff keep the existing cashier/device flow.
+- Kitchen POS access is isolated to Kitchen plus Settings. Settings exposes Printer Settings only; regular POS pages/APIs explicitly reject Kitchen sessions. Printer Settings uses a printer-scoped authorization adapter rather than widening global Backoffice authorization.
+- Existing kitchen zone/access-code routing remains authoritative; Kitchen management routes remain owner/manager protected.
+- Owner/Manager user management can assign the Kitchen role.
+- Final PR CI passed TypeScript, lint, 181 tests across 47 test files, both schema drift checks, and the PR production build. Vercel Production deployment `dpl_4KTGs29Xhsk6ZKSMJ9Gw67y5ZAro` reached READY for commit `0d65e49`.
+- Production smoke verification confirmed build-info reports `0d65e49`, `/login/store` responds normally, unauthenticated Kitchen API access fails closed, regular POS sales API requires a POS session, and no 5xx logs were present for the new Production deployment during the verification window.
+- Stability comparison against `e050e8e` found the later pre-PR source delta concentrated in Android/OEM/download artifacts rather than core POS hot paths, so no speculative core rollback was performed. Android 1.0.10/minSdk 26 was not changed by PR #103.
