@@ -89,7 +89,18 @@ jobs:
           # Some locked/custom POS firmwares reject third-party device-admin declarations.
           # OEM legacy keeps POS/WebView/printing but does not enroll Device Admin.
           sed -i '/<receiver/,/<\/receiver>/d' "$manifestFile"
-          sed -i '/requestDeviceAdminEnrollmentOnce()/d' "$mainActivityFile"
+          python3 - "$mainActivityFile" <<'PY'
+          from pathlib import Path
+          import sys
+
+          path = Path(sys.argv[1])
+          text = path.read_text()
+          old = "\n        requestDeviceAdminEnrollmentOnce()\n        exitProcessIfNotKioskPwa()"
+          new = "\n        exitProcessIfNotKioskPwa()"
+          if old not in text:
+              raise SystemExit("Expected Device Admin enrollment invocation was not found")
+          path.write_text(text.replace(old, new, 1))
+          PY
 
           # API 26 compatibility shims, applied only to the temporary legacy source copy.
           python3 - "$mdmFile" "$apiFile" <<'PY'
@@ -129,7 +140,7 @@ jobs:
           grep -qF 'versionName = "1.0.10-legacy7.1-oem-r4"' "$buildFile"
           grep -qF 'CpIPOS POS Legacy 7.1' "$stringsFile"
           ! grep -qF '<receiver' "$manifestFile"
-          ! grep -qF 'requestDeviceAdminEnrollmentOnce()' "$mainActivityFile"
+          [ "$(grep -cF 'requestDeviceAdminEnrollmentOnce()' "$mainActivityFile")" -eq 1 ]
           ! grep -Eq 'BLUETOOTH_SCAN|BLUETOOTH_CONNECT|NEARBY_WIFI_DEVICES|REQUEST_INSTALL_PACKAGES' "$manifestFile"
           ! grep -qF 'java.time.Instant' "$apiFile"
 
@@ -221,7 +232,7 @@ jobs:
           "$zipalignPath" -f -p 4 "$unsignedPath" "$alignedPath"
 
           # Classic JAR/v1 signature is intentional for this isolated OEM fallback.
-          # Android 7.1 accepts v1; this avoids buggy/custom v2 verifier paths on old POS firmware.
+          # Android 7.1 accepts v1; this avoids custom/OEM v2 verifier paths on old POS firmware.
           jarsigner \
             -keystore "$keystorePath" \
             -storepass "$STORE_PASSWORD" \
