@@ -7,7 +7,7 @@ import { t, type Language } from "@/lib/i18n";
 import { POS_MENU_LOCK_TITLE_EN, POS_MENU_LOCK_TITLE_TH, featureForPosRoute } from "@/lib/pos-feature-map";
 
 type IconName = "sales" | "list" | "kitchen" | "stock" | "summary" | "receipt" | "tables" | "members" | "users" | "display" | "shift" | "logout" | "more" | "payment";
-type PosRole = "owner" | "manager" | "staff" | "accountant";
+type PosRole = "owner" | "manager" | "staff" | "accountant" | "kitchen";
 type MenuKey = "pos_menu_sales" | "pos_menu_sales_list" | "pos_menu_stock" | "pos_menu_sales_summary" | "pos_menu_receipts" | "pos_menu_tables" | "pos_menu_members" | "pos_menu_shift" | "pos_menu_more";
 type MenuDef = {
   key: MenuKey | null;
@@ -44,7 +44,7 @@ function MenuIcon({ name }: { name: IconName }) {
 const MENU_DEFS: MenuDef[] = [
   { key: "pos_menu_sales", href: "/preview/pos", icon: "sales", roles: ["owner", "manager", "staff"], feature: featureForPosRoute("/preview/pos") },
   { key: "pos_menu_sales_list", href: "/preview/pos/sales-list", icon: "list", roles: ["owner", "manager", "staff"], feature: featureForPosRoute("/preview/pos/sales-list") },
-  { key: null, labelTh: "ครัว", labelEn: "Kitchen", href: "/preview/pos/kitchen", icon: "kitchen", roles: ["owner", "manager", "staff"], feature: null },
+  { key: null, labelTh: "ครัว", labelEn: "Kitchen", href: "/preview/pos/kitchen", icon: "kitchen", roles: ["owner", "manager", "staff", "kitchen"], feature: null },
   { key: "pos_menu_shift", href: "/preview/pos/shift", icon: "shift", roles: ["owner", "manager", "staff"], feature: featureForPosRoute("/preview/pos/shift") }
 ];
 
@@ -116,12 +116,14 @@ export function PosStaffMenu({ lang, collapsed, orientation = "vertical", sessio
           {(!collapsed || isHorizontal) ? <span className="truncate text-[13px]">{t(lang, "pos_menu_more")}</span> : null}
         </Link>
       ) : null}
-      <Link href="/preview/pos/payments" onClick={(event) => handleNavigate(event, "/preview/pos/payments")}
-        className={`group relative inline-flex min-h-[42px] items-center text-[13px] font-semibold leading-tight transition ${isHorizontal ? "shrink-0 justify-center gap-2 px-3" : collapsed ? "justify-center px-2" : "justify-start gap-2 px-2"} ${isPaymentMenuActive ? "rounded-xl border border-cyan-300/45 bg-[linear-gradient(145deg,rgba(59,130,246,0.45),rgba(14,165,233,0.35))] text-white shadow-[0_10px_24px_rgba(14,116,255,0.25),inset_0_1px_0_rgba(255,255,255,0.2)]" : "rounded-xl text-slate-100/90 hover:bg-white/8 hover:text-white"}`}
-        title={collapsed && !isHorizontal ? paymentMenuLabel : undefined}>
-        <span className="inline-flex w-4 justify-center" aria-hidden><MenuIcon name="payment" /></span>
-        {(!collapsed || isHorizontal) ? <span className="truncate text-[13px]">{paymentMenuLabel}</span> : null}
-      </Link>
+      {sessionRole !== "kitchen" ? (
+        <Link href="/preview/pos/payments" onClick={(event) => handleNavigate(event, "/preview/pos/payments")}
+          className={`group relative inline-flex min-h-[42px] items-center text-[13px] font-semibold leading-tight transition ${isHorizontal ? "shrink-0 justify-center gap-2 px-3" : collapsed ? "justify-center px-2" : "justify-start gap-2 px-2"} ${isPaymentMenuActive ? "rounded-xl border border-cyan-300/45 bg-[linear-gradient(145deg,rgba(59,130,246,0.45),rgba(14,165,233,0.35))] text-white shadow-[0_10px_24px_rgba(14,116,255,0.25),inset_0_1px_0_rgba(255,255,255,0.2)]" : "rounded-xl text-slate-100/90 hover:bg-white/8 hover:text-white"}`}
+          title={collapsed && !isHorizontal ? paymentMenuLabel : undefined}>
+          <span className="inline-flex w-4 justify-center" aria-hidden><MenuIcon name="payment" /></span>
+          {(!collapsed || isHorizontal) ? <span className="truncate text-[13px]">{paymentMenuLabel}</span> : null}
+        </Link>
+      ) : null}
     </nav>
   );
 }
