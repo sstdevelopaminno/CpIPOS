@@ -47,7 +47,8 @@ export default async function PosPreviewLayout({ children }: { children: ReactNo
 
   const scope = await requirePosSession().catch(() => null);
   if (!scope) redirect("/login/store");
-  const isKitchen = String(scope.session.role ?? "").trim().toLowerCase() === "kitchen";
+  const sessionRole = String(scope.session.role ?? "").trim().toLowerCase();
+  const isKitchen = sessionRole === "kitchen";
 
   const requestHeaders = await headers();
   const userAgent = requestHeaders.get("user-agent") ?? "";
@@ -63,7 +64,12 @@ export default async function PosPreviewLayout({ children }: { children: ReactNo
       {!isKitchen ? <PosProductMediaToolbarLink th={lang === "th"} /> : null}
       <PosViewportGuard lang={lang} />
       {!isKitchen ? <PosTableQrGlobalAlert lang={lang} /> : null}
-      <PosShellFrame lang={lang} settingsLabel={t(lang, "common_settings")} initialPlacement={initialPlacement}>
+      <PosShellFrame
+        lang={lang}
+        settingsLabel={t(lang, "common_settings")}
+        initialPlacement={initialPlacement}
+        sessionRole={sessionRole}
+      >
         {children}
       </PosShellFrame>
     </main>
