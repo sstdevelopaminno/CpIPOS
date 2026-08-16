@@ -1,5 +1,5 @@
 import { fail, ok } from "@/lib/http";
-import { getPosApiAuthContext } from "@/lib/pos-api-auth";
+import { getKitchenApiAuthContext } from "@/lib/pos-api-auth";
 import {
   KitchenQueueError,
   parseKitchenStatuses,
@@ -8,7 +8,7 @@ import {
 
 export async function POST(req: Request, context: { params: Promise<{ ticketId: string }> }) {
   try {
-    const auth = await getPosApiAuthContext({ requireBranchScope: true, requiredPermission: "sale:create" });
+    const auth = await getKitchenApiAuthContext();
     const { ticketId } = await context.params;
     const body = (await req.json().catch(() => null)) as { status?: string } | null;
     if (!ticketId?.trim()) return fail("invalid_kitchen_ticket_id", "ticketId is required.", 422);
