@@ -80,7 +80,7 @@ jobs:
           sed -i 's/versionName = "1.0.10"/versionName = "1.0.10-legacy7.1-oem-r4"/' "$buildFile"
           sed -i 's/<string name="app_name">CpIPOS POS<\/string>/<string name="app_name">CpIPOS POS Legacy 7.1<\/string>/' "$stringsFile"
 
-          # Strip permissions that did not exist on Android 7.1 from only this OEM build.
+          # Strip post-Android-7.1 permissions from only this OEM build.
           sed -i '/android.permission.BLUETOOTH_SCAN/d' "$manifestFile"
           sed -i '/android.permission.BLUETOOTH_CONNECT/d' "$manifestFile"
           sed -i '/android.permission.NEARBY_WIFI_DEVICES/d' "$manifestFile"
@@ -113,12 +113,15 @@ jobs:
           api.write_text(text.replace(old, new, 1))
           PY
 
-          # Direct-sideload OEM artifact; suppress only the Play target-age lint.
+          # Direct-sideload OEM artifact. MissingPermission is disabled only here because
+          # API 25 uses classic BLUETOOTH/BLUETOOTH_ADMIN while modern source also contains
+          # runtime-gated Android 12 Bluetooth calls that lint evaluates against compileSdk 34.
           cat >> "$buildFile" <<'EOF'
 
           android {
               lint {
                   disable += "ExpiredTargetSdkVersion"
+                  disable += "MissingPermission"
               }
           }
           EOF
