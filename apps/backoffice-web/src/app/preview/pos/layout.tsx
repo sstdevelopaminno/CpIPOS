@@ -10,6 +10,7 @@ import { PosRoutePerformanceTracker } from "@/components/pos-preview/pos-route-p
 import { PosTableQrGlobalAlert } from "@/components/pos-preview/pos-table-qr-global-alert";
 import { PosViewportGuard } from "@/components/pos-preview/pos-viewport-guard";
 import { getCurrentLanguage, t } from "@/lib/i18n";
+import { requirePosSession } from "@/lib/pos-session-guard";
 
 export const viewport: Viewport = {
   width: "device-width",
@@ -44,6 +45,10 @@ export default async function PosPreviewLayout({ children }: { children: ReactNo
   const hasPosSession = Boolean(cookieStore.get(sessionIdName)?.value || cookieStore.get(handoffName)?.value);
   if (!hasPosSession) redirect("/login/store");
 
+  const scope = await requirePosSession().catch(() => null);
+  if (!scope) redirect("/login/store");
+  const isKitchen = String(scope.session.role ?? "").trim().toLowerCase() === "kitchen";
+
   const requestHeaders = await headers();
   const userAgent = requestHeaders.get("user-agent") ?? "";
   const storedPlacement = parseMenuPlacement(cookieStore.get(POS_MAIN_MENU_PLACEMENT_KEY)?.value);
@@ -53,11 +58,11 @@ export default async function PosPreviewLayout({ children }: { children: ReactNo
   return (
     <main className="pos-app-root flex h-screen w-screen overflow-hidden bg-slate-50">
       <PosRoutePerformanceTracker />
-      <PosShiftCycleGuard lang={lang} />
-      <PosDeviceHeartbeatSender />
-      <PosProductMediaToolbarLink th={lang === "th"} />
+      {!isKitchen ? <PosShiftCycleGuard lang={lang} /> : null}
+      {!isKitchen ? <PosDeviceHeartbeatSender /> : null}
+      {!isKitchen ? <PosProductMediaToolbarLink th={lang === "th"} /> : null}
       <PosViewportGuard lang={lang} />
-      <PosTableQrGlobalAlert lang={lang} />
+      {!isKitchen ? <PosTableQrGlobalAlert lang={lang} /> : null}
       <PosShellFrame lang={lang} settingsLabel={t(lang, "common_settings")} initialPlacement={initialPlacement}>
         {children}
       </PosShellFrame>
