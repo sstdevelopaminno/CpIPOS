@@ -16,7 +16,11 @@ export async function getPrinterSettingsAuthContext(): Promise<PrinterSettingsAu
         userId: scope.session.user_id,
         tenantId: scope.session.tenant_id,
         branchId: scope.session.branch_id,
-        branchRole: "staff",
+        // Existing printer services intentionally require manager/owner. This
+        // compatibility role exists only inside printer routes after the real
+        // POS session has been revalidated as Kitchen above; it is never added
+        // to the global auth context, so other Backoffice APIs remain closed.
+        branchRole: "manager",
         platformRole: "tenant_user",
         printerSettingsRole: "kitchen"
       };
