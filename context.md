@@ -1,6 +1,6 @@
 # CpIPOS / SST iPOS Project Context (Historical Handoff)
 
-Last reviewed for CpIPOS: 2026-08-11
+Last reviewed for CpIPOS: 2026-08-17
 Current workspace: `E:\CpIPOS`
 Current repo: `https://github.com/sstdevelopaminno/CpIPOS.git`
 Current guardrail: read `docs/AI-GUARDRAILS-CPIPOS.md` first.
@@ -587,3 +587,18 @@ ORDER BY p.name;
 - Windows Runtime heartbeat behavior remains strict: Local Bridge, printer, print queue, and drawer failures still generate MDM incidents.
 - Browser heartbeat no longer writes page uptime into `latency_ms`; uptime is retained separately as `metadata.heartbeat_uptime_ms` and `latency_ms` stays unknown until a real network RTT measurement exists.
 - Added unit regression coverage for browser, Android, and Windows Runtime MDM profiles.
+
+## 2026-08-17 — Kitchen role production checkpoint
+
+- Production branch: `agent-docs-preflight-schema-drift`; Kitchen feature merged through PR #103 as `0d65e49f35ba3d5ea63204cdb99c3966b46fbdd5`.
+- `public.branch_role` on CpiPOS-001 is now `owner | manager | staff | kitchen`; source migration is `supabase/migrations/202608170001_add_kitchen_branch_role.sql` and was applied/verified on Primary.
+- Kitchen login uses the existing Store -> Branch -> Employee Code/PIN path. Role is resolved server-side, Kitchen membership is revalidated, and only then a device-less POS session is created. Kitchen skips cashier/device selection and redirects to `/preview/pos/kitchen`.
+- `owner`, `manager`, and `staff` retain the existing device/cashier login flow.
+- Kitchen main navigation is restricted to Kitchen and Settings. Kitchen Settings exposes Printer Settings only. Regular POS pages and regular POS APIs reject Kitchen sessions; the printer compatibility path is scoped only to printer settings endpoints.
+- Existing Kitchen zone/access-code routing remains in place; `/preview/pos/kitchen/manage` remains owner/manager protected.
+- Owner/Manager can assign `kitchen` in POS user management.
+- Final PR validation: Typecheck pass, Lint pass with warnings only, 47 test files / 181 tests pass, Primary schema drift pass, CpiPOS-002 schema drift pass, production build pass.
+- Vercel Preview for PR head `08fe74e` reached READY. Merged Production deployment `dpl_4KTGs29Xhsk6ZKSMJ9Gw67y5ZAro` reached READY and `/api/system/build-info` reported `0d65e49`.
+- Production smoke checks verified `/login/store`, unauthenticated Kitchen API fail-closed behavior, regular POS sales session enforcement, and no 5xx events for the new Production deployment during the verification window.
+- Stability investigation did not justify rolling core POS back to `e050e8e`: the source delta between that stable checkpoint and pre-Kitchen production was concentrated in Android/OEM/download work, while Production observability still shows request amplification from polling/heartbeats as a separate performance backlog. Do not conflate that backlog with the Kitchen role change.
+- Android POS 1.0.10 and minSdk 26 were not changed by this Kitchen feature.
