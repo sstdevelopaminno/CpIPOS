@@ -1,4 +1,3 @@
-import { getAuthContext } from "@/lib/auth-context";
 import { fail, ok } from "@/lib/http";
 import {
   openCashDrawerController,
@@ -6,6 +5,7 @@ import {
 } from "@/lib/printing/cash-drawer-controller-service";
 import { loggedPrintApiFail } from "@/lib/printing/print-api-errors";
 import { recordPrinterDeviceActionHistory } from "@/lib/printing/printer-device-registry";
+import { getPrinterSettingsAuthContext } from "@/lib/printing/printer-settings-auth";
 
 type DrawerTestPayload = {
   reason?: string | null;
@@ -16,7 +16,7 @@ type DrawerTestPayload = {
 
 function mapDrawerTestError(error: unknown) {
   const message = error instanceof Error ? error.message : "Unknown error";
-  if (message === "forbidden_role") return fail("forbidden_role", "Only manager or owner can test the cash drawer from printer settings.", 403);
+  if (message === "forbidden_role") return fail("forbidden_role", "Only manager, owner, or Kitchen can test the cash drawer from printer settings.", 403);
   if (message === "printer_not_configured") return fail("printer_not_configured", "No enabled receipt printer or drawer controller is configured for this branch.", 422);
   if (message === "drawer_not_configured") return fail("drawer_not_configured", "Cash drawer is not enabled on the selected receipt printer or drawer controller profile.", 422);
   if (message === "drawer_reason_required") return fail("drawer_reason_required", "reason is required for cash drawer testing.", 422);
@@ -26,11 +26,11 @@ function mapDrawerTestError(error: unknown) {
 }
 
 export async function POST(req: Request) {
-  let auth: Awaited<ReturnType<typeof getAuthContext>> | null = null;
+  let auth: Awaited<ReturnType<typeof getPrinterSettingsAuthContext>> | null = null;
   let printerId: string | null = null;
 
   try {
-    auth = await getAuthContext({ requireBranchScope: true });
+    auth = await getPrinterSettingsAuthContext();
     if (auth.branchRole !== "manager" && auth.branchRole !== "owner") {
       throw new Error("forbidden_role");
     }
