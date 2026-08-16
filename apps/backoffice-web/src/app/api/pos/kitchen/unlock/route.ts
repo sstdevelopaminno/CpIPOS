@@ -24,7 +24,7 @@ function zoneResponse(zone: KitchenZoneUnlockRow, auth: { tenantId: string; bran
 
 export async function GET() {
   try {
-    const auth = await getKitchenApiAuthContext();
+    const auth = await getKitchenApiAuthContext({ requiredPermission: "sales:view" });
     const session = readKitchenZoneSession(await cookies(), { tenantId: auth.tenantId!, branchId: auth.branchId! });
     if (!session) return ok({ zone: null });
 
@@ -48,7 +48,7 @@ export async function GET() {
 
 export async function POST(req: Request) {
   try {
-    const auth = await getKitchenApiAuthContext();
+    const auth = await getKitchenApiAuthContext({ requiredPermission: "sales:view" });
     const body = (await req.json().catch(() => null)) as { access_code?: string } | null;
     const accessCode = String(body?.access_code ?? "").trim();
     if (!/^[0-9]{6}$/.test(accessCode)) {
