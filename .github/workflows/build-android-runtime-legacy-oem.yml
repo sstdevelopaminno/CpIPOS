@@ -92,10 +92,11 @@ jobs:
           sed -i '/requestDeviceAdminEnrollmentOnce()/d' "$mainActivityFile"
 
           # API 26 compatibility shims, applied only to the temporary legacy source copy.
-          python3 - <<'PY'
+          python3 - "$mdmFile" "$apiFile" <<'PY'
           from pathlib import Path
+          import sys
 
-          mdm = Path("$mdmFile")
+          mdm = Path(sys.argv[1])
           text = mdm.read_text()
           old = "val webViewPackage = WebView.getCurrentWebViewPackage()"
           new = "val webViewPackage = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) WebView.getCurrentWebViewPackage() else null"
@@ -103,10 +104,10 @@ jobs:
               raise SystemExit("Expected WebView API 26 call was not found")
           mdm.write_text(text.replace(old, new, 1))
 
-          api = Path("$apiFile")
+          api = Path(sys.argv[2])
           text = api.read_text()
           old = "val capturedAt = java.time.Instant.now().toString()"
-          new = 'val capturedAt = java.text.SimpleDateFormat("yyyy-MM-dd\\'T\\'HH:mm:ss.SSS\\'Z\\'", java.util.Locale.US).apply { timeZone = java.util.TimeZone.getTimeZone("UTC") }.format(java.util.Date())'
+          new = '''val capturedAt = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", java.util.Locale.US).apply { timeZone = java.util.TimeZone.getTimeZone("UTC") }.format(java.util.Date())'''
           if old not in text:
               raise SystemExit("Expected java.time API 26 call was not found")
           api.write_text(text.replace(old, new, 1))
@@ -130,6 +131,7 @@ jobs:
           ! grep -qF '<receiver' "$manifestFile"
           ! grep -qF 'requestDeviceAdminEnrollmentOnce()' "$mainActivityFile"
           ! grep -Eq 'BLUETOOTH_SCAN|BLUETOOTH_CONNECT|NEARBY_WIFI_DEVICES|REQUEST_INSTALL_PACKAGES' "$manifestFile"
+          ! grep -qF 'java.time.Instant' "$apiFile"
 
           echo "LEGACY_RUNTIME_MODULE=$legacyDir" >> "$GITHUB_ENV"
           echo "OEM compatibility workspace prepared outside the checked-out production source tree."
