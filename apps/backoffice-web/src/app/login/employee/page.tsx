@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -21,7 +21,7 @@ type SessionContextResponse = {
 
 type VerifyCodeResponse = {
   data?: {
-    next_step?: "devices" | "remembered_device";
+    next_step?: "devices" | "remembered_device" | "kitchen";
     remembered_device?: { id: string | null; code: string } | null;
   } | null;
   error?: { code?: string; message?: string } | null;
@@ -199,8 +199,21 @@ function LoginEmployeePageContent() {
         }
 
         if (stage === "employee_verified") {
-          router.replace(`/login/devices?flow=${flow}`);
-          return;
+          if (String(body?.data?.employee?.role ?? "").trim().toLowerCase() === "kitchen") {
+            try {
+              const kitchenResponse = await fetchWithTimeout("/api/auth/kitchen/session", { method: "POST", cache: "no-store" });
+              const kitchenBody = (await kitchenResponse.json().catch(() => null)) as DeviceSelectResponse | null;
+              if (kitchenResponse.ok && kitchenBody?.data?.redirect_to) {
+                window.location.assign(kitchenBody.data.redirect_to);
+                return;
+              }
+            } catch {
+              // Keep the verified context on-screen so the user can retry the normal submit path.
+            }
+          } else {
+            router.replace(`/login/devices?flow=${flow}`);
+            return;
+          }
         }
 
         setBranchName(branch.name ?? branch.code ?? branch.id);
@@ -251,6 +264,23 @@ function LoginEmployeePageContent() {
       }
 
       setPopup({ type: "loading", message: copy.popupEnteringPos });
+      if (body.data.next_step === "kitchen") {
+        const { response: kitchenResponse, body: kitchenBody } = await fetchJsonWithRetry<DeviceSelectResponse>(
+          "/api/auth/kitchen/session",
+          { method: "POST", cache: "no-store" },
+          1
+        );
+        const redirectTo = String(kitchenBody?.data?.redirect_to ?? "").trim();
+        if (kitchenResponse.ok && redirectTo) {
+          window.location.assign(redirectTo);
+          return;
+        }
+        const message = kitchenBody?.error?.message ?? copy.verifyFailed;
+        setError(message);
+        setPopup({ type: "error", message });
+        return;
+      }
+
       const rememberedDeviceCode = String(body.data.remembered_device?.code ?? "").trim().toUpperCase();
       if (body.data.next_step === "remembered_device" && rememberedDeviceCode) {
         try {

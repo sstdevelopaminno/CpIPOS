@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -11,13 +11,13 @@ import {
   POS_MENU_LOCK_TITLE_TH,
   featureForPosRoute
 } from "@/lib/pos-feature-map";
-type PosRole = "owner" | "manager" | "staff" | "accountant";
+type PosRole = "owner" | "manager" | "staff" | "accountant" | "kitchen";
 type MainMenuPlacement = "left" | "top" | "bottom";
 const POS_ROLE_STORAGE_KEY = "pos_session_role_v1";
 const POS_ROLE_EVENT_NAME = "pos-session-role-updated";
 
 function normalizePosRole(value: string): PosRole | null {
-  if (value === "owner" || value === "manager" || value === "staff" || value === "accountant") return value;
+  if (value === "owner" || value === "manager" || value === "staff" || value === "accountant" || value === "kitchen") return value;
   return null;
 }
 
@@ -60,7 +60,7 @@ export function PosShellSidebar({ lang, settingsLabel, placement }: Props) {
   const [logoutError, setLogoutError] = useState<string | null>(null);
   const isHorizontal = placement === "top" || placement === "bottom";
   const isSettingsActive = pathname === "/preview/pos/settings";
-  const showAdvancedMenus = sessionRole === null || sessionRole === "owner";
+  const showAdvancedMenus = sessionRole === null || sessionRole === "owner" || sessionRole === "kitchen";
   const settingsFeature = featureForPosRoute("/preview/pos/settings");
   const isSettingsLocked = Boolean(enabledFeatures !== null && settingsFeature && enabledFeatures[settingsFeature] === false);
 
@@ -142,7 +142,7 @@ export function PosShellSidebar({ lang, settingsLabel, placement }: Props) {
       event.preventDefault();
       return;
     }
-    if (isSettingsLocked) {
+    if (isSettingsLocked && sessionRole !== "kitchen") {
       event.preventDefault();
       setPackageLockOpen(true);
       return;
@@ -236,24 +236,15 @@ export function PosShellSidebar({ lang, settingsLabel, placement }: Props) {
               } ${
                 isSettingsActive
                   ? "rounded-xl border border-blue-400/40 bg-blue-500/25 text-white"
-                  : isSettingsLocked
+                  : isSettingsLocked && sessionRole !== "kitchen"
                     ? "rounded-xl text-slate-400/70"
                     : "rounded-xl text-slate-100/90 hover:bg-white/5 hover:text-white"
               }`}
-              title={collapsed && !isHorizontal ? settingsLabel : isSettingsLocked ? (lang === "th" ? POS_MENU_LOCK_TITLE_TH : POS_MENU_LOCK_TITLE_EN) : undefined}
-              aria-disabled={isSettingsLocked}
+              title={collapsed && !isHorizontal ? settingsLabel : isSettingsLocked && sessionRole !== "kitchen" ? (lang === "th" ? POS_MENU_LOCK_TITLE_TH : POS_MENU_LOCK_TITLE_EN) : undefined}
+              aria-disabled={isSettingsLocked && sessionRole !== "kitchen"}
             >
               <span className="inline-flex w-4 justify-center" aria-hidden>
-                <svg
-                  width="16"
-                  height="16"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                   <circle cx="12" cy="12" r="3" />
                   <path d="M19.4 15a1.7 1.7 0 0 0 .33 1.82l.03.03a2 2 0 1 1-2.83 2.83l-.03-.03A1.7 1.7 0 0 0 15 19.4a1.7 1.7 0 0 0-1 .6 1.7 1.7 0 0 0-.4 1.1V21a2 2 0 1 1-4 0v-.04A1.7 1.7 0 0 0 8.6 19.4a1.7 1.7 0 0 0-1.82.33l-.03.03a2 2 0 1 1-2.83-2.83l.03-.03A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-.6-1 1.7 1.7 0 0 0-1.1-.4H2.96a2 2 0 1 1 0-4H3a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.33-1.82l-.03-.03a2 2 0 1 1 2.83-2.83l.03.03A1.7 1.7 0 0 0 9 4.6c.36 0 .7-.13 1-.38.27-.25.43-.6.4-.96V3a2 2 0 1 1 4 0v.04c-.03.37.12.72.4.96.3.25.64.38 1 .38a1.7 1.7 0 0 0 1.82-.33l.03-.03a2 2 0 1 1 2.83 2.83l-.03.03a1.7 1.7 0 0 0-.33 1.82c.1.38.35.73.72.95.29.18.62.27.95.25H21a2 2 0 1 1 0 4h-.04c-.37-.03-.72.12-.96.4-.24.3-.37.64-.36 1z" />
                 </svg>
@@ -281,60 +272,27 @@ export function PosShellSidebar({ lang, settingsLabel, placement }: Props) {
           title={collapsed && !isHorizontal ? t(lang, "pos_menu_logout") : undefined}
           aria-label={t(lang, "pos_menu_logout")}
         >
-          <span className="inline-flex w-4 justify-center">
-            <LogoutIcon />
-          </span>
+          <span className="inline-flex w-4 justify-center"><LogoutIcon /></span>
           {(!collapsed || isHorizontal) ? <span className="truncate text-[13px]">{t(lang, "pos_menu_logout")}</span> : null}
         </button>
       </div>
 
       {logoutModalOpen ? (
-        <div
-          role="dialog"
-          aria-modal="true"
-          className="fixed inset-0 z-[90] grid place-items-center bg-slate-950/55 p-4"
-          onClick={() => {
-            if (!logoutBusyMode) {
-              setLogoutModalOpen(false);
-              setLogoutError(null);
-            }
-          }}
-        >
-          <section
-            className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-4 text-slate-900 shadow-2xl"
-            onClick={(event) => event.stopPropagation()}
-          >
+        <div role="dialog" aria-modal="true" className="fixed inset-0 z-[90] grid place-items-center bg-slate-950/55 p-4" onClick={() => { if (!logoutBusyMode) { setLogoutModalOpen(false); setLogoutError(null); } }}>
+          <section className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-4 text-slate-900 shadow-2xl" onClick={(event) => event.stopPropagation()}>
             <h3 className="text-lg font-extrabold">{t(lang, "pos_logout_title")}</h3>
             <p className="mt-1 text-sm text-slate-600">{t(lang, "pos_logout_desc")}</p>
             {logoutError ? <p className="mt-2 text-sm font-semibold text-red-600">{logoutError}</p> : null}
             <div className="mt-4 grid gap-2">
-              <button
-                type="button"
-                disabled={Boolean(logoutBusyMode)}
-                onClick={() => void submitLogout("switch_device")}
-                className="h-10 rounded-xl border border-blue-200 bg-blue-50 px-3 text-sm font-semibold text-blue-700 transition hover:bg-blue-100 disabled:cursor-not-allowed disabled:opacity-60"
-              >
+              <button type="button" disabled={Boolean(logoutBusyMode)} onClick={() => void submitLogout("switch_device")} className="h-10 rounded-xl border border-blue-200 bg-blue-50 px-3 text-sm font-semibold text-blue-700 transition hover:bg-blue-100 disabled:cursor-not-allowed disabled:opacity-60">
                 {logoutBusyMode === "switch_device" ? t(lang, "pos_logout_loading") : t(lang, "pos_logout_switch_device")}
               </button>
-              <button
-                type="button"
-                disabled={Boolean(logoutBusyMode)}
-                onClick={() => void submitLogout("full")}
-                className="h-10 rounded-xl border border-orange-200 bg-orange-50 px-3 text-sm font-semibold text-orange-700 transition hover:bg-orange-100 disabled:cursor-not-allowed disabled:opacity-60"
-              >
+              <button type="button" disabled={Boolean(logoutBusyMode)} onClick={() => void submitLogout("full")} className="h-10 rounded-xl border border-orange-200 bg-orange-50 px-3 text-sm font-semibold text-orange-700 transition hover:bg-orange-100 disabled:cursor-not-allowed disabled:opacity-60">
                 {logoutBusyMode === "full" ? t(lang, "pos_logout_loading") : t(lang, "pos_logout_full")}
               </button>
             </div>
             <div className="mt-3 flex justify-end">
-              <button
-                type="button"
-                className="h-9 rounded-lg border border-slate-300 bg-white px-3 text-sm font-semibold text-slate-700"
-                disabled={Boolean(logoutBusyMode)}
-                onClick={() => {
-                  setLogoutModalOpen(false);
-                  setLogoutError(null);
-                }}
-              >
+              <button type="button" className="h-9 rounded-lg border border-slate-300 bg-white px-3 text-sm font-semibold text-slate-700" disabled={Boolean(logoutBusyMode)} onClick={() => { setLogoutModalOpen(false); setLogoutError(null); }}>
                 {t(lang, "sales_list_cancel")}
               </button>
             </div>

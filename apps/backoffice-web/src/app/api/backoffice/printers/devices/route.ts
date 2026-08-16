@@ -1,7 +1,7 @@
 import type { PrinterConnectionType } from "@pos/shared-types";
-import { getAuthContext } from "@/lib/auth-context";
 import { fail, ok } from "@/lib/http";
 import { loggedPrintApiFail } from "@/lib/printing/print-api-errors";
+import { getPrinterSettingsAuthContext } from "@/lib/printing/printer-settings-auth";
 import { createPrinterProfile, deletePrinterProfile, updatePrinterProfile } from "@/lib/printing/print-service";
 import {
   disconnectPrinterDevice,
@@ -54,28 +54,18 @@ function normalizeAssignments(body: Payload): PrinterAssignmentInput[] {
   if (!Array.isArray(body.assignments) || body.assignments.length === 0) {
     return normalizePurposes(body.purposes).map((purpose) => ({ purpose, zoneKey: "", isDefault: false, copies: 1 }));
   }
-
   const byKey = new Map<string, PrinterAssignmentInput>();
   for (const raw of body.assignments) {
     const purpose = raw?.purpose;
     if (!purpose || !PURPOSES.has(purpose)) continue;
     const zoneKey = ZONED_PURPOSES.has(purpose) ? (clean(raw.zone_key)?.toUpperCase() ?? "") : "";
     const key = `${purpose}:${zoneKey}`;
-    byKey.set(key, {
-      purpose,
-      zoneKey,
-      isDefault: raw.is_default === true,
-      copies: Math.max(1, Math.min(20, Math.trunc(Number(raw.copies) || 1)))
-    });
+    byKey.set(key, { purpose, zoneKey, isDefault: raw.is_default === true, copies: Math.max(1, Math.min(20, Math.trunc(Number(raw.copies) || 1))) });
   }
   return Array.from(byKey.values());
 }
 
 function roleFor(purposes: PrinterPurpose[]): "receipt" | "kitchen" | "report" {
-  // A mixed-use cashier printer must remain a receipt profile. Cash drawer and
-  // receipt routing still use printer_role as a compatibility anchor even
-  // though V3 also stores explicit assignments. Do not let shift_report or a
-  // secondary kitchen purpose demote a cashier printer to report/kitchen.
   if (purposes.some((value) => value === "receipt" || value === "cash_drawer" || value === "reprint" || value === "payment_slip")) return "receipt";
   if (purposes.some((value) => value === "kitchen" || value === "drink" || value === "bar")) return "kitchen";
   if (purposes.includes("shift_report")) return "report";
@@ -121,22 +111,10 @@ function profileMetadata(body: Payload, mode: CustomerConnectionMode, purposes: 
     print_mode: "agent",
     processing_mode: "print_agent",
     queue_only: true,
-    // print-service keeps legacy bridge validation for server/browser adapters.
-    // Native Android transport is executed by the Print Agent, so use a marker
-    // that satisfies validation without mislabelling it as Web Serial.
     bridge_url: mode === "usb" || mode === "bluetooth" ? "native-agent://android-pos" : undefined,
     bluetooth_name: mode === "bluetooth" ? (clean(body.model) ?? clean(body.printer_name)) : undefined,
     cash_drawer_enabled: drawer,
-    cash_drawer: drawer ? {
-      enabled: true,
-      connectionMode: "printer-kick",
-      openSupported: true,
-      statusSupported: false,
-      kickPin: 0,
-      pulseOnMs: 50,
-      pulseOffMs: 250,
-      autoOpenOnCashPayment: true
-    } : { enabled: false },
+    cash_drawer: drawer ? { enabled: true, connectionMode: "printer-kick", openSupported: true, statusSupported: false, kickPin: 0, pulseOnMs: 50, pulseOffMs: 250, autoOpenOnCashPayment: true } : { enabled: false },
     capabilities: {
       receipt: purposes.includes("receipt"),
       kitchen: purposes.some((value) => value === "kitchen" || value === "drink" || value === "bar"),
@@ -166,20 +144,10 @@ function validate(body: Payload) {
 }
 
 async function validateKitchenZones(tenantId: string, branchId: string, assignments: PrinterAssignmentInput[]) {
-  const zoneKeys = Array.from(new Set(assignments
-    .filter((assignment) => ZONED_PURPOSES.has(assignment.purpose))
-    .map((assignment) => clean(assignment.zoneKey)?.toUpperCase() ?? "")
-    .filter(Boolean)));
+  const zoneKeys = Array.from(new Set(assignments.filter((assignment) => ZONED_PURPOSES.has(assignment.purpose)).map((assignment) => clean(assignment.zoneKey)?.toUpperCase() ?? "").filter(Boolean)));
   if (zoneKeys.length === 0) return;
-
   const supabase = getSupabaseServiceClient();
-  const { data, error } = await supabase
-    .from("kitchen_zones")
-    .select("zone_code")
-    .eq("tenant_id", tenantId)
-    .eq("branch_id", branchId)
-    .eq("is_active", true)
-    .in("zone_code", zoneKeys);
+  const { data, error } = await supabase.from("kitchen_zones").select("zone_code").eq("tenant_id", tenantId).eq("branch_id", branchId).eq("is_active", true).in("zone_code", zoneKeys);
   if (error) throw new Error(error.message);
   const found = new Set((data ?? []).map((zone) => String(zone.zone_code).toUpperCase()));
   const missing = zoneKeys.find((zoneKey) => !found.has(zoneKey));
@@ -188,24 +156,10 @@ async function validateKitchenZones(tenantId: string, branchId: string, assignme
 
 async function relinkRecoverableDevice(tenantId: string, branchId: string, fingerprint: string, printerProfileId: string) {
   const supabase = getSupabaseServiceClient();
-  const { data: recoverable, error: lookupError } = await supabase
-    .from("printer_devices")
-    .select("id")
-    .eq("tenant_id", tenantId)
-    .eq("branch_id", branchId)
-    .eq("device_fingerprint", fingerprint)
-    .eq("is_active", false)
-    .is("printer_profile_id", null)
-    .maybeSingle<{ id: string }>();
+  const { data: recoverable, error: lookupError } = await supabase.from("printer_devices").select("id").eq("tenant_id", tenantId).eq("branch_id", branchId).eq("device_fingerprint", fingerprint).eq("is_active", false).is("printer_profile_id", null).maybeSingle<{ id: string }>();
   if (lookupError) throw new Error(lookupError.message);
   if (!recoverable?.id) return null;
-
-  const { error: relinkError } = await supabase
-    .from("printer_devices")
-    .update({ printer_profile_id: printerProfileId, updated_at: new Date().toISOString() })
-    .eq("tenant_id", tenantId)
-    .eq("branch_id", branchId)
-    .eq("id", recoverable.id);
+  const { error: relinkError } = await supabase.from("printer_devices").update({ printer_profile_id: printerProfileId, updated_at: new Date().toISOString() }).eq("tenant_id", tenantId).eq("branch_id", branchId).eq("id", recoverable.id);
   if (relinkError) throw new Error(relinkError.message);
   return recoverable.id;
 }
@@ -215,49 +169,33 @@ function validationFailure(message: string) {
   if (message.startsWith("printer_zone_invalid:")) return fail("printer_zone_invalid", `ไม่พบโซนครัว ${message.split(":")[1] ?? ""} ในสาขาปัจจุบัน`, 422);
   return fail(message, "ข้อมูลเครื่องพิมพ์ไม่ครบ", 422);
 }
-
 function isValidationError(message: string) {
   return message === "printer_name_required" || message === "connection_mode_invalid" || message === "paper_width_invalid" || message === "purpose_required" || message === "lan_ip_required" || message.startsWith("printer_zone_invalid:");
 }
 
 export async function GET() {
   try {
-    const auth = await getAuthContext({ requireBranchScope: true });
+    const auth = await getPrinterSettingsAuthContext();
     return ok(await getPrinterSettingsRegistry(auth));
   } catch (error) {
     const message = error instanceof Error ? error.message : "unknown";
-    if (message === "forbidden_role") return fail("forbidden_role", "Only manager or owner can access printer settings.", 403);
+    if (message === "forbidden_role") return fail("forbidden_role", "Only manager, owner, or Kitchen can access printer settings.", 403);
     return loggedPrintApiFail("printer registry load failed", error, "printer_registry_load_failed", "ไม่สามารถโหลดรายการเครื่องพิมพ์ได้ กรุณาลองใหม่", 400);
   }
 }
 
 export async function POST(req: Request) {
   try {
-    const auth = await getAuthContext({ requireBranchScope: true });
+    const auth = await getPrinterSettingsAuthContext();
     const body = (await req.json()) as Payload;
     const { name, mode, paper, purposes, assignments } = validate(body);
     await validateKitchenZones(auth.tenantId!, auth.branchId!, assignments);
     const metadata = profileMetadata(body, mode, purposes, assignments);
     const fingerprint = buildFingerprint(body, mode);
-    const profile = await createPrinterProfile(auth, {
-      printer_name: name,
-      printer_role: roleFor(purposes),
-      connection_type: connectionTypeFor(mode),
-      ip_address: mode === "lan" ? clean(body.ip_address) : null,
-      port: mode === "lan" ? Number(body.port || 9100) : null,
-      paper_width_mm: paper,
-      enabled: body.enabled ?? true,
-      metadata
-    });
+    const profile = await createPrinterProfile(auth, { printer_name: name, printer_role: roleFor(purposes), connection_type: connectionTypeFor(mode), ip_address: mode === "lan" ? clean(body.ip_address) : null, port: mode === "lan" ? Number(body.port || 9100) : null, paper_width_mm: paper, enabled: body.enabled ?? true, metadata });
     try {
       await relinkRecoverableDevice(auth.tenantId!, auth.branchId!, fingerprint, profile.id);
-      const device = await syncPrinterDevice(auth, {
-        printerProfileId: profile.id,
-        displayName: name,
-        brand: clean(body.brand), model: clean(body.model), connectionMode: mode, paperWidthMm: paper,
-        purposes, assignments, deviceFingerprint: fingerprint, runtimeDeviceCode: clean(body.runtime_device_code),
-        capabilities: (metadata.capabilities ?? {}) as Record<string, unknown>, metadata: { source: "printer_settings_v3" }, eventType: "connected"
-      });
+      const device = await syncPrinterDevice(auth, { printerProfileId: profile.id, displayName: name, brand: clean(body.brand), model: clean(body.model), connectionMode: mode, paperWidthMm: paper, purposes, assignments, deviceFingerprint: fingerprint, runtimeDeviceCode: clean(body.runtime_device_code), capabilities: (metadata.capabilities ?? {}) as Record<string, unknown>, metadata: { source: "printer_settings_v3" }, eventType: "connected" });
       return ok({ profile, device }, 201);
     } catch (syncError) {
       await deletePrinterProfile(auth, profile.id).catch(() => undefined);
@@ -265,7 +203,7 @@ export async function POST(req: Request) {
     }
   } catch (error) {
     const message = error instanceof Error ? error.message : "unknown";
-    if (message === "forbidden_role") return fail("forbidden_role", "Only manager or owner can configure printers.", 403);
+    if (message === "forbidden_role") return fail("forbidden_role", "Only manager, owner, or Kitchen can configure printers.", 403);
     if (isValidationError(message)) return validationFailure(message);
     if (message.includes("duplicate key")) return fail("printer_conflict", "เครื่องพิมพ์นี้ถูกบันทึกไว้แล้ว สามารถเลือกเชื่อมต่ออีกครั้งจากประวัติได้", 409);
     return loggedPrintApiFail("printer create failed", error, "printer_create_failed", "บันทึกเครื่องพิมพ์ไม่สำเร็จ กรุณาลองใหม่", 400);
@@ -274,42 +212,21 @@ export async function POST(req: Request) {
 
 export async function PATCH(req: Request) {
   try {
-    const auth = await getAuthContext({ requireBranchScope: true });
+    const auth = await getPrinterSettingsAuthContext();
     const body = (await req.json()) as Payload;
     const printerId = clean(body.printer_id);
     if (!printerId) return fail("printer_id_required", "printer_id is required", 422);
-
-    if (body.action === "disconnect") {
-      const device = await disconnectPrinterDevice(auth, printerId);
-      return ok({ device, disconnected: true });
-    }
-    if (body.action === "reconnect") {
-      const device = await reconnectPrinterDevice(auth, printerId);
-      return ok({ device, reconnected: true });
-    }
-
+    if (body.action === "disconnect") return ok({ device: await disconnectPrinterDevice(auth, printerId), disconnected: true });
+    if (body.action === "reconnect") return ok({ device: await reconnectPrinterDevice(auth, printerId), reconnected: true });
     const { name, mode, paper, purposes, assignments } = validate(body);
     await validateKitchenZones(auth.tenantId!, auth.branchId!, assignments);
     const metadata = profileMetadata(body, mode, purposes, assignments);
-    const profile = await updatePrinterProfile(auth, printerId, {
-      printer_name: name,
-      printer_role: roleFor(purposes),
-      connection_type: connectionTypeFor(mode),
-      ip_address: mode === "lan" ? clean(body.ip_address) : null,
-      port: mode === "lan" ? Number(body.port || 9100) : null,
-      paper_width_mm: paper,
-      enabled: body.enabled ?? true,
-      metadata
-    });
-    const device = await syncPrinterDevice(auth, {
-      printerProfileId: profile.id, displayName: name, brand: clean(body.brand), model: clean(body.model), connectionMode: mode,
-      paperWidthMm: paper, purposes, assignments, deviceFingerprint: buildFingerprint(body, mode), runtimeDeviceCode: clean(body.runtime_device_code),
-      capabilities: (metadata.capabilities ?? {}) as Record<string, unknown>, metadata: { source: "printer_settings_v3" }, eventType: "updated"
-    });
+    const profile = await updatePrinterProfile(auth, printerId, { printer_name: name, printer_role: roleFor(purposes), connection_type: connectionTypeFor(mode), ip_address: mode === "lan" ? clean(body.ip_address) : null, port: mode === "lan" ? Number(body.port || 9100) : null, paper_width_mm: paper, enabled: body.enabled ?? true, metadata });
+    const device = await syncPrinterDevice(auth, { printerProfileId: profile.id, displayName: name, brand: clean(body.brand), model: clean(body.model), connectionMode: mode, paperWidthMm: paper, purposes, assignments, deviceFingerprint: buildFingerprint(body, mode), runtimeDeviceCode: clean(body.runtime_device_code), capabilities: (metadata.capabilities ?? {}) as Record<string, unknown>, metadata: { source: "printer_settings_v3" }, eventType: "updated" });
     return ok({ profile, device });
   } catch (error) {
     const message = error instanceof Error ? error.message : "unknown";
-    if (message === "forbidden_role") return fail("forbidden_role", "Only manager or owner can configure printers.", 403);
+    if (message === "forbidden_role") return fail("forbidden_role", "Only manager, owner, or Kitchen can configure printers.", 403);
     if (message === "printer_not_found" || message === "printer_device_not_found") return fail("printer_not_found", "ไม่พบเครื่องพิมพ์นี้", 404);
     if (isValidationError(message)) return validationFailure(message);
     if (message.includes("duplicate key")) return fail("printer_conflict", "Printer name already exists in this branch.", 409);
@@ -319,20 +236,16 @@ export async function PATCH(req: Request) {
 
 export async function DELETE(req: Request) {
   try {
-    const auth = await getAuthContext({ requireBranchScope: true });
+    const auth = await getPrinterSettingsAuthContext();
     const body = (await req.json()) as Payload;
     const printerId = clean(body.printer_id);
     if (!printerId) return fail("printer_id_required", "printer_id is required", 422);
-
-    // Keep the profile as a disabled, recoverable configuration. This makes "ลบ"
-    // remove it from the active registry without destroying the exact transport/routing
-    // information needed by the history "เชื่อมต่อใหม่" action.
     await disconnectPrinterDevice(auth, printerId);
     await markPrinterDeviceDeleted(auth, printerId);
     return ok({ deleted: true, recoverable: true, printer_id: printerId });
   } catch (error) {
     const message = error instanceof Error ? error.message : "unknown";
-    if (message === "forbidden_role") return fail("forbidden_role", "Only manager or owner can delete printers.", 403);
+    if (message === "forbidden_role") return fail("forbidden_role", "Only manager, owner, or Kitchen can delete printers.", 403);
     if (message === "printer_not_found") return fail("printer_not_found", "ไม่พบเครื่องพิมพ์นี้", 404);
     return loggedPrintApiFail("printer delete failed", error, "printer_delete_failed", "ลบเครื่องพิมพ์ไม่สำเร็จ กรุณาลองใหม่", 400);
   }

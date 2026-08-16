@@ -18,7 +18,7 @@ export type PreEntryFlowState = {
   deviceId?: string | null;
   deviceCode?: string | null;
   userId?: string | null;
-  userRole?: "owner" | "manager" | "staff" | "accountant" | null;
+  userRole?: "owner" | "manager" | "staff" | "accountant" | "kitchen" | null;
   employeeCode?: string | null;
   employeeName?: string | null;
   employeeAuthMethod?: EmployeeAuthMethod | null;

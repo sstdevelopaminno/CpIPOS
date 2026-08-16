@@ -5,6 +5,9 @@ import { requirePosSession } from "@/lib/pos-session-guard";
 
 export default async function PosMorePage() {
   const scope = await requirePosSession();
+  if (scope.session.role === "kitchen") {
+    redirect("/preview/pos/kitchen");
+  }
   if (scope.session.role === "staff") {
     redirect("/preview/pos");
   }
