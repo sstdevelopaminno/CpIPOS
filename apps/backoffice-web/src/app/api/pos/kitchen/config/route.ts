@@ -1,5 +1,5 @@
-import { getAuthContext } from "@/lib/auth-context";
 import { fail, ok } from "@/lib/http";
+import { getKitchenApiAuthContext } from "@/lib/pos-api-auth";
 import {
   KitchenConfigError,
   loadKitchenConfiguration,
@@ -16,7 +16,7 @@ function configFail(error: unknown) {
 
 export async function GET() {
   try {
-    const auth = await getAuthContext({ requireBranchScope: true });
+    const auth = await getKitchenApiAuthContext();
     const config = await loadKitchenConfiguration(auth);
     return ok(config);
   } catch (error) {
@@ -26,7 +26,7 @@ export async function GET() {
 
 export async function POST(req: Request) {
   try {
-    const auth = await getAuthContext({ requireBranchScope: true });
+    const auth = await getKitchenApiAuthContext();
     const body = (await req.json().catch(() => null)) as KitchenConfigMutation | null;
     if (!body || typeof body !== "object" || !("action" in body)) {
       return fail("invalid_kitchen_config_payload", "Kitchen configuration action is required.", 422);
