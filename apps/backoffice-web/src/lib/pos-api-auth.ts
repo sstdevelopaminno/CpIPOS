@@ -10,6 +10,10 @@ type PosApiAuthInput = {
   requiredPermissions?: PosPermission[];
 };
 
+type KitchenApiAuthInput = {
+  requiredPermission?: PosPermission;
+};
+
 const posSessionScopeInFlight = new Map<string, Promise<PosSessionScope>>();
 
 function normalizeBranchRole(role: string): AuthContext["branchRole"] {
@@ -78,11 +82,14 @@ export async function getPosApiAuthContext(input: PosApiAuthInput = {}): Promise
   }
 }
 
-export async function getKitchenApiAuthContext(): Promise<AuthContext> {
+export async function getKitchenApiAuthContext(input: KitchenApiAuthInput = {}): Promise<AuthContext> {
   const scope = await requirePosSessionSingleFlight();
   const role = String(scope.session.role ?? "").trim().toLowerCase();
   if (role !== "owner" && role !== "manager" && role !== "staff" && role !== "kitchen") {
     throw new PosGuardError("kitchen_access_forbidden", "This role cannot access Kitchen endpoints.", 403);
+  }
+  if (role !== "kitchen" && input.requiredPermission) {
+    requirePermission(scope, input.requiredPermission);
   }
   return toAuthContext(scope);
 }
