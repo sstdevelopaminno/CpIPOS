@@ -1,0 +1,312 @@
+name: Build CpIPOS Android POS Legacy OEM Android 7.1
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - ".github/workflows/build-android-runtime-legacy-oem.yml"
+      - "apps/backoffice-web/src/app/download/android/legacy-7-1-oem/route.ts"
+  push:
+    branches:
+      - agent-docs-preflight-schema-drift
+    paths:
+      - ".github/workflows/build-android-runtime-legacy-oem.yml"
+      - "apps/backoffice-web/src/app/download/android/legacy-7-1-oem/route.ts"
+
+permissions:
+  contents: write
+
+env:
+  ANDROID_RUNTIME_MODULE: apps/pos-android
+  ANDROID_RUNTIME_BASE_VERSION: 1.0.10
+  ANDROID_RUNTIME_LEGACY_VERSION: 1.0.10-legacy7.1-oem-r4
+  ANDROID_RUNTIME_LEGACY_APPLICATION_ID: com.cpipos.pos.legacy71
+  ANDROID_RUNTIME_LEGACY_MIN_SDK: 25
+  ANDROID_RUNTIME_LEGACY_TARGET_SDK: 25
+  ANDROID_RUNTIME_LEGACY_RELEASE_TAG: android-runtime-legacy-7-1-oem
+  ANDROID_RUNTIME_LEGACY_APK_ASSET_NAME: CpIPOS-Android-POS-Legacy-Android-7.1-OEM.apk
+  ANDROID_RUNTIME_LEGACY_VERSIONED_ASSET_NAME: CpIPOS-Android-POS-1.0.10-Legacy-Android-7.1-Ocha-SUNMI-r4.apk
+  ANDROID_SIGNING_CERT_SHA256: 6be0a9aef346a5b47162c8928c5018a01d0e7d81b4eb177bf2fb89922dc2a27a
+
+jobs:
+  build-android-runtime-legacy-oem:
+    name: Build isolated Android 7.1 OEM compatibility APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.9"
+
+      - name: Guard current stable Android source
+        run: |
+          buildFile="${{ env.ANDROID_RUNTIME_MODULE }}/app/build.gradle.kts"
+          grep -qF 'applicationId = "com.cpipos.pos"' "$buildFile" || { echo "Stable Android applicationId changed; refusing OEM legacy build."; exit 1; }
+          grep -qF 'minSdk = 26' "$buildFile" || { echo "Stable Android minSdk changed; refusing OEM legacy build."; exit 1; }
+          grep -qF 'targetSdk = 34' "$buildFile" || { echo "Stable Android targetSdk changed; refusing OEM legacy build."; exit 1; }
+          grep -qF 'versionName = "${{ env.ANDROID_RUNTIME_BASE_VERSION }}"' "$buildFile" || { echo "Stable Android version changed; refusing OEM legacy build."; exit 1; }
+          echo "Stable production Android remains ${{ env.ANDROID_RUNTIME_BASE_VERSION }} / com.cpipos.pos / minSdk 26 / targetSdk 34."
+
+      - name: Create isolated Android 7.1 OEM compatibility workspace
+        run: |
+          legacyDir="$RUNNER_TEMP/cpipos-pos-android-legacy-oem"
+          cp -a "${{ env.ANDROID_RUNTIME_MODULE }}" "$legacyDir"
+
+          buildFile="$legacyDir/app/build.gradle.kts"
+          manifestFile="$legacyDir/app/src/main/AndroidManifest.xml"
+          stringsFile="$legacyDir/app/src/main/res/values/strings.xml"
+          mainActivityFile="$legacyDir/app/src/main/java/com/cpipos/pos/MainActivity.kt"
+          mdmFile="$legacyDir/app/src/main/java/com/cpipos/pos/PosMdmAgent.kt"
+          apiFile="$legacyDir/app/src/main/java/com/cpipos/pos/CpiposApi.kt"
+
+          # All compatibility mutations are applied only to RUNNER_TEMP.
+          sed -i 's/applicationId = "com.cpipos.pos"/applicationId = "com.cpipos.pos.legacy71"/' "$buildFile"
+          sed -i 's/minSdk = 26/minSdk = 25/' "$buildFile"
+          sed -i 's/targetSdk = 34/targetSdk = 25/' "$buildFile"
+          sed -i 's/versionName = "1.0.10"/versionName = "1.0.10-legacy7.1-oem-r4"/' "$buildFile"
+          sed -i 's/<string name="app_name">CpIPOS POS<\/string>/<string name="app_name">CpIPOS POS Legacy 7.1<\/string>/' "$stringsFile"
+
+          # Strip permissions that did not exist on Android 7.1 from only this OEM build.
+          sed -i '/android.permission.BLUETOOTH_SCAN/d' "$manifestFile"
+          sed -i '/android.permission.BLUETOOTH_CONNECT/d' "$manifestFile"
+          sed -i '/android.permission.NEARBY_WIFI_DEVICES/d' "$manifestFile"
+          sed -i '/android.permission.REQUEST_INSTALL_PACKAGES/d' "$manifestFile"
+
+          # Some locked/custom POS firmwares reject third-party device-admin declarations.
+          # OEM legacy keeps POS/WebView/printing but does not enroll Device Admin.
+          sed -i '/<receiver/,/<\/receiver>/d' "$manifestFile"
+          sed -i '/requestDeviceAdminEnrollmentOnce()/d' "$mainActivityFile"
+
+          # API 26 compatibility shims, applied only to the temporary legacy source copy.
+          python3 - <<'PY'
+          from pathlib import Path
+
+          mdm = Path("$mdmFile")
+          text = mdm.read_text()
+          old = "val webViewPackage = WebView.getCurrentWebViewPackage()"
+          new = "val webViewPackage = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) WebView.getCurrentWebViewPackage() else null"
+          if old not in text:
+              raise SystemExit("Expected WebView API 26 call was not found")
+          mdm.write_text(text.replace(old, new, 1))
+
+          api = Path("$apiFile")
+          text = api.read_text()
+          old = "val capturedAt = java.time.Instant.now().toString()"
+          new = 'val capturedAt = java.text.SimpleDateFormat("yyyy-MM-dd\\'T\\'HH:mm:ss.SSS\\'Z\\'", java.util.Locale.US).apply { timeZone = java.util.TimeZone.getTimeZone("UTC") }.format(java.util.Date())'
+          if old not in text:
+              raise SystemExit("Expected java.time API 26 call was not found")
+          api.write_text(text.replace(old, new, 1))
+          PY
+
+          # Direct-sideload OEM artifact; suppress only the Play target-age lint.
+          cat >> "$buildFile" <<'EOF'
+
+          android {
+              lint {
+                  disable += "ExpiredTargetSdkVersion"
+              }
+          }
+          EOF
+
+          grep -qF 'applicationId = "com.cpipos.pos.legacy71"' "$buildFile"
+          grep -qF 'minSdk = 25' "$buildFile"
+          grep -qF 'targetSdk = 25' "$buildFile"
+          grep -qF 'versionName = "1.0.10-legacy7.1-oem-r4"' "$buildFile"
+          grep -qF 'CpIPOS POS Legacy 7.1' "$stringsFile"
+          ! grep -qF '<receiver' "$manifestFile"
+          ! grep -qF 'requestDeviceAdminEnrollmentOnce()' "$mainActivityFile"
+          ! grep -Eq 'BLUETOOTH_SCAN|BLUETOOTH_CONNECT|NEARBY_WIFI_DEVICES|REQUEST_INSTALL_PACKAGES' "$manifestFile"
+
+          echo "LEGACY_RUNTIME_MODULE=$legacyDir" >> "$GITHUB_ENV"
+          echo "OEM compatibility workspace prepared outside the checked-out production source tree."
+
+      - name: Run Android unit tests and API 25 lint
+        run: |
+          cd "$LEGACY_RUNTIME_MODULE"
+          gradle :app:testDebugUnitTest :app:lintRelease --no-daemon --stacktrace
+
+      - name: Build unsigned Android 7.1 OEM APK
+        run: |
+          cd "$LEGACY_RUNTIME_MODULE"
+          gradle :app:assembleRelease --no-daemon --stacktrace
+
+      - name: Detect stable signing secrets
+        id: signing
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_SIGNING_KEYSTORE_BASE64 }}
+          STORE_PASSWORD: ${{ secrets.ANDROID_SIGNING_STORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_SIGNING_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_SIGNING_KEY_PASSWORD }}
+        run: |
+          if [ -n "$KEYSTORE_BASE64" ] && [ -n "$STORE_PASSWORD" ] && [ -n "$KEY_ALIAS" ] && [ -n "$KEY_PASSWORD" ]; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            echo "Stable Android signing secrets are not configured."
+          fi
+
+      - name: Require stable signing for OEM customer APK
+        if: steps.signing.outputs.ready != 'true'
+        run: |
+          echo "OEM legacy customer APK requires the existing stable ANDROID_SIGNING_* secrets."
+          exit 1
+
+      - name: Materialize and validate stable signing keystore
+        if: steps.signing.outputs.ready == 'true'
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_SIGNING_KEYSTORE_BASE64 }}
+          STORE_PASSWORD: ${{ secrets.ANDROID_SIGNING_STORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_SIGNING_KEY_ALIAS }}
+        run: |
+          signingDir="$RUNNER_TEMP/cpipos-android-signing"
+          keystorePath="$signingDir/cpipos-android-release.jks"
+          mkdir -p "$signingDir"
+          printf '%s' "$KEYSTORE_BASE64" | base64 --decode > "$keystorePath"
+          chmod 600 "$keystorePath"
+
+          certSha=$(keytool -list -v \
+            -keystore "$keystorePath" \
+            -storepass "$STORE_PASSWORD" \
+            -alias "$KEY_ALIAS" \
+            | awk -F': ' '/SHA256:/{gsub(":", "", $2); print tolower($2); exit}')
+
+          if [ "$certSha" != "${{ env.ANDROID_SIGNING_CERT_SHA256 }}" ]; then
+            echo "Signing certificate mismatch. Expected ${{ env.ANDROID_SIGNING_CERT_SHA256 }}, got $certSha"
+            exit 1
+          fi
+
+      - name: Zipalign and v1-sign OEM compatibility APK
+        if: steps.signing.outputs.ready == 'true'
+        env:
+          STORE_PASSWORD: ${{ secrets.ANDROID_SIGNING_STORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_SIGNING_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_SIGNING_KEY_PASSWORD }}
+        run: |
+          unsignedPath=$(find "$LEGACY_RUNTIME_MODULE/app/build/outputs/apk/release" -maxdepth 1 -type f -name '*unsigned*.apk' | head -n 1)
+          if [ -z "$unsignedPath" ] || [ ! -f "$unsignedPath" ]; then
+            echo "Unsigned OEM APK was not found."
+            find "$LEGACY_RUNTIME_MODULE/app/build/outputs/apk/release" -maxdepth 1 -type f -print || true
+            exit 1
+          fi
+
+          zipalignPath=$(find "$ANDROID_HOME/build-tools" -type f -name zipalign | sort -V | tail -n 1)
+          aaptPath=$(find "$ANDROID_HOME/build-tools" -type f -name aapt | sort -V | tail -n 1)
+          apksignerPath=$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)
+          if [ -z "$zipalignPath" ] || [ -z "$aaptPath" ] || [ -z "$apksignerPath" ]; then
+            echo "Android build-tools verification utilities were not found."
+            exit 1
+          fi
+
+          mkdir -p artifacts
+          alignedPath="$RUNNER_TEMP/cpipos-legacy-oem-aligned.apk"
+          finalPath="artifacts/${{ env.ANDROID_RUNTIME_LEGACY_APK_ASSET_NAME }}"
+          keystorePath="$RUNNER_TEMP/cpipos-android-signing/cpipos-android-release.jks"
+
+          "$zipalignPath" -f -p 4 "$unsignedPath" "$alignedPath"
+
+          # Classic JAR/v1 signature is intentional for this isolated OEM fallback.
+          # Android 7.1 accepts v1; this avoids buggy/custom v2 verifier paths on old POS firmware.
+          jarsigner \
+            -keystore "$keystorePath" \
+            -storepass "$STORE_PASSWORD" \
+            -keypass "$KEY_PASSWORD" \
+            -sigalg SHA256withRSA \
+            -digestalg SHA-256 \
+            "$alignedPath" "$KEY_ALIAS"
+
+          cp "$alignedPath" "$finalPath"
+          cp "$alignedPath" "artifacts/${{ env.ANDROID_RUNTIME_LEGACY_VERSIONED_ASSET_NAME }}"
+
+          badging=$("$aaptPath" dump badging "$finalPath")
+          echo "$badging" | grep -q "package: name='${{ env.ANDROID_RUNTIME_LEGACY_APPLICATION_ID }}'" || {
+            echo "OEM APK applicationId mismatch."
+            echo "$badging" | head -n 20
+            exit 1
+          }
+          echo "$badging" | grep -q "sdkVersion:'${{ env.ANDROID_RUNTIME_LEGACY_MIN_SDK }}'" || {
+            echo "OEM APK minSdk mismatch."
+            echo "$badging" | head -n 20
+            exit 1
+          }
+          echo "$badging" | grep -q "targetSdkVersion:'${{ env.ANDROID_RUNTIME_LEGACY_TARGET_SDK }}'" || {
+            echo "OEM APK targetSdk mismatch."
+            echo "$badging" | head -n 20
+            exit 1
+          }
+
+          signatureReport=$("$apksignerPath" verify --min-sdk-version 25 --verbose --print-certs "$finalPath")
+          echo "$signatureReport"
+          echo "$signatureReport" | grep -q 'Verified using v1 scheme (JAR signing): true' || {
+            echo "OEM APK is missing its required v1 signature."
+            exit 1
+          }
+          echo "$signatureReport" | grep -q 'Verified using v2 scheme (APK Signature Scheme v2): false' || {
+            echo "OEM fallback unexpectedly contains v2 signing."
+            exit 1
+          }
+          echo "$signatureReport" | grep -q 'Verified using v3 scheme (APK Signature Scheme v3): false' || {
+            echo "OEM fallback unexpectedly contains v3 signing."
+            exit 1
+          }
+
+          certSha=$("$apksignerPath" verify --min-sdk-version 25 --print-certs "$finalPath" \
+            | sed -n 's/^.*certificate SHA-256 digest: //p' \
+            | head -n 1 \
+            | tr -d ':' \
+            | tr '[:upper:]' '[:lower:]')
+          if [ "$certSha" != "${{ env.ANDROID_SIGNING_CERT_SHA256 }}" ]; then
+            echo "OEM APK certificate mismatch. Expected ${{ env.ANDROID_SIGNING_CERT_SHA256 }}, got $certSha"
+            exit 1
+          fi
+
+          "$zipalignPath" -c -v 4 "$finalPath"
+          apkSize=$(stat -c%s "$finalPath")
+          if [ "$apkSize" -lt 1000000 ]; then
+            echo "OEM APK size looks too small: $apkSize bytes"
+            exit 1
+          fi
+
+          echo "OEM Android 7.1 APK ready: $apkSize bytes; package=${{ env.ANDROID_RUNTIME_LEGACY_APPLICATION_ID }}; minSdk=25; targetSdk=25; v1=true; v2=false; certificate=$certSha"
+
+      - name: Upload OEM legacy workflow artifact
+        if: steps.signing.outputs.ready == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: CpIPOS-Android-POS-1.0.10-Legacy-Android-7.1-Ocha-SUNMI-r4
+          path: |
+            artifacts/${{ env.ANDROID_RUNTIME_LEGACY_APK_ASSET_NAME }}
+            artifacts/${{ env.ANDROID_RUNTIME_LEGACY_VERSIONED_ASSET_NAME }}
+          if-no-files-found: error
+
+      - name: Publish isolated Android 7.1 OEM release
+        if: steps.signing.outputs.ready == 'true' && (github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/agent-docs-preflight-schema-drift'))
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="${{ env.ANDROID_RUNTIME_LEGACY_RELEASE_TAG }}"
+          stablePath="artifacts/${{ env.ANDROID_RUNTIME_LEGACY_APK_ASSET_NAME }}"
+          versionedPath="artifacts/${{ env.ANDROID_RUNTIME_LEGACY_VERSIONED_ASSET_NAME }}"
+
+          if ! gh release view "$tag" >/dev/null 2>&1; then
+            gh release create "$tag" \
+              --target "${{ github.sha }}" \
+              --title "CpIPOS Android POS Legacy OEM - Android 7.1" \
+              --notes "OEM fallback for Android 7.1 POS devices such as old Ocha/SUNMI T2 firmware. Separate applicationId and classic v1 signing are used only in this isolated compatibility artifact. Stable Android 1.0.10 and android-runtime-latest are not modified."
+          fi
+
+          gh release upload "$tag" "$stablePath" "$versionedPath" --clobber
+          echo "OEM Legacy APK URL: https://github.com/${{ github.repository }}/releases/download/$tag/${{ env.ANDROID_RUNTIME_LEGACY_APK_ASSET_NAME }}"
