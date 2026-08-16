@@ -222,19 +222,24 @@ jobs:
           keystorePath="$RUNNER_TEMP/cpipos-android-signing/cpipos-android-release.jks"
 
           "$zipalignPath" -f -p 4 "$unsignedPath" "$alignedPath"
+          "$zipalignPath" -c -v 4 "$alignedPath"
 
-          # Classic JAR/v1 signature is intentional for this isolated OEM fallback.
-          # Android 7.1 accepts v1; this avoids custom/OEM v2 verifier paths on old POS firmware.
-          jarsigner \
-            -keystore "$keystorePath" \
-            -storepass "$STORE_PASSWORD" \
-            -keypass "$KEY_PASSWORD" \
-            -sigalg SHA256withRSA \
-            -digestalg SHA-256 \
-            "$alignedPath" "$KEY_ALIAS"
+          # Force a classic v1/JAR-only signature for this isolated OEM fallback.
+          # Unlike jarsigner, apksigner preserves the APK alignment prepared above.
+          "$apksignerPath" sign \
+            --ks "$keystorePath" \
+            --ks-key-alias "$KEY_ALIAS" \
+            --ks-pass env:STORE_PASSWORD \
+            --key-pass env:KEY_PASSWORD \
+            --min-sdk-version "${{ env.ANDROID_RUNTIME_LEGACY_MIN_SDK }}" \
+            --v1-signing-enabled true \
+            --v2-signing-enabled false \
+            --v3-signing-enabled false \
+            --v4-signing-enabled false \
+            --out "$finalPath" \
+            "$alignedPath"
 
-          cp "$alignedPath" "$finalPath"
-          cp "$alignedPath" "artifacts/${{ env.ANDROID_RUNTIME_LEGACY_VERSIONED_ASSET_NAME }}"
+          cp "$finalPath" "artifacts/${{ env.ANDROID_RUNTIME_LEGACY_VERSIONED_ASSET_NAME }}"
 
           badging=$("$aaptPath" dump badging "$finalPath")
           echo "$badging" | grep -q "package: name='${{ env.ANDROID_RUNTIME_LEGACY_APPLICATION_ID }}'" || {
