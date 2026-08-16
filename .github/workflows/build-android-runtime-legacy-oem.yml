@@ -89,18 +89,7 @@ jobs:
           # Some locked/custom POS firmwares reject third-party device-admin declarations.
           # OEM legacy keeps POS/WebView/printing but does not enroll Device Admin.
           sed -i '/<receiver/,/<\/receiver>/d' "$manifestFile"
-          python3 - "$mainActivityFile" <<'PY'
-          from pathlib import Path
-          import sys
-
-          path = Path(sys.argv[1])
-          text = path.read_text()
-          old = "\n        requestDeviceAdminEnrollmentOnce()\n        exitProcessIfNotKioskPwa()"
-          new = "\n        exitProcessIfNotKioskPwa()"
-          if old not in text:
-              raise SystemExit("Expected Device Admin enrollment invocation was not found")
-          path.write_text(text.replace(old, new, 1))
-          PY
+          sed -i '/^[[:space:]]*requestDeviceAdminEnrollmentOnce()[[:space:]]*$/d' "$mainActivityFile"
 
           # API 26 compatibility shims, applied only to the temporary legacy source copy.
           python3 - "$mdmFile" "$apiFile" <<'PY'
