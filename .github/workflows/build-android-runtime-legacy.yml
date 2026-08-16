@@ -64,8 +64,9 @@ jobs:
           echo "Legacy workspace prepared outside the checked-out production source tree."
 
       - name: Run Android print unit tests on legacy workspace
-        working-directory: ${{ env.LEGACY_RUNTIME_MODULE }}
-        run: gradle :app:testDebugUnitTest --no-daemon --stacktrace
+        run: |
+          cd "$LEGACY_RUNTIME_MODULE"
+          gradle :app:testDebugUnitTest --no-daemon --stacktrace
 
       - name: Detect stable signing secrets
         id: signing
@@ -114,18 +115,19 @@ jobs:
 
       - name: Build stable signed Android 7.1 legacy APK
         if: steps.signing.outputs.ready == 'true'
-        working-directory: ${{ env.LEGACY_RUNTIME_MODULE }}
         env:
           CPIPOS_ANDROID_KEYSTORE_PATH: ${{ runner.temp }}/cpipos-android-signing/cpipos-android-release.jks
           CPIPOS_ANDROID_STORE_PASSWORD: ${{ secrets.ANDROID_SIGNING_STORE_PASSWORD }}
           CPIPOS_ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_SIGNING_KEY_ALIAS }}
           CPIPOS_ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_SIGNING_KEY_PASSWORD }}
-        run: gradle :app:assembleRelease --no-daemon --stacktrace
+        run: |
+          cd "$LEGACY_RUNTIME_MODULE"
+          gradle :app:assembleRelease --no-daemon --stacktrace
 
       - name: Verify and stage isolated legacy APK
         if: steps.signing.outputs.ready == 'true'
         run: |
-          apkPath="${{ env.LEGACY_RUNTIME_MODULE }}/app/build/outputs/apk/release/app-release.apk"
+          apkPath="$LEGACY_RUNTIME_MODULE/app/build/outputs/apk/release/app-release.apk"
           if [ ! -f "$apkPath" ]; then
             echo "Built legacy APK not found at $apkPath"
             exit 1
