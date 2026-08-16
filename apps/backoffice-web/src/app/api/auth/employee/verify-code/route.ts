@@ -264,7 +264,10 @@ export async function POST(request: Request) {
       );
     }
 
-    if (!hasPermission(employee.permissions, "pos.sales.access")) {
+    const isKitchen = String(employee.role ?? "").trim().toLowerCase() === "kitchen";
+    const effectivePermissions = isKitchen ? ["pos.kitchen.access"] : employee.permissions;
+
+    if (!isKitchen && !hasPermission(employee.permissions, "pos.sales.access")) {
       runInBackground(() =>
         writeAuditLog({
           tenantId: branchFlow.tenantId,
@@ -301,9 +304,9 @@ export async function POST(request: Request) {
       employeeCode: employee.employeeCode,
       employeeName: employee.fullName,
       employeeAuthMethod: "employee_code",
-      permissions: employee.permissions
+      permissions: effectivePermissions
     });
-    const rememberedDeviceCode = String(branchFlow.deviceCode ?? "").trim().toUpperCase();
+    const rememberedDeviceCode = isKitchen ? "" : String(branchFlow.deviceCode ?? "").trim().toUpperCase();
 
     const response = NextResponse.json({
       data: {
@@ -313,9 +316,9 @@ export async function POST(request: Request) {
           name: employee.fullName,
           role: employee.role
         },
-        permissions: employee.permissions,
-        next_step: rememberedDeviceCode ? "remembered_device" : "devices",
-        remembered_device: rememberedDeviceCode
+        permissions: effectivePermissions,
+        next_step: isKitchen ? "kitchen" : rememberedDeviceCode ? "remembered_device" : "devices",
+        remembered_device: !isKitchen && rememberedDeviceCode
           ? {
               id: branchFlow.deviceId ?? null,
               code: rememberedDeviceCode
@@ -336,7 +339,7 @@ export async function POST(request: Request) {
         success: true,
         ipAddress,
         userAgent,
-        metadata: { source: "employee_code" }
+        metadata: { source: "employee_code", kitchen_role: isKitchen }
       })
     );
 
@@ -352,7 +355,7 @@ export async function POST(request: Request) {
         targetId: employee.userId,
         ipAddress,
         userAgent,
-        metadata: { source: "employee_code", remembered_device_code: rememberedDeviceCode || null }
+        metadata: { source: "employee_code", remembered_device_code: rememberedDeviceCode || null, kitchen_role: isKitchen }
       })
     );
 
