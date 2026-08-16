@@ -1,6 +1,9 @@
 "use client";
 
 const ANDROID_POS_LATEST_URL = "/download/android/latest";
+const ANDROID_POS_LEGACY_71_URL = "/download/android/legacy-7-1";
+
+type AppIconKind = "tablet" | "phone" | "windows";
 
 const apps = [
   {
@@ -9,8 +12,23 @@ const apps = [
     description: "CpIPOS Android POS Stable สำหรับเครื่องขายหน้าร้าน พร้อม Native Print Agent, MDM และระบบพิมพ์ LAN / USB / Bluetooth โดยปุ่มนี้ติดตาม Stable Signed APK ล่าสุดอัตโนมัติ",
     file: "CpIPOS-Android-POS.apk",
     status: "Stable Signed · พร้อมดาวน์โหลด",
+    badge: "Latest",
+    buttonLabel: "ดาวน์โหลด Android POS ล่าสุด",
+    icon: "tablet" as AppIconKind,
     ready: true,
     href: ANDROID_POS_LATEST_URL
+  },
+  {
+    title: "CpIPOS POS - Android 7.1 Legacy",
+    platform: "Android 7.1 · API 25 · Legacy",
+    description: "APK สำหรับอุปกรณ์ Android 7.1 รุ่นเก่าโดยเฉพาะ สร้างจากฐาน POS 1.0.10 แต่แยก Release และชื่อไฟล์จาก Latest Stable โดยเด็ดขาด จึงไม่เขียนทับช่องดาวน์โหลดเวอร์ชันปัจจุบัน",
+    file: "CpIPOS-Android-POS-Legacy-Android-7.1.apk",
+    status: "Legacy Stable Signed · แยกจาก Latest",
+    badge: "Legacy 7.1",
+    buttonLabel: "ดาวน์โหลดสำหรับ Android 7.1",
+    icon: "tablet" as AppIconKind,
+    ready: true,
+    href: ANDROID_POS_LEGACY_71_URL
   },
   {
     title: "CpIPOS Mobile - Android",
@@ -18,6 +36,9 @@ const apps = [
     description: "แอปสำหรับเจ้าของร้าน ผู้จัดการ และพนักงานบนมือถือ Android แยกจาก Android POS หน้าร้าน",
     file: "CpIPOS-Mobile.apk",
     status: "กำลังพัฒนา",
+    badge: null,
+    buttonLabel: null,
+    icon: "phone" as AppIconKind,
     ready: false
   },
   {
@@ -26,20 +47,15 @@ const apps = [
     description: "Windows POS Runtime สำหรับเครื่องขายหน้าร้าน พร้อม local runtime bridge และ printer/cash-drawer integration",
     file: "CpIPOS-WindowsRuntime-Setup.exe",
     status: "กำลังพัฒนา",
-    ready: false
-  },
-  {
-    title: "CpIPOS IT Admin Runtime",
-    platform: "Windows IT Admin",
-    description: "Windows Runtime สำหรับงาน IT Admin, device management, diagnostics และ MDM operation",
-    file: "CpIPOS-ITAdminRuntime-Setup.exe",
-    status: "กำลังพัฒนา",
+    badge: null,
+    buttonLabel: null,
+    icon: "windows" as AppIconKind,
     ready: false
   }
 ] as const;
 
-function AppIcon({ index }: { index: number }) {
-  if (index === 0) {
+function AppIcon({ kind }: { kind: AppIconKind }) {
+  if (kind === "tablet") {
     return (
       <svg viewBox="0 0 24 24" className="h-7 w-7" fill="none" aria-hidden="true">
         <rect x="4" y="2.5" width="16" height="19" rx="2.5" stroke="currentColor" strokeWidth="1.8" />
@@ -47,7 +63,7 @@ function AppIcon({ index }: { index: number }) {
       </svg>
     );
   }
-  if (index === 1) {
+  if (kind === "phone") {
     return (
       <svg viewBox="0 0 24 24" className="h-7 w-7" fill="none" aria-hidden="true">
         <rect x="7" y="2" width="10" height="20" rx="2.5" stroke="currentColor" strokeWidth="1.8" />
@@ -83,18 +99,19 @@ export function DownloadCenterLatest() {
             CpIPOS Applications
           </div>
           <h1 className="text-4xl font-black leading-tight tracking-tight text-white sm:text-6xl">ดาวน์โหลด Android POS</h1>
-          <p className="mx-auto mt-5 max-w-2xl text-base leading-7 text-slate-300 sm:text-lg">ดาวน์โหลด Stable Signed APK ล่าสุดจาก URL เดิมได้ตลอด เมื่อ Android POS รุ่นใหม่ผ่าน Production Release ระบบจะสลับไฟล์ให้โดยอัตโนมัติ</p>
+          <p className="mx-auto mt-5 max-w-2xl text-base leading-7 text-slate-300 sm:text-lg">Android POS รุ่นล่าสุดและ Android 7.1 Legacy ใช้ช่องดาวน์โหลดคนละช่อง รุ่น Legacy จะไม่แทนที่หรือเขียนทับไฟล์ Stable ล่าสุด 1.0.10</p>
           <div className="mt-7 flex flex-wrap items-center justify-center gap-3 text-xs font-semibold">
             <span className="rounded-full border border-emerald-400/20 bg-emerald-400/10 px-3 py-1.5 text-emerald-300">Android POS Latest Stable</span>
+            <span className="rounded-full border border-amber-400/20 bg-amber-400/10 px-3 py-1.5 text-amber-200">Android 7.1 Legacy แยก Release</span>
             <span className="rounded-full border border-slate-700 bg-slate-900/60 px-3 py-1.5 text-slate-300">Stable signed APK</span>
           </div>
         </section>
 
         <section className="mt-12 grid gap-5 md:grid-cols-2 xl:grid-cols-4 lg:mt-16">
-          {apps.map((app, index) => (
+          {apps.map((app) => (
             <article key={app.title} className={`relative flex min-h-[390px] flex-col overflow-hidden rounded-3xl border p-6 shadow-2xl sm:p-7 ${app.ready ? "border-sky-400/35 bg-gradient-to-b from-sky-950/70 to-slate-900/90 shadow-sky-950/30" : "border-slate-800 bg-slate-900/75 shadow-black/20"}`}>
-              {app.ready ? <div className="absolute right-0 top-0 rounded-bl-2xl bg-sky-400 px-4 py-2 text-[11px] font-black uppercase tracking-wide text-slate-950">Latest</div> : null}
-              <div className={`grid h-14 w-14 place-items-center rounded-2xl ${app.ready ? "bg-sky-400/15 text-sky-300" : "bg-slate-800 text-slate-300"}`}><AppIcon index={index} /></div>
+              {app.badge ? <div className="absolute right-0 top-0 rounded-bl-2xl bg-sky-400 px-4 py-2 text-[11px] font-black uppercase tracking-wide text-slate-950">{app.badge}</div> : null}
+              <div className={`grid h-14 w-14 place-items-center rounded-2xl ${app.ready ? "bg-sky-400/15 text-sky-300" : "bg-slate-800 text-slate-300"}`}><AppIcon kind={app.icon} /></div>
               <div className="mt-6">
                 <p className="text-xs font-extrabold uppercase tracking-[0.12em] text-sky-300">{app.platform}</p>
                 <h2 className="mt-3 text-2xl font-black leading-tight text-white">{app.title}</h2>
@@ -108,8 +125,8 @@ export function DownloadCenterLatest() {
               </div>
               <div className="mt-auto pt-7">
                 <p className="mb-4 truncate text-xs text-slate-500">ไฟล์: {app.file}</p>
-                {app.ready && "href" in app ? (
-                  <a href={app.href} className="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-xl bg-sky-400 px-5 py-3 text-sm font-black text-slate-950 shadow-lg shadow-sky-950/40 transition hover:bg-sky-300">ดาวน์โหลด Android POS ล่าสุด</a>
+                {app.ready && "href" in app && app.buttonLabel ? (
+                  <a href={app.href} className="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-xl bg-sky-400 px-5 py-3 text-sm font-black text-slate-950 shadow-lg shadow-sky-950/40 transition hover:bg-sky-300">{app.buttonLabel}</a>
                 ) : (
                   <div className="inline-flex min-h-12 w-full items-center justify-center rounded-xl border border-slate-700 bg-slate-800/80 px-5 py-3 text-sm font-black text-slate-400">กำลังพัฒนา</div>
                 )}
@@ -118,7 +135,7 @@ export function DownloadCenterLatest() {
           ))}
         </section>
 
-        <section className="mt-8 rounded-2xl border border-slate-800 bg-slate-900/50 px-5 py-4 text-center text-sm text-slate-400">Stable Signed APK สามารถติดตั้งทับเวอร์ชันเดิมที่ใช้ signing certificate เดียวกันได้ โดยไม่ต้องถอนแอปก่อน</section>
+        <section className="mt-8 rounded-2xl border border-slate-800 bg-slate-900/50 px-5 py-4 text-center text-sm text-slate-400">Latest Stable และ Android 7.1 Legacy ใช้ signing certificate เดียวกัน แต่ใช้ Release tag และชื่อไฟล์คนละชุด หน้า Download Center สำหรับลูกค้าไม่แสดงโปรแกรม IT Admin</section>
       </div>
     </main>
   );

@@ -1,0 +1,198 @@
+name: Build CpIPOS Android POS Legacy Android 7.1
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - agent-docs-preflight-schema-drift
+    paths:
+      - ".github/workflows/build-android-runtime-legacy.yml"
+
+permissions:
+  contents: write
+
+env:
+  ANDROID_RUNTIME_MODULE: apps/pos-android
+  ANDROID_RUNTIME_BASE_VERSION: 1.0.10
+  ANDROID_RUNTIME_LEGACY_VERSION: 1.0.10-legacy7.1
+  ANDROID_RUNTIME_LEGACY_MIN_SDK: 25
+  ANDROID_RUNTIME_LEGACY_RELEASE_TAG: android-runtime-legacy-7-1
+  ANDROID_RUNTIME_LEGACY_APK_ASSET_NAME: CpIPOS-Android-POS-Legacy-Android-7.1.apk
+  ANDROID_RUNTIME_LEGACY_VERSIONED_ASSET_NAME: CpIPOS-Android-POS-1.0.10-Legacy-Android-7.1.apk
+  ANDROID_SIGNING_CERT_SHA256: 6be0a9aef346a5b47162c8928c5018a01d0e7d81b4eb177bf2fb89922dc2a27a
+
+jobs:
+  build-android-runtime-legacy:
+    name: Build isolated Android 7.1 Legacy APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.9"
+
+      - name: Guard current stable Android source
+        run: |
+          buildFile="${{ env.ANDROID_RUNTIME_MODULE }}/app/build.gradle.kts"
+          grep -qF 'minSdk = 26' "$buildFile" || { echo "Current Android minSdk changed; refusing to build legacy from an unexpected baseline."; exit 1; }
+          grep -qF 'versionName = "${{ env.ANDROID_RUNTIME_BASE_VERSION }}"' "$buildFile" || { echo "Current Android version changed; refusing to build legacy from an unexpected baseline."; exit 1; }
+          echo "Current production Android remains ${{ env.ANDROID_RUNTIME_BASE_VERSION }} with minSdk 26."
+
+      - name: Create isolated Android 7.1 build workspace
+        run: |
+          legacyDir="$RUNNER_TEMP/cpipos-pos-android-legacy"
+          cp -a "${{ env.ANDROID_RUNTIME_MODULE }}" "$legacyDir"
+          buildFile="$legacyDir/app/build.gradle.kts"
+          sed -i 's/minSdk = 26/minSdk = 25/' "$buildFile"
+          sed -i 's/versionName = "1.0.10"/versionName = "1.0.10-legacy7.1"/' "$buildFile"
+          grep -qF 'minSdk = 25' "$buildFile"
+          grep -qF 'versionName = "1.0.10-legacy7.1"' "$buildFile"
+          echo "LEGACY_RUNTIME_MODULE=$legacyDir" >> "$GITHUB_ENV"
+          echo "Legacy workspace prepared outside the checked-out production source tree."
+
+      - name: Run Android print unit tests on legacy workspace
+        run: |
+          cd "$LEGACY_RUNTIME_MODULE"
+          gradle :app:testDebugUnitTest --no-daemon --stacktrace
+
+      - name: Detect stable signing secrets
+        id: signing
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_SIGNING_KEYSTORE_BASE64 }}
+          STORE_PASSWORD: ${{ secrets.ANDROID_SIGNING_STORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_SIGNING_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_SIGNING_KEY_PASSWORD }}
+        run: |
+          if [ -n "$KEYSTORE_BASE64" ] && [ -n "$STORE_PASSWORD" ] && [ -n "$KEY_ALIAS" ] && [ -n "$KEY_PASSWORD" ]; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            echo "Stable Android signing secrets are not configured."
+          fi
+
+      - name: Require stable signing for legacy customer APK
+        if: steps.signing.outputs.ready != 'true'
+        run: |
+          echo "Legacy customer APK requires the existing stable ANDROID_SIGNING_* secrets."
+          exit 1
+
+      - name: Materialize and validate stable signing keystore
+        if: steps.signing.outputs.ready == 'true'
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_SIGNING_KEYSTORE_BASE64 }}
+          STORE_PASSWORD: ${{ secrets.ANDROID_SIGNING_STORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_SIGNING_KEY_ALIAS }}
+        run: |
+          signingDir="$RUNNER_TEMP/cpipos-android-signing"
+          keystorePath="$signingDir/cpipos-android-release.jks"
+          mkdir -p "$signingDir"
+          printf '%s' "$KEYSTORE_BASE64" | base64 --decode > "$keystorePath"
+          chmod 600 "$keystorePath"
+
+          certSha=$(keytool -list -v \
+            -keystore "$keystorePath" \
+            -storepass "$STORE_PASSWORD" \
+            -alias "$KEY_ALIAS" \
+            | awk -F': ' '/SHA256:/{gsub(":", "", $2); print tolower($2); exit}')
+
+          if [ "$certSha" != "${{ env.ANDROID_SIGNING_CERT_SHA256 }}" ]; then
+            echo "Signing certificate mismatch. Expected ${{ env.ANDROID_SIGNING_CERT_SHA256 }}, got $certSha"
+            exit 1
+          fi
+
+      - name: Build stable signed Android 7.1 legacy APK
+        if: steps.signing.outputs.ready == 'true'
+        env:
+          CPIPOS_ANDROID_KEYSTORE_PATH: ${{ runner.temp }}/cpipos-android-signing/cpipos-android-release.jks
+          CPIPOS_ANDROID_STORE_PASSWORD: ${{ secrets.ANDROID_SIGNING_STORE_PASSWORD }}
+          CPIPOS_ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_SIGNING_KEY_ALIAS }}
+          CPIPOS_ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_SIGNING_KEY_PASSWORD }}
+        run: |
+          cd "$LEGACY_RUNTIME_MODULE"
+          gradle :app:assembleRelease --no-daemon --stacktrace
+
+      - name: Verify and stage isolated legacy APK
+        if: steps.signing.outputs.ready == 'true'
+        run: |
+          apkPath="$LEGACY_RUNTIME_MODULE/app/build/outputs/apk/release/app-release.apk"
+          if [ ! -f "$apkPath" ]; then
+            echo "Built legacy APK not found at $apkPath"
+            exit 1
+          fi
+
+          apkSize=$(stat -c%s "$apkPath")
+          if [ "$apkSize" -lt 1000000 ]; then
+            echo "Legacy APK size looks too small: $apkSize bytes"
+            exit 1
+          fi
+
+          aaptPath=$(find "$ANDROID_HOME/build-tools" -type f -name aapt | sort -V | tail -n 1)
+          apksignerPath=$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)
+          if [ -z "$aaptPath" ] || [ -z "$apksignerPath" ]; then
+            echo "Android build-tools verification utilities were not found."
+            exit 1
+          fi
+
+          "$aaptPath" dump badging "$apkPath" | grep -q "sdkVersion:'${{ env.ANDROID_RUNTIME_LEGACY_MIN_SDK }}'" || {
+            echo "Legacy APK does not declare minSdk ${{ env.ANDROID_RUNTIME_LEGACY_MIN_SDK }}."
+            "$aaptPath" dump badging "$apkPath" | head -n 20
+            exit 1
+          }
+
+          "$apksignerPath" verify --verbose --print-certs "$apkPath"
+          certSha=$("$apksignerPath" verify --print-certs "$apkPath" \
+            | sed -n 's/^.*certificate SHA-256 digest: //p' \
+            | head -n 1 \
+            | tr -d ':' \
+            | tr '[:upper:]' '[:lower:]')
+          if [ "$certSha" != "${{ env.ANDROID_SIGNING_CERT_SHA256 }}" ]; then
+            echo "Legacy APK certificate mismatch. Expected ${{ env.ANDROID_SIGNING_CERT_SHA256 }}, got $certSha"
+            exit 1
+          fi
+
+          mkdir -p artifacts
+          cp "$apkPath" "artifacts/${{ env.ANDROID_RUNTIME_LEGACY_APK_ASSET_NAME }}"
+          cp "$apkPath" "artifacts/${{ env.ANDROID_RUNTIME_LEGACY_VERSIONED_ASSET_NAME }}"
+          echo "Legacy Android 7.1 APK ready: $apkSize bytes; minSdk=${{ env.ANDROID_RUNTIME_LEGACY_MIN_SDK }}; certificate=$certSha"
+
+      - name: Upload legacy workflow artifact
+        if: steps.signing.outputs.ready == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: CpIPOS-Android-POS-1.0.10-Legacy-Android-7.1-stable-signed
+          path: |
+            artifacts/${{ env.ANDROID_RUNTIME_LEGACY_APK_ASSET_NAME }}
+            artifacts/${{ env.ANDROID_RUNTIME_LEGACY_VERSIONED_ASSET_NAME }}
+          if-no-files-found: error
+
+      - name: Publish isolated Android 7.1 legacy release
+        if: steps.signing.outputs.ready == 'true' && (github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/agent-docs-preflight-schema-drift'))
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="${{ env.ANDROID_RUNTIME_LEGACY_RELEASE_TAG }}"
+          stablePath="artifacts/${{ env.ANDROID_RUNTIME_LEGACY_APK_ASSET_NAME }}"
+          versionedPath="artifacts/${{ env.ANDROID_RUNTIME_LEGACY_VERSIONED_ASSET_NAME }}"
+
+          if ! gh release view "$tag" >/dev/null 2>&1; then
+            gh release create "$tag" \
+              --target "${{ github.sha }}" \
+              --title "CpIPOS Android POS Legacy - Android 7.1" \
+              --notes "Isolated compatibility build for Android 7.1 (API 25), based on CpIPOS Android POS 1.0.10. This release is separate from android-runtime-latest and never overwrites CpIPOS-Android-POS.apk."
+          fi
+
+          gh release upload "$tag" "$stablePath" "$versionedPath" --clobber
+          echo "Legacy APK URL: https://github.com/${{ github.repository }}/releases/download/$tag/${{ env.ANDROID_RUNTIME_LEGACY_APK_ASSET_NAME }}"
