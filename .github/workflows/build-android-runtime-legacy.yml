@@ -168,6 +168,10 @@ jobs:
 
       - name: Verify and stage isolated legacy APK
         if: steps.signing.outputs.ready == 'true'
+        env:
+          CPIPOS_ANDROID_STORE_PASSWORD: ${{ secrets.ANDROID_SIGNING_STORE_PASSWORD }}
+          CPIPOS_ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_SIGNING_KEY_ALIAS }}
+          CPIPOS_ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_SIGNING_KEY_PASSWORD }}
         run: |
           apkPath="$LEGACY_RUNTIME_MODULE/app/build/outputs/apk/release/app-release.apk"
           if [ ! -f "$apkPath" ]; then
@@ -207,6 +211,21 @@ jobs:
             exit 1
           fi
 
+          # AGP may omit JAR/v1 signing automatically when minSdk >= 24 even when the signing DSL requests it.
+          # Re-sign this already-built legacy artifact explicitly with the same approved key, v1 + v2 only.
+          keystorePath="$RUNNER_TEMP/cpipos-android-signing/cpipos-android-release.jks"
+          "$apksignerPath" sign \
+            --ks "$keystorePath" \
+            --ks-key-alias "$CPIPOS_ANDROID_KEY_ALIAS" \
+            --ks-pass env:CPIPOS_ANDROID_STORE_PASSWORD \
+            --key-pass env:CPIPOS_ANDROID_KEY_PASSWORD \
+            --min-sdk-version "${{ env.ANDROID_RUNTIME_LEGACY_MIN_SDK }}" \
+            --v1-signing-enabled true \
+            --v2-signing-enabled true \
+            --v3-signing-enabled false \
+            --v4-signing-enabled false \
+            "$apkPath"
+
           signatureReport=$("$apksignerPath" verify --verbose --print-certs "$apkPath")
           echo "$signatureReport"
           echo "$signatureReport" | grep -q 'Verified using v1 scheme (JAR signing): true' || {
@@ -215,6 +234,14 @@ jobs:
           }
           echo "$signatureReport" | grep -q 'Verified using v2 scheme (APK Signature Scheme v2): true' || {
             echo "Legacy APK is missing v2 signature compatibility."
+            exit 1
+          }
+          echo "$signatureReport" | grep -q 'Verified using v3 scheme (APK Signature Scheme v3): false' || {
+            echo "Legacy APK unexpectedly contains v3 signing."
+            exit 1
+          }
+          echo "$signatureReport" | grep -q 'Verified using v4 scheme (APK Signature Scheme v4): false' || {
+            echo "Legacy APK unexpectedly contains v4 signing."
             exit 1
           }
 
@@ -228,10 +255,11 @@ jobs:
             exit 1
           fi
 
+          apkSize=$(stat -c%s "$apkPath")
           mkdir -p artifacts
           cp "$apkPath" "artifacts/${{ env.ANDROID_RUNTIME_LEGACY_APK_ASSET_NAME }}"
           cp "$apkPath" "artifacts/${{ env.ANDROID_RUNTIME_LEGACY_VERSIONED_ASSET_NAME }}"
-          echo "Legacy Android 7.1 APK ready: $apkSize bytes; minSdk=${{ env.ANDROID_RUNTIME_LEGACY_MIN_SDK }}; targetSdk=${{ env.ANDROID_RUNTIME_LEGACY_TARGET_SDK }}; certificate=$certSha"
+          echo "Legacy Android 7.1 APK ready: $apkSize bytes; minSdk=${{ env.ANDROID_RUNTIME_LEGACY_MIN_SDK }}; targetSdk=${{ env.ANDROID_RUNTIME_LEGACY_TARGET_SDK }}; v1=true; v2=true; certificate=$certSha"
 
       - name: Upload legacy workflow artifact
         if: steps.signing.outputs.ready == 'true'
