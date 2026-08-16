@@ -14,12 +14,12 @@ permissions:
 env:
   ANDROID_RUNTIME_MODULE: apps/pos-android
   ANDROID_RUNTIME_BASE_VERSION: 1.0.10
-  ANDROID_RUNTIME_LEGACY_VERSION: 1.0.10-legacy7.1-r2
+  ANDROID_RUNTIME_LEGACY_VERSION: 1.0.10-legacy7.1-r3
   ANDROID_RUNTIME_LEGACY_MIN_SDK: 25
   ANDROID_RUNTIME_LEGACY_TARGET_SDK: 25
   ANDROID_RUNTIME_LEGACY_RELEASE_TAG: android-runtime-legacy-7-1
   ANDROID_RUNTIME_LEGACY_APK_ASSET_NAME: CpIPOS-Android-POS-Legacy-Android-7.1.apk
-  ANDROID_RUNTIME_LEGACY_VERSIONED_ASSET_NAME: CpIPOS-Android-POS-1.0.10-Legacy-Android-7.1-r2.apk
+  ANDROID_RUNTIME_LEGACY_VERSIONED_ASSET_NAME: CpIPOS-Android-POS-1.0.10-Legacy-Android-7.1-r3.apk
   ANDROID_SIGNING_CERT_SHA256: 6be0a9aef346a5b47162c8928c5018a01d0e7d81b4eb177bf2fb89922dc2a27a
 
 jobs:
@@ -48,10 +48,10 @@ jobs:
       - name: Guard current stable Android source
         run: |
           buildFile="${{ env.ANDROID_RUNTIME_MODULE }}/app/build.gradle.kts"
-          grep -qF 'minSdk = 26' "$buildFile" || { echo "Current Android minSdk changed; refusing to build legacy from an unexpected baseline."; exit 1; }
-          grep -qF 'targetSdk = 34' "$buildFile" || { echo "Current Android targetSdk changed; refusing to build legacy from an unexpected baseline."; exit 1; }
-          grep -qF 'versionName = "${{ env.ANDROID_RUNTIME_BASE_VERSION }}"' "$buildFile" || { echo "Current Android version changed; refusing to build legacy from an unexpected baseline."; exit 1; }
-          echo "Current production Android remains ${{ env.ANDROID_RUNTIME_BASE_VERSION }} with minSdk 26 / targetSdk 34."
+          grep -qF 'minSdk = 26' "$buildFile" || { echo "Current Android minSdk changed; refusing legacy build."; exit 1; }
+          grep -qF 'targetSdk = 34' "$buildFile" || { echo "Current Android targetSdk changed; refusing legacy build."; exit 1; }
+          grep -qF 'versionName = "${{ env.ANDROID_RUNTIME_BASE_VERSION }}"' "$buildFile" || { echo "Current Android version changed; refusing legacy build."; exit 1; }
+          echo "Production Android remains ${{ env.ANDROID_RUNTIME_BASE_VERSION }} with minSdk 26 / targetSdk 34."
 
       - name: Create isolated Android 7.1 compatibility workspace
         run: |
@@ -61,24 +61,19 @@ jobs:
           buildFile="$legacyDir/app/build.gradle.kts"
           manifestFile="$legacyDir/app/src/main/AndroidManifest.xml"
 
-          # Do not edit the checked-out production source. All compatibility mutations happen only in RUNNER_TEMP.
+          # Compatibility mutations happen only in RUNNER_TEMP. Production source is never edited.
           sed -i 's/minSdk = 26/minSdk = 25/' "$buildFile"
           sed -i 's/targetSdk = 34/targetSdk = 25/' "$buildFile"
-          sed -i 's/versionName = "1.0.10"/versionName = "1.0.10-legacy7.1-r2"/' "$buildFile"
+          sed -i 's/versionName = "1.0.10"/versionName = "1.0.10-legacy7.1-r3"/' "$buildFile"
 
-          # Android 7.1 supports APK Signature Scheme v1 and v2. Keep the legacy artifact intentionally limited to those schemes.
-          sed -i 's/enableV3Signing = true/enableV3Signing = false/' "$buildFile"
-          sed -i 's/enableV4Signing = true/enableV4Signing = false/' "$buildFile"
-
-          # Remove permissions introduced after Android 7.1 from the legacy manifest only.
-          # The runtime already gates these modern permissions by SDK level, so API 25 keeps the classic Bluetooth/network permissions.
+          # Remove permissions introduced after Android 7.1 from this temporary legacy manifest only.
           sed -i '/android.permission.BLUETOOTH_SCAN/d' "$manifestFile"
           sed -i '/android.permission.BLUETOOTH_CONNECT/d' "$manifestFile"
           sed -i '/android.permission.NEARBY_WIFI_DEVICES/d' "$manifestFile"
           sed -i '/android.permission.REQUEST_INSTALL_PACKAGES/d' "$manifestFile"
 
-          # This APK is a direct-sideload compatibility artifact, not a Google Play artifact.
-          # Suppress only the Play target-age lint in the isolated RUNNER_TEMP copy; all other release lint stays enabled.
+          # This is a direct-sideload compatibility artifact, not a Google Play artifact.
+          # Disable only the target-age Play lint in the temporary API 25 copy.
           cat >> "$buildFile" <<'EOF'
 
           android {
@@ -90,15 +85,11 @@ jobs:
 
           grep -qF 'minSdk = 25' "$buildFile"
           grep -qF 'targetSdk = 25' "$buildFile"
-          grep -qF 'versionName = "1.0.10-legacy7.1-r2"' "$buildFile"
-          grep -qF 'enableV1Signing = true' "$buildFile"
-          grep -qF 'enableV2Signing = true' "$buildFile"
-          grep -qF 'enableV3Signing = false' "$buildFile"
-          grep -qF 'enableV4Signing = false' "$buildFile"
+          grep -qF 'versionName = "1.0.10-legacy7.1-r3"' "$buildFile"
           grep -qF 'disable += "ExpiredTargetSdkVersion"' "$buildFile"
 
           if grep -Eq 'BLUETOOTH_SCAN|BLUETOOTH_CONNECT|NEARBY_WIFI_DEVICES|REQUEST_INSTALL_PACKAGES' "$manifestFile"; then
-            echo "A post-Android-7.1 permission remained in the isolated legacy manifest."
+            echo "A post-Android-7.1 permission remained in the temporary legacy manifest."
             exit 1
           fi
 
@@ -154,41 +145,71 @@ jobs:
             echo "Signing certificate mismatch. Expected ${{ env.ANDROID_SIGNING_CERT_SHA256 }}, got $certSha"
             exit 1
           fi
+          echo "Stable signing certificate verified: $certSha"
 
-      - name: Build stable signed Android 7.1 legacy APK
+      - name: Build unsigned Android 7.1 legacy APK
         if: steps.signing.outputs.ready == 'true'
-        env:
-          CPIPOS_ANDROID_KEYSTORE_PATH: ${{ runner.temp }}/cpipos-android-signing/cpipos-android-release.jks
-          CPIPOS_ANDROID_STORE_PASSWORD: ${{ secrets.ANDROID_SIGNING_STORE_PASSWORD }}
-          CPIPOS_ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_SIGNING_KEY_ALIAS }}
-          CPIPOS_ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_SIGNING_KEY_PASSWORD }}
         run: |
+          # Do not expose signing variables to Gradle. We explicitly sign after alignment with apksigner.
+          unset CPIPOS_ANDROID_KEYSTORE_PATH CPIPOS_ANDROID_STORE_PASSWORD CPIPOS_ANDROID_KEY_ALIAS CPIPOS_ANDROID_KEY_PASSWORD || true
           cd "$LEGACY_RUNTIME_MODULE"
           gradle :app:assembleRelease --no-daemon --stacktrace
 
-      - name: Verify and stage isolated legacy APK
+          releaseDir="$LEGACY_RUNTIME_MODULE/app/build/outputs/apk/release"
+          unsignedApk=$(find "$releaseDir" -maxdepth 1 -type f -name '*.apk' | head -n 1)
+          if [ -z "$unsignedApk" ] || [ ! -f "$unsignedApk" ]; then
+            echo "Unsigned legacy APK was not produced."
+            exit 1
+          fi
+          echo "LEGACY_UNSIGNED_APK=$unsignedApk" >> "$GITHUB_ENV"
+          echo "Unsigned legacy APK ready: $unsignedApk"
+
+      - name: Explicitly align, v1+v2 sign, verify and stage legacy APK
         if: steps.signing.outputs.ready == 'true'
+        env:
+          STORE_PASSWORD: ${{ secrets.ANDROID_SIGNING_STORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_SIGNING_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_SIGNING_KEY_PASSWORD }}
         run: |
-          apkPath="$LEGACY_RUNTIME_MODULE/app/build/outputs/apk/release/app-release.apk"
-          if [ ! -f "$apkPath" ]; then
-            echo "Built legacy APK not found at $apkPath"
+          aaptPath=$(find "$ANDROID_HOME/build-tools" -type f -name aapt | sort -V | tail -n 1)
+          apksignerPath=$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)
+          zipalignPath=$(find "$ANDROID_HOME/build-tools" -type f -name zipalign | sort -V | tail -n 1)
+          if [ -z "$aaptPath" ] || [ -z "$apksignerPath" ] || [ -z "$zipalignPath" ]; then
+            echo "Android build-tools verification/signing utilities were not found."
             exit 1
           fi
 
-          apkSize=$(stat -c%s "$apkPath")
+          keystorePath="$RUNNER_TEMP/cpipos-android-signing/cpipos-android-release.jks"
+          alignedApk="$RUNNER_TEMP/cpipos-legacy-api25-aligned.apk"
+          signedApk="$RUNNER_TEMP/cpipos-legacy-api25-v1v2-signed.apk"
+
+          # A v2 signature must be applied after zip alignment.
+          "$zipalignPath" -p -f 4 "$LEGACY_UNSIGNED_APK" "$alignedApk"
+          "$zipalignPath" -c -v 4 "$alignedApk"
+
+          # Force exactly the signing schemes needed by Android 7.1/OEM package installers.
+          "$apksignerPath" sign \
+            --ks "$keystorePath" \
+            --ks-key-alias "$KEY_ALIAS" \
+            --ks-pass env:STORE_PASSWORD \
+            --key-pass env:KEY_PASSWORD \
+            --min-sdk-version "${{ env.ANDROID_RUNTIME_LEGACY_MIN_SDK }}" \
+            --v1-signing-enabled true \
+            --v2-signing-enabled true \
+            --v3-signing-enabled false \
+            --v4-signing-enabled false \
+            --out "$signedApk" \
+            "$alignedApk"
+
+          "$zipalignPath" -c -v 4 "$signedApk"
+
+          apkSize=$(stat -c%s "$signedApk")
           if [ "$apkSize" -lt 1000000 ]; then
             echo "Legacy APK size looks too small: $apkSize bytes"
             exit 1
           fi
 
-          aaptPath=$(find "$ANDROID_HOME/build-tools" -type f -name aapt | sort -V | tail -n 1)
-          apksignerPath=$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)
-          if [ -z "$aaptPath" ] || [ -z "$apksignerPath" ]; then
-            echo "Android build-tools verification utilities were not found."
-            exit 1
-          fi
-
-          badging=$("$aaptPath" dump badging "$apkPath")
+          badging=$("$aaptPath" dump badging "$signedApk")
           echo "$badging" | grep -q "sdkVersion:'${{ env.ANDROID_RUNTIME_LEGACY_MIN_SDK }}'" || {
             echo "Legacy APK does not declare minSdk ${{ env.ANDROID_RUNTIME_LEGACY_MIN_SDK }}."
             echo "$badging" | head -n 20
@@ -200,14 +221,18 @@ jobs:
             exit 1
           }
 
-          permissions=$("$aaptPath" dump permissions "$apkPath")
+          permissions=$("$aaptPath" dump permissions "$signedApk")
           if echo "$permissions" | grep -Eq 'BLUETOOTH_SCAN|BLUETOOTH_CONNECT|NEARBY_WIFI_DEVICES|REQUEST_INSTALL_PACKAGES'; then
             echo "Legacy APK still contains a post-Android-7.1 permission."
             echo "$permissions"
             exit 1
           fi
 
-          signatureReport=$("$apksignerPath" verify --verbose --print-certs "$apkPath")
+          signatureReport=$("$apksignerPath" verify \
+            --verbose \
+            --print-certs \
+            --min-sdk-version "${{ env.ANDROID_RUNTIME_LEGACY_MIN_SDK }}" \
+            "$signedApk")
           echo "$signatureReport"
           echo "$signatureReport" | grep -q 'Verified using v1 scheme (JAR signing): true' || {
             echo "Legacy APK is missing v1 signature compatibility."
@@ -217,8 +242,12 @@ jobs:
             echo "Legacy APK is missing v2 signature compatibility."
             exit 1
           }
+          echo "$signatureReport" | grep -q 'Verified using v3 scheme (APK Signature Scheme v3): false' || {
+            echo "Legacy APK unexpectedly contains v3 signing."
+            exit 1
+          }
 
-          certSha=$("$apksignerPath" verify --print-certs "$apkPath" \
+          certSha=$("$apksignerPath" verify --print-certs "$signedApk" \
             | sed -n 's/^.*certificate SHA-256 digest: //p' \
             | head -n 1 \
             | tr -d ':' \
@@ -228,16 +257,17 @@ jobs:
             exit 1
           fi
 
+          apkSha=$(sha256sum "$signedApk" | awk '{print $1}')
           mkdir -p artifacts
-          cp "$apkPath" "artifacts/${{ env.ANDROID_RUNTIME_LEGACY_APK_ASSET_NAME }}"
-          cp "$apkPath" "artifacts/${{ env.ANDROID_RUNTIME_LEGACY_VERSIONED_ASSET_NAME }}"
-          echo "Legacy Android 7.1 APK ready: $apkSize bytes; minSdk=${{ env.ANDROID_RUNTIME_LEGACY_MIN_SDK }}; targetSdk=${{ env.ANDROID_RUNTIME_LEGACY_TARGET_SDK }}; certificate=$certSha"
+          cp "$signedApk" "artifacts/${{ env.ANDROID_RUNTIME_LEGACY_APK_ASSET_NAME }}"
+          cp "$signedApk" "artifacts/${{ env.ANDROID_RUNTIME_LEGACY_VERSIONED_ASSET_NAME }}"
+          echo "Legacy Android 7.1 r3 ready: size=$apkSize sha256=$apkSha minSdk=${{ env.ANDROID_RUNTIME_LEGACY_MIN_SDK }} targetSdk=${{ env.ANDROID_RUNTIME_LEGACY_TARGET_SDK }} certificate=$certSha v1=true v2=true"
 
       - name: Upload legacy workflow artifact
         if: steps.signing.outputs.ready == 'true'
         uses: actions/upload-artifact@v4
         with:
-          name: CpIPOS-Android-POS-1.0.10-Legacy-Android-7.1-r2-stable-signed
+          name: CpIPOS-Android-POS-1.0.10-Legacy-Android-7.1-r3-v1v2-signed
           path: |
             artifacts/${{ env.ANDROID_RUNTIME_LEGACY_APK_ASSET_NAME }}
             artifacts/${{ env.ANDROID_RUNTIME_LEGACY_VERSIONED_ASSET_NAME }}
@@ -256,7 +286,7 @@ jobs:
             gh release create "$tag" \
               --target "${{ github.sha }}" \
               --title "CpIPOS Android POS Legacy - Android 7.1" \
-              --notes "Isolated compatibility build for Android 7.1 (API 25), based on CpIPOS Android POS 1.0.10. This release is separate from android-runtime-latest and never overwrites CpIPOS-Android-POS.apk."
+              --notes "Isolated Android 7.1/API 25 compatibility release based on CpIPOS 1.0.10. Separate from android-runtime-latest and never overwrites CpIPOS-Android-POS.apk."
           fi
 
           gh release upload "$tag" "$stablePath" "$versionedPath" --clobber
