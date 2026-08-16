@@ -21,8 +21,8 @@ import java.util.concurrent.atomic.AtomicBoolean
  *
  * Production polling contract:
  * - heartbeat is independent from job polling and runs every 45 seconds;
- * - empty claims back off 1 -> 2 -> 3 seconds;
- * - any claimed work resets the idle backoff to one second;
+ * - empty claims back off 2 -> 5 -> 10 -> 15 seconds;
+ * - any claimed work resets the idle backoff to two seconds;
  * - only one scheduled worker exists, so claim requests cannot overlap.
  */
 class PosPrintAgent(
@@ -142,7 +142,7 @@ class PosPrintAgent(
                     JSONObject()
                         .put("runtime", "android_native_print_agent")
                         .put("device_model", Build.MODEL)
-                        .put("claim_poll_policy", "adaptive_1_2_3s")
+                        .put("claim_poll_policy", "adaptive_2_5_10_15s")
                 ),
             agentKey = agentKey
         )
@@ -379,6 +379,6 @@ class PosPrintAgent(
         private const val PREF_DEVICE_CODE = "device_code"
         private const val HEARTBEAT_INTERVAL_SECONDS = 45L
         private const val HEARTBEAT_INTERVAL_MS = HEARTBEAT_INTERVAL_SECONDS * 1_000L
-        private val IDLE_BACKOFF_SECONDS = longArrayOf(1L, 2L, 3L)
+        private val IDLE_BACKOFF_SECONDS = longArrayOf(2L, 5L, 10L, 15L)
     }
 }
