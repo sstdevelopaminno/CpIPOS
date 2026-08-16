@@ -1,6 +1,6 @@
 import { cookies } from "next/headers";
 import { fail, ok } from "@/lib/http";
-import { getPosApiAuthContext } from "@/lib/pos-api-auth";
+import { getKitchenApiAuthContext } from "@/lib/pos-api-auth";
 import { readKitchenZoneSession } from "@/lib/server/kitchen-zone-session";
 import {
   KitchenQueueError,
@@ -10,7 +10,7 @@ import {
 
 export async function GET(req: Request) {
   try {
-    const auth = await getPosApiAuthContext({ requireBranchScope: true, requiredPermission: "sales:view" });
+    const auth = await getKitchenApiAuthContext();
     const { searchParams } = new URL(req.url);
     const statusParams = searchParams
       .getAll("status")
