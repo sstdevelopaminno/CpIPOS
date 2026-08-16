@@ -8,13 +8,17 @@ import { requirePermission, requirePosSession, type PosPermission, type PosSessi
 export async function requirePosPagePermission(permission: PosPermission, fallbackPath = "/preview/pos"): Promise<PosSessionScope> {
   try {
     const scope = await requirePosSession();
+    if (String(scope.session.role ?? "").trim().toLowerCase() === "kitchen") {
+      redirect("/preview/pos/kitchen");
+    }
     requirePermission(scope, permission);
     const feature = featureForPosPermission(permission);
     if (feature) {
       await requireTenantFeature(scope.session.tenant_id, feature, scope.session.branch_id);
     }
     return scope;
-  } catch {
+  } catch (error) {
+    if (error && typeof error === "object" && "digest" in error) throw error;
     redirect(fallbackPath);
   }
 }
