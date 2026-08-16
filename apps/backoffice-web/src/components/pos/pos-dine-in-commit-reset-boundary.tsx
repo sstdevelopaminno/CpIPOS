@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { PosEntryGate } from "@/components/pos/pos-entry-gate";
+import { PosInitialSalesModeController } from "@/components/pos/pos-initial-sales-mode-controller";
 import { PosSalesModePreferenceEnhancer } from "@/components/pos/pos-sales-mode-preference-enhancer";
 
 type Lang = "th" | "en";
@@ -257,6 +258,7 @@ export function PosDineInCommitResetBoundary({ lang }: { lang: Lang }) {
     <>
       <PosEntryGate key={epoch} lang={lang} />
       <PosSalesModePreferenceEnhancer lang={lang} />
+      <PosInitialSalesModeController />
     </>
   );
 }
