@@ -10,6 +10,8 @@ export type MainMenuPlacement = "left" | "top" | "bottom";
 
 const POS_MAIN_MENU_PLACEMENT_KEY = "pos_main_menu_bar_position_v2";
 const POS_MAIN_MENU_PLACEMENT_EVENT = "pos-main-menu-placement-updated";
+const POS_ROLE_STORAGE_KEY = "pos_session_role_v1";
+const POS_ROLE_EVENT_NAME = "pos-session-role-updated";
 
 function parseMenuPlacement(value: string | null | undefined): MainMenuPlacement | null {
   if (value === "left" || value === "top" || value === "bottom") return value;
@@ -24,14 +26,27 @@ export function PosShellFrame({
   children,
   lang,
   settingsLabel,
-  initialPlacement = "left"
+  initialPlacement = "left",
+  sessionRole = null
 }: {
   children: ReactNode;
   lang: Language;
   settingsLabel: string;
   initialPlacement?: MainMenuPlacement;
+  sessionRole?: string | null;
 }) {
   const [placement, setPlacement] = useState<MainMenuPlacement>(initialPlacement);
+
+  useEffect(() => {
+    const normalizedRole = String(sessionRole ?? "").trim().toLowerCase();
+    if (!normalizedRole) return;
+    try {
+      window.sessionStorage.setItem(POS_ROLE_STORAGE_KEY, normalizedRole);
+      window.dispatchEvent(new CustomEvent(POS_ROLE_EVENT_NAME, { detail: { role: normalizedRole } }));
+    } catch {
+      // Sidebar still has server-side route/API protection if storage is unavailable.
+    }
+  }, [sessionRole]);
 
   useEffect(() => {
     const applyPlacement = (nextPlacement: MainMenuPlacement) => {
