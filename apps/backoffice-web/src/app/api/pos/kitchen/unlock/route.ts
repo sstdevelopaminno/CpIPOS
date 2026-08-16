@@ -1,7 +1,7 @@
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import { fail, ok } from "@/lib/http";
-import { getPosApiAuthContext } from "@/lib/pos-api-auth";
+import { getKitchenApiAuthContext } from "@/lib/pos-api-auth";
 import { readKitchenZoneSession, writeKitchenZoneSession } from "@/lib/server/kitchen-zone-session";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
 
@@ -24,7 +24,7 @@ function zoneResponse(zone: KitchenZoneUnlockRow, auth: { tenantId: string; bran
 
 export async function GET() {
   try {
-    const auth = await getPosApiAuthContext({ requireBranchScope: true, requiredPermission: "sales:view" });
+    const auth = await getKitchenApiAuthContext();
     const session = readKitchenZoneSession(await cookies(), { tenantId: auth.tenantId!, branchId: auth.branchId! });
     if (!session) return ok({ zone: null });
 
@@ -48,7 +48,7 @@ export async function GET() {
 
 export async function POST(req: Request) {
   try {
-    const auth = await getPosApiAuthContext({ requireBranchScope: true, requiredPermission: "sales:view" });
+    const auth = await getKitchenApiAuthContext();
     const body = (await req.json().catch(() => null)) as { access_code?: string } | null;
     const accessCode = String(body?.access_code ?? "").trim();
     if (!/^[0-9]{6}$/.test(accessCode)) {
