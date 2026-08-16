@@ -2,6 +2,40 @@
 
 import { useEffect, useState } from "react";
 
+const ACTIVE_POS_STORAGE_KEYS = [
+  "pos_pending_submit_v012",
+  "pos_pending_submit_queue_v001",
+  "pos_pending_payment_queue_v001",
+  "pos_active_order_v001",
+  "pos_dine_in_selected_table_v001"
+] as const;
+
+function hasNonEmptyArray(raw: string | null): boolean {
+  if (!raw) return false;
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    return Array.isArray(parsed) ? parsed.length > 0 : Boolean(parsed);
+  } catch {
+    return true;
+  }
+}
+
+function isSafeForAutomaticUiRefresh(): boolean {
+  try {
+    if (hasNonEmptyArray(window.localStorage.getItem("pos_sales_cart_v012"))) return false;
+    return !ACTIVE_POS_STORAGE_KEYS.some((key) => {
+      const raw = window.localStorage.getItem(key);
+      if (!raw) return false;
+      if (key.includes("queue")) return hasNonEmptyArray(raw);
+      const normalized = raw.trim();
+      return normalized.length > 0 && normalized !== "null" && normalized !== "{}" && normalized !== "[]";
+    });
+  } catch {
+    // Never force a reload when POS state cannot be proven idle.
+    return false;
+  }
+}
+
 export function PwaBootstrap() {
   const [waitingWorker, setWaitingWorker] = useState<ServiceWorker | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -37,13 +71,22 @@ export function PwaBootstrap() {
       window.location.reload();
     };
 
+    const activateOrOfferUpdate = (worker: ServiceWorker) => {
+      if (isSafeForAutomaticUiRefresh()) {
+        setIsRefreshing(true);
+        worker.postMessage({ type: "SKIP_WAITING" });
+        return;
+      }
+      setWaitingWorker(worker);
+    };
+
     navigator.serviceWorker.addEventListener("controllerchange", handleControllerChange);
 
     void (async () => {
       try {
         const registration = await navigator.serviceWorker.register("/sw.js", { scope: "/" });
         if (registration.waiting) {
-          setWaitingWorker(registration.waiting);
+          activateOrOfferUpdate(registration.waiting);
         }
 
         registration.addEventListener("updatefound", () => {
@@ -52,7 +95,7 @@ export function PwaBootstrap() {
 
           nextWorker.addEventListener("statechange", () => {
             if (nextWorker.state === "installed" && navigator.serviceWorker.controller) {
-              setWaitingWorker(nextWorker);
+              activateOrOfferUpdate(nextWorker);
             }
           });
         });
@@ -90,7 +133,9 @@ export function PwaBootstrap() {
       }}
     >
       <div style={{ fontSize: 14, fontWeight: 700 }}>มีอัปเดต CpIPOS พร้อมใช้งาน</div>
-      <div style={{ marginTop: 4, fontSize: 12, lineHeight: 1.5, color: "#cbd5e1" }}>กดอัปเดตเพื่อใช้ชื่อระบบและไอคอนใหม่ทันที</div>
+      <div style={{ marginTop: 4, fontSize: 12, lineHeight: 1.5, color: "#cbd5e1" }}>
+        ระบบจะอัปเดตอัตโนมัติเมื่อไม่มีบิล/ตะกร้า/งานค้าง หรือกดอัปเดตเมื่อพร้อม
+      </div>
       <button
         type="button"
         onClick={() => {

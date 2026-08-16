@@ -28,6 +28,7 @@ type PendingServiceAck = {
 };
 
 const CURSOR_KEY = "pos_global_table_qr_cursor_v1";
+const ACKED_EVENT_IDS_KEY = "pos_global_table_qr_acked_event_ids_v1";
 const IDLE_POLL_MS = [3000, 5000, 10000, 15000] as const;
 const SEEN_EVENT_LIMIT = 300;
 
@@ -40,6 +41,30 @@ function trimSeenSet(seen: Set<string>) {
     const first = seen.values().next().value as string | undefined;
     if (!first) break;
     seen.delete(first);
+  }
+}
+
+function readAcknowledgedEventIds(): Set<string> {
+  try {
+    const raw = window.sessionStorage.getItem(ACKED_EVENT_IDS_KEY);
+    if (!raw) return new Set();
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) return new Set();
+    const ids = parsed.filter((value): value is string => typeof value === "string" && value.length > 0);
+    return new Set(ids.slice(-SEEN_EVENT_LIMIT));
+  } catch {
+    return new Set();
+  }
+}
+
+function persistAcknowledgedEventId(id: string) {
+  try {
+    const ids = readAcknowledgedEventIds();
+    ids.add(id);
+    trimSeenSet(ids);
+    window.sessionStorage.setItem(ACKED_EVENT_IDS_KEY, JSON.stringify(Array.from(ids)));
+  } catch {
+    // Session persistence is best-effort; in-memory dedupe remains active.
   }
 }
 
@@ -113,6 +138,11 @@ export function PosTableQrGlobalAlert({ lang }: { lang: Language }) {
   }, [persistServiceAck]);
 
   const acknowledge = useCallback((current: ActivityEvent, action: AckAction) => {
+    // Mark the exact event before navigation/remount so an inclusive cursor cannot replay it.
+    seenEventIdsRef.current.add(current.id);
+    trimSeenSet(seenEventIdsRef.current);
+    persistAcknowledgedEventId(current.id);
+
     // Optimistic UI: dismiss locally first so the button always responds immediately.
     setPendingEvents((queue) => queue.filter((row) => row.id !== current.id));
 
@@ -131,6 +161,7 @@ export function PosTableQrGlobalAlert({ lang }: { lang: Language }) {
   }, [event?.id, playAlert]);
 
   useEffect(() => {
+    seenEventIdsRef.current = readAcknowledgedEventIds();
     try {
       cursorRef.current = sessionStorage.getItem(CURSOR_KEY) || new Date().toISOString();
     } catch {
