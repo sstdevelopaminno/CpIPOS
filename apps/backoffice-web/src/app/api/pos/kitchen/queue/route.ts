@@ -10,7 +10,7 @@ import {
 
 export async function GET(req: Request) {
   try {
-    const auth = await getKitchenApiAuthContext();
+    const auth = await getKitchenApiAuthContext({ requiredPermission: "sales:view" });
     const { searchParams } = new URL(req.url);
     const statusParams = searchParams
       .getAll("status")
