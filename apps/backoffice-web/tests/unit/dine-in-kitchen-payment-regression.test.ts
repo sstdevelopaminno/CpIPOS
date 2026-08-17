@@ -14,13 +14,20 @@ const migration = readFileSync(
 );
 
 describe("dine-in Kitchen + checkout regression contract", () => {
-  it("allows zero quantity only for an existing line transitioning to cancelled", () => {
+  it("allows zero quantity only for an immutable existing line transitioning to cancelled", () => {
     expect(migration).toContain("new.quantity is null or new.quantity < 0");
     expect(migration).toContain("new.quantity = 0");
     expect(migration).toContain("tg_op <> 'UPDATE'");
     expect(migration).toContain("old.quantity <= 0");
     expect(migration).toContain("new.metadata->>'bill_line_state'");
     expect(migration).toContain("<> 'cancelled'");
+    expect(migration).toContain("new.tenant_id is distinct from old.tenant_id");
+    expect(migration).toContain("new.branch_id is distinct from old.branch_id");
+    expect(migration).toContain("new.order_id is distinct from old.order_id");
+    expect(migration).toContain("new.product_id is distinct from old.product_id");
+    expect(migration).toContain("new.unit_price is distinct from old.unit_price");
+    expect(migration).toContain("new.line_total := 0;");
+    expect(migration).toContain("return new;");
   });
 
   it("keeps the existing payment-review flow behind a successful order submit", () => {
