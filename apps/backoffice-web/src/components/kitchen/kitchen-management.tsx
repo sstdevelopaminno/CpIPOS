@@ -71,6 +71,7 @@ export function KitchenManagement({ lang }: { lang: Language }) {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [kdsSavingIds, setKdsSavingIds] = useState<Set<string>>(() => new Set());
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -99,8 +100,8 @@ export function KitchenManagement({ lang }: { lang: Language }) {
     return () => window.clearTimeout(timer);
   }, [message]);
 
-  async function load() {
-    setLoading(true);
+  async function load(options: { silent?: boolean } = {}) {
+    if (!options.silent) setLoading(true);
     try {
       const response = await fetch("/api/pos/kitchen/config", { cache: "no-store" });
       const body = await response.json().catch(() => null);
@@ -110,7 +111,7 @@ export function KitchenManagement({ lang }: { lang: Language }) {
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : "Kitchen config failed");
     } finally {
-      setLoading(false);
+      if (!options.silent) setLoading(false);
     }
   }
 
@@ -157,6 +158,46 @@ export function KitchenManagement({ lang }: { lang: Language }) {
     });
   }
 
+  async function toggleKds(zone: Zone) {
+    if (kdsSavingIds.has(zone.id)) return;
+    const nextEnabled = !zone.kds_enabled;
+    setKdsSavingIds((current) => new Set(current).add(zone.id));
+    setError(null);
+    setConfig((current) => current ? {
+      ...current,
+      zones: current.zones.map((row) => row.id === zone.id ? { ...row, kds_enabled: nextEnabled } : row)
+    } : current);
+    try {
+      const response = await fetch("/api/pos/kitchen/config", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "zone.kds", zone_id: zone.id, kds_enabled: nextEnabled })
+      });
+      const body = await response.json().catch(() => null);
+      if (!response.ok || !body?.data?.zone) throw new Error(body?.error?.message ?? "Kitchen KDS update failed");
+      setConfig((current) => current ? {
+        ...current,
+        zones: current.zones.map((row) => row.id === zone.id ? { ...row, kds_enabled: Boolean(body.data.zone.kds_enabled) } : row)
+      } : current);
+      if (form.zone_id === zone.id) {
+        setForm((current) => ({ ...current, kds_enabled: Boolean(body.data.zone.kds_enabled) }));
+      }
+      setMessage(nextEnabled ? text(lang, "เปิดระบบจอครัวแล้ว", "Kitchen display enabled") : text(lang, "ปิดระบบจอครัวแล้ว", "Kitchen display disabled"));
+    } catch (toggleError) {
+      setConfig((current) => current ? {
+        ...current,
+        zones: current.zones.map((row) => row.id === zone.id ? { ...row, kds_enabled: zone.kds_enabled } : row)
+      } : current);
+      setError(toggleError instanceof Error ? toggleError.message : "Kitchen KDS update failed");
+    } finally {
+      setKdsSavingIds((current) => {
+        const next = new Set(current);
+        next.delete(zone.id);
+        return next;
+      });
+    }
+  }
+
   async function saveZone() {
     if (saving) return;
     const zoneName = form.zone_name.trim();
@@ -189,7 +230,7 @@ export function KitchenManagement({ lang }: { lang: Language }) {
       setForm(emptyForm);
       setDrawerOpen(false);
       setMessage(text(lang, "บันทึกโซนครัวสำเร็จ", "Kitchen zone saved"));
-      await load();
+      await load({ silent: true });
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : "Kitchen zone save failed");
     } finally {
@@ -210,7 +251,7 @@ export function KitchenManagement({ lang }: { lang: Language }) {
       const body = await response.json().catch(() => null);
       if (!response.ok) throw new Error(body?.error?.message ?? "Kitchen zone disable failed");
       setMessage(text(lang, "ปิดใช้งานโซนครัวแล้ว", "Kitchen zone disabled"));
-      await load();
+      await load({ silent: true });
     } catch (disableError) {
       setError(disableError instanceof Error ? disableError.message : "Kitchen zone disable failed");
     } finally {
@@ -231,7 +272,7 @@ export function KitchenManagement({ lang }: { lang: Language }) {
       const body = await response.json().catch(() => null);
       if (!response.ok) throw new Error(body?.error?.message ?? "Access code rotation failed");
       setMessage(text(lang, "เปลี่ยน Kitchen ID แล้ว", "Kitchen ID rotated"));
-      await load();
+      await load({ silent: true });
     } catch (rotateError) {
       setError(rotateError instanceof Error ? rotateError.message : "Access code rotation failed");
     } finally {
@@ -285,13 +326,24 @@ export function KitchenManagement({ lang }: { lang: Language }) {
                   <tr><td colSpan={9} className="px-3 py-12 text-center font-bold text-slate-500">{text(lang, "ยังไม่มีโซนครัว", "No kitchen zones")}</td></tr>
                 ) : (config?.zones ?? []).map((zone) => {
                   const printer = config?.kitchen_printers.find((item) => item.id === zone.default_printer_id);
+                  const kdsSaving = kdsSavingIds.has(zone.id);
                   return (
                     <tr key={zone.id} className="border-b border-slate-100">
                       <td className="px-3 py-3 font-mono font-black">{zone.access_code ?? "-"}</td>
                       <td className="px-3 py-3 font-bold">{zone.zone_name}</td>
                       <td className="px-3 py-3 font-mono">{zone.zone_code}</td>
                       <td className="px-3 py-3">{(categoriesByZone.get(zone.id) ?? []).join(", ") || "-"}</td>
-                      <td className="px-3 py-3">{zone.kds_enabled ? "ON" : "OFF"}</td>
+                      <td className="px-3 py-3">
+                        <label className="inline-flex cursor-pointer items-center gap-2 font-bold">
+                          <input
+                            type="checkbox"
+                            checked={zone.kds_enabled}
+                            disabled={kdsSaving || !zone.is_active}
+                            onChange={() => void toggleKds(zone)}
+                          />
+                          <span>{kdsSaving ? text(lang, "กำลังบันทึก...", "Saving...") : zone.kds_enabled ? "ON" : "OFF"}</span>
+                        </label>
+                      </td>
                       <td className="px-3 py-3">{printer ? `${printer.printer_name} (${printer.paper_width_mm}mm)` : "-"}</td>
                       <td className="px-3 py-3">{zone.is_active ? text(lang, "เปิด", "Active") : text(lang, "ปิด", "Inactive")}</td>
                       <td className="px-3 py-3"><button type="button" onClick={() => editZone(zone)} className="rounded-md border border-slate-300 px-3 py-1.5 font-bold">{text(lang, "แก้ไข", "Edit")}</button></td>
