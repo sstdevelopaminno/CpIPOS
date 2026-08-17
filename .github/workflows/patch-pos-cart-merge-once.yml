@@ -1,0 +1,44 @@
+name: Patch POS cart merge once
+
+on:
+  push:
+    branches:
+      - fix/receipt-kitchen-print-ui-lag-20260817
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/receipt-kitchen-print-ui-lag-20260817
+          fetch-depth: 0
+      - name: Prevent server refresh from doubling dine-in cart
+        shell: python
+        run: |
+          from pathlib import Path
+
+          path = Path("apps/backoffice-web/src/components/pos/pos-sales-module.tsx")
+          text = path.read_text(encoding="utf-8")
+          old = """    const committedQtyByKey = new Map<string, number>();
+              for (const item of committedBaseline) {
+          """
+          if old not in text:
+              raise SystemExit("cart merge target not found")
+          new = """    const committedQtyByKey = new Map<string, number>();
+              const baselineItems = committedBaseline.length > 0 ? committedBaseline : serverItems;
+              for (const item of baselineItems) {
+          """
+          path.write_text(text.replace(old, new, 1), encoding="utf-8")
+      - name: Commit cart merge fix
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add apps/backoffice-web/src/components/pos/pos-sales-module.tsx
+          git diff --cached --quiet && exit 0
+          git commit -m "fix(pos): prevent table refresh from doubling dine-in cart"
+          git push origin HEAD:fix/receipt-kitchen-print-ui-lag-20260817
