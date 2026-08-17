@@ -6,4 +6,6 @@ The implementation deliberately does not globally increase idle polling. It redu
 
 Payment-notice layout changes tighten only the whitespace between the final total summary and the QR container; the QR image is not cropped and its quiet zone is preserved.
 
-Android native-runtime changes ship as version 1.0.11 (versionCode 17) while minSdk remains 26.
+Android native-runtime changes ship as version 1.0.11 (versionCode 17) while minSdk remains 26. The PR Android gate has already passed print unit tests, version consistency, stable signing validation, signed release assembly, APK certificate verification, and artifact upload for the new native wake implementation.
+
+The web CI gate is rerun after the scoped request-method TypeScript fix so typecheck, lint, unit tests, both schema-drift checks, and the production-mode web build validate the final PR head before merge.
