@@ -610,3 +610,11 @@ ORDER BY p.name;
 - This addresses Android/LANDI POS displays where layout viewport and visible viewport differ and the modal appeared shifted right/down.
 - Shift timing, continue/close/logout behavior, authorization, cash validation, and shift API semantics are unchanged.
 
+## 2026-08-17 — print latency / drawer / payment notice stability
+
+- Production evidence showed queue-to-claim delays up to ~6.4s while the physical cash-drawer command itself took ~9–18ms. Receipt native rendering/USB was ~1.8–2.2s and payment-notice QR rendering/USB ~2.8–3.3s.
+- Server empty-claim suppression is reduced from 1500ms to 250ms; Android idle polling remains adaptive at 1/2/3 seconds to avoid increasing background load.
+- Android 1.0.11 adds a narrow `CpiposPrint.notifyPrintQueued()` wake bridge with a 350ms bounded retry, serialized on the existing single-thread print executor. minSdk remains 26.
+- Cash-drawer queue jobs are claimed before heavier receipt jobs when both are pending; tenant/branch/printer assignment/lease rules are unchanged.
+- Payment QR data is prefetched/cached while visible, and payment-notice QR spacing is tightened without cropping or removing the QR quiet zone.
+

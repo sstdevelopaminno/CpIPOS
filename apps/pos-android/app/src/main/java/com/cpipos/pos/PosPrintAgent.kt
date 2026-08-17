@@ -3,6 +3,7 @@ package com.cpipos.pos
 import android.content.Context
 import android.os.Build
 import android.os.SystemClock
+import android.webkit.JavascriptInterface
 import org.json.JSONArray
 import org.json.JSONObject
 import java.net.HttpURLConnection
@@ -69,6 +70,31 @@ class PosPrintAgent(
         .put("idle_backoff_seconds", IDLE_BACKOFF_SECONDS[idleBackoffIndex.coerceIn(0, IDLE_BACKOFF_SECONDS.lastIndex)])
         .put("heartbeat_interval_seconds", HEARTBEAT_INTERVAL_SECONDS)
         .put("supported_transports", JSONArray(listOf("lan", "usb", "bluetooth")))
+
+    @JavascriptInterface
+    fun notifyPrintQueued() {
+        if (!started.get()) return
+        idleBackoffIndex = 0
+        scheduleWakeClaim(0L)
+        scheduleWakeClaim(WAKE_RETRY_DELAY_MS)
+    }
+
+    private fun scheduleWakeClaim(delayMs: Long) {
+        val service = executor ?: return
+        if (!started.get() || service.isShutdown) return
+        runCatching {
+            service.schedule({
+                if (!started.get()) return@schedule
+                val claimedJobs = runCatching { tick() }.getOrElse { error ->
+                    lastError = error.message ?: error::class.java.simpleName
+                    0
+                }
+                if (claimedJobs > 0) idleBackoffIndex = 0
+            }, delayMs.coerceAtLeast(0L), TimeUnit.MILLISECONDS)
+        }.onFailure { error ->
+            if (started.get()) lastError = error.message ?: "print_agent_wake_schedule_failed"
+        }
+    }
 
     private fun scheduleNext(delaySeconds: Long) {
         val service = executor ?: return
@@ -379,6 +405,7 @@ class PosPrintAgent(
         private const val PREF_DEVICE_CODE = "device_code"
         private const val HEARTBEAT_INTERVAL_SECONDS = 45L
         private const val HEARTBEAT_INTERVAL_MS = HEARTBEAT_INTERVAL_SECONDS * 1_000L
+        private const val WAKE_RETRY_DELAY_MS = 350L
         private val IDLE_BACKOFF_SECONDS = longArrayOf(1L, 2L, 3L)
     }
 }

@@ -115,6 +115,7 @@ class MainActivity : ComponentActivity() {
 
         val nativePrintAgent = PosPrintAgent(this, agent.installId)
         printAgent = nativePrintAgent
+        webView.addJavascriptInterface(nativePrintAgent, "CpiposPrint")
 
         webView.webViewClient = object : WebViewClient() {
             override fun shouldOverrideUrlLoading(

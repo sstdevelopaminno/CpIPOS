@@ -34,6 +34,7 @@ import { POS_MODE_FEATURES } from "@/lib/pos-feature-map";
 import { beginPosActionTrace, clearPosTraceEvents, endPosActionTrace, readPosTraceEvents, usePosRenderProfiler } from "@/lib/pos-ui-profiler";
 import { naturalCompareTableCode } from "@/lib/table-management";
 import { cachePosSalesOfflineCatalogSnapshot } from "@/lib/pos-offline-catalog-snapshot";
+import { wakeNativePrintAgent } from "@/lib/native-print-wake";
 
 type Lang = "th" | "en";
 type QuickMode = "home" | "dine_in" | "delivery" | "buffet_table";
@@ -1667,6 +1668,16 @@ async function fetchJsonWithTimeout<TBody extends ApiErrorBody>(
           statusCode: response.status,
           errorCode
         });
+      }
+      if (response.ok && method === "POST") {
+        const requestUrl = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+        if (
+          requestUrl.includes("/api/pos/payments") ||
+          requestUrl.includes("/api/pos/payment-notice") ||
+          requestUrl.includes("/api/pos/cash-drawer/open")
+        ) {
+          wakeNativePrintAgent();
+        }
       }
       return { response, body };
     } catch (error) {
@@ -7351,20 +7362,34 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
     }
   }
 
+  const paymentNoticeQrDataUriCacheRef = useRef(new Map<string, string>());
+
   async function imageSourceToDataUri(source: string): Promise<string> {
     if (source.startsWith("data:image/")) return source;
-    const response = await fetch(source, { cache: "no-store" });
+    const cached = paymentNoticeQrDataUriCacheRef.current.get(source);
+    if (cached) return cached;
+    const response = await fetch(source, { cache: "force-cache" });
     if (!response.ok) throw new Error("payment_notice_qr_fetch_failed");
     const blob = await response.blob();
     if (!blob.type.startsWith("image/")) throw new Error("payment_notice_qr_not_image");
     if (blob.size <= 0 || blob.size > 500_000) throw new Error("payment_notice_qr_invalid_size");
     return await new Promise<string>((resolve, reject) => {
       const reader = new FileReader();
-      reader.onload = () => resolve(String(reader.result ?? ""));
+      reader.onload = () => {
+        const dataUri = String(reader.result ?? "");
+        if (dataUri.startsWith("data:image/")) paymentNoticeQrDataUriCacheRef.current.set(source, dataUri);
+        resolve(dataUri);
+      };
       reader.onerror = () => reject(new Error("payment_notice_qr_read_failed"));
       reader.readAsDataURL(blob);
     });
   }
+
+  useEffect(() => {
+    const source = visibleTransferPaymentMode === "inet_nops" ? inetQrUrl : promptPayQrUrl;
+    if (!source || source.startsWith("data:image/") || paymentNoticeQrDataUriCacheRef.current.has(source)) return;
+    void imageSourceToDataUri(source).catch(() => undefined);
+  }, [inetQrUrl, promptPayQrUrl, visibleTransferPaymentMode]);
 
   async function printTransferPaymentNotice() {
     if (!transferReviewOrder || paymentNoticeSubmitting || transferSubmitting) return;
