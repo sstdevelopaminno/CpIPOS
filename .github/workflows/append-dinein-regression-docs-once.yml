@@ -1,0 +1,60 @@
+name: Append dine-in regression docs once
+
+on:
+  push:
+    branches:
+      - fix/payment-popup-dinein-kitchen-20260817
+    paths:
+      - .github/workflows/append-dinein-regression-docs-once.yml
+
+permissions:
+  contents: write
+
+jobs:
+  append-docs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/payment-popup-dinein-kitchen-20260817
+          fetch-depth: 0
+
+      - name: Append README and context checkpoint
+        shell: bash
+        run: |
+          set -euo pipefail
+          marker='Dine-in Kitchen + payment popup regression fix — 2026-08-17'
+          if ! grep -Fq "$marker" README.md; then
+            cat >> README.md <<'EOF'
+
+## Dine-in Kitchen + payment popup regression fix — 2026-08-17
+
+- Production evidence showed repeated `POST /api/pos/sales` 500 responses matching Postgres `INVALID_ITEM_QTY` during dine-in POS edits/checkout.
+- Root cause was a database contract collision: `replace_queued_dine_in_order_tx` intentionally marks removed dine-in lines `quantity = 0` with `metadata.bill_line_state = cancelled` before Kitchen cancel routing, while the catalog-price trigger rejected every quantity `<= 0`.
+- Migration `202608170003_fix_dine_in_cancelled_item_quantity.sql` preserves null/negative rejection and permits zero only when an existing positive order-item is explicitly transitioning to the cancelled state. Trial mirror: `202608170003_trial_fix_dine_in_cancelled_item_quantity.sql`.
+- Payment review sequencing, the existing 5-second dine-in Kitchen auto-send debounce, Kitchen routing/printing, Android runtime, stock policy, and payment semantics are unchanged.
+- Regression coverage locks the cancellation guard plus the existing checkout and dine-in Kitchen auto-send contracts.
+EOF
+          fi
+
+          if ! grep -Fq "$marker" context.md; then
+            cat >> context.md <<'EOF'
+
+## Dine-in Kitchen + payment popup regression fix — 2026-08-17
+
+- Production `/api/pos/sales` POST 500s during the reported test window correlated one-for-one with CpiPOS-001 Postgres `INVALID_ITEM_QTY` errors.
+- `app.replace_queued_dine_in_order_tx` uses `quantity = 0` + `metadata.bill_line_state = cancelled` as its internal state transition for removed dine-in lines before creating Kitchen cancel deltas. `trg_order_items_enforce_catalog_price` previously rejected that valid transition before the transaction could finish.
+- Primary migration `supabase/migrations/202608170003_fix_dine_in_cancelled_item_quantity.sql` and Trial mirror `supabase/trial-data-plane/migrations/202608170003_trial_fix_dine_in_cancelled_item_quantity.sql` allow zero only for UPDATE of an existing positive line explicitly entering the cancelled state. Null, negative, new zero-quantity lines, and normal catalog-price tampering remain blocked.
+- This is intentionally narrow: no payment semantics, modal close behavior, Kitchen debounce/routing, print-agent behavior, Android runtime, tenant/branch/session authorization, or unrelated POS flow was changed.
+- The payment review remains created only after `submitOrder` succeeds; removing the DB abort restores the existing payment popup flow without adding a second modal state machine.
+EOF
+          fi
+
+          if git diff --quiet -- README.md context.md; then
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add README.md context.md
+          git commit -m 'docs: record dine-in Kitchen and checkout regression fix'
+          git push origin HEAD:fix/payment-popup-dinein-kitchen-20260817
