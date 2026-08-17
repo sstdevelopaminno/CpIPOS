@@ -57,7 +57,7 @@ type CachedPrinterIds = {
 };
 
 const PRINTER_CONFIG_CACHE_MS = 45_000;
-const EMPTY_CLAIM_BACKOFF_MS = 1_500;
+const EMPTY_CLAIM_BACKOFF_MS = 250;
 const printerIdCache = new Map<string, CachedPrinterIds>();
 const emptyClaimBackoff = new Map<string, number>();
 

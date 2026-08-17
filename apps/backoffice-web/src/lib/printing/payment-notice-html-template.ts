@@ -102,7 +102,9 @@ export function renderPaymentNoticeHtml(input: PaymentNoticeHtmlInput) {
     .col-total { width: ${layout.totalMm}mm; text-align: right; white-space: nowrap; }
     .unit, .foot { font-size: ${paper === 58 ? 10.75 : 11.5}px; }
     .due { margin: 1mm 0; padding: 1mm 0; border-top: 1px solid #000; border-bottom: 1px solid #000; font-size: ${layout.grandPx}px; font-weight: 900; }
-    .qr { width: ${layout.qrMm}mm; height: ${layout.qrMm}mm; object-fit: contain; image-rendering: pixelated; }
+    .due-before-qr { margin-bottom: .2mm; padding-bottom: .55mm; }
+    .qr-wrap { margin: -.7mm 0 0; line-height: 0; }
+    .qr { display: block; width: ${layout.qrMm}mm; height: ${layout.qrMm}mm; margin: 0 auto; object-fit: contain; image-rendering: pixelated; }
     .scan { font-weight: 900; margin-top: .8mm; }
     .hr { border-top: 1px dashed #111; margin: 1.2mm 0; }
   </style>
@@ -126,8 +128,8 @@ export function renderPaymentNoticeHtml(input: PaymentNoticeHtmlInput) {
     <div class="summary-line"><span>ส่วนลด</span><strong>฿${escapeHtml(money(input.discountAmount))}</strong></div>
     ${taxLine}
     <div class="summary-line"><span>ชำระโดย</span><strong>โอนเงิน</strong></div>
-    <div class="summary-line due"><span>ยอดที่ต้องชำระ</span><strong>฿${escapeHtml(money(input.totalAmount))}</strong></div>
-    <div class="center"><img class="qr" src="${escapeHtml(input.qrDataUri)}" alt="Payment QR" /></div>
+    <div class="summary-line due due-before-qr"><span>ยอดที่ต้องชำระ</span><strong>฿${escapeHtml(money(input.totalAmount))}</strong></div>
+    <div class="center qr-wrap"><img class="qr" src="${escapeHtml(input.qrDataUri)}" alt="Payment QR" /></div>
     <div class="center scan">สแกน QR เพื่อชำระเงิน</div>
     <div class="center due">฿${escapeHtml(money(input.totalAmount))}</div>
     <div class="hr"></div>
