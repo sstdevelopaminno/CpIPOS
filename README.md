@@ -368,3 +368,11 @@ Current behavior/security decisions are governed by the latest migrations, CI/te
 - Final PR CI passed TypeScript, lint, 181 tests across 47 test files, both schema drift checks, and the PR production build. Vercel Production deployment `dpl_4KTGs29Xhsk6ZKSMJ9Gw67y5ZAro` reached READY for commit `0d65e49`.
 - Production smoke verification confirmed build-info reports `0d65e49`, `/login/store` responds normally, unauthenticated Kitchen API access fails closed, regular POS sales API requires a POS session, and no 5xx logs were present for the new Production deployment during the verification window.
 - Stability comparison against `e050e8e` found the later pre-PR source delta concentrated in Android/OEM/download artifacts rather than core POS hot paths, so no speculative core rollback was performed. Android 1.0.10/minSdk 26 was not changed by PR #103.
+
+## 2026-08-17 — Android shift popup visual-viewport centering
+
+- The automatic shift-end `ปิดกะ / ต่อกะ` reminder and its close-shift confirmation dialog are centered by a full visual-viewport layer instead of `left:50% / top:50%` transforms.
+- The layer tracks `window.visualViewport` resize/scroll plus window resize/orientation changes, with `innerWidth/innerHeight` fallback for older Android WebViews.
+- This addresses Android/LANDI POS displays where layout viewport and visible viewport differ and the modal appeared shifted right/down.
+- Shift timing, continue/close/logout behavior, authorization, cash validation, and shift API semantics are unchanged.
+

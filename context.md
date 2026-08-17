@@ -602,3 +602,11 @@ ORDER BY p.name;
 - Production smoke checks verified `/login/store`, unauthenticated Kitchen API fail-closed behavior, regular POS sales session enforcement, and no 5xx events for the new Production deployment during the verification window.
 - Stability investigation did not justify rolling core POS back to `e050e8e`: the source delta between that stable checkpoint and pre-Kitchen production was concentrated in Android/OEM/download work, while Production observability still shows request amplification from polling/heartbeats as a separate performance backlog. Do not conflate that backlog with the Kitchen role change.
 - Android POS 1.0.10 and minSdk 26 were not changed by this Kitchen feature.
+
+## 2026-08-17 — Android shift popup visual-viewport centering
+
+- The automatic shift-end `ปิดกะ / ต่อกะ` reminder and its close-shift confirmation dialog are centered by a full visual-viewport layer instead of `left:50% / top:50%` transforms.
+- The layer tracks `window.visualViewport` resize/scroll plus window resize/orientation changes, with `innerWidth/innerHeight` fallback for older Android WebViews.
+- This addresses Android/LANDI POS displays where layout viewport and visible viewport differ and the modal appeared shifted right/down.
+- Shift timing, continue/close/logout behavior, authorization, cash validation, and shift API semantics are unchanged.
+

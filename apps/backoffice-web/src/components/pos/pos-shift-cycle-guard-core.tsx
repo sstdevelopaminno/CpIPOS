@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import {
   resolveShiftCycle,
   resolveShiftGuardPhase,
@@ -39,6 +39,26 @@ type ApiBody = {
 
 const POS_SESSION_EVENT_NAME = "pos-session-current-updated";
 const SHIFT_MUTATION_TIMEOUT_MS = 60_000;
+
+type VisualViewportFrame = {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+};
+
+function readVisualViewportFrame(): VisualViewportFrame {
+  const viewport = window.visualViewport;
+  if (viewport) {
+    return {
+      left: viewport.offsetLeft,
+      top: viewport.offsetTop,
+      width: viewport.width,
+      height: viewport.height
+    };
+  }
+  return { left: 0, top: 0, width: window.innerWidth, height: window.innerHeight };
+}
 
 function formatDateTime(value: string, lang: Lang) {
   const d = new Date(value);
@@ -140,6 +160,7 @@ export function PosShiftCycleGuard({ lang }: { lang: Lang }) {
   const [showCloseModal, setShowCloseModal] = useState(false);
   const [closingCash, setClosingCash] = useState("");
   const [managerPin, setManagerPin] = useState("");
+  const [visualViewportFrame, setVisualViewportFrame] = useState<VisualViewportFrame | null>(null);
   const autoCloseRunRef = useRef<string | null>(null);
   const loadStateInFlightRef = useRef(false);
 
@@ -228,6 +249,30 @@ export function PosShiftCycleGuard({ lang }: { lang: Lang }) {
     const timeout = window.setTimeout(() => setError(null), 4200);
     return () => window.clearTimeout(timeout);
   }, [error]);
+
+  useEffect(() => {
+    let animationFrame = 0;
+    const viewport = window.visualViewport;
+    const updateViewportFrame = () => {
+      window.cancelAnimationFrame(animationFrame);
+      animationFrame = window.requestAnimationFrame(() => {
+        setVisualViewportFrame(readVisualViewportFrame());
+      });
+    };
+
+    updateViewportFrame();
+    window.addEventListener("resize", updateViewportFrame);
+    window.addEventListener("orientationchange", updateViewportFrame);
+    viewport?.addEventListener("resize", updateViewportFrame);
+    viewport?.addEventListener("scroll", updateViewportFrame);
+    return () => {
+      window.cancelAnimationFrame(animationFrame);
+      window.removeEventListener("resize", updateViewportFrame);
+      window.removeEventListener("orientationchange", updateViewportFrame);
+      viewport?.removeEventListener("resize", updateViewportFrame);
+      viewport?.removeEventListener("scroll", updateViewportFrame);
+    };
+  }, []);
 
   const cycle = useMemo(() => (shift ? resolveShiftCycle(shift.opened_at) : null), [shift]);
 
@@ -518,11 +563,22 @@ export function PosShiftCycleGuard({ lang }: { lang: Lang }) {
       : !closingCashIsValid || Math.abs(cashVariance) < 0.01
       ? copy.balanced
       : `${cashVariance < 0 ? copy.short : copy.over} ${formatMoney(Math.abs(cashVariance), lang)}`;
+  const visualViewportStyle: CSSProperties = visualViewportFrame
+    ? {
+        left: visualViewportFrame.left,
+        top: visualViewportFrame.top,
+        width: visualViewportFrame.width,
+        height: visualViewportFrame.height
+      }
+    : { inset: 0 };
 
   return (
     <>
-      <div className="fixed inset-0 z-[95] bg-slate-950/45 backdrop-blur-[2px]" />
-      <section className="fixed left-1/2 top-1/2 z-[100] w-[min(560px,92vw)] -translate-x-1/2 -translate-y-1/2 rounded-3xl border border-slate-200 bg-white p-5 shadow-2xl">
+      <div
+        className="fixed z-[95] grid place-items-center overflow-y-auto bg-slate-950/45 p-4 backdrop-blur-[2px]"
+        style={visualViewportStyle}
+      >
+      <section className="relative z-[100] max-h-full w-[min(560px,100%)] overflow-y-auto rounded-3xl border border-slate-200 bg-white p-5 shadow-2xl">
         <div className="flex items-start justify-between gap-3">
           <div>
             <h3 className="text-xl font-black text-slate-900">{copy.title}</h3>
@@ -572,7 +628,7 @@ export function PosShiftCycleGuard({ lang }: { lang: Lang }) {
         ) : null}
 
         {error ? (
-          <div className="fixed left-1/2 top-5 z-[130] w-[min(480px,calc(100vw-28px))] -translate-x-1/2 rounded-2xl border border-rose-200 bg-white px-4 py-3 text-sm font-semibold text-rose-700 shadow-2xl shift-close-toast" role="status" aria-live="polite">
+          <div className="absolute left-1/2 top-4 z-[130] w-[min(480px,calc(100%-24px))] -translate-x-1/2 rounded-2xl border border-rose-200 bg-white px-4 py-3 text-sm font-semibold text-rose-700 shadow-2xl shift-close-toast" role="status" aria-live="polite">
             <strong className="block text-rose-800">แจ้งเตือน</strong>
             <span className="mt-1 block">{error}</span>
           </div>
@@ -624,9 +680,14 @@ export function PosShiftCycleGuard({ lang }: { lang: Lang }) {
           </button>
         </div>
       </section>
+      </div>
 
       {showCloseModal ? (
-        <section className="fixed left-1/2 top-1/2 z-[110] w-[min(460px,92vw)] -translate-x-1/2 -translate-y-1/2 rounded-2xl border border-slate-200 bg-white p-5 shadow-2xl">
+        <div
+          className="fixed z-[105] grid place-items-center overflow-y-auto bg-slate-950/30 p-4"
+          style={visualViewportStyle}
+        >
+          <section className="relative z-[110] max-h-full w-[min(460px,100%)] overflow-y-auto rounded-2xl border border-slate-200 bg-white p-5 shadow-2xl">
           <h4 className="text-lg font-black text-slate-900">{busy === "close" ? copy.closingProgress : copy.closeNowTitle}</h4>
           <p className="mt-1 text-sm text-slate-600">{copy.closeNowDesc}</p>
           {busy === "close" ? (
@@ -718,7 +779,8 @@ export function PosShiftCycleGuard({ lang }: { lang: Lang }) {
               {busy === "close" ? copy.closingProgress : copy.confirmClose}
             </button>
           </div>
-        </section>
+          </section>
+        </div>
       ) : null}
       <style jsx>{`
         .shift-close-toast {
