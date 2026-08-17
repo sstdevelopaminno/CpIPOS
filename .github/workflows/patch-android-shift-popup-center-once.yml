@@ -1,0 +1,108 @@
+name: Patch Android shift popup center once
+
+on:
+  push:
+    branches:
+      - fix/android-shift-popup-center-20260817
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/android-shift-popup-center-20260817
+          fetch-depth: 0
+
+      - name: Patch shift popup visual viewport centering
+        shell: python
+        run: |
+          from pathlib import Path
+
+          path = Path("apps/backoffice-web/src/components/pos/pos-shift-cycle-guard-core.tsx")
+          text = path.read_text(encoding="utf-8")
+
+          old_import = 'import { useCallback, useEffect, useMemo, useRef, useState } from "react";'
+          new_import = 'import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";'
+          if old_import not in text:
+              raise SystemExit("React import target not found")
+          text = text.replace(old_import, new_import, 1)
+
+          old_const = 'const SHIFT_MUTATION_TIMEOUT_MS = 60_000;\n'
+          helper = '''const SHIFT_MUTATION_TIMEOUT_MS = 60_000;\n\ntype VisualViewportFrame = {\n  left: number;\n  top: number;\n  width: number;\n  height: number;\n};\n\nfunction readVisualViewportFrame(): VisualViewportFrame {\n  const viewport = window.visualViewport;\n  if (viewport) {\n    return {\n      left: viewport.offsetLeft,\n      top: viewport.offsetTop,\n      width: viewport.width,\n      height: viewport.height\n    };\n  }\n  return { left: 0, top: 0, width: window.innerWidth, height: window.innerHeight };\n}\n'''
+          if old_const not in text:
+              raise SystemExit("shift timeout constant target not found")
+          text = text.replace(old_const, helper, 1)
+
+          old_state = '  const [managerPin, setManagerPin] = useState("");\n  const autoCloseRunRef = useRef<string | null>(null);'
+          new_state = '  const [managerPin, setManagerPin] = useState("");\n  const [visualViewportFrame, setVisualViewportFrame] = useState<VisualViewportFrame | null>(null);\n  const autoCloseRunRef = useRef<string | null>(null);'
+          if old_state not in text:
+              raise SystemExit("viewport state insertion target not found")
+          text = text.replace(old_state, new_state, 1)
+
+          old_error_effect = '''  useEffect(() => {\n    if (!error) return;\n    const timeout = window.setTimeout(() => setError(null), 4200);\n    return () => window.clearTimeout(timeout);\n  }, [error]);\n'''
+          new_effect = '''  useEffect(() => {\n    if (!error) return;\n    const timeout = window.setTimeout(() => setError(null), 4200);\n    return () => window.clearTimeout(timeout);\n  }, [error]);\n\n  useEffect(() => {\n    let animationFrame = 0;\n    const viewport = window.visualViewport;\n    const updateViewportFrame = () => {\n      window.cancelAnimationFrame(animationFrame);\n      animationFrame = window.requestAnimationFrame(() => {\n        setVisualViewportFrame(readVisualViewportFrame());\n      });\n    };\n\n    updateViewportFrame();\n    window.addEventListener("resize", updateViewportFrame);\n    window.addEventListener("orientationchange", updateViewportFrame);\n    viewport?.addEventListener("resize", updateViewportFrame);\n    viewport?.addEventListener("scroll", updateViewportFrame);\n    return () => {\n      window.cancelAnimationFrame(animationFrame);\n      window.removeEventListener("resize", updateViewportFrame);\n      window.removeEventListener("orientationchange", updateViewportFrame);\n      viewport?.removeEventListener("resize", updateViewportFrame);\n      viewport?.removeEventListener("scroll", updateViewportFrame);\n    };\n  }, []);\n'''
+          if old_error_effect not in text:
+              raise SystemExit("viewport effect insertion target not found")
+          text = text.replace(old_error_effect, new_effect, 1)
+
+          style_anchor = '''  const cashStatusText =\n    !hasClosingCashInput\n      ? copy.waitingCashInput\n      : !closingCashIsValid || Math.abs(cashVariance) < 0.01\n      ? copy.balanced\n      : `${cashVariance < 0 ? copy.short : copy.over} ${formatMoney(Math.abs(cashVariance), lang)}`;\n\n  return (\n'''
+          style_replacement = '''  const cashStatusText =\n    !hasClosingCashInput\n      ? copy.waitingCashInput\n      : !closingCashIsValid || Math.abs(cashVariance) < 0.01\n      ? copy.balanced\n      : `${cashVariance < 0 ? copy.short : copy.over} ${formatMoney(Math.abs(cashVariance), lang)}`;\n  const visualViewportStyle: CSSProperties = visualViewportFrame\n    ? {\n        left: visualViewportFrame.left,\n        top: visualViewportFrame.top,\n        width: visualViewportFrame.width,\n        height: visualViewportFrame.height\n      }\n    : { inset: 0 };\n\n  return (\n'''
+          if style_anchor not in text:
+              raise SystemExit("visual viewport style target not found")
+          text = text.replace(style_anchor, style_replacement, 1)
+
+          old_main = '''      <div className="fixed inset-0 z-[95] bg-slate-950/45 backdrop-blur-[2px]" />\n      <section className="fixed left-1/2 top-1/2 z-[100] w-[min(560px,92vw)] -translate-x-1/2 -translate-y-1/2 rounded-3xl border border-slate-200 bg-white p-5 shadow-2xl">'''
+          new_main = '''      <div\n        className="fixed z-[95] grid place-items-center overflow-y-auto bg-slate-950/45 p-4 backdrop-blur-[2px]"\n        style={visualViewportStyle}\n      >\n      <section className="relative z-[100] max-h-full w-[min(560px,100%)] overflow-y-auto rounded-3xl border border-slate-200 bg-white p-5 shadow-2xl">'''
+          if old_main not in text:
+              raise SystemExit("main shift popup target not found")
+          text = text.replace(old_main, new_main, 1)
+
+          text = text.replace(
+              'className="fixed left-1/2 top-5 z-[130] w-[min(480px,calc(100vw-28px))] -translate-x-1/2 rounded-2xl border border-rose-200 bg-white px-4 py-3 text-sm font-semibold text-rose-700 shadow-2xl shift-close-toast"',
+              'className="absolute left-1/2 top-4 z-[130] w-[min(480px,calc(100%-24px))] -translate-x-1/2 rounded-2xl border border-rose-200 bg-white px-4 py-3 text-sm font-semibold text-rose-700 shadow-2xl shift-close-toast"',
+              1
+          )
+
+          old_close_open = '''      </section>\n\n      {showCloseModal ? (\n        <section className="fixed left-1/2 top-1/2 z-[110] w-[min(460px,92vw)] -translate-x-1/2 -translate-y-1/2 rounded-2xl border border-slate-200 bg-white p-5 shadow-2xl">'''
+          new_close_open = '''      </section>\n      </div>\n\n      {showCloseModal ? (\n        <div\n          className="fixed z-[105] grid place-items-center overflow-y-auto bg-slate-950/30 p-4"\n          style={visualViewportStyle}\n        >\n          <section className="relative z-[110] max-h-full w-[min(460px,100%)] overflow-y-auto rounded-2xl border border-slate-200 bg-white p-5 shadow-2xl">'''
+          if old_close_open not in text:
+              raise SystemExit("close popup open target not found")
+          text = text.replace(old_close_open, new_close_open, 1)
+
+          old_close_end = '''        </section>\n      ) : null}\n      <style jsx>{`'''
+          new_close_end = '''          </section>\n        </div>\n      ) : null}\n      <style jsx>{`'''
+          if old_close_end not in text:
+              raise SystemExit("close popup end target not found")
+          text = text.replace(old_close_end, new_close_end, 1)
+
+          path.write_text(text, encoding="utf-8")
+
+          test = Path("apps/backoffice-web/tests/unit/shift-cycle-guard-visual-viewport-contract.test.ts")
+          test.write_text('''import { describe, expect, it } from "vitest";\nimport { readFileSync } from "node:fs";\nimport { resolve } from "node:path";\n\nconst source = readFileSync(resolve(process.cwd(), "src/components/pos/pos-shift-cycle-guard-core.tsx"), "utf8");\n\ndescribe("shift cycle guard Android viewport contract", () => {\n  it("centers both shift dialogs inside the visual viewport layer", () => {\n    expect(source).toContain("window.visualViewport");\n    expect(source).toContain("grid place-items-center overflow-y-auto");\n    expect(source).toContain("style={visualViewportStyle}");\n    expect(source).not.toContain('section className="fixed left-1/2 top-1/2');\n  });\n\n  it("tracks viewport resize, scroll and orientation changes", () => {\n    expect(source).toContain('viewport?.addEventListener("resize", updateViewportFrame)');\n    expect(source).toContain('viewport?.addEventListener("scroll", updateViewportFrame)');\n    expect(source).toContain('window.addEventListener("orientationchange", updateViewportFrame)');\n  });\n});\n''', encoding="utf-8")
+
+          marker = "## 2026-08-17 — Android shift popup visual-viewport centering"
+          block = '''\n\n## 2026-08-17 — Android shift popup visual-viewport centering\n\n- The automatic shift-end `ปิดกะ / ต่อกะ` reminder and its close-shift confirmation dialog are centered by a full visual-viewport layer instead of `left:50% / top:50%` transforms.\n- The layer tracks `window.visualViewport` resize/scroll plus window resize/orientation changes, with `innerWidth/innerHeight` fallback for older Android WebViews.\n- This addresses Android/LANDI POS displays where layout viewport and visible viewport differ and the modal appeared shifted right/down.\n- Shift timing, continue/close/logout behavior, authorization, cash validation, and shift API semantics are unchanged.\n'''
+          for name in ("README.md", "context.md"):
+              doc = Path(name)
+              current = doc.read_text(encoding="utf-8")
+              if marker not in current:
+                  doc.write_text(current.rstrip() + block + "\n", encoding="utf-8")
+
+          Path(".github/workflows/patch-android-shift-popup-center-once.yml").unlink()
+
+      - name: Commit Android popup fix
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add apps/backoffice-web/src/components/pos/pos-shift-cycle-guard-core.tsx \
+                  apps/backoffice-web/tests/unit/shift-cycle-guard-visual-viewport-contract.test.ts \
+                  README.md context.md \
+                  .github/workflows/patch-android-shift-popup-center-once.yml
+          git diff --cached --quiet && exit 0
+          git commit -m "fix(pos): center shift dialogs in Android visual viewport"
+          git push origin HEAD:fix/android-shift-popup-center-20260817
