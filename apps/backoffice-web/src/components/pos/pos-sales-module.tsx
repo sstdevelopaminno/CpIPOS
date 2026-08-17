@@ -4317,7 +4317,7 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
       if (disposed || document.visibilityState !== "visible") return;
       void fetchPosTablesRef.current({ timeoutMs: 8000, retries: 0, silent: true }).catch(() => undefined);
     };
-    const interval = window.setInterval(refreshTables, tableBrowserOpen ? 3000 : 3500);
+    const interval = window.setInterval(refreshTables, tableBrowserOpen ? 5000 : 7000);
     window.addEventListener("focus", refreshTables);
     return () => {
       disposed = true;
