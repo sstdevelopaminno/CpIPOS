@@ -1,0 +1,35 @@
+name: Verify Android shift popup structure once
+
+on:
+  push:
+    branches:
+      - fix/android-shift-popup-center-20260817
+
+permissions:
+  contents: write
+
+jobs:
+  verify-structure:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/android-shift-popup-center-20260817
+      - name: Verify source contract before PR
+        shell: bash
+        run: |
+          set -euo pipefail
+          file=apps/backoffice-web/src/components/pos/pos-shift-cycle-guard-core.tsx
+          grep -F 'window.visualViewport' "$file"
+          test "$(grep -Fc 'style={visualViewportStyle}' "$file")" -eq 2
+          test "$(grep -Fc 'grid place-items-center overflow-y-auto' "$file")" -eq 2
+          ! grep -F 'section className="fixed left-1/2 top-1/2' "$file"
+      - name: Remove verifier and commit
+        run: |
+          rm .github/workflows/verify-android-shift-popup-structure-once.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .github/workflows/verify-android-shift-popup-structure-once.yml
+          git commit -m "chore: remove temporary shift popup verifier"
+          git push origin HEAD:fix/android-shift-popup-center-20260817
