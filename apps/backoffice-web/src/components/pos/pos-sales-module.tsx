@@ -2869,7 +2869,8 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
     if (committedBaseline.length === 0 && serverItems.length === 0) return cloneCartItems(localDraft);
 
     const committedQtyByKey = new Map<string, number>();
-    for (const item of committedBaseline) {
+    const baselineItems = committedBaseline.length > 0 ? committedBaseline : serverItems;
+    for (const item of baselineItems) {
       const key = buildCartMergeKey(item);
       committedQtyByKey.set(key, (committedQtyByKey.get(key) ?? 0) + Number(item.quantity ?? 0));
     }
