@@ -618,3 +618,12 @@ ORDER BY p.name;
 - Cash-drawer queue jobs are claimed before heavier receipt jobs when both are pending; tenant/branch/printer assignment/lease rules are unchanged.
 - Payment QR data is prefetched/cached while visible, and payment-notice QR spacing is tightened without cropping or removing the QR quiet zone.
 
+
+
+## Dine-in Kitchen + payment popup regression fix — 2026-08-17
+
+- Production `/api/pos/sales` POST 500s in the reported test window correlated with CpiPOS-001 `INVALID_ITEM_QTY` errors. `replace_queued_dine_in_order_tx` intentionally transitions removed dine-in lines to `quantity = 0` + `metadata.bill_line_state = cancelled` before Kitchen cancel routing, but the catalog-price trigger rejected all zero quantities.
+- Primary/Trial migration `202608170003` now permits zero only for UPDATE of an existing positive line explicitly entering `cancelled`, while tenant, branch, order, product and historical unit price must remain unchanged. Normal positive lines keep catalog-price enforcement; null/negative/ordinary zero remain blocked.
+- A second dine-in-specific issue was confirmed in `PosDineInCommitResetBoundary`: successful auto-send remounted `PosEntryGate`, which could tear down a payment modal opened at the same time. The boundary now clears persisted snapshots without remounting the live POS.
+- The payment review is still created only after `submitOrder` succeeds. The 5-second dine-in Kitchen auto-send cadence, transactional Kitchen/print routing, Android runtime, payment API semantics, session/shift gates and non-dine-in flows are unchanged.
+- Regression coverage locks the DB cancellation guard, checkout sequencing, Kitchen debounce and no-remount contract.

@@ -384,3 +384,12 @@ Current behavior/security decisions are governed by the latest migrations, CI/te
 - Cash-drawer queue jobs are claimed before heavier receipt jobs when both are pending; tenant/branch/printer assignment/lease rules are unchanged.
 - Payment QR data is prefetched/cached while visible, and payment-notice QR spacing is tightened without cropping or removing the QR quiet zone.
 
+
+
+## Dine-in Kitchen + payment popup regression fix — 2026-08-17
+
+- Production evidence showed repeated `POST /api/pos/sales` 500 responses matching Postgres `INVALID_ITEM_QTY` during dine-in POS edits/checkout.
+- Root causes were isolated to the dine-in path: the order-item quantity trigger rejected the intentional cancelled-line `quantity = 0` transition, and successful Kitchen auto-send remounted the POS entry boundary which could unmount an in-progress payment modal.
+- Primary migration `202608170003_fix_dine_in_cancelled_item_quantity.sql` and Trial mirror permit zero only for an existing positive line explicitly entering `cancelled`, while preserving tenant/branch/order/product/unit-price identity. Null, negative and ordinary zero quantities remain rejected.
+- Successful dine-in Kitchen auto-send now clears only persisted draft/active-order snapshots; the live POS component remains mounted, preserving checkout/payment modal state.
+- Existing 5-second dine-in Kitchen auto-send debounce, payment API semantics, Kitchen/printer routing, Android runtime, shift/session and tenant/branch authorization are unchanged.
