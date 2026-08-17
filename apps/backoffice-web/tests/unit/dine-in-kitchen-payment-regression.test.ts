@@ -4,6 +4,10 @@ import { resolve } from "node:path";
 
 const workspaceRoot = resolve(process.cwd(), "../..");
 const salesModule = readFileSync(resolve(process.cwd(), "src/components/pos/pos-sales-module.tsx"), "utf8");
+const commitBoundary = readFileSync(
+  resolve(process.cwd(), "src/components/pos/pos-dine-in-commit-reset-boundary.tsx"),
+  "utf8"
+);
 const migration = readFileSync(
   resolve(workspaceRoot, "supabase/migrations/202608170003_fix_dine_in_cancelled_item_quantity.sql"),
   "utf8"
@@ -30,5 +34,13 @@ describe("dine-in Kitchen + checkout regression contract", () => {
     expect(salesModule).toContain("if (orderType !== \"dine_in\"");
     expect(salesModule).toContain("void autoSendDineInKitchenOrder();");
     expect(salesModule).toContain("}, 5000);");
+  });
+
+  it("clears committed persistence without remounting the live POS after Kitchen auto-send", () => {
+    expect(commitBoundary).toContain("window.localStorage.removeItem(ACTIVE_ORDER_KEY);");
+    expect(commitBoundary).not.toContain("setEpoch(");
+    expect(commitBoundary).not.toContain("key={epoch}");
+    expect(commitBoundary).not.toContain("SKIP_ENTRY_GATE_SPLASH_KEY");
+    expect(commitBoundary).toContain("<PosEntryGate lang={lang} />");
   });
 });
