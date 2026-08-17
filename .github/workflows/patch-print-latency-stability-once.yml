@@ -1,0 +1,149 @@
+name: Patch print latency and stability once
+
+on:
+  push:
+    branches:
+      - fix/print-latency-receipt-spacing-stability-20260817
+    paths:
+      - .github/workflows/patch-print-latency-stability-once.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/print-latency-receipt-spacing-stability-20260817
+          fetch-depth: 0
+      - name: Apply evidence-backed print latency fixes
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          def replace_once(path: str, old: str, new: str):
+              p = Path(path)
+              text = p.read_text()
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f"{path}: expected exactly one match, got {count}: {old[:120]!r}")
+              p.write_text(text.replace(old, new, 1))
+
+          # Server-side empty-claim suppression must not mask a just-enqueued job for 1.5s.
+          replace_once(
+              "apps/backoffice-web/src/lib/printing/print-agent-claim-stabilized.ts",
+              "const EMPTY_CLAIM_BACKOFF_MS = 1_500;",
+              "const EMPTY_CLAIM_BACKOFF_MS = 250;"
+          )
+
+          # Payment notice: preserve QR quiet zone, but remove layout/baseline whitespace above it.
+          replace_once(
+              "apps/backoffice-web/src/lib/printing/payment-notice-html-template.ts",
+              "    .due { margin: 1mm 0; padding: 1mm 0; border-top: 1px solid #000; border-bottom: 1px solid #000; font-size: ${layout.grandPx}px; font-weight: 900; }\n    .qr { width: ${layout.qrMm}mm; height: ${layout.qrMm}mm; object-fit: contain; image-rendering: pixelated; }",
+              "    .due { margin: 1mm 0; padding: 1mm 0; border-top: 1px solid #000; border-bottom: 1px solid #000; font-size: ${layout.grandPx}px; font-weight: 900; }\n    .due-before-qr { margin-bottom: .2mm; padding-bottom: .55mm; }\n    .qr-wrap { margin: -.7mm 0 0; line-height: 0; }\n    .qr { display: block; width: ${layout.qrMm}mm; height: ${layout.qrMm}mm; margin: 0 auto; object-fit: contain; image-rendering: pixelated; }"
+          )
+          replace_once(
+              "apps/backoffice-web/src/lib/printing/payment-notice-html-template.ts",
+              "    <div class=\"summary-line due\"><span>ยอดที่ต้องชำระ</span><strong>฿${escapeHtml(money(input.totalAmount))}</strong></div>\n    <div class=\"center\"><img class=\"qr\" src=\"${escapeHtml(input.qrDataUri)}\" alt=\"Payment QR\" /></div>",
+              "    <div class=\"summary-line due due-before-qr\"><span>ยอดที่ต้องชำระ</span><strong>฿${escapeHtml(money(input.totalAmount))}</strong></div>\n    <div class=\"center qr-wrap\"><img class=\"qr\" src=\"${escapeHtml(input.qrDataUri)}\" alt=\"Payment QR\" /></div>"
+          )
+
+          # Add a client-safe native print wake bridge helper.
+          helper = Path("apps/backoffice-web/src/lib/native-print-wake.ts")
+          if helper.exists():
+              raise SystemExit(f"{helper}: already exists")
+          helper.write_text('''type NativePrintBridge = {\n  notifyPrintQueued?: () => void;\n};\n\ntype WindowWithNativePrint = Window & {\n  CpiposPrint?: NativePrintBridge;\n};\n\nexport function wakeNativePrintAgent(): void {\n  if (typeof window === "undefined") return;\n  try {\n    (window as WindowWithNativePrint).CpiposPrint?.notifyPrintQueued?.();\n  } catch {\n    // Browser/PWA and older Android builds do not expose the native bridge.\n  }\n}\n''')
+
+          # Wake the Android native worker after queue-producing POS POSTs complete.
+          replace_once(
+              "apps/backoffice-web/src/components/pos/pos-sales-module.tsx",
+              'import { cachePosSalesOfflineCatalogSnapshot } from "@/lib/pos-offline-catalog-snapshot";',
+              'import { cachePosSalesOfflineCatalogSnapshot } from "@/lib/pos-offline-catalog-snapshot";\nimport { wakeNativePrintAgent } from "@/lib/native-print-wake";'
+          )
+          replace_once(
+              "apps/backoffice-web/src/components/pos/pos-sales-module.tsx",
+              "      return { response, body };",
+              '''      if (response.ok && method === "POST") {\n        const requestUrl = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;\n        if (\n          requestUrl.includes("/api/pos/payments") ||\n          requestUrl.includes("/api/pos/payment-notice") ||\n          requestUrl.includes("/api/pos/cash-drawer/open")\n        ) {\n          wakeNativePrintAgent();\n        }\n      }\n      return { response, body };'''
+          )
+
+          # Cache QR data URI and prefetch while the payment QR is visible, so Print does not begin with a fetch+FileReader round trip.
+          replace_once(
+              "apps/backoffice-web/src/components/pos/pos-sales-module.tsx",
+              '''  async function imageSourceToDataUri(source: string): Promise<string> {\n    if (source.startsWith("data:image/")) return source;\n    const response = await fetch(source, { cache: "no-store" });''',
+              '''  const paymentNoticeQrDataUriCacheRef = useRef(new Map<string, string>());\n\n  async function imageSourceToDataUri(source: string): Promise<string> {\n    if (source.startsWith("data:image/")) return source;\n    const cached = paymentNoticeQrDataUriCacheRef.current.get(source);\n    if (cached) return cached;\n    const response = await fetch(source, { cache: "force-cache" });'''
+          )
+          replace_once(
+              "apps/backoffice-web/src/components/pos/pos-sales-module.tsx",
+              '''      reader.onload = () => resolve(String(reader.result ?? ""));\n      reader.onerror = () => reject(new Error("payment_notice_qr_read_failed"));\n      reader.readAsDataURL(blob);\n    });\n  }\n\n  async function printTransferPaymentNotice() {''',
+              '''      reader.onload = () => {\n        const dataUri = String(reader.result ?? "");\n        if (dataUri.startsWith("data:image/")) paymentNoticeQrDataUriCacheRef.current.set(source, dataUri);\n        resolve(dataUri);\n      };\n      reader.onerror = () => reject(new Error("payment_notice_qr_read_failed"));\n      reader.readAsDataURL(blob);\n    });\n  }\n\n  useEffect(() => {\n    const source = visibleTransferPaymentMode === "inet_nops" ? inetQrUrl : promptPayQrUrl;\n    if (!source || source.startsWith("data:image/") || paymentNoticeQrDataUriCacheRef.current.has(source)) return;\n    void imageSourceToDataUri(source).catch(() => undefined);\n  }, [inetQrUrl, promptPayQrUrl, visibleTransferPaymentMode]);\n\n  async function printTransferPaymentNotice() {'''
+          )
+
+          # Android: native event wake. The executor is single-threaded, so wake ticks cannot overlap physical printing.
+          replace_once(
+              "apps/pos-android/app/src/main/java/com/cpipos/pos/PosPrintAgent.kt",
+              "import android.os.SystemClock\n",
+              "import android.os.SystemClock\nimport android.webkit.JavascriptInterface\n"
+          )
+          replace_once(
+              "apps/pos-android/app/src/main/java/com/cpipos/pos/PosPrintAgent.kt",
+              '''        .put("supported_transports", JSONArray(listOf("lan", "usb", "bluetooth")))\n\n    private fun scheduleNext(delaySeconds: Long) {''',
+              '''        .put("supported_transports", JSONArray(listOf("lan", "usb", "bluetooth")))\n\n    @JavascriptInterface\n    fun notifyPrintQueued() {\n        if (!started.get()) return\n        idleBackoffIndex = 0\n        scheduleWakeClaim(0L)\n        scheduleWakeClaim(WAKE_RETRY_DELAY_MS)\n    }\n\n    private fun scheduleWakeClaim(delayMs: Long) {\n        val service = executor ?: return\n        if (!started.get() || service.isShutdown) return\n        runCatching {\n            service.schedule({\n                if (!started.get()) return@schedule\n                val claimedJobs = runCatching { tick() }.getOrElse { error ->\n                    lastError = error.message ?: error::class.java.simpleName\n                    0\n                }\n                if (claimedJobs > 0) idleBackoffIndex = 0\n            }, delayMs.coerceAtLeast(0L), TimeUnit.MILLISECONDS)\n        }.onFailure { error ->\n            if (started.get()) lastError = error.message ?: "print_agent_wake_schedule_failed"\n        }\n    }\n\n    private fun scheduleNext(delaySeconds: Long) {'''
+          )
+          replace_once(
+              "apps/pos-android/app/src/main/java/com/cpipos/pos/PosPrintAgent.kt",
+              "        private const val HEARTBEAT_INTERVAL_MS = HEARTBEAT_INTERVAL_SECONDS * 1_000L\n        private val IDLE_BACKOFF_SECONDS = longArrayOf(1L, 2L, 3L)",
+              "        private const val HEARTBEAT_INTERVAL_MS = HEARTBEAT_INTERVAL_SECONDS * 1_000L\n        private const val WAKE_RETRY_DELAY_MS = 350L\n        private val IDLE_BACKOFF_SECONDS = longArrayOf(1L, 2L, 3L)"
+          )
+
+          # Expose only the narrow wake method to the CpIPOS WebView. It cannot enqueue/print arbitrary payloads.
+          replace_once(
+              "apps/pos-android/app/src/main/java/com/cpipos/pos/MainActivity.kt",
+              '''        val nativePrintAgent = PosPrintAgent(this, agent.installId)\n        printAgent = nativePrintAgent\n\n        webView.webViewClient = object : WebViewClient() {''',
+              '''        val nativePrintAgent = PosPrintAgent(this, agent.installId)\n        printAgent = nativePrintAgent\n        webView.addJavascriptInterface(nativePrintAgent, "CpiposPrint")\n\n        webView.webViewClient = object : WebViewClient() {'''
+          )
+
+          # Native runtime change gets a new app release. minSdk remains 26.
+          replace_once(
+              "apps/pos-android/app/build.gradle.kts",
+              '''        versionCode = 16\n        versionName = "1.0.10"''',
+              '''        versionCode = 17\n        versionName = "1.0.11"'''
+          )
+
+          # Preserve the latest Kitchen assignment compatibility function and change only claim ordering.
+          latest_claim = Path("supabase/migrations/20260815092511_kitchen_claim_assignment_compat_and_stale_quarantine.sql").read_text()
+          start = latest_claim.index("create or replace function app.claim_print_jobs_v2(")
+          end_marker = "\n$function$;"
+          end = latest_claim.index(end_marker, start) + len(end_marker)
+          claim_fn = latest_claim[start:end]
+          order_old = "    order by pj.created_at, pj.id"
+          if claim_fn.count(order_old) != 1:
+              raise SystemExit("latest claim function ordering anchor changed")
+          order_new = '''    order by\n      case when coalesce(pj.metadata->>'command', '') = 'open_cash_drawer' then 0 else 1 end,\n      pj.created_at,\n      pj.id'''
+          claim_fn = claim_fn.replace(order_old, order_new, 1)
+          migration = Path("supabase/migrations/202608170002_prioritize_cash_drawer_print_claim.sql")
+          if migration.exists():
+              raise SystemExit(f"{migration}: already exists")
+          migration.write_text('''-- Reduce perceived checkout latency without weakening print lease/tenant/device rules.\n-- Preserve the current Kitchen assignment compatibility logic; only prioritize cash-drawer\n-- pulse jobs ahead of heavier receipt raster jobs when both are already claimable.\n\n''' + claim_fn + '''\n\nrevoke all on function app.claim_print_jobs_v2(uuid,uuid,uuid,uuid[],integer,integer) from public, anon, authenticated;\ngrant execute on function app.claim_print_jobs_v2(uuid,uuid,uuid,uuid[],integer,integer) to service_role;\n''')
+
+          # Regression contracts run in the existing backoffice Vitest suite.
+          tests = Path("apps/backoffice-web/tests/unit/print-latency-stability-contract.test.ts")
+          tests.write_text('''import { describe, expect, it } from "vitest";\nimport { readFileSync } from "node:fs";\nimport { resolve } from "node:path";\n\nconst root = resolve(process.cwd(), "../..");\nconst claim = readFileSync(resolve(process.cwd(), "src/lib/printing/print-agent-claim-stabilized.ts"), "utf8");\nconst notice = readFileSync(resolve(process.cwd(), "src/lib/printing/payment-notice-html-template.ts"), "utf8");\nconst sales = readFileSync(resolve(process.cwd(), "src/components/pos/pos-sales-module.tsx"), "utf8");\nconst agent = readFileSync(resolve(root, "apps/pos-android/app/src/main/java/com/cpipos/pos/PosPrintAgent.kt"), "utf8");\nconst main = readFileSync(resolve(root, "apps/pos-android/app/src/main/java/com/cpipos/pos/MainActivity.kt"), "utf8");\nconst gradle = readFileSync(resolve(root, "apps/pos-android/app/build.gradle.kts"), "utf8");\nconst migration = readFileSync(resolve(root, "supabase/migrations/202608170002_prioritize_cash_drawer_print_claim.sql"), "utf8");\n\ndescribe("print latency stability contract", () => {\n  it("keeps idle polling adaptive while allowing a fresh job through server suppression quickly", () => {\n    expect(claim).toContain("const EMPTY_CLAIM_BACKOFF_MS = 250;");\n    expect(agent).toContain("longArrayOf(1L, 2L, 3L)");\n  });\n\n  it("wakes the single-thread Android print worker after queue-producing POS calls", () => {\n    expect(sales).toContain("wakeNativePrintAgent()");\n    expect(main).toContain('addJavascriptInterface(nativePrintAgent, "CpiposPrint")');\n    expect(agent).toContain("fun notifyPrintQueued()");\n    expect(agent).toContain("WAKE_RETRY_DELAY_MS = 350L");\n  });\n\n  it("prefetches payment QR data and tightens only the QR layout gap", () => {\n    expect(sales).toContain("paymentNoticeQrDataUriCacheRef");\n    expect(sales).toContain('cache: "force-cache"');\n    expect(notice).toContain(".due-before-qr");\n    expect(notice).toContain(".qr-wrap");\n    expect(notice).toContain("display: block");\n  });\n\n  it("prioritizes drawer pulse claims without lowering Android compatibility", () => {\n    expect(migration).toContain("open_cash_drawer' then 0 else 1");\n    expect(gradle).toContain("minSdk = 26");\n    expect(gradle).toContain('versionName = "1.0.11"');\n    expect(gradle).toContain("versionCode = 17");\n  });\n});\n''')
+
+          # Documentation handoff.
+          note = '''\n\n## 2026-08-17 — print latency / drawer / payment notice stability\n\n- Production evidence showed queue-to-claim delays up to ~6.4s while the physical cash-drawer command itself took ~9–18ms. Receipt native rendering/USB was ~1.8–2.2s and payment-notice QR rendering/USB ~2.8–3.3s.\n- Server empty-claim suppression is reduced from 1500ms to 250ms; Android idle polling remains adaptive at 1/2/3 seconds to avoid increasing background load.\n- Android 1.0.11 adds a narrow `CpiposPrint.notifyPrintQueued()` wake bridge with a 350ms bounded retry, serialized on the existing single-thread print executor. minSdk remains 26.\n- Cash-drawer queue jobs are claimed before heavier receipt jobs when both are pending; tenant/branch/printer assignment/lease rules are unchanged.\n- Payment QR data is prefetched/cached while visible, and payment-notice QR spacing is tightened without cropping or removing the QR quiet zone.\n'''
+          for doc in (Path("README.md"), Path("context.md")):
+              doc.write_text(doc.read_text().rstrip() + note + "\n")
+          Path("docs/PRINT-LATENCY-STABILITY-2026-08-17.md").write_text('''# Print latency and stability — 2026-08-17\n\nProduction print-job timing showed the main click-to-action delay before claim, not in the drawer pulse itself. This change therefore keeps idle polling conservative and adds a bounded native wake only after queue-producing POS actions.\n\nChanges: server empty-claim suppression 1500ms → 250ms; Android native print wake (0ms + 350ms retry); cash-drawer claim priority; payment QR data prefetch/cache; tighter payment-notice QR spacing; Android runtime version 1.0.11 with minSdk 26 unchanged.\n\nSecurity and routing contracts remain unchanged: the browser bridge only wakes the existing authenticated native agent and cannot submit print payloads; database claim scope still requires tenant, branch, agent, eligible printer assignment, retry and lease checks.\n''')
+          PY
+      - name: Remove one-time workflow
+        run: rm .github/workflows/patch-print-latency-stability-once.yml
+      - name: Commit patch
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "fix(print): reduce claim latency and prioritize drawer wake"
+          git push origin HEAD:fix/print-latency-receipt-spacing-stability-20260817
