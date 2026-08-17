@@ -31,7 +31,6 @@ type TableBillResponse = {
 const DINE_IN_DRAFT_KEY = "pos_dine_in_draft_v001";
 const DINE_IN_SELECTED_TABLE_KEY = "pos_dine_in_selected_table_v001";
 const ACTIVE_ORDER_KEY = "pos_active_order_v001";
-const SKIP_ENTRY_GATE_SPLASH_KEY = "pos_skip_entry_gate_overlay_once_v1";
 const KITCHEN_RETURN_MARKER_KEY = "pos_returning_from_kitchen_v1";
 const AUTO_SEND_KEY_PREFIX = "pos-dine-kitchen-";
 
@@ -177,17 +176,14 @@ function clearCommittedDineInDraft(tableId: string | null) {
     }
   }
 
-  // Force the remounted POS to rebuild the active order and committed cart baseline
-  // from the authoritative table-bill API instead of a stale local snapshot.
+  // Drop the persisted active-order snapshot after a successful auto-send. The mounted POS
+  // keeps its live state, while any later reload rebuilds from the authoritative table-bill API.
   window.localStorage.removeItem(ACTIVE_ORDER_KEY);
-  window.sessionStorage.setItem(SKIP_ENTRY_GATE_SPLASH_KEY, "1");
 }
 
 export function PosDineInCommitResetBoundary({ lang }: { lang: Lang }) {
-  const [epoch, setEpoch] = useState(0);
   const [entryReady, setEntryReady] = useState(false);
   const lastResetKeyRef = useRef<string>("");
-  const resetTimerRef = useRef<number | null>(null);
 
   useEffect(() => {
     const originalFetch = window.fetch.bind(window);
@@ -222,24 +218,11 @@ export function PosDineInCommitResetBoundary({ lang }: { lang: Lang }) {
       lastResetKeyRef.current = idempotencyKey;
       const tableId = typeof body?.table_id === "string" && body.table_id.trim() ? body.table_id.trim() : null;
       clearCommittedDineInDraft(tableId);
-
-      if (resetTimerRef.current !== null) {
-        window.clearTimeout(resetTimerRef.current);
-      }
-      resetTimerRef.current = window.setTimeout(() => {
-        resetTimerRef.current = null;
-        setEpoch((current) => current + 1);
-      }, 0);
-
       return response;
     };
 
     return () => {
       window.fetch = originalFetch;
-      if (resetTimerRef.current !== null) {
-        window.clearTimeout(resetTimerRef.current);
-        resetTimerRef.current = null;
-      }
     };
   }, []);
 
@@ -256,7 +239,7 @@ export function PosDineInCommitResetBoundary({ lang }: { lang: Lang }) {
   if (!entryReady) return null;
   return (
     <>
-      <PosEntryGate key={epoch} lang={lang} />
+      <PosEntryGate lang={lang} />
       <PosSalesModePreferenceEnhancer lang={lang} />
       <PosInitialSalesModeController />
     </>
