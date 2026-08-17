@@ -2869,7 +2869,8 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
     if (committedBaseline.length === 0 && serverItems.length === 0) return cloneCartItems(localDraft);
 
     const committedQtyByKey = new Map<string, number>();
-    for (const item of committedBaseline) {
+    const baselineItems = committedBaseline.length > 0 ? committedBaseline : serverItems;
+    for (const item of baselineItems) {
       const key = buildCartMergeKey(item);
       committedQtyByKey.set(key, (committedQtyByKey.get(key) ?? 0) + Number(item.quantity ?? 0));
     }
@@ -4316,7 +4317,7 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
       if (disposed || document.visibilityState !== "visible") return;
       void fetchPosTablesRef.current({ timeoutMs: 8000, retries: 0, silent: true }).catch(() => undefined);
     };
-    const interval = window.setInterval(refreshTables, tableBrowserOpen ? 3000 : 3500);
+    const interval = window.setInterval(refreshTables, tableBrowserOpen ? 5000 : 7000);
     window.addEventListener("focus", refreshTables);
     return () => {
       disposed = true;

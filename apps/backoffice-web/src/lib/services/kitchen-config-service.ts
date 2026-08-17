@@ -29,6 +29,12 @@ type ZoneUpsertInput = {
   category_names?: string[];
 };
 
+type ZoneKdsInput = {
+  action: "zone.kds";
+  zone_id: string;
+  kds_enabled: boolean;
+};
+
 type ZonePrinterInput = {
   action: "zone.printer";
   zone_id: string;
@@ -53,7 +59,25 @@ type RoutesReplaceInput = {
   category_name?: string | null;
 };
 
-export type KitchenConfigMutation = ZoneUpsertInput | ZonePrinterInput | ZoneDisableInput | ZoneRotateCodeInput | RoutesReplaceInput;
+export type KitchenConfigMutation =
+  | ZoneUpsertInput
+  | ZoneKdsInput
+  | ZonePrinterInput
+  | ZoneDisableInput
+  | ZoneRotateCodeInput
+  | RoutesReplaceInput;
+
+type KitchenPrinterCandidate = {
+  id: string;
+  printer_name: string;
+  printer_role?: string | null;
+  connection_type?: string | null;
+  ip_address?: string | null;
+  port?: number | null;
+  paper_width_mm: 58 | 80;
+  enabled: boolean;
+  metadata?: unknown;
+};
 
 function requireScope(auth: AuthContext) {
   if (!auth.tenantId || !auth.branchId) {
@@ -98,20 +122,34 @@ function uniqueCategories(values: string[] | undefined) {
   return Array.from(new Set((values ?? []).map((value) => value.trim()).filter(Boolean)));
 }
 
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
+}
+
+export function isKitchenCapablePrinter(printer: Pick<KitchenPrinterCandidate, "printer_role" | "metadata">) {
+  if (printer.printer_role === "kitchen") return true;
+  const metadata = asRecord(printer.metadata);
+  const capabilities = asRecord(metadata.capabilities);
+  if (capabilities.kitchen === true) return true;
+  const printFunctions = Array.isArray(metadata.print_functions) ? metadata.print_functions : [];
+  return printFunctions.some((item) => String(item).trim().toLowerCase() === "kitchen");
+}
+
 async function requireKitchenPrinter(args: { tenantId: string; branchId: string; printerId: string }) {
   const supabase = getSupabaseServiceClient();
   const { data, error } = await supabase
     .from("printer_profiles")
-    .select("id,printer_name,connection_type,paper_width_mm,enabled")
+    .select("id,printer_name,printer_role,connection_type,paper_width_mm,enabled,metadata")
     .eq("tenant_id", args.tenantId)
     .eq("branch_id", args.branchId)
     .eq("id", args.printerId)
-    .eq("printer_role", "kitchen")
     .eq("enabled", true)
-    .maybeSingle();
+    .maybeSingle<KitchenPrinterCandidate>();
 
   if (error) throw new KitchenConfigError("printer_query_failed", error.message, 500);
-  if (!data) throw new KitchenConfigError("invalid_kitchen_printer", "The selected printer is not an enabled Kitchen printer in this branch.", 422);
+  if (!data || !isKitchenCapablePrinter(data)) {
+    throw new KitchenConfigError("invalid_kitchen_printer", "The selected printer is not an enabled Kitchen-capable printer in this branch.", 422);
+  }
   return data;
 }
 
@@ -135,6 +173,7 @@ async function syncZonePrinterAssignment(args: { tenantId: string; branchId: str
     .eq("branch_id", args.branchId)
     .eq("printer_profile_id", args.printerId)
     .eq("is_active", true)
+    .limit(1)
     .maybeSingle();
   if (deviceError) throw new KitchenConfigError("kitchen_printer_device_query_failed", deviceError.message, 500);
   if (!device) return;
@@ -224,6 +263,7 @@ async function selectKitchenZones(args: { tenantId: string; branchId: string }) 
     error: fallback.error
   };
 }
+
 export async function loadKitchenConfiguration(auth: AuthContext) {
   assertKitchenManager(auth);
   const { tenantId, branchId } = requireScope(auth);
@@ -243,7 +283,6 @@ export async function loadKitchenConfiguration(auth: AuthContext) {
       .select("id,printer_name,printer_role,connection_type,ip_address,port,paper_width_mm,enabled,metadata")
       .eq("tenant_id", tenantId)
       .eq("branch_id", branchId)
-      .eq("printer_role", "kitchen")
       .order("printer_name", { ascending: true }),
     supabase
       .from("products")
@@ -262,11 +301,14 @@ export async function loadKitchenConfiguration(auth: AuthContext) {
   const categories = Array.from(new Set(products.map((product) => String(product.category ?? "").trim()).filter(Boolean))).sort((a, b) =>
     a.localeCompare(b, "th")
   );
+  const kitchenPrinters = ((printersResult.data ?? []) as KitchenPrinterCandidate[]).filter(
+    (printer) => printer.enabled && isKitchenCapablePrinter(printer)
+  );
 
   return {
     zones: zonesResult.data ?? [],
     routing_rules: rulesResult.data ?? [],
-    kitchen_printers: printersResult.data ?? [],
+    kitchen_printers: kitchenPrinters,
     products,
     categories
   };
@@ -301,9 +343,7 @@ export async function mutateKitchenConfiguration(auth: AuthContext, input: Kitch
       ? supabase.from("kitchen_zones").update(payload).eq("tenant_id", tenantId).eq("branch_id", branchId).eq("id", input.zone_id.trim())
       : supabase.from("kitchen_zones").insert({ ...payload, tenant_id: tenantId, branch_id: branchId, created_by: auth.userId });
 
-    const { data, error } = await query
-      .select(KITCHEN_ZONE_SELECT_BASE)
-      .maybeSingle();
+    const { data, error } = await query.select(KITCHEN_ZONE_SELECT_BASE).maybeSingle();
     if (error) throw new KitchenConfigError("kitchen_zone_save_failed", error.message, 500);
     if (!data) throw new KitchenConfigError("kitchen_zone_not_found", "Kitchen zone was not found in this branch.", 404);
 
@@ -327,6 +367,34 @@ export async function mutateKitchenConfiguration(auth: AuthContext, input: Kitch
         default_printer_id: printerId,
         category_names: input.category_names ?? null
       }
+    });
+    return { zone: data };
+  }
+
+  if (input.action === "zone.kds") {
+    const zoneId = input.zone_id.trim();
+    if (!zoneId) throw new KitchenConfigError("invalid_zone_id", "zone_id is required.", 422);
+    const kdsEnabled = input.kds_enabled === true;
+    const { data, error } = await supabase
+      .from("kitchen_zones")
+      .update({ kds_enabled: kdsEnabled, updated_at: new Date().toISOString() })
+      .eq("tenant_id", tenantId)
+      .eq("branch_id", branchId)
+      .eq("id", zoneId)
+      .select("id,zone_code,zone_name,kds_enabled,is_active,default_printer_id")
+      .maybeSingle();
+    if (error) throw new KitchenConfigError("kitchen_kds_update_failed", error.message, 500);
+    if (!data) throw new KitchenConfigError("kitchen_zone_not_found", "Kitchen zone was not found in this branch.", 404);
+
+    void appendAuditLog({
+      tenantId,
+      branchId,
+      actorUserId: auth.userId,
+      actorRole,
+      action: "kitchen_zone_kds_changed",
+      targetTable: "kitchen_zones",
+      targetId: zoneId,
+      metadata: { zone_code: data.zone_code, kds_enabled: data.kds_enabled }
     });
     return { zone: data };
   }

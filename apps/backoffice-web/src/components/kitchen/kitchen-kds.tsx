@@ -35,7 +35,7 @@ type BillGroup = {
   tickets: KitchenTicket[];
 };
 
-const POLL_INTERVAL_MS = 2_000;
+const POLL_INTERVAL_MS = 3_000;
 const SEEN_TICKET_LIMIT = 300;
 const ALERT_EVENT_TYPES = new Set(["new", "add"]);
 const ACTIVE_STATUSES: KitchenStatus[] = ["queued", "acknowledged", "preparing"];
