@@ -1,0 +1,22 @@
+name: Cleanup print latency trigger once
+on:
+  push:
+    branches: [fix/print-latency-receipt-spacing-stability-20260817]
+    paths: [.github/workflows/cleanup-print-latency-trigger-once.yml]
+permissions:
+  contents: write
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/print-latency-receipt-spacing-stability-20260817
+      - run: |
+          rm -f docs/.print-latency-pr-trigger
+          rm -f .github/workflows/cleanup-print-latency-trigger-once.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "chore: remove temporary print latency trigger"
+          git push origin HEAD:fix/print-latency-receipt-spacing-stability-20260817
