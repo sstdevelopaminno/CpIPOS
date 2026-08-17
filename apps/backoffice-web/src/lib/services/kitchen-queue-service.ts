@@ -97,13 +97,12 @@ export async function loadKitchenQueue(args: {
   const rawTicketRows = (tickets ?? []) as unknown as KitchenTicketRow[];
   if (rawTicketRows.length === 0) return emptyKitchenQueue();
 
-  // KDS is a view of live work, not an archive. A terminal POS order must never
-  // reappear after the Kitchen display is re-enabled, even if a legacy ticket
-  // was left in an active status before the database terminal-cleanup trigger existed.
+  // A closed dine-in bill must never reappear after KDS is re-enabled. Keep
+  // takeaway/delivery decoupled because those orders can be paid before cooking finishes.
   const orderIds = Array.from(new Set(rawTicketRows.map((ticket) => ticket.order_id).filter(Boolean)));
   const parentOrdersResult = await supabase
     .from("orders")
-    .select("id,status")
+    .select("id,status,order_type")
     .eq("tenant_id", args.tenantId)
     .eq("branch_id", args.branchId)
     .in("id", orderIds);
@@ -113,7 +112,12 @@ export async function loadKitchenQueue(args: {
 
   const liveOrderIds = new Set(
     (parentOrdersResult.data ?? [])
-      .filter((order) => !TERMINAL_ORDER_STATUSES.has(String((order as { status?: unknown }).status ?? "")))
+      .filter((order) => {
+        const row = order as { status?: unknown; order_type?: unknown };
+        const isClosedDineIn = String(row.order_type ?? "") === "dine_in"
+          && TERMINAL_ORDER_STATUSES.has(String(row.status ?? ""));
+        return !isClosedDineIn;
+      })
       .map((order) => String((order as { id?: unknown }).id ?? ""))
       .filter(Boolean)
   );
