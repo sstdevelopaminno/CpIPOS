@@ -1669,7 +1669,7 @@ async function fetchJsonWithTimeout<TBody extends ApiErrorBody>(
           errorCode
         });
       }
-      if (response.ok && method === "POST") {
+      if (response.ok && String(init.method ?? "GET").toUpperCase() === "POST") {
         const requestUrl = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
         if (
           requestUrl.includes("/api/pos/payments") ||
