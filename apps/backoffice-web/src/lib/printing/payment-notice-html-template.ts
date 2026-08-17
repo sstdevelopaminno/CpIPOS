@@ -102,8 +102,8 @@ export function renderPaymentNoticeHtml(input: PaymentNoticeHtmlInput) {
     .col-total { width: ${layout.totalMm}mm; text-align: right; white-space: nowrap; }
     .unit, .foot { font-size: ${paper === 58 ? 10.75 : 11.5}px; }
     .due { margin: 1mm 0; padding: 1mm 0; border-top: 1px solid #000; border-bottom: 1px solid #000; font-size: ${layout.grandPx}px; font-weight: 900; }
-    .due-before-qr { margin-bottom: .2mm; padding-bottom: .55mm; }
-    .qr-wrap { margin: -.7mm 0 0; line-height: 0; }
+    .due-before-qr { margin-bottom: 1.2mm; padding-bottom: 1mm; }
+    .qr-wrap { margin: 1.2mm 0 1mm; line-height: 0; }
     .qr { display: block; width: ${layout.qrMm}mm; height: ${layout.qrMm}mm; margin: 0 auto; object-fit: contain; image-rendering: pixelated; }
     .scan { font-weight: 900; margin-top: .8mm; }
     .hr { border-top: 1px dashed #111; margin: 1.2mm 0; }
