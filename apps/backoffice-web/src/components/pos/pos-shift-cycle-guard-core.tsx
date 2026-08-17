@@ -628,7 +628,7 @@ export function PosShiftCycleGuard({ lang }: { lang: Lang }) {
         ) : null}
 
         {error ? (
-          <div className="absolute left-1/2 top-4 z-[130] w-[min(480px,calc(100%-24px))] -translate-x-1/2 rounded-2xl border border-rose-200 bg-white px-4 py-3 text-sm font-semibold text-rose-700 shadow-2xl shift-close-toast" role="status" aria-live="polite">
+          <div className="absolute left-1/2 top-4 z-[130] w-[min(480px,100%)] -translate-x-1/2 rounded-2xl border border-rose-200 bg-white px-4 py-3 text-sm font-semibold text-rose-700 shadow-2xl shift-close-toast" role="status" aria-live="polite">
             <strong className="block text-rose-800">แจ้งเตือน</strong>
             <span className="mt-1 block">{error}</span>
           </div>
