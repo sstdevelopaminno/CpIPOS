@@ -7,8 +7,32 @@ import { getSupabaseServiceClient } from "@/lib/supabase-admin";
 export type KitchenTicketStatus = "queued" | "acknowledged" | "preparing" | "ready" | "cancelled";
 
 const VALID_STATUSES = new Set<KitchenTicketStatus>(["queued", "acknowledged", "preparing", "ready", "cancelled"]);
+const TERMINAL_ORDER_STATUSES = new Set(["completed", "cancelled"]);
 const KITCHEN_TICKET_SELECT_WITH_ROUND = "id,order_id,zone_id,event_key,event_type,status,queue_no,round_no,order_no,order_type,table_id,customer_name,order_notes,metadata,created_at,updated_at";
 const KITCHEN_TICKET_SELECT_BASE = "id,order_id,zone_id,event_key,event_type,status,queue_no,order_no,order_type,table_id,customer_name,order_notes,metadata,created_at,updated_at";
+
+type KitchenTicketRow = {
+  id: string;
+  order_id: string;
+  zone_id: string;
+  event_key: string;
+  event_type: string;
+  status: KitchenTicketStatus;
+  queue_no: number | null;
+  round_no: number | null;
+  order_no: string;
+  order_type: string;
+  table_id: string | null;
+  customer_name: string | null;
+  order_notes: string | null;
+  metadata: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+};
+
+function emptyKitchenQueue() {
+  return { tickets: [], summary: { queued: 0, acknowledged: 0, preparing: 0, ready: 0, cancelled: 0 } };
+}
 
 function isMissingRoundNoError(error: { message?: string } | null | undefined) {
   return Boolean(error?.message?.includes("kitchen_tickets.round_no") || error?.message?.includes("round_no does not exist"));
@@ -70,32 +94,35 @@ export async function loadKitchenQueue(args: {
   }
   if (ticketError) throw new KitchenQueueError("kitchen_queue_query_failed", ticketError.message, 500);
 
-  const ticketRows = (tickets ?? []) as unknown as Array<{
-    id: string;
-    order_id: string;
-    zone_id: string;
-    event_key: string;
-    event_type: string;
-    status: KitchenTicketStatus;
-    queue_no: number | null;
-    round_no: number | null;
-    order_no: string;
-    order_type: string;
-    table_id: string | null;
-    customer_name: string | null;
-    order_notes: string | null;
-    metadata: Record<string, unknown>;
-    created_at: string;
-    updated_at: string;
-  }>;
+  const rawTicketRows = (tickets ?? []) as unknown as KitchenTicketRow[];
+  if (rawTicketRows.length === 0) return emptyKitchenQueue();
+
+  // KDS is a view of live work, not an archive. A terminal POS order must never
+  // reappear after the Kitchen display is re-enabled, even if a legacy ticket
+  // was left in an active status before the database terminal-cleanup trigger existed.
+  const orderIds = Array.from(new Set(rawTicketRows.map((ticket) => ticket.order_id).filter(Boolean)));
+  const parentOrdersResult = await supabase
+    .from("orders")
+    .select("id,status")
+    .eq("tenant_id", args.tenantId)
+    .eq("branch_id", args.branchId)
+    .in("id", orderIds);
+  if (parentOrdersResult.error) {
+    throw new KitchenQueueError("kitchen_queue_parent_order_failed", parentOrdersResult.error.message, 500);
+  }
+
+  const liveOrderIds = new Set(
+    (parentOrdersResult.data ?? [])
+      .filter((order) => !TERMINAL_ORDER_STATUSES.has(String((order as { status?: unknown }).status ?? "")))
+      .map((order) => String((order as { id?: unknown }).id ?? ""))
+      .filter(Boolean)
+  );
+  const ticketRows = rawTicketRows.filter((ticket) => liveOrderIds.has(ticket.order_id));
+  if (ticketRows.length === 0) return emptyKitchenQueue();
 
   const ticketIds = ticketRows.map((ticket) => ticket.id);
   const zoneIds = Array.from(new Set(ticketRows.map((ticket) => ticket.zone_id)));
   const tableIds = Array.from(new Set(ticketRows.map((ticket) => ticket.table_id).filter((value): value is string => Boolean(value))));
-
-  if (ticketIds.length === 0) {
-    return { tickets: [], summary: { queued: 0, acknowledged: 0, preparing: 0, ready: 0, cancelled: 0 } };
-  }
 
   const [itemsResult, zonesResult, tablesResult] = await Promise.all([
     supabase
