@@ -29,10 +29,20 @@ export type ReceiptHtmlInput = {
 };
 
 const DEFAULT_RECEIPT_LOGO_URL = "/brand/cpipos-logo.png";
+const RECEIPT_MODE_LABEL_ALIASES: Record<string, string> = {
+  "เธซเธเนเธฒเธเธฒเธข": "หน้าขาย",
+  "เนเธเน€เธชเธฃเนเธเธขเนเธญเธเธซเธฅเธฑเธ": "ใบเสร็จย้อนหลัง"
+};
 
 function clean(value: unknown) {
   const trimmed = String(value ?? "").trim();
   return trimmed ? trimmed : null;
+}
+
+export function normalizeReceiptModeLabel(value: unknown) {
+  const label = clean(value);
+  if (!label) return "หน้าขาย";
+  return RECEIPT_MODE_LABEL_ALIASES[label] ?? label;
 }
 
 function escapeHtml(value: unknown) {
@@ -72,9 +82,11 @@ export function renderReceiptHtml(input: ReceiptHtmlInput) {
   const paper = input.paperWidthMm;
   const layout = paper === 58
     ? { printableMm: 49, basePx: 12.75, titlePx: 16.5, mutedPx: 11.75, metaPx: 12.5, unitPx: 10.75, summaryPx: 12, grandPx: 15.5, footerPx: 11, logoMaxWidthMm: 30, logoMaxHeightMm: 11, qtyMm: 8.5, totalMm: 16.5 }
-    : { printableMm: 70, basePx: 13.5, titlePx: 19, mutedPx: 12.5, metaPx: 13.25, unitPx: 11.5, summaryPx: 12.75, grandPx: 17.5, footerPx: 11.75, logoMaxWidthMm: 42, logoMaxHeightMm: 13, qtyMm: 11, totalMm: 22 };  const logoUrl = clean(input.logoUrl) ?? DEFAULT_RECEIPT_LOGO_URL;
+    : { printableMm: 70, basePx: 13.5, titlePx: 19, mutedPx: 12.5, metaPx: 13.25, unitPx: 11.5, summaryPx: 12.75, grandPx: 17.5, footerPx: 11.75, logoMaxWidthMm: 42, logoMaxHeightMm: 13, qtyMm: 11, totalMm: 22 };
+  const logoUrl = clean(input.logoUrl) ?? DEFAULT_RECEIPT_LOGO_URL;
   const storeName = clean(input.storeName) ?? clean(input.branchName) ?? "CpIPOS";
   const branchName = clean(input.branchName);
+  const modeLabel = normalizeReceiptModeLabel(input.modeLabel);
   const itemRows = input.items.map((item) => `
     <tr>
       <td class="col-name">
@@ -140,7 +152,7 @@ export function renderReceiptHtml(input: ReceiptHtmlInput) {
     ${reprintLine}
     <div class="hr"></div>
     <div class="meta-line"><span>ผู้ขาย</span><span>${escapeHtml(input.sellerName)}</span></div>
-    <div class="meta-line"><span>โหมด</span><span>${escapeHtml(input.modeLabel || "หน้าขาย")}</span></div>
+    <div class="meta-line"><span>โหมด</span><span>${escapeHtml(modeLabel)}</span></div>
     <div class="meta-line"><span>เลขที่บิล</span><span>${escapeHtml(input.orderNo)}</span></div>
     <div class="meta-line"><span>วันที่</span><span>${escapeHtml(dateTime(input.paidAtIso))}</span></div>
     <div class="hr"></div>
