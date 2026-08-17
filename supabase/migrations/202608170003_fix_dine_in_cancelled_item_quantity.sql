@@ -8,7 +8,8 @@
 --
 -- Keep the original quantity and catalog-price protections for every normal
 -- insert/update. Zero quantity is permitted only for an existing positive line
--- that is being transitioned to the explicit cancelled state.
+-- transitioning to the explicit cancelled state without changing its scope,
+-- product, or historical unit price.
 
 create or replace function app.enforce_non_delivery_catalog_unit_price()
 returns trigger
@@ -24,13 +25,24 @@ begin
   end if;
 
   if new.quantity = 0 then
-    if tg_op <> 'UPDATE'
-      or old.quantity is null
+    if tg_op <> 'UPDATE' then
+      raise exception 'INVALID_ITEM_QTY';
+    end if;
+
+    if old.quantity is null
       or old.quantity <= 0
       or coalesce(new.metadata->>'bill_line_state', '') <> 'cancelled'
+      or new.tenant_id is distinct from old.tenant_id
+      or new.branch_id is distinct from old.branch_id
+      or new.order_id is distinct from old.order_id
+      or new.product_id is distinct from old.product_id
+      or new.unit_price is distinct from old.unit_price
     then
       raise exception 'INVALID_ITEM_QTY';
     end if;
+
+    new.line_total := 0;
+    return new;
   end if;
 
   select o.order_type
@@ -57,25 +69,17 @@ begin
   end if;
 
   if v_order_type <> 'delivery_manual'::public.order_type then
-    if new.quantity > 0
-      and (new.unit_price is null or abs(round(new.unit_price::numeric, 2) - round(v_catalog_price::numeric, 2)) > 0.01)
-    then
+    if new.unit_price is null or abs(round(new.unit_price::numeric, 2) - round(v_catalog_price::numeric, 2)) > 0.01 then
       raise exception 'UNTRUSTED_UNIT_PRICE:%', new.product_id;
     end if;
     new.unit_price := round(v_catalog_price::numeric, 2);
-    new.line_total := case
-      when new.quantity = 0 then 0
-      else round(new.unit_price * new.quantity, 2)
-    end;
+    new.line_total := round(new.unit_price * new.quantity, 2);
   else
     if new.unit_price is null or new.unit_price < 0 then
       raise exception 'INVALID_ITEM_UNIT_PRICE';
     end if;
     new.unit_price := round(new.unit_price::numeric, 2);
-    new.line_total := case
-      when new.quantity = 0 then 0
-      else round(new.unit_price * new.quantity, 2)
-    end;
+    new.line_total := round(new.unit_price * new.quantity, 2);
   end if;
 
   return new;
