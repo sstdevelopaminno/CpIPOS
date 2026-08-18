@@ -1,0 +1,8 @@
+-- Operational migration history marker only.
+--
+-- CHAOS-20260819 cleanup removed the synthetic lock-delay helper and removed
+-- the temporary http/dblink extensions from CpiPOS-002. Synthetic tenants and
+-- all cascaded orders/QR/print data were deleted separately and verified zero.
+--
+-- The corresponding enable migrations are no-op markers in source, so fresh
+-- environments already remain in this desired steady state.
