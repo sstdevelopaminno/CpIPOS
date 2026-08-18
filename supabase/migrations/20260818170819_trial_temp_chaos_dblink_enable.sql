@@ -1,0 +1,8 @@
+-- Operational migration history marker only.
+--
+-- CpiPOS-002 temporarily enabled `dblink` while evaluating a safe way to run
+-- separate concurrent database connections for CHAOS-20260819. Managed
+-- Postgres required explicit delegated credentials, so dblink was not used for
+-- the workload and the extension was removed before cleanup completed.
+--
+-- Fresh environments MUST NOT enable dblink for this historical test.
