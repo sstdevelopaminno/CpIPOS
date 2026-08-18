@@ -15,6 +15,13 @@ type KitchenDispatchRow = {
   round_no?: number | null;
 };
 
+type KitchenTicketRow = {
+  id: string;
+  zone_id: string | null;
+  queue_no: number | null;
+  round_no: number | null;
+};
+
 export type KitchenDispatchResult =
   | {
       ok: true;
@@ -30,25 +37,36 @@ export type KitchenDispatchResult =
       message: string;
     };
 
-
 const KITCHEN_PRINT_TICKET_SELECT_WITH_ROUND = "id,zone_id,queue_no,round_no";
 const KITCHEN_PRINT_TICKET_SELECT_BASE = "id,zone_id,queue_no";
 
 function isMissingRoundNoError(error: { message?: string } | null | undefined) {
   return Boolean(error?.message?.includes("kitchen_tickets.round_no") || error?.message?.includes("round_no does not exist"));
 }
-export async function queueMissingKitchenPrintJobsForOrder(args: {
-  auth: AuthContext;
-  orderId: string;
-  runtimeDeviceCode?: string | null;
-}) {
-  if (!args.auth.tenantId || !args.auth.branchId) throw new Error("missing_scope");
+
+function normalizeBranchRole(role?: string | null): AuthContext["branchRole"] {
+  if (role === "owner" || role === "manager" || role === "staff" || role === "accountant") return role;
+  return "staff";
+}
+
+function makePrintAuth(args: { tenantId: string; branchId: string; actorUserId?: string | null; actorRole?: string | null }): AuthContext | null {
+  if (!args.actorUserId) return null;
+  return {
+    userId: args.actorUserId,
+    tenantId: args.tenantId,
+    branchId: args.branchId,
+    branchRole: normalizeBranchRole(args.actorRole),
+    platformRole: "tenant_user"
+  };
+}
+
+async function loadKitchenTicketRowsForOrder(args: { tenantId: string; branchId: string; orderId: string }) {
   const supabase = getRoutedSupabaseServiceClient();
   const ticketQuery = (selectColumns: string) => supabase
     .from("kitchen_tickets")
     .select(selectColumns)
-    .eq("tenant_id", args.auth.tenantId)
-    .eq("branch_id", args.auth.branchId)
+    .eq("tenant_id", args.tenantId)
+    .eq("branch_id", args.branchId)
     .eq("order_id", args.orderId)
     .order("created_at", { ascending: true });
 
@@ -60,10 +78,22 @@ export async function queueMissingKitchenPrintJobsForOrder(args: {
     tickets = ((fallback.data ?? []) as unknown[]).map((ticket) => ({ ...(ticket as Record<string, unknown>), round_no: null }));
     ticketError = fallback.error;
   }
-
   if (ticketError) throw new Error(ticketError.message);
+  return (tickets ?? []) as unknown as KitchenTicketRow[];
+}
 
-  const ticketRows = (tickets ?? []) as unknown as Array<{ id: string; zone_id: string | null; queue_no: number | null; round_no: number | null }>;
+export async function queueMissingKitchenPrintJobsForOrder(args: {
+  auth: AuthContext;
+  orderId: string;
+  runtimeDeviceCode?: string | null;
+}) {
+  if (!args.auth.tenantId || !args.auth.branchId) throw new Error("missing_scope");
+  const supabase = getRoutedSupabaseServiceClient();
+  const ticketRows = await loadKitchenTicketRowsForOrder({
+    tenantId: args.auth.tenantId,
+    branchId: args.auth.branchId,
+    orderId: args.orderId
+  });
   if (ticketRows.length === 0) return { ticketCount: 0, queuedPrintJobCount: 0, skippedExistingPrintJobCount: 0 };
 
   const ticketIds = ticketRows.map((ticket) => ticket.id);
@@ -114,6 +144,7 @@ export async function queueMissingKitchenPrintJobsForOrder(args: {
     skippedExistingPrintJobCount: ticketsWithJobs.size
   };
 }
+
 export async function dispatchOrderToKitchen(args: {
   tenantId: string;
   branchId: string;
@@ -134,13 +165,92 @@ export async function dispatchOrderToKitchen(args: {
     };
   }
 
+  const action = args.action ?? "new";
+  const printAuth = makePrintAuth(args);
+
+  // Order-item insertion already creates Kitchen Tickets atomically in the database.
+  // A later POS/API retry must repair missing print jobs on those authoritative tickets,
+  // not create another ticket batch with a different event key.
+  if (action === "new" && !args.orderItemIds?.length && printAuth) {
+    try {
+      const repair = await queueMissingKitchenPrintJobsForOrder({
+        auth: printAuth,
+        orderId: args.orderId
+      });
+      if (repair.ticketCount > 0) {
+        const existingTickets = await loadKitchenTicketRowsForOrder({
+          tenantId: args.tenantId,
+          branchId: args.branchId,
+          orderId: args.orderId
+        });
+        const tickets: KitchenDispatchRow[] = existingTickets.map((ticket) => ({
+          kitchen_ticket_id: ticket.id,
+          zone_id: ticket.zone_id ?? "",
+          print_job_id: null,
+          queue_no: ticket.queue_no,
+          round_no: ticket.round_no
+        }));
+
+        void appendAuditLog({
+          tenantId: args.tenantId,
+          branchId: args.branchId,
+          actorUserId: args.actorUserId!,
+          actorRole: normalizeBranchRole(args.actorRole),
+          action: "kitchen_dispatched",
+          targetTable: "orders",
+          targetId: args.orderId,
+          metadata: {
+            source: "existing_ticket_print_repair",
+            event_key: eventKey,
+            kitchen_action: action,
+            order_item_ids: null,
+            routed_zone_count: tickets.length,
+            queued_print_job_count: repair.queuedPrintJobCount,
+            skipped_existing_print_job_count: repair.skippedExistingPrintJobCount
+          }
+        });
+
+        return {
+          ok: true,
+          eventKey,
+          tickets,
+          routedZoneCount: tickets.length,
+          queuedPrintJobCount: repair.queuedPrintJobCount
+        };
+      }
+    } catch (repairError) {
+      const message = repairError instanceof Error ? repairError.message : "kitchen_preflight_repair_failed";
+      void appendAuditLog({
+        tenantId: args.tenantId,
+        branchId: args.branchId,
+        actorUserId: args.actorUserId!,
+        actorRole: normalizeBranchRole(args.actorRole),
+        action: "kitchen_dispatch_failed",
+        targetTable: "orders",
+        targetId: args.orderId,
+        metadata: {
+          source: "existing_ticket_print_repair",
+          event_key: eventKey,
+          kitchen_action: action,
+          error: message
+        }
+      });
+      return {
+        ok: false,
+        eventKey,
+        code: "kitchen_dispatch_failed",
+        message
+      };
+    }
+  }
+
   const supabase = getRoutedSupabaseServiceClient();
   const { data, error } = await supabase.rpc("enqueue_kitchen_order", {
     p_tenant_id: args.tenantId,
     p_branch_id: args.branchId,
     p_order_id: args.orderId,
     p_event_key: eventKey,
-    p_action: args.action ?? "new",
+    p_action: action,
     p_order_item_ids: args.orderItemIds?.length ? args.orderItemIds : null
   });
 
@@ -150,13 +260,13 @@ export async function dispatchOrderToKitchen(args: {
         tenantId: args.tenantId,
         branchId: args.branchId,
         actorUserId: args.actorUserId,
-        actorRole: (args.actorRole ?? "staff") as "owner" | "manager" | "staff" | "accountant",
+        actorRole: normalizeBranchRole(args.actorRole),
         action: "kitchen_dispatch_failed",
         targetTable: "orders",
         targetId: args.orderId,
         metadata: {
           event_key: eventKey,
-          kitchen_action: args.action ?? "new",
+          kitchen_action: action,
           order_item_ids: args.orderItemIds ?? null,
           error: error.message
         }
@@ -174,28 +284,20 @@ export async function dispatchOrderToKitchen(args: {
   const tickets = (Array.isArray(data) ? data : []) as KitchenDispatchRow[];
   let queuedPrintJobCount = tickets.filter((row) => Boolean(row.print_job_id)).length;
 
-  if (tickets.length > 0 && args.actorUserId) {
-    const printAuth = {
-      userId: args.actorUserId,
-      tenantId: args.tenantId,
-      branchId: args.branchId,
-      branchRole: (args.actorRole === "owner" || args.actorRole === "manager" || args.actorRole === "staff" || args.actorRole === "accountant" ? args.actorRole : "staff") as "owner" | "manager" | "staff" | "accountant",
-      platformRole: "tenant_user" as const
-    };
-
+  if (tickets.length > 0 && printAuth) {
     for (const ticket of tickets) {
       try {
         const jobs = await queueRoutedKitchenTicketPrint({
           auth: printAuth,
           kitchenTicketId: ticket.kitchen_ticket_id,
-          forceReprint: (args.action ?? "new") === "reprint"
+          forceReprint: action === "reprint"
         });
         queuedPrintJobCount += jobs.length;
         if (jobs.length > 0) {
           void appendAuditLog({
             tenantId: args.tenantId,
             branchId: args.branchId,
-            actorUserId: args.actorUserId,
+            actorUserId: args.actorUserId!,
             actorRole: printAuth.branchRole ?? "staff",
             action: "kitchen_print_queued",
             targetTable: "kitchen_tickets",
@@ -213,7 +315,7 @@ export async function dispatchOrderToKitchen(args: {
         void appendAuditLog({
           tenantId: args.tenantId,
           branchId: args.branchId,
-          actorUserId: args.actorUserId,
+          actorUserId: args.actorUserId!,
           actorRole: printAuth.branchRole ?? "staff",
           action: "kitchen_print_failed",
           targetTable: "kitchen_tickets",
@@ -233,13 +335,13 @@ export async function dispatchOrderToKitchen(args: {
       tenantId: args.tenantId,
       branchId: args.branchId,
       actorUserId: args.actorUserId,
-      actorRole: (args.actorRole ?? "staff") as "owner" | "manager" | "staff" | "accountant",
+      actorRole: normalizeBranchRole(args.actorRole),
       action: "kitchen_dispatched",
       targetTable: "orders",
       targetId: args.orderId,
       metadata: {
         event_key: eventKey,
-        kitchen_action: args.action ?? "new",
+        kitchen_action: action,
         order_item_ids: args.orderItemIds ?? null,
         routed_zone_count: tickets.length,
         queued_print_job_count: queuedPrintJobCount
@@ -252,6 +354,6 @@ export async function dispatchOrderToKitchen(args: {
     eventKey,
     tickets,
     routedZoneCount: tickets.length,
-    queuedPrintJobCount: queuedPrintJobCount
+    queuedPrintJobCount
   };
 }
