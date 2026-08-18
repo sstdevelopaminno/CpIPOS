@@ -112,7 +112,11 @@ export async function GET() {
     const cacheKey = `pos-tables:${auth.tenantId}:${auth.branchId}`;
     const { value: payload, source: cacheSource } = await readThroughRuntimeCache({
       key: cacheKey,
-      ttlMs: 5000,
+      // The POS polls table state every 5s/7s. A 5s TTL expired on the same boundary,
+      // turning nearly every poll into a cold multi-query load. Keep one poll inside
+      // the fresh window so warm instances can absorb idle refreshes without slowing
+      // explicit action/focus refreshes or the independent QR activity channel.
+      ttlMs: 8000,
       staleIfErrorMs: 15000,
       loader: async () => {
         const supabase = getSupabaseServiceClient();
