@@ -29,7 +29,9 @@ type PendingServiceAck = {
 
 const CURSOR_KEY = "pos_global_table_qr_cursor_v1";
 const ACKED_EVENT_IDS_KEY = "pos_global_table_qr_acked_event_ids_v1";
-const IDLE_POLL_MS = [3000, 5000, 10000, 15000] as const;
+// Keep new activity responsive, then settle to 30s while the POS is idle.
+// This only controls the global alert poll; QR submit -> Kitchen dispatch is independent.
+const IDLE_POLL_MS = [3000, 5000, 10000, 15000, 30000] as const;
 const SEEN_EVENT_LIMIT = 300;
 
 function isServiceEvent(event: ActivityEvent): event is ActivityEvent & { event_type: ServiceEventType } {
