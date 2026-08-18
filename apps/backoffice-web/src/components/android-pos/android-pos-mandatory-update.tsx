@@ -1,12 +1,14 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 const NATIVE_ANDROID_POS_PATTERN = /CpIPOS-AndroidPOS\/(\d+\.\d+\.\d+)/i;
 const POLICY_URL = "/api/android-pos/update-policy";
 const POLICY_CACHE_KEY = "cpipos_android_pos_update_policy_v1";
 const POLICY_CACHE_MAX_AGE_MS = 10 * 60 * 1000;
-const POLICY_REFRESH_MS = 45 * 1000;
+// A mandatory update is still checked immediately on mount/foreground. While the app stays
+// continuously visible, two minutes is frequent enough without keeping a fixed 45s HTTP loop.
+const POLICY_REFRESH_MS = 2 * 60 * 1000;
 
 type UpdatePolicy = {
   ok: boolean;
@@ -76,9 +78,11 @@ export function AndroidPosMandatoryUpdate() {
   const [policy, setPolicy] = useState<UpdatePolicy | null>(null);
   const [checking, setChecking] = useState(Boolean(currentVersion));
   const [downloadStarted, setDownloadStarted] = useState(false);
+  const policyCheckInFlightRef = useRef(false);
 
   const refreshPolicy = useCallback(async () => {
-    if (!currentVersion) return;
+    if (!currentVersion || policyCheckInFlightRef.current) return;
+    policyCheckInFlightRef.current = true;
     setChecking(true);
     try {
       const response = await fetch(POLICY_URL, {
@@ -97,6 +101,7 @@ export function AndroidPosMandatoryUpdate() {
     } catch {
       setPolicy(readCachedPolicy());
     } finally {
+      policyCheckInFlightRef.current = false;
       setChecking(false);
     }
   }, [currentVersion]);
@@ -104,7 +109,9 @@ export function AndroidPosMandatoryUpdate() {
   useEffect(() => {
     if (!currentVersion) return;
     void refreshPolicy();
-    const intervalId = window.setInterval(() => void refreshPolicy(), POLICY_REFRESH_MS);
+    const intervalId = window.setInterval(() => {
+      if (document.visibilityState === "visible") void refreshPolicy();
+    }, POLICY_REFRESH_MS);
     const handleVisibility = () => {
       if (document.visibilityState === "visible") void refreshPolicy();
     };
@@ -168,7 +175,7 @@ export function AndroidPosMandatoryUpdate() {
 
         <div className="mt-4 flex items-center justify-center gap-2 text-xs text-slate-500">
           <span className={`h-2 w-2 rounded-full ${checking ? "bg-amber-300" : "bg-emerald-400"}`} />
-          {checking ? "กำลังตรวจสอบเวอร์ชัน Stable ล่าสุด…" : "ระบบตรวจเวอร์ชันอัตโนมัติทุก 45 วินาที"}
+          {checking ? "กำลังตรวจสอบเวอร์ชัน Stable ล่าสุด…" : "ระบบตรวจเวอร์ชันอัตโนมัติทุก 2 นาที และตรวจทันทีเมื่อกลับเข้าแอป"}
         </div>
         <p className="mt-3 text-center text-xs leading-5 text-slate-500">
           หน้าต่างนี้ปิดไม่ได้เพื่อป้องกันการใช้งาน POS ด้วยเวอร์ชันที่ต่ำกว่ามาตรฐาน หลังติดตั้งสำเร็จและเปิดแอปใหม่ ระบบจะปลดล็อกอัตโนมัติ
