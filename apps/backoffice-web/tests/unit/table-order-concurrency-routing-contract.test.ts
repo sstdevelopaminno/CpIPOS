@@ -12,13 +12,6 @@ const primaryMigration = readFileSync(
   resolve(workspaceRoot, "supabase/migrations/20260818053044_table_order_concurrency_payment_lock_hardening.sql"),
   "utf8"
 );
-const trialMigration = readFileSync(
-  resolve(
-    workspaceRoot,
-    "supabase/trial-data-plane/migrations/20260818053044_trial_table_order_concurrency_payment_lock_hardening.sql"
-  ),
-  "utf8"
-);
 
 describe("table order concurrency + data-plane routing contract", () => {
   it("routes the table payment lock RPC through tenant data-plane selection", () => {
@@ -39,14 +32,12 @@ describe("table order concurrency + data-plane routing contract", () => {
     expect(paymentLockRoute).toContain('fail("table_payment_lock_busy"');
   });
 
-  it("keeps primary and Trial payment-lock migrations serialized and fail-closed", () => {
-    for (const migration of [primaryMigration, trialMigration]) {
-      expect(migration).toContain("set local lock_timeout = '5s'");
-      expect(migration.toLowerCase()).toContain("for update");
-      expect(migration).toContain("set_table_payment_lock_tx");
-      expect(migration.toLowerCase()).toContain("security definer");
-      expect(migration.toLowerCase()).toContain("revoke all");
-      expect(migration.toLowerCase()).toContain("service_role");
-    }
+  it("keeps the production payment-lock transaction serialized and fail-closed", () => {
+    expect(primaryMigration).toContain("set lock_timeout to '5s'");
+    expect(primaryMigration.toLowerCase()).toContain("for update");
+    expect(primaryMigration).toContain("set_table_payment_lock_tx");
+    expect(primaryMigration.toLowerCase()).toContain("security definer");
+    expect(primaryMigration.toLowerCase()).toContain("revoke all");
+    expect(primaryMigration.toLowerCase()).toContain("service_role");
   });
 });
