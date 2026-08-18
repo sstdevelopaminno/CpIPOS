@@ -1,0 +1,75 @@
+name: Trial Recovery Preflight
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: trial-recovery-preflight
+  cancel-in-progress: false
+
+jobs:
+  preflight:
+    name: CpiPOS-002 rollback-only recovery preflight
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: trial
+    env:
+      TRIAL_DATABASE_URL: ${{ secrets.CPIPOS_TRIAL_DATABASE_URL }}
+      EXPECTED_TRIAL_REF: kawenyvpentwgugtzqec
+      PRIMARY_REF: deejlitaivfnsbwqdugy
+      PGCONNECT_TIMEOUT: "10"
+      PGAPPNAME: cpipos-trial-recovery-preflight
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Guard Trial target
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -z "${TRIAL_DATABASE_URL:-}" ]]; then
+            echo "CPIPOS_TRIAL_DATABASE_URL is not configured in the protected trial environment."
+            exit 1
+          fi
+          if [[ "$TRIAL_DATABASE_URL" == *"$PRIMARY_REF"* ]]; then
+            echo "Refusing to run: database URL resolves to the Primary project."
+            exit 1
+          fi
+          if [[ "$TRIAL_DATABASE_URL" != *"$EXPECTED_TRIAL_REF"* ]]; then
+            echo "Refusing to run: database URL does not identify CpiPOS-002."
+            exit 1
+          fi
+
+      - name: Ensure PostgreSQL client
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! command -v psql >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install -y postgresql-client
+          fi
+          psql --version
+
+      - name: Run rollback-only recovery preflight
+        shell: bash
+        run: |
+          set -euo pipefail
+          psql "$TRIAL_DATABASE_URL" -v ON_ERROR_STOP=1 -f scripts/sql/trial-recovery-preflight.sql
+
+      - name: Record result
+        if: success()
+        shell: bash
+        run: |
+          {
+            echo "### CpiPOS-002 Recovery Preflight ✅"
+            echo "- POS request-id replay: checked"
+            echo "- Payment request-group replay: checked"
+            echo "- QR request-id replay: checked"
+            echo "- Expired Print Agent lease reclaim + ACK: checked"
+            echo "- Runtime lease tenant fail-closed + recovery: checked"
+            echo "- Test data persistence: none (transaction ROLLBACK)"
+          } >> "$GITHUB_STEP_SUMMARY"
