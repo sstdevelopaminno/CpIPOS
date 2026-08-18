@@ -60,6 +60,7 @@ const BUSINESS_RPCS = new Set([
   "create_pos_order_tx",
   "complete_pos_payment_tx",
   "submit_table_qr_order_tx",
+  "set_table_payment_lock_tx",
   "replace_queued_dine_in_order_tx",
   "cancel_empty_table_bill_session_tx",
   "create_stock_adjustment_tx",
