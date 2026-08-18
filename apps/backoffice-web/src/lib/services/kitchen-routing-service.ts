@@ -6,6 +6,7 @@ import { queueRoutedKitchenTicketPrint } from "@/lib/printing/routed-print-servi
 import { getRoutedSupabaseServiceClient } from "@/lib/tenant-data-router";
 
 type KitchenAction = "new" | "add" | "cancel" | "reprint";
+type KitchenBranchRole = "owner" | "manager" | "staff" | "accountant";
 
 type KitchenDispatchRow = {
   kitchen_ticket_id: string;
@@ -44,7 +45,7 @@ function isMissingRoundNoError(error: { message?: string } | null | undefined) {
   return Boolean(error?.message?.includes("kitchen_tickets.round_no") || error?.message?.includes("round_no does not exist"));
 }
 
-function normalizeBranchRole(role?: string | null): AuthContext["branchRole"] {
+function normalizeBranchRole(role?: string | null): KitchenBranchRole {
   if (role === "owner" || role === "manager" || role === "staff" || role === "accountant") return role;
   return "staff";
 }
