@@ -72,6 +72,28 @@ Post-fix synthetic print verification:
 - live print claims 0
 - duplicate agent_attempt_id 0
 
+## Automated recovery regression guard
+
+Added CI-covered Vitest regression:
+
+- `apps/backoffice-web/tests/integration/recovery-idempotency-regression.integration.test.ts`
+- commit `18328b2618d59cedee1ccb5abf8e75b82f2def15`
+
+It locks these invariants in source/migration coverage:
+
+- POS request-id replay and safe timeout retry
+- payment request-group replay and safe timeout retry
+- Table QR request-id routing and Kitchen print repair path
+- one Kitchen queue number across NEW/ADD on Primary and Trial
+- Trial expired-print-lease text-status compatibility guard
+
+Targeted command added in commit `d40ffa4a1f77502864abb1c3c32f37463e35955a`:
+
+- `pnpm qa:recovery-regression`
+- backoffice direct command: `pnpm --filter backoffice-web test:recovery`
+
+The standard CI already executes `pnpm test`, so this regression is also part of the full push/PR test suite. The targeted command exists for fast pre-release/hotfix verification and does not require Trial service-role credentials.
+
 ## Cleanup / safety state
 
 All `CHAOS-20260819` synthetic tenants and cascaded data were removed.
@@ -94,13 +116,10 @@ Live FG0003 production sessions/printer routing were not modified by the chaos t
 
 ## Next engineering step
 
-Convert the recovery invariants into automated regression/preflight coverage so the discovered expired-lease bug cannot return:
-
-1. automated expired Print Agent lease -> reclaim -> ACK test for Trial
-2. POS request-id replay regression
-3. QR request-id replay regression
-4. payment request-group replay + paid_total consistency regression
-5. runtime lease fail-closed tenant-isolation regression
-6. retain the explicit delayed same-table contention test as an isolated future Trial job when safe concurrent test tooling is available
+1. verify final CI/Vercel status for the automated recovery regression commits
+2. add an explicit non-destructive Trial recovery preflight job that is manually invoked and requires protected Trial credentials rather than putting service-role secrets into normal CI
+3. include runtime lease fail-closed and expired Print Agent lease reclaim in that Trial preflight
+4. retain the explicit delayed same-table contention test as an isolated future Trial job when safe concurrent test tooling is available
+5. continue UI/request-churn performance hardening only after regression/preflight gates remain green
 
 Before changing code in a new chat, inspect current GitHub/Vercel/Supabase state rather than trusting this snapshot blindly.
