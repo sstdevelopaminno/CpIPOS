@@ -1,87 +1,106 @@
-# CpIPOS Current Handoff — Chaos / Recovery Test — 2026-08-19
+# CpIPOS Current Handoff — 2026-08-19
 
-This checkpoint exists to preserve continuity if the ChatGPT conversation context rolls over.
+This file is the compact recovery point if the ChatGPT conversation rolls over.
 
-## Current branch and environment
+## Environment
 
-- Repository: `sstdevelopaminno/CpIPOS`
-- Working / production branch: `agent-docs-preflight-schema-drift`
+- Repo: `sstdevelopaminno/CpIPOS`
+- Branch: `agent-docs-preflight-schema-drift`
 - Primary Supabase: `CpiPOS-001` (`deejlitaivfnsbwqdugy`)
 - Trial Supabase: `CpiPOS-002` (`kawenyvpentwgugtzqec`)
 - Vercel project: `cp-ipos-web`
 - Production alias: `https://cp-ipos-web.vercel.app`
 
-## Completed immediately before this checkpoint
-
-Concurrency load test was completed on Trial using isolated synthetic tenants and later cleaned up. Canonical report:
-
-- `docs/concurrency-load-test-20260818.md`
-
-Validated baseline:
-
-- POS 10 concurrent: 10/10, P95 344 ms
-- POS 25 concurrent: 25/25, P95 645 ms
-- POS 50 concurrent: 50/50, P95 1.144 s
-- QR distinct tables 32 concurrent: 32/32, P95 1.230 s
-- QR same-table 24 concurrent (6 x 4 branches): 24/24, P95 661 ms
-- QR idempotency replay: 8/8, P95 259 ms
-- POS idempotency replay: 8/8, P95 221 ms
-- final integrity: 129 orders / 149 items / 60 QR submissions / 149 Kitchen Tickets / 149 Kitchen Ticket Items
-- cross-scope, duplicate request, duplicate active bill, missing table snapshot, multiple queue-per-order, shared queue-per-order: all zero
-- DB waiting locks and idle-in-transaction after the run: zero
-
-Important fixes already applied:
-
-1. Primary + Trial preserve one Kitchen queue number across NEW/ADD rounds.
-2. Trial `enqueue_kitchen_order` RETURNING ambiguity fixed.
-3. Trial Kitchen Ticket Item `ON CONFLICT` ambiguity fixed.
-4. Trial table-bill composite FK cleanup fixed with selective `SET NULL (order_id)`.
-
-Synthetic load-test data was removed. Trial temporary `http` extension was removed. Temporary test Edge Functions were replaced with JWT-protected HTTP 410 handlers.
-
-## Live FG0003 printing baseline
-
-FG0003 current intended production routes:
-
-- receipt: `Printer001` / Xprinter XP-58 / Bluetooth 58mm
-- kitchen MAIN-KITCHEN: verified USB 80mm
-- LAN kitchen printer remains physically unreachable and must not be promoted over the verified USB exact-zone assignment
-
-Do not clear the live customer's POS session, cookies, local data, shift, printer pairing, or USB permission during testing.
-
-## Next task — Chaos / Recovery Test
-
-Run on Trial first. Do not inject destructive faults into live FG0003 production traffic.
-
-Required matrix:
-
-1. POS retry after ambiguous client timeout: same request key must result in one order only.
-2. QR retry after ambiguous client timeout: same request_id must result in one submission only.
-3. Same-table QR contention with one intentionally delayed request: serialization must complete or return a bounded retryable error; never split the active bill.
-4. Payment retry after ambiguous timeout: one request_group must not duplicate payment rows; paid_total must equal payment sum and order total.
-5. Print Agent offline -> online recovery: queued jobs must remain claimable and not be duplicated.
-6. Multiple Print Agents racing after recovery: each job may have only one live claim / attempt identity.
-7. Printer transport failure and retry: failed/queued/retry state must not create duplicate business documents or duplicate Kitchen Ticket rows.
-8. Runtime lease/data-plane route failure: fail closed / bounded retry rather than cross-routing tenants.
-9. Post-test integrity: tenant/branch/order/table/kitchen/print scope checks, waiting locks = 0, idle-in-transaction = 0.
-
-## Safety rules for this test
-
-- Trial only for injected faults and synthetic load.
-- Use isolated namespace and cleanup after every phase.
-- Never replay historical real FG0003 failed Kitchen Tickets automatically.
-- Never change live receipt/kitchen printer defaults as part of synthetic recovery testing.
-- No production session/local-data clearing.
-- Any Primary change must be a narrowly scoped correctness fix proven on Trial first.
-- Record each discovered defect and migration/commit in this file or a final `docs/chaos-recovery-test-20260819.md` report before ending the chat.
-
-## Recovery point
-
-If a new chat must continue this work, read:
+Read first:
 
 1. `docs/AI-GUARDRAILS-CPIPOS.md`
 2. `context.md`
 3. `docs/concurrency-load-test-20260818.md`
-4. this file
+4. `docs/chaos-recovery-test-20260819.md`
 
-Then inspect live GitHub/Vercel/Supabase state before making new changes.
+## Completed baseline
+
+### Concurrency
+
+`docs/concurrency-load-test-20260818.md`
+
+- POS 50 concurrent: 50/50, P95 1.144 s
+- QR distinct 32 concurrent: 32/32, P95 1.230 s
+- same-table QR 24 concurrent: 24/24, P95 661 ms
+- no observed tenant/branch/table crossover or duplicate request groups
+- one Kitchen queue per order across NEW/ADD rounds
+
+### Chaos / recovery
+
+`docs/chaos-recovery-test-20260819.md`
+
+PASS:
+
+- POS committed-response replay -> one order
+- QR committed-response replay -> one QR row / one order
+- payment request-group replay -> one payment row; paid_total == payment sum == order total
+- stale Print Agent attempt rejected after lease expiry
+- expired print lease -> new agent reclaim -> print succeeds
+- retryable printer transport failure -> later agent reclaim -> print succeeds
+- runtime lease revoked for Tenant A while Tenant B remains active -> Tenant A fails `SHIFT_NOT_OPEN`, creates no data, and succeeds after its own lease is restored
+- final cross-scope QR = 0, waiting DB locks = 0, idle-in-transaction = 0
+
+Blocked by test tooling, not marked pass:
+
+- explicit artificial same-table row-lock hold + concurrent QR burst. Existing normal same-table concurrency baseline remains 24/24 from the prior load test.
+
+## New defect found and fixed
+
+Trial-only schema drift in expired Print Agent lease recovery:
+
+- Primary has enum `public.print_job_status`.
+- Trial has `print_jobs.status` as text + CHECK.
+- Trial `app.claim_print_jobs_v2` retained two Primary enum casts and crashed only when recovering expired leases.
+
+Permanent Trial migration:
+
+- `20260818171221_trial_fix_expired_print_lease_status_cast.sql`
+
+Primary was audited and is not affected.
+
+Post-fix synthetic print verification:
+
+- 3/3 jobs printed
+- expired attempts marked expired
+- transport-failed attempt marked failed/retrying
+- later attempts printed
+- live print claims 0
+- duplicate agent_attempt_id 0
+
+## Cleanup / safety state
+
+All `CHAOS-20260819` synthetic tenants and cascaded data were removed.
+
+Final Trial readback:
+
+- synthetic tenants 0
+- branches 0
+- orders 0
+- QR rows 0
+- print jobs 0
+- temporary `http` extension absent
+- temporary `dblink` extension absent
+- synthetic lock helper absent
+- waiting locks 0
+- idle-in-transaction 0
+- chaos Edge runner is JWT-protected and returns HTTP 410; test token removed
+
+Live FG0003 production sessions/printer routing were not modified by the chaos test.
+
+## Next engineering step
+
+Convert the recovery invariants into automated regression/preflight coverage so the discovered expired-lease bug cannot return:
+
+1. automated expired Print Agent lease -> reclaim -> ACK test for Trial
+2. POS request-id replay regression
+3. QR request-id replay regression
+4. payment request-group replay + paid_total consistency regression
+5. runtime lease fail-closed tenant-isolation regression
+6. retain the explicit delayed same-table contention test as an isolated future Trial job when safe concurrent test tooling is available
+
+Before changing code in a new chat, inspect current GitHub/Vercel/Supabase state rather than trusting this snapshot blindly.
