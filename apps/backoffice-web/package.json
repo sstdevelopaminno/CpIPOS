@@ -11,7 +11,8 @@
     "cf:deploy": "opennextjs-cloudflare build && opennextjs-cloudflare deploy",
     "lint": "eslint src scripts tests next.config.ts eslint.config.mjs --cache --cache-location .eslintcache --no-error-on-unmatched-pattern",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "test:recovery": "vitest run tests/integration/recovery-idempotency-regression.integration.test.ts"
   },
   "dependencies": {
     "@pos/pos-domain": "workspace:*",

@@ -14,6 +14,7 @@
     "qa:login-bridge": "node scripts/login-pos-bridge-smoke.mjs",
     "qa:login-bottleneck-load": "node scripts/pos-login-session-bottleneck-load-test.mjs",
     "qa:seed-health": "node scripts/seed-health-check.mjs",
+    "qa:recovery-regression": "corepack pnpm --filter backoffice-web test:recovery",
     "schema:drift": "node scripts/schema-drift-check.mjs",
     "schema:drift:trial": "node scripts/trial-schema-drift-check.mjs",
     "build": "corepack pnpm --filter backoffice-web build",
