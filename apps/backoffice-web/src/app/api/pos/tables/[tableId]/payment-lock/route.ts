@@ -9,6 +9,33 @@ type PaymentLockPayload = {
   locked?: boolean;
 };
 
+type PaymentLockRow = {
+  table_session_id: string;
+  table_id: string;
+  order_id: string;
+  status: string;
+};
+
+function mapPaymentLockError(message: string, code?: string | null) {
+  const normalized = message.toLowerCase();
+  if (normalized.includes("table_session_not_open")) {
+    return fail("table_session_not_open", "Active table bill session was not found for this order.", 404);
+  }
+  if (normalized.includes("order_not_found")) {
+    return fail("order_not_found", "Order was not found for this table.", 404);
+  }
+  if (normalized.includes("order_not_payable")) {
+    return fail("order_not_payable", "Order can no longer enter payment.", 409);
+  }
+  if (normalized.includes("table_not_available")) {
+    return fail("table_not_available", "Table is not available for payment.", 409);
+  }
+  if (code === "55P03" || code === "40P01" || normalized.includes("lock timeout") || normalized.includes("deadlock")) {
+    return fail("table_payment_lock_busy", "โต๊ะกำลังมีรายการอื่นดำเนินการอยู่ กรุณาลองอีกครั้ง", 409);
+  }
+  return fail("table_payment_lock_failed", message || "Unable to update table payment lock.", 500);
+}
+
 export async function POST(req: Request, context: { params: Promise<{ tableId: string }> }) {
   const startedAt = Date.now();
   const withTiming = (response: Response) => {
@@ -26,47 +53,30 @@ export async function POST(req: Request, context: { params: Promise<{ tableId: s
     const orderId = String(body.order_id ?? "").trim();
     if (!orderId) return withTiming(fail("missing_order_id", "order_id is required.", 422));
 
-    const nextStatus = body.locked === false ? "ordering" : "pending_payment";
+    const locked = body.locked !== false;
     const supabase = getSupabaseServiceClient();
+    const { data, error } = await supabase.rpc("set_table_payment_lock_tx", {
+      p_tenant_id: auth.tenantId!,
+      p_branch_id: auth.branchId!,
+      p_table_id: tableId,
+      p_order_id: orderId,
+      p_locked: locked
+    });
 
-    const { data: session, error: sessionError } = await supabase
-      .from("table_bill_sessions")
-      .select("id,status,order_id")
-      .eq("tenant_id", auth.tenantId!)
-      .eq("branch_id", auth.branchId!)
-      .eq("table_id", tableId)
-      .eq("order_id", orderId)
-      .in("status", body.locked === false ? ["pending_payment"] : ["open", "ordering", "pending_payment"])
-      .order("opened_at", { ascending: false })
-      .limit(1)
-      .maybeSingle<{ id: string; status: string; order_id: string | null }>();
+    if (error) return withTiming(mapPaymentLockError(error.message, error.code));
 
-    if (sessionError) return withTiming(fail("table_session_query_failed", sessionError.message, 500));
-    if (!session) return withTiming(fail("table_session_not_open", "Active table bill session was not found for this order.", 404));
-
-    if (session.status !== nextStatus) {
-      const { error: updateSessionError } = await supabase
-        .from("table_bill_sessions")
-        .update({ status: nextStatus })
-        .eq("tenant_id", auth.tenantId!)
-        .eq("branch_id", auth.branchId!)
-        .eq("id", session.id);
-      if (updateSessionError) return withTiming(fail("table_session_update_failed", updateSessionError.message, 500));
+    const row = (Array.isArray(data) ? data[0] : data) as PaymentLockRow | null;
+    if (!row) {
+      return withTiming(fail("table_payment_lock_failed", "Payment lock did not return table state.", 500));
     }
 
-    const { error: updateTableError } = await supabase
-      .from("dining_tables")
-      .update({ status: nextStatus })
-      .eq("tenant_id", auth.tenantId!)
-      .eq("branch_id", auth.branchId!)
-      .eq("id", tableId);
-    if (updateTableError) return withTiming(fail("table_status_update_failed", updateTableError.message, 500));
-
     invalidatePosScopeRuntimeCaches({ tenantId: auth.tenantId!, branchId: auth.branchId! });
-    return withTiming(ok({ table_id: tableId, order_id: orderId, status: nextStatus }));
+    return withTiming(ok({ table_id: row.table_id, order_id: row.order_id, status: row.status }));
   } catch (error) {
     const featureError = featureGateFail(error);
     if (featureError) return withTiming(featureError);
-    return withTiming(fail("table_payment_lock_failed", error instanceof Error ? error.message : "Unable to update table payment lock.", 400));
+    return withTiming(
+      mapPaymentLockError(error instanceof Error ? error.message : "Unable to update table payment lock.")
+    );
   }
 }
