@@ -94,32 +94,50 @@ Targeted command added in commit `d40ffa4a1f77502864abb1c3c32f37463e35955a`:
 
 The standard CI already executes `pnpm test`, so this regression is also part of the full push/PR test suite. The targeted command exists for fast pre-release/hotfix verification and does not require Trial service-role credentials.
 
-## Cleanup / safety state
+## Rollback-only live Trial recovery preflight
 
-All `CHAOS-20260819` synthetic tenants and cascaded data were removed.
+Added in commit `ef0082ad7e22a65b0b32bb5ada6ef4b80acce405`:
 
-Final Trial readback:
+- SQL: `scripts/sql/trial-recovery-preflight.sql`
+- manual workflow: `.github/workflows/trial-recovery-preflight.yml`
 
-- synthetic tenants 0
-- branches 0
-- orders 0
+The SQL preflight was executed directly against CpiPOS-002 before being committed and passed. It verifies in one transaction:
+
+- POS request-id replay -> exactly one order
+- payment request-group replay -> one payment row and paid_total/payment sum/order total consistency
+- QR request-id replay -> one submission/order
+- expired Print Agent lease -> attempt 1 expired -> agent 2 reclaim -> ACK -> printed
+- Tenant A runtime lease revoked while Tenant B remains active -> A fails closed without data writes -> restore A -> same request succeeds
+- QR tenant/branch/table/table-session scope remains consistent
+
+The file always ends with `ROLLBACK`. Post-run readback on CpiPOS-002 confirmed:
+
+- preflight tenant rows 0
+- order rows 0
 - QR rows 0
-- print jobs 0
-- temporary `http` extension absent
-- temporary `dblink` extension absent
-- synthetic lock helper absent
+- print rows 0
 - waiting locks 0
 - idle-in-transaction 0
-- chaos Edge runner is JWT-protected and returns HTTP 410; test token removed
 
-Live FG0003 production sessions/printer routing were not modified by the chaos test.
+Workflow safety:
+
+- `workflow_dispatch` only; not part of normal push CI
+- expects protected secret `CPIPOS_TRIAL_DATABASE_URL` in GitHub environment `trial`
+- rejects a URL containing Primary ref `deejlitaivfnsbwqdugy`
+- rejects a URL that does not identify Trial ref `kawenyvpentwgugtzqec`
+- no service-role key is placed in normal CI or source
+
+## Cleanup / safety state
+
+All previous `CHAOS-20260819` synthetic tenants and cascaded data were removed.
+
+Live FG0003 production sessions/printer routing were not modified by concurrency, chaos, regression, or Trial preflight work.
 
 ## Next engineering step
 
-1. verify final CI/Vercel status for the automated recovery regression commits
-2. add an explicit non-destructive Trial recovery preflight job that is manually invoked and requires protected Trial credentials rather than putting service-role secrets into normal CI
-3. include runtime lease fail-closed and expired Print Agent lease reclaim in that Trial preflight
+1. verify final deployment/check status for commit `ef0082ad7e22a65b0b32bb5ada6ef4b80acce405`
+2. continue POS UI/request-churn performance hardening with the new recovery gates in place
+3. focus on adaptive polling/request consolidation and measure FG0003 P95/P99 before/after
 4. retain the explicit delayed same-table contention test as an isolated future Trial job when safe concurrent test tooling is available
-5. continue UI/request-churn performance hardening only after regression/preflight gates remain green
 
 Before changing code in a new chat, inspect current GitHub/Vercel/Supabase state rather than trusting this snapshot blindly.
