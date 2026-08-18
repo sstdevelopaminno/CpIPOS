@@ -2,6 +2,7 @@ import { fail, ok } from "@/lib/http";
 import { loadProductMediaMap } from "@/lib/product-media";
 import { PosTimeoutError, withTimeout } from "@/lib/pos-resilience";
 import { buildRateLimitKey, enforceRateLimit, getClientIpAddress, type RateLimitResult } from "@/lib/server/rate-limit";
+import { getSupabaseServiceClient } from "@/lib/supabase-admin";
 import { loadTableQrMenu, loadTableQrState, resolveTableQrContext, submitTableQrOrder, submitTableQrServiceRequest } from "@/lib/table-qr-ordering";
 import { assertTableQrStockAvailable, loadTableQrStockStates } from "@/lib/table-qr-stock";
 
@@ -10,7 +11,12 @@ type SubmitPayload = {
   event_type?: "order" | "update_order" | "call_staff" | "request_checkout";
   request_id?: string;
   note?: string | null;
-  items?: Array<{ product_id?: string; quantity?: number; note?: string | null }>;
+  items?: Array<{
+    product_id?: string;
+    quantity?: number;
+    note?: string | null;
+    selected_ingredient_ids?: unknown;
+  }>;
 };
 
 type PublicErrorMeta = { method: "GET" | "POST"; token?: string; action?: string; requestId?: string; itemCount?: number };
@@ -21,6 +27,7 @@ const TABLE_ORDER_STATUS_RATE_LIMIT_MAX = 360;
 const TABLE_ORDER_WRITE_RATE_LIMIT_MAX = 48;
 const TABLE_ORDER_SESSION_READ_RATE_LIMIT_MAX = 1200;
 const TABLE_ORDER_SESSION_WRITE_RATE_LIMIT_MAX = 240;
+const TABLE_ORDER_MAX_RAW_INGREDIENT_SELECTIONS = 20;
 
 function getTableOrderClientId(request: Request) {
   const raw = request.headers.get("x-table-order-client-id") ?? "";
@@ -75,6 +82,8 @@ function publicError(error: unknown, meta: PublicErrorMeta) {
   if (includesAny(message, ["table_order_not_available", "ORDER_NOT_QUEUED", "order_not_queued", "ORDER_NOT_APPENDABLE", "order_not_appendable", "ORDER_NOT_FOUND", "order_not_found", "TABLE_BILL_NOT_OPEN", "table_bill_not_open", "BILL_NOT_OPEN", "bill_not_open", "pending_payment", "closed", "cancelled"])) return fail("table_order_not_available", "โต๊ะนี้ไม่สามารถสั่งอาหารเพิ่มได้แล้ว อาจกำลังรอชำระเงินหรือปิดบิลแล้ว กรุณาติดต่อพนักงาน", 409);
   if (includesAny(message, ["SHIFT_NOT_OPEN", "shift_not_open", "active_shift_not_found", "no_open_shift"])) return fail("shift_not_open", "ร้านยังไม่พร้อมรับรายการในขณะนี้", 409);
   if (includesAny(message, ["PRODUCT_NOT_AVAILABLE", "product_unavailable", "product_not_found", "product_inactive", "INSUFFICIENT_STOCK", "insufficient_stock"])) return fail("insufficient_stock", "มีเมนูที่สต๊อกไม่เพียงพอ กรุณาโหลดเมนูใหม่", 409);
+  if (includesAny(message, ["TOO_MANY_CUSTOMER_INGREDIENTS"])) return fail("too_many_toppings", "เลือกท็อปปิ้งได้สูงสุดตามจำนวนที่ร้านกำหนด", 422);
+  if (includesAny(message, ["INVALID_CUSTOMER_INGREDIENT_SELECTION", "CUSTOMER_INGREDIENT_SELECTION_NOT_ALLOWED"])) return fail("invalid_toppings", "รายการท็อปปิ้งไม่ถูกต้อง กรุณาโหลดเมนูใหม่แล้วเลือกอีกครั้ง", 422);
   if (includesAny(message, ["INVALID_ITEM", "ITEMS_REQUIRED", "invalid_items", "invalid_order_items"])) return fail("invalid_items", "กรุณาเลือกรายการอาหารให้ถูกต้อง", 422);
   if (includesAny(message, ["submit_table_qr_order_tx", "could not find", "schema cache", "function", "PGRST202", "rpc"])) return fail("table_order_rpc_failed", isDev ? message : "ระบบส่งรายการอาหารยังไม่พร้อมใช้งาน กรุณาติดต่อพนักงาน", 500);
   return fail("table_order_failed", isDev ? message : "ไม่สามารถส่งรายการได้ กรุณาลองใหม่หรือติดต่อพนักงาน", 500);
@@ -82,7 +91,36 @@ function publicError(error: unknown, meta: PublicErrorMeta) {
 
 function normalizeAction(body: SubmitPayload) { return body.action ?? body.event_type ?? "order"; }
 function normalizeItems(body: SubmitPayload) {
-  return (body.items ?? []).map((item) => ({ product_id: String(item.product_id ?? "").trim(), quantity: Number(item.quantity), note: typeof item.note === "string" ? item.note.trim().slice(0, 240) : null }));
+  return (body.items ?? []).map((item) => ({
+    product_id: String(item.product_id ?? "").trim(),
+    quantity: Number(item.quantity),
+    note: typeof item.note === "string" ? item.note.trim().slice(0, 240) : null,
+    selected_ingredient_ids: Array.isArray(item.selected_ingredient_ids)
+      ? Array.from(new Set(item.selected_ingredient_ids.map((value) => String(value ?? "").trim()).filter(Boolean))).slice(0, TABLE_ORDER_MAX_RAW_INGREDIENT_SELECTIONS)
+      : []
+  }));
+}
+
+async function loadCustomerIngredientSelectionMaxMap(args: { tenantId: string; branchId: string; productIds: string[] }) {
+  const result = new Map<string, number>();
+  if (!args.productIds.length) return result;
+  const supabase = getSupabaseServiceClient();
+  const { data, error } = await supabase
+    .from("products")
+    .select("id,customer_ingredient_selection_max")
+    .eq("tenant_id", args.tenantId)
+    .eq("branch_id", args.branchId)
+    .in("id", args.productIds);
+  if (error) {
+    console.warn("[table-order-api] customer ingredient max lookup unavailable; using legacy unlimited behavior", { message: error.message });
+    return result;
+  }
+  for (const row of data ?? []) {
+    const id = String(row.id ?? "").trim();
+    const rawMax = Number((row as { customer_ingredient_selection_max?: unknown }).customer_ingredient_selection_max ?? 0);
+    if (id && Number.isFinite(rawMax) && rawMax > 0) result.set(id, Math.trunc(rawMax));
+  }
+  return result;
 }
 
 export async function GET(request: Request, context: { params: Promise<{ token: string }> }) {
@@ -99,12 +137,13 @@ export async function GET(request: Request, context: { params: Promise<{ token: 
       if (wantsStatus) return loadTableQrState(qrContext);
       const menu = await loadTableQrMenu(qrContext);
       const productIds = menu.products.map((product) => product.id);
-      const [states, mediaMap] = await Promise.all([
+      const [states, mediaMap, selectionMaxMap] = await Promise.all([
         loadTableQrStockStates({ tenantId: qrContext.tenant_id, branchId: qrContext.branch_id, productIds }),
         loadProductMediaMap({ tenantId: qrContext.tenant_id, branchId: qrContext.branch_id, productIds }).catch((error) => {
           console.error("[table-order-api] product media lookup failed; continuing without images", error);
           return new Map();
-        })
+        }),
+        loadCustomerIngredientSelectionMaxMap({ tenantId: qrContext.tenant_id, branchId: qrContext.branch_id, productIds })
       ]);
       return {
         ...menu,
@@ -112,6 +151,7 @@ export async function GET(request: Request, context: { params: Promise<{ token: 
           const media = mediaMap.get(product.id);
           return {
             ...product,
+            customer_ingredient_selection_max: selectionMaxMap.get(product.id) ?? 0,
             ...(states.get(product.id) ?? { stock_on_hand_units: null, allow_negative_stock: false, is_available: true, is_low_stock: false }),
             image_url: media?.image_url ?? null,
             thumbnail_url: media?.thumbnail_url ?? null
@@ -154,6 +194,14 @@ export async function POST(request: Request, context: { params: Promise<{ token:
     }
     if (action === "update_order") return fail("table_order_locked_after_submit", "รายการที่ยืนยันแล้วแก้ไขหรือลบจากมือถือไม่ได้ กรุณาเรียกพนักงาน", 409);
     if (action !== "order") return fail("invalid_action", "Invalid action.", 422);
+
+    const rawItems = body.items ?? [];
+    if (rawItems.some((item) => item.selected_ingredient_ids !== undefined && !Array.isArray(item.selected_ingredient_ids))) {
+      return fail("invalid_toppings", "รายการท็อปปิ้งไม่ถูกต้อง กรุณาโหลดเมนูใหม่แล้วเลือกอีกครั้ง", 422);
+    }
+    if (rawItems.some((item) => Array.isArray(item.selected_ingredient_ids) && item.selected_ingredient_ids.length > TABLE_ORDER_MAX_RAW_INGREDIENT_SELECTIONS)) {
+      return fail("invalid_toppings", "รายการท็อปปิ้งมากเกินไป กรุณาโหลดเมนูใหม่แล้วเลือกอีกครั้ง", 422);
+    }
 
     const items = normalizeItems(body);
     itemCount = items.length;
