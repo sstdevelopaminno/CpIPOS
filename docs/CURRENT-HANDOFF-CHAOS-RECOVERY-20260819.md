@@ -127,17 +127,54 @@ Workflow safety:
 - rejects a URL that does not identify Trial ref `kawenyvpentwgugtzqec`
 - no service-role key is placed in normal CI or source
 
+## Adaptive polling / request consolidation — phase 1
+
+Production Vercel request baseline captured before the change:
+
+- `/api/pos/table-qr-activity`: 466 requests/hour (~7.8/min) across production traffic
+- one live POS polling stream showed a stable request every ~15 seconds while idle
+- `/api/print-agent/claim`: ~2,153 requests/hour; intentionally excluded from this optimization because the verified 1/2/3s Print Agent claim/recovery loop must remain unchanged
+- customer `/api/table-order/...` traffic was too low in the sampled hour to claim a meaningful P95/P99 baseline
+
+Root cause found in:
+
+- `apps/backoffice-web/src/components/pos-preview/pos-table-qr-global-alert.tsx`
+
+The alert poll was already single-flight, paused while the page is hidden, and reset immediately on focus/visibility/activity, but its idle backoff stopped at 15 seconds.
+
+Phase-1 change commit:
+
+- `12381fa8623f376366e5e94d1692ea310d216669`
+- message: `perf(pos): back off idle table QR alert polling`
+
+New idle schedule:
+
+- 3s -> 5s -> 10s -> 15s -> 30s while no new event arrives
+- any new event resets to the fast end
+- focus / visibility return schedules an immediate poll
+- in-flight dedupe and hidden-tab pause remain unchanged
+
+Safety boundary:
+
+- this poll is only the global POS notification channel
+- QR submit -> order transaction -> Kitchen dispatch is independent and was not changed
+- payment, Kitchen transaction, Print Agent, MDM, and recovery semantics were not changed
+- expected steady-state request rate per continuously visible idle POS falls from ~240/hour at 15s to ~120/hour at 30s after warm-up
+
+Deployment/readback of `12381fa...` is the next verification action after this checkpoint.
+
 ## Cleanup / safety state
 
 All previous `CHAOS-20260819` synthetic tenants and cascaded data were removed.
 
-Live FG0003 production sessions/printer routing were not modified by concurrency, chaos, regression, or Trial preflight work.
+Live FG0003 production sessions/printer routing were not modified by concurrency, chaos, regression, Trial preflight, or polling phase-1 work.
 
 ## Next engineering step
 
-1. verify final deployment/check status for commit `ef0082ad7e22a65b0b32bb5ada6ef4b80acce405`
-2. continue POS UI/request-churn performance hardening with the new recovery gates in place
-3. focus on adaptive polling/request consolidation and measure FG0003 P95/P99 before/after
-4. retain the explicit delayed same-table contention test as an isolated future Trial job when safe concurrent test tooling is available
+1. verify Vercel/CI for `12381fa8623f376366e5e94d1692ea310d216669`
+2. observe live `/api/pos/table-qr-activity` cadence after the new deployment reaches the active POS
+3. inspect `/api/pos/session/current` for redundant polling before changing its cadence
+4. phase 2: harden customer `table-order-mobile.tsx` with single-flight + hidden-tab pause/adaptive refresh while keeping visible freshness at or below 15 seconds and immediate post-submit refresh
+5. measure request-count reduction before making any further polling changes
 
 Before changing code in a new chat, inspect current GitHub/Vercel/Supabase state rather than trusting this snapshot blindly.
