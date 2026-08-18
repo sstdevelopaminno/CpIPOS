@@ -1,0 +1,10 @@
+-- Operational migration history marker only.
+--
+-- On 2026-08-19, CpiPOS-002 temporarily enabled the PostgreSQL `http`
+-- extension and a synthetic-only lock-delay helper for the isolated
+-- CHAOS-20260819 recovery test. The helper was guarded to rows carrying the
+-- synthetic chaos_run_id and was removed at the end of the run.
+--
+-- Fresh environments MUST NOT recreate that temporary test surface.
+-- The steady-state repository migration is intentionally a no-op marker so
+-- remote migration history remains traceable without enabling test tooling.
