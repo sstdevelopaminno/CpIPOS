@@ -76,10 +76,11 @@ function includesAny(message: string, values: string[]) { const normalized = mes
 function publicError(error: unknown, meta: PublicErrorMeta) {
   const message = getErrorMessage(error);
   const isDev = process.env.NODE_ENV !== "production";
-  console.error("[table-order-api] public table order failed", { method: meta.method, action: meta.action, requestId: meta.requestId, itemCount: meta.itemCount, tokenPreview: meta.token ? `${meta.token.slice(0, 10)}...${meta.token.slice(-6)}` : undefined, message });
+  const logMeta = { method: meta.method, action: meta.action, requestId: meta.requestId, itemCount: meta.itemCount, message };
   if (includesAny(message, ["invalid_qr_token", "qr_session_expired", "QR_SESSION_EXPIRED", "TABLE_SESSION_CLOSED", "table_session_closed", "token_expired", "expired_token"])) return fail("table_order_link_expired", "ลิงก์สั่งอาหารหมดอายุหรือปิดบิลแล้ว", 410);
   if (includesAny(message, ["FOOD_ORDER_REQUIRED_BEFORE_CHECKOUT", "food_order_required_before_checkout"])) return fail("food_order_required_before_checkout", "กรุณาส่งรายการอาหารก่อนแจ้งชำระบิล", 409);
   if (includesAny(message, ["lock timeout", "canceling statement due to lock timeout", "deadlock detected", "could not serialize access due to concurrent update"])) {
+    console.warn("[table-order-api] transient contention; client may retry", logMeta);
     const response = fail("table_order_busy", "มีรายการของโต๊ะนี้กำลังประมวลผลอยู่ กรุณารอสักครู่แล้วลองอีกครั้ง", 409);
     response.headers.set("retry-after", "1");
     return response;
@@ -90,7 +91,11 @@ function publicError(error: unknown, meta: PublicErrorMeta) {
   if (includesAny(message, ["TOO_MANY_CUSTOMER_INGREDIENTS"])) return fail("too_many_toppings", "เลือกท็อปปิ้งได้สูงสุดตามจำนวนที่ร้านกำหนด", 422);
   if (includesAny(message, ["INVALID_CUSTOMER_INGREDIENT_SELECTION", "CUSTOMER_INGREDIENT_SELECTION_NOT_ALLOWED"])) return fail("invalid_toppings", "รายการท็อปปิ้งไม่ถูกต้อง กรุณาโหลดเมนูใหม่แล้วเลือกอีกครั้ง", 422);
   if (includesAny(message, ["INVALID_ITEM", "ITEMS_REQUIRED", "invalid_items", "invalid_order_items"])) return fail("invalid_items", "กรุณาเลือกรายการอาหารให้ถูกต้อง", 422);
-  if (includesAny(message, ["submit_table_qr_order_tx", "could not find", "schema cache", "function", "PGRST202", "rpc"])) return fail("table_order_rpc_failed", isDev ? message : "ระบบส่งรายการอาหารยังไม่พร้อมใช้งาน กรุณาติดต่อพนักงาน", 500);
+  if (includesAny(message, ["submit_table_qr_order_tx", "could not find", "schema cache", "function", "PGRST202", "rpc"])) {
+    console.error("[table-order-api] public table order failed", logMeta);
+    return fail("table_order_rpc_failed", isDev ? message : "ระบบส่งรายการอาหารยังไม่พร้อมใช้งาน กรุณาติดต่อพนักงาน", 500);
+  }
+  console.error("[table-order-api] public table order failed", logMeta);
   return fail("table_order_failed", isDev ? message : "ไม่สามารถส่งรายการได้ กรุณาลองใหม่หรือติดต่อพนักงาน", 500);
 }
 
