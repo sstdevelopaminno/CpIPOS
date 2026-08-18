@@ -79,6 +79,11 @@ function publicError(error: unknown, meta: PublicErrorMeta) {
   console.error("[table-order-api] public table order failed", { method: meta.method, action: meta.action, requestId: meta.requestId, itemCount: meta.itemCount, tokenPreview: meta.token ? `${meta.token.slice(0, 10)}...${meta.token.slice(-6)}` : undefined, message });
   if (includesAny(message, ["invalid_qr_token", "qr_session_expired", "QR_SESSION_EXPIRED", "TABLE_SESSION_CLOSED", "table_session_closed", "token_expired", "expired_token"])) return fail("table_order_link_expired", "ลิงก์สั่งอาหารหมดอายุหรือปิดบิลแล้ว", 410);
   if (includesAny(message, ["FOOD_ORDER_REQUIRED_BEFORE_CHECKOUT", "food_order_required_before_checkout"])) return fail("food_order_required_before_checkout", "กรุณาส่งรายการอาหารก่อนแจ้งชำระบิล", 409);
+  if (includesAny(message, ["lock timeout", "canceling statement due to lock timeout", "deadlock detected", "could not serialize access due to concurrent update"])) {
+    const response = fail("table_order_busy", "มีรายการของโต๊ะนี้กำลังประมวลผลอยู่ กรุณารอสักครู่แล้วลองอีกครั้ง", 409);
+    response.headers.set("retry-after", "1");
+    return response;
+  }
   if (includesAny(message, ["table_order_not_available", "ORDER_NOT_QUEUED", "order_not_queued", "ORDER_NOT_APPENDABLE", "order_not_appendable", "ORDER_NOT_FOUND", "order_not_found", "TABLE_BILL_NOT_OPEN", "table_bill_not_open", "BILL_NOT_OPEN", "bill_not_open", "pending_payment", "closed", "cancelled"])) return fail("table_order_not_available", "โต๊ะนี้ไม่สามารถสั่งอาหารเพิ่มได้แล้ว อาจกำลังรอชำระเงินหรือปิดบิลแล้ว กรุณาติดต่อพนักงาน", 409);
   if (includesAny(message, ["SHIFT_NOT_OPEN", "shift_not_open", "active_shift_not_found", "no_open_shift"])) return fail("shift_not_open", "ร้านยังไม่พร้อมรับรายการในขณะนี้", 409);
   if (includesAny(message, ["PRODUCT_NOT_AVAILABLE", "product_unavailable", "product_not_found", "product_inactive", "INSUFFICIENT_STOCK", "insufficient_stock"])) return fail("insufficient_stock", "มีเมนูที่สต๊อกไม่เพียงพอ กรุณาโหลดเมนูใหม่", 409);
