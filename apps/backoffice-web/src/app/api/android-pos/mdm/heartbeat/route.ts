@@ -58,6 +58,27 @@ function buildHeartbeatCommands(payload: Record<string, unknown> | null): Androi
   return [...envCommands, { id: `deploy-reload-${MDM_RELOAD_GENERATION_MS}`, action: "reload_webview", reason: "post_deploy_refresh" }].slice(0, 5);
 }
 
+function resolvePersistedPrinterState(metadata: Record<string, unknown>, payload: Record<string, unknown> | null) {
+  const nativePrinter = asRecord(payload?.printer);
+  const existingPrinter = asRecord(metadata.android_mdm_printer);
+  const nativeError = String(nativePrinter.last_error ?? "").trim().toLowerCase();
+  const existingSource = String(existingPrinter.source ?? "").trim().toLowerCase();
+  const hasVerifiedPrintAgentState = existingPrinter.verified === true && existingSource === "native_print_agent_verified";
+
+  if (hasVerifiedPrintAgentState && nativeError === "printer_not_configured") {
+    return {
+      ...existingPrinter,
+      mdm_local_diagnostic: {
+        ...nativePrinter,
+        ignored_for_status: true,
+        observed_at: new Date().toISOString()
+      }
+    };
+  }
+
+  return nativePrinter;
+}
+
 async function findPairedDevice(installId: string | null): Promise<PairedDevice | null> {
   if (!installId) return null;
   const supabase = getSupabaseServiceClient();
@@ -146,7 +167,7 @@ async function persistNativeMdmState(device: PairedDevice, payload: Record<strin
       ...metadata,
       android_mdm_last_seen_at: new Date().toISOString(),
       android_mdm_app_version: appVersion,
-      android_mdm_printer: asRecord(payload?.printer),
+      android_mdm_printer: resolvePersistedPrinterState(metadata, payload),
       android_mdm_last_command: asRecord(payload?.last_command),
       android_mdm_runtime: asRecord(payload?.app)
     },
