@@ -16,6 +16,7 @@ type MenuProduct = {
   price: number;
   is_recommended?: boolean;
   customer_ingredient_selection_enabled?: boolean;
+  customer_ingredient_selection_max?: number;
   customer_ingredient_options?: CustomerIngredientOption[];
   image_url?: string | null;
   thumbnail_url?: string | null;
@@ -68,7 +69,7 @@ type SubmitResponse = {
 
 type ServiceRequestAction = "call_staff" | "request_checkout";
 type ToastMessage = { kind: "success" | "warning" | "error"; title: string; detail?: string };
-type SubmitItem = { product_id: string; quantity: number; note?: string | null };
+type SubmitItem = { product_id: string; quantity: number; note?: string | null; selected_ingredient_ids?: string[] };
 
 const MENU_LOAD_TIMEOUT_MS = 45_000;
 const SUBMIT_TIMEOUT_MS = 20_000;
@@ -107,6 +108,7 @@ function publicOrderErrorMessage(response: Response, body: SubmitResponse | Menu
   const message = body?.error?.message?.trim();
   if (code === "table_order_not_available") return message || "โต๊ะนี้ไม่สามารถสั่งอาหารเพิ่มได้แล้ว กรุณาติดต่อพนักงาน";
   if (code === "product_unavailable" || code === "insufficient_stock") return message || "มีเมนูที่สต๊อกไม่เพียงพอ กรุณาโหลดเมนูใหม่";
+  if (code === "invalid_toppings" || code === "too_many_toppings") return message || "รายการท็อปปิ้งไม่ถูกต้อง กรุณาเลือกใหม่";
   if (code === "invalid_payload" || code === "invalid_items" || code === "invalid_order_items") return message || "รายการอาหารไม่ถูกต้อง กรุณาตรวจสอบตะกร้าแล้วลองใหม่อีกครั้ง";
   if (code === "invalid_token" || code === "expired_token" || code === "qr_expired" || response.status === 401 || response.status === 403) return message || "ลิงก์ QR นี้หมดอายุหรือไม่สามารถใช้งานได้ กรุณาขอ QR ใหม่จากพนักงาน";
   if (response.status === 409) return message || "โต๊ะนี้ไม่พร้อมรับรายการเพิ่ม กรุณาติดต่อพนักงาน";
@@ -144,11 +146,21 @@ function getTableOrderClientId(token: string) {
   return fallback;
 }
 
-function buildCustomerIngredientNote(product: MenuProduct, selectedIngredientIds: string[] | undefined) {
-  if (!product.customer_ingredient_selection_enabled || !selectedIngredientIds?.length) return null;
+function selectedCustomerIngredientOptions(product: MenuProduct, selectedIngredientIds: string[] | undefined) {
+  if (!product.customer_ingredient_selection_enabled || !selectedIngredientIds?.length) return [];
   const selected = new Set(selectedIngredientIds);
-  const names = (product.customer_ingredient_options ?? [])
-    .filter((option) => selected.has(option.ingredient_id))
+  return (product.customer_ingredient_options ?? []).filter((option) => selected.has(option.ingredient_id));
+}
+
+function customerIngredientSelectionMax(product: MenuProduct) {
+  const optionCount = product.customer_ingredient_options?.length ?? 0;
+  const configured = Math.trunc(Number(product.customer_ingredient_selection_max ?? 0));
+  if (configured > 0) return Math.min(configured, optionCount);
+  return optionCount;
+}
+
+function buildCustomerIngredientNote(product: MenuProduct, selectedIngredientIds: string[] | undefined) {
+  const names = selectedCustomerIngredientOptions(product, selectedIngredientIds)
     .map((option) => option.name.trim())
     .filter(Boolean);
   if (!names.length) return null;
@@ -160,16 +172,22 @@ function buildSubmitItems(
   customerIngredientChoices: Record<string, string[]>
 ): SubmitItem[] {
   return cartItems
-    .map((item) => ({
-      product_id: String(item.id ?? "").trim(),
-      quantity: Number(item.quantity),
-      note: buildCustomerIngredientNote(item, customerIngredientChoices[item.id])
-    }))
+    .map((item) => {
+      const selectedIngredientIds = selectedCustomerIngredientOptions(item, customerIngredientChoices[item.id])
+        .map((option) => option.ingredient_id);
+      return {
+        product_id: String(item.id ?? "").trim(),
+        quantity: Number(item.quantity),
+        note: buildCustomerIngredientNote(item, selectedIngredientIds),
+        selected_ingredient_ids: selectedIngredientIds
+      };
+    })
     .filter((item) => item.product_id && Number.isFinite(item.quantity) && item.quantity > 0)
     .map((item) => ({
       product_id: item.product_id,
       quantity: Math.max(1, Math.min(99, Math.trunc(item.quantity))),
-      note: item.note
+      note: item.note,
+      selected_ingredient_ids: item.selected_ingredient_ids
     }));
 }
 
@@ -381,8 +399,9 @@ export function TableOrderMobile({ token }: { token: string }) {
     if (submitting || serviceSubmitting || !canOrder) return;
     const options = product.customer_ingredient_options ?? [];
     if (product.customer_ingredient_selection_enabled && options.length > 0 && (cart[product.id] ?? 0) === 0) {
+      const selectionMax = customerIngredientSelectionMax(product);
       setIngredientPickerProduct(product);
-      setIngredientPickerSelection(customerIngredientChoices[product.id] ?? []);
+      setIngredientPickerSelection((customerIngredientChoices[product.id] ?? []).slice(0, selectionMax));
       return;
     }
     changeQuantity(product.id, 1);
@@ -396,7 +415,9 @@ export function TableOrderMobile({ token }: { token: string }) {
   function confirmIngredientPicker() {
     if (!ingredientPickerProduct) return;
     const productId = ingredientPickerProduct.id;
-    setCustomerIngredientChoices((current) => ({ ...current, [productId]: ingredientPickerSelection }));
+    const selectionMax = customerIngredientSelectionMax(ingredientPickerProduct);
+    const cleanSelection = ingredientPickerSelection.slice(0, selectionMax);
+    setCustomerIngredientChoices((current) => ({ ...current, [productId]: cleanSelection }));
     closeIngredientPicker();
     changeQuantity(productId, 1);
   }
@@ -557,7 +578,10 @@ export function TableOrderMobile({ token }: { token: string }) {
 
       {cartOpen ? <div className={styles.cartModalBackdrop} role="presentation" onMouseDown={() => setCartOpen(false)}><section className={styles.cartModal} role="dialog" aria-modal="true" onMouseDown={(event) => event.stopPropagation()}>
         <header className={styles.cartModalHead}><div><strong>รายการก่อนส่งเข้าครัว</strong><span>{cartCount} รายการ</span></div><button type="button" onClick={() => setCartOpen(false)}>×</button></header>
-        <div className={styles.cartRows}>{cartItems.map((item) => <article className={styles.cartRow} key={item.id}><div className={styles.cartRowMeta}><strong>{item.name}</strong><span>{money(item.price * item.quantity)}</span></div><div className={styles.cartRowControls}><div className={styles.stepper}><button type="button" onClick={() => changeQuantity(item.id, -1)}>−</button><span>{item.quantity}</span><button type="button" onClick={() => changeQuantity(item.id, 1)} disabled={!productAvailable(item) || item.quantity >= productMaxQuantity(item)}>+</button></div><button type="button" className={styles.deleteItemButton} onClick={() => removeItem(item.id)}>ลบ</button></div></article>)}</div>
+        <div className={styles.cartRows}>{cartItems.map((item) => {
+          const selectedNames = selectedCustomerIngredientOptions(item, customerIngredientChoices[item.id]).map((option) => option.name);
+          return <article className={styles.cartRow} key={item.id}><div className={styles.cartRowMeta}><strong>{item.name}</strong>{selectedNames.length > 0 ? <small>ท็อปปิ้ง: {selectedNames.join(", ")}</small> : null}<span>{money(item.price * item.quantity)}</span></div><div className={styles.cartRowControls}><div className={styles.stepper}><button type="button" onClick={() => changeQuantity(item.id, -1)}>−</button><span>{item.quantity}</span><button type="button" onClick={() => changeQuantity(item.id, 1)} disabled={!productAvailable(item) || item.quantity >= productMaxQuantity(item)}>+</button></div><button type="button" className={styles.deleteItemButton} onClick={() => removeItem(item.id)}>ลบ</button></div></article>;
+        })}</div>
         <footer className={styles.cartModalFooter}><span>ยอดชำระ</span><strong>{money(cartTotal)}</strong><button type="button" className={styles.submitButton} onClick={() => void submitOrder()} disabled={submitting || cartCount === 0 || !canOrder}>{submitting ? "กำลังส่งรายการ..." : "ยืนยันสั่งอาหาร"}</button><button type="button" className={styles.keepShoppingButton} onClick={() => setCartOpen(false)} disabled={submitting}>เลือกเมนูต่อ</button></footer>
       </section></div> : null}
 
@@ -588,24 +612,31 @@ export function TableOrderMobile({ token }: { token: string }) {
         <div className={styles.ingredientPickerBackdrop} role="presentation" onMouseDown={closeIngredientPicker}>
           <section className={styles.ingredientPicker} role="dialog" aria-modal="true" aria-label={`เลือกวัตถุดิบ ${ingredientPickerProduct.name}`} onMouseDown={(event) => event.stopPropagation()}>
             <header className={styles.ingredientPickerHead}>
-              <div><strong>เลือกวัตถุดิบ</strong><span>{ingredientPickerProduct.name}</span></div>
+              <div><strong>เลือกท็อปปิ้ง</strong><span>{ingredientPickerProduct.name}</span></div>
               <button type="button" onClick={closeIngredientPicker} aria-label="ปิด">×</button>
             </header>
-            <p className={styles.ingredientPickerHint}>เลือกได้ตามต้องการ · ไม่มีการเพิ่มราคาและไม่มีการแก้จำนวนสูตร</p>
+            <p className={styles.ingredientPickerHint}>{Number(ingredientPickerProduct.customer_ingredient_selection_max ?? 0) > 0 ? `เลือกได้สูงสุด ${customerIngredientSelectionMax(ingredientPickerProduct)} อย่าง · ฟรี ไม่เพิ่มราคา` : "เลือกได้ตามต้องการ · ไม่มีการเพิ่มราคาและไม่มีการแก้จำนวนสูตร"}</p>
             <div className={styles.ingredientPickerOptions}>
               {(ingredientPickerProduct.customer_ingredient_options ?? []).map((option) => {
                 const checked = ingredientPickerSelection.includes(option.ingredient_id);
+                const selectionMax = customerIngredientSelectionMax(ingredientPickerProduct);
+                const limitReached = selectionMax > 0 && ingredientPickerSelection.length >= selectionMax;
                 return (
                   <label className={checked ? styles.ingredientPickerOptionSelected : styles.ingredientPickerOption} key={option.ingredient_id}>
                     <input
                       type="checkbox"
                       checked={checked}
+                      disabled={!checked && limitReached}
                       onChange={(event) => {
-                        setIngredientPickerSelection((current) =>
-                          event.target.checked
-                            ? Array.from(new Set([...current, option.ingredient_id]))
-                            : current.filter((id) => id !== option.ingredient_id)
-                        );
+                        setIngredientPickerSelection((current) => {
+                          if (!event.target.checked) return current.filter((id) => id !== option.ingredient_id);
+                          const next = Array.from(new Set([...current, option.ingredient_id]));
+                          if (selectionMax > 0 && next.length > selectionMax) {
+                            setToast({ kind: "warning", title: `เลือกท็อปปิ้งได้สูงสุด ${selectionMax} อย่าง` });
+                            return current;
+                          }
+                          return next;
+                        });
                       }}
                     />
                     <span>{option.name}</span>
