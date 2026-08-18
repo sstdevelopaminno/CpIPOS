@@ -25,7 +25,7 @@ One-hour Vercel request profile before/around phase 1:
 
 - `/api/print-agent/v1/jobs/claim`: ~2,123/hour — intentionally excluded; verified Print Agent 1/2/3s recovery loop.
 - `/api/pos/table-qr-activity`: initially ~466/hour; later rolling window ~414/hour.
-- `/api/android-pos/update-policy`: ~158/hour — not current target.
+- `/api/android-pos/update-policy`: ~158/hour.
 - `/api/print-agent/v1/heartbeat`: ~152/hour — excluded.
 - `/api/pos/session/current`: ~130/hour total across authenticated/unauthenticated clients.
 - `/api/android-pos/mdm/heartbeat`: ~121/hour — excluded.
@@ -97,19 +97,71 @@ Conclusion: DB execution is not the bottleneck. Do not add a speculative index/c
 
 Do not re-implement those protections. A possible later cleanup is reducing effect/timer re-registration churn when the `menu` object changes, but there is not enough customer traffic in the sampled production window to justify a risky rewrite now.
 
+## Phase 2 — Android mandatory update policy request consolidation
+
+Production baseline:
+
+- `/api/android-pos/update-policy`: ~158 requests/hour.
+- Two continuously open Android POS clients at the previous 45s fixed interval explain roughly this rate.
+
+Source:
+
+- `apps/backoffice-web/src/components/android-pos/android-pos-mandatory-update.tsx`
+
+Previous behavior:
+
+- immediate check on mount
+- fixed 45s interval even while the app was hidden
+- immediate focus refresh
+- immediate visible refresh
+- no cross-trigger in-flight guard, so focus + visibility could overlap
+
+Change commit:
+
+- `4fe5fc55798a9242bec0505f73f05c4baa6ed338`
+- message: `perf(android): reduce mandatory update policy churn`
+
+New behavior:
+
+- immediate check on mount remains
+- fixed visible interval becomes 2 minutes
+- focus / visible return still checks immediately
+- interval skips hidden documents
+- `policyCheckInFlightRef` prevents focus/visibility/interval overlap
+- cached policy fallback remains unchanged
+- mandatory update overlay/blocking semantics remain unchanged
+
+Expected continuously visible steady rate per Android client:
+
+- before: ~80 checks/hour at 45s
+- after: ~30 checks/hour at 2m
+- reduction: ~62.5% before counting duplicate suppression
+
+Worst-case policy discovery for an app that remains continuously visible is now about 2 minutes; foregrounding the app still triggers an immediate check.
+
 ## Polling regression guard
 
-Added:
+File:
 
 - `apps/backoffice-web/tests/integration/polling-request-churn-regression.integration.test.ts`
-- commit `91a1f317d6553c814940f4d94e371df1252c9b80`
+
+Initial guard commit:
+
+- `91a1f317d6553c814940f4d94e371df1252c9b80`
 - message: `test(perf): lock adaptive polling request bounds`
 
-It locks:
+Android guard extension:
+
+- `c2f236ff86eacde4fade42140e76befb1a24399e`
+- message: `test(perf): guard Android update policy polling`
+
+It now locks:
 
 - global POS idle backoff reaches 30s
 - global POS in-flight + hidden-tab + focus/visibility behavior remains
 - customer Table QR polling remains 15s max visible cadence with in-flight + hidden-tab guards
+- Android mandatory-update fixed refresh remains 2 minutes
+- Android update policy remains immediate on foreground and single-flight
 
 ## `/api/pos/session/current` audit so far
 
@@ -123,12 +175,13 @@ Source callers identified:
 - `PosEntryGate`: one session check during load/retry
 - `PosSalesModule`: active-shift watchdog uses `/api/pos/session/current` with a 15s interval + focus check
 
-Do not blindly slow the active-shift watchdog because it is a sales safety gate. First separate authenticated active-POS volume from unauthenticated page-load bursts and only consolidate if there is a clear duplicate caller.
+Do not blindly slow the active-shift watchdog because it is a sales safety gate. Current total volume is much lower than the polling channels already optimized, and live browser throttling already makes the authenticated stream appear near 1/minute.
 
 ## Next actions
 
-1. Verify Vercel/CI for `91a1f317...`.
-2. Re-measure `/api/pos/table-qr-activity` after a natural client reload; expect steady visible idle cadence to settle near 30s.
-3. Do not add a DB index for this poll based on current evidence.
-4. Inspect whether `/api/pos/session/current` has duplicate authenticated callers before any cadence change.
-5. Keep Print Agent / MDM loops untouched in this phase.
+1. Verify Vercel/CI for `4fe5fc5...` and `c2f236f...`.
+2. Re-measure `/api/android-pos/update-policy` after the active Android WebView naturally reloads; target ~30/hour per continuously visible client.
+3. Re-measure `/api/pos/table-qr-activity` after a natural client reload; expect steady visible idle cadence near 30s.
+4. Do not add a DB index for the QR activity poll based on current evidence.
+5. Leave `/api/pos/session/current` cadence unchanged unless a duplicate authenticated caller is proven.
+6. Keep Print Agent / MDM loops untouched in this phase.
