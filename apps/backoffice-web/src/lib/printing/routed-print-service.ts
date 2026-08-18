@@ -49,12 +49,23 @@ function shouldDefer(route: ResolvedPrinterRoute) {
   return readEnv("VERCEL") === "1" || Boolean(readEnv("VERCEL_ENV"));
 }
 
-const KITCHEN_TICKET_PRINT_SELECT_WITH_ROUND = "id,order_id,zone_id,event_type,order_no,order_type,table_id,customer_name,order_notes,queue_no,round_no,created_at,kitchen_zones(id,zone_code,zone_name,kds_enabled,default_printer_id)";
-const KITCHEN_TICKET_PRINT_SELECT_BASE = "id,order_id,zone_id,event_type,order_no,order_type,table_id,customer_name,order_notes,queue_no,created_at,kitchen_zones(id,zone_code,zone_name,kds_enabled,default_printer_id)";
+const KITCHEN_TICKET_PRINT_SELECT_WITH_ROUND = "id,order_id,zone_id,event_type,order_no,order_type,table_id,customer_name,order_notes,queue_no,round_no,created_at,metadata,kitchen_zones(id,zone_code,zone_name,kds_enabled,default_printer_id)";
+const KITCHEN_TICKET_PRINT_SELECT_BASE = "id,order_id,zone_id,event_type,order_no,order_type,table_id,customer_name,order_notes,queue_no,created_at,metadata,kitchen_zones(id,zone_code,zone_name,kds_enabled,default_printer_id)";
 
 function isMissingRoundNoError(error: { message?: string } | null | undefined) {
   return Boolean(error?.message?.includes("kitchen_tickets.round_no") || error?.message?.includes("round_no does not exist"));
 }
+
+function kitchenTableLabel(metadata: unknown): string | null {
+  const record = asRecord(metadata);
+  const label = String(record.table_label ?? "").trim();
+  if (label) return label;
+  const code = String(record.table_code ?? "").trim();
+  const name = String(record.table_name ?? "").trim();
+  if (code && name && code !== name) return `${code} · ${name}`;
+  return code || name || null;
+}
+
 async function queueOnRoute(args: {
   auth: AuthContext;
   route: ResolvedPrinterRoute;
@@ -197,7 +208,7 @@ export async function queueRoutedSalesReceipt(args: {
       logoUrl: storeProfile?.logo_url ?? null,
       sellerName,
       orderNo: args.order.order_no,
-      modeLabel: args.order.mode_label ?? "เธซเธเนเธฒเธเธฒเธข",
+      modeLabel: args.order.mode_label ?? "หน้าขาย",
       paidAtIso,
       items: args.items.map((item) => ({ name: item.product_name, quantity: item.quantity, unitPrice: item.unit_price, lineTotal: item.line_total, note: item.note ?? null })),
       discountAmount: args.order.discount_amount,
@@ -236,7 +247,6 @@ export async function queueRoutedSalesReceipt(args: {
   }
   return jobs;
 }
-
 
 export async function queueRoutedPaymentNotice(args: {
   auth: AuthContext;
@@ -319,6 +329,7 @@ export async function queueRoutedPaymentNotice(args: {
   }
   return jobs;
 }
+
 export async function queueRoutedKitchenTicketPrint(args: {
   auth: AuthContext;
   kitchenTicketId: string;
@@ -397,7 +408,9 @@ export async function queueRoutedKitchenTicketPrint(args: {
     queue_no: number | null;
     round_no: number | null;
     created_at: string;
+    metadata: JsonRecord | null;
   };
+  const tableLabel = kitchenTableLabel(row.metadata);
   const printJobs = [];
   for (const route of routes) {
     const paperWidth = route.printer.paper_width_mm === 80 ? 80 : 58;
@@ -410,7 +423,7 @@ export async function queueRoutedKitchenTicketPrint(args: {
       roundNo: Number(row.round_no ?? 1),
       orderNo: row.order_no,
       orderType: row.order_type,
-      tableLabel: row.table_id,
+      tableLabel,
       ticketId: row.id,
       eventType: row.event_type,
       createdAtIso: row.created_at,
@@ -429,12 +442,14 @@ export async function queueRoutedKitchenTicketPrint(args: {
       kitchenTicketId: row.id,
       idempotencyKey: args.forceReprint ? null : `kitchen:${row.id}:${route.printer.id}`,
       printerRole: "kitchen",
-      payloadText: `[${zoneCode}] ${row.order_no} Q${row.queue_no ?? "-"} R${row.round_no ?? 1}`,
+      payloadText: `[${zoneCode}] ${row.order_no} โต๊ะ ${tableLabel ?? "-"} คิว ${row.queue_no ?? "-"} รอบ ${row.round_no ?? 1}`,
       payloadJson: {
         ...storePayload(storeProfile),
         document_type: "kitchen_ticket",
         kitchen_ticket_id: row.id,
         zone_code: zoneCode,
+        table_id: row.table_id,
+        table_label: tableLabel,
         queue_no: row.queue_no,
         round_no: row.round_no,
         items: items ?? []
@@ -445,6 +460,8 @@ export async function queueRoutedKitchenTicketPrint(args: {
         kitchen_ticket_id: row.id,
         zone_id: row.zone_id,
         zone_code: zoneCode,
+        table_id: row.table_id,
+        table_label: tableLabel,
         queue_no: row.queue_no,
         round_no: row.round_no,
         event_type: row.event_type,
@@ -456,6 +473,7 @@ export async function queueRoutedKitchenTicketPrint(args: {
   }
   return printJobs;
 }
+
 export async function queueRoutedKitchenFallback(args: {
   auth: AuthContext;
   orderId: string;
@@ -498,7 +516,7 @@ export async function queueRoutedKitchenFallback(args: {
       order_id: order.id,
       order_no: order.order_no,
       branch_name: branchName,
-      station: "KITCHEN",
+      station: "ครัว",
       ticket_at_iso: new Date().toISOString(),
       items: items.map((item) => ({
         name: String(item.name ?? item.product_id ?? "Item"),
@@ -515,7 +533,7 @@ export async function queueRoutedKitchenFallback(args: {
       payloadJson: {
         order_id: order.id,
         order_no: order.order_no,
-        station: "KITCHEN",
+        station: "ครัว",
         items: items.map((item) => ({ id: item.id, product_id: item.product_id, name: item.name, quantity: item.quantity, notes: item.notes }))
       },
       metadata: {
@@ -607,7 +625,7 @@ export async function queueRoutedReceiptReprint(args: {
       logoUrl: storeProfile?.logo_url ?? null,
       sellerName,
       orderNo: String(order.order_no),
-      modeLabel: "เนเธเน€เธชเธฃเนเธเธขเนเธญเธเธซเธฅเธฑเธ",
+      modeLabel: "ใบเสร็จย้อนหลัง",
       paidAtIso,
       items: receiptItems.map((item) => ({ name: item.name, quantity: item.qty, unitPrice: item.unit_price, lineTotal: item.line_total, note: item.note })),
       discountAmount: Number(order.discount_amount ?? 0),
