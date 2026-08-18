@@ -7,6 +7,7 @@ function source(relativePath: string) {
 
 const globalAlert = source("../../src/components/pos-preview/pos-table-qr-global-alert.tsx");
 const tableOrderMobile = source("../../src/components/table-order/table-order-mobile.tsx");
+const androidMandatoryUpdate = source("../../src/components/android-pos/android-pos-mandatory-update.tsx");
 
 describe("polling request-churn regression guard", () => {
   it("backs the global POS Table QR alert off to 30s while idle", () => {
@@ -27,5 +28,14 @@ describe("polling request-churn regression guard", () => {
     expect(tableOrderMobile).toContain("window.setInterval(() => void refresh(), MENU_STATUS_POLL_MS)");
     expect(tableOrderMobile).toContain('window.addEventListener("focus", refresh)');
     expect(tableOrderMobile).toContain('document.addEventListener("visibilitychange", onVisible)');
+  });
+
+  it("keeps Android mandatory-update checks low-churn without weakening foreground checks", () => {
+    expect(androidMandatoryUpdate).toContain("const POLICY_REFRESH_MS = 2 * 60 * 1000");
+    expect(androidMandatoryUpdate).toContain("policyCheckInFlightRef.current");
+    expect(androidMandatoryUpdate).toContain('document.visibilityState === "visible"');
+    expect(androidMandatoryUpdate).toContain("void refreshPolicy();");
+    expect(androidMandatoryUpdate).toContain('window.addEventListener("focus", refreshPolicy)');
+    expect(androidMandatoryUpdate).toContain('document.addEventListener("visibilitychange", handleVisibility)');
   });
 });
