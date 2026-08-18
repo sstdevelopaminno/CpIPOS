@@ -17,6 +17,7 @@ const MDM_RELOAD_GENERATION_MS = 1786478151547;
 type AndroidPosMdmCommand = { id?: string; action?: string; reason?: string };
 type PairedDevice = { id: string; device_code: string; metadata: Record<string, unknown> | null };
 type PendingPrinterCommand = { id: string; issued_at: string };
+type PendingUiCommand = { id: string; command_type: "reload_ui" | "refresh_config"; issued_at: string; metadata: Record<string, unknown> | null };
 
 function noStoreHeaders() {
   return { "Cache-Control": "no-store, no-cache, must-revalidate", "X-CpIPOS-MDM-Lite": "android-pos" };
@@ -110,6 +111,32 @@ async function acknowledgePreviousPrinterTest(device: PairedDevice, payload: Rec
   }).eq("id", row.id);
 }
 
+async function acknowledgePreviousUiReload(device: PairedDevice, payload: Record<string, unknown> | null, appVersion: string | null) {
+  const lastCommand = asRecord(payload?.last_command);
+  if (String(lastCommand.action ?? "").trim().toLowerCase() !== "reload_webview") return;
+  const atMs = Number(lastCommand.at_ms ?? 0);
+  if (!Number.isFinite(atMs) || atMs <= 0) return;
+
+  const supabase = getSupabaseServiceClient();
+  const executedAt = new Date(atMs).toISOString();
+  const lowerBound = new Date(atMs - 5 * 60 * 1000).toISOString();
+  await supabase.from("device_commands").update({
+    result: {
+      applied: true,
+      phase: "executed",
+      mdm_action: "reload_webview",
+      app_version: appVersion,
+      acknowledged_at: new Date().toISOString(),
+      executed_at: executedAt
+    }
+  })
+    .eq("pos_device_id", device.id)
+    .in("command_type", ["reload_ui", "refresh_config"])
+    .eq("status", "delivered")
+    .gte("delivered_at", lowerBound)
+    .lte("delivered_at", executedAt);
+}
+
 async function persistNativeMdmState(device: PairedDevice, payload: Record<string, unknown> | null, appVersion: string | null) {
   const supabase = getSupabaseServiceClient();
   const metadata = asRecord(device.metadata);
@@ -125,6 +152,46 @@ async function persistNativeMdmState(device: PairedDevice, payload: Record<strin
     },
     updated_at: new Date().toISOString()
   }).eq("id", device.id);
+}
+
+async function deliverUiReloadCommands(device: PairedDevice): Promise<AndroidPosMdmCommand[]> {
+  const supabase = getSupabaseServiceClient();
+  const now = new Date();
+  const nowIso = now.toISOString();
+
+  await supabase.from("device_commands").update({ status: "expired" })
+    .eq("pos_device_id", device.id)
+    .in("command_type", ["reload_ui", "refresh_config"])
+    .eq("status", "pending")
+    .lte("expires_at", nowIso);
+
+  const { data: rows, error } = await supabase.from("device_commands")
+    .select("id,command_type,issued_at,metadata")
+    .eq("pos_device_id", device.id)
+    .in("command_type", ["reload_ui", "refresh_config"])
+    .eq("status", "pending")
+    .gt("expires_at", nowIso)
+    .order("issued_at", { ascending: true })
+    .limit(4)
+    .returns<PendingUiCommand[]>();
+  if (error || !rows?.length) return [];
+
+  const ids = rows.map((row) => row.id);
+  await supabase.from("device_commands").update({
+    status: "delivered",
+    delivered_at: nowIso,
+    result: {
+      applied: false,
+      phase: "delivered",
+      mdm_action: "reload_webview",
+      delivery_surface: "android_pos_mdm_heartbeat"
+    }
+  }).in("id", ids);
+
+  const reason = rows
+    .map((row) => String(asRecord(row.metadata).reason ?? "").trim())
+    .find(Boolean) ?? "onsite_ui_refresh";
+  return [{ id: rows[0].id, action: "reload_webview", reason: reason.slice(0, 160) }];
 }
 
 async function deliverPrinterTestCommands(device: PairedDevice): Promise<AndroidPosMdmCommand[]> {
@@ -164,13 +231,14 @@ export async function POST(request: Request) {
     if (device) {
       pairedDeviceCode = device.device_code;
       await acknowledgePreviousPrinterTest(device, payload, appVersion);
+      await acknowledgePreviousUiReload(device, payload, appVersion);
       await persistNativeMdmState(device, payload, appVersion);
-      commands = [...commands, ...(await deliverPrinterTestCommands(device))].slice(0, 5);
+      commands = [...commands, ...(await deliverUiReloadCommands(device)), ...(await deliverPrinterTestCommands(device))].slice(0, 5);
     }
   }
 
   if (commands.some((command) => command.action === "reload_webview")) {
-    console.info("[android-pos-mdm] one-time reload issued", { install_id_suffix: installId?.slice(-8) ?? null, app_version: appVersion, generation_ms: MDM_RELOAD_GENERATION_MS });
+    console.info("[android-pos-mdm] reload issued", { install_id_suffix: installId?.slice(-8) ?? null, app_version: appVersion, generation_ms: MDM_RELOAD_GENERATION_MS, paired_device_code: pairedDeviceCode });
   }
 
   return NextResponse.json({
