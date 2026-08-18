@@ -8,13 +8,27 @@ const paymentLockRoute = readFileSync(
   resolve(process.cwd(), "src/app/api/pos/tables/[tableId]/payment-lock/route.ts"),
   "utf8"
 );
-const primaryMigration = readFileSync(
+const primaryConcurrencyMigration = readFileSync(
   resolve(workspaceRoot, "supabase/migrations/20260818053044_table_order_concurrency_payment_lock_hardening.sql"),
+  "utf8"
+);
+const trialConcurrencyMigration = readFileSync(
+  resolve(
+    workspaceRoot,
+    "supabase/trial-data-plane/migrations/20260818054729_trial_table_order_concurrency_payment_lock_hardening.sql"
+  ),
+  "utf8"
+);
+const trialPaymentMigration = readFileSync(
+  resolve(
+    workspaceRoot,
+    "supabase/trial-data-plane/migrations/20260818054924_trial_payment_idempotency_hardening.sql"
+  ),
   "utf8"
 );
 
 describe("table order concurrency + data-plane routing contract", () => {
-  it("routes the table payment lock RPC through tenant data-plane selection", () => {
+  it("routes all table-order payment RPCs through tenant data-plane selection", () => {
     const rpcBlock = router.slice(router.indexOf("const BUSINESS_RPCS"), router.indexOf("const MUTATION_METHODS"));
     expect(rpcBlock).toContain('"submit_table_qr_order_tx"');
     expect(rpcBlock).toContain('"set_table_payment_lock_tx"');
@@ -32,12 +46,25 @@ describe("table order concurrency + data-plane routing contract", () => {
     expect(paymentLockRoute).toContain('fail("table_payment_lock_busy"');
   });
 
-  it("keeps the production payment-lock transaction serialized and fail-closed", () => {
-    expect(primaryMigration).toContain("set lock_timeout to '5s'");
-    expect(primaryMigration.toLowerCase()).toContain("for update");
-    expect(primaryMigration).toContain("set_table_payment_lock_tx");
-    expect(primaryMigration.toLowerCase()).toContain("security definer");
-    expect(primaryMigration.toLowerCase()).toContain("revoke all");
-    expect(primaryMigration.toLowerCase()).toContain("service_role");
+  it("keeps Primary and Trial payment-lock transactions serialized and fail-closed", () => {
+    for (const migration of [primaryConcurrencyMigration, trialConcurrencyMigration]) {
+      expect(migration).toContain("set lock_timeout to '5s'");
+      expect(migration.toLowerCase()).toContain("for update");
+      expect(migration).toContain("set_table_payment_lock_tx");
+      expect(migration).toContain("TABLE_SESSION_CLOSED");
+      expect(migration.toLowerCase()).toContain("security definer");
+      expect(migration.toLowerCase()).toContain("revoke all");
+      expect(migration.toLowerCase()).toContain("service_role");
+    }
+  });
+
+  it("keeps Trial payment retries serialized, runtime-scoped, and fresh-key safe", () => {
+    expect(trialPaymentMigration).toContain("set lock_timeout to '5s'");
+    expect(trialPaymentMigration.toLowerCase()).toContain("for update");
+    expect(trialPaymentMigration).toContain("pg_advisory_xact_lock");
+    expect(trialPaymentMigration).toContain("app.require_trial_runtime");
+    expect(trialPaymentMigration).toContain("ORDER_ALREADY_PAID");
+    expect(trialPaymentMigration.toLowerCase()).toContain("security definer");
+    expect(trialPaymentMigration.toLowerCase()).toContain("service_role");
   });
 });

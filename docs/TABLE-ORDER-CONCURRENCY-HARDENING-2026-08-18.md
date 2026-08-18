@@ -54,14 +54,14 @@ Production hardening for simultaneous dine-in/Table QR ordering across many tabl
 
 ## API/data-plane routing
 
-`apps/backoffice-web/src/app/api/pos/tables/[tableId]/payment-lock/route.ts` now resolves the tenant's authoritative business data plane before invoking `set_table_payment_lock_tx`.
+`apps/backoffice-web/src/app/api/pos/tables/[tableId]/payment-lock/route.ts` calls the atomic `set_table_payment_lock_tx` RPC with explicit tenant, branch, table, and order scope.
 
-`apps/backoffice-web/src/lib/tenant-business-data-client.ts`:
+`apps/backoffice-web/src/lib/tenant-data-router.ts` now includes `set_table_payment_lock_tx` in the routed business RPC set. The router:
 - reads authoritative lifecycle state from Primary control plane;
 - uses Primary for `data_home=primary`;
 - fails closed for archived tenants;
 - uses Trial only when Trial routing is explicitly enabled;
-- prevents a future Trial tenant from silently mutating the wrong database.
+- prevents a future Trial tenant from silently invoking this business mutation against the wrong database.
 
 At verification time, all currently active tenant lifecycle rows were still `data_home=primary`; Trial parity was added proactively so moving a tenant later does not reintroduce the race.
 
@@ -78,14 +78,15 @@ At verification time, all currently active tenant lifecycle rows were still `dat
 
 ## Verification completed
 
-- Primary migration readback: SECURITY DEFINER functions use explicit `search_path`; privileged RPC execution is service-role-only.
+- Primary and Trial migration readback: SECURITY DEFINER functions use explicit `search_path`; privileged RPC execution is service-role-only.
+- Primary and Trial payment/payment-lock functions use row-level serialization; payment/payment-lock use a 5-second database lock timeout.
 - Safe invalid-scope RPC smoke tests passed without creating fake orders/payments.
 - Closed-session `order_items` insert smoke test was correctly rejected with `TABLE_SESSION_CLOSED` and left no row behind.
 - Existing completed Table QR payment retried with its original request key returned `duplicate_request=true` and the original total.
 - The same completed order with a new synthetic key was rejected and created zero payment rows.
-- Production Next.js build/TypeScript completed successfully on Vercel.
-- Production deployment for the first hardening commit reached READY and `/preview/pos` returned HTTP 200.
-- Post-deploy runtime review found no runtime errors and no 5xx in the selected 15-minute window.
+- Production Next.js build/TypeScript completed successfully on Vercel for the routing fix.
+- Production deployment for the routing/test commit reached READY.
+- Database lock inspection found no waiting locks during verification.
 
 ## Load-test policy
 
