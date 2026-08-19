@@ -35,7 +35,7 @@ describe("print latency stability contract", () => {
   it("prioritizes drawer pulse claims without lowering Android compatibility", () => {
     expect(migration).toContain("open_cash_drawer' then 0 else 1");
     expect(gradle).toContain("minSdk = 26");
-    expect(gradle).toContain('versionName = "1.0.11"');
-    expect(gradle).toContain("versionCode = 17");
+    expect(gradle).toContain('versionName = "1.0.12"');
+    expect(gradle).toContain("versionCode = 18");
   });
 });
