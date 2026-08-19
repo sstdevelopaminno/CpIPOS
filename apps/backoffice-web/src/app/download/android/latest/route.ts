@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
 
 const releaseApiUrl = "https://api.github.com/repos/sstdevelopaminno/CpIPOS/releases/tags/android-runtime-latest";
-const stableAssetName = "CpIPOS-Android-POS.apk";
-const versionedAssetPattern = /^CpIPOS-Android-POS-(\d+)\.(\d+)\.(\d+)\.apk$/;
+const expectedVersion = "1.0.12";
+const expectedAssetName = `CpIPOS-Android-POS-${expectedVersion}.apk`;
 
 export const dynamic = "force-dynamic";
 
@@ -22,43 +22,25 @@ export async function GET() {
     });
 
     if (!response.ok) {
-      return notReady("ไฟล์ APK ของ CpIPOS Android กำลังถูกสร้าง กรุณารอสักครู่แล้วกดดาวน์โหลดอีกครั้ง");
+      return notReady(`ไฟล์ APK ของ CpIPOS Android POS ${expectedVersion} กำลังถูกสร้าง กรุณารอสักครู่แล้วกดดาวน์โหลดอีกครั้ง`);
     }
 
     const release = (await response.json()) as { assets?: ReleaseAsset[] };
-    const assets = release.assets ?? [];
-
-    // The release workflow always clobbers this stable alias after a signed production build.
-    // Keeping the web route on the alias means future Android releases do not require another URL change.
-    const stableAsset = assets.find(
-      (item) => item.name === stableAssetName && Boolean(item.browser_download_url)
+    const asset = release.assets?.find(
+      (item) => item.name === expectedAssetName && Boolean(item.browser_download_url)
     );
 
-    const fallbackAsset = assets
-      .map((asset) => ({ asset, version: parseVersion(asset.name) }))
-      .filter((entry): entry is { asset: ReleaseAsset; version: [number, number, number] } => Boolean(entry.version))
-      .sort((a, b) => compareVersion(b.version, a.version))[0]?.asset;
-
-    const asset = stableAsset ?? fallbackAsset;
     if (!asset?.browser_download_url) {
-      return notReady("พบหน้า Release แล้ว แต่ยังไม่พบ Stable APK กรุณารอสักครู่แล้วกดดาวน์โหลดอีกครั้ง");
+      return notReady(`พบหน้า Release แล้ว แต่ Android POS ${expectedVersion} ยังสร้าง Stable Signed APK ไม่เสร็จ กรุณารอสักครู่แล้วลองใหม่`);
     }
 
-    return NextResponse.redirect(asset.browser_download_url, 302);
+    const redirect = NextResponse.redirect(asset.browser_download_url, 302);
+    redirect.headers.set("X-CpIPOS-Android-Version", expectedVersion);
+    redirect.headers.set("Cache-Control", "no-store");
+    return redirect;
   } catch {
-    return notReady("ยังตรวจสอบไฟล์ APK ไม่ได้ กรุณาลองใหม่อีกครั้ง");
+    return notReady(`ยังตรวจสอบไฟล์ Android POS ${expectedVersion} ไม่ได้ กรุณาลองใหม่อีกครั้ง`);
   }
-}
-
-function parseVersion(name?: string): [number, number, number] | null {
-  if (!name) return null;
-  const match = versionedAssetPattern.exec(name);
-  if (!match) return null;
-  return [Number(match[1]), Number(match[2]), Number(match[3])];
-}
-
-function compareVersion(a: [number, number, number], b: [number, number, number]) {
-  return a[0] - b[0] || a[1] - b[1] || a[2] - b[2];
 }
 
 function notReady(reason: string) {
@@ -67,7 +49,7 @@ function notReady(reason: string) {
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>CpIPOS Android กำลังเตรียม APK</title>
+  <title>CpIPOS Android ${expectedVersion} กำลังเตรียม APK</title>
   <style>
     body{margin:0;min-height:100vh;background:#020617;color:#f8fafc;font-family:Tahoma,Arial,sans-serif;display:flex;align-items:center;justify-content:center;padding:24px;box-sizing:border-box}
     main{max-width:780px;border:1px solid #334155;border-radius:24px;background:#0f172a;padding:28px;box-sizing:border-box;box-shadow:0 24px 80px rgba(0,0,0,.35)}
@@ -76,11 +58,11 @@ function notReady(reason: string) {
 </head>
 <body>
   <main>
-    <h1>CpIPOS Android กำลังเตรียม APK</h1>
-    <p>ระบบกำลังสร้าง Stable Signed APK ผ่าน GitHub Actions เมื่อสร้างเสร็จ URL เดิมนี้จะดาวน์โหลดเวอร์ชันล่าสุดได้ทันที</p>
+    <h1>CpIPOS Android POS ${expectedVersion} กำลังเตรียม APK</h1>
+    <p>ระบบกำลังสร้างและตรวจสอบ Stable Signed APK ผ่าน GitHub Actions เมื่อไฟล์เวอร์ชัน ${expectedVersion} พร้อม ปุ่มดาวน์โหลดเดิมจะดาวน์โหลดไฟล์เวอร์ชันนี้โดยตรง</p>
     <span class="note">${escapeHtml(reason)}</span>
     <a class="btn" href="/download">กลับไปหน้าดาวน์โหลด</a>
-    <p class="muted">CpIPOS Web ยังใช้งานได้ตามปกติ หน้านี้เป็นไฟล์ APK สำหรับ Android เท่านั้น</p>
+    <p class="muted">ระบบจะไม่ส่ง APK รุ่นเก่ามาแทนระหว่างที่เวอร์ชัน ${expectedVersion} ยังสร้างไม่เสร็จ</p>
   </main>
 </body>
 </html>`;
