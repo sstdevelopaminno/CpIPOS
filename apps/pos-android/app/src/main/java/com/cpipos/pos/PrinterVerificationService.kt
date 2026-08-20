@@ -7,11 +7,13 @@ import java.net.InetSocketAddress
 import java.net.Socket
 
 /**
- * Targeted, fail-closed printer verification for Android POS hardware labs.
+ * Targeted, fail-closed printer verification for the Android POS runtime.
  *
- * Probe mode never opens USB/Bluetooth devices and never writes printer bytes. Verification
- * print mode uses an exact canonical fingerprint, a short-lived one-time command and the
- * existing native transport. It never creates or rewrites a printer assignment.
+ * Probe mode never writes printer bytes. Verification print mode uses an exact canonical
+ * fingerprint, a short-lived one-time command and the existing native transport. It never
+ * creates or rewrites a printer assignment. Bluetooth UUID advertisement is supporting
+ * evidence only: an exact bonded target with printer evidence may still be verified because
+ * real embedded printers can omit advertised SPP UUIDs while accepting RFCOMM SPP.
  */
 internal class PrinterVerificationService(context: Context) {
     private val appContext = context.applicationContext
@@ -55,7 +57,7 @@ internal class PrinterVerificationService(context: Context) {
                 .put("target_fingerprint", target.fingerprint)
                 .put("ready", resolution.ready)
                 .put("code", resolution.code)
-                .put("retryable", false)
+                .put("retryable", resolution.retryable)
                 .put("probe", resolution.details)
         }
 
@@ -256,11 +258,14 @@ internal class PrinterVerificationService(context: Context) {
                 details = JSONObject().put("paired", false).put("enabled", enabled),
                 profile = profile
             )
-        val sppPresent = row.optBoolean("spp_uuid_present", false)
-        val ready = enabled && sppPresent
+
+        val sppAdvertised = row.optBoolean("spp_uuid_present", false)
+        val printerEvidence = row.optBoolean("printer_name_hint", false)
+        val exactBondedFallback = !sppAdvertised && printerEvidence
+        val ready = enabled && (sppAdvertised || printerEvidence)
         val code = when {
             !enabled -> "bluetooth_disabled"
-            !sppPresent -> "bluetooth_spp_unverified"
+            !sppAdvertised && !printerEvidence -> "bluetooth_printer_evidence_missing"
             else -> "ready"
         }
         return Resolution(
@@ -270,7 +275,9 @@ internal class PrinterVerificationService(context: Context) {
             details = JSONObject()
                 .put("paired", true)
                 .put("enabled", enabled)
-                .put("spp_uuid_present", sppPresent)
+                .put("spp_uuid_present", sppAdvertised)
+                .put("printer_name_hint", printerEvidence)
+                .put("exact_bonded_fallback", exactBondedFallback)
                 .put("name", row.optString("name", null))
                 .put("address", row.optString("address", target.address)),
             profile = profile
