@@ -3,48 +3,55 @@
 import { ANDROID_MODERN_RELEASE } from "@/lib/android-runtime-release";
 
 const ANDROID_POS_LATEST_URL = "/download/android/latest";
-const ANDROID_POS_DUAL_SCREEN_URL = "/download/android/dual-screen-1-0-13";
 const ANDROID_POS_MODERN_URL = ANDROID_MODERN_RELEASE.downloadPath;
 
 type AppIconKind = "tablet" | "phone" | "windows";
 
-const apps = [
+type AppCard = {
+  title: string;
+  platform: string;
+  description: string;
+  file: string;
+  status: string;
+  badge: string | null;
+  buttonLabel: string | null;
+  icon: AppIconKind;
+  ready: boolean;
+  href?: string;
+  recommended?: boolean;
+  legacy?: boolean;
+};
+
+const androidPosApps: AppCard[] = [
   {
     title: "CpIPOS POS - Modern Runtime",
-    platform: `Android POS · ${ANDROID_MODERN_RELEASE.versionName} · Modern Channel`,
-    description: "สำหรับเครื่อง POS รุ่นใหม่หรือเครื่องที่ตั้งใจย้ายเข้าสาย Modern เท่านั้น เพิ่ม Printer Capability/Verification, Customer Display V2 และระบบแจ้งเตือนอัปเดตรุ่นถัดไปแบบไม่บังคับติดตั้ง โดยไม่เปลี่ยน release channel ของร้านเดิม",
+    platform: `Android POS · ${ANDROID_MODERN_RELEASE.versionName} · 1–2 จอ`,
+    description: "เวอร์ชันมาตรฐานปัจจุบันสำหรับร้านเปิดใหม่และเครื่อง POS รุ่นใหม่ รองรับทั้งเครื่อง 1 จอและ 2 จอ พร้อม Modern Runtime, Printer Capability/Verification, Customer Display V2 และระบบแจ้งเตือนอัปเดตรุ่นถัดไปแบบไม่บังคับติดตั้ง",
     file: ANDROID_MODERN_RELEASE.assetName,
-    status: `v${ANDROID_MODERN_RELEASE.versionName} · Signed Modern Release`,
-    badge: `v${ANDROID_MODERN_RELEASE.versionName} · Modern`,
-    buttonLabel: `ดาวน์โหลด Modern ${ANDROID_MODERN_RELEASE.versionName}`,
-    icon: "tablet" as AppIconKind,
+    status: `v${ANDROID_MODERN_RELEASE.versionName} · Signed · มาตรฐานร้านใหม่`,
+    badge: `แนะนำ · v${ANDROID_MODERN_RELEASE.versionName}`,
+    buttonLabel: `ติดตั้งร้านใหม่ · Android POS ${ANDROID_MODERN_RELEASE.versionName}`,
+    icon: "tablet",
     ready: true,
-    href: ANDROID_POS_MODERN_URL
+    href: ANDROID_POS_MODERN_URL,
+    recommended: true
   },
   {
-    title: "CpIPOS POS - Android Tablet",
-    platform: "Android Tablet POS · 1.0.12 Stable LTS",
-    description: "CpIPOS Android POS 1.0.12 สำหรับเครื่องขายหน้าร้านจอเดียว พร้อม Native Print Agent, MDM และระบบพิมพ์ LAN / USB / Bluetooth ร้านที่ใช้งานเวอร์ชันนี้อยู่สามารถใช้งานต่อได้ตามปกติและจะไม่ถูกย้ายไป Modern channel อัตโนมัติ",
+    title: "CpIPOS POS - Legacy Stable",
+    platform: "Android POS · 1.0.12 · ร้านเดิมเท่านั้น",
+    description: "สำหรับร้านหรือเครื่องเก่าที่ติดตั้ง CpIPOS 1.0.12 และใช้งานเสถียรอยู่แล้ว ให้ใช้งานต่อได้ตามปกติ โดยไม่ถูกย้ายไป Modern channel อัตโนมัติ รุ่นนี้ไม่ใช่มาตรฐานสำหรับการเปิดรหัสร้านใหม่ตั้งแต่ 20 สิงหาคม 2026 เป็นต้นไป",
     file: "CpIPOS-Android-POS-1.0.12.apk",
-    status: "v1.0.12 · Stable Signed · พร้อมดาวน์โหลด",
-    badge: "v1.0.12 · Stable",
-    buttonLabel: "ดาวน์โหลด Android POS 1.0.12",
-    icon: "tablet" as AppIconKind,
+    status: "v1.0.12 · Legacy Stable · ร้านเดิม",
+    badge: "Legacy only · v1.0.12",
+    buttonLabel: "ดาวน์โหลดเฉพาะร้านเดิม · 1.0.12",
+    icon: "tablet",
     ready: true,
-    href: ANDROID_POS_LATEST_URL
-  },
-  {
-    title: "CpIPOS POS - Dual Screen",
-    platform: "Android POS · 1.0.13 · สำหรับเครื่อง 2 จอ",
-    description: "CpIPOS Android POS 1.0.13 สำหรับเครื่องขายแบบ 2 จอ จอหลักใช้ระบบขายตามปกติ และจอฝั่งลูกค้าเปิด Customer Display V2 อัตโนมัติ พร้อมตรวจจับจอรองผ่าน Android และรายงานสถานะจอผ่าน MDM",
-    file: "CpIPOS-Android-POS-1.0.13-Dual-Screen.apk",
-    status: "v1.0.13 · Dual Screen · Signed APK",
-    badge: "v1.0.13 · 2 จอ",
-    buttonLabel: "ดาวน์โหลด POS 1.0.13 สำหรับ 2 จอ",
-    icon: "tablet" as AppIconKind,
-    ready: true,
-    href: ANDROID_POS_DUAL_SCREEN_URL
-  },
+    href: ANDROID_POS_LATEST_URL,
+    legacy: true
+  }
+];
+
+const otherApps: AppCard[] = [
   {
     title: "CpIPOS Mobile - Android",
     platform: "Android Phone / Tablet",
@@ -53,7 +60,7 @@ const apps = [
     status: "กำลังพัฒนา",
     badge: null,
     buttonLabel: null,
-    icon: "phone" as AppIconKind,
+    icon: "phone",
     ready: false
   },
   {
@@ -64,10 +71,10 @@ const apps = [
     status: "กำลังพัฒนา",
     badge: null,
     buttonLabel: null,
-    icon: "windows" as AppIconKind,
+    icon: "windows",
     ready: false
   }
-] as const;
+];
 
 function AppIcon({ kind }: { kind: AppIconKind }) {
   if (kind === "tablet") {
@@ -93,6 +100,66 @@ function AppIcon({ kind }: { kind: AppIconKind }) {
   );
 }
 
+function DownloadCard({ app }: { app: AppCard }) {
+  const cardTone = app.recommended
+    ? "border-emerald-400/45 bg-gradient-to-b from-emerald-950/45 via-sky-950/55 to-slate-900/95 shadow-emerald-950/30"
+    : app.legacy
+      ? "border-amber-400/25 bg-gradient-to-b from-amber-950/20 to-slate-900/90 shadow-black/20"
+      : app.ready
+        ? "border-sky-400/35 bg-gradient-to-b from-sky-950/70 to-slate-900/90 shadow-sky-950/30"
+        : "border-slate-800 bg-slate-900/75 shadow-black/20";
+
+  return (
+    <article className={`relative flex min-h-[390px] flex-col overflow-hidden rounded-3xl border p-6 shadow-2xl sm:p-7 ${cardTone}`}>
+      {app.badge ? (
+        <div className={`absolute right-0 top-0 rounded-bl-2xl px-4 py-2 text-[11px] font-black uppercase tracking-wide ${app.recommended ? "bg-emerald-300 text-emerald-950" : app.legacy ? "bg-amber-300 text-amber-950" : "bg-sky-400 text-slate-950"}`}>
+          {app.badge}
+        </div>
+      ) : null}
+
+      <div className={`grid h-14 w-14 place-items-center rounded-2xl ${app.recommended ? "bg-emerald-400/15 text-emerald-300" : app.legacy ? "bg-amber-400/10 text-amber-200" : app.ready ? "bg-sky-400/15 text-sky-300" : "bg-slate-800 text-slate-300"}`}>
+        <AppIcon kind={app.icon} />
+      </div>
+
+      <div className="mt-6">
+        <p className={`text-xs font-extrabold uppercase tracking-[0.12em] ${app.recommended ? "text-emerald-300" : app.legacy ? "text-amber-200" : "text-sky-300"}`}>{app.platform}</p>
+        <h2 className="mt-3 text-2xl font-black leading-tight text-white">{app.title}</h2>
+        <p className="mt-4 text-sm leading-7 text-slate-300">{app.description}</p>
+      </div>
+
+      {app.recommended ? (
+        <div className="mt-5 rounded-2xl border border-emerald-400/25 bg-emerald-400/10 px-4 py-3 text-sm font-bold leading-6 text-emerald-100">
+          ร้านเปิดรหัสใหม่ตั้งแต่ 20 ส.ค. 2026 เป็นต้นไป ให้ติดตั้งเวอร์ชันนี้เป็นค่าเริ่มต้น ไม่ว่าจะเป็นเครื่อง 1 จอหรือ 2 จอ
+        </div>
+      ) : null}
+
+      {app.legacy ? (
+        <div className="mt-5 rounded-2xl border border-amber-400/25 bg-amber-400/10 px-4 py-3 text-sm font-bold leading-6 text-amber-100">
+          สำหรับเครื่องเก่าที่ใช้งานอยู่แล้วเท่านั้น · ไม่แนะนำให้ใช้เปิดร้านใหม่
+        </div>
+      ) : null}
+
+      <div className="mt-5">
+        <span className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-bold ${app.recommended ? "border-emerald-400/25 bg-emerald-400/10 text-emerald-300" : app.legacy ? "border-amber-400/25 bg-amber-400/10 text-amber-200" : app.ready ? "border-emerald-400/20 bg-emerald-400/10 text-emerald-300" : "border-amber-400/20 bg-amber-400/10 text-amber-200"}`}>
+          <span className={`h-2 w-2 rounded-full ${app.recommended ? "bg-emerald-400" : app.legacy ? "bg-amber-300" : app.ready ? "bg-emerald-400" : "bg-amber-400"}`} />
+          {app.status}
+        </span>
+      </div>
+
+      <div className="mt-auto pt-7">
+        <p className="mb-4 truncate text-xs text-slate-500">ไฟล์: {app.file}</p>
+        {app.ready && app.href && app.buttonLabel ? (
+          <a href={app.href} className={`inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-xl px-5 py-3 text-center text-sm font-black shadow-lg transition ${app.recommended ? "bg-emerald-300 text-emerald-950 shadow-emerald-950/40 hover:bg-emerald-200" : app.legacy ? "border border-amber-400/25 bg-amber-400/10 text-amber-100 hover:bg-amber-400/20" : "bg-sky-400 text-slate-950 shadow-sky-950/40 hover:bg-sky-300"}`}>
+            {app.buttonLabel}
+          </a>
+        ) : (
+          <div className="inline-flex min-h-12 w-full items-center justify-center rounded-xl border border-slate-700 bg-slate-800/80 px-5 py-3 text-sm font-black text-slate-400">กำลังพัฒนา</div>
+        )}
+      </div>
+    </article>
+  );
+}
+
 export function DownloadCenterLatest() {
   return (
     <main className="min-h-dvh overflow-y-auto bg-[radial-gradient(circle_at_top,_#0b2447_0%,_#061227_34%,_#020617_72%)] text-slate-100">
@@ -108,51 +175,52 @@ export function DownloadCenterLatest() {
           <a href="/login/store" className="inline-flex min-h-11 items-center justify-center rounded-xl border border-slate-700 bg-slate-900/70 px-4 text-sm font-bold text-slate-100 transition hover:border-sky-500/60 hover:bg-sky-500/10 hover:text-sky-200">เข้าใช้งาน Web App</a>
         </header>
 
-        <section className="mx-auto mt-16 max-w-4xl text-center sm:mt-20">
-          <div className="mx-auto mb-5 inline-flex items-center gap-2 rounded-full border border-sky-400/20 bg-sky-400/10 px-4 py-2 text-xs font-extrabold uppercase tracking-[0.18em] text-sky-300">
-            <span className="h-2 w-2 rounded-full bg-sky-400" />
-            CpIPOS Applications
+        <section className="mx-auto mt-14 max-w-5xl text-center sm:mt-20">
+          <div className="mx-auto mb-5 inline-flex items-center gap-2 rounded-full border border-emerald-400/25 bg-emerald-400/10 px-4 py-2 text-xs font-extrabold uppercase tracking-[0.18em] text-emerald-300">
+            <span className="h-2 w-2 rounded-full bg-emerald-400" />
+            Current Android POS Standard
           </div>
-          <h1 className="text-4xl font-black leading-tight tracking-tight text-white sm:text-6xl">ดาวน์โหลด Android POS</h1>
-          <p className="mx-auto mt-5 max-w-3xl text-base leading-7 text-slate-300 sm:text-lg">เลือก release channel ให้ตรงกับเครื่อง: 1.0.12 เป็น Stable LTS สำหรับร้านเดิม, 1.0.13 สำหรับ Dual Screen เดิม และ {ANDROID_MODERN_RELEASE.versionName} เป็น Modern Runtime สำหรับเครื่องรุ่นใหม่หรือเครื่องที่ตั้งใจอัปเกรดเข้าช่องใหม่</p>
-          <div className="mt-7 flex flex-wrap items-center justify-center gap-3 text-xs font-semibold">
-            <span className="rounded-full border border-violet-400/20 bg-violet-400/10 px-3 py-1.5 text-violet-200">Modern {ANDROID_MODERN_RELEASE.versionName} · Opt-in</span>
-            <span className="rounded-full border border-emerald-400/20 bg-emerald-400/10 px-3 py-1.5 text-emerald-300">Stable 1.0.12 · ร้านเดิม</span>
-            <span className="rounded-full border border-sky-400/20 bg-sky-400/10 px-3 py-1.5 text-sky-200">Dual Screen 1.0.13</span>
-            <span className="rounded-full border border-slate-700 bg-slate-900/60 px-3 py-1.5 text-slate-300">Signed APK</span>
+          <h1 className="text-4xl font-black leading-tight tracking-tight text-white sm:text-6xl">ดาวน์โหลด CpIPOS Android POS</h1>
+          <p className="mx-auto mt-5 max-w-3xl text-base leading-7 text-slate-300 sm:text-lg">
+            สำหรับร้านที่เปิดรหัสใหม่ตั้งแต่ <strong className="text-white">20 สิงหาคม 2026</strong> เป็นต้นไป ให้ใช้ <strong className="text-emerald-300">Android POS {ANDROID_MODERN_RELEASE.versionName}</strong> เป็นมาตรฐาน รองรับทั้งเครื่อง <strong className="text-white">1 จอและ 2 จอ</strong>
+          </p>
+
+          <div className="mx-auto mt-7 max-w-4xl rounded-3xl border border-emerald-400/25 bg-emerald-400/10 px-5 py-5 text-left sm:px-7">
+            <p className="text-sm font-black uppercase tracking-[0.12em] text-emerald-300">เลือกเวอร์ชันอย่างไร</p>
+            <div className="mt-3 grid gap-3 text-sm leading-7 text-slate-200 md:grid-cols-2">
+              <div className="rounded-2xl border border-emerald-400/20 bg-slate-950/45 p-4">
+                <strong className="text-emerald-300">ร้านใหม่ / เครื่องใหม่ / 1–2 จอ</strong>
+                <p className="mt-1 text-slate-300">เลือก 1.0.17 เท่านั้น เพื่อใช้งาน Modern Runtime และฟีเจอร์ใหม่ต่อจากนี้</p>
+              </div>
+              <div className="rounded-2xl border border-amber-400/20 bg-slate-950/45 p-4">
+                <strong className="text-amber-200">ร้านเดิมที่ 1.0.12 เสถียรอยู่แล้ว</strong>
+                <p className="mt-1 text-slate-300">ใช้งานต่อได้ตามปกติ ไม่ต้องอัปเดตจนกว่าจะมีแผนเปลี่ยนเวอร์ชันหรือช่างเข้าหน้างาน</p>
+              </div>
+            </div>
           </div>
         </section>
 
-        <section className="mt-12 grid gap-5 md:grid-cols-2 xl:grid-cols-5 lg:mt-16">
-          {apps.map((app) => (
-            <article key={app.title} className={`relative flex min-h-[390px] flex-col overflow-hidden rounded-3xl border p-6 shadow-2xl sm:p-7 ${app.ready ? "border-sky-400/35 bg-gradient-to-b from-sky-950/70 to-slate-900/90 shadow-sky-950/30" : "border-slate-800 bg-slate-900/75 shadow-black/20"}`}>
-              {app.badge ? <div className="absolute right-0 top-0 rounded-bl-2xl bg-sky-400 px-4 py-2 text-[11px] font-black uppercase tracking-wide text-slate-950">{app.badge}</div> : null}
-              <div className={`grid h-14 w-14 place-items-center rounded-2xl ${app.ready ? "bg-sky-400/15 text-sky-300" : "bg-slate-800 text-slate-300"}`}><AppIcon kind={app.icon} /></div>
-              <div className="mt-6">
-                <p className="text-xs font-extrabold uppercase tracking-[0.12em] text-sky-300">{app.platform}</p>
-                <h2 className="mt-3 text-2xl font-black leading-tight text-white">{app.title}</h2>
-                <p className="mt-4 text-sm leading-7 text-slate-300">{app.description}</p>
-              </div>
-              <div className="mt-5">
-                <span className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-bold ${app.ready ? "border-emerald-400/20 bg-emerald-400/10 text-emerald-300" : "border-amber-400/20 bg-amber-400/10 text-amber-200"}`}>
-                  <span className={`h-2 w-2 rounded-full ${app.ready ? "bg-emerald-400" : "bg-amber-400"}`} />
-                  {app.status}
-                </span>
-              </div>
-              <div className="mt-auto pt-7">
-                <p className="mb-4 truncate text-xs text-slate-500">ไฟล์: {app.file}</p>
-                {app.ready && "href" in app && app.buttonLabel ? (
-                  <a href={app.href} className="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-xl bg-sky-400 px-5 py-3 text-sm font-black text-slate-950 shadow-lg shadow-sky-950/40 transition hover:bg-sky-300">{app.buttonLabel}</a>
-                ) : (
-                  <div className="inline-flex min-h-12 w-full items-center justify-center rounded-xl border border-slate-700 bg-slate-800/80 px-5 py-3 text-sm font-black text-slate-400">กำลังพัฒนา</div>
-                )}
-              </div>
-            </article>
-          ))}
+        <section className="mx-auto mt-12 grid max-w-5xl gap-6 md:grid-cols-2 lg:mt-16">
+          {androidPosApps.map((app) => <DownloadCard key={app.title} app={app} />)}
         </section>
 
-        <section className="mt-8 rounded-2xl border border-emerald-400/20 bg-emerald-400/5 px-5 py-4 text-center text-sm leading-7 text-emerald-100">
-          <strong>Compatibility policy:</strong> ร้านที่อยู่ 1.0.12 / 1.0.13 และ runtime เก่าจะไม่ถูกย้าย release channel และจะไม่เห็น Modern update popup อัตโนมัติ การเข้าสาย Modern ต้องติดตั้งโดยตั้งใจจากการ์ด Modern เท่านั้น หลังจากนั้นรุ่น Modern ถัดไปจึงแจ้งเตือนได้แบบเลือกอัปเดตหรือภายหลัง
+        <section className="mx-auto mt-8 max-w-5xl rounded-2xl border border-slate-700 bg-slate-900/65 px-5 py-4 text-center text-sm leading-7 text-slate-300">
+          <strong className="text-white">หมายเหตุ:</strong> Android POS 1.0.13 ถูกนำออกจากหน้า Download หลักเพื่อลดความสับสน แต่ไฟล์ Release เดิมยังเก็บไว้สำหรับงานซ่อม/rollback ที่ช่างจำเป็นต้องใช้ ร้านใหม่ไม่ต้องเลือก 1.0.13
+        </section>
+
+        <section className="mx-auto mt-14 max-w-5xl border-t border-slate-800 pt-10">
+          <div className="mb-6">
+            <p className="text-xs font-black uppercase tracking-[0.16em] text-slate-500">Other applications</p>
+            <h2 className="mt-2 text-2xl font-black text-white">แอปอื่นของ CpIPOS</h2>
+            <p className="mt-2 text-sm text-slate-400">รายการด้านล่างไม่ใช่ตัวเลือกสำหรับติดตั้ง Android POS หน้าร้าน</p>
+          </div>
+          <div className="grid gap-5 md:grid-cols-2">
+            {otherApps.map((app) => <DownloadCard key={app.title} app={app} />)}
+          </div>
+        </section>
+
+        <section className="mx-auto mt-8 max-w-5xl rounded-2xl border border-emerald-400/20 bg-emerald-400/5 px-5 py-4 text-center text-sm leading-7 text-emerald-100">
+          <strong>Release policy:</strong> 1.0.17 คือมาตรฐานสำหรับรหัสร้านใหม่ตั้งแต่ 20 ส.ค. 2026 เป็นต้นไป ส่วน 1.0.12 เป็น Legacy Stable สำหรับร้านเดิมเท่านั้น ร้านเดิมจะไม่ถูกย้ายไป Modern channel และจะไม่ถูกบังคับอัปเดตอัตโนมัติ
         </section>
       </div>
     </main>
