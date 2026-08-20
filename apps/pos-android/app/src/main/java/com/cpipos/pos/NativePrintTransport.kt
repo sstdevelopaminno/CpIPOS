@@ -35,9 +35,9 @@ internal data class NativePrintJob(
     val id: String,
     val attemptId: String,
     val payloadText: String,
-    val payloadJson: JSONObject,
     val metadata: JSONObject,
-    val printer: NativePrinterProfile
+    val printer: NativePrinterProfile,
+    val payloadJson: JSONObject = JSONObject()
 )
 
 internal data class NativePrintResult(
