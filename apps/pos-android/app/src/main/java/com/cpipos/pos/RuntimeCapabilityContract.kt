@@ -7,10 +7,11 @@ import org.json.JSONObject
  *
  * Web/backend consumers must use this contract instead of inferring features from APK
  * version numbers. Phase B adds targeted probe + one-time verification print while keeping
- * automatic setup and automatic reassignment disabled.
+ * automatic setup and automatic reassignment disabled. Modern releases also opt in to a
+ * non-forced update-notice channel; legacy runtimes do not advertise this capability.
  */
 internal object RuntimeCapabilityContract {
-    const val SCHEMA_VERSION = 2
+    const val SCHEMA_VERSION = 3
     const val PRINTER_FINGERPRINT_SCHEMA_VERSION = 1
     const val PRINTER_INVENTORY_SCHEMA_VERSION = 2
 
@@ -20,7 +21,8 @@ internal object RuntimeCapabilityContract {
         val appVersionName: String,
         val appVersionCode: Int,
         val presentationDisplayAvailable: Boolean,
-        val printer: PrinterCapabilities
+        val printer: PrinterCapabilities,
+        val updates: UpdateCapabilities
     )
 
     data class PrinterCapabilities(
@@ -38,6 +40,13 @@ internal object RuntimeCapabilityContract {
         val autoSetup: Boolean,
         val verificationPrint: Boolean,
         val assignmentProtection: String
+    )
+
+    data class UpdateCapabilities(
+        val channel: String,
+        val managedNotice: Boolean,
+        val silentInstall: Boolean,
+        val forcedUpdate: Boolean
     )
 
     fun model(
@@ -66,6 +75,12 @@ internal object RuntimeCapabilityContract {
             autoSetup = false,
             verificationPrint = true,
             assignmentProtection = "preserve_existing_or_require_confirmation"
+        ),
+        updates = UpdateCapabilities(
+            channel = "modern",
+            managedNotice = true,
+            silentInstall = false,
+            forcedUpdate = false
         )
     )
 
@@ -96,5 +111,13 @@ internal object RuntimeCapabilityContract {
                 .put("auto_setup", model.printer.autoSetup)
                 .put("verification_print", model.printer.verificationPrint)
                 .put("assignment_protection", model.printer.assignmentProtection)
+        )
+        .put(
+            "updates",
+            JSONObject()
+                .put("channel", model.updates.channel)
+                .put("managed_notice", model.updates.managedNotice)
+                .put("silent_install", model.updates.silentInstall)
+                .put("forced_update", model.updates.forcedUpdate)
         )
 }
