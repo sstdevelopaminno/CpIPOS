@@ -327,6 +327,7 @@ class PosMdmAgent(
                     .put("configured_port", diagnostics.printerPort())
                     .put("last_reachable", printer?.reachable)
                     .put("last_error", printer?.lastError)
+                    .put("inventory", diagnostics.printerCapabilityInventory())
             )
             .put(
                 "last_command",
