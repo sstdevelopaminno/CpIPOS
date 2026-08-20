@@ -90,7 +90,7 @@ export function TableQrSettingsPage({ lang }: { lang: Language }) {
           (table) => table.is_active
         );
         setTables(items);
-        const nextSelected = items.find((table) => table.id === selectedTableId) ?? items[0] ?? null;
+        const nextSelected = items[0] ?? null;
         setSelectedTableId(nextSelected?.id ?? "");
         applySelectedPolicy(nextSelected);
       } catch (loadError) {
@@ -101,7 +101,7 @@ export function TableQrSettingsPage({ lang }: { lang: Language }) {
         setLoading(false);
       }
     },
-    [applySelectedPolicy, lang, selectedTableId]
+    [applySelectedPolicy, lang]
   );
 
   useEffect(() => {
