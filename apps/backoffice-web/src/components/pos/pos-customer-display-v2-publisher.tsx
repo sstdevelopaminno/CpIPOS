@@ -3,8 +3,10 @@
 import { useEffect, useRef } from "react";
 import {
   buildCustomerDisplayV2Channel,
+  CUSTOMER_DISPLAY_V2_ENABLED_KEY,
   CUSTOMER_DISPLAY_V2_IDLE_TIMEOUT_MS,
   CUSTOMER_DISPLAY_V2_LAST_ACTIVITY_KEY,
+  CUSTOMER_DISPLAY_V2_PAID_VISIBLE_MS,
   CUSTOMER_DISPLAY_V2_PAYMENT_EVENT,
   CUSTOMER_DISPLAY_V2_PAYMENT_STORAGE_KEY,
   readCustomerDisplayV2PaymentState,
@@ -16,9 +18,9 @@ import {
 const CART_KEY = "pos_sales_cart_v012";
 const SALES_SNAPSHOT_KEY = "pos_sales_snapshot_v001";
 const ACTIVE_ORDER_KEY = "pos_active_order_v001";
-const PAID_VISIBLE_MS = 12_000;
 const OPEN_PAYMENT_STALE_MS = 2 * 60_000;
 const LOCAL_STATE_SCAN_MS = 500;
+const STATIC_CONTEXT_REFRESH_MS = 5_000;
 const PUBLISH_RETRY_DELAYS_MS = [1_000, 2_000, 5_000, 10_000, 15_000] as const;
 
 type CartItem = {
@@ -64,6 +66,12 @@ function normalizeNumber(value: unknown) {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
+function imageFingerprint(value: string | null | undefined) {
+  const source = String(value ?? "");
+  if (!source) return "";
+  return `${source.length}:${source.slice(0, 48)}:${source.slice(-48)}`;
+}
+
 function readLastActivityAt() {
   const stored = Number(window.localStorage.getItem(CUSTOMER_DISPLAY_V2_LAST_ACTIVITY_KEY));
   if (Number.isFinite(stored) && stored > 0) return stored;
@@ -80,7 +88,7 @@ function readFreshPaymentState(nowMs: number) {
   if (!state) return null;
   const updatedAtMs = new Date(state.updated_at).getTime();
   if (!Number.isFinite(updatedAtMs)) return null;
-  const maxAge = state.phase === "paid" ? PAID_VISIBLE_MS : OPEN_PAYMENT_STALE_MS;
+  const maxAge = state.phase === "paid" ? CUSTOMER_DISPLAY_V2_PAID_VISIBLE_MS : OPEN_PAYMENT_STALE_MS;
   if (nowMs - updatedAtMs > maxAge) {
     window.localStorage.removeItem(CUSTOMER_DISPLAY_V2_PAYMENT_STORAGE_KEY);
     return null;
@@ -96,6 +104,8 @@ export function PosCustomerDisplayV2Publisher() {
   const previousCartSignatureRef = useRef<string | null>(null);
   const publishFailureCountRef = useRef(0);
   const publishRetryNotBeforeRef = useRef(0);
+  const snapshotCacheRef = useRef<SalesSnapshot | null>(null);
+  const snapshotReadAtRef = useRef(0);
 
   useEffect(() => {
     let disposed = false;
@@ -149,11 +159,17 @@ export function PosCustomerDisplayV2Publisher() {
 
     const buildAndPublish = () => {
       if (disposed) return;
-      const cart = readJson<CartItem[]>(CART_KEY) ?? [];
-      const snapshot = readJson<SalesSnapshot>(SALES_SNAPSHOT_KEY);
-      const activeOrder = readJson<ActiveOrder>(ACTIVE_ORDER_KEY);
-      const device = snapshot?.device_policy ?? null;
+      if (window.localStorage.getItem(CUSTOMER_DISPLAY_V2_ENABLED_KEY) !== "1") return;
+
       const nowMs = Date.now();
+      const cart = readJson<CartItem[]>(CART_KEY) ?? [];
+      const activeOrder = readJson<ActiveOrder>(ACTIVE_ORDER_KEY);
+      if (!snapshotCacheRef.current || nowMs - snapshotReadAtRef.current >= STATIC_CONTEXT_REFRESH_MS) {
+        snapshotCacheRef.current = readJson<SalesSnapshot>(SALES_SNAPSHOT_KEY);
+        snapshotReadAtRef.current = nowMs;
+      }
+      const snapshot = snapshotCacheRef.current;
+      const device = snapshot?.device_policy ?? null;
       const cartSignature = JSON.stringify(cart.map((item) => [item.product_id, item.name, item.quantity, item.price, item.notes ?? null]));
       let lastActivityAtMs = readLastActivityAt();
 
@@ -204,9 +220,24 @@ export function PosCustomerDisplayV2Publisher() {
         last_activity_at: new Date(lastActivityAtMs).toISOString(),
         updated_at: new Date(nowMs).toISOString()
       };
-      const { updated_at: _ignored, ...stable } = payload;
       const signature = JSON.stringify({
-        ...stable,
+        version: payload.version,
+        phase: payload.phase,
+        store_name: payload.store_name,
+        store_logo: imageFingerprint(payload.store_logo_url),
+        branch_name: payload.branch_name,
+        device_id: payload.device_id,
+        device_code: payload.device_code,
+        device_name: payload.device_name,
+        order_no: payload.order_no,
+        items: payload.items,
+        total_amount: payload.total_amount,
+        cash_received: payload.cash_received,
+        change_amount: payload.change_amount,
+        payment_method: payload.payment_method,
+        payment_qr: imageFingerprint(payload.payment_qr_url),
+        media: payload.media_urls.map(imageFingerprint),
+        last_activity_at: payload.last_activity_at,
         expected_channel: buildCustomerDisplayV2Channel({ id: device?.id, code: device?.code })
       });
       publish(payload, signature);
@@ -219,10 +250,14 @@ export function PosCustomerDisplayV2Publisher() {
 
     const onStorage = (event: StorageEvent) => {
       if (!event.key) return;
+      if (event.key === SALES_SNAPSHOT_KEY) {
+        snapshotReadAtRef.current = 0;
+      }
       if (
         event.key === CART_KEY ||
         event.key === SALES_SNAPSHOT_KEY ||
         event.key === ACTIVE_ORDER_KEY ||
+        event.key === CUSTOMER_DISPLAY_V2_ENABLED_KEY ||
         event.key === CUSTOMER_DISPLAY_V2_PAYMENT_STORAGE_KEY
       ) {
         schedule();
@@ -244,9 +279,9 @@ export function PosCustomerDisplayV2Publisher() {
     window.addEventListener(CUSTOMER_DISPLAY_V2_PAYMENT_EVENT, onPayment as EventListener);
     schedule(0);
 
-    // Browser `storage` events do not fire in the tab that performed the write.
-    // Scan only local state at low cost; `publish()` still dedupes by stable
-    // payload signature so unchanged scans do not create network requests.
+    // Same-tab localStorage writes do not emit `storage`. Scan only small local
+    // transaction keys every 500 ms. Static store/device context is cached for
+    // five seconds, and unchanged payload signatures never create a POST.
     const stateScanTimer = window.setInterval(() => schedule(0), LOCAL_STATE_SCAN_MS);
 
     return () => {
