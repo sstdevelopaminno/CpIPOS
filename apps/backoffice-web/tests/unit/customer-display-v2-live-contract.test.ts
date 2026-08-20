@@ -131,10 +131,12 @@ describe("Customer Display V2 live integration contract", () => {
     expect(observer).not.toContain("fetch(");
   });
 
-  it("shows the real transfer QR source when the existing payment modal exposes it", () => {
+  it("shows the real transfer QR source and hides cash-only rows after transfer completion", () => {
     expect(observer).toContain("qr?.currentSrc || qr?.src || null");
     expect(screen).toContain("state.payment_qr_url");
     expect(screen).toContain('className="cdv2-qr-img"');
+    expect(liveDisplay).toContain('payload?.phase === "paid" && payload.payment_method === "bank_transfer"');
+    expect(liveDisplay).toContain('.cdv2-summary-line:nth-child(n+2) { display: none; }');
   });
 
   it("keeps pairing management protected while the display route exposes data only through a device token", () => {
