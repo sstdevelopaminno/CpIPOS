@@ -17,6 +17,7 @@ const screen = readSource("src/components/pos/pos-customer-display-v2-screen.tsx
 const liveDisplay = readSource("src/components/pos/pos-customer-display-v2-live.tsx");
 const setupPage = readSource("src/app/preview/pos/customer-display/v2-setup/page.tsx");
 const livePage = readSource("src/app/customer-display/v2/page.tsx");
+const publishRoute = readSource("src/app/api/pos/customer-display/v2/publish/route.ts");
 const paymentModals = readSource("src/components/pos/pos-payment-modals.tsx");
 
 describe("Customer Display V2 live integration contract", () => {
@@ -46,15 +47,29 @@ describe("Customer Display V2 live integration contract", () => {
     expect(channelA.length).toBeLessThanOrEqual(64);
     expect(publisher).toContain("buildCustomerDisplayV2Channel");
     expect(publisher).not.toContain('channel: "main"');
+    expect(publishRoute).toContain("buildCustomerDisplayV2Channel");
+    expect(publishRoute).toContain("scope.session.device_id");
+    expect(publishRoute).toContain("scope.session.device_code");
   });
 
-  it("publishes V2 state through the existing customer display API without a new database contract", () => {
-    expect(publisher).toContain('fetch("/api/pos/customer-display"');
+  it("publishes V2 state through a sales-authorized server-scoped endpoint without a new database contract", () => {
+    expect(publisher).toContain('fetch("/api/pos/customer-display/v2/publish"');
+    expect(publisher).toContain("JSON.stringify({ payload })");
     expect(publisher).toContain("version: 2");
     expect(publisher).toContain("store_profile?.display_name");
     expect(publisher).toContain("store_profile?.logo_url");
     expect(publisher).toContain("device_policy");
     expect(publisher).not.toContain("supabase");
+    expect(publishRoute).toContain('requirePermission(scope, "sale:create")');
+    expect(publishRoute).toContain('"customer_facing_display"');
+    expect(publishRoute).toContain('from("pos_customer_display_states").upsert');
+    expect(publishRoute).toContain('onConflict: "tenant_id,branch_id,channel"');
+  });
+
+  it("scans same-tab local POS state quickly while deduping unchanged network payloads", () => {
+    expect(publisher).toContain("const LOCAL_STATE_SCAN_MS = 500;");
+    expect(publisher).toContain("publishedSignatureRef.current === signature");
+    expect(publisher).toContain("window.setInterval(() => schedule(0), LOCAL_STATE_SCAN_MS)");
   });
 
   it("uses the existing transparent system asset as the no-logo fallback", () => {
