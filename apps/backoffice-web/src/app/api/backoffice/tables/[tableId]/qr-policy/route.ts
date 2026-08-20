@@ -155,7 +155,7 @@ export async function PATCH(request: Request, context: { params: Promise<{ table
       tenantId: auth.tenantId!,
       branchId: resolved.targetBranchId,
       actorUserId: auth.userId,
-      actorRole: resolved.targetRole,
+      actorRole: resolved.targetRole ?? auth.platformRole,
       action: "table_qr_policy_updated",
       targetTable: "dining_tables",
       targetId: tableId,
