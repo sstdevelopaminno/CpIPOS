@@ -162,6 +162,21 @@ function isAbortError(error: unknown): boolean {
   return (error as { name?: string }).name === "AbortError";
 }
 
+function isLegacyAndroid112Runtime(): boolean {
+  if (typeof navigator === "undefined") return false;
+  return /(?:^|\s)CpIPOSAndroidRuntime\/1\.0\.12(?:\s|$)/.test(navigator.userAgent);
+}
+
+function sendToLegacyBrowserPrint(printWindow: Window, html: string) {
+  printWindow.document.open();
+  printWindow.document.write(html);
+  printWindow.document.close();
+  printWindow.onload = () => {
+    printWindow.focus();
+    printWindow.print();
+  };
+}
+
 export function TableQrOrderModal({
   open,
   tableId,
@@ -300,6 +315,16 @@ export function TableQrOrderModal({
     setError(null);
     onBusyChange?.(true);
 
+    const html = buildPrintHtml(data);
+    const preserveLegacyBrowserFallback = isLegacyAndroid112Runtime();
+    const legacyPrintWindow = preserveLegacyBrowserFallback
+      ? window.open("", "_blank", "width=420,height=720")
+      : null;
+
+    if (preserveLegacyBrowserFallback && legacyPrintWindow) {
+      legacyPrintWindow.document.write('<p style="font-family:Arial;padding:24px">กำลังเตรียมพิมพ์ QR...</p>');
+    }
+
     try {
       const { response, body } = await fetchJsonWithTimeout<BluetoothPrintResponse>(
         "/api/pos/receipts/bluetooth",
@@ -308,7 +333,7 @@ export function TableQrOrderModal({
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             order_no: `TABLE-${data.table_code}-QR`,
-            receipt_html: buildPrintHtml(data)
+            receipt_html: html
           })
         },
         QR_PRINT_TIMEOUT_MS
@@ -319,8 +344,17 @@ export function TableQrOrderModal({
         body?.data?.ok === true &&
         body.data.data?.fallback_to_browser_print !== true;
 
-      if (nativePrintAccepted) return;
+      if (nativePrintAccepted) {
+        legacyPrintWindow?.close();
+        return;
+      }
 
+      if (preserveLegacyBrowserFallback && legacyPrintWindow) {
+        sendToLegacyBrowserPrint(legacyPrintWindow, html);
+        return;
+      }
+
+      legacyPrintWindow?.close();
       console.error("[table-qr-modal] native QR print was not accepted", {
         status: response.status,
         code: body?.error?.code,
@@ -336,6 +370,12 @@ export function TableQrOrderModal({
           : getPublicErrorMessage(body, "ส่งงานพิมพ์ QR ไม่สำเร็จ กรุณาตรวจสอบเครื่องพิมพ์แล้วลองใหม่")
       );
     } catch (printError) {
+      if (preserveLegacyBrowserFallback && legacyPrintWindow) {
+        sendToLegacyBrowserPrint(legacyPrintWindow, html);
+        return;
+      }
+
+      legacyPrintWindow?.close();
       console.warn("[table-qr-modal] native QR print failed", printError);
       setError(
         isAbortError(printError)
