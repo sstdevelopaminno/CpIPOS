@@ -5,6 +5,7 @@ import { PosGuardError, requirePermission, requirePosSession } from "@/lib/pos-s
 import { invalidateRuntimeCacheByPrefix } from "@/lib/route-runtime-cache";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
 
+const MAX_IMAGE_SOURCE_LENGTH = 2_000_000;
 const MAX_QR_SOURCE_LENGTH = 1_000_000;
 
 function isSchemaMissingError(message: string) {
@@ -24,9 +25,9 @@ function normalizeText(value: unknown, max = 180) {
   return text ? text.slice(0, max) : null;
 }
 
-function normalizeQrSource(value: unknown) {
+function normalizeImageSource(value: unknown, maxLength = MAX_IMAGE_SOURCE_LENGTH) {
   const source = String(value ?? "").trim();
-  if (!source || source.length > MAX_QR_SOURCE_LENGTH) return null;
+  if (!source || source.length > maxLength) return null;
   if (source.startsWith("https://") || source.startsWith("http://") || source.startsWith("data:image/")) {
     return source;
   }
@@ -55,14 +56,17 @@ function normalizePayload(raw: unknown): CustomerDisplayV2Payload | null {
     notes: normalizeText(item?.notes, 500)
   }));
   const mediaUrls = Array.isArray(input.media_urls)
-    ? input.media_urls.map((value) => String(value ?? "").trim()).filter(Boolean).slice(0, 20)
+    ? input.media_urls
+        .map((value) => normalizeImageSource(value))
+        .filter((value): value is string => Boolean(value))
+        .slice(0, 20)
     : [];
 
   return {
     version: 2,
     phase: input.phase,
     store_name: String(input.store_name ?? "CpIPOS").trim().slice(0, 240) || "CpIPOS",
-    store_logo_url: normalizeText(input.store_logo_url, 2000),
+    store_logo_url: normalizeImageSource(input.store_logo_url),
     branch_name: normalizeText(input.branch_name, 240),
     device_id: normalizeText(input.device_id, 120),
     device_code: normalizeText(input.device_code, 120),
@@ -73,7 +77,7 @@ function normalizePayload(raw: unknown): CustomerDisplayV2Payload | null {
     cash_received: input.cash_received == null ? null : normalizeMoney(input.cash_received),
     change_amount: input.change_amount == null ? null : normalizeMoney(input.change_amount),
     payment_method: input.payment_method === "cash" || input.payment_method === "bank_transfer" ? input.payment_method : null,
-    payment_qr_url: normalizeQrSource(input.payment_qr_url),
+    payment_qr_url: normalizeImageSource(input.payment_qr_url, MAX_QR_SOURCE_LENGTH),
     media_urls: mediaUrls,
     last_activity_at: normalizeText(input.last_activity_at, 64) ?? new Date().toISOString(),
     updated_at: new Date().toISOString()
