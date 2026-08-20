@@ -38,11 +38,40 @@ type Payload = {
   metadata?: Record<string, unknown> | null;
 };
 
+type DiscoveredPhysicalRow = {
+  id: string;
+  display_name: string;
+  brand: string | null;
+  model: string | null;
+  connection_mode: CustomerConnectionMode;
+  paper_width_mm: 58 | 80;
+  device_fingerprint: string | null;
+  runtime_device_code: string | null;
+  status: string;
+  capabilities: Record<string, unknown> | null;
+  last_seen_at: string | null;
+  disconnected_at: string | null;
+  is_active: boolean;
+  metadata: Record<string, unknown> | null;
+  created_at: string;
+  updated_at: string;
+};
+
+type CreatePhysicalTarget = {
+  fingerprint: string;
+  discoveredDeviceId: string | null;
+  discoveredMetadata: Record<string, unknown>;
+};
+
 const PURPOSES = new Set<PrinterPurpose>(["receipt","kitchen","drink","bar","reprint","shift_report","payment_slip","cash_drawer"]);
 const ZONED_PURPOSES = new Set<PrinterPurpose>(["kitchen", "drink", "bar"]);
 
 function clean(value: unknown) {
   return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
 }
 
 function normalizePurposes(values: unknown): PrinterPurpose[] {
@@ -80,7 +109,7 @@ function connectionTypeFor(mode: CustomerConnectionMode): PrinterConnectionType 
 
 function buildFingerprint(body: Payload, mode: CustomerConnectionMode) {
   const explicit = clean(body.device_fingerprint);
-  if (explicit) return explicit;
+  if (explicit) return explicit.toLowerCase();
   const brand = clean(body.brand)?.toLowerCase() ?? "generic";
   const model = clean(body.model)?.toLowerCase() ?? "printer";
   const runtime = clean(body.runtime_device_code)?.toLowerCase();
@@ -154,29 +183,114 @@ async function validateKitchenZones(tenantId: string, branchId: string, assignme
   if (missing) throw new Error(`printer_zone_invalid:${missing}`);
 }
 
-async function relinkRecoverableDevice(tenantId: string, branchId: string, fingerprint: string, printerProfileId: string) {
+function sameDiscoveryIdentity(row: DiscoveredPhysicalRow, body: Payload, mode: CustomerConnectionMode) {
+  if (row.connection_mode !== mode) return false;
+  const requestedName = clean(body.printer_name)?.toLowerCase();
+  const requestedModel = clean(body.model)?.toLowerCase();
+  const rowName = clean(row.display_name)?.toLowerCase();
+  const rowModel = clean(row.model)?.toLowerCase();
+  return Boolean(
+    (requestedName && rowName === requestedName) ||
+    (requestedModel && rowModel === requestedModel)
+  );
+}
+
+async function resolveCreatePhysicalTarget(tenantId: string, branchId: string, body: Payload, mode: CustomerConnectionMode): Promise<CreatePhysicalTarget> {
+  const explicit = clean(body.device_fingerprint)?.toLowerCase();
+  if (explicit) return { fingerprint: explicit, discoveredDeviceId: null, discoveredMetadata: {} };
+
+  const runtimeCode = clean(body.runtime_device_code);
+  if (!runtimeCode || mode === "lan") {
+    return { fingerprint: buildFingerprint(body, mode), discoveredDeviceId: null, discoveredMetadata: {} };
+  }
+
   const supabase = getSupabaseServiceClient();
-  const { data: recoverable, error: lookupError } = await supabase.from("printer_devices").select("id").eq("tenant_id", tenantId).eq("branch_id", branchId).eq("device_fingerprint", fingerprint).eq("is_active", false).is("printer_profile_id", null).maybeSingle<{ id: string }>();
+  const { data, error } = await supabase.from("printer_devices")
+    .select("id,display_name,brand,model,connection_mode,paper_width_mm,device_fingerprint,runtime_device_code,status,capabilities,last_seen_at,disconnected_at,is_active,metadata,created_at,updated_at")
+    .eq("tenant_id", tenantId)
+    .eq("branch_id", branchId)
+    .eq("runtime_device_code", runtimeCode)
+    .eq("connection_mode", mode)
+    .eq("is_active", true)
+    .is("printer_profile_id", null)
+    .returns<DiscoveredPhysicalRow[]>();
+  if (error) throw new Error(error.message);
+
+  const matches = (data ?? []).filter((row) => row.device_fingerprint && sameDiscoveryIdentity(row, body, mode));
+  if (matches.length > 1) throw new Error("discovered_printer_ambiguous");
+  const match = matches[0];
+  if (!match?.device_fingerprint) {
+    return { fingerprint: buildFingerprint(body, mode), discoveredDeviceId: null, discoveredMetadata: {} };
+  }
+  return {
+    fingerprint: match.device_fingerprint.toLowerCase(),
+    discoveredDeviceId: match.id,
+    discoveredMetadata: asRecord(match.metadata)
+  };
+}
+
+async function claimDiscoveredDevice(tenantId: string, branchId: string, fingerprint: string, printerProfileId: string) {
+  const supabase = getSupabaseServiceClient();
+  const { data: row, error: lookupError } = await supabase.from("printer_devices")
+    .select("id,is_active,printer_profile_id")
+    .eq("tenant_id", tenantId)
+    .eq("branch_id", branchId)
+    .eq("device_fingerprint", fingerprint)
+    .maybeSingle<{ id: string; is_active: boolean; printer_profile_id: string | null }>();
   if (lookupError) throw new Error(lookupError.message);
-  if (!recoverable?.id) return null;
-  const { error: relinkError } = await supabase.from("printer_devices").update({ printer_profile_id: printerProfileId, updated_at: new Date().toISOString() }).eq("tenant_id", tenantId).eq("branch_id", branchId).eq("id", recoverable.id);
+  if (!row) return null;
+  if (row.printer_profile_id) throw new Error("printer_physical_target_already_claimed");
+  if (!row.is_active) throw new Error("printer_physical_target_disconnected");
+  const { error: relinkError } = await supabase.from("printer_devices").update({
+    printer_profile_id: printerProfileId,
+    status: "checking",
+    disconnected_at: null,
+    updated_at: new Date().toISOString()
+  }).eq("tenant_id", tenantId).eq("branch_id", branchId).eq("id", row.id).is("printer_profile_id", null);
   if (relinkError) throw new Error(relinkError.message);
-  return recoverable.id;
+  return row.id;
+}
+
+async function loadAutoDiscoveredDevices(tenantId: string, branchId: string) {
+  const supabase = getSupabaseServiceClient();
+  const { data, error } = await supabase.from("printer_devices")
+    .select("id,printer_profile_id,display_name,brand,model,connection_mode,paper_width_mm,device_fingerprint,runtime_device_code,status,capabilities,last_seen_at,disconnected_at,is_active,metadata,created_at,updated_at")
+    .eq("tenant_id", tenantId)
+    .eq("branch_id", branchId)
+    .eq("is_active", true)
+    .is("printer_profile_id", null)
+    .order("updated_at", { ascending: false })
+    .returns<Array<DiscoveredPhysicalRow & { printer_profile_id: null }>>();
+  if (error) throw new Error(error.message);
+  return (data ?? []).map((row) => ({
+    ...row,
+    printer_device_assignments: [],
+    ip_address: null,
+    port: null,
+    profile_enabled: false
+  }));
 }
 
 function validationFailure(message: string) {
   if (message === "lan_ip_required") return fail(message, "LAN ต้องมี IP ของเครื่องพิมพ์", 422);
   if (message.startsWith("printer_zone_invalid:")) return fail("printer_zone_invalid", `ไม่พบโซนครัว ${message.split(":")[1] ?? ""} ในสาขาปัจจุบัน`, 422);
+  if (message === "discovered_printer_ambiguous") return fail(message, "พบเครื่องพิมพ์ที่ตรงกันมากกว่า 1 เครื่อง กรุณาเลือก physical target ให้ชัดเจน", 409);
+  if (message === "printer_physical_target_already_claimed") return fail(message, "เครื่องพิมพ์ physical นี้ถูกผูกกับเส้นทางพิมพ์แล้ว", 409);
+  if (message === "printer_physical_target_disconnected") return fail(message, "เครื่องพิมพ์นี้ถูกผู้ใช้ยกเลิกการเชื่อมต่อไว้ กรุณาเชื่อมต่อใหม่ก่อน", 409);
   return fail(message, "ข้อมูลเครื่องพิมพ์ไม่ครบ", 422);
 }
 function isValidationError(message: string) {
-  return message === "printer_name_required" || message === "connection_mode_invalid" || message === "paper_width_invalid" || message === "purpose_required" || message === "lan_ip_required" || message.startsWith("printer_zone_invalid:");
+  return message === "printer_name_required" || message === "connection_mode_invalid" || message === "paper_width_invalid" || message === "purpose_required" || message === "lan_ip_required" || message === "discovered_printer_ambiguous" || message === "printer_physical_target_already_claimed" || message === "printer_physical_target_disconnected" || message.startsWith("printer_zone_invalid:");
 }
 
 export async function GET() {
   try {
     const auth = await getPrinterSettingsAuthContext();
-    return ok(await getPrinterSettingsRegistry(auth));
+    const [registry, discovered] = await Promise.all([
+      getPrinterSettingsRegistry(auth),
+      loadAutoDiscoveredDevices(auth.tenantId!, auth.branchId!)
+    ]);
+    return ok({ ...registry, devices: [...discovered, ...registry.devices] });
   } catch (error) {
     const message = error instanceof Error ? error.message : "unknown";
     if (message === "forbidden_role") return fail("forbidden_role", "Only manager, owner, or Kitchen can access printer settings.", 403);
@@ -190,12 +304,34 @@ export async function POST(req: Request) {
     const body = (await req.json()) as Payload;
     const { name, mode, paper, purposes, assignments } = validate(body);
     await validateKitchenZones(auth.tenantId!, auth.branchId!, assignments);
-    const metadata = profileMetadata(body, mode, purposes, assignments);
-    const fingerprint = buildFingerprint(body, mode);
+    const target = await resolveCreatePhysicalTarget(auth.tenantId!, auth.branchId!, body, mode);
+    const bodyWithFingerprint: Payload = { ...body, device_fingerprint: target.fingerprint };
+    const metadata = profileMetadata(bodyWithFingerprint, mode, purposes, assignments);
     const profile = await createPrinterProfile(auth, { printer_name: name, printer_role: roleFor(purposes), connection_type: connectionTypeFor(mode), ip_address: mode === "lan" ? clean(body.ip_address) : null, port: mode === "lan" ? Number(body.port || 9100) : null, paper_width_mm: paper, enabled: body.enabled ?? true, metadata });
     try {
-      await relinkRecoverableDevice(auth.tenantId!, auth.branchId!, fingerprint, profile.id);
-      const device = await syncPrinterDevice(auth, { printerProfileId: profile.id, displayName: name, brand: clean(body.brand), model: clean(body.model), connectionMode: mode, paperWidthMm: paper, purposes, assignments, deviceFingerprint: fingerprint, runtimeDeviceCode: clean(body.runtime_device_code), capabilities: (metadata.capabilities ?? {}) as Record<string, unknown>, metadata: { source: "printer_settings_v3" }, eventType: "connected" });
+      if (target.discoveredDeviceId) {
+        await claimDiscoveredDevice(auth.tenantId!, auth.branchId!, target.fingerprint, profile.id);
+      }
+      const device = await syncPrinterDevice(auth, {
+        printerProfileId: profile.id,
+        displayName: name,
+        brand: clean(body.brand),
+        model: clean(body.model),
+        connectionMode: mode,
+        paperWidthMm: paper,
+        purposes,
+        assignments,
+        deviceFingerprint: target.fingerprint,
+        runtimeDeviceCode: clean(body.runtime_device_code),
+        capabilities: (metadata.capabilities ?? {}) as Record<string, unknown>,
+        metadata: {
+          ...target.discoveredMetadata,
+          source: "printer_settings_v3",
+          physical_fingerprint: target.fingerprint,
+          routing_configured_by_customer: true
+        },
+        eventType: "connected"
+      });
       return ok({ profile, device }, 201);
     } catch (syncError) {
       await deletePrinterProfile(auth, profile.id).catch(() => undefined);
