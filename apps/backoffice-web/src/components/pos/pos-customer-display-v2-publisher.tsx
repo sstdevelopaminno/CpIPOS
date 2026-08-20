@@ -19,6 +19,7 @@ const ACTIVE_ORDER_KEY = "pos_active_order_v001";
 const PAID_VISIBLE_MS = 12_000;
 const OPEN_PAYMENT_STALE_MS = 2 * 60_000;
 const LOCAL_STATE_SCAN_MS = 500;
+const PUBLISH_RETRY_DELAYS_MS = [1_000, 2_000, 5_000, 10_000, 15_000] as const;
 
 type CartItem = {
   product_id: string;
@@ -93,12 +94,18 @@ export function PosCustomerDisplayV2Publisher() {
   const inFlightRef = useRef(false);
   const pendingRef = useRef<{ payload: CustomerDisplayV2Payload; signature: string } | null>(null);
   const previousCartSignatureRef = useRef<string | null>(null);
+  const publishFailureCountRef = useRef(0);
+  const publishRetryNotBeforeRef = useRef(0);
 
   useEffect(() => {
     let disposed = false;
 
     const publish = (payload: CustomerDisplayV2Payload, signature: string) => {
       if (disposed) return;
+      if (Date.now() < publishRetryNotBeforeRef.current) {
+        pendingRef.current = { payload, signature };
+        return;
+      }
       if (publishedSignatureRef.current === signature && !inFlightRef.current) return;
       if (inFlightRef.current) {
         pendingRef.current = { payload, signature };
@@ -116,7 +123,19 @@ export function PosCustomerDisplayV2Publisher() {
         keepalive: true,
         signal: controller.signal
       })
-        .catch(() => undefined)
+        .then((response) => {
+          if (!response.ok) throw new Error(`customer_display_v2_publish_${response.status}`);
+          publishFailureCountRef.current = 0;
+          publishRetryNotBeforeRef.current = 0;
+        })
+        .catch(() => {
+          if (publishedSignatureRef.current === signature) {
+            publishedSignatureRef.current = "";
+          }
+          const failureIndex = Math.min(publishFailureCountRef.current, PUBLISH_RETRY_DELAYS_MS.length - 1);
+          publishFailureCountRef.current += 1;
+          publishRetryNotBeforeRef.current = Date.now() + PUBLISH_RETRY_DELAYS_MS[failureIndex];
+        })
         .finally(() => {
           window.clearTimeout(timeoutId);
           inFlightRef.current = false;
