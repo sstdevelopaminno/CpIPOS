@@ -66,10 +66,24 @@ describe("Customer Display V2 live integration contract", () => {
     expect(publishRoute).toContain('onConflict: "tenant_id,branch_id,channel"');
   });
 
+  it("preserves configured data-image store logos and INET QR image sources", () => {
+    expect(publishRoute).toContain("const MAX_IMAGE_SOURCE_LENGTH = 2_000_000;");
+    expect(publishRoute).toContain("const MAX_QR_SOURCE_LENGTH = 1_000_000;");
+    expect(publishRoute).toContain('source.startsWith("data:image/")');
+    expect(publishRoute).toContain("store_logo_url: normalizeImageSource(input.store_logo_url)");
+    expect(publishRoute).toContain("payment_qr_url: normalizeImageSource(input.payment_qr_url, MAX_QR_SOURCE_LENGTH)");
+  });
+
   it("scans same-tab local POS state quickly while deduping unchanged network payloads", () => {
     expect(publisher).toContain("const LOCAL_STATE_SCAN_MS = 500;");
     expect(publisher).toContain("publishedSignatureRef.current === signature");
     expect(publisher).toContain("window.setInterval(() => schedule(0), LOCAL_STATE_SCAN_MS)");
+  });
+
+  it("uses bounded retry backoff for transient publish failures", () => {
+    expect(publisher).toContain("PUBLISH_RETRY_DELAYS_MS = [1_000, 2_000, 5_000, 10_000, 15_000]");
+    expect(publisher).toContain("publishRetryNotBeforeRef");
+    expect(publisher).toContain("if (!response.ok) throw new Error");
   });
 
   it("uses the existing transparent system asset as the no-logo fallback", () => {
