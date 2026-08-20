@@ -106,17 +106,6 @@ class PosMdmAgent(
     @JavascriptInterface
     fun executeCommand(action: String): String = executeSafeCommand(action, "javascript").toString()
 
-    @JavascriptInterface
-    fun executeCommandJson(commandJson: String): String = runCatching {
-        executeSafeCommand(JSONObject(commandJson), "javascript").toString()
-    }.getOrElse { error ->
-        JSONObject()
-            .put("ok", false)
-            .put("error", "command_json_invalid")
-            .put("message", error.message?.take(160))
-            .toString()
-    }
-
     fun executeSafeCommand(action: String, source: String = "remote"): JSONObject =
         executeSafeCommand(JSONObject().put("action", action), source)
 
@@ -126,6 +115,12 @@ class PosMdmAgent(
             return JSONObject()
                 .put("ok", false)
                 .put("error", "command_not_allowed")
+                .put("action", normalized)
+        }
+        if (normalized == "test_printer_verification" && source != TRUSTED_MDM_COMMAND_SOURCE) {
+            return JSONObject()
+                .put("ok", false)
+                .put("error", "command_source_not_allowed")
                 .put("action", normalized)
         }
 
@@ -244,7 +239,7 @@ class PosMdmAgent(
             for (index in 0 until commands.length()) {
                 val command = commands.optJSONObject(index) ?: continue
                 val action = command.optString("action", "")
-                if (action.isNotBlank()) executeSafeCommand(command, "heartbeat_response")
+                if (action.isNotBlank()) executeSafeCommand(command, TRUSTED_MDM_COMMAND_SOURCE)
             }
         }
     }
@@ -380,6 +375,7 @@ class PosMdmAgent(
     }
 
     companion object {
+        private const val TRUSTED_MDM_COMMAND_SOURCE = "heartbeat_response"
         private val SAFE_ACTIONS = setOf(
             "ping",
             "collect_diagnostics",
