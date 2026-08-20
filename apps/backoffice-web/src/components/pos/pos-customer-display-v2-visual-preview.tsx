@@ -58,10 +58,7 @@ function formatMoney(value: number, lang: Language) {
 function LogoSurface({ imageUrl, label }: { imageUrl: string; label: string }) {
   return (
     <div className="cdv2-logo-surface" aria-label={label}>
-      <div
-        className="cdv2-logo-image"
-        style={{ backgroundImage: `url(${JSON.stringify(imageUrl).slice(1, -1)})` }}
-      />
+      <div className="cdv2-logo-image" style={{ backgroundImage: `url(${imageUrl})` }} />
     </div>
   );
 }
@@ -138,11 +135,7 @@ export function PosCustomerDisplayV2VisualPreview({ lang }: { lang: Language }) 
   const showPaid = phase === "paid";
 
   return (
-    <main
-      className="cdv2-shell"
-      data-phase={phase}
-      data-idle-timeout-ms={LIVE_IDLE_TIMEOUT_MS}
-    >
+    <main className="cdv2-shell" data-phase={phase} data-idle-timeout-ms={LIVE_IDLE_TIMEOUT_MS}>
       <style>{`
         * { box-sizing: border-box; }
         html, body { margin: 0; min-width: 100%; min-height: 100%; }
@@ -170,10 +163,7 @@ export function PosCustomerDisplayV2VisualPreview({ lang }: { lang: Language }) 
           justify-items: center;
           gap: clamp(16px, 3vh, 30px);
         }
-        .cdv2-idle-logo {
-          width: min(52vw, 520px);
-          height: min(30vh, 250px);
-        }
+        .cdv2-idle-logo { width: min(52vw, 520px); height: min(30vh, 250px); }
         .cdv2-idle-store {
           margin: 0;
           font-size: clamp(24px, 3.1vw, 50px);
@@ -203,57 +193,20 @@ export function PosCustomerDisplayV2VisualPreview({ lang }: { lang: Language }) 
           justify-content: space-between;
           gap: 18px;
         }
-        .cdv2-store-name {
-          margin: 0;
-          font-size: clamp(22px, 2.2vw, 34px);
-          line-height: 1.1;
-          font-weight: 950;
-        }
-        .cdv2-branch-device {
-          margin-top: 7px;
-          color: #64748b;
-          font-size: clamp(13px, 1.15vw, 18px);
-          font-weight: 750;
-        }
-        .cdv2-bill {
-          flex: 0 0 auto;
-          text-align: right;
-          font-size: clamp(13px, 1.2vw, 18px);
-          font-weight: 900;
-          white-space: nowrap;
-        }
-        .cdv2-items {
-          min-height: 0;
-          overflow: auto;
-          padding: clamp(12px, 1.8vw, 24px) clamp(14px, 2.2vw, 30px);
-        }
+        .cdv2-store-name { margin: 0; font-size: clamp(22px, 2.2vw, 34px); line-height: 1.1; font-weight: 950; }
+        .cdv2-branch-device { margin-top: 7px; color: #64748b; font-size: clamp(13px, 1.15vw, 18px); font-weight: 750; }
+        .cdv2-bill { flex: 0 0 auto; text-align: right; font-size: clamp(13px, 1.2vw, 18px); font-weight: 900; white-space: nowrap; }
+        .cdv2-items { min-height: 0; overflow: auto; padding: clamp(12px, 1.8vw, 24px) clamp(14px, 2.2vw, 30px); }
         .cdv2-grid-row {
           display: grid;
           grid-template-columns: minmax(0, 1fr) minmax(52px, .28fr) minmax(82px, .48fr) minmax(92px, .54fr);
           gap: clamp(8px, 1.1vw, 16px);
           align-items: center;
         }
-        .cdv2-table-head {
-          padding: 0 10px 9px;
-          color: #64748b;
-          font-size: clamp(11px, .95vw, 14px);
-          font-weight: 800;
-        }
+        .cdv2-table-head { padding: 0 10px 9px; color: #64748b; font-size: clamp(11px, .95vw, 14px); font-weight: 800; }
         .cdv2-item-list { display: grid; gap: clamp(7px, 1.1vh, 12px); }
-        .cdv2-item {
-          padding: clamp(11px, 1.4vw, 17px) 10px;
-          border-radius: 14px;
-          border: 1px solid #e2e8f0;
-          background: #f8fafc;
-        }
-        .cdv2-item-name {
-          min-width: 0;
-          overflow: hidden;
-          text-overflow: ellipsis;
-          white-space: nowrap;
-          font-size: clamp(15px, 1.45vw, 22px);
-          font-weight: 900;
-        }
+        .cdv2-item { padding: clamp(11px, 1.4vw, 17px) 10px; border-radius: 14px; border: 1px solid #e2e8f0; background: #f8fafc; }
+        .cdv2-item-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: clamp(15px, 1.45vw, 22px); font-weight: 900; }
         .cdv2-number { text-align: center; font-size: clamp(15px, 1.35vw, 21px); font-weight: 850; }
         .cdv2-money { text-align: right; font-size: clamp(13px, 1.25vw, 20px); font-weight: 850; }
         .cdv2-summary {
@@ -263,13 +216,7 @@ export function PosCustomerDisplayV2VisualPreview({ lang }: { lang: Language }) 
           display: grid;
           gap: clamp(5px, 1vh, 10px);
         }
-        .cdv2-summary-line {
-          display: flex;
-          align-items: baseline;
-          justify-content: space-between;
-          gap: 18px;
-          font-size: clamp(15px, 1.4vw, 22px);
-        }
+        .cdv2-summary-line { display: flex; align-items: baseline; justify-content: space-between; gap: 18px; font-size: clamp(15px, 1.4vw, 22px); }
         .cdv2-total-label { color: #475569; font-weight: 850; }
         .cdv2-total-value { font-size: clamp(32px, 4.2vw, 62px); line-height: .95; font-weight: 950; }
         .cdv2-change { color: #047857; font-weight: 950; font-size: clamp(18px, 1.9vw, 28px); }
@@ -283,53 +230,13 @@ export function PosCustomerDisplayV2VisualPreview({ lang }: { lang: Language }) 
           padding: clamp(18px, 2.2vw, 34px);
           background: linear-gradient(155deg, #f8fafc, #eef2ff 54%, #ecfeff);
         }
-        .cdv2-media-inner {
-          width: 100%;
-          height: 100%;
-          min-height: 0;
-          display: grid;
-          place-items: center;
-          text-align: center;
-        }
-        .cdv2-logo-surface {
-          width: 100%;
-          height: 100%;
-          min-height: 0;
-          display: grid;
-          place-items: center;
-        }
-        .cdv2-logo-image {
-          width: min(78%, 520px);
-          height: min(60%, 360px);
-          background-repeat: no-repeat;
-          background-position: center;
-          background-size: contain;
-        }
-        .cdv2-media-brand {
-          width: 100%;
-          height: 100%;
-          min-height: 0;
-          display: grid;
-          grid-template-rows: minmax(0, 1fr) auto;
-        }
-        .cdv2-powered {
-          justify-self: end;
-          color: #64748b;
-          font-size: clamp(10px, .9vw, 13px);
-          font-weight: 800;
-        }
-        .cdv2-qr-block {
-          width: 100%;
-          display: grid;
-          justify-items: center;
-          align-content: center;
-          gap: clamp(12px, 2vh, 22px);
-        }
-        .cdv2-qr-label {
-          color: #2563eb;
-          font-size: clamp(14px, 1.45vw, 22px);
-          font-weight: 900;
-        }
+        .cdv2-media-inner { width: 100%; height: 100%; min-height: 0; display: grid; place-items: center; text-align: center; }
+        .cdv2-logo-surface { width: 100%; height: 100%; min-height: 0; display: grid; place-items: center; }
+        .cdv2-logo-image { width: min(78%, 520px); height: min(60%, 360px); background-repeat: no-repeat; background-position: center; background-size: contain; }
+        .cdv2-media-brand { width: 100%; height: 100%; min-height: 0; display: grid; grid-template-rows: minmax(0, 1fr) auto; }
+        .cdv2-powered { justify-self: end; color: #64748b; font-size: clamp(10px, .9vw, 13px); font-weight: 800; }
+        .cdv2-qr-block { width: 100%; display: grid; justify-items: center; align-content: center; gap: clamp(12px, 2vh, 22px); }
+        .cdv2-qr-label { color: #2563eb; font-size: clamp(14px, 1.45vw, 22px); font-weight: 900; }
         .cdv2-qr-placeholder {
           width: min(54%, 300px);
           aspect-ratio: 1;
@@ -339,36 +246,12 @@ export function PosCustomerDisplayV2VisualPreview({ lang }: { lang: Language }) 
           box-shadow: 0 18px 48px rgba(15, 23, 42, .22);
         }
         .cdv2-qr-amount { font-size: clamp(30px, 4vw, 58px); font-weight: 950; }
-        .cdv2-paid {
-          display: grid;
-          justify-items: center;
-          align-content: center;
-          gap: clamp(12px, 2vh, 22px);
-          text-align: center;
-        }
-        .cdv2-paid-icon {
-          width: clamp(78px, 9vw, 112px);
-          aspect-ratio: 1;
-          border-radius: 999px;
-          display: grid;
-          place-items: center;
-          background: #dcfce7;
-          color: #15803d;
-          font-size: clamp(46px, 5vw, 68px);
-          font-weight: 950;
-        }
-        .cdv2-paid-title {
-          margin: 0;
-          color: #166534;
-          font-size: clamp(30px, 3.8vw, 58px);
-          line-height: 1;
-        }
+        .cdv2-paid { display: grid; justify-items: center; align-content: center; gap: clamp(12px, 2vh, 22px); text-align: center; }
+        .cdv2-paid-icon { width: clamp(78px, 9vw, 112px); aspect-ratio: 1; border-radius: 999px; display: grid; place-items: center; background: #dcfce7; color: #15803d; font-size: clamp(46px, 5vw, 68px); font-weight: 950; }
+        .cdv2-paid-title { margin: 0; color: #166534; font-size: clamp(30px, 3.8vw, 58px); line-height: 1; }
         .cdv2-thanks { color: #475569; font-size: clamp(16px, 1.7vw, 24px); }
         @media (max-width: 900px) {
-          .cdv2-layout {
-            grid-template-columns: 1fr;
-            grid-template-rows: minmax(0, 62%) minmax(0, 38%);
-          }
+          .cdv2-layout { grid-template-columns: 1fr; grid-template-rows: minmax(0, 62%) minmax(0, 38%); }
           .cdv2-transaction { border-right: 0; border-bottom: 1px solid #dbe3ec; }
           .cdv2-media { padding: 14px 18px; }
           .cdv2-logo-image { width: min(54%, 400px); height: min(72%, 240px); }
@@ -379,9 +262,7 @@ export function PosCustomerDisplayV2VisualPreview({ lang }: { lang: Language }) 
           .cdv2-header { padding: 12px 14px; gap: 10px; }
           .cdv2-bill { font-size: 11px; }
           .cdv2-items { padding: 10px 12px; }
-          .cdv2-grid-row {
-            grid-template-columns: minmax(0, 1fr) 44px 76px;
-          }
+          .cdv2-grid-row { grid-template-columns: minmax(0, 1fr) 44px 76px; }
           .cdv2-grid-row > :nth-child(3) { display: none; }
           .cdv2-item-name { font-size: 14px; }
           .cdv2-summary { padding: 10px 14px; }
@@ -398,9 +279,7 @@ export function PosCustomerDisplayV2VisualPreview({ lang }: { lang: Language }) 
       {isIdle ? (
         <section className="cdv2-idle">
           <div className="cdv2-idle-inner">
-            <div className="cdv2-idle-logo">
-              <LogoSurface imageUrl={storeLogoUrl} label={`${storeName} logo`} />
-            </div>
+            <div className="cdv2-idle-logo"><LogoSurface imageUrl={storeLogoUrl} label={`${storeName} logo`} /></div>
             <h1 className="cdv2-idle-store">{storeName}</h1>
           </div>
         </section>
@@ -441,14 +320,8 @@ export function PosCustomerDisplayV2VisualPreview({ lang }: { lang: Language }) 
               </div>
               {showCash ? (
                 <>
-                  <div className="cdv2-summary-line">
-                    <span>{t.received}</span>
-                    <strong>{formatMoney(cashReceived, lang)}</strong>
-                  </div>
-                  <div className="cdv2-summary-line cdv2-change">
-                    <span>{t.change}</span>
-                    <strong>{formatMoney(change, lang)}</strong>
-                  </div>
+                  <div className="cdv2-summary-line"><span>{t.received}</span><strong>{formatMoney(cashReceived, lang)}</strong></div>
+                  <div className="cdv2-summary-line cdv2-change"><span>{t.change}</span><strong>{formatMoney(change, lang)}</strong></div>
                 </>
               ) : null}
             </footer>
