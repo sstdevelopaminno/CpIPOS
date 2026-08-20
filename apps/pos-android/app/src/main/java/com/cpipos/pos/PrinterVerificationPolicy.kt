@@ -12,7 +12,7 @@ internal object PrinterVerificationPolicy {
         VERIFICATION_PRINT("verification_print");
 
         companion object {
-            fun parse(value: String?): Mode? = entries.firstOrNull {
+            fun parse(value: String?): Mode? = values().firstOrNull {
                 it.wireValue == value.orEmpty().trim().lowercase()
             }
         }
