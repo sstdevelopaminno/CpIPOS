@@ -6,12 +6,12 @@ import org.json.JSONObject
  * Explicit runtime capability contract reported by Android MDM diagnostics.
  *
  * Web/backend consumers must use this contract instead of inferring features from APK
- * version numbers. Phase B adds targeted probe + one-time verification print while keeping
- * automatic setup and automatic reassignment disabled. Modern releases also opt in to a
- * non-forced update-notice channel; legacy runtimes do not advertise this capability.
+ * version numbers. Auto Setup is explicit and still preserves existing customer routing:
+ * discovery + exact physical identity + one-time verification may be automatic, while
+ * automatic reassignment remains disabled.
  */
 internal object RuntimeCapabilityContract {
-    const val SCHEMA_VERSION = 3
+    const val SCHEMA_VERSION = 4
     const val PRINTER_FINGERPRINT_SCHEMA_VERSION = 1
     const val PRINTER_INVENTORY_SCHEMA_VERSION = 2
 
@@ -36,6 +36,7 @@ internal object RuntimeCapabilityContract {
         val explicitAssignmentFirst: Boolean,
         val targetProbe: Boolean,
         val oneTimeVerificationPrint: Boolean,
+        val bluetoothExactBondedVerification: Boolean,
         val automaticReassignment: Boolean,
         val autoSetup: Boolean,
         val verificationPrint: Boolean,
@@ -71,8 +72,9 @@ internal object RuntimeCapabilityContract {
             explicitAssignmentFirst = true,
             targetProbe = true,
             oneTimeVerificationPrint = true,
+            bluetoothExactBondedVerification = true,
             automaticReassignment = false,
-            autoSetup = false,
+            autoSetup = true,
             verificationPrint = true,
             assignmentProtection = "preserve_existing_or_require_confirmation"
         ),
@@ -107,6 +109,7 @@ internal object RuntimeCapabilityContract {
                 .put("explicit_assignment_first", model.printer.explicitAssignmentFirst)
                 .put("target_probe", model.printer.targetProbe)
                 .put("one_time_verification_print", model.printer.oneTimeVerificationPrint)
+                .put("bluetooth_exact_bonded_verification", model.printer.bluetoothExactBondedVerification)
                 .put("automatic_reassignment", model.printer.automaticReassignment)
                 .put("auto_setup", model.printer.autoSetup)
                 .put("verification_print", model.printer.verificationPrint)
