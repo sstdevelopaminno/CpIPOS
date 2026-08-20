@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { buildAndroidModernUpdateOffer, type AndroidModernUpdateOffer } from "@/lib/android-runtime-release";
+import { reconcileModernPrinterInventory, type ModernPrinterAutoCommand } from "@/lib/printing/printer-mdm-auto-registry";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
 
 const SAFE_MDM_COMMANDS = new Set([
@@ -15,8 +16,8 @@ const SAFE_MDM_COMMANDS = new Set([
 
 const MDM_RELOAD_GENERATION_MS = 1786478151547;
 
-type AndroidPosMdmCommand = { id?: string; action?: string; reason?: string };
-type PairedDevice = { id: string; tenant_id: string; device_code: string; metadata: Record<string, unknown> | null };
+type AndroidPosMdmCommand = { id?: string; action?: string; reason?: string } | ModernPrinterAutoCommand;
+type PairedDevice = { id: string; tenant_id: string; branch_id: string; device_code: string; metadata: Record<string, unknown> | null };
 type PendingPrinterCommand = { id: string; issued_at: string };
 type PendingUiCommand = { id: string; command_type: "reload_ui" | "refresh_config"; issued_at: string; metadata: Record<string, unknown> | null };
 
@@ -91,7 +92,7 @@ async function findPairedDevice(installId: string | null): Promise<PairedDevice 
   const supabase = getSupabaseServiceClient();
   const { data, error } = await supabase
     .from("branch_devices")
-    .select("id,tenant_id,device_code,metadata")
+    .select("id,tenant_id,branch_id,device_code,metadata")
     .eq("is_active", true)
     .contains("metadata", { android_mdm_install_id: installId })
     .order("updated_at", { ascending: false })
@@ -117,8 +118,6 @@ async function resolveModernUpdateOffer(
   device: PairedDevice,
   payload: Record<string, unknown> | null
 ): Promise<AndroidModernUpdateOffer | null> {
-  // Fail closed before any tenant lookup: legacy runtimes do not advertise the exact Modern
-  // capability contract, so they never enter update eligibility evaluation.
   const capabilityCandidate = buildAndroidModernUpdateOffer({ tenantCode: null, payload });
   if (!capabilityCandidate) return null;
 
@@ -188,11 +187,12 @@ async function acknowledgePreviousUiReload(device: PairedDevice, payload: Record
 async function persistNativeMdmState(device: PairedDevice, payload: Record<string, unknown> | null, appVersion: string | null) {
   const supabase = getSupabaseServiceClient();
   const metadata = asRecord(device.metadata);
+  const now = new Date().toISOString();
   await supabase.from("branch_devices").update({
-    last_seen_at: new Date().toISOString(),
+    last_seen_at: now,
     metadata: {
       ...metadata,
-      android_mdm_last_seen_at: new Date().toISOString(),
+      android_mdm_last_seen_at: now,
       android_mdm_app_version: appVersion,
       android_mdm_printer: resolvePersistedPrinterState(metadata, payload),
       android_mdm_last_command: asRecord(payload?.last_command),
@@ -200,7 +200,7 @@ async function persistNativeMdmState(device: PairedDevice, payload: Record<strin
       android_mdm_runtime_capabilities: resolvePersistedRuntimeCapabilities(metadata, payload),
       android_mdm_displays: asRecord(payload?.displays)
     },
-    updated_at: new Date().toISOString()
+    updated_at: now
   }).eq("id", device.id);
 }
 
@@ -276,6 +276,7 @@ export async function POST(request: Request) {
   let commands = isAndroidPos ? buildHeartbeatCommands(payload) : [];
   let pairedDeviceCode: string | null = null;
   let updateOffer: AndroidModernUpdateOffer | null = null;
+  let autoPrinterCandidateCount = 0;
 
   if (isAndroidPos) {
     const device = await findPairedDevice(installId);
@@ -285,7 +286,26 @@ export async function POST(request: Request) {
       await acknowledgePreviousUiReload(device, payload, appVersion);
       await persistNativeMdmState(device, payload, appVersion);
       updateOffer = await resolveModernUpdateOffer(device, payload);
-      commands = [...commands, ...(await deliverUiReloadCommands(device)), ...(await deliverPrinterTestCommands(device))].slice(0, 5);
+
+      const autoRegistry = await reconcileModernPrinterInventory({
+        device: {
+          id: device.id,
+          tenantId: device.tenant_id,
+          branchId: device.branch_id,
+          deviceCode: device.device_code
+        },
+        payload
+      });
+      autoPrinterCandidateCount = autoRegistry.candidateCount;
+
+      // Auto first-verification is exact-fingerprint and Modern-only. It is placed before
+      // lower-priority UI/manual printer commands so it is not starved by the five-command cap.
+      commands = [
+        ...autoRegistry.commands,
+        ...commands,
+        ...(await deliverUiReloadCommands(device)),
+        ...(await deliverPrinterTestCommands(device))
+      ].slice(0, 5);
     }
   }
 
@@ -304,7 +324,8 @@ export async function POST(request: Request) {
       payload_received: Boolean(payload),
       reload_generation_ms: MDM_RELOAD_GENERATION_MS,
       commands,
-      update_offer: updateOffer
+      update_offer: updateOffer,
+      auto_printer_candidate_count: autoPrinterCandidateCount
     },
     error: null
   }, { headers: noStoreHeaders() });
