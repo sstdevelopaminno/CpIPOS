@@ -6,11 +6,11 @@ import org.json.JSONObject
  * Explicit runtime capability contract reported by Android MDM diagnostics.
  *
  * Web/backend consumers must use this contract instead of inferring features from APK
- * version numbers. Phase A intentionally advertises discovery/identity support while keeping
- * auto-setup, verification printing and automatic reassignment disabled.
+ * version numbers. Phase B adds targeted probe + one-time verification print while keeping
+ * automatic setup and automatic reassignment disabled.
  */
 internal object RuntimeCapabilityContract {
-    const val SCHEMA_VERSION = 1
+    const val SCHEMA_VERSION = 2
     const val PRINTER_FINGERPRINT_SCHEMA_VERSION = 1
     const val PRINTER_INVENTORY_SCHEMA_VERSION = 2
 
@@ -32,6 +32,8 @@ internal object RuntimeCapabilityContract {
         val vendorDiscovery: Boolean,
         val lanEscPosTransport: Boolean,
         val explicitAssignmentFirst: Boolean,
+        val targetProbe: Boolean,
+        val oneTimeVerificationPrint: Boolean,
         val automaticReassignment: Boolean,
         val autoSetup: Boolean,
         val verificationPrint: Boolean,
@@ -58,9 +60,11 @@ internal object RuntimeCapabilityContract {
             vendorDiscovery = false,
             lanEscPosTransport = true,
             explicitAssignmentFirst = true,
+            targetProbe = true,
+            oneTimeVerificationPrint = true,
             automaticReassignment = false,
             autoSetup = false,
-            verificationPrint = false,
+            verificationPrint = true,
             assignmentProtection = "preserve_existing_or_require_confirmation"
         )
     )
@@ -86,6 +90,8 @@ internal object RuntimeCapabilityContract {
                 .put("vendor_discovery", model.printer.vendorDiscovery)
                 .put("lan_escpos_transport", model.printer.lanEscPosTransport)
                 .put("explicit_assignment_first", model.printer.explicitAssignmentFirst)
+                .put("target_probe", model.printer.targetProbe)
+                .put("one_time_verification_print", model.printer.oneTimeVerificationPrint)
                 .put("automatic_reassignment", model.printer.automaticReassignment)
                 .put("auto_setup", model.printer.autoSetup)
                 .put("verification_print", model.printer.verificationPrint)
