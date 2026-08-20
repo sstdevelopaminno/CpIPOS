@@ -8,11 +8,11 @@ export const ANDROID_STABLE_RELEASE = {
 } as const;
 
 export const ANDROID_MODERN_RELEASE = {
-  versionName: "1.0.18",
-  versionCode: 24,
+  versionName: "1.0.19",
+  versionCode: 25,
   channel: "modern",
-  releaseTag: "android-runtime-modern-1.0.18",
-  assetName: "CpIPOS-Android-POS-1.0.18.apk",
+  releaseTag: "android-runtime-modern-1.0.19-r3",
+  assetName: "CpIPOS-Android-POS-1.0.19.apk",
   compatibilityAssetName: "CpIPOS-Android-POS-Modern.apk",
   downloadPath: "/download/android/modern-latest",
   downloadUrl: "https://cp-ipos-web.vercel.app/download/android/modern-latest"
@@ -31,6 +31,7 @@ export type AndroidModernUpdateOffer = {
   version_code: number;
   download_url: string;
   mandatory: false;
+  latest: true;
 };
 
 function asRecord(value: unknown): Record<string, unknown> {
@@ -57,11 +58,14 @@ export function buildAndroidModernUpdateOffer(input: UpdateOfferInput): AndroidM
   if (!Number.isFinite(currentVersionCode) || currentVersionCode <= 0) return null;
   if (currentVersionCode >= ANDROID_MODERN_RELEASE.versionCode) return null;
 
+  // The control plane emits exactly one offer: the current latest Modern release. Clients
+  // never receive a chain of intermediate APKs (for example 1.0.18 before 1.0.19).
   return {
     channel: ANDROID_MODERN_RELEASE.channel,
     version_name: ANDROID_MODERN_RELEASE.versionName,
     version_code: ANDROID_MODERN_RELEASE.versionCode,
     download_url: ANDROID_MODERN_RELEASE.downloadUrl,
-    mandatory: false
+    mandatory: false,
+    latest: true
   };
 }
