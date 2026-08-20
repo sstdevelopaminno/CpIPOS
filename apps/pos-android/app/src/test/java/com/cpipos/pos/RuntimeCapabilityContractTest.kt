@@ -7,7 +7,7 @@ import org.junit.Test
 
 class RuntimeCapabilityContractTest {
     @Test
-    fun modernReleaseAdvertisesBoundedVerificationAndNonForcedUpdateNotice() {
+    fun autoSetupReleaseAdvertisesBoundedDiscoveryVerificationAndNonForcedUpdates() {
         val model = RuntimeCapabilityContract.model(
             runtimeName = "android-pos-webview-mdm-lite",
             appVersionName = "999.999",
@@ -15,7 +15,7 @@ class RuntimeCapabilityContractTest {
             presentationDisplayAvailable = true
         )
 
-        assertEquals(3, model.schemaVersion)
+        assertEquals(4, model.schemaVersion)
         assertTrue(model.presentationDisplayAvailable)
         assertEquals(2, model.printer.inventorySchemaVersion)
         assertEquals(1, model.printer.physicalFingerprintSchemaVersion)
@@ -25,12 +25,13 @@ class RuntimeCapabilityContractTest {
         assertTrue(model.printer.explicitAssignmentFirst)
         assertTrue(model.printer.targetProbe)
         assertTrue(model.printer.oneTimeVerificationPrint)
+        assertTrue(model.printer.bluetoothExactBondedVerification)
         assertTrue(model.printer.verificationPrint)
+        assertTrue(model.printer.autoSetup)
 
         assertFalse(model.printer.lanDiscovery)
         assertFalse(model.printer.vendorDiscovery)
         assertFalse(model.printer.automaticReassignment)
-        assertFalse(model.printer.autoSetup)
         assertEquals(
             "preserve_existing_or_require_confirmation",
             model.printer.assignmentProtection
