@@ -37,6 +37,7 @@ internal class PrinterCapabilityInventory(context: Context) {
                 .put("bluetooth", packageManager.hasSystemFeature(PackageManager.FEATURE_BLUETOOTH))
                 .put("selection_policy", "explicit_assignment_first")
                 .put("automatic_reassignment", false)
+                .put("physical_fingerprint_schema_version", RuntimeCapabilityContract.PRINTER_FINGERPRINT_SCHEMA_VERSION)
         )
         .put("usb", buildUsbSnapshot())
         .put("bluetooth", buildBluetoothSnapshot())
@@ -69,6 +70,12 @@ internal class PrinterCapabilityInventory(context: Context) {
             } else {
                 null
             }
+            val physicalFingerprint = PrinterPhysicalFingerprint.usb(
+                vendorId = device.vendorId,
+                productId = device.productId,
+                serialNumber = serialNumber,
+                deviceName = device.deviceName
+            )
             val printerNameHint = listOf(manufacturerName, productName)
                 .filterNotNull()
                 .any(PrinterCapabilityHints::looksLikePrinterName)
@@ -96,6 +103,8 @@ internal class PrinterCapabilityInventory(context: Context) {
                     .put("manufacturer_name", manufacturerName)
                     .put("product_name", productName)
                     .put("serial_number", serialNumber)
+                    .put("physical_fingerprint", physicalFingerprint?.value)
+                    .put("physical_fingerprint_stability", physicalFingerprint?.stability?.wireValue)
                     .put("printer_class_interface_count", endpointSummary.printerClassInterfaceCount)
                     .put("writable_endpoint_count", endpointSummary.writableEndpointCount)
                     .put("bulk_out_endpoint_count", endpointSummary.bulkOutEndpointCount)
@@ -183,6 +192,7 @@ internal class PrinterCapabilityInventory(context: Context) {
         bonded.forEach { device ->
             val name = runCatching { device.name?.trim() }.getOrNull()
             val address = runCatching { device.address?.trim() }.getOrNull()
+            val physicalFingerprint = PrinterPhysicalFingerprint.bluetooth(address)
             val printerNameHint = PrinterSelectionPolicy.bluetoothMayAutoSelect(name)
             val serviceUuids = runCatching {
                 device.uuids.orEmpty().map { it.uuid.toString().lowercase() }.distinct().sorted()
@@ -194,6 +204,8 @@ internal class PrinterCapabilityInventory(context: Context) {
                 JSONObject()
                     .put("name", name)
                     .put("address", address)
+                    .put("physical_fingerprint", physicalFingerprint?.value)
+                    .put("physical_fingerprint_stability", physicalFingerprint?.stability?.wireValue)
                     .put("bond_state", device.bondState)
                     .put("device_type", device.type)
                     .put("device_class", device.bluetoothClass?.deviceClass)
