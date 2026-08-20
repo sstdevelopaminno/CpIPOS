@@ -35,6 +35,7 @@ class PosMdmAgent(
     private val appContext = context.applicationContext
     private val prefs = appContext.getSharedPreferences("cpipos_android_pos_mdm", Context.MODE_PRIVATE)
     private val diagnostics = AndroidDiagnostics(appContext)
+    private val printerVerification = PrinterVerificationService(appContext)
     private val mainHandler = Handler(Looper.getMainLooper())
     private val started = AtomicBoolean(false)
     private var executor: ScheduledExecutorService? = null
@@ -43,10 +44,13 @@ class PosMdmAgent(
     @Volatile private var currentTitle: String? = null
     @Volatile private var canGoBackState: Boolean = false
     @Volatile private var lastPageError: String? = null
+    @Volatile private var lastCommandId: String? = null
     @Volatile private var lastCommandAction: String? = null
     @Volatile private var lastCommandSource: String? = null
     @Volatile private var lastCommandAtMs: Long? = null
+    @Volatile private var lastCommandResult: JSONObject? = null
     @Volatile private var lastPrinterDiagnostic: PrinterDiagnostic? = null
+    @Volatile private var lastPrinterVerification: JSONObject? = null
 
     val installId: String by lazy {
         val existing = prefs.getString("install_id", null)?.takeIf { it.isNotBlank() }
@@ -102,8 +106,22 @@ class PosMdmAgent(
     @JavascriptInterface
     fun executeCommand(action: String): String = executeSafeCommand(action, "javascript").toString()
 
-    fun executeSafeCommand(action: String, source: String = "remote"): JSONObject {
-        val normalized = action.trim().lowercase()
+    @JavascriptInterface
+    fun executeCommandJson(commandJson: String): String = runCatching {
+        executeSafeCommand(JSONObject(commandJson), "javascript").toString()
+    }.getOrElse { error ->
+        JSONObject()
+            .put("ok", false)
+            .put("error", "command_json_invalid")
+            .put("message", error.message?.take(160))
+            .toString()
+    }
+
+    fun executeSafeCommand(action: String, source: String = "remote"): JSONObject =
+        executeSafeCommand(JSONObject().put("action", action), source)
+
+    private fun executeSafeCommand(command: JSONObject, source: String): JSONObject {
+        val normalized = command.optString("action", "").trim().lowercase()
         if (normalized !in SAFE_ACTIONS) {
             return JSONObject()
                 .put("ok", false)
@@ -111,9 +129,11 @@ class PosMdmAgent(
                 .put("action", normalized)
         }
 
+        lastCommandId = command.optString("id", "").trim().takeIf { it.isNotEmpty() }
         lastCommandAction = normalized
         lastCommandSource = source
         lastCommandAtMs = System.currentTimeMillis()
+        lastCommandResult = null
 
         when (normalized) {
             "ping" -> sendHeartbeat("command_ping")
@@ -155,11 +175,18 @@ class PosMdmAgent(
                 lastPrinterDiagnostic = diagnostics.testPrinterConnection(timeoutMs = 1800)
                 sendHeartbeat("command_test_printer_connection")
             }
+            "test_printer_verification" -> executor?.execute {
+                val result = printerVerification.execute(command)
+                lastPrinterVerification = result
+                lastCommandResult = result
+                sendHeartbeat("command_test_printer_verification")
+            }
         }
 
         return JSONObject()
             .put("ok", true)
             .put("action", normalized)
+            .put("command_id", lastCommandId)
             .put("source", source)
     }
 
@@ -217,7 +244,7 @@ class PosMdmAgent(
             for (index in 0 until commands.length()) {
                 val command = commands.optJSONObject(index) ?: continue
                 val action = command.optString("action", "")
-                if (action.isNotBlank()) executeSafeCommand(action, "heartbeat_response")
+                if (action.isNotBlank()) executeSafeCommand(command, "heartbeat_response")
             }
         }
     }
@@ -266,6 +293,8 @@ class PosMdmAgent(
 
     private fun buildSnapshot(reason: String): JSONObject {
         val printer = lastPrinterDiagnostic
+        val verification = lastPrinterVerification
+        val commandResult = lastCommandResult
         val webViewPackage = WebView.getCurrentWebViewPackage()
         val displaySnapshot = buildDisplaySnapshot()
         val runtimeCapabilities = RuntimeCapabilityContract.model(
@@ -337,13 +366,16 @@ class PosMdmAgent(
                     .put("last_reachable", printer?.reachable)
                     .put("last_error", printer?.lastError)
                     .put("inventory", diagnostics.printerCapabilityInventory())
+                    .put("last_verification", verification)
             )
             .put(
                 "last_command",
                 JSONObject()
+                    .put("command_id", lastCommandId)
                     .put("action", lastCommandAction)
                     .put("source", lastCommandSource)
                     .put("at_ms", lastCommandAtMs)
+                    .put("result", commandResult)
             )
     }
 
@@ -356,7 +388,8 @@ class PosMdmAgent(
             "clear_webview_cache",
             "clear_cookies",
             "clear_webview_data",
-            "test_printer_connection"
+            "test_printer_connection",
+            "test_printer_verification"
         )
     }
 }
