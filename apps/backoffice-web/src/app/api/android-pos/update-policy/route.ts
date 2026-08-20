@@ -94,8 +94,12 @@ export async function GET() {
 
     const configuredRequiredVersion = normalizeVersion(process.env.CPIPOS_ANDROID_POS_REQUIRED_VERSION);
     const requiredVersion = configuredRequiredVersion ?? stableVersionedAsset.version;
-    const forceUpdateEnabled = process.env.CPIPOS_ANDROID_POS_FORCE_UPDATE?.trim().toLowerCase() !== "false";
     const releaseReady = compareVersions(stableVersionedAsset.version, requiredVersion) >= 0;
+
+    // Legacy runtimes are permanently non-forced. Existing 1.0.12/1.0.13/1.0.15 stores
+    // must continue operating unchanged. Modern runtimes use the capability-gated native
+    // ManagedUpdateNotice flow instead, where the operator can choose Update now or Later.
+    const forceUpdateEnabled = false;
 
     return NextResponse.json(
       {
