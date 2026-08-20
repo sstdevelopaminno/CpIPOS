@@ -2,6 +2,7 @@ export type CustomerDisplayV2Phase = "idle" | "cart" | "cash" | "qr" | "paid";
 export type CustomerDisplayV2PaymentMethod = "cash" | "bank_transfer" | null;
 
 export const CUSTOMER_DISPLAY_V2_IDLE_TIMEOUT_MS = 5 * 60_000;
+export const CUSTOMER_DISPLAY_V2_PAID_VISIBLE_MS = 12_000;
 export const CUSTOMER_DISPLAY_V2_PAYMENT_EVENT = "pos:customer-display-v2-payment";
 export const CUSTOMER_DISPLAY_V2_PAYMENT_STORAGE_KEY = "pos_customer_display_v2_payment_v001";
 export const CUSTOMER_DISPLAY_V2_LAST_ACTIVITY_KEY = "pos_customer_display_v2_last_activity_v001";
