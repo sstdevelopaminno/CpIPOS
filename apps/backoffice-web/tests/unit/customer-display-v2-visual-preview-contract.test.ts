@@ -38,6 +38,7 @@ describe("customer display v2 visual preview contract", () => {
     expect(preview).toContain('const SYSTEM_LOGO_URL = "/brand/cpipos-logo.png";');
     expect(preview).toContain("const storeLogoUrl = MOCK_STORE.logoUrl || SYSTEM_LOGO_URL;");
     expect(preview).toContain("const mediaUrl = MOCK_AD_IMAGE_URLS[adIndex] || SYSTEM_LOGO_URL;");
+    expect(preview).toContain("backgroundImage: `url(${imageUrl})`");
   });
 
   it("removes visual-review-only customer-facing labels requested in review", () => {
