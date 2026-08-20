@@ -162,6 +162,7 @@ class MainActivity : ComponentActivity() {
                 super.onPageFinished(view, url)
                 mdmAgent?.notifyPageFinished(url)
                 applyCustomerDisplayV2Flag()
+                installPrintWakeBridge(view)
                 CookieManager.getInstance().flush()
             }
 
@@ -227,6 +228,79 @@ class MainActivity : ComponentActivity() {
             webView.destroy()
         }
         super.onDestroy()
+    }
+
+    /**
+     * Web requests create print jobs on the server, while the native worker owns physical I/O.
+     * Polling alone can add up to three seconds of idle latency. This bridge wakes the worker
+     * immediately after a successful same-page mutation without coupling the web app to Android.
+     * The background adaptive poll remains active as a fail-safe if JS injection is unavailable.
+     */
+    private fun installPrintWakeBridge(view: WebView) {
+        val script = """
+            (function(){
+              try {
+                if (window.__cpiposPrintWakeV1) return;
+                window.__cpiposPrintWakeV1 = true;
+                var lastWake = 0;
+                var wakeTimer = 0;
+                var wakeRetryTimer = 0;
+                var mutating = { POST:1, PUT:1, PATCH:1, DELETE:1 };
+                function wake(){
+                  try {
+                    var now = Date.now();
+                    if (now - lastWake < 55) return;
+                    lastWake = now;
+                    if (window.CpiposPrint && typeof window.CpiposPrint.notifyPrintQueued === 'function') {
+                      window.CpiposPrint.notifyPrintQueued();
+                    }
+                  } catch (_) {}
+                }
+                function wakeAfterMutation(){
+                  try {
+                    clearTimeout(wakeTimer);
+                    clearTimeout(wakeRetryTimer);
+                    wakeTimer = setTimeout(wake, 0);
+                    wakeRetryTimer = setTimeout(wake, 160);
+                  } catch (_) { wake(); }
+                }
+
+                if (typeof window.fetch === 'function') {
+                  var nativeFetch = window.fetch.bind(window);
+                  window.fetch = function(input, init){
+                    var method = 'GET';
+                    try {
+                      method = String((init && init.method) || (input && input.method) || 'GET').toUpperCase();
+                    } catch (_) {}
+                    return nativeFetch(input, init).then(function(response){
+                      if (mutating[method] && response && response.ok) wakeAfterMutation();
+                      return response;
+                    });
+                  };
+                }
+
+                if (window.XMLHttpRequest && window.XMLHttpRequest.prototype) {
+                  var nativeOpen = window.XMLHttpRequest.prototype.open;
+                  var nativeSend = window.XMLHttpRequest.prototype.send;
+                  window.XMLHttpRequest.prototype.open = function(method){
+                    try { this.__cpiposMutationMethod = String(method || 'GET').toUpperCase(); } catch (_) {}
+                    return nativeOpen.apply(this, arguments);
+                  };
+                  window.XMLHttpRequest.prototype.send = function(){
+                    try {
+                      if (mutating[this.__cpiposMutationMethod]) {
+                        this.addEventListener('loadend', function(){
+                          try { if (this.status >= 200 && this.status < 300) wakeAfterMutation(); } catch (_) {}
+                        }, { once:true });
+                      }
+                    } catch (_) {}
+                    return nativeSend.apply(this, arguments);
+                  };
+                }
+              } catch (_) {}
+            })();
+        """.trimIndent()
+        runCatching { view.evaluateJavascript(script, null) }
     }
 
     private fun startDualScreenSupport() {
