@@ -5,6 +5,8 @@ import { PosGuardError, requirePermission, requirePosSession } from "@/lib/pos-s
 import { invalidateRuntimeCacheByPrefix } from "@/lib/route-runtime-cache";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
 
+const MAX_QR_SOURCE_LENGTH = 1_000_000;
+
 function isSchemaMissingError(message: string) {
   const normalized = message.toLowerCase();
   return (
@@ -20,6 +22,15 @@ function isSchemaMissingError(message: string) {
 function normalizeText(value: unknown, max = 180) {
   const text = String(value ?? "").trim();
   return text ? text.slice(0, max) : null;
+}
+
+function normalizeQrSource(value: unknown) {
+  const source = String(value ?? "").trim();
+  if (!source || source.length > MAX_QR_SOURCE_LENGTH) return null;
+  if (source.startsWith("https://") || source.startsWith("http://") || source.startsWith("data:image/")) {
+    return source;
+  }
+  return null;
 }
 
 function normalizeMoney(value: unknown) {
@@ -62,7 +73,7 @@ function normalizePayload(raw: unknown): CustomerDisplayV2Payload | null {
     cash_received: input.cash_received == null ? null : normalizeMoney(input.cash_received),
     change_amount: input.change_amount == null ? null : normalizeMoney(input.change_amount),
     payment_method: input.payment_method === "cash" || input.payment_method === "bank_transfer" ? input.payment_method : null,
-    payment_qr_url: normalizeText(input.payment_qr_url, 8000),
+    payment_qr_url: normalizeQrSource(input.payment_qr_url),
     media_urls: mediaUrls,
     last_activity_at: normalizeText(input.last_activity_at, 64) ?? new Date().toISOString(),
     updated_at: new Date().toISOString()
