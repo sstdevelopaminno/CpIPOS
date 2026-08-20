@@ -91,17 +91,17 @@ export function PosCustomerDisplayV2Publisher() {
   const timerRef = useRef<number | null>(null);
   const publishedSignatureRef = useRef("");
   const inFlightRef = useRef(false);
-  const pendingRef = useRef<{ payload: CustomerDisplayV2Payload; channel: string; signature: string } | null>(null);
+  const pendingRef = useRef<{ payload: CustomerDisplayV2Payload; signature: string } | null>(null);
   const previousCartSignatureRef = useRef<string | null>(null);
 
   useEffect(() => {
     let disposed = false;
 
-    const publish = (payload: CustomerDisplayV2Payload, channel: string, signature: string) => {
+    const publish = (payload: CustomerDisplayV2Payload, signature: string) => {
       if (disposed) return;
       if (publishedSignatureRef.current === signature && !inFlightRef.current) return;
       if (inFlightRef.current) {
-        pendingRef.current = { payload, channel, signature };
+        pendingRef.current = { payload, signature };
         return;
       }
 
@@ -109,10 +109,10 @@ export function PosCustomerDisplayV2Publisher() {
       publishedSignatureRef.current = signature;
       const controller = new AbortController();
       const timeoutId = window.setTimeout(() => controller.abort(), 4000);
-      void fetch("/api/pos/customer-display", {
+      void fetch("/api/pos/customer-display/v2/publish", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ channel, payload }),
+        body: JSON.stringify({ payload }),
         keepalive: true,
         signal: controller.signal
       })
@@ -123,7 +123,7 @@ export function PosCustomerDisplayV2Publisher() {
           const pending = pendingRef.current;
           pendingRef.current = null;
           if (pending && pending.signature !== publishedSignatureRef.current) {
-            publish(pending.payload, pending.channel, pending.signature);
+            publish(pending.payload, pending.signature);
           }
         });
     };
@@ -134,7 +134,6 @@ export function PosCustomerDisplayV2Publisher() {
       const snapshot = readJson<SalesSnapshot>(SALES_SNAPSHOT_KEY);
       const activeOrder = readJson<ActiveOrder>(ACTIVE_ORDER_KEY);
       const device = snapshot?.device_policy ?? null;
-      const channel = buildCustomerDisplayV2Channel({ id: device?.id, code: device?.code });
       const nowMs = Date.now();
       const cartSignature = JSON.stringify(cart.map((item) => [item.product_id, item.name, item.quantity, item.price, item.notes ?? null]));
       let lastActivityAtMs = readLastActivityAt();
@@ -187,8 +186,11 @@ export function PosCustomerDisplayV2Publisher() {
         updated_at: new Date(nowMs).toISOString()
       };
       const { updated_at: _ignored, ...stable } = payload;
-      const signature = JSON.stringify(stable);
-      publish(payload, channel, signature);
+      const signature = JSON.stringify({
+        ...stable,
+        expected_channel: buildCustomerDisplayV2Channel({ id: device?.id, code: device?.code })
+      });
+      publish(payload, signature);
     };
 
     const schedule = (delay = 120) => {
