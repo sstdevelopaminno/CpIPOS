@@ -6,6 +6,7 @@ import android.content.Context
 import android.net.Uri
 import android.os.Bundle
 import android.view.Display
+import android.view.View
 import android.view.WindowManager
 import android.webkit.CookieManager
 import android.webkit.WebResourceRequest
@@ -32,6 +33,14 @@ class DualScreenPresentation(
             settings.mediaPlaybackRequiresUserGesture = false
             settings.allowFileAccess = false
             settings.allowContentAccess = true
+            settings.useWideViewPort = true
+            settings.loadWithOverviewMode = false
+            settings.setSupportZoom(false)
+            settings.builtInZoomControls = false
+            settings.displayZoomControls = false
+            isHorizontalScrollBarEnabled = false
+            isVerticalScrollBarEnabled = false
+            overScrollMode = View.OVER_SCROLL_NEVER
             settings.userAgentString = buildString {
                 append(settings.userAgentString)
                 append(" CpIPOS-CustomerDisplay/")

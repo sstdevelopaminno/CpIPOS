@@ -16,6 +16,7 @@ const publisher = readSource("src/components/pos/pos-customer-display-v2-publish
 const observer = readSource("src/components/pos/pos-customer-display-v2-payment-observer.tsx");
 const screen = readSource("src/components/pos/pos-customer-display-v2-screen.tsx");
 const liveDisplay = readSource("src/components/pos/pos-customer-display-v2-live.tsx");
+const nativeDisplay = readSource("src/components/pos/pos-customer-display-v2-native.tsx");
 const setup = readSource("src/components/pos/pos-customer-display-v2-setup.tsx");
 const setupPage = readSource("src/app/preview/pos/customer-display/v2-setup/page.tsx");
 const livePage = readSource("src/app/customer-display/v2/page.tsx");
@@ -23,20 +24,34 @@ const publishRoute = readSource("src/app/api/pos/customer-display/v2/publish/rou
 const paymentModals = readSource("src/components/pos/pos-payment-modals.tsx");
 
 describe("Customer Display V2 live integration contract", () => {
-  it("keeps the live idle timeout at five minutes", () => {
+  it("keeps an empty sale on the stable idle screen immediately", () => {
     expect(CUSTOMER_DISPLAY_V2_IDLE_TIMEOUT_MS).toBe(300_000);
     expect(resolveCustomerDisplayV2Phase({
-      nowMs: 300_000,
+      nowMs: 1,
       lastActivityAtMs: 0,
       itemCount: 0,
       paymentState: null
     })).toBe("idle");
     expect(resolveCustomerDisplayV2Phase({
       nowMs: 299_999,
-      lastActivityAtMs: 0,
+      lastActivityAtMs: 299_998,
       itemCount: 0,
       paymentState: null
+    })).toBe("idle");
+    expect(resolveCustomerDisplayV2Phase({
+      nowMs: 299_999,
+      lastActivityAtMs: 0,
+      itemCount: 1,
+      paymentState: null
     })).toBe("cart");
+  });
+
+  it("keeps native dual-screen empty cart payloads idle and landscape layout pinned to the real viewport", () => {
+    expect(nativeDisplay).toContain('payload.phase === "cart" && items.length === 0');
+    expect(nativeDisplay).toContain('@media (orientation: landscape)');
+    expect(nativeDisplay).toContain('data-cdv2-native="1"');
+    expect(nativeDisplay).toContain('grid-template-columns: minmax(0, 1.55fr) minmax(180px, .75fr) !important;');
+    expect(nativeDisplay).toContain('overscrollBehavior: "none"');
   });
 
   it("uses a POS-device-scoped channel instead of the legacy branch-wide main channel", () => {
