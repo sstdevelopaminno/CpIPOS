@@ -14,20 +14,7 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
 
-/**
- * Native print worker for the managed Android POS runtime.
- *
- * Vercel remains the queue/control plane. This worker claims branch-scoped jobs
- * using the existing Print Agent lease protocol and performs the physical I/O
- * locally so LAN/USB/Bluetooth printers are reachable at the customer site.
- *
- * Low-latency contract (1.0.19+):
- * - WebView mutation completion wakes the worker immediately through CpiposPrint;
- * - wake claims prioritize the print queue before the periodic agent heartbeat;
- * - a short retry covers the race between an HTTP response and durable queue visibility;
- * - idle polling remains adaptive 1 -> 2 -> 3 seconds as a fail-safe only;
- * - only one executor exists, so claim/print operations remain serialized.
- */
+/** Native print worker for the managed Android POS runtime. */
 class PosPrintAgent(
     context: Context,
     private val installId: String
@@ -359,6 +346,7 @@ class PosPrintAgent(
             id = row.getString("id"),
             attemptId = row.getString("agent_attempt_id"),
             payloadText = row.optString("payload_text", ""),
+            payloadJson = row.optJSONObject("payload_json") ?: JSONObject(),
             metadata = row.optJSONObject("metadata") ?: JSONObject(),
             printer = NativePrinterProfile(
                 id = printer.optString("id", ""),
@@ -397,9 +385,7 @@ class PosPrintAgent(
                     setRequestProperty("X-CpIPOS-Install-Id", installId)
                 }
             }
-            connection.outputStream.use { output ->
-                output.write(body.toString().toByteArray(Charsets.UTF_8))
-            }
+            connection.outputStream.use { output -> output.write(body.toString().toByteArray(Charsets.UTF_8)) }
             val status = connection.responseCode
             val text = if (status in 200..299) {
                 connection.inputStream?.bufferedReader()?.use { it.readText() }.orEmpty()
