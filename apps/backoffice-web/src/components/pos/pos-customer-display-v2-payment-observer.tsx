@@ -2,6 +2,7 @@
 
 import { useEffect, useRef } from "react";
 import {
+  CUSTOMER_DISPLAY_V2_PAID_VISIBLE_MS,
   CUSTOMER_DISPLAY_V2_PAYMENT_EVENT,
   CUSTOMER_DISPLAY_V2_PAYMENT_STORAGE_KEY,
   readCustomerDisplayV2PaymentState,
@@ -34,7 +35,8 @@ export function PosCustomerDisplayV2PaymentObserver() {
     const inspect = () => {
       timer = null;
       if (disposed) return;
-      const nowIso = new Date().toISOString();
+      const nowMs = Date.now();
+      const nowIso = new Date(nowMs).toISOString();
       const receipt = document.querySelector<HTMLElement>(".posui-payment-modal--receipt-final");
       const transfer = document.querySelector<HTMLElement>(".posui-payment-modal--transfer-qr-only");
       const cash = document.querySelector<HTMLElement>(".posui-payment-modal--cash");
@@ -91,6 +93,16 @@ export function PosCustomerDisplayV2PaymentObserver() {
           payment_qr_url: null,
           updated_at: nowIso
         };
+      }
+
+      if (!next) {
+        const existing = readExistingPaymentState();
+        if (existing?.phase === "paid") {
+          const paidAtMs = new Date(existing.updated_at).getTime();
+          if (Number.isFinite(paidAtMs) && nowMs - paidAtMs < CUSTOMER_DISPLAY_V2_PAID_VISIBLE_MS) {
+            return;
+          }
+        }
       }
 
       const signature = next
