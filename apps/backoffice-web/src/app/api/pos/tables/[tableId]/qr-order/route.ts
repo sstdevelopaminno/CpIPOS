@@ -3,7 +3,7 @@ import { fail, ok } from "@/lib/http";
 import { getPosApiAuthContext } from "@/lib/pos-api-auth";
 import { featureGateFail, requirePosApiFeature } from "@/lib/pos-api-feature-guard";
 import { PosTimeoutError, withTimeout } from "@/lib/pos-resilience";
-import { issueTableQrSession } from "@/lib/table-qr-ordering";
+import { issueTableQrSessionWithPolicy } from "@/lib/table-qr-issuance";
 
 const TABLE_QR_ISSUE_TIMEOUT_MS = 45000;
 
@@ -21,7 +21,7 @@ export async function POST(request: Request, context: { params: Promise<{ tableI
     const origin =
       forwardedHost && forwardedProto ? `${forwardedProto}://${forwardedHost}` : `${requestUrl.protocol}//${requestUrl.host}`;
     const data = await withTimeout(
-      issueTableQrSession({ auth, tableId, requestOrigin: origin }),
+      issueTableQrSessionWithPolicy({ auth, tableId, requestOrigin: origin }),
       TABLE_QR_ISSUE_TIMEOUT_MS,
       "table_qr_issue_timeout"
     );
@@ -37,7 +37,9 @@ export async function POST(request: Request, context: { params: Promise<{ tableI
       metadata: {
         table_id: data.table_id,
         table_session_id: data.table_session_id,
-        expires_at: data.expires_at
+        expires_at: data.expires_at,
+        expiry_mode: data.expiry_mode,
+        ttl_minutes: data.ttl_minutes
       }
     });
 
