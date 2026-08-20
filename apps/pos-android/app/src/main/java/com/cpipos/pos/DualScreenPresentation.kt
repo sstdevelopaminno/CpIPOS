@@ -51,16 +51,7 @@ class DualScreenPresentation(
 
         webView = displayWebView
         setContentView(displayWebView)
-        if (savedInstanceState == null) {
-            displayWebView.loadUrl(customerDisplayUrl)
-        } else {
-            displayWebView.restoreState(savedInstanceState)
-        }
-    }
-
-    override fun onSaveInstanceState(outState: Bundle) {
-        webView?.saveState(outState)
-        super.onSaveInstanceState(outState)
+        displayWebView.loadUrl(customerDisplayUrl)
     }
 
     override fun onStop() {
