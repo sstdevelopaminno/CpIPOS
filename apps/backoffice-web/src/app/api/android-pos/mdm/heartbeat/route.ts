@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { buildAndroidModernUpdateOffer, type AndroidModernUpdateOffer } from "@/lib/android-runtime-release";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
 
 const SAFE_MDM_COMMANDS = new Set([
@@ -37,7 +38,12 @@ type AndroidPosMdmCommand = {
   reason?: string;
   printer_verification?: PrinterVerificationEnvelope;
 };
-type PairedDevice = { id: string; device_code: string; metadata: Record<string, unknown> | null };
+type PairedDevice = {
+  id: string;
+  tenant_id: string;
+  device_code: string;
+  metadata: Record<string, unknown> | null;
+};
 type PendingPrinterCommand = {
   id: string;
   issued_at: string;
@@ -50,7 +56,12 @@ type DeliveredPrinterCommand = {
   expires_at: string;
   result: Record<string, unknown> | null;
 };
-type PendingUiCommand = { id: string; command_type: "reload_ui" | "refresh_config"; issued_at: string; metadata: Record<string, unknown> | null };
+type PendingUiCommand = {
+  id: string;
+  command_type: "reload_ui" | "refresh_config";
+  issued_at: string;
+  metadata: Record<string, unknown> | null;
+};
 
 function noStoreHeaders() {
   return { "Cache-Control": "no-store, no-cache, must-revalidate", "X-CpIPOS-MDM-Lite": "android-pos" };
@@ -71,7 +82,11 @@ function parseSafeCommandsFromEnv(): AndroidPosMdmCommand[] {
       const row = value as Record<string, unknown>;
       const action = String(row.action ?? "").trim().toLowerCase();
       if (!SAFE_MDM_COMMANDS.has(action) || action === "test_printer_verification") return null;
-      return { id: String(row.id ?? `env-${action}`).slice(0, 80), action, reason: String(row.reason ?? "env_control").slice(0, 160) };
+      return {
+        id: String(row.id ?? `env-${action}`).slice(0, 80),
+        action,
+        reason: String(row.reason ?? "env_control").slice(0, 160)
+      };
     }).filter((value): value is AndroidPosMdmCommand => Boolean(value)).slice(0, 5);
   } catch {
     return [];
@@ -88,7 +103,10 @@ function getLastReloadAtMs(payload: Record<string, unknown> | null): number {
 function buildHeartbeatCommands(payload: Record<string, unknown> | null): AndroidPosMdmCommand[] {
   const envCommands = parseSafeCommandsFromEnv().filter((command) => command.action !== "reload_webview");
   if (getLastReloadAtMs(payload) >= MDM_RELOAD_GENERATION_MS) return envCommands.slice(0, 5);
-  return [...envCommands, { id: `deploy-reload-${MDM_RELOAD_GENERATION_MS}`, action: "reload_webview", reason: "post_deploy_refresh" }].slice(0, 5);
+  return [
+    ...envCommands,
+    { id: `deploy-reload-${MDM_RELOAD_GENERATION_MS}`, action: "reload_webview", reason: "post_deploy_refresh" }
+  ].slice(0, 5);
 }
 
 function resolvePersistedPrinterState(metadata: Record<string, unknown>, payload: Record<string, unknown> | null) {
@@ -168,7 +186,7 @@ async function findPairedDevice(installId: string | null): Promise<PairedDevice 
   const supabase = getSupabaseServiceClient();
   const { data, error } = await supabase
     .from("branch_devices")
-    .select("id,device_code,metadata")
+    .select("id,tenant_id,device_code,metadata")
     .eq("is_active", true)
     .contains("metadata", { android_mdm_install_id: installId })
     .order("updated_at", { ascending: false })
@@ -190,7 +208,31 @@ async function findPairedDevice(installId: string | null): Promise<PairedDevice 
   return rows[0] ?? null;
 }
 
-async function acknowledgePreviousPrinterTest(device: PairedDevice, payload: Record<string, unknown> | null, appVersion: string | null) {
+async function resolveModernUpdateOffer(
+  device: PairedDevice,
+  payload: Record<string, unknown> | null
+): Promise<AndroidModernUpdateOffer | null> {
+  // Fast fail before touching the tenant table. Only a runtime that explicitly emits the
+  // modern update capability can proceed to tenant-level eligibility checks.
+  const candidate = buildAndroidModernUpdateOffer({ tenantCode: null, payload });
+  if (!candidate) return null;
+
+  const supabase = getSupabaseServiceClient();
+  const { data, error } = await supabase
+    .from("tenants")
+    .select("code")
+    .eq("id", device.tenant_id)
+    .maybeSingle<{ code: string }>();
+  if (error || !data?.code) return null;
+
+  return buildAndroidModernUpdateOffer({ tenantCode: data.code, payload });
+}
+
+async function acknowledgePreviousPrinterTest(
+  device: PairedDevice,
+  payload: Record<string, unknown> | null,
+  appVersion: string | null
+) {
   const lastCommand = asRecord(payload?.last_command);
   const action = String(lastCommand.action ?? "").trim().toLowerCase();
   if (action !== "test_printer_connection" && action !== "test_printer_verification") return;
@@ -258,7 +300,11 @@ async function acknowledgePreviousPrinterTest(device: PairedDevice, payload: Rec
   await supabase.from("device_commands").update({ result }).eq("id", row.id);
 }
 
-async function acknowledgePreviousUiReload(device: PairedDevice, payload: Record<string, unknown> | null, appVersion: string | null) {
+async function acknowledgePreviousUiReload(
+  device: PairedDevice,
+  payload: Record<string, unknown> | null,
+  appVersion: string | null
+) {
   const lastCommand = asRecord(payload?.last_command);
   if (String(lastCommand.action ?? "").trim().toLowerCase() !== "reload_webview") return;
   const atMs = Number(lastCommand.at_ms ?? 0);
@@ -284,7 +330,11 @@ async function acknowledgePreviousUiReload(device: PairedDevice, payload: Record
     .lte("delivered_at", executedAt);
 }
 
-async function persistNativeMdmState(device: PairedDevice, payload: Record<string, unknown> | null, appVersion: string | null) {
+async function persistNativeMdmState(
+  device: PairedDevice,
+  payload: Record<string, unknown> | null,
+  appVersion: string | null
+) {
   const supabase = getSupabaseServiceClient();
   const metadata = asRecord(device.metadata);
   await supabase.from("branch_devices").update({
@@ -347,8 +397,13 @@ async function deliverPrinterTestCommands(device: PairedDevice): Promise<Android
   const supabase = getSupabaseServiceClient();
   const now = new Date();
   const nowIso = now.toISOString();
+
   await supabase.from("device_commands").update({ status: "expired" })
-    .eq("pos_device_id", device.id).eq("command_type", "test_printer").eq("status", "pending").lte("expires_at", nowIso);
+    .eq("pos_device_id", device.id)
+    .eq("command_type", "test_printer")
+    .eq("status", "pending")
+    .lte("expires_at", nowIso);
+
   const { data: rows, error } = await supabase.from("device_commands")
     .select("id,issued_at,expires_at,metadata,result")
     .eq("pos_device_id", device.id)
@@ -393,7 +448,17 @@ async function deliverPrinterTestCommands(device: PairedDevice): Promise<Android
 }
 
 export async function GET() {
-  return NextResponse.json({ data: { ok: true, service: "android-pos-mdm-lite-heartbeat", safe_commands: Array.from(SAFE_MDM_COMMANDS), reload_generation_ms: MDM_RELOAD_GENERATION_MS, commands: [] }, error: null }, { headers: noStoreHeaders() });
+  return NextResponse.json({
+    data: {
+      ok: true,
+      service: "android-pos-mdm-lite-heartbeat",
+      safe_commands: Array.from(SAFE_MDM_COMMANDS),
+      reload_generation_ms: MDM_RELOAD_GENERATION_MS,
+      commands: [],
+      update_offer: null
+    },
+    error: null
+  }, { headers: noStoreHeaders() });
 }
 
 export async function POST(request: Request) {
@@ -403,6 +468,7 @@ export async function POST(request: Request) {
   const payload = (await request.json().catch(() => null)) as Record<string, unknown> | null;
   let commands = isAndroidPos ? buildHeartbeatCommands(payload) : [];
   let pairedDeviceCode: string | null = null;
+  let updateOffer: AndroidModernUpdateOffer | null = null;
 
   if (isAndroidPos) {
     const device = await findPairedDevice(installId);
@@ -411,12 +477,22 @@ export async function POST(request: Request) {
       await acknowledgePreviousPrinterTest(device, payload, appVersion);
       await acknowledgePreviousUiReload(device, payload, appVersion);
       await persistNativeMdmState(device, payload, appVersion);
-      commands = [...commands, ...(await deliverUiReloadCommands(device)), ...(await deliverPrinterTestCommands(device))].slice(0, 5);
+      updateOffer = await resolveModernUpdateOffer(device, payload);
+      commands = [
+        ...commands,
+        ...(await deliverUiReloadCommands(device)),
+        ...(await deliverPrinterTestCommands(device))
+      ].slice(0, 5);
     }
   }
 
   if (commands.some((command) => command.action === "reload_webview")) {
-    console.info("[android-pos-mdm] reload issued", { install_id_suffix: installId?.slice(-8) ?? null, app_version: appVersion, generation_ms: MDM_RELOAD_GENERATION_MS, paired_device_code: pairedDeviceCode });
+    console.info("[android-pos-mdm] reload issued", {
+      install_id_suffix: installId?.slice(-8) ?? null,
+      app_version: appVersion,
+      generation_ms: MDM_RELOAD_GENERATION_MS,
+      paired_device_code: pairedDeviceCode
+    });
   }
 
   return NextResponse.json({
@@ -429,7 +505,8 @@ export async function POST(request: Request) {
       paired_device_code: pairedDeviceCode,
       payload_received: Boolean(payload),
       reload_generation_ms: MDM_RELOAD_GENERATION_MS,
-      commands
+      commands,
+      update_offer: updateOffer
     },
     error: null
   }, { headers: noStoreHeaders() });
