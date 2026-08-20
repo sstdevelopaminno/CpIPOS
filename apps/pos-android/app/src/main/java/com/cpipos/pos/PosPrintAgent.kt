@@ -12,6 +12,7 @@ import java.util.concurrent.Executors
 import java.util.concurrent.ScheduledExecutorService
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicLong
 
 /**
  * Native print worker for the managed Android POS runtime.
@@ -20,11 +21,12 @@ import java.util.concurrent.atomic.AtomicBoolean
  * using the existing Print Agent lease protocol and performs the physical I/O
  * locally so LAN/USB/Bluetooth printers are reachable at the customer site.
  *
- * Production polling contract:
- * - heartbeat is independent from job polling and runs every 45 seconds;
- * - empty claims back off 1 -> 2 -> 3 seconds;
- * - any claimed work resets the idle backoff to one second;
- * - only one scheduled worker exists, so claim requests cannot overlap.
+ * Low-latency contract (1.0.19+):
+ * - WebView mutation completion wakes the worker immediately through CpiposPrint;
+ * - wake claims prioritize the print queue before the periodic agent heartbeat;
+ * - a short retry covers the race between an HTTP response and durable queue visibility;
+ * - idle polling remains adaptive 1 -> 2 -> 3 seconds as a fail-safe only;
+ * - only one executor exists, so claim/print operations remain serialized.
  */
 class PosPrintAgent(
     context: Context,
@@ -34,6 +36,7 @@ class PosPrintAgent(
     private val prefs = appContext.getSharedPreferences("cpipos_native_print_agent", Context.MODE_PRIVATE)
     private val transport = NativePrintTransport(appContext)
     private val started = AtomicBoolean(false)
+    private val lastWakeRequestElapsedMs = AtomicLong(0L)
     private var executor: ScheduledExecutorService? = null
     private var idleBackoffIndex = 0
 
@@ -42,10 +45,14 @@ class PosPrintAgent(
     @Volatile private var lastTransport: String? = null
     @Volatile private var lastSuccessAtMs: Long? = null
     @Volatile private var lastHeartbeatElapsedMs: Long = 0L
+    @Volatile private var lastRenderMode: String? = null
+    @Volatile private var lastPayloadBuildMs: Long? = null
+    @Volatile private var lastTransportWriteMs: Long? = null
 
     fun start() {
         if (!started.compareAndSet(false, true)) return
         idleBackoffIndex = 0
+        lastWakeRequestElapsedMs.set(0L)
         executor = Executors.newSingleThreadScheduledExecutor { runnable ->
             Thread(runnable, "cpipos-native-print-agent").apply { isDaemon = true }
         }
@@ -58,6 +65,7 @@ class PosPrintAgent(
         executor = null
         idleBackoffIndex = 0
         lastHeartbeatElapsedMs = 0L
+        lastWakeRequestElapsedMs.set(0L)
     }
 
     fun diagnosticsJson(): JSONObject = JSONObject()
@@ -67,13 +75,21 @@ class PosPrintAgent(
         .put("last_transport", lastTransport)
         .put("last_success_at_ms", lastSuccessAtMs)
         .put("last_error", lastError)
+        .put("last_render_mode", lastRenderMode)
+        .put("last_payload_build_ms", lastPayloadBuildMs)
+        .put("last_transport_write_ms", lastTransportWriteMs)
         .put("idle_backoff_seconds", IDLE_BACKOFF_SECONDS[idleBackoffIndex.coerceIn(0, IDLE_BACKOFF_SECONDS.lastIndex)])
         .put("heartbeat_interval_seconds", HEARTBEAT_INTERVAL_SECONDS)
+        .put("claim_policy", "event_wake_plus_adaptive_1_2_3s")
         .put("supported_transports", JSONArray(listOf("lan", "usb", "bluetooth")))
 
     @JavascriptInterface
     fun notifyPrintQueued() {
         if (!started.get()) return
+        val now = SystemClock.elapsedRealtime()
+        val previous = lastWakeRequestElapsedMs.get()
+        if (previous > 0L && now - previous < WAKE_COALESCE_MS) return
+        lastWakeRequestElapsedMs.set(now)
         idleBackoffIndex = 0
         scheduleWakeClaim(0L)
         scheduleWakeClaim(WAKE_RETRY_DELAY_MS)
@@ -85,7 +101,7 @@ class PosPrintAgent(
         runCatching {
             service.schedule({
                 if (!started.get()) return@schedule
-                val claimedJobs = runCatching { tick() }.getOrElse { error ->
+                val claimedJobs = runCatching { tick(prioritizePrint = true) }.getOrElse { error ->
                     lastError = error.message ?: error::class.java.simpleName
                     0
                 }
@@ -102,7 +118,7 @@ class PosPrintAgent(
         runCatching {
             service.schedule({
                 if (started.get()) {
-                    val claimedJobs = runCatching { tick() }.getOrElse { error ->
+                    val claimedJobs = runCatching { tick(prioritizePrint = false) }.getOrElse { error ->
                         lastError = error.message ?: error::class.java.simpleName
                         0
                     }
@@ -122,10 +138,10 @@ class PosPrintAgent(
         }
     }
 
-    private fun tick(): Int {
+    private fun tick(prioritizePrint: Boolean): Int {
         if (!started.get()) return 0
         val key = getOrBootstrapKey() ?: return 0
-        sendHeartbeatIfDue(key)
+        if (!prioritizePrint) sendHeartbeatIfDue(key)
 
         val claim = postJson(
             url = "${BuildConfig.CPIPOS_API_BASE_URL}/api/print-agent/v1/jobs/claim",
@@ -146,13 +162,17 @@ class PosPrintAgent(
             return 0
         }
 
-        val data = claim.body?.optJSONObject("data") ?: claim.body ?: return 0
-        val jobs = data.optJSONArray("jobs") ?: return 0
-        for (index in 0 until jobs.length()) {
-            val row = jobs.optJSONObject(index) ?: continue
-            processJob(key, row)
+        val data = claim.body?.optJSONObject("data") ?: claim.body
+        val jobs = data?.optJSONArray("jobs")
+        val count = jobs?.length() ?: 0
+        if (jobs != null) {
+            for (index in 0 until jobs.length()) {
+                val row = jobs.optJSONObject(index) ?: continue
+                processJob(key, row)
+            }
         }
-        return jobs.length()
+        if (prioritizePrint) sendHeartbeatIfDue(key)
+        return count
     }
 
     private fun sendHeartbeatIfDue(agentKey: String) {
@@ -168,7 +188,8 @@ class PosPrintAgent(
                     JSONObject()
                         .put("runtime", "android_native_print_agent")
                         .put("device_model", Build.MODEL)
-                        .put("claim_poll_policy", "adaptive_1_2_3s")
+                        .put("claim_poll_policy", "event_wake_plus_adaptive_1_2_3s")
+                        .put("low_latency_print", true)
                 ),
             agentKey = agentKey
         )
@@ -252,6 +273,9 @@ class PosPrintAgent(
                             .put("device_model", Build.MODEL)
                             .put("app_version", BuildConfig.VERSION_NAME)
                             .put("native_print_ms", nativePrintMs)
+                            .put("render_mode", result.renderMode)
+                            .put("payload_build_ms", result.payloadBuildMs)
+                            .put("transport_write_ms", result.transportWriteMs)
                             .put("bytes_sent", result.bytesSent)
                     ),
                 agentKey = agentKey
@@ -259,6 +283,9 @@ class PosPrintAgent(
             if (ack.status in 200..299) {
                 lastTransport = result.transport
                 lastSuccessAtMs = System.currentTimeMillis()
+                lastRenderMode = result.renderMode
+                lastPayloadBuildMs = result.payloadBuildMs
+                lastTransportWriteMs = result.transportWriteMs
                 lastError = null
             } else {
                 lastError = readApiError(ack.body) ?: "print_agent_ack_http_${ack.status}"
@@ -356,12 +383,13 @@ class PosPrintAgent(
         return try {
             connection = (URL(url).openConnection() as HttpURLConnection).apply {
                 requestMethod = "POST"
-                connectTimeout = 5_000
-                readTimeout = 12_000
+                connectTimeout = 4_000
+                readTimeout = 10_000
                 doOutput = true
                 useCaches = false
                 setRequestProperty("Content-Type", "application/json; charset=utf-8")
                 setRequestProperty("Accept", "application/json")
+                setRequestProperty("Connection", "keep-alive")
                 setRequestProperty("X-CpIPOS-App-Version", BuildConfig.VERSION_NAME)
                 if (!agentKey.isNullOrBlank()) setRequestProperty("X-Print-Agent-Key", agentKey)
                 if (bootstrap) {
@@ -405,7 +433,8 @@ class PosPrintAgent(
         private const val PREF_DEVICE_CODE = "device_code"
         private const val HEARTBEAT_INTERVAL_SECONDS = 45L
         private const val HEARTBEAT_INTERVAL_MS = HEARTBEAT_INTERVAL_SECONDS * 1_000L
-        private const val WAKE_RETRY_DELAY_MS = 350L
+        private const val WAKE_COALESCE_MS = 75L
+        private const val WAKE_RETRY_DELAY_MS = 180L
         private val IDLE_BACKOFF_SECONDS = longArrayOf(1L, 2L, 3L)
     }
 }
