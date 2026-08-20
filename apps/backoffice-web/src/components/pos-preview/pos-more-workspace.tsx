@@ -41,6 +41,13 @@ const MORE_ITEMS: MoreItem[] = [
     desc: { th: "จัดการโต๊ะ โซน และผังร้านสำหรับโหมดนั่งโต๊ะ", en: "Manage dine-in tables, zones, and floor layout" }
   },
   {
+    href: "/preview/pos/tables/qr-settings",
+    icon: "tables",
+    label: { th: "ตั้งค่า QR โต๊ะ", en: "Table QR Settings" },
+    roles: ["owner", "manager"],
+    desc: { th: "กำหนดอายุ QR แยกโต๊ะ ตามเวลา หรือจนปิดบิล", en: "Set per-table QR expiry by time or bill lifecycle" }
+  },
+  {
     href: "/preview/pos/kitchen/manage",
     icon: "kitchen",
     label: { th: "จัดการครัว", en: "Kitchen Management" },
@@ -115,7 +122,8 @@ function MoreIcon({ name }: { name: MoreIconName }) {
         <path d="M5 10h14" />
       </svg>
     );
-  }  if (name === "stock") {
+  }
+  if (name === "stock") {
     return (
       <svg {...common}>
         <path d="M5 7h14v12H5z" />
