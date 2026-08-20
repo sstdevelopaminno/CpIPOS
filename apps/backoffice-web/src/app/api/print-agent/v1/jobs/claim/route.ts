@@ -42,7 +42,12 @@ function isModernRichLayoutClient(appVersion: string | null | undefined) {
 }
 
 function appendCompactTearSafeTail(html: string) {
+  // Table QR owns its calibrated 15mm raster spacer. Together with the Android renderer's
+  // existing three ESC/POS feeds this yields about 2.8cm total clearance. Do not append the
+  // generic document spacer again or QR paper will become unnecessarily long.
+  if (html.includes("data-cpipos-table-qr-tail")) return html;
   if (html.includes("data-cpipos-tear-safe-tail")) return html;
+
   // HtmlReceiptRasterizer crops near-white margins before ESC/POS conversion. #f7f7f7 is just
   // dark enough to preserve this compact spacer during crop detection, while remaining above the
   // final monochrome raster threshold so no visible rule is printed. The rasterizer then keeps its
