@@ -7,10 +7,13 @@ on:
       - dev/android-modern-release-1-0-17-900001
     paths:
       - "apps/pos-android/**"
+      - "apps/backoffice-web/src/lib/android-runtime-release.ts"
+      - "apps/backoffice-web/tests/unit/android-runtime-release.test.ts"
       - ".github/workflows/build-android-modern-release.yml"
 
 permissions:
   contents: write
+  statuses: write
 
 env:
   ANDROID_RUNTIME_MODULE: apps/pos-android
@@ -29,6 +32,30 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Report Modern release gate pending
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          gh api --method POST
+          "repos/${{ github.repository }}/statuses/${{ github.sha }}"
+          -f state=pending
+          -f context='Android Modern Release'
+          -f description='Testing, signing and verifying Android Modern 1.0.17'
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Install workspace dependencies
+        run: corepack pnpm install --frozen-lockfile
+
+      - name: Run Modern update-channel regression tests
+        run: corepack pnpm --filter backoffice-web exec vitest run tests/unit/android-runtime-release.test.ts
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
@@ -158,23 +185,67 @@ jobs:
             artifacts/${{ env.ANDROID_RUNTIME_APK_ASSET_NAME }}.sha256
           if-no-files-found: error
 
-      - name: Publish immutable Modern release
+      - name: Publish or verify immutable Modern release
         if: github.event_name == 'push' && github.ref == 'refs/heads/dev/android-modern-release-1-0-17-900001' && steps.signing.outputs.ready == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           tag="${{ env.ANDROID_RUNTIME_RELEASE_TAG }}"
+          asset="${{ env.ANDROID_RUNTIME_APK_ASSET_NAME }}"
+          aaptPath=$(find "$ANDROID_HOME/build-tools" -type f -name aapt | sort -V | tail -n 1)
+          apksignerPath=$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)
+
           if gh release view "$tag" >/dev/null 2>&1; then
-            echo "Release $tag already exists; refusing to mutate an immutable Modern tag."
-            exit 1
+            echo "Release $tag already exists. Verifying immutable released APK instead of mutating it."
+            mkdir -p released
+            gh release download "$tag" --pattern "$asset" --dir released --clobber
+            releasedApk="released/$asset"
+            test -f "$releasedApk"
+
+            badging=$("$aaptPath" dump badging "$releasedApk" | head -n 1)
+            echo "$badging"
+            echo "$badging" | grep -q "versionCode='${{ env.ANDROID_RUNTIME_VERSION_CODE }}'"
+            echo "$badging" | grep -q "versionName='${{ env.ANDROID_RUNTIME_VERSION }}'"
+            "$apksignerPath" verify --verbose --print-certs "$releasedApk"
+            certSha=$("$apksignerPath" verify --print-certs "$releasedApk" \
+              | sed -n 's/^.*certificate SHA-256 digest: //p' \
+              | head -n 1 \
+              | tr -d ':' \
+              | tr '[:upper:]' '[:lower:]')
+            if [ "$certSha" != "${{ env.ANDROID_SIGNING_CERT_SHA256 }}" ]; then
+              echo "Released APK certificate mismatch. Expected ${{ env.ANDROID_SIGNING_CERT_SHA256 }}, got $certSha"
+              exit 1
+            fi
+            echo "Immutable released APK verified: version=${{ env.ANDROID_RUNTIME_VERSION }}, code=${{ env.ANDROID_RUNTIME_VERSION_CODE }}, certificate=$certSha"
+          else
+            gh release create "$tag" \
+              "artifacts/${{ env.ANDROID_RUNTIME_APK_ASSET_NAME }}" \
+              "artifacts/${{ env.ANDROID_RUNTIME_COMPAT_ASSET_NAME }}" \
+              "artifacts/${{ env.ANDROID_RUNTIME_APK_ASSET_NAME }}.sha256" \
+              --target "${{ github.sha }}" \
+              --title "CpIPOS Android POS Modern 1.0.17" \
+              --notes "Opt-in Modern Runtime release. Stable 1.0.12 and legacy stores remain on their existing release channels. Includes capability-gated printer verification and non-forced managed update notices. No silent installation and no automatic reassignment of existing printers."
+            echo "Immutable Modern release published."
           fi
 
-          gh release create "$tag" \
-            "artifacts/${{ env.ANDROID_RUNTIME_APK_ASSET_NAME }}" \
-            "artifacts/${{ env.ANDROID_RUNTIME_COMPAT_ASSET_NAME }}" \
-            "artifacts/${{ env.ANDROID_RUNTIME_APK_ASSET_NAME }}.sha256" \
-            --target "${{ github.sha }}" \
-            --title "CpIPOS Android POS Modern 1.0.17" \
-            --notes "Opt-in Modern Runtime release. Stable 1.0.12 and legacy stores remain on their existing release channels. Includes capability-gated printer verification and non-forced managed update notices. No silent installation and no automatic reassignment of existing printers."
+      - name: Report Modern release gate success
+        if: success()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          gh api --method POST
+          "repos/${{ github.repository }}/statuses/${{ github.sha }}"
+          -f state=success
+          -f context='Android Modern Release'
+          -f description='Android Modern 1.0.17 tests, signing and release verification passed'
 
-          echo "Modern APK URL: https://github.com/${{ github.repository }}/releases/download/$tag/${{ env.ANDROID_RUNTIME_APK_ASSET_NAME }}"
+      - name: Report Modern release gate failure
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          gh api --method POST
+          "repos/${{ github.repository }}/statuses/${{ github.sha }}"
+          -f state=error
+          -f context='Android Modern Release'
+          -f description='Android Modern 1.0.17 release gate failed; do not promote'
