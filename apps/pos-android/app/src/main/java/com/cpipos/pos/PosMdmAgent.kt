@@ -230,7 +230,9 @@ class PosMdmAgent(
                 .put("presentation_display_count", 0)
                 .put("secondary_display_available", false)
 
-        val primaryDisplayId = webView.display?.displayId ?: Display.DEFAULT_DISPLAY
+        // The MDM heartbeat is assembled on a worker executor. Avoid reading View/WebView
+        // state here; this Activity always owns the Android default display as its POS screen.
+        val primaryDisplayId = Display.DEFAULT_DISPLAY
         val displays = manager.displays
         val presentationDisplays = manager.getDisplays(DisplayManager.DISPLAY_CATEGORY_PRESENTATION)
         val rows = JSONArray()
