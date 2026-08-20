@@ -170,6 +170,7 @@ async function persistNativeMdmState(device: PairedDevice, payload: Record<strin
       android_mdm_printer: resolvePersistedPrinterState(metadata, payload),
       android_mdm_last_command: asRecord(payload?.last_command),
       android_mdm_runtime: asRecord(payload?.app),
+      android_mdm_runtime_capabilities: asRecord(payload?.runtime_capabilities),
       android_mdm_displays: asRecord(payload?.displays)
     },
     updated_at: new Date().toISOString()
