@@ -1,10 +1,12 @@
 package com.cpipos.pos
 
 import android.content.Context
+import android.hardware.display.DisplayManager
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
+import android.view.Display
 import android.webkit.CookieManager
 import android.webkit.JavascriptInterface
 import android.webkit.WebView
@@ -220,6 +222,48 @@ class PosMdmAgent(
         }
     }
 
+    private fun buildDisplaySnapshot(): JSONObject {
+        val manager = appContext.getSystemService(Context.DISPLAY_SERVICE) as? DisplayManager
+            ?: return JSONObject()
+                .put("feature_enabled", BuildConfig.CPIPOS_DUAL_SCREEN_ENABLED)
+                .put("display_count", 0)
+                .put("presentation_display_count", 0)
+                .put("secondary_display_available", false)
+
+        // The MDM heartbeat is assembled on a worker executor. Avoid reading View/WebView
+        // state here; this Activity always owns the Android default display as its POS screen.
+        val primaryDisplayId = Display.DEFAULT_DISPLAY
+        val displays = manager.displays
+        val presentationDisplays = manager.getDisplays(DisplayManager.DISPLAY_CATEGORY_PRESENTATION)
+        val rows = JSONArray()
+
+        displays.forEach { display ->
+            val mode = display.mode
+            rows.put(
+                JSONObject()
+                    .put("id", display.displayId)
+                    .put("name", display.name)
+                    .put("is_primary", display.displayId == primaryDisplayId)
+                    .put("is_valid", display.isValid)
+                    .put("state", display.state)
+                    .put("rotation", display.rotation)
+                    .put("flags", display.flags)
+                    .put("width_px", mode.physicalWidth)
+                    .put("height_px", mode.physicalHeight)
+                    .put("refresh_rate", mode.refreshRate)
+                    .put("presentation_capable", presentationDisplays.any { it.displayId == display.displayId })
+            )
+        }
+
+        return JSONObject()
+            .put("feature_enabled", BuildConfig.CPIPOS_DUAL_SCREEN_ENABLED)
+            .put("primary_display_id", primaryDisplayId)
+            .put("display_count", displays.size)
+            .put("presentation_display_count", presentationDisplays.size)
+            .put("secondary_display_available", displays.any { it.displayId != primaryDisplayId && it.state != Display.STATE_OFF })
+            .put("displays", rows)
+    }
+
     private fun buildSnapshot(reason: String): JSONObject {
         val printer = lastPrinterDiagnostic
         val webViewPackage = WebView.getCurrentWebViewPackage()
@@ -236,6 +280,8 @@ class PosMdmAgent(
                     .put("version_code", BuildConfig.VERSION_CODE)
                     .put("runtime", "android-pos-webview-mdm-lite")
                     .put("web_entrypoint", BuildConfig.CPIPOS_POS_WEB_URL)
+                    .put("customer_display_v2_url", BuildConfig.CPIPOS_CUSTOMER_DISPLAY_V2_URL)
+                    .put("dual_screen_enabled", BuildConfig.CPIPOS_DUAL_SCREEN_ENABLED)
             )
             .put(
                 "device",
@@ -249,6 +295,7 @@ class PosMdmAgent(
                     .put("android_release", Build.VERSION.RELEASE)
                     .put("uptime_ms", SystemClock.uptimeMillis())
             )
+            .put("displays", buildDisplaySnapshot())
             .put(
                 "network",
                 JSONObject()
