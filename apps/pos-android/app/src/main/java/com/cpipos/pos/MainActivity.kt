@@ -7,9 +7,13 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.hardware.display.DisplayManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
+import android.view.Display
 import android.view.WindowManager
 import android.webkit.CookieManager
 import android.webkit.ValueCallback
@@ -28,6 +32,23 @@ class MainActivity : ComponentActivity() {
     private var mdmAgent: PosMdmAgent? = null
     private var printAgent: PosPrintAgent? = null
     private var filePathCallback: ValueCallback<Array<Uri>>? = null
+    private var displayManager: DisplayManager? = null
+    private var dualScreenPresentation: DualScreenPresentation? = null
+    private var activeSecondaryDisplayId: Int? = null
+
+    private val dualScreenDisplayListener = object : DisplayManager.DisplayListener {
+        override fun onDisplayAdded(displayId: Int) {
+            syncDualScreenPresentation()
+        }
+
+        override fun onDisplayRemoved(displayId: Int) {
+            syncDualScreenPresentation()
+        }
+
+        override fun onDisplayChanged(displayId: Int) {
+            syncDualScreenPresentation()
+        }
+    }
 
     private val fileChooserLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         val callback = filePathCallback
@@ -63,6 +84,7 @@ class MainActivity : ComponentActivity() {
                 append(" CpIPOS-AndroidPOS/")
                 append(BuildConfig.VERSION_NAME)
                 append(" POS-WebView-Wrapper MDM-Ready Native-Print-Agent")
+                if (BuildConfig.CPIPOS_DUAL_SCREEN_ENABLED) append(" Dual-Screen")
             }
 
             CookieManager.getInstance().setAcceptCookie(true)
@@ -139,6 +161,7 @@ class MainActivity : ComponentActivity() {
             override fun onPageFinished(view: WebView, url: String?) {
                 super.onPageFinished(view, url)
                 mdmAgent?.notifyPageFinished(url)
+                applyCustomerDisplayV2Flag()
                 CookieManager.getInstance().flush()
             }
 
@@ -160,6 +183,7 @@ class MainActivity : ComponentActivity() {
         nativePrintAgent.start()
         requestRuntimeCapabilities()
         requestDeviceAdminEnrollmentOnce()
+        startDualScreenSupport()
 
         if (savedInstanceState == null) {
             webView.loadUrl(BuildConfig.CPIPOS_POS_WEB_URL)
@@ -176,6 +200,7 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         if (::webView.isInitialized) webView.onResume()
+        syncDualScreenPresentation()
     }
 
     override fun onPause() {
@@ -192,6 +217,7 @@ class MainActivity : ComponentActivity() {
     override fun onDestroy() {
         filePathCallback?.onReceiveValue(null)
         filePathCallback = null
+        stopDualScreenSupport()
         printAgent?.stop()
         printAgent = null
         mdmAgent?.stop()
@@ -201,6 +227,84 @@ class MainActivity : ComponentActivity() {
             webView.destroy()
         }
         super.onDestroy()
+    }
+
+    private fun startDualScreenSupport() {
+        if (!BuildConfig.CPIPOS_DUAL_SCREEN_ENABLED) return
+        val manager = getSystemService(DisplayManager::class.java) ?: return
+        displayManager = manager
+        manager.registerDisplayListener(dualScreenDisplayListener, Handler(Looper.getMainLooper()))
+        syncDualScreenPresentation()
+    }
+
+    private fun stopDualScreenSupport() {
+        val manager = displayManager
+        if (manager != null && BuildConfig.CPIPOS_DUAL_SCREEN_ENABLED) {
+            runCatching { manager.unregisterDisplayListener(dualScreenDisplayListener) }
+        }
+        displayManager = null
+        dualScreenPresentation?.dismiss()
+        dualScreenPresentation = null
+        activeSecondaryDisplayId = null
+    }
+
+    private fun syncDualScreenPresentation() {
+        if (!BuildConfig.CPIPOS_DUAL_SCREEN_ENABLED) return
+        val manager = displayManager ?: return
+        val primaryDisplayId = if (::webView.isInitialized) webView.display?.displayId ?: Display.DEFAULT_DISPLAY else Display.DEFAULT_DISPLAY
+        val presentationDisplay = manager.getDisplays(DisplayManager.DISPLAY_CATEGORY_PRESENTATION)
+            .firstOrNull { it.displayId != primaryDisplayId && it.state != Display.STATE_OFF }
+        val secondaryDisplay = presentationDisplay ?: manager.displays
+            .firstOrNull { it.displayId != primaryDisplayId && it.state != Display.STATE_OFF }
+
+        if (secondaryDisplay == null) {
+            dualScreenPresentation?.dismiss()
+            dualScreenPresentation = null
+            activeSecondaryDisplayId = null
+            applyCustomerDisplayV2Flag()
+            return
+        }
+
+        if (activeSecondaryDisplayId == secondaryDisplay.displayId && dualScreenPresentation?.isShowing == true) {
+            applyCustomerDisplayV2Flag()
+            return
+        }
+
+        dualScreenPresentation?.dismiss()
+        dualScreenPresentation = null
+        activeSecondaryDisplayId = null
+
+        runCatching {
+            DualScreenPresentation(
+                this,
+                secondaryDisplay,
+                BuildConfig.CPIPOS_CUSTOMER_DISPLAY_V2_URL
+            ).also { presentation ->
+                presentation.show()
+                dualScreenPresentation = presentation
+                activeSecondaryDisplayId = secondaryDisplay.displayId
+            }
+        }.onFailure {
+            dualScreenPresentation = null
+            activeSecondaryDisplayId = null
+        }
+
+        applyCustomerDisplayV2Flag()
+        mdmAgent?.executeSafeCommand("collect_diagnostics", "dual_screen_changed")
+    }
+
+    private fun applyCustomerDisplayV2Flag() {
+        if (!::webView.isInitialized) return
+        val enabled = BuildConfig.CPIPOS_DUAL_SCREEN_ENABLED && activeSecondaryDisplayId != null
+        val value = if (enabled) "1" else "0"
+        val script = """
+            (function(){
+              try {
+                localStorage.setItem('pos_customer_display_v2_enabled_v001', '$value');
+              } catch (_) {}
+            })();
+        """.trimIndent()
+        webView.evaluateJavascript(script, null)
     }
 
     private fun requestRuntimeCapabilities() {
