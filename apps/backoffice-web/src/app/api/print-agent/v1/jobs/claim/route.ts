@@ -10,7 +10,9 @@ type ClaimPayload = {
 };
 
 const MODERN_RICH_LAYOUT_MIN_VERSION = [1, 0, 19] as const;
-const MODERN_HTML_TAIL_MM = 15;
+// HtmlReceiptRasterizer adds three ESC/POS line feeds after the raster. A 22mm raster-safe
+// spacer plus those feeds leaves roughly 35mm from the final visible content to the paper edge.
+const MODERN_HTML_TAIL_MM = 22;
 
 function configuredPaperWidthMm(job: {
   metadata?: Record<string, unknown> | null;
@@ -41,17 +43,30 @@ function isModernRichLayoutClient(appVersion: string | null | undefined) {
   return true;
 }
 
-function appendCompactTearSafeTail(html: string) {
-  // Table QR owns its calibrated 15mm raster spacer. Together with the Android renderer's
-  // existing three ESC/POS feeds this yields about 2.8cm total clearance. Do not append the
-  // generic document spacer again or QR paper will become unnecessarily long.
-  if (html.includes("data-cpipos-table-qr-tail")) return html;
-  if (html.includes("data-cpipos-tear-safe-tail")) return html;
+function ensureModernTearSafeTail(html: string) {
+  // Table QR already owns a dedicated raster spacer. Normalize its existing height instead of
+  // appending the generic spacer, otherwise the two tails would stack and waste paper.
+  if (html.includes("data-cpipos-table-qr-tail")) {
+    return html.replace(
+      /(\.qr-tail\s*\{\s*height:)\s*\d+(?:\.\d+)?mm/i,
+      `$1${MODERN_HTML_TAIL_MM}mm`
+    );
+  }
 
-  // HtmlReceiptRasterizer crops near-white margins before ESC/POS conversion. #f7f7f7 is just
-  // dark enough to preserve this compact spacer during crop detection, while remaining above the
-  // final monochrome raster threshold so no visible rule is printed. The rasterizer then keeps its
-  // existing three line-feeds, producing roughly 2.5-3 cm total clearance instead of ~10 cm.
+  // Existing generic marker means this payload has already been normalized upstream or during a
+  // previous claim. Keep it idempotent, but also normalize an older 15mm marker to the new 22mm
+  // standard so a re-claimed job cannot retain the shorter paper tail.
+  if (html.includes("data-cpipos-tear-safe-tail")) {
+    return html.replace(
+      /(data-cpipos-tear-safe-tail="v1"[^>]*style="[^"]*height:)\s*\d+(?:\.\d+)?mm/i,
+      `$1${MODERN_HTML_TAIL_MM}mm`
+    );
+  }
+
+  // HtmlReceiptRasterizer crops white margins before ESC/POS conversion. #f7f7f7 survives crop
+  // detection but remains above the final monochrome threshold, so this spacer is physically kept
+  // without printing a visible rule. Combined with the renderer's three final feeds it yields
+  // approximately 3.5cm of tear-safe clearance after the final visible text.
   const spacer = `<div data-cpipos-tear-safe-tail="v1" aria-hidden="true" style="height:${MODERN_HTML_TAIL_MM}mm;border-bottom:1px solid #f7f7f7"></div>`;
   if (/<\/body>/i.test(html)) return html.replace(/<\/body>/i, `${spacer}</body>`);
   return `${html}${spacer}`;
@@ -84,9 +99,9 @@ export async function POST(req: Request) {
                 print_format: `html_${paperWidthMm}mm`,
                 ...(modernRichLayout
                   ? {
-                      // 1.0.19+ keeps low-latency queue wake-up but must render customer-facing
+                      // 1.0.19+ keeps low-latency queue wake-up but renders customer-facing
                       // documents from the established HTML templates used before native text mode.
-                      payload_html: appendCompactTearSafeTail(htmlPayload),
+                      payload_html: ensureModernTearSafeTail(htmlPayload),
                       force_rich_html_raster: true,
                       render_policy: "legacy_rich_html_v1",
                       tear_safe_tail_mm: MODERN_HTML_TAIL_MM
