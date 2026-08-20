@@ -1,0 +1,187 @@
+name: Build CpIPOS Android Modern Print Format Hotfix 1.0.20
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - dev/android-modern-print-format-hotfix-1-0-20-900001
+    paths:
+      - "apps/pos-android/**"
+      - ".github/workflows/build-android-modern-print-format-hotfix-1-0-20.yml"
+
+permissions:
+  contents: write
+  statuses: write
+
+env:
+  ANDROID_RUNTIME_MODULE: apps/pos-android
+  ANDROID_RUNTIME_VERSION: 1.0.20
+  ANDROID_RUNTIME_VERSION_CODE: "26"
+  ANDROID_RUNTIME_RELEASE_TAG: android-runtime-modern-1.0.20
+  ANDROID_RUNTIME_APK_ASSET_NAME: CpIPOS-Android-POS-1.0.20.apk
+  ANDROID_RUNTIME_COMPAT_ASSET_NAME: CpIPOS-Android-POS-Modern.apk
+  ANDROID_SIGNING_CERT_SHA256: 6be0a9aef346a5b47162c8928c5018a01d0e7d81b4eb177bf2fb89922dc2a27a
+
+jobs:
+  build-modern-print-format-hotfix:
+    name: Test sign and publish Android Modern 1.0.20
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Report release gate pending
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          gh api --method POST
+          "repos/${{ github.repository }}/statuses/${{ github.sha }}"
+          -f state=pending
+          -f context='Android Modern 1.0.20 Release'
+          -f description='Testing rich-layout restore and print stability for 1.0.20'
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.9"
+
+      - name: Run Android unit tests and compile print hotfix
+        working-directory: ${{ env.ANDROID_RUNTIME_MODULE }}
+        run: >-
+          gradle :app:testDebugUnitTest --no-daemon --stacktrace
+          -PcpiposVersionName=${{ env.ANDROID_RUNTIME_VERSION }}
+          -PcpiposVersionCode=${{ env.ANDROID_RUNTIME_VERSION_CODE }}
+          -PcpiposDualScreen=true
+
+      - name: Detect signing secrets
+        id: signing
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_SIGNING_KEYSTORE_BASE64 }}
+          STORE_PASSWORD: ${{ secrets.ANDROID_SIGNING_STORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_SIGNING_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_SIGNING_KEY_PASSWORD }}
+        run: |
+          if [ -n "$KEYSTORE_BASE64" ] && [ -n "$STORE_PASSWORD" ] && [ -n "$KEY_ALIAS" ] && [ -n "$KEY_PASSWORD" ]; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Require stable signing secrets
+        if: steps.signing.outputs.ready != 'true'
+        run: |
+          echo "Stable signing secrets are required."
+          exit 1
+
+      - name: Materialize and validate signing keystore
+        if: steps.signing.outputs.ready == 'true'
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_SIGNING_KEYSTORE_BASE64 }}
+          STORE_PASSWORD: ${{ secrets.ANDROID_SIGNING_STORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_SIGNING_KEY_ALIAS }}
+        run: |
+          signingDir="$RUNNER_TEMP/cpipos-android-signing"
+          keystorePath="$signingDir/cpipos-android-release.jks"
+          mkdir -p "$signingDir"
+          printf '%s' "$KEYSTORE_BASE64" | base64 --decode > "$keystorePath"
+          chmod 600 "$keystorePath"
+          certSha=$(keytool -list -v -keystore "$keystorePath" -storepass "$STORE_PASSWORD" -alias "$KEY_ALIAS" | awk -F': ' '/SHA256:/{gsub(":", "", $2); print tolower($2); exit}')
+          test "$certSha" = "${{ env.ANDROID_SIGNING_CERT_SHA256 }}"
+          echo "Stable signing certificate verified: $certSha"
+
+      - name: Build signed release APK
+        if: steps.signing.outputs.ready == 'true'
+        working-directory: ${{ env.ANDROID_RUNTIME_MODULE }}
+        env:
+          CPIPOS_ANDROID_KEYSTORE_PATH: ${{ runner.temp }}/cpipos-android-signing/cpipos-android-release.jks
+          CPIPOS_ANDROID_STORE_PASSWORD: ${{ secrets.ANDROID_SIGNING_STORE_PASSWORD }}
+          CPIPOS_ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_SIGNING_KEY_ALIAS }}
+          CPIPOS_ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_SIGNING_KEY_PASSWORD }}
+        run: >-
+          gradle :app:assembleRelease --no-daemon --stacktrace
+          -PcpiposVersionName=${{ env.ANDROID_RUNTIME_VERSION }}
+          -PcpiposVersionCode=${{ env.ANDROID_RUNTIME_VERSION_CODE }}
+          -PcpiposDualScreen=true
+
+      - name: Verify and stage signed APK
+        if: steps.signing.outputs.ready == 'true'
+        run: |
+          apkPath="${{ env.ANDROID_RUNTIME_MODULE }}/app/build/outputs/apk/release/app-release.apk"
+          aaptPath=$(find "$ANDROID_HOME/build-tools" -type f -name aapt | sort -V | tail -n 1)
+          apksignerPath=$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)
+          test -f "$apkPath"
+          apkSize=$(stat -c%s "$apkPath")
+          test "$apkSize" -gt 1000000
+          badging=$("$aaptPath" dump badging "$apkPath" | head -n 1)
+          echo "$badging" | grep -q "versionCode='${{ env.ANDROID_RUNTIME_VERSION_CODE }}'"
+          echo "$badging" | grep -q "versionName='${{ env.ANDROID_RUNTIME_VERSION }}'"
+          "$apksignerPath" verify --verbose --print-certs "$apkPath"
+          certSha=$("$apksignerPath" verify --print-certs "$apkPath" | sed -n 's/^.*certificate SHA-256 digest: //p' | head -n 1 | tr -d ':' | tr '[:upper:]' '[:lower:]')
+          test "$certSha" = "${{ env.ANDROID_SIGNING_CERT_SHA256 }}"
+          mkdir -p artifacts
+          cp "$apkPath" "artifacts/${{ env.ANDROID_RUNTIME_APK_ASSET_NAME }}"
+          cp "$apkPath" "artifacts/${{ env.ANDROID_RUNTIME_COMPAT_ASSET_NAME }}"
+          sha256sum "artifacts/${{ env.ANDROID_RUNTIME_APK_ASSET_NAME }}" > "artifacts/${{ env.ANDROID_RUNTIME_APK_ASSET_NAME }}.sha256"
+          echo "Signed 1.0.20 ready: size=$apkSize certificate=$certSha"
+
+      - name: Upload signed workflow artifact
+        if: steps.signing.outputs.ready == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: CpIPOS-Android-POS-1.0.20-print-format-hotfix-signed
+          path: |
+            artifacts/${{ env.ANDROID_RUNTIME_APK_ASSET_NAME }}
+            artifacts/${{ env.ANDROID_RUNTIME_COMPAT_ASSET_NAME }}
+            artifacts/${{ env.ANDROID_RUNTIME_APK_ASSET_NAME }}.sha256
+          if-no-files-found: error
+
+      - name: Publish or verify immutable Modern 1.0.20 release
+        if: github.event_name == 'push' && github.ref == 'refs/heads/dev/android-modern-print-format-hotfix-1-0-20-900001' && steps.signing.outputs.ready == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="${{ env.ANDROID_RUNTIME_RELEASE_TAG }}"
+          if gh release view "$tag" >/dev/null 2>&1; then
+            echo "Immutable 1.0.20 release already exists; leaving published assets unchanged."
+            gh release view "$tag"
+          else
+            gh release create "$tag" \
+              "artifacts/${{ env.ANDROID_RUNTIME_APK_ASSET_NAME }}" \
+              "artifacts/${{ env.ANDROID_RUNTIME_COMPAT_ASSET_NAME }}" \
+              "artifacts/${{ env.ANDROID_RUNTIME_APK_ASSET_NAME }}.sha256" \
+              --target "${{ github.sha }}" \
+              --title "CpIPOS Android POS Modern 1.0.20" \
+              --notes "Modern 1.0.20 is a print-format stability hotfix. Receipt, payment-notice and kitchen-ticket jobs always use the established rich HTML templates again while retaining event-assisted queue wake from 1.0.19. Diagnostic native text output uses a compact ~25 mm tail instead of the early 1.0.19 ~10 cm advance. Printer identity and customer-owned routing remain protected; automatic_reassignment=false. Updates remain operator initiated, non-silent and non-forced. Stable 1.0.12 remains unchanged."
+          fi
+
+      - name: Report release gate success
+        if: success()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          gh api --method POST
+          "repos/${{ github.repository }}/statuses/${{ github.sha }}"
+          -f state=success
+          -f context='Android Modern 1.0.20 Release'
+          -f description='1.0.20 tests, signing and print-format verification passed'
+
+      - name: Report release gate failure
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          gh api --method POST
+          "repos/${{ github.repository }}/statuses/${{ github.sha }}"
+          -f state=error
+          -f context='Android Modern 1.0.20 Release'
+          -f description='1.0.20 release gate failed; do not promote'
