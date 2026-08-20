@@ -190,7 +190,7 @@ export function DownloadCenterLatest() {
             <div className="mt-3 grid gap-3 text-sm leading-7 text-slate-200 md:grid-cols-2">
               <div className="rounded-2xl border border-emerald-400/20 bg-slate-950/45 p-4">
                 <strong className="text-emerald-300">ร้านใหม่ / เครื่องใหม่ / 1–2 จอ</strong>
-                <p className="mt-1 text-slate-300">เลือก 1.0.17 เท่านั้น เพื่อใช้งาน Modern Runtime และฟีเจอร์ใหม่ต่อจากนี้</p>
+                <p className="mt-1 text-slate-300">เลือก {ANDROID_MODERN_RELEASE.versionName} เท่านั้น เพื่อใช้งาน Modern Runtime และฟีเจอร์ใหม่ต่อจากนี้</p>
               </div>
               <div className="rounded-2xl border border-amber-400/20 bg-slate-950/45 p-4">
                 <strong className="text-amber-200">ร้านเดิมที่ 1.0.12 เสถียรอยู่แล้ว</strong>
@@ -220,7 +220,7 @@ export function DownloadCenterLatest() {
         </section>
 
         <section className="mx-auto mt-8 max-w-5xl rounded-2xl border border-emerald-400/20 bg-emerald-400/5 px-5 py-4 text-center text-sm leading-7 text-emerald-100">
-          <strong>Release policy:</strong> 1.0.17 คือมาตรฐานสำหรับรหัสร้านใหม่ตั้งแต่ 20 ส.ค. 2026 เป็นต้นไป ส่วน 1.0.12 เป็น Legacy Stable สำหรับร้านเดิมเท่านั้น ร้านเดิมจะไม่ถูกย้ายไป Modern channel และจะไม่ถูกบังคับอัปเดตอัตโนมัติ
+          <strong>Release policy:</strong> {ANDROID_MODERN_RELEASE.versionName} คือมาตรฐานสำหรับรหัสร้านใหม่ตั้งแต่ 20 ส.ค. 2026 เป็นต้นไป ส่วน 1.0.12 เป็น Legacy Stable สำหรับร้านเดิมเท่านั้น ร้านเดิมจะไม่ถูกย้ายไป Modern channel และจะไม่ถูกบังคับอัปเดตอัตโนมัติ
         </section>
       </div>
     </main>
