@@ -13,6 +13,7 @@ import android.hardware.usb.UsbEndpoint
 import android.hardware.usb.UsbInterface
 import android.hardware.usb.UsbManager
 import android.os.Build
+import android.os.SystemClock
 import androidx.core.content.ContextCompat
 import org.json.JSONObject
 import java.io.ByteArrayOutputStream
@@ -41,7 +42,10 @@ internal data class NativePrintJob(
 internal data class NativePrintResult(
     val bytesSent: Int,
     val transport: String,
-    val providerJobId: String
+    val providerJobId: String,
+    val renderMode: String = "unknown",
+    val payloadBuildMs: Long = 0L,
+    val transportWriteMs: Long = 0L
 )
 
 internal class NativePrintException(
@@ -52,49 +56,81 @@ internal class NativePrintException(
 ) : Exception(message, cause)
 
 internal class NativePrintTransport(context: Context) {
+    private data class PreparedPayload(val bytes: ByteArray, val renderMode: String)
+
     private val appContext = context.applicationContext
     private val usbManager = appContext.getSystemService(UsbManager::class.java)
     private val bluetoothManager = appContext.getSystemService(BluetoothManager::class.java)
     private val htmlRasterizer = HtmlReceiptRasterizer(appContext)
+    private val textRasterizer = NativeTextRasterizer()
     private val usbBindingPrefs = appContext.getSharedPreferences(USB_BINDING_PREFS, Context.MODE_PRIVATE)
 
     fun print(job: NativePrintJob): NativePrintResult {
         val mode = job.printer.metadata.optString("transport_mode", "").trim().lowercase()
-        val payload = buildPayload(job)
-        return when {
-            job.printer.connectionType == "NETWORK_ESC_POS" || mode == "lan" -> printLan(job.printer, payload)
-            job.printer.connectionType == "LOCAL_BRIDGE" || mode == "usb" -> printUsb(job.printer, payload)
-            job.printer.connectionType == "BLUETOOTH_BRIDGE" || mode == "bluetooth" -> printBluetooth(job.printer, payload)
+        val payloadStartedAt = SystemClock.elapsedRealtime()
+        val prepared = buildPayload(job)
+        val payloadBuildMs = (SystemClock.elapsedRealtime() - payloadStartedAt).coerceAtLeast(0L)
+        val transportStartedAt = SystemClock.elapsedRealtime()
+        val result = when {
+            job.printer.connectionType == "NETWORK_ESC_POS" || mode == "lan" -> printLan(job.printer, prepared.bytes)
+            job.printer.connectionType == "LOCAL_BRIDGE" || mode == "usb" -> printUsb(job.printer, prepared.bytes)
+            job.printer.connectionType == "BLUETOOTH_BRIDGE" || mode == "bluetooth" -> printBluetooth(job.printer, prepared.bytes)
             else -> throw NativePrintException(
                 "unsupported_transport",
                 false,
                 "Unsupported printer transport: ${job.printer.connectionType}"
             )
         }
+        val transportWriteMs = (SystemClock.elapsedRealtime() - transportStartedAt).coerceAtLeast(0L)
+        return result.copy(
+            renderMode = prepared.renderMode,
+            payloadBuildMs = payloadBuildMs,
+            transportWriteMs = transportWriteMs
+        )
     }
 
-    private fun buildPayload(job: NativePrintJob): ByteArray {
+    private fun buildPayload(job: NativePrintJob): PreparedPayload {
         val command = job.metadata.optString("command", "").trim().lowercase()
         if (command == "open_cash_drawer" || job.payloadText.trim() == "OPEN_CASH_DRAWER") {
             val pin = job.metadata.optInt("drawer_kick_pin", 0).coerceIn(0, 1)
             val onMs = job.metadata.optInt("drawer_pulse_on_ms", 50).coerceIn(2, 510)
             val offMs = job.metadata.optInt("drawer_pulse_off_ms", 250).coerceIn(2, 510)
-            return byteArrayOf(
-                0x1B,
-                0x70,
-                pin.toByte(),
-                (onMs / 2).coerceIn(1, 255).toByte(),
-                (offMs / 2).coerceIn(1, 255).toByte()
+            return PreparedPayload(
+                byteArrayOf(
+                    0x1B,
+                    0x70,
+                    pin.toByte(),
+                    (onMs / 2).coerceIn(1, 255).toByte(),
+                    (offMs / 2).coerceIn(1, 255).toByte()
+                ),
+                "command"
             )
         }
 
         val html = job.metadata.optString("payload_html", "").trim()
-        if (html.isNotEmpty()) {
-            val paperWidthMm = job.metadata.optInt("paper_width_mm", 58).let { if (it >= 80) 80 else 58 }
-            return htmlRasterizer.render(html, paperWidthMm)
+        val paperWidthMm = job.metadata.optInt("paper_width_mm", 58).let { if (it >= 80) 80 else 58 }
+        val payloadFormat = job.metadata.optString("payload_format", "").trim().lowercase()
+        val documentType = job.metadata.optString("document_type", "").trim().lowercase()
+        val profileMetadata = job.printer.metadata
+        val forceRichHtml = profileMetadata.optBoolean("force_rich_html_raster", false) ||
+            job.metadata.optBoolean("force_rich_html_raster", false)
+        val fastRasterEligible = job.payloadText.isNotBlank() && (
+            job.metadata.optBoolean("test_print", false) ||
+                payloadFormat == "receipt_html_v1" ||
+                payloadFormat == "kitchen_ticket_html_v1" ||
+                documentType == "kitchen_ticket"
+            )
+
+        if (fastRasterEligible && !forceRichHtml) {
+            runCatching { textRasterizer.render(job.payloadText, paperWidthMm) }
+                .getOrNull()
+                ?.let { return PreparedPayload(it, "native_text_raster") }
         }
 
-        val profileMetadata = job.printer.metadata
+        if (html.isNotEmpty()) {
+            return PreparedPayload(htmlRasterizer.render(html, paperWidthMm), "html_raster_fallback")
+        }
+
         val charsetName = profileMetadata.optString("escpos_charset", "windows-874").trim().ifEmpty { "windows-874" }
         val charset = runCatching { Charset.forName(charsetName) }.getOrElse { Charsets.UTF_8 }
         val codeTable = profileMetadata.optInt("escpos_code_table", 26).coerceIn(0, 255)
@@ -107,7 +143,7 @@ internal class NativePrintTransport(context: Context) {
         output.write(job.payloadText.replace("\r\n", "\n").toByteArray(charset))
         repeat(feedLines) { output.write('\n'.code) }
         if (autoCut) output.write(byteArrayOf(0x1D, 0x56, 0x00))
-        return output.toByteArray()
+        return PreparedPayload(output.toByteArray(), "escpos_text")
     }
 
     private fun printLan(printer: NativePrinterProfile, payload: ByteArray): NativePrintResult {
@@ -156,8 +192,6 @@ internal class NativePrintTransport(context: Context) {
             )
         }
 
-        // Once Android grants access we can persist the strongest available identity. This
-        // keeps identical VID/PID printers pinned to the same logical CpIPOS printer profile.
         persistUsbBinding(printer.id, target.device)
 
         var connection: UsbDeviceConnection? = null
@@ -193,15 +227,6 @@ internal class NativePrintTransport(context: Context) {
         }
     }
 
-    /**
-     * Resolves one physical USB printer deterministically.
-     *
-     * Generic writable USB endpoints are not printer evidence. POS terminals commonly expose
-     * Ethernet, UART, cameras and other peripherals with OUT endpoints. With no explicit
-     * physical selector, only printer-class/name-hint devices are eligible for auto-selection.
-     * A generic endpoint remains supported when the profile explicitly pins VID/PID/device
-     * path/serial/slot, preserving compatibility with non-standard ESC/POS hardware.
-     */
     private fun findUsbTarget(printer: NativePrinterProfile): UsbTarget? {
         val manager = usbManager ?: return null
         val metadata = printer.metadata
@@ -253,8 +278,6 @@ internal class NativePrintTransport(context: Context) {
         if (savedBinding != null) {
             val bound = candidates.firstOrNull { target -> bindingMatches(manager, savedBinding, target.device) }
             if (bound != null) return bound
-            // Device path can legitimately change after a reboot/replug. Drop only this stale
-            // profile binding and allocate a currently unclaimed target below.
             clearUsbBinding(printer.id)
         }
 
