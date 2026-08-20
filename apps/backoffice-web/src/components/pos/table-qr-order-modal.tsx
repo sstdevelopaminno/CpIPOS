@@ -38,6 +38,7 @@ type BluetoothPrintResponse = {
 const QR_CREATE_TIMEOUT_MS = 60000;
 const QR_CREATE_RETRY_DELAY_MS = 1200;
 const QR_PRINT_TIMEOUT_MS = 15000;
+const TABLE_QR_RASTER_TAIL_MM = 15;
 const NON_RETRYABLE_QR_ERROR_CODES = new Set([
   "table_qr_configuration_missing",
   "table_not_open",
@@ -128,7 +129,7 @@ function buildPrintHtml(data: QrData) {
 <style>
 @page{size:58mm auto;margin:0}
 *{box-sizing:border-box}
-body{width:58mm;margin:0;padding:4mm 3mm;color:#000;background:#fff;font-family:Arial,"Noto Sans Thai",sans-serif;text-align:center}
+body{width:58mm;margin:0;padding:4mm 3mm 0;color:#000;background:#fff;font-family:Arial,"Noto Sans Thai",sans-serif;text-align:center}
 h1{margin:0;font-size:16px}
 p{margin:2mm 0;font-size:11px;line-height:1.35}
 .line{border-top:1px dashed #000;margin:3mm 0}
@@ -136,9 +137,10 @@ p{margin:2mm 0;font-size:11px;line-height:1.35}
 img{display:block;width:46mm;height:46mm;object-fit:contain;margin:2mm auto}
 .url{overflow-wrap:anywhere;font-size:7px}
 .footer{font-size:12px;font-weight:800}
+.qr-tail{height:${TABLE_QR_RASTER_TAIL_MM}mm;border-bottom:1px solid #f7f7f7}
 </style>
 </head>
-<body>
+<body data-cpipos-document-type="table_qr">
 <h1>CpIPOS</h1>
 <p>สแกน QR เพื่อสั่งอาหาร</p>
 <div class="line"></div>
@@ -150,6 +152,8 @@ ${safeTableName ? `<p>${safeTableName}</p>` : ""}
 <p class="url">${safeUrl}</p>
 <div class="line"></div>
 <p class="footer">สแกนเพื่อสั่งอาหาร</p>
+<!-- 15mm raster-safe spacer + the Android renderer's existing 3 ESC/POS feeds gives about 2.8cm total tear clearance. -->
+<div data-cpipos-table-qr-tail="v1" class="qr-tail" aria-hidden="true"></div>
 </body>
 </html>`;
 }
@@ -285,7 +289,7 @@ export function TableQrOrderModal({
       setCopied(true);
       window.setTimeout(() => setCopied(false), 1600);
     } catch {
-      setError("คัดลอกลิงก์ไม่สำเร็จ กรุณาคัดลอกลิงก์จากหน้าพิมพ์หรือเปิดลิงก์ใหม่อีกครั้ง");
+      setError("คัดลอกลิงก์ไม่สำเร็จ กรุณาคัดลอกลิงก์จากหน้าจอนี้อีกครั้ง");
     }
   }, [data]);
 
@@ -294,13 +298,7 @@ export function TableQrOrderModal({
 
     setPrinting(true);
     setError(null);
-
-    const html = buildPrintHtml(data);
-    const printWindow = window.open("", "_blank", "width=420,height=720");
-
-    if (printWindow) {
-      printWindow.document.write('<p style="font-family:Arial;padding:24px">กำลังเตรียมพิมพ์ QR...</p>');
-    }
+    onBusyChange?.(true);
 
     try {
       const { response, body } = await fetchJsonWithTimeout<BluetoothPrintResponse>(
@@ -310,53 +308,96 @@ export function TableQrOrderModal({
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             order_no: `TABLE-${data.table_code}-QR`,
-            receipt_html: html
+            receipt_html: buildPrintHtml(data)
           })
         },
         QR_PRINT_TIMEOUT_MS
       );
 
-      if (response.ok && body?.data?.ok === true && body.data.data?.fallback_to_browser_print !== true) {
-        printWindow?.close();
-        return;
-      }
+      const nativePrintAccepted =
+        response.ok &&
+        body?.data?.ok === true &&
+        body.data.data?.fallback_to_browser_print !== true;
 
-      if (!response.ok) {
-        console.error("[table-qr-modal] bluetooth print failed", {
-          status: response.status,
-          code: body?.error?.code,
-          message: body?.error?.message,
-          tableId: data.table_id,
-          qrSessionId: data.qr_session_id
-        });
-      }
+      if (nativePrintAccepted) return;
+
+      console.error("[table-qr-modal] native QR print was not accepted", {
+        status: response.status,
+        code: body?.error?.code,
+        message: body?.error?.message,
+        fallbackToBrowserPrint: body?.data?.data?.fallback_to_browser_print,
+        tableId: data.table_id,
+        qrSessionId: data.qr_session_id
+      });
+
+      setError(
+        body?.data?.data?.fallback_to_browser_print === true
+          ? "ไม่พบเครื่องพิมพ์ที่พร้อมใช้งาน กรุณาตรวจสอบการเชื่อมต่อเครื่องพิมพ์แล้วลองใหม่"
+          : getPublicErrorMessage(body, "ส่งงานพิมพ์ QR ไม่สำเร็จ กรุณาตรวจสอบเครื่องพิมพ์แล้วลองใหม่")
+      );
     } catch (printError) {
-      if ((printError as { name?: string }).name !== "AbortError") {
-        console.warn("[table-qr-modal] bluetooth print unavailable; using browser print fallback");
-      }
+      console.warn("[table-qr-modal] native QR print failed", printError);
+      setError(
+        isAbortError(printError)
+          ? "ส่งงานพิมพ์ QR ใช้เวลานานเกินไป กรุณาตรวจสอบเครื่องพิมพ์แล้วลองใหม่"
+          : "ส่งงานพิมพ์ QR ไม่สำเร็จ กรุณาตรวจสอบเครื่องพิมพ์แล้วลองใหม่"
+      );
     } finally {
       setPrinting(false);
+      onBusyChange?.(false);
     }
-
-    if (!printWindow) {
-      setError("เบราว์เซอร์ปิดกั้นหน้าพิมพ์ กรุณาอนุญาต Pop-up");
-      return;
-    }
-
-    printWindow.document.open();
-    printWindow.document.write(html);
-    printWindow.document.close();
-    printWindow.onload = () => {
-      printWindow.focus();
-      printWindow.print();
-    };
-  }, [data, printing]);
+  }, [data, onBusyChange, printing]);
 
   if (!open) return null;
 
   return (
     <div className="posui-modal-backdrop" role="presentation">
-      <section className="posui-modal posui-table-qr-modal" role="dialog" aria-modal="true" aria-labelledby="table-qr-title">
+      <section
+        className="posui-modal posui-table-qr-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="table-qr-title"
+        style={{ position: "relative" }}
+      >
+        {printing ? (
+          <div
+            role="status"
+            aria-live="polite"
+            aria-label={`กำลังพิมพ์ QR โต๊ะ ${displayTableCode}`}
+            style={{
+              position: "absolute",
+              inset: 0,
+              zIndex: 30,
+              display: "grid",
+              placeItems: "center",
+              padding: 24,
+              borderRadius: "inherit",
+              background: "rgba(2, 6, 23, 0.88)",
+              backdropFilter: "blur(3px)"
+            }}
+          >
+            <div
+              style={{
+                display: "grid",
+                minWidth: 230,
+                gap: 10,
+                justifyItems: "center",
+                padding: "22px 26px",
+                border: "1px solid rgba(56, 189, 248, 0.35)",
+                borderRadius: 18,
+                background: "rgba(15, 23, 42, 0.96)",
+                color: "#f8fafc",
+                textAlign: "center",
+                boxShadow: "0 20px 50px rgba(0,0,0,.35)"
+              }}
+            >
+              <span className="table-loading-spinner" aria-hidden="true" />
+              <strong style={{ fontSize: 17 }}>กำลังพิมพ์ QR โต๊ะ {displayTableCode}</strong>
+              <span style={{ fontSize: 13, color: "#cbd5e1" }}>กำลังส่งงานไปยังเครื่องพิมพ์ กรุณารอสักครู่</span>
+            </div>
+          </div>
+        ) : null}
+
         <header className="posui-modal__header">
           <div>
             <h2 id="table-qr-title">QR สแกนสั่งอาหาร</h2>
