@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { buildCustomerDisplayV2Channel } from "@/lib/customer-display-v2";
+import { buildCustomerDisplayV2Channel, CUSTOMER_DISPLAY_V2_ENABLED_KEY } from "@/lib/customer-display-v2";
 import type { Language } from "@/lib/i18n";
 
 const SALES_SNAPSHOT_KEY = "pos_sales_snapshot_v001";
@@ -55,6 +55,7 @@ export function PosCustomerDisplayV2Setup({ lang }: { lang: Language }) {
       });
       const body = (await response.json()) as { data?: { pairing_code?: string; expires_at?: string }; error?: { message?: string } };
       if (!response.ok || !body.data?.pairing_code) throw new Error(body.error?.message ?? "Pairing code creation failed.");
+      window.localStorage.setItem(CUSTOMER_DISPLAY_V2_ENABLED_KEY, "1");
       setPairingCode(body.data.pairing_code);
       setExpiresAt(body.data.expires_at ?? null);
     } catch (cause) {
