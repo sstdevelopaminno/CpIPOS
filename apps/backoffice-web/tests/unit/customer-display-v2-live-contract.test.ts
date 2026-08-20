@@ -64,6 +64,12 @@ describe("Customer Display V2 live integration contract", () => {
     expect(screen).toContain("background: transparent");
   });
 
+  it("has no manual customer-facing phase controls in the live renderer", () => {
+    expect(screen).not.toContain("<button");
+    expect(screen).not.toContain("setPhase");
+    expect(screen).not.toContain("PREVIEW_PHASES");
+  });
+
   it("bridges existing payment UI states without mutating payment APIs", () => {
     for (const selector of [
       ".posui-payment-modal--cash",
