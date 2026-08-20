@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { buildAndroidModernUpdateOffer, type AndroidModernUpdateOffer } from "@/lib/android-runtime-release";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
 
 const SAFE_MDM_COMMANDS = new Set([
@@ -15,7 +16,7 @@ const SAFE_MDM_COMMANDS = new Set([
 const MDM_RELOAD_GENERATION_MS = 1786478151547;
 
 type AndroidPosMdmCommand = { id?: string; action?: string; reason?: string };
-type PairedDevice = { id: string; device_code: string; metadata: Record<string, unknown> | null };
+type PairedDevice = { id: string; tenant_id: string; device_code: string; metadata: Record<string, unknown> | null };
 type PendingPrinterCommand = { id: string; issued_at: string };
 type PendingUiCommand = { id: string; command_type: "reload_ui" | "refresh_config"; issued_at: string; metadata: Record<string, unknown> | null };
 
@@ -79,12 +80,18 @@ function resolvePersistedPrinterState(metadata: Record<string, unknown>, payload
   return nativePrinter;
 }
 
+function resolvePersistedRuntimeCapabilities(metadata: Record<string, unknown>, payload: Record<string, unknown> | null) {
+  const incomingCapabilities = asRecord(payload?.runtime_capabilities);
+  if (Object.keys(incomingCapabilities).length > 0) return incomingCapabilities;
+  return asRecord(metadata.android_mdm_runtime_capabilities);
+}
+
 async function findPairedDevice(installId: string | null): Promise<PairedDevice | null> {
   if (!installId) return null;
   const supabase = getSupabaseServiceClient();
   const { data, error } = await supabase
     .from("branch_devices")
-    .select("id,device_code,metadata")
+    .select("id,tenant_id,device_code,metadata")
     .eq("is_active", true)
     .contains("metadata", { android_mdm_install_id: installId })
     .order("updated_at", { ascending: false })
@@ -104,6 +111,26 @@ async function findPairedDevice(installId: string | null): Promise<PairedDevice 
     return null;
   }
   return rows[0] ?? null;
+}
+
+async function resolveModernUpdateOffer(
+  device: PairedDevice,
+  payload: Record<string, unknown> | null
+): Promise<AndroidModernUpdateOffer | null> {
+  // Fail closed before any tenant lookup: legacy runtimes do not advertise the exact Modern
+  // capability contract, so they never enter update eligibility evaluation.
+  const capabilityCandidate = buildAndroidModernUpdateOffer({ tenantCode: null, payload });
+  if (!capabilityCandidate) return null;
+
+  const supabase = getSupabaseServiceClient();
+  const { data, error } = await supabase
+    .from("tenants")
+    .select("code")
+    .eq("id", device.tenant_id)
+    .maybeSingle<{ code: string }>();
+  if (error || !data?.code) return null;
+
+  return buildAndroidModernUpdateOffer({ tenantCode: data.code, payload });
 }
 
 async function acknowledgePreviousPrinterTest(device: PairedDevice, payload: Record<string, unknown> | null, appVersion: string | null) {
@@ -170,6 +197,7 @@ async function persistNativeMdmState(device: PairedDevice, payload: Record<strin
       android_mdm_printer: resolvePersistedPrinterState(metadata, payload),
       android_mdm_last_command: asRecord(payload?.last_command),
       android_mdm_runtime: asRecord(payload?.app),
+      android_mdm_runtime_capabilities: resolvePersistedRuntimeCapabilities(metadata, payload),
       android_mdm_displays: asRecord(payload?.displays)
     },
     updated_at: new Date().toISOString()
@@ -237,7 +265,7 @@ async function deliverPrinterTestCommands(device: PairedDevice): Promise<Android
 }
 
 export async function GET() {
-  return NextResponse.json({ data: { ok: true, service: "android-pos-mdm-lite-heartbeat", safe_commands: Array.from(SAFE_MDM_COMMANDS), reload_generation_ms: MDM_RELOAD_GENERATION_MS, commands: [] }, error: null }, { headers: noStoreHeaders() });
+  return NextResponse.json({ data: { ok: true, service: "android-pos-mdm-lite-heartbeat", safe_commands: Array.from(SAFE_MDM_COMMANDS), reload_generation_ms: MDM_RELOAD_GENERATION_MS, commands: [], update_offer: null }, error: null }, { headers: noStoreHeaders() });
 }
 
 export async function POST(request: Request) {
@@ -247,6 +275,7 @@ export async function POST(request: Request) {
   const payload = (await request.json().catch(() => null)) as Record<string, unknown> | null;
   let commands = isAndroidPos ? buildHeartbeatCommands(payload) : [];
   let pairedDeviceCode: string | null = null;
+  let updateOffer: AndroidModernUpdateOffer | null = null;
 
   if (isAndroidPos) {
     const device = await findPairedDevice(installId);
@@ -255,6 +284,7 @@ export async function POST(request: Request) {
       await acknowledgePreviousPrinterTest(device, payload, appVersion);
       await acknowledgePreviousUiReload(device, payload, appVersion);
       await persistNativeMdmState(device, payload, appVersion);
+      updateOffer = await resolveModernUpdateOffer(device, payload);
       commands = [...commands, ...(await deliverUiReloadCommands(device)), ...(await deliverPrinterTestCommands(device))].slice(0, 5);
     }
   }
@@ -273,7 +303,8 @@ export async function POST(request: Request) {
       paired_device_code: pairedDeviceCode,
       payload_received: Boolean(payload),
       reload_generation_ms: MDM_RELOAD_GENERATION_MS,
-      commands
+      commands,
+      update_offer: updateOffer
     },
     error: null
   }, { headers: noStoreHeaders() });
