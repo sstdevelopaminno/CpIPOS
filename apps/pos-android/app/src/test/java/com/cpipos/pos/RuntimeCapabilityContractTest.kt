@@ -7,7 +7,7 @@ import org.junit.Test
 
 class RuntimeCapabilityContractTest {
     @Test
-    fun phaseBAdvertisesBoundedVerificationWithoutAutomaticMutation() {
+    fun modernReleaseAdvertisesBoundedVerificationAndNonForcedUpdateNotice() {
         val model = RuntimeCapabilityContract.model(
             runtimeName = "android-pos-webview-mdm-lite",
             appVersionName = "999.999",
@@ -15,7 +15,7 @@ class RuntimeCapabilityContractTest {
             presentationDisplayAvailable = true
         )
 
-        assertEquals(2, model.schemaVersion)
+        assertEquals(3, model.schemaVersion)
         assertTrue(model.presentationDisplayAvailable)
         assertEquals(2, model.printer.inventorySchemaVersion)
         assertEquals(1, model.printer.physicalFingerprintSchemaVersion)
@@ -35,5 +35,10 @@ class RuntimeCapabilityContractTest {
             "preserve_existing_or_require_confirmation",
             model.printer.assignmentProtection
         )
+
+        assertEquals("modern", model.updates.channel)
+        assertTrue(model.updates.managedNotice)
+        assertFalse(model.updates.silentInstall)
+        assertFalse(model.updates.forcedUpdate)
     }
 }
