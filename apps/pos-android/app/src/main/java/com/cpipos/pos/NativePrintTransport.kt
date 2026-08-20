@@ -196,11 +196,11 @@ internal class NativePrintTransport(context: Context) {
     /**
      * Resolves one physical USB printer deterministically.
      *
-     * Older builds returned the first device that matched VID/PID. Android is free to change
-     * enumeration order, so 3-4 identical printers could swap jobs. The resolver now supports
-     * explicit device/serial/index selectors and also persists an exclusive profile -> device
-     * binding. When several identical devices are present, an unbound profile is allocated the
-     * first unclaimed physical path in sorted order and that assignment is retained.
+     * Generic writable USB endpoints are not printer evidence. POS terminals commonly expose
+     * Ethernet, UART, cameras and other peripherals with OUT endpoints. With no explicit
+     * physical selector, only printer-class/name-hint devices are eligible for auto-selection.
+     * A generic endpoint remains supported when the profile explicitly pins VID/PID/device
+     * path/serial/slot, preserving compatibility with non-standard ESC/POS hardware.
      */
     private fun findUsbTarget(printer: NativePrinterProfile): UsbTarget? {
         val manager = usbManager ?: return null
@@ -211,13 +211,22 @@ internal class NativePrintTransport(context: Context) {
         val requestedDeviceName = metadata.optString("usb_device_name", "").trim()
         val requestedSerial = metadata.optString("usb_serial_number", metadata.optString("usb_serial", "")).trim()
         val requestedIndex = intOrNull(metadata, "usb_device_index") ?: intOrNull(metadata, "usb_slot")
+        val hasExplicitPhysicalSelector =
+            requiredVendorId != null ||
+                requiredProductId != null ||
+                requiredDeviceId != null ||
+                requestedDeviceName.isNotEmpty() ||
+                requestedSerial.isNotEmpty() ||
+                requestedIndex != null
+        val allowGenericWritableEndpoint =
+            PrinterSelectionPolicy.usbMayUseGenericWritableEndpoint(hasExplicitPhysicalSelector)
 
         val candidates = manager.deviceList.values
             .asSequence()
             .filter { device -> requiredVendorId == null || device.vendorId == requiredVendorId }
             .filter { device -> requiredProductId == null || device.productId == requiredProductId }
             .filter { device -> requiredDeviceId == null || device.deviceId == requiredDeviceId }
-            .mapNotNull(::findPrintableUsbTarget)
+            .mapNotNull { device -> findPrintableUsbTarget(device, allowGenericWritableEndpoint) }
             .sortedWith(compareBy<UsbTarget>({ it.device.vendorId }, { it.device.productId }, { it.device.deviceName }, { it.device.deviceId }))
             .toList()
 
@@ -271,11 +280,14 @@ internal class NativePrintTransport(context: Context) {
         throw NativePrintException(
             "usb_printer_ambiguous",
             false,
-            "Multiple identical USB printers are connected and all physical targets are already bound. Reconnect/reset the intended printer binding or configure usb_device_name, usb_serial_number, or usb_slot."
+            "Multiple USB printer candidates are connected and all physical targets are already bound. Configure usb_device_name, usb_serial_number, usb_vendor_id/product_id, or usb_slot for the intended printer."
         )
     }
 
-    private fun findPrintableUsbTarget(device: UsbDevice): UsbTarget? {
+    private fun findPrintableUsbTarget(
+        device: UsbDevice,
+        allowGenericWritableEndpoint: Boolean
+    ): UsbTarget? {
         var fallback: UsbTarget? = null
         for (interfaceIndex in 0 until device.interfaceCount) {
             val usbInterface = device.getInterface(interfaceIndex)
@@ -288,7 +300,16 @@ internal class NativePrintTransport(context: Context) {
                 if (fallback == null) fallback = candidate
             }
         }
-        return fallback
+
+        val genericTarget = fallback ?: return null
+        val manufacturerName = runCatching { device.manufacturerName?.trim() }.getOrNull()
+        val productName = runCatching { device.productName?.trim() }.getOrNull()
+        val safeAutoSelect = PrinterSelectionPolicy.usbMayAutoSelect(
+            hasPrinterClassInterface = false,
+            manufacturerName = manufacturerName,
+            productName = productName
+        )
+        return if (safeAutoSelect || allowGenericWritableEndpoint) genericTarget else null
     }
 
     private fun usbBindingKey(printerId: String) = "$USB_BINDING_KEY_PREFIX${printerId.ifBlank { "unknown" }}"
@@ -358,13 +379,24 @@ internal class NativePrintTransport(context: Context) {
         val metadata = printer.metadata
         val address = metadata.optString("bluetooth_address", metadata.optString("bluetooth_mac", "")).trim()
         val preferredName = metadata.optString("bluetooth_name", "").trim()
-        val bonded = adapter.bondedDevices.orEmpty()
+        val bonded = adapter.bondedDevices.orEmpty().toList()
         val target = when {
             address.isNotBlank() -> bonded.firstOrNull { it.address.equals(address, ignoreCase = true) }
-            preferredName.isNotBlank() -> bonded.firstOrNull { it.name?.equals(preferredName, ignoreCase = true) == true }
-                ?: bonded.firstOrNull { it.name?.contains(preferredName, ignoreCase = true) == true }
-            bonded.size == 1 -> bonded.first()
-            else -> null
+            preferredName.isNotBlank() -> selectBondedBluetoothByName(bonded, preferredName)
+            else -> {
+                val printerCandidates = bonded.filter { device ->
+                    PrinterSelectionPolicy.bluetoothMayAutoSelect(runCatching { device.name }.getOrNull())
+                }
+                when (printerCandidates.size) {
+                    0 -> null
+                    1 -> printerCandidates.first()
+                    else -> throw NativePrintException(
+                        "bluetooth_printer_ambiguous",
+                        false,
+                        "Multiple paired Bluetooth printer candidates are available. Configure bluetooth_address or bluetooth_name explicitly."
+                    )
+                }
+            }
         } ?: throw NativePrintException(
             "bluetooth_printer_not_paired",
             true,
@@ -388,6 +420,37 @@ internal class NativePrintTransport(context: Context) {
             return NativePrintResult(payload.size, "bluetooth", "android-bt:${target.address}")
         } catch (error: Throwable) {
             throw NativePrintException("bluetooth_print_failed", true, error.message ?: "Bluetooth print failed", error)
+        }
+    }
+
+    @Suppress("DEPRECATION")
+    private fun selectBondedBluetoothByName(
+        bonded: List<android.bluetooth.BluetoothDevice>,
+        preferredName: String
+    ): android.bluetooth.BluetoothDevice? {
+        val exactMatches = bonded.filter { device ->
+            runCatching { device.name?.equals(preferredName, ignoreCase = true) == true }.getOrDefault(false)
+        }
+        if (exactMatches.size == 1) return exactMatches.first()
+        if (exactMatches.size > 1) {
+            throw NativePrintException(
+                "bluetooth_printer_ambiguous",
+                false,
+                "Multiple paired Bluetooth devices have the configured printer name. Configure bluetooth_address explicitly."
+            )
+        }
+
+        val partialMatches = bonded.filter { device ->
+            runCatching { device.name?.contains(preferredName, ignoreCase = true) == true }.getOrDefault(false)
+        }
+        return when (partialMatches.size) {
+            0 -> null
+            1 -> partialMatches.first()
+            else -> throw NativePrintException(
+                "bluetooth_printer_ambiguous",
+                false,
+                "Multiple paired Bluetooth devices match the configured printer name. Configure bluetooth_address explicitly."
+            )
         }
     }
 
