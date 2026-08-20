@@ -11,6 +11,17 @@ export async function getPrinterSettingsAuthContext(): Promise<PrinterSettingsAu
   try {
     const scope = await requirePosSession();
     const role = String(scope.session.role ?? "").trim().toLowerCase();
+
+    if (role === "owner" || role === "manager") {
+      return {
+        userId: scope.session.user_id,
+        tenantId: scope.session.tenant_id,
+        branchId: scope.session.branch_id,
+        branchRole: role,
+        platformRole: "tenant_user"
+      };
+    }
+
     if (role === "kitchen") {
       return {
         userId: scope.session.user_id,
@@ -25,9 +36,16 @@ export async function getPrinterSettingsAuthContext(): Promise<PrinterSettingsAu
         printerSettingsRole: "kitchen"
       };
     }
-  } catch (error) {
-    if (error instanceof PosGuardError && error.status !== 401) throw error;
-  }
 
-  return getAuthContext({ requireBranchScope: true });
+    // A valid POS session with any other role must not fall back to a broader
+    // Backoffice auth context. Fail closed inside the branch/session that was
+    // already authenticated by the POS runtime.
+    throw new Error("forbidden_role");
+  } catch (error) {
+    // No active POS session: preserve the existing Backoffice entry path.
+    if (error instanceof PosGuardError && error.status === 401) {
+      return getAuthContext({ requireBranchScope: true });
+    }
+    throw error;
+  }
 }
