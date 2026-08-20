@@ -14,15 +14,23 @@ const publicReviewPage = readFileSync(
   resolve(process.cwd(), "src/app/visual-review/customer-display-v2/page.tsx"),
   "utf8"
 );
+const autoReview = readFileSync(
+  resolve(process.cwd(), "src/components/pos/pos-customer-display-v2-auto-review.tsx"),
+  "utf8"
+);
+const liveScreen = readFileSync(
+  resolve(process.cwd(), "src/components/pos/pos-customer-display-v2-screen.tsx"),
+  "utf8"
+);
 
 describe("customer display v2 visual preview contract", () => {
-  it("stays isolated from production APIs and database state", () => {
+  it("keeps the original visual component isolated from production APIs and database state", () => {
     expect(preview).not.toContain("fetch(");
     expect(preview).not.toContain("/api/pos/customer-display");
     expect(preview).not.toContain("supabase");
   });
 
-  it("runs the review flow automatically and preserves the five-minute live idle contract", () => {
+  it("runs the original review flow automatically and preserves the five-minute live idle contract", () => {
     expect(preview).toContain('type PreviewPhase = "idle" | "cart" | "cash" | "qr" | "paid";');
     expect(preview).toContain("const LIVE_IDLE_TIMEOUT_MS = 5 * 60_000;");
     expect(preview).toContain("const AUTO_DEMO_SEQUENCE");
@@ -32,13 +40,6 @@ describe("customer display v2 visual preview contract", () => {
     expect(preview).toContain('{ phase: "qr"');
     expect(preview).toContain('{ phase: "paid"');
     expect(preview).not.toContain("<button");
-  });
-
-  it("uses store branding with the CpIPOS logo as the no-logo/no-ad fallback", () => {
-    expect(preview).toContain('const SYSTEM_LOGO_URL = "/brand/cpipos-logo.png";');
-    expect(preview).toContain("const storeLogoUrl = MOCK_STORE.logoUrl || SYSTEM_LOGO_URL;");
-    expect(preview).toContain("const mediaUrl = MOCK_AD_IMAGE_URLS[adIndex] || SYSTEM_LOGO_URL;");
-    expect(preview).toContain("backgroundImage: `url(${imageUrl})`");
   });
 
   it("removes visual-review-only customer-facing labels requested in review", () => {
@@ -71,11 +72,14 @@ describe("customer display v2 visual preview contract", () => {
     expect(protectedPage).toContain("PosCustomerDisplayV2VisualPreview");
   });
 
-  it("provides a public mock-only visual review route without weakening POS auth", () => {
+  it("provides a public mock-only review that exercises the same transparent live renderer", () => {
     expect(publicReviewPage).toContain("CustomerDisplayV2PublicVisualReviewPage");
-    expect(publicReviewPage).toContain('<PosCustomerDisplayV2VisualPreview lang="th" />');
+    expect(publicReviewPage).toContain('<PosCustomerDisplayV2AutoReview lang="th" />');
     expect(publicReviewPage).not.toContain("requirePosPagePermission");
     expect(publicReviewPage).not.toContain("fetch(");
     expect(publicReviewPage).not.toContain("supabase");
+    expect(autoReview).toContain("PosCustomerDisplayV2Screen");
+    expect(autoReview).not.toContain("fetch(");
+    expect(liveScreen).toContain('/brand/cpipos-symbol-transparent.png');
   });
 });
