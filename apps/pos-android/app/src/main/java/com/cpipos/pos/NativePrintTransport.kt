@@ -35,6 +35,7 @@ internal data class NativePrintJob(
     val id: String,
     val attemptId: String,
     val payloadText: String,
+    val payloadJson: JSONObject,
     val metadata: JSONObject,
     val printer: NativePrinterProfile
 )
@@ -99,13 +100,19 @@ internal class NativePrintTransport(context: Context) {
         val profileMetadata = job.printer.metadata
         val forceRichHtml = profileMetadata.optBoolean("force_rich_html_raster", false) || job.metadata.optBoolean("force_rich_html_raster", false)
 
-        // Kitchen payload_text currently contains only a queue summary, while item rows and notes
-        // live in payload_json/HTML. Keep kitchen documents on the complete rich renderer.
-        val fastRasterEligible = job.payloadText.isNotBlank() && (
+        if (!forceRichHtml && payloadFormat == "kitchen_ticket_html_v1") {
+            val kitchenText = NativeKitchenTicketFormatter.format(job.payloadText, job.payloadJson)
+            if (!kitchenText.isNullOrBlank()) {
+                runCatching { textRasterizer.render(kitchenText, paperWidthMm) }
+                    .getOrNull()
+                    ?.let { return PreparedPayload(it, "native_kitchen_raster") }
+            }
+        }
+
+        val fastReceiptEligible = job.payloadText.isNotBlank() && (
             job.metadata.optBoolean("test_print", false) || payloadFormat == "receipt_html_v1"
         )
-
-        if (fastRasterEligible && !forceRichHtml) {
+        if (fastReceiptEligible && !forceRichHtml) {
             runCatching { textRasterizer.render(job.payloadText, paperWidthMm) }
                 .getOrNull()
                 ?.let { return PreparedPayload(it, "native_text_raster") }
@@ -120,7 +127,6 @@ internal class NativePrintTransport(context: Context) {
         val codeTable = profileMetadata.optInt("escpos_code_table", 26).coerceIn(0, 255)
         val feedLines = profileMetadata.optInt("feed_lines", 3).coerceIn(1, 8)
         val autoCut = profileMetadata.optBoolean("auto_cut", false)
-
         val output = ByteArrayOutputStream()
         output.write(byteArrayOf(0x1B, 0x40))
         output.write(byteArrayOf(0x1B, 0x74, codeTable.toByte()))
@@ -152,7 +158,6 @@ internal class NativePrintTransport(context: Context) {
     private fun printUsb(printer: NativePrinterProfile, payload: ByteArray): NativePrintResult {
         val manager = usbManager ?: throw NativePrintException("usb_not_supported", false, "USB host is not available")
         val target = findUsbTarget(printer) ?: throw NativePrintException("usb_printer_not_found", true, "No USB ESC/POS printer is connected")
-
         if (!manager.hasPermission(target.device)) {
             val permissionIntent = PendingIntent.getBroadcast(
                 appContext,
@@ -163,7 +168,6 @@ internal class NativePrintTransport(context: Context) {
             manager.requestPermission(target.device, permissionIntent)
             throw NativePrintException("usb_permission_required", true, "Android USB permission is required. Approve the printer permission dialog once.")
         }
-
         persistUsbBinding(printer.id, target.device)
         var connection: UsbDeviceConnection? = null
         try {
@@ -198,7 +202,6 @@ internal class NativePrintTransport(context: Context) {
         val requestedIndex = intOrNull(metadata, "usb_device_index") ?: intOrNull(metadata, "usb_slot")
         val hasExplicitPhysicalSelector = requiredVendorId != null || requiredProductId != null || requiredDeviceId != null || requestedDeviceName.isNotEmpty() || requestedSerial.isNotEmpty() || requestedIndex != null
         val allowGenericWritableEndpoint = PrinterSelectionPolicy.usbMayUseGenericWritableEndpoint(hasExplicitPhysicalSelector)
-
         val candidates = manager.deviceList.values.asSequence()
             .filter { requiredVendorId == null || it.vendorId == requiredVendorId }
             .filter { requiredProductId == null || it.productId == requiredProductId }
@@ -207,7 +210,6 @@ internal class NativePrintTransport(context: Context) {
             .sortedWith(compareBy<UsbTarget>({ it.device.vendorId }, { it.device.productId }, { it.device.deviceName }, { it.device.deviceId }))
             .toList()
         if (candidates.isEmpty()) return null
-
         if (requestedDeviceName.isNotEmpty()) return candidates.firstOrNull { it.device.deviceName == requestedDeviceName }
             ?: throw NativePrintException("usb_printer_not_found", true, "Configured USB device path is not connected")
         if (requestedSerial.isNotEmpty()) return candidates.firstOrNull { safeUsbSerial(manager, it.device)?.equals(requestedSerial, ignoreCase = true) == true }
@@ -216,7 +218,6 @@ internal class NativePrintTransport(context: Context) {
             val normalizedIndex = if (requestedIndex > 0) requestedIndex - 1 else requestedIndex
             return candidates.getOrNull(normalizedIndex) ?: throw NativePrintException("usb_printer_not_found", true, "Configured USB slot is outside the connected printer range")
         }
-
         readUsbBinding(printer.id)?.let { saved ->
             candidates.firstOrNull { bindingMatches(manager, saved, it.device) }?.let { return it }
             clearUsbBinding(printer.id)
@@ -225,7 +226,6 @@ internal class NativePrintTransport(context: Context) {
             persistUsbBinding(printer.id, candidates.first().device)
             return candidates.first()
         }
-
         val claimedBindings = usbBindingPrefs.all
             .filterKeys { it.startsWith(USB_BINDING_KEY_PREFIX) && it != usbBindingKey(printer.id) }
             .values.mapNotNull { it as? String }.toSet()
@@ -259,7 +259,6 @@ internal class NativePrintTransport(context: Context) {
     private fun usbBindingKey(printerId: String) = "$USB_BINDING_KEY_PREFIX${printerId.ifBlank { "unknown" }}"
     private fun readUsbBinding(printerId: String): String? = usbBindingPrefs.getString(usbBindingKey(printerId), null)?.trim()?.takeIf { it.isNotEmpty() }
     private fun clearUsbBinding(printerId: String) { usbBindingPrefs.edit().remove(usbBindingKey(printerId)).apply() }
-
     private fun persistUsbBinding(printerId: String, device: UsbDevice) {
         if (printerId.isBlank()) return
         val manager = usbManager
