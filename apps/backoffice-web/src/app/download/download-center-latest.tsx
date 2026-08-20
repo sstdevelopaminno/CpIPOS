@@ -1,7 +1,7 @@
 "use client";
 
 const ANDROID_POS_LATEST_URL = "/download/android/latest";
-const ANDROID_POS_LEGACY_71_URL = "/download/android/legacy-7-1";
+const ANDROID_POS_DUAL_SCREEN_URL = "/download/android/dual-screen-1-0-13";
 
 type AppIconKind = "tablet" | "phone" | "windows";
 
@@ -9,7 +9,7 @@ const apps = [
   {
     title: "CpIPOS POS - Android Tablet",
     platform: "Android Tablet POS · 1.0.12 Latest Stable",
-    description: "CpIPOS Android POS 1.0.12 สำหรับเครื่องขายหน้าร้าน พร้อม Native Print Agent, MDM และระบบพิมพ์ LAN / USB / Bluetooth โดยปุ่มนี้ดาวน์โหลด Stable Signed APK เวอร์ชัน 1.0.12 โดยตรง",
+    description: "CpIPOS Android POS 1.0.12 สำหรับเครื่องขายหน้าร้านจอเดียว พร้อม Native Print Agent, MDM และระบบพิมพ์ LAN / USB / Bluetooth โดยร้านที่ใช้งานเวอร์ชันนี้อยู่สามารถใช้งานต่อได้ตามปกติ",
     file: "CpIPOS-Android-POS-1.0.12.apk",
     status: "v1.0.12 · Stable Signed · พร้อมดาวน์โหลด",
     badge: "v1.0.12",
@@ -19,16 +19,16 @@ const apps = [
     href: ANDROID_POS_LATEST_URL
   },
   {
-    title: "CpIPOS POS - Android 7.1 Legacy",
-    platform: "Android 7.1 · API 25 · Legacy",
-    description: "APK สำหรับอุปกรณ์ Android 7.1 รุ่นเก่าโดยเฉพาะ สร้างจากฐาน POS 1.0.10 แต่แยก Release และชื่อไฟล์จาก Latest Stable โดยเด็ดขาด จึงไม่เขียนทับช่องดาวน์โหลดเวอร์ชันปัจจุบัน",
-    file: "CpIPOS-Android-POS-Legacy-Android-7.1.apk",
-    status: "Legacy Stable Signed · แยกจาก Latest",
-    badge: "Legacy 7.1",
-    buttonLabel: "ดาวน์โหลดสำหรับ Android 7.1",
+    title: "CpIPOS POS - Dual Screen",
+    platform: "Android POS · 1.0.13 · สำหรับเครื่อง 2 จอ",
+    description: "CpIPOS Android POS 1.0.13 สำหรับเครื่องขายแบบ 2 จอ จอหลักใช้ระบบขายตามปกติ และจอฝั่งลูกค้าเปิด Customer Display V2 อัตโนมัติ พร้อมตรวจจับจอรองผ่าน Android และรายงานสถานะจอผ่าน MDM",
+    file: "CpIPOS-Android-POS-1.0.13-Dual-Screen.apk",
+    status: "v1.0.13 · Dual Screen · Signed APK",
+    badge: "v1.0.13 · 2 จอ",
+    buttonLabel: "ดาวน์โหลด POS 1.0.13 สำหรับ 2 จอ",
     icon: "tablet" as AppIconKind,
     ready: true,
-    href: ANDROID_POS_LEGACY_71_URL
+    href: ANDROID_POS_DUAL_SCREEN_URL
   },
   {
     title: "CpIPOS Mobile - Android",
@@ -99,11 +99,11 @@ export function DownloadCenterLatest() {
             CpIPOS Applications
           </div>
           <h1 className="text-4xl font-black leading-tight tracking-tight text-white sm:text-6xl">ดาวน์โหลด Android POS</h1>
-          <p className="mx-auto mt-5 max-w-2xl text-base leading-7 text-slate-300 sm:text-lg">Android POS รุ่นล่าสุด 1.0.12 และ Android 7.1 Legacy ใช้ช่องดาวน์โหลดคนละช่อง รุ่น Legacy จะไม่แทนที่หรือเขียนทับไฟล์ Stable ล่าสุด 1.0.12</p>
+          <p className="mx-auto mt-5 max-w-2xl text-base leading-7 text-slate-300 sm:text-lg">เลือกเวอร์ชันตามประเภทเครื่อง: 1.0.12 สำหรับเครื่อง POS จอเดียวที่ใช้งานอยู่เดิม และ 1.0.13 สำหรับเครื่อง POS แบบ 2 จอที่ต้องใช้ Customer Display V2</p>
           <div className="mt-7 flex flex-wrap items-center justify-center gap-3 text-xs font-semibold">
-            <span className="rounded-full border border-emerald-400/20 bg-emerald-400/10 px-3 py-1.5 text-emerald-300">Android POS 1.0.12 Latest Stable</span>
-            <span className="rounded-full border border-amber-400/20 bg-amber-400/10 px-3 py-1.5 text-amber-200">Android 7.1 Legacy แยก Release</span>
-            <span className="rounded-full border border-slate-700 bg-slate-900/60 px-3 py-1.5 text-slate-300">Stable signed APK</span>
+            <span className="rounded-full border border-emerald-400/20 bg-emerald-400/10 px-3 py-1.5 text-emerald-300">Android POS 1.0.12 · จอเดียว</span>
+            <span className="rounded-full border border-sky-400/20 bg-sky-400/10 px-3 py-1.5 text-sky-200">Android POS 1.0.13 · Dual Screen</span>
+            <span className="rounded-full border border-slate-700 bg-slate-900/60 px-3 py-1.5 text-slate-300">Signed APK</span>
           </div>
         </section>
 
@@ -135,7 +135,7 @@ export function DownloadCenterLatest() {
           ))}
         </section>
 
-        <section className="mt-8 rounded-2xl border border-slate-800 bg-slate-900/50 px-5 py-4 text-center text-sm text-slate-400">Latest Stable 1.0.12 และ Android 7.1 Legacy ใช้ signing certificate เดียวกัน แต่ใช้ Release tag และชื่อไฟล์คนละชุด หน้า Download Center สำหรับลูกค้าไม่แสดงโปรแกรม IT Admin</section>
+        <section className="mt-8 rounded-2xl border border-slate-800 bg-slate-900/50 px-5 py-4 text-center text-sm text-slate-400">1.0.12 ยังคงรองรับร้านจอเดียวตามเดิม ส่วน 1.0.13 เป็น Release แยกสำหรับเครื่อง 2 จอและใช้ signing certificate ชุดเดียวกัน เพื่อให้อัปเดตเฉพาะร้านหรือเครื่องที่ต้องการ Dual Screen ได้</section>
       </div>
     </main>
   );
