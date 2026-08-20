@@ -79,6 +79,12 @@ function resolvePersistedPrinterState(metadata: Record<string, unknown>, payload
   return nativePrinter;
 }
 
+function resolvePersistedRuntimeCapabilities(metadata: Record<string, unknown>, payload: Record<string, unknown> | null) {
+  const incomingCapabilities = asRecord(payload?.runtime_capabilities);
+  if (Object.keys(incomingCapabilities).length > 0) return incomingCapabilities;
+  return asRecord(metadata.android_mdm_runtime_capabilities);
+}
+
 async function findPairedDevice(installId: string | null): Promise<PairedDevice | null> {
   if (!installId) return null;
   const supabase = getSupabaseServiceClient();
@@ -170,7 +176,7 @@ async function persistNativeMdmState(device: PairedDevice, payload: Record<strin
       android_mdm_printer: resolvePersistedPrinterState(metadata, payload),
       android_mdm_last_command: asRecord(payload?.last_command),
       android_mdm_runtime: asRecord(payload?.app),
-      android_mdm_runtime_capabilities: asRecord(payload?.runtime_capabilities),
+      android_mdm_runtime_capabilities: resolvePersistedRuntimeCapabilities(metadata, payload),
       android_mdm_displays: asRecord(payload?.displays)
     },
     updated_at: new Date().toISOString()
