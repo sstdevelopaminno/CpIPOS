@@ -1,5 +1,5 @@
-import { PosCustomerDisplayV2VisualPreview } from "@/components/pos/pos-customer-display-v2-visual-preview";
+import { PosCustomerDisplayV2AutoReview } from "@/components/pos/pos-customer-display-v2-auto-review";
 
 export default function CustomerDisplayV2PublicVisualReviewPage() {
-  return <PosCustomerDisplayV2VisualPreview lang="th" />;
+  return <PosCustomerDisplayV2AutoReview lang="th" />;
 }
