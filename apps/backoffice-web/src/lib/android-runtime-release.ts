@@ -11,7 +11,7 @@ export const ANDROID_MODERN_RELEASE = {
   versionName: "1.0.17",
   versionCode: 23,
   channel: "modern",
-  releaseTag: "android-runtime-modern-latest",
+  releaseTag: "android-runtime-modern-1.0.17",
   assetName: "CpIPOS-Android-POS-1.0.17.apk",
   compatibilityAssetName: "CpIPOS-Android-POS-Modern.apk",
   downloadPath: "/download/android/modern-latest",
