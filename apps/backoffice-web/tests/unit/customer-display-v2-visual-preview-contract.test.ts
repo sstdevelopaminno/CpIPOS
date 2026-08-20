@@ -6,8 +6,12 @@ const preview = readFileSync(
   resolve(process.cwd(), "src/components/pos/pos-customer-display-v2-visual-preview.tsx"),
   "utf8"
 );
-const page = readFileSync(
+const protectedPage = readFileSync(
   resolve(process.cwd(), "src/app/preview/pos/customer-display/v2-preview/page.tsx"),
+  "utf8"
+);
+const publicReviewPage = readFileSync(
+  resolve(process.cwd(), "src/app/visual-review/customer-display-v2/page.tsx"),
   "utf8"
 );
 
@@ -28,8 +32,16 @@ describe("customer display v2 visual preview contract", () => {
     expect(preview).toContain("minmax(0,58fr) minmax(320px,42fr)");
   });
 
-  it("keeps the preview behind the existing customer display permission", () => {
-    expect(page).toContain('requirePosPagePermission("customer_display:manage")');
-    expect(page).toContain("PosCustomerDisplayV2VisualPreview");
+  it("keeps the existing POS preview protected", () => {
+    expect(protectedPage).toContain('requirePosPagePermission("customer_display:manage")');
+    expect(protectedPage).toContain("PosCustomerDisplayV2VisualPreview");
+  });
+
+  it("provides a public mock-only visual review route without weakening POS auth", () => {
+    expect(publicReviewPage).toContain("CustomerDisplayV2PublicVisualReviewPage");
+    expect(publicReviewPage).toContain('<PosCustomerDisplayV2VisualPreview lang="th" />');
+    expect(publicReviewPage).not.toContain("requirePosPagePermission");
+    expect(publicReviewPage).not.toContain("fetch(");
+    expect(publicReviewPage).not.toContain("supabase");
   });
 });
