@@ -13,24 +13,37 @@ type PreviewItem = {
   unitPrice: number;
 };
 
+type DemoStep = {
+  phase: PreviewPhase;
+  durationMs: number;
+};
+
+const SYSTEM_LOGO_URL = "/brand/cpipos-logo.png";
+const LIVE_IDLE_TIMEOUT_MS = 5 * 60_000;
+const AUTO_DEMO_SEQUENCE: DemoStep[] = [
+  { phase: "idle", durationMs: 7_000 },
+  { phase: "cart", durationMs: 8_000 },
+  { phase: "cash", durationMs: 7_000 },
+  { phase: "qr", durationMs: 8_000 },
+  { phase: "paid", durationMs: 7_000 }
+];
+
+const MOCK_STORE = {
+  displayNameTh: "ร้านทดสอบ 900001",
+  displayNameEn: "Test Store 900001",
+  branchTh: "สาขาทดสอบ Preview",
+  branchEn: "Preview Test Branch",
+  deviceName: "POS-01",
+  billNo: "#PV-20260820-001",
+  logoUrl: null as string | null
+};
+
+const MOCK_AD_IMAGE_URLS: string[] = [];
+
 const MOCK_ITEMS: PreviewItem[] = [
   { id: "coffee", nameTh: "ลาเต้เย็น", nameEn: "Iced Latte", quantity: 2, unitPrice: 75 },
   { id: "toast", nameTh: "ขนมปังปิ้งเนยนม", nameEn: "Butter Milk Toast", quantity: 1, unitPrice: 65 },
   { id: "water", nameTh: "น้ำดื่ม", nameEn: "Drinking Water", quantity: 2, unitPrice: 20 }
-];
-
-const PREVIEW_PHASES: Array<{ id: PreviewPhase; th: string; en: string }> = [
-  { id: "idle", th: "พักหน้าจอ", en: "Idle" },
-  { id: "cart", th: "รายการสินค้า", en: "Cart" },
-  { id: "cash", th: "รับเงินสด", en: "Cash" },
-  { id: "qr", th: "QR ชำระเงิน", en: "QR Payment" },
-  { id: "paid", th: "ชำระสำเร็จ", en: "Paid" }
-];
-
-const ADS = [
-  { th: "โปรโมชั่นพิเศษประจำเดือน", en: "Monthly Special", noteTh: "อัปโหลดภาพโฆษณาของร้านและกำหนดลำดับการแสดงได้", noteEn: "Store ads can be uploaded and ordered per display profile." },
-  { th: "เมนูแนะนำวันนี้", en: "Today's Recommended Menu", noteTh: "ใช้พื้นที่นี้แสดงสินค้าเด่น โปรโมชั่น หรือข้อมูลร้าน", noteEn: "Use this area for featured items, promotions, or store information." },
-  { th: "ขอบคุณที่ใช้บริการ", en: "Thank You", noteTh: "โลโก้ร้านและโลโก้ CpIPOS แสดงร่วมกันได้ตามการตั้งค่า", noteEn: "Store and CpIPOS branding can be configured independently." }
 ];
 
 function formatMoney(value: number, lang: Language) {
@@ -42,51 +55,39 @@ function formatMoney(value: number, lang: Language) {
   }).format(value);
 }
 
-function MockQr() {
+function LogoSurface({ imageUrl, label }: { imageUrl: string; label: string }) {
   return (
-    <div
-      aria-label="Non-functional QR visual placeholder"
-      style={{
-        width: "min(27vw, 250px)",
-        aspectRatio: "1",
-        borderRadius: 22,
-        border: "12px solid white",
-        background:
-          "repeating-conic-gradient(#111827 0 25%,#ffffff 0 50%) 50% / 26px 26px",
-        boxShadow: "0 24px 60px rgba(15,23,42,.28)",
-        position: "relative"
-      }}
-    >
+    <div className="cdv2-logo-surface" aria-label={label}>
       <div
-        style={{
-          position: "absolute",
-          inset: "38%",
-          borderRadius: 12,
-          display: "grid",
-          placeItems: "center",
-          background: "white",
-          color: "#111827",
-          fontSize: 11,
-          fontWeight: 900,
-          textAlign: "center",
-          lineHeight: 1.05,
-          padding: 4
-        }}
-      >
-        VISUAL<br />PREVIEW
-      </div>
+        className="cdv2-logo-image"
+        style={{ backgroundImage: `url(${JSON.stringify(imageUrl).slice(1, -1)})` }}
+      />
     </div>
   );
 }
 
+function MockQr() {
+  return <div className="cdv2-qr-placeholder" aria-label="Payment QR visual placeholder" />;
+}
+
 export function PosCustomerDisplayV2VisualPreview({ lang }: { lang: Language }) {
-  const [phase, setPhase] = useState<PreviewPhase>("cart");
+  const [stepIndex, setStepIndex] = useState(0);
   const [adIndex, setAdIndex] = useState(0);
+  const phase = AUTO_DEMO_SEQUENCE[stepIndex]?.phase ?? "idle";
 
   useEffect(() => {
+    const current = AUTO_DEMO_SEQUENCE[stepIndex] ?? AUTO_DEMO_SEQUENCE[0];
+    const timer = window.setTimeout(() => {
+      setStepIndex((index) => (index + 1) % AUTO_DEMO_SEQUENCE.length);
+    }, current.durationMs);
+    return () => window.clearTimeout(timer);
+  }, [stepIndex]);
+
+  useEffect(() => {
+    if (MOCK_AD_IMAGE_URLS.length <= 1) return;
     const timer = window.setInterval(() => {
-      setAdIndex((current) => (current + 1) % ADS.length);
-    }, 5000);
+      setAdIndex((current) => (current + 1) % MOCK_AD_IMAGE_URLS.length);
+    }, 8_000);
     return () => window.clearInterval(timer);
   }, []);
 
@@ -96,15 +97,14 @@ export function PosCustomerDisplayV2VisualPreview({ lang }: { lang: Language }) 
   );
   const cashReceived = 500;
   const change = cashReceived - total;
-  const ad = ADS[adIndex];
+  const storeName = lang === "th" ? MOCK_STORE.displayNameTh : MOCK_STORE.displayNameEn;
+  const branchName = lang === "th" ? MOCK_STORE.branchTh : MOCK_STORE.branchEn;
+  const storeLogoUrl = MOCK_STORE.logoUrl || SYSTEM_LOGO_URL;
+  const mediaUrl = MOCK_AD_IMAGE_URLS[adIndex] || SYSTEM_LOGO_URL;
+
   const t = lang === "th"
     ? {
-        preview: "Customer Display V2 · Visual Preview",
-        safe: "Mock data only · ไม่เชื่อม API / Database",
-        store: "ร้านตัวอย่าง CpIPOS",
-        branch: "สาขาทดสอบ Preview",
-        counter: "เคาน์เตอร์ POS-01",
-        bill: "บิล #PV-20260820-001",
+        bill: "บิล",
         items: "รายการสินค้า",
         qty: "จำนวน",
         unit: "ราคา/หน่วย",
@@ -112,25 +112,13 @@ export function PosCustomerDisplayV2VisualPreview({ lang }: { lang: Language }) 
         total: "ยอดชำระ",
         received: "รับเงินมา",
         change: "เงินทอน",
-        scan: "สแกนเพื่อชำระเงิน",
-        promptpay: "PromptPay / Payment QR",
-        qrHint: "QR ในหน้านี้เป็นภาพจำลองและชำระเงินจริงไม่ได้",
+        paymentQr: "QR ชำระเงิน",
         paid: "ชำระเงินสำเร็จ",
         thankYou: "ขอบคุณที่ใช้บริการ",
-        idle: "ยินดีต้อนรับ",
-        idleHint: "เมื่อไม่มีรายการขาย จอสามารถใช้พื้นที่เต็มเพื่อแสดงโฆษณาและโลโก้ร้าน",
-        adLabel: "พื้นที่โฆษณา",
-        system: "Powered by CpIPOS",
-        ratio: "Layout 58% รายการ / 42% สื่อ",
-        deviceScope: "Target scope: tenant → branch → POS device → display"
+        poweredBy: "Powered by CpIPOS"
       }
     : {
-        preview: "Customer Display V2 · Visual Preview",
-        safe: "Mock data only · No API / database connection",
-        store: "CpIPOS Demo Store",
-        branch: "Preview Branch",
-        counter: "Counter POS-01",
-        bill: "Bill #PV-20260820-001",
+        bill: "Bill",
         items: "Items",
         qty: "Qty",
         unit: "Unit",
@@ -138,17 +126,10 @@ export function PosCustomerDisplayV2VisualPreview({ lang }: { lang: Language }) 
         total: "Amount Due",
         received: "Cash Received",
         change: "Change",
-        scan: "Scan to Pay",
-        promptpay: "PromptPay / Payment QR",
-        qrHint: "This QR is a non-functional visual placeholder.",
+        paymentQr: "Payment QR",
         paid: "Payment Successful",
         thankYou: "Thank you",
-        idle: "Welcome",
-        idleHint: "When the cart is empty, the full display can rotate ads and store branding.",
-        adLabel: "Advertising area",
-        system: "Powered by CpIPOS",
-        ratio: "Layout 58% transaction / 42% media",
-        deviceScope: "Target scope: tenant → branch → POS device → display"
+        poweredBy: "Powered by CpIPOS"
       };
 
   const isIdle = phase === "idle";
@@ -157,182 +138,348 @@ export function PosCustomerDisplayV2VisualPreview({ lang }: { lang: Language }) 
   const showPaid = phase === "paid";
 
   return (
-    <main style={{ minHeight: "100vh", background: "#eef2f7", color: "#0f172a", fontFamily: "Arial, sans-serif" }}>
-      <section
-        style={{
-          minHeight: "100vh",
-          display: "grid",
-          gridTemplateRows: "auto minmax(0,1fr)",
-          gap: 12,
-          padding: 12
-        }}
-      >
-        <header
-          style={{
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-            gap: 16,
-            flexWrap: "wrap",
-            padding: "10px 14px",
-            borderRadius: 16,
-            background: "#ffffff",
-            border: "1px solid #dbe3ec",
-            boxShadow: "0 10px 28px rgba(15,23,42,.06)"
-          }}
-        >
-          <div>
-            <div style={{ fontSize: 17, fontWeight: 900 }}>{t.preview}</div>
-            <div style={{ marginTop: 3, fontSize: 12, color: "#64748b" }}>{t.safe}</div>
-          </div>
-          <div style={{ display: "flex", gap: 7, flexWrap: "wrap", justifyContent: "flex-end" }}>
-            {PREVIEW_PHASES.map((item) => {
-              const selected = item.id === phase;
-              return (
-                <button
-                  key={item.id}
-                  type="button"
-                  onClick={() => setPhase(item.id)}
-                  style={{
-                    minHeight: 36,
-                    padding: "0 12px",
-                    borderRadius: 10,
-                    border: selected ? "1px solid #0f172a" : "1px solid #cbd5e1",
-                    background: selected ? "#0f172a" : "#ffffff",
-                    color: selected ? "#ffffff" : "#334155",
-                    fontWeight: 800,
-                    cursor: "pointer"
-                  }}
-                >
-                  {lang === "th" ? item.th : item.en}
-                </button>
-              );
-            })}
-          </div>
-        </header>
+    <main
+      className="cdv2-shell"
+      data-phase={phase}
+      data-idle-timeout-ms={LIVE_IDLE_TIMEOUT_MS}
+    >
+      <style>{`
+        * { box-sizing: border-box; }
+        html, body { margin: 0; min-width: 100%; min-height: 100%; }
+        .cdv2-shell {
+          width: 100vw;
+          height: 100dvh;
+          min-height: 100vh;
+          overflow: hidden;
+          background: #ffffff;
+          color: #0f172a;
+          font-family: Arial, "Noto Sans Thai", sans-serif;
+        }
+        .cdv2-idle {
+          width: 100%;
+          height: 100%;
+          display: grid;
+          place-items: center;
+          padding: clamp(24px, 5vw, 72px);
+          background: radial-gradient(circle at 50% 42%, #ffffff 0%, #eef6ff 54%, #dcecff 100%);
+          text-align: center;
+        }
+        .cdv2-idle-inner {
+          width: min(76vw, 820px);
+          display: grid;
+          justify-items: center;
+          gap: clamp(16px, 3vh, 30px);
+        }
+        .cdv2-idle-logo {
+          width: min(52vw, 520px);
+          height: min(30vh, 250px);
+        }
+        .cdv2-idle-store {
+          margin: 0;
+          font-size: clamp(24px, 3.1vw, 50px);
+          line-height: 1.12;
+          font-weight: 900;
+          color: #0f172a;
+        }
+        .cdv2-layout {
+          width: 100%;
+          height: 100%;
+          display: grid;
+          grid-template-columns: minmax(0, 1.38fr) minmax(280px, 1fr);
+          background: #ffffff;
+        }
+        .cdv2-transaction {
+          min-width: 0;
+          min-height: 0;
+          display: grid;
+          grid-template-rows: auto minmax(0, 1fr) auto;
+          border-right: 1px solid #dbe3ec;
+        }
+        .cdv2-header {
+          padding: clamp(14px, 2.2vw, 28px) clamp(16px, 2.5vw, 34px);
+          border-bottom: 1px solid #e2e8f0;
+          display: flex;
+          align-items: flex-start;
+          justify-content: space-between;
+          gap: 18px;
+        }
+        .cdv2-store-name {
+          margin: 0;
+          font-size: clamp(22px, 2.2vw, 34px);
+          line-height: 1.1;
+          font-weight: 950;
+        }
+        .cdv2-branch-device {
+          margin-top: 7px;
+          color: #64748b;
+          font-size: clamp(13px, 1.15vw, 18px);
+          font-weight: 750;
+        }
+        .cdv2-bill {
+          flex: 0 0 auto;
+          text-align: right;
+          font-size: clamp(13px, 1.2vw, 18px);
+          font-weight: 900;
+          white-space: nowrap;
+        }
+        .cdv2-items {
+          min-height: 0;
+          overflow: auto;
+          padding: clamp(12px, 1.8vw, 24px) clamp(14px, 2.2vw, 30px);
+        }
+        .cdv2-grid-row {
+          display: grid;
+          grid-template-columns: minmax(0, 1fr) minmax(52px, .28fr) minmax(82px, .48fr) minmax(92px, .54fr);
+          gap: clamp(8px, 1.1vw, 16px);
+          align-items: center;
+        }
+        .cdv2-table-head {
+          padding: 0 10px 9px;
+          color: #64748b;
+          font-size: clamp(11px, .95vw, 14px);
+          font-weight: 800;
+        }
+        .cdv2-item-list { display: grid; gap: clamp(7px, 1.1vh, 12px); }
+        .cdv2-item {
+          padding: clamp(11px, 1.4vw, 17px) 10px;
+          border-radius: 14px;
+          border: 1px solid #e2e8f0;
+          background: #f8fafc;
+        }
+        .cdv2-item-name {
+          min-width: 0;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+          font-size: clamp(15px, 1.45vw, 22px);
+          font-weight: 900;
+        }
+        .cdv2-number { text-align: center; font-size: clamp(15px, 1.35vw, 21px); font-weight: 850; }
+        .cdv2-money { text-align: right; font-size: clamp(13px, 1.25vw, 20px); font-weight: 850; }
+        .cdv2-summary {
+          padding: clamp(12px, 1.8vw, 24px) clamp(16px, 2.5vw, 34px);
+          border-top: 1px solid #e2e8f0;
+          background: #fbfdff;
+          display: grid;
+          gap: clamp(5px, 1vh, 10px);
+        }
+        .cdv2-summary-line {
+          display: flex;
+          align-items: baseline;
+          justify-content: space-between;
+          gap: 18px;
+          font-size: clamp(15px, 1.4vw, 22px);
+        }
+        .cdv2-total-label { color: #475569; font-weight: 850; }
+        .cdv2-total-value { font-size: clamp(32px, 4.2vw, 62px); line-height: .95; font-weight: 950; }
+        .cdv2-change { color: #047857; font-weight: 950; font-size: clamp(18px, 1.9vw, 28px); }
+        .cdv2-media {
+          min-width: 0;
+          min-height: 0;
+          position: relative;
+          display: grid;
+          place-items: center;
+          overflow: hidden;
+          padding: clamp(18px, 2.2vw, 34px);
+          background: linear-gradient(155deg, #f8fafc, #eef2ff 54%, #ecfeff);
+        }
+        .cdv2-media-inner {
+          width: 100%;
+          height: 100%;
+          min-height: 0;
+          display: grid;
+          place-items: center;
+          text-align: center;
+        }
+        .cdv2-logo-surface {
+          width: 100%;
+          height: 100%;
+          min-height: 0;
+          display: grid;
+          place-items: center;
+        }
+        .cdv2-logo-image {
+          width: min(78%, 520px);
+          height: min(60%, 360px);
+          background-repeat: no-repeat;
+          background-position: center;
+          background-size: contain;
+        }
+        .cdv2-media-brand {
+          width: 100%;
+          height: 100%;
+          min-height: 0;
+          display: grid;
+          grid-template-rows: minmax(0, 1fr) auto;
+        }
+        .cdv2-powered {
+          justify-self: end;
+          color: #64748b;
+          font-size: clamp(10px, .9vw, 13px);
+          font-weight: 800;
+        }
+        .cdv2-qr-block {
+          width: 100%;
+          display: grid;
+          justify-items: center;
+          align-content: center;
+          gap: clamp(12px, 2vh, 22px);
+        }
+        .cdv2-qr-label {
+          color: #2563eb;
+          font-size: clamp(14px, 1.45vw, 22px);
+          font-weight: 900;
+        }
+        .cdv2-qr-placeholder {
+          width: min(54%, 300px);
+          aspect-ratio: 1;
+          border-radius: 18px;
+          border: clamp(8px, 1vw, 12px) solid #ffffff;
+          background: repeating-conic-gradient(#111827 0 25%, #ffffff 0 50%) 50% / clamp(18px, 2.2vw, 28px) clamp(18px, 2.2vw, 28px);
+          box-shadow: 0 18px 48px rgba(15, 23, 42, .22);
+        }
+        .cdv2-qr-amount { font-size: clamp(30px, 4vw, 58px); font-weight: 950; }
+        .cdv2-paid {
+          display: grid;
+          justify-items: center;
+          align-content: center;
+          gap: clamp(12px, 2vh, 22px);
+          text-align: center;
+        }
+        .cdv2-paid-icon {
+          width: clamp(78px, 9vw, 112px);
+          aspect-ratio: 1;
+          border-radius: 999px;
+          display: grid;
+          place-items: center;
+          background: #dcfce7;
+          color: #15803d;
+          font-size: clamp(46px, 5vw, 68px);
+          font-weight: 950;
+        }
+        .cdv2-paid-title {
+          margin: 0;
+          color: #166534;
+          font-size: clamp(30px, 3.8vw, 58px);
+          line-height: 1;
+        }
+        .cdv2-thanks { color: #475569; font-size: clamp(16px, 1.7vw, 24px); }
+        @media (max-width: 900px) {
+          .cdv2-layout {
+            grid-template-columns: 1fr;
+            grid-template-rows: minmax(0, 62%) minmax(0, 38%);
+          }
+          .cdv2-transaction { border-right: 0; border-bottom: 1px solid #dbe3ec; }
+          .cdv2-media { padding: 14px 18px; }
+          .cdv2-logo-image { width: min(54%, 400px); height: min(72%, 240px); }
+          .cdv2-qr-placeholder { width: min(32vh, 220px); }
+          .cdv2-powered { display: none; }
+        }
+        @media (max-width: 620px) {
+          .cdv2-header { padding: 12px 14px; gap: 10px; }
+          .cdv2-bill { font-size: 11px; }
+          .cdv2-items { padding: 10px 12px; }
+          .cdv2-grid-row {
+            grid-template-columns: minmax(0, 1fr) 44px 76px;
+          }
+          .cdv2-grid-row > :nth-child(3) { display: none; }
+          .cdv2-item-name { font-size: 14px; }
+          .cdv2-summary { padding: 10px 14px; }
+        }
+        @media (max-height: 600px) and (min-width: 901px) {
+          .cdv2-header { padding-top: 12px; padding-bottom: 10px; }
+          .cdv2-items { padding-top: 10px; padding-bottom: 10px; }
+          .cdv2-item { padding-top: 9px; padding-bottom: 9px; }
+          .cdv2-summary { padding-top: 10px; padding-bottom: 12px; }
+          .cdv2-logo-image { height: min(58%, 250px); }
+        }
+      `}</style>
 
-        <section
-          style={{
-            minHeight: 0,
-            overflow: "hidden",
-            borderRadius: 24,
-            background: "#ffffff",
-            border: "1px solid #dbe3ec",
-            boxShadow: "0 22px 70px rgba(15,23,42,.10)"
-          }}
-        >
-          {isIdle ? (
-            <div
-              style={{
-                minHeight: "calc(100vh - 96px)",
-                display: "grid",
-                placeItems: "center",
-                textAlign: "center",
-                padding: 40,
-                background: "linear-gradient(135deg,#0f172a,#1d4ed8 54%,#0f766e)",
-                color: "#ffffff"
-              }}
-            >
-              <div style={{ maxWidth: 900 }}>
-                <div style={{ fontSize: 18, opacity: .8, fontWeight: 800 }}>{t.store}</div>
-                <div style={{ marginTop: 16, fontSize: "clamp(52px,8vw,110px)", lineHeight: .95, fontWeight: 950 }}>{t.idle}</div>
-                <div style={{ marginTop: 24, fontSize: "clamp(18px,2.2vw,30px)", opacity: .88 }}>{t.idleHint}</div>
-                <div style={{ marginTop: 42, display: "flex", justifyContent: "center", gap: 10, flexWrap: "wrap" }}>
-                  <span style={{ border: "1px solid rgba(255,255,255,.28)", borderRadius: 999, padding: "10px 16px" }}>LOGO STORE</span>
-                  <span style={{ border: "1px solid rgba(255,255,255,.28)", borderRadius: 999, padding: "10px 16px" }}>CpIPOS</span>
-                </div>
+      {isIdle ? (
+        <section className="cdv2-idle">
+          <div className="cdv2-idle-inner">
+            <div className="cdv2-idle-logo">
+              <LogoSurface imageUrl={storeLogoUrl} label={`${storeName} logo`} />
+            </div>
+            <h1 className="cdv2-idle-store">{storeName}</h1>
+          </div>
+        </section>
+      ) : (
+        <section className="cdv2-layout">
+          <section className="cdv2-transaction">
+            <header className="cdv2-header">
+              <div>
+                <h1 className="cdv2-store-name">{storeName}</h1>
+                <div className="cdv2-branch-device">{branchName} · {MOCK_STORE.deviceName}</div>
+              </div>
+              <div className="cdv2-bill">{t.bill} {MOCK_STORE.billNo}</div>
+            </header>
+
+            <div className="cdv2-items">
+              <div className="cdv2-grid-row cdv2-table-head">
+                <span>{t.items}</span>
+                <span style={{ textAlign: "center" }}>{t.qty}</span>
+                <span style={{ textAlign: "right" }}>{t.unit}</span>
+                <span style={{ textAlign: "right" }}>{t.amount}</span>
+              </div>
+              <div className="cdv2-item-list">
+                {MOCK_ITEMS.map((item) => (
+                  <article key={item.id} className="cdv2-grid-row cdv2-item">
+                    <strong className="cdv2-item-name">{lang === "th" ? item.nameTh : item.nameEn}</strong>
+                    <strong className="cdv2-number">{item.quantity}</strong>
+                    <span className="cdv2-money">{formatMoney(item.unitPrice, lang)}</span>
+                    <strong className="cdv2-money">{formatMoney(item.quantity * item.unitPrice, lang)}</strong>
+                  </article>
+                ))}
               </div>
             </div>
-          ) : (
-            <div style={{ minHeight: "calc(100vh - 96px)", display: "grid", gridTemplateColumns: "minmax(0,58fr) minmax(320px,42fr)" }}>
-              <section style={{ minWidth: 0, display: "grid", gridTemplateRows: "auto minmax(0,1fr) auto", borderRight: "2px solid #e2e8f0" }}>
-                <header style={{ padding: "22px 26px 16px", borderBottom: "1px solid #e2e8f0" }}>
-                  <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 18 }}>
-                    <div>
-                      <div style={{ fontSize: 28, fontWeight: 950 }}>{t.store}</div>
-                      <div style={{ marginTop: 7, color: "#64748b", fontWeight: 700 }}>{t.branch} · {t.counter}</div>
-                    </div>
-                    <div style={{ textAlign: "right" }}>
-                      <div style={{ fontWeight: 900 }}>{t.bill}</div>
-                      <div style={{ marginTop: 6, color: "#64748b", fontSize: 13 }}>{t.deviceScope}</div>
-                    </div>
-                  </div>
-                </header>
 
-                <div style={{ minHeight: 0, overflow: "auto", padding: "18px 26px" }}>
-                  <div style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) 80px 120px 120px", gap: 12, padding: "0 12px 10px", color: "#64748b", fontWeight: 800, fontSize: 13 }}>
-                    <span>{t.items}</span><span style={{ textAlign: "center" }}>{t.qty}</span><span style={{ textAlign: "right" }}>{t.unit}</span><span style={{ textAlign: "right" }}>{t.amount}</span>
+            <footer className="cdv2-summary">
+              <div className="cdv2-summary-line">
+                <span className="cdv2-total-label">{t.total}</span>
+                <strong className="cdv2-total-value">{formatMoney(total, lang)}</strong>
+              </div>
+              {showCash ? (
+                <>
+                  <div className="cdv2-summary-line">
+                    <span>{t.received}</span>
+                    <strong>{formatMoney(cashReceived, lang)}</strong>
                   </div>
-                  <div style={{ display: "grid", gap: 10 }}>
-                    {MOCK_ITEMS.map((item) => (
-                      <article key={item.id} style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) 80px 120px 120px", gap: 12, alignItems: "center", padding: "16px 12px", borderRadius: 14, background: "#f8fafc", border: "1px solid #e2e8f0" }}>
-                        <strong style={{ fontSize: 20 }}>{lang === "th" ? item.nameTh : item.nameEn}</strong>
-                        <strong style={{ textAlign: "center", fontSize: 20 }}>{item.quantity}</strong>
-                        <span style={{ textAlign: "right", fontWeight: 800 }}>{formatMoney(item.unitPrice, lang)}</span>
-                        <strong style={{ textAlign: "right", fontSize: 19 }}>{formatMoney(item.quantity * item.unitPrice, lang)}</strong>
-                      </article>
-                    ))}
+                  <div className="cdv2-summary-line cdv2-change">
+                    <span>{t.change}</span>
+                    <strong>{formatMoney(change, lang)}</strong>
                   </div>
+                </>
+              ) : null}
+            </footer>
+          </section>
+
+          <aside className="cdv2-media">
+            {showQr ? (
+              <div className="cdv2-media-inner">
+                <div className="cdv2-qr-block">
+                  <div className="cdv2-qr-label">{t.paymentQr}</div>
+                  <MockQr />
+                  <div className="cdv2-qr-amount">{formatMoney(total, lang)}</div>
                 </div>
-
-                <footer style={{ padding: "18px 26px 24px", borderTop: "1px solid #e2e8f0", background: "#fbfdff" }}>
-                  <div style={{ display: "grid", gap: 8 }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", gap: 20, alignItems: "baseline" }}>
-                      <span style={{ color: "#475569", fontSize: 18, fontWeight: 800 }}>{t.total}</span>
-                      <strong style={{ fontSize: "clamp(34px,4vw,58px)", color: "#0f172a" }}>{formatMoney(total, lang)}</strong>
-                    </div>
-                    {showCash ? (
-                      <>
-                        <div style={{ display: "flex", justifyContent: "space-between", gap: 20, fontSize: 21 }}><span>{t.received}</span><strong>{formatMoney(cashReceived, lang)}</strong></div>
-                        <div style={{ display: "flex", justifyContent: "space-between", gap: 20, fontSize: 25, color: "#047857" }}><span style={{ fontWeight: 900 }}>{t.change}</span><strong>{formatMoney(change, lang)}</strong></div>
-                      </>
-                    ) : null}
-                  </div>
-                </footer>
-              </section>
-
-              <aside style={{ minWidth: 0, padding: 24, display: "grid", gridTemplateRows: "minmax(0,1fr) auto", gap: 18, background: "linear-gradient(155deg,#f8fafc,#eef2ff 52%,#ecfeff)" }}>
-                {showQr ? (
-                  <div style={{ display: "grid", placeItems: "center", textAlign: "center" }}>
-                    <div>
-                      <div style={{ color: "#2563eb", fontWeight: 950, letterSpacing: .4 }}>{t.promptpay}</div>
-                      <h2 style={{ margin: "8px 0 18px", fontSize: "clamp(30px,4vw,54px)" }}>{t.scan}</h2>
-                      <MockQr />
-                      <div style={{ marginTop: 18, fontSize: "clamp(28px,3.4vw,48px)", fontWeight: 950 }}>{formatMoney(total, lang)}</div>
-                      <p style={{ margin: "12px auto 0", maxWidth: 390, color: "#64748b", fontSize: 13 }}>{t.qrHint}</p>
-                    </div>
-                  </div>
-                ) : showPaid ? (
-                  <div style={{ display: "grid", placeItems: "center", textAlign: "center" }}>
-                    <div>
-                      <div style={{ width: 104, height: 104, borderRadius: 999, margin: "0 auto 22px", display: "grid", placeItems: "center", background: "#dcfce7", color: "#15803d", fontSize: 58, fontWeight: 950 }}>✓</div>
-                      <h2 style={{ margin: 0, fontSize: "clamp(34px,4vw,58px)", color: "#166534" }}>{t.paid}</h2>
-                      <div style={{ marginTop: 20, color: "#475569", fontSize: 20 }}>{t.thankYou}</div>
-                      <div style={{ marginTop: 24, padding: "18px 22px", borderRadius: 16, background: "#ffffff", border: "1px solid #bbf7d0" }}>
-                        <div style={{ color: "#64748b", fontWeight: 800 }}>{t.change}</div>
-                        <strong style={{ display: "block", marginTop: 4, fontSize: 38, color: "#047857" }}>{formatMoney(change, lang)}</strong>
-                      </div>
-                    </div>
-                  </div>
-                ) : (
-                  <div style={{ display: "grid", placeItems: "stretch" }}>
-                    <div style={{ minHeight: 0, borderRadius: 22, padding: 28, color: "#ffffff", display: "grid", alignContent: "end", background: adIndex === 0 ? "linear-gradient(145deg,#7c3aed,#2563eb)" : adIndex === 1 ? "linear-gradient(145deg,#ea580c,#db2777)" : "linear-gradient(145deg,#0f766e,#0891b2)" }}>
-                      <div style={{ fontSize: 13, fontWeight: 900, opacity: .78, textTransform: "uppercase", letterSpacing: 1 }}>{t.adLabel} · {adIndex + 1}/{ADS.length}</div>
-                      <div style={{ marginTop: 12, fontSize: "clamp(34px,4vw,62px)", fontWeight: 950, lineHeight: .98 }}>{lang === "th" ? ad.th : ad.en}</div>
-                      <div style={{ marginTop: 18, fontSize: "clamp(16px,1.7vw,23px)", opacity: .88, lineHeight: 1.35 }}>{lang === "th" ? ad.noteTh : ad.noteEn}</div>
-                    </div>
-                  </div>
-                )}
-
-                <footer style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap", color: "#475569", fontSize: 13, fontWeight: 800 }}>
-                  <span>{t.ratio}</span>
-                  <span>{t.system}</span>
-                </footer>
-              </aside>
-            </div>
-          )}
+              </div>
+            ) : showPaid ? (
+              <div className="cdv2-media-inner">
+                <div className="cdv2-paid">
+                  <div className="cdv2-paid-icon">✓</div>
+                  <h2 className="cdv2-paid-title">{t.paid}</h2>
+                  <div className="cdv2-thanks">{t.thankYou}</div>
+                </div>
+              </div>
+            ) : (
+              <div className="cdv2-media-brand">
+                <LogoSurface imageUrl={mediaUrl} label="Store advertising or CpIPOS fallback" />
+                <div className="cdv2-powered">{t.poweredBy}</div>
+              </div>
+            )}
+          </aside>
         </section>
-      </section>
+      )}
     </main>
   );
 }
