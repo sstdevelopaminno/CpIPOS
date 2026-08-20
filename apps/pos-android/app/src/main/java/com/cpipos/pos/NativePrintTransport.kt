@@ -96,30 +96,23 @@ internal class NativePrintTransport(context: Context) {
 
         val html = job.metadata.optString("payload_html", "").trim()
         val paperWidthMm = job.metadata.optInt("paper_width_mm", 58).let { if (it >= 80) 80 else 58 }
-        val payloadFormat = job.metadata.optString("payload_format", "").trim().lowercase()
         val profileMetadata = job.printer.metadata
-        val forceRichHtml = profileMetadata.optBoolean("force_rich_html_raster", false) || job.metadata.optBoolean("force_rich_html_raster", false)
 
-        if (!forceRichHtml && payloadFormat == "kitchen_ticket_html_v1") {
-            val kitchenText = NativeKitchenTicketFormatter.format(job.payloadText, job.payloadJson)
-            if (!kitchenText.isNullOrBlank()) {
-                runCatching { textRasterizer.render(kitchenText, paperWidthMm) }
-                    .getOrNull()
-                    ?.let { return PreparedPayload(it, "native_kitchen_raster") }
-            }
+        // Customer-facing documents are authored by the existing server HTML templates. Always
+        // render that source when it exists so receipt, payment-notice and kitchen-ticket layout,
+        // typography, logo, totals, notes and spacing remain identical to the established format.
+        // 1.0.20 keeps the 1.0.19 queue wake-up optimization, but never substitutes a simplified
+        // native text layout for a rich HTML document.
+        if (html.isNotEmpty()) {
+            return PreparedPayload(htmlRasterizer.render(html, paperWidthMm), "html_raster_legacy_layout")
         }
 
-        val fastReceiptEligible = job.payloadText.isNotBlank() && (
-            job.metadata.optBoolean("test_print", false) || payloadFormat == "receipt_html_v1"
-        )
-        if (fastReceiptEligible && !forceRichHtml) {
+        // Native raster remains useful for diagnostic/test text that has no established HTML
+        // document template. It is intentionally not used for normal customer-facing documents.
+        if (job.metadata.optBoolean("test_print", false) && job.payloadText.isNotBlank()) {
             runCatching { textRasterizer.render(job.payloadText, paperWidthMm) }
                 .getOrNull()
-                ?.let { return PreparedPayload(it, "native_text_raster") }
-        }
-
-        if (html.isNotEmpty()) {
-            return PreparedPayload(htmlRasterizer.render(html, paperWidthMm), "html_raster_fallback")
+                ?.let { return PreparedPayload(it, "native_text_test") }
         }
 
         val charsetName = profileMetadata.optString("escpos_charset", "windows-874").trim().ifEmpty { "windows-874" }
