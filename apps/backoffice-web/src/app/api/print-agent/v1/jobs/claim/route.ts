@@ -9,6 +9,9 @@ type ClaimPayload = {
   app_version?: string | null;
 };
 
+const MODERN_RICH_LAYOUT_MIN_VERSION = [1, 0, 19] as const;
+const MODERN_HTML_TAIL_MM = 15;
+
 function configuredPaperWidthMm(job: {
   metadata?: Record<string, unknown> | null;
   printer_profiles?: unknown;
@@ -27,10 +30,33 @@ function configuredPaperWidthMm(job: {
   return null;
 }
 
+function isModernRichLayoutClient(appVersion: string | null | undefined) {
+  const match = appVersion?.trim().match(/^(\d+)\.(\d+)\.(\d+)/);
+  if (!match) return false;
+  const current = [Number(match[1]), Number(match[2]), Number(match[3])] as const;
+  for (let index = 0; index < current.length; index += 1) {
+    if (current[index] > MODERN_RICH_LAYOUT_MIN_VERSION[index]) return true;
+    if (current[index] < MODERN_RICH_LAYOUT_MIN_VERSION[index]) return false;
+  }
+  return true;
+}
+
+function appendCompactTearSafeTail(html: string) {
+  if (html.includes("data-cpipos-tear-safe-tail")) return html;
+  // HtmlReceiptRasterizer crops near-white margins before ESC/POS conversion. #f7f7f7 is just
+  // dark enough to preserve this compact spacer during crop detection, while remaining above the
+  // final monochrome raster threshold so no visible rule is printed. The rasterizer then keeps its
+  // existing three line-feeds, producing roughly 2.5-3 cm total clearance instead of ~10 cm.
+  const spacer = `<div data-cpipos-tear-safe-tail="v1" aria-hidden="true" style="height:${MODERN_HTML_TAIL_MM}mm;border-bottom:1px solid #f7f7f7"></div>`;
+  if (/<\/body>/i.test(html)) return html.replace(/<\/body>/i, `${spacer}</body>`);
+  return `${html}${spacer}`;
+}
+
 export async function POST(req: Request) {
   try {
     const agent = await requirePrintAgent(req);
     const body = (await req.json().catch(() => null)) as ClaimPayload | null;
+    const modernRichLayout = isModernRichLayoutClient(body?.app_version);
     const jobs = await claimPrintJobsStabilized(agent, {
       limit: body?.limit,
       lease_seconds: body?.lease_seconds,
@@ -40,7 +66,8 @@ export async function POST(req: Request) {
       const paperWidthMm = configuredPaperWidthMm(job);
       if (!paperWidthMm) return job;
       const metadata = job.metadata ?? {};
-      const hasHtmlPayload = typeof metadata.payload_html === "string" && metadata.payload_html.trim().length > 0;
+      const htmlPayload = typeof metadata.payload_html === "string" ? metadata.payload_html.trim() : "";
+      const hasHtmlPayload = htmlPayload.length > 0;
       return {
         ...job,
         metadata: {
@@ -50,11 +77,16 @@ export async function POST(req: Request) {
             ? {
                 html_paper_width_mm: paperWidthMm,
                 print_format: `html_${paperWidthMm}mm`,
-                // Customer-facing documents must preserve the established HTML layout. Modern
-                // Android runtimes may optimize queue wake-up, but they must not replace receipt,
-                // kitchen-ticket or payment-notice typography with a simplified native layout.
-                force_rich_html_raster: true,
-                render_policy: "legacy_rich_html_v1"
+                ...(modernRichLayout
+                  ? {
+                      // 1.0.19+ keeps low-latency queue wake-up but must render customer-facing
+                      // documents from the established HTML templates used before native text mode.
+                      payload_html: appendCompactTearSafeTail(htmlPayload),
+                      force_rich_html_raster: true,
+                      render_policy: "legacy_rich_html_v1",
+                      tear_safe_tail_mm: MODERN_HTML_TAIL_MM
+                    }
+                  : {})
               }
             : {})
         }
