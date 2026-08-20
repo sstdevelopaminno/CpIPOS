@@ -14,6 +14,10 @@ val releaseSigningReady = listOf(
     releaseKeyPassword
 ).all { !it.isNullOrBlank() }
 
+val runtimeVersionNameOverride = providers.gradleProperty("cpiposVersionName").orNull?.trim()?.takeIf { it.isNotBlank() }
+val runtimeVersionCodeOverride = providers.gradleProperty("cpiposVersionCode").orNull?.toIntOrNull()
+val dualScreenEnabled = providers.gradleProperty("cpiposDualScreen").orNull?.trim()?.lowercase() == "true"
+
 android {
     namespace = "com.cpipos.pos"
     compileSdk = 34
@@ -24,11 +28,15 @@ android {
         targetSdk = 34
         versionCode = 18
         versionName = "1.0.12"
+        runtimeVersionCodeOverride?.let { versionCode = it }
+        runtimeVersionNameOverride?.let { versionName = it }
 
         buildConfigField("String", "CPIPOS_API_BASE_URL", "\"https://cp-ipos-web.vercel.app\"")
         buildConfigField("String", "CPIPOS_POS_WEB_URL", "\"https://cp-ipos-web.vercel.app/login/store\"")
         buildConfigField("String", "CPIPOS_MDM_HEARTBEAT_URL", "\"https://cp-ipos-web.vercel.app/api/android-pos/mdm/heartbeat\"")
+        buildConfigField("String", "CPIPOS_CUSTOMER_DISPLAY_V2_URL", "\"https://cp-ipos-web.vercel.app/customer-display/v2/native\"")
         buildConfigField("String", "CPIPOS_ANDROID_POS_ALLOWED_HOST", "\"cp-ipos-web.vercel.app\"")
+        buildConfigField("boolean", "CPIPOS_DUAL_SCREEN_ENABLED", dualScreenEnabled.toString())
     }
 
     signingConfigs {
