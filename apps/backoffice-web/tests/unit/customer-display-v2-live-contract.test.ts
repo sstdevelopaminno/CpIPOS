@@ -66,6 +66,8 @@ describe("Customer Display V2 live integration contract", () => {
     expect(publishRoute).toContain('"customer_facing_display"');
     expect(publishRoute).toContain('from("pos_customer_display_states").upsert');
     expect(publishRoute).toContain('onConflict: "tenant_id,branch_id,channel"');
+    expect(publishRoute).not.toContain("body.channel");
+    expect(publishRoute).not.toContain('requiredPermission: "customer_display:manage"');
   });
 
   it("preserves configured data-image store logos and INET QR image sources", () => {
