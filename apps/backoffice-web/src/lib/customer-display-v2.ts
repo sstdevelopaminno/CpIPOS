@@ -76,8 +76,11 @@ export function resolveCustomerDisplayV2Phase(input: {
   if (paymentState?.phase === "qr") return "qr";
   if (paymentState?.phase === "cash") return "cash";
   if (input.itemCount > 0) return "cart";
-  if (input.nowMs - input.lastActivityAtMs >= CUSTOMER_DISPLAY_V2_IDLE_TIMEOUT_MS) return "idle";
-  return "cart";
+
+  // An empty POS has no customer transaction to present. Keep the secondary
+  // display on its stable idle brand immediately instead of rendering an empty
+  // cart for up to five minutes and visually jumping away from the idle logo.
+  return "idle";
 }
 
 export function readCustomerDisplayV2PaymentState(raw: string | null): CustomerDisplayV2PaymentState | null {
