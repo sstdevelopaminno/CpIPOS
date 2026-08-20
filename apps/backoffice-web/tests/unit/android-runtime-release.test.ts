@@ -27,21 +27,21 @@ describe("android modern update offer", () => {
   it("explicitly protects FG0003 even if a modern capability is reported", () => {
     expect(buildAndroidModernUpdateOffer({
       tenantCode: "FG0003",
-      payload: modernPayload(24)
+      payload: modernPayload(25)
     })).toBeNull();
   });
 
   it("explicitly protects the common FG00003 typo as a defensive alias", () => {
     expect(buildAndroidModernUpdateOffer({
       tenantCode: "FG00003",
-      payload: modernPayload(24)
+      payload: modernPayload(25)
     })).toBeNull();
   });
 
-  it("offers only latest 1.0.19 directly to an opted-in 1.0.18 runtime", () => {
+  it("offers latest 1.0.20 directly to an opted-in 1.0.19 runtime", () => {
     expect(buildAndroidModernUpdateOffer({
       tenantCode: "900001",
-      payload: modernPayload(24)
+      payload: modernPayload(25)
     })).toEqual({
       channel: "modern",
       version_name: ANDROID_MODERN_RELEASE.versionName,
@@ -55,7 +55,7 @@ describe("android modern update offer", () => {
   it("offers only the latest modern release to any older opted-in modern runtime", () => {
     expect(buildAndroidModernUpdateOffer({
       tenantCode: "900001",
-      payload: modernPayload(22)
+      payload: modernPayload(24)
     })).toEqual({
       channel: "modern",
       version_name: ANDROID_MODERN_RELEASE.versionName,
@@ -74,7 +74,7 @@ describe("android modern update offer", () => {
   });
 
   it("fails closed if a server/client capability implies forced or silent installation", () => {
-    const payload = modernPayload(24);
+    const payload = modernPayload(25);
     (payload.runtime_capabilities.updates as Record<string, unknown>).forced_update = true;
     expect(buildAndroidModernUpdateOffer({ tenantCode: "900001", payload })).toBeNull();
   });
