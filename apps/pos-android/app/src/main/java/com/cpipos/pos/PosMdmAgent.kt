@@ -124,11 +124,8 @@ class PosMdmAgent(
                 .put("action", normalized)
         }
 
-        lastCommandId = command.optString("id", "").trim().takeIf { it.isNotEmpty() }
-        lastCommandAction = normalized
-        lastCommandSource = source
-        lastCommandAtMs = System.currentTimeMillis()
-        lastCommandResult = null
+        val commandId = command.optString("id", "").trim().takeIf { it.isNotEmpty() }
+        recordLastCommand(commandId, normalized, source)
 
         when (normalized) {
             "ping" -> sendHeartbeat("command_ping")
@@ -167,10 +164,12 @@ class PosMdmAgent(
                 sendHeartbeat("command_clear_webview_data")
             }
             "test_printer_connection" -> executor?.execute {
+                recordLastCommand(commandId, normalized, source)
                 lastPrinterDiagnostic = diagnostics.testPrinterConnection(timeoutMs = 1800)
                 sendHeartbeat("command_test_printer_connection")
             }
             "test_printer_verification" -> executor?.execute {
+                recordLastCommand(commandId, normalized, source)
                 val result = printerVerification.execute(command)
                 lastPrinterVerification = result
                 lastCommandResult = result
@@ -181,8 +180,16 @@ class PosMdmAgent(
         return JSONObject()
             .put("ok", true)
             .put("action", normalized)
-            .put("command_id", lastCommandId)
+            .put("command_id", commandId)
             .put("source", source)
+    }
+
+    private fun recordLastCommand(commandId: String?, action: String, source: String) {
+        lastCommandId = commandId
+        lastCommandAction = action
+        lastCommandSource = source
+        lastCommandAtMs = System.currentTimeMillis()
+        lastCommandResult = null
     }
 
     private fun sendHeartbeat(reason: String) {
