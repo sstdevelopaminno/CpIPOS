@@ -26,6 +26,11 @@ type PrinterVerificationEnvelope = {
   expires_at_ms: number;
   operator_confirmed: boolean;
 };
+type PrinterVerificationBuild = {
+  requested: boolean;
+  envelope: PrinterVerificationEnvelope | null;
+  error: string | null;
+};
 type AndroidPosMdmCommand = {
   id?: string;
   action?: string;
@@ -113,29 +118,41 @@ function resolvePersistedRuntimeCapabilities(metadata: Record<string, unknown>, 
   return asRecord(metadata.android_mdm_runtime_capabilities);
 }
 
-function buildPrinterVerificationEnvelope(row: PendingPrinterCommand): PrinterVerificationEnvelope | null {
+function buildPrinterVerificationEnvelope(row: PendingPrinterCommand): PrinterVerificationBuild {
   const metadata = asRecord(row.metadata);
   const nested = asRecord(metadata.printer_verification);
   const source = Object.keys(nested).length > 0 ? nested : metadata;
   const modeRaw = String(source.mode ?? "").trim().toLowerCase();
-  if (modeRaw !== "probe" && modeRaw !== "verification_print") return null;
+  const requested = Object.keys(nested).length > 0 || modeRaw === "probe" || modeRaw === "verification_print";
+  if (!requested) return { requested: false, envelope: null, error: null };
+  if (modeRaw !== "probe" && modeRaw !== "verification_print") {
+    return { requested: true, envelope: null, error: "verification_mode_invalid" };
+  }
 
   const targetFingerprint = String(source.target_fingerprint ?? source.device_fingerprint ?? "").trim().toLowerCase();
-  if (!targetFingerprint || targetFingerprint.length > 240) return null;
+  if (!targetFingerprint || targetFingerprint.length > 240) {
+    return { requested: true, envelope: null, error: "verification_target_invalid" };
+  }
 
   const issuedAtMs = Date.parse(row.issued_at);
   const databaseExpiresAtMs = Date.parse(row.expires_at);
-  if (!Number.isFinite(issuedAtMs) || !Number.isFinite(databaseExpiresAtMs)) return null;
+  if (!Number.isFinite(issuedAtMs) || !Number.isFinite(databaseExpiresAtMs)) {
+    return { requested: true, envelope: null, error: "verification_window_invalid" };
+  }
   const maxWindowMs = modeRaw === "verification_print"
     ? PRINTER_VERIFICATION_PRINT_MAX_WINDOW_MS
     : PRINTER_PROBE_MAX_WINDOW_MS;
 
   return {
-    mode: modeRaw,
-    target_fingerprint: targetFingerprint,
-    issued_at_ms: issuedAtMs,
-    expires_at_ms: Math.min(databaseExpiresAtMs, issuedAtMs + maxWindowMs),
-    operator_confirmed: source.operator_confirmed === true
+    requested: true,
+    envelope: {
+      mode: modeRaw,
+      target_fingerprint: targetFingerprint,
+      issued_at_ms: issuedAtMs,
+      expires_at_ms: Math.min(databaseExpiresAtMs, issuedAtMs + maxWindowMs),
+      operator_confirmed: source.operator_confirmed === true
+    },
+    error: null
   };
 }
 
@@ -343,23 +360,36 @@ async function deliverPrinterTestCommands(device: PairedDevice): Promise<Android
     .returns<PendingPrinterCommand[]>();
   if (error || !rows?.length) return [];
 
-  const readyRows = rows.filter((row) => printerCommandRetryReady(row, now.getTime()));
-  if (!readyRows.length) return [];
-  const ids = readyRows.map((row) => row.id);
-  await supabase.from("device_commands").update({ status: "delivered", delivered_at: nowIso }).in("id", ids);
+  const row = rows.find((candidate) => printerCommandRetryReady(candidate, now.getTime()));
+  if (!row) return [];
+  const verification = buildPrinterVerificationEnvelope(row);
 
-  return readyRows.map((row) => {
-    const verification = buildPrinterVerificationEnvelope(row);
-    if (!verification) {
-      return { id: row.id, action: "test_printer_connection", reason: "printer_settings_mdm" };
-    }
-    return {
-      id: row.id,
-      action: "test_printer_verification",
-      reason: verification.mode === "probe" ? "printer_target_probe" : "printer_one_time_verification",
-      printer_verification: verification
-    };
-  });
+  if (verification.requested && (!verification.envelope || verification.error)) {
+    await supabase.from("device_commands").update({
+      status: "delivered",
+      delivered_at: nowIso,
+      result: {
+        applied: false,
+        phase: "rejected",
+        mdm_action: "test_printer_verification",
+        code: verification.error ?? "verification_envelope_invalid",
+        delivery_surface: "android_pos_mdm_heartbeat",
+        acknowledged_at: nowIso
+      }
+    }).eq("id", row.id);
+    return [];
+  }
+
+  await supabase.from("device_commands").update({ status: "delivered", delivered_at: nowIso }).eq("id", row.id);
+  if (!verification.envelope) {
+    return [{ id: row.id, action: "test_printer_connection", reason: "printer_settings_mdm" }];
+  }
+  return [{
+    id: row.id,
+    action: "test_printer_verification",
+    reason: verification.envelope.mode === "probe" ? "printer_target_probe" : "printer_one_time_verification",
+    printer_verification: verification.envelope
+  }];
 }
 
 export async function GET() {
