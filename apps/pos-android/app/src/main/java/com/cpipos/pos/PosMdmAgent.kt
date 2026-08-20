@@ -36,6 +36,7 @@ class PosMdmAgent(
     private val prefs = appContext.getSharedPreferences("cpipos_android_pos_mdm", Context.MODE_PRIVATE)
     private val diagnostics = AndroidDiagnostics(appContext)
     private val printerVerification = PrinterVerificationService(appContext)
+    private val managedUpdateNotice = ManagedUpdateNotice(context, webView)
     private val mainHandler = Handler(Looper.getMainLooper())
     private val started = AtomicBoolean(false)
     private var executor: ScheduledExecutorService? = null
@@ -237,12 +238,11 @@ class PosMdmAgent(
     private fun applyCommandsFromResponse(responseText: String) {
         runCatching {
             val response = JSONObject(responseText)
-            val commands = when {
-                response.has("commands") -> response.optJSONArray("commands")
-                response.has("data") -> response.optJSONObject("data")?.optJSONArray("commands")
-                else -> null
-            } ?: return
+            val envelope = response.optJSONObject("data") ?: response
 
+            managedUpdateNotice.applyOffer(envelope.optJSONObject("update_offer"))
+
+            val commands = envelope.optJSONArray("commands") ?: return
             for (index in 0 until commands.length()) {
                 val command = commands.optJSONObject(index) ?: continue
                 val action = command.optString("action", "")
