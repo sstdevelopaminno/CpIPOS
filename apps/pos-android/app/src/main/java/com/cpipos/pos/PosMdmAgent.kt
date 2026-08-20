@@ -267,6 +267,14 @@ class PosMdmAgent(
     private fun buildSnapshot(reason: String): JSONObject {
         val printer = lastPrinterDiagnostic
         val webViewPackage = WebView.getCurrentWebViewPackage()
+        val displaySnapshot = buildDisplaySnapshot()
+        val runtimeCapabilities = RuntimeCapabilityContract.model(
+            runtimeName = "android-pos-webview-mdm-lite",
+            appVersionName = BuildConfig.VERSION_NAME,
+            appVersionCode = BuildConfig.VERSION_CODE,
+            presentationDisplayAvailable = displaySnapshot.optInt("presentation_display_count", 0) > 0
+        )
+
         return JSONObject()
             .put("reason", reason)
             .put("install_id", installId)
@@ -295,7 +303,8 @@ class PosMdmAgent(
                     .put("android_release", Build.VERSION.RELEASE)
                     .put("uptime_ms", SystemClock.uptimeMillis())
             )
-            .put("displays", buildDisplaySnapshot())
+            .put("displays", displaySnapshot)
+            .put("runtime_capabilities", RuntimeCapabilityContract.toJson(runtimeCapabilities))
             .put(
                 "network",
                 JSONObject()
