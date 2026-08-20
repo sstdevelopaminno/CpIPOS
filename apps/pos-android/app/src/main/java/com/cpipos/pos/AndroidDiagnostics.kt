@@ -13,6 +13,7 @@ import java.net.Socket
 class AndroidDiagnostics(context: Context) {
     private val appContext = context.applicationContext
     private val printerPrefs = appContext.getSharedPreferences("cpipos_tablet_pos_printer", Context.MODE_PRIVATE)
+    private val printerInventory = PrinterCapabilityInventory(appContext)
     private val devicePolicyManager = appContext.getSystemService(DevicePolicyManager::class.java)
     private val deviceAdminComponent = ComponentName(appContext, CpiposDeviceAdminReceiver::class.java)
 
@@ -58,6 +59,8 @@ class AndroidDiagnostics(context: Context) {
     fun printerHost(): String? = printerPrefs.getString("host", null)?.trim()?.takeIf { it.isNotBlank() }
 
     fun printerPort(): Int? = printerPrefs.getInt("port", 9100).takeIf { it in 1..65535 }
+
+    fun printerCapabilityInventory() = printerInventory.snapshot()
 
     fun savePrinter(host: String, port: Int) {
         printerPrefs.edit().putString("host", host.trim()).putInt("port", port).apply()
