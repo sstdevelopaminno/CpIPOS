@@ -168,6 +168,7 @@ export function PosCustomerDisplayV2Live({ lang }: { lang: Language }) {
   }, [channel, deviceToken, lang]);
 
   const screenState = useMemo(() => (payload ? toScreenState(payload, nowMs) : emptyIdleState()), [payload, nowMs]);
+  const hideCashRowsForTransferPaid = payload?.phase === "paid" && payload.payment_method === "bank_transfer";
 
   if (!deviceToken) {
     return (
@@ -196,5 +197,15 @@ export function PosCustomerDisplayV2Live({ lang }: { lang: Language }) {
     );
   }
 
-  return <PosCustomerDisplayV2Screen lang={lang} state={screenState} />;
+  return (
+    <div
+      data-cdv2-transfer-paid={hideCashRowsForTransferPaid ? "1" : "0"}
+      style={{ width: "100vw", height: "100dvh", minHeight: "100vh", overflow: "hidden" }}
+    >
+      {hideCashRowsForTransferPaid ? (
+        <style>{`[data-cdv2-transfer-paid="1"] .cdv2-summary-line:nth-child(n+2) { display: none; }`}</style>
+      ) : null}
+      <PosCustomerDisplayV2Screen lang={lang} state={screenState} />
+    </div>
+  );
 }
