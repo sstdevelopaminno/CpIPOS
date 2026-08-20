@@ -3,6 +3,7 @@ import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   buildCustomerDisplayV2Channel,
+  CUSTOMER_DISPLAY_V2_ENABLED_KEY,
   CUSTOMER_DISPLAY_V2_IDLE_TIMEOUT_MS,
   resolveCustomerDisplayV2Phase
 } from "../../src/lib/customer-display-v2";
@@ -15,6 +16,7 @@ const publisher = readSource("src/components/pos/pos-customer-display-v2-publish
 const observer = readSource("src/components/pos/pos-customer-display-v2-payment-observer.tsx");
 const screen = readSource("src/components/pos/pos-customer-display-v2-screen.tsx");
 const liveDisplay = readSource("src/components/pos/pos-customer-display-v2-live.tsx");
+const setup = readSource("src/components/pos/pos-customer-display-v2-setup.tsx");
 const setupPage = readSource("src/app/preview/pos/customer-display/v2-setup/page.tsx");
 const livePage = readSource("src/app/customer-display/v2/page.tsx");
 const publishRoute = readSource("src/app/api/pos/customer-display/v2/publish/route.ts");
@@ -74,10 +76,21 @@ describe("Customer Display V2 live integration contract", () => {
     expect(publishRoute).toContain("payment_qr_url: normalizeImageSource(input.payment_qr_url, MAX_QR_SOURCE_LENGTH)");
   });
 
+  it("requires explicit terminal setup before enabling V2 publisher and payment observer work", () => {
+    expect(CUSTOMER_DISPLAY_V2_ENABLED_KEY).toBe("pos_customer_display_v2_enabled_v001");
+    expect(setup).toContain('window.localStorage.setItem(CUSTOMER_DISPLAY_V2_ENABLED_KEY, "1")');
+    expect(publisher).toContain('window.localStorage.getItem(CUSTOMER_DISPLAY_V2_ENABLED_KEY) !== "1"');
+    expect(observer).toContain('window.localStorage.getItem(CUSTOMER_DISPLAY_V2_ENABLED_KEY) !== "1"');
+    expect(observer).toContain("startObserverIfEnabled");
+  });
+
   it("scans same-tab local POS state quickly while deduping unchanged network payloads", () => {
     expect(publisher).toContain("const LOCAL_STATE_SCAN_MS = 500;");
+    expect(publisher).toContain("const STATIC_CONTEXT_REFRESH_MS = 5_000;");
     expect(publisher).toContain("publishedSignatureRef.current === signature");
     expect(publisher).toContain("window.setInterval(() => schedule(0), LOCAL_STATE_SCAN_MS)");
+    expect(publisher).toContain("imageFingerprint(payload.store_logo_url)");
+    expect(publisher).toContain("snapshotCacheRef");
   });
 
   it("uses bounded retry backoff for transient publish failures", () => {
