@@ -86,15 +86,17 @@ describe("Customer Display V2 live integration contract", () => {
   });
 
   it("bridges existing payment UI states without mutating payment APIs", () => {
-    for (const selector of [
-      ".posui-payment-modal--cash",
-      ".posui-payment-modal--transfer-qr-only",
-      ".posui-transfer-qr-image",
-      ".posui-payment-modal--receipt-final",
-      ".posui-cash-summary-row--received",
-      ".posui-cash-summary-row--accent"
-    ]) {
-      expect(paymentModals).toContain(selector);
+    const selectorContracts = [
+      ["posui-payment-modal--cash", ".posui-payment-modal--cash"],
+      ["posui-payment-modal--transfer-qr-only", ".posui-payment-modal--transfer-qr-only"],
+      ["posui-transfer-qr-image", ".posui-transfer-qr-image"],
+      ["posui-payment-modal--receipt-final", ".posui-payment-modal--receipt-final"],
+      ["posui-cash-summary-row--received", ".posui-cash-summary-row--received"],
+      ["posui-cash-summary-row--accent", ".posui-cash-summary-row--accent"]
+    ] as const;
+
+    for (const [className, selector] of selectorContracts) {
+      expect(paymentModals).toContain(className);
       expect(observer).toContain(selector);
     }
     expect(observer).toContain("MutationObserver");
