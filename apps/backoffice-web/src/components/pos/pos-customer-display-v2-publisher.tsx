@@ -18,6 +18,7 @@ const SALES_SNAPSHOT_KEY = "pos_sales_snapshot_v001";
 const ACTIVE_ORDER_KEY = "pos_active_order_v001";
 const PAID_VISIBLE_MS = 12_000;
 const OPEN_PAYMENT_STALE_MS = 2 * 60_000;
+const LOCAL_STATE_SCAN_MS = 500;
 
 type CartItem = {
   product_id: string;
@@ -91,7 +92,7 @@ export function PosCustomerDisplayV2Publisher() {
   const publishedSignatureRef = useRef("");
   const inFlightRef = useRef(false);
   const pendingRef = useRef<{ payload: CustomerDisplayV2Payload; channel: string; signature: string } | null>(null);
-  const previousCartSignatureRef = useRef("");
+  const previousCartSignatureRef = useRef<string | null>(null);
 
   useEffect(() => {
     let disposed = false;
@@ -138,7 +139,9 @@ export function PosCustomerDisplayV2Publisher() {
       const cartSignature = JSON.stringify(cart.map((item) => [item.product_id, item.name, item.quantity, item.price, item.notes ?? null]));
       let lastActivityAtMs = readLastActivityAt();
 
-      if (cartSignature !== previousCartSignatureRef.current) {
+      if (previousCartSignatureRef.current === null) {
+        previousCartSignatureRef.current = cartSignature;
+      } else if (cartSignature !== previousCartSignatureRef.current) {
         previousCartSignatureRef.current = cartSignature;
         lastActivityAtMs = rememberActivity(nowMs);
       }
@@ -219,12 +222,16 @@ export function PosCustomerDisplayV2Publisher() {
     window.addEventListener("storage", onStorage);
     window.addEventListener(CUSTOMER_DISPLAY_V2_PAYMENT_EVENT, onPayment as EventListener);
     schedule(0);
-    const idleTimer = window.setInterval(() => schedule(0), 15_000);
+
+    // Browser `storage` events do not fire in the tab that performed the write.
+    // Scan only local state at low cost; `publish()` still dedupes by stable
+    // payload signature so unchanged scans do not create network requests.
+    const stateScanTimer = window.setInterval(() => schedule(0), LOCAL_STATE_SCAN_MS);
 
     return () => {
       disposed = true;
       if (timerRef.current !== null) window.clearTimeout(timerRef.current);
-      window.clearInterval(idleTimer);
+      window.clearInterval(stateScanTimer);
       window.removeEventListener("storage", onStorage);
       window.removeEventListener(CUSTOMER_DISPLAY_V2_PAYMENT_EVENT, onPayment as EventListener);
       pendingRef.current = null;
