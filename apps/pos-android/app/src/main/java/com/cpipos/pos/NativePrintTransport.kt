@@ -110,15 +110,15 @@ internal class NativePrintTransport(context: Context) {
         val html = job.metadata.optString("payload_html", "").trim()
         val paperWidthMm = job.metadata.optInt("paper_width_mm", 58).let { if (it >= 80) 80 else 58 }
         val payloadFormat = job.metadata.optString("payload_format", "").trim().lowercase()
-        val documentType = job.metadata.optString("document_type", "").trim().lowercase()
         val profileMetadata = job.printer.metadata
         val forceRichHtml = profileMetadata.optBoolean("force_rich_html_raster", false) ||
             job.metadata.optBoolean("force_rich_html_raster", false)
+
+        // Kitchen payload_text currently contains only the queue/order summary while item rows live
+        // in payload_json/HTML. Keep kitchen documents on the rich renderer until their text payload
+        // carries complete item/notes content. Receipt/test payload_text is complete and safe to use.
         val fastRasterEligible = job.payloadText.isNotBlank() && (
-            job.metadata.optBoolean("test_print", false) ||
-                payloadFormat == "receipt_html_v1" ||
-                payloadFormat == "kitchen_ticket_html_v1" ||
-                documentType == "kitchen_ticket"
+            job.metadata.optBoolean("test_print", false) || payloadFormat == "receipt_html_v1"
             )
 
         if (fastRasterEligible && !forceRichHtml) {
@@ -243,8 +243,7 @@ internal class NativePrintTransport(context: Context) {
                 requestedDeviceName.isNotEmpty() ||
                 requestedSerial.isNotEmpty() ||
                 requestedIndex != null
-        val allowGenericWritableEndpoint =
-            PrinterSelectionPolicy.usbMayUseGenericWritableEndpoint(hasExplicitPhysicalSelector)
+        val allowGenericWritableEndpoint = PrinterSelectionPolicy.usbMayUseGenericWritableEndpoint(hasExplicitPhysicalSelector)
 
         val candidates = manager.deviceList.values
             .asSequence()
@@ -307,10 +306,7 @@ internal class NativePrintTransport(context: Context) {
         )
     }
 
-    private fun findPrintableUsbTarget(
-        device: UsbDevice,
-        allowGenericWritableEndpoint: Boolean
-    ): UsbTarget? {
+    private fun findPrintableUsbTarget(device: UsbDevice, allowGenericWritableEndpoint: Boolean): UsbTarget? {
         var fallback: UsbTarget? = null
         for (interfaceIndex in 0 until device.interfaceCount) {
             val usbInterface = device.getInterface(interfaceIndex)
@@ -353,7 +349,7 @@ internal class NativePrintTransport(context: Context) {
         } else {
             "path:${device.vendorId}:${device.productId}:${device.deviceName}"
         }
-        usbBindingPrefs.edit().putString(usbBindingKey(printerId), binding).apply()
+        usbBindingPrefs.edit().putString(usbBindingKey(printer.id), binding).apply()
     }
 
     private fun bindingMatches(manager: UsbManager, binding: String, device: UsbDevice): Boolean {
@@ -363,9 +359,7 @@ internal class NativePrintTransport(context: Context) {
             val vendorId = parts[1].toIntOrNull() ?: return false
             val productId = parts[2].toIntOrNull() ?: return false
             val serial = parts[3]
-            return device.vendorId == vendorId &&
-                device.productId == productId &&
-                safeUsbSerial(manager, device)?.equals(serial, ignoreCase = true) == true
+            return device.vendorId == vendorId && device.productId == productId && safeUsbSerial(manager, device)?.equals(serial, ignoreCase = true) == true
         }
         if (binding.startsWith("path:")) {
             val parts = binding.split(":", limit = 4)
@@ -385,18 +379,11 @@ internal class NativePrintTransport(context: Context) {
 
     @Suppress("DEPRECATION")
     private fun printBluetooth(printer: NativePrinterProfile, payload: ByteArray): NativePrintResult {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
-            ContextCompat.checkSelfPermission(appContext, Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED
-        ) {
-            throw NativePrintException(
-                "bluetooth_permission_required",
-                true,
-                "Bluetooth permission is required on this POS device"
-            )
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && ContextCompat.checkSelfPermission(appContext, Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED) {
+            throw NativePrintException("bluetooth_permission_required", true, "Bluetooth permission is required on this POS device")
         }
 
-        val adapter = bluetoothManager?.adapter
-            ?: throw NativePrintException("bluetooth_not_supported", false, "Bluetooth is not available")
+        val adapter = bluetoothManager?.adapter ?: throw NativePrintException("bluetooth_not_supported", false, "Bluetooth is not available")
         if (!adapter.isEnabled) throw NativePrintException("bluetooth_disabled", true, "Bluetooth is turned off")
 
         val metadata = printer.metadata
@@ -407,28 +394,16 @@ internal class NativePrintTransport(context: Context) {
             address.isNotBlank() -> bonded.firstOrNull { it.address.equals(address, ignoreCase = true) }
             preferredName.isNotBlank() -> selectBondedBluetoothByName(bonded, preferredName)
             else -> {
-                val printerCandidates = bonded.filter { device ->
-                    PrinterSelectionPolicy.bluetoothMayAutoSelect(runCatching { device.name }.getOrNull())
-                }
+                val printerCandidates = bonded.filter { device -> PrinterSelectionPolicy.bluetoothMayAutoSelect(runCatching { device.name }.getOrNull()) }
                 when (printerCandidates.size) {
                     0 -> null
                     1 -> printerCandidates.first()
-                    else -> throw NativePrintException(
-                        "bluetooth_printer_ambiguous",
-                        false,
-                        "Multiple paired Bluetooth printer candidates are available. Configure bluetooth_address or bluetooth_name explicitly."
-                    )
+                    else -> throw NativePrintException("bluetooth_printer_ambiguous", false, "Multiple paired Bluetooth printer candidates are available. Configure bluetooth_address or bluetooth_name explicitly.")
                 }
             }
-        } ?: throw NativePrintException(
-            "bluetooth_printer_not_paired",
-            true,
-            "Bluetooth printer is not paired or the configured name/address does not match"
-        )
+        } ?: throw NativePrintException("bluetooth_printer_not_paired", true, "Bluetooth printer is not paired or the configured name/address does not match")
 
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S ||
-            ContextCompat.checkSelfPermission(appContext, Manifest.permission.BLUETOOTH_SCAN) == PackageManager.PERMISSION_GRANTED
-        ) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S || ContextCompat.checkSelfPermission(appContext, Manifest.permission.BLUETOOTH_SCAN) == PackageManager.PERMISSION_GRANTED) {
             runCatching { adapter.cancelDiscovery() }
         }
 
@@ -447,33 +422,16 @@ internal class NativePrintTransport(context: Context) {
     }
 
     @Suppress("DEPRECATION")
-    private fun selectBondedBluetoothByName(
-        bonded: List<android.bluetooth.BluetoothDevice>,
-        preferredName: String
-    ): android.bluetooth.BluetoothDevice? {
-        val exactMatches = bonded.filter { device ->
-            runCatching { device.name?.equals(preferredName, ignoreCase = true) == true }.getOrDefault(false)
-        }
+    private fun selectBondedBluetoothByName(bonded: List<android.bluetooth.BluetoothDevice>, preferredName: String): android.bluetooth.BluetoothDevice? {
+        val exactMatches = bonded.filter { device -> runCatching { device.name?.equals(preferredName, ignoreCase = true) == true }.getOrDefault(false) }
         if (exactMatches.size == 1) return exactMatches.first()
-        if (exactMatches.size > 1) {
-            throw NativePrintException(
-                "bluetooth_printer_ambiguous",
-                false,
-                "Multiple paired Bluetooth devices have the configured printer name. Configure bluetooth_address explicitly."
-            )
-        }
+        if (exactMatches.size > 1) throw NativePrintException("bluetooth_printer_ambiguous", false, "Multiple paired Bluetooth devices have the configured printer name. Configure bluetooth_address explicitly.")
 
-        val partialMatches = bonded.filter { device ->
-            runCatching { device.name?.contains(preferredName, ignoreCase = true) == true }.getOrDefault(false)
-        }
+        val partialMatches = bonded.filter { device -> runCatching { device.name?.contains(preferredName, ignoreCase = true) == true }.getOrDefault(false) }
         return when (partialMatches.size) {
             0 -> null
             1 -> partialMatches.first()
-            else -> throw NativePrintException(
-                "bluetooth_printer_ambiguous",
-                false,
-                "Multiple paired Bluetooth devices match the configured printer name. Configure bluetooth_address explicitly."
-            )
+            else -> throw NativePrintException("bluetooth_printer_ambiguous", false, "Multiple paired Bluetooth devices match the configured printer name. Configure bluetooth_address explicitly.")
         }
     }
 
