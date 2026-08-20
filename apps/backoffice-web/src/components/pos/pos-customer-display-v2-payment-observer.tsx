@@ -2,6 +2,7 @@
 
 import { useEffect, useRef } from "react";
 import {
+  CUSTOMER_DISPLAY_V2_ENABLED_KEY,
   CUSTOMER_DISPLAY_V2_PAID_VISIBLE_MS,
   CUSTOMER_DISPLAY_V2_PAYMENT_EVENT,
   CUSTOMER_DISPLAY_V2_PAYMENT_STORAGE_KEY,
@@ -31,10 +32,11 @@ export function PosCustomerDisplayV2PaymentObserver() {
   useEffect(() => {
     let disposed = false;
     let timer: number | null = null;
+    let observer: MutationObserver | null = null;
 
     const inspect = () => {
       timer = null;
-      if (disposed) return;
+      if (disposed || window.localStorage.getItem(CUSTOMER_DISPLAY_V2_ENABLED_KEY) !== "1") return;
       const nowMs = Date.now();
       const nowIso = new Date(nowMs).toISOString();
       const receipt = document.querySelector<HTMLElement>(".posui-payment-modal--receipt-final");
@@ -118,19 +120,32 @@ export function PosCustomerDisplayV2PaymentObserver() {
       timer = window.setTimeout(inspect, 40);
     };
 
-    const observer = new MutationObserver(schedule);
-    observer.observe(document.body, {
-      subtree: true,
-      childList: true,
-      characterData: true,
-      attributes: true,
-      attributeFilter: ["src"]
-    });
-    schedule();
+    const startObserverIfEnabled = () => {
+      if (disposed || observer || window.localStorage.getItem(CUSTOMER_DISPLAY_V2_ENABLED_KEY) !== "1") return;
+      observer = new MutationObserver(schedule);
+      observer.observe(document.body, {
+        subtree: true,
+        childList: true,
+        characterData: true,
+        attributes: true,
+        attributeFilter: ["src"]
+      });
+      schedule();
+    };
+
+    const onStorage = (event: StorageEvent) => {
+      if (event.key === CUSTOMER_DISPLAY_V2_ENABLED_KEY) startObserverIfEnabled();
+    };
+
+    startObserverIfEnabled();
+    window.addEventListener("storage", onStorage);
+    const activationTimer = window.setInterval(startObserverIfEnabled, 1_000);
 
     return () => {
       disposed = true;
-      observer.disconnect();
+      observer?.disconnect();
+      window.clearInterval(activationTimer);
+      window.removeEventListener("storage", onStorage);
       if (timer !== null) window.clearTimeout(timer);
     };
   }, []);
