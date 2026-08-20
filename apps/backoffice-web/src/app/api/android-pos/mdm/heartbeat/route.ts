@@ -9,14 +9,42 @@ const SAFE_MDM_COMMANDS = new Set([
   "clear_webview_cache",
   "clear_cookies",
   "clear_webview_data",
-  "test_printer_connection"
+  "test_printer_connection",
+  "test_printer_verification"
 ]);
 
 const MDM_RELOAD_GENERATION_MS = 1786478151547;
+const PRINTER_VERIFICATION_RETRY_DELAY_MS = 5_000;
+const PRINTER_VERIFICATION_MAX_RETRIES = 3;
+const PRINTER_PROBE_MAX_WINDOW_MS = 30 * 60_000;
+const PRINTER_VERIFICATION_PRINT_MAX_WINDOW_MS = 5 * 60_000;
 
-type AndroidPosMdmCommand = { id?: string; action?: string; reason?: string };
+type PrinterVerificationEnvelope = {
+  mode: "probe" | "verification_print";
+  target_fingerprint: string;
+  issued_at_ms: number;
+  expires_at_ms: number;
+  operator_confirmed: boolean;
+};
+type AndroidPosMdmCommand = {
+  id?: string;
+  action?: string;
+  reason?: string;
+  printer_verification?: PrinterVerificationEnvelope;
+};
 type PairedDevice = { id: string; device_code: string; metadata: Record<string, unknown> | null };
-type PendingPrinterCommand = { id: string; issued_at: string };
+type PendingPrinterCommand = {
+  id: string;
+  issued_at: string;
+  expires_at: string;
+  metadata: Record<string, unknown> | null;
+  result: Record<string, unknown> | null;
+};
+type DeliveredPrinterCommand = {
+  id: string;
+  expires_at: string;
+  result: Record<string, unknown> | null;
+};
 type PendingUiCommand = { id: string; command_type: "reload_ui" | "refresh_config"; issued_at: string; metadata: Record<string, unknown> | null };
 
 function noStoreHeaders() {
@@ -37,7 +65,7 @@ function parseSafeCommandsFromEnv(): AndroidPosMdmCommand[] {
       if (!value || typeof value !== "object") return null;
       const row = value as Record<string, unknown>;
       const action = String(row.action ?? "").trim().toLowerCase();
-      if (!SAFE_MDM_COMMANDS.has(action)) return null;
+      if (!SAFE_MDM_COMMANDS.has(action) || action === "test_printer_verification") return null;
       return { id: String(row.id ?? `env-${action}`).slice(0, 80), action, reason: String(row.reason ?? "env_control").slice(0, 160) };
     }).filter((value): value is AndroidPosMdmCommand => Boolean(value)).slice(0, 5);
   } catch {
@@ -85,6 +113,39 @@ function resolvePersistedRuntimeCapabilities(metadata: Record<string, unknown>, 
   return asRecord(metadata.android_mdm_runtime_capabilities);
 }
 
+function buildPrinterVerificationEnvelope(row: PendingPrinterCommand): PrinterVerificationEnvelope | null {
+  const metadata = asRecord(row.metadata);
+  const nested = asRecord(metadata.printer_verification);
+  const source = Object.keys(nested).length > 0 ? nested : metadata;
+  const modeRaw = String(source.mode ?? "").trim().toLowerCase();
+  if (modeRaw !== "probe" && modeRaw !== "verification_print") return null;
+
+  const targetFingerprint = String(source.target_fingerprint ?? source.device_fingerprint ?? "").trim().toLowerCase();
+  if (!targetFingerprint || targetFingerprint.length > 240) return null;
+
+  const issuedAtMs = Date.parse(row.issued_at);
+  const databaseExpiresAtMs = Date.parse(row.expires_at);
+  if (!Number.isFinite(issuedAtMs) || !Number.isFinite(databaseExpiresAtMs)) return null;
+  const maxWindowMs = modeRaw === "verification_print"
+    ? PRINTER_VERIFICATION_PRINT_MAX_WINDOW_MS
+    : PRINTER_PROBE_MAX_WINDOW_MS;
+
+  return {
+    mode: modeRaw,
+    target_fingerprint: targetFingerprint,
+    issued_at_ms: issuedAtMs,
+    expires_at_ms: Math.min(databaseExpiresAtMs, issuedAtMs + maxWindowMs),
+    operator_confirmed: source.operator_confirmed === true
+  };
+}
+
+function printerCommandRetryReady(row: PendingPrinterCommand, nowMs: number): boolean {
+  const retryAfter = String(asRecord(row.result).retry_after_at ?? "").trim();
+  if (!retryAfter) return true;
+  const retryAfterMs = Date.parse(retryAfter);
+  return !Number.isFinite(retryAfterMs) || retryAfterMs <= nowMs;
+}
+
 async function findPairedDevice(installId: string | null): Promise<PairedDevice | null> {
   if (!installId) return null;
   const supabase = getSupabaseServiceClient();
@@ -114,28 +175,70 @@ async function findPairedDevice(installId: string | null): Promise<PairedDevice 
 
 async function acknowledgePreviousPrinterTest(device: PairedDevice, payload: Record<string, unknown> | null, appVersion: string | null) {
   const lastCommand = asRecord(payload?.last_command);
-  if (String(lastCommand.action ?? "").trim().toLowerCase() !== "test_printer_connection") return;
+  const action = String(lastCommand.action ?? "").trim().toLowerCase();
+  if (action !== "test_printer_connection" && action !== "test_printer_verification") return;
+
+  const commandId = String(lastCommand.command_id ?? "").trim();
+  const commandResult = asRecord(lastCommand.result);
   const printer = asRecord(payload?.printer);
   const supabase = getSupabaseServiceClient();
-  const { data: row } = await supabase
-    .from("device_commands")
-    .select("id")
-    .eq("pos_device_id", device.id)
-    .eq("command_type", "test_printer")
-    .eq("status", "delivered")
-    .order("delivered_at", { ascending: false })
-    .limit(1)
-    .maybeSingle<{ id: string }>();
+
+  let row: DeliveredPrinterCommand | null = null;
+  if (action === "test_printer_verification") {
+    if (!/^[0-9a-f-]{36}$/i.test(commandId)) return;
+    const response = await supabase
+      .from("device_commands")
+      .select("id,expires_at,result")
+      .eq("id", commandId)
+      .eq("pos_device_id", device.id)
+      .eq("command_type", "test_printer")
+      .eq("status", "delivered")
+      .maybeSingle<DeliveredPrinterCommand>();
+    row = response.data ?? null;
+  } else {
+    const response = await supabase
+      .from("device_commands")
+      .select("id,expires_at,result")
+      .eq("pos_device_id", device.id)
+      .eq("command_type", "test_printer")
+      .eq("status", "delivered")
+      .order("delivered_at", { ascending: false })
+      .limit(1)
+      .maybeSingle<DeliveredPrinterCommand>();
+    row = response.data ?? null;
+  }
   if (!row) return;
-  await supabase.from("device_commands").update({
-    result: {
-      applied: true,
-      mdm_action: "test_printer_connection",
-      app_version: appVersion,
-      printer,
-      acknowledged_at: new Date().toISOString()
-    }
-  }).eq("id", row.id);
+
+  const applied = action === "test_printer_connection" ? true : commandResult.ok === true;
+  const retryable = action === "test_printer_verification" && !applied && commandResult.retryable === true;
+  const previousResult = asRecord(row.result);
+  const retryCount = Number(previousResult.retry_count ?? 0);
+  const expiresAtMs = Date.parse(row.expires_at);
+  const mayRetry = retryable &&
+    Number.isFinite(expiresAtMs) &&
+    expiresAtMs > Date.now() + PRINTER_VERIFICATION_RETRY_DELAY_MS &&
+    retryCount < PRINTER_VERIFICATION_MAX_RETRIES;
+  const result = {
+    applied,
+    mdm_action: action,
+    app_version: appVersion,
+    printer,
+    verification: commandResult,
+    retry_count: mayRetry ? retryCount + 1 : retryCount,
+    retry_after_at: mayRetry ? new Date(Date.now() + PRINTER_VERIFICATION_RETRY_DELAY_MS).toISOString() : null,
+    acknowledged_at: new Date().toISOString()
+  };
+
+  if (mayRetry) {
+    await supabase.from("device_commands").update({
+      status: "pending",
+      delivered_at: null,
+      result
+    }).eq("id", row.id);
+    return;
+  }
+
+  await supabase.from("device_commands").update({ result }).eq("id", row.id);
 }
 
 async function acknowledgePreviousUiReload(device: PairedDevice, payload: Record<string, unknown> | null, appVersion: string | null) {
@@ -226,21 +329,37 @@ async function deliverUiReloadCommands(device: PairedDevice): Promise<AndroidPos
 async function deliverPrinterTestCommands(device: PairedDevice): Promise<AndroidPosMdmCommand[]> {
   const supabase = getSupabaseServiceClient();
   const now = new Date();
+  const nowIso = now.toISOString();
   await supabase.from("device_commands").update({ status: "expired" })
-    .eq("pos_device_id", device.id).eq("command_type", "test_printer").eq("status", "pending").lte("expires_at", now.toISOString());
+    .eq("pos_device_id", device.id).eq("command_type", "test_printer").eq("status", "pending").lte("expires_at", nowIso);
   const { data: rows, error } = await supabase.from("device_commands")
-    .select("id,issued_at")
+    .select("id,issued_at,expires_at,metadata,result")
     .eq("pos_device_id", device.id)
     .eq("command_type", "test_printer")
     .eq("status", "pending")
-    .gt("expires_at", now.toISOString())
+    .gt("expires_at", nowIso)
     .order("issued_at", { ascending: true })
     .limit(3)
     .returns<PendingPrinterCommand[]>();
   if (error || !rows?.length) return [];
-  const ids = rows.map((row) => row.id);
-  await supabase.from("device_commands").update({ status: "delivered", delivered_at: now.toISOString() }).in("id", ids);
-  return rows.map((row) => ({ id: row.id, action: "test_printer_connection", reason: "printer_settings_mdm" }));
+
+  const readyRows = rows.filter((row) => printerCommandRetryReady(row, now.getTime()));
+  if (!readyRows.length) return [];
+  const ids = readyRows.map((row) => row.id);
+  await supabase.from("device_commands").update({ status: "delivered", delivered_at: nowIso }).in("id", ids);
+
+  return readyRows.map((row) => {
+    const verification = buildPrinterVerificationEnvelope(row);
+    if (!verification) {
+      return { id: row.id, action: "test_printer_connection", reason: "printer_settings_mdm" };
+    }
+    return {
+      id: row.id,
+      action: "test_printer_verification",
+      reason: verification.mode === "probe" ? "printer_target_probe" : "printer_one_time_verification",
+      printer_verification: verification
+    };
+  });
 }
 
 export async function GET() {
