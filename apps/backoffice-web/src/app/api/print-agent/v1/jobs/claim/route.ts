@@ -49,7 +49,12 @@ export async function POST(req: Request) {
           ...(hasHtmlPayload
             ? {
                 html_paper_width_mm: paperWidthMm,
-                print_format: `html_${paperWidthMm}mm`
+                print_format: `html_${paperWidthMm}mm`,
+                // Customer-facing documents must preserve the established HTML layout. Modern
+                // Android runtimes may optimize queue wake-up, but they must not replace receipt,
+                // kitchen-ticket or payment-notice typography with a simplified native layout.
+                force_rich_html_raster: true,
+                render_policy: "legacy_rich_html_v1"
               }
             : {})
         }
