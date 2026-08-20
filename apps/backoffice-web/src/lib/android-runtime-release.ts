@@ -8,11 +8,11 @@ export const ANDROID_STABLE_RELEASE = {
 } as const;
 
 export const ANDROID_MODERN_RELEASE = {
-  versionName: "1.0.17",
-  versionCode: 23,
+  versionName: "1.0.18",
+  versionCode: 24,
   channel: "modern",
-  releaseTag: "android-runtime-modern-1.0.17",
-  assetName: "CpIPOS-Android-POS-1.0.17.apk",
+  releaseTag: "android-runtime-modern-1.0.18",
+  assetName: "CpIPOS-Android-POS-1.0.18.apk",
   compatibilityAssetName: "CpIPOS-Android-POS-Modern.apk",
   downloadPath: "/download/android/modern-latest",
   downloadUrl: "https://cp-ipos-web.vercel.app/download/android/modern-latest"
