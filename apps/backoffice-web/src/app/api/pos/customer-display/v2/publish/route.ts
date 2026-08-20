@@ -1,7 +1,7 @@
 import { buildCustomerDisplayV2Channel, type CustomerDisplayV2Payload } from "@/lib/customer-display-v2";
 import { fail, ok } from "@/lib/http";
-import { requirePosApiFeature } from "@/lib/pos-api-feature-guard";
-import { requirePermission, requirePosSession } from "@/lib/pos-session-guard";
+import { featureGateFail, requirePosApiFeature } from "@/lib/pos-api-feature-guard";
+import { PosGuardError, requirePermission, requirePosSession } from "@/lib/pos-session-guard";
 import { invalidateRuntimeCacheByPrefix } from "@/lib/route-runtime-cache";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
 
@@ -134,10 +134,18 @@ export async function POST(req: Request) {
     response.headers.set("x-pos-customer-display-v2-ms", String(Date.now() - startedAt));
     return response;
   } catch (error) {
+    const featureError = featureGateFail(error);
+    if (featureError) {
+      featureError.headers.set("x-pos-customer-display-v2-ms", String(Date.now() - startedAt));
+      return featureError;
+    }
+    if (error instanceof PosGuardError) {
+      const response = fail(error.code, error.message, error.status);
+      response.headers.set("x-pos-customer-display-v2-ms", String(Date.now() - startedAt));
+      return response;
+    }
     const message = error instanceof Error ? error.message : "Unknown error";
-    const lower = message.toLowerCase();
-    const status = lower.includes("authenticated") || lower.includes("session") ? 401 : lower.includes("permission") || lower.includes("forbidden") ? 403 : 500;
-    const response = fail(status === 401 ? "unauthorized" : status === 403 ? "forbidden" : "customer_display_v2_publish_failed", message, status);
+    const response = fail("customer_display_v2_publish_failed", message, 500);
     response.headers.set("x-pos-customer-display-v2-ms", String(Date.now() - startedAt));
     return response;
   }
