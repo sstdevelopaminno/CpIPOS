@@ -197,14 +197,37 @@ function sameDiscoveryIdentity(row: DiscoveredPhysicalRow, body: Payload, mode: 
 
 async function resolveCreatePhysicalTarget(tenantId: string, branchId: string, body: Payload, mode: CustomerConnectionMode): Promise<CreatePhysicalTarget> {
   const explicit = clean(body.device_fingerprint)?.toLowerCase();
-  if (explicit) return { fingerprint: explicit, discoveredDeviceId: null, discoveredMetadata: {} };
-
   const runtimeCode = clean(body.runtime_device_code);
+  const supabase = getSupabaseServiceClient();
+
+  if (explicit) {
+    const { data: exact, error: exactError } = await supabase.from("printer_devices")
+      .select("id,printer_profile_id,display_name,brand,model,connection_mode,paper_width_mm,device_fingerprint,runtime_device_code,status,capabilities,last_seen_at,disconnected_at,is_active,metadata,created_at,updated_at")
+      .eq("tenant_id", tenantId)
+      .eq("branch_id", branchId)
+      .eq("device_fingerprint", explicit)
+      .maybeSingle<DiscoveredPhysicalRow & { printer_profile_id: string | null }>();
+    if (exactError) throw new Error(exactError.message);
+    if (!exact) {
+      return { fingerprint: explicit, discoveredDeviceId: null, discoveredMetadata: {} };
+    }
+    if (exact.printer_profile_id) throw new Error("printer_physical_target_already_claimed");
+    if (!exact.is_active) throw new Error("printer_physical_target_disconnected");
+    if (exact.connection_mode !== mode) throw new Error("printer_physical_target_mode_mismatch");
+    if (runtimeCode && exact.runtime_device_code && exact.runtime_device_code !== runtimeCode) {
+      throw new Error("printer_physical_target_runtime_mismatch");
+    }
+    return {
+      fingerprint: explicit,
+      discoveredDeviceId: exact.id,
+      discoveredMetadata: asRecord(exact.metadata)
+    };
+  }
+
   if (!runtimeCode || mode === "lan") {
     return { fingerprint: buildFingerprint(body, mode), discoveredDeviceId: null, discoveredMetadata: {} };
   }
 
-  const supabase = getSupabaseServiceClient();
   const { data, error } = await supabase.from("printer_devices")
     .select("id,display_name,brand,model,connection_mode,paper_width_mm,device_fingerprint,runtime_device_code,status,capabilities,last_seen_at,disconnected_at,is_active,metadata,created_at,updated_at")
     .eq("tenant_id", tenantId)
@@ -277,10 +300,12 @@ function validationFailure(message: string) {
   if (message === "discovered_printer_ambiguous") return fail(message, "พบเครื่องพิมพ์ที่ตรงกันมากกว่า 1 เครื่อง กรุณาเลือก physical target ให้ชัดเจน", 409);
   if (message === "printer_physical_target_already_claimed") return fail(message, "เครื่องพิมพ์ physical นี้ถูกผูกกับเส้นทางพิมพ์แล้ว", 409);
   if (message === "printer_physical_target_disconnected") return fail(message, "เครื่องพิมพ์นี้ถูกผู้ใช้ยกเลิกการเชื่อมต่อไว้ กรุณาเชื่อมต่อใหม่ก่อน", 409);
+  if (message === "printer_physical_target_mode_mismatch") return fail(message, "โหมดการเชื่อมต่อไม่ตรงกับเครื่องพิมพ์ที่ตรวจพบ กรุณารีเฟรชรายการแล้วเลือกใหม่", 409);
+  if (message === "printer_physical_target_runtime_mismatch") return fail(message, "เครื่องพิมพ์นี้ถูกตรวจพบจากเครื่อง POS คนละเครื่อง กรุณาตั้งค่าเส้นทางจากเครื่อง POS ที่เชื่อมต่อจริง", 409);
   return fail(message, "ข้อมูลเครื่องพิมพ์ไม่ครบ", 422);
 }
 function isValidationError(message: string) {
-  return message === "printer_name_required" || message === "connection_mode_invalid" || message === "paper_width_invalid" || message === "purpose_required" || message === "lan_ip_required" || message === "discovered_printer_ambiguous" || message === "printer_physical_target_already_claimed" || message === "printer_physical_target_disconnected" || message.startsWith("printer_zone_invalid:");
+  return message === "printer_name_required" || message === "connection_mode_invalid" || message === "paper_width_invalid" || message === "purpose_required" || message === "lan_ip_required" || message === "discovered_printer_ambiguous" || message === "printer_physical_target_already_claimed" || message === "printer_physical_target_disconnected" || message === "printer_physical_target_mode_mismatch" || message === "printer_physical_target_runtime_mismatch" || message.startsWith("printer_zone_invalid:");
 }
 
 export async function GET() {
