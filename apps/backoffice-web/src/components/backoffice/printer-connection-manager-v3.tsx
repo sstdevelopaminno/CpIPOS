@@ -16,6 +16,7 @@ type Device = {
   model: string | null;
   connection_mode: Mode;
   paper_width_mm: 58 | 80;
+  device_fingerprint: string | null;
   runtime_device_code: string | null;
   status: string;
   capabilities: Record<string, unknown>;
@@ -54,8 +55,8 @@ type Envelope<T> = { data?: T; error?: { code?: string; message?: string } };
 
 const modeCards: Array<{ mode: Mode; title: string; icon: string; desc: string; help: string }> = [
   { mode: "lan", title: "LAN", icon: "▣", desc: "เชื่อมต่อผ่านเครือข่ายร้าน", help: "เหมาะกับครัวและเครื่องพิมพ์ประจำจุด" },
-  { mode: "usb", title: "USB", icon: "⌁", desc: "ต่อสายตรงกับเครื่อง POS", help: "แนะนำสำหรับแคชเชียร์และลิ้นชัก" },
-  { mode: "bluetooth", title: "Bluetooth", icon: "ᛒ", desc: "เชื่อมต่อไร้สายใกล้เครื่อง", help: "เหมาะกับ Android และจุดขายเคลื่อนที่" }
+  { mode: "usb", title: "USB", icon: "⌁", desc: "ต่อสายตรงกับเครื่อง POS", help: "Modern Runtime ตรวจพบอัตโนมัติเมื่ออุปกรณ์ยืนยันตัวตนได้" },
+  { mode: "bluetooth", title: "Bluetooth", icon: "ᛒ", desc: "เชื่อมต่อไร้สายใกล้เครื่อง", help: "Modern Runtime แสดงอุปกรณ์ printer ที่จับคู่ไว้โดยใช้ physical fingerprint" }
 ];
 const purposes: Array<{ value: Purpose; label: string }> = [
   { value: "receipt", label: "ใบเสร็จหน้าขาย" },
@@ -70,6 +71,7 @@ const purposes: Array<{ value: Purpose; label: string }> = [
 const zonedPurposes: ZonedPurpose[] = ["kitchen", "drink", "bar"];
 const PAGE_SIZE = 5;
 const API_TIMEOUT_MS = 10_000;
+const AUTO_REFRESH_MS = 15_000;
 let sessionRedirectInFlight = false;
 
 class ApiClientError extends Error {
@@ -87,7 +89,6 @@ class ApiClientError extends Error {
 async function redirectExpiredPosSession() {
   if (sessionRedirectInFlight || typeof window === "undefined") return;
   sessionRedirectInFlight = true;
-
   const controller = new AbortController();
   const timer = window.setTimeout(() => controller.abort(), 1500);
   try {
@@ -99,8 +100,7 @@ async function redirectExpiredPosSession() {
       signal: controller.signal
     });
   } catch {
-    // The failed protected API response also clears stale POS cookies. Redirect even if
-    // this best-effort logout call times out so the user is never stranded on settings.
+    // Best effort only; redirect remains authoritative when the protected API says session expired.
   } finally {
     window.clearTimeout(timer);
     window.location.replace("/login/store");
@@ -110,7 +110,6 @@ async function redirectExpiredPosSession() {
 async function api<T>(url: string, init?: RequestInit): Promise<T> {
   const controller = new AbortController();
   const timer = window.setTimeout(() => controller.abort(), API_TIMEOUT_MS);
-
   try {
     const response = await fetch(url, {
       ...init,
@@ -120,24 +119,22 @@ async function api<T>(url: string, init?: RequestInit): Promise<T> {
     });
     const body = (await response.json().catch(() => ({}))) as Envelope<T> & T;
     const code = body.error?.code?.trim() || null;
-
     if (!response.ok || body.error) {
       const error = new ApiClientError(body.error?.message ?? "ดำเนินการไม่สำเร็จ", response.status, code);
-      if (response.status === 401 || code === "session_expired" || code === "session_not_active") {
-        void redirectExpiredPosSession();
-      }
+      if (response.status === 401 || code === "session_expired" || code === "session_not_active") void redirectExpiredPosSession();
       throw error;
     }
-
     return (body.data ?? body) as T;
   } catch (error) {
-    if (error instanceof DOMException && error.name === "AbortError") {
-      throw new Error("การเชื่อมต่อใช้เวลานานเกิน 10 วินาที กรุณาลองใหม่");
-    }
+    if (error instanceof DOMException && error.name === "AbortError") throw new Error("การเชื่อมต่อใช้เวลานานเกิน 10 วินาที กรุณาลองใหม่");
     throw error;
   } finally {
     window.clearTimeout(timer);
   }
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
 }
 
 function fmt(value?: string | null) {
@@ -170,6 +167,7 @@ function statusLabel(status: string) {
 
 function historyLabel(eventType: string) {
   const map: Record<string, string> = {
+    discovered: "ตรวจพบอัตโนมัติ",
     connected: "เชื่อมต่อ",
     reconnected: "เชื่อมต่อใหม่",
     updated: "แก้ไขการตั้งค่า",
@@ -182,6 +180,16 @@ function historyLabel(eventType: string) {
     drawer_test_failed: "ทดสอบลิ้นชักไม่สำเร็จ"
   };
   return map[eventType] ?? eventType;
+}
+
+function verificationLabel(device: Device) {
+  const verification = asRecord(asRecord(device.metadata).auto_verification);
+  const state = String(verification.state ?? "");
+  if (state === "verified") return "พิมพ์ทดสอบครั้งแรกแล้ว";
+  if (state === "in_flight" || state === "pending") return "กำลังพิมพ์ทดสอบครั้งแรก";
+  if (state === "runtime_upgrade_required") return "ออนไลน์ · รอ runtime รองรับการทดสอบอัตโนมัติ";
+  if (state === "needs_check") return "พิมพ์ทดสอบไม่ผ่าน · กรุณาตรวจสอบ";
+  return null;
 }
 
 function emptyZoneSelections(): Record<ZonedPurpose, string[]> {
@@ -199,6 +207,7 @@ export function PrinterConnectionManagerV3() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [editId, setEditId] = useState<string | null>(null);
+  const [physicalFingerprint, setPhysicalFingerprint] = useState<string | null>(null);
   const [name, setName] = useState("");
   const [brand, setBrand] = useState("");
   const [model, setModel] = useState("");
@@ -220,6 +229,17 @@ export function PrinterConnectionManagerV3() {
 
   useEffect(() => {
     void load();
+    const intervalId = window.setInterval(() => {
+      if (document.visibilityState === "visible") void load();
+    }, AUTO_REFRESH_MS);
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") void load();
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      window.clearInterval(intervalId);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
   }, [load]);
 
   const filtered = useMemo(() => (registry?.devices ?? []).filter((device) => {
@@ -236,6 +256,7 @@ export function PrinterConnectionManagerV3() {
 
   function resetForm(nextMode: Mode = mode) {
     setEditId(null);
+    setPhysicalFingerprint(null);
     setMode(nextMode);
     setName("");
     setBrand("");
@@ -250,6 +271,7 @@ export function PrinterConnectionManagerV3() {
 
   function applyCandidate(item: Candidate) {
     setEditId(null);
+    setPhysicalFingerprint(null);
     setMode(item.mode);
     setName(item.name);
     setModel(item.name);
@@ -266,6 +288,7 @@ export function PrinterConnectionManagerV3() {
 
   function edit(device: Device) {
     setEditId(device.printer_profile_id);
+    setPhysicalFingerprint(device.device_fingerprint);
     setMode(device.connection_mode);
     setName(device.display_name);
     setBrand(device.brand ?? "");
@@ -281,6 +304,9 @@ export function PrinterConnectionManagerV3() {
     setRuntimeCode(device.runtime_device_code ?? "");
     setIp(device.ip_address ?? "");
     setPort(String(device.port ?? 9100));
+    if (!device.printer_profile_id) {
+      setNotice(`ตรวจพบ ${device.display_name} อัตโนมัติแล้ว กรุณาเลือกเส้นทางพิมพ์ที่ต้องการก่อนบันทึก`);
+    }
     document.getElementById("printer-v3-config")?.scrollIntoView({ behavior: "smooth", block: "start" });
   }
 
@@ -316,6 +342,7 @@ export function PrinterConnectionManagerV3() {
       const data = await api<Discovery>(`/api/backoffice/printers/discover?mode=${mode}`);
       setCandidates(data.items);
       setNotice(data.note || `ค้นหา ${mode.toUpperCase()} เสร็จแล้ว`);
+      await load();
     } catch (err) {
       setError(err instanceof Error ? err.message : "ค้นหาอุปกรณ์ไม่สำเร็จ");
     } finally {
@@ -331,7 +358,7 @@ export function PrinterConnectionManagerV3() {
       return;
     }
     if (!selectedPurposes.length) {
-      setError("กรุณาเลือกอย่างน้อย 1 หน้าที่");
+      setError("กรุณาเลือกอย่างน้อย 1 เส้นทางพิมพ์ก่อนบันทึก");
       return;
     }
     if (mode === "lan" && !ip.trim()) {
@@ -352,10 +379,11 @@ export function PrinterConnectionManagerV3() {
         ip_address: ip.trim() || null,
         port: Number(port || 9100),
         runtime_device_code: runtimeCode.trim() || null,
+        device_fingerprint: physicalFingerprint,
         enabled: true
       };
       await api("/api/backoffice/printers/devices", { method: editId ? "PATCH" : "POST", body: JSON.stringify(payload) });
-      setNotice(editId ? "อัปเดตเครื่องพิมพ์และเส้นทางพิมพ์แล้ว" : "เชื่อมต่อ บันทึก และตั้งเส้นทางพิมพ์แล้ว");
+      setNotice(editId ? "อัปเดตเครื่องพิมพ์และเส้นทางพิมพ์แล้ว" : physicalFingerprint ? "บันทึกเส้นทางพิมพ์ให้เครื่องที่ตรวจพบแล้ว" : "เชื่อมต่อ บันทึก และตั้งเส้นทางพิมพ์แล้ว");
       resetForm(mode);
       await load();
     } catch (err) {
@@ -370,10 +398,7 @@ export function PrinterConnectionManagerV3() {
     setError(null);
     setNotice(null);
     try {
-      await api("/api/backoffice/printers/devices", {
-        method: "PATCH",
-        body: JSON.stringify({ printer_id: printerId, action: "reconnect" })
-      });
+      await api("/api/backoffice/printers/devices", { method: "PATCH", body: JSON.stringify({ printer_id: printerId, action: "reconnect" }) });
       setNotice("เชื่อมต่อเครื่องพิมพ์ใหม่แล้ว ระบบเปิด profile สำหรับรับงานพิมพ์อีกครั้ง");
       setCandidates([]);
       await load();
@@ -385,24 +410,19 @@ export function PrinterConnectionManagerV3() {
   }
 
   async function runAction(device: Device, action: "test" | "drawer" | "disconnect" | "delete") {
-    if (!device.printer_profile_id) return;
+    if (!device.printer_profile_id) {
+      setNotice("เครื่องนี้ตรวจพบอัตโนมัติแล้ว แต่ยังไม่มีเส้นทางพิมพ์ กรุณากด ตั้งค่าเส้นทาง ก่อนใช้งานคำสั่งนี้");
+      return;
+    }
     if (action === "delete" && !confirm(`ลบ ${device.display_name} ออกจากรายการใช้งาน? ประวัติจะยังเก็บไว้`)) return;
     setBusy(`${action}:${device.id}`);
     setError(null);
     setNotice(null);
     try {
-      if (action === "test") {
-        await api("/api/backoffice/printers/test", { method: "POST", body: JSON.stringify({ printer_id: device.printer_profile_id }) });
-      }
-      if (action === "drawer") {
-        await api("/api/backoffice/printers/drawer-test", { method: "POST", body: JSON.stringify({ printer_id: device.printer_profile_id }) });
-      }
-      if (action === "disconnect") {
-        await api("/api/backoffice/printers/devices", { method: "PATCH", body: JSON.stringify({ printer_id: device.printer_profile_id, action: "disconnect" }) });
-      }
-      if (action === "delete") {
-        await api("/api/backoffice/printers/devices", { method: "DELETE", body: JSON.stringify({ printer_id: device.printer_profile_id }) });
-      }
+      if (action === "test") await api("/api/backoffice/printers/test", { method: "POST", body: JSON.stringify({ printer_id: device.printer_profile_id }) });
+      if (action === "drawer") await api("/api/backoffice/printers/drawer-test", { method: "POST", body: JSON.stringify({ printer_id: device.printer_profile_id }) });
+      if (action === "disconnect") await api("/api/backoffice/printers/devices", { method: "PATCH", body: JSON.stringify({ printer_id: device.printer_profile_id, action: "disconnect" }) });
+      if (action === "delete") await api("/api/backoffice/printers/devices", { method: "DELETE", body: JSON.stringify({ printer_id: device.printer_profile_id }) });
       setNotice(action === "test"
         ? "ส่งงานพิมพ์ทดสอบแล้ว"
         : action === "drawer"
@@ -418,13 +438,15 @@ export function PrinterConnectionManagerV3() {
     }
   }
 
+  const configuringDiscovered = Boolean(physicalFingerprint && !editId);
+
   return <div className={styles.page}>
     <div className={styles.header}>
       <div className={styles.titleWrap}>
         <div className={styles.titleIcon}>▤</div>
         <div>
           <h1 className={styles.title}>ตั้งค่าเครื่องพิมพ์</h1>
-          <p className={styles.subtitle}>แยกการตั้งค่าตามเจ้าของร้าน → สาขา → เครื่อง POS → หน้าที่พิมพ์/โซนครัว รองรับกระดาษ 58 และ 80 mm</p>
+          <p className={styles.subtitle}>Modern Runtime ตรวจพบเครื่องพิมพ์อัตโนมัติ; ลูกค้าเป็นผู้กำหนดเส้นทางพิมพ์ตาม สาขา → เครื่อง POS → หน้าที่/โซนครัว</p>
         </div>
       </div>
       <div className={styles.topActions}>
@@ -464,7 +486,7 @@ export function PrinterConnectionManagerV3() {
       <div className={styles.sectionHead}>
         <div>
           <h2 className={styles.sectionTitle}>✣ ค้นหาอุปกรณ์ที่ระบบรองรับ</h2>
-          <span className={styles.hint}>แสดง Runtime / Android / MDM และโปรไฟล์ที่ระบบรู้จักอยู่แล้ว; Web App ไม่สแกนวง LAN โดยตรง</span>
+          <span className={styles.hint}>Modern Android 1.0.17+ ส่ง USB/Bluetooth inventory เข้าระบบอัตโนมัติและรายการด้านล่างรีเฟรชทุก 15 วินาที; ปุ่มนี้ใช้ตรวจ Runtime/โปรไฟล์เพิ่มเติม ส่วน LAN ยังคงกรอก IP/Port เอง</span>
         </div>
         <button className={styles.primary} onClick={() => void discover()} disabled={discovering}>{discovering ? "กำลังค้นหา..." : "⌕ ค้นหาอุปกรณ์"}</button>
       </div>
@@ -477,16 +499,16 @@ export function PrinterConnectionManagerV3() {
           </div>
           {item.printer_profile_id ? item.status === "disabled" ? <button className={styles.secondary} onClick={() => void reconnectPrinter(item.printer_profile_id!, item.id)} disabled={busy === `reconnect:${item.id}`}>{busy === `reconnect:${item.id}` ? "กำลังเชื่อมต่อ..." : "เชื่อมต่อใหม่"}</button> : <button className={styles.secondary} disabled>บันทึกไว้แล้ว</button> : <button className={styles.secondary} onClick={() => applyCandidate(item)}>ใช้เครื่องนี้</button>}
         </div>)}
-      </div> : <div className={styles.empty}>กดค้นหาเพื่อดู Runtime / Android / MDM หรือโปรไฟล์ที่บันทึกไว้ หากเป็น LAN ให้เพิ่มเครื่องแล้วกรอก IP/Port ด้านล่าง</div>}
+      </div> : <div className={styles.empty}>เครื่องที่ Modern Runtime ตรวจพบอัตโนมัติจะแสดงใน “รายการเครื่องพิมพ์” ด้านล่าง ส่วนปุ่มค้นหาใช้ดู Runtime/Agent/โปรไฟล์ที่ระบบรู้จักเพิ่มเติม</div>}
     </section>
 
     <section id="printer-v3-config" className={`${styles.panel} ${styles.config}`}>
       <div className={styles.sectionHead}>
         <div>
-          <h2 className={styles.sectionTitle}>{editId ? "แก้ไขเครื่องพิมพ์และเส้นทาง" : "+ เพิ่มเครื่องพิมพ์"}</h2>
-          <span className={styles.hint}>การตั้งค่านี้มีผลเฉพาะสาขาปัจจุบัน เครื่อง POS และเครื่องพิมพ์ของสาขาอื่นไม่ถูกแก้ไข</span>
+          <h2 className={styles.sectionTitle}>{editId ? "แก้ไขเครื่องพิมพ์และเส้นทาง" : configuringDiscovered ? "ตั้งค่าเส้นทางให้เครื่องที่ตรวจพบอัตโนมัติ" : "+ เพิ่มเครื่องพิมพ์"}</h2>
+          <span className={styles.hint}>{configuringDiscovered ? "ระบบล็อก physical fingerprint ของเครื่องนี้ไว้แล้ว การเลือกด้านล่างเป็นการตั้ง routing เท่านั้นและไม่เปลี่ยนเครื่องพิมพ์ตัวอื่น" : "การตั้งค่านี้มีผลเฉพาะสาขาปัจจุบัน เครื่อง POS และเครื่องพิมพ์ของสาขาอื่นไม่ถูกแก้ไข"}</span>
         </div>
-        {editId ? <button className={styles.ghost} onClick={() => resetForm(mode)}>ยกเลิกแก้ไข</button> : null}
+        {(editId || configuringDiscovered) ? <button className={styles.ghost} onClick={() => resetForm(mode)}>ยกเลิก</button> : null}
       </div>
       <div className={styles.formGrid}>
         <div className={styles.wide}>
@@ -503,7 +525,7 @@ export function PrinterConnectionManagerV3() {
         </div>
         <div>
           <span className={styles.label}>รูปแบบเชื่อมต่อ</span>
-          <select className={styles.select} value={mode} onChange={(event) => setMode(event.target.value as Mode)}><option value="lan">LAN</option><option value="usb">USB</option><option value="bluetooth">Bluetooth</option></select>
+          <select className={styles.select} value={mode} disabled={configuringDiscovered} onChange={(event) => setMode(event.target.value as Mode)}><option value="lan">LAN</option><option value="usb">USB</option><option value="bluetooth">Bluetooth</option></select>
         </div>
         <div>
           <span className={styles.label}>ขนาดกระดาษ</span>
@@ -542,14 +564,14 @@ export function PrinterConnectionManagerV3() {
             </div>
           </> : <div>
             <span className={styles.label}>รหัสเครื่อง POS / Runtime</span>
-            <input className={styles.input} value={runtimeCode} onChange={(event) => setRuntimeCode(event.target.value)} placeholder="เช่น POS-COUNTER-01" />
-            <div className={styles.meta}>กรอกเมื่อเครื่องพิมพ์นี้ต้องรับงานจาก POS เครื่องนี้โดยเฉพาะ; เว้นว่างเพื่อเป็นเครื่องประจำสาขา</div>
+            <input className={styles.input} value={runtimeCode} readOnly={configuringDiscovered} onChange={(event) => setRuntimeCode(event.target.value)} placeholder="เช่น POS-COUNTER-01" />
+            <div className={styles.meta}>เครื่องที่ตรวจพบอัตโนมัติจะล็อกกับ Runtime ที่รายงาน physical fingerprint นั้น; เครื่องที่เพิ่มเองสามารถเว้นว่างเพื่อเป็นเครื่องประจำสาขา</div>
           </div>}
         </div>
       </details>
       <div className={styles.formActions}>
         <button className={styles.ghost} onClick={() => resetForm(mode)}>ล้างค่า</button>
-        <button className={styles.primary} onClick={() => void save()} disabled={busy === "save"}>{busy === "save" ? "กำลังบันทึก..." : editId ? "บันทึกการเปลี่ยนแปลง" : "เชื่อมต่อและบันทึก"}</button>
+        <button className={styles.primary} onClick={() => void save()} disabled={busy === "save"}>{busy === "save" ? "กำลังบันทึก..." : editId ? "บันทึกการเปลี่ยนแปลง" : configuringDiscovered ? "บันทึกเส้นทางพิมพ์" : "เชื่อมต่อและบันทึก"}</button>
       </div>
     </section>
 
@@ -557,7 +579,7 @@ export function PrinterConnectionManagerV3() {
       <div className={styles.tableHeader}>
         <div>
           <h2 className={styles.sectionTitle}>รายการเครื่องพิมพ์ <span className={styles.hint}>({filtered.length} เครื่อง)</span></h2>
-          <span className={styles.hint}>Routing แยกตามสาขาและ POS; ครัวใช้ Kitchen Zone เดียวกับระบบเมนู/ครัว</span>
+          <span className={styles.hint}>เครื่อง Modern ที่ตรวจพบจะขึ้น Online ก่อนโดยยังไม่มี routing; ลูกค้าเป็นผู้เลือกเส้นทางพิมพ์เอง</span>
         </div>
         <button className={styles.primary} onClick={() => resetForm(mode)}>+ เพิ่มเครื่องพิมพ์</button>
       </div>
@@ -567,27 +589,31 @@ export function PrinterConnectionManagerV3() {
           <tbody>{pageItems.map((device) => {
             const assignments = device.printer_device_assignments.filter((assignment) => assignment.is_enabled);
             const hasDrawer = assignments.some((assignment) => assignment.purpose === "cash_drawer");
+            const verification = verificationLabel(device);
+            const autoDetected = !device.printer_profile_id && Boolean(device.device_fingerprint);
             return <tr key={device.id}>
-              <td><span className={styles.status}><span className={`${styles.dot} ${statusClass(device.status)}`} />{statusLabel(device.status)}</span></td>
-              <td><div className={styles.deviceName}>{device.display_name}</div><div className={styles.meta}>{device.printer_profile_id ? "พร้อมเข้าคิวพิมพ์" : "ยังไม่ผูก profile"}</div></td>
+              <td><span className={styles.status}><span className={`${styles.dot} ${statusClass(device.status)}`} />{statusLabel(device.status)}</span>{verification ? <div className={styles.meta}>{verification}</div> : null}</td>
+              <td><div className={styles.deviceName}>{device.display_name}</div><div className={styles.meta}>{device.printer_profile_id ? "พร้อมเข้าคิวพิมพ์" : autoDetected ? "ตรวจพบอัตโนมัติ · ยังไม่ได้ตั้งเส้นทาง" : "ยังไม่ผูก profile"}</div></td>
               <td>{device.brand || "ทั่วไป"}<div className={styles.meta}>{device.model || "ไม่ระบุรุ่น"}</div></td>
               <td>{device.connection_mode.toUpperCase()}<div className={styles.meta}>{device.runtime_device_code ? `POS: ${device.runtime_device_code}` : "ทั้งสาขา"}</div></td>
               <td>{registry?.branch?.name ?? "สาขาปัจจุบัน"}</td>
-              <td><div className={styles.chips}>{assignments.map((assignment) => {
+              <td>{assignments.length ? <div className={styles.chips}>{assignments.map((assignment) => {
                 const zoneCode = assignment.zone_key?.toUpperCase();
                 const zoneLabel = zoneCode ? zoneNameByCode.get(zoneCode) ?? zoneCode : null;
                 return <span className={styles.chip} key={`${assignment.purpose}:${assignment.zone_key}`}>{purposeLabel(assignment.purpose)}{zoneLabel ? ` · ${zoneLabel}` : ""}</span>;
-              })}</div></td>
+              })}</div> : <span className={styles.meta}>รอลูกค้ากำหนดเส้นทาง</span>}</td>
               <td>{device.paper_width_mm}mm</td>
               <td>{fmt(device.last_seen_at ?? device.updated_at)}</td>
               <td><div className={styles.actions}>
-                <button className={styles.iconButton} title="พิมพ์ทดสอบ" onClick={() => void runAction(device, "test")}>▤</button>
-                {hasDrawer ? <button className={styles.iconButton} title="เปิดลิ้นชักทดสอบ" onClick={() => void runAction(device, "drawer")}>⌑</button> : null}
-                <button className={styles.iconButton} title="แก้ไข" onClick={() => edit(device)}>✎</button>
+                {device.printer_profile_id ? <button className={styles.iconButton} title="พิมพ์ทดสอบ" onClick={() => void runAction(device, "test")}>▤</button> : null}
+                {device.printer_profile_id && hasDrawer ? <button className={styles.iconButton} title="เปิดลิ้นชักทดสอบ" onClick={() => void runAction(device, "drawer")}>⌑</button> : null}
+                <button className={autoDetected ? styles.secondary : styles.iconButton} title={autoDetected ? "ตั้งค่าเส้นทางพิมพ์" : "แก้ไข"} onClick={() => edit(device)}>{autoDetected ? "ตั้งค่าเส้นทาง" : "✎"}</button>
               </div></td>
               <td><div className={styles.actions}>
-                <button className={styles.ghost} onClick={() => void runAction(device, "disconnect")} disabled={busy === `disconnect:${device.id}`}>ยกเลิกเชื่อมต่อ</button>
-                <button className={styles.danger} onClick={() => void runAction(device, "delete")} disabled={busy === `delete:${device.id}`}>ลบ</button>
+                {device.printer_profile_id ? <>
+                  <button className={styles.ghost} onClick={() => void runAction(device, "disconnect")} disabled={busy === `disconnect:${device.id}`}>ยกเลิกเชื่อมต่อ</button>
+                  <button className={styles.danger} onClick={() => void runAction(device, "delete")} disabled={busy === `delete:${device.id}`}>ลบ</button>
+                </> : <span className={styles.meta}>Physical device จาก Modern Runtime</span>}
               </div></td>
             </tr>;
           })}</tbody>
@@ -605,7 +631,7 @@ export function PrinterConnectionManagerV3() {
       <div className={styles.sectionHead}>
         <div>
           <h2 className={styles.sectionTitle}>ประวัติเครื่องที่เคยเชื่อมต่อ</h2>
-          <span className={styles.hint}>เครื่องที่ยกเลิกการเชื่อมต่อจะอยู่ที่นี่และเชื่อมต่อใหม่ได้ ส่วนการลบ profile จะเก็บประวัติไว้แต่ไม่เปิดให้ reconnect</span>
+          <span className={styles.hint}>เก็บทั้งการตรวจพบอัตโนมัติ การเชื่อมต่อ/ยกเลิก และการทดสอบ โดยการยกเลิกของลูกค้าจะไม่ถูก auto-discovery เปิดกลับเอง</span>
         </div>
       </div>
       <div className={styles.historyList}>
