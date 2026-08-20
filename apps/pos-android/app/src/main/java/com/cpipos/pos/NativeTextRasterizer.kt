@@ -14,6 +14,11 @@ import kotlin.math.ceil
  * The server already formats receipts/tickets to the target character width. Rendering those
  * lines with Android Canvas keeps Thai shaping on-device without starting an off-screen WebView
  * for every print job. HTML rasterization remains the compatibility fallback.
+ *
+ * CpIPOS 1.0.19 deliberately advances about 10 cm of blank paper after the final printed line.
+ * This keeps the last receipt/kitchen line above the tear bar instead of being clipped when the
+ * operator tears the paper. The advance uses line-feed control bytes rather than rasterizing a
+ * large white bitmap, so it adds virtually no rendering or transport latency.
  */
 internal class NativeTextRasterizer {
     fun render(text: String, paperWidthMm: Int): ByteArray {
@@ -103,11 +108,16 @@ internal class NativeTextRasterizer {
             }
             startY += rows
         }
-        repeat(3) { output.write('\n'.code) }
+
+        // Standard ESC/POS line spacing is approximately 1/6 inch. 24 feeds advance about
+        // 101.6 mm. Keeping this as control bytes avoids adding a large all-white raster tail.
+        repeat(TAIL_FEED_LINES) { output.write('\n'.code) }
         return output.toByteArray()
     }
 
     companion object {
         private const val MAX_TEXT_RASTER_HEIGHT = 12_000
+        internal const val TAIL_FEED_LINES = 24
+        internal const val APPROX_TAIL_FEED_MM = 102
     }
 }
