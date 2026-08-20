@@ -27,7 +27,7 @@ internal class PrinterCapabilityInventory(context: Context) {
     private val bluetoothManager = appContext.getSystemService(BluetoothManager::class.java)
 
     fun snapshot(): JSONObject = JSONObject()
-        .put("schema_version", 1)
+        .put("schema_version", 2)
         .put("captured_at_ms", System.currentTimeMillis())
         .put(
             "transport_support",
@@ -49,6 +49,7 @@ internal class PrinterCapabilityInventory(context: Context) {
                 .put("supported", false)
                 .put("device_count", 0)
                 .put("printable_candidate_count", 0)
+                .put("safe_autobind_candidate_count", 0)
                 .put("devices", JSONArray())
         }
 
@@ -72,7 +73,11 @@ internal class PrinterCapabilityInventory(context: Context) {
                 .filterNotNull()
                 .any(PrinterCapabilityHints::looksLikePrinterName)
             val nativeTransportCandidate = endpointSummary.writableEndpointCount > 0
-            val safeAutobindCandidate = endpointSummary.printerClassInterfaceCount > 0 || printerNameHint
+            val safeAutobindCandidate = PrinterSelectionPolicy.usbMayAutoSelect(
+                hasPrinterClassInterface = endpointSummary.printerClassInterfaceCount > 0,
+                manufacturerName = manufacturerName,
+                productName = productName
+            )
 
             if (nativeTransportCandidate) printableCandidateCount += 1
             if (safeAutobindCandidate) safeAutobindCandidateCount += 1
@@ -164,6 +169,7 @@ internal class PrinterCapabilityInventory(context: Context) {
             .put("enabled", if (supported && connectPermissionGranted) runCatching { adapter?.isEnabled }.getOrNull() else null)
             .put("bonded_device_count", 0)
             .put("printer_name_hint_count", 0)
+            .put("spp_candidate_count", 0)
             .put("bonded_devices", JSONArray())
 
         if (!supported || !connectPermissionGranted || adapter == null) return result
@@ -172,12 +178,18 @@ internal class PrinterCapabilityInventory(context: Context) {
             .sortedWith(compareBy({ runCatching { it.name.orEmpty() }.getOrDefault("") }, { runCatching { it.address.orEmpty() }.getOrDefault("") }))
         val rows = JSONArray()
         var printerHintCount = 0
+        var sppCandidateCount = 0
 
         bonded.forEach { device ->
             val name = runCatching { device.name?.trim() }.getOrNull()
             val address = runCatching { device.address?.trim() }.getOrNull()
-            val printerNameHint = PrinterCapabilityHints.looksLikePrinterName(name)
+            val printerNameHint = PrinterSelectionPolicy.bluetoothMayAutoSelect(name)
+            val serviceUuids = runCatching {
+                device.uuids.orEmpty().map { it.uuid.toString().lowercase() }.distinct().sorted()
+            }.getOrElse { emptyList() }
+            val sppUuidPresent = serviceUuids.any { it == SPP_UUID }
             if (printerNameHint) printerHintCount += 1
+            if (printerNameHint && sppUuidPresent) sppCandidateCount += 1
             rows.put(
                 JSONObject()
                     .put("name", name)
@@ -186,6 +198,8 @@ internal class PrinterCapabilityInventory(context: Context) {
                     .put("device_type", device.type)
                     .put("device_class", device.bluetoothClass?.deviceClass)
                     .put("printer_name_hint", printerNameHint)
+                    .put("service_uuids", JSONArray(serviceUuids))
+                    .put("spp_uuid_present", sppUuidPresent)
             )
         }
 
@@ -193,6 +207,7 @@ internal class PrinterCapabilityInventory(context: Context) {
             .put("enabled", runCatching { adapter.isEnabled }.getOrNull())
             .put("bonded_device_count", bonded.size)
             .put("printer_name_hint_count", printerHintCount)
+            .put("spp_candidate_count", sppCandidateCount)
             .put("bonded_devices", rows)
     }
 
@@ -207,6 +222,10 @@ internal class PrinterCapabilityInventory(context: Context) {
             .filter(PrinterCapabilityHints::looksLikePrinterFeature)
             .distinct()
             .sorted()
+        val vendorSpecificHints = (featureHints + sharedLibraryHints)
+            .filterNot { it.equals("android.software.print", ignoreCase = true) }
+            .distinct()
+            .sorted()
 
         return JSONObject()
             .put("manufacturer", Build.MANUFACTURER)
@@ -216,7 +235,12 @@ internal class PrinterCapabilityInventory(context: Context) {
             .put("product", Build.PRODUCT)
             .put("system_feature_hints", JSONArray(featureHints))
             .put("shared_library_hints", JSONArray(sharedLibraryHints))
-            .put("vendor_printer_integration_required", featureHints.isNotEmpty() || sharedLibraryHints.isNotEmpty())
+            .put("vendor_specific_print_hints", JSONArray(vendorSpecificHints))
+            .put("vendor_printer_integration_hint_present", vendorSpecificHints.isNotEmpty())
+    }
+
+    companion object {
+        private const val SPP_UUID = "00001101-0000-1000-8000-00805f9b34fb"
     }
 }
 
