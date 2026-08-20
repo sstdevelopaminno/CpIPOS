@@ -39,6 +39,10 @@ function normalizeMoney(value: unknown) {
   return Number.isFinite(parsed) ? Number(parsed.toFixed(2)) : 0;
 }
 
+function normalizeOptionalMoney(value: unknown) {
+  return value == null ? null : normalizeMoney(value);
+}
+
 function normalizePayload(raw: unknown): CustomerDisplayV2Payload | null {
   if (!raw || typeof raw !== "object") return null;
   const input = raw as Partial<CustomerDisplayV2Payload>;
@@ -73,6 +77,8 @@ function normalizePayload(raw: unknown): CustomerDisplayV2Payload | null {
     device_name: normalizeText(input.device_name, 240),
     order_no: normalizeText(input.order_no, 120),
     items,
+    subtotal_amount: normalizeOptionalMoney(input.subtotal_amount),
+    discount_amount: normalizeOptionalMoney(input.discount_amount),
     total_amount: normalizeMoney(input.total_amount),
     cash_received: input.cash_received == null ? null : normalizeMoney(input.cash_received),
     change_amount: input.change_amount == null ? null : normalizeMoney(input.change_amount),

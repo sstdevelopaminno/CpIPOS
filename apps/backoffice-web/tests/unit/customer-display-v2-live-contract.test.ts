@@ -85,6 +85,28 @@ describe("Customer Display V2 live integration contract", () => {
     expect(publishRoute).not.toContain('requiredPermission: "customer_display:manage"');
   });
 
+  it("publishes the POS live discount and net amount instead of recomputing a second billing formula", () => {
+    expect(publisher).toContain('document.querySelector<HTMLElement>(".posui-bill-summary-card")');
+    expect(publisher).toContain('row.classList.contains("is-total")');
+    expect(publisher).toContain("discount_amount: pricing.discount_amount");
+    expect(publisher).toContain("subtotal_amount: pricing.subtotal_amount");
+    expect(publisher).toContain("cartSubtotal + signedTaxTotal - totalAmount");
+    expect(publisher).toContain("paymentState?.total_amount != null");
+    expect(publishRoute).toContain("subtotal_amount: normalizeOptionalMoney(input.subtotal_amount)");
+    expect(publishRoute).toContain("discount_amount: normalizeOptionalMoney(input.discount_amount)");
+    expect(nativeDisplay).toContain("discount_amount: Number(payload.discount_amount ?? 0)");
+    expect(liveDisplay).toContain("discount_amount: Number(payload.discount_amount ?? 0)");
+    expect(screen).toContain('discount: "ส่วนลด"');
+    expect(screen).toContain('className="cdv2-summary-line cdv2-discount"');
+  });
+
+  it("does not republish an unchanged payment state every local scan", () => {
+    expect(publisher).toContain("previousPaymentSignatureRef");
+    expect(publisher).toContain("paymentSignature !== previousPaymentSignatureRef.current");
+    expect(publisher).toContain("previousPricingSignatureRef");
+    expect(publisher).toContain("pricingSignature !== previousPricingSignatureRef.current");
+  });
+
   it("preserves configured data-image store logos and INET QR image sources", () => {
     expect(publishRoute).toContain("const MAX_IMAGE_SOURCE_LENGTH = 2_000_000;");
     expect(publishRoute).toContain("const MAX_QR_SOURCE_LENGTH = 1_000_000;");
@@ -116,11 +138,13 @@ describe("Customer Display V2 live integration contract", () => {
     expect(publisher).toContain("if (!response.ok) throw new Error");
   });
 
-  it("uses the existing transparent system asset as the no-logo fallback", () => {
+  it("uses the existing transparent system asset as the no-logo fallback and enlarges only the media-side system brand", () => {
     expect(screen).toContain('/brand/cpipos-symbol-transparent.png');
     expect(screen).not.toContain('/brand/cpipos-logo.png');
     expect(screen).toContain("SystemBrand");
     expect(screen).toContain("background: transparent");
+    expect(screen).toContain(".cdv2-media .cdv2-system-symbol { width: min(52%,260px); max-height: 58%; }");
+    expect(screen).toContain(".cdv2-media .cdv2-system-wordmark { font-size: clamp(42px,5vw,78px); }");
   });
 
   it("has no manual customer-facing phase controls in the live renderer", () => {
@@ -148,12 +172,13 @@ describe("Customer Display V2 live integration contract", () => {
     expect(observer).not.toContain("fetch(");
   });
 
-  it("shows the real transfer QR source and hides cash-only rows after transfer completion", () => {
+  it("shows the real transfer QR source and hides only cash-only rows after transfer completion", () => {
     expect(observer).toContain("qr?.currentSrc || qr?.src || null");
     expect(screen).toContain("state.payment_qr_url");
     expect(screen).toContain('className="cdv2-qr-img"');
+    expect(screen).toContain("cdv2-cash-detail");
     expect(liveDisplay).toContain('payload?.phase === "paid" && payload.payment_method === "bank_transfer"');
-    expect(liveDisplay).toContain('.cdv2-summary-line:nth-child(n+2) { display: none; }');
+    expect(liveDisplay).toContain('.cdv2-cash-detail { display: none; }');
   });
 
   it("keeps pairing management protected while the display route exposes data only through a device token", () => {

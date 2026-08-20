@@ -19,6 +19,8 @@ export type CustomerDisplayV2ScreenState = {
   device_name?: string | null;
   order_no?: string | null;
   items: CustomerDisplayV2Item[];
+  subtotal_amount?: number | null;
+  discount_amount?: number | null;
   total_amount: number;
   cash_received?: number | null;
   change_amount?: number | null;
@@ -74,6 +76,7 @@ export function PosCustomerDisplayV2Screen({
         qty: "จำนวน",
         unit: "ราคา/หน่วย",
         amount: "รวม",
+        discount: "ส่วนลด",
         total: "ยอดชำระ",
         received: "รับเงินมา",
         change: "เงินทอน",
@@ -88,6 +91,7 @@ export function PosCustomerDisplayV2Screen({
         qty: "Qty",
         unit: "Unit",
         amount: "Amount",
+        discount: "Discount",
         total: "Amount Due",
         received: "Cash Received",
         change: "Change",
@@ -98,6 +102,7 @@ export function PosCustomerDisplayV2Screen({
       };
 
   const total = Number(state.total_amount ?? 0);
+  const discount = Math.max(0, Number(state.discount_amount ?? 0));
   const mediaUrl = state.media_urls?.find((value) => String(value ?? "").trim()) ?? null;
   const showCash = state.phase === "cash" || state.phase === "paid";
 
@@ -150,6 +155,7 @@ export function PosCustomerDisplayV2Screen({
         .cdv2-money { text-align: right; font-size: clamp(13px,1.25vw,20px); font-weight: 850; }
         .cdv2-summary { padding: clamp(12px,1.8vw,24px) clamp(16px,2.5vw,34px); border-top: 1px solid #e2e8f0; background: #fbfdff; display: grid; gap: clamp(5px,1vh,10px); }
         .cdv2-summary-line { display: flex; justify-content: space-between; align-items: baseline; gap: 18px; font-size: clamp(15px,1.4vw,22px); }
+        .cdv2-discount { color: #dc2626; font-weight: 900; }
         .cdv2-total-label { color: #475569; font-weight: 850; }
         .cdv2-total { font-size: clamp(32px,4.2vw,62px); line-height: .95; font-weight: 950; }
         .cdv2-change { color: #047857; font-size: clamp(18px,1.9vw,28px); font-weight: 950; }
@@ -161,6 +167,8 @@ export function PosCustomerDisplayV2Screen({
         .cdv2-system-brand { width: 100%; height: 100%; min-height: 0; display: grid; place-items: center; align-content: center; gap: clamp(7px,1.5vh,14px); background: transparent; }
         .cdv2-system-symbol { display: block; width: min(31%,180px); max-height: 46%; object-fit: contain; background: transparent; }
         .cdv2-system-wordmark { line-height: 1; font-size: clamp(32px,4vw,64px); font-weight: 950; letter-spacing: -2px; background: transparent; }
+        .cdv2-media .cdv2-system-symbol { width: min(52%,260px); max-height: 58%; }
+        .cdv2-media .cdv2-system-wordmark { font-size: clamp(42px,5vw,78px); }
         .cdv2-system-wordmark-dark { color: #354052; }
         .cdv2-system-wordmark-blue { color: #1296ed; }
         .cdv2-qr-block { width: 100%; height: 100%; display: grid; justify-items: center; align-content: center; gap: clamp(12px,2vh,22px); }
@@ -178,6 +186,8 @@ export function PosCustomerDisplayV2Screen({
           .cdv2-media { padding: 14px 18px; }
           .cdv2-system-symbol { width: min(22%,130px); }
           .cdv2-system-wordmark { font-size: clamp(25px,5vw,44px); }
+          .cdv2-media .cdv2-system-symbol { width: min(36%,180px); max-height: 64%; }
+          .cdv2-media .cdv2-system-wordmark { font-size: clamp(30px,6vw,54px); }
           .cdv2-qr-img, .cdv2-qr-placeholder { width: min(32vh,220px); }
           .cdv2-powered { display: none; }
         }
@@ -235,14 +245,20 @@ export function PosCustomerDisplayV2Screen({
             </div>
 
             <footer className="cdv2-summary">
+              {discount > 0.004 ? (
+                <div className="cdv2-summary-line cdv2-discount">
+                  <span>{t.discount}</span>
+                  <strong>-{formatMoney(discount, lang)}</strong>
+                </div>
+              ) : null}
               <div className="cdv2-summary-line">
                 <span className="cdv2-total-label">{t.total}</span>
                 <strong className="cdv2-total">{formatMoney(total, lang)}</strong>
               </div>
               {showCash ? (
                 <>
-                  <div className="cdv2-summary-line"><span>{t.received}</span><strong>{formatMoney(Number(state.cash_received ?? 0), lang)}</strong></div>
-                  <div className="cdv2-summary-line cdv2-change"><span>{t.change}</span><strong>{formatMoney(Number(state.change_amount ?? 0), lang)}</strong></div>
+                  <div className="cdv2-summary-line cdv2-cash-detail"><span>{t.received}</span><strong>{formatMoney(Number(state.cash_received ?? 0), lang)}</strong></div>
+                  <div className="cdv2-summary-line cdv2-change cdv2-cash-detail"><span>{t.change}</span><strong>{formatMoney(Number(state.change_amount ?? 0), lang)}</strong></div>
                 </>
               ) : null}
             </footer>

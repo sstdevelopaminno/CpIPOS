@@ -38,6 +38,8 @@ export type CustomerDisplayV2Payload = {
   device_name: string | null;
   order_no: string | null;
   items: CustomerDisplayV2ItemPayload[];
+  subtotal_amount?: number | null;
+  discount_amount?: number | null;
   total_amount: number;
   cash_received: number | null;
   change_amount: number | null;

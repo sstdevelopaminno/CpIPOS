@@ -23,6 +23,8 @@ function emptyIdleState(): CustomerDisplayV2ScreenState {
     device_name: null,
     order_no: null,
     items: [],
+    subtotal_amount: 0,
+    discount_amount: 0,
     total_amount: 0,
     cash_received: null,
     change_amount: null,
@@ -43,6 +45,8 @@ function toScreenState(payload: CustomerDisplayV2Payload): CustomerDisplayV2Scre
     device_name: payload.device_name,
     order_no: payload.order_no,
     items,
+    subtotal_amount: Number(payload.subtotal_amount ?? 0),
+    discount_amount: Number(payload.discount_amount ?? 0),
     total_amount: Number(payload.total_amount ?? 0),
     cash_received: payload.cash_received,
     change_amount: payload.change_amount,
@@ -153,7 +157,7 @@ export function PosCustomerDisplayV2Native({ lang }: { lang: Language }) {
         }
       `}</style>
       {hideCashRowsForTransferPaid ? (
-        <style>{`[data-cdv2-transfer-paid="1"] .cdv2-summary-line:nth-child(n+2) { display: none; }`}</style>
+        <style>{`[data-cdv2-transfer-paid="1"] .cdv2-cash-detail { display: none; }`}</style>
       ) : null}
       <PosCustomerDisplayV2Screen lang={lang} state={screenState} />
     </div>

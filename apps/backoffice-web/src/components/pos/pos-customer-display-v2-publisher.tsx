@@ -52,6 +52,12 @@ type ActiveOrder = {
   order_no?: string | null;
 };
 
+type PricingSummary = {
+  subtotal_amount: number;
+  discount_amount: number;
+  total_amount: number;
+};
+
 function readJson<T>(key: string): T | null {
   try {
     const raw = window.localStorage.getItem(key);
@@ -64,6 +70,63 @@ function readJson<T>(key: string): T | null {
 function normalizeNumber(value: unknown) {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function roundMoney(value: number) {
+  return Number((Number.isFinite(value) ? value : 0).toFixed(2));
+}
+
+function parseMoneyText(value: string | null | undefined) {
+  const normalized = String(value ?? "").replace(/,/g, "");
+  const match = normalized.match(/\d+(?:\.\d+)?/);
+  if (!match) return null;
+  const parsed = Number(match[0]);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function readPosPricingSummary(cartSubtotal: number): PricingSummary {
+  const fallback = {
+    subtotal_amount: roundMoney(cartSubtotal),
+    discount_amount: 0,
+    total_amount: roundMoney(cartSubtotal)
+  };
+  const card = document.querySelector<HTMLElement>(".posui-bill-summary-card");
+  if (!card) return fallback;
+
+  const rows = Array.from(card.children).filter(
+    (node): node is HTMLElement => node instanceof HTMLElement && node.tagName === "P"
+  );
+  const totalRow = rows.find((row) => row.classList.contains("is-total"));
+  const displayedTotal = parseMoneyText(totalRow?.querySelector("strong")?.textContent);
+  if (displayedTotal == null) return fallback;
+
+  const totalIndex = totalRow ? rows.indexOf(totalRow) : -1;
+  const subtotalIndex = rows.findIndex((row, index) => {
+    if (totalIndex >= 0 && index >= totalIndex) return false;
+    const strongText = row.querySelector("strong")?.textContent ?? "";
+    if (!strongText.includes("฿")) return false;
+    const value = parseMoneyText(strongText);
+    return value != null && Math.abs(value - cartSubtotal) < 0.011;
+  });
+
+  let signedTaxTotal = 0;
+  if (subtotalIndex >= 0 && totalIndex > subtotalIndex) {
+    for (const row of rows.slice(subtotalIndex + 1, totalIndex)) {
+      const strongText = row.querySelector("strong")?.textContent ?? "";
+      if (!strongText.includes("฿")) continue;
+      const value = parseMoneyText(strongText);
+      if (value == null) continue;
+      signedTaxTotal += /^\s*-/.test(strongText) ? -Math.abs(value) : Math.abs(value);
+    }
+  }
+
+  const totalAmount = roundMoney(displayedTotal);
+  const discountAmount = roundMoney(Math.max(0, cartSubtotal + signedTaxTotal - totalAmount));
+  return {
+    subtotal_amount: roundMoney(cartSubtotal),
+    discount_amount: discountAmount,
+    total_amount: totalAmount
+  };
 }
 
 function imageFingerprint(value: string | null | undefined) {
@@ -102,6 +165,8 @@ export function PosCustomerDisplayV2Publisher() {
   const inFlightRef = useRef(false);
   const pendingRef = useRef<{ payload: CustomerDisplayV2Payload; signature: string } | null>(null);
   const previousCartSignatureRef = useRef<string | null>(null);
+  const previousPricingSignatureRef = useRef<string | null>(null);
+  const previousPaymentSignatureRef = useRef<string | null>(null);
   const publishFailureCountRef = useRef(0);
   const publishRetryNotBeforeRef = useRef(0);
   const snapshotCacheRef = useRef<SalesSnapshot | null>(null);
@@ -180,12 +245,29 @@ export function PosCustomerDisplayV2Publisher() {
         lastActivityAtMs = rememberActivity(nowMs);
       }
 
-      const paymentState = readFreshPaymentState(nowMs);
-      if (paymentState) lastActivityAtMs = rememberActivity(nowMs);
+      const totalFromCart = roundMoney(cart.reduce((sum, item) => sum + normalizeNumber(item.quantity) * normalizeNumber(item.price), 0));
+      const pricing = readPosPricingSummary(totalFromCart);
+      const pricingSignature = JSON.stringify(pricing);
+      if (previousPricingSignatureRef.current === null) {
+        previousPricingSignatureRef.current = pricingSignature;
+      } else if (pricingSignature !== previousPricingSignatureRef.current) {
+        previousPricingSignatureRef.current = pricingSignature;
+        lastActivityAtMs = rememberActivity(nowMs);
+      }
 
-      const totalFromCart = Number(cart.reduce((sum, item) => sum + normalizeNumber(item.quantity) * normalizeNumber(item.price), 0).toFixed(2));
-      const paymentTotal = normalizeNumber(paymentState?.total_amount);
-      const totalAmount = paymentTotal > 0 ? paymentTotal : totalFromCart;
+      const paymentState = readFreshPaymentState(nowMs);
+      const paymentSignature = paymentState
+        ? JSON.stringify({ ...paymentState, updated_at: undefined })
+        : "none";
+      if (previousPaymentSignatureRef.current === null) {
+        previousPaymentSignatureRef.current = paymentSignature;
+      } else if (paymentSignature !== previousPaymentSignatureRef.current) {
+        previousPaymentSignatureRef.current = paymentSignature;
+        lastActivityAtMs = rememberActivity(nowMs);
+      }
+
+      const hasPaymentTotal = paymentState?.total_amount != null && Number.isFinite(Number(paymentState.total_amount));
+      const totalAmount = hasPaymentTotal ? roundMoney(normalizeNumber(paymentState?.total_amount)) : pricing.total_amount;
       const itemCount = cart.reduce((sum, item) => sum + normalizeNumber(item.quantity), 0);
       const phase = resolveCustomerDisplayV2Phase({
         nowMs,
@@ -211,6 +293,8 @@ export function PosCustomerDisplayV2Publisher() {
           price: normalizeNumber(item.price),
           notes: item.notes ?? null
         })),
+        subtotal_amount: pricing.subtotal_amount,
+        discount_amount: pricing.discount_amount,
         total_amount: totalAmount,
         cash_received: paymentState?.cash_received == null ? null : normalizeNumber(paymentState.cash_received),
         change_amount: paymentState?.change_amount == null ? null : normalizeNumber(paymentState.change_amount),
@@ -231,6 +315,8 @@ export function PosCustomerDisplayV2Publisher() {
         device_name: payload.device_name,
         order_no: payload.order_no,
         items: payload.items,
+        subtotal_amount: payload.subtotal_amount,
+        discount_amount: payload.discount_amount,
         total_amount: payload.total_amount,
         cash_received: payload.cash_received,
         change_amount: payload.change_amount,
@@ -279,9 +365,9 @@ export function PosCustomerDisplayV2Publisher() {
     window.addEventListener(CUSTOMER_DISPLAY_V2_PAYMENT_EVENT, onPayment as EventListener);
     schedule(0);
 
-    // Same-tab localStorage writes do not emit `storage`. Scan only small local
-    // transaction keys every 500 ms. Static store/device context is cached for
-    // five seconds, and unchanged payload signatures never create a POST.
+    // Same-tab localStorage writes do not emit `storage`. Scan small local transaction
+    // state every 500 ms and read the already-rendered POS bill summary for the current
+    // net total. Signature dedupe prevents unchanged scans from becoming network polling.
     const stateScanTimer = window.setInterval(() => schedule(0), LOCAL_STATE_SCAN_MS);
 
     return () => {
