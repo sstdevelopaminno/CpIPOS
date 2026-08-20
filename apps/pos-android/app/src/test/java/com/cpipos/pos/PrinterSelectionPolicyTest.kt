@@ -29,4 +29,28 @@ class PrinterSelectionPolicyTest {
         assertFalse(PrinterSelectionPolicy.bluetoothMayAutoSelect("GEMAUDIO M200"))
         assertFalse(PrinterSelectionPolicy.bluetoothMayAutoSelect("Barcode Scanner"))
     }
+
+    @Test
+    fun exactBondedPrinterMayVerifyWithoutAdvertisedSppButAudioEvidenceCannot() {
+        assertTrue(PrinterSelectionPolicy.bluetoothExactBondedMayVerify(
+            bonded = true,
+            printerEvidence = true,
+            sppAdvertised = false
+        ))
+        assertTrue(PrinterSelectionPolicy.bluetoothExactBondedMayVerify(
+            bonded = true,
+            printerEvidence = false,
+            sppAdvertised = true
+        ))
+        assertFalse(PrinterSelectionPolicy.bluetoothExactBondedMayVerify(
+            bonded = true,
+            printerEvidence = false,
+            sppAdvertised = false
+        ))
+        assertFalse(PrinterSelectionPolicy.bluetoothExactBondedMayVerify(
+            bonded = false,
+            printerEvidence = true,
+            sppAdvertised = false
+        ))
+    }
 }
