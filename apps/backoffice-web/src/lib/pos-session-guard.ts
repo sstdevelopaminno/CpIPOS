@@ -266,6 +266,7 @@ function computePermissions(role: string): PosPermission[] {
       "tables:manage",
       "users:view",
       "users:manage",
+      "settings:view",
       "system:notice:view",
       "shift:open",
       "shift:join",
