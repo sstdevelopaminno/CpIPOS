@@ -2,6 +2,7 @@ import "server-only";
 
 import QRCode from "qrcode";
 import type { AuthContext } from "@/lib/auth-context";
+import { assertTableQrBuffetReadyForIssue } from "@/lib/table-qr-buffet-policy";
 import { buildTableQrToken } from "@/lib/table-qr-ordering";
 import {
   normalizeTableQrPolicyFromMetadata,
@@ -77,6 +78,12 @@ export async function issueTableQrSessionWithPolicy(args: {
     throw new Error("table_not_open");
   }
   if (!tableSession) throw new Error("table_session_not_open");
+
+  await assertTableQrBuffetReadyForIssue({
+    tenant_id: auth.tenantId,
+    branch_id: auth.branchId,
+    table_session_id: tableSession.id
+  });
 
   const policy = normalizeTableQrPolicyFromMetadata(table.metadata);
   const nowMs = Date.now();

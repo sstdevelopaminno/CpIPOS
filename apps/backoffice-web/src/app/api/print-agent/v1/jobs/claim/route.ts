@@ -1,7 +1,8 @@
-import { ok } from "@/lib/http";
+﻿import { ok } from "@/lib/http";
 import { loggedPrintApiFail } from "@/lib/printing/print-api-errors";
 import { agentAuthFail, requirePrintAgent } from "@/lib/printing/print-agent-service";
-import { claimPrintJobsStabilized } from "@/lib/printing/print-agent-claim-stabilized";
+import { claimPrintJobsStabilized, PRINT_AGENT_CLAIM_TIMEOUT_MS } from "@/lib/printing/print-agent-claim-stabilized";
+import { BoundedTimeoutError, withAbortableTimeout } from "@/lib/server/bounded-timeout";
 
 type ClaimPayload = {
   limit?: number | null;
@@ -74,54 +75,67 @@ function ensureModernTearSafeTail(html: string) {
 
 export async function POST(req: Request) {
   try {
-    const agent = await requirePrintAgent(req);
-    const body = (await req.json().catch(() => null)) as ClaimPayload | null;
-    const modernRichLayout = isModernRichLayoutClient(body?.app_version);
-    const jobs = await claimPrintJobsStabilized(agent, {
-      limit: body?.limit,
-      lease_seconds: body?.lease_seconds,
-      app_version: body?.app_version ?? null
-    });
-    const jobsWithConfiguredPaperWidth = jobs.map((job) => {
-      const paperWidthMm = configuredPaperWidthMm(job);
-      if (!paperWidthMm) return job;
-      const metadata = job.metadata ?? {};
-      const htmlPayload = typeof metadata.payload_html === "string" ? metadata.payload_html.trim() : "";
-      const hasHtmlPayload = htmlPayload.length > 0;
-      return {
-        ...job,
-        metadata: {
-          ...metadata,
-          paper_width_mm: paperWidthMm,
-          ...(hasHtmlPayload
-            ? {
-                html_paper_width_mm: paperWidthMm,
-                print_format: `html_${paperWidthMm}mm`,
-                ...(modernRichLayout
-                  ? {
-                      // 1.0.19+ keeps low-latency queue wake-up but renders customer-facing
-                      // documents from the established HTML templates used before native text mode.
-                      payload_html: ensureModernTearSafeTail(htmlPayload),
-                      force_rich_html_raster: true,
-                      render_policy: "legacy_rich_html_v1",
-                      tear_safe_tail_mm: MODERN_HTML_TAIL_MM
-                    }
-                  : {})
-              }
-            : {})
-        }
-      };
-    });
-    return ok({
-      agent_id: agent.id,
-      tenant_id: agent.tenant_id,
-      branch_id: agent.branch_id,
-      device_code: agent.device_code,
-      jobs: jobsWithConfiguredPaperWidth
-    });
+    return await withAbortableTimeout(async (signal) => {
+      const agent = await requirePrintAgent(req, { signal });
+      const body = (await req.json().catch(() => null)) as ClaimPayload | null;
+      const modernRichLayout = isModernRichLayoutClient(body?.app_version);
+      const jobs = await claimPrintJobsStabilized(agent, {
+        limit: body?.limit,
+        lease_seconds: body?.lease_seconds,
+        app_version: body?.app_version ?? null,
+        signal
+      });
+      const jobsWithConfiguredPaperWidth = jobs.map((job) => {
+        const paperWidthMm = configuredPaperWidthMm(job);
+        if (!paperWidthMm) return job;
+        const metadata = job.metadata ?? {};
+        const htmlPayload = typeof metadata.payload_html === "string" ? metadata.payload_html.trim() : "";
+        const hasHtmlPayload = htmlPayload.length > 0;
+        return {
+          ...job,
+          metadata: {
+            ...metadata,
+            paper_width_mm: paperWidthMm,
+            ...(hasHtmlPayload
+              ? {
+                  html_paper_width_mm: paperWidthMm,
+                  print_format: `html_${paperWidthMm}mm`,
+                  ...(modernRichLayout
+                    ? {
+                        // 1.0.19+ keeps low-latency queue wake-up but renders customer-facing
+                        // documents from the established HTML templates used before native text mode.
+                        payload_html: ensureModernTearSafeTail(htmlPayload),
+                        force_rich_html_raster: true,
+                        render_policy: "legacy_rich_html_v1",
+                        tear_safe_tail_mm: MODERN_HTML_TAIL_MM
+                      }
+                    : {})
+                }
+              : {})
+          }
+        };
+      });
+      return ok({
+        agent_id: agent.id,
+        tenant_id: agent.tenant_id,
+        branch_id: agent.branch_id,
+        device_code: agent.device_code,
+        jobs: jobsWithConfiguredPaperWidth
+      });
+    }, PRINT_AGENT_CLAIM_TIMEOUT_MS, "print_agent_claim_timeout");
   } catch (error) {
     const authError = agentAuthFail(error);
     if (authError) return authError;
+    if (error instanceof BoundedTimeoutError) {
+      return loggedPrintApiFail(
+        "claim timed out",
+        error,
+        error.code,
+        "Print agent claim timed out before completion. Please retry.",
+        504,
+        { timeout_ms: error.timeoutMs }
+      );
+    }
     return loggedPrintApiFail("claim failed", error, "print_agent_claim_failed", "Print agent could not claim jobs. Please retry.");
   }
 }

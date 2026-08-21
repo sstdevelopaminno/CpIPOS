@@ -1,20 +1,27 @@
 import { describe, expect, it } from "vitest";
-import { appendBuffetQuantityKey } from "../../src/lib/pos-buffet-pricing";
+import { adjustBuffetQuantity, selectBuffetQuickQuantity } from "../../src/lib/pos-buffet-pricing";
 
-describe("Buffet quantity keypad", () => {
-  it("replaces the visual default 1 with the first real digit", () => {
-    expect(appendBuffetQuantityKey("1", "5", true)).toBe("5");
-    expect(appendBuffetQuantityKey("1", "1", true)).toBe("1");
+describe("Buffet quantity selector", () => {
+  it("uses 1-9 as exact quantities instead of concatenating digits", () => {
+    expect(selectBuffetQuickQuantity(1)).toBe(1);
+    expect(selectBuffetQuickQuantity(2)).toBe(2);
+    expect(selectBuffetQuickQuantity(3)).toBe(3);
+    expect(selectBuffetQuickQuantity(9)).toBe(9);
   });
 
-  it("appends digits normally after the first real key", () => {
-    expect(appendBuffetQuantityKey("1", "9", false)).toBe("19");
-    expect(appendBuffetQuantityKey("12", "3", false)).toBe("123");
+  it("increments beyond 9 with the plus control", () => {
+    expect(adjustBuffetQuantity(9, 1)).toBe(10);
+    expect(adjustBuffetQuantity(10, 1)).toBe(11);
+    expect(adjustBuffetQuantity(11, 1)).toBe(12);
   });
 
-  it("keeps the POS quantity input within three digits and normalizes leading zeros", () => {
-    expect(appendBuffetQuantityKey("123", "4", false)).toBe("123");
-    expect(appendBuffetQuantityKey("1", "00", true)).toBe("0");
-    expect(appendBuffetQuantityKey("0", "5", false)).toBe("5");
+  it("decrements safely and never falls below one", () => {
+    expect(adjustBuffetQuantity(10, -1)).toBe(9);
+    expect(adjustBuffetQuantity(1, -1)).toBe(1);
+  });
+
+  it("caps operator quantity at 999", () => {
+    expect(adjustBuffetQuantity(999, 1)).toBe(999);
+    expect(selectBuffetQuickQuantity(5000)).toBe(999);
   });
 });

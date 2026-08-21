@@ -33,6 +33,7 @@ export const POS_ROUTE_FEATURES = {
   "/preview/pos/more": "core_pos_sales",
   "/preview/pos/payments": "core_pos_sales",
   "/preview/pos/stock": "stock_management",
+  "/preview/pos/stock/buffet-sets": "table_management",
   "/preview/pos/sales-summary": "advanced_sales_reports",
   "/preview/pos/receipts": "receipt_reprint_history",
   "/preview/pos/tables": "table_management",

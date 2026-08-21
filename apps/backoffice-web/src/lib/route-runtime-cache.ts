@@ -1,4 +1,4 @@
-type CacheSource = "hit" | "miss" | "inflight" | "stale";
+﻿type CacheSource = "hit" | "miss" | "inflight" | "stale";
 
 type CacheEntry = {
   expiresAt: number;
@@ -29,10 +29,14 @@ export async function readThroughRuntimeCache<T>(args: {
   key: string;
   ttlMs: number;
   staleIfErrorMs?: number;
-  loader: () => Promise<T>;
+  loaderTimeoutMs?: number;
+  timeoutCode?: string;
+  loader: (signal?: AbortSignal) => Promise<T>;
 }): Promise<{ value: T; source: CacheSource }> {
   const { key, ttlMs, loader } = args;
   const staleIfErrorMs = Math.max(0, Number(args.staleIfErrorMs ?? 0));
+  const loaderTimeoutMs = Math.max(0, Number(args.loaderTimeoutMs ?? 0));
+  const timeoutCode = args.timeoutCode ?? "runtime_cache_loader_timeout";
   const now = Date.now();
   pruneCache(now);
 
@@ -57,7 +61,12 @@ export async function readThroughRuntimeCache<T>(args: {
   }
 
   const promise = (async () => {
-    const loaded = await loader();
+    const loaded =
+      loaderTimeoutMs > 0
+        ? await import("@/lib/server/bounded-timeout").then(({ withAbortableTimeout }) =>
+            withAbortableTimeout((signal) => loader(signal), loaderTimeoutMs, timeoutCode)
+          )
+        : await loader();
     const storedAt = Date.now();
     const freshForMs = Math.max(50, ttlMs);
     valueCache.set(key, {

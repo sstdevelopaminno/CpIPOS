@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useEffect, useMemo, useState } from "react";
 import { PosCustomerDisplayV2Screen, type CustomerDisplayV2ScreenState } from "@/components/pos/pos-customer-display-v2-screen";
@@ -13,6 +13,8 @@ type NativeStateResponse = {
     } | null;
   } | null;
 };
+
+const NATIVE_STATE_CLIENT_TIMEOUT_MS = 4_000;
 
 function emptyIdleState(): CustomerDisplayV2ScreenState {
   return {
@@ -65,10 +67,13 @@ export function PosCustomerDisplayV2Native({ lang }: { lang: Language }) {
     const sync = async () => {
       if (disposed || inFlight) return;
       inFlight = true;
+      const controller = new AbortController();
+      const timeoutId = window.setTimeout(() => controller.abort(), NATIVE_STATE_CLIENT_TIMEOUT_MS);
       try {
         const response = await fetch("/api/pos/customer-display/v2/native-state", {
           cache: "no-store",
-          credentials: "same-origin"
+          credentials: "same-origin",
+          signal: controller.signal
         });
         if (response.status === 401 || response.status === 403 || response.status === 409) {
           if (!disposed) setPayload(null);
@@ -85,6 +90,7 @@ export function PosCustomerDisplayV2Native({ lang }: { lang: Language }) {
       } catch {
         // Preserve the latest customer-visible state during short network interruptions.
       } finally {
+        window.clearTimeout(timeoutId);
         inFlight = false;
       }
     };

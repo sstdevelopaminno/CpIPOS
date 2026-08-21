@@ -6,13 +6,14 @@ import {
   normalizeBuffetTableSessionSummary,
   type BuffetTableSessionSummary
 } from "@/lib/buffet-table-session";
+import { buffetPlanModeFromProduct } from "@/lib/pos-buffet-plan-product";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
-
-const BUFFET_PRODUCT_NAMES = ["บุฟเฟ่รายท่าน", "บุฟเฟ่แบบชุด"] as const;
 
 type BuffetProductRow = {
   id: string;
-  name: string | null;
+  sku: string | null;
+  name: string;
+  metadata: Record<string, unknown> | null;
 };
 
 type BuffetOrderItemRow = {
@@ -43,12 +44,13 @@ async function loadBuffetProducts(tenantId: string, branchId: string) {
   const supabase = getSupabaseServiceClient();
   const { data, error } = await supabase
     .from("products")
-    .select("id,name")
+    .select("id,sku,name,metadata")
     .eq("tenant_id", tenantId)
     .eq("branch_id", branchId)
-    .in("name", [...BUFFET_PRODUCT_NAMES]);
+    .returns<BuffetProductRow[]>();
   if (error) throw new Error(`buffet_product_query_failed:${error.message}`);
-  return (data ?? []) as BuffetProductRow[];
+  // Historical orders must continue to count a Buffet plan even if the plan is disabled later.
+  return (data ?? []).filter((product) => buffetPlanModeFromProduct(product) !== null);
 }
 
 export async function deriveBuffetTableSessionSummary(args: {
@@ -61,8 +63,8 @@ export async function deriveBuffetTableSessionSummary(args: {
 
   const modeByProductId = new Map<string, "per_person" | "set">();
   for (const product of products) {
-    if (product.name === "บุฟเฟ่รายท่าน") modeByProductId.set(product.id, "per_person");
-    if (product.name === "บุฟเฟ่แบบชุด") modeByProductId.set(product.id, "set");
+    const mode = buffetPlanModeFromProduct(product);
+    if (mode) modeByProductId.set(product.id, mode);
   }
   if (modeByProductId.size === 0) return { ...EMPTY_BUFFET_TABLE_SESSION_SUMMARY };
 
@@ -150,11 +152,7 @@ export async function syncBuffetTableSessionSummary(args: {
     .eq("order_id", args.orderId);
   if (error) throw new Error(`buffet_table_session_update_failed:${error.message}`);
 
-  return {
-    table_id: session.table_id,
-    order_id: args.orderId,
-    summary
-  };
+  return { table_id: session.table_id, order_id: args.orderId, summary };
 }
 
 export async function loadBuffetTableSessionByCode(args: {
@@ -173,11 +171,7 @@ export async function loadBuffetTableSessionByCode(args: {
   if (tableError) throw new Error(`buffet_table_query_failed:${tableError.message}`);
   if (!table) throw new Error("buffet_table_not_found");
 
-  const session = await loadActiveTableSession({
-    tenantId: args.tenantId,
-    branchId: args.branchId,
-    tableId: table.id
-  });
+  const session = await loadActiveTableSession({ tenantId: args.tenantId, branchId: args.branchId, tableId: table.id });
   if (!session) {
     return {
       table_id: table.id,
@@ -200,7 +194,6 @@ export async function loadBuffetTableSessionByCode(args: {
       });
       summary = synced.summary;
     } catch {
-      // Existing table remains usable even if legacy buffet summary recovery fails.
       summary = normalizeBuffetTableSessionSummary(session.metadata);
     }
   }
