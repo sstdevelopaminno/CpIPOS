@@ -4,6 +4,7 @@ import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { PosShiftCycleGuard } from "@/components/pos/pos-shift-cycle-guard";
 import { PosDeviceHeartbeatSender } from "@/components/pos/pos-device-heartbeat-sender";
+import { PosBuffetToolsBridge } from "@/components/pos-preview/pos-buffet-tools-bridge";
 import { PosProductMediaToolbarLink } from "@/components/pos-preview/pos-product-media-toolbar-link";
 import { PosShellFrame } from "@/components/pos-preview/pos-shell-frame";
 import { PosRoutePerformanceTracker } from "@/components/pos-preview/pos-route-performance-tracker";
@@ -62,6 +63,7 @@ export default async function PosPreviewLayout({ children }: { children: ReactNo
       {!isKitchen ? <PosShiftCycleGuard lang={lang} /> : null}
       {!isKitchen ? <PosDeviceHeartbeatSender /> : null}
       {!isKitchen ? <PosProductMediaToolbarLink th={lang === "th"} /> : null}
+      {!isKitchen ? <PosBuffetToolsBridge th={lang === "th"} /> : null}
       <PosViewportGuard lang={lang} />
       {!isKitchen ? <PosTableQrGlobalAlert lang={lang} /> : null}
       <PosShellFrame
