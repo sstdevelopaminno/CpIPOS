@@ -285,7 +285,7 @@ class PosMdmAgent(
             .put("package_installer", updaterEnabled)
             .put("sha256_verification", updaterEnabled)
             .put("signing_certificate_verification", updaterEnabled)
-            .put("device_owner_silent_install", updaterEnabled && diagnostics.isDeviceOwnerKnown())
+            .put("device_owner_silent_install", updaterEnabled && diagnostics.isDeviceOwnerKnown() == true)
     }
 
     private fun buildSnapshot(reason: String): JSONObject {
