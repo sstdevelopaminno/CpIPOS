@@ -23,4 +23,10 @@ describe("shift open-bill cleanup regression contract", () => {
     expect(updateSection).toContain('.contains("metadata", { opened_shift_id: args.shiftId })');
     expect(updateSection).toContain('.in("id", tableSessionIds)');
   });
+
+  it("releases only tables backed by target-shift sessions, never order table ids alone", () => {
+    expect(source).toContain("shift_scoped_table_release: true");
+    expect(source).toContain("blockingTableSessions.map((session) => session.table_id)");
+    expect(source).not.toContain("orderTableIds");
+  });
 });
