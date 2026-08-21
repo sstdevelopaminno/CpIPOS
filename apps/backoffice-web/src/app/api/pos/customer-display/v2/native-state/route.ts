@@ -1,8 +1,9 @@
-import { buildCustomerDisplayV2Channel } from "@/lib/customer-display-v2";
+﻿import { buildCustomerDisplayV2Channel } from "@/lib/customer-display-v2";
 import { fail, ok } from "@/lib/http";
 import { featureGateFail, requirePosApiFeature } from "@/lib/pos-api-feature-guard";
 import { PosGuardError, requirePermission, requirePosSession } from "@/lib/pos-session-guard";
 import { readThroughRuntimeCache } from "@/lib/route-runtime-cache";
+import { BoundedTimeoutError, readBoundedTimeoutMs } from "@/lib/server/bounded-timeout";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
 
 type DisplayStateRow = {
@@ -10,6 +11,8 @@ type DisplayStateRow = {
   payload: Record<string, unknown>;
   updated_at: string;
 };
+
+const NATIVE_STATE_TIMEOUT_MS = readBoundedTimeoutMs("POS_CUSTOMER_DISPLAY_NATIVE_TIMEOUT_MS", 2_500, 500, 15_000);
 
 function isSchemaMissingError(message: string) {
   const normalized = message.toLowerCase();
@@ -51,16 +54,20 @@ export async function GET() {
       key: cacheKey,
       ttlMs: 500,
       staleIfErrorMs: 5_000,
-      loader: async () => {
+      loaderTimeoutMs: NATIVE_STATE_TIMEOUT_MS,
+      timeoutCode: "customer_display_v2_native_query_timeout",
+      loader: async (signal) => {
         const { data: row, error } = await supabase
           .from("pos_customer_display_states")
           .select("channel,payload,updated_at")
           .eq("tenant_id", scope.session.tenant_id)
           .eq("branch_id", scope.session.branch_id)
           .eq("channel", channel)
+          .abortSignal(signal!)
           .maybeSingle<DisplayStateRow>();
 
         if (error) {
+          if (signal?.aborted) throw new BoundedTimeoutError("customer_display_v2_native_query_timeout", NATIVE_STATE_TIMEOUT_MS);
           if (isSchemaMissingError(error.message)) return null;
           throw new Error(`customer_display_v2_native_query_failed:${error.message}`);
         }
@@ -85,6 +92,11 @@ export async function GET() {
     }
     if (error instanceof PosGuardError) {
       const response = fail(error.code, error.message, error.status);
+      response.headers.set("x-pos-customer-display-v2-native-ms", String(Date.now() - startedAt));
+      return response;
+    }
+    if (error instanceof BoundedTimeoutError) {
+      const response = fail(error.code, "Customer Display V2 native state timed out. Please retry.", 504);
       response.headers.set("x-pos-customer-display-v2-native-ms", String(Date.now() - startedAt));
       return response;
     }

@@ -1,6 +1,7 @@
-import "server-only";
+﻿import "server-only";
 
 import { getPrimarySupabaseServiceClient } from "@/lib/supabase-admin";
+import { BoundedTimeoutError, readBoundedTimeoutMs, withAbortableTimeout } from "@/lib/server/bounded-timeout";
 import { getPrintExecutionDataPlaneClient } from "@/lib/printing/print-execution-data-plane";
 
 type JsonRecord = Record<string, unknown>;
@@ -58,6 +59,7 @@ type CachedPrinterIds = {
 
 const PRINTER_CONFIG_CACHE_MS = 45_000;
 const EMPTY_CLAIM_BACKOFF_MS = 250;
+export const PRINT_AGENT_CLAIM_TIMEOUT_MS = readBoundedTimeoutMs("PRINT_AGENT_CLAIM_TIMEOUT_MS", 5_000, 1_000, 30_000);
 const printerIdCache = new Map<string, CachedPrinterIds>();
 const emptyClaimBackoff = new Map<string, number>();
 
@@ -103,20 +105,24 @@ function claimLimit(value: unknown) {
   return Math.min(10, Math.max(1, Math.trunc(parsed)));
 }
 
-async function eligiblePrinterIds(agent: PrintAgentForClaim) {
+async function eligiblePrinterIds(agent: PrintAgentForClaim, signal: AbortSignal) {
   const key = `${agent.tenant_id}:${agent.branch_id}:${agent.id}:${agent.device_code.toUpperCase()}`;
   const now = Date.now();
   const cached = printerIdCache.get(key);
   if (cached && cached.expiresAt > now) return cached.printerIds;
 
-  const { client } = await getPrintExecutionDataPlaneClient(agent.tenant_id);
+  const { client } = await getPrintExecutionDataPlaneClient(agent.tenant_id, { signal });
   const { data, error } = await client
     .from("printer_profiles")
     .select(PRINTER_SELECT)
     .eq("tenant_id", agent.tenant_id)
     .eq("branch_id", agent.branch_id)
-    .eq("enabled", true);
-  if (error) throw new Error(error.message);
+    .eq("enabled", true)
+    .abortSignal(signal);
+  if (error) {
+    if (signal.aborted) throw new BoundedTimeoutError("print_agent_claim_timeout", PRINT_AGENT_CLAIM_TIMEOUT_MS);
+    throw new Error(error.message);
+  }
 
   const printerIds = ((data ?? []) as PrinterProfileRow[])
     .filter((printer) => printerMatchesAgent(printer, agent))
@@ -127,56 +133,74 @@ async function eligiblePrinterIds(agent: PrintAgentForClaim) {
 
 export async function claimPrintJobsStabilized(
   agent: PrintAgentForClaim,
-  input: { limit?: unknown; lease_seconds?: unknown; app_version?: string | null }
+  input: { limit?: unknown; lease_seconds?: unknown; app_version?: string | null; signal?: AbortSignal }
 ): Promise<ClaimedAgentJobRow[]> {
-  const printerIds = await eligiblePrinterIds(agent);
-  if (printerIds.length === 0) return [];
+  const run = async (signal: AbortSignal) => {
+    const printerIds = await eligiblePrinterIds(agent, signal);
+    if (printerIds.length === 0) return [];
 
-  const backoffKey = `${agent.tenant_id}:${agent.branch_id}:${agent.id}`;
-  if ((emptyClaimBackoff.get(backoffKey) ?? 0) > Date.now()) return [];
+    const backoffKey = `${agent.tenant_id}:${agent.branch_id}:${agent.id}`;
+    if ((emptyClaimBackoff.get(backoffKey) ?? 0) > Date.now()) return [];
 
-  const { client } = await getPrintExecutionDataPlaneClient(agent.tenant_id);
-  const { data: claimedData, error: claimError } = await client.rpc("claim_print_jobs_v2", {
-    p_tenant_id: agent.tenant_id,
-    p_branch_id: agent.branch_id,
-    p_agent_id: agent.id,
-    p_printer_ids: printerIds,
-    p_limit: claimLimit(input.limit),
-    p_lease_seconds: leaseSeconds(input.lease_seconds)
-  });
-  if (claimError) throw new Error(claimError.message);
+    const { client } = await getPrintExecutionDataPlaneClient(agent.tenant_id, { signal });
+    const { data: claimedData, error: claimError } = await client
+      .rpc("claim_print_jobs_v2", {
+        p_tenant_id: agent.tenant_id,
+        p_branch_id: agent.branch_id,
+        p_agent_id: agent.id,
+        p_printer_ids: printerIds,
+        p_limit: claimLimit(input.limit),
+        p_lease_seconds: leaseSeconds(input.lease_seconds)
+      })
+      .abortSignal(signal);
+    if (claimError) {
+      if (signal.aborted) throw new BoundedTimeoutError("print_agent_claim_timeout", PRINT_AGENT_CLAIM_TIMEOUT_MS);
+      throw new Error(claimError.message);
+    }
 
-  const claimedRows = (claimedData ?? []) as Array<{ job_id: string; agent_attempt_id: string }>;
-  const jobIds = claimedRows.map((row) => row.job_id);
-  if (jobIds.length === 0) {
-    emptyClaimBackoff.set(backoffKey, Date.now() + EMPTY_CLAIM_BACKOFF_MS);
-    return [];
-  }
-  emptyClaimBackoff.delete(backoffKey);
+    const claimedRows = (claimedData ?? []) as Array<{ job_id: string; agent_attempt_id: string }>;
+    const jobIds = claimedRows.map((row) => row.job_id);
+    if (jobIds.length === 0) {
+      emptyClaimBackoff.set(backoffKey, Date.now() + EMPTY_CLAIM_BACKOFF_MS);
+      return [];
+    }
+    emptyClaimBackoff.delete(backoffKey);
 
-  // Claim activity is not a heartbeat. Record last_claim_at only when work was actually claimed.
-  const nowIso = new Date().toISOString();
-  const primary = getPrimarySupabaseServiceClient();
-  await primary
-    .from("print_agents")
-    .update({ last_claim_at: nowIso, app_version: input.app_version ?? agent.app_version })
-    .eq("id", agent.id)
-    .eq("tenant_id", agent.tenant_id)
-    .eq("branch_id", agent.branch_id);
+    const nowIso = new Date().toISOString();
+    const primary = getPrimarySupabaseServiceClient();
+    const { error: updateError } = await primary
+      .from("print_agents")
+      .update({ last_claim_at: nowIso, app_version: input.app_version ?? agent.app_version })
+      .eq("id", agent.id)
+      .eq("tenant_id", agent.tenant_id)
+      .eq("branch_id", agent.branch_id)
+      .abortSignal(signal);
+    if (updateError) {
+      if (signal.aborted) throw new BoundedTimeoutError("print_agent_claim_timeout", PRINT_AGENT_CLAIM_TIMEOUT_MS);
+      throw new Error(updateError.message);
+    }
 
-  const { data: jobs, error: jobsError } = await client
-    .from("print_jobs")
-    .select(AGENT_JOB_SELECT)
-    .eq("tenant_id", agent.tenant_id)
-    .eq("branch_id", agent.branch_id)
-    .in("id", jobIds);
-  if (jobsError) throw new Error(jobsError.message);
+    const { data: jobs, error: jobsError } = await client
+      .from("print_jobs")
+      .select(AGENT_JOB_SELECT)
+      .eq("tenant_id", agent.tenant_id)
+      .eq("branch_id", agent.branch_id)
+      .in("id", jobIds)
+      .abortSignal(signal);
+    if (jobsError) {
+      if (signal.aborted) throw new BoundedTimeoutError("print_agent_claim_timeout", PRINT_AGENT_CLAIM_TIMEOUT_MS);
+      throw new Error(jobsError.message);
+    }
 
-  const byId = new Map(((jobs ?? []) as unknown as AgentJobRow[]).map((job) => [job.id, job]));
-  return claimedRows
-    .map((row) => {
-      const job = byId.get(row.job_id);
-      return job ? { ...job, agent_attempt_id: row.agent_attempt_id } : null;
-    })
-    .filter((job): job is ClaimedAgentJobRow => Boolean(job));
+    const byId = new Map(((jobs ?? []) as unknown as AgentJobRow[]).map((job) => [job.id, job]));
+    return claimedRows
+      .map((row) => {
+        const job = byId.get(row.job_id);
+        return job ? { ...job, agent_attempt_id: row.agent_attempt_id } : null;
+      })
+      .filter((job): job is ClaimedAgentJobRow => Boolean(job));
+  };
+
+  if (input.signal) return run(input.signal);
+  return withAbortableTimeout(run, PRINT_AGENT_CLAIM_TIMEOUT_MS, "print_agent_claim_timeout");
 }

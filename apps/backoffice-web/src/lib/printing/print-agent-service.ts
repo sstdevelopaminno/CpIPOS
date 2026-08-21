@@ -1,7 +1,8 @@
-import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
+﻿import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import type { AuthContext } from "@/lib/auth-context";
 import { appendAuditLog } from "@/lib/audit-log";
 import { fail } from "@/lib/http";
+import { BoundedTimeoutError } from "@/lib/server/bounded-timeout";
 import { getPrimarySupabaseServiceClient, getSupabaseServiceClient } from "@/lib/supabase-admin";
 import { getPrintExecutionDataPlaneClient } from "@/lib/printing/print-execution-data-plane";
 
@@ -157,13 +158,21 @@ export function agentAuthFail(error: unknown) {
   return null;
 }
 
-export async function requirePrintAgent(req: Request): Promise<PrintAgentRow> {
+export async function requirePrintAgent(req: Request, options: { signal?: AbortSignal } = {}): Promise<PrintAgentRow> {
   const rawKey = readAgentKey(req);
   if (!rawKey) throw new Error("agent_key_required");
   const keyHash = hashAgentKey(rawKey);
   const supabase = getPrimarySupabaseServiceClient();
-  const { data, error } = await supabase.from("print_agents").select(AGENT_SELECT).eq("api_key_hash", keyHash).maybeSingle();
-  if (error) throw new Error(error.message);
+  const query = supabase
+    .from("print_agents")
+    .select(AGENT_SELECT)
+    .eq("api_key_hash", keyHash);
+  const executable = options.signal ? query.abortSignal(options.signal) : query;
+  const { data, error } = await executable.maybeSingle();
+  if (error) {
+    if (options.signal?.aborted) throw new BoundedTimeoutError("print_agent_auth_timeout", 0);
+    throw new Error(error.message);
+  }
   const agent = data as PrintAgentRow | null;
   if (!agent || !safeEqual(agent.api_key_hash, keyHash)) throw new Error("agent_unauthorized");
   if (agent.status !== "active") throw new Error("agent_inactive");

@@ -1,4 +1,4 @@
-export type BrowserPrintAgentStatus = {
+﻿export type BrowserPrintAgentStatus = {
   enabled: boolean;
   supported: boolean;
   connected: boolean;
@@ -30,6 +30,8 @@ export type ClaimResponse = {
     message?: string;
   };
 };
+
+const AGENT_API_TIMEOUT_MS = 12_000;
 
 export function readRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
@@ -258,7 +260,7 @@ async function rasterBytesFromReceiptText(job: BrowserPrintJob, html?: string | 
   const padding = 14;
   const lineHeight = 30;
   firstPass.font = '800 23px "Tahoma", "Noto Sans Thai", sans-serif';
-  const wrapped = lines.flatMap((line) => wrapCanvasLine(firstPass, line.replace(/\?(\d)/g, "฿$1"), width - padding * 2));
+  const wrapped = lines.flatMap((line) => wrapCanvasLine(firstPass, line.replace(/\?(\d)/g, "เธฟ$1"), width - padding * 2));
   canvas.width = width;
   canvas.height = Math.max(120, padding * 2 + wrapped.length * lineHeight);
   const ctx = canvas.getContext("2d");
@@ -312,15 +314,22 @@ async function readJson<T>(response: Response): Promise<T | null> {
 }
 
 export async function postAgentApi<T>(path: string, agentKey: string, body: Record<string, unknown>) {
-  const response = await fetch(path, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${agentKey}`
-    },
-    body: JSON.stringify(body)
-  });
-  return { response, body: await readJson<T>(response) };
+  const controller = new AbortController();
+  const timeoutId = window.setTimeout(() => controller.abort(), AGENT_API_TIMEOUT_MS);
+  try {
+    const response = await fetch(path, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${agentKey}`
+      },
+      body: JSON.stringify(body),
+      signal: controller.signal
+    });
+    return { response, body: await readJson<T>(response) };
+  } finally {
+    window.clearTimeout(timeoutId);
+  }
 }
 
 export function dispatchStatus(eventName: string, status: Omit<BrowserPrintAgentStatus, "updatedAt">) {
