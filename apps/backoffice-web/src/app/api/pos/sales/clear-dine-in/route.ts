@@ -22,7 +22,9 @@ type ClearDineInRpcRow = {
   total_amount: number;
 };
 
-function normalizeBranchRole(role: string): AuthContext["branchRole"] {
+type NonNullBranchRole = Exclude<AuthContext["branchRole"], null>;
+
+function normalizeBranchRole(role: string): NonNullBranchRole {
   if (role === "owner" || role === "manager" || role === "staff" || role === "accountant") return role;
   return "staff";
 }
