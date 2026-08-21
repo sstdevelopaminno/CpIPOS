@@ -1,29 +1,23 @@
 import { FeatureGateError, requireTenantFeature } from "@/lib/feature-gate";
 import { fail, ok } from "@/lib/http";
-import { DEFAULT_BUFFET_PRICE_PLANS, type PosBuffetPricePlan } from "@/lib/pos-buffet-pricing";
+import {
+  buffetPlanFromProduct,
+  buffetPlanModeFromProduct,
+  buildBuffetPlanMetadata,
+  compareBuffetPlans,
+  type BuffetPlanProductRow
+} from "@/lib/pos-buffet-plan-product";
+import { DEFAULT_BUFFET_PRICE_PLANS, type PosBuffetPricePlan, type PosBuffetPricingMode } from "@/lib/pos-buffet-pricing";
 import { PosGuardError, requirePermission, requirePosSession } from "@/lib/pos-session-guard";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
 
 type ResolveBuffetProductPayload = {
+  product_id?: string | null;
   plan_id?: string | null;
   code?: string | null;
   name?: string | null;
-  mode?: "per_person" | "set" | string | null;
+  mode?: PosBuffetPricingMode | string | null;
   price?: number | string | null;
-};
-
-type PostgrestLikeError = {
-  code?: string | null;
-  message?: string | null;
-  details?: string | null;
-  hint?: string | null;
-};
-
-type ExistingBuffetProduct = {
-  id: string;
-  name: string;
-  price: number | null;
-  is_active: boolean | null;
 };
 
 function roundMoney(value: number): number {
@@ -31,28 +25,8 @@ function roundMoney(value: number): number {
   return Number(Math.max(0, value).toFixed(2));
 }
 
-function isMissingColumnError(error: PostgrestLikeError | null | undefined): boolean {
-  if (!error) return false;
-  const code = String(error.code ?? "");
-  const text = `${error.message ?? ""} ${error.details ?? ""} ${error.hint ?? ""}`.toLowerCase();
-  return code === "42703" || code === "PGRST204" || text.includes("column") || text.includes("schema cache");
-}
-
-function isDuplicateError(error: PostgrestLikeError | null | undefined): boolean {
-  return String(error?.code ?? "") === "23505";
-}
-
-function normalizeMode(value: ResolveBuffetProductPayload["mode"]): "per_person" | "set" {
+function normalizeMode(value: unknown): PosBuffetPricingMode {
   return value === "set" ? "set" : "per_person";
-}
-
-function buildBuffetProductDescriptor(payload: ResolveBuffetProductPayload) {
-  const mode = normalizeMode(payload.mode);
-  const defaultPlan = DEFAULT_BUFFET_PRICE_PLANS.find((plan) => plan.mode === mode)!;
-  const name = String(payload.name ?? "").trim() || defaultPlan.name;
-  const code = String(payload.code ?? "").trim() || defaultPlan.code;
-  const price = roundMoney(Number(payload.price ?? defaultPlan.price));
-  return { mode, name, code, price, category: "บุฟเฟ่" };
 }
 
 async function requireBuffetSalesScope() {
@@ -63,126 +37,91 @@ async function requireBuffetSalesScope() {
   return scope;
 }
 
-async function findExistingProduct(args: { tenantId: string; branchId: string; name: string }) {
+async function loadBranchProducts(tenantId: string, branchId: string) {
   const supabase = getSupabaseServiceClient();
-  const { data, error } = await supabase
+  return supabase
     .from("products")
-    .select("id,name,price,is_active")
-    .eq("tenant_id", args.tenantId)
-    .eq("branch_id", args.branchId)
-    .eq("name", args.name)
-    .limit(1)
-    .maybeSingle<ExistingBuffetProduct>();
-  return { product: data ?? null, error: error ?? null };
+    .select("id,sku,name,price,is_active,metadata,created_at")
+    .eq("tenant_id", tenantId)
+    .eq("branch_id", branchId)
+    .order("created_at", { ascending: true })
+    .returns<BuffetPlanProductRow[]>();
 }
 
-async function insertBuffetProduct(args: {
+function canonicalPlanForMode(mode: PosBuffetPricingMode) {
+  return DEFAULT_BUFFET_PRICE_PLANS.find((plan) => plan.mode === mode)!;
+}
+
+async function findProductById(tenantId: string, branchId: string, productId: string) {
+  const supabase = getSupabaseServiceClient();
+  return supabase
+    .from("products")
+    .select("id,sku,name,price,is_active,metadata,created_at")
+    .eq("tenant_id", tenantId)
+    .eq("branch_id", branchId)
+    .eq("id", productId)
+    .maybeSingle<BuffetPlanProductRow>();
+}
+
+async function findCanonicalProduct(tenantId: string, branchId: string, mode: PosBuffetPricingMode) {
+  const plan = canonicalPlanForMode(mode);
+  const supabase = getSupabaseServiceClient();
+  return supabase
+    .from("products")
+    .select("id,sku,name,price,is_active,metadata,created_at")
+    .eq("tenant_id", tenantId)
+    .eq("branch_id", branchId)
+    .eq("sku", plan.code)
+    .maybeSingle<BuffetPlanProductRow>();
+}
+
+async function createCanonicalProduct(args: {
   tenantId: string;
   branchId: string;
-  code: string;
-  name: string;
-  category: string;
+  mode: PosBuffetPricingMode;
   price: number;
 }) {
+  const plan = canonicalPlanForMode(args.mode);
   const supabase = getSupabaseServiceClient();
-  const candidates: Array<Record<string, unknown>> = [
-    {
+  return supabase
+    .from("products")
+    .insert({
       tenant_id: args.tenantId,
       branch_id: args.branchId,
-      sku: args.code,
-      code: args.code,
-      name: args.name,
-      category: args.category,
+      sku: plan.code,
+      name: plan.name,
+      category: "บุฟเฟ่",
       price: args.price,
+      is_combo: false,
       is_active: true,
-      stock_deduction_mode: "unit_only"
-    },
-    {
-      tenant_id: args.tenantId,
-      branch_id: args.branchId,
-      sku: args.code,
-      name: args.name,
-      category: args.category,
-      price: args.price,
-      is_active: true,
-      stock_deduction_mode: "unit_only"
-    },
-    {
-      tenant_id: args.tenantId,
-      branch_id: args.branchId,
-      name: args.name,
-      category: args.category,
-      price: args.price,
-      is_active: true,
-      stock_deduction_mode: "unit_only"
-    },
-    {
-      tenant_id: args.tenantId,
-      branch_id: args.branchId,
-      name: args.name,
-      category: args.category,
-      price: args.price,
-      is_active: true
-    },
-    {
-      tenant_id: args.tenantId,
-      branch_id: args.branchId,
-      name: args.name,
-      price: args.price,
-      is_active: true
-    }
-  ];
-
-  let lastError: PostgrestLikeError | null = null;
-  for (const payload of candidates) {
-    const { data, error } = await supabase
-      .from("products")
-      .insert(payload)
-      .select("id,name,price,is_active")
-      .maybeSingle<ExistingBuffetProduct>();
-
-    if (!error && data?.id) return { product: data, error: null };
-
-    lastError = error ?? null;
-    if (isDuplicateError(error)) {
-      const existing = await findExistingProduct({ tenantId: args.tenantId, branchId: args.branchId, name: args.name });
-      if (existing.product?.id) return { product: existing.product, error: null };
-    }
-    if (!isMissingColumnError(error)) continue;
-  }
-
-  return { product: null, error: lastError };
+      stock_deduction_mode: "unit_only",
+      metadata: buildBuffetPlanMetadata({ mode: args.mode, draft: false })
+    })
+    .select("id,sku,name,price,is_active,metadata,created_at")
+    .maybeSingle<BuffetPlanProductRow>();
 }
 
-function planFromProduct(defaultPlan: PosBuffetPricePlan, product: ExistingBuffetProduct | null): PosBuffetPricePlan {
-  if (!product) return { ...defaultPlan };
-  const price = roundMoney(Number(product.price ?? defaultPlan.price));
-  return {
-    ...defaultPlan,
-    name: product.name || defaultPlan.name,
-    price,
-    is_active: product.is_active !== false && price > 0,
-    description: defaultPlan.description
-  };
+function buildSalesPlans(products: BuffetPlanProductRow[]): PosBuffetPricePlan[] {
+  const classified = products
+    .filter((product) => buffetPlanModeFromProduct(product) !== null)
+    .map((product) => buffetPlanFromProduct(product, 0))
+    .filter((plan): plan is PosBuffetPricePlan => Boolean(plan));
+
+  const result = [...classified];
+  for (const fallback of DEFAULT_BUFFET_PRICE_PLANS) {
+    const existing = result.some((plan) => plan.code === fallback.code);
+    if (!existing) result.push({ ...fallback, product_id: null, configured: false, draft: false, item_count: 0 });
+  }
+  return result.filter((plan) => plan.is_active && plan.price > 0 && !plan.draft).sort(compareBuffetPlans);
 }
 
 export async function GET() {
   try {
     const scope = await requireBuffetSalesScope();
-    const supabase = getSupabaseServiceClient();
-    const names = DEFAULT_BUFFET_PRICE_PLANS.map((plan) => plan.name);
-    const { data, error } = await supabase
-      .from("products")
-      .select("id,name,price,is_active")
-      .eq("tenant_id", scope.session.tenant_id)
-      .eq("branch_id", scope.session.branch_id)
-      .in("name", names)
-      .returns<ExistingBuffetProduct[]>();
-    if (error) return fail("buffet_product_query_failed", error.message, 500);
-
-    const byName = new Map((data ?? []).map((product) => [product.name, product]));
-    const plans = DEFAULT_BUFFET_PRICE_PLANS.map((plan) => planFromProduct(plan, byName.get(plan.name) ?? null));
-    return ok({ plans, source: data?.length ? "branch_products" : "defaults" });
+    const result = await loadBranchProducts(scope.session.tenant_id, scope.session.branch_id);
+    if (result.error) return fail("buffet_product_query_failed", result.error.message, 500);
+    const plans = buildSalesPlans(result.data ?? []);
+    return ok({ plans, source: "branch_products" });
   } catch (error) {
     if (error instanceof FeatureGateError) return fail(error.code, error.message, error.status);
     if (error instanceof PosGuardError) return fail(error.code, error.message, error.status);
@@ -196,45 +135,54 @@ export async function POST(request: Request) {
     const payload = (await request.json().catch(() => null)) as ResolveBuffetProductPayload | null;
     if (!payload) return fail("invalid_payload", "Invalid buffet product payload.", 422);
 
-    const descriptor = buildBuffetProductDescriptor(payload);
-    if (descriptor.price <= 0) return fail("invalid_buffet_price", "Buffet price must be greater than zero.", 422);
-
     const tenantId = scope.session.tenant_id;
     const branchId = scope.session.branch_id;
-    const existing = await findExistingProduct({ tenantId, branchId, name: descriptor.name });
-    if (existing.error) return fail("buffet_product_query_failed", existing.error.message ?? "Failed to query buffet product.", 500);
+    const requestedProductId = String(payload.product_id ?? "").trim();
 
-    if (existing.product?.id) {
-      if (existing.product.is_active === false) {
-        return fail("buffet_product_inactive", "This buffet product is inactive for the current branch.", 409);
-      }
-      const actualPrice = roundMoney(Number(existing.product.price ?? 0));
-      if (actualPrice <= 0) return fail("invalid_buffet_price", "Configured buffet product price must be greater than zero.", 422);
+    if (requestedProductId) {
+      const existing = await findProductById(tenantId, branchId, requestedProductId);
+      if (existing.error) return fail("buffet_product_query_failed", existing.error.message, 500);
+      if (!existing.data || !buffetPlanModeFromProduct(existing.data)) return fail("buffet_plan_not_found", "Buffet plan was not found.", 404);
+      const plan = buffetPlanFromProduct(existing.data, 0);
+      if (!plan?.is_active || plan.price <= 0 || plan.draft) return fail("buffet_product_inactive", "This buffet plan is not available for sale.", 409);
       return ok({
-        product_id: existing.product.id,
-        name: existing.product.name || descriptor.name,
-        price: actualPrice,
+        product_id: existing.data.id,
+        name: existing.data.name,
+        price: plan.price,
         reused: true,
         price_source: "branch_product"
       });
     }
 
-    const inserted = await insertBuffetProduct({
-      tenantId,
-      branchId,
-      code: descriptor.code,
-      name: descriptor.name,
-      category: descriptor.category,
-      price: descriptor.price
-    });
-    if (!inserted.product?.id) {
-      return fail("buffet_product_create_failed", inserted.error?.message ?? "Failed to create buffet product.", 500);
+    const mode = normalizeMode(payload.mode);
+    const fallbackPlan = canonicalPlanForMode(mode);
+    const requestedCode = String(payload.code ?? "").trim().toUpperCase();
+    if (requestedCode && requestedCode !== fallbackPlan.code) {
+      return fail("buffet_plan_product_id_required", "Dynamic buffet plans require product_id.", 422);
     }
 
+    const existing = await findCanonicalProduct(tenantId, branchId, mode);
+    if (existing.error) return fail("buffet_product_query_failed", existing.error.message, 500);
+    if (existing.data) {
+      const plan = buffetPlanFromProduct(existing.data, 0);
+      if (!plan?.is_active || plan.price <= 0 || plan.draft) return fail("buffet_product_inactive", "This buffet plan is not available for sale.", 409);
+      return ok({
+        product_id: existing.data.id,
+        name: existing.data.name,
+        price: plan.price,
+        reused: true,
+        price_source: "branch_product"
+      });
+    }
+
+    const requestedPrice = roundMoney(Number(payload.price ?? fallbackPlan.price));
+    if (requestedPrice <= 0) return fail("invalid_buffet_price", "Buffet price must be greater than zero.", 422);
+    const inserted = await createCanonicalProduct({ tenantId, branchId, mode, price: requestedPrice });
+    if (inserted.error || !inserted.data) return fail("buffet_product_create_failed", inserted.error?.message ?? "Failed to create buffet product.", 500);
     return ok({
-      product_id: inserted.product.id,
-      name: inserted.product.name || descriptor.name,
-      price: roundMoney(Number(inserted.product.price ?? descriptor.price)),
+      product_id: inserted.data.id,
+      name: inserted.data.name,
+      price: roundMoney(Number(inserted.data.price ?? requestedPrice)),
       reused: false,
       price_source: "created_default"
     });
