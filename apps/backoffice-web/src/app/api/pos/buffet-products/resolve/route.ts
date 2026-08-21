@@ -1,5 +1,6 @@
 import { FeatureGateError, requireTenantFeature } from "@/lib/feature-gate";
 import { fail, ok } from "@/lib/http";
+import { DEFAULT_BUFFET_PRICE_PLANS, type PosBuffetPricePlan } from "@/lib/pos-buffet-pricing";
 import { PosGuardError, requirePermission, requirePosSession } from "@/lib/pos-session-guard";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
 
@@ -16,6 +17,13 @@ type PostgrestLikeError = {
   message?: string | null;
   details?: string | null;
   hint?: string | null;
+};
+
+type ExistingBuffetProduct = {
+  id: string;
+  name: string;
+  price: number | null;
+  is_active: boolean | null;
 };
 
 function roundMoney(value: number): number {
@@ -40,55 +48,32 @@ function normalizeMode(value: ResolveBuffetProductPayload["mode"]): "per_person"
 
 function buildBuffetProductDescriptor(payload: ResolveBuffetProductPayload) {
   const mode = normalizeMode(payload.mode);
-  const fallbackName = mode === "per_person" ? "บุฟเฟ่รายท่าน" : "บุฟเฟ่แบบชุด";
-  const fallbackCode = mode === "per_person" ? "BUFFET-PER-PERSON" : "BUFFET-SET";
-  const name = String(payload.name ?? "").trim() || fallbackName;
-  const code = String(payload.code ?? "").trim() || fallbackCode;
-  const price = roundMoney(Number(payload.price ?? 0));
-  return {
-    mode,
-    name,
-    code,
-    price,
-    category: "บุฟเฟ่"
-  };
+  const defaultPlan = DEFAULT_BUFFET_PRICE_PLANS.find((plan) => plan.mode === mode)!;
+  const name = String(payload.name ?? "").trim() || defaultPlan.name;
+  const code = String(payload.code ?? "").trim() || defaultPlan.code;
+  const price = roundMoney(Number(payload.price ?? defaultPlan.price));
+  return { mode, name, code, price, category: "บุฟเฟ่" };
 }
 
-async function findExistingProduct(args: {
-  tenantId: string;
-  branchId: string;
-  name: string;
-}) {
+async function requireBuffetSalesScope() {
+  const scope = await requirePosSession();
+  requirePermission(scope, "sales:enter");
+  await requireTenantFeature(scope.session.tenant_id, "core_pos_sales", scope.session.branch_id);
+  await requireTenantFeature(scope.session.tenant_id, "table_management", scope.session.branch_id);
+  return scope;
+}
+
+async function findExistingProduct(args: { tenantId: string; branchId: string; name: string }) {
   const supabase = getSupabaseServiceClient();
   const { data, error } = await supabase
     .from("products")
-    .select("id,price,is_active")
+    .select("id,name,price,is_active")
     .eq("tenant_id", args.tenantId)
     .eq("branch_id", args.branchId)
     .eq("name", args.name)
     .limit(1)
-    .maybeSingle<{ id: string; price: number | null; is_active: boolean | null }>();
-
-  if (error) {
-    return { product: null, error };
-  }
-  return { product: data ?? null, error: null };
-}
-
-async function activateExistingProduct(args: {
-  tenantId: string;
-  branchId: string;
-  productId: string;
-  price: number;
-}) {
-  const supabase = getSupabaseServiceClient();
-  const { error } = await supabase
-    .from("products")
-    .update({ price: args.price, is_active: true })
-    .eq("tenant_id", args.tenantId)
-    .eq("branch_id", args.branchId)
-    .eq("id", args.productId);
-  return error ?? null;
+    .maybeSingle<ExistingBuffetProduct>();
+  return { product: data ?? null, error: error ?? null };
 }
 
 async function insertBuffetProduct(args: {
@@ -153,64 +138,84 @@ async function insertBuffetProduct(args: {
     const { data, error } = await supabase
       .from("products")
       .insert(payload)
-      .select("id")
-      .maybeSingle<{ id: string }>();
+      .select("id,name,price,is_active")
+      .maybeSingle<ExistingBuffetProduct>();
 
-    if (!error && data?.id) {
-      return { productId: String(data.id), error: null };
-    }
+    if (!error && data?.id) return { product: data, error: null };
 
     lastError = error ?? null;
     if (isDuplicateError(error)) {
       const existing = await findExistingProduct({ tenantId: args.tenantId, branchId: args.branchId, name: args.name });
-      if (existing.product?.id) return { productId: existing.product.id, error: null };
+      if (existing.product?.id) return { product: existing.product, error: null };
     }
-    if (!isMissingColumnError(error)) {
-      continue;
-    }
+    if (!isMissingColumnError(error)) continue;
   }
 
-  return { productId: null, error: lastError };
+  return { product: null, error: lastError };
+}
+
+function planFromProduct(defaultPlan: PosBuffetPricePlan, product: ExistingBuffetProduct | null): PosBuffetPricePlan {
+  if (!product) return { ...defaultPlan };
+  const price = roundMoney(Number(product.price ?? defaultPlan.price));
+  return {
+    ...defaultPlan,
+    name: product.name || defaultPlan.name,
+    price,
+    is_active: product.is_active !== false && price > 0,
+    description: defaultPlan.description
+  };
+}
+
+export async function GET() {
+  try {
+    const scope = await requireBuffetSalesScope();
+    const supabase = getSupabaseServiceClient();
+    const names = DEFAULT_BUFFET_PRICE_PLANS.map((plan) => plan.name);
+    const { data, error } = await supabase
+      .from("products")
+      .select("id,name,price,is_active")
+      .eq("tenant_id", scope.session.tenant_id)
+      .eq("branch_id", scope.session.branch_id)
+      .in("name", names)
+      .returns<ExistingBuffetProduct[]>();
+    if (error) return fail("buffet_product_query_failed", error.message, 500);
+
+    const byName = new Map((data ?? []).map((product) => [product.name, product]));
+    const plans = DEFAULT_BUFFET_PRICE_PLANS.map((plan) => planFromProduct(plan, byName.get(plan.name) ?? null));
+    return ok({ plans, source: data?.length ? "branch_products" : "defaults" });
+  } catch (error) {
+    if (error instanceof FeatureGateError) return fail(error.code, error.message, error.status);
+    if (error instanceof PosGuardError) return fail(error.code, error.message, error.status);
+    return fail("buffet_product_query_failed", error instanceof Error ? error.message : "Unknown error", 500);
+  }
 }
 
 export async function POST(request: Request) {
   try {
-    const scope = await requirePosSession();
-    requirePermission(scope, "sales:enter");
-    await requireTenantFeature(scope.session.tenant_id, "core_pos_sales", scope.session.branch_id);
-
+    const scope = await requireBuffetSalesScope();
     const payload = (await request.json().catch(() => null)) as ResolveBuffetProductPayload | null;
-    if (!payload) {
-      return fail("invalid_payload", "Invalid buffet product payload.", 422);
-    }
+    if (!payload) return fail("invalid_payload", "Invalid buffet product payload.", 422);
 
     const descriptor = buildBuffetProductDescriptor(payload);
-    if (descriptor.price <= 0) {
-      return fail("invalid_buffet_price", "Buffet price must be greater than zero.", 422);
-    }
+    if (descriptor.price <= 0) return fail("invalid_buffet_price", "Buffet price must be greater than zero.", 422);
 
     const tenantId = scope.session.tenant_id;
     const branchId = scope.session.branch_id;
     const existing = await findExistingProduct({ tenantId, branchId, name: descriptor.name });
-    if (existing.error) {
-      return fail("buffet_product_query_failed", existing.error.message ?? "Failed to query buffet product.", 500);
-    }
+    if (existing.error) return fail("buffet_product_query_failed", existing.error.message ?? "Failed to query buffet product.", 500);
 
     if (existing.product?.id) {
-      const updateError = await activateExistingProduct({
-        tenantId,
-        branchId,
-        productId: existing.product.id,
-        price: descriptor.price
-      });
-      if (updateError && !isMissingColumnError(updateError)) {
-        return fail("buffet_product_update_failed", updateError.message ?? "Failed to update buffet product.", 500);
+      if (existing.product.is_active === false) {
+        return fail("buffet_product_inactive", "This buffet product is inactive for the current branch.", 409);
       }
+      const actualPrice = roundMoney(Number(existing.product.price ?? 0));
+      if (actualPrice <= 0) return fail("invalid_buffet_price", "Configured buffet product price must be greater than zero.", 422);
       return ok({
         product_id: existing.product.id,
-        name: descriptor.name,
-        price: descriptor.price,
-        reused: true
+        name: existing.product.name || descriptor.name,
+        price: actualPrice,
+        reused: true,
+        price_source: "branch_product"
       });
     }
 
@@ -222,28 +227,20 @@ export async function POST(request: Request) {
       category: descriptor.category,
       price: descriptor.price
     });
-
-    if (!inserted.productId) {
-      return fail(
-        "buffet_product_create_failed",
-        inserted.error?.message ?? "Failed to create buffet product.",
-        500
-      );
+    if (!inserted.product?.id) {
+      return fail("buffet_product_create_failed", inserted.error?.message ?? "Failed to create buffet product.", 500);
     }
 
     return ok({
-      product_id: inserted.productId,
-      name: descriptor.name,
-      price: descriptor.price,
-      reused: false
+      product_id: inserted.product.id,
+      name: inserted.product.name || descriptor.name,
+      price: roundMoney(Number(inserted.product.price ?? descriptor.price)),
+      reused: false,
+      price_source: "created_default"
     });
   } catch (error) {
-    if (error instanceof FeatureGateError) {
-      return fail(error.code, error.message, error.status);
-    }
-    if (error instanceof PosGuardError) {
-      return fail(error.code, error.message, error.status);
-    }
+    if (error instanceof FeatureGateError) return fail(error.code, error.message, error.status);
+    if (error instanceof PosGuardError) return fail(error.code, error.message, error.status);
     return fail("buffet_product_resolve_failed", error instanceof Error ? error.message : "Unknown error", 500);
   }
 }
