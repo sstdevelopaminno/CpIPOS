@@ -1,6 +1,7 @@
 import { getPosApiAuthContext } from "@/lib/pos-api-auth";
 import { featureGateFail, requirePosApiFeature } from "@/lib/pos-api-feature-guard";
 import { fail, ok } from "@/lib/http";
+import { normalizeBuffetTableSessionSummary } from "@/lib/buffet-table-session";
 import { readThroughRuntimeCache } from "@/lib/route-runtime-cache";
 import { getEffectiveTableStatus, naturalCompareTableCode } from "@/lib/table-management";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
@@ -53,6 +54,7 @@ type SessionRow = {
   order_id: string | null;
   status: "open" | "ordering" | "pending_payment" | "closed" | "cancelled";
   opened_at: string;
+  metadata: Record<string, unknown> | null;
 };
 
 type QrOrderActivityRow = {
@@ -131,7 +133,7 @@ export async function GET() {
             .order("zone_name", { ascending: true }),
           supabase
             .from("table_bill_sessions")
-            .select("id,table_id,order_id,status,opened_at")
+            .select("id,table_id,order_id,status,opened_at,metadata")
             .eq("tenant_id", auth.tenantId!)
             .eq("branch_id", auth.branchId!)
             .in("status", ["open", "ordering", "pending_payment"])
@@ -253,6 +255,7 @@ export async function GET() {
               metadata: {},
               active_session_id: activeSession?.id ?? null,
               active_order_id: activeSession?.order_id ?? null,
+              buffet_summary: normalizeBuffetTableSessionSummary(activeSession?.metadata),
               qr_activity: qrActivityByTable.get(table.id) ?? emptyQrActivity()
             };
           });
@@ -276,6 +279,7 @@ export async function GET() {
               }),
               active_session_id: activeSession?.id ?? null,
               active_order_id: activeSession?.order_id ?? null,
+              buffet_summary: normalizeBuffetTableSessionSummary(activeSession?.metadata),
               qr_activity: qrActivityByTable.get(table.id) ?? emptyQrActivity()
             };
           })
