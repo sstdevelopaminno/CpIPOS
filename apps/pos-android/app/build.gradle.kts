@@ -26,7 +26,7 @@ android {
         applicationId = "com.cpipos.pos"
         minSdk = 26
         targetSdk = 34
-        versionCode = 20
+        versionCode = 27
         versionName = "1.0.20"
         runtimeVersionCodeOverride?.let { versionCode = it }
         runtimeVersionNameOverride?.let { versionName = it }
