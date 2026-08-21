@@ -24,7 +24,6 @@ type PerfLogRow = {
   metadata: Record<string, unknown> | null;
 };
 
-// Onsite safeguard: coalesce only normal telemetry; error telemetry always bypasses sampling.
 const PERF_SAMPLE_TTL_MS = 10_000;
 
 function clampMetric(value: unknown, min: number, max: number): number | null {
@@ -53,9 +52,7 @@ export async function GET(req: Request) {
   try {
     const auth = await getPosApiAuthContext({ requireBranchScope: true, requiredPermission: "monitor:view" });
     const canViewPerf = Boolean(auth.branchRole && ["manager", "owner", "accountant"].includes(auth.branchRole)) || auth.platformRole === "it_admin";
-    if (!canViewPerf) {
-      return fail("forbidden_role", "Only manager, owner, accountant, or IT Admin can view route performance logs.", 403);
-    }
+    if (!canViewPerf) return fail("forbidden_role", "Only manager, owner, accountant, or IT Admin can view route performance logs.", 403);
 
     const { searchParams } = new URL(req.url);
     const limitRaw = Number(searchParams.get("limit") ?? 100);
@@ -63,75 +60,34 @@ export async function GET(req: Request) {
     const routeFilter = parseRoute(searchParams.get("route"));
     const supabase = getSupabaseServiceClient();
 
-    let query = supabase
-      .from("audit_logs")
-      .select("id,created_at,action,metadata")
-      .eq("tenant_id", auth.tenantId!)
-      .eq("branch_id", auth.branchId!)
-      .eq("action", "pos_route_perf")
-      .order("created_at", { ascending: false })
-      .limit(limit);
-
-    if (routeFilter) {
-      query = query.contains("metadata", { route: routeFilter });
-    }
-
+    let query = supabase.from("audit_logs").select("id,created_at,action,metadata")
+      .eq("tenant_id", auth.tenantId!).eq("branch_id", auth.branchId!).eq("action", "pos_route_perf")
+      .order("created_at", { ascending: false }).limit(limit);
+    if (routeFilter) query = query.contains("metadata", { route: routeFilter });
     const { data, error } = await query;
-    if (error) {
-      return fail("perf_logs_query_failed", error.message, 500);
-    }
+    if (error) return fail("perf_logs_query_failed", error.message, 500);
 
     const rows = (data ?? []) as PerfLogRow[];
-    const byRoute = new Map<
-      string,
-      { count: number; navSum: number; navCount: number; ttfbSum: number; ttfbCount: number; navMax: number; ttfbMax: number }
-    >();
-
+    const byRoute = new Map<string, { count: number; navSum: number; navCount: number; ttfbSum: number; ttfbCount: number; navMax: number; ttfbMax: number }>();
     for (const row of rows) {
       const metadata = row.metadata ?? {};
       const route = parseRoute(metadata.route) ?? "unknown";
       const nav = clampMetric(metadata.nav_duration_ms, 0, 120000);
       const ttfb = clampMetric(metadata.ttfb_ms, 0, 120000);
-      const current = byRoute.get(route) ?? {
-        count: 0,
-        navSum: 0,
-        navCount: 0,
-        ttfbSum: 0,
-        ttfbCount: 0,
-        navMax: 0,
-        ttfbMax: 0
-      };
-
+      const current = byRoute.get(route) ?? { count: 0, navSum: 0, navCount: 0, ttfbSum: 0, ttfbCount: 0, navMax: 0, ttfbMax: 0 };
       current.count += 1;
-      if (nav !== null) {
-        current.navSum += nav;
-        current.navCount += 1;
-        current.navMax = Math.max(current.navMax, nav);
-      }
-      if (ttfb !== null) {
-        current.ttfbSum += ttfb;
-        current.ttfbCount += 1;
-        current.ttfbMax = Math.max(current.ttfbMax, ttfb);
-      }
+      if (nav !== null) { current.navSum += nav; current.navCount += 1; current.navMax = Math.max(current.navMax, nav); }
+      if (ttfb !== null) { current.ttfbSum += ttfb; current.ttfbCount += 1; current.ttfbMax = Math.max(current.ttfbMax, ttfb); }
       byRoute.set(route, current);
     }
-
-    const summary = Array.from(byRoute.entries())
-      .map(([route, stat]) => ({
-        route,
-        count: stat.count,
-        avg_nav_ms: stat.navCount > 0 ? Number((stat.navSum / stat.navCount).toFixed(2)) : null,
-        avg_ttfb_ms: stat.ttfbCount > 0 ? Number((stat.ttfbSum / stat.ttfbCount).toFixed(2)) : null,
-        max_nav_ms: stat.navCount > 0 ? Number(stat.navMax.toFixed(2)) : null,
-        max_ttfb_ms: stat.ttfbCount > 0 ? Number(stat.ttfbMax.toFixed(2)) : null
-      }))
-      .sort((a, b) => (b.avg_nav_ms ?? 0) - (a.avg_nav_ms ?? 0));
-
-    return ok({
-      items: rows,
-      summary,
-      total: rows.length
-    });
+    const summary = Array.from(byRoute.entries()).map(([route, stat]) => ({
+      route, count: stat.count,
+      avg_nav_ms: stat.navCount > 0 ? Number((stat.navSum / stat.navCount).toFixed(2)) : null,
+      avg_ttfb_ms: stat.ttfbCount > 0 ? Number((stat.ttfbSum / stat.ttfbCount).toFixed(2)) : null,
+      max_nav_ms: stat.navCount > 0 ? Number(stat.navMax.toFixed(2)) : null,
+      max_ttfb_ms: stat.ttfbCount > 0 ? Number(stat.ttfbMax.toFixed(2)) : null
+    })).sort((a, b) => (b.avg_nav_ms ?? 0) - (a.avg_nav_ms ?? 0));
+    return ok({ items: rows, summary, total: rows.length });
   } catch (error) {
     return fail("unauthorized", error instanceof Error ? error.message : "Authentication failed.", 401);
   }
@@ -139,15 +95,10 @@ export async function GET(req: Request) {
 
 export async function POST(req: Request) {
   try {
-    // Telemetry is written by every authenticated POS role. Keep branch scoping and
-    // identity checks, but do not require monitor:view: that permission is for reading
-    // monitoring data (GET), not for emitting scoped route telemetry.
-    const auth = await getPosApiAuthContext({ requireBranchScope: true });
+    const auth = await getPosApiAuthContext({ requireBranchScope: true, requiredPermission: "monitor:view" });
     const body = (await req.json()) as PerfPayload;
     const route = parseRoute(body.route);
-    if (!route) {
-      return fail("invalid_route", "route is required and must start with '/'.", 422);
-    }
+    if (!route) return fail("invalid_route", "route is required and must start with '/'.", 422);
 
     const navDuration = clampMetric(body.nav_duration_ms, 0, 120000);
     const ttfb = clampMetric(body.ttfb_ms, 0, 120000);
@@ -160,75 +111,32 @@ export async function POST(req: Request) {
     const capturedAt = typeof body.captured_at === "string" ? body.captured_at : new Date().toISOString();
     const userAgent = req.headers.get("user-agent") ?? undefined;
 
-    const writeAudit = () =>
-      appendAuditLog({
-        tenantId: auth.tenantId ?? undefined,
-        branchId: auth.branchId ?? undefined,
-        actorUserId: auth.userId,
-        actorRole: auth.branchRole ?? auth.platformRole,
-        action: "pos_route_perf",
-        targetTable: "pos_routes",
-        module: "pos_performance",
-        entityType: "route_perf",
-        metadata: {
-          route,
-          from_route: fromRoute,
-          nav_duration_ms: navDuration,
-          ttfb_ms: ttfb,
-          status_code: statusCode,
-          error_code: errorCode,
-          http_method: httpMethod,
-          resource_name: resourceName,
-          source,
-          captured_at: capturedAt
-        },
-        userAgent
-      });
+    const writeAudit = () => appendAuditLog({
+      tenantId: auth.tenantId ?? undefined, branchId: auth.branchId ?? undefined,
+      actorUserId: auth.userId, actorRole: auth.branchRole ?? auth.platformRole,
+      action: "pos_route_perf", targetTable: "pos_routes", module: "pos_performance", entityType: "route_perf",
+      metadata: { route, from_route: fromRoute, nav_duration_ms: navDuration, ttfb_ms: ttfb, status_code: statusCode, error_code: errorCode, http_method: httpMethod, resource_name: resourceName, source, captured_at: capturedAt },
+      userAgent
+    });
 
     const isErrorTelemetry = errorCode !== null || (statusCode !== null && statusCode >= 400);
     let result: Awaited<ReturnType<typeof appendAuditLog>>;
     let sampled = false;
-
-    if (isErrorTelemetry) {
-      result = await writeAudit();
-    } else {
-      const sampleKey = [
-        "pos-perf",
-        auth.tenantId ?? "unknown-tenant",
-        auth.branchId ?? "unknown-branch",
-        auth.userId ?? "unknown-user",
-        route,
-        source
-      ].join(":");
-      const cached = await readThroughRuntimeCache({
-        key: sampleKey,
-        ttlMs: PERF_SAMPLE_TTL_MS,
-        loader: writeAudit
-      });
+    if (isErrorTelemetry) result = await writeAudit();
+    else {
+      const sampleKey = ["pos-perf", auth.tenantId ?? "unknown-tenant", auth.branchId ?? "unknown-branch", auth.userId ?? "unknown-user", route, source].join(":");
+      const cached = await readThroughRuntimeCache({ key: sampleKey, ttlMs: PERF_SAMPLE_TTL_MS, loader: writeAudit });
       result = cached.value;
       sampled = cached.source !== "miss";
     }
-
-    if (sampled) {
-      return ok({ ok: true, logged: false, sampled: true }, 202);
-    }
-
+    if (sampled) return ok({ ok: true, logged: false, sampled: true }, 202);
     if (!result.inserted) {
-      console.error("[pos-perf] audit log insert skipped", {
-        tenantId: auth.tenantId ?? null,
-        branchId: auth.branchId ?? null,
-        userId: auth.userId,
-        route,
-        error: result.error ?? "audit_log_write_failed"
-      });
+      console.error("[pos-perf] audit log insert skipped", { tenantId: auth.tenantId ?? null, branchId: auth.branchId ?? null, userId: auth.userId, route, error: result.error ?? "audit_log_write_failed" });
       return ok({ ok: true, logged: false }, 202);
     }
-
     return ok({ ok: true, logged: true }, 201);
   } catch (error) {
-    console.error("[pos-perf] non-blocking failure", {
-      error: error instanceof Error ? error.message : "Unknown error"
-    });
+    console.error("[pos-perf] non-blocking failure", { error: error instanceof Error ? error.message : "Unknown error" });
     return ok({ ok: true, logged: false }, 202);
   }
 }
