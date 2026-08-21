@@ -10,12 +10,15 @@ const mainActivity = source("../../../pos-android/app/src/main/java/com/cpipos/p
 const updatePolicy = source("../../src/app/api/android-pos/update-policy/route.ts");
 const mandatoryUpdate = source("../../src/components/android-pos/android-pos-mandatory-update.tsx");
 const androidRuntimeRelease = source("../../src/lib/android-runtime-release.ts");
+const mdmHeartbeat = source("../../src/app/api/android-pos/mdm/heartbeat/route.ts");
 const downloadLatest = source("../../src/app/download/android/latest/route.ts");
 
 describe("Android POS stable/Modern update safety regression contract", () => {
   it("keeps the legacy stable native package identity on 1.0.12 / versionCode 18", () => {
     expect(androidBuild).toContain('versionCode = 18');
     expect(androidBuild).toContain('versionName = "1.0.12"');
+    expect(androidBuild).toContain('val updateChannel = providers.gradleProperty("cpiposUpdateChannel")');
+    expect(androidBuild).toContain('val managedUpdaterEnabled = providers.gradleProperty("cpiposManagedUpdater")');
     expect(mainActivity).toContain('append(" CpIPOS-AndroidPOS/")');
     expect(mainActivity).toContain('append(BuildConfig.VERSION_NAME)');
   });
@@ -39,15 +42,23 @@ describe("Android POS stable/Modern update safety regression contract", () => {
     expect(mandatoryUpdate).not.toContain("NATIVE_ANDROID_POS_PATTERN");
   });
 
-  it("offers Modern only by explicit capability opt-in and never to FG0003", () => {
+  it("offers Modern 1.0.20 code27 only by explicit capability opt-in", () => {
     expect(androidRuntimeRelease).toContain('versionName: "1.0.20"');
-    expect(androidRuntimeRelease).toContain('versionCode: 26');
+    expect(androidRuntimeRelease).toContain('versionCode: 27');
     expect(androidRuntimeRelease).toContain('new Set(["FG0003", "FG00003"])');
-    expect(androidRuntimeRelease).toContain('if (tenantCode && PROTECTED_LEGACY_TENANT_CODES.has(tenantCode)) return null;');
     expect(androidRuntimeRelease).toContain('if (updates.managed_notice !== true) return null;');
     expect(androidRuntimeRelease).toContain('if (updates.silent_install !== false) return null;');
     expect(androidRuntimeRelease).toContain('if (updates.forced_update !== false) return null;');
     expect(androidRuntimeRelease).toContain('mandatory: false');
+  });
+
+  it("keeps FG0003 fail-closed unless a verified staged updater is maintenance locked", () => {
+    expect(androidRuntimeRelease).toContain('const verifiedStagedUpdater = supportsVerifiedStagedUpdater(updates);');
+    expect(androidRuntimeRelease).toContain('const maintenanceLocked = String(input.deviceStatus ?? "").trim().toLowerCase() === "maintenance" && input.deviceLocked === true;');
+    expect(androidRuntimeRelease).toContain('if (protectedLegacyTenant && !(verifiedStagedUpdater && maintenanceLocked)) return null;');
+    expect(androidRuntimeRelease).toContain('install_policy: protectedLegacyTenant ? "staged" : "notice_only"');
+    expect(mdmHeartbeat).toContain('deviceStatus: scope.status');
+    expect(mdmHeartbeat).toContain('deviceLocked: scope.is_locked');
   });
 
   it("pins the customer stable download route to the 1.0.12 versioned APK with no old-version fallback", () => {
