@@ -17,6 +17,12 @@ val releaseSigningReady = listOf(
 val runtimeVersionNameOverride = providers.gradleProperty("cpiposVersionName").orNull?.trim()?.takeIf { it.isNotBlank() }
 val runtimeVersionCodeOverride = providers.gradleProperty("cpiposVersionCode").orNull?.toIntOrNull()
 val dualScreenEnabled = providers.gradleProperty("cpiposDualScreen").orNull?.trim()?.lowercase() == "true"
+val updateChannel = providers.gradleProperty("cpiposUpdateChannel").orNull
+    ?.trim()
+    ?.lowercase()
+    ?.takeIf { it == "stable" || it == "modern" }
+    ?: "stable"
+val managedUpdaterEnabled = providers.gradleProperty("cpiposManagedUpdater").orNull?.trim()?.lowercase() == "true"
 
 android {
     namespace = "com.cpipos.pos"
@@ -36,6 +42,13 @@ android {
         buildConfigField("String", "CPIPOS_MDM_HEARTBEAT_URL", "\"https://cp-ipos-web.vercel.app/api/android-pos/mdm/heartbeat\"")
         buildConfigField("String", "CPIPOS_CUSTOMER_DISPLAY_V2_URL", "\"https://cp-ipos-web.vercel.app/customer-display/v2/native\"")
         buildConfigField("String", "CPIPOS_ANDROID_POS_ALLOWED_HOST", "\"cp-ipos-web.vercel.app\"")
+        buildConfigField("String", "CPIPOS_UPDATE_CHANNEL", "\"$updateChannel\"")
+        buildConfigField("boolean", "CPIPOS_MANAGED_UPDATER_ENABLED", managedUpdaterEnabled.toString())
+        buildConfigField(
+            "String",
+            "CPIPOS_ANDROID_UPDATE_SIGNING_CERT_SHA256",
+            "\"6be0a9aef346a5b47162c8928c5018a01d0e7d81b4eb177bf2fb89922dc2a27a\""
+        )
         buildConfigField("boolean", "CPIPOS_DUAL_SCREEN_ENABLED", dualScreenEnabled.toString())
     }
 
