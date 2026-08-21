@@ -23,10 +23,9 @@ import java.util.concurrent.atomic.AtomicBoolean
 /**
  * Development-safe in-app MDM bridge for the Android POS WebView runtime.
  *
- * This is intentionally not an Android Enterprise Device Owner implementation.
- * It does not expose remote shell, app install/uninstall, file browsing, wipe,
- * SMS, camera, microphone, or device-wide control. Commands are restricted to
- * safe app-level actions that help POS-machine/printer development.
+ * Destructive device-wide commands remain excluded from the public heartbeat surface.
+ * Modern builds may opt into the separate signed staged-updater contract; Stable builds
+ * keep that updater disabled by BuildConfig.
  */
 class PosMdmAgent(
     context: Context,
@@ -35,6 +34,7 @@ class PosMdmAgent(
     private val appContext = context.applicationContext
     private val prefs = appContext.getSharedPreferences("cpipos_android_pos_mdm", Context.MODE_PRIVATE)
     private val diagnostics = AndroidDiagnostics(appContext)
+    private val updateManager = AndroidUpdateManager(appContext)
     private val mainHandler = Handler(Looper.getMainLooper())
     private val started = AtomicBoolean(false)
     private var executor: ScheduledExecutorService? = null
@@ -74,6 +74,7 @@ class PosMdmAgent(
         if (!started.compareAndSet(true, false)) return
         executor?.shutdownNow()
         executor = null
+        updateManager.stop()
     }
 
     fun notifyPageStarted(url: String?) {
@@ -208,16 +209,25 @@ class PosMdmAgent(
     private fun applyCommandsFromResponse(responseText: String) {
         runCatching {
             val response = JSONObject(responseText)
+            val data = response.optJSONObject("data")
+            val updateOffer = when {
+                data != null && data.has("update_offer") && !data.isNull("update_offer") -> data.optJSONObject("update_offer")
+                response.has("update_offer") && !response.isNull("update_offer") -> response.optJSONObject("update_offer")
+                else -> null
+            }
+            updateManager.handleOffer(updateOffer)
+
             val commands = when {
                 response.has("commands") -> response.optJSONArray("commands")
-                response.has("data") -> response.optJSONObject("data")?.optJSONArray("commands")
+                data != null -> data.optJSONArray("commands")
                 else -> null
-            } ?: return
-
-            for (index in 0 until commands.length()) {
-                val command = commands.optJSONObject(index) ?: continue
-                val action = command.optString("action", "")
-                if (action.isNotBlank()) executeSafeCommand(action, "heartbeat_response")
+            }
+            if (commands != null) {
+                for (index in 0 until commands.length()) {
+                    val command = commands.optJSONObject(index) ?: continue
+                    val action = command.optString("action", "")
+                    if (action.isNotBlank()) executeSafeCommand(action, "heartbeat_response")
+                }
             }
         }
     }
@@ -230,8 +240,6 @@ class PosMdmAgent(
                 .put("presentation_display_count", 0)
                 .put("secondary_display_available", false)
 
-        // The MDM heartbeat is assembled on a worker executor. Avoid reading View/WebView
-        // state here; this Activity always owns the Android default display as its POS screen.
         val primaryDisplayId = Display.DEFAULT_DISPLAY
         val displays = manager.displays
         val presentationDisplays = manager.getDisplays(DisplayManager.DISPLAY_CATEGORY_PRESENTATION)
@@ -264,6 +272,22 @@ class PosMdmAgent(
             .put("displays", rows)
     }
 
+    private fun buildUpdateCapabilities(): JSONObject {
+        val updaterEnabled = BuildConfig.CPIPOS_MANAGED_UPDATER_ENABLED
+        return JSONObject()
+            .put("schema_version", 1)
+            .put("channel", BuildConfig.CPIPOS_UPDATE_CHANNEL)
+            .put("managed_notice", updaterEnabled)
+            .put("silent_install", false)
+            .put("forced_update", false)
+            .put("staged_updater", updaterEnabled)
+            .put("interactive_install", updaterEnabled)
+            .put("package_installer", updaterEnabled)
+            .put("sha256_verification", updaterEnabled)
+            .put("signing_certificate_verification", updaterEnabled)
+            .put("device_owner_silent_install", updaterEnabled && diagnostics.isDeviceOwnerKnown() == true)
+    }
+
     private fun buildSnapshot(reason: String): JSONObject {
         val printer = lastPrinterDiagnostic
         val webViewPackage = WebView.getCurrentWebViewPackage()
@@ -272,6 +296,8 @@ class PosMdmAgent(
             .put("install_id", installId)
             .put("timestamp_ms", System.currentTimeMillis())
             .put("safe_command_allowlist", JSONArray(SAFE_ACTIONS.toList()))
+            .put("update_capabilities", buildUpdateCapabilities())
+            .put("update_state", updateManager.snapshot())
             .put(
                 "app",
                 JSONObject()
@@ -282,6 +308,8 @@ class PosMdmAgent(
                     .put("web_entrypoint", BuildConfig.CPIPOS_POS_WEB_URL)
                     .put("customer_display_v2_url", BuildConfig.CPIPOS_CUSTOMER_DISPLAY_V2_URL)
                     .put("dual_screen_enabled", BuildConfig.CPIPOS_DUAL_SCREEN_ENABLED)
+                    .put("update_channel", BuildConfig.CPIPOS_UPDATE_CHANNEL)
+                    .put("managed_updater_enabled", BuildConfig.CPIPOS_MANAGED_UPDATER_ENABLED)
             )
             .put(
                 "device",

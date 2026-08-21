@@ -1,0 +1,212 @@
+name: Build CpIPOS Android Modern Runtime
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches:
+      - agent-docs-preflight-schema-drift
+    paths:
+      - "apps/pos-android/**"
+      - "apps/backoffice-web/src/lib/android-runtime-release.ts"
+      - "apps/backoffice-web/src/app/download/android/modern-latest/**"
+      - ".github/workflows/build-android-modern-runtime.yml"
+  push:
+    branches:
+      - agent-docs-preflight-schema-drift
+    paths:
+      - "apps/pos-android/**"
+      - "apps/backoffice-web/src/lib/android-runtime-release.ts"
+      - "apps/backoffice-web/src/app/download/android/modern-latest/**"
+      - ".github/workflows/build-android-modern-runtime.yml"
+
+permissions:
+  contents: write
+
+env:
+  ANDROID_RUNTIME_MODULE: apps/pos-android
+  ANDROID_RUNTIME_VERSION: 1.0.20
+  ANDROID_RUNTIME_VERSION_CODE: "27"
+  ANDROID_RUNTIME_RELEASE_TAG: android-runtime-modern-1.0.20
+  ANDROID_RUNTIME_APK_ASSET_NAME: CpIPOS-Android-POS-1.0.20.apk
+  ANDROID_RUNTIME_COMPAT_ASSET_NAME: CpIPOS-Android-POS-Modern.apk
+  ANDROID_RUNTIME_MANIFEST_ASSET_NAME: CpIPOS-Android-POS-1.0.20.manifest.json
+  ANDROID_SIGNING_CERT_SHA256: 6be0a9aef346a5b47162c8928c5018a01d0e7d81b4eb177bf2fb89922dc2a27a
+
+jobs:
+  build-android-modern-runtime:
+    name: Build Android Modern 1.0.20 code 27
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.9"
+
+      - name: Validate stable source and staged updater override contract
+        run: |
+          buildFile="${ANDROID_RUNTIME_MODULE}/app/build.gradle.kts"
+          grep -qF -- 'versionName = "1.0.12"' "$buildFile" || { echo "Stable source versionName must remain 1.0.12"; exit 1; }
+          grep -qF -- 'versionCode = 18' "$buildFile" || { echo "Stable source versionCode must remain 18"; exit 1; }
+          grep -qF -- 'minSdk = 26' "$buildFile" || { echo "minSdk must remain 26"; exit 1; }
+          grep -qF -- 'providers.gradleProperty("cpiposVersionName")' "$buildFile" || { echo "Version name override missing"; exit 1; }
+          grep -qF -- 'providers.gradleProperty("cpiposVersionCode")' "$buildFile" || { echo "Version code override missing"; exit 1; }
+          grep -qF -- 'providers.gradleProperty("cpiposUpdateChannel")' "$buildFile" || { echo "Update channel override missing"; exit 1; }
+          grep -qF -- 'providers.gradleProperty("cpiposManagedUpdater")' "$buildFile" || { echo "Managed updater override missing"; exit 1; }
+
+      - name: Run Android unit tests with Modern updater flags
+        working-directory: ${{ env.ANDROID_RUNTIME_MODULE }}
+        run: >-
+          gradle :app:testDebugUnitTest
+          -PcpiposVersionName="${ANDROID_RUNTIME_VERSION}"
+          -PcpiposVersionCode="${ANDROID_RUNTIME_VERSION_CODE}"
+          -PcpiposUpdateChannel=modern
+          -PcpiposManagedUpdater=true
+          --no-daemon --stacktrace
+
+      - name: Detect stable signing secrets
+        id: signing
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_SIGNING_KEYSTORE_BASE64 }}
+          STORE_PASSWORD: ${{ secrets.ANDROID_SIGNING_STORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_SIGNING_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_SIGNING_KEY_PASSWORD }}
+        run: |
+          if [ -n "$KEYSTORE_BASE64" ] && [ -n "$STORE_PASSWORD" ] && [ -n "$KEY_ALIAS" ] && [ -n "$KEY_PASSWORD" ]; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Materialize and validate stable signing keystore
+        if: steps.signing.outputs.ready == 'true'
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_SIGNING_KEYSTORE_BASE64 }}
+          STORE_PASSWORD: ${{ secrets.ANDROID_SIGNING_STORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_SIGNING_KEY_ALIAS }}
+        run: |
+          signingDir="$RUNNER_TEMP/cpipos-android-signing"
+          keystorePath="$signingDir/cpipos-android-release.jks"
+          mkdir -p "$signingDir"
+          printf '%s' "$KEYSTORE_BASE64" | base64 --decode > "$keystorePath"
+          chmod 600 "$keystorePath"
+          certSha=$(keytool -list -v -keystore "$keystorePath" -storepass "$STORE_PASSWORD" -alias "$KEY_ALIAS" | awk -F': ' '/SHA256:/{gsub(":", "", $2); print tolower($2); exit}')
+          [ "$certSha" = "$ANDROID_SIGNING_CERT_SHA256" ] || { echo "Signing certificate mismatch: $certSha"; exit 1; }
+          echo "Stable signing certificate verified: $certSha"
+
+      - name: Build signed Modern release APK
+        if: steps.signing.outputs.ready == 'true'
+        working-directory: ${{ env.ANDROID_RUNTIME_MODULE }}
+        env:
+          CPIPOS_ANDROID_KEYSTORE_PATH: ${{ runner.temp }}/cpipos-android-signing/cpipos-android-release.jks
+          CPIPOS_ANDROID_STORE_PASSWORD: ${{ secrets.ANDROID_SIGNING_STORE_PASSWORD }}
+          CPIPOS_ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_SIGNING_KEY_ALIAS }}
+          CPIPOS_ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_SIGNING_KEY_PASSWORD }}
+        run: >-
+          gradle :app:assembleRelease
+          -PcpiposVersionName="${ANDROID_RUNTIME_VERSION}"
+          -PcpiposVersionCode="${ANDROID_RUNTIME_VERSION_CODE}"
+          -PcpiposUpdateChannel=modern
+          -PcpiposManagedUpdater=true
+          --no-daemon --stacktrace
+
+      - name: Build Modern debug smoke APK when signing is unavailable
+        if: steps.signing.outputs.ready != 'true'
+        working-directory: ${{ env.ANDROID_RUNTIME_MODULE }}
+        run: >-
+          gradle :app:assembleDebug
+          -PcpiposVersionName="${ANDROID_RUNTIME_VERSION}"
+          -PcpiposVersionCode="${ANDROID_RUNTIME_VERSION_CODE}"
+          -PcpiposUpdateChannel=modern
+          -PcpiposManagedUpdater=true
+          --no-daemon --stacktrace
+
+      - name: Require signing secrets for manual release
+        if: github.event_name == 'workflow_dispatch' && steps.signing.outputs.ready != 'true'
+        run: |
+          echo "Manual Modern release requires the protected Android signing secrets."
+          exit 1
+
+      - name: Verify and stage signed Modern APK + manifest
+        if: steps.signing.outputs.ready == 'true'
+        run: |
+          apkPath="${ANDROID_RUNTIME_MODULE}/app/build/outputs/apk/release/app-release.apk"
+          [ -f "$apkPath" ] || { echo "Built release APK not found"; exit 1; }
+          apkSize=$(stat -c%s "$apkPath")
+          [ "$apkSize" -ge 1000000 ] || { echo "APK size looks too small: $apkSize"; exit 1; }
+
+          apksignerPath=$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)
+          aaptPath=$(find "$ANDROID_HOME/build-tools" -type f -name aapt | sort -V | tail -n 1)
+          [ -n "$apksignerPath" ] && [ -n "$aaptPath" ] || { echo "Android verification tools missing"; exit 1; }
+
+          "$apksignerPath" verify --verbose --print-certs "$apkPath"
+          certSha=$("$apksignerPath" verify --print-certs "$apkPath" | sed -n 's/^.*certificate SHA-256 digest: //p' | head -n 1 | tr -d ':' | tr '[:upper:]' '[:lower:]')
+          [ "$certSha" = "$ANDROID_SIGNING_CERT_SHA256" ] || { echo "APK certificate mismatch: $certSha"; exit 1; }
+
+          badging=$("$aaptPath" dump badging "$apkPath" | head -n 1)
+          echo "$badging" | grep -q "package: name='com.cpipos.pos'" || { echo "APK package mismatch: $badging"; exit 1; }
+          echo "$badging" | grep -q "versionCode='${ANDROID_RUNTIME_VERSION_CODE}'" || { echo "APK versionCode mismatch: $badging"; exit 1; }
+          echo "$badging" | grep -q "versionName='${ANDROID_RUNTIME_VERSION}'" || { echo "APK versionName mismatch: $badging"; exit 1; }
+
+          mkdir -p artifacts
+          cp "$apkPath" "artifacts/${ANDROID_RUNTIME_APK_ASSET_NAME}"
+          cp "$apkPath" "artifacts/${ANDROID_RUNTIME_COMPAT_ASSET_NAME}"
+          apkSha=$(sha256sum "artifacts/${ANDROID_RUNTIME_APK_ASSET_NAME}" | awk '{print $1}')
+
+          cat > "artifacts/${ANDROID_RUNTIME_MANIFEST_ASSET_NAME}" <<JSON
+          {
+            "channel": "modern",
+            "version_name": "${ANDROID_RUNTIME_VERSION}",
+            "version_code": ${ANDROID_RUNTIME_VERSION_CODE},
+            "package_name": "com.cpipos.pos",
+            "asset_name": "${ANDROID_RUNTIME_APK_ASSET_NAME}",
+            "sha256": "${apkSha}",
+            "signing_cert_sha256": "${ANDROID_SIGNING_CERT_SHA256}",
+            "min_sdk": 26
+          }
+          JSON
+
+          echo "Modern APK ready: size=$apkSize sha256=$apkSha cert=$certSha"
+          cat "artifacts/${ANDROID_RUNTIME_MANIFEST_ASSET_NAME}"
+
+      - name: Upload signed Modern workflow artifact
+        if: steps.signing.outputs.ready == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: CpIPOS-Android-POS-${{ env.ANDROID_RUNTIME_VERSION }}-code${{ env.ANDROID_RUNTIME_VERSION_CODE }}-managed-updater-signed
+          path: |
+            artifacts/${{ env.ANDROID_RUNTIME_APK_ASSET_NAME }}
+            artifacts/${{ env.ANDROID_RUNTIME_COMPAT_ASSET_NAME }}
+            artifacts/${{ env.ANDROID_RUNTIME_MANIFEST_ASSET_NAME }}
+          if-no-files-found: error
+
+      - name: Publish Modern signed release
+        if: github.event_name == 'push' && github.ref == 'refs/heads/agent-docs-preflight-schema-drift' && steps.signing.outputs.ready == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="$ANDROID_RUNTIME_RELEASE_TAG"
+          if ! gh release view "$tag" >/dev/null 2>&1; then
+            gh release create "$tag" \
+              --target "${{ github.sha }}" \
+              --title "CpIPOS Android POS Modern ${ANDROID_RUNTIME_VERSION}" \
+              --notes "Modern managed-device release with verified staged updater. Non-Device-Owner terminals require Android user confirmation; Device Owner terminals may install silently when platform policy permits."
+          fi
+          gh release upload "$tag" \
+            "artifacts/${ANDROID_RUNTIME_APK_ASSET_NAME}" \
+            "artifacts/${ANDROID_RUNTIME_COMPAT_ASSET_NAME}" \
+            "artifacts/${ANDROID_RUNTIME_MANIFEST_ASSET_NAME}" \
+            --clobber
+          echo "Modern APK published for code ${ANDROID_RUNTIME_VERSION_CODE}."
