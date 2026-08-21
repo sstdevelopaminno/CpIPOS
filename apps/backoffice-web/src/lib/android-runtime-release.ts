@@ -62,7 +62,9 @@ export function buildAndroidModernUpdateOffer(input: UpdateOfferInput): AndroidM
   const tenantCode = String(input.tenantCode ?? "").trim().toUpperCase();
   const payload = input.payload ?? {};
   const runtimeCapabilities = asRecord(payload.runtime_capabilities);
-  const updates = asRecord(runtimeCapabilities.updates);
+  const nestedUpdates = asRecord(runtimeCapabilities.updates);
+  const directUpdates = asRecord(payload.update_capabilities);
+  const updates = Object.keys(directUpdates).length > 0 ? directUpdates : nestedUpdates;
   const app = asRecord(payload.app);
 
   // Opt-in only. Legacy APKs do not emit this exact capability contract, so they are
