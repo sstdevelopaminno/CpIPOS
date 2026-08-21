@@ -221,11 +221,15 @@ export async function GET() {
     return response;
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown monitor error";
+    const normalizedMessage = message.toLowerCase();
+    const permissionDenied = normalizedMessage.includes("permission denied") || normalizedMessage.includes("monitor:view");
     const authError =
-      message.toLowerCase().includes("authenticated") ||
-      message.toLowerCase().includes("tenant/branch") ||
-      message.toLowerCase().includes("unauthorized");
-    const response = fail(authError ? "unauthorized" : "monitor_query_failed", message, authError ? 401 : 500);
+      normalizedMessage.includes("authenticated") ||
+      normalizedMessage.includes("tenant/branch") ||
+      normalizedMessage.includes("unauthorized");
+    const status = permissionDenied ? 403 : authError ? 401 : 500;
+    const code = permissionDenied ? "forbidden" : authError ? "unauthorized" : "monitor_query_failed";
+    const response = fail(code, message, status);
     response.headers.set("x-pos-monitor-ms", String(Date.now() - startedAt));
     return response;
   }
