@@ -46,6 +46,14 @@ export function normalizeBuffetQuantity(value: number | string): number {
   return Math.max(1, Math.trunc(parsed));
 }
 
+export function appendBuffetQuantityKey(current: string, key: string, replaceCurrent = false): string {
+  const normalizedKey = String(key ?? "").replace(/[^0-9]/g, "");
+  if (!normalizedKey) return String(current ?? "").replace(/[^0-9]/g, "").slice(0, 3);
+  const raw = `${replaceCurrent ? "" : String(current ?? "")}${normalizedKey}`.replace(/[^0-9]/g, "");
+  const normalized = raw.replace(/^0+(?=\d)/u, "");
+  return normalized.slice(0, 3);
+}
+
 export function buildBuffetCartItem(args: {
   plan: PosBuffetPricePlan;
   quantity: number | string;
