@@ -7,6 +7,7 @@ import type { Language } from "@/lib/i18n";
 
 const SLOT_ATTRIBUTE = "data-cpipos-table-qr-settings-slot";
 const CUSTOMER_DISPLAY_HREF = "/preview/pos/customer-display";
+const SETTINGS_LANGUAGE_LABELS = ["เปลี่ยนภาษา", "Change Language"] as const;
 
 function TableQrMenuIcon() {
   return (
@@ -23,18 +24,33 @@ function findCustomerDisplayCard() {
   return document.querySelector<HTMLAnchorElement>(`a[href="${CUSTOMER_DISPLAY_HREF}"]`);
 }
 
-function ensureSlotAfterCustomerDisplay() {
-  const customerDisplayCard = findCustomerDisplayCard();
-  if (!customerDisplayCard?.parentElement) return null;
+function findSettingsMenuGrid() {
+  const buttons = Array.from(document.querySelectorAll<HTMLButtonElement>("button"));
+  const languageCard = buttons.find((button) => {
+    const text = String(button.textContent ?? "");
+    return SETTINGS_LANGUAGE_LABELS.some((label) => text.includes(label));
+  });
+  return languageCard?.parentElement ?? null;
+}
 
-  const grid = customerDisplayCard.parentElement;
+function ensureTableQrSettingsSlot() {
+  const customerDisplayCard = findCustomerDisplayCard();
+  const grid = customerDisplayCard?.parentElement ?? findSettingsMenuGrid();
+  if (!grid) return null;
+
   const existing = grid.querySelector<HTMLElement>(`[${SLOT_ATTRIBUTE}]`);
   if (existing) return existing;
 
   const slot = document.createElement("div");
   slot.setAttribute(SLOT_ATTRIBUTE, "true");
   slot.className = "min-w-0";
-  customerDisplayCard.insertAdjacentElement("afterend", slot);
+
+  if (customerDisplayCard?.parentElement === grid) {
+    customerDisplayCard.insertAdjacentElement("afterend", slot);
+  } else {
+    grid.appendChild(slot);
+  }
+
   return slot;
 }
 
@@ -48,7 +64,7 @@ export function TableQrSettingsMenuPortal({ lang }: { lang: Language }) {
     const sync = () => {
       if (disposed) return;
       if (currentSlot?.isConnected) return;
-      currentSlot = ensureSlotAfterCustomerDisplay();
+      currentSlot = ensureTableQrSettingsSlot();
       setTarget(currentSlot);
     };
 
