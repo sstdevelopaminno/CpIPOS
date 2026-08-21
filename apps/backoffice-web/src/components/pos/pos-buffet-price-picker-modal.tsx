@@ -60,6 +60,18 @@ type BuffetSessionBody = {
   } | null;
 };
 
+type BuffetAccessBody = {
+  error?: { code?: string; message?: string } | null;
+  data?: {
+    access?: {
+      mode?: PosBuffetPricingMode;
+      plan_product_id?: string;
+      plan_code?: string;
+      plan_name?: string;
+    } | null;
+  } | null;
+};
+
 type OrderCreatedEventDetail = {
   order_id?: string | null;
   order_type?: string | null;
@@ -153,6 +165,21 @@ async function resolveBuffetProduct(plan: PosBuffetPricePlan): Promise<ResolvedB
     name: String(body?.data?.name ?? plan.name).trim() || plan.name,
     price
   };
+}
+
+async function lockBuffetPackageToTable(tableCode: string, planProductId: string) {
+  const response = await fetch("/api/pos/buffet-table/access", {
+    method: "POST",
+    credentials: "include",
+    cache: "no-store",
+    headers: { Accept: "application/json", "Content-Type": "application/json" },
+    body: JSON.stringify({ table_code: tableCode, plan_product_id: planProductId })
+  });
+  const body = (await response.json().catch(() => null)) as BuffetAccessBody | null;
+  if (!response.ok || body?.error) {
+    throw new Error(body?.error?.message ?? "Failed to lock buffet package to this table.");
+  }
+  return body?.data?.access ?? null;
 }
 
 export function PosBuffetPricePickerModal({
@@ -332,6 +359,8 @@ export function PosBuffetPricePickerModal({
     setResolveError(null);
     try {
       const resolved = await resolveBuffetProduct(selectedPlan);
+      if (!tableCode) throw new Error(lang === "th" ? "ไม่พบรหัสโต๊ะบุฟเฟ่ กรุณากลับไปเลือกโต๊ะใหม่" : "Buffet table code is missing. Please select the table again.");
+      await lockBuffetPackageToTable(tableCode, resolved.productId);
       const effectivePlan: PosBuffetPricePlan = {
         ...selectedPlan,
         product_id: resolved.productId,
