@@ -32,13 +32,20 @@ type BuffetOption = {
 };
 
 type BuffetProductResolveBody = {
-  error?: {
-    code?: string;
-    message?: string;
-  } | null;
+  error?: { code?: string; message?: string } | null;
   data?: {
     product_id?: string | null;
+    name?: string | null;
+    price?: number | null;
+    plans?: PosBuffetPricePlan[];
+    source?: string | null;
   } | null;
+};
+
+type ResolvedBuffetProduct = {
+  productId: string;
+  name: string;
+  price: number;
 };
 
 function PerPersonIcon() {
@@ -72,15 +79,12 @@ function rememberBuffetMode() {
   window.dispatchEvent(new CustomEvent("cpipos:sales-mode-label-change", { detail: { mode: "buffet_table" } }));
 }
 
-async function resolveBuffetProductId(plan: PosBuffetPricePlan): Promise<string> {
+async function resolveBuffetProduct(plan: PosBuffetPricePlan): Promise<ResolvedBuffetProduct> {
   const response = await fetch("/api/pos/buffet-products/resolve", {
     method: "POST",
     credentials: "include",
     cache: "no-store",
-    headers: {
-      Accept: "application/json",
-      "Content-Type": "application/json"
-    },
+    headers: { Accept: "application/json", "Content-Type": "application/json" },
     body: JSON.stringify({
       plan_id: plan.id,
       code: plan.code,
@@ -94,10 +98,14 @@ async function resolveBuffetProductId(plan: PosBuffetPricePlan): Promise<string>
     throw new Error(body?.error?.message ?? "Failed to resolve buffet product.");
   }
   const productId = String(body?.data?.product_id ?? "").trim();
-  if (!productId) {
-    throw new Error("Buffet product resolver returned no product_id.");
-  }
-  return productId;
+  const price = Number(body?.data?.price ?? plan.price);
+  if (!productId) throw new Error("Buffet product resolver returned no product_id.");
+  if (!Number.isFinite(price) || price <= 0) throw new Error("Buffet product resolver returned an invalid price.");
+  return {
+    productId,
+    name: String(body?.data?.name ?? plan.name).trim() || plan.name,
+    price
+  };
 }
 
 export function PosBuffetPricePickerModal({
@@ -109,23 +117,52 @@ export function PosBuffetPricePickerModal({
   onClose,
   onConfirm
 }: Props) {
-  const activePlans = useMemo(() => plans.filter((plan) => plan.is_active), [plans]);
+  const [runtimePlans, setRuntimePlans] = useState<PosBuffetPricePlan[]>(plans);
+  const activePlans = useMemo(() => runtimePlans.filter((plan) => plan.is_active), [runtimePlans]);
   const [selectedPlan, setSelectedPlan] = useState<PosBuffetPricePlan | null>(null);
   const [quantityInput, setQuantityInput] = useState("1");
+  const [loadingPlans, setLoadingPlans] = useState(false);
   const [resolvingProduct, setResolvingProduct] = useState(false);
   const [resolveError, setResolveError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!open) return;
+    const controller = new AbortController();
+    setRuntimePlans(plans);
     setSelectedPlan(null);
     setQuantityInput("1");
+    setLoadingPlans(true);
     setResolvingProduct(false);
     setResolveError(null);
-  }, [open]);
+
+    void fetch("/api/pos/buffet-products/resolve", {
+      method: "GET",
+      credentials: "include",
+      cache: "no-store",
+      signal: controller.signal,
+      headers: { Accept: "application/json" }
+    })
+      .then(async (response) => {
+        const body = (await response.json().catch(() => null)) as BuffetProductResolveBody | null;
+        if (!response.ok || body?.error || !Array.isArray(body?.data?.plans)) {
+          throw new Error(body?.error?.message ?? "Failed to load buffet plans.");
+        }
+        setRuntimePlans(body.data.plans);
+      })
+      .catch((error) => {
+        if ((error as { name?: string }).name === "AbortError") return;
+        // Keep the safe defaults as a display fallback. POST resolve is still server-authoritative
+        // and returns the current branch product price before a cart item is created.
+        setRuntimePlans(plans);
+      })
+      .finally(() => setLoadingPlans(false));
+
+    return () => controller.abort();
+  }, [open, plans]);
 
   if (!open) return null;
 
-  const actionBusy = isBusy || resolvingProduct;
+  const actionBusy = isBusy || resolvingProduct || loadingPlans;
   const money = (value: number) =>
     value.toLocaleString(lang === "th" ? "th-TH" : "en-US", { style: "currency", currency: "THB" });
 
@@ -189,10 +226,15 @@ export function PosBuffetPricePickerModal({
     setResolvingProduct(true);
     setResolveError(null);
     try {
-      const productId = await resolveBuffetProductId(selectedPlan);
+      const resolved = await resolveBuffetProduct(selectedPlan);
+      const effectivePlan: PosBuffetPricePlan = {
+        ...selectedPlan,
+        name: resolved.name,
+        price: resolved.price
+      };
       rememberBuffetMode();
-      const virtualItem = buildBuffetCartItem({ plan: selectedPlan, quantity, tableCode });
-      onConfirm({ ...virtualItem, product_id: productId }, selectedPlan);
+      const virtualItem = buildBuffetCartItem({ plan: effectivePlan, quantity, tableCode });
+      onConfirm({ ...virtualItem, product_id: resolved.productId }, effectivePlan);
       setSelectedPlan(null);
       setQuantityInput("1");
     } catch (error) {
@@ -216,9 +258,11 @@ export function PosBuffetPricePickerModal({
                 ? lang === "th"
                   ? "ใช้แป้นตัวเลขเพื่อใส่จำนวน แล้วกดยืนยัน"
                   : "Use the keypad to enter quantity, then confirm."
-                : lang === "th"
-                  ? "เลือกประเภทราคาก่อน แล้วใส่จำนวนในขั้นถัดไป"
-                  : "Select a buffet price type first, then enter quantity."}
+                : loadingPlans
+                  ? lang === "th" ? "กำลังโหลดราคาบุฟเฟ่ของสาขา..." : "Loading branch buffet prices..."
+                  : lang === "th"
+                    ? "เลือกประเภทราคาก่อน แล้วใส่จำนวนในขั้นถัดไป · ราคาจะอ้างอิงสินค้าบุฟเฟ่ของสาขา"
+                    : "Select a buffet price type first, then enter quantity. Prices follow the branch buffet products."}
             </p>
           </div>
           <button type="button" className="posui-icon-button shrink-0" onClick={closeModal} disabled={actionBusy} aria-label={lang === "th" ? "ปิด" : "Close"}>
@@ -252,15 +296,13 @@ export function PosBuffetPricePickerModal({
                   <span className="mt-2 block text-sm font-semibold text-slate-500">{option.subtitle}</span>
                   <span className="mt-7 flex items-end justify-between gap-3">
                     <strong className="text-3xl font-black text-orange-600">{plan ? money(plan.price) : "-"}</strong>
-                    <small className="rounded-full bg-slate-100 px-3 py-1 text-xs font-black text-slate-600">
-                      / {option.unitLabel}
-                    </small>
+                    <small className="rounded-full bg-slate-100 px-3 py-1 text-xs font-black text-slate-600">/ {option.unitLabel}</small>
                   </span>
                   {plan?.description ? <span className="mt-4 block text-xs font-bold text-slate-400">{plan.description}</span> : null}
                 </button>
               );
             })}
-            {activePlans.length === 0 ? (
+            {activePlans.length === 0 && !loadingPlans ? (
               <div className="posui-empty-state md:col-span-2">
                 {lang === "th" ? "ยังไม่มีชุดราคาบุฟเฟ่ที่เปิดใช้งาน" : "No active buffet price plan."}
               </div>
