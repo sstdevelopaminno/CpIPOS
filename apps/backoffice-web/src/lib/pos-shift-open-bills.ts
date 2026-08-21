@@ -20,6 +20,7 @@ type BlockingTableSession = {
   table_id: string;
   order_id: string | null;
   status: string;
+  metadata: Record<string, unknown> | null;
 };
 
 export type ClearShiftOpenBillsResult = {
@@ -79,11 +80,15 @@ export async function clearShiftOpenBills(args: {
     clearedOrderCount = cancelledOrders?.length ?? 0;
   }
 
+  // A table session belongs to the shift that opened it. Never clear a branch-wide
+  // active session while closing/continuing a different shift. This guard is
+  // intentionally fail-closed for legacy sessions that do not carry opened_shift_id.
   const { data: tableSessions, error: tableSessionsError } = await supabase
     .from("table_bill_sessions")
-    .select("id,table_id,order_id,status")
+    .select("id,table_id,order_id,status,metadata")
     .eq("tenant_id", args.tenantId)
     .eq("branch_id", args.branchId)
+    .contains("metadata", { opened_shift_id: args.shiftId })
     .in("status", BLOCKING_TABLE_SESSION_STATUSES)
     .limit(200);
 
@@ -108,6 +113,7 @@ export async function clearShiftOpenBills(args: {
       })
       .eq("tenant_id", args.tenantId)
       .eq("branch_id", args.branchId)
+      .contains("metadata", { opened_shift_id: args.shiftId })
       .in("id", tableSessionIds)
       .in("status", BLOCKING_TABLE_SESSION_STATUSES)
       .select("id");
@@ -142,6 +148,7 @@ export async function clearShiftOpenBills(args: {
     metadata: {
       pos_session_id: args.posSessionId,
       reason,
+      shift_scoped_table_sessions: true,
       cleared_order_count: clearedOrderCount,
       cleared_table_session_count: clearedTableSessionCount,
       released_table_count: tableIds.length,
