@@ -56,7 +56,6 @@ export async function clearShiftOpenBills(args: {
 
   const blockingOrders = (orders ?? []) as BlockingOrder[];
   const orderIds = blockingOrders.map((order) => order.id);
-  const orderTableIds = blockingOrders.map((order) => order.table_id).filter((id): id is string => Boolean(id));
 
   let clearedOrderCount = 0;
   if (orderIds.length > 0) {
@@ -98,8 +97,10 @@ export async function clearShiftOpenBills(args: {
 
   const blockingTableSessions = (tableSessions ?? []) as BlockingTableSession[];
   const tableSessionIds = blockingTableSessions.map((session) => session.id);
-  const tableSessionTableIds = blockingTableSessions.map((session) => session.table_id).filter(Boolean);
-  const tableIds = Array.from(new Set([...orderTableIds, ...tableSessionTableIds]));
+  // Releasing a dining table is allowed only when its active bill session has been
+  // proven to belong to the target shift. An old shift order alone must never make a
+  // table from a newer shift available.
+  const tableIds = Array.from(new Set(blockingTableSessions.map((session) => session.table_id).filter(Boolean)));
   const closedAt = new Date().toISOString();
 
   let clearedTableSessionCount = 0;
@@ -149,6 +150,7 @@ export async function clearShiftOpenBills(args: {
       pos_session_id: args.posSessionId,
       reason,
       shift_scoped_table_sessions: true,
+      shift_scoped_table_release: true,
       cleared_order_count: clearedOrderCount,
       cleared_table_session_count: clearedTableSessionCount,
       released_table_count: tableIds.length,
