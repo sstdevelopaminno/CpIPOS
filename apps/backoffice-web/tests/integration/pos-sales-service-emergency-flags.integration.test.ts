@@ -204,6 +204,27 @@ describe("POS sales emergency transaction flags", () => {
     expect(hasInsert(supabase, "orders")).toBe(false);
   });
 
+  it("maps financial invariant failures to a reviewable conflict instead of a server error", async () => {
+    const { service } = await loadService();
+    const paymentRpc = vi.fn(async () => ({
+      data: null,
+      error: { message: "ORDER_FINANCIAL_INVARIANT_VIOLATION:TOTAL_GRAND_MISMATCH" }
+    }));
+
+    const result = await service.executeCompletePosPaymentTransaction({
+      auth,
+      input: { order_id: "order-1", payment_lines: [{ method: "cash", amount: 10 }] },
+      requestGroupId: "payment-group-1",
+      invokeRpc: paymentRpc
+    });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.code).toBe("payment_financial_review_required");
+      expect(result.status).toBe(409);
+    }
+    expect(mocks.appendPosDeadLetter).toHaveBeenCalledWith(expect.objectContaining({ reason: "payment_financial_review_required" }));
+  });
   it.each(["", "false", "0"])("keeps emergency behaviors disabled when env flags are %j", async (value) => {
     const { service, supabase } = await loadService({
       POS_FORCE_DIRECT_CREATE_NON_DELIVERY: value,

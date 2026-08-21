@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { localizeApiErrorMessage } from "../../src/components/pos/pos-sales-errors";
+import { isConflictErrorCode, localizeApiErrorMessage } from "../../src/components/pos/pos-sales-errors";
 
 describe("POS sales error localization", () => {
   it("localizes stock deduction payment failures in Thai", () => {
@@ -18,5 +18,18 @@ describe("POS sales error localization", () => {
         lang: "en"
       })
     ).toBe("Unable to deduct stock while completing payment. Check stock settings and try again.");
+  });
+
+  it("localizes financial invariant review failures in English", () => {
+    expect(
+      localizeApiErrorMessage({
+        message: "payment_financial_review_required: ORDER_FINANCIAL_INVARIANT_VIOLATION:TOTAL_GRAND_MISMATCH",
+        lang: "en"
+      })
+    ).toBe("Order financial data is inconsistent. Refresh the bill and request manager review before retrying payment.");
+  });
+
+  it("treats financial invariant review as a conflict path", () => {
+    expect(isConflictErrorCode("payment_financial_review_required")).toBe(true);
   });
 });

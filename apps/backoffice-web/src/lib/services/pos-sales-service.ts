@@ -83,6 +83,13 @@ function parsePaymentTxError(message: string) {
   if (message.includes("PAYMENT_TOTAL_MISMATCH")) {
     return { code: "payment_total_mismatch", status: 422, message: "Payment total must match order total." };
   }
+  if (message.includes("ORDER_FINANCIAL_INVARIANT_VIOLATION")) {
+    return {
+      code: "payment_financial_review_required",
+      status: 409,
+      message: "Order financial snapshot is inconsistent. Refresh the bill and request manager review before retrying payment."
+    };
+  }
   if (message.includes("ORDER_CANCELLED_OR_NOT_FOUND") || message.includes("ORDER_NOT_FOUND")) {
     return { code: "order_not_found", status: 404, message: "Order is not payable in this branch." };
   }

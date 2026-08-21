@@ -18,7 +18,7 @@ export function extractApiErrorCode(message: string): string | null {
 
 export function isConflictErrorCode(code: string | null): boolean {
   if (!code) return false;
-  return code === "table_not_available" || code === "shift_not_open" || code === "order_not_updatable" || code === "order_not_found" || code === "table_bill_order_conflict" || code === "table_bill_not_open";
+  return code === "table_not_available" || code === "shift_not_open" || code === "order_not_updatable" || code === "order_not_found" || code === "table_bill_order_conflict" || code === "table_bill_not_open" || code === "payment_financial_review_required";
 }
 
 const API_ERROR_I18N = {
@@ -43,6 +43,7 @@ const API_ERROR_I18N = {
     payment_lines_required: "ต้องมีรายการชำระเงินอย่างน้อย 1 รายการ",
     invalid_payment_amount: "จำนวนเงินที่ชำระไม่ถูกต้อง",
     payment_total_mismatch: "ยอดชำระไม่ตรงกับยอดบิล",
+    payment_financial_review_required: "ยอดบิลมีข้อมูลไม่ตรงกัน กรุณารีเฟรชบิลและให้ผู้จัดการตรวจสอบก่อนรับชำระเงินอีกครั้ง",
     pin_rejected: "รหัส PIN ไม่ถูกต้องหรือไม่มีสิทธิ์อนุมัติ",
     order_queue_overloaded: "คิวบิลหนาแน่นเกินกำหนด กรุณาเคลียร์คิวก่อนทำรายการใหม่",
     order_tx_timeout: "ระบบใช้เวลานานเกินไป กรุณาลองใหม่อีกครั้ง",
@@ -72,6 +73,7 @@ const API_ERROR_I18N = {
     payment_lines_required: "At least one payment line is required.",
     invalid_payment_amount: "Invalid payment amount.",
     payment_total_mismatch: "Payment total does not match order total.",
+    payment_financial_review_required: "Order financial data is inconsistent. Refresh the bill and request manager review before retrying payment.",
     pin_rejected: "PIN is invalid or not authorized for this action.",
     order_queue_overloaded: "Order queue is overloaded. Please clear queued bills first.",
     order_tx_timeout: "Request timed out. Please try again.",
