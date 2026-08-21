@@ -1,10 +1,11 @@
 import { ok } from "@/lib/http";
+import { ANDROID_MODERN_RELEASE } from "@/lib/android-runtime-release";
 
 export const dynamic = "force-dynamic";
 
 const SOURCE_VERSIONS = {
   windows_runtime: "0.1.8",
-  android_pos: "1.0.7",
+  android_pos: ANDROID_MODERN_RELEASE.versionName,
   hotfix: "receipt-speed-payment-notice-printer-ui-2026-08-13"
 } as const;
 
