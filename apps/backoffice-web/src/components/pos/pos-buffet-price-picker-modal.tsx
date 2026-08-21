@@ -1,12 +1,13 @@
 "use client";
 
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   EMPTY_BUFFET_TABLE_SESSION_SUMMARY,
   type BuffetTableSessionSummary
 } from "@/lib/buffet-table-session";
 import {
   DEFAULT_BUFFET_PRICE_PLANS,
+  appendBuffetQuantityKey,
   buildBuffetCartItem,
   calculateBuffetPlanTotal,
   type PosBuffetCartItem,
@@ -143,6 +144,7 @@ export function PosBuffetPricePickerModal({
   const activePlans = useMemo(() => runtimePlans.filter((plan) => plan.is_active), [runtimePlans]);
   const [selectedPlan, setSelectedPlan] = useState<PosBuffetPricePlan | null>(null);
   const [quantityInput, setQuantityInput] = useState("1");
+  const replaceQuantityOnNextKey = useRef(true);
   const [loadingPlans, setLoadingPlans] = useState(false);
   const [loadingSession, setLoadingSession] = useState(false);
   const [sessionSummary, setSessionSummary] = useState<BuffetTableSessionSummary>({ ...EMPTY_BUFFET_TABLE_SESSION_SUMMARY });
@@ -184,6 +186,7 @@ export function PosBuffetPricePickerModal({
     setRuntimePlans(plans);
     setSelectedPlan(null);
     setQuantityInput("1");
+    replaceQuantityOnNextKey.current = true;
     setLoadingPlans(true);
     setLoadingSession(Boolean(tableCode));
     setSessionSummary({ ...EMPTY_BUFFET_TABLE_SESSION_SUMMARY });
@@ -206,7 +209,6 @@ export function PosBuffetPricePickerModal({
       })
       .catch((error) => {
         if ((error as { name?: string }).name === "AbortError") return;
-        // Keep display defaults only. POST resolve remains server-authoritative for branch pricing.
         setRuntimePlans(plans);
       })
       .finally(() => setLoadingPlans(false));
@@ -274,10 +276,15 @@ export function PosBuffetPricePickerModal({
   const total = selectedPlan && quantity > 0 ? calculateBuffetPlanTotal(selectedPlan, quantity) : 0;
   const keypadKeys = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "0", "00"];
 
+  const resetQuantity = () => {
+    setQuantityInput("1");
+    replaceQuantityOnNextKey.current = true;
+  };
+
   const closeModal = () => {
     if (actionBusy) return;
     setSelectedPlan(null);
-    setQuantityInput("1");
+    resetQuantity();
     setResolveError(null);
     onClose();
   };
@@ -285,20 +292,21 @@ export function PosBuffetPricePickerModal({
   const appendKey = (key: string) => {
     if (actionBusy) return;
     setResolveError(null);
-    setQuantityInput((current) => {
-      const next = `${current}${key}`.replace(/[^0-9]/g, "").replace(/^0+(?=\d)/u, "");
-      return next.slice(0, 3);
-    });
+    const replaceCurrent = replaceQuantityOnNextKey.current;
+    replaceQuantityOnNextKey.current = false;
+    setQuantityInput((current) => appendBuffetQuantityKey(current, key, replaceCurrent));
   };
 
   const clearQuantity = () => {
     if (actionBusy) return;
+    replaceQuantityOnNextKey.current = false;
     setResolveError(null);
     setQuantityInput("");
   };
 
   const deleteQuantity = () => {
     if (actionBusy) return;
+    replaceQuantityOnNextKey.current = false;
     setResolveError(null);
     setQuantityInput((current) => current.slice(0, -1));
   };
@@ -330,7 +338,7 @@ export function PosBuffetPricePickerModal({
         };
       });
       setSelectedPlan(null);
-      setQuantityInput("1");
+      resetQuantity();
     } catch (error) {
       setResolveError(error instanceof Error ? error.message : "Failed to prepare buffet product.");
     } finally {
@@ -405,7 +413,7 @@ export function PosBuffetPricePickerModal({
                   onClick={() => {
                     if (!plan) return;
                     setSelectedPlan(plan);
-                    setQuantityInput("1");
+                    resetQuantity();
                     setResolveError(null);
                   }}
                   disabled={disabled}
@@ -497,7 +505,15 @@ export function PosBuffetPricePickerModal({
 
         <footer className="posui-modal__actions mt-7 flex flex-wrap justify-end gap-4 pt-2">
           {selectedPlan ? (
-            <button type="button" className="posui-btn posui-btn--ghost min-w-28" onClick={() => setSelectedPlan(null)} disabled={actionBusy}>
+            <button
+              type="button"
+              className="posui-btn posui-btn--ghost min-w-28"
+              onClick={() => {
+                setSelectedPlan(null);
+                resetQuantity();
+              }}
+              disabled={actionBusy}
+            >
               {lang === "th" ? "ย้อนกลับ" : "Back"}
             </button>
           ) : null}
