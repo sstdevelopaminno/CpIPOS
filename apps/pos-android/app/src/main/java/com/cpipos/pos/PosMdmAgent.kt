@@ -272,24 +272,20 @@ class PosMdmAgent(
             .put("displays", rows)
     }
 
-    private fun buildRuntimeCapabilities(): JSONObject {
+    private fun buildUpdateCapabilities(): JSONObject {
         val updaterEnabled = BuildConfig.CPIPOS_MANAGED_UPDATER_ENABLED
         return JSONObject()
-            .put("schema_version", 5)
-            .put(
-                "updates",
-                JSONObject()
-                    .put("channel", BuildConfig.CPIPOS_UPDATE_CHANNEL)
-                    .put("managed_notice", updaterEnabled)
-                    .put("silent_install", false)
-                    .put("forced_update", false)
-                    .put("staged_updater", updaterEnabled)
-                    .put("interactive_install", updaterEnabled)
-                    .put("package_installer", updaterEnabled)
-                    .put("sha256_verification", updaterEnabled)
-                    .put("signing_certificate_verification", updaterEnabled)
-                    .put("device_owner_silent_install", updaterEnabled && diagnostics.isDeviceOwnerKnown())
-            )
+            .put("schema_version", 1)
+            .put("channel", BuildConfig.CPIPOS_UPDATE_CHANNEL)
+            .put("managed_notice", updaterEnabled)
+            .put("silent_install", false)
+            .put("forced_update", false)
+            .put("staged_updater", updaterEnabled)
+            .put("interactive_install", updaterEnabled)
+            .put("package_installer", updaterEnabled)
+            .put("sha256_verification", updaterEnabled)
+            .put("signing_certificate_verification", updaterEnabled)
+            .put("device_owner_silent_install", updaterEnabled && diagnostics.isDeviceOwnerKnown())
     }
 
     private fun buildSnapshot(reason: String): JSONObject {
@@ -300,7 +296,7 @@ class PosMdmAgent(
             .put("install_id", installId)
             .put("timestamp_ms", System.currentTimeMillis())
             .put("safe_command_allowlist", JSONArray(SAFE_ACTIONS.toList()))
-            .put("runtime_capabilities", buildRuntimeCapabilities())
+            .put("update_capabilities", buildUpdateCapabilities())
             .put("update_state", updateManager.snapshot())
             .put(
                 "app",
