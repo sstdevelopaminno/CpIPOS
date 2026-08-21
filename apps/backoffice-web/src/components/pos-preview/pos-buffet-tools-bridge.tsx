@@ -10,11 +10,22 @@ function wait(ms: number) {
   return new Promise<void>((resolve) => window.setTimeout(resolve, ms));
 }
 
+function resolveProductActionTarget(): HTMLElement | null {
+  const root = document.getElementById(TOOLBAR_ID);
+  if (!root) return null;
+  const portalContent = root.firstElementChild as HTMLElement | null;
+  const actionGroup = portalContent?.lastElementChild as HTMLElement | null;
+  return actionGroup ?? root;
+}
+
 export function PosBuffetToolsBridge({ th }: { th: boolean }) {
   const [toolbar, setToolbar] = useState<HTMLElement | null>(null);
 
   useEffect(() => {
-    const sync = () => setToolbar(document.getElementById(TOOLBAR_ID));
+    const sync = () => {
+      const next = resolveProductActionTarget();
+      setToolbar((current) => current === next ? current : next);
+    };
     sync();
     const observer = new MutationObserver(sync);
     observer.observe(document.body, { childList: true, subtree: true });
