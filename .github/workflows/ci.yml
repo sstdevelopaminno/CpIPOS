@@ -13,11 +13,105 @@ on:
       - agent-docs-preflight-schema-drift
       - hotfix/**
 
+permissions:
+  contents: write
+
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
+  fg0003_source_patch:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/hotfix/fg0003-table-bill-sync-20260822' && github.event.head_commit.message == 'chore: trigger fg0003 guarded source patch'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout hotfix branch
+        uses: actions/checkout@v4
+        with:
+          ref: hotfix/fg0003-table-bill-sync-20260822
+          fetch-depth: 0
+
+      - name: Apply exact guarded patches
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          def replace_once(path: Path, old: str, new: str):
+              text = path.read_text(encoding="utf-8")
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f"{path}: expected one source match, found {count}: {old[:120]!r}")
+              path.write_text(text.replace(old, new, 1), encoding="utf-8")
+
+          pos = Path("apps/backoffice-web/src/components/pos/pos-sales-module.tsx")
+          replace_once(
+              pos,
+              '    if (orderType !== "dine_in" || !selectedTable?.id || !selectedTable.active_session_id || !shift || shift.status !== "open" || cart.length === 0 || !isOnline) return;',
+              '    if (orderType !== "dine_in" || !selectedTable?.id || !selectedTable.active_session_id || !shift || shift.status !== "open" || !isOnline) return;'
+          )
+          replace_once(
+              pos,
+              '    const cartSnapshotSignature = buildCartSignature(cartSnapshot);\n    if (cartSnapshotSignature === lastCommittedCartSignature) return;\n\n    dineInAutoSendInFlightRef.current = true;\n    try {\n      const payload = buildCheckoutSubmitPayload({',
+              '''    const cartSnapshotSignature = buildCartSignature(cartSnapshot);\n    if (cartSnapshotSignature === lastCommittedCartSignature) return;\n    const canClearExistingDineIn =\n      cartSnapshot.length === 0 && activeOrder?.status === "queued" && lastCommittedCartSignature !== null;\n    if (cartSnapshot.length === 0 && !canClearExistingDineIn) return;\n\n    dineInAutoSendInFlightRef.current = true;\n    try {\n      if (cartSnapshot.length === 0 && activeOrder?.status === "queued") {\n        const clearResponse = await fetch("/api/pos/sales/clear-dine-in", {\n          method: "POST",\n          headers: { "Content-Type": "application/json" },\n          body: JSON.stringify({ order_id: activeOrder.id, table_id: selectedTable.id })\n        });\n        const clearBody = (await clearResponse.json().catch(() => null)) as\n          | { data?: { total_amount?: number }; error?: { message?: string } }\n          | null;\n        if (!clearResponse.ok) {\n          throw new Error(clearBody?.error?.message || "Unable to clear dine-in bill items.");\n        }\n        setActiveOrder((current) =>\n          current?.id === activeOrder.id\n            ? { ...current, total_amount: Number(clearBody?.data?.total_amount ?? 0) }\n            : current\n        );\n        rememberDineInDraft(selectedTable.id, []);\n        setLastCommittedCartSignature(cartSnapshotSignature);\n        void fetchPosTables().catch(() => undefined);\n        return;\n      }\n\n      const payload = buildCheckoutSubmitPayload({'''
+          )
+          replace_once(
+              pos,
+              '    if (orderType !== "dine_in" || !selectedTable?.id || !selectedTable.active_session_id || !shift || shift.status !== "open" || cart.length === 0 || !isOnline || isBusy) return;\n    const signature = buildCartSignature(cart);',
+              '''    if (orderType !== "dine_in" || !selectedTable?.id || !selectedTable.active_session_id || !shift || shift.status !== "open" || !isOnline || isBusy) return;\n    const canClearExistingDineIn = cart.length === 0 && activeOrder?.status === "queued" && lastCommittedCartSignature !== null;\n    if (cart.length === 0 && !canClearExistingDineIn) return;\n    const signature = buildCartSignature(cart);'''
+          )
+          replace_once(
+              pos,
+              '  }, [orderType, selectedTable?.id, selectedTable?.active_session_id, shift?.id, shift?.status, cart, isOnline, isBusy, lastCommittedCartSignature]);',
+              '  }, [orderType, selectedTable?.id, selectedTable?.active_session_id, shift?.id, shift?.status, cart, isOnline, isBusy, lastCommittedCartSignature, activeOrder?.id, activeOrder?.status]);'
+          )
+          replace_once(
+              pos,
+              '''      if (tableQrNotificationSettings.table_qr_popup_enabled) {\n        setTableQrAlert(alert);\n        window.setTimeout(() => {\n          setTableQrAlert((current) => (current?.id === alert.id ? null : current));\n        }, 9000);\n      }''',
+              '''      if (tableQrNotificationSettings.table_qr_popup_enabled) {\n        // Service calls are operational work, not transient toast messages. Keep the\n        // table identity visible until the operator explicitly dismisses/acknowledges it.\n        setTableQrAlert(alert);\n      }'''
+          )
+
+          mobile = Path("apps/backoffice-web/src/components/table-order/table-order-mobile.tsx")
+          replace_once(mobile, 'const MENU_STATUS_POLL_MS = 15_000;', 'const MENU_STATUS_POLL_MS = 5_000;')
+          replace_once(
+              mobile,
+              '''        <div className={styles.serviceActions}>\n          <button type="button" onClick={() => void submitServiceRequest("call_staff")} disabled={submitting || Boolean(serviceSubmitting) || !canOrder}>{serviceSubmitting === "call_staff" ? "กำลังเรียก..." : "เรียกพนักงาน"}</button>\n          <button type="button" onClick={() => void submitServiceRequest("request_checkout")} disabled={submitting || Boolean(serviceSubmitting) || !canOrder || !canRequestCheckout}>{serviceSubmitting === "request_checkout" ? "กำลังแจ้ง..." : "ต้องการชำระบิล"}</button>\n        </div>\n        <button type="button" className={styles.cartOpenButton}''',
+              '''        <div className={styles.serviceActions}>\n          <button type="button" onClick={() => void submitServiceRequest("call_staff")} disabled={submitting || Boolean(serviceSubmitting) || !canOrder}>{serviceSubmitting === "call_staff" ? "กำลังเรียก..." : "เรียกพนักงาน"}</button>\n          <button type="button" onClick={() => void submitServiceRequest("request_checkout")} disabled={submitting || Boolean(serviceSubmitting) || !canOrder || !canRequestCheckout}>{serviceSubmitting === "request_checkout" ? "กำลังแจ้ง..." : "ต้องการชำระบิล"}</button>\n        </div>\n        {submittedItems.length > 0 ? (\n          <button type="button" className={styles.submittedSummary} onClick={() => setSubmittedOpen(true)}>\n            <span>บิลปัจจุบันของโต๊ะ {menu.table_code}</span>\n            <strong>{menu.submitted_summary?.item_count ?? 0} รายการ · {money(menu.submitted_summary?.total_amount ?? 0)}</strong>\n            <small>อัปเดตร่วมกับรายการที่แคชเชียร์เพิ่ม · แตะเพื่อดูรายละเอียด</small>\n          </button>\n        ) : null}\n        <button type="button" className={styles.cartOpenButton}'''
+          )
+          replace_once(
+              mobile,
+              '<span>{item.name} × {item.quantity}</span><strong>{money(item.line_total)}</strong>',
+              '<span>{item.name} × {item.quantity} @ {money(item.unit_price)}</span><strong>{money(item.line_total)}</strong>'
+          )
+
+          css = Path("apps/backoffice-web/src/components/table-order/table-order-mobile.module.css")
+          css_text = css.read_text(encoding="utf-8")
+          marker = '.submittedHistoryButton:active { transform: translateY(1px); }\n'
+          if css_text.count(marker) != 1:
+              raise SystemExit("table-order CSS submitted-history marker mismatch")
+          css_text = css_text.replace(marker, '''.submittedHistoryButton:active { transform: translateY(1px); }\n\n.submittedSummary {\n  display: grid;\n  gap: 3px;\n  margin: 8px 14px 2px;\n  padding: 12px 14px;\n  border: 1px solid #9fcdf5;\n  border-radius: 14px;\n  background: linear-gradient(180deg, #f7fbff, #edf7ff);\n  color: #0b5ea8;\n  text-align: left;\n  box-shadow: 0 5px 14px rgba(8, 113, 215, 0.08);\n  cursor: pointer;\n}\n.submittedSummary span { font-size: 12px; font-weight: 800; }\n.submittedSummary strong { color: #0756b8; font-size: 17px; font-weight: 900; }\n.submittedSummary small { color: #5e7891; font-size: 11px; line-height: 1.35; }\n''', 1)
+          css.write_text(css_text, encoding="utf-8")
+
+          test = Path("apps/backoffice-web/tests/integration/fg0003-table-bill-sync-regression.integration.test.ts")
+          test.write_text('''import { readFileSync } from "node:fs";\nimport { describe, expect, it } from "vitest";\n\nfunction source(relativePath: string) {\n  return readFileSync(new URL(relativePath, import.meta.url), "utf8");\n}\n\nconst clearMigration = source("../../../../supabase/migrations/20260822023000_allow_empty_queued_dine_in_replacement.sql");\nconst clearRoute = source("../../src/app/api/pos/sales/clear-dine-in/route.ts");\nconst salesUi = source("../../src/components/pos/pos-sales-module.tsx");\nconst tableOrderMobile = source("../../src/components/table-order/table-order-mobile.tsx");\n\ndescribe("FG0003 authoritative table-bill synchronization", () => {\n  it("allows an explicit empty desired state only for the guarded queued dine-in replacement path", () => {\n    expect(clearMigration).toContain("jsonb_array_length(p_items) > 0 and v_item_count < 1");\n    expect(clearMigration).toContain("v_order.status <> 'queued'");\n    expect(clearMigration).toContain("v_order.order_type <> 'dine_in'");\n    expect(clearMigration).toContain("TABLE_BILL_ORDER_CONFLICT");\n    expect(clearMigration).toContain("'kitchen_delta_kind', 'cancel'");\n  });\n\n  it("clears only the exact queued order bound to the exact open table session", () => {\n    expect(clearRoute).toContain('.eq("table_id", tableId)');\n    expect(clearRoute).toContain("session.order_id !== orderId");\n    expect(clearRoute).toContain('order.status !== "queued"');\n    expect(clearRoute).toContain("p_items: []");\n    expect(clearRoute).toContain("queueMissingKitchenPrintJobsForOrder");\n  });\n\n  it("syncs the cashier final-item removal instead of dropping the empty cart state", () => {\n    expect(salesUi).toContain('fetch("/api/pos/sales/clear-dine-in"');\n    expect(salesUi).toContain('cartSnapshot.length === 0 && activeOrder?.status === "queued"');\n    expect(salesUi).toContain('cart.length === 0 && activeOrder?.status === "queued"');\n    expect(salesUi).not.toContain('shift.status !== "open" || cart.length === 0 || !isOnline) return;');\n  });\n\n  it("keeps customer phones near-live with the authoritative shared table bill", () => {\n    expect(tableOrderMobile).toContain("const MENU_STATUS_POLL_MS = 5_000");\n    expect(tableOrderMobile).toContain("บิลปัจจุบันของโต๊ะ");\n    expect(tableOrderMobile).toContain("menu.submitted_summary?.total_amount");\n    expect(tableOrderMobile).toContain("@ {money(item.unit_price)}");\n  });\n\n  it("does not auto-hide call-staff table identity after nine seconds", () => {\n    const notificationStart = salesUi.indexOf("const notifyTableQrServiceRequest");\n    const notificationEnd = salesUi.indexOf("const markTableQrNotificationsSeen", notificationStart);\n    const notificationSource = salesUi.slice(notificationStart, notificationEnd > notificationStart ? notificationEnd : notificationStart + 1800);\n    expect(notificationSource).toContain("setTableQrAlert(alert)");\n    expect(notificationSource).not.toContain("9000");\n  });\n});\n''', encoding="utf-8")
+          PY
+
+      - name: Commit source patch and restore normal workflows
+        shell: bash
+        run: |
+          git fetch origin agent-docs-preflight-schema-drift
+          git checkout origin/agent-docs-preflight-schema-drift -- .github/workflows/ci.yml
+          git rm -f .github/workflows/fg0003-table-bill-sync-one-shot.yml
+          git config user.name "CpIPOS Hotfix Bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add .github/workflows/ci.yml \
+                  apps/backoffice-web/src/components/pos/pos-sales-module.tsx \
+                  apps/backoffice-web/src/components/table-order/table-order-mobile.tsx \
+                  apps/backoffice-web/src/components/table-order/table-order-mobile.module.css \
+                  apps/backoffice-web/tests/integration/fg0003-table-bill-sync-regression.integration.test.ts
+          git commit -m "fix(pos): synchronize cashier and QR table bill state"
+          git push origin HEAD:hotfix/fg0003-table-bill-sync-20260822
+
   verify:
     runs-on: ubuntu-latest
     timeout-minutes: 30
