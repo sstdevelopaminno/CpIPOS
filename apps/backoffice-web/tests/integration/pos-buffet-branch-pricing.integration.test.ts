@@ -23,9 +23,11 @@ describe("POS buffet table branch-pricing continuation", () => {
     expect(resolverRoute).toContain('.from("products")');
     expect(resolverRoute).toContain('.select("id,name,price,is_active")');
     expect(resolverRoute).toContain("DEFAULT_BUFFET_PRICE_PLANS.map");
+    expect(picker).toContain('fetch("/api/pos/buffet-products/resolve"');
     expect(picker).toContain('method: "GET"');
     expect(picker).toContain("setRuntimePlans(body.data.plans)");
-    expect(picker).toContain("กำลังโหลดราคาบุฟเฟ่ของสาขา");
+    expect(picker).toContain("loadingPlans || loadingSession");
+    expect(picker).toContain("กำลังโหลดข้อมูลบุฟเฟ่ของสาขา");
   });
 
   it("never overwrites an existing branch product price from the POS picker", () => {
