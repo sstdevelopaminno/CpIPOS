@@ -6,7 +6,7 @@ import { PackageLockDialog } from "@/components/pos-preview/package-lock-dialog"
 import { t, type Language } from "@/lib/i18n";
 import { featureForPosRoute } from "@/lib/pos-feature-map";
 
-type MoreIconName = "summary" | "receipt" | "tables" | "stock" | "members" | "kitchen";
+type MoreIconName = "summary" | "receipt" | "tables" | "stock" | "members" | "kitchen" | "buffet";
 type PosRole = "owner" | "manager" | "staff" | "accountant";
 
 type MoreItem = {
@@ -53,6 +53,13 @@ const MORE_ITEMS: MoreItem[] = [
     labelKey: "pos_menu_stock",
     roles: ["owner", "manager"],
     desc: { th: "สินค้า สต็อก วัตถุดิบ ราคา และหมวดหมู่", en: "Products, stock, ingredients, prices, and categories" }
+  },
+  {
+    href: "/preview/pos/buffet-pricing",
+    icon: "buffet",
+    label: { th: "ตั้งค่าราคาบุฟเฟ่", en: "Buffet Price Settings" },
+    roles: ["owner", "manager"],
+    desc: { th: "กำหนดราคาบุฟเฟ่รายท่านและแบบชุดสำหรับหน้าขาย", en: "Set per-person and set prices for Buffet Table sales" }
   },
   {
     href: "/preview/pos/members",
@@ -115,13 +122,25 @@ function MoreIcon({ name }: { name: MoreIconName }) {
         <path d="M5 10h14" />
       </svg>
     );
-  }  if (name === "stock") {
+  }
+  if (name === "stock") {
     return (
       <svg {...common}>
         <path d="M5 7h14v12H5z" />
         <path d="M8 7V5h8v2" />
         <path d="M8 12h8" />
         <path d="M8 16h5" />
+      </svg>
+    );
+  }
+  if (name === "buffet") {
+    return (
+      <svg {...common}>
+        <path d="M4 15h16" />
+        <path d="M6 15a6 6 0 0 1 12 0" />
+        <path d="M12 8V5" />
+        <path d="M10.5 5h3" />
+        <path d="M5 19h14" />
       </svg>
     );
   }
