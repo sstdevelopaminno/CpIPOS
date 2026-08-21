@@ -7,15 +7,21 @@ import { resolveTableQrContext } from "@/lib/table-qr-ordering";
 const TIME_STATE_RATE_LIMIT_WINDOW_MS = 60_000;
 const TIME_STATE_RATE_LIMIT_MAX = 120;
 
-function closedLinkError(message: string) {
-  return [
-    "invalid_qr_token",
-    "qr_session_expired",
-    "table_session_closed",
-    "table_not_available",
-    "table_session_not_open",
-    "table_not_open"
-  ].some((code) => message.toLowerCase().includes(code));
+type ClosedLinkReason = "expired" | "bill_closed";
+
+function closedLinkReason(message: string): ClosedLinkReason | null {
+  const normalized = message.toLowerCase();
+  if (
+    ["table_session_closed", "table_not_available", "table_session_not_open", "table_not_open"].some((code) =>
+      normalized.includes(code)
+    )
+  ) {
+    return "bill_closed";
+  }
+  if (["invalid_qr_token", "qr_session_expired"].some((code) => normalized.includes(code))) {
+    return "expired";
+  }
+  return null;
 }
 
 export async function GET(request: Request, context: { params: Promise<{ token: string }> }) {
@@ -61,8 +67,11 @@ export async function GET(request: Request, context: { params: Promise<{ token: 
     return response;
   } catch (error) {
     const message = error instanceof Error ? error.message : "table_qr_time_state_failed";
-    if (closedLinkError(message)) {
-      const response = fail("table_order_link_expired", "หมดเวลาสั่งอาหารหรือบิลโต๊ะถูกปิดแล้ว", 410);
+    const reason = closedLinkReason(message);
+    if (reason) {
+      const response = reason === "bill_closed"
+        ? fail("table_order_bill_closed", "บิลโต๊ะถูกปิดหรือชำระเงินแล้ว", 410)
+        : fail("table_order_link_expired", "หมดเวลาสั่งอาหารหรือ QR หมดอายุแล้ว", 410);
       response.headers.set("Cache-Control", "no-store, no-cache, must-revalidate");
       return response;
     }

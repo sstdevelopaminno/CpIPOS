@@ -14,6 +14,8 @@ type TimeStateBody = {
   error?: { code?: string; message?: string } | null;
 };
 
+type ClosedReason = "expired" | "bill_closed";
+
 const STATUS_REFRESH_MS = 30_000;
 const COUNTDOWN_TICK_MS = 1_000;
 const WARNING_THRESHOLD_MS = 30 * 60_000;
@@ -33,7 +35,7 @@ export function TableQrCountdownGuard({ token }: { token: string }) {
   const [state, setState] = useState<TimeState | null>(null);
   const [serverOffsetMs, setServerOffsetMs] = useState(0);
   const [tick, setTick] = useState(() => Date.now());
-  const [hardClosed, setHardClosed] = useState(false);
+  const [closedReason, setClosedReason] = useState<ClosedReason | null>(null);
   const inFlightRef = useRef(false);
   const endpoint = useMemo(() => `/api/table-order/${encodeURIComponent(token)}/time-state`, [token]);
 
@@ -43,8 +45,12 @@ export function TableQrCountdownGuard({ token }: { token: string }) {
     try {
       const response = await fetch(endpoint, { cache: "no-store" });
       const body = (await response.json().catch(() => null)) as TimeStateBody | null;
-      if (response.status === 410 || body?.error?.code === "table_order_link_expired") {
-        setHardClosed(true);
+      if (
+        response.status === 410 ||
+        body?.error?.code === "table_order_link_expired" ||
+        body?.error?.code === "table_order_bill_closed"
+      ) {
+        setClosedReason(body?.error?.code === "table_order_bill_closed" ? "bill_closed" : "expired");
         return;
       }
       if (!response.ok || !body?.data) return;
@@ -52,7 +58,7 @@ export function TableQrCountdownGuard({ token }: { token: string }) {
       setServerOffsetMs(Number.isFinite(serverNowMs) ? serverNowMs - Date.now() : 0);
       setState(body.data);
       setTick(Date.now());
-      setHardClosed(false);
+      setClosedReason(null);
     } catch {
       // Keep the last known countdown on temporary network failures. The ordering API
       // independently rejects every write after expires_at, so this UI never weakens server safety.
@@ -78,35 +84,40 @@ export function TableQrCountdownGuard({ token }: { token: string }) {
   }, [refresh]);
 
   useEffect(() => {
-    if (state?.expiry_mode !== "time" || hardClosed) return;
+    if (state?.expiry_mode !== "time" || closedReason) return;
     const interval = window.setInterval(() => setTick(Date.now()), COUNTDOWN_TICK_MS);
     return () => window.clearInterval(interval);
-  }, [hardClosed, state?.expiry_mode]);
+  }, [closedReason, state?.expiry_mode]);
 
   const expiresAtMs = state ? Date.parse(state.expires_at) : Number.NaN;
   const remainingMs = state?.expiry_mode === "time" && Number.isFinite(expiresAtMs)
     ? Math.max(0, expiresAtMs - (tick + serverOffsetMs))
     : Number.POSITIVE_INFINITY;
-  const expired = hardClosed || (state?.expiry_mode === "time" && Number.isFinite(expiresAtMs) && remainingMs <= 0);
+  const timedExpired = state?.expiry_mode === "time" && Number.isFinite(expiresAtMs) && remainingMs <= 0;
+  const effectiveClosedReason: ClosedReason | null = closedReason ?? (timedExpired ? "expired" : null);
+  const closed = effectiveClosedReason !== null;
 
   useEffect(() => {
-    if (!expired) return;
+    if (!closed) return;
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     return () => { document.body.style.overflow = previousOverflow; };
-  }, [expired]);
+  }, [closed]);
 
-  if (expired) {
+  if (effectiveClosedReason) {
+    const billClosed = effectiveClosedReason === "bill_closed";
     return (
       <div className="fixed inset-0 z-[9999] grid place-items-center bg-slate-950/95 p-5 text-center text-white pointer-events-auto" role="alertdialog" aria-modal="true" aria-labelledby="table-qr-expired-title">
         <section className="w-full max-w-md rounded-3xl border border-red-400/30 bg-slate-900 p-7 shadow-2xl">
-          <div className="mx-auto grid h-16 w-16 place-items-center rounded-full bg-red-500/15 text-3xl" aria-hidden="true">⏱</div>
-          <h1 id="table-qr-expired-title" className="mt-5 text-3xl font-black">หมดเวลาสั่งอาหาร</h1>
+          <div className="mx-auto grid h-16 w-16 place-items-center rounded-full bg-red-500/15 text-3xl" aria-hidden="true">{billClosed ? "✓" : "⏱"}</div>
+          <h1 id="table-qr-expired-title" className="mt-5 text-3xl font-black">{billClosed ? "บิลโต๊ะนี้ถูกปิดแล้ว" : "หมดเวลาสั่งอาหาร"}</h1>
           <p className="mt-3 text-base font-semibold leading-7 text-slate-200">
-            ไม่สามารถสั่งเพิ่มหรือกดรายการใดได้แล้ว กรุณาชำระเงินที่แคชเชียร์หรือติดต่อพนักงาน
+            {billClosed
+              ? "บิลโต๊ะนี้เข้าสู่ขั้นตอนชำระเงินหรือชำระเรียบร้อยแล้ว ระบบปิดการสั่งเพิ่มตามปกติ"
+              : "ไม่สามารถสั่งเพิ่มหรือกดรายการใดได้แล้ว กรุณาชำระเงินที่แคชเชียร์หรือติดต่อพนักงาน"}
           </p>
           <div className="mt-5 rounded-2xl border border-amber-300/25 bg-amber-300/10 px-4 py-3 text-sm font-black text-amber-100">
-            กรุณานำเลขโต๊ะไปชำระเงิน
+            {billClosed ? "สามารถชำระหรือปิดบิลก่อนเวลาที่ตั้งไว้ได้ตามปกติ" : "กรุณานำเลขโต๊ะไปชำระเงิน"}
           </div>
         </section>
       </div>
