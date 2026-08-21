@@ -28,6 +28,13 @@ type TableBillResponse = {
   };
 };
 
+type ApiErrorPayload = {
+  code?: string;
+  error?: {
+    code?: string;
+  };
+};
+
 const DINE_IN_DRAFT_KEY = "pos_dine_in_draft_v001";
 const DINE_IN_SELECTED_TABLE_KEY = "pos_dine_in_selected_table_v001";
 const ACTIVE_ORDER_KEY = "pos_active_order_v001";
@@ -73,6 +80,15 @@ async function readJsonBody(input: RequestInfo | URL, init?: RequestInit): Promi
     return null;
   }
   return null;
+}
+
+async function readApiErrorCode(response: Response): Promise<string> {
+  try {
+    const payload = (await response.clone().json()) as ApiErrorPayload;
+    return String(payload?.error?.code ?? payload?.code ?? "").trim();
+  } catch {
+    return "";
+  }
 }
 
 function buildCartMergeKey(item: { product_id: string; price: number; notes?: string | null }): string {
@@ -210,13 +226,46 @@ export function PosDineInCommitResetBoundary({ lang }: { lang: Lang }) {
         return originalFetch(input, init);
       }
 
-      const response = await originalFetch(input, init);
+      let response = await originalFetch(input, init);
+      const tableId = typeof body?.table_id === "string" && body.table_id.trim() ? body.table_id.trim() : null;
+
+      if (!response.ok && response.status === 409 && tableId) {
+        const errorCode = await readApiErrorCode(response);
+        if (errorCode === "table_bill_not_open") {
+          const openBillResponse = await originalFetch(`/api/pos/tables/${encodeURIComponent(tableId)}/open-bill`, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: "{}",
+            cache: "no-store"
+          });
+          const openBillCode = openBillResponse.ok ? "" : await readApiErrorCode(openBillResponse);
+
+          if (openBillResponse.ok || openBillCode === "table_already_occupied") {
+            const retryBody = { ...(body ?? {}) };
+            delete retryBody.order_id;
+
+            // Preserve the table draft, but discard only the stale order snapshot. The server
+            // will bind the retried sale to the current bill session and current open shift.
+            window.localStorage.removeItem(ACTIVE_ORDER_KEY);
+
+            const retryHeaders = resolveRequestHeaders(input, init);
+            if (!retryHeaders.has("content-type")) retryHeaders.set("content-type", "application/json");
+            response = await originalFetch(url!.toString(), {
+              ...init,
+              method: "POST",
+              headers: retryHeaders,
+              body: JSON.stringify(retryBody),
+              cache: "no-store"
+            });
+          }
+        }
+      }
+
       if (!response.ok || lastResetKeyRef.current === idempotencyKey) {
         return response;
       }
 
       lastResetKeyRef.current = idempotencyKey;
-      const tableId = typeof body?.table_id === "string" && body.table_id.trim() ? body.table_id.trim() : null;
       clearCommittedDineInDraft(tableId);
       return response;
     };
