@@ -11,6 +11,7 @@ const mainActivity = readSource("../pos-android/app/src/main/java/com/cpipos/pos
 const presentation = readSource("../pos-android/app/src/main/java/com/cpipos/pos/DualScreenPresentation.kt");
 const mdmAgent = readSource("../pos-android/app/src/main/java/com/cpipos/pos/PosMdmAgent.kt");
 const mdmRoute = readSource("src/app/api/android-pos/mdm/heartbeat/route.ts");
+const mdmBase = readSource("src/lib/android-pos/mdm-heartbeat-base.ts");
 const nativeStateRoute = readSource("src/app/api/pos/customer-display/v2/native-state/route.ts");
 const nativeDisplay = readSource("src/components/pos/pos-customer-display-v2-native.tsx");
 const nativePage = readSource("src/app/customer-display/v2/native/page.tsx");
@@ -18,8 +19,8 @@ const downloadCenter = readSource("src/app/download/download-center-latest.tsx")
 const downloadRoute = readSource("src/app/download/android/dual-screen-1-0-13/route.ts");
 const dualScreenWorkflow = readSource("../../.github/workflows/build-android-runtime-dual-screen.yml");
 
-describe("Customer Display V2 Android dual-screen 1.0.13 contract", () => {
-  it("keeps 1.0.12 as the default build while allowing an isolated 1.0.13 dual-screen artifact", () => {
+describe("Customer Display V2 Android dual-screen compatibility contract", () => {
+  it("keeps 1.0.12 as the stable source build while allowing isolated versioned Android artifacts", () => {
     expect(buildGradle).toContain('versionCode = 18');
     expect(buildGradle).toContain('versionName = "1.0.12"');
     expect(buildGradle).toContain('providers.gradleProperty("cpiposVersionName")');
@@ -41,13 +42,15 @@ describe("Customer Display V2 Android dual-screen 1.0.13 contract", () => {
     expect(presentation).toContain("displayWebView.loadUrl(customerDisplayUrl)");
   });
 
-  it("reports display capability through MDM so the test machine can be inspected remotely", () => {
+  it("reports display capability through the shared MDM base while the wrapper adds printer auto-registry behavior", () => {
     expect(mdmAgent).toContain("buildDisplaySnapshot");
     expect(mdmAgent).toContain("presentation_display_count");
     expect(mdmAgent).toContain("secondary_display_available");
     expect(mdmAgent).toContain("width_px");
     expect(mdmAgent).toContain("height_px");
-    expect(mdmRoute).toContain("android_mdm_displays: asRecord(payload?.displays)");
+    expect(mdmRoute).toContain('GET as baseGet, POST as basePost');
+    expect(mdmRoute).toContain("const baseResponse = await basePost(request)");
+    expect(mdmBase).toContain("android_mdm_displays: asRecord(payload?.displays)");
   });
 
   it("reads native display state only from the authenticated POS device channel", () => {
@@ -67,17 +70,18 @@ describe("Customer Display V2 Android dual-screen 1.0.13 contract", () => {
     expect(nativeDisplay).not.toContain("x-customer-display-token");
   });
 
-  it("replaces the public Legacy card with the separate 1.0.13 dual-screen download", () => {
-    expect(downloadCenter).toContain("CpIPOS POS - Dual Screen");
-    expect(downloadCenter).toContain("1.0.13");
-    expect(downloadCenter).toContain("สำหรับเครื่อง 2 จอ");
-    expect(downloadCenter).toContain("/download/android/dual-screen-1-0-13");
-    expect(downloadCenter).not.toContain("CpIPOS POS - Android 7.1 Legacy");
+  it("promotes the current Modern Runtime as the 1–2 screen standard while retaining legacy and repair paths", () => {
+    expect(downloadCenter).toContain("CpIPOS POS - Modern Runtime");
+    expect(downloadCenter).toContain("ANDROID_MODERN_RELEASE.versionName");
+    expect(downloadCenter).toContain("1–2 จอ");
+    expect(downloadCenter).toContain("CpIPOS POS - Legacy Stable");
+    expect(downloadCenter).toContain("1.0.12");
+    expect(downloadCenter).toContain("Android POS 1.0.13 ถูกนำออกจากหน้า Download หลัก");
     expect(downloadRoute).toContain("android-runtime-dual-screen-1-0-13");
     expect(downloadRoute).toContain("CpIPOS-Android-POS-1.0.13-Dual-Screen.apk");
   });
 
-  it("publishes a signed versionCode 19 artifact without overwriting the 1.0.12 latest release", () => {
+  it("retains the signed 1.0.13 repair artifact without overwriting the stable release", () => {
     expect(dualScreenWorkflow).toContain("ANDROID_RUNTIME_VERSION: 1.0.13");
     expect(dualScreenWorkflow).toContain('ANDROID_RUNTIME_VERSION_CODE: "19"');
     expect(dualScreenWorkflow).toContain("ANDROID_RUNTIME_RELEASE_TAG: android-runtime-dual-screen-1-0-13");
