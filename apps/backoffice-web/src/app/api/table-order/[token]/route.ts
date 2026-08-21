@@ -3,6 +3,10 @@ import { loadProductMediaMap } from "@/lib/product-media";
 import { PosTimeoutError, withTimeout } from "@/lib/pos-resilience";
 import { buildRateLimitKey, enforceRateLimit, getClientIpAddress, type RateLimitResult } from "@/lib/server/rate-limit";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
+import {
+  assertTableQrBuffetItemsAllowed,
+  filterTableQrMenuForBuffet
+} from "@/lib/table-qr-buffet-policy";
 import { loadTableQrMenu, loadTableQrState, resolveTableQrContext, submitTableQrOrder, submitTableQrServiceRequest } from "@/lib/table-qr-ordering";
 import { assertTableQrStockAvailable, loadTableQrStockStates } from "@/lib/table-qr-stock";
 
@@ -78,6 +82,10 @@ function publicError(error: unknown, meta: PublicErrorMeta) {
   const isDev = process.env.NODE_ENV !== "production";
   const logMeta = { method: meta.method, action: meta.action, requestId: meta.requestId, itemCount: meta.itemCount, message };
   if (includesAny(message, ["invalid_qr_token", "qr_session_expired", "QR_SESSION_EXPIRED", "TABLE_SESSION_CLOSED", "table_session_closed", "token_expired", "expired_token"])) return fail("table_order_link_expired", "ลิงก์สั่งอาหารหมดอายุหรือปิดบิลแล้ว", 410);
+  if (includesAny(message, ["BUFFET_PLAN_NOT_COMMITTED"])) return fail("buffet_plan_not_committed", "กรุณาให้พนักงานยืนยันแพ็กเกจบุฟเฟ่ลงบิลก่อนเริ่มสั่งอาหารผ่าน QR", 409);
+  if (includesAny(message, ["BUFFET_SET_INVALID_ITEM"])) return fail("buffet_set_invalid_item", "การตั้งค่าชุดบุฟเฟ่มีรายการที่ไม่ใช่อาหารบุฟเฟ่ราคา 0 บาท กรุณาติดต่อพนักงาน", 409);
+  if (includesAny(message, ["buffet_access_ambiguous"])) return fail("buffet_access_ambiguous", "โต๊ะนี้มีข้อมูลแพ็กเกจบุฟเฟ่ไม่ชัดเจน กรุณาติดต่อพนักงาน", 409);
+  if (includesAny(message, ["BUFFET_PRICE_PLAN_QR_FORBIDDEN", "BUFFET_ACCESS_REQUIRED", "BUFFET_SET_ITEM_NOT_INCLUDED"])) return fail("buffet_item_not_allowed", "รายการนี้ไม่อยู่ในแพ็กเกจบุฟเฟ่ของโต๊ะ กรุณาโหลดเมนูใหม่", 422);
   if (includesAny(message, ["FOOD_ORDER_REQUIRED_BEFORE_CHECKOUT", "food_order_required_before_checkout"])) return fail("food_order_required_before_checkout", "กรุณาส่งรายการอาหารก่อนแจ้งชำระบิล", 409);
   if (includesAny(message, ["lock timeout", "canceling statement due to lock timeout", "deadlock detected", "could not serialize access due to concurrent update"])) {
     console.warn("[table-order-api] transient contention; client may retry", logMeta);
@@ -146,7 +154,8 @@ export async function GET(request: Request, context: { params: Promise<{ token: 
       const qrContext = await resolveTableQrContext(token);
       if (wantsStatus) return loadTableQrState(qrContext);
       const menu = await loadTableQrMenu(qrContext);
-      const productIds = menu.products.map((product) => product.id);
+      const buffetMenu = await filterTableQrMenuForBuffet({ context: qrContext, products: menu.products });
+      const productIds = buffetMenu.products.map((product) => product.id);
       const [states, mediaMap, selectionMaxMap] = await Promise.all([
         loadTableQrStockStates({ tenantId: qrContext.tenant_id, branchId: qrContext.branch_id, productIds }),
         loadProductMediaMap({ tenantId: qrContext.tenant_id, branchId: qrContext.branch_id, productIds }).catch((error) => {
@@ -157,7 +166,9 @@ export async function GET(request: Request, context: { params: Promise<{ token: 
       ]);
       return {
         ...menu,
-        products: menu.products.map((product) => {
+        buffet: buffetMenu.buffet,
+        categories: Array.from(new Set(buffetMenu.products.map((product) => product.category).filter(Boolean))),
+        products: buffetMenu.products.map((product) => {
           const media = mediaMap.get(product.id);
           return {
             ...product,
@@ -219,6 +230,7 @@ export async function POST(request: Request, context: { params: Promise<{ token:
     if (items.some((item) => !item.product_id || !Number.isInteger(item.quantity) || item.quantity < 1 || item.quantity > 99)) return fail("invalid_items", "จำนวนอาหารไม่ถูกต้อง", 422);
 
     const qrContext = await resolveTableQrContext(token);
+    await assertTableQrBuffetItemsAllowed({ context: qrContext, items });
     await assertTableQrStockAvailable({ tenantId: qrContext.tenant_id, branchId: qrContext.branch_id, items });
     const result = await submitTableQrOrder({ context: qrContext, requestId, items, note: typeof body.note === "string" ? body.note.trim().slice(0, 500) : null });
     return ok({ submission_id: result.submission_id, order_no: result.order_no, table_code: qrContext.table_code, subtotal: Number(result.subtotal), tax_total: Number(result.tax_total), grand_total: Number(result.grand_total), duplicate_request: result.duplicate_request }, result.duplicate_request ? 200 : 201);
