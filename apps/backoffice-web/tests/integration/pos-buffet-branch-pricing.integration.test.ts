@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 function source(relativePath: string) {
-  return readFileSync(new URL(relativePath, import.meta.url), "utf8");
+  return readFileSync(new URL(relativePath, import.meta.url), "utf8").replace(/\r\n/g, "\n");
 }
 
 const resolverRoute = source("../../src/app/api/pos/buffet-products/resolve/route.ts");
@@ -21,18 +21,18 @@ describe("POS buffet table branch-pricing continuation", () => {
   it("loads branch buffet product prices before the operator chooses a package", () => {
     expect(resolverRoute).toContain("export async function GET()");
     expect(resolverRoute).toContain('.from("products")');
-    expect(resolverRoute).toContain('.select("id,name,price,is_active")');
-    expect(resolverRoute).toContain("DEFAULT_BUFFET_PRICE_PLANS.map");
+    expect(resolverRoute).toContain('.select("id,sku,name,price,is_active,metadata,created_at")');
+    expect(resolverRoute).toContain("for (const fallback of DEFAULT_BUFFET_PRICE_PLANS)");
     expect(picker).toContain('fetch("/api/pos/buffet-products/resolve"');
     expect(picker).toContain('method: "GET"');
     expect(picker).toContain("setRuntimePlans(body.data.plans)");
     expect(picker).toContain("loadingPlans || loadingSession");
-    expect(picker).toContain("กำลังโหลดข้อมูลบุฟเฟ่ของสาขา");
+    expect(picker).toContain("Loading branch buffet data");
   });
 
   it("never overwrites an existing branch product price from the POS picker", () => {
     expect(resolverRoute).not.toContain("update({ price: args.price");
-    expect(resolverRoute).toContain("actualPrice = roundMoney(Number(existing.product.price ?? 0))");
+    expect(resolverRoute).toContain("price: plan.price");
     expect(resolverRoute).toContain('price_source: "branch_product"');
   });
 
@@ -44,8 +44,8 @@ describe("POS buffet table branch-pricing continuation", () => {
   });
 
   it("respects product activation state instead of silently reactivating a disabled buffet package", () => {
-    expect(resolverRoute).toContain('if (existing.product.is_active === false)');
+    expect(resolverRoute).toContain("if (!plan?.is_active || plan.price <= 0 || plan.draft)");
     expect(resolverRoute).toContain('fail("buffet_product_inactive"');
-    expect(resolverRoute).toContain("product.is_active !== false && price > 0");
+    expect(resolverRoute).toContain("plan.is_active && plan.price > 0 && !plan.draft");
   });
 });

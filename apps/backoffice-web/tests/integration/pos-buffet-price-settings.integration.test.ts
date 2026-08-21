@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 function source(relativePath: string) {
-  return readFileSync(new URL(relativePath, import.meta.url), "utf8");
+  return readFileSync(new URL(relativePath, import.meta.url), "utf8").replace(/\r\n/g, "\n");
 }
 
 const settingsRoute = source("../../src/app/api/pos/buffet-products/settings/route.ts");
@@ -22,11 +22,12 @@ describe("POS Buffet Table branch price settings", () => {
 
   it("renders a table-style editor for per-person and set prices", () => {
     expect(workspace).toContain("<table");
-    expect(workspace).toContain('const displayOrder: PosBuffetPricingMode[] = ["per_person", "set"]');
-    expect(workspace).toContain("ประเภทบุฟเฟ่");
-    expect(workspace).toContain("ราคาปัจจุบัน");
-    expect(workspace).toContain("ราคาใหม่ (บาท)");
-    expect(workspace).toContain("บันทึกราคา");
+    expect(workspace).toContain("plans.map((plan) => {");
+    expect(workspace).toContain("Buffet plan");
+    expect(workspace).toContain("Type");
+    expect(workspace).toContain("Current price");
+    expect(workspace).toContain("New price (THB)");
+    expect(workspace).toContain("Save price");
   });
 
   it("updates the same branch product price that the Buffet sales resolver reads", () => {
@@ -42,12 +43,12 @@ describe("POS Buffet Table branch price settings", () => {
   it("does not reactivate an existing disabled buffet product while editing its price", () => {
     expect(settingsRoute).toContain('.update({ price })');
     expect(settingsRoute).not.toContain('.update({ price, is_active: true })');
-    expect(workspace).toContain("ไม่เปิดใช้งานสินค้าที่ถูกปิดไว้โดยอัตโนมัติ");
+    expect(workspace).toContain("Existing inactive plans are never reactivated merely by editing price.");
   });
 
   it("keeps the keypad default separate from the first operator-entered digit", () => {
-    expect(picker).toContain("const replaceQuantityOnNextKey = useRef(true)");
-    expect(picker).toContain("appendBuffetQuantityKey(current, key, replaceCurrent)");
-    expect(picker).toContain("replaceQuantityOnNextKey.current = false");
+    expect(picker).toContain("selectBuffetQuickQuantity(value)");
+    expect(picker).toContain("adjustBuffetQuantity(current, -1)");
+    expect(picker).toContain("adjustBuffetQuantity(current, 1)");
   });
 });

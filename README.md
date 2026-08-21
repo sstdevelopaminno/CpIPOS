@@ -393,3 +393,11 @@ Current behavior/security decisions are governed by the latest migrations, CI/te
 - Primary migration `202608170003_fix_dine_in_cancelled_item_quantity.sql` and Trial mirror permit zero only for an existing positive line explicitly entering `cancelled`, while preserving tenant/branch/order/product/unit-price identity. Null, negative and ordinary zero quantities remain rejected.
 - Successful dine-in Kitchen auto-send now clears only persisted draft/active-order snapshots; the live POS component remains mounted, preserving checkout/payment modal state.
 - Existing 5-second dine-in Kitchen auto-send debounce, payment API semantics, Kitchen/printer routing, Android runtime, shift/session and tenant/branch authorization are unchanged.
+## PR #124 Buffet CI test stabilization - 2026-08-21
+
+- Branch `feat/buffet-catalog-phase-20260821` was synchronized to remote HEAD `1ea3ba9329b8cb1c63dd61d741107d64a3458383` before changes.
+- Local CI reproduction found the Test stage failing in source-contract Vitest tests, not in runtime POS transaction logic.
+- Root cause: several source-contract tests compared exact source strings that were stale after Buffet pricing/session refactors and brittle across CRLF/LF or Thai source encoding in local/CI checkouts.
+- Fix applied only to tests: normalize source newlines when reading files and update assertions to the current Buffet contracts: metadata-based buffet plan classification, dynamic multiple price plans, branch-product price source, inactive/draft filtering, and exact quantity +/- helpers.
+- No application runtime, API, database migration, tenant routing, branch isolation, payment, printer, Kitchen, Android, Windows, or MDM behavior changed.
+- Validation after the fix: targeted Buffet/Table QR source-contract tests passed 24/24; full `backoffice-web` Vitest passed 73 files / 310 tests; typecheck passed; lint passed with existing warnings only; production build passed; Primary and Trial schema drift checks passed.

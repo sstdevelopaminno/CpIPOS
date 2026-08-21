@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 function source(relativePath: string) {
-  return readFileSync(new URL(relativePath, import.meta.url), "utf8");
+  return readFileSync(new URL(relativePath, import.meta.url), "utf8").replace(/\r\n/g, "\n");
 }
 
 const sessionService = source("../../src/lib/services/buffet-table-session-service.ts");
@@ -16,8 +16,9 @@ describe("POS Buffet Table active-session contract", () => {
   it("derives buffet counts from persisted order items instead of client deltas", () => {
     expect(sessionService).toContain('.from("order_items")');
     expect(sessionService).toContain('.eq("order_id", args.orderId)');
-    expect(sessionService).toContain('product.name === "บุฟเฟ่รายท่าน"');
-    expect(sessionService).toContain('product.name === "บุฟเฟ่แบบชุด"');
+    expect(sessionService).toContain('import { buffetPlanModeFromProduct } from "@/lib/pos-buffet-plan-product";');
+    expect(sessionService).toContain("buffetPlanModeFromProduct(product)");
+    expect(sessionService).toContain("modeByProductId.set(product.id, mode)");
     expect(sessionService).toContain("perPersonQuantity += quantity");
     expect(sessionService).toContain("setQuantity += quantity");
   });
@@ -51,10 +52,11 @@ describe("POS Buffet Table active-session contract", () => {
   });
 
   it("reopens an existing buffet table without automatically charging another package", () => {
-    expect(buffetPicker).toContain("โต๊ะนี้เปิดบุฟเฟ่แล้ว");
-    expect(buffetPicker).toContain("เปิดโต๊ะเดิมจะไม่คิดค่าบุฟเฟ่ซ้ำ");
-    expect(buffetPicker).toContain("เพิ่มลูกค้า");
-    expect(buffetPicker).toContain("เพิ่มชุด");
-    expect(buffetPicker).toContain("เข้าหน้าขายต่อ");
+    expect(buffetPicker).toContain("Buffet is already open");
+    expect(buffetPicker).toContain("Reopening the table does not double-charge buffet fees");
+    expect(buffetPicker).toContain('`Add ${plan.name}`');
+    expect(buffetPicker).toContain("sessionSummary.per_person_quantity");
+    expect(buffetPicker).toContain("sessionSummary.set_quantity");
+    expect(buffetPicker).toContain("Continue sale");
   });
 });

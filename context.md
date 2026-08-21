@@ -627,3 +627,11 @@ ORDER BY p.name;
 - A second dine-in-specific issue was confirmed in `PosDineInCommitResetBoundary`: successful auto-send remounted `PosEntryGate`, which could tear down a payment modal opened at the same time. The boundary now clears persisted snapshots without remounting the live POS.
 - The payment review is still created only after `submitOrder` succeeds. The 5-second dine-in Kitchen auto-send cadence, transactional Kitchen/print routing, Android runtime, payment API semantics, session/shift gates and non-dine-in flows are unchanged.
 - Regression coverage locks the DB cancellation guard, checkout sequencing, Kitchen debounce and no-remount contract.
+## PR #124 Buffet CI test stabilization - 2026-08-21
+
+- Branch `feat/buffet-catalog-phase-20260821` was synchronized to remote HEAD `1ea3ba9329b8cb1c63dd61d741107d64a3458383` before changes.
+- Local CI reproduction found the Test stage failing in source-contract Vitest tests, not in runtime POS transaction logic.
+- Root cause: several source-contract tests compared exact source strings that were stale after Buffet pricing/session refactors and brittle across CRLF/LF or Thai source encoding in local/CI checkouts.
+- Fix applied only to tests: normalize source newlines when reading files and update assertions to the current Buffet contracts: metadata-based buffet plan classification, dynamic multiple price plans, branch-product price source, inactive/draft filtering, and exact quantity +/- helpers.
+- No application runtime, API, database migration, tenant routing, branch isolation, payment, printer, Kitchen, Android, Windows, or MDM behavior changed.
+- Validation after the fix: targeted Buffet/Table QR source-contract tests passed 24/24; full `backoffice-web` Vitest passed 73 files / 310 tests; typecheck passed; lint passed with existing warnings only; production build passed; Primary and Trial schema drift checks passed.
