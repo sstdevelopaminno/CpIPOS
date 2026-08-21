@@ -56,6 +56,15 @@ export async function POST(request: Request, context: { params: Promise<{ tableI
       response.headers.set("x-pos-table-qr-ms", String(Date.now() - startedAt));
       return response;
     }
+    if (message === "BUFFET_PLAN_NOT_COMMITTED") {
+      return fail("buffet_plan_not_committed", "กรุณายืนยันแพ็กเกจบุฟเฟ่ลงบิลก่อนสร้าง QR สำหรับโต๊ะนี้", 409);
+    }
+    if (message === "BUFFET_SET_INVALID_ITEM") {
+      return fail("buffet_set_invalid_item", "ชุดบุฟเฟ่นี้มีรายการที่ไม่ใช่อาหารบุฟเฟ่ราคา 0 บาท กรุณาแก้รายการในชุดก่อนสร้าง QR", 409);
+    }
+    if (message === "buffet_access_ambiguous") {
+      return fail("buffet_access_ambiguous", "โต๊ะนี้มีแพ็กเกจบุฟเฟ่มากกว่าหนึ่งแบบ กรุณาปิดบิลแล้วเปิดโต๊ะใหม่", 409);
+    }
     if (message === "table_not_open" || message === "table_session_not_open") {
       return fail(message, "Open the table bill before creating its ordering QR.", 409);
     }
