@@ -20,6 +20,7 @@ type BlockingTableSession = {
   table_id: string;
   order_id: string | null;
   status: string;
+  metadata: Record<string, unknown> | null;
 };
 
 export type ClearShiftOpenBillsResult = {
@@ -40,12 +41,18 @@ export async function clearShiftOpenBills(args: {
 }): Promise<ClearShiftOpenBillsResult> {
   const reason = args.reason ?? SHIFT_CLEAR_OPEN_BILLS_REASON;
   const supabase = getSupabaseServiceClient();
+
+  // A shift cleanup must never be a bill-cancellation mechanism. Any live dine-in
+  // order is a hard blocker and must be paid, explicitly cancelled through the
+  // normal approved cancellation flow, or transferred by a dedicated handover flow.
+  // Takeaway orders are intentionally excluded from this table-bill guard.
   const { data: orders, error: ordersError } = await supabase
     .from("orders")
     .select("id,order_no,status,table_id")
     .eq("tenant_id", args.tenantId)
     .eq("branch_id", args.branchId)
     .eq("shift_id", args.shiftId)
+    .eq("order_type", "dine_in")
     .in("status", BLOCKING_ORDER_STATUSES)
     .limit(200);
 
@@ -54,36 +61,19 @@ export async function clearShiftOpenBills(args: {
   }
 
   const blockingOrders = (orders ?? []) as BlockingOrder[];
-  const orderIds = blockingOrders.map((order) => order.id);
-  const orderTableIds = blockingOrders.map((order) => order.table_id).filter((id): id is string => Boolean(id));
-
-  let clearedOrderCount = 0;
-  if (orderIds.length > 0) {
-    const { data: cancelledOrders, error: cancelError } = await supabase
-      .from("orders")
-      .update({
-        status: "cancelled",
-        cancelled_by: args.userId,
-        cancelled_reason: reason
-      })
-      .eq("tenant_id", args.tenantId)
-      .eq("branch_id", args.branchId)
-      .eq("shift_id", args.shiftId)
-      .in("id", orderIds)
-      .in("status", BLOCKING_ORDER_STATUSES)
-      .select("id");
-
-    if (cancelError) {
-      throw new Error(`shift_clear_orders_failed: ${cancelError.message}`);
-    }
-    clearedOrderCount = cancelledOrders?.length ?? 0;
+  if (blockingOrders.length > 0) {
+    throw new Error(`SHIFT_HAS_UNPAID_DINE_IN_ORDERS:${blockingOrders.length}`);
   }
 
+  // A table session belongs to the shift that opened it. Never clear a branch-wide
+  // active session while closing/continuing a different shift. This is deliberately
+  // fail-closed for legacy sessions that do not carry opened_shift_id.
   const { data: tableSessions, error: tableSessionsError } = await supabase
     .from("table_bill_sessions")
-    .select("id,table_id,order_id,status")
+    .select("id,table_id,order_id,status,metadata")
     .eq("tenant_id", args.tenantId)
     .eq("branch_id", args.branchId)
+    .contains("metadata", { opened_shift_id: args.shiftId })
     .in("status", BLOCKING_TABLE_SESSION_STATUSES)
     .limit(200);
 
@@ -92,9 +82,16 @@ export async function clearShiftOpenBills(args: {
   }
 
   const blockingTableSessions = (tableSessions ?? []) as BlockingTableSession[];
-  const tableSessionIds = blockingTableSessions.map((session) => session.id);
-  const tableSessionTableIds = blockingTableSessions.map((session) => session.table_id).filter(Boolean);
-  const tableIds = Array.from(new Set([...orderTableIds, ...tableSessionTableIds]));
+  const linkedSessions = blockingTableSessions.filter((session) => Boolean(session.order_id));
+  if (linkedSessions.length > 0) {
+    throw new Error(`SHIFT_HAS_ACTIVE_TABLE_BILLS:${linkedSessions.length}`);
+  }
+
+  // At this point every selected session is proven to belong to the target shift
+  // and is empty (order_id = null). Only these empty shells may be cancelled/released.
+  const emptyTableSessions = blockingTableSessions.filter((session) => !session.order_id);
+  const tableSessionIds = emptyTableSessions.map((session) => session.id);
+  const tableIds = Array.from(new Set(emptyTableSessions.map((session) => session.table_id).filter(Boolean)));
   const closedAt = new Date().toISOString();
 
   let clearedTableSessionCount = 0;
@@ -108,6 +105,8 @@ export async function clearShiftOpenBills(args: {
       })
       .eq("tenant_id", args.tenantId)
       .eq("branch_id", args.branchId)
+      .contains("metadata", { opened_shift_id: args.shiftId })
+      .is("order_id", null)
       .in("id", tableSessionIds)
       .in("status", BLOCKING_TABLE_SESSION_STATUSES)
       .select("id");
@@ -142,11 +141,13 @@ export async function clearShiftOpenBills(args: {
     metadata: {
       pos_session_id: args.posSessionId,
       reason,
-      cleared_order_count: clearedOrderCount,
+      shift_scoped_table_sessions: true,
+      shift_scoped_table_release: true,
+      only_empty_table_sessions_released: true,
+      unpaid_dine_in_orders_cancelled: false,
+      cleared_order_count: 0,
       cleared_table_session_count: clearedTableSessionCount,
       released_table_count: tableIds.length,
-      order_ids: orderIds.slice(0, 50),
-      order_nos: blockingOrders.map((order) => order.order_no).filter(Boolean).slice(0, 20),
       table_session_ids: tableSessionIds.slice(0, 50)
     }
   });
@@ -155,7 +156,7 @@ export async function clearShiftOpenBills(args: {
 
   return {
     shift_id: args.shiftId,
-    cleared_order_count: clearedOrderCount,
+    cleared_order_count: 0,
     cleared_table_session_count: clearedTableSessionCount,
     released_table_count: tableIds.length
   };
