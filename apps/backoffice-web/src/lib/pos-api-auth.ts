@@ -33,6 +33,11 @@ function toAuthContext(scope: PosSessionScope): AuthContext {
   };
 }
 
+function hasImplicitPosApiPermission(scope: PosSessionScope, permission: PosPermission): boolean {
+  const role = String(scope.session.role ?? "").trim().toLowerCase();
+  return permission === "monitor:view" && role === "manager";
+}
+
 async function requirePosSessionSingleFlight(): Promise<PosSessionScope> {
   const config = resolveSessionCookieConfig();
   const cookieStore = await cookies();
@@ -68,6 +73,9 @@ export async function getPosApiAuthContext(input: PosApiAuthInput = {}): Promise
       throw new PosGuardError("forbidden_kitchen_role", "Kitchen role cannot access this POS endpoint.", 403);
     }
     for (const permission of permissions) {
+      if (hasImplicitPosApiPermission(scope, permission)) {
+        continue;
+      }
       requirePermission(scope, permission);
     }
     return toAuthContext(scope);
