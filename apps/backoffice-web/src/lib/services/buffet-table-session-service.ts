@@ -47,9 +47,9 @@ async function loadBuffetProducts(tenantId: string, branchId: string) {
     .select("id,sku,name,metadata")
     .eq("tenant_id", tenantId)
     .eq("branch_id", branchId)
-    .eq("is_active", true)
     .returns<BuffetProductRow[]>();
   if (error) throw new Error(`buffet_product_query_failed:${error.message}`);
+  // Historical orders must continue to count a Buffet plan even if the plan is disabled later.
   return (data ?? []).filter((product) => buffetPlanModeFromProduct(product) !== null);
 }
 
