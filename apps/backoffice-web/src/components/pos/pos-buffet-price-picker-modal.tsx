@@ -2,6 +2,10 @@
 
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import {
+  EMPTY_BUFFET_TABLE_SESSION_SUMMARY,
+  type BuffetTableSessionSummary
+} from "@/lib/buffet-table-session";
+import {
   DEFAULT_BUFFET_PRICE_PLANS,
   buildBuffetCartItem,
   calculateBuffetPlanTotal,
@@ -40,6 +44,24 @@ type BuffetProductResolveBody = {
     plans?: PosBuffetPricePlan[];
     source?: string | null;
   } | null;
+};
+
+type BuffetSessionBody = {
+  error?: { code?: string; message?: string } | null;
+  data?: {
+    table_id?: string | null;
+    table_code?: string | null;
+    table_name?: string | null;
+    order_id?: string | null;
+    active?: boolean;
+    summary?: BuffetTableSessionSummary;
+  } | null;
+};
+
+type OrderCreatedEventDetail = {
+  order_id?: string | null;
+  order_type?: string | null;
+  table_id?: string | null;
 };
 
 type ResolvedBuffetProduct = {
@@ -122,8 +144,39 @@ export function PosBuffetPricePickerModal({
   const [selectedPlan, setSelectedPlan] = useState<PosBuffetPricePlan | null>(null);
   const [quantityInput, setQuantityInput] = useState("1");
   const [loadingPlans, setLoadingPlans] = useState(false);
+  const [loadingSession, setLoadingSession] = useState(false);
+  const [sessionSummary, setSessionSummary] = useState<BuffetTableSessionSummary>({ ...EMPTY_BUFFET_TABLE_SESSION_SUMMARY });
   const [resolvingProduct, setResolvingProduct] = useState(false);
   const [resolveError, setResolveError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const onOrderCreated = (event: Event) => {
+      const detail = (event as CustomEvent<OrderCreatedEventDetail>).detail;
+      const orderId = String(detail?.order_id ?? "").trim();
+      const tableId = String(detail?.table_id ?? "").trim();
+      if (detail?.order_type !== "dine_in" || !orderId || !tableId) return;
+
+      void fetch("/api/pos/buffet-table/session", {
+        method: "POST",
+        credentials: "include",
+        cache: "no-store",
+        headers: { Accept: "application/json", "Content-Type": "application/json" },
+        body: JSON.stringify({ order_id: orderId, table_id: tableId })
+      })
+        .then(async (response) => {
+          if (!response.ok) return;
+          const body = (await response.json().catch(() => null)) as BuffetSessionBody | null;
+          const summary = body?.data?.summary;
+          if (summary) {
+            window.dispatchEvent(new CustomEvent("cpipos:buffet-session-synced", { detail: { table_id: tableId, order_id: orderId, summary } }));
+          }
+        })
+        .catch(() => undefined);
+    };
+
+    window.addEventListener("pos:sales:order-created", onOrderCreated);
+    return () => window.removeEventListener("pos:sales:order-created", onOrderCreated);
+  }, []);
 
   useEffect(() => {
     if (!open) return;
@@ -132,6 +185,8 @@ export function PosBuffetPricePickerModal({
     setSelectedPlan(null);
     setQuantityInput("1");
     setLoadingPlans(true);
+    setLoadingSession(Boolean(tableCode));
+    setSessionSummary({ ...EMPTY_BUFFET_TABLE_SESSION_SUMMARY });
     setResolvingProduct(false);
     setResolveError(null);
 
@@ -151,18 +206,41 @@ export function PosBuffetPricePickerModal({
       })
       .catch((error) => {
         if ((error as { name?: string }).name === "AbortError") return;
-        // Keep the safe defaults as a display fallback. POST resolve is still server-authoritative
-        // and returns the current branch product price before a cart item is created.
+        // Keep display defaults only. POST resolve remains server-authoritative for branch pricing.
         setRuntimePlans(plans);
       })
       .finally(() => setLoadingPlans(false));
 
+    if (tableCode) {
+      void fetch(`/api/pos/buffet-table/session?table_code=${encodeURIComponent(tableCode)}`, {
+        method: "GET",
+        credentials: "include",
+        cache: "no-store",
+        signal: controller.signal,
+        headers: { Accept: "application/json" }
+      })
+        .then(async (response) => {
+          const body = (await response.json().catch(() => null)) as BuffetSessionBody | null;
+          if (!response.ok || body?.error || !body?.data?.summary) return;
+          setSessionSummary(body.data.summary);
+        })
+        .catch((error) => {
+          if ((error as { name?: string }).name !== "AbortError") {
+            setSessionSummary({ ...EMPTY_BUFFET_TABLE_SESSION_SUMMARY });
+          }
+        })
+        .finally(() => setLoadingSession(false));
+    } else {
+      setLoadingSession(false);
+    }
+
     return () => controller.abort();
-  }, [open, plans]);
+  }, [open, plans, tableCode]);
 
   if (!open) return null;
 
-  const actionBusy = isBusy || resolvingProduct || loadingPlans;
+  const existingBuffet = sessionSummary.enabled;
+  const actionBusy = isBusy || resolvingProduct || loadingPlans || loadingSession;
   const money = (value: number) =>
     value.toLocaleString(lang === "th" ? "th-TH" : "en-US", { style: "currency", currency: "THB" });
 
@@ -172,16 +250,20 @@ export function PosBuffetPricePickerModal({
     {
       mode: "per_person",
       plan: perPersonPlan,
-      title: lang === "th" ? "บุฟเฟ่รายท่าน" : "Per-person buffet",
-      subtitle: lang === "th" ? "คิดราคาตามจำนวนลูกค้า" : "Charge by guest count",
+      title: existingBuffet ? (lang === "th" ? "เพิ่มลูกค้า" : "Add guests") : (lang === "th" ? "บุฟเฟ่รายท่าน" : "Per-person buffet"),
+      subtitle: existingBuffet
+        ? (lang === "th" ? `ปัจจุบัน ${sessionSummary.per_person_quantity} ท่าน` : `Current ${sessionSummary.per_person_quantity} guest(s)`)
+        : (lang === "th" ? "คิดราคาตามจำนวนลูกค้า" : "Charge by guest count"),
       unitLabel: lang === "th" ? "ท่าน" : "person",
       icon: <PerPersonIcon />
     },
     {
       mode: "set",
       plan: setPlan,
-      title: lang === "th" ? "บุฟเฟ่แบบชุด" : "Buffet set",
-      subtitle: lang === "th" ? "คิดราคาตามจำนวนชุด" : "Charge by set count",
+      title: existingBuffet ? (lang === "th" ? "เพิ่มชุด" : "Add sets") : (lang === "th" ? "บุฟเฟ่แบบชุด" : "Buffet set"),
+      subtitle: existingBuffet
+        ? (lang === "th" ? `ปัจจุบัน ${sessionSummary.set_quantity} ชุด` : `Current ${sessionSummary.set_quantity} set(s)`)
+        : (lang === "th" ? "คิดราคาตามจำนวนชุด" : "Charge by set count"),
       unitLabel: lang === "th" ? "ชุด" : "set",
       icon: <BuffetSetIcon />
     }
@@ -235,6 +317,18 @@ export function PosBuffetPricePickerModal({
       rememberBuffetMode();
       const virtualItem = buildBuffetCartItem({ plan: effectivePlan, quantity, tableCode });
       onConfirm({ ...virtualItem, product_id: resolved.productId }, effectivePlan);
+      setSessionSummary((current) => {
+        const perPersonQuantity = current.per_person_quantity + (effectivePlan.mode === "per_person" ? quantity : 0);
+        const setQuantity = current.set_quantity + (effectivePlan.mode === "set" ? quantity : 0);
+        return {
+          enabled: true,
+          per_person_quantity: perPersonQuantity,
+          set_quantity: setQuantity,
+          total_quantity: perPersonQuantity + setQuantity,
+          subtotal: Number((current.subtotal + resolved.price * quantity).toFixed(2)),
+          updated_at: new Date().toISOString()
+        };
+      });
       setSelectedPlan(null);
       setQuantityInput("1");
     } catch (error) {
@@ -251,18 +345,28 @@ export function PosBuffetPricePickerModal({
           <div className="min-w-0">
             <p className="posui-modal__eyebrow">CpIPOS Buffet</p>
             <h2 id="pos-buffet-price-title">
-              {selectedPlan ? (lang === "th" ? "ใส่จำนวนบุฟเฟ่" : "Enter buffet quantity") : lang === "th" ? "เลือกชุดราคาบุฟเฟ่" : "Select buffet price"}
+              {selectedPlan
+                ? (lang === "th" ? "ใส่จำนวนที่ต้องการเพิ่ม" : "Enter quantity to add")
+                : loadingSession
+                  ? (lang === "th" ? "กำลังตรวจสอบโต๊ะบุฟเฟ่" : "Checking buffet table")
+                  : existingBuffet
+                    ? (lang === "th" ? "โต๊ะนี้เปิดบุฟเฟ่แล้ว" : "Buffet is already open")
+                    : (lang === "th" ? "เลือกชุดราคาบุฟเฟ่" : "Select buffet price")}
             </h2>
             <p className="mt-1 max-w-xl text-sm font-semibold text-slate-500">
               {selectedPlan
                 ? lang === "th"
-                  ? "ใช้แป้นตัวเลขเพื่อใส่จำนวน แล้วกดยืนยัน"
-                  : "Use the keypad to enter quantity, then confirm."
-                : loadingPlans
-                  ? lang === "th" ? "กำลังโหลดราคาบุฟเฟ่ของสาขา..." : "Loading branch buffet prices..."
-                  : lang === "th"
-                    ? "เลือกประเภทราคาก่อน แล้วใส่จำนวนในขั้นถัดไป · ราคาจะอ้างอิงสินค้าบุฟเฟ่ของสาขา"
-                    : "Select a buffet price type first, then enter quantity. Prices follow the branch buffet products."}
+                  ? "ใส่เฉพาะจำนวนที่เพิ่มใหม่ ระบบจะรวมกับจำนวนเดิมเมื่อบันทึกบิล"
+                  : "Enter only the additional quantity. It will be merged into the current bill."
+                : loadingPlans || loadingSession
+                  ? lang === "th" ? "กำลังโหลดข้อมูลบุฟเฟ่ของสาขา..." : "Loading branch buffet data..."
+                  : existingBuffet
+                    ? lang === "th"
+                      ? "เปิดโต๊ะเดิมจะไม่คิดค่าบุฟเฟ่ซ้ำ หากมีลูกค้าเพิ่มให้เลือก “เพิ่มลูกค้า” หรือ “เพิ่มชุด” เท่านั้น"
+                      : "Reopening this table does not add another buffet charge. Use Add guests or Add sets only when needed."
+                    : lang === "th"
+                      ? "เลือกประเภทราคาก่อน แล้วใส่จำนวนในขั้นถัดไป · ราคาจะอ้างอิงสินค้าบุฟเฟ่ของสาขา"
+                      : "Select a buffet price type first, then enter quantity. Prices follow the branch buffet products."}
             </p>
           </div>
           <button type="button" className="posui-icon-button shrink-0" onClick={closeModal} disabled={actionBusy} aria-label={lang === "th" ? "ปิด" : "Close"}>
@@ -270,8 +374,25 @@ export function PosBuffetPricePickerModal({
           </button>
         </header>
 
+        {!selectedPlan && existingBuffet ? (
+          <section className="mb-5 grid gap-3 rounded-3xl border border-emerald-200 bg-emerald-50 p-5 sm:grid-cols-3" aria-label={lang === "th" ? "สถานะบุฟเฟ่โต๊ะปัจจุบัน" : "Current buffet table status"}>
+            <div>
+              <span className="block text-xs font-black text-emerald-700">{lang === "th" ? "ลูกค้าบุฟเฟ่" : "Guests"}</span>
+              <strong className="mt-1 block text-2xl font-black text-emerald-950">{sessionSummary.per_person_quantity} {lang === "th" ? "ท่าน" : "guest(s)"}</strong>
+            </div>
+            <div>
+              <span className="block text-xs font-black text-emerald-700">{lang === "th" ? "บุฟเฟ่แบบชุด" : "Sets"}</span>
+              <strong className="mt-1 block text-2xl font-black text-emerald-950">{sessionSummary.set_quantity} {lang === "th" ? "ชุด" : "set(s)"}</strong>
+            </div>
+            <div>
+              <span className="block text-xs font-black text-emerald-700">{lang === "th" ? "ยอดบุฟเฟ่ในบิล" : "Buffet subtotal"}</span>
+              <strong className="mt-1 block text-2xl font-black text-emerald-950">{money(sessionSummary.subtotal)}</strong>
+            </div>
+          </section>
+        ) : null}
+
         {!selectedPlan ? (
-          <div className="mt-2 grid gap-5 md:grid-cols-2" role="list" aria-label={lang === "th" ? "เลือกประเภทราคาบุฟเฟ่" : "Buffet price type"}>
+          <div className="mt-2 grid gap-5 md:grid-cols-2" role="list" aria-label={existingBuffet ? (lang === "th" ? "เพิ่มจำนวนบุฟเฟ่" : "Add buffet quantity") : (lang === "th" ? "เลือกประเภทราคาบุฟเฟ่" : "Buffet price type")}>
             {packageOptions.map((option) => {
               const plan = option.plan;
               const disabled = !plan || actionBusy;
@@ -325,12 +446,12 @@ export function PosBuffetPricePickerModal({
               </div>
 
               <div className="mt-7 rounded-3xl border border-dashed border-blue-200 bg-white p-6">
-                <p className="text-sm font-black text-slate-500">{lang === "th" ? "จำนวน" : "Quantity"}</p>
+                <p className="text-sm font-black text-slate-500">{lang === "th" ? "จำนวนที่เพิ่ม" : "Additional quantity"}</p>
                 <div className="mt-3 text-6xl font-black tracking-tight text-blue-700">{quantityInput || "0"}</div>
               </div>
 
               <div className="mt-6 flex items-center justify-between rounded-3xl bg-white p-6 shadow-sm">
-                <span className="text-sm font-black text-slate-500">{lang === "th" ? "รวมรายการบุฟเฟ่" : "Buffet total"}</span>
+                <span className="text-sm font-black text-slate-500">{lang === "th" ? "ยอดที่เพิ่ม" : "Additional total"}</span>
                 <strong className="text-4xl font-black text-orange-600">{money(total)}</strong>
               </div>
               {resolveError ? <p className="mt-4 rounded-2xl bg-red-50 p-3 text-sm font-bold text-red-700">{resolveError}</p> : null}
@@ -381,11 +502,11 @@ export function PosBuffetPricePickerModal({
             </button>
           ) : null}
           <button type="button" className="posui-btn posui-btn--ghost min-w-28" onClick={closeModal} disabled={actionBusy}>
-            {lang === "th" ? "ยกเลิก" : "Cancel"}
+            {existingBuffet ? (lang === "th" ? "เข้าหน้าขายต่อ" : "Continue sale") : (lang === "th" ? "ยกเลิก" : "Cancel")}
           </button>
           {selectedPlan ? (
             <button type="button" className="posui-btn posui-btn--primary min-w-28" disabled={actionBusy || quantity <= 0} onClick={() => { void confirmQuantity(); }}>
-              {resolvingProduct ? (lang === "th" ? "กำลังเตรียม..." : "Preparing...") : lang === "th" ? "ยืนยัน" : "Confirm"}
+              {resolvingProduct ? (lang === "th" ? "กำลังเตรียม..." : "Preparing...") : existingBuffet ? (lang === "th" ? "ยืนยันเพิ่ม" : "Add") : (lang === "th" ? "ยืนยัน" : "Confirm")}
             </button>
           ) : null}
         </footer>

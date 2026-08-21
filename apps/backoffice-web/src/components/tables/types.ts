@@ -1,4 +1,5 @@
 import type { FloorPlanObjectType, TableShape, TableStatus } from "@pos/shared-types";
+import type { BuffetTableSessionSummary } from "@/lib/buffet-table-session";
 
 export type TableZoneItem = {
   id: string;
@@ -27,6 +28,7 @@ export type DiningTableItem = {
   metadata?: Record<string, unknown>;
   active_session_id?: string | null;
   active_order_id?: string | null;
+  buffet_summary?: BuffetTableSessionSummary;
   qr_activity?: {
     latest_event_id: string | null;
     latest_event_at: string | null;

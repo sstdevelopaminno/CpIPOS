@@ -6,6 +6,7 @@ import { FloorPlanToolbar } from "@/components/tables/floor-plan-toolbar";
 import { getTableStatusLabel } from "@/components/tables/table-i18n";
 import { TableZoneTabs } from "@/components/tables/table-zone-tabs";
 import type { DiningTableItem, FloorPlanObjectItem, TableZoneItem } from "@/components/tables/types";
+import { formatBuffetTableSessionLabel } from "@/lib/buffet-table-session";
 import { tableStatusColorMap } from "@/lib/table-management";
 
 type Lang = "th" | "en";
@@ -127,6 +128,8 @@ function PosTableBrowserInner({
               visibleTables.map((table) => {
                 const color = tableStatusColorMap[table.status] ?? "#94a3b8";
                 const hasBill = Boolean(table.active_session_id);
+                const buffetSummary = table.buffet_summary;
+                const buffetLabel = buffetSummary?.enabled ? formatBuffetTableSessionLabel(buffetSummary, lang) : null;
                 const qrActivity = table.qr_activity;
                 const hasQrActivity = Boolean(qrActivity?.latest_event_id);
                 const qrPendingItems = Math.max(0, Number(qrActivity?.pending_item_count ?? 0));
@@ -154,6 +157,7 @@ function PosTableBrowserInner({
                     ) : null}
                     <strong>{table.table_code}</strong>
                     <span>{getTableStatusLabel(lang, table.status)}</span>
+                    {buffetLabel ? <em className="posui-table-chip__qr-badge">{buffetLabel}</em> : null}
                     {qrStatusLabel ? <em className="posui-table-chip__qr-badge">{qrStatusLabel}</em> : null}
                     <small>{hasBill ? text.tableActionSelect : text.tableActionOpenBill}</small>
                   </button>
