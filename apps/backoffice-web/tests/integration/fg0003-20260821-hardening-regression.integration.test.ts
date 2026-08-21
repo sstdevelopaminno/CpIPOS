@@ -7,6 +7,7 @@ function source(relativePath: string) {
 
 const paymentInvariantMigration = source("../../../../supabase/migrations/20260822020000_pos_payment_financial_invariant.sql");
 const printRetryMigration = source("../../../../supabase/migrations/20260822021000_print_agent_durable_retry_backoff.sql");
+const productGuardMigration = source("../../../../supabase/migrations/20260822022000_product_active_bill_deactivation_guard.sql");
 const customerDisplayNative = source("../../src/components/pos/pos-customer-display-v2-native.tsx");
 
 describe("FG0003 2026-08-21 incident hardening contract", () => {
@@ -26,6 +27,13 @@ describe("FG0003 2026-08-21 incident hardening contract", () => {
     expect(printRetryMigration).toContain("'retry_after_epoch_ms'");
     expect(printRetryMigration).toContain("when v_next_retry = 5 then 300");
     expect(printRetryMigration).toContain("else 600");
+  });
+
+  it("prevents catalog deactivation from invalidating an already active bill", () => {
+    expect(productGuardMigration).toContain("PRODUCT_IN_USE_BY_ACTIVE_BILL");
+    expect(productGuardMigration).toContain("coalesce(oi.quantity, 0) > 0");
+    expect(productGuardMigration).toContain("not in ('completed', 'paid', 'closed', 'cleared', 'cancelled')");
+    expect(productGuardMigration).toContain("before update of is_active on public.products");
   });
 
   it("backs off an unauthenticated customer display instead of polling every second forever", () => {
