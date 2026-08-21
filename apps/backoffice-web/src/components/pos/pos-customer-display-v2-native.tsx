@@ -15,6 +15,10 @@ type NativeStateResponse = {
 };
 
 const NATIVE_STATE_CLIENT_TIMEOUT_MS = 4_000;
+const HEALTHY_POLL_MS = 1_000;
+const DEVICE_STATE_BACKOFF_MS = 10_000;
+const AUTH_BACKOFF_MS = 30_000;
+const MAX_TRANSIENT_BACKOFF_MS = 30_000;
 
 function emptyIdleState(): CustomerDisplayV2ScreenState {
   return {
@@ -63,10 +67,24 @@ export function PosCustomerDisplayV2Native({ lang }: { lang: Language }) {
   useEffect(() => {
     let disposed = false;
     let inFlight = false;
+    let timerId: number | null = null;
+    let transientBackoffMs = HEALTHY_POLL_MS;
+
+    const schedule = (delayMs: number) => {
+      if (disposed) return;
+      if (timerId !== null) window.clearTimeout(timerId);
+      timerId = window.setTimeout(() => void sync(), Math.max(0, delayMs));
+    };
 
     const sync = async () => {
       if (disposed || inFlight) return;
+      if (document.visibilityState !== "visible") {
+        schedule(DEVICE_STATE_BACKOFF_MS);
+        return;
+      }
+
       inFlight = true;
+      let nextDelayMs = HEALTHY_POLL_MS;
       const controller = new AbortController();
       const timeoutId = window.setTimeout(() => controller.abort(), NATIVE_STATE_CLIENT_TIMEOUT_MS);
       try {
@@ -75,31 +93,61 @@ export function PosCustomerDisplayV2Native({ lang }: { lang: Language }) {
           credentials: "same-origin",
           signal: controller.signal
         });
-        if (response.status === 401 || response.status === 403 || response.status === 409) {
+
+        if (response.status === 401 || response.status === 403) {
           if (!disposed) setPayload(null);
+          transientBackoffMs = HEALTHY_POLL_MS;
+          nextDelayMs = AUTH_BACKOFF_MS;
           return;
         }
-        if (!response.ok) return;
+        if (response.status === 409) {
+          if (!disposed) setPayload(null);
+          transientBackoffMs = HEALTHY_POLL_MS;
+          nextDelayMs = DEVICE_STATE_BACKOFF_MS;
+          return;
+        }
+        if (!response.ok) {
+          transientBackoffMs = Math.min(MAX_TRANSIENT_BACKOFF_MS, Math.max(2_000, transientBackoffMs * 2));
+          nextDelayMs = transientBackoffMs;
+          return;
+        }
+
         const body = (await response.json()) as NativeStateResponse;
         const next = body.data?.data?.payload as CustomerDisplayV2Payload | undefined;
+        transientBackoffMs = HEALTHY_POLL_MS;
         if (!next || next.version !== 2) {
           if (!disposed) setPayload(null);
           return;
         }
         if (!disposed) setPayload(next);
       } catch {
-        // Preserve the latest customer-visible state during short network interruptions.
+        // Preserve the latest customer-visible state during short network interruptions and back off
+        // instead of creating a request storm while the connection or server is unhealthy.
+        transientBackoffMs = Math.min(MAX_TRANSIENT_BACKOFF_MS, Math.max(2_000, transientBackoffMs * 2));
+        nextDelayMs = transientBackoffMs;
       } finally {
         window.clearTimeout(timeoutId);
         inFlight = false;
+        schedule(nextDelayMs);
       }
     };
 
-    void sync();
-    const timer = window.setInterval(() => void sync(), 1_000);
+    const resumeImmediately = () => {
+      if (disposed || document.visibilityState !== "visible") return;
+      transientBackoffMs = HEALTHY_POLL_MS;
+      schedule(0);
+    };
+
+    schedule(0);
+    document.addEventListener("visibilitychange", resumeImmediately);
+    window.addEventListener("focus", resumeImmediately);
+    window.addEventListener("online", resumeImmediately);
     return () => {
       disposed = true;
-      window.clearInterval(timer);
+      if (timerId !== null) window.clearTimeout(timerId);
+      document.removeEventListener("visibilitychange", resumeImmediately);
+      window.removeEventListener("focus", resumeImmediately);
+      window.removeEventListener("online", resumeImmediately);
     };
   }, []);
 
