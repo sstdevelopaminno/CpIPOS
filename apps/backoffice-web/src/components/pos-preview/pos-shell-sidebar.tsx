@@ -60,7 +60,7 @@ export function PosShellSidebar({ lang, settingsLabel, placement }: Props) {
   const [logoutError, setLogoutError] = useState<string | null>(null);
   const isHorizontal = placement === "top" || placement === "bottom";
   const isSettingsActive = pathname === "/preview/pos/settings";
-  const showAdvancedMenus = sessionRole === null || sessionRole === "owner" || sessionRole === "kitchen";
+  const showAdvancedMenus = sessionRole === null || sessionRole === "owner" || sessionRole === "manager" || sessionRole === "kitchen";
   const settingsFeature = featureForPosRoute("/preview/pos/settings");
   const isSettingsLocked = Boolean(enabledFeatures !== null && settingsFeature && enabledFeatures[settingsFeature] === false);
 
