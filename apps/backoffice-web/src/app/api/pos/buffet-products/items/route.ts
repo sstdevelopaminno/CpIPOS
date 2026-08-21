@@ -1,5 +1,6 @@
 import { FeatureGateError, requireTenantFeature } from "@/lib/feature-gate";
 import { fail, ok } from "@/lib/http";
+import { isBuffetIncludedMenuProduct } from "@/lib/pos-buffet-menu-product";
 import { buffetPlanFromProduct, buffetPlanModeFromProduct, type BuffetPlanProductRow } from "@/lib/pos-buffet-plan-product";
 import { PosGuardError, requirePermission, requirePosSession } from "@/lib/pos-session-guard";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
@@ -69,7 +70,8 @@ export async function GET(request: Request) {
         sku: product.sku,
         name: product.name,
         category: product.category ?? "",
-        price: Number(product.price ?? 0)
+        price: Number(product.price ?? 0),
+        buffet_included: isBuffetIncludedMenuProduct(product)
       }));
 
     let selected_product_ids: string[] = [];
@@ -110,21 +112,31 @@ export async function PUT(request: Request) {
     const branchId = scope.session.branch_id;
     const planResult = await loadPlan(tenantId, branchId, planId);
     if (planResult.error) return fail("buffet_plan_query_failed", planResult.error.message, 500);
-    if (!planResult.data || !buffetPlanModeFromProduct(planResult.data)) return fail("buffet_plan_not_found", "Buffet plan was not found.", 404);
+    if (!planResult.data || buffetPlanModeFromProduct(planResult.data) !== "set") {
+      return fail("buffet_set_plan_required", "Only a Buffet Set price can have a fixed menu list.", 422);
+    }
 
     const supabase = getSupabaseServiceClient();
     if (requestedIds.length > 0) {
       const { data: validProducts, error: validError } = await supabase
         .from("products")
-        .select("id,sku,name,metadata")
+        .select("id,sku,name,category,price,is_active,metadata")
         .eq("tenant_id", tenantId)
         .eq("branch_id", branchId)
         .eq("is_active", true)
         .in("id", requestedIds)
-        .returns<Array<{ id: string; sku: string | null; name: string; metadata?: Record<string, unknown> | null }>>();
+        .returns<ProductRow[]>();
       if (validError) return fail("buffet_items_products_query_failed", validError.message, 500);
-      const validIds = (validProducts ?? []).filter((product) => !buffetPlanModeFromProduct(product)).map((product) => product.id);
-      if (validIds.length !== requestedIds.length) return fail("buffet_items_invalid_product", "One or more selected products are unavailable or are buffet price plans.", 422);
+      const validIds = (validProducts ?? [])
+        .filter((product) => buffetPlanModeFromProduct(product) === null && isBuffetIncludedMenuProduct(product))
+        .map((product) => product.id);
+      if (validIds.length !== requestedIds.length) {
+        return fail(
+          "buffet_items_invalid_product",
+          "รายการในชุดบุฟเฟ่ต้องเป็นอาหารบุฟเฟ่ราคา 0 บาท หากเป็นรายการจ่ายเพิ่มให้ใส่ราคาและไม่ต้องติ๊กเข้าชุด",
+          422
+        );
+      }
 
       const upsertRows = validIds.map((productId) => ({
         tenant_id: tenantId,
