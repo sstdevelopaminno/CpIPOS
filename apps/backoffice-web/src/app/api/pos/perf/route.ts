@@ -139,7 +139,10 @@ export async function GET(req: Request) {
 
 export async function POST(req: Request) {
   try {
-    const auth = await getPosApiAuthContext({ requireBranchScope: true, requiredPermission: "monitor:view" });
+    // Telemetry is written by every authenticated POS role. Keep branch scoping and
+    // identity checks, but do not require monitor:view: that permission is for reading
+    // monitoring data (GET), not for emitting scoped route telemetry.
+    const auth = await getPosApiAuthContext({ requireBranchScope: true });
     const body = (await req.json()) as PerfPayload;
     const route = parseRoute(body.route);
     if (!route) {
