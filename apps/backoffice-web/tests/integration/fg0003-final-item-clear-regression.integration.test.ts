@@ -5,7 +5,7 @@ function source(relativePath: string) {
   return readFileSync(new URL(relativePath, import.meta.url), "utf8");
 }
 
-const migration = source("../../../../supabase/migrations/20260822023000_allow_empty_queued_dine_in_replacement.sql");
+const migration = source("../../../../supabase/migrations/20260822104910_allow_empty_queued_dine_in_replacement.sql");
 const clearRoute = source("../../src/app/api/pos/sales/clear-dine-in/route.ts");
 const salesUi = source("../../src/components/pos/pos-sales-module.tsx");
 
