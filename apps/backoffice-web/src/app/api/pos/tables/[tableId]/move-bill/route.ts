@@ -10,6 +10,26 @@ type MoveBillPayload = {
   reason?: string;
 };
 
+type MoveBillRow = {
+  order_id: string | null;
+  from_table_id: string;
+  to_table_id: string;
+  table_session_id: string;
+  session_status: string;
+  moved: boolean;
+};
+
+function moveBillFailure(message: string) {
+  const normalized = message.toUpperCase();
+  if (normalized.includes("INVALID_TABLE_MOVE_SCOPE")) return fail("invalid_table_move_scope", "Table move scope is invalid.", 422);
+  if (normalized.includes("SOURCE_BILL_NOT_FOUND")) return fail("source_bill_not_found", "No active bill on source table.", 409);
+  if (normalized.includes("SOURCE_TABLE_NOT_FOUND")) return fail("source_table_not_found", "Source table was not found for this branch.", 404);
+  if (normalized.includes("TARGET_TABLE_NOT_FOUND")) return fail("target_table_not_found", "Target table was not found for this branch.", 404);
+  if (normalized.includes("TARGET_TABLE_OCCUPIED")) return fail("target_table_occupied", "Target table already has an active bill.", 409);
+  if (normalized.includes("TABLE_MOVE_ORDER_NOT_FOUND")) return fail("table_move_order_not_found", "Active bill order was not found for this branch.", 404);
+  return fail("table_move_failed", message || "Failed to move table.", 500);
+}
+
 export async function POST(req: Request, context: { params: Promise<{ tableId: string }> }) {
   try {
     const auth = await getPosApiAuthContext({ requireBranchScope: true, requiredPermission: "tables:manage" });
@@ -20,127 +40,29 @@ export async function POST(req: Request, context: { params: Promise<{ tableId: s
     }
 
     const body = (await req.json()) as MoveBillPayload;
-    if (!body.target_table_id) {
+    const targetTableId = body.target_table_id?.trim();
+    if (!targetTableId) {
       return fail("invalid_target_table_id", "target_table_id is required.", 422);
     }
-    if (body.target_table_id === tableId) {
-      return fail("same_table_move_not_allowed", "Target table must be different from source table.", 422);
-    }
 
+    const reason = body.reason?.trim() || null;
     const supabase = getSupabaseServiceClient();
-    const { data: sourceSession, error: sourceSessionError } = await supabase
-      .from("table_bill_sessions")
-      .select("id,order_id,status")
-      .eq("tenant_id", auth.tenantId!)
-      .eq("branch_id", auth.branchId!)
-      .eq("table_id", tableId)
-      .in("status", ["open", "ordering", "pending_payment"])
-      .order("opened_at", { ascending: false })
-      .limit(1)
-      .maybeSingle<{ id: string; order_id: string | null; status: string }>();
+    const { data, error } = await supabase.rpc("move_table_bill_session_tx", {
+      p_tenant_id: auth.tenantId!,
+      p_branch_id: auth.branchId!,
+      p_actor_user_id: auth.userId,
+      p_source_table_id: tableId,
+      p_target_table_id: targetTableId,
+      p_reason: reason
+    });
 
-    if (sourceSessionError) {
-      return fail("source_session_query_failed", sourceSessionError.message, 500);
-    }
-    if (!sourceSession) {
-      return fail("source_bill_not_found", "No active bill on source table.", 409);
+    if (error) {
+      return moveBillFailure(error.message);
     }
 
-    const { data: targetActiveSession, error: targetSessionError } = await supabase
-      .from("table_bill_sessions")
-      .select("id")
-      .eq("tenant_id", auth.tenantId!)
-      .eq("branch_id", auth.branchId!)
-      .eq("table_id", body.target_table_id)
-      .in("status", ["open", "ordering", "pending_payment"])
-      .limit(1)
-      .maybeSingle<{ id: string }>();
-
-    if (targetSessionError) {
-      return fail("target_session_query_failed", targetSessionError.message, 500);
-    }
-    if (targetActiveSession) {
-      return fail("target_table_occupied", "Target table already has an active bill.", 409);
-    }
-
-    if (sourceSession.order_id) {
-      const { data: updatedOrder, error: orderUpdateError } = await supabase
-        .from("orders")
-        .update({ table_id: body.target_table_id })
-        .eq("tenant_id", auth.tenantId!)
-        .eq("branch_id", auth.branchId!)
-        .eq("id", sourceSession.order_id)
-        .select("id")
-        .maybeSingle<{ id: string }>();
-
-      if (orderUpdateError) {
-        return fail("table_move_order_update_failed", orderUpdateError.message, 500);
-      }
-      if (!updatedOrder) {
-        return fail("table_move_order_not_found", "Active bill order was not found for this branch.", 404);
-      }
-    }
-
-    const targetSessionStatus =
-      sourceSession.status === "pending_payment" ? "pending_payment" : sourceSession.status === "ordering" ? "ordering" : "open";
-
-    const closedAt = new Date().toISOString();
-    const { error: closeSourceError } = await supabase
-      .from("table_bill_sessions")
-      .update({ status: "closed", closed_by: auth.userId, closed_at: closedAt })
-      .eq("tenant_id", auth.tenantId!)
-      .eq("branch_id", auth.branchId!)
-      .eq("id", sourceSession.id);
-    if (closeSourceError) {
-      return fail("source_session_close_failed", closeSourceError.message, 500);
-    }
-
-    const { data: targetSession, error: targetInsertError } = await supabase
-      .from("table_bill_sessions")
-      .insert({
-        tenant_id: auth.tenantId,
-        branch_id: auth.branchId,
-        table_id: body.target_table_id,
-        opened_by: auth.userId,
-        order_id: sourceSession.order_id,
-        status: targetSessionStatus,
-        metadata: {
-          moved_from_table_id: tableId,
-          move_reason: body.reason?.trim() || null
-        }
-      })
-      .select("id")
-      .single<{ id: string }>();
-
-    if (targetInsertError) {
-      return fail("target_session_create_failed", targetInsertError.message, 500);
-    }
-
-    const { error: sourceTableStatusError } = await supabase
-      .from("dining_tables")
-      .update({ status: "available" })
-      .eq("tenant_id", auth.tenantId!)
-      .eq("branch_id", auth.branchId!)
-      .eq("id", tableId);
-    if (sourceTableStatusError) {
-      return fail("source_table_status_update_failed", sourceTableStatusError.message, 500);
-    }
-
-    const { error: targetTableStatusError } = await supabase
-      .from("dining_tables")
-      .update({
-        status:
-          targetSessionStatus === "pending_payment"
-            ? "pending_payment"
-            : targetSessionStatus === "ordering"
-            ? "ordering"
-            : "occupied"
-      })
-      .eq("tenant_id", auth.tenantId!)
-      .eq("branch_id", auth.branchId!)
-      .eq("id", body.target_table_id);
-    if (targetTableStatusError) {
-      return fail("target_table_status_update_failed", targetTableStatusError.message, 500);
+    const row = (Array.isArray(data) ? data[0] : data) as MoveBillRow | null;
+    if (!row) {
+      return fail("table_move_empty_result", "Table move returned no result.", 500);
     }
 
     void appendAuditLog({
@@ -148,23 +70,27 @@ export async function POST(req: Request, context: { params: Promise<{ tableId: s
       branchId: auth.branchId!,
       actorUserId: auth.userId,
       actorRole: auth.branchRole ?? auth.platformRole,
-      action: "table_changed",
-      targetTable: sourceSession.order_id ? "orders" : "table_bill_sessions",
-      targetId: sourceSession.order_id ?? sourceSession.id,
+      action: row.moved ? "table_changed" : "table_move_noop",
+      targetTable: row.order_id ? "orders" : "table_bill_sessions",
+      targetId: row.order_id ?? row.table_session_id,
       metadata: {
-        from_table_id: tableId,
-        to_table_id: body.target_table_id,
-        target_session_id: targetSession.id,
-        reason: body.reason?.trim() || null
+        from_table_id: row.from_table_id,
+        to_table_id: row.to_table_id,
+        table_session_id: row.table_session_id,
+        session_status: row.session_status,
+        reason
       }
     }).catch(() => undefined);
 
     invalidatePosScopeRuntimeCaches({ tenantId: auth.tenantId!, branchId: auth.branchId! });
     return ok({
-      order_id: sourceSession.order_id,
-      from_table_id: tableId,
-      to_table_id: body.target_table_id,
-      target_session_id: targetSession.id
+      order_id: row.order_id,
+      from_table_id: row.from_table_id,
+      to_table_id: row.to_table_id,
+      target_session_id: row.table_session_id,
+      table_session_id: row.table_session_id,
+      session_status: row.session_status,
+      moved: row.moved
     });
   } catch (error) {
     const featureError = featureGateFail(error);

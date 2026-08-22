@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
@@ -11,6 +11,7 @@ import { StockRowActionIcons } from "@/components/pos-preview/stock-row-action-i
 import { StockSkuReveal } from "@/components/pos-preview/stock-sku-reveal";
 import { UnitStockPopupButton } from "@/components/pos-preview/unit-stock-popup-button";
 import { mergeCategoryNames } from "@/lib/pos/category-normalization";
+import { fetchWithTimeout } from "@/lib/client-fetch";
 
 type CategoryItem = {
   name: string;
@@ -379,11 +380,11 @@ export function StockProductsTable({
     setBulkUnlinkBusy(true);
     setBulkUnlinkError("");
     try {
-      const response = await fetch("/api/backoffice/catalog", {
+      const response = await fetchWithTimeout("/api/backoffice/catalog", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "bulk_unlink_product_recipes", branch_id: branchId, product_ids: ids, stock_quantity: 0 })
-      });
+      }, 20000);
       const body = (await response.json()) as ApiEnvelope<{ updated_count?: number; failed_count?: number }>;
       if (!response.ok || body.error) throw new Error(body.error?.message ?? "Bulk unlink failed.");
       const updatedCount = Number(body.data?.updated_count ?? 0);
@@ -416,13 +417,13 @@ export function StockProductsTable({
     setBulkDeleteBusy(true);
     setBulkDeleteError("");
     try {
-      const response = await fetch("/api/backoffice/catalog", {
+      const response = await fetchWithTimeout("/api/backoffice/catalog", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(isIngredientsMode
           ? { action: "bulk_delete_ingredients", branch_id: branchId, ingredient_ids: ids }
           : { action: "bulk_deactivate_products", branch_id: branchId, product_ids: ids })
-      });
+      }, 20000);
       const body = (await response.json()) as ApiEnvelope<{ updated_count?: number; deleted_count?: number; archived_count?: number }>;
       if (!response.ok || body.error) throw new Error(body.error?.message ?? "Bulk action failed.");
       if (isIngredientsMode) {
@@ -458,11 +459,11 @@ export function StockProductsTable({
     }
     setBusyProductId(item.id);
     try {
-      const response = await fetch("/api/backoffice/catalog", {
+      const response = await fetchWithTimeout("/api/backoffice/catalog", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "upsert_product", branch_id: branchId, id: item.id, sku: item.sku ?? Date.now().toString(), name: item.name, category: item.category ?? (th ? "ไม่ระบุหมวดหมู่" : "Uncategorized"), price: nextPrice, stock_deduction_mode: item.stock_deduction_mode ?? "unit_only", is_active: item.is_active })
-      });
+      }, 20000);
       const body = (await response.json()) as ApiEnvelope<unknown>;
       if (!response.ok || body.error) throw new Error(body.error?.message ?? "Update failed");
       setNotice(th ? "ปรับราคาสำเร็จ" : "Price updated.");
@@ -525,11 +526,11 @@ export function StockProductsTable({
     setStockPopupError("");
     setBusyProductId(stockPopupProduct.id);
     try {
-      const response = await fetch("/api/backoffice/catalog", {
+      const response = await fetchWithTimeout("/api/backoffice/catalog", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "update_product_with_stock_setup", branch_id: branchId, product_id: stockPopupProduct.id, name: stockPopupProduct.name, category: stockPopupProduct.category ?? (th ? "ไม่ระบุหมวดหมู่" : "Uncategorized"), stock_quantity: nextStock, store_price: Number(stockPopupProduct.price ?? 0), delivery_price: Number(stockPopupProduct.delivery_price_preview ?? stockPopupProduct.price ?? 0), use_ingredient_recipe: false, ingredient_lines: [] })
-      });
+      }, 20000);
       const body = (await response.json()) as ApiEnvelope<unknown>;
       if (!response.ok || body.error) throw new Error(body.error?.message ?? "Update failed");
       setNotice(th ? "ปรับสต๊อกสำเร็จ" : "Stock updated.");
@@ -565,11 +566,11 @@ export function StockProductsTable({
     setDeactivatingProductError("");
     setBusyProductId(deactivatingProduct.id);
     try {
-      const response = await fetch("/api/backoffice/catalog", {
+      const response = await fetchWithTimeout("/api/backoffice/catalog", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "deactivate_product", branch_id: branchId, product_id: deactivatingProduct.id })
-      });
+      }, 20000);
       const body = (await response.json()) as ApiEnvelope<unknown>;
       if (!response.ok || body.error) throw new Error(body.error?.message ?? "Delete failed");
       setNotice(th ? "ปิดการขายสินค้าแล้ว" : "Product deactivated.");
@@ -641,11 +642,11 @@ export function StockProductsTable({
     setEditingIngredientError("");
     setBusyIngredientId(editingIngredient.id);
     try {
-      const response = await fetch("/api/backoffice/catalog", {
+      const response = await fetchWithTimeout("/api/backoffice/catalog", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "upsert_ingredient", branch_id: branchId, id: editingIngredient.id, name: nextName, base_unit: nextBaseUnit, quantity_on_hand: nextQty, reorder_level: Number(editingIngredient.reorderLevel ?? 0) })
-      });
+      }, 20000);
       const body = (await response.json()) as ApiEnvelope<unknown>;
       if (!response.ok || body.error) throw new Error(body.error?.message ?? "Update failed.");
       setNotice(th ? "แก้ไขวัตถุดิบสำเร็จ" : "Ingredient updated.");
@@ -676,11 +677,11 @@ export function StockProductsTable({
     setDeletingIngredientError("");
     setBusyIngredientId(deletingIngredient.id);
     try {
-      const response = await fetch("/api/backoffice/catalog", {
+      const response = await fetchWithTimeout("/api/backoffice/catalog", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "delete_ingredient", branch_id: branchId, ingredient_id: deletingIngredient.id })
-      });
+      }, 20000);
       const body = (await response.json()) as ApiEnvelope<unknown>;
       if (!response.ok || body.error) throw new Error(body.error?.message ?? "Delete failed.");
       setNotice(th ? "ลบวัตถุดิบสำเร็จ" : "Ingredient deleted.");
@@ -739,11 +740,11 @@ export function StockProductsTable({
     setIngredientStockPopupError("");
     try {
       const nextQty = ingredientStockPopupMode === "add" ? currentQty + delta : Math.max(0, currentQty - delta);
-      const response = await fetch("/api/backoffice/catalog", {
+      const response = await fetchWithTimeout("/api/backoffice/catalog", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "upsert_ingredient", branch_id: branchId, id: ingredientStockPopup.id, name: ingredientStockPopup.name, base_unit: ingredientStockPopup.baseUnit, quantity_on_hand: nextQty, reorder_level: Number(ingredientStockPopup.reorderLevel ?? 0) })
-      });
+      }, 20000);
       const body = (await response.json()) as ApiEnvelope<unknown>;
       if (!response.ok || body.error) throw new Error(body.error?.message ?? "Update failed.");
       setNotice(th ? "ปรับสต๊อกวัตถุดิบสำเร็จ" : "Ingredient stock updated.");

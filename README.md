@@ -408,3 +408,11 @@ Current behavior/security decisions are governed by the latest migrations, CI/te
 - Root cause: hot polling routes depended on Supabase/PostgREST/RPC promises without application-level timeouts. `native-state` also reused `readThroughRuntimeCache` inflight promises, so a hung loader could hold later requests on the same unresolved promise.
 - Fix: added a shared bounded timeout helper, abortable cache loader support, bounded native-state reads, bounded print-agent auth/data-plane/printer/RPC/job-fetch claim work, and client-side fetch abort cleanup for Customer Display native polling plus browser print-agent API calls. Atomic `claim_print_jobs_v2`, tenant/branch/device authorization, and server-issued attempt IDs remain unchanged.
 - Validation: focused native-state/print-claim timeout regressions passed; print claim success and single-RPC behavior remain covered; Customer Display dual-screen and browser print shared unit contracts passed; full `backoffice-web` Vitest passed 75 files / 314 tests; TypeScript passed; lint passed with existing warnings only; production build passed; Primary and Trial schema drift checks passed.
+
+## 2026-08-22 - Production stabilization audit P0/P1
+
+- Payment table cleanup now expires active Table QR sessions after the paid bill session is verified closed, so old customer QR links stop immediately instead of remaining active until later validation.
+- Kitchen active queue filtering treats paid/closed/cleared dine-in parent orders as terminal while retaining kitchen ticket history.
+- Table move is routed through `move_table_bill_session_tx`, which updates order/table/session/QR/Kitchen active table references in one scoped transaction and rejects occupied destinations.
+- Product Management catalog mutations use bounded client timeouts so busy UI state resolves to success or error instead of waiting indefinitely.
+- POS User Management no longer hides owner rows from the list response; edit/delete permission guards remain enforced separately.

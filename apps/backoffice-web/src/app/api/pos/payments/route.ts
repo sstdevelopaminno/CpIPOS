@@ -453,6 +453,16 @@ export async function POST(req: Request) {
           return { ok: false as const, warning: "table_session_still_active_after_payment" };
         }
 
+        const { error: qrExpireError } = await supabase
+          .from("table_qr_sessions")
+          .update({ status: "expired" })
+          .eq("tenant_id", auth.tenantId!)
+          .eq("branch_id", auth.branchId!)
+          .eq("table_id", tableId)
+          .eq("status", "active");
+        if (qrExpireError) {
+          return { ok: false as const, warning: `table_qr_expire_failed:${qrExpireError.message}` };
+        }
         const { data: releasedTable, error: tableReleaseError } = await supabase
           .from("dining_tables")
           .update({ status: "available" })

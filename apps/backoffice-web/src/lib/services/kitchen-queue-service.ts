@@ -10,7 +10,7 @@ import { getSupabaseServiceClient } from "@/lib/supabase-admin";
 export type KitchenTicketStatus = "queued" | "acknowledged" | "preparing" | "ready" | "cancelled";
 
 const VALID_STATUSES = new Set<KitchenTicketStatus>(["queued", "acknowledged", "preparing", "ready", "cancelled"]);
-const TERMINAL_ORDER_STATUSES = new Set(["completed", "cancelled"]);
+const TERMINAL_ORDER_STATUSES = new Set(["paid", "closed", "cleared", "completed", "cancelled"]);
 const KITCHEN_TICKET_SELECT_WITH_ROUND = "id,order_id,zone_id,event_key,event_type,status,queue_no,round_no,order_no,order_type,table_id,customer_name,order_notes,metadata,created_at,updated_at";
 const KITCHEN_TICKET_SELECT_BASE = "id,order_id,zone_id,event_key,event_type,status,queue_no,order_no,order_type,table_id,customer_name,order_notes,metadata,created_at,updated_at";
 

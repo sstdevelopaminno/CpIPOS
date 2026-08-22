@@ -349,7 +349,7 @@ export async function GET(request: Request) {
       is_default: boolean;
       users_profiles: { id: string; full_name: string | null; email: string | null; is_active: boolean } | Array<{ id: string; full_name: string | null; email: string | null; is_active: boolean }>;
     }>;
-    const rows = auth.branchRole === "manager" ? rawRows.filter((row) => row.role !== "owner") : rawRows;
+    const rows = rawRows;
     const userIds = Array.from(new Set(rows.map((row) => row.user_id)));
     const settingsByUser = await loadProfileSettings(auth.tenantId!, userIds);
 
