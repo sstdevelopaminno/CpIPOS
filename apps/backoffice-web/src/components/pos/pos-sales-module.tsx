@@ -332,6 +332,7 @@ type DineInAutoSendJob = {
   shiftId: string;
   cart: CartItem[];
   signature: string;
+  cashierMutationVersion: number;
   subtotal: number;
   summaryDiscount: number;
   taxBaseTotal: number;
@@ -2241,6 +2242,8 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
   const dineInAutoSendJobsRef = useRef<Map<string, DineInAutoSendJob>>(new Map());
   const dineInAutoSendInFlightRef = useRef<Set<string>>(new Set());
   const dineInAutoSendNoticeTimerRef = useRef<number | null>(null);
+  const dineInCashierMutationVersionRef = useRef<Record<string, number>>({});
+  const dineInCommittedMutationVersionRef = useRef<Record<string, number>>({});
   const cartPersistTimerRef = useRef<number | null>(null);
   const heldPersistTimerRef = useRef<number | null>(null);
   const dineInDraftPersistTimerRef = useRef<number | null>(null);
@@ -2601,6 +2604,20 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
     },
     [playTableQrAlertSound, tableQrNotificationSettings.table_qr_popup_enabled]
   );
+
+  function markDineInCashierCartMutation(tableId = selectedTableRef.current?.id): number {
+    if (orderType !== "dine_in" || !tableId) return 0;
+    const nextVersion = (dineInCashierMutationVersionRef.current[tableId] ?? 0) + 1;
+    dineInCashierMutationVersionRef.current[tableId] = nextVersion;
+    return nextVersion;
+  }
+
+  function commitDineInCashierMutation(tableId: string, mutationVersion: number) {
+    dineInCommittedMutationVersionRef.current[tableId] = Math.max(
+      dineInCommittedMutationVersionRef.current[tableId] ?? 0,
+      mutationVersion
+    );
+  }
 
   function rememberDineInDraft(tableId: string | null | undefined, items: CartItem[]) {
     if (!tableId) return;
@@ -3150,7 +3167,12 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
     const transferVerifications = (data.transfer_verifications ?? []) as TableBillTransferVerificationPayload[];
     const draftItems = dineInDraftByTableIdRef.current[table.id] ?? [];
     const isActiveSelectedTable = selectedTableRef.current?.id === table.id;
-    const activeCartSnapshot = isActiveSelectedTable ? cartRef.current.map((item) => ({ ...item })) : [];
+    const hasPendingCashierMutation =
+      (dineInCashierMutationVersionRef.current[table.id] ?? 0) >
+      (dineInCommittedMutationVersionRef.current[table.id] ?? 0);
+    const activeCartSnapshot = isActiveSelectedTable && hasPendingCashierMutation
+      ? cartRef.current.map((item) => ({ ...item }))
+      : [];
     const orderTaxLines = normalizeTaxLineSnapshots(order?.metadata?.tax_lines);
     const orderTaxTotal = Number(order?.tax_total ?? orderTaxLines.reduce((sum, line) => sum + line.amount, 0));
     const serverCancelledKeys = new Set(
@@ -5295,6 +5317,7 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
       return;
     }
     const unitPrice = Number((getProductPriceForCurrentMode(product) + Math.max(0, Number(input?.extraPrice ?? 0))).toFixed(2));
+    markDineInCashierCartMutation();
     setCart((current) => {
       const index = current.findIndex((row) => (row.cart_line_id ?? row.product_id) === cartLineId);
       if (index >= 0) {
@@ -5316,6 +5339,7 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
   }
 
   function removeFromCart(cartLineId: string) {
+    markDineInCashierCartMutation();
     setCart((current) => current.filter((row) => (row.cart_line_id ?? row.product_id) !== cartLineId));
   }
 
@@ -5332,6 +5356,7 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
         return;
       }
     }
+    markDineInCashierCartMutation();
     setCart((current) =>
       current
         .map((row) =>
@@ -5354,6 +5379,7 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
       showOutOfStockNotice(product?.name ?? currentLine.name);
       return false;
     }
+    markDineInCashierCartMutation();
     setCart((current) =>
       current.map((row) =>
         (row.cart_line_id ?? row.product_id) === cartLineId ? { ...row, quantity: nextQuantity } : row
@@ -5393,6 +5419,7 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
     if (orderType === "delivery_manual" && !activeOrder) {
       resetDeliveryDraft();
     }
+    if (cartRef.current.length > 0) markDineInCashierCartMutation();
     setCart([]);
     setSelectedMember(null);
   }
@@ -5405,6 +5432,7 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
       const extraPrice = canAddPrice ? Math.max(0, modifierDraft.extraPrice) : 0;
       const unitPrice = Number((getProductPriceForCurrentMode(modifierDraft.product) + extraPrice).toFixed(2));
       const nextLineId = notes.length > 0 || extraPrice > 0 ? `${modifierDraft.product.id}:${notes}:${extraPrice.toFixed(2)}` : modifierDraft.product.id;
+      markDineInCashierCartMutation();
       setCart((current) =>
         current.map((row) =>
           (row.cart_line_id ?? row.product_id) === modifierDraft.editingCartLineId
@@ -5530,6 +5558,7 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
   function confirmBuffetPickerItem(item: CartItem) {
     const targetTable = buffetPicker.table ?? selectedTable;
     const nextCart = appendConfirmedBuffetItem(cartRef.current, item);
+    if (targetTable?.id) markDineInCashierCartMutation(targetTable.id);
     setCart(nextCart);
     if (targetTable?.id) {
       rememberDineInDraft(targetTable.id, nextCart);
@@ -6179,17 +6208,26 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
 
   function buildDineInAutoSendJob(): DineInAutoSendJob | null {
     if (orderType !== "dine_in" || !selectedTable?.id || !selectedTable.active_session_id || !shift || shift.status !== "open" || !isOnline) return null;
+    const cashierMutationVersion = dineInCashierMutationVersionRef.current[selectedTable.id] ?? 0;
+    const committedMutationVersion = dineInCommittedMutationVersionRef.current[selectedTable.id] ?? 0;
+    if (cashierMutationVersion <= committedMutationVersion) return null;
     const cartSnapshot = cloneCartItems(cart);
     const signature = buildCartSignature(cartSnapshot);
     const committedCart = committedDineInCartByTableIdRef.current[selectedTable.id] ?? [];
     const committedSignature = buildCartSignature(committedCart);
-    if (signature === committedSignature) return null;
+    if (signature === committedSignature) {
+      commitDineInCashierMutation(selectedTable.id, cashierMutationVersion);
+      return null;
+    }
     const canClearExistingDineIn =
       cartSnapshot.length === 0 &&
       activeOrder?.status === "queued" &&
       (!activeOrder.table_id || activeOrder.table_id === selectedTable.id) &&
       (committedCart.length > 0 || lastCommittedCartSignature !== null);
-    if (cartSnapshot.length === 0 && !canClearExistingDineIn) return null;
+    if (cartSnapshot.length === 0 && !canClearExistingDineIn) {
+      commitDineInCashierMutation(selectedTable.id, cashierMutationVersion);
+      return null;
+    }
     return {
       table: {
         id: selectedTable.id,
@@ -6200,6 +6238,7 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
       shiftId: shift.id,
       cart: cartSnapshot,
       signature,
+      cashierMutationVersion,
       subtotal,
       summaryDiscount,
       taxBaseTotal,
@@ -6251,6 +6290,11 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
     if (checkoutRequestLockRef.current || !isOnline || dineInAutoSendInFlightRef.current.has(tableId)) return;
     const job = dineInAutoSendJobsRef.current.get(tableId);
     if (!job) return;
+    const committedMutationVersion = dineInCommittedMutationVersionRef.current[tableId] ?? 0;
+    if (job.cashierMutationVersion <= committedMutationVersion) {
+      dineInAutoSendJobsRef.current.delete(tableId);
+      return;
+    }
     const committedCart = committedDineInCartByTableIdRef.current[tableId] ?? [];
     const committedSignature = buildCartSignature(committedCart);
     const canClearExistingDineIn =
@@ -6258,10 +6302,12 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
       job.activeOrder?.status === "queued" &&
       (committedCart.length > 0 || (selectedTableRef.current?.id === tableId && lastCommittedCartSignature !== null));
     if (job.cart.length === 0 && !canClearExistingDineIn) {
+      commitDineInCashierMutation(tableId, job.cashierMutationVersion);
       dineInAutoSendJobsRef.current.delete(tableId);
       return;
     }
     if (job.signature === committedSignature) {
+      commitDineInCashierMutation(tableId, job.cashierMutationVersion);
       dineInAutoSendJobsRef.current.delete(tableId);
       return;
     }
@@ -6291,6 +6337,7 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
           [tableId]: []
         };
         rememberDineInDraft(tableId, []);
+        commitDineInCashierMutation(tableId, job.cashierMutationVersion);
         if (selectedTableRef.current?.id === tableId) {
           setActiveOrder(clearedOrder);
           setLastCommittedCartSignature(job.signature);
@@ -6302,7 +6349,7 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
       const latestTaxSettings = await refreshTaxSettings();
       const effectiveTaxBreakdown = calculateClientTaxBreakdown(job.taxBaseTotal, latestTaxSettings ?? job.taxSettings);
       const payload = buildCheckoutSubmitPayload({
-        idempotencyKey: `pos-dine-kitchen-${tableId}-${encodeURIComponent(job.signature).slice(0, 120)}`,
+        idempotencyKey: `pos-dine-cashier-${tableId}-${encodeURIComponent(job.signature).slice(0, 120)}`,
         activeOrder: job.activeOrder?.status === "queued" ? job.activeOrder : null,
         shiftId: job.shiftId,
         orderType: "dine_in",
@@ -6322,6 +6369,7 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
           [tableId]: cloneCartItems(job.cart)
         };
         rememberDineInDraft(tableId, job.cart);
+        commitDineInCashierMutation(tableId, job.cashierMutationVersion);
         if (selectedTableRef.current?.id === tableId) {
           setActiveOrder(syncedOrder);
           setLastCommittedCartSignature(job.signature);
