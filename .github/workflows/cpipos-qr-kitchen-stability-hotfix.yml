@@ -1,0 +1,135 @@
+name: CpIPOS QR kitchen stability hotfix
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize, edited]
+    branches:
+      - agent-docs-preflight-schema-drift
+
+permissions:
+  contents: write
+
+jobs:
+  patch-and-test:
+    if: github.head_ref == 'hotfix/fg0003-postclose-sync-20260822-v2'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: hotfix/fg0003-postclose-sync-20260822-v2
+          fetch-depth: 0
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Apply exact stability patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          def replace_once_or_verify(path: Path, old: str, new: str):
+              text = path.read_text(encoding='utf-8')
+              old_count = text.count(old)
+              new_count = text.count(new)
+              if old_count == 1:
+                  path.write_text(text.replace(old, new, 1), encoding='utf-8')
+                  return
+              if old_count == 0 and new_count >= 1:
+                  return
+              raise SystemExit(f'{path}: expected one old match or existing patched form; old={old_count}, new={new_count}')
+
+          qr = Path('apps/backoffice-web/src/lib/table-qr-ordering.ts')
+          replace_once_or_verify(
+              qr,
+              '''    .from("table_qr_orders")\n    .select("id,order_id,payload,created_at")\n    .eq("qr_session_id", args.context.id)''',
+              '''    .from("table_qr_orders")\n    .select("id,order_id,payload,created_at")\n    .eq("tenant_id", args.context.tenant_id)\n    .eq("branch_id", args.context.branch_id)\n    .eq("qr_session_id", args.context.id)'''
+          )
+
+          old_mark = '''async function markQrOrderPayloadFingerprint(args: {\n  context: QrContext;\n  submissionId: string;\n  clientId: string;\n  payloadFingerprint: string;\n  supabase: ReturnType<typeof getSupabaseServiceClient>;\n}) {\n  if (args.clientId === "anonymous") return;\n  const { data, error: loadError } = await args.supabase\n    .from("table_qr_orders")\n    .select("payload")\n    .eq("id", args.submissionId)\n    .eq("qr_session_id", args.context.id)\n    .maybeSingle<{ payload: Record<string, unknown> | null }>();\n  if (loadError) {\n    console.warn("[table-qr-ordering] duplicate fingerprint payload load failed", { submissionId: args.submissionId, message: loadError.message });\n    return;\n  }\n  const payload = data?.payload && typeof data.payload === "object" ? data.payload : {};\n  const { error: updateError } = await args.supabase\n    .from("table_qr_orders")\n    .update({\n      payload: {\n        ...payload,\n        client_id: args.clientId,\n        payload_fingerprint: args.payloadFingerprint,\n        payload_fingerprint_version: 1\n      }\n    })\n    .eq("id", args.submissionId)\n    .eq("qr_session_id", args.context.id);\n  if (updateError) {\n    console.warn("[table-qr-ordering] duplicate fingerprint payload update failed", { submissionId: args.submissionId, message: updateError.message });\n  }\n}'''
+          new_mark = '''async function markQrOrderPayloadFingerprint(args: {\n  context: QrContext;\n  submissionId: string;\n  clientId: string;\n  payloadFingerprint: string;\n  supabase: ReturnType<typeof getSupabaseServiceClient>;\n}) {\n  if (args.clientId === "anonymous") return;\n  try {\n    const { data, error: loadError } = await args.supabase\n      .from("table_qr_orders")\n      .select("payload")\n      .eq("tenant_id", args.context.tenant_id)\n      .eq("branch_id", args.context.branch_id)\n      .eq("id", args.submissionId)\n      .eq("qr_session_id", args.context.id)\n      .maybeSingle<{ payload: Record<string, unknown> | null }>();\n    if (loadError) {\n      console.warn("[table-qr-ordering] duplicate fingerprint payload load failed", { submissionId: args.submissionId, message: loadError.message });\n      return;\n    }\n    const payload = data?.payload && typeof data.payload === "object" ? data.payload : {};\n    const { error: updateError } = await args.supabase\n      .from("table_qr_orders")\n      .update({\n        payload: {\n          ...payload,\n          client_id: args.clientId,\n          payload_fingerprint: args.payloadFingerprint,\n          payload_fingerprint_version: 1\n        }\n      })\n      .eq("tenant_id", args.context.tenant_id)\n      .eq("branch_id", args.context.branch_id)\n      .eq("id", args.submissionId)\n      .eq("qr_session_id", args.context.id);\n    if (updateError) {\n      console.warn("[table-qr-ordering] duplicate fingerprint payload update failed", { submissionId: args.submissionId, message: updateError.message });\n    }\n  } catch (error) {\n    console.warn("[table-qr-ordering] duplicate fingerprint payload marking skipped", {\n      submissionId: args.submissionId,\n      message: error instanceof Error ? error.message : "fingerprint_mark_failed"\n    });\n  }\n}'''
+          replace_once_or_verify(qr, old_mark, new_mark)
+
+          replace_once_or_verify(
+              qr,
+              '''  await markQrOrderPayloadFingerprint({ context, submissionId: row.submission_id, clientId, payloadFingerprint, supabase });\n\n  if (!row.duplicate_request) {\n    await queueTableQrKitchenPrints({ context, orderId: row.order_id, requestId });\n    invalidatePosBranchRuntimeCaches({ tenantId: context.tenant_id, branchId: context.branch_id });\n  }\n\n  return row;''',
+              '''  if (!row.duplicate_request) {\n    await queueTableQrKitchenPrints({ context, orderId: row.order_id, requestId });\n    invalidatePosBranchRuntimeCaches({ tenantId: context.tenant_id, branchId: context.branch_id });\n  }\n\n  await markQrOrderPayloadFingerprint({ context, submissionId: row.submission_id, clientId, payloadFingerprint, supabase });\n  return row;'''
+          )
+
+          mobile = Path('apps/backoffice-web/src/components/table-order/table-order-mobile.tsx')
+          replace_once_or_verify(mobile, 'const MENU_STATUS_POLL_MS = 15_000;', 'const MENU_STATUS_POLL_MS = 3_000;')
+          replace_once_or_verify(
+              mobile,
+              '  const submitInFlightRef = useRef<{ requestId: string; fingerprint: string } | null>(null);',
+              '  const submitInFlightRef = useRef<{ requestId: string; fingerprint: string } | null>(null);\n  const submitRetryRef = useRef<{ requestId: string; fingerprint: string } | null>(null);'
+          )
+          replace_once_or_verify(
+              mobile,
+              '''    const fingerprint = buildSubmitFingerprint(items);\n    if (submitInFlightRef.current?.fingerprint === fingerprint) return;\n    const requestId = buildRequestId();\n    submitInFlightRef.current = { requestId, fingerprint };''',
+              '''    const fingerprint = buildSubmitFingerprint(items);\n    if (submitInFlightRef.current?.fingerprint === fingerprint) return;\n    const retry = submitRetryRef.current;\n    const requestId = retry?.fingerprint === fingerprint ? retry.requestId : buildRequestId();\n    submitRetryRef.current = { requestId, fingerprint };\n    submitInFlightRef.current = { requestId, fingerprint };'''
+          )
+          replace_once_or_verify(
+              mobile,
+              '''      const orderNo = body.data.order_no ?? "-";\n      setSuccessOrderNo(orderNo);''',
+              '''      const orderNo = body.data.order_no ?? "-";\n      if (submitRetryRef.current?.requestId === requestId) submitRetryRef.current = null;\n      setSuccessOrderNo(orderNo);'''
+          )
+          replace_once_or_verify(
+              mobile,
+              '''    } finally {\n      if (submitInFlightRef.current?.requestId === requestId) submitInFlightRef.current = null;\n      setSubmitting(false);\n    }''',
+              '''    } finally {\n      if (submitInFlightRef.current?.requestId === requestId) submitInFlightRef.current = null;\n      setSubmitting(false);\n    }'''
+          )
+
+          pos = Path('apps/backoffice-web/src/components/pos/pos-sales-module.tsx')
+          replace_once_or_verify(
+              pos,
+              '    if (orderType !== "dine_in" || !selectedTable?.id || !selectedTable.active_session_id || !shift || shift.status !== "open" || cart.length === 0 || !isOnline) return null;\n    const cartSnapshot = cloneCartItems(cart);\n    const signature = buildCartSignature(cartSnapshot);\n    const committedSignature = buildCartSignature(committedDineInCartByTableIdRef.current[selectedTable.id] ?? []);\n    if (signature === committedSignature) return null;',
+              '''    if (orderType !== "dine_in" || !selectedTable?.id || !selectedTable.active_session_id || !shift || shift.status !== "open" || !isOnline) return null;\n    const cartSnapshot = cloneCartItems(cart);\n    const signature = buildCartSignature(cartSnapshot);\n    const committedCart = committedDineInCartByTableIdRef.current[selectedTable.id] ?? [];\n    const committedSignature = buildCartSignature(committedCart);\n    if (signature === committedSignature) return null;\n    const canClearExistingDineIn =\n      cartSnapshot.length === 0 &&\n      activeOrder?.status === "queued" &&\n      (!activeOrder.table_id || activeOrder.table_id === selectedTable.id) &&\n      (committedCart.length > 0 || lastCommittedCartSignature !== null);\n    if (cartSnapshot.length === 0 && !canClearExistingDineIn) return null;'''
+          )
+          replace_once_or_verify(
+              pos,
+              '    const job = dineInAutoSendJobsRef.current.get(tableId);\n    if (!job || job.cart.length === 0) return;\n    const committedSignature = buildCartSignature(committedDineInCartByTableIdRef.current[tableId] ?? []);',
+              '''    const job = dineInAutoSendJobsRef.current.get(tableId);\n    if (!job) return;\n    const committedCart = committedDineInCartByTableIdRef.current[tableId] ?? [];\n    const committedSignature = buildCartSignature(committedCart);\n    const canClearExistingDineIn =\n      job.cart.length === 0 &&\n      job.activeOrder?.status === "queued" &&\n      (committedCart.length > 0 || (selectedTableRef.current?.id === tableId && lastCommittedCartSignature !== null));\n    if (job.cart.length === 0 && !canClearExistingDineIn) {\n      dineInAutoSendJobsRef.current.delete(tableId);\n      return;\n    }'''
+          )
+          replace_once_or_verify(
+              pos,
+              '    pushSubmitMessage(`กำลังส่งรายการเข้าครัว: ${job.table.table_code}`);\n    try {\n      const latestTaxSettings = await refreshTaxSettings();',
+              '''    pushSubmitMessage(`กำลังส่งรายการเข้าครัว: ${job.table.table_code}`);\n    try {\n      if (job.cart.length === 0 && job.activeOrder?.status === "queued") {\n        const clearResponse = await fetch("/api/pos/sales/clear-dine-in", {\n          method: "POST",\n          headers: { "Content-Type": "application/json" },\n          body: JSON.stringify({ order_id: job.activeOrder.id, table_id: tableId })\n        });\n        const clearBody = (await clearResponse.json().catch(() => null)) as\n          | { data?: { total_amount?: number }; error?: { message?: string } }\n          | null;\n        if (!clearResponse.ok) {\n          throw new Error(clearBody?.error?.message || "Unable to clear dine-in bill items.");\n        }\n        const clearedOrder: ActiveOrder = {\n          ...job.activeOrder,\n          total_amount: Number(clearBody?.data?.total_amount ?? 0)\n        };\n        committedDineInCartByTableIdRef.current = {\n          ...committedDineInCartByTableIdRef.current,\n          [tableId]: []\n        };\n        rememberDineInDraft(tableId, []);\n        if (selectedTableRef.current?.id === tableId) {\n          setActiveOrder(clearedOrder);\n          setLastCommittedCartSignature(job.signature);\n        }\n        void fetchPosTables().catch(() => undefined);\n        return;\n      }\n\n      const latestTaxSettings = await refreshTaxSettings();'''
+          )
+
+          test = Path('apps/backoffice-web/tests/integration/table-qr-postcommit-stability.integration.test.ts')
+          test.write_text('''import { readFileSync } from "node:fs";\nimport { describe, expect, it } from "vitest";\n\nfunction source(relativePath: string) {\n  return readFileSync(new URL(relativePath, import.meta.url), "utf8");\n}\n\nconst server = source("../../src/lib/table-qr-ordering.ts");\nconst mobile = source("../../src/components/table-order/table-order-mobile.tsx");\n\ndescribe("table QR post-commit stability", () => {\n  it("scopes fingerprint mutation and makes enrichment non-fatal", () => {\n    expect(server).toContain('.eq("tenant_id", args.context.tenant_id)');\n    expect(server).toContain('.eq("branch_id", args.context.branch_id)');\n    expect(server).toContain('duplicate fingerprint payload marking skipped');\n  });\n\n  it("queues kitchen printing before non-authoritative fingerprint enrichment", () => {\n    const queueAt = server.indexOf('await queueTableQrKitchenPrints({ context, orderId: row.order_id, requestId });');\n    const markAt = server.indexOf('await markQrOrderPayloadFingerprint({ context, submissionId: row.submission_id');\n    expect(queueAt).toBeGreaterThan(-1);\n    expect(markAt).toBeGreaterThan(queueAt);\n  });\n\n  it("reuses the same idempotency key after an uncertain submit result", () => {\n    expect(mobile).toContain('const submitRetryRef = useRef<{ requestId: string; fingerprint: string } | null>(null);');\n    expect(mobile).toContain('retry?.fingerprint === fingerprint ? retry.requestId : buildRequestId()');\n    expect(mobile).toContain('submitRetryRef.current = { requestId, fingerprint };');\n  });\n\n  it("refreshes authoritative cashier bill state quickly", () => {\n    expect(mobile).toContain('const MENU_STATUS_POLL_MS = 3_000;');\n  });\n});\n''', encoding='utf-8')
+          PY
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Run focused regression tests
+        run: pnpm --filter backoffice-web exec vitest run tests/integration/table-qr-postcommit-stability.integration.test.ts tests/integration/fg0003-final-item-clear-regression.integration.test.ts
+
+      - name: Typecheck backoffice
+        run: pnpm --filter backoffice-web exec tsc -p tsconfig.json --noEmit --pretty false
+
+      - name: Commit tested hotfix
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git diff --quiet; then
+            echo "No source changes required."
+            exit 0
+          fi
+          git config user.name "CpIPOS Hotfix Bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add apps/backoffice-web/src/lib/table-qr-ordering.ts \
+                  apps/backoffice-web/src/components/table-order/table-order-mobile.tsx \
+                  apps/backoffice-web/src/components/pos/pos-sales-module.tsx \
+                  apps/backoffice-web/tests/integration/table-qr-postcommit-stability.integration.test.ts \
+                  apps/backoffice-web/tests/integration/fg0003-final-item-clear-regression.integration.test.ts
+          git commit -m "fix(pos): stabilize QR kitchen flow and bill sync"
+          git push origin HEAD:hotfix/fg0003-postclose-sync-20260822-v2
