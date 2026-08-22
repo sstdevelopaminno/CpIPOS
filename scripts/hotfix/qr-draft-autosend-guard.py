@@ -1,0 +1,191 @@
+from pathlib import Path
+
+path = Path("apps/backoffice-web/src/components/pos/pos-sales-module.tsx")
+text = path.read_text(encoding="utf-8")
+
+
+def replace_once(old: str, new: str, label: str) -> None:
+    global text
+    count = text.count(old)
+    if count != 1:
+        raise SystemExit(f"{label}: expected 1 match, found {count}")
+    text = text.replace(old, new, 1)
+
+
+replace_once(
+    "  signature: string;\n  subtotal: number;",
+    "  signature: string;\n  cashierMutationVersion: number;\n  subtotal: number;",
+    "job mutation version type",
+)
+
+replace_once(
+    "  const dineInAutoSendInFlightRef = useRef<Set<string>>(new Set());\n  const dineInAutoSendNoticeTimerRef = useRef<number | null>(null);",
+    "  const dineInAutoSendInFlightRef = useRef<Set<string>>(new Set());\n  const dineInAutoSendNoticeTimerRef = useRef<number | null>(null);\n  const dineInCashierMutationVersionRef = useRef<Record<string, number>>({});\n  const dineInCommittedMutationVersionRef = useRef<Record<string, number>>({});",
+    "mutation refs",
+)
+
+replace_once(
+    "  function rememberDineInDraft(tableId: string | null | undefined, items: CartItem[]) {",
+    '''  function markDineInCashierCartMutation(tableId = selectedTableRef.current?.id): number {
+    if (orderType !== "dine_in" || !tableId) return 0;
+    const nextVersion = (dineInCashierMutationVersionRef.current[tableId] ?? 0) + 1;
+    dineInCashierMutationVersionRef.current[tableId] = nextVersion;
+    return nextVersion;
+  }
+
+  function commitDineInCashierMutation(tableId: string, mutationVersion: number) {
+    dineInCommittedMutationVersionRef.current[tableId] = Math.max(
+      dineInCommittedMutationVersionRef.current[tableId] ?? 0,
+      mutationVersion
+    );
+  }
+
+  function rememberDineInDraft(tableId: string | null | undefined, items: CartItem[]) {''',
+    "mutation helpers",
+)
+
+replace_once(
+    '    const isActiveSelectedTable = selectedTableRef.current?.id === table.id;\n    const activeCartSnapshot = isActiveSelectedTable ? cartRef.current.map((item) => ({ ...item })) : [];',
+    '''    const isActiveSelectedTable = selectedTableRef.current?.id === table.id;
+    const hasPendingCashierMutation =
+      (dineInCashierMutationVersionRef.current[table.id] ?? 0) >
+      (dineInCommittedMutationVersionRef.current[table.id] ?? 0);
+    const activeCartSnapshot = isActiveSelectedTable && hasPendingCashierMutation
+      ? cartRef.current.map((item) => ({ ...item }))
+      : [];''',
+    "active cart snapshot gate",
+)
+
+replace_once(
+    '    const unitPrice = Number((getProductPriceForCurrentMode(product) + Math.max(0, Number(input?.extraPrice ?? 0))).toFixed(2));\n    setCart((current) => {',
+    '    const unitPrice = Number((getProductPriceForCurrentMode(product) + Math.max(0, Number(input?.extraPrice ?? 0))).toFixed(2));\n    markDineInCashierCartMutation();\n    setCart((current) => {',
+    "add cart mutation mark",
+)
+
+replace_once(
+    '  function removeFromCart(cartLineId: string) {\n    setCart((current) => current.filter((row) => (row.cart_line_id ?? row.product_id) !== cartLineId));\n  }',
+    '  function removeFromCart(cartLineId: string) {\n    markDineInCashierCartMutation();\n    setCart((current) => current.filter((row) => (row.cart_line_id ?? row.product_id) !== cartLineId));\n  }',
+    "remove cart mutation mark",
+)
+
+replace_once(
+    '    }\n    setCart((current) =>\n      current\n        .map((row) =>\n          (row.cart_line_id ?? row.product_id) === cartLineId ? { ...row, quantity: Math.max(0, row.quantity + delta) } : row\n        )\n        .filter((row) => row.quantity > 0)\n    );\n  }\n\n  function setCartLineQuantity',
+    '    }\n    markDineInCashierCartMutation();\n    setCart((current) =>\n      current\n        .map((row) =>\n          (row.cart_line_id ?? row.product_id) === cartLineId ? { ...row, quantity: Math.max(0, row.quantity + delta) } : row\n        )\n        .filter((row) => row.quantity > 0)\n    );\n  }\n\n  function setCartLineQuantity',
+    "adjust qty mutation mark",
+)
+
+replace_once(
+    '    if (!allowNegativeStock && stockUnits !== null && stockUnits !== undefined && otherQuantity + nextQuantity > Number(stockUnits)) {\n      showOutOfStockNotice(product?.name ?? currentLine.name);\n      return false;\n    }\n    setCart((current) =>',
+    '    if (!allowNegativeStock && stockUnits !== null && stockUnits !== undefined && otherQuantity + nextQuantity > Number(stockUnits)) {\n      showOutOfStockNotice(product?.name ?? currentLine.name);\n      return false;\n    }\n    markDineInCashierCartMutation();\n    setCart((current) =>',
+    "direct qty mutation mark",
+)
+
+replace_once(
+    '  function clearCart() {\n    if (orderType === "delivery_manual" && !activeOrder) {\n      resetDeliveryDraft();\n    }\n    setCart([]);',
+    '  function clearCart() {\n    if (orderType === "delivery_manual" && !activeOrder) {\n      resetDeliveryDraft();\n    }\n    if (cartRef.current.length > 0) markDineInCashierCartMutation();\n    setCart([]);',
+    "clear cart mutation mark",
+)
+
+replace_once(
+    '      const unitPrice = Number((getProductPriceForCurrentMode(modifierDraft.product) + extraPrice).toFixed(2));\n      const nextLineId = notes.length > 0 || extraPrice > 0 ? `${modifierDraft.product.id}:${notes}:${extraPrice.toFixed(2)}` : modifierDraft.product.id;\n      setCart((current) =>',
+    '      const unitPrice = Number((getProductPriceForCurrentMode(modifierDraft.product) + extraPrice).toFixed(2));\n      const nextLineId = notes.length > 0 || extraPrice > 0 ? `${modifierDraft.product.id}:${notes}:${extraPrice.toFixed(2)}` : modifierDraft.product.id;\n      markDineInCashierCartMutation();\n      setCart((current) =>',
+    "modifier edit mutation mark",
+)
+
+replace_once(
+    '  function confirmBuffetPickerItem(item: CartItem) {\n    const targetTable = buffetPicker.table ?? selectedTable;\n    const nextCart = appendConfirmedBuffetItem(cartRef.current, item);\n    setCart(nextCart);',
+    '  function confirmBuffetPickerItem(item: CartItem) {\n    const targetTable = buffetPicker.table ?? selectedTable;\n    const nextCart = appendConfirmedBuffetItem(cartRef.current, item);\n    if (targetTable?.id) markDineInCashierCartMutation(targetTable.id);\n    setCart(nextCart);',
+    "buffet mutation mark",
+)
+
+replace_once(
+    '  function buildDineInAutoSendJob(): DineInAutoSendJob | null {\n    if (orderType !== "dine_in" || !selectedTable?.id || !selectedTable.active_session_id || !shift || shift.status !== "open" || !isOnline) return null;\n    const cartSnapshot = cloneCartItems(cart);',
+    '''  function buildDineInAutoSendJob(): DineInAutoSendJob | null {
+    if (orderType !== "dine_in" || !selectedTable?.id || !selectedTable.active_session_id || !shift || shift.status !== "open" || !isOnline) return null;
+    const cashierMutationVersion = dineInCashierMutationVersionRef.current[selectedTable.id] ?? 0;
+    const committedMutationVersion = dineInCommittedMutationVersionRef.current[selectedTable.id] ?? 0;
+    if (cashierMutationVersion <= committedMutationVersion) return null;
+    const cartSnapshot = cloneCartItems(cart);''',
+    "build job mutation gate",
+)
+
+replace_once(
+    '    const committedCart = committedDineInCartByTableIdRef.current[selectedTable.id] ?? [];\n    const committedSignature = buildCartSignature(committedCart);\n    if (signature === committedSignature) return null;',
+    '''    const committedCart = committedDineInCartByTableIdRef.current[selectedTable.id] ?? [];
+    const committedSignature = buildCartSignature(committedCart);
+    if (signature === committedSignature) {
+      commitDineInCashierMutation(selectedTable.id, cashierMutationVersion);
+      return null;
+    }''',
+    "same signature mutation commit",
+)
+
+replace_once(
+    '    if (cartSnapshot.length === 0 && !canClearExistingDineIn) return null;\n    return {',
+    '''    if (cartSnapshot.length === 0 && !canClearExistingDineIn) {
+      commitDineInCashierMutation(selectedTable.id, cashierMutationVersion);
+      return null;
+    }
+    return {''',
+    "empty draft mutation commit",
+)
+
+replace_once(
+    '      cart: cartSnapshot,\n      signature,\n      subtotal,',
+    '      cart: cartSnapshot,\n      signature,\n      cashierMutationVersion,\n      subtotal,',
+    "job mutation payload",
+)
+
+replace_once(
+    '    const job = dineInAutoSendJobsRef.current.get(tableId);\n    if (!job) return;\n    const committedCart = committedDineInCartByTableIdRef.current[tableId] ?? [];',
+    '''    const job = dineInAutoSendJobsRef.current.get(tableId);
+    if (!job) return;
+    const committedMutationVersion = dineInCommittedMutationVersionRef.current[tableId] ?? 0;
+    if (job.cashierMutationVersion <= committedMutationVersion) {
+      dineInAutoSendJobsRef.current.delete(tableId);
+      return;
+    }
+    const committedCart = committedDineInCartByTableIdRef.current[tableId] ?? [];''',
+    "run job mutation gate",
+)
+
+replace_once(
+    '    if (job.cart.length === 0 && !canClearExistingDineIn) {\n      dineInAutoSendJobsRef.current.delete(tableId);\n      return;\n    }\n    if (job.signature === committedSignature) {\n      dineInAutoSendJobsRef.current.delete(tableId);\n      return;\n    }',
+    '''    if (job.cart.length === 0 && !canClearExistingDineIn) {
+      commitDineInCashierMutation(tableId, job.cashierMutationVersion);
+      dineInAutoSendJobsRef.current.delete(tableId);
+      return;
+    }
+    if (job.signature === committedSignature) {
+      commitDineInCashierMutation(tableId, job.cashierMutationVersion);
+      dineInAutoSendJobsRef.current.delete(tableId);
+      return;
+    }''',
+    "run no-op mutation commit",
+)
+
+replace_once(
+    '        rememberDineInDraft(tableId, []);\n        if (selectedTableRef.current?.id === tableId) {',
+    '        rememberDineInDraft(tableId, []);\n        commitDineInCashierMutation(tableId, job.cashierMutationVersion);\n        if (selectedTableRef.current?.id === tableId) {',
+    "clear success mutation commit",
+)
+
+replace_once(
+    '        idempotencyKey: `pos-dine-kitchen-${tableId}-${encodeURIComponent(job.signature).slice(0, 120)}`,',
+    '        idempotencyKey: `pos-dine-cashier-${tableId}-${encodeURIComponent(job.signature).slice(0, 120)}`,',
+    "cashier request prefix",
+)
+
+replace_once(
+    '        rememberDineInDraft(tableId, job.cart);\n        if (selectedTableRef.current?.id === tableId) {',
+    '        rememberDineInDraft(tableId, job.cart);\n        commitDineInCashierMutation(tableId, job.cashierMutationVersion);\n        if (selectedTableRef.current?.id === tableId) {',
+    "sync success mutation commit",
+)
+
+path.write_text(text, encoding="utf-8")
+
+test = Path("apps/backoffice-web/tests/integration/fg0003-qr-draft-autosend-guard.integration.test.ts")
+test.write_text(
+    '''import { readFileSync } from "node:fs";\nimport { describe, expect, it } from "vitest";\n\nconst salesUi = readFileSync(new URL("../../src/components/pos/pos-sales-module.tsx", import.meta.url), "utf8");\n\ndescribe("FG0003 QR draft must not arm POS kitchen autosend", () => {\n  it("requires an explicit cashier cart mutation before dine-in autosend", () => {\n    expect(salesUi).toContain("dineInCashierMutationVersionRef");\n    expect(salesUi).toContain("cashierMutationVersion <= committedMutationVersion");\n    expect(salesUi).toContain("markDineInCashierCartMutation();");\n  });\n\n  it("does not preserve a refresh/hydration cart unless cashier changes are pending", () => {\n    expect(salesUi).toContain("const hasPendingCashierMutation =");\n    expect(salesUi).toContain("isActiveSelectedTable && hasPendingCashierMutation");\n  });\n\n  it("uses a cashier-only request prefix for explicit POS mutations", () => {\n    expect(salesUi).toContain("pos-dine-cashier-${tableId}-");\n    expect(salesUi).not.toContain("pos-dine-kitchen-${tableId}-");\n  });\n});\n''',
+    encoding="utf-8",
+)
