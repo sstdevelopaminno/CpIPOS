@@ -1,4 +1,4 @@
-name: FG0003 post-close v2 guarded patch fixed
+name: FG0003 post-close v2 final-item UI patch
 
 on:
   push:
@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   patch:
-    if: github.event.head_commit.message == 'chore: run corrected fg0003 post-close v2 patch'
+    if: github.event.head_commit.message == 'chore: run fg0003 final item ui patch'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -18,15 +18,10 @@ jobs:
           ref: hotfix/fg0003-postclose-sync-20260822-v2
           fetch-depth: 0
 
-      - name: Apply narrow guarded incident patch
+      - name: Apply exact guarded POS UI patch
         shell: bash
         run: |
           set -euo pipefail
-          git fetch origin hotfix/fg0003-table-bill-sync-20260822
-          mkdir -p apps/backoffice-web/src/app/api/pos/sales/clear-dine-in
-          git show origin/hotfix/fg0003-table-bill-sync-20260822:apps/backoffice-web/src/app/api/pos/sales/clear-dine-in/route.ts > apps/backoffice-web/src/app/api/pos/sales/clear-dine-in/route.ts
-          git show origin/hotfix/fg0003-table-bill-sync-20260822:supabase/migrations/20260822023000_allow_empty_queued_dine_in_replacement.sql > supabase/migrations/20260822023000_allow_empty_queued_dine_in_replacement.sql
-
           python3 - <<'PY'
           from pathlib import Path
 
@@ -34,7 +29,7 @@ jobs:
               text = path.read_text(encoding='utf-8')
               count = text.count(old)
               if count != 1:
-                  raise SystemExit(f'{path}: expected exactly one match, found {count}: {old[:140]!r}')
+                  raise SystemExit(f'{path}: expected exactly one match, found {count}: {old[:160]!r}')
               path.write_text(text.replace(old, new, 1), encoding='utf-8')
 
           pos = Path('apps/backoffice-web/src/components/pos/pos-sales-module.tsx')
@@ -55,7 +50,7 @@ jobs:
           )
 
           test = Path('apps/backoffice-web/tests/integration/fg0003-final-item-clear-regression.integration.test.ts')
-          test.write_text('''import { readFileSync } from "node:fs";\nimport { describe, expect, it } from "vitest";\n\nfunction source(relativePath: string) {\n  return readFileSync(new URL(relativePath, import.meta.url), "utf8");\n}\n\nconst migration = source("../../../../supabase/migrations/20260822023000_allow_empty_queued_dine_in_replacement.sql");\nconst clearRoute = source("../../src/app/api/pos/sales/clear-dine-in/route.ts");\nconst salesUi = source("../../src/components/pos/pos-sales-module.tsx");\n\ndescribe("FG0003 final dine-in line clearing", () => {\n  it("allows only explicit empty desired state while retaining non-empty validation", () => {\n    expect(migration).toContain("jsonb_array_length(p_items) > 0 and v_item_count < 1");\n    expect(migration).toContain("TABLE_BILL_ORDER_CONFLICT");\n    expect(migration).toContain("v_order.status <> 'queued'");\n    expect(migration).toContain("v_order.order_type <> 'dine_in'");\n    expect(migration).toContain("'kitchen_delta_kind', 'cancel'");\n  });\n\n  it("clears only the exact queued order bound to the exact live table session", () => {\n    expect(clearRoute).toContain('.eq("table_id", tableId)');\n    expect(clearRoute).toContain("session.order_id !== orderId");\n    expect(clearRoute).toContain('order.status !== "queued"');\n    expect(clearRoute).toContain("p_items: []");\n    expect(clearRoute).toContain("queueMissingKitchenPrintJobsForOrder");\n  });\n\n  it("does not drop an empty cashier desired state after kitchen dispatch", () => {\n    expect(salesUi).toContain('fetch("/api/pos/sales/clear-dine-in"');\n    expect(salesUi).toContain("cartSnapshot.length === 0 &&");\n    expect(salesUi).toContain("job.cart.length === 0 && job.activeOrder?.status === \"queued\"");\n    expect(salesUi).not.toContain('shift.status !== "open" || cart.length === 0 || !isOnline) return null;');\n    expect(salesUi).not.toContain('if (!job || job.cart.length === 0) return;');\n  });\n});\n''', encoding='utf-8')
+          test.write_text('''import { readFileSync } from "node:fs";\nimport { describe, expect, it } from "vitest";\n\nfunction source(relativePath: string) {\n  return readFileSync(new URL(relativePath, import.meta.url), "utf8");\n}\n\nconst migration = source("../../../../supabase/migrations/20260822023000_allow_empty_queued_dine_in_replacement.sql");\nconst clearRoute = source("../../src/app/api/pos/sales/clear-dine-in/route.ts");\nconst salesUi = source("../../src/components/pos/pos-sales-module.tsx");\n\ndescribe("FG0003 final dine-in line clearing", () => {\n  it("allows only explicit empty desired state while retaining non-empty validation", () => {\n    expect(migration).toContain("jsonb_array_length(p_items) > 0 and v_item_count < 1");\n    expect(migration).toContain("TABLE_BILL_ORDER_CONFLICT");\n    expect(migration).toContain("v_order.status<>'queued'");\n    expect(migration).toContain("v_order.order_type<>'dine_in'");\n    expect(migration).toContain("'kitchen_delta_kind','cancel'");\n  });\n\n  it("clears only the exact queued order bound to the exact live table session", () => {\n    expect(clearRoute).toContain('.eq("table_id", tableId)');\n    expect(clearRoute).toContain("session.order_id !== orderId");\n    expect(clearRoute).toContain('order.status !== "queued"');\n    expect(clearRoute).toContain("p_items: []");\n    expect(clearRoute).toContain("queueMissingKitchenPrintJobsForOrder");\n  });\n\n  it("does not drop an empty cashier desired state after kitchen dispatch", () => {\n    expect(salesUi).toContain('fetch("/api/pos/sales/clear-dine-in"');\n    expect(salesUi).toContain("cartSnapshot.length === 0 &&");\n    expect(salesUi).toContain("job.cart.length === 0 && job.activeOrder?.status === \"queued\"");\n    expect(salesUi).not.toContain('shift.status !== "open" || cart.length === 0 || !isOnline) return null;');\n    expect(salesUi).not.toContain('if (!job || job.cart.length === 0) return;');\n  });\n});\n''', encoding='utf-8')
           PY
 
       - name: Commit guarded patch and remove runner
@@ -64,9 +59,7 @@ jobs:
           git rm .github/workflows/fg0003-postclose-v2-one-shot-fixed.yml
           git config user.name "CpIPOS Hotfix Bot"
           git config user.email "actions@users.noreply.github.com"
-          git add apps/backoffice-web/src/app/api/pos/sales/clear-dine-in/route.ts \
-                  apps/backoffice-web/src/components/pos/pos-sales-module.tsx \
-                  apps/backoffice-web/tests/integration/fg0003-final-item-clear-regression.integration.test.ts \
-                  supabase/migrations/20260822023000_allow_empty_queued_dine_in_replacement.sql
-          git commit -m "fix(pos): clear final queued dine-in item safely"
+          git add apps/backoffice-web/src/components/pos/pos-sales-module.tsx \
+                  apps/backoffice-web/tests/integration/fg0003-final-item-clear-regression.integration.test.ts
+          git commit -m "fix(pos): wire guarded final dine-in clear"
           git push origin HEAD:hotfix/fg0003-postclose-sync-20260822-v2
