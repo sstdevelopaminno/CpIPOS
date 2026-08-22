@@ -39,6 +39,10 @@ function eventLabel(value: string) {
   return "รายการใหม่";
 }
 
+function isCancelAction(value: string | null | undefined) {
+  return String(value ?? "").trim().toLowerCase() === "cancel";
+}
+
 function orderTypeLabel(value: string) {
   const normalized = value.trim().toLowerCase();
   if (normalized === "dine_in") return "ทานที่ร้าน";
@@ -60,12 +64,15 @@ function thaiDateTime(value: string) {
 export function renderKitchenTicketHtml(input: KitchenTicketHtmlInput) {
   const width = input.paperWidthMm === 58 ? "58mm" : "80mm";
   const tableLabel = input.tableLabel?.trim() || null;
+  const cancelTicket = isCancelAction(input.eventType);
   const itemRows = input.items
     .map((item) => {
+      const cancelItem = cancelTicket || isCancelAction(item.action);
       const notes = item.notes?.trim()
         ? `<div class="notes"><span>หมายเหตุ:</span> ${escapeHtml(item.notes)}</div>`
         : "";
-      return `<div class="item">
+      return `<div class="item${cancelItem ? " item-cancel" : ""}">
+        ${cancelItem ? `<div class="cancel-item-label">*** ยกเลิก ***</div>` : ""}
         <div class="item-main">
           <span class="qty">${escapeHtml(item.quantity)} x</span>
           <span class="name">${escapeHtml(item.name)}</span>
@@ -94,6 +101,21 @@ export function renderKitchenTicketHtml(input: KitchenTicketHtmlInput) {
     .ticket { width: ${width}; padding: ${input.paperWidthMm === 58 ? "7px 6px" : "10px"}; }
     .center { text-align: center; }
     .title { font-size: ${input.paperWidthMm === 58 ? "1.35em" : "1.45em"}; font-weight: 900; }
+    .cancel-title {
+      border: 4px double #111;
+      padding: ${input.paperWidthMm === 58 ? "5px 3px" : "7px 5px"};
+      font-size: ${input.paperWidthMm === 58 ? "1.65em" : "1.9em"};
+      line-height: 1.05;
+      letter-spacing: .02em;
+    }
+    .cancel-notice {
+      margin-top: 5px;
+      border-top: 2px solid #111;
+      border-bottom: 2px solid #111;
+      padding: 4px 2px;
+      font-size: ${input.paperWidthMm === 58 ? "1.15em" : "1.25em"};
+      font-weight: 900;
+    }
     .store { font-weight: 800; font-size: 1.05em; }
     .zone { margin-top: ${input.paperWidthMm === 58 ? "5px" : "6px"}; font-size: ${input.paperWidthMm === 58 ? "1.55em" : "1.7em"}; font-weight: 900; line-height: 1.1; }
     .badge { display: inline-block; margin-top: 4px; border: 2px solid #111; padding: ${input.paperWidthMm === 58 ? "2px 7px" : "2px 8px"}; font-weight: 900; }
@@ -108,9 +130,24 @@ export function renderKitchenTicketHtml(input: KitchenTicketHtmlInput) {
     .row strong { text-align: right; overflow-wrap: anywhere; }
     .items { margin-top: ${input.paperWidthMm === 58 ? "5px" : "8px"}; }
     .item { padding: ${input.paperWidthMm === 58 ? "4px 0" : "7px 0"}; border-bottom: 1px solid #ddd; }
+    .item-cancel {
+      border-top: 2px solid #111;
+      border-bottom: 2px solid #111;
+      margin-top: 4px;
+      padding: ${input.paperWidthMm === 58 ? "5px 0" : "8px 0"};
+    }
+    .cancel-item-label {
+      text-align: center;
+      font-size: ${input.paperWidthMm === 58 ? "1.35em" : "1.5em"};
+      font-weight: 900;
+      line-height: 1.1;
+      margin-bottom: 3px;
+    }
     .item-main { display: flex; gap: ${input.paperWidthMm === 58 ? "5px" : "8px"}; align-items: baseline; min-width: 0; }
     .qty { min-width: ${input.paperWidthMm === 58 ? "2.8em" : "3.2em"}; font-size: ${input.paperWidthMm === 58 ? "1.22em" : "1.35em"}; font-weight: 900; }
     .name { flex: 1; min-width: 0; font-size: ${input.paperWidthMm === 58 ? "1.18em" : "1.25em"}; font-weight: 800; line-height: ${input.paperWidthMm === 58 ? "1.22" : "normal"}; white-space: normal; overflow-wrap: anywhere; word-break: break-word; }
+    .item-cancel .qty,
+    .item-cancel .name { font-size: ${input.paperWidthMm === 58 ? "1.35em" : "1.5em"}; font-weight: 900; }
     .notes { margin-left: ${input.paperWidthMm === 58 ? "3.2em" : "3.8em"}; margin-top: 2px; font-weight: 700; overflow-wrap: anywhere; }
     .notes span { font-weight: 900; }
     .footer { margin-top: ${input.paperWidthMm === 58 ? "5px" : "8px"}; font-size: ${input.paperWidthMm === 58 ? ".8em" : ".85em"}; border-top: 1px dashed #111; padding-top: ${input.paperWidthMm === 58 ? "4px" : "6px"}; overflow-wrap: anywhere; }
@@ -119,7 +156,8 @@ export function renderKitchenTicketHtml(input: KitchenTicketHtmlInput) {
 <body>
   <main class="ticket">
     <section class="center">
-      <div class="title">ใบสั่งอาหารเข้าครัว</div>
+      <div class="title${cancelTicket ? " cancel-title" : ""}">${cancelTicket ? "!!! ยกเลิกรายการ !!!" : "ใบสั่งอาหารเข้าครัว"}</div>
+      ${cancelTicket ? `<div class="cancel-notice">หยุดทำ / ยกเลิกรายการด้านล่าง</div>` : ""}
       <div class="store">${escapeHtml(input.storeName)}</div>
       <div>${escapeHtml(input.branchName)}</div>
       <div class="zone">${escapeHtml(input.zoneName)}</div>
@@ -139,6 +177,7 @@ export function renderKitchenTicketHtml(input: KitchenTicketHtmlInput) {
     <section class="footer">
       <div>เลขที่ใบครัว: ${escapeHtml(input.ticketId)}</div>
       <div>โซนครัว: ${escapeHtml(input.zoneCode)}</div>
+      <div>เหตุการณ์: ${escapeHtml(eventLabel(input.eventType))}</div>
     </section>
   </main>
 </body>
