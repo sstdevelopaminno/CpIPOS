@@ -1,3 +1,3 @@
 trigger corrected guarded FG0003 post-close v2 source patch
-run: 2026-08-22T17:31:00+07:00
-stage: qr-kitchen-stability-ci
+run: 2026-08-22T17:46:00+07:00
+stage: qr-kitchen-stability-ci-v2
