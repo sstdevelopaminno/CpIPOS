@@ -36,11 +36,14 @@ describe("dine-in Kitchen + checkout regression contract", () => {
     expect(salesModule).toContain("checkoutRequestLockRef.current = false;");
   });
 
-  it("keeps the existing dine-in Kitchen auto-send scope and debounce unchanged", () => {
-    expect(salesModule).toContain("async function autoSendDineInKitchenOrder()");
-    expect(salesModule).toContain("if (orderType !== \"dine_in\"");
-    expect(salesModule).toContain("void autoSendDineInKitchenOrder();");
-    expect(salesModule).toContain("}, 5000);");
+  it("keeps dine-in Kitchen auto-send scoped per table with a short debounce", () => {
+    expect(salesModule).toContain("async function autoSendDineInKitchenOrder(jobOverride?: DineInAutoSendJob | null)");
+    expect(salesModule).toContain("function scheduleDineInKitchenAutoSend(job: DineInAutoSendJob");
+    expect(salesModule).toContain("dineInAutoSendTimersRef.current.set(tableId, nextTimer)");
+    expect(salesModule).toContain("void runDineInKitchenAutoSend(tableId)");
+    expect(salesModule).toContain("const DINE_IN_KITCHEN_AUTO_SEND_DELAY_MS = 1200;");
+    expect(salesModule).not.toContain("dineInAutoSendTimerRef");
+    expect(salesModule).not.toContain("}, 5000);");
   });
 
   it("clears committed persistence without remounting the live POS after Kitchen auto-send", () => {

@@ -1,6 +1,6 @@
 import "server-only";
 
-import { createHmac, randomUUID, timingSafeEqual } from "node:crypto";
+import { createHash, createHmac, randomUUID, timingSafeEqual } from "node:crypto";
 import QRCode from "qrcode";
 import type { AuthContext } from "@/lib/auth-context";
 import { readRequiredEnv } from "@/lib/env";
@@ -13,6 +13,7 @@ import { getSupabaseServiceClient } from "@/lib/supabase-admin";
 
 const ACTIVE_TABLE_STATUSES = ["open", "ordering", "pending_payment"];
 const DEFAULT_QR_TTL_HOURS = 18;
+const TABLE_QR_RECENT_DUPLICATE_WINDOW_MS = 15_000;
 
 type QrSessionRow = {
   id: string;
@@ -506,15 +507,117 @@ async function queueTableQrKitchenPrints(args: { context: QrContext; orderId: st
     });
   }
 }
+
+function sanitizeTableOrderClientId(value: string | null | undefined) {
+  const normalized = String(value ?? "").trim().toLowerCase();
+  return /^[a-z0-9_-]{8,80}$/.test(normalized) ? normalized : "anonymous";
+}
+
+function buildQrOrderPayloadFingerprint(args: { items: Array<{ product_id: string; quantity: number; note?: string | null; selected_ingredient_ids?: unknown }>; note?: string | null }) {
+  const payload = {
+    note: typeof args.note === "string" && args.note.trim() ? args.note.trim().slice(0, 500) : null,
+    items: args.items
+      .map((item) => ({
+        product_id: String(item.product_id ?? "").trim(),
+        quantity: Math.max(1, Math.min(99, Math.trunc(Number(item.quantity ?? 0)))),
+        note: typeof item.note === "string" && item.note.trim() ? item.note.trim().slice(0, 240) : null,
+        selected_ingredient_ids: Array.isArray(item.selected_ingredient_ids)
+          ? Array.from(new Set(item.selected_ingredient_ids.map((value) => String(value ?? "").trim()).filter(Boolean))).sort()
+          : []
+      }))
+      .sort((left, right) => {
+        if (left.product_id === right.product_id) return (left.note ?? "").localeCompare(right.note ?? "");
+        return left.product_id.localeCompare(right.product_id);
+      })
+  };
+  return createHash("sha256").update(JSON.stringify(payload)).digest("hex");
+}
+
+async function loadRecentQrOrderPayloadDuplicate(args: {
+  context: QrContext;
+  clientId: string;
+  payloadFingerprint: string;
+  supabase: ReturnType<typeof getSupabaseServiceClient>;
+}): Promise<SubmitQrOrderRow | null> {
+  if (args.clientId === "anonymous") return null;
+  const duplicateSince = new Date(Date.now() - TABLE_QR_RECENT_DUPLICATE_WINDOW_MS).toISOString();
+  const { data, error } = await args.supabase
+    .from("table_qr_orders")
+    .select("id,order_id,payload,created_at")
+    .eq("qr_session_id", args.context.id)
+    .eq("event_type", "order")
+    .gte("created_at", duplicateSince)
+    .order("created_at", { ascending: false })
+    .limit(8);
+
+  if (error) {
+    console.warn("[table-qr-ordering] recent duplicate lookup failed", { message: error.message, qrSessionId: args.context.id });
+    return null;
+  }
+
+  for (const row of data ?? []) {
+    const payload = row.payload && typeof row.payload === "object" ? (row.payload as Record<string, unknown>) : null;
+    if (payload?.client_id !== args.clientId || payload?.payload_fingerprint !== args.payloadFingerprint || !row.order_id) continue;
+    return loadOrderTotalsForQrResult({
+      context: args.context,
+      submissionId: String(row.id),
+      orderId: String(row.order_id),
+      duplicateRequest: true,
+      supabase: args.supabase
+    });
+  }
+  return null;
+}
+
+async function markQrOrderPayloadFingerprint(args: {
+  context: QrContext;
+  submissionId: string;
+  clientId: string;
+  payloadFingerprint: string;
+  supabase: ReturnType<typeof getSupabaseServiceClient>;
+}) {
+  if (args.clientId === "anonymous") return;
+  const { data, error: loadError } = await args.supabase
+    .from("table_qr_orders")
+    .select("payload")
+    .eq("id", args.submissionId)
+    .eq("qr_session_id", args.context.id)
+    .maybeSingle<{ payload: Record<string, unknown> | null }>();
+  if (loadError) {
+    console.warn("[table-qr-ordering] duplicate fingerprint payload load failed", { submissionId: args.submissionId, message: loadError.message });
+    return;
+  }
+  const payload = data?.payload && typeof data.payload === "object" ? data.payload : {};
+  const { error: updateError } = await args.supabase
+    .from("table_qr_orders")
+    .update({
+      payload: {
+        ...payload,
+        client_id: args.clientId,
+        payload_fingerprint: args.payloadFingerprint,
+        payload_fingerprint_version: 1
+      }
+    })
+    .eq("id", args.submissionId)
+    .eq("qr_session_id", args.context.id);
+  if (updateError) {
+    console.warn("[table-qr-ordering] duplicate fingerprint payload update failed", { submissionId: args.submissionId, message: updateError.message });
+  }
+}
 export async function submitTableQrOrder(args: {
   context: QrContext;
   requestId: string;
-  items: Array<{ product_id: string; quantity: number; note?: string | null }>;
+  items: Array<{ product_id: string; quantity: number; note?: string | null; selected_ingredient_ids?: unknown }>;
   note?: string | null;
+  clientId?: string | null;
 }) {
   const { context, requestId, items, note } = args;
   ensureTableQrOrderAcceptable(context);
   const supabase = getSupabaseServiceClient();
+  const clientId = sanitizeTableOrderClientId(args.clientId);
+  const payloadFingerprint = buildQrOrderPayloadFingerprint({ items, note });
+  const recentDuplicate = await loadRecentQrOrderPayloadDuplicate({ context, clientId, payloadFingerprint, supabase });
+  if (recentDuplicate) return recentDuplicate;
   const { data, error } = await supabase.rpc("submit_table_qr_order_tx", {
     p_qr_session_id: context.id,
     p_request_id: requestId,
@@ -524,6 +627,8 @@ export async function submitTableQrOrder(args: {
   if (error) throw new Error(error.message);
   const row = (Array.isArray(data) ? data[0] : data) as SubmitQrOrderRow | null;
   if (!row) throw new Error("table_qr_order_failed");
+
+  await markQrOrderPayloadFingerprint({ context, submissionId: row.submission_id, clientId, payloadFingerprint, supabase });
 
   if (!row.duplicate_request) {
     await queueTableQrKitchenPrints({ context, orderId: row.order_id, requestId });

@@ -193,6 +193,22 @@ function buildSubmitItems(
     }));
 }
 
+function buildSubmitFingerprint(items: SubmitItem[]) {
+  return JSON.stringify(
+    items
+      .map((item) => ({
+        product_id: item.product_id,
+        quantity: item.quantity,
+        note: item.note ?? null,
+        selected_ingredient_ids: [...(item.selected_ingredient_ids ?? [])].sort()
+      }))
+      .sort((left, right) => {
+        if (left.product_id === right.product_id) return (left.note ?? "").localeCompare(right.note ?? "");
+        return left.product_id.localeCompare(right.product_id);
+      })
+  );
+}
+
 function hasExistingSubmittedFoodOrder(menu: MenuResponse["data"] | null) {
   if (!menu) return false;
   if (menu.has_submitted_food_order) return true;
@@ -232,6 +248,7 @@ export function TableOrderMobile({ token }: { token: string }) {
   const categoriesRef = useRef<HTMLElement | null>(null);
   const linkClosedToastShownRef = useRef(false);
   const clientIdRef = useRef<string | null>(null);
+  const submitInFlightRef = useRef<{ requestId: string; fingerprint: string } | null>(null);
   const apiUrl = useMemo(() => `/api/table-order/${encodeURIComponent(token)}`, [token]);
   const statusUrl = useMemo(() => `${apiUrl}?view=status`, [apiUrl]);
 
@@ -453,10 +470,13 @@ export function TableOrderMobile({ token }: { token: string }) {
       setToast({ kind: "warning", title: "ยังไม่มีรายการอาหาร", detail: "กรุณาเลือกอาหารอย่างน้อย 1 รายการ" });
       return;
     }
+    const fingerprint = buildSubmitFingerprint(items);
+    if (submitInFlightRef.current?.fingerprint === fingerprint) return;
+    const requestId = buildRequestId();
+    submitInFlightRef.current = { requestId, fingerprint };
     setSubmitting(true);
     setError(null);
     setToast(null);
-    const requestId = buildRequestId();
     try {
       const { response, body } = await submitPost({ action: "order", request_id: requestId, note: null, items }, requestId);
       if (!response.ok || !body?.data) {
@@ -481,7 +501,10 @@ export function TableOrderMobile({ token }: { token: string }) {
             : "กรุณาลองใหม่";
       setError(null);
       setToast({ kind: "error", title: "ส่งรายการไม่สำเร็จ", detail });
-    } finally { setSubmitting(false); }
+    } finally {
+      if (submitInFlightRef.current?.requestId === requestId) submitInFlightRef.current = null;
+      setSubmitting(false);
+    }
   }
 
   async function submitServiceRequest(action: ServiceRequestAction) {

@@ -206,6 +206,7 @@ export async function POST(request: Request, context: { params: Promise<{ token:
     if (!body || typeof body !== "object") return fail("invalid_payload", "Invalid request body.", 422);
     action = normalizeAction(body);
     requestId = String(body.request_id ?? request.headers.get("x-idempotency-key") ?? "").trim();
+    const clientId = getTableOrderClientId(request);
     if (!requestId || requestId.length > 120) return fail("invalid_request_id", "Invalid request id.", 422);
 
     if (action === "call_staff" || action === "request_checkout") {
@@ -232,7 +233,7 @@ export async function POST(request: Request, context: { params: Promise<{ token:
     const qrContext = await resolveTableQrContext(token);
     await assertTableQrBuffetItemsAllowed({ context: qrContext, items });
     await assertTableQrStockAvailable({ tenantId: qrContext.tenant_id, branchId: qrContext.branch_id, items });
-    const result = await submitTableQrOrder({ context: qrContext, requestId, items, note: typeof body.note === "string" ? body.note.trim().slice(0, 500) : null });
+    const result = await submitTableQrOrder({ context: qrContext, requestId, items, note: typeof body.note === "string" ? body.note.trim().slice(0, 500) : null, clientId });
     return ok({ submission_id: result.submission_id, order_no: result.order_no, table_code: qrContext.table_code, subtotal: Number(result.subtotal), tax_total: Number(result.tax_total), grand_total: Number(result.grand_total), duplicate_request: result.duplicate_request }, result.duplicate_request ? 200 : 201);
   } catch (error) {
     return publicError(error, { method: "POST", token, action, requestId, itemCount });

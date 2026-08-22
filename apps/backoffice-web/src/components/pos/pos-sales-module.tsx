@@ -326,6 +326,25 @@ type ReceiptSession = CheckoutReviewOrder & {
   store_profile?: StoreProfile | null;
 };
 
+type DineInAutoSendJob = {
+  table: Pick<DiningTableItem, "id" | "table_code" | "active_session_id">;
+  activeOrder: ActiveOrder | null;
+  shiftId: string;
+  cart: CartItem[];
+  signature: string;
+  subtotal: number;
+  summaryDiscount: number;
+  taxBaseTotal: number;
+  taxSettings: TaxSettings;
+  member: {
+    name: string;
+    phone: string;
+    code?: string | null;
+    points?: number | null;
+    stamps?: number | null;
+  } | null;
+};
+
 type TransferPaymentMode = "manual" | "inet_nops";
 
 type InetPaymentIntentState = {
@@ -1358,6 +1377,7 @@ const uiText = {
 
 const RECEIPT_MODAL_MIN_VISIBLE_MS = 2200;
 const RECEIPT_MODAL_SAFE_TIMEOUT_MS = 8000;
+const DINE_IN_KITCHEN_AUTO_SEND_DELAY_MS = 1200;
 
 function newIdempotencyKey() {
   return `pos-sale-${crypto.randomUUID()}`;
@@ -2139,6 +2159,7 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
   const [taxSettings, setTaxSettings] = useState<TaxSettings>(DEFAULT_TAX_SETTINGS);
   const [tableQrNotificationSettings, setTableQrNotificationSettings] = useState<TableQrNotificationSettings>(DEFAULT_TABLE_QR_NOTIFICATION_SETTINGS);
   const [tableQrAlert, setTableQrAlert] = useState<{ id: string; type: "call_staff" | "request_checkout"; tableCode: string; note?: string | null } | null>(null);
+  const [dineInKitchenSendingNotice, setDineInKitchenSendingNotice] = useState<{ tableCode: string; itemCount: number } | null>(null);
   const [seenTableQrActivity, setSeenTableQrActivity] = useState<Record<string, string>>(() => readStoredJson<Record<string, string>>(TABLE_QR_ACTIVITY_SEEN_KEY) ?? {});
   const [devicePolicy, setDevicePolicy] = useState<PosSalesDevicePolicy | null>(null);
   const [transferSlipFile, setTransferSlipFile] = useState<File | null>(null);
@@ -2215,8 +2236,10 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
   const receiptAutoCloseTimerRef = useRef<number | null>(null);
   const receiptErrorRef = useRef<string | null>(null);
   const checkoutRequestLockRef = useRef(false);
-  const dineInAutoSendTimerRef = useRef<number | null>(null);
-  const dineInAutoSendInFlightRef = useRef(false);
+  const dineInAutoSendTimersRef = useRef<Map<string, number>>(new Map());
+  const dineInAutoSendJobsRef = useRef<Map<string, DineInAutoSendJob>>(new Map());
+  const dineInAutoSendInFlightRef = useRef<Set<string>>(new Set());
+  const dineInAutoSendNoticeTimerRef = useRef<number | null>(null);
   const cartPersistTimerRef = useRef<number | null>(null);
   const heldPersistTimerRef = useRef<number | null>(null);
   const dineInDraftPersistTimerRef = useRef<number | null>(null);
@@ -2274,6 +2297,22 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
   const dineInDraftByTableIdRef = useRef<Record<string, CartItem[]>>({});
   const committedDineInCartByTableIdRef = useRef<Record<string, CartItem[]>>({});
   const previousOrderTypeRef = useRef<OrderType>("takeaway");
+
+  useEffect(() => {
+    const autoSendTimers = dineInAutoSendTimersRef.current;
+    const autoSendJobs = dineInAutoSendJobsRef.current;
+    return () => {
+      for (const timer of autoSendTimers.values()) {
+        window.clearTimeout(timer);
+      }
+      autoSendTimers.clear();
+      autoSendJobs.clear();
+      if (dineInAutoSendNoticeTimerRef.current) {
+        window.clearTimeout(dineInAutoSendNoticeTimerRef.current);
+        dineInAutoSendNoticeTimerRef.current = null;
+      }
+    };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -6097,72 +6136,132 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
     });
   }
 
-  async function autoSendDineInKitchenOrder() {
-    if (dineInAutoSendInFlightRef.current || checkoutRequestLockRef.current || isBusy) return;
-    if (orderType !== "dine_in" || !selectedTable?.id || !selectedTable.active_session_id || !shift || shift.status !== "open" || cart.length === 0 || !isOnline) return;
-    const latestTaxSettings = await refreshTaxSettings();
-    const effectiveTaxBreakdown = latestTaxSettings ? calculateClientTaxBreakdown(taxBaseTotal, latestTaxSettings) : taxBreakdown;
-    const cartSnapshot = cart.map((item) => ({ ...item }));
-    const cartSnapshotSignature = buildCartSignature(cartSnapshot);
-    if (cartSnapshotSignature === lastCommittedCartSignature) return;
+  function buildDineInAutoSendJob(): DineInAutoSendJob | null {
+    if (orderType !== "dine_in" || !selectedTable?.id || !selectedTable.active_session_id || !shift || shift.status !== "open" || cart.length === 0 || !isOnline) return null;
+    const cartSnapshot = cloneCartItems(cart);
+    const signature = buildCartSignature(cartSnapshot);
+    const committedSignature = buildCartSignature(committedDineInCartByTableIdRef.current[selectedTable.id] ?? []);
+    if (signature === committedSignature) return null;
+    return {
+      table: {
+        id: selectedTable.id,
+        table_code: selectedTable.table_code,
+        active_session_id: selectedTable.active_session_id
+      },
+      activeOrder: activeOrder?.status === "queued" && (!activeOrder.table_id || activeOrder.table_id === selectedTable.id) ? activeOrder : null,
+      shiftId: shift.id,
+      cart: cartSnapshot,
+      signature,
+      subtotal,
+      summaryDiscount,
+      taxBaseTotal,
+      taxSettings,
+      member: selectedMember
+        ? {
+            name: selectedMember.name,
+            phone: selectedMember.phone,
+            code: selectedMember.member_token ?? selectedMember.id,
+            points: selectedMember.points,
+            stamps: selectedMember.stamps
+          }
+        : null
+    };
+  }
 
-    dineInAutoSendInFlightRef.current = true;
+  function showDineInKitchenSendingNotice(job: DineInAutoSendJob) {
+    setDineInKitchenSendingNotice({
+      tableCode: job.table.table_code,
+      itemCount: job.cart.reduce((sum, item) => sum + item.quantity, 0)
+    });
+    if (dineInAutoSendNoticeTimerRef.current) window.clearTimeout(dineInAutoSendNoticeTimerRef.current);
+    dineInAutoSendNoticeTimerRef.current = window.setTimeout(() => {
+      setDineInKitchenSendingNotice(null);
+      dineInAutoSendNoticeTimerRef.current = null;
+    }, 3500);
+  }
+
+  function scheduleDineInKitchenAutoSend(job: DineInAutoSendJob, delayMs = DINE_IN_KITCHEN_AUTO_SEND_DELAY_MS) {
+    const tableId = job.table.id;
+    dineInAutoSendJobsRef.current.set(tableId, job);
+    const existingTimer = dineInAutoSendTimersRef.current.get(tableId);
+    if (existingTimer) window.clearTimeout(existingTimer);
+    const nextTimer = window.setTimeout(() => {
+      dineInAutoSendTimersRef.current.delete(tableId);
+      void runDineInKitchenAutoSend(tableId);
+    }, delayMs);
+    dineInAutoSendTimersRef.current.set(tableId, nextTimer);
+  }
+
+  async function autoSendDineInKitchenOrder(jobOverride?: DineInAutoSendJob | null) {
+    const job = jobOverride ?? buildDineInAutoSendJob();
+    if (!job) return;
+    dineInAutoSendJobsRef.current.set(job.table.id, job);
+    await runDineInKitchenAutoSend(job.table.id);
+  }
+
+  async function runDineInKitchenAutoSend(tableId: string) {
+    if (checkoutRequestLockRef.current || !isOnline || dineInAutoSendInFlightRef.current.has(tableId)) return;
+    const job = dineInAutoSendJobsRef.current.get(tableId);
+    if (!job || job.cart.length === 0) return;
+    const committedSignature = buildCartSignature(committedDineInCartByTableIdRef.current[tableId] ?? []);
+    if (job.signature === committedSignature) {
+      dineInAutoSendJobsRef.current.delete(tableId);
+      return;
+    }
+
+    dineInAutoSendInFlightRef.current.add(tableId);
+    showDineInKitchenSendingNotice(job);
+    pushSubmitMessage(`กำลังส่งรายการเข้าครัว: ${job.table.table_code}`);
     try {
+      const latestTaxSettings = await refreshTaxSettings();
+      const effectiveTaxBreakdown = calculateClientTaxBreakdown(job.taxBaseTotal, latestTaxSettings ?? job.taxSettings);
       const payload = buildCheckoutSubmitPayload({
-        idempotencyKey: `pos-dine-kitchen-${selectedTable.id}-${encodeURIComponent(cartSnapshotSignature).slice(0, 120)}`,
-        activeOrder: activeOrder?.status === "queued" ? activeOrder : null,
-        shiftId: shift.id,
-        orderType,
-        selectedTableId: selectedTable.id,
-        subtotal,
-        summaryDiscount,
-        cart,
-        member: selectedMember
-          ? {
-              name: selectedMember.name,
-              phone: selectedMember.phone,
-              code: selectedMember.member_token ?? selectedMember.id,
-              points: selectedMember.points,
-              stamps: selectedMember.stamps
-            }
-          : null
+        idempotencyKey: `pos-dine-kitchen-${tableId}-${encodeURIComponent(job.signature).slice(0, 120)}`,
+        activeOrder: job.activeOrder?.status === "queued" ? job.activeOrder : null,
+        shiftId: job.shiftId,
+        orderType: "dine_in",
+        selectedTableId: tableId,
+        subtotal: job.subtotal,
+        summaryDiscount: job.summaryDiscount,
+        cart: job.cart,
+        member: job.member
       });
       payload.payload.tax_total = effectiveTaxBreakdown.tax_total;
       payload.payload.grand_total = effectiveTaxBreakdown.grand_total;
       payload.payload.tax_lines = effectiveTaxBreakdown.lines;
       const syncedOrder = await submitOrder(payload, { applyUiResult: false });
       if (syncedOrder) {
-        setActiveOrder(syncedOrder);
-        rememberDineInDraft(selectedTable.id, cartSnapshot);
-        setLastCommittedCartSignature(cartSnapshotSignature);
+        committedDineInCartByTableIdRef.current = {
+          ...committedDineInCartByTableIdRef.current,
+          [tableId]: cloneCartItems(job.cart)
+        };
+        rememberDineInDraft(tableId, job.cart);
+        if (selectedTableRef.current?.id === tableId) {
+          setActiveOrder(syncedOrder);
+          setLastCommittedCartSignature(job.signature);
+        }
         void fetchPosTables().catch(() => undefined);
       }
     } catch (autoSendError) {
       const rawMessage = autoSendError instanceof Error ? autoSendError.message : "Kitchen auto-send failed";
       pushSubmitMessage(localizeApiMessage(rawMessage));
     } finally {
-      dineInAutoSendInFlightRef.current = false;
+      dineInAutoSendInFlightRef.current.delete(tableId);
+      const latestJob = dineInAutoSendJobsRef.current.get(tableId);
+      if (!latestJob || latestJob.signature === job.signature) {
+        dineInAutoSendJobsRef.current.delete(tableId);
+      } else {
+        scheduleDineInKitchenAutoSend(latestJob, 250);
+      }
     }
   }
 
   useEffect(() => {
-    if (dineInAutoSendTimerRef.current) {
-      window.clearTimeout(dineInAutoSendTimerRef.current);
-      dineInAutoSendTimerRef.current = null;
-    }
-    if (orderType !== "dine_in" || !selectedTable?.id || !selectedTable.active_session_id || !shift || shift.status !== "open" || cart.length === 0 || !isOnline || isBusy) return;
-    const signature = buildCartSignature(cart);
-    if (signature === lastCommittedCartSignature) return;
-    dineInAutoSendTimerRef.current = window.setTimeout(() => {
-      void autoSendDineInKitchenOrder();
-    }, 5000);
-    return () => {
-      if (dineInAutoSendTimerRef.current) {
-        window.clearTimeout(dineInAutoSendTimerRef.current);
-        dineInAutoSendTimerRef.current = null;
-      }
-    };
-  }, [orderType, selectedTable?.id, selectedTable?.active_session_id, shift?.id, shift?.status, cart, isOnline, isBusy, lastCommittedCartSignature]);
+    const job = buildDineInAutoSendJob();
+    if (!job) return;
+    scheduleDineInKitchenAutoSend(job);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [orderType, selectedTable?.id, selectedTable?.active_session_id, shift?.id, shift?.status, cart, isOnline, lastCommittedCartSignature, activeOrder?.id, activeOrder?.status, subtotal, summaryDiscount, taxBaseTotal, taxSettings, selectedMember?.id]);
   async function handleCheckout() {
     if (isBusy || checkoutRequestLockRef.current) return;
     checkoutRequestLockRef.current = true;
@@ -9759,6 +9858,24 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
         onClose={() => setTableQrModalOpen(false)}
         onBusyChange={setTableQrBusy}
       />
+
+      {dineInKitchenSendingNotice ? (
+        <div className="posui-table-alert-popup" role="status" aria-live="polite" aria-label="กำลังส่งรายการเข้าครัว">
+          <section className="posui-table-alert">
+            <div className="posui-table-alert__icon" aria-hidden="true">
+              !
+            </div>
+            <div className="posui-table-alert__content">
+              <strong>กำลังส่งรายการเข้าครัว</strong>
+              <p>{dineInKitchenSendingNotice.tableCode}</p>
+              <span>{dineInKitchenSendingNotice.itemCount} รายการ</span>
+            </div>
+            <button type="button" onClick={() => setDineInKitchenSendingNotice(null)} aria-label={text.clear}>
+              x
+            </button>
+          </section>
+        </div>
+      ) : null}
 
       {tableQrAlert ? (
         <div className="posui-table-alert-popup" role="alert" aria-live="assertive" aria-label={tableQrAlert.type === "call_staff" ? text.tableQrCallStaff : text.tableQrRequestCheckout}>
