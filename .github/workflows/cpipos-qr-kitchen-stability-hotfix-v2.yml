@@ -59,3 +59,50 @@ jobs:
                   apps/backoffice-web/tests/integration/fg0003-final-item-clear-regression.integration.test.ts
           git commit -m "fix(pos): stabilize QR kitchen flow and bill sync"
           git push origin HEAD:hotfix/fg0003-postclose-sync-20260822-v2
+
+  patch-qr-draft-autosend-guard:
+    if: github.head_ref == 'hotfix/fg0003-qr-draft-autosend-guard-20260822'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: hotfix/fg0003-qr-draft-autosend-guard-20260822
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Activate repository pnpm
+        shell: bash
+        run: |
+          corepack enable
+          corepack prepare pnpm@10.33.4 --activate
+          pnpm --version
+
+      - name: Apply cashier-origin autosend guard
+        run: python3 scripts/hotfix/qr-draft-autosend-guard.py
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Run focused regression tests
+        run: pnpm --filter backoffice-web exec vitest run tests/integration/fg0003-qr-draft-autosend-guard.integration.test.ts tests/integration/fg0003-final-item-clear-regression.integration.test.ts tests/integration/table-qr-postcommit-stability.integration.test.ts
+
+      - name: Typecheck backoffice
+        run: pnpm --filter backoffice-web exec tsc -p tsconfig.json --noEmit --pretty false
+
+      - name: Commit tested autosend guard
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git diff --quiet; then
+            echo "No source changes required."
+            exit 0
+          fi
+          git config user.name "CpIPOS Hotfix Bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add apps/backoffice-web/src/components/pos/pos-sales-module.tsx \
+                  apps/backoffice-web/tests/integration/fg0003-qr-draft-autosend-guard.integration.test.ts
+          git commit -m "fix(pos): require cashier origin for dine-in autosend"
+          git push origin HEAD:hotfix/fg0003-qr-draft-autosend-guard-20260822
