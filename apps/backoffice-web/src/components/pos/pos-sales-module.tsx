@@ -6178,11 +6178,18 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
   }
 
   function buildDineInAutoSendJob(): DineInAutoSendJob | null {
-    if (orderType !== "dine_in" || !selectedTable?.id || !selectedTable.active_session_id || !shift || shift.status !== "open" || cart.length === 0 || !isOnline) return null;
+    if (orderType !== "dine_in" || !selectedTable?.id || !selectedTable.active_session_id || !shift || shift.status !== "open" || !isOnline) return null;
     const cartSnapshot = cloneCartItems(cart);
     const signature = buildCartSignature(cartSnapshot);
-    const committedSignature = buildCartSignature(committedDineInCartByTableIdRef.current[selectedTable.id] ?? []);
+    const committedCart = committedDineInCartByTableIdRef.current[selectedTable.id] ?? [];
+    const committedSignature = buildCartSignature(committedCart);
     if (signature === committedSignature) return null;
+    const canClearExistingDineIn =
+      cartSnapshot.length === 0 &&
+      activeOrder?.status === "queued" &&
+      (!activeOrder.table_id || activeOrder.table_id === selectedTable.id) &&
+      (committedCart.length > 0 || lastCommittedCartSignature !== null);
+    if (cartSnapshot.length === 0 && !canClearExistingDineIn) return null;
     return {
       table: {
         id: selectedTable.id,
@@ -6243,8 +6250,17 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
   async function runDineInKitchenAutoSend(tableId: string) {
     if (checkoutRequestLockRef.current || !isOnline || dineInAutoSendInFlightRef.current.has(tableId)) return;
     const job = dineInAutoSendJobsRef.current.get(tableId);
-    if (!job || job.cart.length === 0) return;
-    const committedSignature = buildCartSignature(committedDineInCartByTableIdRef.current[tableId] ?? []);
+    if (!job) return;
+    const committedCart = committedDineInCartByTableIdRef.current[tableId] ?? [];
+    const committedSignature = buildCartSignature(committedCart);
+    const canClearExistingDineIn =
+      job.cart.length === 0 &&
+      job.activeOrder?.status === "queued" &&
+      (committedCart.length > 0 || (selectedTableRef.current?.id === tableId && lastCommittedCartSignature !== null));
+    if (job.cart.length === 0 && !canClearExistingDineIn) {
+      dineInAutoSendJobsRef.current.delete(tableId);
+      return;
+    }
     if (job.signature === committedSignature) {
       dineInAutoSendJobsRef.current.delete(tableId);
       return;
@@ -6254,6 +6270,35 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
     showDineInKitchenSendingNotice(job);
     pushSubmitMessage(`กำลังส่งรายการเข้าครัว: ${job.table.table_code}`);
     try {
+      if (job.cart.length === 0 && job.activeOrder?.status === "queued") {
+        const clearResponse = await fetch("/api/pos/sales/clear-dine-in", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ order_id: job.activeOrder.id, table_id: tableId })
+        });
+        const clearBody = (await clearResponse.json().catch(() => null)) as
+          | { data?: { total_amount?: number }; error?: { message?: string } }
+          | null;
+        if (!clearResponse.ok) {
+          throw new Error(clearBody?.error?.message || "Unable to clear dine-in bill items.");
+        }
+        const clearedOrder: ActiveOrder = {
+          ...job.activeOrder,
+          total_amount: Number(clearBody?.data?.total_amount ?? 0)
+        };
+        committedDineInCartByTableIdRef.current = {
+          ...committedDineInCartByTableIdRef.current,
+          [tableId]: []
+        };
+        rememberDineInDraft(tableId, []);
+        if (selectedTableRef.current?.id === tableId) {
+          setActiveOrder(clearedOrder);
+          setLastCommittedCartSignature(job.signature);
+        }
+        void fetchPosTables().catch(() => undefined);
+        return;
+      }
+
       const latestTaxSettings = await refreshTaxSettings();
       const effectiveTaxBreakdown = calculateClientTaxBreakdown(job.taxBaseTotal, latestTaxSettings ?? job.taxSettings);
       const payload = buildCheckoutSubmitPayload({

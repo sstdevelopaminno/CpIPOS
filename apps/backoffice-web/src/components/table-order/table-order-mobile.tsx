@@ -75,7 +75,7 @@ type SubmitItem = { product_id: string; quantity: number; note?: string | null; 
 
 const MENU_LOAD_TIMEOUT_MS = 45_000;
 const SUBMIT_TIMEOUT_MS = 20_000;
-const MENU_STATUS_POLL_MS = 15_000;
+const MENU_STATUS_POLL_MS = 3_000;
 const ALL_CATEGORY = "\u0E17\u0E31\u0E49\u0E07\u0E2B\u0E21\u0E14";
 const RECOMMENDED_CATEGORY = "\u0E41\u0E19\u0E30\u0E19\u0E33";
 const LINK_CLOSED_MESSAGE = "ลิงก์สั่งอาหารหมดอายุหรือปิดบิลแล้ว";
@@ -249,6 +249,7 @@ export function TableOrderMobile({ token }: { token: string }) {
   const linkClosedToastShownRef = useRef(false);
   const clientIdRef = useRef<string | null>(null);
   const submitInFlightRef = useRef<{ requestId: string; fingerprint: string } | null>(null);
+  const submitRetryRef = useRef<{ requestId: string; fingerprint: string } | null>(null);
   const apiUrl = useMemo(() => `/api/table-order/${encodeURIComponent(token)}`, [token]);
   const statusUrl = useMemo(() => `${apiUrl}?view=status`, [apiUrl]);
 
@@ -472,7 +473,9 @@ export function TableOrderMobile({ token }: { token: string }) {
     }
     const fingerprint = buildSubmitFingerprint(items);
     if (submitInFlightRef.current?.fingerprint === fingerprint) return;
-    const requestId = buildRequestId();
+    const retry = submitRetryRef.current;
+    const requestId = retry?.fingerprint === fingerprint ? retry.requestId : buildRequestId();
+    submitRetryRef.current = { requestId, fingerprint };
     submitInFlightRef.current = { requestId, fingerprint };
     setSubmitting(true);
     setError(null);
@@ -484,6 +487,7 @@ export function TableOrderMobile({ token }: { token: string }) {
         throw new Error(publicOrderErrorMessage(response, body, "ไม่สามารถส่งรายการได้ กรุณาลองใหม่หรือติดต่อพนักงาน"));
       }
       const orderNo = body.data.order_no ?? "-";
+      if (submitRetryRef.current?.requestId === requestId) submitRetryRef.current = null;
       setSuccessOrderNo(orderNo);
       setHasSubmittedFoodOrder(true);
       setCart({});
