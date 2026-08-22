@@ -1,0 +1,51 @@
+{
+  "generated_at": "2026-08-22T01:42:06.046Z",
+  "config": {
+    "base_url": "https://cp-ipos-web.vercel.app",
+    "seconds": 5,
+    "concurrency": 2,
+    "timeout_ms": 12000,
+    "scopes": [
+      "default"
+    ],
+    "routes": [
+      "build_info"
+    ]
+  },
+  "totals": {
+    "requests": 59,
+    "failures": 0,
+    "error_rate_pct": 0,
+    "throughput_rps": 11.8
+  },
+  "route_summary": {
+    "default:build_info": {
+      "scope": "default",
+      "route": "build_info",
+      "method": "GET",
+      "path": "/api/system/build-info",
+      "requests": 59,
+      "failures": 0,
+      "error_rate_pct": 0,
+      "latency_ms": {
+        "count": 59,
+        "min": 126,
+        "p50": 147,
+        "p95": 357,
+        "p99": 659,
+        "max": 659,
+        "avg": 167.24
+      },
+      "status_counts": {
+        "200": 59
+      },
+      "error_codes": {}
+    }
+  },
+  "queue": {
+    "samples": [],
+    "max_pending_depth": null,
+    "max_age_ms": null
+  },
+  "timeout_errors": {}
+}

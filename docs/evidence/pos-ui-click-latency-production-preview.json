@@ -1,0 +1,86 @@
+{
+  "generated_at": "2026-08-22T01:40:55.722Z",
+  "url": "https://cp-ipos-web.vercel.app/preview/pos",
+  "nav_ms": 6733,
+  "page": {
+    "body_text_length": 31,
+    "framework_error_overlay_count": 0
+  },
+  "summary": {
+    "click_latency_ms": {
+      "count": 2,
+      "min": 162,
+      "p50": 162,
+      "p95": 207,
+      "p99": 207,
+      "max": 207,
+      "avg": 184.5
+    },
+    "console_error_count": 2,
+    "failed_request_count": 4
+  },
+  "measurements": [
+    {
+      "name": "sales_mode_switch",
+      "selector": "button[aria-label*='โหมด'], button[aria-label*='mode']",
+      "skipped": true,
+      "reason": "selector_not_found",
+      "samples": []
+    },
+    {
+      "name": "table_tab",
+      "selector": "[role='tab'], .posui-table-browser__view-switch button",
+      "skipped": true,
+      "reason": "selector_not_found",
+      "samples": []
+    },
+    {
+      "name": "first_safe_button",
+      "selector": "button:not([disabled])",
+      "skipped": false,
+      "samples": [
+        {
+          "ok": true,
+          "latency_ms": 207,
+          "error": null
+        },
+        {
+          "ok": true,
+          "latency_ms": 162,
+          "error": null
+        }
+      ],
+      "latency_ms": {
+        "count": 2,
+        "min": 162,
+        "p50": 162,
+        "p95": 207,
+        "p99": 207,
+        "max": 207,
+        "avg": 184.5
+      }
+    }
+  ],
+  "console_errors": [
+    "Failed to load resource: the server responded with a status of 401 ()",
+    "Failed to load resource: the server responded with a status of 401 ()"
+  ],
+  "failed_requests": [
+    {
+      "url": "https://cp-ipos-web.vercel.app/login/branches?flow=multi&_rsc=Y1rbqY_F7xIQYOU9",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "url": "https://cp-ipos-web.vercel.app/login/employee?flow=single&_rsc=Y1rbqY_F7xIQYOU9",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "url": "https://cp-ipos-web.vercel.app/login/branches?flow=multi&_rsc=FFzbXtX4vN5tBgMF",
+      "failure": "net::ERR_ABORTED"
+    },
+    {
+      "url": "https://cp-ipos-web.vercel.app/login/branches?flow=multi&_rsc=qOr8nUYz4JPXVTu0",
+      "failure": "net::ERR_ABORTED"
+    }
+  ]
+}
