@@ -1,0 +1,1 @@
+Trigger guarded FG0003 table-bill sync one-shot on 2026-08-22.
