@@ -87,13 +87,6 @@ begin
     raise exception 'PRODUCT_NOT_AVAILABLE';
   end if;
 
-  update pg_temp.dine_in_target_items ti
-  set order_item_id=oi.id, existing_quantity=oi.quantity, delta=ti.quantity-oi.quantity
-  from public.order_items oi
-  where oi.tenant_id=p_tenant_id and oi.branch_id=p_branch_id and oi.order_id=p_order_id
-    and oi.product_id=ti.product_id and coalesce(oi.notes,'')=coalesce(ti.notes,'')
-    and oi.quantity>0 and coalesce(oi.metadata->>'bill_line_state','active')<>'cancelled';
-
   update public.order_items oi
   set quantity=ti.quantity, unit_price=ti.unit_price, line_total=ti.line_total, notes=ti.notes,
       name=coalesce(ti.product_name,oi.name),
