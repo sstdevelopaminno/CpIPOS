@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 type KitchenStatus = "queued" | "acknowledged" | "preparing" | "ready" | "cancelled";
-type KitchenItem = { id: string; product_name: string; quantity: number; notes: string | null; action: string };
+type KitchenItem = { id: string; order_item_id: string | null; product_name: string; quantity: number; notes: string | null; action: string };
 type KitchenTicket = {
   id: string;
   order_id: string;
@@ -388,6 +388,32 @@ export function KitchenKds() {
     }
   }
 
+  async function cancelItem(ticket: KitchenTicket, item: KitchenItem) {
+    const busyKey = `item:${item.id}`;
+    if (busyKeys.has(busyKey)) return;
+    const previousTickets = tickets;
+    setBusy(busyKey, true);
+    setTickets((current) => current
+      .map((row) => row.id === ticket.id ? { ...row, items: row.items.filter((candidate) => candidate.id !== item.id) } : row)
+      .filter((row) => row.items.length > 0));
+    try {
+      const response = await fetch(`/api/pos/kitchen/tickets/${ticket.id}/items/${item.id}/cancel`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reason: "kds_item_cancel" })
+      });
+      const body = (await response.json().catch(() => null)) as { error?: { message?: string } } | null;
+      if (!response.ok) throw new Error(body?.error?.message ?? "Kitchen item cancellation failed.");
+      await load(true);
+      setError(null);
+    } catch (cancelError) {
+      setTickets(previousTickets);
+      setError(cancelError instanceof Error ? cancelError.message : "Kitchen item cancellation failed.");
+    } finally {
+      setBusy(busyKey, false);
+    }
+  }
+
   async function finishBill(group: BillGroup) {
     const busyKey = `bill:${group.key}`;
     if (busyKeys.has(busyKey)) return;
@@ -557,7 +583,7 @@ export function KitchenKds() {
                                     <span className="font-black">{item.product_name}</span>
                                     {item.notes ? <small className="block text-xs font-semibold text-orange-600">{item.notes}</small> : null}
                                   </div>
-                                  <strong className="text-lg">x{item.quantity}</strong>
+                                  <div className="flex shrink-0 flex-col items-end gap-2"><strong className="text-lg">x{item.quantity}</strong>{item.action !== "cancel" ? <button type="button" onClick={() => void cancelItem(ticket, item)} disabled={ticketBusy || busyKeys.has(`item:${item.id}`)} className="rounded-lg border border-red-200 bg-red-50 px-2.5 py-1 text-xs font-black text-red-700 disabled:opacity-50">{"\u0e22\u0e01\u0e40\u0e25\u0e34\u0e01"}</button> : null}</div>
                                 </div>
                               ))}
                             </div>

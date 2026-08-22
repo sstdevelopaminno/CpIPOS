@@ -69,7 +69,15 @@ type TableQrMenuProduct = {
 type SubmittedOrderSummary = {
   item_count: number;
   total_amount: number;
-  items: Array<{ product_id: string; name: string; quantity: number; unit_price: number; line_total: number }>;
+  items: Array<{
+    product_id: string;
+    name: string;
+    quantity: number;
+    unit_price: number;
+    line_total: number;
+    status: "active" | "cancelled";
+    cancelled_quantity?: number | null;
+  }>;
 };
 
 type SubmittedOrderItemRow = {
@@ -77,6 +85,7 @@ type SubmittedOrderItemRow = {
   quantity: number | null;
   unit_price: number | null;
   line_total: number | null;
+  metadata?: Record<string, unknown> | null;
   products: { name?: string | null } | null;
 };
 
@@ -319,43 +328,50 @@ async function loadSubmittedOrderSummary(context: QrContext, supabase = getSupab
       .maybeSingle<{ id: string; total_amount: number | null; grand_total: number | null }>(),
     supabase
       .from("order_items")
-      .select("product_id,quantity,unit_price,line_total,products(name)")
+      .select("product_id,quantity,unit_price,line_total,metadata,products(name)")
       .eq("tenant_id", context.tenant_id)
       .eq("branch_id", context.branch_id)
       .eq("order_id", orderId)
-      .gt("quantity", 0)
       .limit(80)
   ]);
 
   if (orderError) throw new Error(orderError.message);
   if (itemError) throw new Error(itemError.message);
 
-  const itemMap = new Map<string, { product_id: string; name: string; quantity: number; unit_price: number; line_total: number }>();
+  const itemMap = new Map<string, { product_id: string; name: string; quantity: number; unit_price: number; line_total: number; status: "active" | "cancelled"; cancelled_quantity?: number | null }>();
   for (const row of ((itemRows ?? []) as SubmittedOrderItemRow[])) {
     const productId = String(row.product_id ?? "").trim();
     if (!productId) continue;
     const unitPrice = Math.max(0, Number(row.unit_price ?? 0));
-    const key = `${productId}:${unitPrice}`;
+    const isCancelled = String(row.metadata?.bill_line_state ?? "").toLowerCase() === "cancelled";
+    const status = isCancelled ? "cancelled" : "active";
+    const key = `${productId}:${unitPrice}:${status}`;
     const current = itemMap.get(key);
-    const quantity = Math.max(0, Number(row.quantity ?? 0));
-    const lineTotal = Math.max(0, Number(row.line_total ?? unitPrice * quantity));
+    const quantity = isCancelled
+      ? Math.max(0, Number(row.metadata?.cancelled_quantity ?? row.quantity ?? 0))
+      : Math.max(0, Number(row.quantity ?? 0));
+    const lineTotal = isCancelled ? 0 : Math.max(0, Number(row.line_total ?? unitPrice * quantity));
+    if (quantity <= 0 && !isCancelled) continue;
     if (current) {
       current.quantity = Number((current.quantity + quantity).toFixed(3));
       current.line_total = Number((current.line_total + lineTotal).toFixed(2));
+      if (isCancelled) current.cancelled_quantity = Number(((current.cancelled_quantity ?? 0) + quantity).toFixed(3));
     } else {
       itemMap.set(key, {
         product_id: productId,
         name: String(row.products?.name ?? "Item"),
         quantity,
         unit_price: unitPrice,
-        line_total: Number(lineTotal.toFixed(2))
+        line_total: Number(lineTotal.toFixed(2)),
+        status,
+        cancelled_quantity: isCancelled ? quantity : null
       });
     }
   }
 
-  const items = Array.from(itemMap.values()).filter((item) => item.quantity > 0);
+  const items = Array.from(itemMap.values()).filter((item) => item.quantity > 0 || item.status === "cancelled");
   return {
-    item_count: items.reduce((sum, item) => sum + item.quantity, 0),
+    item_count: items.filter((item) => item.status === "active").reduce((sum, item) => sum + item.quantity, 0),
     total_amount: Number(orderRow?.grand_total ?? orderRow?.total_amount ?? items.reduce((sum, item) => sum + item.line_total, 0)),
     items
   };
@@ -464,7 +480,6 @@ export async function hasSubmittedFoodOrderForContext(context: QrContext, supaba
     .eq("tenant_id", context.tenant_id)
     .eq("branch_id", context.branch_id)
     .eq("order_id", context.table_session_order_id)
-    .gt("quantity", 0)
     .limit(1);
 
   if (error) throw new Error(error.message);

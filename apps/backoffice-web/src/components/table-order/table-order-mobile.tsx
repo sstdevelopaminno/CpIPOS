@@ -32,6 +32,8 @@ type SubmittedSummaryItem = {
   quantity: number;
   unit_price: number;
   line_total: number;
+  status?: "active" | "cancelled";
+  cancelled_quantity?: number | null;
 };
 
 type MenuResponse = {
@@ -593,11 +595,15 @@ export function TableOrderMobile({ token }: { token: string }) {
               <button type="button" onClick={() => setSubmittedOpen(false)} aria-label="ปิด">×</button>
             </header>
             <div className={styles.submittedModalRows}>
-              {submittedItems.map((item, index) => (
-                <div className={styles.submittedModalRow} key={`${item.product_id}-${index}`}>
-                  <span>{item.name} × {item.quantity}</span><strong>{money(item.line_total)}</strong>
-                </div>
-              ))}
+              {submittedItems.map((item, index) => {
+                const cancelled = item.status === "cancelled";
+                const quantity = cancelled ? item.cancelled_quantity ?? item.quantity : item.quantity;
+                return (
+                  <div className={cancelled ? `${styles.submittedModalRow} ${styles.submittedModalRowCancelled}` : styles.submittedModalRow} key={`${item.product_id}-${index}`}>
+                    <span>{item.name} {"\u00d7"} {quantity}{cancelled ? " \u0e22\u0e01\u0e40\u0e25\u0e34\u0e01\u0e41\u0e25\u0e49\u0e27" : ""}</span><strong>{cancelled ? "\u0e22\u0e01\u0e40\u0e25\u0e34\u0e01" : money(item.line_total)}</strong>
+                  </div>
+                );
+              })}
             </div>
             <footer className={styles.submittedModalFooter}>
               <div><span>รวมรายการที่ส่งแล้ว</span><strong>{money(menu.submitted_summary?.total_amount ?? 0)}</strong></div>
