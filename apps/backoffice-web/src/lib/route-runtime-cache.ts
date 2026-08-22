@@ -1,4 +1,4 @@
-﻿type CacheSource = "hit" | "miss" | "inflight" | "stale";
+type CacheSource = "hit" | "miss" | "inflight" | "stale";
 
 type CacheEntry = {
   expiresAt: number;
@@ -31,9 +31,11 @@ export async function readThroughRuntimeCache<T>(args: {
   staleIfErrorMs?: number;
   loaderTimeoutMs?: number;
   timeoutCode?: string;
+  forceRefresh?: boolean;
   loader: (signal?: AbortSignal) => Promise<T>;
 }): Promise<{ value: T; source: CacheSource }> {
   const { key, ttlMs, loader } = args;
+  const forceRefresh = args.forceRefresh === true;
   const staleIfErrorMs = Math.max(0, Number(args.staleIfErrorMs ?? 0));
   const loaderTimeoutMs = Math.max(0, Number(args.loaderTimeoutMs ?? 0));
   const timeoutCode = args.timeoutCode ?? "runtime_cache_loader_timeout";
@@ -41,14 +43,16 @@ export async function readThroughRuntimeCache<T>(args: {
   pruneCache(now);
 
   const cached = valueCache.get(key);
-  if (cached && cached.expiresAt > now) {
-    cached.touchedAt = now;
-    return { value: cached.value as T, source: "hit" };
+  if (!forceRefresh) {
+    if (cached && cached.expiresAt > now) {
+      cached.touchedAt = now;
+      return { value: cached.value as T, source: "hit" };
+    }
   }
 
   const stale = cached && cached.staleUntil > now ? cached : null;
   const inflight = inflightCache.get(key);
-  if (inflight) {
+  if (!forceRefresh && inflight) {
     try {
       return { value: (await inflight) as T, source: "inflight" };
     } catch (error) {

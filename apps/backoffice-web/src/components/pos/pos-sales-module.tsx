@@ -510,6 +510,7 @@ type TableBillItemPayload = {
   unit_price: number;
   line_total: number;
   notes: string | null;
+  metadata?: Record<string, unknown> | null;
   products?: { name?: string | null } | Array<{ name?: string | null }> | null;
 };
 
@@ -2913,10 +2914,12 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
     serverItems: CartItem[];
     localDraft: CartItem[];
     committedBaseline: CartItem[];
+    serverCancelledKeys?: Set<string>;
   }): CartItem[] {
     const { serverItems, localDraft, committedBaseline } = args;
+    const serverCancelledKeys = args.serverCancelledKeys ?? new Set<string>();
     if (localDraft.length === 0) return cloneCartItems(serverItems);
-    if (committedBaseline.length === 0 && serverItems.length === 0) return cloneCartItems(localDraft);
+    if (committedBaseline.length === 0 && serverItems.length === 0 && serverCancelledKeys.size === 0) return cloneCartItems(localDraft);
 
     const committedQtyByKey = new Map<string, number>();
     const baselineItems = committedBaseline.length > 0 ? committedBaseline : serverItems;
@@ -2931,6 +2934,7 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
 
     for (const localItem of localDraft) {
       const key = buildCartMergeKey(localItem);
+      if (serverCancelledKeys.has(key)) continue;
       const extraQuantity = Number(localItem.quantity ?? 0) - (committedQtyByKey.get(key) ?? 0);
       if (!Number.isFinite(extraQuantity) || extraQuantity <= 0) continue;
       const existingIndex = nextIndexByKey.get(key);
@@ -3120,6 +3124,10 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
     });
   }
 
+  function isCancelledTableBillItemPayload(item: TableBillItemPayload): boolean {
+    return String(item.metadata?.bill_line_state ?? "active").toLowerCase() === "cancelled";
+  }
+
   function getTableBillItemName(item: TableBillItemPayload): string {
     const relation = item.products;
     const relationName =
@@ -3145,13 +3153,26 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
     const activeCartSnapshot = isActiveSelectedTable ? cartRef.current.map((item) => ({ ...item })) : [];
     const orderTaxLines = normalizeTaxLineSnapshots(order?.metadata?.tax_lines);
     const orderTaxTotal = Number(order?.tax_total ?? orderTaxLines.reduce((sum, line) => sum + line.amount, 0));
-    const mappedOrderItems = items.map((item) => ({
-      product_id: item.product_id,
-      quantity: Math.max(1, Number(item.quantity || 0)),
-      price: Number(item.unit_price ?? 0),
-      name: getTableBillItemName(item),
-      notes: item.notes ?? null
-    }));
+    const serverCancelledKeys = new Set(
+      items
+        .filter(isCancelledTableBillItemPayload)
+        .map((item) => buildCartMergeKey({
+          product_id: item.product_id,
+          quantity: 0,
+          price: Number(item.unit_price ?? 0),
+          name: getTableBillItemName(item),
+          notes: item.notes ?? null
+        }))
+    );
+    const mappedOrderItems = items
+      .filter((item) => !isCancelledTableBillItemPayload(item) && Number(item.quantity ?? 0) > 0)
+      .map((item) => ({
+        product_id: item.product_id,
+        quantity: Math.max(1, Number(item.quantity || 0)),
+        price: Number(item.unit_price ?? 0),
+        name: getTableBillItemName(item),
+        notes: item.notes ?? null
+      }));
     setTableTransferVerifications(transferVerifications);
     const latestPaymentMethod = normalizeBillPaymentMethod(payments[0]?.method ?? null);
     setBillPaymentMethod(latestPaymentMethod);
@@ -3199,7 +3220,8 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
     const nextCartFromServer = mergeServerCartWithLocalDraft({
       serverItems: mappedOrderItems,
       localDraft: localDraftCandidate,
-      committedBaseline
+      committedBaseline,
+      serverCancelledKeys
     });
     committedDineInCartByTableIdRef.current = {
       ...committedDineInCartByTableIdRef.current,
@@ -3229,11 +3251,12 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
     setCart([]);
   }
 
-  function buildTableBillContextUrl(tableId: string, options?: { lite?: boolean }): string {
-    if (options?.lite) {
-      return `/api/pos/tables/${tableId}/bill?lite=1`;
-    }
-    return `/api/pos/tables/${tableId}/bill`;
+  function buildTableBillContextUrl(tableId: string, options?: { lite?: boolean; refresh?: boolean }): string {
+    const params = new URLSearchParams();
+    if (options?.lite) params.set("lite", "1");
+    if (options?.refresh) params.set("refresh", "1");
+    const query = params.toString();
+    return `/api/pos/tables/${tableId}/bill${query ? `?${query}` : ""}`;
   }
 
   async function prefetchTableBillsForFastSwitch(tables: DiningTableItem[]) {
@@ -3314,7 +3337,7 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
     tableBillReloadPendingRef.current.delete(table.id);
     try {
       const { response, body } = await fetchJsonWithTimeout<TableBillResponseBody>(
-        buildTableBillContextUrl(table.id),
+        buildTableBillContextUrl(table.id, { refresh: true }),
         { cache: "no-store" },
         12000,
         0
@@ -4375,6 +4398,24 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
       window.removeEventListener("focus", refreshTables);
     };
   }, [isHydrated, orderType, tableBrowserOpen]);
+
+  useEffect(() => {
+    if (!isHydrated || orderType !== "dine_in" || tableBrowserOpen || !selectedTable?.id || !activeOrder?.id) return;
+    let disposed = false;
+    const refreshActiveTableBill = () => {
+      if (disposed || document.visibilityState !== "visible") return;
+      const table = selectedTableRef.current;
+      if (!table?.id || table.id !== selectedTable.id) return;
+      void loadTableBillContextRef.current(table).catch(() => undefined);
+    };
+    const interval = window.setInterval(refreshActiveTableBill, 3500);
+    window.addEventListener("focus", refreshActiveTableBill);
+    return () => {
+      disposed = true;
+      window.clearInterval(interval);
+      window.removeEventListener("focus", refreshActiveTableBill);
+    };
+  }, [activeOrder?.id, isHydrated, orderType, selectedTable?.id, tableBrowserOpen]);
 
   async function setTablePaymentLock(order: CheckoutReviewOrder, locked: boolean) {
     const tableId = order.table_id ?? selectedTableRef.current?.id ?? null;

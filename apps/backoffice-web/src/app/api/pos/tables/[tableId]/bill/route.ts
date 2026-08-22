@@ -54,6 +54,7 @@ export async function GET(req: Request, context: { params: Promise<{ tableId: st
     const { tableId } = await context.params;
     const searchParams = new URL(req.url).searchParams;
     const liteMode = searchParams.get("lite") === "1";
+    const forceRefresh = searchParams.get("refresh") === "1";
     if (!tableId) {
       return withTiming(fail("invalid_table_id", "tableId is required.", 422));
     }
@@ -63,6 +64,7 @@ export async function GET(req: Request, context: { params: Promise<{ tableId: st
       key: cacheKey,
       ttlMs: 5000,
       staleIfErrorMs: 10000,
+      forceRefresh,
       loader: async () => {
         const supabase = getSupabaseServiceClient();
         const { data: session, error: sessionError } = await supabase
@@ -112,11 +114,11 @@ export async function GET(req: Request, context: { params: Promise<{ tableId: st
               .maybeSingle(),
             supabase
               .from("order_items")
-              .select("id,product_id,quantity,unit_price,line_total,notes,products(name)")
+              .select("id,product_id,quantity,unit_price,line_total,notes,metadata,products(name)")
               .eq("tenant_id", auth.tenantId!)
               .eq("branch_id", auth.branchId!)
               .eq("order_id", session.order_id)
-              .gt("quantity", 0),
+              .order("created_at", { ascending: true }),
             liteMode
               ? Promise.resolve({ data: [], error: null })
               : supabase

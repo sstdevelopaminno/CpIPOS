@@ -100,6 +100,16 @@ describe("android modern update offer", () => {
     })).toBeNull();
   });
 
+  it("does not re-prompt installation when the Modern runtime is already current or newer", () => {
+    expect(buildAndroidModernUpdateOffer({
+      tenantCode: "900001",
+      payload: modernPayload(ANDROID_MODERN_RELEASE.versionCode, true)
+    })).toBeNull();
+    expect(buildAndroidModernUpdateOffer({
+      tenantCode: "900001",
+      payload: modernPayload(ANDROID_MODERN_RELEASE.versionCode + 1, true)
+    })).toBeNull();
+  });
   it("fails closed if a client capability implies forced or silent installation policy", () => {
     const payload = modernPayload(26, true);
     (payload.runtime_capabilities.updates as Record<string, unknown>).forced_update = true;
