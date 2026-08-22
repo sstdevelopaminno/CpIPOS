@@ -544,6 +544,8 @@ async function loadRecentQrOrderPayloadDuplicate(args: {
   const { data, error } = await args.supabase
     .from("table_qr_orders")
     .select("id,order_id,payload,created_at")
+    .eq("tenant_id", args.context.tenant_id)
+    .eq("branch_id", args.context.branch_id)
     .eq("qr_session_id", args.context.id)
     .eq("event_type", "order")
     .gte("created_at", duplicateSince)
@@ -577,31 +579,42 @@ async function markQrOrderPayloadFingerprint(args: {
   supabase: ReturnType<typeof getSupabaseServiceClient>;
 }) {
   if (args.clientId === "anonymous") return;
-  const { data, error: loadError } = await args.supabase
-    .from("table_qr_orders")
-    .select("payload")
-    .eq("id", args.submissionId)
-    .eq("qr_session_id", args.context.id)
-    .maybeSingle<{ payload: Record<string, unknown> | null }>();
-  if (loadError) {
-    console.warn("[table-qr-ordering] duplicate fingerprint payload load failed", { submissionId: args.submissionId, message: loadError.message });
-    return;
-  }
-  const payload = data?.payload && typeof data.payload === "object" ? data.payload : {};
-  const { error: updateError } = await args.supabase
-    .from("table_qr_orders")
-    .update({
-      payload: {
-        ...payload,
-        client_id: args.clientId,
-        payload_fingerprint: args.payloadFingerprint,
-        payload_fingerprint_version: 1
-      }
-    })
-    .eq("id", args.submissionId)
-    .eq("qr_session_id", args.context.id);
-  if (updateError) {
-    console.warn("[table-qr-ordering] duplicate fingerprint payload update failed", { submissionId: args.submissionId, message: updateError.message });
+  try {
+    const { data, error: loadError } = await args.supabase
+      .from("table_qr_orders")
+      .select("payload")
+      .eq("tenant_id", args.context.tenant_id)
+      .eq("branch_id", args.context.branch_id)
+      .eq("id", args.submissionId)
+      .eq("qr_session_id", args.context.id)
+      .maybeSingle<{ payload: Record<string, unknown> | null }>();
+    if (loadError) {
+      console.warn("[table-qr-ordering] duplicate fingerprint payload load failed", { submissionId: args.submissionId, message: loadError.message });
+      return;
+    }
+    const payload = data?.payload && typeof data.payload === "object" ? data.payload : {};
+    const { error: updateError } = await args.supabase
+      .from("table_qr_orders")
+      .update({
+        payload: {
+          ...payload,
+          client_id: args.clientId,
+          payload_fingerprint: args.payloadFingerprint,
+          payload_fingerprint_version: 1
+        }
+      })
+      .eq("tenant_id", args.context.tenant_id)
+      .eq("branch_id", args.context.branch_id)
+      .eq("id", args.submissionId)
+      .eq("qr_session_id", args.context.id);
+    if (updateError) {
+      console.warn("[table-qr-ordering] duplicate fingerprint payload update failed", { submissionId: args.submissionId, message: updateError.message });
+    }
+  } catch (error) {
+    console.warn("[table-qr-ordering] duplicate fingerprint payload marking skipped", {
+      submissionId: args.submissionId,
+      message: error instanceof Error ? error.message : "fingerprint_mark_failed"
+    });
   }
 }
 export async function submitTableQrOrder(args: {
@@ -628,13 +641,12 @@ export async function submitTableQrOrder(args: {
   const row = (Array.isArray(data) ? data[0] : data) as SubmitQrOrderRow | null;
   if (!row) throw new Error("table_qr_order_failed");
 
-  await markQrOrderPayloadFingerprint({ context, submissionId: row.submission_id, clientId, payloadFingerprint, supabase });
-
   if (!row.duplicate_request) {
     await queueTableQrKitchenPrints({ context, orderId: row.order_id, requestId });
     invalidatePosBranchRuntimeCaches({ tenantId: context.tenant_id, branchId: context.branch_id });
   }
 
+  await markQrOrderPayloadFingerprint({ context, submissionId: row.submission_id, clientId, payloadFingerprint, supabase });
   return row;
 }
 
