@@ -650,3 +650,9 @@ ORDER BY p.name;
 - Table move is routed through `move_table_bill_session_tx`, which updates order/table/session/QR/Kitchen active table references in one scoped transaction and rejects occupied destinations.
 - Product Management catalog mutations use bounded client timeouts so busy UI state resolves to success or error instead of waiting indefinitely.
 - POS User Management no longer hides owner rows from the list response; edit/delete permission guards remain enforced separately.
+
+## 2026-08-22 - POS latency stabilization follow-up
+
+- POS table refresh now skips overlapping requests and uses lighter polling intervals while preserving focus-triggered refresh, reducing UI contention on slower store devices.
+- Active dine-in bill refresh now avoids concurrent reloads and polls less aggressively while a table is selected.
+- Automatic receipt bridge requests now use a shorter bounded timeout so payment completion is not held behind a slow printer bridge; queued print jobs remain the authoritative print path.

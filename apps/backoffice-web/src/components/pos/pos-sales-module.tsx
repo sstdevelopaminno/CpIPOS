@@ -1379,6 +1379,7 @@ const uiText = {
 
 const RECEIPT_MODAL_MIN_VISIBLE_MS = 2200;
 const RECEIPT_MODAL_SAFE_TIMEOUT_MS = 8000;
+const RECEIPT_BRIDGE_REQUEST_TIMEOUT_MS = 4500;
 const DINE_IN_KITCHEN_AUTO_SEND_DELAY_MS = 1200;
 
 function newIdempotencyKey() {
@@ -2237,6 +2238,8 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
   const receiptModalOpenedAtRef = useRef(0);
   const receiptAutoCloseTimerRef = useRef<number | null>(null);
   const receiptErrorRef = useRef<string | null>(null);
+  const tableRefreshInFlightRef = useRef(false);
+  const activeTableBillRefreshInFlightRef = useRef(false);
   const checkoutRequestLockRef = useRef(false);
   const dineInAutoSendTimersRef = useRef<Map<string, number>>(new Map());
   const dineInAutoSendJobsRef = useRef<Map<string, DineInAutoSendJob>>(new Map());
@@ -4409,10 +4412,15 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
     if (!isHydrated || orderType !== "dine_in") return;
     let disposed = false;
     const refreshTables = () => {
-      if (disposed || document.visibilityState !== "visible") return;
-      void fetchPosTablesRef.current({ timeoutMs: 8000, retries: 0, silent: true }).catch(() => undefined);
+      if (disposed || document.visibilityState !== "visible" || tableRefreshInFlightRef.current) return;
+      tableRefreshInFlightRef.current = true;
+      void fetchPosTablesRef.current({ timeoutMs: 8000, retries: 0, silent: true })
+        .catch(() => undefined)
+        .finally(() => {
+          tableRefreshInFlightRef.current = false;
+        });
     };
-    const interval = window.setInterval(refreshTables, tableBrowserOpen ? 5000 : 7000);
+    const interval = window.setInterval(refreshTables, tableBrowserOpen ? 10000 : 15000);
     window.addEventListener("focus", refreshTables);
     return () => {
       disposed = true;
@@ -4425,12 +4433,17 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
     if (!isHydrated || orderType !== "dine_in" || tableBrowserOpen || !selectedTable?.id || !activeOrder?.id) return;
     let disposed = false;
     const refreshActiveTableBill = () => {
-      if (disposed || document.visibilityState !== "visible") return;
+      if (disposed || document.visibilityState !== "visible" || activeTableBillRefreshInFlightRef.current) return;
       const table = selectedTableRef.current;
       if (!table?.id || table.id !== selectedTable.id) return;
-      void loadTableBillContextRef.current(table).catch(() => undefined);
+      activeTableBillRefreshInFlightRef.current = true;
+      void loadTableBillContextRef.current(table)
+        .catch(() => undefined)
+        .finally(() => {
+          activeTableBillRefreshInFlightRef.current = false;
+        });
     };
-    const interval = window.setInterval(refreshActiveTableBill, 3500);
+    const interval = window.setInterval(refreshActiveTableBill, 8000);
     window.addEventListener("focus", refreshActiveTableBill);
     return () => {
       disposed = true;
@@ -8576,7 +8589,7 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
 
     const receiptHtml = buildReceiptPrintHtml(session);
     const controller = new AbortController();
-    const timeoutId = window.setTimeout(() => controller.abort(), 9000);
+    const timeoutId = window.setTimeout(() => controller.abort(), RECEIPT_BRIDGE_REQUEST_TIMEOUT_MS);
 
     try {
       const payload: Record<string, unknown> = {
