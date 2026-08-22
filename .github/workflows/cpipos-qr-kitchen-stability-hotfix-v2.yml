@@ -1,0 +1,61 @@
+name: CpIPOS QR kitchen stability hotfix v2
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize, edited]
+    branches:
+      - agent-docs-preflight-schema-drift
+
+permissions:
+  contents: write
+
+jobs:
+  patch-and-test:
+    if: github.head_ref == 'hotfix/fg0003-postclose-sync-20260822-v2'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: hotfix/fg0003-postclose-sync-20260822-v2
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Activate repository pnpm
+        shell: bash
+        run: |
+          corepack enable
+          corepack prepare pnpm@10.33.4 --activate
+          pnpm --version
+
+      - name: Apply exact stability patch
+        run: python3 scripts/hotfix/qr-kitchen-stability.py
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Run focused regression tests
+        run: pnpm --filter backoffice-web exec vitest run tests/integration/table-qr-postcommit-stability.integration.test.ts tests/integration/fg0003-final-item-clear-regression.integration.test.ts
+
+      - name: Typecheck backoffice
+        run: pnpm --filter backoffice-web exec tsc -p tsconfig.json --noEmit --pretty false
+
+      - name: Commit tested hotfix
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git diff --quiet; then
+            echo "No source changes required."
+            exit 0
+          fi
+          git config user.name "CpIPOS Hotfix Bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add apps/backoffice-web/src/lib/table-qr-ordering.ts \
+                  apps/backoffice-web/src/components/table-order/table-order-mobile.tsx \
+                  apps/backoffice-web/src/components/pos/pos-sales-module.tsx \
+                  apps/backoffice-web/tests/integration/table-qr-postcommit-stability.integration.test.ts \
+                  apps/backoffice-web/tests/integration/fg0003-final-item-clear-regression.integration.test.ts
+          git commit -m "fix(pos): stabilize QR kitchen flow and bill sync"
+          git push origin HEAD:hotfix/fg0003-postclose-sync-20260822-v2
