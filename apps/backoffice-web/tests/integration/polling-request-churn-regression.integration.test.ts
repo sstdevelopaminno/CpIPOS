@@ -20,8 +20,8 @@ describe("polling request-churn regression guard", () => {
     expect(globalAlert).toContain('document.addEventListener("visibilitychange", onVisibilityChange)');
   });
 
-  it("keeps customer Table QR status polling bounded and non-overlapping", () => {
-    expect(tableOrderMobile).toContain("const MENU_STATUS_POLL_MS = 15_000");
+  it("keeps customer Table QR status polling fast, bounded and non-overlapping", () => {
+    expect(tableOrderMobile).toContain("const MENU_STATUS_POLL_MS = 3_000");
     expect(tableOrderMobile).toContain("cancelled || inFlight || document.visibilityState === \"hidden\"");
     expect(tableOrderMobile).toContain("inFlight = true");
     expect(tableOrderMobile).toContain("inFlight = false");
