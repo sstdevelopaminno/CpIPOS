@@ -362,14 +362,145 @@ export async function POST(req: Request) {
       }
     });
 
+    let tableCleanupOk = true;
+    let tableCleanupWarning: string | null = null;
+
     if (paymentOrder.table_id) {
-      await Promise.all([
-        supabase.from("table_bill_sessions").update({ status: "closed", closed_by: auth.userId, closed_at: new Date().toISOString() }).eq("tenant_id", auth.tenantId!).eq("branch_id", auth.branchId!).eq("table_id", paymentOrder.table_id).in("status", ["open", "ordering", "pending_payment"]),
-        supabase.from("dining_tables").update({ status: "available" }).eq("tenant_id", auth.tenantId!).eq("branch_id", auth.branchId!).eq("id", paymentOrder.table_id)
-      ]);
+      const tableId = paymentOrder.table_id;
+      const activeTableBillStatuses = ["open", "ordering", "pending_payment"];
+
+      const cleanupPaidTable = async () => {
+        const closedAt = new Date().toISOString();
+        const closeByOrder = (includeClosedBy: boolean) => {
+          const values = includeClosedBy
+            ? { status: "closed", closed_by: auth.userId, closed_at: closedAt }
+            : { status: "closed", closed_at: closedAt };
+          return supabase
+            .from("table_bill_sessions")
+            .update(values)
+            .eq("tenant_id", auth.tenantId!)
+            .eq("branch_id", auth.branchId!)
+            .eq("table_id", tableId)
+            .eq("order_id", body.order_id)
+            .in("status", activeTableBillStatuses)
+            .select("id");
+        };
+
+        let sessionCloseResult = await closeByOrder(true);
+        if (sessionCloseResult.error && isMissingColumnError(sessionCloseResult.error.message, "closed_by")) {
+          sessionCloseResult = await closeByOrder(false);
+        }
+        if (sessionCloseResult.error) {
+          return { ok: false as const, warning: `table_session_close_failed:${sessionCloseResult.error.message}` };
+        }
+
+        let { data: activeSessions, error: activeSessionError } = await supabase
+          .from("table_bill_sessions")
+          .select("id,order_id,status")
+          .eq("tenant_id", auth.tenantId!)
+          .eq("branch_id", auth.branchId!)
+          .eq("table_id", tableId)
+          .in("status", activeTableBillStatuses)
+          .order("opened_at", { ascending: false })
+          .limit(2);
+        if (activeSessionError) {
+          return { ok: false as const, warning: `table_session_verify_failed:${activeSessionError.message}` };
+        }
+
+        if ((activeSessions ?? []).length > 0) {
+          const activeSession = activeSessions?.[0];
+          const sessionOrderId = activeSession?.order_id ? String(activeSession.order_id) : null;
+          const safeFallback = activeSessions?.length === 1 && (!sessionOrderId || sessionOrderId === body.order_id);
+          if (!activeSession?.id || !safeFallback) {
+            return { ok: false as const, warning: "table_session_conflict_after_payment" };
+          }
+
+          const closeById = (includeClosedBy: boolean) => {
+            const values = includeClosedBy
+              ? { status: "closed", closed_by: auth.userId, closed_at: closedAt }
+              : { status: "closed", closed_at: closedAt };
+            return supabase
+              .from("table_bill_sessions")
+              .update(values)
+              .eq("tenant_id", auth.tenantId!)
+              .eq("branch_id", auth.branchId!)
+              .eq("id", activeSession.id)
+              .in("status", activeTableBillStatuses)
+              .select("id");
+          };
+
+          let fallbackCloseResult = await closeById(true);
+          if (fallbackCloseResult.error && isMissingColumnError(fallbackCloseResult.error.message, "closed_by")) {
+            fallbackCloseResult = await closeById(false);
+          }
+          if (fallbackCloseResult.error) {
+            return { ok: false as const, warning: `table_session_fallback_close_failed:${fallbackCloseResult.error.message}` };
+          }
+        }
+
+        const remainingResult = await supabase
+          .from("table_bill_sessions")
+          .select("id")
+          .eq("tenant_id", auth.tenantId!)
+          .eq("branch_id", auth.branchId!)
+          .eq("table_id", tableId)
+          .in("status", activeTableBillStatuses)
+          .limit(1);
+        if (remainingResult.error) {
+          return { ok: false as const, warning: `table_session_final_verify_failed:${remainingResult.error.message}` };
+        }
+        if ((remainingResult.data ?? []).length > 0) {
+          return { ok: false as const, warning: "table_session_still_active_after_payment" };
+        }
+
+        const { data: releasedTable, error: tableReleaseError } = await supabase
+          .from("dining_tables")
+          .update({ status: "available" })
+          .eq("tenant_id", auth.tenantId!)
+          .eq("branch_id", auth.branchId!)
+          .eq("id", tableId)
+          .select("id,status")
+          .maybeSingle<{ id: string; status: string }>();
+        if (tableReleaseError) {
+          return { ok: false as const, warning: `table_release_failed:${tableReleaseError.message}` };
+        }
+        if (!releasedTable || releasedTable.status !== "available") {
+          return { ok: false as const, warning: "table_release_not_confirmed" };
+        }
+        return { ok: true as const, warning: null };
+      };
+
+      let cleanupResult = await cleanupPaidTable();
+      if (!cleanupResult.ok) {
+        await new Promise((resolve) => setTimeout(resolve, 150));
+        cleanupResult = await cleanupPaidTable();
+      }
+      tableCleanupOk = cleanupResult.ok;
+      tableCleanupWarning = cleanupResult.warning;
+
+      if (tableCleanupOk) {
+        console.info("[pos-payment] table_cleanup_completed", { order_id: body.order_id, table_id: tableId, request_group_id: requestGroupId });
+      } else {
+        console.error("[pos-payment] table_cleanup_incomplete", {
+          order_id: body.order_id,
+          table_id: tableId,
+          request_group_id: requestGroupId,
+          warning: tableCleanupWarning
+        });
+        void appendAuditLog({
+          tenantId: auth.tenantId!,
+          branchId: auth.branchId!,
+          actorUserId: auth.userId,
+          actorRole: auth.branchRole ?? auth.platformRole,
+          action: "pos_payment.table_cleanup_incomplete",
+          targetTable: "orders",
+          targetId: body.order_id,
+          metadata: { table_id: tableId, request_group_id: requestGroupId, warning: tableCleanupWarning }
+        }).catch(() => undefined);
+      }
     }
 
-    const response = ok({ ...txResult.data, request_group_id: requestGroupId, cash_received: receivedAmount, change_amount: changeAmount, print_jobs_queued: printJobsQueued, print_warning: printWarning, print_jobs_deferred: true });
+    const response = ok({ ...txResult.data, request_group_id: requestGroupId, cash_received: receivedAmount, change_amount: changeAmount, print_jobs_queued: printJobsQueued, print_warning: printWarning, print_jobs_deferred: true, table_cleanup_ok: tableCleanupOk, table_cleanup_warning: tableCleanupWarning });
     invalidatePosScopeRuntimeCaches({ tenantId: auth.tenantId!, branchId: auth.branchId! });
     invalidatePosSalesListCacheForScope({ tenantId: auth.tenantId!, branchId: auth.branchId! });
     response.headers.set("x-pos-payments-ms", String(Date.now() - startedAt));
