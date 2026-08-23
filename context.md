@@ -1,4 +1,4 @@
-﻿# CpIPOS / SST iPOS Project Context (Historical Handoff)
+# CpIPOS / SST iPOS Project Context (Historical Handoff)
 
 Last reviewed for CpIPOS: 2026-08-17
 Current workspace: `E:\CpIPOS`
@@ -11,7 +11,7 @@ This file preserves product and architecture context only. For current workspace
 
 Local dev note: if `localhost:3000` login is slow or appears stuck, read `docs/LOCAL-DEV-LOGIN-PERFORMANCE-2026-07-27.md` before debugging. Do not spend tokens chasing port 3000 if `/login/store` loads; check `.env.local`, Supabase connectivity, dev warm-up logs, and first-route compile behavior.
 
-Task #44 table-order concurrency checkpoint: source branch `agent/table-order-concurrency-dinein-sync` separates Table QR menu/status/write rate-limit lanes, changes mobile QR polling to `?view=status`, routes POS dine-in queued edits through `replace_queued_dine_in_order_tx`, and adds empty-bill cancellation through `cancel_empty_table_bill_session_tx`. Primary/Trial migrations are source-only and must not be considered applied without a later explicit DB task.
+FG0003 QR -> POS -> Kitchen hardening checkpoint: source branch gent/fg0003-qr-kitchen-hardening makes FG0003 customer QR submissions pending POS review first, blocks FG0003 dine-in auto Kitchen send from cashier cart mutations, adds staff review accept/reject API, and adds Primary/Trial source-only review lifecycle migrations. No Production migration/deploy is implied.\n\nTask #44 table-order concurrency checkpoint: source branch `agent/table-order-concurrency-dinein-sync` separates Table QR menu/status/write rate-limit lanes, changes mobile QR polling to `?view=status`, routes POS dine-in queued edits through `replace_queued_dine_in_order_tx`, and adds empty-bill cancellation through `cancel_empty_table_bill_session_tx`. Primary/Trial migrations are source-only and must not be considered applied without a later explicit DB task.
 
 ## 1) Product and System Scope
 

@@ -234,7 +234,7 @@ export async function POST(request: Request, context: { params: Promise<{ token:
     await assertTableQrBuffetItemsAllowed({ context: qrContext, items });
     await assertTableQrStockAvailable({ tenantId: qrContext.tenant_id, branchId: qrContext.branch_id, items });
     const result = await submitTableQrOrder({ context: qrContext, requestId, items, note: typeof body.note === "string" ? body.note.trim().slice(0, 500) : null, clientId });
-    return ok({ submission_id: result.submission_id, order_no: result.order_no, table_code: qrContext.table_code, subtotal: Number(result.subtotal), tax_total: Number(result.tax_total), grand_total: Number(result.grand_total), duplicate_request: result.duplicate_request }, result.duplicate_request ? 200 : 201);
+    return ok({ submission_id: result.submission_id, order_no: result.order_no, table_code: qrContext.table_code, subtotal: Number(result.subtotal), tax_total: Number(result.tax_total), grand_total: Number(result.grand_total), duplicate_request: result.duplicate_request, review_status: result.review_status ?? null, kitchen_pending_review: result.kitchen_pending_review === true }, result.duplicate_request ? 200 : 201);
   } catch (error) {
     return publicError(error, { method: "POST", token, action, requestId, itemCount });
   }

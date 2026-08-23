@@ -64,6 +64,7 @@ type QrOrderActivityRow = {
   event_type: "order" | "call_staff" | "request_checkout";
   item_count: number | null;
   subtotal: number | null;
+  review_status: string | null;
   created_at: string;
 };
 
@@ -183,7 +184,7 @@ export async function GET() {
         if (activeSessionIds.length > 0) {
           const { data: qrRows, error: qrError } = await supabase
             .from("table_qr_orders")
-            .select("id,table_id,table_session_id,event_type,item_count,subtotal,created_at")
+            .select("id,table_id,table_session_id,event_type,item_count,subtotal,review_status,created_at")
             .eq("tenant_id", auth.tenantId!)
             .eq("branch_id", auth.branchId!)
             .in("table_session_id", activeSessionIds)
@@ -201,7 +202,7 @@ export async function GET() {
               current.latest_event_at = row.created_at;
               current.latest_event_type = row.event_type;
             }
-            if (row.event_type === "order") {
+            if (row.event_type === "order" && (row.review_status === null || row.review_status === "pending_pos_review")) {
               current.order_event_count += 1;
               current.pending_item_count += Math.max(0, Number(row.item_count ?? 0));
               current.subtotal = Number((current.subtotal + Math.max(0, Number(row.subtotal ?? 0))).toFixed(2));
