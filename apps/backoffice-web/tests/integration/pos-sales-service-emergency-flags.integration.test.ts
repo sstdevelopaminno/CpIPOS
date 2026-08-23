@@ -208,6 +208,28 @@ describe("POS sales emergency transaction flags", () => {
     expect(hasInsert(supabase, "orders")).toBe(false);
   });
 
+  it("awaits taxable RPC order snapshot sync before returning success", async () => {
+    const { service, supabase } = await loadService();
+    const createRpc = vi.fn(async () => ({
+      data: [{ order_id: "order-1", order_no: "TKO-TEST-001", order_status: "queued", created_at: "2026-08-08T00:00:00.000Z", duplicate_request: false }],
+      error: null
+    }));
+
+    const result = await service.executeCreatePosOrderTransaction({
+      auth,
+      input: {
+        ...baseOrderInput,
+        tax_total: 0.7,
+        grand_total: 10.7,
+        tax_lines: [{ id: "vat", label: "VAT", rate_pct: 7, mode: "exclusive", amount: 0.7 }]
+      },
+      invokeRpc: createRpc
+    });
+
+    expect(result.ok).toBe(true);
+    const snapshotUpdate = supabase.calls.find((call) => call.kind === "update" && call.table === "orders");
+    expect(snapshotUpdate?.payload).toEqual(expect.objectContaining({ total_amount: 10.7, grand_total: 10.7, tax_total: 0.7 }));
+  });
   it("maps financial invariant failures to a reviewable conflict instead of a server error", async () => {
     const { service } = await loadService();
     const paymentRpc = vi.fn(async () => ({

@@ -156,7 +156,6 @@ function failFromSalesError(error: unknown, fallbackCode: string, fallbackStatus
 type PosProductQueryRow = {
   id: string;
   sku?: string | null;
-  code?: string | null;
   name?: string | null;
   category?: string | null;
   price?: number | null;
@@ -280,14 +279,6 @@ function isMissingOrderDeliverySnapshotColumnError(error: PostgrestLikeError | n
   return ORDER_DELIVERY_SNAPSHOT_COLUMNS.some((column) => message.includes(`'${column}'`) || message.includes(`"${column}"`) || message.includes(`${column}`));
 }
 
-function isMissingProductCodeColumnError(error: PostgrestLikeError | null | undefined): boolean {
-  if (!error) return false;
-  const code = String(error.code ?? "");
-  const text = `${error.message ?? ""} ${error.details ?? ""} ${error.hint ?? ""}`.toLowerCase();
-  if (code === "42703") return true;
-  return text.includes("column") && text.includes("code");
-}
-
 function isMissingProductSkuColumnError(error: PostgrestLikeError | null | undefined): boolean {
   if (!error) return false;
   const code = String(error.code ?? "");
@@ -328,7 +319,6 @@ function isMissingProductIsActiveColumnError(error: PostgrestLikeError | null | 
 
 function isMissingProductProjectionColumnError(error: PostgrestLikeError | null | undefined): boolean {
   return (
-    isMissingProductCodeColumnError(error) ||
     isMissingProductSkuColumnError(error) ||
     isMissingProductStockDeductionModeColumnError(error) ||
     isMissingProductCategoryColumnError(error) ||
@@ -859,19 +849,18 @@ export async function GET(request: Request) {
         };
 
         const selectCandidates = [
-          { selectClause: "id,sku,code,name,category,price,is_active,stock_deduction_mode", filterActive: true, orderByCategory: true },
-          { selectClause: "id,sku,code,name,category,price,is_active", filterActive: true, orderByCategory: true },
           { selectClause: "id,sku,name,category,price,is_active,stock_deduction_mode", filterActive: true, orderByCategory: true },
-          { selectClause: "id,code,name,category,price,is_active,stock_deduction_mode", filterActive: true, orderByCategory: true },
+          { selectClause: "id,sku,name,category,price,is_active", filterActive: true, orderByCategory: true },
+          { selectClause: "id,name,category,price,is_active,stock_deduction_mode", filterActive: true, orderByCategory: true },
           { selectClause: "id,name,category,price,is_active", filterActive: true, orderByCategory: true },
-          { selectClause: "id,sku,code,name,price,is_active,stock_deduction_mode", filterActive: true, orderByCategory: false },
-          { selectClause: "id,sku,code,name,price,is_active", filterActive: true, orderByCategory: false },
+          { selectClause: "id,sku,name,price,is_active,stock_deduction_mode", filterActive: true, orderByCategory: false },
+          { selectClause: "id,sku,name,price,is_active", filterActive: true, orderByCategory: false },
           { selectClause: "id,name,price,is_active", filterActive: true, orderByCategory: false },
-          { selectClause: "id,sku,code,name,category,price,stock_deduction_mode", filterActive: false, orderByCategory: true },
-          { selectClause: "id,sku,code,name,category,price", filterActive: false, orderByCategory: true },
+          { selectClause: "id,sku,name,category,price,stock_deduction_mode", filterActive: false, orderByCategory: true },
+          { selectClause: "id,sku,name,category,price", filterActive: false, orderByCategory: true },
           { selectClause: "id,name,category,price", filterActive: false, orderByCategory: true },
-          { selectClause: "id,sku,code,name,price,stock_deduction_mode", filterActive: false, orderByCategory: false },
-          { selectClause: "id,sku,code,name,price", filterActive: false, orderByCategory: false },
+          { selectClause: "id,sku,name,price,stock_deduction_mode", filterActive: false, orderByCategory: false },
+          { selectClause: "id,sku,name,price", filterActive: false, orderByCategory: false },
           { selectClause: "id,name,price", filterActive: false, orderByCategory: false }
         ] as const;
 
@@ -977,8 +966,7 @@ export async function GET(request: Request) {
     }
 
     const normalizedProducts = ((productData ?? []) as unknown as PosProductQueryRow[]).map((row) => {
-      const preferredCode = String(row.code ?? "").trim();
-      const sku = preferredCode || String(row.sku ?? "").trim();
+      const sku = String(row.sku ?? "").trim();
       return {
         id: String(row.id),
         sku,
