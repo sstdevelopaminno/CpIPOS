@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { clearShiftOpenBills } from "@/lib/pos-shift-open-bills";
+import { clearShiftOpenBills, ShiftOpenBillsBlockedError, type ShiftOpenBillBlocker } from "@/lib/pos-shift-open-bills";
 import {
   PosGuardError,
   getTenantBranchScopeFromSession,
@@ -8,10 +8,34 @@ import {
   requirePosSessionForShiftClose
 } from "@/lib/pos-session-guard";
 
+function formatOpenBillBlocker(blocker: ShiftOpenBillBlocker) {
+  const order = blocker.order_no ?? blocker.order_id ?? "unknown order";
+  const table = blocker.table_code ?? blocker.table_id ?? "unknown table";
+  const total = blocker.total === null || blocker.total === undefined ? null : ` total ${blocker.total}`;
+  return `${order} / table ${table} / ${blocker.status}${total ?? ""}`;
+}
+
+function openBillsBlockedResponse(error: ShiftOpenBillsBlockedError) {
+  const sample = error.blockers.slice(0, 5).map(formatOpenBillBlocker).join(", ");
+  const message = `Please pay or explicitly cancel ${error.count} open dine-in bill(s) before closing shift${sample ? `: ${sample}` : ""}.`;
+  return NextResponse.json(
+    {
+      data: null,
+      error: {
+        code: "shift_has_open_bills",
+        message,
+        count: error.count,
+        blockers: error.blockers
+      }
+    },
+    { status: 409 }
+  );
+}
 function errorResponse(error: unknown) {
   if (error instanceof PosGuardError) {
     return NextResponse.json({ data: null, error: { code: error.code, message: error.message } }, { status: error.status });
   }
+  if (error instanceof ShiftOpenBillsBlockedError) return openBillsBlockedResponse(error);
   const message = error instanceof Error ? error.message : "Unable to clear open bills.";
   const [code, detail] = message.includes(": ") ? message.split(/:\s(.+)/, 2) : ["shift_clear_open_bills_failed", message];
   return NextResponse.json({ data: null, error: { code, message: detail ?? message } }, { status: 500 });

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { appendAuditLog } from "@/lib/audit-log";
-import { clearShiftOpenBills } from "@/lib/pos-shift-open-bills";
+import { clearShiftOpenBills, getShiftOpenBillBlockers, ShiftOpenBillsBlockedError, type ShiftOpenBillBlocker } from "@/lib/pos-shift-open-bills";
 import { resolveShiftCycle } from "@/lib/pos-shift-schedule";
 import {
   PosGuardError,
@@ -90,31 +90,95 @@ async function createSelfShiftCloseApproval(args: {
   return data?.id ?? null;
 }
 
-async function getOpenShiftBills(args: { tenantId: string; branchId: string; shiftId: string }) {
-  const supabase = getSupabaseServiceClient();
-  return supabase
-    .from("orders")
-    .select("id,order_no,status,order_type,table_id", { count: "exact" })
-    .eq("tenant_id", args.tenantId)
-    .eq("branch_id", args.branchId)
-    .eq("shift_id", args.shiftId)
-    .in("status", ["draft", "queued", "preparing"])
-    .order("created_at", { ascending: true })
-    .limit(5);
+
+type OpenTableBillSession = {
+  id: string;
+  table_id: string | null;
+  order_id: string | null;
+  status: string;
+};
+
+function formatOpenBillBlocker(blocker: ShiftOpenBillBlocker) {
+  const order = blocker.order_no ?? blocker.order_id ?? "unknown order";
+  const table = blocker.table_code ?? blocker.table_id ?? "unknown table";
+  const total = blocker.total === null || blocker.total === undefined ? null : ` total ${blocker.total}`;
+  return `${order} / table ${table} / ${blocker.status}${total ?? ""}`;
 }
 
-async function getOpenTableBillSessions(args: { tenantId: string; branchId: string }) {
+function openBillsBlockedResponse(args: { count: number; blockers: ShiftOpenBillBlocker[]; source: string }) {
+  const sample = args.blockers.slice(0, 5).map(formatOpenBillBlocker).join(", ");
+  const message = `Please pay or explicitly cancel ${args.count} open dine-in bill(s) before closing shift${sample ? `: ${sample}` : ""}.`;
+  console.warn("[pos-shifts-close] clear_open_bills_blocked", {
+    source: args.source,
+    count: args.count,
+    blockers: args.blockers.slice(0, 5).map((blocker) => ({
+      order_id: blocker.order_id,
+      order_no: blocker.order_no,
+      table_id: blocker.table_id,
+      table_code: blocker.table_code,
+      status: blocker.status,
+      total: blocker.total
+    }))
+  });
+  return NextResponse.json(
+    {
+      data: null,
+      error: {
+        code: "shift_has_open_bills",
+        message,
+        count: args.count,
+        blockers: args.blockers
+      }
+    },
+    { status: 409 }
+  );
+}
+
+async function getOpenTableBillSessionBlockers(args: { tenantId: string; branchId: string }) {
   const supabase = getSupabaseServiceClient();
-  return supabase
+  const sessionsResult = await supabase
     .from("table_bill_sessions")
-    .select("id,table_id,status", { count: "exact" })
+    .select("id,table_id,order_id,status", { count: "exact" })
     .eq("tenant_id", args.tenantId)
     .eq("branch_id", args.branchId)
     .in("status", ["open", "ordering", "pending_payment"])
     .order("opened_at", { ascending: true })
     .limit(5);
-}
 
+  if (sessionsResult.error) {
+    return { error: sessionsResult.error, count: 0, blockers: [] as ShiftOpenBillBlocker[] };
+  }
+
+  const sessions = (sessionsResult.data ?? []) as OpenTableBillSession[];
+  const tableIds = Array.from(new Set(sessions.map((session) => session.table_id).filter((tableId): tableId is string => Boolean(tableId))));
+  const tableCodes = new Map<string, string | null>();
+  if (tableIds.length > 0) {
+    const tablesResult = await supabase
+      .from("dining_tables")
+      .select("id,table_code")
+      .eq("tenant_id", args.tenantId)
+      .eq("branch_id", args.branchId)
+      .in("id", tableIds);
+    if (!tablesResult.error) {
+      for (const table of (tablesResult.data ?? []) as Array<{ id: string; table_code: string | null }>) {
+        tableCodes.set(table.id, table.table_code);
+      }
+    }
+  }
+
+  return {
+    error: null,
+    count: sessionsResult.count ?? sessions.length,
+    blockers: sessions.map((session) => ({
+      order_id: session.order_id,
+      order_no: null,
+      table_id: session.table_id,
+      table_code: session.table_id ? tableCodes.get(session.table_id) ?? null : null,
+      status: session.status,
+      total: null
+    }))
+  };
+}
 export async function POST(request: Request) {
   try {
     const body = (await request.json().catch(() => null)) as {
@@ -162,6 +226,9 @@ export async function POST(request: Request) {
           posSessionId: scope.session.id
         });
       } catch (clearError) {
+        if (clearError instanceof ShiftOpenBillsBlockedError) {
+          return openBillsBlockedResponse({ count: clearError.count, blockers: clearError.blockers, source: clearError.blockerCode });
+        }
         return NextResponse.json(
           {
             data: null,
@@ -175,36 +242,17 @@ export async function POST(request: Request) {
       }
     }
 
-    const openBills = await getOpenShiftBills({
+    const openBills = await getShiftOpenBillBlockers({
       tenantId: sessionScope.tenantId,
       branchId: sessionScope.branchId,
-      shiftId: shift.id
+      shiftId: shift.id,
+      limit: 5
     });
-    if (openBills.error) {
-      return NextResponse.json(
-        { data: null, error: { code: "shift_open_bills_query_failed", message: openBills.error.message } },
-        { status: 500 }
-      );
-    }
-    if ((openBills.count ?? 0) > 0) {
-      const sampleBills = (openBills.data ?? [])
-        .map((order) => String((order as { order_no?: string | null }).order_no ?? "").trim())
-        .filter(Boolean)
-        .slice(0, 3);
-      const suffix = sampleBills.length > 0 ? ` (${sampleBills.join(", ")})` : "";
-      return NextResponse.json(
-        {
-          data: null,
-          error: {
-            code: "shift_has_open_bills",
-            message: `กรุณาเคลียร์บิลที่ยังเปิดอยู่ ${openBills.count} บิลก่อนปิดกะ${suffix}`
-          }
-        },
-        { status: 409 }
-      );
+    if (openBills.count > 0) {
+      return openBillsBlockedResponse({ count: openBills.count, blockers: openBills.blockers, source: "shift_close_precheck" });
     }
 
-    const openTableSessions = await getOpenTableBillSessions({
+    const openTableSessions = await getOpenTableBillSessionBlockers({
       tenantId: sessionScope.tenantId,
       branchId: sessionScope.branchId
     });
@@ -215,16 +263,7 @@ export async function POST(request: Request) {
       );
     }
     if ((openTableSessions.count ?? 0) > 0) {
-      return NextResponse.json(
-        {
-          data: null,
-          error: {
-            code: "shift_has_open_bills",
-            message: `กรุณาปิดหรือชำระบิลโต๊ะที่ยังเปิดอยู่ ${openTableSessions.count} รายการก่อนปิดกะ`
-          }
-        },
-        { status: 409 }
-      );
+      return openBillsBlockedResponse({ count: openTableSessions.count, blockers: openTableSessions.blockers, source: "table_session_precheck" });
     }
 
     const closedAtIso = new Date().toISOString();
@@ -344,6 +383,7 @@ export async function POST(request: Request) {
         },
         error: null
       });
+      console.info("[pos-shifts-close] close_completed", { shiftId: shift.id, tenantId: sessionScope.tenantId, branchId: sessionScope.branchId });
       return withPosSessionCookie(response, scope.session.id);
     }
 
@@ -532,6 +572,7 @@ export async function POST(request: Request) {
       },
       error: null
     });
+    console.info("[pos-shifts-close] close_completed", { shiftId: shift.id, tenantId: sessionScope.tenantId, branchId: sessionScope.branchId });
     return withPosSessionCookie(response, scope.session.id);
   } catch (error) {
     if (error instanceof PosGuardError) {

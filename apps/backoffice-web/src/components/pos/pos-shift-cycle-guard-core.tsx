@@ -32,9 +32,18 @@ type SessionResponse = {
   error?: { code?: string; message?: string } | null;
 };
 
+type ShiftOpenBillBlocker = {
+  order_id?: string | null;
+  order_no?: string | null;
+  table_id?: string | null;
+  table_code?: string | null;
+  status?: string | null;
+  total?: number | string | null;
+};
+
 type ApiBody = {
   data?: unknown;
-  error?: { code?: string; message?: string } | null;
+  error?: { code?: string; message?: string; count?: number; blockers?: ShiftOpenBillBlocker[] } | null;
 } | null;
 
 const POS_SESSION_EVENT_NAME = "pos-session-current-updated";
@@ -71,6 +80,24 @@ function formatDateTime(value: string, lang: Lang) {
     minute: "2-digit",
     hour12: false
   });
+}
+
+function formatOpenBillBlockers(blockers: ShiftOpenBillBlocker[] | null | undefined, lang: Lang) {
+  if (!blockers?.length) return null;
+  const details = blockers
+    .slice(0, 5)
+    .map((blocker) => {
+      const order = blocker.order_no ?? blocker.order_id ?? "unknown order";
+      const table = blocker.table_code ?? blocker.table_id ?? "unknown table";
+      const status = blocker.status ?? "open";
+      const totalValue = Number(blocker.total ?? NaN);
+      const total = Number.isFinite(totalValue) ? formatMoney(totalValue, lang) : "-";
+      return `${order} / Table ${table} / ${status} / ${total}`;
+    })
+    .join("; ");
+  return lang === "th"
+    ? `Open bill blocking shift close: ${details}`
+    : `Open bill blocking shift close: ${details}`;
 }
 
 function formatMoney(value: number, lang: Lang) {
@@ -130,11 +157,13 @@ async function fetchJsonWithTimeout(url: string, init: RequestInit = {}, timeout
 
 class ShiftGuardApiError extends Error {
   code: string | null;
+  blockers: ShiftOpenBillBlocker[];
 
-  constructor(code: string | null | undefined, message: string) {
+  constructor(code: string | null | undefined, message: string, blockers?: ShiftOpenBillBlocker[]) {
     super(message);
     this.name = "ShiftGuardApiError";
     this.code = code ?? null;
+    this.blockers = blockers ?? [];
   }
 }
 
@@ -245,10 +274,10 @@ export function PosShiftCycleGuard({ lang }: { lang: Lang }) {
   );
 
   useEffect(() => {
-    if (!error) return;
+    if (!error || shiftBlockerCode === "shift_has_open_bills") return;
     const timeout = window.setTimeout(() => setError(null), 4200);
     return () => window.clearTimeout(timeout);
-  }, [error]);
+  }, [error, shiftBlockerCode]);
 
   useEffect(() => {
     let animationFrame = 0;
@@ -304,6 +333,9 @@ export function PosShiftCycleGuard({ lang }: { lang: Lang }) {
   const toErrorMessage = useCallback(
     (unknownError: unknown) => {
       if (unknownError instanceof Error && unknownError.message === "request_timeout") return copy.requestTimeout;
+      if (unknownError instanceof ShiftGuardApiError && unknownError.code === "shift_has_open_bills") {
+        return formatOpenBillBlockers(unknownError.blockers, lang) ?? localizeShiftError(unknownError.message, lang);
+      }
       const message = unknownError instanceof Error ? unknownError.message : copy.unknownError;
       return localizeShiftError(message, lang);
     },
@@ -405,7 +437,7 @@ export function PosShiftCycleGuard({ lang }: { lang: Lang }) {
         SHIFT_MUTATION_TIMEOUT_MS
       );
       if (!response.ok) {
-        throw new ShiftGuardApiError(body?.error?.code, body?.error?.message ?? copy.unknownError);
+        throw new ShiftGuardApiError(body?.error?.code, body?.error?.message ?? copy.unknownError, body?.error?.blockers);
       }
     },
     [copy.unknownError, shift]

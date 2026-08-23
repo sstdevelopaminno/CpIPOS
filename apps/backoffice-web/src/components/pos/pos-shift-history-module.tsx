@@ -72,6 +72,15 @@ type ShiftHistoryResponse = {
 };
 type ShiftHistoryItem = NonNullable<ShiftHistoryResponse["data"]>["shifts"][number];
 
+type ShiftOpenBillBlocker = {
+  order_id?: string | null;
+  order_no?: string | null;
+  table_id?: string | null;
+  table_code?: string | null;
+  status?: string | null;
+  total?: number | string | null;
+};
+
 type CloseShiftResponse = {
   data?: {
     shift_id: string;
@@ -97,7 +106,7 @@ type CloseShiftResponse = {
       actual_cash: number;
     };
   } | null;
-  error?: { code?: string; message?: string } | null;
+  error?: { code?: string; message?: string; count?: number; blockers?: ShiftOpenBillBlocker[] } | null;
 };
 
 type ShiftCloseReceiptData = NonNullable<CloseShiftResponse["data"]>;
@@ -128,6 +137,22 @@ function formatMoney(value: number, lang: Lang) {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2
   }).format(value);
+}
+
+function formatOpenBillBlockers(blockers: ShiftOpenBillBlocker[] | null | undefined, lang: Lang) {
+  if (!blockers?.length) return null;
+  const details = blockers
+    .slice(0, 5)
+    .map((blocker) => {
+      const order = blocker.order_no ?? blocker.order_id ?? "unknown order";
+      const table = blocker.table_code ?? blocker.table_id ?? "unknown table";
+      const status = blocker.status ?? "open";
+      const totalValue = Number(blocker.total ?? NaN);
+      const total = Number.isFinite(totalValue) ? formatMoney(totalValue, lang) : "-";
+      return `${order} / Table ${table} / ${status} / ${total}`;
+    })
+    .join("; ");
+  return `Open bill blocking shift close: ${details}`;
 }
 
 function formatSignedMoney(value: number, lang: Lang) {
@@ -853,9 +878,10 @@ export function PosShiftHistoryModule({ lang }: { lang: Lang }) {
         const code = String(closeBody?.error?.code ?? "");
         if (code === "shift_has_open_bills") {
           throw new Error(
-            lang === "th"
-              ? "ยังมีบิลค้างอยู่ในหน้าขาย กรุณากลับไปเคลียร์หรือยกเลิกบิลให้เรียบร้อยก่อนปิดกะ"
-              : "There are open bills in sales. Please clear or cancel them before closing this shift."
+            formatOpenBillBlockers(closeBody?.error?.blockers, lang) ??
+              (lang === "th"
+                ? "ยังมีบิลค้างอยู่ในหน้าขาย กรุณากลับไปชำระหรือยกเลิกบิลให้เรียบร้อยก่อนปิดกะ"
+                : "There are open bills in sales. Please pay or cancel them before closing this shift.")
           );
         }
         throw new Error(closeBody?.error?.message ?? "Close shift failed.");
