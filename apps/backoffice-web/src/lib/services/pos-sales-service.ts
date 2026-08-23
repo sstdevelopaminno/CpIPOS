@@ -1271,7 +1271,7 @@ export async function executeCreatePosOrderTransaction(args: {
     (input.grand_total ?? (Number(input.app_total_amount ?? 0) - Number(input.discount_amount ?? 0) - Number(input.gp_amount ?? 0) + taxTotal)).toFixed(2)
   );
   if (taxTotal !== 0 || input.tax_lines?.length || input.member_name || input.member_phone || input.member_code) {
-    void getSupabaseServiceClient()
+    const { error: snapshotSyncError } = await getSupabaseServiceClient()
       .from("orders")
       .update({
         tax_total: taxTotal,
@@ -1289,8 +1289,28 @@ export async function executeCreatePosOrderTransaction(args: {
       .eq("tenant_id", auth.tenantId)
       .eq("branch_id", auth.branchId)
       .eq("id", row.order_id);
-  }
 
+    if (snapshotSyncError) {
+      appendPosDeadLetter({
+        auth,
+        channel: "order",
+        targetTable: "orders",
+        targetId: row.order_id,
+        reason: "order_financial_snapshot_sync_failed",
+        metadata: {
+          detail: snapshotSyncError.message,
+          request_id: idempotencyKey ?? null,
+          order_type: input.order_type
+        }
+      });
+      return {
+        ok: false as const,
+        code: "order_financial_snapshot_sync_failed",
+        status: 500,
+        message: "Order was created but its financial snapshot could not be finalized. Please reload before payment."
+      };
+    }
+  }
   void appendAuditLog({
     tenantId: auth.tenantId ?? undefined,
     branchId: auth.branchId ?? undefined,

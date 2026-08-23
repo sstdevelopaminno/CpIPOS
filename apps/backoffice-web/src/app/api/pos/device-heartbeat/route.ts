@@ -12,7 +12,7 @@ import {
 } from "@/lib/device-mdm-diagnostics";
 import type { PendingDeviceAction } from "@/lib/device-commands";
 import { fail, ok } from "@/lib/http";
-import { requirePosSession } from "@/lib/pos-session-guard";
+import { PosGuardError, requirePosSession } from "@/lib/pos-session-guard";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
 
 type DeviceHeartbeatPayload = Partial<Omit<DeviceMdmHealthInput, "identity">> & {
@@ -95,6 +95,7 @@ async function deliverPendingDeviceCommands(
 }
 
 function mapDeviceHeartbeatError(error: unknown) {
+  if (error instanceof PosGuardError) return fail(error.code, error.message, error.status);
   const message = error instanceof Error ? error.message : "Unknown error";
   if (message.includes("JSON")) return fail("invalid_payload", "Invalid device heartbeat payload.", 400);
   if (message.includes("pos_session")) return fail("pos_session_required", "A valid POS session is required to send device heartbeat.", 401);

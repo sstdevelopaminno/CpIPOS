@@ -1,5 +1,6 @@
 import { fail, ok } from "@/lib/http";
 import { getPosApiAuthContext } from "@/lib/pos-api-auth";
+import { PosGuardError } from "@/lib/pos-session-guard";
 import { getRoutedSupabaseServiceClient } from "@/lib/tenant-data-router";
 
 type ServiceEventType = "call_staff" | "request_checkout";
@@ -79,6 +80,7 @@ export async function GET(request: Request) {
       server_time: new Date().toISOString()
     });
   } catch (error) {
+    if (error instanceof PosGuardError) return fail(error.code, error.message, error.status);
     return fail("table_qr_activity_failed", error instanceof Error ? error.message : "Unable to load table QR activity.", 500);
   }
 }
@@ -126,6 +128,7 @@ export async function POST(request: Request) {
 
     return ok({ id: eventRow.id, acknowledged: true, duplicate: false, acknowledged_at: acknowledgedAt });
   } catch (error) {
+    if (error instanceof PosGuardError) return fail(error.code, error.message, error.status);
     return fail("table_qr_activity_ack_failed", error instanceof Error ? error.message : "Unable to acknowledge table QR activity.", 500);
   }
 }
