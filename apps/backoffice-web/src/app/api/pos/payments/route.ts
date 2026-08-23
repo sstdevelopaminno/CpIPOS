@@ -218,6 +218,7 @@ export async function POST(req: Request) {
       return response;
     }
 
+    const duplicatePaymentReplay = txResult.data.duplicate_request === true;
     const paidTotal = paymentTotal;
     const receivedAmount = cashReceivedAmount;
     const changeAmount = Number(body.change_amount ?? Math.max(0, receivedAmount - paidTotal));
@@ -270,10 +271,11 @@ export async function POST(req: Request) {
     const printWarning: string | null = null;
     console.info("[pos-payment] payment_saved", { order_id: body.order_id, request_group_id: requestGroupId, payment_method: paymentMethod });
 
-    // Start the read-only print preflight immediately after the payment has been persisted.
-    // The promise is consumed inside `after()`, so payment response latency stays decoupled
-    // while the receipt queue no longer waits for these independent reads to start.
-    const deferredPrintPreflight = Promise.all([
+    if (!duplicatePaymentReplay) {
+      // Start the read-only print preflight immediately after the payment has been persisted.
+      // The promise is consumed inside `after()`, so payment response latency stays decoupled
+      // while the receipt queue no longer waits for these independent reads to start.
+      const deferredPrintPreflight = Promise.all([
       supabase
         .from("print_jobs")
         .select("id", { count: "exact", head: true })
@@ -295,7 +297,7 @@ export async function POST(req: Request) {
         .eq("order_id", body.order_id)
     ]);
 
-    after(async () => {
+      after(async () => {
       let skipPrintEnqueue = false;
       try {
         const [printQueueResult, orderResult, itemResult] = await deferredPrintPreflight;
@@ -360,7 +362,10 @@ export async function POST(req: Request) {
         const warning = printError instanceof Error ? printError.message : "print_queue_failed";
         appendPosDeadLetter({ auth, channel: "print", targetTable: "print_jobs", targetId: body.order_id, reason: "print_queue_failed", metadata: { detail: warning, runtime_device_code: scope.session.device_code, deferred: true } });
       }
-    });
+      });
+    } else {
+      console.info("[pos-payment] duplicate_payment_replay", { order_id: body.order_id, request_group_id: requestGroupId, payment_method: paymentMethod });
+    }
 
     let tableCleanupOk = true;
     let tableCleanupWarning: string | null = null;

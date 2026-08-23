@@ -74,6 +74,7 @@ type QueueBluetoothReceiptInput = {
   orderId?: string | null;
   orderNo?: string | null;
   receiptHtml: string;
+  processImmediately?: boolean;
 };
 
 type CashDrawerProfile = {
@@ -911,7 +912,7 @@ export async function queueAndProcessBluetoothReceiptHtml(auth: AuthContext, inp
         payload_html: normalizedHtml
       }
     });
-    const processedJob = await processOrQueuePrintJob(job, printer);
+    const processedJob = input.processImmediately === false ? job : await processOrQueuePrintJob(job, printer);
     jobs.push(processedJob ?? job);
   }
 

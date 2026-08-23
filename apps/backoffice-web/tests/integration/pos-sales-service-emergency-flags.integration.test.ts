@@ -2,6 +2,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   supabase: undefined as undefined | ReturnType<typeof createSupabaseMock>,
+  orderStatus: "queued",
+  paymentRows: [] as Array<{ id: string; amount: number; request_group_id?: string | null }>,
   appendAuditLog: vi.fn(async () => undefined),
   appendPosDeadLetter: vi.fn()
 }));
@@ -116,7 +118,7 @@ function createQueryMock(table: string, calls: Array<{ kind: string; table?: str
 function resolveMaybeSingle(table: string, selectedColumns: string) {
   if (table === "shifts") return { data: { id: baseOrderInput.shift_id, status: "open" }, error: null };
   if (table === "orders" && selectedColumns.includes("total_amount")) {
-    return { data: { id: "order-1", total_amount: 10, status: "queued" }, error: null };
+    return { data: { id: "order-1", total_amount: 10, status: mocks.orderStatus }, error: null };
   }
   if (table === "orders" && selectedColumns.includes("order_type")) {
     return { data: { id: "order-1", order_type: "takeaway" }, error: null };
@@ -128,7 +130,7 @@ function resolveQueryResult(table: string) {
   if (table === "products") {
     return { data: [{ id: baseOrderInput.items[0].product_id, price: 10, is_active: true }], error: null };
   }
-  if (table === "payments") return { data: [], error: null };
+  if (table === "payments") return { data: mocks.paymentRows, error: null };
   if (table === "stock_movements") return { data: [], error: null, count: 0 };
   if (table === "order_items") return { data: [], error: null };
   return { data: [], error: null };
@@ -167,6 +169,8 @@ afterEach(() => {
     }
   }
   mocks.supabase = undefined;
+  mocks.orderStatus = "queued";
+  mocks.paymentRows = [];
   vi.clearAllMocks();
   vi.resetModules();
 });
@@ -225,6 +229,33 @@ describe("POS sales emergency transaction flags", () => {
     }
     expect(mocks.appendPosDeadLetter).toHaveBeenCalledWith(expect.objectContaining({ reason: "payment_financial_review_required" }));
   });
+
+  it.each([undefined, "true"])("returns a completed payment replay without duplicate writes when direct flag is %j", async (directFlag) => {
+    const { service, supabase } = await loadService({ POS_FORCE_DIRECT_PAYMENT_COMPLETE: directFlag });
+    mocks.orderStatus = "completed";
+    mocks.paymentRows = [{ id: "payment-1", amount: 10, request_group_id: "first-payment-key" }];
+    const paymentRpc = vi.fn(async () => {
+      throw new Error("completed replay should not call payment RPC");
+    });
+
+    const result = await service.executeCompletePosPaymentTransaction({
+      auth,
+      input: { order_id: "order-1", payment_lines: [{ method: "cash", amount: 10 }] },
+      requestGroupId: "second-click-key",
+      invokeRpc: paymentRpc
+    });
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.data.status).toBe("completed");
+      expect(result.data.total_paid).toBe(10);
+      expect(result.data.duplicate_request).toBe(true);
+      expect(result.data.payment_group_id).toBe("second-click-key");
+    }
+    expect(paymentRpc).not.toHaveBeenCalled();
+    expect(hasInsert(supabase, "payments")).toBe(false);
+  });
+
   it.each(["", "false", "0"])("keeps emergency behaviors disabled when env flags are %j", async (value) => {
     const { service, supabase } = await loadService({
       POS_FORCE_DIRECT_CREATE_NON_DELIVERY: value,

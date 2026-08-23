@@ -23,14 +23,15 @@ export async function POST(req: Request) {
     const jobs = await queueAndProcessBluetoothReceiptHtml(auth, {
       orderId: body.order_id ?? null,
       orderNo: body.order_no ?? null,
-      receiptHtml
+      receiptHtml,
+      processImmediately: false
     });
 
     return ok(
       buildBridgeEnvelope({
         ok: true,
         code: "bluetooth_print_ok",
-        message: "Bluetooth print job processed.",
+        message: "Bluetooth print job queued.",
         action: "print",
         data: {
           fallback_to_browser_print: false,
