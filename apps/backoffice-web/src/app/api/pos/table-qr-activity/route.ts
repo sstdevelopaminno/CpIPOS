@@ -1,4 +1,5 @@
 import { fail, ok } from "@/lib/http";
+import { resolveQrKitchenHardeningFlags } from "@/lib/fg0003-qr-kitchen-hardening";
 import { getPosApiAuthContext } from "@/lib/pos-api-auth";
 import { PosGuardError } from "@/lib/pos-session-guard";
 import { getRoutedSupabaseServiceClient } from "@/lib/tenant-data-router";
@@ -14,6 +15,7 @@ type ActivityRow = {
   item_count: number | null;
   subtotal: number | null;
   payload: Record<string, unknown> | null;
+  review_status: string | null;
   created_at: string;
 };
 
@@ -34,6 +36,8 @@ function isAcknowledged(payload: Record<string, unknown> | null) {
 export async function GET(request: Request) {
   try {
     const auth = await getPosApiAuthContext({ requireBranchScope: true, requiredPermission: "sales:view" });
+    const flags = resolveQrKitchenHardeningFlags({ tenantId: auth.tenantId, branchId: auth.branchId });
+    const fg0003PendingOnly = flags.qr_pos_review_required;
     const { searchParams } = new URL(request.url);
     const sinceRaw = searchParams.get("since")?.trim() || new Date(Date.now() - 15_000).toISOString();
     const since = Number.isFinite(new Date(sinceRaw).getTime()) ? new Date(sinceRaw).toISOString() : new Date(Date.now() - 15_000).toISOString();
@@ -41,7 +45,7 @@ export async function GET(request: Request) {
 
     const { data: rows, error } = await supabase
       .from("table_qr_orders")
-      .select("id,table_id,event_type,item_count,subtotal,payload,created_at")
+      .select("id,table_id,event_type,item_count,subtotal,payload,review_status,created_at")
       .eq("tenant_id", auth.tenantId!)
       .eq("branch_id", auth.branchId!)
       .in("event_type", ["order", "call_staff", "request_checkout"])
@@ -51,7 +55,12 @@ export async function GET(request: Request) {
     if (error) throw new Error(error.message);
 
     const rawRows = (rows ?? []) as ActivityRow[];
-    const visibleRows = rawRows.filter((row) => row.event_type === "order" || !isAcknowledged(row.payload));
+    const visibleRows = rawRows.filter((row) => {
+      if (row.event_type === "order") {
+        return !fg0003PendingOnly || row.review_status === "pending_pos_review";
+      }
+      return !isAcknowledged(row.payload);
+    });
     const tableIds = Array.from(new Set(visibleRows.map((row) => String(row.table_id ?? "")).filter(Boolean)));
     const tableResult = tableIds.length
       ? await supabase
