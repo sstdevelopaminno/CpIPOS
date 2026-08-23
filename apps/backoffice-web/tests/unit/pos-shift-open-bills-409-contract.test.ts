@@ -57,4 +57,13 @@ describe("POS shift open-bill blocker responses", () => {
       expect(uiSource).toContain("Open bill blocking shift close");
     }
   });
+  it("does not retry clear-open-bills from the shift guard when unpaid blockers are known", () => {
+    const guard = source("src/components/pos/pos-shift-cycle-guard-core.tsx");
+    expect(guard).toContain("const [shiftBlockers, setShiftBlockers]");
+    expect(guard).toContain('const hasOpenBillBlockers = shiftBlockerCode === "shift_has_open_bills" && shiftBlockers.length > 0;');
+    expect(guard).toContain('const canClearOpenBills = !hasOpenBillBlockers &&');
+    expect(guard).toContain("handleManageOpenBill");
+    expect(guard).toContain("setDismissedBlockerShiftId(shift.id)");
+    expect(guard).toContain("manageOpenBillLabel");
+  });
 });

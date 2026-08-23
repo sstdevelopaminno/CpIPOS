@@ -100,6 +100,14 @@ function formatOpenBillBlockers(blockers: ShiftOpenBillBlocker[] | null | undefi
     : `Open bill blocking shift close: ${details}`;
 }
 
+function formatOpenBillTarget(blocker: ShiftOpenBillBlocker | null | undefined) {
+  if (!blocker) return "";
+  const table = blocker.table_code ?? blocker.table_id ?? "";
+  const order = blocker.order_no ?? blocker.order_id ?? "";
+  if (table && order) return `${table} / ${order}`;
+  return table || order;
+}
+
 function formatMoney(value: number, lang: Lang) {
   return new Intl.NumberFormat(lang === "th" ? "th-TH" : "en-US", {
     minimumFractionDigits: 2,
@@ -173,6 +181,8 @@ export function PosShiftCycleGuard({ lang }: { lang: Lang }) {
   const [logoutBusy, setLogoutBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [shiftBlockerCode, setShiftBlockerCode] = useState<string | null>(null);
+  const [shiftBlockers, setShiftBlockers] = useState<ShiftOpenBillBlocker[]>([]);
+  const [dismissedBlockerShiftId, setDismissedBlockerShiftId] = useState<string | null>(null);
   const [phase, setPhase] = useState<ShiftGuardPhase>("on_time");
   const [shift, setShift] = useState<{
     id: string;
@@ -217,6 +227,7 @@ export function PosShiftCycleGuard({ lang }: { lang: Lang }) {
             clearOpenBillsProgress: "กำลังเคลียร์บิลค้างและต่อกะ...",
             clearOpenBillsCloseLabel: "เคลียร์บิลค้างและปิดกะ",
             clearOpenBillsCloseProgress: "กำลังเคลียร์บิลค้างและปิดกะ...",
+            manageOpenBillLabel: "ไปจัดการบิล",
             requestTimeout: "ระบบใช้เวลานานเกินไป กรุณาลองอีกครั้ง",
             managerApprovalRequired: "กะนี้ค้างนานเกินไป ต้องใช้ PIN ผู้จัดการหรือเจ้าของร้าน",
             managerPinLabel: "PIN ผู้จัดการ/เจ้าของ",
@@ -254,6 +265,7 @@ export function PosShiftCycleGuard({ lang }: { lang: Lang }) {
             clearOpenBillsProgress: "Clearing open bills and continuing shift...",
             clearOpenBillsCloseLabel: "Clear open bills and close",
             clearOpenBillsCloseProgress: "Clearing open bills and closing shift...",
+            manageOpenBillLabel: "Manage bill",
             requestTimeout: "Request took too long. Please try again.",
             managerApprovalRequired: "This overdue shift can be closed automatically without manager approval.",
             managerPinLabel: "Manager / owner PIN",
@@ -278,6 +290,11 @@ export function PosShiftCycleGuard({ lang }: { lang: Lang }) {
     const timeout = window.setTimeout(() => setError(null), 4200);
     return () => window.clearTimeout(timeout);
   }, [error, shiftBlockerCode]);
+  useEffect(() => {
+    if (!dismissedBlockerShiftId) return;
+    const timeout = window.setTimeout(() => setDismissedBlockerShiftId(null), 5 * 60 * 1000);
+    return () => window.clearTimeout(timeout);
+  }, [dismissedBlockerShiftId]);
 
   useEffect(() => {
     let animationFrame = 0;
@@ -310,6 +327,7 @@ export function PosShiftCycleGuard({ lang }: { lang: Lang }) {
     if (!activeShift) {
       setShift(null);
       setPhase("on_time");
+      setDismissedBlockerShiftId(null);
       setLoading(false);
       return;
     }
@@ -458,10 +476,22 @@ export function PosShiftCycleGuard({ lang }: { lang: Lang }) {
     }
   }, [copy.unknownError]);
 
-  const rememberBlockerFromError = useCallback((unknownError: unknown) => {
-    setShiftBlockerCode(unknownError instanceof ShiftGuardApiError ? unknownError.code : null);
+  const resetShiftBlocker = useCallback(() => {
+    setShiftBlockerCode(null);
+    setShiftBlockers([]);
+    setDismissedBlockerShiftId(null);
   }, []);
 
+  const rememberBlockerFromError = useCallback((unknownError: unknown) => {
+    if (unknownError instanceof ShiftGuardApiError) {
+      setShiftBlockerCode(unknownError.code);
+      setShiftBlockers(unknownError.blockers);
+      setDismissedBlockerShiftId(null);
+      return;
+    }
+    setShiftBlockerCode(null);
+    setShiftBlockers([]);
+  }, []);
   const needsManagerApproval = false;
 
   function getApprovalPinOrFail() {
@@ -478,7 +508,7 @@ export function PosShiftCycleGuard({ lang }: { lang: Lang }) {
     if (approvalPin === null) return;
     setBusy("continue");
     setError(null);
-    setShiftBlockerCode(null);
+    resetShiftBlocker();
     try {
       await closeShift(null, approvalPin);
       await openNextShift();
@@ -500,7 +530,7 @@ export function PosShiftCycleGuard({ lang }: { lang: Lang }) {
     const shouldCloseOnly = (phase === "urgent" || phase === "auto_close") && !needsManagerApproval;
     setBusy("clear_continue");
     setError(null);
-    setShiftBlockerCode(null);
+    resetShiftBlocker();
     try {
       await closeShift(null, approvalPin);
       if (shouldCloseOnly) {
@@ -531,7 +561,7 @@ export function PosShiftCycleGuard({ lang }: { lang: Lang }) {
     if (approvalPin === null) return;
     setBusy("close");
     setError(null);
-    setShiftBlockerCode(null);
+    resetShiftBlocker();
     try {
       await closeShift(parsed, approvalPin);
       setManagerPin("");
@@ -552,7 +582,7 @@ export function PosShiftCycleGuard({ lang }: { lang: Lang }) {
     autoCloseRunRef.current = shift.id;
     setBusy("autoclose");
     setError(null);
-    setShiftBlockerCode(null);
+    resetShiftBlocker();
     void closeShift(null, "", true)
       .then(() => logoutToBranchSelection())
       .catch((closeError) => {
@@ -560,11 +590,21 @@ export function PosShiftCycleGuard({ lang }: { lang: Lang }) {
         setError(toErrorMessage(closeError));
         setBusy(null);
       });
-  }, [closeShift, cycle, logoutToBranchSelection, needsManagerApproval, phase, rememberBlockerFromError, shift, toErrorMessage]);
+  }, [closeShift, cycle, logoutToBranchSelection, needsManagerApproval, phase, rememberBlockerFromError, resetShiftBlocker, shift, toErrorMessage]);
+  function handleManageOpenBill() {
+    if (!shift || busy) return;
+    setShowCloseModal(false);
+    setError(null);
+    setDismissedBlockerShiftId(shift.id);
+  }
 
   if (loading || !shift || !cycle || phase === "on_time") return null;
 
   const forceClose = (phase === "urgent" || phase === "auto_close") && !needsManagerApproval;
+  const hasOpenBillBlockers = shiftBlockerCode === "shift_has_open_bills" && shiftBlockers.length > 0;
+  if (dismissedBlockerShiftId === shift.id && hasOpenBillBlockers) return null;
+
+  const openBillTarget = formatOpenBillTarget(shiftBlockers[0]);
   const progressText =
     busy === "continue"
         ? copy.continuingProgress
@@ -575,7 +615,7 @@ export function PosShiftCycleGuard({ lang }: { lang: Lang }) {
         : busy
           ? copy.closingProgress
           : null;
-  const canClearOpenBills = shiftBlockerCode === "shift_has_open_bills" || forceClose;
+  const canClearOpenBills = !hasOpenBillBlockers && (shiftBlockerCode === "shift_has_open_bills" || forceClose);
   const hasClosingCashInput = closingCash.trim().length > 0;
   const closingCashAmount = Number(closingCash.trim() || "0");
   const closingCashIsValid = Number.isFinite(closingCashAmount) && closingCashAmount >= 0;
@@ -684,6 +724,16 @@ export function PosShiftCycleGuard({ lang }: { lang: Lang }) {
               className="h-10 rounded-xl border border-blue-200 bg-blue-50 px-4 text-sm font-bold text-blue-700 hover:bg-blue-100 disabled:opacity-60"
             >
               {busy === "continue" ? copy.continuingProgress : copy.continueLabel}
+            </button>
+          ) : null}
+          {hasOpenBillBlockers ? (
+            <button
+              type="button"
+              onClick={() => handleManageOpenBill()}
+              disabled={Boolean(busy)}
+              className="min-h-10 rounded-xl border border-amber-300 bg-amber-50 px-4 py-2 text-sm font-bold text-amber-800 hover:bg-amber-100 disabled:opacity-60"
+            >
+              {openBillTarget ? `${copy.manageOpenBillLabel} ${openBillTarget}` : copy.manageOpenBillLabel}
             </button>
           ) : null}
           {canClearOpenBills ? (
