@@ -1,22 +1,22 @@
 -- Trial data plane mirror for FG0003 QR -> POS -> Kitchen review lifecycle hardening.
--- Source-only migration for pre-deployment review; do not apply until targeted checks pass.
+-- Cutover is scoped to FG0003 only. Other tenants keep legacy QR behavior.
 
 alter table public.table_qr_orders
   add column if not exists review_status text;
 
+-- Historical FG0003 rows must not surface as new pending reviews after rollout.
 update public.table_qr_orders
-set review_status = coalesce(
-  nullif(payload->>'review_status', ''),
-  case
-    when event_type = 'order' and order_id is null then 'pending_pos_review'
-    when event_type = 'order' then 'accepted'
-    else null
-  end
-)
-where review_status is null;
+set review_status = 'accepted'
+where review_status is null
+  and tenant_id = '2d38bd23-bf2d-4b9a-a7cf-adb2547297ed'::uuid
+  and branch_id = '41eee367-6762-4277-bfc8-c2e9776a8ef9'::uuid
+  and event_type = 'order';
 
+-- Keep NULL as the default for all other stores so their existing QR activity
+-- semantics remain unchanged. FG0003 new submissions explicitly write
+-- pending_pos_review in application code.
 alter table public.table_qr_orders
-  alter column review_status set default 'accepted';
+  alter column review_status drop default;
 
 alter table public.table_qr_orders
   drop constraint if exists table_qr_orders_review_status_check;
