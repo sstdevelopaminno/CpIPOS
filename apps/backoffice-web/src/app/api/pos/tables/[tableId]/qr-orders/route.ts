@@ -3,6 +3,7 @@ import { getPosApiAuthContext } from "@/lib/pos-api-auth";
 import { featureGateFail, requirePosApiFeature } from "@/lib/pos-api-feature-guard";
 import { readThroughRuntimeCache } from "@/lib/route-runtime-cache";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
+import { reviewPendingTableQrOrder } from "@/lib/table-qr-ordering";
 
 export async function GET(request: Request, context: { params: Promise<{ tableId: string }> }) {
   const startedAt = Date.now();
@@ -28,7 +29,7 @@ export async function GET(request: Request, context: { params: Promise<{ tableId
         const cursorBoundary = new Date().toISOString();
         let query = supabase
           .from("table_qr_orders")
-          .select("id,event_type,order_id,table_session_id,item_count,subtotal,payload,created_at")
+          .select("id,event_type,order_id,table_session_id,item_count,subtotal,payload,review_status,created_at")
           .eq("tenant_id", auth.tenantId!)
           .eq("branch_id", auth.branchId!)
           .eq("table_id", tableId)
@@ -59,5 +60,47 @@ export async function GET(request: Request, context: { params: Promise<{ tableId
       return withTiming(fail("table_qr_orders_query_failed", message.slice("table_qr_orders_query_failed:".length), 500));
     }
     return withTiming(fail("table_qr_orders_failed", message, 401));
+  }
+}
+
+export async function POST(request: Request, context: { params: Promise<{ tableId: string }> }) {
+  const startedAt = Date.now();
+  const withTiming = (response: Response) => {
+    response.headers.set("x-pos-table-qr-review-ms", String(Date.now() - startedAt));
+    return response;
+  };
+  try {
+    const auth = await getPosApiAuthContext({ requireBranchScope: true, requiredPermission: "tables:manage" });
+    await requirePosApiFeature(auth, "qr_table_ordering");
+    const { tableId } = await context.params;
+    if (!tableId) return withTiming(fail("invalid_table_id", "tableId is required.", 422));
+    const body = (await request.json().catch(() => null)) as {
+      submission_id?: string;
+      action?: "accept" | "reject";
+      request_id?: string;
+      accepted_item_indexes?: number[] | null;
+    } | null;
+    const submissionId = String(body?.submission_id ?? "").trim();
+    const action = body?.action;
+    const requestId = String(body?.request_id ?? request.headers.get("x-idempotency-key") ?? crypto.randomUUID()).trim();
+    if (!submissionId) return withTiming(fail("missing_submission_id", "submission_id is required.", 422));
+    if (action !== "accept" && action !== "reject") return withTiming(fail("invalid_review_action", "action must be accept or reject.", 422));
+
+    const result = await reviewPendingTableQrOrder({
+      auth,
+      tableId,
+      submissionId,
+      action,
+      requestId,
+      acceptedItemIndexes: Array.isArray(body?.accepted_item_indexes) ? body.accepted_item_indexes : null
+    });
+    return withTiming(ok(result));
+  } catch (error) {
+    const featureError = featureGateFail(error);
+    if (featureError) return withTiming(featureError);
+    const message = error instanceof Error ? error.message : "Unable to review QR order.";
+    if (message === "QR_REVIEW_SUBMISSION_NOT_FOUND") return withTiming(fail("qr_review_submission_not_found", "QR submission was not found for this table.", 404));
+    if (message === "QR_REVIEW_NOT_PENDING" || message === "QR_REVIEW_CONFIRM_IN_PROGRESS") return withTiming(fail("qr_review_not_pending", "QR submission is no longer pending review.", 409));
+    return withTiming(fail("qr_review_failed", message, 400));
   }
 }

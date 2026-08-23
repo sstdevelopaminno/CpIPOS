@@ -64,6 +64,8 @@ type SubmitResponse = {
     order_no?: string;
     table_code?: string;
     grand_total?: number;
+    review_status?: "pending_pos_review" | "kitchen_confirming" | "accepted" | "partially_accepted" | "rejected" | null;
+    kitchen_pending_review?: boolean | null;
     action?: "call_staff" | "request_checkout";
   };
   error?: { code?: string; message?: string };
@@ -493,7 +495,10 @@ export function TableOrderMobile({ token }: { token: string }) {
       setCart({});
       setCustomerIngredientChoices({});
       setCartOpen(false);
-      setToast({ kind: "success", title: "ส่งรายการเข้าครัวแล้ว", detail: `เลขบิล ${orderNo} · หากต้องการแก้ไขรายการที่ส่งแล้ว กรุณาเรียกพนักงาน` });
+      const kitchenPendingReview = body.data.kitchen_pending_review === true || body.data.review_status === "pending_pos_review";
+      setToast(kitchenPendingReview
+        ? { kind: "success", title: "ส่งรายการให้พนักงานแล้ว", detail: "กรุณารอร้านยืนยันรายการ" }
+        : { kind: "success", title: "ส่งรายการเข้าครัวแล้ว", detail: `เลขบิล ${orderNo} · หากต้องการแก้ไขรายการที่ส่งแล้ว กรุณาเรียกพนักงาน` });
       const refreshed = await fetchJsonWithTimeout<MenuResponse>(statusUrl, { cache: "no-store", headers: tableOrderHeaders() }, MENU_LOAD_TIMEOUT_MS).catch(() => null);
       if (refreshed?.response.ok && refreshed.body?.data) applyStatusData(refreshed.body.data);
     } catch (submitError) {

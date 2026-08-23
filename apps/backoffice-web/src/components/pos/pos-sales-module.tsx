@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, ty
 import Image from "next/image";
 import type { OrderType } from "@pos/shared-types";
 import { ErrorState, LoadingState } from "@/components/backoffice/list-state";
+import { isFg0003QrKitchenHardeningEnabled, resolveQrKitchenHardeningFlags } from "@/lib/fg0003-qr-kitchen-hardening";
 import { PosHeldBillsModal } from "@/components/pos/pos-held-bills-modal";
 import { PosBuffetPricePickerModal } from "@/components/pos/pos-buffet-price-picker-modal";
 import { PosBuffetTableModeButton } from "@/components/pos/features/pos-buffet-table-mode-button";
@@ -2052,6 +2053,7 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
   const [shift, setShift] = useState<ShiftRow>(null);
   const [sellerName, setSellerName] = useState(lang === "th" ? "ไม่ทราบชื่อผู้ขาย" : "Unknown Seller");
   const [branchName, setBranchName] = useState(lang === "th" ? "ไม่ทราบสาขา" : "Unknown Branch");
+  const [posScope, setPosScope] = useState<{ tenantId: string | null; branchId: string | null }>({ tenantId: null, branchId: null });
   const [storeProfile, setStoreProfile] = useState<StoreProfile | null>(null);
   const [isHydrated, setIsHydrated] = useState(false);
   const [activeCategory, setActiveCategory] = useState<string>("");
@@ -2161,7 +2163,8 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
   const [inetQrStatus, setInetQrStatus] = useState<"idle" | "creating" | "pending" | "paid" | "failed">("idle");
   const [taxSettings, setTaxSettings] = useState<TaxSettings>(DEFAULT_TAX_SETTINGS);
   const [tableQrNotificationSettings, setTableQrNotificationSettings] = useState<TableQrNotificationSettings>(DEFAULT_TABLE_QR_NOTIFICATION_SETTINGS);
-  const [tableQrAlert, setTableQrAlert] = useState<{ id: string; type: "call_staff" | "request_checkout"; tableCode: string; note?: string | null } | null>(null);
+  const [tableQrAlert, setTableQrAlert] = useState<{ id: string; type: "order" | "call_staff" | "request_checkout"; tableCode: string; note?: string | null; itemCount?: number | null } | null>(null);
+  const [tableQrReview, setTableQrReview] = useState<{ submissionId: string; tableId: string; tableCode: string; items: Array<{ index: number; productId: string; name: string; quantity: number; note?: string | null }>; acceptedIndexes: number[]; busy: boolean; error: string | null } | null>(null);
   const [dineInKitchenSendingNotice, setDineInKitchenSendingNotice] = useState<{ tableCode: string; itemCount: number } | null>(null);
   const [seenTableQrActivity, setSeenTableQrActivity] = useState<Record<string, string>>(() => readStoredJson<Record<string, string>>(TABLE_QR_ACTIVITY_SEEN_KEY) ?? {});
   const [devicePolicy, setDevicePolicy] = useState<PosSalesDevicePolicy | null>(null);
@@ -2548,12 +2551,14 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
     }
   }, [orderType, selectedTable?.active_session_id, tableBrowserOpen]);
 
-  const playTableQrAlertSound = useCallback((alert: { type: "call_staff" | "request_checkout"; tableCode: string }) => {
+  const playTableQrAlertSound = useCallback((alert: { type: "order" | "call_staff" | "request_checkout"; tableCode: string }) => {
     const settings = tableQrNotificationSettings;
     if (!settings.table_qr_sound_enabled || typeof window === "undefined") return;
     const phrase = alert.type === "call_staff"
       ? `เรียกโต๊ะ ${alert.tableCode}`
-      : `โต๊ะ ${alert.tableCode} ต้องการชำระบิล`;
+      : alert.type === "request_checkout"
+        ? `โต๊ะ ${alert.tableCode} ต้องการชำระบิล`
+        : `โต๊ะ ${alert.tableCode} มีรายการสั่งใหม่`;
     try {
       if ("speechSynthesis" in window && typeof SpeechSynthesisUtterance !== "undefined") {
         window.speechSynthesis.cancel();
@@ -2596,7 +2601,7 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
   }, [tableQrNotificationSettings]);
 
   const notifyTableQrServiceRequest = useCallback(
-    (alert: { id: string; type: "call_staff" | "request_checkout"; tableCode: string; note?: string | null }) => {
+    (alert: { id: string; type: "order" | "call_staff" | "request_checkout"; tableCode: string; note?: string | null; itemCount?: number | null }) => {
       if (tableQrNotificationSettings.table_qr_popup_enabled) {
         setTableQrAlert(alert);
         window.setTimeout(() => {
@@ -2717,9 +2722,13 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
             items?: Array<{
               id: string;
               event_type?: "order" | "call_staff" | "request_checkout";
+              order_id?: string | null;
+              item_count?: number | null;
+              review_status?: string | null;
               payload?: {
                 note?: string | null;
-                items?: Array<{ product_id?: string; quantity?: number }>;
+                review_status?: string | null;
+                items?: Array<{ product_id?: string; quantity?: number; note?: string | null }>;
               };
             }>;
             server_time?: string;
@@ -2749,6 +2758,31 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
         const orderEvents = unseen.filter((entry) => !entry.event_type || entry.event_type === "order");
         if (orderEvents.length === 0) return;
 
+        const orderItemCount = orderEvents.reduce((sum, entry) => sum + Math.max(0, Number(entry.item_count ?? 0)), 0);
+        const latestOrderEvent = orderEvents[orderEvents.length - 1];
+        notifyTableQrServiceRequest({ id: latestOrderEvent.id, type: "order", tableCode: table.table_code, itemCount: orderItemCount || null });
+        const reviewItems = (latestOrderEvent.payload?.items ?? []).flatMap((item, index) => {
+          const productId = String(item.product_id ?? "");
+          if (!productId) return [];
+          return [{
+            index,
+            productId,
+            name: productById.get(productId)?.name ?? productId,
+            quantity: Math.max(1, Number(item.quantity ?? 1)),
+            note: item.note ?? null
+          }];
+        });
+        if (reviewItems.length > 0) {
+          setTableQrReview({
+            submissionId: latestOrderEvent.id,
+            tableId: table.id,
+            tableCode: table.table_code,
+            items: reviewItems,
+            acceptedIndexes: reviewItems.map((item) => item.index),
+            busy: false,
+            error: null
+          });
+        }
         invalidateTableBillCache(table.id);
         pushSubmitMessageRef.current(`${text.tableQrOrderReceived}: ${table.table_code}`);
         void loadTableBillContextRef.current(table).catch(() => undefined);
@@ -3528,6 +3562,7 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
       setShift((savedSales.shift ?? null) as ShiftRow);
       setSellerName(String(savedSales.operator_name ?? "Unknown Seller"));
       setBranchName(String(savedSales.branch_name ?? "Unknown Branch"));
+      setPosScope({ tenantId: savedSales.tenant_id ?? null, branchId: savedSales.branch_id ?? null });
       setStoreProfile(savedSales.store_profile ?? null);
       setPaymentAccount(savedSales.payment_account ?? null);
       setPaymentProviders(savedSales.payment_providers ?? {});
@@ -4295,6 +4330,7 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
         setShift(nextShift);
         setSellerName(nextOperatorName);
         setBranchName(nextBranchName);
+        setPosScope({ tenantId: tenantId || null, branchId: branchId || null });
         setStoreProfile(nextStoreProfile);
         setPaymentAccount(nextPaymentAccount);
         setPaymentProviders(nextPaymentProviders);
@@ -6208,6 +6244,11 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
     }
   }
 
+  const fg0003QrKitchenHardeningActive = useMemo(() => isFg0003QrKitchenHardeningEnabled(resolveQrKitchenHardeningFlags({
+    tenantId: posScope.tenantId,
+    branchId: posScope.branchId
+  })), [posScope.branchId, posScope.tenantId]);
+
   async function submitOrder(payload: PendingSubmit, options?: { applyUiResult?: boolean }): Promise<ActiveOrder | null> {
     const applyUiResult = options?.applyUiResult ?? true;
     return submitOrderWithEffects({
@@ -6220,6 +6261,7 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
   }
 
   function buildDineInAutoSendJob(): DineInAutoSendJob | null {
+    if (fg0003QrKitchenHardeningActive) return null;
     if (orderType !== "dine_in" || !selectedTable?.id || !selectedTable.active_session_id || !shift || shift.status !== "open" || !isOnline) return null;
     const cashierMutationVersion = dineInCashierMutationVersionRef.current[selectedTable.id] ?? 0;
     const committedMutationVersion = dineInCommittedMutationVersionRef.current[selectedTable.id] ?? 0;
@@ -6408,7 +6450,52 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
     if (!job) return;
     scheduleDineInKitchenAutoSend(job);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [orderType, selectedTable?.id, selectedTable?.active_session_id, shift?.id, shift?.status, cart, isOnline, lastCommittedCartSignature, activeOrder?.id, activeOrder?.status, subtotal, summaryDiscount, taxBaseTotal, taxSettings, selectedMember?.id]);
+  }, [orderType, selectedTable?.id, selectedTable?.active_session_id, shift?.id, shift?.status, cart, isOnline, lastCommittedCartSignature, activeOrder?.id, activeOrder?.status, subtotal, summaryDiscount, taxBaseTotal, taxSettings, selectedMember?.id, fg0003QrKitchenHardeningActive]);
+  function toggleTableQrReviewItem(index: number) {
+    setTableQrReview((current) => {
+      if (!current || current.busy) return current;
+      const accepted = new Set(current.acceptedIndexes);
+      if (accepted.has(index)) {
+        accepted.delete(index);
+      } else {
+        accepted.add(index);
+      }
+      return { ...current, acceptedIndexes: Array.from(accepted).sort((left, right) => left - right), error: null };
+    });
+  }
+
+  async function submitTableQrReview(action: "accept" | "reject") {
+    const review = tableQrReview;
+    if (!review || review.busy) return;
+    if (action === "accept" && review.acceptedIndexes.length === 0) {
+      setTableQrReview({ ...review, error: "กรุณาเลือกรายการอย่างน้อย 1 รายการ หรือกดปฏิเสธทั้งหมด" });
+      return;
+    }
+    setTableQrReview({ ...review, busy: true, error: null });
+    try {
+      const response = await fetch(`/api/pos/tables/${review.tableId}/qr-orders`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          submission_id: review.submissionId,
+          action,
+          request_id: `pos-qr-review-${review.submissionId}-${action}`,
+          accepted_item_indexes: action === "accept" ? review.acceptedIndexes : null
+        })
+      });
+      const body = (await response.json().catch(() => null)) as { error?: { message?: string } } | null;
+      if (!response.ok) throw new Error(body?.error?.message || "QR review failed");
+      pushSubmitMessage(action === "accept" ? `ส่งรายการ QR เข้าครัวแล้ว: ${review.tableCode}` : `ปฏิเสธรายการ QR แล้ว: ${review.tableCode}`);
+      setTableQrReview(null);
+      const table = selectedTableRef.current?.id === review.tableId ? selectedTableRef.current : selectedTable;
+      if (table?.id === review.tableId) void loadTableBillContextRef.current(table).catch(() => undefined);
+      void fetchPosTablesRef.current({ timeoutMs: 8000, retries: 0, silent: true }).catch(() => undefined);
+    } catch (error) {
+      setTableQrReview((current) => current && current.submissionId === review.submissionId
+        ? { ...current, busy: false, error: localizeApiMessage(error instanceof Error ? error.message : "QR review failed") }
+        : current);
+    }
+  }
   async function handleCheckout() {
     if (isBusy || checkoutRequestLockRef.current) return;
     checkoutRequestLockRef.current = true;
@@ -10024,15 +10111,55 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
         </div>
       ) : null}
 
+      {tableQrReview ? (
+        <div className="posui-payment-modal-backdrop" role="dialog" aria-modal="true" aria-label="ตรวจรายการ QR ก่อนส่งครัว">
+          <section className="posui-payment-modal posui-payment-modal--review" onClick={(event) => event.stopPropagation()}>
+            <header className="posui-payment-modal__header">
+              <div>
+                <h3>ตรวจรายการ QR</h3>
+                <p className="posui-payment-modal__subtitle">โต๊ะ {tableQrReview.tableCode}</p>
+              </div>
+              <button type="button" className="posui-btn posui-btn--ghost" onClick={() => setTableQrReview(null)} disabled={tableQrReview.busy}>x</button>
+            </header>
+            <p className="posui-payment-modal__hint">เลือกรายการที่จะส่งเข้าครัว รายการที่ไม่เลือกจะไม่ถูกส่งและไม่สร้างใบยกเลิก</p>
+            <div className="posui-payment-modal__items">
+              {tableQrReview.items.map((item) => {
+                const checked = tableQrReview.acceptedIndexes.includes(item.index);
+                return (
+                  <label key={`${item.index}:${item.productId}`} className="posui-payment-modal__item-row">
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      disabled={tableQrReview.busy}
+                      onChange={() => toggleTableQrReviewItem(item.index)}
+                    />
+                    <span className="posui-payment-modal__item-main">
+                      <strong className="posui-payment-modal__item-name">{item.name}</strong>
+                      {item.note ? <span className="posui-payment-modal__item-meta">{item.note}</span> : null}
+                    </span>
+                    <span className="posui-payment-modal__item-qty">x{item.quantity}</span>
+                  </label>
+                );
+              })}
+            </div>
+            {tableQrReview.error ? <p className="posui-payment-modal__error">{tableQrReview.error}</p> : null}
+            <div className="posui-payment-modal__actions">
+              <button type="button" className="posui-btn posui-btn--ghost" onClick={() => void submitTableQrReview("reject")} disabled={tableQrReview.busy}>ปฏิเสธทั้งหมด</button>
+              <button type="button" className="posui-btn posui-btn--primary" onClick={() => void submitTableQrReview("accept")} disabled={tableQrReview.busy || tableQrReview.acceptedIndexes.length === 0}>ส่งที่เลือกเข้าครัว</button>
+            </div>
+          </section>
+        </div>
+      ) : null}
       {tableQrAlert ? (
-        <div className="posui-table-alert-popup" role="alert" aria-live="assertive" aria-label={tableQrAlert.type === "call_staff" ? text.tableQrCallStaff : text.tableQrRequestCheckout}>
+        <div className="posui-table-alert-popup" role="alert" aria-live="assertive" aria-label={tableQrAlert.type === "call_staff" ? text.tableQrCallStaff : tableQrAlert.type === "request_checkout" ? text.tableQrRequestCheckout : text.tableQrOrderReceived}>
           <section className="posui-table-alert">
             <div className="posui-table-alert__icon" aria-hidden="true">
               !
             </div>
             <div className="posui-table-alert__content">
-              <strong>{tableQrAlert.type === "call_staff" ? text.tableQrCallStaff : text.tableQrRequestCheckout}</strong>
+              <strong>{tableQrAlert.type === "call_staff" ? text.tableQrCallStaff : tableQrAlert.type === "request_checkout" ? text.tableQrRequestCheckout : text.tableQrOrderReceived}</strong>
               <p>{tableQrAlert.tableCode}</p>
+              {tableQrAlert.itemCount ? <span>{tableQrAlert.itemCount} รายการ</span> : null}
               {tableQrAlert.note ? <span>{tableQrAlert.note}</span> : null}
             </div>
             <button type="button" onClick={() => setTableQrAlert(null)} aria-label={text.clear}>

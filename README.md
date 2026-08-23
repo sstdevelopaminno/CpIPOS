@@ -1,4 +1,4 @@
-﻿# CpIPOS
+# CpIPOS
 
 Production-oriented multi-tenant / multi-branch POS platform.
 
@@ -24,6 +24,11 @@ Read the guardrails before changing authentication, tenant isolation, database r
 - Branch `agent/table-order-concurrency-dinein-sync` hardens Table QR read/write rate-limit lanes, lightweight status polling, dine-in queued bill sync, and empty open-bill cancellation.
 - Database changes are source migrations only: Primary `20260810075709_table_order_concurrency_dinein_sync.sql` and Trial mirror `20260810075709_trial_table_order_concurrency_dinein_sync.sql`. Do not treat these as applied until an explicit migration-apply task runs.
 
+## FG0003 QR -> POS -> Kitchen hardening source checkpoint
+
+- Branch `agent/fg0003-qr-kitchen-hardening` changes FG0003 Table QR submits to create `pending_pos_review` rows instead of sending directly to Kitchen.
+- Staff review is exposed through the POS table QR review route; reject does not create Kitchen tickets/prints, accept is the only path that confirms Kitchen send.
+- Primary/Trial migrations `202608240001_fg0003_qr_pos_review_lifecycle.sql` are source-only. Do not treat them as applied until an explicit migration task runs.
 ## Table Management UI/UX checkpoint โ€” 2026-08-11
 
 - Table Management LIST view now has one visual content frame rather than nested borders.
