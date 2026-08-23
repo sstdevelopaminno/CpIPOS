@@ -1,3 +1,4 @@
+import { resolveQrKitchenHardeningFlags } from "@/lib/fg0003-qr-kitchen-hardening";
 import { fail, ok } from "@/lib/http";
 import { getPosApiAuthContext } from "@/lib/pos-api-auth";
 import { featureGateFail, requirePosApiFeature } from "@/lib/pos-api-feature-guard";
@@ -14,12 +15,14 @@ export async function GET(request: Request, context: { params: Promise<{ tableId
   try {
     const auth = await getPosApiAuthContext({ requireBranchScope: true, requiredPermission: "tables:view" });
     await requirePosApiFeature(auth, "qr_table_ordering");
+    const flags = resolveQrKitchenHardeningFlags({ tenantId: auth.tenantId, branchId: auth.branchId });
+    const fg0003PendingOnly = flags.qr_pos_review_required;
     const { tableId } = await context.params;
     const afterRaw = new URL(request.url).searchParams.get("after");
     if (!tableId) return withTiming(fail("invalid_table_id", "tableId is required.", 422));
 
     const after = afterRaw && !Number.isNaN(new Date(afterRaw).getTime()) ? new Date(afterRaw).toISOString() : null;
-    const cacheKey = `pos-table-qr-orders:${auth.tenantId}:${auth.branchId}:${tableId}:${after ?? "recent"}`;
+    const cacheKey = `pos-table-qr-orders:${auth.tenantId}:${auth.branchId}:${tableId}:${fg0003PendingOnly ? "pending" : "all"}:${after ?? "recent"}`;
     const { value: payload, source: cacheSource } = await readThroughRuntimeCache({
       key: cacheKey,
       ttlMs: 2500,
@@ -37,6 +40,9 @@ export async function GET(request: Request, context: { params: Promise<{ tableId
           .lte("created_at", cursorBoundary)
           .order("created_at", { ascending: true })
           .limit(25);
+        if (fg0003PendingOnly) {
+          query = query.eq("review_status", "pending_pos_review");
+        }
         if (after) {
           query = query.gt("created_at", after);
         } else {
