@@ -127,6 +127,78 @@ function isUniqueViolationError(error: { code?: string | null; message?: string 
   return error?.code === "23505" || message.includes("duplicate key value") || message.includes("unique constraint");
 }
 
+function totalPaymentLines(lines: Array<{ amount: number }>) {
+  return Number(lines.reduce((sum, line) => sum + Number(line.amount ?? 0), 0).toFixed(2));
+}
+
+async function resolveCompletedPaymentReplay(args: {
+  auth: AuthContext;
+  orderId: string;
+  paymentLines: Array<{ amount: number }>;
+  requestGroupId?: string;
+}): Promise<CompletedPaymentReplayResult | null> {
+  const { auth, orderId, paymentLines, requestGroupId } = args;
+  if (!auth.tenantId || !auth.branchId) return null;
+  if (!Array.isArray(paymentLines) || paymentLines.length === 0) return null;
+
+  const requestedTotal = totalPaymentLines(paymentLines);
+  if (!Number.isFinite(requestedTotal) || requestedTotal <= 0) return null;
+
+  const supabase = getSupabaseServiceClient();
+  const { data: orderRow, error: orderError } = await supabase
+    .from("orders")
+    .select("id,total_amount,status")
+    .eq("tenant_id", auth.tenantId)
+    .eq("branch_id", auth.branchId)
+    .eq("id", orderId)
+    .maybeSingle<{ id: string; total_amount: number; status: string }>();
+
+  if (orderError || !orderRow || orderRow.status !== "completed") return null;
+
+  const totalDue = Number(Number(orderRow.total_amount ?? 0).toFixed(2));
+  if (Math.abs(requestedTotal - totalDue) > 0.01) return null;
+
+  const withRequestGroup = await supabase
+    .from("payments")
+    .select("id,amount,request_group_id")
+    .eq("tenant_id", auth.tenantId)
+    .eq("branch_id", auth.branchId)
+    .eq("order_id", orderId);
+
+  let paymentRows = withRequestGroup.data as Array<{ id?: string | null; amount?: number | null; request_group_id?: string | null }> | null;
+  let paymentError = withRequestGroup.error;
+  if (paymentError && isMissingColumnError(paymentError.message, "payments", "request_group_id")) {
+    const withoutRequestGroup = await supabase
+      .from("payments")
+      .select("id,amount")
+      .eq("tenant_id", auth.tenantId)
+      .eq("branch_id", auth.branchId)
+      .eq("order_id", orderId);
+    paymentRows = withoutRequestGroup.data as Array<{ id?: string | null; amount?: number | null }> | null;
+    paymentError = withoutRequestGroup.error;
+  }
+
+  if (paymentError) return null;
+  const totalPaid = Number((paymentRows ?? []).reduce((sum, row) => sum + Number(row.amount ?? 0), 0).toFixed(2));
+  if (Math.abs(totalPaid - requestedTotal) > 0.01) return null;
+
+  const replayGroupId =
+    requestGroupId?.trim() ||
+    String(paymentRows?.find((row) => String(row.request_group_id ?? "").trim())?.request_group_id ?? "").trim() ||
+    String(paymentRows?.[0]?.id ?? "").trim() ||
+    orderId;
+
+  return {
+    ok: true,
+    data: {
+      payment_group_id: replayGroupId,
+      total_paid: totalPaid,
+      status: "completed",
+      duplicate_request: true
+    }
+  };
+}
+
 function splitModifierNotes(notes: string): string[] {
   return notes
     .split(",")
@@ -168,6 +240,16 @@ type PosPaymentTxRow = {
   total_paid: number;
   order_status: string;
   duplicate_request: boolean;
+};
+
+type CompletedPaymentReplayResult = {
+  ok: true;
+  data: {
+    payment_group_id: string;
+    total_paid: number;
+    status: "completed";
+    duplicate_request: true;
+  };
 };
 
 function buildOrderNoPrefix(orderType: OrderType) {
@@ -878,6 +960,14 @@ async function executeCompletePosPaymentDirectFallback(args: {
     return { ok: false as const, code: "payment_lines_required", status: 422, message: "At least one payment line is required." };
   }
 
+  const completedReplay = await resolveCompletedPaymentReplay({
+    auth,
+    orderId: input.order_id,
+    paymentLines: input.payment_lines,
+    requestGroupId
+  });
+  if (completedReplay) return completedReplay;
+
   const supabase = getSupabaseServiceClient();
   let supportsRequestGroupId = true;
 
@@ -1263,6 +1353,14 @@ export async function executeCompletePosPaymentTransaction(args: {
   if (POS_FORCE_DIRECT_PAYMENT_COMPLETE) {
     return executeCompletePosPaymentDirectFallback({ auth, input, requestGroupId });
   }
+  const completedReplay = await resolveCompletedPaymentReplay({
+    auth,
+    orderId: input.order_id,
+    paymentLines: input.payment_lines,
+    requestGroupId
+  });
+  if (completedReplay) return completedReplay;
+
   let data: PosPaymentTxRow[] | null = null;
   let error: { message: string } | null = null;
   try {
@@ -1331,6 +1429,15 @@ export async function executeCompletePosPaymentTransaction(args: {
     });
     if (parsed.code === "rpc_not_available") {
       return executeCompletePosPaymentDirectFallback({ auth, input, requestGroupId });
+    }
+    if (parsed.code === "payment_financial_review_required") {
+      const completedReplayAfterConflict = await resolveCompletedPaymentReplay({
+        auth,
+        orderId: input.order_id,
+        paymentLines: input.payment_lines,
+        requestGroupId
+      });
+      if (completedReplayAfterConflict) return completedReplayAfterConflict;
     }
     return { ok: false as const, ...parsed };
   }
