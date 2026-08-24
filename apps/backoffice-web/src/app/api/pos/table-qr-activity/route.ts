@@ -43,18 +43,56 @@ export async function GET(request: Request) {
     const since = Number.isFinite(new Date(sinceRaw).getTime()) ? new Date(sinceRaw).toISOString() : new Date(Date.now() - 15_000).toISOString();
     const supabase = getRoutedSupabaseServiceClient();
 
-    const { data: rows, error } = await supabase
-      .from("table_qr_orders")
-      .select("id,table_id,event_type,item_count,subtotal,payload,review_status,created_at")
-      .eq("tenant_id", auth.tenantId!)
-      .eq("branch_id", auth.branchId!)
-      .in("event_type", ["order", "call_staff", "request_checkout"])
-      .gt("created_at", since)
-      .order("created_at", { ascending: true })
-      .limit(50);
-    if (error) throw new Error(error.message);
+    let rawRows: ActivityRow[] = [];
+    let cursor = since;
 
-    const rawRows = (rows ?? []) as ActivityRow[];
+    if (fg0003PendingOnly) {
+      // FG0003 order alerts are an acknowledgement queue. Never let the polling cursor
+      // hide an older unreviewed order, and expose only the oldest pending order globally.
+      // Service requests still use the normal cursor and are returned before the pending
+      // order so a latest-wins client cannot replace the order review with a newer event.
+      const [pendingOrderResult, serviceResult] = await Promise.all([
+        supabase
+          .from("table_qr_orders")
+          .select("id,table_id,event_type,item_count,subtotal,payload,review_status,created_at")
+          .eq("tenant_id", auth.tenantId!)
+          .eq("branch_id", auth.branchId!)
+          .eq("event_type", "order")
+          .eq("review_status", "pending_pos_review")
+          .order("created_at", { ascending: true })
+          .limit(1),
+        supabase
+          .from("table_qr_orders")
+          .select("id,table_id,event_type,item_count,subtotal,payload,review_status,created_at")
+          .eq("tenant_id", auth.tenantId!)
+          .eq("branch_id", auth.branchId!)
+          .in("event_type", ["call_staff", "request_checkout"])
+          .gt("created_at", since)
+          .order("created_at", { ascending: true })
+          .limit(25)
+      ]);
+      if (pendingOrderResult.error) throw new Error(pendingOrderResult.error.message);
+      if (serviceResult.error) throw new Error(serviceResult.error.message);
+
+      const serviceRows = ((serviceResult.data ?? []) as ActivityRow[]).filter((row) => !isAcknowledged(row.payload));
+      const pendingRows = (pendingOrderResult.data ?? []) as ActivityRow[];
+      rawRows = [...serviceRows, ...pendingRows];
+      cursor = ((serviceResult.data ?? []) as ActivityRow[]).at(-1)?.created_at ?? since;
+    } else {
+      const { data: rows, error } = await supabase
+        .from("table_qr_orders")
+        .select("id,table_id,event_type,item_count,subtotal,payload,review_status,created_at")
+        .eq("tenant_id", auth.tenantId!)
+        .eq("branch_id", auth.branchId!)
+        .in("event_type", ["order", "call_staff", "request_checkout"])
+        .gt("created_at", since)
+        .order("created_at", { ascending: true })
+        .limit(50);
+      if (error) throw new Error(error.message);
+      rawRows = (rows ?? []) as ActivityRow[];
+      cursor = rawRows.at(-1)?.created_at ?? since;
+    }
+
     const visibleRows = rawRows.filter((row) => {
       if (row.event_type === "order") {
         return !fg0003PendingOnly || row.review_status === "pending_pos_review";
@@ -85,7 +123,7 @@ export async function GET(request: Request) {
 
     return ok({
       events,
-      cursor: rawRows.at(-1)?.created_at ?? since,
+      cursor,
       server_time: new Date().toISOString()
     });
   } catch (error) {
