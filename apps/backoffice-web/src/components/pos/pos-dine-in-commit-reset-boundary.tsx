@@ -35,11 +35,20 @@ type ApiErrorPayload = {
   };
 };
 
+type CachedTableBillSnapshot = {
+  at: number;
+  body: string;
+};
+
 const DINE_IN_DRAFT_KEY = "pos_dine_in_draft_v001";
 const DINE_IN_SELECTED_TABLE_KEY = "pos_dine_in_selected_table_v001";
 const ACTIVE_ORDER_KEY = "pos_active_order_v001";
 const KITCHEN_RETURN_MARKER_KEY = "pos_returning_from_kitchen_v1";
 const AUTO_SEND_KEY_PREFIX = "pos-dine-kitchen-";
+const TABLE_BILL_SNAPSHOT_PREFIX = "pos_table_bill_snapshot_v2";
+const TABLE_BILL_LITE_MAX_AGE_MS = 30_000;
+const TABLE_BILL_FULL_MAX_AGE_MS = 5 * 60_000;
+const TABLE_BILL_FAST_RESTORE_WINDOW_MS = 10_000;
 
 function resolveRequestUrl(input: RequestInfo | URL): URL | null {
   try {
@@ -105,6 +114,89 @@ function readStoredDraftMap(): Record<string, StoredCartItem[]> | null {
   } catch {
     return null;
   }
+}
+
+function resolveTableBillCacheDescriptor(url: URL): { tableId: string; mode: "lite" | "full"; key: string } | null {
+  const match = url.pathname.match(/^\/api\/pos\/tables\/([^/]+)\/bill$/);
+  if (!match?.[1]) return null;
+  const tableId = decodeURIComponent(match[1]);
+  const mode = url.searchParams.get("lite") === "1" ? "lite" : "full";
+  return {
+    tableId,
+    mode,
+    key: `${TABLE_BILL_SNAPSHOT_PREFIX}:${tableId}:${mode}`
+  };
+}
+
+function readTableBillSnapshot(key: string): CachedTableBillSnapshot | null {
+  try {
+    const raw = window.sessionStorage.getItem(key);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Partial<CachedTableBillSnapshot>;
+    if (!Number.isFinite(parsed.at) || typeof parsed.body !== "string" || !parsed.body) return null;
+    return { at: Number(parsed.at), body: parsed.body };
+  } catch {
+    return null;
+  }
+}
+
+function writeTableBillSnapshot(key: string, response: Response) {
+  if (!response.ok) return;
+  void response.clone().text().then((body) => {
+    if (!body) return;
+    try {
+      window.sessionStorage.setItem(key, JSON.stringify({ at: Date.now(), body } satisfies CachedTableBillSnapshot));
+    } catch {
+      // Session cache is an acceleration only. Authoritative bill loading remains available.
+    }
+  }).catch(() => undefined);
+}
+
+function cachedTableBillResponse(snapshot: CachedTableBillSnapshot): Response {
+  return new Response(snapshot.body, {
+    status: 200,
+    headers: {
+      "content-type": "application/json; charset=utf-8",
+      "x-pos-table-bill-client-cache": "session-warm"
+    }
+  });
+}
+
+function clearTableBillSnapshots(tableId: string | null) {
+  if (!tableId) return;
+  try {
+    window.sessionStorage.removeItem(`${TABLE_BILL_SNAPSHOT_PREFIX}:${tableId}:lite`);
+    window.sessionStorage.removeItem(`${TABLE_BILL_SNAPSHOT_PREFIX}:${tableId}:full`);
+  } catch {
+    // Best effort only.
+  }
+}
+
+function isQrReviewPoll(url: URL, method: string): boolean {
+  return method === "GET" && /^\/api\/pos\/tables\/[^/]+\/qr-orders$/.test(url.pathname);
+}
+
+function isQrReviewMutation(url: URL, method: string): boolean {
+  return method === "POST" && /^\/api\/pos\/tables\/[^/]+\/qr-orders$/.test(url.pathname);
+}
+
+function tableIdFromQrReviewUrl(url: URL): string | null {
+  const match = url.pathname.match(/^\/api\/pos\/tables\/([^/]+)\/qr-orders$/);
+  return match?.[1] ? decodeURIComponent(match[1]) : null;
+}
+
+function buildPausedQrReviewPollResponse(url: URL): Response {
+  // Do not advance the caller cursor while the current review is open. FG0003 will keep
+  // the authoritative pending row in the database; this only prevents the same submission
+  // from reinitialising acceptedIndexes every poll while staff are ticking choices.
+  const cursor = url.searchParams.get("after") || new Date().toISOString();
+  return new Response(JSON.stringify({ data: { items: [], server_time: cursor } }), {
+    status: 200,
+    headers: {
+      "content-type": "application/json; charset=utf-8",
+      "x-pos-qr-review-poll": "paused-while-review-open"
+    }
+  });
 }
 
 async function reconcileKitchenReturnDraft(): Promise<void> {
@@ -195,6 +287,7 @@ function clearCommittedDineInDraft(tableId: string | null) {
   // Drop the persisted active-order snapshot after a successful auto-send. The mounted POS
   // keeps its live state, while any later reload rebuilds from the authoritative table-bill API.
   window.localStorage.removeItem(ACTIVE_ORDER_KEY);
+  clearTableBillSnapshots(tableId);
 }
 
 export function PosDineInCommitResetBoundary({ lang }: { lang: Lang }) {
@@ -203,14 +296,58 @@ export function PosDineInCommitResetBoundary({ lang }: { lang: Lang }) {
 
   useEffect(() => {
     const originalFetch = window.fetch.bind(window);
+    const mountedAt = Date.now();
+    const fullRestoreServed = new Set<string>();
+
+    const fetchAndRememberTableBill = async (input: RequestInfo | URL, init: RequestInit | undefined, cacheKey: string) => {
+      const response = await originalFetch(input, init);
+      writeTableBillSnapshot(cacheKey, response);
+      return response;
+    };
 
     window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = resolveRequestUrl(input);
       const method = resolveRequestMethod(input, init);
+
+      // While staff are reviewing a QR submission, polling the same authoritative pending row
+      // must not overwrite the checkbox state back to "all selected" every four seconds.
+      if (url && isQrReviewPoll(url, method) && document.querySelector(".posui-payment-modal--review")) {
+        return buildPausedQrReviewPollResponse(url);
+      }
+
+      if (url && method === "GET") {
+        const bill = resolveTableBillCacheDescriptor(url);
+        if (bill) {
+          const snapshot = readTableBillSnapshot(bill.key);
+          const ageMs = snapshot ? Date.now() - snapshot.at : Number.POSITIVE_INFINITY;
+          const isLiteWarm = bill.mode === "lite" && ageMs <= TABLE_BILL_LITE_MAX_AGE_MS;
+          const isInitialFullRestore =
+            bill.mode === "full" &&
+            ageMs <= TABLE_BILL_FULL_MAX_AGE_MS &&
+            Date.now() - mountedAt <= TABLE_BILL_FAST_RESTORE_WINDOW_MS &&
+            !fullRestoreServed.has(bill.tableId);
+
+          if (snapshot && (isLiteWarm || isInitialFullRestore)) {
+            if (isInitialFullRestore) fullRestoreServed.add(bill.tableId);
+            // Serve the last successful bill immediately, then refresh the snapshot in the
+            // background. Normal active-table refreshes go back to the network after this one
+            // fast restore, so cached data cannot pin a live table indefinitely.
+            void fetchAndRememberTableBill(input, init, bill.key).catch(() => undefined);
+            return cachedTableBillResponse(snapshot);
+          }
+
+          return fetchAndRememberTableBill(input, init, bill.key);
+        }
+      }
+
       const isSalesSubmit = method === "POST" && url?.pathname === "/api/pos/sales";
 
       if (!isSalesSubmit) {
-        return originalFetch(input, init);
+        const response = await originalFetch(input, init);
+        if (url && isQrReviewMutation(url, method) && response.ok) {
+          clearTableBillSnapshots(tableIdFromQrReviewUrl(url));
+        }
+        return response;
       }
 
       const headers = resolveRequestHeaders(input, init);
