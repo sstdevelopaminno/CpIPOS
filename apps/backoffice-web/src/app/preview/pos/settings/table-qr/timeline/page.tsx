@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { TableQrOrderTimeline } from "@/components/pos-preview/table-qr-order-timeline";
-import { resolveQrKitchenHardeningFlags } from "@/lib/fg0003-qr-kitchen-hardening";
+import { resolveRestaurantQrKitchenFlags } from "@/lib/restaurant-qr-profile";
 import { requirePosPagePermission } from "@/lib/pos-page-guard";
 
 export default async function TableQrTimelinePage() {
@@ -8,7 +8,7 @@ export default async function TableQrTimelinePage() {
   const role = String(scope.session.role ?? "").trim().toLowerCase();
   if (role !== "owner" && role !== "manager") redirect("/preview/pos/settings");
 
-  const flags = resolveQrKitchenHardeningFlags({
+  const flags = resolveRestaurantQrKitchenFlags({
     tenantId: scope.session.tenant_id,
     branchId: scope.session.branch_id
   });

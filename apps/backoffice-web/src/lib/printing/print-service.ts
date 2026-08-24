@@ -11,6 +11,7 @@ import type {
 import type { AuthContext } from "@/lib/auth-context";
 import { appendAuditLog } from "@/lib/audit-log";
 import { readEnv } from "@/lib/env";
+import { isRestaurantQrScope } from "@/lib/restaurant-qr-profile";
 import { loadReceiptStoreProfile, type ReceiptStoreProfile } from "@/lib/services/store-profile-service";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
 import { BluetoothBridgeAdapter } from "@/lib/printing/adapters/bluetooth-bridge-adapter";
@@ -49,6 +50,10 @@ type EnqueuePrintJobInput = {
   metadata?: JsonRecord;
   maxRetryCount?: number;
 };
+
+function isUniqueConstraintError(error: { code?: string | null; message?: string | null } | null | undefined) {
+  return error?.code === "23505" || String(error?.message ?? "").toLowerCase().includes("duplicate key");
+}
 
 type CreatePrinterInput = {
   printer_name: string;
@@ -625,6 +630,19 @@ export async function deletePrinterProfile(auth: AuthContext, printerId: string)
   return data as JsonRecord;
 }
 
+async function loadExistingPrintJobByIdempotencyKey(input: EnqueuePrintJobInput): Promise<PrintJobRow | null> {
+  if (!input.idempotencyKey) return null;
+  const supabase = getSupabaseServiceClient();
+  const { data, error } = await supabase
+    .from("print_jobs")
+    .select("id,tenant_id,branch_id,order_id,kitchen_ticket_id,idempotency_key,printer_id,printer_role,connection_type,status,payload_text,payload_json,retry_count,max_retry_count,last_error,printed_at,failed_at,created_at,updated_at,metadata")
+    .eq("tenant_id", input.auth.tenantId!)
+    .eq("branch_id", input.auth.branchId!)
+    .eq("idempotency_key", input.idempotencyKey)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  return (data as PrintJobRow | null) ?? null;
+}
 export async function enqueuePrintJob(input: EnqueuePrintJobInput): Promise<PrintJobRow> {
   const supabase = getSupabaseServiceClient();
   const retryLimit = Number.isFinite(input.maxRetryCount) ? Math.max(0, Number(input.maxRetryCount)) : DEFAULT_MAX_RETRY_COUNT;
@@ -654,6 +672,14 @@ export async function enqueuePrintJob(input: EnqueuePrintJobInput): Promise<Prin
     .single();
 
   if (error) {
+    if (
+      input.idempotencyKey &&
+      isRestaurantQrScope({ tenantId: input.auth.tenantId, branchId: input.auth.branchId }) &&
+      isUniqueConstraintError(error)
+    ) {
+      const existing = await loadExistingPrintJobByIdempotencyKey(input);
+      if (existing) return existing;
+    }
     throw new Error(error.message);
   }
 

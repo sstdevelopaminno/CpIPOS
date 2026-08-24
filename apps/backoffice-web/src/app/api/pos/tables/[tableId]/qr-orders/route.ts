@@ -1,4 +1,4 @@
-import { resolveQrKitchenHardeningFlags } from "@/lib/fg0003-qr-kitchen-hardening";
+import { isRestaurantQrInternalReviewSource, resolveRestaurantQrKitchenFlags } from "@/lib/restaurant-qr-profile";
 import { fail, ok } from "@/lib/http";
 import { getPosApiAuthContext } from "@/lib/pos-api-auth";
 import { featureGateFail, requirePosApiFeature } from "@/lib/pos-api-feature-guard";
@@ -6,6 +6,58 @@ import { readThroughRuntimeCache } from "@/lib/route-runtime-cache";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
 import { reviewPendingTableQrOrder } from "@/lib/table-qr-ordering";
 
+type QrReviewOrderRow = {
+  id: string;
+  event_type: string | null;
+  order_id: string | null;
+  request_id: string | null;
+  table_session_id: string | null;
+  payload: Record<string, unknown> | null;
+  review_status: string | null;
+};
+
+const ACTIVE_QR_REVIEW_TABLE_SESSION_STATUSES = new Set(["open", "ordering"]);
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
+}
+
+function isInternalKitchenConfirmRequest(requestId: string | null | undefined) {
+  return String(requestId ?? "").includes(":kitchen-confirm:");
+}
+
+function isActionableRestaurantQrOrder(row: QrReviewOrderRow, activeTableSessionIds: Set<string>) {
+  const payload = asRecord(row.payload);
+  return row.event_type === "order"
+    && row.review_status === "pending_pos_review"
+    && row.order_id === null
+    && !isRestaurantQrInternalReviewSource(payload.source)
+    && !isInternalKitchenConfirmRequest(row.request_id)
+    && Boolean(row.table_session_id && activeTableSessionIds.has(row.table_session_id));
+}
+
+async function filterActionableRestaurantQrOrders(args: {
+  supabase: ReturnType<typeof getSupabaseServiceClient>;
+  tenantId: string;
+  branchId: string;
+  rows: QrReviewOrderRow[];
+}) {
+  const tableSessionIds = Array.from(new Set(args.rows.map((row) => row.table_session_id).filter((id): id is string => Boolean(id))));
+  if (tableSessionIds.length === 0) return [];
+  const { data, error } = await args.supabase
+    .from("table_bill_sessions")
+    .select("id,status,closed_at")
+    .eq("tenant_id", args.tenantId)
+    .eq("branch_id", args.branchId)
+    .in("id", tableSessionIds);
+  if (error) throw new Error(`table_qr_orders_query_failed:${error.message}`);
+  const activeTableSessionIds = new Set(
+    ((data ?? []) as Array<{ id: string; status: string | null; closed_at: string | null }>)
+      .filter((session) => !session.closed_at && ACTIVE_QR_REVIEW_TABLE_SESSION_STATUSES.has(String(session.status ?? "")))
+      .map((session) => session.id)
+  );
+  return args.rows.filter((row) => isActionableRestaurantQrOrder(row, activeTableSessionIds)).slice(0, 1);
+}
 export async function GET(request: Request, context: { params: Promise<{ tableId: string }> }) {
   const startedAt = Date.now();
   const withTiming = (response: Response) => {
@@ -15,8 +67,8 @@ export async function GET(request: Request, context: { params: Promise<{ tableId
   try {
     const auth = await getPosApiAuthContext({ requireBranchScope: true, requiredPermission: "tables:view" });
     await requirePosApiFeature(auth, "qr_table_ordering");
-    const flags = resolveQrKitchenHardeningFlags({ tenantId: auth.tenantId, branchId: auth.branchId });
-    const fg0003PendingOnly = flags.qr_pos_review_required;
+    const flags = resolveRestaurantQrKitchenFlags({ tenantId: auth.tenantId, branchId: auth.branchId });
+    const restaurantQrPendingOnly = flags.qr_pos_review_required;
     const { tableId } = await context.params;
     const searchParams = new URL(request.url).searchParams;
     const afterRaw = searchParams.get("after");
@@ -24,11 +76,11 @@ export async function GET(request: Request, context: { params: Promise<{ tableId
     if (!tableId) return withTiming(fail("invalid_table_id", "tableId is required.", 422));
 
     const after = afterRaw && !Number.isNaN(new Date(afterRaw).getTime()) ? new Date(afterRaw).toISOString() : null;
-    const cacheKey = `pos-table-qr-orders:${auth.tenantId}:${auth.branchId}:${tableId}:${fg0003PendingOnly ? "pending-fifo-v2" : "all"}:${after ?? "recent"}`;
+    const cacheKey = `pos-table-qr-orders:${auth.tenantId}:${auth.branchId}:${tableId}:${restaurantQrPendingOnly ? "pending-fifo-v2" : "all"}:${after ?? "recent"}`;
     const { value: payload, source: cacheSource } = await readThroughRuntimeCache({
       key: cacheKey,
-      // Keep FG0003 nearly real-time without forcing every 2-3s poll to hit Postgres.
-      ttlMs: fg0003PendingOnly ? 350 : 2500,
+      // Keep Restaurant QR nearly real-time without forcing every 2-3s poll to hit Postgres.
+      ttlMs: restaurantQrPendingOnly ? 350 : 2500,
       staleIfErrorMs: 10000,
       forceRefresh,
       loader: async () => {
@@ -36,16 +88,16 @@ export async function GET(request: Request, context: { params: Promise<{ tableId
         const cursorBoundary = new Date().toISOString();
         let query = supabase
           .from("table_qr_orders")
-          .select("id,event_type,order_id,table_session_id,item_count,subtotal,payload,review_status,created_at")
+          .select("id,event_type,order_id,request_id,table_session_id,item_count,subtotal,payload,review_status,created_at")
           .eq("tenant_id", auth.tenantId!)
           .eq("branch_id", auth.branchId!)
           .eq("table_id", tableId)
           .eq("event_type", "order")
           .lte("created_at", cursorBoundary)
           .order("created_at", { ascending: true })
-          .limit(fg0003PendingOnly ? 1 : 25);
-        if (fg0003PendingOnly) {
-          // FG0003 is an acknowledgement queue. Keep returning the oldest pending
+          .limit(restaurantQrPendingOnly ? 8 : 25);
+        if (restaurantQrPendingOnly) {
+          // Restaurant QR is an acknowledgement queue. Keep returning the oldest pending
           // submission until staff accepts/rejects it; newer submissions must wait.
           query = query.eq("review_status", "pending_pos_review");
         } else if (after) {
@@ -56,7 +108,11 @@ export async function GET(request: Request, context: { params: Promise<{ tableId
 
         const { data, error } = await query;
         if (error) throw new Error(`table_qr_orders_query_failed:${error.message}`);
-        return { items: data ?? [], server_time: cursorBoundary };
+        const rows = (data ?? []) as QrReviewOrderRow[];
+        const items = restaurantQrPendingOnly
+          ? await filterActionableRestaurantQrOrders({ supabase, tenantId: auth.tenantId!, branchId: auth.branchId!, rows })
+          : rows;
+        return { items, server_time: cursorBoundary };
       }
     });
 

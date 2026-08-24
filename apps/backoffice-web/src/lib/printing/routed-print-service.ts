@@ -49,6 +49,18 @@ function shouldDefer(route: ResolvedPrinterRoute) {
   return readEnv("VERCEL") === "1" || Boolean(readEnv("VERCEL_ENV"));
 }
 
+function buildRoutePrintIdempotencyKey(args: { baseKey?: string | null; kitchenTicketId?: string | null; route: ResolvedPrinterRoute; copy: number }) {
+  const baseKey = args.baseKey ?? (args.kitchenTicketId ? `kitchen:${args.kitchenTicketId}` : null);
+  if (!baseKey) return null;
+  return [
+    baseKey,
+    `printer:${args.route.printer.id}`,
+    `device:${args.route.printerDeviceId ?? "profile"}`,
+    `purpose:${args.route.purpose}`,
+    `zone:${args.route.zoneKey || "default"}`,
+    `copy:${args.copy}`
+  ].join(":").slice(0, 180);
+}
 const KITCHEN_TICKET_PRINT_SELECT_WITH_ROUND = "id,order_id,zone_id,event_type,order_no,order_type,table_id,customer_name,order_notes,queue_no,round_no,created_at,metadata,kitchen_zones(id,zone_code,zone_name,kds_enabled,default_printer_id)";
 const KITCHEN_TICKET_PRINT_SELECT_BASE = "id,order_id,zone_id,event_type,order_no,order_type,table_id,customer_name,order_notes,queue_no,created_at,metadata,kitchen_zones(id,zone_code,zone_name,kds_enabled,default_printer_id)";
 
@@ -84,7 +96,7 @@ async function queueOnRoute(args: {
       printer: args.route.printer,
       orderId: args.orderId,
       kitchenTicketId: args.kitchenTicketId ?? null,
-      idempotencyKey: args.idempotencyKey ?? null,
+      idempotencyKey: buildRoutePrintIdempotencyKey({ baseKey: args.idempotencyKey, kitchenTicketId: args.kitchenTicketId, route: args.route, copy }),
       printerRole: args.printerRole,
       payloadText: args.payloadText,
       payloadJson: args.payloadJson ?? {},

@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, ty
 import Image from "next/image";
 import type { OrderType } from "@pos/shared-types";
 import { ErrorState, LoadingState } from "@/components/backoffice/list-state";
-import { isFg0003QrKitchenHardeningEnabled, resolveQrKitchenHardeningFlags } from "@/lib/fg0003-qr-kitchen-hardening";
+import { isRestaurantQrKitchenHardeningEnabled, resolveRestaurantQrKitchenFlags } from "@/lib/restaurant-qr-profile";
 import { PosHeldBillsModal } from "@/components/pos/pos-held-bills-modal";
 import { PosBuffetPricePickerModal } from "@/components/pos/pos-buffet-price-picker-modal";
 import { PosBuffetTableModeButton } from "@/components/pos/features/pos-buffet-table-mode-button";
@@ -2165,6 +2165,7 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
   const [tableQrNotificationSettings, setTableQrNotificationSettings] = useState<TableQrNotificationSettings>(DEFAULT_TABLE_QR_NOTIFICATION_SETTINGS);
   const [tableQrAlert, setTableQrAlert] = useState<{ id: string; type: "order" | "call_staff" | "request_checkout"; tableCode: string; note?: string | null; itemCount?: number | null } | null>(null);
   const [tableQrReview, setTableQrReview] = useState<{ submissionId: string; tableId: string; tableCode: string; items: Array<{ index: number; productId: string; name: string; quantity: number; note?: string | null }>; acceptedIndexes: number[]; busy: boolean; error: string | null } | null>(null);
+  const [tableQrReviewQueue, setTableQrReviewQueue] = useState<Array<{ submissionId: string; tableId: string; tableCode: string; items: Array<{ index: number; productId: string; name: string; quantity: number; note?: string | null }>; acceptedIndexes: number[]; busy: boolean; error: string | null }>>([]);
   const [dineInKitchenSendingNotice, setDineInKitchenSendingNotice] = useState<{ tableCode: string; itemCount: number } | null>(null);
   const [seenTableQrActivity, setSeenTableQrActivity] = useState<Record<string, string>>(() => readStoredJson<Record<string, string>>(TABLE_QR_ACTIVITY_SEEN_KEY) ?? {});
   const [devicePolicy, setDevicePolicy] = useState<PosSalesDevicePolicy | null>(null);
@@ -2295,6 +2296,8 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
   const tableQrOrderSeenRef = useRef<Set<string>>(new Set());
   const tableQrOrderPollCursorRef = useRef<string>("");
   const tableQrOrderPollInFlightRef = useRef(false);
+  const tableQrReviewTerminalRef = useRef<Set<string>>(new Set());
+  const tableQrOrderAbortRef = useRef<AbortController | null>(null);
   const tableQrLatestEventByTableRef = useRef<Map<string, string>>(new Map());
   const tableQrAudioContextRef = useRef<AudioContext | null>(null);
   const loadTableBillContextRef = useRef<(table: DiningTableItem) => Promise<void>>(async () => {
@@ -2716,7 +2719,9 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
       tableQrOrderPollInFlightRef.current = true;
       try {
         const after = encodeURIComponent(tableQrOrderPollCursorRef.current);
-        const response = await fetch(`/api/pos/tables/${table.id}/qr-orders?after=${after}`, { cache: "no-store" });
+        const controller = new AbortController();
+        tableQrOrderAbortRef.current = controller;
+        const response = await fetch(`/api/pos/tables/${table.id}/qr-orders?after=${after}`, { cache: "no-store", signal: controller.signal });
         const body = (await response.json()) as {
           data?: {
             items?: Array<{
@@ -2773,7 +2778,7 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
           }];
         });
         if (reviewItems.length > 0) {
-          setTableQrReview({
+          const nextReview = {
             submissionId: latestOrderEvent.id,
             tableId: table.id,
             tableCode: table.table_code,
@@ -2781,7 +2786,15 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
             acceptedIndexes: reviewItems.map((item) => item.index),
             busy: false,
             error: null
-          });
+          };
+          if (!tableQrReviewTerminalRef.current.has(nextReview.submissionId)) {
+            setTableQrReview((current) => {
+              if (!current) return nextReview;
+              if (current.submissionId === nextReview.submissionId) return current;
+              setTableQrReviewQueue((queue) => queue.some((item) => item.submissionId === nextReview.submissionId) ? queue : [...queue, nextReview]);
+              return current;
+            });
+          }
         }
         invalidateTableBillCache(table.id);
         pushSubmitMessageRef.current(`${text.tableQrOrderReceived}: ${table.table_code}`);
@@ -6244,7 +6257,7 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
     }
   }
 
-  const fg0003QrKitchenHardeningActive = useMemo(() => isFg0003QrKitchenHardeningEnabled(resolveQrKitchenHardeningFlags({
+  const restaurantQrKitchenHardeningActive = useMemo(() => isRestaurantQrKitchenHardeningEnabled(resolveRestaurantQrKitchenFlags({
     tenantId: posScope.tenantId,
     branchId: posScope.branchId
   })), [posScope.branchId, posScope.tenantId]);
@@ -6261,7 +6274,7 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
   }
 
   function buildDineInAutoSendJob(): DineInAutoSendJob | null {
-    if (fg0003QrKitchenHardeningActive) return null;
+    if (restaurantQrKitchenHardeningActive) return null;
     if (orderType !== "dine_in" || !selectedTable?.id || !selectedTable.active_session_id || !shift || shift.status !== "open" || !isOnline) return null;
     const cashierMutationVersion = dineInCashierMutationVersionRef.current[selectedTable.id] ?? 0;
     const committedMutationVersion = dineInCommittedMutationVersionRef.current[selectedTable.id] ?? 0;
@@ -6450,7 +6463,7 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
     if (!job) return;
     scheduleDineInKitchenAutoSend(job);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [orderType, selectedTable?.id, selectedTable?.active_session_id, shift?.id, shift?.status, cart, isOnline, lastCommittedCartSignature, activeOrder?.id, activeOrder?.status, subtotal, summaryDiscount, taxBaseTotal, taxSettings, selectedMember?.id, fg0003QrKitchenHardeningActive]);
+  }, [orderType, selectedTable?.id, selectedTable?.active_session_id, shift?.id, shift?.status, cart, isOnline, lastCommittedCartSignature, activeOrder?.id, activeOrder?.status, subtotal, summaryDiscount, taxBaseTotal, taxSettings, selectedMember?.id, restaurantQrKitchenHardeningActive]);
   function toggleTableQrReviewItem(index: number) {
     setTableQrReview((current) => {
       if (!current || current.busy) return current;
@@ -6466,7 +6479,7 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
 
   async function submitTableQrReview(action: "accept" | "reject") {
     const review = tableQrReview;
-    if (!review || review.busy) return;
+    if (!review || review.busy || tableQrReviewTerminalRef.current.has(review.submissionId)) return;
     if (action === "accept" && review.acceptedIndexes.length === 0) {
       setTableQrReview({ ...review, error: "กรุณาเลือกรายการอย่างน้อย 1 รายการ หรือกดปฏิเสธทั้งหมด" });
       return;
@@ -6486,7 +6499,13 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
       const body = (await response.json().catch(() => null)) as { error?: { message?: string } } | null;
       if (!response.ok) throw new Error(body?.error?.message || "QR review failed");
       pushSubmitMessage(action === "accept" ? `ส่งรายการ QR เข้าครัวแล้ว: ${review.tableCode}` : `ปฏิเสธรายการ QR แล้ว: ${review.tableCode}`);
-      setTableQrReview(null);
+      tableQrReviewTerminalRef.current.add(review.submissionId);
+      setTableQrReviewQueue((queue) => {
+        const remaining = queue.filter((item) => item.submissionId !== review.submissionId && !tableQrReviewTerminalRef.current.has(item.submissionId));
+        const [next, ...rest] = remaining;
+        setTableQrReview(next ?? null);
+        return rest;
+      });
       const table = selectedTableRef.current?.id === review.tableId ? selectedTableRef.current : selectedTable;
       if (table?.id === review.tableId) void loadTableBillContextRef.current(table).catch(() => undefined);
       void fetchPosTablesRef.current({ timeoutMs: 8000, retries: 0, silent: true }).catch(() => undefined);
@@ -10348,17 +10367,3 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
     </section>
   );
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
