@@ -29,9 +29,9 @@ type PendingServiceAck = {
 
 const CURSOR_KEY = "pos_global_table_qr_cursor_v1";
 const ACKED_EVENT_IDS_KEY = "pos_global_table_qr_acked_event_ids_v1";
-// Keep new activity responsive, then settle to 30s while the POS is idle.
-// This only controls the global alert poll; QR submit -> Kitchen dispatch is independent.
-const IDLE_POLL_MS = [3000, 5000, 10000, 15000, 30000] as const;
+// QR orders are operational alerts, not analytics. Keep polling responsive even after
+// a long idle period; 30s backoff made incoming orders feel lost or delayed in-store.
+const IDLE_POLL_MS = [1000, 1500, 2000, 3000, 5000] as const;
 const SEEN_EVENT_LIMIT = 300;
 
 function isServiceEvent(event: ActivityEvent): event is ActivityEvent & { event_type: ServiceEventType } {
@@ -148,8 +148,7 @@ export function PosTableQrGlobalAlert({ lang }: { lang: Language }) {
     // Optimistic UI: dismiss locally first so the button always responds immediately.
     setPendingEvents((queue) => queue.filter((row) => row.id !== current.id));
 
-    // Food-order acknowledgement is intentionally local to this POS session. Service requests
-    // keep their existing server acknowledgement contract, persisted in the background.
+    // Service requests keep their existing server acknowledgement contract.
     if (isServiceEvent(current)) void persistServiceAck(current, action);
 
     if (action === "go_to_table") {
@@ -291,14 +290,21 @@ export function PosTableQrGlobalAlert({ lang }: { lang: Language }) {
             >
               {lang === "th" ? `ไปที่โต๊ะ ${tableCode}` : `Open table ${tableCode}`}
             </button>
-            <button
-              type="button"
-              className="rounded-xl border border-slate-300 px-3 py-2 text-[13px] font-semibold active:translate-y-px"
-              onClick={() => acknowledge(event, "acknowledge")}
-            >
-              {lang === "th" ? "รับทราบ" : "Dismiss"}
-            </button>
+            {!isOrder ? (
+              <button
+                type="button"
+                className="rounded-xl border border-slate-300 px-3 py-2 text-[13px] font-semibold active:translate-y-px"
+                onClick={() => acknowledge(event, "acknowledge")}
+              >
+                {lang === "th" ? "รับทราบ" : "Dismiss"}
+              </button>
+            ) : null}
           </div>
+          {isOrder ? (
+            <span className="mt-2 block text-[11px] font-semibold text-slate-500">
+              {lang === "th" ? "รายการอาหารจะค้างรอตรวจจนกว่าจะเปิดโต๊ะและยืนยัน/ปฏิเสธ" : "Food orders stay pending until reviewed at the table."}
+            </span>
+          ) : null}
         </div>
       </div>
     </aside>
