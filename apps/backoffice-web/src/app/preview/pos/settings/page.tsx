@@ -1,6 +1,7 @@
 import { PrintersModule } from "@/components/backoffice/printers-module";
 import { PosSettingsWorkspace } from "@/components/pos-preview/pos-settings-workspace";
 import { TableQrSettingsMenuPortal } from "@/components/pos-preview/table-qr-settings-menu-portal";
+import { resolveQrKitchenHardeningFlags } from "@/lib/fg0003-qr-kitchen-hardening";
 import { getCurrentLanguage } from "@/lib/i18n";
 import { requirePosPagePermission } from "@/lib/pos-page-guard";
 import { requirePosSession } from "@/lib/pos-session-guard";
@@ -28,11 +29,15 @@ export default async function PosLanguageSettingsPage() {
   });
   const role = String(scope.session.role ?? "").trim().toLowerCase();
   const canManageTableQr = role === "owner" || role === "manager";
+  const timelineEnabled = canManageTableQr && resolveQrKitchenHardeningFlags({
+    tenantId: scope.session.tenant_id,
+    branchId: scope.session.branch_id
+  }).qr_pos_review_required;
 
   return (
     <div className="h-full min-h-0 flex-1 bg-slate-50">
       <PosSettingsWorkspace lang={lang} initialData={initialData} />
-      {canManageTableQr ? <TableQrSettingsMenuPortal lang={lang} /> : null}
+      {canManageTableQr ? <TableQrSettingsMenuPortal lang={lang} timelineEnabled={timelineEnabled} /> : null}
     </div>
   );
 }
