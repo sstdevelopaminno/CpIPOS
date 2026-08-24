@@ -65,9 +65,10 @@ export async function GET(req: Request, context: { params: Promise<{ tableId: st
     const cacheKey = `pos-table-bill:${auth.tenantId}:${auth.branchId}:${tableId}:${liteMode ? "lite" : "full"}`;
     const { value: payload, source: cacheSource } = await readThroughRuntimeCache({
       key: cacheKey,
-      ttlMs: fg0003FreshTableBill ? 0 : 5000,
+      // FG0003 stays effectively live while avoiding a full Postgres fan-out on every render/poll.
+      ttlMs: fg0003FreshTableBill ? 400 : 5000,
       staleIfErrorMs: 10000,
-      forceRefresh: forceRefresh || fg0003FreshTableBill,
+      forceRefresh,
       loader: async () => {
         const supabase = getSupabaseServiceClient();
         const { data: session, error: sessionError } = await supabase
