@@ -1,6 +1,6 @@
 "use client";
 
-import { memo } from "react";
+import { memo, useEffect, useRef } from "react";
 import { FloorPlanCanvas } from "@/components/tables/floor-plan-canvas";
 import { FloorPlanToolbar } from "@/components/tables/floor-plan-toolbar";
 import { getTableStatusLabel } from "@/components/tables/table-i18n";
@@ -75,9 +75,49 @@ function PosTableBrowserInner({
   onTablePrefetch,
   onSelectTable
 }: Props) {
+  const warmedTableIdsRef = useRef<Set<string>>(new Set());
+  const prefetchRef = useRef(onTablePrefetch);
+  prefetchRef.current = onTablePrefetch;
+
   const tableEmptyMessage = tableLoadError?.includes("Request timeout") ? text.requestTimeout : tableLoadError;
   const showTableLoading = tableLoading && visibleTables.length === 0;
   const showTableLoadError = !showTableLoading && Boolean(tableEmptyMessage);
+
+  useEffect(() => {
+    if (tableLoading || isBusy || tableSwitching || visibleTables.length === 0) return;
+
+    // Touch devices often go from pointer-down to click too quickly for hover-prefetch to
+    // finish. Warm only a small, prioritised set to avoid turning the table screen into a
+    // database fan-out while making the most likely occupied tables open from memory.
+    const candidates = visibleTables
+      .filter((table) => Boolean(table.active_session_id) || table.status === "occupied" || table.status === "ordering" || table.status === "pending_payment")
+      .sort((left, right) => {
+        if (left.id === selectedTableId) return -1;
+        if (right.id === selectedTableId) return 1;
+        const leftQr = left.qr_activity?.latest_event_id ? 1 : 0;
+        const rightQr = right.qr_activity?.latest_event_id ? 1 : 0;
+        return rightQr - leftQr;
+      })
+      .filter((table) => !warmedTableIdsRef.current.has(table.id))
+      .slice(0, 4);
+
+    const timers = candidates.map((table, index) =>
+      window.setTimeout(() => {
+        if (warmedTableIdsRef.current.has(table.id)) return;
+        warmedTableIdsRef.current.add(table.id);
+        prefetchRef.current(table);
+      }, 120 + index * 180)
+    );
+
+    return () => {
+      for (const timer of timers) window.clearTimeout(timer);
+    };
+  }, [isBusy, selectedTableId, tableLoading, tableSwitching, visibleTables]);
+
+  const prefetchNow = (table: DiningTableItem) => {
+    warmedTableIdsRef.current.add(table.id);
+    onTablePrefetch(table);
+  };
 
   const renderTableEmptyState = () => (
     <div className={`posui-table-empty-state ${showTableLoadError ? "is-error" : ""}`} role="listitem" aria-live="polite">
@@ -149,7 +189,9 @@ function PosTableBrowserInner({
                     className={`posui-table-chip ${selectedTableId === table.id ? "is-selected" : ""}`}
                     style={{ borderColor: color }}
                     disabled={isBusy || tableSwitching || !selectable}
-                    onPointerEnter={() => onTablePrefetch(table)}
+                    onPointerEnter={() => prefetchNow(table)}
+                    onPointerDown={() => prefetchNow(table)}
+                    onFocus={() => prefetchNow(table)}
                     onClick={() => onSelectTable(table)}
                   >
                     {hasQrActivity ? (
@@ -217,7 +259,7 @@ function PosTableBrowserInner({
               zoom={tableZoom}
               pan={tablePan}
               onPanChange={setTablePan}
-              onTablePrefetch={onTablePrefetch}
+              onTablePrefetch={prefetchNow}
               onSelect={onSelectTable}
             />
           </div>
