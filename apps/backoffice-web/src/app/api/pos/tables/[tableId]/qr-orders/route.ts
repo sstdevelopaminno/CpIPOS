@@ -18,16 +18,19 @@ export async function GET(request: Request, context: { params: Promise<{ tableId
     const flags = resolveQrKitchenHardeningFlags({ tenantId: auth.tenantId, branchId: auth.branchId });
     const fg0003PendingOnly = flags.qr_pos_review_required;
     const { tableId } = await context.params;
-    const afterRaw = new URL(request.url).searchParams.get("after");
+    const searchParams = new URL(request.url).searchParams;
+    const afterRaw = searchParams.get("after");
+    const forceRefresh = searchParams.get("refresh") === "1";
     if (!tableId) return withTiming(fail("invalid_table_id", "tableId is required.", 422));
 
     const after = afterRaw && !Number.isNaN(new Date(afterRaw).getTime()) ? new Date(afterRaw).toISOString() : null;
-    const cacheKey = `pos-table-qr-orders:${auth.tenantId}:${auth.branchId}:${tableId}:${fg0003PendingOnly ? "pending-fifo" : "all"}:${after ?? "recent"}`;
+    const cacheKey = `pos-table-qr-orders:${auth.tenantId}:${auth.branchId}:${tableId}:${fg0003PendingOnly ? "pending-fifo-v2" : "all"}:${after ?? "recent"}`;
     const { value: payload, source: cacheSource } = await readThroughRuntimeCache({
       key: cacheKey,
-      ttlMs: fg0003PendingOnly ? 0 : 2500,
+      // Keep FG0003 nearly real-time without forcing every 2-3s poll to hit Postgres.
+      ttlMs: fg0003PendingOnly ? 350 : 2500,
       staleIfErrorMs: 10000,
-      forceRefresh: fg0003PendingOnly,
+      forceRefresh,
       loader: async () => {
         const supabase = getSupabaseServiceClient();
         const cursorBoundary = new Date().toISOString();
@@ -42,9 +45,8 @@ export async function GET(request: Request, context: { params: Promise<{ tableId
           .order("created_at", { ascending: true })
           .limit(fg0003PendingOnly ? 1 : 25);
         if (fg0003PendingOnly) {
-          // FG0003 review mode is an acknowledgement queue, not a latest-event feed.
-          // Always return the oldest pending submission until POS explicitly accepts/rejects it.
-          // This prevents a newer QR order from replacing the popup that staff is still reviewing.
+          // FG0003 is an acknowledgement queue. Keep returning the oldest pending
+          // submission until staff accepts/rejects it; newer submissions must wait.
           query = query.eq("review_status", "pending_pos_review");
         } else if (after) {
           query = query.gt("created_at", after);
