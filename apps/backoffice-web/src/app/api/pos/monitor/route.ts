@@ -30,8 +30,13 @@ function parseRoute(value: unknown): string {
 
 export async function GET() {
   const startedAt = Date.now();
+  let fallbackTenantId: string | null = null;
+  let fallbackBranchId: string | null = null;
+
   try {
     const auth = await getPosApiAuthContext({ requireBranchScope: true, requiredPermission: "monitor:view" });
+    fallbackTenantId = auth.tenantId ?? null;
+    fallbackBranchId = auth.branchId ?? null;
 
     const cacheKey = `pos-monitor:${auth.tenantId}:${auth.branchId}`;
     const { value: payload, source: cacheSource } = await readThroughRuntimeCache({
@@ -225,7 +230,42 @@ export async function GET() {
       message.toLowerCase().includes("authenticated") ||
       message.toLowerCase().includes("tenant/branch") ||
       message.toLowerCase().includes("unauthorized");
-    const response = fail(authError ? "unauthorized" : "monitor_query_failed", message, authError ? 401 : 500);
+
+    if (authError) {
+      const response = fail("unauthorized", message, 401);
+      response.headers.set("x-pos-monitor-ms", String(Date.now() - startedAt));
+      return response;
+    }
+
+    console.warn("[pos-monitor] fail-soft query error", {
+      tenantId: fallbackTenantId,
+      branchId: fallbackBranchId,
+      message
+    });
+
+    const response = ok({
+      tenant_id: fallbackTenantId,
+      branch_id: fallbackBranchId,
+      level: "warn" as const,
+      queued_orders: 0,
+      queued_orders_stale: 0,
+      order_queue_limit: POS_GUARDS.orderQueueHardLimit,
+      print_queue_depth: 0,
+      print_queue_limit: POS_GUARDS.printQueueHardLimit,
+      print_failed_recent: 0,
+      dead_letters_recent: 0,
+      api_errors_recent_total: 0,
+      api_errors_4xx_recent: 0,
+      api_errors_409_recent: 0,
+      api_errors_5xx_recent: 0,
+      api_error_routes_top: [],
+      dead_letter_window_minutes: POS_GUARDS.deadLetterWindowMinutes,
+      stale_window_minutes: POS_GUARDS.staleQueuedMinutes,
+      latest_payment_at: null,
+      server_time: new Date().toISOString(),
+      monitor_degraded: true
+    });
+    response.headers.set("x-pos-monitor-cache", "degraded");
     response.headers.set("x-pos-monitor-ms", String(Date.now() - startedAt));
     return response;
   }
