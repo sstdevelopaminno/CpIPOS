@@ -108,40 +108,44 @@ export async function queueMissingKitchenPrintJobsForOrder(args: {
 
   const ticketsWithJobs = new Set(((existingJobs ?? []) as Array<{ kitchen_ticket_id?: string | null }>).map((job) => String(job.kitchen_ticket_id ?? "")).filter(Boolean));
   const printAuth = args.auth;
+  const missingTickets = ticketRows.filter((ticket) => !ticketsWithJobs.has(ticket.id));
 
-  let queuedPrintJobCount = 0;
-  for (const ticket of ticketRows) {
-    if (ticketsWithJobs.has(ticket.id)) continue;
-    const jobs = await queueRoutedKitchenTicketPrint({
-      auth: printAuth,
-      kitchenTicketId: ticket.id,
-      runtimeDeviceCode: args.runtimeDeviceCode ?? null
-    });
-    queuedPrintJobCount += jobs.length;
-    if (jobs.length > 0 && args.auth.userId) {
-      void appendAuditLog({
-        tenantId: args.auth.tenantId,
-        branchId: args.auth.branchId,
-        actorUserId: args.auth.userId,
-        actorRole: printAuth.branchRole ?? "staff",
-        action: "kitchen_print_queued",
-        targetTable: "kitchen_tickets",
-        targetId: ticket.id,
-        metadata: {
-          source: "queue_missing_kitchen_print_jobs",
-          order_id: args.orderId,
-          zone_id: ticket.zone_id,
-          queue_no: ticket.queue_no,
-          round_no: ticket.round_no,
-          print_job_count: jobs.length
-        }
+  // Routing each kitchen zone serially made the QR-confirm button wait for every printer
+  // assignment one after another. Tickets are independent and print-job creation is
+  // idempotent, so queue them concurrently while still awaiting durable DB enqueue.
+  const queuedCounts = await Promise.all(
+    missingTickets.map(async (ticket) => {
+      const jobs = await queueRoutedKitchenTicketPrint({
+        auth: printAuth,
+        kitchenTicketId: ticket.id,
+        runtimeDeviceCode: args.runtimeDeviceCode ?? null
       });
-    }
-  }
+      if (jobs.length > 0 && args.auth.userId) {
+        void appendAuditLog({
+          tenantId: args.auth.tenantId!,
+          branchId: args.auth.branchId!,
+          actorUserId: args.auth.userId,
+          actorRole: printAuth.branchRole ?? "staff",
+          action: "kitchen_print_queued",
+          targetTable: "kitchen_tickets",
+          targetId: ticket.id,
+          metadata: {
+            source: "queue_missing_kitchen_print_jobs",
+            order_id: args.orderId,
+            zone_id: ticket.zone_id,
+            queue_no: ticket.queue_no,
+            round_no: ticket.round_no,
+            print_job_count: jobs.length
+          }
+        });
+      }
+      return jobs.length;
+    })
+  );
 
   return {
     ticketCount: ticketRows.length,
-    queuedPrintJobCount,
+    queuedPrintJobCount: queuedCounts.reduce((sum, count) => sum + count, 0),
     skippedExistingPrintJobCount: ticketsWithJobs.size
   };
 }
@@ -286,49 +290,53 @@ export async function dispatchOrderToKitchen(args: {
   let queuedPrintJobCount = tickets.filter((row) => Boolean(row.print_job_id)).length;
 
   if (tickets.length > 0 && printAuth) {
-    for (const ticket of tickets) {
-      try {
-        const jobs = await queueRoutedKitchenTicketPrint({
-          auth: printAuth,
-          kitchenTicketId: ticket.kitchen_ticket_id,
-          forceReprint: action === "reprint"
-        });
-        queuedPrintJobCount += jobs.length;
-        if (jobs.length > 0) {
+    const queuedCounts = await Promise.all(
+      tickets.map(async (ticket) => {
+        try {
+          const jobs = await queueRoutedKitchenTicketPrint({
+            auth: printAuth,
+            kitchenTicketId: ticket.kitchen_ticket_id,
+            forceReprint: action === "reprint"
+          });
+          if (jobs.length > 0) {
+            void appendAuditLog({
+              tenantId: args.tenantId,
+              branchId: args.branchId,
+              actorUserId: args.actorUserId!,
+              actorRole: printAuth.branchRole ?? "staff",
+              action: "kitchen_print_queued",
+              targetTable: "kitchen_tickets",
+              targetId: ticket.kitchen_ticket_id,
+              metadata: {
+                event_key: eventKey,
+                zone_id: ticket.zone_id,
+                queue_no: ticket.queue_no ?? null,
+                round_no: ticket.round_no ?? null,
+                print_job_count: jobs.length
+              }
+            });
+          }
+          return jobs.length;
+        } catch (printError) {
           void appendAuditLog({
             tenantId: args.tenantId,
             branchId: args.branchId,
             actorUserId: args.actorUserId!,
             actorRole: printAuth.branchRole ?? "staff",
-            action: "kitchen_print_queued",
+            action: "kitchen_print_failed",
             targetTable: "kitchen_tickets",
             targetId: ticket.kitchen_ticket_id,
             metadata: {
               event_key: eventKey,
               zone_id: ticket.zone_id,
-              queue_no: ticket.queue_no ?? null,
-              round_no: ticket.round_no ?? null,
-              print_job_count: jobs.length
+              error: printError instanceof Error ? printError.message : "kitchen_print_failed"
             }
           });
+          return 0;
         }
-      } catch (printError) {
-        void appendAuditLog({
-          tenantId: args.tenantId,
-          branchId: args.branchId,
-          actorUserId: args.actorUserId!,
-          actorRole: printAuth.branchRole ?? "staff",
-          action: "kitchen_print_failed",
-          targetTable: "kitchen_tickets",
-          targetId: ticket.kitchen_ticket_id,
-          metadata: {
-            event_key: eventKey,
-            zone_id: ticket.zone_id,
-            error: printError instanceof Error ? printError.message : "kitchen_print_failed"
-          }
-        });
-      }
-    }
+      })
+    );
+    queuedPrintJobCount += queuedCounts.reduce((sum, count) => sum + count, 0);
   }
 
   if (args.actorUserId) {
