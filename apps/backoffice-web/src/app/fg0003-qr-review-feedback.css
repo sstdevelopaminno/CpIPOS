@@ -1,0 +1,47 @@
+.posui-payment-modal--review {
+  position: relative;
+}
+
+/* The reject button in the QR review action row is disabled only while a review POST is in flight.
+   Use that state to provide immediate visual acknowledgement without changing non-FG0003 flows. */
+.posui-payment-modal--review:has(.posui-payment-modal__actions > .posui-btn--ghost:disabled)::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  border-radius: inherit;
+  background: rgba(255, 255, 255, 0.82);
+  backdrop-filter: blur(1px);
+  pointer-events: all;
+}
+
+.posui-payment-modal--review:has(.posui-payment-modal__actions > .posui-btn--ghost:disabled)::after {
+  content: "กำลังประมวลผลรายการ QR…";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  z-index: 21;
+  transform: translate(-50%, -50%);
+  min-width: min(300px, calc(100% - 48px));
+  padding: 16px 20px;
+  border: 1px solid #fed7aa;
+  border-radius: 12px;
+  background: #fff7ed;
+  color: #9a3412;
+  box-shadow: 0 14px 40px rgba(15, 23, 42, 0.2);
+  font-size: 16px;
+  font-weight: 800;
+  text-align: center;
+  pointer-events: none;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .posui-payment-modal--review:has(.posui-payment-modal__actions > .posui-btn--ghost:disabled)::after {
+    animation: fg0003QrReviewPulse 0.9s ease-in-out infinite alternate;
+  }
+}
+
+@keyframes fg0003QrReviewPulse {
+  from { opacity: 0.72; }
+  to { opacity: 1; }
+}
