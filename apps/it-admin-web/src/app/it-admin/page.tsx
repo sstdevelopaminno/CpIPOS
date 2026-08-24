@@ -1,9 +1,11 @@
 import Link from "next/link";
+import { requireOperator } from "@/lib/auth";
 import { loadOperationsSnapshot } from "@/lib/operations";
 
 export const dynamic = "force-dynamic";
 
 export default async function ItAdminPage() {
+  await requireOperator();
   const snapshot = await loadOperationsSnapshot();
   const cards = [
     ["Active Stores", snapshot.totals.active_stores, "เปิดใช้งานจริง"],
