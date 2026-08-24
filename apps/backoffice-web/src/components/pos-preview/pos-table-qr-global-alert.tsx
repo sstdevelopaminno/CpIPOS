@@ -148,7 +148,8 @@ export function PosTableQrGlobalAlert({ lang }: { lang: Language }) {
     // Optimistic UI: dismiss locally first so the button always responds immediately.
     setPendingEvents((queue) => queue.filter((row) => row.id !== current.id));
 
-    // Service requests keep their existing server acknowledgement contract.
+    // Food-order acknowledgement deliberately stays local: the underlying QR submission
+    // remains pending until staff reviews it at the table. Service requests persist their ack.
     if (isServiceEvent(current)) void persistServiceAck(current, action);
 
     if (action === "go_to_table") {
@@ -170,6 +171,7 @@ export function PosTableQrGlobalAlert({ lang }: { lang: Language }) {
     }
 
     let disposed = false;
+    let authBlocked = false;
     let timer: number | null = null;
     let idleIndex = 0;
 
@@ -182,12 +184,12 @@ export function PosTableQrGlobalAlert({ lang }: { lang: Language }) {
 
     const schedule = (delayMs: number) => {
       clearTimer();
-      if (disposed || document.visibilityState === "hidden") return;
+      if (disposed || authBlocked || document.visibilityState === "hidden") return;
       timer = window.setTimeout(() => void poll(), delayMs);
     };
 
     const poll = async () => {
-      if (disposed || document.visibilityState === "hidden") return;
+      if (disposed || authBlocked || document.visibilityState === "hidden") return;
       if (inFlightRef.current) {
         schedule(IDLE_POLL_MS[idleIndex]);
         return;
@@ -199,6 +201,12 @@ export function PosTableQrGlobalAlert({ lang }: { lang: Language }) {
       try {
         const since = cursorRef.current || new Date().toISOString();
         const response = await fetch(`/api/pos/table-qr-activity?since=${encodeURIComponent(since)}`, { cache: "no-store" });
+        if (response.status === 401 || response.status === 403) {
+          // An expired/revoked POS tab must not keep hammering operational APIs forever.
+          authBlocked = true;
+          clearTimer();
+          return;
+        }
         const body = (await response.json().catch(() => null)) as ActivityResponse | null;
         if (response.ok && body?.data) {
           const events = body.data.events ?? [];
@@ -223,7 +231,7 @@ export function PosTableQrGlobalAlert({ lang }: { lang: Language }) {
         // Fail soft. The adaptive schedule below backs off instead of hammering the API.
       } finally {
         inFlightRef.current = false;
-        if (!disposed) {
+        if (!disposed && !authBlocked) {
           if (sawEvent) {
             idleIndex = 0;
           } else if (idleIndex < IDLE_POLL_MS.length - 1) {
@@ -239,10 +247,12 @@ export function PosTableQrGlobalAlert({ lang }: { lang: Language }) {
         clearTimer();
         return;
       }
+      if (authBlocked) return;
       idleIndex = 0;
       schedule(0);
     };
     const onFocus = () => {
+      if (authBlocked) return;
       idleIndex = 0;
       schedule(0);
     };
@@ -290,19 +300,19 @@ export function PosTableQrGlobalAlert({ lang }: { lang: Language }) {
             >
               {lang === "th" ? `ไปที่โต๊ะ ${tableCode}` : `Open table ${tableCode}`}
             </button>
-            {!isOrder ? (
-              <button
-                type="button"
-                className="rounded-xl border border-slate-300 px-3 py-2 text-[13px] font-semibold active:translate-y-px"
-                onClick={() => acknowledge(event, "acknowledge")}
-              >
-                {lang === "th" ? "รับทราบ" : "Dismiss"}
-              </button>
-            ) : null}
+            <button
+              type="button"
+              className="rounded-xl border border-slate-300 px-3 py-2 text-[13px] font-semibold active:translate-y-px"
+              onClick={() => acknowledge(event, "acknowledge")}
+            >
+              {lang === "th" ? "รับทราบ" : "Dismiss"}
+            </button>
           </div>
           {isOrder ? (
             <span className="mt-2 block text-[11px] font-semibold text-slate-500">
-              {lang === "th" ? "รายการอาหารจะค้างรอตรวจจนกว่าจะเปิดโต๊ะและยืนยัน/ปฏิเสธ" : "Food orders stay pending until reviewed at the table."}
+              {lang === "th"
+                ? "กดรับทราบเพื่อซ่อนแจ้งเตือนเท่านั้น รายการอาหารยังค้างรอตรวจจนกว่าจะยืนยัน/ปฏิเสธที่โต๊ะ"
+                : "Dismiss only hides this alert; the food order remains pending until reviewed at the table."}
             </span>
           ) : null}
         </div>
