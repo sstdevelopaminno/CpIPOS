@@ -16,6 +16,37 @@ def replace_once(text: str, old: str, new: str, label: str) -> str:
     return text.replace(old, new, 1)
 
 
+# 0) Timeline audit: correlate the original customer request to a later POS review/order id,
+# and make duplicate-print fallback detection local to each ticket+printer group.
+path = "apps/backoffice-web/src/app/api/pos/table-qr-timeline/route.ts"
+s = read(path)
+s = replace_once(
+    s,
+    '''    const terminalResult = requestIds.length > 0\n      ? await supabase\n          .from("table_qr_timeline_events")\n          .select(EVENT_SELECT)\n          .eq("tenant_id", auth.tenantId!)\n          .eq("branch_id", auth.branchId!)\n          .in("request_id", requestIds)\n          .in("event_type", TERMINAL_EVENT_TYPES)\n          .order("event_at", { ascending: false })\n          .limit(Math.min(600, requestIds.length * 3))\n      : { data: [], error: null };\n''',
+    '''    const terminalResult = requestIds.length > 0\n      ? await supabase\n          .from("table_qr_timeline_events")\n          .select(EVENT_SELECT)\n          .eq("tenant_id", auth.tenantId!)\n          .eq("branch_id", auth.branchId!)\n          .in("request_id", requestIds)\n          .order("event_at", { ascending: false })\n          .limit(Math.min(1200, requestIds.length * 8))\n      : { data: [], error: null };\n''',
+    "timeline request correlation query",
+)
+s = replace_once(
+    s,
+    '''    const terminalRows = (terminalResult.data ?? []) as unknown as TimelineRow[];\n    const terminalByRequest = new Map<string, TimelineRow>();\n    for (const row of terminalRows) {\n      if (row.request_id && !terminalByRequest.has(row.request_id)) terminalByRequest.set(row.request_id, row);\n    }\n\n    const relatedOrderIdByEvent = new Map<string, string | null>();\n    for (const row of rows) {\n      const terminal = row.request_id ? terminalByRequest.get(row.request_id) : null;\n      relatedOrderIdByEvent.set(row.id, row.order_id ?? terminal?.order_id ?? null);\n    }\n''',
+    '''    const terminalRows = (terminalResult.data ?? []) as unknown as TimelineRow[];\n    const terminalByRequest = new Map<string, TimelineRow>();\n    const relatedOrderByRequest = new Map<string, string>();\n    for (const row of terminalRows) {\n      if (row.request_id && row.order_id && !relatedOrderByRequest.has(row.request_id)) {\n        relatedOrderByRequest.set(row.request_id, row.order_id);\n      }\n      if (row.request_id && TERMINAL_EVENT_TYPES.includes(row.event_type) && !terminalByRequest.has(row.request_id)) {\n        terminalByRequest.set(row.request_id, row);\n      }\n    }\n\n    const relatedOrderIdByEvent = new Map<string, string | null>();\n    for (const row of rows) {\n      const terminal = row.request_id ? terminalByRequest.get(row.request_id) : null;\n      const relatedOrder = row.request_id ? relatedOrderByRequest.get(row.request_id) ?? null : null;\n      relatedOrderIdByEvent.set(row.id, row.order_id ?? relatedOrder ?? terminal?.order_id ?? null);\n    }\n''',
+    "timeline request order correlation",
+)
+s = replace_once(
+    s,
+    '''    for (const printerJobs of byPrinter.values()) {\n      const normalJobs = printerJobs.filter((job) => String(asRecord(job.metadata).request_source ?? "") !== "kitchen_ticket_reprint");\n''',
+    '''    for (const printerJobs of byPrinter.values()) {\n      const duplicateCountBeforeGroup = duplicateJobIds.size;\n      const normalJobs = printerJobs.filter((job) => String(asRecord(job.metadata).request_source ?? "") !== "kitchen_ticket_reprint");\n''',
+    "timeline print duplicate group marker",
+)
+s = replace_once(
+    s,
+    '      if (normalJobs.length > expectedCopies && duplicateJobIds.size === 0) {\n',
+    '      if (normalJobs.length > expectedCopies && duplicateJobIds.size === duplicateCountBeforeGroup) {\n',
+    "timeline print duplicate group fallback",
+)
+write(path, s)
+
+
 # 1) POS Dine-in / Takeaway: explicit kitchen confirmation before the first/new cart mutation is submitted.
 path = "apps/backoffice-web/src/components/pos/pos-sales-module.tsx"
 s = read(path)
