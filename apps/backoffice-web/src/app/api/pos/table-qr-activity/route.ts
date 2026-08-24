@@ -1,5 +1,5 @@
 import { fail, ok } from "@/lib/http";
-import { resolveQrKitchenHardeningFlags } from "@/lib/fg0003-qr-kitchen-hardening";
+import { isRestaurantQrInternalReviewSource, resolveRestaurantQrKitchenFlags } from "@/lib/restaurant-qr-profile";
 import { getPosApiAuthContext } from "@/lib/pos-api-auth";
 import { PosGuardError } from "@/lib/pos-session-guard";
 import { getRoutedSupabaseServiceClient } from "@/lib/tenant-data-router";
@@ -11,6 +11,9 @@ type AckAction = "acknowledge" | "go_to_table";
 type ActivityRow = {
   id: string;
   table_id: string;
+  order_id: string | null;
+  request_id: string | null;
+  table_session_id: string | null;
   event_type: ActivityEventType;
   item_count: number | null;
   subtotal: number | null;
@@ -29,6 +32,45 @@ function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
 }
 
+
+const ACTIVE_QR_REVIEW_TABLE_SESSION_STATUSES = new Set(["open", "ordering"]);
+
+function isInternalKitchenConfirmRequest(requestId: string | null | undefined) {
+  return String(requestId ?? "").includes(":kitchen-confirm:");
+}
+
+function isActionableRestaurantQrOrder(row: ActivityRow, activeTableSessionIds: Set<string>) {
+  const payload = asRecord(row.payload);
+  return row.event_type === "order"
+    && row.review_status === "pending_pos_review"
+    && row.order_id === null
+    && !isRestaurantQrInternalReviewSource(payload.source)
+    && !isInternalKitchenConfirmRequest(row.request_id)
+    && Boolean(row.table_session_id && activeTableSessionIds.has(row.table_session_id));
+}
+
+async function filterActionableRestaurantQrActivityOrders(args: {
+  supabase: ReturnType<typeof getRoutedSupabaseServiceClient>;
+  tenantId: string;
+  branchId: string;
+  rows: ActivityRow[];
+}) {
+  const tableSessionIds = Array.from(new Set(args.rows.map((row) => row.table_session_id).filter((id): id is string => Boolean(id))));
+  if (tableSessionIds.length === 0) return [];
+  const { data, error } = await args.supabase
+    .from("table_bill_sessions")
+    .select("id,status,closed_at")
+    .eq("tenant_id", args.tenantId)
+    .eq("branch_id", args.branchId)
+    .in("id", tableSessionIds);
+  if (error) throw new Error(error.message);
+  const activeTableSessionIds = new Set(
+    ((data ?? []) as Array<{ id: string; status: string | null; closed_at: string | null }>)
+      .filter((session) => !session.closed_at && ACTIVE_QR_REVIEW_TABLE_SESSION_STATUSES.has(String(session.status ?? "")))
+      .map((session) => session.id)
+  );
+  return args.rows.filter((row) => isActionableRestaurantQrOrder(row, activeTableSessionIds)).slice(0, 1);
+}
 function isAcknowledged(payload: Record<string, unknown> | null) {
   return typeof payload?.acknowledged_at === "string" && payload.acknowledged_at.trim().length > 0;
 }
@@ -36,8 +78,8 @@ function isAcknowledged(payload: Record<string, unknown> | null) {
 export async function GET(request: Request) {
   try {
     const auth = await getPosApiAuthContext({ requireBranchScope: true, requiredPermission: "sales:view" });
-    const flags = resolveQrKitchenHardeningFlags({ tenantId: auth.tenantId, branchId: auth.branchId });
-    const fg0003PendingOnly = flags.qr_pos_review_required;
+    const flags = resolveRestaurantQrKitchenFlags({ tenantId: auth.tenantId, branchId: auth.branchId });
+    const restaurantQrPendingOnly = flags.qr_pos_review_required;
     const { searchParams } = new URL(request.url);
     const sinceRaw = searchParams.get("since")?.trim() || new Date(Date.now() - 15_000).toISOString();
     const since = Number.isFinite(new Date(sinceRaw).getTime()) ? new Date(sinceRaw).toISOString() : new Date(Date.now() - 15_000).toISOString();
@@ -46,24 +88,24 @@ export async function GET(request: Request) {
     let rawRows: ActivityRow[] = [];
     let cursor = since;
 
-    if (fg0003PendingOnly) {
-      // FG0003 order alerts are an acknowledgement queue. Never let the polling cursor
+    if (restaurantQrPendingOnly) {
+      // Restaurant QR order alerts are an acknowledgement queue. Never let the polling cursor
       // hide an older unreviewed order, and expose only the oldest pending order globally.
       // Service requests still use the normal cursor and are returned before the pending
       // order so a latest-wins client cannot replace the order review with a newer event.
       const [pendingOrderResult, serviceResult] = await Promise.all([
         supabase
           .from("table_qr_orders")
-          .select("id,table_id,event_type,item_count,subtotal,payload,review_status,created_at")
+          .select("id,table_id,order_id,request_id,table_session_id,event_type,item_count,subtotal,payload,review_status,created_at")
           .eq("tenant_id", auth.tenantId!)
           .eq("branch_id", auth.branchId!)
           .eq("event_type", "order")
           .eq("review_status", "pending_pos_review")
           .order("created_at", { ascending: true })
-          .limit(1),
+          .limit(8),
         supabase
           .from("table_qr_orders")
-          .select("id,table_id,event_type,item_count,subtotal,payload,review_status,created_at")
+          .select("id,table_id,order_id,request_id,table_session_id,event_type,item_count,subtotal,payload,review_status,created_at")
           .eq("tenant_id", auth.tenantId!)
           .eq("branch_id", auth.branchId!)
           .in("event_type", ["call_staff", "request_checkout"])
@@ -75,13 +117,13 @@ export async function GET(request: Request) {
       if (serviceResult.error) throw new Error(serviceResult.error.message);
 
       const serviceRows = ((serviceResult.data ?? []) as ActivityRow[]).filter((row) => !isAcknowledged(row.payload));
-      const pendingRows = (pendingOrderResult.data ?? []) as ActivityRow[];
+      const pendingRows = await filterActionableRestaurantQrActivityOrders({ supabase, tenantId: auth.tenantId!, branchId: auth.branchId!, rows: (pendingOrderResult.data ?? []) as ActivityRow[] });
       rawRows = [...serviceRows, ...pendingRows];
       cursor = ((serviceResult.data ?? []) as ActivityRow[]).at(-1)?.created_at ?? since;
     } else {
       const { data: rows, error } = await supabase
         .from("table_qr_orders")
-        .select("id,table_id,event_type,item_count,subtotal,payload,review_status,created_at")
+        .select("id,table_id,order_id,request_id,table_session_id,event_type,item_count,subtotal,payload,review_status,created_at")
         .eq("tenant_id", auth.tenantId!)
         .eq("branch_id", auth.branchId!)
         .in("event_type", ["order", "call_staff", "request_checkout"])
@@ -95,7 +137,7 @@ export async function GET(request: Request) {
 
     const visibleRows = rawRows.filter((row) => {
       if (row.event_type === "order") {
-        return !fg0003PendingOnly || row.review_status === "pending_pos_review";
+        return !restaurantQrPendingOnly || isActionableRestaurantQrOrder(row, new Set([row.table_session_id ?? ""]));
       }
       return !isAcknowledged(row.payload);
     });

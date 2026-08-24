@@ -1,5 +1,5 @@
 import { fail, ok } from "@/lib/http";
-import { resolveQrKitchenHardeningFlags } from "@/lib/fg0003-qr-kitchen-hardening";
+import { resolveRestaurantQrKitchenFlags } from "@/lib/restaurant-qr-profile";
 import { getPosApiAuthContext } from "@/lib/pos-api-auth";
 import { PosGuardError } from "@/lib/pos-session-guard";
 import { getRoutedSupabaseServiceClient } from "@/lib/tenant-data-router";
@@ -282,7 +282,7 @@ export async function GET(request: Request) {
     const role = String(auth.branchRole ?? "").trim().toLowerCase();
     if (role !== "owner" && role !== "manager") return fail("forbidden", "Owner or manager permission is required.", 403);
 
-    const flags = resolveQrKitchenHardeningFlags({ tenantId: auth.tenantId, branchId: auth.branchId });
+    const flags = resolveRestaurantQrKitchenFlags({ tenantId: auth.tenantId, branchId: auth.branchId });
     if (!flags.qr_pos_review_required) return fail("table_qr_timeline_not_enabled", "QR order timeline is enabled only for this rollout branch.", 404);
 
     const url = new URL(request.url);
