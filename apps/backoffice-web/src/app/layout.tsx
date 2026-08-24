@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import type { ReactNode } from "react";
 import { AndroidPosMandatoryUpdate } from "@/components/android-pos/android-pos-mandatory-update";
 import { BrowserPrintAgentPosHost } from "@/components/printing/browser-print-agent-pos-host";
+import { PosMaintenanceNotice } from "@/components/pos/pos-maintenance-notice";
 import { PwaBootstrap } from "@/components/pwa/pwa-bootstrap";
 import "./globals.css";
 import "./legacy-webview-colors.css";
@@ -35,6 +36,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
     <html lang="th" className="m-0 h-full w-full p-0">
       <body className="m-0 h-full w-full overflow-hidden p-0">
         {children}
+        <PosMaintenanceNotice />
         <AndroidPosMandatoryUpdate />
         <PwaBootstrap />
         <BrowserPrintAgentPosHost />
