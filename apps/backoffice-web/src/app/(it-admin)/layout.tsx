@@ -17,6 +17,7 @@ export default async function ItAdminLayout({ children }: { children: ReactNode 
   const isAdmin = operator.auth.platformRole === "it_admin";
   const nav: ItAdminNavItem[] = [
     { href: "/it-admin", label: lang === "th" ? "ภาพรวม Control Plane" : "Control Plane Overview", icon: "dashboard", section: "operations" },
+    { href: "/it-admin/operations", label: lang === "th" ? "ศูนย์ปฏิบัติการ" : "Operations Center", icon: "monitor", section: "operations" },
     { href: "/it-admin/support", label: lang === "th" ? "ศูนย์บริการ 24/7" : "24/7 Support Center", icon: "support", section: "operations" },
     { href: "/it-admin/monitoring", label: t(lang, "monitoring"), icon: "monitor", section: "operations" },
     { href: "/it-admin/tenants", label: t(lang, "tenants"), icon: "tenant", section: "platform" },
