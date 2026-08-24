@@ -64,7 +64,7 @@ language sql
 stable
 security definer
 set search_path = app, public
-as $
+as $$
   select exists (
     select 1
     from app.restaurant_qr_store_registry r
@@ -74,7 +74,7 @@ as $
       and r.enabled = true
       and r.status = 'enabled'
   );
-$;
+$$;
 
 revoke all on function app.is_restaurant_qr_scope(uuid,uuid) from public, anon, authenticated;
 grant execute on function app.is_restaurant_qr_scope(uuid,uuid) to service_role;

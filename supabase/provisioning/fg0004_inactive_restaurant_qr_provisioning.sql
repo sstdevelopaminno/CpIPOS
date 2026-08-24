@@ -1,6 +1,6 @@
--- FG0004 inactive Restaurant QR provisioning transaction.
--- SOURCE ONLY / DO NOT EXECUTE until an explicit maintenance-window approval.
--- Required order: apply Restaurant QR registry/print-guard migration first, then run this transaction.
+-- FG0004 inactive Restaurant QR provisioning transaction for CpiPOS-002 Trial.
+-- SOURCE ONLY / DO NOT EXECUTE against Primary.
+-- Required order: apply Trial Restaurant QR registry/print-guard migration first, then run this transaction on project kawenyvpentwgugtzqec only.
 
 begin;
 
@@ -9,11 +9,19 @@ do $$
 declare
   v_tenant_id uuid := gen_random_uuid();
   v_branch_id uuid := gen_random_uuid();
-  v_pos_device_id uuid := gen_random_uuid();
-  v_growth_package_id uuid;
   v_table_count integer;
   v_registry_count integer;
+  v_printer_slot_count integer;
+  v_pos_skeleton_count integer;
 begin
+  if current_setting('request.jwt.claims', true) is not null then
+    raise exception 'FG0004_TRIAL_REHEARSAL_MUST_USE_SERVICE_CONTEXT';
+  end if;
+
+  if to_regclass('public.trial_tenant_scopes') is null or to_regclass('public.trial_branch_scopes') is null then
+    raise exception 'FG0004_TRIAL_SCOPE_TABLES_MISSING';
+  end if;
+
   if to_regclass('app.restaurant_qr_store_registry') is null then
     raise exception 'FG0004_RESTAURANT_QR_REGISTRY_MISSING';
   end if;
@@ -28,40 +36,82 @@ begin
     raise exception 'FG0004_RESTAURANT_QR_REGISTRY_ENABLED_COLUMN_MISSING';
   end if;
 
-  select p.id
-    into v_growth_package_id
-  from public.subscription_packages p
-  where lower(p.code) = 'growth'
-    and p.is_active = true
-    and coalesce(p.status, 'active') = 'active'
-  order by p.created_at desc
-  limit 1;
-
-  if v_growth_package_id is null then
-    raise exception 'FG0004_GROWTH_PACKAGE_NOT_ACTIVE';
+  if exists (
+    select 1 from app.restaurant_qr_store_registry
+    where store_code = 'FG0004' or branch_code = 'FG0004-RBR-01'
+  ) then
+    raise exception 'FG0004_REGISTRY_ALREADY_EXISTS';
   end if;
 
-  if exists (select 1 from public.tenants where upper(code) = 'FG0004') then
-    raise exception 'FG0004_TENANT_ALREADY_EXISTS';
+  if exists (
+    select 1 from public.trial_tenant_scopes
+    where metadata->>'store_code' = 'FG0004'
+  ) then
+    raise exception 'FG0004_TRIAL_TENANT_ALREADY_EXISTS';
   end if;
 
-  if exists (select 1 from public.branches where upper(code) = 'FG0004-RBR-01') then
-    raise exception 'FG0004_BRANCH_ALREADY_EXISTS';
+  if exists (
+    select 1 from public.trial_branch_scopes
+    where metadata->>'branch_code' = 'FG0004-RBR-01'
+  ) then
+    raise exception 'FG0004_TRIAL_BRANCH_ALREADY_EXISTS';
   end if;
 
-  if exists (select 1 from public.branch_devices where upper(device_code) = 'FG0004-POS-01') then
-    raise exception 'FG0004_POS_DEVICE_ALREADY_EXISTS';
-  end if;
+  insert into public.trial_tenant_scopes (
+    tenant_id, lifecycle_status, is_active, source_control_plane, metadata,
+    trial_started_at, trial_expires_at, retention_until, access_locked, lock_reason
+  ) values (
+    v_tenant_id,
+    'trial',
+    false,
+    'CpiPOS-001',
+    jsonb_build_object(
+      'store_code', 'FG0004',
+      'display_name', 'เลิศรส 108 เมนู',
+      'product_profile', 'RESTAURANT_QR',
+      'package_code', 'growth',
+      'package_name', 'Growth',
+      'deployment_mode', 'CENTRAL',
+      'update_ring', 'PILOT',
+      'provisioning_state', 'inactive/provisioning',
+      'source', 'fg0004_trial_rehearsal'
+    ),
+    now(),
+    now() + interval '7 days',
+    now() + interval '30 days',
+    true,
+    'fg0004_trial_rehearsal_inactive'
+  );
 
-  insert into public.tenants (id, code, name, owner_name, owner_phone, package_id, is_active)
-  values (v_tenant_id, 'FG0004', 'เลิศรส 108 เมนู', null, null, v_growth_package_id, false);
-
-  insert into public.branches (id, tenant_id, code, name, address, is_active)
-  values (v_branch_id, v_tenant_id, 'FG0004-RBR-01', 'เลิศรส 108 เมนู ราชบุรี', 'ราชบุรี', false);
+  insert into public.trial_branch_scopes (
+    tenant_id, branch_id, is_active, metadata
+  ) values (
+    v_tenant_id,
+    v_branch_id,
+    false,
+    jsonb_build_object(
+      'store_code', 'FG0004',
+      'branch_code', 'FG0004-RBR-01',
+      'branch_name', 'เลิศรส 108 เมนู ราชบุรี',
+      'province', 'ราชบุรี',
+      'provisioning_state', 'inactive/provisioning',
+      'pos_skeletons', jsonb_build_array(jsonb_build_object(
+        'device_code', 'FG0004-POS-01',
+        'device_name', 'FG0004-POS-01',
+        'display_mode', 'single_screen',
+        'status', 'inactive',
+        'android_package', 'com.cpipos.pos',
+        'minimum_version_code', 28,
+        'mdm_enrolled', false
+      )),
+      'role_model', jsonb_build_array('OWNER', 'STAFF', 'KITCHEN'),
+      'source', 'fg0004_trial_rehearsal'
+    )
+  );
 
   insert into public.dining_tables (
     tenant_id, branch_id, table_code, table_name, capacity, status, shape,
-    position_x, position_y, width, height, is_active, metadata
+    position_x, position_y, width, height, rotation, is_active, metadata
   )
   select
     v_tenant_id,
@@ -75,35 +125,28 @@ begin
     floor((n - 1) / 5) * 96,
     96,
     72,
+    0,
     false,
     jsonb_build_object(
-      'source', 'fg0004_inactive_restaurant_qr_provisioning',
+      'source', 'fg0004_trial_rehearsal',
       'qr_generation', 'deferred_until_activation',
       'secure_qr_identity_created', false
     )
   from generate_series(1, 20) as n;
 
-  insert into public.branch_devices (
-    id, tenant_id, branch_id, device_code, device_name, device_type, status,
-    is_locked, allow_morning_shift, allow_afternoon_shift, metadata
-  ) values (
-    v_pos_device_id,
-    v_tenant_id,
-    v_branch_id,
-    'FG0004-POS-01',
-    'FG0004-POS-01',
-    'pos_terminal',
-    'inactive',
-    true,
-    true,
-    true,
-    jsonb_build_object(
-      'source', 'fg0004_inactive_restaurant_qr_provisioning',
-      'android_package', 'com.cpipos.pos',
-      'minimum_version_code', 28,
-      'display_mode', 'single_screen',
-      'mdm_enrolled', false
-    )
+  insert into public.printer_profiles (
+    tenant_id, branch_id, printer_name, printer_role, connection_type,
+    ip_address, port, paper_width_mm, enabled, metadata
+  ) values
+  (
+    v_tenant_id, v_branch_id, 'RECEIPT-01', 'receipt', 'LOCAL_BRIDGE',
+    null, null, 80, false,
+    jsonb_build_object('source', 'fg0004_trial_rehearsal', 'slot_only', true, 'hardware_identity', 'TBD', 'automatic_reassignment', false)
+  ),
+  (
+    v_tenant_id, v_branch_id, 'KITCHEN-01', 'kitchen', 'LOCAL_BRIDGE',
+    null, null, 80, false,
+    jsonb_build_object('source', 'fg0004_trial_rehearsal', 'slot_only', true, 'hardware_identity', 'TBD', 'automatic_reassignment', false)
   );
 
   insert into app.restaurant_qr_store_registry (
@@ -131,6 +174,25 @@ begin
 
   if v_table_count <> 20 then
     raise exception 'FG0004_TABLE_POSTFLIGHT_FAILED_%', v_table_count;
+  end if;
+
+  select count(*) into v_printer_slot_count
+  from public.printer_profiles
+  where tenant_id = v_tenant_id
+    and branch_id = v_branch_id
+    and printer_name in ('RECEIPT-01', 'KITCHEN-01')
+    and enabled = false;
+
+  if v_printer_slot_count <> 2 then
+    raise exception 'FG0004_PRINTER_SLOT_POSTFLIGHT_FAILED_%', v_printer_slot_count;
+  end if;
+
+  select jsonb_array_length(coalesce(metadata->'pos_skeletons', '[]'::jsonb)) into v_pos_skeleton_count
+  from public.trial_branch_scopes
+  where tenant_id = v_tenant_id and branch_id = v_branch_id;
+
+  if v_pos_skeleton_count <> 1 then
+    raise exception 'FG0004_POS_SKELETON_POSTFLIGHT_FAILED_%', v_pos_skeleton_count;
   end if;
 
   select count(*) into v_registry_count
