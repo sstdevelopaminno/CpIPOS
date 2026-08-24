@@ -1,3 +1,4 @@
+import { resolveQrKitchenHardeningFlags } from "@/lib/fg0003-qr-kitchen-hardening";
 import { getPosApiAuthContext } from "@/lib/pos-api-auth";
 import { fail, ok } from "@/lib/http";
 import { featureGateFail, requirePosApiFeature } from "@/lib/pos-api-feature-guard";
@@ -51,6 +52,8 @@ export async function GET(req: Request, context: { params: Promise<{ tableId: st
   try {
     const auth = await getPosApiAuthContext({ requireBranchScope: true, requiredPermission: "tables:view" });
     await requirePosApiFeature(auth, "table_management");
+    const flags = resolveQrKitchenHardeningFlags({ tenantId: auth.tenantId, branchId: auth.branchId });
+    const fg0003FreshTableBill = flags.qr_pos_review_required;
     const { tableId } = await context.params;
     const searchParams = new URL(req.url).searchParams;
     const liteMode = searchParams.get("lite") === "1";
@@ -62,9 +65,9 @@ export async function GET(req: Request, context: { params: Promise<{ tableId: st
     const cacheKey = `pos-table-bill:${auth.tenantId}:${auth.branchId}:${tableId}:${liteMode ? "lite" : "full"}`;
     const { value: payload, source: cacheSource } = await readThroughRuntimeCache({
       key: cacheKey,
-      ttlMs: 5000,
+      ttlMs: fg0003FreshTableBill ? 0 : 5000,
       staleIfErrorMs: 10000,
-      forceRefresh,
+      forceRefresh: forceRefresh || fg0003FreshTableBill,
       loader: async () => {
         const supabase = getSupabaseServiceClient();
         const { data: session, error: sessionError } = await supabase
