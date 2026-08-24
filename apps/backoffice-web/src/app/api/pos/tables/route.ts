@@ -115,15 +115,18 @@ export async function GET() {
     const cacheKey = `pos-tables:${auth.tenantId}:${auth.branchId}`;
     const { value: payload, source: cacheSource } = await readThroughRuntimeCache({
       key: cacheKey,
-      // The POS polls table state every 5s/7s. A 5s TTL expired on the same boundary,
-      // turning nearly every poll into a cold multi-query load. Keep one poll inside
-      // the fresh window so warm instances can absorb idle refreshes without slowing
-      // explicit action/focus refreshes or the independent QR activity channel.
+      // The POS polls table state every 5s/7s. Keep one poll inside the fresh window so
+      // warm instances absorb idle refreshes while explicit actions can still invalidate.
       ttlMs: 8000,
       staleIfErrorMs: 15000,
       loader: async () => {
         const supabase = getSupabaseServiceClient();
-        const [zoneResult, sessionResult, tableResult, objectResult] = await Promise.all([
+
+        // QR activity used to wait for the active-session query to complete and then make a
+        // second database round trip. Query the bounded branch activity snapshot in parallel,
+        // then filter it against active sessions in memory. This preserves the response while
+        // removing one serial latency stage from every cold /api/pos/tables request.
+        const [zoneResult, sessionResult, tableResult, objectResult, qrResult] = await Promise.all([
           supabase
             .from("table_zones")
             .select("id,zone_name,color,display_order,is_active")
@@ -152,7 +155,14 @@ export async function GET() {
             .eq("branch_id", auth.branchId!)
             .eq("is_active", true)
             .order("z_index", { ascending: true })
-            .order("object_name", { ascending: true })
+            .order("object_name", { ascending: true }),
+          supabase
+            .from("table_qr_orders")
+            .select("id,table_id,table_session_id,event_type,item_count,subtotal,review_status,created_at")
+            .eq("tenant_id", auth.tenantId!)
+            .eq("branch_id", auth.branchId!)
+            .order("created_at", { ascending: false })
+            .limit(250)
         ]);
 
         const zones = zoneResult.data;
@@ -163,6 +173,8 @@ export async function GET() {
         const tableError = tableResult.error;
         const objects = objectResult.data;
         const objectError = objectResult.error;
+        const qrRows = qrResult.data;
+        const qrError = qrResult.error;
 
         if (zoneError && !isMissingRelationError(zoneError, "table_zones")) {
           throw new Error(`zone_query_failed:${zoneError.message}`);
@@ -179,36 +191,27 @@ export async function GET() {
           }
         }
 
-        const activeSessionIds = Array.from(activeSessionMap.values()).map((session) => session.id);
+        const activeSessionIds = new Set(Array.from(activeSessionMap.values()).map((session) => session.id));
         const qrActivityByTable = new Map<string, QrTableActivity>();
-        if (activeSessionIds.length > 0) {
-          const { data: qrRows, error: qrError } = await supabase
-            .from("table_qr_orders")
-            .select("id,table_id,table_session_id,event_type,item_count,subtotal,review_status,created_at")
-            .eq("tenant_id", auth.tenantId!)
-            .eq("branch_id", auth.branchId!)
-            .in("table_session_id", activeSessionIds)
-            .order("created_at", { ascending: false })
-            .limit(250);
 
-          if (qrError && !isMissingRelationError(qrError, "table_qr_orders")) {
-            throw new Error(`table_qr_activity_query_failed:${qrError.message}`);
-          }
+        if (qrError && !isMissingRelationError(qrError, "table_qr_orders")) {
+          throw new Error(`table_qr_activity_query_failed:${qrError.message}`);
+        }
 
-          for (const row of ((qrError ? [] : qrRows) ?? []) as QrOrderActivityRow[]) {
-            const current = qrActivityByTable.get(row.table_id) ?? emptyQrActivity();
-            if (!current.latest_event_at || new Date(row.created_at).getTime() > new Date(current.latest_event_at).getTime()) {
-              current.latest_event_id = row.id;
-              current.latest_event_at = row.created_at;
-              current.latest_event_type = row.event_type;
-            }
-            if (row.event_type === "order" && (row.review_status === null || row.review_status === "pending_pos_review")) {
-              current.order_event_count += 1;
-              current.pending_item_count += Math.max(0, Number(row.item_count ?? 0));
-              current.subtotal = Number((current.subtotal + Math.max(0, Number(row.subtotal ?? 0))).toFixed(2));
-            }
-            qrActivityByTable.set(row.table_id, current);
+        for (const row of ((qrError ? [] : qrRows) ?? []) as QrOrderActivityRow[]) {
+          if (!activeSessionIds.has(row.table_session_id)) continue;
+          const current = qrActivityByTable.get(row.table_id) ?? emptyQrActivity();
+          if (!current.latest_event_at || new Date(row.created_at).getTime() > new Date(current.latest_event_at).getTime()) {
+            current.latest_event_id = row.id;
+            current.latest_event_at = row.created_at;
+            current.latest_event_type = row.event_type;
           }
+          if (row.event_type === "order" && (row.review_status === null || row.review_status === "pending_pos_review")) {
+            current.order_event_count += 1;
+            current.pending_item_count += Math.max(0, Number(row.item_count ?? 0));
+            current.subtotal = Number((current.subtotal + Math.max(0, Number(row.subtotal ?? 0))).toFixed(2));
+          }
+          qrActivityByTable.set(row.table_id, current);
         }
 
         if (tableError && !isMissingRelationError(tableError, "dining_tables")) {
@@ -306,6 +309,9 @@ export async function GET() {
       if (message.startsWith("session_query_failed:")) return withTiming(fail("session_query_failed", message.slice("session_query_failed:".length), 500));
       if (message.startsWith("table_query_failed:")) return withTiming(fail("table_query_failed", message.slice("table_query_failed:".length), 500));
       if (message.startsWith("object_query_failed:")) return withTiming(fail("object_query_failed", message.slice("object_query_failed:".length), 500));
+      if (message.startsWith("table_qr_activity_query_failed:")) {
+        return withTiming(fail("table_qr_activity_query_failed", message.slice("table_qr_activity_query_failed:".length), 500));
+      }
       if (message.startsWith("legacy_table_query_failed:")) {
         return withTiming(fail("legacy_table_query_failed", message.slice("legacy_table_query_failed:".length), 500));
       }
