@@ -427,3 +427,11 @@ Current behavior/security decisions are governed by the latest migrations, CI/te
 - POS table refresh now skips overlapping requests and uses lighter polling intervals while preserving focus-triggered refresh, reducing UI contention on slower store devices.
 - Active dine-in bill refresh now avoids concurrent reloads and polls less aggressively while a table is selected.
 - Automatic receipt bridge requests now use a shorter bounded timeout so payment completion is not held behind a slow printer bridge; queued print jobs remain the authoritative print path.
+
+## 2026-08-23 - Android Modern hardware contract hardening
+
+- Modern Android Runtime workflow now passes `-PcpiposDualScreen=true` during unit tests, signed release builds, and debug smoke builds so supported dual-screen POS hardware cannot lose compiled Customer Display V2 support by omission. Single-screen devices remain compatible because the runtime opens a Presentation only when Android reports a secondary display.
+- Android MDM heartbeat now emits `runtime_capabilities.schema_version=4`, printer capability flags, USB/Bluetooth printer inventory, and one-time `test_printer_verification` command results expected by the current server auto-registry contract.
+- USB auto-discovery diagnostics require printer-class or printer-name evidence for `safe_autobind_candidate`; a writable endpoint alone is reported but is not sufficient for auto-binding. Bluetooth inventory reports bonded devices with stable MAC fingerprints where Android permits access and does not treat arbitrary bonded devices as printers.
+- Customer Display MDM diagnostics now include active secondary display id, customer display state, last customer display error, and last recovery timestamp. POS session authentication and native-state 401 handling remain unchanged.
+- Midnight Reset remains SOURCE READY / LIVE NOT ENABLED. Do not apply the Primary/Trial cron migration without separate explicit production migration approval.

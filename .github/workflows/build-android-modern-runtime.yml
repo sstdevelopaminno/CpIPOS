@@ -65,6 +65,7 @@ jobs:
           grep -qF -- 'providers.gradleProperty("cpiposVersionCode")' "$buildFile" || { echo "Version code override missing"; exit 1; }
           grep -qF -- 'providers.gradleProperty("cpiposUpdateChannel")' "$buildFile" || { echo "Update channel override missing"; exit 1; }
           grep -qF -- 'providers.gradleProperty("cpiposManagedUpdater")' "$buildFile" || { echo "Managed updater override missing"; exit 1; }
+          grep -qF -- 'providers.gradleProperty("cpiposDualScreen")' "$buildFile" || { echo "Dual-screen override missing"; exit 1; }
 
       - name: Run Android unit tests with Modern updater flags
         working-directory: ${{ env.ANDROID_RUNTIME_MODULE }}
@@ -74,6 +75,7 @@ jobs:
           -PcpiposVersionCode="${ANDROID_RUNTIME_VERSION_CODE}"
           -PcpiposUpdateChannel=modern
           -PcpiposManagedUpdater=true
+          -PcpiposDualScreen=true
           --no-daemon --stacktrace
 
       - name: Detect stable signing secrets
@@ -120,6 +122,7 @@ jobs:
           -PcpiposVersionCode="${ANDROID_RUNTIME_VERSION_CODE}"
           -PcpiposUpdateChannel=modern
           -PcpiposManagedUpdater=true
+          -PcpiposDualScreen=true
           --no-daemon --stacktrace
 
       - name: Build Modern debug smoke APK when signing is unavailable
@@ -131,6 +134,7 @@ jobs:
           -PcpiposVersionCode="${ANDROID_RUNTIME_VERSION_CODE}"
           -PcpiposUpdateChannel=modern
           -PcpiposManagedUpdater=true
+          -PcpiposDualScreen=true
           --no-daemon --stacktrace
 
       - name: Require signing secrets for manual release

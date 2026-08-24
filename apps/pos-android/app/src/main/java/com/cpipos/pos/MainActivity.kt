@@ -230,8 +230,15 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun startDualScreenSupport() {
-        if (!BuildConfig.CPIPOS_DUAL_SCREEN_ENABLED) return
-        val manager = getSystemService(DisplayManager::class.java) ?: return
+        if (!BuildConfig.CPIPOS_DUAL_SCREEN_ENABLED) {
+            mdmAgent?.notifyCustomerDisplayState("disabled", null)
+            return
+        }
+        val manager = getSystemService(DisplayManager::class.java)
+        if (manager == null) {
+            mdmAgent?.notifyCustomerDisplayState("error", null, "display_manager_unavailable")
+            return
+        }
         displayManager = manager
         manager.registerDisplayListener(dualScreenDisplayListener, Handler(Looper.getMainLooper()))
         syncDualScreenPresentation()
@@ -246,10 +253,14 @@ class MainActivity : ComponentActivity() {
         dualScreenPresentation?.dismiss()
         dualScreenPresentation = null
         activeSecondaryDisplayId = null
+        mdmAgent?.notifyCustomerDisplayState(if (BuildConfig.CPIPOS_DUAL_SCREEN_ENABLED) "no_secondary_display" else "disabled", null)
     }
 
     private fun syncDualScreenPresentation() {
-        if (!BuildConfig.CPIPOS_DUAL_SCREEN_ENABLED) return
+        if (!BuildConfig.CPIPOS_DUAL_SCREEN_ENABLED) {
+            mdmAgent?.notifyCustomerDisplayState("disabled", null)
+            return
+        }
         val manager = displayManager ?: return
         val primaryDisplayId = if (::webView.isInitialized) webView.display?.displayId ?: Display.DEFAULT_DISPLAY else Display.DEFAULT_DISPLAY
         val presentationDisplay = manager.getDisplays(DisplayManager.DISPLAY_CATEGORY_PRESENTATION)
@@ -262,11 +273,13 @@ class MainActivity : ComponentActivity() {
             dualScreenPresentation = null
             activeSecondaryDisplayId = null
             applyCustomerDisplayV2Flag()
+            mdmAgent?.notifyCustomerDisplayState("no_secondary_display", null)
             return
         }
 
         if (activeSecondaryDisplayId == secondaryDisplay.displayId && dualScreenPresentation?.isShowing == true) {
             applyCustomerDisplayV2Flag()
+            mdmAgent?.notifyCustomerDisplayState("active", secondaryDisplay.displayId)
             return
         }
 
@@ -274,6 +287,7 @@ class MainActivity : ComponentActivity() {
         dualScreenPresentation = null
         activeSecondaryDisplayId = null
 
+        mdmAgent?.notifyCustomerDisplayState("starting", secondaryDisplay.displayId)
         runCatching {
             DualScreenPresentation(
                 this,
@@ -283,10 +297,12 @@ class MainActivity : ComponentActivity() {
                 presentation.show()
                 dualScreenPresentation = presentation
                 activeSecondaryDisplayId = secondaryDisplay.displayId
+                mdmAgent?.notifyCustomerDisplayState("active", secondaryDisplay.displayId)
             }
-        }.onFailure {
+        }.onFailure { error ->
             dualScreenPresentation = null
             activeSecondaryDisplayId = null
+            mdmAgent?.notifyCustomerDisplayState("error", null, error.message ?: error::class.java.simpleName)
         }
 
         applyCustomerDisplayV2Flag()

@@ -44,9 +44,15 @@ class PosMdmAgent(
     @Volatile private var canGoBackState: Boolean = false
     @Volatile private var lastPageError: String? = null
     @Volatile private var lastCommandAction: String? = null
+    @Volatile private var lastCommandId: String? = null
     @Volatile private var lastCommandSource: String? = null
     @Volatile private var lastCommandAtMs: Long? = null
+    @Volatile private var lastCommandResult: JSONObject? = null
     @Volatile private var lastPrinterDiagnostic: PrinterDiagnostic? = null
+    @Volatile private var activeSecondaryDisplayId: Int? = null
+    @Volatile private var customerDisplayState: String = if (BuildConfig.CPIPOS_DUAL_SCREEN_ENABLED) "no_secondary_display" else "disabled"
+    @Volatile private var lastCustomerDisplayError: String? = null
+    @Volatile private var lastCustomerDisplayRecoveryAtMs: Long? = null
 
     val installId: String by lazy {
         val existing = prefs.getString("install_id", null)?.takeIf { it.isNotBlank() }
@@ -97,13 +103,31 @@ class PosMdmAgent(
         sendHeartbeat("page_error")
     }
 
+    fun notifyCustomerDisplayState(state: String, displayId: Int?, error: String? = null) {
+        val normalized = state.trim().lowercase().takeIf { it in CUSTOMER_DISPLAY_STATES } ?: "error"
+        val previous = customerDisplayState
+        customerDisplayState = normalized
+        activeSecondaryDisplayId = displayId
+        if (error != null) lastCustomerDisplayError = error.take(240)
+        if (normalized == "active" && previous != "active") {
+            lastCustomerDisplayRecoveryAtMs = System.currentTimeMillis()
+            lastCustomerDisplayError = null
+        }
+        sendHeartbeat("customer_display_state")
+    }
+
     @JavascriptInterface
     fun diagnosticsJson(): String = buildSnapshot("javascript").toString()
 
     @JavascriptInterface
     fun executeCommand(action: String): String = executeSafeCommand(action, "javascript").toString()
 
-    fun executeSafeCommand(action: String, source: String = "remote"): JSONObject {
+    fun executeSafeCommand(
+        action: String,
+        source: String = "remote",
+        commandId: String? = null,
+        printerVerification: JSONObject? = null
+    ): JSONObject {
         val normalized = action.trim().lowercase()
         if (normalized !in SAFE_ACTIONS) {
             return JSONObject()
@@ -113,8 +137,10 @@ class PosMdmAgent(
         }
 
         lastCommandAction = normalized
+        lastCommandId = commandId?.trim()?.takeIf { it.isNotEmpty() }
         lastCommandSource = source
         lastCommandAtMs = System.currentTimeMillis()
+        lastCommandResult = null
 
         when (normalized) {
             "ping" -> sendHeartbeat("command_ping")
@@ -154,7 +180,16 @@ class PosMdmAgent(
             }
             "test_printer_connection" -> executor?.execute {
                 lastPrinterDiagnostic = diagnostics.testPrinterConnection(timeoutMs = 1800)
+                lastCommandResult = JSONObject()
+                    .put("ok", lastPrinterDiagnostic?.reachable == true)
+                    .put("code", if (lastPrinterDiagnostic?.reachable == true) "printer_connection_ok" else lastPrinterDiagnostic?.lastError ?: "printer_connection_failed")
+                    .put("retryable", lastPrinterDiagnostic?.reachable != true)
                 sendHeartbeat("command_test_printer_connection")
+            }
+            "test_printer_verification" -> executor?.execute {
+                val result = diagnostics.testPrinterVerification(printerVerification)
+                lastCommandResult = result
+                sendHeartbeat("command_test_printer_verification")
             }
         }
 
@@ -162,6 +197,7 @@ class PosMdmAgent(
             .put("ok", true)
             .put("action", normalized)
             .put("source", source)
+            .put("command_id", lastCommandId)
     }
 
     private fun sendHeartbeat(reason: String) {
@@ -226,7 +262,14 @@ class PosMdmAgent(
                 for (index in 0 until commands.length()) {
                     val command = commands.optJSONObject(index) ?: continue
                     val action = command.optString("action", "")
-                    if (action.isNotBlank()) executeSafeCommand(action, "heartbeat_response")
+                    if (action.isNotBlank()) {
+                        executeSafeCommand(
+                            action = action,
+                            source = "heartbeat_response",
+                            commandId = command.optString("id", "").takeIf { it.isNotBlank() },
+                            printerVerification = command.optJSONObject("printer_verification")
+                        )
+                    }
                 }
             }
         }
@@ -239,8 +282,12 @@ class PosMdmAgent(
                 .put("display_count", 0)
                 .put("presentation_display_count", 0)
                 .put("secondary_display_available", false)
+                .put("active_secondary_display_id", activeSecondaryDisplayId)
+                .put("customer_display_state", if (BuildConfig.CPIPOS_DUAL_SCREEN_ENABLED) customerDisplayState else "disabled")
+                .put("last_customer_display_error", lastCustomerDisplayError)
+                .put("last_customer_display_recovery_at", lastCustomerDisplayRecoveryAtMs)
 
-        val primaryDisplayId = Display.DEFAULT_DISPLAY
+        val primaryDisplayId = webView.display?.displayId ?: Display.DEFAULT_DISPLAY
         val displays = manager.displays
         val presentationDisplays = manager.getDisplays(DisplayManager.DISPLAY_CATEGORY_PRESENTATION)
         val rows = JSONArray()
@@ -263,12 +310,24 @@ class PosMdmAgent(
             )
         }
 
+        val secondaryAvailable = displays.any { it.displayId != primaryDisplayId && it.state != Display.STATE_OFF }
+        val effectiveState = when {
+            !BuildConfig.CPIPOS_DUAL_SCREEN_ENABLED -> "disabled"
+            activeSecondaryDisplayId != null -> customerDisplayState
+            secondaryAvailable -> customerDisplayState
+            else -> "no_secondary_display"
+        }
+
         return JSONObject()
             .put("feature_enabled", BuildConfig.CPIPOS_DUAL_SCREEN_ENABLED)
             .put("primary_display_id", primaryDisplayId)
             .put("display_count", displays.size)
             .put("presentation_display_count", presentationDisplays.size)
-            .put("secondary_display_available", displays.any { it.displayId != primaryDisplayId && it.state != Display.STATE_OFF })
+            .put("secondary_display_available", secondaryAvailable)
+            .put("active_secondary_display_id", activeSecondaryDisplayId)
+            .put("customer_display_state", effectiveState)
+            .put("last_customer_display_error", lastCustomerDisplayError)
+            .put("last_customer_display_recovery_at", lastCustomerDisplayRecoveryAtMs)
             .put("displays", rows)
     }
 
@@ -296,6 +355,7 @@ class PosMdmAgent(
             .put("install_id", installId)
             .put("timestamp_ms", System.currentTimeMillis())
             .put("safe_command_allowlist", JSONArray(SAFE_ACTIONS.toList()))
+            .put("runtime_capabilities", diagnostics.runtimeCapabilities())
             .put("update_capabilities", buildUpdateCapabilities())
             .put("update_state", updateManager.snapshot())
             .put(
@@ -355,13 +415,16 @@ class PosMdmAgent(
                     .put("configured_port", diagnostics.printerPort())
                     .put("last_reachable", printer?.reachable)
                     .put("last_error", printer?.lastError)
+                    .put("inventory", diagnostics.printerInventory())
             )
             .put(
                 "last_command",
                 JSONObject()
                     .put("action", lastCommandAction)
+                    .put("command_id", lastCommandId)
                     .put("source", lastCommandSource)
                     .put("at_ms", lastCommandAtMs)
+                    .put("result", lastCommandResult)
             )
     }
 
@@ -374,7 +437,18 @@ class PosMdmAgent(
             "clear_webview_cache",
             "clear_cookies",
             "clear_webview_data",
-            "test_printer_connection"
+            "test_printer_connection",
+            "test_printer_verification"
+        )
+
+        private val CUSTOMER_DISPLAY_STATES = setOf(
+            "disabled",
+            "no_secondary_display",
+            "starting",
+            "active",
+            "waiting_for_session",
+            "recovering",
+            "error"
         )
     }
 }

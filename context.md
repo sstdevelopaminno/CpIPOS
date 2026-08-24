@@ -656,3 +656,11 @@ ORDER BY p.name;
 - POS table refresh now skips overlapping requests and uses lighter polling intervals while preserving focus-triggered refresh, reducing UI contention on slower store devices.
 - Active dine-in bill refresh now avoids concurrent reloads and polls less aggressively while a table is selected.
 - Automatic receipt bridge requests now use a shorter bounded timeout so payment completion is not held behind a slow printer bridge; queued print jobs remain the authoritative print path.
+
+## 2026-08-23 - Android POS hardware automation phase 2 source hardening
+
+- Followed the accepted AUDIT FIRST baseline on branch `agent-docs-preflight-schema-drift` without deploy, push, migration apply, MDM command delivery, device update, or live data mutation.
+- Modern Runtime source/release workflow now explicitly keeps `CPIPOS_DUAL_SCREEN_ENABLED=true` by passing `-PcpiposDualScreen=true` in the Modern test, release, and debug build paths.
+- Android MDM runtime snapshots now send server-compatible schema v4 runtime capabilities, safe USB/Bluetooth printer inventory, and bounded one-time printer verification command results. Existing Print Agent queue processing and explicit printer assignments remain authoritative.
+- Dual-screen MDM observability now reports `active_secondary_display_id`, `customer_display_state`, `last_customer_display_error`, and `last_customer_display_recovery_at` while preserving one Presentation per secondary display and existing authenticated Customer Display V2 native-state behavior.
+- Midnight Reset status is unchanged: source-ready and mirrored in migrations, but live Primary/Trial function and cron are not enabled in this phase and require separate explicit production migration approval.
