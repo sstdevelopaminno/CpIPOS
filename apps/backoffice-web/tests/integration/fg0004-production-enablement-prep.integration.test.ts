@@ -19,6 +19,30 @@ const fg0004ProvisioningSql = readFileSync(
   new URL("../../../../supabase/provisioning/fg0004_inactive_restaurant_qr_provisioning.sql", import.meta.url),
   "utf8"
 );
+const primaryProvisioningSql = readFileSync(
+  new URL("../../../../supabase/provisioning/fg0004_primary_inactive_restaurant_qr_provisioning.sql", import.meta.url),
+  "utf8"
+);
+const primaryCollisionPreflightSql = readFileSync(
+  new URL("../../../../supabase/maintenance/fg0004_primary_collision_preflight_readonly.sql", import.meta.url),
+  "utf8"
+);
+const primaryMaintenanceGateSql = readFileSync(
+  new URL("../../../../supabase/maintenance/fg0004_primary_maintenance_gate_readonly.sql", import.meta.url),
+  "utf8"
+);
+const primaryPostflightSql = readFileSync(
+  new URL("../../../../supabase/maintenance/fg0004_primary_inactive_postflight_readonly.sql", import.meta.url),
+  "utf8"
+);
+const primaryContainmentSql = readFileSync(
+  new URL("../../../../supabase/maintenance/fg0004_primary_containment_disable.sql", import.meta.url),
+  "utf8"
+);
+const primaryMaintenanceDoc = readFileSync(
+  new URL("../../../../docs/FG0004_PRODUCTION_MAINTENANCE_PACKAGE.md", import.meta.url),
+  "utf8"
+);
 const rolloutDoc = readFileSync(
   new URL("../../../../docs/FG0004_RESTAURANT_QR_LIVE_PROVISIONING_PACKAGE.md", import.meta.url),
   "utf8"
@@ -59,6 +83,37 @@ describe("FG0004 production Restaurant QR enablement prep", () => {
     expect(fg0004ProvisioningSql).not.toContain("insert into public.users_profiles");
     expect(fg0004ProvisioningSql).not.toContain("insert into public.printer_devices");
     expect(fg0004ProvisioningSql).not.toContain("insert into public.printer_device_assignments");
+  });
+
+
+  it("locks the Primary maintenance package as dry-run only", () => {
+    expect(primaryProvisioningSql).toContain("SOURCE ONLY / DO NOT EXECUTE");
+    expect(primaryProvisioningSql).toContain("FG0004_TENANT_ALREADY_EXISTS");
+    expect(primaryProvisioningSql).toContain("FG0004_POS_DEVICE_ALREADY_EXISTS");
+    expect(primaryProvisioningSql).toContain("'FG0004'");
+    expect(primaryProvisioningSql).toContain("'FG0004-RBR-01'");
+    expect(primaryProvisioningSql).toContain("'FG0004-POS-01'");
+    expect(primaryProvisioningSql).toContain("'RECEIPT-01'");
+    expect(primaryProvisioningSql).toContain("'KITCHEN-01'");
+    expect(primaryProvisioningSql).toContain("enabled = false");
+    expect(primaryProvisioningSql).toContain("status = 'provisioning'");
+    expect(primaryProvisioningSql).not.toMatch(/drop\s+table|truncate|delete\s+from/i);
+    expect(primaryProvisioningSql).not.toContain("store_code like 'FG%'");
+
+    expect(primaryCollisionPreflightSql).toContain("READ ONLY");
+    expect(primaryCollisionPreflightSql).toContain("fg0004_tenant_count");
+    expect(primaryCollisionPreflightSql).toContain("growth_active_count");
+    expect(primaryMaintenanceGateSql).toContain("maintenance_gate_open");
+    expect(primaryMaintenanceGateSql).toContain("active_pos_sessions");
+    expect(primaryPostflightSql).toContain("to_regprocedure");
+    expect(primaryContainmentSql).toContain("Non-destructive");
+    expect(primaryContainmentSql).toContain("enabled = false");
+    expect(primaryContainmentSql).not.toMatch(/drop\s+table|truncate|delete\s+from/i);
+
+    expect(primaryMaintenanceDoc).toContain("dry-run only");
+    expect(primaryMaintenanceDoc).toContain("Do not activate FG0004 QR");
+    expect(primaryMaintenanceDoc).toContain("active POS sessions: 2");
+    expect(primaryMaintenanceDoc).toContain("open shifts: 2");
   });
 
   it("matches the requested FG0004 store, branch, table, device, printer, and role plan", () => {
