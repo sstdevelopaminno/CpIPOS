@@ -3,7 +3,7 @@
 Mode: dry-run only. Do not execute production changes from this phase.
 Date: 2026-08-24
 Branch: `prep/fg0004-restaurant-qr-provisioning`
-Final source SHA: `f373ce7349664a7417521d8876430f8fd66793d3`
+Verified source base SHA: `f373ce7349664a7417521d8876430f8fd66793d3`
 
 
 ## SHA-256 Lock
