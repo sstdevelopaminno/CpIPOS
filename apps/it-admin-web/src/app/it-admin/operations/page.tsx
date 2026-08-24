@@ -1,3 +1,4 @@
+import { requireOperator } from "@/lib/auth";
 import { loadOperationsSnapshot } from "@/lib/operations";
 
 export const dynamic = "force-dynamic";
@@ -10,6 +11,7 @@ function family(code: string) {
 }
 
 export default async function OperationsPage() {
+  await requireOperator();
   const snapshot = await loadOperationsSnapshot();
   const t = snapshot.totals;
   const stale = Math.max(0, t.devices - t.live_devices);
