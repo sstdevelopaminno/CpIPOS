@@ -22,11 +22,12 @@ export async function GET(request: Request, context: { params: Promise<{ tableId
     if (!tableId) return withTiming(fail("invalid_table_id", "tableId is required.", 422));
 
     const after = afterRaw && !Number.isNaN(new Date(afterRaw).getTime()) ? new Date(afterRaw).toISOString() : null;
-    const cacheKey = `pos-table-qr-orders:${auth.tenantId}:${auth.branchId}:${tableId}:${fg0003PendingOnly ? "pending" : "all"}:${after ?? "recent"}`;
+    const cacheKey = `pos-table-qr-orders:${auth.tenantId}:${auth.branchId}:${tableId}:${fg0003PendingOnly ? "pending-fifo" : "all"}:${after ?? "recent"}`;
     const { value: payload, source: cacheSource } = await readThroughRuntimeCache({
       key: cacheKey,
-      ttlMs: 2500,
+      ttlMs: fg0003PendingOnly ? 0 : 2500,
       staleIfErrorMs: 10000,
+      forceRefresh: fg0003PendingOnly,
       loader: async () => {
         const supabase = getSupabaseServiceClient();
         const cursorBoundary = new Date().toISOString();
@@ -39,11 +40,13 @@ export async function GET(request: Request, context: { params: Promise<{ tableId
           .eq("event_type", "order")
           .lte("created_at", cursorBoundary)
           .order("created_at", { ascending: true })
-          .limit(25);
+          .limit(fg0003PendingOnly ? 1 : 25);
         if (fg0003PendingOnly) {
+          // FG0003 review mode is an acknowledgement queue, not a latest-event feed.
+          // Always return the oldest pending submission until POS explicitly accepts/rejects it.
+          // This prevents a newer QR order from replacing the popup that staff is still reviewing.
           query = query.eq("review_status", "pending_pos_review");
-        }
-        if (after) {
+        } else if (after) {
           query = query.gt("created_at", after);
         } else {
           query = query.gte("created_at", new Date(Date.now() - 5 * 60_000).toISOString());
