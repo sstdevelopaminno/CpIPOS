@@ -5,7 +5,8 @@ from pathlib import Path
 # print enqueue idempotency and routed per-copy keys in source.
 #
 # Keep the still-needed legacy build patches for timeline/POS kitchen confirmation,
-# then apply only the direct-print atomic claim from v3. Do not overwrite the newer
+# then adapt their legacy FG0003 flag reference to the generic Restaurant QR flag
+# and apply only the direct-print atomic claim from v3. Do not overwrite the newer
 # QRS-2 enqueue/routing implementation with the older exact-text patch.
 ORIGINAL = Path(".github/scripts/apply_fg0003_confirm_print_stability_v3.py")
 source = ORIGINAL.read_text(encoding="utf-8-sig")
@@ -15,6 +16,15 @@ if marker not in source:
 
 prefix = source.split(marker, 1)[0]
 exec(compile(prefix, str(ORIGINAL), "exec"), globals(), globals())
+
+# The legacy v3 prefix injects references to fg0003QrKitchenHardeningActive.
+# QRS-2 renamed that scope to restaurantQrKitchenHardeningActive so the same
+# behavior can be shared by explicitly enabled RESTAURANT_QR stores.
+pos_path = "apps/backoffice-web/src/components/pos/pos-sales-module.tsx"
+pos_source = read(pos_path)
+if "fg0003QrKitchenHardeningActive" in pos_source:
+    pos_source = pos_source.replace("fg0003QrKitchenHardeningActive", "restaurantQrKitchenHardeningActive")
+    write(pos_path, pos_source)
 
 # QRS-2 already handles duplicate enqueue recovery via
 # loadExistingPrintJobByIdempotencyKey() + Restaurant QR scoping.
