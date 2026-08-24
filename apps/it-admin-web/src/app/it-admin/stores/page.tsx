@@ -1,8 +1,10 @@
+import { requireOperator } from "@/lib/auth";
 import { loadOperationsSnapshot } from "@/lib/operations";
 
 export const dynamic = "force-dynamic";
 
 export default async function StoresPage() {
+  await requireOperator();
   const snapshot = await loadOperationsSnapshot();
   const ff0001 = snapshot.stores.some((s) => s.store_code.toUpperCase() === "FF0001");
   return <div className="grid" style={{gap:18}}>
