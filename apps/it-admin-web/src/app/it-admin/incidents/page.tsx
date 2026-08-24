@@ -1,8 +1,10 @@
+import { requireOperator } from "@/lib/auth";
 import { getServiceClient } from "@/lib/supabase";
 
 export const dynamic = "force-dynamic";
 
 export default async function IncidentsPage() {
+  await requireOperator();
   const supabase = getServiceClient();
   const { data, error } = await supabase
     .from("pos_device_incidents")
