@@ -3,7 +3,7 @@
   "compilerOptions": {
     "forceConsistentCasingInFileNames": true,
     "plugins": [{ "name": "next" }],
-    "types": ["node"],
+    "types": ["node", "react", "react-dom"],
     "incremental": true,
     "baseUrl": ".",
     "paths": { "@/*": ["src/*"] }
