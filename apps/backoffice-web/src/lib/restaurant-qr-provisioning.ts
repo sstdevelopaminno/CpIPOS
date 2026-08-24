@@ -264,6 +264,104 @@ export const FG0004_DRY_RUN_PROVISIONING_MANIFEST: RestaurantQrProvisioningManif
   }
 };
 
+export const FG0004_GROWTH_RESTAURANT_QR_REQUIRED_FEATURE_CODES = [
+  "core_pos_sales",
+  "table_management",
+  "qr_table_ordering",
+  "kitchen_printing",
+  "receipt_reprint_history"
+] as const;
+
+export const FG0004_GROWTH_RESTAURANT_QR_FEATURE_GAPS = [
+  "table_management",
+  "qr_table_ordering",
+  "kitchen_printing"
+] as const;
+
+export const FG0004_MISSING_PHYSICAL_INPUTS = [
+  "opening date/time",
+  "POS hardware model",
+  "receipt printer type/model",
+  "kitchen printer type/model",
+  "printer transport: USB/Bluetooth/LAN",
+  "printer fingerprint/MAC/USB VID PID/LAN IP",
+  "owner/operator account details",
+  "payment methods"
+] as const;
+
+export const FG0004_LIVE_PROVISIONING_PACKAGE = {
+  store_code: "FG0004",
+  display_name: "เลิศรส 108 เมนู",
+  branch_code: "FG0004-RBR-01",
+  branch_name: "เลิศรส 108 เมนู ราชบุรี",
+  province: "ราชบุรี",
+  product_profile: RESTAURANT_QR_PRODUCT_PROFILE,
+  package_code: "growth",
+  package_name: "Growth",
+  initial_state: "inactive/provisioning",
+  table_codes: Array.from({ length: 20 }, (_, index) => `T${String(index + 1).padStart(2, "0")}`),
+  pos_skeleton: {
+    device_code: "FG0004-POS-01",
+    display_mode: "single_screen",
+    count: 1,
+    status: "inactive",
+    android_package: "com.cpipos.pos",
+    minimum_version_code: 28,
+    mdm_enrolled: false
+  },
+  printer_slots: [
+    {
+      slot_code: "RECEIPT-01",
+      role: "receipt",
+      hardware_identity: "TBD",
+      automatic_reassignment: false
+    },
+    {
+      slot_code: "KITCHEN-01",
+      role: "kitchen",
+      hardware_identity: "TBD",
+      automatic_reassignment: false
+    }
+  ],
+  role_model: ["OWNER", "STAFF", "KITCHEN"],
+  restaurant_qr_registry: {
+    enabled: false,
+    status: "provisioning",
+    wildcard_enabled: false,
+    fg_prefix_auto_enabled: false
+  },
+  feature_contract: {
+    package_code: "growth",
+    required_feature_codes: [...FG0004_GROWTH_RESTAURANT_QR_REQUIRED_FEATURE_CODES],
+    known_growth_default_gaps: [...FG0004_GROWTH_RESTAURANT_QR_FEATURE_GAPS]
+  },
+  source_only_transaction_path: "supabase/provisioning/fg0004_inactive_restaurant_qr_provisioning.sql",
+  migration_execution_order: [
+    "apply supabase/migrations/202608240001_fg0003_qr_pos_review_lifecycle.sql if not already applied",
+    "apply supabase/migrations/202608240002_fg0003_cancelled_order_print_claim_guard.sql during approved maintenance window",
+    "run supabase/provisioning/fg0004_inactive_restaurant_qr_provisioning.sql only after explicit live provisioning approval",
+    "activate customer-facing QR only in a later go-live phase"
+  ],
+  rollback_plan: [
+    "preflight failure: transaction raises and rolls back automatically",
+    "postflight failure: transaction raises and rolls back automatically",
+    "after committed inactive provisioning: delete FG0004 rows in reverse dependency order before activation only",
+    "never modify FG0003 rollback state"
+  ],
+  missing_physical_inputs: [...FG0004_MISSING_PHYSICAL_INPUTS],
+  no_live_execution: {
+    apply_migration: false,
+    insert_fg0004: false,
+    deploy_vercel: false,
+    activate_qr: false,
+    generate_customer_qr_codes: false,
+    create_users: false,
+    enroll_mdm: false,
+    assign_printers: false,
+    modify_fg0003: false,
+    modify_other_stores: false
+  }
+} as const;
 export function buildRestaurantQrBranchCode(storeCode: string, locationCode: string, branchSequence = 1): string {
   const normalizedStore = String(storeCode).trim().toUpperCase();
   const normalizedLocation = String(locationCode).trim().toUpperCase();

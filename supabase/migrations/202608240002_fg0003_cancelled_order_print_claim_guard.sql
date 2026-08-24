@@ -14,14 +14,30 @@ create table if not exists app.restaurant_qr_store_registry (
   deployment_mode text not null default 'CENTRAL' check (deployment_mode in ('CENTRAL','ISOLATED')),
   update_ring text not null default 'PRODUCTION_PROTECTED' check (update_ring in ('LAB','PILOT','PRODUCTION','PRODUCTION_PROTECTED')),
   package_code text,
-  status text not null default 'enabled' check (status in ('enabled','disabled')),
+  enabled boolean not null default false,
+  status text not null default 'disabled' check (status in ('enabled','disabled','provisioning')),
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   primary key (tenant_id, branch_id)
 );
 
+alter table app.restaurant_qr_store_registry
+  add column if not exists enabled boolean not null default false;
+
+alter table app.restaurant_qr_store_registry
+  alter column status set default 'disabled';
+
+alter table app.restaurant_qr_store_registry
+  drop constraint if exists restaurant_qr_store_registry_status_check;
+
+alter table app.restaurant_qr_store_registry
+  add constraint restaurant_qr_store_registry_status_check
+  check (status in ('enabled','disabled','provisioning'));
+
+create unique index if not exists idx_restaurant_qr_store_registry_store_branch_code
+  on app.restaurant_qr_store_registry (store_code, branch_code);
 insert into app.restaurant_qr_store_registry (
-  tenant_id, branch_id, store_code, branch_code, display_name, product_profile, deployment_mode, update_ring, package_code, status
+  tenant_id, branch_id, store_code, branch_code, display_name, product_profile, deployment_mode, update_ring, package_code, enabled, status
 ) values (
   '2d38bd23-bf2d-4b9a-a7cf-adb2547297ed'::uuid,
   '41eee367-6762-4277-bfc8-c2e9776a8ef9'::uuid,
@@ -32,11 +48,13 @@ insert into app.restaurant_qr_store_registry (
   'CENTRAL',
   'PRODUCTION_PROTECTED',
   null,
+  true,
   'enabled'
 ) on conflict (tenant_id, branch_id) do update set
   product_profile = excluded.product_profile,
   deployment_mode = excluded.deployment_mode,
   update_ring = excluded.update_ring,
+  enabled = excluded.enabled,
   status = excluded.status,
   updated_at = now();
 
@@ -53,6 +71,7 @@ as $
     where r.tenant_id = p_tenant_id
       and r.branch_id = p_branch_id
       and r.product_profile = 'RESTAURANT_QR'
+      and r.enabled = true
       and r.status = 'enabled'
   );
 $;
