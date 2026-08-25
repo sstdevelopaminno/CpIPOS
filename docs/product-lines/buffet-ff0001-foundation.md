@@ -1,6 +1,6 @@
 # Buffet / FF0001 Foundation
 
-Status: SOURCE FOUNDATION ONLY — NOT PROVISIONED / NOT PRODUCTION-ACTIVE
+Status: SOURCE READY / DEPLOYMENT LANE PREP — NOT PROVISIONED / NOT CUSTOMER-ACTIVE
 
 ## Goal
 
@@ -11,7 +11,8 @@ Create a Buffet product line that remains inside the CpIPOS monorepo and shared 
 - Product profile: `BUFFET`
 - Store-code prefix: `FF`
 - First reserved store code: `FF0001`
-- Proposed Vercel project: `cp-ipos-buffet-web`
+- Vercel project: `cp-ipos-buffet-web`
+- Production branch: `buffet/main`
 - Required deployment env: `CPIPOS_PRODUCT_PROFILE=BUFFET`
 
 ## Isolation rules
@@ -33,6 +34,16 @@ Create a Buffet product line that remains inside the CpIPOS monorepo and shared 
 - Dual-screen / Customer Display runtime
 - Audit and monitoring primitives
 
+## Buffet-specific capabilities already present in the shared POS source
+
+- Buffet table mode and persisted table-session summaries
+- Guest/set additions and package selection
+- Branch-scoped buffet pricing and exact quantity controls
+- Dynamic buffet plans and set catalog management
+- Package-scoped QR menu policy
+- Timed/bill QR lifecycle and countdown/lockout
+- Checkout/payment flow preservation for buffet table mode
+
 ## Buffet-specific domain boundary
 
 - Guest count (adult/child or package-specific groups)
@@ -52,6 +63,14 @@ Create a Buffet product line that remains inside the CpIPOS monorepo and shared 
 
 The product-line endpoint is deliberately fail-closed: without `CPIPOS_PRODUCT_PROFILE=BUFFET`, it reports `CORE_WEB` and does not advertise FF0001 as ready for provisioning.
 
-## Next gate
+## Delivery gate
 
-Create a separate Vercel project connected to the same GitHub repository, use the Buffet branch as its initial production branch, set the project root to `apps/backoffice-web`, set `CPIPOS_PRODUCT_PROFILE=BUFFET`, then verify `/api/system/product-line` returns `BUFFET_WEB` before any Supabase provisioning.
+1. Vercel project `cp-ipos-buffet-web` must track `buffet/main`.
+2. Root directory remains `apps/backoffice-web` for the current shared-POS Buffet lane.
+3. `CPIPOS_PRODUCT_PROFILE=BUFFET` must be present in Production and Preview.
+4. `/api/system/product-line` must return `BUFFET_WEB` before FF0001 provisioning.
+5. Provision FF0001 as `PROVISIONING / INACTIVE` first, run store/branch/device/printer/payment preflight, then activate only after customer acceptance.
+
+## Android runtime
+
+The website download `CpIPOS-Android-POS-1.0.20` remains the shared Android runtime for Restaurant QR and Buffet. Do not create a Buffet-specific APK unless native hardware requirements diverge.
