@@ -30,12 +30,21 @@ declare global {
 const FALLBACK_DOWNLOAD_URL = "/download/android/modern-latest";
 const POLL_MS = 15_000;
 
+// Emergency rollback is intentionally scoped to the single FG0003 Android install.
+// Do not broaden this target or change the global Modern release channel.
+const FG0003_ROLLBACK_INSTALL_ID = "13aec7a2-7817-49b4-a90f-ff275dfefd75";
+const FG0003_ROLLBACK_VERSION_NAME = "1.0.20";
+const FG0003_ROLLBACK_VERSION_CODE = 26;
+const FG0003_ROLLBACK_DOWNLOAD_URL =
+  "https://drive.google.com/uc?export=download&id=1JqfASaDHZTmQ0qmNZicCOKqBIIHcgX1i";
+
 export function AndroidPosMandatoryUpdate() {
   const [required, setRequired] = useState(false);
   const [checking, setChecking] = useState(false);
   const [targetName, setTargetName] = useState("1.0.20");
   const [targetCode, setTargetCode] = useState(28);
   const [downloadUrl, setDownloadUrl] = useState(FALLBACK_DOWNLOAD_URL);
+  const [rollbackMode, setRollbackMode] = useState(false);
 
   const check = useCallback(async () => {
     const bridge = window.CpiposMdm;
@@ -55,6 +64,19 @@ export function AndroidPosMandatoryUpdate() {
     const versionCode = Number(diagnostics.app?.version_code ?? 0);
     if (!installId || !Number.isFinite(versionCode) || versionCode <= 0) return;
 
+    // FG0003 emergency rollback: code 28 is offered code 26 only on this exact install.
+    // Once code 26 is installed, return before the global update-enforcement API so the
+    // protected customer device is not immediately prompted back to code 28.
+    if (installId === FG0003_ROLLBACK_INSTALL_ID) {
+      setRollbackMode(true);
+      setTargetName(FG0003_ROLLBACK_VERSION_NAME);
+      setTargetCode(FG0003_ROLLBACK_VERSION_CODE);
+      setDownloadUrl(FG0003_ROLLBACK_DOWNLOAD_URL);
+      setRequired(versionCode !== FG0003_ROLLBACK_VERSION_CODE);
+      return;
+    }
+
+    setRollbackMode(false);
     setChecking(true);
     try {
       const response = await fetch("/api/android-pos/update-enforcement", {
@@ -87,7 +109,7 @@ export function AndroidPosMandatoryUpdate() {
     <div
       role="dialog"
       aria-modal="true"
-      aria-label="CpIPOS Android update required"
+      aria-label={rollbackMode ? "CpIPOS Android rollback required" : "CpIPOS Android update required"}
       style={{
         position: "fixed",
         inset: 0,
@@ -111,20 +133,23 @@ export function AndroidPosMandatoryUpdate() {
           fontFamily: "Tahoma, Arial, sans-serif"
         }}
       >
-        <div style={{ fontSize: 13, fontWeight: 800, color: "#2563eb", letterSpacing: ".08em" }}>
-          CPIPOS SYSTEM UPDATE
+        <div style={{ fontSize: 13, fontWeight: 800, color: rollbackMode ? "#b45309" : "#2563eb", letterSpacing: ".08em" }}>
+          {rollbackMode ? "CPIPOS RECOVERY" : "CPIPOS SYSTEM UPDATE"}
         </div>
         <h2 style={{ margin: "10px 0 8px", fontSize: 26, lineHeight: 1.25 }}>
-          ต้องอัปเดต CpIPOS ก่อนใช้งานต่อ
+          {rollbackMode ? "กรุณากลับไปใช้เวอร์ชันเดิมของเครื่องนี้" : "ต้องอัปเดต CpIPOS ก่อนใช้งานต่อ"}
         </h2>
         <p style={{ margin: 0, color: "#475569", lineHeight: 1.7 }}>
-          กรุณาอัปเดตแอปเป็นเวอร์ชัน {targetName} (code {targetCode}) รุ่นล่าสุด ระบบจะแสดงหน้าต่างนี้ซ้ำจนกว่าจะติดตั้งสำเร็จ
+          {rollbackMode
+            ? `เพื่อกู้การใช้งานของเครื่องนี้ กรุณาดาวน์โหลด CpIPOS ${targetName} (code ${targetCode}) รุ่นเดิมที่เคยใช้งาน ระบบนี้มีผลเฉพาะเครื่องนี้เท่านั้น`
+            : `กรุณาอัปเดตแอปเป็นเวอร์ชัน ${targetName} (code ${targetCode}) รุ่นล่าสุด ระบบจะแสดงหน้าต่างนี้ซ้ำจนกว่าจะติดตั้งสำเร็จ`}
         </p>
 
-        <div style={{ marginTop: 18, borderRadius: 14, background: "#eff6ff", padding: 14, color: "#1e3a8a", lineHeight: 1.65 }}>
-          1. กด “ดาวน์โหลดและติดตั้ง”<br />
+        <div style={{ marginTop: 18, borderRadius: 14, background: rollbackMode ? "#fffbeb" : "#eff6ff", padding: 14, color: rollbackMode ? "#78350f" : "#1e3a8a", lineHeight: 1.65 }}>
+          1. กด “ดาวน์โหลดเวอร์ชันเดิม”<br />
           2. เปิดไฟล์ APK ที่ดาวน์โหลดและยืนยันติดตั้ง<br />
-          3. เปิด CpIPOS อีกครั้ง ระบบจะตรวจ code {targetCode} อัตโนมัติ
+          {rollbackMode ? "3. หาก Android แจ้งว่าเป็นเวอร์ชันเก่ากว่า ให้ทำตามหน้าต่างติดตั้งของเครื่อง\n" : null}
+          4. เปิด CpIPOS อีกครั้ง ระบบจะตรวจ code {targetCode} อัตโนมัติ
         </div>
 
         <button
@@ -136,14 +161,14 @@ export function AndroidPosMandatoryUpdate() {
             border: 0,
             borderRadius: 14,
             padding: "14px 18px",
-            background: "#2563eb",
+            background: rollbackMode ? "#b45309" : "#2563eb",
             color: "#ffffff",
             fontSize: 17,
             fontWeight: 800,
             cursor: "pointer"
           }}
         >
-          ดาวน์โหลดและติดตั้ง {targetName}
+          {rollbackMode ? `ดาวน์โหลดเวอร์ชันเดิม code ${targetCode}` : `ดาวน์โหลดและติดตั้ง ${targetName}`}
         </button>
 
         <button
@@ -167,7 +192,9 @@ export function AndroidPosMandatoryUpdate() {
         </button>
 
         <p style={{ margin: "14px 0 0", textAlign: "center", color: "#94a3b8", fontSize: 12 }}>
-          หน้าต่างนี้ไม่มีปุ่มปิดและจะหายอัตโนมัติเมื่อ CpIPOS รายงาน versionCode {targetCode}
+          {rollbackMode
+            ? `Recovery นี้ผูกกับเครื่องนี้เท่านั้น และจะหายเมื่อเครื่องรายงาน versionCode ${targetCode}`
+            : `หน้าต่างนี้จะหายอัตโนมัติเมื่อ CpIPOS รายงาน versionCode ${targetCode}`}
         </p>
       </div>
     </div>
