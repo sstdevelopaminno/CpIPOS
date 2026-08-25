@@ -9,6 +9,7 @@ Independent IT Control Plane deployment.
 - Production Branch: `it-admin/main`
 - Install: `npm install --no-audit --no-fund`
 - Build: `npm run build`
+- Production project settings verified on 2026-08-25; deploy fresh commits from `it-admin/main` and do not rebuild the legacy POS deployment.
 
 ## Runtime boundary
 
