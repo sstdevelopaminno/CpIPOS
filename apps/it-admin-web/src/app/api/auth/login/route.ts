@@ -1,5 +1,6 @@
 import { compare } from "bcryptjs";
 import { NextResponse } from "next/server";
+import { validateControlPlaneEnvironment } from "@/lib/control-plane-env";
 import { createItSessionValue, IT_SESSION_COOKIE, itSessionCookieOptions } from "@/lib/it-session";
 import { getServiceClient } from "@/lib/supabase";
 
@@ -30,6 +31,7 @@ export async function POST(request: Request) {
       return jsonError(422, "invalid_credentials", "กรุณากรอกรหัส IT ให้ถูกต้อง");
     }
 
+    validateControlPlaneEnvironment();
     const service = getServiceClient();
     const ip = requestIp(request);
     const userAgent = request.headers.get("user-agent")?.slice(0, 500) ?? null;
@@ -118,11 +120,19 @@ export async function POST(request: Request) {
 
     if (message.startsWith("Missing required environment variable:")) {
       const missingName = message.slice("Missing required environment variable:".length).trim();
-      return jsonError(
-        503,
-        "runtime_config_missing",
-        `Vercel IT ยังตั้งค่า Environment Variable ไม่ครบ: ${missingName}`
-      );
+      return jsonError(503, "runtime_config_missing", `Vercel IT ยังตั้งค่า Environment Variable ไม่ครบ: ${missingName}`);
+    }
+    if (message.startsWith("IT Supabase URL points to wrong project:")) {
+      return jsonError(503, "wrong_supabase_project", "Vercel IT กำลังชี้ Supabase ผิดโปรเจกต์ ต้องใช้ CpiPOS-001 Primary เท่านั้น");
+    }
+    if (message.startsWith("SUPABASE_SERVICE_ROLE_KEY points to wrong project:")) {
+      return jsonError(503, "wrong_service_role_project", "SUPABASE_SERVICE_ROLE_KEY ของ Vercel IT ไม่ตรงกับ CpiPOS-001 Primary");
+    }
+    if (message === "SUPABASE_SERVICE_ROLE_KEY does not have service_role") {
+      return jsonError(503, "invalid_service_role_key", "SUPABASE_SERVICE_ROLE_KEY ของ Vercel IT ไม่ใช่ service_role key");
+    }
+    if (message === "Invalid NEXT_PUBLIC_SUPABASE_URL") {
+      return jsonError(503, "invalid_supabase_url", "NEXT_PUBLIC_SUPABASE_URL ของ Vercel IT ไม่ถูกต้อง");
     }
 
     return jsonError(500, "internal_error", "ระบบ IT Login เกิดข้อผิดพลาด กรุณาลองใหม่อีกครั้ง");
