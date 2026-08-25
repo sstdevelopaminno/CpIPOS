@@ -37,7 +37,7 @@ export default function ItAdminLoginPage() {
         <div className={styles.language} aria-label="ภาษา"><span className={styles.active}>ไทย</span><span>EN</span></div>
 
         <div className={styles.brand}>
-          <div className={styles.symbol}>CP</div>
+          <img className={styles.symbol} src="/brand/cpipos-symbol-user.svg" alt="CpIPOS" />
           <div className={styles.brandName}>Cp<b>IPOS</b></div>
           <div className={styles.brandSub}>IT CONTROL PLANE</div>
         </div>
