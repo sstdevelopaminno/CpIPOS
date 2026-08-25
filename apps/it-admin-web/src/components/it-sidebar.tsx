@@ -7,6 +7,7 @@ const items = [
   { href: "/it-admin", label: "ภาพรวม", hint: "Platform overview", icon: "◫" },
   { href: "/it-admin/operations", label: "Operations", hint: "24/7 fleet health", icon: "◉" },
   { href: "/it-admin/stores", label: "Store Registry", hint: "FG / FF / tenants", icon: "▦" },
+  { href: "/it-admin/provisioning", label: "Provisioning", hint: "Preflight / onboarding", icon: "＋" },
   { href: "/it-admin/mdm", label: "MDM Control", hint: "Store → Branch → Device", icon: "⌁" },
   { href: "/it-admin/incidents", label: "Incidents", hint: "Alerts & response", icon: "⚠" }
 ];
