@@ -77,7 +77,10 @@ function PosTableBrowserInner({
 }: Props) {
   const warmedTableIdsRef = useRef<Set<string>>(new Set());
   const prefetchRef = useRef(onTablePrefetch);
-  prefetchRef.current = onTablePrefetch;
+
+  useEffect(() => {
+    prefetchRef.current = onTablePrefetch;
+  }, [onTablePrefetch]);
 
   const tableEmptyMessage = tableLoadError?.includes("Request timeout") ? text.requestTimeout : tableLoadError;
   const showTableLoading = tableLoading && visibleTables.length === 0;
