@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, type FormEvent } from "react";
+import styles from "./provisioning-preflight.module.css";
 
 type PackageOption = { code: string; name: string; max_branches: number; max_devices: number | null };
 type Check = { key: string; label: string; ok: boolean; detail: string };
@@ -71,23 +72,23 @@ export function ProvisioningPreflight({ packages }: { packages: PackageOption[] 
   }
 
   return (
-    <div className="provisionGrid">
-      <form className="surface provisionForm" onSubmit={submit}>
+    <div className={styles.provisionGrid}>
+      <form className={`surface ${styles.provisionForm}`} onSubmit={submit}>
         <div className="sectionHeader"><div><h2>New Store Preflight</h2><p>ตรวจ collision และ policy ก่อน provisioning จริง</p></div><span className="badge badgeInfo">DRY RUN</span></div>
 
-        <div className="fieldGrid">
-          <label className="field fieldWide">Product profile
+        <div className={styles.fieldGrid}>
+          <label className={`${styles.field} ${styles.fieldWide}`}>Product profile
             <select value={productProfile} onChange={(e) => switchProduct(e.target.value)}>
               <option value="BUFFET">Buffet — FF####</option>
               <option value="RESTAURANT_QR">Restaurant QR — FG####</option>
             </select>
           </label>
-          <label className="field">Store code<input value={storeCode} onChange={(e) => setStoreCode(e.target.value.toUpperCase())} placeholder="FF0001" required /></label>
-          <label className="field">Tenant code<input value={tenantCode} onChange={(e) => setTenantCode(e.target.value.toUpperCase())} placeholder="FF0001" required /></label>
-          <label className="field fieldWide">ชื่อร้าน<input value={tenantName} onChange={(e) => setTenantName(e.target.value)} placeholder="ชื่อร้าน" required /></label>
-          <label className="field">Branch code<input value={branchCode} onChange={(e) => setBranchCode(e.target.value.toUpperCase())} placeholder="FF0001-BKK-01" required /></label>
-          <label className="field">ชื่อสาขา<input value={branchName} onChange={(e) => setBranchName(e.target.value)} placeholder="ชื่อสาขา" required /></label>
-          <label className="field fieldWide">Package
+          <label className={styles.field}>Store code<input value={storeCode} onChange={(e) => setStoreCode(e.target.value.toUpperCase())} placeholder="FF0001" required /></label>
+          <label className={styles.field}>Tenant code<input value={tenantCode} onChange={(e) => setTenantCode(e.target.value.toUpperCase())} placeholder="FF0001" required /></label>
+          <label className={`${styles.field} ${styles.fieldWide}`}>ชื่อร้าน<input value={tenantName} onChange={(e) => setTenantName(e.target.value)} placeholder="ชื่อร้าน" required /></label>
+          <label className={styles.field}>Branch code<input value={branchCode} onChange={(e) => setBranchCode(e.target.value.toUpperCase())} placeholder="FF0001-BKK-01" required /></label>
+          <label className={styles.field}>ชื่อสาขา<input value={branchName} onChange={(e) => setBranchName(e.target.value)} placeholder="ชื่อสาขา" required /></label>
+          <label className={`${styles.field} ${styles.fieldWide}`}>Package
             <select value={packageCode} onChange={(e) => setPackageCode(e.target.value)} required>
               <option value="">เลือก Package</option>
               {packages.map((pkg) => <option key={pkg.code} value={pkg.code}>{pkg.name} · {pkg.max_branches} branch · {pkg.max_devices ?? "∞"} devices</option>)}
@@ -96,13 +97,13 @@ export function ProvisioningPreflight({ packages }: { packages: PackageOption[] 
         </div>
 
         {error ? <div className="error">{error}</div> : null}
-        <div className="actionRow"><button className="primaryButton" type="submit" disabled={loading}>{loading ? "กำลังตรวจ Preflight..." : "ตรวจ Provisioning Preflight"}</button><span className="formSafety">ไม่มีการ INSERT / UPDATE / DELETE</span></div>
+        <div className="actionRow"><button className={styles.primaryButton} type="submit" disabled={loading}>{loading ? "กำลังตรวจ Preflight..." : "ตรวจ Provisioning Preflight"}</button><span className={styles.formSafety}>ไม่มีการ INSERT / UPDATE / DELETE</span></div>
       </form>
 
-      <section className="surface resultPanel">
+      <section className={`surface ${styles.resultPanel}`}>
         <div className="sectionHeader"><div><h2>Preflight Result</h2><p>ทุกข้อจะต้อง PASS ก่อนเปิดขั้น Provision</p></div>{result ? <span className={`badge ${result.ready ? "badgeOk" : "badgeDanger"}`}><span className="statusDot" />{result.ready ? "READY" : "BLOCKED"}</span> : <span className="badge">WAITING</span>}</div>
         {!result ? <div className="empty">กรอกข้อมูลร้านแล้วกดตรวจ Preflight</div> : <>
-          <div className="checkList">{result.checks.map((check) => <div className={`checkRow ${check.ok ? "checkOk" : "checkFail"}`} key={check.key}><span className="checkIcon">{check.ok ? "✓" : "!"}</span><div><strong>{check.label}</strong><small>{check.detail}</small></div></div>)}</div>
+          <div className={styles.checkList}>{result.checks.map((check) => <div className={`${styles.checkRow} ${check.ok ? styles.checkOk : styles.checkFail}`} key={check.key}><span className={styles.checkIcon}>{check.ok ? "✓" : "!"}</span><div><strong>{check.label}</strong><small>{check.detail}</small></div></div>)}</div>
           <div className="notice"><span>◈</span><div><strong>Writes performed: {result.writes_performed ?? 0}</strong><br/>Initial target state: PROVISIONING / tenant inactive / branch inactive / update ring PILOT</div></div>
         </>}
       </section>
