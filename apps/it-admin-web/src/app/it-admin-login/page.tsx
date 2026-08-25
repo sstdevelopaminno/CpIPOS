@@ -3,6 +3,11 @@
 import { useState } from "react";
 import styles from "./it-login.module.css";
 
+type LoginPayload = {
+  data?: { redirect_to?: string };
+  error?: { code?: string; message?: string };
+};
+
 export default function ItAdminLoginPage() {
   const [code, setCode] = useState("");
   const [showCode, setShowCode] = useState(false);
@@ -14,15 +19,33 @@ export default function ItAdminLoginPage() {
     if (loading) return;
     setLoading(true);
     setError(null);
+
     try {
       const response = await fetch("/api/auth/login", {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: { "content-type": "application/json", accept: "application/json" },
         body: JSON.stringify({ code }),
         cache: "no-store"
       });
-      const payload = (await response.json()) as { data?: { redirect_to?: string }; error?: { message?: string } };
-      if (!response.ok || payload.error) throw new Error(payload.error?.message ?? "เข้าสู่ระบบไม่สำเร็จ");
+
+      const raw = await response.text();
+      let payload: LoginPayload = {};
+      if (raw.trim()) {
+        try {
+          payload = JSON.parse(raw) as LoginPayload;
+        } catch {
+          throw new Error(`IT Login API ตอบกลับไม่ถูกต้อง (HTTP ${response.status})`);
+        }
+      }
+
+      if (!raw.trim()) {
+        throw new Error(`IT Login API ไม่ส่งข้อมูลกลับมา (HTTP ${response.status})`);
+      }
+
+      if (!response.ok || payload.error) {
+        throw new Error(payload.error?.message ?? `เข้าสู่ระบบไม่สำเร็จ (HTTP ${response.status})`);
+      }
+
       window.location.assign(payload.data?.redirect_to ?? "/it-admin");
     } catch (err) {
       setError(err instanceof Error ? err.message : "เข้าสู่ระบบไม่สำเร็จ");
