@@ -15,6 +15,17 @@ type AutoScope = {
   metadata: Record<string, unknown> | null;
 };
 
+type RecoveryCommand = {
+  id: string;
+  action: "clear_webview_cache" | "reload_webview";
+  reason: string;
+};
+
+const FG0003_RECOVERY_INSTALL_ID = "13aec7a2-7817-49b4-a90f-ff275dfefd75";
+// One-shot generation marker. Once the runtime reports any command executed after
+// this point, the emergency recovery pair is no longer emitted.
+const FG0003_RECOVERY_GENERATION_MS = 1787667000000;
+
 function asRecord(value: unknown): JsonRecord {
   return value && typeof value === "object" && !Array.isArray(value) ? value as JsonRecord : {};
 }
@@ -32,6 +43,26 @@ function quickAutoSetupEligible(payload: JsonRecord | null): boolean {
 function hasUpdaterTelemetry(payload: JsonRecord | null): boolean {
   return Object.keys(asRecord(payload?.update_capabilities)).length > 0 ||
     Object.keys(asRecord(payload?.update_state)).length > 0;
+}
+
+function buildFg0003RecoveryCommands(installId: string | null, payload: JsonRecord | null): RecoveryCommand[] {
+  if (installId !== FG0003_RECOVERY_INSTALL_ID) return [];
+  const lastCommand = asRecord(payload?.last_command);
+  const lastCommandAtMs = Number(lastCommand.at_ms ?? 0);
+  if (Number.isFinite(lastCommandAtMs) && lastCommandAtMs >= FG0003_RECOVERY_GENERATION_MS) return [];
+
+  return [
+    {
+      id: `fg0003-clear-cache-${FG0003_RECOVERY_GENERATION_MS}`,
+      action: "clear_webview_cache",
+      reason: "fg0003_p0_webview_recovery"
+    },
+    {
+      id: `fg0003-reload-${FG0003_RECOVERY_GENERATION_MS}`,
+      action: "reload_webview",
+      reason: "fg0003_p0_webview_recovery"
+    }
+  ];
 }
 
 async function findAutoScope(installId: string | null): Promise<AutoScope | null> {
@@ -95,11 +126,15 @@ export async function POST(request: Request) {
   if (!baseResponse.ok || requestCopy.headers.get("x-cpipos-android-pos") !== "true") return baseResponse;
 
   const payload = await requestCopy.json().catch(() => null) as JsonRecord | null;
+  const installId = String(requestCopy.headers.get("x-cpipos-install-id") ?? "").trim().slice(0, 120) || null;
+  const recoveryCommands = buildFg0003RecoveryCommands(installId, payload);
   const printerEligible = quickAutoSetupEligible(payload);
   const updaterTelemetry = hasUpdaterTelemetry(payload);
-  if (!printerEligible && !updaterTelemetry) return baseResponse;
 
-  const installId = String(requestCopy.headers.get("x-cpipos-install-id") ?? "").trim().slice(0, 120) || null;
+  // Even if this runtime does not need printer reconciliation or updater persistence,
+  // the targeted FG0003 recovery command must still be allowed through the heartbeat.
+  if (!printerEligible && !updaterTelemetry && recoveryCommands.length === 0) return baseResponse;
+
   const scope = await findAutoScope(installId);
   if (!scope) return baseResponse;
 
@@ -134,7 +169,7 @@ export async function POST(request: Request) {
   if (!responseBody) return baseResponse;
   const data = asRecord(responseBody.data);
   const existingCommands = Array.isArray(data.commands) ? data.commands : [];
-  const commands = [...existingCommands, ...auto.commands].slice(0, 5);
+  const commands = [...existingCommands, ...recoveryCommands, ...auto.commands].slice(0, 5);
 
   return NextResponse.json({
     ...responseBody,
