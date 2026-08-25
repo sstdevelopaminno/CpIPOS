@@ -11,7 +11,7 @@ export const ANDROID_STABLE_RELEASE = {
 
 export const ANDROID_MODERN_RELEASE = {
   versionName: "1.0.20",
-  versionCode: 27,
+  versionCode: 28,
   channel: "modern",
   releaseTag: "android-runtime-modern-1.0.20",
   assetName: "CpIPOS-Android-POS-1.0.20.apk",
