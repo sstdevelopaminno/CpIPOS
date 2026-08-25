@@ -23,6 +23,13 @@ type PairingConflictRow = {
   device_code: string;
 };
 
+type LabRoamingDeviceRow = {
+  id: string;
+  tenant_id: string;
+  device_code: string;
+  metadata: JsonRecord | null;
+};
+
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 function asRecord(value: unknown): JsonRecord {
@@ -60,6 +67,42 @@ export async function POST(request: Request) {
   }
 
   const supabase = getSupabaseServiceClient();
+
+  // A physical Android install explicitly marked as an internal LAB roaming
+  // device may QA multiple product profiles/tenants without moving its native
+  // install binding onto a customer's logical POS. This exception is keyed by
+  // the exact install id and an explicit server-side metadata flag; ordinary
+  // customer installations continue through the global uniqueness guard below.
+  const { data: labRows, error: labLookupError } = await supabase
+    .from("branch_devices")
+    .select("id,tenant_id,device_code,metadata")
+    .eq("is_active", true)
+    .contains("metadata", {
+      android_mdm_install_id: installId,
+      android_lab_roaming: true
+    })
+    .limit(1)
+    .returns<LabRoamingDeviceRow[]>();
+
+  if (labLookupError) {
+    console.warn("[auth/devices/select] LAB roaming lookup degraded; using normal pairing guard", {
+      tenantId: flow.tenantId,
+      branchId: flow.branchId,
+      deviceCode: selectedDeviceCode,
+      error: labLookupError.message
+    });
+  }
+
+  const labDevice = labRows?.[0] ?? null;
+  if (labDevice) {
+    const response = await selectDevice(forwardedRequest);
+    if (response.ok) {
+      response.headers.set("x-cpipos-android-pairing", "lab-roaming");
+      response.headers.set("x-cpipos-lab-device", labDevice.device_code);
+    }
+    return response;
+  }
+
   const { data: device, error: deviceError } = await supabase
     .from("branch_devices")
     .select("id,device_code,metadata")
