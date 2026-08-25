@@ -1,9 +1,11 @@
-import { PosTaxInvoicesWorkspace } from "@/components/pos-preview/pos-tax-invoices-workspace";
+import { PosTaxInvoiceWorkspace } from "@/components/pos-preview/pos-tax-invoice-workspace";
 import { getCurrentLanguage } from "@/lib/i18n";
-import { requirePosPagePermission } from "@/lib/pos-page-guard";
+import { requirePermission, requirePosSession } from "@/lib/pos-session-guard";
 
 export default async function PosTaxInvoicesPage() {
-  await requirePosPagePermission("receipts:view");
+  const scope = await requirePosSession();
+  requirePermission(scope, "receipts:view");
   const lang = await getCurrentLanguage();
-  return <PosTaxInvoicesWorkspace lang={lang} />;
+  const role = String(scope.session.role ?? "staff").toLowerCase();
+  return <PosTaxInvoiceWorkspace lang={lang} role={role} />;
 }
