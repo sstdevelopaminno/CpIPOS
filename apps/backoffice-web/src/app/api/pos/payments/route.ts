@@ -1,6 +1,7 @@
 import type { PaymentMethod } from "@pos/shared-types";
 import { after } from "next/server";
 import { appendAuditLog } from "@/lib/audit-log";
+import { filterBillingDocumentItems } from "@/lib/billing-document-policy";
 import { getPosApiAuthContext } from "@/lib/pos-api-auth";
 import { getDevicePolicyBlockMessage, loadPosRuntimeDevicePolicyForSession } from "@/lib/pos-device-status";
 import { requirePermission, requirePosSession } from "@/lib/pos-session-guard";
@@ -334,10 +335,11 @@ export async function POST(req: Request) {
 
           const receiptTask = (async () => {
             const { data: orderRow, error: orderError } = orderResult;
-            const { data: itemRows, error: itemError } = itemResult;
+            const { data: rawItemRows, error: itemError } = itemResult;
             if (orderError) throw new Error(orderError.message);
             if (itemError) throw new Error(itemError.message);
             if (!orderRow) throw new Error("receipt_order_not_found");
+            const itemRows = filterBillingDocumentItems(rawItemRows ?? [], scope.tenant?.code, (row) => row.unit_price);
 
             const receiptJobs = await queueRoutedSalesReceipt({
               auth,
