@@ -1,5 +1,6 @@
 import "server-only";
 import { readRequiredEnv } from "@/lib/env";
+import { IT_PRIMARY_SUPABASE_URL } from "@/lib/supabase";
 
 export const PRIMARY_PROJECT_REF = "deejlitaivfnsbwqdugy";
 
@@ -16,19 +17,11 @@ function decodeJwtPayload(token: string): JwtPayload | null {
 }
 
 export function validateControlPlaneEnvironment() {
-  const url = readRequiredEnv("NEXT_PUBLIC_SUPABASE_URL");
   const serviceRoleKey = readRequiredEnv("SUPABASE_SERVICE_ROLE_KEY");
-
-  let projectRef = "";
-  try {
-    const parsed = new URL(url);
-    projectRef = parsed.hostname.split(".")[0] ?? "";
-  } catch {
-    throw new Error("Invalid NEXT_PUBLIC_SUPABASE_URL");
-  }
+  const projectRef = new URL(IT_PRIMARY_SUPABASE_URL).hostname.split(".")[0] ?? "";
 
   if (projectRef !== PRIMARY_PROJECT_REF) {
-    throw new Error(`IT Supabase URL points to wrong project: ${projectRef || "unknown"}`);
+    throw new Error(`IT Control Plane primary binding mismatch: ${projectRef || "unknown"}`);
   }
 
   const jwt = decodeJwtPayload(serviceRoleKey);
