@@ -1,4 +1,5 @@
-﻿import type { AuthContext } from "@/lib/auth-context";
+import type { AuthContext } from "@/lib/auth-context";
+import { filterBillingDocumentItems } from "@/lib/billing-document-policy";
 import { fail, ok } from "@/lib/http";
 import { requirePosSession } from "@/lib/pos-session-guard";
 import { queueRoutedPaymentNotice } from "@/lib/printing/routed-print-service";
@@ -50,7 +51,8 @@ export async function POST(req: Request) {
     const totalAmount = Number(body.total_amount ?? 0);
     if (!Number.isFinite(totalAmount) || totalAmount <= 0) return fail("payment_notice_amount_required", "A positive payment notice amount is required.", 422);
     const items = Array.isArray(body.items) ? body.items : [];
-    if (items.length === 0) return fail("payment_notice_items_required", "Payment notice requires at least one item.", 422);
+    const billingItems = filterBillingDocumentItems(items, scope.tenant?.code, (item) => item.unit_price);
+    if (billingItems.length === 0) return fail("payment_notice_items_required", "Payment notice requires at least one payable item.", 422);
 
     const jobs = await queueRoutedPaymentNotice({
       auth: authFromScope(scope),
@@ -64,7 +66,7 @@ export async function POST(req: Request) {
         tax_amount: Number(body.tax_amount ?? 0),
         created_at: clean(body.created_at) ?? new Date().toISOString()
       },
-      items: items.map((item) => ({
+      items: billingItems.map((item) => ({
         name: clean(item.name) ?? "Item",
         quantity: Number(item.quantity ?? 0),
         unitPrice: Number(item.unit_price ?? 0),
