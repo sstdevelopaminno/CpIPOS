@@ -10,6 +10,23 @@ import {
   type CustomerDisplayV2PaymentState
 } from "@/lib/customer-display-v2";
 
+const FG0003_PERFORMANCE_RELIEF_INSTALL_ID = "13aec7a2-7817-49b4-a90f-ff275dfefd75";
+
+type CpiposMdmBridge = {
+  diagnosticsJson?: () => string;
+};
+
+function isFg0003PerformanceReliefTarget() {
+  try {
+    const bridge = (window as typeof window & { CpiposMdm?: CpiposMdmBridge }).CpiposMdm;
+    if (!bridge?.diagnosticsJson) return false;
+    const diagnostics = JSON.parse(bridge.diagnosticsJson()) as { install_id?: unknown };
+    return String(diagnostics.install_id ?? "").trim() === FG0003_PERFORMANCE_RELIEF_INSTALL_ID;
+  } catch {
+    return false;
+  }
+}
+
 function parseMoneyText(value: string | null | undefined) {
   const normalized = String(value ?? "").replace(/,/g, "");
   const match = normalized.match(/-?\d+(?:\.\d+)?/);
@@ -30,6 +47,11 @@ export function PosCustomerDisplayV2PaymentObserver() {
   const lastSignatureRef = useRef("");
 
   useEffect(() => {
+    // Emergency performance relief for the affected FG0003 Android terminal.
+    // This terminal has no secondary display, so observing the whole POS DOM has no benefit
+    // and can starve Android WebView's main thread while the cashier is tapping/navigation.
+    if (isFg0003PerformanceReliefTarget()) return;
+
     let disposed = false;
     let timer: number | null = null;
     let observer: MutationObserver | null = null;
