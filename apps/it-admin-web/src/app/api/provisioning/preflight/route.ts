@@ -48,6 +48,7 @@ export async function POST(request: Request) {
   add("store_format", "Store code format", /^(FG|FF)\d{4}$/.test(storeCode), "Store code ต้องเป็น FG#### หรือ FF####");
   add("profile_match", "Product profile", derivedProfile !== "UNKNOWN" && derivedProfile === requestedProfile, `Product profile ต้องตรงกับ prefix (${derivedProfile})`);
   add("tenant_code", "Tenant code", /^[A-Z0-9][A-Z0-9-]{2,31}$/.test(tenantCode), "Tenant code ต้องเป็น A-Z, 0-9 หรือ - ความยาว 3-32 ตัว");
+  add("managed_code_match", "Managed store identity", tenantCode === storeCode, "ร้าน FG/FF ใหม่ต้องใช้ tenants.code ตรงกับ Store Code");
   add("tenant_name", "Store name", tenantName.length >= 2 && tenantName.length <= 120, "ชื่อร้านต้องมี 2-120 ตัวอักษร");
   add("branch_code", "Branch code", branchCode.length >= 3 && branchCode.length <= 48 && /^[A-Z0-9-]+$/.test(branchCode), "Branch code ต้องเป็น A-Z, 0-9 หรือ -");
   add("branch_name", "Branch name", branchName.length >= 2 && branchName.length <= 120, "ชื่อสาขาต้องมี 2-120 ตัวอักษร");
@@ -59,31 +60,30 @@ export async function POST(request: Request) {
       mode: "DRY_RUN",
       checks,
       errors,
-      normalized: { store_code: storeCode, tenant_code: tenantCode, tenant_name: tenantName, branch_code: branchCode, branch_name: branchName, package_code: packageCode, product_profile: derivedProfile }
+      normalized: { store_code: storeCode, tenant_code: tenantCode, tenant_name: tenantName, branch_code: branchCode, branch_name: branchName, package_code: packageCode, product_profile: derivedProfile },
+      writes_performed: 0
     });
   }
 
   const supabase = getServiceClient();
-  const [tenantResult, accessResult, branchResult, packageResult] = await Promise.all([
-    supabase.from("tenants").select("id,code,name,is_active").eq("code", tenantCode).limit(1),
-    supabase.from("tenant_access_codes").select("tenant_id,access_code,is_active").eq("access_code", storeCode).limit(1),
+  const [storeResult, branchResult, packageResult] = await Promise.all([
+    // tenants.code is the managed store-code source of truth (FG0003/FG0004). tenant_access_codes is a separate numeric access credential.
+    supabase.from("tenants").select("id,code,name,is_active").eq("code", storeCode).limit(1),
     supabase.from("branches").select("id,tenant_id,code,name,is_active").eq("code", branchCode).limit(1),
     supabase.from("subscription_packages").select("id,code,name,status,is_active,max_branches,max_devices").eq("code", packageCode).limit(1)
   ]);
 
-  const queryErrors = [tenantResult.error, accessResult.error, branchResult.error, packageResult.error].filter(Boolean);
+  const queryErrors = [storeResult.error, branchResult.error, packageResult.error].filter(Boolean);
   if (queryErrors.length > 0) {
     return NextResponse.json({ error: "preflight_query_failed", detail: queryErrors.map((e) => e?.message) }, { status: 500 });
   }
 
-  const tenantFree = (tenantResult.data ?? []).length === 0;
-  const storeFree = (accessResult.data ?? []).length === 0;
+  const storeFree = (storeResult.data ?? []).length === 0;
   const branchFree = (branchResult.data ?? []).length === 0;
   const selectedPackage = (packageResult.data ?? [])[0] ?? null;
   const packageActive = Boolean(selectedPackage?.is_active && selectedPackage?.status === "active");
 
-  add("tenant_collision", "Tenant code available", tenantFree, tenantFree ? `${tenantCode} พร้อมใช้งาน` : `${tenantCode} ถูกใช้งานแล้ว`);
-  add("store_collision", "Store code available", storeFree, storeFree ? `${storeCode} พร้อมใช้งาน` : `${storeCode} ถูกใช้งานแล้ว`);
+  add("store_collision", "Store / tenant code available", storeFree, storeFree ? `${storeCode} พร้อมใช้งาน` : `${storeCode} ถูกใช้งานแล้ว`);
   add("branch_collision", "Branch code available", branchFree, branchFree ? `${branchCode} พร้อมใช้งาน` : `${branchCode} ถูกใช้งานแล้ว`);
   add("package_active", "Package active", packageActive, packageActive ? `${selectedPackage.name} พร้อมใช้งาน` : `Package ${packageCode} ไม่พร้อมใช้งาน`);
 
@@ -95,12 +95,13 @@ export async function POST(request: Request) {
     errors: checks.filter((check) => !check.ok).map((check) => check.detail),
     normalized: {
       store_code: storeCode,
-      tenant_code: tenantCode,
+      tenant_code: storeCode,
       tenant_name: tenantName,
       branch_code: branchCode,
       branch_name: branchName,
       package_code: packageCode,
       product_profile: derivedProfile,
+      customer_access_code: "GENERATE_SEPARATELY",
       deployment_mode: "CENTRAL",
       update_ring: "PILOT",
       initial_status: "PROVISIONING",
