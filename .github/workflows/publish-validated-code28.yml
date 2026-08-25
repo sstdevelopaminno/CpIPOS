@@ -66,10 +66,11 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          gh release view "$RELEASE_TAG" >/dev/null
+          gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null
           gh release upload "$RELEASE_TAG" \
             "code28/${APK_NAME}" \
             "code28/${COMPAT_APK_NAME}" \
             "code28/${MANIFEST_NAME}" \
-            --clobber
+            --clobber \
+            --repo "$GITHUB_REPOSITORY"
           echo "Published validated 1.0.20 code28 without changing versionName."
