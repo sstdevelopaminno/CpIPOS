@@ -5,6 +5,7 @@ export const BUFFET_PLAN_METADATA_KEY = "cpipos_buffet_plan";
 export type BuffetPlanMetadata = {
   mode: PosBuffetPricingMode;
   draft?: boolean;
+  archived?: boolean;
   sort_order?: number;
 };
 
@@ -37,6 +38,7 @@ export function readBuffetPlanMetadata(metadata: Record<string, unknown> | null 
   return {
     mode,
     draft: candidate.draft === true,
+    archived: candidate.archived === true,
     sort_order: Number.isFinite(Number(candidate.sort_order)) ? Number(candidate.sort_order) : undefined
   };
 }
@@ -58,15 +60,18 @@ export function buildBuffetPlanMetadata(args: {
   current?: Record<string, unknown> | null;
   mode: PosBuffetPricingMode;
   draft?: boolean;
+  archived?: boolean;
   sortOrder?: number;
 }): Record<string, unknown> {
   const current = args.current && typeof args.current === "object" && !Array.isArray(args.current) ? args.current : {};
+  const existing = readBuffetPlanMetadata(current);
   return {
     ...current,
     [BUFFET_PLAN_METADATA_KEY]: {
       mode: args.mode,
       draft: args.draft === true,
-      sort_order: Number.isFinite(Number(args.sortOrder)) ? Number(args.sortOrder) : Date.now()
+      archived: args.archived ?? existing?.archived ?? false,
+      sort_order: Number.isFinite(Number(args.sortOrder)) ? Number(args.sortOrder) : existing?.sort_order ?? Date.now()
     }
   };
 }
@@ -83,7 +88,7 @@ export function buffetPlanFromProduct(product: BuffetPlanProductRow, itemCount =
     name: String(product.name ?? "").trim(),
     mode,
     price: Number.isFinite(price) ? Number(price.toFixed(2)) : 0,
-    is_active: product.is_active !== false && price > 0 && metadata?.draft !== true,
+    is_active: product.is_active !== false && price > 0 && metadata?.draft !== true && metadata?.archived !== true,
     configured: true,
     draft: metadata?.draft === true,
     item_count: Math.max(0, Math.trunc(Number(itemCount) || 0)),

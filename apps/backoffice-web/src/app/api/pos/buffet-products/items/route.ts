@@ -5,20 +5,9 @@ import { buffetPlanFromProduct, buffetPlanModeFromProduct, type BuffetPlanProduc
 import { PosGuardError, requirePermission, requirePosSession } from "@/lib/pos-session-guard";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
 
-type ProductRow = BuffetPlanProductRow & {
-  category?: string | null;
-};
-
-type ItemRow = {
-  combo_product_id: string;
-  child_product_id: string;
-  qty: number | null;
-};
-
-type SavePayload = {
-  plan_id?: string | null;
-  product_ids?: string[] | null;
-};
+type ProductRow = BuffetPlanProductRow & { category?: string | null };
+type ItemRow = { combo_product_id: string; child_product_id: string; qty: number | null };
+type SavePayload = { plan_id?: string | null; product_ids?: string[] | null };
 
 async function requireBuffetItemsScope() {
   const scope = await requirePosSession();
@@ -29,8 +18,7 @@ async function requireBuffetItemsScope() {
 }
 
 async function loadPlan(tenantId: string, branchId: string, planId: string) {
-  const supabase = getSupabaseServiceClient();
-  return supabase
+  return getSupabaseServiceClient()
     .from("products")
     .select("id,sku,name,price,is_active,metadata,created_at")
     .eq("tenant_id", tenantId)
@@ -47,7 +35,6 @@ export async function GET(request: Request) {
     const tenantId = scope.session.tenant_id;
     const branchId = scope.session.branch_id;
     const supabase = getSupabaseServiceClient();
-
     const { data: products, error: productsError } = await supabase
       .from("products")
       .select("id,sku,name,category,price,is_active,metadata,created_at")
@@ -62,7 +49,7 @@ export async function GET(request: Request) {
     const plans = (products ?? [])
       .filter((product) => buffetPlanModeFromProduct(product) !== null)
       .map((product) => buffetPlanFromProduct(product, 0))
-      .filter((plan) => Boolean(plan && plan.price > 0 && !plan.draft));
+      .filter((plan): plan is NonNullable<typeof plan> => Boolean(plan && plan.price > 0 && !plan.draft));
     const foods = (products ?? [])
       .filter((product) => buffetPlanModeFromProduct(product) === null)
       .map((product) => ({
@@ -89,7 +76,6 @@ export async function GET(request: Request) {
       if (itemsError) return fail("buffet_items_query_failed", itemsError.message, 500);
       selected_product_ids = (itemRows ?? []).map((row) => row.child_product_id);
     }
-
     return ok({ plans, products: foods, selected_product_ids, branch_id: branchId });
   } catch (error) {
     if (error instanceof FeatureGateError) return fail(error.code, error.message, error.status);
@@ -107,13 +93,12 @@ export async function PUT(request: Request) {
       ? Array.from(new Set(payload.product_ids.map((value) => String(value ?? "").trim()).filter(Boolean)))
       : [];
     if (!planId) return fail("buffet_plan_required", "Buffet plan is required.", 422);
-
     const tenantId = scope.session.tenant_id;
     const branchId = scope.session.branch_id;
     const planResult = await loadPlan(tenantId, branchId, planId);
     if (planResult.error) return fail("buffet_plan_query_failed", planResult.error.message, 500);
-    if (!planResult.data || buffetPlanModeFromProduct(planResult.data) !== "set") {
-      return fail("buffet_set_plan_required", "Only a Buffet Set price can have a fixed menu list.", 422);
+    if (!planResult.data || !buffetPlanModeFromProduct(planResult.data)) {
+      return fail("buffet_plan_required", "A valid per-person or set Buffet plan is required.", 422);
     }
 
     const supabase = getSupabaseServiceClient();
@@ -131,23 +116,11 @@ export async function PUT(request: Request) {
         .filter((product) => buffetPlanModeFromProduct(product) === null && isBuffetIncludedMenuProduct(product))
         .map((product) => product.id);
       if (validIds.length !== requestedIds.length) {
-        return fail(
-          "buffet_items_invalid_product",
-          "รายการในชุดบุฟเฟ่ต้องเป็นอาหารบุฟเฟ่ราคา 0 บาท หากเป็นรายการจ่ายเพิ่มให้ใส่ราคาและไม่ต้องติ๊กเข้าชุด",
-          422
-        );
+        return fail("buffet_items_invalid_product", "รายการในบุฟเฟ่ต้องเป็นอาหารที่ตั้งเป็นรวมในบุฟเฟ่ ราคา 0 บาท หากเป็นรายการจ่ายเพิ่มให้ใส่ราคาและไม่ต้องติ๊กเข้ารายการ", 422);
       }
-
-      const upsertRows = validIds.map((productId) => ({
-        tenant_id: tenantId,
-        branch_id: branchId,
-        combo_product_id: planId,
-        child_product_id: productId,
-        qty: 1
-      }));
       const upsert = await supabase
         .from("product_combo_items")
-        .upsert(upsertRows, { onConflict: "combo_product_id,child_product_id" });
+        .upsert(validIds.map((productId) => ({ tenant_id: tenantId, branch_id: branchId, combo_product_id: planId, child_product_id: productId, qty: 1 })), { onConflict: "combo_product_id,child_product_id" });
       if (upsert.error) return fail("buffet_items_save_failed", upsert.error.message, 500);
     }
 
@@ -170,7 +143,6 @@ export async function PUT(request: Request) {
         .in("child_product_id", removeIds);
       if (removed.error) return fail("buffet_items_save_failed", removed.error.message, 500);
     }
-
     return ok({ plan_id: planId, selected_product_ids: requestedIds, item_count: requestedIds.length });
   } catch (error) {
     if (error instanceof FeatureGateError) return fail(error.code, error.message, error.status);
