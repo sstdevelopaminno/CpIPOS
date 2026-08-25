@@ -92,6 +92,8 @@ type PrintJobRow = {
 };
 
 type PrinterRow = { id: string; printer_name: string | null };
+type ProductLookupRow = { id: string; sku: string | null; name: string };
+type ProductLookup = { name: string; sku: string | null };
 
 type PrintJobAudit = PrintJobRow & {
   printer_name: string | null;
@@ -405,7 +407,10 @@ export async function GET(request: Request) {
     if (printerResult.error) throw new Error(printerResult.error.message);
 
     const tables = new Map((tableResult.data ?? []).map((row: { id: string; table_code: string; table_name: string | null }) => [row.id, row]));
-    const products = new Map((productResult.data ?? []).map((row: { id: string; sku: string | null; name: string }) => [row.id, { name: row.name, sku: row.sku }]));
+    const productRows = (productResult.data ?? []) as unknown as ProductLookupRow[];
+    const products = new Map<string, ProductLookup>(
+      productRows.map((row) => [row.id, { name: row.name, sku: row.sku }])
+    );
     const printAudits = buildPrintAudits({
       orderIds,
       tickets,
