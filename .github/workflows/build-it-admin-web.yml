@@ -5,6 +5,8 @@ on:
     branches:
       - feat/it-ops-control-center
       - it-admin/main
+      - 'feat/it-*'
+      - 'fix/it-*'
     paths:
       - 'apps/it-admin-web/**'
       - '.github/workflows/build-it-admin-web.yml'
