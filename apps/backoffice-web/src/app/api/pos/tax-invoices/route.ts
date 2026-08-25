@@ -1,4 +1,5 @@
 import { appendAuditLog } from "@/lib/audit-log";
+import { filterBillingDocumentItems } from "@/lib/billing-document-policy";
 import { fail, ok } from "@/lib/http";
 import { validateManagerPin } from "@/lib/pin-approval";
 import { getPosApiAuthContext } from "@/lib/pos-api-auth";
@@ -108,7 +109,7 @@ async function loadSellerSnapshot(tenantId: string, branchId: string): Promise<{
   };
 }
 
-async function loadReceiptDetail(tenantId: string, branchId: string, orderId: string) {
+async function loadReceiptDetail(tenantId: string, branchId: string, orderId: string, storeCode?: string | null) {
   const supabase = getSupabaseServiceClient();
   const [orderResult, itemsResult, paymentsResult, invoiceResult, sellerResult] = await Promise.all([
     supabase
@@ -159,13 +160,14 @@ async function loadReceiptDetail(tenantId: string, branchId: string, orderId: st
     paid_total: Number(order.paid_total ?? 0),
     customer_name: order.customer_name
   };
-  const items: TaxInvoiceItemSnapshot[] = (itemsResult.data ?? []).map((item) => ({
+  const mappedItems: TaxInvoiceItemSnapshot[] = (itemsResult.data ?? []).map((item) => ({
     name: text(item.name) || "รายการสินค้า",
     quantity: Number(item.quantity ?? 0),
     unit_price: Number(item.unit_price ?? 0),
     line_total: Number(item.line_total ?? 0),
     notes: item.notes == null ? null : String(item.notes)
   }));
+  const items = filterBillingDocumentItems(mappedItems, storeCode, (item) => item.unit_price);
   return {
     order,
     order_snapshot: orderSnapshot,
@@ -180,7 +182,7 @@ async function loadReceiptDetail(tenantId: string, branchId: string, orderId: st
 
 export async function GET(request: Request) {
   try {
-    const { auth } = await requireTaxScope();
+    const { auth, scope } = await requireTaxScope();
     const tenantId = auth.tenantId!;
     const branchId = auth.branchId!;
     const supabase = getSupabaseServiceClient();
@@ -240,7 +242,7 @@ export async function GET(request: Request) {
     if (mode === "receipt_detail") {
       const orderId = text(url.searchParams.get("order_id"));
       if (!orderId) return fail("order_id_required", "order_id is required", 422);
-      const detail = await loadReceiptDetail(tenantId, branchId, orderId);
+      const detail = await loadReceiptDetail(tenantId, branchId, orderId, scope.tenant?.code);
       return ok(detail);
     }
 
@@ -421,7 +423,7 @@ export async function POST(request: Request) {
         .maybeSingle<ProfileRow>();
       if (profileResult.error) return fail("tax_profile_query_failed", profileResult.error.message, 500);
       if (!profileResult.data) return fail("tax_profile_not_found", "ไม่พบข้อมูลผู้เสียภาษีในสาขานี้", 404);
-      const detail = await loadReceiptDetail(tenantId, branchId, orderId);
+      const detail = await loadReceiptDetail(tenantId, branchId, orderId, scope.tenant?.code);
       if (detail.order.status !== "completed") return fail("order_not_completed", "ออกใบกำกับภาษีได้เฉพาะบิลที่ชำระเสร็จแล้ว", 409);
       if (!detail.seller_ready) return fail("seller_tax_profile_required", "กรุณาตั้งค่าชื่อ ที่อยู่ และเลขผู้เสียภาษีของร้านก่อนออกใบกำกับภาษี", 409);
 
@@ -478,6 +480,7 @@ export async function POST(request: Request) {
         }
       }
 
+      const invoiceItems = filterBillingDocumentItems(invoice.items_snapshot, scope.tenant?.code, (item) => item.unit_price);
       const printResult = await queueRoutedTaxInvoice({
         auth,
         runtimeDeviceCode: scope.session.device_code,
@@ -488,7 +491,7 @@ export async function POST(request: Request) {
         seller: invoice.seller_snapshot,
         buyer: invoice.buyer_snapshot,
         order: invoice.order_snapshot,
-        items: invoice.items_snapshot,
+        items: invoiceItems,
         tax: invoice.tax_snapshot
       });
       const printedAt = new Date().toISOString();
