@@ -8,6 +8,7 @@ export type StoreRow = {
   is_active: boolean;
   package_name: string | null;
   store_code: string;
+  access_code: string | null;
   branch_count: number;
   active_branch_count: number;
   device_count: number;
@@ -64,13 +65,16 @@ export async function loadOperationsSnapshot() {
 
   const stores: StoreRow[] = (tenants ?? []).map((tenant) => {
     const tenantId = String(tenant.id);
+    const tenantCode = String(tenant.code);
     return {
       id: tenantId,
-      code: String(tenant.code),
+      code: tenantCode,
       name: String(tenant.name),
       is_active: Boolean(tenant.is_active),
       package_name: tenant.package_id ? packageById.get(String(tenant.package_id)) ?? null : null,
-      store_code: accessCodeByTenant.get(tenantId) ?? String(tenant.code),
+      // Managed store codes (FG/FF) live in tenants.code. tenant_access_codes is a separate customer/demo access credential.
+      store_code: tenantCode,
+      access_code: accessCodeByTenant.get(tenantId) ?? null,
       branch_count: count(branches as Array<{ tenant_id: string; is_active: boolean }>, tenantId),
       active_branch_count: count(branches as Array<{ tenant_id: string; is_active: boolean }>, tenantId, (r) => Boolean(r.is_active)),
       device_count: count(devices as Array<{ tenant_id: string; status: string; last_seen_at: string | null }>, tenantId),
