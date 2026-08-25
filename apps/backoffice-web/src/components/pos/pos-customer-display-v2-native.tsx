@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { useEffect, useMemo, useState } from "react";
 import { PosCustomerDisplayV2Screen, type CustomerDisplayV2ScreenState } from "@/components/pos/pos-customer-display-v2-screen";
@@ -14,11 +14,38 @@ type NativeStateResponse = {
   } | null;
 };
 
+type CpiposMdmBridge = {
+  diagnosticsJson?: () => string;
+};
+
+declare global {
+  interface Window {
+    CpiposMdm?: CpiposMdmBridge;
+  }
+}
+
 const NATIVE_STATE_CLIENT_TIMEOUT_MS = 4_000;
 const HEALTHY_POLL_MS = 1_000;
 const DEVICE_STATE_BACKOFF_MS = 10_000;
 const AUTH_BACKOFF_MS = 30_000;
 const MAX_TRANSIENT_BACKOFF_MS = 30_000;
+
+// Emergency performance isolation for the single affected FG0003 Android install.
+// MDM reports this terminal as dual_screen_enabled even though the store is operating
+// a single physical display. Do not let the hidden/native customer-display WebView poll
+// once per second and compete with the cashier WebView for CPU and memory.
+const FG0003_INSTALL_ID = "13aec7a2-7817-49b4-a90f-ff275dfefd75";
+
+function isFg0003Install() {
+  try {
+    const raw = window.CpiposMdm?.diagnosticsJson?.();
+    if (!raw) return false;
+    const diagnostics = JSON.parse(raw) as { install_id?: unknown };
+    return String(diagnostics.install_id ?? "").trim() === FG0003_INSTALL_ID;
+  } catch {
+    return false;
+  }
+}
 
 function emptyIdleState(): CustomerDisplayV2ScreenState {
   return {
@@ -63,8 +90,15 @@ function toScreenState(payload: CustomerDisplayV2Payload): CustomerDisplayV2Scre
 
 export function PosCustomerDisplayV2Native({ lang }: { lang: Language }) {
   const [payload, setPayload] = useState<CustomerDisplayV2Payload | null>(null);
+  const [disabledForFg0003, setDisabledForFg0003] = useState(false);
 
   useEffect(() => {
+    if (isFg0003Install()) {
+      setDisabledForFg0003(true);
+      setPayload(null);
+      return;
+    }
+
     let disposed = false;
     let inFlight = false;
     let timerId: number | null = null;
@@ -121,8 +155,6 @@ export function PosCustomerDisplayV2Native({ lang }: { lang: Language }) {
         }
         if (!disposed) setPayload(next);
       } catch {
-        // Preserve the latest customer-visible state during short network interruptions and back off
-        // instead of creating a request storm while the connection or server is unhealthy.
         transientBackoffMs = Math.min(MAX_TRANSIENT_BACKOFF_MS, Math.max(2_000, transientBackoffMs * 2));
         nextDelayMs = transientBackoffMs;
       } finally {
@@ -153,6 +185,10 @@ export function PosCustomerDisplayV2Native({ lang }: { lang: Language }) {
 
   const screenState = useMemo(() => (payload ? toScreenState(payload) : emptyIdleState()), [payload]);
   const hideCashRowsForTransferPaid = payload?.phase === "paid" && payload.payment_method === "bank_transfer";
+
+  if (disabledForFg0003) {
+    return <div data-cdv2-native="1" data-cdv2-disabled="fg0003" style={{ width: "100vw", height: "100dvh", background: "#ffffff" }} />;
+  }
 
   return (
     <div
