@@ -1,0 +1,75 @@
+name: Publish validated Android code28 artifact
+
+on:
+  push:
+    branches:
+      - rc/android-modern-1.0.20-code28
+    paths:
+      - ".github/workflows/publish-validated-code28.yml"
+
+permissions:
+  actions: read
+  contents: write
+
+env:
+  SOURCE_ARTIFACT_ID: "9514559672"
+  RELEASE_TAG: android-runtime-modern-1.0.20
+  APK_NAME: CpIPOS-Android-POS-1.0.20.apk
+  COMPAT_APK_NAME: CpIPOS-Android-POS-Modern.apk
+  MANIFEST_NAME: CpIPOS-Android-POS-1.0.20.manifest.json
+  EXPECTED_APK_SHA256: 00f456ead71cb589e3a6539eace6ca87f9f7895f64319aed14a28aae104580db
+  EXPECTED_CERT_SHA256: 6be0a9aef346a5b47162c8928c5018a01d0e7d81b4eb177bf2fb89922dc2a27a
+
+jobs:
+  publish-validated-code28:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Download exact validated code28 workflow artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh api "/repos/${GITHUB_REPOSITORY}/actions/artifacts/${SOURCE_ARTIFACT_ID}/zip" > code28.zip
+          mkdir -p code28
+          unzip -q code28.zip -d code28
+
+      - name: Verify exact APK and manifest
+        run: |
+          set -euo pipefail
+          apk="code28/${APK_NAME}"
+          compat="code28/${COMPAT_APK_NAME}"
+          manifest="code28/${MANIFEST_NAME}"
+          test -f "$apk"
+          test -f "$compat"
+          test -f "$manifest"
+
+          apkSha=$(sha256sum "$apk" | awk '{print $1}')
+          compatSha=$(sha256sum "$compat" | awk '{print $1}')
+          test "$apkSha" = "$EXPECTED_APK_SHA256"
+          test "$compatSha" = "$EXPECTED_APK_SHA256"
+
+          jq -e --arg sha "$EXPECTED_APK_SHA256" --arg cert "$EXPECTED_CERT_SHA256" '
+            .channel == "modern" and
+            .version_name == "1.0.20" and
+            .version_code == 28 and
+            .package_name == "com.cpipos.pos" and
+            .asset_name == "CpIPOS-Android-POS-1.0.20.apk" and
+            .sha256 == $sha and
+            .signing_cert_sha256 == $cert
+          ' "$manifest" >/dev/null
+
+          echo "Validated exact code28 artifact: $apkSha"
+
+      - name: Replace Modern 1.0.20 release assets with validated code28
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release view "$RELEASE_TAG" >/dev/null
+          gh release upload "$RELEASE_TAG" \
+            "code28/${APK_NAME}" \
+            "code28/${COMPAT_APK_NAME}" \
+            "code28/${MANIFEST_NAME}" \
+            --clobber
+          echo "Published validated 1.0.20 code28 without changing versionName."
