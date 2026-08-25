@@ -31,7 +31,7 @@ const CURSOR_KEY = "pos_global_table_qr_cursor_v1";
 const ACKED_EVENT_IDS_KEY = "pos_global_table_qr_acked_event_ids_v1";
 // QR orders are operational alerts, not analytics. Keep polling responsive even after
 // a long idle period; 30s backoff made incoming orders feel lost or delayed in-store.
-const IDLE_POLL_MS = [1000, 1500, 2000, 3000, 5000] as const;
+const IDLE_POLL_MS = [3000, 5000, 10000, 15000, 30000] as const;
 const SEEN_EVENT_LIMIT = 300;
 
 function isServiceEvent(event: ActivityEvent): event is ActivityEvent & { event_type: ServiceEventType } {

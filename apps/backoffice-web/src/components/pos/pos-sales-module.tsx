@@ -2533,8 +2533,8 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
     };
 
     const intervalId = window.setInterval(() => {
-      void checkActiveShift();
-    }, 15000);
+      if (document.visibilityState === "visible") void checkActiveShift();
+    }, 60000);
     window.addEventListener("focus", checkActiveShift);
 
     return () => {
@@ -2807,8 +2807,8 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
       }
     };
 
-    const firstPoll = window.setTimeout(() => void pollTableQrOrders(), 1200);
-    const interval = window.setInterval(() => void pollTableQrOrders(), 4000);
+    const firstPoll = window.setTimeout(() => void pollTableQrOrders(), 2500);
+    const interval = window.setInterval(() => void pollTableQrOrders(), 10000);
     return () => {
       disposed = true;
       window.clearTimeout(firstPoll);
@@ -2867,7 +2867,7 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
     const silent = options?.silent ?? false;
     const canReuseClientRequest = !signal;
     const cachedTableList = tableListCacheRef.current;
-    if (canReuseClientRequest && cachedTableList && nowMs() - cachedTableList.at <= 1500) {
+    if (canReuseClientRequest && cachedTableList && nowMs() - cachedTableList.at <= 5000) {
       setTableZones(cachedTableList.zones);
       setPosTables(cachedTableList.tables);
       setTableLayoutObjects(cachedTableList.objects);
@@ -4043,7 +4043,7 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
       if (document.visibilityState === "visible") refreshCashDrawerReadiness();
     };
     refreshCashDrawerReadiness();
-    const readinessTimer = window.setInterval(refreshCashDrawerReadiness, 25000);
+    const readinessTimer = window.setInterval(refreshCashDrawerReadiness, 60000);
     window.addEventListener("focus", refreshCashDrawerReadiness);
     window.addEventListener("online", refreshCashDrawerReadiness);
     document.addEventListener("visibilitychange", onVisibilityChange);
@@ -4453,8 +4453,9 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
     if (orderType !== "dine_in" || !tableBrowserOpen || posTables.length === 0) {
       return;
     }
-    void prefetchTableBillsForFastSwitch(posTables);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // Keep table-bill prefetch user-intent only. Background fan-out on every table refresh
+    // can starve low-memory Android WebViews while the cashier is switching menus.
+    void posTables;
   }, [orderType, posTables, tableBrowserOpen]);
 
   useEffect(() => {
@@ -4469,7 +4470,7 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
           tableRefreshInFlightRef.current = false;
         });
     };
-    const interval = window.setInterval(refreshTables, tableBrowserOpen ? 10000 : 15000);
+    const interval = window.setInterval(refreshTables, tableBrowserOpen ? 15000 : 30000);
     window.addEventListener("focus", refreshTables);
     return () => {
       disposed = true;
@@ -4492,7 +4493,7 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
           activeTableBillRefreshInFlightRef.current = false;
         });
     };
-    const interval = window.setInterval(refreshActiveTableBill, 8000);
+    const interval = window.setInterval(refreshActiveTableBill, 15000);
     window.addEventListener("focus", refreshActiveTableBill);
     return () => {
       disposed = true;

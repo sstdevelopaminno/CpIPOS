@@ -33,18 +33,19 @@ describe("Android POS stable/Modern update safety regression contract", () => {
     expect(updatePolicy).toContain('releaseReady: false');
   });
 
-  it("keeps the browser legacy mandatory-update overlay disabled instead of forcing existing stores", () => {
-    expect(mandatoryUpdate).toContain("Legacy mandatory-update overlay intentionally disabled");
-    expect(mandatoryUpdate).toContain("protected customer stores");
-    expect(mandatoryUpdate).toContain("non-forced ManagedUpdateNotice flow");
-    expect(mandatoryUpdate).toContain("export function AndroidPosMandatoryUpdate() {");
-    expect(mandatoryUpdate).toContain("return null;");
+  it("keeps browser update enforcement low-churn and non-blocking for FG0003 recovery", () => {
+    expect(mandatoryUpdate).toContain("const POLL_MS = 10 * 60_000");
+    expect(mandatoryUpdate).toContain("FG0003_ROLLBACK_INSTALL_ID");
+    expect(mandatoryUpdate).toContain("window.localStorage.setItem(CUSTOMER_DISPLAY_V2_ENABLED_KEY, \"0\")");
+    expect(mandatoryUpdate).toContain("setRequired(false)");
+    expect(mandatoryUpdate).toContain("/api/android-pos/update-enforcement");
+    expect(mandatoryUpdate).toContain("document.visibilityState === \"visible\"");
     expect(mandatoryUpdate).not.toContain("NATIVE_ANDROID_POS_PATTERN");
   });
 
-  it("offers Modern 1.0.20 code27 only by explicit capability opt-in", () => {
+  it("offers Modern 1.0.20 code28 only by explicit capability opt-in", () => {
     expect(androidRuntimeRelease).toContain('versionName: "1.0.20"');
-    expect(androidRuntimeRelease).toContain('versionCode: 27');
+    expect(androidRuntimeRelease).toContain('versionCode: 28');
     expect(androidRuntimeRelease).toContain('new Set(["FG0003", "FG00003"])');
     expect(androidRuntimeRelease).toContain('if (updates.managed_notice !== true) return null;');
     expect(androidRuntimeRelease).toContain('if (updates.silent_install !== false) return null;');

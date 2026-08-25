@@ -28,7 +28,7 @@ declare global {
 }
 
 const FALLBACK_DOWNLOAD_URL = "/download/android/modern-latest";
-const POLL_MS = 15_000;
+const POLL_MS = 10 * 60_000;
 const CUSTOMER_DISPLAY_V2_ENABLED_KEY = "pos_customer_display_v2_enabled_v001";
 
 // Emergency performance protection remains scoped to the single FG0003 Android install.
@@ -93,7 +93,9 @@ export function AndroidPosMandatoryUpdate() {
 
   useEffect(() => {
     void check();
-    const timer = window.setInterval(() => void check(), POLL_MS);
+    const timer = window.setInterval(() => {
+      if (document.visibilityState === "visible") void check();
+    }, POLL_MS);
     return () => window.clearInterval(timer);
   }, [check]);
 

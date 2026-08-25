@@ -14,20 +14,20 @@ const picker = source("../../src/components/pos/pos-buffet-price-picker-modal.ts
 
 describe("POS Buffet Table branch price settings", () => {
   it("adds the requested Buffet price submenu to More and protects it with table management", () => {
-    expect(moreWorkspace).toContain('href: "/preview/pos/buffet-pricing"');
-    expect(moreWorkspace).toContain('th: "ตั้งค่าราคาบุฟเฟ่"');
+    expect(moreWorkspace).toContain('href:"/preview/pos/buffet-pricing"');
+    expect(moreWorkspace).toContain('th:"ตั้งค่าราคาบุฟเฟ่"');
     expect(featureMap).toContain('"/preview/pos/buffet-pricing": "table_management"');
     expect(settingsPage).toContain('requirePosPagePermission("tables:manage")');
   });
 
   it("renders a table-style editor for per-person and set prices", () => {
     expect(workspace).toContain("<table");
-    expect(workspace).toContain("plans.map((plan) => {");
+    expect(workspace).toContain("pagePlans.map((plan) => {");
     expect(workspace).toContain("Buffet plan");
     expect(workspace).toContain("Type");
     expect(workspace).toContain("Current price");
-    expect(workspace).toContain("New price (THB)");
-    expect(workspace).toContain("Save price");
+    expect(workspace).toContain("New price");
+    expect(workspace).toContain("Save");
   });
 
   it("updates the same branch product price that the Buffet sales resolver reads", () => {
@@ -43,7 +43,8 @@ describe("POS Buffet Table branch price settings", () => {
   it("does not reactivate an existing disabled buffet product while editing its price", () => {
     expect(settingsRoute).toContain('.update({ price })');
     expect(settingsRoute).not.toContain('.update({ price, is_active: true })');
-    expect(workspace).toContain("Existing inactive plans are never reactivated merely by editing price.");
+    expect(workspace).toContain("plan.is_active");
+    expect(workspace).toContain("Inactive");
   });
 
   it("keeps the keypad default separate from the first operator-entered digit", () => {

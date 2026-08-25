@@ -37,8 +37,8 @@ describe("print latency stability contract", () => {
     expect(sales).toContain("RECEIPT_BRIDGE_REQUEST_TIMEOUT_MS = 4500");
     expect(sales).toContain("tableRefreshInFlightRef");
     expect(sales).toContain("activeTableBillRefreshInFlightRef");
-    expect(sales).toContain("tableBrowserOpen ? 10000 : 15000");
-    expect(sales).toContain("window.setInterval(refreshActiveTableBill, 8000)");
+    expect(sales).toContain("tableBrowserOpen ? 15000 : 30000");
+    expect(sales).toContain("window.setInterval(refreshActiveTableBill, 15000)");
   });
   it("prioritizes drawer pulse claims without lowering Android compatibility", () => {
     expect(migration).toContain("open_cash_drawer' then 0 else 1");

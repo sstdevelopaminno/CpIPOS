@@ -19,6 +19,12 @@ Production-oriented multi-tenant / multi-branch POS platform.
 
 Read the guardrails before changing authentication, tenant isolation, database routing, POS transactions, payments, devices, migrations or production configuration.
 
+## 2026-08-25 P0 POS stability checkpoint
+
+- FG0003/Android POS stability hotfix reduces foreground request churn in the sales UI: slower shift/table/QR/cash-drawer polling, no automatic multi-table bill prefetch, and broader native customer-display suppression when device diagnostics report no secondary display.
+- POS staff navigation now derives More/Payment visibility from the resolved role so the main menu does not flicker during session hydration.
+- `apps/backoffice-web` builds must use committed source as input. Legacy Python prebuild source-mutation scripts remain in `.github/scripts/` for audit history but are no longer invoked by `npm run build`.
+- No database migration or live Supabase write is part of this checkpoint.
 ## Task #44 source readiness
 
 - Branch `agent/table-order-concurrency-dinein-sync` hardens Table QR read/write rate-limit lanes, lightweight status polling, dine-in queued bill sync, and empty open-bill cancellation.

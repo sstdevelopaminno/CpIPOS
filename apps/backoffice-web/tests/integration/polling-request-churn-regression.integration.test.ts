@@ -30,12 +30,12 @@ describe("polling request-churn regression guard", () => {
     expect(tableOrderMobile).toContain('document.addEventListener("visibilitychange", onVisible)');
   });
 
-  it("keeps the retired legacy mandatory-update overlay at zero browser polling churn", () => {
-    expect(androidMandatoryUpdate).toContain("Legacy mandatory-update overlay intentionally disabled");
-    expect(androidMandatoryUpdate).toContain("return null;");
-    expect(androidMandatoryUpdate).not.toContain("setInterval");
+  it("keeps browser update enforcement low-frequency and visible-only", () => {
+    expect(androidMandatoryUpdate).toContain("const POLL_MS = 10 * 60_000");
+    expect(androidMandatoryUpdate).toContain("window.setInterval");
+    expect(androidMandatoryUpdate).toContain("document.visibilityState === \"visible\"");
+    expect(androidMandatoryUpdate).toContain("/api/android-pos/update-enforcement");
+    expect(androidMandatoryUpdate).toContain("setRequired(false)");
     expect(androidMandatoryUpdate).not.toContain("setTimeout");
-    expect(androidMandatoryUpdate).not.toContain("fetch(");
-    expect(androidMandatoryUpdate).not.toContain("visibilitychange");
   });
 });

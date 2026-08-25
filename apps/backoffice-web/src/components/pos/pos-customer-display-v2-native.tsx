@@ -25,7 +25,7 @@ declare global {
 }
 
 const NATIVE_STATE_CLIENT_TIMEOUT_MS = 4_000;
-const HEALTHY_POLL_MS = 1_000;
+const HEALTHY_POLL_MS = 2_500;
 const DEVICE_STATE_BACKOFF_MS = 10_000;
 const AUTH_BACKOFF_MS = 30_000;
 const MAX_TRANSIENT_BACKOFF_MS = 30_000;
@@ -36,12 +36,22 @@ const MAX_TRANSIENT_BACKOFF_MS = 30_000;
 // once per second and compete with the cashier WebView for CPU and memory.
 const FG0003_INSTALL_ID = "13aec7a2-7817-49b4-a90f-ff275dfefd75";
 
-function isFg0003Install() {
+function shouldDisableNativeCustomerDisplay() {
   try {
     const raw = window.CpiposMdm?.diagnosticsJson?.();
     if (!raw) return false;
-    const diagnostics = JSON.parse(raw) as { install_id?: unknown };
-    return String(diagnostics.install_id ?? "").trim() === FG0003_INSTALL_ID;
+    const diagnostics = JSON.parse(raw) as {
+      install_id?: unknown;
+      display_count?: unknown;
+      secondary_display_available?: unknown;
+      displays?: { display_count?: unknown; secondary_display_available?: unknown };
+    };
+    const installId = String(diagnostics.install_id ?? "").trim();
+    if (installId === FG0003_INSTALL_ID) return true;
+    const secondaryAvailable = diagnostics.displays?.secondary_display_available ?? diagnostics.secondary_display_available;
+    if (secondaryAvailable === false) return true;
+    const displayCount = Number(diagnostics.displays?.display_count ?? diagnostics.display_count ?? 0);
+    return Number.isFinite(displayCount) && displayCount > 0 && displayCount <= 1;
   } catch {
     return false;
   }
@@ -90,11 +100,11 @@ function toScreenState(payload: CustomerDisplayV2Payload): CustomerDisplayV2Scre
 
 export function PosCustomerDisplayV2Native({ lang }: { lang: Language }) {
   const [payload, setPayload] = useState<CustomerDisplayV2Payload | null>(null);
-  const [disabledForFg0003, setDisabledForFg0003] = useState(false);
+  const [disabledForNativeDevice, setDisabledForNativeDevice] = useState(false);
 
   useEffect(() => {
-    if (isFg0003Install()) {
-      setDisabledForFg0003(true);
+    if (shouldDisableNativeCustomerDisplay()) {
+      setDisabledForNativeDevice(true);
       setPayload(null);
       return;
     }
@@ -186,8 +196,8 @@ export function PosCustomerDisplayV2Native({ lang }: { lang: Language }) {
   const screenState = useMemo(() => (payload ? toScreenState(payload) : emptyIdleState()), [payload]);
   const hideCashRowsForTransferPaid = payload?.phase === "paid" && payload.payment_method === "bank_transfer";
 
-  if (disabledForFg0003) {
-    return <div data-cdv2-native="1" data-cdv2-disabled="fg0003" style={{ width: "100vw", height: "100dvh", background: "#ffffff" }} />;
+  if (disabledForNativeDevice) {
+    return <div data-cdv2-native="1" data-cdv2-disabled="native-single-display" style={{ width: "100vw", height: "100dvh", background: "#ffffff" }} />;
   }
 
   return (

@@ -187,7 +187,7 @@ describe("POS payment stability hotfix", () => {
     const salesSource = source("src/components/pos/pos-sales-module.tsx");
     expect(salesSource).toContain("onOpenCashDrawer={cashDrawerReady ? openCashDrawerManually : undefined}");
     expect(salesSource).toContain("cashDrawerReadinessInFlightRef.current");
-    expect(salesSource).toContain("window.setInterval(refreshCashDrawerReadiness, 25000)");
+    expect(salesSource).toContain("window.setInterval(refreshCashDrawerReadiness, 60000)");
     expect(salesSource).toContain('document.visibilityState !== "visible"');
     expect(salesSource).toContain('document.addEventListener("visibilitychange", onVisibilityChange)');
   });
