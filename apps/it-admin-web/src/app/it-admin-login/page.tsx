@@ -32,16 +32,30 @@ export default function ItAdminLoginPage() {
 
   return (
     <main className="loginPage">
-      <section className="loginCard">
-        <div className="loginBrand">CpIPOS<small>IT CONTROL PLANE</small></div>
-        <h1>ศูนย์ควบคุมระบบ</h1>
-        <p>ระบบ IT แยก deployment ออกจาก POS สำหรับ Monitoring, MDM, Provisioning และ Incident Operations</p>
-        <form className="form" onSubmit={submit}>
-          <label>อีเมลผู้ดูแล<input type="email" autoComplete="username" value={email} onChange={(e) => setEmail(e.target.value)} required /></label>
-          <label>รหัสผ่าน<input type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} required /></label>
-          {error ? <div className="error">{error}</div> : null}
-          <button type="submit" disabled={loading}>{loading ? "กำลังตรวจสอบ..." : "เข้าสู่ IT Control Plane"}</button>
-        </form>
+      <section className="loginVisual">
+        <div>
+          <div className="brandBlock" style={{padding:0}}>
+            <div className="brandMark">CP</div>
+            <div><div className="brandName">CpIPOS</div><div className="brandSub">IT CONTROL PLANE</div></div>
+          </div>
+          <h1>ควบคุมระบบทั้งหมด<br/>โดยไม่แตะ POS Production</h1>
+          <p>Monitoring, Store Registry, MDM และ Incident Operations อยู่บน deployment แยก เพื่อให้ทีม IT ปรับปรุงหน้าจอและเครื่องมือได้โดยไม่ทำให้ระบบขายหน้าร้านถูก build หรือ deploy ตามไปด้วย</p>
+        </div>
+        <div className="loginPoints"><span>Separate Vercel Project</span><span>Exact-device MDM</span><span>Scoped access</span><span>Audit-ready</span></div>
+      </section>
+
+      <section className="loginPanel">
+        <div className="loginCard">
+          <div className="loginBrand"><div className="loginBrandMark">CP</div><div><strong>CpIPOS IT</strong><small>CONTROL PLANE ACCESS</small></div></div>
+          <h2>เข้าสู่ระบบผู้ดูแล</h2>
+          <p>สำหรับบัญชี IT Admin / IT Support ที่ได้รับสิทธิ์เท่านั้น</p>
+          <form className="form" onSubmit={submit}>
+            <label>อีเมลผู้ดูแล<input type="email" autoComplete="username" value={email} onChange={(e) => setEmail(e.target.value)} required placeholder="admin@company.com" /></label>
+            <label>รหัสผ่าน<input type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} required placeholder="••••••••" /></label>
+            {error ? <div className="error">{error}</div> : null}
+            <button type="submit" disabled={loading}>{loading ? "กำลังตรวจสอบสิทธิ์..." : "เข้าสู่ IT Control Plane"}</button>
+          </form>
+        </div>
       </section>
     </main>
   );
