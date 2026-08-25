@@ -66,8 +66,10 @@ export async function queueRoutedTaxInvoice(args: {
   if (routes.length === 0) throw new Error("receipt_printer_not_configured");
 
   const jobs = [];
+  const paperWidths: Array<58 | 80> = [];
   for (const route of routes) {
-    const paperWidthMm = route.printer.paper_width_mm === 80 ? 80 : 58;
+    const paperWidthMm: 58 | 80 = route.printer.paper_width_mm === 80 ? 80 : 58;
+    paperWidths.push(paperWidthMm);
     const html = buildTaxInvoicePrintHtml({
       invoiceNo: args.invoiceNo,
       issuedAt: args.issuedAt,
@@ -114,5 +116,5 @@ export async function queueRoutedTaxInvoice(args: {
     });
     jobs.push(shouldDefer(route) ? job : (await processPrintJob(job.id)) ?? job);
   }
-  return { mode: "routed_tax_invoice" as const, jobs };
+  return { mode: "routed_tax_invoice" as const, jobs, paper_widths: paperWidths };
 }
