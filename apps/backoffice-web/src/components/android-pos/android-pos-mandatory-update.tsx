@@ -31,13 +31,9 @@ const FALLBACK_DOWNLOAD_URL = "/download/android/modern-latest";
 const POLL_MS = 15_000;
 const CUSTOMER_DISPLAY_V2_ENABLED_KEY = "pos_customer_display_v2_enabled_v001";
 
-// Emergency rollback is intentionally scoped to the single FG0003 Android install.
-// Do not broaden this target or change the global Modern release channel.
+// Emergency performance protection remains scoped to the single FG0003 Android install.
+// The code26 recovery prompt is intentionally disabled while the cashier tests the current runtime.
 const FG0003_ROLLBACK_INSTALL_ID = "13aec7a2-7817-49b4-a90f-ff275dfefd75";
-const FG0003_ROLLBACK_VERSION_NAME = "1.0.20";
-const FG0003_ROLLBACK_VERSION_CODE = 26;
-const FG0003_ROLLBACK_DOWNLOAD_URL =
-  "https://drive.google.com/uc?export=download&id=1JqfASaDHZTmQ0qmNZicCOKqBIIHcgX1i";
 
 export function AndroidPosMandatoryUpdate() {
   const [required, setRequired] = useState(false);
@@ -65,16 +61,12 @@ export function AndroidPosMandatoryUpdate() {
     const versionCode = Number(diagnostics.app?.version_code ?? 0);
     if (!installId || !Number.isFinite(versionCode) || versionCode <= 0) return;
 
-    // FG0003 emergency recovery is intentionally non-blocking. The affected terminal
-    // has no secondary customer display, so disable the local V2 publisher/observer
-    // workload while keeping sales, printer and MDM heartbeat available to the cashier.
+    // FG0003: keep the customer-display workload disabled for performance relief,
+    // but do not show any code26 recovery/update popup while the cashier is testing POS.
     if (installId === FG0003_ROLLBACK_INSTALL_ID) {
       window.localStorage.setItem(CUSTOMER_DISPLAY_V2_ENABLED_KEY, "0");
-      setRollbackMode(true);
-      setTargetName(FG0003_ROLLBACK_VERSION_NAME);
-      setTargetCode(FG0003_ROLLBACK_VERSION_CODE);
-      setDownloadUrl(FG0003_ROLLBACK_DOWNLOAD_URL);
-      setRequired(versionCode !== FG0003_ROLLBACK_VERSION_CODE);
+      setRollbackMode(false);
+      setRequired(false);
       return;
     }
 
