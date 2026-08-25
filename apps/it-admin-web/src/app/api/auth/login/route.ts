@@ -27,7 +27,7 @@ export async function POST(request: Request) {
   const userAgent = request.headers.get("user-agent")?.slice(0, 500) ?? null;
   const since = new Date(Date.now() - 15 * 60_000).toISOString();
 
-  const { count: recentFailures } = await service
+  const { count: recentFailures, error: rateError } = await service
     .from("login_attempts")
     .select("id", { count: "exact", head: true })
     .eq("login_method", "it_code")
@@ -35,6 +35,9 @@ export async function POST(request: Request) {
     .eq("ip_address", ip)
     .gte("created_at", since);
 
+  if (rateError) {
+    return NextResponse.json({ error: { code: "auth_unavailable", message: "ระบบยืนยันตัวตนไม่พร้อมใช้งาน" } }, { status: 503 });
+  }
   if ((recentFailures ?? 0) >= 8) {
     return NextResponse.json({ error: { code: "too_many_attempts", message: "ลองรหัสผิดหลายครั้ง กรุณารอประมาณ 15 นาทีแล้วลองใหม่" } }, { status: 429 });
   }
@@ -61,7 +64,7 @@ export async function POST(request: Request) {
   }
 
   if (!matched) {
-    await service.from("login_attempts").insert({
+    const { error: auditError } = await service.from("login_attempts").insert({
       login_method: "it_code",
       success: false,
       failure_reason: "invalid_code",
@@ -69,10 +72,13 @@ export async function POST(request: Request) {
       user_agent: userAgent,
       metadata: { surface: "it-admin-web" }
     });
+    if (auditError) {
+      return NextResponse.json({ error: { code: "auth_unavailable", message: "ระบบยืนยันตัวตนไม่พร้อมใช้งาน" } }, { status: 503 });
+    }
     return NextResponse.json({ error: { code: "invalid_credentials", message: "รหัส IT ไม่ถูกต้อง" } }, { status: 401 });
   }
 
-  await service.from("login_attempts").insert({
+  const { error: successAuditError } = await service.from("login_attempts").insert({
     user_id: matched.id,
     login_method: "it_code",
     success: true,
@@ -80,6 +86,9 @@ export async function POST(request: Request) {
     user_agent: userAgent,
     metadata: { surface: "it-admin-web", platform_role: matched.platform_role }
   });
+  if (successAuditError) {
+    return NextResponse.json({ error: { code: "auth_unavailable", message: "ระบบยืนยันตัวตนไม่พร้อมใช้งาน" } }, { status: 503 });
+  }
 
   const response = NextResponse.json(
     { data: { redirect_to: "/it-admin", platform_role: matched.platform_role } },
