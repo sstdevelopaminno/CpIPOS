@@ -4,11 +4,13 @@ import { createServerClient, type CookieOptions } from "@supabase/ssr";
 import { createClient } from "@supabase/supabase-js";
 import { readRequiredEnv } from "@/lib/env";
 
+export const IT_PRIMARY_SUPABASE_URL = "https://deejlitaivfnsbwqdugy.supabase.co";
+
 type CookieToSet = { name: string; value: string; options: CookieOptions };
 
 export function getServiceClient() {
   return createClient(
-    readRequiredEnv("NEXT_PUBLIC_SUPABASE_URL"),
+    IT_PRIMARY_SUPABASE_URL,
     readRequiredEnv("SUPABASE_SERVICE_ROLE_KEY"),
     { auth: { persistSession: false, autoRefreshToken: false } }
   );
@@ -17,7 +19,7 @@ export function getServiceClient() {
 export async function getServerAuthClient() {
   const cookieStore = await cookies();
   return createServerClient(
-    readRequiredEnv("NEXT_PUBLIC_SUPABASE_URL"),
+    IT_PRIMARY_SUPABASE_URL,
     readRequiredEnv("NEXT_PUBLIC_SUPABASE_ANON_KEY"),
     {
       cookies: {
