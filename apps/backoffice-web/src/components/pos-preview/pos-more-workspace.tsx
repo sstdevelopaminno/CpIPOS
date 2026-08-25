@@ -6,7 +6,7 @@ import { PackageLockDialog } from "@/components/pos-preview/package-lock-dialog"
 import { t, type Language } from "@/lib/i18n";
 import { featureForPosRoute } from "@/lib/pos-feature-map";
 
-type MoreIconName = "summary" | "receipt" | "tables" | "stock" | "members" | "kitchen" | "buffet";
+type MoreIconName = "summary" | "receipt" | "tables" | "stock" | "members" | "kitchen" | "buffet" | "tax";
 type PosRole = "owner" | "manager" | "staff" | "accountant";
 
 type MoreItem = {
@@ -67,6 +67,13 @@ const MORE_ITEMS: MoreItem[] = [
     labelKey: "pos_menu_members",
     roles: ["owner", "manager", "accountant"],
     desc: { th: "ค้นหาและจัดการข้อมูลสมาชิกหน้าร้าน", en: "Search and manage store member records" }
+  },
+  {
+    href: "/preview/pos/tax-invoices",
+    icon: "tax",
+    label: { th: "ออกใบกำกับภาษี", en: "Tax Invoice" },
+    roles: ["owner", "manager", "accountant", "staff"],
+    desc: { th: "ทะเบียนผู้เสียภาษี ค้นหาบิลย้อนหลัง ตรวจภาษี และพิมพ์ 58/80mm", en: "Tax registry, receipt lookup, tax review, and 58/80mm printing" }
   }
 ];
 
@@ -137,10 +144,21 @@ function MoreIcon({ name }: { name: MoreIconName }) {
     return (
       <svg {...common}>
         <path d="M4 15h16" />
-        <path d="M6 15a6 6 0 0 1 12 0" />
+        <path d="M6 15a6 6 0 0 1 12 0v2" />
         <path d="M12 8V5" />
         <path d="M10.5 5h3" />
         <path d="M5 19h14" />
+      </svg>
+    );
+  }
+  if (name === "tax") {
+    return (
+      <svg {...common}>
+        <path d="M6 3h9l3 3v15H6z" />
+        <path d="M15 3v4h4" />
+        <path d="M9 11h6" />
+        <path d="M9 15h6" />
+        <path d="M9 19h4" />
       </svg>
     );
   }
@@ -177,6 +195,7 @@ export function PosMoreWorkspace({ lang, role }: { lang: Language; role: PosRole
   }, []);
 
   function isLocked(href: string) {
+    if (href === "/preview/pos/tax-invoices") return false;
     const feature = featureForPosRoute(href);
     return Boolean(enabledFeatures !== null && feature && enabledFeatures[feature] === false);
   }
