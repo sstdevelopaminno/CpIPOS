@@ -1,3 +1,4 @@
+import { filterBillingDocumentItems } from "@/lib/billing-document-policy";
 import { getPosApiAuthContext } from "@/lib/pos-api-auth";
 import { featureGateFail, requirePosApiFeature } from "@/lib/pos-api-feature-guard";
 import { fail, ok } from "@/lib/http";
@@ -96,17 +97,11 @@ export async function GET(req: Request) {
       .order("created_at", { ascending: false })
       .range(fromIndex, toIndex);
 
-    if (status !== "all") {
-      query = query.eq("status", status);
-    }
-    if (q) {
-      query = query.or(`order_no.ilike.%${q}%,customer_name.ilike.%${q}%,external_order_code.ilike.%${q}%`);
-    }
+    if (status !== "all") query = query.eq("status", status);
+    if (q) query = query.or(`order_no.ilike.%${q}%,customer_name.ilike.%${q}%,external_order_code.ilike.%${q}%`);
 
     const { data: orders, error: ordersError, count } = await query;
-    if (ordersError) {
-      return withTiming(fail("receipt_orders_query_failed", ordersError.message, 500));
-    }
+    if (ordersError) return withTiming(fail("receipt_orders_query_failed", ordersError.message, 500));
 
     const rows = (orders ?? []) as Array<{
       id: string;
@@ -140,20 +135,10 @@ export async function GET(req: Request) {
 
     const [paymentsResult, itemsResult, usersResult, tablesResult, branchResult, storeProfile] = await Promise.all([
       orderIds.length > 0
-        ? supabase
-            .from("payments")
-            .select("order_id,method,amount,status,created_at")
-            .eq("tenant_id", auth.tenantId!)
-            .eq("branch_id", auth.branchId!)
-            .in("order_id", orderIds)
+        ? supabase.from("payments").select("order_id,method,amount,status,created_at").eq("tenant_id", auth.tenantId!).eq("branch_id", auth.branchId!).in("order_id", orderIds)
         : Promise.resolve({ data: [], error: null }),
       orderIds.length > 0
-        ? supabase
-            .from("order_items")
-            .select("order_id,product_id,name,quantity,unit_price,line_total,notes")
-            .eq("tenant_id", auth.tenantId!)
-            .eq("branch_id", auth.branchId!)
-            .in("order_id", orderIds)
+        ? supabase.from("order_items").select("order_id,product_id,name,quantity,unit_price,line_total,notes").eq("tenant_id", auth.tenantId!).eq("branch_id", auth.branchId!).in("order_id", orderIds)
         : Promise.resolve({ data: [], error: null }),
       userIds.length > 0
         ? supabase.from("users_profiles").select("id,full_name").in("id", userIds)
@@ -171,19 +156,12 @@ export async function GET(req: Request) {
     if (tablesResult.error) return withTiming(fail("receipt_tables_query_failed", tablesResult.error.message, 500));
     if (branchResult.error) return withTiming(fail("receipt_branch_query_failed", branchResult.error.message, 500));
 
-    const productIds = Array.from(
-      new Set((itemsResult.data ?? []).map((item) => String(item.product_id ?? "")).filter(Boolean))
-    );
+    const productIds = Array.from(new Set((itemsResult.data ?? []).map((item) => String(item.product_id ?? "")).filter(Boolean)));
     let productRows: Array<{ id: string; sku?: string | null; name?: string | null }> = [];
     let productError: { message?: string | null; details?: string | null } | null = null;
 
     if (productIds.length > 0) {
-      const result = await supabase
-        .from("products")
-        .select("id,sku,name")
-        .eq("tenant_id", auth.tenantId!)
-        .eq("branch_id", auth.branchId!)
-        .in("id", productIds);
+      const result = await supabase.from("products").select("id,sku,name").eq("tenant_id", auth.tenantId!).eq("branch_id", auth.branchId!).in("id", productIds);
       productRows = (result.data ?? []) as Array<{ id: string; sku?: string | null; name?: string | null }>;
       productError = result.error;
     }
@@ -191,12 +169,7 @@ export async function GET(req: Request) {
     if (productError) {
       const productErrorText = `${productError.message ?? ""} ${productError.details ?? ""}`.toLowerCase();
       if (productErrorText.includes("products.sku") || productErrorText.includes("'sku'") || productErrorText.includes("\"sku\"")) {
-        const fallbackResult = await supabase
-          .from("products")
-          .select("id,name")
-          .eq("tenant_id", auth.tenantId!)
-          .eq("branch_id", auth.branchId!)
-          .in("id", productIds);
+        const fallbackResult = await supabase.from("products").select("id,name").eq("tenant_id", auth.tenantId!).eq("branch_id", auth.branchId!).in("id", productIds);
         productRows = (fallbackResult.data ?? []) as Array<{ id: string; name?: string | null }>;
         productError = fallbackResult.error;
       }
@@ -205,18 +178,8 @@ export async function GET(req: Request) {
     if (productError) return withTiming(fail("receipt_products_query_failed", productError.message ?? "Product query failed.", 500));
 
     const userMap = new Map((usersResult.data ?? []).map((row) => [String(row.id), String(row.full_name ?? row.id)]));
-    const productMap = new Map(
-      productRows.map((row) => [
-        String(row.id),
-        {
-          code: String(row.sku ?? row.id),
-          name: String(row.name ?? row.id)
-        }
-      ])
-    );
-    const tableMap = new Map(
-      (tablesResult.data ?? []).map((row) => [String(row.id), String(row.table_name || row.table_code || row.id)])
-    );
+    const productMap = new Map(productRows.map((row) => [String(row.id), { code: String(row.sku ?? row.id), name: String(row.name ?? row.id) }]));
+    const tableMap = new Map((tablesResult.data ?? []).map((row) => [String(row.id), String(row.table_name || row.table_code || row.id)]));
     const paymentsByOrder = new Map<string, Array<{ method: string; amount: number; status?: string | null; created_at?: string | null }>>();
     for (const payment of paymentsResult.data ?? []) {
       const key = String(payment.order_id);
@@ -230,18 +193,15 @@ export async function GET(req: Request) {
       paymentsByOrder.set(key, list);
     }
 
-    const itemsByOrder = new Map<
-      string,
-      Array<{
-        product_id: string;
-        product_code: string;
-        name: string;
-        quantity: number;
-        unit_price: number;
-        line_total: number;
-        notes: string | null;
-      }>
-    >();
+    const itemsByOrder = new Map<string, Array<{
+      product_id: string;
+      product_code: string;
+      name: string;
+      quantity: number;
+      unit_price: number;
+      line_total: number;
+      notes: string | null;
+    }>>();
     for (const item of itemsResult.data ?? []) {
       const key = String(item.order_id);
       const list = itemsByOrder.get(key) ?? [];
@@ -263,7 +223,8 @@ export async function GET(req: Request) {
 
     const records = rows.map((row) => {
       const payments = paymentsByOrder.get(row.id) ?? [];
-      const items = itemsByOrder.get(row.id) ?? [];
+      const rawItems = itemsByOrder.get(row.id) ?? [];
+      const items = filterBillingDocumentItems(rawItems, storeProfile?.code, (item) => item.unit_price);
       const paidTotal = payments.reduce((sum, payment) => sum + payment.amount, 0);
       const total = Number(row.grand_total ?? row.total_amount ?? 0);
       const memberName = readMetadataString(row.metadata, "member_name");
