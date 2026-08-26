@@ -36,6 +36,7 @@ class PosPrintAgent(
     private val started = AtomicBoolean(false)
     private var executor: ScheduledExecutorService? = null
     private var idleBackoffIndex = 0
+    @Volatile private var bootstrapRetryAfterElapsedMs: Long = 0L
 
     @Volatile private var lastError: String? = null
     @Volatile private var lastJobId: String? = null
@@ -57,6 +58,7 @@ class PosPrintAgent(
         executor?.shutdownNow()
         executor = null
         idleBackoffIndex = 0
+        bootstrapRetryAfterElapsedMs = 0L
         lastHeartbeatElapsedMs = 0L
     }
 
@@ -68,6 +70,7 @@ class PosPrintAgent(
         .put("last_success_at_ms", lastSuccessAtMs)
         .put("last_error", lastError)
         .put("idle_backoff_seconds", IDLE_BACKOFF_SECONDS[idleBackoffIndex.coerceIn(0, IDLE_BACKOFF_SECONDS.lastIndex)])
+        .put("bootstrap_retry_after_ms", (bootstrapRetryAfterElapsedMs - SystemClock.elapsedRealtime()).coerceAtLeast(0L))
         .put("heartbeat_interval_seconds", HEARTBEAT_INTERVAL_SECONDS)
         .put("supported_transports", JSONArray(listOf("lan", "usb", "bluetooth")))
 
@@ -188,6 +191,9 @@ class PosPrintAgent(
     private fun getOrBootstrapKey(): String? {
         prefs.getString(PREF_AGENT_KEY, null)?.trim()?.takeIf { it.isNotEmpty() }?.let { return it }
 
+        val now = SystemClock.elapsedRealtime()
+        if (now < bootstrapRetryAfterElapsedMs) return null
+
         val response = postJson(
             url = "${BuildConfig.CPIPOS_API_BASE_URL}/api/android-pos/print-agent/bootstrap",
             body = JSONObject().put("runtime", "android_native_print_agent"),
@@ -195,6 +201,11 @@ class PosPrintAgent(
         )
         if (response.status !in 200..299) {
             lastError = readApiError(response.body) ?: "print_agent_bootstrap_http_${response.status}"
+            bootstrapRetryAfterElapsedMs = now + if (response.status == 401 || response.status == 403) {
+                BOOTSTRAP_AUTH_RETRY_DELAY_MS
+            } else {
+                BOOTSTRAP_TRANSIENT_RETRY_DELAY_MS
+            }
             return null
         }
 
@@ -202,6 +213,7 @@ class PosPrintAgent(
         val key = data.optString("agent_key", "").trim()
         if (key.isEmpty()) {
             lastError = "print_agent_bootstrap_key_missing"
+            bootstrapRetryAfterElapsedMs = now + BOOTSTRAP_TRANSIENT_RETRY_DELAY_MS
             return null
         }
         val agent = data.optJSONObject("agent")
@@ -210,6 +222,7 @@ class PosPrintAgent(
             .putString(PREF_AGENT_ID, agent?.optString("id", ""))
             .putString(PREF_DEVICE_CODE, agent?.optString("device_code", ""))
             .apply()
+        bootstrapRetryAfterElapsedMs = 0L
         lastHeartbeatElapsedMs = 0L
         lastError = null
         return key
@@ -406,6 +419,8 @@ class PosPrintAgent(
         private const val HEARTBEAT_INTERVAL_SECONDS = 45L
         private const val HEARTBEAT_INTERVAL_MS = HEARTBEAT_INTERVAL_SECONDS * 1_000L
         private const val WAKE_RETRY_DELAY_MS = 350L
+        private const val BOOTSTRAP_AUTH_RETRY_DELAY_MS = 5L * 60L * 1_000L
+        private const val BOOTSTRAP_TRANSIENT_RETRY_DELAY_MS = 30L * 1_000L
         private val IDLE_BACKOFF_SECONDS = longArrayOf(1L, 2L, 3L)
     }
 }

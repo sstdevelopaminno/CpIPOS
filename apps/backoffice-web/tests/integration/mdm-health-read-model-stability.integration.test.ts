@@ -6,6 +6,7 @@ const source = (relativePath: string) => readFileSync(new URL(relativePath, impo
 const heartbeatRoute = source("../../src/app/api/pos/device-heartbeat/route.ts");
 const supportCenterService = source("../../src/lib/services/it-admin/support-center-service.ts");
 const mdmPrinterDevicesRoute = source("../../src/app/api/backoffice/printers/mdm-devices/route.ts");
+const androidPrintAgent = source("../../../../apps/pos-android/app/src/main/java/com/cpipos/pos/PosPrintAgent.kt");
 
 describe("MDM health read model stability", () => {
   it("keeps POS heartbeat device identity authoritative to the server session", () => {
@@ -35,5 +36,14 @@ describe("MDM health read model stability", () => {
     expect(healthQueryIndex).toBeGreaterThan(deviceIdsIndex);
     expect(mdmPrinterDevicesRoute).toContain('.in("pos_device_id", deviceIds)');
     expect(mdmPrinterDevicesRoute).toContain("Math.min(500, Math.max(deviceIds.length * 6, 50))");
+  });
+
+  it("backs off Android print-agent bootstrap when the device is not paired", () => {
+    expect(androidPrintAgent).toContain("bootstrapRetryAfterElapsedMs");
+    expect(androidPrintAgent).toContain("if (now < bootstrapRetryAfterElapsedMs) return null");
+    expect(androidPrintAgent).toContain("response.status == 401 || response.status == 403");
+    expect(androidPrintAgent).toContain("BOOTSTRAP_AUTH_RETRY_DELAY_MS");
+    expect(androidPrintAgent).toContain("BOOTSTRAP_TRANSIENT_RETRY_DELAY_MS");
+    expect(androidPrintAgent).toContain('"bootstrap_retry_after_ms"');
   });
 });
