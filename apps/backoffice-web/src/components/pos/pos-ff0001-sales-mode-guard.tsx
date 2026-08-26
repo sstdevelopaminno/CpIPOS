@@ -6,6 +6,7 @@ const FF0001_TENANT_ID = "997a0329-604f-49eb-a091-e654a57e6b8e";
 const POS_SCOPE_KEY = "pos_scope_v001";
 const SELECTOR_QUERY = ".posui-mode-selector";
 const GRID_QUERY = ".posui-mode-selector__grid";
+const ORDER_BUTTON_QUERY = ".pos-mode-order-button";
 const MODE_ATTRIBUTE = "data-pos-sale-mode";
 const HIDDEN_ATTRIBUTE = "data-pos-mode-hidden";
 
@@ -43,6 +44,24 @@ function detectMode(element: HTMLElement): SalesMode | null {
   return null;
 }
 
+function showBuffetOnly(element: HTMLElement) {
+  element.setAttribute(MODE_ATTRIBUTE, "buffet_table");
+  element.removeAttribute(HIDDEN_ATTRIBUTE);
+  element.removeAttribute("aria-hidden");
+
+  // The generic mode preference enhancer may temporarily attach the hidden attribute
+  // using its legacy DOM-index mapping. Inline !important keeps the actual buffet card
+  // visible even if that attribute is briefly re-applied during selector initialization.
+  element.style.setProperty("display", "flex", "important");
+}
+
+function hideMode(element: HTMLElement, mode: SalesMode | null) {
+  if (mode) element.setAttribute(MODE_ATTRIBUTE, mode);
+  element.setAttribute(HIDDEN_ATTRIBUTE, "true");
+  element.setAttribute("aria-hidden", "true");
+  element.style.setProperty("display", "none", "important");
+}
+
 function applyFf0001Policy() {
   if (!isFf0001Scope()) return;
 
@@ -50,27 +69,24 @@ function applyFf0001Policy() {
     const grid = selector.querySelector<HTMLElement>(GRID_QUERY);
     if (!grid) continue;
 
-    for (const element of Array.from(grid.children)) {
-      if (!(element instanceof HTMLElement)) continue;
+    const cards = Array.from(grid.children).filter((element): element is HTMLElement => element instanceof HTMLElement);
+    const buffetCard = cards.find((element) => detectMode(element) === "buffet_table") ?? null;
+
+    // Fail safe: never blank the selector if the buffet card has not rendered yet.
+    if (!buffetCard) continue;
+
+    for (const element of cards) {
       const mode = detectMode(element);
-      if (!mode) continue;
-
-      // The generic preference enhancer historically inferred modes from DOM index.
-      // FF0001's rendered selector order is different, so bind the semantic mode from
-      // the actual rendered label before applying the tenant policy.
-      element.setAttribute(MODE_ATTRIBUTE, mode);
-
-      const hidden = mode === "delivery" || mode === "dine_in";
-      if (hidden) {
-        element.setAttribute(HIDDEN_ATTRIBUTE, "true");
-        element.setAttribute("aria-hidden", "true");
-        element.style.setProperty("display", "none", "important");
+      if (element === buffetCard || mode === "buffet_table") {
+        showBuffetOnly(element);
       } else {
-        element.removeAttribute(HIDDEN_ATTRIBUTE);
-        element.removeAttribute("aria-hidden");
-        element.style.removeProperty("display");
+        hideMode(element, mode);
       }
     }
+
+    // FF0001 has one allowed sales mode, so arranging mode order has no useful action.
+    const orderButton = selector.querySelector<HTMLElement>(ORDER_BUTTON_QUERY);
+    orderButton?.style.setProperty("display", "none", "important");
   }
 }
 
@@ -89,9 +105,8 @@ export function PosFf0001SalesModeGuard() {
     observer.observe(document.body, { childList: true, subtree: true, characterData: true });
     schedule();
 
-    // Re-assert briefly because the branch preference enhancer can finish after the
-    // selector first mounts. This is bounded and does not poll for the lifetime of POS.
-    const timers = [100, 300, 700, 1500].map((delay) => window.setTimeout(schedule, delay));
+    // Re-assert while the generic branch preference enhancer finishes mounting.
+    const timers = [50, 150, 300, 700, 1500, 2500, 5000].map((delay) => window.setTimeout(schedule, delay));
 
     return () => {
       observer.disconnect();
