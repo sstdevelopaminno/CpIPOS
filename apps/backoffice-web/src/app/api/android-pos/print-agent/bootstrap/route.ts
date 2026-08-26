@@ -32,6 +32,12 @@ function hashAgentKey(value: string) {
   return createHash("sha256").update(value, "utf8").digest("hex");
 }
 
+function isUniqueViolation(error: { code?: string | null; message?: string | null } | null | undefined) {
+  if (!error) return false;
+  const message = String(error.message ?? "").toLowerCase();
+  return error.code === "23505" || message.includes("duplicate key value") || message.includes("unique constraint");
+}
+
 function noStore(response: Response) {
   response.headers.set("Cache-Control", "no-store, no-cache, must-revalidate");
   return response;
@@ -84,7 +90,7 @@ export async function POST(request: Request) {
 
     const rawKey = `cpi_pa_${randomBytes(32).toString("base64url")}`;
     const now = new Date().toISOString();
-    const agentName = `Android POS · ${device.device_name || device.device_code}`.slice(0, 120);
+    const canonicalAgentName = `Android POS · ${device.device_name || device.device_code}`.slice(0, 120);
     const agentMetadata = {
       source: "android_pos_native_print_agent",
       native_runtime: true,
@@ -97,11 +103,16 @@ export async function POST(request: Request) {
     let agent: PrintAgentRow;
     const existing = existingRows?.[0] ?? null;
     if (existing) {
+      // Preserve the existing unique identity. Older deployments included the app version
+      // in agent_name while an inactive canonical-name row could already exist. Renaming the
+      // active row during bootstrap therefore collided with the unique constraint and caused
+      // a retrying Android runtime to generate a 500 storm.
+      const stableAgentName = String(existing.agent_name ?? "").trim() || canonicalAgentName;
       const { data, error } = await supabase
         .from("print_agents")
         .update({
           device_id: device.id,
-          agent_name: agentName,
+          agent_name: stableAgentName,
           api_key_hash: hashAgentKey(rawKey),
           status: "active",
           last_seen_at: now,
@@ -117,14 +128,14 @@ export async function POST(request: Request) {
       if (error) throw new Error(error.message);
       agent = data;
     } else {
-      const { data, error } = await supabase
+      const insertResult = await supabase
         .from("print_agents")
         .insert({
           tenant_id: device.tenant_id,
           branch_id: device.branch_id,
           device_id: device.id,
           device_code: device.device_code,
-          agent_name: agentName,
+          agent_name: canonicalAgentName,
           api_key_hash: hashAgentKey(rawKey),
           status: "active",
           last_seen_at: now,
@@ -133,8 +144,43 @@ export async function POST(request: Request) {
         })
         .select("id,tenant_id,branch_id,device_id,device_code,agent_name,status,metadata")
         .single<PrintAgentRow>();
-      if (error) throw new Error(error.message);
-      agent = data;
+
+      if (!insertResult.error) {
+        agent = insertResult.data;
+      } else if (isUniqueViolation(insertResult.error)) {
+        // Concurrent bootstrap requests can both observe no row before one wins the insert.
+        // Recover by updating the winner instead of surfacing a transient 500.
+        const { data: winner, error: winnerError } = await supabase
+          .from("print_agents")
+          .select("id,tenant_id,branch_id,device_id,device_code,agent_name,status,metadata")
+          .eq("tenant_id", device.tenant_id)
+          .eq("branch_id", device.branch_id)
+          .eq("device_code", device.device_code)
+          .eq("agent_name", canonicalAgentName)
+          .maybeSingle<PrintAgentRow>();
+        if (winnerError || !winner) throw new Error(winnerError?.message ?? insertResult.error.message);
+
+        const { data: recovered, error: recoverError } = await supabase
+          .from("print_agents")
+          .update({
+            device_id: device.id,
+            api_key_hash: hashAgentKey(rawKey),
+            status: "active",
+            last_seen_at: now,
+            app_version: appVersion,
+            metadata: { ...asRecord(winner.metadata), ...agentMetadata },
+            updated_at: now
+          })
+          .eq("id", winner.id)
+          .eq("tenant_id", device.tenant_id)
+          .eq("branch_id", device.branch_id)
+          .select("id,tenant_id,branch_id,device_id,device_code,agent_name,status,metadata")
+          .single<PrintAgentRow>();
+        if (recoverError) throw new Error(recoverError.message);
+        agent = recovered;
+      } else {
+        throw new Error(insertResult.error.message);
+      }
     }
 
     const deviceMetadata = asRecord(device.metadata);
