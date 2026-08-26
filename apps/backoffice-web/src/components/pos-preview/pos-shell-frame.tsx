@@ -27,15 +27,17 @@ export function PosShellFrame({
   lang,
   settingsLabel,
   initialPlacement = "left",
+  managedPlacement = null,
   sessionRole = null
 }: {
   children: ReactNode;
   lang: Language;
   settingsLabel: string;
   initialPlacement?: MainMenuPlacement;
+  managedPlacement?: MainMenuPlacement | null;
   sessionRole?: string | null;
 }) {
-  const [placement, setPlacement] = useState<MainMenuPlacement>(initialPlacement);
+  const [placement, setPlacement] = useState<MainMenuPlacement>(managedPlacement ?? initialPlacement);
 
   useEffect(() => {
     const normalizedRole = String(sessionRole ?? "").trim().toLowerCase();
@@ -54,7 +56,19 @@ export function PosShellFrame({
       persistPlacementCookie(nextPlacement);
     };
 
+    const applyManagedPlacement = () => {
+      if (!managedPlacement) return false;
+      try {
+        window.localStorage.setItem(POS_MAIN_MENU_PLACEMENT_KEY, managedPlacement);
+      } catch {
+        // Cookie + React state are enough to enforce the MDM-managed placement.
+      }
+      applyPlacement(managedPlacement);
+      return true;
+    };
+
     const readPlacement = () => {
+      if (applyManagedPlacement()) return;
       try {
         const storedPlacement = parseMenuPlacement(window.localStorage.getItem(POS_MAIN_MENU_PLACEMENT_KEY));
         const nextPlacement = storedPlacement ?? initialPlacement;
@@ -68,6 +82,10 @@ export function PosShellFrame({
     };
 
     const onPlacementUpdated = (event: Event) => {
+      if (managedPlacement) {
+        applyManagedPlacement();
+        return;
+      }
       const detail = (event as CustomEvent<{ placement?: string | null }>).detail;
       const nextPlacement = parseMenuPlacement(detail?.placement);
       if (!nextPlacement) return;
@@ -76,6 +94,10 @@ export function PosShellFrame({
 
     const onStorage = (event: StorageEvent) => {
       if (event.key !== POS_MAIN_MENU_PLACEMENT_KEY) return;
+      if (managedPlacement) {
+        applyManagedPlacement();
+        return;
+      }
       applyPlacement(parseMenuPlacement(event.newValue) ?? "left");
     };
 
@@ -86,7 +108,7 @@ export function PosShellFrame({
       window.removeEventListener(POS_MAIN_MENU_PLACEMENT_EVENT, onPlacementUpdated as EventListener);
       window.removeEventListener("storage", onStorage);
     };
-  }, [initialPlacement]);
+  }, [initialPlacement, managedPlacement]);
 
   const sidebar = <PosShellSidebar lang={lang} settingsLabel={settingsLabel} placement={placement} />;
   const content = (

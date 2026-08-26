@@ -3,7 +3,11 @@ export type PosSalesMode = "home" | "dine_in" | "buffet_table" | "delivery";
 export const DEFAULT_POS_SALES_MODE_ORDER: PosSalesMode[] = ["home", "dine_in", "buffet_table", "delivery"];
 
 const FG0003_TENANT_ID = "2d38bd23-bf2d-4b9a-a7cf-adb2547297ed";
-const FG0003_HIDDEN_MODES: PosSalesMode[] = ["buffet_table", "delivery"];
+const FF0001_TENANT_ID = "997a0329-604f-49eb-a091-e654a57e6b8e";
+const TENANT_HIDDEN_MODES: Record<string, PosSalesMode[]> = {
+  [FG0003_TENANT_ID]: ["buffet_table", "delivery"],
+  [FF0001_TENANT_ID]: ["delivery", "dine_in"]
+};
 const POS_SALES_MODE_ORDER_STORAGE_PREFIX = "pos_sales_mode_order_v1";
 
 export type PosScopeIdentity = {
@@ -47,7 +51,8 @@ export function swapPosSalesModes(order: PosSalesMode[], left: PosSalesMode, rig
 }
 
 export function getHiddenPosSalesModes(tenantId: string | null | undefined): PosSalesMode[] {
-  return String(tenantId ?? "").trim() === FG0003_TENANT_ID ? [...FG0003_HIDDEN_MODES] : [];
+  const hidden = TENANT_HIDDEN_MODES[String(tenantId ?? "").trim()];
+  return hidden ? [...hidden] : [];
 }
 
 export function getVisiblePosSalesModeOrder(order: PosSalesMode[], tenantId: string | null | undefined): PosSalesMode[] {

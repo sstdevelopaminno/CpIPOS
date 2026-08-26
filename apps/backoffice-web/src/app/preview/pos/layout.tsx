@@ -94,7 +94,9 @@ export default async function PosPreviewLayout({ children }: { children: ReactNo
   const requestHeaders = await headers();
   const userAgent = requestHeaders.get("user-agent") ?? "";
   const storedPlacement = parseMenuPlacement(cookieStore.get(POS_MAIN_MENU_PLACEMENT_KEY)?.value);
-  const initialPlacement: MainMenuPlacement = storedPlacement ?? (isAndroidPosUserAgent(userAgent) ? "top" : "left");
+  const managedPlacement = parseMenuPlacement(devicePolicy.main_menu_placement);
+  const initialPlacement: MainMenuPlacement =
+    managedPlacement ?? storedPlacement ?? (isAndroidPosUserAgent(userAgent) ? "top" : "left");
 
   const lang = await getCurrentLanguage();
   return (
@@ -110,6 +112,7 @@ export default async function PosPreviewLayout({ children }: { children: ReactNo
         lang={lang}
         settingsLabel={t(lang, "common_settings")}
         initialPlacement={initialPlacement}
+        managedPlacement={managedPlacement}
         sessionRole={sessionRole}
       >
         {children}

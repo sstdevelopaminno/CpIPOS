@@ -4,6 +4,7 @@ import type { PosSessionRow } from "@/lib/pos-session-guard";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
 
 export type PosRuntimeDeviceStatus = "active" | "inactive" | "maintenance" | "unknown";
+export type PosRuntimeMainMenuPlacement = "left" | "top" | "bottom";
 
 export type PosRuntimeDevicePolicy = {
   id: string | null;
@@ -12,6 +13,7 @@ export type PosRuntimeDevicePolicy = {
   status: PosRuntimeDeviceStatus;
   block_sales: boolean;
   reason_code: "pos_device_inactive" | "pos_device_maintenance" | null;
+  main_menu_placement: PosRuntimeMainMenuPlacement | null;
 };
 
 type DeviceRow = {
@@ -19,6 +21,7 @@ type DeviceRow = {
   device_code: string | null;
   device_name: string | null;
   status: string | null;
+  metadata: Record<string, unknown> | null;
 };
 
 const ACTIVE_DEVICE_POLICY: PosRuntimeDevicePolicy = {
@@ -27,13 +30,19 @@ const ACTIVE_DEVICE_POLICY: PosRuntimeDevicePolicy = {
   name: null,
   status: "active",
   block_sales: false,
-  reason_code: null
+  reason_code: null,
+  main_menu_placement: null
 };
 
 function normalizeDeviceStatus(value: unknown): PosRuntimeDeviceStatus {
   if (value === "inactive" || value === "maintenance") return value;
   if (value === "active") return "active";
   return "unknown";
+}
+
+function normalizeMainMenuPlacement(value: unknown): PosRuntimeMainMenuPlacement | null {
+  if (value === "left" || value === "top" || value === "bottom") return value;
+  return null;
 }
 
 function policyFromRow(row: DeviceRow | null, fallbackCode: string | null): PosRuntimeDevicePolicy {
@@ -52,7 +61,8 @@ function policyFromRow(row: DeviceRow | null, fallbackCode: string | null): PosR
     name: row.device_name,
     status,
     block_sales: blockSales,
-    reason_code: status === "inactive" ? "pos_device_inactive" : status === "maintenance" ? "pos_device_maintenance" : null
+    reason_code: status === "inactive" ? "pos_device_inactive" : status === "maintenance" ? "pos_device_maintenance" : null,
+    main_menu_placement: normalizeMainMenuPlacement(row.metadata?.pos_main_menu_placement)
   };
 }
 
@@ -86,7 +96,7 @@ export async function loadPosRuntimeDevicePolicy(input: {
   const supabase = getSupabaseServiceClient();
   const baseQuery = supabase
     .from("branch_devices")
-    .select("id,device_code,device_name,status")
+    .select("id,device_code,device_name,status,metadata")
     .eq("tenant_id", tenantId)
     .eq("branch_id", branchId);
   const query = deviceId ? baseQuery.eq("id", deviceId) : baseQuery.eq("device_code", deviceCode);
