@@ -6,7 +6,7 @@ const FG0003_TENANT_ID = "2d38bd23-bf2d-4b9a-a7cf-adb2547297ed";
 const FF0001_TENANT_ID = "997a0329-604f-49eb-a091-e654a57e6b8e";
 const TENANT_HIDDEN_MODES: Record<string, PosSalesMode[]> = {
   [FG0003_TENANT_ID]: ["buffet_table", "delivery"],
-  [FF0001_TENANT_ID]: ["delivery", "dine_in"]
+  [FF0001_TENANT_ID]: ["home", "dine_in", "delivery"]
 };
 const POS_SALES_MODE_ORDER_STORAGE_PREFIX = "pos_sales_mode_order_v1";
 
