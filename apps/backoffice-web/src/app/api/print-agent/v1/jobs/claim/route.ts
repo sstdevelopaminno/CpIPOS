@@ -10,17 +10,30 @@ type ClaimPayload = {
   app_version?: string | null;
 };
 
+type JsonRecord = Record<string, unknown>;
+
 const MODERN_RICH_LAYOUT_MIN_VERSION = [1, 0, 19] as const;
 // HtmlReceiptRasterizer adds three ESC/POS line feeds after the raster. A 22mm raster-safe
 // spacer plus those feeds leaves roughly 35mm from the final visible content to the paper edge.
 const MODERN_HTML_TAIL_MM = 22;
 
+function printerRelation(job: { printer_profiles?: unknown }) {
+  const relation = job.printer_profiles;
+  return Array.isArray(relation) ? relation[0] : relation;
+}
+
+function printerMetadata(job: { printer_profiles?: unknown }): JsonRecord {
+  const printer = printerRelation(job);
+  if (!printer || typeof printer !== "object") return {};
+  const metadata = (printer as { metadata?: unknown }).metadata;
+  return metadata && typeof metadata === "object" && !Array.isArray(metadata) ? (metadata as JsonRecord) : {};
+}
+
 function configuredPaperWidthMm(job: {
   metadata?: Record<string, unknown> | null;
   printer_profiles?: unknown;
 }): 58 | 80 | null {
-  const relation = job.printer_profiles;
-  const printer = Array.isArray(relation) ? relation[0] : relation;
+  const printer = printerRelation(job);
   if (printer && typeof printer === "object") {
     const width = Number((printer as { paper_width_mm?: unknown }).paper_width_mm);
     if (width === 80) return 80;
@@ -44,19 +57,44 @@ function isModernRichLayoutClient(appVersion: string | null | undefined) {
   return true;
 }
 
+function isImageDependentDocument(metadata: JsonRecord, html: string) {
+  const requestSource = String(metadata.request_source ?? "").toLowerCase();
+  const payloadFormat = String(metadata.payload_format ?? metadata.print_format ?? "").toLowerCase();
+  const command = String(metadata.command ?? "").toLowerCase();
+  return (
+    command === "open_cash_drawer" ||
+    requestSource.includes("table_qr") ||
+    payloadFormat.includes("table_qr") ||
+    html.includes("data-cpipos-document-type=\"table_qr\"") ||
+    html.includes("data-cpipos-document-type='table_qr'") ||
+    /<img\b[^>]*src=["']data:image\//i.test(html)
+  );
+}
+
+function shouldUseFastTextMode(job: {
+  printer_role?: unknown;
+  payload_text?: unknown;
+  metadata?: JsonRecord | null;
+  printer_profiles?: unknown;
+}, html: string) {
+  const profileMetadata = printerMetadata(job);
+  if (profileMetadata.prefer_text_mode !== true && profileMetadata.fast_text_mode !== true) return false;
+  const role = String(job.printer_role ?? "").toLowerCase();
+  if (role !== "receipt" && role !== "report") return false;
+  if (typeof job.payload_text !== "string" || job.payload_text.trim().length === 0) return false;
+  const metadata = job.metadata ?? {};
+  return !isImageDependentDocument(metadata, html);
+}
+
 function ensureModernTearSafeTail(html: string) {
   // Table QR already owns a dedicated raster spacer. Normalize its existing height instead of
   // appending the generic spacer, otherwise the two tails would stack and waste paper.
   if (html.includes("data-cpipos-table-qr-tail")) {
-    return html.replace(
-      /(\.qr-tail\s*\{\s*height:)\s*\d+(?:\.\d+)?mm/i,
-      `$1${MODERN_HTML_TAIL_MM}mm`
-    );
+    return html.replace(/(\.qr-tail\s*\{\s*height:)\s*\d+(?:\.\d+)?mm/i, `$1${MODERN_HTML_TAIL_MM}mm`);
   }
 
   // Existing generic marker means this payload has already been normalized upstream or during a
-  // previous claim. Keep it idempotent, but also normalize an older 15mm marker to the new 22mm
-  // standard so a re-claimed job cannot retain the shorter paper tail.
+  // previous claim. Keep it idempotent, but also normalize an older marker to the current standard.
   if (html.includes("data-cpipos-tear-safe-tail")) {
     return html.replace(
       /(data-cpipos-tear-safe-tail="v1"[^>]*style="[^"]*height:)\s*\d+(?:\.\d+)?mm/i,
@@ -64,10 +102,6 @@ function ensureModernTearSafeTail(html: string) {
     );
   }
 
-  // HtmlReceiptRasterizer crops white margins before ESC/POS conversion. #f7f7f7 survives crop
-  // detection but remains above the final monochrome threshold, so this spacer is physically kept
-  // without printing a visible rule. Combined with the renderer's three final feeds it yields
-  // approximately 3.5cm of tear-safe clearance after the final visible text.
   const spacer = `<div data-cpipos-tear-safe-tail="v1" aria-hidden="true" style="height:${MODERN_HTML_TAIL_MM}mm;border-bottom:1px solid #f7f7f7"></div>`;
   if (/<\/body>/i.test(html)) return html.replace(/<\/body>/i, `${spacer}</body>`);
   return `${html}${spacer}`;
@@ -91,6 +125,23 @@ export async function POST(req: Request) {
         const metadata = job.metadata ?? {};
         const htmlPayload = typeof metadata.payload_html === "string" ? metadata.payload_html.trim() : "";
         const hasHtmlPayload = htmlPayload.length > 0;
+        const fastTextMode = shouldUseFastTextMode(job, htmlPayload);
+
+        if (fastTextMode) {
+          return {
+            ...job,
+            metadata: {
+              ...metadata,
+              paper_width_mm: paperWidthMm,
+              payload_html: undefined,
+              force_rich_html_raster: false,
+              render_policy: "escpos_text_fast_v1",
+              print_format: `text_${paperWidthMm}mm`,
+              fast_text_mode: true
+            }
+          };
+        }
+
         return {
           ...job,
           metadata: {
@@ -102,8 +153,8 @@ export async function POST(req: Request) {
                   print_format: `html_${paperWidthMm}mm`,
                   ...(modernRichLayout
                     ? {
-                        // 1.0.19+ keeps low-latency queue wake-up but renders customer-facing
-                        // documents from the established HTML templates used before native text mode.
+                        // Keep rich raster output for image-dependent documents and profiles that
+                        // have not explicitly opted into the low-latency ESC/POS text path.
                         payload_html: ensureModernTearSafeTail(htmlPayload),
                         force_rich_html_raster: true,
                         render_policy: "legacy_rich_html_v1",
