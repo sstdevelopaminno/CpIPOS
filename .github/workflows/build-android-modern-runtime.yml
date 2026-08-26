@@ -24,17 +24,17 @@ permissions:
 
 env:
   ANDROID_RUNTIME_MODULE: apps/pos-android
-  ANDROID_RUNTIME_VERSION: 1.0.21
-  ANDROID_RUNTIME_VERSION_CODE: "29"
-  ANDROID_RUNTIME_RELEASE_TAG: android-runtime-modern-1.0.21
-  ANDROID_RUNTIME_APK_ASSET_NAME: CpIPOS-Android-POS-1.0.21.apk
+  ANDROID_RUNTIME_VERSION: 1.0.22
+  ANDROID_RUNTIME_VERSION_CODE: "30"
+  ANDROID_RUNTIME_RELEASE_TAG: android-runtime-modern-1.0.22
+  ANDROID_RUNTIME_APK_ASSET_NAME: CpIPOS-Android-POS-1.0.22.apk
   ANDROID_RUNTIME_COMPAT_ASSET_NAME: CpIPOS-Android-POS-Modern.apk
-  ANDROID_RUNTIME_MANIFEST_ASSET_NAME: CpIPOS-Android-POS-1.0.21.manifest.json
+  ANDROID_RUNTIME_MANIFEST_ASSET_NAME: CpIPOS-Android-POS-1.0.22.manifest.json
   ANDROID_SIGNING_CERT_SHA256: 6be0a9aef346a5b47162c8928c5018a01d0e7d81b4eb177bf2fb89922dc2a27a
 
 jobs:
   build-android-modern-runtime:
-    name: Build Android Modern 1.0.21 code 29
+    name: Build Android Modern 1.0.22 code 30
     runs-on: ubuntu-latest
     timeout-minutes: 35
     steps:
