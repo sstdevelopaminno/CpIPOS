@@ -70,8 +70,14 @@ type PosScopeExtrasCacheEntry = {
   expiresAt: number;
 };
 
+type PosSessionRoleCacheEntry = {
+  value: string | null;
+  expiresAt: number;
+};
+
 const POS_SESSION_ROW_CACHE_TTL_MS = 4000;
 const POS_SCOPE_EXTRAS_CACHE_TTL_MS = 20000;
+const POS_SESSION_ROLE_CACHE_TTL_MS = 20000;
 
 function getPosSessionRowCache() {
   const scopedGlobal = globalThis as typeof globalThis & {
@@ -91,6 +97,16 @@ function getPosScopeExtrasCache() {
     scopedGlobal.__posScopeExtrasCache = new Map<string, PosScopeExtrasCacheEntry>();
   }
   return scopedGlobal.__posScopeExtrasCache;
+}
+
+function getPosSessionRoleCache() {
+  const scopedGlobal = globalThis as typeof globalThis & {
+    __posSessionRoleCache?: Map<string, PosSessionRoleCacheEntry>;
+  };
+  if (!scopedGlobal.__posSessionRoleCache) {
+    scopedGlobal.__posSessionRoleCache = new Map<string, PosSessionRoleCacheEntry>();
+  }
+  return scopedGlobal.__posSessionRoleCache;
 }
 
 function readPosSessionRowCache(sessionId: string): PosSessionRow | null | undefined {
@@ -135,6 +151,24 @@ function writePosScopeExtrasCache(cacheKey: string, value: Omit<PosSessionScope,
   cache.set(cacheKey, {
     value,
     expiresAt: Date.now() + POS_SCOPE_EXTRAS_CACHE_TTL_MS
+  });
+}
+
+function readPosSessionRoleCache(cacheKey: string): string | null | undefined {
+  const cache = getPosSessionRoleCache();
+  const entry = cache.get(cacheKey);
+  if (!entry) return undefined;
+  if (entry.expiresAt <= Date.now()) {
+    cache.delete(cacheKey);
+    return undefined;
+  }
+  return entry.value;
+}
+
+function writePosSessionRoleCache(cacheKey: string, value: string | null) {
+  getPosSessionRoleCache().set(cacheKey, {
+    value,
+    expiresAt: Date.now() + POS_SESSION_ROLE_CACHE_TTL_MS
   });
 }
 
@@ -221,6 +255,12 @@ function verifyHandoffToken(token: string): HandoffPayload | null {
 
 function normalizeRole(value: string): "owner" | "manager" | "staff" | "accountant" {
   if (value === "owner" || value === "manager" || value === "accountant") return value;
+  return "staff";
+}
+
+function normalizeSessionRole(value: string | null | undefined): string {
+  const role = String(value ?? "").trim().toLowerCase();
+  if (role === "owner" || role === "manager" || role === "staff" || role === "accountant" || role === "kitchen") return role;
   return "staff";
 }
 
@@ -401,6 +441,52 @@ function withNullDeviceCode(shift: ShiftRowWithoutDeviceCode): ShiftRow {
   };
 }
 
+async function resolveAuthoritativeSessionRole(session: PosSessionRow): Promise<string> {
+  const cacheKey = `${session.tenant_id}:${session.branch_id}:${session.user_id}`;
+  const cached = readPosSessionRoleCache(cacheKey);
+  if (cached !== undefined) {
+    if (!cached) throw new PosGuardError("session_branch_role_missing", "POS session branch role is no longer active.", 403);
+    return cached;
+  }
+
+  const supabase = getSupabaseServiceClient();
+  const { data, error } = await supabase
+    .from("user_branch_roles")
+    .select("role")
+    .eq("tenant_id", session.tenant_id)
+    .eq("branch_id", session.branch_id)
+    .eq("user_id", session.user_id)
+    .maybeSingle<{ role: string | null }>();
+
+  if (error) {
+    console.error("[pos-session-guard] branch role query failed", {
+      sessionId: session.id,
+      tenantId: session.tenant_id,
+      branchId: session.branch_id,
+      userId: session.user_id,
+      errorCode: error.code ?? null,
+      errorMessage: error.message ?? "Unknown error"
+    });
+    throw new PosGuardError("session_branch_role_lookup_failed", "Unable to verify POS branch role.", 500);
+  }
+
+  const role = String(data?.role ?? "").trim();
+  if (!role) {
+    writePosSessionRoleCache(cacheKey, null);
+    throw new PosGuardError("session_branch_role_missing", "POS session branch role is no longer active.", 403);
+  }
+
+  const normalized = normalizeSessionRole(role);
+  writePosSessionRoleCache(cacheKey, normalized);
+  return normalized;
+}
+
+async function resolveScopeSession(session: PosSessionRow): Promise<PosSessionRow> {
+  const authoritativeRole = await resolveAuthoritativeSessionRole(session);
+  if (authoritativeRole === session.role) return session;
+  return { ...session, role: authoritativeRole };
+}
+
 async function loadScopeExtras(session: PosSessionRow): Promise<Omit<PosSessionScope, "session" | "permissions">> {
   const cacheKey = `${session.tenant_id}:${session.branch_id}:${session.user_id}`;
   const cached = readPosScopeExtrasCache(cacheKey);
@@ -495,11 +581,12 @@ async function resolveSessionFromCookies(): Promise<PosSessionRow> {
 export async function requirePosSession(): Promise<PosSessionScope> {
   const session = await resolveSessionFromCookies();
   assertActiveSession(session);
-  const extras = await loadScopeExtras(session);
+  const scopedSession = await resolveScopeSession(session);
+  const extras = await loadScopeExtras(scopedSession);
   return {
-    session,
+    session: scopedSession,
     ...extras,
-    permissions: computePermissions(session.role)
+    permissions: computePermissions(scopedSession.role)
   };
 }
 
@@ -508,11 +595,12 @@ export async function requirePosSessionForShiftClose(): Promise<PosSessionScope>
   if (session.status === "revoked") {
     throw new PosGuardError("session_revoked", "POS session was revoked.", 401);
   }
-  const extras = await loadScopeExtras(session);
+  const scopedSession = await resolveScopeSession(session);
+  const extras = await loadScopeExtras(scopedSession);
   return {
-    session,
+    session: scopedSession,
     ...extras,
-    permissions: computePermissions(session.role)
+    permissions: computePermissions(scopedSession.role)
   };
 }
 

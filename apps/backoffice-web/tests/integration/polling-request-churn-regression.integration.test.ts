@@ -8,6 +8,8 @@ function source(relativePath: string) {
 const globalAlert = source("../../src/components/pos-preview/pos-table-qr-global-alert.tsx");
 const tableOrderMobile = source("../../src/components/table-order/table-order-mobile.tsx");
 const androidMandatoryUpdate = source("../../src/components/android-pos/android-pos-mandatory-update.tsx");
+const productMediaRoute = source("../../src/app/api/pos/product-media/route.ts");
+const featureGate = source("../../src/lib/feature-gate.ts");
 
 describe("polling request-churn regression guard", () => {
   it("backs the global POS Table QR alert off to 30s while idle", () => {
@@ -37,5 +39,18 @@ describe("polling request-churn regression guard", () => {
     expect(androidMandatoryUpdate).toContain("/api/android-pos/update-enforcement");
     expect(androidMandatoryUpdate).toContain("setRequired(false)");
     expect(androidMandatoryUpdate).not.toContain("setTimeout");
+  });
+
+  it("keeps product-media POS reads off the tenant-wide quota path unless explicitly requested", () => {
+    expect(productMediaRoute).toContain('url.searchParams.get("include_quota")');
+    expect(productMediaRoute).toContain("const quota = includeQuota ? await resolveProductMediaQuota(resolved.tenantId) : null");
+    expect(productMediaRoute).not.toContain("Promise.all([\n      loadProductMediaMap");
+  });
+
+  it("collapses repeated feature entitlement contract reads during POS startup", () => {
+    expect(featureGate).toContain("__latestContractInFlight");
+    expect(featureGate).toContain("readLatestContractCache(tenantId)");
+    expect(featureGate).toContain("writeLatestContractCache(tenantId, resolved)");
+    expect(featureGate).toContain("contractInFlight.clear()");
   });
 });

@@ -51,6 +51,8 @@ describe("Customer Display V2 Android dual-screen compatibility contract", () =>
     expect(mdmRoute).toContain('GET as baseGet, POST as basePost');
     expect(mdmRoute).toContain("const baseResponse = await basePost(request)");
     expect(mdmBase).toContain("android_mdm_displays: asRecord(payload?.displays)");
+    expect(mdmBase).toContain("const safeAtMs = atMs > serverNowMs ? serverNowMs : atMs");
+    expect(mdmBase).toContain("device_reported_at");
   });
 
   it("reads native display state only from the authenticated POS device channel", () => {

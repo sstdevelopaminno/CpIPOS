@@ -50,7 +50,13 @@ type FeatureDecisionCacheEntry = {
   expiresAt: number;
 };
 
+type LatestContractCacheEntry = {
+  value: ContractRow | null;
+  expiresAt: number;
+};
+
 const FEATURE_DECISION_CACHE_TTL_MS = 15_000;
+const LATEST_CONTRACT_CACHE_TTL_MS = 15_000;
 
 export class FeatureGateError extends Error {
   code: string;
@@ -74,6 +80,26 @@ function getFeatureDecisionCache() {
   return scopedGlobal.__featureDecisionCache;
 }
 
+function getLatestContractCache() {
+  const scopedGlobal = globalThis as typeof globalThis & {
+    __latestContractCache?: Map<string, LatestContractCacheEntry>;
+  };
+  if (!scopedGlobal.__latestContractCache) {
+    scopedGlobal.__latestContractCache = new Map<string, LatestContractCacheEntry>();
+  }
+  return scopedGlobal.__latestContractCache;
+}
+
+function getLatestContractInFlight() {
+  const scopedGlobal = globalThis as typeof globalThis & {
+    __latestContractInFlight?: Map<string, Promise<ContractRow | null>>;
+  };
+  if (!scopedGlobal.__latestContractInFlight) {
+    scopedGlobal.__latestContractInFlight = new Map<string, Promise<ContractRow | null>>();
+  }
+  return scopedGlobal.__latestContractInFlight;
+}
+
 function readFeatureDecisionCache(cacheKey: string): boolean | null {
   const cache = getFeatureDecisionCache();
   const entry = cache.get(cacheKey);
@@ -93,16 +119,40 @@ function writeFeatureDecisionCache(cacheKey: string, enabled: boolean) {
   });
 }
 
+function readLatestContractCache(tenantId: string): ContractRow | null | undefined {
+  const cache = getLatestContractCache();
+  const entry = cache.get(tenantId);
+  if (!entry) return undefined;
+  if (entry.expiresAt <= Date.now()) {
+    cache.delete(tenantId);
+    return undefined;
+  }
+  return entry.value;
+}
+
+function writeLatestContractCache(tenantId: string, value: ContractRow | null) {
+  getLatestContractCache().set(tenantId, {
+    value,
+    expiresAt: Date.now() + LATEST_CONTRACT_CACHE_TTL_MS
+  });
+}
+
 export function invalidateTenantFeatureGateCache(tenantId?: string | null) {
   const cache = getFeatureDecisionCache();
+  const contractCache = getLatestContractCache();
+  const contractInFlight = getLatestContractInFlight();
   if (!tenantId) {
     cache.clear();
+    contractCache.clear();
+    contractInFlight.clear();
     return;
   }
   const prefix = `${tenantId}:`;
   for (const key of cache.keys()) {
     if (key.startsWith(prefix)) cache.delete(key);
   }
+  contractCache.delete(tenantId);
+  contractInFlight.delete(tenantId);
 }
 
 function parseLimit(value: unknown): number | null {
@@ -129,20 +179,37 @@ function contractAllowsAccess(contract: ContractRow | null): boolean {
 }
 
 async function getLatestContract(tenantId: string): Promise<ContractRow | null> {
+  const cached = readLatestContractCache(tenantId);
+  if (cached !== undefined) return cached;
+
+  const inFlight = getLatestContractInFlight();
+  const existing = inFlight.get(tenantId);
+  if (existing) return existing;
+
   const supabase = getSupabaseServiceClient();
-  const { data, error } = await supabase
-    .from("tenant_subscription_contracts")
-    .select("id,tenant_id,package_id,status,branch_limit,terminal_limit_per_branch,max_branches,max_devices,max_users,metadata,started_at,ended_at,created_at")
-    .eq("tenant_id", tenantId)
-    .order("created_at", { ascending: false })
-    .limit(1)
-    .maybeSingle<ContractRow>();
+  const promise = Promise.resolve(
+    supabase
+      .from("tenant_subscription_contracts")
+      .select("id,tenant_id,package_id,status,branch_limit,terminal_limit_per_branch,max_branches,max_devices,max_users,metadata,started_at,ended_at,created_at")
+      .eq("tenant_id", tenantId)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle<ContractRow>()
+  )
+    .then(({ data, error }) => {
+      if (error) {
+        throw new FeatureGateError("contract_query_failed", error.message, 500);
+      }
+      const resolved = data ?? null;
+      writeLatestContractCache(tenantId, resolved);
+      return resolved;
+    })
+    .finally(() => {
+      inFlight.delete(tenantId);
+    });
 
-  if (error) {
-    throw new FeatureGateError("contract_query_failed", error.message, 500);
-  }
-
-  return data ?? null;
+  inFlight.set(tenantId, promise);
+  return promise;
 }
 
 export async function hasBranchFeature(tenantId: string, branchId: string | null, featureKey: string): Promise<boolean> {

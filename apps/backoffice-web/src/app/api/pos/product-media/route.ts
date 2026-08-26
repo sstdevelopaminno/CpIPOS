@@ -31,14 +31,13 @@ export async function GET(request: Request) {
       .filter(Boolean);
     if (productIds.length > 500) return fail("too_many_product_ids", "Too many product ids were requested.", 422);
 
-    const [assetMap, quota] = await Promise.all([
-      loadProductMediaMap({
-        tenantId: resolved.tenantId,
-        branchId: resolved.branchId,
-        productIds: productIds.length > 0 ? productIds : undefined
-      }),
-      resolveProductMediaQuota(resolved.tenantId)
-    ]);
+    const includeQuota = url.searchParams.get("include_quota") === "1" || url.searchParams.get("include_quota") === "true";
+    const assetMap = await loadProductMediaMap({
+      tenantId: resolved.tenantId,
+      branchId: resolved.branchId,
+      productIds: productIds.length > 0 ? productIds : undefined
+    });
+    const quota = includeQuota ? await resolveProductMediaQuota(resolved.tenantId) : null;
 
     return ok({
       tenant_id: resolved.tenantId,

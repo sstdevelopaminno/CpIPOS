@@ -41,6 +41,7 @@ describe("POS session guard shift close fallback", () => {
     const from = vi.fn((table: string) => {
       if (table === "pos_sessions") return makeQuery({ data: expiredSession, error: null });
       if (table === "users_profiles") return makeQuery({ data: { id: "user-1", full_name: "Manager", is_active: true }, error: null });
+      if (table === "user_branch_roles") return makeQuery({ data: { role: "owner" }, error: null });
       if (table === "branches") return makeQuery({ data: { id: "branch-1", name: "Branch", code: "B1" }, error: null });
       if (table === "tenants") return makeQuery({ data: { id: "tenant-1", name: "Tenant", code: "T1", is_active: true }, error: null });
       return makeQuery({ data: null, error: null });
@@ -53,6 +54,8 @@ describe("POS session guard shift close fallback", () => {
 
     const shiftCloseScope = await requirePosSessionForShiftClose();
     expect(shiftCloseScope.session.id).toBe("expired-session");
+    expect(shiftCloseScope.session.role).toBe("owner");
+    expect(shiftCloseScope.permissions).toContain("users:manage");
     expect(shiftCloseScope.permissions).toContain("shift:close");
   });
 });

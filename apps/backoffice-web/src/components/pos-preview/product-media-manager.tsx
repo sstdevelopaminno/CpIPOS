@@ -163,7 +163,7 @@ export function ProductMediaManager({ th, branchId, branchName, products, canMan
   useEffect(() => {
     let cancelled = false;
     const ids = products.map((product) => product.id).join(",");
-    const url = `/api/pos/product-media?branch_id=${encodeURIComponent(branchId)}${ids ? `&product_ids=${encodeURIComponent(ids)}` : ""}`;
+    const url = `/api/pos/product-media?branch_id=${encodeURIComponent(branchId)}&include_quota=1${ids ? `&product_ids=${encodeURIComponent(ids)}` : ""}`;
     setLoading(true);
     void fetch(url, { cache: "no-store", credentials: "include" })
       .then(async (response) => {

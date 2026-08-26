@@ -311,8 +311,11 @@ async function acknowledgePreviousUiReload(
   if (!Number.isFinite(atMs) || atMs <= 0) return;
 
   const supabase = getSupabaseServiceClient();
-  const executedAt = new Date(atMs).toISOString();
-  const lowerBound = new Date(atMs - 5 * 60 * 1000).toISOString();
+  const serverNowMs = Date.now();
+  const safeAtMs = atMs > serverNowMs ? serverNowMs : atMs;
+  const executedAt = new Date(safeAtMs).toISOString();
+  const deviceReportedAt = new Date(atMs).toISOString();
+  const lowerBound = new Date(safeAtMs - 5 * 60 * 1000).toISOString();
   await supabase.from("device_commands").update({
     result: {
       applied: true,
@@ -320,7 +323,8 @@ async function acknowledgePreviousUiReload(
       mdm_action: "reload_webview",
       app_version: appVersion,
       acknowledged_at: new Date().toISOString(),
-      executed_at: executedAt
+      executed_at: executedAt,
+      device_reported_at: deviceReportedAt === executedAt ? null : deviceReportedAt
     }
   })
     .eq("pos_device_id", device.id)
