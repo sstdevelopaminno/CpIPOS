@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
+import { usePathname } from "next/navigation";
 import { PosShiftCycleGuard as PosShiftCycleGuardCore } from "@/components/pos/pos-shift-cycle-guard-core";
 
 type Lang = "th" | "en";
@@ -17,6 +18,8 @@ function readServerTimeMs(response: Response) {
 }
 
 export function PosShiftCycleGuard({ lang }: { lang: Lang }) {
+  const pathname = usePathname();
+  const isShiftManagementPage = pathname === "/preview/pos/shift";
   const [mounted, setMounted] = useState(false);
   const [clockSafeForAutomaticShiftClose, setClockSafeForAutomaticShiftClose] = useState(false);
 
@@ -26,6 +29,11 @@ export function PosShiftCycleGuard({ lang }: { lang: Lang }) {
   }, []);
 
   useEffect(() => {
+    if (isShiftManagementPage) {
+      setClockSafeForAutomaticShiftClose(false);
+      return;
+    }
+
     let cancelled = false;
 
     const verifyClock = async () => {
@@ -60,9 +68,9 @@ export function PosShiftCycleGuard({ lang }: { lang: Lang }) {
       cancelled = true;
       window.clearInterval(timer);
     };
-  }, []);
+  }, [isShiftManagementPage]);
 
-  if (!mounted) return null;
+  if (!mounted || isShiftManagementPage) return null;
 
   return (
     <>
