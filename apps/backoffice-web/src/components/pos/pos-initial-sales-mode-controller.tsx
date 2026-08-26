@@ -12,11 +12,13 @@ import {
 const POS_SCOPE_KEY = "pos_scope_v001";
 const SALES_MODE_ORDER_API = "/api/pos/settings/sales-mode-order";
 const MODE_SWITCH_QUERY = ".posui-mode-switch-button";
+const MODE_SELECTOR_QUERY = ".posui-mode-selector";
 const MODE_ATTRIBUTE = "data-pos-sale-mode";
 const HIDDEN_ATTRIBUTE = "data-pos-mode-hidden";
 const WAIT_STEP_MS = 100;
 const SCOPE_WAIT_LIMIT = 50;
-const SELECTOR_WAIT_LIMIT = 25;
+const SELECTOR_WAIT_LIMIT = 40;
+const FF0001_TENANT_ID = "997a0329-604f-49eb-a091-e654a57e6b8e";
 
 const ACTIVE_POS_KEYS = [
   "pos_pending_submit_v012",
@@ -46,7 +48,7 @@ function hasActivePosWork(): boolean {
       return raw.trim().length > 0 && raw !== "null" && raw !== "{}" && raw !== "[]";
     });
   } catch {
-    // Storage uncertainty must never trigger an automatic mode transition.
+    // Storage uncertainty must never trigger a generic automatic mode transition.
     return true;
   }
 }
@@ -70,20 +72,36 @@ function parseModeOrder(payload: unknown): PosSalesMode[] | null {
   return normalizePosSalesModeOrder((data as { order?: unknown }).order);
 }
 
+function findRenderedBuffetCard(): HTMLElement | null {
+  const selector = document.querySelector<HTMLElement>(MODE_SELECTOR_QUERY);
+  if (!selector) return null;
+  const candidates = Array.from(selector.querySelectorAll<HTMLElement>("button, [role=button]"));
+  return (
+    candidates.find((candidate) => {
+      const text = String(candidate.textContent ?? "").toLowerCase();
+      return text.includes("บุฟเฟ่ต์") || text.includes("บุฟเฟ่") || text.includes("buffet");
+    }) ?? null
+  );
+}
+
 export function PosInitialSalesModeController() {
   useEffect(() => {
     let cancelled = false;
 
     const run = async () => {
-      // Never change modes while a cart/order/payment/table restore is in progress.
-      if (hasActivePosWork()) return;
-
       let scope = readScope();
       for (let index = 0; !scope && index < SCOPE_WAIT_LIMIT && !cancelled; index += 1) {
         await wait(WAIT_STEP_MS);
         scope = readScope();
       }
-      if (!scope || cancelled || hasActivePosWork()) return;
+      if (!scope || cancelled) return;
+
+      const forceBuffetOnly = scope.tenantId === FF0001_TENANT_ID;
+      const hasBlockingWork = () => !forceBuffetOnly && hasActivePosWork();
+
+      // Generic tenants keep the conservative restore guard. FF0001 is explicitly
+      // buffet-only, so stale takeaway/localStorage state must not pin the terminal to Home.
+      if (hasBlockingWork()) return;
 
       let order: PosSalesMode[] | null = null;
       try {
@@ -115,11 +133,11 @@ export function PosInitialSalesModeController() {
           order = null;
         }
       }
-      if (!order || cancelled || hasActivePosWork()) return;
+      if ((!order && !forceBuffetOnly) || cancelled || hasBlockingWork()) return;
 
-      // Delivery currently opens a maintenance flow rather than a sellable workspace.
-      // Select the highest-ranked visible mode that is actually safe to enter automatically.
-      const preferred = getVisiblePosSalesModeOrder(order, scope.tenantId).find((mode) => mode !== "delivery") ?? "home";
+      const preferred: PosSalesMode = forceBuffetOnly
+        ? "buffet_table"
+        : getVisiblePosSalesModeOrder(order ?? [], scope.tenantId).find((mode) => mode !== "delivery") ?? "home";
       if (preferred === "home") return;
 
       let switchButton: HTMLButtonElement | null = null;
@@ -128,14 +146,21 @@ export function PosInitialSalesModeController() {
         if (candidate && !candidate.disabled) switchButton = candidate;
         if (!switchButton) await wait(WAIT_STEP_MS);
       }
-      if (!switchButton || cancelled || hasActivePosWork()) return;
+      if (!switchButton || cancelled || hasBlockingWork()) return;
 
       switchButton.click();
 
       for (let index = 0; index < SELECTOR_WAIT_LIMIT && !cancelled; index += 1) {
-        if (hasActivePosWork()) return;
-        const target = document.querySelector<HTMLElement>(`[${MODE_ATTRIBUTE}="${preferred}"]`);
-        if (target && target.getAttribute(HIDDEN_ATTRIBUTE) !== "true") {
+        if (hasBlockingWork()) return;
+        let target = document.querySelector<HTMLElement>(`[${MODE_ATTRIBUTE}="${preferred}"]`);
+
+        // FF0001 must be resilient to legacy DOM-index tagging. Resolve the actual
+        // rendered Buffet card by its label when the generic enhancer has not settled yet.
+        if (forceBuffetOnly && (!target || target.getAttribute(HIDDEN_ATTRIBUTE) === "true")) {
+          target = findRenderedBuffetCard();
+        }
+
+        if (target && (forceBuffetOnly || target.getAttribute(HIDDEN_ATTRIBUTE) !== "true")) {
           target.click();
           return;
         }
