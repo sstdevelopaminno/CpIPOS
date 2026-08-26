@@ -1,0 +1,28 @@
+/*
+ * Android POS touch recovery.
+ *
+ * Some older Android WebView builds can leave a transition-mounted modal shell
+ * in the hit-test tree after the modal becomes visually transparent.  Keep the
+ * full-screen shell itself non-interactive and let only visible modal children
+ * receive pointer input.  This preserves backdrop-to-close while preventing an
+ * opacity-0 transition frame from blocking the POS controls underneath.
+ */
+
+.fixed.inset-0.z-\[110\] {
+  pointer-events: none;
+}
+
+.fixed.inset-0.z-\[110\] > .opacity-100 {
+  pointer-events: auto;
+}
+
+.fixed.inset-0.z-\[110\] > .opacity-0 {
+  pointer-events: none;
+}
+
+/* Avoid the legacy 300 ms tap-delay heuristics on POS interaction surfaces. */
+button,
+a,
+[role="button"] {
+  touch-action: manipulation;
+}
