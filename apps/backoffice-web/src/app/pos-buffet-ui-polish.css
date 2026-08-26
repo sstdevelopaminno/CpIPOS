@@ -24,3 +24,47 @@
 .posui-modal--buffet .posui-btn {
   min-height: 44px;
 }
+
+.posui-mode-selector__grid:has(.cpipos-buffet-profile-probe[data-profile-state="loading"]) {
+  visibility: hidden !important;
+  pointer-events: none !important;
+}
+
+.posui-mode-selector__grid:has(.cpipos-buffet-profile-mode) > button.posui-mode-option:nth-of-type(2),
+.posui-mode-selector__grid:has(.cpipos-buffet-profile-mode) > button.posui-mode-option:nth-of-type(4) {
+  display: none !important;
+}
+
+.posui-mode-selector__grid:has(.cpipos-buffet-profile-mode) {
+  grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+}
+
+body:has(.cpipos-buffet-profile-mode) .posui-modal--buffet {
+  width: min(800px, 92vw) !important;
+}
+
+body:has(.cpipos-buffet-profile-mode) .posui-modal--buffet .h-14 {
+  height: 3rem !important;
+}
+
+body:has(.cpipos-buffet-profile-mode) .posui-modal--buffet .p-6 {
+  padding: 1.25rem !important;
+}
+
+body:has(.cpipos-buffet-profile-mode) .posui-modal--buffet .gap-6 {
+  gap: 1.25rem !important;
+}
+
+body:has(.cpipos-buffet-profile-mode) .posui-modal--buffet .text-6xl {
+  font-size: 3rem !important;
+}
+
+body:has(.cpipos-buffet-profile-mode) .posui-modal--buffet .text-4xl {
+  font-size: 2rem !important;
+}
+
+@media (min-width: 1024px) {
+  body:has(.cpipos-buffet-profile-mode) .posui-modal--buffet > div.mt-2.grid:not([role="list"]) {
+    grid-template-columns: minmax(0, 1fr) 240px !important;
+  }
+}
