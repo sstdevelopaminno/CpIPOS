@@ -80,7 +80,7 @@ export async function GET() {
     ensureManagerOrOwner(auth);
     const supabase = getSupabaseServiceClient();
 
-    const [{ data: devices, error: deviceError }, { data: healthRows, error: healthError }, { data: commands, error: commandError }] = await Promise.all([
+    const [{ data: devices, error: deviceError }, { data: commands, error: commandError }] = await Promise.all([
       supabase
         .from("branch_devices")
         .select("id,device_code,device_name,device_type,status,is_active,last_seen_at,metadata")
@@ -89,13 +89,6 @@ export async function GET() {
         .eq("is_active", true)
         .order("last_seen_at", { ascending: false, nullsFirst: false })
         .returns<BranchDeviceRow[]>(),
-      supabase
-        .from("pos_device_health_latest")
-        .select("pos_device_id,device_code,status,runtime_version,app_version,runtime_health,peripheral_health,metadata,captured_at,last_seen_at")
-        .eq("tenant_id", auth.tenantId!)
-        .eq("branch_id", auth.branchId!)
-        .order("last_seen_at", { ascending: false })
-        .returns<DeviceHealthRow[]>(),
       supabase
         .from("device_commands")
         .select("id,pos_device_id,status,issued_at,delivered_at,result,metadata")
@@ -108,8 +101,22 @@ export async function GET() {
     ]);
 
     if (deviceError) throw new Error(deviceError.message);
-    if (healthError) throw new Error(healthError.message);
     if (commandError) throw new Error(commandError.message);
+
+    const deviceIds = (devices ?? []).map((device) => device.id).filter(Boolean);
+    const { data: healthRows, error: healthError } = deviceIds.length
+      ? await supabase
+          .from("pos_device_health_latest")
+          .select("pos_device_id,device_code,status,runtime_version,app_version,runtime_health,peripheral_health,metadata,captured_at,last_seen_at")
+          .eq("tenant_id", auth.tenantId!)
+          .eq("branch_id", auth.branchId!)
+          .in("pos_device_id", deviceIds)
+          .order("last_seen_at", { ascending: false })
+          .limit(Math.min(500, Math.max(deviceIds.length * 6, 50)))
+          .returns<DeviceHealthRow[]>()
+      : { data: [], error: null };
+
+    if (healthError) throw new Error(healthError.message);
 
     const latestHealthByDevice = new Map<string, DeviceHealthRow>();
     for (const row of healthRows ?? []) {

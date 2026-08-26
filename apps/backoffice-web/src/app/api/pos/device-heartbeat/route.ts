@@ -108,7 +108,9 @@ export async function POST(req: Request) {
     const body = (await req.json().catch(() => ({}))) as DeviceHeartbeatPayload;
     const bodyIdentity = isRecord(body.identity) ? body.identity : {};
 
-    const deviceCode = sanitizeText(bodyIdentity.device_code, scope.session.device_code ?? "POS-DEVICE");
+    const reportedDeviceCode = sanitizeText(bodyIdentity.device_code);
+    const sessionDeviceCode = sanitizeText(scope.session.device_code, "POS-DEVICE");
+    const deviceCode = sessionDeviceCode;
     const machineId = sanitizeText(bodyIdentity.machine_id, deviceCode);
     const capturedAt = sanitizeText(body.captured_at, new Date().toISOString());
 
@@ -151,7 +153,11 @@ export async function POST(req: Request) {
       peripherals: (isRecord(body.peripherals) ? body.peripherals : {}) as DeviceMdmPeripheralHealth,
       offline_sale: body.offline_sale ? ((isRecord(body.offline_sale) ? body.offline_sale : {}) as DeviceMdmOfflineSaleHealth) : null,
       security_signals: sanitizeSecuritySignals(body.security_signals),
-      metadata: sanitizeRecord(body.metadata),
+      metadata: {
+        ...sanitizeRecord(body.metadata),
+        reported_device_code: reportedDeviceCode || null,
+        authoritative_device_code_source: "pos_session"
+      },
       captured_at: capturedAt
     };
 

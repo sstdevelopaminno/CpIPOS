@@ -343,7 +343,7 @@ export async function getSupportCenterSnapshot(supabase: SupportSupabase, rawQue
   const nowMs = now.getTime();
   const since24h = new Date(nowMs - 24 * 60 * 60 * 1000).toISOString();
 
-  const [tenantResult, lifecycleResult, contractResult, branchesResult, devicesResult, healthResult] = await Promise.all([
+  const [tenantResult, lifecycleResult, contractResult, branchesResult, devicesResult] = await Promise.all([
     supabase.from("tenants").select("id,code,name,display_name,owner_name,owner_phone,contact_phone,is_active").eq("id", tenantId).single(),
     supabase
       .from("tenant_data_lifecycle")
@@ -362,15 +362,7 @@ export async function getSupportCenterSnapshot(supabase: SupportSupabase, rawQue
       .from("branch_devices")
       .select("id,branch_id,device_code,device_name,device_type,status,is_locked,is_active,last_seen_at")
       .eq("tenant_id", tenantId)
-      .order("created_at", { ascending: true }),
-    supabase
-      .from("pos_device_health_latest")
-      .select(
-        "id,tenant_id,branch_id,pos_device_id,pos_session_id,device_code,machine_id,runtime_version,app_version,status,summary,identity,connectivity,system_health,runtime_health,peripheral_health,offline_sale_health,security_signals,metadata,captured_at,last_seen_at"
-      )
-      .eq("tenant_id", tenantId)
-      .order("last_seen_at", { ascending: false })
-      .limit(500)
+      .order("created_at", { ascending: true })
   ]);
 
   const tenant = checkQuery(tenantResult, "tenant") as any;
@@ -378,6 +370,18 @@ export async function getSupportCenterSnapshot(supabase: SupportSupabase, rawQue
   const contract = checkQuery(contractResult, "tenant contract") as any;
   const branches = (checkQuery(branchesResult, "branches") ?? []) as any[];
   const registeredDevices = (checkQuery(devicesResult, "branch devices") ?? []) as any[];
+  const registeredDeviceIds = registeredDevices.map((device) => String(device.id)).filter(Boolean);
+  const healthResult = registeredDeviceIds.length
+    ? await supabase
+        .from("pos_device_health_latest")
+        .select(
+          "id,tenant_id,branch_id,pos_device_id,pos_session_id,device_code,machine_id,runtime_version,app_version,status,summary,identity,connectivity,system_health,runtime_health,peripheral_health,offline_sale_health,security_signals,metadata,captured_at,last_seen_at"
+        )
+        .eq("tenant_id", tenantId)
+        .in("pos_device_id", registeredDeviceIds)
+        .order("last_seen_at", { ascending: false })
+        .limit(Math.min(500, Math.max(registeredDeviceIds.length * 6, 50)))
+    : { data: [], error: null };
   const healthRows = (checkQuery(healthResult, "device health") ?? []) as HealthRow[];
 
   const branchById = new Map(branches.map((branch) => [String(branch.id), branch]));
