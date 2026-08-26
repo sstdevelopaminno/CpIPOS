@@ -1,0 +1,18 @@
+/* Android POS touch recovery */
+.fixed.inset-0.z-\[110\] {
+  pointer-events: none;
+}
+
+.fixed.inset-0.z-\[110\] > .opacity-100 {
+  pointer-events: auto;
+}
+
+.fixed.inset-0.z-\[110\] > .opacity-0 {
+  pointer-events: none;
+}
+
+button,
+a,
+[role="button"] {
+  touch-action: manipulation;
+}
