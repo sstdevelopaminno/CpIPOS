@@ -86,7 +86,7 @@ describe("android modern update offer", () => {
     })).toBeNull();
   });
 
-  it("offers latest 1.0.20 as notice-only to an opted-in non-protected Modern runtime", () => {
+  it("offers latest 1.0.21 as notice-only to an opted-in non-protected Modern runtime", () => {
     expect(buildAndroidModernUpdateOffer({
       tenantCode: "900001",
       payload: modernPayload(26)

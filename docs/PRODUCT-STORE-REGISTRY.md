@@ -8,7 +8,7 @@ This document is the canonical product/store deployment registry for CpIPOS. It 
 
 - Supabase Primary: `CpiPOS-001` (`deejlitaivfnsbwqdugy`)
 - Android package: `com.cpipos.pos`
-- Current Modern Android runtime: `1.0.20` / `versionCode 28`
+- Current Modern Android runtime: `1.0.21` / `versionCode 29`
 - Android runtime is shared across Restaurant QR and Buffet unless native hardware requirements materially diverge.
 - Tenant and branch isolation remain mandatory for every product profile.
 - MDM commands must be scoped `store -> branch -> exact device`; global broadcast is not the default.
@@ -79,7 +79,7 @@ This document is the canonical product/store deployment registry for CpIPOS. It 
   - `FF0001-POS-01`
   - `FF0001-POS-02`
 - Display mode: `single_screen` for both POS devices
-- Android requirement: `CpIPOS 1.0.20 / versionCode 28` or newer approved runtime
+- Android requirement: `CpIPOS 1.0.21 / versionCode 29` or newer approved runtime
 - Receipt printer slots: `2`
   - `RECEIPT-01`
   - `RECEIPT-02`

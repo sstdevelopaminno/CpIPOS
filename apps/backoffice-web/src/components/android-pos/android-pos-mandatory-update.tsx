@@ -38,8 +38,8 @@ const FG0003_ROLLBACK_INSTALL_ID = "13aec7a2-7817-49b4-a90f-ff275dfefd75";
 export function AndroidPosMandatoryUpdate() {
   const [required, setRequired] = useState(false);
   const [checking, setChecking] = useState(false);
-  const [targetName, setTargetName] = useState("1.0.20");
-  const [targetCode, setTargetCode] = useState(28);
+  const [targetName, setTargetName] = useState("1.0.21");
+  const [targetCode, setTargetCode] = useState(29);
   const [downloadUrl, setDownloadUrl] = useState(FALLBACK_DOWNLOAD_URL);
   const [rollbackMode, setRollbackMode] = useState(false);
 

@@ -6,7 +6,7 @@
 
 - Package: `com.cpipos.pos`
 - Stable source baseline: **1.0.12 / versionCode 18**
-- Modern managed build: **1.0.20 / versionCode 27**
+- Modern managed build: **1.0.21 / versionCode 29**
 - Minimum Android SDK: 26
 - Runtime: hardened Android WebView shell using the shared Web POS UI and server APIs
 - Default entrypoint: `https://cp-ipos-web.vercel.app/login/store`
@@ -63,12 +63,12 @@ gradle :app:assembleDebug
 Modern updater-capable build uses the dedicated workflow `.github/workflows/build-android-modern-runtime.yml` and the Gradle overrides:
 
 ```text
--PcpiposVersionName=1.0.20
--PcpiposVersionCode=27
+-PcpiposVersionName=1.0.21
+-PcpiposVersionCode=29
 -PcpiposUpdateChannel=modern
 -PcpiposManagedUpdater=true
 ```
 
-The Modern release workflow validates the protected signing certificate, builds the signed release APK, verifies package/version/signature, generates the APK SHA-256 manifest, uploads the workflow artifact, and publishes the versioned assets to `android-runtime-modern-1.0.20` after a production-branch push.
+The Modern release workflow validates the protected signing certificate, builds the signed release APK, verifies package/version/signature, generates the APK SHA-256 manifest, uploads the workflow artifact, and publishes the versioned assets to `android-runtime-modern-1.0.21` after a production-branch push.
 
 The normal `.github/workflows/build-android-runtime.yml` continues to protect and publish the Stable 1.0.12 release contract independently.

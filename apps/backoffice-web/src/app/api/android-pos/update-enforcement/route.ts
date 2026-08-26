@@ -3,8 +3,8 @@ import { getSupabaseServiceClient } from "@/lib/supabase-admin";
 
 const TARGET_TENANT_CODE = "FG0003";
 const TARGET_DEVICE_CODE = "TEST-POS-01";
-const TARGET_VERSION_NAME = "1.0.20";
-const TARGET_VERSION_CODE = 28;
+const TARGET_VERSION_NAME = "1.0.21";
+const TARGET_VERSION_CODE = 29;
 const DOWNLOAD_URL = "/download/android/modern-latest";
 
 type RequestBody = {
