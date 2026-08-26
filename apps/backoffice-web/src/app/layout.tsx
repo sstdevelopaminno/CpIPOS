@@ -8,6 +8,7 @@ import "./globals.css";
 import "./legacy-webview-colors.css";
 import "./pos-buffet-ui-polish.css";
 import "./fg0003-qr-review-feedback.css";
+import "./pos-webview-touch-recovery.css";
 
 export const metadata: Metadata = {
   title: "CpIPOS",
