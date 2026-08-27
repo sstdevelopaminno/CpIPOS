@@ -260,7 +260,7 @@ async function rasterBytesFromReceiptText(job: BrowserPrintJob, html?: string | 
   const padding = 14;
   const lineHeight = 30;
   firstPass.font = '800 23px "Tahoma", "Noto Sans Thai", sans-serif';
-  const wrapped = lines.flatMap((line) => wrapCanvasLine(firstPass, line.replace(/\?(\d)/g, "เธฟ$1"), width - padding * 2));
+  const wrapped = lines.flatMap((line) => wrapCanvasLine(firstPass, line.replace(/\?(\d)/g, "฿$1"), width - padding * 2));
   canvas.width = width;
   canvas.height = Math.max(120, padding * 2 + wrapped.length * lineHeight);
   const ctx = canvas.getContext("2d");

@@ -1,65 +1,31 @@
 # CpIPOS
 
-Production-oriented multi-tenant / multi-branch POS platform.
+CpIPOS is a production-oriented multi-tenant, multi-branch point-of-sale platform for Web POS, Back Office, IT administration, Android POS, and Windows runtime clients.
 
-## Current source of truth
+## Source of truth
 
 - Repository: `sstdevelopaminno/CpIPOS`
-- Active integration branch: `agent-docs-preflight-schema-drift`
-- Web/POS Vercel project: `cp-ipos-web`
-- CpIPOS Mobile distribution: Native Android APK via GitHub Releases + `/download/mobile` on `cp-ipos-web`; there is no Mobile web runtime in the repository
-- **CpiPOS-001 / Primary:** Supabase ref `deejlitaivfnsbwqdugy`
-- **CpiPOS-002 / Trial Data Plane:** Supabase ref `kawenyvpentwgugtzqec`
+- Current integration line: `agent-docs-preflight-schema-drift`
+- Web/POS project: `cp-ipos-web`
+- GitHub currently receives separately configured Vercel deployment checks for `cp-ipos-web`, `cp-ipos-backoffice-web`, and `cp-ipos-it-admin-web`. Treat these as project-level deployment integrations; do not infer that a project is retired solely because it is not visible through one connector session. The IT Admin routes also exist in `apps/backoffice-web` and must remain covered by the reviewed production build.
+- The connected Vercel API session can read `cp-ipos-web` but currently receives provider-side `403 Forbidden` when listing deployments for `cp-ipos-backoffice-web` or `cp-ipos-it-admin-web`. Project-level Vercel configuration for those checks must therefore be verified from an account/session with access to those projects rather than guessed in repository source.
+- Primary database / control plane: CpiPOS-001, Supabase ref `deejlitaivfnsbwqdugy`
+- Trial data plane: CpiPOS-002, Supabase ref `kawenyvpentwgugtzqec`
 - Primary guardrails: `docs/AI-GUARDRAILS-CPIPOS.md`
-- Trial data-plane status/runbook: `docs/CPIPOS-TRIAL-DATA-PLANE-2026-08-08.md`
-- Database housekeeping: `docs/DATABASE-HOUSEKEEPING-2026-08-07.md`
-- Table Management UI/UX checkpoint: `docs/TABLE-MANAGEMENT-UI-CLEANUP-2026-08-11.md`
-- Product Management UI/UX checkpoint: `docs/PRODUCT-MANAGEMENT-UI-CLEANUP-2026-08-11.md`
-- Historical handoff: `docs/CPIPOS-HANDOFF-2026-07-28.md`
+- Trial data-plane runbook: `docs/CPIPOS-TRIAL-DATA-PLANE-2026-08-08.md`
+- Production readiness: `docs/production-readiness-checklist.md`
+- Go-live evidence: `docs/go-live-evidence-checklist.md`
+- Manual QA: `docs/manual-qa-checklist.md`
+- Project handoff/context: `context.md`
 
-Read the guardrails before changing authentication, tenant isolation, database routing, POS transactions, payments, devices, migrations or production configuration.
+Read the guardrails before changing authentication, tenant isolation, database routing, POS transactions, payments, printer routing, devices, migrations, or production configuration.
 
-## 2026-08-25 P0 POS stability checkpoint
-
-- FG0003/Android POS stability hotfix reduces foreground request churn in the sales UI: slower shift/table/QR/cash-drawer polling, no automatic multi-table bill prefetch, and broader native customer-display suppression when device diagnostics report no secondary display.
-- POS staff navigation now derives More/Payment visibility from the resolved role so the main menu does not flicker during session hydration.
-- `apps/backoffice-web` builds must use committed source as input. Legacy Python prebuild source-mutation scripts remain in `.github/scripts/` for audit history but are no longer invoked by `npm run build`.
-- No database migration or live Supabase write is part of this checkpoint.
-## Task #44 source readiness
-
-- Branch `agent/table-order-concurrency-dinein-sync` hardens Table QR read/write rate-limit lanes, lightweight status polling, dine-in queued bill sync, and empty open-bill cancellation.
-- Database changes are source migrations only: Primary `20260810075709_table_order_concurrency_dinein_sync.sql` and Trial mirror `20260810075709_trial_table_order_concurrency_dinein_sync.sql`. Do not treat these as applied until an explicit migration-apply task runs.
-
-## FG0003 QR -> POS -> Kitchen hardening source checkpoint
-
-- Branch `agent/fg0003-qr-kitchen-hardening` changes FG0003 Table QR submits to create `pending_pos_review` rows instead of sending directly to Kitchen.
-- Staff review is exposed through the POS table QR review route; reject does not create Kitchen tickets/prints, accept is the only path that confirms Kitchen send.
-- Primary/Trial migrations `202608240001_fg0003_qr_pos_review_lifecycle.sql` are source-only. Do not treat them as applied until an explicit migration task runs.
-## Table Management UI/UX checkpoint โ€” 2026-08-11
-
-- Table Management LIST view now has one visual content frame rather than nested borders.
-- LIST rows use bounded scrolling and 10-table client pagination with Previous / page count / Next controls.
-- Added system-wide bulk table creation for 5โ€“100 tables with presets 5/10/20, branch/zone/seats/start-number/prefix/name-mode inputs, preview, duplicate validation, and one-batch insert semantics.
-- Bulk creation remains server-authorized by tenant/branch scope and table-management role, and emits one `table_bulk_create` audit event per successful batch.
-- BOARD remains full-list and is not paginated by LIST presentation logic.
-- The POS terminal is a primary test device only; these changes apply to the shared Web POS system.
-- Detailed acceptance notes: `docs/TABLE-MANAGEMENT-UI-CLEANUP-2026-08-11.md`.
-
-## Product Management UI/UX checkpoint โ€” 2026-08-11
-
-- `/preview/pos/stock` now places Best Sellers, Search/Filter, Manage Categories, Unit Stock, and Stock Settings in the top page header while preserving their existing client state/popups through a React portal.
-- Removed the old 60-product query cap so the selected branch can expose the complete product result returned by Supabase instead of silently stopping at 60.
-- Product and ingredient lists use 10 rows per client page with bounded vertical scrolling, sticky table headers, visible range text, Previous / page count / Next controls, and page-1 reset after filter/mode changes.
-- No database migration or sales/order/payment/shift transaction logic changed.
-- The Android POS terminal remains the primary test device only; these are shared Web POS behaviors.
-- Detailed acceptance notes: `docs/PRODUCT-MANAGEMENT-UI-CLEANUP-2026-08-11.md`.
-
-## Applications
+## Repository layout
 
 ```text
 apps/
-  backoffice-web/            # Back Office + IT Admin + Web POS + server APIs + APK download pages
-  cpipos-mobile-android/     # CpIPOS Mobile Native Android (Kotlin + Jetpack Compose, no WebView)
+  backoffice-web/            # Back Office + IT Admin + Web POS + server APIs + download pages
+  cpipos-mobile-android/     # CpIPOS Mobile Native Android
   pos-android/               # Android POS runtime
   windows-runtime-it-admin/  # Windows IT Admin runtime
   windows-runtime-native/    # Windows POS/native runtime
@@ -67,80 +33,70 @@ packages/
   shared-types/
   pos-domain/
   ui/
+supabase/
+  migrations/                # CpiPOS-001 Primary migrations only
+  trial-data-plane/
+    migrations/              # CpiPOS-002 Trial migrations only
 ```
 
-CpIPOS Mobile is not a separately hosted web application. Customer distribution uses:
-
-```text
-/download/mobile          # customer-facing APK download landing page
-/download/mobile/latest   # redirects to the latest CpIPOS-Mobile.apk release asset
-```
-
-Core stack: Next.js / TypeScript, pnpm, Supabase PostgreSQL/Auth/RLS, GitHub Actions, Vercel, Kotlin and Jetpack Compose.
+Core stack: Next.js, TypeScript, pnpm, Supabase PostgreSQL/Auth/RLS, GitHub Actions, Vercel, Kotlin, Jetpack Compose, and Windows native runtime components.
 
 ## Database architecture
 
-### CpiPOS-001 โ€” Primary / Control Plane
+### CpiPOS-001 — Primary / Control Plane
 
-CpiPOS-001 remains authoritative for:
+CpiPOS-001 is authoritative for:
 
 - Supabase Auth/JWT;
 - tenants and public store codes;
-- branches, users and roles;
-- devices/login policy;
+- branches, users, and roles;
+- devices and login policy;
 - POS sessions and shifts;
-- tenant lifecycle/data-home routing;
-- subscriptions/features;
+- tenant lifecycle and data-home routing;
+- subscriptions and feature controls;
 - IT Admin/control configuration;
 - audit/control records;
 - INET NOPS payment intent/callback integration records.
 
-Primary migrations live only in:
+Primary migrations belong only in `supabase/migrations/`.
 
-```text
-supabase/migrations/
-```
+### CpiPOS-002 — Trial Data Plane
 
-### CpiPOS-002 โ€” Trial Data Plane
+CpiPOS-002 stores selected high-churn Trial business data, including:
 
-CpiPOS-002 stores selected high-churn Trial business data:
+- products and categories;
+- ingredients, recipes, and inventory movements;
+- orders, order items, and payments;
+- dine-in tables, table sessions, and Table QR business state;
+- branch inventory and tax business settings used by those transaction paths.
 
-- product/category catalog;
-- ingredients/recipes/inventory movements;
-- orders/order items/payments;
-- dine-in tables/table sessions/Table QR business state;
-- branch inventory/tax business settings used by those transaction paths.
+Trial migrations belong only in `supabase/trial-data-plane/migrations/`.
 
-Trial migrations live only in:
+Never place Trial migrations in the Primary migration folder.
 
-```text
-supabase/trial-data-plane/migrations/
-```
+Clients never choose a database. `apps/backoffice-web/src/lib/tenant-data-router.ts` resolves the data plane on the server from trusted CpiPOS-001 lifecycle state. `tenant_data_lifecycle.data_home` is authoritative; `desired_data_home` is not a routing signal.
 
-Never put Trial migrations into the Primary migration folder.
-
-Clients never choose a database. `apps/backoffice-web/src/lib/tenant-data-router.ts` resolves the server data plane from trusted CpiPOS-001 lifecycle state. `tenant_data_lifecycle.data_home` is authoritative; `desired_data_home` is not a routing signal.
-
-If a tenant is marked `data_home=trial` but Trial routing or credentials are unavailable, the request fails closed. Do not silently fall back to Primary because that can create split-brain writes.
+If a tenant is routed to Trial but Trial routing or credentials are unavailable, the request must fail closed. Never silently fall back to Primary because that can create split-brain writes.
 
 ## Security model
 
 CpIPOS is tenant-scoped and server-trusted.
 
-- Never trust client-provided tenant, branch, role, device or permission scope.
+- Never trust client-provided tenant, branch, role, device, or permission scope.
 - Keep Primary and Trial service-role credentials server-only.
-- Browser/mobile clients call CpIPOS APIs; they do not receive or select CpiPOS-002 credentials.
-- RLS remains enabled for client-reachable or server-only protected tables as designed.
+- Browser and native clients call CpIPOS APIs; they do not receive or select Trial service credentials.
+- RLS remains enabled according to the reviewed table security model.
 - Privileged POS transaction RPCs are service-role only.
-- Device, branch, POS-session, shift, feature and permission gates remain authoritative.
-- Sensitive/financial actions remain auditable and idempotent where required.
-- Table QR anonymous requests resolve their QR-session object through the server-side routing registry; the browser does not choose tenant/data home.
+- Device, branch, POS-session, shift, feature, and permission gates remain authoritative.
+- Sensitive and financial actions must remain auditable and idempotent where required.
+- Table QR anonymous requests resolve their object through server-side routing; the browser does not choose tenant or data home.
+- Development authentication fallbacks must never be accepted in production.
 
-Do not weaken RLS, device/session checks or service-role boundaries to make a failing request pass.
+Do not weaken RLS, device/session checks, role checks, transaction boundaries, or service-role boundaries to make a failing request pass.
 
 ## Transaction baseline
 
-Order creation and payment completion are transaction-first:
+Production defaults are transaction-first and fail closed:
 
 ```env
 POS_FORCE_DIRECT_CREATE_NON_DELIVERY=false
@@ -154,20 +110,32 @@ Rules:
 - `complete_pos_payment_tx` is the authoritative atomic payment path.
 - `create_stock_adjustment_tx` is the atomic stock-adjustment path on the Trial data plane.
 - Table QR ordering uses a transactional RPC.
-- Retry order/payment mutations only with the same idempotency/request key after a timeout.
+- Retry order/payment mutations only with the same idempotency or request key after a timeout.
 - Negative-stock behavior is branch policy, not a generic bypass.
-- Dine-in/takeaway order-item price is enforced at the database boundary against the active catalog price; a modified client `unit_price` is rejected.
-- Delivery prices may differ from catalog only through the reviewed server-resolved channel pricing flow.
+- Dine-in/takeaway order-item price is validated at the database boundary against the active catalog price.
+- Delivery price differences must use the reviewed server-resolved channel pricing flow.
+
+## Printing and kitchen safety
+
+Printer routing is security- and operations-sensitive.
+
+- Kitchen jobs must resolve only to a kitchen-capable profile/assignment.
+- A kitchen assignment must not fall back to an unrelated receipt profile.
+- Network printer IP/port values must come from verified configuration; never invent an endpoint.
+- Never blindly resend or requeue historical jobs. Reconcile each job against order and deduplication evidence first.
+- Keep Print Agent heartbeat/config refresh separate from high-frequency job claiming.
+- Idle polling must back off while queue-created wake signals remain responsive.
+- Physical printer acceptance is required before declaring a kitchen route production-ready.
 
 ## Cross-plane INET NOPS rule
 
-INET provider intent/callback records remain CpiPOS-001 because provider callbacks arrive without a trusted POS session/tenant route.
+INET provider intent/callback records remain in CpiPOS-001 because provider callbacks arrive without a trusted POS session or tenant route.
 
-`pos_payment_intents.order_id` is therefore a cross-plane UUID, not a same-database FK. Database trigger validation checks that order/tenant/branch exists either as a Primary order or in the server-only `tenant_data_object_routes` registry for a Trial order.
+`pos_payment_intents.order_id` is a cross-plane UUID, not a same-database foreign key. Server-side validation must verify that the order, tenant, and branch exist either in Primary or through the trusted Trial object-route registry.
 
-Provider credentials/tokens remain server-only. Dynamic provider URLs must be HTTPS and hostname-allowlisted. Duplicate callbacks remain idempotent.
+Provider credentials/tokens remain server-only. Dynamic provider URLs must be HTTPS and hostname-allowlisted. Duplicate callbacks must remain idempotent.
 
-## Required production environment
+## Required environment baseline
 
 Start from `apps/backoffice-web/.env.example`.
 
@@ -189,63 +157,44 @@ TRIAL_SUPABASE_SERVICE_ROLE_KEY=
 TRIAL_DATA_ROUTING_ENABLED=false
 ```
 
-`TRIAL_SUPABASE_SERVICE_ROLE_KEY` must never be committed, logged, placed in `NEXT_PUBLIC_*`, or sent to a browser. Keep `TRIAL_DATA_ROUTING_ENABLED=false` until the production server secret and final canary are verified.
+`TRIAL_SUPABASE_SERVICE_ROLE_KEY` must never be committed, logged, placed in `NEXT_PUBLIC_*`, or sent to a browser. Keep Trial routing disabled until the production server secret, schema parity, and canary verification are complete.
 
-Production/serverless auth rate limiting should use distributed Upstash:
+Production/serverless rate limiting should use the configured distributed backend rather than process-local memory.
 
-```env
-RATE_LIMIT_BACKEND=upstash
-RATE_LIMIT_BACKEND_TIMEOUT_MS=2500
-UPSTASH_REDIS_REST_URL=
-UPSTASH_REDIS_REST_TOKEN=
-```
-
-There is no Redis TCP backend implementation; do not set `RATE_LIMIT_BACKEND=redis`.
-
-## Seed / tenant safety
-
-- `supabase/seed.sql` must stay tenant-neutral.
-- Do not put production/demo tenants, branches, devices, users, passwords, PINs, products, orders or inventory in the default seed.
-- Deleted `SOLO-TH-001` must not be recreated.
-- Package code `solo` / `Solo Register` is a valid global package and is not the deleted tenant.
-- Demo/test fixtures must be explicit opt-in scripts.
-
-## Migration workflow
+## Migration discipline
 
 For Primary changes:
 
-1. inspect CpiPOS-001 state;
-2. create an additive compatible migration;
-3. apply and verify;
-4. mirror the exact migration/version in `supabase/migrations/`;
-5. run Primary schema drift and CI.
+1. Inspect the live CpiPOS-001 schema/state.
+2. Create an additive compatible migration.
+3. Apply and verify explicitly.
+4. Mirror the applied migration/version in `supabase/migrations/`.
+5. Run Primary schema drift and CI.
 
 For Trial changes:
 
-1. inspect CpiPOS-002 state;
-2. create an additive Trial migration;
-3. apply and verify security/transaction invariants;
-4. mirror the exact migration/version in `supabase/trial-data-plane/migrations/`;
-5. run `schema:drift:trial` and CI.
+1. Inspect the live CpiPOS-002 schema/state.
+2. Create an additive Trial migration.
+3. Apply and verify security and transaction invariants.
+4. Mirror the applied migration/version in `supabase/trial-data-plane/migrations/`.
+5. Run Trial schema drift and CI.
 
-Do not blindly replay historical migrations on production projects.
+Do not blindly replay historical migrations on production projects. Do not add a guessed database column merely to satisfy a caller; fix the source/schema contract from verified evidence.
 
-## CI / verification
+## CI and verification
 
-Primary web/server workflow: `.github/workflows/ci.yml`.
-CpIPOS Mobile Native Android build/release workflow: `.github/workflows/build-cpipos-mobile-android.yml`.
+Primary workflow: `.github/workflows/ci.yml`.
 
-Expected gates:
+Required gates for a releasable web/server line are:
 
-- Web TypeScript
-- Web lint
-- Web tests
-- CpiPOS-001 schema drift
-- CpiPOS-002 schema drift
-- Web production build
-- Native Android architecture/version validation
-- Native Android APK build
-- APK artifact/release publication on eligible runs
+- TypeScript typecheck;
+- ESLint;
+- automated tests;
+- CpiPOS-001 schema drift;
+- CpiPOS-002 schema drift;
+- production build.
+
+Native release workflows add their own architecture/version/build/package gates.
 
 Useful commands:
 
@@ -257,54 +206,48 @@ corepack pnpm schema:drift:trial
 corepack pnpm --filter backoffice-web build
 ```
 
-The retired `pos-mobile-web` package and its `*:mobile` pnpm scripts must not be reintroduced. Mobile customer distribution is APK-first through `/download/mobile`.
+Do not disable tests, schema drift, or build gates merely to obtain a green status.
 
-## Trial cutover discipline
+## Text and encoding policy
 
-Until the server-only CpiPOS-002 credential is confirmed in Vercel, current Trial tenants remain authoritative on Primary even if a verified snapshot exists on CpiPOS-002.
+All project source and documentation must be valid UTF-8. Repository text normalization is defined by `.editorconfig` and `.gitattributes`.
 
-Cutover sequence:
+- Do not save Thai UI text through a legacy Windows code page.
+- Do not commit replacement characters or common UTF-8/Windows-1252 mojibake sequences.
+- Fix corrupted source text at the source rather than masking it only at runtime.
+- Encoding regression tests must remain enabled in CI.
 
-1. keep `data_home=primary` while configuring server Trial credentials;
-2. run final delta copy and reconciliation;
-3. refresh object-route registry;
-4. canary `TEST-TH-003` first;
-5. verify session/shift, catalog, inventory, order, payment, receipt/print, Table QR, provider payment path where enabled, retries and outage fail-closed behavior;
-6. then cut over `BBQ-TH-002`;
-7. keep `NDL-TH-001` Primary;
-8. retain an explicit cutback/reconciliation plan.
+## Release discipline
 
-Detailed evidence/runbook: `docs/CPIPOS-TRIAL-DATA-PLANE-2026-08-08.md`.
+Production readiness requires both green automated gates and runtime evidence.
+
+- Use a reviewed repair/feature branch and pull request for changes to the integration line.
+- Keep the production/default line protected with required checks when repository settings permit it.
+- Do not treat a successful Vercel preview as equivalent to all-system readiness.
+- Do not promote while an active P0 release freeze is unresolved.
+- Close incident acceptance criteria with real runtime/physical evidence, especially printer and device-command acknowledgements.
+
+Issue #74 remains the operational reference for the current print-stabilization freeze until its acceptance criteria are explicitly completed.
 
 ## Performance guidance
 
-Measure workload before broad optimization. Current priorities are request/round-trip amplification rather than indiscriminate index creation:
+Measure workload before broad optimization. Prioritize request amplification and hot polling before speculative database indexes.
 
 - reduce unnecessary polling;
-- keep auth/feature resolution single-flight where security semantics are unchanged;
-- remove N+1 mutations in sales enrichment;
-- avoid internal HTTP hops inside the same Next.js deployment;
-- preserve operational heartbeat semantics for print/customer-display systems;
-- add/remove indexes only with workload evidence.
-
-## Supabase Advisor notes
-
-Not every Advisor INFO/WARN should be mechanically silenced.
-
-- `RLS Enabled No Policy` is expected on deliberate server-only deny-by-default tables.
-- `Multiple Permissive Policies` requires permission-equivalence testing before consolidation.
-- `Unindexed Foreign Keys` and `Unused Index` require workload evidence.
-- Enable Supabase Auth Leaked Password Protection before customer onboarding when the project plan supports it.
+- pause or back off hidden/idle clients;
+- coalesce concurrent refreshes;
+- avoid N+1 mutations and repeated scope lookups;
+- avoid unnecessary internal HTTP hops within the same deployment;
+- preserve heartbeat and safety semantics;
+- add or remove indexes only with query evidence / EXPLAIN data.
 
 ## Documentation
 
-Current references:
+Current references include:
 
 - `docs/AI-GUARDRAILS-CPIPOS.md`
 - `docs/CPIPOS-TRIAL-DATA-PLANE-2026-08-08.md`
 - `docs/DATABASE-HOUSEKEEPING-2026-08-07.md`
-- `docs/TABLE-MANAGEMENT-UI-CLEANUP-2026-08-11.md`
-- `docs/PRODUCT-MANAGEMENT-UI-CLEANUP-2026-08-11.md`
 - `docs/ACTIVE-DOCS-INDEX.md`
 - `docs/INET-NOPS-QR-OPERATIONS-MANUAL.md`
 - `docs/production-readiness-checklist.md`
@@ -312,124 +255,4 @@ Current references:
 - `docs/manual-qa-checklist.md`
 - `context.md`
 
-Current behavior/security decisions are governed by the latest migrations, CI/tests, this README and `docs/AI-GUARDRAILS-CPIPOS.md`.
-
-## Product Management header tabs + pagination follow-up โ€” 2026-08-11
-
-- Moved the existing `All / Unit Only / Ingredients` mode tabs into the top Stock Management action toolbar; the same React state and handlers remain authoritative.
-- Removed the redundant `Product List` / `เธฃเธฒเธขเธเธฒเธฃเธชเธดเธเธเนเธฒ` heading from the body.
-- Reduced the bounded product/ingredient table height from `56vh` to `45vh` and tightened pagination spacing so Previous / Page / Next sits higher on POS-class 1365x768 displays.
-- Pagination remains 10 rows per page and no catalog, stock mutation, sales, receipt, shift, payment, tenant, or branch authorization logic changed.
-- This is system-wide Web POS behavior; the physical POS terminal is the primary acceptance-test device only.
-
-## Product Media v1 โ€” 2026-08-11
-
-- Added canonical product-image storage on **CpiPOS-001 Primary** so the same published media can be used for both Primary- and Trial-routed product IDs without exposing Trial credentials to clients.
-- New Storage bucket `product-media` is public-read for customer-facing menu images, WebP-only, with server-side writes/deletes through the service role. Asset metadata lives in server-only `product_media_assets` with RLS enabled and no anon/authenticated table privileges.
-- Package/contract media quotas are enforced atomically by `upsert_product_media_asset_tx`: Starter = 250 MB Cloud + 1 GB POS cache, Growth = 1 GB Cloud + 4 GB POS cache, Custom default = 5 GB Cloud + 16 GB POS cache. Contract metadata can override either allowance.
-- `/preview/pos/stock/media` provides Owner/Manager upload, replace and delete controls. Source JPG/PNG/WebP up to 20 MB is center-cropped to 1:1 and optimized client-side to WebP: display up to 1200px and thumbnail up to 400px before upload.
-- **Cloud Published** is the source of truth and is visible on Web POS, POS Sales and customer Table QR. **POS Local Cache** is an additional best-effort CacheStorage copy capped by the package device-cache allowance; cache failure never blocks sales and local-only media is not treated as QR-visible media.
-- POS product cards now use published thumbnails and registered POS sessions can warm/read the local media cache. Table QR menu responses include published image URLs; image lookup is fail-soft so media failure cannot block menu/order flow.
-- Product media mutations are tenant/branch scoped from trusted POS session data, require Owner/Manager, verify the product on its routed data plane, and emit audit events. The browser never chooses a tenant, data plane, or service-role credential.
-- Migration `20260811072000_product_media_v1.sql` was applied to CpiPOS-001 and verified for Storage configuration, RLS, service-role-only RPC execution and quota behavior. No product/order/payment/shift/stock transaction semantics changed.
-
-
-## Product Media UI follow-up โ€” 2026-08-11
-
-- `/preview/pos/stock/media` hides the three storage-summary cards by default and exposes a `Show Summary / Hide Summary` toggle without changing quota calculations.
-- Product-image rows use a POS-friendly bounded vertical scroll area and 10 items per page with visible range text plus Previous / Page / Next controls.
-- Search resets the media list to page 1; changing pages scrolls the list container back to the top.
-- Upload activation uses a real button backed by one shared file input with `showPicker()` and `.click()` fallback for better Web/POS wrapper compatibility.
-- Upload/replace/delete APIs, Cloud quota rules, POS cache behavior, Web POS sales images and Table QR media behavior remain unchanged.
-- PR #50 passed Typecheck, Lint, Tests, Primary schema drift, Trial schema drift and PR production build before merge.
-
-## Android POS 1.0.0 / Product Media final UI checkpoint โ€” 2026-08-11
-
-- Product Media promotes the summary toggle into the header on POS/desktop screens, removes the nested inner frame, and reduces the bounded list height so Previous / Page / Next is surfaced earlier on 1365x768 terminals.
-- Android Tablet POS is version 1.0.0 (versionCode 6) with Android System Document Picker support for Photos / Files / Google Drive, scoped storage, Bluetooth/Nearby/network/USB printer readiness, Device Admin / Device Owner enrollment foundation, and Web App launcher icon parity.
-- Broad All-files access and destructive unaudited MDM commands remain intentionally disabled. Full Device Owner provisioning, staged signed updates, rollback, and destructive policy authorization belong to the next IT Admin control-plane phase.
-- Detailed checkpoint: `docs/ANDROID-POS-1.0.0-RELEASE-2026-08-11.md`.
-
-## 2026-08-11 โ€” Dine-in payment return + Table QR customer recipe choices
-
-- Fixed dine-in receipt close behavior: after a paid table receipt is closed (cash or bank transfer), POS returns to the table browser instead of staying inside the settled table.
-- Table QR submitted-order history is hidden from normal menu flow and opened from a receipt icon beside the table badge.
-- Table QR action success/failure notifications use transient toast messages; fatal QR/menu load failures remain inline.
-- Product edit now has `เธชเธณเธซเธฃเธฑเธเธฅเธนเธเธเนเธฒเน€เธฅเธทเธญเธ` / `Customer selectable` beside ingredient recipe mode.
-- When enabled, Table QR opens a checkbox-only recipe ingredient picker. Customer selections do not change product price or recipe quantities and are persisted as the order-item note for downstream kitchen/printing work.
-- Added `products.customer_ingredient_selection_enabled` migration; default is `false`.
-- Scope intentionally excludes Kitchen PR #47 and printer logic.
-
-## 2026-08-11 โ€” MDM telemetry profile hardening
-
-- MDM health derivation now distinguishes Windows Runtime, Android, and plain browser heartbeat profiles before evaluating runtime/peripheral incidents.
-- Browser/Android heartbeats no longer produce false `runtime_offline`, `local_bridge_offline`, `printer_missing`, `printer_error`, print-queue, or drawer incidents when those telemetry capabilities are not present.
-- Windows Runtime heartbeat behavior remains strict: Local Bridge, printer, print queue, and drawer failures still generate MDM incidents.
-- Browser heartbeat no longer writes page uptime into `latency_ms`; uptime is retained separately as `metadata.heartbeat_uptime_ms` and `latency_ms` stays unknown until a real network RTT measurement exists.
-- Added unit regression coverage for browser, Android, and Windows Runtime MDM profiles.
-
-## Kitchen role production checkpoint โ€” 2026-08-17
-
-- PR #103 added the additive `kitchen` branch role and merged to `agent-docs-preflight-schema-drift` as production commit `0d65e49f35ba3d5ea63204cdb99c3966b46fbdd5`.
-- CpiPOS-001 migration `202608170001_add_kitchen_branch_role.sql` is applied; the live `public.branch_role` enum now contains `owner`, `manager`, `staff`, and `kitchen`.
-- Kitchen login remains Store -> Branch -> Employee Code/PIN. After server-side role resolution and membership revalidation, Kitchen receives a device-less POS session and is redirected directly to `/preview/pos/kitchen`; owner/manager/staff keep the existing cashier/device flow.
-- Kitchen POS access is isolated to Kitchen plus Settings. Settings exposes Printer Settings only; regular POS pages/APIs explicitly reject Kitchen sessions. Printer Settings uses a printer-scoped authorization adapter rather than widening global Backoffice authorization.
-- Existing kitchen zone/access-code routing remains authoritative; Kitchen management routes remain owner/manager protected.
-- Owner/Manager user management can assign the Kitchen role.
-- Final PR CI passed TypeScript, lint, 181 tests across 47 test files, both schema drift checks, and the PR production build. Vercel Production deployment `dpl_4KTGs29Xhsk6ZKSMJ9Gw67y5ZAro` reached READY for commit `0d65e49`.
-- Production smoke verification confirmed build-info reports `0d65e49`, `/login/store` responds normally, unauthenticated Kitchen API access fails closed, regular POS sales API requires a POS session, and no 5xx logs were present for the new Production deployment during the verification window.
-- Stability comparison against `e050e8e` found the later pre-PR source delta concentrated in Android/OEM/download artifacts rather than core POS hot paths, so no speculative core rollback was performed. Android 1.0.10/minSdk 26 was not changed by PR #103.
-
-## 2026-08-17 โ€” Android shift popup visual-viewport centering
-
-- The automatic shift-end `เธเธดเธ”เธเธฐ / เธ•เนเธญเธเธฐ` reminder and its close-shift confirmation dialog are centered by a full visual-viewport layer instead of `left:50% / top:50%` transforms.
-- The layer tracks `window.visualViewport` resize/scroll plus window resize/orientation changes, with `innerWidth/innerHeight` fallback for older Android WebViews.
-- This addresses Android/LANDI POS displays where layout viewport and visible viewport differ and the modal appeared shifted right/down.
-- Shift timing, continue/close/logout behavior, authorization, cash validation, and shift API semantics are unchanged.
-
-## 2026-08-17 โ€” print latency / drawer / payment notice stability
-
-- Production evidence showed queue-to-claim delays up to ~6.4s while the physical cash-drawer command itself took ~9โ€“18ms. Receipt native rendering/USB was ~1.8โ€“2.2s and payment-notice QR rendering/USB ~2.8โ€“3.3s.
-- Server empty-claim suppression is reduced from 1500ms to 250ms; Android idle polling remains adaptive at 1/2/3 seconds to avoid increasing background load.
-- Android 1.0.11 adds a narrow `CpiposPrint.notifyPrintQueued()` wake bridge with a 350ms bounded retry, serialized on the existing single-thread print executor. minSdk remains 26.
-- Cash-drawer queue jobs are claimed before heavier receipt jobs when both are pending; tenant/branch/printer assignment/lease rules are unchanged.
-- Payment QR data is prefetched/cached while visible, and payment-notice QR spacing is tightened without cropping or removing the QR quiet zone.
-
-
-
-## Dine-in Kitchen + payment popup regression fix โ€” 2026-08-17
-
-- Production evidence showed repeated `POST /api/pos/sales` 500 responses matching Postgres `INVALID_ITEM_QTY` during dine-in POS edits/checkout.
-- Root causes were isolated to the dine-in path: the order-item quantity trigger rejected the intentional cancelled-line `quantity = 0` transition, and successful Kitchen auto-send remounted the POS entry boundary which could unmount an in-progress payment modal.
-- Primary migration `202608170003_fix_dine_in_cancelled_item_quantity.sql` and Trial mirror permit zero only for an existing positive line explicitly entering `cancelled`, while preserving tenant/branch/order/product/unit-price identity. Null, negative and ordinary zero quantities remain rejected.
-- Successful dine-in Kitchen auto-send now clears only persisted draft/active-order snapshots; the live POS component remains mounted, preserving checkout/payment modal state.
-- Existing 5-second dine-in Kitchen auto-send debounce, payment API semantics, Kitchen/printer routing, Android runtime, shift/session and tenant/branch authorization are unchanged.
-## PR #124 Buffet CI test stabilization - 2026-08-21
-
-- Branch `feat/buffet-catalog-phase-20260821` was synchronized to remote HEAD `1ea3ba9329b8cb1c63dd61d741107d64a3458383` before changes.
-- Local CI reproduction found the Test stage failing in source-contract Vitest tests, not in runtime POS transaction logic.
-- Root cause: several source-contract tests compared exact source strings that were stale after Buffet pricing/session refactors and brittle across CRLF/LF or Thai source encoding in local/CI checkouts.
-- Fix applied only to tests: normalize source newlines when reading files and update assertions to the current Buffet contracts: metadata-based buffet plan classification, dynamic multiple price plans, branch-product price source, inactive/draft filtering, and exact quantity +/- helpers.
-- No application runtime, API, database migration, tenant routing, branch isolation, payment, printer, Kitchen, Android, Windows, or MDM behavior changed.
-- Validation after the fix: targeted Buffet/Table QR source-contract tests passed 24/24; full `backoffice-web` Vitest passed 73 files / 310 tests; typecheck passed; lint passed with existing warnings only; production build passed; Primary and Trial schema drift checks passed.
-
-## 2026-08-21 - Production timeout bounds for Customer Display and Print Agent
-
-- Production audit found intermittent 300s Vercel runtime timeouts on `GET /api/pos/customer-display/v2/native-state` and `POST /api/print-agent/v1/jobs/claim`; most requests still returned 200, so the issue was a hung-invocation path rather than a broken endpoint.
-- Root cause: hot polling routes depended on Supabase/PostgREST/RPC promises without application-level timeouts. `native-state` also reused `readThroughRuntimeCache` inflight promises, so a hung loader could hold later requests on the same unresolved promise.
-- Fix: added a shared bounded timeout helper, abortable cache loader support, bounded native-state reads, bounded print-agent auth/data-plane/printer/RPC/job-fetch claim work, and client-side fetch abort cleanup for Customer Display native polling plus browser print-agent API calls. Atomic `claim_print_jobs_v2`, tenant/branch/device authorization, and server-issued attempt IDs remain unchanged.
-- Validation: focused native-state/print-claim timeout regressions passed; print claim success and single-RPC behavior remain covered; Customer Display dual-screen and browser print shared unit contracts passed; full `backoffice-web` Vitest passed 75 files / 314 tests; TypeScript passed; lint passed with existing warnings only; production build passed; Primary and Trial schema drift checks passed.
-
-## 2026-08-22 - Production stabilization audit P0/P1
-
-- Payment table cleanup now expires active Table QR sessions after the paid bill session is verified closed, so old customer QR links stop immediately instead of remaining active until later validation.
-- Kitchen active queue filtering treats paid/closed/cleared dine-in parent orders as terminal while retaining kitchen ticket history.
-- Table move is routed through `move_table_bill_session_tx`, which updates order/table/session/QR/Kitchen active table references in one scoped transaction and rejects occupied destinations.
-- Product Management catalog mutations use bounded client timeouts so busy UI state resolves to success or error instead of waiting indefinitely.
-- POS User Management no longer hides owner rows from the list response; edit/delete permission guards remain enforced separately.
-
-## 2026-08-22 - POS latency stabilization follow-up
-
-- POS table refresh now skips overlapping requests and uses lighter polling intervals while preserving focus-triggered refresh, reducing UI contention on slower store devices.
-- Active dine-in bill refresh now avoids concurrent reloads and polls less aggressively while a table is selected.
-- Automatic receipt bridge requests now use a shorter bounded timeout so payment completion is not held behind a slow printer bridge; queued print jobs remain the authoritative print path.
+Current behavior and security decisions are governed by verified live schema, the latest reviewed migrations, CI/tests, this README, and `docs/AI-GUARDRAILS-CPIPOS.md`.

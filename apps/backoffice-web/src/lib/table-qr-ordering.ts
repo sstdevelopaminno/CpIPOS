@@ -465,7 +465,7 @@ export async function loadTableQrMenu(context: QrContext) {
     return {
       id: productId,
       name: String(row.name ?? ""),
-      category: String(row.category ?? "เน€เธโฌเน€เธเธเน€เธยเน€เธเธ"),
+      category: String(row.category ?? "เมนู"),
       price: Number(row.price ?? 0),
       is_recommended: isProductRecommended((row as { metadata?: unknown }).metadata),
       customer_ingredient_selection_enabled: customerSelectable,
