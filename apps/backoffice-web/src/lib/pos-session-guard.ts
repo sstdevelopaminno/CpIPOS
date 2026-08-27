@@ -35,6 +35,7 @@ type UserRow = {
   id: string;
   full_name: string | null;
   is_active: boolean;
+  metadata?: unknown;
 };
 
 type BranchRow = {
@@ -48,6 +49,7 @@ type TenantRow = {
   name: string | null;
   code: string;
   is_active: boolean;
+  metadata?: unknown;
 };
 
 type HandoffPayload = {
@@ -498,7 +500,7 @@ async function loadScopeExtras(session: PosSessionRow): Promise<Omit<PosSessionS
   const [{ data: user }, { data: branch }, { data: tenant }] = await Promise.all([
     supabase.from("users_profiles").select("id,full_name,is_active").eq("id", session.user_id).maybeSingle<UserRow>(),
     supabase.from("branches").select("id,name,code").eq("id", session.branch_id).maybeSingle<BranchRow>(),
-    supabase.from("tenants").select("id,name,code,is_active").eq("id", session.tenant_id).maybeSingle<TenantRow>()
+    supabase.from("tenants").select("id,name,code,is_active,metadata").eq("id", session.tenant_id).maybeSingle<TenantRow>()
   ]);
 
   if (!user || user.is_active === false) {

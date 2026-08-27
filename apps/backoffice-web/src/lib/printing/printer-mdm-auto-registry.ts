@@ -3,7 +3,6 @@ import "server-only";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
 
 const AUTO_SOURCE = "android_mdm_auto_registry_v1";
-const PROTECTED_TENANT_CODES = new Set(["FG0003", "FG00003"]);
 const MAX_AUTO_VERIFICATION_ATTEMPTS = 3;
 const AUTO_VERIFICATION_RETRY_AFTER_MS = 90_000;
 const AUTO_VERIFICATION_WINDOW_MS = 5 * 60_000;
@@ -243,11 +242,13 @@ function commandIdForPrinterDevice(id: string): string {
   return `auto-printer:${id}`;
 }
 
-async function isProtectedTenant(tenantId: string): Promise<boolean> {
+async function isPrinterAutoRegistryEnabled(tenantId: string): Promise<boolean> {
   const supabase = getSupabaseServiceClient();
-  const { data, error } = await supabase.from("tenants").select("code").eq("id", tenantId).maybeSingle<{ code: string | null }>();
-  if (error || !data?.code) return true;
-  return PROTECTED_TENANT_CODES.has(data.code.trim().toUpperCase());
+  const { data, error } = await supabase.from("tenants").select("metadata").eq("id", tenantId).maybeSingle<{ metadata: JsonRecord | null }>();
+  if (error) return false;
+  const metadata = asRecord(data?.metadata);
+  const policy = asRecord(metadata.printer_auto_registry_policy);
+  return policy.enabled === true;
 }
 
 async function appendDiscoveryHistory(scope: PairedDeviceScope, device: PrinterDeviceRow, candidate: AutoCandidate) {
@@ -494,7 +495,7 @@ export async function reconcileModernPrinterInventory(input: {
   if (!modernPrinterAutoEligible(input.payload)) {
     return { eligible: false, candidateCount: 0, commands: [] };
   }
-  if (await isProtectedTenant(input.device.tenantId)) {
+  if (!(await isPrinterAutoRegistryEnabled(input.device.tenantId))) {
     return { eligible: false, candidateCount: 0, commands: [] };
   }
 

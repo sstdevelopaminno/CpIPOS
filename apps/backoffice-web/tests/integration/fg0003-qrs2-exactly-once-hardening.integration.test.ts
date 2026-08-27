@@ -15,10 +15,8 @@ const trialMigration = readFileSync(new URL("../../../../supabase/trial-data-pla
 describe("Restaurant QR exactly-once hardening contracts", () => {
   it("keeps Restaurant QR activation centralized and FG0003 backward compatible", () => {
     expect(restaurantQrProfile).toContain("RESTAURANT_QR_PRODUCT_PROFILE");
-    expect(restaurantQrProfile).toContain("RESTAURANT_QR_ENABLED_SCOPES");
-    expect(restaurantQrProfile).toContain("RESTAURANT_QR_RESERVED_NEXT_STORE_CODE");
-    expect(restaurantQrProfile).toContain("FG0003");
-    expect(restaurantQrProfile).toContain("FG0004");
+    expect(restaurantQrProfile).not.toContain("RESTAURANT_QR_ENABLED_SCOPES");
+    expect(restaurantQrProfile).toContain('tenantCode.startsWith("FG")');
     expect(restaurantQrProfile).toContain("fg0003_pos_review_internal");
     expect(compatibilityAlias).toContain("isRestaurantQrScope as isFg0003QrKitchenScope");
   });

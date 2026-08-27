@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+﻿import { describe, expect, it } from "vitest";
 import {
   ANDROID_MODERN_RELEASE,
   ANDROID_UPDATE_SIGNING_CERT_SHA256,
@@ -50,47 +50,36 @@ describe("android modern update offer", () => {
     })).toBeNull();
   });
 
-  it("keeps FG0003 protected when the runtime lacks the verified staged updater", () => {
+  it("offers latest Modern release as notice-only to an opted-in Modern runtime", () => {
     expect(buildAndroidModernUpdateOffer({
-      tenantCode: "FG0003",
-      payload: modernPayload(26),
-      deviceStatus: "maintenance",
-      deviceLocked: true
-    })).toBeNull();
-  });
-
-  it("keeps FG0003 protected unless the device is explicitly maintenance locked", () => {
-    expect(buildAndroidModernUpdateOffer({
-      tenantCode: "FG0003",
-      payload: modernPayload(26, true),
-      deviceStatus: "active",
-      deviceLocked: false
-    })).toBeNull();
-  });
-
-  it("allows a staged offer for FG0003 only with verified updater + maintenance lock", () => {
-    expect(buildAndroidModernUpdateOffer({
-      tenantCode: "FG0003",
-      payload: modernPayload(26, true),
-      deviceStatus: "maintenance",
-      deviceLocked: true
-    })).toEqual(expectedOffer("staged"));
-  });
-
-  it("explicitly protects the common FG00003 typo unless the staged conditions are met", () => {
-    expect(buildAndroidModernUpdateOffer({
-      tenantCode: "FG00003",
-      payload: modernPayload(26, true),
-      deviceStatus: "active",
-      deviceLocked: false
-    })).toBeNull();
-  });
-
-  it("offers latest 1.0.21 as notice-only to an opted-in non-protected Modern runtime", () => {
-    expect(buildAndroidModernUpdateOffer({
-      tenantCode: "900001",
+      tenantCode: "FG0004",
       payload: modernPayload(26)
     })).toEqual(expectedOffer("notice_only"));
+  });
+
+  it("requires verified updater capability and maintenance lock when policy requests staged install", () => {
+    const updatePolicy = { install_policy: "staged", require_verified_staged_updater: true };
+    expect(buildAndroidModernUpdateOffer({
+      tenantCode: "FG0004",
+      payload: modernPayload(26),
+      deviceStatus: "maintenance",
+      deviceLocked: true,
+      updatePolicy
+    })).toBeNull();
+    expect(buildAndroidModernUpdateOffer({
+      tenantCode: "FG0004",
+      payload: modernPayload(26, true),
+      deviceStatus: "active",
+      deviceLocked: false,
+      updatePolicy
+    })).toBeNull();
+    expect(buildAndroidModernUpdateOffer({
+      tenantCode: "FG0004",
+      payload: modernPayload(26, true),
+      deviceStatus: "maintenance",
+      deviceLocked: true,
+      updatePolicy
+    })).toEqual(expectedOffer("staged"));
   });
 
   it("does not offer when the Modern runtime is already current", () => {
@@ -110,6 +99,7 @@ describe("android modern update offer", () => {
       payload: modernPayload(ANDROID_MODERN_RELEASE.versionCode + 1, true)
     })).toBeNull();
   });
+
   it("fails closed if a client capability implies forced or silent installation policy", () => {
     const payload = modernPayload(26, true);
     (payload.runtime_capabilities.updates as Record<string, unknown>).forced_update = true;

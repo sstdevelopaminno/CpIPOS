@@ -109,7 +109,7 @@ async function loadSellerSnapshot(tenantId: string, branchId: string): Promise<{
   };
 }
 
-async function loadReceiptDetail(tenantId: string, branchId: string, orderId: string, storeCode?: string | null) {
+async function loadReceiptDetail(tenantId: string, branchId: string, orderId: string, billingScope?: { tenantCode?: string | null; tenantMetadata?: unknown }) {
   const supabase = getSupabaseServiceClient();
   const [orderResult, itemsResult, paymentsResult, invoiceResult, sellerResult] = await Promise.all([
     supabase
@@ -167,7 +167,7 @@ async function loadReceiptDetail(tenantId: string, branchId: string, orderId: st
     line_total: Number(item.line_total ?? 0),
     notes: item.notes == null ? null : String(item.notes)
   }));
-  const items = filterBillingDocumentItems(mappedItems, storeCode, (item) => item.unit_price);
+  const items = filterBillingDocumentItems(mappedItems, billingScope, (item) => item.unit_price);
   return {
     order,
     order_snapshot: orderSnapshot,
@@ -242,7 +242,7 @@ export async function GET(request: Request) {
     if (mode === "receipt_detail") {
       const orderId = text(url.searchParams.get("order_id"));
       if (!orderId) return fail("order_id_required", "order_id is required", 422);
-      const detail = await loadReceiptDetail(tenantId, branchId, orderId, scope.tenant?.code);
+      const detail = await loadReceiptDetail(tenantId, branchId, orderId, { tenantCode: scope.tenant?.code, tenantMetadata: scope.tenant?.metadata });
       return ok(detail);
     }
 
@@ -423,7 +423,7 @@ export async function POST(request: Request) {
         .maybeSingle<ProfileRow>();
       if (profileResult.error) return fail("tax_profile_query_failed", profileResult.error.message, 500);
       if (!profileResult.data) return fail("tax_profile_not_found", "ไม่พบข้อมูลผู้เสียภาษีในสาขานี้", 404);
-      const detail = await loadReceiptDetail(tenantId, branchId, orderId, scope.tenant?.code);
+      const detail = await loadReceiptDetail(tenantId, branchId, orderId, { tenantCode: scope.tenant?.code, tenantMetadata: scope.tenant?.metadata });
       if (detail.order.status !== "completed") return fail("order_not_completed", "ออกใบกำกับภาษีได้เฉพาะบิลที่ชำระเสร็จแล้ว", 409);
       if (!detail.seller_ready) return fail("seller_tax_profile_required", "กรุณาตั้งค่าชื่อ ที่อยู่ และเลขผู้เสียภาษีของร้านก่อนออกใบกำกับภาษี", 409);
 
@@ -480,7 +480,7 @@ export async function POST(request: Request) {
         }
       }
 
-      const invoiceItems = filterBillingDocumentItems(invoice.items_snapshot, scope.tenant?.code, (item) => item.unit_price);
+      const invoiceItems = filterBillingDocumentItems(invoice.items_snapshot, { tenantCode: scope.tenant?.code, tenantMetadata: scope.tenant?.metadata }, (item) => item.unit_price);
       const printResult = await queueRoutedTaxInvoice({
         auth,
         runtimeDeviceCode: scope.session.device_code,

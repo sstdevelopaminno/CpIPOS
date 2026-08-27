@@ -21,10 +21,6 @@ type RecoveryCommand = {
   reason: string;
 };
 
-const FG0003_RECOVERY_INSTALL_ID = "13aec7a2-7817-49b4-a90f-ff275dfefd75";
-// One-shot generation marker. Once the runtime reports any command executed after
-// this point, the emergency recovery pair is no longer emitted.
-const FG0003_RECOVERY_GENERATION_MS = 1787667000000;
 
 function asRecord(value: unknown): JsonRecord {
   return value && typeof value === "object" && !Array.isArray(value) ? value as JsonRecord : {};
@@ -45,24 +41,31 @@ function hasUpdaterTelemetry(payload: JsonRecord | null): boolean {
     Object.keys(asRecord(payload?.update_state)).length > 0;
 }
 
-function buildFg0003RecoveryCommands(installId: string | null, payload: JsonRecord | null): RecoveryCommand[] {
-  if (installId !== FG0003_RECOVERY_INSTALL_ID) return [];
+function recoveryCommandEligible(payload: JsonRecord | null): boolean {
+  const capabilities = asRecord(payload?.runtime_capabilities);
+  return Number(capabilities.schema_version ?? 0) >= 4;
+}
+
+function buildRecoveryCommands(scope: AutoScope, payload: JsonRecord | null): RecoveryCommand[] {
+  const metadata = asRecord(scope.metadata);
+  const policy = asRecord(metadata.android_mdm_recovery_policy);
+  if (policy.enabled !== true) return [];
+  const generationMs = Number(policy.generation_ms ?? 0);
+  if (!Number.isFinite(generationMs) || generationMs <= 0) return [];
   const lastCommand = asRecord(payload?.last_command);
   const lastCommandAtMs = Number(lastCommand.at_ms ?? 0);
-  if (Number.isFinite(lastCommandAtMs) && lastCommandAtMs >= FG0003_RECOVERY_GENERATION_MS) return [];
+  if (Number.isFinite(lastCommandAtMs) && lastCommandAtMs >= generationMs) return [];
 
-  return [
-    {
-      id: `fg0003-clear-cache-${FG0003_RECOVERY_GENERATION_MS}`,
-      action: "clear_webview_cache",
-      reason: "fg0003_p0_webview_recovery"
-    },
-    {
-      id: `fg0003-reload-${FG0003_RECOVERY_GENERATION_MS}`,
-      action: "reload_webview",
-      reason: "fg0003_p0_webview_recovery"
-    }
-  ];
+  const reason = String(policy.reason ?? "android_mdm_recovery").trim() || "android_mdm_recovery";
+  const actions = Array.isArray(policy.actions) ? policy.actions : [];
+  return actions
+    .filter((action): action is RecoveryCommand["action"] => action === "clear_webview_cache" || action === "reload_webview")
+    .slice(0, 2)
+    .map((action) => ({
+      id: `recovery-${action}-${generationMs}`,
+      action,
+      reason
+    }));
 }
 
 async function findAutoScope(installId: string | null): Promise<AutoScope | null> {
@@ -127,16 +130,17 @@ export async function POST(request: Request) {
 
   const payload = await requestCopy.json().catch(() => null) as JsonRecord | null;
   const installId = String(requestCopy.headers.get("x-cpipos-install-id") ?? "").trim().slice(0, 120) || null;
-  const recoveryCommands = buildFg0003RecoveryCommands(installId, payload);
   const printerEligible = quickAutoSetupEligible(payload);
   const updaterTelemetry = hasUpdaterTelemetry(payload);
+  const recoveryEligible = recoveryCommandEligible(payload);
 
-  // Even if this runtime does not need printer reconciliation or updater persistence,
-  // the targeted FG0003 recovery command must still be allowed through the heartbeat.
-  if (!printerEligible && !updaterTelemetry && recoveryCommands.length === 0) return baseResponse;
+  if (!printerEligible && !updaterTelemetry && !recoveryEligible) return baseResponse;
 
   const scope = await findAutoScope(installId);
   if (!scope) return baseResponse;
+
+  const recoveryCommands = recoveryEligible ? buildRecoveryCommands(scope, payload) : [];
+  if (!printerEligible && !updaterTelemetry && recoveryCommands.length === 0) return baseResponse;
 
   if (updaterTelemetry) await persistUpdaterTelemetry(scope, payload);
 
@@ -146,7 +150,8 @@ export async function POST(request: Request) {
         tenantCode,
         payload,
         deviceStatus: scope.status,
-        deviceLocked: scope.is_locked
+        deviceLocked: scope.is_locked,
+        updatePolicy: asRecord(scope.metadata).android_update_policy as Record<string, unknown> | null
       })
     : null;
 

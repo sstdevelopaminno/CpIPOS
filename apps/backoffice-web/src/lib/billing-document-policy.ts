@@ -1,13 +1,31 @@
-export function isFfStoreCode(storeCode: unknown): boolean {
-  return String(storeCode ?? "").trim().toUpperCase().startsWith("FF");
+import type { ProductProfileCode } from "@/lib/product-profile-policy";
+import { resolveProductProfile } from "@/lib/product-profile-policy";
+
+type BillingDocumentPolicyScope = {
+  productProfile?: ProductProfileCode | string | null;
+  tenantCode?: string | null;
+  tenantMetadata?: unknown;
+};
+
+export function shouldSuppressZeroPriceBillingLines(scope: BillingDocumentPolicyScope): boolean {
+  return resolveProductProfile({
+    productProfile: scope.productProfile,
+    tenantCode: scope.tenantCode,
+    tenantMetadata: scope.tenantMetadata
+  }) === "BUFFET";
 }
+
 
 export function filterBillingDocumentItems<T>(
   items: readonly T[],
-  storeCode: unknown,
+  scope: BillingDocumentPolicyScope | unknown,
   getUnitPrice: (item: T) => unknown
 ): T[] {
-  if (!isFfStoreCode(storeCode)) return [...items];
+  const normalizedScope =
+    scope && typeof scope === "object" && !Array.isArray(scope)
+      ? (scope as BillingDocumentPolicyScope)
+      : { tenantCode: String(scope ?? "") };
+  if (!shouldSuppressZeroPriceBillingLines(normalizedScope)) return [...items];
 
   return items.filter((item) => {
     const rawPrice = getUnitPrice(item);

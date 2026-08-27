@@ -1,4 +1,4 @@
-export const ANDROID_UPDATE_SIGNING_CERT_SHA256 = "6be0a9aef346a5b47162c8928c5018a01d0e7d81b4eb177bf2fb89922dc2a27a";
+﻿export const ANDROID_UPDATE_SIGNING_CERT_SHA256 = "6be0a9aef346a5b47162c8928c5018a01d0e7d81b4eb177bf2fb89922dc2a27a";
 
 export const ANDROID_STABLE_RELEASE = {
   versionName: "1.0.12",
@@ -24,13 +24,12 @@ export const ANDROID_MODERN_RELEASE = {
   signingCertSha256: ANDROID_UPDATE_SIGNING_CERT_SHA256
 } as const;
 
-const PROTECTED_LEGACY_TENANT_CODES = new Set(["FG0003", "FG00003"]);
-
 type UpdateOfferInput = {
   tenantCode: string | null;
   payload: Record<string, unknown> | null;
   deviceStatus?: string | null;
   deviceLocked?: boolean | null;
+  updatePolicy?: Record<string, unknown> | null;
 };
 
 export type AndroidModernUpdateOffer = {
@@ -59,7 +58,6 @@ function supportsVerifiedStagedUpdater(updates: Record<string, unknown>) {
 }
 
 export function buildAndroidModernUpdateOffer(input: UpdateOfferInput): AndroidModernUpdateOffer | null {
-  const tenantCode = String(input.tenantCode ?? "").trim().toUpperCase();
   const payload = input.payload ?? {};
   const runtimeCapabilities = asRecord(payload.runtime_capabilities);
   const nestedUpdates = asRecord(runtimeCapabilities.updates);
@@ -78,13 +76,12 @@ export function buildAndroidModernUpdateOffer(input: UpdateOfferInput): AndroidM
   if (!Number.isFinite(currentVersionCode) || currentVersionCode <= 0) return null;
   if (currentVersionCode >= ANDROID_MODERN_RELEASE.versionCode) return null;
 
-  const protectedLegacyTenant = Boolean(tenantCode) && PROTECTED_LEGACY_TENANT_CODES.has(tenantCode);
+  const updatePolicy = asRecord(input.updatePolicy);
+  const requestedInstallPolicy = String(updatePolicy.install_policy ?? updates.install_policy ?? "").trim().toLowerCase();
+  const requiresStagedUpdater = requestedInstallPolicy === "staged" || updatePolicy.require_verified_staged_updater === true;
   const verifiedStagedUpdater = supportsVerifiedStagedUpdater(updates);
   const maintenanceLocked = String(input.deviceStatus ?? "").trim().toLowerCase() === "maintenance" && input.deviceLocked === true;
-
-  // FG0003 remains fail-closed unless the installed runtime itself proves it has the
-  // verified updater contract and the device is explicitly maintenance-locked.
-  if (protectedLegacyTenant && !(verifiedStagedUpdater && maintenanceLocked)) return null;
+  if (requiresStagedUpdater && !(verifiedStagedUpdater && maintenanceLocked)) return null;
 
   return {
     channel: ANDROID_MODERN_RELEASE.channel,
@@ -93,7 +90,7 @@ export function buildAndroidModernUpdateOffer(input: UpdateOfferInput): AndroidM
     download_url: ANDROID_MODERN_RELEASE.downloadUrl,
     manifest_url: ANDROID_MODERN_RELEASE.manifestUrl,
     signing_cert_sha256: ANDROID_MODERN_RELEASE.signingCertSha256,
-    install_policy: protectedLegacyTenant ? "staged" : "notice_only",
+    install_policy: requiresStagedUpdater ? "staged" : "notice_only",
     silent_when_device_owner: true,
     mandatory: false,
     latest: true

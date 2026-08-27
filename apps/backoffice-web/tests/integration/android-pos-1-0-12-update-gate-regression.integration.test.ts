@@ -33,33 +33,34 @@ describe("Android POS stable/Modern update safety regression contract", () => {
     expect(updatePolicy).toContain('releaseReady: false');
   });
 
-  it("keeps browser update enforcement low-churn and non-blocking for FG0003 recovery", () => {
+  it("keeps browser update enforcement low-churn and non-blocking for capability-based devices", () => {
     expect(mandatoryUpdate).toContain("const POLL_MS = 10 * 60_000");
-    expect(mandatoryUpdate).toContain("FG0003_ROLLBACK_INSTALL_ID");
+    expect(mandatoryUpdate).toContain("shouldDisableNativeCustomerDisplayForDiagnostics");
     expect(mandatoryUpdate).toContain("window.localStorage.setItem(CUSTOMER_DISPLAY_V2_ENABLED_KEY, \"0\")");
-    expect(mandatoryUpdate).toContain("setRequired(false)");
     expect(mandatoryUpdate).toContain("/api/android-pos/update-enforcement");
     expect(mandatoryUpdate).toContain("document.visibilityState === \"visible\"");
+    expect(mandatoryUpdate).not.toContain("FG0003_ROLLBACK_INSTALL_ID");
     expect(mandatoryUpdate).not.toContain("NATIVE_ANDROID_POS_PATTERN");
   });
 
-  it("offers Modern 1.0.21 code29 only by explicit capability opt-in", () => {
-    expect(androidRuntimeRelease).toContain('versionName: "1.0.21"');
-    expect(androidRuntimeRelease).toContain('versionCode: 29');
-    expect(androidRuntimeRelease).toContain('new Set(["FG0003", "FG00003"])');
+  it("offers Modern 1.0.22 code30 only by explicit capability opt-in", () => {
+    expect(androidRuntimeRelease).toContain('versionName: "1.0.22"');
+    expect(androidRuntimeRelease).toContain('versionCode: 30');
+    expect(androidRuntimeRelease).not.toContain('new Set(["FG0003", "FG00003"])');
     expect(androidRuntimeRelease).toContain('if (updates.managed_notice !== true) return null;');
     expect(androidRuntimeRelease).toContain('if (updates.silent_install !== false) return null;');
     expect(androidRuntimeRelease).toContain('if (updates.forced_update !== false) return null;');
     expect(androidRuntimeRelease).toContain('mandatory: false');
   });
 
-  it("keeps FG0003 fail-closed unless a verified staged updater is maintenance locked", () => {
-    expect(androidRuntimeRelease).toContain('const verifiedStagedUpdater = supportsVerifiedStagedUpdater(updates);');
-    expect(androidRuntimeRelease).toContain('const maintenanceLocked = String(input.deviceStatus ?? "").trim().toLowerCase() === "maintenance" && input.deviceLocked === true;');
-    expect(androidRuntimeRelease).toContain('if (protectedLegacyTenant && !(verifiedStagedUpdater && maintenanceLocked)) return null;');
-    expect(androidRuntimeRelease).toContain('install_policy: protectedLegacyTenant ? "staged" : "notice_only"');
+  it("keeps staged updates fail-closed unless a verified updater is maintenance locked", () => {
+    expect(androidRuntimeRelease).toContain('const requestedInstallPolicy = String(updatePolicy.install_policy ?? updates.install_policy ?? "").trim().toLowerCase();');
+    expect(androidRuntimeRelease).toContain('const requiresStagedUpdater = requestedInstallPolicy === "staged" || updatePolicy.require_verified_staged_updater === true;');
+    expect(androidRuntimeRelease).toContain('if (requiresStagedUpdater && !(verifiedStagedUpdater && maintenanceLocked)) return null;');
+    expect(androidRuntimeRelease).toContain('install_policy: requiresStagedUpdater ? "staged" : "notice_only"');
     expect(mdmHeartbeat).toContain('deviceStatus: scope.status');
     expect(mdmHeartbeat).toContain('deviceLocked: scope.is_locked');
+    expect(mdmHeartbeat).toContain('updatePolicy: asRecord(scope.metadata).android_update_policy');
   });
 
   it("pins the customer stable download route to the 1.0.12 versioned APK with no old-version fallback", () => {

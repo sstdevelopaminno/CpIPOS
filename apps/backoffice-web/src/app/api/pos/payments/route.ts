@@ -339,7 +339,7 @@ export async function POST(req: Request) {
             if (orderError) throw new Error(orderError.message);
             if (itemError) throw new Error(itemError.message);
             if (!orderRow) throw new Error("receipt_order_not_found");
-            const itemRows = filterBillingDocumentItems(rawItemRows ?? [], scope.tenant?.code, (row) => row.unit_price);
+            const itemRows = filterBillingDocumentItems(rawItemRows ?? [], { tenantCode: scope.tenant?.code, tenantMetadata: scope.tenant?.metadata }, (row) => row.unit_price);
 
             const receiptJobs = await queueRoutedSalesReceipt({
               auth,

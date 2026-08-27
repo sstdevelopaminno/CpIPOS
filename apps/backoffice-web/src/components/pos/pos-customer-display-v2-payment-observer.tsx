@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
+import { shouldDisableNativeCustomerDisplayForDiagnostics, type NativeDisplayDiagnostics } from "@/lib/android-pos/native-device-policy";
 import {
   CUSTOMER_DISPLAY_V2_ENABLED_KEY,
   CUSTOMER_DISPLAY_V2_PAID_VISIBLE_MS,
@@ -10,18 +11,16 @@ import {
   type CustomerDisplayV2PaymentState
 } from "@/lib/customer-display-v2";
 
-const FG0003_PERFORMANCE_RELIEF_INSTALL_ID = "13aec7a2-7817-49b4-a90f-ff275dfefd75";
-
 type CpiposMdmBridge = {
   diagnosticsJson?: () => string;
 };
 
-function isFg0003PerformanceReliefTarget() {
+function shouldSkipCustomerDisplayObserverForDevice() {
   try {
     const bridge = (window as typeof window & { CpiposMdm?: CpiposMdmBridge }).CpiposMdm;
     if (!bridge?.diagnosticsJson) return false;
-    const diagnostics = JSON.parse(bridge.diagnosticsJson()) as { install_id?: unknown };
-    return String(diagnostics.install_id ?? "").trim() === FG0003_PERFORMANCE_RELIEF_INSTALL_ID;
+    const diagnostics = JSON.parse(bridge.diagnosticsJson()) as NativeDisplayDiagnostics;
+    return shouldDisableNativeCustomerDisplayForDiagnostics(diagnostics);
   } catch {
     return false;
   }
@@ -47,10 +46,8 @@ export function PosCustomerDisplayV2PaymentObserver() {
   const lastSignatureRef = useRef("");
 
   useEffect(() => {
-    // Emergency performance relief for the affected FG0003 Android terminal.
-    // This terminal has no secondary display, so observing the whole POS DOM has no benefit
-    // and can starve Android WebView's main thread while the cashier is tapping/navigation.
-    if (isFg0003PerformanceReliefTarget()) return;
+    // Single-display devices do not need to observe customer-display payment DOM state.
+    if (shouldSkipCustomerDisplayObserverForDevice()) return;
 
     let disposed = false;
     let timer: number | null = null;
@@ -69,13 +66,13 @@ export function PosCustomerDisplayV2PaymentObserver() {
       if (receipt) {
         const existing = readExistingPaymentState();
         const receiptText = receipt.textContent?.toLowerCase() ?? "";
-        const method = receiptText.includes("เงินสด") || receiptText.includes("cash")
+        const method = receiptText.includes("เน€เธเธดเธเธชเธ”") || receiptText.includes("cash")
           ? "cash"
           : existing?.payment_method ?? "bank_transfer";
         const rows = Array.from(receipt.querySelectorAll<HTMLElement>(".posui-receipt-card-preview__summary p"));
-        const receivedRow = rows.find((row) => /รับเงิน|cash received/i.test(row.textContent ?? ""));
-        const changeRow = rows.find((row) => /เงินทอน|change/i.test(row.textContent ?? ""));
-        const totalRow = rows.find((row) => /ยอดชำระ|total due|amount due/i.test(row.textContent ?? ""));
+        const receivedRow = rows.find((row) => /เธฃเธฑเธเน€เธเธดเธ|cash received/i.test(row.textContent ?? ""));
+        const changeRow = rows.find((row) => /เน€เธเธดเธเธ—เธญเธ|change/i.test(row.textContent ?? ""));
+        const totalRow = rows.find((row) => /เธขเธญเธ”เธเธณเธฃเธฐ|total due|amount due/i.test(row.textContent ?? ""));
         next = {
           phase: "paid",
           order_no: existing?.order_no ?? null,
@@ -104,7 +101,7 @@ export function PosCustomerDisplayV2PaymentObserver() {
         const received = parseMoneyText(cash.querySelector<HTMLElement>(".posui-cash-summary-row--received strong")?.textContent);
         const accent = cash.querySelector<HTMLElement>(".posui-cash-summary-row--accent");
         const accentText = accent?.textContent ?? "";
-        const change = /เงินทอน|change/i.test(accentText)
+        const change = /เน€เธเธดเธเธ—เธญเธ|change/i.test(accentText)
           ? parseMoneyText(accent?.querySelector("strong")?.textContent) ?? 0
           : 0;
         next = {

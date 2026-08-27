@@ -1,6 +1,7 @@
-import { RESTAURANT_QR_PRODUCT_PROFILE, RESTAURANT_QR_RESERVED_NEXT_STORE_CODE } from "./restaurant-qr-profile";
+import { RESTAURANT_QR_PRODUCT_PROFILE } from "./restaurant-qr-profile";
 
 export const RESTAURANT_QR_STORE_PREFIX = "FG" as const;
+export const FG0004_RESERVED_STORE_CODE = "FG0004" as const;
 export const RESTAURANT_QR_BRANCH_CODE_PATTERN = "FG0004-<LOCATION>-01" as const;
 export const RESTAURANT_QR_UNKNOWN = "TBD" as const;
 
@@ -168,7 +169,7 @@ export const RESTAURANT_QR_IT_REGISTRY_FIELDS = [
 ] as const;
 
 export const FG0004_DRY_RUN_PROVISIONING_MANIFEST: RestaurantQrProvisioningManifest = {
-  store_code: RESTAURANT_QR_RESERVED_NEXT_STORE_CODE,
+  store_code: FG0004_RESERVED_STORE_CODE,
   display_name: RESTAURANT_QR_UNKNOWN,
   legal_name: RESTAURANT_QR_UNKNOWN,
   product_profile: RESTAURANT_QR_PRODUCT_PROFILE,

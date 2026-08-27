@@ -1,6 +1,7 @@
-"use client";
+﻿"use client";
 
 import { useEffect, useState, type ReactNode } from "react";
+import { fetchCurrentProductProfile, readCachedProductProfile } from "@/lib/pos-product-profile-client";
 
 type Props = {
   label: string;
@@ -12,15 +13,9 @@ type Props = {
   onClick: () => void;
 };
 
-type ProfileBody = {
-  data?: { product_profile?: string | null } | null;
-};
-
 type ProfileState = "loading" | "buffet" | "standard";
 
 const POS_SCOPE_KEY = "pos_scope_v001";
-const PROFILE_CACHE_PREFIX = "cpipos_product_profile_v1";
-const FF0001_TENANT_ID = "997a0329-604f-49eb-a091-e654a57e6b8e";
 
 function BuffetTableModeIcon() {
   return (
@@ -42,22 +37,14 @@ function readTenantId() {
   }
 }
 
-function cacheKey(tenantId: string) {
-  return `${PROFILE_CACHE_PREFIX}:${tenantId}`;
+function profileStateFromValue(productProfile: string | null | undefined): ProfileState {
+  return productProfile === "BUFFET" ? "buffet" : productProfile ? "standard" : "loading";
 }
 
 function readInitialProfileState(): ProfileState {
   if (typeof window === "undefined") return "loading";
   const tenantId = readTenantId();
-  if (!tenantId) return "loading";
-  try {
-    const cached = window.sessionStorage.getItem(cacheKey(tenantId));
-    if (cached === "BUFFET") return "buffet";
-    if (cached === "STANDARD") return "standard";
-  } catch {
-    // Cache is optional.
-  }
-  return tenantId === FF0001_TENANT_ID ? "buffet" : "loading";
+  return profileStateFromValue(readCachedProductProfile(tenantId));
 }
 
 export function PosBuffetTableModeButton({ label, hint, active, locked, lockTitle, onClick }: Props) {
@@ -67,23 +54,10 @@ export function PosBuffetTableModeButton({ label, hint, active, locked, lockTitl
   useEffect(() => {
     let cancelled = false;
     const tenantId = readTenantId();
-    void fetch("/api/pos/product-profile", {
-      credentials: "include",
-      cache: "no-store",
-      headers: { Accept: "application/json" }
-    })
-      .then(async (response) => {
-        const body = (await response.json().catch(() => null)) as ProfileBody | null;
-        if (cancelled || !response.ok) return;
-        const next: ProfileState = body?.data?.product_profile === "BUFFET" ? "buffet" : "standard";
-        setProfileState(next);
-        if (tenantId) {
-          try {
-            window.sessionStorage.setItem(cacheKey(tenantId), next === "buffet" ? "BUFFET" : "STANDARD");
-          } catch {
-            // Cache is optional.
-          }
-        }
+    void fetchCurrentProductProfile(tenantId)
+      .then((profile) => {
+        if (cancelled || !profile) return;
+        setProfileState(profileStateFromValue(profile));
       })
       .catch(() => {
         if (!cancelled) setProfileState((current) => (current === "loading" ? "standard" : current));

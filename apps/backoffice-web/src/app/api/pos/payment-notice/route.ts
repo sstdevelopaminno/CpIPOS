@@ -51,7 +51,7 @@ export async function POST(req: Request) {
     const totalAmount = Number(body.total_amount ?? 0);
     if (!Number.isFinite(totalAmount) || totalAmount <= 0) return fail("payment_notice_amount_required", "A positive payment notice amount is required.", 422);
     const items = Array.isArray(body.items) ? body.items : [];
-    const billingItems = filterBillingDocumentItems(items, scope.tenant?.code, (item) => item.unit_price);
+    const billingItems = filterBillingDocumentItems(items, { tenantCode: scope.tenant?.code, tenantMetadata: scope.tenant?.metadata }, (item) => item.unit_price);
     if (billingItems.length === 0) return fail("payment_notice_items_required", "Payment notice requires at least one payable item.", 422);
 
     const jobs = await queueRoutedPaymentNotice({

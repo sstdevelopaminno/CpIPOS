@@ -1,8 +1,10 @@
-"use client";
+﻿"use client";
 
 import { useEffect } from "react";
+import { fetchCurrentProductProfile, readCachedProductProfile } from "@/lib/pos-product-profile-client";
+import { getProductProfilePolicy, type ProductProfileCode } from "@/lib/product-profile-policy";
+import { parsePosScopeIdentity, type PosSalesMode } from "@/lib/pos-sales-mode-preferences";
 
-const FF0001_TENANT_ID = "997a0329-604f-49eb-a091-e654a57e6b8e";
 const POS_SCOPE_KEY = "pos_scope_v001";
 const SELECTOR_QUERY = ".posui-mode-selector";
 const GRID_QUERY = ".posui-mode-selector__grid";
@@ -10,14 +12,13 @@ const ORDER_BUTTON_QUERY = ".pos-mode-order-button";
 const MODE_ATTRIBUTE = "data-pos-sale-mode";
 const HIDDEN_ATTRIBUTE = "data-pos-mode-hidden";
 
-type SalesMode = "home" | "dine_in" | "buffet_table" | "delivery";
+type SalesMode = PosSalesMode;
 
-function isFf0001Scope() {
+function readScope() {
   try {
-    const tenantId = String(window.localStorage.getItem(POS_SCOPE_KEY) ?? "").split(":", 1)[0]?.trim();
-    return tenantId === FF0001_TENANT_ID;
+    return parsePosScopeIdentity(window.localStorage.getItem(POS_SCOPE_KEY));
   } catch {
-    return false;
+    return null;
   }
 }
 
@@ -29,12 +30,12 @@ function detectMode(element: HTMLElement): SalesMode | null {
   const text = normalizeLabel(element.textContent ?? "");
   if (!text) return null;
 
-  if (text.includes("เดลิเวอรี่") || text.includes("delivery")) return "delivery";
-  if (text.includes("บุฟเฟ่ต์") || text.includes("buffet")) return "buffet_table";
-  if (text.includes("นั่งโต๊ะ") || text.includes("dine in") || text.includes("dine-in")) return "dine_in";
+  if (text.includes("เน€เธ”เธฅเธดเน€เธงเธญเธฃเธตเน") || text.includes("delivery")) return "delivery";
+  if (text.includes("เธเธธเธเน€เธเนเธ•เน") || text.includes("buffet")) return "buffet_table";
+  if (text.includes("เธเธฑเนเธเนเธ•เนเธฐ") || text.includes("dine in") || text.includes("dine-in")) return "dine_in";
   if (
-    text.includes("กลับบ้าน") ||
-    text.includes("รับกลับ") ||
+    text.includes("เธเธฅเธฑเธเธเนเธฒเธ") ||
+    text.includes("เธฃเธฑเธเธเธฅเธฑเธ") ||
     text.includes("take away") ||
     text.includes("takeaway") ||
     text.includes("to go")
@@ -44,15 +45,11 @@ function detectMode(element: HTMLElement): SalesMode | null {
   return null;
 }
 
-function showBuffetOnly(element: HTMLElement) {
-  element.setAttribute(MODE_ATTRIBUTE, "buffet_table");
+function showMode(element: HTMLElement, mode: SalesMode) {
+  element.setAttribute(MODE_ATTRIBUTE, mode);
   element.removeAttribute(HIDDEN_ATTRIBUTE);
   element.removeAttribute("aria-hidden");
-
-  // The generic mode preference enhancer may temporarily attach the hidden attribute
-  // using its legacy DOM-index mapping. Inline !important keeps the actual buffet card
-  // visible even if that attribute is briefly re-applied during selector initialization.
-  element.style.setProperty("display", "flex", "important");
+  element.style.removeProperty("display");
 }
 
 function hideMode(element: HTMLElement, mode: SalesMode | null) {
@@ -62,42 +59,58 @@ function hideMode(element: HTMLElement, mode: SalesMode | null) {
   element.style.setProperty("display", "none", "important");
 }
 
-function applyFf0001Policy() {
-  if (!isFf0001Scope()) return;
+function applyProductProfilePolicy(productProfile: ProductProfileCode | null) {
+  if (!productProfile) return;
+  const policy = getProductProfilePolicy(productProfile);
+  if (policy.hiddenSalesModes.length === 0) return;
+  const hidden = new Set(policy.hiddenSalesModes);
 
   for (const selector of document.querySelectorAll<HTMLElement>(SELECTOR_QUERY)) {
     const grid = selector.querySelector<HTMLElement>(GRID_QUERY);
     if (!grid) continue;
 
     const cards = Array.from(grid.children).filter((element): element is HTMLElement => element instanceof HTMLElement);
-    const buffetCard = cards.find((element) => detectMode(element) === "buffet_table") ?? null;
-
-    // Fail safe: never blank the selector if the buffet card has not rendered yet.
-    if (!buffetCard) continue;
-
     for (const element of cards) {
-      const mode = detectMode(element);
-      if (element === buffetCard || mode === "buffet_table") {
-        showBuffetOnly(element);
-      } else {
-        hideMode(element, mode);
-      }
+      const mode = detectMode(element) ?? (element.getAttribute(MODE_ATTRIBUTE) as SalesMode | null);
+      if (mode && hidden.has(mode)) hideMode(element, mode);
+      else if (mode) showMode(element, mode);
     }
 
-    // FF0001 has one allowed sales mode, so arranging mode order has no useful action.
-    const orderButton = selector.querySelector<HTMLElement>(ORDER_BUTTON_QUERY);
-    orderButton?.style.setProperty("display", "none", "important");
+    if (policy.forcePreferredSalesMode) {
+      const orderButton = selector.querySelector<HTMLElement>(ORDER_BUTTON_QUERY);
+      orderButton?.style.setProperty("display", "none", "important");
+    }
   }
 }
 
 export function PosFf0001SalesModeGuard() {
   useEffect(() => {
     let raf = 0;
+    let activeScopeKey = "";
+    let productProfile: ProductProfileCode | null = null;
+
+    const refreshProfile = () => {
+      const scope = readScope();
+      const scopeKey = scope ? `${scope.tenantId}:${scope.branchId}` : "";
+      if (scopeKey === activeScopeKey && productProfile) return;
+      activeScopeKey = scopeKey;
+      productProfile = readCachedProductProfile(scope?.tenantId);
+      if (scope?.tenantId) {
+        void fetchCurrentProductProfile(scope.tenantId).then((profile) => {
+          if (profile && activeScopeKey === scopeKey) {
+            productProfile = profile;
+            schedule();
+          }
+        });
+      }
+    };
+
     const schedule = () => {
       if (raf) return;
       raf = window.requestAnimationFrame(() => {
         raf = 0;
-        applyFf0001Policy();
+        refreshProfile();
+        applyProductProfilePolicy(productProfile);
       });
     };
 
@@ -105,7 +118,6 @@ export function PosFf0001SalesModeGuard() {
     observer.observe(document.body, { childList: true, subtree: true, characterData: true });
     schedule();
 
-    // Re-assert while the generic branch preference enhancer finishes mounting.
     const timers = [50, 150, 300, 700, 1500, 2500, 5000].map((delay) => window.setTimeout(schedule, delay));
 
     return () => {

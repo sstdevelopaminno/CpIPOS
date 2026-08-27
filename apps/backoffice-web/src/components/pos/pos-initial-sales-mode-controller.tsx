@@ -3,11 +3,14 @@
 import { useEffect } from "react";
 import {
   buildPosSalesModeOrderStorageKey,
+  getPreferredPosSalesMode,
   getVisiblePosSalesModeOrder,
   normalizePosSalesModeOrder,
   parsePosScopeIdentity,
+  shouldForcePreferredPosSalesMode,
   type PosSalesMode
 } from "@/lib/pos-sales-mode-preferences";
+import { fetchCurrentProductProfile, readCachedProductProfile } from "@/lib/pos-product-profile-client";
 
 const POS_SCOPE_KEY = "pos_scope_v001";
 const SALES_MODE_ORDER_API = "/api/pos/settings/sales-mode-order";
@@ -18,7 +21,6 @@ const HIDDEN_ATTRIBUTE = "data-pos-mode-hidden";
 const WAIT_STEP_MS = 100;
 const SCOPE_WAIT_LIMIT = 50;
 const SELECTOR_WAIT_LIMIT = 40;
-const FF0001_TENANT_ID = "997a0329-604f-49eb-a091-e654a57e6b8e";
 
 const ACTIVE_POS_KEYS = [
   "pos_pending_submit_v012",
@@ -79,7 +81,7 @@ function findRenderedBuffetCard(): HTMLElement | null {
   return (
     candidates.find((candidate) => {
       const text = String(candidate.textContent ?? "").toLowerCase();
-      return text.includes("บุฟเฟ่ต์") || text.includes("บุฟเฟ่") || text.includes("buffet");
+      return text.includes("เธเธธเธเน€เธเนเธ•เน") || text.includes("เธเธธเธเน€เธเน") || text.includes("buffet");
     }) ?? null
   );
 }
@@ -96,11 +98,16 @@ export function PosInitialSalesModeController() {
       }
       if (!scope || cancelled) return;
 
-      const forceBuffetOnly = scope.tenantId === FF0001_TENANT_ID;
-      const hasBlockingWork = () => !forceBuffetOnly && hasActivePosWork();
+      let productProfile = readCachedProductProfile(scope.tenantId);
+      const fetchedProfile = await fetchCurrentProductProfile(scope.tenantId);
+      if (cancelled) return;
+      productProfile = fetchedProfile ?? productProfile;
+      const forcePreferredMode = shouldForcePreferredPosSalesMode(productProfile);
+      const forcedPreferredMode = getPreferredPosSalesMode(productProfile);
+      const hasBlockingWork = () => !forcePreferredMode && hasActivePosWork();
 
-      // Generic tenants keep the conservative restore guard. FF0001 is explicitly
-      // buffet-only, so stale takeaway/localStorage state must not pin the terminal to Home.
+      // Generic tenants keep the conservative restore guard. Product profiles may
+      // force a safe starting mode so stale local storage cannot pin a terminal to the wrong flow.
       if (hasBlockingWork()) return;
 
       let order: PosSalesMode[] | null = null;
@@ -133,11 +140,11 @@ export function PosInitialSalesModeController() {
           order = null;
         }
       }
-      if ((!order && !forceBuffetOnly) || cancelled || hasBlockingWork()) return;
+      if ((!order && !forcePreferredMode) || cancelled || hasBlockingWork()) return;
 
-      const preferred: PosSalesMode = forceBuffetOnly
-        ? "buffet_table"
-        : getVisiblePosSalesModeOrder(order ?? [], scope.tenantId).find((mode) => mode !== "delivery") ?? "home";
+      const preferred: PosSalesMode = forcePreferredMode
+        ? forcedPreferredMode
+        : getVisiblePosSalesModeOrder(order ?? [], scope.tenantId, productProfile).find((mode) => mode !== "delivery") ?? "home";
       if (preferred === "home") return;
 
       let switchButton: HTMLButtonElement | null = null;
@@ -154,13 +161,13 @@ export function PosInitialSalesModeController() {
         if (hasBlockingWork()) return;
         let target = document.querySelector<HTMLElement>(`[${MODE_ATTRIBUTE}="${preferred}"]`);
 
-        // FF0001 must be resilient to legacy DOM-index tagging. Resolve the actual
-        // rendered Buffet card by its label when the generic enhancer has not settled yet.
-        if (forceBuffetOnly && (!target || target.getAttribute(HIDDEN_ATTRIBUTE) === "true")) {
+        // Buffet product profiles must be resilient to legacy DOM-index tagging.
+        // Resolve the actual rendered Buffet card by its label when the generic enhancer has not settled yet.
+        if (forcePreferredMode && preferred === "buffet_table" && (!target || target.getAttribute(HIDDEN_ATTRIBUTE) === "true")) {
           target = findRenderedBuffetCard();
         }
 
-        if (target && (forceBuffetOnly || target.getAttribute(HIDDEN_ATTRIBUTE) !== "true")) {
+        if (target && (forcePreferredMode || target.getAttribute(HIDDEN_ATTRIBUTE) !== "true")) {
           target.click();
           return;
         }

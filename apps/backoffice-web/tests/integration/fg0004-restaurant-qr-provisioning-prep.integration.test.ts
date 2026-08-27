@@ -84,7 +84,8 @@ describe("FG0004 Restaurant QR provisioning prep contract", () => {
   });
 
   it("keeps Restaurant QR activation shared rather than hardcoding FG0004 business logic", () => {
-    expect(restaurantQrProfile).toContain("RESTAURANT_QR_RESERVED_NEXT_STORE_CODE");
+    expect(restaurantQrProfile).not.toContain("FG0004");
+    expect(fg0004ProvisioningSource).toContain("FG0004_RESERVED_STORE_CODE");
     expect(restaurantQrProfile).not.toContain('tenantCode: "FG0004"');
     expect(restaurantQrProfile).not.toContain('branchCode: "FG0004-');
     expect(fg0004ProvisioningSource).toContain('app_package: "com.cpipos.pos"');

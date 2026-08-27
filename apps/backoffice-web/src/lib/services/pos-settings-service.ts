@@ -3,6 +3,7 @@ import "server-only";
 import { appendAuditLog } from "@/lib/audit-log";
 import type { AuthContext } from "@/lib/auth-context";
 import { enforceQuota } from "@/lib/feature-gate";
+import { resolveProductProfile, type ProductProfileCode } from "@/lib/product-profile-policy";
 import { resolveStoreLoginMode } from "@/lib/server/store-login-mode";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
 
@@ -85,6 +86,7 @@ export type PosSettingsSnapshot = {
     can_manage: boolean;
     payment_accounts_ready: boolean;
     cashier_device_limit: number | null;
+    product_profile: ProductProfileCode;
   };
 };
 
@@ -192,7 +194,7 @@ export const DEFAULT_TAX_SETTINGS: TaxSettings = {
   calculation_base: "net_after_discount",
   lines: [
     { id: "vat-7", label: "VAT 7%", rate_pct: 7, mode: "add_to_bill", is_active: true },
-    { id: "withholding-3", label: "หัก ณ ที่จ่าย 3%", rate_pct: 3, mode: "deduct_from_bill", is_active: false }
+    { id: "withholding-3", label: "เธซเธฑเธ เธ“ เธ—เธตเนเธเนเธฒเธข 3%", rate_pct: 3, mode: "deduct_from_bill", is_active: false }
   ]
 };
 
@@ -550,12 +552,12 @@ export async function loadPosSettingsSnapshot(auth: AuthContext): Promise<PosSet
       payment_accounts: [],
       tax_settings: DEFAULT_TAX_SETTINGS,
       notification_settings: DEFAULT_POS_NOTIFICATION_SETTINGS,
-      metadata: { tenant_id: null, branch_id: auth.branchId, can_manage: false, payment_accounts_ready: false, cashier_device_limit: null }
+      metadata: { tenant_id: null, branch_id: auth.branchId, can_manage: false, payment_accounts_ready: false, cashier_device_limit: null, product_profile: "STANDARD" }
     };
   }
 
   const supabase = getSupabaseServiceClient();
-  const [store, branchesResult, paymentResult, taxSettings, notificationSettings, storeLoginMode] = await Promise.all([
+  const [store, branchesResult, paymentResult, taxSettings, notificationSettings, storeLoginMode, profileResult] = await Promise.all([
     loadStoreSettings(auth.tenantId),
     supabase.from("branches").select("id,code,name,address,is_active").eq("tenant_id", auth.tenantId).order("name", { ascending: true }),
     (async () => {
@@ -583,7 +585,8 @@ export async function loadPosSettingsSnapshot(auth: AuthContext): Promise<PosSet
     })(),
     loadTaxSettings(auth),
     loadPosNotificationSettings(auth),
-    resolveStoreLoginMode(auth.tenantId).catch(() => ({ maxDevices: null }))
+    resolveStoreLoginMode(auth.tenantId).catch(() => ({ maxDevices: null })),
+    supabase.from("tenants").select("code,metadata").eq("id", auth.tenantId).maybeSingle<{ code: string | null; metadata: Record<string, unknown> | null }>()
   ]);
 
   if (branchesResult.error) throw new Error(branchesResult.error.message);
@@ -604,7 +607,11 @@ export async function loadPosSettingsSnapshot(auth: AuthContext): Promise<PosSet
       branch_id: auth.branchId,
       can_manage: canManageSettings(auth),
       payment_accounts_ready: paymentAccountsReady,
-      cashier_device_limit: storeLoginMode.maxDevices
+      cashier_device_limit: storeLoginMode.maxDevices,
+      product_profile: resolveProductProfile({
+        tenantCode: profileResult.error ? store?.code : profileResult.data?.code ?? store?.code,
+        tenantMetadata: profileResult.error ? null : profileResult.data?.metadata ?? null
+      })
     }
   };
 }

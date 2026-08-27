@@ -21,7 +21,7 @@
 }
 
 /* The reject button in the QR review action row is disabled only while a review POST is in flight.
-   Use that state to provide immediate visual acknowledgement without changing non-FG0003 flows. */
+   Use that state to provide immediate visual acknowledgement without changing non-Restaurant QR flows. */
 .posui-payment-modal--review:has(.posui-payment-modal__actions > .posui-btn--ghost:disabled)::before {
   content: "";
   position: absolute;

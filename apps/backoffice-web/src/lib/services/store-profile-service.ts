@@ -10,6 +10,7 @@ export type ReceiptStoreProfile = {
   logo_url: string;
   company_address: string;
   contact_phone: string;
+  metadata?: unknown;
 };
 
 type TenantStoreProfileRow = {
@@ -21,6 +22,7 @@ type TenantStoreProfileRow = {
   company_address?: string | null;
   contact_phone?: string | null;
   owner_phone?: string | null;
+  metadata?: unknown;
 };
 
 function trimText(value: unknown) {
@@ -36,7 +38,8 @@ export function mapReceiptStoreProfile(row: TenantStoreProfileRow): ReceiptStore
     display_name: trimText(row.display_name) || name,
     logo_url: trimText(row.logo_url),
     company_address: trimText(row.company_address),
-    contact_phone: trimText(row.contact_phone) || trimText(row.owner_phone)
+    contact_phone: trimText(row.contact_phone) || trimText(row.owner_phone),
+    metadata: row.metadata ?? null
   };
 }
 
@@ -47,7 +50,7 @@ export async function loadReceiptStoreProfile(tenantId: string): Promise<Receipt
     const supabase = getSupabaseServiceClient();
     const { data, error } = await supabase
       .from("tenants")
-      .select("id,code,name,display_name,logo_url,company_address,contact_phone,owner_phone")
+      .select("id,code,name,display_name,logo_url,company_address,contact_phone,owner_phone,metadata")
       .eq("id", normalizedTenantId)
       .maybeSingle<TenantStoreProfileRow>();
     if (error) return null;

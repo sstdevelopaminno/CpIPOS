@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { PosCustomerDisplayV2Screen, type CustomerDisplayV2ScreenState } from "@/components/pos/pos-customer-display-v2-screen";
 import type { CustomerDisplayV2Payload } from "@/lib/customer-display-v2";
 import type { Language } from "@/lib/i18n";
+import { shouldDisableNativeCustomerDisplayForDiagnostics, type NativeDisplayDiagnostics } from "@/lib/android-pos/native-device-policy";
 
 type NativeStateResponse = {
   data?: {
@@ -30,28 +31,12 @@ const DEVICE_STATE_BACKOFF_MS = 10_000;
 const AUTH_BACKOFF_MS = 30_000;
 const MAX_TRANSIENT_BACKOFF_MS = 30_000;
 
-// Emergency performance isolation for the single affected FG0003 Android install.
-// MDM reports this terminal as dual_screen_enabled even though the store is operating
-// a single physical display. Do not let the hidden/native customer-display WebView poll
-// once per second and compete with the cashier WebView for CPU and memory.
-const FG0003_INSTALL_ID = "13aec7a2-7817-49b4-a90f-ff275dfefd75";
-
 function shouldDisableNativeCustomerDisplay() {
   try {
     const raw = window.CpiposMdm?.diagnosticsJson?.();
     if (!raw) return false;
-    const diagnostics = JSON.parse(raw) as {
-      install_id?: unknown;
-      display_count?: unknown;
-      secondary_display_available?: unknown;
-      displays?: { display_count?: unknown; secondary_display_available?: unknown };
-    };
-    const installId = String(diagnostics.install_id ?? "").trim();
-    if (installId === FG0003_INSTALL_ID) return true;
-    const secondaryAvailable = diagnostics.displays?.secondary_display_available ?? diagnostics.secondary_display_available;
-    if (secondaryAvailable === false) return true;
-    const displayCount = Number(diagnostics.displays?.display_count ?? diagnostics.display_count ?? 0);
-    return Number.isFinite(displayCount) && displayCount > 0 && displayCount <= 1;
+    const diagnostics = JSON.parse(raw) as NativeDisplayDiagnostics;
+    return shouldDisableNativeCustomerDisplayForDiagnostics(diagnostics);
   } catch {
     return false;
   }
