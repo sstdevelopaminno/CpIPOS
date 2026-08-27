@@ -43,4 +43,15 @@ describe("P0 production contracts", () => {
     expect(source).not.toContain("row.code");
     expect(source).not.toContain("preferredCode");
   });
+
+  it("does not query the non-existent tenants.metadata column", () => {
+    const sessionGuard = readRepoFile("src", "lib", "pos-session-guard.ts");
+    const productProfile = readRepoFile("src", "app", "api", "pos", "product-profile", "route.ts");
+
+    expect(sessionGuard).toContain('.from("tenants").select("id,name,code,is_active")');
+    expect(sessionGuard).not.toContain('select("id,name,code,is_active,metadata")');
+    expect(productProfile).toContain('.from("tenants")');
+    expect(productProfile).toContain('.select("code")');
+    expect(productProfile).not.toContain('.select("code,metadata")');
+  });
 });
