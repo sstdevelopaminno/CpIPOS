@@ -1,9 +1,59 @@
 import { readFileSync, readdirSync, statSync } from "node:fs";
-import { extname, resolve } from "node:path";
+import { basename, extname, relative, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
 const repoRoot = resolve(process.cwd(), "../..");
-const textExtensions = new Set([".ts", ".tsx", ".js", ".mjs", ".json", ".md", ".kt", ".kts", ".sql", ".yml", ".yaml", ".css"]);
+const thisFile = resolve(process.cwd(), "tests/unit/text-encoding-mojibake-regression.test.ts");
+const textExtensions = new Set([
+  ".ts",
+  ".tsx",
+  ".js",
+  ".jsx",
+  ".mjs",
+  ".cjs",
+  ".json",
+  ".md",
+  ".txt",
+  ".kt",
+  ".kts",
+  ".java",
+  ".sql",
+  ".yml",
+  ".yaml",
+  ".css",
+  ".scss",
+  ".html",
+  ".xml",
+  ".sh",
+  ".ps1",
+  ".bat",
+  ".cmd",
+  ".properties",
+  ".toml"
+]);
+const textFileNames = new Set([
+  ".editorconfig",
+  ".gitattributes",
+  ".gitignore",
+  ".npmrc",
+  ".nvmrc",
+  ".env.example",
+  "Dockerfile"
+]);
+const ignoredDirectories = new Set([
+  "node_modules",
+  ".next",
+  ".turbo",
+  ".git",
+  ".gradle",
+  ".idea",
+  ".vercel",
+  "build",
+  "dist",
+  "coverage",
+  "out",
+  "target"
+]);
 const forbiddenMojibake = [
   "\uFFFD",
   "ï¿½",
@@ -22,37 +72,38 @@ const forbiddenMojibake = [
 ];
 const forbiddenControlChars = /[\u0080-\u009F]/;
 
+function isTextFile(path: string) {
+  return textExtensions.has(extname(path).toLowerCase()) || textFileNames.has(basename(path));
+}
+
 function collectTextFiles(path: string): string[] {
+  if (path === thisFile) return [];
+
   const stat = statSync(path);
-  if (stat.isFile()) return textExtensions.has(extname(path)) ? [path] : [];
+  if (stat.isFile()) return isTextFile(path) ? [path] : [];
 
   return readdirSync(path, { withFileTypes: true }).flatMap((entry) => {
-    if (["node_modules", ".next", ".turbo", ".git", "build", "dist"].includes(entry.name)) return [];
+    if (entry.isDirectory() && ignoredDirectories.has(entry.name)) return [];
     return collectTextFiles(resolve(path, entry.name));
   });
 }
 
 describe("UTF-8 text integrity", () => {
-  it("does not contain common mojibake markers in user-facing source and project documentation", () => {
-    const roots = [
-      resolve(repoRoot, "README.md"),
-      resolve(repoRoot, "AGENTS.md"),
-      resolve(repoRoot, "docs"),
-      resolve(repoRoot, "apps/backoffice-web/src"),
-      resolve(repoRoot, "apps/backoffice-web/docs"),
-      resolve(repoRoot, "apps/pos-android/app/src/main")
-    ];
-
+  it("does not contain common mojibake or invalid C1 controls in repository text", () => {
     const failures: string[] = [];
-    for (const file of roots.flatMap(collectTextFiles)) {
+
+    for (const file of collectTextFiles(repoRoot)) {
       const text = readFileSync(file, "utf8");
+      const repoPath = relative(repoRoot, file).replaceAll("\\", "/");
+
       for (const marker of forbiddenMojibake) {
         if (text.includes(marker)) {
-          failures.push(`${file.replace(`${repoRoot}/`, "")}: ${JSON.stringify(marker)}`);
+          failures.push(`${repoPath}: ${JSON.stringify(marker)}`);
         }
       }
+
       if (forbiddenControlChars.test(text)) {
-        failures.push(`${file.replace(`${repoRoot}/`, "")}: C1 control character`);
+        failures.push(`${repoPath}: C1 control character`);
       }
     }
 
