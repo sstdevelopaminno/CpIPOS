@@ -77,6 +77,9 @@ class PosPrintAgent(
     @JavascriptInterface
     fun notifyPrintQueued() {
         if (!started.get()) return
+        // A queue-producing POS action proves the authenticated sales flow is active.
+        // Clear any pre-login bootstrap cooldown so the first bill after login can print immediately.
+        bootstrapRetryAfterElapsedMs = 0L
         idleBackoffIndex = 0
         scheduleWakeClaim(0L)
         scheduleWakeClaim(WAKE_RETRY_DELAY_MS)
