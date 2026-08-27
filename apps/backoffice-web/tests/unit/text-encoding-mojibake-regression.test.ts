@@ -4,7 +4,23 @@ import { describe, expect, it } from "vitest";
 
 const repoRoot = resolve(process.cwd(), "../..");
 const textExtensions = new Set([".ts", ".tsx", ".js", ".mjs", ".json", ".md", ".kt", ".kts", ".sql", ".yml", ".yaml", ".css"]);
-const forbiddenMojibake = ["\uFFFD", "ï¿½", "â€”", "â€“", "â€™", "à¸", "à¹", "โ€”"];
+const forbiddenMojibake = [
+  "\uFFFD",
+  "ï¿½",
+  "â€”",
+  "â€“",
+  "â€™",
+  "à¸",
+  "à¹",
+  "โ€”",
+  "โ€“",
+  "เน€",
+  "เธฃเธ",
+  "เธ",
+  "เน",
+  "ร—"
+];
+const forbiddenControlChars = /[\u0080-\u009F]/;
 
 function collectTextFiles(path: string): string[] {
   const stat = statSync(path);
@@ -34,6 +50,9 @@ describe("UTF-8 text integrity", () => {
         if (text.includes(marker)) {
           failures.push(`${file.replace(`${repoRoot}/`, "")}: ${JSON.stringify(marker)}`);
         }
+      }
+      if (forbiddenControlChars.test(text)) {
+        failures.push(`${file.replace(`${repoRoot}/`, "")}: C1 control character`);
       }
     }
 
