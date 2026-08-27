@@ -1,8 +1,9 @@
-﻿"use client";
+"use client";
 
 type Props = {
   title: string;
   price: number;
+  productSku?: string;
   secondaryPrice?: number | null;
   secondaryLabel?: string;
   subtitle?: string;
@@ -17,10 +18,30 @@ function formatPrice(value: number): string {
   return Number.isInteger(value) ? `฿${value}` : `฿${value.toFixed(2)}`;
 }
 
-export function PosProductCard({ title, price, secondaryPrice, secondaryLabel, subtitle, imageUrl, badge, recommended = false, disabled = false, onAdd }: Props) {
+export function PosProductCard({
+  title,
+  price,
+  productSku,
+  secondaryPrice,
+  secondaryLabel,
+  subtitle,
+  imageUrl,
+  badge,
+  recommended = false,
+  disabled = false,
+  onAdd
+}: Props) {
   const hasSecondaryPrice = Number.isFinite(secondaryPrice) && Number(secondaryPrice) >= 0;
+  const normalizedSku = String(productSku ?? "").trim();
+
   return (
-    <button type="button" className={`posui-product-card ${disabled ? "is-disabled" : ""}`} onClick={onAdd} disabled={disabled}>
+    <button
+      type="button"
+      className={`posui-product-card ${disabled ? "is-disabled" : ""}`}
+      data-pos-product-sku={normalizedSku || undefined}
+      onClick={onAdd}
+      disabled={disabled}
+    >
       <div
         className="posui-product-card__image"
         style={imageUrl ? { backgroundImage: `url(${imageUrl})` } : undefined}
