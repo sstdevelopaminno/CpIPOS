@@ -24,6 +24,10 @@ This stabilization slice is stacked on the SD / General Sale feature head and is
 - The bridge binds only to `127.0.0.1`, serializes printer/drawer operations, limits concurrent local requests, and continues its accept loop after transient listener errors.
 - A PR validation workflow compiles the Windows native runtime so embedded bridge regressions are caught before release.
 
+## Validation checkpoint
+
+PR #146 is temporarily retargeted to the CI-enabled integration branch only to validate the exact stabilization head. After CI, Android, Windows, and Vercel Preview checks complete, the PR base must be restored to `feature/grocery-mode-pos-sales-20260827` so the diff stays stabilization-only.
+
 ## Release boundary
 
 Software validation does not replace physical printer acceptance. Issue #74 remains the production release gate until a real dedicated kitchen-capable profile/device is validated end-to-end. This slice must not mutate production printer assignments, requeue historical jobs, or be promoted solely from CI/Preview evidence.
