@@ -20,7 +20,7 @@ describe("Windows native embedded print runtime contract", () => {
   });
 
   it("bounds concurrent local requests so printer stalls cannot exhaust the runtime", () => {
-    expect(bridge).toContain("new SemaphoreSlim(16, 16)");
+    expect(bridge).toContain("_requestSlots = new(16, 16)");
     expect(bridge).toContain("WaitAsync(TimeSpan.FromSeconds(5)");
     expect(bridge).toContain('"bridge_busy"');
     expect(bridge).toContain("timeout.CancelAfter(TimeSpan.FromSeconds(30))");
