@@ -36,13 +36,21 @@ const REPAIRABLE_ATTRIBUTES = ["aria-label", "title", "placeholder", "alt"] as c
 const SKIP_TEXT_TAGS = new Set(["SCRIPT", "STYLE", "NOSCRIPT", "TEXTAREA"]);
 
 function looksLikeThaiMojibake(value: string) {
-  return (
+  if (
     value.includes("เธ") ||
     value.includes("เน€") ||
     value.includes("โ€") ||
     value.includes("ร—") ||
     value.includes("ยท")
-  );
+  ) {
+    return true;
+  }
+
+  for (const character of value) {
+    const codePoint = character.codePointAt(0) ?? -1;
+    if ((codePoint >= 0x80 && codePoint <= 0x9f) || WINDOWS_1252_BYTES.has(codePoint)) return true;
+  }
+  return false;
 }
 
 function legacyByteForCodePoint(codePoint: number): number | null {
