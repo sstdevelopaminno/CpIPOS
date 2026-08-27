@@ -7,7 +7,7 @@ CpIPOS is a production-oriented multi-tenant, multi-branch point-of-sale platfor
 - Repository: `sstdevelopaminno/CpIPOS`
 - Current integration line: `agent-docs-preflight-schema-drift`
 - Web/POS project: `cp-ipos-web`
-- Back Office and IT Admin web routes are served from the same active `cp-ipos-web` Vercel deployment, including `/it-admin`; there is no active standalone `cp-ipos-backoffice-web` or `cp-ipos-it-admin-web` project in the current Vercel team.
+- GitHub currently receives separately configured Vercel deployment checks for `cp-ipos-web`, `cp-ipos-backoffice-web`, and `cp-ipos-it-admin-web`. Treat these as project-level deployment integrations; do not infer that a project is retired solely because it is not visible through one connector session. The IT Admin routes also exist in `apps/backoffice-web` and must remain covered by the reviewed production build.
 - Primary database / control plane: CpiPOS-001, Supabase ref `deejlitaivfnsbwqdugy`
 - Trial data plane: CpiPOS-002, Supabase ref `kawenyvpentwgugtzqec`
 - Primary guardrails: `docs/AI-GUARDRAILS-CPIPOS.md`
