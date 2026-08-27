@@ -14,7 +14,7 @@ const migration = readFileSync(resolve(root, "supabase/migrations/202608170002_p
 describe("print latency stability contract", () => {
   it("keeps idle polling adaptive while allowing a fresh job through server suppression quickly", () => {
     expect(claim).toContain("const EMPTY_CLAIM_BACKOFF_MS = 250;");
-    expect(agent).toContain("longArrayOf(1L, 2L, 3L)");
+    expect(agent).toContain("longArrayOf(1L, 3L, 8L)");
   });
 
   it("wakes the single-thread Android print worker after queue-producing POS calls", () => {
