@@ -3,6 +3,7 @@ import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
 const monitorRoute = readFileSync(resolve(process.cwd(), "src/app/api/pos/monitor/route.ts"), "utf8");
+const sessionCurrentRoute = readFileSync(resolve(process.cwd(), "src/app/api/pos/session/current/route.ts"), "utf8");
 const sales = readFileSync(resolve(process.cwd(), "src/components/pos/pos-sales-module.tsx"), "utf8");
 
 describe("POS runtime load stability contract", () => {
@@ -10,6 +11,15 @@ describe("POS runtime load stability contract", () => {
     expect(monitorRoute).toContain("const MONITOR_CACHE_TTL_MS = 30_000;");
     expect(monitorRoute).toContain("ttlMs: MONITOR_CACHE_TTL_MS");
     expect(monitorRoute).toContain("x-pos-monitor-cache");
+  });
+
+  it("coalesces current-shift order/payment aggregation bursts without caching session authorization", () => {
+    expect(sessionCurrentRoute).toContain("const SHIFT_METRICS_CACHE_TTL_MS = 5_000;");
+    expect(sessionCurrentRoute).toContain("pos-session-shift-metrics:");
+    expect(sessionCurrentRoute).toContain("ttlMs: SHIFT_METRICS_CACHE_TTL_MS");
+    expect(sessionCurrentRoute).toContain("const scope = await requirePosSession();");
+    expect(sessionCurrentRoute).toContain("loadPosRuntimeDevicePolicyForSession(scope.session)");
+    expect(sessionCurrentRoute).toContain("x-pos-session-shift-metrics-cache");
   });
 
   it("keeps monitor polling hidden-tab aware, online aware, and single-flight", () => {
