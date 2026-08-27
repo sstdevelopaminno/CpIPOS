@@ -48,13 +48,20 @@ function looksLikeThaiMojibake(value: string) {
 
   for (const character of value) {
     const codePoint = character.codePointAt(0) ?? -1;
-    if ((codePoint >= 0x80 && codePoint <= 0x9f) || WINDOWS_1252_BYTES.has(codePoint)) return true;
+    if (
+      (codePoint >= 0x80 && codePoint <= 0x9f) ||
+      codePoint === 0x00a0 ||
+      WINDOWS_1252_BYTES.has(codePoint)
+    ) {
+      return true;
+    }
   }
   return false;
 }
 
 function legacyByteForCodePoint(codePoint: number): number | null {
   if (codePoint <= 0x9f) return codePoint;
+  if (codePoint === 0x00a0) return 0xa0;
 
   // TIS-620/Windows-874 Thai block: U+0E01..U+0E5B => 0xA1..0xFB.
   if (codePoint >= 0x0e01 && codePoint <= 0x0e5b) {
