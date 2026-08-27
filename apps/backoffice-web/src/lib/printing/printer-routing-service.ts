@@ -239,6 +239,7 @@ export async function resolvePrinterRoutes(args: {
       .eq("tenant_id", args.auth.tenantId)
       .eq("branch_id", args.auth.branchId)
       .in("id", profileIds)
+      .eq("printer_role", args.legacyRole)
       .eq("enabled", true);
     if (profileError) throw new Error(profileError.message);
 
