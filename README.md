@@ -8,6 +8,7 @@ CpIPOS is a production-oriented multi-tenant, multi-branch point-of-sale platfor
 - Current integration line: `agent-docs-preflight-schema-drift`
 - Web/POS project: `cp-ipos-web`
 - GitHub currently receives separately configured Vercel deployment checks for `cp-ipos-web`, `cp-ipos-backoffice-web`, and `cp-ipos-it-admin-web`. Treat these as project-level deployment integrations; do not infer that a project is retired solely because it is not visible through one connector session. The IT Admin routes also exist in `apps/backoffice-web` and must remain covered by the reviewed production build.
+- The connected Vercel API session can read `cp-ipos-web` but currently receives provider-side `403 Forbidden` when listing deployments for `cp-ipos-backoffice-web` or `cp-ipos-it-admin-web`. Project-level Vercel configuration for those checks must therefore be verified from an account/session with access to those projects rather than guessed in repository source.
 - Primary database / control plane: CpiPOS-001, Supabase ref `deejlitaivfnsbwqdugy`
 - Trial data plane: CpiPOS-002, Supabase ref `kawenyvpentwgugtzqec`
 - Primary guardrails: `docs/AI-GUARDRAILS-CPIPOS.md`
