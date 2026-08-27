@@ -255,7 +255,7 @@ class CpiposApi(context: Context) {
             idempotencyKey = UUID.randomUUID().toString()
         ).requiredDataObject()
         val order = data.optJSONObject("order")
-            ?: throw ApiException(500, "order_missing", "เน€เธเธดเธฃเนเธเน€เธงเธญเธฃเนเนเธกเนเนเธ”เนเธชเนเธเธเนเธญเธกเธนเธฅเธเธดเธฅเธเธฅเธฑเธเธกเธฒ")
+            ?: throw ApiException(500, "order_missing", "เซิร์ฟเวอร์ไม่ได้ส่งข้อมูลบิลกลับมา")
         return CreatedOrder(
             id = order.optString("id"),
             orderNo = order.optString("order_no", "-"),

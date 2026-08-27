@@ -28,8 +28,8 @@
 - `apps/qr-login-web/src/app/globals.css`
 
 ## Validation Run
-- `corepack pnpm --filter qr-login-web typecheck` โ…
-- `corepack pnpm --filter qr-login-web exec eslint src` โ…
+- `corepack pnpm --filter qr-login-web typecheck` ✅
+- `corepack pnpm --filter qr-login-web exec eslint src` ✅
 - Note: `corepack pnpm --filter qr-login-web lint` checks `.open-next` generated files and currently fails there due external config/rule mismatch; source code lint is clean.
 
 ## Current Functional Flow (Login -> POS)

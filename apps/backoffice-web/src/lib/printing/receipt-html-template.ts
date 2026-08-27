@@ -30,8 +30,8 @@ export type ReceiptHtmlInput = {
 
 const DEFAULT_RECEIPT_LOGO_URL = "/brand/cpipos-logo.png";
 const RECEIPT_MODE_LABEL_ALIASES: Record<string, string> = {
-  "เธซเธเนเธฒเธเธฒเธข": "หน้าขาย",
-  "เนเธเน€เธชเธฃเนเธเธขเนเธญเธเธซเธฅเธฑเธ": "ใบเสร็จย้อนหลัง"
+  "\u0e40\u0e18\u0e0b\u0e40\u0e18\u0099\u0e40\u0e19\u0089\u0e40\u0e18\u0e12\u0e40\u0e18\u0082\u0e40\u0e18\u0e12\u0e40\u0e18\u0e02": "หน้าขาย",
+  "\u0e40\u0e19\u0083\u0e40\u0e18\u009a\u0e40\u0e19\u20ac\u0e40\u0e18\u0e0a\u0e40\u0e18\u0e03\u0e40\u0e19\u0087\u0e40\u0e18\u0088\u0e40\u0e18\u0e02\u0e40\u0e19\u0089\u0e40\u0e18\u0e0d\u0e40\u0e18\u0099\u0e40\u0e18\u0e0b\u0e40\u0e18\u0e05\u0e40\u0e18\u0e11\u0e40\u0e18\u0087": "ใบเสร็จย้อนหลัง"
 };
 
 function clean(value: unknown) {
