@@ -23,8 +23,7 @@ export const IMMEDIATE_DEVICE_COMMAND_TYPES: readonly DeviceCommandType[] = ["di
 export const UNSUPPORTED_DEVICE_COMMAND_TYPES: readonly DeviceCommandType[] = [
   "clear_print_queue",
   "restart_local_bridge",
-  "restart_print_service",
-  "check_update"
+  "restart_print_service"
 ];
 
 export const DEVICE_COMMAND_TTL_MS = 30 * 60_000;
