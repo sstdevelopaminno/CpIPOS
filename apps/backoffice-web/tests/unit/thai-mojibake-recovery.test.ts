@@ -5,6 +5,7 @@ describe("repairThaiMojibakeText", () => {
   it("repairs common corrupted Thai UI text", () => {
     expect(repairThaiMojibakeText("เธ•เธฑเนเธเธเนเธฒ")).toBe("ตั้งค่า");
     expect(repairThaiMojibakeText("เน€เธเธดเธเธชเธ”")).toBe("เงินสด");
+    expect(repairThaiMojibakeText("เธ เธฒเธฉเธฒ")).toBe("ภาษา");
     expect(repairThaiMojibakeText("เธฟ")).toBe("฿");
     expect(repairThaiMojibakeText("โ•")).toBe("↕");
   });
