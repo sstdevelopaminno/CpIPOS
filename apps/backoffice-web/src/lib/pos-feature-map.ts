@@ -51,8 +51,9 @@ export const POS_ROUTE_FEATURES = {
 export const POS_MODE_FEATURES = {
   dine_in: "table_management",
   buffet_table: "table_management",
-  delivery: "delivery_ordering"
-} as const satisfies Record<"dine_in" | "buffet_table" | "delivery", PosFeatureCode>;
+  delivery: "delivery_ordering",
+  general_sale: "barcode_scanner_mode"
+} as const satisfies Record<"dine_in" | "buffet_table" | "delivery" | "general_sale", PosFeatureCode>;
 
 export const POS_SETTINGS_FEATURES = {
   store: "core_pos_sales",
