@@ -22,6 +22,7 @@ describe("print latency stability contract", () => {
     expect(sales).toContain("wakeNativePrintAgent()");
     expect(main).toContain('addJavascriptInterface(nativePrintAgent, "CpiposPrint")');
     expect(agent).toContain("fun notifyPrintQueued()");
+    expect(agent).toContain("bootstrapRetryAfterElapsedMs = 0L");
     expect(agent).toContain("WAKE_RETRY_DELAY_MS = 350L");
   });
 
