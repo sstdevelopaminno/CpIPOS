@@ -1,0 +1,51 @@
+name: Validate CpIPOS Windows Runtime
+
+on:
+  pull_request:
+    paths:
+      - "apps/windows-runtime-native/**"
+      - "apps/backoffice-web/tests/unit/windows-native-print-runtime-contract.test.ts"
+      - ".github/workflows/validate-windows-runtime.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  WINDOWS_RUNTIME_PROJECT: apps/windows-runtime-native/Cpipos.WindowsRuntime/Cpipos.WindowsRuntime.csproj
+  WINDOWS_RUNTIME_ICON_B64: apps/windows-runtime-native/Cpipos.WindowsRuntime/assets/cpipos.ico.b64
+  WINDOWS_RUNTIME_ICON: apps/windows-runtime-native/Cpipos.WindowsRuntime/assets/cpipos.ico
+
+jobs:
+  validate-windows-runtime:
+    name: Compile embedded Windows POS runtime
+    runs-on: windows-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Restore app icon from repository
+        shell: pwsh
+        run: |
+          if (!(Test-Path $env:WINDOWS_RUNTIME_ICON_B64)) {
+            throw "Icon source not found: $env:WINDOWS_RUNTIME_ICON_B64"
+          }
+          $iconDir = Split-Path -Parent $env:WINDOWS_RUNTIME_ICON
+          New-Item -ItemType Directory -Force -Path $iconDir | Out-Null
+          $iconBase64 = (Get-Content $env:WINDOWS_RUNTIME_ICON_B64 -Raw).Trim()
+          [System.IO.File]::WriteAllBytes($env:WINDOWS_RUNTIME_ICON, [Convert]::FromBase64String($iconBase64))
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: Restore
+        shell: pwsh
+        run: dotnet restore $env:WINDOWS_RUNTIME_PROJECT
+
+      - name: Build native Windows POS runtime
+        shell: pwsh
+        run: dotnet build $env:WINDOWS_RUNTIME_PROJECT -c Release --no-restore
