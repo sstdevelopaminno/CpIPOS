@@ -145,7 +145,7 @@ Local bridge inside the EXE:
 Notes:
 - Uses the existing CpIPOS web UI.
 - Includes a native local print bridge.
-- Does not include offline sales database/sync engine yet.
+- Native POS can cache the latest catalog, queue cash sales while offline, and sync them through the existing CpIPOS APIs after login returns.
 - Microsoft Edge WebView2 Runtime is required.
 '@
 $readmeText | Set-Content -Encoding UTF8 (Join-Path $outputDir "README-WINDOWS-RUNTIME.txt")
