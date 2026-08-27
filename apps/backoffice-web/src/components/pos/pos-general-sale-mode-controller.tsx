@@ -1,23 +1,30 @@
 "use client";
 
 import { useEffect } from "react";
+import { POS_MODE_FEATURES } from "@/lib/pos-feature-map";
 import {
-  GROCERY_MODE_ID,
-  GROCERY_PRODUCT_SKU_ATTRIBUTE,
-  GROCERY_ROOT_ATTRIBUTE,
-  isExactGrocerySkuMatch,
-  normalizeGroceryScanCode
-} from "@/lib/pos-grocery-mode";
+  GENERAL_SALE_CHECKOUT_BASE_MODE,
+  GENERAL_SALE_MODE_ID,
+  GENERAL_SALE_PRODUCT_SKU_ATTRIBUTE,
+  GENERAL_SALE_ROOT_ATTRIBUTE,
+  isExactGeneralSaleSkuMatch,
+  normalizeGeneralSaleScanCode
+} from "@/lib/pos-general-sale-mode";
 
 type Lang = "th" | "en";
+type PosFeaturesResponse = {
+  data?: {
+    features?: Record<string, boolean>;
+  } | null;
+};
 
 const MODE_SELECTOR_QUERY = ".posui-mode-selector";
 const MODE_GRID_QUERY = ".posui-mode-selector__grid";
 const MODE_ATTRIBUTE = "data-pos-sale-mode";
 const MODE_ENHANCED_ATTRIBUTE = "data-pos-mode-preferences-enhanced";
 const PRODUCT_GRID_WRAP_QUERY = ".posui-product-grid-wrap";
-const GROCERY_BUTTON_ATTRIBUTE = "data-pos-grocery-mode-button";
-const GROCERY_SCANNER_ATTRIBUTE = "data-pos-grocery-scanner";
+const GENERAL_SALE_BUTTON_ATTRIBUTE = "data-pos-general-sale-mode-button";
+const GENERAL_SALE_SCANNER_ATTRIBUTE = "data-pos-general-sale-scanner";
 
 function resolveLang(): Lang {
   return document.documentElement.lang.toLowerCase().startsWith("en") ? "en" : "th";
@@ -31,8 +38,8 @@ function createTextElement(tag: "span" | "strong" | "small", className: string, 
 }
 
 function findProductCardBySku(scanCode: string): HTMLButtonElement | null {
-  const cards = Array.from(document.querySelectorAll<HTMLButtonElement>(`button[${GROCERY_PRODUCT_SKU_ATTRIBUTE}]`));
-  return cards.find((card) => isExactGrocerySkuMatch(scanCode, card.getAttribute(GROCERY_PRODUCT_SKU_ATTRIBUTE))) ?? null;
+  const cards = Array.from(document.querySelectorAll<HTMLButtonElement>(`button[${GENERAL_SALE_PRODUCT_SKU_ATTRIBUTE}]`));
+  return cards.find((card) => isExactGeneralSaleSkuMatch(scanCode, card.getAttribute(GENERAL_SALE_PRODUCT_SKU_ATTRIBUTE))) ?? null;
 }
 
 function clickAllProductsCategory() {
@@ -40,47 +47,53 @@ function clickAllProductsCategory() {
   firstCategory?.click();
 }
 
-export function PosGroceryModeController() {
+export function PosGeneralSaleModeController() {
   useEffect(() => {
     let destroyed = false;
-    let groceryActive = false;
+    let accessResolved = false;
+    let generalSaleAllowed = false;
+    let generalSaleActive = false;
     let scannerPanel: HTMLElement | null = null;
 
     const lang = resolveLang();
 
     const setRootMode = (active: boolean) => {
       if (active) {
-        document.documentElement.setAttribute(GROCERY_ROOT_ATTRIBUTE, GROCERY_MODE_ID);
-      } else if (document.documentElement.getAttribute(GROCERY_ROOT_ATTRIBUTE) === GROCERY_MODE_ID) {
-        document.documentElement.removeAttribute(GROCERY_ROOT_ATTRIBUTE);
+        document.documentElement.setAttribute(GENERAL_SALE_ROOT_ATTRIBUTE, GENERAL_SALE_MODE_ID);
+      } else if (document.documentElement.getAttribute(GENERAL_SALE_ROOT_ATTRIBUTE) === GENERAL_SALE_MODE_ID) {
+        document.documentElement.removeAttribute(GENERAL_SALE_ROOT_ATTRIBUTE);
       }
     };
 
     const setModeVisualState = () => {
       const selector = document.querySelector<HTMLElement>(MODE_SELECTOR_QUERY);
-      const groceryButton = selector?.querySelector<HTMLButtonElement>(`[${GROCERY_BUTTON_ATTRIBUTE}="1"]`) ?? null;
-      const homeButton = selector?.querySelector<HTMLElement>(`[${MODE_ATTRIBUTE}="home"]`) ?? null;
-      groceryButton?.classList.toggle("is-active", groceryActive);
-      if (groceryActive) homeButton?.classList.remove("is-active");
+      const generalSaleButton = selector?.querySelector<HTMLButtonElement>(`[${GENERAL_SALE_BUTTON_ATTRIBUTE}="1"]`) ?? null;
+      const homeButton = selector?.querySelector<HTMLElement>(`[${MODE_ATTRIBUTE}="${GENERAL_SALE_CHECKOUT_BASE_MODE}"]`) ?? null;
+      generalSaleButton?.classList.toggle("is-active", generalSaleActive);
+      if (generalSaleActive) homeButton?.classList.remove("is-active");
     };
 
     const removeScanner = () => {
       scannerPanel?.remove();
       scannerPanel = null;
-      document.querySelectorAll<HTMLElement>(`[${GROCERY_SCANNER_ATTRIBUTE}="1"]`).forEach((node) => node.remove());
+      document.querySelectorAll<HTMLElement>(`[${GENERAL_SALE_SCANNER_ATTRIBUTE}="1"]`).forEach((node) => node.remove());
     };
 
-    const deactivateGrocery = () => {
-      groceryActive = false;
+    const deactivateGeneralSale = () => {
+      generalSaleActive = false;
       setRootMode(false);
       setModeVisualState();
       removeScanner();
     };
 
+    const removeGeneralSaleButton = () => {
+      document.querySelectorAll<HTMLElement>(`[${GENERAL_SALE_BUTTON_ATTRIBUTE}="1"]`).forEach((node) => node.remove());
+    };
+
     const submitScan = async (rawCode: string, status: HTMLElement, input: HTMLInputElement) => {
-      const scanCode = normalizeGroceryScanCode(rawCode);
+      const scanCode = normalizeGeneralSaleScanCode(rawCode);
       if (!scanCode) {
-        status.textContent = lang === "th" ? "กรุณาสแกนหรือกรอกรหัส SKU" : "Scan or enter an SKU.";
+        status.textContent = lang === "th" ? "กรุณาสแกนหรือกรอกรหัส SKU/บาร์โค้ด" : "Scan or enter an SKU/barcode.";
         status.dataset.tone = "error";
         input.focus();
         return;
@@ -90,12 +103,12 @@ export function PosGroceryModeController() {
       if (!card) {
         clickAllProductsCategory();
         await new Promise<void>((resolve) => window.setTimeout(resolve, 80));
-        if (destroyed || !groceryActive) return;
+        if (destroyed || !generalSaleActive) return;
         card = findProductCardBySku(scanCode);
       }
 
       if (!card) {
-        status.textContent = lang === "th" ? `ไม่พบสินค้า SKU: ${scanCode}` : `SKU not found: ${scanCode}`;
+        status.textContent = lang === "th" ? `ไม่พบสินค้า SKU/บาร์โค้ด: ${scanCode}` : `SKU/barcode not found: ${scanCode}`;
         status.dataset.tone = "error";
         input.select();
         return;
@@ -116,13 +129,13 @@ export function PosGroceryModeController() {
     };
 
     const ensureScanner = () => {
-      if (!groceryActive) {
+      if (!generalSaleAllowed || !generalSaleActive) {
         removeScanner();
         return;
       }
 
       if (scannerPanel?.isConnected) return;
-      const existing = document.querySelector<HTMLElement>(`[${GROCERY_SCANNER_ATTRIBUTE}="1"]`);
+      const existing = document.querySelector<HTMLElement>(`[${GENERAL_SALE_SCANNER_ATTRIBUTE}="1"]`);
       if (existing) {
         scannerPanel = existing;
         return;
@@ -132,15 +145,15 @@ export function PosGroceryModeController() {
       if (!gridWrap?.parentElement) return;
 
       const panel = document.createElement("section");
-      panel.setAttribute(GROCERY_SCANNER_ATTRIBUTE, "1");
+      panel.setAttribute(GENERAL_SALE_SCANNER_ATTRIBUTE, "1");
       panel.className = "grid gap-2 rounded-xl border border-emerald-200 bg-emerald-50 p-3";
-      panel.setAttribute("aria-label", lang === "th" ? "สแกนสินค้าโหมดร้านชำ" : "Grocery product scanner");
+      panel.setAttribute("aria-label", lang === "th" ? "สแกนสินค้าโหมดขายทั่วไป SD" : "SD general sale product scanner");
 
       const heading = document.createElement("div");
       heading.className = "flex items-center justify-between gap-3";
       heading.append(
-        createTextElement("strong", "text-sm font-black text-emerald-950", lang === "th" ? "โหมดร้านชำ · สแกน SKU" : "Grocery · SKU scan"),
-        createTextElement("small", "text-xs font-bold text-emerald-700", lang === "th" ? "ใช้ระบบชำระเงินเดิมของ POS" : "Uses the standard POS checkout")
+        createTextElement("strong", "text-sm font-black text-emerald-950", lang === "th" ? "SD · ขายทั่วไป · สแกน SKU" : "SD · General Sale · SKU scan"),
+        createTextElement("small", "text-xs font-bold text-emerald-700", lang === "th" ? "ใช้ระบบชำระเงินมาตรฐานของ POS" : "Uses the standard POS checkout")
       );
 
       const form = document.createElement("form");
@@ -152,8 +165,8 @@ export function PosGroceryModeController() {
       input.autocomplete = "off";
       input.spellcheck = false;
       input.className = "posui-payment-modal__input";
-      input.placeholder = lang === "th" ? "สแกน/กรอก SKU แล้วกด Enter" : "Scan/enter SKU and press Enter";
-      input.setAttribute("aria-label", lang === "th" ? "รหัส SKU สินค้า" : "Product SKU");
+      input.placeholder = lang === "th" ? "สแกน/กรอก SKU หรือบาร์โค้ด แล้วกด Enter" : "Scan/enter SKU or barcode and press Enter";
+      input.setAttribute("aria-label", lang === "th" ? "รหัส SKU หรือบาร์โค้ดสินค้า" : "Product SKU or barcode");
 
       const submit = document.createElement("button");
       submit.type = "submit";
@@ -177,49 +190,56 @@ export function PosGroceryModeController() {
     };
 
     const enhanceSelector = () => {
+      if (!accessResolved || !generalSaleAllowed) {
+        deactivateGeneralSale();
+        removeGeneralSaleButton();
+        return;
+      }
+
       const selector = document.querySelector<HTMLElement>(MODE_SELECTOR_QUERY);
       if (!selector || selector.getAttribute(MODE_ENHANCED_ATTRIBUTE) !== "1") return;
       const grid = selector.querySelector<HTMLElement>(MODE_GRID_QUERY);
       if (!grid) return;
 
-      let groceryButton = grid.querySelector<HTMLButtonElement>(`[${GROCERY_BUTTON_ATTRIBUTE}="1"]`);
-      if (!groceryButton) {
-        groceryButton = document.createElement("button");
-        groceryButton.type = "button";
-        groceryButton.className = "posui-mode-option";
-        groceryButton.setAttribute(MODE_ATTRIBUTE, GROCERY_MODE_ID);
-        groceryButton.setAttribute(GROCERY_BUTTON_ATTRIBUTE, "1");
-        groceryButton.style.order = "99";
+      let generalSaleButton = grid.querySelector<HTMLButtonElement>(`[${GENERAL_SALE_BUTTON_ATTRIBUTE}="1"]`);
+      if (!generalSaleButton) {
+        generalSaleButton = document.createElement("button");
+        generalSaleButton.type = "button";
+        generalSaleButton.className = "posui-mode-option";
+        generalSaleButton.setAttribute(MODE_ATTRIBUTE, GENERAL_SALE_MODE_ID);
+        generalSaleButton.setAttribute(GENERAL_SALE_BUTTON_ATTRIBUTE, "1");
+        generalSaleButton.style.order = "99";
 
         const icon = createTextElement("span", "posui-mode-option__icon", "▦");
         icon.setAttribute("aria-hidden", "true");
         const copy = document.createElement("span");
         copy.className = "posui-mode-option__copy";
         copy.append(
-          createTextElement("strong", "", lang === "th" ? "ร้านชำ" : "Grocery"),
-          createTextElement("small", "", lang === "th" ? "สแกน SKU ขายเร็ว ใช้บิลรับกลับ" : "Fast SKU scan using takeaway checkout")
+          createTextElement("strong", "", lang === "th" ? "ขายทั่วไป (SD)" : "General Sale (SD)"),
+          createTextElement("small", "", lang === "th" ? "สแกน SKU/บาร์โค้ด ตัดสต๊อกสินค้าโดยตรง" : "SKU/barcode fast checkout with direct stock")
         );
         const check = createTextElement("span", "posui-mode-option__check", "✓");
         check.setAttribute("aria-hidden", "true");
-        groceryButton.append(icon, copy, check);
+        generalSaleButton.append(icon, copy, check);
 
-        groceryButton.addEventListener("click", () => {
-          const homeButton = grid.querySelector<HTMLElement>(`[${MODE_ATTRIBUTE}="home"]`);
+        generalSaleButton.addEventListener("click", () => {
+          if (!generalSaleAllowed) return;
+          const homeButton = grid.querySelector<HTMLElement>(`[${MODE_ATTRIBUTE}="${GENERAL_SALE_CHECKOUT_BASE_MODE}"]`);
           if (!homeButton) return;
 
-          // Grocery v1 deliberately reuses the proven Home/Takeaway transaction engine.
-          // Activate Home first, then layer the Grocery-specific sales UX on top.
+          // SD General Sale reuses the proven Home/Takeaway transaction engine.
+          // Package/branch access is resolved by /api/pos/features before this button exists.
           homeButton.click();
-          groceryActive = true;
+          generalSaleActive = true;
           setRootMode(true);
           window.setTimeout(() => {
-            if (destroyed || !groceryActive) return;
+            if (destroyed || !generalSaleActive) return;
             setModeVisualState();
             ensureScanner();
           }, 0);
         });
 
-        grid.appendChild(groceryButton);
+        grid.appendChild(generalSaleButton);
       }
 
       setModeVisualState();
@@ -230,7 +250,7 @@ export function PosGroceryModeController() {
       const modeCard = event.target.closest<HTMLElement>(`[${MODE_ATTRIBUTE}]`);
       if (!modeCard) return;
       const mode = modeCard.getAttribute(MODE_ATTRIBUTE);
-      if (mode && mode !== GROCERY_MODE_ID) deactivateGrocery();
+      if (mode && mode !== GENERAL_SALE_MODE_ID) deactivateGeneralSale();
     };
 
     const reconcile = () => {
@@ -240,17 +260,34 @@ export function PosGroceryModeController() {
       setModeVisualState();
     };
 
+    async function loadAccess() {
+      try {
+        const response = await fetch("/api/pos/features", {
+          cache: "no-store",
+          credentials: "include"
+        });
+        const body = (await response.json().catch(() => null)) as PosFeaturesResponse | null;
+        generalSaleAllowed = Boolean(response.ok && body?.data?.features?.[POS_MODE_FEATURES.general_sale] === true);
+      } catch {
+        generalSaleAllowed = false;
+      } finally {
+        accessResolved = true;
+        reconcile();
+      }
+    }
+
     document.addEventListener("click", onModeClick, true);
     const observer = new MutationObserver(reconcile);
     observer.observe(document.body, { childList: true, subtree: true });
+    void loadAccess();
     reconcile();
 
     return () => {
       destroyed = true;
       observer.disconnect();
       document.removeEventListener("click", onModeClick, true);
-      deactivateGrocery();
-      document.querySelectorAll<HTMLElement>(`[${GROCERY_BUTTON_ATTRIBUTE}="1"]`).forEach((node) => node.remove());
+      deactivateGeneralSale();
+      removeGeneralSaleButton();
     };
   }, []);
 
