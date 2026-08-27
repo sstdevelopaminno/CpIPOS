@@ -39,6 +39,12 @@ const POLL_INTERVAL_MS = 3_000;
 const SEEN_TICKET_LIMIT = 300;
 const ALERT_EVENT_TYPES = new Set(["new", "add"]);
 const ACTIVE_STATUSES: KitchenStatus[] = ["queued", "acknowledged", "preparing"];
+const KITCHEN_STATUS_STEPS: Array<{ status: KitchenStatus; label: string }> = [
+  { status: "queued", label: "รอรับ" },
+  { status: "acknowledged", label: "รับแล้ว" },
+  { status: "preparing", label: "กำลังทำ" },
+  { status: "ready", label: "พร้อมเสิร์ฟ" }
+];
 
 function ticketAlertKey(ticket: KitchenTicket) {
   return `${ticket.id}:${ticket.event_type}:${ticket.round_no ?? 1}`;
@@ -98,6 +104,38 @@ function statusRank(status: KitchenStatus) {
   if (status === "preparing") return 2;
   if (status === "ready") return 3;
   return -1;
+}
+
+
+function statusStepClass(status: KitchenStatus, active: boolean) {
+  if (!active) return "bg-slate-50 text-slate-400";
+  if (status === "queued") return "bg-amber-500 text-white";
+  if (status === "acknowledged") return "bg-red-600 text-white";
+  if (status === "preparing") return "bg-orange-500 text-white";
+  if (status === "ready") return "bg-emerald-600 text-white";
+  return "bg-slate-500 text-white";
+}
+
+function statusBadgeClass(status: KitchenStatus) {
+  if (status === "queued") return "bg-amber-50 text-amber-800 ring-1 ring-amber-200";
+  if (status === "acknowledged") return "bg-red-50 text-red-700 ring-1 ring-red-200";
+  if (status === "preparing") return "bg-orange-50 text-orange-700 ring-1 ring-orange-200";
+  if (status === "ready") return "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200";
+  return "bg-slate-100 text-slate-700 ring-1 ring-slate-200";
+}
+
+function ticketCardClass(status: KitchenStatus) {
+  if (status === "queued") return "border-amber-300 ring-2 ring-amber-100";
+  if (status === "acknowledged") return "border-red-300 ring-2 ring-red-100";
+  if (status === "preparing") return "border-orange-300 ring-2 ring-orange-100";
+  return "border-slate-200";
+}
+
+function nextButtonClass(status: KitchenStatus) {
+  if (status === "queued") return "bg-red-600 hover:bg-red-700";
+  if (status === "acknowledged") return "bg-orange-500 hover:bg-orange-600";
+  if (status === "preparing") return "bg-emerald-600 hover:bg-emerald-700";
+  return "bg-slate-600 hover:bg-slate-700";
 }
 
 function groupStatus(tickets: KitchenTicket[]) {
@@ -540,22 +578,17 @@ export function KitchenKds() {
                         </div>
                       </div>
                       <div className="mt-4 grid grid-cols-4 overflow-hidden rounded-lg border border-slate-200 text-center text-[11px] font-black sm:text-xs">
-                        {[
-                          ["queued", "รอรับ"],
-                          ["acknowledged", "รับแล้ว"],
-                          ["preparing", "กำลังทำ"],
-                          ["ready", "พร้อมเสิร์ฟ"]
-                        ].map(([status, label], index) => {
+                        {KITCHEN_STATUS_STEPS.map(({ status, label }, index) => {
                           const active = currentRank >= index;
                           return (
-                            <span key={status} className={`px-1 py-2 ${active ? "bg-blue-600 text-white" : "bg-slate-50 text-slate-400"} ${index > 0 ? "border-l border-white/40" : ""}`}>
+                            <span key={status} className={`px-1 py-2 ${statusStepClass(status, active)} ${index > 0 ? "border-l border-white/40" : ""}`}>
                               {label}
                             </span>
                           );
                         })}
                       </div>
                       <div className="mt-3 flex items-center justify-between gap-3">
-                        <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-black text-slate-700">{statusLabel(currentStatus)}</span>
+                        <span className={`rounded-full px-3 py-1 text-xs font-black ${statusBadgeClass(currentStatus)}`}>{statusLabel(currentStatus)}</span>
                         <button type="button" onClick={() => void finishBill(group)} disabled={groupBusy} className="rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-1.5 text-xs font-black text-emerald-800 disabled:opacity-50">
                           {groupBusy ? "กำลังบันทึก..." : "พร้อมเสิร์ฟทั้งบิล"}
                         </button>
@@ -568,24 +601,30 @@ export function KitchenKds() {
                         const previous = previousStatus(ticket.status);
                         const next = nextStatus(ticket.status);
                         return (
-                          <section key={ticket.id} className={`rounded-xl border bg-white p-4 shadow-sm ${ticket.status === "queued" ? "border-amber-300 ring-2 ring-amber-100" : "border-slate-200"}`}>
+                          <section key={ticket.id} className={`rounded-xl border bg-white p-4 shadow-sm ${ticketCardClass(ticket.status)}`}>
                             <div className="flex items-start justify-between gap-2">
                               <div>
                                 <span className="rounded-full bg-amber-50 px-3 py-1 text-xs font-black text-amber-700">{eventLabel(ticket)}</span>
                                 <p className="mt-2 text-xs font-bold text-slate-500">รอบที่ {ticket.round_no ?? 1} · {ageText(ticket.created_at, now)}</p>
                               </div>
-                              <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-black text-slate-700">{statusLabel(ticket.status)}</span>
+                              <span className={`rounded-full px-2.5 py-1 text-xs font-black ${statusBadgeClass(ticket.status)}`}>{statusLabel(ticket.status)}</span>
                             </div>
-                            <div className="mt-4 grid gap-2">
-                              {ticket.items.map((item) => (
-                                <div key={item.id} className="flex items-start justify-between gap-3 border-t border-slate-100 pt-2 first:border-0 first:pt-0">
-                                  <div>
-                                    <span className="font-black">{item.product_name}</span>
-                                    {item.notes ? <small className="block text-xs font-semibold text-orange-600">{item.notes}</small> : null}
+                            <div className="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-3">
+                              <div className="mb-2 flex items-center justify-between gap-3 text-xs font-black text-slate-500">
+                                <span>รายการอาหาร</span>
+                                <span>{ticket.items.length} รายการ</span>
+                              </div>
+                              <div className="grid gap-2">
+                                {ticket.items.map((item) => (
+                                  <div key={item.id} className="flex items-start justify-between gap-3 rounded-lg bg-white px-3 py-2 shadow-sm ring-1 ring-slate-100">
+                                    <div>
+                                      <span className="font-black">{item.product_name}</span>
+                                      {item.notes ? <small className="block text-xs font-semibold text-orange-600">{item.notes}</small> : null}
+                                    </div>
+                                    <div className="flex shrink-0 flex-col items-end gap-2"><strong className="text-lg">x{item.quantity}</strong>{item.action !== "cancel" ? <button type="button" onClick={() => void cancelItem(ticket, item)} disabled={ticketBusy || busyKeys.has(`item:${item.id}`)} className="rounded-lg border border-red-200 bg-red-50 px-2.5 py-1 text-xs font-black text-red-700 disabled:opacity-50">{"\u0e22\u0e01\u0e40\u0e25\u0e34\u0e01"}</button> : null}</div>
                                   </div>
-                                  <div className="flex shrink-0 flex-col items-end gap-2"><strong className="text-lg">x{item.quantity}</strong>{item.action !== "cancel" ? <button type="button" onClick={() => void cancelItem(ticket, item)} disabled={ticketBusy || busyKeys.has(`item:${item.id}`)} className="rounded-lg border border-red-200 bg-red-50 px-2.5 py-1 text-xs font-black text-red-700 disabled:opacity-50">{"\u0e22\u0e01\u0e40\u0e25\u0e34\u0e01"}</button> : null}</div>
-                                </div>
-                              ))}
+                                ))}
+                              </div>
                             </div>
                             {ticket.order_notes ? <p className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800">หมายเหตุ: {ticket.order_notes}</p> : null}
                             <div className="mt-4 grid grid-cols-2 gap-2">
@@ -595,7 +634,7 @@ export function KitchenKds() {
                                 </button>
                               ) : <span />}
                               {next ? (
-                                <button type="button" onClick={() => void transition(ticket, next)} disabled={ticketBusy} className={`rounded-lg px-3 py-2.5 text-sm font-black text-white disabled:opacity-50 ${next === "ready" ? "bg-emerald-600" : "bg-blue-600"}`}>
+                                <button type="button" onClick={() => void transition(ticket, next)} disabled={ticketBusy} className={`rounded-lg px-3 py-2.5 text-sm font-black text-white transition disabled:opacity-50 ${nextButtonClass(ticket.status)}`}>
                                   {ticketBusy ? "กำลังบันทึก..." : nextLabel(ticket.status)}
                                 </button>
                               ) : <span />}
