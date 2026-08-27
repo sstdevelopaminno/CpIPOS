@@ -20,7 +20,7 @@ jobs:
           ref: repair/stability-green-20260827
           fetch-depth: 0
 
-      - name: Repair deterministic UTF-8 mojibake
+      - name: Repair deterministic UTF-8 mojibake (nested passes)
         run: node scripts/repair-repository-mojibake.mjs
 
       - name: Commit repaired text
@@ -32,5 +32,5 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A
-          git commit -m "fix: repair repository Thai mojibake"
+          git commit -m "fix: repair nested Thai mojibake"
           git push origin HEAD:repair/stability-green-20260827
