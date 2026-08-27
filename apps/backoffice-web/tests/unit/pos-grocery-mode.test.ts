@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  GROCERY_CHECKOUT_BASE_MODE,
   GROCERY_MODE_ID,
   GROCERY_PRODUCT_SKU_ATTRIBUTE,
   GROCERY_ROOT_ATTRIBUTE,
@@ -8,8 +9,9 @@ import {
 } from "../../src/lib/pos-grocery-mode";
 
 describe("POS grocery mode helpers", () => {
-  it("keeps grocery as a separate UI/business-mode identity", () => {
+  it("keeps grocery as a separate UI/business-mode identity on the Home checkout base", () => {
     expect(GROCERY_MODE_ID).toBe("grocery");
+    expect(GROCERY_CHECKOUT_BASE_MODE).toBe("home");
     expect(GROCERY_ROOT_ATTRIBUTE).toBe("data-pos-business-mode");
     expect(GROCERY_PRODUCT_SKU_ATTRIBUTE).toBe("data-pos-product-sku");
   });
