@@ -81,7 +81,7 @@ function findRenderedBuffetCard(): HTMLElement | null {
   return (
     candidates.find((candidate) => {
       const text = String(candidate.textContent ?? "").toLowerCase();
-      return text.includes("เธเธธเธเน€เธเนเธ•เน") || text.includes("เธเธธเธเน€เธเน") || text.includes("buffet");
+      return text.includes("บุฟเฟต์") || text.includes("บุฟเฟ่ต์") || text.includes("buffet");
     }) ?? null
   );
 }

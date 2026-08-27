@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { useEffect } from "react";
 import { fetchCurrentProductProfile, readCachedProductProfile } from "@/lib/pos-product-profile-client";
@@ -11,6 +11,7 @@ const GRID_QUERY = ".posui-mode-selector__grid";
 const ORDER_BUTTON_QUERY = ".pos-mode-order-button";
 const MODE_ATTRIBUTE = "data-pos-sale-mode";
 const HIDDEN_ATTRIBUTE = "data-pos-mode-hidden";
+const PROFILE_REFRESH_RETRY_COOLDOWN_MS = 15_000;
 
 type SalesMode = PosSalesMode;
 
@@ -30,12 +31,12 @@ function detectMode(element: HTMLElement): SalesMode | null {
   const text = normalizeLabel(element.textContent ?? "");
   if (!text) return null;
 
-  if (text.includes("เน€เธ”เธฅเธดเน€เธงเธญเธฃเธตเน") || text.includes("delivery")) return "delivery";
-  if (text.includes("เธเธธเธเน€เธเนเธ•เน") || text.includes("buffet")) return "buffet_table";
-  if (text.includes("เธเธฑเนเธเนเธ•เนเธฐ") || text.includes("dine in") || text.includes("dine-in")) return "dine_in";
+  if (text.includes("เดลิเวอรี่") || text.includes("เดลิเวอรี") || text.includes("delivery")) return "delivery";
+  if (text.includes("บุฟเฟต์") || text.includes("บุฟเฟ่ต์") || text.includes("buffet")) return "buffet_table";
+  if (text.includes("นั่งโต๊ะ") || text.includes("ทานที่ร้าน") || text.includes("dine in") || text.includes("dine-in")) return "dine_in";
   if (
-    text.includes("เธเธฅเธฑเธเธเนเธฒเธ") ||
-    text.includes("เธฃเธฑเธเธเธฅเธฑเธ") ||
+    text.includes("กลับบ้าน") ||
+    text.includes("รับกลับ") ||
     text.includes("take away") ||
     text.includes("takeaway") ||
     text.includes("to go")
@@ -62,7 +63,6 @@ function hideMode(element: HTMLElement, mode: SalesMode | null) {
 function applyProductProfilePolicy(productProfile: ProductProfileCode | null) {
   if (!productProfile) return;
   const policy = getProductProfilePolicy(productProfile);
-  if (policy.hiddenSalesModes.length === 0) return;
   const hidden = new Set(policy.hiddenSalesModes);
 
   for (const selector of document.querySelectorAll<HTMLElement>(SELECTOR_QUERY)) {
@@ -76,10 +76,9 @@ function applyProductProfilePolicy(productProfile: ProductProfileCode | null) {
       else if (mode) showMode(element, mode);
     }
 
-    if (policy.forcePreferredSalesMode) {
-      const orderButton = selector.querySelector<HTMLElement>(ORDER_BUTTON_QUERY);
-      orderButton?.style.setProperty("display", "none", "important");
-    }
+    const orderButton = selector.querySelector<HTMLElement>(ORDER_BUTTON_QUERY);
+    if (policy.forcePreferredSalesMode) orderButton?.style.setProperty("display", "none", "important");
+    else orderButton?.style.removeProperty("display");
   }
 }
 
@@ -88,21 +87,44 @@ export function PosFf0001SalesModeGuard() {
     let raf = 0;
     let activeScopeKey = "";
     let productProfile: ProductProfileCode | null = null;
+    let profileRequestScopeKey = "";
+    let profileRequestInFlight = false;
+    let profileRetryAfter = 0;
 
     const refreshProfile = () => {
       const scope = readScope();
       const scopeKey = scope ? `${scope.tenantId}:${scope.branchId}` : "";
-      if (scopeKey === activeScopeKey && productProfile) return;
-      activeScopeKey = scopeKey;
-      productProfile = readCachedProductProfile(scope?.tenantId);
-      if (scope?.tenantId) {
-        void fetchCurrentProductProfile(scope.tenantId).then((profile) => {
-          if (profile && activeScopeKey === scopeKey) {
-            productProfile = profile;
-            schedule();
-          }
-        });
+
+      if (scopeKey !== activeScopeKey) {
+        activeScopeKey = scopeKey;
+        productProfile = readCachedProductProfile(scope?.tenantId);
+        profileRequestScopeKey = "";
+        profileRequestInFlight = false;
+        profileRetryAfter = 0;
+      } else if (!productProfile) {
+        productProfile = readCachedProductProfile(scope?.tenantId);
       }
+
+      if (!scope?.tenantId || productProfile) return;
+      if (profileRequestInFlight && profileRequestScopeKey === scopeKey) return;
+      if (profileRequestScopeKey === scopeKey && profileRetryAfter > Date.now()) return;
+
+      profileRequestScopeKey = scopeKey;
+      profileRequestInFlight = true;
+      void fetchCurrentProductProfile(scope.tenantId)
+        .then((profile) => {
+          if (activeScopeKey !== scopeKey) return;
+          if (profile) {
+            productProfile = profile;
+            profileRetryAfter = 0;
+            schedule();
+          } else {
+            profileRetryAfter = Date.now() + PROFILE_REFRESH_RETRY_COOLDOWN_MS;
+          }
+        })
+        .finally(() => {
+          if (profileRequestScopeKey === scopeKey) profileRequestInFlight = false;
+        });
     };
 
     const schedule = () => {
