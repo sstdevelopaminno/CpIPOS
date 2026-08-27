@@ -66,13 +66,13 @@ export function PosCustomerDisplayV2PaymentObserver() {
       if (receipt) {
         const existing = readExistingPaymentState();
         const receiptText = receipt.textContent?.toLowerCase() ?? "";
-        const method = receiptText.includes("เน€เธเธดเธเธชเธ”") || receiptText.includes("cash")
+        const method = receiptText.includes("เงินสด") || receiptText.includes("cash")
           ? "cash"
           : existing?.payment_method ?? "bank_transfer";
         const rows = Array.from(receipt.querySelectorAll<HTMLElement>(".posui-receipt-card-preview__summary p"));
-        const receivedRow = rows.find((row) => /เธฃเธฑเธเน€เธเธดเธ|cash received/i.test(row.textContent ?? ""));
-        const changeRow = rows.find((row) => /เน€เธเธดเธเธ—เธญเธ|change/i.test(row.textContent ?? ""));
-        const totalRow = rows.find((row) => /เธขเธญเธ”เธเธณเธฃเธฐ|total due|amount due/i.test(row.textContent ?? ""));
+        const receivedRow = rows.find((row) => /รับเงิน|cash received/i.test(row.textContent ?? ""));
+        const changeRow = rows.find((row) => /เงินทอน|change/i.test(row.textContent ?? ""));
+        const totalRow = rows.find((row) => /ยอดชำระ|total due|amount due/i.test(row.textContent ?? ""));
         next = {
           phase: "paid",
           order_no: existing?.order_no ?? null,
@@ -101,7 +101,7 @@ export function PosCustomerDisplayV2PaymentObserver() {
         const received = parseMoneyText(cash.querySelector<HTMLElement>(".posui-cash-summary-row--received strong")?.textContent);
         const accent = cash.querySelector<HTMLElement>(".posui-cash-summary-row--accent");
         const accentText = accent?.textContent ?? "";
-        const change = /เน€เธเธดเธเธ—เธญเธ|change/i.test(accentText)
+        const change = /เงินทอน|change/i.test(accentText)
           ? parseMoneyText(accent?.querySelector("strong")?.textContent) ?? 0
           : 0;
         next = {
