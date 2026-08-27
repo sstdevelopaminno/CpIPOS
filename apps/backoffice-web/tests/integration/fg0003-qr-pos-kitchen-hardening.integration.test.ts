@@ -13,10 +13,11 @@ const primaryMigration = readFileSync(new URL("../../../../supabase/migrations/2
 const trialMigration = readFileSync(new URL("../../../../supabase/trial-data-plane/migrations/202608240001_trial_fg0003_qr_pos_review_lifecycle.sql", import.meta.url), "utf8");
 
 describe("Restaurant QR to POS to Kitchen hardening", () => {
-  it("centralizes the Restaurant QR feature decision", () => {
+  it("centralizes the Restaurant QR feature decision without tenant UUID coupling", () => {
+    expect(hardeningFlags).toContain('RESTAURANT_QR_PRODUCT_PROFILE = "RESTAURANT_QR"');
     expect(hardeningFlags).toContain("resolveRestaurantQrKitchenFlags");
-    expect(hardeningFlags).toContain("2d38bd23-bf2d-4b9a-a7cf-adb2547297ed");
-    expect(hardeningFlags).toContain("41eee367-6762-4277-bfc8-c2e9776a8ef9");
+    expect(hardeningFlags).toContain('tenantCode.startsWith("FG")');
+    expect(hardeningFlags).toContain('branchCode.startsWith("FG")');
     expect(qrOrdering).toContain("resolveRestaurantQrKitchenFlags");
     expect(posSales).toContain("restaurantQrKitchenHardeningActive");
     expect(compatibilityAlias).toContain("resolveRestaurantQrKitchenFlags as resolveQrKitchenHardeningFlags");

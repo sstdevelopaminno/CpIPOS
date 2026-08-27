@@ -85,6 +85,7 @@ function PosProductCatalogInner({ products, isDeliveryMode, storefrontPriceLabel
         <PosProductCard
           key={product.id}
           title={product.name}
+          productSku={product.sku}
           subtitle={product.sku && product.sku !== product.id ? product.sku : undefined}
           imageUrl={imageUrls[product.id] || undefined}
           price={getProductPrice(product)}
