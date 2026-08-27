@@ -51,7 +51,7 @@ function suspiciousScore(value) {
   return score;
 }
 
-function repairWhole(value) {
+function repairOnePass(value) {
   const beforeScore = suspiciousScore(value);
   if (beforeScore === 0) return value;
   const bytes = [];
@@ -69,6 +69,16 @@ function repairWhole(value) {
   if (!decoded || decoded === value || decoded.includes("�")) return value;
   if (suspiciousScore(decoded) >= beforeScore) return value;
   return decoded;
+}
+
+function repairWhole(value) {
+  let current = value;
+  for (let pass = 0; pass < 4; pass += 1) {
+    const repaired = repairOnePass(current);
+    if (repaired === current) break;
+    current = repaired;
+  }
+  return current;
 }
 
 function repairLine(line) {
