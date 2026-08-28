@@ -1,11 +1,56 @@
+import { StoreProvisioningConsole, type ProvisioningPackageOption } from "@/components/it-admin/store-provisioning-console";
 import { requireItSupport } from "@/lib/it-admin-guard";
 import { listTenantSummaries } from "@/lib/services/it-admin/tenant-admin-service";
 
 export const dynamic = "force-dynamic";
 
+type PackageRow = {
+  id: string;
+  code: string;
+  name: string;
+  monthly_price: number | string | null;
+  yearly_price: number | string | null;
+  max_branches: number | null;
+  max_devices: number | null;
+  max_users: number | null;
+  quota_mode: string | null;
+};
+
+function toPackageOption(row: PackageRow): ProvisioningPackageOption {
+  return {
+    id: row.id,
+    code: row.code,
+    name: row.name,
+    monthly_price: Number(row.monthly_price ?? 0),
+    yearly_price: Number(row.yearly_price ?? 0),
+    max_branches: Number(row.max_branches ?? 0),
+    max_devices: Number(row.max_devices ?? 0),
+    max_users: Number(row.max_users ?? 0),
+    quota_mode: String(row.quota_mode ?? "standard")
+  };
+}
+
 export default async function TenantsPage() {
   const context = await requireItSupport();
-  const result = await listTenantSummaries(context, { limit: 100, status: "all" });
+  const isItAdmin = context.auth.platformRole === "it_admin";
+
+  const [result, packageResult] = await Promise.all([
+    listTenantSummaries(context, { limit: 100, status: "all" }),
+    isItAdmin
+      ? context.supabase
+          .from("subscription_packages")
+          .select("id,code,name,monthly_price,yearly_price,max_branches,max_devices,max_users,quota_mode")
+          .eq("is_active", true)
+          .eq("status", "active")
+          .order("monthly_price", { ascending: true })
+          .returns<PackageRow[]>()
+      : Promise.resolve({ data: [] as PackageRow[], error: null })
+  ]);
+
+  if (packageResult.error) {
+    throw new Error(`store_provisioning_package_catalog_failed:${packageResult.error.message}`);
+  }
+
   const ids = result.tenants.map((tenant) => tenant.id);
   const { data: codes } = ids.length
     ? await context.supabase
@@ -15,6 +60,7 @@ export default async function TenantsPage() {
         .eq("is_active", true)
     : { data: [] };
   const codeMap = new Map((codes ?? []).map((row) => [String(row.tenant_id), String(row.access_code)]));
+  const packages = (packageResult.data ?? []).map(toPackageOption);
 
   return (
     <section className="surface">
@@ -25,6 +71,9 @@ export default async function TenantsPage() {
         </div>
         <span style={{ fontSize: 12, color: "#607089" }}>ทั้งหมด {result.tenants.length} ร้าน</span>
       </div>
+
+      {isItAdmin ? <StoreProvisioningConsole packages={packages} /> : null}
+
       <div style={{ overflowX: "auto" }}>
         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
           <thead>
@@ -48,7 +97,9 @@ export default async function TenantsPage() {
         </table>
       </div>
       <p style={{ marginTop: 16, fontSize: 11, color: "#77869a" }}>
-        IT Support อ่านข้อมูลได้แบบ read-only; การเปิด/แก้/ระงับร้านและการเปลี่ยนแพ็กเกจยังสงวนไว้สำหรับ IT Admin ผ่าน API v1 ที่ provision Store Code + lifecycle จริง
+        {isItAdmin
+          ? "IT Admin เปิดร้านใหม่ได้จากฟอร์มด้านบน; Store Code, package quota, branch login policy และ Owner identity ถูก provision จากข้อมูลจริงโดยไม่แก้ SQL ต่อร้าน"
+          : "IT Support อ่านข้อมูลได้แบบ read-only; การเปิด/แก้/ระงับร้านและการเปลี่ยนแพ็กเกจสงวนไว้สำหรับ IT Admin"}
       </p>
     </section>
   );
