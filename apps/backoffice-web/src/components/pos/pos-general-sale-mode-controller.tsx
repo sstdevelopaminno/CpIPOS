@@ -60,7 +60,7 @@ function resolveLang(): Lang {
   return document.documentElement.lang.toLowerCase().startsWith("en") ? "en" : "th";
 }
 
-function createTextElement(tag: "span" | "strong" | "small", className: string, text: string) {
+function createTextElement(tag: "p" | "span" | "strong" | "small", className: string, text: string) {
   const element = document.createElement(tag);
   element.className = className;
   element.textContent = text;
