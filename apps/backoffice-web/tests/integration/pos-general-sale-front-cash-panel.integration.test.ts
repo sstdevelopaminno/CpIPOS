@@ -29,13 +29,16 @@ describe("SD front cash panel", () => {
     expect(frontCash).toContain('text-overflow: ellipsis');
   });
 
-  it("moves keypad and quick cash entry to the SD sales surface without creating a second payment engine", () => {
+  it("keeps only the SD keypad on the front sales surface without duplicating payment summary or payment engine", () => {
     expect(frontCash).toContain('["1", "2", "3", "4", "5", "6", "7", "8", "9", "0", "00", "."]');
-    expect(frontCash).toContain('[500, 1000, 1500]');
     expect(frontCash).toContain('cpipos_general_sale_cash_draft_v1');
     expect(frontCash).toContain('CASH_MODAL_QUERY = ".posui-payment-modal--cash"');
     expect(frontCash).toContain('.posui-cash-keypad__key');
     expect(frontCash).toContain('keyButton.click()');
+    expect(frontCash).not.toContain('cpipos-sd-front-cash__summary');
+    expect(frontCash).not.toContain('[500, 1000, 1500]');
+    expect(frontCash).not.toContain('ยอดที่ต้องชำระ');
+    expect(frontCash).not.toContain('เงินทอน');
     expect(frontCash).not.toContain('/api/pos/payments');
     expect(frontCash).not.toContain('fetch(');
   });
