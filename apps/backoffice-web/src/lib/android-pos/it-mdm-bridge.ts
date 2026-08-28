@@ -120,7 +120,7 @@ function normalize(scope: AndroidMdmScope, payload: JsonRecord | null, installId
 async function updateIncidents(scope: AndroidMdmScope, latestId: string | null, snapshotId: string | null, machineId: string, snapshot: ReturnType<typeof buildDeviceMdmHealthSnapshot>, nowIso: string) {
   const db = getTrialSupabaseServiceClient();
   const actionable = snapshot.incidents.filter((row) => row.severity === "critical" || row.severity === "warning");
-  const currentCodes = new Set(actionable.map((row) => row.code));
+  const currentCodes = new Set<string>(actionable.map((row) => row.code));
   const { data: unresolved, error } = await db.from("it_device_incidents")
     .select("id,code")
     .eq("tenant_id", scope.tenant_id)
@@ -130,7 +130,7 @@ async function updateIncidents(scope: AndroidMdmScope, latestId: string | null, 
     .returns<UnresolvedIncidentRow[]>();
   if (error) throw new Error(`it_incident_query_failed:${error.message}`);
 
-  const existingCodes = new Set((unresolved ?? []).map((row) => row.code));
+  const existingCodes = new Set<string>((unresolved ?? []).map((row) => row.code));
   const resolvedIds = (unresolved ?? []).filter((row) => !currentCodes.has(row.code)).map((row) => row.id);
   if (resolvedIds.length) {
     const { error: resolveError } = await db.from("it_device_incidents")
