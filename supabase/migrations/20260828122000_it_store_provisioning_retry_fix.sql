@@ -1,14 +1,25 @@
 -- Preserve the first internal tenant code for idempotent Store Provisioning retries.
--- The public RPC keeps the same signature; the original implementation is wrapped
--- so a retry with the same request_id reuses the internal_code stored in the ledger.
+-- Keep only the public wrapper exposed to PostgREST; the implementation lives in
+-- the non-exposed app schema. Both functions run with caller privileges.
 
 alter function public.provision_it_store_core(
   uuid, uuid, text, text, text, text, text, text, text, text, uuid, text, text
 ) rename to provision_it_store_core_impl;
 
-revoke all on function public.provision_it_store_core_impl(
+alter function public.provision_it_store_core_impl(
   uuid, uuid, text, text, text, text, text, text, text, text, uuid, text, text
-) from public, anon, authenticated, service_role;
+) set schema app;
+
+alter function app.provision_it_store_core_impl(
+  uuid, uuid, text, text, text, text, text, text, text, text, uuid, text, text
+) security invoker;
+
+revoke all on function app.provision_it_store_core_impl(
+  uuid, uuid, text, text, text, text, text, text, text, text, uuid, text, text
+) from public, anon, authenticated;
+grant execute on function app.provision_it_store_core_impl(
+  uuid, uuid, text, text, text, text, text, text, text, text, uuid, text, text
+) to service_role;
 
 create function public.provision_it_store_core(
   p_request_id uuid,
@@ -27,8 +38,8 @@ create function public.provision_it_store_core(
 )
 returns jsonb
 language plpgsql
-security definer
-set search_path = public, pg_temp
+security invoker
+set search_path = pg_catalog, public, app, extensions
 as $$
 declare
   v_internal_code text;
@@ -38,7 +49,7 @@ begin
   from public.it_store_provisioning_requests
   where request_key = p_request_id;
 
-  return public.provision_it_store_core_impl(
+  return app.provision_it_store_core_impl(
     p_request_id,
     p_actor_user_id,
     coalesce(v_internal_code, p_internal_code),
