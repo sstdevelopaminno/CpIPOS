@@ -8,99 +8,56 @@ import {
 import { getTrialSupabaseServiceClient } from "@/lib/supabase-admin";
 
 type JsonRecord = Record<string, unknown>;
+export type AndroidMdmScope = { id: string; tenant_id: string; branch_id: string; device_code: string };
+export type AndroidMdmCommand = { id: string; action: string; reason: string; command_type: string };
+type PendingCommandRow = { id: string; command_type: string; issued_at: string };
+type DeliveredCommandRow = { id: string; command_type: string; result: JsonRecord | null };
+type UnresolvedIncidentRow = { id: string; code: string };
 
-export type AndroidMdmScope = {
-  id: string;
-  tenant_id: string;
-  branch_id: string;
-  device_code: string;
-};
-
-export type AndroidMdmCommand = {
-  id: string;
-  action: string;
-  reason: string;
-  command_type: string;
-};
-
-type PendingCommandRow = {
-  id: string;
-  command_type: string;
-  issued_at: string;
-};
-
-type DeliveredCommandRow = {
-  id: string;
-  command_type: string;
-  result: JsonRecord | null;
-};
-
-type UnresolvedIncidentRow = {
-  id: string;
-  code: string;
-};
-
-function asRecord(value: unknown): JsonRecord {
+function record(value: unknown): JsonRecord {
   return value && typeof value === "object" && !Array.isArray(value) ? value as JsonRecord : {};
 }
-
 function text(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }
-
-function finite(value: unknown): number | null {
-  const number = typeof value === "number" ? value : Number(value);
-  return Number.isFinite(number) ? number : null;
+function number(value: unknown): number | null {
+  const parsed = typeof value === "number" ? value : Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
 }
-
-function gbFromMb(value: unknown): number | null {
-  const mb = finite(value);
+function gb(value: unknown): number | null {
+  const mb = number(value);
   return mb === null ? null : Number((mb / 1024).toFixed(3));
 }
-
-function mapCommandToAction(commandType: string): string | null {
-  switch (commandType) {
-    case "request_diagnostics_bundle": return "collect_diagnostics";
-    case "reload_ui": return "reload_webview";
-    case "refresh_config": return "reload_webview";
-    case "test_printer": return "test_printer_connection";
-    default: return null;
-  }
+function actionFor(commandType: string): string | null {
+  if (commandType === "request_diagnostics_bundle") return "collect_diagnostics";
+  if (commandType === "reload_ui" || commandType === "refresh_config") return "reload_webview";
+  if (commandType === "test_printer") return "test_printer_connection";
+  return null;
+}
+function typesForAction(action: string): string[] {
+  if (action === "collect_diagnostics") return ["request_diagnostics_bundle"];
+  if (action === "reload_webview") return ["reload_ui", "refresh_config"];
+  if (action === "test_printer_connection") return ["test_printer"];
+  return [];
 }
 
-function commandTypesForAction(action: string): string[] {
-  switch (action) {
-    case "collect_diagnostics": return ["request_diagnostics_bundle"];
-    case "reload_webview": return ["reload_ui", "refresh_config"];
-    case "test_printer_connection": return ["test_printer"];
-    default: return [];
-  }
-}
-
-function normalizeInput(
-  scope: AndroidMdmScope,
-  payload: JsonRecord | null,
-  installId: string,
-  appVersionHeader: string | null
-): DeviceMdmHealthInput {
-  const app = asRecord(payload?.app);
-  const device = asRecord(payload?.device);
-  const network = asRecord(payload?.network);
-  const health = asRecord(payload?.health);
-  const webview = asRecord(payload?.webview);
-  const printer = asRecord(payload?.printer);
-  const capturedAt = new Date().toISOString();
-  const totalStorageMb = finite(health.total_storage_mb);
-  const availableStorageMb = finite(health.available_storage_mb);
-  const diskUsedPercent = finite(health.storage_used_percent) ?? (
-    totalStorageMb != null && totalStorageMb > 0 && availableStorageMb != null
-      ? Math.max(0, Math.min(100, ((totalStorageMb - availableStorageMb) / totalStorageMb) * 100))
+function normalize(scope: AndroidMdmScope, payload: JsonRecord | null, installId: string, appVersion: string | null): DeviceMdmHealthInput {
+  const app = record(payload?.app);
+  const device = record(payload?.device);
+  const network = record(payload?.network);
+  const health = record(payload?.health);
+  const webview = record(payload?.webview);
+  const printer = record(payload?.printer);
+  const totalMb = number(health.total_storage_mb);
+  const freeMb = number(health.available_storage_mb);
+  const usedPercent = number(health.storage_used_percent) ?? (
+    totalMb != null && totalMb > 0 && freeMb != null
+      ? Math.max(0, Math.min(100, ((totalMb - freeMb) / totalMb) * 100))
       : null
   );
   const printerHost = text(printer.configured_host);
   const printerReachable = typeof printer.last_reachable === "boolean" ? printer.last_reachable : null;
-  const printerError = text(printer.last_error);
-  const lastPageError = text(webview.last_page_error);
+  const capturedAt = new Date().toISOString();
 
   return {
     identity: {
@@ -110,7 +67,7 @@ function normalizeInput(
       machine_id: `and-${installId}`,
       hostname: text(device.model),
       runtime_version: text(app.runtime) ?? "android-pos-webview-mdm-lite",
-      app_version: text(app.version_name) ?? appVersionHeader
+      app_version: text(app.version_name) ?? appVersion
     },
     connectivity: {
       internet_online: network.online === true,
@@ -122,30 +79,24 @@ function normalizeInput(
     system: {
       os_name: "Android",
       os_version: text(device.android_release),
-      uptime_seconds: finite(device.uptime_ms) != null ? Math.floor((finite(device.uptime_ms) ?? 0) / 1000) : null,
-      cpu_percent: finite(health.cpu_percent),
-      memory_percent: finite(health.memory_percent),
-      disk_total_gb: gbFromMb(health.total_storage_mb),
-      disk_free_gb: gbFromMb(health.available_storage_mb),
-      disk_used_percent: diskUsedPercent,
-      power_status: finite(health.battery_percent) != null ? `battery_${Math.round(finite(health.battery_percent) ?? 0)}pct` : null
+      uptime_seconds: number(device.uptime_ms) != null ? Math.floor((number(device.uptime_ms) ?? 0) / 1000) : null,
+      cpu_percent: number(health.cpu_percent),
+      memory_percent: number(health.memory_percent),
+      disk_total_gb: gb(health.total_storage_mb),
+      disk_free_gb: gb(health.available_storage_mb),
+      disk_used_percent: usedPercent,
+      power_status: number(health.battery_percent) != null ? `battery_${Math.round(number(health.battery_percent) ?? 0)}pct` : null
     },
     runtime: {
       cpi_windows_runtime_running: false,
       local_bridge_online: false,
       bridge_version: text(app.runtime),
-      last_error: lastPageError ?? printerError
+      last_error: text(webview.last_page_error) ?? text(printer.last_error)
     },
     peripherals: {
       selected_printer: printerHost,
       selected_printer_valid: printerHost ? printerReachable : null,
-      printer_status: printerHost == null
-        ? "not_configured"
-        : printerReachable === true
-          ? "online"
-          : printerReachable === false
-            ? "error"
-            : "unknown"
+      printer_status: printerHost == null ? "not_configured" : printerReachable === true ? "online" : printerReachable === false ? "error" : "unknown"
     },
     offline_sale: null,
     security_signals: null,
@@ -153,32 +104,24 @@ function normalizeInput(
       source: "android_pos_webview_mdm",
       telemetry_profile: "android",
       android_install_id: installId,
-      app_memory_mb: finite(health.app_memory_mb),
-      battery_percent: finite(health.battery_percent),
+      app_memory_mb: number(health.app_memory_mb),
+      battery_percent: number(health.battery_percent),
       device_owner: health.device_owner ?? null,
       webview,
-      displays: asRecord(payload?.displays),
-      update_capabilities: asRecord(payload?.update_capabilities),
-      update_state: asRecord(payload?.update_state),
-      reported_at_ms: finite(payload?.timestamp_ms)
+      displays: record(payload?.displays),
+      update_capabilities: record(payload?.update_capabilities),
+      update_state: record(payload?.update_state),
+      reported_at_ms: number(payload?.timestamp_ms)
     },
     captured_at: capturedAt
   };
 }
 
-async function syncIncidentLifecycle(
-  scope: AndroidMdmScope,
-  latestId: string | null,
-  snapshotId: string | null,
-  machineId: string,
-  incidents: ReturnType<typeof buildDeviceMdmHealthSnapshot>["incidents"],
-  nowIso: string
-) {
-  const itSupabase = getTrialSupabaseServiceClient();
-  const actionable = incidents.filter((incident) => incident.severity === "critical" || incident.severity === "warning");
-  const currentCodes = new Set(actionable.map((incident) => incident.code));
-  const { data: unresolved, error } = await itSupabase
-    .from("it_device_incidents")
+async function updateIncidents(scope: AndroidMdmScope, latestId: string | null, snapshotId: string | null, machineId: string, snapshot: ReturnType<typeof buildDeviceMdmHealthSnapshot>, nowIso: string) {
+  const db = getTrialSupabaseServiceClient();
+  const actionable = snapshot.incidents.filter((row) => row.severity === "critical" || row.severity === "warning");
+  const currentCodes = new Set(actionable.map((row) => row.code));
+  const { data: unresolved, error } = await db.from("it_device_incidents")
     .select("id,code")
     .eq("tenant_id", scope.tenant_id)
     .eq("branch_id", scope.branch_id)
@@ -187,58 +130,50 @@ async function syncIncidentLifecycle(
     .returns<UnresolvedIncidentRow[]>();
   if (error) throw new Error(`it_incident_query_failed:${error.message}`);
 
-  const unresolvedCodes = new Set((unresolved ?? []).map((row) => row.code));
-  const resolveIds = (unresolved ?? []).filter((row) => !currentCodes.has(row.code)).map((row) => row.id);
-  if (resolveIds.length > 0) {
-    const { error: resolveError } = await itSupabase
-      .from("it_device_incidents")
+  const existingCodes = new Set((unresolved ?? []).map((row) => row.code));
+  const resolvedIds = (unresolved ?? []).filter((row) => !currentCodes.has(row.code)).map((row) => row.id);
+  if (resolvedIds.length) {
+    const { error: resolveError } = await db.from("it_device_incidents")
       .update({ resolved_at: nowIso, synced_at: nowIso })
-      .in("id", resolveIds);
+      .in("id", resolvedIds);
     if (resolveError) throw new Error(`it_incident_resolve_failed:${resolveError.message}`);
   }
 
-  const newIncidents = actionable.filter((incident) => !unresolvedCodes.has(incident.code));
-  if (newIncidents.length > 0) {
-    const { error: insertError } = await itSupabase.from("it_device_incidents").insert(
-      newIncidents.map((incident) => ({
-        latest_id: latestId,
-        snapshot_id: snapshotId,
-        tenant_id: scope.tenant_id,
-        branch_id: scope.branch_id,
-        pos_device_id: scope.id,
-        pos_session_id: null,
-        device_code: scope.device_code,
-        machine_id: machineId,
-        code: incident.code,
-        severity: incident.severity,
-        title: incident.title,
-        message: incident.message,
-        metadata: incident.metadata ?? {},
-        detected_at: incident.detected_at,
-        synced_at: nowIso
-      }))
-    );
+  const newRows = actionable.filter((row) => !existingCodes.has(row.code));
+  if (newRows.length) {
+    const { error: insertError } = await db.from("it_device_incidents").insert(newRows.map((row) => ({
+      latest_id: latestId,
+      snapshot_id: snapshotId,
+      tenant_id: scope.tenant_id,
+      branch_id: scope.branch_id,
+      pos_device_id: scope.id,
+      pos_session_id: null,
+      device_code: scope.device_code,
+      machine_id: machineId,
+      code: row.code,
+      severity: row.severity,
+      title: row.title,
+      message: row.message,
+      metadata: row.metadata ?? {},
+      detected_at: row.detected_at,
+      synced_at: nowIso
+    })));
     if (insertError) throw new Error(`it_incident_insert_failed:${insertError.message}`);
   }
 }
 
-async function acknowledgePreviousItCommand(
-  scope: AndroidMdmScope,
-  payload: JsonRecord | null,
-  appVersion: string | null
-) {
-  const lastCommand = asRecord(payload?.last_command);
+async function acknowledge(scope: AndroidMdmScope, payload: JsonRecord | null, appVersion: string | null) {
+  const lastCommand = record(payload?.last_command);
   const action = text(lastCommand.action)?.toLowerCase() ?? "";
-  const commandTypes = commandTypesForAction(action);
-  if (commandTypes.length === 0) return;
+  const commandTypes = typesForAction(action);
+  const atMs = number(lastCommand.at_ms);
+  if (!commandTypes.length || atMs == null || atMs <= 0) return;
 
-  const atMs = finite(lastCommand.at_ms);
-  if (atMs == null || atMs <= 0) return;
-  const reportedAt = new Date(Math.min(atMs, Date.now())).toISOString();
-  const lowerBound = new Date(Math.max(0, Math.min(atMs, Date.now()) - 10 * 60_000)).toISOString();
-  const itSupabase = getTrialSupabaseServiceClient();
-  const { data: row, error } = await itSupabase
-    .from("it_device_commands")
+  const safeMs = Math.min(atMs, Date.now());
+  const reportedAt = new Date(safeMs).toISOString();
+  const lowerBound = new Date(Math.max(0, safeMs - 10 * 60_000)).toISOString();
+  const db = getTrialSupabaseServiceClient();
+  const { data: command, error } = await db.from("it_device_commands")
     .select("id,command_type,result")
     .eq("tenant_id", scope.tenant_id)
     .eq("branch_id", scope.branch_id)
@@ -251,34 +186,26 @@ async function acknowledgePreviousItCommand(
     .limit(1)
     .maybeSingle<DeliveredCommandRow>();
   if (error) throw new Error(`it_command_ack_query_failed:${error.message}`);
-  if (!row) return;
+  if (!command) return;
 
-  const printer = asRecord(payload?.printer);
-  const printerReachable = typeof printer.last_reachable === "boolean" ? printer.last_reachable : null;
-  const succeeded = action === "test_printer_connection" ? printerReachable === true : true;
-  const executionStatus = action === "test_printer_connection" && printerReachable == null
-    ? "accepted"
-    : succeeded
-      ? "succeeded"
-      : "failed";
-  const previousResult = asRecord(row.result);
-  const { error: updateError } = await itSupabase
-    .from("it_device_commands")
-    .update({
-      result: {
-        ...previousResult,
-        execution_status: executionStatus,
-        applied: succeeded,
-        phase: executionStatus === "accepted" ? "accepted" : "executed",
-        android_action: action,
-        reported_at: new Date().toISOString(),
-        device_reported_at: reportedAt,
-        agent_surface: "android-pos-webview-mdm-lite",
-        agent_version: appVersion,
-        printer: action === "test_printer_connection" ? printer : undefined
-      }
-    })
-    .eq("id", row.id)
+  const printer = record(payload?.printer);
+  const reachable = typeof printer.last_reachable === "boolean" ? printer.last_reachable : null;
+  const executionStatus = action === "test_printer_connection" ? reachable === true ? "succeeded" : reachable === false ? "failed" : "accepted" : "succeeded";
+  const { error: updateError } = await db.from("it_device_commands").update({
+    result: {
+      ...record(command.result),
+      execution_status: executionStatus,
+      applied: executionStatus === "succeeded",
+      phase: executionStatus === "accepted" ? "accepted" : "executed",
+      android_action: action,
+      reported_at: new Date().toISOString(),
+      device_reported_at: reportedAt,
+      agent_surface: "android-pos-webview-mdm-lite",
+      agent_version: appVersion,
+      ...(action === "test_printer_connection" ? { printer } : {})
+    }
+  })
+    .eq("id", command.id)
     .eq("tenant_id", scope.tenant_id)
     .eq("branch_id", scope.branch_id)
     .eq("pos_device_id", scope.id)
@@ -286,20 +213,18 @@ async function acknowledgePreviousItCommand(
   if (updateError) throw new Error(`it_command_ack_update_failed:${updateError.message}`);
 }
 
-async function deliverItCommands(scope: AndroidMdmScope): Promise<AndroidMdmCommand[]> {
-  const itSupabase = getTrialSupabaseServiceClient();
+async function deliver(scope: AndroidMdmScope): Promise<AndroidMdmCommand[]> {
+  const db = getTrialSupabaseServiceClient();
   const nowIso = new Date().toISOString();
-  await itSupabase
-    .from("it_device_commands")
-    .update({ status: "expired", synced_at: nowIso })
+  await db.from("it_device_commands")
+    .update({ status: "expired" })
     .eq("tenant_id", scope.tenant_id)
     .eq("branch_id", scope.branch_id)
     .eq("pos_device_id", scope.id)
     .eq("status", "pending")
     .lte("expires_at", nowIso);
 
-  const { data, error } = await itSupabase
-    .from("it_device_commands")
+  const { data, error } = await db.from("it_device_commands")
     .select("id,command_type,issued_at")
     .eq("tenant_id", scope.tenant_id)
     .eq("branch_id", scope.branch_id)
@@ -311,47 +236,33 @@ async function deliverItCommands(scope: AndroidMdmScope): Promise<AndroidMdmComm
     .returns<PendingCommandRow[]>();
   if (error) throw new Error(`it_command_delivery_query_failed:${error.message}`);
 
-  const deliverable = (data ?? [])
-    .map((row) => ({ row, action: mapCommandToAction(row.command_type) }))
+  const rows = (data ?? []).map((row) => ({ row, action: actionFor(row.command_type) }))
     .filter((item): item is { row: PendingCommandRow; action: string } => Boolean(item.action));
-  if (deliverable.length === 0) return [];
+  if (!rows.length) return [];
 
-  const ids = deliverable.map((item) => item.row.id);
-  const { error: updateError } = await itSupabase
-    .from("it_device_commands")
-    .update({ status: "delivered", delivered_at: nowIso, synced_at: nowIso })
+  const { error: updateError } = await db.from("it_device_commands")
+    .update({ status: "delivered", delivered_at: nowIso })
     .eq("tenant_id", scope.tenant_id)
     .eq("branch_id", scope.branch_id)
     .eq("pos_device_id", scope.id)
     .eq("status", "pending")
-    .in("id", ids);
+    .in("id", rows.map((item) => item.row.id));
   if (updateError) throw new Error(`it_command_delivery_update_failed:${updateError.message}`);
 
-  return deliverable.map(({ row, action }) => ({
-    id: row.id,
-    action,
-    reason: "it_control_plane",
-    command_type: row.command_type
-  }));
+  return rows.map(({ row, action }) => ({ id: row.id, action, reason: "it_control_plane", command_type: row.command_type }));
 }
 
-export async function syncAndroidHeartbeatToItPlane(input: {
-  scope: AndroidMdmScope;
-  payload: JsonRecord | null;
-  installId: string;
-  appVersion: string | null;
-}): Promise<{ commands: AndroidMdmCommand[]; latest_id: string | null; status: string }> {
+export async function syncAndroidHeartbeatToItPlane(input: { scope: AndroidMdmScope; payload: JsonRecord | null; installId: string; appVersion: string | null }) {
   const { scope, payload, installId, appVersion } = input;
-  const itSupabase = getTrialSupabaseServiceClient();
-  const normalized = normalizeInput(scope, payload, installId, appVersion);
-  const snapshot = buildDeviceMdmHealthSnapshot(normalized);
+  const db = getTrialSupabaseServiceClient();
+  const snapshot = buildDeviceMdmHealthSnapshot(normalize(scope, payload, installId, appVersion));
   const summary = summarizeDeviceMdmHealth(snapshot);
   const nowIso = new Date().toISOString();
   const machineId = snapshot.identity.machine_id;
 
-  await acknowledgePreviousItCommand(scope, payload, snapshot.identity.app_version ?? appVersion);
+  await acknowledge(scope, payload, snapshot.identity.app_version ?? appVersion);
 
-  const latestPayload = {
+  const { data: latest, error: latestError } = await db.from("it_device_health_latest").upsert({
     tenant_id: scope.tenant_id,
     branch_id: scope.branch_id,
     pos_device_id: scope.id,
@@ -377,48 +288,37 @@ export async function syncAndroidHeartbeatToItPlane(input: {
     last_seen_at: nowIso,
     source_updated_at: nowIso,
     synced_at: nowIso
-  };
-
-  const { data: latest, error: latestError } = await itSupabase
-    .from("it_device_health_latest")
-    .upsert(latestPayload, { onConflict: "tenant_id,branch_id,device_code,machine_id" })
-    .select("id")
-    .single<{ id: string }>();
+  }, { onConflict: "tenant_id,branch_id,device_code,machine_id" }).select("id").single<{ id: string }>();
   if (latestError) throw new Error(`it_health_latest_write_failed:${latestError.message}`);
 
-  const { data: snapshotRow, error: snapshotError } = await itSupabase
-    .from("it_device_health_snapshots")
-    .insert({
-      latest_id: latest?.id ?? null,
-      tenant_id: scope.tenant_id,
-      branch_id: scope.branch_id,
-      pos_device_id: scope.id,
-      pos_session_id: null,
-      device_code: scope.device_code,
-      machine_id: machineId,
-      status: snapshot.status,
-      summary,
-      payload: snapshot,
-      incident_count: snapshot.incidents.length,
-      critical_count: snapshot.incidents.filter((row) => row.severity === "critical").length,
-      warning_count: snapshot.incidents.filter((row) => row.severity === "warning").length,
-      info_count: snapshot.incidents.filter((row) => row.severity === "info").length,
-      captured_at: snapshot.captured_at
-    })
-    .select("id")
-    .single<{ id: string }>();
-  if (snapshotError) throw new Error(`it_health_snapshot_write_failed:${snapshotError.message}`);
+  const { data: history, error: historyError } = await db.from("it_device_health_snapshots").insert({
+    latest_id: latest?.id ?? null,
+    tenant_id: scope.tenant_id,
+    branch_id: scope.branch_id,
+    pos_device_id: scope.id,
+    pos_session_id: null,
+    device_code: scope.device_code,
+    machine_id: machineId,
+    status: snapshot.status,
+    summary,
+    payload: snapshot,
+    incident_count: snapshot.incidents.length,
+    critical_count: snapshot.incidents.filter((row) => row.severity === "critical").length,
+    warning_count: snapshot.incidents.filter((row) => row.severity === "warning").length,
+    info_count: snapshot.incidents.filter((row) => row.severity === "info").length,
+    captured_at: snapshot.captured_at
+  }).select("id").single<{ id: string }>();
+  if (historyError) throw new Error(`it_health_snapshot_write_failed:${historyError.message}`);
 
-  await syncIncidentLifecycle(scope, latest?.id ?? null, snapshotRow?.id ?? null, machineId, snapshot.incidents, nowIso);
+  await updateIncidents(scope, latest?.id ?? null, history?.id ?? null, machineId, snapshot, nowIso);
 
-  const { error: deviceUpdateError } = await itSupabase
-    .from("it_devices")
-    .update({ last_seen_at: nowIso, synced_at: nowIso, source_updated_at: nowIso })
-    .eq("id", scope.id)
-    .eq("tenant_id", scope.tenant_id)
-    .eq("branch_id", scope.branch_id);
-  if (deviceUpdateError) throw new Error(`it_device_last_seen_update_failed:${deviceUpdateError.message}`);
+  const { error: deviceError } = await db.from("it_devices").update({
+    last_seen_at: nowIso,
+    source_updated_at: nowIso,
+    synced_at: nowIso
+  }).eq("id", scope.id).eq("tenant_id", scope.tenant_id).eq("branch_id", scope.branch_id);
+  if (deviceError) throw new Error(`it_device_last_seen_update_failed:${deviceError.message}`);
 
-  const commands = await deliverItCommands(scope);
+  const commands = await deliver(scope);
   return { commands, latest_id: latest?.id ?? null, status: snapshot.status };
 }
