@@ -15,7 +15,7 @@ describe("POS SD general sale source contract", () => {
     expect(catalog).toContain("productSku={product.sku}");
   });
 
-  it("resolves scans from the branch product catalog instead of visible DOM cards", () => {
+  it("resolves scans from the branch product catalog instead of visible product cards", () => {
     const controller = readRepoFile("src", "components", "pos", "pos-general-sale-mode-controller.tsx");
     const lookupRoute = readRepoFile("src", "app", "api", "pos", "products", "lookup", "route.ts");
     const catalog = readRepoFile("src", "components", "pos", "pos-product-catalog.tsx");
@@ -23,7 +23,7 @@ describe("POS SD general sale source contract", () => {
     expect(controller).toContain("/api/pos/products/lookup?sku=");
     expect(controller).toContain("GENERAL_SALE_ADD_PRODUCT_EVENT");
     expect(controller).not.toContain("findProductCardBySku");
-    expect(controller).not.toContain("querySelectorAll<HTMLButtonElement>");
+    expect(controller).not.toContain("data-pos-product-sku=\"");
     expect(controller).not.toContain("card.click()");
 
     expect(lookupRoute).toContain("requirePosSession()");
@@ -39,9 +39,30 @@ describe("POS SD general sale source contract", () => {
     expect(catalog).toContain('status: "added"');
   });
 
-  it("reuses the Home/Takeaway engine instead of creating a second transaction engine", () => {
+  it("keeps the scanner table read-only toward stored cart data and delegates cart actions to React controls", () => {
     const controller = readRepoFile("src", "components", "pos", "pos-general-sale-mode-controller.tsx");
+    const tableModel = readRepoFile("src", "lib", "pos-general-sale-cart-table.ts");
 
+    expect(controller).toContain('POS_TAKEAWAY_CART_STORAGE_KEY = "pos_sales_cart_v012"');
+    expect(controller).toContain('POS_SALES_SNAPSHOT_STORAGE_KEY = "pos_sales_snapshot_v001"');
+    expect(controller).toContain("localStorage.getItem(POS_TAKEAWAY_CART_STORAGE_KEY)");
+    expect(controller).toContain("localStorage.getItem(POS_SALES_SNAPSHOT_STORAGE_KEY)");
+    expect(controller).not.toContain("localStorage.setItem(POS_TAKEAWAY_CART_STORAGE_KEY");
+    expect(controller).not.toContain("localStorage.setItem(POS_SALES_SNAPSHOT_STORAGE_KEY");
+    expect(controller).toContain("target?.click();");
+    expect(controller).toContain(".posui-cart-action--delete");
+    expect(tableModel).toContain("buildGeneralSaleCartTableRows");
+    expect(tableModel).toContain("lineTotal");
+  });
+
+  it("supports both product-grid and scanner-table layouts without creating another checkout engine", () => {
+    const controller = readRepoFile("src", "components", "pos", "pos-general-sale-mode-controller.tsx");
+    const mode = readRepoFile("src", "lib", "pos-general-sale-mode.ts");
+
+    expect(mode).toContain('export type GeneralSaleCartLayout = "grid" | "table"');
+    expect(controller).toContain('setGeneralSaleLayout("grid")');
+    expect(controller).toContain('setGeneralSaleLayout("table")');
+    expect(controller).toContain("GENERAL_SALE_LAYOUT_ATTRIBUTE");
     expect(controller).toContain("GENERAL_SALE_CHECKOUT_BASE_MODE");
     expect(controller).toContain("homeButton.click();");
     expect(controller).not.toContain('fetch("/api/pos/sales"');
