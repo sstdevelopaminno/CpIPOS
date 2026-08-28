@@ -3,6 +3,12 @@
 import { memo, useEffect, useMemo, useState } from "react";
 import { PosProductCard } from "@/components/pos-ui/pos-product-card";
 import { PosProductGrid } from "@/components/pos-ui/pos-product-grid";
+import {
+  GENERAL_SALE_ADD_PRODUCT_EVENT,
+  GENERAL_SALE_ADD_PRODUCT_RESULT_EVENT,
+  type GeneralSaleAddProductRequest,
+  type GeneralSaleAddProductResult
+} from "@/lib/pos-general-sale-mode";
 import { resolveProductMediaCardUrls, type ProductMediaCardAsset } from "@/lib/pos/product-media-cache";
 
 type ProductCatalogItem = {
@@ -36,9 +42,37 @@ type MediaResponse = {
   } | null;
 };
 
+function emitGeneralSaleResult(detail: GeneralSaleAddProductResult) {
+  window.dispatchEvent(new CustomEvent<GeneralSaleAddProductResult>(GENERAL_SALE_ADD_PRODUCT_RESULT_EVENT, { detail }));
+}
+
 function PosProductCatalogInner({ products, isDeliveryMode, storefrontPriceLabel, stockRemainingLabel = "Stock", outOfStockLabel = "Out of stock", getProductPrice, onAddProduct }: Props) {
   const [imageUrls, setImageUrls] = useState<Record<string, string>>({});
   const productIdsKey = useMemo(() => products.map((product) => product.id).join(","), [products]);
+
+  useEffect(() => {
+    const onGeneralSaleAddProduct = (event: Event) => {
+      const detail = (event as CustomEvent<GeneralSaleAddProductRequest>).detail;
+      const requestId = String(detail?.requestId ?? "").trim();
+      const product = detail?.product;
+      if (!requestId || !product || !String(product.id ?? "").trim()) {
+        if (requestId) emitGeneralSaleResult({ requestId, status: "invalid" });
+        return;
+      }
+      if (product.is_active === false || product.is_out_of_stock === true) {
+        emitGeneralSaleResult({ requestId, status: "unavailable" });
+        return;
+      }
+
+      // Use the same React cart mutation as a normal product-card tap. This keeps
+      // quantity merging, checkout, payment and stock commit behavior on one path.
+      onAddProduct(product);
+      emitGeneralSaleResult({ requestId, status: "added" });
+    };
+
+    window.addEventListener(GENERAL_SALE_ADD_PRODUCT_EVENT, onGeneralSaleAddProduct as EventListener);
+    return () => window.removeEventListener(GENERAL_SALE_ADD_PRODUCT_EVENT, onGeneralSaleAddProduct as EventListener);
+  }, [onAddProduct]);
 
   useEffect(() => {
     let cancelled = false;
