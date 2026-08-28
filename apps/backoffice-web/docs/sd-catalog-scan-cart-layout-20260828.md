@@ -20,3 +20,5 @@ SD is intended to provide two views over the same cart state:
 2. Scanner table: scan-first item table with SKU, category, product, quantity, unit price and line total, while reusing the existing checkout/payment state.
 
 The scanner/catalog bridge is implemented first and must pass CI before the scanner-table UI is integrated.
+
+Validation checkpoint: scanner lookup, branch/package guard, legacy SKU normalization and React cart bridge are covered by unit/source-contract tests on this branch.
