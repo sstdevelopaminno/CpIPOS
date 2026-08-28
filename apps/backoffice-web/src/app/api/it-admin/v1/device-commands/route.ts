@@ -8,6 +8,7 @@ import {
 import { fail, ok } from "@/lib/http";
 import { guardItAdminError, requireItAdmin } from "@/lib/it-admin-guard";
 import { enforceRateLimit } from "@/lib/server/rate-limit";
+import { getTrialSupabaseServiceClient } from "@/lib/supabase-admin";
 
 type DeviceCommandRequestBody = {
   tenant_id?: string;
@@ -33,6 +34,7 @@ export async function POST(req: Request) {
 
   try {
     const { auth, supabase, requestMeta } = await requireItAdmin();
+    const itSupabase = getTrialSupabaseServiceClient();
 
     const rateLimit = await enforceRateLimit({
       namespace: "it_admin_device_command",
@@ -81,8 +83,8 @@ export async function POST(req: Request) {
       if (updateError) throw new Error(updateError.message);
     }
 
-    const { data: commandRow, error: insertError } = await supabase
-      .from("device_commands")
+    const { data: commandRow, error: insertError } = await itSupabase
+      .from("it_device_commands")
       .insert({
         tenant_id: tenantId,
         branch_id: branchId,
@@ -93,7 +95,8 @@ export async function POST(req: Request) {
         issued_at: now.toISOString(),
         expires_at: new Date(now.getTime() + DEVICE_COMMAND_TTL_MS).toISOString(),
         delivered_at: isImmediate ? now.toISOString() : null,
-        result: isImmediate ? { applied: true } : {}
+        result: isImmediate ? { applied: true } : {},
+        metadata: { source_control_plane: "CpiPOS-001", operational_data_plane: "CpiPOS-002" }
       })
       .select("id,command_type,status,issued_at,expires_at,delivered_at")
       .single();
@@ -108,13 +111,14 @@ export async function POST(req: Request) {
       actorUserId: auth.userId,
       actorRole: auth.platformRole,
       action: "device_command_issued",
-      targetTable: "device_commands",
+      targetTable: "it_device_commands",
       targetId: commandRow.id,
       metadata: {
         device_id: device.id,
         device_code: device.device_code,
         command_type: commandType,
-        immediate: isImmediate
+        immediate: isImmediate,
+        operational_data_plane: "CpiPOS-002"
       },
       ipAddress: requestMeta.ipAddress ?? undefined,
       userAgent: requestMeta.userAgent ?? undefined
