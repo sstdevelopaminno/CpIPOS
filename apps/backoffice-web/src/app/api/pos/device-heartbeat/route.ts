@@ -13,7 +13,7 @@ import {
 import type { PendingDeviceAction } from "@/lib/device-commands";
 import { fail, ok } from "@/lib/http";
 import { PosGuardError, requirePosSession } from "@/lib/pos-session-guard";
-import { getSupabaseServiceClient } from "@/lib/supabase-admin";
+import { getTrialSupabaseServiceClient } from "@/lib/supabase-admin";
 
 type DeviceHeartbeatPayload = Partial<Omit<DeviceMdmHealthInput, "identity">> & {
   identity?: Partial<DeviceMdmIdentity> | null;
@@ -55,7 +55,9 @@ type PendingDeviceCommandRow = {
 };
 
 async function deliverPendingDeviceCommands(
-  supabase: ReturnType<typeof getSupabaseServiceClient>,
+  supabase: ReturnType<typeof getTrialSupabaseServiceClient>,
+  tenantId: string,
+  branchId: string,
   posDeviceId: string | null
 ): Promise<PendingDeviceAction[]> {
   if (!posDeviceId) return [];
@@ -63,15 +65,19 @@ async function deliverPendingDeviceCommands(
   const nowIso = new Date().toISOString();
 
   await supabase
-    .from("device_commands")
+    .from("it_device_commands")
     .update({ status: "expired" })
+    .eq("tenant_id", tenantId)
+    .eq("branch_id", branchId)
     .eq("pos_device_id", posDeviceId)
     .eq("status", "pending")
     .lte("expires_at", nowIso);
 
   const { data: pendingRows, error: pendingError } = await supabase
-    .from("device_commands")
+    .from("it_device_commands")
     .select("id,command_type,issued_at")
+    .eq("tenant_id", tenantId)
+    .eq("branch_id", branchId)
     .eq("pos_device_id", posDeviceId)
     .eq("status", "pending")
     .gt("expires_at", nowIso)
@@ -83,8 +89,12 @@ async function deliverPendingDeviceCommands(
 
   const ids = pendingRows.map((row) => row.id);
   await supabase
-    .from("device_commands")
+    .from("it_device_commands")
     .update({ status: "delivered", delivered_at: nowIso })
+    .eq("tenant_id", tenantId)
+    .eq("branch_id", branchId)
+    .eq("pos_device_id", posDeviceId)
+    .eq("status", "pending")
     .in("id", ids);
 
   return pendingRows.map((row) => ({
@@ -156,14 +166,16 @@ export async function POST(req: Request) {
       metadata: {
         ...sanitizeRecord(body.metadata),
         reported_device_code: reportedDeviceCode || null,
-        authoritative_device_code_source: "pos_session"
+        authoritative_device_code_source: "pos_session",
+        operational_data_plane: "CpiPOS-002"
       },
       captured_at: capturedAt
     };
 
     const snapshot = buildDeviceMdmHealthSnapshot(input);
     const summary = summarizeDeviceMdmHealth(snapshot);
-    const supabase = getSupabaseServiceClient();
+    const supabase = getTrialSupabaseServiceClient();
+    const nowIso = new Date().toISOString();
 
     const latestPayload = {
       tenant_id: scope.session.tenant_id,
@@ -188,12 +200,13 @@ export async function POST(req: Request) {
       metadata: snapshot.metadata ?? {},
       last_error: snapshot.runtime.last_error ?? null,
       captured_at: snapshot.captured_at,
-      last_seen_at: new Date().toISOString(),
-      updated_at: new Date().toISOString()
+      last_seen_at: nowIso,
+      source_updated_at: nowIso,
+      synced_at: nowIso
     };
 
     const { data: latestRow, error: latestError } = await supabase
-      .from("pos_device_health_latest")
+      .from("it_device_health_latest")
       .upsert(latestPayload, { onConflict: "tenant_id,branch_id,device_code,machine_id" })
       .select("id")
       .single<SupabaseInsertResult>();
@@ -205,7 +218,7 @@ export async function POST(req: Request) {
     const infoCount = snapshot.incidents.filter((incident) => incident.severity === "info").length;
 
     const { data: snapshotRow, error: snapshotError } = await supabase
-      .from("pos_device_health_snapshots")
+      .from("it_device_health_snapshots")
       .insert({
         latest_id: latestRow?.id ?? null,
         tenant_id: scope.session.tenant_id,
@@ -228,9 +241,13 @@ export async function POST(req: Request) {
 
     if (snapshotError) throw snapshotError;
 
-    if (snapshot.incidents.length > 0) {
-      const { error: incidentError } = await supabase.from("pos_device_incidents").insert(
-        snapshot.incidents.map((incident) => ({
+    const actionableIncidents = snapshot.incidents.filter(
+      (incident) => incident.severity === "critical" || incident.severity === "warning"
+    );
+
+    if (actionableIncidents.length > 0) {
+      const { error: incidentError } = await supabase.from("it_device_incidents").insert(
+        actionableIncidents.map((incident) => ({
           latest_id: latestRow?.id ?? null,
           snapshot_id: snapshotRow?.id ?? null,
           tenant_id: scope.session.tenant_id,
@@ -244,14 +261,20 @@ export async function POST(req: Request) {
           title: incident.title,
           message: incident.message,
           metadata: incident.metadata ?? {},
-          detected_at: incident.detected_at
+          detected_at: incident.detected_at,
+          synced_at: nowIso
         }))
       );
 
       if (incidentError) throw incidentError;
     }
 
-    const pendingActions = await deliverPendingDeviceCommands(supabase, scope.session.device_id ?? null);
+    const pendingActions = await deliverPendingDeviceCommands(
+      supabase,
+      scope.session.tenant_id,
+      scope.session.branch_id,
+      scope.session.device_id ?? null
+    );
 
     return ok({
       accepted: true,
