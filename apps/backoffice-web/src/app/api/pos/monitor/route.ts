@@ -4,6 +4,8 @@ import { POS_GUARDS } from "@/lib/pos-resilience";
 import { readThroughRuntimeCache } from "@/lib/route-runtime-cache";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
 
+const MONITOR_CACHE_TTL_MS = 30_000;
+
 function isSchemaMissingError(message: string): boolean {
   const normalized = message.toLowerCase();
   return (
@@ -41,7 +43,7 @@ export async function GET() {
     const cacheKey = `pos-monitor:${auth.tenantId}:${auth.branchId}`;
     const { value: payload, source: cacheSource } = await readThroughRuntimeCache({
       key: cacheKey,
-      ttlMs: 10000,
+      ttlMs: MONITOR_CACHE_TTL_MS,
       loader: async () => {
         const supabase = getSupabaseServiceClient();
         const staleSinceIso = new Date(Date.now() - POS_GUARDS.staleQueuedMinutes * 60_000).toISOString();
