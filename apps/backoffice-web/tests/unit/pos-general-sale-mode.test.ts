@@ -33,16 +33,18 @@ describe("POS SD general sale mode helpers", () => {
     expect(isPosBusinessModeEnabled("general_sale", { barcode_scanner_mode: true })).toBe(true);
   });
 
-  it("normalizes scanner input without fuzzy product-name behavior", () => {
-    expect(normalizeGeneralSaleScanCode("  ab-001  ")).toBe("AB-001");
-    expect(normalizeGeneralSaleScanCode("ａｂ１２３")).toBe("AB123");
+  it("normalizes scans with the same digit-first SKU rule used by Product Management", () => {
+    expect(normalizeGeneralSaleScanCode("  097339  ")).toBe("097339");
+    expect(normalizeGeneralSaleScanCode("PRD-ก๋วยเตี๋ยว-097339")).toBe("097339");
+    expect(normalizeGeneralSaleScanCode("ａｂ１２３")).toBe("123");
+    expect(normalizeGeneralSaleScanCode("NO-DIGITS")).toBe("NO-DIGITS");
     expect(normalizeGeneralSaleScanCode(null)).toBe("");
   });
 
-  it("matches SKU exactly after normalization", () => {
-    expect(isExactGeneralSaleSkuMatch(" sku-001 ", "SKU-001")).toBe(true);
-    expect(isExactGeneralSaleSkuMatch("SKU-001", "SKU-001-A")).toBe(false);
-    expect(isExactGeneralSaleSkuMatch("001", "SKU-001")).toBe(false);
-    expect(isExactGeneralSaleSkuMatch("", "SKU-001")).toBe(false);
+  it("matches canonical scanner SKU against an exact normalized legacy SKU only", () => {
+    expect(isExactGeneralSaleSkuMatch("097339", "097339")).toBe(true);
+    expect(isExactGeneralSaleSkuMatch("097339", "PRD-ก๋วยเตี๋ยว-097339")).toBe(true);
+    expect(isExactGeneralSaleSkuMatch("097339", "PRD-ก๋วยเตี๋ยว-1097339")).toBe(false);
+    expect(isExactGeneralSaleSkuMatch("", "097339")).toBe(false);
   });
 });
