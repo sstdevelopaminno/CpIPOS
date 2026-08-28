@@ -1,0 +1,60 @@
+name: One-shot fix SD typecheck
+
+on:
+  push:
+    branches:
+      - feature/sd-catalog-scan-cart-layout-20260828
+    paths:
+      - .github/workflows/one-shot-fix-sd-typecheck-20260828.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v4
+        with:
+          ref: feature/sd-catalog-scan-cart-layout-20260828
+          fetch-depth: 0
+
+      - name: Patch exact TypeScript union
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('apps/backoffice-web/src/components/pos/pos-general-sale-mode-controller.tsx')
+          text = path.read_text(encoding='utf-8')
+          old = 'function createTextElement(tag: "span" | "strong" | "small", className: string, text: string) {'
+          new = 'function createTextElement(tag: "p" | "span" | "strong" | "small", className: string, text: string) {'
+          if text.count(old) != 1:
+              raise SystemExit(f'expected exactly one target signature, found {text.count(old)}')
+          path.write_text(text.replace(old, new, 1), encoding='utf-8')
+          PY
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Setup pnpm
+        run: corepack enable
+
+      - name: Install dependencies
+        run: corepack pnpm install --frozen-lockfile
+
+      - name: Verify typecheck
+        run: corepack pnpm run typecheck
+
+      - name: Remove one-shot workflow and commit patch
+        shell: bash
+        run: |
+          rm .github/workflows/one-shot-fix-sd-typecheck-20260828.yml
+          git config user.name "cpipos-ci"
+          git config user.email "actions@users.noreply.github.com"
+          git add -- apps/backoffice-web/src/components/pos/pos-general-sale-mode-controller.tsx .github/workflows/one-shot-fix-sd-typecheck-20260828.yml
+          git diff --cached --check
+          git commit -m "fix(sd): allow paragraph scanner summary tag"
+          git push origin HEAD:feature/sd-catalog-scan-cart-layout-20260828
