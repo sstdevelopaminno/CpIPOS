@@ -1,7 +1,8 @@
 -- IT Store Provisioning P0
 -- Business control-plane schema for the dedicated CpIPOS-IT application.
--- Atomic DB core: tenant + Store Code/lifecycle trigger + initial branch + login policy + package contract.
+-- Atomic DB core: tenant + Store Code/lifecycle trigger + initial branch + login policy + package trial contract.
 -- Owner Auth/profile is completed by trusted server code after this transaction because Supabase Auth is external to PostgreSQL transactions.
+-- Paid activation/renewal remains exclusively behind the existing manual IT approval path.
 -- No plaintext Owner PIN is accepted or persisted by this migration.
 
 create table if not exists public.it_store_provisioning_requests (
@@ -64,6 +65,7 @@ declare
   v_internal_code text;
   v_payload jsonb;
   v_result jsonb;
+  v_now timestamptz := now();
 begin
   if p_request_id is null then
     raise exception 'invalid_provisioning_request: request_id is required';
@@ -75,8 +77,8 @@ begin
      or p_package_id is null then
     raise exception 'invalid_provisioning_payload: store, branch, internal code and package are required';
   end if;
-  if p_contract_status not in ('trial','active') then
-    raise exception 'invalid_contract_status: new stores must start as trial or active';
+  if p_contract_status <> 'trial' then
+    raise exception 'paid_activation_requires_approval: Store Provisioning may only start a trial; paid activation must use the existing IT approval flow';
   end if;
   if p_billing_interval not in ('monthly','yearly') then
     raise exception 'invalid_billing_interval: billing interval must be monthly or yearly';
@@ -127,7 +129,7 @@ begin
     'branch_name', btrim(p_branch_name),
     'branch_address', nullif(btrim(coalesce(p_branch_address, '')), ''),
     'package_id', p_package_id,
-    'contract_status', p_contract_status,
+    'contract_status', 'trial',
     'billing_interval', p_billing_interval
   );
 
@@ -247,7 +249,7 @@ begin
     'saas',
     p_billing_interval,
     'cloud',
-    p_contract_status,
+    'trial',
     v_package.max_branches,
     v_package.max_devices,
     v_package.max_branches,
@@ -255,9 +257,14 @@ begin
     v_package.max_users,
     v_price,
     'THB',
-    now(),
+    v_now,
     null,
-    jsonb_build_object('source', 'cpipos_it_store_provisioning_p0', 'package_code', v_package.code)
+    jsonb_build_object(
+      'source', 'cpipos_it_store_provisioning_p0',
+      'package_code', v_package.code,
+      'trial_days', 7,
+      'paid_activation_requires_it_approval', true
+    )
   )
   returning * into v_contract;
 
@@ -275,6 +282,33 @@ begin
   if v_store_code is null or v_lifecycle.tenant_id is null then
     raise exception 'tenant_control_plane_provision_failed: Store Code or lifecycle was not created';
   end if;
+
+  -- The platform subscription baseline defines a 7-day trial and 30-day trial-data retention.
+  -- Normalize the tenant-trigger default here so every fast-provisioned store has an enforceable expiry.
+  update public.tenant_data_lifecycle
+  set lifecycle_status = 'trial',
+      data_home = 'primary',
+      desired_data_home = 'primary',
+      migration_status = 'idle',
+      source_home = null,
+      target_home = null,
+      trial_started_at = coalesce(trial_started_at, v_now),
+      trial_expires_at = coalesce(trial_expires_at, coalesce(trial_started_at, v_now) + interval '7 days'),
+      grace_until = null,
+      archive_after = coalesce(archive_after, coalesce(trial_started_at, v_now) + interval '30 days'),
+      retention_until = coalesce(retention_until, coalesce(trial_started_at, v_now) + interval '30 days'),
+      access_locked = false,
+      lock_reason = null,
+      payment_review_status = 'none',
+      metadata = coalesce(metadata, '{}'::jsonb) || jsonb_build_object(
+        'source', 'cpipos_it_store_provisioning_p0',
+        'package_code', v_package.code,
+        'trial_days', 7,
+        'trial_retention_days', 30,
+        'paid_activation_requires_it_approval', true
+      )
+  where tenant_id = v_tenant.id
+  returning * into v_lifecycle;
 
   v_result := jsonb_build_object(
     'request_id', p_request_id,
@@ -383,4 +417,4 @@ grant execute on function public.provision_it_store_core(uuid,uuid,text,text,tex
 comment on table public.it_store_provisioning_requests is
   'Idempotency/recovery ledger for CpIPOS-IT Store Provisioning. Never stores plaintext Owner PIN.';
 comment on function public.provision_it_store_core(uuid,uuid,text,text,text,text,text,text,text,text,uuid,text,text) is
-  'Service-role-only invoker-rights Store Provisioning RPC. Business data remains authoritative in CpiPOS-001.';
+  'Service-role-only invoker-rights trial Store Provisioning RPC. Paid activation stays behind the existing IT approval flow.';
