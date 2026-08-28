@@ -6,7 +6,10 @@ import {
   withPosSessionCookie
 } from "@/lib/pos-session-guard";
 import { loadPosRuntimeDevicePolicyForSession } from "@/lib/pos-device-status";
+import { readThroughRuntimeCache } from "@/lib/route-runtime-cache";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
+
+const SHIFT_METRICS_CACHE_TTL_MS = 5_000;
 
 async function withQueryTimeout<T>(queryPromise: Promise<T>, timeoutMs: number): Promise<T | null> {
   let timeoutId: ReturnType<typeof setTimeout> | null = null;
@@ -228,6 +231,24 @@ async function loadShiftMetrics(args: {
   return { metrics, degraded };
 }
 
+async function loadShiftMetricsCached(args: {
+  supabase: ReturnType<typeof getSupabaseServiceClient>;
+  tenantId: string;
+  branchId: string;
+  shiftId: string | null;
+}) {
+  if (!args.shiftId) {
+    return { metrics: { ...EMPTY_SHIFT_METRICS }, degraded: false, cacheSource: "none" };
+  }
+
+  const { value, source } = await readThroughRuntimeCache({
+    key: `pos-session-shift-metrics:${args.tenantId}:${args.branchId}:${args.shiftId}`,
+    ttlMs: SHIFT_METRICS_CACHE_TTL_MS,
+    loader: () => loadShiftMetrics(args)
+  });
+  return { ...value, cacheSource: source };
+}
+
 export async function GET() {
   const startedAt = Date.now();
   try {
@@ -333,7 +354,7 @@ export async function GET() {
 
     const [devicePolicy, shiftMetricsResult] = await Promise.all([
       loadPosRuntimeDevicePolicyForSession(scope.session),
-      loadShiftMetrics({
+      loadShiftMetricsCached({
         supabase,
         tenantId: scope.session.tenant_id,
         branchId: scope.session.branch_id,
@@ -381,6 +402,7 @@ export async function GET() {
 
     response.headers.set("x-pos-session-shift-fallback", shiftLookupFallback ? "1" : "0");
     response.headers.set("x-pos-session-shift-metrics-degraded", shiftMetricsResult.degraded ? "1" : "0");
+    response.headers.set("x-pos-session-shift-metrics-cache", shiftMetricsResult.cacheSource);
     response.headers.set("x-pos-session-shift-rebound", reboundShiftBinding ? "1" : "0");
     setTimingHeaders(response, startedAt);
     return withPosSessionCookie(response, scope.session.id);
