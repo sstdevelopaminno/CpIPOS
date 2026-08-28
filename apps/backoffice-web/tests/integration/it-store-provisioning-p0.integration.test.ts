@@ -10,6 +10,7 @@ const service = source("../../src/lib/services/it-admin/store-provisioning-servi
 const consoleUi = source("../../src/components/it-admin/store-provisioning-console.tsx");
 const tenantsPage = source("../../src/app/(it-admin)/it-admin/tenants/page.tsx");
 const migration = source("../../../../supabase/migrations/20260828121000_it_store_provisioning_p0.sql");
+const retryMigration = source("../../../../supabase/migrations/20260828122000_it_store_provisioning_retry_fix.sql");
 
 describe("IT Store Provisioning P0", () => {
   it("keeps the write endpoint restricted to IT Admin and exposes the request id for safe retries", () => {
@@ -33,8 +34,17 @@ describe("IT Store Provisioning P0", () => {
     expect(migration).toContain("insert into public.tenant_subscription_contracts");
   });
 
+  it("reuses the first internal tenant code on retries so the same request id cannot create a second store", () => {
+    expect(retryMigration).toContain("rename to provision_it_store_core_impl");
+    expect(retryMigration).toContain("input_payload ->> 'internal_code'");
+    expect(retryMigration).toContain("coalesce(v_internal_code, p_internal_code)");
+    expect(retryMigration).toContain("from public, anon, authenticated, service_role");
+    expect(retryMigration).toContain("to service_role");
+  });
+
   it("never sends or persists the Owner PIN in the core provisioning RPC payload or ledger", () => {
     expect(migration).not.toMatch(/pin_hash|plaintext_pin|owner_pin|p_pin/i);
+    expect(retryMigration).not.toMatch(/pin_hash|plaintext_pin|owner_pin|p_pin/i);
     expect(service).toContain("bcrypt.hash(input.pin, 12)");
     expect(service).not.toContain("p_pin:");
     expect(service).not.toContain("pin: pin");
