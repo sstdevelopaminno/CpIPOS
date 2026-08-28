@@ -36,14 +36,6 @@ function formatMoney(value: number): string {
   }).format(Number.isFinite(value) ? value : 0)}`;
 }
 
-function parseMoneyText(value: string | null | undefined): number {
-  const normalized = String(value ?? "").replace(/,/g, "");
-  const match = normalized.match(/-?\d+(?:\.\d+)?/u);
-  if (!match) return 0;
-  const parsed = Number(match[0]);
-  return Number.isFinite(parsed) ? parsed : 0;
-}
-
 function sanitizeCashInput(value: string): string {
   const cleaned = String(value ?? "").replace(/[^0-9.]/g, "");
   if (!cleaned) return "";
@@ -113,11 +105,6 @@ function readCartItemCount(): number {
   }
 }
 
-function resolveTotalDue(paymentPanel: HTMLElement): number {
-  const totalText = paymentPanel.querySelector<HTMLElement>(".posui-bill-summary-card .is-total strong")?.textContent;
-  return Math.max(0, parseMoneyText(totalText));
-}
-
 function ensureStyles() {
   if (document.getElementById(STYLE_ID)) return;
   const style = document.createElement("style");
@@ -165,20 +152,23 @@ function ensureStyles() {
       font-size: 12px;
       font-weight: 800;
     }
+    .cpipos-sd-front-cash__title strong {
+      color: #1d4ed8;
+      font-size: 18px;
+      font-variant-numeric: tabular-nums;
+    }
     .cpipos-sd-front-cash__body {
-      display: grid;
-      grid-template-columns: minmax(132px, .9fr) minmax(0, 1.35fr);
-      gap: 12px;
-      align-items: start;
+      display: block;
+      min-width: 0;
     }
     .cpipos-sd-front-keypad {
       display: grid;
       grid-template-columns: repeat(3, minmax(0, 1fr));
       gap: 7px;
+      width: 100%;
     }
     .cpipos-sd-front-keypad button,
-    .cpipos-sd-front-cash__tools button,
-    .cpipos-sd-front-cash__quick button {
+    .cpipos-sd-front-cash__tools button {
       min-height: 42px;
       border: 1px solid #d3deec;
       border-radius: 10px;
@@ -198,47 +188,10 @@ function ensureStyles() {
       gap: 7px;
       grid-column: 1 / -1;
     }
-    .cpipos-sd-front-cash__summary {
-      display: grid;
-      gap: 10px;
-      min-width: 0;
-      padding: 12px;
-      border: 1px solid #d7e3f2;
-      border-radius: 14px;
-      background: #fbfdff;
-    }
-    .cpipos-sd-front-cash__row {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 10px;
-      padding-bottom: 9px;
-      border-bottom: 1px dashed #cbd5e1;
-    }
-    .cpipos-sd-front-cash__row:last-of-type { border-bottom: 0; padding-bottom: 0; }
-    .cpipos-sd-front-cash__row span { color: #475569; font-size: 12px; font-weight: 800; }
-    .cpipos-sd-front-cash__row strong { color: #1d4ed8; font-size: 25px; line-height: 1; font-variant-numeric: tabular-nums; }
-    .cpipos-sd-front-cash__row--due strong { color: #16a34a; }
-    .cpipos-sd-front-cash__row--change strong { color: #1d4ed8; }
-    .cpipos-sd-front-cash__quick-label { margin: 0; color: #64748b; font-size: 11px; font-weight: 800; }
-    .cpipos-sd-front-cash__quick { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 7px; }
-    .cpipos-sd-front-cash__quick button {
-      min-height: 38px;
-      border-color: #bfdbfe;
-      background: #eff6ff;
-      color: #1d4ed8;
-      font-size: 11px;
-    }
-    .cpipos-sd-front-cash__hint { margin: 0; color: #64748b; font-size: 10px; font-weight: 700; line-height: 1.45; }
 
     html[${GENERAL_SALE_ROOT_ATTRIBUTE}="${GENERAL_SALE_MODE_ID}"][${DRAFT_READY_ATTRIBUTE}="1"] .posui-payment-modal--cash .posui-cash-keypad,
     html[${GENERAL_SALE_ROOT_ATTRIBUTE}="${GENERAL_SALE_MODE_ID}"][${DRAFT_READY_ATTRIBUTE}="1"] .posui-payment-modal--cash .posui-cash-quick { display: none !important; }
     html[${GENERAL_SALE_ROOT_ATTRIBUTE}="${GENERAL_SALE_MODE_ID}"][${DRAFT_READY_ATTRIBUTE}="1"] .posui-payment-modal--cash .posui-cash-layout { grid-template-columns: minmax(0, 1fr) !important; }
-
-    @media (max-width: 1320px) {
-      .cpipos-sd-front-cash__body { grid-template-columns: 1fr; }
-      .cpipos-sd-front-keypad { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-    }
   `;
   document.head.appendChild(style);
 }
@@ -291,12 +244,10 @@ export function PosGeneralSaleFrontCashPanel() {
       const paymentPanel = document.querySelector<HTMLElement>(PAYMENT_PANEL_QUERY);
       if (!paymentPanel) return;
 
-      const due = resolveTotalDue(paymentPanel);
       const draft = readDraft();
       const received = Math.max(0, Number(draft.input || 0));
       const safeReceived = Number.isFinite(received) ? received : 0;
-      const change = Math.max(0, safeReceived - due);
-      const signature = `${due.toFixed(2)}:${draft.input}:${resolveLang()}`;
+      const signature = `${draft.input}:${resolveLang()}`;
       let host = paymentPanel.querySelector<HTMLElement>(`:scope > [${PANEL_ATTRIBUTE}="1"]`);
       if (host && signature === lastPanelSignature) return;
       lastPanelSignature = signature;
@@ -313,7 +264,7 @@ export function PosGeneralSaleFrontCashPanel() {
       const title = document.createElement("p");
       title.className = "cpipos-sd-front-cash__title";
       const titleText = document.createElement("span");
-      titleText.textContent = lang === "th" ? "แป้นตัวเลข / รับเงินสดล่วงหน้า" : "Keypad / cash received";
+      titleText.textContent = lang === "th" ? "แป้นตัวเลข" : "Keypad";
       const amountState = document.createElement("strong");
       amountState.textContent = draft.input ? formatMoney(safeReceived) : formatMoney(0);
       title.append(titleText, amountState);
@@ -334,33 +285,7 @@ export function PosGeneralSaleFrontCashPanel() {
       );
       keypad.appendChild(tools);
 
-      const summary = document.createElement("section");
-      summary.className = "cpipos-sd-front-cash__summary";
-      const dueRow = document.createElement("div");
-      dueRow.className = "cpipos-sd-front-cash__row cpipos-sd-front-cash__row--due";
-      dueRow.innerHTML = `<span>${lang === "th" ? "ยอดที่ต้องชำระ" : "Amount due"}</span><strong>${formatMoney(due)}</strong>`;
-      const receivedRow = document.createElement("div");
-      receivedRow.className = "cpipos-sd-front-cash__row";
-      receivedRow.innerHTML = `<span>${lang === "th" ? "รับเงินจากลูกค้า" : "Cash received"}</span><strong>${formatMoney(safeReceived)}</strong>`;
-      const quickLabel = document.createElement("p");
-      quickLabel.className = "cpipos-sd-front-cash__quick-label";
-      quickLabel.textContent = lang === "th" ? "เลือกเงินด่วน" : "Quick cash";
-      const quick = document.createElement("div");
-      quick.className = "cpipos-sd-front-cash__quick";
-      [500, 1000, 1500].forEach((amount) => {
-        quick.appendChild(createButton(formatMoney(amount), () => updateDraft(amount.toFixed(2))));
-      });
-      const changeRow = document.createElement("div");
-      changeRow.className = "cpipos-sd-front-cash__row cpipos-sd-front-cash__row--change";
-      changeRow.innerHTML = `<span>${lang === "th" ? "เงินทอน" : "Change"}</span><strong>${formatMoney(change)}</strong>`;
-      const hint = document.createElement("p");
-      hint.className = "cpipos-sd-front-cash__hint";
-      hint.textContent = lang === "th"
-        ? "จำนวนนี้เป็นค่าเตรียมรับเงินเท่านั้น การชำระเงินจริงยังใช้ขั้นตอนและ API เงินสดเดิมของ POS"
-        : "This is a cash-entry draft only. Final payment still uses the existing POS cash flow and API.";
-      summary.append(dueRow, receivedRow, quickLabel, quick, changeRow, hint);
-
-      body.append(keypad, summary);
+      body.appendChild(keypad);
       host.replaceChildren(title, body);
     };
 
