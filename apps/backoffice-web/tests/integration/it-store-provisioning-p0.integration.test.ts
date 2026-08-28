@@ -23,7 +23,6 @@ describe("IT Store Provisioning P0", () => {
     expect(migration).toContain("create table if not exists public.it_store_provisioning_requests");
     expect(migration).toContain("request_key uuid not null unique");
     expect(migration).toContain("create or replace function public.provision_it_store_core");
-    expect(migration).toContain("security definer");
     expect(migration).toContain("revoke all on function public.provision_it_store_core");
     expect(migration).toContain("grant execute on function public.provision_it_store_core");
     expect(migration).toContain("to service_role");
@@ -34,11 +33,14 @@ describe("IT Store Provisioning P0", () => {
     expect(migration).toContain("insert into public.tenant_subscription_contracts");
   });
 
-  it("reuses the first internal tenant code on retries so the same request id cannot create a second store", () => {
+  it("reuses the first internal tenant code on retries and ends with an invoker-rights public wrapper", () => {
     expect(retryMigration).toContain("rename to provision_it_store_core_impl");
+    expect(retryMigration).toContain("set schema app");
+    expect(retryMigration).toContain("security invoker");
     expect(retryMigration).toContain("input_payload ->> 'internal_code'");
     expect(retryMigration).toContain("coalesce(v_internal_code, p_internal_code)");
-    expect(retryMigration).toContain("from public, anon, authenticated, service_role");
+    expect(retryMigration).toContain("app.provision_it_store_core_impl");
+    expect(retryMigration).toContain("from public, anon, authenticated");
     expect(retryMigration).toContain("to service_role");
   });
 
