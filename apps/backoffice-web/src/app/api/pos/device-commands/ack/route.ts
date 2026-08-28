@@ -1,7 +1,7 @@
 import { isDeviceCommandType, UNSUPPORTED_DEVICE_COMMAND_TYPES } from "@/lib/device-commands";
 import { fail, ok } from "@/lib/http";
 import { PosGuardError, requirePosSession } from "@/lib/pos-session-guard";
-import { getSupabaseServiceClient } from "@/lib/supabase-admin";
+import { getPrimarySupabaseServiceClient, getTrialSupabaseServiceClient } from "@/lib/supabase-admin";
 
 export const dynamic = "force-dynamic";
 
@@ -34,7 +34,8 @@ export async function POST(request: Request) {
   try {
     const scope = await requirePosSession();
     const session = scope.session;
-    const supabase = getSupabaseServiceClient();
+    const primary = getPrimarySupabaseServiceClient();
+    const itSupabase = getTrialSupabaseServiceClient();
     const body = (await request.json().catch(() => null)) as AckBody | null;
     const rawResults = Array.isArray(body?.results) ? body.results.slice(0, 10) : [];
 
@@ -44,7 +45,7 @@ export async function POST(request: Request) {
 
     let deviceId = session.device_id;
     if (!deviceId && session.device_code) {
-      const { data: device, error: deviceError } = await supabase
+      const { data: device, error: deviceError } = await primary
         .from("branch_devices")
         .select("id")
         .eq("tenant_id", session.tenant_id)
@@ -82,8 +83,8 @@ export async function POST(request: Request) {
     }
 
     const ids = normalized.map((item) => item.id);
-    const { data: commands, error: commandError } = await supabase
-      .from("device_commands")
+    const { data: commands, error: commandError } = await itSupabase
+      .from("it_device_commands")
       .select("id,command_type,status,result")
       .eq("tenant_id", session.tenant_id)
       .eq("branch_id", session.branch_id)
@@ -126,8 +127,8 @@ export async function POST(request: Request) {
         error_message: result.errorMessage
       };
 
-      const { error: updateError } = await supabase
-        .from("device_commands")
+      const { error: updateError } = await itSupabase
+        .from("it_device_commands")
         .update({ result: nextResult })
         .eq("id", result.id)
         .eq("tenant_id", session.tenant_id)
