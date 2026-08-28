@@ -2,9 +2,13 @@ export const GENERAL_SALE_MODE_ID = "general_sale" as const;
 export const GENERAL_SALE_BUSINESS_GROUP = "SD" as const;
 export const GENERAL_SALE_CHECKOUT_BASE_MODE = "home" as const;
 export const GENERAL_SALE_ROOT_ATTRIBUTE = "data-pos-business-mode";
+export const GENERAL_SALE_LAYOUT_ATTRIBUTE = "data-pos-general-sale-layout";
+export const GENERAL_SALE_LAYOUT_STORAGE_KEY = "cpipos_general_sale_layout_v1";
 export const GENERAL_SALE_PRODUCT_SKU_ATTRIBUTE = "data-pos-product-sku";
 export const GENERAL_SALE_ADD_PRODUCT_EVENT = "cpipos:general-sale-add-product";
 export const GENERAL_SALE_ADD_PRODUCT_RESULT_EVENT = "cpipos:general-sale-add-product-result";
+
+export type GeneralSaleCartLayout = "grid" | "table";
 
 export type GeneralSaleLookupProduct = {
   id: string;
@@ -29,6 +33,10 @@ export type GeneralSaleAddProductResult = {
   requestId: string;
   status: "added" | "unavailable" | "invalid";
 };
+
+export function normalizeGeneralSaleCartLayout(value: unknown): GeneralSaleCartLayout {
+  return value === "table" ? "table" : "grid";
+}
 
 export function normalizeGeneralSaleScanCode(value: unknown): string {
   const normalized = String(value ?? "")
