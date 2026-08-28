@@ -15,6 +15,30 @@ describe("POS SD general sale source contract", () => {
     expect(catalog).toContain("productSku={product.sku}");
   });
 
+  it("resolves scans from the branch product catalog instead of visible DOM cards", () => {
+    const controller = readRepoFile("src", "components", "pos", "pos-general-sale-mode-controller.tsx");
+    const lookupRoute = readRepoFile("src", "app", "api", "pos", "products", "lookup", "route.ts");
+    const catalog = readRepoFile("src", "components", "pos", "pos-product-catalog.tsx");
+
+    expect(controller).toContain("/api/pos/products/lookup?sku=");
+    expect(controller).toContain("GENERAL_SALE_ADD_PRODUCT_EVENT");
+    expect(controller).not.toContain("findProductCardBySku");
+    expect(controller).not.toContain("querySelectorAll<HTMLButtonElement>");
+    expect(controller).not.toContain("card.click()");
+
+    expect(lookupRoute).toContain("requirePosSession()");
+    expect(lookupRoute).toContain('requirePermission(scope, "sales:enter")');
+    expect(lookupRoute).toContain('"barcode_scanner_mode"');
+    expect(lookupRoute).toContain('.eq("tenant_id", tenantId)');
+    expect(lookupRoute).toContain('.eq("branch_id", branchId)');
+    expect(lookupRoute).toContain('fail("ambiguous_product_sku"');
+    expect(lookupRoute).not.toContain("export async function POST");
+
+    expect(catalog).toContain("GENERAL_SALE_ADD_PRODUCT_EVENT");
+    expect(catalog).toContain("onAddProduct(product);");
+    expect(catalog).toContain('status: "added"');
+  });
+
   it("reuses the Home/Takeaway engine instead of creating a second transaction engine", () => {
     const controller = readRepoFile("src", "components", "pos", "pos-general-sale-mode-controller.tsx");
 
