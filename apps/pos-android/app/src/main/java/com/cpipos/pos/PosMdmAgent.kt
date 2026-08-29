@@ -335,7 +335,11 @@ class PosMdmAgent(
                 JSONObject()
                     .put("battery_percent", diagnostics.batteryPercent())
                     .put("app_memory_mb", diagnostics.appMemoryMb())
+                    .put("cpu_percent", diagnostics.processCpuPercent())
+                    .put("memory_percent", diagnostics.memoryPercent())
+                    .put("total_storage_mb", diagnostics.totalStorageMb())
                     .put("available_storage_mb", diagnostics.availableStorageMb())
+                    .put("storage_used_percent", diagnostics.storageUsedPercent())
                     .put("device_owner", diagnostics.isDeviceOwnerKnown())
             )
             .put(
