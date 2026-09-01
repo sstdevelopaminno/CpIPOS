@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Language } from "@/lib/i18n";
+import { fetchWithTimeout } from "@/lib/client-fetch";
 
 type ServiceEventType = "call_staff" | "request_checkout";
 type ActivityEventType = "order" | ServiceEventType;
@@ -29,9 +30,10 @@ type PendingServiceAck = {
 
 const CURSOR_KEY = "pos_global_table_qr_cursor_v1";
 const ACKED_EVENT_IDS_KEY = "pos_global_table_qr_acked_event_ids_v1";
-// QR orders are operational alerts, not analytics. Keep polling responsive even after
-// a long idle period; 30s backoff made incoming orders feel lost or delayed in-store.
-const IDLE_POLL_MS = [3000, 5000, 10000, 15000, 30000] as const;
+const ACTIVITY_REQUEST_TIMEOUT_MS = 10_000;
+// Vercel Hobby request-budget guard: operational alerts may refresh immediately on
+// focus/visibility/user activity, but recurring idle reads never run faster than 30s.
+const IDLE_POLL_MS = [30_000, 45_000, 60_000] as const;
 const SEEN_EVENT_LIMIT = 300;
 
 function isServiceEvent(event: ActivityEvent): event is ActivityEvent & { event_type: ServiceEventType } {
@@ -116,12 +118,12 @@ export function PosTableQrGlobalAlert({ lang }: { lang: Language }) {
 
     serviceAckInFlightRef.current.add(current.id);
     try {
-      const response = await fetch("/api/pos/table-qr-activity", {
+      const response = await fetchWithTimeout("/api/pos/table-qr-activity", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ event_id: current.id, action }),
         keepalive: true
-      });
+      }, ACTIVITY_REQUEST_TIMEOUT_MS);
       const body = (await response.json().catch(() => null)) as ActivityResponse | null;
       if (!response.ok || !body?.data) throw new Error(body?.error?.message || "activity_ack_failed");
       pendingServiceAcksRef.current.delete(current.id);
@@ -200,7 +202,11 @@ export function PosTableQrGlobalAlert({ lang }: { lang: Language }) {
       let sawEvent = false;
       try {
         const since = cursorRef.current || new Date().toISOString();
-        const response = await fetch(`/api/pos/table-qr-activity?since=${encodeURIComponent(since)}`, { cache: "no-store" });
+        const response = await fetchWithTimeout(
+          `/api/pos/table-qr-activity?since=${encodeURIComponent(since)}`,
+          { cache: "no-store" },
+          ACTIVITY_REQUEST_TIMEOUT_MS
+        );
         if (response.status === 401 || response.status === 403) {
           // An expired/revoked POS tab must not keep hammering operational APIs forever.
           authBlocked = true;
