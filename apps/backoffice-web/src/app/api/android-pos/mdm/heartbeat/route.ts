@@ -144,6 +144,7 @@ export async function POST(request: Request) {
 
   const scope = await findAutoScope(installId);
   if (!scope) return baseResponse;
+  const scopeMetadata = asRecord(scope.metadata);
 
   const recoveryCommands = recoveryEligible ? buildRecoveryCommands(scope, payload) : [];
   const activationGate = activationEligible ? await resolveCommercialActivationGate(scope) : null;
@@ -152,13 +153,14 @@ export async function POST(request: Request) {
   if (updaterTelemetry) await persistUpdaterTelemetry(scope, payload);
 
   const tenantCode = updaterTelemetry ? await findTenantCode(scope.tenant_id) : null;
-  const stagedUpdateOffer = updaterTelemetry && tenantCode
+  const updateRing = String(scopeMetadata.update_ring ?? "").trim().toUpperCase();
+  const stagedUpdateOffer = updaterTelemetry && tenantCode && updateRing === "PILOT"
     ? buildAndroidModernUpdateOffer({
         tenantCode,
         payload,
         deviceStatus: scope.status,
         deviceLocked: scope.is_locked,
-        updatePolicy: asRecord(scope.metadata).android_update_policy as Record<string, unknown> | null
+        updatePolicy: asRecord(scopeMetadata.android_update_policy)
       })
     : null;
 
