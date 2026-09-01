@@ -4,6 +4,8 @@ import { fail, ok } from "@/lib/http";
 import { readThroughRuntimeCache } from "@/lib/route-runtime-cache";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
 
+export const maxDuration = 10;
+
 type PerfPayload = {
   route?: string;
   from_route?: string | null;
@@ -24,8 +26,9 @@ type PerfLogRow = {
   metadata: Record<string, unknown> | null;
 };
 
-// Onsite safeguard: coalesce only normal telemetry; error telemetry always bypasses sampling.
-const PERF_SAMPLE_TTL_MS = 10_000;
+// Vercel request-budget safeguard: normal telemetry is sampled to one server-side
+// write per route/source/user per minute. Error telemetry always bypasses sampling.
+const PERF_SAMPLE_TTL_MS = 60_000;
 
 function clampMetric(value: unknown, min: number, max: number): number | null {
   if (value === null || value === undefined || value === "") return null;
@@ -127,11 +130,13 @@ export async function GET(req: Request) {
       }))
       .sort((a, b) => (b.avg_nav_ms ?? 0) - (a.avg_nav_ms ?? 0));
 
-    return ok({
+    const response = ok({
       items: rows,
       summary,
       total: rows.length
     });
+    response.headers.set("Cache-Control", "private, no-store");
+    return response;
   } catch (error) {
     return fail("unauthorized", error instanceof Error ? error.message : "Authentication failed.", 401);
   }
