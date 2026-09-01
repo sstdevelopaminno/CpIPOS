@@ -3,13 +3,14 @@ const PROMPTPAY_HOST = "promptpay.io";
 const PROMPTPAY_PATH_PATTERN = /^\/(\d{9,15})\/(\d+(?:\.\d{1,2})?)\/?$/;
 
 // Vercel Hobby emergency request budget guard.
-// These two legacy read loops are keyed by a token/table id in the URL, so browser-only
-// coalescing cannot mix tenant/branch responses. Other session-scoped POS reads must fix
-// their polling interval at the caller instead of using a shared cache key.
+// Legacy read loops are coalesced in the browser so repeated snapshots inside 30s do
+// not reach Vercel. The cache is document-local, GET-only, and invalidated whenever a
+// same-origin API mutation occurs. Transaction/payment/order writes are never cached.
 const HOT_READ_MIN_INTERVAL_MS = 30_000;
 const HOT_READ_CACHE_MAX_ENTRIES = 64;
 const hotReadCache = new Map<string, { expiresAt: number; response: Response }>();
 const hotReadInFlight = new Map<string, Promise<Response>>();
+let readScopeEpoch = 0;
 
 function requestMethod(input: RequestInfo | URL, init?: RequestInit) {
   return String(input instanceof Request ? input.method : init?.method ?? "GET").toUpperCase();
@@ -37,6 +38,21 @@ function resolvePromptPayPath(input: RequestInfo | URL, init?: RequestInit): str
   }
 }
 
+function invalidateBudgetedReadsForMutation(input: RequestInfo | URL, init?: RequestInit) {
+  if (requestMethod(input, init) === "GET") return;
+  try {
+    const url = resolveUrl(input);
+    if (url.origin !== window.location.origin || !url.pathname.startsWith("/api/")) return;
+    // Performance telemetry is observational and must not defeat the read budget by
+    // invalidating operational snapshots on every navigation/resource sample.
+    if (url.pathname === "/api/pos/perf") return;
+    readScopeEpoch += 1;
+    hotReadCache.clear();
+  } catch {
+    // Invalid URLs fall through to the native fetch path.
+  }
+}
+
 function resolveBudgetedReadKey(input: RequestInfo | URL, init?: RequestInit): string | null {
   if (requestMethod(input, init) !== "GET") return null;
 
@@ -44,14 +60,22 @@ function resolveBudgetedReadKey(input: RequestInfo | URL, init?: RequestInit): s
     const url = resolveUrl(input);
     if (url.origin !== window.location.origin) return null;
 
+    const prefix = `scope:${readScopeEpoch}:`;
+
+    if (url.pathname === "/api/pos/tables") {
+      return `${prefix}${url.pathname}${url.search}`;
+    }
+    if (/^\/api\/pos\/tables\/[^/]+\/bill$/.test(url.pathname)) {
+      return `${prefix}${url.pathname}${url.search}`;
+    }
     if (/^\/api\/pos\/tables\/[^/]+\/qr-orders$/.test(url.pathname)) {
       // The cursor changes after each successful read; key by table so cursor churn cannot
       // bypass the 30s request floor. The consumer already de-duplicates event ids.
-      return url.pathname;
+      return `${prefix}${url.pathname}`;
     }
     if (/^\/api\/table-order\/[^/]+$/.test(url.pathname)) {
       const isStatusRead = url.searchParams.get("view") === "status" || url.searchParams.get("state") === "1";
-      if (isStatusRead) return `${url.pathname}?view=status`;
+      if (isStatusRead) return `${prefix}${url.pathname}?view=status`;
     }
   } catch {
     return null;
@@ -103,6 +127,8 @@ async function fetchBudgetedRead(input: RequestInfo | URL, init: RequestInit | u
 }
 
 globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+  invalidateBudgetedReadsForMutation(input, init);
+
   const promptPayPath = resolvePromptPayPath(input, init);
   if (promptPayPath) {
     const signal = requestSignal(input, init);
