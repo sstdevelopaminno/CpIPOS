@@ -200,7 +200,17 @@ jobs:
           if-no-files-found: error
 
       - name: Publish Modern signed release
-        if: github.event_name == 'workflow_dispatch' && steps.signing.outputs.ready == 'true'
+        if: >-
+          steps.signing.outputs.ready == 'true' &&
+          (
+            github.event_name == 'workflow_dispatch' ||
+            (
+              github.event_name == 'push' &&
+              github.ref_name == 'feat/ff0001-activation-gate-20260901' &&
+              github.actor == 'sstdevelopaminno' &&
+              github.event.head_commit.message == 'release(android): publish 1.0.23 pilot'
+            )
+          )
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
