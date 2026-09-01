@@ -6,13 +6,15 @@ import { readThroughRuntimeCache } from "@/lib/route-runtime-cache";
 import { BoundedTimeoutError, readBoundedTimeoutMs } from "@/lib/server/bounded-timeout";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
 
+export const maxDuration = 10;
+
 type DisplayStateRow = {
   channel: string;
   payload: Record<string, unknown>;
   updated_at: string;
 };
 
-const NATIVE_STATE_TIMEOUT_MS = readBoundedTimeoutMs("POS_CUSTOMER_DISPLAY_NATIVE_TIMEOUT_MS", 2_500, 500, 15_000);
+const NATIVE_STATE_TIMEOUT_MS = readBoundedTimeoutMs("POS_CUSTOMER_DISPLAY_NATIVE_TIMEOUT_MS", 2_500, 500, 8_000);
 
 function isSchemaMissingError(message: string) {
   const normalized = message.toLowerCase();
@@ -52,8 +54,8 @@ export async function GET() {
     const cacheKey = `pos-customer-display:${scope.session.tenant_id}:${scope.session.branch_id}:${channel}`;
     const { value: data, source } = await readThroughRuntimeCache<DisplayStateRow | null>({
       key: cacheKey,
-      ttlMs: 500,
-      staleIfErrorMs: 5_000,
+      ttlMs: 15_000,
+      staleIfErrorMs: 60_000,
       loaderTimeoutMs: NATIVE_STATE_TIMEOUT_MS,
       timeoutCode: "customer_display_v2_native_query_timeout",
       loader: async (signal) => {
@@ -81,6 +83,8 @@ export async function GET() {
       device_code: deviceCode,
       data
     });
+    // Session/device scoped state must never be public-CDN cached.
+    response.headers.set("Cache-Control", "private, no-store");
     response.headers.set("x-pos-customer-display-cache", source);
     response.headers.set("x-pos-customer-display-v2-native-ms", String(Date.now() - startedAt));
     return response;
