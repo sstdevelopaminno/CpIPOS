@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { GET as baseGet, POST as basePost } from "@/lib/android-pos/mdm-heartbeat-base";
 import { buildAndroidModernUpdateOffer } from "@/lib/android-runtime-release";
+import { resolveCommercialActivationGate } from "@/lib/android-pos/commercial-activation";
 import { reconcileModernPrinterInventory } from "@/lib/printing/printer-mdm-auto-registry";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
 
@@ -20,7 +21,6 @@ type RecoveryCommand = {
   action: "clear_webview_cache" | "reload_webview";
   reason: string;
 };
-
 
 function asRecord(value: unknown): JsonRecord {
   return value && typeof value === "object" && !Array.isArray(value) ? value as JsonRecord : {};
@@ -44,6 +44,11 @@ function hasUpdaterTelemetry(payload: JsonRecord | null): boolean {
 function recoveryCommandEligible(payload: JsonRecord | null): boolean {
   const capabilities = asRecord(payload?.runtime_capabilities);
   return Number(capabilities.schema_version ?? 0) >= 4;
+}
+
+function commercialActivationEligible(payload: JsonRecord | null): boolean {
+  const capabilities = asRecord(payload?.commercial_activation_capabilities);
+  return Number(capabilities.schema_version ?? 0) >= 1 && capabilities.native_gate === true;
 }
 
 function buildRecoveryCommands(scope: AutoScope, payload: JsonRecord | null): RecoveryCommand[] {
@@ -133,14 +138,16 @@ export async function POST(request: Request) {
   const printerEligible = quickAutoSetupEligible(payload);
   const updaterTelemetry = hasUpdaterTelemetry(payload);
   const recoveryEligible = recoveryCommandEligible(payload);
+  const activationEligible = commercialActivationEligible(payload);
 
-  if (!printerEligible && !updaterTelemetry && !recoveryEligible) return baseResponse;
+  if (!printerEligible && !updaterTelemetry && !recoveryEligible && !activationEligible) return baseResponse;
 
   const scope = await findAutoScope(installId);
   if (!scope) return baseResponse;
 
   const recoveryCommands = recoveryEligible ? buildRecoveryCommands(scope, payload) : [];
-  if (!printerEligible && !updaterTelemetry && recoveryCommands.length === 0) return baseResponse;
+  const activationGate = activationEligible ? await resolveCommercialActivationGate(scope) : null;
+  if (!printerEligible && !updaterTelemetry && recoveryCommands.length === 0 && !activationGate) return baseResponse;
 
   if (updaterTelemetry) await persistUpdaterTelemetry(scope, payload);
 
@@ -182,6 +189,7 @@ export async function POST(request: Request) {
       ...data,
       commands,
       update_offer: stagedUpdateOffer ?? data.update_offer ?? null,
+      activation_gate: activationGate ?? data.activation_gate ?? null,
       ...(printerEligible ? {
         auto_printer_registry: {
           eligible: auto.eligible,
