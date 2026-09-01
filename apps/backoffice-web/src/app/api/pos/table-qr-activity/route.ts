@@ -4,6 +4,8 @@ import { getPosApiAuthContext } from "@/lib/pos-api-auth";
 import { PosGuardError } from "@/lib/pos-session-guard";
 import { getRoutedSupabaseServiceClient } from "@/lib/tenant-data-router";
 
+export const maxDuration = 10;
+
 type ServiceEventType = "call_staff" | "request_checkout";
 type ActivityEventType = "order" | ServiceEventType;
 type AckAction = "acknowledge" | "go_to_table";
@@ -31,7 +33,6 @@ type ServiceEventRow = {
 function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
 }
-
 
 const ACTIVE_QR_REVIEW_TABLE_SESSION_STATUSES = new Set(["open", "ordering"]);
 
@@ -163,11 +164,14 @@ export async function GET(request: Request) {
       table: tableById.get(row.table_id) ?? null
     }));
 
-    return ok({
+    const response = ok({
       events,
       cursor,
       server_time: new Date().toISOString()
     });
+    // Branch/session scoped operational state is not safe for shared edge caching.
+    response.headers.set("Cache-Control", "private, no-store");
+    return response;
   } catch (error) {
     if (error instanceof PosGuardError) return fail(error.code, error.message, error.status);
     return fail("table_qr_activity_failed", error instanceof Error ? error.message : "Unable to load table QR activity.", 500);

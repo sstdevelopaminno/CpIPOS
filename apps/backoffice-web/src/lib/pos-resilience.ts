@@ -2,6 +2,8 @@ import type { AuthContext } from "@/lib/auth-context";
 import { appendAuditLog } from "@/lib/audit-log";
 import { readEnv } from "@/lib/env";
 
+const SERVERLESS_TIMEOUT_CEILING_MS = 15_000;
+
 function readIntEnv(name: string, fallback: number, min: number, max: number): number {
   const raw = readEnv(name);
   const parsed = Number(raw);
@@ -10,8 +12,8 @@ function readIntEnv(name: string, fallback: number, min: number, max: number): n
 }
 
 export const POS_TIMEOUT_POLICY = {
-  orderCreateMs: readIntEnv("POS_TIMEOUT_ORDER_CREATE_MS", 15000, 2000, 120000),
-  paymentCompleteMs: readIntEnv("POS_TIMEOUT_PAYMENT_COMPLETE_MS", 15000, 2000, 120000)
+  orderCreateMs: readIntEnv("POS_TIMEOUT_ORDER_CREATE_MS", 15000, 2000, SERVERLESS_TIMEOUT_CEILING_MS),
+  paymentCompleteMs: readIntEnv("POS_TIMEOUT_PAYMENT_COMPLETE_MS", 15000, 2000, SERVERLESS_TIMEOUT_CEILING_MS)
 } as const;
 
 export const POS_GUARDS = {
@@ -19,7 +21,7 @@ export const POS_GUARDS = {
   printQueueHardLimit: readIntEnv("POS_PRINT_QUEUE_HARD_LIMIT", 250, 10, 5000),
   staleQueuedMinutes: readIntEnv("POS_ORDER_QUEUE_STALE_MINUTES", 20, 1, 240),
   deadLetterWindowMinutes: readIntEnv("POS_DEAD_LETTER_WINDOW_MINUTES", 60, 5, 1440),
-  clientMonitorPollMs: readIntEnv("NEXT_PUBLIC_POS_MONITOR_POLL_MS", 30000, 15000, 120000)
+  clientMonitorPollMs: readIntEnv("NEXT_PUBLIC_POS_MONITOR_POLL_MS", 30000, 30000, 120000)
 } as const;
 
 export class PosTimeoutError extends Error {
@@ -36,10 +38,11 @@ export class PosTimeoutError extends Error {
 }
 
 export async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, code: string): Promise<T> {
+  const effectiveTimeoutMs = Math.max(1, Math.min(Math.trunc(timeoutMs), SERVERLESS_TIMEOUT_CEILING_MS));
   let timeoutId: ReturnType<typeof setTimeout> | null = null;
   try {
     const timeoutPromise = new Promise<never>((_, reject) => {
-      timeoutId = setTimeout(() => reject(new PosTimeoutError(code, timeoutMs)), timeoutMs);
+      timeoutId = setTimeout(() => reject(new PosTimeoutError(code, effectiveTimeoutMs)), effectiveTimeoutMs);
     });
     return await Promise.race([promise, timeoutPromise]);
   } finally {
