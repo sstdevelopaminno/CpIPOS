@@ -54,6 +54,13 @@ describe("polling request-churn regression guard", () => {
     expect(instrumentationClient).not.toContain('/api/pos/orders');
   });
 
+  it("samples normal POS telemetry to at most one request per minute while preserving errors", () => {
+    expect(instrumentationClient).toContain("const PERF_TELEMETRY_MIN_INTERVAL_MS = 60_000");
+    expect(instrumentationClient).toContain('url.pathname !== "/api/pos/perf"');
+    expect(instrumentationClient).toContain("if (errorCode || (Number.isFinite(statusCode) && statusCode >= 400)) return null");
+    expect(instrumentationClient).toContain("client_sampled: true");
+  });
+
   it("moves native customer-display polling to 30s and backs failures off to 60s", () => {
     expect(nativeCustomerDisplay).toContain("const HEALTHY_POLL_MS = 30_000");
     expect(nativeCustomerDisplay).toContain("const DEVICE_STATE_BACKOFF_MS = 60_000");
