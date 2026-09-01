@@ -159,6 +159,17 @@ async function findPairedDevice(installId: string): Promise<DeviceScope | null> 
   return rows[0] ?? null;
 }
 
+export async function resolveCommercialActivationGateForInstall(
+  installId: string,
+  now = new Date()
+): Promise<{ device_code: string; gate: CommercialActivationGate } | null> {
+  const device = await findPairedDevice(installId);
+  if (!device) return null;
+  const gate = await resolveCommercialActivationGate(device, now);
+  if (!gate) return null;
+  return { device_code: device.device_code, gate };
+}
+
 export async function confirmCommercialActivation(input: {
   installId: string;
   policyId: string;
