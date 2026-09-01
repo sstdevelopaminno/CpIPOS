@@ -2,6 +2,7 @@ import { ok } from "@/lib/http";
 import { ANDROID_MODERN_RELEASE } from "@/lib/android-runtime-release";
 
 export const dynamic = "force-dynamic";
+export const maxDuration = 5;
 
 const SOURCE_VERSIONS = {
   windows_runtime: "0.1.8",
@@ -20,6 +21,8 @@ export async function GET() {
     generated_at: new Date().toISOString()
   });
 
-  response.headers.set("Cache-Control", "no-store, max-age=0");
+  // Shared deployment metadata is safe to serve from the edge. Browser reuse also reduces
+  // Edge Requests, while stale-while-revalidate prevents a cache miss stampede after expiry.
+  response.headers.set("Cache-Control", "public, max-age=30, s-maxage=60, stale-while-revalidate=300");
   return response;
 }
