@@ -9,6 +9,7 @@ const downloadCenter = source("../../src/app/download/download-center-latest.tsx
 const releaseCatalog = source("../../src/lib/android-runtime-release.ts");
 const mainActivity = source("../../../pos-android/app/src/main/java/com/cpipos/pos/MainActivity.kt");
 const mdmAgent = source("../../../pos-android/app/src/main/java/com/cpipos/pos/PosMdmAgent.kt");
+const printAgent = source("../../../pos-android/app/src/main/java/com/cpipos/pos/PosPrintAgent.kt");
 const globals = source("../../src/app/globals.css");
 const modernWorkflow = source("../../../../.github/workflows/build-android-modern-runtime.yml");
 
@@ -48,5 +49,14 @@ describe("Android adaptive display + Download Center regression contract", () =>
     expect(globals).toContain("Tablet Landscape: 1024x768, Android Tablet Landscape: 1280x800");
     expect(globals).toContain("min-width: 1000px");
     expect(globals).toContain("max-width: 1300px");
+  });
+
+  it("keeps the new APK inside the Vercel Hobby request guardrail", () => {
+    expect(printAgent).toContain("IDLE_BACKOFF_SECONDS = longArrayOf(30L, 45L, 60L)");
+    expect(printAgent).toContain('claim_poll_policy", "adaptive_30_45_60s"');
+    expect(printAgent).toContain("scheduleWakeClaim(0L)");
+    expect(printAgent).toContain("scheduleWakeClaim(WAKE_RETRY_DELAY_MS)");
+    expect(printAgent).toContain("WAKE_RETRY_DELAY_MS = 350L");
+    expect(printAgent).not.toContain("longArrayOf(1L, 3L, 8L)");
   });
 });
