@@ -6,6 +6,7 @@ function source(relativePath: string) {
 }
 
 const downloadCenter = source("../../src/app/download/download-center-latest.tsx");
+const previousModernRoute = source("../../src/app/download/android/modern-1-0-22/route.ts");
 const releaseCatalog = source("../../src/lib/android-runtime-release.ts");
 const mainActivity = source("../../../pos-android/app/src/main/java/com/cpipos/pos/MainActivity.kt");
 const mdmAgent = source("../../../pos-android/app/src/main/java/com/cpipos/pos/PosMdmAgent.kt");
@@ -14,16 +15,22 @@ const globals = source("../../src/app/globals.css");
 const modernWorkflow = source("../../../../.github/workflows/build-android-modern-runtime.yml");
 
 describe("Android adaptive display + Download Center regression contract", () => {
-  it("keeps exactly two primary Android POS download lanes: Modern left and Legacy right", () => {
+  it("keeps exactly two primary Android POS download lanes: latest Modern left and immutable previous Modern right", () => {
     expect(downloadCenter).toContain('title: "CpIPOS POS - Modern Adaptive"');
-    expect(downloadCenter).toContain('title: "CpIPOS POS - Legacy Single Screen"');
+    expect(downloadCenter).toContain('title: "CpIPOS POS - Previous Modern"');
     expect(downloadCenter).toContain("{androidPosApps.map((app) => <DownloadCard key={app.title} app={app} />)}");
     expect(downloadCenter.indexOf('title: "CpIPOS POS - Modern Adaptive"')).toBeLessThan(
-      downloadCenter.indexOf('title: "CpIPOS POS - Legacy Single Screen"')
+      downloadCenter.indexOf('title: "CpIPOS POS - Previous Modern"')
     );
+    expect(downloadCenter).toContain("ANDROID_MODERN_PREVIOUS_RELEASE.versionName");
+    expect(releaseCatalog).toContain('versionName: "1.0.22"');
+    expect(releaseCatalog).toContain('versionCode: 30');
+    expect(releaseCatalog).toContain('releaseTag: "android-runtime-modern-1.0.22"');
+    expect(previousModernRoute).toContain("ANDROID_MODERN_PREVIOUS_RELEASE.assetName");
+    expect(previousModernRoute).toContain('X-CpIPOS-Android-Lane", "previous-modern-compatibility"');
   });
 
-  it("publishes Modern as one adaptive APK instead of one APK per screen count", () => {
+  it("publishes latest Modern as one adaptive APK instead of one APK per screen count", () => {
     expect(releaseCatalog).toContain('displaySupport: "auto_1_2_screens"');
     expect(releaseCatalog).toContain('layoutPolicy: "runtime_adaptive"');
     expect(downloadCenter).toContain("APK เดียวสำหรับ 1–2 จอ");
