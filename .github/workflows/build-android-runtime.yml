@@ -11,6 +11,7 @@ on:
   push:
     branches:
       - agent-docs-preflight-schema-drift
+      - feat/ff0001-activation-gate-20260901
     paths:
       - "apps/pos-android/**"
       - ".github/workflows/build-android-runtime.yml"

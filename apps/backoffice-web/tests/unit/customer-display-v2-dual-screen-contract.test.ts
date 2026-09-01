@@ -72,13 +72,14 @@ describe("Customer Display V2 Android dual-screen compatibility contract", () =>
     expect(nativeDisplay).not.toContain("x-customer-display-token");
   });
 
-  it("promotes the current Modern Runtime as the 1–2 screen standard while retaining legacy and repair paths", () => {
-    expect(downloadCenter).toContain("CpIPOS POS - Modern Runtime");
+  it("promotes Modern Adaptive as the 1–2 screen standard while retaining the immutable 1.0.22 compatibility lane and repair artifact", () => {
+    expect(downloadCenter).toContain("CpIPOS POS - Modern Adaptive");
     expect(downloadCenter).toContain("ANDROID_MODERN_RELEASE.versionName");
-    expect(downloadCenter).toContain("1–2 จอ");
-    expect(downloadCenter).toContain("CpIPOS POS - Legacy Stable");
-    expect(downloadCenter).toContain("1.0.12");
-    expect(downloadCenter).toContain("Android POS 1.0.13 ถูกนำออกจากหน้า Download หลัก");
+    expect(downloadCenter).toContain("AUTO 1–2 จอ");
+    expect(downloadCenter).toContain("APK เดียวสำหรับ 1–2 จอ");
+    expect(downloadCenter).toContain("CpIPOS POS - Previous Modern");
+    expect(downloadCenter).toContain("ANDROID_MODERN_PREVIOUS_RELEASE.versionName");
+    expect(downloadCenter).toContain("1.0.22 เดิมไม่ถูกแก้หรือ build ทับ");
     expect(downloadRoute).toContain("android-runtime-dual-screen-1-0-13");
     expect(downloadRoute).toContain("CpIPOS-Android-POS-1.0.13-Dual-Screen.apk");
   });

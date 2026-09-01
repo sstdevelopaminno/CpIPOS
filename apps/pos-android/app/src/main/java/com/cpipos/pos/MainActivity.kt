@@ -31,6 +31,7 @@ class MainActivity : ComponentActivity() {
     private lateinit var webView: WebView
     private var mdmAgent: PosMdmAgent? = null
     private var printAgent: PosPrintAgent? = null
+    private var commercialActivationGate: CommercialActivationGateController? = null
     private var filePathCallback: ValueCallback<Array<Uri>>? = null
     private var displayManager: DisplayManager? = null
     private var dualScreenPresentation: DualScreenPresentation? = null
@@ -57,6 +58,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private val permissionsLauncher = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
+        CommercialActivationGateController.postBlockingNotification(this)
         mdmAgent?.executeSafeCommand("collect_diagnostics", "runtime_permissions")
     }
 
@@ -96,6 +98,11 @@ class MainActivity : ComponentActivity() {
                     callback: ValueCallback<Array<Uri>>?,
                     fileChooserParams: FileChooserParams?
                 ): Boolean {
+                    if (commercialActivationGate?.isBlocking() == true) {
+                        commercialActivationGate?.showIfRequired()
+                        callback?.onReceiveValue(null)
+                        return true
+                    }
                     if (callback == null) return false
 
                     filePathCallback?.onReceiveValue(null)
@@ -131,8 +138,20 @@ class MainActivity : ComponentActivity() {
             }
         }
 
-        val agent = PosMdmAgent(this, webView)
+        val agent = PosMdmAgent(this, webView) { activationGate ->
+            commercialActivationGate?.updateFromHeartbeat(activationGate)
+        }
         mdmAgent = agent
+        commercialActivationGate = CommercialActivationGateController(
+            activity = this,
+            installIdProvider = { agent.installId },
+            onConfirmed = {
+                mdmAgent?.executeSafeCommand("collect_diagnostics", "commercial_activation_confirmed")
+                if (::webView.isInitialized) {
+                    if (webView.url.isNullOrBlank()) webView.loadUrl(BuildConfig.CPIPOS_POS_WEB_URL) else webView.reload()
+                }
+            }
+        )
         webView.addJavascriptInterface(agent, "CpiposMdm")
 
         val nativePrintAgent = PosPrintAgent(this, agent.installId)
@@ -144,6 +163,10 @@ class MainActivity : ComponentActivity() {
                 view: WebView,
                 request: WebResourceRequest
             ): Boolean {
+                if (commercialActivationGate?.isBlocking() == true) {
+                    commercialActivationGate?.showIfRequired()
+                    return true
+                }
                 val uri = request.url
                 return if (isAllowedWebUri(uri)) {
                     false
@@ -179,6 +202,7 @@ class MainActivity : ComponentActivity() {
 
         setContentView(webView)
         registerBackNavigation()
+        commercialActivationGate?.showIfRequired()
         agent.start()
         nativePrintAgent.start()
         requestRuntimeCapabilities()
@@ -200,6 +224,7 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         if (::webView.isInitialized) webView.onResume()
+        commercialActivationGate?.showIfRequired()
         syncDualScreenPresentation()
     }
 
@@ -222,6 +247,8 @@ class MainActivity : ComponentActivity() {
         printAgent = null
         mdmAgent?.stop()
         mdmAgent = null
+        commercialActivationGate?.destroy()
+        commercialActivationGate = null
         if (::webView.isInitialized) {
             webView.stopLoading()
             webView.destroy()
@@ -315,6 +342,7 @@ class MainActivity : ComponentActivity() {
             }
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                 add(Manifest.permission.NEARBY_WIFI_DEVICES)
+                add(Manifest.permission.POST_NOTIFICATIONS)
             }
         }.filter { permission ->
             ContextCompat.checkSelfPermission(this, permission) != PackageManager.PERMISSION_GRANTED
@@ -349,6 +377,10 @@ class MainActivity : ComponentActivity() {
             this,
             object : OnBackPressedCallback(true) {
                 override fun handleOnBackPressed() {
+                    if (commercialActivationGate?.isBlocking() == true) {
+                        commercialActivationGate?.showIfRequired()
+                        return
+                    }
                     if (::webView.isInitialized && webView.canGoBack()) {
                         webView.goBack()
                     } else {
@@ -366,6 +398,10 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun openExternalUri(uri: Uri) {
+        if (commercialActivationGate?.isBlocking() == true) {
+            commercialActivationGate?.showIfRequired()
+            return
+        }
         runCatching {
             startActivity(Intent(Intent.ACTION_VIEW, uri))
         }

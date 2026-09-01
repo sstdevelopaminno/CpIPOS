@@ -43,9 +43,11 @@ describe("Android POS stable/Modern update safety regression contract", () => {
     expect(mandatoryUpdate).not.toContain("NATIVE_ANDROID_POS_PATTERN");
   });
 
-  it("offers Modern 1.0.22 code30 only by explicit capability opt-in", () => {
-    expect(androidRuntimeRelease).toContain('versionName: "1.0.22"');
-    expect(androidRuntimeRelease).toContain('versionCode: 30');
+  it("offers Modern 1.0.23 code31 only by explicit capability opt-in", () => {
+    expect(androidRuntimeRelease).toContain('versionName: "1.0.23"');
+    expect(androidRuntimeRelease).toContain('versionCode: 31');
+    expect(androidRuntimeRelease).toContain('displaySupport: "auto_1_2_screens"');
+    expect(androidRuntimeRelease).toContain('layoutPolicy: "runtime_adaptive"');
     expect(androidRuntimeRelease).not.toContain('new Set(["FG0003", "FG00003"])');
     expect(androidRuntimeRelease).toContain('if (updates.managed_notice !== true) return null;');
     expect(androidRuntimeRelease).toContain('if (updates.silent_install !== false) return null;');
@@ -53,14 +55,21 @@ describe("Android POS stable/Modern update safety regression contract", () => {
     expect(androidRuntimeRelease).toContain('mandatory: false');
   });
 
-  it("keeps staged updates fail-closed unless a verified updater is maintenance locked", () => {
+  it("restricts the Modern update offer to devices explicitly placed in the PILOT update ring", () => {
+    expect(mdmHeartbeat).toContain("const scopeMetadata = asRecord(scope.metadata);");
+    expect(mdmHeartbeat).toContain('const updateRing = String(scopeMetadata.update_ring ?? "").trim().toUpperCase();');
+    expect(mdmHeartbeat).toContain('updaterTelemetry && tenantCode && updateRing === "PILOT"');
+    expect(mdmHeartbeat).toContain("updatePolicy: asRecord(scopeMetadata.android_update_policy)");
+  });
+
+  it("keeps staged updates verified and allows an explicit interactive pilot without weakening the default", () => {
     expect(androidRuntimeRelease).toContain('const requestedInstallPolicy = String(updatePolicy.install_policy ?? updates.install_policy ?? "").trim().toLowerCase();');
     expect(androidRuntimeRelease).toContain('const requiresStagedUpdater = requestedInstallPolicy === "staged" || updatePolicy.require_verified_staged_updater === true;');
-    expect(androidRuntimeRelease).toContain('if (requiresStagedUpdater && !(verifiedStagedUpdater && maintenanceLocked)) return null;');
+    expect(androidRuntimeRelease).toContain('const interactivePilotAllowed = updatePolicy.allow_interactive_staged_without_maintenance === true');
+    expect(androidRuntimeRelease).toContain('if (requiresStagedUpdater && !(verifiedStagedUpdater && (maintenanceLocked || interactivePilotAllowed))) return null;');
     expect(androidRuntimeRelease).toContain('install_policy: requiresStagedUpdater ? "staged" : "notice_only"');
     expect(mdmHeartbeat).toContain('deviceStatus: scope.status');
     expect(mdmHeartbeat).toContain('deviceLocked: scope.is_locked');
-    expect(mdmHeartbeat).toContain('updatePolicy: asRecord(scope.metadata).android_update_policy');
   });
 
   it("pins the customer stable download route to the 1.0.12 versioned APK with no old-version fallback", () => {

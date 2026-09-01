@@ -29,7 +29,8 @@ import java.util.concurrent.atomic.AtomicBoolean
  */
 class PosMdmAgent(
     context: Context,
-    private val webView: WebView
+    private val webView: WebView,
+    private val onCommercialActivationGate: (JSONObject?) -> Unit = {}
 ) {
     private val appContext = context.applicationContext
     private val prefs = appContext.getSharedPreferences("cpipos_android_pos_mdm", Context.MODE_PRIVATE)
@@ -217,6 +218,13 @@ class PosMdmAgent(
             }
             updateManager.handleOffer(updateOffer)
 
+            if (data != null && data.has("activation_gate") && !data.isNull("activation_gate")) {
+                val activationGate = data.optJSONObject("activation_gate")
+                if (activationGate != null) {
+                    mainHandler.post { onCommercialActivationGate(activationGate) }
+                }
+            }
+
             val commands = when {
                 response.has("commands") -> response.optJSONArray("commands")
                 data != null -> data.optJSONArray("commands")
@@ -288,6 +296,18 @@ class PosMdmAgent(
             .put("device_owner_silent_install", updaterEnabled && diagnostics.isDeviceOwnerKnown() == true)
     }
 
+    private fun buildCommercialActivationCapabilities(): JSONObject {
+        val deviceOwner = diagnostics.isDeviceOwnerKnown() == true
+        return JSONObject()
+            .put("schema_version", 1)
+            .put("native_gate", true)
+            .put("persistent_local_policy", true)
+            .put("persistent_notification", true)
+            .put("boot_notification", true)
+            .put("device_owner_kiosk", deviceOwner)
+            .put("non_device_owner_whole_device_lock", false)
+    }
+
     private fun buildSnapshot(reason: String): JSONObject {
         val printer = lastPrinterDiagnostic
         val webViewPackage = WebView.getCurrentWebViewPackage()
@@ -298,6 +318,7 @@ class PosMdmAgent(
             .put("safe_command_allowlist", JSONArray(SAFE_ACTIONS.toList()))
             .put("update_capabilities", buildUpdateCapabilities())
             .put("update_state", updateManager.snapshot())
+            .put("commercial_activation_capabilities", buildCommercialActivationCapabilities())
             .put(
                 "app",
                 JSONObject()
