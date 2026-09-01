@@ -26,10 +26,10 @@ declare global {
 }
 
 const NATIVE_STATE_CLIENT_TIMEOUT_MS = 4_000;
-const HEALTHY_POLL_MS = 2_500;
-const DEVICE_STATE_BACKOFF_MS = 10_000;
-const AUTH_BACKOFF_MS = 30_000;
-const MAX_TRANSIENT_BACKOFF_MS = 30_000;
+const HEALTHY_POLL_MS = 30_000;
+const DEVICE_STATE_BACKOFF_MS = 60_000;
+const AUTH_BACKOFF_MS = 60_000;
+const MAX_TRANSIENT_BACKOFF_MS = 60_000;
 
 function shouldDisableNativeCustomerDisplay() {
   try {
@@ -136,7 +136,7 @@ export function PosCustomerDisplayV2Native({ lang }: { lang: Language }) {
           return;
         }
         if (!response.ok) {
-          transientBackoffMs = Math.min(MAX_TRANSIENT_BACKOFF_MS, Math.max(2_000, transientBackoffMs * 2));
+          transientBackoffMs = Math.min(MAX_TRANSIENT_BACKOFF_MS, Math.max(HEALTHY_POLL_MS, transientBackoffMs * 2));
           nextDelayMs = transientBackoffMs;
           return;
         }
@@ -150,7 +150,7 @@ export function PosCustomerDisplayV2Native({ lang }: { lang: Language }) {
         }
         if (!disposed) setPayload(next);
       } catch {
-        transientBackoffMs = Math.min(MAX_TRANSIENT_BACKOFF_MS, Math.max(2_000, transientBackoffMs * 2));
+        transientBackoffMs = Math.min(MAX_TRANSIENT_BACKOFF_MS, Math.max(HEALTHY_POLL_MS, transientBackoffMs * 2));
         nextDelayMs = transientBackoffMs;
       } finally {
         window.clearTimeout(timeoutId);
