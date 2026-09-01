@@ -11,6 +11,9 @@ const nativeCustomerDisplay = source("../../src/components/pos/pos-customer-disp
 const instrumentationClient = source("../../src/instrumentation-client.ts");
 const androidMandatoryUpdate = source("../../src/components/android-pos/android-pos-mandatory-update.tsx");
 const productMediaRoute = source("../../src/app/api/pos/product-media/route.ts");
+const perfRoute = source("../../src/app/api/pos/perf/route.ts");
+const systemVersionRoute = source("../../src/app/api/system/version/route.ts");
+const systemBuildInfoRoute = source("../../src/app/api/system/build-info/route.ts");
 const featureGate = source("../../src/lib/feature-gate.ts");
 const posResilience = source("../../src/lib/pos-resilience.ts");
 const boundedTimeout = source("../../src/lib/server/bounded-timeout.ts");
@@ -59,6 +62,8 @@ describe("polling request-churn regression guard", () => {
     expect(instrumentationClient).toContain('url.pathname !== "/api/pos/perf"');
     expect(instrumentationClient).toContain("if (errorCode || (Number.isFinite(statusCode) && statusCode >= 400)) return null");
     expect(instrumentationClient).toContain("client_sampled: true");
+    expect(perfRoute).toContain("export const maxDuration = 10");
+    expect(perfRoute).toContain("const PERF_SAMPLE_TTL_MS = 60_000");
   });
 
   it("moves native customer-display polling to 30s and backs failures off to 60s", () => {
@@ -83,6 +88,14 @@ describe("polling request-churn regression guard", () => {
     expect(posResilience).toContain('clientMonitorPollMs: readIntEnv("NEXT_PUBLIC_POS_MONITOR_POLL_MS", 30000, 30000, 120000)');
     expect(boundedTimeout).toContain("const SERVERLESS_TIMEOUT_CEILING_MS = 15_000");
     expect(boundedTimeout).toContain("Math.min(Math.trunc(timeoutMs), SERVERLESS_TIMEOUT_CEILING_MS)");
+  });
+
+  it("edge-caches only shared system metadata in this emergency patch", () => {
+    const expected = 'public, max-age=30, s-maxage=60, stale-while-revalidate=300';
+    expect(systemVersionRoute).toContain(expected);
+    expect(systemBuildInfoRoute).toContain(expected);
+    expect(systemVersionRoute).toContain("export const maxDuration = 5");
+    expect(systemBuildInfoRoute).toContain("export const maxDuration = 5");
   });
 
   it("keeps product-media POS reads off the tenant-wide quota path unless explicitly requested", () => {
