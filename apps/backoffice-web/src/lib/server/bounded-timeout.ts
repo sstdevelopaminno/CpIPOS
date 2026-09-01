@@ -1,5 +1,7 @@
 ﻿import "server-only";
 
+const SERVERLESS_TIMEOUT_CEILING_MS = 15_000;
+
 export class BoundedTimeoutError extends Error {
   code: string;
   timeoutMs: number;
@@ -13,9 +15,11 @@ export class BoundedTimeoutError extends Error {
 }
 
 export function readBoundedTimeoutMs(name: string, fallback: number, min: number, max: number) {
+  const effectiveMax = Math.min(max, SERVERLESS_TIMEOUT_CEILING_MS);
+  const effectiveFallback = Math.min(effectiveMax, Math.max(min, fallback));
   const parsed = Number(process.env[name]);
-  if (!Number.isFinite(parsed)) return fallback;
-  return Math.min(max, Math.max(min, Math.trunc(parsed)));
+  if (!Number.isFinite(parsed)) return effectiveFallback;
+  return Math.min(effectiveMax, Math.max(min, Math.trunc(parsed)));
 }
 
 export async function withAbortableTimeout<T>(
@@ -23,6 +27,7 @@ export async function withAbortableTimeout<T>(
   timeoutMs: number,
   code: string
 ): Promise<T> {
+  const effectiveTimeoutMs = Math.max(1, Math.min(Math.trunc(timeoutMs), SERVERLESS_TIMEOUT_CEILING_MS));
   const controller = new AbortController();
   let timeoutId: ReturnType<typeof setTimeout> | null = null;
   let timedOut = false;
@@ -31,7 +36,7 @@ export async function withAbortableTimeout<T>(
     .then(() => operation(controller.signal))
     .then((value) => ({ type: "value" as const, value }))
     .catch((error) => {
-      if (timedOut || controller.signal.aborted) throw new BoundedTimeoutError(code, timeoutMs);
+      if (timedOut || controller.signal.aborted) throw new BoundedTimeoutError(code, effectiveTimeoutMs);
       throw error;
     });
 
@@ -40,12 +45,12 @@ export async function withAbortableTimeout<T>(
       timedOut = true;
       controller.abort();
       resolve({ type: "timeout" });
-    }, timeoutMs);
+    }, effectiveTimeoutMs);
   });
 
   try {
     const result = await Promise.race([operationPromise, timeoutPromise]);
-    if (result.type === "timeout") throw new BoundedTimeoutError(code, timeoutMs);
+    if (result.type === "timeout") throw new BoundedTimeoutError(code, effectiveTimeoutMs);
     return result.value;
   } finally {
     if (timeoutId) clearTimeout(timeoutId);
