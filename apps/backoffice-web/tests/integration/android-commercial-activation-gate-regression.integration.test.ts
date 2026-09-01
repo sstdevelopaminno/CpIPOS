@@ -7,6 +7,7 @@ function source(relativePath: string) {
 
 const activationService = source("../../src/lib/android-pos/commercial-activation.ts");
 const confirmRoute = source("../../src/app/api/android-pos/commercial-activation/confirm/route.ts");
+const statusRoute = source("../../src/app/api/android-pos/commercial-activation/status/route.ts");
 const heartbeatRoute = source("../../src/app/api/android-pos/mdm/heartbeat/route.ts");
 const mainActivity = source("../../../pos-android/app/src/main/java/com/cpipos/pos/MainActivity.kt");
 const mdmAgent = source("../../../pos-android/app/src/main/java/com/cpipos/pos/PosMdmAgent.kt");
@@ -44,6 +45,17 @@ describe("Android commercial activation gate regression contract", () => {
     expect(heartbeatRoute).toContain('activation_gate: activationGate');
   });
 
+  it("refreshes the policy once at normal boot so a customer need not open POS first", () => {
+    expect(statusRoute).toContain('resolveCommercialActivationGateForInstall');
+    expect(statusRoute).toContain('request.headers.get("x-cpipos-android-pos") !== "true"');
+    expect(statusRoute).toContain('x-cpipos-install-id');
+    expect(statusRoute).toContain('export const maxDuration = 10');
+    expect(gate).toContain('/api/android-pos/commercial-activation/status');
+    expect(gate).toContain('refreshFromServerAfterBoot(context)');
+    expect(gate).toContain('goAsync()');
+    expect(gate).toContain('createDeviceProtectedStorageContext()');
+  });
+
   it("keeps the POS app blocked locally across restart/offline periods until server confirmation succeeds", () => {
     expect(gate).toContain('.putBoolean(KEY_REQUIRED, true)');
     expect(gate).toContain('.setCancelable(false)');
@@ -54,6 +66,7 @@ describe("Android commercial activation gate regression contract", () => {
     expect(manifest).toContain('android.permission.RECEIVE_BOOT_COMPLETED');
     expect(manifest).toContain('android.permission.POST_NOTIFICATIONS');
     expect(manifest).toContain('.CommercialActivationBootReceiver');
+    expect(manifest).toContain('android:exported="false"');
   });
 
   it("uses whole-device LockTask only on Device Owner installations and never factory-resets the terminal", () => {
