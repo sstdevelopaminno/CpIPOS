@@ -33,11 +33,20 @@ describe("polling request-churn regression guard", () => {
     expect(tableOrderMobile).toContain("?view=status");
     expect(instrumentationClient).toContain("const HOT_READ_MIN_INTERVAL_MS = 30_000");
     expect(instrumentationClient).toContain('/^\\/api\\/table-order\\/[^/]+$/');
-    expect(instrumentationClient).toContain('if (isStatusRead) return `${url.pathname}?view=status`');
+    expect(instrumentationClient).toContain('if (isStatusRead) return `${prefix}${url.pathname}?view=status`');
   });
 
-  it("coalesces selected-table QR order reads without caching transaction writes", () => {
+  it("coalesces legacy table reads while invalidating them on API mutations", () => {
+    expect(instrumentationClient).toContain('if (url.pathname === "/api/pos/tables")');
+    expect(instrumentationClient).toContain('/^\\/api\\/pos\\/tables\\/[^/]+\\/bill$/');
     expect(instrumentationClient).toContain('/^\\/api\\/pos\\/tables\\/[^/]+\\/qr-orders$/');
+    expect(instrumentationClient).toContain("invalidateBudgetedReadsForMutation(input, init)");
+    expect(instrumentationClient).toContain("readScopeEpoch += 1");
+    expect(instrumentationClient).toContain("hotReadCache.clear()");
+    expect(instrumentationClient).toContain('if (url.pathname === "/api/pos/perf") return');
+  });
+
+  it("never places transaction/payment/order writes into the browser read cache", () => {
     expect(instrumentationClient).toContain('if (requestMethod(input, init) !== "GET") return null');
     expect(instrumentationClient).toContain("hotReadInFlight");
     expect(instrumentationClient).toContain("cached.response.clone()");
