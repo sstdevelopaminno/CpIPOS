@@ -8,9 +8,11 @@ const PROMPTPAY_PATH_PATTERN = /^\/(\d{9,15})\/(\d+(?:\.\d{1,2})?)\/?$/;
 // same-origin API mutation occurs. Transaction/payment/order writes are never cached.
 const HOT_READ_MIN_INTERVAL_MS = 30_000;
 const HOT_READ_CACHE_MAX_ENTRIES = 64;
+const PERF_TELEMETRY_MIN_INTERVAL_MS = 60_000;
 const hotReadCache = new Map<string, { expiresAt: number; response: Response }>();
 const hotReadInFlight = new Map<string, Promise<Response>>();
 let readScopeEpoch = 0;
+let lastNormalPerfTelemetryAt = 0;
 
 function requestMethod(input: RequestInfo | URL, init?: RequestInit) {
   return String(input instanceof Request ? input.method : init?.method ?? "GET").toUpperCase();
@@ -33,6 +35,32 @@ function resolvePromptPayPath(input: RequestInfo | URL, init?: RequestInit): str
     if (url.protocol !== "https:" || url.hostname.toLowerCase() !== PROMPTPAY_HOST) return null;
     if (!PROMPTPAY_PATH_PATTERN.test(url.pathname)) return null;
     return url.pathname;
+  } catch {
+    return null;
+  }
+}
+
+function samplePerfTelemetryInBrowser(input: RequestInfo | URL, init?: RequestInit): Response | null {
+  if (requestMethod(input, init) !== "POST" || typeof init?.body !== "string") return null;
+  try {
+    const url = resolveUrl(input);
+    if (url.origin !== window.location.origin || url.pathname !== "/api/pos/perf") return null;
+    const payload = JSON.parse(init.body) as { status_code?: unknown; error_code?: unknown };
+    const statusCode = Number(payload.status_code ?? 0);
+    const errorCode = typeof payload.error_code === "string" ? payload.error_code.trim() : "";
+    // Error telemetry is operationally useful and always bypasses normal sampling.
+    if (errorCode || (Number.isFinite(statusCode) && statusCode >= 400)) return null;
+
+    const now = Date.now();
+    if (now - lastNormalPerfTelemetryAt >= PERF_TELEMETRY_MIN_INTERVAL_MS) {
+      lastNormalPerfTelemetryAt = now;
+      return null;
+    }
+
+    return new Response(JSON.stringify({ data: { ok: true, logged: false, sampled: true, client_sampled: true } }), {
+      status: 202,
+      headers: { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" }
+    });
   } catch {
     return null;
   }
@@ -128,6 +156,9 @@ async function fetchBudgetedRead(input: RequestInfo | URL, init: RequestInit | u
 
 globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
   invalidateBudgetedReadsForMutation(input, init);
+
+  const sampledPerfResponse = samplePerfTelemetryInBrowser(input, init);
+  if (sampledPerfResponse) return sampledPerfResponse;
 
   const promptPayPath = resolvePromptPayPath(input, init);
   if (promptPayPath) {
