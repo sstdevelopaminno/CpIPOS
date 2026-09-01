@@ -3,10 +3,9 @@ const PROMPTPAY_HOST = "promptpay.io";
 const PROMPTPAY_PATH_PATTERN = /^\/(\d{9,15})\/(\d+(?:\.\d{1,2})?)\/?$/;
 
 // Vercel Hobby emergency request budget guard.
-// These routes are read-only operational snapshots that historically had multiple
-// independent 2.5-15s pollers. Keep a short browser-only snapshot so repeated reads
-// inside 30s do not reach Vercel at all. This cache is scoped to the current browser
-// document and is never used for mutations, payments, sessions, or order writes.
+// These two legacy read loops are keyed by a token/table id in the URL, so browser-only
+// coalescing cannot mix tenant/branch responses. Other session-scoped POS reads must fix
+// their polling interval at the caller instead of using a shared cache key.
 const HOT_READ_MIN_INTERVAL_MS = 30_000;
 const HOT_READ_CACHE_MAX_ENTRIES = 64;
 const hotReadCache = new Map<string, { expiresAt: number; response: Response }>();
@@ -14,6 +13,10 @@ const hotReadInFlight = new Map<string, Promise<Response>>();
 
 function requestMethod(input: RequestInfo | URL, init?: RequestInit) {
   return String(input instanceof Request ? input.method : init?.method ?? "GET").toUpperCase();
+}
+
+function requestSignal(input: RequestInfo | URL, init?: RequestInit) {
+  return init?.signal ?? (input instanceof Request ? input.signal : undefined);
 }
 
 function resolveUrl(input: RequestInfo | URL) {
@@ -41,15 +44,6 @@ function resolveBudgetedReadKey(input: RequestInfo | URL, init?: RequestInit): s
     const url = resolveUrl(input);
     if (url.origin !== window.location.origin) return null;
 
-    if (url.pathname === "/api/pos/customer-display/v2/native-state") {
-      return url.pathname;
-    }
-    if (url.pathname === "/api/pos/table-qr-activity") {
-      return url.pathname;
-    }
-    if (url.pathname === "/api/pos/tables") {
-      return `${url.pathname}${url.search}`;
-    }
     if (/^\/api\/pos\/tables\/[^/]+\/qr-orders$/.test(url.pathname)) {
       // The cursor changes after each successful read; key by table so cursor churn cannot
       // bypass the 30s request floor. The consumer already de-duplicates event ids.
@@ -78,6 +72,9 @@ function trimHotReadCache(now: number) {
 }
 
 async function fetchBudgetedRead(input: RequestInfo | URL, init: RequestInit | undefined, key: string) {
+  const signal = requestSignal(input, init);
+  if (signal?.aborted) throw new DOMException("The operation was aborted.", "AbortError");
+
   const now = Date.now();
   const cached = hotReadCache.get(key);
   if (cached && cached.expiresAt > now) return cached.response.clone();
@@ -108,7 +105,7 @@ async function fetchBudgetedRead(input: RequestInfo | URL, init: RequestInit | u
 globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
   const promptPayPath = resolvePromptPayPath(input, init);
   if (promptPayPath) {
-    const signal = init?.signal ?? (input instanceof Request ? input.signal : undefined);
+    const signal = requestSignal(input, init);
     return nativeFetch("/api/pos/promptpay-qr-proxy", {
       method: "POST",
       headers: {
