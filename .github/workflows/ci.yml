@@ -12,6 +12,7 @@ on:
       - develop
       - agent-docs-preflight-schema-drift
       - hotfix/**
+      - feat/ff0001-activation-gate-20260901
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
