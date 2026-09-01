@@ -4,6 +4,8 @@ import { agentAuthFail, requirePrintAgent } from "@/lib/printing/print-agent-ser
 import { claimPrintJobsStabilized, PRINT_AGENT_CLAIM_TIMEOUT_MS } from "@/lib/printing/print-agent-claim-stabilized";
 import { BoundedTimeoutError, withAbortableTimeout } from "@/lib/server/bounded-timeout";
 
+export const maxDuration = 15;
+
 type ClaimPayload = {
   limit?: number | null;
   lease_seconds?: number | null;
