@@ -1,5 +1,7 @@
 ﻿export const ANDROID_UPDATE_SIGNING_CERT_SHA256 = "6be0a9aef346a5b47162c8928c5018a01d0e7d81b4eb177bf2fb89922dc2a27a";
 
+// Legacy repair lane. Keep available for already-deployed old terminals, but do not
+// present it as one of the two primary customer downloads on /download.
 export const ANDROID_STABLE_RELEASE = {
   versionName: "1.0.12",
   versionCode: 18,
@@ -8,6 +10,20 @@ export const ANDROID_STABLE_RELEASE = {
   assetName: "CpIPOS-Android-POS-1.0.12.apk",
   downloadPath: "/download/android/latest",
   displaySupport: "single_screen_legacy"
+} as const;
+
+// Immutable previous Modern release. The published code30 APK must never be rebuilt
+// with different source; this lane gives existing/single-screen installs a known-good
+// compatibility download while the new runtime becomes the recommended lane.
+export const ANDROID_MODERN_PREVIOUS_RELEASE = {
+  versionName: "1.0.22",
+  versionCode: 30,
+  channel: "modern",
+  releaseTag: "android-runtime-modern-1.0.22",
+  assetName: "CpIPOS-Android-POS-1.0.22.apk",
+  downloadPath: "/download/android/modern-1-0-22",
+  displaySupport: "single_screen_compatible",
+  layoutPolicy: "runtime_compatible"
 } as const;
 
 export const ANDROID_MODERN_RELEASE = {
