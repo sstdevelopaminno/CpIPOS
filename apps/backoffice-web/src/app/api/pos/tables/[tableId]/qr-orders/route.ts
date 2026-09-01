@@ -6,6 +6,8 @@ import { readThroughRuntimeCache } from "@/lib/route-runtime-cache";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
 import { reviewPendingTableQrOrder } from "@/lib/table-qr-ordering";
 
+export const maxDuration = 10;
+
 type QrReviewOrderRow = {
   id: string;
   event_type: string | null;
@@ -62,6 +64,7 @@ export async function GET(request: Request, context: { params: Promise<{ tableId
   const startedAt = Date.now();
   const withTiming = (response: Response) => {
     response.headers.set("x-pos-table-qr-orders-ms", String(Date.now() - startedAt));
+    response.headers.set("Cache-Control", "private, no-store");
     return response;
   };
   try {
@@ -134,6 +137,7 @@ export async function POST(request: Request, context: { params: Promise<{ tableI
   const startedAt = Date.now();
   const withTiming = (response: Response) => {
     response.headers.set("x-pos-table-qr-review-ms", String(Date.now() - startedAt));
+    response.headers.set("Cache-Control", "private, no-store");
     return response;
   };
   try {
