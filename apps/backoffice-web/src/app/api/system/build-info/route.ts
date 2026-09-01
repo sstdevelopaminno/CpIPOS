@@ -1,5 +1,7 @@
 import { ok } from "@/lib/http";
 
+export const maxDuration = 5;
+
 const FALLBACK_BUILD_VERSION = "local-dev";
 
 export function GET() {
@@ -17,11 +19,13 @@ export function GET() {
 
   const deploymentId = process.env.VERCEL_DEPLOYMENT_ID || process.env.NEXT_PUBLIC_VERCEL_DEPLOYMENT_ID || null;
 
-  return ok({
+  const response = ok({
     build_version: commitSha || deploymentId || FALLBACK_BUILD_VERSION,
     commit_sha: commitSha,
     branch,
     deployment_id: deploymentId,
     runtime: process.env.VERCEL ? "vercel" : process.env.CF_PAGES ? "cloudflare_pages" : "local"
   });
+  response.headers.set("Cache-Control", "public, max-age=30, s-maxage=60, stale-while-revalidate=300");
+  return response;
 }
