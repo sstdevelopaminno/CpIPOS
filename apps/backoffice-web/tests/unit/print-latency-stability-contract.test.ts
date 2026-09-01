@@ -12,9 +12,12 @@ const gradle = readFileSync(resolve(root, "apps/pos-android/app/build.gradle.kts
 const migration = readFileSync(resolve(root, "supabase/migrations/202608170002_prioritize_cash_drawer_print_claim.sql"), "utf8");
 
 describe("print latency stability contract", () => {
-  it("keeps idle polling adaptive while allowing a fresh job through server suppression quickly", () => {
+  it("keeps idle print polling inside the Vercel request budget while preserving event-driven wake", () => {
     expect(claim).toContain("const EMPTY_CLAIM_BACKOFF_MS = 250;");
-    expect(agent).toContain("longArrayOf(1L, 3L, 8L)");
+    expect(agent).toContain("longArrayOf(30L, 45L, 60L)");
+    expect(agent).toContain("fun notifyPrintQueued()");
+    expect(agent).toContain("scheduleWakeClaim(0L)");
+    expect(agent).toContain("WAKE_RETRY_DELAY_MS = 350L");
   });
 
   it("wakes the single-thread Android print worker after queue-producing POS calls", () => {
@@ -31,7 +34,6 @@ describe("print latency stability contract", () => {
     expect(notice).toContain(".qr-wrap");
     expect(notice).toContain("display: block");
   });
-
 
   it("keeps POS table refresh and bridge print bounded so the sales UI stays responsive", () => {
     expect(sales).toContain("RECEIPT_BRIDGE_REQUEST_TIMEOUT_MS = 4500");
