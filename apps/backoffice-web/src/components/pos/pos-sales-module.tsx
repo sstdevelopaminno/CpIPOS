@@ -127,6 +127,24 @@ type TableQrNotificationSettings = {
   table_qr_sound_volume: number;
 };
 
+type TableQrReviewItem = {
+  index: number;
+  productId: string;
+  name: string;
+  quantity: number;
+  note?: string | null;
+};
+
+type TableQrReviewState = {
+  submissionId: string;
+  tableId: string;
+  tableCode: string;
+  items: TableQrReviewItem[];
+  acceptedIndexes: number[];
+  busy: boolean;
+  error: string | null;
+};
+
 const DEFAULT_TAX_SETTINGS: TaxSettings = {
   is_enabled: false,
   calculation_base: "net_after_discount",
@@ -2164,8 +2182,8 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
   const [taxSettings, setTaxSettings] = useState<TaxSettings>(DEFAULT_TAX_SETTINGS);
   const [tableQrNotificationSettings, setTableQrNotificationSettings] = useState<TableQrNotificationSettings>(DEFAULT_TABLE_QR_NOTIFICATION_SETTINGS);
   const [tableQrAlert, setTableQrAlert] = useState<{ id: string; type: "order" | "call_staff" | "request_checkout"; tableCode: string; note?: string | null; itemCount?: number | null } | null>(null);
-  const [tableQrReview, setTableQrReview] = useState<{ submissionId: string; tableId: string; tableCode: string; items: Array<{ index: number; productId: string; name: string; quantity: number; note?: string | null }>; acceptedIndexes: number[]; busy: boolean; error: string | null } | null>(null);
-  const [tableQrReviewQueue, setTableQrReviewQueue] = useState<Array<{ submissionId: string; tableId: string; tableCode: string; items: Array<{ index: number; productId: string; name: string; quantity: number; note?: string | null }>; acceptedIndexes: number[]; busy: boolean; error: string | null }>>([]);
+  const [tableQrReview, setTableQrReview] = useState<TableQrReviewState | null>(null);
+  const [tableQrReviewQueue, setTableQrReviewQueue] = useState<TableQrReviewState[]>([]);
   const [dineInKitchenSendingNotice, setDineInKitchenSendingNotice] = useState<{ tableCode: string; itemCount: number } | null>(null);
   const [seenTableQrActivity, setSeenTableQrActivity] = useState<Record<string, string>>(() => readStoredJson<Record<string, string>>(TABLE_QR_ACTIVITY_SEEN_KEY) ?? {});
   const [devicePolicy, setDevicePolicy] = useState<PosSalesDevicePolicy | null>(null);
@@ -2297,6 +2315,7 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
   const tableQrOrderPollCursorRef = useRef<string>("");
   const tableQrOrderPollInFlightRef = useRef(false);
   const tableQrReviewTerminalRef = useRef<Set<string>>(new Set());
+  const tableQrReviewSubmitInFlightRef = useRef<Set<string>>(new Set());
   const tableQrOrderAbortRef = useRef<AbortController | null>(null);
   const tableQrLatestEventByTableRef = useRef<Map<string, string>>(new Map());
   const tableQrAudioContextRef = useRef<AudioContext | null>(null);
@@ -2310,6 +2329,11 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
   const dineInDraftByTableIdRef = useRef<Record<string, CartItem[]>>({});
   const committedDineInCartByTableIdRef = useRef<Record<string, CartItem[]>>({});
   const previousOrderTypeRef = useRef<OrderType>("takeaway");
+
+  const isSuppressedTableQrReviewId = useCallback((submissionId: string | null | undefined) => {
+    const id = String(submissionId ?? "").trim();
+    return Boolean(id && (tableQrReviewTerminalRef.current.has(id) || tableQrReviewSubmitInFlightRef.current.has(id)));
+  }, []);
 
   useEffect(() => {
     const autoSendTimers = dineInAutoSendTimersRef.current;
@@ -2741,7 +2765,16 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
         };
         if (!response.ok || disposed) return;
         const unseen = (body.data?.items ?? []).filter((entry) => {
+          const reviewStatus = String(entry.review_status ?? entry.payload?.review_status ?? "");
           if (!entry.id || tableQrOrderSeenRef.current.has(entry.id)) return false;
+          if (reviewStatus && reviewStatus !== "pending_pos_review") {
+            tableQrOrderSeenRef.current.add(entry.id);
+            return false;
+          }
+          if (isSuppressedTableQrReviewId(entry.id)) {
+            tableQrOrderSeenRef.current.add(entry.id);
+            return false;
+          }
           tableQrOrderSeenRef.current.add(entry.id);
           return true;
         });
@@ -2787,7 +2820,7 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
             busy: false,
             error: null
           };
-          if (!tableQrReviewTerminalRef.current.has(nextReview.submissionId)) {
+          if (!isSuppressedTableQrReviewId(nextReview.submissionId)) {
             setTableQrReview((current) => {
               if (!current) return nextReview;
               if (current.submissionId === nextReview.submissionId) return current;
@@ -2808,7 +2841,7 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
     };
 
     const firstPoll = window.setTimeout(() => void pollTableQrOrders(), 2500);
-    const interval = window.setInterval(() => void pollTableQrOrders(), 10000);
+    const interval = window.setInterval(() => void pollTableQrOrders(), 30000);
     return () => {
       disposed = true;
       window.clearTimeout(firstPoll);
@@ -2824,7 +2857,8 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
     tableBrowserOpen,
     text.tableQrCallStaff,
     text.tableQrOrderReceived,
-    text.tableQrRequestCheckout
+    text.tableQrRequestCheckout,
+    isSuppressedTableQrReviewId
   ]);
 
   useEffect(() => {
@@ -6480,29 +6514,41 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
 
   async function submitTableQrReview(action: "accept" | "reject") {
     const review = tableQrReview;
-    if (!review || review.busy || tableQrReviewTerminalRef.current.has(review.submissionId)) return;
+    if (!review) return;
+    if (review.busy || isSuppressedTableQrReviewId(review.submissionId)) {
+      setTableQrReview((current) => current?.submissionId === review.submissionId ? null : current);
+      return;
+    }
     if (action === "accept" && review.acceptedIndexes.length === 0) {
       setTableQrReview({ ...review, error: "กรุณาเลือกรายการอย่างน้อย 1 รายการ หรือกดปฏิเสธทั้งหมด" });
       return;
     }
+    tableQrReviewSubmitInFlightRef.current.add(review.submissionId);
     setTableQrReview({ ...review, busy: true, error: null });
     try {
-      const response = await fetch(`/api/pos/tables/${review.tableId}/qr-orders`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          submission_id: review.submissionId,
-          action,
-          request_id: `pos-qr-review-${review.submissionId}-${action}`,
-          accepted_item_indexes: action === "accept" ? review.acceptedIndexes : null
-        })
-      });
-      const body = (await response.json().catch(() => null)) as { error?: { message?: string } } | null;
+      const { response, body } = await fetchJsonWithTimeout<ApiErrorBody>(
+        `/api/pos/tables/${review.tableId}/qr-orders`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            submission_id: review.submissionId,
+            action,
+            request_id: `pos-qr-review-${review.submissionId}-${action}`,
+            accepted_item_indexes: action === "accept" ? review.acceptedIndexes : null
+          })
+        },
+        12_000,
+        0
+      );
       if (!response.ok) throw new Error(body?.error?.message || "QR review failed");
       pushSubmitMessage(action === "accept" ? `ส่งรายการ QR เข้าครัวแล้ว: ${review.tableCode}` : `ปฏิเสธรายการ QR แล้ว: ${review.tableCode}`);
       tableQrReviewTerminalRef.current.add(review.submissionId);
+      tableQrOrderSeenRef.current.add(review.submissionId);
+      setTableQrAlert((current) => (current?.id === review.submissionId ? null : current));
+      tableQrOrderAbortRef.current?.abort();
       setTableQrReviewQueue((queue) => {
-        const remaining = queue.filter((item) => item.submissionId !== review.submissionId && !tableQrReviewTerminalRef.current.has(item.submissionId));
+        const remaining = queue.filter((item) => item.submissionId !== review.submissionId && !isSuppressedTableQrReviewId(item.submissionId));
         const [next, ...rest] = remaining;
         setTableQrReview(next ?? null);
         return rest;
@@ -6511,6 +6557,7 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
       if (table?.id === review.tableId) void loadTableBillContextRef.current(table).catch(() => undefined);
       void fetchPosTablesRef.current({ timeoutMs: 8000, retries: 0, silent: true }).catch(() => undefined);
     } catch (error) {
+      tableQrReviewSubmitInFlightRef.current.delete(review.submissionId);
       setTableQrReview((current) => current && current.submissionId === review.submissionId
         ? { ...current, busy: false, error: localizeApiMessage(error instanceof Error ? error.message : "QR review failed") }
         : current);

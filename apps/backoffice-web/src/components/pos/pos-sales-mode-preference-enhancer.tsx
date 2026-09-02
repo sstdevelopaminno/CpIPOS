@@ -118,17 +118,17 @@ function createOrderButton(lang: Lang) {
   button.type = "button";
   button.className = "pos-mode-order-button";
   button.hidden = true;
-  button.setAttribute("aria-label", lang === "th" ? "เธเธฑเธ”เน€เธฃเธตเธขเธเนเธซเธกเธ”เธเธฒเธฃเธเธฒเธขเธเธญเธเธชเธฒเธเธฒ" : "Arrange branch sales modes");
-  button.title = lang === "th" ? "เธเธฑเธ”เน€เธฃเธตเธขเธเธฅเธณเธ”เธฑเธเนเธซเธกเธ”เธเธญเธเธชเธฒเธเธฒเธเธตเน" : "Arrange the sales mode order for this branch";
+  button.setAttribute("aria-label", lang === "th" ? "จัดเรียงโหมดการขายของสาขา" : "Arrange branch sales modes");
+  button.title = lang === "th" ? "จัดเรียงลำดับโหมดของสาขานี้" : "Arrange the sales mode order for this branch";
 
   const icon = document.createElement("span");
   icon.className = "pos-mode-order-button__icon";
   icon.setAttribute("aria-hidden", "true");
-  icon.textContent = "โ•";
+  icon.textContent = "↕";
 
   const label = document.createElement("span");
   label.className = "pos-mode-order-button__label";
-  label.textContent = lang === "th" ? "เธเธฑเธ”เน€เธฃเธตเธขเธเนเธซเธกเธ”" : "Arrange modes";
+  label.textContent = lang === "th" ? "จัดเรียงโหมด" : "Arrange modes";
 
   button.append(icon, label);
   return button;
@@ -140,12 +140,12 @@ function createNotice(lang: Lang) {
   notice.hidden = true;
 
   const title = document.createElement("strong");
-  title.textContent = lang === "th" ? "เธเธ”เธเนเธฒเธเนเธฅเนเธงเธฅเธฒเธเธเธฒเธฃเนเธ”เน€เธเธทเนเธญเธชเธฅเธฑเธเธ•เธณเนเธซเธเนเธ" : "Press and drag a card to swap its position";
+  title.textContent = lang === "th" ? "กดค้างแล้วลากการ์ดเพื่อสลับตำแหน่ง" : "Press and drag a card to swap its position";
 
   const hint = document.createElement("small");
   hint.textContent =
     lang === "th"
-      ? "เธเธฑเธเธ—เธถเธเธเธฃเธฑเนเธเน€เธ”เธตเธขเธง เธ—เธธเธเน€เธเธฃเธทเนเธญเธ POS เนเธเธชเธฒเธเธฒเธเธตเนเธเธฐเนเธเนเธฅเธณเธ”เธฑเธเน€เธ”เธตเธขเธงเธเธฑเธ"
+      ? "บันทึกครั้งเดียว ทุกเครื่อง POS ในสาขานี้จะใช้ลำดับเดียวกัน"
       : "Save once and every POS in this branch will use the same order.";
 
   const status = document.createElement("small");
@@ -161,12 +161,12 @@ function createFooter(lang: Lang) {
   footer.className = "pos-mode-order-footer";
   footer.hidden = true;
 
-  const cancelButton = createTextButton("pos-mode-order-footer__button", lang === "th" ? "เธขเธเน€เธฅเธดเธ" : "Cancel");
+  const cancelButton = createTextButton("pos-mode-order-footer__button", lang === "th" ? "ยกเลิก" : "Cancel");
   cancelButton.dataset.action = "cancel";
 
   const saveButton = createTextButton(
     "pos-mode-order-footer__button pos-mode-order-footer__button--primary",
-    lang === "th" ? "เธเธฑเธเธ—เธถเธเธ—เธฑเนเธเธชเธฒเธเธฒ" : "Save for branch"
+    lang === "th" ? "บันทึกทั้งสาขา" : "Save for branch"
   );
   saveButton.dataset.action = "save";
 
@@ -244,10 +244,10 @@ function enhanceModeSelector(selector: HTMLElement, lang: Lang): (() => void) | 
     cancelButton.disabled = next;
     saveButton.textContent = next
       ? lang === "th"
-        ? "เธเธณเธฅเธฑเธเธเธฑเธเธ—เธถเธ..."
+        ? "กำลังบันทึก..."
         : "Saving..."
       : lang === "th"
-        ? "เธเธฑเธเธ—เธถเธเธ—เธฑเนเธเธชเธฒเธเธฒ"
+        ? "บันทึกทั้งสาขา"
         : "Save for branch";
   }
 
@@ -308,10 +308,10 @@ function enhanceModeSelector(selector: HTMLElement, lang: Lang): (() => void) | 
   function showSavedLabel() {
     const label = orderButton.querySelector<HTMLElement>(".pos-mode-order-button__label");
     if (!label) return;
-    label.textContent = lang === "th" ? "เธเธฑเธเธ—เธถเธเธ—เธฑเนเธเธชเธฒเธเธฒเนเธฅเนเธง" : "Saved for branch";
+    label.textContent = lang === "th" ? "บันทึกทั้งสาขาแล้ว" : "Saved for branch";
     if (savedLabelTimer !== null) window.clearTimeout(savedLabelTimer);
     savedLabelTimer = window.setTimeout(() => {
-      label.textContent = lang === "th" ? "เธเธฑเธ”เน€เธฃเธตเธขเธเนเธซเธกเธ”" : "Arrange modes";
+      label.textContent = lang === "th" ? "จัดเรียงโหมด" : "Arrange modes";
       savedLabelTimer = null;
     }, 1600);
   }
@@ -331,10 +331,10 @@ function enhanceModeSelector(selector: HTMLElement, lang: Lang): (() => void) | 
       orderButton.hidden = !canManageBranchOrder;
       orderButton.title = canManageBranchOrder
         ? lang === "th"
-          ? "เธเธฑเธ”เน€เธฃเธตเธขเธเธฅเธณเธ”เธฑเธเนเธซเธกเธ”เธเธญเธเธชเธฒเธเธฒเธเธตเน"
+          ? "จัดเรียงลำดับโหมดของสาขานี้"
           : "Arrange the sales mode order for this branch"
         : lang === "th"
-          ? "Owner เธซเธฃเธทเธญ Manager เน€เธ—เนเธฒเธเธฑเนเธเธ—เธตเนเธเธฑเธ”เน€เธฃเธตเธขเธเธฃเธฐเธ”เธฑเธเธชเธฒเธเธฒเนเธ”เน"
+          ? "Owner หรือ Manager เท่านั้นที่จัดเรียงระดับสาขาได้"
           : "Only an owner or manager can change branch ordering";
       updateArrangementDecorations();
     } catch {
@@ -446,7 +446,7 @@ function enhanceModeSelector(selector: HTMLElement, lang: Lang): (() => void) | 
     const savingScopeKey = scopeKey;
     const nextOrder = normalizePosSalesModeOrder(draftOrder);
     setSaving(true);
-    setStatus(lang === "th" ? "เธเธณเธฅเธฑเธเธเธฑเธเธ—เธถเธเธฅเธณเธ”เธฑเธเนเธซเนเธ—เธธเธเน€เธเธฃเธทเนเธญเธเนเธเธชเธฒเธเธฒ..." : "Saving this order for every POS in the branch...");
+    setStatus(lang === "th" ? "กำลังบันทึกลำดับให้ทุกเครื่องในสาขา..." : "Saving this order for every POS in the branch...");
 
     try {
       const data = await requestBranchModeOrder("PATCH", nextOrder);
@@ -462,7 +462,7 @@ function enhanceModeSelector(selector: HTMLElement, lang: Lang): (() => void) | 
       const message = error instanceof Error ? error.message : "Unknown error";
       setStatus(
         lang === "th"
-          ? `เธเธฑเธเธ—เธถเธเธฃเธฐเธ”เธฑเธเธชเธฒเธเธฒเนเธกเนเธชเธณเน€เธฃเนเธ โ€” เธขเธฑเธเนเธกเนเธกเธตเธเธฒเธฃเน€เธเธฅเธตเนเธขเธเน€เธเธฃเธทเนเธญเธเธญเธทเนเธ (${message})`
+          ? `บันทึกระดับสาขาไม่สำเร็จ - ยังไม่มีการเปลี่ยนเครื่องอื่น (${message})`
           : `Branch save failed; other POS devices were not changed (${message})`,
         "error"
       );
@@ -706,7 +706,7 @@ export function PosSalesModePreferenceEnhancer({ lang }: { lang: Lang }) {
         font-weight: 950;
       }
       .posui-mode-selector[data-pos-mode-arranging="true"] .posui-mode-option[${RANK_ATTRIBUTE}]::after {
-        content: "โฎโฎ";
+        content: "⋮⋮";
         right: 10px;
         width: 26px;
         height: 24px;

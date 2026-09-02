@@ -7,6 +7,7 @@ const qrOrdering = readFileSync(new URL("../../src/lib/table-qr-ordering.ts", im
 const posSales = readFileSync(new URL("../../src/components/pos/pos-sales-module.tsx", import.meta.url), "utf8");
 const tableQrRoute = readFileSync(new URL("../../src/app/api/pos/tables/[tableId]/qr-orders/route.ts", import.meta.url), "utf8");
 const activityRoute = readFileSync(new URL("../../src/app/api/pos/table-qr-activity/route.ts", import.meta.url), "utf8");
+const salesModePreferenceEnhancer = readFileSync(new URL("../../src/components/pos/pos-sales-mode-preference-enhancer.tsx", import.meta.url), "utf8");
 const printService = readFileSync(new URL("../../src/lib/printing/print-service.ts", import.meta.url), "utf8");
 const routedPrintService = readFileSync(new URL("../../src/lib/printing/routed-print-service.ts", import.meta.url), "utf8");
 const primaryMigration = readFileSync(new URL("../../../../supabase/migrations/202608240002_fg0003_cancelled_order_print_claim_guard.sql", import.meta.url), "utf8");
@@ -37,10 +38,34 @@ describe("Restaurant QR exactly-once hardening contracts", () => {
   it("makes POS review terminal-aware and deterministic under repeated popups", () => {
     expect(posSales).toContain("tableQrReviewQueue");
     expect(posSales).toContain("tableQrReviewTerminalRef");
+    expect(posSales).toContain("tableQrReviewSubmitInFlightRef");
     expect(posSales).toContain("tableQrOrderAbortRef");
     expect(posSales).toContain("new AbortController()");
+    expect(posSales).toContain("isSuppressedTableQrReviewId(entry.id)");
+    expect(posSales).toContain('reviewStatus !== "pending_pos_review"');
+    expect(posSales).toContain("window.setInterval(() => void pollTableQrOrders(), 30000)");
     expect(posSales).toContain('request_id: `pos-qr-review-${review.submissionId}-${action}`');
-    expect(posSales).toContain("tableQrReviewTerminalRef.current.has(review.submissionId)");
+    expect(posSales).toContain("tableQrReviewSubmitInFlightRef.current.add(review.submissionId)");
+    expect(posSales).toContain("fetchJsonWithTimeout<ApiErrorBody>(");
+    expect(posSales).toContain("12_000,");
+    expect(posSales).toContain("tableQrOrderSeenRef.current.add(review.submissionId)");
+    expect(posSales).toContain("setTableQrAlert((current) => (current?.id === review.submissionId ? null : current))");
+    expect(posSales).toContain("tableQrOrderAbortRef.current?.abort()");
+    expect(posSales).toContain("tableQrReviewSubmitInFlightRef.current.delete(review.submissionId)");
+  });
+
+  it("keeps POS table QR review API bounded and private", () => {
+    expect(tableQrRoute).toContain("export const maxDuration = 10");
+    expect(tableQrRoute).toContain('response.headers.set("Cache-Control", "private, no-store")');
+    expect(tableQrRoute).not.toContain("s-maxage");
+  });
+
+  it("keeps branch sales mode Thai copy readable", () => {
+    expect(salesModePreferenceEnhancer).toContain("จัดเรียงโหมดการขายของสาขา");
+    expect(salesModePreferenceEnhancer).toContain("บันทึกทั้งสาขา");
+    expect(salesModePreferenceEnhancer).toContain("กำลังบันทึกลำดับให้ทุกเครื่องในสาขา");
+    expect(salesModePreferenceEnhancer).not.toContain("เน€");
+    expect(salesModePreferenceEnhancer).not.toContain("เธ");
   });
 
   it("uses compare-and-set review transitions and stable kitchen confirm ids", () => {
