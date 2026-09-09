@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 
 const releaseApiUrl = "https://api.github.com/repos/sstdevelopaminno/CpIPOS/releases/tags/windows-runtime-latest";
-const assetName = "CpIPOS-WindowsRuntime-Setup.exe";
+const preferredAssetNames = ["CpIPOS-Desktop-Setup.exe", "CpIPOS-WindowsRuntime-Setup.exe"];
 
 export const dynamic = "force-dynamic";
 
@@ -26,7 +26,9 @@ export async function GET() {
       }>;
     };
 
-    const asset = release.assets?.find((item) => item.name === assetName);
+    const asset = preferredAssetNames
+      .map((name) => release.assets?.find((item) => item.name === name))
+      .find(Boolean) ?? release.assets?.find((item) => /CpIPOS.*(Desktop|WindowsRuntime).*Setup.*\.exe$/i.test(item.name ?? ""));
     if (!asset?.browser_download_url) {
       return notReady("พบหน้า Release แล้ว แต่ไฟล์ติดตั้ง CpIPOS Windows ยังไม่ถูกแนบ กรุณารอสักครู่แล้วกดดาวน์โหลดอีกครั้ง");
     }

@@ -64,15 +64,16 @@ const otherApps: AppCard[] = [
     ready: false
   },
   {
-    title: "CpIPOS POS - Windows",
-    platform: "Windows POS Terminal",
+    title: "CpIPOS Desktop - Windows",
+    platform: "Windows 10/11 Desktop POS",
     description: "Windows POS Runtime สำหรับเครื่องขายหน้าร้าน พร้อม local runtime bridge และ printer/cash-drawer integration",
-    file: "CpIPOS-WindowsRuntime-Setup.exe",
-    status: "กำลังพัฒนา",
-    badge: null,
-    buttonLabel: null,
+    file: "CpIPOS-Desktop-Setup.exe",
+    status: "v0.2.0 - Desktop installer - Ready",
+    badge: "Windows Desktop v0.2.0",
+    buttonLabel: "Download CpIPOS Desktop 0.2.0",
     icon: "windows",
-    ready: false
+    ready: true,
+    href: "/download/windows-runtime/latest"
   }
 ];
 
