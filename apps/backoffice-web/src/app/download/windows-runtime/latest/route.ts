@@ -1,10 +1,17 @@
 import { NextResponse } from "next/server";
 
-const releaseApiUrl = "https://api.github.com/repos/sstdevelopaminno/CpIPOS/releases/tags/windows-runtime-latest";
+const releaseApiUrls = [
+  "https://api.github.com/repos/sstdevelopaminno/cp-ipos-desktop/releases/latest",
+  "https://api.github.com/repos/sstdevelopaminno/cp-ipos-desktop/releases/tags/v0.2.2"
+];
 const preferredAssetNames = [
+  "CpIPOS Desktop_0.2.2_x64-setup.exe",
+  "CpIPOS Desktop_0.2.2_x64_en-US.msi",
   "CpIPOS-Desktop-Setup.exe",
+  "CpIPOS-Desktop-0.2.2-x64.msi",
+  "CpIPOS Desktop_0.2.1_x64-setup.exe",
+  "CpIPOS Desktop_0.2.1_x64_en-US.msi",
   "CpIPOS-Desktop-0.2.1-x64.msi",
-  "CpIPOS-Desktop-0.2.0-x64.msi",
   "CpIPOS-WindowsRuntime-Setup.exe"
 ];
 
@@ -12,28 +19,14 @@ export const dynamic = "force-dynamic";
 
 export async function GET() {
   try {
-    const response = await fetch(releaseApiUrl, {
-      cache: "no-store",
-      headers: {
-        Accept: "application/vnd.github+json",
-        "User-Agent": "CpIPOS-WindowsRuntime-Download"
-      }
-    });
-
-    if (!response.ok) {
+    const release = await fetchRelease();
+    if (!release) {
       return notReady("ไฟล์ติดตั้ง CpIPOS Windows กำลังถูกสร้าง กรุณารอสักครู่แล้วกดดาวน์โหลดอีกครั้ง");
     }
 
-    const release = (await response.json()) as {
-      assets?: Array<{
-        name?: string;
-        browser_download_url?: string;
-      }>;
-    };
-
     const asset = preferredAssetNames
       .map((name) => release.assets?.find((item) => item.name === name))
-      .find(Boolean) ?? release.assets?.find((item) => /CpIPOS.*(Desktop|WindowsRuntime).*(Setup|x64).*\.(exe|msi)$/i.test(item.name ?? ""));
+      .find(Boolean) ?? release.assets?.find((item) => /CpIPOS[\s-]*Desktop.*(setup|x64).*\.(exe|msi)$/i.test(item.name ?? ""));
     if (!asset?.browser_download_url) {
       return notReady("พบหน้า Release แล้ว แต่ไฟล์ติดตั้ง CpIPOS Windows ยังไม่ถูกแนบ กรุณารอสักครู่แล้วกดดาวน์โหลดอีกครั้ง");
     }
@@ -42,6 +35,29 @@ export async function GET() {
   } catch {
     return notReady("ยังตรวจสอบไฟล์ติดตั้งไม่ได้ กรุณาลองใหม่อีกครั้ง");
   }
+}
+
+async function fetchRelease() {
+  for (const url of releaseApiUrls) {
+    const response = await fetch(url, {
+      cache: "no-store",
+      headers: {
+        Accept: "application/vnd.github+json",
+        "User-Agent": "CpIPOS-WindowsRuntime-Download"
+      }
+    });
+
+    if (response.ok) {
+      return (await response.json()) as {
+        assets?: Array<{
+          name?: string;
+          browser_download_url?: string;
+        }>;
+      };
+    }
+  }
+
+  return null;
 }
 
 function notReady(reason: string) {
