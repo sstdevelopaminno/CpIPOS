@@ -4,6 +4,8 @@ import { ANDROID_MODERN_RELEASE } from "@/lib/android-runtime-release";
 
 const ANDROID_POS_LATEST_URL = "/download/android/latest";
 const ANDROID_POS_MODERN_URL = ANDROID_MODERN_RELEASE.downloadPath;
+const WINDOWS_DESKTOP_VERSION = "0.2.1";
+const WINDOWS_DESKTOP_DOWNLOAD_URL = "/download/windows-runtime/latest";
 
 type AppIconKind = "tablet" | "phone" | "windows";
 
@@ -20,6 +22,7 @@ type AppCard = {
   href?: string;
   recommended?: boolean;
   legacy?: boolean;
+  desktop?: boolean;
 };
 
 const androidPosApps: AppCard[] = [
@@ -51,6 +54,23 @@ const androidPosApps: AppCard[] = [
   }
 ];
 
+const desktopApps: AppCard[] = [
+  {
+    title: "CpIPOS Desktop - Windows",
+    platform: `Windows 10/11 Desktop POS · v${WINDOWS_DESKTOP_VERSION}`,
+    description: "ตัวติดตั้ง Windows Desktop POS สำหรับเครื่องขายหน้าร้าน รุ่นใช้ฟรีตลอดในเวอร์ชันนี้ พร้อมแก้ค้างหน้า Splash, ปิดการบังคับ License Server, ปิด MDM ชั่วคราว, ระบบขายด้วยคีย์บอร์ด, ใบเสร็จ 80mm, ลิ้นชักเงินสด, Export ข้อมูล และใบสรุปปิดกะ",
+    file: `CpIPOS-Desktop-Setup.exe · v${WINDOWS_DESKTOP_VERSION}`,
+    status: `v${WINDOWS_DESKTOP_VERSION} · Free Forever · Ready`,
+    badge: `Windows Desktop v${WINDOWS_DESKTOP_VERSION}`,
+    buttonLabel: `ดาวน์โหลด CpIPOS Desktop ${WINDOWS_DESKTOP_VERSION}`,
+    icon: "windows",
+    ready: true,
+    href: WINDOWS_DESKTOP_DOWNLOAD_URL,
+    desktop: true,
+    recommended: true
+  }
+];
+
 const otherApps: AppCard[] = [
   {
     title: "CpIPOS Mobile - Android",
@@ -62,18 +82,6 @@ const otherApps: AppCard[] = [
     buttonLabel: null,
     icon: "phone",
     ready: false
-  },
-  {
-    title: "CpIPOS Desktop - Windows",
-    platform: "Windows 10/11 Desktop POS",
-    description: "Windows POS Runtime สำหรับเครื่องขายหน้าร้าน พร้อม local runtime bridge และ printer/cash-drawer integration",
-    file: "CpIPOS-Desktop-Setup.exe",
-    status: "v0.2.0 - Desktop installer - Ready",
-    badge: "Windows Desktop v0.2.0",
-    buttonLabel: "Download CpIPOS Desktop 0.2.0",
-    icon: "windows",
-    ready: true,
-    href: "/download/windows-runtime/latest"
   }
 ];
 
@@ -102,33 +110,41 @@ function AppIcon({ kind }: { kind: AppIconKind }) {
 }
 
 function DownloadCard({ app }: { app: AppCard }) {
-  const cardTone = app.recommended
-    ? "border-emerald-400/45 bg-gradient-to-b from-emerald-950/45 via-sky-950/55 to-slate-900/95 shadow-emerald-950/30"
-    : app.legacy
-      ? "border-amber-400/25 bg-gradient-to-b from-amber-950/20 to-slate-900/90 shadow-black/20"
-      : app.ready
-        ? "border-sky-400/35 bg-gradient-to-b from-sky-950/70 to-slate-900/90 shadow-sky-950/30"
-        : "border-slate-800 bg-slate-900/75 shadow-black/20";
+  const cardTone = app.desktop
+    ? "border-sky-300/55 bg-gradient-to-b from-sky-900/65 via-blue-950/60 to-slate-900/95 shadow-sky-950/40"
+    : app.recommended
+      ? "border-emerald-400/45 bg-gradient-to-b from-emerald-950/45 via-sky-950/55 to-slate-900/95 shadow-emerald-950/30"
+      : app.legacy
+        ? "border-amber-400/25 bg-gradient-to-b from-amber-950/20 to-slate-900/90 shadow-black/20"
+        : app.ready
+          ? "border-sky-400/35 bg-gradient-to-b from-sky-950/70 to-slate-900/90 shadow-sky-950/30"
+          : "border-slate-800 bg-slate-900/75 shadow-black/20";
 
   return (
     <article className={`relative flex min-h-[390px] flex-col overflow-hidden rounded-3xl border p-6 shadow-2xl sm:p-7 ${cardTone}`}>
       {app.badge ? (
-        <div className={`absolute right-0 top-0 rounded-bl-2xl px-4 py-2 text-[11px] font-black uppercase tracking-wide ${app.recommended ? "bg-emerald-300 text-emerald-950" : app.legacy ? "bg-amber-300 text-amber-950" : "bg-sky-400 text-slate-950"}`}>
+        <div className={`absolute right-0 top-0 rounded-bl-2xl px-4 py-2 text-[11px] font-black uppercase tracking-wide ${app.desktop ? "bg-sky-300 text-slate-950" : app.recommended ? "bg-emerald-300 text-emerald-950" : app.legacy ? "bg-amber-300 text-amber-950" : "bg-sky-400 text-slate-950"}`}>
           {app.badge}
         </div>
       ) : null}
 
-      <div className={`grid h-14 w-14 place-items-center rounded-2xl ${app.recommended ? "bg-emerald-400/15 text-emerald-300" : app.legacy ? "bg-amber-400/10 text-amber-200" : app.ready ? "bg-sky-400/15 text-sky-300" : "bg-slate-800 text-slate-300"}`}>
+      <div className={`grid h-14 w-14 place-items-center rounded-2xl ${app.desktop ? "bg-sky-300/15 text-sky-200" : app.recommended ? "bg-emerald-400/15 text-emerald-300" : app.legacy ? "bg-amber-400/10 text-amber-200" : app.ready ? "bg-sky-400/15 text-sky-300" : "bg-slate-800 text-slate-300"}`}>
         <AppIcon kind={app.icon} />
       </div>
 
       <div className="mt-6">
-        <p className={`text-xs font-extrabold uppercase tracking-[0.12em] ${app.recommended ? "text-emerald-300" : app.legacy ? "text-amber-200" : "text-sky-300"}`}>{app.platform}</p>
+        <p className={`text-xs font-extrabold uppercase tracking-[0.12em] ${app.desktop ? "text-sky-200" : app.recommended ? "text-emerald-300" : app.legacy ? "text-amber-200" : "text-sky-300"}`}>{app.platform}</p>
         <h2 className="mt-3 text-2xl font-black leading-tight text-white">{app.title}</h2>
         <p className="mt-4 text-sm leading-7 text-slate-300">{app.description}</p>
       </div>
 
-      {app.recommended ? (
+      {app.desktop ? (
+        <div className="mt-5 rounded-2xl border border-sky-300/25 bg-sky-300/10 px-4 py-3 text-sm font-bold leading-6 text-sky-100">
+          รุ่นนี้ปล่อยเป็น Free Forever ชั่วคราวสำหรับทดสอบและติดตั้งจริงก่อนเชื่อมต่อระบบหลังบ้าน IT/License/MDM ในรอบถัดไป
+        </div>
+      ) : null}
+
+      {app.recommended && !app.desktop ? (
         <div className="mt-5 rounded-2xl border border-emerald-400/25 bg-emerald-400/10 px-4 py-3 text-sm font-bold leading-6 text-emerald-100">
           ร้านเปิดรหัสใหม่ตั้งแต่ 20 ส.ค. 2026 เป็นต้นไป ให้ติดตั้งเวอร์ชันนี้เป็นค่าเริ่มต้น ไม่ว่าจะเป็นเครื่อง 1 จอหรือ 2 จอ
         </div>
@@ -141,8 +157,8 @@ function DownloadCard({ app }: { app: AppCard }) {
       ) : null}
 
       <div className="mt-5">
-        <span className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-bold ${app.recommended ? "border-emerald-400/25 bg-emerald-400/10 text-emerald-300" : app.legacy ? "border-amber-400/25 bg-amber-400/10 text-amber-200" : app.ready ? "border-emerald-400/20 bg-emerald-400/10 text-emerald-300" : "border-amber-400/20 bg-amber-400/10 text-amber-200"}`}>
-          <span className={`h-2 w-2 rounded-full ${app.recommended ? "bg-emerald-400" : app.legacy ? "bg-amber-300" : app.ready ? "bg-emerald-400" : "bg-amber-400"}`} />
+        <span className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-bold ${app.desktop ? "border-sky-300/25 bg-sky-300/10 text-sky-200" : app.recommended ? "border-emerald-400/25 bg-emerald-400/10 text-emerald-300" : app.legacy ? "border-amber-400/25 bg-amber-400/10 text-amber-200" : app.ready ? "border-emerald-400/20 bg-emerald-400/10 text-emerald-300" : "border-amber-400/20 bg-amber-400/10 text-amber-200"}`}>
+          <span className={`h-2 w-2 rounded-full ${app.desktop ? "bg-sky-300" : app.recommended ? "bg-emerald-400" : app.legacy ? "bg-amber-300" : app.ready ? "bg-emerald-400" : "bg-amber-400"}`} />
           {app.status}
         </span>
       </div>
@@ -150,7 +166,7 @@ function DownloadCard({ app }: { app: AppCard }) {
       <div className="mt-auto pt-7">
         <p className="mb-4 truncate text-xs text-slate-500">ไฟล์: {app.file}</p>
         {app.ready && app.href && app.buttonLabel ? (
-          <a href={app.href} className={`inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-xl px-5 py-3 text-center text-sm font-black shadow-lg transition ${app.recommended ? "bg-emerald-300 text-emerald-950 shadow-emerald-950/40 hover:bg-emerald-200" : app.legacy ? "border border-amber-400/25 bg-amber-400/10 text-amber-100 hover:bg-amber-400/20" : "bg-sky-400 text-slate-950 shadow-sky-950/40 hover:bg-sky-300"}`}>
+          <a href={app.href} className={`inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-xl px-5 py-3 text-center text-sm font-black shadow-lg transition ${app.desktop ? "bg-sky-300 text-slate-950 shadow-sky-950/40 hover:bg-sky-200" : app.recommended ? "bg-emerald-300 text-emerald-950 shadow-emerald-950/40 hover:bg-emerald-200" : app.legacy ? "border border-amber-400/25 bg-amber-400/10 text-amber-100 hover:bg-amber-400/20" : "bg-sky-400 text-slate-950 shadow-sky-950/40 hover:bg-sky-300"}`}>
             {app.buttonLabel}
           </a>
         ) : (
@@ -177,43 +193,50 @@ export function DownloadCenterLatest() {
         </header>
 
         <section className="mx-auto mt-14 max-w-5xl text-center sm:mt-20">
-          <div className="mx-auto mb-5 inline-flex items-center gap-2 rounded-full border border-emerald-400/25 bg-emerald-400/10 px-4 py-2 text-xs font-extrabold uppercase tracking-[0.18em] text-emerald-300">
-            <span className="h-2 w-2 rounded-full bg-emerald-400" />
-            Current Android POS Standard
+          <div className="mx-auto mb-5 inline-flex items-center gap-2 rounded-full border border-sky-400/25 bg-sky-400/10 px-4 py-2 text-xs font-extrabold uppercase tracking-[0.18em] text-sky-300">
+            <span className="h-2 w-2 rounded-full bg-sky-400" />
+            Desktop latest · v{WINDOWS_DESKTOP_VERSION}
           </div>
-          <h1 className="text-4xl font-black leading-tight tracking-tight text-white sm:text-6xl">ดาวน์โหลด CpIPOS Android POS</h1>
+          <h1 className="text-4xl font-black leading-tight tracking-tight text-white sm:text-6xl">ดาวน์โหลด CpIPOS</h1>
           <p className="mx-auto mt-5 max-w-3xl text-base leading-7 text-slate-300 sm:text-lg">
-            สำหรับร้านที่เปิดรหัสใหม่ตั้งแต่ <strong className="text-white">20 สิงหาคม 2026</strong> เป็นต้นไป ให้ใช้ <strong className="text-emerald-300">Android POS {ANDROID_MODERN_RELEASE.versionName}</strong> เป็นมาตรฐาน รองรับทั้งเครื่อง <strong className="text-white">1 จอและ 2 จอ</strong>
+            ดาวน์โหลดตัวติดตั้งสำหรับ <strong className="text-sky-200">CpIPOS Desktop Windows {WINDOWS_DESKTOP_VERSION}</strong> และแอป Android POS สำหรับร้านค้า ใช้งานแยกตามประเภทอุปกรณ์
           </p>
 
-          <div className="mx-auto mt-7 max-w-4xl rounded-3xl border border-emerald-400/25 bg-emerald-400/10 px-5 py-5 text-left sm:px-7">
-            <p className="text-sm font-black uppercase tracking-[0.12em] text-emerald-300">เลือกเวอร์ชันอย่างไร</p>
+          <div className="mx-auto mt-7 max-w-4xl rounded-3xl border border-sky-400/25 bg-sky-400/10 px-5 py-5 text-left sm:px-7">
+            <p className="text-sm font-black uppercase tracking-[0.12em] text-sky-300">สถานะ Windows Desktop</p>
             <div className="mt-3 grid gap-3 text-sm leading-7 text-slate-200 md:grid-cols-2">
-              <div className="rounded-2xl border border-emerald-400/20 bg-slate-950/45 p-4">
-                <strong className="text-emerald-300">ร้านใหม่ / เครื่องใหม่ / 1–2 จอ</strong>
-                <p className="mt-1 text-slate-300">เลือก {ANDROID_MODERN_RELEASE.versionName} เท่านั้น เพื่อใช้งาน Modern Runtime และฟีเจอร์ใหม่ต่อจากนี้</p>
+              <div className="rounded-2xl border border-sky-400/20 bg-slate-950/45 p-4">
+                <strong className="text-sky-200">เวอร์ชันล่าสุด {WINDOWS_DESKTOP_VERSION}</strong>
+                <p className="mt-1 text-slate-300">แก้ค้างหน้าเปิดโปรแกรม เพิ่มตัวติดตั้งฟรีตลอด และพร้อมทดสอบกับเครื่องพิมพ์/ลิ้นชักจริง</p>
               </div>
-              <div className="rounded-2xl border border-amber-400/20 bg-slate-950/45 p-4">
-                <strong className="text-amber-200">ร้านเดิมที่ 1.0.12 เสถียรอยู่แล้ว</strong>
-                <p className="mt-1 text-slate-300">ใช้งานต่อได้ตามปกติ ไม่ต้องอัปเดตจนกว่าจะมีแผนเปลี่ยนเวอร์ชันหรือช่างเข้าหน้างาน</p>
+              <div className="rounded-2xl border border-emerald-400/20 bg-slate-950/45 p-4">
+                <strong className="text-emerald-300">Android POS ยังเปิดให้ดาวน์โหลด</strong>
+                <p className="mt-1 text-slate-300">ร้าน Android ใหม่ให้เลือก Modern Runtime ส่วนร้านเดิมที่เสถียรให้ใช้ Legacy Stable ต่อได้</p>
               </div>
             </div>
           </div>
         </section>
 
-        <section className="mx-auto mt-12 grid max-w-5xl gap-6 md:grid-cols-2 lg:mt-16">
-          {androidPosApps.map((app) => <DownloadCard key={app.title} app={app} />)}
+        <section className="mx-auto mt-12 grid max-w-5xl gap-6 md:grid-cols-1 lg:mt-16">
+          {desktopApps.map((app) => <DownloadCard key={app.title} app={app} />)}
         </section>
 
-        <section className="mx-auto mt-8 max-w-5xl rounded-2xl border border-slate-700 bg-slate-900/65 px-5 py-4 text-center text-sm leading-7 text-slate-300">
-          <strong className="text-white">หมายเหตุ:</strong> Android POS 1.0.13 ถูกนำออกจากหน้า Download หลักเพื่อลดความสับสน แต่ไฟล์ Release เดิมยังเก็บไว้สำหรับงานซ่อม/rollback ที่ช่างจำเป็นต้องใช้ ร้านใหม่ไม่ต้องเลือก 1.0.13
+        <section className="mx-auto mt-14 max-w-5xl border-t border-slate-800 pt-10">
+          <div className="mb-6">
+            <p className="text-xs font-black uppercase tracking-[0.16em] text-slate-500">Android POS</p>
+            <h2 className="mt-2 text-2xl font-black text-white">แอป POS สำหรับ Android</h2>
+            <p className="mt-2 text-sm text-slate-400">เลือกตามสถานะร้านใหม่หรือร้านเดิม</p>
+          </div>
+          <div className="grid gap-5 md:grid-cols-2">
+            {androidPosApps.map((app) => <DownloadCard key={app.title} app={app} />)}
+          </div>
         </section>
 
         <section className="mx-auto mt-14 max-w-5xl border-t border-slate-800 pt-10">
           <div className="mb-6">
             <p className="text-xs font-black uppercase tracking-[0.16em] text-slate-500">Other applications</p>
             <h2 className="mt-2 text-2xl font-black text-white">แอปอื่นของ CpIPOS</h2>
-            <p className="mt-2 text-sm text-slate-400">รายการด้านล่างไม่ใช่ตัวเลือกสำหรับติดตั้ง Android POS หน้าร้าน</p>
+            <p className="mt-2 text-sm text-slate-400">รายการด้านล่างไม่ใช่ตัวเลือกสำหรับติดตั้ง POS หน้าร้าน</p>
           </div>
           <div className="grid gap-5 md:grid-cols-2">
             {otherApps.map((app) => <DownloadCard key={app.title} app={app} />)}
@@ -221,7 +244,7 @@ export function DownloadCenterLatest() {
         </section>
 
         <section className="mx-auto mt-8 max-w-5xl rounded-2xl border border-emerald-400/20 bg-emerald-400/5 px-5 py-4 text-center text-sm leading-7 text-emerald-100">
-          <strong>Release policy:</strong> {ANDROID_MODERN_RELEASE.versionName} คือมาตรฐานสำหรับรหัสร้านใหม่ตั้งแต่ 20 ส.ค. 2026 เป็นต้นไป ส่วน 1.0.12 เป็น Legacy Stable สำหรับร้านเดิมเท่านั้น ร้านเดิมจะไม่ถูกย้ายไป Modern channel และจะไม่ถูกบังคับอัปเดตอัตโนมัติ
+          <strong>Release policy:</strong> Windows Desktop {WINDOWS_DESKTOP_VERSION} เป็นตัวติดตั้งล่าสุดสำหรับเครื่อง Windows ส่วน Android POS {ANDROID_MODERN_RELEASE.versionName} คือมาตรฐานสำหรับรหัสร้านใหม่ตั้งแต่ 20 ส.ค. 2026 เป็นต้นไป
         </section>
       </div>
     </main>
