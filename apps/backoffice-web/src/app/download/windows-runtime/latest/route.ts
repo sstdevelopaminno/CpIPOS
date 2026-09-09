@@ -1,7 +1,12 @@
 import { NextResponse } from "next/server";
 
 const releaseApiUrl = "https://api.github.com/repos/sstdevelopaminno/CpIPOS/releases/tags/windows-runtime-latest";
-const preferredAssetNames = ["CpIPOS-Desktop-Setup.exe", "CpIPOS-WindowsRuntime-Setup.exe"];
+const preferredAssetNames = [
+  "CpIPOS-Desktop-Setup.exe",
+  "CpIPOS-Desktop-0.2.1-x64.msi",
+  "CpIPOS-Desktop-0.2.0-x64.msi",
+  "CpIPOS-WindowsRuntime-Setup.exe"
+];
 
 export const dynamic = "force-dynamic";
 
@@ -28,7 +33,7 @@ export async function GET() {
 
     const asset = preferredAssetNames
       .map((name) => release.assets?.find((item) => item.name === name))
-      .find(Boolean) ?? release.assets?.find((item) => /CpIPOS.*(Desktop|WindowsRuntime).*Setup.*\.exe$/i.test(item.name ?? ""));
+      .find(Boolean) ?? release.assets?.find((item) => /CpIPOS.*(Desktop|WindowsRuntime).*(Setup|x64).*\.(exe|msi)$/i.test(item.name ?? ""));
     if (!asset?.browser_download_url) {
       return notReady("พบหน้า Release แล้ว แต่ไฟล์ติดตั้ง CpIPOS Windows ยังไม่ถูกแนบ กรุณารอสักครู่แล้วกดดาวน์โหลดอีกครั้ง");
     }
@@ -57,7 +62,7 @@ function notReady(reason: string) {
     <h1>CpIPOS Windows กำลังเตรียมตัวติดตั้ง</h1>
     <p>ระบบกำลังสร้างไฟล์ติดตั้งสำหรับ Windows ผ่าน GitHub Actions เมื่อสร้างเสร็จ ปุ่มดาวน์โหลดเดิมจะดาวน์โหลดไฟล์ติดตั้งได้ทันที</p>
     <span class="note">${escapeHtml(reason)}</span>
-    <a class="btn" href="/download/windows-runtime">กลับไปหน้าดาวน์โหลด</a>
+    <a class="btn" href="/download">กลับไปหน้าดาวน์โหลด</a>
     <p class="muted">CpIPOS Web ยังใช้งานแยกได้ตามปกติ หน้านี้เป็นไฟล์ติดตั้งสำหรับ Windows เท่านั้น</p>
   </main>
 </body>
