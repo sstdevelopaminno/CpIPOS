@@ -1,8 +1,8 @@
 import { DownloadCenterClient } from "./download-center-client";
 
 export const metadata = {
-  title: "Download CpIPOS",
-  description: "ดาวน์โหลด CpIPOS POS สำหรับ Android Tablet และตรวจสอบสถานะแอป CpIPOS สำหรับแพลตฟอร์มอื่น"
+  title: "Download CpIPOS Desktop 0.2.7",
+  description: "ดาวน์โหลด CpIPOS Desktop Windows 0.2.7 และ CpIPOS POS สำหรับ Android"
 };
 
 export default function CpiposDownloadCenterPage() {
