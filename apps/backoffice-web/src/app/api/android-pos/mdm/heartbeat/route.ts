@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server";
 import { GET as baseGet, POST as basePost } from "@/lib/android-pos/mdm-heartbeat-base";
+import { syncAndroidHeartbeatToItPlane } from "@/lib/android-pos/it-mdm-bridge";
 import { buildAndroidModernUpdateOffer } from "@/lib/android-runtime-release";
 import { reconcileModernPrinterInventory } from "@/lib/printing/printer-mdm-auto-registry";
-import { getSupabaseServiceClient } from "@/lib/supabase-admin";
+import { getPrimarySupabaseServiceClient } from "@/lib/supabase-admin";
 
 type JsonRecord = Record<string, unknown>;
 type AutoScope = {
@@ -20,7 +21,6 @@ type RecoveryCommand = {
   action: "clear_webview_cache" | "reload_webview";
   reason: string;
 };
-
 
 function asRecord(value: unknown): JsonRecord {
   return value && typeof value === "object" && !Array.isArray(value) ? value as JsonRecord : {};
@@ -70,7 +70,7 @@ function buildRecoveryCommands(scope: AutoScope, payload: JsonRecord | null): Re
 
 async function findAutoScope(installId: string | null): Promise<AutoScope | null> {
   if (!installId) return null;
-  const supabase = getSupabaseServiceClient();
+  const supabase = getPrimarySupabaseServiceClient();
   const { data, error } = await supabase
     .from("branch_devices")
     .select("id,tenant_id,branch_id,device_code,status,is_locked,metadata")
@@ -92,7 +92,7 @@ async function findAutoScope(installId: string | null): Promise<AutoScope | null
 }
 
 async function findTenantCode(tenantId: string): Promise<string | null> {
-  const supabase = getSupabaseServiceClient();
+  const supabase = getPrimarySupabaseServiceClient();
   const { data, error } = await supabase
     .from("tenants")
     .select("code")
@@ -108,7 +108,7 @@ async function persistUpdaterTelemetry(scope: AutoScope, payload: JsonRecord | n
   if (Object.keys(updateCapabilities).length === 0 && Object.keys(updateState).length === 0) return;
 
   const metadata = asRecord(scope.metadata);
-  const supabase = getSupabaseServiceClient();
+  const supabase = getPrimarySupabaseServiceClient();
   await supabase.from("branch_devices").update({
     metadata: {
       ...metadata,
@@ -130,19 +130,34 @@ export async function POST(request: Request) {
 
   const payload = await requestCopy.json().catch(() => null) as JsonRecord | null;
   const installId = String(requestCopy.headers.get("x-cpipos-install-id") ?? "").trim().slice(0, 120) || null;
+  const appVersion = String(requestCopy.headers.get("x-cpipos-app-version") ?? "").trim().slice(0, 80) || null;
   const printerEligible = quickAutoSetupEligible(payload);
   const updaterTelemetry = hasUpdaterTelemetry(payload);
   const recoveryEligible = recoveryCommandEligible(payload);
 
-  if (!printerEligible && !updaterTelemetry && !recoveryEligible) return baseResponse;
-
   const scope = await findAutoScope(installId);
-  if (!scope) return baseResponse;
+  if (!scope || !installId) return baseResponse;
 
   const recoveryCommands = recoveryEligible ? buildRecoveryCommands(scope, payload) : [];
-  if (!printerEligible && !updaterTelemetry && recoveryCommands.length === 0) return baseResponse;
-
   if (updaterTelemetry) await persistUpdaterTelemetry(scope, payload);
+
+  const itBridge = await syncAndroidHeartbeatToItPlane({
+    scope: {
+      id: scope.id,
+      tenant_id: scope.tenant_id,
+      branch_id: scope.branch_id,
+      device_code: scope.device_code
+    },
+    payload,
+    installId,
+    appVersion
+  }).catch((error) => {
+    console.error("[android-pos-mdm][it-plane] sync failed", {
+      device_code: scope.device_code,
+      message: error instanceof Error ? error.message : "unknown"
+    });
+    return { commands: [], latest_id: null, status: "unavailable" };
+  });
 
   const tenantCode = updaterTelemetry ? await findTenantCode(scope.tenant_id) : null;
   const stagedUpdateOffer = updaterTelemetry && tenantCode
@@ -174,7 +189,7 @@ export async function POST(request: Request) {
   if (!responseBody) return baseResponse;
   const data = asRecord(responseBody.data);
   const existingCommands = Array.isArray(data.commands) ? data.commands : [];
-  const commands = [...existingCommands, ...recoveryCommands, ...auto.commands].slice(0, 5);
+  const commands = [...existingCommands, ...recoveryCommands, ...auto.commands, ...itBridge.commands].slice(0, 5);
 
   return NextResponse.json({
     ...responseBody,
@@ -182,6 +197,12 @@ export async function POST(request: Request) {
       ...data,
       commands,
       update_offer: stagedUpdateOffer ?? data.update_offer ?? null,
+      it_mdm: {
+        health_status: itBridge.status,
+        latest_id: itBridge.latest_id,
+        command_count: itBridge.commands.length,
+        operational_plane: "CpiPOS-002"
+      },
       ...(printerEligible ? {
         auto_printer_registry: {
           eligible: auto.eligible,
