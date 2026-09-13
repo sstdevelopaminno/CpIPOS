@@ -51,6 +51,8 @@ type Props = {
   canManage: boolean;
 };
 
+type OptimizedImageFormat = "webp" | "jpeg";
+
 type OptimizedImage = {
   display: Blob;
   thumbnail: Blob;
@@ -58,6 +60,15 @@ type OptimizedImage = {
   displayHeight: number;
   thumbnailWidth: number;
   thumbnailHeight: number;
+  displayFormat: OptimizedImageFormat;
+  thumbnailFormat: OptimizedImageFormat;
+};
+
+type RenderedImage = {
+  blob: Blob;
+  width: number;
+  height: number;
+  format: OptimizedImageFormat;
 };
 
 type DeviceEstimate = {
@@ -68,6 +79,10 @@ type DeviceEstimate = {
 const ACCEPTED_SOURCE_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
 const SOURCE_MAX_BYTES = 20 * 1024 * 1024;
 const PAGE_SIZE = 10;
+const OPTIMIZED_FORMAT_EXTENSION: Record<OptimizedImageFormat, string> = {
+  webp: "webp",
+  jpeg: "jpg"
+};
 
 function formatBytes(value: number) {
   const bytes = Math.max(0, Number(value || 0));
@@ -77,6 +92,10 @@ function formatBytes(value: number) {
   const mib = kib / 1024;
   if (mib < 1024) return `${mib.toFixed(mib >= 100 ? 0 : 1)} MB`;
   return `${(mib / 1024).toFixed(2)} GB`;
+}
+
+function optimizedFileName(prefix: "display" | "thumbnail", format: OptimizedImageFormat) {
+  return `${prefix}.${OPTIMIZED_FORMAT_EXTENSION[format]}`;
 }
 
 function loadImage(file: File) {
@@ -95,16 +114,32 @@ function loadImage(file: File) {
   });
 }
 
-function canvasToWebp(canvas: HTMLCanvasElement, quality: number) {
+function canvasToBlobType(canvas: HTMLCanvasElement, type: "image/webp" | "image/jpeg", quality: number) {
   return new Promise<Blob>((resolve, reject) => {
     canvas.toBlob((blob) => {
-      if (!blob || blob.type !== "image/webp") reject(new Error("webp_encode_failed"));
-      else resolve(blob);
-    }, "image/webp", quality);
+      if (!blob || blob.size <= 0) {
+        reject(new Error(type === "image/webp" ? "webp_encode_failed" : "jpeg_encode_failed"));
+        return;
+      }
+      resolve(blob);
+    }, type, quality);
   });
 }
 
-async function renderSquare(image: HTMLImageElement, maxSize: number, quality: number) {
+async function canvasToOptimizedImageBlob(canvas: HTMLCanvasElement, webpQuality: number, jpegQuality: number): Promise<{ blob: Blob; format: OptimizedImageFormat }> {
+  try {
+    const webp = await canvasToBlobType(canvas, "image/webp", webpQuality);
+    if (webp.type === "image/webp") return { blob: webp, format: "webp" };
+  } catch {
+    // Some Android WebViews and embedded browsers cannot encode Canvas to WebP. Fall back to JPEG.
+  }
+
+  const jpeg = await canvasToBlobType(canvas, "image/jpeg", jpegQuality);
+  if (jpeg.type !== "image/jpeg") throw new Error("image_encode_failed");
+  return { blob: jpeg, format: "jpeg" };
+}
+
+async function renderSquare(image: HTMLImageElement, maxSize: number, webpQuality: number, jpegQuality: number): Promise<RenderedImage> {
   const sourceWidth = Math.max(1, image.naturalWidth || image.width);
   const sourceHeight = Math.max(1, image.naturalHeight || image.height);
   const crop = Math.min(sourceWidth, sourceHeight);
@@ -121,7 +156,8 @@ async function renderSquare(image: HTMLImageElement, maxSize: number, quality: n
   context.fillStyle = "#ffffff";
   context.fillRect(0, 0, outputSize, outputSize);
   context.drawImage(image, sx, sy, crop, crop, 0, 0, outputSize, outputSize);
-  return { blob: await canvasToWebp(canvas, quality), width: outputSize, height: outputSize };
+  const encoded = await canvasToOptimizedImageBlob(canvas, webpQuality, jpegQuality);
+  return { blob: encoded.blob, width: outputSize, height: outputSize, format: encoded.format };
 }
 
 async function optimizeProductImage(file: File): Promise<OptimizedImage> {
@@ -129,8 +165,8 @@ async function optimizeProductImage(file: File): Promise<OptimizedImage> {
   if (file.size <= 0 || file.size > SOURCE_MAX_BYTES) throw new Error("ไฟล์ต้นฉบับต้องมีขนาดไม่เกิน 20 MB");
   const image = await loadImage(file);
   const [display, thumbnail] = await Promise.all([
-    renderSquare(image, 1200, 0.82),
-    renderSquare(image, 400, 0.76)
+    renderSquare(image, 1200, 0.82, 0.86),
+    renderSquare(image, 400, 0.76, 0.8)
   ]);
   if (display.blob.size > 1_572_864) throw new Error("รูปหลังปรับขนาดยังใหญ่เกิน 1.5 MB กรุณาเลือกรูปที่รายละเอียดน้อยลง");
   if (thumbnail.blob.size > 524_288) throw new Error("Thumbnail หลังปรับขนาดใหญ่เกิน 512 KB");
@@ -140,7 +176,9 @@ async function optimizeProductImage(file: File): Promise<OptimizedImage> {
     displayWidth: display.width,
     displayHeight: display.height,
     thumbnailWidth: thumbnail.width,
-    thumbnailHeight: thumbnail.height
+    thumbnailHeight: thumbnail.height,
+    displayFormat: display.format,
+    thumbnailFormat: thumbnail.format
   };
 }
 
@@ -254,8 +292,8 @@ export function ProductMediaManager({ th, branchId, branchName, products, canMan
       const optimized = await optimizeProductImage(file);
       const form = new FormData();
       form.set("branch_id", branchId);
-      form.set("display", optimized.display, "display.webp");
-      form.set("thumbnail", optimized.thumbnail, "thumbnail.webp");
+      form.set("display", optimized.display, optimizedFileName("display", optimized.displayFormat));
+      form.set("thumbnail", optimized.thumbnail, optimizedFileName("thumbnail", optimized.thumbnailFormat));
       form.set("display_width", String(optimized.displayWidth));
       form.set("display_height", String(optimized.displayHeight));
       form.set("thumbnail_width", String(optimized.thumbnailWidth));
@@ -269,7 +307,7 @@ export function ProductMediaManager({ th, branchId, branchName, products, canMan
       if (!response.ok || body?.error || !body?.data) throw new Error(body?.error?.message ?? "อัปโหลดรูปสินค้าไม่สำเร็จ");
       if (body.data.asset) setImages((current) => ({ ...current, [product.id]: body.data!.asset! }));
       if (body.data.quota) setQuota(body.data.quota);
-      setNotice(th ? `บันทึกรูป ${product.name} แล้ว ระบบปรับเป็น WebP สำหรับ POS/QR อัตโนมัติ` : `Saved ${product.name}. Image was optimized for POS/QR.`);
+      setNotice(th ? `บันทึกรูป ${product.name} แล้ว ระบบปรับรูปให้เหมาะสำหรับ POS/QR อัตโนมัติ` : `Saved ${product.name}. Image was optimized for POS/QR.`);
     } catch (uploadError) {
       setError(uploadError instanceof Error ? uploadError.message : (th ? "อัปโหลดรูปสินค้าไม่สำเร็จ" : "Product image upload failed."));
     } finally {
@@ -360,7 +398,7 @@ export function ProductMediaManager({ th, branchId, branchName, products, canMan
 
       <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <div><h3 className="text-base font-extrabold text-slate-900">{th ? `รูปสินค้า · ${branchName}` : `Product Images · ${branchName}`}</h3><p className="mt-1 text-xs text-slate-500">{th ? "JPG/PNG/WebP สูงสุด 20 MB · ระบบครอป 1:1 และบีบอัดเป็น WebP อัตโนมัติ" : "JPG/PNG/WebP up to 20 MB · auto-cropped 1:1 and optimized to WebP."}</p></div>
+          <div><h3 className="text-base font-extrabold text-slate-900">{th ? `รูปสินค้า · ${branchName}` : `Product Images · ${branchName}`}</h3><p className="mt-1 text-xs text-slate-500">{th ? "JPG/PNG/WebP สูงสุด 20 MB · ระบบครอป 1:1 และบีบอัดอัตโนมัติ" : "JPG/PNG/WebP up to 20 MB · auto-cropped and optimized automatically."}</p></div>
           <input value={search} onChange={(event) => setSearch(event.target.value)} type="search" placeholder={th ? "ค้นหาชื่อ, SKU, หมวดหมู่..." : "Search name, SKU, category..."} className="min-h-10 w-full max-w-sm rounded-xl border border-slate-300 bg-white px-3 text-sm outline-none ring-blue-200 focus:ring-2" />
         </div>
 
