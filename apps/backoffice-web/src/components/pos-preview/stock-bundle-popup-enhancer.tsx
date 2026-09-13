@@ -111,7 +111,7 @@ export function StockBundlePopupEnhancer() {
   const [loadedModalKey, setLoadedModalKey] = useState("");
 
   useEffect(() => {
-    if (typeof window === "undefined" || !window.location.pathname.includes("/preview/pos/stock")) return;
+    if (typeof window === "undefined") return;
 
     let frame = 0;
     const sync = () => {
