@@ -1,0 +1,48 @@
+name: Promote validated bundle hotfix to Production
+
+on:
+  push:
+    branches:
+      - ops/promote-bundle-prod-20260914
+
+permissions:
+  contents: read
+
+jobs:
+  promote:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      DEPLOYMENT_URL: https://cp-ipos-r38ulrfy0-sstdevelopaminnos-projects.vercel.app
+      TEAM_SLUG: sstdevelopaminnos-projects
+    steps:
+      - name: Require Vercel token
+        shell: bash
+        run: |
+          if [ -z "${VERCEL_TOKEN:-}" ]; then
+            echo "VERCEL_TOKEN repository secret is not configured."
+            exit 2
+          fi
+
+      - name: Promote exact validated deployment
+        run: >-
+          npx --yes vercel@59.11.7 promote "$DEPLOYMENT_URL"
+          --token="$VERCEL_TOKEN"
+          --scope="$TEAM_SLUG"
+          --yes
+
+      - name: Production HTTP smoke
+        shell: bash
+        run: |
+          for i in 1 2 3 4 5; do
+            code="$(curl -sS -o /tmp/cpipos.html -w '%{http_code}' https://cp-ipos-web.vercel.app/login/store || true)"
+            if [ "$code" = "200" ]; then
+              grep -q 'CpIPOS' /tmp/cpipos.html
+              echo "Production login smoke passed."
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "Production login smoke did not return 200 in time."
+          exit 1
