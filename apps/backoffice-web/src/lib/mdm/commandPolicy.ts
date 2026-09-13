@@ -4,7 +4,7 @@ import {
   evaluateMdmEligibility,
 } from './eligibility';
 
-export type MdmActorRole = 'owner' | 'admin' | 'mdm_admin' | 'support' | 'viewer' | 'unknown';
+export type MdmActorRole = 'owner' | 'admin' | 'it_admin' | 'mdm_admin' | 'support' | 'viewer' | 'unknown';
 
 export interface MdmCommandRequest {
   tenantId: string;
@@ -34,7 +34,7 @@ export interface MdmCommandValidationResult {
   };
 }
 
-const OWNER_LEVEL_ROLES = new Set(['owner', 'admin', 'mdm_admin']);
+const OWNER_LEVEL_ROLES = new Set(['owner', 'admin', 'it_admin', 'mdm_admin']);
 const SUPPORT_LEVEL_ROLES = new Set(['support']);
 const VIEW_ONLY_ROLES = new Set(['viewer']);
 
