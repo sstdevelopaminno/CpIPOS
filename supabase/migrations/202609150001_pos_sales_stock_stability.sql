@@ -1,7 +1,8 @@
 -- POS sales / stock stability hardening.
 -- 1) Allow owner/manager sessions to coexist with a cashier on the same device.
 -- 2) Restore ingredient stock exactly once when a bill is voided/cancelled.
--- 3) Add a status/date index for sales reporting across busy branches.
+-- 3) Keep cancellation, stock return and payment removal in one database transaction.
+-- 4) Add a status/date index for sales reporting across busy branches.
 
 DROP INDEX IF EXISTS public.uq_pos_sessions_device_code_active_scope;
 DROP INDEX IF EXISTS public.uq_pos_sessions_device_id_active_scope;
@@ -81,7 +82,7 @@ BEGIN
     v_request_id := 'void_restore:' || p_order_id::text || ':' || rec.ingredient_id::text;
 
     -- The order row lock serializes all cancellation attempts for the same bill;
-    -- the request-id unique index is an additional idempotency barrier.
+    -- the request-id unique index is an additional exact-once barrier.
     IF NOT EXISTS (
       SELECT 1
         FROM public.stock_movements sm
@@ -128,6 +129,14 @@ BEGIN
       v_restored_quantity := v_restored_quantity + rec.restore_qty;
     END IF;
   END LOOP;
+
+  -- A cancelled bill must no longer contribute a captured payment. Keeping this
+  -- in the same transaction prevents a state where stock is restored but sales
+  -- totals still see a payment row after a partial API failure.
+  DELETE FROM public.payments p
+   WHERE p.tenant_id = p_tenant_id
+     AND p.branch_id = p_branch_id
+     AND p.order_id = p_order_id;
 
   v_metadata := coalesce(v_order.metadata, '{}'::jsonb)
     || jsonb_build_object(
