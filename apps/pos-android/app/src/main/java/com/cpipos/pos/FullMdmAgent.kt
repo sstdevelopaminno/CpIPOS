@@ -9,10 +9,10 @@ import org.json.JSONObject
 /**
  * Capability-gated Full MDM transport executor.
  *
- * Phase 2A intentionally advertises only commands implemented safely by this build:
- * diagnostics_ping and sync_policy. Device-wide lock/unlock/app-management capabilities
- * are NOT advertised yet, so the server-side eligibility policy cannot queue them to this
- * runtime until their Device Owner executors are implemented and validated separately.
+ * Phase 2B1 adds a real Device Owner remote-lock executor. The runtime advertises
+ * remote_lock only when this exact Full MDM version is running as Android Device Owner.
+ * Unlock, financing lock, revoke access, location, remote support and app-management
+ * capabilities remain unadvertised until each native executor is implemented and validated.
  */
 class FullMdmAgent(context: Context) {
     private val appContext = context.applicationContext
@@ -20,17 +20,19 @@ class FullMdmAgent(context: Context) {
 
     fun snapshot(): JSONObject {
         val enabled = BuildConfig.VERSION_NAME == FULL_MDM_VERSION
+        val deviceOwner = isDeviceOwner()
         val capabilities = JSONArray()
         if (enabled) {
             capabilities.put("mdm_core")
             capabilities.put("policy_sync")
+            if (deviceOwner) capabilities.put("remote_lock")
         }
 
         return JSONObject()
             .put("schema_version", if (enabled) 1 else 0)
             .put("app_flavor", "web-production")
             .put("native_generation", "1.0")
-            .put("is_device_owner", isDeviceOwner())
+            .put("is_device_owner", deviceOwner)
             .put("capabilities", capabilities)
             .put("policy_generation", prefs.getString(POLICY_GENERATION_KEY, null))
     }
@@ -92,10 +94,42 @@ class FullMdmAgent(context: Context) {
                     .put("executed_at_ms", System.currentTimeMillis())
             }
 
+            "lock_device" -> executeLockDevice()
+
             else -> "failed" to JSONObject()
                 .put("ok", false)
                 .put("code", "full_mdm_command_not_implemented")
                 .put("command_type", commandType)
+        }
+    }
+
+    private fun executeLockDevice(): Pair<String, JSONObject> {
+        if (!isDeviceOwner()) {
+            return "failed" to JSONObject()
+                .put("ok", false)
+                .put("code", "android_device_owner_required")
+                .put("action", "lock_device")
+        }
+
+        val manager = appContext.getSystemService(Context.DEVICE_POLICY_SERVICE) as? DevicePolicyManager
+            ?: return "failed" to JSONObject()
+                .put("ok", false)
+                .put("code", "device_policy_manager_unavailable")
+                .put("action", "lock_device")
+
+        return runCatching {
+            manager.lockNow()
+            "succeeded" to JSONObject()
+                .put("ok", true)
+                .put("action", "lock_device")
+                .put("device_owner", true)
+                .put("executed_at_ms", System.currentTimeMillis())
+        }.getOrElse { error ->
+            "failed" to JSONObject()
+                .put("ok", false)
+                .put("code", "device_lock_failed")
+                .put("action", "lock_device")
+                .put("error_type", error.javaClass.simpleName)
         }
     }
 
