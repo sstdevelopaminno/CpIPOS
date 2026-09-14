@@ -67,9 +67,9 @@ describe("bundle integer quantity and shared stock safety contract", () => {
     expect(salesService).toContain('message.includes("INSUFFICIENT_STOCK")');
     expect(salesService).toContain("validateStockBeforeDeduction");
     expect(salesService).toContain("resolveCompletedPaymentReplay");
-    expect(salesService).toContain('process.env.POS_SOFT_BYPASS_INSUFFICIENT_STOCK');
-    expect(salesService).toContain('process.env.POS_FORCE_DIRECT_CREATE_NON_DELIVERY');
-    expect(salesService).toContain('process.env.POS_FORCE_DIRECT_PAYMENT_COMPLETE');
+    expect(salesService).toContain('readExplicitOptInEnvFlag("POS_SOFT_BYPASS_INSUFFICIENT_STOCK")');
+    expect(salesService).toContain('readExplicitOptInEnvFlag("POS_FORCE_DIRECT_CREATE_NON_DELIVERY")');
+    expect(salesService).toContain('readExplicitOptInEnvFlag("POS_FORCE_DIRECT_PAYMENT_COMPLETE")');
   });
 
   it("confirms Android POS is a WebView wrapper over the same production web backend", () => {
