@@ -3,8 +3,7 @@ import type { ReactNode } from "react";
 import { AndroidPosMandatoryUpdate } from "@/components/android-pos/android-pos-mandatory-update";
 import { BrowserPrintAgentPosHost } from "@/components/printing/browser-print-agent-pos-host";
 import { PosMaintenanceNotice } from "@/components/pos/pos-maintenance-notice";
-import { StockBundlePopupEnhancer } from "@/components/pos-preview/stock-bundle-popup-enhancer";
-import { StockBundlePopupHostKeeper } from "@/components/pos-preview/stock-bundle-popup-host-keeper";
+import { StockBundleInlineController } from "@/components/pos-preview/stock-bundle-inline-controller";
 import { PwaBootstrap } from "@/components/pwa/pwa-bootstrap";
 import { ThaiMojibakeRecovery } from "@/components/system/thai-mojibake-recovery";
 import "./globals.css";
@@ -41,8 +40,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
       <body className="m-0 h-full w-full overflow-hidden p-0">
         <ThaiMojibakeRecovery />
         {children}
-        <StockBundlePopupEnhancer />
-        <StockBundlePopupHostKeeper />
+        <StockBundleInlineController />
         <PosMaintenanceNotice />
         <AndroidPosMandatoryUpdate />
         <PwaBootstrap />
