@@ -15,6 +15,10 @@ const popupRoute = readFileSync(
   resolve(process.cwd(), "src/app/api/backoffice/bundles/popup/route.ts"),
   "utf8",
 );
+const canonicalBundleRoute = readFileSync(
+  resolve(process.cwd(), "src/app/api/backoffice/bundles/route.ts"),
+  "utf8",
+);
 const salesService = readFileSync(
   resolve(process.cwd(), "src/lib/services/pos-sales-service.ts"),
   "utf8",
@@ -48,12 +52,17 @@ describe("bundle integer quantity and shared stock safety contract", () => {
     expect(picker).toContain('event.key === "ArrowDown"');
   });
 
-  it("rejects fractional and below-one bundle quantities before product conversion", () => {
-    expect(popupRoute).toContain("Number.isInteger(qty)");
-    expect(popupRoute).toContain("qty < 1");
-    expect(popupRoute).toContain('"invalid_bundle_item_quantity"');
+  it("rejects fractional and below-one bundle quantities at both API entry points", () => {
+    for (const source of [popupRoute, canonicalBundleRoute]) {
+      expect(source).toContain("Number.isInteger(qty)");
+      expect(source).toContain("qty < 1");
+      expect(source).toContain('"invalid_bundle_item_quantity"');
+    }
     expect(popupRoute.indexOf("hasInvalidBundleQuantity(body.items)")).toBeLessThan(
       popupRoute.indexOf("const productId"),
+    );
+    expect(canonicalBundleRoute.indexOf("hasInvalidBundleQuantity(body.items)")).toBeLessThan(
+      canonicalBundleRoute.indexOf("const name"),
     );
   });
 
