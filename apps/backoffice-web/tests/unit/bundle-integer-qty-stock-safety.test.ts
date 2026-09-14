@@ -3,6 +3,10 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 const workspaceRoot = resolve(process.cwd(), "../..");
+const controller = readFileSync(
+  resolve(process.cwd(), "src/components/pos-preview/stock-bundle-inline-controller.tsx"),
+  "utf8",
+);
 const picker = readFileSync(
   resolve(process.cwd(), "src/components/pos-preview/stock-bundle-picker-pagination.tsx"),
   "utf8",
@@ -25,12 +29,22 @@ const migration = readFileSync(
 );
 
 describe("bundle integer quantity and shared stock safety contract", () => {
-  it("forces bundle component controls to whole numbers with a minimum of one", () => {
+  it("forces bundle component controls to whole numbers with a minimum of one at the React source", () => {
+    expect(controller).toContain("function normalizeBundleQuantity");
+    expect(controller).toContain("Math.max(1, Math.round(quantity))");
+    expect(controller).toContain("min={1}");
+    expect(controller).toContain("step={1}");
+    expect(controller).toContain('inputMode="numeric"');
+    expect(controller).toContain('[".", ",", "e", "E", "+", "-"]');
+    expect(controller).not.toContain("min={0.01}");
+    expect(controller).not.toContain('step="0.01"');
+  });
+
+  it("keeps a DOM-level guard in case a stale WebView rehydrates old input attributes", () => {
     expect(picker).toContain('input.min = "1"');
     expect(picker).toContain('input.step = "1"');
     expect(picker).toContain('input.inputMode = "numeric"');
     expect(picker).toContain("Math.max(1, Math.round(parsed))");
-    expect(picker).toContain('[".", ",", "e", "E", "+", "-"]');
     expect(picker).toContain('event.key === "ArrowDown"');
   });
 
