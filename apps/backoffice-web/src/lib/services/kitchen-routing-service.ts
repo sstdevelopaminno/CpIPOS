@@ -92,9 +92,10 @@ async function shouldSkipAutomaticQrKitchenPrint(args: { tenantId: string; branc
     .eq("tenant_id", args.tenantId)
     .eq("branch_id", args.branchId)
     .eq("id", args.orderId)
-    .maybeSingle<{ channel: string | null }>();
+    .maybeSingle();
   if (error) throw new Error(error.message);
-  if (String(data?.channel ?? "") !== "table_qr") return false;
+  const orderRow = data as { channel?: string | null } | null;
+  if (String(orderRow?.channel ?? "") !== "table_qr") return false;
 
   const policy = await loadTableQrAutomationPolicyForScope({
     tenantId: args.tenantId,
@@ -143,9 +144,6 @@ export async function queueMissingKitchenPrintJobsForOrder(args: {
   const printAuth = args.auth;
   const missingTickets = ticketRows.filter((ticket) => !ticketsWithJobs.has(ticket.id));
 
-  // Routing each kitchen zone serially made the QR-confirm button wait for every printer
-  // assignment one after another. Tickets are independent and print-job creation is
-  // idempotent, so queue them concurrently while still awaiting durable DB enqueue.
   const queuedCounts = await Promise.all(
     missingTickets.map(async (ticket) => {
       const jobs = await queueRoutedKitchenTicketPrint({
@@ -206,9 +204,6 @@ export async function dispatchOrderToKitchen(args: {
   const action = args.action ?? "new";
   const printAuth = makePrintAuth(args);
 
-  // Order-item insertion already creates Kitchen Tickets atomically in the database.
-  // A later POS/API retry must repair missing print jobs on those authoritative tickets,
-  // not create another ticket batch with a different event key.
   if (action === "new" && !args.orderItemIds?.length && printAuth) {
     try {
       const repair = await queueMissingKitchenPrintJobsForOrder({
