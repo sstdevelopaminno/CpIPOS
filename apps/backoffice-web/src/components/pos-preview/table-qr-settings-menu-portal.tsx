@@ -17,6 +17,14 @@ function TableQrMenuIcon() {
   );
 }
 
+function OrderKitchenIcon() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M4 5h11a4 4 0 0 1 4 4v8H8a4 4 0 0 1-4-4V5Z" /><path d="M8 9h7M8 13h5" /><path d="M19 7h2v8h-2" />
+    </svg>
+  );
+}
+
 function TimelineIcon() {
   return (
     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -58,6 +66,10 @@ export function TableQrSettingsMenuPortal({ lang, timelineEnabled = false }: { l
   }, []);
   if (!target) return null;
   return createPortal(<>
+    <Link href="/preview/pos/settings/order-kitchen" prefetch={false} className={cardClass}>
+      <span className="inline-flex h-10 w-10 items-center justify-center rounded-lg bg-orange-50 text-orange-700 group-hover:bg-orange-100"><OrderKitchenIcon /></span>
+      <span className="min-w-0"><span className="block text-base font-black text-slate-950">{lang === "th" ? "การแจ้งเตือนออเดอร์และครัว" : "Order & Kitchen Automation"}</span><span className="mt-1 block text-sm font-medium leading-5 text-slate-500">{lang === "th" ? "เปิด/ปิดแจ้งเตือน QR ส่งเข้าครัว และพิมพ์ใบครัวอัตโนมัติ" : "Control QR alerts, kitchen dispatch and automatic kitchen printing"}</span></span><span className="text-slate-400">›</span>
+    </Link>
     <Link href="/preview/pos/settings/table-qr" prefetch={false} className={cardClass}>
       <span className="inline-flex h-10 w-10 items-center justify-center rounded-lg bg-slate-100 text-slate-700 group-hover:bg-blue-100 group-hover:text-blue-700"><TableQrMenuIcon /></span>
       <span className="min-w-0"><span className="block text-base font-black text-slate-950">{lang === "th" ? "ตั้งค่า QR โต๊ะ" : "Table QR Settings"}</span><span className="mt-1 block text-sm font-medium leading-5 text-slate-500">{lang === "th" ? "กำหนดหมดอายุตามเวลา/ชั่วโมง หรือใช้งานตามบิล" : "Choose timed/hourly expiry or bill-lifecycle mode"}</span></span><span className="text-slate-400">›</span>
