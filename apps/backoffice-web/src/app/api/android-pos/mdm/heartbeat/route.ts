@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { GET as baseGet, POST as basePost } from "@/lib/android-pos/mdm-heartbeat-base";
+import { syncFullMdmHeartbeat } from "@/lib/android-pos/full-mdm-transport";
 import { syncAndroidHeartbeatToItPlane } from "@/lib/android-pos/it-mdm-bridge";
 import { buildAndroidModernUpdateOffer } from "@/lib/android-runtime-release";
 import { reconcileModernPrinterInventory } from "@/lib/printing/printer-mdm-auto-registry";
@@ -61,11 +62,7 @@ function buildRecoveryCommands(scope: AutoScope, payload: JsonRecord | null): Re
   return actions
     .filter((action): action is RecoveryCommand["action"] => action === "clear_webview_cache" || action === "reload_webview")
     .slice(0, 2)
-    .map((action) => ({
-      id: `recovery-${action}-${generationMs}`,
-      action,
-      reason
-    }));
+    .map((action) => ({ id: `recovery-${action}-${generationMs}`, action, reason }));
 }
 
 async function findAutoScope(installId: string | null): Promise<AutoScope | null> {
@@ -93,11 +90,7 @@ async function findAutoScope(installId: string | null): Promise<AutoScope | null
 
 async function findTenantCode(tenantId: string): Promise<string | null> {
   const supabase = getPrimarySupabaseServiceClient();
-  const { data, error } = await supabase
-    .from("tenants")
-    .select("code")
-    .eq("id", tenantId)
-    .maybeSingle<{ code: string }>();
+  const { data, error } = await supabase.from("tenants").select("code").eq("id", tenantId).maybeSingle<{ code: string }>();
   if (error) return null;
   return data?.code ?? null;
 }
@@ -141,23 +134,26 @@ export async function POST(request: Request) {
   const recoveryCommands = recoveryEligible ? buildRecoveryCommands(scope, payload) : [];
   if (updaterTelemetry) await persistUpdaterTelemetry(scope, payload);
 
-  const itBridge = await syncAndroidHeartbeatToItPlane({
-    scope: {
-      id: scope.id,
-      tenant_id: scope.tenant_id,
-      branch_id: scope.branch_id,
-      device_code: scope.device_code
-    },
-    payload,
-    installId,
-    appVersion
-  }).catch((error) => {
-    console.error("[android-pos-mdm][it-plane] sync failed", {
-      device_code: scope.device_code,
-      message: error instanceof Error ? error.message : "unknown"
-    });
-    return { commands: [], latest_id: null, status: "unavailable" };
-  });
+  const [itBridge, fullMdm] = await Promise.all([
+    syncAndroidHeartbeatToItPlane({
+      scope: { id: scope.id, tenant_id: scope.tenant_id, branch_id: scope.branch_id, device_code: scope.device_code },
+      payload,
+      installId,
+      appVersion
+    }).catch((error) => {
+      console.error("[android-pos-mdm][it-plane] sync failed", {
+        device_code: scope.device_code,
+        message: error instanceof Error ? error.message : "unknown"
+      });
+      return { commands: [], latest_id: null, status: "unavailable" };
+    }),
+    syncFullMdmHeartbeat({
+      scope: { id: scope.id, tenant_id: scope.tenant_id, branch_id: scope.branch_id, device_code: scope.device_code },
+      payload,
+      installId,
+      appVersion
+    })
+  ]);
 
   const tenantCode = updaterTelemetry ? await findTenantCode(scope.tenant_id) : null;
   const stagedUpdateOffer = updaterTelemetry && tenantCode
@@ -172,12 +168,7 @@ export async function POST(request: Request) {
 
   const auto = printerEligible
     ? await reconcileModernPrinterInventory({
-        device: {
-          id: scope.id,
-          tenantId: scope.tenant_id,
-          branchId: scope.branch_id,
-          deviceCode: scope.device_code
-        },
+        device: { id: scope.id, tenantId: scope.tenant_id, branchId: scope.branch_id, deviceCode: scope.device_code },
         payload
       }).catch((error) => {
         console.error("[printer-auto-registry] reconciliation failed", { message: error instanceof Error ? error.message : "unknown" });
@@ -196,6 +187,15 @@ export async function POST(request: Request) {
     data: {
       ...data,
       commands,
+      full_mdm_commands: fullMdm.commands,
+      full_mdm: {
+        status: fullMdm.status,
+        device_id: fullMdm.device_id,
+        eligible: fullMdm.eligible,
+        mode: fullMdm.mode,
+        reasons: fullMdm.reasons,
+        acknowledged_result_ids: fullMdm.acknowledged_result_ids
+      },
       update_offer: stagedUpdateOffer ?? data.update_offer ?? null,
       it_mdm: {
         health_status: itBridge.status,
@@ -204,10 +204,7 @@ export async function POST(request: Request) {
         operational_plane: "CpiPOS-002"
       },
       ...(printerEligible ? {
-        auto_printer_registry: {
-          eligible: auto.eligible,
-          candidate_count: auto.candidateCount
-        }
+        auto_printer_registry: { eligible: auto.eligible, candidate_count: auto.candidateCount }
       } : {})
     }
   }, {
