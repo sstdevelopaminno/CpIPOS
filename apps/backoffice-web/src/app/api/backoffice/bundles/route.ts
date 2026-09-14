@@ -46,14 +46,23 @@ function cleanSku(value: unknown, fallback: string) {
   return normalized || fallback;
 }
 
+function hasInvalidBundleQuantity(input: unknown) {
+  if (!Array.isArray(input)) return false;
+  return (input as BundleLineInput[]).some((raw) => {
+    const productId = String(raw?.product_id ?? "").trim();
+    const qty = Number(raw?.qty);
+    return Boolean(productId) && (!Number.isFinite(qty) || !Number.isInteger(qty) || qty < 1);
+  });
+}
+
 function normalizeItems(input: unknown): Array<{ product_id: string; qty: number }> {
   if (!Array.isArray(input)) return [];
   const merged = new Map<string, number>();
   for (const raw of input as BundleLineInput[]) {
     const productId = String(raw?.product_id ?? "").trim();
     const qty = Number(raw?.qty ?? 0);
-    if (!productId || !Number.isFinite(qty) || qty <= 0) continue;
-    merged.set(productId, Number(((merged.get(productId) ?? 0) + qty).toFixed(3)));
+    if (!productId || !Number.isFinite(qty) || !Number.isInteger(qty) || qty < 1) continue;
+    merged.set(productId, (merged.get(productId) ?? 0) + qty);
   }
   return Array.from(merged, ([product_id, qty]) => ({ product_id, qty }));
 }
@@ -151,6 +160,13 @@ export async function POST(req: Request) {
 
     const body = (await req.json()) as BundlePayload;
     if (body.action !== "upsert_bundle") return fail("invalid_action", "action must be upsert_bundle.", 422);
+    if (hasInvalidBundleQuantity(body.items)) {
+      return fail(
+        "invalid_bundle_item_quantity",
+        "Bundle item quantity must be a whole number greater than or equal to 1.",
+        422,
+      );
+    }
 
     const name = String(body.name ?? "").trim();
     const category = String(body.category ?? "Bundle").trim() || "Bundle";
@@ -342,44 +358,34 @@ export async function POST(req: Request) {
       if (createdNew) {
         await supabase.from("products").delete().eq("tenant_id", auth.tenantId!).eq("branch_id", auth.branchId!).eq("id", productId);
       } else if (previousProduct) {
-        await supabase
-          .from("products")
-          .update({
-            sku: previousProduct.sku,
-            name: previousProduct.name,
-            category: previousProduct.category,
-            price: previousProduct.price,
-            is_combo: previousProduct.is_combo,
-            is_active: previousProduct.is_active,
-            stock_deduction_mode: previousProduct.stock_deduction_mode,
-            sell_unit: previousProduct.sell_unit,
-            metadata: previousProduct.metadata
-          })
-          .eq("tenant_id", auth.tenantId!)
-          .eq("branch_id", auth.branchId!)
-          .eq("id", productId);
+        await supabase.from("products").update({ ...previousProduct, updated_at: new Date().toISOString() }).eq("tenant_id", auth.tenantId!).eq("branch_id", auth.branchId!).eq("id", productId);
         if (previousCombo.length) {
           await supabase.from("product_combo_items").insert(previousCombo.map((row) => ({
-            tenant_id: auth.tenantId!, branch_id: auth.branchId!, combo_product_id: productId,
-            child_product_id: row.child_product_id, qty: row.qty
-          })));
+            tenant_id: auth.tenantId!,
+            branch_id: auth.branchId!,
+            combo_product_id: productId,
+            child_product_id: row.child_product_id,
+            qty: row.qty
+          }))
         }
         if (previousRecipes.length) {
           await supabase.from("recipes").insert(previousRecipes.map((row) => ({
-            tenant_id: auth.tenantId!, branch_id: auth.branchId!, product_id: productId,
-            ingredient_id: row.ingredient_id, quantity_per_item: row.quantity_per_item,
+            tenant_id: auth.tenantId!,
+            branch_id: auth.branchId!,
+            product_id: productId,
+            ingredient_id: row.ingredient_id,
+            quantity_per_item: row.quantity_per_item,
             applies_when_takeaway_only: row.applies_when_takeaway_only
-          })));
+          }))
         }
       }
-      return fail("bundle_write_failed", writeError instanceof Error ? writeError.message : "Bundle write failed.", 500);
+      throw writeError;
     }
 
-    const view = await loadBundleView(auth.tenantId!, auth.branchId!);
-    return ok({ product_id: productId, created: createdNew, ...view }, createdNew ? 201 : 200);
+    return ok(await loadBundleView(auth.tenantId!, auth.branchId!));
   } catch (error) {
     const featureError = featureGateFail(error);
     if (featureError) return featureError;
-    return fail("bundle_action_failed", error instanceof Error ? error.message : "Unknown error", 500);
+    return fail("bundle_upsert_failed", error instanceof Error ? error.message : "Unable to save bundle product.", 500);
   }
 }
