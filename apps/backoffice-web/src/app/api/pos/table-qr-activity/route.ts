@@ -2,6 +2,8 @@ import { fail, ok } from "@/lib/http";
 import { isRestaurantQrInternalReviewSource, resolveRestaurantQrKitchenFlags } from "@/lib/restaurant-qr-profile";
 import { getPosApiAuthContext } from "@/lib/pos-api-auth";
 import { PosGuardError } from "@/lib/pos-session-guard";
+import { readThroughRuntimeCache } from "@/lib/route-runtime-cache";
+import { loadTableQrAutomationPolicyForScope } from "@/lib/services/table-qr-automation-policy-service";
 import { getRoutedSupabaseServiceClient } from "@/lib/tenant-data-router";
 
 type ServiceEventType = "call_staff" | "request_checkout";
@@ -31,7 +33,6 @@ type ServiceEventRow = {
 function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
 }
-
 
 const ACTIVE_QR_REVIEW_TABLE_SESSION_STATUSES = new Set(["open", "ordering"]);
 
@@ -71,34 +72,54 @@ async function filterActionableRestaurantQrActivityOrders(args: {
   );
   return args.rows.filter((row) => isActionableRestaurantQrOrder(row, activeTableSessionIds)).slice(0, 1);
 }
+
 function isAcknowledged(payload: Record<string, unknown> | null) {
   return typeof payload?.acknowledged_at === "string" && payload.acknowledged_at.trim().length > 0;
+}
+
+async function loadFoodOrderPopupEnabled(tenantId: string, branchId: string) {
+  try {
+    const cached = await readThroughRuntimeCache<boolean>({
+      key: `table-qr-popup-policy:${tenantId}:${branchId}`,
+      ttlMs: 15_000,
+      staleIfErrorMs: 300_000,
+      loaderTimeoutMs: 2_500,
+      timeoutCode: "table_qr_popup_policy_timeout",
+      loader: async () => {
+        const policy = await loadTableQrAutomationPolicyForScope({ tenantId, branchId });
+        return policy.effective.popup_enabled;
+      }
+    });
+    return cached.value;
+  } catch {
+    // Fail open: a temporary settings lookup problem must not hide operational alerts.
+    return true;
+  }
 }
 
 export async function GET(request: Request) {
   try {
     const auth = await getPosApiAuthContext({ requireBranchScope: true, requiredPermission: "sales:view" });
-    const flags = resolveRestaurantQrKitchenFlags({ tenantId: auth.tenantId, branchId: auth.branchId });
+    const tenantId = auth.tenantId!;
+    const branchId = auth.branchId!;
+    const flags = resolveRestaurantQrKitchenFlags({ tenantId, branchId });
     const restaurantQrPendingOnly = flags.qr_pos_review_required;
     const { searchParams } = new URL(request.url);
     const sinceRaw = searchParams.get("since")?.trim() || new Date(Date.now() - 15_000).toISOString();
     const since = Number.isFinite(new Date(sinceRaw).getTime()) ? new Date(sinceRaw).toISOString() : new Date(Date.now() - 15_000).toISOString();
     const supabase = getRoutedSupabaseServiceClient();
+    const foodOrderPopupEnabled = await loadFoodOrderPopupEnabled(tenantId, branchId);
 
     let rawRows: ActivityRow[] = [];
     let cursor = since;
 
     if (restaurantQrPendingOnly) {
-      // Restaurant QR order alerts are an acknowledgement queue. Never let the polling cursor
-      // hide an older unreviewed order, and expose only the oldest pending order globally.
-      // Service requests still use the normal cursor and are returned before the pending
-      // order so a latest-wins client cannot replace the order review with a newer event.
       const [pendingOrderResult, serviceResult] = await Promise.all([
         supabase
           .from("table_qr_orders")
           .select("id,table_id,order_id,request_id,table_session_id,event_type,item_count,subtotal,payload,review_status,created_at")
-          .eq("tenant_id", auth.tenantId!)
-          .eq("branch_id", auth.branchId!)
+          .eq("tenant_id", tenantId)
+          .eq("branch_id", branchId)
           .eq("event_type", "order")
           .eq("review_status", "pending_pos_review")
           .order("created_at", { ascending: true })
@@ -106,8 +127,8 @@ export async function GET(request: Request) {
         supabase
           .from("table_qr_orders")
           .select("id,table_id,order_id,request_id,table_session_id,event_type,item_count,subtotal,payload,review_status,created_at")
-          .eq("tenant_id", auth.tenantId!)
-          .eq("branch_id", auth.branchId!)
+          .eq("tenant_id", tenantId)
+          .eq("branch_id", branchId)
           .in("event_type", ["call_staff", "request_checkout"])
           .gt("created_at", since)
           .order("created_at", { ascending: true })
@@ -117,15 +138,20 @@ export async function GET(request: Request) {
       if (serviceResult.error) throw new Error(serviceResult.error.message);
 
       const serviceRows = ((serviceResult.data ?? []) as ActivityRow[]).filter((row) => !isAcknowledged(row.payload));
-      const pendingRows = await filterActionableRestaurantQrActivityOrders({ supabase, tenantId: auth.tenantId!, branchId: auth.branchId!, rows: (pendingOrderResult.data ?? []) as ActivityRow[] });
+      const pendingRows = await filterActionableRestaurantQrActivityOrders({
+        supabase,
+        tenantId,
+        branchId,
+        rows: (pendingOrderResult.data ?? []) as ActivityRow[]
+      });
       rawRows = [...serviceRows, ...pendingRows];
       cursor = ((serviceResult.data ?? []) as ActivityRow[]).at(-1)?.created_at ?? since;
     } else {
       const { data: rows, error } = await supabase
         .from("table_qr_orders")
         .select("id,table_id,order_id,request_id,table_session_id,event_type,item_count,subtotal,payload,review_status,created_at")
-        .eq("tenant_id", auth.tenantId!)
-        .eq("branch_id", auth.branchId!)
+        .eq("tenant_id", tenantId)
+        .eq("branch_id", branchId)
         .in("event_type", ["order", "call_staff", "request_checkout"])
         .gt("created_at", since)
         .order("created_at", { ascending: true })
@@ -137,6 +163,7 @@ export async function GET(request: Request) {
 
     const visibleRows = rawRows.filter((row) => {
       if (row.event_type === "order") {
+        if (!foodOrderPopupEnabled) return false;
         return !restaurantQrPendingOnly || isActionableRestaurantQrOrder(row, new Set([row.table_session_id ?? ""]));
       }
       return !isAcknowledged(row.payload);
@@ -146,8 +173,8 @@ export async function GET(request: Request) {
       ? await supabase
           .from("dining_tables")
           .select("id,table_code,table_name")
-          .eq("tenant_id", auth.tenantId!)
-          .eq("branch_id", auth.branchId!)
+          .eq("tenant_id", tenantId)
+          .eq("branch_id", branchId)
           .in("id", tableIds)
       : { data: [], error: null };
     if (tableResult.error) throw new Error(tableResult.error.message);
