@@ -8,6 +8,7 @@ on:
     paths:
       - "apps/pos-android/**"
       - "apps/backoffice-web/src/lib/android-pos/full-mdm-transport.ts"
+      - "apps/backoffice-web/src/lib/mdm/eligibility.ts"
       - "apps/backoffice-web/src/app/api/android-pos/mdm/heartbeat/route.ts"
       - ".github/workflows/validate-mdm-android-1023.yml"
 
@@ -44,17 +45,27 @@ jobs:
 
       - name: Validate Full MDM source contract
         run: |
-          grep -qF -- 'private const val FULL_MDM_VERSION = "1.0.23"' "${ANDROID_RUNTIME_MODULE}/app/src/main/java/com/cpipos/pos/FullMdmAgent.kt"
+          agent="${ANDROID_RUNTIME_MODULE}/app/src/main/java/com/cpipos/pos/FullMdmAgent.kt"
+          admin_policy="${ANDROID_RUNTIME_MODULE}/app/src/main/res/xml/cpipos_device_admin.xml"
+          transport="apps/backoffice-web/src/lib/android-pos/full-mdm-transport.ts"
+          eligibility="apps/backoffice-web/src/lib/mdm/eligibility.ts"
+
+          grep -qF -- 'private const val FULL_MDM_VERSION = "1.0.23"' "$agent"
           grep -qF -- '.put("full_mdm", fullMdmAgent.snapshot())' "${ANDROID_RUNTIME_MODULE}/app/src/main/java/com/cpipos/pos/PosMdmAgent.kt"
           grep -qF -- '.put("full_mdm_results", fullMdmAgent.pendingResults())' "${ANDROID_RUNTIME_MODULE}/app/src/main/java/com/cpipos/pos/PosMdmAgent.kt"
-          if grep -qF -- 'capabilities.put("remote_lock")' "${ANDROID_RUNTIME_MODULE}/app/src/main/java/com/cpipos/pos/FullMdmAgent.kt"; then
-            echo "remote_lock must not be advertised before its executor is validated"
-            exit 1
-          fi
-          if grep -qF -- 'capabilities.put("app_uninstall")' "${ANDROID_RUNTIME_MODULE}/app/src/main/java/com/cpipos/pos/FullMdmAgent.kt"; then
-            echo "app_uninstall must not be advertised before its executor is validated"
-            exit 1
-          fi
+
+          grep -qF -- 'capabilities.put("remote_lock")' "$agent"
+          grep -qF -- 'manager.lockNow()' "$agent"
+          grep -qF -- '<force-lock />' "$admin_policy"
+          grep -qF -- '"lock_device"' "$transport"
+          grep -qF -- "allowedCommands.push('lock_device')" "$eligibility"
+
+          for capability in remote_unlock financing_lock revoke_access app_uninstall; do
+            if grep -qF -- "capabilities.put(\"${capability}\")" "$agent"; then
+              echo "${capability} must not be advertised before its executor is validated"
+              exit 1
+            fi
+          done
 
       - name: Run Android unit tests as 1.0.23 candidate
         working-directory: ${{ env.ANDROID_RUNTIME_MODULE }}
