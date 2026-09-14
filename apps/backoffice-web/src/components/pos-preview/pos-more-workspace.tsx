@@ -63,7 +63,7 @@ export function PosMoreWorkspace({ lang, role }: { lang: Language; role: PosRole
   }, []);
 
   function isLocked(href: string) {
-    const feature = href === "/preview/pos/product-sales" ? "advanced_sales_reports" : featureForPosRoute(href);
+    const feature = featureForPosRoute(href);
     return Boolean(enabledFeatures !== null && feature && enabledFeatures[feature] === false);
   }
 
