@@ -29,6 +29,33 @@ function isEmptyStateRow(row: HTMLTableRowElement) {
   return Boolean(row.querySelector("td[colspan]"));
 }
 
+function isBundleQuantityInput(target: EventTarget | null): target is HTMLInputElement {
+  return target instanceof HTMLInputElement &&
+    target.type === "number" &&
+    target.closest("table") !== null;
+}
+
+function normalizeWholeQuantity(value: string) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return 1;
+  return Math.max(1, Math.round(parsed));
+}
+
+function hardenQuantityInputs(panel: HTMLElement) {
+  panel.querySelectorAll<HTMLInputElement>('table tbody input[type="number"]').forEach((input) => {
+    input.min = "1";
+    input.step = "1";
+    input.inputMode = "numeric";
+    input.pattern = "[0-9]*";
+    input.setAttribute("aria-valuemin", "1");
+    input.dataset.cpiposWholeQuantity = "true";
+
+    if (input.value.trim()) {
+      input.value = String(normalizeWholeQuantity(input.value));
+    }
+  });
+}
+
 export function StockBundlePickerPagination() {
   const [panel, setPanel] = useState<HTMLElement | null>(null);
   const [host, setHost] = useState<HTMLElement | null>(null);
@@ -92,6 +119,38 @@ export function StockBundlePickerPagination() {
       const dataRows = rows.filter((row) => !isEmptyStateRow(row));
       setRowCount(dataRows.length);
       if (dataRows.length === 0) setPage(1);
+      hardenQuantityInputs(panel);
+    };
+
+    const sanitizeInput = (event: Event) => {
+      if (!isBundleQuantityInput(event.target)) return;
+      const input = event.target;
+      input.min = "1";
+      input.step = "1";
+      if (!input.value.trim()) return;
+      const normalized = String(normalizeWholeQuantity(input.value));
+      if (input.value !== normalized) input.value = normalized;
+    };
+
+    const clampOnBlur = (event: FocusEvent) => {
+      if (!isBundleQuantityInput(event.target)) return;
+      const input = event.target;
+      const normalized = String(normalizeWholeQuantity(input.value));
+      if (input.value === normalized) return;
+      input.value = normalized;
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+      input.dispatchEvent(new Event("change", { bubbles: true }));
+    };
+
+    const blockFractionKeys = (event: KeyboardEvent) => {
+      if (!isBundleQuantityInput(event.target)) return;
+      if ([".", ",", "e", "E", "+", "-"].includes(event.key)) {
+        event.preventDefault();
+        return;
+      }
+      if (event.key === "ArrowDown" && Number(event.target.value || 1) <= 1) {
+        event.preventDefault();
+      }
     };
 
     syncRows();
@@ -108,10 +167,18 @@ export function StockBundlePickerPagination() {
     const searchInput = panel.querySelector<HTMLInputElement>('input[placeholder*="ค้นหาชื่อสินค้า"],input[placeholder*="Search"]');
     const resetPage = () => setPage(1);
     searchInput?.addEventListener("input", resetPage);
+    panel.addEventListener("input", sanitizeInput, true);
+    panel.addEventListener("change", sanitizeInput, true);
+    panel.addEventListener("blur", clampOnBlur, true);
+    panel.addEventListener("keydown", blockFractionKeys, true);
 
     return () => {
       observer.disconnect();
       searchInput?.removeEventListener("input", resetPage);
+      panel.removeEventListener("input", sanitizeInput, true);
+      panel.removeEventListener("change", sanitizeInput, true);
+      panel.removeEventListener("blur", clampOnBlur, true);
+      panel.removeEventListener("keydown", blockFractionKeys, true);
       paginationHost?.remove();
       setHost(null);
     };
@@ -136,6 +203,7 @@ export function StockBundlePickerPagination() {
       row.style.display = index >= start && index < end ? "" : "none";
     });
 
+    hardenQuantityInputs(panel);
     const table = panel.querySelector<HTMLTableElement>("table");
     table?.parentElement?.scrollTo({ top: 0, behavior: "smooth" });
 
