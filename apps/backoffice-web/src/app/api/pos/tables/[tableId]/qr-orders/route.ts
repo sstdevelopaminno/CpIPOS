@@ -3,6 +3,7 @@ import { fail, ok } from "@/lib/http";
 import { getPosApiAuthContext } from "@/lib/pos-api-auth";
 import { featureGateFail, requirePosApiFeature } from "@/lib/pos-api-feature-guard";
 import { readThroughRuntimeCache } from "@/lib/route-runtime-cache";
+import { loadTableQrAutomationPolicy } from "@/lib/services/table-qr-automation-policy-service";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
 import { reviewPendingTableQrOrder } from "@/lib/table-qr-ordering";
 
@@ -79,7 +80,6 @@ export async function GET(request: Request, context: { params: Promise<{ tableId
     const cacheKey = `pos-table-qr-orders:${auth.tenantId}:${auth.branchId}:${tableId}:${restaurantQrPendingOnly ? "pending-fifo-v2" : "all"}:${after ?? "recent"}`;
     const { value: payload, source: cacheSource } = await readThroughRuntimeCache({
       key: cacheKey,
-      // Keep Restaurant QR nearly real-time without forcing every 2-3s poll to hit Postgres.
       ttlMs: restaurantQrPendingOnly ? 350 : 2500,
       staleIfErrorMs: 10000,
       forceRefresh,
@@ -97,8 +97,6 @@ export async function GET(request: Request, context: { params: Promise<{ tableId
           .order("created_at", { ascending: true })
           .limit(restaurantQrPendingOnly ? 8 : 25);
         if (restaurantQrPendingOnly) {
-          // Restaurant QR is an acknowledgement queue. Keep returning the oldest pending
-          // submission until staff accepts/rejects it; newer submissions must wait.
           query = query.eq("review_status", "pending_pos_review");
         } else if (after) {
           query = query.gt("created_at", after);
@@ -153,6 +151,7 @@ export async function POST(request: Request, context: { params: Promise<{ tableI
     if (!submissionId) return withTiming(fail("missing_submission_id", "submission_id is required.", 422));
     if (action !== "accept" && action !== "reject") return withTiming(fail("invalid_review_action", "action must be accept or reject.", 422));
 
+    const policy = action === "accept" ? await loadTableQrAutomationPolicy(auth, auth.branchId) : null;
     const result = await reviewPendingTableQrOrder({
       auth,
       tableId,
@@ -161,7 +160,13 @@ export async function POST(request: Request, context: { params: Promise<{ tableI
       requestId,
       acceptedItemIndexes: Array.isArray(body?.accepted_item_indexes) ? body.accepted_item_indexes : null
     });
-    return withTiming(ok(result));
+    return withTiming(ok({
+      ...result,
+      ...(policy ? {
+        kitchen_sent: policy.effective.kitchen_auto_send_enabled,
+        kitchen_auto_print_enabled: policy.effective.kitchen_auto_print_enabled
+      } : {})
+    }));
   } catch (error) {
     const featureError = featureGateFail(error);
     if (featureError) return withTiming(featureError);
