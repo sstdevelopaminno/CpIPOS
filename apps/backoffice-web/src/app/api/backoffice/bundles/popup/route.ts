@@ -29,6 +29,14 @@ function delegateRequest(req: Request, body: PopupBundlePayload) {
   });
 }
 
+function hasInvalidBundleQuantity(items: PopupBundlePayload["items"]) {
+  if (!Array.isArray(items)) return false;
+  return items.some((item) => {
+    const qty = Number(item?.qty);
+    return !Number.isFinite(qty) || !Number.isInteger(qty) || qty < 1;
+  });
+}
+
 /**
  * Adapter used by the POS stock Add/Edit popup.
  *
@@ -51,6 +59,13 @@ export async function POST(req: Request) {
     const body = (await req.json()) as PopupBundlePayload;
     if (body.action !== "upsert_bundle") {
       return fail("invalid_action", "action must be upsert_bundle.", 422);
+    }
+    if (hasInvalidBundleQuantity(body.items)) {
+      return fail(
+        "invalid_bundle_item_quantity",
+        "Bundle item quantity must be a whole number greater than or equal to 1.",
+        422,
+      );
     }
 
     const productId = String(body.id ?? "").trim();
