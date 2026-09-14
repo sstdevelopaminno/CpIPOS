@@ -93,3 +93,11 @@ jobs:
         run: |
           test -f "${ANDROID_RUNTIME_MODULE}/app/build/outputs/apk/debug/app-debug.apk"
           echo "Android Full MDM 1.0.23 candidate compiled successfully."
+
+      - name: Upload debug APK for physical-device validation
+        uses: actions/upload-artifact@v4
+        with:
+          name: CpIPOS-Android-POS-1.0.23-MDM-DEBUG-TEST-ONLY
+          path: ${{ env.ANDROID_RUNTIME_MODULE }}/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 7
