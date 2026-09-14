@@ -3,6 +3,7 @@ import "server-only";
 import type { AuthContext } from "@/lib/auth-context";
 import { appendAuditLog } from "@/lib/audit-log";
 import { queueRoutedKitchenTicketPrint } from "@/lib/printing/routed-print-service";
+import { loadTableQrAutomationPolicyForScope } from "@/lib/services/table-qr-automation-policy-service";
 import { getRoutedSupabaseServiceClient } from "@/lib/tenant-data-router";
 
 type KitchenAction = "new" | "add" | "cancel" | "reprint";
@@ -83,6 +84,25 @@ async function loadKitchenTicketRowsForOrder(args: { tenantId: string; branchId:
   return (tickets ?? []) as unknown as KitchenTicketRow[];
 }
 
+async function shouldSkipAutomaticQrKitchenPrint(args: { tenantId: string; branchId: string; orderId: string }) {
+  const supabase = getRoutedSupabaseServiceClient();
+  const { data, error } = await supabase
+    .from("orders")
+    .select("channel")
+    .eq("tenant_id", args.tenantId)
+    .eq("branch_id", args.branchId)
+    .eq("id", args.orderId)
+    .maybeSingle<{ channel: string | null }>();
+  if (error) throw new Error(error.message);
+  if (String(data?.channel ?? "") !== "table_qr") return false;
+
+  const policy = await loadTableQrAutomationPolicyForScope({
+    tenantId: args.tenantId,
+    branchId: args.branchId
+  });
+  return !policy.effective.kitchen_auto_print_enabled;
+}
+
 export async function queueMissingKitchenPrintJobsForOrder(args: {
   auth: AuthContext;
   orderId: string;
@@ -96,6 +116,19 @@ export async function queueMissingKitchenPrintJobsForOrder(args: {
     orderId: args.orderId
   });
   if (ticketRows.length === 0) return { ticketCount: 0, queuedPrintJobCount: 0, skippedExistingPrintJobCount: 0 };
+
+  if (await shouldSkipAutomaticQrKitchenPrint({
+    tenantId: args.auth.tenantId,
+    branchId: args.auth.branchId,
+    orderId: args.orderId
+  })) {
+    return {
+      ticketCount: ticketRows.length,
+      queuedPrintJobCount: 0,
+      skippedExistingPrintJobCount: 0,
+      skippedByPolicy: true
+    };
+  }
 
   const ticketIds = ticketRows.map((ticket) => ticket.id);
   const { data: existingJobs, error: jobError } = await supabase
