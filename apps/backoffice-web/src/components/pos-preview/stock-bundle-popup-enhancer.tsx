@@ -24,9 +24,11 @@ type BundleView = {
   eligible_items?: SaleProduct[];
 };
 
-type ApiEnvelope<T> = {
-  data: T | null;
-  error: { code?: string; message?: string } | null;
+type ApiBody<T> = {
+  data?: T | null;
+  error?: unknown;
+  ok?: boolean;
+  feature?: string | null;
 };
 
 type SelectionMap = Record<string, { selected: boolean; qty: string }>;
@@ -34,56 +36,96 @@ type SelectionMap = Record<string, { selected: boolean; qty: string }>;
 const HOST_ID = "cpipos-stock-bundle-popup-controls";
 
 function textOf(element: Element | null) {
-  return String(element?.textContent ?? "").trim();
+  return String(element?.textContent ?? "").replace(/\s+/g, " ").trim();
+}
+
+function isBundleHeading(text: string) {
+  return (
+    text.includes("จัดการสินค้าและสต๊อก") ||
+    text.includes("Manage Catalog & Stock") ||
+    text.startsWith("แก้ไขสินค้า:") ||
+    text.startsWith("Edit Product:")
+  );
+}
+
+function isSaveButtonText(text: string) {
+  return (
+    text.startsWith("บันทึกสินค้า") ||
+    text.startsWith("บันทึกการเปลี่ยนแปลง") ||
+    text.startsWith("Save Product") ||
+    text.startsWith("Save Changes")
+  );
+}
+
+function findSaveButton(modal: HTMLElement) {
+  return (
+    Array.from(modal.querySelectorAll<HTMLButtonElement>("button")).find((button) =>
+      isSaveButtonText(textOf(button)),
+    ) ?? null
+  );
 }
 
 function findStockProductModal() {
-  const headings = Array.from(document.querySelectorAll("h1,h2,h3"));
-  const heading = headings.find((node) => {
-    const text = textOf(node);
-    return (
-      text.includes("จัดการสินค้าและสต๊อก") ||
-      text.includes("Manage Catalog & Stock") ||
-      text.startsWith("แก้ไขสินค้า:") ||
-      text.startsWith("Edit Product:")
-    );
-  });
+  const headings = Array.from(
+    document.querySelectorAll<HTMLElement>("h1,h2,h3,[role='heading']"),
+  );
+  const heading = headings.find((node) => isBundleHeading(textOf(node)));
   if (!heading) return null;
+
+  const dialog = heading.closest<HTMLElement>("[role='dialog']");
+  if (dialog && findSaveButton(dialog)) return dialog;
 
   let node: HTMLElement | null = heading.parentElement;
   while (node && node !== document.body) {
-    const hasSaveButton = Array.from(node.querySelectorAll("button")).some((button) => {
-      const text = textOf(button);
-      return text.startsWith("บันทึกสินค้า") || text.startsWith("บันทึกการเปลี่ยนแปลง") || text.startsWith("Save Product") || text.startsWith("Save Changes");
-    });
-    if (hasSaveButton) return node;
+    if (findSaveButton(node)) return node;
     node = node.parentElement;
   }
   return null;
 }
 
-function findSaveButton(modal: HTMLElement) {
-  return Array.from(modal.querySelectorAll<HTMLButtonElement>("button")).find((button) => {
-    const text = textOf(button);
-    return text.startsWith("บันทึกสินค้า") || text.startsWith("บันทึกการเปลี่ยนแปลง") || text.startsWith("Save Product") || text.startsWith("Save Changes");
-  }) ?? null;
-}
-
 function findLabelControl(modal: HTMLElement, labels: string[]) {
   const candidates = Array.from(modal.querySelectorAll<HTMLLabelElement>("label"));
   for (const label of candidates) {
-    const labelText = textOf(label.querySelector("span"));
+    const labelText = textOf(label);
     if (!labels.some((token) => labelText.includes(token))) continue;
-    const control = label.querySelector<HTMLInputElement | HTMLSelectElement>("input:not([type='checkbox']),select");
+    const control = label.querySelector<HTMLInputElement | HTMLSelectElement>(
+      "input:not([type='checkbox']),select",
+    );
     if (control) return control;
   }
   return null;
 }
 
+function findProductNameControl(modal: HTMLElement) {
+  return (
+    findLabelControl(modal, ["ชื่อสินค้า", "Product Name"]) ??
+    modal.querySelector<HTMLInputElement>(
+      'input[placeholder*="ชาไทย"],input[placeholder*="Thai Tea"],input[name="productName"]',
+    )
+  );
+}
+
+function findCategoryControl(modal: HTMLElement) {
+  return (
+    findLabelControl(modal, ["หมวดหมู่", "Category"]) ??
+    modal.querySelector<HTMLSelectElement>('select[name="category"]')
+  );
+}
+
+function findStorePriceControl(modal: HTMLElement) {
+  return (
+    findLabelControl(modal, ["ราคาหน้าร้าน", "Store Price"]) ??
+    modal.querySelector<HTMLInputElement>('input[name="storePrice"]')
+  );
+}
+
 function productNameFromHeading(modal: HTMLElement) {
-  const heading = textOf(modal.querySelector("h1,h2,h3"));
-  if (heading.startsWith("แก้ไขสินค้า:")) return heading.slice("แก้ไขสินค้า:".length).trim();
-  if (heading.startsWith("Edit Product:")) return heading.slice("Edit Product:".length).trim();
+  const heading = Array.from(
+    modal.querySelectorAll<HTMLElement>("h1,h2,h3,[role='heading']"),
+  ).find((node) => isBundleHeading(textOf(node)));
+  const text = textOf(heading ?? null);
+  if (text.startsWith("แก้ไขสินค้า:")) return text.slice("แก้ไขสินค้า:".length).trim();
+  if (text.startsWith("Edit Product:")) return text.slice("Edit Product:".length).trim();
   return "";
 }
 
@@ -98,17 +140,38 @@ function asPrice(value: string) {
   return Number.isFinite(number) && number >= 0 ? number : null;
 }
 
+function apiErrorMessage(body: ApiBody<unknown>, fallback: string) {
+  if (typeof body.error === "string") return body.error;
+  if (body.error && typeof body.error === "object") {
+    const error = body.error as { message?: unknown; code?: unknown };
+    if (typeof error.message === "string" && error.message.trim()) return error.message;
+    if (typeof error.code === "string" && error.code.trim()) return error.code;
+  }
+  return fallback;
+}
+
+function isFeatureDisabled(response: Response, body: ApiBody<unknown>) {
+  if (response.status !== 403) return false;
+  if (body.error === "feature_not_enabled") return true;
+  if (body.error && typeof body.error === "object") {
+    return (body.error as { code?: unknown }).code === "feature_not_enabled";
+  }
+  return false;
+}
+
 export function StockBundlePopupEnhancer() {
   const [modal, setModal] = useState<HTMLElement | null>(null);
   const [host, setHost] = useState<HTMLElement | null>(null);
   const [domVersion, setDomVersion] = useState(0);
   const [bundleView, setBundleView] = useState<BundleView | null>(null);
+  const [featureAvailable, setFeatureAvailable] = useState<boolean | null>(null);
   const [loading, setLoading] = useState(false);
   const [enabled, setEnabled] = useState(false);
   const [selection, setSelection] = useState<SelectionMap>({});
   const [saving, setSaving] = useState(false);
   const [errorText, setErrorText] = useState("");
   const [loadedModalKey, setLoadedModalKey] = useState("");
+  const [searchText, setSearchText] = useState("");
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -136,6 +199,7 @@ export function StockBundlePopupEnhancer() {
     if (!modal) {
       setHost(null);
       setLoadedModalKey("");
+      setSearchText("");
       return;
     }
 
@@ -166,12 +230,24 @@ export function StockBundlePopupEnhancer() {
     setErrorText("");
     try {
       const response = await fetch("/api/backoffice/bundles", { cache: "no-store" });
-      const body = (await response.json()) as ApiEnvelope<BundleView>;
-      if (!response.ok || body.error) {
-        throw new Error(body.error?.message ?? "โหลดรายการชุดรวมขายไม่สำเร็จ");
+      const body = (await response.json().catch(() => ({}))) as ApiBody<BundleView>;
+
+      if (isFeatureDisabled(response, body)) {
+        setFeatureAvailable(false);
+        setBundleView(null);
+        setEnabled(false);
+        return;
       }
+
+      if (!response.ok || body.error) {
+        setFeatureAvailable(true);
+        throw new Error(apiErrorMessage(body, "โหลดรายการชุดรวมขายไม่สำเร็จ"));
+      }
+
+      setFeatureAvailable(true);
       setBundleView(body.data ?? { items: [], eligible_items: [] });
     } catch (error) {
+      setFeatureAvailable((current) => current ?? true);
       setBundleView({ items: [], eligible_items: [] });
       setErrorText(error instanceof Error ? error.message : "โหลดรายการชุดรวมขายไม่สำเร็จ");
     } finally {
@@ -190,49 +266,58 @@ export function StockBundlePopupEnhancer() {
     return name ? `edit:${name}` : "add";
   }, [modal, domVersion]);
 
-  const categoryControl = modal ? findLabelControl(modal, ["หมวดหมู่", "Category"]) : null;
+  const categoryControl = modal ? findCategoryControl(modal) : null;
   const currentCategory = String(categoryControl?.value ?? "").trim();
   const editProductName = modal ? productNameFromHeading(modal) : "";
 
   const currentBundle = useMemo(() => {
     if (!editProductName) return null;
     const items = bundleView?.items ?? [];
-    return items.find((item) => String(item.name ?? "").trim() === editProductName && (!currentCategory || String(item.category ?? "") === currentCategory))
-      ?? items.find((item) => String(item.name ?? "").trim() === editProductName)
-      ?? null;
+    return (
+      items.find(
+        (item) =>
+          String(item.name ?? "").trim() === editProductName &&
+          (!currentCategory || String(item.category ?? "") === currentCategory),
+      ) ??
+      items.find((item) => String(item.name ?? "").trim() === editProductName) ??
+      null
+    );
   }, [bundleView, editProductName, currentCategory]);
 
   const currentNormalProduct = useMemo(() => {
     if (!editProductName) return null;
     const items = bundleView?.eligible_items ?? [];
-    return items.find((item) => String(item.name ?? "").trim() === editProductName && (!currentCategory || String(item.category ?? "") === currentCategory))
-      ?? items.find((item) => String(item.name ?? "").trim() === editProductName)
-      ?? null;
+    return (
+      items.find(
+        (item) =>
+          String(item.name ?? "").trim() === editProductName &&
+          (!currentCategory || String(item.category ?? "") === currentCategory),
+      ) ??
+      items.find((item) => String(item.name ?? "").trim() === editProductName) ??
+      null
+    );
   }, [bundleView, editProductName, currentCategory]);
 
   useEffect(() => {
     if (!modalKey || !bundleView || loadedModalKey === modalKey) return;
 
+    const next: SelectionMap = {};
+    for (const item of bundleView.eligible_items ?? []) {
+      next[item.id] = { selected: false, qty: "1" };
+    }
+
     if (currentBundle) {
-      const next: SelectionMap = {};
-      for (const item of bundleView.eligible_items ?? []) {
-        next[item.id] = { selected: false, qty: "1" };
-      }
       for (const item of currentBundle.bundle_items ?? []) {
         const productId = String(item.product_id ?? "");
         if (!productId) continue;
         next[productId] = { selected: true, qty: String(Number(item.qty ?? 1) || 1) };
       }
-      setSelection(next);
       setEnabled(true);
     } else {
-      const next: SelectionMap = {};
-      for (const item of bundleView.eligible_items ?? []) {
-        next[item.id] = { selected: false, qty: "1" };
-      }
-      setSelection(next);
       setEnabled(false);
     }
+
+    setSelection(next);
     setErrorText("");
     setLoadedModalKey(modalKey);
   }, [bundleView, currentBundle, loadedModalKey, modalKey]);
@@ -242,13 +327,23 @@ export function StockBundlePopupEnhancer() {
     return (bundleView?.eligible_items ?? []).filter((item) => item.id !== parentId);
   }, [bundleView, currentBundle, currentNormalProduct]);
 
+  const filteredProducts = useMemo(() => {
+    const query = searchText.trim().toLocaleLowerCase();
+    if (!query) return availableProducts;
+    return availableProducts.filter((item) =>
+      [item.name, item.sku, item.category]
+        .map((value) => String(value ?? "").toLocaleLowerCase())
+        .some((value) => value.includes(query)),
+    );
+  }, [availableProducts, searchText]);
+
   const selectedCount = useMemo(
     () => availableProducts.filter((item) => selection[item.id]?.selected).length,
     [availableProducts, selection],
   );
 
   useEffect(() => {
-    if (!modal) return;
+    if (!modal || featureAvailable !== true) return;
     const saveButton = findSaveButton(modal);
     if (!saveButton) return;
 
@@ -260,9 +355,9 @@ export function StockBundlePopupEnhancer() {
       if ("stopImmediatePropagation" in event) event.stopImmediatePropagation();
       if (saving) return;
 
-      const nameControl = findLabelControl(modal, ["ชื่อสินค้า", "Product Name"]);
-      const priceControl = findLabelControl(modal, ["ราคาหน้าร้าน", "Store Price"]);
-      const category = String(findLabelControl(modal, ["หมวดหมู่", "Category"])?.value ?? "").trim();
+      const nameControl = findProductNameControl(modal);
+      const priceControl = findStorePriceControl(modal);
+      const category = String(findCategoryControl(modal)?.value ?? "").trim();
       const name = String(nameControl?.value ?? editProductName).trim();
       const price = asPrice(String(priceControl?.value ?? ""));
       const items = availableProducts
@@ -304,9 +399,9 @@ export function StockBundlePopupEnhancer() {
             items,
           }),
         });
-        const body = (await response.json()) as ApiEnvelope<unknown>;
+        const body = (await response.json().catch(() => ({}))) as ApiBody<unknown>;
         if (!response.ok || body.error) {
-          throw new Error(body.error?.message ?? "บันทึกชุดรวมขายไม่สำเร็จ");
+          throw new Error(apiErrorMessage(body, "บันทึกชุดรวมขายไม่สำเร็จ"));
         }
         window.location.reload();
       } catch (error) {
@@ -317,15 +412,25 @@ export function StockBundlePopupEnhancer() {
 
     saveButton.addEventListener("click", onSave, true);
     return () => saveButton.removeEventListener("click", onSave, true);
-  }, [modal, enabled, saving, editProductName, availableProducts, selection, currentBundle, currentNormalProduct]);
+  }, [
+    modal,
+    featureAvailable,
+    enabled,
+    saving,
+    editProductName,
+    availableProducts,
+    selection,
+    currentBundle,
+    currentNormalProduct,
+  ]);
 
-  if (!modal || !host) return null;
-
-  const productNameControl = findLabelControl(modal, ["ชื่อสินค้า", "Product Name"]);
-  if (!productNameControl) return null;
+  if (!modal || !host || featureAvailable !== true) return null;
 
   return createPortal(
-    <div className="mt-3 rounded-xl border border-blue-200 bg-blue-50/50 p-3" data-cpipos-bundle-popup="true">
+    <div
+      className="mt-3 rounded-xl border border-blue-200 bg-blue-50/50 p-3"
+      data-cpipos-bundle-popup="true"
+    >
       <div className="flex flex-wrap items-center justify-between gap-2">
         <label className="inline-flex min-h-10 cursor-pointer items-center gap-2 rounded-lg border border-blue-200 bg-white px-3 text-sm font-extrabold text-blue-900">
           <input
@@ -333,7 +438,9 @@ export function StockBundlePopupEnhancer() {
             checked={enabled}
             onChange={(event) => {
               if (currentBundle && !event.target.checked) {
-                setErrorText("ชุดนี้ถูกบันทึกเป็นชุดรวมขายแล้ว สามารถแก้รายการและจำนวนต่อชุดได้จากส่วนนี้");
+                setErrorText(
+                  "ชุดนี้ถูกบันทึกเป็นชุดรวมขายแล้ว สามารถแก้รายการและจำนวนต่อชุดได้จากส่วนนี้",
+                );
                 return;
               }
               setEnabled(event.target.checked);
@@ -341,36 +448,67 @@ export function StockBundlePopupEnhancer() {
             }}
             className="h-4 w-4 rounded border-blue-300"
           />
-          <span>ชุดรวมขาย</span>
+          <span>สินค้าชุดรวมขาย</span>
         </label>
-        {enabled ? <span className="text-xs font-semibold text-blue-700">เลือกแล้ว {selectedCount} รายการ</span> : null}
+        {enabled ? (
+          <span className="text-xs font-semibold text-blue-700">
+            เลือกแล้ว {selectedCount} รายการ
+          </span>
+        ) : null}
       </div>
 
       <p className="mt-1 text-xs text-slate-600">
-        เปิดเพื่อขายสินค้าหลายรายการเป็น 1 ชุด ระบบจะหักสต๊อกของสินค้าในชุดตามจำนวนที่กำหนดต่อ 1 ชุด
+        รวมสินค้าที่มีอยู่หลายรายการเป็น 1 ชุดขาย และตัดสต๊อกแต่ละรายการตามจำนวนที่กำหนด
       </p>
 
       {enabled ? (
         <div className="mt-3">
+          <div className="mb-2 flex flex-wrap items-center gap-2">
+            <input
+              type="search"
+              value={searchText}
+              onChange={(event) => setSearchText(event.target.value)}
+              placeholder="ค้นหาชื่อสินค้า / SKU / หมวดหมู่"
+              className="min-h-10 min-w-[240px] flex-1 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 outline-none ring-blue-200 focus:ring-2"
+              aria-label="ค้นหารายการสินค้าสำหรับชุดรวมขาย"
+            />
+            <span className="text-xs font-semibold text-slate-500">
+              ทั้งหมด {availableProducts.length} รายการ
+            </span>
+          </div>
+
           {loading ? <p className="text-sm text-slate-500">กำลังโหลดรายการสินค้า...</p> : null}
           {!loading && availableProducts.length === 0 ? (
             <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-800">
               ยังไม่มีสินค้าที่สามารถนำมารวมเป็นชุดได้
             </p>
           ) : null}
-          {!loading && availableProducts.length > 0 ? (
-            <div className="max-h-[30vh] overflow-auto rounded-xl border border-slate-200 bg-white">
+          {!loading && availableProducts.length > 0 && filteredProducts.length === 0 ? (
+            <p className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-600">
+              ไม่พบสินค้าที่ตรงกับคำค้นหา
+            </p>
+          ) : null}
+          {!loading && filteredProducts.length > 0 ? (
+            <div className="max-h-[32vh] overflow-auto rounded-xl border border-slate-200 bg-white">
               <table className="w-full min-w-[620px] border-collapse">
                 <thead className="sticky top-0 z-[1] bg-slate-50">
                   <tr>
-                    <th className="border-b border-slate-200 px-3 py-2 text-left text-xs font-bold text-slate-600">เลือก</th>
-                    <th className="border-b border-slate-200 px-3 py-2 text-left text-xs font-bold text-slate-600">สินค้าในชุด</th>
-                    <th className="border-b border-slate-200 px-3 py-2 text-left text-xs font-bold text-slate-600">SKU</th>
-                    <th className="w-44 border-b border-slate-200 px-3 py-2 text-left text-xs font-bold text-slate-600">จำนวนต่อ 1 ชุด</th>
+                    <th className="border-b border-slate-200 px-3 py-2 text-left text-xs font-bold text-slate-600">
+                      เลือก
+                    </th>
+                    <th className="border-b border-slate-200 px-3 py-2 text-left text-xs font-bold text-slate-600">
+                      สินค้าในชุด
+                    </th>
+                    <th className="border-b border-slate-200 px-3 py-2 text-left text-xs font-bold text-slate-600">
+                      SKU
+                    </th>
+                    <th className="w-44 border-b border-slate-200 px-3 py-2 text-left text-xs font-bold text-slate-600">
+                      จำนวนต่อ 1 ชุด
+                    </th>
                   </tr>
                 </thead>
                 <tbody>
-                  {availableProducts.map((item) => {
+                  {filteredProducts.map((item) => {
                     const line = selection[item.id] ?? { selected: false, qty: "1" };
                     return (
                       <tr key={item.id} className={line.selected ? "bg-blue-50/60" : "bg-white"}>
@@ -381,7 +519,10 @@ export function StockBundlePopupEnhancer() {
                             onChange={(event) => {
                               setSelection((current) => ({
                                 ...current,
-                                [item.id]: { selected: event.target.checked, qty: current[item.id]?.qty || "1" },
+                                [item.id]: {
+                                  selected: event.target.checked,
+                                  qty: current[item.id]?.qty || "1",
+                                },
                               }));
                               setErrorText("");
                             }}
@@ -389,8 +530,12 @@ export function StockBundlePopupEnhancer() {
                             aria-label={`เลือก ${item.name ?? item.sku ?? "สินค้า"}`}
                           />
                         </td>
-                        <td className="border-b border-slate-100 px-3 py-2 text-sm font-semibold text-slate-800">{item.name || "-"}</td>
-                        <td className="border-b border-slate-100 px-3 py-2 text-xs text-slate-500">{item.sku || "-"}</td>
+                        <td className="border-b border-slate-100 px-3 py-2 text-sm font-semibold text-slate-800">
+                          {item.name || "-"}
+                        </td>
+                        <td className="border-b border-slate-100 px-3 py-2 text-xs text-slate-500">
+                          {item.sku || "-"}
+                        </td>
                         <td className="border-b border-slate-100 px-3 py-2">
                           <input
                             type="number"
@@ -402,7 +547,10 @@ export function StockBundlePopupEnhancer() {
                               const value = event.target.value;
                               setSelection((current) => ({
                                 ...current,
-                                [item.id]: { selected: current[item.id]?.selected ?? false, qty: value },
+                                [item.id]: {
+                                  selected: current[item.id]?.selected ?? false,
+                                  qty: value,
+                                },
                               }));
                               setErrorText("");
                             }}
@@ -417,14 +565,21 @@ export function StockBundlePopupEnhancer() {
               </table>
             </div>
           ) : null}
-          <p className="mt-2 text-xs font-medium text-blue-700">ต้องเลือกอย่างน้อย 2 รายการ และจำนวนของทุกรายการต้องมากกว่า 0</p>
+
+          <p className="mt-2 text-xs font-medium text-blue-700">
+            ต้องเลือกอย่างน้อย 2 รายการ และจำนวนของทุกรายการต้องมากกว่า 0
+          </p>
         </div>
       ) : null}
 
       {errorText ? (
-        <p className="mt-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm font-semibold text-red-700">{errorText}</p>
+        <p className="mt-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm font-semibold text-red-700">
+          {errorText}
+        </p>
       ) : null}
-      {saving ? <p className="mt-2 text-sm font-semibold text-blue-700">กำลังบันทึกชุดรวมขาย...</p> : null}
+      {saving ? (
+        <p className="mt-2 text-sm font-semibold text-blue-700">กำลังบันทึกชุดรวมขาย...</p>
+      ) : null}
     </div>,
     host,
   );
