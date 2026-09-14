@@ -152,6 +152,12 @@ function asPrice(value: string) {
   return Number.isFinite(number) && number >= 0 ? number : null;
 }
 
+function normalizeBundleQuantity(value: unknown) {
+  const quantity = Number(value);
+  if (!Number.isFinite(quantity)) return 1;
+  return Math.max(1, Math.round(quantity));
+}
+
 function apiErrorMessage(body: ApiBody<unknown>, fallback: string) {
   if (typeof body.error === "string") return body.error;
   if (body.error && typeof body.error === "object") {
@@ -342,7 +348,7 @@ export function StockBundleInlineController() {
         if (!productId) continue;
         nextSelection[productId] = {
           selected: true,
-          qty: String(Number(item.qty ?? 1) || 1),
+          qty: String(normalizeBundleQuantity(item.qty ?? 1)),
         };
       }
 
@@ -407,9 +413,8 @@ export function StockBundleInlineController() {
         .filter((item) => selection[item.id]?.selected)
         .map((item) => ({
           product_id: item.id,
-          qty: Number(selection[item.id]?.qty ?? 0),
-        }))
-        .filter((item) => Number.isFinite(item.qty) && item.qty > 0);
+          qty: normalizeBundleQuantity(selection[item.id]?.qty ?? 1),
+        }));
 
       if (!name) {
         setErrorText("กรุณากรอกชื่อสินค้า");
@@ -594,7 +599,7 @@ export function StockBundleInlineController() {
                                   ...current,
                                   [item.id]: {
                                     selected: checked,
-                                    qty: current[item.id]?.qty || "1",
+                                    qty: String(normalizeBundleQuantity(current[item.id]?.qty ?? 1)),
                                   },
                                 }));
                                 setErrorText("");
@@ -610,12 +615,18 @@ export function StockBundleInlineController() {
                           <td className="border-b border-slate-100 px-3 py-2">
                             <input
                               type="number"
-                              min={0.01}
-                              step="0.01"
+                              min={1}
+                              step={1}
+                              inputMode="numeric"
                               disabled={!line.selected}
                               value={line.qty}
+                              onKeyDown={(event) => {
+                                if ([".", ",", "e", "E", "+", "-"].includes(event.key)) {
+                                  event.preventDefault();
+                                }
+                              }}
                               onChange={(event) => {
-                                const qty = event.target.value;
+                                const qty = String(normalizeBundleQuantity(event.target.value));
                                 setSelection((current) => ({
                                   ...current,
                                   [item.id]: {
