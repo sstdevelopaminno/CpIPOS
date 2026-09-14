@@ -151,7 +151,7 @@ export async function POST(request: Request, context: { params: Promise<{ tableI
     if (!submissionId) return withTiming(fail("missing_submission_id", "submission_id is required.", 422));
     if (action !== "accept" && action !== "reject") return withTiming(fail("invalid_review_action", "action must be accept or reject.", 422));
 
-    const policy = action === "accept" ? await loadTableQrAutomationPolicy(auth, auth.branchId) : null;
+    const policy = action === "accept" ? await loadTableQrAutomationPolicy(auth, auth.branchId ?? undefined) : null;
     const result = await reviewPendingTableQrOrder({
       auth,
       tableId,
