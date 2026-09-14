@@ -26,6 +26,9 @@ export type AppFlavor =
 export type MdmCapability =
   | 'mdm_core'
   | 'remote_lock'
+  | 'remote_unlock'
+  | 'financing_lock'
+  | 'revoke_access'
   | 'location'
   | 'remote_support'
   | 'app_install'
@@ -163,8 +166,19 @@ export const evaluateMdmEligibility = (device: MdmDeviceSnapshot): MdmEligibilit
     allowedCommands.push('sync_policy');
   }
 
+  // Keep destructive controls command-granular. Advertising remote_lock must never
+  // implicitly authorize unlock, financing-lock or access-revocation executors.
   if (hasCapability(device, 'remote_lock')) {
-    allowedCommands.push('lock_device', 'unlock_device', 'financing_lock', 'revoke_device_access');
+    allowedCommands.push('lock_device');
+  }
+  if (hasCapability(device, 'remote_unlock')) {
+    allowedCommands.push('unlock_device');
+  }
+  if (hasCapability(device, 'financing_lock')) {
+    allowedCommands.push('financing_lock');
+  }
+  if (hasCapability(device, 'revoke_access')) {
+    allowedCommands.push('revoke_device_access');
   }
 
   if (hasCapability(device, 'location')) {
