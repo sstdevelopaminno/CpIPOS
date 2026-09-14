@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 
 type SaleProduct = {
   id: string;
@@ -14,6 +15,7 @@ type BundleItem = SaleProduct & {
   bundle_items?: Array<{
     product_id?: string;
     qty?: number;
+    product?: SaleProduct | null;
   }>;
 };
 
@@ -27,28 +29,19 @@ type ApiBody<T> = {
   error?: unknown;
 };
 
-type SelectionLine = { selected: boolean; qty: string };
+type SelectionMap = Record<string, { selected: boolean; qty: string }>;
 
-type MutableState = {
-  modal: HTMLElement | null;
-  root: HTMLElement | null;
-  bundleView: BundleView | null;
-  featureAvailable: boolean | null;
-  enabled: boolean;
-  selection: Map<string, SelectionLine>;
-  searchText: string;
-  errorText: string;
-  saving: boolean;
-  loadToken: number;
+type AnchorPosition = {
+  left: number;
+  top: number;
+  width: number;
 };
-
-const ROOT_ID = "cpipos-stock-bundle-inline-controls";
 
 function textOf(element: Element | null) {
   return String(element?.textContent ?? "").replace(/\s+/g, " ").trim();
 }
 
-function isStockHeading(text: string) {
+function isProductPopupHeading(text: string) {
   return (
     text.includes("จัดการสินค้าและสต๊อก") ||
     text.includes("Manage Catalog & Stock") ||
@@ -75,10 +68,13 @@ function findSaveButton(modal: HTMLElement) {
 }
 
 function findStockProductModal() {
+  if (typeof document === "undefined") return null;
+  if (!window.location.pathname.startsWith("/preview/pos/stock")) return null;
+
   const headings = Array.from(
     document.querySelectorAll<HTMLElement>("h1,h2,h3,[role='heading']"),
   );
-  const heading = headings.find((node) => isStockHeading(textOf(node)));
+  const heading = headings.find((node) => isProductPopupHeading(textOf(node)));
   if (!heading) return null;
 
   const dialog = heading.closest<HTMLElement>("[role='dialog']");
@@ -92,23 +88,17 @@ function findStockProductModal() {
   return null;
 }
 
-function directChildContaining(modal: HTMLElement, descendant: HTMLElement) {
-  let node = descendant;
-  while (node.parentElement && node.parentElement !== modal) node = node.parentElement;
-  return node;
-}
-
-function findIngredientSection(modal: HTMLElement) {
-  const labels = Array.from(modal.querySelectorAll<HTMLElement>("label"));
-  const label = labels.find((node) => {
-    const text = textOf(node);
-    return (
-      text.includes("เปิดใส่วัตถุดิบ") ||
-      text.includes("เปิดโหมดสูตรวัตถุดิบ") ||
-      text.includes("Enable ingredient recipe mode")
-    );
-  });
-  return label ? directChildContaining(modal, label) : null;
+function findIngredientToggleLabel(modal: HTMLElement) {
+  return (
+    Array.from(modal.querySelectorAll<HTMLLabelElement>("label")).find((label) => {
+      const text = textOf(label);
+      return (
+        text.includes("เปิดใส่วัตถุดิบ") ||
+        text.includes("เปิดโหมดสูตรวัตถุดิบ") ||
+        text.includes("Enable ingredient recipe mode")
+      );
+    }) ?? null
+  );
 }
 
 function findLabelControl(modal: HTMLElement, labels: string[]) {
@@ -117,7 +107,7 @@ function findLabelControl(modal: HTMLElement, labels: string[]) {
     const labelText = textOf(label);
     if (!labels.some((token) => labelText.includes(token))) continue;
     const control = label.querySelector<HTMLInputElement | HTMLSelectElement>(
-      "input:not([type='checkbox']),select",
+      "select,input:not([type='checkbox'])",
     );
     if (control) return control;
   }
@@ -136,7 +126,7 @@ function findProductNameControl(modal: HTMLElement) {
 function findCategoryControl(modal: HTMLElement) {
   return (
     findLabelControl(modal, ["หมวดหมู่", "Category"]) ??
-    modal.querySelector<HTMLInputElement | HTMLSelectElement>('[name="category"]')
+    modal.querySelector<HTMLInputElement | HTMLSelectElement>('select[name="category"],input[name="category"]')
   );
 }
 
@@ -150,11 +140,16 @@ function findStorePriceControl(modal: HTMLElement) {
 function productNameFromHeading(modal: HTMLElement) {
   const heading = Array.from(
     modal.querySelectorAll<HTMLElement>("h1,h2,h3,[role='heading']"),
-  ).find((node) => isStockHeading(textOf(node)));
+  ).find((node) => isProductPopupHeading(textOf(node)));
   const text = textOf(heading ?? null);
   if (text.startsWith("แก้ไขสินค้า:")) return text.slice("แก้ไขสินค้า:".length).trim();
   if (text.startsWith("Edit Product:")) return text.slice("Edit Product:".length).trim();
   return "";
+}
+
+function asPrice(value: string) {
+  const number = Number(value);
+  return Number.isFinite(number) && number >= 0 ? number : null;
 }
 
 function apiErrorMessage(body: ApiBody<unknown>, fallback: string) {
@@ -176,456 +171,494 @@ function isFeatureDisabled(response: Response, body: ApiBody<unknown>) {
   return false;
 }
 
-function appendText(parent: HTMLElement, text: string, className?: string) {
-  const node = document.createElement("span");
-  node.textContent = text;
-  if (className) node.className = className;
-  parent.appendChild(node);
-  return node;
-}
-
-function currentBundleFor(state: MutableState) {
-  if (!state.modal) return null;
-  const editName = productNameFromHeading(state.modal);
-  if (!editName) return null;
-  const category = String(findCategoryControl(state.modal)?.value ?? "").trim();
-  const items = state.bundleView?.items ?? [];
+function sameAnchor(a: AnchorPosition | null, b: AnchorPosition | null) {
+  if (!a || !b) return a === b;
   return (
-    items.find(
-      (item) =>
-        String(item.name ?? "").trim() === editName &&
-        (!category || String(item.category ?? "") === category),
-    ) ??
-    items.find((item) => String(item.name ?? "").trim() === editName) ??
-    null
+    Math.abs(a.left - b.left) < 1 &&
+    Math.abs(a.top - b.top) < 1 &&
+    Math.abs(a.width - b.width) < 1
   );
 }
 
-function currentNormalProductFor(state: MutableState) {
-  if (!state.modal) return null;
-  const editName = productNameFromHeading(state.modal);
-  if (!editName) return null;
-  const category = String(findCategoryControl(state.modal)?.value ?? "").trim();
-  const items = state.bundleView?.eligible_items ?? [];
-  return (
-    items.find(
-      (item) =>
-        String(item.name ?? "").trim() === editName &&
-        (!category || String(item.category ?? "") === category),
-    ) ??
-    items.find((item) => String(item.name ?? "").trim() === editName) ??
-    null
-  );
-}
+function calculateAnchor(modal: HTMLElement): AnchorPosition | null {
+  const ingredientLabel = findIngredientToggleLabel(modal);
+  if (!ingredientLabel) return null;
 
-function availableProductsFor(state: MutableState) {
-  const parent = currentBundleFor(state) ?? currentNormalProductFor(state);
-  return (state.bundleView?.eligible_items ?? []).filter((item) => item.id !== parent?.id);
+  const modalRect = modal.getBoundingClientRect();
+  let anchorRect = ingredientLabel.getBoundingClientRect();
+  const row = ingredientLabel.parentElement;
+
+  if (row) {
+    const siblingLabels = Array.from(row.querySelectorAll<HTMLLabelElement>("label")).filter((label) => {
+      const rect = label.getBoundingClientRect();
+      return rect.width > 0 && rect.height > 0;
+    });
+    if (siblingLabels.length > 1) {
+      anchorRect = siblingLabels[siblingLabels.length - 1].getBoundingClientRect();
+    }
+  }
+
+  const desiredWidth = 250;
+  const rightLimit = Math.max(modalRect.left + desiredWidth, modalRect.right - 12);
+  let left = anchorRect.right + 10;
+  let top = anchorRect.top;
+
+  if (left + desiredWidth > rightLimit) {
+    left = Math.max(modalRect.left + 14, modalRect.right - desiredWidth - 14);
+    top = anchorRect.top;
+  }
+
+  const width = Math.max(210, Math.min(desiredWidth, modalRect.right - left - 12));
+  return { left, top, width };
 }
 
 export function StockBundleInlineController() {
+  const [modal, setModal] = useState<HTMLElement | null>(null);
+  const [anchor, setAnchor] = useState<AnchorPosition | null>(null);
+  const [bundleView, setBundleView] = useState<BundleView | null>(null);
+  const [featureAvailable, setFeatureAvailable] = useState<boolean | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [enabled, setEnabled] = useState(false);
+  const [panelOpen, setPanelOpen] = useState(false);
+  const [selection, setSelection] = useState<SelectionMap>({});
+  const [searchText, setSearchText] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [errorText, setErrorText] = useState("");
+  const [parentProduct, setParentProduct] = useState<SaleProduct | null>(null);
+
   useEffect(() => {
     if (typeof window === "undefined") return;
 
-    const state: MutableState = {
-      modal: null,
-      root: null,
-      bundleView: null,
-      featureAvailable: null,
-      enabled: false,
-      selection: new Map(),
-      searchText: "",
-      errorText: "",
-      saving: false,
-      loadToken: 0,
-    };
-
-    const boundSaveButtons = new WeakSet<HTMLButtonElement>();
     let frame = 0;
-
-    const ensureRoot = () => {
-      const modal = state.modal;
-      if (!modal || state.featureAvailable !== true) return null;
-      const ingredientSection = findIngredientSection(modal);
-      if (!ingredientSection) return null;
-
-      if (!state.root) {
-        state.root = document.createElement("div");
-        state.root.id = ROOT_ID;
-      }
-
-      if (!state.root.isConnected || !modal.contains(state.root)) {
-        ingredientSection.insertAdjacentElement("afterend", state.root);
-      } else if (state.root.previousElementSibling !== ingredientSection) {
-        ingredientSection.insertAdjacentElement("afterend", state.root);
-      }
-      return state.root;
-    };
-
-    const render = () => {
-      const root = ensureRoot();
-      if (!root) return;
-      root.replaceChildren();
-      root.className = "mt-3 rounded-xl border border-blue-200 bg-blue-50/50 p-3";
-      root.dataset.cpiposBundleInline = "true";
-
-      const bundle = currentBundleFor(state);
-      const products = availableProductsFor(state);
-      const query = state.searchText.trim().toLocaleLowerCase();
-      const filtered = !query
-        ? products
-        : products.filter((item) =>
-            [item.name, item.sku, item.category]
-              .map((value) => String(value ?? "").toLocaleLowerCase())
-              .some((value) => value.includes(query)),
-          );
-      const selectedCount = products.filter((item) => state.selection.get(item.id)?.selected).length;
-
-      const top = document.createElement("div");
-      top.className = "flex flex-wrap items-center justify-between gap-2";
-      const toggleLabel = document.createElement("label");
-      toggleLabel.className =
-        "inline-flex min-h-10 cursor-pointer items-center gap-2 rounded-lg border border-blue-200 bg-white px-3 text-sm font-extrabold text-blue-900";
-      const toggle = document.createElement("input");
-      toggle.type = "checkbox";
-      toggle.checked = state.enabled;
-      toggle.className = "h-4 w-4 rounded border-blue-300";
-      toggle.addEventListener("change", () => {
-        if (bundle && !toggle.checked) {
-          toggle.checked = true;
-          state.errorText =
-            "ชุดนี้ถูกบันทึกเป็นสินค้าชุดรวมขายแล้ว สามารถแก้รายการและจำนวนต่อชุดได้จากส่วนนี้";
-          render();
-          return;
-        }
-        state.enabled = toggle.checked;
-        state.errorText = "";
-        render();
-      });
-      toggleLabel.appendChild(toggle);
-      appendText(toggleLabel, "สินค้าชุดรวมขาย");
-      top.appendChild(toggleLabel);
-      if (state.enabled) appendText(top, `เลือกแล้ว ${selectedCount} รายการ`, "text-xs font-semibold text-blue-700");
-      root.appendChild(top);
-
-      const help = document.createElement("p");
-      help.className = "mt-1 text-xs text-slate-600";
-      help.textContent = "รวมสินค้าที่มีอยู่หลายรายการเป็น 1 ชุดขาย และตัดสต๊อกแต่ละรายการตามจำนวนที่กำหนด";
-      root.appendChild(help);
-
-      if (state.enabled) {
-        const content = document.createElement("div");
-        content.className = "mt-3";
-
-        const searchRow = document.createElement("div");
-        searchRow.className = "mb-2 flex flex-wrap items-center gap-2";
-        const search = document.createElement("input");
-        search.type = "search";
-        search.value = state.searchText;
-        search.placeholder = "ค้นหาชื่อสินค้า / SKU / หมวดหมู่";
-        search.className =
-          "min-h-10 min-w-[240px] flex-1 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 outline-none ring-blue-200 focus:ring-2";
-        search.addEventListener("input", () => {
-          state.searchText = search.value;
-          render();
-          window.requestAnimationFrame(() => {
-            const next = state.root?.querySelector<HTMLInputElement>('input[type="search"]');
-            next?.focus();
-            next?.setSelectionRange(next.value.length, next.value.length);
-          });
-        });
-        searchRow.appendChild(search);
-        appendText(searchRow, `ทั้งหมด ${products.length} รายการ`, "text-xs font-semibold text-slate-500");
-        content.appendChild(searchRow);
-
-        if (products.length === 0) {
-          const empty = document.createElement("p");
-          empty.className = "rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-800";
-          empty.textContent = "ยังไม่มีสินค้าที่สามารถนำมารวมเป็นชุดได้";
-          content.appendChild(empty);
-        } else if (filtered.length === 0) {
-          const empty = document.createElement("p");
-          empty.className = "rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-600";
-          empty.textContent = "ไม่พบสินค้าที่ตรงกับคำค้นหา";
-          content.appendChild(empty);
-        } else {
-          const tableWrap = document.createElement("div");
-          tableWrap.className = "max-h-[32vh] overflow-auto rounded-xl border border-slate-200 bg-white";
-          const table = document.createElement("table");
-          table.className = "w-full min-w-[620px] border-collapse";
-          const thead = document.createElement("thead");
-          thead.className = "sticky top-0 z-[1] bg-slate-50";
-          const headRow = document.createElement("tr");
-          for (const title of ["เลือก", "สินค้าในชุด", "SKU", "จำนวนต่อ 1 ชุด"]) {
-            const th = document.createElement("th");
-            th.className = "border-b border-slate-200 px-3 py-2 text-left text-xs font-bold text-slate-600";
-            th.textContent = title;
-            headRow.appendChild(th);
-          }
-          thead.appendChild(headRow);
-          table.appendChild(thead);
-          const tbody = document.createElement("tbody");
-
-          for (const item of filtered) {
-            const line = state.selection.get(item.id) ?? { selected: false, qty: "1" };
-            const row = document.createElement("tr");
-            row.className = line.selected ? "bg-blue-50/60" : "bg-white";
-
-            const selectCell = document.createElement("td");
-            selectCell.className = "border-b border-slate-100 px-3 py-2";
-            const itemCheck = document.createElement("input");
-            itemCheck.type = "checkbox";
-            itemCheck.checked = line.selected;
-            itemCheck.className = "h-4 w-4 rounded border-slate-300";
-            itemCheck.setAttribute("aria-label", `เลือก ${item.name ?? item.sku ?? "สินค้า"}`);
-            itemCheck.addEventListener("change", () => {
-              state.selection.set(item.id, { selected: itemCheck.checked, qty: line.qty || "1" });
-              state.errorText = "";
-              render();
-            });
-            selectCell.appendChild(itemCheck);
-            row.appendChild(selectCell);
-
-            const nameCell = document.createElement("td");
-            nameCell.className = "border-b border-slate-100 px-3 py-2 text-sm font-semibold text-slate-800";
-            nameCell.textContent = item.name || "-";
-            row.appendChild(nameCell);
-
-            const skuCell = document.createElement("td");
-            skuCell.className = "border-b border-slate-100 px-3 py-2 text-xs text-slate-500";
-            skuCell.textContent = item.sku || "-";
-            row.appendChild(skuCell);
-
-            const qtyCell = document.createElement("td");
-            qtyCell.className = "border-b border-slate-100 px-3 py-2";
-            const qty = document.createElement("input");
-            qty.type = "number";
-            qty.min = "0.001";
-            qty.step = "0.001";
-            qty.value = line.qty;
-            qty.disabled = !line.selected;
-            qty.className =
-              "min-h-9 w-full rounded-lg border border-slate-300 bg-white px-2 text-sm font-semibold text-slate-900 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400";
-            qty.addEventListener("input", () => {
-              state.selection.set(item.id, { selected: line.selected, qty: qty.value });
-              state.errorText = "";
-            });
-            qtyCell.appendChild(qty);
-            row.appendChild(qtyCell);
-            tbody.appendChild(row);
-          }
-          table.appendChild(tbody);
-          tableWrap.appendChild(table);
-          content.appendChild(tableWrap);
-        }
-
-        const rule = document.createElement("p");
-        rule.className = "mt-2 text-xs font-medium text-blue-700";
-        rule.textContent = "ต้องเลือกอย่างน้อย 2 รายการ และจำนวนของทุกรายการต้องมากกว่า 0";
-        content.appendChild(rule);
-        root.appendChild(content);
-      }
-
-      if (state.errorText) {
-        const error = document.createElement("p");
-        error.className = "mt-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm font-semibold text-red-700";
-        error.textContent = state.errorText;
-        root.appendChild(error);
-      }
-      if (state.saving) {
-        const saving = document.createElement("p");
-        saving.className = "mt-2 text-sm font-semibold text-blue-700";
-        saving.textContent = "กำลังบันทึกสินค้าชุดรวมขาย...";
-        root.appendChild(saving);
-      }
-    };
-
-    const initializeSelection = () => {
-      state.selection = new Map();
-      for (const item of state.bundleView?.eligible_items ?? []) {
-        state.selection.set(item.id, { selected: false, qty: "1" });
-      }
-      const bundle = currentBundleFor(state);
-      if (bundle) {
-        for (const item of bundle.bundle_items ?? []) {
-          const productId = String(item.product_id ?? "");
-          if (!productId) continue;
-          state.selection.set(productId, {
-            selected: true,
-            qty: String(Number(item.qty ?? 1) || 1),
-          });
-        }
-        state.enabled = true;
-      } else {
-        state.enabled = false;
-      }
-    };
-
-    const bindSaveButton = () => {
-      const modal = state.modal;
-      if (!modal) return;
-      const button = findSaveButton(modal);
-      if (!button || boundSaveButtons.has(button)) return;
-      boundSaveButtons.add(button);
-
-      button.addEventListener(
-        "click",
-        async (event) => {
-          if (!state.modal || !state.modal.contains(button)) return;
-          if (state.featureAvailable !== true || !state.enabled) return;
-
-          event.preventDefault();
-          event.stopPropagation();
-          event.stopImmediatePropagation();
-          if (state.saving) return;
-
-          const modalNow = state.modal;
-          const category = String(findCategoryControl(modalNow)?.value ?? "").trim();
-          const name = String(findProductNameControl(modalNow)?.value ?? productNameFromHeading(modalNow)).trim();
-          const price = Number(findStorePriceControl(modalNow)?.value ?? "");
-          const items = availableProductsFor(state)
-            .filter((item) => state.selection.get(item.id)?.selected)
-            .map((item) => ({
-              product_id: item.id,
-              qty: Number(state.selection.get(item.id)?.qty ?? 0),
-            }))
-            .filter((item) => Number.isFinite(item.qty) && item.qty > 0);
-
-          if (!name) {
-            state.errorText = "กรุณากรอกชื่อสินค้า";
-            render();
-            return;
-          }
-          if (!category) {
-            state.errorText = "กรุณาเลือกหมวดหมู่";
-            render();
-            return;
-          }
-          if (!Number.isFinite(price) || price < 0) {
-            state.errorText = "กรุณากรอกราคาหน้าร้านให้ถูกต้อง";
-            render();
-            return;
-          }
-          if (items.length < 2) {
-            state.errorText = "สินค้าชุดรวมขายต้องเลือกสินค้าอย่างน้อย 2 รายการ";
-            render();
-            return;
-          }
-
-          state.saving = true;
-          state.errorText = "";
-          render();
-          try {
-            const parent = currentBundleFor(state) ?? currentNormalProductFor(state);
-            const response = await fetch("/api/backoffice/bundles/popup", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                action: "upsert_bundle",
-                id: parent?.id,
-                sku: parent?.sku,
-                name,
-                category,
-                price,
-                items,
-              }),
-            });
-            const body = (await response.json().catch(() => ({}))) as ApiBody<unknown>;
-            if (!response.ok || body.error) {
-              throw new Error(apiErrorMessage(body, "บันทึกสินค้าชุดรวมขายไม่สำเร็จ"));
-            }
-            window.location.reload();
-          } catch (error) {
-            state.saving = false;
-            state.errorText = error instanceof Error ? error.message : "บันทึกสินค้าชุดรวมขายไม่สำเร็จ";
-            render();
-          }
-        },
-        true,
-      );
-    };
-
-    const loadBundleView = async (modal: HTMLElement) => {
-      const token = ++state.loadToken;
-      state.featureAvailable = null;
-      state.bundleView = null;
-      state.enabled = false;
-      state.selection = new Map();
-      state.searchText = "";
-      state.errorText = "";
-      state.saving = false;
-
-      try {
-        const response = await fetch("/api/backoffice/bundles", { cache: "no-store" });
-        const body = (await response.json().catch(() => ({}))) as ApiBody<BundleView>;
-        if (token !== state.loadToken || state.modal !== modal) return;
-
-        if (isFeatureDisabled(response, body)) {
-          state.featureAvailable = false;
-          state.root?.remove();
-          state.root = null;
-          return;
-        }
-        if (!response.ok || body.error) {
-          state.featureAvailable = true;
-          state.bundleView = { items: [], eligible_items: [] };
-          state.errorText = apiErrorMessage(body, "โหลดรายการสินค้าชุดรวมขายไม่สำเร็จ");
-        } else {
-          state.featureAvailable = true;
-          state.bundleView = body.data ?? { items: [], eligible_items: [] };
-        }
-        initializeSelection();
-        render();
-        bindSaveButton();
-      } catch (error) {
-        if (token !== state.loadToken || state.modal !== modal) return;
-        state.featureAvailable = true;
-        state.bundleView = { items: [], eligible_items: [] };
-        state.errorText = error instanceof Error ? error.message : "โหลดรายการสินค้าชุดรวมขายไม่สำเร็จ";
-        initializeSelection();
-        render();
-        bindSaveButton();
-      }
-    };
-
     const sync = () => {
       cancelAnimationFrame(frame);
       frame = requestAnimationFrame(() => {
-        const nextModal = findStockProductModal();
-        if (nextModal !== state.modal) {
-          state.loadToken += 1;
-          state.root?.remove();
-          state.root = null;
-          state.modal = nextModal;
-          state.bundleView = null;
-          state.featureAvailable = null;
-          state.enabled = false;
-          state.selection = new Map();
-          state.searchText = "";
-          state.errorText = "";
-          state.saving = false;
-          if (nextModal) void loadBundleView(nextModal);
-          return;
-        }
-
-        if (!state.modal) return;
-        if (state.featureAvailable === true) ensureRoot();
-        bindSaveButton();
+        const next = findStockProductModal();
+        setModal((current) => (current === next ? current : next));
       });
     };
 
     sync();
     const observer = new MutationObserver(sync);
     observer.observe(document.body, { childList: true, subtree: true });
+    window.addEventListener("popstate", sync);
 
     return () => {
       cancelAnimationFrame(frame);
       observer.disconnect();
-      state.loadToken += 1;
-      state.root?.remove();
-      state.root = null;
+      window.removeEventListener("popstate", sync);
     };
   }, []);
 
-  return null;
+  useEffect(() => {
+    if (!modal) {
+      setAnchor(null);
+      setBundleView(null);
+      setFeatureAvailable(null);
+      setEnabled(false);
+      setPanelOpen(false);
+      setSelection({});
+      setSearchText("");
+      setErrorText("");
+      setParentProduct(null);
+      return;
+    }
+
+    let frame = 0;
+    const updateAnchor = () => {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => {
+        const next = calculateAnchor(modal);
+        setAnchor((current) => (sameAnchor(current, next) ? current : next));
+      });
+    };
+
+    updateAnchor();
+    const observer = new MutationObserver(updateAnchor);
+    observer.observe(modal, { childList: true, subtree: true, attributes: true });
+    window.addEventListener("resize", updateAnchor);
+    window.addEventListener("scroll", updateAnchor, true);
+    const resizeObserver = typeof ResizeObserver !== "undefined" ? new ResizeObserver(updateAnchor) : null;
+    resizeObserver?.observe(modal);
+
+    return () => {
+      cancelAnimationFrame(frame);
+      observer.disconnect();
+      resizeObserver?.disconnect();
+      window.removeEventListener("resize", updateAnchor);
+      window.removeEventListener("scroll", updateAnchor, true);
+    };
+  }, [modal]);
+
+  const loadBundleView = useCallback(async () => {
+    if (!modal) return;
+    setLoading(true);
+    setErrorText("");
+
+    try {
+      const response = await fetch("/api/backoffice/bundles", { cache: "no-store" });
+      const body = (await response.json().catch(() => ({}))) as ApiBody<BundleView>;
+
+      if (isFeatureDisabled(response, body)) {
+        setFeatureAvailable(false);
+        setBundleView(null);
+        setEnabled(false);
+        setPanelOpen(false);
+        return;
+      }
+
+      if (!response.ok || body.error) {
+        setFeatureAvailable(true);
+        throw new Error(apiErrorMessage(body, "โหลดรายการชุดรวมขายไม่สำเร็จ"));
+      }
+
+      const view = body.data ?? { items: [], eligible_items: [] };
+      setBundleView(view);
+      setFeatureAvailable(true);
+
+      const editName = productNameFromHeading(modal);
+      const category = String(findCategoryControl(modal)?.value ?? "").trim();
+      const currentBundle = editName
+        ? (view.items ?? []).find(
+            (item) =>
+              String(item.name ?? "").trim() === editName &&
+              (!category || String(item.category ?? "").trim() === category),
+          ) ?? (view.items ?? []).find((item) => String(item.name ?? "").trim() === editName) ?? null
+        : null;
+      const currentNormal = editName
+        ? (view.eligible_items ?? []).find(
+            (item) =>
+              String(item.name ?? "").trim() === editName &&
+              (!category || String(item.category ?? "").trim() === category),
+          ) ?? (view.eligible_items ?? []).find((item) => String(item.name ?? "").trim() === editName) ?? null
+        : null;
+
+      const nextSelection: SelectionMap = {};
+      for (const item of view.eligible_items ?? []) {
+        nextSelection[item.id] = { selected: false, qty: "1" };
+      }
+      for (const item of currentBundle?.bundle_items ?? []) {
+        const productId = String(item.product_id ?? "");
+        if (!productId) continue;
+        nextSelection[productId] = {
+          selected: true,
+          qty: String(Number(item.qty ?? 1) || 1),
+        };
+      }
+
+      setParentProduct(currentBundle ?? currentNormal ?? null);
+      setSelection(nextSelection);
+      setEnabled(Boolean(currentBundle));
+      setPanelOpen(false);
+    } catch (error) {
+      setFeatureAvailable((current) => current ?? true);
+      setBundleView({ items: [], eligible_items: [] });
+      setErrorText(error instanceof Error ? error.message : "โหลดรายการชุดรวมขายไม่สำเร็จ");
+    } finally {
+      setLoading(false);
+    }
+  }, [modal]);
+
+  useEffect(() => {
+    if (!modal) return;
+    void loadBundleView();
+  }, [modal, loadBundleView]);
+
+  const availableProducts = useMemo(() => {
+    const parentId = parentProduct?.id ?? "";
+    return (bundleView?.eligible_items ?? []).filter((item) => item.id !== parentId);
+  }, [bundleView, parentProduct]);
+
+  const filteredProducts = useMemo(() => {
+    const query = searchText.trim().toLocaleLowerCase();
+    if (!query) return availableProducts;
+    return availableProducts.filter((item) =>
+      [item.name, item.sku, item.category]
+        .map((value) => String(value ?? "").toLocaleLowerCase())
+        .some((value) => value.includes(query)),
+    );
+  }, [availableProducts, searchText]);
+
+  const selectedCount = useMemo(
+    () => availableProducts.filter((item) => selection[item.id]?.selected).length,
+    [availableProducts, selection],
+  );
+
+  useEffect(() => {
+    if (!modal || featureAvailable !== true) return;
+    const saveButton = findSaveButton(modal);
+    if (!saveButton) return;
+
+    const onSave = async (event: Event) => {
+      if (!enabled) return;
+      event.preventDefault();
+      event.stopPropagation();
+      if ("stopImmediatePropagation" in event) event.stopImmediatePropagation();
+      if (saving) return;
+
+      const nameControl = findProductNameControl(modal);
+      const categoryControl = findCategoryControl(modal);
+      const priceControl = findStorePriceControl(modal);
+      const editName = productNameFromHeading(modal);
+      const name = String(nameControl?.value ?? editName).trim();
+      const category = String(categoryControl?.value ?? "").trim();
+      const price = asPrice(String(priceControl?.value ?? ""));
+      const items = availableProducts
+        .filter((item) => selection[item.id]?.selected)
+        .map((item) => ({
+          product_id: item.id,
+          qty: Number(selection[item.id]?.qty ?? 0),
+        }))
+        .filter((item) => Number.isFinite(item.qty) && item.qty > 0);
+
+      if (!name) {
+        setErrorText("กรุณากรอกชื่อสินค้า");
+        setPanelOpen(true);
+        return;
+      }
+      if (!category) {
+        setErrorText("กรุณาเลือกหมวดหมู่");
+        setPanelOpen(true);
+        return;
+      }
+      if (price === null) {
+        setErrorText("กรุณากรอกราคาหน้าร้านให้ถูกต้อง");
+        setPanelOpen(true);
+        return;
+      }
+      if (items.length < 2) {
+        setErrorText("สินค้าชุดรวมขายต้องเลือกสินค้าอย่างน้อย 2 รายการ");
+        setPanelOpen(true);
+        return;
+      }
+
+      setSaving(true);
+      setErrorText("");
+      try {
+        const response = await fetch("/api/backoffice/bundles/popup", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            action: "upsert_bundle",
+            id: parentProduct?.id,
+            sku: parentProduct?.sku,
+            name,
+            category,
+            price,
+            items,
+          }),
+        });
+        const body = (await response.json().catch(() => ({}))) as ApiBody<unknown>;
+        if (!response.ok || body.error) {
+          throw new Error(apiErrorMessage(body, "บันทึกสินค้าชุดรวมขายไม่สำเร็จ"));
+        }
+        window.location.reload();
+      } catch (error) {
+        setErrorText(error instanceof Error ? error.message : "บันทึกสินค้าชุดรวมขายไม่สำเร็จ");
+        setPanelOpen(true);
+        setSaving(false);
+      }
+    };
+
+    saveButton.addEventListener("click", onSave, true);
+    return () => saveButton.removeEventListener("click", onSave, true);
+  }, [
+    modal,
+    featureAvailable,
+    enabled,
+    saving,
+    availableProducts,
+    selection,
+    parentProduct,
+  ]);
+
+  if (
+    typeof document === "undefined" ||
+    !modal ||
+    featureAvailable !== true ||
+    !anchor
+  ) {
+    return null;
+  }
+
+  return createPortal(
+    <>
+      <div
+        data-cpipos-bundle-anchor="true"
+        style={{
+          position: "fixed",
+          left: anchor.left,
+          top: anchor.top,
+          width: anchor.width,
+          zIndex: 176,
+        }}
+        className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 shadow-sm"
+      >
+        <div className="flex items-center justify-between gap-2">
+          <label className="inline-flex min-h-8 cursor-pointer items-center gap-2 text-sm font-bold text-blue-900">
+            <input
+              type="checkbox"
+              checked={enabled}
+              disabled={loading || saving}
+              onChange={(event) => {
+                const checked = event.target.checked;
+                setEnabled(checked);
+                setErrorText("");
+                if (checked) setPanelOpen(true);
+                else setPanelOpen(false);
+              }}
+              className="h-4 w-4 rounded border-blue-300"
+            />
+            <span>สินค้าชุดรวมขาย</span>
+          </label>
+          {enabled ? (
+            <button
+              type="button"
+              onClick={() => setPanelOpen(true)}
+              className="rounded-md border border-blue-300 bg-white px-2 py-1 text-xs font-bold text-blue-700 hover:bg-blue-100"
+            >
+              เลือกสินค้า ({selectedCount})
+            </button>
+          ) : null}
+        </div>
+        {errorText ? (
+          <p className="mt-1 text-[11px] font-semibold leading-4 text-red-600">{errorText}</p>
+        ) : null}
+      </div>
+
+      {panelOpen && enabled ? (
+        <div
+          className="fixed inset-0 z-[190] grid place-items-center bg-slate-950/35 p-4"
+          onClick={() => !saving && setPanelOpen(false)}
+        >
+          <section
+            onClick={(event) => event.stopPropagation()}
+            className="flex max-h-[78vh] w-full max-w-4xl flex-col overflow-hidden rounded-2xl border border-blue-200 bg-white shadow-2xl"
+          >
+            <header className="flex items-start justify-between gap-3 border-b border-slate-200 px-4 py-3">
+              <div>
+                <h3 className="text-lg font-black text-slate-950">เลือกสินค้าในชุดรวมขาย</h3>
+                <p className="mt-1 text-xs font-medium text-slate-500">
+                  เลือกสินค้าที่มีอยู่ในร้านและระบุจำนวนที่ใช้ต่อการขาย 1 ชุด
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => !saving && setPanelOpen(false)}
+                className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-bold text-slate-700 hover:bg-slate-50"
+              >
+                ปิด
+              </button>
+            </header>
+
+            <div className="grid gap-3 border-b border-slate-200 p-4 sm:grid-cols-[1fr_auto] sm:items-center">
+              <input
+                value={searchText}
+                onChange={(event) => setSearchText(event.target.value)}
+                placeholder="ค้นหาชื่อสินค้า / SKU / หมวดหมู่"
+                className="min-h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 outline-none ring-blue-200 focus:ring-2"
+              />
+              <span className="text-sm font-bold text-blue-700">เลือกแล้ว {selectedCount} รายการ</span>
+            </div>
+
+            {errorText ? (
+              <div className="border-b border-red-200 bg-red-50 px-4 py-2 text-sm font-semibold text-red-700">
+                {errorText}
+              </div>
+            ) : null}
+
+            <div className="min-h-0 flex-1 overflow-auto">
+              <table className="w-full min-w-[720px] border-collapse">
+                <thead className="sticky top-0 z-10 bg-slate-50">
+                  <tr>
+                    <th className="border-b border-slate-200 px-3 py-2 text-left text-xs font-black text-slate-600">เลือก</th>
+                    <th className="border-b border-slate-200 px-3 py-2 text-left text-xs font-black text-slate-600">สินค้าในชุด</th>
+                    <th className="border-b border-slate-200 px-3 py-2 text-left text-xs font-black text-slate-600">SKU</th>
+                    <th className="border-b border-slate-200 px-3 py-2 text-left text-xs font-black text-slate-600">หมวดหมู่</th>
+                    <th className="border-b border-slate-200 px-3 py-2 text-left text-xs font-black text-slate-600">จำนวนต่อ 1 ชุด</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredProducts.length > 0 ? (
+                    filteredProducts.map((item) => {
+                      const line = selection[item.id] ?? { selected: false, qty: "1" };
+                      return (
+                        <tr key={item.id} className={line.selected ? "bg-blue-50/60" : "bg-white"}>
+                          <td className="border-b border-slate-100 px-3 py-2">
+                            <input
+                              type="checkbox"
+                              checked={line.selected}
+                              onChange={(event) => {
+                                const checked = event.target.checked;
+                                setSelection((current) => ({
+                                  ...current,
+                                  [item.id]: {
+                                    selected: checked,
+                                    qty: current[item.id]?.qty || "1",
+                                  },
+                                }));
+                                setErrorText("");
+                              }}
+                              className="h-4 w-4 rounded border-blue-300"
+                            />
+                          </td>
+                          <td className="border-b border-slate-100 px-3 py-2 text-sm font-bold text-slate-900">
+                            {item.name || "-"}
+                          </td>
+                          <td className="border-b border-slate-100 px-3 py-2 text-sm text-slate-600">{item.sku || "-"}</td>
+                          <td className="border-b border-slate-100 px-3 py-2 text-sm text-slate-600">{item.category || "-"}</td>
+                          <td className="border-b border-slate-100 px-3 py-2">
+                            <input
+                              type="number"
+                              min={0.01}
+                              step="0.01"
+                              disabled={!line.selected}
+                              value={line.qty}
+                              onChange={(event) => {
+                                const qty = event.target.value;
+                                setSelection((current) => ({
+                                  ...current,
+                                  [item.id]: {
+                                    selected: current[item.id]?.selected ?? false,
+                                    qty,
+                                  },
+                                }));
+                                setErrorText("");
+                              }}
+                              className="min-h-9 w-32 rounded-lg border border-slate-300 bg-white px-2 text-sm font-semibold text-slate-900 disabled:cursor-not-allowed disabled:bg-slate-100"
+                            />
+                          </td>
+                        </tr>
+                      );
+                    })
+                  ) : (
+                    <tr>
+                      <td colSpan={5} className="px-4 py-8 text-center text-sm font-semibold text-slate-500">
+                        ไม่พบสินค้าที่ตรงกับการค้นหา
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+
+            <footer className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-200 bg-slate-50 px-4 py-3">
+              <p className="text-xs font-medium text-slate-500">
+                เมื่อกดบันทึกสินค้า ระบบจะบันทึกเป็นสินค้าชุดรวมขายและตัดสต๊อกจากรายการที่เลือกตามจำนวนต่อ 1 ชุด
+              </p>
+              <button
+                type="button"
+                onClick={() => setPanelOpen(false)}
+                disabled={saving}
+                className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-black text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                เสร็จสิ้น
+              </button>
+            </footer>
+          </section>
+        </div>
+      ) : null}
+    </>,
+    document.body,
+  );
 }
