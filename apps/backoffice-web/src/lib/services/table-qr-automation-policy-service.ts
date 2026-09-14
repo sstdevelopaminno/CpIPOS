@@ -1,5 +1,6 @@
 import type { AuthContext } from "@/lib/auth-context";
 import { appendAuditLog } from "@/lib/audit-log";
+import { invalidateRuntimeCacheByPrefix } from "@/lib/route-runtime-cache";
 import { getPrimarySupabaseServiceClient } from "@/lib/supabase-admin";
 
 export type TableQrPolicyOverride = "inherit" | "force_on" | "force_off";
@@ -61,6 +62,10 @@ export function resolveTableQrOverride(base: boolean, override: TableQrPolicyOve
   if (override === "force_on") return true;
   if (override === "force_off") return false;
   return base;
+}
+
+function invalidatePopupPolicyCache(tenantId: string, branchId: string) {
+  invalidateRuntimeCacheByPrefix(`table-qr-popup-policy:${tenantId}:${branchId}`);
 }
 
 function assertBranchId(auth: AuthContext, requestedBranchId?: string): string {
@@ -185,6 +190,7 @@ export async function saveStoreTableQrAutomationPolicy(
   );
   if (error) throw new Error(`table_qr_automation_policy_save_failed:${error.message}`);
 
+  invalidatePopupPolicyCache(tenantId, branchId);
   const next = await loadTableQrAutomationPolicy(auth, branchId);
   await appendAuditLog({
     tenantId,
@@ -235,6 +241,7 @@ export async function saveItTableQrAutomationOverrides(
   );
   if (error) throw new Error(`table_qr_automation_override_save_failed:${error.message}`);
 
+  invalidatePopupPolicyCache(tenantId, branchId);
   const after = toPolicy(branchId, await readSettingsRow(tenantId, branchId));
   await appendAuditLog({
     tenantId,
