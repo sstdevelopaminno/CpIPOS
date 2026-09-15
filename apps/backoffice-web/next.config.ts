@@ -2,9 +2,32 @@ import type { NextConfig } from "next";
 
 // Deploy marker: production-readiness hardening after database housekeeping (2026-08-08).
 
+function normalizeFrameAncestor(value: string) {
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  try {
+    const url = new URL(trimmed);
+    if (url.protocol !== "https:" && url.protocol !== "http:") return null;
+    return url.origin;
+  } catch {
+    return null;
+  }
+}
+
+const configuredFrameAncestors = [
+  ...(process.env.IT_ADMIN_FRAME_ANCESTORS ?? "").split(","),
+  process.env.NEXT_PUBLIC_IT_ADMIN_URL ?? ""
+]
+  .map(normalizeFrameAncestor)
+  .filter((value): value is string => Boolean(value));
+
+const frameAncestors = Array.from(
+  new Set(["'self'", "http://localhost:3000", "http://127.0.0.1:3000", ...configuredFrameAncestors])
+).join(" ");
+
 const securityHeaders = [
   { key: "X-Content-Type-Options", value: "nosniff" },
-  { key: "X-Frame-Options", value: "DENY" },
+  { key: "Content-Security-Policy", value: `frame-ancestors ${frameAncestors};` },
   { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
   { key: "Permissions-Policy", value: "camera=(self), microphone=(), geolocation=()" },
   { key: "Cross-Origin-Opener-Policy", value: "same-origin" },
