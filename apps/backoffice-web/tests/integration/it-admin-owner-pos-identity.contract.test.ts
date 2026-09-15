@@ -6,6 +6,7 @@ function source(relativePath: string) {
 }
 
 const employeeVerifyRoute = source("../../src/app/api/auth/employee/verify-code/route.ts");
+const employeeLoginPage = source("../../src/app/login/employee/page.tsx");
 const preEntryAuth = source("../../src/lib/server/pre-entry-auth.ts");
 const authVerification = source("../../src/lib/server/auth-verification.ts");
 
@@ -14,11 +15,16 @@ describe("IT Admin -> tenant POS owner identity contract", () => {
     expect(employeeVerifyRoute).toContain("resolveEmployeeByCode");
     expect(preEntryAuth).toContain('from("pos_user_profiles")');
     expect(preEntryAuth).toContain("employee_code");
-    expect(preEntryAuth).toContain('from("users_profiles")');
+    expect(preEntryAuth).toContain("users_profiles!inner");
     expect(preEntryAuth).toContain('from("user_branch_roles")');
   });
 
   it("keeps Owner PIN as a second authentication factor after employee resolution", () => {
+    expect(employeeVerifyRoute).toContain("requiresPrivilegedPin");
+    expect(employeeVerifyRoute).toContain('next_step: "pin"');
+    expect(employeeVerifyRoute).toContain("verifyPinLogin");
+    expect(employeeLoginPage).toContain("pinRequired");
+    expect(employeeLoginPage).toContain("Owner / Manager PIN");
     expect(authVerification).toContain("verifyPinLogin");
     expect(authVerification).toContain("pin_hash");
     expect(authVerification).toContain("bcrypt.compare");
@@ -29,5 +35,6 @@ describe("IT Admin -> tenant POS owner identity contract", () => {
     expect(preEntryAuth).toContain("tenantId");
     expect(preEntryAuth).toContain("branchId");
     expect(preEntryAuth).toContain("user_branch_roles");
+    expect(employeeVerifyRoute).toContain("allow_pin_login");
   });
 });
