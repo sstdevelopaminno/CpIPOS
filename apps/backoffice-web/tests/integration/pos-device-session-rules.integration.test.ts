@@ -30,7 +30,7 @@ describe("POS device session access rules", () => {
     });
   });
 
-  it("allows manager or owner permissions to take over an in-use device and revoke the old session", () => {
+  it("allows manager or owner permissions to enter an in-use device without revoking the cashier session", () => {
     const result = resolveDeviceSessionAccess({
       activeSessionUserId: "staff-1",
       employeeUserId: "manager-1",
@@ -39,12 +39,12 @@ describe("POS device session access rules", () => {
 
     expect(result).toEqual({
       ok: true,
-      shouldRevokeExistingSession: true,
+      shouldRevokeExistingSession: false,
       overrideApplied: true
     });
   });
 
-  it("allows a manager to refresh their own active device session without treating it as takeover", () => {
+  it("allows a manager to refresh their own active device session without revoking it", () => {
     const result = resolveDeviceSessionAccess({
       activeSessionUserId: "manager-1",
       employeeUserId: "manager-1",
@@ -53,7 +53,7 @@ describe("POS device session access rules", () => {
 
     expect(result).toEqual({
       ok: true,
-      shouldRevokeExistingSession: true,
+      shouldRevokeExistingSession: false,
       overrideApplied: false
     });
   });
