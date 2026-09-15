@@ -7,6 +7,7 @@ import {
 } from "@/lib/pos-session-guard";
 import { loadPosRuntimeDevicePolicyForSession } from "@/lib/pos-device-status";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
+import { readThroughRuntimeCache } from "@/lib/route-runtime-cache";
 
 async function withQueryTimeout<T>(queryPromise: Promise<T>, timeoutMs: number): Promise<T | null> {
   let timeoutId: ReturnType<typeof setTimeout> | null = null;
@@ -52,6 +53,8 @@ const EMPTY_SHIFT_METRICS = {
   cash_total: 0,
   transfer_total: 0
 };
+
+const SHIFT_METRICS_CACHE_TTL_MS = 10_000;
 
 function setTimingHeaders(response: NextResponse, startedAt: number) {
   const durationMs = Date.now() - startedAt;
@@ -331,15 +334,22 @@ export async function GET() {
       return withPosSessionCookie(response, scope.session.id);
     }
 
-    const [devicePolicy, shiftMetricsResult] = await Promise.all([
+    const shiftMetricsShiftId = shiftSummary?.status === "open" ? shiftSummary.id : null;
+    const [devicePolicy, shiftMetricsCache] = await Promise.all([
       loadPosRuntimeDevicePolicyForSession(scope.session),
-      loadShiftMetrics({
-        supabase,
-        tenantId: scope.session.tenant_id,
-        branchId: scope.session.branch_id,
-        shiftId: shiftSummary?.status === "open" ? shiftSummary.id : null
+      readThroughRuntimeCache({
+        key: `pos-session-current-shift-metrics:${scope.session.tenant_id}:${scope.session.branch_id}:${shiftMetricsShiftId ?? "none"}`,
+        ttlMs: SHIFT_METRICS_CACHE_TTL_MS,
+        loader: () =>
+          loadShiftMetrics({
+            supabase,
+            tenantId: scope.session.tenant_id,
+            branchId: scope.session.branch_id,
+            shiftId: shiftMetricsShiftId
+          })
       })
     ]);
+    const shiftMetricsResult = shiftMetricsCache.value;
     const response = NextResponse.json({
       data: {
         session: {
@@ -381,6 +391,7 @@ export async function GET() {
 
     response.headers.set("x-pos-session-shift-fallback", shiftLookupFallback ? "1" : "0");
     response.headers.set("x-pos-session-shift-metrics-degraded", shiftMetricsResult.degraded ? "1" : "0");
+    response.headers.set("x-pos-session-shift-metrics-cache", shiftMetricsCache.source);
     response.headers.set("x-pos-session-shift-rebound", reboundShiftBinding ? "1" : "0");
     setTimingHeaders(response, startedAt);
     return withPosSessionCookie(response, scope.session.id);
