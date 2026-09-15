@@ -50,7 +50,12 @@ export function TenantPosLaunch({ storeCode }: { storeCode: string }) {
           return;
         }
 
-        cacheBranches(body.data.branches ?? []);
+        cacheBranches((body.data.branches ?? []).map((branch) => ({
+          id: branch.id,
+          code: branch.code,
+          name: branch.name,
+          address: branch.address ?? null
+        })));
         const flow = body.data.next_step === "employee" ? "single" : "multi";
         router.replace(body.data.next_step === "employee" ? `/login/employee?flow=${flow}` : `/login/branches?flow=${flow}`);
       } catch (launchError) {
