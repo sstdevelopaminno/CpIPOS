@@ -14,8 +14,8 @@ const picker = source("../../src/components/pos/pos-buffet-price-picker-modal.ts
 
 describe("POS Buffet Table branch price settings", () => {
   it("adds the requested Buffet price submenu to More and protects it with table management", () => {
-    expect(moreWorkspace).toContain('href:"/preview/pos/buffet-pricing"');
-    expect(moreWorkspace).toContain('th:"ตั้งค่าราคาบุฟเฟ่"');
+    expect(moreWorkspace).toContain('href: "/preview/pos/buffet-pricing"');
+    expect(moreWorkspace).toContain('th: "ตั้งค่าราคาบุฟเฟ่"');
     expect(featureMap).toContain('"/preview/pos/buffet-pricing": "table_management"');
     expect(settingsPage).toContain('requirePosPagePermission("tables:manage")');
   });
