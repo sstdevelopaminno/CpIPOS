@@ -1,5 +1,11 @@
-﻿import { StockModule } from "@/components/backoffice/stock-module";
+import { StockModule } from "@/components/backoffice/stock-module";
+import { CatalogBundleTools } from "@/components/backoffice/catalog-bundle-tools";
 
 export default function StockPage() {
-  return <StockModule />;
+  return (
+    <div className="space-y-6">
+      <StockModule />
+      <CatalogBundleTools />
+    </div>
+  );
 }

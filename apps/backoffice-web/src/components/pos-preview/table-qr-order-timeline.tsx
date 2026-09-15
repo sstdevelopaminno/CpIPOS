@@ -437,7 +437,7 @@ export function TableQrOrderTimeline() {
         <header className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div>
-              <p className="text-xs font-black uppercase tracking-[0.14em] text-blue-600">FG0003 · 7-Day Audit</p>
+              <p className="text-xs font-black uppercase tracking-[0.14em] text-blue-600">Restaurant QR · 7-Day Audit</p>
               <h1 className="mt-1 text-2xl font-black text-slate-950">ไทม์ไลน์สั่งอาหารจาก QR</h1>
               <p className="mt-2 max-w-4xl text-sm font-medium leading-6 text-slate-600">คลิกแต่ละแถวเพื่อดูว่าเครื่องใดส่งเมนูอะไร เวลาใด ผลสำเร็จหรือไม่ พร้อม Kitchen Ticket และประวัติการพิมพ์ รวมถึงการตรวจ Print Job ซ้ำ</p>
             </div>

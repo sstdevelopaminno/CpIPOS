@@ -1,13 +1,9 @@
+﻿import { getProductProfilePolicy } from "@/lib/product-profile-policy";
+
 export type PosSalesMode = "home" | "dine_in" | "buffet_table" | "delivery";
 
 export const DEFAULT_POS_SALES_MODE_ORDER: PosSalesMode[] = ["home", "dine_in", "buffet_table", "delivery"];
 
-const FG0003_TENANT_ID = "2d38bd23-bf2d-4b9a-a7cf-adb2547297ed";
-const FF0001_TENANT_ID = "997a0329-604f-49eb-a091-e654a57e6b8e";
-const TENANT_HIDDEN_MODES: Record<string, PosSalesMode[]> = {
-  [FG0003_TENANT_ID]: ["buffet_table", "delivery"],
-  [FF0001_TENANT_ID]: ["home", "dine_in", "delivery"]
-};
 const POS_SALES_MODE_ORDER_STORAGE_PREFIX = "pos_sales_mode_order_v1";
 
 export type PosScopeIdentity = {
@@ -50,14 +46,25 @@ export function swapPosSalesModes(order: PosSalesMode[], left: PosSalesMode, rig
   return next;
 }
 
-export function getHiddenPosSalesModes(tenantId: string | null | undefined): PosSalesMode[] {
-  const hidden = TENANT_HIDDEN_MODES[String(tenantId ?? "").trim()];
-  return hidden ? [...hidden] : [];
+export function getHiddenPosSalesModes(_tenantId: string | null | undefined, productProfile?: string | null | undefined): PosSalesMode[] {
+  return [...getProductProfilePolicy(productProfile).hiddenSalesModes];
 }
 
-export function getVisiblePosSalesModeOrder(order: PosSalesMode[], tenantId: string | null | undefined): PosSalesMode[] {
-  const hidden = new Set(getHiddenPosSalesModes(tenantId));
+export function getVisiblePosSalesModeOrder(
+  order: PosSalesMode[],
+  tenantId: string | null | undefined,
+  productProfile?: string | null | undefined
+): PosSalesMode[] {
+  const hidden = new Set(getHiddenPosSalesModes(tenantId, productProfile));
   return normalizePosSalesModeOrder(order).filter((mode) => !hidden.has(mode));
+}
+
+export function getPreferredPosSalesMode(productProfile: string | null | undefined): PosSalesMode {
+  return getProductProfilePolicy(productProfile).preferredSalesMode;
+}
+
+export function shouldForcePreferredPosSalesMode(productProfile: string | null | undefined): boolean {
+  return getProductProfilePolicy(productProfile).forcePreferredSalesMode;
 }
 
 export function canManageBranchSalesModeOrder(

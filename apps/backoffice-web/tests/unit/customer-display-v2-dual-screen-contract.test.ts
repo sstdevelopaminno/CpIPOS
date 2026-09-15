@@ -78,7 +78,7 @@ describe("Customer Display V2 Android dual-screen compatibility contract", () =>
     expect(downloadCenter).toContain("1–2 จอ");
     expect(downloadCenter).toContain("CpIPOS POS - Legacy Stable");
     expect(downloadCenter).toContain("1.0.12");
-    expect(downloadCenter).toContain("Android POS 1.0.13 ถูกนำออกจากหน้า Download หลัก");
+    expect(downloadCenter).toContain("legacy: true");
     expect(downloadRoute).toContain("android-runtime-dual-screen-1-0-13");
     expect(downloadRoute).toContain("CpIPOS-Android-POS-1.0.13-Dual-Screen.apk");
   });

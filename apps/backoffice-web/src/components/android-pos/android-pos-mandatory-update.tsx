@@ -1,6 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { shouldDisableNativeCustomerDisplayForDiagnostics } from "@/lib/android-pos/native-device-policy";
+import { ANDROID_MODERN_RELEASE } from "@/lib/android-runtime-release";
 
 type NativeDiagnostics = {
   install_id?: unknown;
@@ -31,15 +33,12 @@ const FALLBACK_DOWNLOAD_URL = "/download/android/modern-latest";
 const POLL_MS = 10 * 60_000;
 const CUSTOMER_DISPLAY_V2_ENABLED_KEY = "pos_customer_display_v2_enabled_v001";
 
-// Emergency performance protection remains scoped to the single FG0003 Android install.
-// The code26 recovery prompt is intentionally disabled while the cashier tests the current runtime.
-const FG0003_ROLLBACK_INSTALL_ID = "13aec7a2-7817-49b4-a90f-ff275dfefd75";
 
 export function AndroidPosMandatoryUpdate() {
   const [required, setRequired] = useState(false);
   const [checking, setChecking] = useState(false);
-  const [targetName, setTargetName] = useState("1.0.21");
-  const [targetCode, setTargetCode] = useState(29);
+  const [targetName, setTargetName] = useState<string>(ANDROID_MODERN_RELEASE.versionName);
+  const [targetCode, setTargetCode] = useState<number>(ANDROID_MODERN_RELEASE.versionCode);
   const [downloadUrl, setDownloadUrl] = useState(FALLBACK_DOWNLOAD_URL);
   const [rollbackMode, setRollbackMode] = useState(false);
 
@@ -60,14 +59,8 @@ export function AndroidPosMandatoryUpdate() {
     const installId = String(diagnostics.install_id ?? "").trim();
     const versionCode = Number(diagnostics.app?.version_code ?? 0);
     if (!installId || !Number.isFinite(versionCode) || versionCode <= 0) return;
-
-    // FG0003: keep the customer-display workload disabled for performance relief,
-    // but do not show any code26 recovery/update popup while the cashier is testing POS.
-    if (installId === FG0003_ROLLBACK_INSTALL_ID) {
+    if (shouldDisableNativeCustomerDisplayForDiagnostics(diagnostics)) {
       window.localStorage.setItem(CUSTOMER_DISPLAY_V2_ENABLED_KEY, "0");
-      setRollbackMode(false);
-      setRequired(false);
-      return;
     }
 
     setRollbackMode(false);
@@ -143,19 +136,19 @@ export function AndroidPosMandatoryUpdate() {
           {rollbackMode ? "CPIPOS RECOVERY" : "CPIPOS SYSTEM UPDATE"}
         </div>
         <h2 style={{ margin: "10px 0 8px", fontSize: rollbackMode ? 20 : 26, lineHeight: 1.25 }}>
-          {rollbackMode ? "มีเวอร์ชันเดิมสำหรับกู้การใช้งานเครื่องนี้" : "ต้องอัปเดต CpIPOS ก่อนใช้งานต่อ"}
+          {rollbackMode ? "เธกเธตเน€เธงเธญเธฃเนเธเธฑเธเน€เธ”เธดเธกเธชเธณเธซเธฃเธฑเธเธเธนเนเธเธฒเธฃเนเธเนเธเธฒเธเน€เธเธฃเธทเนเธญเธเธเธตเน" : "เธ•เนเธญเธเธญเธฑเธเน€เธ”เธ• CpIPOS เธเนเธญเธเนเธเนเธเธฒเธเธ•เนเธญ"}
         </h2>
         <p style={{ margin: 0, color: "#475569", lineHeight: 1.65, fontSize: rollbackMode ? 13 : 15 }}>
           {rollbackMode
-            ? `สามารถใช้งาน POS ต่อได้ระหว่างนี้ หรือดาวน์โหลด CpIPOS ${targetName} (code ${targetCode}) รุ่นเดิมสำหรับเครื่องนี้เท่านั้น`
-            : `กรุณาอัปเดตแอปเป็นเวอร์ชัน ${targetName} (code ${targetCode}) รุ่นล่าสุด ระบบจะแสดงหน้าต่างนี้ซ้ำจนกว่าจะติดตั้งสำเร็จ`}
+            ? `เธชเธฒเธกเธฒเธฃเธ–เนเธเนเธเธฒเธ POS เธ•เนเธญเนเธ”เนเธฃเธฐเธซเธงเนเธฒเธเธเธตเน เธซเธฃเธทเธญเธ”เธฒเธงเธเนเนเธซเธฅเธ” CpIPOS ${targetName} (code ${targetCode}) เธฃเธธเนเธเน€เธ”เธดเธกเธชเธณเธซเธฃเธฑเธเน€เธเธฃเธทเนเธญเธเธเธตเนเน€เธ—เนเธฒเธเธฑเนเธ`
+            : `เธเธฃเธธเธ“เธฒเธญเธฑเธเน€เธ”เธ•เนเธญเธเน€เธเนเธเน€เธงเธญเธฃเนเธเธฑเธ ${targetName} (code ${targetCode}) เธฃเธธเนเธเธฅเนเธฒเธชเธธเธ” เธฃเธฐเธเธเธเธฐเนเธชเธ”เธเธซเธเนเธฒเธ•เนเธฒเธเธเธตเนเธเนเธณเธเธเธเธงเนเธฒเธเธฐเธ•เธดเธ”เธ•เธฑเนเธเธชเธณเน€เธฃเนเธ`}
         </p>
 
         {!rollbackMode ? (
           <div style={{ marginTop: 18, borderRadius: 14, background: "#eff6ff", padding: 14, color: "#1e3a8a", lineHeight: 1.65 }}>
-            1. กด “ดาวน์โหลดและติดตั้ง”<br />
-            2. เปิดไฟล์ APK ที่ดาวน์โหลดและยืนยันติดตั้ง<br />
-            3. เปิด CpIPOS อีกครั้ง ระบบจะตรวจ code {targetCode} อัตโนมัติ
+            1. เธเธ” โ€เธ”เธฒเธงเธเนเนเธซเธฅเธ”เนเธฅเธฐเธ•เธดเธ”เธ•เธฑเนเธโ€<br />
+            2. เน€เธเธดเธ”เนเธเธฅเน APK เธ—เธตเนเธ”เธฒเธงเธเนเนเธซเธฅเธ”เนเธฅเธฐเธขเธทเธเธขเธฑเธเธ•เธดเธ”เธ•เธฑเนเธ<br />
+            3. เน€เธเธดเธ” CpIPOS เธญเธตเธเธเธฃเธฑเนเธ เธฃเธฐเธเธเธเธฐเธ•เธฃเธงเธ code {targetCode} เธญเธฑเธ•เนเธเธกเธฑเธ•เธด
           </div>
         ) : null}
 
@@ -175,7 +168,7 @@ export function AndroidPosMandatoryUpdate() {
             cursor: "pointer"
           }}
         >
-          {rollbackMode ? `ดาวน์โหลดเวอร์ชันเดิม code ${targetCode}` : `ดาวน์โหลดและติดตั้ง ${targetName}`}
+          {rollbackMode ? `เธ”เธฒเธงเธเนเนเธซเธฅเธ”เน€เธงเธญเธฃเนเธเธฑเธเน€เธ”เธดเธก code ${targetCode}` : `เธ”เธฒเธงเธเนเนเธซเธฅเธ”เนเธฅเธฐเธ•เธดเธ”เธ•เธฑเนเธ ${targetName}`}
         </button>
 
         {!rollbackMode ? (
@@ -196,14 +189,14 @@ export function AndroidPosMandatoryUpdate() {
               cursor: checking ? "wait" : "pointer"
             }}
           >
-            {checking ? "กำลังตรวจสอบ..." : "ตรวจสอบหลังติดตั้งอีกครั้ง"}
+            {checking ? "เธเธณเธฅเธฑเธเธ•เธฃเธงเธเธชเธญเธ..." : "เธ•เธฃเธงเธเธชเธญเธเธซเธฅเธฑเธเธ•เธดเธ”เธ•เธฑเนเธเธญเธตเธเธเธฃเธฑเนเธ"}
           </button>
         ) : null}
 
         <p style={{ margin: "10px 0 0", textAlign: "center", color: "#94a3b8", fontSize: 11 }}>
           {rollbackMode
-            ? "กล่องนี้ไม่บล็อกการใช้งาน POS และมีผลเฉพาะเครื่องนี้"
-            : `หน้าต่างนี้จะหายอัตโนมัติเมื่อ CpIPOS รายงาน versionCode ${targetCode}`}
+            ? "เธเธฅเนเธญเธเธเธตเนเนเธกเนเธเธฅเนเธญเธเธเธฒเธฃเนเธเนเธเธฒเธ POS เนเธฅเธฐเธกเธตเธเธฅเน€เธเธเธฒเธฐเน€เธเธฃเธทเนเธญเธเธเธตเน"
+            : `เธซเธเนเธฒเธ•เนเธฒเธเธเธตเนเธเธฐเธซเธฒเธขเธญเธฑเธ•เนเธเธกเธฑเธ•เธดเน€เธกเธทเนเธญ CpIPOS เธฃเธฒเธขเธเธฒเธ versionCode ${targetCode}`}
         </p>
       </div>
     </div>

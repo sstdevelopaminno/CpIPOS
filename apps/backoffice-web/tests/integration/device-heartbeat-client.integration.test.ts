@@ -87,15 +87,17 @@ describe("device heartbeat client", () => {
 });
 
 describe("executePendingActions", () => {
-  it("marks unsupported commands as not applied without side effects", async () => {
+  it("marks native runtime service controls as not applied without side effects", async () => {
     const results = await executePendingActions([
       { id: "1", command_type: "clear_print_queue", issued_at: "2026-08-06T00:00:00Z" },
-      { id: "2", command_type: "restart_local_bridge", issued_at: "2026-08-06T00:00:00Z" }
+      { id: "2", command_type: "restart_local_bridge", issued_at: "2026-08-06T00:00:00Z" },
+      { id: "3", command_type: "restart_print_service", issued_at: "2026-08-06T00:00:00Z" }
     ]);
 
     expect(results).toEqual([
       { id: "1", command_type: "clear_print_queue", applied: false },
-      { id: "2", command_type: "restart_local_bridge", applied: false }
+      { id: "2", command_type: "restart_local_bridge", applied: false },
+      { id: "3", command_type: "restart_print_service", applied: false }
     ]);
   });
 
@@ -122,5 +124,9 @@ describe("executePendingActions", () => {
   it("refresh_config is not applied without a Windows Runtime entitlements URL", async () => {
     const results = await executePendingActions([{ id: "7", command_type: "refresh_config", issued_at: "2026-08-06T00:00:00Z" }]);
     expect(results).toEqual([{ id: "7", command_type: "refresh_config", applied: false }]);
+  });
+  it("accepts check_update as a safe update telemetry refresh", async () => {
+    const results = await executePendingActions([{ id: "8", command_type: "check_update", issued_at: "2026-08-06T00:00:00Z" }]);
+    expect(results).toEqual([{ id: "8", command_type: "check_update", applied: true }]);
   });
 });

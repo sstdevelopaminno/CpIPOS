@@ -17,6 +17,18 @@ import { PosGuardError, requirePosSession } from "@/lib/pos-session-guard";
 import { getPrimarySupabaseServiceClient } from "@/lib/supabase-admin";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const ACCEPTED_OPTIMIZED_MEDIA_TYPES = new Set(["image/webp", "image/jpeg", "image/png"]);
+const MEDIA_EXTENSION_BY_TYPE: Record<string, string> = {
+  "image/webp": "webp",
+  "image/jpeg": "jpg",
+  "image/png": "png"
+};
+
+type OptimizedMedia = {
+  buffer: Buffer;
+  contentType: "image/webp" | "image/jpeg" | "image/png";
+  extension: "webp" | "jpg" | "png";
+};
 
 function mapError(error: unknown) {
   if (error instanceof ProductMediaError) return fail(error.code, error.message, error.status);
@@ -34,10 +46,55 @@ function isWebp(buffer: Buffer) {
   return buffer.length >= 12 && buffer.subarray(0, 4).toString("ascii") === "RIFF" && buffer.subarray(8, 12).toString("ascii") === "WEBP";
 }
 
-async function uploadObject(path: string, buffer: Buffer) {
+function isJpeg(buffer: Buffer) {
+  return buffer.length >= 3 && buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff;
+}
+
+function isPng(buffer: Buffer) {
+  return buffer.length >= 8 && buffer.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
+}
+
+function detectMediaContentType(buffer: Buffer): OptimizedMedia["contentType"] | null {
+  if (isWebp(buffer)) return "image/webp";
+  if (isJpeg(buffer)) return "image/jpeg";
+  if (isPng(buffer)) return "image/png";
+  return null;
+}
+
+async function readOptimizedMedia(file: File, label: "display" | "thumbnail"): Promise<OptimizedMedia | { error: ReturnType<typeof fail> }> {
+  const declaredType = String(file.type ?? "").toLowerCase();
+  if (!ACCEPTED_OPTIMIZED_MEDIA_TYPES.has(declaredType)) {
+    return { error: fail("product_media_invalid_type", "Product images must be optimized as WebP, JPEG, or PNG.", 415) };
+  }
+
+  const maxBytes = label === "display" ? PRODUCT_MEDIA_DISPLAY_MAX_BYTES : PRODUCT_MEDIA_THUMBNAIL_MAX_BYTES;
+  const tooLargeCode = label === "display" ? "product_media_display_too_large" : "product_media_thumbnail_too_large";
+  const tooLargeMessage = label === "display" ? "Optimized display image is too large." : "Optimized thumbnail image is too large.";
+  if (file.size <= 0 || file.size > maxBytes) {
+    return { error: fail(tooLargeCode, tooLargeMessage, 413) };
+  }
+
+  const buffer = Buffer.from(await file.arrayBuffer());
+  const detectedType = detectMediaContentType(buffer);
+  if (!detectedType) {
+    return { error: fail("product_media_invalid_signature", "Invalid optimized image payload.", 415) };
+  }
+
+  if (declaredType !== detectedType) {
+    return { error: fail("product_media_type_mismatch", "Optimized image content does not match its declared type.", 415) };
+  }
+
+  return {
+    buffer,
+    contentType: detectedType,
+    extension: MEDIA_EXTENSION_BY_TYPE[detectedType] as OptimizedMedia["extension"]
+  };
+}
+
+async function uploadObject(path: string, buffer: Buffer, contentType: OptimizedMedia["contentType"]) {
   const primary = getPrimarySupabaseServiceClient();
   const { error } = await primary.storage.from(PRODUCT_MEDIA_BUCKET).upload(path, buffer, {
-    contentType: "image/webp",
+    contentType,
     cacheControl: "31536000",
     upsert: false
   });
@@ -61,34 +118,24 @@ export async function POST(request: Request, context: { params: Promise<{ produc
     if (!(displayFile instanceof File) || !(thumbnailFile instanceof File)) {
       return fail("product_media_files_required", "Optimized display and thumbnail images are required.", 422);
     }
-    if (displayFile.type !== "image/webp" || thumbnailFile.type !== "image/webp") {
-      return fail("product_media_invalid_type", "Product images must be WebP after optimization.", 415);
-    }
-    if (displayFile.size <= 0 || displayFile.size > PRODUCT_MEDIA_DISPLAY_MAX_BYTES) {
-      return fail("product_media_display_too_large", "Optimized display image is too large.", 413);
-    }
-    if (thumbnailFile.size <= 0 || thumbnailFile.size > PRODUCT_MEDIA_THUMBNAIL_MAX_BYTES) {
-      return fail("product_media_thumbnail_too_large", "Optimized thumbnail image is too large.", 413);
-    }
 
-    const displayBuffer = Buffer.from(await displayFile.arrayBuffer());
-    const thumbnailBuffer = Buffer.from(await thumbnailFile.arrayBuffer());
-    if (!isWebp(displayBuffer) || !isWebp(thumbnailBuffer)) {
-      return fail("product_media_invalid_signature", "Invalid WebP image payload.", 415);
-    }
+    const displayMedia = await readOptimizedMedia(displayFile, "display");
+    if ("error" in displayMedia) return displayMedia.error;
+    const thumbnailMedia = await readOptimizedMedia(thumbnailFile, "thumbnail");
+    if ("error" in thumbnailMedia) return thumbnailMedia.error;
 
     const previous = await loadProductMediaAssetRow({ tenantId: resolved.tenantId, branchId: resolved.branchId, productId });
     const version = randomUUID();
     const prefix = `${resolved.tenantId}/${resolved.branchId}/${productId}`;
-    const displayPath = `${prefix}/${version}-display.webp`;
-    const thumbnailPath = `${prefix}/${version}-thumb.webp`;
+    const displayPath = `${prefix}/${version}-display.${displayMedia.extension}`;
+    const thumbnailPath = `${prefix}/${version}-thumb.${thumbnailMedia.extension}`;
 
-    await uploadObject(displayPath, displayBuffer);
+    await uploadObject(displayPath, displayMedia.buffer, displayMedia.contentType);
     uploadedPaths.push(displayPath);
-    await uploadObject(thumbnailPath, thumbnailBuffer);
+    await uploadObject(thumbnailPath, thumbnailMedia.buffer, thumbnailMedia.contentType);
     uploadedPaths.push(thumbnailPath);
 
-    const checksum = createHash("sha256").update(displayBuffer).update(thumbnailBuffer).digest("hex");
+    const checksum = createHash("sha256").update(displayMedia.buffer).update(thumbnailMedia.buffer).digest("hex");
     const displayWidth = parseDimension(form.get("display_width"), 1200);
     const displayHeight = parseDimension(form.get("display_height"), 1200);
     const thumbnailWidth = parseDimension(form.get("thumbnail_width"), 400);
@@ -100,8 +147,8 @@ export async function POST(request: Request, context: { params: Promise<{ produc
       p_product_id: productId,
       p_display_object_path: displayPath,
       p_thumbnail_object_path: thumbnailPath,
-      p_display_bytes: displayBuffer.length,
-      p_thumbnail_bytes: thumbnailBuffer.length,
+      p_display_bytes: displayMedia.buffer.length,
+      p_thumbnail_bytes: thumbnailMedia.buffer.length,
       p_display_width: displayWidth,
       p_display_height: displayHeight,
       p_thumbnail_width: thumbnailWidth,
@@ -112,7 +159,9 @@ export async function POST(request: Request, context: { params: Promise<{ produc
       p_metadata: {
         original_name: displayFile.name || null,
         product_name: product.name ?? null,
-        optimized_by: "cpipos_canvas_webp_v1"
+        optimized_by: displayMedia.contentType === "image/webp" && thumbnailMedia.contentType === "image/webp" ? "cpipos_canvas_webp_v1" : "cpipos_canvas_fallback_v2",
+        display_content_type: displayMedia.contentType,
+        thumbnail_content_type: thumbnailMedia.contentType
       }
     });
 
@@ -147,8 +196,10 @@ export async function POST(request: Request, context: { params: Promise<{ produc
       productId,
       assetId: rpcRow?.asset_id ?? asset?.asset_id ?? null,
       metadata: {
-        display_bytes: displayBuffer.length,
-        thumbnail_bytes: thumbnailBuffer.length,
+        display_bytes: displayMedia.buffer.length,
+        thumbnail_bytes: thumbnailMedia.buffer.length,
+        display_content_type: displayMedia.contentType,
+        thumbnail_content_type: thumbnailMedia.contentType,
         replaced_asset_id: previous?.id ?? null
       }
     });

@@ -49,6 +49,7 @@ export function StockBranchSelector({
     <div className="mt-3 flex flex-wrap items-center gap-2">
       <label className="text-xs font-semibold text-slate-600">{th ? "ดูข้อมูลสาขา" : "View Branch"}</label>
       <select
+        id="stock-branch-selector-control"
         value={nextBranchId}
         disabled={!canManageCatalog || isPending}
         onChange={(event) => {

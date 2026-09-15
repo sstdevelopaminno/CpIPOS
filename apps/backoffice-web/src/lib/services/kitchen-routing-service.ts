@@ -3,6 +3,7 @@ import "server-only";
 import type { AuthContext } from "@/lib/auth-context";
 import { appendAuditLog } from "@/lib/audit-log";
 import { queueRoutedKitchenTicketPrint } from "@/lib/printing/routed-print-service";
+import { loadTableQrAutomationPolicyForScope } from "@/lib/services/table-qr-automation-policy-service";
 import { getRoutedSupabaseServiceClient } from "@/lib/tenant-data-router";
 
 type KitchenAction = "new" | "add" | "cancel" | "reprint";
@@ -83,6 +84,26 @@ async function loadKitchenTicketRowsForOrder(args: { tenantId: string; branchId:
   return (tickets ?? []) as unknown as KitchenTicketRow[];
 }
 
+async function shouldSkipAutomaticQrKitchenPrint(args: { tenantId: string; branchId: string; orderId: string }) {
+  const supabase = getRoutedSupabaseServiceClient();
+  const { data, error } = await supabase
+    .from("orders")
+    .select("channel")
+    .eq("tenant_id", args.tenantId)
+    .eq("branch_id", args.branchId)
+    .eq("id", args.orderId)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  const orderRow = data as { channel?: string | null } | null;
+  if (String(orderRow?.channel ?? "") !== "table_qr") return false;
+
+  const policy = await loadTableQrAutomationPolicyForScope({
+    tenantId: args.tenantId,
+    branchId: args.branchId
+  });
+  return !policy.effective.kitchen_auto_print_enabled;
+}
+
 export async function queueMissingKitchenPrintJobsForOrder(args: {
   auth: AuthContext;
   orderId: string;
@@ -97,6 +118,19 @@ export async function queueMissingKitchenPrintJobsForOrder(args: {
   });
   if (ticketRows.length === 0) return { ticketCount: 0, queuedPrintJobCount: 0, skippedExistingPrintJobCount: 0 };
 
+  if (await shouldSkipAutomaticQrKitchenPrint({
+    tenantId: args.auth.tenantId,
+    branchId: args.auth.branchId,
+    orderId: args.orderId
+  })) {
+    return {
+      ticketCount: ticketRows.length,
+      queuedPrintJobCount: 0,
+      skippedExistingPrintJobCount: 0,
+      skippedByPolicy: true
+    };
+  }
+
   const ticketIds = ticketRows.map((ticket) => ticket.id);
   const { data: existingJobs, error: jobError } = await supabase
     .from("print_jobs")
@@ -110,9 +144,6 @@ export async function queueMissingKitchenPrintJobsForOrder(args: {
   const printAuth = args.auth;
   const missingTickets = ticketRows.filter((ticket) => !ticketsWithJobs.has(ticket.id));
 
-  // Routing each kitchen zone serially made the QR-confirm button wait for every printer
-  // assignment one after another. Tickets are independent and print-job creation is
-  // idempotent, so queue them concurrently while still awaiting durable DB enqueue.
   const queuedCounts = await Promise.all(
     missingTickets.map(async (ticket) => {
       const jobs = await queueRoutedKitchenTicketPrint({
@@ -173,9 +204,6 @@ export async function dispatchOrderToKitchen(args: {
   const action = args.action ?? "new";
   const printAuth = makePrintAuth(args);
 
-  // Order-item insertion already creates Kitchen Tickets atomically in the database.
-  // A later POS/API retry must repair missing print jobs on those authoritative tickets,
-  // not create another ticket batch with a different event key.
   if (action === "new" && !args.orderItemIds?.length && printAuth) {
     try {
       const repair = await queueMissingKitchenPrintJobsForOrder({

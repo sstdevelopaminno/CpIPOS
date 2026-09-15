@@ -9,6 +9,7 @@ import { PosUsersModule } from "@/components/pos/pos-users-module";
 import { InetNopsSettingsPanel } from "@/components/pos-preview/inet-nops-settings-panel";
 import { PackageLockDialog } from "@/components/pos-preview/package-lock-dialog";
 import { POS_SETTINGS_FEATURES } from "@/lib/pos-feature-map";
+import { getProductProfilePolicy } from "@/lib/product-profile-policy";
 import type {
   BranchSettings,
   PaymentAccountSettings,
@@ -31,14 +32,6 @@ const POS_PAYMENT_SETTINGS_UPDATED_EVENT = "pos:payment-settings-updated";
 const POS_PAYMENT_SETTINGS_UPDATED_KEY = "pos_payment_settings_updated_at_v001";
 const POS_MAIN_MENU_PLACEMENT_KEY = "pos_main_menu_bar_position_v2";
 const POS_MAIN_MENU_PLACEMENT_EVENT = "pos-main-menu-placement-updated";
-const FG0003_SETTINGS_TENANT_ID = "2d38bd23-bf2d-4b9a-a7cf-adb2547297ed";
-const FG0003_SETTINGS_TENANT_CODE = "FG0003";
-const FG0003_HIDDEN_SETTINGS = new Set<keyof typeof POS_SETTINGS_FEATURES>(["branches", "activity", "taxes", "display"]);
-
-function normalizeSettingsStoreCode(value: string | null | undefined) {
-  return String(value ?? "").trim().toUpperCase();
-}
-
 function persistPosLanguage(nextLang: Language) {
   document.cookie = `pos_lang=${nextLang}; path=/; max-age=31536000; SameSite=Lax`;
   window.localStorage.setItem("pos_lang", nextLang);
@@ -141,149 +134,149 @@ const emptyDeviceForm: DeviceForm = {
 
 const TEXT = {
   th: {
-    title: "ตั้งค่า",
+    title: "เธ•เธฑเนเธเธเนเธฒ",
     subtitle: "",
-    back: "ย้อนกลับ",
-    store: "ข้อมูลร้านค้า/บริษัท",
-    storeDesc: "รหัสร้าน ชื่อที่แสดง โลโก้ ที่อยู่ และเบอร์ติดต่อ",
-    branches: "เพิ่มสาขา",
-    branchesDesc: "รายการสาขาที่เปิดใช้งาน เพิ่ม แก้ไข และลบสาขา",
-    devices: "เพิ่มเครื่องแคชเชียร์",
-    devicesDesc: "ผูกเครื่อง POS กับสาขา นโยบายล็อกอิน สิทธิ์ผู้ใช้ และกะขาย",
-    payments: "ตั้งค่าชำระเงิน",
-    paymentsDesc: "บัญชีธนาคาร พร้อมเพย์ QR และสถานะใช้งาน",
-    taxes: "ตั้งค่าภาษี",
-    taxesDesc: "กำหนด VAT และภาษีหัก ณ ที่จ่ายสำหรับสรุปยอดชำระ",
-    users: "ผู้ใช้งาน",
-    usersDesc: "จัดการพนักงาน สิทธิ์ และ PIN",
-    stockMenu: "จัดการสินค้า",
-    stockMenuDesc: "สินค้า สต็อก วัตถุดิบ ราคา และหมวดหมู่",
-    membersMenu: "สมาชิก",
-    membersMenuDesc: "ค้นหาและจัดการข้อมูลสมาชิกหน้าร้าน",
-    receiptsMenu: "ใบเสร็จย้อนหลัง",
-    receiptsMenuDesc: "ค้นหาใบเสร็จและสั่งพิมพ์ย้อนหลัง 58mm",
-    salesSummaryMenu: "สรุปยอดขาย",
-    salesSummaryMenuDesc: "ดูยอดขาย ภาษี เงินสด/โอน และรายงานประจำกะ",
-    display: "จอลูกค้า",
-    displayDesc: "ตั้งค่าหน้าจอลูกค้าและการแสดงผล",
-    language: "เปลี่ยนภาษา",
-    languageDesc: "สลับภาษาไทยหรืออังกฤษสำหรับหน้าขายและเมนูพนักงาน",
-    languageTitle: "เปลี่ยนภาษา",
-    languageCurrent: "ภาษาปัจจุบัน",
-    languageChoose: "เลือกภาษาที่ต้องการใช้งาน",
-    thai: "ไทย",
+    back: "เธขเนเธญเธเธเธฅเธฑเธ",
+    store: "เธเนเธญเธกเธนเธฅเธฃเนเธฒเธเธเนเธฒ/เธเธฃเธดเธฉเธฑเธ—",
+    storeDesc: "เธฃเธซเธฑเธชเธฃเนเธฒเธ เธเธทเนเธญเธ—เธตเนเนเธชเธ”เธ เนเธฅเนเธเน เธ—เธตเนเธญเธขเธนเน เนเธฅเธฐเน€เธเธญเธฃเนเธ•เธดเธ”เธ•เนเธญ",
+    branches: "เน€เธเธดเนเธกเธชเธฒเธเธฒ",
+    branchesDesc: "เธฃเธฒเธขเธเธฒเธฃเธชเธฒเธเธฒเธ—เธตเนเน€เธเธดเธ”เนเธเนเธเธฒเธ เน€เธเธดเนเธก เนเธเนเนเธ เนเธฅเธฐเธฅเธเธชเธฒเธเธฒ",
+    devices: "เน€เธเธดเนเธกเน€เธเธฃเธทเนเธญเธเนเธเธเน€เธเธตเธขเธฃเน",
+    devicesDesc: "เธเธนเธเน€เธเธฃเธทเนเธญเธ POS เธเธฑเธเธชเธฒเธเธฒ เธเนเธขเธเธฒเธขเธฅเนเธญเธเธญเธดเธ เธชเธดเธ—เธเธดเนเธเธนเนเนเธเน เนเธฅเธฐเธเธฐเธเธฒเธข",
+    payments: "เธ•เธฑเนเธเธเนเธฒเธเธณเธฃเธฐเน€เธเธดเธ",
+    paymentsDesc: "เธเธฑเธเธเธตเธเธเธฒเธเธฒเธฃ เธเธฃเนเธญเธกเน€เธเธขเน QR เนเธฅเธฐเธชเธ–เธฒเธเธฐเนเธเนเธเธฒเธ",
+    taxes: "เธ•เธฑเนเธเธเนเธฒเธ เธฒเธฉเธต",
+    taxesDesc: "เธเธณเธซเธเธ” VAT เนเธฅเธฐเธ เธฒเธฉเธตเธซเธฑเธ เธ“ เธ—เธตเนเธเนเธฒเธขเธชเธณเธซเธฃเธฑเธเธชเธฃเธธเธเธขเธญเธ”เธเธณเธฃเธฐ",
+    users: "เธเธนเนเนเธเนเธเธฒเธ",
+    usersDesc: "เธเธฑเธ”เธเธฒเธฃเธเธเธฑเธเธเธฒเธ เธชเธดเธ—เธเธดเน เนเธฅเธฐ PIN",
+    stockMenu: "เธเธฑเธ”เธเธฒเธฃเธชเธดเธเธเนเธฒ",
+    stockMenuDesc: "เธชเธดเธเธเนเธฒ เธชเธ•เนเธญเธ เธงเธฑเธ•เธ–เธธเธ”เธดเธ เธฃเธฒเธเธฒ เนเธฅเธฐเธซเธกเธงเธ”เธซเธกเธนเน",
+    membersMenu: "เธชเธกเธฒเธเธดเธ",
+    membersMenuDesc: "เธเนเธเธซเธฒเนเธฅเธฐเธเธฑเธ”เธเธฒเธฃเธเนเธญเธกเธนเธฅเธชเธกเธฒเธเธดเธเธซเธเนเธฒเธฃเนเธฒเธ",
+    receiptsMenu: "เนเธเน€เธชเธฃเนเธเธขเนเธญเธเธซเธฅเธฑเธ",
+    receiptsMenuDesc: "เธเนเธเธซเธฒเนเธเน€เธชเธฃเนเธเนเธฅเธฐเธชเธฑเนเธเธเธดเธกเธเนเธขเนเธญเธเธซเธฅเธฑเธ 58mm",
+    salesSummaryMenu: "เธชเธฃเธธเธเธขเธญเธ”เธเธฒเธข",
+    salesSummaryMenuDesc: "เธ”เธนเธขเธญเธ”เธเธฒเธข เธ เธฒเธฉเธต เน€เธเธดเธเธชเธ”/เนเธญเธ เนเธฅเธฐเธฃเธฒเธขเธเธฒเธเธเธฃเธฐเธเธณเธเธฐ",
+    display: "เธเธญเธฅเธนเธเธเนเธฒ",
+    displayDesc: "เธ•เธฑเนเธเธเนเธฒเธซเธเนเธฒเธเธญเธฅเธนเธเธเนเธฒเนเธฅเธฐเธเธฒเธฃเนเธชเธ”เธเธเธฅ",
+    language: "เน€เธเธฅเธตเนเธขเธเธ เธฒเธฉเธฒ",
+    languageDesc: "เธชเธฅเธฑเธเธ เธฒเธฉเธฒเนเธ—เธขเธซเธฃเธทเธญเธญเธฑเธเธเธคเธฉเธชเธณเธซเธฃเธฑเธเธซเธเนเธฒเธเธฒเธขเนเธฅเธฐเน€เธกเธเธนเธเธเธฑเธเธเธฒเธ",
+    languageTitle: "เน€เธเธฅเธตเนเธขเธเธ เธฒเธฉเธฒ",
+    languageCurrent: "เธ เธฒเธฉเธฒเธเธฑเธเธเธธเธเธฑเธ",
+    languageChoose: "เน€เธฅเธทเธญเธเธ เธฒเธฉเธฒเธ—เธตเนเธ•เนเธญเธเธเธฒเธฃเนเธเนเธเธฒเธ",
+    thai: "เนเธ—เธข",
     english: "English",
-    mainMenuPlacement: "สลับแถบเมนูหลัก",
-    mainMenuPlacementDesc: "ย้ายแถบเมนูหลักไปซ้ายแบบเดิม ด้านบน หรือด้านล่างของหน้าจอ",
-    mainMenuPlacementTitle: "สลับตำแหน่งแถบเมนูหลัก",
-    mainMenuPlacementChoose: "เลือกตำแหน่งที่เหมาะกับการใช้งานหน้าร้าน",
-    mainMenuLeft: "ซ้ายแบบเดิม",
-    mainMenuLeftDesc: "ใช้แถบเมนูแนวตั้งด้านซ้ายเหมือนเดิม พร้อมโลโก้และปุ่มออกจากระบบด้านล่าง",
-    mainMenuTop: "ย้ายไปด้านบน",
-    mainMenuTopDesc: "แถบเมนูหลักเป็นแนวนอนด้านบน เหมาะกับจอกว้างหรือเคาน์เตอร์ที่ต้องการพื้นที่ซ้ายขวา",
-    mainMenuBottom: "ย้ายไปด้านล่าง",
-    mainMenuBottomDesc: "แถบเมนูหลักเป็นแนวนอนด้านล่าง เหมาะกับแท็บเล็ตหรือหน้าจอที่ต้องแตะจากขอบล่าง",
-    activityAudit: "ตรวจสอบพฤติกรรมการใช้งาน",
-    activityAuditDesc: "บันทึกว่าใครทำอะไร เมนูไหน เวลาใด พร้อม PIN และการอนุมัติ",
-    pinConfirmTitle: "ยืนยัน PIN ก่อนเปิดดู",
-    pinConfirmDesc: "เจ้าของร้านหรือผู้จัดการต้องยืนยัน PIN ทุกครั้ง ระบบจะบันทึกการเข้าดูและส่งให้หลังบ้าน IT",
-    pinCode: "รหัส PIN",
-    confirm: "ยืนยัน",
-    search: "ค้นหา",
-    filter: "คัดกรอง",
-    period: "ช่วงเวลา",
-    daily: "รายวัน",
-    monthly: "รายเดือน",
-    yearly: "รายปี",
-    date: "วันที่",
-    month: "เดือน",
-    year: "ปี",
-    module: "เมนู",
-    allMenus: "ทุกเมนู",
-    action: "พฤติกรรม",
-    actor: "ผู้ใช้งาน",
-    employeeCode: "รหัสพนักงาน",
-    approver: "ผู้อนุมัติ",
-    target: "ข้อมูลที่เกี่ยวข้อง",
-    viewedAt: "วันที่ เวลา",
-    previous: "ก่อนหน้า",
-    next: "ถัดไป",
-    totalRecords: "รายการทั้งหมด",
-    deleteRecords: "การลบ/ยกเลิก",
-    pinRecords: "PIN/อนุมัติ",
-    viewRecords: "การเข้าดู",
-    noRecords: "ไม่พบรายการ",
-    checkingSystem: "กำลังตรวจสอบระบบ",
-    edit: "แก้ไข",
-    save: "บันทึก",
-    saving: "กำลังบันทึก...",
-    cancel: "ยกเลิก",
-    add: "เพิ่ม",
-    addBranch: "เพิ่มสาขา",
-    savingBranch: "กำลังเพิ่มสาขา...",
-    branchSaved: "เพิ่มสาขาสำเร็จ",
-    delete: "ลบ",
-    active: "ใช้งาน",
-    inactive: "ปิดใช้งาน",
-    storeCode: "รหัสร้าน",
-    displayName: "การแสดงชื่อร้าน",
-    logoUrl: "โลโก้ร้าน",
-    uploadLogo: "อัปโหลดโลโก้",
-    removeLogo: "ลบโลโก้",
-    logoUploadHint: "ระบบจะย่อขนาดรูปก่อนบันทึก และนำไปใช้บนใบเสร็จ POS อัตโนมัติ",
-    address: "ที่อยู่",
-    phone: "เบอร์ติดต่อ",
-    branchCode: "รหัสสาขา",
-    branchName: "ชื่อสาขา",
-    deviceCode: "รหัสเครื่อง",
-    deviceName: "ชื่อเครื่องแคชเชียร์",
-    deviceType: "ประเภทเครื่อง",
-    deviceStatus: "สถานะเครื่อง",
-    lockDevice: "ผูกเครื่องกับสาขา",
-    sharedDevice: "ใช้ร่วมกัน",
-    counterName: "ชื่อเคาน์เตอร์",
-    location: "ตำแหน่งติดตั้ง",
-    lastSeen: "เชื่อมต่อล่าสุด",
-    posTerminal: "เครื่อง POS",
-    mobileScanner: "มือถือสแกน",
+    mainMenuPlacement: "เธชเธฅเธฑเธเนเธ–เธเน€เธกเธเธนเธซเธฅเธฑเธ",
+    mainMenuPlacementDesc: "เธขเนเธฒเธขเนเธ–เธเน€เธกเธเธนเธซเธฅเธฑเธเนเธเธเนเธฒเธขเนเธเธเน€เธ”เธดเธก เธ”เนเธฒเธเธเธ เธซเธฃเธทเธญเธ”เนเธฒเธเธฅเนเธฒเธเธเธญเธเธซเธเนเธฒเธเธญ",
+    mainMenuPlacementTitle: "เธชเธฅเธฑเธเธ•เธณเนเธซเธเนเธเนเธ–เธเน€เธกเธเธนเธซเธฅเธฑเธ",
+    mainMenuPlacementChoose: "เน€เธฅเธทเธญเธเธ•เธณเนเธซเธเนเธเธ—เธตเนเน€เธซเธกเธฒเธฐเธเธฑเธเธเธฒเธฃเนเธเนเธเธฒเธเธซเธเนเธฒเธฃเนเธฒเธ",
+    mainMenuLeft: "เธเนเธฒเธขเนเธเธเน€เธ”เธดเธก",
+    mainMenuLeftDesc: "เนเธเนเนเธ–เธเน€เธกเธเธนเนเธเธงเธ•เธฑเนเธเธ”เนเธฒเธเธเนเธฒเธขเน€เธซเธกเธทเธญเธเน€เธ”เธดเธก เธเธฃเนเธญเธกเนเธฅเนเธเนเนเธฅเธฐเธเธธเนเธกเธญเธญเธเธเธฒเธเธฃเธฐเธเธเธ”เนเธฒเธเธฅเนเธฒเธ",
+    mainMenuTop: "เธขเนเธฒเธขเนเธเธ”เนเธฒเธเธเธ",
+    mainMenuTopDesc: "เนเธ–เธเน€เธกเธเธนเธซเธฅเธฑเธเน€เธเนเธเนเธเธงเธเธญเธเธ”เนเธฒเธเธเธ เน€เธซเธกเธฒเธฐเธเธฑเธเธเธญเธเธงเนเธฒเธเธซเธฃเธทเธญเน€เธเธฒเธเนเน€เธ•เธญเธฃเนเธ—เธตเนเธ•เนเธญเธเธเธฒเธฃเธเธทเนเธเธ—เธตเนเธเนเธฒเธขเธเธงเธฒ",
+    mainMenuBottom: "เธขเนเธฒเธขเนเธเธ”เนเธฒเธเธฅเนเธฒเธ",
+    mainMenuBottomDesc: "เนเธ–เธเน€เธกเธเธนเธซเธฅเธฑเธเน€เธเนเธเนเธเธงเธเธญเธเธ”เนเธฒเธเธฅเนเธฒเธ เน€เธซเธกเธฒเธฐเธเธฑเธเนเธ—เนเธเน€เธฅเนเธ•เธซเธฃเธทเธญเธซเธเนเธฒเธเธญเธ—เธตเนเธ•เนเธญเธเนเธ•เธฐเธเธฒเธเธเธญเธเธฅเนเธฒเธ",
+    activityAudit: "เธ•เธฃเธงเธเธชเธญเธเธเธคเธ•เธดเธเธฃเธฃเธกเธเธฒเธฃเนเธเนเธเธฒเธ",
+    activityAuditDesc: "เธเธฑเธเธ—เธถเธเธงเนเธฒเนเธเธฃเธ—เธณเธญเธฐเนเธฃ เน€เธกเธเธนเนเธซเธ เน€เธงเธฅเธฒเนเธ” เธเธฃเนเธญเธก PIN เนเธฅเธฐเธเธฒเธฃเธญเธเธธเธกเธฑเธ•เธด",
+    pinConfirmTitle: "เธขเธทเธเธขเธฑเธ PIN เธเนเธญเธเน€เธเธดเธ”เธ”เธน",
+    pinConfirmDesc: "เน€เธเนเธฒเธเธญเธเธฃเนเธฒเธเธซเธฃเธทเธญเธเธนเนเธเธฑเธ”เธเธฒเธฃเธ•เนเธญเธเธขเธทเธเธขเธฑเธ PIN เธ—เธธเธเธเธฃเธฑเนเธ เธฃเธฐเธเธเธเธฐเธเธฑเธเธ—เธถเธเธเธฒเธฃเน€เธเนเธฒเธ”เธนเนเธฅเธฐเธชเนเธเนเธซเนเธซเธฅเธฑเธเธเนเธฒเธ IT",
+    pinCode: "เธฃเธซเธฑเธช PIN",
+    confirm: "เธขเธทเธเธขเธฑเธ",
+    search: "เธเนเธเธซเธฒ",
+    filter: "เธเธฑเธ”เธเธฃเธญเธ",
+    period: "เธเนเธงเธเน€เธงเธฅเธฒ",
+    daily: "เธฃเธฒเธขเธงเธฑเธ",
+    monthly: "เธฃเธฒเธขเน€เธ”เธทเธญเธ",
+    yearly: "เธฃเธฒเธขเธเธต",
+    date: "เธงเธฑเธเธ—เธตเน",
+    month: "เน€เธ”เธทเธญเธ",
+    year: "เธเธต",
+    module: "เน€เธกเธเธน",
+    allMenus: "เธ—เธธเธเน€เธกเธเธน",
+    action: "เธเธคเธ•เธดเธเธฃเธฃเธก",
+    actor: "เธเธนเนเนเธเนเธเธฒเธ",
+    employeeCode: "เธฃเธซเธฑเธชเธเธเธฑเธเธเธฒเธ",
+    approver: "เธเธนเนเธญเธเธธเธกเธฑเธ•เธด",
+    target: "เธเนเธญเธกเธนเธฅเธ—เธตเนเน€เธเธตเนเธขเธงเธเนเธญเธ",
+    viewedAt: "เธงเธฑเธเธ—เธตเน เน€เธงเธฅเธฒ",
+    previous: "เธเนเธญเธเธซเธเนเธฒ",
+    next: "เธ–เธฑเธ”เนเธ",
+    totalRecords: "เธฃเธฒเธขเธเธฒเธฃเธ—เธฑเนเธเธซเธกเธ”",
+    deleteRecords: "เธเธฒเธฃเธฅเธ/เธขเธเน€เธฅเธดเธ",
+    pinRecords: "PIN/เธญเธเธธเธกเธฑเธ•เธด",
+    viewRecords: "เธเธฒเธฃเน€เธเนเธฒเธ”เธน",
+    noRecords: "เนเธกเนเธเธเธฃเธฒเธขเธเธฒเธฃ",
+    checkingSystem: "เธเธณเธฅเธฑเธเธ•เธฃเธงเธเธชเธญเธเธฃเธฐเธเธ",
+    edit: "เนเธเนเนเธ",
+    save: "เธเธฑเธเธ—เธถเธ",
+    saving: "เธเธณเธฅเธฑเธเธเธฑเธเธ—เธถเธ...",
+    cancel: "เธขเธเน€เธฅเธดเธ",
+    add: "เน€เธเธดเนเธก",
+    addBranch: "เน€เธเธดเนเธกเธชเธฒเธเธฒ",
+    savingBranch: "เธเธณเธฅเธฑเธเน€เธเธดเนเธกเธชเธฒเธเธฒ...",
+    branchSaved: "เน€เธเธดเนเธกเธชเธฒเธเธฒเธชเธณเน€เธฃเนเธ",
+    delete: "เธฅเธ",
+    active: "เนเธเนเธเธฒเธ",
+    inactive: "เธเธดเธ”เนเธเนเธเธฒเธ",
+    storeCode: "เธฃเธซเธฑเธชเธฃเนเธฒเธ",
+    displayName: "เธเธฒเธฃเนเธชเธ”เธเธเธทเนเธญเธฃเนเธฒเธ",
+    logoUrl: "เนเธฅเนเธเนเธฃเนเธฒเธ",
+    uploadLogo: "เธญเธฑเธเนเธซเธฅเธ”เนเธฅเนเธเน",
+    removeLogo: "เธฅเธเนเธฅเนเธเน",
+    logoUploadHint: "เธฃเธฐเธเธเธเธฐเธขเนเธญเธเธเธฒเธ”เธฃเธนเธเธเนเธญเธเธเธฑเธเธ—เธถเธ เนเธฅเธฐเธเธณเนเธเนเธเนเธเธเนเธเน€เธชเธฃเนเธ POS เธญเธฑเธ•เนเธเธกเธฑเธ•เธด",
+    address: "เธ—เธตเนเธญเธขเธนเน",
+    phone: "เน€เธเธญเธฃเนเธ•เธดเธ”เธ•เนเธญ",
+    branchCode: "เธฃเธซเธฑเธชเธชเธฒเธเธฒ",
+    branchName: "เธเธทเนเธญเธชเธฒเธเธฒ",
+    deviceCode: "เธฃเธซเธฑเธชเน€เธเธฃเธทเนเธญเธ",
+    deviceName: "เธเธทเนเธญเน€เธเธฃเธทเนเธญเธเนเธเธเน€เธเธตเธขเธฃเน",
+    deviceType: "เธเธฃเธฐเน€เธ เธ—เน€เธเธฃเธทเนเธญเธ",
+    deviceStatus: "เธชเธ–เธฒเธเธฐเน€เธเธฃเธทเนเธญเธ",
+    lockDevice: "เธเธนเธเน€เธเธฃเธทเนเธญเธเธเธฑเธเธชเธฒเธเธฒ",
+    sharedDevice: "เนเธเนเธฃเนเธงเธกเธเธฑเธ",
+    counterName: "เธเธทเนเธญเน€เธเธฒเธเนเน€เธ•เธญเธฃเน",
+    location: "เธ•เธณเนเธซเธเนเธเธ•เธดเธ”เธ•เธฑเนเธ",
+    lastSeen: "เน€เธเธทเนเธญเธกเธ•เนเธญเธฅเนเธฒเธชเธธเธ”",
+    posTerminal: "เน€เธเธฃเธทเนเธญเธ POS",
+    mobileScanner: "เธกเธทเธญเธ–เธทเธญเธชเนเธเธ",
     kiosk: "Kiosk",
-    maintenance: "บำรุงรักษา",
-    bankName: "ชื่อธนาคาร",
-    accountName: "ชื่อบัญชี",
-    accountNo: "เลขบัญชี",
-    promptpay: "เบอร์พร้อมเพย์",
-    qrImage: "ภาพ QR",
-    qrMode: "รูปแบบ QR",
-    qrModePromptPay: "QR ล็อกยอดจากพร้อมเพย์",
-    qrModeImage: "ใช้ภาพ QR ที่อัปโหลด",
-    qrModePromptPayHint: "หน้าขายจะใช้ลิงก์ promptpay.io แล้วเปลี่ยนยอดตามบิลอัตโนมัติ",
-    qrModeImageHint: "หน้าขายจะดึงภาพ QR นี้ไปแสดงแทนการสร้างลิงก์",
-    promptpayLinkPreview: "ลิงก์ที่จะใช้บนหน้าขาย",
-    uploadQr: "อัปโหลด QR",
-    removeQr: "ลบ QR",
-    addPaymentAccount: "เพิ่มบัญชี",
-    confirmDeletePayment: "ยืนยัน PIN ก่อนลบบัญชีชำระเงิน",
-    branch: "สาขา",
-    allBranches: "ทุกสาขา",
+    maintenance: "เธเธณเธฃเธธเธเธฃเธฑเธเธฉเธฒ",
+    bankName: "เธเธทเนเธญเธเธเธฒเธเธฒเธฃ",
+    accountName: "เธเธทเนเธญเธเธฑเธเธเธต",
+    accountNo: "เน€เธฅเธเธเธฑเธเธเธต",
+    promptpay: "เน€เธเธญเธฃเนเธเธฃเนเธญเธกเน€เธเธขเน",
+    qrImage: "เธ เธฒเธ QR",
+    qrMode: "เธฃเธนเธเนเธเธ QR",
+    qrModePromptPay: "QR เธฅเนเธญเธเธขเธญเธ”เธเธฒเธเธเธฃเนเธญเธกเน€เธเธขเน",
+    qrModeImage: "เนเธเนเธ เธฒเธ QR เธ—เธตเนเธญเธฑเธเนเธซเธฅเธ”",
+    qrModePromptPayHint: "เธซเธเนเธฒเธเธฒเธขเธเธฐเนเธเนเธฅเธดเธเธเน promptpay.io เนเธฅเนเธงเน€เธเธฅเธตเนเธขเธเธขเธญเธ”เธ•เธฒเธกเธเธดเธฅเธญเธฑเธ•เนเธเธกเธฑเธ•เธด",
+    qrModeImageHint: "เธซเธเนเธฒเธเธฒเธขเธเธฐเธ”เธถเธเธ เธฒเธ QR เธเธตเนเนเธเนเธชเธ”เธเนเธ—เธเธเธฒเธฃเธชเธฃเนเธฒเธเธฅเธดเธเธเน",
+    promptpayLinkPreview: "เธฅเธดเธเธเนเธ—เธตเนเธเธฐเนเธเนเธเธเธซเธเนเธฒเธเธฒเธข",
+    uploadQr: "เธญเธฑเธเนเธซเธฅเธ” QR",
+    removeQr: "เธฅเธ QR",
+    addPaymentAccount: "เน€เธเธดเนเธกเธเธฑเธเธเธต",
+    confirmDeletePayment: "เธขเธทเธเธขเธฑเธ PIN เธเนเธญเธเธฅเธเธเธฑเธเธเธตเธเธณเธฃเธฐเน€เธเธดเธ",
+    branch: "เธชเธฒเธเธฒ",
+    allBranches: "เธ—เธธเธเธชเธฒเธเธฒ",
     qrPayload: "PromptPay payload",
-    taxEnabled: "เปิดใช้งานภาษี",
-    taxDisabled: "ยังไม่เปิดใช้งาน",
-    taxBranch: "สาขาที่ตั้งค่าภาษี",
-    taxBranchHint: "ภาษีและสถานะเปิดใช้งานจะแยกจากกันในแต่ละสาขา",
-    taxBranchLoading: "กำลังโหลดข้อมูลภาษีของสาขา...",
-    taxBranchDisabled: "ปิดภาษีสำหรับสาขานี้",
-    taxLine: "รายการภาษี",
-    taxRate: "อัตรา (%)",
-    taxMode: "รูปแบบคำนวณ",
-    taxAdd: "บวกในบิล",
-    taxDeduct: "หักจากบิล",
-    taxPreview: "ตัวอย่างจากยอด 1,000",
-    taxGrandTotal: "ยอดชำระหลังภาษี",
-    taxNetBase: "คำนวณจากยอดหลังส่วนลด",
-    schemaMissing: "ยังไม่ได้รัน migration สำหรับบัญชีชำระเงิน",
-    saved: "บันทึกเรียบร้อย",
-    failed: "ทำรายการไม่สำเร็จ",
-    requestTimeout: "บันทึกนานเกินไป กรุณาลองใหม่อีกครั้ง"
+    taxEnabled: "เน€เธเธดเธ”เนเธเนเธเธฒเธเธ เธฒเธฉเธต",
+    taxDisabled: "เธขเธฑเธเนเธกเนเน€เธเธดเธ”เนเธเนเธเธฒเธ",
+    taxBranch: "เธชเธฒเธเธฒเธ—เธตเนเธ•เธฑเนเธเธเนเธฒเธ เธฒเธฉเธต",
+    taxBranchHint: "เธ เธฒเธฉเธตเนเธฅเธฐเธชเธ–เธฒเธเธฐเน€เธเธดเธ”เนเธเนเธเธฒเธเธเธฐเนเธขเธเธเธฒเธเธเธฑเธเนเธเนเธ•เนเธฅเธฐเธชเธฒเธเธฒ",
+    taxBranchLoading: "เธเธณเธฅเธฑเธเนเธซเธฅเธ”เธเนเธญเธกเธนเธฅเธ เธฒเธฉเธตเธเธญเธเธชเธฒเธเธฒ...",
+    taxBranchDisabled: "เธเธดเธ”เธ เธฒเธฉเธตเธชเธณเธซเธฃเธฑเธเธชเธฒเธเธฒเธเธตเน",
+    taxLine: "เธฃเธฒเธขเธเธฒเธฃเธ เธฒเธฉเธต",
+    taxRate: "เธญเธฑเธ•เธฃเธฒ (%)",
+    taxMode: "เธฃเธนเธเนเธเธเธเธณเธเธงเธ“",
+    taxAdd: "เธเธงเธเนเธเธเธดเธฅ",
+    taxDeduct: "เธซเธฑเธเธเธฒเธเธเธดเธฅ",
+    taxPreview: "เธ•เธฑเธงเธญเธขเนเธฒเธเธเธฒเธเธขเธญเธ” 1,000",
+    taxGrandTotal: "เธขเธญเธ”เธเธณเธฃเธฐเธซเธฅเธฑเธเธ เธฒเธฉเธต",
+    taxNetBase: "เธเธณเธเธงเธ“เธเธฒเธเธขเธญเธ”เธซเธฅเธฑเธเธชเนเธงเธเธฅเธ”",
+    schemaMissing: "เธขเธฑเธเนเธกเนเนเธ”เนเธฃเธฑเธ migration เธชเธณเธซเธฃเธฑเธเธเธฑเธเธเธตเธเธณเธฃเธฐเน€เธเธดเธ",
+    saved: "เธเธฑเธเธ—เธถเธเน€เธฃเธตเธขเธเธฃเนเธญเธข",
+    failed: "เธ—เธณเธฃเธฒเธขเธเธฒเธฃเนเธกเนเธชเธณเน€เธฃเนเธ",
+    requestTimeout: "เธเธฑเธเธ—เธถเธเธเธฒเธเน€เธเธดเธเนเธ เธเธฃเธธเธ“เธฒเธฅเธญเธเนเธซเธกเนเธญเธตเธเธเธฃเธฑเนเธ"
   },
   en: {
     title: "Settings",
@@ -873,16 +866,16 @@ function auditMenuLabel(item: ActivityAuditItem, lang: Language) {
           general: "System activity"
         }
       : {
-          sales: "หน้าขาย",
-          stock: "จัดการสินค้า",
-          shift: "เปิด/ปิดกะ",
-          users: "ผู้ใช้งานระบบ",
-          settings: "ตั้งค่า",
-          activity: "ตรวจสอบพฤติกรรมการใช้งาน",
-          performance: "ตรวจสอบประสิทธิภาพระบบ",
-          sessions: "การเข้าใช้งาน POS",
-          it: "ระบบหลังบ้าน IT",
-          general: "การทำงานของระบบ"
+          sales: "เธซเธเนเธฒเธเธฒเธข",
+          stock: "เธเธฑเธ”เธเธฒเธฃเธชเธดเธเธเนเธฒ",
+          shift: "เน€เธเธดเธ”/เธเธดเธ”เธเธฐ",
+          users: "เธเธนเนเนเธเนเธเธฒเธเธฃเธฐเธเธ",
+          settings: "เธ•เธฑเนเธเธเนเธฒ",
+          activity: "เธ•เธฃเธงเธเธชเธญเธเธเธคเธ•เธดเธเธฃเธฃเธกเธเธฒเธฃเนเธเนเธเธฒเธ",
+          performance: "เธ•เธฃเธงเธเธชเธญเธเธเธฃเธฐเธชเธดเธ—เธเธดเธ เธฒเธเธฃเธฐเธเธ",
+          sessions: "เธเธฒเธฃเน€เธเนเธฒเนเธเนเธเธฒเธ POS",
+          it: "เธฃเธฐเธเธเธซเธฅเธฑเธเธเนเธฒเธ IT",
+          general: "เธเธฒเธฃเธ—เธณเธเธฒเธเธเธญเธเธฃเธฐเธเธ"
         };
 
   if (key.includes("settings_activity_audit")) return labels.activity;
@@ -924,25 +917,25 @@ function auditActionLabel(item: ActivityAuditItem, lang: Language) {
           general: "Used the system"
         }
       : {
-          viewedAudit: "เปิดดูประวัติพฤติกรรมการใช้งาน",
-          pinFailed: "กรอก PIN ไม่ถูกต้อง",
-          pinGranted: "อนุมัติรายการด้วย PIN",
-          performance: "ตรวจสอบความเร็วและสถานะของระบบ",
-          login: "เข้าสู่ระบบ POS",
-          logout: "ออกจากระบบ",
-          userUpdated: "แก้ไขข้อมูลผู้ใช้งานระบบ",
-          userCreated: "เพิ่มผู้ใช้งานระบบ",
-          userDeleted: "ลบผู้ใช้งานระบบ",
-          created: "เพิ่มข้อมูลใหม่",
-          updated: "แก้ไขข้อมูล",
-          deleted: "ลบข้อมูล",
-          cancelled: "ยกเลิกรายการ",
-          viewed: "เปิดดูข้อมูล",
-          printed: "พิมพ์เอกสาร",
-          paid: "บันทึกการชำระเงิน",
-          opened: "เปิดกะขาย",
-          closed: "ปิดกะขาย",
-          general: "ใช้งานระบบ"
+          viewedAudit: "เน€เธเธดเธ”เธ”เธนเธเธฃเธฐเธงเธฑเธ•เธดเธเธคเธ•เธดเธเธฃเธฃเธกเธเธฒเธฃเนเธเนเธเธฒเธ",
+          pinFailed: "เธเธฃเธญเธ PIN เนเธกเนเธ–เธนเธเธ•เนเธญเธ",
+          pinGranted: "เธญเธเธธเธกเธฑเธ•เธดเธฃเธฒเธขเธเธฒเธฃเธ”เนเธงเธข PIN",
+          performance: "เธ•เธฃเธงเธเธชเธญเธเธเธงเธฒเธกเน€เธฃเนเธงเนเธฅเธฐเธชเธ–เธฒเธเธฐเธเธญเธเธฃเธฐเธเธ",
+          login: "เน€เธเนเธฒเธชเธนเนเธฃเธฐเธเธ POS",
+          logout: "เธญเธญเธเธเธฒเธเธฃเธฐเธเธ",
+          userUpdated: "เนเธเนเนเธเธเนเธญเธกเธนเธฅเธเธนเนเนเธเนเธเธฒเธเธฃเธฐเธเธ",
+          userCreated: "เน€เธเธดเนเธกเธเธนเนเนเธเนเธเธฒเธเธฃเธฐเธเธ",
+          userDeleted: "เธฅเธเธเธนเนเนเธเนเธเธฒเธเธฃเธฐเธเธ",
+          created: "เน€เธเธดเนเธกเธเนเธญเธกเธนเธฅเนเธซเธกเน",
+          updated: "เนเธเนเนเธเธเนเธญเธกเธนเธฅ",
+          deleted: "เธฅเธเธเนเธญเธกเธนเธฅ",
+          cancelled: "เธขเธเน€เธฅเธดเธเธฃเธฒเธขเธเธฒเธฃ",
+          viewed: "เน€เธเธดเธ”เธ”เธนเธเนเธญเธกเธนเธฅ",
+          printed: "เธเธดเธกเธเนเน€เธญเธเธชเธฒเธฃ",
+          paid: "เธเธฑเธเธ—เธถเธเธเธฒเธฃเธเธณเธฃเธฐเน€เธเธดเธ",
+          opened: "เน€เธเธดเธ”เธเธฐเธเธฒเธข",
+          closed: "เธเธดเธ”เธเธฐเธเธฒเธข",
+          general: "เนเธเนเธเธฒเธเธฃเธฐเธเธ"
         };
 
   if (action === "settings_activity_audit_viewed") return labels.viewedAudit;
@@ -1142,7 +1135,7 @@ function MenuButton({
         <span className={`${compact ? "text-sm" : "text-base"} block font-black text-slate-950`}>{title}</span>
         {compact ? null : <span className="mt-1 block text-sm font-medium leading-5 text-slate-500">{desc}</span>}
       </span>
-      <span className="text-slate-400">›</span>
+      <span className="text-slate-400">โ€บ</span>
     </button>
   );
 }
@@ -1169,7 +1162,7 @@ function MenuLink({ icon, title, desc, href, locked = false, onLocked }: { icon:
         <span className="block text-base font-black text-slate-950">{title}</span>
         <span className="mt-1 block text-sm font-medium leading-5 text-slate-500">{desc}</span>
       </span>
-      <span className="text-slate-400">›</span>
+      <span className="text-slate-400">โ€บ</span>
     </Link>
   );
 }
@@ -2169,13 +2162,13 @@ function TaxPanel({
           </div>
           <div className="rounded-lg border border-blue-100 bg-blue-50 p-4">
             <div className="grid gap-2 text-sm font-bold text-slate-700">
-              <p className="flex justify-between"><span>Base</span><strong>฿{previewBase.toFixed(2)}</strong></p>
+              <p className="flex justify-between"><span>Base</span><strong>เธฟ{previewBase.toFixed(2)}</strong></p>
               {activeLines.map((line) => {
                 const amount = Number((previewBase * (Number(line.rate_pct) / 100)).toFixed(2));
                 const signedAmount = line.mode === "deduct_from_bill" ? -amount : amount;
-                return <p key={line.id} className="flex justify-between"><span>{line.label}</span><strong>{signedAmount < 0 ? "-" : "+"}฿{Math.abs(signedAmount).toFixed(2)}</strong></p>;
+                return <p key={line.id} className="flex justify-between"><span>{line.label}</span><strong>{signedAmount < 0 ? "-" : "+"}เธฟ{Math.abs(signedAmount).toFixed(2)}</strong></p>;
               })}
-              <p className="mt-2 flex justify-between border-t border-blue-200 pt-2 text-base text-blue-900"><span>{labels.taxGrandTotal}</span><strong>฿{previewGrandTotal.toFixed(2)}</strong></p>
+              <p className="mt-2 flex justify-between border-t border-blue-200 pt-2 text-base text-blue-900"><span>{labels.taxGrandTotal}</span><strong>เธฟ{previewGrandTotal.toFixed(2)}</strong></p>
             </div>
           </div>
         </div>
@@ -2213,7 +2206,7 @@ function TaxPanel({
                   className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-slate-200 bg-white text-xl font-black text-slate-600 hover:bg-slate-50"
                   aria-label={labels.cancel}
                 >
-                  ×
+                  ร—
                 </button>
               </div>
               <div className="grid gap-4 overflow-auto p-4">
@@ -2289,15 +2282,15 @@ function NotificationPanel({
           loading: "Loading notification settings..."
         }
       : {
-          title: "ตั้งค่าการแจ้งเตือน",
-          desc: "กำหนด POP UP และเสียงแจ้งเตือนเมื่อลูกค้ากดเรียกจาก QR โต๊ะ",
-          branch: "สาขาที่ตั้งค่าการแจ้งเตือน",
-          branchHint: "การแจ้งเตือนและเสียงจะแยกการตั้งค่าตามสาขา",
-          popup: "แสดง POP UP บนหน้าขาย",
-          sound: "เปิดเสียงแจ้งเตือน",
-          volume: "ระดับเสียง",
-          saved: "บันทึกการตั้งค่าการแจ้งเตือนแล้ว",
-          loading: "กำลังโหลดการแจ้งเตือนของสาขา..."
+          title: "เธ•เธฑเนเธเธเนเธฒเธเธฒเธฃเนเธเนเธเน€เธ•เธทเธญเธ",
+          desc: "เธเธณเธซเธเธ” POP UP เนเธฅเธฐเน€เธชเธตเธขเธเนเธเนเธเน€เธ•เธทเธญเธเน€เธกเธทเนเธญเธฅเธนเธเธเนเธฒเธเธ”เน€เธฃเธตเธขเธเธเธฒเธ QR เนเธ•เนเธฐ",
+          branch: "เธชเธฒเธเธฒเธ—เธตเนเธ•เธฑเนเธเธเนเธฒเธเธฒเธฃเนเธเนเธเน€เธ•เธทเธญเธ",
+          branchHint: "เธเธฒเธฃเนเธเนเธเน€เธ•เธทเธญเธเนเธฅเธฐเน€เธชเธตเธขเธเธเธฐเนเธขเธเธเธฒเธฃเธ•เธฑเนเธเธเนเธฒเธ•เธฒเธกเธชเธฒเธเธฒ",
+          popup: "เนเธชเธ”เธ POP UP เธเธเธซเธเนเธฒเธเธฒเธข",
+          sound: "เน€เธเธดเธ”เน€เธชเธตเธขเธเนเธเนเธเน€เธ•เธทเธญเธ",
+          volume: "เธฃเธฐเธ”เธฑเธเน€เธชเธตเธขเธ",
+          saved: "เธเธฑเธเธ—เธถเธเธเธฒเธฃเธ•เธฑเนเธเธเนเธฒเธเธฒเธฃเนเธเนเธเน€เธ•เธทเธญเธเนเธฅเนเธง",
+          loading: "เธเธณเธฅเธฑเธเนเธซเธฅเธ”เธเธฒเธฃเนเธเนเธเน€เธ•เธทเธญเธเธเธญเธเธชเธฒเธเธฒ..."
         };
   const availableBranches = canManage ? branches : branches.filter((branch) => branch.id === activeBranchId);
   const initialBranchId = availableBranches.find((branch) => branch.id === activeBranchId)?.id ?? availableBranches[0]?.id ?? "";
@@ -2545,7 +2538,7 @@ function ActivityAuditPanel({
                 aria-label={labels.cancel}
                 title={labels.cancel}
               >
-                ×
+                ร—
               </button>
             </div>
             <form onSubmit={submitFilters} className="grid gap-3 p-4">
@@ -2618,12 +2611,12 @@ function ActivityAuditPanel({
               className="min-h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-950 outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
             >
               <option value="all">{labels.allMenus}</option>
-              <option value="pos_sales">หน้าขาย</option>
-              <option value="stock">จัดการสินค้า</option>
-              <option value="shift">เปิด/ปิดกะ</option>
-              <option value="staff">ผู้ใช้งาน</option>
+              <option value="pos_sales">เธซเธเนเธฒเธเธฒเธข</option>
+              <option value="stock">เธเธฑเธ”เธเธฒเธฃเธชเธดเธเธเนเธฒ</option>
+              <option value="shift">เน€เธเธดเธ”/เธเธดเธ”เธเธฐ</option>
+              <option value="staff">เธเธนเนเนเธเนเธเธฒเธ</option>
               <option value="settings_activity_audit">{labels.activityAudit}</option>
-              <option value="it_admin">ระบบหลังบ้าน IT</option>
+              <option value="it_admin">เธฃเธฐเธเธเธซเธฅเธฑเธเธเนเธฒเธ IT</option>
             </select>
           </label>
           <ActionButton type="submit" disabled={isBusy || pin.length < 4}>
@@ -2986,7 +2979,7 @@ function PaymentPanel({
                   <StatusPill active={account.is_active} labels={labels} />
                 </div>
                 <p className="hidden text-xs font-medium text-slate-500">
-                  {account.account_number || "-"} · {branchById.get(account.branch_id)?.name ?? account.branch_id}
+                  {account.account_number || "-"} ยท {branchById.get(account.branch_id)?.name ?? account.branch_id}
                 </p>
                 {account.promptpay_payload ? <p className="mt-2 hidden break-all text-xs font-semibold text-blue-700">{account.promptpay_payload}</p> : null}
               </div>
@@ -3367,12 +3360,10 @@ export function PosSettingsWorkspace({ lang, initialData }: { lang: Language; in
   const [languagePopupOpen, setLanguagePopupOpen] = useState(false);
   const [menuPlacementPopupOpen, setMenuPlacementPopupOpen] = useState(false);
   const canManage = initialData.metadata.can_manage;
-  const isFg0003SettingsScope =
-    initialData.metadata.tenant_id === FG0003_SETTINGS_TENANT_ID ||
-    normalizeSettingsStoreCode(store?.code) === FG0003_SETTINGS_TENANT_CODE;
+  const productProfilePolicy = getProductProfilePolicy(initialData.metadata.product_profile);
 
   function isStoreSpecificSettingHidden(viewKey: keyof typeof POS_SETTINGS_FEATURES) {
-    return isFg0003SettingsScope && FG0003_HIDDEN_SETTINGS.has(viewKey);
+    return productProfilePolicy.hiddenSettingsViews.includes(viewKey);
   }
 
   const reportStatus = useCallback((message: string, options?: { popup?: boolean }) => {
@@ -3430,8 +3421,8 @@ export function PosSettingsWorkspace({ lang, initialData }: { lang: Language; in
             <MenuButton icon="terminal" title={labels.devices} desc={labels.devicesDesc} onClick={() => openSettingsView("devices")} locked={isSettingLocked("devices")} />
             <MenuButton
               icon="terminal"
-              title={lang === "en" ? "Printer Settings" : "ตั้งค่าเครื่องพิมพ์"}
-              desc={lang === "en" ? "Receipt printers, Print Agents, branch printers, and cash drawers" : "ตั้งค่าใบเสร็จ, Print Agents, เครื่องพิมพ์สาขา และลิ้นชักเก็บเงิน"}
+              title={lang === "en" ? "Printer Settings" : "เธ•เธฑเนเธเธเนเธฒเน€เธเธฃเธทเนเธญเธเธเธดเธกเธเน"}
+              desc={lang === "en" ? "Receipt printers, Print Agents, branch printers, and cash drawers" : "เธ•เธฑเนเธเธเนเธฒเนเธเน€เธชเธฃเนเธ, Print Agents, เน€เธเธฃเธทเนเธญเธเธเธดเธกเธเนเธชเธฒเธเธฒ เนเธฅเธฐเธฅเธดเนเธเธเธฑเธเน€เธเนเธเน€เธเธดเธ"}
               onClick={() => openSettingsView("printers")}
               locked={isSettingLocked("printers")}
             />
@@ -3440,15 +3431,15 @@ export function PosSettingsWorkspace({ lang, initialData }: { lang: Language; in
             <MenuButton
               icon="payment"
               title={lang === "en" ? "INET QR" : "INET QR"}
-              desc={lang === "en" ? "Dynamic QR, branch activation, and UAT connection" : "QR แบบกำหนดยอด, เปิดใช้งานรายสาขา และทดสอบ UAT"}
+              desc={lang === "en" ? "Dynamic QR, branch activation, and UAT connection" : "QR เนเธเธเธเธณเธซเธเธ”เธขเธญเธ”, เน€เธเธดเธ”เนเธเนเธเธฒเธเธฃเธฒเธขเธชเธฒเธเธฒ เนเธฅเธฐเธ—เธ”เธชเธญเธ UAT"}
               onClick={() => openSettingsView("inet_nops")}
               locked={isSettingLocked("inet_nops")}
             />
             {!isStoreSpecificSettingHidden("taxes") ? <MenuButton icon="tax" title={labels.taxes} desc={labels.taxesDesc} onClick={() => openSettingsView("taxes")} locked={isSettingLocked("taxes")} /> : null}
             <MenuButton
               icon="bell"
-              title={lang === "en" ? "Notification Settings" : "ตั้งค่าการแจ้งเตือน"}
-              desc={lang === "en" ? "Popup and sound alerts for table QR customer calls" : "POP UP และเสียงแจ้งเตือนเมื่อลูกค้าเรียกจาก QR โต๊ะ"}
+              title={lang === "en" ? "Notification Settings" : "เธ•เธฑเนเธเธเนเธฒเธเธฒเธฃเนเธเนเธเน€เธ•เธทเธญเธ"}
+              desc={lang === "en" ? "Popup and sound alerts for table QR customer calls" : "POP UP เนเธฅเธฐเน€เธชเธตเธขเธเนเธเนเธเน€เธ•เธทเธญเธเน€เธกเธทเนเธญเธฅเธนเธเธเนเธฒเน€เธฃเธตเธขเธเธเธฒเธ QR เนเธ•เนเธฐ"}
               onClick={() => openSettingsView("notifications")}
               locked={isSettingLocked("notifications")}
             />

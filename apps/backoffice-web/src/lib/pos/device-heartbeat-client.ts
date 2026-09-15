@@ -317,16 +317,27 @@ async function refreshWindowsRuntimeConfig(): Promise<boolean> {
   }
 }
 
-function executeAndroidPrinterTest(): boolean {
+function executeAndroidSafeCommand(command: string): boolean {
   const bridge = getAndroidBridgeGlobal();
   if (!bridge?.executeCommand) return false;
   try {
-    const raw = bridge.executeCommand("test_printer_connection");
+    const raw = bridge.executeCommand(command);
     const parsed = JSON.parse(raw) as unknown;
     return isRecord(parsed) && parsed.ok === true;
   } catch {
     return false;
   }
+}
+
+function executeAndroidPrinterTest(): boolean {
+  return executeAndroidSafeCommand("test_printer_connection");
+}
+
+function requestUpdateCheck(): boolean {
+  if (detectSurface() === "android") {
+    return executeAndroidSafeCommand("collect_diagnostics");
+  }
+  return true;
 }
 
 // Executes the safe, fixed allowlist of device commands delivered via heartbeat
@@ -363,6 +374,9 @@ export async function executePendingActions(actions: readonly PendingDeviceActio
         results.push({ id: action.id, command_type: action.command_type, applied });
         break;
       }
+      case "check_update":
+        results.push({ id: action.id, command_type: action.command_type, applied: requestUpdateCheck() });
+        break;
       case "disable_device":
       case "enable_device":
         // Applied immediately server-side (branch_devices.status) when issued -

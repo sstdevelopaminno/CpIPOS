@@ -43,6 +43,13 @@ export async function requirePosApiFeature(scope: FeatureScope, feature: string)
 }
 
 export function featureGateFail(error: unknown): Response | null {
+  // getAuthContext intentionally throws a plain Error when there is no authenticated
+  // Supabase/POS session. Feature-gated routes call auth before the feature check, so
+  // normalize that expected condition to 401 instead of leaking it as a generic 500.
+  if (error instanceof Error && error.message === "User is not authenticated.") {
+    return fail("unauthorized", "User is not authenticated.", 401);
+  }
+
   if (!(error instanceof FeatureGateError)) return null;
   if (error.code === "feature_not_enabled") {
     return Response.json(

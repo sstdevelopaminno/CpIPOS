@@ -186,7 +186,7 @@ function tableIdFromQrReviewUrl(url: URL): string | null {
 }
 
 function buildPausedQrReviewPollResponse(url: URL): Response {
-  // Do not advance the caller cursor while the current review is open. FG0003 will keep
+  // Do not advance the caller cursor while the current review is open. Restaurant QR flows keep
   // the authoritative pending row in the database; this only prevents the same submission
   // from reinitialising acceptedIndexes every poll while staff are ticking choices.
   const cursor = url.searchParams.get("after") || new Date().toISOString();

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { filterBillingDocumentItems, isFfStoreCode } from "../../src/lib/billing-document-policy";
+import { filterBillingDocumentItems, shouldSuppressZeroPriceBillingLines } from "../../src/lib/billing-document-policy";
 
 type Item = { name: string; unit_price: unknown };
 
@@ -11,14 +11,15 @@ const items: Item[] = [
 ];
 
 describe("billing document policy", () => {
-  it("recognizes FF store codes case-insensitively", () => {
-    expect(isFfStoreCode("FF0001")).toBe(true);
-    expect(isFfStoreCode(" ff0002 ")).toBe(true);
-    expect(isFfStoreCode("FG0003")).toBe(false);
+  it("resolves zero-price suppression from the BUFFET product profile", () => {
+    expect(shouldSuppressZeroPriceBillingLines({ productProfile: "BUFFET" })).toBe(true);
+    expect(shouldSuppressZeroPriceBillingLines({ tenantCode: "FF0001" })).toBe(true);
+    expect(shouldSuppressZeroPriceBillingLines({ tenantCode: "FG0004" })).toBe(false);
+    expect(shouldSuppressZeroPriceBillingLines({ tenantMetadata: { product_profile: "BUFFET" } })).toBe(true);
   });
 
-  it("removes only zero-priced document lines for FF stores", () => {
-    const result = filterBillingDocumentItems(items, "FF0001", (item) => item.unit_price);
+  it("removes only zero-priced document lines for buffet billing scopes", () => {
+    const result = filterBillingDocumentItems(items, { productProfile: "BUFFET" }, (item) => item.unit_price);
     expect(result.map((item) => item.name)).toEqual([
       "Buffet per person",
       "Paid add-on",
@@ -26,13 +27,13 @@ describe("billing document policy", () => {
     ]);
   });
 
-  it("does not change FG0003 or future FG store document lines", () => {
-    expect(filterBillingDocumentItems(items, "FG0003", (item) => item.unit_price)).toEqual(items);
-    expect(filterBillingDocumentItems(items, "FG0004", (item) => item.unit_price)).toEqual(items);
+  it("does not change Restaurant QR or Standard document lines", () => {
+    expect(filterBillingDocumentItems(items, { productProfile: "RESTAURANT_QR" }, (item) => item.unit_price)).toEqual(items);
+    expect(filterBillingDocumentItems(items, { tenantCode: "FG0004" }, (item) => item.unit_price)).toEqual(items);
+    expect(filterBillingDocumentItems(items, { productProfile: "STANDARD" }, (item) => item.unit_price)).toEqual(items);
   });
 
-  it("does not change non-FF or missing store scopes", () => {
-    expect(filterBillingDocumentItems(items, "NDL-TH-001", (item) => item.unit_price)).toEqual(items);
+  it("does not change missing store scopes", () => {
     expect(filterBillingDocumentItems(items, null, (item) => item.unit_price)).toEqual(items);
   });
 
@@ -43,7 +44,7 @@ describe("billing document policy", () => {
       { name: "malformed", unit_price: "not-a-number" },
       { name: "zero", unit_price: "0" }
     ];
-    expect(filterBillingDocumentItems(uncertain, "FF0001", (item) => item.unit_price).map((item) => item.name)).toEqual([
+    expect(filterBillingDocumentItems(uncertain, { productProfile: "BUFFET" }, (item) => item.unit_price).map((item) => item.name)).toEqual([
       "missing",
       "blank",
       "malformed"

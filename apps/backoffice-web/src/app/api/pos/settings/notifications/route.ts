@@ -5,6 +5,7 @@ import {
   savePosNotificationSettings,
   type PosNotificationSettingsInput
 } from "@/lib/services/pos-settings-service";
+import { saveStoreTableQrAutomationPolicy } from "@/lib/services/table-qr-automation-policy-service";
 
 function statusFromError(error: unknown) {
   const message = error instanceof Error ? error.message : "Notification settings request failed.";
@@ -31,8 +32,21 @@ export async function PATCH(request: Request) {
   try {
     const auth = await getPosApiAuthContext({ requireBranchScope: true, requiredPermission: "settings:view" });
     const body = (await request.json()) as PosNotificationSettingsInput;
-    const notification_settings = await savePosNotificationSettings(auth, body);
-    return ok({ branch_id: String(body.branch_id ?? auth.branchId ?? ""), notification_settings });
+    await savePosNotificationSettings(auth, body);
+
+    // Keep the legacy notification endpoint compatible while making the IT override authoritative.
+    // If the old settings screen changes the popup preference, store it as the shop preference;
+    // then rewrite the legacy popup column to the effective (shop + IT override) value.
+    await saveStoreTableQrAutomationPolicy(auth, {
+      branch_id: String(body.branch_id ?? auth.branchId ?? ""),
+      ...(typeof body.table_qr_popup_enabled === "boolean"
+        ? { popup_enabled: body.table_qr_popup_enabled }
+        : {})
+    });
+
+    const branchId = String(body.branch_id ?? auth.branchId ?? "");
+    const notification_settings = await loadPosNotificationSettings(auth, branchId);
+    return ok({ branch_id: branchId, notification_settings });
   } catch (error) {
     const resolved = statusFromError(error);
     return fail(resolved.code, resolved.message, resolved.status);

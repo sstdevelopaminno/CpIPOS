@@ -224,7 +224,7 @@ export async function GET(req: Request) {
     const records = rows.map((row) => {
       const payments = paymentsByOrder.get(row.id) ?? [];
       const rawItems = itemsByOrder.get(row.id) ?? [];
-      const items = filterBillingDocumentItems(rawItems, storeProfile?.code, (item) => item.unit_price);
+      const items = filterBillingDocumentItems(rawItems, { tenantCode: storeProfile?.code, tenantMetadata: storeProfile?.metadata }, (item) => item.unit_price);
       const paidTotal = payments.reduce((sum, payment) => sum + payment.amount, 0);
       const total = Number(row.grand_total ?? row.total_amount ?? 0);
       const memberName = readMetadataString(row.metadata, "member_name");

@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server";
 import { GET as baseGet, POST as basePost } from "@/lib/android-pos/mdm-heartbeat-base";
+import { syncAndroidHeartbeatToItPlane } from "@/lib/android-pos/it-mdm-bridge";
 import { buildAndroidModernUpdateOffer } from "@/lib/android-runtime-release";
 import { reconcileModernPrinterInventory } from "@/lib/printing/printer-mdm-auto-registry";
-import { getSupabaseServiceClient } from "@/lib/supabase-admin";
+import { getPrimarySupabaseServiceClient } from "@/lib/supabase-admin";
 
 type JsonRecord = Record<string, unknown>;
 type AutoScope = {
@@ -20,11 +21,6 @@ type RecoveryCommand = {
   action: "clear_webview_cache" | "reload_webview";
   reason: string;
 };
-
-const FG0003_RECOVERY_INSTALL_ID = "13aec7a2-7817-49b4-a90f-ff275dfefd75";
-// One-shot generation marker. Once the runtime reports any command executed after
-// this point, the emergency recovery pair is no longer emitted.
-const FG0003_RECOVERY_GENERATION_MS = 1787667000000;
 
 function asRecord(value: unknown): JsonRecord {
   return value && typeof value === "object" && !Array.isArray(value) ? value as JsonRecord : {};
@@ -45,29 +41,36 @@ function hasUpdaterTelemetry(payload: JsonRecord | null): boolean {
     Object.keys(asRecord(payload?.update_state)).length > 0;
 }
 
-function buildFg0003RecoveryCommands(installId: string | null, payload: JsonRecord | null): RecoveryCommand[] {
-  if (installId !== FG0003_RECOVERY_INSTALL_ID) return [];
+function recoveryCommandEligible(payload: JsonRecord | null): boolean {
+  const capabilities = asRecord(payload?.runtime_capabilities);
+  return Number(capabilities.schema_version ?? 0) >= 4;
+}
+
+function buildRecoveryCommands(scope: AutoScope, payload: JsonRecord | null): RecoveryCommand[] {
+  const metadata = asRecord(scope.metadata);
+  const policy = asRecord(metadata.android_mdm_recovery_policy);
+  if (policy.enabled !== true) return [];
+  const generationMs = Number(policy.generation_ms ?? 0);
+  if (!Number.isFinite(generationMs) || generationMs <= 0) return [];
   const lastCommand = asRecord(payload?.last_command);
   const lastCommandAtMs = Number(lastCommand.at_ms ?? 0);
-  if (Number.isFinite(lastCommandAtMs) && lastCommandAtMs >= FG0003_RECOVERY_GENERATION_MS) return [];
+  if (Number.isFinite(lastCommandAtMs) && lastCommandAtMs >= generationMs) return [];
 
-  return [
-    {
-      id: `fg0003-clear-cache-${FG0003_RECOVERY_GENERATION_MS}`,
-      action: "clear_webview_cache",
-      reason: "fg0003_p0_webview_recovery"
-    },
-    {
-      id: `fg0003-reload-${FG0003_RECOVERY_GENERATION_MS}`,
-      action: "reload_webview",
-      reason: "fg0003_p0_webview_recovery"
-    }
-  ];
+  const reason = String(policy.reason ?? "android_mdm_recovery").trim() || "android_mdm_recovery";
+  const actions = Array.isArray(policy.actions) ? policy.actions : [];
+  return actions
+    .filter((action): action is RecoveryCommand["action"] => action === "clear_webview_cache" || action === "reload_webview")
+    .slice(0, 2)
+    .map((action) => ({
+      id: `recovery-${action}-${generationMs}`,
+      action,
+      reason
+    }));
 }
 
 async function findAutoScope(installId: string | null): Promise<AutoScope | null> {
   if (!installId) return null;
-  const supabase = getSupabaseServiceClient();
+  const supabase = getPrimarySupabaseServiceClient();
   const { data, error } = await supabase
     .from("branch_devices")
     .select("id,tenant_id,branch_id,device_code,status,is_locked,metadata")
@@ -89,7 +92,7 @@ async function findAutoScope(installId: string | null): Promise<AutoScope | null
 }
 
 async function findTenantCode(tenantId: string): Promise<string | null> {
-  const supabase = getSupabaseServiceClient();
+  const supabase = getPrimarySupabaseServiceClient();
   const { data, error } = await supabase
     .from("tenants")
     .select("code")
@@ -105,7 +108,7 @@ async function persistUpdaterTelemetry(scope: AutoScope, payload: JsonRecord | n
   if (Object.keys(updateCapabilities).length === 0 && Object.keys(updateState).length === 0) return;
 
   const metadata = asRecord(scope.metadata);
-  const supabase = getSupabaseServiceClient();
+  const supabase = getPrimarySupabaseServiceClient();
   await supabase.from("branch_devices").update({
     metadata: {
       ...metadata,
@@ -127,18 +130,34 @@ export async function POST(request: Request) {
 
   const payload = await requestCopy.json().catch(() => null) as JsonRecord | null;
   const installId = String(requestCopy.headers.get("x-cpipos-install-id") ?? "").trim().slice(0, 120) || null;
-  const recoveryCommands = buildFg0003RecoveryCommands(installId, payload);
+  const appVersion = String(requestCopy.headers.get("x-cpipos-app-version") ?? "").trim().slice(0, 80) || null;
   const printerEligible = quickAutoSetupEligible(payload);
   const updaterTelemetry = hasUpdaterTelemetry(payload);
-
-  // Even if this runtime does not need printer reconciliation or updater persistence,
-  // the targeted FG0003 recovery command must still be allowed through the heartbeat.
-  if (!printerEligible && !updaterTelemetry && recoveryCommands.length === 0) return baseResponse;
+  const recoveryEligible = recoveryCommandEligible(payload);
 
   const scope = await findAutoScope(installId);
-  if (!scope) return baseResponse;
+  if (!scope || !installId) return baseResponse;
 
+  const recoveryCommands = recoveryEligible ? buildRecoveryCommands(scope, payload) : [];
   if (updaterTelemetry) await persistUpdaterTelemetry(scope, payload);
+
+  const itBridge = await syncAndroidHeartbeatToItPlane({
+    scope: {
+      id: scope.id,
+      tenant_id: scope.tenant_id,
+      branch_id: scope.branch_id,
+      device_code: scope.device_code
+    },
+    payload,
+    installId,
+    appVersion
+  }).catch((error) => {
+    console.error("[android-pos-mdm][it-plane] sync failed", {
+      device_code: scope.device_code,
+      message: error instanceof Error ? error.message : "unknown"
+    });
+    return { commands: [], latest_id: null, status: "unavailable" };
+  });
 
   const tenantCode = updaterTelemetry ? await findTenantCode(scope.tenant_id) : null;
   const stagedUpdateOffer = updaterTelemetry && tenantCode
@@ -146,7 +165,8 @@ export async function POST(request: Request) {
         tenantCode,
         payload,
         deviceStatus: scope.status,
-        deviceLocked: scope.is_locked
+        deviceLocked: scope.is_locked,
+        updatePolicy: asRecord(scope.metadata).android_update_policy as Record<string, unknown> | null
       })
     : null;
 
@@ -169,7 +189,7 @@ export async function POST(request: Request) {
   if (!responseBody) return baseResponse;
   const data = asRecord(responseBody.data);
   const existingCommands = Array.isArray(data.commands) ? data.commands : [];
-  const commands = [...existingCommands, ...recoveryCommands, ...auto.commands].slice(0, 5);
+  const commands = [...existingCommands, ...recoveryCommands, ...auto.commands, ...itBridge.commands].slice(0, 5);
 
   return NextResponse.json({
     ...responseBody,
@@ -177,6 +197,12 @@ export async function POST(request: Request) {
       ...data,
       commands,
       update_offer: stagedUpdateOffer ?? data.update_offer ?? null,
+      it_mdm: {
+        health_status: itBridge.status,
+        latest_id: itBridge.latest_id,
+        command_count: itBridge.commands.length,
+        operational_plane: "CpiPOS-002"
+      },
       ...(printerEligible ? {
         auto_printer_registry: {
           eligible: auto.eligible,

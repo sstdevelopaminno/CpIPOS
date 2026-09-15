@@ -1,5 +1,6 @@
 import { getPosApiAuthContext } from "@/lib/pos-api-auth";
 import { fail, ok } from "@/lib/http";
+import { resolveProductProfile } from "@/lib/product-profile-policy";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
 
 export async function GET() {
@@ -10,14 +11,11 @@ export async function GET() {
       .from("tenants")
       .select("code")
       .eq("id", auth.tenantId!)
-      .maybeSingle<{ code: string }>();
+      .maybeSingle<{ code: string | null }>();
     if (error) return fail("product_profile_query_failed", error.message, 500);
+
     const tenantCode = String(data?.code ?? "").trim().toUpperCase();
-    const productProfile = tenantCode.startsWith("FF")
-      ? "BUFFET"
-      : tenantCode.startsWith("FG")
-        ? "RESTAURANT_QR"
-        : "STANDARD";
+    const productProfile = resolveProductProfile({ tenantCode });
     return ok({ tenant_code: tenantCode, product_profile: productProfile });
   } catch (error) {
     return fail("unauthorized", error instanceof Error ? error.message : "Authentication failed.", 401);

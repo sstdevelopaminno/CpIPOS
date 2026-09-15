@@ -1,15 +1,15 @@
 "use client";
 
-import type { ApprovalAction, BranchRole, PaymentMethod, PlatformRole } from "@pos/shared-types";
-import { useEffect, useMemo, useState } from "react";
+import type { ApprovalAction, BranchRole, PlatformRole } from "@pos/shared-types";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { PosManagerApprovalModal } from "@/components/pos-ui/pos-manager-approval-modal";
 import { downloadExcelCsv } from "@/lib/excel-csv";
-import { t, type Language, type TranslationKey } from "@/lib/i18n";
+import type { Language } from "@/lib/i18n";
 import type { PosSalesBranchOption, PosSalesListRecord, PosSalesShiftOption } from "@/lib/services/pos-sales-list-service";
 
 type SaleStatus = "open" | "paid" | "void";
-type PaymentReceiptStatus = "unpaid" | PaymentMethod;
-type SalesChannel = "counter" | "dine_in" | "delivery";
+type PaymentStatus = "unpaid" | "cash" | "bank_transfer";
+type QuickRange = "day" | "month" | "year" | "custom" | "all";
 type EffectiveRole = BranchRole | "it_admin";
 
 type Props = {
@@ -23,29 +23,45 @@ type Props = {
   refreshEndpoint?: string;
 };
 
-type PinAction = {
-  type: "edit" | "delete";
-  rowId: string;
-  approvalAction: ApprovalAction;
+type PinAction = { type: "edit" | "delete"; row: PosSalesListRecord; approvalAction: ApprovalAction };
+type EditTarget = { row: PosSalesListRecord; approvalId: string | null };
+type BillLineItem = {
+  id: string;
+  product_id: string;
+  name: string;
+  sku: string | null;
+  category: string | null;
+  quantity: number;
+  unit_price: number;
+  line_total: number;
+  notes: string | null;
 };
+type BillItemsPayload = {
+  order: { id: string; bill_no: string; branch_id: string; status: string; total: number; created_at: string };
+  items: BillLineItem[];
+};
+type ApiEnvelope<T> = { data: T | null; error: { code?: string; message?: string } | null };
 
-type EditTarget = {
-  row: PosSalesListRecord;
-  approvalId: string | null;
-};
+const PAGE_SIZE = 20;
+const REFRESH_INTERVAL_MS = 15000;
 
-type LocalText = {
-  exportCsv: string;
-  editTitle: string;
-  save: string;
-  saving: string;
-  note: string;
-  successEdit: string;
-  successDelete: string;
-  genericError: string;
-  paidNeedsPayment: string;
-  tableOnlyCsvNotice: string;
-};
+function bangkokDate(value: string | Date) {
+  const parts = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Bangkok", year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(new Date(value));
+  const part = (type: string) => parts.find((item) => item.type === type)?.value ?? "";
+  return `${part("year")}-${part("month")}-${part("day")}`;
+}
+
+function bangkokToday() {
+  return bangkokDate(new Date());
+}
+
+function money(value: number, lang: Language) {
+  return Number(value || 0).toLocaleString(lang === "th" ? "th-TH" : "en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function formatQuantity(value: number, lang: Language) {
+  return Number(value || 0).toLocaleString(lang === "th" ? "th-TH" : "en-US", { maximumFractionDigits: 3 });
+}
 
 export function PosSalesListWorkspace({
   lang,
@@ -57,905 +73,398 @@ export function PosSalesListWorkspace({
   shiftOptions,
   refreshEndpoint = "/api/pos/sales-list"
 }: Props) {
-  const PAGE_SIZE = 20;
-  const REFRESH_INTERVAL_MS = 15000;
-  const tt = (key: TranslationKey) => t(lang, key);
-
-  const [records, setRecords] = useState<PosSalesListRecord[]>(initialRecords);
-  const [liveBranchOptions, setLiveBranchOptions] = useState<PosSalesBranchOption[]>(branchOptions);
-  const [liveShiftOptions, setLiveShiftOptions] = useState<PosSalesShiftOption[]>(shiftOptions);
-  const [selectedBranchId, setSelectedBranchId] = useState<string>("all");
-  const [selectedCategory, setSelectedCategory] = useState<string>("all");
-  const [filterPopupOpen, setFilterPopupOpen] = useState(false);
-  const [totalsVisible, setTotalsVisible] = useState(false);
-  const [selectedDetailRow, setSelectedDetailRow] = useState<PosSalesListRecord | null>(null);
+  const th = lang === "th";
+  const [records, setRecords] = useState(initialRecords);
+  const [liveBranchOptions, setLiveBranchOptions] = useState(branchOptions);
+  const [liveShiftOptions, setLiveShiftOptions] = useState(shiftOptions);
+  const [selectedBranchId, setSelectedBranchId] = useState("all");
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<"all" | SaleStatus>("all");
-  const [paymentFilter, setPaymentFilter] = useState<"all" | PaymentReceiptStatus>("all");
-  const [channelFilter, setChannelFilter] = useState<"all" | SalesChannel>("all");
-  const [shiftFilter, setShiftFilter] = useState<"all" | string>("all");
-  const [dateFilter, setDateFilter] = useState("");
-  const [timeFromFilter, setTimeFromFilter] = useState("");
-  const [timeToFilter, setTimeToFilter] = useState("");
+  const [paymentFilter, setPaymentFilter] = useState<"all" | PaymentStatus>("all");
+  const [shiftFilter, setShiftFilter] = useState("all");
+  const [quickRange, setQuickRange] = useState<QuickRange>("day");
+  const today = useMemo(() => bangkokToday(), []);
+  const [fromDate, setFromDate] = useState(today);
+  const [toDate, setToDate] = useState(today);
+  const [filterPopupOpen, setFilterPopupOpen] = useState(false);
+  const [selectedDetailRow, setSelectedDetailRow] = useState<PosSalesListRecord | null>(null);
+  const [billItems, setBillItems] = useState<BillItemsPayload | null>(null);
+  const [billItemsOpen, setBillItemsOpen] = useState(false);
+  const [billItemsLoading, setBillItemsLoading] = useState(false);
+  const [billItemsError, setBillItemsError] = useState("");
   const [pinAction, setPinAction] = useState<PinAction | null>(null);
-  const [currentPage, setCurrentPage] = useState(1);
-  const [quickRange, setQuickRange] = useState<"none" | "day" | "month" | "year">("day");
   const [editTarget, setEditTarget] = useState<EditTarget | null>(null);
   const [editSaleStatus, setEditSaleStatus] = useState<SaleStatus>("open");
-  const [editPaymentStatus, setEditPaymentStatus] = useState<PaymentReceiptStatus>("unpaid");
+  const [editPaymentStatus, setEditPaymentStatus] = useState<PaymentStatus>("unpaid");
   const [editNotes, setEditNotes] = useState("");
   const [mutationBusy, setMutationBusy] = useState(false);
   const [mutationError, setMutationError] = useState("");
   const [notice, setNotice] = useState("");
+  const [currentPage, setCurrentPage] = useState(1);
 
-  const fallbackBranchId = liveBranchOptions[0]?.id ?? "";
-  const normalizedBranchId =
-    initialBranchId && liveBranchOptions.some((branch) => branch.id === initialBranchId) ? initialBranchId : fallbackBranchId;
   const effectiveRole: EffectiveRole = platformRole === "it_admin" ? "it_admin" : (initialRole ?? "staff");
   const canManage = effectiveRole === "owner" || effectiveRole === "manager" || effectiveRole === "it_admin";
   const requiresPin = effectiveRole === "owner" || effectiveRole === "manager";
-  const canViewAllBranches = effectiveRole === "owner" || effectiveRole === "manager" || effectiveRole === "it_admin";
+  const canViewAllBranches = effectiveRole === "owner" || effectiveRole === "manager" || effectiveRole === "accountant" || effectiveRole === "it_admin";
+  const normalizedBranchId = initialBranchId && liveBranchOptions.some((branch) => branch.id === initialBranchId) ? initialBranchId : (liveBranchOptions[0]?.id ?? "");
   const effectiveBranchId = canViewAllBranches ? selectedBranchId : normalizedBranchId;
   const branchMap = useMemo(() => new Map(liveBranchOptions.map((branch) => [branch.id, branch])), [liveBranchOptions]);
-  const pauseLiveRefresh = Boolean(selectedDetailRow || pinAction || editTarget || filterPopupOpen);
-  const localText = useMemo<LocalText>(
-    () =>
-      lang === "th"
-        ? {
-            exportCsv: "Export CSV",
-            editTitle: "แก้ไขรายการขาย",
-            save: "บันทึก",
-            saving: "กำลังบันทึก...",
-            note: "หมายเหตุ",
-            successEdit: "บันทึกการแก้ไขรายการขายแล้ว",
-            successDelete: "ลบรายการขายออกจากตารางแล้ว",
-            genericError: "ทำรายการไม่สำเร็จ กรุณาลองใหม่",
-            paidNeedsPayment: "บิลที่ปิดแล้วต้องเลือกวิธีชำระเงิน",
-            tableOnlyCsvNotice: "บันทึก CSV เฉพาะตารางหน้านี้แล้ว"
-          }
-        : {
-            exportCsv: "Export CSV",
-            editTitle: "Edit Sales Record",
-            save: "Save",
-            saving: "Saving...",
-            note: "Note",
-            successEdit: "Sales record updated.",
-            successDelete: "Sales record removed from the table.",
-            genericError: "Action failed. Please try again.",
-            paidNeedsPayment: "Paid bills require a payment method.",
-            tableOnlyCsvNotice: "CSV saved for the visible table page only."
-          },
-    [lang]
-  );
+  const pauseRefresh = Boolean(selectedDetailRow || billItemsOpen || pinAction || editTarget || filterPopupOpen);
+
+  const loadLatest = useCallback(async () => {
+    const response = await fetch(refreshEndpoint, { cache: "no-store" });
+    const body = (await response.json().catch(() => null)) as ApiEnvelope<{
+      records?: PosSalesListRecord[];
+      branchOptions?: PosSalesBranchOption[];
+      shiftOptions?: PosSalesShiftOption[];
+    }> | null;
+    if (!response.ok || !body?.data) return;
+    setRecords(body.data.records ?? []);
+    setLiveBranchOptions(body.data.branchOptions ?? []);
+    setLiveShiftOptions(body.data.shiftOptions ?? []);
+  }, [refreshEndpoint]);
+
+  useEffect(() => setRecords(initialRecords), [initialRecords]);
+  useEffect(() => setLiveBranchOptions(branchOptions), [branchOptions]);
+  useEffect(() => setLiveShiftOptions(shiftOptions), [shiftOptions]);
 
   useEffect(() => {
-    setRecords(initialRecords);
-  }, [initialRecords]);
-
-  useEffect(() => {
-    setLiveBranchOptions(branchOptions);
-  }, [branchOptions]);
-
-  useEffect(() => {
-    setLiveShiftOptions(shiftOptions);
-  }, [shiftOptions]);
+    if (!canViewAllBranches) setSelectedBranchId(normalizedBranchId);
+  }, [canViewAllBranches, normalizedBranchId]);
 
   useEffect(() => {
     if (!selectedDetailRow) return;
-    const latestRow = records.find((row) => row.id === selectedDetailRow.id) ?? null;
-    setSelectedDetailRow(latestRow);
+    const latest = records.find((row) => row.id === selectedDetailRow.id);
+    if (latest) setSelectedDetailRow(latest);
   }, [records, selectedDetailRow?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     let mounted = true;
     let inFlight = false;
-    const timer = setInterval(async () => {
-      if (inFlight || document.hidden || pauseLiveRefresh) return;
+    const timer = window.setInterval(async () => {
+      if (!mounted || inFlight || document.hidden || pauseRefresh) return;
       inFlight = true;
-      try {
-        const response = await fetch(refreshEndpoint, { cache: "no-store" });
-        const body = (await response.json()) as {
-          data?: {
-            records?: PosSalesListRecord[];
-            branchOptions?: PosSalesBranchOption[];
-            shiftOptions?: PosSalesShiftOption[];
-          } | null;
-        };
-        if (!mounted || !response.ok || !body?.data) return;
-        const nextRecords = body.data.records ?? [];
-        const nextBranches = body.data.branchOptions ?? [];
-        const nextShifts = body.data.shiftOptions ?? [];
-
-        setRecords((prev) => (nextRecords.length === 0 && prev.length > 0 ? prev : nextRecords));
-        setLiveBranchOptions((prev) => (nextBranches.length === 0 && prev.length > 0 ? prev : nextBranches));
-        setLiveShiftOptions((prev) => (nextShifts.length === 0 && prev.length > 0 ? prev : nextShifts));
-      } catch {
-      } finally {
-        inFlight = false;
-      }
+      try { await loadLatest(); } catch { /* keep the last successful table */ } finally { inFlight = false; }
     }, REFRESH_INTERVAL_MS);
-    return () => {
-      mounted = false;
-      clearInterval(timer);
-    };
-  }, [pauseLiveRefresh, refreshEndpoint]);
-
-  const statusLabel: Record<SaleStatus, string> = {
-    open: tt("sales_list_status_open"),
-    paid: tt("sales_list_status_paid"),
-    void: tt("sales_list_status_void")
-  };
-  const paymentLabel: Record<PaymentReceiptStatus, string> = {
-    unpaid: tt("sales_list_payment_unpaid"),
-    cash: tt("sales_list_payment_cash"),
-    bank_transfer: tt("sales_list_payment_transfer")
-  };
-  const channelLabel: Record<SalesChannel, string> = {
-    counter: tt("sales_list_channel_counter"),
-    dine_in: tt("sales_list_channel_dine_in"),
-    delivery: tt("sales_list_channel_delivery")
-  };
-  const orderTypeLabel: Record<PosSalesListRecord["orderType"], string> = {
-    dine_in: tt("sales_list_mode_dine_in"),
-    takeaway: tt("sales_list_mode_takeaway"),
-    delivery_manual: tt("sales_list_mode_delivery")
-  };
-
-  const categoryFilterLabel = lang === "th" ? "หมวดหมู่" : "Category";
-  const allCategoriesLabel = lang === "th" ? "ทุกหมวด" : "All Categories";
-  const uncategorizedLabel = lang === "th" ? "ไม่ระบุหมวดหมู่" : "Uncategorized";
-  const billUnitLabel = lang === "th" ? "บิล" : "bills";
-  const itemUnitLabel = lang === "th" ? "รายการ" : "items";
-
-  function displayCategoryName(name: string) {
-    return name === "Uncategorized" ? uncategorizedLabel : name;
-  }
-
-  function rowCategoryAmount(row: PosSalesListRecord, categoryName: string) {
-    return (row.categoryTotals ?? []).find((item) => item.name === categoryName)?.totalAmount ?? 0;
-  }
-
-  const baseFilteredRows = useMemo(() => {
-    const normalized = query.trim().toLowerCase();
-    const today = getBangkokTodayDate();
-    const thisMonth = today.slice(0, 7);
-    const thisYear = today.slice(0, 4);
-    return records.filter((row) => {
-      const matchesBranch = effectiveBranchId === "all" || row.branchId === effectiveBranchId;
-      const matchesQuery =
-        normalized.length === 0 ||
-        row.billNo.toLowerCase().includes(normalized) ||
-        row.tableLabel.toLowerCase().includes(normalized) ||
-        row.customerName.toLowerCase().includes(normalized) ||
-        row.cashier.toLowerCase().includes(normalized);
-      const matchesStatus = statusFilter === "all" || row.saleStatus === statusFilter;
-      const matchesPayment = paymentFilter === "all" || row.paymentStatus === paymentFilter;
-      const matchesChannel = channelFilter === "all" || row.channel === channelFilter;
-      const matchesShift = shiftFilter === "all" || row.shiftId === shiftFilter;
-      const rowDate = toBangkokDate(row.openedAt);
-      const rowTime = toBangkokTime(row.openedAt);
-      const matchesDate =
-        dateFilter.length > 0
-          ? rowDate === dateFilter
-          : quickRange === "none"
-            ? true
-            : quickRange === "day"
-              ? rowDate === today
-              : quickRange === "month"
-                ? rowDate.startsWith(thisMonth)
-                : rowDate.startsWith(thisYear);
-      const matchesTimeFrom = !timeFromFilter || rowTime >= timeFromFilter;
-      const matchesTimeTo = !timeToFilter || rowTime <= timeToFilter;
-      return (
-        matchesBranch &&
-        matchesQuery &&
-        matchesStatus &&
-        matchesPayment &&
-        matchesChannel &&
-        matchesShift &&
-        matchesDate &&
-        matchesTimeFrom &&
-        matchesTimeTo
-      );
-    });
-  }, [channelFilter, dateFilter, effectiveBranchId, paymentFilter, query, quickRange, records, shiftFilter, statusFilter, timeFromFilter, timeToFilter]);
-
-  const categoryOptions = useMemo(() => {
-    const buckets = new Map<string, { billIds: Set<string>; itemQuantity: number; totalAmount: number }>();
-    for (const row of baseFilteredRows) {
-      for (const item of row.categoryTotals ?? []) {
-        const bucket = buckets.get(item.name) ?? { billIds: new Set<string>(), itemQuantity: 0, totalAmount: 0 };
-        bucket.billIds.add(row.id);
-        bucket.itemQuantity += item.itemQuantity;
-        bucket.totalAmount += item.totalAmount;
-        buckets.set(item.name, bucket);
-      }
-    }
-    return Array.from(buckets.entries())
-      .map(([name, bucket]) => ({ name, billCount: bucket.billIds.size, itemQuantity: bucket.itemQuantity, totalAmount: bucket.totalAmount }))
-      .sort((a, b) => b.totalAmount - a.totalAmount || a.name.localeCompare(b.name));
-  }, [baseFilteredRows]);
-
-  const filteredRows = useMemo(() => {
-    if (selectedCategory === "all") return baseFilteredRows;
-    return baseFilteredRows.filter((row) => rowCategoryAmount(row, selectedCategory) > 0);
-  }, [baseFilteredRows, selectedCategory]);
-
-  const sortedFilteredRows = useMemo(
-    () =>
-      [...filteredRows].sort((a, b) => {
-        return new Date(b.openedAt).getTime() - new Date(a.openedAt).getTime();
-      }),
-    [filteredRows]
-  );
-
-  const totalPages = Math.max(1, Math.ceil(sortedFilteredRows.length / PAGE_SIZE));
-  const safeCurrentPage = Math.min(currentPage, totalPages);
-  const pagedRows = useMemo(() => {
-    const start = (safeCurrentPage - 1) * PAGE_SIZE;
-    return sortedFilteredRows.slice(start, start + PAGE_SIZE);
-  }, [safeCurrentPage, sortedFilteredRows]);
-
-  const pageStartIndex = sortedFilteredRows.length === 0 ? 0 : (safeCurrentPage - 1) * PAGE_SIZE + 1;
-  const pageEndIndex = sortedFilteredRows.length === 0 ? 0 : Math.min(safeCurrentPage * PAGE_SIZE, sortedFilteredRows.length);
-
-  const metrics = useMemo(() => {
-    const totalBills = filteredRows.length;
-    const paidBills = filteredRows.filter((row) => row.paymentStatus !== "unpaid").length;
-    const openBills = filteredRows.filter((row) => row.saleStatus === "open").length;
-    const totalAmount = filteredRows.reduce((sum, row) => sum + (selectedCategory === "all" ? row.total : rowCategoryAmount(row, selectedCategory)), 0);
-    return { totalBills, paidBills, openBills, totalAmount };
-  }, [filteredRows, selectedCategory]);
-
-  useEffect(() => {
-    if (selectedCategory !== "all" && !categoryOptions.some((item) => item.name === selectedCategory)) {
-      setSelectedCategory("all");
-    }
-  }, [categoryOptions, selectedCategory]);
-
-  useEffect(() => {
-    setCurrentPage(1);
-  }, [query, statusFilter, paymentFilter, channelFilter, shiftFilter, dateFilter, timeFromFilter, timeToFilter, selectedBranchId, selectedCategory, quickRange]);
-
-  useEffect(() => {
-    if (currentPage > totalPages) {
-      setCurrentPage(totalPages);
-    }
-  }, [currentPage, totalPages]);
+    return () => { mounted = false; window.clearInterval(timer); };
+  }, [loadLatest, pauseRefresh]);
 
   useEffect(() => {
     if (!notice) return;
-    const timer = window.setTimeout(() => setNotice(""), 2200);
+    const timer = window.setTimeout(() => setNotice(""), 4500);
     return () => window.clearTimeout(timer);
   }, [notice]);
 
-  const dateTimeFormatter = useMemo(
-    () =>
-      new Intl.DateTimeFormat(lang === "th" ? "th-TH" : "en-US", {
-        dateStyle: "short",
-        timeStyle: "short",
-        timeZone: "Asia/Bangkok"
-      }),
-    [lang]
-  );
-  const amountFormatter = useMemo(
-    () => new Intl.NumberFormat(lang === "th" ? "th-TH" : "en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
-    [lang]
-  );
+  const filteredRows = useMemo(() => {
+    const normalized = query.trim().toLowerCase();
+    const monthPrefix = today.slice(0, 7);
+    const yearPrefix = today.slice(0, 4);
+    return records.filter((row) => {
+      const rowDate = bangkokDate(row.openedAt);
+      const branchMatch = effectiveBranchId === "all" || row.branchId === effectiveBranchId;
+      const queryMatch = !normalized || [row.billNo, row.tableLabel, row.customerName, row.cashier].some((value) => String(value ?? "").toLowerCase().includes(normalized));
+      const statusMatch = statusFilter === "all" || row.saleStatus === statusFilter;
+      const paymentMatch = paymentFilter === "all" || row.paymentStatus === paymentFilter;
+      const shiftMatch = shiftFilter === "all" || row.shiftId === shiftFilter;
+      const dateMatch = quickRange === "all"
+        ? true
+        : quickRange === "day"
+          ? rowDate === today
+          : quickRange === "month"
+            ? rowDate.startsWith(monthPrefix)
+            : quickRange === "year"
+              ? rowDate.startsWith(yearPrefix)
+              : (!fromDate || rowDate >= fromDate) && (!toDate || rowDate <= toDate);
+      return branchMatch && queryMatch && statusMatch && paymentMatch && shiftMatch && dateMatch;
+    });
+  }, [effectiveBranchId, fromDate, paymentFilter, query, quickRange, records, shiftFilter, statusFilter, toDate, today]);
 
-  function openEditDialog(row: PosSalesListRecord, approvalId: string | null) {
+  const sortedRows = useMemo(() => [...filteredRows].sort((a, b) => new Date(b.openedAt).getTime() - new Date(a.openedAt).getTime()), [filteredRows]);
+  const totalPages = Math.max(1, Math.ceil(sortedRows.length / PAGE_SIZE));
+  const safePage = Math.min(currentPage, totalPages);
+  const pagedRows = useMemo(() => sortedRows.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE), [safePage, sortedRows]);
+  const metrics = useMemo(() => ({
+    bills: filteredRows.length,
+    paid: filteredRows.filter((row) => row.saleStatus === "paid").length,
+    voided: filteredRows.filter((row) => row.saleStatus === "void").length,
+    total: filteredRows.filter((row) => row.saleStatus !== "void").reduce((sum, row) => sum + Number(row.total || 0), 0)
+  }), [filteredRows]);
+
+  useEffect(() => setCurrentPage(1), [effectiveBranchId, fromDate, paymentFilter, query, quickRange, shiftFilter, statusFilter, toDate]);
+  useEffect(() => { if (currentPage > totalPages) setCurrentPage(totalPages); }, [currentPage, totalPages]);
+
+  const dateTimeFormatter = useMemo(() => new Intl.DateTimeFormat(th ? "th-TH" : "en-US", { timeZone: "Asia/Bangkok", dateStyle: "short", timeStyle: "short" }), [th]);
+
+  function saleStatusLabel(value: PosSalesListRecord["saleStatus"] | SaleStatus) {
+    if (value === "paid") return th ? "ชำระแล้ว" : "Paid";
+    if (value === "void") return th ? "ยกเลิก" : "Cancelled";
+    return th ? "เปิดบิล" : "Open";
+  }
+
+  function paymentLabel(value: string) {
+    if (value === "cash") return th ? "เงินสด" : "Cash";
+    if (value === "bank_transfer") return th ? "โอนเงิน" : "Bank transfer";
+    return th ? "ยังไม่ชำระ" : "Unpaid";
+  }
+
+  function channelLabel(value: string) {
+    if (value === "dine_in") return th ? "นั่งโต๊ะ" : "Dine in";
+    if (value === "delivery") return th ? "เดลิเวอรี" : "Delivery";
+    return th ? "เคาน์เตอร์" : "Counter";
+  }
+
+  function exportCsv() {
+    const rows: Array<Array<string | number>> = [
+      [th ? "เลขบิล" : "Bill", th ? "วันที่" : "Date", th ? "ช่องทาง" : "Channel", th ? "จำนวนรายการ" : "Items", th ? "ยอดรวม" : "Total", th ? "การชำระ" : "Payment", th ? "สถานะ" : "Status", th ? "ผู้ทำรายการ" : "Cashier"],
+      ...sortedRows.map((row) => [row.billNo, dateTimeFormatter.format(new Date(row.openedAt)), channelLabel(row.channel), row.items, row.total, paymentLabel(row.paymentStatus), saleStatusLabel(row.saleStatus), row.cashier])
+    ];
+    downloadExcelCsv(`cpipos-sales-${today}.csv`, rows);
+  }
+
+  function requestAction(action: PinAction) {
     setMutationError("");
-    setEditTarget({ row, approvalId });
-    setEditSaleStatus(row.saleStatus);
-    setEditPaymentStatus(row.paymentStatus);
-    setEditNotes(row.notes ?? "");
+    if (requiresPin) setPinAction(action);
+    else void runAuthorizedAction(action, null);
   }
 
-  function patchLocalRecord(rowId: string, changes: Partial<PosSalesListRecord>) {
-    setRecords((prev) => prev.map((row) => (row.id === rowId ? { ...row, ...changes } : row)));
-    setSelectedDetailRow((prev) => (prev?.id === rowId ? { ...prev, ...changes } : prev));
-  }
-
-  async function readApiError(response: Response) {
-    const body = (await response.json().catch(() => null)) as { error?: { message?: string }; message?: string } | null;
-    return body?.error?.message ?? body?.message ?? localText.genericError;
-  }
-
-  async function saveEditRecord() {
-    if (!editTarget || mutationBusy) return;
-    if (editSaleStatus === "paid" && editPaymentStatus === "unpaid") {
-      setMutationError(localText.paidNeedsPayment);
+  async function runAuthorizedAction(action: PinAction, approvalId: string | null) {
+    if (action.type === "edit") {
+      setEditTarget({ row: action.row, approvalId });
+      setEditSaleStatus(action.row.saleStatus);
+      setEditPaymentStatus(action.row.paymentStatus as PaymentStatus);
+      setEditNotes(action.row.notes ?? "");
       return;
     }
 
-    setMutationBusy(true);
-    setMutationError("");
-    try {
-      const response = await fetch(refreshEndpoint, {
-        method: "PATCH",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          order_id: editTarget.row.id,
-          approval_id: editTarget.approvalId,
-          sale_status: editSaleStatus,
-          payment_status: editSaleStatus === "paid" ? editPaymentStatus : "unpaid",
-          notes: editNotes
-        })
-      });
-      if (!response.ok) throw new Error(await readApiError(response));
-      patchLocalRecord(editTarget.row.id, {
-        saleStatus: editSaleStatus,
-        paymentStatus: editSaleStatus === "paid" ? editPaymentStatus : "unpaid",
-        notes: editNotes || null,
-        cashReceived: editSaleStatus === "paid" && editPaymentStatus === "cash" ? editTarget.row.total : null,
-        changeAmount: editSaleStatus === "paid" && editPaymentStatus === "cash" ? 0 : null,
-        paymentReceivedTotal: editSaleStatus === "paid" ? editTarget.row.total : 0
-      });
-      setEditTarget(null);
-      setNotice(localText.successEdit);
-    } catch (error) {
-      setMutationError(error instanceof Error ? error.message : localText.genericError);
-    } finally {
-      setMutationBusy(false);
-    }
-  }
-
-  async function deleteSalesRecord(rowId: string, approvalId: string | null) {
-    if (mutationBusy) return;
     setMutationBusy(true);
     setMutationError("");
     try {
       const response = await fetch(refreshEndpoint, {
         method: "DELETE",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ order_id: rowId, approval_id: approvalId })
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ order_id: action.row.id, approval_id: approvalId })
       });
-      if (!response.ok) throw new Error(await readApiError(response));
-      setRecords((prev) => prev.filter((row) => row.id !== rowId));
-      setSelectedDetailRow((prev) => (prev?.id === rowId ? null : prev));
-      setNotice(localText.successDelete);
+      const body = (await response.json().catch(() => null)) as ApiEnvelope<{ deleted?: boolean }> | null;
+      if (!response.ok || body?.error) throw new Error(body?.error?.message ?? (th ? "ยกเลิกบิลไม่สำเร็จ" : "Unable to cancel bill."));
+      setSelectedDetailRow(null);
+      setBillItemsOpen(false);
+      await loadLatest();
+      setNotice(th ? "ยกเลิกบิลและคืนสต๊อกสินค้าเรียบร้อยแล้ว" : "Bill cancelled and stock restored.");
     } catch (error) {
-      setMutationError(error instanceof Error ? error.message : localText.genericError);
+      setMutationError(error instanceof Error ? error.message : th ? "ทำรายการไม่สำเร็จ" : "Action failed.");
     } finally {
       setMutationBusy(false);
     }
   }
 
-  function exportVisibleTableCsv() {
-    const headers =
-      lang === "th"
-        ? ["เลขบิล", "เวลาเปิดบิล", "โต๊ะ/ช่องทาง", "จำนวนรายการ", "สาขา", "ยอดรวม", "ชำระเงิน", "สถานะบิล", "ผู้ทำรายการ"]
-        : ["Bill No.", "Opened At", "Table / Channel", "Items", "Branch", "Total", "Payment", "Bill Status", "Cashier"];
-    const rows = pagedRows.map((row) => {
-      const branch = branchMap.get(row.branchId);
-      return [
-        row.billNo,
-        dateTimeFormatter.format(new Date(row.openedAt)),
-        `${row.tableLabel} / ${channelLabel[row.channel]}`,
-        row.items,
-        `${branch?.name ?? "-"} (${branch?.code ?? "-"})`,
-        amountFormatter.format(row.total),
-        paymentLabel[row.paymentStatus],
-        statusLabel[row.saleStatus],
-        row.cashier || "-"
-      ];
-    });
-    downloadExcelCsv(`sales-list-page-${safeCurrentPage}-${getBangkokTodayDate()}.csv`, [headers, ...rows]);
-    setNotice(localText.tableOnlyCsvNotice);
-  }
-
-  function runAuthorizedAction(action: PinAction, approvalId: string | null) {
-    const row = records.find((record) => record.id === action.rowId);
-    if (!row) return;
-    if (action.type === "edit") {
-      openEditDialog(row, approvalId);
-      return;
+  async function saveEdit() {
+    if (!editTarget) return;
+    setMutationBusy(true);
+    setMutationError("");
+    try {
+      const response = await fetch(refreshEndpoint, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          order_id: editTarget.row.id,
+          approval_id: editTarget.approvalId,
+          sale_status: editSaleStatus,
+          payment_status: editSaleStatus === "void" ? "unpaid" : editPaymentStatus,
+          notes: editNotes
+        })
+      });
+      const body = (await response.json().catch(() => null)) as ApiEnvelope<{ updated?: boolean }> | null;
+      if (!response.ok || body?.error) throw new Error(body?.error?.message ?? (th ? "บันทึกไม่สำเร็จ" : "Unable to save changes."));
+      setEditTarget(null);
+      await loadLatest();
+      setNotice(editSaleStatus === "void" ? (th ? "ยกเลิกบิลและคืนสต๊อกสินค้าเรียบร้อยแล้ว" : "Bill cancelled and stock restored.") : (th ? "บันทึกรายการขายแล้ว" : "Sales record updated."));
+    } catch (error) {
+      setMutationError(error instanceof Error ? error.message : th ? "บันทึกไม่สำเร็จ" : "Unable to save changes.");
+    } finally {
+      setMutationBusy(false);
     }
-    void deleteSalesRecord(row.id, approvalId);
   }
 
-  function requestAction(action: PinAction) {
-    if (!canManage) return;
-    if (requiresPin) {
-      setPinAction(action);
-      return;
+  async function openBillItems(row: PosSalesListRecord) {
+    setBillItemsOpen(true);
+    setBillItems(null);
+    setBillItemsError("");
+    setBillItemsLoading(true);
+    try {
+      const response = await fetch(`/api/pos/sales-list/order-items?order_id=${encodeURIComponent(row.id)}`, { cache: "no-store" });
+      const body = (await response.json().catch(() => null)) as ApiEnvelope<BillItemsPayload> | null;
+      if (!response.ok || !body?.data || body.error) throw new Error(body?.error?.message ?? (th ? "โหลดสินค้าในบิลไม่สำเร็จ" : "Unable to load bill items."));
+      setBillItems(body.data);
+    } catch (error) {
+      setBillItemsError(error instanceof Error ? error.message : th ? "โหลดสินค้าในบิลไม่สำเร็จ" : "Unable to load bill items.");
+    } finally {
+      setBillItemsLoading(false);
     }
-    runAuthorizedAction(action, null);
-  }
-
-  function clearFilters() {
-    setQuickRange("day");
-    setQuery("");
-    setStatusFilter("all");
-    setPaymentFilter("all");
-    setChannelFilter("all");
-    setShiftFilter("all");
-    setSelectedCategory("all");
-    setDateFilter("");
-    setTimeFromFilter("");
-    setTimeToFilter("");
   }
 
   return (
-    <section className="w-full rounded-2xl border border-slate-300 bg-white p-4 pb-8 lg:p-5 lg:pb-10">
-      <div className="rounded-2xl border border-slate-200 bg-[linear-gradient(130deg,#f8fbff_0%,#f2f7ff_34%,#fff7ed_100%)] p-4">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <h2 className="text-2xl font-extrabold text-slate-900">{tt("sales_list_title")}</h2>
-          </div>
-          <div className="flex flex-wrap items-end gap-2">
-            <label className="sr-only" htmlFor="sales-list-category-filter">{categoryFilterLabel}</label>
-            <select
-              id="sales-list-category-filter"
-              value={selectedCategory}
-              onChange={(event) => setSelectedCategory(event.target.value)}
-              className="h-10 min-w-[220px] rounded-lg border border-slate-300 bg-white px-3 text-sm font-semibold text-slate-900 outline-none transition focus:border-blue-400"
-              aria-label={categoryFilterLabel}
-            >
-              <option value="all">{allCategoriesLabel} ({baseFilteredRows.length} {billUnitLabel})</option>
-              {categoryOptions.map((category) => (
-                <option key={category.name} value={category.name}>
-                  {displayCategoryName(category.name)} | {category.itemQuantity} {itemUnitLabel} | {amountFormatter.format(category.totalAmount)}
-                </option>
-              ))}
-            </select>
-            <button
-              type="button"
-              onClick={() => setTotalsVisible((prev) => !prev)}
-              aria-expanded={totalsVisible}
-              className={`h-10 rounded-lg border px-4 text-sm font-semibold transition ${
-                totalsVisible ? "border-blue-600 bg-blue-600 text-white shadow-sm" : "border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
-              }`}
-            >
-              {totalsVisible ? tt("sales_list_hide_totals") : tt("sales_list_view_totals")}
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setQuickRange("day");
-              }}
-              className={`h-10 rounded-lg border px-4 text-sm font-semibold transition ${
-                quickRange === "day" ? "border-orange-500 bg-orange-500 text-white" : "border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
-              }`}
-            >
-              {tt("sales_list_daily")}
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setQuickRange("month");
-              }}
-              className={`h-10 rounded-lg border px-4 text-sm font-semibold transition ${
-                quickRange === "month" ? "border-orange-500 bg-orange-500 text-white" : "border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
-              }`}
-            >
-              {tt("sales_list_monthly")}
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setQuickRange("year");
-              }}
-              className={`h-10 rounded-lg border px-4 text-sm font-semibold transition ${
-                quickRange === "year" ? "border-orange-500 bg-orange-500 text-white" : "border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
-              }`}
-            >
-              {tt("sales_list_yearly")}
-            </button>
-            <button type="button" onClick={() => setFilterPopupOpen(true)} className="h-10 rounded-lg border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-700 transition hover:bg-slate-50">
-              {tt("sales_list_filter")}
-            </button>
-            <button
-              type="button"
-              onClick={exportVisibleTableCsv}
-              disabled={pagedRows.length === 0}
-              className="h-10 rounded-lg border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-900 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-45"
-            >
-              {localText.exportCsv}
-            </button>
-            <select
-              value={canViewAllBranches ? selectedBranchId : normalizedBranchId}
-              onChange={(event) => setSelectedBranchId(event.target.value)}
-              disabled={!canViewAllBranches}
-              className="h-10 min-w-[180px] rounded-lg border border-slate-300 bg-white px-3 text-sm font-semibold text-slate-900 outline-none transition focus:border-blue-400 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400"
-            >
-              <option value="all">{tt("sales_list_all_branches")}</option>
-              {liveBranchOptions.map((branch) => (
-                <option key={branch.id} value={branch.id}>
-                  {branch.name} ({branch.code || branch.id})
-                </option>
-              ))}
+    <main className="h-full min-h-0 overflow-y-auto bg-slate-50 p-3 sm:p-4">
+      <section className="min-h-full rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-[linear-gradient(90deg,#f8fafc,#fff7ed)] p-4">
+          <h1 className="text-2xl font-black text-slate-950">{th ? "รายการขาย" : "Sales List"}</h1>
+          <div className="flex flex-wrap items-center gap-2">
+            <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={th ? "ค้นหาเลขบิล / โต๊ะ / ลูกค้า" : "Search bill / table / customer"} className="h-10 min-w-[210px] rounded-lg border border-slate-300 bg-white px-3 text-sm" />
+            <button type="button" onClick={() => setQuickRange("day")} className={`h-10 rounded-lg border px-3 text-sm font-bold ${quickRange === "day" ? "border-orange-500 bg-orange-500 text-white" : "border-slate-300 bg-white text-slate-700"}`}>{th ? "วันนี้" : "Today"}</button>
+            <button type="button" onClick={() => setQuickRange("month")} className={`h-10 rounded-lg border px-3 text-sm font-bold ${quickRange === "month" ? "border-orange-500 bg-orange-500 text-white" : "border-slate-300 bg-white text-slate-700"}`}>{th ? "รายเดือน" : "Monthly"}</button>
+            <button type="button" onClick={() => setQuickRange("year")} className={`h-10 rounded-lg border px-3 text-sm font-bold ${quickRange === "year" ? "border-orange-500 bg-orange-500 text-white" : "border-slate-300 bg-white text-slate-700"}`}>{th ? "รายปี" : "Yearly"}</button>
+            <button type="button" onClick={() => setFilterPopupOpen(true)} className="h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm font-bold text-slate-700">{th ? "คัดกรอง" : "Filter"}</button>
+            <button type="button" onClick={exportCsv} disabled={!sortedRows.length} className="h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm font-bold text-slate-700 disabled:opacity-40">Export CSV</button>
+            <select value={canViewAllBranches ? selectedBranchId : normalizedBranchId} onChange={(event) => setSelectedBranchId(event.target.value)} disabled={!canViewAllBranches} className="h-10 min-w-[170px] rounded-lg border border-slate-300 bg-white px-3 text-sm font-semibold disabled:bg-slate-100">
+              {canViewAllBranches ? <option value="all">{th ? "ทุกสาขา" : "All branches"}</option> : null}
+              {liveBranchOptions.map((branch) => <option key={branch.id} value={branch.id}>{branch.name} ({branch.code || branch.id})</option>)}
             </select>
           </div>
         </div>
-      </div>
 
-      {totalsVisible ? (
         <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-          <MetricCard label={tt("sales_list_total_bills")} value={String(metrics.totalBills)} />
-          <MetricCard label={tt("sales_list_paid_bills")} value={String(metrics.paidBills)} />
-          <MetricCard label={tt("sales_list_open_bills")} value={String(metrics.openBills)} />
-          <MetricCard label={tt("sales_list_total_amount")} value={amountFormatter.format(metrics.totalAmount)} />
+          <Metric label={th ? "จำนวนบิล" : "Bills"} value={String(metrics.bills)} />
+          <Metric label={th ? "ชำระแล้ว" : "Paid"} value={String(metrics.paid)} />
+          <Metric label={th ? "ยกเลิก" : "Cancelled"} value={String(metrics.voided)} />
+          <Metric label={th ? "ยอดขายสุทธิ" : "Net sales"} value={`฿${money(metrics.total, lang)}`} />
         </div>
-      ) : null}
 
-      {notice || mutationError ? (
-        <div
-          className={`mt-3 rounded-xl border px-3 py-2 text-sm font-semibold ${
-            mutationError ? "border-red-200 bg-red-50 text-red-700" : "border-green-200 bg-green-50 text-green-700"
-          }`}
-        >
-          {mutationError || notice}
-        </div>
-      ) : null}
+        {notice || mutationError ? <div className={`mt-3 rounded-xl border px-3 py-2 text-sm font-semibold ${mutationError ? "border-red-200 bg-red-50 text-red-700" : "border-green-200 bg-green-50 text-green-700"}`}>{mutationError || notice}</div> : null}
 
-      <div className="mt-4 overflow-hidden rounded-xl border border-slate-200">
-        <div className="max-h-[calc(100vh-300px)] min-h-[260px] overflow-auto lg:max-h-[calc(100vh-280px)]">
-          <table className="min-w-full divide-y divide-slate-200">
-            <thead className="sticky top-0 z-10 bg-slate-100 text-left">
-              <tr className="text-xs uppercase tracking-wide text-slate-600">
-                <th className="px-3 py-2">{tt("sales_list_bill_no")}</th>
-                <th className="px-3 py-2">{tt("sales_list_opened_at")}</th>
-                <th className="px-3 py-2">{tt("sales_list_table_channel")}</th>
-                <th className="px-3 py-2">{tt("sales_list_items")}</th>
-                <th className="px-3 py-2">{tt("sales_list_branch")}</th>
-                <th className="px-3 py-2 text-right">{tt("sales_list_total")}</th>
-                <th className="px-3 py-2">{tt("sales_list_payment")}</th>
-                <th className="px-3 py-2">{tt("sales_list_status")}</th>
-                <th className="px-3 py-2">{tt("sales_list_cashier")}</th>
-                <th className="px-3 py-2 text-right">{tt("sales_list_actions")}</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100 bg-white text-sm">
-              {sortedFilteredRows.length === 0 ? (
-                <tr><td colSpan={10} className="px-3 py-10 text-center text-slate-500">{tt("sales_list_no_records")}</td></tr>
-              ) : (
-                pagedRows.map((row) => {
+        <div className="mt-4 overflow-hidden rounded-xl border border-slate-200">
+          <div className="max-h-[calc(100vh-330px)] min-h-[300px] overflow-auto">
+            <table className="min-w-[1200px] w-full text-sm">
+              <thead className="sticky top-0 z-10 bg-slate-100 text-left text-xs font-bold text-slate-600">
+                <tr><th className="px-3 py-3">{th ? "เลขบิล" : "Bill"}</th><th className="px-3 py-3">{th ? "เวลาเปิดบิล" : "Opened"}</th><th className="px-3 py-3">{th ? "โต๊ะ/ช่องทาง" : "Table/channel"}</th><th className="px-3 py-3">{th ? "จำนวนรายการ" : "Items"}</th><th className="px-3 py-3">{th ? "สาขา" : "Branch"}</th><th className="px-3 py-3 text-right">{th ? "ยอดรวม" : "Total"}</th><th className="px-3 py-3">{th ? "ชำระเงิน" : "Payment"}</th><th className="px-3 py-3">{th ? "สถานะบิล" : "Status"}</th><th className="px-3 py-3">{th ? "ผู้ทำรายการ" : "Cashier"}</th><th className="px-3 py-3 text-right">{th ? "จัดการ" : "Actions"}</th></tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 bg-white">
+                {!pagedRows.length ? <tr><td colSpan={10} className="px-4 py-12 text-center text-slate-500">{th ? "ไม่พบข้อมูลตามเงื่อนไขที่เลือก" : "No records match the selected filters."}</td></tr> : pagedRows.map((row) => {
                   const branch = branchMap.get(row.branchId);
                   return (
-                    <tr key={row.id} role="button" tabIndex={0} onClick={() => setSelectedDetailRow(row)} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); setSelectedDetailRow(row);} }} className="cursor-pointer transition hover:bg-slate-50">
-                      <td className="px-3 py-2 font-semibold text-slate-900">{row.billNo}</td>
-                      <td className="px-3 py-2 text-slate-700">{dateTimeFormatter.format(new Date(row.openedAt))}</td>
-                      <td className="px-3 py-2 text-slate-700"><p>{row.tableLabel}</p><p className="text-xs text-slate-500">{channelLabel[row.channel]}</p></td>
-                      <td className="px-3 py-2 text-slate-700">{row.items}</td>
-                      <td className="px-3 py-2 text-slate-700">{branch?.name ?? "-"}<p className="text-xs text-slate-500">{branch?.code ?? "-"}</p></td>
-                      <td className="px-3 py-2 text-right font-semibold text-slate-900">{amountFormatter.format(row.total)}</td>
-                      <td className="px-3 py-2"><Badge tone={row.paymentStatus === "unpaid" ? "slate" : "green"}>{paymentLabel[row.paymentStatus]}</Badge></td>
-                      <td className="px-3 py-2"><Badge tone={row.saleStatus === "paid" ? "blue" : row.saleStatus === "void" ? "red" : "orange"}>{statusLabel[row.saleStatus]}</Badge></td>
-                      <td className="px-3 py-2 text-slate-700">{row.cashier}</td>
-                      <td className="px-3 py-2">
-                        <div className="flex justify-end gap-1">
-                          <button type="button" disabled={!canManage} onClick={(event) => { event.stopPropagation(); requestAction({ type: "edit", rowId: row.id, approvalAction: "sales_record_edit" }); }} className="h-8 rounded-md border border-blue-200 bg-blue-50 px-2 text-xs font-semibold text-blue-700 disabled:cursor-not-allowed disabled:opacity-45">{tt("sales_list_edit")}</button>
-                          <button type="button" disabled={!canManage} onClick={(event) => { event.stopPropagation(); requestAction({ type: "delete", rowId: row.id, approvalAction: "sales_record_delete" }); }} className="h-8 rounded-md border border-red-200 bg-red-50 px-2 text-xs font-semibold text-red-700 disabled:cursor-not-allowed disabled:opacity-45">{tt("sales_list_delete")}</button>
-                        </div>
-                      </td>
+                    <tr key={row.id} className="cursor-pointer hover:bg-slate-50" onClick={() => setSelectedDetailRow(row)}>
+                      <td className="px-3 py-3 font-bold text-slate-900">{row.billNo}</td>
+                      <td className="px-3 py-3 text-slate-700">{dateTimeFormatter.format(new Date(row.openedAt))}</td>
+                      <td className="px-3 py-3"><p>{row.tableLabel}</p><p className="text-xs text-slate-500">{channelLabel(row.channel)}</p></td>
+                      <td className="px-3 py-3">{row.items}</td>
+                      <td className="px-3 py-3"><p>{branch?.name ?? "-"}</p><p className="text-xs text-slate-500">{branch?.code ?? "-"}</p></td>
+                      <td className="px-3 py-3 text-right font-bold">฿{money(row.total, lang)}</td>
+                      <td className="px-3 py-3"><Badge tone={row.paymentStatus === "unpaid" ? "slate" : "green"}>{paymentLabel(row.paymentStatus)}</Badge></td>
+                      <td className="px-3 py-3"><Badge tone={row.saleStatus === "void" ? "red" : row.saleStatus === "paid" ? "blue" : "orange"}>{saleStatusLabel(row.saleStatus)}</Badge></td>
+                      <td className="px-3 py-3">{row.cashier || "-"}</td>
+                      <td className="px-3 py-3"><div className="flex justify-end gap-1"><button type="button" disabled={!canManage || mutationBusy} onClick={(event) => { event.stopPropagation(); requestAction({ type: "edit", row, approvalAction: "sales_record_edit" }); }} className="h-8 rounded-md border border-blue-200 bg-blue-50 px-2 text-xs font-bold text-blue-700 disabled:opacity-40">{th ? "แก้ไข" : "Edit"}</button><button type="button" disabled={!canManage || mutationBusy || row.saleStatus === "void"} onClick={(event) => { event.stopPropagation(); requestAction({ type: "delete", row, approvalAction: "sales_record_delete" }); }} className="h-8 rounded-md border border-red-200 bg-red-50 px-2 text-xs font-bold text-red-700 disabled:opacity-40">{th ? "ยกเลิก" : "Cancel"}</button></div></td>
                     </tr>
                   );
-                })
-              )}
-            </tbody>
-          </table>
-        </div>
-        {sortedFilteredRows.length > 0 ? (
-          <div className="mt-2 flex flex-wrap items-center justify-between gap-2 border-t border-slate-200 bg-white px-3 py-3">
-            <p className="text-xs text-slate-500">
-              {tt("sales_list_pagination_showing").replace("{start}", String(pageStartIndex)).replace("{end}", String(pageEndIndex)).replace("{total}", String(sortedFilteredRows.length))}
-            </p>
-            {totalPages > 1 ? (
-              <div className="flex items-center gap-1">
-                <button
-                  type="button"
-                  onClick={() => setCurrentPage((page) => Math.max(1, page - 1))}
-                  disabled={safeCurrentPage === 1}
-                  className="h-8 rounded-md border border-slate-300 bg-white px-2 text-xs font-semibold text-slate-700 disabled:cursor-not-allowed disabled:opacity-40"
-                >
-                  {tt("sales_list_pagination_prev")}
-                </button>
-                {getVisiblePageNumbers(safeCurrentPage, totalPages).map((page) => (
-                  <button
-                    key={page}
-                    type="button"
-                    onClick={() => setCurrentPage(page)}
-                    className={`h-8 min-w-8 rounded-md border px-2 text-xs font-semibold ${
-                      page === safeCurrentPage
-                        ? "border-orange-500 bg-orange-500 text-white"
-                        : "border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
-                    }`}
-                  >
-                    {page}
-                  </button>
-                ))}
-                <button
-                  type="button"
-                  onClick={() => setCurrentPage((page) => Math.min(totalPages, page + 1))}
-                  disabled={safeCurrentPage === totalPages}
-                  className="h-8 rounded-md border border-slate-300 bg-white px-2 text-xs font-semibold text-slate-700 disabled:cursor-not-allowed disabled:opacity-40"
-                >
-                  {tt("sales_list_pagination_next")}
-                </button>
-              </div>
-            ) : null}
+                })}
+              </tbody>
+            </table>
           </div>
-        ) : null}
-      </div>
+          {sortedRows.length ? <div className="flex items-center justify-between border-t border-slate-200 bg-white px-3 py-3 text-xs text-slate-500"><span>{th ? `ทั้งหมด ${sortedRows.length} บิล` : `${sortedRows.length} bills`}</span><div className="flex items-center gap-2"><button type="button" onClick={() => setCurrentPage((page) => Math.max(1, page - 1))} disabled={safePage <= 1} className="h-8 rounded-md border border-slate-300 px-3 disabled:opacity-40">{th ? "ก่อนหน้า" : "Prev"}</button><span>{safePage}/{totalPages}</span><button type="button" onClick={() => setCurrentPage((page) => Math.min(totalPages, page + 1))} disabled={safePage >= totalPages} className="h-8 rounded-md border border-slate-300 px-3 disabled:opacity-40">{th ? "ถัดไป" : "Next"}</button></div></div> : null}
+        </div>
+      </section>
+
+      {filterPopupOpen ? (
+        <ModalLayer z="z-50" onBackdrop={() => setFilterPopupOpen(false)}>
+          <div className="w-full max-w-2xl rounded-2xl bg-white p-4 shadow-2xl" onClick={(event) => event.stopPropagation()}>
+            <div className="flex items-center justify-between"><h3 className="text-lg font-black">{th ? "คัดกรองรายการขาย" : "Sales filters"}</h3><button type="button" onClick={() => setFilterPopupOpen(false)} className="h-9 rounded-lg border border-slate-300 px-3 text-sm font-bold">{th ? "ปิด" : "Close"}</button></div>
+            <div className="mt-4 grid gap-3 md:grid-cols-2">
+              <Field label={th ? "สถานะบิล" : "Bill status"}><select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as "all" | SaleStatus)} className="h-10 w-full rounded-lg border border-slate-300 px-3"><option value="all">{th ? "ทั้งหมด" : "All"}</option><option value="open">{th ? "เปิดบิล" : "Open"}</option><option value="paid">{th ? "ชำระแล้ว" : "Paid"}</option><option value="void">{th ? "ยกเลิก" : "Cancelled"}</option></select></Field>
+              <Field label={th ? "การชำระเงิน" : "Payment"}><select value={paymentFilter} onChange={(event) => setPaymentFilter(event.target.value as "all" | PaymentStatus)} className="h-10 w-full rounded-lg border border-slate-300 px-3"><option value="all">{th ? "ทั้งหมด" : "All"}</option><option value="unpaid">{th ? "ยังไม่ชำระ" : "Unpaid"}</option><option value="cash">{th ? "เงินสด" : "Cash"}</option><option value="bank_transfer">{th ? "โอนเงิน" : "Bank transfer"}</option></select></Field>
+              <Field label={th ? "กะ" : "Shift"}><select value={shiftFilter} onChange={(event) => setShiftFilter(event.target.value)} className="h-10 w-full rounded-lg border border-slate-300 px-3"><option value="all">{th ? "ทุกกะ" : "All shifts"}</option>{liveShiftOptions.map((shift) => <option key={shift.id} value={shift.id}>{shift.openedAt ? dateTimeFormatter.format(new Date(shift.openedAt)) : shift.id}</option>)}</select></Field>
+              <Field label={th ? "ช่วงเวลา" : "Period"}><select value={quickRange} onChange={(event) => setQuickRange(event.target.value as QuickRange)} className="h-10 w-full rounded-lg border border-slate-300 px-3"><option value="day">{th ? "วันนี้" : "Today"}</option><option value="month">{th ? "เดือนนี้" : "This month"}</option><option value="year">{th ? "ปีนี้" : "This year"}</option><option value="custom">{th ? "วันที่ ถึง วันที่" : "Custom dates"}</option><option value="all">{th ? "ทั้งหมด" : "All dates"}</option></select></Field>
+              {quickRange === "custom" ? <><Field label={th ? "จากวันที่" : "From date"}><input type="date" value={fromDate} onChange={(event) => setFromDate(event.target.value)} className="h-10 w-full rounded-lg border border-slate-300 px-3" /></Field><Field label={th ? "ถึงวันที่" : "To date"}><input type="date" value={toDate} onChange={(event) => setToDate(event.target.value)} className="h-10 w-full rounded-lg border border-slate-300 px-3" /></Field></> : null}
+            </div>
+            <div className="mt-4 flex justify-end"><button type="button" onClick={() => setFilterPopupOpen(false)} className="h-10 rounded-lg bg-slate-900 px-4 text-sm font-bold text-white">{th ? "ใช้ตัวกรอง" : "Apply filters"}</button></div>
+          </div>
+        </ModalLayer>
+      ) : null}
 
       {selectedDetailRow ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/45 p-4">
-          <div className="w-full max-w-3xl rounded-2xl border border-slate-200 bg-white p-4 shadow-xl">
-            <div className="flex items-center justify-between">
-              <h3 className="text-lg font-extrabold text-slate-900">{tt("sales_list_detail_title")} {selectedDetailRow.billNo}</h3>
-              <button type="button" onClick={() => setSelectedDetailRow(null)} className="h-9 rounded-lg border border-slate-300 bg-white px-3 text-sm font-semibold text-slate-700">{tt("sales_list_close")}</button>
+        <ModalLayer z="z-50" onBackdrop={() => setSelectedDetailRow(null)}>
+          <div className="w-full max-w-3xl rounded-2xl bg-white p-4 shadow-2xl" onClick={(event) => event.stopPropagation()}>
+            <div className="flex flex-wrap items-center justify-between gap-2"><div><h3 className="text-lg font-black">{th ? "รายละเอียดรายการขาย" : "Sales detail"} {selectedDetailRow.billNo}</h3><p className="mt-1 text-sm text-slate-500">{dateTimeFormatter.format(new Date(selectedDetailRow.openedAt))}</p></div><button type="button" onClick={() => setSelectedDetailRow(null)} className="h-9 rounded-lg border border-slate-300 px-3 text-sm font-bold">{th ? "ปิด" : "Close"}</button></div>
+            <div className="mt-4 grid gap-3 rounded-xl border border-slate-200 bg-slate-50 p-3 sm:grid-cols-2 lg:grid-cols-3">
+              <Detail label={th ? "เลขบิล" : "Bill"} value={selectedDetailRow.billNo} />
+              <Detail label={th ? "โต๊ะ/ช่องทาง" : "Table/channel"} value={`${selectedDetailRow.tableLabel} · ${channelLabel(selectedDetailRow.channel)}`} />
+              <Detail label={th ? "ลูกค้า" : "Customer"} value={selectedDetailRow.customerName || "-"} />
+              <Detail label={th ? "จำนวนรายการ" : "Items"} value={String(selectedDetailRow.items)} />
+              <Detail label={th ? "ยอดสุทธิ" : "Net total"} value={`฿${money(selectedDetailRow.total, lang)}`} />
+              <Detail label={th ? "ส่วนลด" : "Discount"} value={`฿${money(selectedDetailRow.discountAmount, lang)}`} />
+              <Detail label={th ? "รับเงินสด" : "Cash received"} value={selectedDetailRow.cashReceived == null ? "-" : `฿${money(selectedDetailRow.cashReceived, lang)}`} />
+              <Detail label={th ? "เงินทอน" : "Change"} value={selectedDetailRow.changeAmount == null ? "-" : `฿${money(selectedDetailRow.changeAmount, lang)}`} />
+              <Detail label={th ? "ชำระเงิน" : "Payment"} value={paymentLabel(selectedDetailRow.paymentStatus)} />
+              <Detail label={th ? "สถานะ" : "Status"} value={saleStatusLabel(selectedDetailRow.saleStatus)} />
+              <Detail label={th ? "ผู้ทำรายการ" : "Cashier"} value={selectedDetailRow.cashier || "-"} />
+              <Detail label={th ? "หมายเหตุ" : "Note"} value={selectedDetailRow.notes || "-"} />
             </div>
-            <div className="mt-4 grid gap-3 rounded-xl border border-slate-200 bg-slate-50 p-3 md:grid-cols-2 xl:grid-cols-3">
-              <DetailField label={tt("sales_list_bill_no")} value={selectedDetailRow.billNo} />
-              <DetailField label={tt("sales_list_opened_at")} value={dateTimeFormatter.format(new Date(selectedDetailRow.openedAt))} />
-              <DetailField label={tt("sales_list_order_mode")} value={orderTypeLabel[selectedDetailRow.orderType]} />
-              <DetailField label={tt("sales_list_table_channel")} value={selectedDetailRow.tableLabel} />
-              <DetailField label={tt("sales_list_customer")} value={selectedDetailRow.customerName || "-"} />
-              <DetailField label={tt("sales_list_external_order")} value={selectedDetailRow.externalOrderCode || "-"} />
-              <DetailField label={tt("sales_list_subtotal_before_discount")} value={amountFormatter.format(selectedDetailRow.total + selectedDetailRow.discountAmount)} />
-              <DetailField label={tt("sales_list_discount")} value={amountFormatter.format(selectedDetailRow.discountAmount)} />
-              <DetailField label={tt("sales_list_net_total")} value={amountFormatter.format(selectedDetailRow.total)} />
-              <DetailField label={tt("sales_list_cash_received")} value={selectedDetailRow.cashReceived == null ? "-" : amountFormatter.format(selectedDetailRow.cashReceived)} />
-              <DetailField label={tt("sales_list_change_amount")} value={selectedDetailRow.changeAmount == null ? "-" : amountFormatter.format(selectedDetailRow.changeAmount)} />
-              <DetailField label={tt("sales_list_paid_total")} value={amountFormatter.format(selectedDetailRow.paymentReceivedTotal)} />
-              <DetailField label={tt("sales_list_payment")} value={paymentLabel[selectedDetailRow.paymentStatus]} />
-              <DetailField label={tt("sales_list_status")} value={statusLabel[selectedDetailRow.saleStatus]} />
-              <DetailField label={tt("sales_list_items")} value={String(selectedDetailRow.items)} />
-              <DetailField label={tt("sales_list_cashier")} value={selectedDetailRow.cashier || "-"} />
-              <DetailField label={tt("sales_list_note")} value={selectedDetailRow.notes || "-"} />
+            <div className="mt-4 flex flex-wrap justify-end gap-2">
+              <button type="button" onClick={() => void openBillItems(selectedDetailRow)} className="h-10 rounded-lg border border-indigo-200 bg-indigo-50 px-4 text-sm font-black text-indigo-700">{th ? "ดูรายการขายสินค้าต่อบิล" : "View products in this bill"}</button>
+              {canManage && selectedDetailRow.saleStatus !== "void" ? <button type="button" onClick={() => requestAction({ type: "delete", row: selectedDetailRow, approvalAction: "sales_record_delete" })} disabled={mutationBusy} className="h-10 rounded-lg border border-red-200 bg-red-50 px-4 text-sm font-black text-red-700 disabled:opacity-40">{th ? "ยกเลิกบิลและคืนสต๊อก" : "Cancel bill & restore stock"}</button> : null}
             </div>
           </div>
-        </div>
+        </ModalLayer>
+      ) : null}
+
+      {billItemsOpen ? (
+        <ModalLayer z="z-[70]" onBackdrop={() => setBillItemsOpen(false)}>
+          <div className="w-full max-w-4xl rounded-2xl bg-white p-4 shadow-2xl" onClick={(event) => event.stopPropagation()}>
+            <div className="flex items-center justify-between"><div><h3 className="text-lg font-black">{th ? "รายการสินค้าต่อบิล" : "Products in bill"}</h3><p className="text-sm text-slate-500">{billItems?.order.bill_no ?? selectedDetailRow?.billNo ?? ""}</p></div><button type="button" onClick={() => setBillItemsOpen(false)} className="h-9 rounded-lg border border-slate-300 px-3 text-sm font-bold">{th ? "ปิด" : "Close"}</button></div>
+            {billItemsError ? <p className="mt-3 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm font-semibold text-red-700">{billItemsError}</p> : null}
+            <div className="mt-4 max-h-[60vh] overflow-auto rounded-xl border border-slate-200">
+              <table className="min-w-[760px] w-full text-sm"><thead className="sticky top-0 bg-slate-100 text-left text-xs font-bold text-slate-600"><tr><th className="px-3 py-3">{th ? "สินค้า" : "Product"}</th><th className="px-3 py-3">SKU</th><th className="px-3 py-3">{th ? "หมวดหมู่" : "Category"}</th><th className="px-3 py-3 text-right">{th ? "ราคา" : "Price"}</th><th className="px-3 py-3 text-right">{th ? "จำนวน" : "Qty"}</th><th className="px-3 py-3 text-right">{th ? "รวม" : "Total"}</th></tr></thead><tbody className="divide-y divide-slate-100">{billItemsLoading ? <tr><td colSpan={6} className="px-4 py-10 text-center text-slate-500">{th ? "กำลังโหลด..." : "Loading..."}</td></tr> : !(billItems?.items.length) ? <tr><td colSpan={6} className="px-4 py-10 text-center text-slate-500">{th ? "ไม่พบสินค้าในบิล" : "No bill items."}</td></tr> : billItems.items.map((item) => <tr key={item.id}><td className="px-3 py-3 font-bold">{item.name}</td><td className="px-3 py-3 text-slate-600">{item.sku ?? "-"}</td><td className="px-3 py-3 text-slate-600">{item.category ?? "-"}</td><td className="px-3 py-3 text-right">฿{money(item.unit_price, lang)}</td><td className="px-3 py-3 text-right font-bold">{formatQuantity(item.quantity, lang)}</td><td className="px-3 py-3 text-right font-bold">฿{money(item.line_total, lang)}</td></tr>)}</tbody></table>
+            </div>
+            {billItems ? <div className="mt-3 text-right text-base font-black">{th ? "รวมบิล" : "Bill total"}: ฿{money(billItems.order.total, lang)}</div> : null}
+          </div>
+        </ModalLayer>
       ) : null}
 
       {pinAction ? (
         <PosManagerApprovalModal
           open
-          title={tt("sales_list_pin_title")}
+          title={th ? "ยืนยัน PIN ผู้จัดการ/เจ้าของร้าน" : "Manager/owner PIN approval"}
           action={pinAction.approvalAction}
           targetTable="orders"
-          targetId={pinAction.rowId}
+          targetId={pinAction.row.id}
           lang={lang}
-          labels={{
-            pinLabel: tt("sales_list_pin"),
-            pinKeypadHint: tt("sales_list_pin_keypad_hint"),
-            pinLengthError: tt("sales_list_pin_length_error"),
-            pinRejected: tt("sales_list_pin_invalid"),
-            checkingAccess: tt("sales_list_pin_checking_access"),
-            clear: tt("sales_list_pin_clear"),
-            remove: tt("sales_list_pin_remove"),
-            closeAriaLabel: tt("sales_list_pin_close_aria")
-          }}
+          labels={{ pinLabel: th ? "PIN" : "PIN", pinKeypadHint: th ? "กรอก PIN เพื่อยืนยัน" : "Enter PIN to approve", pinLengthError: th ? "PIN ไม่ถูกต้อง" : "Invalid PIN length", pinRejected: th ? "PIN ไม่ถูกต้องหรือไม่มีสิทธิ์" : "PIN rejected", checkingAccess: th ? "กำลังตรวจสอบ..." : "Checking...", clear: th ? "ล้าง" : "Clear", remove: th ? "ลบ" : "Remove", closeAriaLabel: th ? "ปิด" : "Close" }}
           onClose={() => setPinAction(null)}
-          onApproved={(approvalId) => {
-            const action = pinAction;
-            setPinAction(null);
-            runAuthorizedAction(action, approvalId);
-          }}
+          onApproved={(approvalId) => { const action = pinAction; setPinAction(null); void runAuthorizedAction(action, approvalId); }}
         />
       ) : null}
 
       {editTarget ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/45 p-4">
-          <div className="w-full max-w-xl rounded-2xl border border-slate-200 bg-white p-4 shadow-xl">
-            <div className="flex items-center justify-between gap-3">
-              <div>
-                <h3 className="text-lg font-extrabold text-slate-900">{localText.editTitle}</h3>
-                <p className="mt-1 text-sm font-semibold text-slate-600">{editTarget.row.billNo}</p>
-              </div>
-              <button
-                type="button"
-                onClick={() => {
-                  if (!mutationBusy) setEditTarget(null);
-                }}
-                className="h-9 rounded-lg border border-slate-300 bg-white px-3 text-sm font-semibold text-slate-700"
-              >
-                {tt("sales_list_close")}
-              </button>
+        <ModalLayer z="z-50" onBackdrop={() => { if (!mutationBusy) setEditTarget(null); }}>
+          <div className="w-full max-w-xl rounded-2xl bg-white p-4 shadow-2xl" onClick={(event) => event.stopPropagation()}>
+            <div className="flex items-center justify-between"><div><h3 className="text-lg font-black">{th ? "แก้ไขรายการขาย" : "Edit sales record"}</h3><p className="text-sm text-slate-500">{editTarget.row.billNo}</p></div><button type="button" onClick={() => { if (!mutationBusy) setEditTarget(null); }} className="h-9 rounded-lg border border-slate-300 px-3 text-sm font-bold">{th ? "ปิด" : "Close"}</button></div>
+            <div className="mt-4 grid gap-3">
+              <Field label={th ? "สถานะบิล" : "Bill status"}><select value={editSaleStatus} onChange={(event) => setEditSaleStatus(event.target.value as SaleStatus)} className="h-10 w-full rounded-lg border border-slate-300 px-3"><option value="open">{th ? "เปิดบิล" : "Open"}</option><option value="paid">{th ? "ชำระแล้ว" : "Paid"}</option><option value="void">{th ? "ยกเลิกและคืนสต๊อก" : "Cancel & restore stock"}</option></select></Field>
+              {editSaleStatus !== "void" ? <Field label={th ? "การชำระเงิน" : "Payment"}><select value={editPaymentStatus} onChange={(event) => setEditPaymentStatus(event.target.value as PaymentStatus)} className="h-10 w-full rounded-lg border border-slate-300 px-3"><option value="unpaid">{th ? "ยังไม่ชำระ" : "Unpaid"}</option><option value="cash">{th ? "เงินสด" : "Cash"}</option><option value="bank_transfer">{th ? "โอนเงิน" : "Bank transfer"}</option></select></Field> : null}
+              <Field label={th ? "หมายเหตุ" : "Note"}><textarea value={editNotes} onChange={(event) => setEditNotes(event.target.value)} rows={3} className="w-full rounded-lg border border-slate-300 p-3 text-sm" /></Field>
+              {editSaleStatus === "void" ? <p className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-800">{th ? "เมื่อบันทึก ระบบจะยกเลิกบิล คืนสต๊อกจากรายการตัดสต๊อกเดิม และตัดยอดชำระออกแบบครั้งเดียว" : "Saving will cancel the bill, restore stock exactly once, and remove captured payment."}</p> : null}
             </div>
-            <div className="mt-4 grid gap-3 rounded-xl border border-slate-200 bg-slate-50 p-3">
-              <SelectField
-                label={tt("sales_list_bill_status")}
-                value={editSaleStatus}
-                onChange={(value) => {
-                  const nextStatus = value as SaleStatus;
-                  setEditSaleStatus(nextStatus);
-                  if (nextStatus !== "paid") {
-                    setEditPaymentStatus("unpaid");
-                    return;
-                  }
-                  if (editPaymentStatus === "unpaid") setEditPaymentStatus("cash");
-                }}
-                options={[
-                  { value: "open", label: statusLabel.open },
-                  { value: "paid", label: statusLabel.paid },
-                  { value: "void", label: statusLabel.void }
-                ]}
-                disabled={mutationBusy}
-              />
-              <SelectField
-                label={tt("sales_list_payment_method")}
-                value={editPaymentStatus}
-                onChange={(value) => setEditPaymentStatus(value as PaymentReceiptStatus)}
-                options={[
-                  { value: "unpaid", label: paymentLabel.unpaid },
-                  { value: "cash", label: paymentLabel.cash },
-                  { value: "bank_transfer", label: paymentLabel.bank_transfer }
-                ]}
-                disabled={mutationBusy || editSaleStatus !== "paid"}
-              />
-              <label className="grid gap-1 text-xs font-semibold text-slate-600">
-                {localText.note}
-                <textarea
-                  value={editNotes}
-                  onChange={(event) => setEditNotes(event.target.value)}
-                  disabled={mutationBusy}
-                  rows={3}
-                  className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition focus:border-blue-400 disabled:cursor-not-allowed disabled:bg-slate-100"
-                />
-              </label>
-            </div>
-            {mutationError ? <p className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm font-semibold text-red-700">{mutationError}</p> : null}
-            <div className="mt-4 flex justify-end gap-2">
-              <button
-                type="button"
-                onClick={() => setEditTarget(null)}
-                disabled={mutationBusy}
-                className="h-9 rounded-lg border border-slate-300 bg-white px-3 text-sm font-semibold text-slate-700 disabled:cursor-not-allowed disabled:opacity-45"
-              >
-                {tt("sales_list_cancel")}
-              </button>
-              <button
-                type="button"
-                onClick={saveEditRecord}
-                disabled={mutationBusy || (editSaleStatus === "paid" && editPaymentStatus === "unpaid")}
-                className="h-9 rounded-lg bg-blue-600 px-3 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-300"
-              >
-                {mutationBusy ? localText.saving : localText.save}
-              </button>
-            </div>
+            <div className="mt-4 flex justify-end"><button type="button" onClick={() => void saveEdit()} disabled={mutationBusy || (editSaleStatus === "paid" && editPaymentStatus === "unpaid")} className="h-10 rounded-lg bg-blue-600 px-4 text-sm font-black text-white disabled:opacity-40">{mutationBusy ? (th ? "กำลังบันทึก..." : "Saving...") : th ? "บันทึก" : "Save"}</button></div>
           </div>
-        </div>
+        </ModalLayer>
       ) : null}
-
-      {filterPopupOpen ? (
-        <div className="fixed inset-0 z-40 flex items-center justify-center bg-slate-900/45 p-4">
-          <div className="w-full max-w-6xl rounded-2xl border border-slate-200 bg-white p-4 shadow-xl">
-            <div className="flex items-center justify-between">
-              <h3 className="text-lg font-extrabold text-slate-900">{tt("sales_list_filters_title")}</h3>
-              <button type="button" onClick={() => setFilterPopupOpen(false)} className="h-9 rounded-lg border border-slate-300 bg-white px-3 text-sm font-semibold text-slate-700">{tt("sales_list_close")}</button>
-            </div>
-            <div className="mt-4 grid gap-3 rounded-xl border border-slate-200 bg-slate-50 p-3 md:grid-cols-2 xl:grid-cols-4">
-              <label className="grid gap-1 text-xs font-semibold text-slate-600">
-                {tt("sales_list_search")}
-                <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={tt("sales_list_search_placeholder")} className="h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 outline-none transition focus:border-blue-400" />
-              </label>
-              <SelectField label={tt("sales_list_bill_status")} value={statusFilter} onChange={(value) => setStatusFilter(value as "all" | SaleStatus)} options={[{ value: "all", label: tt("sales_list_all") }, { value: "open", label: statusLabel.open }, { value: "paid", label: statusLabel.paid }, { value: "void", label: statusLabel.void }]} />
-              <SelectField label={tt("sales_list_payment_method")} value={paymentFilter} onChange={(value) => setPaymentFilter(value as "all" | PaymentReceiptStatus)} options={[{ value: "all", label: tt("sales_list_all") }, { value: "unpaid", label: paymentLabel.unpaid }, { value: "cash", label: paymentLabel.cash }, { value: "bank_transfer", label: paymentLabel.bank_transfer }]} />
-              <SelectField label={tt("sales_list_channel")} value={channelFilter} onChange={(value) => setChannelFilter(value as "all" | SalesChannel)} options={[{ value: "all", label: tt("sales_list_all") }, { value: "counter", label: channelLabel.counter }, { value: "dine_in", label: channelLabel.dine_in }, { value: "delivery", label: channelLabel.delivery }]} />
-              <SelectField
-                label={tt("sales_list_shift")}
-                value={shiftFilter}
-                onChange={(value) => setShiftFilter(value as "all" | string)}
-                options={[{ value: "all", label: tt("sales_list_all_shifts") }, ...liveShiftOptions.map((shift) => ({ value: shift.id, label: `${shift.id.slice(0, 8)} | ${shift.openedAt ? dateTimeFormatter.format(new Date(shift.openedAt)) : "-"}` }))]}
-              />
-              <label className="grid min-w-[200px] gap-1 text-xs font-semibold text-slate-600">
-                {tt("sales_list_date")}
-                <input type="date" value={dateFilter} onChange={(event) => setDateFilter(event.target.value)} className="h-10 rounded-lg border border-slate-300 bg-white px-2 text-sm text-slate-900 outline-none transition focus:border-blue-400" />
-              </label>
-              <label className="grid min-w-[200px] gap-1 text-xs font-semibold text-slate-600">
-                {tt("sales_list_time_from")}
-                <input type="time" value={timeFromFilter} onChange={(event) => setTimeFromFilter(event.target.value)} className="h-10 rounded-lg border border-slate-300 bg-white px-2 text-sm text-slate-900 outline-none transition focus:border-blue-400" />
-              </label>
-              <label className="grid min-w-[200px] gap-1 text-xs font-semibold text-slate-600">
-                {tt("sales_list_time_to")}
-                <input type="time" value={timeToFilter} onChange={(event) => setTimeToFilter(event.target.value)} className="h-10 rounded-lg border border-slate-300 bg-white px-2 text-sm text-slate-900 outline-none transition focus:border-blue-400" />
-              </label>
-            </div>
-            <div className="mt-4 flex justify-end gap-2">
-              <button type="button" onClick={clearFilters} className="h-9 rounded-lg border border-slate-300 bg-white px-3 text-sm font-semibold text-slate-700">{tt("sales_list_reset")}</button>
-              <button type="button" onClick={() => setFilterPopupOpen(false)} className="h-9 rounded-lg bg-orange-500 px-3 text-sm font-semibold text-white">{tt("sales_list_apply")}</button>
-            </div>
-          </div>
-        </div>
-      ) : null}
-    </section>
+    </main>
   );
 }
 
-function getBangkokTodayDate() {
-  return new Intl.DateTimeFormat("en-CA", {
-    timeZone: "Asia/Bangkok",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit"
-  }).format(new Date());
+function Metric({ label, value }: { label: string; value: string }) {
+  return <article className="rounded-xl border border-slate-200 bg-slate-50 p-3"><p className="text-xs font-semibold text-slate-500">{label}</p><p className="mt-1 text-xl font-black text-slate-900">{value}</p></article>;
 }
 
-function getVisiblePageNumbers(currentPage: number, totalPages: number) {
-  const maxButtons = 7;
-  if (totalPages <= maxButtons) {
-    return Array.from({ length: totalPages }, (_, index) => index + 1);
-  }
-
-  const half = Math.floor(maxButtons / 2);
-  let start = Math.max(1, currentPage - half);
-  let end = Math.min(totalPages, start + maxButtons - 1);
-
-  if (end - start + 1 < maxButtons) {
-    start = Math.max(1, end - maxButtons + 1);
-  }
-
-  return Array.from({ length: end - start + 1 }, (_, index) => start + index);
+function Badge({ children, tone }: { children: React.ReactNode; tone: "slate" | "green" | "blue" | "orange" | "red" }) {
+  const style = tone === "green" ? "border-green-200 bg-green-50 text-green-700" : tone === "blue" ? "border-blue-200 bg-blue-50 text-blue-700" : tone === "orange" ? "border-orange-200 bg-orange-50 text-orange-700" : tone === "red" ? "border-red-200 bg-red-50 text-red-700" : "border-slate-200 bg-slate-50 text-slate-700";
+  return <span className={`inline-flex rounded-full border px-2 py-1 text-xs font-bold ${style}`}>{children}</span>;
 }
 
-function toBangkokDate(iso: string) {
-  return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Bangkok", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date(iso));
+function Detail({ label, value }: { label: string; value: string }) {
+  return <div><p className="text-xs font-semibold text-slate-500">{label}</p><p className="mt-1 break-words text-sm font-bold text-slate-900">{value}</p></div>;
 }
 
-function toBangkokTime(iso: string) {
-  return new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Bangkok", hour12: false, hour: "2-digit", minute: "2-digit" }).format(new Date(iso));
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
+  return <label className="grid gap-1 text-xs font-bold text-slate-600"><span>{label}</span>{children}</label>;
 }
 
-function MetricCard({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
-      <p className="text-xs text-slate-500">{label}</p>
-      <p className="mt-1 text-2xl font-extrabold leading-none text-slate-900">{value}</p>
-    </div>
-  );
-}
-
-function DetailField({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="rounded-lg border border-slate-200 bg-white px-3 py-2">
-      <p className="text-xs text-slate-500">{label}</p>
-      <p className="mt-1 text-sm font-semibold text-slate-900">{value}</p>
-    </div>
-  );
-}
-
-function SelectField({
-  label,
-  value,
-  onChange,
-  options,
-  disabled = false
-}: {
-  label: string;
-  value: string;
-  onChange: (value: string) => void;
-  options: Array<{ value: string; label: string }>;
-  disabled?: boolean;
-}) {
-  return (
-    <label className="grid min-w-[200px] gap-1 text-xs font-semibold text-slate-600">
-      {label}
-      <select
-        value={value}
-        disabled={disabled}
-        onChange={(event) => onChange(event.target.value)}
-        className="h-10 rounded-lg border border-slate-300 bg-white px-2 text-sm text-slate-900 outline-none transition focus:border-blue-400 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400"
-      >
-        {options.map((option) => (
-          <option key={option.value} value={option.value}>
-            {option.label}
-          </option>
-        ))}
-      </select>
-    </label>
-  );
-}
-
-function Badge({ tone, children }: { tone: "green" | "blue" | "orange" | "red" | "amber" | "slate"; children: string }) {
-  const toneClass: Record<string, string> = {
-    green: "border-green-200 bg-green-50 text-green-700",
-    blue: "border-blue-200 bg-blue-50 text-blue-700",
-    orange: "border-orange-200 bg-orange-50 text-orange-700",
-    red: "border-red-200 bg-red-50 text-red-700",
-    amber: "border-amber-200 bg-amber-50 text-amber-700",
-    slate: "border-slate-200 bg-slate-100 text-slate-600"
-  };
-  return <span className={`inline-flex rounded-full border px-2 py-0.5 text-xs font-semibold ${toneClass[tone]}`}>{children}</span>;
+function ModalLayer({ children, z, onBackdrop }: { children: React.ReactNode; z: string; onBackdrop: () => void }) {
+  return <div className={`fixed inset-0 ${z} flex items-center justify-center bg-slate-900/50 p-4`} onClick={onBackdrop}>{children}</div>;
 }

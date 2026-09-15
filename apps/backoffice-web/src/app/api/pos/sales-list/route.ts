@@ -1,21 +1,28 @@
-import { getPosApiAuthContext } from "@/lib/pos-api-auth";
-import { featureGateFail, requirePosApiFeature } from "@/lib/pos-api-feature-guard";
 import { appendAuditLog } from "@/lib/audit-log";
 import { fail, ok } from "@/lib/http";
+import { getPosApiAuthContext } from "@/lib/pos-api-auth";
+import { featureGateFail, requirePosApiFeature } from "@/lib/pos-api-feature-guard";
 import { invalidatePosSalesListCacheForScope, loadPosSalesListData } from "@/lib/services/pos-sales-list-service";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
 
 type SaleStatus = "open" | "paid" | "void";
 type PaymentStatus = "unpaid" | "cash" | "bank_transfer";
 
+type OrderRow = {
+  id: string;
+  branch_id: string;
+  total_amount: number | null;
+  status: string | null;
+  notes: string | null;
+  metadata: Record<string, unknown> | null;
+};
+
 function canManageSalesRecord(auth: { branchRole: string | null; platformRole: string }) {
   return auth.platformRole === "it_admin" || auth.branchRole === "owner" || auth.branchRole === "manager";
 }
 
-function toOrderStatus(status: SaleStatus) {
-  if (status === "paid") return "completed";
-  if (status === "void") return "cancelled";
-  return "queued";
+function toOrderStatus(status: Exclude<SaleStatus, "void">) {
+  return status === "paid" ? "completed" : "queued";
 }
 
 async function verifyApproval(args: {
@@ -28,6 +35,7 @@ async function verifyApproval(args: {
   if (args.itAdminBypass) return null;
   const approvalId = String(args.approvalId ?? "").trim();
   if (!approvalId) return fail("sales_record_approval_required", "PIN approval is required.", 403);
+
   const { data, error } = await getSupabaseServiceClient()
     .from("manager_pin_approvals")
     .select("id,action,target_table,target_id,expires_at")
@@ -43,6 +51,40 @@ async function verifyApproval(args: {
     return fail("sales_record_approval_expired", "PIN approval has expired.", 403);
   }
   return null;
+}
+
+async function loadOrder(tenantId: string, orderId: string) {
+  return getSupabaseServiceClient()
+    .from("orders")
+    .select("id,branch_id,total_amount,status,notes,metadata")
+    .eq("tenant_id", tenantId)
+    .eq("id", orderId)
+    .maybeSingle<OrderRow>();
+}
+
+async function voidAndRestoreStock(args: {
+  tenantId: string;
+  branchId: string;
+  orderId: string;
+  actorUserId: string;
+  reason: string;
+  markDeleted: boolean;
+}) {
+  const { data, error } = await getSupabaseServiceClient().rpc("void_order_and_restore_stock_tx", {
+    p_tenant_id: args.tenantId,
+    p_branch_id: args.branchId,
+    p_order_id: args.orderId,
+    p_actor_user_id: args.actorUserId,
+    p_reason: args.reason,
+    p_mark_deleted: args.markDeleted
+  });
+  if (error) throw new Error(error.message);
+  const row = Array.isArray(data) ? data[0] : data;
+  return {
+    alreadyCancelled: Boolean(row?.already_cancelled),
+    restoredIngredientCount: Number(row?.restored_ingredient_count ?? 0),
+    restoredQuantity: Number(row?.restored_quantity ?? 0)
+  };
 }
 
 export async function GET() {
@@ -82,6 +124,7 @@ export async function PATCH(request: Request) {
     const paymentStatus = body?.payment_status;
     const approvalId = body?.approval_id ?? null;
     const notes = body?.notes ?? null;
+
     if (!orderId || (saleStatus !== "open" && saleStatus !== "paid" && saleStatus !== "void")) {
       return fail("invalid_sales_record_edit", "Invalid sales record edit payload.", 422);
     }
@@ -92,13 +135,7 @@ export async function PATCH(request: Request) {
       return fail("invalid_sales_record_payment", "Paid sales records require a payment method.", 422);
     }
 
-    const supabase = getSupabaseServiceClient();
-    const { data: orderRow, error: orderError } = await supabase
-      .from("orders")
-      .select("id,branch_id,total_amount,status,notes,metadata")
-      .eq("tenant_id", auth.tenantId!)
-      .eq("id", orderId)
-      .maybeSingle<{ id: string; branch_id: string; total_amount: number | null; status: string | null; notes: string | null; metadata: Record<string, unknown> | null }>();
+    const { data: orderRow, error: orderError } = await loadOrder(auth.tenantId!, orderId);
     if (orderError) return fail("sales_record_query_failed", orderError.message, 500);
     if (!orderRow) return fail("sales_record_not_found", "Sales record was not found.", 404);
 
@@ -111,6 +148,39 @@ export async function PATCH(request: Request) {
     });
     if (approvalError) return approvalError;
 
+    if (saleStatus === "void") {
+      const result = await voidAndRestoreStock({
+        tenantId: auth.tenantId!,
+        branchId: orderRow.branch_id,
+        orderId,
+        actorUserId: auth.userId,
+        reason: notes?.trim() || "ยกเลิกบิลจากหน้ารายการขาย",
+        markDeleted: false
+      });
+      void appendAuditLog({
+        tenantId: auth.tenantId!,
+        branchId: orderRow.branch_id,
+        actorUserId: auth.userId,
+        actorRole: auth.branchRole ?? auth.platformRole,
+        action: "sales_record_voided_stock_restored",
+        targetTable: "orders",
+        targetId: orderId,
+        metadata: {
+          approval_id: approvalId,
+          already_cancelled: result.alreadyCancelled,
+          restored_ingredient_count: result.restoredIngredientCount,
+          restored_quantity: result.restoredQuantity
+        }
+      });
+      invalidatePosSalesListCacheForScope({ tenantId: auth.tenantId!, branchId: orderRow.branch_id });
+      return ok({ updated: true, stock_restored: result });
+    }
+
+    if (orderRow.status === "cancelled") {
+      return fail("cancelled_bill_is_terminal", "Cancelled bills cannot be reopened. Create a new sale instead.", 409);
+    }
+
+    const supabase = getSupabaseServiceClient();
     const nowIso = new Date().toISOString();
     const nextMetadata = {
       ...(orderRow.metadata ?? {}),
@@ -129,11 +199,13 @@ export async function PATCH(request: Request) {
       updatePayload.payment_completed_by = auth.userId;
       updatePayload.cash_received = paymentStatus === "cash" ? Number(orderRow.total_amount ?? 0) : null;
       updatePayload.change_amount = paymentStatus === "cash" ? 0 : null;
+      updatePayload.paid_total = Number(orderRow.total_amount ?? 0);
     } else {
       updatePayload.payment_completed_at = null;
       updatePayload.payment_completed_by = null;
       updatePayload.cash_received = null;
       updatePayload.change_amount = null;
+      updatePayload.paid_total = 0;
     }
 
     const { error: updateError } = await supabase
@@ -141,11 +213,18 @@ export async function PATCH(request: Request) {
       .update(updatePayload)
       .eq("tenant_id", auth.tenantId!)
       .eq("branch_id", orderRow.branch_id)
-      .eq("id", orderId);
+      .eq("id", orderId)
+      .neq("status", "cancelled");
     if (updateError) return fail("sales_record_update_failed", updateError.message, 500);
 
-    const paymentDelete = await supabase.from("payments").delete().eq("tenant_id", auth.tenantId!).eq("branch_id", orderRow.branch_id).eq("order_id", orderId);
+    const paymentDelete = await supabase
+      .from("payments")
+      .delete()
+      .eq("tenant_id", auth.tenantId!)
+      .eq("branch_id", orderRow.branch_id)
+      .eq("order_id", orderId);
     if (paymentDelete.error) return fail("sales_record_payment_update_failed", paymentDelete.error.message, 500);
+
     if (saleStatus === "paid" && paymentStatus !== "unpaid") {
       const paymentInsert = await supabase.from("payments").insert({
         tenant_id: auth.tenantId,
@@ -189,13 +268,7 @@ export async function DELETE(request: Request) {
     const approvalId = body?.approval_id ?? null;
     if (!orderId) return fail("invalid_sales_record_delete", "order_id is required.", 422);
 
-    const supabase = getSupabaseServiceClient();
-    const { data: orderRow, error: orderError } = await supabase
-      .from("orders")
-      .select("id,branch_id,status,metadata")
-      .eq("tenant_id", auth.tenantId!)
-      .eq("id", orderId)
-      .maybeSingle<{ id: string; branch_id: string; status: string | null; metadata: Record<string, unknown> | null }>();
+    const { data: orderRow, error: orderError } = await loadOrder(auth.tenantId!, orderId);
     if (orderError) return fail("sales_record_query_failed", orderError.message, 500);
     if (!orderRow) return fail("sales_record_not_found", "Sales record was not found.", 404);
 
@@ -208,39 +281,33 @@ export async function DELETE(request: Request) {
     });
     if (approvalError) return approvalError;
 
-    const nowIso = new Date().toISOString();
-    const { error: updateError } = await supabase
-      .from("orders")
-      .update({
-        status: "cancelled",
-        cancelled_by: auth.userId,
-        cancelled_reason: "ลบจากหน้ารายการขาย",
-        metadata: {
-          ...(orderRow.metadata ?? {}),
-          sales_list_deleted: true,
-          sales_list_deleted_at: nowIso,
-          sales_list_deleted_by: auth.userId,
-          sales_record_delete_approval_id: approvalId,
-          sales_record_previous_status: orderRow.status ?? null
-        }
-      })
-      .eq("tenant_id", auth.tenantId!)
-      .eq("branch_id", orderRow.branch_id)
-      .eq("id", orderId);
-    if (updateError) return fail("sales_record_delete_failed", updateError.message, 500);
+    const result = await voidAndRestoreStock({
+      tenantId: auth.tenantId!,
+      branchId: orderRow.branch_id,
+      orderId,
+      actorUserId: auth.userId,
+      reason: "ลบ/ยกเลิกจากหน้ารายการขาย",
+      markDeleted: true
+    });
 
     void appendAuditLog({
       tenantId: auth.tenantId!,
       branchId: orderRow.branch_id,
       actorUserId: auth.userId,
       actorRole: auth.branchRole ?? auth.platformRole,
-      action: "sales_record_deleted",
+      action: "sales_record_deleted_stock_restored",
       targetTable: "orders",
       targetId: orderId,
-      metadata: { soft_delete: true, approval_id: approvalId }
+      metadata: {
+        soft_delete: true,
+        approval_id: approvalId,
+        already_cancelled: result.alreadyCancelled,
+        restored_ingredient_count: result.restoredIngredientCount,
+        restored_quantity: result.restoredQuantity
+      }
     });
     invalidatePosSalesListCacheForScope({ tenantId: auth.tenantId!, branchId: orderRow.branch_id });
-    return ok({ deleted: true });
+    return ok({ deleted: true, stock_restored: result });
   } catch (error) {
     const featureError = featureGateFail(error);
     if (featureError) return featureError;

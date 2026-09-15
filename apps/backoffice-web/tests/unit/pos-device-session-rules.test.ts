@@ -32,13 +32,13 @@ describe("resolveDeviceSessionAccess", () => {
     ).toMatchObject({ ok: false, code: "device_in_use", status: 409 });
   });
 
-  it("allows manager or owner takeover when RBAC grants device override permission", () => {
+  it("allows manager or owner access without revoking an existing cashier session", () => {
     expect(
       resolveDeviceSessionAccess({
         activeSessionUserId: "user-1",
         employeeUserId: "user-2",
         employeePermissions: ["pos.sales.access", "pos.device.override_in_use"]
       })
-    ).toEqual({ ok: true, shouldRevokeExistingSession: true, overrideApplied: true });
+    ).toEqual({ ok: true, shouldRevokeExistingSession: false, overrideApplied: true });
   });
 });

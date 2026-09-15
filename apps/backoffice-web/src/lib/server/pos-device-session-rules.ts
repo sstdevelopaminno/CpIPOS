@@ -29,26 +29,31 @@ export function resolveDeviceSessionAccess(input: DeviceSessionAccessInput): Dev
     return { ok: true, shouldRevokeExistingSession: false, overrideApplied: false };
   }
 
-  if (activeSessionUserId === input.employeeUserId) {
-    // Recycle the stale/current browser session before creating the replacement session.
-    // Without this, the database active-device uniqueness guard turns a valid re-entry
-    // by the same operator into session_scope_conflict / device_in_use.
-    return { ok: true, shouldRevokeExistingSession: true, overrideApplied: false };
-  }
+  const canOverride = canOverrideInUseDevice(input.employeePermissions);
 
-  if (!canOverrideInUseDevice(input.employeePermissions)) {
+  // Owner/manager override is additive, not destructive. An authorized owner or
+  // manager may enter the same physical POS while a cashier session remains
+  // active; the existing cashier must not be logged out as a side effect.
+  // Database uniqueness for active device sessions is scoped to non-override
+  // frontline roles by the accompanying migration.
+  if (canOverride) {
     return {
-      ok: false,
-      code: "device_in_use",
-      status: 409,
-      message: "เครื่องนี้ยังมีผู้ใช้งานค้างอยู่ พนักงานขายต้องเลือกเครื่องอื่น หรือให้ผู้จัดการ/เจ้าของร้านเข้าแทน"
+      ok: true,
+      shouldRevokeExistingSession: false,
+      overrideApplied: activeSessionUserId !== input.employeeUserId
     };
   }
 
-  const overrideApplied = activeSessionUserId !== input.employeeUserId;
+  if (activeSessionUserId === input.employeeUserId) {
+    // A normal cashier re-entering the same device replaces only their stale/current
+    // session so the one-frontline-session-per-device rule stays deterministic.
+    return { ok: true, shouldRevokeExistingSession: true, overrideApplied: false };
+  }
+
   return {
-    ok: true,
-    shouldRevokeExistingSession: overrideApplied,
-    overrideApplied
+    ok: false,
+    code: "device_in_use",
+    status: 409,
+    message: "เครื่องนี้ยังมีผู้ใช้งานค้างอยู่ พนักงานขายต้องเลือกเครื่องอื่น หรือให้ผู้จัดการ/เจ้าของร้านเข้าแทน"
   };
 }

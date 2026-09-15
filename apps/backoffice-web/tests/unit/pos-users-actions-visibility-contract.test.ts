@@ -10,8 +10,9 @@ describe("POS users actions visibility contract", () => {
     expect(source).toContain("sticky right-0 bg-white");
     expect(source).toContain("disabled={!item.can_edit}");
     expect(source).toContain("disabled={saving || !canDelete || !item.can_delete}");
-    expect(source).toContain("hidden overflow-x-auto xl:block");
-    expect(source).toContain("min-h-11 rounded-md border px-3 py-2 text-sm font-bold");
+    expect(source).toContain('<div className="overflow-x-auto"><table');
+    expect(source).toContain('className="flex min-w-[128px] justify-end gap-2"');
+    expect(source).toContain("rounded-md border px-3 py-2 text-xs font-bold");
     expect(source).toContain("editUnavailable");
     expect(source).toContain("deleteUnavailable");
     expect(source).not.toContain("{item.can_edit ? <button");

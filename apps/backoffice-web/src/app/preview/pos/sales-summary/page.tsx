@@ -3,6 +3,7 @@ import { PosSalesSummaryDashboard } from "@/components/pos-preview/pos-sales-sum
 import { getCurrentLanguage } from "@/lib/i18n";
 import { requirePosPagePermission } from "@/lib/pos-page-guard";
 import { loadPosSalesSummaryData } from "@/lib/services/pos-sales-summary-service";
+import styles from "./sales-summary-responsive.module.css";
 
 export default async function PosSalesSummaryPage() {
   const scope = await requirePosPagePermission("reports:view");
@@ -15,5 +16,9 @@ export default async function PosSalesSummaryPage() {
     platformRole: "tenant_user"
   });
 
-  return <PosSalesSummaryDashboard lang={lang} initialPayload={initialPayload} />;
+  return (
+    <div className={styles.page}>
+      <PosSalesSummaryDashboard lang={lang} initialPayload={initialPayload} />
+    </div>
+  );
 }

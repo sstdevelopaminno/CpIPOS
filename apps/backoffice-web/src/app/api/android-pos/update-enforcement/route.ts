@@ -1,11 +1,6 @@
-import { NextResponse } from "next/server";
+﻿import { NextResponse } from "next/server";
+import { ANDROID_MODERN_RELEASE } from "@/lib/android-runtime-release";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
-
-const TARGET_TENANT_CODE = "FG0003";
-const TARGET_DEVICE_CODE = "TEST-POS-01";
-const TARGET_VERSION_NAME = "1.0.21";
-const TARGET_VERSION_CODE = 29;
-const DOWNLOAD_URL = "/download/android/modern-latest";
 
 type RequestBody = {
   install_id?: unknown;
@@ -14,10 +9,14 @@ type RequestBody = {
 
 type DeviceRow = {
   id: string;
-  tenant_id: string;
   device_code: string;
   is_active: boolean;
+  metadata: Record<string, unknown> | null;
 };
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
+}
 
 export async function POST(request: Request) {
   const body = (await request.json().catch(() => null)) as RequestBody | null;
@@ -34,7 +33,7 @@ export async function POST(request: Request) {
   const supabase = getSupabaseServiceClient();
   const { data: devices, error: deviceError } = await supabase
     .from("branch_devices")
-    .select("id,tenant_id,device_code,is_active")
+    .select("id,device_code,is_active,metadata")
     .eq("is_active", true)
     .contains("metadata", { android_mdm_install_id: installId })
     .limit(2)
@@ -48,35 +47,22 @@ export async function POST(request: Request) {
   }
 
   const device = devices[0];
-  if (device.device_code !== TARGET_DEVICE_CODE) {
-    return NextResponse.json({ required: false, reason: "device_not_targeted" }, {
+  const enforcement = asRecord(device.metadata?.android_update_enforcement);
+  if (enforcement.enabled !== true) {
+    return NextResponse.json({ required: false, reason: "update_enforcement_not_enabled" }, {
       status: 200,
       headers: { "Cache-Control": "no-store" }
     });
   }
 
-  const { data: tenant, error: tenantError } = await supabase
-    .from("tenants")
-    .select("code")
-    .eq("id", device.tenant_id)
-    .maybeSingle<{ code: string }>();
-
-  if (tenantError || tenant?.code !== TARGET_TENANT_CODE) {
-    return NextResponse.json({ required: false, reason: "tenant_not_targeted" }, {
-      status: 200,
-      headers: { "Cache-Control": "no-store" }
-    });
-  }
-
-  const required = versionCode < TARGET_VERSION_CODE;
+  const required = versionCode < ANDROID_MODERN_RELEASE.versionCode;
   return NextResponse.json({
     required,
-    tenant_code: TARGET_TENANT_CODE,
-    device_code: TARGET_DEVICE_CODE,
+    device_code: device.device_code,
     current_version_code: versionCode,
-    target_version_name: TARGET_VERSION_NAME,
-    target_version_code: TARGET_VERSION_CODE,
-    download_url: DOWNLOAD_URL
+    target_version_name: ANDROID_MODERN_RELEASE.versionName,
+    target_version_code: ANDROID_MODERN_RELEASE.versionCode,
+    download_url: ANDROID_MODERN_RELEASE.downloadPath
   }, {
     status: 200,
     headers: { "Cache-Control": "no-store" }

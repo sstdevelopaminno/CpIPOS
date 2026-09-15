@@ -18,6 +18,7 @@ type ApiBody = {
 type MoreDialogTab = "payments" | "products" | "cashiers";
 
 const SHIFT_ROWS_PER_PAGE = 10;
+const SALES_ROWS_PER_PAGE = 10;
 
 const statusOptions = [
   { value: "all", label: "ทุกสถานะ" },
@@ -91,6 +92,7 @@ export function PosSalesSummaryDashboard({ lang, initialPayload }: Props) {
   const [moreDialogTab, setMoreDialogTab] = useState<MoreDialogTab>("payments");
   const [salesRowsDialogOpen, setSalesRowsDialogOpen] = useState(false);
   const [shiftPage, setShiftPage] = useState(1);
+  const [salesRowsPage, setSalesRowsPage] = useState(1);
   const [isPending, startTransition] = useTransition();
 
   const maxPaymentAmount = useMemo(() => Math.max(1, ...payload.paymentMethods.map((row) => row.amount)), [payload.paymentMethods]);
@@ -100,6 +102,12 @@ export function PosSalesSummaryDashboard({ lang, initialPayload }: Props) {
     const start = (safePage - 1) * SHIFT_ROWS_PER_PAGE;
     return payload.shifts.slice(start, start + SHIFT_ROWS_PER_PAGE);
   }, [payload.shifts, shiftPage, shiftTotalPages]);
+  const salesRowsTotalPages = Math.max(1, Math.ceil(payload.salesRows.length / SALES_ROWS_PER_PAGE));
+  const visibleSalesRows = useMemo(() => {
+    const safePage = Math.min(Math.max(salesRowsPage, 1), salesRowsTotalPages);
+    const start = (safePage - 1) * SALES_ROWS_PER_PAGE;
+    return payload.salesRows.slice(start, start + SALES_ROWS_PER_PAGE);
+  }, [payload.salesRows, salesRowsPage, salesRowsTotalPages]);
   const activeMoreExport = useMemo(() => buildMoreDialogExport(payload, moreDialogTab, lang), [lang, moreDialogTab, payload]);
   const kpis = [
     { label: "ยอดขายรวม", value: money(payload.summary.grossSales, lang), tone: "text-slate-900" },
@@ -187,11 +195,16 @@ export function PosSalesSummaryDashboard({ lang, initialPayload }: Props) {
 
   useEffect(() => {
     setShiftPage(1);
+    setSalesRowsPage(1);
   }, [payload]);
 
   useEffect(() => {
     if (shiftPage > shiftTotalPages) setShiftPage(shiftTotalPages);
   }, [shiftPage, shiftTotalPages]);
+
+  useEffect(() => {
+    if (salesRowsPage > salesRowsTotalPages) setSalesRowsPage(salesRowsTotalPages);
+  }, [salesRowsPage, salesRowsTotalPages]);
 
   return (
     <section className="min-h-[calc(100vh-48px)] bg-[#f6f7f9] p-4 lg:p-5">
@@ -324,12 +337,19 @@ export function PosSalesSummaryDashboard({ lang, initialPayload }: Props) {
           <Panel title="รายการขาย">
             <ScrollTable minWidth="1040px">
               <thead><tr><Th>เลขที่บิล</Th><Th>วันเวลา</Th><Th>สาขา</Th><Th>พนักงาน</Th><Th>ชำระเงิน</Th><Th align="right">ยอดรวม</Th><Th align="right">ส่วนลด</Th><Th align="right">ภาษี</Th><Th align="right">สุทธิ</Th><Th>สถานะ</Th></tr></thead>
-              <tbody>{payload.salesRows.length === 0 ? <EmptyRow colSpan={10} /> : payload.salesRows.map((row) => (
+              <tbody>{payload.salesRows.length === 0 ? <EmptyRow colSpan={10} /> : visibleSalesRows.map((row) => (
                 <tr key={row.id} className="border-t border-slate-100">
                   <Td strong>{row.receiptNo}</Td><Td>{dateTime(row.createdAt, lang)}</Td><Td>{row.branchName}</Td><Td>{row.cashierName}</Td><Td>{paymentLabel(row.paymentLabel, row.paymentMethod, lang)}</Td><Td align="right">{money(row.grossTotal, lang)}</Td><Td align="right">{money(row.discount, lang)}</Td><Td align="right">{money(row.tax, lang)}</Td><Td align="right" strong>{money(row.netTotal, lang)}</Td><Td><StatusBadge status={row.status} lang={lang} /></Td>
                 </tr>
               ))}</tbody>
             </ScrollTable>
+            <PaginationControls
+              page={Math.min(salesRowsPage, salesRowsTotalPages)}
+              totalPages={salesRowsTotalPages}
+              totalRows={payload.salesRows.length}
+              onPrev={() => setSalesRowsPage((page) => Math.max(1, page - 1))}
+              onNext={() => setSalesRowsPage((page) => Math.min(salesRowsTotalPages, page + 1))}
+            />
           </Panel>
         </Dialog>
       </div>

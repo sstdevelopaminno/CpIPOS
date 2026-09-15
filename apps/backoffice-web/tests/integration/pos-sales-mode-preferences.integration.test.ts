@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+﻿import { describe, expect, it } from "vitest";
 import {
   DEFAULT_POS_SALES_MODE_ORDER,
   buildPosSalesModeOrderStorageKey,
@@ -9,21 +9,24 @@ import {
   parsePosScopeIdentity,
   swapPosSalesModes
 } from "@/lib/pos-sales-mode-preferences";
+import { resolveProductProfile } from "@/lib/product-profile-policy";
 
-const FG0003_TENANT_ID = "2d38bd23-bf2d-4b9a-a7cf-adb2547297ed";
-const FG0003_BRANCH_ID = "41eee367-6762-4277-bfc8-c2e9776a8ef9";
+const TENANT_ID = "2d38bd23-bf2d-4b9a-a7cf-adb2547297ed";
+const BRANCH_ID = "41eee367-6762-4277-bfc8-c2e9776a8ef9";
 
 describe("POS sales mode preferences", () => {
-  it("hides buffet table and delivery only for FG0003", () => {
-    expect(getHiddenPosSalesModes(FG0003_TENANT_ID)).toEqual(["buffet_table", "delivery"]);
-    expect(getVisiblePosSalesModeOrder(DEFAULT_POS_SALES_MODE_ORDER, FG0003_TENANT_ID)).toEqual(["home", "dine_in"]);
-    expect(getHiddenPosSalesModes("another-tenant")).toEqual([]);
-    expect(getVisiblePosSalesModeOrder(DEFAULT_POS_SALES_MODE_ORDER, "another-tenant")).toEqual([
-      "home",
-      "dine_in",
-      "buffet_table",
-      "delivery"
-    ]);
+  it("hides sales modes by product profile instead of tenant id", () => {
+    expect(getHiddenPosSalesModes(TENANT_ID, "RESTAURANT_QR")).toEqual(["buffet_table", "delivery"]);
+    expect(getVisiblePosSalesModeOrder(DEFAULT_POS_SALES_MODE_ORDER, TENANT_ID, "RESTAURANT_QR")).toEqual(["home", "dine_in"]);
+    expect(getHiddenPosSalesModes("another-tenant", "BUFFET")).toEqual(["home", "dine_in", "delivery"]);
+    expect(getVisiblePosSalesModeOrder(DEFAULT_POS_SALES_MODE_ORDER, "another-tenant", "BUFFET")).toEqual(["buffet_table"]);
+    expect(getHiddenPosSalesModes("another-tenant", "STANDARD")).toEqual([]);
+  });
+
+  it("resolves FG/FF family codes as transitional product profiles", () => {
+    expect(resolveProductProfile({ tenantCode: "FG0004" })).toBe("RESTAURANT_QR");
+    expect(resolveProductProfile({ tenantCode: "FF0001" })).toBe("BUFFET");
+    expect(resolveProductProfile({ tenantCode: "900001", tenantMetadata: { product_profile: "BUFFET" } })).toBe("BUFFET");
   });
 
   it("normalizes stored mode order without losing supported modes", () => {
@@ -45,10 +48,10 @@ describe("POS sales mode preferences", () => {
   });
 
   it("namespaces fallback cache by tenant and branch scope", () => {
-    const scope = parsePosScopeIdentity(`${FG0003_TENANT_ID}:${FG0003_BRANCH_ID}`);
-    expect(scope).toEqual({ tenantId: FG0003_TENANT_ID, branchId: FG0003_BRANCH_ID });
+    const scope = parsePosScopeIdentity(`${TENANT_ID}:${BRANCH_ID}`);
+    expect(scope).toEqual({ tenantId: TENANT_ID, branchId: BRANCH_ID });
     expect(scope && buildPosSalesModeOrderStorageKey(scope)).toBe(
-      `pos_sales_mode_order_v1:${FG0003_TENANT_ID}:${FG0003_BRANCH_ID}`
+      `pos_sales_mode_order_v1:${TENANT_ID}:${BRANCH_ID}`
     );
     expect(parsePosScopeIdentity("broken-scope")).toBeNull();
   });

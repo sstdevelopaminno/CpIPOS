@@ -317,8 +317,8 @@ export const DEFAULT_PACKAGE_CATALOG: PackageCatalogItem[] = [
   {
     code: "starter",
     name: "Starter",
-    baseMonthlyPrice: 690,
-    baseYearlyPrice: 7590,
+    baseMonthlyPrice: 350,
+    baseYearlyPrice: 0,
     basePerpetualPrice: 29900,
     maxBranchesIncluded: 1,
     maxUsersIncluded: 5,
@@ -337,8 +337,8 @@ export const DEFAULT_PACKAGE_CATALOG: PackageCatalogItem[] = [
   {
     code: "growth",
     name: "Growth",
-    baseMonthlyPrice: 1290,
-    baseYearlyPrice: 14190,
+    baseMonthlyPrice: 550,
+    baseYearlyPrice: 0,
     basePerpetualPrice: 44900,
     maxBranchesIncluded: 2,
     maxUsersIncluded: 10,

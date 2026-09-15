@@ -183,7 +183,7 @@ export function SupportCenterConsole({ language }: { language: Language }) {
         </div>
         <form className={styles.lookup} onSubmit={submit}>
           <label htmlFor="support-store-code">{copy.input}</label>
-          <div><input id="support-store-code" value={query} onChange={(e) => setQuery(e.target.value.toUpperCase())} placeholder="100001 / FG0003" autoComplete="off" spellCheck={false} /><button disabled={loading || !query.trim()}>{loading ? "…" : copy.search}</button></div>
+          <div><input id="support-store-code" value={query} onChange={(e) => setQuery(e.target.value.toUpperCase())} placeholder="100001 / STORE" autoComplete="off" spellCheck={false} /><button disabled={loading || !query.trim()}>{loading ? "…" : copy.search}</button></div>
           <small>Store code = identifier only · server verifies IT role before every read</small>
         </form>
       </section>

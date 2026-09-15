@@ -4,7 +4,8 @@ import { ANDROID_MODERN_RELEASE } from "@/lib/android-runtime-release";
 
 const ANDROID_POS_LATEST_URL = "/download/android/latest";
 const ANDROID_POS_MODERN_URL = ANDROID_MODERN_RELEASE.downloadPath;
-const WINDOWS_DESKTOP_VERSION = "0.2.1";
+const WINDOWS_RUNTIME_LATEST_URL = "/download/windows-runtime/latest";
+const WINDOWS_DESKTOP_VERSION = "0.2.7";
 const WINDOWS_DESKTOP_DOWNLOAD_URL = "/download/windows-runtime/latest";
 
 type AppIconKind = "tablet" | "phone" | "windows";
@@ -82,6 +83,18 @@ const otherApps: AppCard[] = [
     buttonLabel: null,
     icon: "phone",
     ready: false
+  },
+  {
+    title: "CpIPOS POS - Windows",
+    platform: "Windows POS Terminal · v0.1.9",
+    description: "Windows POS Runtime สำหรับเครื่องขายหน้าร้าน พร้อมโหมดร้านชำ สแกน QR/Barcode/SKU, ตะกร้าขาย, offline queue, local runtime bridge และ printer/cash-drawer integration",
+    file: "CpIPOS-WindowsRuntime-Setup.exe",
+    status: "v0.1.9 Stable · พร้อมดาวน์โหลด",
+    badge: "Windows Stable · v0.1.9",
+    buttonLabel: "ดาวน์โหลด Windows POS 0.1.9",
+    icon: "windows",
+    ready: true,
+    href: WINDOWS_RUNTIME_LATEST_URL
   }
 ];
 
