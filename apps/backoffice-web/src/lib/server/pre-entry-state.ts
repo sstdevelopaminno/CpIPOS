@@ -5,7 +5,7 @@ import type { NextResponse } from "next/server";
 import { readRequiredEnv } from "@/lib/env";
 
 export type PreEntryStage = "store_verified" | "branch_selected" | "employee_verified";
-export type EmployeeAuthMethod = "employee_code" | "employee_code_pin";
+export type EmployeeAuthMethod = "employee_code" | "employee_code_pin" | "pin";
 
 export type PreEntryFlowState = {
   stage: PreEntryStage;
