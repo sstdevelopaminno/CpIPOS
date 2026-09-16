@@ -2,7 +2,6 @@ import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { getRequestMeta, writeAuditLog, writeLoginAttempt } from "@/lib/server/audit-log";
 import { AuthTimeoutError, withAuthTimeout } from "@/lib/server/auth-timeout";
-import { verifyPinLogin } from "@/lib/server/auth-verification";
 import { hasPermission, resolveEmployeeByCode } from "@/lib/server/pre-entry-auth";
 import { createFlowState, hasFlowStage, readPreEntryFlowState, writePreEntryFlowState } from "@/lib/server/pre-entry-state";
 import { buildRateLimitKey, enforceRateLimit, getClientIpAddress, readRateLimitSetting } from "@/lib/server/rate-limit";
@@ -11,7 +10,6 @@ import { resolveStoreLoginMode, shouldSkipBranchSelection } from "@/lib/server/s
 
 type RequestBody = {
   employee_code?: string;
-  pin?: string;
 };
 
 type BranchSummary = {
@@ -113,7 +111,6 @@ export async function POST(request: Request) {
   const startedAt = Date.now();
   const body = (await request.json().catch(() => null)) as RequestBody | null;
   const employeeCodeInput = String(body?.employee_code ?? "").trim();
-  const pinInput = String(body?.pin ?? "").trim();
 
   if (!employeeCodeInput) {
     return withTimingHeaders(
@@ -269,122 +266,6 @@ export async function POST(request: Request) {
 
     const normalizedRole = String(employee.role ?? "").trim().toLowerCase();
     const isKitchen = normalizedRole === "kitchen";
-    const requiresPrivilegedPin = normalizedRole === "owner" || normalizedRole === "manager";
-
-    if (requiresPrivilegedPin) {
-      if (!policy.allow_pin_login) {
-        return withTimingHeaders(
-          NextResponse.json(
-            {
-              data: null,
-              error: {
-                code: "pin_login_disabled",
-                message: "สาขานี้ยังไม่เปิดการยืนยัน Owner/Manager ด้วย PIN"
-              }
-            },
-            { status: 403 }
-          ),
-          startedAt
-        );
-      }
-
-      if (!pinInput) {
-        return withTimingHeaders(
-          NextResponse.json(
-            {
-              data: {
-                next_step: "pin",
-                employee: {
-                  id: employee.userId,
-                  code: employee.employeeCode,
-                  name: employee.fullName,
-                  role: employee.role
-                }
-              },
-              error: {
-                code: "pin_required",
-                message: "กรุณากรอกรหัส Owner/Manager PIN"
-              }
-            },
-            { status: 401 }
-          ),
-          startedAt
-        );
-      }
-
-      if (!/^\d{4,6}$/.test(pinInput)) {
-        return withTimingHeaders(
-          NextResponse.json(
-            {
-              data: {
-                next_step: "pin",
-                employee: {
-                  id: employee.userId,
-                  code: employee.employeeCode,
-                  name: employee.fullName,
-                  role: employee.role
-                }
-              },
-              error: {
-                code: "pin_invalid_format",
-                message: "รหัส Owner/Manager PIN ต้องเป็นตัวเลข 4–6 หลัก"
-              }
-            },
-            { status: 422 }
-          ),
-          startedAt
-        );
-      }
-
-      const pinResult = await withAuthTimeout(
-        verifyPinLogin({
-          tenantId: branchFlow.tenantId,
-          branchId: branchFlow.branchId,
-          pin: pinInput,
-          userIdentifier: employee.userId
-        }),
-        "employee_pin_verify_timeout"
-      );
-
-      if (!pinResult.ok || pinResult.userId !== employee.userId) {
-        runInBackground(() =>
-          writeLoginAttempt({
-            tenantId: branchFlow.tenantId,
-            branchId: branchFlow.branchId,
-            userId: employee.userId,
-            loginMethod: "pin",
-            success: false,
-            failureReason: "auth_failed",
-            ipAddress,
-            userAgent,
-            metadata: { source: "employee_code_pin", role: employee.role }
-          })
-        );
-
-        return withTimingHeaders(
-          NextResponse.json(
-            {
-              data: {
-                next_step: "pin",
-                employee: {
-                  id: employee.userId,
-                  code: employee.employeeCode,
-                  name: employee.fullName,
-                  role: employee.role
-                }
-              },
-              error: {
-                code: "pin_invalid",
-                message: "รหัส Owner/Manager PIN ไม่ถูกต้อง หรือยังไม่ได้ตั้งค่า"
-              }
-            },
-            { status: 401 }
-          ),
-          startedAt
-        );
-      }
-    }
-
     const effectivePermissions = isKitchen ? ["pos.kitchen.access"] : employee.permissions;
 
     if (!isKitchen && !hasPermission(employee.permissions, "pos.sales.access")) {
@@ -402,7 +283,7 @@ export async function POST(request: Request) {
           userAgent,
           metadata: {
             permission: "pos.sales.access",
-            source: requiresPrivilegedPin ? "employee_code_pin" : "employee_code"
+            source: "employee_code"
           }
         })
       );
@@ -416,7 +297,6 @@ export async function POST(request: Request) {
       );
     }
 
-    const authSource = requiresPrivilegedPin ? "employee_code_pin" : "employee_code";
     const nextFlow = createFlowState({
       ...branchFlow,
       stage: "employee_verified",
@@ -424,7 +304,7 @@ export async function POST(request: Request) {
       userRole: employee.role,
       employeeCode: employee.employeeCode,
       employeeName: employee.fullName,
-      employeeAuthMethod: requiresPrivilegedPin ? "pin" : "employee_code",
+      employeeAuthMethod: "employee_code",
       permissions: effectivePermissions
     });
     const rememberedDeviceCode = isKitchen ? "" : String(branchFlow.deviceCode ?? "").trim().toUpperCase();
@@ -456,11 +336,11 @@ export async function POST(request: Request) {
         tenantId: branchFlow.tenantId,
         branchId: branchFlow.branchId,
         userId: employee.userId,
-        loginMethod: requiresPrivilegedPin ? "pin" : "staff_card",
+        loginMethod: "staff_card",
         success: true,
         ipAddress,
         userAgent,
-        metadata: { source: authSource, kitchen_role: isKitchen }
+        metadata: { source: "employee_code", kitchen_role: isKitchen }
       })
     );
 
@@ -476,7 +356,7 @@ export async function POST(request: Request) {
         targetId: employee.userId,
         ipAddress,
         userAgent,
-        metadata: { source: authSource, remembered_device_code: rememberedDeviceCode || null, kitchen_role: isKitchen }
+        metadata: { source: "employee_code", remembered_device_code: rememberedDeviceCode || null, kitchen_role: isKitchen }
       })
     );
 
