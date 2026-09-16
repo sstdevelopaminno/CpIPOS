@@ -1,4 +1,5 @@
-import { PosGeneralSaleModeController } from "@/components/pos/pos-general-sale-mode-controller";
+import { PosGeneralSaleRuntime } from "@/components/pos/pos-general-sale-runtime";
+import { PosGeneralSaleTableController } from "@/components/pos/pos-general-sale-table-controller";
 import { PosSalesModePolicyController } from "@/components/pos/pos-sales-mode-policy-controller";
 import { PosSalesModule } from "@/components/pos/pos-sales-module";
 import { getCurrentLanguage } from "@/lib/i18n";
@@ -8,7 +9,8 @@ export default async function PosSalesPage() {
   return (
     <>
       <PosSalesModule lang={lang} />
-      <PosGeneralSaleModeController />
+      <PosGeneralSaleTableController />
+      <PosGeneralSaleRuntime />
       <PosSalesModePolicyController />
     </>
   );
