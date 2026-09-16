@@ -35,6 +35,30 @@ describe('Android 1.0.23 Web Production MDM eligibility', () => {
     expect(decision.allowedCommands).toContain('start_remote_support');
   });
 
+  it('keeps remote lock command-granular until separate executors are advertised', () => {
+    const decision = evaluateMdmEligibility({
+      ...eligibleDevice,
+      capabilities: ['mdm_core', 'policy_sync', 'remote_lock'],
+    });
+
+    expect(decision.allowedCommands).toContain('lock_device');
+    expect(decision.allowedCommands).not.toContain('unlock_device');
+    expect(decision.allowedCommands).not.toContain('financing_lock');
+    expect(decision.allowedCommands).not.toContain('revoke_device_access');
+  });
+
+  it('enables each privileged command only when that exact capability is advertised', () => {
+    const decision = evaluateMdmEligibility({
+      ...eligibleDevice,
+      capabilities: ['mdm_core', 'remote_unlock', 'financing_lock', 'revoke_access'],
+    });
+
+    expect(decision.allowedCommands).not.toContain('lock_device');
+    expect(decision.allowedCommands).toContain('unlock_device');
+    expect(decision.allowedCommands).toContain('financing_lock');
+    expect(decision.allowedCommands).toContain('revoke_device_access');
+  });
+
   it('keeps FF0001-style unmanaged Android 1.0.21 devices in diagnostics only mode', () => {
     const decision = evaluateMdmEligibility({
       tenantId: 'tenant-001',
@@ -55,21 +79,13 @@ describe('Android 1.0.23 Web Production MDM eligibility', () => {
   });
 
   it('excludes Android 1.0.12 LTS from full MDM', () => {
-    const decision = evaluateMdmEligibility({
-      ...eligibleDevice,
-      appVersion: '1.0.12',
-    });
-
+    const decision = evaluateMdmEligibility({ ...eligibleDevice, appVersion: '1.0.12' });
     expect(decision.mode).toBe('diagnostics_only');
     expect(decision.reasons).toContain('android_lts_1_0_12_is_excluded');
   });
 
   it('excludes Native 2.0 from full MDM', () => {
-    const decision = evaluateMdmEligibility({
-      ...eligibleDevice,
-      nativeGeneration: '2.0',
-    });
-
+    const decision = evaluateMdmEligibility({ ...eligibleDevice, nativeGeneration: '2.0' });
     expect(decision.mode).toBe('diagnostics_only');
     expect(decision.reasons).toContain('native_2_0_excluded_from_full_mdm');
   });
@@ -128,10 +144,7 @@ describe('MDM command policy validation', () => {
         commandType: 'start_remote_support',
         requestedByRole: 'mdm_admin',
         reason: 'Troubleshooting active store support case',
-        payload: {
-          sessionMode: 'silent',
-          ttlMinutes: 30,
-        },
+        payload: { sessionMode: 'silent', ttlMinutes: 30 },
       },
       eligibleDevice,
     );
@@ -149,9 +162,7 @@ describe('MDM command policy validation', () => {
         commandType: 'uninstall_app',
         requestedByRole: 'owner',
         reason: 'Recover managed package after contract cancellation',
-        payload: {
-          packageName: 'com.example.unmanaged',
-        },
+        payload: { packageName: 'com.example.unmanaged' },
       },
       {
         tenantId: 'tenant-001',
@@ -178,9 +189,7 @@ describe('MDM command policy validation', () => {
         commandType: 'uninstall_app',
         requestedByRole: 'owner',
         reason: 'Attempt to remove protected core agent package',
-        payload: {
-          packageName: 'com.cpipos.mdm',
-        },
+        payload: { packageName: 'com.cpipos.mdm' },
       },
       eligibleDevice,
     );

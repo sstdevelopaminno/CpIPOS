@@ -6,19 +6,24 @@ function source(relativePath: string) {
 }
 
 const route = source("../../src/app/api/android-pos/mdm/heartbeat/route.ts");
-const bridge = source("../../src/lib/android-pos/it-mdm-bridge.ts");
+const transport = source("../../src/lib/android-pos/full-mdm-transport.ts");
 const androidDiagnostics = source("../../../pos-android/app/src/main/java/com/cpipos/pos/AndroidDiagnostics.kt");
 const androidAgent = source("../../../pos-android/app/src/main/java/com/cpipos/pos/PosMdmAgent.kt");
+const fullMdmAgent = source("../../../pos-android/app/src/main/java/com/cpipos/pos/FullMdmAgent.kt");
 
-describe("Android IT MDM bridge", () => {
-  it("keeps the Android device on the existing server heartbeat and writes operational state server-side", () => {
-    expect(route).toContain("syncAndroidHeartbeatToItPlane");
-    expect(route).toContain('operational_plane: "CpiPOS-002"');
-    expect(route).toContain("[android-pos-mdm][it-plane] sync failed");
-    expect(bridge).toContain('from("it_device_health_latest")');
-    expect(bridge).toContain('from("it_device_health_snapshots")');
-    expect(bridge).toContain('from("it_device_incidents")');
-    expect(bridge).toContain('from("it_device_commands")');
+describe("Android POS MDM primary control plane", () => {
+  it("keeps POS and Full MDM on CpiPOS-001 without a secondary runtime dependency", () => {
+    expect(route).toContain("syncFullMdmHeartbeat");
+    expect(route).toContain('operational_plane: "CpiPOS-001"');
+    expect(route).toContain('authority: "CpiPOS-001.mdm_commands"');
+    expect(route).not.toContain("syncAndroidHeartbeatToItPlane");
+    expect(route).not.toContain("CpiPOS-002");
+
+    expect(transport).toContain("getPrimarySupabaseServiceClient()");
+    expect(transport).toContain('.from("mdm_devices")');
+    expect(transport).toContain('.from("mdm_commands")');
+    expect(transport).toContain('.from("mdm_command_audit")');
+    expect(transport).not.toContain("getTrialSupabaseServiceClient");
   });
 
   it("reports real Android CPU, memory and storage diagnostics instead of synthetic values", () => {
@@ -32,26 +37,31 @@ describe("Android IT MDM bridge", () => {
     expect(androidAgent).toContain('put("storage_used_percent", diagnostics.storageUsedPercent())');
   });
 
-  it("uses authoritative paired scope and never lets the Android client choose CpiPOS-002", () => {
+  it("uses authoritative paired scope and never lets the Android client choose a database authority", () => {
     expect(route).toContain("findAutoScope(installId)");
-    expect(bridge).toContain("getTrialSupabaseServiceClient()");
+    expect(route).toContain("getPrimarySupabaseServiceClient()");
     expect(androidAgent).not.toContain("SUPABASE_SERVICE_ROLE");
     expect(androidAgent).not.toContain("IT_SUPABASE");
+    expect(fullMdmAgent).not.toContain("SUPABASE_SERVICE_ROLE");
+    expect(fullMdmAgent).not.toContain("SUPABASE_URL");
   });
 
-  it("maps safe IT commands to the existing Android allowlist and persists ACK in result.execution_status", () => {
-    expect(bridge).toContain('commandType === "request_diagnostics_bundle"');
-    expect(bridge).toContain('return "collect_diagnostics"');
-    expect(bridge).toContain('commandType === "reload_ui"');
-    expect(bridge).toContain('return "reload_webview"');
-    expect(bridge).toContain('commandType === "test_printer"');
-    expect(bridge).toContain('return "test_printer_connection"');
-    expect(bridge).toContain("execution_status: executionStatus");
-    expect(bridge).toContain('.eq("status", "delivered")');
+  it("delivers Full MDM commands server-side and persists execution acknowledgements", () => {
+    expect(transport).toContain('"diagnostics_ping"');
+    expect(transport).toContain('"sync_policy"');
+    expect(transport).toContain('"lock_device"');
+    expect(transport).toContain('status: "picked_up"');
+    expect(transport).toContain('completed_at: nowIso');
+    expect(transport).toContain('event_type: "device_result"');
+    expect(androidAgent).toContain('.put("full_mdm_results", fullMdmAgent.pendingResults())');
   });
 
-  it("does not rely on a non-existent synced_at column on it_device_commands", () => {
-    const commandSection = bridge.slice(bridge.indexOf("async function deliver("), bridge.indexOf("export async function syncAndroidHeartbeatToItPlane"));
-    expect(commandSection).not.toContain("synced_at");
+  it("advertises remote lock only when the native Device Owner executor is available", () => {
+    expect(fullMdmAgent).toContain('if (deviceOwner) capabilities.put("remote_lock")');
+    expect(fullMdmAgent).toContain("manager.lockNow()");
+    expect(fullMdmAgent).not.toContain('capabilities.put("remote_unlock")');
+    expect(fullMdmAgent).not.toContain('capabilities.put("financing_lock")');
+    expect(fullMdmAgent).not.toContain('capabilities.put("revoke_access")');
+    expect(fullMdmAgent).not.toContain('capabilities.put("app_uninstall")');
   });
 });
