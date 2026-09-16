@@ -34,8 +34,11 @@ export type GeneralSaleAddProductResult = {
   status: "added" | "unavailable" | "invalid";
 };
 
-export function normalizeGeneralSaleCartLayout(value: unknown): GeneralSaleCartLayout {
-  return value === "table" ? "table" : "grid";
+export function normalizeGeneralSaleCartLayout(_value: unknown): GeneralSaleCartLayout {
+  // Grocery/general-sale is table-first in production. Keeping one canonical layout
+  // avoids rendering the full product grid alongside the scanner/cart table and also
+  // prevents stale localStorage preferences from re-enabling the heavy grid path.
+  return "table";
 }
 
 export function normalizeGeneralSaleScanCode(value: unknown): string {
