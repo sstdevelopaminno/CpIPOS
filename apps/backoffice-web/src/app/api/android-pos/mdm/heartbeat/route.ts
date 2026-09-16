@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { GET as baseGet, POST as basePost } from "@/lib/android-pos/mdm-heartbeat-base";
-import { syncAndroidHeartbeatToItPlane } from "@/lib/android-pos/it-mdm-bridge";
+import { syncFullMdmHeartbeat } from "@/lib/android-pos/full-mdm-transport";
 import { buildAndroidModernUpdateOffer } from "@/lib/android-runtime-release";
 import { reconcileModernPrinterInventory } from "@/lib/printing/printer-mdm-auto-registry";
 import { getPrimarySupabaseServiceClient } from "@/lib/supabase-admin";
@@ -61,11 +61,7 @@ function buildRecoveryCommands(scope: AutoScope, payload: JsonRecord | null): Re
   return actions
     .filter((action): action is RecoveryCommand["action"] => action === "clear_webview_cache" || action === "reload_webview")
     .slice(0, 2)
-    .map((action) => ({
-      id: `recovery-${action}-${generationMs}`,
-      action,
-      reason
-    }));
+    .map((action) => ({ id: `recovery-${action}-${generationMs}`, action, reason }));
 }
 
 async function findAutoScope(installId: string | null): Promise<AutoScope | null> {
@@ -141,7 +137,9 @@ export async function POST(request: Request) {
   const recoveryCommands = recoveryEligible ? buildRecoveryCommands(scope, payload) : [];
   if (updaterTelemetry) await persistUpdaterTelemetry(scope, payload);
 
-  const itBridge = await syncAndroidHeartbeatToItPlane({
+  // Full MDM authority is the same primary POS control plane (CpiPOS-001).
+  // The reserved secondary database is deliberately not part of the POS/MDM runtime path.
+  const fullMdm = await syncFullMdmHeartbeat({
     scope: {
       id: scope.id,
       tenant_id: scope.tenant_id,
@@ -151,12 +149,6 @@ export async function POST(request: Request) {
     payload,
     installId,
     appVersion
-  }).catch((error) => {
-    console.error("[android-pos-mdm][it-plane] sync failed", {
-      device_code: scope.device_code,
-      message: error instanceof Error ? error.message : "unknown"
-    });
-    return { commands: [], latest_id: null, status: "unavailable" };
   });
 
   const tenantCode = updaterTelemetry ? await findTenantCode(scope.tenant_id) : null;
@@ -189,19 +181,29 @@ export async function POST(request: Request) {
   if (!responseBody) return baseResponse;
   const data = asRecord(responseBody.data);
   const existingCommands = Array.isArray(data.commands) ? data.commands : [];
-  const commands = [...existingCommands, ...recoveryCommands, ...auto.commands, ...itBridge.commands].slice(0, 5);
+  const commands = [...existingCommands, ...recoveryCommands, ...auto.commands].slice(0, 5);
 
   return NextResponse.json({
     ...responseBody,
     data: {
       ...data,
       commands,
+      full_mdm_commands: fullMdm.commands,
+      full_mdm: {
+        status: fullMdm.status,
+        device_id: fullMdm.device_id,
+        eligible: fullMdm.eligible,
+        mode: fullMdm.mode,
+        reasons: fullMdm.reasons,
+        acknowledged_result_ids: fullMdm.acknowledged_result_ids
+      },
       update_offer: stagedUpdateOffer ?? data.update_offer ?? null,
       it_mdm: {
-        health_status: itBridge.status,
-        latest_id: itBridge.latest_id,
-        command_count: itBridge.commands.length,
-        operational_plane: "CpiPOS-002"
+        health_status: fullMdm.status,
+        latest_id: fullMdm.device_id,
+        command_count: fullMdm.commands.length,
+        operational_plane: "CpiPOS-001",
+        authority: "CpiPOS-001.mdm_commands"
       },
       ...(printerEligible ? {
         auto_printer_registry: {
