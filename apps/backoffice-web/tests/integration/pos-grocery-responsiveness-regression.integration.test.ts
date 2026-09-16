@@ -8,6 +8,8 @@ function source(relativePath: string) {
 const modeLib = source("../../src/lib/pos-general-sale-mode.ts");
 const tableOnlyGuard = source("../../src/components/pos/pos-grocery-table-only-guard.tsx");
 const cartBridge = source("../../src/components/pos/pos-general-sale-cart-reconcile-bridge.tsx");
+const runtime = source("../../src/components/pos/pos-general-sale-runtime.tsx");
+const policyController = source("../../src/components/pos/pos-sales-mode-policy-controller.tsx");
 const posPage = source("../../src/app/preview/pos/page.tsx");
 
 describe("grocery POS responsiveness regression", () => {
@@ -17,6 +19,7 @@ describe("grocery POS responsiveness regression", () => {
     expect(tableOnlyGuard).toContain('.posui-product-grid-wrap');
     expect(tableOnlyGuard).toContain('display: none !important');
     expect(tableOnlyGuard).toContain('[data-sd-layout="grid"]');
+    expect(tableOnlyGuard).toContain('getAttribute(GENERAL_SALE_LAYOUT_ATTRIBUTE) !== "table"');
   });
 
   it("mounts the production table-only guard before the general-sale controller", () => {
@@ -28,6 +31,15 @@ describe("grocery POS responsiveness regression", () => {
     expect(guardIndex).toBeLessThan(controllerIndex);
   });
 
+  it("keeps grocery-only document observers unmounted outside grocery mode", () => {
+    expect(posPage).toContain("<PosGeneralSaleRuntime />");
+    expect(posPage).not.toContain("<PosGeneralSaleCartReconcileBridge />");
+    expect(posPage).not.toContain("<PosGeneralSaleFrontCashPanel />");
+    expect(runtime).toContain("if (!active) return null");
+    expect(runtime).toContain("<PosGeneralSaleCartReconcileBridge />");
+    expect(runtime).toContain("<PosGeneralSaleFrontCashPanel />");
+  });
+
   it("coalesces cart reconciliation instead of firing five delayed DOM nudges", () => {
     expect(cartBridge).toContain('const SETTLE_DELAY_MS = 120');
     expect(cartBridge).toContain('queueMicrotask');
@@ -35,5 +47,12 @@ describe("grocery POS responsiveness regression", () => {
     expect(cartBridge).not.toContain('NUDGE_DELAYS_MS');
     expect(cartBridge).not.toContain('[0, 80, 220, 520, 900]');
     expect(cartBridge).not.toContain('data-cpipos-cart-reconcile-nudge');
+  });
+
+  it("coalesces IT sales-mode DOM policy work to one animation frame", () => {
+    expect(policyController).toContain("requestAnimationFrame");
+    expect(policyController).toContain("scheduleApplyPolicy");
+    expect(policyController).toContain("POLICY_REFRESH_MS = 60_000");
+    expect(policyController).not.toContain("new MutationObserver(() => applyPolicy())");
   });
 });
