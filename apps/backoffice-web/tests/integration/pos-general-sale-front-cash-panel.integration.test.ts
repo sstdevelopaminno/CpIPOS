@@ -6,7 +6,8 @@ function source(relativePath: string) {
 }
 
 const frontCash = source("../../src/components/pos/pos-general-sale-front-cash-panel.tsx");
-const generalSale = source("../../src/components/pos/pos-general-sale-mode-controller.tsx");
+const generalSale = source("../../src/components/pos/pos-general-sale-table-controller.tsx");
+const generalSaleRuntime = source("../../src/components/pos/pos-general-sale-runtime.tsx");
 const paymentObserver = source("../../src/components/pos/pos-customer-display-v2-payment-observer.tsx");
 const previewPage = source("../../src/app/preview/pos/page.tsx");
 
@@ -52,10 +53,13 @@ describe("SD front cash panel", () => {
     expect(paymentObserver).toContain('CUSTOMER_DISPLAY_V2_PAYMENT_EVENT');
   });
 
-  it("mounts alongside the existing Customer Display publisher and payment observer", () => {
+  it("mounts alongside Customer Display while front-cash helpers are scoped to active grocery mode", () => {
     expect(previewPage).toContain('<PosCustomerDisplayV2Publisher />');
     expect(previewPage).toContain('<PosCustomerDisplayV2PaymentObserver />');
-    expect(previewPage).toContain('<PosGeneralSaleModeController />');
-    expect(previewPage).toContain('<PosGeneralSaleFrontCashPanel />');
+    expect(previewPage).toContain('<PosGeneralSaleTableController />');
+    expect(previewPage).toContain('<PosGeneralSaleRuntime />');
+    expect(previewPage).not.toContain('<PosGeneralSaleFrontCashPanel />');
+    expect(generalSaleRuntime).toContain('if (!active) return null');
+    expect(generalSaleRuntime).toContain('<PosGeneralSaleFrontCashPanel />');
   });
 });
