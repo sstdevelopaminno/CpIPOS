@@ -26,6 +26,9 @@ export type AppFlavor =
 export type MdmCapability =
   | 'mdm_core'
   | 'remote_lock'
+  | 'remote_unlock'
+  | 'financing_lock'
+  | 'revoke_access'
   | 'location'
   | 'remote_support'
   | 'app_install'
@@ -111,41 +114,23 @@ export const isAndroidWebProductionMdmCandidate = (device: MdmDeviceSnapshot): b
 export const evaluateMdmEligibility = (device: MdmDeviceSnapshot): MdmEligibilityDecision => {
   const reasons: string[] = [];
 
-  if (normalize(device.platform) !== 'android') {
-    reasons.push('platform_must_be_android');
-  }
-
-  if (normalize(device.appVersion) === '1.0.12') {
-    reasons.push('android_lts_1_0_12_is_excluded');
-  }
-
+  if (normalize(device.platform) !== 'android') reasons.push('platform_must_be_android');
+  if (normalize(device.appVersion) === '1.0.12') reasons.push('android_lts_1_0_12_is_excluded');
   if (normalize(device.appVersion) !== ANDROID_WEB_PRODUCTION_MDM_VERSION) {
     reasons.push('android_app_version_must_be_exactly_1_0_23');
   }
-
-  if (!WEB_PRODUCTION_FLAVORS.has(normalize(device.appFlavor))) {
-    reasons.push('app_flavor_must_be_web_production');
-  }
-
+  if (!WEB_PRODUCTION_FLAVORS.has(normalize(device.appFlavor))) reasons.push('app_flavor_must_be_web_production');
   if (normalize(device.nativeGeneration) === '2.0' || normalize(device.appFlavor) === 'native2') {
     reasons.push('native_2_0_excluded_from_full_mdm');
   }
-
   if (!COMPANY_OWNERSHIP_TYPES.has(normalize(device.ownershipType))) {
     reasons.push('device_must_be_company_owned_or_company_financed');
   }
-
   if (!DEVICE_OWNER_ENROLLMENT_MODES.has(normalize(device.enrollmentMode))) {
     reasons.push('device_must_be_android_enterprise_device_owner');
   }
-
-  if (device.isDeviceOwner !== true) {
-    reasons.push('android_device_owner_required');
-  }
-
-  if (!hasCapability(device, 'mdm_core')) {
-    reasons.push('mdm_core_capability_required');
-  }
+  if (device.isDeviceOwner !== true) reasons.push('android_device_owner_required');
+  if (!hasCapability(device, 'mdm_core')) reasons.push('mdm_core_capability_required');
 
   if (reasons.length > 0) {
     return {
@@ -158,33 +143,21 @@ export const evaluateMdmEligibility = (device: MdmDeviceSnapshot): MdmEligibilit
   }
 
   const allowedCommands: MdmCommandType[] = ['diagnostics_ping'];
+  if (hasCapability(device, 'policy_sync')) allowedCommands.push('sync_policy');
 
-  if (hasCapability(device, 'policy_sync')) {
-    allowedCommands.push('sync_policy');
-  }
+  // Every privileged device action requires its own native capability. A validated
+  // lock executor must never implicitly enable unlock, financing-lock or revocation.
+  if (hasCapability(device, 'remote_lock')) allowedCommands.push('lock_device');
+  if (hasCapability(device, 'remote_unlock')) allowedCommands.push('unlock_device');
+  if (hasCapability(device, 'financing_lock')) allowedCommands.push('financing_lock');
+  if (hasCapability(device, 'revoke_access')) allowedCommands.push('revoke_device_access');
 
-  if (hasCapability(device, 'remote_lock')) {
-    allowedCommands.push('lock_device', 'unlock_device', 'financing_lock', 'revoke_device_access');
-  }
-
-  if (hasCapability(device, 'location')) {
-    allowedCommands.push('request_location');
-  }
-
-  if (hasCapability(device, 'remote_support')) {
-    allowedCommands.push('start_remote_support', 'stop_remote_support');
-  }
-
-  if (hasCapability(device, 'app_install')) {
-    allowedCommands.push('install_app');
-  }
-
-  if (hasCapability(device, 'app_uninstall')) {
-    allowedCommands.push('uninstall_app');
-  }
+  if (hasCapability(device, 'location')) allowedCommands.push('request_location');
+  if (hasCapability(device, 'remote_support')) allowedCommands.push('start_remote_support', 'stop_remote_support');
+  if (hasCapability(device, 'app_install')) allowedCommands.push('install_app');
+  if (hasCapability(device, 'app_uninstall')) allowedCommands.push('uninstall_app');
 
   const dedupedAllowed = unique(allowedCommands);
-
   return {
     mode: 'full_mdm',
     isEligible: true,
