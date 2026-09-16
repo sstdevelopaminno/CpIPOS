@@ -4,21 +4,16 @@ import { useEffect } from "react";
 
 const CART_STORAGE_KEY = "pos_sales_cart_v012";
 const TABLE_SELECTOR = "[data-pos-general-sale-cart-table='1']";
-const NUDGE_ATTRIBUTE = "data-cpipos-cart-reconcile-nudge";
-const NUDGE_DELAYS_MS = [0, 80, 220, 520, 900];
+const CART_MUTATED_EVENT = "cpipos:pos-cart-mutated";
+const FALLBACK_EVENT_DELAY_MS = 80;
 
-function nudgeGeneralSaleObservers() {
-  if (typeof document === "undefined") return;
-  const root = document.documentElement;
-  const current = root.getAttribute(NUDGE_ATTRIBUTE) === "1" ? "0" : "1";
-  root.setAttribute(NUDGE_ATTRIBUTE, current);
-  window.dispatchEvent(new CustomEvent("cpipos:pos-cart-mutated", { detail: { source: "general_sale_cart_reconcile_bridge" } }));
+function emitCartMutated(source: string) {
+  window.dispatchEvent(new CustomEvent(CART_MUTATED_EVENT, { detail: { source } }));
 }
 
-function scheduleNudges() {
-  for (const delay of NUDGE_DELAYS_MS) {
-    window.setTimeout(nudgeGeneralSaleObservers, delay);
-  }
+function notifyCartMutation(source: string) {
+  emitCartMutated(source);
+  window.setTimeout(() => emitCartMutated(`${source}:settled`), FALLBACK_EVENT_DELAY_MS);
 }
 
 export function PosGeneralSaleCartReconcileBridge() {
@@ -29,24 +24,24 @@ export function PosGeneralSaleCartReconcileBridge() {
 
     window.localStorage.setItem = (key: string, value: string) => {
       originalSetItem(key, value);
-      if (key === CART_STORAGE_KEY) scheduleNudges();
+      if (key === CART_STORAGE_KEY) notifyCartMutation("local_storage_set");
     };
 
     window.localStorage.removeItem = (key: string) => {
       originalRemoveItem(key);
-      if (key === CART_STORAGE_KEY) scheduleNudges();
+      if (key === CART_STORAGE_KEY) notifyCartMutation("local_storage_remove");
     };
 
     window.localStorage.clear = () => {
       originalClear();
-      scheduleNudges();
+      notifyCartMutation("local_storage_clear");
     };
 
     const onClick = (event: MouseEvent) => {
       if (!(event.target instanceof Element)) return;
       const actionButton = event.target.closest(`${TABLE_SELECTOR} button[data-sd-action][data-sd-index]`);
       if (!actionButton) return;
-      scheduleNudges();
+      notifyCartMutation("general_sale_table_action");
     };
 
     document.addEventListener("click", onClick, true);

@@ -53,6 +53,18 @@ describe("POS SD general sale mode helpers", () => {
     expect(normalizeGeneralSaleScanCode(null)).toBe("");
   });
 
+  it("keeps numeric barcode scans working while Windows uses the Thai keyboard layout", () => {
+    expect(normalizeGeneralSaleScanCode("ๅ/-ภถุึคตจ")).toBe("1234567890");
+    expect(normalizeGeneralSaleScanCode("๘๘๕๑๒๓๔๕๖๗๘๙๐")).toBe("8851234567890");
+    expect(normalizeGeneralSaleScanCode("  ๅ/-ภถุึคตจ  ")).toBe("1234567890");
+    expect(normalizeGeneralSaleScanCode("//////")).toBe("222222");
+  });
+
+  it("does not reinterpret short punctuation-only manual SKUs as Thai scanner digits", () => {
+    expect(normalizeGeneralSaleScanCode("-")).toBe("-");
+    expect(normalizeGeneralSaleScanCode("/")).toBe("/");
+  });
+
   it("matches canonical scanner SKU against an exact normalized legacy SKU only", () => {
     expect(isExactGeneralSaleSkuMatch("097339", "097339")).toBe(true);
     expect(isExactGeneralSaleSkuMatch("097339", "PRD-ก๋วยเตี๋ยว-097339")).toBe(true);

@@ -7,7 +7,7 @@ const MODE_ATTRIBUTE = "data-pos-sale-mode";
 const LOCK_ATTRIBUTE = "data-it-sales-mode-locked";
 const BADGE_ATTRIBUTE = "data-it-sales-mode-lock-badge";
 const STYLE_ID = "cpipos-it-sales-mode-policy-style";
-const POLICY_REFRESH_MS = 30_000;
+const POLICY_REFRESH_MS = 60_000;
 
 type FeaturesEnvelope = {
   data?: {
@@ -106,6 +106,7 @@ export function PosSalesModePolicyController() {
     let destroyed = false;
     let modes: PosSalesModeSettings = { ...DEFAULT_POS_SALES_MODES };
     let requestSequence = 0;
+    let applyFrame: number | null = null;
 
     ensurePolicyStyles();
 
@@ -116,6 +117,14 @@ export function PosSalesModePolicyController() {
         if (!key) return;
         element.setAttribute("data-it-sales-mode-lock-key", key);
         setElementLocked(element, modes[key] === false);
+      });
+    };
+
+    const scheduleApplyPolicy = () => {
+      if (destroyed || document.hidden || applyFrame !== null) return;
+      applyFrame = window.requestAnimationFrame(() => {
+        applyFrame = null;
+        applyPolicy();
       });
     };
 
@@ -131,7 +140,7 @@ export function PosSalesModePolicyController() {
         const payload = (await response.json().catch(() => null)) as FeaturesEnvelope | null;
         if (destroyed || sequence !== requestSequence) return;
         modes = normalizePosSalesModes(payload?.data?.sales_modes);
-        applyPolicy();
+        scheduleApplyPolicy();
       } catch {
         // Keep the last known policy. Temporary network problems must not rewrite the UI policy.
       }
@@ -148,12 +157,15 @@ export function PosSalesModePolicyController() {
       setElementLocked(target, true);
     };
 
-    const observer = new MutationObserver(() => applyPolicy());
+    const observer = new MutationObserver(() => scheduleApplyPolicy());
     observer.observe(document.body, { childList: true, subtree: true });
     document.addEventListener("click", onClickCapture, true);
 
     const onVisibility = () => {
-      if (document.visibilityState === "visible") void requestPolicy();
+      if (document.visibilityState === "visible") {
+        scheduleApplyPolicy();
+        void requestPolicy();
+      }
     };
     const onFocus = () => void requestPolicy();
     document.addEventListener("visibilitychange", onVisibility);
@@ -167,6 +179,7 @@ export function PosSalesModePolicyController() {
     return () => {
       destroyed = true;
       window.clearInterval(intervalId);
+      if (applyFrame !== null) window.cancelAnimationFrame(applyFrame);
       observer.disconnect();
       document.removeEventListener("click", onClickCapture, true);
       document.removeEventListener("visibilitychange", onVisibility);

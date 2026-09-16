@@ -16,7 +16,7 @@ describe("POS SD general sale source contract", () => {
   });
 
   it("resolves scans from the branch product catalog instead of visible product cards", () => {
-    const controller = readRepoFile("src", "components", "pos", "pos-general-sale-mode-controller.tsx");
+    const controller = readRepoFile("src", "components", "pos", "pos-general-sale-table-controller.tsx");
     const lookupRoute = readRepoFile("src", "app", "api", "pos", "products", "lookup", "route.ts");
     const catalog = readRepoFile("src", "components", "pos", "pos-product-catalog.tsx");
 
@@ -40,13 +40,13 @@ describe("POS SD general sale source contract", () => {
   });
 
   it("keeps the scanner table read-only toward stored cart data and delegates cart actions to React controls", () => {
-    const controller = readRepoFile("src", "components", "pos", "pos-general-sale-mode-controller.tsx");
+    const controller = readRepoFile("src", "components", "pos", "pos-general-sale-table-controller.tsx");
     const tableModel = readRepoFile("src", "lib", "pos-general-sale-cart-table.ts");
 
     expect(controller).toContain('POS_TAKEAWAY_CART_STORAGE_KEY = "pos_sales_cart_v012"');
     expect(controller).toContain('POS_SALES_SNAPSHOT_STORAGE_KEY = "pos_sales_snapshot_v001"');
-    expect(controller).toContain("localStorage.getItem(POS_TAKEAWAY_CART_STORAGE_KEY)");
-    expect(controller).toContain("localStorage.getItem(POS_SALES_SNAPSHOT_STORAGE_KEY)");
+    expect(controller).toContain("window.localStorage.getItem(POS_TAKEAWAY_CART_STORAGE_KEY)");
+    expect(controller).toContain("window.localStorage.getItem(POS_SALES_SNAPSHOT_STORAGE_KEY)");
     expect(controller).not.toContain("localStorage.setItem(POS_TAKEAWAY_CART_STORAGE_KEY");
     expect(controller).not.toContain("localStorage.setItem(POS_SALES_SNAPSHOT_STORAGE_KEY");
     expect(controller).toContain("target?.click();");
@@ -55,16 +55,15 @@ describe("POS SD general sale source contract", () => {
     expect(tableModel).toContain("lineTotal");
   });
 
-  it("supports both product-grid and scanner-table layouts without creating another checkout engine", () => {
-    const controller = readRepoFile("src", "components", "pos", "pos-general-sale-mode-controller.tsx");
-    const mode = readRepoFile("src", "lib", "pos-general-sale-mode.ts");
+  it("keeps grocery/general-sale on scanner-table layout without creating another checkout engine", () => {
+    const controller = readRepoFile("src", "components", "pos", "pos-general-sale-table-controller.tsx");
 
-    expect(mode).toContain('export type GeneralSaleCartLayout = "grid" | "table"');
-    expect(controller).toContain('setGeneralSaleLayout("grid")');
-    expect(controller).toContain('setGeneralSaleLayout("table")');
-    expect(controller).toContain("GENERAL_SALE_LAYOUT_ATTRIBUTE");
+    expect(controller).toContain('window.localStorage.setItem(GENERAL_SALE_LAYOUT_STORAGE_KEY, "table")');
+    expect(controller).toContain('document.documentElement.setAttribute(GENERAL_SALE_LAYOUT_ATTRIBUTE, "table")');
     expect(controller).toContain("GENERAL_SALE_CHECKOUT_BASE_MODE");
     expect(controller).toContain("homeButton.click();");
+    expect(controller).not.toContain('data.sdLayout = "grid"');
+    expect(controller).not.toContain('"สินค้า + ตะกร้า"');
     expect(controller).not.toContain('fetch("/api/pos/sales"');
     expect(controller).not.toContain("order_type");
     expect(controller).not.toContain("printer-routing");
@@ -72,7 +71,7 @@ describe("POS SD general sale source contract", () => {
   });
 
   it("gates SD with the existing package and branch feature-control plane", () => {
-    const controller = readRepoFile("src", "components", "pos", "pos-general-sale-mode-controller.tsx");
+    const controller = readRepoFile("src", "components", "pos", "pos-general-sale-table-controller.tsx");
     const featureMap = readRepoFile("src", "lib", "pos-feature-map.ts");
     const featuresRoute = readRepoFile("src", "app", "api", "pos", "features", "route.ts");
 
@@ -84,11 +83,13 @@ describe("POS SD general sale source contract", () => {
     expect(controller).not.toContain("550");
   });
 
-  it("mounts SD General Sale on both primary POS entry routes", () => {
+  it("mounts the optimized SD General Sale controller on both primary POS entry routes", () => {
     const previewPage = readRepoFile("src", "app", "preview", "pos", "page.tsx");
     const salesPage = readRepoFile("src", "app", "(backoffice)", "pos", "sales", "page.tsx");
 
-    expect(previewPage).toContain("<PosGeneralSaleModeController />");
-    expect(salesPage).toContain("<PosGeneralSaleModeController />");
+    expect(previewPage).toContain("<PosGeneralSaleTableController />");
+    expect(salesPage).toContain("<PosGeneralSaleTableController />");
+    expect(previewPage).not.toContain("<PosGeneralSaleModeController />");
+    expect(salesPage).not.toContain("<PosGeneralSaleModeController />");
   });
 });
