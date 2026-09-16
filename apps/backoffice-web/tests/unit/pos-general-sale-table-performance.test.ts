@@ -8,6 +8,8 @@ function readSource(path: string) {
 
 const page = readSource("src/app/preview/pos/page.tsx");
 const controller = readSource("src/components/pos/pos-general-sale-table-controller.tsx");
+const runtime = readSource("src/components/pos/pos-general-sale-runtime.tsx");
+const policy = readSource("src/components/pos/pos-sales-mode-policy-controller.tsx");
 
 describe("POS general-sale table-only performance contract", () => {
   it("mounts the optimized table-only controller instead of the legacy grid/table controller", () => {
@@ -33,5 +35,21 @@ describe("POS general-sale table-only performance contract", () => {
     expect(controller).toContain('const CART_MUTATED_EVENT = "cpipos:pos-cart-mutated"');
     expect(controller).toContain('window.addEventListener(CART_MUTATED_EVENT, onCartMutated)');
     expect(controller).toContain("scheduleTableRender(0)");
+  });
+
+  it("mounts grocery-only cart/cash observers only while grocery mode is active", () => {
+    expect(page).toContain("<PosGeneralSaleRuntime />");
+    expect(page).not.toContain("<PosGeneralSaleCartReconcileBridge />");
+    expect(page).not.toContain("<PosGeneralSaleFrontCashPanel />");
+    expect(runtime).toContain("if (!active) return null");
+    expect(runtime).toContain("<PosGeneralSaleCartReconcileBridge />");
+    expect(runtime).toContain("<PosGeneralSaleFrontCashPanel />");
+  });
+
+  it("coalesces IT sales-mode policy DOM work and reduces visible-tab polling", () => {
+    expect(policy).toContain("requestAnimationFrame");
+    expect(policy).toContain("scheduleApplyPolicy");
+    expect(policy).toContain("POLICY_REFRESH_MS = 60_000");
+    expect(policy).not.toContain("new MutationObserver(() => applyPolicy())");
   });
 });
