@@ -13,7 +13,9 @@ const GRID_BUTTON_QUERY = '[data-sd-layout="grid"]';
 
 function persistTableLayout() {
   try {
-    window.localStorage.setItem(GENERAL_SALE_LAYOUT_STORAGE_KEY, "table");
+    if (window.localStorage.getItem(GENERAL_SALE_LAYOUT_STORAGE_KEY) !== "table") {
+      window.localStorage.setItem(GENERAL_SALE_LAYOUT_STORAGE_KEY, "table");
+    }
   } catch {
     // Private/hardened WebViews may block storage; the DOM attribute remains authoritative.
   }
@@ -21,8 +23,12 @@ function persistTableLayout() {
 
 function enforceTableLayout() {
   persistTableLayout();
-  if (document.documentElement.getAttribute(GENERAL_SALE_ROOT_ATTRIBUTE) === GENERAL_SALE_MODE_ID) {
-    document.documentElement.setAttribute(GENERAL_SALE_LAYOUT_ATTRIBUTE, "table");
+  const root = document.documentElement;
+  if (
+    root.getAttribute(GENERAL_SALE_ROOT_ATTRIBUTE) === GENERAL_SALE_MODE_ID &&
+    root.getAttribute(GENERAL_SALE_LAYOUT_ATTRIBUTE) !== "table"
+  ) {
+    root.setAttribute(GENERAL_SALE_LAYOUT_ATTRIBUTE, "table");
   }
 }
 
@@ -60,7 +66,7 @@ export function PosGroceryTableOnlyGuard() {
     enforceTableLayout();
 
     const scheduleEnforce = () => {
-      if (disposed || frame !== null) return;
+      if (disposed || document.hidden || frame !== null) return;
       frame = window.requestAnimationFrame(() => {
         frame = null;
         enforceTableLayout();
