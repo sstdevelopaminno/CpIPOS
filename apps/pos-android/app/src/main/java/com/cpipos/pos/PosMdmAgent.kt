@@ -35,6 +35,7 @@ class PosMdmAgent(
     private val prefs = appContext.getSharedPreferences("cpipos_android_pos_mdm", Context.MODE_PRIVATE)
     private val diagnostics = AndroidDiagnostics(appContext)
     private val updateManager = AndroidUpdateManager(appContext)
+    private val fullMdmAgent = FullMdmAgent(appContext)
     private val mainHandler = Handler(Looper.getMainLooper())
     private val started = AtomicBoolean(false)
     private var executor: ScheduledExecutorService? = null
@@ -216,6 +217,7 @@ class PosMdmAgent(
                 else -> null
             }
             updateManager.handleOffer(updateOffer)
+            val producedFullMdmResult = fullMdmAgent.applyResponse(data ?: response)
 
             val commands = when {
                 response.has("commands") -> response.optJSONArray("commands")
@@ -229,6 +231,8 @@ class PosMdmAgent(
                     if (action.isNotBlank()) executeSafeCommand(action, "heartbeat_response")
                 }
             }
+
+            if (producedFullMdmResult) sendHeartbeat("full_mdm_result")
         }
     }
 
@@ -296,6 +300,8 @@ class PosMdmAgent(
             .put("install_id", installId)
             .put("timestamp_ms", System.currentTimeMillis())
             .put("safe_command_allowlist", JSONArray(SAFE_ACTIONS.toList()))
+            .put("full_mdm", fullMdmAgent.snapshot())
+            .put("full_mdm_results", fullMdmAgent.pendingResults())
             .put("update_capabilities", buildUpdateCapabilities())
             .put("update_state", updateManager.snapshot())
             .put(
