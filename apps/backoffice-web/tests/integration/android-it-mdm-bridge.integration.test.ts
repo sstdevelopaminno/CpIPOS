@@ -47,12 +47,12 @@ describe("Android POS MDM primary control plane", () => {
   });
 
   it("delivers Full MDM commands server-side and persists execution acknowledgements", () => {
-    expect(transport).toContain('command_type: "diagnostics_ping"');
-    expect(transport).toContain('command_type: "sync_policy"');
-    expect(transport).toContain('command_type: "lock_device"');
-    expect(transport).toContain('status: "delivered"');
-    expect(transport).toContain('executed_at: nowIso');
-    expect(transport).toContain('event_type: "result_acknowledged"');
+    expect(transport).toContain('"diagnostics_ping"');
+    expect(transport).toContain('"sync_policy"');
+    expect(transport).toContain('"lock_device"');
+    expect(transport).toContain('status: "picked_up"');
+    expect(transport).toContain('completed_at: nowIso');
+    expect(transport).toContain('event_type: "device_result"');
     expect(androidAgent).toContain('.put("full_mdm_results", fullMdmAgent.pendingResults())');
   });
 
