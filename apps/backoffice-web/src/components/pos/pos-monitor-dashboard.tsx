@@ -118,8 +118,8 @@ function numberFmt(value: number): string {
 
 function pollMs(): number {
   const raw = Number(process.env.NEXT_PUBLIC_POS_MONITOR_POLL_MS);
-  if (Number.isFinite(raw)) return Math.max(15000, Math.floor(raw));
-  return 30000;
+  if (Number.isFinite(raw)) return Math.max(60_000, Math.floor(raw));
+  return 120_000;
 }
 
 export function PosMonitorDashboard({ lang }: { lang: Lang }) {
@@ -135,8 +135,13 @@ export function PosMonitorDashboard({ lang }: { lang: Lang }) {
   useEffect(() => {
     const controller = new AbortController();
     let timer: number | null = null;
+    let inFlight = false;
+    let lastFetchedAt = 0;
 
     async function load() {
+      if (controller.signal.aborted || inFlight || document.visibilityState === "hidden") return;
+      inFlight = true;
+      lastFetchedAt = Date.now();
       setErrorText(null);
       try {
         const response = await fetch("/api/admin/pos/monitor", { method: "GET", cache: "no-store", signal: controller.signal });
@@ -149,21 +154,26 @@ export function PosMonitorDashboard({ lang }: { lang: Lang }) {
         if (controller.signal.aborted) return;
         setErrorText(error instanceof Error ? error.message : "Unknown error");
       } finally {
+        inFlight = false;
         if (!controller.signal.aborted) {
           setLoading(false);
         }
       }
     }
 
+    const refreshIfStale = () => {
+      if (document.visibilityState !== "visible" || Date.now() - lastFetchedAt < pollMs()) return;
+      void load();
+    };
     void load();
-    timer = window.setInterval(() => {
-      if (!controller.signal.aborted) {
-        void load();
-      }
-    }, pollMs());
+    timer = window.setInterval(refreshIfStale, pollMs());
+    document.addEventListener("visibilitychange", refreshIfStale);
+    window.addEventListener("focus", refreshIfStale);
 
     return () => {
       controller.abort();
+      document.removeEventListener("visibilitychange", refreshIfStale);
+      window.removeEventListener("focus", refreshIfStale);
       if (timer !== null) {
         window.clearInterval(timer);
       }
