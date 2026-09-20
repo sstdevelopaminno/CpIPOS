@@ -1,8 +1,8 @@
 import { DownloadCenterClient } from "./download-center-client";
 
 export const metadata = {
-  title: "Download CpIPOS Desktop 0.2.7",
-  description: "ดาวน์โหลด CpIPOS Desktop Windows 0.2.7 และ CpIPOS POS สำหรับ Android"
+  title: "CpIPOS Download Center",
+  description: "ดาวน์โหลด CpIPOS เวอร์ชันล่าสุดสำหรับ Windows และ Android"
 };
 
 export default function CpiposDownloadCenterPage() {
