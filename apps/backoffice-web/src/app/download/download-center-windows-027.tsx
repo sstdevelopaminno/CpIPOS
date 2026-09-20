@@ -95,9 +95,11 @@ export function DownloadCenterWindows027() {
       <div className="relative mx-auto flex min-h-dvh max-w-7xl flex-col px-5 py-7 sm:px-8 lg:px-10">
         <header className="flex items-center justify-between gap-4">
           <div className="flex items-center gap-4">
-            <div className="flex h-14 w-14 items-center justify-center rounded-2xl border border-sky-300/20 bg-white/8 p-2 shadow-lg shadow-black/20 backdrop-blur-xl">
-              <img src="/brand/cpipos-logo.png" alt="CpIPOS" className="h-full w-full object-contain" />
-            </div>
+            <img
+              src="/brand/cpipos-symbol-transparent.png"
+              alt="CpIPOS"
+              className="h-14 w-14 object-contain drop-shadow-[0_0_24px_rgba(56,189,248,.35)]"
+            />
             <div className="leading-tight">
               <p className="text-xl font-black tracking-tight text-white">CpIPOS</p>
               <p className="text-sm font-semibold text-slate-400">Download Center</p>
