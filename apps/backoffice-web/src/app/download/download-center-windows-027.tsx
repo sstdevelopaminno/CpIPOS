@@ -1,80 +1,141 @@
 "use client";
 
-const WINDOWS_DESKTOP_VERSION = "0.2.7";
-const WINDOWS_DESKTOP_DOWNLOAD_URL = "/download/windows-runtime/latest";
-const WINDOWS_DESKTOP_FILE = "CpIPOS.Desktop_0.2.7_x64-setup.exe";
+const WINDOWS_VERSION = "0.3.3";
+const ANDROID_VERSION = "1.0.23";
+const WINDOWS_DOWNLOAD_URL = "/download/windows-runtime/latest";
+const ANDROID_DOWNLOAD_URL = "/download/android/latest";
+const WINDOWS_FILE = "CpIPOS.Desktop_0.3.3_x64-setup.exe";
+const ANDROID_FILE = "CpIPOS-Android-POS-1.0.23.apk";
+
+type DownloadCardProps = {
+  title: string;
+  platform: string;
+  version: string;
+  fileName: string;
+  href: string;
+  tone: "windows" | "android";
+};
+
+function WindowsIcon() {
+  return (
+    <svg viewBox="0 0 24 24" className="h-8 w-8" aria-hidden="true">
+      <path d="M3 5.3 10.4 4v7H3V5.3Zm8.6-1.5L21 2.4V11h-9.4V3.8ZM3 12.2h7.4v7L3 17.9v-5.7Zm8.6 0H21v9.4l-9.4-1.5v-7.9Z" fill="currentColor" />
+    </svg>
+  );
+}
+
+function AndroidIcon() {
+  return (
+    <svg viewBox="0 0 24 24" className="h-8 w-8" fill="none" aria-hidden="true">
+      <path d="M7.2 9.2h9.6a1.8 1.8 0 0 1 1.8 1.8v6.2a2.4 2.4 0 0 1-2.4 2.4H7.8a2.4 2.4 0 0 1-2.4-2.4V11a1.8 1.8 0 0 1 1.8-1.8Z" fill="currentColor" />
+      <path d="M8.1 7.2 6.6 4.7m9.3 2.5 1.5-2.5M8.5 12.6h.1m6.8 0h.1" stroke="#052e2b" strokeWidth="1.8" strokeLinecap="round" />
+      <path d="M3.6 11.3v5.2m16.8-5.2v5.2" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function DownloadIcon() {
+  return (
+    <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" aria-hidden="true">
+      <path d="M12 4v10m0 0 4-4m-4 4-4-4M5 19h14" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function FileIcon() {
+  return (
+    <svg viewBox="0 0 24 24" className="h-4 w-4 shrink-0" fill="none" aria-hidden="true">
+      <path d="M7 3.8h6.6L18 8.2v12H7v-16Z" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
+      <path d="M13.5 4v4.5H18" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function DownloadCard({ title, platform, version, fileName, href, tone }: DownloadCardProps) {
+  const isWindows = tone === "windows";
+  const accent = isWindows ? "sky" : "emerald";
+
+  return (
+    <article className={`group relative overflow-hidden rounded-[2rem] border ${isWindows ? "border-sky-300/35" : "border-emerald-300/35"} bg-slate-950/45 p-6 shadow-2xl shadow-black/25 backdrop-blur-xl sm:p-8`}>
+      <div className={`absolute inset-0 opacity-70 transition group-hover:opacity-100 ${isWindows ? "bg-[radial-gradient(circle_at_20%_15%,rgba(56,189,248,.24),transparent_34%),radial-gradient(circle_at_80%_70%,rgba(59,130,246,.18),transparent_36%)]" : "bg-[radial-gradient(circle_at_20%_15%,rgba(52,211,153,.24),transparent_34%),radial-gradient(circle_at_82%_70%,rgba(20,184,166,.18),transparent_38%)]"}`} />
+      <div className="relative">
+        <div className="flex items-start justify-between gap-4">
+          <div className={`grid h-16 w-16 place-items-center rounded-3xl border ${isWindows ? "border-sky-300/25 bg-sky-400/15 text-sky-200" : "border-emerald-300/25 bg-emerald-400/15 text-emerald-200"}`}>
+            {isWindows ? <WindowsIcon /> : <AndroidIcon />}
+          </div>
+          <div className={`rounded-full border px-4 py-2 text-sm font-black ${isWindows ? "border-sky-300/35 bg-sky-400/15 text-sky-100" : "border-emerald-300/35 bg-emerald-400/15 text-emerald-100"}`}>v{version}</div>
+        </div>
+
+        <div className="mt-7">
+          <h2 className="text-3xl font-black tracking-tight text-white">{title}</h2>
+          <p className="mt-2 text-base font-semibold text-slate-300">{platform}</p>
+        </div>
+
+        <div className="mt-6 flex min-w-0 items-center gap-3 rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3 text-sm text-slate-300">
+          <FileIcon />
+          <span className="truncate">{fileName}</span>
+        </div>
+
+        <a href={href} className={`mt-7 inline-flex min-h-14 w-full items-center justify-center gap-3 rounded-2xl px-5 text-base font-black text-slate-950 shadow-lg transition hover:-translate-y-0.5 ${accent === "sky" ? "bg-sky-300 shadow-sky-950/40 hover:bg-sky-200" : "bg-emerald-300 shadow-emerald-950/40 hover:bg-emerald-200"}`}>
+          <DownloadIcon />
+          ดาวน์โหลด {isWindows ? "Windows" : "Android"}
+        </a>
+      </div>
+    </article>
+  );
+}
 
 export function DownloadCenterWindows027() {
   return (
-    <main className="min-h-dvh overflow-y-auto bg-[radial-gradient(circle_at_top,_#0b2447_0%,_#061227_38%,_#020617_78%)] text-slate-100">
-      <div className="mx-auto flex min-h-dvh max-w-6xl flex-col px-4 py-8 sm:px-6 lg:px-8">
+    <main className="relative min-h-dvh overflow-hidden bg-[#020617] text-slate-100">
+      <div className="pointer-events-none absolute -left-32 -top-32 h-96 w-96 rounded-full bg-sky-500/20 blur-3xl" />
+      <div className="pointer-events-none absolute -right-32 top-44 h-[28rem] w-[28rem] rounded-full bg-cyan-500/10 blur-3xl" />
+      <div className="pointer-events-none absolute bottom-[-10rem] left-1/2 h-[26rem] w-[44rem] -translate-x-1/2 rounded-full bg-blue-600/10 blur-3xl" />
+
+      <div className="relative mx-auto flex min-h-dvh max-w-7xl flex-col px-5 py-7 sm:px-8 lg:px-10">
         <header className="flex items-center justify-between gap-4">
-          <div className="flex items-center gap-3">
-            <div className="grid h-12 w-12 place-items-center rounded-2xl border border-sky-400/25 bg-sky-400/10 text-lg font-black text-sky-300">CP</div>
-            <div>
-              <p className="text-lg font-black tracking-tight text-white">CpIPOS</p>
-              <p className="text-xs font-semibold text-slate-400">Download Center</p>
+          <div className="flex items-center gap-4">
+            <div className="flex h-14 w-14 items-center justify-center rounded-2xl border border-sky-300/20 bg-white/8 p-2 shadow-lg shadow-black/20 backdrop-blur-xl">
+              <img src="/brand/cpipos-logo.png" alt="CpIPOS" className="h-full w-full object-contain" />
+            </div>
+            <div className="leading-tight">
+              <p className="text-xl font-black tracking-tight text-white">CpIPOS</p>
+              <p className="text-sm font-semibold text-slate-400">Download Center</p>
             </div>
           </div>
-          <a href="/login/store" className="inline-flex min-h-11 items-center justify-center rounded-xl border border-slate-700 bg-slate-900/70 px-4 text-sm font-bold text-slate-100 transition hover:border-sky-500/60 hover:bg-sky-500/10 hover:text-sky-200">เข้าใช้งาน Web App</a>
+          <p className="hidden text-xs font-bold uppercase tracking-[0.32em] text-slate-500 sm:block">Simple · Stable</p>
         </header>
 
-        <section className="mx-auto mt-14 max-w-4xl text-center sm:mt-20">
-          <div className="mx-auto mb-5 inline-flex items-center gap-2 rounded-full border border-emerald-400/25 bg-emerald-400/10 px-4 py-2 text-xs font-extrabold uppercase tracking-[0.18em] text-emerald-300">
-            <span className="h-2 w-2 rounded-full bg-emerald-400" />
-            Windows Desktop Ready
-          </div>
-          <h1 className="text-4xl font-black tracking-tight text-white sm:text-6xl">ดาวน์โหลด CpIPOS Desktop</h1>
-          <p className="mx-auto mt-5 max-w-3xl text-base leading-8 text-slate-300 sm:text-lg">
-            เวอร์ชันล่าสุดสำหรับ Windows Desktop POS พร้อมใช้งานแบบ Free Forever ชั่วคราว ก่อนเชื่อมต่อระบบหลังบ้าน IT, License และ MDM ในรอบถัดไป
+        <section className="mx-auto mt-16 max-w-4xl text-center sm:mt-20">
+          <div className="mx-auto mb-5 h-px w-20 bg-cyan-300" />
+          <h1 className="text-5xl font-black tracking-tight text-white sm:text-7xl">
+            ดาวน์โหลด <span className="bg-gradient-to-r from-sky-200 to-cyan-300 bg-clip-text text-transparent">CpIPOS</span>
+          </h1>
+          <p className="mx-auto mt-5 max-w-2xl text-lg font-semibold text-slate-300">
+            ไฟล์ดาวน์โหลดเวอร์ชันล่าสุดสำหรับ Windows และ Android
           </p>
         </section>
 
-        <section className="mx-auto mt-10 grid w-full max-w-5xl gap-6 lg:grid-cols-[1.12fr_.88fr]">
-          <article className="relative overflow-hidden rounded-[2rem] border border-sky-300/45 bg-gradient-to-b from-sky-900/70 via-blue-950/65 to-slate-950 p-7 shadow-2xl shadow-sky-950/40">
-            <div className="absolute right-0 top-0 rounded-bl-3xl bg-sky-300 px-5 py-2 text-xs font-black uppercase tracking-wide text-slate-950">Windows Desktop v{WINDOWS_DESKTOP_VERSION}</div>
-            <div className="grid h-16 w-16 place-items-center rounded-3xl bg-sky-300/15 text-sky-200">
-              <svg viewBox="0 0 24 24" className="h-8 w-8" fill="none" aria-hidden="true">
-                <path d="M3 5.2 10.5 4v7H3V5.2ZM11.5 3.8 21 2.4V11h-9.5V3.8ZM3 12h7.5v7L3 17.8V12Zm8.5 0H21v9.6l-9.5-1.4V12Z" fill="currentColor" />
-              </svg>
-            </div>
-            <p className="mt-7 text-xs font-extrabold uppercase tracking-[0.14em] text-sky-200">Windows 10/11 Desktop POS · v{WINDOWS_DESKTOP_VERSION}</p>
-            <h2 className="mt-3 text-3xl font-black leading-tight text-white">CpIPOS Desktop - Windows</h2>
-            <p className="mt-5 text-sm leading-7 text-slate-300">
-              ตัวติดตั้ง Windows Desktop POS สำหรับเครื่องขายหน้าร้าน แก้ตะกร้าค้างหลังปิดบิล, แสดง Splash logo ก่อนเข้าโปรแกรม, ระบบขายด้วยคีย์บอร์ด, ใบเสร็จ 80mm, ลิ้นชักเงินสด, Export ข้อมูล และใบสรุปปิดกะ
-            </p>
-            <div className="mt-6 rounded-2xl border border-emerald-400/25 bg-emerald-400/10 px-4 py-3 text-sm font-bold leading-6 text-emerald-100">
-              รุ่นนี้เปิดใช้งานฟรีตลอดชั่วคราว ไม่บังคับ License Server และยังไม่เชื่อม MDM/Backend IT อัตโนมัติ
-            </div>
-            <div className="mt-6 flex flex-wrap gap-3">
-              <span className="inline-flex items-center gap-2 rounded-full border border-emerald-400/25 bg-emerald-400/10 px-3 py-1.5 text-xs font-bold text-emerald-300"><span className="h-2 w-2 rounded-full bg-emerald-400" />Ready</span>
-              <span className="inline-flex items-center gap-2 rounded-full border border-sky-300/25 bg-sky-300/10 px-3 py-1.5 text-xs font-bold text-sky-200">Free Forever</span>
-              <span className="inline-flex items-center gap-2 rounded-full border border-slate-600/60 bg-slate-900/70 px-3 py-1.5 text-xs font-bold text-slate-300">80mm receipt</span>
-            </div>
-            <div className="mt-8">
-              <p className="mb-4 truncate text-xs text-slate-500">ไฟล์: {WINDOWS_DESKTOP_FILE}</p>
-              <a href={WINDOWS_DESKTOP_DOWNLOAD_URL} className="inline-flex min-h-13 w-full items-center justify-center rounded-xl bg-sky-300 px-5 py-4 text-center text-sm font-black text-slate-950 shadow-lg shadow-sky-950/40 transition hover:bg-sky-200">
-                ดาวน์โหลด CpIPOS Desktop {WINDOWS_DESKTOP_VERSION}
-              </a>
-            </div>
-          </article>
-
-          <aside className="rounded-[2rem] border border-slate-700/70 bg-slate-950/70 p-7 shadow-2xl shadow-black/20">
-            <h3 className="text-xl font-black text-white">รายละเอียดเวอร์ชัน</h3>
-            <div className="mt-5 space-y-4 text-sm leading-7 text-slate-300">
-              <p><strong className="text-sky-200">Version:</strong> {WINDOWS_DESKTOP_VERSION}</p>
-              <p><strong className="text-sky-200">Platform:</strong> Windows 10/11 x64</p>
-              <p><strong className="text-sky-200">Status:</strong> Stable test release</p>
-              <p><strong className="text-sky-200">License:</strong> Free Forever release</p>
-            </div>
-            <div className="mt-7 rounded-2xl border border-amber-400/25 bg-amber-400/10 px-4 py-3 text-sm font-bold leading-6 text-amber-100">
-              ก่อนติดตั้งใหม่ ให้ปิด CpIPOS Desktop ตัวเก่าก่อน หากติดตั้งทับแล้วไม่เปลี่ยน ให้ถอนเวอร์ชันเก่าออกก่อนแล้วติดตั้งใหม่
-            </div>
-            <a href="/download/android/latest" className="mt-6 inline-flex w-full items-center justify-center rounded-xl border border-slate-700 bg-slate-900/80 px-4 py-3 text-sm font-bold text-slate-200 transition hover:border-emerald-400/45 hover:text-emerald-200">ดาวน์โหลด Android POS</a>
-          </aside>
+        <section className="mx-auto mt-12 grid w-full max-w-5xl gap-6 lg:grid-cols-2">
+          <DownloadCard
+            title="Windows Desktop"
+            platform="สำหรับ Windows 10/11 x64"
+            version={WINDOWS_VERSION}
+            fileName={WINDOWS_FILE}
+            href={WINDOWS_DOWNLOAD_URL}
+            tone="windows"
+          />
+          <DownloadCard
+            title="Android POS"
+            platform="สำหรับ Android POS"
+            version={ANDROID_VERSION}
+            fileName={ANDROID_FILE}
+            href={ANDROID_DOWNLOAD_URL}
+            tone="android"
+          />
         </section>
 
-        <footer className="mt-auto pt-10 text-center text-xs text-slate-500">CUTTING POINT TECH CO., LTD. · CpIPOS Download Center</footer>
+        <footer className="mt-auto pt-14 text-center text-sm font-semibold text-slate-500">© CpIPOS Download Center</footer>
       </div>
     </main>
   );
