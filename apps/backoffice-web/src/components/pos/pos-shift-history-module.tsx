@@ -1474,7 +1474,9 @@ export function PosShiftHistoryModule({ lang }: { lang: Lang }) {
             className={`relative w-full rounded-2xl border border-slate-200 bg-white shadow-2xl transition-all duration-200 ${
               modalKind === "receipt"
                 ? "max-h-[calc(100dvh-1.5rem)] max-w-[440px] overflow-y-auto p-3 sm:max-h-[calc(100dvh-2rem)] sm:p-4"
-                : "max-w-md p-4"
+                : modalKind === "details" || modalKind === "summary"
+                  ? "max-h-[calc(100dvh-1.5rem)] max-w-[520px] overflow-y-auto p-4"
+                  : "max-w-md p-4"
             } ${
               modalVisible ? "translate-y-0 scale-100 opacity-100" : "translate-y-2 scale-95 opacity-0"
             }`}
@@ -1697,7 +1699,9 @@ export function PosShiftHistoryModule({ lang }: { lang: Lang }) {
                         <strong className="text-right">{selectedShift.closed_at ? formatDateTime(selectedShift.closed_at, lang) : "-"}</strong>
                       </p>
                       <hr className="border-slate-200" />
-                      <p className="flex justify-between gap-3">
+                      <p className="flex justify-between gap-3"><span>{text.orders}</span><strong>{selectedShift.metrics.order_count}</strong></p>
+                      <p className="flex justify-between gap-3"><span>{text.cancelled}</span><strong>{selectedShift.metrics.cancelled_order_count}</strong></p>
+                      <p className="flex justify-between gap-3 border-t border-slate-200 pt-2">
                         <span>{text.sales}</span>
                         <strong>{formatMoney(selectedShift.metrics.sales_total, lang)}</strong>
                       </p>
@@ -1709,8 +1713,9 @@ export function PosShiftHistoryModule({ lang }: { lang: Lang }) {
                         <span>{text.transfer}</span>
                         <strong>{formatMoney(selectedShift.metrics.transfer_total, lang)}</strong>
                       </p>
-                      <p className="flex justify-between gap-3">
-                        <span>{text.expected}</span>
+                      <p className="flex justify-between gap-3 border-t border-slate-200 pt-2"><span>{text.opening}</span><strong>{formatMoney(selectedShift.opening_cash, lang)}</strong></p>
+                      <p className="flex justify-between gap-3"><span>{text.receiptExpectedCash}</span><strong>{formatMoney(selectedShift.opening_cash + selectedShift.metrics.cash_total, lang)}</strong></p>
+                      <p className="flex justify-between gap-3"><span>{text.expected}</span>
                         <strong className={cashVarianceClass}>
                           {cashVariance === null ? "-" : formatSignedMoney(cashVariance, lang)}
                         </strong>
@@ -1722,6 +1727,22 @@ export function PosShiftHistoryModule({ lang }: { lang: Lang }) {
                     </>
                   );
                 })()}
+                <div className="mt-2 border-t border-slate-200 pt-3">
+                  <h4 className="font-black text-slate-900">{lang === "th" ? "รายการบิลในกะนี้" : "Bills in this shift"} ({selectedShift.bills.length})</h4>
+                  <div className="mt-2 max-h-48 space-y-2 overflow-y-auto">
+                    {selectedShift.bills.map((bill) => (
+                      <div key={bill.id} className="rounded-lg border border-slate-200 bg-white p-2 text-xs">
+                        <div className="flex justify-between gap-2"><span className="font-semibold text-slate-900">{bill.order_no ?? bill.id.slice(0, 8)}</span><strong>{formatMoney(bill.total, lang)}</strong></div>
+                        <p className="text-slate-500">{formatDateTime(bill.created_at, lang)} · {bill.status === "cancelled" ? text.cancelled : bill.status === "completed" ? (lang === "th" ? "ชำระแล้ว" : "Paid") : bill.status}</p>
+                        <p className="text-slate-600">{text.cash}: {formatMoney(bill.cash_total, lang)} · {lang === "th" ? "โอน/QR" : "Transfer/QR"}: {formatMoney(bill.transfer_total, lang)}</p>
+                      </div>
+                    ))}
+                    {!selectedShift.bills.length ? <p className="text-xs text-slate-500">{lang === "th" ? "ไม่พบรายการบิลในช่วงเวลาของกะนี้" : "No bills in this shift window."}</p> : null}
+                  </div>
+                </div>
+                <div className="rounded-xl border border-blue-100 bg-blue-50 px-3 py-2 text-xs text-blue-800">
+                  {lang === "th" ? "กะนี้เท่านั้น · ยอดรวมทุกกะในช่วงที่เลือก" : "This shift only · All selected shifts"}: <strong>{formatMoney(payload?.summary.sales_total ?? 0, lang)}</strong>
+                </div>
               </div>
             ) : null}
 
@@ -1801,6 +1822,12 @@ export function PosShiftHistoryModule({ lang }: { lang: Lang }) {
                   >
                     {modalKind === "active" || modalKind === "details" || modalKind === "summary" ? text.close : text.cancel}
                   </button>
+                  {modalKind === "details" ? (
+                    <button type="button" onClick={() => { setPeriodPrintNotice(null); openModal("summary"); }}
+                      className="h-10 rounded-xl border border-blue-200 bg-blue-50 px-3 text-sm font-bold text-blue-700">
+                      {lang === "th" ? "ดูยอดรวมทุกกะ" : "All shifts"}
+                    </button>
+                  ) : null}
                   {modalKind === "details" ? (
                     <button
                       type="button"
