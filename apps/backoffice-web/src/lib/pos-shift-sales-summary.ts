@@ -33,7 +33,7 @@ function inShiftWindow(createdAt: string | null, openedAt: string, endAt: Date) 
   const created = new Date(createdAt);
   const opened = new Date(openedAt);
   if (!Number.isFinite(created.getTime()) || !Number.isFinite(opened.getTime())) return false;
-  return created >= opened && created <= endAt;
+  return created.getTime() >= opened.getTime() && created.getTime() <= endAt.getTime();
 }
 
 export function calculateShiftSalesSummary(args: {
