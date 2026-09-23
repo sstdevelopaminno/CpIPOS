@@ -101,9 +101,9 @@ type CloseShiftResponse = {
       seller_name: string;
       opened_at: string;
       opening_cash: number;
-      closing_cash: number;
-      expected_cash: number;
-      actual_cash: number;
+      closing_cash: number | null;
+      expected_cash: number | null;
+      actual_cash: number | null;
     };
   } | null;
   error?: { code?: string; message?: string; count?: number; blockers?: ShiftOpenBillBlocker[] } | null;
@@ -201,11 +201,18 @@ function buildShiftCloseReceiptHtml(args: {
     receiptCutoffAt: string;
     receiptSeller: string;
     receiptClosingCash: string;
+    receiptOpeningCash: string;
+    receiptExpectedCash: string;
+    receiptActualCash: string;
+    variance: string;
   };
 }) {
   const { receipt, lang, labels } = args;
   const dt = (value: string) => escapeHtml(formatDateTime(value, lang));
-  const money = (value: number) => escapeHtml(formatMoney(value, lang));
+  const money = (value: number | null) => value === null ? "-" : escapeHtml(formatMoney(value, lang));
+  const variance = receipt.receipt.actual_cash === null || receipt.receipt.expected_cash === null
+    ? "-"
+    : escapeHtml(formatSignedMoney(Number((receipt.receipt.actual_cash - receipt.receipt.expected_cash).toFixed(2)), lang));
   const line = (left: string, right: string) =>
     `<p style="margin:0;display:flex;justify-content:space-between;gap:6px;"><span>${escapeHtml(left)}</span><strong>${right}</strong></p>`;
 
@@ -216,6 +223,8 @@ function buildShiftCloseReceiptHtml(args: {
 html,body{width:58mm;margin:0;padding:0;color:#000;font:11px/1.35 Tahoma,'Noto Sans Thai','Segoe UI',sans-serif;}
 main{width:54mm;margin:0 auto;padding:0.8mm 0;}
 h1,p{margin:0;}
+.summary p,.meta p{align-items:baseline;min-width:0;line-height:1.5}
+.summary strong,.meta strong{white-space:nowrap;text-align:right}
 .head{text-align:center;display:grid;gap:0.8mm}
 .divider{border-top:1px dashed #000;margin:1.3mm 0}
 .meta{display:grid;gap:0.7mm}
@@ -241,7 +250,12 @@ h1,p{margin:0;}
     ${line(labels.sales, money(receipt.summary.sales_total))}
     ${line(labels.cash, money(receipt.summary.cash_total))}
     ${line(labels.transfer, money(receipt.summary.transfer_total))}
+    <div class="divider"></div>
+    ${line(labels.receiptOpeningCash, money(receipt.receipt.opening_cash))}
+    ${line(labels.receiptExpectedCash, money(receipt.receipt.expected_cash))}
     ${line(labels.receiptClosingCash, money(receipt.receipt.closing_cash))}
+    ${line(labels.receiptActualCash, money(receipt.receipt.actual_cash))}
+    ${line(labels.variance, variance)}
   </section>
   <p class="brand">CpIPOS</p>
 </main></body></html>`;
@@ -648,14 +662,16 @@ export function PosShiftHistoryModule({ lang }: { lang: Lang }) {
     if (!sessionShift?.opened_at || sessionShift.status !== "open") return null;
     return resolveShiftCycle(sessionShift.opened_at);
   }, [sessionShift?.opened_at, sessionShift?.status]);
-  const activeShiftMetrics = useMemo(() => {
+  const activeShift = useMemo(() => {
     if (!sessionShift?.id) return null;
-    return payload?.shifts.find((shift) => shift.id === sessionShift.id)?.metrics ?? null;
+    return payload?.shifts.find((shift) => shift.id === sessionShift.id) ?? null;
   }, [payload?.shifts, sessionShift?.id]);
+  const activeShiftMetrics = activeShift?.metrics ?? null;
+  const activeShiftOpeningCash = activeShift?.opening_cash ?? 0;
   const hasClosingCashInput = closingCash.trim().length > 0;
   const closingCashAmount = Number(closingCash.trim() || "0");
   const closingCashIsValid = Number.isFinite(closingCashAmount) && closingCashAmount >= 0;
-  const closingCashExpected = activeShiftMetrics?.cash_total ?? 0;
+  const closingCashExpected = Number((activeShiftOpeningCash + (activeShiftMetrics?.cash_total ?? 0)).toFixed(2));
   const closingCashVariance = closingCashIsValid ? Number((closingCashAmount - closingCashExpected).toFixed(2)) : 0;
   const cashFloatLabel = lang === "th" ? "ใส่เงินทอน" : "Cash float";
   const cashVarianceLabel = lang === "th" ? "สถานะเงินสด" : "Cash status";
@@ -860,7 +876,7 @@ export function PosShiftHistoryModule({ lang }: { lang: Lang }) {
   async function closeShiftNow() {
     if (busy || !sessionShift?.id) return;
     const parsed = Number(closingCash.trim() || "0");
-    if (!Number.isFinite(parsed) || parsed < 0) {
+    if (!closingCash.trim() || !Number.isFinite(parsed) || parsed < 0) {
       setError(text.invalidMoney);
       return;
     }
@@ -965,7 +981,11 @@ export function PosShiftHistoryModule({ lang }: { lang: Lang }) {
           receiptClosedAt: text.receiptClosedAt,
           receiptCutoffAt: text.receiptCutoffAt,
           receiptSeller: text.receiptSeller,
-          receiptClosingCash: text.receiptClosingCash
+          receiptClosingCash: text.receiptClosingCash,
+          receiptOpeningCash: cashFloatLabel,
+          receiptExpectedCash: text.receiptExpectedCash,
+          receiptActualCash: text.receiptActualCash,
+          variance: text.expected
         }
       });
 
@@ -1318,7 +1338,7 @@ export function PosShiftHistoryModule({ lang }: { lang: Lang }) {
                     : modalKind === "details"
                       ? detailsTitle
                     : modalKind === "summary"
-                      ? lang === "th" ? "ยอดสรุป" : "Summary totals"
+                      ? lang === "th" ? "สรุปยอดตามช่วงเวลา" : "Period sales summary"
                     : text.popupTitleReceipt}
             </h3>
             <p className={modalKind === "receipt" ? "mt-1 text-xs leading-5 text-slate-600 sm:text-sm" : "mt-1 text-sm text-slate-600"}>
@@ -1333,7 +1353,7 @@ export function PosShiftHistoryModule({ lang }: { lang: Lang }) {
                     : modalKind === "details"
                       ? detailsTitle
                     : modalKind === "summary"
-                      ? lang === "th" ? "ดูยอดรวมตามช่วงเวลาและสาขาที่เลือก" : "Totals for the selected period and branch."
+                      ? lang === "th" ? "รวมทุกกะในช่วงเวลาและสาขาที่เลือก (ไม่ใช่ยอดกะเดียว)" : "Totals across shifts in the selected period and branch."
                     : text.popupDescReceipt}
             </p>
 
@@ -1426,14 +1446,18 @@ export function PosShiftHistoryModule({ lang }: { lang: Lang }) {
 
             {modalKind === "close" ? (
               <div className="mt-4 grid gap-2 rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
+                <p className="flex items-center justify-between gap-3 border-b border-slate-200 pb-2"><span className="font-semibold">{text.sales}</span><strong className="text-base text-slate-950">{formatMoney(activeShiftMetrics?.sales_total ?? 0, lang)}</strong></p>
+                <p className="flex items-center justify-between gap-3"><span>{text.orders} / {text.cancelled}</span><strong>{activeShiftMetrics?.order_count ?? 0} / {activeShiftMetrics?.cancelled_order_count ?? 0}</strong></p>
                 <p className="flex items-center justify-between gap-3">
                   <span>{text.cash}</span>
-                  <strong>{formatMoney(closingCashExpected, lang)}</strong>
+                  <strong>{formatMoney(activeShiftMetrics?.cash_total ?? 0, lang)}</strong>
                 </p>
                 <p className="flex items-center justify-between gap-3">
                   <span>{text.transfer}</span>
                   <strong>{formatMoney(activeShiftMetrics?.transfer_total ?? 0, lang)}</strong>
                 </p>
+                <p className="flex items-center justify-between gap-3 border-t border-slate-200 pt-2"><span>{cashFloatLabel}</span><strong>{formatMoney(activeShiftOpeningCash, lang)}</strong></p>
+                <p className="flex items-center justify-between gap-3"><span>{text.receiptExpectedCash}</span><strong>{formatMoney(closingCashExpected, lang)}</strong></p>
                 <p className="flex items-center justify-between gap-3 border-t border-slate-200 pt-2">
                   <span>{cashVarianceLabel}</span>
                   <strong
@@ -1539,16 +1563,16 @@ export function PosShiftHistoryModule({ lang }: { lang: Lang }) {
                     <div><dt>{text.receiptCutoffAt}</dt><dd>{formatDateTime(closeReceipt.summary_cutoff_at, lang)}</dd></div>
                   </dl>
                   <div className="posui-print-receipt58__divider" />
-                  <div className="posui-print-receipt58__summary">
+                  <div className="posui-print-receipt58__summary space-y-1 [&_p]:flex [&_p]:items-baseline [&_p]:justify-between [&_p]:gap-2 [&_p]:text-[11px] [&_p]:leading-5 [&_strong]:whitespace-nowrap [&_strong]:text-right">
                     <p className="is-heading"><span>{text.orders}</span><strong>{closeReceipt.summary.order_count}</strong></p>
                     <p className="is-muted"><span>{text.cancelled}</span><strong>{closeReceipt.summary.cancelled_order_count}</strong></p>
                     <p className="is-aux"><span>{text.sales}</span><strong>{formatMoney(closeReceipt.summary.sales_total, lang)}</strong></p>
                     <p className="is-aux"><span>{text.cash}</span><strong>{formatMoney(closeReceipt.summary.cash_total, lang)}</strong></p>
                     <p className="is-aux"><span>{text.transfer}</span><strong>{formatMoney(closeReceipt.summary.transfer_total, lang)}</strong></p>
-                    <p className="is-due"><span>{text.receiptClosingCash}</span><strong>{formatMoney(closeReceipt.receipt.closing_cash, lang)}</strong></p>
+                    <p className="is-due"><span>{text.receiptClosingCash}</span><strong>{closeReceipt.receipt.closing_cash === null ? "-" : formatMoney(closeReceipt.receipt.closing_cash, lang)}</strong></p>
                     <p className="is-aux"><span>{cashFloatLabel}</span><strong>{formatMoney(closeReceipt.receipt.opening_cash, lang)}</strong></p>
-                    <p className="is-aux"><span>{text.receiptExpectedCash}</span><strong>{formatMoney(closeReceipt.receipt.expected_cash, lang)}</strong></p>
-                    <p className="is-aux"><span>{text.receiptActualCash}</span><strong>{formatMoney(closeReceipt.receipt.actual_cash, lang)}</strong></p>
+                    <p className="is-aux"><span>{text.receiptExpectedCash}</span><strong>{closeReceipt.receipt.expected_cash === null ? "-" : formatMoney(closeReceipt.receipt.expected_cash, lang)}</strong></p>
+                    <p className="is-aux"><span>{text.receiptActualCash}</span><strong>{closeReceipt.receipt.actual_cash === null ? "-" : formatMoney(closeReceipt.receipt.actual_cash, lang)}</strong></p>
                   </div>
                   <div className="posui-print-receipt58__divider" />
                   <p className="posui-print-receipt58__footer">CpIPOS</p>
@@ -1666,7 +1690,7 @@ export function PosShiftHistoryModule({ lang }: { lang: Lang }) {
               </div>
             </dl>
             <div className="posui-print-receipt58__divider" />
-            <div className="posui-print-receipt58__summary">
+            <div className="posui-print-receipt58__summary space-y-1 [&_p]:flex [&_p]:items-baseline [&_p]:justify-between [&_p]:gap-2 [&_p]:text-[11px] [&_p]:leading-5 [&_strong]:whitespace-nowrap [&_strong]:text-right">
               <p className="is-heading">
                 <span>{text.orders}</span>
                 <strong>{closeReceipt.summary.order_count}</strong>
@@ -1689,7 +1713,7 @@ export function PosShiftHistoryModule({ lang }: { lang: Lang }) {
               </p>
               <p className="is-due">
                 <span>{text.receiptClosingCash}</span>
-                <strong>{formatMoney(closeReceipt.receipt.closing_cash, lang)}</strong>
+                <strong>{closeReceipt.receipt.closing_cash === null ? "-" : formatMoney(closeReceipt.receipt.closing_cash, lang)}</strong>
               </p>
               <p className="is-aux">
                 <span>{cashFloatLabel}</span>
@@ -1697,11 +1721,11 @@ export function PosShiftHistoryModule({ lang }: { lang: Lang }) {
               </p>
               <p className="is-aux">
                 <span>{text.receiptExpectedCash}</span>
-                <strong>{formatMoney(closeReceipt.receipt.expected_cash, lang)}</strong>
+                <strong>{closeReceipt.receipt.expected_cash === null ? "-" : formatMoney(closeReceipt.receipt.expected_cash, lang)}</strong>
               </p>
               <p className="is-aux">
                 <span>{text.receiptActualCash}</span>
-                <strong>{formatMoney(closeReceipt.receipt.actual_cash, lang)}</strong>
+                <strong>{closeReceipt.receipt.actual_cash === null ? "-" : formatMoney(closeReceipt.receipt.actual_cash, lang)}</strong>
               </p>
             </div>
             <div className="posui-print-receipt58__divider" />
