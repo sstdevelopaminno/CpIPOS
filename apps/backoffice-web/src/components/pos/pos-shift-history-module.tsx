@@ -1357,25 +1357,15 @@ export function PosShiftHistoryModule({ lang }: { lang: Lang }) {
           {!loading && payload && payload.shifts.length === 0 ? <p className="mt-4 text-sm text-slate-500">{text.noData}</p> : null}
 
           {!loading && payload && payload.shifts.length > 0 ? (
-            <div className="mb-3 grid grid-cols-2 gap-2 rounded-2xl border border-blue-100 bg-blue-50/60 p-3 sm:grid-cols-4">
-              <div><p className="text-xs text-blue-700">{lang === "th" ? "กะในช่วงที่เลือก" : "Selected shifts"}</p><strong className="text-lg text-blue-950">{payload.summary.shift_count}</strong></div>
-              <div><p className="text-xs text-blue-700">{text.orders}</p><strong className="text-lg text-blue-950">{payload.summary.order_count}</strong></div>
-              <div><p className="text-xs text-blue-700">{text.sales}</p><strong className="text-lg text-blue-950">{formatMoney(payload.summary.sales_total, lang)}</strong></div>
-              <div><p className="text-xs text-blue-700">{lang === "th" ? "โอน/QR รวม" : "Total transfer/QR"}</p><strong className="text-lg text-blue-950">{formatMoney(payload.summary.transfer_total, lang)}</strong></div>
-            </div>
-          ) : null}
-          {!loading && payload && payload.shifts.length > 0 ? (
             <div className="mt-4 overflow-x-auto rounded-2xl border border-slate-200">
               <table className="min-w-full border-collapse text-sm">
                 <thead className="bg-slate-50">
                   <tr className="text-left text-xs uppercase tracking-[0.1em] text-slate-500">
                     <th className="px-3 py-3">{text.shiftName}</th>
-                    {payload.filters.can_view_branch_wide ? <th className="px-3 py-3">{text.branchFilter}</th> : null}
                     <th className="px-3 py-3">{text.openedAt}</th>
                     <th className="px-3 py-3">{text.closedAt}</th>
                     <th className="px-3 py-3">{text.status}</th>
                     <th className="px-3 py-3 text-right">{text.orders}</th>
-                    <th className="px-3 py-3 text-right">{text.cancelled}</th>
                     <th className="px-3 py-3 text-right">{text.sales}</th>
                      <th className="px-3 py-3 text-right">{text.cash}</th>
                      <th className="px-3 py-3 text-right">{text.transfer}</th>
@@ -1398,9 +1388,6 @@ export function PosShiftHistoryModule({ lang }: { lang: Lang }) {
                     return (
                       <tr key={shift.id} className="border-t border-slate-200">
                         <td className="px-3 py-3 font-semibold text-slate-700">{cycle ? slotLabel(cycle.slot, lang) : "-"}</td>
-                        {payload.filters.can_view_branch_wide ? (
-                          <td className="px-3 py-3 text-slate-600">{shift.branch_name ?? shift.branch_code ?? "-"}</td>
-                        ) : null}
                         <td className="px-3 py-3 text-slate-600">{formatDateTime(shift.opened_at, lang)}</td>
                         <td className="px-3 py-3 text-slate-600">{shift.closed_at ? formatDateTime(shift.closed_at, lang) : "-"}</td>
                         <td className="px-3 py-3">
@@ -1416,7 +1403,6 @@ export function PosShiftHistoryModule({ lang }: { lang: Lang }) {
                           })()}
                         </td>
                         <td className="px-3 py-3 text-right">{shift.metrics.order_count}</td>
-                        <td className="px-3 py-3 text-right">{shift.metrics.cancelled_order_count}</td>
                         <td className="px-3 py-3 text-right">{formatMoney(shift.metrics.sales_total, lang)}</td>
                          <td className="px-3 py-3 text-right">{formatMoney(shift.metrics.cash_total, lang)}</td>
                          <td className="px-3 py-3 text-right">{formatMoney(shift.metrics.transfer_total, lang)}</td>
