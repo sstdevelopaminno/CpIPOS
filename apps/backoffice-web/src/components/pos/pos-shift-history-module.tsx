@@ -449,6 +449,57 @@ td.num,th.num{text-align:right;}
 </main><script>window.addEventListener('load',()=>setTimeout(()=>window.print(),80));</script></body></html>`;
 }
 
+
+function buildShiftPeriodReceiptHtml(args: {
+  shifts: ShiftHistoryItem[];
+  summary: NonNullable<ShiftHistoryResponse["data"]>["summary"];
+  period: string;
+  branch: string;
+  lang: Lang;
+}) {
+  const { shifts, summary, lang } = args;
+  const th = lang === "th";
+  const money = (value: number) => escapeHtml(formatMoney(value, lang));
+  const line = (name: string, value: string) =>
+    `<p class="row"><span>${escapeHtml(name)}</span><strong>${value}</strong></p>`;
+  const shiftRows = [...shifts].sort((a, b) => a.opened_at.localeCompare(b.opened_at))
+    .map((shift, index) => {
+      const cycle = resolveShiftCycle(shift.opened_at);
+      const name = `${index + 1}. ${cycle ? slotLabel(cycle.slot, lang) : (th ? "กะ" : "Shift")}`;
+      return `<div class="break"></div>
+        <p><strong>${escapeHtml(name)}</strong> ${escapeHtml(formatDateTime(shift.opened_at, lang))}</p>
+        ${line(th ? "บิล" : "Bills", String(shift.metrics.order_count))}
+        ${line(th ? "ยอดขายกะ" : "Shift sales", money(shift.metrics.sales_total))}
+        ${line(th ? "เงินสด" : "Cash", money(shift.metrics.cash_total))}
+        ${line(th ? "โอน/QR" : "Transfer/QR", money(shift.metrics.transfer_total))}`;
+    }).join("");
+  return `<!doctype html><html><head><meta charset="utf-8" />
+<style>
+@page{size:58mm auto;margin:2mm}
+html,body{width:58mm;margin:0;padding:0;color:#000;font:11px/1.45 Tahoma,'Noto Sans Thai','Segoe UI',sans-serif}
+main{width:54mm;margin:0 auto;padding:0.8mm 0}
+h1{font-size:15px;text-align:center;line-height:1.4}
+p{margin:1mm 0;overflow-wrap:anywhere}
+.row{display:flex;justify-content:space-between;gap:1.5mm;align-items:baseline}
+.row span{min-width:0}.row strong{white-space:nowrap;text-align:right}
+.break{border-top:1px dashed #000;margin:2mm 0}
+.total{border-top:1px solid #000;border-bottom:1px solid #000;padding:1.4mm 0;font-size:12px}
+</style></head><body><main>
+<h1>${th ? "ใบสรุปรวมทุกกะ" : "Shift Period Summary"}</h1>
+<p>${escapeHtml(args.period)}</p><p>${escapeHtml(args.branch)}</p>
+<div class="break"></div>
+${line(th ? "จำนวนกะ" : "Shifts", String(summary.shift_count))}
+${line(th ? "จำนวนบิล" : "Bills", String(summary.order_count))}
+${line(th ? "บิลยกเลิก" : "Cancelled", String(summary.cancelled_order_count))}
+<div class="total">
+${line(th ? "ยอดขายรวม" : "Total sales", money(summary.sales_total))}
+${line(th ? "เงินสด" : "Cash", money(summary.cash_total))}
+${line(th ? "โอน/QR" : "Transfer/QR", money(summary.transfer_total))}
+</div><p>${th ? "แยกตามกะ" : "By shift"}</p>${shiftRows}
+<div class="break"></div><p style="text-align:center;font-weight:900">CpIPOS</p>
+</main></body></html>`;
+}
+
 function buildShiftDetailReceiptHtml(args: {
   shift: ShiftHistoryItem;
   lang: Lang;
@@ -464,6 +515,10 @@ function buildShiftDetailReceiptHtml(args: {
     transfer: string;
     variance: string;
     actual: string;
+    orders: string;
+    cancelled: string;
+    opening: string;
+    expectedCash: string;
   };
 }) {
   const { shift, lang, labels } = args;
@@ -489,6 +544,7 @@ h1,p{margin:0;}
 <body><main>
   <header class="head">
     <h1>${escapeHtml(labels.title)}</h1>
+    <p>${escapeHtml(shift.branch_name ?? shift.branch_code ?? "-")}</p>
   </header>
   <div class="divider"></div>
   <section class="summary">
@@ -500,9 +556,15 @@ h1,p{margin:0;}
   </section>
   <div class="divider"></div>
   <section class="summary">
+    ${line(labels.orders, String(shift.metrics.order_count))}
+    ${line(labels.cancelled, String(shift.metrics.cancelled_order_count))}
+    <div class="divider"></div>
     ${line(labels.sales, money(shift.metrics.sales_total))}
     ${line(labels.cash, money(shift.metrics.cash_total))}
     ${line(labels.transfer, money(shift.metrics.transfer_total))}
+    <div class="divider"></div>
+    ${line(labels.opening, money(shift.opening_cash))}
+    ${line(labels.expectedCash, money(shift.opening_cash + shift.metrics.cash_total))}
     ${line(labels.variance, cashVariance === null ? "-" : escapeHtml(formatSignedMoney(cashVariance, lang)))}
     ${line(labels.actual, shift.actual_cash === null ? "-" : money(shift.actual_cash))}
   </section>
@@ -1074,7 +1136,11 @@ export function PosShiftHistoryModule({ lang }: { lang: Lang }) {
         cash: text.cash,
         transfer: text.transfer,
         variance: text.expected,
-        actual: text.actual
+        actual: text.actual,
+        orders: text.orders,
+        cancelled: text.cancelled,
+        opening: text.opening,
+        expectedCash: text.receiptExpectedCash
       }
     });
     const printWindow = window.open("", "_blank", "width=320,height=640");
