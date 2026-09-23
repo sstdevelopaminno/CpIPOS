@@ -63,8 +63,9 @@ describe("Android POS stable/Modern update safety regression contract", () => {
     expect(mdmHeartbeat).toContain('updatePolicy: asRecord(scope.metadata).android_update_policy');
   });
 
-  it("pins the customer stable download route to the 1.0.12 versioned APK with no old-version fallback", () => {
-    expect(downloadLatest).toContain('const expectedVersion = "1.0.12"');
+  it("pins the customer download route to the published Modern 1.0.23 APK without an old-version fallback", () => {
+    expect(downloadLatest).toContain('const releaseTag = "android-runtime-modern-1.0.23"');
+    expect(downloadLatest).toContain('const expectedVersion = "1.0.23"');
     expect(downloadLatest).toContain('const expectedAssetName = `CpIPOS-Android-POS-${expectedVersion}.apk`');
     expect(downloadLatest).toContain('item.name === expectedAssetName');
     expect(downloadLatest).toContain('redirect.headers.set("X-CpIPOS-Android-Version", expectedVersion)');
