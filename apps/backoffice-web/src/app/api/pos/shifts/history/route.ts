@@ -29,7 +29,6 @@ type OrderRow = {
 };
 
 type PaymentRow = {
-  shift_id: string | null;
   order_id: string | null;
   method: string;
   amount: number | null;
@@ -285,7 +284,7 @@ export async function GET(request: Request) {
     }
 
     // Exactly the same reconciliation used by the close response and 58mm receipt.
-    const totalsByShift = new Map(
+    const totalsByShift = new Map<string, ReturnType<typeof calculateShiftSalesSummary>>(
       shifts.map((shift) => [
         shift.id,
         calculateShiftSalesSummary({
