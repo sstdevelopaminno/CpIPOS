@@ -66,6 +66,7 @@ type ShiftHistoryResponse = {
         transfer_total: number;
       };
       summary_cutoff_at: string | null;
+      bills: Array<{ id: string; order_no: string | null; created_at: string; status: string; total: number; cash_total: number; transfer_total: number }>;
     }>;
   } | null;
   error?: { code?: string; message?: string } | null;
@@ -300,6 +301,8 @@ type ShiftHistoryTableLabels = {
   orders: string;
   cancelled: string;
   sales: string;
+  cash: string;
+  transfer: string;
   cashVariance: string;
 };
 
@@ -312,6 +315,8 @@ type ShiftHistoryTableRow = {
   orders: string;
   cancelled: string;
   sales: string;
+  cash: string;
+  transfer: string;
   cashVariance: string;
 };
 
@@ -332,6 +337,8 @@ function getShiftHistoryTableRows(shifts: ShiftHistoryItem[], lang: Lang): Shift
       orders: String(shift.metrics.order_count),
       cancelled: String(shift.metrics.cancelled_order_count),
       sales: formatMoney(shift.metrics.sales_total, lang),
+      cash: formatMoney(shift.metrics.cash_total, lang),
+      transfer: formatMoney(shift.metrics.transfer_total, lang),
       cashVariance: cashVariance === null ? "-" : formatSignedMoney(cashVariance, lang)
     };
   });
@@ -356,6 +363,8 @@ function buildShiftHistoryCsv(args: {
     args.labels.orders,
     args.labels.cancelled,
     args.labels.sales,
+    args.labels.cash,
+    args.labels.transfer,
     args.labels.cashVariance
   ];
   const body = args.rows.map((row) => [
@@ -367,6 +376,8 @@ function buildShiftHistoryCsv(args: {
     row.orders,
     row.cancelled,
     row.sales,
+    row.cash,
+    row.transfer,
     row.cashVariance
   ]);
   return [headers, ...body].map((cells) => cells.map(escapeCsvCell).join(",")).join("\r\n");
@@ -387,6 +398,8 @@ function buildShiftHistoryPrintHtml(args: {
     args.labels.orders,
     args.labels.cancelled,
     args.labels.sales,
+    args.labels.cash,
+    args.labels.transfer,
     args.labels.cashVariance
   ];
   const rows = args.rows.map((row) => [
@@ -398,6 +411,8 @@ function buildShiftHistoryPrintHtml(args: {
     row.orders,
     row.cancelled,
     row.sales,
+    row.cash,
+    row.transfer,
     row.cashVariance
   ]);
   return `<!doctype html>
@@ -699,6 +714,8 @@ export function PosShiftHistoryModule({ lang }: { lang: Lang }) {
       orders: text.orders,
       cancelled: text.cancelled,
       sales: text.sales,
+      cash: text.cash,
+      transfer: text.transfer,
       cashVariance: text.expected
     }),
     [text]
@@ -1219,6 +1236,8 @@ export function PosShiftHistoryModule({ lang }: { lang: Lang }) {
                     <th className="px-3 py-3 text-right">{text.orders}</th>
                     <th className="px-3 py-3 text-right">{text.cancelled}</th>
                     <th className="px-3 py-3 text-right">{text.sales}</th>
+                     <th className="px-3 py-3 text-right">{text.cash}</th>
+                     <th className="px-3 py-3 text-right">{text.transfer}</th>
                     <th className="px-3 py-3 text-right">{text.expected}</th>
                     <th className="px-3 py-3 text-center">{detailsLabel}</th>
                   </tr>
@@ -1258,6 +1277,8 @@ export function PosShiftHistoryModule({ lang }: { lang: Lang }) {
                         <td className="px-3 py-3 text-right">{shift.metrics.order_count}</td>
                         <td className="px-3 py-3 text-right">{shift.metrics.cancelled_order_count}</td>
                         <td className="px-3 py-3 text-right">{formatMoney(shift.metrics.sales_total, lang)}</td>
+                         <td className="px-3 py-3 text-right">{formatMoney(shift.metrics.cash_total, lang)}</td>
+                         <td className="px-3 py-3 text-right">{formatMoney(shift.metrics.transfer_total, lang)}</td>
                         <td className={`px-3 py-3 text-right font-bold ${cashVarianceClass}`}>
                           {cashVariance === null ? "-" : formatSignedMoney(cashVariance, lang)}
                         </td>
