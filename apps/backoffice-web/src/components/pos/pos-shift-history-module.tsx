@@ -595,6 +595,7 @@ export function PosShiftHistoryModule({ lang }: { lang: Lang }) {
   const [receiptPrinted, setReceiptPrinted] = useState(false);
   const [, setReceiptPrintStatus] = useState<"idle" | "printing" | "printed" | "failed">("idle");
   const [receiptPrintError, setReceiptPrintError] = useState<string | null>(null);
+  const [periodPrintNotice, setPeriodPrintNotice] = useState<string | null>(null);
   const [modalKind, setModalKind] = useState<ModalKind>(null);
   const [selectedShift, setSelectedShift] = useState<ShiftHistoryItem | null>(null);
   const [modalMounted, setModalMounted] = useState(false);
@@ -785,6 +786,16 @@ export function PosShiftHistoryModule({ lang }: { lang: Lang }) {
   const rowsPerPage = 12;
   const pagedShifts = payload?.shifts.slice((page - 1) * rowsPerPage, page * rowsPerPage) ?? [];
   const totalPages = Math.max(1, Math.ceil((payload?.shifts.length ?? 0) / rowsPerPage));
+  const periodLabel = startDate && endDate && startDate === endDate
+    ? (lang === "th" ? `วันที่ ${startDate}` : `Date ${startDate}`)
+    : startDate || endDate
+      ? `${startDate || (lang === "th" ? "เริ่ม" : "Start")} – ${endDate || (lang === "th" ? "ปัจจุบัน" : "Now")}`
+      : (lang === "th" ? `ย้อนหลัง ${days} วัน` : `Past ${days} days`);
+  const periodBranchLabel = branchFilter === "all"
+    ? text.allBranches
+    : payload?.filters.branch_options.find((branch) => branch.id === branchFilter)?.name
+      ?? payload?.filters.branch_options.find((branch) => branch.id === branchFilter)?.code
+      ?? text.allBranches;
 
   const openModal = useCallback((kind: Exclude<ModalKind, null>) => {
     if (closeTimerRef.current) {
@@ -992,6 +1003,54 @@ export function PosShiftHistoryModule({ lang }: { lang: Lang }) {
       setClosingCash("");
     } catch (closeError) {
       setError(closeError instanceof Error ? closeError.message : "Close shift failed.");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+
+  async function printPeriodShiftReceipt58(viaBluetooth: boolean) {
+    if (!payload?.shifts.length || !payload.summary.shift_count || busy) return;
+    const receiptHtml = buildShiftPeriodReceiptHtml({
+      shifts: payload.shifts,
+      summary: payload.summary,
+      period: periodLabel,
+      branch: periodBranchLabel,
+      lang
+    });
+    setPeriodPrintNotice(null);
+    if (!viaBluetooth) {
+      const printWindow = window.open("", "_blank", "width=320,height=640");
+      if (!printWindow) {
+        setPeriodPrintNotice(lang === "th" ? "ไม่สามารถเปิดหน้าพิมพ์ได้" : "Unable to open print window.");
+        return;
+      }
+      printWindow.document.open();
+      printWindow.document.write(receiptHtml.replace("</body>", "<script>window.addEventListener('load',()=>window.print());<\/script></body>"));
+      printWindow.document.close();
+      return;
+    }
+    setBusy("print");
+    try {
+      const response = await fetch("/api/pos/receipts/bluetooth", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          order_id: null,
+          order_no: `SHIFT-SUMMARY-${(startDate || new Date().toISOString().slice(0, 10)).replaceAll("-", "")}`,
+          receipt_html: receiptHtml
+        })
+      });
+      const body = (await response.json().catch(() => null)) as BluetoothReceiptPrintResponseBody | null;
+      if (!response.ok || body?.error || body?.data?.ok !== true) {
+        throw new Error(body?.error?.message ?? body?.data?.message ?? "Bluetooth print not accepted");
+      }
+      const jobs = body?.data?.data?.jobs ?? [];
+      setPeriodPrintNotice(jobs.some((job) => job.status === "printed")
+        ? (lang === "th" ? "พิมพ์ใบสรุปรวมสำเร็จ" : "Period receipt printed.")
+        : (lang === "th" ? "ส่งงานพิมพ์แล้ว กรุณาตรวจสอบสถานะที่เครื่องพิมพ์" : "Print queued. Check the printer."));
+    } catch (err) {
+      setPeriodPrintNotice(err instanceof Error ? err.message : "Bluetooth print failed");
     } finally {
       setBusy(null);
     }
@@ -1423,7 +1482,7 @@ export function PosShiftHistoryModule({ lang }: { lang: Lang }) {
                   : modalKind === "active"
                     ? text.popupTitleActive
                     : modalKind === "details"
-                      ? detailsTitle
+                      ? (lang === "th" ? "ยอดเฉพาะกะนี้ กดดูยอดเพื่อรวมทุกกะตามช่วงเวลา" : "This shift only. View totals for all selected shifts.")
                     : modalKind === "summary"
                       ? lang === "th" ? "สรุปยอดตามช่วงเวลา" : "Period sales summary"
                     : text.popupTitleReceipt}
