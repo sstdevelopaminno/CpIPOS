@@ -2,6 +2,7 @@ import { PosGuardError, requirePermission, requirePosSession } from "@/lib/pos-s
 import { fail, ok } from "@/lib/http";
 import { FeatureGateError, requireTenantFeature } from "@/lib/feature-gate";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
+import { calculateShiftSalesSummary } from "@/lib/pos-shift-sales-summary";
 
 type ShiftRow = {
   id: string;
@@ -33,6 +34,7 @@ type PaymentRow = {
   method: string;
   amount: number | null;
   created_at: string | null;
+  status: string | null;
 };
 
 function toNumber(value: unknown) {
@@ -251,87 +253,49 @@ export async function GET(request: Request) {
     }
 
     const orders = (ordersQuery.data ?? []) as OrderRow[];
-
-    let paymentRows: PaymentRow[] = [];
-    const orderIdToShift = new Map<string, string>();
-    for (const order of orders) {
-      if (order.shift_id) orderIdToShift.set(order.id, order.shift_id);
-    }
+    const orderIdToShift = new Map(
+      orders.filter((order) => order.shift_id).map((order) => [order.id, order.shift_id as string])
+    );
     const orderIdsForPayments = Array.from(orderIdToShift.keys());
-    if (orderIdsForPayments.length > 0) {
-      const paymentsByOrder = await supabase
-        .from("payments")
-        .select("order_id,method,amount,created_at")
-        .eq("tenant_id", scope.session.tenant_id)
-        .in("order_id", orderIdsForPayments);
-      if (paymentsByOrder.error) {
-        return fail("shift_payments_query_failed", paymentsByOrder.error.message, 500);
-      }
-      paymentRows = ((paymentsByOrder.data ?? []) as Array<{ order_id: string | null; method: string; amount: number | null; created_at: string | null }>).map((row) => ({
-        shift_id: row.order_id ? orderIdToShift.get(row.order_id) ?? null : null,
-        order_id: row.order_id,
-        method: row.method,
-        amount: row.amount,
-        created_at: row.created_at
-      }));
+    const paymentsByOrder = orderIdsForPayments.length
+      ? await supabase
+          .from("payments")
+          .select("order_id,method,amount,created_at,status")
+          .eq("tenant_id", scope.session.tenant_id)
+          .in("order_id", orderIdsForPayments)
+      : { data: [], error: null };
+    if (paymentsByOrder.error) {
+      return fail("shift_payments_query_failed", paymentsByOrder.error.message, 500);
     }
-
-    const totalsByShift = new Map<
-      string,
-      {
-        order_count: number;
-        cancelled_order_count: number;
-        sales_total: number;
-        cash_total: number;
-        transfer_total: number;
-      }
-    >();
-
-    for (const shift of shifts) {
-      totalsByShift.set(shift.id, {
-        order_count: 0,
-        cancelled_order_count: 0,
-        sales_total: 0,
-        cash_total: 0,
-        transfer_total: 0
-      });
-    }
-
-    const includedOrderIds = new Set<string>();
+    const paymentRows = (paymentsByOrder.data ?? []) as PaymentRow[];
+    const ordersByShift = new Map<string, OrderRow[]>();
+    const paymentsByShift = new Map<string, PaymentRow[]>();
     for (const order of orders) {
       if (!order.shift_id) continue;
-      const bucket = totalsByShift.get(order.shift_id);
-      if (!bucket) continue;
-      const shiftRow = shiftMap.get(order.shift_id);
-      const shiftEndAt = shiftEndAtMap.get(order.shift_id);
-      if (!isWithinShiftSummaryWindow({ createdAt: order.created_at, shift: shiftRow, shiftEndAt })) {
-        continue;
-      }
-      includedOrderIds.add(order.id);
-      bucket.order_count += 1;
-      if (order.status === "cancelled") {
-        bucket.cancelled_order_count += 1;
-      } else {
-        bucket.sales_total += toNumber(order.grand_total ?? order.total_amount);
-      }
+      const items = ordersByShift.get(order.shift_id) ?? [];
+      items.push(order);
+      ordersByShift.set(order.shift_id, items);
+    }
+    for (const payment of paymentRows) {
+      const shiftId = payment.order_id ? orderIdToShift.get(payment.order_id) : null;
+      if (!shiftId) continue;
+      const items = paymentsByShift.get(shiftId) ?? [];
+      items.push(payment);
+      paymentsByShift.set(shiftId, items);
     }
 
-    for (const payment of paymentRows) {
-      if (!payment.shift_id) continue;
-      const bucket = totalsByShift.get(payment.shift_id);
-      if (!bucket) continue;
-      if (payment.order_id && !includedOrderIds.has(payment.order_id)) continue;
-      const shiftRow = shiftMap.get(payment.shift_id);
-      const shiftEndAt = shiftEndAtMap.get(payment.shift_id);
-      if (!isWithinShiftSummaryWindow({ createdAt: payment.created_at, shift: shiftRow, shiftEndAt })) {
-        continue;
-      }
-      if (payment.method === "cash") {
-        bucket.cash_total += toNumber(payment.amount);
-      } else if (payment.method === "bank_transfer") {
-        bucket.transfer_total += toNumber(payment.amount);
-      }
-    }
+    // Exactly the same reconciliation used by the close response and 58mm receipt.
+    const totalsByShift = new Map(
+      shifts.map((shift) => [
+        shift.id,
+        calculateShiftSalesSummary({
+          orders: ordersByShift.get(shift.id) ?? [],
+          payments: paymentsByShift.get(shift.id) ?? [],
+          openedAt: shift.opened_at,
+          endAt: shiftEndAtMap.get(shift.id) ?? new Date(shift.closed_at ?? Date.now())
+        })
+      ])
+    );
 
     const payloadShifts = shifts.map((shift) => {
       const totals = totalsByShift.get(shift.id) ?? {
