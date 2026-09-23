@@ -21,6 +21,7 @@ type ShiftRow = {
 
 type OrderRow = {
   id: string;
+  order_no: string | null;
   shift_id: string | null;
   status: string;
   total_amount: number | null;
@@ -243,7 +244,7 @@ export async function GET(request: Request) {
 
     const ordersQuery = await supabase
       .from("orders")
-      .select("id,shift_id,status,total_amount,grand_total,created_at")
+      .select("id,order_no,shift_id,status,total_amount,grand_total,created_at")
       .eq("tenant_id", scope.session.tenant_id)
       .in("shift_id", shiftIds);
 
@@ -267,6 +268,13 @@ export async function GET(request: Request) {
       return fail("shift_payments_query_failed", paymentsByOrder.error.message, 500);
     }
     const paymentRows = (paymentsByOrder.data ?? []) as PaymentRow[];
+    const paymentsByOrderId = new Map<string, PaymentRow[]>();
+    for (const payment of paymentRows) {
+      if (!payment.order_id) continue;
+      const items = paymentsByOrderId.get(payment.order_id) ?? [];
+      items.push(payment);
+      paymentsByOrderId.set(payment.order_id, items);
+    }
     const ordersByShift = new Map<string, OrderRow[]>();
     const paymentsByShift = new Map<string, PaymentRow[]>();
     for (const order of orders) {
@@ -311,7 +319,31 @@ export async function GET(request: Request) {
         opened_by_name: userMap.get(shift.opened_by) ?? shift.opened_by,
         closed_by_name: shift.closed_by ? userMap.get(shift.closed_by) ?? shift.closed_by : null,
         summary_cutoff_at: (shiftEndAtMap.get(shift.id) ?? null)?.toISOString() ?? null,
-        metrics: totals
+        metrics: totals,
+        bills: (ordersByShift.get(shift.id) ?? [])
+          .filter((order) => {
+            const createdAt = new Date(order.created_at).getTime();
+            const cutoff = shiftEndAtMap.get(shift.id)?.getTime() ?? Date.now();
+            return Number.isFinite(createdAt) && createdAt >= new Date(shift.opened_at).getTime() && createdAt <= cutoff;
+          })
+          .map((order) => {
+            const metrics = calculateShiftSalesSummary({
+              orders: [order],
+              payments: paymentsByOrderId.get(order.id) ?? [],
+              openedAt: shift.opened_at,
+              endAt: shiftEndAtMap.get(shift.id) ?? new Date(shift.closed_at ?? Date.now())
+            });
+            return {
+              id: order.id,
+              order_no: order.order_no,
+              created_at: order.created_at,
+              status: order.status,
+              total: metrics.sales_total,
+              cash_total: metrics.cash_total,
+              transfer_total: metrics.transfer_total
+            };
+          })
+          .sort((a, b) => b.created_at.localeCompare(a.created_at))
       };
     });
 
