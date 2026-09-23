@@ -47,6 +47,36 @@ describe("POS shift sales close/history reconciliation", () => {
     });
   });
 
+  it("reconciles Sep 23 across two separate shifts: 4 + 6 bills and 706 + 1273 THB transfers", () => {
+    const first = calculateShiftSalesSummary({
+      orders: [169,159,219,159].map((value, i) => order(`morning-${i}`, value)),
+      payments: [169,159,219,159].map((value, i) => payment(`morning-${i}`, value)),
+      openedAt, endAt
+    });
+    const second = calculateShiftSalesSummary({
+      orders: [219,139,219,298,259,139].map((value, i) => order(`evening-${i}`, value)),
+      payments: [219,139,219,298,259,139].map((value, i) => payment(`evening-${i}`, value)),
+      openedAt, endAt
+    });
+    expect(first).toMatchObject({ order_count: 4, sales_total: 706, transfer_total: 706 });
+    expect(second).toMatchObject({ order_count: 6, sales_total: 1273, transfer_total: 1273 });
+    expect(first.order_count + second.order_count).toBe(10);
+    expect(first.sales_total + second.sales_total).toBe(1979);
+    expect(first.transfer_total + second.transfer_total).toBe(1979);
+  });
+
+  it("exposes bill-level audit trail and separate period and single-shift 58mm receipts", () => {
+    const history = readFileSync(new URL("../../src/app/api/pos/shifts/history/route.ts", import.meta.url), "utf8");
+    const ui = readFileSync(new URL("../../src/components/pos/pos-shift-history-module.tsx", import.meta.url), "utf8");
+    expect(history).toContain(".select(\"id,order_no,shift_id,status,total_amount,grand_total,created_at\")");
+    expect(history).toContain("bills: (ordersByShift.get(shift.id) ?? [])");
+    expect(ui).toContain("buildShiftPeriodReceiptHtml");
+    expect(ui).toContain("printPeriodShiftReceipt58(true)");
+    expect(ui).toContain("selectedShift.bills.map");
+    expect(ui).toContain("shift.metrics.transfer_total");
+    expect(ui).toContain("summary.transfer_total");
+  });
+
   it("binds close payments by order ID and preserves the opening float in drawer expectation", () => {
     const source = readFileSync(new URL("../../src/app/api/pos/shifts/close/route.ts", import.meta.url), "utf8");
     const history = readFileSync(new URL("../../src/app/api/pos/shifts/history/route.ts", import.meta.url), "utf8");
