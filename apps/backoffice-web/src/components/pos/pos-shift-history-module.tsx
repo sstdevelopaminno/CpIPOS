@@ -1349,6 +1349,14 @@ export function PosShiftHistoryModule({ lang }: { lang: Lang }) {
           {!loading && payload && payload.shifts.length === 0 ? <p className="mt-4 text-sm text-slate-500">{text.noData}</p> : null}
 
           {!loading && payload && payload.shifts.length > 0 ? (
+            <div className="mb-3 grid grid-cols-2 gap-2 rounded-2xl border border-blue-100 bg-blue-50/60 p-3 sm:grid-cols-4">
+              <div><p className="text-xs text-blue-700">{lang === "th" ? "กะในช่วงที่เลือก" : "Selected shifts"}</p><strong className="text-lg text-blue-950">{payload.summary.shift_count}</strong></div>
+              <div><p className="text-xs text-blue-700">{text.orders}</p><strong className="text-lg text-blue-950">{payload.summary.order_count}</strong></div>
+              <div><p className="text-xs text-blue-700">{text.sales}</p><strong className="text-lg text-blue-950">{formatMoney(payload.summary.sales_total, lang)}</strong></div>
+              <div><p className="text-xs text-blue-700">{lang === "th" ? "โอน/QR รวม" : "Total transfer/QR"}</p><strong className="text-lg text-blue-950">{formatMoney(payload.summary.transfer_total, lang)}</strong></div>
+            </div>
+          ) : null}
+          {!loading && payload && payload.shifts.length > 0 ? (
             <div className="mt-4 overflow-x-auto rounded-2xl border border-slate-200">
               <table className="min-w-full border-collapse text-sm">
                 <thead className="bg-slate-50">
@@ -1517,31 +1525,54 @@ export function PosShiftHistoryModule({ lang }: { lang: Lang }) {
             ) : null}
 
             {modalKind === "summary" ? (
-              <div className="mt-4 grid gap-2 sm:grid-cols-2">
-                <article className="rounded-2xl border border-slate-200 bg-slate-50 p-3">
-                  <p className="text-xs text-slate-500">{text.shifts}</p>
-                  <p className="text-lg font-black">{payload?.summary.shift_count ?? 0}</p>
-                </article>
-                <article className="rounded-2xl border border-slate-200 bg-slate-50 p-3">
-                  <p className="text-xs text-slate-500">{text.orders}</p>
-                  <p className="text-lg font-black">{payload?.summary.order_count ?? 0}</p>
-                </article>
-                <article className="rounded-2xl border border-slate-200 bg-slate-50 p-3">
-                  <p className="text-xs text-slate-500">{text.cancelled}</p>
-                  <p className="text-lg font-black">{payload?.summary.cancelled_order_count ?? 0}</p>
-                </article>
-                <article className="rounded-2xl border border-slate-200 bg-slate-50 p-3">
-                  <p className="text-xs text-slate-500">{text.sales}</p>
-                  <p className="text-lg font-black">{formatMoney(payload?.summary.sales_total ?? 0, lang)}</p>
-                </article>
-                <article className="rounded-2xl border border-slate-200 bg-slate-50 p-3">
-                  <p className="text-xs text-slate-500">{text.cash}</p>
-                  <p className="text-lg font-black">{formatMoney(payload?.summary.cash_total ?? 0, lang)}</p>
-                </article>
-                <article className="rounded-2xl border border-slate-200 bg-slate-50 p-3">
-                  <p className="text-xs text-slate-500">{text.transfer}</p>
-                  <p className="text-lg font-black">{formatMoney(payload?.summary.transfer_total ?? 0, lang)}</p>
-                </article>
+              <div className="mt-4 space-y-3">
+                <div className="rounded-2xl border border-blue-200 bg-blue-50 p-4">
+                  <p className="text-xs font-bold text-blue-700">{lang === "th" ? "ยอดขายรวมทุกกะที่เลือก" : "All selected shifts — sales"}</p>
+                  <p className="mt-1 text-2xl font-black text-blue-950">{formatMoney(payload?.summary.sales_total ?? 0, lang)}</p>
+                  <p className="mt-1 text-xs text-blue-800">{periodLabel} · {periodBranchLabel}</p>
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  {([
+                    [text.shifts, String(payload?.summary.shift_count ?? 0)],
+                    [text.orders, String(payload?.summary.order_count ?? 0)],
+                    [text.cancelled, String(payload?.summary.cancelled_order_count ?? 0)],
+                    [text.cash, formatMoney(payload?.summary.cash_total ?? 0, lang)],
+                    [lang === "th" ? "โอน/QR" : "Transfer/QR", formatMoney(payload?.summary.transfer_total ?? 0, lang)]
+                  ] as const).map(([label, value]) => (
+                    <article key={label} className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                      <p className="text-xs text-slate-500">{label}</p>
+                      <p className="text-lg font-black text-slate-950">{value}</p>
+                    </article>
+                  ))}
+                </div>
+                <div className="rounded-xl border border-slate-200 p-3">
+                  <h4 className="text-sm font-black text-slate-900">{lang === "th" ? "แยกยอดแต่ละกะ (ไม่บวกเงินตั้งต้นกะเป็นยอดขาย)" : "By shift (opening float is not sales)"}</h4>
+                  <div className="mt-2 max-h-56 space-y-2 overflow-y-auto">
+                    {payload?.shifts.map((shift) => {
+                      const cycle = resolveShiftCycle(shift.opened_at);
+                      return (
+                        <div key={shift.id} className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs">
+                          <p className="font-bold text-slate-900">{cycle ? slotLabel(cycle.slot, lang) : text.shiftName} · {formatDateTime(shift.opened_at, lang)}</p>
+                          <p className="text-slate-500">{shift.branch_name ?? shift.branch_code ?? "-"}</p>
+                          <div className="mt-1 flex justify-between gap-2"><span>{text.orders}</span><strong>{shift.metrics.order_count}</strong></div>
+                          <div className="flex justify-between gap-2"><span>{text.sales}</span><strong>{formatMoney(shift.metrics.sales_total, lang)}</strong></div>
+                          <div className="flex justify-between gap-2"><span>{lang === "th" ? "โอน/QR" : "Transfer/QR"}</span><strong>{formatMoney(shift.metrics.transfer_total, lang)}</strong></div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+                {periodPrintNotice ? <p role="status" className="rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-800">{periodPrintNotice}</p> : null}
+                <div className="grid grid-cols-2 gap-2">
+                  <button type="button" onClick={() => void printPeriodShiftReceipt58(false)} disabled={!payload?.shifts.length || Boolean(busy)}
+                    className="min-h-11 rounded-xl border border-slate-300 bg-white px-2 py-2 text-xs font-bold text-slate-800 disabled:opacity-50">
+                    {lang === "th" ? "พิมพ์ยอดรวม 58mm" : "Print totals 58mm"}
+                  </button>
+                  <button type="button" onClick={() => void printPeriodShiftReceipt58(true)} disabled={!payload?.shifts.length || Boolean(busy)}
+                    className="min-h-11 rounded-xl bg-blue-600 px-2 py-2 text-xs font-bold text-white disabled:opacity-50">
+                    {busy === "print" ? text.printing : lang === "th" ? "พิมพ์ยอดรวม Bluetooth" : "Bluetooth totals"}
+                  </button>
+                </div>
               </div>
             ) : null}
 
