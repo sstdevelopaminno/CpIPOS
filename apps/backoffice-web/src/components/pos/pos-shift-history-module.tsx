@@ -66,6 +66,7 @@ type ShiftHistoryResponse = {
         transfer_total: number;
       };
       summary_cutoff_at: string | null;
+      bills: Array<{ id: string; order_no: string | null; created_at: string; status: string; total: number; cash_total: number; transfer_total: number }>;
     }>;
   } | null;
   error?: { code?: string; message?: string } | null;
@@ -300,6 +301,8 @@ type ShiftHistoryTableLabels = {
   orders: string;
   cancelled: string;
   sales: string;
+  cash: string;
+  transfer: string;
   cashVariance: string;
 };
 
@@ -312,6 +315,8 @@ type ShiftHistoryTableRow = {
   orders: string;
   cancelled: string;
   sales: string;
+  cash: string;
+  transfer: string;
   cashVariance: string;
 };
 
@@ -332,6 +337,8 @@ function getShiftHistoryTableRows(shifts: ShiftHistoryItem[], lang: Lang): Shift
       orders: String(shift.metrics.order_count),
       cancelled: String(shift.metrics.cancelled_order_count),
       sales: formatMoney(shift.metrics.sales_total, lang),
+      cash: formatMoney(shift.metrics.cash_total, lang),
+      transfer: formatMoney(shift.metrics.transfer_total, lang),
       cashVariance: cashVariance === null ? "-" : formatSignedMoney(cashVariance, lang)
     };
   });
@@ -356,6 +363,8 @@ function buildShiftHistoryCsv(args: {
     args.labels.orders,
     args.labels.cancelled,
     args.labels.sales,
+    args.labels.cash,
+    args.labels.transfer,
     args.labels.cashVariance
   ];
   const body = args.rows.map((row) => [
@@ -367,6 +376,8 @@ function buildShiftHistoryCsv(args: {
     row.orders,
     row.cancelled,
     row.sales,
+    row.cash,
+    row.transfer,
     row.cashVariance
   ]);
   return [headers, ...body].map((cells) => cells.map(escapeCsvCell).join(",")).join("\r\n");
@@ -387,6 +398,8 @@ function buildShiftHistoryPrintHtml(args: {
     args.labels.orders,
     args.labels.cancelled,
     args.labels.sales,
+    args.labels.cash,
+    args.labels.transfer,
     args.labels.cashVariance
   ];
   const rows = args.rows.map((row) => [
@@ -398,6 +411,8 @@ function buildShiftHistoryPrintHtml(args: {
     row.orders,
     row.cancelled,
     row.sales,
+    row.cash,
+    row.transfer,
     row.cashVariance
   ]);
   return `<!doctype html>
@@ -434,6 +449,57 @@ td.num,th.num{text-align:right;}
 </main><script>window.addEventListener('load',()=>setTimeout(()=>window.print(),80));</script></body></html>`;
 }
 
+
+function buildShiftPeriodReceiptHtml(args: {
+  shifts: ShiftHistoryItem[];
+  summary: NonNullable<ShiftHistoryResponse["data"]>["summary"];
+  period: string;
+  branch: string;
+  lang: Lang;
+}) {
+  const { shifts, summary, lang } = args;
+  const th = lang === "th";
+  const money = (value: number) => escapeHtml(formatMoney(value, lang));
+  const line = (name: string, value: string) =>
+    `<p class="row"><span>${escapeHtml(name)}</span><strong>${value}</strong></p>`;
+  const shiftRows = [...shifts].sort((a, b) => a.opened_at.localeCompare(b.opened_at))
+    .map((shift, index) => {
+      const cycle = resolveShiftCycle(shift.opened_at);
+      const name = `${index + 1}. ${cycle ? slotLabel(cycle.slot, lang) : (th ? "กะ" : "Shift")}`;
+      return `<div class="break"></div>
+        <p><strong>${escapeHtml(name)}</strong> ${escapeHtml(formatDateTime(shift.opened_at, lang))}</p>
+        ${line(th ? "บิล" : "Bills", String(shift.metrics.order_count))}
+        ${line(th ? "ยอดขายกะ" : "Shift sales", money(shift.metrics.sales_total))}
+        ${line(th ? "เงินสด" : "Cash", money(shift.metrics.cash_total))}
+        ${line(th ? "โอน/QR" : "Transfer/QR", money(shift.metrics.transfer_total))}`;
+    }).join("");
+  return `<!doctype html><html><head><meta charset="utf-8" />
+<style>
+@page{size:58mm auto;margin:2mm}
+html,body{width:58mm;margin:0;padding:0;color:#000;font:11px/1.45 Tahoma,'Noto Sans Thai','Segoe UI',sans-serif}
+main{width:54mm;margin:0 auto;padding:0.8mm 0}
+h1{font-size:15px;text-align:center;line-height:1.4}
+p{margin:1mm 0;overflow-wrap:anywhere}
+.row{display:flex;justify-content:space-between;gap:1.5mm;align-items:baseline}
+.row span{min-width:0}.row strong{white-space:nowrap;text-align:right}
+.break{border-top:1px dashed #000;margin:2mm 0}
+.total{border-top:1px solid #000;border-bottom:1px solid #000;padding:1.4mm 0;font-size:12px}
+</style></head><body><main>
+<h1>${th ? "ใบสรุปรวมทุกกะ" : "Shift Period Summary"}</h1>
+<p>${escapeHtml(args.period)}</p><p>${escapeHtml(args.branch)}</p>
+<div class="break"></div>
+${line(th ? "จำนวนกะ" : "Shifts", String(summary.shift_count))}
+${line(th ? "จำนวนบิล" : "Bills", String(summary.order_count))}
+${line(th ? "บิลยกเลิก" : "Cancelled", String(summary.cancelled_order_count))}
+<div class="total">
+${line(th ? "ยอดขายรวม" : "Total sales", money(summary.sales_total))}
+${line(th ? "เงินสด" : "Cash", money(summary.cash_total))}
+${line(th ? "โอน/QR" : "Transfer/QR", money(summary.transfer_total))}
+</div><p>${th ? "แยกตามกะ" : "By shift"}</p>${shiftRows}
+<div class="break"></div><p style="text-align:center;font-weight:900">CpIPOS</p>
+</main></body></html>`;
+}
+
 function buildShiftDetailReceiptHtml(args: {
   shift: ShiftHistoryItem;
   lang: Lang;
@@ -449,6 +515,10 @@ function buildShiftDetailReceiptHtml(args: {
     transfer: string;
     variance: string;
     actual: string;
+    orders: string;
+    cancelled: string;
+    opening: string;
+    expectedCash: string;
   };
 }) {
   const { shift, lang, labels } = args;
@@ -474,6 +544,7 @@ h1,p{margin:0;}
 <body><main>
   <header class="head">
     <h1>${escapeHtml(labels.title)}</h1>
+    <p>${escapeHtml(shift.branch_name ?? shift.branch_code ?? "-")}</p>
   </header>
   <div class="divider"></div>
   <section class="summary">
@@ -485,11 +556,25 @@ h1,p{margin:0;}
   </section>
   <div class="divider"></div>
   <section class="summary">
+    ${line(labels.orders, String(shift.metrics.order_count))}
+    ${line(labels.cancelled, String(shift.metrics.cancelled_order_count))}
+    <div class="divider"></div>
     ${line(labels.sales, money(shift.metrics.sales_total))}
     ${line(labels.cash, money(shift.metrics.cash_total))}
     ${line(labels.transfer, money(shift.metrics.transfer_total))}
+    <div class="divider"></div>
+    ${line(labels.opening, money(shift.opening_cash))}
+    ${line(labels.expectedCash, money(shift.opening_cash + shift.metrics.cash_total))}
     ${line(labels.variance, cashVariance === null ? "-" : escapeHtml(formatSignedMoney(cashVariance, lang)))}
     ${line(labels.actual, shift.actual_cash === null ? "-" : money(shift.actual_cash))}
+  </section>
+  <div class="divider"></div>
+  <section class="summary">
+    <p><strong>${lang === "th" ? "รายการบิลในกะนี้" : "Bills in this shift"} (${shift.bills.length})</strong></p>
+    ${shift.bills.map((bill) =>
+      line(bill.order_no ?? bill.id.slice(0, 8), money(bill.total)) +
+      (bill.status === "cancelled" ? "<small>" + (lang === "th" ? "ยกเลิก" : "Cancelled") + "</small>" : "")
+    ).join("")}
   </section>
   <p class="brand">CpIPOS</p>
 </main><script>window.print();</script></body></html>`;
@@ -518,6 +603,7 @@ export function PosShiftHistoryModule({ lang }: { lang: Lang }) {
   const [receiptPrinted, setReceiptPrinted] = useState(false);
   const [, setReceiptPrintStatus] = useState<"idle" | "printing" | "printed" | "failed">("idle");
   const [receiptPrintError, setReceiptPrintError] = useState<string | null>(null);
+  const [periodPrintNotice, setPeriodPrintNotice] = useState<string | null>(null);
   const [modalKind, setModalKind] = useState<ModalKind>(null);
   const [selectedShift, setSelectedShift] = useState<ShiftHistoryItem | null>(null);
   const [modalMounted, setModalMounted] = useState(false);
@@ -699,6 +785,8 @@ export function PosShiftHistoryModule({ lang }: { lang: Lang }) {
       orders: text.orders,
       cancelled: text.cancelled,
       sales: text.sales,
+      cash: text.cash,
+      transfer: text.transfer,
       cashVariance: text.expected
     }),
     [text]
@@ -706,6 +794,16 @@ export function PosShiftHistoryModule({ lang }: { lang: Lang }) {
   const rowsPerPage = 12;
   const pagedShifts = payload?.shifts.slice((page - 1) * rowsPerPage, page * rowsPerPage) ?? [];
   const totalPages = Math.max(1, Math.ceil((payload?.shifts.length ?? 0) / rowsPerPage));
+  const periodLabel = startDate && endDate && startDate === endDate
+    ? (lang === "th" ? `วันที่ ${startDate}` : `Date ${startDate}`)
+    : startDate || endDate
+      ? `${startDate || (lang === "th" ? "เริ่ม" : "Start")} – ${endDate || (lang === "th" ? "ปัจจุบัน" : "Now")}`
+      : (lang === "th" ? `ย้อนหลัง ${days} วัน` : `Past ${days} days`);
+  const periodBranchLabel = branchFilter === "all"
+    ? text.allBranches
+    : payload?.filters.branch_options.find((branch) => branch.id === branchFilter)?.name
+      ?? payload?.filters.branch_options.find((branch) => branch.id === branchFilter)?.code
+      ?? text.allBranches;
 
   const openModal = useCallback((kind: Exclude<ModalKind, null>) => {
     if (closeTimerRef.current) {
@@ -918,6 +1016,54 @@ export function PosShiftHistoryModule({ lang }: { lang: Lang }) {
     }
   }
 
+
+  async function printPeriodShiftReceipt58(viaBluetooth: boolean) {
+    if (!payload?.shifts.length || !payload.summary.shift_count || busy) return;
+    const receiptHtml = buildShiftPeriodReceiptHtml({
+      shifts: payload.shifts,
+      summary: payload.summary,
+      period: periodLabel,
+      branch: periodBranchLabel,
+      lang
+    });
+    setPeriodPrintNotice(null);
+    if (!viaBluetooth) {
+      const printWindow = window.open("", "_blank", "width=320,height=640");
+      if (!printWindow) {
+        setPeriodPrintNotice(lang === "th" ? "ไม่สามารถเปิดหน้าพิมพ์ได้" : "Unable to open print window.");
+        return;
+      }
+      printWindow.document.open();
+      printWindow.document.write(receiptHtml.replace("</body>", "<script>window.addEventListener('load',()=>window.print());<\/script></body>"));
+      printWindow.document.close();
+      return;
+    }
+    setBusy("print");
+    try {
+      const response = await fetch("/api/pos/receipts/bluetooth", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          order_id: null,
+          order_no: `SHIFT-SUMMARY-${(startDate || new Date().toISOString().slice(0, 10)).replaceAll("-", "")}`,
+          receipt_html: receiptHtml
+        })
+      });
+      const body = (await response.json().catch(() => null)) as BluetoothReceiptPrintResponseBody | null;
+      if (!response.ok || body?.error || body?.data?.ok !== true) {
+        throw new Error(body?.error?.message ?? body?.data?.message ?? "Bluetooth print not accepted");
+      }
+      const jobs = body?.data?.data?.jobs ?? [];
+      setPeriodPrintNotice(jobs.some((job) => job.status === "printed")
+        ? (lang === "th" ? "พิมพ์ใบสรุปรวมสำเร็จ" : "Period receipt printed.")
+        : (lang === "th" ? "ส่งงานพิมพ์แล้ว กรุณาตรวจสอบสถานะที่เครื่องพิมพ์" : "Print queued. Check the printer."));
+    } catch (err) {
+      setPeriodPrintNotice(err instanceof Error ? err.message : "Bluetooth print failed");
+    } finally {
+      setBusy(null);
+    }
+  }
+
   function exportShiftHistoryCsv() {
     if (!payload?.shifts.length) return;
     const rows = getShiftHistoryTableRows(payload.shifts, lang);
@@ -1057,7 +1203,11 @@ export function PosShiftHistoryModule({ lang }: { lang: Lang }) {
         cash: text.cash,
         transfer: text.transfer,
         variance: text.expected,
-        actual: text.actual
+        actual: text.actual,
+        orders: text.orders,
+        cancelled: text.cancelled,
+        opening: text.opening,
+        expectedCash: text.receiptExpectedCash
       }
     });
     const printWindow = window.open("", "_blank", "width=320,height=640");
@@ -1207,6 +1357,14 @@ export function PosShiftHistoryModule({ lang }: { lang: Lang }) {
           {!loading && payload && payload.shifts.length === 0 ? <p className="mt-4 text-sm text-slate-500">{text.noData}</p> : null}
 
           {!loading && payload && payload.shifts.length > 0 ? (
+            <div className="mb-3 grid grid-cols-2 gap-2 rounded-2xl border border-blue-100 bg-blue-50/60 p-3 sm:grid-cols-4">
+              <div><p className="text-xs text-blue-700">{lang === "th" ? "กะในช่วงที่เลือก" : "Selected shifts"}</p><strong className="text-lg text-blue-950">{payload.summary.shift_count}</strong></div>
+              <div><p className="text-xs text-blue-700">{text.orders}</p><strong className="text-lg text-blue-950">{payload.summary.order_count}</strong></div>
+              <div><p className="text-xs text-blue-700">{text.sales}</p><strong className="text-lg text-blue-950">{formatMoney(payload.summary.sales_total, lang)}</strong></div>
+              <div><p className="text-xs text-blue-700">{lang === "th" ? "โอน/QR รวม" : "Total transfer/QR"}</p><strong className="text-lg text-blue-950">{formatMoney(payload.summary.transfer_total, lang)}</strong></div>
+            </div>
+          ) : null}
+          {!loading && payload && payload.shifts.length > 0 ? (
             <div className="mt-4 overflow-x-auto rounded-2xl border border-slate-200">
               <table className="min-w-full border-collapse text-sm">
                 <thead className="bg-slate-50">
@@ -1219,6 +1377,8 @@ export function PosShiftHistoryModule({ lang }: { lang: Lang }) {
                     <th className="px-3 py-3 text-right">{text.orders}</th>
                     <th className="px-3 py-3 text-right">{text.cancelled}</th>
                     <th className="px-3 py-3 text-right">{text.sales}</th>
+                     <th className="px-3 py-3 text-right">{text.cash}</th>
+                     <th className="px-3 py-3 text-right">{text.transfer}</th>
                     <th className="px-3 py-3 text-right">{text.expected}</th>
                     <th className="px-3 py-3 text-center">{detailsLabel}</th>
                   </tr>
@@ -1258,6 +1418,8 @@ export function PosShiftHistoryModule({ lang }: { lang: Lang }) {
                         <td className="px-3 py-3 text-right">{shift.metrics.order_count}</td>
                         <td className="px-3 py-3 text-right">{shift.metrics.cancelled_order_count}</td>
                         <td className="px-3 py-3 text-right">{formatMoney(shift.metrics.sales_total, lang)}</td>
+                         <td className="px-3 py-3 text-right">{formatMoney(shift.metrics.cash_total, lang)}</td>
+                         <td className="px-3 py-3 text-right">{formatMoney(shift.metrics.transfer_total, lang)}</td>
                         <td className={`px-3 py-3 text-right font-bold ${cashVarianceClass}`}>
                           {cashVariance === null ? "-" : formatSignedMoney(cashVariance, lang)}
                         </td>
@@ -1320,7 +1482,9 @@ export function PosShiftHistoryModule({ lang }: { lang: Lang }) {
             className={`relative w-full rounded-2xl border border-slate-200 bg-white shadow-2xl transition-all duration-200 ${
               modalKind === "receipt"
                 ? "max-h-[calc(100dvh-1.5rem)] max-w-[440px] overflow-y-auto p-3 sm:max-h-[calc(100dvh-2rem)] sm:p-4"
-                : "max-w-md p-4"
+                : modalKind === "details" || modalKind === "summary"
+                  ? "max-h-[calc(100dvh-1.5rem)] max-w-[520px] overflow-y-auto p-4"
+                  : "max-w-md p-4"
             } ${
               modalVisible ? "translate-y-0 scale-100 opacity-100" : "translate-y-2 scale-95 opacity-0"
             }`}
@@ -1336,7 +1500,7 @@ export function PosShiftHistoryModule({ lang }: { lang: Lang }) {
                   : modalKind === "active"
                     ? text.popupTitleActive
                     : modalKind === "details"
-                      ? detailsTitle
+                      ? (lang === "th" ? "ยอดเฉพาะกะนี้ กดดูยอดเพื่อรวมทุกกะตามช่วงเวลา" : "This shift only. View totals for all selected shifts.")
                     : modalKind === "summary"
                       ? lang === "th" ? "สรุปยอดตามช่วงเวลา" : "Period sales summary"
                     : text.popupTitleReceipt}
@@ -1371,31 +1535,54 @@ export function PosShiftHistoryModule({ lang }: { lang: Lang }) {
             ) : null}
 
             {modalKind === "summary" ? (
-              <div className="mt-4 grid gap-2 sm:grid-cols-2">
-                <article className="rounded-2xl border border-slate-200 bg-slate-50 p-3">
-                  <p className="text-xs text-slate-500">{text.shifts}</p>
-                  <p className="text-lg font-black">{payload?.summary.shift_count ?? 0}</p>
-                </article>
-                <article className="rounded-2xl border border-slate-200 bg-slate-50 p-3">
-                  <p className="text-xs text-slate-500">{text.orders}</p>
-                  <p className="text-lg font-black">{payload?.summary.order_count ?? 0}</p>
-                </article>
-                <article className="rounded-2xl border border-slate-200 bg-slate-50 p-3">
-                  <p className="text-xs text-slate-500">{text.cancelled}</p>
-                  <p className="text-lg font-black">{payload?.summary.cancelled_order_count ?? 0}</p>
-                </article>
-                <article className="rounded-2xl border border-slate-200 bg-slate-50 p-3">
-                  <p className="text-xs text-slate-500">{text.sales}</p>
-                  <p className="text-lg font-black">{formatMoney(payload?.summary.sales_total ?? 0, lang)}</p>
-                </article>
-                <article className="rounded-2xl border border-slate-200 bg-slate-50 p-3">
-                  <p className="text-xs text-slate-500">{text.cash}</p>
-                  <p className="text-lg font-black">{formatMoney(payload?.summary.cash_total ?? 0, lang)}</p>
-                </article>
-                <article className="rounded-2xl border border-slate-200 bg-slate-50 p-3">
-                  <p className="text-xs text-slate-500">{text.transfer}</p>
-                  <p className="text-lg font-black">{formatMoney(payload?.summary.transfer_total ?? 0, lang)}</p>
-                </article>
+              <div className="mt-4 space-y-3">
+                <div className="rounded-2xl border border-blue-200 bg-blue-50 p-4">
+                  <p className="text-xs font-bold text-blue-700">{lang === "th" ? "ยอดขายรวมทุกกะที่เลือก" : "All selected shifts — sales"}</p>
+                  <p className="mt-1 text-2xl font-black text-blue-950">{formatMoney(payload?.summary.sales_total ?? 0, lang)}</p>
+                  <p className="mt-1 text-xs text-blue-800">{periodLabel} · {periodBranchLabel}</p>
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  {([
+                    [text.shifts, String(payload?.summary.shift_count ?? 0)],
+                    [text.orders, String(payload?.summary.order_count ?? 0)],
+                    [text.cancelled, String(payload?.summary.cancelled_order_count ?? 0)],
+                    [text.cash, formatMoney(payload?.summary.cash_total ?? 0, lang)],
+                    [lang === "th" ? "โอน/QR" : "Transfer/QR", formatMoney(payload?.summary.transfer_total ?? 0, lang)]
+                  ] as const).map(([label, value]) => (
+                    <article key={label} className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                      <p className="text-xs text-slate-500">{label}</p>
+                      <p className="text-lg font-black text-slate-950">{value}</p>
+                    </article>
+                  ))}
+                </div>
+                <div className="rounded-xl border border-slate-200 p-3">
+                  <h4 className="text-sm font-black text-slate-900">{lang === "th" ? "แยกยอดแต่ละกะ (ไม่บวกเงินตั้งต้นกะเป็นยอดขาย)" : "By shift (opening float is not sales)"}</h4>
+                  <div className="mt-2 max-h-56 space-y-2 overflow-y-auto">
+                    {payload?.shifts.map((shift) => {
+                      const cycle = resolveShiftCycle(shift.opened_at);
+                      return (
+                        <div key={shift.id} className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs">
+                          <p className="font-bold text-slate-900">{cycle ? slotLabel(cycle.slot, lang) : text.shiftName} · {formatDateTime(shift.opened_at, lang)}</p>
+                          <p className="text-slate-500">{shift.branch_name ?? shift.branch_code ?? "-"}</p>
+                          <div className="mt-1 flex justify-between gap-2"><span>{text.orders}</span><strong>{shift.metrics.order_count}</strong></div>
+                          <div className="flex justify-between gap-2"><span>{text.sales}</span><strong>{formatMoney(shift.metrics.sales_total, lang)}</strong></div>
+                          <div className="flex justify-between gap-2"><span>{lang === "th" ? "โอน/QR" : "Transfer/QR"}</span><strong>{formatMoney(shift.metrics.transfer_total, lang)}</strong></div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+                {periodPrintNotice ? <p role="status" className="rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-800">{periodPrintNotice}</p> : null}
+                <div className="grid grid-cols-2 gap-2">
+                  <button type="button" onClick={() => void printPeriodShiftReceipt58(false)} disabled={!payload?.shifts.length || Boolean(busy)}
+                    className="min-h-11 rounded-xl border border-slate-300 bg-white px-2 py-2 text-xs font-bold text-slate-800 disabled:opacity-50">
+                    {lang === "th" ? "พิมพ์ยอดรวม 58mm" : "Print totals 58mm"}
+                  </button>
+                  <button type="button" onClick={() => void printPeriodShiftReceipt58(true)} disabled={!payload?.shifts.length || Boolean(busy)}
+                    className="min-h-11 rounded-xl bg-blue-600 px-2 py-2 text-xs font-bold text-white disabled:opacity-50">
+                    {busy === "print" ? text.printing : lang === "th" ? "พิมพ์ยอดรวม Bluetooth" : "Bluetooth totals"}
+                  </button>
+                </div>
               </div>
             ) : null}
 
@@ -1520,7 +1707,9 @@ export function PosShiftHistoryModule({ lang }: { lang: Lang }) {
                         <strong className="text-right">{selectedShift.closed_at ? formatDateTime(selectedShift.closed_at, lang) : "-"}</strong>
                       </p>
                       <hr className="border-slate-200" />
-                      <p className="flex justify-between gap-3">
+                      <p className="flex justify-between gap-3"><span>{text.orders}</span><strong>{selectedShift.metrics.order_count}</strong></p>
+                      <p className="flex justify-between gap-3"><span>{text.cancelled}</span><strong>{selectedShift.metrics.cancelled_order_count}</strong></p>
+                      <p className="flex justify-between gap-3 border-t border-slate-200 pt-2">
                         <span>{text.sales}</span>
                         <strong>{formatMoney(selectedShift.metrics.sales_total, lang)}</strong>
                       </p>
@@ -1532,8 +1721,9 @@ export function PosShiftHistoryModule({ lang }: { lang: Lang }) {
                         <span>{text.transfer}</span>
                         <strong>{formatMoney(selectedShift.metrics.transfer_total, lang)}</strong>
                       </p>
-                      <p className="flex justify-between gap-3">
-                        <span>{text.expected}</span>
+                      <p className="flex justify-between gap-3 border-t border-slate-200 pt-2"><span>{text.opening}</span><strong>{formatMoney(selectedShift.opening_cash, lang)}</strong></p>
+                      <p className="flex justify-between gap-3"><span>{text.receiptExpectedCash}</span><strong>{formatMoney(selectedShift.opening_cash + selectedShift.metrics.cash_total, lang)}</strong></p>
+                      <p className="flex justify-between gap-3"><span>{text.expected}</span>
                         <strong className={cashVarianceClass}>
                           {cashVariance === null ? "-" : formatSignedMoney(cashVariance, lang)}
                         </strong>
@@ -1545,9 +1735,30 @@ export function PosShiftHistoryModule({ lang }: { lang: Lang }) {
                     </>
                   );
                 })()}
+                <div className="mt-2 border-t border-slate-200 pt-3">
+                  <h4 className="font-black text-slate-900">{lang === "th" ? "รายการบิลในกะนี้" : "Bills in this shift"} ({selectedShift.bills.length})</h4>
+                  <div className="mt-2 max-h-48 space-y-2 overflow-y-auto">
+                    {selectedShift.bills.map((bill) => (
+                      <div key={bill.id} className="rounded-lg border border-slate-200 bg-white p-2 text-xs">
+                        <div className="flex justify-between gap-2"><span className="font-semibold text-slate-900">{bill.order_no ?? bill.id.slice(0, 8)}</span><strong>{formatMoney(bill.total, lang)}</strong></div>
+                        <p className="text-slate-500">{formatDateTime(bill.created_at, lang)} · {bill.status === "cancelled" ? text.cancelled : bill.status === "completed" ? (lang === "th" ? "ชำระแล้ว" : "Paid") : bill.status}</p>
+                        <p className="text-slate-600">{text.cash}: {formatMoney(bill.cash_total, lang)} · {lang === "th" ? "โอน/QR" : "Transfer/QR"}: {formatMoney(bill.transfer_total, lang)}</p>
+                      </div>
+                    ))}
+                    {!selectedShift.bills.length ? <p className="text-xs text-slate-500">{lang === "th" ? "ไม่พบรายการบิลในช่วงเวลาของกะนี้" : "No bills in this shift window."}</p> : null}
+                  </div>
+                </div>
+                <div className="rounded-xl border border-blue-100 bg-blue-50 px-3 py-2 text-xs text-blue-800">
+                  {lang === "th" ? "กะนี้เท่านั้น · ยอดรวมทุกกะในช่วงที่เลือก" : "This shift only · All selected shifts"}: <strong>{formatMoney(payload?.summary.sales_total ?? 0, lang)}</strong>
+                </div>
               </div>
             ) : null}
 
+            {modalKind === "receipt" && closeReceipt ? (
+              <p className="mt-3 text-xs font-semibold text-blue-700">{lang === "th"
+                ? "ใบนี้เป็นยอดของกะที่เพิ่งปิดเท่านั้น ต้องการยอดรวมทุกกะให้กดดูยอดรวมด้านล่าง"
+                : "This receipt covers only the just-closed shift. Use all-shift totals below for a combined receipt."}</p>
+            ) : null}
             {modalKind === "receipt" && closeReceipt ? (
               <div className="mt-3 max-h-[min(58dvh,520px)] overflow-y-auto rounded-xl border border-slate-200 bg-slate-100 p-3">
                 <article className="posui-print-receipt58 mx-auto bg-white shadow-sm" style={{ width: "58mm", minHeight: "auto", color: "#000" }}>
@@ -1607,6 +1818,14 @@ export function PosShiftHistoryModule({ lang }: { lang: Lang }) {
                   </button>
                   <button
                     type="button"
+                    onClick={() => { setPeriodPrintNotice(null); openModal("summary"); }}
+                    disabled={!payload?.shifts.length || Boolean(busy)}
+                    className="min-h-10 w-full rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-sm font-semibold text-blue-700 disabled:opacity-50"
+                  >
+                    {lang === "th" ? "ดูยอดรวมทุกกะ" : "All shifts"}
+                  </button>
+                  <button
+                    type="button"
                     onClick={() => closeModal()}
                     disabled={Boolean(busy)}
                     className="min-h-10 w-full rounded-xl bg-slate-900 px-3 py-2 text-sm font-bold leading-5 text-white disabled:opacity-60"
@@ -1624,6 +1843,12 @@ export function PosShiftHistoryModule({ lang }: { lang: Lang }) {
                   >
                     {modalKind === "active" || modalKind === "details" || modalKind === "summary" ? text.close : text.cancel}
                   </button>
+                  {modalKind === "details" ? (
+                    <button type="button" onClick={() => { setPeriodPrintNotice(null); openModal("summary"); }}
+                      className="h-10 rounded-xl border border-blue-200 bg-blue-50 px-3 text-sm font-bold text-blue-700">
+                      {lang === "th" ? "ดูยอดรวมทุกกะ" : "All shifts"}
+                    </button>
+                  ) : null}
                   {modalKind === "details" ? (
                     <button
                       type="button"
