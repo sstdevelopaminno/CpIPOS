@@ -11,6 +11,7 @@ import {
   withPosSessionCookie
 } from "@/lib/pos-session-guard";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
+import { calculateShiftSalesSummary } from "@/lib/pos-shift-sales-summary";
 
 function isMissingSessionShiftColumnError(error: { code?: string; message?: string } | null | undefined) {
   if (!error) return false;
@@ -412,6 +413,7 @@ export async function POST(request: Request) {
       .from("orders")
       .select("id,shift_id,status,total_amount,grand_total,created_at")
       .eq("tenant_id", sessionScope.tenantId)
+      .eq("branch_id", sessionScope.branchId)
       .eq("shift_id", shift.id);
     if (ordersQuery.error) {
       return NextResponse.json(
@@ -428,80 +430,32 @@ export async function POST(request: Request) {
       grand_total: number | null;
       created_at: string;
     }>;
-
-    const includedOrderIds = new Set<string>();
-    let orderCount = 0;
-    let cancelledOrderCount = 0;
-    let salesTotal = 0;
-
-    for (const order of orders) {
-      if (!isWithinWindow(order.created_at, shift.opened_at, shiftSummaryEndAt)) continue;
-      includedOrderIds.add(order.id);
-      orderCount += 1;
-      if (order.status === "cancelled") {
-        cancelledOrderCount += 1;
-      } else {
-        salesTotal += toNumber(order.grand_total ?? order.total_amount);
-      }
-    }
-
-    let paymentRows: Array<{ order_id: string | null; shift_id: string | null; method: string; amount: number | null; created_at: string | null }> =
-      [];
-    const paymentsByShift = await supabase
-      .from("payments")
-      .select("order_id,shift_id,method,amount,created_at")
-      .eq("tenant_id", sessionScope.tenantId)
-      .eq("shift_id", shift.id);
-
-    if (paymentsByShift.error && isMissingColumnError(paymentsByShift.error, "shift_id")) {
-      const fallbackPayments = await supabase
-        .from("payments")
-        .select("order_id,method,amount,created_at")
-        .eq("tenant_id", sessionScope.tenantId)
-        .in("order_id", Array.from(includedOrderIds));
-      if (fallbackPayments.error) {
-        return NextResponse.json(
-          { data: null, error: { code: "shift_payments_query_failed", message: fallbackPayments.error.message } },
-          { status: 500 }
-        );
-      }
-      paymentRows = ((fallbackPayments.data ?? []) as Array<{ order_id: string | null; method: string; amount: number | null; created_at: string | null }>).map(
-        (row) => ({
-          order_id: row.order_id,
-          shift_id: shift.id,
-          method: row.method,
-          amount: row.amount,
-          created_at: row.created_at
-        })
-      );
-    } else if (paymentsByShift.error) {
+    // Always resolve payment method amounts by the order's shift binding. Most
+    // payment rows have a null payments.shift_id even for completed sales.
+    const orderIds = orders.map((order) => order.id);
+    const paymentsByOrder = orderIds.length
+      ? await supabase
+          .from("payments")
+          .select("order_id,method,amount,created_at,status")
+          .eq("tenant_id", sessionScope.tenantId)
+          .eq("branch_id", sessionScope.branchId)
+          .in("order_id", orderIds)
+      : { data: [], error: null };
+    if (paymentsByOrder.error) {
       return NextResponse.json(
-        { data: null, error: { code: "shift_payments_query_failed", message: paymentsByShift.error.message } },
+        { data: null, error: { code: "shift_payments_query_failed", message: paymentsByOrder.error.message } },
         { status: 500 }
       );
-    } else {
-      paymentRows = (paymentsByShift.data ?? []) as Array<{
-        order_id: string | null;
-        shift_id: string | null;
-        method: string;
-        amount: number | null;
-        created_at: string | null;
-      }>;
     }
+    const { order_count: orderCount, cancelled_order_count: cancelledOrderCount,
+      sales_total: salesTotal, cash_total: cashTotal, transfer_total: transferTotal } = calculateShiftSalesSummary({
+      orders,
+      payments: paymentsByOrder.data ?? [],
+      openedAt: shift.opened_at,
+      endAt: shiftSummaryEndAt
+    });
 
-    let cashTotal = 0;
-    let transferTotal = 0;
-    for (const payment of paymentRows) {
-      if (payment.order_id && !includedOrderIds.has(payment.order_id)) continue;
-      if (!isWithinWindow(payment.created_at, shift.opened_at, shiftSummaryEndAt)) continue;
-      if (payment.method === "cash") {
-        cashTotal += toNumber(payment.amount);
-      } else if (payment.method === "bank_transfer") {
-        transferTotal += toNumber(payment.amount);
-      }
-    }
-
-    const finalExpectedCash = autoCloseWithoutCashCount ? null : Number(cashTotal.toFixed(2));
+    const finalExpectedCash = autoCloseWithoutCashCount ? null : Number((openingCashValue + cashTotal).toFixed(2));
     const finalActualCash = autoCloseWithoutCashCount ? null : closingCash ?? 0;
     const closeTotalsUpdate = await supabase
       .from("shifts")
@@ -565,7 +519,7 @@ export async function POST(request: Request) {
           opened_at: shift.opened_at,
           opening_cash: openingCashValue,
           closing_cash: closingCash ?? 0,
-          expected_cash: finalExpectedCash ?? openingCashValue + cashTotal,
+          expected_cash: finalExpectedCash,
           actual_cash: finalActualCash,
           auto_closed_without_cash_count: autoCloseWithoutCashCount
         }
