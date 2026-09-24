@@ -1,3 +1,5 @@
+import { assertPosMenuPageAllowed } from "@/lib/server/pos-menu-policy-service";
+import { requirePosSession } from "@/lib/pos-session-guard";
 import { AddProductPopupButton } from "@/components/pos-preview/add-product-popup-button";
 import type { BranchRole } from "@pos/shared-types";
 import { PosBackButton } from "@/components/pos-preview/pos-back-button";
@@ -113,6 +115,8 @@ export default async function PosStockPage({
 }: {
   searchParams?: Promise<Record<string, string | string[] | undefined>>;
 }) {
+  const posMenuScope = await requirePosSession();
+  await assertPosMenuPageAllowed(posMenuScope.session.tenant_id, "/preview/pos/stock");
   const scope = await requirePosPagePermission("inventory:view");
   const lang = await getCurrentLanguage();
   const th = lang === "th";
