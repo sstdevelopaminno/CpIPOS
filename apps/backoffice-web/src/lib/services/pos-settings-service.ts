@@ -689,13 +689,22 @@ export async function saveDeviceSettings(auth: AuthContext, input: PosDeviceInpu
   const currentDevice = deviceId
     ? await supabase
         .from("branch_devices")
-        .select("id,branch_id,device_code,status")
+        .select("id,branch_id,device_code,status,metadata")
         .eq("tenant_id", auth.tenantId)
         .eq("id", deviceId)
-        .maybeSingle<{ id: string; branch_id: string; device_code: string | null; status: string | null }>()
+        .maybeSingle<{
+          id: string; branch_id: string; device_code: string | null;
+          status: string | null; metadata: Record<string, unknown> | null
+        }>()
     : null;
   if (currentDevice?.error) throw new Error(currentDevice.error.message);
   if (deviceId && !currentDevice?.data) throw new Error("Cashier device was not found.");
+  if (currentDevice?.data?.metadata?.it_cashier_archived_at) {
+    throw new Error("Cashier device was removed by IT Admin and cannot be restored from POS settings.");
+  }
+  if (currentDevice?.data?.metadata?.it_cashier_disabled && status === "active") {
+    throw new Error("Cashier device is disabled by IT Admin; request IT to reactivate it.");
+  }
 
   const previousBranchId = currentDevice?.data?.branch_id ?? null;
   const branchId = trimText(input.branch_id) || previousBranchId || trimText(auth.branchId);
@@ -733,6 +742,7 @@ export async function saveDeviceSettings(auth: AuthContext, input: PosDeviceInpu
   }
 
   const metadata = {
+    ...(currentDevice?.data?.metadata ?? {}),
     counter_name: counterName || null,
     location: location || null,
     provisioned_from: "pos_settings"
@@ -805,12 +815,18 @@ export async function deleteDeviceSettings(auth: AuthContext, deviceId: string) 
 
   const { data: current, error: currentError } = await supabase
     .from("branch_devices")
-    .select("id,branch_id,device_code,device_name")
+    .select("id,branch_id,device_code,device_name,metadata")
     .eq("tenant_id", auth.tenantId)
     .eq("id", normalizedDeviceId)
-    .maybeSingle<{ id: string; branch_id: string; device_code: string | null; device_name: string | null }>();
+    .maybeSingle<{
+      id: string; branch_id: string; device_code: string | null;
+      device_name: string | null; metadata: Record<string, unknown> | null
+    }>();
   if (currentError) throw new Error(currentError.message);
   if (!current) throw new Error("Cashier device was not found.");
+  if (current.metadata?.it_cashier_archived_at) {
+    throw new Error("Cashier device was removed by IT Admin; its historical registry cannot be deleted from POS settings.");
+  }
 
   const nowIso = new Date().toISOString();
   const revokeByDeviceId = await supabase
