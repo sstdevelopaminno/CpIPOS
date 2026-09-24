@@ -1,3 +1,5 @@
+import { assertPosMenuPageAllowed } from "@/lib/server/pos-menu-policy-service";
+import { requirePosSession } from "@/lib/pos-session-guard";
 import type { BranchRole } from "@pos/shared-types";
 import { PosSalesSummaryDashboard } from "@/components/pos-preview/pos-sales-summary-dashboard";
 import { getCurrentLanguage } from "@/lib/i18n";
@@ -6,6 +8,8 @@ import { loadPosSalesSummaryData } from "@/lib/services/pos-sales-summary-servic
 import styles from "./sales-summary-responsive.module.css";
 
 export default async function PosSalesSummaryPage() {
+  const posMenuScope = await requirePosSession();
+  await assertPosMenuPageAllowed(posMenuScope.session.tenant_id, "/preview/pos/sales-summary");
   const scope = await requirePosPagePermission("reports:view");
   const lang = await getCurrentLanguage();
   const initialPayload = await loadPosSalesSummaryData({
