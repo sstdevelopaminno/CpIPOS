@@ -1,4 +1,4 @@
-import { assertPosMenuPageAllowed } from "@/lib/server/pos-menu-policy-service";
+import { assertPosMenuPageAllowed, getTenantPosMenuOverrides } from "@/lib/server/pos-menu-policy-service";
 import { PrintersModule } from "@/components/backoffice/printers-module";
 import { PosSettingsWorkspace } from "@/components/pos-preview/pos-settings-workspace";
 import { TableQrSettingsMenuPortal } from "@/components/pos-preview/table-qr-settings-menu-portal";
@@ -32,6 +32,9 @@ export default async function PosLanguageSettingsPage() {
   });
   const role = String(scope.session.role ?? "").trim().toLowerCase();
   const canManageTableQr = role === "owner" || role === "manager";
+  const settingsMenuPolicy = canManageTableQr
+    ? await getTenantPosMenuOverrides(scope.session.tenant_id)
+    : {};
   const timelineEnabled = canManageTableQr && resolveRestaurantQrKitchenFlags({
     tenantId: scope.session.tenant_id,
     branchId: scope.session.branch_id
@@ -40,7 +43,7 @@ export default async function PosLanguageSettingsPage() {
   return (
     <div className="h-full min-h-0 flex-1 bg-slate-50">
       <PosSettingsWorkspace lang={lang} initialData={initialData} />
-      {canManageTableQr ? <TableQrSettingsMenuPortal lang={lang} timelineEnabled={timelineEnabled} /> : null}
+      {canManageTableQr ? <TableQrSettingsMenuPortal lang={lang} timelineEnabled={timelineEnabled} menuPolicy={settingsMenuPolicy} /> : null}
     </div>
   );
 }
