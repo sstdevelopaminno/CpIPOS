@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import type { Language } from "@/lib/i18n";
+import { isPosMenuEnabled } from "@/lib/pos-menu-policy";
 
 const SLOT_ATTRIBUTE = "data-cpipos-table-qr-settings-slot";
 const CUSTOMER_DISPLAY_HREF = "/preview/pos/customer-display";
@@ -54,7 +55,9 @@ function ensureTableQrSettingsSlot() {
 
 const cardClass = "group grid h-full min-h-[92px] grid-cols-[42px_1fr_24px] items-center gap-3 rounded-lg border border-slate-200 bg-white p-4 text-left transition hover:border-blue-200 hover:bg-blue-50/50";
 
-export function TableQrSettingsMenuPortal({ lang, timelineEnabled = false }: { lang: Language; timelineEnabled?: boolean }) {
+export function TableQrSettingsMenuPortal({
+  lang, timelineEnabled = false, menuPolicy
+}: { lang: Language; timelineEnabled?: boolean; menuPolicy: Record<string, boolean> }) {
   const [target, setTarget] = useState<HTMLElement | null>(null);
   useEffect(() => {
     let disposed = false;
@@ -64,17 +67,19 @@ export function TableQrSettingsMenuPortal({ lang, timelineEnabled = false }: { l
     const observer = new MutationObserver(sync); observer.observe(document.body, { childList: true, subtree: true });
     return () => { disposed = true; observer.disconnect(); setTarget(null); if (currentSlot?.isConnected) currentSlot.remove(); };
   }, []);
-  if (!target) return null;
+  const showOrderKitchen = isPosMenuEnabled("settings.order_kitchen", menuPolicy);
+  const showTableQr = isPosMenuEnabled("settings.table_qr", menuPolicy);
+  if (!target || (!showOrderKitchen && !showTableQr)) return null;
   return createPortal(<>
-    <Link href="/preview/pos/settings/order-kitchen" prefetch={false} className={cardClass}>
+    {showOrderKitchen ? <Link href="/preview/pos/settings/order-kitchen" prefetch={false} className={cardClass}>
       <span className="inline-flex h-10 w-10 items-center justify-center rounded-lg bg-orange-50 text-orange-700 group-hover:bg-orange-100"><OrderKitchenIcon /></span>
       <span className="min-w-0"><span className="block text-base font-black text-slate-950">{lang === "th" ? "การแจ้งเตือนออเดอร์และครัว" : "Order & Kitchen Automation"}</span><span className="mt-1 block text-sm font-medium leading-5 text-slate-500">{lang === "th" ? "เปิด/ปิดแจ้งเตือน QR ส่งเข้าครัว และพิมพ์ใบครัวอัตโนมัติ" : "Control QR alerts, kitchen dispatch and automatic kitchen printing"}</span></span><span className="text-slate-400">›</span>
-    </Link>
-    <Link href="/preview/pos/settings/table-qr" prefetch={false} className={cardClass}>
+    </Link> : null}
+    {showTableQr ? <Link href="/preview/pos/settings/table-qr" prefetch={false} className={cardClass}>
       <span className="inline-flex h-10 w-10 items-center justify-center rounded-lg bg-slate-100 text-slate-700 group-hover:bg-blue-100 group-hover:text-blue-700"><TableQrMenuIcon /></span>
       <span className="min-w-0"><span className="block text-base font-black text-slate-950">{lang === "th" ? "ตั้งค่า QR โต๊ะ" : "Table QR Settings"}</span><span className="mt-1 block text-sm font-medium leading-5 text-slate-500">{lang === "th" ? "กำหนดหมดอายุตามเวลา/ชั่วโมง หรือใช้งานตามบิล" : "Choose timed/hourly expiry or bill-lifecycle mode"}</span></span><span className="text-slate-400">›</span>
-    </Link>
-    {timelineEnabled ? <Link href="/preview/pos/settings/table-qr/timeline" prefetch={false} className={cardClass}>
+    </Link> : null}
+    {showTableQr && timelineEnabled ? <Link href="/preview/pos/settings/table-qr/timeline" prefetch={false} className={cardClass}>
       <span className="inline-flex h-10 w-10 items-center justify-center rounded-lg bg-amber-50 text-amber-700 group-hover:bg-amber-100"><TimelineIcon /></span>
       <span className="min-w-0"><span className="block text-base font-black text-slate-950">{lang === "th" ? "ไทม์ไลน์สั่งอาหารจาก QR" : "QR Order Timeline"}</span><span className="mt-1 block text-sm font-medium leading-5 text-slate-500">{lang === "th" ? "ดูเครื่องที่กด รายการที่สั่ง สำเร็จ/ล้มเหลว/กดซ้ำ ย้อนหลัง 7 วัน" : "Audit device, items, success/failure and duplicate attempts for 7 days"}</span></span><span className="text-slate-400">›</span>
     </Link> : null}
