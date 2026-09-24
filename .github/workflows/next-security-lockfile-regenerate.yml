@@ -1,0 +1,46 @@
+name: One-time Next.js security lockfile regeneration
+on:
+  push:
+    branches:
+      - fix/nextjs-security-20260924
+
+permissions:
+  contents: write
+
+concurrency:
+  group: next-security-lockfile
+  cancel-in-progress: false
+
+jobs:
+  regenerate:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Rebuild lockfile from the patched Backoffice manifest
+        run: |
+          corepack enable
+          node <<'NODE'
+          const fs = require("node:fs");
+          const path = "apps/backoffice-web/package.json";
+          const packageJson = JSON.parse(fs.readFileSync(path, "utf8"));
+          packageJson.dependencies.next = "^16.3.6";
+          packageJson.devDependencies["eslint-config-next"] = "^16.3.6";
+          fs.writeFileSync(path, JSON.stringify(packageJson, null, 2) + "\n");
+          NODE
+          corepack pnpm install --lockfile-only --ignore-scripts
+          corepack pnpm install --frozen-lockfile
+      - name: Commit regenerated dependencies on the isolated branch only
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add apps/backoffice-web/package.json pnpm-lock.yaml
+          git diff --cached --exit-code && exit 0 || true
+          git commit -m "security(next): upgrade Web POS Next.js to 16.3.6 with regenerated lockfile"
+          git push origin "HEAD:refs/heads/fix/nextjs-security-20260924"
