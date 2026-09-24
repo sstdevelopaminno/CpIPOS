@@ -213,7 +213,7 @@ describe("POS payment stability hotfix", () => {
   it("cash payment defers drawer and receipt side effects so checkout is not blocked by printer latency", () => {
     const paymentsSource = source("src/app/api/pos/payments/route.ts");
     expect(paymentsSource).toContain("after(async () => {");
-    expect(paymentsSource).toContain("const drawerTask = paymentMethod === \"cash\"");
+    expect(paymentsSource).toContain("const drawerTask = hasCash");
     expect(paymentsSource).toContain("const receiptTask = (async () =>");
     expect(paymentsSource).toContain("await Promise.all([drawerTask, receiptTask])");
     expect(paymentsSource).toContain("print_jobs_deferred: true");
