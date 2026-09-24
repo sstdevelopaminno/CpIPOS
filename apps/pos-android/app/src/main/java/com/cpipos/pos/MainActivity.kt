@@ -131,7 +131,12 @@ class MainActivity : ComponentActivity() {
             }
         }
 
-        val agent = PosMdmAgent(this, webView)
+        val agent = PosMdmAgent(this, webView) { enabled ->
+            runOnUiThread {
+                if (enabled) startDualScreenSupport() else stopDualScreenSupport()
+                applyCustomerDisplayV2Flag()
+            }
+        }
         mdmAgent = agent
         webView.addJavascriptInterface(agent, "CpiposMdm")
 
@@ -229,8 +234,13 @@ class MainActivity : ComponentActivity() {
         super.onDestroy()
     }
 
+    private fun isDualScreenEnabled(): Boolean =
+        BuildConfig.CPIPOS_DUAL_SCREEN_ENABLED &&
+            getSharedPreferences("cpipos_android_pos_mdm", Context.MODE_PRIVATE)
+                .getBoolean("dual_screen_policy_enabled", true)
+
     private fun startDualScreenSupport() {
-        if (!BuildConfig.CPIPOS_DUAL_SCREEN_ENABLED) return
+        if (!isDualScreenEnabled()) return
         val manager = getSystemService(DisplayManager::class.java) ?: return
         displayManager = manager
         manager.registerDisplayListener(dualScreenDisplayListener, Handler(Looper.getMainLooper()))
@@ -249,7 +259,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun syncDualScreenPresentation() {
-        if (!BuildConfig.CPIPOS_DUAL_SCREEN_ENABLED) return
+        if (!isDualScreenEnabled()) return
         val manager = displayManager ?: return
         val primaryDisplayId = if (::webView.isInitialized) webView.display?.displayId ?: Display.DEFAULT_DISPLAY else Display.DEFAULT_DISPLAY
         val presentationDisplay = manager.getDisplays(DisplayManager.DISPLAY_CATEGORY_PRESENTATION)
@@ -295,7 +305,7 @@ class MainActivity : ComponentActivity() {
 
     private fun applyCustomerDisplayV2Flag() {
         if (!::webView.isInitialized) return
-        val enabled = BuildConfig.CPIPOS_DUAL_SCREEN_ENABLED && activeSecondaryDisplayId != null
+        val enabled = isDualScreenEnabled() && activeSecondaryDisplayId != null
         val value = if (enabled) "1" else "0"
         val script = """
             (function(){
