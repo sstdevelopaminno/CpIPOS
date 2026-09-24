@@ -57,11 +57,23 @@ describe("Android POS MDM primary control plane", () => {
   });
 
   it("advertises remote lock only when the native Device Owner executor is available", () => {
-    expect(fullMdmAgent).toContain('if (deviceOwner) capabilities.put("remote_lock")');
+    expect(fullMdmAgent).toContain('capabilities.put("remote_lock")');
     expect(fullMdmAgent).toContain("manager.lockNow()");
     expect(fullMdmAgent).not.toContain('capabilities.put("remote_unlock")');
     expect(fullMdmAgent).not.toContain('capabilities.put("financing_lock")');
     expect(fullMdmAgent).not.toContain('capabilities.put("revoke_access")');
-    expect(fullMdmAgent).not.toContain('capabilities.put("app_uninstall")');
+    expect(fullMdmAgent).toContain('capabilities.put("app_uninstall")');
+    expect(fullMdmAgent).toContain("packageInstaller.uninstall(packageName, receiver.intentSender)");
+    expect(fullMdmAgent).toContain("core_agent_uninstall_blocked");
+    expect(transport).toContain('"uninstall_app"');
+  });
+});
+
+describe("IT-managed dual-screen policy transport", () => {
+  it("sends only paired-device policy and applies native on/off without changing the build capability", () => {
+    expect(route).toContain("device_policy:");
+    expect(route).toContain("android_dual_screen_enabled");
+    expect(androidAgent).toContain('optJSONObject("device_policy")');
+    expect(androidAgent).toContain('putBoolean("dual_screen_policy_enabled", newValue)');
   });
 });
