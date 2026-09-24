@@ -1,3 +1,5 @@
+import { assertPosMenuPageAllowed } from "@/lib/server/pos-menu-policy-service";
+import { requirePosSession } from "@/lib/pos-session-guard";
 import { PosBackButton } from "@/components/pos-preview/pos-back-button";
 import { ProductMediaManager, type ProductMediaManagerProduct } from "@/components/pos-preview/product-media-manager";
 import { getCurrentLanguage } from "@/lib/i18n";
@@ -9,6 +11,8 @@ export default async function ProductMediaPage({
 }: {
   searchParams?: Promise<Record<string, string | string[] | undefined>>;
 }) {
+  const posMenuScope = await requirePosSession();
+  await assertPosMenuPageAllowed(posMenuScope.session.tenant_id, "/preview/pos/stock/media");
   const scope = await requirePosPagePermission("inventory:view");
   const lang = await getCurrentLanguage();
   const th = lang === "th";
