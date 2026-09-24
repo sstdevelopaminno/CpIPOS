@@ -127,9 +127,24 @@ export function PosShellSidebar({ lang, settingsLabel, placement }: Props) {
         if (!cancelled) setEnabledFeatures({});
       }
     }
+    // Refresh the IT menu policy when staff returns to this tab after an IT
+    // change. Do not poll Vercel every few seconds: one read on focus suffices.
+    let lastRefresh = Date.now();
+    function onFocus() {
+      if (Date.now() - lastRefresh < 5_000) return;
+      lastRefresh = Date.now();
+      void loadFeatures();
+    }
+    function onVisibility() {
+      if (document.visibilityState === "visible") onFocus();
+    }
     void loadFeatures();
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onVisibility);
     return () => {
       cancelled = true;
+      window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", onVisibility);
     };
   }, []);
 
