@@ -82,6 +82,10 @@ describe("POS shift sales close/history reconciliation", () => {
     const history = readFileSync(new URL("../../src/app/api/pos/shifts/history/route.ts", import.meta.url), "utf8");
     expect(source).toContain('.in("order_id", batch)');
     expect(source).toContain("collectPagedShiftRows");
+    expect(source).toContain('.eq("status", "open")');
+    expect(source).toContain('code: "shift_already_closed"');
+    expect(source).toContain('quick_close: quickClose');
+    expect(source).not.toContain('if (quickClose) {');
     expect(source).toContain("collectShiftRowsForIds");
     expect(history).toContain("collectShiftRowsForIds");
     expect(source).toContain("calculateShiftSalesSummary({");
