@@ -1,7 +1,9 @@
 package com.cpipos.pos
 
+import android.app.PendingIntent
 import android.app.admin.DevicePolicyManager
 import android.content.Context
+import android.content.Intent
 import android.os.Build
 import org.json.JSONArray
 import org.json.JSONObject
@@ -10,8 +12,9 @@ import org.json.JSONObject
  * Capability-gated Full MDM transport executor.
  *
  * Remote lock is advertised only when Android 1.0.23 runs as the actual Device Owner.
- * Unlock, financing lock, revoke access, location, remote support and app-management
- * capabilities remain unadvertised until each native executor is implemented and validated.
+ * Uninstalling third-party apps requires verified Device Owner; the asynchronous
+ * PackageInstaller callback reports completion, not queue acceptance. Core CpIPOS
+ * agent packages are protected. Other unsupported device capabilities stay hidden.
  */
 class FullMdmAgent(context: Context) {
     private val appContext = context.applicationContext
@@ -24,7 +27,10 @@ class FullMdmAgent(context: Context) {
         if (enabled) {
             capabilities.put("mdm_core")
             capabilities.put("policy_sync")
-            if (deviceOwner) capabilities.put("remote_lock")
+            if (deviceOwner) {
+                capabilities.put("remote_lock")
+                capabilities.put("app_uninstall")
+            }
         }
 
         return JSONObject()
@@ -52,7 +58,19 @@ class FullMdmAgent(context: Context) {
             if (!UUID_PATTERN.matches(commandId) || commandType.isBlank()) continue
             if (hasExecuted(commandId)) continue
 
-            val result = execute(commandType, command.optJSONObject("payload") ?: JSONObject())
+            val payload = command.optJSONObject("payload") ?: JSONObject()
+            if (commandType == "uninstall_app") {
+                val queued = requestAppUninstall(commandId, payload)
+                // The platform sends an asynchronous PackageInstaller result. Do not
+                // acknowledge the server queue as successful merely for submission.
+                if (queued.first != "pending") {
+                    appendResult(commandId, queued.first, queued.second)
+                    produced = true
+                }
+                rememberExecuted(commandId)
+                continue
+            }
+            val result = execute(commandType, payload)
             appendResult(commandId, result.first, result.second)
             rememberExecuted(commandId)
             produced = true
@@ -100,6 +118,51 @@ class FullMdmAgent(context: Context) {
                 .put("code", "full_mdm_command_not_implemented")
                 .put("command_type", commandType)
         }
+    }
+
+    private fun requestAppUninstall(commandId: String, payload: JSONObject): Pair<String, JSONObject> {
+        val packageName = payload.optString("packageName", "").trim()
+        val validPackage = Regex("^[A-Za-z][A-Za-z0-9_]*(\\.[A-Za-z][A-Za-z0-9_]*)+$")
+        if (!validPackage.matches(packageName) || packageName.length > 200) {
+            return "failed" to JSONObject().put("ok", false)
+                .put("code", "uninstall_package_invalid")
+        }
+        if (packageName == appContext.packageName || packageName in CORE_PACKAGES) {
+            return "failed" to JSONObject().put("ok", false)
+                .put("code", "core_agent_uninstall_blocked")
+        }
+        if (!isDeviceOwner()) {
+            return "failed" to JSONObject().put("ok", false)
+                .put("code", "android_device_owner_required")
+        }
+        return runCatching {
+            val intent = Intent(appContext, MdmUninstallResultReceiver::class.java).apply {
+                action = "com.cpipos.pos.MDM_UNINSTALL_RESULT.$commandId"
+                putExtra("mdm_command_id", commandId)
+                putExtra("mdm_package_name", packageName)
+            }
+            val flags = PendingIntent.FLAG_UPDATE_CURRENT or
+                (if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) PendingIntent.FLAG_MUTABLE else 0)
+            val receiver = PendingIntent.getBroadcast(
+                appContext, commandId.hashCode(), intent, flags
+            )
+            appContext.packageManager.packageInstaller.uninstall(packageName, receiver.intentSender)
+            "pending" to JSONObject().put("ok", true)
+                .put("action", "uninstall_app")
+                .put("package_name", packageName)
+                .put("code", "awaiting_package_installer_result")
+        }.getOrElse { error ->
+            "failed" to JSONObject().put("ok", false)
+                .put("code", "package_uninstall_request_failed")
+                .put("error_type", error.javaClass.simpleName)
+        }
+    }
+
+    /** Called only from this app's non-exported PackageInstaller result receiver. */
+    fun recordAsyncResult(commandId: String, status: String, result: JSONObject) {
+        if (!UUID_PATTERN.matches(commandId)) return
+        if (status != "succeeded" && status != "failed") return
+        appendResult(commandId, status, result)
     }
 
     private fun executeLockDevice(): Pair<String, JSONObject> {
@@ -198,6 +261,9 @@ class FullMdmAgent(context: Context) {
         private const val EXECUTED_IDS_KEY = "executed_ids"
         private const val POLICY_GENERATION_KEY = "policy_generation"
         private const val FULL_MDM_VERSION = "1.0.23"
+        private val CORE_PACKAGES = setOf(
+            "com.cpipos", "com.cpipos.pos", "com.cpipos.mdm", "com.cuttingpoint.cpipos"
+        )
         private const val MAX_PENDING_RESULTS = 20
         private const val MAX_EXECUTED_IDS = 80
         private val UUID_PATTERN = Regex("^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$")
