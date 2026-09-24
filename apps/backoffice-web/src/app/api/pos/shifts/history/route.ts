@@ -3,6 +3,7 @@ import { fail, ok } from "@/lib/http";
 import { FeatureGateError, requireTenantFeature } from "@/lib/feature-gate";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
 import { calculateShiftSalesSummary } from "@/lib/pos-shift-sales-summary";
+import { collectShiftRowsForIds } from "@/lib/pos-shift-query-pagination";
 
 type ShiftRow = {
   id: string;
@@ -242,11 +243,15 @@ export async function GET(request: Request) {
       ])
     );
 
-    const ordersQuery = await supabase
-      .from("orders")
-      .select("id,order_no,shift_id,status,total_amount,grand_total,created_at")
-      .eq("tenant_id", scope.session.tenant_id)
-      .in("shift_id", shiftIds);
+    const ordersQuery = await collectShiftRowsForIds(shiftIds, async (batch, from, to) =>
+      supabase
+        .from("orders")
+        .select("id,order_no,shift_id,status,total_amount,grand_total,created_at")
+        .eq("tenant_id", scope.session.tenant_id)
+        .in("shift_id", batch)
+        .order("id", { ascending: true })
+        .range(from, to)
+    );
 
     if (ordersQuery.error) {
       return fail("shift_orders_query_failed", ordersQuery.error.message, 500);
@@ -257,13 +262,15 @@ export async function GET(request: Request) {
       orders.filter((order) => order.shift_id).map((order) => [order.id, order.shift_id as string])
     );
     const orderIdsForPayments = Array.from(orderIdToShift.keys());
-    const paymentsByOrder = orderIdsForPayments.length
-      ? await supabase
-          .from("payments")
-          .select("order_id,method,amount,created_at,status")
-          .eq("tenant_id", scope.session.tenant_id)
-          .in("order_id", orderIdsForPayments)
-      : { data: [], error: null };
+    const paymentsByOrder = await collectShiftRowsForIds(orderIdsForPayments, async (batch, from, to) =>
+      supabase
+        .from("payments")
+        .select("order_id,method,amount,created_at,status")
+        .eq("tenant_id", scope.session.tenant_id)
+        .in("order_id", batch)
+        .order("id", { ascending: true })
+        .range(from, to)
+    );
     if (paymentsByOrder.error) {
       return fail("shift_payments_query_failed", paymentsByOrder.error.message, 500);
     }
