@@ -72,7 +72,7 @@ const RESULT_LIMIT = 10;
 const COMMAND_LIMIT = 3;
 const RETRY_PICKUP_AFTER_MS = 2 * 60_000;
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-const EXECUTOR_COMMANDS = new Set<MdmCommandType>(["diagnostics_ping", "sync_policy", "lock_device"]);
+const EXECUTOR_COMMANDS = new Set<MdmCommandType>(["diagnostics_ping", "sync_policy", "lock_device", "uninstall_app"]);
 
 function asRecord(value: unknown): JsonRecord {
   return value && typeof value === "object" && !Array.isArray(value) ? value as JsonRecord : {};
