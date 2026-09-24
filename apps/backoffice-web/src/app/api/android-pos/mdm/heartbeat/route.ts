@@ -188,6 +188,12 @@ export async function POST(request: Request) {
     data: {
       ...data,
       commands,
+      // Device-specific IT setting, delivered only to the paired Android install.
+      // This is not permission for a device-wide MDM action.
+      device_policy: {
+        dual_screen_enabled: asRecord(scope.metadata).android_dual_screen_enabled !== false,
+        updated_at: asRecord(scope.metadata).android_dual_screen_policy_updated_at ?? null
+      },
       full_mdm_commands: fullMdm.commands,
       full_mdm: {
         status: fullMdm.status,
