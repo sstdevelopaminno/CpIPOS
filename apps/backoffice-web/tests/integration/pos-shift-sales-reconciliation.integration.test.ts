@@ -80,7 +80,10 @@ describe("POS shift sales close/history reconciliation", () => {
   it("binds close payments by order ID and preserves the opening float in drawer expectation", () => {
     const source = readFileSync(new URL("../../src/app/api/pos/shifts/close/route.ts", import.meta.url), "utf8");
     const history = readFileSync(new URL("../../src/app/api/pos/shifts/history/route.ts", import.meta.url), "utf8");
-    expect(source).toContain('.in("order_id", orderIds)');
+    expect(source).toContain('.in("order_id", batch)');
+    expect(source).toContain("collectPagedShiftRows");
+    expect(source).toContain("collectShiftRowsForIds");
+    expect(history).toContain("collectShiftRowsForIds");
     expect(source).toContain("calculateShiftSalesSummary({");
     expect(history).toContain("calculateShiftSalesSummary({");
     expect(source).toContain("openingCashValue + cashTotal");
