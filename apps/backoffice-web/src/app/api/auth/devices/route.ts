@@ -76,7 +76,10 @@ export async function GET() {
       );
     }
 
-    const devices = (deviceRows ?? []) as DeviceCandidate[];
+    // An IT-archived cashier must disappear from the POS register chooser,
+    // while historical sale/shift references remain in the database.
+    const devices = ((deviceRows ?? []) as DeviceCandidate[])
+      .filter(device => !device.metadata?.it_cashier_archived_at);
     const deviceIds = devices.map((device) => device.id).filter(Boolean);
     const deviceCodes = devices.map((device) => device.device_code).filter(Boolean);
     const nowIso = new Date().toISOString();
