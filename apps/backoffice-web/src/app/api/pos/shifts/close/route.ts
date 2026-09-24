@@ -12,6 +12,7 @@ import {
 } from "@/lib/pos-session-guard";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
 import { calculateShiftSalesSummary } from "@/lib/pos-shift-sales-summary";
+import { collectPagedShiftRows, collectShiftRowsForIds } from "@/lib/pos-shift-query-pagination";
 
 function isMissingSessionShiftColumnError(error: { code?: string; message?: string } | null | undefined) {
   if (!error) return false;
@@ -409,12 +410,16 @@ export async function POST(request: Request) {
         ? summaryCutoffAt
         : new Date(closedAtIso);
 
-    const ordersQuery = await supabase
-      .from("orders")
-      .select("id,shift_id,status,total_amount,grand_total,created_at")
-      .eq("tenant_id", sessionScope.tenantId)
-      .eq("branch_id", sessionScope.branchId)
-      .eq("shift_id", shift.id);
+    const ordersQuery = await collectPagedShiftRows(async (from, to) =>
+      supabase
+        .from("orders")
+        .select("id,shift_id,status,total_amount,grand_total,created_at")
+        .eq("tenant_id", sessionScope.tenantId)
+        .eq("branch_id", sessionScope.branchId)
+        .eq("shift_id", shift.id)
+        .order("id", { ascending: true })
+        .range(from, to)
+    );
     if (ordersQuery.error) {
       return NextResponse.json(
         { data: null, error: { code: "shift_orders_query_failed", message: ordersQuery.error.message } },
@@ -433,14 +438,16 @@ export async function POST(request: Request) {
     // Always resolve payment method amounts by the order's shift binding. Most
     // payment rows have a null payments.shift_id even for completed sales.
     const orderIds = orders.map((order) => order.id);
-    const paymentsByOrder = orderIds.length
-      ? await supabase
-          .from("payments")
-          .select("order_id,method,amount,created_at,status")
-          .eq("tenant_id", sessionScope.tenantId)
-          .eq("branch_id", sessionScope.branchId)
-          .in("order_id", orderIds)
-      : { data: [], error: null };
+    const paymentsByOrder = await collectShiftRowsForIds(orderIds, async (batch, from, to) =>
+      supabase
+        .from("payments")
+        .select("order_id,method,amount,created_at,status")
+        .eq("tenant_id", sessionScope.tenantId)
+        .eq("branch_id", sessionScope.branchId)
+        .in("order_id", batch)
+        .order("id", { ascending: true })
+        .range(from, to)
+    );
     if (paymentsByOrder.error) {
       return NextResponse.json(
         { data: null, error: { code: "shift_payments_query_failed", message: paymentsByOrder.error.message } },
