@@ -1,3 +1,5 @@
+import { assertPosMenuPageAllowed } from "@/lib/server/pos-menu-policy-service";
+import { requirePosSession } from "@/lib/pos-session-guard";
 import { PosBackButton } from "@/components/pos-preview/pos-back-button";
 import { PosBuffetSetManagerWorkspace } from "@/components/pos-preview/pos-buffet-set-manager-workspace";
 import { getCurrentLanguage } from "@/lib/i18n";
@@ -8,6 +10,8 @@ export default async function PosBuffetSetManagerPage({
 }: {
   searchParams?: Promise<Record<string, string | string[] | undefined>>;
 }) {
+  const posMenuScope = await requirePosSession();
+  await assertPosMenuPageAllowed(posMenuScope.session.tenant_id, "/preview/pos/stock/buffet-sets");
   await requirePosPagePermission("tables:manage");
   const lang = await getCurrentLanguage();
   const resolved = (await searchParams) ?? {};
