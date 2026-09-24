@@ -1,9 +1,13 @@
+import { assertPosMenuPageAllowed } from "@/lib/server/pos-menu-policy-service";
+import { requirePosSession } from "@/lib/pos-session-guard";
 import { PosBuffetPriceSettingsWorkspace } from "@/components/pos-preview/pos-buffet-price-settings-workspace";
 import { PosBackButton } from "@/components/pos-preview/pos-back-button";
 import { getCurrentLanguage } from "@/lib/i18n";
 import { requirePosPagePermission } from "@/lib/pos-page-guard";
 
 export default async function PosBuffetPricingPage() {
+  const posMenuScope = await requirePosSession();
+  await assertPosMenuPageAllowed(posMenuScope.session.tenant_id, "/preview/pos/buffet-pricing");
   await requirePosPagePermission("tables:manage");
   const lang = await getCurrentLanguage();
   return (
