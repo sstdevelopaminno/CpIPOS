@@ -76,7 +76,14 @@ jobs:
             exit 1
           fi
 
-          for capability in remote_unlock financing_lock revoke_access app_uninstall; do
+          grep -qF -- 'capabilities.put("app_uninstall")' "$agent"
+          grep -qF -- 'packageInstaller.uninstall(packageName, receiver.intentSender)' "$agent"
+          grep -qF -- 'MdmUninstallResultReceiver' "$agent"
+          grep -qF -- '"uninstall_app"' "$transport"
+          grep -qF -- 'REQUEST_DELETE_PACKAGES' "${ANDROID_RUNTIME_MODULE}/app/src/main/AndroidManifest.xml"
+          grep -qF -- 'android:exported="false"' "${ANDROID_RUNTIME_MODULE}/app/src/main/AndroidManifest.xml"
+
+          for capability in remote_unlock financing_lock revoke_access; do
             if grep -qF -- "capabilities.put(\"${capability}\")" "$agent"; then
               echo "${capability} must not be advertised before its executor is validated"
               exit 1
