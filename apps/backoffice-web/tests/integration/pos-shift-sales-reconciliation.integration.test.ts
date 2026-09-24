@@ -88,6 +88,8 @@ describe("POS shift sales close/history reconciliation", () => {
     expect(source).not.toContain('if (quickClose) {');
     expect(source).toContain("collectShiftRowsForIds");
     expect(history).toContain("collectShiftRowsForIds");
+    expect(history).toContain("collectPagedShiftRows");
+    expect(history).not.toContain(".limit(300)");
     expect(source).toContain("calculateShiftSalesSummary({");
     expect(history).toContain("calculateShiftSalesSummary({");
     expect(source).toContain("openingCashValue + cashTotal");
