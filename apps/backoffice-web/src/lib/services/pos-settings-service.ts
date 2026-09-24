@@ -631,7 +631,9 @@ export async function loadDeviceSettings(auth: AuthContext): Promise<PosDeviceSe
 
   const { data, error } = await query;
   if (error) throw new Error(error.message);
-  return ((data ?? []) as PosDeviceRow[]).map(mapDevice);
+  return ((data ?? []) as PosDeviceRow[])
+    .filter(device => !device.metadata?.it_cashier_archived_at)
+    .map(mapDevice);
 }
 
 async function syncBranchDevicePolicy(tenantId: string, branchId: string) {
