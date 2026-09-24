@@ -68,7 +68,7 @@ function labelFor(item: MenuDef, lang: Language) {
   return lang === "th" ? item.labelTh ?? "ครัว" : item.labelEn ?? "Kitchen";
 }
 
-export function PosStaffMenu({ lang, collapsed, orientation = "vertical", sessionRole, enabledFeatures, menuPolicy, onLockedFeature }: {
+export function PosStaffMenu({ lang, collapsed, orientation = "vertical", sessionRole, enabledFeatures, menuPolicy, onLockedFeature, onLockedMenu }: {
   lang: Language;
   collapsed: boolean;
   orientation?: "vertical" | "horizontal";
@@ -76,14 +76,14 @@ export function PosStaffMenu({ lang, collapsed, orientation = "vertical", sessio
   enabledFeatures: Record<string, boolean> | null;
   menuPolicy: Record<string, boolean>;
   onLockedFeature: () => void;
+  onLockedMenu: (menuLabel: string) => void;
 }) {
   const pathname = usePathname();
   const effectiveRole = resolveMenuRole(sessionRole);
-  const menuItems = useMemo(() => MENU_DEFS.map((item) => ({ ...item, label: labelFor(item, lang) })).filter((item) => item.roles.includes(effectiveRole) && isPosMenuEnabled(posMenuKeyForRoute(item.href) ?? "", menuPolicy)), [effectiveRole, lang, menuPolicy]);
+  const menuItems = useMemo(() => MENU_DEFS.map((item) => ({ ...item, label: labelFor(item, lang) })).filter((item) => item.roles.includes(effectiveRole)), [effectiveRole, lang, menuPolicy]);
   const moreItems = useMemo(
     () => MORE_MENU_DEFS.map(item => ({ ...item, label: labelFor(item, lang) }))
-      .filter(item => item.roles.includes(effectiveRole) &&
-        isPosMenuEnabled(posMenuKeyForRoute(item.href) ?? "", menuPolicy)),
+      .filter(item => item.roles.includes(effectiveRole)),
     [effectiveRole, lang, menuPolicy]
   );
   const otherMoreKeys = sessionRole === "accountant"
@@ -91,8 +91,7 @@ export function PosStaffMenu({ lang, collapsed, orientation = "vertical", sessio
     : effectiveRole === "owner" || effectiveRole === "manager"
       ? ["more.kitchen_manage", "more.buffet", "more.tax_invoices", "more.product_sales"]
       : [];
-  const canSeeMoreMenu = isPosMenuEnabled("main.more", menuPolicy) &&
-    (moreItems.length > 0 || otherMoreKeys.some(key => isPosMenuEnabled(key, menuPolicy)));
+  const canSeeMoreMenu = moreItems.length > 0 || otherMoreKeys.length > 0;
   const isMoreActive = moreItems.some((item) => pathname === item.href);
   const isMoreMenuActive = pathname === "/preview/pos/more" || isMoreActive;
   const paymentMenuLabel = lang === "th" ? "ชำระเงิน" : "Payment";
@@ -110,9 +109,10 @@ export function PosStaffMenu({ lang, collapsed, orientation = "vertical", sessio
       {menuItems.map((item) => {
         const isActive = pathname === item.href;
         const isFeatureLoaded = enabledFeatures !== null;
-        const isLocked = Boolean(isFeatureLoaded && item.feature && enabledFeatures?.[item.feature] === false);
+        const menuLocked = !isPosMenuEnabled(posMenuKeyForRoute(item.href) ?? "", menuPolicy);
+        const isLocked = menuLocked || Boolean(isFeatureLoaded && item.feature && enabledFeatures?.[item.feature] === false);
         return (
-          <Link key={item.href} href={item.href} onClick={(event) => (isLocked ? handleLockedNavigate(event) : handleNavigate(event, item.href))}
+          <Link key={item.href} href={item.href} onClick={(event) => menuLocked ? (event.preventDefault(), onLockedMenu(item.label)) : isLocked ? handleLockedNavigate(event) : handleNavigate(event, item.href)}
             className={`group relative inline-flex min-h-[42px] items-center text-[13px] font-semibold leading-tight transition ${isHorizontal ? "shrink-0 justify-center gap-2 px-3" : collapsed ? "justify-center px-2" : "justify-start gap-2 px-2"} ${isActive ? "rounded-xl border border-cyan-300/45 bg-[linear-gradient(145deg,rgba(59,130,246,0.45),rgba(14,165,233,0.35))] text-white shadow-[0_10px_24px_rgba(14,116,255,0.25),inset_0_1px_0_rgba(255,255,255,0.2)]" : isLocked ? "rounded-xl text-slate-400/85 hover:bg-white/5 hover:text-slate-200" : "rounded-xl text-slate-100/90 hover:bg-white/8 hover:text-white"}`}
             title={collapsed && !isHorizontal ? item.label : isLocked ? (lang === "th" ? POS_MENU_LOCK_TITLE_TH : POS_MENU_LOCK_TITLE_EN) : undefined} aria-disabled={isLocked}>
             <span className="inline-flex w-4 justify-center" aria-hidden><MenuIcon name={item.icon} /></span>
@@ -122,19 +122,21 @@ export function PosStaffMenu({ lang, collapsed, orientation = "vertical", sessio
         );
       })}
       {canSeeMoreMenu ? (
-        <Link href="/preview/pos/more" onClick={(event) => handleNavigate(event, "/preview/pos/more")}
-          className={`group relative inline-flex min-h-[42px] items-center text-[13px] font-semibold leading-tight transition ${isHorizontal ? "shrink-0 justify-center gap-2 px-3" : collapsed ? "justify-center px-2" : "justify-start gap-2 px-2"} ${isMoreMenuActive ? "rounded-xl border border-cyan-300/45 bg-[linear-gradient(145deg,rgba(59,130,246,0.45),rgba(14,165,233,0.35))] text-white shadow-[0_10px_24px_rgba(14,116,255,0.25),inset_0_1px_0_rgba(255,255,255,0.2)]" : "rounded-xl text-slate-100/90 hover:bg-white/8 hover:text-white"}`}
-          title={collapsed && !isHorizontal ? t(lang, "pos_menu_more") : undefined}>
+        <Link href="/preview/pos/more" onClick={(event) => !isPosMenuEnabled("main.more", menuPolicy) ? (event.preventDefault(), onLockedMenu(t(lang, "pos_menu_more"))) : handleNavigate(event, "/preview/pos/more")}
+          className={`group relative inline-flex min-h-[42px] items-center text-[13px] font-semibold leading-tight transition ${isHorizontal ? "shrink-0 justify-center gap-2 px-3" : collapsed ? "justify-center px-2" : "justify-start gap-2 px-2"} ${!isPosMenuEnabled("main.more", menuPolicy) ? "rounded-xl text-slate-400/85 hover:bg-white/5" : isMoreMenuActive ? "rounded-xl border border-cyan-300/45 bg-[linear-gradient(145deg,rgba(59,130,246,0.45),rgba(14,165,233,0.35))] text-white shadow-[0_10px_24px_rgba(14,116,255,0.25),inset_0_1px_0_rgba(255,255,255,0.2)]" : "rounded-xl text-slate-100/90 hover:bg-white/8 hover:text-white"}`}
+          title={collapsed && !isHorizontal ? t(lang, "pos_menu_more") : undefined} aria-disabled={!isPosMenuEnabled("main.more", menuPolicy)}>
           <span className="inline-flex w-4 justify-center" aria-hidden><MenuIcon name="more" /></span>
           {(!collapsed || isHorizontal) ? <span className="truncate text-[13px]">{t(lang, "pos_menu_more")}</span> : null}
+          {!isPosMenuEnabled("main.more", menuPolicy) ? <span className="ml-auto inline-flex text-slate-300"><LockIcon /></span> : null}
         </Link>
       ) : null}
-      {effectiveRole !== "kitchen" && isPosMenuEnabled("main.payments", menuPolicy) ? (
-        <Link href="/preview/pos/payments" onClick={(event) => handleNavigate(event, "/preview/pos/payments")}
-          className={`group relative inline-flex min-h-[42px] items-center text-[13px] font-semibold leading-tight transition ${isHorizontal ? "shrink-0 justify-center gap-2 px-3" : collapsed ? "justify-center px-2" : "justify-start gap-2 px-2"} ${isPaymentMenuActive ? "rounded-xl border border-cyan-300/45 bg-[linear-gradient(145deg,rgba(59,130,246,0.45),rgba(14,165,233,0.35))] text-white shadow-[0_10px_24px_rgba(14,116,255,0.25),inset_0_1px_0_rgba(255,255,255,0.2)]" : "rounded-xl text-slate-100/90 hover:bg-white/8 hover:text-white"}`}
-          title={collapsed && !isHorizontal ? paymentMenuLabel : undefined}>
+      {effectiveRole !== "kitchen" ? (
+        <Link href="/preview/pos/payments" onClick={(event) => !isPosMenuEnabled("main.payments", menuPolicy) ? (event.preventDefault(), onLockedMenu(paymentMenuLabel)) : handleNavigate(event, "/preview/pos/payments")}
+          className={`group relative inline-flex min-h-[42px] items-center text-[13px] font-semibold leading-tight transition ${isHorizontal ? "shrink-0 justify-center gap-2 px-3" : collapsed ? "justify-center px-2" : "justify-start gap-2 px-2"} ${!isPosMenuEnabled("main.payments", menuPolicy) ? "rounded-xl text-slate-400/85 hover:bg-white/5" : isPaymentMenuActive ? "rounded-xl border border-cyan-300/45 bg-[linear-gradient(145deg,rgba(59,130,246,0.45),rgba(14,165,233,0.35))] text-white shadow-[0_10px_24px_rgba(14,116,255,0.25),inset_0_1px_0_rgba(255,255,255,0.2)]" : "rounded-xl text-slate-100/90 hover:bg-white/8 hover:text-white"}`}
+          title={collapsed && !isHorizontal ? paymentMenuLabel : undefined} aria-disabled={!isPosMenuEnabled("main.payments", menuPolicy)}>
           <span className="inline-flex w-4 justify-center" aria-hidden><MenuIcon name="payment" /></span>
           {(!collapsed || isHorizontal) ? <span className="truncate text-[13px]">{paymentMenuLabel}</span> : null}
+          {!isPosMenuEnabled("main.payments", menuPolicy) ? <span className="ml-auto inline-flex text-slate-300"><LockIcon /></span> : null}
         </Link>
       ) : null}
     </nav>
