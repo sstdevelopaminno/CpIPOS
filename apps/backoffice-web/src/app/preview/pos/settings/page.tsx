@@ -1,3 +1,4 @@
+import { assertPosMenuPageAllowed } from "@/lib/server/pos-menu-policy-service";
 import { PrintersModule } from "@/components/backoffice/printers-module";
 import { PosSettingsWorkspace } from "@/components/pos-preview/pos-settings-workspace";
 import { TableQrSettingsMenuPortal } from "@/components/pos-preview/table-qr-settings-menu-portal";
@@ -8,6 +9,8 @@ import { requirePosSession } from "@/lib/pos-session-guard";
 import { loadPosSettingsSnapshot } from "@/lib/services/pos-settings-service";
 
 export default async function PosLanguageSettingsPage() {
+  const posMenuScope = await requirePosSession();
+  await assertPosMenuPageAllowed(posMenuScope.session.tenant_id, "/preview/pos/settings");
   const sessionScope = await requirePosSession();
   const lang = await getCurrentLanguage();
 
