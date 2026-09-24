@@ -1,3 +1,5 @@
+import { assertPosMenuPageAllowed } from "@/lib/server/pos-menu-policy-service";
+import { requirePosSession } from "@/lib/pos-session-guard";
 import Image from "next/image";
 import type { ReactNode } from "react";
 import { requirePosPagePermission } from "@/lib/pos-page-guard";
@@ -17,6 +19,8 @@ function billingHint(interval: string | null, th: boolean) {
 }
 
 export default async function PosPaymentsPage() {
+  const posMenuScope = await requirePosSession();
+  await assertPosMenuPageAllowed(posMenuScope.session.tenant_id, "/preview/pos/payments");
   const scope = await requirePosPagePermission("sale:create", "/login/store");
   const lang = await getCurrentLanguage();
   const th = lang === "th";
