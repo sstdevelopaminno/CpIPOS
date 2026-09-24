@@ -80,7 +80,12 @@ export function PosStaffMenu({ lang, collapsed, orientation = "vertical", sessio
   const pathname = usePathname();
   const effectiveRole = resolveMenuRole(sessionRole);
   const menuItems = useMemo(() => MENU_DEFS.map((item) => ({ ...item, label: labelFor(item, lang) })).filter((item) => item.roles.includes(effectiveRole) && isPosMenuEnabled(posMenuKeyForRoute(item.href) ?? "", menuPolicy)), [effectiveRole, lang, menuPolicy]);
-  const moreItems = useMemo(() => MORE_MENU_DEFS.map((item) => ({ ...item, label: labelFor(item, lang) })).filter((item) => item.roles.includes(effectiveRole)), [effectiveRole, lang]);
+  const moreItems = useMemo(
+    () => MORE_MENU_DEFS.map(item => ({ ...item, label: labelFor(item, lang) }))
+      .filter(item => item.roles.includes(effectiveRole) &&
+        isPosMenuEnabled(posMenuKeyForRoute(item.href) ?? "", menuPolicy)),
+    [effectiveRole, lang, menuPolicy]
+  );
   const otherMoreKeys = sessionRole === "accountant"
     ? ["more.tax_invoices", "more.product_sales"]
     : effectiveRole === "owner" || effectiveRole === "manager"
