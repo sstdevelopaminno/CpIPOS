@@ -114,7 +114,7 @@ export function PosStaffMenu({ lang, collapsed, orientation = "vertical", sessio
         return (
           <Link key={item.href} href={item.href} onClick={(event) => menuLocked ? (event.preventDefault(), onLockedMenu(item.label)) : isLocked ? handleLockedNavigate(event) : handleNavigate(event, item.href)}
             className={`group relative inline-flex min-h-[42px] items-center text-[13px] font-semibold leading-tight transition ${isHorizontal ? "shrink-0 justify-center gap-2 px-3" : collapsed ? "justify-center px-2" : "justify-start gap-2 px-2"} ${isActive ? "rounded-xl border border-cyan-300/45 bg-[linear-gradient(145deg,rgba(59,130,246,0.45),rgba(14,165,233,0.35))] text-white shadow-[0_10px_24px_rgba(14,116,255,0.25),inset_0_1px_0_rgba(255,255,255,0.2)]" : isLocked ? "rounded-xl text-slate-400/85 hover:bg-white/5 hover:text-slate-200" : "rounded-xl text-slate-100/90 hover:bg-white/8 hover:text-white"}`}
-            title={collapsed && !isHorizontal ? item.label : isLocked ? (lang === "th" ? POS_MENU_LOCK_TITLE_TH : POS_MENU_LOCK_TITLE_EN) : undefined} aria-disabled={isLocked}>
+            title={collapsed && !isHorizontal ? item.label : menuLocked ? (lang === "th" ? "ล็อกโดยผู้ดูแลระบบ IT" : "Locked by IT") : isLocked ? (lang === "th" ? POS_MENU_LOCK_TITLE_TH : POS_MENU_LOCK_TITLE_EN) : undefined} aria-disabled={isLocked}>
             <span className="inline-flex w-4 justify-center" aria-hidden><MenuIcon name={item.icon} /></span>
             {(!collapsed || isHorizontal) ? <span className="truncate text-[13px]">{item.label}</span> : null}
             {isLocked ? <span className={`ml-auto inline-flex text-slate-300 ${collapsed && !isHorizontal ? "absolute right-1 top-1" : ""}`}><LockIcon /></span> : null}
@@ -124,7 +124,7 @@ export function PosStaffMenu({ lang, collapsed, orientation = "vertical", sessio
       {canSeeMoreMenu ? (
         <Link href="/preview/pos/more" onClick={(event) => !isPosMenuEnabled("main.more", menuPolicy) ? (event.preventDefault(), onLockedMenu(t(lang, "pos_menu_more"))) : handleNavigate(event, "/preview/pos/more")}
           className={`group relative inline-flex min-h-[42px] items-center text-[13px] font-semibold leading-tight transition ${isHorizontal ? "shrink-0 justify-center gap-2 px-3" : collapsed ? "justify-center px-2" : "justify-start gap-2 px-2"} ${!isPosMenuEnabled("main.more", menuPolicy) ? "rounded-xl text-slate-400/85 hover:bg-white/5" : isMoreMenuActive ? "rounded-xl border border-cyan-300/45 bg-[linear-gradient(145deg,rgba(59,130,246,0.45),rgba(14,165,233,0.35))] text-white shadow-[0_10px_24px_rgba(14,116,255,0.25),inset_0_1px_0_rgba(255,255,255,0.2)]" : "rounded-xl text-slate-100/90 hover:bg-white/8 hover:text-white"}`}
-          title={collapsed && !isHorizontal ? t(lang, "pos_menu_more") : undefined} aria-disabled={!isPosMenuEnabled("main.more", menuPolicy)}>
+          title={collapsed && !isHorizontal ? t(lang, "pos_menu_more") : !isPosMenuEnabled("main.more", menuPolicy) ? (lang === "th" ? "ล็อกโดยผู้ดูแลระบบ IT" : "Locked by IT") : undefined} aria-disabled={!isPosMenuEnabled("main.more", menuPolicy)}>
           <span className="inline-flex w-4 justify-center" aria-hidden><MenuIcon name="more" /></span>
           {(!collapsed || isHorizontal) ? <span className="truncate text-[13px]">{t(lang, "pos_menu_more")}</span> : null}
           {!isPosMenuEnabled("main.more", menuPolicy) ? <span className="ml-auto inline-flex text-slate-300"><LockIcon /></span> : null}
@@ -133,7 +133,7 @@ export function PosStaffMenu({ lang, collapsed, orientation = "vertical", sessio
       {effectiveRole !== "kitchen" ? (
         <Link href="/preview/pos/payments" onClick={(event) => !isPosMenuEnabled("main.payments", menuPolicy) ? (event.preventDefault(), onLockedMenu(paymentMenuLabel)) : handleNavigate(event, "/preview/pos/payments")}
           className={`group relative inline-flex min-h-[42px] items-center text-[13px] font-semibold leading-tight transition ${isHorizontal ? "shrink-0 justify-center gap-2 px-3" : collapsed ? "justify-center px-2" : "justify-start gap-2 px-2"} ${!isPosMenuEnabled("main.payments", menuPolicy) ? "rounded-xl text-slate-400/85 hover:bg-white/5" : isPaymentMenuActive ? "rounded-xl border border-cyan-300/45 bg-[linear-gradient(145deg,rgba(59,130,246,0.45),rgba(14,165,233,0.35))] text-white shadow-[0_10px_24px_rgba(14,116,255,0.25),inset_0_1px_0_rgba(255,255,255,0.2)]" : "rounded-xl text-slate-100/90 hover:bg-white/8 hover:text-white"}`}
-          title={collapsed && !isHorizontal ? paymentMenuLabel : undefined} aria-disabled={!isPosMenuEnabled("main.payments", menuPolicy)}>
+          title={collapsed && !isHorizontal ? paymentMenuLabel : !isPosMenuEnabled("main.payments", menuPolicy) ? (lang === "th" ? "ล็อกโดยผู้ดูแลระบบ IT" : "Locked by IT") : undefined} aria-disabled={!isPosMenuEnabled("main.payments", menuPolicy)}>
           <span className="inline-flex w-4 justify-center" aria-hidden><MenuIcon name="payment" /></span>
           {(!collapsed || isHorizontal) ? <span className="truncate text-[13px]">{paymentMenuLabel}</span> : null}
           {!isPosMenuEnabled("main.payments", menuPolicy) ? <span className="ml-auto inline-flex text-slate-300"><LockIcon /></span> : null}

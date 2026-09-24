@@ -253,7 +253,7 @@ export function PosShellSidebar({ lang, settingsLabel, placement }: Props) {
                     ? "rounded-xl text-slate-400/70"
                     : "rounded-xl text-slate-100/90 hover:bg-white/5 hover:text-white"
               }`}
-              title={collapsed && !isHorizontal ? settingsLabel : isSettingsLocked && sessionRole !== "kitchen" ? (lang === "th" ? POS_MENU_LOCK_TITLE_TH : POS_MENU_LOCK_TITLE_EN) : undefined}
+              title={collapsed && !isHorizontal ? settingsLabel : isSettingsPolicyLocked ? (lang === "th" ? "ล็อกโดยผู้ดูแลระบบ IT" : "Locked by IT") : isSettingsLocked && sessionRole !== "kitchen" ? (lang === "th" ? POS_MENU_LOCK_TITLE_TH : POS_MENU_LOCK_TITLE_EN) : undefined}
               aria-disabled={isSettingsPolicyLocked || (isSettingsLocked && sessionRole !== "kitchen")}
             >
               <span className="inline-flex w-4 justify-center" aria-hidden>

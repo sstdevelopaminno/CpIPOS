@@ -17,13 +17,20 @@ describe("POS tenant menu toggle regression", () => {
     expect(api).toContain("menu_policy:");
     expect(server).toContain('from("tenant_pos_menu_policies")');
     expect(server).not.toContain("notFound()");
+    expect(server).toContain("Legacy page call-site kept as a no-op");
   });
   it("retains menus across all POS navigation surfaces without overriding package/role access", () => {
     expect(shell).toContain('isPosMenuEnabled("main.settings", menuPolicy)');
     expect(staffMenu).toContain('isPosMenuEnabled("main.more", menuPolicy)');
+    expect(staffMenu).toContain("onLockedMenu(item.label)");
+    expect(staffMenu).not.toContain('item.roles.includes(effectiveRole) && isPosMenuEnabled(');
+    expect(staffMenu).toContain('!isPosMenuEnabled("main.payments", menuPolicy)');
     expect(staffMenu).toContain('isPosMenuEnabled("main.payments", menuPolicy)');
     expect(more).toContain("isPosMenuEnabled(posMenuKeyForRoute(href)");
+    expect(more).toContain("setItLockedMenu(label)");
     expect(settings).toContain("menuVisible(\"settings.");
+    expect(settings).toContain("setItLockedMenu");
+    expect(settings).not.toContain('menuEnabled={menuVisible("settings.');
     expect(settings).toContain('if (!menuVisible("settings." + viewKey)) {');
   });
   it("retains injected Order Kitchen / Table QR cards and locks them on selection", () => {
@@ -32,6 +39,7 @@ describe("POS tenant menu toggle regression", () => {
     expect(qrPortal).toContain('isPosMenuEnabled("settings.order_kitchen", menuPolicy)');
     expect(qrPortal).toContain('isPosMenuEnabled("settings.table_qr", menuPolicy)');
     expect(qrPortal).toContain("timelineEnabled");
+    expect(qrPortal).toContain("ItMenuLockDialog");
   });
   it("preserves POS direct URL availability; IT menu locks are UI-only, not 404 gates", () => {
     const pages = [
@@ -50,5 +58,7 @@ describe("POS tenant menu toggle regression", () => {
       expect(source, page).toContain("assertPosMenuPageAllowed");
     }
     expect(server).toContain("navigation controls");
+    expect(shell).toContain("isSettingsPolicyLocked");
+    expect(shell).toContain("ItMenuLockDialog");
   });
 });
