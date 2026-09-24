@@ -5,6 +5,7 @@ import { type MouseEvent, useEffect, useState } from "react";
 import { PackageLockDialog } from "@/components/pos-preview/package-lock-dialog";
 import { t, type Language } from "@/lib/i18n";
 import { featureForPosRoute } from "@/lib/pos-feature-map";
+import { isPosMenuEnabled, posMenuKeyForRoute } from "@/lib/pos-menu-policy";
 
 type MoreIconName = "summary" | "receipt" | "tables" | "stock" | "members" | "kitchen" | "buffet" | "tax" | "sales";
 type PosRole = "owner" | "manager" | "staff" | "accountant";
@@ -44,16 +45,17 @@ function MoreIcon({ name }: { name: MoreIconName }) {
 
 export function PosMoreWorkspace({ lang, role }: { lang: Language; role: PosRole }) {
   const [enabledFeatures, setEnabledFeatures] = useState<Record<string, boolean> | null>(null);
+  const [menuPolicy, setMenuPolicy] = useState<Record<string, boolean>>({});
   const [packageLockOpen, setPackageLockOpen] = useState(false);
-  const items = MORE_ITEMS.filter((item) => item.roles.includes(role));
+  const items = MORE_ITEMS.filter((item) => item.roles.includes(role) && isPosMenuEnabled(posMenuKeyForRoute(item.href) ?? "", menuPolicy));
 
   useEffect(() => {
     let cancelled = false;
     async function loadFeatures() {
       try {
         const response = await fetch("/api/pos/features", { cache: "no-store" });
-        const body = (await response.json().catch(() => null)) as { data?: { features?: Record<string, boolean> } | null } | null;
-        if (!cancelled && response.ok) setEnabledFeatures(body?.data?.features ?? {});
+        const body = (await response.json().catch(() => null)) as { data?: { features?: Record<string, boolean>; menu_policy?: Record<string, boolean> } | null } | null;
+        if (!cancelled && response.ok) setEnabledFeatures(body?.data?.features ?? {}); setMenuPolicy(body?.data?.menu_policy ?? {});
       } catch {
         if (!cancelled) setEnabledFeatures({});
       }
