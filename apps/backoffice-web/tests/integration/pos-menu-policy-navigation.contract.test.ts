@@ -60,5 +60,14 @@ describe("POS tenant menu toggle regression", () => {
     expect(server).toContain("navigation controls");
     expect(shell).toContain("isSettingsPolicyLocked");
     expect(shell).toContain("ItMenuLockDialog");
+    for (const component of [shell, more, settings]) {
+      expect(component).toContain('window.addEventListener("focus", onFocus)');
+      expect(component).toContain('document.addEventListener("visibilitychange", onVisibility)');
+      expect(component).toContain('window.removeEventListener("focus", onFocus)');
+      expect(component).toContain('document.removeEventListener("visibilitychange", onVisibility)');
+      expect(component).toContain("lastRefresh < 5_000");
+    }
+    // A failed /api/pos/features response must not overwrite the menu policy.
+    expect(more).toContain("if (!cancelled && response.ok) {");
   });
 });

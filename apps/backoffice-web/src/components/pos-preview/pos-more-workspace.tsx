@@ -57,13 +57,33 @@ export function PosMoreWorkspace({ lang, role }: { lang: Language; role: PosRole
       try {
         const response = await fetch("/api/pos/features", { cache: "no-store" });
         const body = (await response.json().catch(() => null)) as { data?: { features?: Record<string, boolean>; menu_policy?: Record<string, boolean> } | null } | null;
-        if (!cancelled && response.ok) setEnabledFeatures(body?.data?.features ?? {}); setMenuPolicy(body?.data?.menu_policy ?? {});
+        if (!cancelled && response.ok) {
+          setEnabledFeatures(body?.data?.features ?? {});
+          setMenuPolicy(body?.data?.menu_policy ?? {});
+        }
       } catch {
         if (!cancelled) setEnabledFeatures({});
       }
     }
+    // IT edits the shared Supabase table from another app. Refresh only when POS
+    // regains focus; no per-second polling or long-lived Vercel connections.
+    let lastRefresh = Date.now();
+    function onFocus() {
+      if (Date.now() - lastRefresh < 5_000) return;
+      lastRefresh = Date.now();
+      void loadFeatures();
+    }
+    function onVisibility() {
+      if (document.visibilityState === "visible") onFocus();
+    }
     void loadFeatures();
-    return () => { cancelled = true; };
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      cancelled = true;
+      window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
   }, []);
 
   function isMenuLocked(href: string) {
