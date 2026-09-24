@@ -29,7 +29,8 @@ import java.util.concurrent.atomic.AtomicBoolean
  */
 class PosMdmAgent(
     context: Context,
-    private val webView: WebView
+    private val webView: WebView,
+    private val onDualScreenPolicyChanged: ((Boolean) -> Unit)? = null
 ) {
     private val appContext = context.applicationContext
     private val prefs = appContext.getSharedPreferences("cpipos_android_pos_mdm", Context.MODE_PRIVATE)
@@ -217,6 +218,17 @@ class PosMdmAgent(
                 else -> null
             }
             updateManager.handleOffer(updateOffer)
+            val screenPolicy = (data ?: response).optJSONObject("device_policy")
+            if (screenPolicy != null && screenPolicy.has("dual_screen_enabled") &&
+                !screenPolicy.isNull("dual_screen_enabled")
+            ) {
+                val oldValue = prefs.getBoolean("dual_screen_policy_enabled", true)
+                val newValue = screenPolicy.optBoolean("dual_screen_enabled", oldValue)
+                if (oldValue != newValue) {
+                    prefs.edit().putBoolean("dual_screen_policy_enabled", newValue).apply()
+                    onDualScreenPolicyChanged?.invoke(newValue)
+                }
+            }
             val producedFullMdmResult = fullMdmAgent.applyResponse(data ?: response)
 
             val commands = when {
@@ -239,7 +251,8 @@ class PosMdmAgent(
     private fun buildDisplaySnapshot(): JSONObject {
         val manager = appContext.getSystemService(Context.DISPLAY_SERVICE) as? DisplayManager
             ?: return JSONObject()
-                .put("feature_enabled", BuildConfig.CPIPOS_DUAL_SCREEN_ENABLED)
+                .put("feature_enabled", BuildConfig.CPIPOS_DUAL_SCREEN_ENABLED && prefs.getBoolean("dual_screen_policy_enabled", true))
+                .put("policy_enabled", prefs.getBoolean("dual_screen_policy_enabled", true))
                 .put("display_count", 0)
                 .put("presentation_display_count", 0)
                 .put("secondary_display_available", false)
@@ -268,7 +281,8 @@ class PosMdmAgent(
         }
 
         return JSONObject()
-            .put("feature_enabled", BuildConfig.CPIPOS_DUAL_SCREEN_ENABLED)
+            .put("feature_enabled", BuildConfig.CPIPOS_DUAL_SCREEN_ENABLED && prefs.getBoolean("dual_screen_policy_enabled", true))
+                .put("policy_enabled", prefs.getBoolean("dual_screen_policy_enabled", true))
             .put("primary_display_id", primaryDisplayId)
             .put("display_count", displays.size)
             .put("presentation_display_count", presentationDisplays.size)
