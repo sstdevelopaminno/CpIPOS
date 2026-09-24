@@ -1,9 +1,13 @@
+import { assertPosMenuPageAllowed } from "@/lib/server/pos-menu-policy-service";
+import { requirePosSession } from "@/lib/pos-session-guard";
 import Link from "next/link";
 import { PosTaxInvoiceWorkspace } from "@/components/pos-preview/pos-tax-invoice-workspace";
 import { getCurrentLanguage } from "@/lib/i18n";
 import { requirePermission, requirePosSession } from "@/lib/pos-session-guard";
 
 export default async function PosTaxInvoicesPage() {
+  const posMenuScope = await requirePosSession();
+  await assertPosMenuPageAllowed(posMenuScope.session.tenant_id, "/preview/pos/tax-invoices");
   const scope = await requirePosSession();
   requirePermission(scope, "receipts:view");
   const lang = await getCurrentLanguage();
