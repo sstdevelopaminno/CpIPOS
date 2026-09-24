@@ -1,3 +1,5 @@
+import { assertPosMenuPageAllowed } from "@/lib/server/pos-menu-policy-service";
+import { requirePosSession } from "@/lib/pos-session-guard";
 import type { BranchRole } from "@pos/shared-types";
 import { PosSalesListWorkspace } from "@/components/pos-preview/pos-sales-list-workspace";
 import { getCurrentLanguage } from "@/lib/i18n";
@@ -5,6 +7,8 @@ import { requirePosPagePermission } from "@/lib/pos-page-guard";
 import { loadPosSalesListData } from "@/lib/services/pos-sales-list-service";
 
 export default async function PosSalesListPage() {
+  const posMenuScope = await requirePosSession();
+  await assertPosMenuPageAllowed(posMenuScope.session.tenant_id, "/preview/pos/sales-list");
   const scope = await requirePosPagePermission("sales:list:view");
   const lang = await getCurrentLanguage();
   const branchRole = scope.session.role as BranchRole;
