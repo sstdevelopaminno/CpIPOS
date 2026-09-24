@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { type MouseEvent, useEffect, useState } from "react";
 import { PackageLockDialog } from "@/components/pos-preview/package-lock-dialog";
+import { ItMenuLockDialog } from "@/components/pos-preview/it-menu-lock-dialog";
 import { t, type Language } from "@/lib/i18n";
 import { featureForPosRoute } from "@/lib/pos-feature-map";
 import { isPosMenuEnabled, posMenuKeyForRoute } from "@/lib/pos-menu-policy";
@@ -47,7 +48,8 @@ export function PosMoreWorkspace({ lang, role }: { lang: Language; role: PosRole
   const [enabledFeatures, setEnabledFeatures] = useState<Record<string, boolean> | null>(null);
   const [menuPolicy, setMenuPolicy] = useState<Record<string, boolean>>({});
   const [packageLockOpen, setPackageLockOpen] = useState(false);
-  const items = MORE_ITEMS.filter((item) => item.roles.includes(role) && isPosMenuEnabled(posMenuKeyForRoute(item.href) ?? "", menuPolicy));
+  const [itLockedMenu, setItLockedMenu] = useState<string | null>(null);
+  const items = MORE_ITEMS.filter((item) => item.roles.includes(role));
 
   useEffect(() => {
     let cancelled = false;
@@ -63,6 +65,10 @@ export function PosMoreWorkspace({ lang, role }: { lang: Language; role: PosRole
     void loadFeatures();
     return () => { cancelled = true; };
   }, []);
+
+  function isMenuLocked(href: string) {
+    return !isPosMenuEnabled(posMenuKeyForRoute(href) ?? "", menuPolicy);
+  }
 
   function isLocked(href: string) {
     const feature = featureForPosRoute(href);
@@ -80,18 +86,21 @@ export function PosMoreWorkspace({ lang, role }: { lang: Language; role: PosRole
         <header className="mb-5"><h1 className="text-2xl font-black text-slate-950">{t(lang, "pos_menu_more_title")}</h1><p className="mt-1 text-sm font-semibold text-slate-500">{t(lang, "pos_menu_more_desc")}</p></header>
         <div className="grid gap-4 lg:grid-cols-2 xl:grid-cols-3">
           {items.map((item) => {
-            const locked = isLocked(item.href);
+            const menuLocked = isMenuLocked(item.href);
+            const locked = menuLocked || isLocked(item.href);
+            const label = item.label ? item.label[lang] : t(lang, item.labelKey!);
             return (
-              <Link key={item.href} href={item.href} prefetch={false} onClick={(event) => { if (locked) handleLocked(event); }} aria-disabled={locked} className={`group grid min-h-[92px] grid-cols-[42px_1fr_24px] items-center gap-3 rounded-lg border p-4 text-left transition ${locked ? "border-slate-200 bg-slate-50 text-slate-500" : "border-slate-200 bg-white hover:border-blue-200 hover:bg-blue-50/50"}`}>
+              <Link key={item.href} href={item.href} prefetch={false} onClick={(event) => { if (menuLocked) { event.preventDefault(); setItLockedMenu(label); } else if (locked) handleLocked(event); }} aria-disabled={locked} className={`group grid min-h-[92px] grid-cols-[42px_1fr_24px] items-center gap-3 rounded-lg border p-4 text-left transition ${locked ? "border-slate-200 bg-slate-50 text-slate-500" : "border-slate-200 bg-white hover:border-blue-200 hover:bg-blue-50/50"}`}>
                 <span className={`inline-flex h-10 w-10 items-center justify-center rounded-lg ${locked ? "bg-slate-100 text-slate-400" : "bg-slate-100 text-slate-700 group-hover:bg-blue-100 group-hover:text-blue-700"}`}><MoreIcon name={item.icon}/></span>
                 <span className="min-w-0"><span className="block text-base font-black text-slate-950">{item.label ? item.label[lang] : t(lang, item.labelKey!)}</span><span className="mt-1 block text-sm font-medium leading-5 text-slate-500">{item.desc[lang]}</span></span>
-                <span className="text-slate-400">&gt;</span>
+                <span className="text-slate-400">{locked ? <span aria-hidden>🔒</span> : "›"}</span>
               </Link>
             );
           })}
         </div>
       </section>
       <PackageLockDialog lang={lang} open={packageLockOpen} onClose={() => setPackageLockOpen(false)}/>
+      <ItMenuLockDialog lang={lang} open={itLockedMenu !== null} menuLabel={itLockedMenu ?? undefined} onClose={() => setItLockedMenu(null)} />
     </main>
   );
 }

@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { MouseEvent, useEffect, useState } from "react";
 import { PackageLockDialog } from "@/components/pos-preview/package-lock-dialog";
+import { ItMenuLockDialog } from "@/components/pos-preview/it-menu-lock-dialog";
 import { PosStaffMenu } from "@/components/pos-preview/pos-staff-menu";
 import { isPosMenuEnabled } from "@/lib/pos-menu-policy";
 import { t, type Language } from "@/lib/i18n";
@@ -57,6 +58,7 @@ export function PosShellSidebar({ lang, settingsLabel, placement }: Props) {
   const [enabledFeatures, setEnabledFeatures] = useState<Record<string, boolean> | null>(null);
   const [menuPolicy, setMenuPolicy] = useState<Record<string, boolean>>({});
   const [packageLockOpen, setPackageLockOpen] = useState(false);
+  const [itLockedMenu, setItLockedMenu] = useState<string | null>(null);
   const [logoutModalOpen, setLogoutModalOpen] = useState(false);
   const [logoutBusyMode, setLogoutBusyMode] = useState<"switch_device" | "full" | null>(null);
   const [logoutError, setLogoutError] = useState<string | null>(null);
@@ -65,6 +67,7 @@ export function PosShellSidebar({ lang, settingsLabel, placement }: Props) {
   const showAdvancedMenus = sessionRole === null || sessionRole === "owner" || sessionRole === "manager" || sessionRole === "kitchen";
   const settingsFeature = featureForPosRoute("/preview/pos/settings");
   const isSettingsLocked = Boolean(enabledFeatures !== null && settingsFeature && enabledFeatures[settingsFeature] === false);
+  const isSettingsPolicyLocked = !isPosMenuEnabled("main.settings", menuPolicy);
 
   useEffect(() => {
     const mediaQuery = window.matchMedia(COMPACT_SIDEBAR_QUERY);
@@ -139,6 +142,11 @@ export function PosShellSidebar({ lang, settingsLabel, placement }: Props) {
       event.shiftKey ||
       event.altKey
     ) {
+      return;
+    }
+    if (isSettingsPolicyLocked) {
+      event.preventDefault();
+      setItLockedMenu(settingsLabel);
       return;
     }
     if (pathname === "/preview/pos/settings") {
@@ -225,9 +233,10 @@ export function PosShellSidebar({ lang, settingsLabel, placement }: Props) {
             enabledFeatures={enabledFeatures}
             menuPolicy={menuPolicy}
             onLockedFeature={() => setPackageLockOpen(true)}
+            onLockedMenu={setItLockedMenu}
           />
 
-          {showAdvancedMenus && isPosMenuEnabled("main.settings", menuPolicy) ? (
+          {showAdvancedMenus ? (
             <Link
               href="/preview/pos/settings"
               onClick={handleSettingsNavigate}
@@ -240,12 +249,12 @@ export function PosShellSidebar({ lang, settingsLabel, placement }: Props) {
               } ${
                 isSettingsActive
                   ? "rounded-xl border border-blue-400/40 bg-blue-500/25 text-white"
-                  : isSettingsLocked && sessionRole !== "kitchen"
+                  : isSettingsPolicyLocked || (isSettingsLocked && sessionRole !== "kitchen")
                     ? "rounded-xl text-slate-400/70"
                     : "rounded-xl text-slate-100/90 hover:bg-white/5 hover:text-white"
               }`}
-              title={collapsed && !isHorizontal ? settingsLabel : isSettingsLocked && sessionRole !== "kitchen" ? (lang === "th" ? POS_MENU_LOCK_TITLE_TH : POS_MENU_LOCK_TITLE_EN) : undefined}
-              aria-disabled={isSettingsLocked && sessionRole !== "kitchen"}
+              title={collapsed && !isHorizontal ? settingsLabel : isSettingsPolicyLocked ? (lang === "th" ? "ล็อกโดยผู้ดูแลระบบ IT" : "Locked by IT") : isSettingsLocked && sessionRole !== "kitchen" ? (lang === "th" ? POS_MENU_LOCK_TITLE_TH : POS_MENU_LOCK_TITLE_EN) : undefined}
+              aria-disabled={isSettingsPolicyLocked || (isSettingsLocked && sessionRole !== "kitchen")}
             >
               <span className="inline-flex w-4 justify-center" aria-hidden>
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -254,6 +263,7 @@ export function PosShellSidebar({ lang, settingsLabel, placement }: Props) {
                 </svg>
               </span>
               {(!collapsed || isHorizontal) ? <span className="truncate text-[13px]">{settingsLabel}</span> : null}
+              {isSettingsPolicyLocked ? <span className="ml-auto text-xs" aria-hidden>🔒</span> : null}
             </Link>
           ) : null}
         </div>
@@ -304,6 +314,7 @@ export function PosShellSidebar({ lang, settingsLabel, placement }: Props) {
         </div>
       ) : null}
       <PackageLockDialog lang={lang} open={packageLockOpen} onClose={() => setPackageLockOpen(false)} />
+      <ItMenuLockDialog lang={lang} open={itLockedMenu !== null} menuLabel={itLockedMenu ?? undefined} onClose={() => setItLockedMenu(null)} />
     </aside>
   );
 }

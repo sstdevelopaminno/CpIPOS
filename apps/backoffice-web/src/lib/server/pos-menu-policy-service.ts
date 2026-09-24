@@ -1,7 +1,5 @@
 import "server-only";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
-import { isPosMenuEnabled, posMenuKeyForRoute } from "@/lib/pos-menu-policy";
-import { notFound } from "next/navigation";
 
 /** Read the authoritative tenant policy; absent rows preserve existing POS menus. */
 export async function getTenantPosMenuOverrides(tenantId: string): Promise<Record<string, boolean>> {
@@ -12,10 +10,11 @@ export async function getTenantPosMenuOverrides(tenantId: string): Promise<Recor
   return Object.fromEntries((data ?? []).map(row => [row.menu_key, row.is_enabled]));
 }
 
-/** Guard direct navigation independently of any hidden sidebar/menu link. */
-export async function assertPosMenuPageAllowed(tenantId: string, path: string) {
-  const key = posMenuKeyForRoute(path);
-  if (!key) return;
-  const overrides = await getTenantPosMenuOverrides(tenantId);
-  if (!isPosMenuEnabled(key, overrides)) notFound();
+/**
+ * Legacy page call-site kept as a no-op for compatibility.
+ * IT menu switches affect only navigation controls. Direct links, internal POS
+ * workflows and package/role authorization must not inherit a menu lock.
+ */
+export async function assertPosMenuPageAllowed(_tenantId: string, _path: string): Promise<void> {
+  return;
 }
