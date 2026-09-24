@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { MouseEvent, useMemo } from "react";
 import { t, type Language } from "@/lib/i18n";
+import { isPosMenuEnabled, posMenuKeyForRoute } from "@/lib/pos-menu-policy";
 import { POS_MENU_LOCK_TITLE_EN, POS_MENU_LOCK_TITLE_TH, featureForPosRoute } from "@/lib/pos-feature-map";
 
 type IconName = "sales" | "list" | "kitchen" | "stock" | "summary" | "receipt" | "tables" | "members" | "users" | "display" | "shift" | "logout" | "more" | "payment";
@@ -67,19 +68,20 @@ function labelFor(item: MenuDef, lang: Language) {
   return lang === "th" ? item.labelTh ?? "ครัว" : item.labelEn ?? "Kitchen";
 }
 
-export function PosStaffMenu({ lang, collapsed, orientation = "vertical", sessionRole, enabledFeatures, onLockedFeature }: {
+export function PosStaffMenu({ lang, collapsed, orientation = "vertical", sessionRole, enabledFeatures, menuPolicy, onLockedFeature }: {
   lang: Language;
   collapsed: boolean;
   orientation?: "vertical" | "horizontal";
   sessionRole: PosRole | null;
   enabledFeatures: Record<string, boolean> | null;
+  menuPolicy: Record<string, boolean>;
   onLockedFeature: () => void;
 }) {
   const pathname = usePathname();
   const effectiveRole = resolveMenuRole(sessionRole);
-  const menuItems = useMemo(() => MENU_DEFS.map((item) => ({ ...item, label: labelFor(item, lang) })).filter((item) => item.roles.includes(effectiveRole)), [effectiveRole, lang]);
+  const menuItems = useMemo(() => MENU_DEFS.map((item) => ({ ...item, label: labelFor(item, lang) })).filter((item) => item.roles.includes(effectiveRole) && isPosMenuEnabled(posMenuKeyForRoute(item.href) ?? "", menuPolicy)), [effectiveRole, lang, menuPolicy]);
   const moreItems = useMemo(() => MORE_MENU_DEFS.map((item) => ({ ...item, label: labelFor(item, lang) })).filter((item) => item.roles.includes(effectiveRole)), [effectiveRole, lang]);
-  const canSeeMoreMenu = moreItems.length > 0;
+  const canSeeMoreMenu = moreItems.length > 0 && isPosMenuEnabled("main.more", menuPolicy);
   const isMoreActive = moreItems.some((item) => pathname === item.href);
   const isMoreMenuActive = pathname === "/preview/pos/more" || isMoreActive;
   const paymentMenuLabel = lang === "th" ? "ชำระเงิน" : "Payment";
@@ -116,7 +118,7 @@ export function PosStaffMenu({ lang, collapsed, orientation = "vertical", sessio
           {(!collapsed || isHorizontal) ? <span className="truncate text-[13px]">{t(lang, "pos_menu_more")}</span> : null}
         </Link>
       ) : null}
-      {effectiveRole !== "kitchen" ? (
+      {effectiveRole !== "kitchen" && isPosMenuEnabled("main.payments", menuPolicy) ? (
         <Link href="/preview/pos/payments" onClick={(event) => handleNavigate(event, "/preview/pos/payments")}
           className={`group relative inline-flex min-h-[42px] items-center text-[13px] font-semibold leading-tight transition ${isHorizontal ? "shrink-0 justify-center gap-2 px-3" : collapsed ? "justify-center px-2" : "justify-start gap-2 px-2"} ${isPaymentMenuActive ? "rounded-xl border border-cyan-300/45 bg-[linear-gradient(145deg,rgba(59,130,246,0.45),rgba(14,165,233,0.35))] text-white shadow-[0_10px_24px_rgba(14,116,255,0.25),inset_0_1px_0_rgba(255,255,255,0.2)]" : "rounded-xl text-slate-100/90 hover:bg-white/8 hover:text-white"}`}
           title={collapsed && !isHorizontal ? paymentMenuLabel : undefined}>
