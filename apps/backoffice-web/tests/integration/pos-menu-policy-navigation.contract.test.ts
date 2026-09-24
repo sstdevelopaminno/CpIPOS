@@ -8,6 +8,8 @@ const staffMenu = read("../../src/components/pos-preview/pos-staff-menu.tsx");
 const more = read("../../src/components/pos-preview/pos-more-workspace.tsx");
 const settings = read("../../src/components/pos-preview/pos-settings-workspace.tsx");
 const server = read("../../src/lib/server/pos-menu-policy-service.ts");
+const qrPortal = read("../../src/components/pos-preview/table-qr-settings-menu-portal.tsx");
+const settingsPage = read("../../src/app/preview/pos/settings/page.tsx");
 
 describe("POS tenant menu toggle regression", () => {
   it("uses one authoritative policy table in the POS feature endpoint", () => {
@@ -23,6 +25,13 @@ describe("POS tenant menu toggle regression", () => {
     expect(more).toContain("isPosMenuEnabled(posMenuKeyForRoute(item.href)");
     expect(settings).toContain("menuVisible(\"settings.");
     expect(settings).toContain('if (!menuVisible("settings." + viewKey)) return;');
+  });
+  it("hides injected Order Kitchen / Table QR cards with tenant policy too", () => {
+    expect(settingsPage).toContain("getTenantPosMenuOverrides(scope.session.tenant_id)");
+    expect(settingsPage).toContain("menuPolicy={settingsMenuPolicy}");
+    expect(qrPortal).toContain('isPosMenuEnabled("settings.order_kitchen", menuPolicy)');
+    expect(qrPortal).toContain('isPosMenuEnabled("settings.table_qr", menuPolicy)');
+    expect(qrPortal).toContain("showTableQr && timelineEnabled");
   });
   it("server-checks direct POS navigation instead of relying on hidden links alone", () => {
     const pages = [
