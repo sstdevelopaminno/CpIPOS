@@ -1,5 +1,4 @@
 import { assertPosMenuPageAllowed } from "@/lib/server/pos-menu-policy-service";
-import { requirePosSession } from "@/lib/pos-session-guard";
 import Link from "next/link";
 import { PosTaxInvoiceWorkspace } from "@/components/pos-preview/pos-tax-invoice-workspace";
 import { getCurrentLanguage } from "@/lib/i18n";
