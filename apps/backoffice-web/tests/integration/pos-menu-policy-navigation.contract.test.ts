@@ -16,24 +16,24 @@ describe("POS tenant menu toggle regression", () => {
     expect(api).toContain("getTenantPosMenuOverrides");
     expect(api).toContain("menu_policy:");
     expect(server).toContain('from("tenant_pos_menu_policies")');
-    expect(server).toContain("notFound()");
+    expect(server).not.toContain("notFound()");
   });
-  it("hides menus across all three POS navigation surfaces without overriding package/role access", () => {
+  it("retains menus across all POS navigation surfaces without overriding package/role access", () => {
     expect(shell).toContain('isPosMenuEnabled("main.settings", menuPolicy)');
     expect(staffMenu).toContain('isPosMenuEnabled("main.more", menuPolicy)');
     expect(staffMenu).toContain('isPosMenuEnabled("main.payments", menuPolicy)');
-    expect(more).toContain("isPosMenuEnabled(posMenuKeyForRoute(item.href)");
+    expect(more).toContain("isPosMenuEnabled(posMenuKeyForRoute(href)");
     expect(settings).toContain("menuVisible(\"settings.");
-    expect(settings).toContain('if (!menuVisible("settings." + viewKey)) return;');
+    expect(settings).toContain('if (!menuVisible("settings." + viewKey)) {');
   });
-  it("hides injected Order Kitchen / Table QR cards with tenant policy too", () => {
+  it("retains injected Order Kitchen / Table QR cards and locks them on selection", () => {
     expect(settingsPage).toContain("getTenantPosMenuOverrides(scope.session.tenant_id)");
     expect(settingsPage).toContain("menuPolicy={settingsMenuPolicy}");
     expect(qrPortal).toContain('isPosMenuEnabled("settings.order_kitchen", menuPolicy)');
     expect(qrPortal).toContain('isPosMenuEnabled("settings.table_qr", menuPolicy)');
-    expect(qrPortal).toContain("showTableQr && timelineEnabled");
+    expect(qrPortal).toContain("timelineEnabled");
   });
-  it("server-checks direct POS navigation instead of relying on hidden links alone", () => {
+  it("preserves POS direct URL availability; IT menu locks are UI-only, not 404 gates", () => {
     const pages = [
       "page.tsx", "sales-list/page.tsx", "kitchen/page.tsx", "shift/page.tsx",
       "payments/page.tsx", "more/page.tsx", "sales-summary/page.tsx",
@@ -49,5 +49,6 @@ describe("POS tenant menu toggle regression", () => {
       const source = read("../../src/app/preview/pos/" + page);
       expect(source, page).toContain("assertPosMenuPageAllowed");
     }
+    expect(server).toContain("navigation controls");
   });
 });

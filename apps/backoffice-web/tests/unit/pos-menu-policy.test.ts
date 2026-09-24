@@ -7,12 +7,13 @@ describe("IT-controlled POS tenant menu policy", () => {
   it("keeps all existing pages visible if IT has not configured an override", () => {
     for (const item of POS_MENU_CATALOG) expect(isPosMenuEnabled(item.key, {})).toBe(true);
   });
-  it("hides child items when their parent is off while preserving their own switch", () => {
+  it("locks only the exact menu selected by IT; never cascades across main and submenus", () => {
     const overrides = { "main.more": false, "more.receipts": true };
     expect(isPosMenuEnabled("main.more", overrides)).toBe(false);
-    expect(isPosMenuEnabled("more.receipts", overrides)).toBe(false);
+    expect(isPosMenuEnabled("more.receipts", overrides)).toBe(true);
     expect(isPosMenuEnabled("settings.store", overrides)).toBe(true);
     expect(isPosMenuEnabled("more.receipts", { "main.more": true, "more.receipts": false })).toBe(false);
+    expect(isPosMenuEnabled("main.more", { "main.more": true, "more.receipts": false })).toBe(true);
   });
   it("matches the most specific parent/submenu route and never disables unknown paths", () => {
     expect(posMenuKeyForRoute("/preview/pos")).toBe("main.sales");
