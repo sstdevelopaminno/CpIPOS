@@ -5,6 +5,7 @@ import { requirePosSession, PosGuardError } from "@/lib/pos-session-guard";
 import { normalizePosSalesModes } from "@/lib/pos-sales-modes";
 import { hasBranchFeatureSafe } from "@/lib/server/feature-gate-safe";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
+import { getTenantPosMenuOverrides } from "@/lib/server/pos-menu-policy-service";
 
 async function loadTenantSalesModes(tenantId: string) {
   const supabase = getSupabaseServiceClient();
@@ -25,31 +26,35 @@ export async function GET() {
   try {
     const scope = await requirePosSession();
     const salesModesPromise = loadTenantSalesModes(scope.session.tenant_id);
+    const menuPolicyPromise = getTenantPosMenuOverrides(scope.session.tenant_id);
 
     if (isFeatureUnlockEnabled()) {
       return ok({
         tenant_id: scope.session.tenant_id,
         branch_id: scope.session.branch_id,
         features: Object.fromEntries(allPosMenuFeatureCodes().map((feature) => [feature, true])),
+        menu_policy: await menuPolicyPromise,
         sales_modes: await salesModesPromise,
         sales_modes_source: "tenant_subscription_contracts.metadata.sales_modes"
       });
     }
 
-    const [entries, salesModes] = await Promise.all([
+    const [entries, salesModes, menuPolicy] = await Promise.all([
       Promise.all(
         allPosMenuFeatureCodes().map(async (feature) => [
           feature,
           await hasBranchFeatureSafe(scope.session.tenant_id, scope.session.branch_id, feature)
         ] as const)
       ),
-      salesModesPromise
+      salesModesPromise,
+      menuPolicyPromise
     ]);
 
     return ok({
       tenant_id: scope.session.tenant_id,
       branch_id: scope.session.branch_id,
       features: Object.fromEntries(entries),
+      menu_policy: menuPolicy,
       sales_modes: salesModes,
       sales_modes_source: "tenant_subscription_contracts.metadata.sales_modes"
     });
