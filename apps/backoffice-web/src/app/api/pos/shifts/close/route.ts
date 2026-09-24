@@ -12,6 +12,7 @@ import {
 } from "@/lib/pos-session-guard";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
 import { calculateShiftSalesSummary } from "@/lib/pos-shift-sales-summary";
+import { collectPagedShiftRows, collectShiftRowsForIds } from "@/lib/pos-shift-query-pagination";
 
 function isMissingSessionShiftColumnError(error: { code?: string; message?: string } | null | undefined) {
   if (!error) return false;
@@ -286,7 +287,7 @@ export async function POST(request: Request) {
 
     const initialExpectedCash = autoCloseWithoutCashCount ? null : closingCash ?? 0;
     const initialActualCash = autoCloseWithoutCashCount ? null : closingCash ?? 0;
-    const { error: closeError } = await supabase
+    const { data: closedShift, error: closeError } = await supabase
       .from("shifts")
       .update({
         status: "closed",
@@ -316,7 +317,9 @@ export async function POST(request: Request) {
       .eq("id", shift.id)
       .eq("tenant_id", sessionScope.tenantId)
       .eq("branch_id", sessionScope.branchId)
-      .eq("status", "open");
+      .eq("status", "open")
+      .select("id")
+      .maybeSingle();
 
     if (closeError) {
       const closeMessage = closeError.message.toLowerCase();
@@ -327,6 +330,15 @@ export async function POST(request: Request) {
         );
       }
       return NextResponse.json({ data: null, error: { code: "shift_close_failed", message: closeError.message } }, { status: 500 });
+    }
+
+    // A concurrent close can change the status between requireActiveShift and
+    // this conditional UPDATE. Never emit another receipt/audit for zero rows.
+    if (!closedShift) {
+      return NextResponse.json(
+        { data: null, error: { code: "shift_already_closed", message: "This shift was already closed by another request." } },
+        { status: 409 }
+      );
     }
 
     const sessionShiftClear = await supabase
@@ -341,51 +353,6 @@ export async function POST(request: Request) {
         { data: null, error: { code: "session_update_failed", message: sessionShiftClear.error.message } },
         { status: 500 }
       );
-    }
-
-    if (quickClose) {
-      void appendAuditLog({
-        tenantId: sessionScope.tenantId,
-        branchId: sessionScope.branchId,
-        actorUserId: sessionScope.userId,
-        actorRole: sessionScope.role as "owner" | "manager" | "staff" | "accountant",
-        action: "pos_shift_closed",
-        targetTable: "shifts",
-        targetId: shift.id,
-        metadata: {
-          closing_cash: closingCash,
-          pos_session_id: scope.session.id,
-          quick_close: true,
-          close_reason: closeReason,
-          overdue_auto_close: autoCloseWithoutCashCount,
-          system_auto_closed: autoCloseWithoutCashCount,
-          closed_after_auto_close_deadline: overdueAutoClose && !autoCloseWithoutCashCount,
-          cash_count_required: !autoCloseWithoutCashCount,
-          auto_close_uses_sales_total: autoCloseWithoutCashCount,
-          manager_approval_required: false,
-          close_override_approval_id: selfApprovalId,
-          self_approved_by_current_session: Boolean(selfApprovalId),
-          opened_by_user_id: shift.opened_by,
-          closed_by_user_id: sessionScope.userId
-        }
-      }).catch((auditError) => {
-        console.warn("[pos-shifts-close] quick close audit failed", {
-          shiftId: shift.id,
-          error: auditError instanceof Error ? auditError.message : "Unknown error"
-        });
-      });
-
-      const response = NextResponse.json({
-        data: {
-          shift_id: shift.id,
-          status: "closed",
-          closed_at: closedAtIso,
-          quick_close: true
-        },
-        error: null
-      });
-      console.info("[pos-shifts-close] close_completed", { shiftId: shift.id, tenantId: sessionScope.tenantId, branchId: sessionScope.branchId });
-      return withPosSessionCookie(response, scope.session.id);
     }
 
     const openingCashLookup = await supabase
@@ -409,12 +376,16 @@ export async function POST(request: Request) {
         ? summaryCutoffAt
         : new Date(closedAtIso);
 
-    const ordersQuery = await supabase
-      .from("orders")
-      .select("id,shift_id,status,total_amount,grand_total,created_at")
-      .eq("tenant_id", sessionScope.tenantId)
-      .eq("branch_id", sessionScope.branchId)
-      .eq("shift_id", shift.id);
+    const ordersQuery = await collectPagedShiftRows(async (from, to) =>
+      supabase
+        .from("orders")
+        .select("id,shift_id,status,total_amount,grand_total,created_at")
+        .eq("tenant_id", sessionScope.tenantId)
+        .eq("branch_id", sessionScope.branchId)
+        .eq("shift_id", shift.id)
+        .order("id", { ascending: true })
+        .range(from, to)
+    );
     if (ordersQuery.error) {
       return NextResponse.json(
         { data: null, error: { code: "shift_orders_query_failed", message: ordersQuery.error.message } },
@@ -433,14 +404,16 @@ export async function POST(request: Request) {
     // Always resolve payment method amounts by the order's shift binding. Most
     // payment rows have a null payments.shift_id even for completed sales.
     const orderIds = orders.map((order) => order.id);
-    const paymentsByOrder = orderIds.length
-      ? await supabase
-          .from("payments")
-          .select("order_id,method,amount,created_at,status")
-          .eq("tenant_id", sessionScope.tenantId)
-          .eq("branch_id", sessionScope.branchId)
-          .in("order_id", orderIds)
-      : { data: [], error: null };
+    const paymentsByOrder = await collectShiftRowsForIds(orderIds, async (batch, from, to) =>
+      supabase
+        .from("payments")
+        .select("order_id,method,amount,created_at,status")
+        .eq("tenant_id", sessionScope.tenantId)
+        .eq("branch_id", sessionScope.branchId)
+        .in("order_id", batch)
+        .order("id", { ascending: true })
+        .range(from, to)
+    );
     if (paymentsByOrder.error) {
       return NextResponse.json(
         { data: null, error: { code: "shift_payments_query_failed", message: paymentsByOrder.error.message } },
@@ -485,6 +458,7 @@ export async function POST(request: Request) {
         closing_cash: closingCash,
         pos_session_id: scope.session.id,
         close_reason: closeReason,
+        quick_close: quickClose,
         overdue_auto_close: autoCloseWithoutCashCount,
         system_auto_closed: autoCloseWithoutCashCount,
         closed_after_auto_close_deadline: overdueAutoClose && !autoCloseWithoutCashCount,
@@ -503,6 +477,7 @@ export async function POST(request: Request) {
         shift_id: shift.id,
         status: "closed",
         closed_at: closedAtIso,
+        quick_close: quickClose,
         summary_cutoff_at: shiftSummaryEndAt.toISOString(),
         summary: {
           order_count: orderCount,

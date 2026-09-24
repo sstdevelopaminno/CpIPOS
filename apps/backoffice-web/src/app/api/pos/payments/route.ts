@@ -13,6 +13,7 @@ import { queueRoutedSalesReceipt } from "@/lib/printing/routed-print-service";
 import { invalidatePosSalesListCacheForScope } from "@/lib/services/pos-sales-list-service";
 import { executeCompletePosPaymentTransaction } from "@/lib/services/pos-sales-service";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
+import { summarizePosTender } from "@/lib/pos-payment-tender";
 
 type CompletePaymentPayload = {
   order_id: string;
@@ -125,9 +126,9 @@ export async function POST(req: Request) {
       return response;
     }
     const paymentMethod = body.payment_lines[0]?.method ?? "cash";
-    const paymentTotal = Number(body.payment_lines.reduce((sum, line) => sum + Number(line.amount ?? 0), 0).toFixed(2));
-    const cashReceivedAmount = Number(body.cash_received ?? paymentTotal);
-    if (paymentMethod === "cash" && (!Number.isFinite(cashReceivedAmount) || cashReceivedAmount + 0.009 < paymentTotal)) {
+    const { hasCash, hasBankTransfer, cashDue, cashReceivedAmount, changeAmount } =
+      summarizePosTender(body.payment_lines, body.cash_received);
+    if (hasCash && (!Number.isFinite(cashReceivedAmount) || cashReceivedAmount + 0.009 < cashDue)) {
       const response = fail("cash_received_insufficient", "Cash received must be greater than or equal to the payment amount.", 422);
       response.headers.set("x-pos-payments-ms", String(Date.now() - startedAt));
       return response;
@@ -137,7 +138,7 @@ export async function POST(req: Request) {
     let overrideApproval: ApprovalRow | null = null;
     let usedTransferOverride = false;
     let usedQrOnlyTransfer = false;
-    if (paymentMethod === "bank_transfer") {
+    if (hasBankTransfer) {
       const transferVerificationId = body.transfer_verification_id?.trim();
       const allowQrOnlyTransfer = body.skip_transfer_verification === true;
       if (!transferVerificationId) {
@@ -220,9 +221,8 @@ export async function POST(req: Request) {
     }
 
     const duplicatePaymentReplay = txResult.data.duplicate_request === true;
-    const paidTotal = paymentTotal;
     const receivedAmount = cashReceivedAmount;
-    const changeAmount = Number(body.change_amount ?? Math.max(0, receivedAmount - paidTotal));
+    // Never trust a browser-supplied change amount or count transfer funds as cash.
     const { error: orderSnapshotUpdateError } = await supabase
       .from("orders")
       .update({ cash_received: receivedAmount, change_amount: changeAmount, payment_completed_at: new Date().toISOString(), payment_completed_by: auth.userId })
@@ -239,7 +239,7 @@ export async function POST(req: Request) {
       }
     }
 
-    if (paymentMethod === "bank_transfer" && transferVerification) {
+    if (hasBankTransfer && transferVerification) {
       if (usedTransferOverride && overrideApproval) {
         await supabase.from("transfer_payment_verifications").update({ verification_status: "override_passed", override_approval_id: overrideApproval.id, override_by: overrideApproval.approved_by }).eq("tenant_id", auth.tenantId!).eq("branch_id", auth.branchId!).eq("id", transferVerification.id);
         void appendAuditLog({ tenantId: auth.tenantId!, branchId: auth.branchId!, actorUserId: auth.userId, actorRole: auth.branchRole ?? auth.platformRole, action: "transfer_payment_override_used", targetTable: "transfer_payment_verifications", targetId: transferVerification.id, overrideByUserId: overrideApproval.approved_by, metadata: { order_id: body.order_id, approval_id: overrideApproval.id } });
@@ -253,7 +253,8 @@ export async function POST(req: Request) {
         .eq("tenant_id", auth.tenantId!)
         .eq("branch_id", auth.branchId!)
         .eq("order_id", body.order_id)
-        .eq("request_group_id", requestGroupId);
+        .eq("request_group_id", requestGroupId)
+        .eq("method", "bank_transfer");
       if (paymentLinkError) {
         const missingTransferColumns = isMissingColumnError(paymentLinkError.message, "transfer_verification_id") || isMissingColumnError(paymentLinkError.message, "transfer_override_approval_id");
         const missingRequestGroup = isMissingColumnError(paymentLinkError.message, "request_group_id");
@@ -264,7 +265,7 @@ export async function POST(req: Request) {
         }
       }
     }
-    if (paymentMethod === "bank_transfer" && usedQrOnlyTransfer) {
+    if (hasBankTransfer && usedQrOnlyTransfer) {
       void appendAuditLog({ tenantId: auth.tenantId!, branchId: auth.branchId!, actorUserId: auth.userId, actorRole: auth.branchRole ?? auth.platformRole, action: "transfer_payment_qr_only_settled", targetTable: "orders", targetId: body.order_id, metadata: { order_id: body.order_id, order_type: paymentOrder.order_type, external_order_code: paymentOrder.external_order_code } });
     }
 
@@ -310,7 +311,7 @@ export async function POST(req: Request) {
           appendPosDeadLetter({ auth, channel: "print", targetTable: "print_jobs", targetId: body.order_id, reason: "print_queue_overloaded", metadata: { queue_depth: printQueueDepth ?? 0, queue_limit: POS_GUARDS.printQueueHardLimit, detail: warning, deferred: true } });
         }
         if (!skipPrintEnqueue) {
-          const drawerTask = paymentMethod === "cash"
+          const drawerTask = hasCash
             ? (async () => {
                 try {
                   const drawerJob = await openCashDrawerController(auth, {

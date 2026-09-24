@@ -3,6 +3,7 @@ import { fail, ok } from "@/lib/http";
 import { FeatureGateError, requireTenantFeature } from "@/lib/feature-gate";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
 import { calculateShiftSalesSummary } from "@/lib/pos-shift-sales-summary";
+import { collectPagedShiftRows, collectShiftRowsForIds } from "@/lib/pos-shift-query-pagination";
 
 type ShiftRow = {
   id: string;
@@ -150,28 +151,25 @@ export async function GET(request: Request) {
       return fail("branch_filter_forbidden", "Selected branch is not accessible for this user.", 403);
     }
 
-    let shiftsQuery = supabase
-      .from("shifts")
-      .select("id,tenant_id,branch_id,opened_by,closed_by,opened_at,closed_at,opening_cash,expected_cash,actual_cash,status,metadata")
-      .eq("tenant_id", scope.session.tenant_id)
-      .gte("opened_at", startedAfter)
-      .order("opened_at", { ascending: false })
-      .limit(300);
-    if (endDate) {
-      shiftsQuery = shiftsQuery.lte("opened_at", endDate.toISOString());
-    }
-
-    if (!canViewBranchWide || !useAllBranches) {
-      const targetBranchId = canViewBranchWide ? branchFilter : scope.session.branch_id;
-      if (targetBranchId) {
-        shiftsQuery = shiftsQuery.eq("branch_id", targetBranchId);
+    const { data: shiftRows, error: shiftError } = await collectPagedShiftRows(async (from, to) => {
+      let shiftsQuery = supabase
+        .from("shifts")
+        .select("id,tenant_id,branch_id,opened_by,closed_by,opened_at,closed_at,opening_cash,expected_cash,actual_cash,status,metadata")
+        .eq("tenant_id", scope.session.tenant_id)
+        .gte("opened_at", startedAfter)
+        .order("opened_at", { ascending: false })
+        .order("id", { ascending: true })
+        .range(from, to);
+      if (endDate) {
+        shiftsQuery = shiftsQuery.lte("opened_at", endDate.toISOString());
       }
-    }
-    if (selfOnly) {
-      shiftsQuery = shiftsQuery.eq("opened_by", scope.session.user_id);
-    }
-
-    const { data: shiftRows, error: shiftError } = await shiftsQuery;
+      if (!canViewBranchWide || !useAllBranches) {
+        const targetBranchId = canViewBranchWide ? branchFilter : scope.session.branch_id;
+        if (targetBranchId) shiftsQuery = shiftsQuery.eq("branch_id", targetBranchId);
+      }
+      if (selfOnly) shiftsQuery = shiftsQuery.eq("opened_by", scope.session.user_id);
+      return shiftsQuery;
+    });
     if (shiftError) {
       return fail("shift_history_query_failed", shiftError.message, 500);
     }
@@ -242,11 +240,15 @@ export async function GET(request: Request) {
       ])
     );
 
-    const ordersQuery = await supabase
-      .from("orders")
-      .select("id,order_no,shift_id,status,total_amount,grand_total,created_at")
-      .eq("tenant_id", scope.session.tenant_id)
-      .in("shift_id", shiftIds);
+    const ordersQuery = await collectShiftRowsForIds(shiftIds, async (batch, from, to) =>
+      supabase
+        .from("orders")
+        .select("id,order_no,shift_id,status,total_amount,grand_total,created_at")
+        .eq("tenant_id", scope.session.tenant_id)
+        .in("shift_id", batch)
+        .order("id", { ascending: true })
+        .range(from, to)
+    );
 
     if (ordersQuery.error) {
       return fail("shift_orders_query_failed", ordersQuery.error.message, 500);
@@ -257,13 +259,15 @@ export async function GET(request: Request) {
       orders.filter((order) => order.shift_id).map((order) => [order.id, order.shift_id as string])
     );
     const orderIdsForPayments = Array.from(orderIdToShift.keys());
-    const paymentsByOrder = orderIdsForPayments.length
-      ? await supabase
-          .from("payments")
-          .select("order_id,method,amount,created_at,status")
-          .eq("tenant_id", scope.session.tenant_id)
-          .in("order_id", orderIdsForPayments)
-      : { data: [], error: null };
+    const paymentsByOrder = await collectShiftRowsForIds(orderIdsForPayments, async (batch, from, to) =>
+      supabase
+        .from("payments")
+        .select("order_id,method,amount,created_at,status")
+        .eq("tenant_id", scope.session.tenant_id)
+        .in("order_id", batch)
+        .order("id", { ascending: true })
+        .range(from, to)
+    );
     if (paymentsByOrder.error) {
       return fail("shift_payments_query_failed", paymentsByOrder.error.message, 500);
     }
