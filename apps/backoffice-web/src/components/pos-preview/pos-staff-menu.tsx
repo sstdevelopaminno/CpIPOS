@@ -81,7 +81,13 @@ export function PosStaffMenu({ lang, collapsed, orientation = "vertical", sessio
   const effectiveRole = resolveMenuRole(sessionRole);
   const menuItems = useMemo(() => MENU_DEFS.map((item) => ({ ...item, label: labelFor(item, lang) })).filter((item) => item.roles.includes(effectiveRole) && isPosMenuEnabled(posMenuKeyForRoute(item.href) ?? "", menuPolicy)), [effectiveRole, lang, menuPolicy]);
   const moreItems = useMemo(() => MORE_MENU_DEFS.map((item) => ({ ...item, label: labelFor(item, lang) })).filter((item) => item.roles.includes(effectiveRole)), [effectiveRole, lang]);
-  const canSeeMoreMenu = moreItems.length > 0 && isPosMenuEnabled("main.more", menuPolicy);
+  const otherMoreKeys = sessionRole === "accountant"
+    ? ["more.tax_invoices", "more.product_sales"]
+    : effectiveRole === "owner" || effectiveRole === "manager"
+      ? ["more.kitchen_manage", "more.buffet", "more.tax_invoices", "more.product_sales"]
+      : [];
+  const canSeeMoreMenu = isPosMenuEnabled("main.more", menuPolicy) &&
+    (moreItems.length > 0 || otherMoreKeys.some(key => isPosMenuEnabled(key, menuPolicy)));
   const isMoreActive = moreItems.some((item) => pathname === item.href);
   const isMoreMenuActive = pathname === "/preview/pos/more" || isMoreActive;
   const paymentMenuLabel = lang === "th" ? "ชำระเงิน" : "Payment";
