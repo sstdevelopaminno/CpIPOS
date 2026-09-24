@@ -1,9 +1,12 @@
+import { assertPosMenuPageAllowed } from "@/lib/server/pos-menu-policy-service";
 import { redirect } from "next/navigation";
 import { KitchenManagement } from "@/components/kitchen/kitchen-management";
 import { getCurrentLanguage } from "@/lib/i18n";
 import { requirePosSession } from "@/lib/pos-session-guard";
 
 export default async function PosKitchenManagementPage() {
+  const posMenuScope = await requirePosSession();
+  await assertPosMenuPageAllowed(posMenuScope.session.tenant_id, "/preview/pos/kitchen/manage");
   const scope = await requirePosSession();
   if (scope.session.role !== "owner" && scope.session.role !== "manager") {
     redirect("/preview/pos/more");
