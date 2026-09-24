@@ -1,0 +1,8 @@
+CpIPOS production deployment request
+requested_at: 2026-09-24
+purpose: publish latest POS tenant menu policy navigation, including More and injected settings cards
+source_repository: sstdevelopaminno/CpIPOS
+source_branch: agent-docs-preflight-schema-drift
+requested_from_commit: 68e7826d040175b19f6bcee2f8e31f69326574a5
+project: cp-ipos-web
+note: deployment trigger only; no application logic or environment changes
