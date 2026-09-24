@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { MouseEvent, useEffect, useState } from "react";
 import { PackageLockDialog } from "@/components/pos-preview/package-lock-dialog";
 import { PosStaffMenu } from "@/components/pos-preview/pos-staff-menu";
+import { isPosMenuEnabled } from "@/lib/pos-menu-policy";
 import { t, type Language } from "@/lib/i18n";
 import {
   POS_MENU_LOCK_TITLE_EN,
@@ -54,6 +55,7 @@ export function PosShellSidebar({ lang, settingsLabel, placement }: Props) {
   const pathname = usePathname();
   const [sessionRole, setSessionRole] = useState<PosRole | null>(null);
   const [enabledFeatures, setEnabledFeatures] = useState<Record<string, boolean> | null>(null);
+  const [menuPolicy, setMenuPolicy] = useState<Record<string, boolean>>({});
   const [packageLockOpen, setPackageLockOpen] = useState(false);
   const [logoutModalOpen, setLogoutModalOpen] = useState(false);
   const [logoutBusyMode, setLogoutBusyMode] = useState<"switch_device" | "full" | null>(null);
@@ -113,9 +115,10 @@ export function PosShellSidebar({ lang, settingsLabel, placement }: Props) {
     async function loadFeatures() {
       try {
         const response = await fetch("/api/pos/features", { cache: "no-store" });
-        const body = (await response.json().catch(() => null)) as { data?: { features?: Record<string, boolean> } | null } | null;
+        const body = (await response.json().catch(() => null)) as { data?: { features?: Record<string, boolean>; menu_policy?: Record<string, boolean> } | null } | null;
         if (!cancelled && response.ok) {
           setEnabledFeatures(body?.data?.features ?? {});
+          setMenuPolicy(body?.data?.menu_policy ?? {});
         }
       } catch {
         if (!cancelled) setEnabledFeatures({});
@@ -220,10 +223,11 @@ export function PosShellSidebar({ lang, settingsLabel, placement }: Props) {
             orientation={isHorizontal ? "horizontal" : "vertical"}
             sessionRole={sessionRole}
             enabledFeatures={enabledFeatures}
+            menuPolicy={menuPolicy}
             onLockedFeature={() => setPackageLockOpen(true)}
           />
 
-          {showAdvancedMenus ? (
+          {showAdvancedMenus && isPosMenuEnabled("main.settings", menuPolicy) ? (
             <Link
               href="/preview/pos/settings"
               onClick={handleSettingsNavigate}
