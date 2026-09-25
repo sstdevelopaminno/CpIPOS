@@ -106,7 +106,7 @@ export async function POST(request: Request) {
     }
     if (kind === "payment_notice") {
       const parsedTransfer = Date.parse(transferAt + "+07:00");
-      if (!/^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}$/.test(transferAt)
+      if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(transferAt)
         || !Number.isFinite(parsedTransfer)
         || parsedTransfer > Date.now() + 60 * 60 * 1000
         || parsedTransfer < Date.now() - 2 * 365 * 24 * 60 * 60 * 1000) {
