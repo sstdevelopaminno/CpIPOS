@@ -16,7 +16,7 @@ type Package = { id: string; code: string; name: string; monthly_price: number |
 type Issuer = { billing_legal_name_th: string; billing_bank_name: string; billing_bank_account_name: string;
   billing_bank_account_number: string; billing_promptpay_id: string; billing_email: string;
   support_email: string; billing_vat_registered: boolean };
-type RequestRow = { id: string; request_type: string; status: string; amount_reported: number | null;
+type RequestRow = { id: string; request_type: string; requested_package_id: string | null; status: string; amount_reported: number | null;
   currency: string; submitted_at: string; reviewed_at: string | null; review_note: string | null;
   evidence_url: string | null; metadata: Record<string, unknown> | null };
 type Cycle = { id: string; status: string; amount_due: number; amount_paid: number; period_start: string; period_end: string };
@@ -50,7 +50,7 @@ export async function loadPosSubscriptionCenter(tenantId: string) {
       .select("id,code,name,monthly_price,yearly_price,max_branches,max_devices,max_users,metadata")
       .eq("is_active",true).order("display_order",{ascending:true}).limit(30).returns<Package[]>(),
     db.from("tenant_subscription_payment_requests")
-      .select("id,request_type,status,amount_reported,currency,submitted_at,reviewed_at,review_note,evidence_url,metadata")
+      .select("id,request_type,requested_package_id,status,amount_reported,currency,submitted_at,reviewed_at,review_note,evidence_url,metadata")
       .eq("tenant_id",tenantId).order("created_at",{ascending:false}).limit(30).returns<RequestRow[]>(),
     db.from("tenant_billing_cycles")
       .select("id,status,amount_due,amount_paid,period_start,period_end")
@@ -105,7 +105,8 @@ export async function loadPosSubscriptionCenter(tenantId: string) {
       vat_registered: issuer?.billing_vat_registered === true
     },
     requests: (requestResult.data ?? []).map((row)=>({
-      id:row.id,type:row.request_type,status:row.status,amount:row.amount_reported,
+      id:row.id,type:row.request_type,status:row.status,package_id:row.requested_package_id,
+      billing_interval:row.metadata?.billing_interval === "yearly" ? "yearly" : "monthly",amount:row.amount_reported,
       currency:row.currency,submitted_at:row.submitted_at,reviewed_at:row.reviewed_at,
       review_note:row.review_note,has_evidence:Boolean(row.evidence_url),
       kind: row.metadata?.kind === "payment_notice" ? "payment_notice" : "renewal_intent"
