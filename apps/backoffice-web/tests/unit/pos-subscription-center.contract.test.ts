@@ -27,6 +27,9 @@ describe("Phase 1 POS subscription center (not cashier payments)", () => {
     expect(request).toContain('upsert:false');
     expect(request).toContain('status:"pending"');
     expect(request).toContain("requestKey");
+    expect(request).toContain('contains("metadata",{kind:"renewal_intent"})');
+    expect(request).toContain('in("status",["pending","under_review"])');
+    expect(ui).toContain("แนบสลิปและแจ้งชำระคำขอเดิม");
     expect(request).not.toContain('"approved"');
     expect(request).not.toContain('from("payments")');
     expect(request).not.toContain('from("shifts")');
