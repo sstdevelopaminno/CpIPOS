@@ -49,7 +49,7 @@ describe("production stabilization audit guardrails", () => {
     const route = source("apps/backoffice-web/src/app/api/pos/users/route.ts");
     expect(route).toContain('const rows = rawRows;');
     expect(route).not.toContain('rawRows.filter((row) => row.role !== "owner")');
-    expect(route).toContain('can_edit: canActorEditTarget');
-    expect(route).toContain('can_delete: canActorDelete');
+    expect(route).toContain('can_edit: row.user_id !== protectedOwnerId && canActorEditTarget');
+    expect(route).toContain('can_delete: row.user_id !== protectedOwnerId && canActorDelete');
   });
 });
