@@ -33,9 +33,10 @@ function Stat({label,value,detail,highlight=false}:{label:string;value:string;de
 
 export function PosSubscriptionCenter({initial,isOwner}:{initial:PosSubscriptionCenterData;isOwner:boolean}) {
   const [snapshot,setSnapshot] = useState(initial);
+  const initialPending = initial.requests.find(r=>r.status==="pending"||r.status==="under_review");
   const [tab,setTab] = useState<Tab>("overview");
-  const [selectedPackage,setSelectedPackage] = useState(initial.contract.package_id || initial.packages[0]?.id || "");
-  const [interval,setInterval] = useState(initial.contract.billing_interval==="yearly"?"yearly":"monthly");
+  const [selectedPackage,setSelectedPackage] = useState(initialPending?.package_id || initial.contract.package_id || initial.packages[0]?.id || "");
+  const [interval,setInterval] = useState((initialPending?.billing_interval || initial.contract.billing_interval)==="yearly"?"yearly":"monthly");
   const [amount,setAmount] = useState("");
   const [payer,setPayer] = useState("");
   const [reference,setReference] = useState("");
@@ -55,7 +56,7 @@ export function PosSubscriptionCenter({initial,isOwner}:{initial:PosSubscription
   const pending = snapshot.requests.find(r=>r.status==="pending" || r.status==="under_review");
   const hasBank = Boolean(snapshot.issuer.account_number || snapshot.issuer.promptpay_id);
   const demo = snapshot.contract.is_internal_demo;
-  const canSubmit = isOwner && !demo && !pending && !busy;
+  const canSubmit = isOwner && !demo && !busy && (!pending || (tab==="notice" && pending.kind==="renewal_intent"));
   const intervalLabel = snapshot.contract.billing_interval==="yearly" ? "รายปี" : "รายเดือน";
 
   function changed() {requestKey.current=null;setMessage("");setError("");}
@@ -77,7 +78,8 @@ export function PosSubscriptionCenter({initial,isOwner}:{initial:PosSubscription
     if (kind==="payment_notice" && (!slip || !hasBank)) {
       setError("โปรดตรวจสอบบัญชีรับเงินและแนบสลิปก่อนส่ง");return;
     }
-    if (!requestKey.current) requestKey.current=crypto.randomUUID();
+    if (!requestKey.current) requestKey.current=kind==="payment_notice" && pending?.kind==="renewal_intent"
+      ? pending.id : crypto.randomUUID();
     setBusy(true);setError("");setMessage("");
     const form=new FormData();
     form.set("request_key",requestKey.current);
@@ -122,7 +124,7 @@ export function PosSubscriptionCenter({initial,isOwner}:{initial:PosSubscription
       {error?<p role="alert" className="rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-800">{error}</p>:null}
       {message?<p role="status" className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800">{message}</p>:null}
       {pending?<p className="rounded-xl border border-amber-200 bg-amber-50 px-5 py-4 text-sm font-medium text-amber-900">
-        มีคำขอแพ็กเกจรอตรวจสอบอยู่แล้ว ({LABELS[pending.status] || pending.status}) · ส่งคำขอใหม่ได้หลังดำเนินการรายการเดิมเสร็จ
+        มีคำขอแพ็กเกจรอตรวจสอบอยู่แล้ว ({LABELS[pending.status] || pending.status}) · {pending.kind==="renewal_intent"?"สามารถแจ้งชำระคำขอเดิมได้จากแท็บแจ้งชำระเงิน":"ส่งคำขอใหม่ได้หลังดำเนินการรายการเดิมเสร็จ"}
       </p>:null}
 
       <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_340px]">
@@ -190,13 +192,13 @@ export function PosSubscriptionCenter({initial,isOwner}:{initial:PosSubscription
             {demo?<p className="rounded-xl bg-blue-50 p-4 text-sm text-blue-900">บัญชีทดสอบภายในไม่ต้องต่ออายุหรือแจ้งชำระแพ็กเกจ</p>:null}
             <div className="grid gap-4 sm:grid-cols-2">
               <label className="text-sm font-bold text-slate-700">แพ็กเกจที่ต้องการ
-                <select className={inputClass} disabled={!canSubmit} value={selectedPackage}
+                <select className={inputClass} disabled={!canSubmit||Boolean(pending)} value={selectedPackage}
                   onChange={e=>{setSelectedPackage(e.target.value);changed();}}>
                   {snapshot.packages.map(p=><option value={p.id} key={p.id}>{p.name}</option>)}
                 </select>
               </label>
               <label className="text-sm font-bold text-slate-700">รอบชำระ
-                <select className={inputClass} disabled={!canSubmit} value={interval}
+                <select className={inputClass} disabled={!canSubmit||Boolean(pending)} value={interval}
                   onChange={e=>{setInterval(e.target.value);changed();}}>
                   <option value="monthly">รายเดือน</option>
                   <option value="yearly" disabled={!packageRow?.yearly_price && !(selectedPackage===snapshot.contract.package_id && snapshot.contract.billing_interval==="yearly" && snapshot.contract.amount_per_cycle)}>รายปี (เฉพาะแพ็กเกจที่ตั้งราคาแล้ว)</option>
@@ -244,7 +246,7 @@ export function PosSubscriptionCenter({initial,isOwner}:{initial:PosSubscription
             <button type="button" disabled={!canSubmit||(tab==="notice"&&(!slip||!hasBank||!amount))}
               onClick={()=>void submit(tab==="renew"?"renewal_intent":"payment_notice")}
               className="w-full rounded-xl bg-blue-600 px-5 py-3.5 text-sm font-black text-white shadow-lg shadow-blue-100 disabled:cursor-not-allowed disabled:bg-slate-300">
-              {busy?"กำลังส่งคำขอ...":tab==="renew"?"ส่งคำขอต่ออายุ":"ส่งแจ้งชำระเงิน"}
+              {busy?"กำลังส่งคำขอ...":tab==="renew"?"ส่งคำขอต่ออายุ":pending?.kind==="renewal_intent"?"แนบสลิปและแจ้งชำระคำขอเดิม":"ส่งแจ้งชำระเงิน"}
             </button>
           </div>:null}
 
