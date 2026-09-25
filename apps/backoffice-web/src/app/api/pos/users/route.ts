@@ -575,10 +575,9 @@ export async function POST(request: Request) {
     if (canApproveCancelBill && !/^\d{4,12}$/.test(pin)) return fail("staff_pin_required", "A 4-12 digit staff PIN is required when enabling cancel-bill approval.", 422);
     if (canApproveCancelBill && auth.branchRole !== "owner") return fail("owner_approval_required", "Only the owner can grant staff cancel-bill PIN authority.", 403);
 
-    const ownerActorCreatingOwner = auth.branchRole === "owner" && role === "owner";
     const needsOwnerApproval = canApproveCancelBill;
-    const needsApproval = Boolean(employeeCodeInput || pin) && !ownerActorCreatingOwner;
-    const approval = ownerActorCreatingOwner ? { approved: true } : needsOwnerApproval ? await requireOwnerApprovalPin({ pin: body.approval_pin, tenantId: auth.tenantId!, branchId }) : needsApproval ? await requireApprovalPin({ pin: body.approval_pin, tenantId: auth.tenantId!, branchId }) : { approved: true };
+    const needsApproval = Boolean(employeeCodeInput || pin);
+    const approval = needsOwnerApproval ? await requireOwnerApprovalPin({ pin: body.approval_pin, tenantId: auth.tenantId!, branchId }) : needsApproval ? await requireApprovalPin({ pin: body.approval_pin, tenantId: auth.tenantId!, branchId }) : { approved: true };
     if ((needsApproval || needsOwnerApproval) && !approval.approved) return fail(needsOwnerApproval ? "owner_pin_required" : "approval_pin_required", needsOwnerApproval ? "Owner PIN approval is required to grant staff cancel-bill authority." : "PIN approval is required to create user code or PIN.", 403);
 
     const supabase = getSupabaseServiceClient();
