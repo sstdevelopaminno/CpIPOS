@@ -150,7 +150,7 @@ function normalizePermissionRole(value: string | null | undefined, fallback: Bra
 }
 
 function canActorAdd(actorRole: BranchRole | null | undefined) {
-  return actorRole === "owner" || actorRole === "manager";
+  return actorRole === "owner";
 }
 
 function canActorDelete(actorRole: BranchRole | null | undefined) {
@@ -158,11 +158,8 @@ function canActorDelete(actorRole: BranchRole | null | undefined) {
 }
 
 function canActorEditTarget(input: { actorRole: BranchRole | null | undefined; actorUserId: string; targetUserId: string; targetRole: BranchRole }) {
-  if (input.actorRole === "owner") return true;
-  if (input.actorRole !== "manager") return false;
-  if (input.targetRole === "owner") return false;
-  if (input.actorUserId === input.targetUserId) return false;
-  return input.targetRole === "staff" || input.targetRole === "accountant" || input.targetRole === "kitchen";
+  // Owners manage store personnel; managers and staff cannot administer user accounts.
+  return input.actorRole === "owner";
 }
 
 async function getPosUsersAuthContext(requiredPermission: PosPermission): Promise<AuthContext> {
@@ -195,7 +192,8 @@ function resolveSessionBranchId(auth: AuthContext, requestedBranchId?: string | 
 }
 
 function normalizeManagerRoleChange(actorRole: BranchRole | null | undefined, requestedRole: BranchRole, currentRole: BranchRole) {
-  if (actorRole === "owner") return requestedRole;
+  // Only IT can appoint another owner; store owners can appoint managers/staff.
+  if (actorRole === "owner") return requestedRole === "owner" ? currentRole : requestedRole;
   if (actorRole === "manager") {
     if (requestedRole === "staff" || requestedRole === "accountant" || requestedRole === "kitchen") return requestedRole;
     return currentRole;
@@ -395,6 +393,16 @@ export async function GET(request: Request) {
   }
 }
 
+async function isItProtectedPrimaryOwner(tenantId: string, userId: string) {
+  const { data, error } = await getSupabaseServiceClient()
+    .from("tenants")
+    .select("primary_owner_user_id")
+    .eq("id", tenantId)
+    .maybeSingle<{ primary_owner_user_id: string | null }>();
+  if (error || !data) throw new Error("primary_owner_guard_unavailable");
+  return data.primary_owner_user_id === userId;
+}
+
 export async function PATCH(request: Request) {
   try {
     const auth = await getPosUsersAuthContext("users:manage");
@@ -403,6 +411,9 @@ export async function PATCH(request: Request) {
     const userId = String((body as { user_id?: string })?.user_id ?? "").trim();
     const branchId = resolveSessionBranchId(auth, (body as { branch_id?: string })?.branch_id);
     if (!userId || !branchId) return fail("invalid_payload", "user_id and branch_id are required.", 422);
+    if (await isItProtectedPrimaryOwner(auth.tenantId!, userId)) {
+      return fail("primary_owner_it_only", "Only IT Admin can edit or disable the first Owner account.", 403);
+    }
 
     const targetRole = await getTargetRole({ tenantId: auth.tenantId!, branchId, userId });
     if (!targetRole) return fail("user_not_found", "User was not found in this branch.", 404);
@@ -530,13 +541,14 @@ export async function PATCH(request: Request) {
 export async function POST(request: Request) {
   try {
     const auth = await getPosUsersAuthContext("users:manage");
-    if (!canActorAdd(auth.branchRole)) return fail("forbidden_role", "Only owner or manager can add POS users.", 403);
+    if (!canActorAdd(auth.branchRole)) return fail("forbidden_role", "Only the Owner can add POS managers and staff.", 403);
     const body = (await request.json()) as CreatePayload;
     const fullName = String(body.full_name ?? "").trim();
     const requestedEmail = String(body.email ?? "").trim().toLowerCase();
     const branchId = resolveSessionBranchId(auth, body.branch_id);
     const requestedRole = normalizeRole(String(body.role ?? "staff"));
-    const role = auth.branchRole === "manager" && (requestedRole === "owner" || requestedRole === "manager") ? "staff" : requestedRole;
+    if (requestedRole === "owner") return fail("owner_role_it_only", "Only IT Admin can create Owner accounts.", 403);
+    const role = requestedRole;
     const pin = String(body.pin ?? "").trim();
     const scopeMode = body.scope_mode === "single_device" ? "single_device" : "all_devices";
     const deviceId = String(body.device_id ?? "").trim() || null;
@@ -566,6 +578,9 @@ export async function POST(request: Request) {
     const email = requestedEmail || `${employeeCodeInput || crypto.randomUUID()}@pos.local`.toLowerCase();
     const { data: existingProfile, error: existingError } = await supabase.from("users_profiles").select("id").eq("email", email).maybeSingle<{ id: string }>();
     if (existingError) return fail("user_lookup_failed", existingError.message, 500);
+    if (existingProfile?.id && await isItProtectedPrimaryOwner(auth.tenantId!, existingProfile.id)) {
+      return fail("primary_owner_it_only", "Only IT Admin can modify the first Owner account.", 403);
+    }
 
     if (employeeCodeInput) {
       try {
@@ -658,6 +673,9 @@ export async function DELETE(request: Request) {
     const branchId = resolveSessionBranchId(auth, searchParams.get("branch_id"));
     if (!userId || !branchId) return fail("invalid_payload", "user_id and branch_id are required.", 422);
     if (userId === auth.userId) return fail("delete_self_forbidden", "Owner cannot delete own active access.", 409);
+    if (await isItProtectedPrimaryOwner(auth.tenantId!, userId)) {
+      return fail("primary_owner_it_only", "Only IT Admin can delete the first Owner account.", 403);
+    }
     const supabase = getSupabaseServiceClient();
     const targetRole = await getTargetRole({ tenantId: auth.tenantId!, branchId, userId });
     if (!targetRole) return fail("user_not_found", "User was not found in this branch.", 404);
