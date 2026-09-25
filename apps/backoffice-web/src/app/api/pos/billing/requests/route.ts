@@ -75,7 +75,7 @@ export async function POST(request: Request) {
     const amountText = str(form.get("amount_reported"),32);
     const amountReported = kind === "payment_notice" ? Number(amountText) : null;
     if (kind === "payment_notice" && (!/^\d+(?:\.\d{1,2})?$/.test(amountText)
-      || !Number.isFinite(amountReported) || amountReported <= 0 || amountReported > 10_000_000)) {
+      || amountReported === null || !Number.isFinite(amountReported) || amountReported <= 0 || amountReported > 10_000_000)) {
       return fail("amount_invalid","Enter the actual transfer amount, up to two decimal places.",422);
     }
     if (kind === "payment_notice" && !snapshot.issuer.account_number && !snapshot.issuer.promptpay_id) {
