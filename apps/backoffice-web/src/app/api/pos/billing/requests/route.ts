@@ -131,7 +131,9 @@ export async function POST(request: Request) {
     const note = str(form.get("note"),500);
     const metadata = {
       ...(upgrading ? existingById?.metadata ?? {} : {}),
-      kind,billing_interval:billingInterval,expected_amount:expected,source:"pos_subscription_center",
+      kind,billing_interval:billingInterval,
+      expected_amount:upgrading ? existingById?.metadata?.expected_amount ?? expected : expected,
+      source:"pos_subscription_center",
       submitted_by:scope.session.user_id,payer_name:payerName,transfer_reference:transferReference,
       transfer_at:transferAt,note
     };
