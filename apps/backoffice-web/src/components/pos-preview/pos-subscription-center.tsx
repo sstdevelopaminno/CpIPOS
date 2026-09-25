@@ -12,7 +12,7 @@ const LABELS: Record<string,string> = {
   pending:"รอตรวจสอบ",under_review:"กำลังตรวจสอบ",approved:"อนุมัติแล้ว",
   rejected:"ปฏิเสธ",cancelled_request:"ยกเลิก"
 };
-const formatMoney = (number: number|null, currency="THB") => number == null ? "ตามสัญญา" :
+const formatMoney = (number: number|null, currency="THB") => number == null ? "ยังไม่กำหนดราคา" :
   new Intl.NumberFormat("th-TH",{style:"currency",currency}).format(number);
 const formatDate = (value:string|null) => value
   ? new Intl.DateTimeFormat("th-TH",{dateStyle:"medium",timeZone:"Asia/Bangkok"}).format(new Date(value)) : "—";
@@ -148,7 +148,7 @@ export function PosSubscriptionCenter({initial,isOwner}:{initial:PosSubscription
             <Stat label="วันคงเหลือ" value={demo?"บัญชีภายใน":snapshot.contract.days_remaining===null?"ยังไม่กำหนด":
               snapshot.contract.days_remaining<0?"เกิน "+Math.abs(snapshot.contract.days_remaining)+" วัน":
               snapshot.contract.days_remaining+" วัน"} highlight />
-            <Stat label="ค่าบริการต่อรอบ" value={demo?"ยกเว้นการเรียกเก็บ":formatMoney(snapshot.contract.amount_per_cycle,snapshot.contract.currency)}
+            <Stat label="ค่าบริการต่อรอบ" value={demo?"ยกเว้นการเรียกเก็บ":snapshot.contract.package_code==="custom" && snapshot.contract.amount_per_cycle===null?"ตามสัญญา":formatMoney(snapshot.contract.amount_per_cycle,snapshot.contract.currency)}
               detail={demo?"ไม่ใช่ราคาแพ็กเกจลูกค้า":intervalLabel} />
             <Stat label="สิทธิ์การใช้งาน" value="สาขา · เครื่อง · ผู้ใช้"
               detail={[snapshot.contract.max_branches,snapshot.contract.max_devices,snapshot.contract.max_users]
@@ -205,7 +205,7 @@ export function PosSubscriptionCenter({initial,isOwner}:{initial:PosSubscription
             </div>
             <div className="rounded-xl border border-blue-100 bg-blue-50 p-4">
               <p className="text-xs font-bold text-blue-700">ราคาต่อรอบตามข้อมูลปัจจุบัน · รอ IT ยืนยัน</p>
-              <strong className="mt-1 block text-2xl font-black text-slate-900">{formatMoney(due)}</strong>
+              <strong className="mt-1 block text-2xl font-black text-slate-900">{packageRow?.contact_sales && due===null?"ตามสัญญา":formatMoney(due)}</strong>
               <p className="mt-1 text-xs text-slate-600">กรณี Custom หรือราคายังไม่กำหนด ให้สอบถาม IT ก่อนชำระ</p>
             </div>
             {tab==="notice"? <>
@@ -228,7 +228,7 @@ export function PosSubscriptionCenter({initial,isOwner}:{initial:PosSubscription
                     onChange={e=>{setReference(e.target.value);changed();}} placeholder="จากรายการธนาคาร"/>
                 </label>
               </div>
-              <label className="block text-sm font-bold text-slate-700">แนบสลิป (JPG, PNG, WebP หรือ PDF · ไม่เกิน 5 MB)
+              <label className="block text-sm font-bold text-slate-700">แนบสลิป (JPG, PNG, WebP หรือ PDF · ไม่เกิน 4 MB)
                 <input className={inputClass} type="file" accept="image/jpeg,image/png,image/webp,application/pdf"
                   onChange={e=>{setSlip(e.target.files?.[0]??null);changed();}} />
               </label>
