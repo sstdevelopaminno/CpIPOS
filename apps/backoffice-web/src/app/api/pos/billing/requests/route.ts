@@ -56,7 +56,7 @@ export async function POST(request: Request) {
     if (existingById?.tenant_id && existingById.tenant_id !== scope.session.tenant_id) {
       return fail("request_conflict","Request identifier conflicts with another store.",409);
     }
-    const upgrading = kind==="payment_notice" && existingById?.status==="pending" &&
+    const upgrading = kind==="payment_notice" && ["pending","under_review"].includes(existingById?.status ?? "") &&
       existingById.metadata?.kind==="renewal_intent" && !existingById.evidence_url;
     if (existingById && !upgrading) {
       return ok({ id:existingById.id, status:existingById.status, already_submitted:true });
@@ -138,7 +138,7 @@ export async function POST(request: Request) {
     const inserted = upgrading
       ? await db.from("tenant_subscription_payment_requests").update({
           amount_reported:amountReported,evidence_url:filePath,metadata,updated_at:new Date().toISOString()
-        }).eq("id",requestKey).eq("tenant_id",scope.session.tenant_id).eq("status","pending")
+        }).eq("id",requestKey).eq("tenant_id",scope.session.tenant_id).in("status",["pending","under_review"])
           .is("evidence_url",null).contains("metadata",{kind:"renewal_intent"})
           .select("id,status").maybeSingle<{id:string;status:string}>()
       : await db.from("tenant_subscription_payment_requests").insert({
