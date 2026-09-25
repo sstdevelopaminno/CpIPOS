@@ -106,10 +106,12 @@ describe("POS users auth fallback", () => {
       error: null
     });
     const deviceQuery = createChainableQuery({ data: [], error: null });
+    const tenantQuery = createChainableQuery({ data: { primary_owner_user_id: "owner-user" }, error: null });
     const scopeQuery = createChainableQuery({ data: [], error: null });
     const profileSettingsQuery = createChainableQuery({ data: [], error: null });
     const from = vi.fn((tableName: string) => {
       if (tableName === "branches") return branchQuery;
+      if (tableName === "tenants") return tenantQuery;
       if (tableName === "user_branch_roles") return userQuery;
       if (tableName === "branch_devices") return deviceQuery;
       if (tableName === "pos_user_device_scopes") return scopeQuery;
@@ -153,8 +155,10 @@ describe("POS users auth fallback", () => {
     );
 
     const posProfileQueries = [profileSettingsLoadQuery, duplicateCodeQuery];
+    const tenantQuery = createChainableQuery({ data: { primary_owner_user_id: "owner-user" }, error: null });
     const from = vi.fn((tableName: string) => {
       if (tableName === "user_branch_roles") return roleQuery;
+      if (tableName === "tenants") return tenantQuery;
       if (tableName === "users_profiles") return profileLookupQuery;
       if (tableName === "pos_user_profiles") return posProfileQueries.shift() ?? duplicateCodeQuery;
       return createChainableQuery({ data: [], error: null });
@@ -200,7 +204,9 @@ describe("POS users auth fallback", () => {
       { maybeSingleResult: { data: { role: "staff" }, error: null } }
     );
     getSupabaseServiceClient.mockReturnValue({
-      from: vi.fn(() => roleQuery)
+      from: vi.fn((tableName: string) => tableName === "tenants"
+        ? createChainableQuery({ data: { primary_owner_user_id: "owner-user" }, error: null })
+        : roleQuery)
     });
 
     const { PATCH } = await import("@/app/api/pos/users/route");
@@ -219,7 +225,7 @@ describe("POS users auth fallback", () => {
     const body = await response.json();
 
     expect(response.status).toBe(403);
-    expect(body.error.code).toBe("staff_pin_requires_owner_grant");
+    expect(body.error.code).toBe("forbidden_target_role");
     expect(validateManagerPin).not.toHaveBeenCalled();
   });
 
@@ -243,7 +249,9 @@ describe("POS users auth fallback", () => {
     );
     const rpc = vi.fn().mockResolvedValue({ data: null, error: null });
     getSupabaseServiceClient.mockReturnValue({
-      from: vi.fn(() => roleQuery),
+      from: vi.fn((tableName: string) => tableName === "tenants"
+        ? createChainableQuery({ data: { primary_owner_user_id: "owner-user" }, error: null })
+        : roleQuery),
       rpc
     });
 
