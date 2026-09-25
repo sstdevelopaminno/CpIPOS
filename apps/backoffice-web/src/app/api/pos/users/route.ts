@@ -349,7 +349,13 @@ export async function GET(request: Request) {
     }>;
     const rows = rawRows;
     const userIds = Array.from(new Set(rows.map((row) => row.user_id)));
-    const settingsByUser = await loadProfileSettings(auth.tenantId!, userIds);
+    const [settingsByUser, tenantResult] = await Promise.all([
+      loadProfileSettings(auth.tenantId!, userIds),
+      supabase.from("tenants").select("primary_owner_user_id")
+        .eq("id", auth.tenantId!).single<{ primary_owner_user_id: string | null }>()
+    ]);
+    if (tenantResult.error || !tenantResult.data) return fail("primary_owner_guard_unavailable", "Unable to verify store Owner protection.", 503);
+    const protectedOwnerId = tenantResult.data.primary_owner_user_id;
 
     const items = rows.map((row) => {
       const profile = Array.isArray(row.users_profiles) ? row.users_profiles[0] : row.users_profiles;
@@ -372,8 +378,9 @@ export async function GET(request: Request) {
         full_name: profile?.full_name ?? "",
         email: profile?.email ?? "",
         is_active: profile?.is_active ?? false,
-        can_edit: canActorEditTarget({ actorRole: auth.branchRole, actorUserId: auth.userId, targetUserId: row.user_id, targetRole: role }),
-        can_delete: canActorDelete(auth.branchRole) && auth.userId !== row.user_id,
+        can_edit: row.user_id !== protectedOwnerId && canActorEditTarget({ actorRole: auth.branchRole, actorUserId: auth.userId, targetUserId: row.user_id, targetRole: role }),
+        can_delete: row.user_id !== protectedOwnerId && canActorDelete(auth.branchRole) && auth.userId !== row.user_id,
+        is_protected_primary_owner: row.user_id === protectedOwnerId,
         can_approve_cancel_bill: role === "staff" && cancelBillApprovalByKey.get(`${row.branch_id}:${row.user_id}`) === true,
         device_scope: { scope_mode: scope?.scope_mode ?? "all_devices", device_id: scope?.device_id ?? null }
       };
