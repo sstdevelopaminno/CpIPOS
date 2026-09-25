@@ -97,6 +97,23 @@ export async function POST(request: Request) {
       return fail("receiving_account_not_configured","Company receiving account is not configured. Contact Support.",422);
     }
 
+    const transferReference = str(form.get("transfer_reference"),120);
+    const payerName = str(form.get("payer_name"),160);
+    const transferAt = str(form.get("transfer_at"),32);
+    const note = str(form.get("note"),500);
+    if (kind === "payment_notice" && !payerName) {
+      return fail("payer_name_required","Enter the name used for the transfer.",422);
+    }
+    if (kind === "payment_notice") {
+      const parsedTransfer = Date.parse(transferAt + "+07:00");
+      if (!/^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}$/.test(transferAt)
+        || !Number.isFinite(parsedTransfer)
+        || parsedTransfer > Date.now() + 60 * 60 * 1000
+        || parsedTransfer < Date.now() - 2 * 365 * 24 * 60 * 60 * 1000) {
+        return fail("transfer_time_invalid","Check the transfer date and time (Thailand time).",422);
+      }
+    }
+
     const evidence = form.get("slip");
     let filePath: string | null = null;
     let fileBuffer: Buffer | null = null;
@@ -126,10 +143,6 @@ export async function POST(request: Request) {
     const type = !snapshot.contract.package_id ? "new_subscription"
       : snapshot.contract.status==="trial" ? "trial_conversion"
       : snapshot.contract.package_id!==target.id ? "package_change" : "renewal";
-    const transferReference = str(form.get("transfer_reference"),120);
-    const payerName = str(form.get("payer_name"),160);
-    const transferAt = str(form.get("transfer_at"),32);
-    const note = str(form.get("note"),500);
     const metadata = {
       ...(upgrading ? existingById?.metadata ?? {} : {}),
       kind,billing_interval:billingInterval,
