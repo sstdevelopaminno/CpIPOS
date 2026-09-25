@@ -46,12 +46,20 @@ export async function POST(request: Request) {
     if (!["monthly","yearly"].includes(billingInterval)) return fail("invalid_interval","Choose a billing interval.",422);
 
     const db = getPrimarySupabaseServiceClient();
+    type PendingRequest = {id:string;tenant_id:string;status:string;requested_package_id:string|null;
+      evidence_url:string|null;metadata:Record<string,unknown>|null};
     const idempotent = await db.from("tenant_subscription_payment_requests")
-      .select("id,tenant_id,status").eq("id",requestKey).maybeSingle<{id:string;tenant_id:string;status:string}>();
+      .select("id,tenant_id,status,requested_package_id,evidence_url,metadata")
+      .eq("id",requestKey).maybeSingle<PendingRequest>();
     if (idempotent.error) throw new Error("Unable to check existing subscription request.");
-    if (idempotent.data) {
-      if (idempotent.data.tenant_id !== scope.session.tenant_id) return fail("request_conflict","Request identifier conflicts with another store.",409);
-      return ok({ id:idempotent.data.id, status:idempotent.data.status, already_submitted:true });
+    const existingById = idempotent.data;
+    if (existingById?.tenant_id && existingById.tenant_id !== scope.session.tenant_id) {
+      return fail("request_conflict","Request identifier conflicts with another store.",409);
+    }
+    const upgrading = kind==="payment_notice" && existingById?.status==="pending" &&
+      existingById.metadata?.kind==="renewal_intent" && !existingById.evidence_url;
+    if (existingById && !upgrading) {
+      return ok({ id:existingById.id, status:existingById.status, already_submitted:true });
     }
 
     const snapshot = await loadPosSubscriptionCenter(scope.session.tenant_id);
@@ -67,7 +75,13 @@ export async function POST(request: Request) {
       .eq("tenant_id",scope.session.tenant_id).in("status",["pending","under_review"])
       .limit(1).maybeSingle<{id:string}>();
     if (existing.error) throw new Error("Unable to check open requests.");
-    if (existing.data) return fail("open_request_exists","This store already has an open subscription request.",409);
+    if (existing.data && (!upgrading || existing.data.id!==requestKey)) {
+      return fail("open_request_exists","This store already has an open subscription request.",409);
+    }
+    if (upgrading && (existingById?.requested_package_id!==target.id ||
+      existingById.metadata?.billing_interval!==billingInterval)) {
+      return fail("renewal_selection_locked","Use the package and interval from your pending renewal request.",409);
+    }
 
     const expected = target.id===snapshot.contract.package_id && billingInterval === snapshot.contract.billing_interval
       ? snapshot.contract.amount_per_cycle
@@ -115,15 +129,23 @@ export async function POST(request: Request) {
     const payerName = str(form.get("payer_name"),160);
     const transferAt = str(form.get("transfer_at"),32);
     const note = str(form.get("note"),500);
-    const inserted=await db.from("tenant_subscription_payment_requests").insert({
-      id:requestKey,tenant_id:scope.session.tenant_id,requested_package_id:target.id,
-      request_type:type,amount_reported:amountReported,status:"pending",currency:"THB",
-      evidence_url:filePath,metadata:{
-        kind,billing_interval:billingInterval,expected_amount:expected,source:"pos_subscription_center",
-        submitted_by:scope.session.user_id,payer_name:payerName,transfer_reference:transferReference,
-        transfer_at:transferAt,note
-      }
-    }).select("id,status").single<{id:string;status:string}>();
+    const metadata = {
+      ...(upgrading ? existingById?.metadata ?? {} : {}),
+      kind,billing_interval:billingInterval,expected_amount:expected,source:"pos_subscription_center",
+      submitted_by:scope.session.user_id,payer_name:payerName,transfer_reference:transferReference,
+      transfer_at:transferAt,note
+    };
+    const inserted = upgrading
+      ? await db.from("tenant_subscription_payment_requests").update({
+          amount_reported:amountReported,evidence_url:filePath,metadata,updated_at:new Date().toISOString()
+        }).eq("id",requestKey).eq("tenant_id",scope.session.tenant_id).eq("status","pending")
+          .is("evidence_url",null).contains("metadata",{kind:"renewal_intent"})
+          .select("id,status").maybeSingle<{id:string;status:string}>()
+      : await db.from("tenant_subscription_payment_requests").insert({
+          id:requestKey,tenant_id:scope.session.tenant_id,requested_package_id:target.id,
+          request_type:type,amount_reported:amountReported,status:"pending",currency:"THB",
+          evidence_url:filePath,metadata
+        }).select("id,status").maybeSingle<{id:string;status:string}>();
     if (inserted.error || !inserted.data) {
       if (filePath) await db.storage.from(SUBSCRIPTION_SLIP_BUCKET).remove([filePath]);
       if (inserted.error?.code==="23505") return fail("open_request_exists","Another subscription request is already open.",409);
@@ -135,7 +157,7 @@ export async function POST(request: Request) {
       targetTable:"tenant_subscription_payment_requests",targetId:inserted.data.id,module:"subscription",
       metadata:{kind,requested_package_id:target.id,billing_interval:billingInterval,has_evidence:Boolean(filePath)}
     });
-    return ok({id:inserted.data.id,status:inserted.data.status,already_submitted:false});
+    return ok({id:inserted.data.id,status:inserted.data.status,already_submitted:false,upgraded:Boolean(upgrading)});
   } catch (error) {
     if (error instanceof PosGuardError) return fail(error.code,error.message,error.status);
     console.error("[pos-subscription] request failed",error);
