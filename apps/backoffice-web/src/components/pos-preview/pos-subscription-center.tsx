@@ -471,7 +471,7 @@ export function PosSubscriptionCenter({ initial, isOwner }: {
             </>}
             <div className="flex items-start gap-2 rounded-lg bg-amber-50 px-3 py-2.5 text-xs leading-5 text-amber-900">
               <Icon name="info" size={17} className="mt-0.5" />
-              <p>การแจ้งชำระและสลิปยังไม่ถือว่ารับเงินจริง ระบบจะไม่ต่ออายุหรือออกใบเสร็จจนกว่าจะยืนยันรายการธนาคาร</p>
+              <p>การแจ้งชำระและสลิปยังไม่ถือว่ารับเงินจริง ระบบจะไม่ต่ออายุหรือออกใบเสร็จอัตโนมัติจนกว่าจะยืนยันรายการธนาคาร</p>
             </div>
             <button type="button" disabled={!canSubmit ||
               (tab === "notice" && (!slip || !hasBank || !amount || !transferAt || !payer.trim()))}
@@ -567,9 +567,10 @@ export function PosSubscriptionCenter({ initial, isOwner }: {
               </span>
               <span className="text-sm text-slate-500">{lineOpen ? "ซ่อน" : "แสดง"}</span>
             </button>
-            {lineOpen ? <Image src="/brand/line-company-qr.png" width={440} height={440}
+            <Image src="/brand/line-company-qr.png" width={440} height={440}
               alt="QR LINE ติดต่อบริษัท ไม่ใช่ QR ชำระเงิน"
-              className="mx-auto h-auto max-w-[190px] rounded-xl border border-slate-200" /> : null}
+              className={"mx-auto h-auto rounded-xl border border-slate-200 transition-all " +
+                (lineOpen ? "max-w-[190px]" : "max-w-[84px]")} />
             <p className="text-[11px] text-slate-500">QR LINE สำหรับติดต่อเท่านั้น ไม่ใช่ QR ชำระเงิน</p>
           </section>
 
