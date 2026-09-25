@@ -57,9 +57,6 @@ function formatDate(value: string | null) {
   return new Intl.DateTimeFormat("th-TH", { dateStyle: "medium", timeZone: "Asia/Bangkok" })
     .format(new Date(value));
 }
-function Quota({ count }: { count: number | null }) {
-  return <>{count === null ? "ไม่จำกัด" : new Intl.NumberFormat("th-TH").format(count)}</>;
-}
 function ToneIcon({ icon, tone = "blue", size = 22 }: {
   icon: IconName; tone?: "blue" | "green" | "purple" | "orange"; size?: number;
 }) {
