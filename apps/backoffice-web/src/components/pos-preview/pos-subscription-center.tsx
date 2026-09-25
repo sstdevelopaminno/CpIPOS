@@ -279,7 +279,7 @@ export function PosSubscriptionCenter({initial,isOwner}:{initial:PosSubscription
             <div className="mt-5 rounded-xl border border-dashed border-slate-300 bg-slate-50 p-8 text-center text-sm text-slate-500">
               ยังไม่มีเอกสารแพ็กเกจที่ออกจริงสำหรับดาวน์โหลด
             </div>
-            <p className="mt-3 text-xs text-slate-500">บริษัทไม่ได้จดทะเบียน VAT จึงไม่มีการออกใบกำกับภาษี VAT อัตโนมัติ</p>
+            {!snapshot.issuer.vat_registered?<p className="mt-3 text-xs text-slate-500">บริษัทยังไม่ได้จดทะเบียน VAT จึงไม่มีการออกใบกำกับภาษี VAT อัตโนมัติ</p>:null}
           </div>:null}
         </main>
 
