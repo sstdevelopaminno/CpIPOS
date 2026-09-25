@@ -56,8 +56,9 @@ export async function POST(request: Request) {
     if (existingById?.tenant_id && existingById.tenant_id !== scope.session.tenant_id) {
       return fail("request_conflict","Request identifier conflicts with another store.",409);
     }
-    const upgrading = kind==="payment_notice" && ["pending","under_review"].includes(existingById?.status ?? "") &&
-      existingById.metadata?.kind==="renewal_intent" && !existingById.evidence_url;
+    const upgrading = Boolean(existingById && kind==="payment_notice" &&
+      ["pending","under_review"].includes(existingById.status) &&
+      existingById.metadata?.kind==="renewal_intent" && !existingById.evidence_url);
     if (existingById && !upgrading) {
       return ok({ id:existingById.id, status:existingById.status, already_submitted:true });
     }
