@@ -68,7 +68,10 @@ export async function loadPosSubscriptionCenter(tenantId: string) {
   const isInternalDemo = lifecycle?.lifecycle_status === "sales_demo" || lifecycle?.metadata?.quota_exempt === true;
   const cyclePrice = contract?.billing_interval === "yearly" ? pkg?.yearly_price : pkg?.monthly_price;
   const activePrice = amount(contract?.amount_per_cycle) ?? amount(cyclePrice);
-  const expiry = isInternalDemo ? null : lifecycle?.subscription_expires_at ?? (contract?.status === "trial" ? lifecycle?.trial_expires_at : null) ?? contract?.ended_at ?? null;
+  const expiry = isInternalDemo ? null
+    : lifecycle?.lifecycle_status === "trial" || contract?.status === "trial"
+      ? lifecycle?.trial_expires_at ?? contract?.ended_at ?? null
+      : lifecycle?.subscription_expires_at ?? contract?.ended_at ?? null;
   const now = Date.now();
   const remaining = expiry && Number.isFinite(Date.parse(expiry))
     ? Math.ceil((Date.parse(expiry)-now)/86400000) : null;
