@@ -8,7 +8,7 @@ export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-const MAX_SLIP = 5 * 1024 * 1024;
+const MAX_SLIP = 4 * 1024 * 1024;
 const FILE_TYPES: Record<string,string> = {
   "image/jpeg": "jpg", "image/png": "png", "image/webp": "webp", "application/pdf": "pdf"
 };
@@ -32,7 +32,7 @@ export async function POST(request: Request) {
       return fail("owner_required","Only the store owner can submit subscription requests.",403);
     }
     const length = Number(request.headers.get("content-length") || 0);
-    if (length > MAX_SLIP + 12000) return fail("upload_too_large","Evidence must be no larger than 5 MB.",413);
+    if (length > MAX_SLIP + 12000) return fail("upload_too_large","Evidence must be no larger than 4 MB.",413);
     const form = await request.formData().catch(() => null);
     if (!form) return fail("invalid_form","Unable to read renewal request.",422);
     const requestKey = str(form.get("request_key"),40);
@@ -88,7 +88,7 @@ export async function POST(request: Request) {
     let fileMime: string | null = null;
     if (kind === "payment_notice") {
       if (!(evidence instanceof File) || evidence.size<=0 || evidence.size>MAX_SLIP || !FILE_TYPES[evidence.type]) {
-        return fail("slip_required","Attach a JPG, PNG, WebP or PDF slip up to 5 MB.",422);
+        return fail("slip_required","Attach a JPG, PNG, WebP or PDF slip up to 4 MB.",422);
       }
       fileBuffer=Buffer.from(await evidence.arrayBuffer());
       fileMime=actualMime(fileBuffer);
