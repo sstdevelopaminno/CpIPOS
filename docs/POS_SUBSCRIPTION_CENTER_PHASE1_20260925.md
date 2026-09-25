@@ -10,7 +10,7 @@ The Windows/web POS subscription screen at `/preview/pos/payments` used to show 
 - Explicit separation from cashier payment routes and sales/shift totals.
 - Owner-only submission, manager read-only; no feature sale:create gate to hide the renewal page after expiry.
 
-`GET /api/pos/billing/overview` verifies session scope and reads the primary billing tables. `POST /api/pos/billing/requests` accepts multipart, validates server-side available plan/month/year, reports an amount as customer-reported only, and uploads up to 4 MiB evidence privately, never as a public URL. An intent can omit proof; a payment notice requires proof, receiving account and positive amount. A stable UUID request key prevents network retry duplicates and a DB partial unique index limits one open request per store.
+`GET /api/pos/billing/overview` verifies session scope and reads the primary billing tables. `POST /api/pos/billing/requests` accepts multipart, validates server-side available plan/month/year, reports an amount as customer-reported only, and uploads up to 4 MiB evidence privately, never as a public URL. An intent can omit proof; a payment notice requires proof, receiving account and positive amount. A stable UUID request key prevents network retry duplicates and a DB partial unique index limits one open request per store. If an owner sends a renewal intention first, they can attach their slip to that SAME request while pending/under_review, without opening a second request or changing the initial price snapshot.
 
 The IT's private evidence bucket and single-open-request index already exist in the SAME CpiPOS-001; they are versioned in the separate IT PR #55. Do not create a new Supabase, Vercel or GitHub project to release this UI.
 
