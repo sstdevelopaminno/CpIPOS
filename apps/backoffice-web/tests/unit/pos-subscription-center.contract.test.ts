@@ -36,13 +36,26 @@ describe("POS subscription center (commercial billing, not cashier payments)", (
     expect(request).toContain('upsert:false');
     expect(request).toContain('status:"pending"');
     expect(request).toContain("requestKey");
-    expect(request).toContain('contains("metadata",{kind:"renewal_intent"})');
     expect(request).toContain('in("status",["pending","under_review"])');
+    expect(request).toContain("completingItPreparedPayment");
+    expect(request).toContain('existingById.metadata?.source==="it_tenant_control"');
+    expect(request).toContain('.eq("requested_package_id",target.id)');
     expect(ui).toContain("แนบสลิปและแจ้งชำระคำขอเดิม");
     expect(ui).toContain("เมื่อ IT ตรวจสอบเงินเข้าบัญชีบริษัท");
     expect(request).not.toContain('"approved"');
     expect(request).not.toContain('from("payments")');
     expect(request).not.toContain('from("shifts")');
+  });
+
+  it("lets the owner complete an IT-created first-payment request without creating a duplicate", () => {
+    expect(snapshot).toContain('source: typeof row.metadata?.source');
+    expect(snapshot).toContain('created_by_it: row.metadata?.source === "it_tenant_control"');
+    expect(ui).toContain("pendingCanAcceptPayment");
+    expect(ui).toContain("ฝ่าย IT สร้างรายการชำระไว้แล้ว");
+    expect(ui).toContain("รายการชำระถูกเตรียมจากฝ่าย IT แล้ว");
+    expect(ui).toContain("ระบบจะอัปเดตรายการเดิม ไม่สร้างคำขอซ้ำ");
+    expect(ui).toContain("pendingCanAcceptPayment && pending");
+    expect(request).toContain("upgradingRenewal || completingItPreparedPayment");
   });
 
   it("shows only immutable issued receipts and keeps them tenant-scoped", () => {
