@@ -67,7 +67,14 @@ describe("POS subscription center (commercial billing, not cashier payments)", (
     expect(snapshot).toContain("package_name: requestedPackage?.name");
     expect(snapshot).toContain("expected_amount: expected");
     expect(snapshot).toContain("receipt: issuedReceipt");
+    expect(snapshot).toContain("payment_summary");
+    expect(snapshot).toContain("monthly_paid");
+    expect(snapshot).toContain("yearly_paid");
+    expect(snapshot).toContain("total_paid");
     expect(ui).toContain("ข้อมูลเดียวกับฝั่ง IT จาก CpiPOS-001");
+    expect(ui).toContain("ยอดชำระรายเดือน");
+    expect(ui).toContain("ยอดชำระรายปี");
+    expect(ui).toContain("ยอดรับชำระรวม");
     expect(ui).toContain("ยอดตามแพ็กเกจ");
     expect(ui).toContain("row.receipt.number");
     expect(ui).toContain("document.package_name");
