@@ -9,12 +9,14 @@ import { PosSalesModePolicyController } from "@/components/pos/pos-sales-mode-po
 import { PosBuffetToolsBridge } from "@/components/pos-preview/pos-buffet-tools-bridge";
 import { PosProductMediaToolbarLink } from "@/components/pos-preview/pos-product-media-toolbar-link";
 import { PosShellFrame } from "@/components/pos-preview/pos-shell-frame";
+import { PosSubscriptionLifecycleGuard } from "@/components/pos-preview/pos-subscription-lifecycle-guard";
 import { PosRoutePerformanceTracker } from "@/components/pos-preview/pos-route-performance-tracker";
 import { PosTableQrGlobalAlert } from "@/components/pos-preview/pos-table-qr-global-alert";
 import { PosViewportGuard } from "@/components/pos-preview/pos-viewport-guard";
 import { getCurrentLanguage, t } from "@/lib/i18n";
 import { loadPosRuntimeDevicePolicyForSession } from "@/lib/pos-device-status";
 import { requirePosSession } from "@/lib/pos-session-guard";
+import { loadPosSubscriptionLifecycleGuard } from "@/lib/services/pos-subscription-lifecycle-guard-service";
 
 export const viewport: Viewport = {
   width: "device-width",
@@ -86,6 +88,7 @@ export default async function PosPreviewLayout({ children }: { children: ReactNo
   if (!scope) redirect("/login/store");
 
   const devicePolicy = await loadPosRuntimeDevicePolicyForSession(scope.session);
+  const subscriptionGuard = await loadPosSubscriptionLifecycleGuard(scope.session.tenant_id).catch(() => null);
   if (devicePolicy.block_sales) {
     return <PosMdmMaintenanceLock deviceCode={devicePolicy.code ?? scope.session.device_code ?? null} />;
   }
@@ -112,6 +115,7 @@ export default async function PosPreviewLayout({ children }: { children: ReactNo
       {!isKitchen ? <PosBuffetToolsBridge th={lang === "th"} /> : null}
       <PosViewportGuard lang={lang} />
       {!isKitchen ? <PosTableQrGlobalAlert lang={lang} /> : null}
+      {!isKitchen ? <PosSubscriptionLifecycleGuard initial={subscriptionGuard} /> : null}
       <PosShellFrame
         lang={lang}
         settingsLabel={t(lang, "common_settings")}
