@@ -110,7 +110,7 @@ export function PosMaintenanceNotice() {
       return;
     }
 
-    void loadBroadcast();
+    const initialId = window.setTimeout(() => void loadBroadcast(), 0);
     const intervalId = window.setInterval(() => void loadBroadcast(), BROADCAST_REFRESH_MS);
     const onFocus = () => void loadBroadcast();
     const onVisibilityChange = () => {
@@ -121,6 +121,7 @@ export function PosMaintenanceNotice() {
     document.addEventListener("visibilitychange", onVisibilityChange);
 
     return () => {
+      window.clearTimeout(initialId);
       window.clearInterval(intervalId);
       window.removeEventListener("focus", onFocus);
       document.removeEventListener("visibilitychange", onVisibilityChange);
