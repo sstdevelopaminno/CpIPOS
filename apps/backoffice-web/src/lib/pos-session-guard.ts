@@ -139,10 +139,10 @@ async function assertSubscriptionAllowsSales(tenantId: string) {
 
   const primary = getPrimarySupabaseServiceClient();
   const result = await primary.from("tenant_data_lifecycle")
-    .select("lifecycle_status,access_locked,lock_reason,subscription_expires_at,trial_expires_at,metadata")
+    .select("lifecycle_status,access_locked,lock_reason,subscription_expires_at,trial_expires_at,grace_until,metadata")
     .eq("tenant_id", tenantId).maybeSingle<{
       lifecycle_status:string; access_locked:boolean; lock_reason:string|null;
-      subscription_expires_at:string|null; trial_expires_at:string|null; metadata:Record<string,unknown>|null;
+      subscription_expires_at:string|null; trial_expires_at:string|null; grace_until:string|null; metadata:Record<string,unknown>|null;
     }>();
   if (result.error) {
     console.error("[pos-session-guard] subscription access lookup failed", result.error.message);
@@ -150,7 +150,11 @@ async function assertSubscriptionAllowsSales(tenantId: string) {
   }
   const row = result.data;
   const exempt = row?.lifecycle_status === "sales_demo" || row?.metadata?.quota_exempt === true;
-  const expiry = row?.lifecycle_status === "trial" ? row.trial_expires_at : row?.subscription_expires_at;
+  const expiry = row?.lifecycle_status === "trial"
+    ? row.trial_expires_at
+    : row?.lifecycle_status === "grace"
+      ? row.grace_until
+      : row?.subscription_expires_at;
   const expiredByTime = Boolean(expiry && Date.parse(expiry) <= now);
   const locked = Boolean(row && !exempt && (row.access_locked || expiredByTime));
   const reason = row?.lock_reason || (expiredByTime ? "subscription_expired" : null);
