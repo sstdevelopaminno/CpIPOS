@@ -112,6 +112,15 @@ export async function loadPosSubscriptionCenter(tenantId: string) {
       kind: row.metadata?.kind === "payment_notice" ? "payment_notice" : "renewal_intent"
     })),
     cycles: (cycleResult.data ?? []).map((row)=>({...row})),
+    control_plane: {
+      authority: "CpIPOS-IT",
+      source: "CpiPOS-001",
+      connected: true,
+      refreshed_at: new Date().toISOString(),
+      open_request_count: (requestResult.data ?? []).filter((row) =>
+        ["pending", "under_review"].includes(row.status)
+      ).length
+    },
     // An uploaded slip / customer notice must never set a paid or approved field.
     documents: [] as Array<{ id: string; type: "quotation" | "receipt"; number: string }>
   };
