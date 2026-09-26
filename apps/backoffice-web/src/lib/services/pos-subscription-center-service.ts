@@ -134,6 +134,23 @@ export async function loadPosSubscriptionCenter(tenantId: string) {
       };
     }),
     cycles: (cycleResult.data ?? []).map((row)=>({...row})),
+    payment_summary: (() => {
+      const receipts = receiptResult.data ?? [];
+      const monthly = receipts.filter((row) => row.package_snapshot?.billing_interval !== "yearly");
+      const yearly = receipts.filter((row) => row.package_snapshot?.billing_interval === "yearly");
+      const sum = (rows: Receipt[]) => rows.reduce((total, row) => {
+        const value = Number(row.amount);
+        return total + (Number.isFinite(value) ? value : 0);
+      }, 0);
+      return {
+        total_paid: sum(receipts),
+        monthly_paid: sum(monthly),
+        yearly_paid: sum(yearly),
+        receipt_count: receipts.length,
+        monthly_count: monthly.length,
+        yearly_count: yearly.length
+      };
+    })(),
     control_plane: {
       authority: "CpIPOS-IT",
       source: "CpiPOS-001",
