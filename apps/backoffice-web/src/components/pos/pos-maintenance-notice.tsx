@@ -77,8 +77,7 @@ export function PosMaintenanceNotice() {
     if (typeof document !== "undefined" && document.visibilityState === "hidden") return Promise.resolve();
     if (broadcastRequestRef.current) return broadcastRequestRef.current;
 
-    let requestPromise: Promise<void>;
-    requestPromise = (async () => {
+    const requestPromise = (async () => {
       try {
         const response = await fetch(
           `${BROADCAST_API_BASE.replace(/\/$/, "")}/api/public/emergency-broadcast?target=pos`,
@@ -104,14 +103,15 @@ export function PosMaintenanceNotice() {
         }
       } catch {
         // The existing POS maintenance notice remains available if the control plane is unreachable.
-      } finally {
-        if (broadcastRequestRef.current === requestPromise) {
-          broadcastRequestRef.current = null;
-        }
       }
     })();
 
     broadcastRequestRef.current = requestPromise;
+    void requestPromise.finally(() => {
+      if (broadcastRequestRef.current === requestPromise) {
+        broadcastRequestRef.current = null;
+      }
+    });
     return requestPromise;
   }, [pathname]);
 
