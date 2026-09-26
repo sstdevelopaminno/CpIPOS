@@ -18,6 +18,11 @@ describe("Phase 1 POS subscription center (not cashier payments)", () => {
     expect(snapshot).toContain('from("it_communication_settings")');
     expect(snapshot).toContain('from("tenant_subscription_payment_requests")');
     expect(snapshot).toContain('from("tenant_data_lifecycle")');
+    expect(snapshot).toContain('authority: "CpIPOS-IT"');
+    expect(snapshot).toContain('source: "CpiPOS-001"');
+    expect(snapshot).toContain("open_request_count");
+    expect(ui).toContain("เชื่อมต่อ IT");
+    expect(ui).toContain("snapshot.control_plane.source");
     expect(snapshot).not.toContain('from("orders")');
     expect(snapshot).not.toContain('from("payments")');
   });

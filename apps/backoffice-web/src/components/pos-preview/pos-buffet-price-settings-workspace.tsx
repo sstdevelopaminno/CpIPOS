@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type { Language } from "@/lib/i18n";
 import type { PosBuffetPricePlan, PosBuffetPricingMode } from "@/lib/pos-buffet-pricing";
 
@@ -18,6 +18,9 @@ function money(value: number, lang: Language) {
 function unitLabel(mode: PosBuffetPricingMode, lang: Language) {
   return mode === "per_person" ? (lang === "th" ? "ต่อท่าน" : "per person") : (lang === "th" ? "ต่อชุด" : "per set");
 }
+function keyFor(plan: SettingsPlan) {
+  return plan.product_id || plan.id;
+}
 
 export function PosBuffetPriceSettingsWorkspace({ lang }: { lang: Language }) {
   const [plans, setPlans] = useState<SettingsPlan[]>([]);
@@ -30,11 +33,10 @@ export function PosBuffetPriceSettingsWorkspace({ lang }: { lang: Language }) {
   const [page, setPage] = useState(1);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
-  const keyFor = (plan: SettingsPlan) => plan.product_id || plan.id;
   const totalPages = Math.max(1, Math.ceil(plans.length / PAGE_SIZE));
   const pagePlans = useMemo(() => plans.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE), [page, plans]);
 
-  async function load() {
+  const load = useCallback(async () => {
     setLoading(true); setError(null);
     try {
       const response = await fetch("/api/pos/buffet-products/settings", { method: "GET", credentials: "include", cache: "no-store", headers: { Accept: "application/json" } });
@@ -45,8 +47,8 @@ export function PosBuffetPriceSettingsWorkspace({ lang }: { lang: Language }) {
       setPage((current) => Math.min(current, Math.max(1, Math.ceil(body.data!.plans!.length / PAGE_SIZE))));
     } catch (caught) { setError(caught instanceof Error ? caught.message : "Unable to load buffet prices."); }
     finally { setLoading(false); }
-  }
-  useEffect(() => { void load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, []);
+  }, [lang]);
+  useEffect(() => { void load(); }, [load]);
 
   async function createPlan(mode: PosBuffetPricingMode) {
     setCreatingMode(mode); setError(null); setSuccess(null);

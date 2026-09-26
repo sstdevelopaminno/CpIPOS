@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type { Language } from "@/lib/i18n";
 import type { PosBuffetPricePlan } from "@/lib/pos-buffet-pricing";
 
@@ -13,8 +13,8 @@ export function PosBuffetSetManagerWorkspace({ lang, initialPlanId = "" }: { lan
   const activePlans=useMemo(()=>plans.filter((plan)=>plan.is_active&&plan.price>0&&!plan.draft),[plans]);
   const selectedPlan=plans.find((plan)=>(plan.product_id??plan.id)===selectedPlanId)??null;
   const filteredProducts=useMemo(()=>{const keyword=search.trim().toLowerCase(); return keyword?products.filter((item)=>`${item.name} ${item.sku??""} ${item.category}`.toLowerCase().includes(keyword)):products;},[products,search]);
-  async function load(planId=""){setLoading(true);setError(null);try{const response=await fetch(`/api/pos/buffet-products/items${planId?`?plan_id=${encodeURIComponent(planId)}`:""}`,{credentials:"include",cache:"no-store",headers:{Accept:"application/json"}});const body=(await response.json().catch(()=>null)) as ItemsBody|null;if(!response.ok||body?.error)throw new Error(body?.error?.message??"Failed to load buffet data.");setPlans(Array.isArray(body?.data?.plans)?body.data.plans:[]);setProducts(Array.isArray(body?.data?.products)?body.data.products:[]);if(planId)setCheckedIds(Array.isArray(body?.data?.selected_product_ids)?body.data.selected_product_ids:[]);}catch(caught){setError(caught instanceof Error?caught.message:(lang==="th"?"โหลดข้อมูลไม่สำเร็จ":"Unable to load data."));}finally{setLoading(false);}}
-  useEffect(()=>{void load(initialPlanId);/* eslint-disable-next-line react-hooks/exhaustive-deps */},[initialPlanId]);
+  const load=useCallback(async (planId="")=>{setLoading(true);setError(null);try{const response=await fetch(`/api/pos/buffet-products/items${planId?`?plan_id=${encodeURIComponent(planId)}`:""}`,{credentials:"include",cache:"no-store",headers:{Accept:"application/json"}});const body=(await response.json().catch(()=>null)) as ItemsBody|null;if(!response.ok||body?.error)throw new Error(body?.error?.message??"Failed to load buffet data.");setPlans(Array.isArray(body?.data?.plans)?body.data.plans:[]);setProducts(Array.isArray(body?.data?.products)?body.data.products:[]);if(planId)setCheckedIds(Array.isArray(body?.data?.selected_product_ids)?body.data.selected_product_ids:[]);}catch(caught){setError(caught instanceof Error?caught.message:(lang==="th"?"โหลดข้อมูลไม่สำเร็จ":"Unable to load data."));}finally{setLoading(false);}},[lang]);
+  useEffect(()=>{void load(initialPlanId);},[initialPlanId,load]);
   async function choosePlan(plan:PosBuffetPricePlan){const id=String(plan.product_id??plan.id);setSelectedPlanId(id);setCheckedIds([]);setSearch("");setStep("items");await load(id);}
   function openManager(){setSelectedPlanId("");setCheckedIds([]);setSearch("");setError(null);setSuccess(null);setStep("plan");setModalOpen(true);}
   async function openExisting(plan:PosBuffetPricePlan){setModalOpen(true);setSuccess(null);await choosePlan(plan);}

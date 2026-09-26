@@ -229,10 +229,20 @@ export function PosSubscriptionCenter({ initial, isOwner }: {
             </p>
           </div>
         </div>
-        <button type="button" disabled={refreshing} onClick={() => void reload()}
-          className="inline-flex items-center gap-2 rounded-xl border border-[#d9e4f7] bg-white px-4 py-2.5 text-sm font-bold text-blue-700 shadow-sm transition hover:bg-blue-50 disabled:opacity-50">
-          <Icon name="refresh" size={16} />{refreshing ? "กำลังรีเฟรช..." : "รีเฟรชข้อมูล"}
-        </button>
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          <span
+            role="status"
+            className="inline-flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-bold text-emerald-700"
+            title={"แหล่งข้อมูล: " + snapshot.control_plane.source + " · " + snapshot.control_plane.authority}
+          >
+            <span className="h-2 w-2 rounded-full bg-emerald-500" aria-hidden />
+            เชื่อมต่อ IT · {snapshot.control_plane.source}
+          </span>
+          <button type="button" disabled={refreshing} onClick={() => void reload()}
+            className="inline-flex items-center gap-2 rounded-xl border border-[#d9e4f7] bg-white px-4 py-2.5 text-sm font-bold text-blue-700 shadow-sm transition hover:bg-blue-50 disabled:opacity-50">
+            <Icon name="refresh" size={16} />{refreshing ? "กำลังรีเฟรช..." : "รีเฟรชข้อมูล"}
+          </button>
+        </div>
       </header>
 
       {error ? <p role="alert" className="rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800">{error}</p> : null}
