@@ -629,8 +629,10 @@ export function PosSubscriptionCenter({ initial, isOwner }: {
                   <td className="p-3">{row.receipt ? <a
                     href={"/api/pos/billing/receipts/" + encodeURIComponent(row.receipt.id)}
                     target="_blank" rel="noopener noreferrer"
-                    className="font-bold text-blue-700 underline">{row.receipt.number}</a> :
+                    className={row.receipt.voided ? "font-bold text-red-600 line-through" : "font-bold text-blue-700 underline"}>{row.receipt.number}</a> :
                     row.has_evidence ? "แนบสลิปแล้ว · รอ IT ยืนยัน" : "ยังไม่มีใบเสร็จ"}
+                    {row.receipt?.voided ? <p className="mt-1 text-xs font-bold text-red-600">เอกสารถูกยกเลิกโดย IT</p> : null}
+                    {row.receipt?.correction_note ? <p className="mt-1 text-xs text-slate-500">{row.receipt.correction_note}</p> : null}
                     {row.review_note ? <p className="mt-1 text-xs text-slate-500">{row.review_note}</p> : null}</td>
                 </tr>)}</tbody>
               </table></div>}
@@ -667,13 +669,17 @@ export function PosSubscriptionCenter({ initial, isOwner }: {
                   </tr></thead>
                   <tbody className="divide-y divide-slate-100">
                     {snapshot.documents.map((document)=><tr key={document.id}>
-                      <td className="px-4 py-3 font-bold text-slate-900">{document.number}</td>
+                      <td className={"px-4 py-3 font-bold " + (document.voided ? "text-red-600 line-through" : "text-slate-900")}>
+                        {document.number}
+                        {document.voided ? <span className="ml-2 rounded-full bg-red-50 px-2 py-1 text-[10px] no-underline">ยกเลิกเอกสาร</span> : null}
+                      </td>
                       <td className="px-4 py-3">{formatDate(document.issued_at)}</td>
                       <td className="px-4 py-3">{document.package_name || "แพ็กเกจ"}<br/>
                         <span className="text-xs text-slate-500">{document.billing_interval === "yearly" ? "รายปี" : "รายเดือน"}</span></td>
                       <td className="px-4 py-3 text-xs text-slate-600">{document.period_start || "—"} → {document.period_end || "—"}</td>
                       <td className="px-4 py-3 font-semibold">{formatMoney(document.amount,document.currency)}</td>
                       <td className="px-4 py-3">
+                        {document.correction_note ? <p className="mb-2 text-xs text-slate-500">{document.correction_note}</p> : null}
                         <a href={"/api/pos/billing/receipts/"+encodeURIComponent(document.id)}
                           target="_blank" rel="noopener noreferrer"
                           className="inline-flex items-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-bold text-blue-700 hover:bg-blue-100">
