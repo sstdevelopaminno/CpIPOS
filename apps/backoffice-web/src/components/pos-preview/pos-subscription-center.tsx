@@ -492,19 +492,28 @@ export function PosSubscriptionCenter({ initial, isOwner }: {
 
           {tab === "history" ? <section className={box + " space-y-5 p-4 sm:p-5"}>
             <div className="flex items-center gap-3"><ToneIcon icon="history" />
-              <h2 className="text-lg font-bold text-slate-900">ประวัติการชำระแพ็กเกจ</h2></div>
+              <div><h2 className="text-lg font-bold text-slate-900">ประวัติการชำระแพ็กเกจ</h2>
+                <p className="mt-1 text-xs text-slate-500">ข้อมูลเดียวกับฝั่ง IT จาก CpiPOS-001 เมื่อ IT อนุมัติแล้วเลขที่ใบเสร็จจะปรากฏที่นี่</p></div>
+            </div>
             {snapshot.requests.length === 0 ? <p className="rounded-xl bg-slate-50 p-5 text-sm text-slate-500">
               ยังไม่มีคำขอแพ็กเกจของร้านนี้</p> :
-              <div className="overflow-x-auto"><table className="min-w-[640px] w-full text-left text-sm">
-                <thead><tr>{["วันที่", "ประเภท", "ยอดที่แจ้ง", "สถานะ", "หลักฐาน / หมายเหตุ"].map((head) =>
+              <div className="overflow-x-auto"><table className="min-w-[980px] w-full text-left text-sm">
+                <thead><tr>{["วันที่", "แพ็กเกจ / รอบ", "ประเภท", "ยอดตามแพ็กเกจ", "ยอดที่แจ้ง", "สถานะ", "ใบเสร็จ / หมายเหตุ"].map((head) =>
                   <th className="border-b p-3 text-xs text-slate-500" key={head}>{head}</th>)}</tr></thead>
-                <tbody>{snapshot.requests.map((row) => <tr key={row.id} className="border-b">
+                <tbody>{snapshot.requests.map((row) => <tr key={row.id} className="border-b align-top">
                   <td className="p-3">{formatDate(row.submitted_at)}</td>
-                  <td className="p-3">{row.kind === "payment_notice" ? "แจ้งโอนเงิน" : "ขอต่ออายุ"}</td>
+                  <td className="p-3"><strong>{row.package_name || "แพ็กเกจ"}</strong><br/>
+                    <span className="text-xs text-slate-500">{row.billing_interval === "yearly" ? "รายปี" : "รายเดือน"}</span></td>
+                  <td className="p-3">{row.kind === "payment_notice" ? "แจ้งชำระเงิน" : "ขอต่ออายุ"}</td>
+                  <td className="p-3">{formatMoney(row.expected_amount)}</td>
                   <td className="p-3">{row.amount === null ? "—" : formatMoney(row.amount)}</td>
                   <td className="p-3 font-semibold">{LABELS[row.status] || row.status}</td>
-                  <td className="p-3">{row.has_evidence ? "แนบหลักฐานแล้ว" : "ไม่มีสลิป"}
-                    {row.review_note ? " · " + row.review_note : ""}</td>
+                  <td className="p-3">{row.receipt ? <a
+                    href={"/api/pos/billing/receipts/" + encodeURIComponent(row.receipt.id)}
+                    target="_blank" rel="noopener noreferrer"
+                    className="font-bold text-blue-700 underline">{row.receipt.number}</a> :
+                    row.has_evidence ? "แนบสลิปแล้ว · รอ IT ยืนยัน" : "ยังไม่มีใบเสร็จ"}
+                    {row.review_note ? <p className="mt-1 text-xs text-slate-500">{row.review_note}</p> : null}</td>
                 </tr>)}</tbody>
               </table></div>}
             <h3 className="text-base font-bold text-slate-900">รอบบิลที่บันทึกแล้ว</h3>
@@ -535,13 +544,16 @@ export function PosSubscriptionCenter({ initial, isOwner }: {
               <div className="mt-4 overflow-x-auto rounded-xl border border-slate-200">
                 <table className="w-full min-w-[620px] text-left text-sm">
                   <thead className="bg-slate-50"><tr>
-                    {["เลขที่ใบเสร็จ","วันที่ออก","ยอดรับชำระ","เอกสาร"].map((head)=>
+                    {["เลขที่ใบเสร็จ","วันที่ออก","แพ็กเกจ / รอบ","ช่วงบริการ","ยอดรับชำระ","เอกสาร"].map((head)=>
                       <th key={head} className="border-b border-slate-200 px-4 py-3 text-xs font-bold text-slate-500">{head}</th>)}
                   </tr></thead>
                   <tbody className="divide-y divide-slate-100">
                     {snapshot.documents.map((document)=><tr key={document.id}>
                       <td className="px-4 py-3 font-bold text-slate-900">{document.number}</td>
                       <td className="px-4 py-3">{formatDate(document.issued_at)}</td>
+                      <td className="px-4 py-3">{document.package_name || "แพ็กเกจ"}<br/>
+                        <span className="text-xs text-slate-500">{document.billing_interval === "yearly" ? "รายปี" : "รายเดือน"}</span></td>
+                      <td className="px-4 py-3 text-xs text-slate-600">{document.period_start || "—"} → {document.period_end || "—"}</td>
                       <td className="px-4 py-3 font-semibold">{formatMoney(document.amount,document.currency)}</td>
                       <td className="px-4 py-3">
                         <a href={"/api/pos/billing/receipts/"+encodeURIComponent(document.id)}
