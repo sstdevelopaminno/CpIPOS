@@ -82,6 +82,15 @@ describe("POS subscription center (commercial billing, not cashier payments)", (
     expect(ui).toContain("document.period_start");
   });
 
+  it("keeps annual billing disabled until IT explicitly sets a yearly price", () => {
+    expect(ui).toContain("รอบรายปียังไม่เปิดใช้งาน");
+    expect(ui).toContain("รอฝ่าย IT บันทึกราคารายปีใน CpiPOS-001 ก่อน");
+    expect(ui).toContain("รายปีพร้อมใช้งาน");
+    expect(ui).toContain("ราคาอ้างอิงจากฝ่าย IT");
+    expect(ui).toContain("ฝ่าย IT เป็นผู้กำหนดราคาแพ็กเกจ");
+    expect(ui).toContain("choice === \"yearly\" && !annualAvailable");
+  });
+
   it("replaces misleading demo sentinel and separates LINE contact QR from payments", () => {
     expect(ui).toContain("แพ็กเกจและการชำระเงิน");
     expect(ui).toContain("QR LINE สำหรับติดต่อเท่านั้น");
