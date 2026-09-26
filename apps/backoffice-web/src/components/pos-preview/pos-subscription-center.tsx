@@ -391,7 +391,7 @@ export function PosSubscriptionCenter({ initial, isOwner }: {
           </header>
           <div className="min-h-0 flex-1 overflow-y-auto p-3 sm:p-5">
       <div className="grid min-w-0 items-start gap-4 xl:grid-cols-[minmax(0,1fr)_365px]">
-        <main className="min-w-0 space-y-3">
+        <main className={infoPopup ? "hidden" : "min-w-0 space-y-3"}>
           <nav aria-label="เมนูแพ็กเกจ" className="hidden min-w-0 gap-1 overflow-x-auto border-b border-[#dce5f2]">
             {tabs.map((item) => <button type="button" key={item.key}
               aria-current={tab === item.key ? "page" : undefined}
@@ -689,8 +689,8 @@ export function PosSubscriptionCenter({ initial, isOwner }: {
           </section> : null}
         </main>
 
-        <aside className="min-w-0 space-y-3 xl:pt-1">
-          <section className={box + " space-y-3 p-4"}>
+        <aside className={infoPopup ? "min-w-0 space-y-3 xl:col-span-2" : "min-w-0 space-y-3 xl:pt-1"}>
+          {(!infoPopup || infoPopup === "bank") ? <section className={box + " space-y-3 p-4"}>
             <div className="flex items-center gap-3"><ToneIcon icon="bank" />
               <div><h2 className="text-base font-extrabold text-[#152541]">บัญชีรับชำระของบริษัท</h2>
                 <p className="text-xs text-slate-500">สำหรับค่าบริการแพ็กเกจ CpIPOS เท่านั้น</p></div></div>
@@ -717,9 +717,9 @@ export function PosSubscriptionCenter({ initial, isOwner }: {
             {copyStatus ? <p role="status" className="text-xs text-blue-700">{copyStatus}</p> : null}
             <p className="break-words text-xs text-slate-500">{snapshot.issuer.name}</p>
             <p className="text-xs leading-5 text-slate-500">ไม่ใช่บัญชีรับเงินขายสินค้าหน้าร้าน</p>
-          </section>
+          </section> : null}
 
-          <section className={box + " space-y-2 p-4"}>
+          {(!infoPopup || infoPopup === "line") ? <section className={box + " space-y-2 p-4"}>
             <button type="button" aria-expanded={lineOpen} onClick={() => setLineOpen(!lineOpen)}
               className="flex w-full items-center gap-3 text-left">
               <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-emerald-50 text-xs font-black text-emerald-600">
@@ -735,9 +735,9 @@ export function PosSubscriptionCenter({ initial, isOwner }: {
               className={"mx-auto h-auto rounded-xl border border-slate-200 transition-all " +
                 (lineOpen ? "max-w-[190px]" : "max-w-[84px]")} />
             <p className="text-[11px] text-slate-500">QR LINE สำหรับติดต่อเท่านั้น ไม่ใช่ QR ชำระเงิน</p>
-          </section>
+          </section> : null}
 
-          <section className={box + " space-y-3 p-4"}>
+          {(!infoPopup || infoPopup === "support") ? <section className={box + " space-y-3 p-4"}>
             <div className="flex items-center gap-3"><ToneIcon icon="support" />
               <div><h2 className="text-base font-extrabold text-[#152541]">ติดต่อสอบถาม / แจ้งปัญหา</h2>
                 <p className="text-xs text-slate-500">เกี่ยวกับค่าบริการ แพ็กเกจ หรือการใช้งาน</p></div></div>
@@ -749,7 +749,7 @@ export function PosSubscriptionCenter({ initial, isOwner }: {
                 className="flex items-center justify-center gap-2 break-all rounded-xl bg-[#edf5ff] px-3 py-3 text-xs font-bold text-blue-700">
                 <Icon name="mail" size={16} />{snapshot.issuer.support_email}</a>
             </div>
-          </section>
+          </section> : null}
         </aside>
       </div>
           </div>
