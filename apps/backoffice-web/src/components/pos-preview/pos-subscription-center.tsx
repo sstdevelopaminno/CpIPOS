@@ -400,8 +400,11 @@ export function PosSubscriptionCenter({ initial, isOwner }: {
                     </button>;
                   })}
                 </div>
-                {interval !== "yearly" && !packageRow?.yearly_price ?
-                  <p className="mt-2 text-xs text-slate-500">รายปีใช้ได้เมื่อบริษัทกำหนดราคาแพ็กเกจแล้ว</p> : null}
+                {!packageRow?.yearly_price ? <p className="mt-2 rounded-lg bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-800">
+                  รอบรายปียังไม่เปิดใช้งาน · รอฝ่าย IT บันทึกราคารายปีใน CpiPOS-001 ก่อน
+                </p> : <p className="mt-2 rounded-lg bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-700">
+                  รายปีพร้อมใช้งาน · {formatMoney(packageRow.yearly_price)} / ปี · ราคาอ้างอิงจากฝ่าย IT
+                </p>}
               </div>
             </div>
 
@@ -412,7 +415,9 @@ export function PosSubscriptionCenter({ initial, isOwner }: {
                   <div className={field + " flex min-h-11 items-center justify-between bg-[#f3f6fa] font-bold"}>
                     <span>{packageRow?.contact_sales && due === null ? "ตามสัญญา" : formatMoney(due)}</span>
                   </div>
-                  <p className="mt-1 text-xs text-slate-500">อ้างอิงข้อมูลแพ็กเกจ · รอ IT ยืนยัน</p>
+                  <p className="mt-1 text-xs text-slate-500">
+                    ราคาอ้างอิงจาก CpiPOS-001 · ฝ่าย IT เป็นผู้กำหนดราคาแพ็กเกจ · รอ IT ยืนยันเงินจริง
+                  </p>
                 </div>
                 <label className="min-w-0 rounded-xl border border-[#e4ebf6] p-3">
                   <StepLabel number={4}>จำนวนเงินที่โอน</StepLabel>
