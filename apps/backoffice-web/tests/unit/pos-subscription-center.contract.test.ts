@@ -113,6 +113,8 @@ describe("POS subscription center (commercial billing, not cashier payments)", (
   it("warns before expiry, blocks sales after expiry, and keeps billing access available", () => {
     expect(lifecycleService).toContain('from("tenant_data_lifecycle")');
     expect(lifecycleService).toContain("days_remaining");
+    expect(lifecycleService).toContain("grace_until");
+    expect(sessionGuard).toContain('row?.lifecycle_status === "grace"');
     expect(lifecycleService).toContain("billing_bank_account_number");
     expect(lifecycleGuard).toContain("แพ็กเกจใกล้ครบกำหนดชำระ");
     expect(lifecycleGuard).toContain("แพ็กเกจครบกำหนดชำระแล้ว");
