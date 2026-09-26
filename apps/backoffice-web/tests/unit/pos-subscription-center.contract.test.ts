@@ -61,6 +61,27 @@ describe("POS subscription center (commercial billing, not cashier payments)", (
     expect(receiptTemplate).toContain("พิมพ์ / บันทึกเป็น PDF");
   });
 
+
+  it("mirrors IT payment review results into POS history and package documents", () => {
+    expect(snapshot).toContain("payment_request_id");
+    expect(snapshot).toContain("package_name: requestedPackage?.name");
+    expect(snapshot).toContain("expected_amount: expected");
+    expect(snapshot).toContain("receipt: issuedReceipt");
+    expect(snapshot).toContain("payment_summary");
+    expect(snapshot).toContain("monthly_paid");
+    expect(snapshot).toContain("yearly_paid");
+    expect(snapshot).toContain("total_paid");
+    expect(ui).toContain("ข้อมูลเดียวกับฝั่ง IT จาก CpiPOS-001");
+    expect(ui).toContain("ยอดชำระรายเดือน");
+    expect(ui).toContain("ยอดชำระรายปี");
+    expect(ui).toContain("ยอดรับชำระรวม");
+    expect(ui).toContain("ยอดตามแพ็กเกจ");
+    expect(ui).toContain("row.receipt.number");
+    expect(ui).toContain("document.package_name");
+    expect(ui).toContain("document.billing_interval");
+    expect(ui).toContain("document.period_start");
+  });
+
   it("replaces misleading demo sentinel and separates LINE contact QR from payments", () => {
     expect(ui).toContain("แพ็กเกจและการชำระเงิน");
     expect(ui).toContain("QR LINE สำหรับติดต่อเท่านั้น");

@@ -20,7 +20,10 @@ type RequestRow = { id: string; request_type: string; requested_package_id: stri
   currency: string; submitted_at: string; reviewed_at: string | null; review_note: string | null;
   evidence_url: string | null; metadata: Record<string, unknown> | null };
 type Cycle = { id: string; status: string; amount_due: number; amount_paid: number; period_start: string; period_end: string };
-type Receipt = { id: string; receipt_number: string; issued_at: string; amount: number; currency: string };
+type Receipt = {
+  id: string; payment_request_id: string; billing_cycle_id: string; receipt_number: string;
+  issued_at: string; amount: number; currency: string; package_snapshot: Record<string, unknown> | null
+};
 
 function positive(value: unknown) {
   const n = Number(value);
@@ -57,7 +60,7 @@ export async function loadPosSubscriptionCenter(tenantId: string) {
       .select("id,status,amount_due,amount_paid,period_start,period_end")
       .eq("tenant_id",tenantId).order("created_at",{ascending:false}).limit(30).returns<Cycle[]>(),
     db.from("tenant_subscription_receipts")
-      .select("id,receipt_number,issued_at,amount,currency")
+      .select("id,payment_request_id,billing_cycle_id,receipt_number,issued_at,amount,currency,package_snapshot")
       .eq("tenant_id",tenantId).order("issued_at",{ascending:false}).limit(50).returns<Receipt[]>()
   ]);
   for (const item of [tenantResult,contractResult,lifecycleResult,issuerResult,packagesResult,requestResult,cycleResult,receiptResult]) {
@@ -108,14 +111,46 @@ export async function loadPosSubscriptionCenter(tenantId: string) {
       support_email: issuer?.support_email || "cuttingpointtech.support@gmail.com",
       vat_registered: issuer?.billing_vat_registered === true
     },
-    requests: (requestResult.data ?? []).map((row)=>({
-      id:row.id,type:row.request_type,status:row.status,package_id:row.requested_package_id,
-      billing_interval:row.metadata?.billing_interval === "yearly" ? "yearly" : "monthly",amount:row.amount_reported,
-      currency:row.currency,submitted_at:row.submitted_at,reviewed_at:row.reviewed_at,
-      review_note:row.review_note,has_evidence:Boolean(row.evidence_url),
-      kind: row.metadata?.kind === "payment_notice" ? "payment_notice" : "renewal_intent"
-    })),
+    requests: (requestResult.data ?? []).map((row)=>{
+      const requestedPackage = packages.find((item) => item.id === row.requested_package_id);
+      const expectedRaw = row.metadata?.expected_amount;
+      const expected = expectedRaw == null || !Number.isFinite(Number(expectedRaw)) ? null : Number(expectedRaw);
+      const issuedReceipt = (receiptResult.data ?? []).find((receipt) => receipt.payment_request_id === row.id);
+      return {
+        id:row.id,type:row.request_type,status:row.status,package_id:row.requested_package_id,
+        package_name: requestedPackage?.name ?? "", package_code: requestedPackage?.code ?? "",
+        billing_interval:row.metadata?.billing_interval === "yearly" ? "yearly" : "monthly",
+        amount:row.amount_reported, expected_amount: expected,
+        currency:row.currency,submitted_at:row.submitted_at,reviewed_at:row.reviewed_at,
+        review_note:row.review_note,has_evidence:Boolean(row.evidence_url),
+        kind: row.metadata?.kind === "payment_notice" ? "payment_notice" : "renewal_intent",
+        receipt: issuedReceipt ? {
+          id: issuedReceipt.id,
+          number: issuedReceipt.receipt_number,
+          issued_at: issuedReceipt.issued_at,
+          amount: Number(issuedReceipt.amount),
+          currency: issuedReceipt.currency || "THB"
+        } : null
+      };
+    }),
     cycles: (cycleResult.data ?? []).map((row)=>({...row})),
+    payment_summary: (() => {
+      const receipts = receiptResult.data ?? [];
+      const monthly = receipts.filter((row) => row.package_snapshot?.billing_interval !== "yearly");
+      const yearly = receipts.filter((row) => row.package_snapshot?.billing_interval === "yearly");
+      const sum = (rows: Receipt[]) => rows.reduce((total, row) => {
+        const value = Number(row.amount);
+        return total + (Number.isFinite(value) ? value : 0);
+      }, 0);
+      return {
+        total_paid: sum(receipts),
+        monthly_paid: sum(monthly),
+        yearly_paid: sum(yearly),
+        receipt_count: receipts.length,
+        monthly_count: monthly.length,
+        yearly_count: yearly.length
+      };
+    })(),
     control_plane: {
       authority: "CpIPOS-IT",
       source: "CpiPOS-001",
@@ -128,11 +163,18 @@ export async function loadPosSubscriptionCenter(tenantId: string) {
     // Only immutable issued documents are exposed here. Customer-uploaded slips never create documents.
     documents: (receiptResult.data ?? []).map((row) => ({
       id: row.id,
+      payment_request_id: row.payment_request_id,
+      billing_cycle_id: row.billing_cycle_id,
       type: "receipt" as const,
       number: row.receipt_number,
       issued_at: row.issued_at,
       amount: Number(row.amount),
-      currency: row.currency || "THB"
+      currency: row.currency || "THB",
+      package_name: typeof row.package_snapshot?.package_name === "string" ? row.package_snapshot.package_name : "",
+      package_code: typeof row.package_snapshot?.package_code === "string" ? row.package_snapshot.package_code : "",
+      billing_interval: row.package_snapshot?.billing_interval === "yearly" ? "yearly" : "monthly",
+      period_start: typeof row.package_snapshot?.period_start === "string" ? row.package_snapshot.period_start : "",
+      period_end: typeof row.package_snapshot?.period_end === "string" ? row.package_snapshot.period_end : ""
     }))
   };
 }
