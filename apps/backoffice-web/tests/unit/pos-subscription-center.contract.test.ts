@@ -10,6 +10,10 @@ const request = file("app/api/pos/billing/requests/route.ts");
 const receiptRoute = file("app/api/pos/billing/receipts/[receiptId]/route.ts");
 const receiptTemplate = file("lib/printing/subscription-receipt-html-template.ts");
 const ui = file("components/pos-preview/pos-subscription-center.tsx");
+const lifecycleGuard = file("components/pos-preview/pos-subscription-lifecycle-guard.tsx");
+const lifecycleService = file("lib/services/pos-subscription-lifecycle-guard-service.ts");
+const sessionGuard = file("lib/pos-session-guard.ts");
+const previewLayout = file("app/preview/pos/layout.tsx");
 
 describe("POS subscription center (commercial billing, not cashier payments)", () => {
   it("derives scope from verified POS session and reads primary billing data", () => {
@@ -68,6 +72,8 @@ describe("POS subscription center (commercial billing, not cashier payments)", (
     expect(receiptRoute).toContain('.eq("tenant_id", scope.session.tenant_id)');
     expect(receiptRoute).toContain('from("tenant_subscription_receipts")');
     expect(receiptRoute).toContain("renderSubscriptionReceiptHtml");
+    expect(receiptRoute).toContain('from("tenant_subscription_receipt_annotations")');
+    expect(receiptRoute).toContain("ยกเลิกเอกสาร / VOID");
     expect(receiptTemplate).toContain("ใบเสร็จรับเงิน / RECEIPT");
     expect(receiptTemplate).toContain("ยืนยันรับเงินจริงแล้ว");
     expect(receiptTemplate).toContain("ไม่ใช่ใบกำกับภาษี VAT");
@@ -102,6 +108,48 @@ describe("POS subscription center (commercial billing, not cashier payments)", (
     expect(ui).toContain("ราคาอ้างอิงจากฝ่าย IT");
     expect(ui).toContain("ฝ่าย IT เป็นผู้กำหนดราคาแพ็กเกจ");
     expect(ui).toContain("choice === \"yearly\" && !annualAvailable");
+  });
+
+  it("warns before expiry, blocks sales after expiry, and keeps billing access available", () => {
+    expect(lifecycleService).toContain('from("tenant_data_lifecycle")');
+    expect(lifecycleService).toContain("days_remaining");
+    expect(lifecycleService).toContain("billing_bank_account_number");
+    expect(lifecycleGuard).toContain("แพ็กเกจใกล้ครบกำหนดชำระ");
+    expect(lifecycleGuard).toContain("แพ็กเกจครบกำหนดชำระแล้ว");
+    expect(lifecycleGuard).toContain('pathname==="/preview/pos/payments"');
+    expect(lifecycleGuard).toContain('router.push("/preview/pos/payments")');
+    expect(lifecycleGuard).toContain("บัญชีบริษัท:");
+    expect(previewLayout).toContain("PosSubscriptionLifecycleGuard");
+    expect(sessionGuard).toContain("assertSubscriptionAllowsSales");
+    expect(sessionGuard).toContain("subscription_locked");
+    expect(sessionGuard).toContain("getPrimarySupabaseServiceClient");
+    expect(sessionGuard).toContain("await assertSubscriptionAllowsSales(scope.session.tenant_id)");
+  });
+
+  it("uses clean popup payment actions with renew-to-payment handoff and camera/file slip upload", () => {
+    expect(ui).toContain("ภาพรวมการใช้งาน");
+    expect(ui).toContain("ประวัติการชำระแพ็กเกจ");
+    expect(ui).toContain("เอกสารแพ็กเกจ");
+    expect(ui).toContain("บัญชีรับชำระของบริษัท");
+    expect(ui).toContain("LINE · QR ติดต่อบริษัท");
+    expect(ui).toContain("ติดต่อสอบถาม / แจ้งปัญหา");
+    expect(ui).toContain("ต่ออายุแพ็กเกจ");
+    expect(ui).toContain("แจ้งชำระเงิน");
+    expect(ui).toContain('capture="environment"');
+    expect(ui).toContain("ถ่ายรูปสลิป");
+    expect(ui).toContain("อัปโหลดไฟล์สลิป");
+    expect(ui).toContain("ส่งข้อมูลสำเร็จ");
+    expect(ui).toContain('selectTab("notice")');
+    expect(ui).toContain("บัญชีรับชำระของบริษัท");
+  });
+
+  it("reflects receipt correction and void status written by IT", () => {
+    expect(snapshot).toContain('from("tenant_subscription_receipt_annotations")');
+    expect(snapshot).toContain("receiptAnnotationById");
+    expect(snapshot).toContain("voided:");
+    expect(snapshot).toContain("correction_note:");
+    expect(ui).toContain("เอกสารถูกยกเลิกโดย IT");
+    expect(ui).toContain("ยกเลิกเอกสาร");
   });
 
   it("replaces misleading demo sentinel and separates LINE contact QR from payments", () => {

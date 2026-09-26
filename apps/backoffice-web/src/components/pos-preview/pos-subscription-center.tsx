@@ -112,6 +112,9 @@ export function PosSubscriptionCenter({ initial, isOwner }: {
   const [note, setNote] = useState("");
   const [slip, setSlip] = useState<File | null>(null);
   const [lineOpen, setLineOpen] = useState(false);
+  const [popupOpen, setPopupOpen] = useState(false);
+  const [infoPopup, setInfoPopup] = useState<"bank" | "line" | "support" | null>(null);
+  const [successPopup, setSuccessPopup] = useState("");
   const [busy, setBusy] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [message, setMessage] = useState("");
@@ -149,6 +152,8 @@ export function PosSubscriptionCenter({ initial, isOwner }: {
     setMessage("");
   }
   function selectTab(next: Tab) { setTab(next); setError(""); }
+  function openTab(next: Tab) { selectTab(next); setPopupOpen(true); setInfoPopup(null); }
+  function closePopup() { setPopupOpen(false); setInfoPopup(null); setError(""); }
 
   async function reload() {
     setRefreshing(true);
@@ -203,10 +208,16 @@ export function PosSubscriptionCenter({ initial, isOwner }: {
       const json = await response.json() as Envelope<{ id: string; status: string; already_submitted: boolean }>;
       if (!response.ok || !json.data) throw new Error(json.error?.message || "ส่งคำขอไม่สำเร็จ");
       requestKey.current = null;
-      setMessage(kind === "payment_notice" ?
-        "บันทึกการแจ้งชำระแล้ว รอ IT ตรวจสอบรายการรับเงินจริง" :
-        "ส่งคำขอต่ออายุแล้ว กรุณารอ IT ตรวจสอบรายละเอียด");
-      selectTab("history");
+      if (kind === "payment_notice") {
+        setMessage("บันทึกการแจ้งชำระแล้ว รอ IT ตรวจสอบรายการรับเงินจริง");
+        setSuccessPopup("ส่งแจ้งชำระเงินสำเร็จ · ระบบบันทึกรายการแล้ว กรุณารอฝ่าย IT ตรวจสอบเงินเข้าและอนุมัติแพ็กเกจ");
+        setPopupOpen(false);
+        selectTab("history");
+      } else {
+        setMessage("ส่งคำขอต่ออายุแล้ว ขั้นต่อไปกรุณาแจ้งชำระเงินและแนบสลิป");
+        selectTab("notice");
+        setPopupOpen(true);
+      }
       await reload();
     } catch (cause) { setError(cause instanceof Error ? cause.message : "ส่งคำขอไม่สำเร็จ"); }
     finally { setBusy(false); }
@@ -319,6 +330,40 @@ export function PosSubscriptionCenter({ initial, isOwner }: {
             lastRequest ? "รายการล่าสุด " + formatDate(lastRequest.submitted_at) : "ยังไม่มีรายการแจ้งชำระ"} />
       </section>
 
+      <section className={box + " p-3 sm:p-4"}>
+        <div className="flex flex-wrap items-center gap-2">
+          {[
+            ["overview","ภาพรวมการใช้งาน","chart"],
+            ["history","ประวัติการชำระแพ็กเกจ","history"],
+            ["documents","เอกสารแพ็กเกจ","file"]
+          ].map(([key,label,icon]) => <button type="button" key={key}
+            onClick={() => openTab(key as Tab)}
+            className="inline-flex items-center gap-2 rounded-xl border border-blue-100 bg-blue-50 px-3.5 py-2.5 text-sm font-bold text-blue-700 transition hover:bg-blue-100">
+            <Icon name={icon as IconName} size={16}/>{label}
+          </button>)}
+          <button type="button" onClick={() => { setInfoPopup("bank"); setPopupOpen(true); }}
+            className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-sm font-bold text-slate-700 hover:bg-slate-50">
+            <Icon name="bank" size={16}/>บัญชีรับชำระของบริษัท
+          </button>
+          <button type="button" onClick={() => { setInfoPopup("line"); setPopupOpen(true); setLineOpen(true); }}
+            className="inline-flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-3.5 py-2.5 text-sm font-bold text-emerald-700 hover:bg-emerald-100">
+            LINE · QR ติดต่อบริษัท
+          </button>
+          <button type="button" onClick={() => { setInfoPopup("support"); setPopupOpen(true); }}
+            className="inline-flex items-center gap-2 rounded-xl border border-violet-200 bg-violet-50 px-3.5 py-2.5 text-sm font-bold text-violet-700 hover:bg-violet-100">
+            <Icon name="support" size={16}/>ติดต่อสอบถาม / แจ้งปัญหา
+          </button>
+          <button type="button" disabled={!isOwner || demo} onClick={() => openTab("renew")}
+            className="ml-auto inline-flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-black text-white shadow-sm disabled:opacity-50">
+            <Icon name="wallet" size={16}/>ต่ออายุแพ็กเกจ
+          </button>
+          <button type="button" disabled={!isOwner || demo} onClick={() => openTab("notice")}
+            className="inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-black text-white shadow-sm disabled:opacity-50">
+            <Icon name="payment" size={16}/>แจ้งชำระเงิน
+          </button>
+        </div>
+      </section>
+
       {pending ? <div className="flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
         <Icon name="info" size={19} className="mt-0.5" />
         <div>
@@ -331,9 +376,23 @@ export function PosSubscriptionCenter({ initial, isOwner }: {
         </div>
       </div> : null}
 
-      <div className="grid min-w-0 items-start gap-4 xl:grid-cols-[minmax(0,1fr)_365px]">
-        <main className="min-w-0 space-y-3">
-          <nav aria-label="เมนูแพ็กเกจ" className="flex min-w-0 gap-1 overflow-x-auto border-b border-[#dce5f2]">
+      {popupOpen ? <div className="fixed inset-0 z-[420] flex items-center justify-center bg-slate-950/50 p-3 backdrop-blur-[2px]"
+        onMouseDown={(event) => { if (event.target === event.currentTarget) closePopup(); }}>
+        <section role="dialog" aria-modal="true"
+          className="flex max-h-[94vh] w-full max-w-[1220px] flex-col overflow-hidden rounded-2xl border border-slate-200 bg-[#f7faff] shadow-2xl">
+          <header className="flex items-center justify-between gap-3 border-b border-slate-200 bg-white px-4 py-3">
+            <div><strong className="text-base text-slate-900">
+              {infoPopup === "bank" ? "บัญชีรับชำระของบริษัท" :
+               infoPopup === "line" ? "QR LINE ติดต่อบริษัท" :
+               infoPopup === "support" ? "ติดต่อสอบถาม / แจ้งปัญหา" :
+               tabs.find((item)=>item.key===tab)?.label || "แพ็กเกจและการชำระเงิน"}
+            </strong><p className="text-xs text-slate-500">ข้อมูลแพ็กเกจและการชำระเงินจาก CpiPOS-001</p></div>
+            <button type="button" onClick={closePopup} className="h-9 w-9 rounded-full border border-slate-200 bg-white text-xl text-slate-500">×</button>
+          </header>
+          <div className="min-h-0 flex-1 overflow-y-auto p-3 sm:p-5">
+      <div className="grid min-w-0 items-start gap-4">
+        {!infoPopup ? <main className="min-w-0 space-y-3">
+          <nav aria-label="เมนูแพ็กเกจ" className="hidden min-w-0 gap-1 overflow-x-auto border-b border-[#dce5f2]">
             {tabs.map((item) => <button type="button" key={item.key}
               aria-current={tab === item.key ? "page" : undefined}
               onClick={() => selectTab(item.key)}
@@ -429,6 +488,19 @@ export function PosSubscriptionCenter({ initial, isOwner }: {
             </div>
 
             {tab === "notice" ? <>
+              <div className="rounded-xl border border-blue-200 bg-blue-50 p-4">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <p className="text-xs font-bold text-blue-700">บัญชีรับชำระของบริษัท</p>
+                    <p className="mt-1 text-sm font-black text-slate-900">{snapshot.issuer.bank_name || "—"} · {snapshot.issuer.account_name || "—"}</p>
+                    <p className="mt-1 text-lg font-black tracking-wide text-blue-800">{snapshot.issuer.account_number || "ยังไม่ได้ตั้งเลขบัญชี"}</p>
+                  </div>
+                  <div className="rounded-xl bg-white px-4 py-3 text-right">
+                    <p className="text-xs text-slate-500">ยอดตามแพ็กเกจ</p>
+                    <strong className="text-xl text-blue-700">{formatMoney(due)}</strong>
+                  </div>
+                </div>
+              </div>
               <div className="grid gap-2 sm:grid-cols-3">
                 <div className="min-w-0 rounded-xl border border-[#e4ebf6] p-3">
                   <StepLabel number={3}>ยอดที่ต้องชำระ</StepLabel>
@@ -470,14 +542,18 @@ export function PosSubscriptionCenter({ initial, isOwner }: {
               <div className="grid gap-2 sm:grid-cols-2">
                 <label className="min-w-0 rounded-xl border border-[#e4ebf6] p-3">
                   <StepLabel number={8}>แนบหลักฐานการโอนเงิน</StepLabel>
-                  <span className="mt-2 flex min-h-[70px] cursor-pointer items-center justify-center gap-2 rounded-xl border-2 border-dashed border-blue-300 bg-[#f9fcff] px-3 py-3 text-center text-xs font-semibold text-blue-700">
-                    <Icon name="upload" size={24} />
-                    <span>{slip ? slip.name : "คลิกเพื่ออัปโหลดสลิป หรือเลือกไฟล์ JPG / PNG / WebP / PDF (ไม่เกิน 4 MB)"}</span>
-                  </span>
-                  <input className="sr-only" type="file" accept="image/jpeg,image/png,image/webp,application/pdf"
-                    disabled={!canSubmit} onChange={(event) => {
-                      setSlip(event.target.files?.[0] ?? null); changed();
-                    }} />
+                  <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                    <span className="flex min-h-[70px] cursor-pointer items-center justify-center gap-2 rounded-xl border-2 border-dashed border-blue-300 bg-[#f9fcff] px-3 py-3 text-center text-xs font-semibold text-blue-700">
+                      <Icon name="upload" size={22}/><span>{slip ? slip.name : "อัปโหลดไฟล์สลิป"}</span>
+                      <input className="sr-only" type="file" accept="image/jpeg,image/png,image/webp,application/pdf"
+                        disabled={!canSubmit} onChange={(event) => { setSlip(event.target.files?.[0] ?? null); changed(); }} />
+                    </span>
+                    <span className="flex min-h-[70px] cursor-pointer items-center justify-center gap-2 rounded-xl border-2 border-dashed border-emerald-300 bg-emerald-50 px-3 py-3 text-center text-xs font-semibold text-emerald-700">
+                      <Icon name="upload" size={22}/><span>ถ่ายรูปสลิป</span>
+                      <input className="sr-only" type="file" accept="image/*" capture="environment"
+                        disabled={!canSubmit} onChange={(event) => { setSlip(event.target.files?.[0] ?? null); changed(); }} />
+                    </span>
+                  </div>
                 </label>
                 <label className="min-w-0 rounded-xl border border-[#e4ebf6] p-3">
                   <StepLabel number={9}>หมายเหตุ (ถ้ามี)</StepLabel>
@@ -553,8 +629,10 @@ export function PosSubscriptionCenter({ initial, isOwner }: {
                   <td className="p-3">{row.receipt ? <a
                     href={"/api/pos/billing/receipts/" + encodeURIComponent(row.receipt.id)}
                     target="_blank" rel="noopener noreferrer"
-                    className="font-bold text-blue-700 underline">{row.receipt.number}</a> :
+                    className={row.receipt.voided ? "font-bold text-red-600 line-through" : "font-bold text-blue-700 underline"}>{row.receipt.number}</a> :
                     row.has_evidence ? "แนบสลิปแล้ว · รอ IT ยืนยัน" : "ยังไม่มีใบเสร็จ"}
+                    {row.receipt?.voided ? <p className="mt-1 text-xs font-bold text-red-600">เอกสารถูกยกเลิกโดย IT</p> : null}
+                    {row.receipt?.correction_note ? <p className="mt-1 text-xs text-slate-500">{row.receipt.correction_note}</p> : null}
                     {row.review_note ? <p className="mt-1 text-xs text-slate-500">{row.review_note}</p> : null}</td>
                 </tr>)}</tbody>
               </table></div>}
@@ -591,13 +669,17 @@ export function PosSubscriptionCenter({ initial, isOwner }: {
                   </tr></thead>
                   <tbody className="divide-y divide-slate-100">
                     {snapshot.documents.map((document)=><tr key={document.id}>
-                      <td className="px-4 py-3 font-bold text-slate-900">{document.number}</td>
+                      <td className={"px-4 py-3 font-bold " + (document.voided ? "text-red-600 line-through" : "text-slate-900")}>
+                        {document.number}
+                        {document.voided ? <span className="ml-2 rounded-full bg-red-50 px-2 py-1 text-[10px] no-underline">ยกเลิกเอกสาร</span> : null}
+                      </td>
                       <td className="px-4 py-3">{formatDate(document.issued_at)}</td>
                       <td className="px-4 py-3">{document.package_name || "แพ็กเกจ"}<br/>
                         <span className="text-xs text-slate-500">{document.billing_interval === "yearly" ? "รายปี" : "รายเดือน"}</span></td>
                       <td className="px-4 py-3 text-xs text-slate-600">{document.period_start || "—"} → {document.period_end || "—"}</td>
                       <td className="px-4 py-3 font-semibold">{formatMoney(document.amount,document.currency)}</td>
                       <td className="px-4 py-3">
+                        {document.correction_note ? <p className="mb-2 text-xs text-slate-500">{document.correction_note}</p> : null}
                         <a href={"/api/pos/billing/receipts/"+encodeURIComponent(document.id)}
                           target="_blank" rel="noopener noreferrer"
                           className="inline-flex items-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-bold text-blue-700 hover:bg-blue-100">
@@ -611,10 +693,10 @@ export function PosSubscriptionCenter({ initial, isOwner }: {
             {!snapshot.issuer.vat_registered ? <p className="mt-3 text-xs text-slate-500">
               ใบเสร็จปัจจุบันเป็นใบเสร็จรับเงิน ไม่ใช่ใบกำกับภาษี VAT</p> : null}
           </section> : null}
-        </main>
+        </main> : null}
 
-        <aside className="min-w-0 space-y-3 xl:pt-1">
-          <section className={box + " space-y-3 p-4"}>
+        {infoPopup ? <aside className="mx-auto w-full max-w-2xl min-w-0 space-y-3">
+          {(!infoPopup || infoPopup === "bank") ? <section className={box + " space-y-3 p-4"}>
             <div className="flex items-center gap-3"><ToneIcon icon="bank" />
               <div><h2 className="text-base font-extrabold text-[#152541]">บัญชีรับชำระของบริษัท</h2>
                 <p className="text-xs text-slate-500">สำหรับค่าบริการแพ็กเกจ CpIPOS เท่านั้น</p></div></div>
@@ -641,9 +723,9 @@ export function PosSubscriptionCenter({ initial, isOwner }: {
             {copyStatus ? <p role="status" className="text-xs text-blue-700">{copyStatus}</p> : null}
             <p className="break-words text-xs text-slate-500">{snapshot.issuer.name}</p>
             <p className="text-xs leading-5 text-slate-500">ไม่ใช่บัญชีรับเงินขายสินค้าหน้าร้าน</p>
-          </section>
+          </section> : null}
 
-          <section className={box + " space-y-2 p-4"}>
+          {(!infoPopup || infoPopup === "line") ? <section className={box + " space-y-2 p-4"}>
             <button type="button" aria-expanded={lineOpen} onClick={() => setLineOpen(!lineOpen)}
               className="flex w-full items-center gap-3 text-left">
               <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-emerald-50 text-xs font-black text-emerald-600">
@@ -659,9 +741,9 @@ export function PosSubscriptionCenter({ initial, isOwner }: {
               className={"mx-auto h-auto rounded-xl border border-slate-200 transition-all " +
                 (lineOpen ? "max-w-[190px]" : "max-w-[84px]")} />
             <p className="text-[11px] text-slate-500">QR LINE สำหรับติดต่อเท่านั้น ไม่ใช่ QR ชำระเงิน</p>
-          </section>
+          </section> : null}
 
-          <section className={box + " space-y-3 p-4"}>
+          {(!infoPopup || infoPopup === "support") ? <section className={box + " space-y-3 p-4"}>
             <div className="flex items-center gap-3"><ToneIcon icon="support" />
               <div><h2 className="text-base font-extrabold text-[#152541]">ติดต่อสอบถาม / แจ้งปัญหา</h2>
                 <p className="text-xs text-slate-500">เกี่ยวกับค่าบริการ แพ็กเกจ หรือการใช้งาน</p></div></div>
@@ -673,9 +755,24 @@ export function PosSubscriptionCenter({ initial, isOwner }: {
                 className="flex items-center justify-center gap-2 break-all rounded-xl bg-[#edf5ff] px-3 py-3 text-xs font-bold text-blue-700">
                 <Icon name="mail" size={16} />{snapshot.issuer.support_email}</a>
             </div>
-          </section>
-        </aside>
+          </section> : null}
+        </aside> : null}
       </div>
+          </div>
+        </section>
+      </div> : null}
+
+      {successPopup ? <div className="fixed inset-0 z-[460] grid place-items-center bg-slate-950/45 p-4">
+        <section role="dialog" aria-modal="true" className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl">
+          <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-emerald-100 text-emerald-700">
+            <Icon name="check" size={28}/>
+          </div>
+          <h2 className="mt-4 text-center text-xl font-black text-slate-950">ส่งข้อมูลสำเร็จ</h2>
+          <p className="mt-2 text-center text-sm leading-6 text-slate-600">{successPopup}</p>
+          <button type="button" onClick={() => setSuccessPopup("")}
+            className="mt-5 w-full rounded-xl bg-emerald-600 px-4 py-3 text-sm font-black text-white">รับทราบ</button>
+        </section>
+      </div> : null}
     </div>
   </section>;
 }
