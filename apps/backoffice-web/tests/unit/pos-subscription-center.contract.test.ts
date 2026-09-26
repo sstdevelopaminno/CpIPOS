@@ -72,6 +72,8 @@ describe("POS subscription center (commercial billing, not cashier payments)", (
     expect(receiptRoute).toContain('.eq("tenant_id", scope.session.tenant_id)');
     expect(receiptRoute).toContain('from("tenant_subscription_receipts")');
     expect(receiptRoute).toContain("renderSubscriptionReceiptHtml");
+    expect(receiptRoute).toContain('from("tenant_subscription_receipt_annotations")');
+    expect(receiptRoute).toContain("ยกเลิกเอกสาร / VOID");
     expect(receiptTemplate).toContain("ใบเสร็จรับเงิน / RECEIPT");
     expect(receiptTemplate).toContain("ยืนยันรับเงินจริงแล้ว");
     expect(receiptTemplate).toContain("ไม่ใช่ใบกำกับภาษี VAT");
