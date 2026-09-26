@@ -20,6 +20,7 @@ type RequestRow = { id: string; request_type: string; requested_package_id: stri
   currency: string; submitted_at: string; reviewed_at: string | null; review_note: string | null;
   evidence_url: string | null; metadata: Record<string, unknown> | null };
 type Cycle = { id: string; status: string; amount_due: number; amount_paid: number; period_start: string; period_end: string };
+type Receipt = { id: string; receipt_number: string; issued_at: string; amount: number; currency: string };
 
 function positive(value: unknown) {
   const n = Number(value);
@@ -34,7 +35,7 @@ function amount(value: unknown): number | null {
 export async function loadPosSubscriptionCenter(tenantId: string) {
   // Commercial authority lives in CpiPOS-001, never in a trial tenant sales data plane.
   const db = getPrimarySupabaseServiceClient();
-  const [tenantResult, contractResult, lifecycleResult, issuerResult, packagesResult, requestResult, cycleResult] = await Promise.all([
+  const [tenantResult, contractResult, lifecycleResult, issuerResult, packagesResult, requestResult, cycleResult, receiptResult] = await Promise.all([
     db.from("tenants").select("id,code,name,display_name,package_id")
       .eq("id",tenantId).maybeSingle<Tenant>(),
     db.from("tenant_subscription_contracts")
@@ -54,9 +55,12 @@ export async function loadPosSubscriptionCenter(tenantId: string) {
       .eq("tenant_id",tenantId).order("created_at",{ascending:false}).limit(30).returns<RequestRow[]>(),
     db.from("tenant_billing_cycles")
       .select("id,status,amount_due,amount_paid,period_start,period_end")
-      .eq("tenant_id",tenantId).order("created_at",{ascending:false}).limit(30).returns<Cycle[]>()
+      .eq("tenant_id",tenantId).order("created_at",{ascending:false}).limit(30).returns<Cycle[]>(),
+    db.from("tenant_subscription_receipts")
+      .select("id,receipt_number,issued_at,amount,currency")
+      .eq("tenant_id",tenantId).order("issued_at",{ascending:false}).limit(50).returns<Receipt[]>()
   ]);
-  for (const item of [tenantResult,contractResult,lifecycleResult,issuerResult,packagesResult,requestResult,cycleResult]) {
+  for (const item of [tenantResult,contractResult,lifecycleResult,issuerResult,packagesResult,requestResult,cycleResult,receiptResult]) {
     if (item.error) throw new Error("Subscription information is temporarily unavailable.");
   }
   const tenant = tenantResult.data;
@@ -121,8 +125,15 @@ export async function loadPosSubscriptionCenter(tenantId: string) {
         ["pending", "under_review"].includes(row.status)
       ).length
     },
-    // An uploaded slip / customer notice must never set a paid or approved field.
-    documents: [] as Array<{ id: string; type: "quotation" | "receipt"; number: string }>
+    // Only immutable issued documents are exposed here. Customer-uploaded slips never create documents.
+    documents: (receiptResult.data ?? []).map((row) => ({
+      id: row.id,
+      type: "receipt" as const,
+      number: row.receipt_number,
+      issued_at: row.issued_at,
+      amount: Number(row.amount),
+      currency: row.currency || "THB"
+    }))
   };
 }
 

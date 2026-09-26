@@ -7,9 +7,11 @@ const page = file("app/preview/pos/payments/page.tsx");
 const snapshot = file("lib/services/pos-subscription-center-service.ts");
 const overview = file("app/api/pos/billing/overview/route.ts");
 const request = file("app/api/pos/billing/requests/route.ts");
+const receiptRoute = file("app/api/pos/billing/receipts/[receiptId]/route.ts");
+const receiptTemplate = file("lib/printing/subscription-receipt-html-template.ts");
 const ui = file("components/pos-preview/pos-subscription-center.tsx");
 
-describe("Phase 1 POS subscription center (not cashier payments)", () => {
+describe("POS subscription center (commercial billing, not cashier payments)", () => {
   it("derives scope from verified POS session and reads primary billing data", () => {
     expect(page).toContain("requirePosSession()");
     expect(page).toContain("PosSubscriptionCenter");
@@ -18,6 +20,7 @@ describe("Phase 1 POS subscription center (not cashier payments)", () => {
     expect(snapshot).toContain('from("it_communication_settings")');
     expect(snapshot).toContain('from("tenant_subscription_payment_requests")');
     expect(snapshot).toContain('from("tenant_data_lifecycle")');
+    expect(snapshot).toContain('from("tenant_subscription_receipts")');
     expect(snapshot).toContain('authority: "CpIPOS-IT"');
     expect(snapshot).toContain('source: "CpiPOS-001"');
     expect(snapshot).toContain("open_request_count");
@@ -26,7 +29,8 @@ describe("Phase 1 POS subscription center (not cashier payments)", () => {
     expect(snapshot).not.toContain('from("orders")');
     expect(snapshot).not.toContain('from("payments")');
   });
-  it("does not accept a customer slip as bank confirmation, uses safe private bucket", () => {
+
+  it("does not accept a customer slip as bank confirmation", () => {
     expect(request).toContain('scope.session.role !== "owner"');
     expect(request).toContain("SUBSCRIPTION_SLIP_BUCKET");
     expect(request).toContain('upsert:false');
@@ -35,14 +39,31 @@ describe("Phase 1 POS subscription center (not cashier payments)", () => {
     expect(request).toContain('contains("metadata",{kind:"renewal_intent"})');
     expect(request).toContain('in("status",["pending","under_review"])');
     expect(ui).toContain("แนบสลิปและแจ้งชำระคำขอเดิม");
+    expect(ui).toContain("เมื่อ IT ตรวจสอบเงินเข้าบัญชีบริษัท");
     expect(request).not.toContain('"approved"');
     expect(request).not.toContain('from("payments")');
     expect(request).not.toContain('from("shifts")');
   });
+
+  it("shows only immutable issued receipts and keeps them tenant-scoped", () => {
+    expect(snapshot).toContain('from("tenant_subscription_receipts")');
+    expect(snapshot).toContain('type: "receipt" as const');
+    expect(ui).toContain("เปิดใบเสร็จ / พิมพ์ PDF");
+    expect(ui).toContain("/api/pos/billing/receipts/");
+    expect(ui).toContain("หนึ่งใบต่อหนึ่งรายการรับเงิน");
+    expect(receiptRoute).toContain("requirePosSession()");
+    expect(receiptRoute).toContain('.eq("tenant_id", scope.session.tenant_id)');
+    expect(receiptRoute).toContain('from("tenant_subscription_receipts")');
+    expect(receiptRoute).toContain("renderSubscriptionReceiptHtml");
+    expect(receiptTemplate).toContain("ใบเสร็จรับเงิน / RECEIPT");
+    expect(receiptTemplate).toContain("ยืนยันรับเงินจริงแล้ว");
+    expect(receiptTemplate).toContain("ไม่ใช่ใบกำกับภาษี VAT");
+    expect(receiptTemplate).toContain("พิมพ์ / บันทึกเป็น PDF");
+  });
+
   it("replaces misleading demo sentinel and separates LINE contact QR from payments", () => {
     expect(ui).toContain("แพ็กเกจและการชำระเงิน");
     expect(ui).toContain("QR LINE สำหรับติดต่อเท่านั้น");
-    expect(ui).toContain("ไม่ต่ออายุหรือออกใบเสร็จอัตโนมัติ");
     expect(snapshot).toContain("n < 999999");
     expect(ui).toContain("ไม่จำกัด");
     expect(ui).toContain("บัญชีทดสอบภายใน");

@@ -478,7 +478,7 @@ export function PosSubscriptionCenter({ initial, isOwner }: {
             </>}
             <div className="flex items-start gap-2 rounded-lg bg-amber-50 px-3 py-2.5 text-xs leading-5 text-amber-900">
               <Icon name="info" size={17} className="mt-0.5" />
-              <p>การแจ้งชำระและสลิปยังไม่ถือว่ารับเงินจริง ระบบจะไม่ต่ออายุหรือออกใบเสร็จอัตโนมัติจนกว่าจะยืนยันรายการธนาคาร</p>
+              <p>การแจ้งชำระและสลิปยังไม่ถือว่ารับเงินจริง เมื่อ IT ตรวจสอบเงินเข้าบัญชีบริษัทและยืนยันรายการธนาคารแล้ว ระบบจะเปิด/ต่ออายุแพ็กเกจและออกใบเสร็จจริงให้อัตโนมัติ</p>
             </div>
             <button type="button" disabled={!canSubmit ||
               (tab === "notice" && (!slip || !hasBank || !amount || !transferAt || !payer.trim()))}
@@ -523,13 +523,39 @@ export function PosSubscriptionCenter({ initial, isOwner }: {
 
           {tab === "documents" ? <section className={box + " p-5"}>
             <div className="flex items-center gap-3"><ToneIcon icon="file" />
-              <h2 className="text-lg font-bold text-slate-900">เอกสารแพ็กเกจ</h2></div>
+              <div><h2 className="text-lg font-bold text-slate-900">เอกสารแพ็กเกจ</h2>
+                <p className="mt-1 text-xs text-slate-500">ใบเสร็จออกจากรายการรับเงินจริงที่ IT ยืนยันแล้วเท่านั้น</p></div>
+            </div>
             <p className="mt-3 text-sm leading-6 text-slate-600">
-              ใบเสนอราคาและใบเสร็จรับเงินจริงเป็นคนละประเภท เอกสารจะเปิดดาวน์โหลดเมื่อออกจริงแล้วเท่านั้น</p>
-            <div className="mt-4 rounded-xl border border-dashed border-slate-300 bg-slate-50 p-8 text-center text-sm text-slate-500">
-              ยังไม่มีเอกสารแพ็กเกจที่ออกจริงสำหรับดาวน์โหลด</div>
+              เมื่อเปิดแพ็กเกจแบบชำระเงินจริงครั้งแรก หรือชำระเพื่อต่ออายุ ระบบจะสร้างใบเสร็จเลขที่จริงหนึ่งใบต่อหนึ่งรายการรับเงิน
+              และเอกสารเดิมจะไม่เปลี่ยนตามการแก้ไขข้อมูลบริษัทภายหลัง</p>
+            {snapshot.documents.length === 0 ?
+              <div className="mt-4 rounded-xl border border-dashed border-slate-300 bg-slate-50 p-8 text-center text-sm text-slate-500">
+                ยังไม่มีใบเสร็จแพ็กเกจที่ออกจริง</div> :
+              <div className="mt-4 overflow-x-auto rounded-xl border border-slate-200">
+                <table className="w-full min-w-[620px] text-left text-sm">
+                  <thead className="bg-slate-50"><tr>
+                    {["เลขที่ใบเสร็จ","วันที่ออก","ยอดรับชำระ","เอกสาร"].map((head)=>
+                      <th key={head} className="border-b border-slate-200 px-4 py-3 text-xs font-bold text-slate-500">{head}</th>)}
+                  </tr></thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {snapshot.documents.map((document)=><tr key={document.id}>
+                      <td className="px-4 py-3 font-bold text-slate-900">{document.number}</td>
+                      <td className="px-4 py-3">{formatDate(document.issued_at)}</td>
+                      <td className="px-4 py-3 font-semibold">{formatMoney(document.amount,document.currency)}</td>
+                      <td className="px-4 py-3">
+                        <a href={"/api/pos/billing/receipts/"+encodeURIComponent(document.id)}
+                          target="_blank" rel="noopener noreferrer"
+                          className="inline-flex items-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-bold text-blue-700 hover:bg-blue-100">
+                          <Icon name="file" size={15} />เปิดใบเสร็จ / พิมพ์ PDF
+                        </a>
+                      </td>
+                    </tr>)}
+                  </tbody>
+                </table>
+              </div>}
             {!snapshot.issuer.vat_registered ? <p className="mt-3 text-xs text-slate-500">
-              บริษัทยังไม่ได้จดทะเบียน VAT และไม่มีการออกใบกำกับภาษี VAT อัตโนมัติ</p> : null}
+              ใบเสร็จปัจจุบันเป็นใบเสร็จรับเงิน ไม่ใช่ใบกำกับภาษี VAT</p> : null}
           </section> : null}
         </main>
 
