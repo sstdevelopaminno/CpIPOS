@@ -202,7 +202,7 @@ export function PosMaintenanceNotice() {
     : "ท่านยังสามารถขายสินค้าและใช้งานระบบได้ตามปกติ แต่อาจพบความล่าช้าหรือผลกระทบเล็กน้อยในบางช่วงเวลา บริษัทฯ ขออภัยในความไม่สะดวก";
 
   const dismissEmergency = () => {
-    if (!broadcast?.dismissible || !broadcast.updated_at) return;
+    if (!broadcast?.updated_at) return;
     try {
       window.localStorage.setItem(
         dismissedBroadcastKey(broadcast.updated_at),
@@ -261,16 +261,14 @@ export function PosMaintenanceNotice() {
           </a>
         ) : null}
 
-        {(emergencyVisible ? broadcast?.dismissible : true) ? (
-          <button
-            type="button"
-            className="-mr-1 -mt-1 rounded-lg px-2 py-1 text-lg font-black leading-none hover:bg-black/10 focus:outline-none focus:ring-2 focus:ring-current"
-            aria-label="ปิดข้อความแจ้งเตือน"
-            onClick={emergencyVisible ? dismissEmergency : () => setMaintenanceVisible(false)}
-          >
-            ×
-          </button>
-        ) : null}
+        <button
+          type="button"
+          className="-mr-1 -mt-1 rounded-lg px-2 py-1 text-lg font-black leading-none hover:bg-black/10 focus:outline-none focus:ring-2 focus:ring-current"
+          aria-label="ปิดข้อความแจ้งเตือน"
+          onClick={emergencyVisible ? dismissEmergency : () => setMaintenanceVisible(false)}
+        >
+          ×
+        </button>
       </div>
     </div>
   );
