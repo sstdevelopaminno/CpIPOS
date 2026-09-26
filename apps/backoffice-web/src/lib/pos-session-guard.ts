@@ -4,7 +4,7 @@ import crypto from "node:crypto";
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import { readRequiredEnv } from "@/lib/env";
-import { getSupabaseServiceClient } from "@/lib/supabase-admin";
+import { getPrimarySupabaseServiceClient, getSupabaseServiceClient } from "@/lib/supabase-admin";
 
 export type PosSessionRow = {
   id: string;
@@ -77,9 +77,16 @@ type PosSessionRoleCacheEntry = {
   expiresAt: number;
 };
 
+type SubscriptionAccessCacheEntry = {
+  locked: boolean;
+  reason: string | null;
+  expiresAt: number;
+};
+
 const POS_SESSION_ROW_CACHE_TTL_MS = 4000;
 const POS_SCOPE_EXTRAS_CACHE_TTL_MS = 20000;
 const POS_SESSION_ROLE_CACHE_TTL_MS = 20000;
+const POS_SUBSCRIPTION_ACCESS_CACHE_TTL_MS = 30000;
 
 function getPosSessionRowCache() {
   const scopedGlobal = globalThis as typeof globalThis & {
@@ -109,6 +116,46 @@ function getPosSessionRoleCache() {
     scopedGlobal.__posSessionRoleCache = new Map<string, PosSessionRoleCacheEntry>();
   }
   return scopedGlobal.__posSessionRoleCache;
+}
+
+function getSubscriptionAccessCache() {
+  const scopedGlobal = globalThis as typeof globalThis & {
+    __posSubscriptionAccessCache?: Map<string, SubscriptionAccessCacheEntry>;
+  };
+  if (!scopedGlobal.__posSubscriptionAccessCache) {
+    scopedGlobal.__posSubscriptionAccessCache = new Map<string, SubscriptionAccessCacheEntry>();
+  }
+  return scopedGlobal.__posSubscriptionAccessCache;
+}
+
+async function assertSubscriptionAllowsSales(tenantId: string) {
+  const now = Date.now();
+  const cache = getSubscriptionAccessCache();
+  const cached = cache.get(tenantId);
+  if (cached && cached.expiresAt > now) {
+    if (cached.locked) throw new PosGuardError("subscription_locked", cached.reason || "Subscription payment is required.", 423);
+    return;
+  }
+
+  const primary = getPrimarySupabaseServiceClient();
+  const result = await primary.from("tenant_data_lifecycle")
+    .select("lifecycle_status,access_locked,lock_reason,subscription_expires_at,trial_expires_at,metadata")
+    .eq("tenant_id", tenantId).maybeSingle<{
+      lifecycle_status:string; access_locked:boolean; lock_reason:string|null;
+      subscription_expires_at:string|null; trial_expires_at:string|null; metadata:Record<string,unknown>|null;
+    }>();
+  if (result.error) {
+    console.error("[pos-session-guard] subscription access lookup failed", result.error.message);
+    throw new PosGuardError("subscription_lookup_failed", "Unable to verify subscription access.", 503);
+  }
+  const row = result.data;
+  const exempt = row?.lifecycle_status === "sales_demo" || row?.metadata?.quota_exempt === true;
+  const expiry = row?.lifecycle_status === "trial" ? row.trial_expires_at : row?.subscription_expires_at;
+  const expiredByTime = Boolean(expiry && Date.parse(expiry) <= now);
+  const locked = Boolean(row && !exempt && (row.access_locked || expiredByTime));
+  const reason = row?.lock_reason || (expiredByTime ? "subscription_expired" : null);
+  cache.set(tenantId,{locked,reason,expiresAt:now+POS_SUBSCRIPTION_ACCESS_CACHE_TTL_MS});
+  if (locked) throw new PosGuardError("subscription_locked", reason || "Subscription payment is required.", 423);
 }
 
 function readPosSessionRowCache(sessionId: string): PosSessionRow | null | undefined {
@@ -608,6 +655,7 @@ export async function requirePosSessionForShiftClose(): Promise<PosSessionScope>
 
 export async function requireActiveShift(scopeArg?: PosSessionScope): Promise<{ scope: PosSessionScope; shift: ShiftRow }> {
   const scope = scopeArg ?? (await requirePosSession());
+  await assertSubscriptionAllowsSales(scope.session.tenant_id);
   const supabase = getSupabaseServiceClient();
   let shiftRow: ShiftRow | null = null;
   if (scope.session.shift_id) {
