@@ -70,37 +70,49 @@ export function PosMaintenanceNotice() {
   const [broadcast, setBroadcast] = useState<Broadcast | null>(null);
   const [broadcastDismissed, setBroadcastDismissed] = useState(false);
   const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const broadcastRequestRef = useRef<Promise<void> | null>(null);
 
-  const loadBroadcast = useCallback(async () => {
-    if (!isPosPath(pathname)) return;
-    if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
+  const loadBroadcast = useCallback(() => {
+    if (!isPosPath(pathname)) return Promise.resolve();
+    if (typeof document !== "undefined" && document.visibilityState === "hidden") return Promise.resolve();
+    if (broadcastRequestRef.current) return broadcastRequestRef.current;
 
-    try {
-      const response = await fetch(
-        `${BROADCAST_API_BASE.replace(/\/$/, "")}/api/public/emergency-broadcast?target=pos`,
-        { cache: "no-store", credentials: "omit" }
-      );
-      if (!response.ok) return;
-
-      const payload = await response.json();
-      const next = (payload?.data?.broadcast ?? null) as Broadcast | null;
-      setBroadcast(next);
-
-      if (!next?.updated_at) {
-        setBroadcastDismissed(false);
-        return;
-      }
-
+    let requestPromise: Promise<void>;
+    requestPromise = (async () => {
       try {
-        setBroadcastDismissed(
-          window.localStorage.getItem(dismissedBroadcastKey(next.updated_at)) === next.updated_at
+        const response = await fetch(
+          `${BROADCAST_API_BASE.replace(/\/$/, "")}/api/public/emergency-broadcast?target=pos`,
+          { cache: "no-store", credentials: "omit" }
         );
+        if (!response.ok) return;
+
+        const payload = await response.json();
+        const next = (payload?.data?.broadcast ?? null) as Broadcast | null;
+        setBroadcast(next);
+
+        if (!next?.updated_at) {
+          setBroadcastDismissed(false);
+          return;
+        }
+
+        try {
+          setBroadcastDismissed(
+            window.localStorage.getItem(dismissedBroadcastKey(next.updated_at)) === next.updated_at
+          );
+        } catch {
+          setBroadcastDismissed(false);
+        }
       } catch {
-        setBroadcastDismissed(false);
+        // The existing POS maintenance notice remains available if the control plane is unreachable.
+      } finally {
+        if (broadcastRequestRef.current === requestPromise) {
+          broadcastRequestRef.current = null;
+        }
       }
-    } catch {
-      // The existing POS maintenance notice remains available if the control plane is unreachable.
-    }
+    })();
+
+    broadcastRequestRef.current = requestPromise;
+    return requestPromise;
   }, [pathname]);
 
   useEffect(() => {
