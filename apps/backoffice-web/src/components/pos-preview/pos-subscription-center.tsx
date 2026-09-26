@@ -495,6 +495,23 @@ export function PosSubscriptionCenter({ initial, isOwner }: {
               <div><h2 className="text-lg font-bold text-slate-900">ประวัติการชำระแพ็กเกจ</h2>
                 <p className="mt-1 text-xs text-slate-500">ข้อมูลเดียวกับฝั่ง IT จาก CpiPOS-001 เมื่อ IT อนุมัติแล้วเลขที่ใบเสร็จจะปรากฏที่นี่</p></div>
             </div>
+            <div className="grid gap-2 sm:grid-cols-3">
+              <div className="rounded-xl border border-blue-100 bg-blue-50 p-3">
+                <p className="text-xs font-semibold text-blue-700">ยอดชำระรายเดือน</p>
+                <strong className="mt-1 block text-lg text-blue-950">{formatMoney(snapshot.payment_summary.monthly_paid)}</strong>
+                <span className="text-xs text-blue-700">{snapshot.payment_summary.monthly_count} ครั้ง</span>
+              </div>
+              <div className="rounded-xl border border-violet-100 bg-violet-50 p-3">
+                <p className="text-xs font-semibold text-violet-700">ยอดชำระรายปี</p>
+                <strong className="mt-1 block text-lg text-violet-950">{formatMoney(snapshot.payment_summary.yearly_paid)}</strong>
+                <span className="text-xs text-violet-700">{snapshot.payment_summary.yearly_count} ครั้ง</span>
+              </div>
+              <div className="rounded-xl border border-emerald-100 bg-emerald-50 p-3">
+                <p className="text-xs font-semibold text-emerald-700">ยอดรับชำระรวม</p>
+                <strong className="mt-1 block text-lg text-emerald-950">{formatMoney(snapshot.payment_summary.total_paid)}</strong>
+                <span className="text-xs text-emerald-700">{snapshot.payment_summary.receipt_count} ใบเสร็จ</span>
+              </div>
+            </div>
             {snapshot.requests.length === 0 ? <p className="rounded-xl bg-slate-50 p-5 text-sm text-slate-500">
               ยังไม่มีคำขอแพ็กเกจของร้านนี้</p> :
               <div className="overflow-x-auto"><table className="min-w-[980px] w-full text-left text-sm">
