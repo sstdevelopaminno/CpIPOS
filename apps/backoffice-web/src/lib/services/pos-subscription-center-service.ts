@@ -24,6 +24,7 @@ type Receipt = {
   id: string; payment_request_id: string; billing_cycle_id: string; receipt_number: string;
   issued_at: string; amount: number; currency: string; package_snapshot: Record<string, unknown> | null
 };
+type ReceiptAnnotation = { receipt_id:string; correction_note:string|null; voided_at:string|null };
 
 function positive(value: unknown) {
   const n = Number(value);
@@ -38,7 +39,7 @@ function amount(value: unknown): number | null {
 export async function loadPosSubscriptionCenter(tenantId: string) {
   // Commercial authority lives in CpiPOS-001, never in a trial tenant sales data plane.
   const db = getPrimarySupabaseServiceClient();
-  const [tenantResult, contractResult, lifecycleResult, issuerResult, packagesResult, requestResult, cycleResult, receiptResult] = await Promise.all([
+  const [tenantResult, contractResult, lifecycleResult, issuerResult, packagesResult, requestResult, cycleResult, receiptResult, receiptAnnotationResult] = await Promise.all([
     db.from("tenants").select("id,code,name,display_name,package_id")
       .eq("id",tenantId).maybeSingle<Tenant>(),
     db.from("tenant_subscription_contracts")
@@ -61,9 +62,11 @@ export async function loadPosSubscriptionCenter(tenantId: string) {
       .eq("tenant_id",tenantId).order("created_at",{ascending:false}).limit(30).returns<Cycle[]>(),
     db.from("tenant_subscription_receipts")
       .select("id,payment_request_id,billing_cycle_id,receipt_number,issued_at,amount,currency,package_snapshot")
-      .eq("tenant_id",tenantId).order("issued_at",{ascending:false}).limit(50).returns<Receipt[]>()
+      .eq("tenant_id",tenantId).order("issued_at",{ascending:false}).limit(50).returns<Receipt[]>(),
+    db.from("tenant_subscription_receipt_annotations")
+      .select("receipt_id,correction_note,voided_at").eq("tenant_id",tenantId).returns<ReceiptAnnotation[]>()
   ]);
-  for (const item of [tenantResult,contractResult,lifecycleResult,issuerResult,packagesResult,requestResult,cycleResult,receiptResult]) {
+  for (const item of [tenantResult,contractResult,lifecycleResult,issuerResult,packagesResult,requestResult,cycleResult,receiptResult,receiptAnnotationResult]) {
     if (item.error) throw new Error("Subscription information is temporarily unavailable.");
   }
   const tenant = tenantResult.data;
@@ -83,6 +86,7 @@ export async function loadPosSubscriptionCenter(tenantId: string) {
   const remaining = expiry && Number.isFinite(Date.parse(expiry))
     ? Math.ceil((Date.parse(expiry)-now)/86400000) : null;
   const issuer = issuerResult.data;
+  const receiptAnnotationById = new Map((receiptAnnotationResult.data ?? []).map((row)=>[row.receipt_id,row]));
   return {
     store: { id: tenant.id, code: tenant.code || tenant.id.slice(0,8).toUpperCase(),
       name: tenant.display_name || tenant.name },
@@ -131,7 +135,9 @@ export async function loadPosSubscriptionCenter(tenantId: string) {
           number: issuedReceipt.receipt_number,
           issued_at: issuedReceipt.issued_at,
           amount: Number(issuedReceipt.amount),
-          currency: issuedReceipt.currency || "THB"
+          currency: issuedReceipt.currency || "THB",
+          voided: Boolean(receiptAnnotationById.get(issuedReceipt.id)?.voided_at),
+          correction_note: receiptAnnotationById.get(issuedReceipt.id)?.correction_note ?? null
         } : null
       };
     }),
@@ -176,7 +182,9 @@ export async function loadPosSubscriptionCenter(tenantId: string) {
       package_code: typeof row.package_snapshot?.package_code === "string" ? row.package_snapshot.package_code : "",
       billing_interval: row.package_snapshot?.billing_interval === "yearly" ? "yearly" : "monthly",
       period_start: typeof row.package_snapshot?.period_start === "string" ? row.package_snapshot.period_start : "",
-      period_end: typeof row.package_snapshot?.period_end === "string" ? row.package_snapshot.period_end : ""
+      period_end: typeof row.package_snapshot?.period_end === "string" ? row.package_snapshot.period_end : "",
+      voided: Boolean(receiptAnnotationById.get(row.id)?.voided_at),
+      correction_note: receiptAnnotationById.get(row.id)?.correction_note ?? null
     }))
   };
 }
