@@ -10,6 +10,7 @@ const settings = read("../../src/components/pos-preview/pos-settings-workspace.t
 const server = read("../../src/lib/server/pos-menu-policy-service.ts");
 const qrPortal = read("../../src/components/pos-preview/table-qr-settings-menu-portal.tsx");
 const settingsPage = read("../../src/app/preview/pos/settings/page.tsx");
+const lockDialog = read("../../src/components/pos-preview/it-menu-lock-dialog.tsx");
 
 describe("POS tenant menu toggle regression", () => {
   it("uses one authoritative policy table in the POS feature endpoint", () => {
@@ -41,6 +42,16 @@ describe("POS tenant menu toggle regression", () => {
     expect(qrPortal).toContain("timelineEnabled");
     expect(qrPortal).toContain("ItMenuLockDialog");
   });
+  it("keeps the IT lock popup dismissible above the POS shell", () => {
+    expect(lockDialog).toContain("createPortal");
+    expect(lockDialog).toContain("document.body");
+    expect(lockDialog).toContain('event.key !== "Escape"');
+    expect(lockDialog).toContain("event.target === event.currentTarget");
+    expect(lockDialog).toContain("event.stopPropagation()");
+    expect(lockDialog).toContain("รับทราบ");
+    expect(lockDialog).toContain("z-[300]");
+  });
+
   it("preserves POS direct URL availability; IT menu locks are UI-only, not 404 gates", () => {
     const pages = [
       "page.tsx", "sales-list/page.tsx", "kitchen/page.tsx", "shift/page.tsx",
