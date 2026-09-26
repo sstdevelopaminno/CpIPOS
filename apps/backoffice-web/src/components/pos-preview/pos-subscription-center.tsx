@@ -104,7 +104,8 @@ export function PosSubscriptionCenter({ initial, isOwner }: {
     initial.contract.package_id || initial.packages[0]?.id || "");
   const [interval, setInterval] = useState(initialPending?.billing_interval === "yearly" ||
     (!initialPending && initial.contract.billing_interval === "yearly") ? "yearly" : "monthly");
-  const [amount, setAmount] = useState("");
+  const [amount, setAmount] = useState(initialPending?.created_by_it && initialPending.expected_amount
+    ? String(initialPending.expected_amount) : "");
   const [payer, setPayer] = useState("");
   const [reference, setReference] = useState("");
   const [transferAt, setTransferAt] = useState("");
@@ -122,8 +123,10 @@ export function PosSubscriptionCenter({ initial, isOwner }: {
   const lastRequest = snapshot.requests[0];
   const demo = snapshot.contract.is_internal_demo;
   const hasBank = Boolean(snapshot.issuer.account_number || snapshot.issuer.promptpay_id);
+  const pendingCanAcceptPayment = Boolean(pending && !pending.has_evidence &&
+    (pending.kind === "renewal_intent" || (pending.kind === "payment_notice" && pending.created_by_it)));
   const canSubmit = isOwner && !demo && !busy &&
-    (!pending || (tab === "notice" && pending.kind === "renewal_intent"));
+    (!pending || (tab === "notice" && pendingCanAcceptPayment));
   const packageRow = useMemo(() =>
     snapshot.packages.find((row) => row.id === selectedPackage), [selectedPackage, snapshot.packages]);
   const cycleLabel = snapshot.contract.billing_interval === "yearly" ? "รายปี" : "รายเดือน";
@@ -158,6 +161,9 @@ export function PosSubscriptionCenter({ initial, isOwner }: {
       if (open) {
         setSelectedPackage(open.package_id || "");
         setInterval(open.billing_interval === "yearly" ? "yearly" : "monthly");
+        if (open.created_by_it && !open.has_evidence && open.expected_amount) {
+          setAmount(String(open.expected_amount));
+        }
       }
     } catch (cause) { setError(cause instanceof Error ? cause.message : "โหลดข้อมูลไม่สำเร็จ"); }
     finally { setRefreshing(false); }
@@ -175,7 +181,7 @@ export function PosSubscriptionCenter({ initial, isOwner }: {
       if (!payer.trim()) { setError("กรุณาระบุชื่อผู้โอน"); return; }
     }
     if (!requestKey.current) {
-      requestKey.current = kind === "payment_notice" && pending?.kind === "renewal_intent"
+      requestKey.current = kind === "payment_notice" && pendingCanAcceptPayment && pending
         ? pending.id : crypto.randomUUID();
     }
     setBusy(true); setError(""); setMessage("");
@@ -315,9 +321,14 @@ export function PosSubscriptionCenter({ initial, isOwner }: {
 
       {pending ? <div className="flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
         <Icon name="info" size={19} className="mt-0.5" />
-        <p>มีคำขอแพ็กเกจรอตรวจสอบ ({LABELS[pending.status] || pending.status}) · {pending.kind === "renewal_intent" ?
-          "สามารถแจ้งชำระโดยแนบสลิปในคำขอเดิมได้" :
-          "ส่งคำขอใหม่ได้หลังตรวจสอบรายการเดิมเสร็จ"}</p>
+        <div>
+          <p className="font-semibold">มีคำขอแพ็กเกจรอตรวจสอบ ({LABELS[pending.status] || pending.status})</p>
+          <p className="mt-0.5">{pendingCanAcceptPayment
+            ? pending.created_by_it
+              ? "ฝ่าย IT สร้างรายการชำระไว้แล้ว คุณสามารถเปิดเมนู “แจ้งชำระเงิน” เพื่อแนบสลิปและข้อมูลการโอนลงในรายการเดิมได้"
+              : "สามารถแจ้งชำระโดยแนบสลิปในคำขอเดิมได้"
+            : "ส่งคำขอใหม่ได้หลังตรวจสอบรายการเดิมเสร็จ"}</p>
+        </div>
       </div> : null}
 
       <div className="grid min-w-0 items-start gap-4 xl:grid-cols-[minmax(0,1fr)_365px]">
@@ -372,6 +383,15 @@ export function PosSubscriptionCenter({ initial, isOwner }: {
               เฉพาะเจ้าของร้านเท่านั้นที่ส่งคำขอแพ็กเกจได้</p> : null}
             {demo ? <p className="rounded-lg bg-blue-50 p-3 text-sm text-blue-900">
               บัญชีทดสอบภายในไม่ต้องต่ออายุหรือแจ้งชำระแพ็กเกจ</p> : null}
+            {tab === "notice" && pending?.created_by_it && !pending.has_evidence ? <div
+              className="rounded-xl border border-blue-200 bg-blue-50 p-3 text-sm text-blue-900">
+              <strong>รายการชำระถูกเตรียมจากฝ่าย IT แล้ว</strong>
+              <p className="mt-1 text-xs leading-5">
+                แพ็กเกจ {pending.package_name || "—"} · {pending.billing_interval === "yearly" ? "รายปี" : "รายเดือน"} ·
+                ยอดตามแพ็กเกจ {formatMoney(pending.expected_amount)}
+                กรุณาแนบสลิปและกรอกข้อมูลการโอน ระบบจะอัปเดตรายการเดิม ไม่สร้างคำขอซ้ำ
+              </p>
+            </div> : null}
             <div className="grid gap-2 sm:grid-cols-2">
               <label className="min-w-0 rounded-xl border border-[#e4ebf6] p-3">
                 <StepLabel number={1}>เลือกแพ็กเกจ</StepLabel>

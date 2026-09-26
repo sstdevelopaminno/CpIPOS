@@ -124,6 +124,8 @@ export async function loadPosSubscriptionCenter(tenantId: string) {
         currency:row.currency,submitted_at:row.submitted_at,reviewed_at:row.reviewed_at,
         review_note:row.review_note,has_evidence:Boolean(row.evidence_url),
         kind: row.metadata?.kind === "payment_notice" ? "payment_notice" : "renewal_intent",
+        source: typeof row.metadata?.source === "string" ? row.metadata.source : "unknown",
+        created_by_it: row.metadata?.source === "it_tenant_control",
         receipt: issuedReceipt ? {
           id: issuedReceipt.id,
           number: issuedReceipt.receipt_number,

@@ -47,18 +47,24 @@ export async function POST(request: Request) {
 
     const db = getPrimarySupabaseServiceClient();
     type PendingRequest = {id:string;tenant_id:string;status:string;requested_package_id:string|null;
-      evidence_url:string|null;metadata:Record<string,unknown>|null};
+      amount_reported:number|null;evidence_url:string|null;metadata:Record<string,unknown>|null};
     const idempotent = await db.from("tenant_subscription_payment_requests")
-      .select("id,tenant_id,status,requested_package_id,evidence_url,metadata")
+      .select("id,tenant_id,status,requested_package_id,amount_reported,evidence_url,metadata")
       .eq("id",requestKey).maybeSingle<PendingRequest>();
     if (idempotent.error) throw new Error("Unable to check existing subscription request.");
     const existingById = idempotent.data;
     if (existingById?.tenant_id && existingById.tenant_id !== scope.session.tenant_id) {
       return fail("request_conflict","Request identifier conflicts with another store.",409);
     }
-    const upgrading = Boolean(existingById && kind==="payment_notice" &&
+    const upgradingRenewal = Boolean(existingById && kind==="payment_notice" &&
       ["pending","under_review"].includes(existingById.status) &&
       existingById.metadata?.kind==="renewal_intent" && !existingById.evidence_url);
+    const completingItPreparedPayment = Boolean(existingById && kind==="payment_notice" &&
+      ["pending","under_review"].includes(existingById.status) &&
+      existingById.metadata?.kind==="payment_notice" &&
+      existingById.metadata?.source==="it_tenant_control" &&
+      !existingById.evidence_url && existingById.amount_reported == null);
+    const upgrading = upgradingRenewal || completingItPreparedPayment;
     if (existingById && !upgrading) {
       return ok({ id:existingById.id, status:existingById.status, already_submitted:true });
     }
@@ -154,8 +160,9 @@ export async function POST(request: Request) {
     const inserted = upgrading
       ? await db.from("tenant_subscription_payment_requests").update({
           amount_reported:amountReported,evidence_url:filePath,metadata,updated_at:new Date().toISOString()
-        }).eq("id",requestKey).eq("tenant_id",scope.session.tenant_id).in("status",["pending","under_review"])
-          .is("evidence_url",null).contains("metadata",{kind:"renewal_intent"})
+        }).eq("id",requestKey).eq("tenant_id",scope.session.tenant_id)
+          .eq("requested_package_id",target.id).in("status",["pending","under_review"])
+          .is("evidence_url",null)
           .select("id,status").maybeSingle<{id:string;status:string}>()
       : await db.from("tenant_subscription_payment_requests").insert({
           id:requestKey,tenant_id:scope.session.tenant_id,requested_package_id:target.id,
