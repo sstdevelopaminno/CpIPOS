@@ -8,6 +8,7 @@ type Lifecycle = {
   lock_reason:string|null;
   subscription_expires_at:string|null;
   trial_expires_at:string|null;
+  grace_until:string|null;
   metadata:Record<string,unknown>|null;
 };
 type Contract = {
@@ -33,7 +34,7 @@ export async function loadPosSubscriptionLifecycleGuard(tenantId:string) {
   const db=getPrimarySupabaseServiceClient();
   const [life,contract,packages,issuer]=await Promise.all([
     db.from("tenant_data_lifecycle")
-      .select("lifecycle_status,access_locked,lock_reason,subscription_expires_at,trial_expires_at,metadata")
+      .select("lifecycle_status,access_locked,lock_reason,subscription_expires_at,trial_expires_at,grace_until,metadata")
       .eq("tenant_id",tenantId).maybeSingle<Lifecycle>(),
     db.from("tenant_subscription_contracts")
       .select("package_id,billing_interval,amount_per_cycle,currency,status")
@@ -51,7 +52,9 @@ export async function loadPosSubscriptionLifecycleGuard(tenantId:string) {
   const exempt=lifecycle?.lifecycle_status==="sales_demo" || lifecycle?.metadata?.quota_exempt===true;
   const expiry=exempt ? null : lifecycle?.lifecycle_status==="trial"
     ? lifecycle?.trial_expires_at ?? null
-    : lifecycle?.subscription_expires_at ?? null;
+    : lifecycle?.lifecycle_status==="grace"
+      ? lifecycle?.grace_until ?? null
+      : lifecycle?.subscription_expires_at ?? null;
   const daysRemaining=expiry && Number.isFinite(Date.parse(expiry))
     ? Math.ceil((Date.parse(expiry)-Date.now())/86400000) : null;
   const cycleAmount=moneyValue(current?.amount_per_cycle) ??
