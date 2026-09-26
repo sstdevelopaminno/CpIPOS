@@ -390,8 +390,8 @@ export function PosSubscriptionCenter({ initial, isOwner }: {
             <button type="button" onClick={closePopup} className="h-9 w-9 rounded-full border border-slate-200 bg-white text-xl text-slate-500">×</button>
           </header>
           <div className="min-h-0 flex-1 overflow-y-auto p-3 sm:p-5">
-      <div className="grid min-w-0 items-start gap-4 xl:grid-cols-[minmax(0,1fr)_365px]">
-        <main className={infoPopup ? "hidden" : "min-w-0 space-y-3"}>
+      <div className="grid min-w-0 items-start gap-4">
+        {!infoPopup ? <main className="min-w-0 space-y-3">
           <nav aria-label="เมนูแพ็กเกจ" className="hidden min-w-0 gap-1 overflow-x-auto border-b border-[#dce5f2]">
             {tabs.map((item) => <button type="button" key={item.key}
               aria-current={tab === item.key ? "page" : undefined}
@@ -693,9 +693,9 @@ export function PosSubscriptionCenter({ initial, isOwner }: {
             {!snapshot.issuer.vat_registered ? <p className="mt-3 text-xs text-slate-500">
               ใบเสร็จปัจจุบันเป็นใบเสร็จรับเงิน ไม่ใช่ใบกำกับภาษี VAT</p> : null}
           </section> : null}
-        </main>
+        </main> : null}
 
-        <aside className={infoPopup ? "min-w-0 space-y-3 xl:col-span-2" : "min-w-0 space-y-3 xl:pt-1"}>
+        {infoPopup ? <aside className="mx-auto w-full max-w-2xl min-w-0 space-y-3">
           {(!infoPopup || infoPopup === "bank") ? <section className={box + " space-y-3 p-4"}>
             <div className="flex items-center gap-3"><ToneIcon icon="bank" />
               <div><h2 className="text-base font-extrabold text-[#152541]">บัญชีรับชำระของบริษัท</h2>
@@ -756,7 +756,7 @@ export function PosSubscriptionCenter({ initial, isOwner }: {
                 <Icon name="mail" size={16} />{snapshot.issuer.support_email}</a>
             </div>
           </section> : null}
-        </aside>
+        </aside> : null}
       </div>
           </div>
         </section>
