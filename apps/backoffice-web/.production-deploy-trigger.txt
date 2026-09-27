@@ -1,9 +1,10 @@
 CpIPOS production deployment request
 requested_at: 2026-09-27
-purpose: publish Supabase Log Ingestion reduction for POS feature entitlement checks
+purpose: publish final POS stabilization, Android 1.0.23 code32 metadata, print release wiring, and readable update prompts
 source_repository: sstdevelopaminno/CpIPOS
 source_branch: agent-docs-preflight-schema-drift
-requested_from_commit: 292eecb95fc1eef24f175c5a71caef749d0e4b80
+requested_from_commit: 81c916fed0300034fa114f283a718acc1abcfe33
 project: cp-ipos-web
-validation: CI typecheck/lint/tests/schema-drift/build passed
-note: deployment trigger only; no environment or schema changes
+validation: CI typecheck/lint/tests/schema-drift/build passed; Android Modern signed build passed; Full MDM validation passed
+android_release: android-runtime-modern-1.0.23-final
+note: final production trigger after previous Vercel build-rate-limit
