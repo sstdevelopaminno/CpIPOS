@@ -43,9 +43,9 @@ describe("Android POS stable/Modern update safety regression contract", () => {
     expect(mandatoryUpdate).not.toContain("NATIVE_ANDROID_POS_PATTERN");
   });
 
-  it("offers Modern 1.0.22 code30 only by explicit capability opt-in", () => {
-    expect(androidRuntimeRelease).toContain('versionName: "1.0.22"');
-    expect(androidRuntimeRelease).toContain('versionCode: 30');
+  it("offers final Modern 1.0.23 code32 only by explicit capability opt-in", () => {
+    expect(androidRuntimeRelease).toContain('versionName: "1.0.23"');
+    expect(androidRuntimeRelease).toContain('versionCode: 32');
     expect(androidRuntimeRelease).not.toContain('new Set(["FG0003", "FG00003"])');
     expect(androidRuntimeRelease).toContain('if (updates.managed_notice !== true) return null;');
     expect(androidRuntimeRelease).toContain('if (updates.silent_install !== false) return null;');
@@ -63,12 +63,12 @@ describe("Android POS stable/Modern update safety regression contract", () => {
     expect(mdmHeartbeat).toContain('updatePolicy: asRecord(scope.metadata).android_update_policy');
   });
 
-  it("pins the customer download route to the published Modern 1.0.23 APK without an old-version fallback", () => {
-    expect(downloadLatest).toContain('const releaseTag = "android-runtime-modern-1.0.23"');
-    expect(downloadLatest).toContain('const expectedVersion = "1.0.23"');
-    expect(downloadLatest).toContain('const expectedAssetName = `CpIPOS-Android-POS-${expectedVersion}.apk`');
-    expect(downloadLatest).toContain('item.name === expectedAssetName');
-    expect(downloadLatest).toContain('redirect.headers.set("X-CpIPOS-Android-Version", expectedVersion)');
+  it("pins the customer download route to the shared final Modern release metadata", () => {
+    expect(downloadLatest).toContain('import { ANDROID_MODERN_RELEASE } from "@/lib/android-runtime-release"');
+    expect(downloadLatest).toContain('ANDROID_MODERN_RELEASE.releaseTag');
+    expect(downloadLatest).toContain('item.name === ANDROID_MODERN_RELEASE.assetName');
+    expect(downloadLatest).toContain('redirect.headers.set("X-CpIPOS-Android-Version", ANDROID_MODERN_RELEASE.versionName)');
+    expect(downloadLatest).toContain('redirect.headers.set("X-CpIPOS-Android-Version-Code", String(ANDROID_MODERN_RELEASE.versionCode))');
     expect(downloadLatest).not.toContain('stableAsset ?? fallbackAsset');
   });
 });
