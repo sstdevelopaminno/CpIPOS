@@ -10,6 +10,7 @@ const tableOrderMobile = source("../../src/components/table-order/table-order-mo
 const androidMandatoryUpdate = source("../../src/components/android-pos/android-pos-mandatory-update.tsx");
 const productMediaRoute = source("../../src/app/api/pos/product-media/route.ts");
 const featureGate = source("../../src/lib/feature-gate.ts");
+const posFeaturesRoute = source("../../src/app/api/pos/features/route.ts");
 
 describe("polling request-churn regression guard", () => {
   it("backs the global POS Table QR alert off to 30s while idle", () => {
@@ -52,5 +53,15 @@ describe("polling request-churn regression guard", () => {
     expect(featureGate).toContain("readLatestContractCache(tenantId)");
     expect(featureGate).toContain("writeLatestContractCache(tenantId, resolved)");
     expect(featureGate).toContain("contractInFlight.clear()");
+  });
+
+  it("loads the POS feature matrix in bulk instead of querying Supabase once per menu feature", () => {
+    expect(posFeaturesRoute).toContain('from("subscription_package_features")');
+    expect(posFeaturesRoute).toContain('from("tenant_feature_subscriptions")');
+    expect(posFeaturesRoute).toContain('.in("feature_code", featureCodes)');
+    expect(posFeaturesRoute).toContain('branch_id.is.null,branch_id.eq.');
+    expect(posFeaturesRoute).not.toContain('import { hasBranchFeatureSafe');
+    expect(posFeaturesRoute).not.toContain("await hasBranchFeatureSafe(");
+    expect(posFeaturesRoute).toContain('Cache-Control", "private, max-age=20, stale-while-revalidate=20"');
   });
 });
