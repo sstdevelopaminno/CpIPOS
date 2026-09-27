@@ -10,6 +10,6 @@ describe("system version endpoint", () => {
 
     expect(response.status).toBe(200);
     expect(body.data.source_versions.android_pos).toBe(ANDROID_MODERN_RELEASE.versionName);
-    expect(body.data.source_versions.android_pos).toBe("1.0.22");
+    expect(body.data.source_versions.android_pos).toBe("1.0.23");
   });
 });
