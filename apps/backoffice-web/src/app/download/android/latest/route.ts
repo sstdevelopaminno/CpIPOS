@@ -1,9 +1,7 @@
 import { NextResponse } from "next/server";
+import { ANDROID_MODERN_RELEASE } from "@/lib/android-runtime-release";
 
-const releaseTag = "android-runtime-modern-1.0.23";
-const expectedVersion = "1.0.23";
-const expectedAssetName = `CpIPOS-Android-POS-${expectedVersion}.apk`;
-const releaseApiUrl = `https://api.github.com/repos/sstdevelopaminno/CpIPOS/releases/tags/${releaseTag}`;
+const releaseApiUrl = `https://api.github.com/repos/sstdevelopaminno/CpIPOS/releases/tags/${ANDROID_MODERN_RELEASE.releaseTag}`;
 
 export const dynamic = "force-dynamic";
 
@@ -23,25 +21,26 @@ export async function GET() {
     });
 
     if (!response.ok) {
-      return notReady(`ยังไม่พบ Release ${releaseTag} สำหรับ Android POS`);
+      return notReady(`ยังไม่พบ Release ${ANDROID_MODERN_RELEASE.releaseTag} สำหรับ Android POS`);
     }
 
     const release = (await response.json()) as { assets?: ReleaseAsset[] };
     const asset = release.assets?.find(
-      (item) => item.name === expectedAssetName && Boolean(item.browser_download_url)
+      (item) => item.name === ANDROID_MODERN_RELEASE.assetName && Boolean(item.browser_download_url)
     );
 
     if (!asset?.browser_download_url) {
-      return notReady(`พบ Release ${releaseTag} แล้ว แต่ยังไม่พบไฟล์ ${expectedAssetName}`);
+      return notReady(`พบ Release ${ANDROID_MODERN_RELEASE.releaseTag} แล้ว แต่ยังไม่พบไฟล์ ${ANDROID_MODERN_RELEASE.assetName}`);
     }
 
     const redirect = NextResponse.redirect(asset.browser_download_url, 302);
-    redirect.headers.set("X-CpIPOS-Android-Version", expectedVersion);
-    redirect.headers.set("X-CpIPOS-Android-Channel", "modern");
+    redirect.headers.set("X-CpIPOS-Android-Version", ANDROID_MODERN_RELEASE.versionName);
+    redirect.headers.set("X-CpIPOS-Android-Version-Code", String(ANDROID_MODERN_RELEASE.versionCode));
+    redirect.headers.set("X-CpIPOS-Android-Channel", ANDROID_MODERN_RELEASE.channel);
     redirect.headers.set("Cache-Control", "no-store");
     return redirect;
   } catch {
-    return notReady(`ยังตรวจสอบไฟล์ Android POS ${expectedVersion} ไม่ได้ กรุณาลองใหม่อีกครั้ง`);
+    return notReady(`ยังตรวจสอบไฟล์ Android POS ${ANDROID_MODERN_RELEASE.versionName} ไม่ได้ กรุณาลองใหม่อีกครั้ง`);
   }
 }
 
@@ -51,7 +50,7 @@ function notReady(reason: string) {
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>CpIPOS Android ${expectedVersion}</title>
+  <title>CpIPOS Android ${ANDROID_MODERN_RELEASE.versionName}</title>
   <style>
     body{margin:0;min-height:100vh;background:#020617;color:#f8fafc;font-family:Tahoma,Arial,sans-serif;display:flex;align-items:center;justify-content:center;padding:24px;box-sizing:border-box}
     main{max-width:720px;border:1px solid #334155;border-radius:24px;background:#0f172a;padding:28px;box-sizing:border-box;box-shadow:0 24px 80px rgba(0,0,0,.35)}
@@ -60,7 +59,7 @@ function notReady(reason: string) {
 </head>
 <body>
   <main>
-    <h1>CpIPOS Android POS ${expectedVersion}</h1>
+    <h1>CpIPOS Android POS ${ANDROID_MODERN_RELEASE.versionName}</h1>
     <p>ระบบยังไม่สามารถเปิดไฟล์ดาวน์โหลดได้ในขณะนี้</p>
     <span class="note">${escapeHtml(reason)}</span>
     <a class="btn" href="/download">กลับไปหน้าดาวน์โหลด</a>
