@@ -24,17 +24,17 @@ permissions:
 
 env:
   ANDROID_RUNTIME_MODULE: apps/pos-android
-  ANDROID_RUNTIME_VERSION: 1.0.22
-  ANDROID_RUNTIME_VERSION_CODE: "30"
-  ANDROID_RUNTIME_RELEASE_TAG: android-runtime-modern-1.0.22
-  ANDROID_RUNTIME_APK_ASSET_NAME: CpIPOS-Android-POS-1.0.22.apk
+  ANDROID_RUNTIME_VERSION: 1.0.23
+  ANDROID_RUNTIME_VERSION_CODE: "32"
+  ANDROID_RUNTIME_RELEASE_TAG: android-runtime-modern-1.0.23-final
+  ANDROID_RUNTIME_APK_ASSET_NAME: CpIPOS-Android-POS-1.0.23.apk
   ANDROID_RUNTIME_COMPAT_ASSET_NAME: CpIPOS-Android-POS-Modern.apk
-  ANDROID_RUNTIME_MANIFEST_ASSET_NAME: CpIPOS-Android-POS-1.0.22.manifest.json
+  ANDROID_RUNTIME_MANIFEST_ASSET_NAME: CpIPOS-Android-POS-1.0.23.manifest.json
   ANDROID_SIGNING_CERT_SHA256: 6be0a9aef346a5b47162c8928c5018a01d0e7d81b4eb177bf2fb89922dc2a27a
 
 jobs:
   build-android-modern-runtime:
-    name: Build Android Modern 1.0.22 code 30
+    name: Build Android Modern 1.0.23 code 32
     runs-on: ubuntu-latest
     timeout-minutes: 35
     steps:
@@ -165,6 +165,18 @@ jobs:
           echo "$badging" | grep -q "package: name='com.cpipos.pos'" || { echo "APK package mismatch: $badging"; exit 1; }
           echo "$badging" | grep -q "versionCode='${ANDROID_RUNTIME_VERSION_CODE}'" || { echo "APK versionCode mismatch: $badging"; exit 1; }
           echo "$badging" | grep -q "versionName='${ANDROID_RUNTIME_VERSION}'" || { echo "APK versionName mismatch: $badging"; exit 1; }
+          if "$aaptPath" dump badging "$apkPath" | grep -q "^application-debuggable"; then
+            echo "Release APK must not be debuggable"
+            exit 1
+          fi
+          "$aaptPath" dump permissions "$apkPath" | grep -q "android.permission.REQUEST_DELETE_PACKAGES" || {
+            echo "Final 1.0.23 APK is missing REQUEST_DELETE_PACKAGES required by Full MDM uninstall"
+            exit 1
+          }
+          "$aaptPath" dump xmltree "$apkPath" AndroidManifest.xml | grep -q "MdmUninstallResultReceiver" || {
+            echo "Final 1.0.23 APK is missing the private uninstall result receiver"
+            exit 1
+          }
 
           mkdir -p artifacts
           cp "$apkPath" "artifacts/${ANDROID_RUNTIME_APK_ASSET_NAME}"
@@ -199,7 +211,7 @@ jobs:
           if-no-files-found: error
 
       - name: Publish Modern signed release
-        if: github.event_name == 'workflow_dispatch' && steps.signing.outputs.ready == 'true'
+        if: (github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/agent-docs-preflight-schema-drift')) && steps.signing.outputs.ready == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -207,8 +219,8 @@ jobs:
           if ! gh release view "$tag" >/dev/null 2>&1; then
             gh release create "$tag" \
               --target "${{ github.sha }}" \
-              --title "CpIPOS Android POS Modern ${ANDROID_RUNTIME_VERSION}" \
-              --notes "Modern managed-device release with verified staged updater. Non-Device-Owner terminals require Android user confirmation; Device Owner terminals may install silently when platform policy permits."
+              --title "CpIPOS Android POS Modern ${ANDROID_RUNTIME_VERSION} Final" \
+              --notes "Final Modern 1.0.23 production build (versionCode 32) with verified stable signing, native LAN/USB/Bluetooth ESC/POS print agent, Full MDM Device Owner controls, managed updater verification, and third-party uninstall completion audit."
           fi
           gh release upload "$tag" \
             "artifacts/${ANDROID_RUNTIME_APK_ASSET_NAME}" \
