@@ -49,7 +49,7 @@ describe("POS general-sale table-only performance contract", () => {
   it("coalesces IT sales-mode policy DOM work and reduces visible-tab polling", () => {
     expect(policy).toContain("requestAnimationFrame");
     expect(policy).toContain("scheduleApplyPolicy");
-    expect(policy).toContain("POLICY_REFRESH_MS = 60_000");
+    expect(policy).toContain("POLICY_REFRESH_MS = 5 * 60_000");
     expect(policy).not.toContain("new MutationObserver(() => applyPolicy())");
   });
 });
