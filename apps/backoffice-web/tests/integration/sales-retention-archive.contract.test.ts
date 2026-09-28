@@ -54,6 +54,6 @@ describe("rolling sales retention archive", () => {
 
   it("prevents spreadsheet formula injection in exported text cells", () => {
     expect(worker).toContain('/^[=+\\-@]/');
-    expect(worker).toContain('"'" + valueText');
+    expect(worker).toContain(`valueText = "'" + valueText`);
   });
 });
