@@ -456,9 +456,9 @@ export function PosSubscriptionCenter({ initial, isOwner }: {
               บัญชีทดสอบภายในไม่ต้องต่ออายุหรือแจ้งชำระแพ็กเกจ</p> : null}
             {tab === "notice" && pending?.created_by_it && !pending.has_evidence ? <div
               className="rounded-xl border border-blue-200 bg-blue-50 p-3 text-sm text-blue-900">
-              <strong>ฝ่าย IT สร้างรายการชำระไว้แล้ว</strong>
+              <strong>รายการชำระถูกเตรียมจากฝ่าย IT แล้ว</strong>
               <p className="mt-1 text-xs leading-5">
-                แพ็กเกจ {pending.package_name || "—"} · {pending.billing_interval === "yearly" ? "รายปี" : "รายเดือน"} ·
+                ฝ่าย IT สร้างรายการชำระไว้แล้ว · แพ็กเกจ {pending.package_name || "—"} · {pending.billing_interval === "yearly" ? "รายปี" : "รายเดือน"} ·
                 ยอดตามแพ็กเกจ {formatMoney(pending.expected_amount)}
                 กรุณาแนบสลิปและกรอกข้อมูลการโอน ระบบจะอัปเดตรายการเดิม ไม่สร้างคำขอซ้ำ
               </p>
@@ -528,7 +528,7 @@ export function PosSubscriptionCenter({ initial, isOwner }: {
                     <span>{packageRow?.contact_sales && due === null ? "ตามสัญญา" : formatMoney(due)}</span>
                   </div>
                   <p className="mt-1 text-xs text-slate-500">
-                    ราคาอ้างอิงจาก CpiPOS-001 · ฝ่าย IT เป็นผู้กำหนดราคาแพ็กเกจ · รอ IT ยืนยันเงินจริง
+                    ราคาอ้างอิงจากฝ่าย IT · CpiPOS-001 · ฝ่าย IT เป็นผู้กำหนดราคาแพ็กเกจ · รอ IT ยืนยันเงินจริง
                   </p>
                 </div>
                 <label className="min-w-0 rounded-xl border border-[#e4ebf6] p-3">
@@ -607,7 +607,7 @@ export function PosSubscriptionCenter({ initial, isOwner }: {
               <Icon name="info" size={17} className="mt-0.5" />
               <p>{tab === "renew" && isCustomSelection
                 ? "คำขอ CUSTOM ยังไม่ใช่การชำระเงิน และจะยังไม่เปลี่ยนแพ็กเกจจนกว่า IT จะตกลงเงื่อนไขและตรวจสอบการชำระเรียบร้อย"
-                : "การแจ้งชำระและสลิปยังไม่ถือว่ารับเงินจริง ระบบจะเปลี่ยนแพ็กเกจหลัง IT ตรวจสอบเงินเข้าและ Settlement สำเร็จ"}</p>
+                : "การแจ้งชำระและสลิปยังไม่ถือว่ารับเงินจริง ระบบจะเปลี่ยนแพ็กเกจเมื่อ IT ตรวจสอบเงินเข้าบัญชีบริษัทและ Settlement สำเร็จ"}</p>
             </div>
             <button type="button" disabled={!canSubmit ||
               (tab === "notice" && (!slip || !hasBank || !amount || !transferAt || !payer.trim()))}
