@@ -122,6 +122,7 @@ export function PosSupportChat({ storeCode, storeName }: { storeCode: string; st
   const [draft, setDraft] = useState("");
   const [attachment, setAttachment] = useState<File | null>(null);
   const [remoteTyping, setRemoteTyping] = useState("");
+  const [closingByIT, setClosingByIT] = useState(false);
   const typingChannelRef = useRef<RealtimeChannel | null>(null);
   const typingTimerRef = useRef<number | null>(null);
   const typingSentAtRef = useRef(0);
@@ -143,6 +144,21 @@ export function PosSupportChat({ storeCode, storeName }: { storeCode: string; st
     headSignalRef.current = "";
   }, []);
 
+  const resetClosedConversation = useCallback((id: string) => {
+    setHeads((current) => current.map((row) =>
+      row.conversation_id === id ? { ...row, status: "closed", unread_store_count: 0 } : row
+    ));
+    setSelectedId((current) => current === id ? "" : current);
+    setConversation((current) => current?.id === id ? null : current);
+    setMessages([]);
+    setDraft("");
+    setAttachment(null);
+    setRemoteTyping("");
+    setClosingByIT(false);
+    setError("");
+    headSignalRef.current = "";
+  }, []);
+
   const loadHeads = useCallback(async () => {
     setBusy("list");
     setError("");
@@ -152,9 +168,15 @@ export function PosSupportChat({ storeCode, storeName }: { storeCode: string; st
       if (!response.ok || !json?.data) throw new Error(json?.error?.message || "โหลดรายการแชทไม่สำเร็จ");
       setHeads(json.data.conversations);
       const current = json.data.conversations.find((row) => row.status !== "closed");
-      if (selectedId && !json.data.conversations.some((row) => row.conversation_id === selectedId)) {
+      const selected = selectedId
+        ? json.data.conversations.find((row) => row.conversation_id === selectedId)
+        : null;
+      if (selectedId && !selected) {
         clearGoneConversation(selectedId);
         if (current) setSelectedId(current.conversation_id);
+      } else if (selectedId && selected?.status === "closed") {
+        resetClosedConversation(selectedId);
+        if (current && current.conversation_id !== selectedId) setSelectedId(current.conversation_id);
       } else if (current && !selectedId) {
         setSelectedId(current.conversation_id);
       }
@@ -163,7 +185,7 @@ export function PosSupportChat({ storeCode, storeName }: { storeCode: string; st
     } finally {
       setBusy("");
     }
-  }, [selectedId, clearGoneConversation]);
+  }, [selectedId, clearGoneConversation, resetClosedConversation]);
 
   const loadMessages = useCallback(async (id: string) => {
     if (!id) return;
@@ -177,14 +199,19 @@ export function PosSupportChat({ storeCode, storeName }: { storeCode: string; st
         return;
       }
       if (!response.ok || !json?.data) throw new Error(json?.error?.message || "โหลดข้อความไม่สำเร็จ");
+      if (json.data.conversation.status === "closed") {
+        resetClosedConversation(id);
+        return;
+      }
       setConversation(json.data.conversation);
+      setClosingByIT(false);
       setMessages(json.data.messages);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "โหลดข้อความไม่สำเร็จ");
     } finally {
       setBusy("");
     }
-  }, [clearGoneConversation]);
+  }, [clearGoneConversation, resetClosedConversation]);
 
   useEffect(() => {
     void loadHeads();
@@ -218,6 +245,10 @@ export function PosSupportChat({ storeCode, storeName }: { storeCode: string; st
         });
 
         if (!selectedId || next.conversation_id !== selectedId) return;
+        if (next.status === "closed") {
+          resetClosedConversation(selectedId);
+          return;
+        }
         const signal = [next.latest_message_at ?? "", next.status ?? "", next.assigned_user_id ?? ""].join("|");
         if (signal === headSignalRef.current) return;
         headSignalRef.current = signal;
@@ -257,7 +288,7 @@ export function PosSupportChat({ storeCode, storeName }: { storeCode: string; st
       })
       .subscribe();
     return () => { void supabase.removeChannel(channel); };
-  }, [loadMessages, selectedId, conversation?.status, conversation?.assigned_user_id]);
+  }, [loadMessages, selectedId, conversation?.status, conversation?.assigned_user_id, resetClosedConversation]);
 
   useEffect(() => {
     if (!selectedId || conversation?.status === "closed") {
@@ -305,6 +336,24 @@ export function PosSupportChat({ storeCode, storeName }: { storeCode: string; st
         const id = `broadcast:${event.client_id}`;
         setMessages((current) => current.filter((item) => item.id !== id));
       })
+      .on("broadcast", { event: "conversation_closing" }, ({ payload }) => {
+        const event = payload as { actor?: string; conversation_id?: string };
+        if (event.actor !== "it" || event.conversation_id !== selectedId) return;
+        setClosingByIT(true);
+        setRemoteTyping("");
+        setDraft("");
+        setAttachment(null);
+      })
+      .on("broadcast", { event: "conversation_closed" }, ({ payload }) => {
+        const event = payload as { actor?: string; conversation_id?: string };
+        if (event.actor !== "it" || event.conversation_id !== selectedId) return;
+        resetClosedConversation(selectedId);
+      })
+      .on("broadcast", { event: "conversation_close_cancelled" }, ({ payload }) => {
+        const event = payload as { actor?: string; conversation_id?: string };
+        if (event.actor !== "it" || event.conversation_id !== selectedId) return;
+        setClosingByIT(false);
+      })
       .subscribe();
     typingChannelRef.current = channel;
     return () => {
@@ -313,7 +362,7 @@ export function PosSupportChat({ storeCode, storeName }: { storeCode: string; st
       typingChannelRef.current = null;
       void supabase.removeChannel(channel);
     };
-  }, [selectedId, conversation?.status]);
+  }, [selectedId, conversation?.status, resetClosedConversation]);
 
   const announceTyping = useCallback((typing: boolean) => {
     const now = Date.now();
@@ -358,7 +407,7 @@ export function PosSupportChat({ storeCode, storeName }: { storeCode: string; st
 
   async function sendMessage() {
     const message = draft.trim();
-    if (!selectedId || (!message && !attachment)) return;
+    if (!selectedId || closingByIT || (!message && !attachment)) return;
 
     const pendingAttachment = attachment;
     const optimisticId = `optimistic:store:${Date.now()}`;
@@ -416,6 +465,16 @@ export function PosSupportChat({ storeCode, storeName }: { storeCode: string; st
         setError("");
         return;
       }
+      if (response.status === 409 && json?.error?.code === "conversation_closed") {
+        void typingChannelRef.current?.send({
+          type: "broadcast",
+          event: "message_retract",
+          payload: { actor: "store", client_id: optimisticId }
+        });
+        setMessages((current) => current.filter((item) => item.id !== optimisticId));
+        resetClosedConversation(selectedId);
+        return;
+      }
       if (!response.ok || !json?.data) throw new Error(json?.error?.message || "ส่งข้อความไม่สำเร็จ");
 
       setConversation(json.data.conversation);
@@ -457,9 +516,8 @@ export function PosSupportChat({ storeCode, storeName }: { storeCode: string; st
         return;
       }
       if (!response.ok || !json?.data) throw new Error(json?.error?.message || "จบการสนทนาไม่สำเร็จ");
-      setConversation(json.data.conversation);
       setHeads((current) => [json.data!.head, ...current.filter((row) => row.conversation_id !== json.data!.head.conversation_id)]);
-      await loadMessages(selectedId);
+      resetClosedConversation(selectedId);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "จบการสนทนาไม่สำเร็จ");
     } finally {
@@ -566,7 +624,12 @@ export function PosSupportChat({ storeCode, storeName }: { storeCode: string; st
                 })}
               </div>
 
-              {conversation?.status === "closed" ? (
+              {closingByIT ? (
+                <div className="border-t border-amber-200 bg-amber-50 px-4 py-4 text-center">
+                  <div className="text-xs font-black text-amber-700">ทีม IT กำลังจบการสนทนา…</div>
+                  <div className="mt-1 text-[11px] text-amber-600">ช่องส่งข้อความถูกปิดชั่วคราวเพื่อป้องกันข้อความหลุดระหว่างปิดเคส</div>
+                </div>
+              ) : conversation?.status === "closed" ? (
                 <div className="border-t border-slate-200 bg-slate-50 px-4 py-3 text-center">
                   <div className="text-xs font-bold text-slate-500">จบการสนทนาแล้ว · ระบบเก็บข้อความไว้ แต่รูปภาพถูกลบแล้ว</div>
                   <button type="button" onClick={() => { setSelectedId(""); setConversation(null); setMessages([]); setDraft(""); setAttachment(null); void loadHeads(); }}
