@@ -1,6 +1,5 @@
 "use client";
 
-import Image from "next/image";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 type Envelope<T> = { data?: T; error?: { code?: string; message?: string } };
@@ -72,7 +71,8 @@ function formatTime(value: string) {
 
 function Avatar({ src, label, tone = "blue" }: { src?: string | null; label: string; tone?: "blue" | "green" }) {
   if (src) {
-    return <Image src={src} alt="" width={36} height={36} className="h-9 w-9 rounded-full border border-slate-200 bg-white object-cover" />;
+    return <span aria-hidden="true" className="h-9 w-9 shrink-0 rounded-full border border-slate-200 bg-white bg-cover bg-center"
+      style={{ backgroundImage: `url("${src.replace(/["\\]/g, "")}")` }} />;
   }
   return <span className={"flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-xs font-black text-white " +
     (tone === "green" ? "bg-emerald-500" : "bg-blue-600")}>{initials(label)}</span>;
