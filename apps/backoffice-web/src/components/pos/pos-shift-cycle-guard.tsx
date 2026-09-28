@@ -8,7 +8,7 @@ import { PosShiftCycleGuard as PosShiftCycleGuardCore } from "@/components/pos/p
 type Lang = "th" | "en";
 
 const MAX_CLIENT_CLOCK_SKEW_MS = 5 * 60 * 1000;
-const CLOCK_RECHECK_INTERVAL_MS = 60 * 1000;
+const CLOCK_RECHECK_INTERVAL_MS = 5 * 60 * 1000;
 
 function readServerTimeMs(response: Response) {
   const raw = response.headers.get("date");
@@ -62,11 +62,20 @@ export function PosShiftCycleGuard({ lang }: { lang: Lang }) {
       }
     };
 
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "visible") void verifyClock();
+    };
+    const onFocus = () => void verifyClock();
+
     void verifyClock();
     const timer = window.setInterval(() => void verifyClock(), CLOCK_RECHECK_INTERVAL_MS);
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    window.addEventListener("focus", onFocus);
     return () => {
       cancelled = true;
       window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+      window.removeEventListener("focus", onFocus);
     };
   }, [isShiftManagementPage]);
 
