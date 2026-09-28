@@ -50,6 +50,13 @@ describe("Support Chat Phase 1 - POS", () => {
     expect(messages).toContain("attachment: body?.attachment");
   });
 
+  it("broadcasts message previews on the same low-latency channel as typing", () => {
+    expect(chat).toContain('event: "message_preview"');
+    expect(chat).toContain('event: "message_retract"');
+    expect(chat).toContain('payload: { actor: "store", client_id: optimisticId }');
+    expect(chat).toContain('id = `broadcast:${event.client_id}`');
+  });
+
   it("lets the store end a conversation while retaining text history", () => {
     expect(conversation).toContain('"close_conversation"');
     expect(chat).toContain("จบการสนทนา");
