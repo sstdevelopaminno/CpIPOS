@@ -55,14 +55,6 @@ using (
   )
 );
 
-drop policy if exists support_chat_heads_no_client_write on public.support_chat_heads;
-create policy support_chat_heads_no_client_write
-on public.support_chat_heads
-for all
-to authenticated
-using (false)
-with check (false);
-
 do $$
 begin
   if not exists (
