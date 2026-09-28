@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 
 const file = (name: string) => readFileSync(resolve(process.cwd(), "src", name), "utf8");
 const page = file("app/preview/pos/payments/page.tsx");
+const packagePage = file("app/preview/pos/payments/package/page.tsx");
 const snapshot = file("lib/services/pos-subscription-center-service.ts");
 const overview = file("app/api/pos/billing/overview/route.ts");
 const request = file("app/api/pos/billing/requests/route.ts");
@@ -18,7 +19,9 @@ const previewLayout = file("app/preview/pos/layout.tsx");
 describe("POS subscription center (commercial billing, not cashier payments)", () => {
   it("derives scope from verified POS session and reads primary billing data", () => {
     expect(page).toContain("requirePosSession()");
-    expect(page).toContain("PosSubscriptionCenter");
+    expect(page).toContain("PosHelpCenter");
+    expect(packagePage).toContain("requirePosSession()");
+    expect(packagePage).toContain("PosSubscriptionCenter");
     expect(overview).toContain("requirePosSession()");
     expect(snapshot).toContain("getPrimarySupabaseServiceClient()");
     expect(snapshot).toContain('from("it_communication_settings")');
