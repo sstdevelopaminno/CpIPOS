@@ -29,6 +29,9 @@ export function PosSubscriptionLifecycleGuard({ initial }:{
   const [dismissed,setDismissed]=useState(false);
   const [clock,setClock]=useState(()=>Date.now());
   const refreshInFlight=useRef(false);
+  const runtimeSignatureRef=useRef(initial
+    ? [initial.lifecycle_status,initial.locked,initial.expires_at].join("|")
+    : "");
 
   const refreshRuntime=useCallback(async(source:"realtime"|"push"|"focus"|"fallback")=>{
     if(refreshInFlight.current)return;
@@ -37,19 +40,27 @@ export function PosSubscriptionLifecycleGuard({ initial }:{
       const response=await fetch("/api/pos/billing/runtime",{cache:"no-store"});
       const json=await response.json().catch(()=>null) as Envelope<{runtime:PosSubscriptionLifecycleGuardData|null}>|null;
       if(!response.ok || !json?.data)return;
-      setRuntime(json.data.runtime);
+      const next=json.data.runtime;
+      const signature=next ? [next.lifecycle_status,next.locked,next.expires_at].join("|") : "";
+      const changed=signature!==runtimeSignatureRef.current;
+      runtimeSignatureRef.current=signature;
+      setRuntime(next);
       setClock(Date.now());
       setDismissed(false);
       window.dispatchEvent(new CustomEvent("cpipos-subscription-runtime-changed",{
-        detail:{runtime:json.data.runtime,source}
+        detail:{runtime:next,source}
       }));
+      if(changed)router.refresh();
     }finally{
       refreshInFlight.current=false;
     }
-  },[]);
+  },[router]);
 
   useEffect(()=>{
     setRuntime(initial);
+    runtimeSignatureRef.current=initial
+      ? [initial.lifecycle_status,initial.locked,initial.expires_at].join("|")
+      : "";
     setClock(Date.now());
   },[initial]);
 
