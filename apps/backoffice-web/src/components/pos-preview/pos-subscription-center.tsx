@@ -652,7 +652,8 @@ export function PosSubscriptionCenter({ initial, isOwner }: {
                   <td className="p-3">{formatDate(row.submitted_at)}</td>
                   <td className="p-3"><strong>{row.package_name || "แพ็กเกจ"}</strong><br/>
                     <span className="text-xs text-slate-500">{row.billing_interval === "yearly" ? "รายปี" : "รายเดือน"}</span></td>
-                  <td className="p-3">{row.kind === "payment_notice" ? "แจ้งชำระเงิน" : "ขอต่ออายุ"}</td>
+                  <td className="p-3">{row.kind === "payment_notice" ? "แจ้งชำระเงิน" :
+                    row.kind === "custom_quote_request" ? "ขอ CUSTOM" : "ขอต่ออายุ"}</td>
                   <td className="p-3">{formatMoney(row.expected_amount)}</td>
                   <td className="p-3">{row.amount === null ? "—" : formatMoney(row.amount)}</td>
                   <td className="p-3 font-semibold">{LABELS[row.status] || row.status}</td>
