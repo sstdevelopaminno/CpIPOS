@@ -38,9 +38,11 @@ describe("Supabase log-ingestion guard", () => {
     expect(featureGate).toContain("LATEST_CONTRACT_CACHE_TTL_MS = 60_000");
   });
 
-  it("deduplicates lifecycle guard reads", () => {
-    expect(lifecycle).toContain("GUARD_CACHE_TTL_MS = 60_000");
+  it("deduplicates lifecycle guard reads without caching locked state", () => {
+    expect(lifecycle).toContain("GUARD_ACTIVE_CACHE_TTL_MS = 5_000");
     expect(lifecycle).toContain("__posSubscriptionLifecycleGuardInFlight");
+    expect(lifecycle).toContain("if(!value || value.locked)");
+    expect(lifecycle).toContain("Math.min(now+GUARD_ACTIVE_CACHE_TTL_MS,expiryAt)");
   });
 
   it("briefly caches device status without weakening subscription unlock or expiry checks", () => {

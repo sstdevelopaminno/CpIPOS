@@ -47,7 +47,7 @@ type GuardCacheEntry = {
   expiresAt: number;
 };
 
-const GUARD_CACHE_TTL_MS = 60_000;
+const GUARD_ACTIVE_CACHE_TTL_MS = 5_000;
 
 function getGuardCache() {
   const scopedGlobal = globalThis as typeof globalThis & {
@@ -81,7 +81,21 @@ function readGuardCache(tenantId:string) {
 }
 
 function writeGuardCache(tenantId:string,value:PosSubscriptionLifecycleGuardData|null){
-  getGuardCache().set(tenantId,{value,expiresAt:Date.now()+GUARD_CACHE_TTL_MS});
+  const cache=getGuardCache();
+  if(!value || value.locked){
+    // Never keep a locked snapshot in process memory. Settlement can unlock a
+    // tenant on another Vercel instance at any moment.
+    cache.delete(tenantId);
+    return;
+  }
+  const now=Date.now();
+  const expiryAt=value.expires_at && Number.isFinite(Date.parse(value.expires_at))
+    ? Date.parse(value.expires_at)
+    : Number.POSITIVE_INFINITY;
+  cache.set(tenantId,{
+    value,
+    expiresAt:Math.min(now+GUARD_ACTIVE_CACHE_TTL_MS,expiryAt)
+  });
 }
 
 function moneyValue(value: unknown): number | null {
