@@ -28,10 +28,13 @@ export async function GET(
       messages: Array<Record<string, unknown>>;
     }>(bridge, "get_messages", { conversation_id: idFromParams({ conversationId }) });
 
-    const read = await callSupportChat<{ conversation: Record<string, unknown>; head: SupportChatHead }>(
-      bridge, "mark_read", { conversation_id: conversationId }
-    ).catch(() => null);
-    if (read?.head) await mirrorSupportChatHead(read.head).catch(() => null);
+    if (Number(data.conversation.unread_store_count ?? 0) > 0) {
+      const read = await callSupportChat<{ conversation: Record<string, unknown>; head: SupportChatHead }>(
+        bridge, "mark_read", { conversation_id: conversationId }
+      ).catch(() => null);
+      if (read?.head) await mirrorSupportChatHead(read.head).catch(() => null);
+      if (read?.conversation) data.conversation = read.conversation;
+    }
 
     return ok(data);
   } catch (error) {
