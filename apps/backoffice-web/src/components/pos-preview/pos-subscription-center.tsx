@@ -133,6 +133,8 @@ export function PosSubscriptionCenter({ initial, isOwner }: {
     (!pending || (tab === "notice" && pendingCanAcceptPayment));
   const packageRow = useMemo(() =>
     snapshot.packages.find((row) => row.id === selectedPackage), [selectedPackage, snapshot.packages]);
+  const isCustomSelection = Boolean(packageRow?.contact_sales || packageRow?.quota_mode === "custom" || packageRow?.code === "custom");
+  const isPendingCustomQuote = pending?.kind === "custom_quote_request";
   const cycleLabel = snapshot.contract.billing_interval === "yearly" ? "รายปี" : "รายเดือน";
   const due = packageRow?.id === snapshot.contract.package_id && interval === snapshot.contract.billing_interval
     ? snapshot.contract.amount_per_cycle
@@ -175,7 +177,7 @@ export function PosSubscriptionCenter({ initial, isOwner }: {
     finally { setRefreshing(false); }
   }
 
-  async function submit(kind: "renewal_intent" | "payment_notice") {
+  async function submit(kind: "renewal_intent" | "payment_notice" | "custom_quote_request") {
     if (!canSubmit || !packageRow) return;
     if (kind === "payment_notice") {
       if (!hasBank || !slip) { setError("โปรดตรวจสอบบัญชีรับเงินและแนบสลิปก่อนส่ง"); return; }
@@ -195,8 +197,8 @@ export function PosSubscriptionCenter({ initial, isOwner }: {
     form.set("request_key", requestKey.current);
     form.set("kind", kind);
     form.set("package_id", selectedPackage);
-    form.set("billing_interval", interval);
-    form.set("note", note);
+    form.set("billing_interval", kind === "custom_quote_request" ? "monthly" : interval);
+    form.set("note", kind === "custom_quote_request" ? "" : note);
     if (kind === "payment_notice") {
       form.set("amount_reported", amount);
       form.set("payer_name", payer);
@@ -211,9 +213,14 @@ export function PosSubscriptionCenter({ initial, isOwner }: {
       requestKey.current = null;
       if (kind === "payment_notice") {
         setMessage("บันทึกการแจ้งชำระแล้ว รอ IT ตรวจสอบรายการรับเงินจริง");
-        setSuccessPopup("ส่งแจ้งชำระเงินสำเร็จ · ระบบบันทึกรายการแล้ว กรุณารอฝ่าย IT ตรวจสอบเงินเข้าและอนุมัติแพ็กเกจ");
+        setSuccessPopup("ส่งแจ้งชำระเงินสำเร็จ · กรุณารอฝ่าย IT ตรวจสอบเงินเข้าและอนุมัติแพ็กเกจ");
         setPopupOpen(false);
         selectTab("history");
+      } else if (kind === "custom_quote_request") {
+        setMessage("ส่งคำขอ CUSTOM แล้ว รอทีม IT ติดต่อกลับ");
+        setSuccessPopup("ส่งคำขอ CUSTOM สำเร็จ · ทีม IT จะติดต่อเพื่อตกลงราคาและสิทธิ์ก่อนเข้าสู่ขั้นตอนชำระเงิน");
+        setPopupOpen(false);
+        selectTab("overview");
       } else {
         setMessage("ส่งคำขอต่ออายุแล้ว ขั้นต่อไปกรุณาแจ้งชำระเงินและแนบสลิป");
         selectTab("notice");
@@ -368,12 +375,16 @@ export function PosSubscriptionCenter({ initial, isOwner }: {
       {pending ? <div className="flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
         <Icon name="info" size={19} className="mt-0.5" />
         <div>
-          <p className="font-semibold">มีคำขอแพ็กเกจรอตรวจสอบ ({LABELS[pending.status] || pending.status})</p>
-          <p className="mt-0.5">{pendingCanAcceptPayment
-            ? pending.created_by_it
-              ? "ฝ่าย IT สร้างรายการชำระไว้แล้ว คุณสามารถเปิดเมนู “แจ้งชำระเงิน” เพื่อแนบสลิปและข้อมูลการโอนลงในรายการเดิมได้"
-              : "สามารถแจ้งชำระโดยแนบสลิปในคำขอเดิมได้"
-            : "ส่งคำขอใหม่ได้หลังตรวจสอบรายการเดิมเสร็จ"}</p>
+          <p className="font-semibold">{isPendingCustomQuote
+            ? "คำขอ CUSTOM อยู่ระหว่างดำเนินการ"
+            : `มีคำขอแพ็กเกจรอตรวจสอบ (${LABELS[pending.status] || pending.status})`}</p>
+          <p className="mt-0.5">{isPendingCustomQuote
+            ? "ทีม IT จะติดต่อเพื่อตกลงราคา โควตา และสิทธิ์ เมื่ออนุมัติแล้วรายการชำระจะปรากฏในระบบ"
+            : pendingCanAcceptPayment
+              ? pending.created_by_it
+                ? "ฝ่าย IT เตรียมยอดชำระแล้ว เปิดเมนู “แจ้งชำระเงิน” เพื่อแนบสลิปในรายการเดิมได้"
+                : "สามารถแจ้งชำระโดยแนบสลิปในคำขอเดิมได้"
+              : "ส่งคำขอใหม่ได้หลังตรวจสอบรายการเดิมเสร็จ"}</p>
         </div>
       </div> : null}
 
@@ -447,7 +458,7 @@ export function PosSubscriptionCenter({ initial, isOwner }: {
               className="rounded-xl border border-blue-200 bg-blue-50 p-3 text-sm text-blue-900">
               <strong>รายการชำระถูกเตรียมจากฝ่าย IT แล้ว</strong>
               <p className="mt-1 text-xs leading-5">
-                แพ็กเกจ {pending.package_name || "—"} · {pending.billing_interval === "yearly" ? "รายปี" : "รายเดือน"} ·
+                ฝ่าย IT สร้างรายการชำระไว้แล้ว · แพ็กเกจ {pending.package_name || "—"} · {pending.billing_interval === "yearly" ? "รายปี" : "รายเดือน"} ·
                 ยอดตามแพ็กเกจ {formatMoney(pending.expected_amount)}
                 กรุณาแนบสลิปและกรอกข้อมูลการโอน ระบบจะอัปเดตรายการเดิม ไม่สร้างคำขอซ้ำ
               </p>
@@ -457,10 +468,16 @@ export function PosSubscriptionCenter({ initial, isOwner }: {
                 <StepLabel number={1}>เลือกแพ็กเกจ</StepLabel>
                 <select className={field} value={selectedPackage} disabled={!canSubmit || Boolean(pending)}
                   onChange={(event) => { setSelectedPackage(event.target.value); changed(); }}>
-                  {snapshot.packages.map((row) => <option value={row.id} key={row.id}>{row.name}</option>)}
+                  {snapshot.packages.map((row) => <option value={row.id} key={row.id}>
+                    {row.contact_sales ? `${row.name} · ติดต่อ IT` : `${row.name} · ${formatMoney(row.monthly_price)}/เดือน`}
+                  </option>)}
                 </select>
               </label>
-              <div className="rounded-xl border border-[#e4ebf6] p-3">
+              {tab === "renew" && isCustomSelection ? <div className="rounded-xl border border-blue-200 bg-blue-50 p-4">
+                <p className="text-xs font-black text-blue-700">CUSTOM</p>
+                <p className="mt-1 text-sm font-bold text-slate-900">ให้ทีม IT กำหนดราคาและสิทธิ์เฉพาะร้าน</p>
+                <p className="mt-1 text-xs leading-5 text-slate-600">ส่งคำขอก่อนได้เลย ไม่ต้องกรอกราคา โควตา หรือข้อมูลชำระเงิน</p>
+              </div> : <div className="rounded-xl border border-[#e4ebf6] p-3">
                 <StepLabel number={2}>รอบการชำระเงิน</StepLabel>
                 <div className="mt-3 flex flex-wrap gap-2">
                   {(["monthly", "yearly"] as const).map((choice) => {
@@ -480,12 +497,14 @@ export function PosSubscriptionCenter({ initial, isOwner }: {
                     </button>;
                   })}
                 </div>
-                {!packageRow?.yearly_price ? <p className="mt-2 rounded-lg bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-800">
+                {packageRow?.contact_sales && pending?.created_by_it ? <p className="mt-2 rounded-lg bg-blue-50 px-3 py-2 text-xs font-semibold text-blue-700">
+                  CUSTOM · รอบและยอดชำระตามที่ IT อนุมัติ
+                </p> : !packageRow?.yearly_price ? <p className="mt-2 rounded-lg bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-800">
                   รอบรายปียังไม่เปิดใช้งาน · รอฝ่าย IT บันทึกราคารายปีใน CpiPOS-001 ก่อน
                 </p> : <p className="mt-2 rounded-lg bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-700">
-                  รายปีพร้อมใช้งาน · {formatMoney(packageRow.yearly_price)} / ปี · ราคาอ้างอิงจากฝ่าย IT
+                  รายปีพร้อมใช้งาน · {formatMoney(packageRow.yearly_price)} / ปี
                 </p>}
-              </div>
+              </div>}
             </div>
 
             {tab === "notice" ? <>
@@ -509,7 +528,7 @@ export function PosSubscriptionCenter({ initial, isOwner }: {
                     <span>{packageRow?.contact_sales && due === null ? "ตามสัญญา" : formatMoney(due)}</span>
                   </div>
                   <p className="mt-1 text-xs text-slate-500">
-                    ราคาอ้างอิงจาก CpiPOS-001 · ฝ่าย IT เป็นผู้กำหนดราคาแพ็กเกจ · รอ IT ยืนยันเงินจริง
+                    ราคาอ้างอิงจากฝ่าย IT · CpiPOS-001 · ฝ่าย IT เป็นผู้กำหนดราคาแพ็กเกจ · รอ IT ยืนยันเงินจริง
                   </p>
                 </div>
                 <label className="min-w-0 rounded-xl border border-[#e4ebf6] p-3">
@@ -565,13 +584,19 @@ export function PosSubscriptionCenter({ initial, isOwner }: {
               </div>
               {!hasBank ? <p className="rounded-lg bg-amber-50 p-3 text-sm text-amber-900">
                 ยังไม่ได้ตั้งค่าบัญชีบริษัท กรุณาติดต่อ Support ก่อนชำระเงิน</p> : null}
+            </> : isCustomSelection ? <>
+              <div className="rounded-xl border border-blue-200 bg-blue-50 p-4">
+                <p className="text-sm font-black text-blue-800">ขอแพ็กเกจ CUSTOM</p>
+                <p className="mt-1 text-xs leading-5 text-slate-600">กดส่งคำขอ จากนั้นทีม IT จะติดต่อเพื่อตกลงราคา จำนวนสาขา เครื่อง ผู้ใช้ อายุข้อมูล และสิทธิ์ที่ต้องการ</p>
+              </div>
             </> : <>
               <div className="rounded-xl border border-blue-100 bg-blue-50 p-4">
-                <p className="text-xs font-bold text-blue-700">ค่าบริการต่อรอบตามข้อมูลปัจจุบัน</p>
-                <p className="mt-1 text-2xl font-extrabold text-slate-950">
-                  {packageRow?.contact_sales && due === null ? "ตามสัญญา" : formatMoney(due)}</p>
-                <p className="mt-1 text-xs text-slate-500">
-                  หากเป็น CUSTOM หรือยังไม่กำหนดราคา กรุณาสอบถาม IT ก่อนโอนเงิน</p>
+                <p className="text-xs font-bold text-blue-700">ค่าบริการต่อรอบ</p>
+                <p className="mt-1 text-2xl font-extrabold text-slate-950">{formatMoney(due)}</p>
+                {packageRow && Number(packageRow.monthly_discount_percent ?? 0) > 0 && interval === "monthly"
+                  ? <p className="mt-1 text-xs text-emerald-700">รวมส่วนลด {packageRow.monthly_discount_percent}% แล้ว</p> : null}
+                {packageRow && Number(packageRow.yearly_discount_percent ?? 0) > 0 && interval === "yearly"
+                  ? <p className="mt-1 text-xs text-emerald-700">รวมส่วนลด {packageRow.yearly_discount_percent}% แล้ว</p> : null}
               </div>
               <label className="block text-sm font-bold text-slate-700">หมายเหตุถึงทีม IT
                 <textarea className={field} rows={2} maxLength={500} value={note}
@@ -580,14 +605,18 @@ export function PosSubscriptionCenter({ initial, isOwner }: {
             </>}
             <div className="flex items-start gap-2 rounded-lg bg-amber-50 px-3 py-2.5 text-xs leading-5 text-amber-900">
               <Icon name="info" size={17} className="mt-0.5" />
-              <p>การแจ้งชำระและสลิปยังไม่ถือว่ารับเงินจริง เมื่อ IT ตรวจสอบเงินเข้าบัญชีบริษัทและยืนยันรายการธนาคารแล้ว ระบบจะเปิด/ต่ออายุแพ็กเกจและออกใบเสร็จจริงให้อัตโนมัติ</p>
+              <p>{tab === "renew" && isCustomSelection
+                ? "คำขอ CUSTOM ยังไม่ใช่การชำระเงิน และจะยังไม่เปลี่ยนแพ็กเกจจนกว่า IT จะตกลงเงื่อนไขและตรวจสอบการชำระเรียบร้อย"
+                : "การแจ้งชำระและสลิปยังไม่ถือว่ารับเงินจริง ระบบจะเปลี่ยนแพ็กเกจเมื่อ IT ตรวจสอบเงินเข้าบัญชีบริษัทและ Settlement สำเร็จ"}</p>
             </div>
             <button type="button" disabled={!canSubmit ||
               (tab === "notice" && (!slip || !hasBank || !amount || !transferAt || !payer.trim()))}
-              onClick={() => void submit(tab === "renew" ? "renewal_intent" : "payment_notice")}
+              onClick={() => void submit(tab === "renew"
+                ? isCustomSelection ? "custom_quote_request" : "renewal_intent"
+                : "payment_notice")}
               className="flex w-full items-center justify-center gap-2 rounded-xl bg-[#1862ed] px-5 py-3 text-sm font-bold text-white shadow-[0_6px_12px_rgba(24,98,237,0.2)] transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-300 disabled:shadow-none">
               <Icon name="send" size={17} />{busy ? "กำลังส่งคำขอ..." :
-                tab === "renew" ? "ส่งคำขอต่ออายุ" :
+                tab === "renew" ? isCustomSelection ? "ส่งคำขอ CUSTOM" : "ส่งคำขอต่ออายุ" :
                   pending?.kind === "renewal_intent" ? "แนบสลิปและแจ้งชำระคำขอเดิม" : "ส่งแจ้งชำระเงิน"}
             </button>
           </section> : null}
@@ -623,7 +652,8 @@ export function PosSubscriptionCenter({ initial, isOwner }: {
                   <td className="p-3">{formatDate(row.submitted_at)}</td>
                   <td className="p-3"><strong>{row.package_name || "แพ็กเกจ"}</strong><br/>
                     <span className="text-xs text-slate-500">{row.billing_interval === "yearly" ? "รายปี" : "รายเดือน"}</span></td>
-                  <td className="p-3">{row.kind === "payment_notice" ? "แจ้งชำระเงิน" : "ขอต่ออายุ"}</td>
+                  <td className="p-3">{row.kind === "payment_notice" ? "แจ้งชำระเงิน" :
+                    row.kind === "custom_quote_request" ? "ขอ CUSTOM" : "ขอต่ออายุ"}</td>
                   <td className="p-3">{formatMoney(row.expected_amount)}</td>
                   <td className="p-3">{row.amount === null ? "—" : formatMoney(row.amount)}</td>
                   <td className="p-3 font-semibold">{LABELS[row.status] || row.status}</td>

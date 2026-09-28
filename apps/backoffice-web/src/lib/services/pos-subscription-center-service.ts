@@ -12,6 +12,7 @@ type Contract = { id: string; package_id: string; status: string; billing_interv
 type Lifecycle = { lifecycle_status: string; subscription_expires_at: string | null; trial_expires_at: string | null;
   access_locked: boolean; lock_reason: string | null; metadata: Record<string, unknown> | null };
 type Package = { id: string; code: string; name: string; monthly_price: number | null; yearly_price: number | null;
+  monthly_discount_percent: number | null; yearly_discount_percent: number | null; quota_mode: string | null;
   max_branches: number | null; max_devices: number | null; max_users: number | null; metadata: Record<string, unknown> | null };
 type Issuer = { billing_legal_name_th: string; billing_bank_name: string; billing_bank_account_name: string;
   billing_bank_account_number: string; billing_promptpay_id: string; billing_email: string;
@@ -35,6 +36,14 @@ function amount(value: unknown): number | null {
   const n = Number(value);
   return Number.isFinite(n) && n > 0 ? n : null;
 }
+function discountedAmount(base: unknown, discount: unknown): number | null {
+  const raw = Number(base ?? 0);
+  const percent = Number(discount ?? 0);
+  if (!Number.isFinite(raw) || raw <= 0) return null;
+  const safeDiscount = Number.isFinite(percent) ? Math.max(0,Math.min(100,percent)) : 0;
+  const value = Number((raw * (1-safeDiscount/100)).toFixed(2));
+  return value > 0 ? value : null;
+}
 
 export async function loadPosSubscriptionCenter(tenantId: string) {
   // Commercial authority lives in CpiPOS-001, never in a trial tenant sales data plane.
@@ -52,7 +61,7 @@ export async function loadPosSubscriptionCenter(tenantId: string) {
       .select("billing_legal_name_th,billing_bank_name,billing_bank_account_name,billing_bank_account_number,billing_promptpay_id,billing_email,support_email,billing_vat_registered")
       .eq("id","default").maybeSingle<Issuer>(),
     db.from("subscription_packages")
-      .select("id,code,name,monthly_price,yearly_price,max_branches,max_devices,max_users,metadata")
+      .select("id,code,name,monthly_price,yearly_price,monthly_discount_percent,yearly_discount_percent,quota_mode,max_branches,max_devices,max_users,metadata")
       .eq("is_active",true).order("display_order",{ascending:true}).limit(30).returns<Package[]>(),
     db.from("tenant_subscription_payment_requests")
       .select("id,request_type,requested_package_id,status,amount_reported,currency,submitted_at,reviewed_at,review_note,evidence_url,metadata")
@@ -76,8 +85,10 @@ export async function loadPosSubscriptionCenter(tenantId: string) {
   const packages = packagesResult.data ?? [];
   const pkg = packages.find((entry)=>entry.id === (contract?.package_id || tenant.package_id));
   const isInternalDemo = lifecycle?.lifecycle_status === "sales_demo" || lifecycle?.metadata?.quota_exempt === true;
-  const cyclePrice = contract?.billing_interval === "yearly" ? pkg?.yearly_price : pkg?.monthly_price;
-  const activePrice = amount(contract?.amount_per_cycle) ?? amount(cyclePrice);
+  const cyclePrice = contract?.billing_interval === "yearly"
+    ? discountedAmount(pkg?.yearly_price,pkg?.yearly_discount_percent)
+    : discountedAmount(pkg?.monthly_price,pkg?.monthly_discount_percent);
+  const activePrice = amount(contract?.amount_per_cycle) ?? cyclePrice;
   const expiry = isInternalDemo ? null
     : lifecycle?.lifecycle_status === "trial" || contract?.status === "trial"
       ? lifecycle?.trial_expires_at ?? contract?.ended_at ?? null
@@ -101,11 +112,20 @@ export async function loadPosSubscriptionCenter(tenantId: string) {
       max_devices: positive(contract?.max_devices ?? contract?.terminal_limit_per_branch ?? pkg?.max_devices),
       max_users: positive(contract?.max_users ?? pkg?.max_users)
     },
-    packages: packages.map((row)=>({
-      id: row.id, code: row.code, name: row.name,
-      monthly_price: amount(row.monthly_price), yearly_price: amount(row.yearly_price),
-      contact_sales: row.code === "custom" || row.metadata?.contact_sales === true
-    })),
+    packages: packages.map((row)=>{
+      const contactSales = row.code === "custom" || row.quota_mode === "custom" || row.metadata?.contact_sales === true;
+      return {
+        id: row.id, code: row.code, name: row.name,
+        quota_mode: row.quota_mode ?? "standard",
+        monthly_list_price: amount(row.monthly_price),
+        yearly_list_price: amount(row.yearly_price),
+        monthly_discount_percent: Number(row.monthly_discount_percent ?? 0),
+        yearly_discount_percent: Number(row.yearly_discount_percent ?? 0),
+        monthly_price: contactSales ? null : discountedAmount(row.monthly_price,row.monthly_discount_percent),
+        yearly_price: contactSales ? null : discountedAmount(row.yearly_price,row.yearly_discount_percent),
+        contact_sales: contactSales
+      };
+    }),
     issuer: {
       name: issuer?.billing_legal_name_th || "บริษัท คัตติ้งพอยท์ เทค จำกัด",
       bank_name: issuer?.billing_bank_name ?? "", account_name: issuer?.billing_bank_account_name ?? "",
@@ -127,9 +147,13 @@ export async function loadPosSubscriptionCenter(tenantId: string) {
         amount:row.amount_reported, expected_amount: expected,
         currency:row.currency,submitted_at:row.submitted_at,reviewed_at:row.reviewed_at,
         review_note:row.review_note,has_evidence:Boolean(row.evidence_url),
-        kind: row.metadata?.kind === "payment_notice" ? "payment_notice" : "renewal_intent",
+        kind: row.metadata?.kind === "payment_notice"
+          ? "payment_notice"
+          : row.metadata?.kind === "custom_quote_request"
+            ? "custom_quote_request"
+            : "renewal_intent",
         source: typeof row.metadata?.source === "string" ? row.metadata.source : "unknown",
-        created_by_it: row.metadata?.source === "it_tenant_control",
+        created_by_it: row.metadata?.source === "it_tenant_control" || row.metadata?.source === "it_custom_agreement",
         receipt: issuedReceipt ? {
           id: issuedReceipt.id,
           number: issuedReceipt.receipt_number,
