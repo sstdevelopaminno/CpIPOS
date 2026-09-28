@@ -24,6 +24,45 @@ type DeviceRow = {
   metadata: Record<string, unknown> | null;
 };
 
+type DevicePolicyCacheEntry = {
+  value: PosRuntimeDevicePolicy;
+  expiresAt: number;
+};
+
+const DEVICE_POLICY_CACHE_TTL_MS = 15_000;
+
+function getDevicePolicyCache() {
+  const scopedGlobal = globalThis as typeof globalThis & {
+    __posRuntimeDevicePolicyCache?: Map<string, DevicePolicyCacheEntry>;
+  };
+  if (!scopedGlobal.__posRuntimeDevicePolicyCache) {
+    scopedGlobal.__posRuntimeDevicePolicyCache = new Map<string, DevicePolicyCacheEntry>();
+  }
+  return scopedGlobal.__posRuntimeDevicePolicyCache;
+}
+
+function devicePolicyCacheKey(input: { tenantId: string; branchId: string; deviceId: string | null; deviceCode: string | null }) {
+  return [input.tenantId, input.branchId, input.deviceId ?? "", input.deviceCode ?? ""].join(":");
+}
+
+function readDevicePolicyCache(key: string) {
+  const cache = getDevicePolicyCache();
+  const entry = cache.get(key);
+  if (!entry) return null;
+  if (entry.expiresAt <= Date.now()) {
+    cache.delete(key);
+    return null;
+  }
+  return entry.value;
+}
+
+function writeDevicePolicyCache(key: string, value: PosRuntimeDevicePolicy) {
+  getDevicePolicyCache().set(key, {
+    value,
+    expiresAt: Date.now() + DEVICE_POLICY_CACHE_TTL_MS
+  });
+}
+
 const ACTIVE_DEVICE_POLICY: PosRuntimeDevicePolicy = {
   id: null,
   code: null,
@@ -93,6 +132,10 @@ export async function loadPosRuntimeDevicePolicy(input: {
     return { ...ACTIVE_DEVICE_POLICY, id: deviceId, code: deviceCode };
   }
 
+  const cacheKey = devicePolicyCacheKey({ tenantId, branchId, deviceId, deviceCode });
+  const cached = readDevicePolicyCache(cacheKey);
+  if (cached) return cached;
+
   const supabase = getSupabaseServiceClient();
   const baseQuery = supabase
     .from("branch_devices")
@@ -116,7 +159,9 @@ export async function loadPosRuntimeDevicePolicy(input: {
     return { ...ACTIVE_DEVICE_POLICY, id: deviceId, code: deviceCode };
   }
 
-  return policyFromRow(data ?? null, deviceCode);
+  const resolved = policyFromRow(data ?? null, deviceCode);
+  writeDevicePolicyCache(cacheKey, resolved);
+  return resolved;
 }
 
 export function loadPosRuntimeDevicePolicyForSession(session: PosSessionRow) {

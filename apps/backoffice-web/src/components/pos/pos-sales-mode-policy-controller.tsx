@@ -7,7 +7,7 @@ const MODE_ATTRIBUTE = "data-pos-sale-mode";
 const LOCK_ATTRIBUTE = "data-it-sales-mode-locked";
 const BADGE_ATTRIBUTE = "data-it-sales-mode-lock-badge";
 const STYLE_ID = "cpipos-it-sales-mode-policy-style";
-const POLICY_REFRESH_MS = 60_000;
+const POLICY_REFRESH_MS = 5 * 60_000;
 
 type FeaturesEnvelope = {
   data?: {
@@ -133,7 +133,7 @@ export function PosSalesModePolicyController() {
       try {
         const response = await fetch("/api/pos/features", {
           method: "GET",
-          cache: "no-store",
+          cache: "default",
           credentials: "same-origin"
         });
         if (!response.ok) return;

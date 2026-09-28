@@ -29,6 +29,58 @@ type BranchMembershipRow = {
   is_default: boolean;
 };
 
+type AuthMembershipCacheEntry = {
+  value: BranchMembershipRow[];
+  expiresAt: number;
+};
+
+type PlatformRoleCacheEntry = {
+  value: PlatformRole | null;
+  expiresAt: number;
+};
+
+const AUTH_SCOPE_CACHE_TTL_MS = 30_000;
+
+function getAuthMembershipCache() {
+  const scopedGlobal = globalThis as typeof globalThis & {
+    __authMembershipCache?: Map<string, AuthMembershipCacheEntry>;
+  };
+  if (!scopedGlobal.__authMembershipCache) {
+    scopedGlobal.__authMembershipCache = new Map<string, AuthMembershipCacheEntry>();
+  }
+  return scopedGlobal.__authMembershipCache;
+}
+
+function getAuthMembershipInFlight() {
+  const scopedGlobal = globalThis as typeof globalThis & {
+    __authMembershipInFlight?: Map<string, Promise<BranchMembershipRow[]>>;
+  };
+  if (!scopedGlobal.__authMembershipInFlight) {
+    scopedGlobal.__authMembershipInFlight = new Map<string, Promise<BranchMembershipRow[]>>();
+  }
+  return scopedGlobal.__authMembershipInFlight;
+}
+
+function getPlatformRoleCache() {
+  const scopedGlobal = globalThis as typeof globalThis & {
+    __platformRoleCache?: Map<string, PlatformRoleCacheEntry>;
+  };
+  if (!scopedGlobal.__platformRoleCache) {
+    scopedGlobal.__platformRoleCache = new Map<string, PlatformRoleCacheEntry>();
+  }
+  return scopedGlobal.__platformRoleCache;
+}
+
+function getPlatformRoleInFlight() {
+  const scopedGlobal = globalThis as typeof globalThis & {
+    __platformRoleInFlight?: Map<string, Promise<PlatformRole | null>>;
+  };
+  if (!scopedGlobal.__platformRoleInFlight) {
+    scopedGlobal.__platformRoleInFlight = new Map<string, Promise<PlatformRole | null>>();
+  }
+  return scopedGlobal.__platformRoleInFlight;
+}
+
 function parseRole<T extends string>(value: unknown, allowed: T[]): T | null {
   if (typeof value !== "string") {
     return null;
@@ -85,39 +137,72 @@ function hasPosSessionCookie(cookieHeader: string): boolean {
 }
 
 async function loadBranchMemberships(userId: string): Promise<BranchMembershipRow[]> {
-  const supabase = getSupabaseServiceClient();
-  const { data } = await supabase
-    .from("user_branch_roles")
-    .select("tenant_id,branch_id,role,is_default")
-    .eq("user_id", userId)
-    .order("is_default", { ascending: false })
-    .order("created_at", { ascending: true });
+  const now = Date.now();
+  const cache = getAuthMembershipCache();
+  const cached = cache.get(userId);
+  if (cached && cached.expiresAt > now) return cached.value;
 
-  return (data ?? [])
-    .map((row) => {
-      const role = parseRole((row as { role?: string | null }).role, branchRoles);
-      const tenantId = String((row as { tenant_id?: string | null }).tenant_id ?? "").trim();
-      const branchId = String((row as { branch_id?: string | null }).branch_id ?? "").trim();
-      if (!role || !tenantId || !branchId) return null;
-      return {
-        tenant_id: tenantId,
-        branch_id: branchId,
-        role,
-        is_default: Boolean((row as { is_default?: boolean | null }).is_default)
-      };
-    })
-    .filter((row): row is BranchMembershipRow => Boolean(row));
+  const inFlight = getAuthMembershipInFlight();
+  const existing = inFlight.get(userId);
+  if (existing) return existing;
+
+  const promise = (async () => {
+    const supabase = getSupabaseServiceClient();
+    const { data } = await supabase
+      .from("user_branch_roles")
+      .select("tenant_id,branch_id,role,is_default")
+      .eq("user_id", userId)
+      .order("is_default", { ascending: false })
+      .order("created_at", { ascending: true });
+
+    const resolved = (data ?? [])
+      .map((row) => {
+        const role = parseRole((row as { role?: string | null }).role, branchRoles);
+        const tenantId = String((row as { tenant_id?: string | null }).tenant_id ?? "").trim();
+        const branchId = String((row as { branch_id?: string | null }).branch_id ?? "").trim();
+        if (!role || !tenantId || !branchId) return null;
+        return {
+          tenant_id: tenantId,
+          branch_id: branchId,
+          role,
+          is_default: Boolean((row as { is_default?: boolean | null }).is_default)
+        };
+      })
+      .filter((row): row is BranchMembershipRow => Boolean(row));
+
+    cache.set(userId, { value: resolved, expiresAt: Date.now() + AUTH_SCOPE_CACHE_TTL_MS });
+    return resolved;
+  })().finally(() => inFlight.delete(userId));
+
+  inFlight.set(userId, promise);
+  return promise;
 }
 
 async function loadPlatformRole(userId: string): Promise<PlatformRole | null> {
-  const supabase = getSupabaseServiceClient();
-  const { data } = await supabase
-    .from("users_profiles")
-    .select("platform_role")
-    .eq("id", userId)
-    .maybeSingle<{ platform_role: PlatformRole | null }>();
+  const now = Date.now();
+  const cache = getPlatformRoleCache();
+  const cached = cache.get(userId);
+  if (cached && cached.expiresAt > now) return cached.value;
 
-  return parseRole(data?.platform_role, platformRoles);
+  const inFlight = getPlatformRoleInFlight();
+  const existing = inFlight.get(userId);
+  if (existing) return existing;
+
+  const promise = (async () => {
+    const supabase = getSupabaseServiceClient();
+    const { data } = await supabase
+      .from("users_profiles")
+      .select("platform_role")
+      .eq("id", userId)
+      .maybeSingle<{ platform_role: PlatformRole | null }>();
+
+    const resolved = parseRole(data?.platform_role, platformRoles);
+    cache.set(userId, { value: resolved, expiresAt: Date.now() + AUTH_SCOPE_CACHE_TTL_MS });
+    return resolved;
+  })().finally(() => inFlight.delete(userId));
+
+  inFlight.set(userId, promise);
+  return promise;
 }
 
 function resolveMembership(args: {

@@ -55,8 +55,8 @@ type LatestContractCacheEntry = {
   expiresAt: number;
 };
 
-const FEATURE_DECISION_CACHE_TTL_MS = 15_000;
-const LATEST_CONTRACT_CACHE_TTL_MS = 15_000;
+const FEATURE_DECISION_CACHE_TTL_MS = 60_000;
+const LATEST_CONTRACT_CACHE_TTL_MS = 60_000;
 
 export class FeatureGateError extends Error {
   code: string;

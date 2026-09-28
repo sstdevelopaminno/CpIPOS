@@ -25,12 +25,70 @@ type Issuer = {
   billing_bank_account_number:string;
 };
 
+export type PosSubscriptionLifecycleGuardData = {
+  exempt:boolean;
+  locked:boolean;
+  lock_reason:string|null;
+  lifecycle_status:string;
+  expires_at:string|null;
+  days_remaining:number|null;
+  package_name:string;
+  billing_interval:"monthly"|"yearly";
+  amount_due:number|null;
+  currency:string;
+  bank_name:string;
+  account_name:string;
+  account_number:string;
+};
+
+type GuardCacheEntry = {
+  value: PosSubscriptionLifecycleGuardData | null;
+  expiresAt: number;
+};
+
+const GUARD_CACHE_TTL_MS = 60_000;
+
+function getGuardCache() {
+  const scopedGlobal = globalThis as typeof globalThis & {
+    __posSubscriptionLifecycleGuardCache?: Map<string, GuardCacheEntry>;
+  };
+  if (!scopedGlobal.__posSubscriptionLifecycleGuardCache) {
+    scopedGlobal.__posSubscriptionLifecycleGuardCache = new Map<string, GuardCacheEntry>();
+  }
+  return scopedGlobal.__posSubscriptionLifecycleGuardCache;
+}
+
+function getGuardInFlight() {
+  const scopedGlobal = globalThis as typeof globalThis & {
+    __posSubscriptionLifecycleGuardInFlight?: Map<string, Promise<PosSubscriptionLifecycleGuardData | null>>;
+  };
+  if (!scopedGlobal.__posSubscriptionLifecycleGuardInFlight) {
+    scopedGlobal.__posSubscriptionLifecycleGuardInFlight = new Map<string, Promise<PosSubscriptionLifecycleGuardData | null>>();
+  }
+  return scopedGlobal.__posSubscriptionLifecycleGuardInFlight;
+}
+
+function readGuardCache(tenantId:string) {
+  const cache=getGuardCache();
+  const entry=cache.get(tenantId);
+  if(!entry) return undefined;
+  if(entry.expiresAt<=Date.now()){
+    cache.delete(tenantId);
+    return undefined;
+  }
+  return entry.value;
+}
+
+function writeGuardCache(tenantId:string,value:PosSubscriptionLifecycleGuardData|null){
+  getGuardCache().set(tenantId,{value,expiresAt:Date.now()+GUARD_CACHE_TTL_MS});
+}
+
 function moneyValue(value: unknown): number | null {
   const parsed=Number(value);
   return Number.isFinite(parsed) && parsed>0 ? parsed : null;
 }
 
-export async function loadPosSubscriptionLifecycleGuard(tenantId:string) {
+async function loadGuardUncached(tenantId:string):Promise<PosSubscriptionLifecycleGuardData|null>{
   const db=getPrimarySupabaseServiceClient();
   const [life,contract,packages,issuer]=await Promise.all([
     db.from("tenant_data_lifecycle")
@@ -77,4 +135,24 @@ export async function loadPosSubscriptionLifecycleGuard(tenantId:string) {
   };
 }
 
-export type PosSubscriptionLifecycleGuardData = NonNullable<Awaited<ReturnType<typeof loadPosSubscriptionLifecycleGuard>>>;
+export async function loadPosSubscriptionLifecycleGuard(tenantId:string):Promise<PosSubscriptionLifecycleGuardData|null>{
+  const normalized=tenantId.trim();
+  if(!normalized) return null;
+
+  const cached=readGuardCache(normalized);
+  if(cached!==undefined) return cached;
+
+  const inFlight=getGuardInFlight();
+  const existing=inFlight.get(normalized);
+  if(existing) return existing;
+
+  const promise=loadGuardUncached(normalized)
+    .then((value)=>{
+      writeGuardCache(normalized,value);
+      return value;
+    })
+    .finally(()=>inFlight.delete(normalized));
+
+  inFlight.set(normalized,promise);
+  return promise;
+}

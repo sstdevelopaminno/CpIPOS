@@ -3,6 +3,7 @@ import { fail, ok } from "@/lib/http";
 import { allPosMenuFeatureCodes } from "@/lib/pos-feature-map";
 import { requirePosSession, PosGuardError } from "@/lib/pos-session-guard";
 import { normalizePosSalesModes } from "@/lib/pos-sales-modes";
+import { readThroughRuntimeCache } from "@/lib/route-runtime-cache";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
 import { getTenantPosMenuOverrides } from "@/lib/server/pos-menu-policy-service";
 
@@ -124,10 +125,21 @@ async function loadTenantFeatureSnapshot(tenantId: string, branchId: string) {
 export async function GET() {
   try {
     const scope = await requirePosSession();
-    const [snapshot, menuPolicy] = await Promise.all([
-      loadTenantFeatureSnapshot(scope.session.tenant_id, scope.session.branch_id),
-      getTenantPosMenuOverrides(scope.session.tenant_id)
-    ]);
+    const bundle = await readThroughRuntimeCache({
+      key: `pos-feature-bundle:${scope.session.tenant_id}:${scope.session.branch_id}`,
+      ttlMs: 60_000,
+      staleIfErrorMs: 5 * 60_000,
+      loaderTimeoutMs: 4_000,
+      timeoutCode: "pos_feature_bundle_timeout",
+      loader: async () => {
+        const [snapshot, menuPolicy] = await Promise.all([
+          loadTenantFeatureSnapshot(scope.session.tenant_id, scope.session.branch_id),
+          getTenantPosMenuOverrides(scope.session.tenant_id)
+        ]);
+        return { snapshot, menuPolicy };
+      }
+    });
+    const { snapshot, menuPolicy } = bundle.value;
 
     const response = ok({
       tenant_id: scope.session.tenant_id,
@@ -141,7 +153,7 @@ export async function GET() {
     // Feature entitlements change infrequently. A short private browser cache cuts
     // duplicate startup/navigation reads without allowing shared/CDN caching or
     // delaying IT entitlement changes for more than a few seconds.
-    response.headers.set("Cache-Control", "private, max-age=20, stale-while-revalidate=20");
+    response.headers.set("Cache-Control", "private, max-age=60, stale-while-revalidate=60");
     return response;
   } catch (error) {
     if (error instanceof PosGuardError) {

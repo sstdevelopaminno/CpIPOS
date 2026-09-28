@@ -62,6 +62,6 @@ describe("polling request-churn regression guard", () => {
     expect(posFeaturesRoute).toContain('branch_id.is.null,branch_id.eq.');
     expect(posFeaturesRoute).not.toContain('import { hasBranchFeatureSafe');
     expect(posFeaturesRoute).not.toContain("await hasBranchFeatureSafe(");
-    expect(posFeaturesRoute).toContain('Cache-Control", "private, max-age=20, stale-while-revalidate=20"');
+    expect(posFeaturesRoute).toContain('Cache-Control", "private, max-age=60, stale-while-revalidate=60"');
   });
 });
