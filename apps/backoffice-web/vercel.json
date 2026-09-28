@@ -3,5 +3,10 @@
   "installCommand": "corepack pnpm -C ../.. install --frozen-lockfile",
   "buildCommand": "corepack pnpm -C ../.. --filter backoffice-web build",
   "outputDirectory": ".next",
-  "regions": ["bom1"]
+  "regions": [
+    "bom1"
+  ],
+  "git": {
+    "deploymentEnabled": false
+  }
 }

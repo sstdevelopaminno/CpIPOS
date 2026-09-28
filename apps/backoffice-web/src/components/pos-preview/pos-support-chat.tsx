@@ -134,6 +134,15 @@ export function PosSupportChat({ storeCode, storeName }: { storeCode: string; st
     [heads]
   );
 
+  const clearGoneConversation = useCallback((id: string) => {
+    setHeads((current) => current.filter((row) => row.conversation_id !== id));
+    setSelectedId((current) => current === id ? "" : current);
+    setConversation((current) => current?.id === id ? null : current);
+    setMessages([]);
+    setRemoteTyping("");
+    headSignalRef.current = "";
+  }, []);
+
   const loadHeads = useCallback(async () => {
     setBusy("list");
     setError("");
@@ -143,13 +152,18 @@ export function PosSupportChat({ storeCode, storeName }: { storeCode: string; st
       if (!response.ok || !json?.data) throw new Error(json?.error?.message || "โหลดรายการแชทไม่สำเร็จ");
       setHeads(json.data.conversations);
       const current = json.data.conversations.find((row) => row.status !== "closed");
-      if (current && !selectedId) setSelectedId(current.conversation_id);
+      if (selectedId && !json.data.conversations.some((row) => row.conversation_id === selectedId)) {
+        clearGoneConversation(selectedId);
+        if (current) setSelectedId(current.conversation_id);
+      } else if (current && !selectedId) {
+        setSelectedId(current.conversation_id);
+      }
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "โหลดรายการแชทไม่สำเร็จ");
     } finally {
       setBusy("");
     }
-  }, [selectedId]);
+  }, [selectedId, clearGoneConversation]);
 
   const loadMessages = useCallback(async (id: string) => {
     if (!id) return;
@@ -158,6 +172,10 @@ export function PosSupportChat({ storeCode, storeName }: { storeCode: string; st
     try {
       const response = await fetch(`/api/pos/support-chat/conversations/${id}/messages`, { cache: "no-store" });
       const json = await response.json().catch(() => null) as Envelope<{ conversation: Conversation; messages: Message[] }> | null;
+      if (response.status === 404) {
+        clearGoneConversation(id);
+        return;
+      }
       if (!response.ok || !json?.data) throw new Error(json?.error?.message || "โหลดข้อความไม่สำเร็จ");
       setConversation(json.data.conversation);
       setMessages(json.data.messages);
@@ -166,7 +184,7 @@ export function PosSupportChat({ storeCode, storeName }: { storeCode: string; st
     } finally {
       setBusy("");
     }
-  }, []);
+  }, [clearGoneConversation]);
 
   useEffect(() => {
     void loadHeads();
@@ -387,6 +405,17 @@ export function PosSupportChat({ storeCode, storeName }: { storeCode: string; st
         })
       });
       const json = await response.json().catch(() => null) as Envelope<{ message: Message; conversation: Conversation; head: Head }> | null;
+      if (response.status === 404) {
+        void typingChannelRef.current?.send({
+          type: "broadcast",
+          event: "message_retract",
+          payload: { actor: "store", client_id: optimisticId }
+        });
+        setMessages((current) => current.filter((item) => item.id !== optimisticId));
+        clearGoneConversation(selectedId);
+        setError("");
+        return;
+      }
       if (!response.ok || !json?.data) throw new Error(json?.error?.message || "ส่งข้อความไม่สำเร็จ");
 
       setConversation(json.data.conversation);
@@ -422,6 +451,11 @@ export function PosSupportChat({ storeCode, storeName }: { storeCode: string; st
         body: JSON.stringify({ action: "close" })
       });
       const json = await response.json().catch(() => null) as Envelope<{ conversation: Conversation; head: Head }> | null;
+      if (response.status === 404) {
+        clearGoneConversation(selectedId);
+        setError("");
+        return;
+      }
       if (!response.ok || !json?.data) throw new Error(json?.error?.message || "จบการสนทนาไม่สำเร็จ");
       setConversation(json.data.conversation);
       setHeads((current) => [json.data!.head, ...current.filter((row) => row.conversation_id !== json.data!.head.conversation_id)]);
