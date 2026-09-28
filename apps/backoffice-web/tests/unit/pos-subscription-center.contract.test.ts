@@ -121,8 +121,8 @@ describe("POS subscription center (commercial billing, not cashier payments)", (
     expect(lifecycleService).toContain("billing_bank_account_number");
     expect(lifecycleGuard).toContain("แพ็กเกจใกล้ครบกำหนดชำระ");
     expect(lifecycleGuard).toContain("แพ็กเกจครบกำหนดชำระแล้ว");
-    expect(lifecycleGuard).toContain('pathname==="/preview/pos/payments"');
-    expect(lifecycleGuard).toContain('router.push("/preview/pos/payments")');
+    expect(lifecycleGuard).toContain('pathname==="/preview/pos/payments/package"');
+    expect(lifecycleGuard).toContain('router.push("/preview/pos/payments/package")');
     expect(lifecycleGuard).toContain("บัญชีบริษัท:");
     expect(previewLayout).toContain("PosSubscriptionLifecycleGuard");
     expect(sessionGuard).toContain("assertSubscriptionAllowsSales");
