@@ -84,9 +84,9 @@ type SubscriptionAccessCacheEntry = {
 };
 
 const POS_SESSION_ROW_CACHE_TTL_MS = 4000;
-const POS_SCOPE_EXTRAS_CACHE_TTL_MS = 20000;
-const POS_SESSION_ROLE_CACHE_TTL_MS = 20000;
-const POS_SUBSCRIPTION_ACCESS_CACHE_TTL_MS = 30000;
+const POS_SCOPE_EXTRAS_CACHE_TTL_MS = 30000;
+const POS_SESSION_ROLE_CACHE_TTL_MS = 30000;
+const POS_SUBSCRIPTION_ACCESS_CACHE_TTL_MS = 60000;
 
 function getPosSessionRowCache() {
   const scopedGlobal = globalThis as typeof globalThis & {
