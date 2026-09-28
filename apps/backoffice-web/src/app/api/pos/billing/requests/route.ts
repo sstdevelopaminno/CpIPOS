@@ -38,8 +38,8 @@ export async function POST(request: Request) {
     const requestKey = str(form.get("request_key"),40);
     if (!UUID.test(requestKey)) return fail("request_key_invalid","A valid request identifier is required.",422);
     const kind = str(form.get("kind"),24);
-    if (kind !== "renewal_intent" && kind !== "payment_notice") {
-      return fail("invalid_kind","Select renewal or payment notification.",422);
+    if (!["renewal_intent","payment_notice","custom_quote_request"].includes(kind)) {
+      return fail("invalid_kind","Select a valid subscription request.",422);
     }
     const desiredPackage = str(form.get("package_id"),50);
     const billingInterval = str(form.get("billing_interval"),12);
@@ -62,7 +62,7 @@ export async function POST(request: Request) {
     const completingItPreparedPayment = Boolean(existingById && kind==="payment_notice" &&
       ["pending","under_review"].includes(existingById.status) &&
       existingById.metadata?.kind==="payment_notice" &&
-      existingById.metadata?.source==="it_tenant_control" &&
+      ["it_tenant_control","it_custom_agreement"].includes(String(existingById.metadata?.source ?? "")) &&
       !existingById.evidence_url && existingById.amount_reported == null);
     const upgrading = upgradingRenewal || completingItPreparedPayment;
     if (existingById && !upgrading) {
@@ -73,7 +73,17 @@ export async function POST(request: Request) {
     if (snapshot.contract.is_internal_demo) return fail("internal_demo","Internal demo stores are not charged for subscriptions.",422);
     const target = snapshot.packages.find(item=>item.id===desiredPackage);
     if (!target) return fail("package_unavailable","Choose an available subscription package.",422);
-    if (billingInterval === "yearly" && !target.yearly_price &&
+    const isCustomTarget = target.contact_sales === true || target.quota_mode === "custom" || target.code === "custom";
+    if (kind === "custom_quote_request" && !isCustomTarget) {
+      return fail("custom_package_required","CUSTOM request can only target the CUSTOM package.",422);
+    }
+    if (isCustomTarget && kind === "renewal_intent") {
+      return fail("custom_requires_it_agreement","CUSTOM must be requested first so IT can agree the price and limits.",422);
+    }
+    if (isCustomTarget && kind === "payment_notice" && !completingItPreparedPayment) {
+      return fail("custom_requires_it_agreement","Wait for IT to approve the CUSTOM terms before sending payment evidence.",409);
+    }
+    if (kind !== "custom_quote_request" && billingInterval === "yearly" && !target.yearly_price &&
       !(target.id === snapshot.contract.package_id && snapshot.contract.billing_interval === "yearly" && snapshot.contract.amount_per_cycle)) {
       return fail("yearly_unavailable","Annual price is not configured for this package.",422);
     }
@@ -87,12 +97,14 @@ export async function POST(request: Request) {
     }
     if (upgrading && (existingById?.requested_package_id!==target.id ||
       existingById.metadata?.billing_interval!==billingInterval)) {
-      return fail("renewal_selection_locked","Use the package and interval from your pending renewal request.",409);
+      return fail("renewal_selection_locked","Use the package and interval from your pending request.",409);
     }
 
-    const expected = target.id===snapshot.contract.package_id && billingInterval === snapshot.contract.billing_interval
-      ? snapshot.contract.amount_per_cycle
-      : billingInterval==="yearly" ? target.yearly_price : target.monthly_price;
+    const expected = kind === "custom_quote_request"
+      ? null
+      : target.id===snapshot.contract.package_id && billingInterval === snapshot.contract.billing_interval
+        ? snapshot.contract.amount_per_cycle
+        : billingInterval==="yearly" ? target.yearly_price : target.monthly_price;
     const amountText = str(form.get("amount_reported"),32);
     const amountReported = kind === "payment_notice" ? Number(amountText) : null;
     if (kind === "payment_notice" && (!/^\d+(?:\.\d{1,2})?$/.test(amountText)
@@ -151,11 +163,17 @@ export async function POST(request: Request) {
       : snapshot.contract.package_id!==target.id ? "package_change" : "renewal";
     const metadata = {
       ...(upgrading ? existingById?.metadata ?? {} : {}),
-      kind,billing_interval:billingInterval,
-      expected_amount:upgrading ? existingById?.metadata?.expected_amount ?? expected : expected,
+      kind,
+      billing_interval: kind === "custom_quote_request" ? "monthly" : billingInterval,
+      expected_amount: kind === "custom_quote_request"
+        ? null
+        : upgrading ? existingById?.metadata?.expected_amount ?? expected : expected,
       source:"pos_subscription_center",
-      submitted_by:scope.session.user_id,payer_name:payerName,transfer_reference:transferReference,
-      transfer_at:transferAt,note
+      submitted_by:scope.session.user_id,
+      payer_name:kind === "custom_quote_request" ? "" : payerName,
+      transfer_reference:kind === "custom_quote_request" ? "" : transferReference,
+      transfer_at:kind === "custom_quote_request" ? "" : transferAt,
+      note:kind === "custom_quote_request" ? "CUSTOM package request" : note
     };
     const inserted = upgrading
       ? await db.from("tenant_subscription_payment_requests").update({
@@ -176,9 +194,18 @@ export async function POST(request: Request) {
     }
     await appendAuditLog({
       tenantId:scope.session.tenant_id,actorUserId:scope.session.user_id,actorRole:"owner",
-      action:kind==="payment_notice"?"subscription_payment_reported":"subscription_renewal_requested",
+      action:kind==="payment_notice"
+        ? "subscription_payment_reported"
+        : kind==="custom_quote_request"
+          ? "subscription_custom_package_requested"
+          : "subscription_renewal_requested",
       targetTable:"tenant_subscription_payment_requests",targetId:inserted.data.id,module:"subscription",
-      metadata:{kind,requested_package_id:target.id,billing_interval:billingInterval,has_evidence:Boolean(filePath)}
+      metadata:{
+        kind,
+        requested_package_id:target.id,
+        billing_interval:kind === "custom_quote_request" ? "monthly" : billingInterval,
+        has_evidence:Boolean(filePath)
+      }
     });
     return ok({id:inserted.data.id,status:inserted.data.status,already_submitted:false,upgraded:Boolean(upgrading)});
   } catch (error) {
