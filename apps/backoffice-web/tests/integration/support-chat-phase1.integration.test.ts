@@ -64,7 +64,15 @@ describe("Support Chat Phase 1 - POS", () => {
   it("keeps chat history server-side and loads on demand", () => {
     expect(messages).toContain('callSupportChat');
     expect(messages).toContain('"get_messages"');
-    expect(messages).toContain('"mark_read"');
+    expect(messages).toContain("mark_read: true");
     expect(chat).not.toContain("setInterval(");
+  });
+
+  it("optimizes perceived realtime delivery without polling", () => {
+    expect(chat).toContain("Optimistic local echo");
+    expect(chat).toContain("preview:");
+    expect(chat).toContain("setHeads((current)");
+    expect(chat).not.toContain("void loadHeads();\n        if (!selectedId");
+    expect(messages).toContain("head_changed");
   });
 });

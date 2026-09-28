@@ -26,17 +26,18 @@ export async function GET(
     const data = await callSupportChat<{
       conversation: Record<string, unknown>;
       messages: Array<Record<string, unknown>>;
-    }>(bridge, "get_messages", { conversation_id: idFromParams({ conversationId }) });
+      head: SupportChatHead;
+      head_changed?: boolean;
+    }>(bridge, "get_messages", {
+      conversation_id: idFromParams({ conversationId }),
+      mark_read: true
+    });
 
-    if (Number(data.conversation.unread_store_count ?? 0) > 0) {
-      const read = await callSupportChat<{ conversation: Record<string, unknown>; head: SupportChatHead }>(
-        bridge, "mark_read", { conversation_id: conversationId }
-      ).catch(() => null);
-      if (read?.head) await mirrorSupportChatHead(read.head).catch(() => null);
-      if (read?.conversation) data.conversation = read.conversation;
+    if (data.head_changed) {
+      await mirrorSupportChatHead(data.head).catch(() => null);
     }
 
-    return ok(data);
+    return ok({ conversation: data.conversation, messages: data.messages });
   } catch (error) {
     if (error instanceof PosGuardError) return fail(error.code, error.message, error.status);
     const typed = error as Error & { status?: number; code?: string };

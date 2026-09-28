@@ -190,16 +190,51 @@ export function PosSupportChat({ storeCode, storeName }: { storeCode: string; st
     const channel = supabase.channel("pos-support-chat-heads")
       .on("postgres_changes", { event: "*", schema: "public", table: "support_chat_heads" }, (payload) => {
         const next = (payload.new ?? {}) as Partial<Head>;
-        void loadHeads();
+        if (!next.conversation_id) return;
+
+        // The realtime row already contains the compact authoritative head.
+        // Update the list locally instead of issuing a list request first.
+        setHeads((current) => {
+          const merged = { ...(current.find((row) => row.conversation_id === next.conversation_id) ?? {}), ...next } as Head;
+          return [merged, ...current.filter((row) => row.conversation_id !== next.conversation_id)];
+        });
+
         if (!selectedId || next.conversation_id !== selectedId) return;
         const signal = [next.latest_message_at ?? "", next.status ?? "", next.assigned_user_id ?? ""].join("|");
         if (signal === headSignalRef.current) return;
         headSignalRef.current = signal;
-        void loadMessages(selectedId);
+
+        // Show an incoming IT reply immediately from the realtime head while
+        // the canonical message history refreshes in the background.
+        if (next.latest_sender_type === "it" && next.latest_message_at && next.latest_message_preview) {
+          setMessages((current) => {
+            const newest = current[current.length - 1];
+            if (newest && Date.parse(newest.created_at) >= Date.parse(next.latest_message_at!)) return current;
+            return [...current, {
+              id: `preview:${next.conversation_id}:${next.latest_message_at}`,
+              sender_type: "it",
+              sender_name: next.assigned_user_name || "IT Support",
+              sender_role: next.assigned_role || "it_support",
+              sender_avatar_url: next.assigned_user_avatar_url || null,
+              message_body: next.latest_message_preview!,
+              created_at: next.latest_message_at!,
+              attachments: []
+            }];
+          });
+          void loadMessages(selectedId);
+          return;
+        }
+
+        if (
+          next.status !== conversation?.status ||
+          next.assigned_user_id !== conversation?.assigned_user_id
+        ) {
+          void loadMessages(selectedId);
+        }
       })
       .subscribe();
     return () => { void supabase.removeChannel(channel); };
-  }, [loadHeads, loadMessages, selectedId]);
+  }, [loadMessages, selectedId, conversation?.status, conversation?.assigned_user_id]);
 
   useEffect(() => {
     if (!selectedId || conversation?.status === "closed") {
@@ -276,26 +311,52 @@ export function PosSupportChat({ storeCode, storeName }: { storeCode: string; st
   async function sendMessage() {
     const message = draft.trim();
     if (!selectedId || (!message && !attachment)) return;
+
+    const pendingAttachment = attachment;
+    const optimisticId = `optimistic:store:${Date.now()}`;
+    const optimisticMessage: Message = {
+      id: optimisticId,
+      sender_type: "store",
+      sender_name: contactName || storeName,
+      sender_role: null,
+      sender_avatar_url: null,
+      message_body: message || "ส่งรูปภาพ",
+      created_at: new Date().toISOString(),
+      attachments: []
+    };
+
+    // Optimistic local echo keeps the POS responsive while the message is
+    // persisted across projects.
+    setMessages((current) => [...current, optimisticMessage]);
+    setDraft("");
+    setAttachment(null);
     setBusy("send");
     setError("");
+    void typingChannelRef.current?.send({ type: "broadcast", event: "typing", payload: { actor: "store", typing: false } });
+
     try {
       const response = await fetch(`/api/pos/support-chat/conversations/${selectedId}/messages`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           message,
-          attachment: attachment ? await attachmentPayload(attachment) : null
+          attachment: pendingAttachment ? await attachmentPayload(pendingAttachment) : null
         })
       });
       const json = await response.json().catch(() => null) as Envelope<{ message: Message; conversation: Conversation; head: Head }> | null;
       if (!response.ok || !json?.data) throw new Error(json?.error?.message || "ส่งข้อความไม่สำเร็จ");
-      setDraft("");
-      setAttachment(null);
-      void typingChannelRef.current?.send({ type: "broadcast", event: "typing", payload: { actor: "store", typing: false } });
+
       setConversation(json.data.conversation);
-      setMessages((current) => [...current, json.data!.message]);
+      setMessages((current) => {
+        const withoutOptimistic = current.filter((item) => item.id !== optimisticId);
+        if (withoutOptimistic.some((item) => item.id === json.data!.message.id)) return withoutOptimistic;
+        return [...withoutOptimistic, json.data!.message];
+      });
       setHeads((current) => [json.data!.head, ...current.filter((row) => row.conversation_id !== json.data!.head.conversation_id)]);
     } catch (cause) {
+      setMessages((current) => current.filter((item) => item.id !== optimisticId));
+      setDraft((current) => current || message);
+      setAttachment((current) => current ?? pendingAttachment);
       setError(cause instanceof Error ? cause.message : "ส่งข้อความไม่สำเร็จ");
     } finally {
       setBusy("");
