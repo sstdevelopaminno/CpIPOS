@@ -1,0 +1,122 @@
+name: Production Deploy (Prebuilt)
+
+on:
+  workflow_dispatch:
+  workflow_run:
+    workflows:
+      - CI
+    types:
+      - completed
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cpipos-production-prebuilt
+  cancel-in-progress: false
+
+env:
+  VERCEL_ORG_ID: team_ZKmv6uQSU9QUyP08mxAr2YDI
+  VERCEL_PROJECT_ID: prj_NLRmnCWPvQfSJZvoJE224zqVT4dj
+  VERCEL_PROJECT_ROOT: apps/backoffice-web
+
+jobs:
+  deploy:
+    name: Build on GitHub and deploy prebuilt Production
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (
+        github.event.workflow_run.conclusion == 'success' &&
+        github.event.workflow_run.event == 'push' &&
+        github.event.workflow_run.head_branch == 'agent-docs-preflight-schema-drift'
+      )
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    environment: production
+    steps:
+      - name: Resolve source commit
+        id: source
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_run" ]; then
+            echo "sha=${{ github.event.workflow_run.head_sha }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "sha=${{ github.sha }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Checkout verified source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.source.outputs.sha }}
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Setup pnpm
+        run: corepack enable
+
+      - name: Require Vercel deployment token
+        shell: bash
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          if [ -z "$VERCEL_TOKEN" ]; then
+            echo "::error::Missing GitHub Actions secret VERCEL_TOKEN. Add a Vercel token with access to team sstdevelopaminnos-projects, then rerun this workflow."
+            exit 1
+          fi
+
+      - name: Install Vercel CLI
+        run: npm install --global vercel@latest
+
+      - name: Pull Production project settings and environment
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: >-
+          vercel pull
+          --yes
+          --environment=production
+          --token="$VERCEL_TOKEN"
+          --cwd="$VERCEL_PROJECT_ROOT"
+
+      - name: Build Vercel output on GitHub runner
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_GIT_COMMIT_SHA: ${{ steps.source.outputs.sha }}
+          VERCEL_GIT_COMMIT_REF: agent-docs-preflight-schema-drift
+        run: >-
+          vercel build
+          --prod
+          --token="$VERCEL_TOKEN"
+          --cwd="$VERCEL_PROJECT_ROOT"
+
+      - name: Deploy prebuilt output to Production
+        id: deploy
+        shell: bash
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          set -euo pipefail
+          url=$(vercel deploy --prebuilt --prod --yes --token="$VERCEL_TOKEN" --cwd="$VERCEL_PROJECT_ROOT" | tail -n 1)
+          echo "url=$url" >> "$GITHUB_OUTPUT"
+          echo "Production deployment: $url"
+
+      - name: Verify Production build identity
+        shell: bash
+        env:
+          EXPECTED_SHA: ${{ steps.source.outputs.sha }}
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3 4 5; do
+            payload=$(curl --fail --silent --show-error "https://cp-ipos-web.vercel.app/api/system/build-info" || true)
+            echo "Production build-info attempt $attempt: $payload"
+            if printf '%s' "$payload" | grep -q "$EXPECTED_SHA"; then
+              echo "Production is serving expected commit $EXPECTED_SHA"
+              exit 0
+            fi
+            sleep 6
+          done
+          echo "::error::Production alias did not report expected commit $EXPECTED_SHA after deployment."
+          exit 1
