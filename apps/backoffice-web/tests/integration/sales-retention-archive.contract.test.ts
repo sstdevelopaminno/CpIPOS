@@ -25,7 +25,7 @@ describe("rolling sales retention archive", () => {
   it("requires export, email and a seven-day safety window before purge", () => {
     expect(migration).toContain("email_sent_at is not null");
     expect(migration).toContain("purge_after <= now()");
-    expect(worker).toContain("7 * 24 * 60 * 60 * 1000");
+    expect(migration).toContain("'safety_grace_days',7");
     expect(worker).toContain("retention_manifest_missing");
   });
 
