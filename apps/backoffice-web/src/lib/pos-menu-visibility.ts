@@ -17,7 +17,7 @@ export const POS_MENU_GROUPS = [
     { key: "tax_invoices", label: "ออกใบกำกับภาษี", href: "/preview/pos/tax-invoices" },
     { key: "product_sales", label: "รายการขายสินค้า", href: "/preview/pos/product-sales" }
   ] },
-  { key: "payments", label: "ชำระเงิน", href: "/preview/pos/payments", children: [] },
+  { key: "payments", label: "ศูนย์ช่วยเหลือ", href: "/preview/pos/payments", children: [] },
   { key: "settings", label: "ตั้งค่า", href: "/preview/pos/settings", children: [
     { key: "store", label: "ข้อมูลร้านค้า/บริษัท", href: "/preview/pos/settings" },
     { key: "branches", label: "เพิ่มสาขา", href: "/preview/pos/settings" },
