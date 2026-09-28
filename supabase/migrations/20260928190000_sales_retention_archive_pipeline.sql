@@ -527,7 +527,84 @@ $$;
 revoke all on function app.invoke_sales_retention_worker() from public, anon, authenticated;
 grant execute on function app.invoke_sales_retention_worker() to service_role;
 
-do $$
+-- Public-schema service-role wrappers keep Edge Functions / Vercel server code
+-- on the standard Supabase REST/RPC surface without exposing these operations
+-- to browser roles.
+create or replace function public.claim_due_sales_retention_batch(p_max_orders integer default 2000)
+returns uuid
+language sql
+security definer
+set search_path = pg_catalog, public, app
+as $ select app.claim_due_sales_retention_batch(p_max_orders); $;
+revoke all on function public.claim_due_sales_retention_batch(integer) from public, anon, authenticated;
+grant execute on function public.claim_due_sales_retention_batch(integer) to service_role;
+
+create or replace function public.complete_sales_retention_export(
+  p_batch_id uuid,
+  p_orders_object_path text,
+  p_items_object_path text,
+  p_payments_object_path text,
+  p_manifest_object_path text,
+  p_checksums jsonb,
+  p_order_count integer,
+  p_item_count integer,
+  p_payment_count integer,
+  p_gross_total numeric,
+  p_paid_total numeric
+)
+returns void
+language sql
+security definer
+set search_path = pg_catalog, public, app
+as $
+  select app.complete_sales_retention_export(
+    p_batch_id,p_orders_object_path,p_items_object_path,p_payments_object_path,
+    p_manifest_object_path,p_checksums,p_order_count,p_item_count,p_payment_count,
+    p_gross_total,p_paid_total
+  );
+$;
+revoke all on function public.complete_sales_retention_export(uuid,text,text,text,text,jsonb,integer,integer,integer,numeric,numeric)
+  from public, anon, authenticated;
+grant execute on function public.complete_sales_retention_export(uuid,text,text,text,text,jsonb,integer,integer,integer,numeric,numeric)
+  to service_role;
+
+create or replace function public.issue_sales_retention_email_token(p_batch_id uuid)
+returns text
+language sql
+security definer
+set search_path = pg_catalog, public, app
+as $ select app.issue_sales_retention_email_token(p_batch_id); $;
+revoke all on function public.issue_sales_retention_email_token(uuid) from public, anon, authenticated;
+grant execute on function public.issue_sales_retention_email_token(uuid) to service_role;
+
+create or replace function public.consume_sales_retention_email_token(p_batch_id uuid, p_token text)
+returns boolean
+language sql
+security definer
+set search_path = pg_catalog, public, app
+as $ select app.consume_sales_retention_email_token(p_batch_id,p_token); $;
+revoke all on function public.consume_sales_retention_email_token(uuid,text) from public, anon, authenticated;
+grant execute on function public.consume_sales_retention_email_token(uuid,text) to service_role;
+
+create or replace function public.consume_sales_retention_worker_token(p_token text)
+returns boolean
+language sql
+security definer
+set search_path = pg_catalog, public, app
+as $ select app.consume_sales_retention_worker_token(p_token); $;
+revoke all on function public.consume_sales_retention_worker_token(text) from public, anon, authenticated;
+grant execute on function public.consume_sales_retention_worker_token(text) to service_role;
+
+create or replace function public.purge_sales_retention_batch(p_batch_id uuid)
+returns integer
+language sql
+security definer
+set search_path = pg_catalog, public, app
+as $ select app.purge_sales_retention_batch(p_batch_id); $;
+revoke all on function public.purge_sales_retention_batch(uuid) from public, anon, authenticated;
+grant execute on function public.purge_sales_retention_batch(uuid) to service_role;
+
+do $
 declare
   v_jobid bigint;
 begin
