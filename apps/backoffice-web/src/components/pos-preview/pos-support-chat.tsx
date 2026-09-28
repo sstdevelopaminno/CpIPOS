@@ -208,6 +208,11 @@ export function PosSupportChat({ storeCode, storeName }: { storeCode: string; st
         // the canonical message history refreshes in the background.
         if (next.latest_sender_type === "it" && next.latest_message_at && next.latest_message_preview) {
           setMessages((current) => {
+            if (current.some((item) =>
+              item.id.startsWith("broadcast:") &&
+              item.sender_type === "it" &&
+              item.message_body === next.latest_message_preview
+            )) return current;
             const newest = current[current.length - 1];
             if (newest && Date.parse(newest.created_at) >= Date.parse(next.latest_message_at!)) return current;
             return [...current, {
@@ -256,6 +261,31 @@ export function PosSupportChat({ storeCode, storeName }: { storeCode: string; st
         if (typingTimerRef.current) window.clearTimeout(typingTimerRef.current);
         setRemoteTyping(event.typing ? (event.name || "IT Support") : "");
         if (event.typing) typingTimerRef.current = window.setTimeout(() => setRemoteTyping(""), 2600);
+      })
+      .on("broadcast", { event: "message_preview" }, ({ payload }) => {
+        const event = payload as {
+          actor?: string; client_id?: string; message?: string; created_at?: string;
+          name?: string; role?: string | null; avatar_url?: string | null;
+        };
+        if (event.actor !== "it" || !event.client_id || !event.message || !event.created_at) return;
+        const id = `broadcast:${event.client_id}`;
+        setRemoteTyping("");
+        setMessages((current) => current.some((item) => item.id === id) ? current : [...current, {
+          id,
+          sender_type: "it",
+          sender_name: event.name || "IT Support",
+          sender_role: event.role || "it_support",
+          sender_avatar_url: event.avatar_url || null,
+          message_body: event.message!,
+          created_at: event.created_at!,
+          attachments: []
+        }]);
+      })
+      .on("broadcast", { event: "message_retract" }, ({ payload }) => {
+        const event = payload as { actor?: string; client_id?: string };
+        if (event.actor !== "it" || !event.client_id) return;
+        const id = `broadcast:${event.client_id}`;
+        setMessages((current) => current.filter((item) => item.id !== id));
       })
       .subscribe();
     typingChannelRef.current = channel;
@@ -333,6 +363,19 @@ export function PosSupportChat({ storeCode, storeName }: { storeCode: string; st
     setBusy("send");
     setError("");
     void typingChannelRef.current?.send({ type: "broadcast", event: "typing", payload: { actor: "store", typing: false } });
+    void typingChannelRef.current?.send({
+      type: "broadcast",
+      event: "message_preview",
+      payload: {
+        actor: "store",
+        client_id: optimisticId,
+        message: optimisticMessage.message_body,
+        created_at: optimisticMessage.created_at,
+        name: optimisticMessage.sender_name,
+        role: optimisticMessage.sender_role,
+        avatar_url: optimisticMessage.sender_avatar_url
+      }
+    });
 
     try {
       const response = await fetch(`/api/pos/support-chat/conversations/${selectedId}/messages`, {
@@ -354,6 +397,11 @@ export function PosSupportChat({ storeCode, storeName }: { storeCode: string; st
       });
       setHeads((current) => [json.data!.head, ...current.filter((row) => row.conversation_id !== json.data!.head.conversation_id)]);
     } catch (cause) {
+      void typingChannelRef.current?.send({
+        type: "broadcast",
+        event: "message_retract",
+        payload: { actor: "store", client_id: optimisticId }
+      });
       setMessages((current) => current.filter((item) => item.id !== optimisticId));
       setDraft((current) => current || message);
       setAttachment((current) => current ?? pendingAttachment);
