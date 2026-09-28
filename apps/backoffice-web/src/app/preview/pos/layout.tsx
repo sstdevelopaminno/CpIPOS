@@ -12,6 +12,7 @@ import { PosShellFrame } from "@/components/pos-preview/pos-shell-frame";
 import { PosSubscriptionLifecycleGuard } from "@/components/pos-preview/pos-subscription-lifecycle-guard";
 import { PosRoutePerformanceTracker } from "@/components/pos-preview/pos-route-performance-tracker";
 import { PosTableQrGlobalAlert } from "@/components/pos-preview/pos-table-qr-global-alert";
+import { PosSupportNotifier } from "@/components/pos-preview/pos-support-notifier";
 import { PosViewportGuard } from "@/components/pos-preview/pos-viewport-guard";
 import { getCurrentLanguage, t } from "@/lib/i18n";
 import { loadPosRuntimeDevicePolicyForSession } from "@/lib/pos-device-status";
@@ -116,6 +117,7 @@ export default async function PosPreviewLayout({ children }: { children: ReactNo
       <PosViewportGuard lang={lang} />
       {!isKitchen ? <PosTableQrGlobalAlert lang={lang} /> : null}
       {!isKitchen ? <PosSubscriptionLifecycleGuard initial={subscriptionGuard} /> : null}
+      {!isKitchen ? <PosSupportNotifier /> : null}
       <PosShellFrame
         lang={lang}
         settingsLabel={t(lang, "common_settings")}

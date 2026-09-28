@@ -3,6 +3,7 @@ import { fail, ok } from "@/lib/http";
 import { PosGuardError, requirePosSession } from "@/lib/pos-session-guard";
 import { loadPosSubscriptionCenter, SUBSCRIPTION_SLIP_BUCKET } from "@/lib/services/pos-subscription-center-service";
 import { getPrimarySupabaseServiceClient } from "@/lib/supabase-admin";
+import { dispatchSupportPush } from "@/lib/services/support-chat/support-push";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -208,6 +209,18 @@ export async function POST(request: Request) {
         has_evidence:Boolean(filePath)
       }
     });
+    await dispatchSupportPush({
+      audience: "it",
+      kind: "request",
+      title: `คำขอใหม่ · ${snapshot.store.name}`,
+      body: kind === "payment_notice"
+        ? "ลูกค้าแจ้งชำระเงินแพ็กเกจ"
+        : kind === "custom_quote_request"
+          ? "ลูกค้าส่งคำขอแพ็กเกจ CUSTOM"
+          : "ลูกค้าส่งคำขอต่ออายุแพ็กเกจ",
+      url: "/it-admin/requests",
+      tag: `subscription-request:${inserted.data.id}`
+    }).catch(() => null);
     return ok({id:inserted.data.id,status:inserted.data.status,already_submitted:false,upgraded:Boolean(upgrading)});
   } catch (error) {
     if (error instanceof PosGuardError) return fail(error.code,error.message,error.status);

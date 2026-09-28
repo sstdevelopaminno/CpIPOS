@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { MouseEvent, useMemo } from "react";
+import { MouseEvent, useEffect, useMemo, useState } from "react";
 import { t, type Language } from "@/lib/i18n";
 import { isPosMenuEnabled, posMenuKeyForRoute } from "@/lib/pos-menu-policy";
 import { POS_MENU_LOCK_TITLE_EN, POS_MENU_LOCK_TITLE_TH, featureForPosRoute } from "@/lib/pos-feature-map";
@@ -80,6 +80,7 @@ export function PosStaffMenu({ lang, collapsed, orientation = "vertical", sessio
   onLockedMenu: (menuLabel: string) => void;
 }) {
   const pathname = usePathname();
+  const [supportUnread, setSupportUnread] = useState(0);
   const effectiveRole = resolveMenuRole(sessionRole);
   const menuItems = useMemo(() => MENU_DEFS.map((item) => ({ ...item, label: labelFor(item, lang) })).filter((item) => item.roles.includes(effectiveRole)), [effectiveRole, lang, menuPolicy]);
   const moreItems = useMemo(
@@ -96,7 +97,20 @@ export function PosStaffMenu({ lang, collapsed, orientation = "vertical", sessio
   const isMoreActive = moreItems.some((item) => pathname === item.href);
   const isMoreMenuActive = pathname === "/preview/pos/more" || isMoreActive;
   const paymentMenuLabel = lang === "th" ? "ศูนย์ช่วยเหลือ" : "Help Center";
-  const isPaymentMenuActive = pathname === "/preview/pos/payments" || pathname.startsWith("/preview/pos/payments/");
+  const chatMenuLabel = lang === "th" ? "แชท" : "Chat";
+  const requestMenuLabel = lang === "th" ? "ส่งคำขอ" : "Send Request";
+  const isPaymentMenuActive = pathname === "/preview/pos/payments";
+  const isChatMenuActive = pathname === "/preview/pos/payments/support";
+  const isRequestMenuActive = pathname === "/preview/pos/payments/package";
+
+  useEffect(() => {
+    const onUnread = (event: Event) => {
+      const custom = event as CustomEvent<{ total?: number }>;
+      setSupportUnread(Math.max(0, Number(custom.detail?.total ?? 0)));
+    };
+    window.addEventListener("cpipos-pos-support-unread", onUnread);
+    return () => window.removeEventListener("cpipos-pos-support-unread", onUnread);
+  }, []);
 
   function handleNavigate(event: MouseEvent<HTMLAnchorElement>, href: string) {
     if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
@@ -129,6 +143,23 @@ export function PosStaffMenu({ lang, collapsed, orientation = "vertical", sessio
           <span className="inline-flex w-4 justify-center" aria-hidden><MenuIcon name="more" /></span>
           {(!collapsed || isHorizontal) ? <span className="truncate text-[13px]">{t(lang, "pos_menu_more")}</span> : null}
           {!isPosMenuEnabled("main.more", menuPolicy) ? <span className="ml-auto inline-flex text-slate-300"><LockIcon /></span> : null}
+        </Link>
+      ) : null}
+      {effectiveRole !== "kitchen" ? (
+        <Link href="/preview/pos/payments/support" onClick={(event) => !isPosMenuEnabled("main.payments", menuPolicy) ? (event.preventDefault(), onLockedMenu(chatMenuLabel)) : handleNavigate(event, "/preview/pos/payments/support")}
+          className={`group relative inline-flex min-h-[42px] items-center text-[13px] font-semibold leading-tight transition ${isHorizontal ? "shrink-0 justify-center gap-2 px-3" : collapsed ? "justify-center px-2" : "justify-start gap-2 px-2"} ${!isPosMenuEnabled("main.payments", menuPolicy) ? "rounded-xl text-slate-400/85 hover:bg-white/5" : isChatMenuActive ? "rounded-xl border border-cyan-300/45 bg-[linear-gradient(145deg,rgba(59,130,246,0.45),rgba(14,165,233,0.35))] text-white shadow-[0_10px_24px_rgba(14,116,255,0.25),inset_0_1px_0_rgba(255,255,255,0.2)]" : "rounded-xl text-slate-100/90 hover:bg-white/8 hover:text-white"}`}
+          title={collapsed && !isHorizontal ? chatMenuLabel : undefined}>
+          <span className="inline-flex w-4 justify-center" aria-hidden><MenuIcon name="support" /></span>
+          {(!collapsed || isHorizontal) ? <span className="truncate text-[13px]">{chatMenuLabel}</span> : null}
+          {supportUnread > 0 ? <span className={`${collapsed && !isHorizontal ? "absolute right-0 top-0" : "ml-auto"} rounded-full bg-red-500 px-1.5 py-0.5 text-[10px] font-black text-white`}>{supportUnread > 99 ? "99+" : supportUnread}</span> : null}
+        </Link>
+      ) : null}
+      {(effectiveRole === "owner" || effectiveRole === "manager") ? (
+        <Link href="/preview/pos/payments/package" onClick={(event) => !isPosMenuEnabled("main.payments", menuPolicy) ? (event.preventDefault(), onLockedMenu(requestMenuLabel)) : handleNavigate(event, "/preview/pos/payments/package")}
+          className={`group relative inline-flex min-h-[42px] items-center text-[13px] font-semibold leading-tight transition ${isHorizontal ? "shrink-0 justify-center gap-2 px-3" : collapsed ? "justify-center px-2" : "justify-start gap-2 px-2"} ${!isPosMenuEnabled("main.payments", menuPolicy) ? "rounded-xl text-slate-400/85 hover:bg-white/5" : isRequestMenuActive ? "rounded-xl border border-cyan-300/45 bg-[linear-gradient(145deg,rgba(59,130,246,0.45),rgba(14,165,233,0.35))] text-white shadow-[0_10px_24px_rgba(14,116,255,0.25),inset_0_1px_0_rgba(255,255,255,0.2)]" : "rounded-xl text-slate-100/90 hover:bg-white/8 hover:text-white"}`}
+          title={collapsed && !isHorizontal ? requestMenuLabel : undefined}>
+          <span className="inline-flex w-4 justify-center" aria-hidden><MenuIcon name="payment" /></span>
+          {(!collapsed || isHorizontal) ? <span className="truncate text-[13px]">{requestMenuLabel}</span> : null}
         </Link>
       ) : null}
       {effectiveRole !== "kitchen" ? (

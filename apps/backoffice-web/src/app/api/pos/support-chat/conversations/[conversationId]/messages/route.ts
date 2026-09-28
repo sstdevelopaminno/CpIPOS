@@ -9,6 +9,7 @@ import {
   type SupportChatHead
 } from "@/lib/services/support-chat/support-chat-bridge";
 import { enforceRateLimit, getClientIpAddress } from "@/lib/server/rate-limit";
+import { dispatchSupportPush } from "@/lib/services/support-chat/support-push";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -87,7 +88,17 @@ export async function POST(
         message,
         attachment: body?.attachment ?? null
       });
-      await mirrorSupportChatHead(data.head);
+      await Promise.allSettled([
+        mirrorSupportChatHead(data.head),
+        dispatchSupportPush({
+          audience: "it",
+          kind: "chat",
+          title: `แชทใหม่ · ${data.head.store_name || scope.session.tenant_id}`,
+          body: preview || "มีข้อความใหม่จากร้านค้า",
+          url: "/it-admin/support-chat",
+          tag: `support-chat:${conversationId}`
+        })
+      ]);
       return ok(data);
     } catch (error) {
       await rollbackOptimisticSupportChatHead(optimistic).catch(() => null);
