@@ -62,7 +62,8 @@ export async function POST(request: Request) {
     const completingItPreparedPayment = Boolean(existingById && kind==="payment_notice" &&
       ["pending","under_review"].includes(existingById.status) &&
       existingById.metadata?.kind==="payment_notice" &&
-      ["it_tenant_control","it_custom_agreement"].includes(String(existingById.metadata?.source ?? "")) &&
+      (existingById.metadata?.source==="it_tenant_control" ||
+       existingById.metadata?.source==="it_custom_agreement") &&
       !existingById.evidence_url && existingById.amount_reported == null);
     const upgrading = upgradingRenewal || completingItPreparedPayment;
     if (existingById && !upgrading) {
