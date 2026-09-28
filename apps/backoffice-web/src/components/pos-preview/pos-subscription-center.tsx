@@ -1,6 +1,7 @@
 "use client";
 
 import Image from "next/image";
+import Link from "next/link";
 import { PosSupportChat } from "@/components/pos-preview/pos-support-chat";
 import { useMemo, useRef, useState, type ReactNode } from "react";
 import type { PosSubscriptionCenterData } from "@/lib/services/pos-subscription-center-service";
@@ -95,8 +96,11 @@ const tabs: Array<{ key: Tab; label: string; icon: IconName }> = [
   { key: "documents", label: "เอกสาร", icon: "file" }
 ];
 
-export function PosSubscriptionCenter({ initial, isOwner }: {
-  initial: PosSubscriptionCenterData; isOwner: boolean;
+export function PosSubscriptionCenter({ initial, isOwner, showContactActions = true, backHref }: {
+  initial: PosSubscriptionCenterData;
+  isOwner: boolean;
+  showContactActions?: boolean;
+  backHref?: string;
 }) {
   const [snapshot, setSnapshot] = useState(initial);
   const initialPending = initial.requests.find((row) => ["pending", "under_review"].includes(row.status));
@@ -255,6 +259,10 @@ export function PosSubscriptionCenter({ initial, isOwner }: {
           </div>
         </div>
         <div className="flex flex-wrap items-center justify-end gap-2">
+          {backHref ? <Link href={backHref}
+            className="inline-flex items-center gap-2 rounded-xl border border-[#d9e4f7] bg-white px-4 py-2.5 text-sm font-bold text-slate-700 shadow-sm transition hover:bg-slate-50">
+            <span aria-hidden>←</span>กลับศูนย์ช่วยเหลือ
+          </Link> : null}
           <span
             role="status"
             className="inline-flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-bold text-emerald-700"
@@ -353,14 +361,16 @@ export function PosSubscriptionCenter({ initial, isOwner }: {
             className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-sm font-bold text-slate-700 hover:bg-slate-50">
             <Icon name="bank" size={16}/>บัญชีรับชำระของบริษัท
           </button>
-          <button type="button" onClick={() => { setInfoPopup("line"); setPopupOpen(true); setLineOpen(true); }}
-            className="inline-flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-3.5 py-2.5 text-sm font-bold text-emerald-700 hover:bg-emerald-100">
-            LINE · QR ติดต่อบริษัท
-          </button>
-          <button type="button" onClick={() => { setInfoPopup("support"); setPopupOpen(true); }}
-            className="inline-flex items-center gap-2 rounded-xl border border-violet-200 bg-violet-50 px-3.5 py-2.5 text-sm font-bold text-violet-700 hover:bg-violet-100">
-            <Icon name="support" size={16}/>ติดต่อสอบถาม / แจ้งปัญหา
-          </button>
+          {showContactActions ? <>
+            <button type="button" onClick={() => { setInfoPopup("line"); setPopupOpen(true); setLineOpen(true); }}
+              className="inline-flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-3.5 py-2.5 text-sm font-bold text-emerald-700 hover:bg-emerald-100">
+              LINE · QR ติดต่อบริษัท
+            </button>
+            <button type="button" onClick={() => { setInfoPopup("support"); setPopupOpen(true); }}
+              className="inline-flex items-center gap-2 rounded-xl border border-violet-200 bg-violet-50 px-3.5 py-2.5 text-sm font-bold text-violet-700 hover:bg-violet-100">
+              <Icon name="support" size={16}/>ติดต่อสอบถาม / แจ้งปัญหา
+            </button>
+          </> : null}
           <button type="button" disabled={!isOwner || demo} onClick={() => openTab("renew")}
             className="ml-auto inline-flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-black text-white shadow-sm disabled:opacity-50">
             <Icon name="wallet" size={16}/>ต่ออายุแพ็กเกจ
