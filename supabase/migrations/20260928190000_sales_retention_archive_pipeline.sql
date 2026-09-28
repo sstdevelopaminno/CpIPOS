@@ -604,7 +604,7 @@ as $$ select app.purge_sales_retention_batch(p_batch_id); $$;
 revoke all on function public.purge_sales_retention_batch(uuid) from public, anon, authenticated;
 grant execute on function public.purge_sales_retention_batch(uuid) to service_role;
 
-do $
+do $$
 declare
   v_jobid bigint;
 begin
