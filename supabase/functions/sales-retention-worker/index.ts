@@ -352,8 +352,36 @@ Deno.serve(async (request) => {
         actions.push({ type: "purge", batch_id: row.id, purged });
       } catch (error) {
         const message = error instanceof Error ? error.message : "purge_failed";
-        await markFailed(db, row.id, message, "failed");
+        await markFailed(db, row.id, message, "purge_ready");
         actions.push({ type: "purge_failed", batch_id: row.id, error: message });
+      }
+    }
+
+    // Retry an interrupted export before making new claims. Batch membership is
+    // already fixed, so this is safe and does not duplicate archived orders.
+    const { data: failedExports } = await db
+      .from("sales_retention_batches")
+      .select("id")
+      .eq("status", "failed")
+      .is("exported_at", null)
+      .order("updated_at", { ascending: true })
+      .limit(1);
+    for (const row of (failedExports ?? []) as Array<{ id: string }>) {
+      try {
+        const exported = await exportBatch(db, row.id);
+        actions.push({ type: "export_retry", ...exported });
+        try {
+          const emailResult = await sendArchiveEmail(db, row.id);
+          actions.push({ type: "email", batch_id: row.id, result: emailResult });
+        } catch (error) {
+          const message = error instanceof Error ? error.message : "email_failed";
+          await markFailed(db, row.id, message, "email_failed");
+          actions.push({ type: "email_failed", batch_id: row.id, error: message });
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "export_failed";
+        await markFailed(db, row.id, message, "failed");
+        actions.push({ type: "export_retry_failed", batch_id: row.id, error: message });
       }
     }
 
