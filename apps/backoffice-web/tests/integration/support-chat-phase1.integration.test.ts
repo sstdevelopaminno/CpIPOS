@@ -68,6 +68,13 @@ describe("Support Chat Phase 1 - POS", () => {
     expect(chat).not.toContain("setInterval(");
   });
 
+  it("publishes a secure realtime head preview before cross-project persistence", () => {
+    expect(bridge).toContain("publishOptimisticSupportChatHead");
+    expect(bridge).toContain("rollbackOptimisticSupportChatHead");
+    expect(messages).toContain('publishOptimisticSupportChatHead(conversationId, "store", preview)');
+    expect(messages).toContain("const bridgePromise = issuePosSupportChatBridge(scope)");
+  });
+
   it("optimizes perceived realtime delivery without polling", () => {
     expect(chat).toContain("Optimistic local echo");
     expect(chat).toContain("preview:");
