@@ -1,0 +1,81 @@
+name: Promote Existing Vercel Deployment
+
+on:
+  push:
+    paths:
+      - ".github/workflows/promote-existing-vercel-production.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cpipos-production-promote
+  cancel-in-progress: false
+
+env:
+  VERCEL_TEAM_ID: team_ZKmv6uQSU9QUyP08mxAr2YDI
+  VERCEL_PROJECT_ID: prj_NLRmnCWPvQfSJZvoJE224zqVT4dj
+  TARGET_DEPLOYMENT_ID: dpl_EM9QzmvpuYRxRT81GBaNZq5is3Nb
+  EXPECTED_COMMIT_SHA: c17d3a4afd7598681d09c2ef99a6b916d61c3983
+
+jobs:
+  promote:
+    name: Point Production traffic without rebuild
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: production
+    steps:
+      - name: Require valid Vercel Personal Access Token
+        shell: bash
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "$VERCEL_TOKEN" ]; then
+            echo "::error::Missing VERCEL_TOKEN repository secret."
+            exit 1
+          fi
+          status=$(curl --silent --show-error --output /tmp/vercel-user.json --write-out "%{http_code}" \
+            -H "Authorization: Bearer $VERCEL_TOKEN" \
+            "https://api.vercel.com/v2/user")
+          cat /tmp/vercel-user.json
+          if [ "$status" != "200" ]; then
+            echo "::error::VERCEL_TOKEN is not a valid Vercel Personal/Account Access Token for this account."
+            exit 1
+          fi
+
+      - name: Promote READY deployment to Production without rebuild
+        shell: bash
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          set -euo pipefail
+          status=$(curl --silent --show-error --output /tmp/vercel-promote.json --write-out "%{http_code}" \
+            -X POST \
+            -H "Authorization: Bearer $VERCEL_TOKEN" \
+            "https://api.vercel.com/v10/projects/$VERCEL_PROJECT_ID/promote/$TARGET_DEPLOYMENT_ID?teamId=$VERCEL_TEAM_ID")
+          cat /tmp/vercel-promote.json
+          case "$status" in
+            200|201|202) ;;
+            *)
+              echo "::error::Vercel Promote API failed with HTTP $status."
+              exit 1
+              ;;
+          esac
+
+      - name: Verify Production alias points to expected deployment
+        shell: bash
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3 4 5 6; do
+            payload=$(curl --fail --silent --show-error "https://cp-ipos-web.vercel.app/api/system/build-info" || true)
+            echo "Attempt $attempt: $payload"
+            if printf '%s' "$payload" | grep -q "$EXPECTED_COMMIT_SHA"; then
+              echo "Production is serving expected commit $EXPECTED_COMMIT_SHA"
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "::error::Production did not switch to expected commit $EXPECTED_COMMIT_SHA."
+          exit 1
