@@ -18,6 +18,7 @@ concurrency:
 env:
   VERCEL_ORG_ID: team_ZKmv6uQSU9QUyP08mxAr2YDI
   VERCEL_PROJECT_ID: prj_NLRmnCWPvQfSJZvoJE224zqVT4dj
+  VERCEL_TEAM_SLUG: sstdevelopaminnos-projects
   VERCEL_PROJECT_ROOT: apps/backoffice-web
 
 jobs:
@@ -71,6 +72,26 @@ jobs:
       - name: Install Vercel CLI
         run: npm install --global vercel@latest
 
+      - name: Verify Vercel project access
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: >-
+          vercel api GET "/v9/projects/$VERCEL_PROJECT_ID"
+          --scope="$VERCEL_TEAM_SLUG"
+          --token="$VERCEL_TOKEN"
+
+      - name: Link Production project explicitly
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          rm -rf "$VERCEL_PROJECT_ROOT/.vercel"
+          vercel link \
+            --yes \
+            --project="$VERCEL_PROJECT_ID" \
+            --scope="$VERCEL_TEAM_SLUG" \
+            --token="$VERCEL_TOKEN" \
+            --cwd="$VERCEL_PROJECT_ROOT"
+
       - name: Pull Production project settings and environment
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
@@ -78,6 +99,8 @@ jobs:
           vercel pull
           --yes
           --environment=production
+          --project="$VERCEL_PROJECT_ID"
+          --scope="$VERCEL_TEAM_SLUG"
           --token="$VERCEL_TOKEN"
           --cwd="$VERCEL_PROJECT_ROOT"
 
@@ -89,6 +112,8 @@ jobs:
         run: >-
           vercel build
           --prod
+          --project="$VERCEL_PROJECT_ID"
+          --scope="$VERCEL_TEAM_SLUG"
           --token="$VERCEL_TOKEN"
           --cwd="$VERCEL_PROJECT_ROOT"
 
@@ -99,7 +124,7 @@ jobs:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
         run: |
           set -euo pipefail
-          url=$(vercel deploy --prebuilt --prod --yes --token="$VERCEL_TOKEN" --cwd="$VERCEL_PROJECT_ROOT" | tail -n 1)
+          url=$(vercel deploy --prebuilt --prod --yes --project="$VERCEL_PROJECT_ID" --scope="$VERCEL_TEAM_SLUG" --token="$VERCEL_TOKEN" --cwd="$VERCEL_PROJECT_ROOT" | tail -n 1)
           echo "url=$url" >> "$GITHUB_OUTPUT"
           echo "Production deployment: $url"
 
