@@ -16,7 +16,9 @@ const supportPage = source("../../src/app/preview/pos/payments/support/page.tsx"
 describe("POS help center navigation", () => {
   it("renames the main payment navigation to Help Center while preserving the existing policy route", () => {
     expect(staffMenu).toContain('lang === "th" ? "ศูนย์ช่วยเหลือ" : "Help Center"');
-    expect(staffMenu).toContain('pathname.startsWith("/preview/pos/payments/")');
+    expect(staffMenu).toContain('href="/preview/pos/payments/support"');
+    expect(staffMenu).toContain('href="/preview/pos/payments/package"');
+    expect(staffMenu).toContain('pathname === "/preview/pos/payments"');
     expect(rootPage).toContain("PosHelpCenter");
   });
 
