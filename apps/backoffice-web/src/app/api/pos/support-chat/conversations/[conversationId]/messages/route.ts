@@ -28,10 +28,13 @@ export async function GET(
       messages: Array<Record<string, unknown>>;
     }>(bridge, "get_messages", { conversation_id: idFromParams({ conversationId }) });
 
-    const read = await callSupportChat<{ conversation: Record<string, unknown>; head: SupportChatHead }>(
-      bridge, "mark_read", { conversation_id: conversationId }
-    ).catch(() => null);
-    if (read?.head) await mirrorSupportChatHead(read.head).catch(() => null);
+    if (Number(data.conversation.unread_store_count ?? 0) > 0) {
+      const read = await callSupportChat<{ conversation: Record<string, unknown>; head: SupportChatHead }>(
+        bridge, "mark_read", { conversation_id: conversationId }
+      ).catch(() => null);
+      if (read?.head) await mirrorSupportChatHead(read.head).catch(() => null);
+      if (read?.conversation) data.conversation = read.conversation;
+    }
 
     return ok(data);
   } catch (error) {
@@ -48,9 +51,12 @@ export async function POST(
   try {
     const scope = await requirePosSession();
     const { conversationId } = await context.params;
-    const body = await request.json().catch(() => null) as { message?: string } | null;
+    const body = await request.json().catch(() => null) as {
+      message?: string;
+      attachment?: { name?: string; mime_type?: string; size_bytes?: number; data_base64?: string };
+    } | null;
     const message = String(body?.message ?? "").trim().slice(0, 4000);
-    if (!message) return fail("message_required", "กรุณาพิมพ์ข้อความ", 422);
+    if (!message && !body?.attachment) return fail("message_required", "กรุณาพิมพ์ข้อความหรือแนบรูปภาพ", 422);
 
     const rate = await enforceRateLimit({
       namespace: "pos-support-chat-message",
@@ -66,7 +72,11 @@ export async function POST(
       message: Record<string, unknown>;
       conversation: Record<string, unknown>;
       head: SupportChatHead;
-    }>(bridge, "send_message", { conversation_id: conversationId, message });
+    }>(bridge, "send_message", {
+      conversation_id: conversationId,
+      message,
+      attachment: body?.attachment ?? null
+    });
     await mirrorSupportChatHead(data.head);
     return ok(data);
   } catch (error) {

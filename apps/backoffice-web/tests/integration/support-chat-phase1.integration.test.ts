@@ -10,6 +10,7 @@ describe("Support Chat Phase 1 - POS", () => {
   const bridge = src("src/lib/services/support-chat/support-chat-bridge.ts");
   const conversations = src("src/app/api/pos/support-chat/conversations/route.ts");
   const messages = src("src/app/api/pos/support-chat/conversations/[conversationId]/messages/route.ts");
+  const conversation = src("src/app/api/pos/support-chat/conversations/[conversationId]/route.ts");
 
   it("adds chat to the existing contact/report-issue popup", () => {
     expect(center).toContain("PosSupportChat");
@@ -37,6 +38,27 @@ describe("Support Chat Phase 1 - POS", () => {
     expect(conversations).toContain("max: 5");
     expect(messages).toContain('namespace: "pos-support-chat-message"');
     expect(messages).toContain("max: 30");
+  });
+
+  it("updates live chat without timer polling and shows typing/media", () => {
+    expect(chat).toContain('"postgres_changes"');
+    expect(chat).toContain('table: "support_chat_heads"');
+    expect(chat).toContain('event: "typing"');
+    expect(chat).toContain("กำลังพิมพ์");
+    expect(chat).toContain('accept="image/jpeg,image/png,image/webp"');
+    expect(chat).toContain("2 MB");
+    expect(messages).toContain("attachment: body?.attachment");
+  });
+
+  it("lets the store end a conversation while retaining text history", () => {
+    expect(conversation).toContain('"close_conversation"');
+    expect(chat).toContain("จบการสนทนา");
+    expect(chat).toContain("เริ่มเรื่องใหม่");
+    expect(chat).toContain("รูปภาพถูกลบ");
+  });
+
+  it("uses the CpIPOS system logo for support when no employee avatar exists", () => {
+    expect(chat).toContain("/brand/cpipos-symbol-sidebar.png");
   });
 
   it("keeps chat history server-side and loads on demand", () => {

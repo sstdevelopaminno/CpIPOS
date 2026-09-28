@@ -1,6 +1,9 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import Image from "next/image";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { RealtimeChannel } from "@supabase/supabase-js";
+import { getSupabaseBrowserClient } from "@/lib/supabase-browser";
 
 type Envelope<T> = { data?: T; error?: { code?: string; message?: string } };
 
@@ -44,6 +47,14 @@ type Conversation = {
   updated_at: string;
 };
 
+type Attachment = {
+  id: string;
+  original_name: string;
+  mime_type: string;
+  size_bytes: number;
+  url: string;
+};
+
 type Message = {
   id: string;
   sender_type: "store" | "it" | "system";
@@ -52,6 +63,7 @@ type Message = {
   sender_avatar_url: string | null;
   message_body: string;
   created_at: string;
+  attachments?: Attachment[];
 };
 
 function initials(value: string) {
@@ -74,8 +86,29 @@ function Avatar({ src, label, tone = "blue" }: { src?: string | null; label: str
     return <span aria-hidden="true" className="h-9 w-9 shrink-0 rounded-full border border-slate-200 bg-white bg-cover bg-center"
       style={{ backgroundImage: `url("${src.replace(/["\\]/g, "")}")` }} />;
   }
-  return <span className={"flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-xs font-black text-white " +
-    (tone === "green" ? "bg-emerald-500" : "bg-blue-600")}>{initials(label)}</span>;
+  if (tone === "green") {
+    return <Image src="/brand/cpipos-symbol-sidebar.png" alt="CpIPOS" width={38} height={38}
+      className="h-9 w-9 shrink-0 rounded-full border border-slate-200 bg-white object-contain" />;
+  }
+  return <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-blue-600 text-xs font-black text-white">{initials(label)}</span>;
+}
+
+async function attachmentPayload(file: File) {
+  const allowed = ["image/jpeg", "image/png", "image/webp"];
+  if (!allowed.includes(file.type)) throw new Error("รองรับเฉพาะ JPG, PNG และ WEBP");
+  if (file.size > 2 * 1024 * 1024) throw new Error("รูปภาพต้องมีขนาดไม่เกิน 2 MB");
+  const dataUrl = await new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result ?? ""));
+    reader.onerror = () => reject(new Error("อ่านไฟล์รูปภาพไม่สำเร็จ"));
+    reader.readAsDataURL(file);
+  });
+  return {
+    name: file.name.slice(0, 180),
+    mime_type: file.type,
+    size_bytes: file.size,
+    data_base64: dataUrl.includes(",") ? dataUrl.slice(dataUrl.indexOf(",") + 1) : dataUrl
+  };
 }
 
 export function PosSupportChat({ storeCode, storeName }: { storeCode: string; storeName: string }) {
@@ -87,6 +120,12 @@ export function PosSupportChat({ storeCode, storeName }: { storeCode: string; st
   const [subject, setSubject] = useState("");
   const [contactName, setContactName] = useState("");
   const [draft, setDraft] = useState("");
+  const [attachment, setAttachment] = useState<File | null>(null);
+  const [remoteTyping, setRemoteTyping] = useState("");
+  const typingChannelRef = useRef<RealtimeChannel | null>(null);
+  const typingTimerRef = useRef<number | null>(null);
+  const typingSentAtRef = useRef(0);
+  const headSignalRef = useRef("");
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
 
@@ -130,14 +169,64 @@ export function PosSupportChat({ storeCode, storeName }: { storeCode: string; st
   }, []);
 
   useEffect(() => {
-    if (!open) return;
     void loadHeads();
-  }, [open, loadHeads]);
+  }, [loadHeads]);
 
   useEffect(() => {
     if (!open || !selectedId) return;
     void loadMessages(selectedId);
   }, [open, selectedId, loadMessages]);
+
+  useEffect(() => {
+    const supabase = getSupabaseBrowserClient();
+    const channel = supabase.channel("pos-support-chat-heads")
+      .on("postgres_changes", { event: "*", schema: "public", table: "support_chat_heads" }, (payload) => {
+        const next = (payload.new ?? {}) as Partial<Head>;
+        void loadHeads();
+        if (!selectedId || next.conversation_id !== selectedId) return;
+        const signal = [next.latest_message_at ?? "", next.status ?? "", next.assigned_user_id ?? ""].join("|");
+        if (signal === headSignalRef.current) return;
+        headSignalRef.current = signal;
+        void loadMessages(selectedId);
+      })
+      .subscribe();
+    return () => { void supabase.removeChannel(channel); };
+  }, [loadHeads, loadMessages, selectedId]);
+
+  useEffect(() => {
+    if (!selectedId || conversation?.status === "closed") {
+      setRemoteTyping("");
+      return;
+    }
+    const supabase = getSupabaseBrowserClient();
+    const channel = supabase.channel(`support-chat-typing:${selectedId}`)
+      .on("broadcast", { event: "typing" }, ({ payload }) => {
+        const event = payload as { actor?: string; typing?: boolean; name?: string };
+        if (event.actor !== "it") return;
+        if (typingTimerRef.current) window.clearTimeout(typingTimerRef.current);
+        setRemoteTyping(event.typing ? (event.name || "IT Support") : "");
+        if (event.typing) typingTimerRef.current = window.setTimeout(() => setRemoteTyping(""), 2600);
+      })
+      .subscribe();
+    typingChannelRef.current = channel;
+    return () => {
+      if (typingTimerRef.current) window.clearTimeout(typingTimerRef.current);
+      setRemoteTyping("");
+      typingChannelRef.current = null;
+      void supabase.removeChannel(channel);
+    };
+  }, [selectedId, conversation?.status]);
+
+  const announceTyping = useCallback((typing: boolean) => {
+    const now = Date.now();
+    if (typing && now - typingSentAtRef.current < 700) return;
+    typingSentAtRef.current = now;
+    void typingChannelRef.current?.send({
+      type: "broadcast",
+      event: "typing",
+      payload: { actor: "store", typing, name: contactName || storeName }
+    });
+  }, [contactName, storeName]);
 
   async function createConversation() {
     if (subject.trim().length < 2 || contactName.trim().length < 2) {
@@ -171,23 +260,50 @@ export function PosSupportChat({ storeCode, storeName }: { storeCode: string; st
 
   async function sendMessage() {
     const message = draft.trim();
-    if (!selectedId || !message) return;
+    if (!selectedId || (!message && !attachment)) return;
     setBusy("send");
     setError("");
     try {
       const response = await fetch(`/api/pos/support-chat/conversations/${selectedId}/messages`, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ message })
+        body: JSON.stringify({
+          message,
+          attachment: attachment ? await attachmentPayload(attachment) : null
+        })
       });
       const json = await response.json().catch(() => null) as Envelope<{ message: Message; conversation: Conversation; head: Head }> | null;
       if (!response.ok || !json?.data) throw new Error(json?.error?.message || "ส่งข้อความไม่สำเร็จ");
       setDraft("");
+      setAttachment(null);
+      void typingChannelRef.current?.send({ type: "broadcast", event: "typing", payload: { actor: "store", typing: false } });
       setConversation(json.data.conversation);
       setMessages((current) => [...current, json.data!.message]);
       setHeads((current) => [json.data!.head, ...current.filter((row) => row.conversation_id !== json.data!.head.conversation_id)]);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "ส่งข้อความไม่สำเร็จ");
+    } finally {
+      setBusy("");
+    }
+  }
+
+  async function closeConversation() {
+    if (!selectedId || !window.confirm("จบการสนทนานี้? รูปภาพที่แนบจะถูกลบทันที แต่ข้อความจะยังเก็บไว้")) return;
+    setBusy("close");
+    setError("");
+    try {
+      const response = await fetch(`/api/pos/support-chat/conversations/${selectedId}`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ action: "close" })
+      });
+      const json = await response.json().catch(() => null) as Envelope<{ conversation: Conversation; head: Head }> | null;
+      if (!response.ok || !json?.data) throw new Error(json?.error?.message || "จบการสนทนาไม่สำเร็จ");
+      setConversation(json.data.conversation);
+      setHeads((current) => [json.data!.head, ...current.filter((row) => row.conversation_id !== json.data!.head.conversation_id)]);
+      await loadMessages(selectedId);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "จบการสนทนาไม่สำเร็จ");
     } finally {
       setBusy("");
     }
@@ -253,7 +369,7 @@ export function PosSupportChat({ storeCode, storeName }: { storeCode: string; st
             <div className="flex min-h-0 flex-1 flex-col">
               <div className="flex items-center gap-3 border-b border-slate-100 bg-slate-50 px-4 py-3">
                 <Avatar src={conversation?.assigned_user_avatar_url} label={conversation?.assigned_user_name || "IT Support"} tone="green" />
-                <div className="min-w-0">
+                <div className="min-w-0 flex-1">
                   <div className="truncate text-sm font-black text-slate-900">
                     {conversation?.assigned_user_name ? `กำลังดูแลโดย ${conversation.assigned_user_name}` : "รอทีม IT รับเรื่อง"}
                   </div>
@@ -261,6 +377,11 @@ export function PosSupportChat({ storeCode, storeName }: { storeCode: string; st
                     {conversation?.assigned_role === "it_admin" ? "IT Admin" : conversation?.assigned_role === "it_support" ? "IT Support" : conversation?.subject || openConversation?.subject}
                   </div>
                 </div>
+                {conversation?.status !== "closed" ? <button type="button" onClick={() => void closeConversation()}
+                  disabled={busy === "close"}
+                  className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-black text-slate-600">
+                  จบการสนทนา
+                </button> : null}
               </div>
 
               <div className="min-h-0 flex-1 space-y-3 overflow-y-auto bg-[#f7faff] p-4">
@@ -274,6 +395,11 @@ export function PosSupportChat({ storeCode, storeName }: { storeCode: string; st
                     {!mine ? <Avatar src={message.sender_avatar_url || conversation?.assigned_user_avatar_url} label={message.sender_name} tone="green" /> : null}
                     <div className={"max-w-[76%] rounded-2xl px-3.5 py-2.5 text-sm shadow-sm " +
                       (mine ? "rounded-br-md bg-blue-600 text-white" : "rounded-bl-md border border-slate-200 bg-white text-slate-800")}>
+                      {message.attachments?.map((item) => <a key={item.id} href={item.url} target="_blank" rel="noreferrer"
+                        className="mb-2 block overflow-hidden rounded-xl border border-white/30 bg-white/10">
+                        <span className="block h-48 w-64 max-w-full bg-contain bg-center bg-no-repeat"
+                          style={{ backgroundImage: `url("${item.url.replace(/["\\]/g, "")}")` }} />
+                      </a>)}
                       <div className="whitespace-pre-wrap break-words">{message.message_body}</div>
                       <div className={"mt-1 text-[10px] " + (mine ? "text-blue-100" : "text-slate-400")}>{formatTime(message.created_at)}</div>
                     </div>
@@ -283,22 +409,41 @@ export function PosSupportChat({ storeCode, storeName }: { storeCode: string; st
               </div>
 
               {conversation?.status === "closed" ? (
-                <div className="border-t border-slate-200 bg-slate-50 px-4 py-3 text-center text-xs font-bold text-slate-500">การสนทนานี้ปิดแล้ว</div>
+                <div className="border-t border-slate-200 bg-slate-50 px-4 py-3 text-center">
+                  <div className="text-xs font-bold text-slate-500">จบการสนทนาแล้ว · ระบบเก็บข้อความไว้ แต่รูปภาพถูกลบแล้ว</div>
+                  <button type="button" onClick={() => { setSelectedId(""); setConversation(null); setMessages([]); setDraft(""); setAttachment(null); void loadHeads(); }}
+                    className="mt-2 rounded-lg bg-blue-600 px-4 py-2 text-xs font-black text-white">เริ่มเรื่องใหม่</button>
+                </div>
               ) : (
-                <div className="flex gap-2 border-t border-slate-200 bg-white p-3">
-                  <textarea value={draft} onChange={(event) => setDraft(event.target.value.slice(0,4000))}
-                    onKeyDown={(event) => {
-                      if (event.key === "Enter" && !event.shiftKey) {
-                        event.preventDefault();
-                        void sendMessage();
-                      }
-                    }}
-                    rows={2} placeholder="พิมพ์ข้อความ..."
-                    className="min-h-[48px] flex-1 resize-none rounded-xl border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-blue-500" />
-                  <button type="button" onClick={() => void sendMessage()} disabled={busy === "send" || !draft.trim()}
-                    className="rounded-xl bg-blue-600 px-5 text-sm font-black text-white disabled:opacity-40">
-                    {busy === "send" ? "..." : "ส่ง"}
-                  </button>
+                <div className="border-t border-slate-200 bg-white p-3">
+                  {remoteTyping ? <div className="mb-2 text-[11px] font-bold text-slate-500">{remoteTyping} กำลังพิมพ์…</div> : null}
+                  {attachment ? <div className="mb-2 flex items-center gap-2 rounded-lg bg-blue-50 px-3 py-2 text-xs text-blue-700">
+                    <span className="min-w-0 flex-1 truncate">{attachment.name}</span>
+                    <button type="button" onClick={() => setAttachment(null)} className="font-black">ลบ</button>
+                  </div> : null}
+                  <div className="flex gap-2">
+                    <label className="grid h-[48px] w-[48px] shrink-0 cursor-pointer place-items-center rounded-xl border border-slate-300 bg-white text-lg text-slate-600" title="แนบรูปภาพ">
+                      📎
+                      <input type="file" accept="image/jpeg,image/png,image/webp" className="hidden"
+                        onChange={(event) => setAttachment(event.target.files?.[0] ?? null)} />
+                    </label>
+                    <textarea value={draft}
+                      onChange={(event) => { const value = event.target.value.slice(0,4000); setDraft(value); announceTyping(Boolean(value.trim())); }}
+                      onBlur={() => announceTyping(false)}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter" && !event.shiftKey) {
+                          event.preventDefault();
+                          void sendMessage();
+                        }
+                      }}
+                      rows={2} placeholder="พิมพ์ข้อความ..."
+                      className="min-h-[48px] flex-1 resize-none rounded-xl border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-blue-500" />
+                    <button type="button" onClick={() => void sendMessage()} disabled={busy === "send" || (!draft.trim() && !attachment)}
+                      className="rounded-xl bg-blue-600 px-5 text-sm font-black text-white disabled:opacity-40">
+                      {busy === "send" ? "..." : "ส่ง"}
+                    </button>
+                  </div>
+                  <div className="mt-1 text-[10px] text-slate-400">แนบ JPG/PNG/WEBP ไม่เกิน 2 MB · รูปจะถูกลบทันทีเมื่อจบการสนทนา</div>
                 </div>
               )}
             </div>
