@@ -178,7 +178,15 @@ export function PosSupportChat({ storeCode, storeName }: { storeCode: string; st
   }, [open, selectedId, loadMessages]);
 
   useEffect(() => {
-    const supabase = getSupabaseBrowserClient();
+    let supabase: ReturnType<typeof getSupabaseBrowserClient>;
+    try {
+      supabase = getSupabaseBrowserClient();
+    } catch {
+      // Chat APIs still work without Realtime. Do not crash the whole Support
+      // page when browser-side realtime configuration is temporarily missing.
+      setError((current) => current || "โหมดเรียลไทม์ยังไม่พร้อม ระบบแชทยังใช้งานผ่านการรีเฟรชได้");
+      return;
+    }
     const channel = supabase.channel("pos-support-chat-heads")
       .on("postgres_changes", { event: "*", schema: "public", table: "support_chat_heads" }, (payload) => {
         const next = (payload.new ?? {}) as Partial<Head>;
@@ -198,7 +206,14 @@ export function PosSupportChat({ storeCode, storeName }: { storeCode: string; st
       setRemoteTyping("");
       return;
     }
-    const supabase = getSupabaseBrowserClient();
+    let supabase: ReturnType<typeof getSupabaseBrowserClient>;
+    try {
+      supabase = getSupabaseBrowserClient();
+    } catch {
+      typingChannelRef.current = null;
+      setRemoteTyping("");
+      return;
+    }
     const channel = supabase.channel(`support-chat-typing:${selectedId}`)
       .on("broadcast", { event: "typing" }, ({ payload }) => {
         const event = payload as { actor?: string; typing?: boolean; name?: string };
