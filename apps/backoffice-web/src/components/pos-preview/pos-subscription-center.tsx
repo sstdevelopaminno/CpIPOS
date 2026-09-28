@@ -375,12 +375,16 @@ export function PosSubscriptionCenter({ initial, isOwner }: {
       {pending ? <div className="flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
         <Icon name="info" size={19} className="mt-0.5" />
         <div>
-          <p className="font-semibold">มีคำขอแพ็กเกจรอตรวจสอบ ({LABELS[pending.status] || pending.status})</p>
-          <p className="mt-0.5">{pendingCanAcceptPayment
-            ? pending.created_by_it
-              ? "ฝ่าย IT สร้างรายการชำระไว้แล้ว คุณสามารถเปิดเมนู “แจ้งชำระเงิน” เพื่อแนบสลิปและข้อมูลการโอนลงในรายการเดิมได้"
-              : "สามารถแจ้งชำระโดยแนบสลิปในคำขอเดิมได้"
-            : "ส่งคำขอใหม่ได้หลังตรวจสอบรายการเดิมเสร็จ"}</p>
+          <p className="font-semibold">{isPendingCustomQuote
+            ? "คำขอ CUSTOM อยู่ระหว่างดำเนินการ"
+            : `มีคำขอแพ็กเกจรอตรวจสอบ (${LABELS[pending.status] || pending.status})`}</p>
+          <p className="mt-0.5">{isPendingCustomQuote
+            ? "ทีม IT จะติดต่อเพื่อตกลงราคา โควตา และสิทธิ์ เมื่ออนุมัติแล้วรายการชำระจะปรากฏในระบบ"
+            : pendingCanAcceptPayment
+              ? pending.created_by_it
+                ? "ฝ่าย IT เตรียมยอดชำระแล้ว เปิดเมนู “แจ้งชำระเงิน” เพื่อแนบสลิปในรายการเดิมได้"
+                : "สามารถแจ้งชำระโดยแนบสลิปในคำขอเดิมได้"
+              : "ส่งคำขอใหม่ได้หลังตรวจสอบรายการเดิมเสร็จ"}</p>
         </div>
       </div> : null}
 
