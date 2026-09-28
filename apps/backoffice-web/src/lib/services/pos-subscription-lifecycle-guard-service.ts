@@ -26,6 +26,7 @@ type Issuer = {
 };
 
 export type PosSubscriptionLifecycleGuardData = {
+  tenant_id:string;
   exempt:boolean;
   locked:boolean;
   lock_reason:string|null;
@@ -119,6 +120,7 @@ async function loadGuardUncached(tenantId:string):Promise<PosSubscriptionLifecyc
     moneyValue(current?.billing_interval==="yearly" ? pkg?.yearly_price : pkg?.monthly_price);
   const locked=Boolean(!exempt && (lifecycle?.access_locked || (expiry && Date.parse(expiry)<=Date.now())));
   return {
+    tenant_id:tenantId,
     exempt,
     locked,
     lock_reason:lifecycle?.lock_reason ?? (locked?"subscription_expired":null),
@@ -135,16 +137,23 @@ async function loadGuardUncached(tenantId:string):Promise<PosSubscriptionLifecyc
   };
 }
 
-export async function loadPosSubscriptionLifecycleGuard(tenantId:string):Promise<PosSubscriptionLifecycleGuardData|null>{
+export async function loadPosSubscriptionLifecycleGuard(
+  tenantId:string,
+  options?:{forceFresh?:boolean}
+):Promise<PosSubscriptionLifecycleGuardData|null>{
   const normalized=tenantId.trim();
   if(!normalized) return null;
 
-  const cached=readGuardCache(normalized);
-  if(cached!==undefined) return cached;
+  if(options?.forceFresh){
+    getGuardCache().delete(normalized);
+  }else{
+    const cached=readGuardCache(normalized);
+    if(cached!==undefined) return cached;
+  }
 
   const inFlight=getGuardInFlight();
   const existing=inFlight.get(normalized);
-  if(existing) return existing;
+  if(existing && !options?.forceFresh) return existing;
 
   const promise=loadGuardUncached(normalized)
     .then((value)=>{

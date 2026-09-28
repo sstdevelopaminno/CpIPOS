@@ -86,7 +86,7 @@ type SubscriptionAccessCacheEntry = {
 const POS_SESSION_ROW_CACHE_TTL_MS = 4000;
 const POS_SCOPE_EXTRAS_CACHE_TTL_MS = 30000;
 const POS_SESSION_ROLE_CACHE_TTL_MS = 30000;
-const POS_SUBSCRIPTION_ACCESS_CACHE_TTL_MS = 60000;
+const POS_SUBSCRIPTION_ACTIVE_CACHE_TTL_MS = 5000;
 
 function getPosSessionRowCache() {
   const scopedGlobal = globalThis as typeof globalThis & {
@@ -158,7 +158,18 @@ async function assertSubscriptionAllowsSales(tenantId: string) {
   const expiredByTime = Boolean(expiry && Date.parse(expiry) <= now);
   const locked = Boolean(row && !exempt && (row.access_locked || expiredByTime));
   const reason = row?.lock_reason || (expiredByTime ? "subscription_expired" : null);
-  cache.set(tenantId,{locked,reason,expiresAt:now+POS_SUBSCRIPTION_ACCESS_CACHE_TTL_MS});
+  if (locked) {
+    // Never retain a locked decision in memory. IT settlement may unlock the
+    // tenant at any moment and the next sales request must see it immediately.
+    cache.delete(tenantId);
+  } else {
+    const expiryAt = expiry && Number.isFinite(Date.parse(expiry)) ? Date.parse(expiry) : Number.POSITIVE_INFINITY;
+    cache.set(tenantId,{
+      locked:false,
+      reason:null,
+      expiresAt:Math.min(now+POS_SUBSCRIPTION_ACTIVE_CACHE_TTL_MS,expiryAt)
+    });
+  }
   if (locked) throw new PosGuardError("subscription_locked", reason || "Subscription payment is required.", 423);
 }
 

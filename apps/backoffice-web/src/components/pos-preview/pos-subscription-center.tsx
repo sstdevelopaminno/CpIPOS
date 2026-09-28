@@ -3,7 +3,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { PosSupportChat } from "@/components/pos-preview/pos-support-chat";
-import { useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { PosSubscriptionCenterData } from "@/lib/services/pos-subscription-center-service";
 
 type Tab = "overview" | "renew" | "notice" | "history" | "documents";
@@ -162,7 +162,7 @@ export function PosSubscriptionCenter({ initial, isOwner, showContactActions = t
   function openTab(next: Tab) { selectTab(next); setPopupOpen(true); setInfoPopup(null); }
   function closePopup() { setPopupOpen(false); setInfoPopup(null); setError(""); }
 
-  async function reload() {
+  const reload = useCallback(async () => {
     setRefreshing(true);
     try {
       const response = await fetch("/api/pos/billing/overview", { cache: "no-store" });
@@ -179,7 +179,13 @@ export function PosSubscriptionCenter({ initial, isOwner, showContactActions = t
       }
     } catch (cause) { setError(cause instanceof Error ? cause.message : "โหลดข้อมูลไม่สำเร็จ"); }
     finally { setRefreshing(false); }
-  }
+  }, []);
+
+  useEffect(() => {
+    const onRuntimeChanged = () => { void reload(); };
+    window.addEventListener("cpipos-subscription-runtime-changed", onRuntimeChanged);
+    return () => window.removeEventListener("cpipos-subscription-runtime-changed", onRuntimeChanged);
+  }, [reload]);
 
   async function submit(kind: "renewal_intent" | "payment_notice" | "custom_quote_request") {
     if (!canSubmit || !packageRow) return;
