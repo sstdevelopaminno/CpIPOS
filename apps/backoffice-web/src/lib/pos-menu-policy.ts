@@ -14,7 +14,7 @@ export const POS_MENU_CATALOG: readonly PosMenuDefinition[] = [
   { key: "main.kitchen", label: "ครัว", group: "main", route: "/preview/pos/kitchen" },
   { key: "main.shift", label: "เปิด/ปิดกะ", group: "main", route: "/preview/pos/shift" },
   { key: "main.more", label: "เพิ่มเติม", group: "main", route: "/preview/pos/more" },
-  { key: "main.payments", label: "ชำระเงิน", group: "main", route: "/preview/pos/payments" },
+  { key: "main.payments", label: "ศูนย์ช่วยเหลือ", group: "main", route: "/preview/pos/payments" },
   { key: "main.settings", label: "ตั้งค่า", group: "main", route: "/preview/pos/settings" },
   { key: "more.sales_summary", label: "สรุปยอดขาย", group: "more", parent: "main.more", route: "/preview/pos/sales-summary" },
   { key: "more.receipts", label: "ใบเสร็จย้อนหลัง", group: "more", parent: "main.more", route: "/preview/pos/receipts" },

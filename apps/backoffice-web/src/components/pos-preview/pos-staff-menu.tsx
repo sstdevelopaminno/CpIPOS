@@ -7,7 +7,7 @@ import { t, type Language } from "@/lib/i18n";
 import { isPosMenuEnabled, posMenuKeyForRoute } from "@/lib/pos-menu-policy";
 import { POS_MENU_LOCK_TITLE_EN, POS_MENU_LOCK_TITLE_TH, featureForPosRoute } from "@/lib/pos-feature-map";
 
-type IconName = "sales" | "list" | "kitchen" | "stock" | "summary" | "receipt" | "tables" | "members" | "users" | "display" | "shift" | "logout" | "more" | "payment";
+type IconName = "sales" | "list" | "kitchen" | "stock" | "summary" | "receipt" | "tables" | "members" | "users" | "display" | "shift" | "logout" | "more" | "payment" | "support";
 type PosRole = "owner" | "manager" | "staff" | "accountant" | "kitchen";
 type MenuKey = "pos_menu_sales" | "pos_menu_sales_list" | "pos_menu_stock" | "pos_menu_sales_summary" | "pos_menu_receipts" | "pos_menu_tables" | "pos_menu_members" | "pos_menu_shift" | "pos_menu_more";
 type MenuDef = {
@@ -39,6 +39,7 @@ function MenuIcon({ name }: { name: IconName }) {
   if (name === "logout") return <svg {...common}><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" /><polyline points="16 17 21 12 16 7" /><line x1="21" y1="12" x2="9" y2="12" /></svg>;
   if (name === "more") return <svg {...common}><rect x="4" y="4" width="7" height="7" rx="1.5" /><rect x="13" y="4" width="7" height="7" rx="1.5" /><rect x="4" y="13" width="7" height="7" rx="1.5" /><rect x="13" y="13" width="7" height="7" rx="1.5" /></svg>;
   if (name === "payment") return <svg {...common}><rect x="3" y="6" width="18" height="12" rx="2" /><line x1="3" y1="10" x2="21" y2="10" /><path d="M7 15h3" /><path d="M15 15h2" /></svg>;
+  if (name === "support") return <svg {...common}><path d="M4 14v-2a8 8 0 1 1 16 0v2" /><path d="M4 13H2v5h5v-5H4Zm16 0h2v5h-5v-5h3Z" /><path d="M20 18c0 3-3 4-8 4" /></svg>;
   return <svg {...common}><circle cx="12" cy="8" r="3" /><path d="M5 20c0-3.5 3-6 7-6s7 2.5 7 6" /></svg>;
 }
 
@@ -94,8 +95,8 @@ export function PosStaffMenu({ lang, collapsed, orientation = "vertical", sessio
   const canSeeMoreMenu = moreItems.length > 0 || otherMoreKeys.length > 0;
   const isMoreActive = moreItems.some((item) => pathname === item.href);
   const isMoreMenuActive = pathname === "/preview/pos/more" || isMoreActive;
-  const paymentMenuLabel = lang === "th" ? "ชำระเงิน" : "Payment";
-  const isPaymentMenuActive = pathname === "/preview/pos/payments";
+  const paymentMenuLabel = lang === "th" ? "ศูนย์ช่วยเหลือ" : "Help Center";
+  const isPaymentMenuActive = pathname === "/preview/pos/payments" || pathname.startsWith("/preview/pos/payments/");
 
   function handleNavigate(event: MouseEvent<HTMLAnchorElement>, href: string) {
     if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
@@ -134,7 +135,7 @@ export function PosStaffMenu({ lang, collapsed, orientation = "vertical", sessio
         <Link href="/preview/pos/payments" onClick={(event) => !isPosMenuEnabled("main.payments", menuPolicy) ? (event.preventDefault(), onLockedMenu(paymentMenuLabel)) : handleNavigate(event, "/preview/pos/payments")}
           className={`group relative inline-flex min-h-[42px] items-center text-[13px] font-semibold leading-tight transition ${isHorizontal ? "shrink-0 justify-center gap-2 px-3" : collapsed ? "justify-center px-2" : "justify-start gap-2 px-2"} ${!isPosMenuEnabled("main.payments", menuPolicy) ? "rounded-xl text-slate-400/85 hover:bg-white/5" : isPaymentMenuActive ? "rounded-xl border border-cyan-300/45 bg-[linear-gradient(145deg,rgba(59,130,246,0.45),rgba(14,165,233,0.35))] text-white shadow-[0_10px_24px_rgba(14,116,255,0.25),inset_0_1px_0_rgba(255,255,255,0.2)]" : "rounded-xl text-slate-100/90 hover:bg-white/8 hover:text-white"}`}
           title={collapsed && !isHorizontal ? paymentMenuLabel : !isPosMenuEnabled("main.payments", menuPolicy) ? (lang === "th" ? "ล็อกโดยผู้ดูแลระบบ IT" : "Locked by IT") : undefined} aria-disabled={!isPosMenuEnabled("main.payments", menuPolicy)}>
-          <span className="inline-flex w-4 justify-center" aria-hidden><MenuIcon name="payment" /></span>
+          <span className="inline-flex w-4 justify-center" aria-hidden><MenuIcon name="support" /></span>
           {(!collapsed || isHorizontal) ? <span className="truncate text-[13px]">{paymentMenuLabel}</span> : null}
           {!isPosMenuEnabled("main.payments", menuPolicy) ? <span className="ml-auto inline-flex text-slate-300"><LockIcon /></span> : null}
         </Link>
