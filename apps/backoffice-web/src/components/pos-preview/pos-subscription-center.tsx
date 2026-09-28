@@ -1,6 +1,7 @@
 "use client";
 
 import Image from "next/image";
+import { PosSupportChat } from "@/components/pos-preview/pos-support-chat";
 import { useMemo, useRef, useState, type ReactNode } from "react";
 import type { PosSubscriptionCenterData } from "@/lib/services/pos-subscription-center-service";
 
@@ -754,6 +755,7 @@ export function PosSubscriptionCenter({ initial, isOwner }: {
               <a href={"mailto:" + snapshot.issuer.support_email}
                 className="flex items-center justify-center gap-2 break-all rounded-xl bg-[#edf5ff] px-3 py-3 text-xs font-bold text-blue-700">
                 <Icon name="mail" size={16} />{snapshot.issuer.support_email}</a>
+              <PosSupportChat storeCode={snapshot.store.code} storeName={snapshot.store.name} />
             </div>
           </section> : null}
         </aside> : null}
