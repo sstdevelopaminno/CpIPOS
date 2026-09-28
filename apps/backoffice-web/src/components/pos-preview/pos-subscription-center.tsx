@@ -133,6 +133,8 @@ export function PosSubscriptionCenter({ initial, isOwner }: {
     (!pending || (tab === "notice" && pendingCanAcceptPayment));
   const packageRow = useMemo(() =>
     snapshot.packages.find((row) => row.id === selectedPackage), [selectedPackage, snapshot.packages]);
+  const isCustomSelection = Boolean(packageRow?.contact_sales || packageRow?.quota_mode === "custom" || packageRow?.code === "custom");
+  const isPendingCustomQuote = pending?.kind === "custom_quote_request";
   const cycleLabel = snapshot.contract.billing_interval === "yearly" ? "รายปี" : "รายเดือน";
   const due = packageRow?.id === snapshot.contract.package_id && interval === snapshot.contract.billing_interval
     ? snapshot.contract.amount_per_cycle
@@ -175,7 +177,7 @@ export function PosSubscriptionCenter({ initial, isOwner }: {
     finally { setRefreshing(false); }
   }
 
-  async function submit(kind: "renewal_intent" | "payment_notice") {
+  async function submit(kind: "renewal_intent" | "payment_notice" | "custom_quote_request") {
     if (!canSubmit || !packageRow) return;
     if (kind === "payment_notice") {
       if (!hasBank || !slip) { setError("โปรดตรวจสอบบัญชีรับเงินและแนบสลิปก่อนส่ง"); return; }
@@ -195,8 +197,8 @@ export function PosSubscriptionCenter({ initial, isOwner }: {
     form.set("request_key", requestKey.current);
     form.set("kind", kind);
     form.set("package_id", selectedPackage);
-    form.set("billing_interval", interval);
-    form.set("note", note);
+    form.set("billing_interval", kind === "custom_quote_request" ? "monthly" : interval);
+    form.set("note", kind === "custom_quote_request" ? "" : note);
     if (kind === "payment_notice") {
       form.set("amount_reported", amount);
       form.set("payer_name", payer);
@@ -211,9 +213,14 @@ export function PosSubscriptionCenter({ initial, isOwner }: {
       requestKey.current = null;
       if (kind === "payment_notice") {
         setMessage("บันทึกการแจ้งชำระแล้ว รอ IT ตรวจสอบรายการรับเงินจริง");
-        setSuccessPopup("ส่งแจ้งชำระเงินสำเร็จ · ระบบบันทึกรายการแล้ว กรุณารอฝ่าย IT ตรวจสอบเงินเข้าและอนุมัติแพ็กเกจ");
+        setSuccessPopup("ส่งแจ้งชำระเงินสำเร็จ · กรุณารอฝ่าย IT ตรวจสอบเงินเข้าและอนุมัติแพ็กเกจ");
         setPopupOpen(false);
         selectTab("history");
+      } else if (kind === "custom_quote_request") {
+        setMessage("ส่งคำขอ CUSTOM แล้ว รอทีม IT ติดต่อกลับ");
+        setSuccessPopup("ส่งคำขอ CUSTOM สำเร็จ · ทีม IT จะติดต่อเพื่อตกลงราคาและสิทธิ์ก่อนเข้าสู่ขั้นตอนชำระเงิน");
+        setPopupOpen(false);
+        selectTab("overview");
       } else {
         setMessage("ส่งคำขอต่ออายุแล้ว ขั้นต่อไปกรุณาแจ้งชำระเงินและแนบสลิป");
         selectTab("notice");
