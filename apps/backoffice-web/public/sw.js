@@ -1,4 +1,4 @@
-const CACHE_NAME = "cpipos-shell-v5";
+const CACHE_NAME = "cpipos-shell-v6";
 const OFFLINE_POS_URL = "/offline-pos.html";
 const ASSETS_TO_CACHE = [
   "/",
@@ -9,6 +9,7 @@ const ASSETS_TO_CACHE = [
   "/icons/cpipos-icon-512.png",
   "/icons/cpipos-browser-icon.png"
 ];
+const STATIC_SHELL_ASSETS = new Set(ASSETS_TO_CACHE);
 
 self.addEventListener("message", (event) => {
   if (event.data?.type === "SKIP_WAITING") {
@@ -16,23 +17,28 @@ self.addEventListener("message", (event) => {
   }
 });
 
-function shouldBypassRuntimeCache(url) {
+function shouldBypassRuntimeCache(request, url) {
   return (
     url.pathname.startsWith("/api/") ||
-    url.pathname.startsWith("/_next/webpack-hmr") ||
-    url.pathname.startsWith("/_next/static/chunks/webpack")
+    url.pathname.startsWith("/_next/") ||
+    url.searchParams.has("_rsc") ||
+    request.headers.get("rsc") === "1" ||
+    request.headers.has("next-router-state-tree") ||
+    request.headers.has("next-router-prefetch")
   );
 }
 
 self.addEventListener("install", (event) => {
   event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => cache.addAll(ASSETS_TO_CACHE)).then(() => self.skipWaiting())
+    caches.open(CACHE_NAME).then((cache) => cache.addAll(ASSETS_TO_CACHE))
   );
 });
 
 self.addEventListener("activate", (event) => {
   event.waitUntil(
-    caches.keys().then((keys) => Promise.all(keys.filter((key) => key !== CACHE_NAME).map((key) => caches.delete(key)))).then(() => self.clients.claim())
+    caches.keys()
+      .then((keys) => Promise.all(keys.filter((key) => key !== CACHE_NAME).map((key) => caches.delete(key))))
+      .then(() => self.clients.claim())
   );
 });
 
@@ -53,7 +59,13 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  if (shouldBypassRuntimeCache(url)) return;
+  // Never cache Next.js runtime/chunks/RSC payloads. Mixing payloads from
+  // different deployments can break client-side navigation after a release.
+  if (shouldBypassRuntimeCache(request, url)) return;
+
+  // Cache only the explicit offline shell assets above. All application data,
+  // route payloads, and dynamically generated resources stay network-managed.
+  if (!STATIC_SHELL_ASSETS.has(url.pathname)) return;
 
   event.respondWith(
     caches.match(request).then((cached) => {
@@ -61,7 +73,7 @@ self.addEventListener("fetch", (event) => {
       return fetch(request).then((response) => {
         if (!response || response.status !== 200 || response.type !== "basic") return response;
         const clone = response.clone();
-        caches.open(CACHE_NAME).then((cache) => cache.put(request, clone));
+        void caches.open(CACHE_NAME).then((cache) => cache.put(request, clone));
         return response;
       });
     })
