@@ -6,6 +6,7 @@ const src = (path: string) => readFileSync(resolve(process.cwd(), path), "utf8")
 
 describe("Supabase log-ingestion guard", () => {
   const shiftGuard = src("src/components/pos/pos-shift-cycle-guard.tsx");
+  const salesModePolicy = src("src/components/pos/pos-sales-mode-policy-controller.tsx");
   const featureRoute = src("src/app/api/pos/features/route.ts");
   const featureGate = src("src/lib/feature-gate.ts");
   const lifecycle = src("src/lib/services/pos-subscription-lifecycle-guard-service.ts");
@@ -24,6 +25,12 @@ describe("Supabase log-ingestion guard", () => {
     expect(featureRoute).toContain("pos-feature-bundle:");
     expect(featureRoute).toContain("ttlMs: 60_000");
     expect(featureRoute).toContain('private, max-age=60, stale-while-revalidate=60');
+  });
+
+  it("does not poll the feature policy every minute", () => {
+    expect(salesModePolicy).toContain("POLICY_REFRESH_MS = 5 * 60_000");
+    expect(salesModePolicy).not.toContain("POLICY_REFRESH_MS = 60_000");
+    expect(salesModePolicy).toContain('cache: "default"');
   });
 
   it("extends feature decision and contract caching", () => {
