@@ -456,7 +456,7 @@ export function PosSubscriptionCenter({ initial, isOwner }: {
               บัญชีทดสอบภายในไม่ต้องต่ออายุหรือแจ้งชำระแพ็กเกจ</p> : null}
             {tab === "notice" && pending?.created_by_it && !pending.has_evidence ? <div
               className="rounded-xl border border-blue-200 bg-blue-50 p-3 text-sm text-blue-900">
-              <strong>รายการชำระถูกเตรียมจากฝ่าย IT แล้ว</strong>
+              <strong>ฝ่าย IT สร้างรายการชำระไว้แล้ว</strong>
               <p className="mt-1 text-xs leading-5">
                 แพ็กเกจ {pending.package_name || "—"} · {pending.billing_interval === "yearly" ? "รายปี" : "รายเดือน"} ·
                 ยอดตามแพ็กเกจ {formatMoney(pending.expected_amount)}
@@ -500,7 +500,7 @@ export function PosSubscriptionCenter({ initial, isOwner }: {
                 {packageRow?.contact_sales && pending?.created_by_it ? <p className="mt-2 rounded-lg bg-blue-50 px-3 py-2 text-xs font-semibold text-blue-700">
                   CUSTOM · รอบและยอดชำระตามที่ IT อนุมัติ
                 </p> : !packageRow?.yearly_price ? <p className="mt-2 rounded-lg bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-800">
-                  รอบรายปียังไม่เปิดใช้งาน
+                  รอบรายปียังไม่เปิดใช้งาน · รอฝ่าย IT บันทึกราคารายปีใน CpiPOS-001 ก่อน
                 </p> : <p className="mt-2 rounded-lg bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-700">
                   รายปีพร้อมใช้งาน · {formatMoney(packageRow.yearly_price)} / ปี
                 </p>}
