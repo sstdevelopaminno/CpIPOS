@@ -125,6 +125,7 @@ describe("CpiPOS AI store assistant", () => {
 
   it("keeps the promoted AI menu compact without extra AI/BETA badges", () => {
     expect(staffMenu).not.toContain("bg-cyan-300/15");
+    expect(staffMenu).toContain('isHorizontal ? "max-w-[170px]" : "min-w-0 flex-1"');
     expect(aiWorkspace).not.toContain("BETA");
     expect(aiWorkspace).toContain("เดือน {quota.month_key}");
   });
