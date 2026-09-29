@@ -614,14 +614,16 @@ export async function GET() {
     if (!(await aiPolicyAllowed(auth.tenantId))) {
       return fail("ai_assistant_disabled_by_it", "CpiPOS AI is disabled for this store by IT policy.", 403);
     }
-    const [overview, conversationId] = await Promise.all([
+    const [overview, conversationId, quota] = await Promise.all([
       loadBusinessSnapshot(auth),
-      getOrCreateAiConversation(conversationScope(auth))
+      getOrCreateAiConversation(conversationScope(auth)),
+      loadAiQuotaStatus(auth.tenantId!)
     ]);
     const history = await listAiConversationMessages(conversationId, 60);
     return ok({
       overview,
       history,
+      quota,
       model: AI_MODEL,
       mode: "confirm_then_pin",
       history_source: "openai_conversations"
