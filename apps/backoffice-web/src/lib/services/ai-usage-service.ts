@@ -89,17 +89,15 @@ export class AiQuotaError extends Error {
 }
 
 const PRICING: Record<string, {
-  input: number;
-  cachedInput: number;
-  cacheWrite: number;
-  output: number;
+  short: { input: number; cachedInput: number; cacheWrite: number; output: number };
+  long: { input: number; cachedInput: number; cacheWrite: number; output: number };
+  longContextThreshold: number;
   source: string;
 }> = {
   "gpt-6-luna": {
-    input: 0.10,
-    cachedInput: 0.01,
-    cacheWrite: 0.125,
-    output: 0.50,
+    short: { input: 0.10, cachedInput: 0.01, cacheWrite: 0.125, output: 0.50 },
+    long: { input: 0.20, cachedInput: 0.02, cacheWrite: 0.25, output: 0.75 },
+    longContextThreshold: 272_000,
     source: "openai:gpt-6-luna:2026-09-29:standard"
   }
 };
@@ -115,10 +113,15 @@ function nullableLimit(value: unknown): number | null {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
 }
 
-function resolvePricing(model: string) {
-  if (PRICING[model]) return PRICING[model];
-  const key = Object.keys(PRICING).find((candidate) => model.startsWith(candidate));
-  return key ? PRICING[key] : null;
+function resolvePricing(model: string, inputTokens: number) {
+  const exact = PRICING[model];
+  const key = exact ? model : Object.keys(PRICING).find((candidate) => model.startsWith(candidate));
+  if (!key) return null;
+  const table = PRICING[key];
+  return {
+    ...((inputTokens > table.longContextThreshold) ? table.long : table.short),
+    source: table.source + (inputTokens > table.longContextThreshold ? ":long-context" : ":short-context")
+  };
 }
 
 export function bangkokMonthBounds(at = new Date()) {
@@ -267,9 +270,8 @@ export async function recordAiUsage(input: {
   };
   const usage = payload.usage ?? {};
   const model = String(payload.model ?? input.fallbackModel ?? "unknown");
-  const pricing = resolvePricing(model);
-
   const inputTokens = Math.max(0, Math.trunc(numberValue(usage.input_tokens)));
+  const pricing = resolvePricing(model, inputTokens);
   const cachedTokens = Math.max(0, Math.min(inputTokens, Math.trunc(numberValue(usage.input_tokens_details?.cached_tokens))));
   const cacheWriteTokens = Math.max(0, Math.min(inputTokens - cachedTokens, Math.trunc(numberValue(usage.input_tokens_details?.cache_write_tokens))));
   const ordinaryInputTokens = Math.max(0, inputTokens - cachedTokens - cacheWriteTokens);
