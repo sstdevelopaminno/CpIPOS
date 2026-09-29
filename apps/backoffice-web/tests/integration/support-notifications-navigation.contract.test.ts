@@ -3,19 +3,20 @@ import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 const src=(p:string)=>readFileSync(resolve(process.cwd(),p),"utf8");
 
-describe("POS support notifications and direct navigation",()=>{
+describe("POS support notifications and navigation",()=>{
   const menu=src("src/components/pos-preview/pos-staff-menu.tsx");
+  const help=src("src/components/pos-preview/pos-help-center.tsx");
   const sw=src("public/sw.js");
   const notifier=src("src/components/pos-preview/pos-support-notifier.tsx");
   const push=src("src/components/pos-preview/pos-support-push-control.tsx");
   const message=src("src/app/api/pos/support-chat/conversations/[conversationId]/messages/route.ts");
   const requests=src("src/app/api/pos/billing/requests/route.ts");
 
-  it("shows direct Chat and Send Request menus with unread badge",()=>{
-    expect(menu).toContain('href="/preview/pos/payments/support"');
+  it("keeps direct package payment while routing support through Help Center",()=>{
+    expect(menu).not.toContain('href="/preview/pos/payments/support"');
     expect(menu).toContain('href="/preview/pos/payments/package"');
-    expect(menu).toContain("supportUnread");
-    expect(menu).toContain("ส่งคำขอ");
+    expect(menu).toContain("ชำระแพ็กเกจ");
+    expect(help).toContain('href="/preview/pos/payments/support"');
   });
   it("supports browser push in the service worker",()=>{
     expect(sw).toContain('addEventListener("push"');
