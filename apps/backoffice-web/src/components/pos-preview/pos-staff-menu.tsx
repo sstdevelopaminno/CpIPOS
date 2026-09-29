@@ -150,11 +150,11 @@ export function PosStaffMenu({ lang, collapsed, orientation = "vertical", sessio
           href="/preview/pos/ai-assistant"
           onClick={(event) => aiPolicyLocked ? (event.preventDefault(), onLockedMenu(aiLabel)) : aiFeatureLocked ? (event.preventDefault(), onLockedFeature()) : handleNavigate(event, "/preview/pos/ai-assistant")}
           className={entryClass({ active: pathname === "/preview/pos/ai-assistant", locked: aiPolicyLocked || aiFeatureLocked, horizontal: isHorizontal, collapsed, accent: true })}
-          title={collapsed && !isHorizontal ? aiLabel : aiPolicyLocked ? (lang === "th" ? "ล็อกโดยผู้ดูแลระบบ IT" : "Locked by IT") : aiFeatureLocked ? (lang === "th" ? POS_MENU_LOCK_TITLE_TH : POS_MENU_LOCK_TITLE_EN) : undefined}
+          title={aiPolicyLocked ? (lang === "th" ? "ล็อกโดยผู้ดูแลระบบ IT" : "Locked by IT") : aiFeatureLocked ? (lang === "th" ? POS_MENU_LOCK_TITLE_TH : POS_MENU_LOCK_TITLE_EN) : aiLabel}
           aria-disabled={aiPolicyLocked || aiFeatureLocked}
         >
           <span className="inline-flex w-4 justify-center text-cyan-200" aria-hidden><MenuIcon name="ai" /></span>
-          {(!collapsed || isHorizontal) ? <span className="truncate text-[13px]">{aiLabel}</span> : null}
+          {(!collapsed || isHorizontal) ? <span className={`${isHorizontal ? "max-w-[170px]" : "min-w-0 flex-1"} truncate text-[13px]`}>{aiLabel}</span> : null}
           {renderLock(aiPolicyLocked || aiFeatureLocked)}
         </Link>
       ) : null}
