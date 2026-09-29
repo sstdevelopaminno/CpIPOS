@@ -47,8 +47,9 @@ export function PosDeviceHeartbeatSender() {
     async function send(reason: DeviceHeartbeatReason) {
       if (cancelled || inFlightRef.current) return;
       const now = Date.now();
-      if (reason !== "startup" && now - lastSentAtRef.current < HEARTBEAT_MIN_GAP_MS) return;
+      if (reason !== "startup" && reason !== "command" && now - lastSentAtRef.current < HEARTBEAT_MIN_GAP_MS) return;
 
+      let followUpSnapshot = false;
       inFlightRef.current = true;
       try {
         const surface = detectSurface();
@@ -75,6 +76,11 @@ export function PosDeviceHeartbeatSender() {
             if (executableWithoutReload.length > 0) {
               const results = await executePendingActions(executableWithoutReload);
               await acknowledgeDeviceCommands(results, surface, payload.identity.app_version ?? null);
+              followUpSnapshot = executableWithoutReload.some((action) =>
+                action.command_type === "request_diagnostics" ||
+                action.command_type === "request_diagnostics_bundle" ||
+                action.command_type === "test_printer"
+              );
             }
 
             if (reloadActions.length > 0) {
@@ -94,6 +100,10 @@ export function PosDeviceHeartbeatSender() {
         }
       } finally {
         inFlightRef.current = false;
+      }
+
+      if (followUpSnapshot && !cancelled) {
+        window.setTimeout(() => void send("command"), 750);
       }
     }
 

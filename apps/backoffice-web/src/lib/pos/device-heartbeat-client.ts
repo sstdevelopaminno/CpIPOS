@@ -47,7 +47,7 @@ type BridgeHealthResponse = {
 
 export type DeviceHeartbeatSurface = "windows_runtime" | "android" | "browser";
 
-export type DeviceHeartbeatReason = "startup" | "interval" | "online" | "offline" | "visible";
+export type DeviceHeartbeatReason = "startup" | "interval" | "online" | "offline" | "visible" | "command";
 
 export type DeviceHeartbeatPayload = {
   identity: {
@@ -333,6 +333,11 @@ function executeAndroidPrinterTest(): boolean {
   return executeAndroidSafeCommand("test_printer_connection");
 }
 
+function refreshDiagnosticsForRemoteDiscovery(): boolean {
+  if (detectSurface() !== "android") return true;
+  return executeAndroidSafeCommand("collect_diagnostics");
+}
+
 function requestUpdateCheck(): boolean {
   if (detectSurface() === "android") {
     return executeAndroidSafeCommand("collect_diagnostics");
@@ -361,9 +366,15 @@ export async function executePendingActions(actions: readonly PendingDeviceActio
         break;
       case "request_diagnostics_bundle":
       case "request_diagnostics":
+        // Refresh native Android diagnostics so the follow-up heartbeat can
+        // publish a fresh USB/Bluetooth printer inventory to IT immediately.
+        results.push({
+          id: action.id,
+          command_type: action.command_type,
+          applied: refreshDiagnosticsForRemoteDiscovery()
+        });
+        break;
       case "test_network":
-        // The heartbeat that delivered this command already carried a fresh
-        // snapshot; nothing further to do beyond acknowledging delivery.
         results.push({ id: action.id, command_type: action.command_type, applied: true });
         break;
       case "test_printer":
