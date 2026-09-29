@@ -647,6 +647,7 @@ export async function POST(request: Request) {
     const message = String(body?.message ?? "").trim().slice(0, 1200);
     if (!message) return fail("ai_message_required", "Please enter a question for CpiPOS AI.", 422);
 
+    const quota = await assertAiQuotaAvailable(auth.tenantId!);
     const [overview, conversationId] = await Promise.all([
       loadBusinessSnapshot(auth),
       getOrCreateAiConversation(conversationScope(auth))
@@ -654,7 +655,12 @@ export async function POST(request: Request) {
 
     let result: Awaited<ReturnType<typeof callOpenAi>>;
     try {
-      result = await callOpenAi(message, conversationId, overview);
+      result = await callOpenAi(
+        message,
+        conversationId,
+        overview,
+        `cpipos:${auth.tenantId}:${auth.userId}`
+      );
     } catch (error) {
       const messageText = error instanceof Error ? error.message : "CpiPOS AI request failed.";
       const status = messageText.includes("OPENAI_API_KEY") ? 503 : 502;
