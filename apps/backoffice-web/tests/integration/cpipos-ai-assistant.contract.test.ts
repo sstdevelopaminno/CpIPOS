@@ -72,6 +72,9 @@ describe("CpiPOS AI store assistant", () => {
     expect(aiActions).toContain('action: "update_product_price"');
     expect(aiActions).toContain('action: "adjust_stock"');
     expect(aiActions).toContain("appendAuditLog");
+    expect(aiActions).toContain("ALLOWED_MUTATING_AI_ACTIONS");
+    expect(aiActions).toContain('"update_product_price"');
+    expect(aiActions).toContain('"adjust_stock"');
     expect(sharedTypes).toContain('"sales_record_edit"');
     expect(featureMap).toContain('"/preview/pos/ai-assistant": "core_pos_sales"');
   });
@@ -157,5 +160,8 @@ describe("CpiPOS AI store assistant", () => {
     expect(aiActions).not.toContain('"refund"');
     expect(aiActions).not.toContain('"run_sql"');
     expect(aiActions).not.toContain('"delete_user"');
+    expect(aiApi).toContain("system prompt");
+    expect(aiApi).toContain("API key");
+    expect(aiApi).toContain("ข้อมูล tenant/ร้านอื่น");
   });
 });
