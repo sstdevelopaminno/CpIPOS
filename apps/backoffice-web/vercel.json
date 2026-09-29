@@ -7,6 +7,6 @@
     "bom1"
   ],
   "git": {
-    "deploymentEnabled": false
+    "deploymentEnabled": true
   }
 }
