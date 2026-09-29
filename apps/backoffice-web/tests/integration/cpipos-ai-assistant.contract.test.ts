@@ -24,6 +24,7 @@ describe("CpiPOS AI store assistant", () => {
     expect(menuPolicy).toContain('route: "/preview/pos/ai-assistant"');
     expect(menuPolicy).not.toContain('key: "more.ai_assistant"');
     expect(staffMenu).toContain('isPosMenuEnabled("main.ai_assistant", menuPolicy)');
+    expect(staffMenu).toContain('const aiVisible = sessionRole === "owner" || sessionRole === "manager"');
     expect(staffMenu).toContain('href="/preview/pos/ai-assistant"');
     expect(staffMenu).not.toContain("moreExpanded");
     expect(staffMenu).not.toContain("pos-more-quick-menu");

@@ -101,7 +101,7 @@ export function PosStaffMenu({ lang, collapsed, orientation = "vertical", sessio
     [effectiveRole, lang]
   );
   const isHorizontal = orientation === "horizontal";
-  const aiVisible = effectiveRole === "owner" || effectiveRole === "manager";
+  const aiVisible = sessionRole === "owner" || sessionRole === "manager";
   const aiLabel = lang === "th" ? "CpiPOS AI ผู้ช่วยร้านค้า" : "CpiPOS AI Store Assistant";
   const aiPolicyLocked = !isPosMenuEnabled("main.ai_assistant", menuPolicy);
   const aiFeature = featureForPosRoute("/preview/pos/ai-assistant");
@@ -174,7 +174,7 @@ export function PosStaffMenu({ lang, collapsed, orientation = "vertical", sessio
         </Link>
       ) : null}
 
-      {(effectiveRole === "owner" || effectiveRole === "manager") ? (
+      {(sessionRole === "owner" || sessionRole === "manager") ? (
         <Link
           href="/preview/pos/payments/package"
           onClick={(event) => billingPolicyLocked ? (event.preventDefault(), onLockedMenu(billingLabel)) : handleNavigate(event, "/preview/pos/payments/package")}
