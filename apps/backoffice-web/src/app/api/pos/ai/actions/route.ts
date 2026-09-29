@@ -28,8 +28,8 @@ type StockAction = {
 
 type ActionBody = PriceAction | StockAction;
 
-function canExecuteAiAction(branchRole: string | null, platformRole: string | null) {
-  return platformRole === "it_admin" || branchRole === "owner" || branchRole === "manager";
+function canExecuteAiAction(branchRole: string | null, _platformRole: string | null) {
+  return branchRole === "owner" || branchRole === "manager";
 }
 
 function textValue(value: unknown, max = 500) {

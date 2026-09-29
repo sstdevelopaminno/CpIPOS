@@ -15,6 +15,8 @@ const featureMap = source("../../src/lib/pos-feature-map.ts");
 const aiActions = source("../../src/app/api/pos/ai/actions/route.ts");
 const policyService = source("../../src/lib/server/pos-menu-policy-service.ts");
 const sharedTypes = source("../../../../packages/shared-types/src/index.ts");
+const conversationService = source("../../src/lib/services/ai-conversation-service.ts");
+const conversationMigration = source("../../../../supabase/migrations/20260929183000_pos_ai_openai_conversation_links.sql");
 
 describe("CpiPOS AI store assistant", () => {
   it("registers the AI assistant under More and keeps the sidebar compact", () => {
@@ -28,17 +30,26 @@ describe("CpiPOS AI store assistant", () => {
     expect(staffMenu).toContain('href="/preview/pos/ai-assistant"');
   });
 
-  it("limits the first AI release to owner and manager roles", () => {
+  it("limits CpiPOS AI strictly to owner and manager users", () => {
     expect(aiPage).toContain('scope.session.role !== "owner" && scope.session.role !== "manager"');
     expect(aiApi).toContain('branchRole === "owner" || branchRole === "manager"');
+    expect(aiApi).not.toContain('platformRole === "it_admin"');
+    expect(aiActions).not.toContain('platformRole === "it_admin"');
   });
 
-  it("uses server-side OpenAI calls with storage disabled", () => {
+  it("keeps durable per-user history in OpenAI Conversations while response-object storage stays disabled", () => {
     expect(aiApi).toContain('readEnv("OPENAI_API_KEY")');
     expect(aiApi).toContain('fetch("https://api.openai.com/v1/responses"');
+    expect(aiApi).toContain("conversation: conversationId");
     expect(aiApi).toContain("store: false");
-    expect(aiApi).toContain("CPIPOS_AI_MODEL");
+    expect(aiApi).toContain("history_source: \"openai_conversations\"");
     expect(aiWorkspace).not.toContain("OPENAI_API_KEY");
+    expect(conversationService).toContain('openAiFetch<OpenAiConversation>("/conversations"');
+    expect(conversationService).toContain('metadata: {');
+    expect(conversationService).toContain("tenant_id: scope.tenantId");
+    expect(conversationService).toContain("branch_id: scope.branchId");
+    expect(conversationService).toContain("user_id: scope.userId");
+    expect(conversationService).toContain("/items?");
   });
 
   it("loads real POS sales, stock, and cost context before answering", () => {
@@ -71,6 +82,16 @@ describe("CpiPOS AI store assistant", () => {
     expect(aiActions).toContain('isTenantPosMenuEnabled(tenantId, "more.ai_assistant")');
     expect(aiApi).toContain("ai_assistant_disabled_by_it");
     expect(aiActions).toContain("ai_assistant_disabled_by_it");
+  });
+
+  it("stores only a tiny tenant/branch/user pointer in CpiPOS instead of duplicating chat messages", () => {
+    expect(conversationMigration).toContain("pos_ai_conversation_links");
+    expect(conversationMigration).toContain("primary key (tenant_id, branch_id, user_id)");
+    expect(conversationMigration).toContain("openai_conversation_id text not null");
+    expect(conversationMigration).not.toContain("message_text");
+    expect(conversationMigration).not.toContain("content jsonb");
+    expect(aiWorkspace).toContain("OpenAI Conversation");
+    expect(aiWorkspace).toContain("ล้างประวัติของฉัน");
   });
 
   it("keeps destructive or financial reversal actions outside Phase 2", () => {

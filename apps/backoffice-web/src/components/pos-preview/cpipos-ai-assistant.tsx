@@ -155,6 +155,16 @@ function MetricCard({ icon, label, value, note, tone = "blue" }: {
   );
 }
 
+function welcomeMessage(lang: Language): ChatMessage {
+  return {
+    id: "welcome",
+    role: "assistant",
+    text: lang === "th"
+      ? "สวัสดีครับ ผมคือ CpiPOS AI 👋\nผมช่วยสรุปยอดขาย วิเคราะห์ต้นทุนและสต๊อก พร้อมช่วยคิดการตลาดจากข้อมูลจริงของร้านได้ครับ"
+      : "Hello, I’m CpiPOS AI 👋\nI can summarize sales, analyze cost and stock, and help with marketing using your store data."
+  };
+}
+
 export function CpiPosAiAssistant({ lang }: { lang: Language }) {
   const [overview, setOverview] = useState<Overview | null>(null);
   const [overviewLoading, setOverviewLoading] = useState(true);
@@ -163,15 +173,7 @@ export function CpiPosAiAssistant({ lang }: { lang: Language }) {
   const [sending, setSending] = useState(false);
   const [pendingProposal, setPendingProposal] = useState<AiProposal | null>(null);
   const [proposalStatus, setProposalStatus] = useState<Record<string, ProposalStatus>>({});
-  const [messages, setMessages] = useState<ChatMessage[]>([
-    {
-      id: "welcome",
-      role: "assistant",
-      text: lang === "th"
-        ? "สวัสดีครับ ผมคือ CpiPOS AI 👋\nผมช่วยสรุปยอดขาย วิเคราะห์ต้นทุนและสต๊อก พร้อมช่วยคิดการตลาดจากข้อมูลจริงของร้านได้ครับ"
-        : "Hello, I’m CpiPOS AI 👋\nI can summarize sales, analyze cost and stock, and help with marketing using your store data."
-    }
-  ]);
+  const [messages, setMessages] = useState<ChatMessage[]>([welcomeMessage(lang)]);
   const chatEndRef = useRef<HTMLDivElement | null>(null);
 
   const lowMargin = overview?.cost.low_margin_products?.[0] ?? null;
@@ -195,9 +197,15 @@ export function CpiPosAiAssistant({ lang }: { lang: Language }) {
       setOverviewError(null);
       try {
         const response = await fetch("/api/pos/ai/assistant", { cache: "no-store" });
-        const body = (await response.json().catch(() => null)) as ApiEnvelope<{ overview?: Overview }>;
+        const body = (await response.json().catch(() => null)) as ApiEnvelope<{ overview?: Overview; history?: ChatMessage[] }>;
         if (!response.ok) throw new Error(body?.error?.message ?? "ไม่สามารถโหลดข้อมูลร้านได้");
-        if (!cancelled) setOverview(body?.data?.overview ?? null);
+        if (!cancelled) {
+          setOverview(body?.data?.overview ?? null);
+          const storedHistory = Array.isArray(body?.data?.history)
+            ? body.data.history.filter((message) => message.role === "user" || message.role === "assistant")
+            : [];
+          setMessages(storedHistory.length ? storedHistory : [welcomeMessage(lang)]);
+        }
       } catch (error) {
         if (!cancelled) setOverviewError(error instanceof Error ? error.message : "ไม่สามารถโหลดข้อมูลร้านได้");
       } finally {
@@ -223,8 +231,6 @@ export function CpiPosAiAssistant({ lang }: { lang: Language }) {
       role: "user",
       text: messageText
     };
-    const history = messages.slice(-6).map((message) => ({ role: message.role, text: message.text }));
-
     setMessages((current) => [...current, userMessage]);
     setInput("");
     setSending(true);
@@ -233,7 +239,7 @@ export function CpiPosAiAssistant({ lang }: { lang: Language }) {
       const response = await fetch("/api/pos/ai/assistant", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: messageText, history })
+        body: JSON.stringify({ message: messageText })
       });
       const body = (await response.json().catch(() => null)) as ApiEnvelope<{ answer?: string; overview?: Overview; proposals?: AiProposal[] }>;
       if (!response.ok) throw new Error(body?.error?.message ?? "CpiPOS AI ไม่สามารถตอบได้ในขณะนี้");
@@ -257,6 +263,26 @@ export function CpiPosAiAssistant({ lang }: { lang: Language }) {
           text: error instanceof Error ? error.message : "CpiPOS AI ไม่สามารถตอบได้ในขณะนี้"
         }
       ]);
+    } finally {
+      setSending(false);
+    }
+  }
+
+  async function clearHistory() {
+    if (!window.confirm("ล้างประวัติ CpiPOS AI ของบัญชีผู้ใช้นี้ในสาขานี้ทั้งหมดหรือไม่?\n\nประวัติของ Owner/Manager คนอื่นจะไม่ถูกลบ")) return;
+    setSending(true);
+    try {
+      const response = await fetch("/api/pos/ai/assistant", { method: "DELETE" });
+      const body = (await response.json().catch(() => null)) as ApiEnvelope<{ cleared?: boolean }>;
+      if (!response.ok) throw new Error(body?.error?.message ?? "ไม่สามารถล้างประวัติ AI ได้");
+      setMessages([welcomeMessage(lang)]);
+      setProposalStatus({});
+    } catch (error) {
+      setMessages((current) => [...current, {
+        id: `history-error-${Date.now()}`,
+        role: "assistant",
+        text: error instanceof Error ? error.message : "ไม่สามารถล้างประวัติ AI ได้"
+      }]);
     } finally {
       setSending(false);
     }
@@ -372,6 +398,19 @@ export function CpiPosAiAssistant({ lang }: { lang: Language }) {
                 </span>
               </div>
               <p className="mt-1 text-sm font-medium text-slate-600">ผู้ช่วยอัจฉริยะสำหรับยอดขาย ต้นทุน สต๊อก และการตลาด — วิเคราะห์จากข้อมูลร้านใน CpiPOS</p>
+              <div className="mt-2 flex flex-wrap items-center gap-2">
+                <span className="rounded-full border border-blue-100 bg-white/75 px-2.5 py-1 text-[10px] font-bold text-blue-700">
+                  ประวัติส่วนตัวตามบัญชี Owner/Manager · OpenAI Conversation
+                </span>
+                <button
+                  type="button"
+                  onClick={() => void clearHistory()}
+                  disabled={sending}
+                  className="rounded-full border border-slate-200 bg-white/80 px-2.5 py-1 text-[10px] font-bold text-slate-500 transition hover:border-red-200 hover:text-red-600 disabled:opacity-50"
+                >
+                  ล้างประวัติของฉัน
+                </button>
+              </div>
             </div>
           </div>
         </header>

@@ -2,19 +2,14 @@ import { getPosApiAuthContext } from "@/lib/pos-api-auth";
 import { readEnv } from "@/lib/env";
 import { fail, ok } from "@/lib/http";
 import { isTenantPosMenuEnabled } from "@/lib/server/pos-menu-policy-service";
+import { addAiConversationItems, deleteAiConversationForUser, getOrCreateAiConversation, listAiConversationMessages } from "@/lib/services/ai-conversation-service";
 import { loadPosSalesSummaryData } from "@/lib/services/pos-sales-summary-service";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
 
 export const runtime = "nodejs";
 
-type AiHistoryItem = {
-  role: "user" | "assistant";
-  text: string;
-};
-
 type AiRequestBody = {
   message?: string;
-  history?: AiHistoryItem[];
 };
 
 type IngredientRow = {
@@ -153,8 +148,8 @@ const AI_PROPOSAL_TOOLS = [
   }
 ] as const;
 
-function canUseAi(branchRole: string | null, platformRole: string | null) {
-  return platformRole === "it_admin" || branchRole === "owner" || branchRole === "manager";
+function canUseAi(branchRole: string | null, _platformRole: string | null) {
+  return branchRole === "owner" || branchRole === "manager";
 }
 
 async function aiPolicyAllowed(tenantId: string | null) {
@@ -399,19 +394,6 @@ async function loadBusinessSnapshot(auth: Awaited<ReturnType<typeof getPosApiAut
   };
 }
 
-function sanitizeHistory(input: unknown): AiHistoryItem[] {
-  if (!Array.isArray(input)) return [];
-  return input
-    .slice(-6)
-    .map((item) => {
-      const row = item && typeof item === "object" ? (item as Record<string, unknown>) : {};
-      const role = row.role === "assistant" ? "assistant" : "user";
-      const text = String(row.text ?? "").trim().slice(0, 700);
-      return { role, text } as AiHistoryItem;
-    })
-    .filter((item) => item.text.length > 0);
-}
-
 function extractOutputText(payload: unknown): string {
   const body = payload as {
     output_text?: string;
@@ -519,11 +501,6 @@ function extractProposals(payload: unknown, snapshot: Awaited<ReturnType<typeof 
   return proposals.slice(0, 3);
 }
 
-function formatHistory(history: AiHistoryItem[]) {
-  if (!history.length) return "- ไม่มีประวัติสนทนาก่อนหน้า";
-  return history.map((item) => `${item.role === "user" ? "ลูกค้า" : "CpiPOS AI"}: ${item.text}`).join("\n");
-}
-
 const AI_INSTRUCTIONS = [
   "คุณคือ CpiPOS AI ผู้ช่วยร้านค้าสำหรับเจ้าของหรือผู้จัดการร้าน",
   "ตอบภาษาไทยเป็นหลัก กระชับ ชัดเจน และใช้ภาษาธุรกิจที่เจ้าของร้านเข้าใจง่าย",
@@ -539,19 +516,20 @@ const AI_INSTRUCTIONS = [
   "เมื่อเหมาะสมให้สรุปเป็น 3-5 ประเด็นและระบุหน่วยเงินบาท (บาท)"
 ].join("\n");
 
-async function callOpenAi(message: string, history: AiHistoryItem[], snapshot: Awaited<ReturnType<typeof loadBusinessSnapshot>>) {
+async function callOpenAi(
+  message: string,
+  conversationId: string,
+  snapshot: Awaited<ReturnType<typeof loadBusinessSnapshot>>
+) {
   const apiKey = readEnv("OPENAI_API_KEY");
   if (!apiKey) throw new Error("OPENAI_API_KEY is not configured for CpiPOS AI.");
 
-  const input = [
-    "ข้อมูลร้านปัจจุบัน (JSON):",
+  const instructions = [
+    AI_INSTRUCTIONS,
+    "ข้อมูลร้านปัจจุบันสำหรับเทิร์นนี้ (JSON):",
     JSON.stringify(snapshot),
-    "",
-    "ประวัติสนทนาล่าสุด:",
-    formatHistory(history),
-    "",
-    `คำถามล่าสุดของผู้ใช้: ${message}`
-  ].join("\n");
+    "ใช้ข้อมูล JSON นี้เป็นข้อมูลสดของร้านในเทิร์นปัจจุบัน และอย่านำข้อมูลของร้านอื่นมาใช้"
+  ].join("\n\n");
 
   const response = await fetch("https://api.openai.com/v1/responses", {
     method: "POST",
@@ -561,8 +539,14 @@ async function callOpenAi(message: string, history: AiHistoryItem[], snapshot: A
     },
     body: JSON.stringify({
       model: AI_MODEL,
-      instructions: AI_INSTRUCTIONS,
-      input,
+      conversation: conversationId,
+      instructions,
+      input: [
+        {
+          role: "user",
+          content: [{ type: "input_text", text: message }]
+        }
+      ],
       tools: AI_PROPOSAL_TOOLS,
       tool_choice: "auto",
       store: false,
@@ -579,6 +563,24 @@ async function callOpenAi(message: string, history: AiHistoryItem[], snapshot: A
     throw new Error(detail);
   }
 
+  const toolCalls = ((payload as { output?: Array<{ type?: string; call_id?: string; name?: string }> }).output ?? [])
+    .filter((item) => item.type === "function_call" && item.call_id);
+  if (toolCalls.length) {
+    await addAiConversationItems(
+      conversationId,
+      toolCalls.map((item) => ({
+        type: "function_call_output",
+        call_id: item.call_id,
+        output: JSON.stringify({
+          status: "proposal_prepared",
+          executed: false,
+          requires_user_confirmation: true,
+          note: "The current store snapshot in the next turn is authoritative for whether the user later executed this proposal."
+        })
+      }))
+    );
+  }
+
   const proposals = extractProposals(payload, snapshot);
   const text = extractOutputText(payload) ||
     (proposals.length
@@ -586,6 +588,18 @@ async function callOpenAi(message: string, history: AiHistoryItem[], snapshot: A
       : "ผมยังไม่สามารถสรุปคำตอบจากข้อมูลรอบนี้ได้ กรุณาลองถามใหม่อีกครั้ง");
 
   return { text, proposals };
+}
+
+function conversationScope(auth: Awaited<ReturnType<typeof getPosApiAuthContext>>) {
+  if (!auth.tenantId || !auth.branchId) {
+    throw new Error("CpiPOS AI requires tenant and branch scope.");
+  }
+  return {
+    tenantId: auth.tenantId,
+    branchId: auth.branchId,
+    userId: auth.userId,
+    role: auth.branchRole ?? auth.platformRole ?? "unknown"
+  };
 }
 
 export async function GET() {
@@ -597,8 +611,18 @@ export async function GET() {
     if (!(await aiPolicyAllowed(auth.tenantId))) {
       return fail("ai_assistant_disabled_by_it", "CpiPOS AI is disabled for this store by IT policy.", 403);
     }
-    const overview = await loadBusinessSnapshot(auth);
-    return ok({ overview, model: AI_MODEL, mode: "confirm_then_pin" });
+    const [overview, conversationId] = await Promise.all([
+      loadBusinessSnapshot(auth),
+      getOrCreateAiConversation(conversationScope(auth))
+    ]);
+    const history = await listAiConversationMessages(conversationId, 60);
+    return ok({
+      overview,
+      history,
+      model: AI_MODEL,
+      mode: "confirm_then_pin",
+      history_source: "openai_conversations"
+    });
   } catch (error) {
     return fail("ai_assistant_overview_failed", error instanceof Error ? error.message : "Unable to load AI overview.", 500);
   }
@@ -618,12 +642,14 @@ export async function POST(request: Request) {
     const message = String(body?.message ?? "").trim().slice(0, 1200);
     if (!message) return fail("ai_message_required", "Please enter a question for CpiPOS AI.", 422);
 
-    const history = sanitizeHistory(body?.history);
-    const overview = await loadBusinessSnapshot(auth);
+    const [overview, conversationId] = await Promise.all([
+      loadBusinessSnapshot(auth),
+      getOrCreateAiConversation(conversationScope(auth))
+    ]);
 
     let result: Awaited<ReturnType<typeof callOpenAi>>;
     try {
-      result = await callOpenAi(message, history, overview);
+      result = await callOpenAi(message, conversationId, overview);
     } catch (error) {
       const messageText = error instanceof Error ? error.message : "CpiPOS AI request failed.";
       const status = messageText.includes("OPENAI_API_KEY") ? 503 : 502;
@@ -635,9 +661,26 @@ export async function POST(request: Request) {
       proposals: result.proposals,
       overview,
       model: AI_MODEL,
-      mode: "confirm_then_pin"
+      mode: "confirm_then_pin",
+      history_source: "openai_conversations"
     });
   } catch (error) {
     return fail("ai_assistant_failed", error instanceof Error ? error.message : "Unable to use CpiPOS AI.", 500);
+  }
+}
+
+export async function DELETE() {
+  try {
+    const auth = await getPosApiAuthContext({ requireBranchScope: true });
+    if (!canUseAi(auth.branchRole, auth.platformRole)) {
+      return fail("ai_assistant_forbidden", "CpiPOS AI is available to Owner and Manager roles.", 403);
+    }
+    if (!(await aiPolicyAllowed(auth.tenantId))) {
+      return fail("ai_assistant_disabled_by_it", "CpiPOS AI is disabled for this store by IT policy.", 403);
+    }
+    await deleteAiConversationForUser(conversationScope(auth));
+    return ok({ cleared: true });
+  } catch (error) {
+    return fail("ai_history_clear_failed", error instanceof Error ? error.message : "Unable to clear CpiPOS AI history.", 500);
   }
 }
