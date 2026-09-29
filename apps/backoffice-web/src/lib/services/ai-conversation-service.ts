@@ -178,8 +178,25 @@ export async function deleteAiConversationForUser(scope: AiConversationScope): P
     .maybeSingle<{ openai_conversation_id: string }>();
 
   if (data?.openai_conversation_id) {
+    const conversationId = data.openai_conversation_id;
     try {
-      await openAiFetch(`/conversations/${encodeURIComponent(data.openai_conversation_id)}`, { method: "DELETE" });
+      // OpenAI conversation deletion does not delete its items, so remove every
+      // item explicitly before deleting the conversation container.
+      for (let pageNumber = 0; pageNumber < 100; pageNumber += 1) {
+        const page = await openAiFetch<ConversationItemsPage>(
+          `/conversations/${encodeURIComponent(conversationId)}/items?order=desc&limit=100`
+        );
+        const ids = (page.data ?? []).map((item) => String(item.id ?? "")).filter(Boolean);
+        if (!ids.length) break;
+        for (const itemId of ids) {
+          await openAiFetch(
+            `/conversations/${encodeURIComponent(conversationId)}/items/${encodeURIComponent(itemId)}`,
+            { method: "DELETE" }
+          );
+        }
+        if (!page.has_more) break;
+      }
+      await openAiFetch(`/conversations/${encodeURIComponent(conversationId)}`, { method: "DELETE" });
     } catch (error) {
       const status = (error as Error & { status?: number }).status;
       if (status !== 404) throw error;
