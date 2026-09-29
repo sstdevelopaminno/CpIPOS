@@ -30,9 +30,11 @@ describe("CpiPOS AI store assistant", () => {
     expect(staffMenu).toContain('href="/preview/pos/ai-assistant"');
   });
 
-  it("limits the first AI release to owner and manager roles", () => {
+  it("limits CpiPOS AI strictly to owner and manager users", () => {
     expect(aiPage).toContain('scope.session.role !== "owner" && scope.session.role !== "manager"');
     expect(aiApi).toContain('branchRole === "owner" || branchRole === "manager"');
+    expect(aiApi).not.toContain('platformRole === "it_admin"');
+    expect(aiActions).not.toContain('platformRole === "it_admin"');
   });
 
   it("keeps durable per-user history in OpenAI Conversations while response-object storage stays disabled", () => {
@@ -47,7 +49,7 @@ describe("CpiPOS AI store assistant", () => {
     expect(conversationService).toContain("tenant_id: scope.tenantId");
     expect(conversationService).toContain("branch_id: scope.branchId");
     expect(conversationService).toContain("user_id: scope.userId");
-    expect(conversationService).toContain('"/items?"');
+    expect(conversationService).toContain("/items?");
   });
 
   it("loads real POS sales, stock, and cost context before answering", () => {
