@@ -10,6 +10,12 @@ export async function getTenantPosMenuOverrides(tenantId: string): Promise<Recor
   return Object.fromEntries((data ?? []).map(row => [row.menu_key, row.is_enabled]));
 }
 
+/** Return the tenant-scoped switch for one menu key. Absence remains enabled. */
+export async function isTenantPosMenuEnabled(tenantId: string, menuKey: string): Promise<boolean> {
+  const overrides = await getTenantPosMenuOverrides(tenantId);
+  return overrides[menuKey] !== false;
+}
+
 /**
  * Legacy page call-site kept as a no-op for compatibility.
  * IT menu switches affect only navigation controls. Direct links, internal POS
