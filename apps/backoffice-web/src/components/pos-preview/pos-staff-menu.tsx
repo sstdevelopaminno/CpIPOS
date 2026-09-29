@@ -2,14 +2,14 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { MouseEvent, useEffect, useMemo, useState } from "react";
+import { MouseEvent, useMemo } from "react";
 import { t, type Language } from "@/lib/i18n";
 import { isPosMenuEnabled, posMenuKeyForRoute } from "@/lib/pos-menu-policy";
 import { POS_MENU_LOCK_TITLE_EN, POS_MENU_LOCK_TITLE_TH, featureForPosRoute } from "@/lib/pos-feature-map";
 
-type IconName = "sales" | "list" | "kitchen" | "stock" | "summary" | "receipt" | "tables" | "members" | "users" | "display" | "shift" | "logout" | "more" | "payment" | "support" | "ai";
+type IconName = "sales" | "list" | "kitchen" | "shift" | "more" | "payment" | "ai";
 type PosRole = "owner" | "manager" | "staff" | "accountant" | "kitchen";
-type MenuKey = "pos_menu_sales" | "pos_menu_sales_list" | "pos_menu_stock" | "pos_menu_sales_summary" | "pos_menu_receipts" | "pos_menu_tables" | "pos_menu_members" | "pos_menu_shift" | "pos_menu_more";
+type MenuKey = "pos_menu_sales" | "pos_menu_sales_list" | "pos_menu_shift";
 type MenuDef = {
   key: MenuKey | null;
   labelTh?: string;
@@ -29,19 +29,10 @@ function MenuIcon({ name }: { name: IconName }) {
   if (name === "sales") return <svg {...common}><rect x="3" y="5" width="18" height="14" rx="2" /><line x1="3" y1="10" x2="21" y2="10" /></svg>;
   if (name === "list") return <svg {...common}><line x1="9" y1="7" x2="20" y2="7" /><line x1="9" y1="12" x2="20" y2="12" /><line x1="9" y1="17" x2="20" y2="17" /><circle cx="5" cy="7" r="1" /><circle cx="5" cy="12" r="1" /><circle cx="5" cy="17" r="1" /></svg>;
   if (name === "kitchen") return <svg {...common}><path d="M4 19h16" /><path d="M6 19v-2a6 6 0 0 1 12 0v2" /><path d="M12 7V4" /><path d="M9 5.5 8 3" /><path d="m15 5.5 1-2.5" /><path d="M5 10h14" /></svg>;
-  if (name === "stock") return <svg {...common}><rect x="4" y="6" width="16" height="12" rx="2" /><path d="M8 10h8" /><path d="M8 14h8" /></svg>;
-  if (name === "summary") return <svg {...common}><line x1="4" y1="20" x2="20" y2="20" /><rect x="6" y="11" width="3" height="7" /><rect x="11" y="8" width="3" height="10" /><rect x="16" y="5" width="3" height="13" /></svg>;
-  if (name === "receipt") return <svg {...common}><path d="M7 3h10v18l-2-1-2 1-2-1-2 1-2-1-2 1V3z" /><line x1="9" y1="8" x2="15" y2="8" /><line x1="9" y1="12" x2="15" y2="12" /></svg>;
-  if (name === "tables") return <svg {...common}><rect x="4" y="6" width="16" height="4" rx="1" /><line x1="6" y1="10" x2="6" y2="18" /><line x1="18" y1="10" x2="18" y2="18" /><line x1="4" y1="18" x2="20" y2="18" /></svg>;
-  if (name === "display") return <svg {...common}><rect x="3" y="5" width="18" height="12" rx="2" /><line x1="8" y1="20" x2="16" y2="20" /><line x1="12" y1="17" x2="12" y2="20" /></svg>;
-  if (name === "members") return <svg {...common}><circle cx="9" cy="8" r="3" /><path d="M3.5 20c.7-3.2 2.9-5 5.5-5s4.8 1.8 5.5 5" /><circle cx="17" cy="10" r="2.2" /><path d="M14.5 17.5c.7-1.4 1.9-2.2 3.5-2.2 1.3 0 2.4.5 3.1 1.5" /></svg>;
   if (name === "shift") return <svg {...common}><circle cx="12" cy="12" r="8" /><line x1="12" y1="8" x2="12" y2="12" /><line x1="12" y1="12" x2="15" y2="14" /></svg>;
-  if (name === "logout") return <svg {...common}><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" /><polyline points="16 17 21 12 16 7" /><line x1="21" y1="12" x2="9" y2="12" /></svg>;
   if (name === "more") return <svg {...common}><rect x="4" y="4" width="7" height="7" rx="1.5" /><rect x="13" y="4" width="7" height="7" rx="1.5" /><rect x="4" y="13" width="7" height="7" rx="1.5" /><rect x="13" y="13" width="7" height="7" rx="1.5" /></svg>;
   if (name === "payment") return <svg {...common}><rect x="3" y="6" width="18" height="12" rx="2" /><line x1="3" y1="10" x2="21" y2="10" /><path d="M7 15h3" /><path d="M15 15h2" /></svg>;
-  if (name === "support") return <svg {...common}><path d="M4 14v-2a8 8 0 1 1 16 0v2" /><path d="M4 13H2v5h5v-5H4Zm16 0h2v5h-5v-5h3Z" /><path d="M20 18c0 3-3 4-8 4" /></svg>;
-  if (name === "ai") return <svg {...common}><path d="M12 3l1.2 3.1L16 7.3l-2.8 1.2L12 12l-1.2-3.5L8 7.3l2.8-1.2L12 3Z" /><path d="M5 13l.8 2.2L8 16l-2.2.8L5 19l-.8-2.2L2 16l2.2-.8L5 13Z" /><path d="M18 12l.9 2.4L21 15.3l-2.1.9L18 19l-.9-2.8-2.1-.9 2.1-.9L18 12Z" /></svg>;
-  return <svg {...common}><circle cx="12" cy="8" r="3" /><path d="M5 20c0-3.5 3-6 7-6s7 2.5 7 6" /></svg>;
+  return <svg {...common}><path d="M12 3l1.2 3.1L16 7.3l-2.8 1.2L12 12l-1.2-3.5L8 7.3l2.8-1.2L12 3Z" /><path d="M5 13l.8 2.2L8 16l-2.2.8L5 19l-.8-2.2L2 16l2.2-.8L5 13Z" /><path d="M18 12l.9 2.4L21 15.3l-2.1.9L18 19l-.9-2.8-2.1-.9 2.1-.9L18 12Z" /></svg>;
 }
 
 const MENU_DEFS: MenuDef[] = [
@@ -51,13 +42,16 @@ const MENU_DEFS: MenuDef[] = [
   { key: "pos_menu_shift", href: "/preview/pos/shift", icon: "shift", roles: ["owner", "manager", "staff"], feature: featureForPosRoute("/preview/pos/shift") }
 ];
 
-const MORE_MENU_DEFS: MenuDef[] = [
-  { key: "pos_menu_sales_summary", href: "/preview/pos/sales-summary", icon: "summary", roles: ["owner", "manager", "accountant"], feature: featureForPosRoute("/preview/pos/sales-summary") },
-  { key: "pos_menu_receipts", href: "/preview/pos/receipts", icon: "receipt", roles: ["owner", "manager", "accountant"], feature: featureForPosRoute("/preview/pos/receipts") },
-  { key: "pos_menu_tables", href: "/preview/pos/tables", icon: "tables", roles: ["owner", "manager"], feature: featureForPosRoute("/preview/pos/tables") },
-  { key: "pos_menu_stock", href: "/preview/pos/stock", icon: "stock", roles: ["owner", "manager"], feature: featureForPosRoute("/preview/pos/stock") },
-  { key: "pos_menu_members", href: "/preview/pos/members", icon: "members", roles: ["owner", "manager", "accountant"], feature: featureForPosRoute("/preview/pos/members") },
-  { key: null, labelTh: "CpiPOS AI ผู้ช่วยร้านค้า", labelEn: "CpiPOS AI Store Assistant", href: "/preview/pos/ai-assistant", icon: "ai", roles: ["owner", "manager"], feature: featureForPosRoute("/preview/pos/ai-assistant") }
+const MORE_CHILD_ROUTES = [
+  "/preview/pos/sales-summary",
+  "/preview/pos/receipts",
+  "/preview/pos/tables",
+  "/preview/pos/kitchen/manage",
+  "/preview/pos/stock",
+  "/preview/pos/buffet-pricing",
+  "/preview/pos/members",
+  "/preview/pos/tax-invoices",
+  "/preview/pos/product-sales"
 ];
 
 function resolveMenuRole(role: PosRole | null): PosRole {
@@ -68,8 +62,26 @@ function resolveMenuRole(role: PosRole | null): PosRole {
 
 function labelFor(item: MenuDef, lang: Language) {
   if (item.key) return t(lang, item.key);
-  if (item.href === "/preview/pos/ai-assistant") return lang === "th" ? "CpiPOS AI ผู้ช่วยร้านค้า" : "CpiPOS AI Store Assistant";
   return lang === "th" ? item.labelTh ?? "ครัว" : item.labelEn ?? "Kitchen";
+}
+
+function entryClass(args: { active: boolean; locked: boolean; horizontal: boolean; collapsed: boolean; accent?: boolean }) {
+  const { active, locked, horizontal, collapsed, accent } = args;
+  const layout = horizontal
+    ? "shrink-0 justify-center gap-2 px-3"
+    : collapsed
+      ? "justify-center px-2"
+      : "justify-start gap-2 px-2";
+  const state = active
+    ? accent
+      ? "rounded-xl border border-cyan-300/55 bg-[linear-gradient(145deg,rgba(37,99,235,0.72),rgba(6,182,212,0.52))] text-white shadow-[0_10px_24px_rgba(14,116,255,0.3)]"
+      : "rounded-xl border border-cyan-300/45 bg-[linear-gradient(145deg,rgba(59,130,246,0.45),rgba(14,165,233,0.35))] text-white shadow-[0_10px_24px_rgba(14,116,255,0.25),inset_0_1px_0_rgba(255,255,255,0.2)]"
+    : locked
+      ? "rounded-xl text-slate-400/85 hover:bg-white/5 hover:text-slate-200"
+      : accent
+        ? "rounded-xl text-cyan-100 hover:bg-cyan-400/10 hover:text-white"
+        : "rounded-xl text-slate-100/90 hover:bg-white/8 hover:text-white";
+  return `group relative inline-flex min-h-[42px] items-center text-[13px] font-semibold leading-tight transition ${layout} ${state}`;
 }
 
 export function PosStaffMenu({ lang, collapsed, orientation = "vertical", sessionRole, enabledFeatures, menuPolicy, onLockedFeature, onLockedMenu }: {
@@ -84,137 +96,95 @@ export function PosStaffMenu({ lang, collapsed, orientation = "vertical", sessio
 }) {
   const pathname = usePathname();
   const effectiveRole = resolveMenuRole(sessionRole);
-  const menuItems = useMemo(() => MENU_DEFS.map((item) => ({ ...item, label: labelFor(item, lang) })).filter((item) => item.roles.includes(effectiveRole)), [effectiveRole, lang]);
-  const moreItems = useMemo(
-    () => MORE_MENU_DEFS.map(item => ({ ...item, label: labelFor(item, lang) })).filter(item => item.roles.includes(effectiveRole)),
+  const menuItems = useMemo(
+    () => MENU_DEFS.map((item) => ({ ...item, label: labelFor(item, lang) })).filter((item) => item.roles.includes(effectiveRole)),
     [effectiveRole, lang]
   );
-  const otherMoreKeys = sessionRole === "accountant"
-    ? ["more.tax_invoices", "more.product_sales"]
-    : effectiveRole === "owner" || effectiveRole === "manager"
-      ? ["more.kitchen_manage", "more.buffet", "more.tax_invoices", "more.product_sales", "more.ai_assistant"]
-      : [];
-  const canSeeMoreMenu = moreItems.length > 0 || otherMoreKeys.length > 0;
-  const extraRoutes = ["/preview/pos/kitchen/manage", "/preview/pos/buffet-pricing", "/preview/pos/tax-invoices", "/preview/pos/product-sales", "/preview/pos/ai-assistant"];
-  const isMoreActive = moreItems.some((item) => pathname === item.href) || extraRoutes.includes(pathname);
-  const isMoreMenuActive = pathname === "/preview/pos/more" || isMoreActive;
-  const [moreExpanded, setMoreExpanded] = useState(isMoreMenuActive);
-  const paymentMenuLabel = lang === "th" ? "ศูนย์ช่วยเหลือ" : "Help Center";
-  const billingMenuLabel = lang === "th" ? "ชำระแพ็กเกจ" : "Package Payment";
-  const isPaymentMenuActive = pathname === "/preview/pos/payments";
-  const isBillingMenuActive = pathname === "/preview/pos/payments/package";
+  const isHorizontal = orientation === "horizontal";
+  const aiVisible = effectiveRole === "owner" || effectiveRole === "manager";
   const aiLabel = lang === "th" ? "CpiPOS AI ผู้ช่วยร้านค้า" : "CpiPOS AI Store Assistant";
-  const isAiActive = pathname === "/preview/pos/ai-assistant";
-  const isAiPolicyLocked = !isPosMenuEnabled("more.ai_assistant", menuPolicy);
-
-  useEffect(() => {
-    if (isMoreMenuActive) setMoreExpanded(true);
-  }, [isMoreMenuActive]);
+  const aiPolicyLocked = !isPosMenuEnabled("main.ai_assistant", menuPolicy);
+  const aiFeature = featureForPosRoute("/preview/pos/ai-assistant");
+  const aiFeatureLocked = Boolean(enabledFeatures !== null && aiFeature && enabledFeatures?.[aiFeature] === false);
+  const moreVisible = effectiveRole === "owner" || effectiveRole === "manager";
+  const morePolicyLocked = !isPosMenuEnabled("main.more", menuPolicy);
+  const isMoreActive = pathname === "/preview/pos/more" || MORE_CHILD_ROUTES.some((route) => pathname === route || pathname.startsWith(route + "/"));
+  const billingLabel = lang === "th" ? "ชำระแพ็กเกจ" : "Package Payment";
+  const billingPolicyLocked = !isPosMenuEnabled("main.package_payment", menuPolicy);
 
   function handleNavigate(event: MouseEvent<HTMLAnchorElement>, href: string) {
     if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
     if (pathname === href) event.preventDefault();
   }
 
-  function handleLockedNavigate(event: MouseEvent<HTMLAnchorElement>) {
-    event.preventDefault();
-    onLockedFeature();
+  function renderLock(locked: boolean) {
+    if (!locked) return null;
+    return <span className={`ml-auto inline-flex text-slate-300 ${collapsed && !isHorizontal ? "absolute right-1 top-1" : ""}`}><LockIcon /></span>;
   }
-
-  const isHorizontal = orientation === "horizontal";
-  const morePolicyLocked = !isPosMenuEnabled("main.more", menuPolicy);
-
-  const moreBaseClass = `group relative inline-flex min-h-[42px] items-center text-[13px] font-semibold leading-tight transition ${isHorizontal ? "shrink-0 justify-center gap-2 px-3" : collapsed ? "justify-center px-2" : "justify-start gap-2 px-2"} ${morePolicyLocked ? "rounded-xl text-slate-400/85 hover:bg-white/5" : isMoreMenuActive ? "rounded-xl border border-cyan-300/45 bg-[linear-gradient(145deg,rgba(59,130,246,0.45),rgba(14,165,233,0.35))] text-white shadow-[0_10px_24px_rgba(14,116,255,0.25),inset_0_1px_0_rgba(255,255,255,0.2)]" : "rounded-xl text-slate-100/90 hover:bg-white/8 hover:text-white"}`;
 
   return (
     <nav className={isHorizontal ? "flex min-w-0 flex-1 items-center gap-1 overflow-x-auto overscroll-contain" : "grid gap-1"} aria-label={t(lang, "pos_menu_staff_aria")} suppressHydrationWarning>
       {menuItems.map((item) => {
-        const isActive = pathname === item.href;
-        const isFeatureLoaded = enabledFeatures !== null;
+        const active = pathname === item.href;
         const menuLocked = !isPosMenuEnabled(posMenuKeyForRoute(item.href) ?? "", menuPolicy);
-        const isLocked = menuLocked || Boolean(isFeatureLoaded && item.feature && enabledFeatures?.[item.feature] === false);
+        const featureLocked = Boolean(enabledFeatures !== null && item.feature && enabledFeatures?.[item.feature] === false);
+        const locked = menuLocked || featureLocked;
         return (
-          <Link key={item.href} href={item.href} onClick={(event) => menuLocked ? (event.preventDefault(), onLockedMenu(item.label)) : isLocked ? handleLockedNavigate(event) : handleNavigate(event, item.href)}
-            className={`group relative inline-flex min-h-[42px] items-center text-[13px] font-semibold leading-tight transition ${isHorizontal ? "shrink-0 justify-center gap-2 px-3" : collapsed ? "justify-center px-2" : "justify-start gap-2 px-2"} ${isActive ? "rounded-xl border border-cyan-300/45 bg-[linear-gradient(145deg,rgba(59,130,246,0.45),rgba(14,165,233,0.35))] text-white shadow-[0_10px_24px_rgba(14,116,255,0.25),inset_0_1px_0_rgba(255,255,255,0.2)]" : isLocked ? "rounded-xl text-slate-400/85 hover:bg-white/5 hover:text-slate-200" : "rounded-xl text-slate-100/90 hover:bg-white/8 hover:text-white"}`}
-            title={collapsed && !isHorizontal ? item.label : menuLocked ? (lang === "th" ? "ล็อกโดยผู้ดูแลระบบ IT" : "Locked by IT") : isLocked ? (lang === "th" ? POS_MENU_LOCK_TITLE_TH : POS_MENU_LOCK_TITLE_EN) : undefined} aria-disabled={isLocked}>
+          <Link
+            key={item.href}
+            href={item.href}
+            onClick={(event) => menuLocked ? (event.preventDefault(), onLockedMenu(item.label)) : featureLocked ? (event.preventDefault(), onLockedFeature()) : handleNavigate(event, item.href)}
+            className={entryClass({ active, locked, horizontal: isHorizontal, collapsed })}
+            title={collapsed && !isHorizontal ? item.label : menuLocked ? (lang === "th" ? "ล็อกโดยผู้ดูแลระบบ IT" : "Locked by IT") : featureLocked ? (lang === "th" ? POS_MENU_LOCK_TITLE_TH : POS_MENU_LOCK_TITLE_EN) : undefined}
+            aria-disabled={locked}
+          >
             <span className="inline-flex w-4 justify-center" aria-hidden><MenuIcon name={item.icon} /></span>
             {(!collapsed || isHorizontal) ? <span className="truncate text-[13px]">{item.label}</span> : null}
-            {isLocked ? <span className={`ml-auto inline-flex text-slate-300 ${collapsed && !isHorizontal ? "absolute right-1 top-1" : ""}`}><LockIcon /></span> : null}
+            {renderLock(locked)}
           </Link>
         );
       })}
 
-      {canSeeMoreMenu ? (
-        isHorizontal || collapsed ? (
-          <Link href="/preview/pos/more" onClick={(event) => morePolicyLocked ? (event.preventDefault(), onLockedMenu(t(lang, "pos_menu_more"))) : handleNavigate(event, "/preview/pos/more")}
-            className={moreBaseClass}
-            title={collapsed && !isHorizontal ? t(lang, "pos_menu_more") : morePolicyLocked ? (lang === "th" ? "ล็อกโดยผู้ดูแลระบบ IT" : "Locked by IT") : undefined}
-            aria-disabled={morePolicyLocked}>
-            <span className="inline-flex w-4 justify-center" aria-hidden><MenuIcon name="more" /></span>
-            {(!collapsed || isHorizontal) ? <span className="truncate text-[13px]">{t(lang, "pos_menu_more")}</span> : null}
-            {morePolicyLocked ? <span className="ml-auto inline-flex text-slate-300"><LockIcon /></span> : null}
-          </Link>
-        ) : (
-          <div className="grid gap-1">
-            <button
-              type="button"
-              onClick={() => morePolicyLocked ? onLockedMenu(t(lang, "pos_menu_more")) : setMoreExpanded((value) => !value)}
-              className={moreBaseClass}
-              aria-expanded={moreExpanded}
-              aria-controls="pos-more-quick-menu"
-            >
-              <span className="inline-flex w-4 justify-center" aria-hidden><MenuIcon name="more" /></span>
-              <span className="truncate text-[13px]">{t(lang, "pos_menu_more")}</span>
-              <span className="ml-auto inline-flex items-center gap-1">
-                {morePolicyLocked ? <LockIcon /> : null}
-                <svg width="14" height="14" viewBox="0 0 20 20" fill="currentColor" aria-hidden className={`transition-transform ${moreExpanded ? "rotate-180" : ""}`}>
-                  <path d="M5.5 7.5 10 12l4.5-4.5" />
-                </svg>
-              </span>
-            </button>
-            {moreExpanded && !morePolicyLocked ? (
-              <div id="pos-more-quick-menu" className="ml-5 grid max-h-[104px] gap-1 overflow-y-auto border-l border-white/15 pl-2 pr-1">
-                <Link
-                  href="/preview/pos/more"
-                  onClick={(event) => handleNavigate(event, "/preview/pos/more")}
-                  className={`rounded-lg px-2 py-1.5 text-[12px] font-semibold transition ${pathname === "/preview/pos/more" ? "bg-white/10 text-white" : "text-slate-300 hover:bg-white/5 hover:text-white"}`}
-                >
-                  {lang === "th" ? "เมนูเพิ่มเติมทั้งหมด" : "All additional tools"}
-                </Link>
-                {(effectiveRole === "owner" || effectiveRole === "manager") ? (
-                  <Link
-                    href="/preview/pos/ai-assistant"
-                    onClick={(event) => isAiPolicyLocked ? (event.preventDefault(), onLockedMenu(aiLabel)) : handleNavigate(event, "/preview/pos/ai-assistant")}
-                    className={`flex items-center gap-2 rounded-lg px-2 py-1.5 text-[12px] font-bold transition ${isAiPolicyLocked ? "text-slate-500" : isAiActive ? "bg-cyan-400/15 text-cyan-100" : "text-cyan-200 hover:bg-cyan-400/10 hover:text-white"}`}
-                    aria-disabled={isAiPolicyLocked}
-                  >
-                    <span className="inline-flex w-4 justify-center" aria-hidden><MenuIcon name="ai" /></span>
-                    <span className="truncate">{aiLabel}</span>
-                    {isAiPolicyLocked ? <span className="ml-auto"><LockIcon /></span> : <span className="ml-auto rounded-full bg-blue-500/20 px-1.5 py-0.5 text-[9px] font-black">AI</span>}
-                  </Link>
-                ) : null}
-              </div>
-            ) : null}
-          </div>
-        )
-      ) : null}
-
-      {(effectiveRole === "owner" || effectiveRole === "manager") ? (
-        <Link href="/preview/pos/payments/package" onClick={(event) => !isPosMenuEnabled("main.payments", menuPolicy) ? (event.preventDefault(), onLockedMenu(billingMenuLabel)) : handleNavigate(event, "/preview/pos/payments/package")}
-          className={`group relative inline-flex min-h-[42px] items-center text-[13px] font-semibold leading-tight transition ${isHorizontal ? "shrink-0 justify-center gap-2 px-3" : collapsed ? "justify-center px-2" : "justify-start gap-2 px-2"} ${!isPosMenuEnabled("main.payments", menuPolicy) ? "rounded-xl text-slate-400/85 hover:bg-white/5" : isBillingMenuActive ? "rounded-xl border border-cyan-300/45 bg-[linear-gradient(145deg,rgba(59,130,246,0.45),rgba(14,165,233,0.35))] text-white shadow-[0_10px_24px_rgba(14,116,255,0.25),inset_0_1px_0_rgba(255,255,255,0.2)]" : "rounded-xl text-slate-100/90 hover:bg-white/8 hover:text-white"}`}
-          title={collapsed && !isHorizontal ? billingMenuLabel : undefined}>
-          <span className="inline-flex w-4 justify-center" aria-hidden><MenuIcon name="payment" /></span>
-          {(!collapsed || isHorizontal) ? <span className="truncate text-[13px]">{billingMenuLabel}</span> : null}
+      {aiVisible ? (
+        <Link
+          href="/preview/pos/ai-assistant"
+          onClick={(event) => aiPolicyLocked ? (event.preventDefault(), onLockedMenu(aiLabel)) : aiFeatureLocked ? (event.preventDefault(), onLockedFeature()) : handleNavigate(event, "/preview/pos/ai-assistant")}
+          className={entryClass({ active: pathname === "/preview/pos/ai-assistant", locked: aiPolicyLocked || aiFeatureLocked, horizontal: isHorizontal, collapsed, accent: true })}
+          title={collapsed && !isHorizontal ? aiLabel : aiPolicyLocked ? (lang === "th" ? "ล็อกโดยผู้ดูแลระบบ IT" : "Locked by IT") : aiFeatureLocked ? (lang === "th" ? POS_MENU_LOCK_TITLE_TH : POS_MENU_LOCK_TITLE_EN) : undefined}
+          aria-disabled={aiPolicyLocked || aiFeatureLocked}
+        >
+          <span className="inline-flex w-4 justify-center text-cyan-200" aria-hidden><MenuIcon name="ai" /></span>
+          {(!collapsed || isHorizontal) ? <span className="truncate text-[13px]">{aiLabel}</span> : null}
+          {(!collapsed || isHorizontal) && !aiPolicyLocked && !aiFeatureLocked ? <span className="ml-auto rounded-full bg-cyan-300/15 px-1.5 py-0.5 text-[9px] font-black text-cyan-100">AI</span> : null}
+          {renderLock(aiPolicyLocked || aiFeatureLocked)}
         </Link>
       ) : null}
 
-      {effectiveRole !== "kitchen" ? (
-        <Link href="/preview/pos/payments" onClick={(event) => !isPosMenuEnabled("main.payments", menuPolicy) ? (event.preventDefault(), onLockedMenu(paymentMenuLabel)) : handleNavigate(event, "/preview/pos/payments")}
-          className={`group relative inline-flex min-h-[42px] items-center text-[13px] font-semibold leading-tight transition ${isHorizontal ? "shrink-0 justify-center gap-2 px-3" : collapsed ? "justify-center px-2" : "justify-start gap-2 px-2"} ${!isPosMenuEnabled("main.payments", menuPolicy) ? "rounded-xl text-slate-400/85 hover:bg-white/5" : isPaymentMenuActive ? "rounded-xl border border-cyan-300/45 bg-[linear-gradient(145deg,rgba(59,130,246,0.45),rgba(14,165,233,0.35))] text-white shadow-[0_10px_24px_rgba(14,116,255,0.25),inset_0_1px_0_rgba(255,255,255,0.2)]" : "rounded-xl text-slate-100/90 hover:bg-white/8 hover:text-white"}`}
-          title={collapsed && !isHorizontal ? paymentMenuLabel : !isPosMenuEnabled("main.payments", menuPolicy) ? (lang === "th" ? "ล็อกโดยผู้ดูแลระบบ IT" : "Locked by IT") : undefined} aria-disabled={!isPosMenuEnabled("main.payments", menuPolicy)}>
-          <span className="inline-flex w-4 justify-center" aria-hidden><MenuIcon name="support" /></span>
-          {(!collapsed || isHorizontal) ? <span className="truncate text-[13px]">{paymentMenuLabel}</span> : null}
-          {!isPosMenuEnabled("main.payments", menuPolicy) ? <span className="ml-auto inline-flex text-slate-300"><LockIcon /></span> : null}
+      {moreVisible ? (
+        <Link
+          href="/preview/pos/more"
+          onClick={(event) => morePolicyLocked ? (event.preventDefault(), onLockedMenu(t(lang, "pos_menu_more"))) : handleNavigate(event, "/preview/pos/more")}
+          className={entryClass({ active: isMoreActive, locked: morePolicyLocked, horizontal: isHorizontal, collapsed })}
+          title={collapsed && !isHorizontal ? t(lang, "pos_menu_more") : morePolicyLocked ? (lang === "th" ? "ล็อกโดยผู้ดูแลระบบ IT" : "Locked by IT") : undefined}
+          aria-disabled={morePolicyLocked}
+        >
+          <span className="inline-flex w-4 justify-center" aria-hidden><MenuIcon name="more" /></span>
+          {(!collapsed || isHorizontal) ? <span className="truncate text-[13px]">{t(lang, "pos_menu_more")}</span> : null}
+          {renderLock(morePolicyLocked)}
+        </Link>
+      ) : null}
+
+      {(effectiveRole === "owner" || effectiveRole === "manager") ? (
+        <Link
+          href="/preview/pos/payments/package"
+          onClick={(event) => billingPolicyLocked ? (event.preventDefault(), onLockedMenu(billingLabel)) : handleNavigate(event, "/preview/pos/payments/package")}
+          className={entryClass({ active: pathname === "/preview/pos/payments/package", locked: billingPolicyLocked, horizontal: isHorizontal, collapsed })}
+          title={collapsed && !isHorizontal ? billingLabel : billingPolicyLocked ? (lang === "th" ? "ล็อกโดยผู้ดูแลระบบ IT" : "Locked by IT") : undefined}
+          aria-disabled={billingPolicyLocked}
+        >
+          <span className="inline-flex w-4 justify-center" aria-hidden><MenuIcon name="payment" /></span>
+          {(!collapsed || isHorizontal) ? <span className="truncate text-[13px]">{billingLabel}</span> : null}
+          {renderLock(billingPolicyLocked)}
         </Link>
       ) : null}
     </nav>

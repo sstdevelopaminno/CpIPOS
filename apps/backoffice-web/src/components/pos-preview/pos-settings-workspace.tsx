@@ -9,6 +9,7 @@ import { PosUsersModule } from "@/components/pos/pos-users-module";
 import { InetNopsSettingsPanel } from "@/components/pos-preview/inet-nops-settings-panel";
 import { PackageLockDialog } from "@/components/pos-preview/package-lock-dialog";
 import { ItMenuLockDialog } from "@/components/pos-preview/it-menu-lock-dialog";
+import { PosSupportPushSettingsModal } from "@/components/pos-preview/pos-support-push-control";
 import { POS_SETTINGS_FEATURES } from "@/lib/pos-feature-map";
 import { isPosMenuEnabled } from "@/lib/pos-menu-policy";
 import { getProductProfilePolicy } from "@/lib/product-profile-policy";
@@ -26,7 +27,7 @@ import type { ActivityAuditItem, ActivityAuditPeriod } from "@/lib/services/acti
 import type { Language } from "@/lib/i18n";
 
 type SettingsView = "menu" | "store" | "branches" | "devices" | "printers" | "activity" | "payments" | "inet_nops" | "taxes" | "notifications" | "users";
-type MenuIconName = "store" | "branch" | "payment" | "tax" | "users" | "display" | "terminal" | "activity" | "bell" | "tables" | "language" | "stock" | "summary" | "receipt" | "members" | "back" | "edit" | "trash" | "plus";
+type MenuIconName = "store" | "branch" | "payment" | "tax" | "users" | "display" | "terminal" | "activity" | "bell" | "support" | "tables" | "language" | "stock" | "summary" | "receipt" | "members" | "back" | "edit" | "trash" | "plus";
 type MainMenuPlacement = "left" | "top" | "bottom";
 const POS_TAX_SETTINGS_UPDATED_EVENT = "pos:tax-settings-updated";
 const POS_TAX_SETTINGS_UPDATED_KEY = "pos_tax_settings_updated_at_v001";
@@ -517,6 +518,15 @@ function Icon({ name }: { name: MenuIconName }) {
         <path d="M9 13h3" />
         <path d="M15 13l1.5 1.5L19 12" />
         <path d="M9 17h6" />
+      </svg>
+    );
+  }
+  if (name === "support") {
+    return (
+      <svg {...common}>
+        <path d="M4 14v-2a8 8 0 1 1 16 0v2" />
+        <path d="M4 13H2v5h5v-5H4Zm16 0h2v5h-5v-5h3Z" />
+        <path d="M20 18c0 3-3 4-8 4" />
       </svg>
     );
   }
@@ -3366,6 +3376,7 @@ export function PosSettingsWorkspace({ lang, initialData }: { lang: Language; in
   const [itLockedMenu, setItLockedMenu] = useState<string | null>(null);
   const [languagePopupOpen, setLanguagePopupOpen] = useState(false);
   const [menuPlacementPopupOpen, setMenuPlacementPopupOpen] = useState(false);
+  const [pushSettingsOpen, setPushSettingsOpen] = useState(false);
   const [menuPolicy, setMenuPolicy] = useState<Record<string, boolean>>({});
   const canManage = initialData.metadata.can_manage;
   const productProfilePolicy = getProductProfilePolicy(initialData.metadata.product_profile);
@@ -3474,6 +3485,21 @@ export function PosSettingsWorkspace({ lang, initialData }: { lang: Language; in
               desc={lang === "en" ? "Popup and sound alerts for table QR customer calls" : "POP UP เนเธฅเธฐเน€เธชเธตเธขเธเนเธเนเธเน€เธ•เธทเธญเธเน€เธกเธทเนเธญเธฅเธนเธเธเนเธฒเน€เธฃเธตเธขเธเธเธฒเธ QR เนเธ•เนเธฐ"}
               onClick={() => openSettingsView("notifications")}
                locked={isSettingLocked("notifications") || !menuVisible("settings.notifications")}
+            />
+            <MenuLink
+              icon="support"
+              title={lang === "en" ? "Help Center" : "ศูนย์ช่วยเหลือ"}
+              desc={lang === "en" ? "Contact support, report issues, and open CpiPOS Support chat" : "ติดต่อสอบถาม แจ้งปัญหา และพูดคุยกับทีม CpiPOS Support"}
+              href="/preview/pos/payments"
+              locked={!menuVisible("settings.support")}
+              onLocked={() => setItLockedMenu(lang === "en" ? "Help Center" : "ศูนย์ช่วยเหลือ")}
+            />
+            <MenuButton
+              icon="bell"
+              title={lang === "en" ? "Device Notifications" : "การแจ้งเตือนอุปกรณ์"}
+              desc={lang === "en" ? "Push Notification permission and status for this device" : "สถานะ Push Notification และการอนุญาตแจ้งเตือนของเครื่องนี้"}
+              onClick={() => !menuVisible("settings.push_notifications") ? setItLockedMenu(lang === "en" ? "Device Notifications" : "การแจ้งเตือนอุปกรณ์") : setPushSettingsOpen(true)}
+              locked={!menuVisible("settings.push_notifications")}
             />
             <MenuButton icon="users" title={labels.users} desc={labels.usersDesc} onClick={() => openSettingsView("users")}  locked={isSettingLocked("users") || !menuVisible("settings.users")} />
             <MenuButton icon="language" title={labels.language} desc={labels.languageDesc}  onClick={() => !menuVisible("settings.language") ? setItLockedMenu(lang === "th" ? "เปลี่ยนภาษา" : "Change Language") : setLanguagePopupOpen(true)} locked={!menuVisible("settings.language")} />
@@ -3590,6 +3616,7 @@ export function PosSettingsWorkspace({ lang, initialData }: { lang: Language; in
           onSaved={() => reportStatus(labels.saved, { popup: true })}
         />
       ) : null}
+      <PosSupportPushSettingsModal open={pushSettingsOpen} onClose={() => setPushSettingsOpen(false)} lang={lang === "en" ? "en" : "th"} />
       <PackageLockDialog lang={lang} open={packageLockOpen} onClose={() => setPackageLockOpen(false)} />
       <ItMenuLockDialog lang={lang} open={itLockedMenu !== null} menuLabel={itLockedMenu ?? undefined} onClose={() => setItLockedMenu(null)} />
     </main>

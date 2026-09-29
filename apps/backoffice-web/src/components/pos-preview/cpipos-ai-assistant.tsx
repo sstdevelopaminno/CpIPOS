@@ -155,6 +155,100 @@ function MetricCard({ icon, label, value, note, tone = "blue" }: {
   );
 }
 
+function AiModal({ open, title, subtitle, onClose, children }: {
+  open: boolean;
+  title: string;
+  subtitle?: string;
+  onClose: () => void;
+  children: React.ReactNode;
+}) {
+  const panelRef = useRef<HTMLElement | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    const panel = panelRef.current;
+    const first = panel?.querySelector<HTMLElement>("button, a, input, textarea, [tabindex]:not([tabindex='-1'])");
+    first?.focus();
+
+    function onKeyDown(event: globalThis.KeyboardEvent) {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        onClose();
+        return;
+      }
+      if (event.key !== "Tab" || !panel) return;
+      const focusable = Array.from(panel.querySelectorAll<HTMLElement>("button, a, input, textarea, [tabindex]:not([tabindex='-1'])"))
+        .filter((element) => !element.hasAttribute("disabled"));
+      if (!focusable.length) return;
+      const firstElement = focusable[0];
+      const lastElement = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === firstElement) {
+        event.preventDefault();
+        lastElement.focus();
+      } else if (!event.shiftKey && document.activeElement === lastElement) {
+        event.preventDefault();
+        firstElement.focus();
+      }
+    }
+
+    window.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener("keydown", onKeyDown);
+    };
+  }, [open, onClose]);
+
+  if (!open) return null;
+  return (
+    <div role="dialog" aria-modal="true" aria-label={title} className="fixed inset-0 z-[105] grid place-items-center bg-slate-950/55 p-3 sm:p-4" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
+      <section ref={panelRef} className="max-h-[calc(100vh-24px)] w-full max-w-[820px] overflow-y-auto rounded-3xl border border-slate-200 bg-white p-4 shadow-2xl sm:p-5">
+        <div className="sticky top-0 z-10 flex items-start justify-between gap-4 bg-white/95 pb-3 backdrop-blur">
+          <div>
+            <h2 className="text-xl font-black text-[#10213d]">{title}</h2>
+            {subtitle ? <p className="mt-1 text-sm font-medium text-slate-500">{subtitle}</p> : null}
+          </div>
+          <button type="button" onClick={onClose} className="grid h-9 w-9 shrink-0 place-items-center rounded-xl border border-slate-200 bg-white text-lg font-black text-slate-600 hover:bg-slate-50" aria-label="ปิด">×</button>
+        </div>
+        {children}
+      </section>
+    </div>
+  );
+}
+
+function InlineRichText({ text }: { text: string }) {
+  const parts = text.split(/(\*\*[^*]+\*\*)/g).filter(Boolean);
+  return (
+    <>
+      {parts.map((part, index) => part.startsWith("**") && part.endsWith("**")
+        ? <strong key={index} className="font-black text-inherit">{part.slice(2, -2)}</strong>
+        : <span key={index}>{part}</span>)}
+    </>
+  );
+}
+
+function AiRichText({ text }: { text: string }) {
+  const lines = text.split(/\r?\n/);
+  return (
+    <div className="space-y-1.5">
+      {lines.map((raw, index) => {
+        const line = raw.trimEnd();
+        if (!line.trim()) return <div key={index} className="h-1" />;
+        const bullet = line.match(/^[-•]\s+(.+)$/);
+        const numbered = line.match(/^\d+[.)]\s+(.+)$/);
+        if (bullet) {
+          return <div key={index} className="flex gap-2"><span className="mt-[1px] text-blue-500">•</span><span><InlineRichText text={bullet[1]} /></span></div>;
+        }
+        if (numbered) {
+          return <div key={index} className="flex gap-2"><span className="font-bold text-blue-600">{line.match(/^\d+/)?.[0]}.</span><span><InlineRichText text={numbered[1]} /></span></div>;
+        }
+        return <p key={index}><InlineRichText text={line} /></p>;
+      })}
+    </div>
+  );
+}
+
 function welcomeMessage(lang: Language): ChatMessage {
   return {
     id: "welcome",
@@ -173,6 +267,8 @@ export function CpiPosAiAssistant({ lang }: { lang: Language }) {
   const [sending, setSending] = useState(false);
   const [pendingProposal, setPendingProposal] = useState<AiProposal | null>(null);
   const [proposalStatus, setProposalStatus] = useState<Record<string, ProposalStatus>>({});
+  const [todayModalOpen, setTodayModalOpen] = useState(false);
+  const [recommendationModalOpen, setRecommendationModalOpen] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([welcomeMessage(lang)]);
   const chatEndRef = useRef<HTMLDivElement | null>(null);
 
@@ -411,18 +507,37 @@ export function CpiPosAiAssistant({ lang }: { lang: Language }) {
                   ล้างประวัติของฉัน
                 </button>
               </div>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => setTodayModalOpen(true)}
+                  className="inline-flex min-h-10 items-center gap-2 rounded-xl border border-blue-200 bg-white/90 px-3 text-xs font-black text-blue-700 shadow-sm transition hover:border-blue-300 hover:bg-blue-50"
+                >
+                  <span aria-hidden>📊</span>
+                  ข้อมูลสำคัญวันนี้
+                  {overview ? <span className="rounded-full bg-blue-50 px-2 py-0.5 text-[10px]">฿${money(overview.today.net_sales)}</span> : null}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setRecommendationModalOpen(true)}
+                  className="inline-flex min-h-10 items-center gap-2 rounded-xl border border-violet-200 bg-white/90 px-3 text-xs font-black text-violet-700 shadow-sm transition hover:border-violet-300 hover:bg-violet-50"
+                >
+                  <SparkleIcon size={14} />
+                  เมนูแนะนำสำหรับคุณ
+                </button>
+              </div>
             </div>
           </div>
         </header>
 
-        <div className="grid min-h-0 flex-1 gap-3 xl:grid-cols-[minmax(0,1.7fr)_minmax(330px,0.8fr)]">
+        <div className="min-h-0 flex-1">
           <section className="flex min-h-[620px] flex-col overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-[0_12px_36px_rgba(15,23,42,0.07)]">
             <div className="border-b border-slate-100 px-4 py-3 sm:px-5">
               <div className="flex flex-wrap items-center gap-2">
                 <span className="text-xs font-black uppercase tracking-[0.14em] text-blue-600">AI CHAT</span>
                 <span className="text-xs font-medium text-slate-400">ถามเป็นภาษาไทยได้เลย</span>
               </div>
-              <div className="mt-3 flex gap-2 overflow-x-auto pb-1">
+              <div className="mt-3 flex flex-wrap gap-2">
                 {QUICK_PROMPTS.map((prompt) => (
                   <button
                     key={prompt}
@@ -446,8 +561,8 @@ export function CpiPosAiAssistant({ lang }: { lang: Language }) {
                     </span>
                   ) : null}
                   <div className={`max-w-[86%] ${message.role === "user" ? "" : "min-w-0"}`}>
-                    <div className={`whitespace-pre-wrap rounded-2xl px-4 py-3 text-sm font-medium leading-6 shadow-sm ${message.role === "user" ? "rounded-br-md bg-gradient-to-br from-blue-600 to-cyan-500 text-white" : "rounded-bl-md border border-slate-100 bg-slate-50 text-slate-700"}`}>
-                      {message.text}
+                    <div className={`rounded-2xl px-4 py-3 text-sm font-medium leading-6 shadow-sm ${message.role === "user" ? "rounded-br-md bg-gradient-to-br from-blue-600 to-cyan-500 text-white" : "rounded-bl-md border border-slate-100 bg-slate-50 text-slate-700"}`}>
+                      <AiRichText text={message.text} />
                     </div>
                     {message.role === "assistant" && message.proposals?.length ? (
                       <div className="mt-2 grid gap-2">
@@ -541,77 +656,77 @@ export function CpiPosAiAssistant({ lang }: { lang: Language }) {
             </form>
           </section>
 
-          <aside className="grid content-start gap-3">
-            <section className="rounded-3xl border border-slate-200 bg-white p-4 shadow-[0_12px_36px_rgba(15,23,42,0.06)]">
-              <div className="flex items-center justify-between gap-3">
-                <div>
-                  <p className="text-xs font-black uppercase tracking-[0.12em] text-blue-600">TODAY</p>
-                  <h2 className="mt-1 text-lg font-black text-[#10213d]">ข้อมูลสำคัญวันนี้</h2>
-                </div>
-                <span className="text-[11px] font-medium text-slate-400">{overviewLoading ? "กำลังโหลด..." : `อัปเดต ${updatedLabel}`}</span>
-              </div>
 
-              {overviewError ? <p className="mt-3 rounded-xl bg-red-50 px-3 py-2 text-xs font-semibold text-red-600">{overviewError}</p> : null}
-
-              <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-1 2xl:grid-cols-2">
-                <MetricCard
-                  tone="green"
-                  label="ยอดขายวันนี้"
-                  value={overview ? `฿${money(overview.today.net_sales)}` : "—"}
-                  note={overview ? `${overview.today.receipts} บิล · เฉลี่ย ฿${money(overview.today.average_receipt)}` : "รอข้อมูลร้าน"}
-                  icon={<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M4 19h16M7 16V9M12 16V5M17 16v-4"/></svg>}
-                />
-                <MetricCard
-                  tone="blue"
-                  label="สินค้าขายดี"
-                  value={bestSeller?.name ?? "—"}
-                  note={bestSeller ? `${money(bestSeller.units)} หน่วย` : "ยังไม่มีข้อมูลการขาย"}
-                  icon={<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="m12 3 2.1 4.3 4.9.7-3.5 3.4.8 4.8-4.3-2.3-4.3 2.3.8-4.8L5 8l4.9-.7Z"/></svg>}
-                />
-                <MetricCard
-                  tone="orange"
-                  label="วัตถุดิบใกล้หมด"
-                  value={overview ? `${overview.stock.low_stock_count} รายการ` : "—"}
-                  note={overview?.stock.low_stock?.[0]?.name ? `เร่งตรวจ: ${overview.stock.low_stock[0].name}` : "ยังไม่พบรายการต่ำกว่าเกณฑ์"}
-                  icon={<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M4 7h16v12H4zM7 7V4h10v3M8 12h8"/></svg>}
-                />
-                <MetricCard
-                  tone="violet"
-                  label="มาร์จิ้นต่ำสุด"
-                  value={lowMargin ? `${money(lowMargin.margin_pct)}%` : "—"}
-                  note={lowMargin?.name ?? (overview?.cost.available ? "ยังไม่มีสูตรต้นทุนครบ" : "ยังอ่านข้อมูลต้นทุนไม่ได้")}
-                  icon={<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="8"/><path d="M8 14l2-2 2 2 4-5"/></svg>}
-                />
-              </div>
-            </section>
-
-            <section className="rounded-3xl border border-slate-200 bg-white p-4 shadow-[0_12px_36px_rgba(15,23,42,0.06)]">
-              <div className="flex items-center gap-2">
-                <span className="text-blue-600"><SparkleIcon size={18} /></span>
-                <h2 className="text-lg font-black text-[#10213d]">เมนูแนะนำสำหรับคุณ</h2>
-              </div>
-              <div className="mt-4 grid gap-2">
-                <Link href="/preview/pos/sales-summary" className="group flex items-center justify-between rounded-2xl border border-slate-200 px-3 py-3 transition hover:border-blue-200 hover:bg-blue-50/60">
-                  <span><span className="block text-sm font-black text-slate-800">สรุปยอดขาย</span><span className="text-xs font-medium text-slate-500">ตรวจยอด ภาษี และช่องทางชำระ</span></span><span className="text-slate-400 group-hover:text-blue-600">›</span>
-                </Link>
-                <Link href="/preview/pos/product-sales" className="group flex items-center justify-between rounded-2xl border border-slate-200 px-3 py-3 transition hover:border-blue-200 hover:bg-blue-50/60">
-                  <span><span className="block text-sm font-black text-slate-800">สินค้าขายดี</span><span className="text-xs font-medium text-slate-500">ดูสินค้า จำนวน และอันดับขายดี</span></span><span className="text-slate-400 group-hover:text-blue-600">›</span>
-                </Link>
-                <Link href="/preview/pos/stock" className="group flex items-center justify-between rounded-2xl border border-slate-200 px-3 py-3 transition hover:border-blue-200 hover:bg-blue-50/60">
-                  <span><span className="block text-sm font-black text-slate-800">วิเคราะห์ต้นทุนและสต๊อก</span><span className="text-xs font-medium text-slate-500">สินค้า วัตถุดิบ สูตร และต้นทุน</span></span><span className="text-slate-400 group-hover:text-blue-600">›</span>
-                </Link>
-                <button type="button" onClick={() => void sendMessage("ช่วยคิดโปรโมชันเพิ่มยอดขายจากข้อมูลร้านของฉัน")} disabled={sending} className="group flex items-center justify-between rounded-2xl border border-violet-200 bg-violet-50/50 px-3 py-3 text-left transition hover:bg-violet-50 disabled:opacity-50">
-                  <span><span className="block text-sm font-black text-violet-800">ช่วยทำการตลาด</span><span className="text-xs font-medium text-violet-600">ให้ AI เสนอโปรโมชันจากข้อมูลจริง</span></span><span className="text-violet-400 group-hover:text-violet-700">›</span>
-                </button>
-              </div>
-            </section>
-
-            <section className="rounded-2xl border border-amber-100 bg-amber-50/70 px-4 py-3 text-xs font-medium leading-5 text-amber-800">
-              <strong className="font-black">หมายเหตุ:</strong> การวิเคราะห์ต้นทุนเป็นค่าประมาณจากข้อมูลวัตถุดิบและสูตรที่บันทึกในระบบ การเปลี่ยนข้อมูลจริงใน Phase 2 ต้องยืนยันและผ่าน PIN และทุกการทำงานจะบันทึก Audit Log
-            </section>
-          </aside>
         </div>
       </section>
+
+      <AiModal
+        open={todayModalOpen}
+        title="ข้อมูลสำคัญวันนี้"
+        subtitle={overviewLoading ? "กำลังโหลดข้อมูลร้าน..." : `อัปเดต ${updatedLabel}`}
+        onClose={() => setTodayModalOpen(false)}
+      >
+        {overviewError ? <p className="mb-4 rounded-xl bg-red-50 px-3 py-2 text-xs font-semibold text-red-600">{overviewError}</p> : null}
+        <div className="grid gap-3 sm:grid-cols-2">
+          <MetricCard
+            tone="green"
+            label="ยอดขายวันนี้"
+            value={overview ? `฿${money(overview.today.net_sales)}` : "—"}
+            note={overview ? `${overview.today.receipts} บิล · เฉลี่ย ฿${money(overview.today.average_receipt)}` : "รอข้อมูลร้าน"}
+            icon={<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M4 19h16M7 16V9M12 16V5M17 16v-4"/></svg>}
+          />
+          <MetricCard
+            tone="blue"
+            label="สินค้าขายดี"
+            value={bestSeller?.name ?? "—"}
+            note={bestSeller ? `${money(bestSeller.units)} หน่วย` : "ยังไม่มีข้อมูลการขาย"}
+            icon={<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="m12 3 2.1 4.3 4.9.7-3.5 3.4.8 4.8-4.3-2.3-4.3 2.3.8-4.8L5 8l4.9-.7Z"/></svg>}
+          />
+          <MetricCard
+            tone="orange"
+            label="วัตถุดิบใกล้หมด"
+            value={overview ? `${overview.stock.low_stock_count} รายการ` : "—"}
+            note={overview?.stock.low_stock?.[0]?.name ? `เร่งตรวจ: ${overview.stock.low_stock[0].name}` : "ยังไม่พบรายการต่ำกว่าเกณฑ์"}
+            icon={<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M4 7h16v12H4zM7 7V4h10v3M8 12h8"/></svg>}
+          />
+          <MetricCard
+            tone="violet"
+            label="มาร์จิ้นต่ำสุด"
+            value={lowMargin ? `${money(lowMargin.margin_pct)}%` : "—"}
+            note={lowMargin?.name ?? (overview?.cost.available ? "ยังไม่มีสูตรต้นทุนครบ" : "ยังอ่านข้อมูลต้นทุนไม่ได้")}
+            icon={<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="8"/><path d="M8 14l2-2 2 2 4-5"/></svg>}
+          />
+        </div>
+        <div className="mt-4 flex flex-wrap justify-between gap-2 rounded-2xl border border-slate-200 bg-slate-50 p-3">
+          <p className="text-xs font-medium leading-5 text-slate-500">ข้อมูลชุดนี้ใช้ overview ที่โหลดอยู่แล้ว จึงไม่ยิง API ซ้ำทุกครั้งที่เปิดหน้าต่าง</p>
+          <button type="button" onClick={() => void refreshOverview()} className="rounded-xl border border-blue-200 bg-white px-3 py-2 text-xs font-black text-blue-700 hover:bg-blue-50">รีเฟรชข้อมูล</button>
+        </div>
+      </AiModal>
+
+      <AiModal
+        open={recommendationModalOpen}
+        title="เมนูแนะนำสำหรับคุณ"
+        subtitle="เลือกงานที่ต้องการ ระบบจะเปิดเมนูที่เกี่ยวข้องหรือส่งคำถามให้ CpiPOS AI ทันที"
+        onClose={() => setRecommendationModalOpen(false)}
+      >
+        <div className="grid gap-2 sm:grid-cols-2">
+          <Link href="/preview/pos/sales-summary" onClick={() => setRecommendationModalOpen(false)} className="group flex min-h-[86px] items-center justify-between rounded-2xl border border-slate-200 px-4 py-3 transition hover:border-blue-200 hover:bg-blue-50/60">
+            <span><span className="block text-sm font-black text-slate-800">สรุปยอดขาย</span><span className="mt-1 block text-xs font-medium text-slate-500">ตรวจยอด ภาษี และช่องทางชำระ</span></span><span className="text-slate-400 group-hover:text-blue-600">›</span>
+          </Link>
+          <Link href="/preview/pos/product-sales" onClick={() => setRecommendationModalOpen(false)} className="group flex min-h-[86px] items-center justify-between rounded-2xl border border-slate-200 px-4 py-3 transition hover:border-blue-200 hover:bg-blue-50/60">
+            <span><span className="block text-sm font-black text-slate-800">สินค้าขายดี</span><span className="mt-1 block text-xs font-medium text-slate-500">ดูสินค้า จำนวน และอันดับขายดี</span></span><span className="text-slate-400 group-hover:text-blue-600">›</span>
+          </Link>
+          <Link href="/preview/pos/stock" onClick={() => setRecommendationModalOpen(false)} className="group flex min-h-[86px] items-center justify-between rounded-2xl border border-slate-200 px-4 py-3 transition hover:border-blue-200 hover:bg-blue-50/60">
+            <span><span className="block text-sm font-black text-slate-800">วิเคราะห์ต้นทุนและสต๊อก</span><span className="mt-1 block text-xs font-medium text-slate-500">สินค้า วัตถุดิบ สูตร และต้นทุน</span></span><span className="text-slate-400 group-hover:text-blue-600">›</span>
+          </Link>
+          <button type="button" onClick={() => { setRecommendationModalOpen(false); void sendMessage("ช่วยคิดโปรโมชันเพิ่มยอดขายจากข้อมูลร้านของฉัน"); }} disabled={sending} className="group flex min-h-[86px] items-center justify-between rounded-2xl border border-violet-200 bg-violet-50/50 px-4 py-3 text-left transition hover:bg-violet-50 disabled:opacity-50">
+            <span><span className="block text-sm font-black text-violet-800">ช่วยทำการตลาด</span><span className="mt-1 block text-xs font-medium text-violet-600">ให้ AI เสนอโปรโมชันจากข้อมูลจริง</span></span><span className="text-violet-400 group-hover:text-violet-700">›</span>
+          </button>
+        </div>
+        <div className="mt-4 rounded-2xl border border-amber-100 bg-amber-50/70 px-4 py-3 text-xs font-medium leading-5 text-amber-800">
+          <strong className="font-black">หมายเหตุ:</strong> การวิเคราะห์ต้นทุนเป็นค่าประมาณจากข้อมูลวัตถุดิบและสูตรที่บันทึกในระบบ การเปลี่ยนข้อมูลจริงใน Phase 2 ต้องยืนยันและผ่าน PIN และทุกการทำงานจะบันทึก Audit Log
+        </div>
+      </AiModal>
 
       {pendingProposal && pendingProposal.requires_pin ? (
         <PosManagerApprovalModal

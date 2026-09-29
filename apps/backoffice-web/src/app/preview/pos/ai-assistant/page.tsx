@@ -13,7 +13,7 @@ export default async function PosAiAssistantPage() {
   }
 
   await assertPosMenuPageAllowed(scope.session.tenant_id, "/preview/pos/ai-assistant");
-  if (!(await isTenantPosMenuEnabled(scope.session.tenant_id, "more.ai_assistant"))) {
+  if (!(await isTenantPosMenuEnabled(scope.session.tenant_id, "main.ai_assistant"))) {
     redirect("/preview/pos/more");
   }
   const lang = await getCurrentLanguage();
