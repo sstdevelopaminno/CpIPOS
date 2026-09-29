@@ -574,6 +574,7 @@ async function callOpenAi(
       model: AI_MODEL,
       conversation: conversationId,
       prompt_cache_key: promptCacheKey,
+      safety_identifier: promptCacheKey,
       instructions,
       input: [
         {
