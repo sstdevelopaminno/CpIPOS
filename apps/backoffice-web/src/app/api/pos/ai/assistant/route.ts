@@ -520,7 +520,8 @@ const AI_INSTRUCTIONS = [
 async function callOpenAi(
   message: string,
   conversationId: string,
-  snapshot: Awaited<ReturnType<typeof loadBusinessSnapshot>>
+  snapshot: Awaited<ReturnType<typeof loadBusinessSnapshot>>,
+  promptCacheKey: string
 ) {
   const apiKey = readEnv("OPENAI_API_KEY");
   if (!apiKey) throw new Error("OPENAI_API_KEY is not configured for CpiPOS AI.");
@@ -541,6 +542,7 @@ async function callOpenAi(
     body: JSON.stringify({
       model: AI_MODEL,
       conversation: conversationId,
+      prompt_cache_key: promptCacheKey,
       instructions,
       input: [
         {
@@ -588,7 +590,7 @@ async function callOpenAi(
       ? "ผมเตรียมรายการให้แล้วครับ กรุณาตรวจสอบรายละเอียดด้านล่างก่อนยืนยันดำเนินการ"
       : "ผมยังไม่สามารถสรุปคำตอบจากข้อมูลรอบนี้ได้ กรุณาลองถามใหม่อีกครั้ง");
 
-  return { text, proposals };
+  return { text, proposals, payload };
 }
 
 function conversationScope(auth: Awaited<ReturnType<typeof getPosApiAuthContext>>) {
