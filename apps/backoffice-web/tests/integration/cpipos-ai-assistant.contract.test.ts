@@ -19,6 +19,7 @@ const conversationService = source("../../src/lib/services/ai-conversation-servi
 const conversationMigration = source("../../../../supabase/migrations/20260929183000_pos_ai_openai_conversation_links.sql");
 const usageService = source("../../src/lib/services/ai-usage-service.ts");
 const usageMigration = source("../../../../supabase/migrations/20260929224000_pos_ai_usage_quota.sql");
+const oneTimeApprovalMigration = source("../../../../supabase/migrations/20260930062000_one_time_manager_pin_approvals.sql");
 
 describe("CpiPOS AI store assistant", () => {
   it("promotes AI to a first-class main menu and removes it from More", () => {
@@ -72,6 +73,13 @@ describe("CpiPOS AI store assistant", () => {
     expect(aiActions).toContain('action: "update_product_price"');
     expect(aiActions).toContain('action: "adjust_stock"');
     expect(aiActions).toContain("appendAuditLog");
+    expect(aiActions).toContain("ALLOWED_MUTATING_AI_ACTIONS");
+    expect(aiActions).toContain("consumeAiApproval");
+    expect(aiActions).toContain('.is("consumed_at", null)');
+    expect(oneTimeApprovalMigration).toContain("consumed_at timestamptz");
+    expect(oneTimeApprovalMigration).toContain("idx_manager_pin_approvals_unconsumed");
+    expect(aiActions).toContain('"update_product_price"');
+    expect(aiActions).toContain('"adjust_stock"');
     expect(sharedTypes).toContain('"sales_record_edit"');
     expect(featureMap).toContain('"/preview/pos/ai-assistant": "core_pos_sales"');
   });
@@ -94,7 +102,21 @@ describe("CpiPOS AI store assistant", () => {
     expect(aiWorkspace).toContain("AiRichText");
     expect(aiWorkspace).toContain("InlineRichText");
     expect(aiWorkspace).not.toContain("xl:grid-cols-[minmax(0,1.7fr)_minmax(330px,0.8fr)]");
-    expect(aiWorkspace).toContain('className="mt-3 flex flex-wrap gap-2"');
+  });
+
+  it("uses a GPT-like bounded chat surface with collapsible prompts and smart auto-scroll", () => {
+    expect(aiWorkspace).toContain('cpipos-ai-show-suggestions');
+    expect(aiWorkspace).toContain("toggleSuggestions");
+    expect(aiWorkspace).toContain("ซ่อนคำถามแนะนำ");
+    expect(aiWorkspace).toContain("แสดงคำถามแนะนำ");
+    expect(aiWorkspace).toContain("chatScrollRef");
+    expect(aiWorkspace).toContain("handleChatScroll");
+    expect(aiWorkspace).toContain("scrollToBottom");
+    expect(aiWorkspace).toContain("showScrollToBottom");
+    expect(aiWorkspace).toContain("↓ กลับลงล่าง");
+    expect(aiWorkspace).toContain('className="sticky bottom-0 z-20');
+    expect(aiWorkspace).toContain("resizeComposer");
+    expect(aiWorkspace).toContain("friendlyAiError");
   });
 
   it("stores only a tiny tenant/branch/user pointer in CpiPOS instead of duplicating chat messages", () => {
@@ -110,6 +132,10 @@ describe("CpiPOS AI store assistant", () => {
     expect(aiApi).toContain("assertAiQuotaAvailable");
     expect(aiApi).toContain("recordAiUsage");
     expect(aiApi).toContain("prompt_cache_key");
+    expect(aiApi).toContain("safety_identifier: promptCacheKey");
+    expect(aiApi).toContain("makePromptCacheKey");
+    expect(aiApi).toContain('createHash("sha256")');
+    expect(aiApi).toContain(".slice(0, 64)");
     expect(aiApi).toContain("AiQuotaError");
     expect(usageService).toContain("pos_ai_package_quotas");
     expect(usageService).toContain("pos_ai_tenant_quota_overrides");
@@ -132,7 +158,16 @@ describe("CpiPOS AI store assistant", () => {
 
   it("keeps destructive or financial reversal actions outside Phase 2", () => {
     expect(aiApi).toContain("ห้ามเสนอหรือดำเนินการยกเลิกบิล คืนเงิน");
+    expect(aiApi).toContain("RESTRICTED_AI_REQUESTS");
+    expect(aiApi).toContain("isRestrictedAiRequest");
+    expect(aiApi).toContain("รัน SQL/คำสั่งฐานข้อมูลโดยตรง");
+    expect(aiApi).toContain("ข้าม PIN/approval");
     expect(aiActions).not.toContain('"cancel_bill"');
     expect(aiActions).not.toContain('"refund"');
+    expect(aiActions).not.toContain('"run_sql"');
+    expect(aiActions).not.toContain('"delete_user"');
+    expect(aiApi).toContain("system prompt");
+    expect(aiApi).toContain("API key");
+    expect(aiApi).toContain("ข้อมูล tenant/ร้านอื่น");
   });
 });

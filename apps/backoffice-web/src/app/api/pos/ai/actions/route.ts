@@ -28,6 +28,11 @@ type StockAction = {
 
 type ActionBody = PriceAction | StockAction;
 
+const ALLOWED_MUTATING_AI_ACTIONS = new Set<ActionBody["action"]>([
+  "update_product_price",
+  "adjust_stock"
+]);
+
 function canExecuteAiAction(branchRole: string | null, _platformRole: string | null) {
   return branchRole === "owner" || branchRole === "manager";
 }
@@ -41,26 +46,31 @@ async function ensureAiPolicy(tenantId: string | null) {
   return isTenantPosMenuEnabled(tenantId, "main.ai_assistant");
 }
 
-async function validatePriceApproval(input: {
+async function consumeAiApproval(input: {
   tenantId: string;
   branchId: string;
   userId: string;
-  productId: string;
+  targetId: string;
   approvalId: string;
+  action: "sales_record_edit" | "stock_adjustment";
+  targetTable: "products" | "ingredients";
 }) {
   const supabase = getSupabaseServiceClient();
+  const consumedAt = new Date().toISOString();
   const { data, error } = await supabase
     .from("manager_pin_approvals")
-    .select("id,approved_by,expires_at")
+    .update({ consumed_at: consumedAt })
     .eq("id", input.approvalId)
     .eq("tenant_id", input.tenantId)
     .eq("branch_id", input.branchId)
     .eq("requested_by", input.userId)
-    .eq("action", "sales_record_edit")
-    .eq("target_table", "products")
-    .eq("target_id", input.productId)
-    .gt("expires_at", new Date().toISOString())
-    .maybeSingle<{ id: string; approved_by: string; expires_at: string }>();
+    .eq("action", input.action)
+    .eq("target_table", input.targetTable)
+    .eq("target_id", input.targetId)
+    .gt("expires_at", consumedAt)
+    .is("consumed_at", null)
+    .select("id,approved_by,expires_at,consumed_at")
+    .maybeSingle<{ id: string; approved_by: string; expires_at: string; consumed_at: string }>();
 
   if (error) throw error;
   return data;
@@ -85,8 +95,8 @@ export async function POST(request: Request) {
     if (!rate.ok) return fail("rate_limited", "กรุณารอสักครู่แล้วลองใหม่", 429);
 
     const body = (await request.json().catch(() => null)) as ActionBody | null;
-    if (!body || (body.action !== "update_product_price" && body.action !== "adjust_stock")) {
-      return fail("invalid_ai_action", "Unsupported CpiPOS AI action.", 422);
+    if (!body || !ALLOWED_MUTATING_AI_ACTIONS.has(body.action)) {
+      return fail("invalid_ai_action", "คำสั่งนี้ไม่ได้รับอนุญาตให้ CpiPOS AI ดำเนินการ", 422);
     }
 
     await requirePosApiFeature(auth, "stock_management");
@@ -99,17 +109,6 @@ export async function POST(request: Request) {
 
       if (!productId || !approvalId || !Number.isFinite(newPrice) || newPrice < 0 || newPrice > 999_999) {
         return fail("invalid_price_action", "Product, new price, and PIN approval are required.", 422);
-      }
-
-      const approval = await validatePriceApproval({
-        tenantId: auth.tenantId,
-        branchId: auth.branchId,
-        userId: auth.userId,
-        productId,
-        approvalId
-      });
-      if (!approval) {
-        return fail("approval_invalid", "PIN approval is invalid, expired, or belongs to another action.", 403);
       }
 
       const supabase = getSupabaseServiceClient();
@@ -135,6 +134,19 @@ export async function POST(request: Request) {
           before_price: beforePrice,
           after_price: afterPrice
         });
+      }
+
+      const approval = await consumeAiApproval({
+        tenantId: auth.tenantId,
+        branchId: auth.branchId,
+        userId: auth.userId,
+        targetId: product.id,
+        approvalId,
+        action: "sales_record_edit",
+        targetTable: "products"
+      });
+      if (!approval) {
+        return fail("approval_invalid", "PIN นี้หมดอายุ ถูกใช้ไปแล้ว หรือไม่ตรงกับรายการที่กำลังเปลี่ยน", 403);
       }
 
       const { error: updateError } = await supabase
@@ -184,6 +196,19 @@ export async function POST(request: Request) {
       return fail("invalid_stock_action", "Ingredient, quantity, and PIN approval are required.", 422);
     }
 
+    const stockApproval = await consumeAiApproval({
+      tenantId: auth.tenantId,
+      branchId: auth.branchId,
+      userId: auth.userId,
+      targetId: ingredientId,
+      approvalId,
+      action: "stock_adjustment",
+      targetTable: "ingredients"
+    });
+    if (!stockApproval) {
+      return fail("approval_invalid", "PIN นี้หมดอายุ ถูกใช้ไปแล้ว หรือไม่ตรงกับรายการปรับสต๊อก", 403);
+    }
+
     const result = await executeStockAdjustmentTransaction({
       auth,
       input: {
@@ -211,7 +236,8 @@ export async function POST(request: Request) {
         ingredient_id: ingredientId,
         quantity_delta: Number(quantityDelta.toFixed(3)),
         reason,
-        approval_id: approvalId
+        approval_id: approvalId,
+        approved_by: stockApproval.approved_by
       }
     });
 
@@ -224,6 +250,7 @@ export async function POST(request: Request) {
   } catch (error) {
     const featureError = featureGateFail(error);
     if (featureError) return featureError;
-    return fail("ai_action_failed", error instanceof Error ? error.message : "Unable to execute CpiPOS AI action.", 500);
+    console.error("[cpipos-ai] action execution failed", error);
+    return fail("ai_action_failed", "ไม่สามารถดำเนินการตามคำสั่ง CpiPOS AI ได้ในขณะนี้", 500);
   }
 }
