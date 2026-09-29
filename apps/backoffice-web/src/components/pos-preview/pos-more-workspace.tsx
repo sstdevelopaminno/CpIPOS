@@ -8,7 +8,7 @@ import { t, type Language } from "@/lib/i18n";
 import { featureForPosRoute } from "@/lib/pos-feature-map";
 import { isPosMenuEnabled, posMenuKeyForRoute } from "@/lib/pos-menu-policy";
 
-type MoreIconName = "summary" | "receipt" | "tables" | "stock" | "members" | "kitchen" | "buffet" | "tax" | "sales";
+type MoreIconName = "ai" | "summary" | "receipt" | "tables" | "stock" | "members" | "kitchen" | "buffet" | "tax" | "sales";
 type PosRole = "owner" | "manager" | "staff" | "accountant";
 type MoreItem = {
   href: string;
@@ -17,9 +17,11 @@ type MoreItem = {
   label?: Record<Language, string>;
   roles: PosRole[];
   desc: Record<Language, string>;
+  featured?: boolean;
 };
 
 const MORE_ITEMS: MoreItem[] = [
+  { href: "/preview/pos/ai-assistant", icon: "ai", label: { th: "CpiPOS AI ผู้ช่วยร้านค้า", en: "CpiPOS AI Store Assistant" }, roles: ["owner", "manager"], desc: { th: "ถามยอดขาย วิเคราะห์ต้นทุนและสต๊อก พร้อมช่วยคิดการตลาดจากข้อมูลจริงของร้าน", en: "Ask about sales, costs, stock, and marketing using your store data" }, featured: true },
   { href: "/preview/pos/sales-summary", icon: "summary", labelKey: "pos_menu_sales_summary", roles: ["owner", "manager", "accountant"], desc: { th: "ดูยอดขาย ภาษี เงินสด/โอน และรายงานประจำกะ", en: "Review sales, tax, cash/transfer, and shift reports" } },
   { href: "/preview/pos/receipts", icon: "receipt", labelKey: "pos_menu_receipts", roles: ["owner", "manager", "accountant"], desc: { th: "ค้นหาใบเสร็จและสั่งพิมพ์ย้อนหลัง 58mm", en: "Search receipts and reprint 58mm receipts" } },
   { href: "/preview/pos/tables", icon: "tables", labelKey: "pos_menu_tables", roles: ["owner", "manager"], desc: { th: "จัดการโต๊ะ โซน และผังร้านสำหรับโหมดนั่งโต๊ะ", en: "Manage dine-in tables, zones, and floor layout" } },
@@ -33,6 +35,7 @@ const MORE_ITEMS: MoreItem[] = [
 
 function MoreIcon({ name }: { name: MoreIconName }) {
   const common = { width: 22, height: 22, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 2, strokeLinecap: "round" as const, strokeLinejoin: "round" as const };
+  if (name === "ai") return <svg {...common}><path d="M12 3l1.2 3.1L16 7.3l-2.8 1.2L12 12l-1.2-3.5L8 7.3l2.8-1.2L12 3Z"/><path d="M5 13l.8 2.2L8 16l-2.2.8L5 19l-.8-2.2L2 16l2.2-.8L5 13Z"/><path d="M18 12l.9 2.4L21 15.3l-2.1.9L18 19l-.9-2.8-2.1-.9 2.1-.9L18 12Z"/></svg>;
   if (name === "summary") return <svg {...common}><path d="M4 19h16"/><path d="M7 16V9"/><path d="M12 16V5"/><path d="M17 16v-4"/></svg>;
   if (name === "receipt") return <svg {...common}><path d="M7 3h10v18l-2-1.2-2 1.2-2-1.2-2 1.2-2-1.2-2 1.2V3z"/><path d="M9 8h6M9 12h6"/></svg>;
   if (name === "tables") return <svg {...common}><path d="M4 7h16v4H4zM7 11v7M17 11v7M5 18h14"/></svg>;
@@ -110,9 +113,9 @@ export function PosMoreWorkspace({ lang, role }: { lang: Language; role: PosRole
             const locked = menuLocked || isLocked(item.href);
             const label = item.label ? item.label[lang] : t(lang, item.labelKey!);
             return (
-              <Link key={item.href} href={item.href} prefetch={false} onClick={(event) => { if (menuLocked) { event.preventDefault(); setItLockedMenu(label); } else if (locked) handleLocked(event); }} aria-disabled={locked} className={`group grid min-h-[92px] grid-cols-[42px_1fr_24px] items-center gap-3 rounded-lg border p-4 text-left transition ${locked ? "border-slate-200 bg-slate-50 text-slate-500" : "border-slate-200 bg-white hover:border-blue-200 hover:bg-blue-50/50"}`}>
-                <span className={`inline-flex h-10 w-10 items-center justify-center rounded-lg ${locked ? "bg-slate-100 text-slate-400" : "bg-slate-100 text-slate-700 group-hover:bg-blue-100 group-hover:text-blue-700"}`}><MoreIcon name={item.icon}/></span>
-                <span className="min-w-0"><span className="block text-base font-black text-slate-950">{item.label ? item.label[lang] : t(lang, item.labelKey!)}</span><span className="mt-1 block text-sm font-medium leading-5 text-slate-500">{item.desc[lang]}</span></span>
+              <Link key={item.href} href={item.href} prefetch={false} onClick={(event) => { if (menuLocked) { event.preventDefault(); setItLockedMenu(label); } else if (locked) handleLocked(event); }} aria-disabled={locked} className={`group grid grid-cols-[42px_1fr_24px] items-center gap-3 rounded-2xl border p-4 text-left transition ${item.featured ? "min-h-[118px] lg:col-span-2 xl:col-span-3" : "min-h-[92px]"} ${locked ? "border-slate-200 bg-slate-50 text-slate-500" : item.featured ? "border-blue-200 bg-[radial-gradient(circle_at_85%_15%,rgba(56,189,248,0.22),transparent_28%),linear-gradient(135deg,#eff6ff,#ffffff_55%,#ecfeff)] shadow-[0_12px_32px_rgba(37,99,235,0.10)] hover:border-blue-300 hover:shadow-[0_16px_38px_rgba(37,99,235,0.16)]" : "border-slate-200 bg-white hover:border-blue-200 hover:bg-blue-50/50"}`}>
+                <span className={`inline-flex h-10 w-10 items-center justify-center rounded-xl ${locked ? "bg-slate-100 text-slate-400" : item.featured ? "bg-gradient-to-br from-blue-600 to-cyan-400 text-white shadow-lg shadow-blue-500/20" : "bg-slate-100 text-slate-700 group-hover:bg-blue-100 group-hover:text-blue-700"}`}><MoreIcon name={item.icon}/></span>
+                <span className="min-w-0"><span className="flex items-center gap-2"><span className={`block font-black text-slate-950 ${item.featured ? "text-lg" : "text-base"}`}>{item.label ? item.label[lang] : t(lang, item.labelKey!)}</span>{item.featured ? <span className="rounded-full bg-blue-600 px-2 py-0.5 text-[10px] font-black tracking-wide text-white">AI</span> : null}</span><span className={`mt-1 block font-medium leading-5 text-slate-500 ${item.featured ? "text-sm sm:text-[15px]" : "text-sm"}`}>{item.desc[lang]}</span></span>
                 <span className="text-slate-400">{locked ? <span aria-hidden>🔒</span> : "›"}</span>
               </Link>
             );

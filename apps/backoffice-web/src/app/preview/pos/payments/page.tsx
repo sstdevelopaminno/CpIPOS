@@ -9,5 +9,5 @@ export default async function PosHelpCenterPage() {
   const scope = await requirePosSession();
   if (scope.session.role === "kitchen") redirect("/preview/pos");
   await assertPosMenuPageAllowed(scope.session.tenant_id, "/preview/pos/payments");
-  return <PosHelpCenter canManageBilling={["owner", "manager"].includes(scope.session.role)} />;
+  return <PosHelpCenter />;
 }

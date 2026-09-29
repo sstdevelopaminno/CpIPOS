@@ -14,32 +14,31 @@ const packagePage = source("../../src/app/preview/pos/payments/package/page.tsx"
 const supportPage = source("../../src/app/preview/pos/payments/support/page.tsx");
 
 describe("POS help center navigation", () => {
-  it("renames the main payment navigation to Help Center while preserving the existing policy route", () => {
+  it("keeps Help Center in the main navigation and renames the direct package action", () => {
     expect(staffMenu).toContain('lang === "th" ? "ศูนย์ช่วยเหลือ" : "Help Center"');
-    expect(staffMenu).toContain('href="/preview/pos/payments/support"');
+    expect(staffMenu).toContain('lang === "th" ? "ชำระแพ็กเกจ" : "Package Payment"');
     expect(staffMenu).toContain('href="/preview/pos/payments/package"');
     expect(staffMenu).toContain('pathname === "/preview/pos/payments"');
     expect(rootPage).toContain("PosHelpCenter");
   });
 
-  it("renders exactly the two requested Help Center destinations", () => {
-    expect(helpCenter).toContain("แพ็กเกจและการชำระเงิน");
+  it("removes the duplicate package card from Help Center", () => {
+    expect(helpCenter).not.toContain("แพ็กเกจและการชำระเงิน");
+    expect(helpCenter).not.toContain('href="/preview/pos/payments/package"');
     expect(helpCenter).toContain("ติดต่อสอบถาม / แจ้งปัญหา");
-    expect(helpCenter).toContain('href="/preview/pos/payments/package"');
     expect(helpCenter).toContain('href="/preview/pos/payments/support"');
   });
 
-  it("keeps billing on its own page and removes contact actions from that page", () => {
+  it("removes the standalone Chat item from the sidebar without deleting Support", () => {
+    expect(staffMenu).not.toContain('lang === "th" ? "แชท" : "Chat"');
+    expect(staffMenu).not.toContain('href="/preview/pos/payments/support"');
+    expect(supportCenter).toContain("PosSupportChat");
+    expect(supportPage).toContain("PosSupportCenter");
+  });
+
+  it("keeps package billing functional on its dedicated route", () => {
     expect(packagePage).toContain("showContactActions={false}");
     expect(packagePage).toContain('backHref="/preview/pos/payments"');
     expect(subscriptionCenter).toContain("showContactActions ? <>");
-  });
-
-  it("moves LINE QR and the existing Support Chat into the support submenu", () => {
-    expect(supportCenter).toContain("LINE · QR ติดต่อบริษัท");
-    expect(supportCenter).toContain("PosSupportChat");
-    expect(supportCenter).toContain("แจ้งปัญหา");
-    expect(supportCenter).toContain('href="/preview/pos/payments"');
-    expect(supportPage).toContain("PosSupportCenter");
   });
 });

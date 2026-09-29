@@ -7,7 +7,7 @@ import { t, type Language } from "@/lib/i18n";
 import { isPosMenuEnabled, posMenuKeyForRoute } from "@/lib/pos-menu-policy";
 import { POS_MENU_LOCK_TITLE_EN, POS_MENU_LOCK_TITLE_TH, featureForPosRoute } from "@/lib/pos-feature-map";
 
-type IconName = "sales" | "list" | "kitchen" | "stock" | "summary" | "receipt" | "tables" | "members" | "users" | "display" | "shift" | "logout" | "more" | "payment" | "support";
+type IconName = "sales" | "list" | "kitchen" | "stock" | "summary" | "receipt" | "tables" | "members" | "users" | "display" | "shift" | "logout" | "more" | "payment" | "support" | "ai";
 type PosRole = "owner" | "manager" | "staff" | "accountant" | "kitchen";
 type MenuKey = "pos_menu_sales" | "pos_menu_sales_list" | "pos_menu_stock" | "pos_menu_sales_summary" | "pos_menu_receipts" | "pos_menu_tables" | "pos_menu_members" | "pos_menu_shift" | "pos_menu_more";
 type MenuDef = {
@@ -40,6 +40,7 @@ function MenuIcon({ name }: { name: IconName }) {
   if (name === "more") return <svg {...common}><rect x="4" y="4" width="7" height="7" rx="1.5" /><rect x="13" y="4" width="7" height="7" rx="1.5" /><rect x="4" y="13" width="7" height="7" rx="1.5" /><rect x="13" y="13" width="7" height="7" rx="1.5" /></svg>;
   if (name === "payment") return <svg {...common}><rect x="3" y="6" width="18" height="12" rx="2" /><line x1="3" y1="10" x2="21" y2="10" /><path d="M7 15h3" /><path d="M15 15h2" /></svg>;
   if (name === "support") return <svg {...common}><path d="M4 14v-2a8 8 0 1 1 16 0v2" /><path d="M4 13H2v5h5v-5H4Zm16 0h2v5h-5v-5h3Z" /><path d="M20 18c0 3-3 4-8 4" /></svg>;
+  if (name === "ai") return <svg {...common}><path d="M12 3l1.2 3.1L16 7.3l-2.8 1.2L12 12l-1.2-3.5L8 7.3l2.8-1.2L12 3Z" /><path d="M5 13l.8 2.2L8 16l-2.2.8L5 19l-.8-2.2L2 16l2.2-.8L5 13Z" /><path d="M18 12l.9 2.4L21 15.3l-2.1.9L18 19l-.9-2.8-2.1-.9 2.1-.9L18 12Z" /></svg>;
   return <svg {...common}><circle cx="12" cy="8" r="3" /><path d="M5 20c0-3.5 3-6 7-6s7 2.5 7 6" /></svg>;
 }
 
@@ -55,7 +56,8 @@ const MORE_MENU_DEFS: MenuDef[] = [
   { key: "pos_menu_receipts", href: "/preview/pos/receipts", icon: "receipt", roles: ["owner", "manager", "accountant"], feature: featureForPosRoute("/preview/pos/receipts") },
   { key: "pos_menu_tables", href: "/preview/pos/tables", icon: "tables", roles: ["owner", "manager"], feature: featureForPosRoute("/preview/pos/tables") },
   { key: "pos_menu_stock", href: "/preview/pos/stock", icon: "stock", roles: ["owner", "manager"], feature: featureForPosRoute("/preview/pos/stock") },
-  { key: "pos_menu_members", href: "/preview/pos/members", icon: "members", roles: ["owner", "manager", "accountant"], feature: featureForPosRoute("/preview/pos/members") }
+  { key: "pos_menu_members", href: "/preview/pos/members", icon: "members", roles: ["owner", "manager", "accountant"], feature: featureForPosRoute("/preview/pos/members") },
+  { key: null, labelTh: "CpiPOS AI ผู้ช่วยร้านค้า", labelEn: "CpiPOS AI Store Assistant", href: "/preview/pos/ai-assistant", icon: "ai", roles: ["owner", "manager"], feature: featureForPosRoute("/preview/pos/ai-assistant") }
 ];
 
 function resolveMenuRole(role: PosRole | null): PosRole {
@@ -66,6 +68,7 @@ function resolveMenuRole(role: PosRole | null): PosRole {
 
 function labelFor(item: MenuDef, lang: Language) {
   if (item.key) return t(lang, item.key);
+  if (item.href === "/preview/pos/ai-assistant") return lang === "th" ? "CpiPOS AI ผู้ช่วยร้านค้า" : "CpiPOS AI Store Assistant";
   return lang === "th" ? item.labelTh ?? "ครัว" : item.labelEn ?? "Kitchen";
 }
 
@@ -80,44 +83,48 @@ export function PosStaffMenu({ lang, collapsed, orientation = "vertical", sessio
   onLockedMenu: (menuLabel: string) => void;
 }) {
   const pathname = usePathname();
-  const [supportUnread, setSupportUnread] = useState(0);
   const effectiveRole = resolveMenuRole(sessionRole);
-  const menuItems = useMemo(() => MENU_DEFS.map((item) => ({ ...item, label: labelFor(item, lang) })).filter((item) => item.roles.includes(effectiveRole)), [effectiveRole, lang, menuPolicy]);
+  const menuItems = useMemo(() => MENU_DEFS.map((item) => ({ ...item, label: labelFor(item, lang) })).filter((item) => item.roles.includes(effectiveRole)), [effectiveRole, lang]);
   const moreItems = useMemo(
-    () => MORE_MENU_DEFS.map(item => ({ ...item, label: labelFor(item, lang) }))
-      .filter(item => item.roles.includes(effectiveRole)),
-    [effectiveRole, lang, menuPolicy]
+    () => MORE_MENU_DEFS.map(item => ({ ...item, label: labelFor(item, lang) })).filter(item => item.roles.includes(effectiveRole)),
+    [effectiveRole, lang]
   );
   const otherMoreKeys = sessionRole === "accountant"
     ? ["more.tax_invoices", "more.product_sales"]
     : effectiveRole === "owner" || effectiveRole === "manager"
-      ? ["more.kitchen_manage", "more.buffet", "more.tax_invoices", "more.product_sales"]
+      ? ["more.kitchen_manage", "more.buffet", "more.tax_invoices", "more.product_sales", "more.ai_assistant"]
       : [];
   const canSeeMoreMenu = moreItems.length > 0 || otherMoreKeys.length > 0;
-  const isMoreActive = moreItems.some((item) => pathname === item.href);
+  const extraRoutes = ["/preview/pos/kitchen/manage", "/preview/pos/buffet-pricing", "/preview/pos/tax-invoices", "/preview/pos/product-sales", "/preview/pos/ai-assistant"];
+  const isMoreActive = moreItems.some((item) => pathname === item.href) || extraRoutes.includes(pathname);
   const isMoreMenuActive = pathname === "/preview/pos/more" || isMoreActive;
+  const [moreExpanded, setMoreExpanded] = useState(isMoreMenuActive);
   const paymentMenuLabel = lang === "th" ? "ศูนย์ช่วยเหลือ" : "Help Center";
-  const chatMenuLabel = lang === "th" ? "แชท" : "Chat";
-  const requestMenuLabel = lang === "th" ? "ส่งคำขอ" : "Send Request";
+  const billingMenuLabel = lang === "th" ? "ชำระแพ็กเกจ" : "Package Payment";
   const isPaymentMenuActive = pathname === "/preview/pos/payments";
-  const isChatMenuActive = pathname === "/preview/pos/payments/support";
-  const isRequestMenuActive = pathname === "/preview/pos/payments/package";
+  const isBillingMenuActive = pathname === "/preview/pos/payments/package";
+  const aiLabel = lang === "th" ? "CpiPOS AI ผู้ช่วยร้านค้า" : "CpiPOS AI Store Assistant";
+  const isAiActive = pathname === "/preview/pos/ai-assistant";
+  const isAiPolicyLocked = !isPosMenuEnabled("more.ai_assistant", menuPolicy);
 
   useEffect(() => {
-    const onUnread = (event: Event) => {
-      const custom = event as CustomEvent<{ total?: number }>;
-      setSupportUnread(Math.max(0, Number(custom.detail?.total ?? 0)));
-    };
-    window.addEventListener("cpipos-pos-support-unread", onUnread);
-    return () => window.removeEventListener("cpipos-pos-support-unread", onUnread);
-  }, []);
+    if (isMoreMenuActive) setMoreExpanded(true);
+  }, [isMoreMenuActive]);
 
   function handleNavigate(event: MouseEvent<HTMLAnchorElement>, href: string) {
     if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
     if (pathname === href) event.preventDefault();
   }
-  function handleLockedNavigate(event: MouseEvent<HTMLAnchorElement>) { event.preventDefault(); onLockedFeature(); }
+
+  function handleLockedNavigate(event: MouseEvent<HTMLAnchorElement>) {
+    event.preventDefault();
+    onLockedFeature();
+  }
+
   const isHorizontal = orientation === "horizontal";
+  const morePolicyLocked = !isPosMenuEnabled("main.more", menuPolicy);
+
+  const moreBaseClass = `group relative inline-flex min-h-[42px] items-center text-[13px] font-semibold leading-tight transition ${isHorizontal ? "shrink-0 justify-center gap-2 px-3" : collapsed ? "justify-center px-2" : "justify-start gap-2 px-2"} ${morePolicyLocked ? "rounded-xl text-slate-400/85 hover:bg-white/5" : isMoreMenuActive ? "rounded-xl border border-cyan-300/45 bg-[linear-gradient(145deg,rgba(59,130,246,0.45),rgba(14,165,233,0.35))] text-white shadow-[0_10px_24px_rgba(14,116,255,0.25),inset_0_1px_0_rgba(255,255,255,0.2)]" : "rounded-xl text-slate-100/90 hover:bg-white/8 hover:text-white"}`;
 
   return (
     <nav className={isHorizontal ? "flex min-w-0 flex-1 items-center gap-1 overflow-x-auto overscroll-contain" : "grid gap-1"} aria-label={t(lang, "pos_menu_staff_aria")} suppressHydrationWarning>
@@ -136,32 +143,71 @@ export function PosStaffMenu({ lang, collapsed, orientation = "vertical", sessio
           </Link>
         );
       })}
+
       {canSeeMoreMenu ? (
-        <Link href="/preview/pos/more" onClick={(event) => !isPosMenuEnabled("main.more", menuPolicy) ? (event.preventDefault(), onLockedMenu(t(lang, "pos_menu_more"))) : handleNavigate(event, "/preview/pos/more")}
-          className={`group relative inline-flex min-h-[42px] items-center text-[13px] font-semibold leading-tight transition ${isHorizontal ? "shrink-0 justify-center gap-2 px-3" : collapsed ? "justify-center px-2" : "justify-start gap-2 px-2"} ${!isPosMenuEnabled("main.more", menuPolicy) ? "rounded-xl text-slate-400/85 hover:bg-white/5" : isMoreMenuActive ? "rounded-xl border border-cyan-300/45 bg-[linear-gradient(145deg,rgba(59,130,246,0.45),rgba(14,165,233,0.35))] text-white shadow-[0_10px_24px_rgba(14,116,255,0.25),inset_0_1px_0_rgba(255,255,255,0.2)]" : "rounded-xl text-slate-100/90 hover:bg-white/8 hover:text-white"}`}
-          title={collapsed && !isHorizontal ? t(lang, "pos_menu_more") : !isPosMenuEnabled("main.more", menuPolicy) ? (lang === "th" ? "ล็อกโดยผู้ดูแลระบบ IT" : "Locked by IT") : undefined} aria-disabled={!isPosMenuEnabled("main.more", menuPolicy)}>
-          <span className="inline-flex w-4 justify-center" aria-hidden><MenuIcon name="more" /></span>
-          {(!collapsed || isHorizontal) ? <span className="truncate text-[13px]">{t(lang, "pos_menu_more")}</span> : null}
-          {!isPosMenuEnabled("main.more", menuPolicy) ? <span className="ml-auto inline-flex text-slate-300"><LockIcon /></span> : null}
-        </Link>
+        isHorizontal || collapsed ? (
+          <Link href="/preview/pos/more" onClick={(event) => morePolicyLocked ? (event.preventDefault(), onLockedMenu(t(lang, "pos_menu_more"))) : handleNavigate(event, "/preview/pos/more")}
+            className={moreBaseClass}
+            title={collapsed && !isHorizontal ? t(lang, "pos_menu_more") : morePolicyLocked ? (lang === "th" ? "ล็อกโดยผู้ดูแลระบบ IT" : "Locked by IT") : undefined}
+            aria-disabled={morePolicyLocked}>
+            <span className="inline-flex w-4 justify-center" aria-hidden><MenuIcon name="more" /></span>
+            {(!collapsed || isHorizontal) ? <span className="truncate text-[13px]">{t(lang, "pos_menu_more")}</span> : null}
+            {morePolicyLocked ? <span className="ml-auto inline-flex text-slate-300"><LockIcon /></span> : null}
+          </Link>
+        ) : (
+          <div className="grid gap-1">
+            <button
+              type="button"
+              onClick={() => morePolicyLocked ? onLockedMenu(t(lang, "pos_menu_more")) : setMoreExpanded((value) => !value)}
+              className={moreBaseClass}
+              aria-expanded={moreExpanded}
+              aria-controls="pos-more-quick-menu"
+            >
+              <span className="inline-flex w-4 justify-center" aria-hidden><MenuIcon name="more" /></span>
+              <span className="truncate text-[13px]">{t(lang, "pos_menu_more")}</span>
+              <span className="ml-auto inline-flex items-center gap-1">
+                {morePolicyLocked ? <LockIcon /> : null}
+                <svg width="14" height="14" viewBox="0 0 20 20" fill="currentColor" aria-hidden className={`transition-transform ${moreExpanded ? "rotate-180" : ""}`}>
+                  <path d="M5.5 7.5 10 12l4.5-4.5" />
+                </svg>
+              </span>
+            </button>
+            {moreExpanded && !morePolicyLocked ? (
+              <div id="pos-more-quick-menu" className="ml-5 grid max-h-[104px] gap-1 overflow-y-auto border-l border-white/15 pl-2 pr-1">
+                <Link
+                  href="/preview/pos/more"
+                  onClick={(event) => handleNavigate(event, "/preview/pos/more")}
+                  className={`rounded-lg px-2 py-1.5 text-[12px] font-semibold transition ${pathname === "/preview/pos/more" ? "bg-white/10 text-white" : "text-slate-300 hover:bg-white/5 hover:text-white"}`}
+                >
+                  {lang === "th" ? "เมนูเพิ่มเติมทั้งหมด" : "All additional tools"}
+                </Link>
+                {(effectiveRole === "owner" || effectiveRole === "manager") ? (
+                  <Link
+                    href="/preview/pos/ai-assistant"
+                    onClick={(event) => isAiPolicyLocked ? (event.preventDefault(), onLockedMenu(aiLabel)) : handleNavigate(event, "/preview/pos/ai-assistant")}
+                    className={`flex items-center gap-2 rounded-lg px-2 py-1.5 text-[12px] font-bold transition ${isAiPolicyLocked ? "text-slate-500" : isAiActive ? "bg-cyan-400/15 text-cyan-100" : "text-cyan-200 hover:bg-cyan-400/10 hover:text-white"}`}
+                    aria-disabled={isAiPolicyLocked}
+                  >
+                    <span className="inline-flex w-4 justify-center" aria-hidden><MenuIcon name="ai" /></span>
+                    <span className="truncate">{aiLabel}</span>
+                    {isAiPolicyLocked ? <span className="ml-auto"><LockIcon /></span> : <span className="ml-auto rounded-full bg-blue-500/20 px-1.5 py-0.5 text-[9px] font-black">AI</span>}
+                  </Link>
+                ) : null}
+              </div>
+            ) : null}
+          </div>
+        )
       ) : null}
-      {effectiveRole !== "kitchen" ? (
-        <Link href="/preview/pos/payments/support" onClick={(event) => !isPosMenuEnabled("main.payments", menuPolicy) ? (event.preventDefault(), onLockedMenu(chatMenuLabel)) : handleNavigate(event, "/preview/pos/payments/support")}
-          className={`group relative inline-flex min-h-[42px] items-center text-[13px] font-semibold leading-tight transition ${isHorizontal ? "shrink-0 justify-center gap-2 px-3" : collapsed ? "justify-center px-2" : "justify-start gap-2 px-2"} ${!isPosMenuEnabled("main.payments", menuPolicy) ? "rounded-xl text-slate-400/85 hover:bg-white/5" : isChatMenuActive ? "rounded-xl border border-cyan-300/45 bg-[linear-gradient(145deg,rgba(59,130,246,0.45),rgba(14,165,233,0.35))] text-white shadow-[0_10px_24px_rgba(14,116,255,0.25),inset_0_1px_0_rgba(255,255,255,0.2)]" : "rounded-xl text-slate-100/90 hover:bg-white/8 hover:text-white"}`}
-          title={collapsed && !isHorizontal ? chatMenuLabel : undefined}>
-          <span className="inline-flex w-4 justify-center" aria-hidden><MenuIcon name="support" /></span>
-          {(!collapsed || isHorizontal) ? <span className="truncate text-[13px]">{chatMenuLabel}</span> : null}
-          {supportUnread > 0 ? <span className={`${collapsed && !isHorizontal ? "absolute right-0 top-0" : "ml-auto"} rounded-full bg-red-500 px-1.5 py-0.5 text-[10px] font-black text-white`}>{supportUnread > 99 ? "99+" : supportUnread}</span> : null}
-        </Link>
-      ) : null}
+
       {(effectiveRole === "owner" || effectiveRole === "manager") ? (
-        <Link href="/preview/pos/payments/package" onClick={(event) => !isPosMenuEnabled("main.payments", menuPolicy) ? (event.preventDefault(), onLockedMenu(requestMenuLabel)) : handleNavigate(event, "/preview/pos/payments/package")}
-          className={`group relative inline-flex min-h-[42px] items-center text-[13px] font-semibold leading-tight transition ${isHorizontal ? "shrink-0 justify-center gap-2 px-3" : collapsed ? "justify-center px-2" : "justify-start gap-2 px-2"} ${!isPosMenuEnabled("main.payments", menuPolicy) ? "rounded-xl text-slate-400/85 hover:bg-white/5" : isRequestMenuActive ? "rounded-xl border border-cyan-300/45 bg-[linear-gradient(145deg,rgba(59,130,246,0.45),rgba(14,165,233,0.35))] text-white shadow-[0_10px_24px_rgba(14,116,255,0.25),inset_0_1px_0_rgba(255,255,255,0.2)]" : "rounded-xl text-slate-100/90 hover:bg-white/8 hover:text-white"}`}
-          title={collapsed && !isHorizontal ? requestMenuLabel : undefined}>
+        <Link href="/preview/pos/payments/package" onClick={(event) => !isPosMenuEnabled("main.payments", menuPolicy) ? (event.preventDefault(), onLockedMenu(billingMenuLabel)) : handleNavigate(event, "/preview/pos/payments/package")}
+          className={`group relative inline-flex min-h-[42px] items-center text-[13px] font-semibold leading-tight transition ${isHorizontal ? "shrink-0 justify-center gap-2 px-3" : collapsed ? "justify-center px-2" : "justify-start gap-2 px-2"} ${!isPosMenuEnabled("main.payments", menuPolicy) ? "rounded-xl text-slate-400/85 hover:bg-white/5" : isBillingMenuActive ? "rounded-xl border border-cyan-300/45 bg-[linear-gradient(145deg,rgba(59,130,246,0.45),rgba(14,165,233,0.35))] text-white shadow-[0_10px_24px_rgba(14,116,255,0.25),inset_0_1px_0_rgba(255,255,255,0.2)]" : "rounded-xl text-slate-100/90 hover:bg-white/8 hover:text-white"}`}
+          title={collapsed && !isHorizontal ? billingMenuLabel : undefined}>
           <span className="inline-flex w-4 justify-center" aria-hidden><MenuIcon name="payment" /></span>
-          {(!collapsed || isHorizontal) ? <span className="truncate text-[13px]">{requestMenuLabel}</span> : null}
+          {(!collapsed || isHorizontal) ? <span className="truncate text-[13px]">{billingMenuLabel}</span> : null}
         </Link>
       ) : null}
+
       {effectiveRole !== "kitchen" ? (
         <Link href="/preview/pos/payments" onClick={(event) => !isPosMenuEnabled("main.payments", menuPolicy) ? (event.preventDefault(), onLockedMenu(paymentMenuLabel)) : handleNavigate(event, "/preview/pos/payments")}
           className={`group relative inline-flex min-h-[42px] items-center text-[13px] font-semibold leading-tight transition ${isHorizontal ? "shrink-0 justify-center gap-2 px-3" : collapsed ? "justify-center px-2" : "justify-start gap-2 px-2"} ${!isPosMenuEnabled("main.payments", menuPolicy) ? "rounded-xl text-slate-400/85 hover:bg-white/5" : isPaymentMenuActive ? "rounded-xl border border-cyan-300/45 bg-[linear-gradient(145deg,rgba(59,130,246,0.45),rgba(14,165,233,0.35))] text-white shadow-[0_10px_24px_rgba(14,116,255,0.25),inset_0_1px_0_rgba(255,255,255,0.2)]" : "rounded-xl text-slate-100/90 hover:bg-white/8 hover:text-white"}`}
