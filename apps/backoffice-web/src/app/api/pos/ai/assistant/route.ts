@@ -682,11 +682,12 @@ export async function POST(request: Request) {
       console.error("[cpipos-ai] usage metering failed", meterError);
     }
 
+    const quotaAfter = metering ? await loadAiQuotaStatus(auth.tenantId!) : quota;
     return ok({
       answer: result.text,
       proposals: result.proposals,
       overview,
-      quota,
+      quota: quotaAfter,
       metering,
       model: AI_MODEL,
       mode: "confirm_then_pin",
