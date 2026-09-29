@@ -66,7 +66,16 @@ class PairingActivity : ComponentActivity() {
         })
 
         content.addView(TextView(this).apply {
-            text = "กรอก Pairing Token จาก IT Admin และรหัสเครื่อง POS\nเครื่องจะอยู่สถานะ Pending จนกว่า IT จะกด Approve"
+            text = buildString {
+                append("กรอก Pairing Token จาก IT Admin และรหัสเครื่อง POS\n")
+                append("เครื่องจะอยู่สถานะ Pending จนกว่า IT จะกด Approve\n\n")
+                append("App version: ").append(BuildConfig.VERSION_NAME)
+                if (BuildConfig.VERSION_NAME == FULL_MDM_VERSION) {
+                    append(" · Full MDM runtime พร้อมตรวจ Device Owner")
+                } else {
+                    append(" · Full MDM ต้องอัปเดตเป็น ").append(FULL_MDM_VERSION)
+                }
+            }
             textSize = 16f
             gravity = Gravity.CENTER
         }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
@@ -145,6 +154,8 @@ class PairingActivity : ComponentActivity() {
                         append("ส่งคำขอสำเร็จ · รอ IT Approve")
                         result.state?.let { append("\nสถานะ: ").append(it) }
                         append("\nDevice: ").append(deviceCode)
+                        append("\nApp: ").append(BuildConfig.VERSION_NAME)
+                        append("\nFull MDM: ").append(if (BuildConfig.VERSION_NAME == FULL_MDM_VERSION) "รอตรวจ Device Owner/Ownership" else "ยังไม่พร้อม · ต้องใช้ $FULL_MDM_VERSION")
                         append("\nInstall ID: …").append(installId.takeLast(8))
                     }
                 } else {
@@ -209,6 +220,7 @@ class PairingActivity : ComponentActivity() {
 
     companion object {
         private const val MDM_PREFS = "cpipos_android_pos_mdm"
+        private const val FULL_MDM_VERSION = "1.0.23"
         private const val INSTALL_ID_KEY = "install_id"
         private val DEVICE_CODE_PATTERN = Regex("^[A-Z0-9_-]{2,64}$")
     }
