@@ -6,7 +6,7 @@ import { MouseEvent, useEffect, useState } from "react";
 import { PackageLockDialog } from "@/components/pos-preview/package-lock-dialog";
 import { ItMenuLockDialog } from "@/components/pos-preview/it-menu-lock-dialog";
 import { PosStaffMenu } from "@/components/pos-preview/pos-staff-menu";
-import { PosSupportPushControl } from "@/components/pos-preview/pos-support-push-control";
+import { PosSupportPushBridge } from "@/components/pos-preview/pos-support-push-control";
 import { isPosMenuEnabled } from "@/lib/pos-menu-policy";
 import { t, type Language } from "@/lib/i18n";
 import {
@@ -286,8 +286,7 @@ export function PosShellSidebar({ lang, settingsLabel, placement }: Props) {
       </div>
 
       <div className={`${isHorizontal ? "shrink-0" : "grid shrink-0 gap-2 pt-2"}`}>
-        {sessionRole !== "kitchen" ? <PosSupportPushControl compact={collapsed && !isHorizontal} horizontal={isHorizontal} /> : null}
-        <button
+                <button
           type="button"
           onClick={() => {
             if (!logoutBusyMode) setLogoutModalOpen(true);
@@ -330,6 +329,7 @@ export function PosShellSidebar({ lang, settingsLabel, placement }: Props) {
           </section>
         </div>
       ) : null}
+      <PosSupportPushBridge />
       <PackageLockDialog lang={lang} open={packageLockOpen} onClose={() => setPackageLockOpen(false)} />
       <ItMenuLockDialog lang={lang} open={itLockedMenu !== null} menuLabel={itLockedMenu ?? undefined} onClose={() => setItLockedMenu(null)} />
     </aside>
