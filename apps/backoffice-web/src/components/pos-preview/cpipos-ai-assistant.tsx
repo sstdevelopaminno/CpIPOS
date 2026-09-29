@@ -273,6 +273,7 @@ export function CpiPosAiAssistant({ lang }: { lang: Language }) {
   const [overview, setOverview] = useState<Overview | null>(null);
   const [overviewLoading, setOverviewLoading] = useState(true);
   const [overviewError, setOverviewError] = useState<string | null>(null);
+  const [quota, setQuota] = useState<AiQuotaStatus | null>(null);
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
   const [pendingProposal, setPendingProposal] = useState<AiProposal | null>(null);
@@ -303,10 +304,11 @@ export function CpiPosAiAssistant({ lang }: { lang: Language }) {
       setOverviewError(null);
       try {
         const response = await fetch("/api/pos/ai/assistant", { cache: "no-store" });
-        const body = (await response.json().catch(() => null)) as ApiEnvelope<{ overview?: Overview; history?: ChatMessage[] }>;
+        const body = (await response.json().catch(() => null)) as ApiEnvelope<{ overview?: Overview; history?: ChatMessage[]; quota?: AiQuotaStatus }>;
         if (!response.ok) throw new Error(body?.error?.message ?? "ไม่สามารถโหลดข้อมูลร้านได้");
         if (!cancelled) {
           setOverview(body?.data?.overview ?? null);
+          setQuota(body?.data?.quota ?? null);
           const storedHistory = Array.isArray(body?.data?.history)
             ? body.data.history.filter((message) => message.role === "user" || message.role === "assistant")
             : [];
@@ -347,10 +349,11 @@ export function CpiPosAiAssistant({ lang }: { lang: Language }) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ message: messageText })
       });
-      const body = (await response.json().catch(() => null)) as ApiEnvelope<{ answer?: string; overview?: Overview; proposals?: AiProposal[] }>;
+      const body = (await response.json().catch(() => null)) as ApiEnvelope<{ answer?: string; overview?: Overview; proposals?: AiProposal[]; quota?: AiQuotaStatus }>;
       if (!response.ok) throw new Error(body?.error?.message ?? "CpiPOS AI ไม่สามารถตอบได้ในขณะนี้");
 
       if (body?.data?.overview) setOverview(body.data.overview);
+      if (body?.data?.quota) setQuota(body.data.quota);
       setMessages((current) => [
         ...current,
         {
@@ -397,8 +400,9 @@ export function CpiPosAiAssistant({ lang }: { lang: Language }) {
   async function refreshOverview() {
     try {
       const response = await fetch("/api/pos/ai/assistant", { cache: "no-store" });
-      const body = (await response.json().catch(() => null)) as ApiEnvelope<{ overview?: Overview }>;
+      const body = (await response.json().catch(() => null)) as ApiEnvelope<{ overview?: Overview; quota?: AiQuotaStatus }>;
       if (response.ok && body?.data?.overview) setOverview(body.data.overview);
+      if (response.ok && body?.data?.quota) setQuota(body.data.quota);
     } catch {
       // Keep the confirmed action result visible even if the dashboard refresh fails.
     }
