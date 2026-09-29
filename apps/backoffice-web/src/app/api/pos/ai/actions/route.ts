@@ -28,6 +28,11 @@ type StockAction = {
 
 type ActionBody = PriceAction | StockAction;
 
+const ALLOWED_MUTATING_AI_ACTIONS = new Set<ActionBody["action"]>([
+  "update_product_price",
+  "adjust_stock"
+]);
+
 function canExecuteAiAction(branchRole: string | null, _platformRole: string | null) {
   return branchRole === "owner" || branchRole === "manager";
 }
@@ -85,8 +90,8 @@ export async function POST(request: Request) {
     if (!rate.ok) return fail("rate_limited", "กรุณารอสักครู่แล้วลองใหม่", 429);
 
     const body = (await request.json().catch(() => null)) as ActionBody | null;
-    if (!body || (body.action !== "update_product_price" && body.action !== "adjust_stock")) {
-      return fail("invalid_ai_action", "Unsupported CpiPOS AI action.", 422);
+    if (!body || !ALLOWED_MUTATING_AI_ACTIONS.has(body.action)) {
+      return fail("invalid_ai_action", "คำสั่งนี้ไม่ได้รับอนุญาตให้ CpiPOS AI ดำเนินการ", 422);
     }
 
     await requirePosApiFeature(auth, "stock_management");
@@ -224,6 +229,7 @@ export async function POST(request: Request) {
   } catch (error) {
     const featureError = featureGateFail(error);
     if (featureError) return featureError;
-    return fail("ai_action_failed", error instanceof Error ? error.message : "Unable to execute CpiPOS AI action.", 500);
+    console.error("[cpipos-ai] action execution failed", error);
+    return fail("ai_action_failed", "ไม่สามารถดำเนินการตามคำสั่ง CpiPOS AI ได้ในขณะนี้", 500);
   }
 }
