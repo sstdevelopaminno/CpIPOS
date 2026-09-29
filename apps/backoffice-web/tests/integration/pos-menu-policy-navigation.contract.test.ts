@@ -25,8 +25,10 @@ describe("POS tenant menu toggle regression", () => {
     expect(staffMenu).toContain('isPosMenuEnabled("main.more", menuPolicy)');
     expect(staffMenu).toContain("onLockedMenu(item.label)");
     expect(staffMenu).not.toContain('item.roles.includes(effectiveRole) && isPosMenuEnabled(');
-    expect(staffMenu).toContain('!isPosMenuEnabled("main.payments", menuPolicy)');
-    expect(staffMenu).toContain('isPosMenuEnabled("main.payments", menuPolicy)');
+    expect(staffMenu).toContain('isPosMenuEnabled("main.ai_assistant", menuPolicy)');
+    expect(staffMenu).toContain('isPosMenuEnabled("main.package_payment", menuPolicy)');
+    expect(settings).toContain('menuVisible("settings.support")');
+    expect(settings).toContain('menuVisible("settings.push_notifications")');
     expect(more).toContain("isPosMenuEnabled(posMenuKeyForRoute(href)");
     expect(more).toContain("setItLockedMenu(label)");
     expect(settings).toContain("menuVisible(\"settings.");
@@ -71,6 +73,8 @@ describe("POS tenant menu toggle regression", () => {
     expect(server).toContain("navigation controls");
     expect(server).toContain("isTenantPosMenuEnabled");
     expect(shell).toContain("isSettingsPolicyLocked");
+    expect(shell).toContain("PosSupportPushBridge");
+    expect(shell).not.toContain("PosSupportPushControl");
     expect(shell).toContain("ItMenuLockDialog");
     for (const component of [shell, more, settings]) {
       expect(component).toContain('window.addEventListener("focus", onFocus)');
