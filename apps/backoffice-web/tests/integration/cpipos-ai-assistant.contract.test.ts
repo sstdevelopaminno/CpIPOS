@@ -19,6 +19,7 @@ const conversationService = source("../../src/lib/services/ai-conversation-servi
 const conversationMigration = source("../../../../supabase/migrations/20260929183000_pos_ai_openai_conversation_links.sql");
 const usageService = source("../../src/lib/services/ai-usage-service.ts");
 const usageMigration = source("../../../../supabase/migrations/20260929224000_pos_ai_usage_quota.sql");
+const oneTimeApprovalMigration = source("../../../../supabase/migrations/20260930062000_one_time_manager_pin_approvals.sql");
 
 describe("CpiPOS AI store assistant", () => {
   it("promotes AI to a first-class main menu and removes it from More", () => {
@@ -73,6 +74,10 @@ describe("CpiPOS AI store assistant", () => {
     expect(aiActions).toContain('action: "adjust_stock"');
     expect(aiActions).toContain("appendAuditLog");
     expect(aiActions).toContain("ALLOWED_MUTATING_AI_ACTIONS");
+    expect(aiActions).toContain("consumeAiApproval");
+    expect(aiActions).toContain('.is("consumed_at", null)');
+    expect(oneTimeApprovalMigration).toContain("consumed_at timestamptz");
+    expect(oneTimeApprovalMigration).toContain("idx_manager_pin_approvals_unconsumed");
     expect(aiActions).toContain('"update_product_price"');
     expect(aiActions).toContain('"adjust_stock"');
     expect(sharedTypes).toContain('"sales_record_edit"');
