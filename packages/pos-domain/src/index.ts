@@ -9,7 +9,8 @@ const escalationActions: ApprovalAction[] = [
   "transfer_payment_override",
   "payment_account_delete",
   "sales_record_edit",
-  "sales_record_delete"
+  "sales_record_delete",
+  "ai_product_price_update"
 ];
 
 export function requiresPinApproval(action: ApprovalAction): boolean {
