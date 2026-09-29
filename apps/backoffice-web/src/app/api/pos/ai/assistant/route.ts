@@ -148,8 +148,8 @@ const AI_PROPOSAL_TOOLS = [
   }
 ] as const;
 
-function canUseAi(branchRole: string | null, platformRole: string | null) {
-  return platformRole === "it_admin" || branchRole === "owner" || branchRole === "manager";
+function canUseAi(branchRole: string | null, _platformRole: string | null) {
+  return branchRole === "owner" || branchRole === "manager";
 }
 
 async function aiPolicyAllowed(tenantId: string | null) {
