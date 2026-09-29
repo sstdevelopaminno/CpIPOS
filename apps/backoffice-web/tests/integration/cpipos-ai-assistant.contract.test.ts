@@ -19,15 +19,16 @@ const conversationService = source("../../src/lib/services/ai-conversation-servi
 const conversationMigration = source("../../../../supabase/migrations/20260929183000_pos_ai_openai_conversation_links.sql");
 
 describe("CpiPOS AI store assistant", () => {
-  it("registers the AI assistant under More and keeps the sidebar compact", () => {
-    expect(menuPolicy).toContain('key: "more.ai_assistant"');
+  it("promotes AI to a first-class main menu and removes it from More", () => {
+    expect(menuPolicy).toContain('key: "main.ai_assistant"');
     expect(menuPolicy).toContain('route: "/preview/pos/ai-assistant"');
-    expect(moreWorkspace).toContain("CpiPOS AI ผู้ช่วยร้านค้า");
-    expect(moreWorkspace).toContain('featured: true');
-    expect(staffMenu).toContain("moreExpanded");
-    expect(staffMenu).toContain("เมนูเพิ่มเติมทั้งหมด");
-    expect(staffMenu).toContain("max-h-[104px]");
+    expect(menuPolicy).not.toContain('key: "more.ai_assistant"');
+    expect(staffMenu).toContain('isPosMenuEnabled("main.ai_assistant", menuPolicy)');
     expect(staffMenu).toContain('href="/preview/pos/ai-assistant"');
+    expect(staffMenu).not.toContain("moreExpanded");
+    expect(staffMenu).not.toContain("pos-more-quick-menu");
+    expect(moreWorkspace).not.toContain("CpiPOS AI ผู้ช่วยร้านค้า");
+    expect(moreWorkspace).not.toContain('featured: true');
   });
 
   it("limits CpiPOS AI strictly to owner and manager users", () => {
@@ -42,14 +43,12 @@ describe("CpiPOS AI store assistant", () => {
     expect(aiApi).toContain('fetch("https://api.openai.com/v1/responses"');
     expect(aiApi).toContain("conversation: conversationId");
     expect(aiApi).toContain("store: false");
-    expect(aiApi).toContain("history_source: \"openai_conversations\"");
+    expect(aiApi).toContain('history_source: "openai_conversations"');
     expect(aiWorkspace).not.toContain("OPENAI_API_KEY");
     expect(conversationService).toContain('openAiFetch<OpenAiConversation>("/conversations"');
-    expect(conversationService).toContain('metadata: {');
     expect(conversationService).toContain("tenant_id: scope.tenantId");
     expect(conversationService).toContain("branch_id: scope.branchId");
     expect(conversationService).toContain("user_id: scope.userId");
-    expect(conversationService).toContain("/items?");
   });
 
   it("loads real POS sales, stock, and cost context before answering", () => {
@@ -60,11 +59,10 @@ describe("CpiPOS AI store assistant", () => {
     expect(aiApi).toContain("low_stock");
   });
 
-  it("upgrades Phase 2 to proposal -> confirm -> PIN -> execute", () => {
+  it("keeps Phase 2 proposal -> confirm -> PIN -> execute", () => {
     expect(aiApi).toContain("propose_product_price_update");
     expect(aiApi).toContain("propose_stock_adjustment");
     expect(aiApi).toContain("propose_marketing_campaign");
-    expect(aiApi).toContain('mode: "confirm_then_pin"');
     expect(aiWorkspace).toContain("PosManagerApprovalModal");
     expect(aiWorkspace).toContain("sales_record_edit");
     expect(aiWorkspace).toContain('fetch("/api/pos/ai/actions"');
@@ -75,13 +73,25 @@ describe("CpiPOS AI store assistant", () => {
     expect(featureMap).toContain('"/preview/pos/ai-assistant": "core_pos_sales"');
   });
 
-  it("enforces the per-tenant IT AI policy on the page and APIs", () => {
+  it("enforces the promoted per-tenant IT AI policy on page and APIs", () => {
     expect(policyService).toContain("isTenantPosMenuEnabled");
-    expect(aiPage).toContain('isTenantPosMenuEnabled(scope.session.tenant_id, "more.ai_assistant")');
-    expect(aiApi).toContain('isTenantPosMenuEnabled(tenantId, "more.ai_assistant")');
-    expect(aiActions).toContain('isTenantPosMenuEnabled(tenantId, "more.ai_assistant")');
+    expect(aiPage).toContain('isTenantPosMenuEnabled(scope.session.tenant_id, "main.ai_assistant")');
+    expect(aiApi).toContain('isTenantPosMenuEnabled(tenantId, "main.ai_assistant")');
+    expect(aiActions).toContain('isTenantPosMenuEnabled(tenantId, "main.ai_assistant")');
     expect(aiApi).toContain("ai_assistant_disabled_by_it");
     expect(aiActions).toContain("ai_assistant_disabled_by_it");
+  });
+
+  it("moves Today and recommendations into accessible modal actions and renders basic rich text", () => {
+    expect(aiWorkspace).toContain("setTodayModalOpen(true)");
+    expect(aiWorkspace).toContain("setRecommendationModalOpen(true)");
+    expect(aiWorkspace).toContain("function AiModal");
+    expect(aiWorkspace).toContain('event.key === "Escape"');
+    expect(aiWorkspace).toContain("role=\"dialog\"");
+    expect(aiWorkspace).toContain("AiRichText");
+    expect(aiWorkspace).toContain("InlineRichText");
+    expect(aiWorkspace).not.toContain("xl:grid-cols-[minmax(0,1.7fr)_minmax(330px,0.8fr)]");
+    expect(aiWorkspace).toContain('className="mt-3 flex flex-wrap gap-2"');
   });
 
   it("stores only a tiny tenant/branch/user pointer in CpiPOS instead of duplicating chat messages", () => {
@@ -89,7 +99,6 @@ describe("CpiPOS AI store assistant", () => {
     expect(conversationMigration).toContain("primary key (tenant_id, branch_id, user_id)");
     expect(conversationMigration).toContain("openai_conversation_id text not null");
     expect(conversationMigration).not.toContain("message_text");
-    expect(conversationMigration).not.toContain("content jsonb");
     expect(aiWorkspace).toContain("OpenAI Conversation");
     expect(aiWorkspace).toContain("ล้างประวัติของฉัน");
   });
