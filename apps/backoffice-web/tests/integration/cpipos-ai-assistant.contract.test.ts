@@ -12,6 +12,9 @@ const aiWorkspace = source("../../src/components/pos-preview/cpipos-ai-assistant
 const aiApi = source("../../src/app/api/pos/ai/assistant/route.ts");
 const menuPolicy = source("../../src/lib/pos-menu-policy.ts");
 const featureMap = source("../../src/lib/pos-feature-map.ts");
+const aiActions = source("../../src/app/api/pos/ai/actions/route.ts");
+const policyService = source("../../src/lib/server/pos-menu-policy-service.ts");
+const sharedTypes = source("../../../../packages/shared-types/src/index.ts");
 
 describe("CpiPOS AI store assistant", () => {
   it("registers the AI assistant under More and keeps the sidebar compact", () => {
@@ -46,10 +49,33 @@ describe("CpiPOS AI store assistant", () => {
     expect(aiApi).toContain("low_stock");
   });
 
-  it("keeps the assistant read-only in the first release", () => {
-    expect(aiApi).toContain("ระบบเวอร์ชันนี้เป็น read-only");
-    expect(aiApi).toContain('mode: "read_only"');
-    expect(aiWorkspace).toContain("ยังไม่แก้ไขราคา สต๊อก บิล หรือข้อมูลบัญชีโดยอัตโนมัติ");
+  it("upgrades Phase 2 to proposal -> confirm -> PIN -> execute", () => {
+    expect(aiApi).toContain("propose_product_price_update");
+    expect(aiApi).toContain("propose_stock_adjustment");
+    expect(aiApi).toContain("propose_marketing_campaign");
+    expect(aiApi).toContain('mode: "confirm_then_pin"');
+    expect(aiWorkspace).toContain("PosManagerApprovalModal");
+    expect(aiWorkspace).toContain("sales_record_edit");
+    expect(aiWorkspace).toContain('fetch("/api/pos/ai/actions"');
+    expect(aiActions).toContain('action: "update_product_price"');
+    expect(aiActions).toContain('action: "adjust_stock"');
+    expect(aiActions).toContain("appendAuditLog");
+    expect(sharedTypes).toContain('"sales_record_edit"');
     expect(featureMap).toContain('"/preview/pos/ai-assistant": "core_pos_sales"');
+  });
+
+  it("enforces the per-tenant IT AI policy on the page and APIs", () => {
+    expect(policyService).toContain("isTenantPosMenuEnabled");
+    expect(aiPage).toContain('isTenantPosMenuEnabled(scope.session.tenant_id, "more.ai_assistant")');
+    expect(aiApi).toContain('isTenantPosMenuEnabled(tenantId, "more.ai_assistant")');
+    expect(aiActions).toContain('isTenantPosMenuEnabled(tenantId, "more.ai_assistant")');
+    expect(aiApi).toContain("ai_assistant_disabled_by_it");
+    expect(aiActions).toContain("ai_assistant_disabled_by_it");
+  });
+
+  it("keeps destructive or financial reversal actions outside Phase 2", () => {
+    expect(aiApi).toContain("ห้ามเสนอหรือดำเนินการยกเลิกบิล คืนเงิน");
+    expect(aiActions).not.toContain('"cancel_bill"');
+    expect(aiActions).not.toContain('"refund"');
   });
 });

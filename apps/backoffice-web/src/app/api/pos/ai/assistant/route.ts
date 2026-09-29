@@ -1,6 +1,7 @@
 import { getPosApiAuthContext } from "@/lib/pos-api-auth";
 import { readEnv } from "@/lib/env";
 import { fail, ok } from "@/lib/http";
+import { isTenantPosMenuEnabled } from "@/lib/server/pos-menu-policy-service";
 import { loadPosSalesSummaryData } from "@/lib/services/pos-sales-summary-service";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
 
@@ -38,14 +39,127 @@ type RecipeRow = {
   ingredients?: { avg_unit_cost?: number | null } | Array<{ avg_unit_cost?: number | null }> | null;
 };
 
+type ProductCatalogItem = {
+  id: string;
+  name: string;
+  category: string;
+  price: number;
+};
+
+type IngredientCatalogItem = {
+  id: string;
+  name: string;
+  unit: string;
+  quantity_on_hand: number;
+  reorder_level: number;
+};
+
+export type AiProposal =
+  | {
+      id: string;
+      type: "update_product_price";
+      title: string;
+      product_id: string;
+      product_name: string;
+      current_price: number;
+      new_price: number;
+      reason: string;
+      requires_pin: true;
+    }
+  | {
+      id: string;
+      type: "adjust_stock";
+      title: string;
+      ingredient_id: string;
+      ingredient_name: string;
+      unit: string;
+      current_quantity: number;
+      quantity_delta: number;
+      reason: string;
+      requires_pin: true;
+    }
+  | {
+      id: string;
+      type: "marketing_campaign";
+      title: string;
+      offer: string;
+      audience: string;
+      channels: string[];
+      copy_text: string;
+      reason: string;
+      requires_pin: false;
+    };
+
 const AI_MODEL = readEnv("CPIPOS_AI_MODEL") ?? "gpt-6-luna";
 const MAX_OUTPUT_TOKENS_RAW = Number(readEnv("CPIPOS_AI_MAX_OUTPUT_TOKENS") ?? "900");
 const MAX_OUTPUT_TOKENS = Number.isFinite(MAX_OUTPUT_TOKENS_RAW)
   ? Math.max(256, Math.min(1600, Math.trunc(MAX_OUTPUT_TOKENS_RAW)))
   : 900;
 
+const AI_PROPOSAL_TOOLS = [
+  {
+    type: "function",
+    name: "propose_product_price_update",
+    description: "Prepare, but do not execute, a store-price change for a real product in the supplied catalog. Use only when the user clearly wants a price change or asks what price to set.",
+    strict: true,
+    parameters: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        product_id: { type: "string" },
+        new_price: { type: "number", minimum: 0 },
+        reason: { type: "string" }
+      },
+      required: ["product_id", "new_price", "reason"]
+    }
+  },
+  {
+    type: "function",
+    name: "propose_stock_adjustment",
+    description: "Prepare, but do not execute, a manual stock adjustment for a real ingredient in the supplied inventory. Use only when the user asks to correct or add/subtract stock.",
+    strict: true,
+    parameters: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        ingredient_id: { type: "string" },
+        quantity_delta: { type: "number" },
+        reason: { type: "string" }
+      },
+      required: ["ingredient_id", "quantity_delta", "reason"]
+    }
+  },
+  {
+    type: "function",
+    name: "propose_marketing_campaign",
+    description: "Prepare a marketing campaign draft based on store data. This creates copy for review and does not publish externally.",
+    strict: true,
+    parameters: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        title: { type: "string" },
+        offer: { type: "string" },
+        audience: { type: "string" },
+        channels: {
+          type: "array",
+          items: { type: "string" }
+        },
+        copy_text: { type: "string" },
+        reason: { type: "string" }
+      },
+      required: ["title", "offer", "audience", "channels", "copy_text", "reason"]
+    }
+  }
+] as const;
+
 function canUseAi(branchRole: string | null, platformRole: string | null) {
   return platformRole === "it_admin" || branchRole === "owner" || branchRole === "manager";
+}
+
+async function aiPolicyAllowed(tenantId: string | null) {
+  if (!tenantId) return false;
+  return isTenantPosMenuEnabled(tenantId, "more.ai_assistant");
 }
 
 function bangkokDate(offsetDays = 0) {
@@ -164,6 +278,48 @@ async function loadLowStock(tenantId: string, branchId: string) {
     .slice(0, 8);
 }
 
+async function loadAiCatalog(tenantId: string, branchId: string) {
+  const supabase = getSupabaseServiceClient();
+  const [productsResult, ingredientsResult] = await Promise.all([
+    supabase
+      .from("products")
+      .select("id,name,category,price")
+      .eq("tenant_id", tenantId)
+      .eq("branch_id", branchId)
+      .eq("is_active", true)
+      .order("updated_at", { ascending: false })
+      .limit(60),
+    supabase
+      .from("ingredients")
+      .select("id,name,base_unit,quantity_on_hand,reorder_level")
+      .eq("tenant_id", tenantId)
+      .eq("branch_id", branchId)
+      .order("updated_at", { ascending: false })
+      .limit(80)
+  ]);
+
+  const products: ProductCatalogItem[] = productsResult.error
+    ? []
+    : (productsResult.data ?? []).map((row) => ({
+        id: String(row.id),
+        name: String(row.name ?? row.id),
+        category: String(row.category ?? "-"),
+        price: asMoney(row.price)
+      }));
+
+  const ingredients: IngredientCatalogItem[] = ingredientsResult.error
+    ? []
+    : (ingredientsResult.data ?? []).map((row) => ({
+        id: String(row.id),
+        name: String(row.name ?? row.id),
+        unit: String(row.base_unit ?? ""),
+        quantity_on_hand: Number(row.quantity_on_hand ?? 0),
+        reorder_level: Number(row.reorder_level ?? 0)
+      }));
+
+  return { products, ingredients };
+}
+
 async function loadBusinessSnapshot(auth: Awaited<ReturnType<typeof getPosApiAuthContext>>) {
   const today = bangkokDate(0);
   const from30 = bangkokDate(-29);
@@ -175,7 +331,7 @@ async function loadBusinessSnapshot(auth: Awaited<ReturnType<typeof getPosApiAut
     platformRole: auth.platformRole
   };
 
-  const [todaySummary, monthSummary, lowStock, costSnapshot] = await Promise.all([
+  const [todaySummary, monthSummary, lowStock, costSnapshot, catalog] = await Promise.all([
     loadPosSalesSummaryData(scope, {
       dateFrom: today,
       dateTo: today,
@@ -189,7 +345,8 @@ async function loadBusinessSnapshot(auth: Awaited<ReturnType<typeof getPosApiAut
       status: "all"
     }),
     loadLowStock(auth.tenantId!, auth.branchId!),
-    loadCostSnapshot(auth.tenantId!, auth.branchId!)
+    loadCostSnapshot(auth.tenantId!, auth.branchId!),
+    loadAiCatalog(auth.tenantId!, auth.branchId!)
   ]);
 
   return {
@@ -237,7 +394,8 @@ async function loadBusinessSnapshot(auth: Awaited<ReturnType<typeof getPosApiAut
     cost: {
       available: costSnapshot.costDataAvailable,
       low_margin_products: costSnapshot.lowMarginProducts
-    }
+    },
+    catalog
   };
 }
 
@@ -257,7 +415,7 @@ function sanitizeHistory(input: unknown): AiHistoryItem[] {
 function extractOutputText(payload: unknown): string {
   const body = payload as {
     output_text?: string;
-    output?: Array<{ content?: Array<{ text?: string }> }>;
+    output?: Array<{ type?: string; content?: Array<{ text?: string }> }>;
   };
   if (typeof body.output_text === "string" && body.output_text.trim()) return body.output_text.trim();
   const chunks: string[] = [];
@@ -269,6 +427,98 @@ function extractOutputText(payload: unknown): string {
   return chunks.join("\n").trim();
 }
 
+function parseArguments(value: unknown): Record<string, unknown> {
+  if (value && typeof value === "object" && !Array.isArray(value)) return value as Record<string, unknown>;
+  if (typeof value !== "string") return {};
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed as Record<string, unknown> : {};
+  } catch {
+    return {};
+  }
+}
+
+function safeText(value: unknown, max = 600) {
+  return String(value ?? "").trim().slice(0, max);
+}
+
+function extractProposals(payload: unknown, snapshot: Awaited<ReturnType<typeof loadBusinessSnapshot>>): AiProposal[] {
+  const body = payload as {
+    output?: Array<{ type?: string; name?: string; arguments?: unknown; call_id?: string }>;
+  };
+  const products = new Map(snapshot.catalog.products.map((item) => [item.id, item]));
+  const ingredients = new Map(snapshot.catalog.ingredients.map((item) => [item.id, item]));
+  const proposals: AiProposal[] = [];
+
+  for (const [index, item] of (body.output ?? []).entries()) {
+    if (item.type !== "function_call" || !item.name) continue;
+    const args = parseArguments(item.arguments);
+    const id = safeText(item.call_id, 120) || `proposal-${index + 1}`;
+
+    if (item.name === "propose_product_price_update") {
+      const productId = safeText(args.product_id, 80);
+      const product = products.get(productId);
+      const newPrice = Number(args.new_price);
+      if (!product || !Number.isFinite(newPrice) || newPrice < 0 || newPrice > 999_999) continue;
+      const roundedPrice = Number(newPrice.toFixed(2));
+      if (roundedPrice === product.price) continue;
+      proposals.push({
+        id,
+        type: "update_product_price",
+        title: `ปรับราคาหน้าร้าน: ${product.name}`,
+        product_id: product.id,
+        product_name: product.name,
+        current_price: product.price,
+        new_price: roundedPrice,
+        reason: safeText(args.reason, 500) || "คำแนะนำจาก CpiPOS AI",
+        requires_pin: true
+      });
+      continue;
+    }
+
+    if (item.name === "propose_stock_adjustment") {
+      const ingredientId = safeText(args.ingredient_id, 80);
+      const ingredient = ingredients.get(ingredientId);
+      const delta = Number(args.quantity_delta);
+      if (!ingredient || !Number.isFinite(delta) || delta === 0 || Math.abs(delta) > 1_000_000) continue;
+      proposals.push({
+        id,
+        type: "adjust_stock",
+        title: `ปรับสต๊อก: ${ingredient.name}`,
+        ingredient_id: ingredient.id,
+        ingredient_name: ingredient.name,
+        unit: ingredient.unit,
+        current_quantity: ingredient.quantity_on_hand,
+        quantity_delta: Number(delta.toFixed(3)),
+        reason: safeText(args.reason, 500) || "คำแนะนำจาก CpiPOS AI",
+        requires_pin: true
+      });
+      continue;
+    }
+
+    if (item.name === "propose_marketing_campaign") {
+      const channels = Array.isArray(args.channels)
+        ? args.channels.map((value) => safeText(value, 50)).filter(Boolean).slice(0, 6)
+        : [];
+      const copyText = safeText(args.copy_text, 1200);
+      if (!copyText) continue;
+      proposals.push({
+        id,
+        type: "marketing_campaign",
+        title: safeText(args.title, 160) || "แผนการตลาดจาก CpiPOS AI",
+        offer: safeText(args.offer, 300),
+        audience: safeText(args.audience, 300),
+        channels,
+        copy_text: copyText,
+        reason: safeText(args.reason, 500),
+        requires_pin: false
+      });
+    }
+  }
+
+  return proposals.slice(0, 3);
+}
+
 function formatHistory(history: AiHistoryItem[]) {
   if (!history.length) return "- ไม่มีประวัติสนทนาก่อนหน้า";
   return history.map((item) => `${item.role === "user" ? "ลูกค้า" : "CpiPOS AI"}: ${item.text}`).join("\n");
@@ -277,12 +527,15 @@ function formatHistory(history: AiHistoryItem[]) {
 const AI_INSTRUCTIONS = [
   "คุณคือ CpiPOS AI ผู้ช่วยร้านค้าสำหรับเจ้าของหรือผู้จัดการร้าน",
   "ตอบภาษาไทยเป็นหลัก กระชับ ชัดเจน และใช้ภาษาธุรกิจที่เจ้าของร้านเข้าใจง่าย",
-  "ใช้เฉพาะข้อมูลร้านที่ระบบส่งมาให้ ห้ามแต่งยอดขาย ต้นทุน สต๊อก หรือตัวเลขที่ไม่มีในข้อมูล",
+  "ใช้เฉพาะข้อมูลร้านที่ระบบส่งมาให้ ห้ามแต่งยอดขาย ต้นทุน สต๊อก รหัสสินค้า หรือรหัสวัตถุดิบที่ไม่มีในข้อมูล",
   "ถ้าข้อมูลไม่พอ ให้บอกตรง ๆ ว่ายังวิเคราะห์ส่วนนั้นไม่ได้ และบอกว่าควรเพิ่มข้อมูลอะไร",
   "ข้อมูลต้นทุนเป็นต้นทุนประมาณจากสูตร/วัตถุดิบ จึงใช้คำว่า 'กำไรขั้นต้นโดยประมาณ' และห้ามเรียกว่า 'กำไรสุทธิ' เว้นแต่มีค่าใช้จ่ายครบ",
-  "สำหรับคำถามการตลาด ให้เสนอไอเดียที่นำไปทดลองได้ เช่น โปรโมชัน กลุ่มสินค้า เวลา และข้อความโพสต์ โดยอ้างอิงยอดขาย/มาร์จิ้นเมื่อมีข้อมูล",
-  "ระบบเวอร์ชันนี้เป็น read-only: คุณวิเคราะห์และเสนอได้ แต่ห้ามอ้างว่าคุณแก้ราคา ปรับสต๊อก ยกเลิกบิล หรือบันทึกบัญชีให้แล้ว",
-  "ถ้าผู้ใช้ขอให้ทำรายการที่เปลี่ยนข้อมูล ให้ตอบว่าสามารถเตรียมข้อเสนอหรือขั้นตอนให้ได้ แต่ต้องให้ผู้ใช้ยืนยันในระบบก่อน",
+  "Phase 2 อนุญาตให้คุณเตรียมข้อเสนอการทำงานได้ แต่ห้ามอ้างว่าดำเนินการแล้วเอง",
+  "หากผู้ใช้ต้องการปรับราคาสินค้าจริง ให้เรียก propose_product_price_update โดยใช้ product_id จาก catalog.products เท่านั้น",
+  "หากผู้ใช้ต้องการแก้/เพิ่ม/ลดสต๊อกจริง ให้เรียก propose_stock_adjustment โดยใช้ ingredient_id จาก catalog.ingredients เท่านั้น",
+  "หากผู้ใช้ต้องการทำการตลาด ให้เรียก propose_marketing_campaign เพื่อสร้างข้อความและแผนสำหรับตรวจสอบ",
+  "การเปลี่ยนราคาและสต๊อกต้องให้ผู้ใช้ยืนยันและผ่าน Owner/Manager PIN ใน CpiPOS ก่อนเสมอ",
+  "ห้ามเสนอหรือดำเนินการยกเลิกบิล คืนเงิน ลบบัญชีผู้ใช้ หรือเปลี่ยนข้อมูลภาษีใน Phase 2 นี้",
   "เมื่อเหมาะสมให้สรุปเป็น 3-5 ประเด็นและระบุหน่วยเงินบาท (บาท)"
 ].join("\n");
 
@@ -310,6 +563,8 @@ async function callOpenAi(message: string, history: AiHistoryItem[], snapshot: A
       model: AI_MODEL,
       instructions: AI_INSTRUCTIONS,
       input,
+      tools: AI_PROPOSAL_TOOLS,
+      tool_choice: "auto",
       store: false,
       max_output_tokens: MAX_OUTPUT_TOKENS
     })
@@ -324,9 +579,13 @@ async function callOpenAi(message: string, history: AiHistoryItem[], snapshot: A
     throw new Error(detail);
   }
 
-  const text = extractOutputText(payload);
-  if (!text) throw new Error("CpiPOS AI returned an empty response.");
-  return text;
+  const proposals = extractProposals(payload, snapshot);
+  const text = extractOutputText(payload) ||
+    (proposals.length
+      ? "ผมเตรียมรายการให้แล้วครับ กรุณาตรวจสอบรายละเอียดด้านล่างก่อนยืนยันดำเนินการ"
+      : "ผมยังไม่สามารถสรุปคำตอบจากข้อมูลรอบนี้ได้ กรุณาลองถามใหม่อีกครั้ง");
+
+  return { text, proposals };
 }
 
 export async function GET() {
@@ -335,8 +594,11 @@ export async function GET() {
     if (!canUseAi(auth.branchRole, auth.platformRole)) {
       return fail("ai_assistant_forbidden", "CpiPOS AI is available to Owner and Manager roles.", 403);
     }
+    if (!(await aiPolicyAllowed(auth.tenantId))) {
+      return fail("ai_assistant_disabled_by_it", "CpiPOS AI is disabled for this store by IT policy.", 403);
+    }
     const overview = await loadBusinessSnapshot(auth);
-    return ok({ overview, model: AI_MODEL });
+    return ok({ overview, model: AI_MODEL, mode: "confirm_then_pin" });
   } catch (error) {
     return fail("ai_assistant_overview_failed", error instanceof Error ? error.message : "Unable to load AI overview.", 500);
   }
@@ -348,6 +610,9 @@ export async function POST(request: Request) {
     if (!canUseAi(auth.branchRole, auth.platformRole)) {
       return fail("ai_assistant_forbidden", "CpiPOS AI is available to Owner and Manager roles.", 403);
     }
+    if (!(await aiPolicyAllowed(auth.tenantId))) {
+      return fail("ai_assistant_disabled_by_it", "CpiPOS AI is disabled for this store by IT policy.", 403);
+    }
 
     const body = (await request.json().catch(() => null)) as AiRequestBody | null;
     const message = String(body?.message ?? "").trim().slice(0, 1200);
@@ -356,9 +621,9 @@ export async function POST(request: Request) {
     const history = sanitizeHistory(body?.history);
     const overview = await loadBusinessSnapshot(auth);
 
-    let answer: string;
+    let result: Awaited<ReturnType<typeof callOpenAi>>;
     try {
-      answer = await callOpenAi(message, history, overview);
+      result = await callOpenAi(message, history, overview);
     } catch (error) {
       const messageText = error instanceof Error ? error.message : "CpiPOS AI request failed.";
       const status = messageText.includes("OPENAI_API_KEY") ? 503 : 502;
@@ -366,10 +631,11 @@ export async function POST(request: Request) {
     }
 
     return ok({
-      answer,
+      answer: result.text,
+      proposals: result.proposals,
       overview,
       model: AI_MODEL,
-      mode: "read_only"
+      mode: "confirm_then_pin"
     });
   } catch (error) {
     return fail("ai_assistant_failed", error instanceof Error ? error.message : "Unable to use CpiPOS AI.", 500);
