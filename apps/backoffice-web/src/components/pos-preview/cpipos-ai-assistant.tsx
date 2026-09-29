@@ -155,6 +155,100 @@ function MetricCard({ icon, label, value, note, tone = "blue" }: {
   );
 }
 
+function AiModal({ open, title, subtitle, onClose, children }: {
+  open: boolean;
+  title: string;
+  subtitle?: string;
+  onClose: () => void;
+  children: React.ReactNode;
+}) {
+  const panelRef = useRef<HTMLElement | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    const panel = panelRef.current;
+    const first = panel?.querySelector<HTMLElement>("button, a, input, textarea, [tabindex]:not([tabindex='-1'])");
+    first?.focus();
+
+    function onKeyDown(event: globalThis.KeyboardEvent) {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        onClose();
+        return;
+      }
+      if (event.key !== "Tab" || !panel) return;
+      const focusable = Array.from(panel.querySelectorAll<HTMLElement>("button, a, input, textarea, [tabindex]:not([tabindex='-1'])"))
+        .filter((element) => !element.hasAttribute("disabled"));
+      if (!focusable.length) return;
+      const firstElement = focusable[0];
+      const lastElement = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === firstElement) {
+        event.preventDefault();
+        lastElement.focus();
+      } else if (!event.shiftKey && document.activeElement === lastElement) {
+        event.preventDefault();
+        firstElement.focus();
+      }
+    }
+
+    window.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener("keydown", onKeyDown);
+    };
+  }, [open, onClose]);
+
+  if (!open) return null;
+  return (
+    <div role="dialog" aria-modal="true" aria-label={title} className="fixed inset-0 z-[105] grid place-items-center bg-slate-950/55 p-3 sm:p-4" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
+      <section ref={panelRef} className="max-h-[calc(100vh-24px)] w-full max-w-[820px] overflow-y-auto rounded-3xl border border-slate-200 bg-white p-4 shadow-2xl sm:p-5">
+        <div className="sticky top-0 z-10 flex items-start justify-between gap-4 bg-white/95 pb-3 backdrop-blur">
+          <div>
+            <h2 className="text-xl font-black text-[#10213d]">{title}</h2>
+            {subtitle ? <p className="mt-1 text-sm font-medium text-slate-500">{subtitle}</p> : null}
+          </div>
+          <button type="button" onClick={onClose} className="grid h-9 w-9 shrink-0 place-items-center rounded-xl border border-slate-200 bg-white text-lg font-black text-slate-600 hover:bg-slate-50" aria-label="ปิด">×</button>
+        </div>
+        {children}
+      </section>
+    </div>
+  );
+}
+
+function InlineRichText({ text }: { text: string }) {
+  const parts = text.split(/(\*\*[^*]+\*\*)/g).filter(Boolean);
+  return (
+    <>
+      {parts.map((part, index) => part.startsWith("**") && part.endsWith("**")
+        ? <strong key={index} className="font-black text-inherit">{part.slice(2, -2)}</strong>
+        : <span key={index}>{part}</span>)}
+    </>
+  );
+}
+
+function AiRichText({ text }: { text: string }) {
+  const lines = text.split(/\r?\n/);
+  return (
+    <div className="space-y-1.5">
+      {lines.map((raw, index) => {
+        const line = raw.trimEnd();
+        if (!line.trim()) return <div key={index} className="h-1" />;
+        const bullet = line.match(/^[-•]\s+(.+)$/);
+        const numbered = line.match(/^\d+[.)]\s+(.+)$/);
+        if (bullet) {
+          return <div key={index} className="flex gap-2"><span className="mt-[1px] text-blue-500">•</span><span><InlineRichText text={bullet[1]} /></span></div>;
+        }
+        if (numbered) {
+          return <div key={index} className="flex gap-2"><span className="font-bold text-blue-600">{line.match(/^\d+/)?.[0]}.</span><span><InlineRichText text={numbered[1]} /></span></div>;
+        }
+        return <p key={index}><InlineRichText text={line} /></p>;
+      })}
+    </div>
+  );
+}
+
 function welcomeMessage(lang: Language): ChatMessage {
   return {
     id: "welcome",
@@ -173,6 +267,8 @@ export function CpiPosAiAssistant({ lang }: { lang: Language }) {
   const [sending, setSending] = useState(false);
   const [pendingProposal, setPendingProposal] = useState<AiProposal | null>(null);
   const [proposalStatus, setProposalStatus] = useState<Record<string, ProposalStatus>>({});
+  const [todayModalOpen, setTodayModalOpen] = useState(false);
+  const [recommendationModalOpen, setRecommendationModalOpen] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([welcomeMessage(lang)]);
   const chatEndRef = useRef<HTMLDivElement | null>(null);
 
