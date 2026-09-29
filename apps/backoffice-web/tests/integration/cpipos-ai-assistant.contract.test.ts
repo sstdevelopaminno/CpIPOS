@@ -127,6 +127,7 @@ describe("CpiPOS AI store assistant", () => {
     expect(aiApi).toContain("assertAiQuotaAvailable");
     expect(aiApi).toContain("recordAiUsage");
     expect(aiApi).toContain("prompt_cache_key");
+    expect(aiApi).toContain("safety_identifier: promptCacheKey");
     expect(aiApi).toContain("makePromptCacheKey");
     expect(aiApi).toContain('createHash("sha256")');
     expect(aiApi).toContain(".slice(0, 64)");
