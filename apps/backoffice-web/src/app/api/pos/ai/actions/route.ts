@@ -46,26 +46,31 @@ async function ensureAiPolicy(tenantId: string | null) {
   return isTenantPosMenuEnabled(tenantId, "main.ai_assistant");
 }
 
-async function validatePriceApproval(input: {
+async function consumeAiApproval(input: {
   tenantId: string;
   branchId: string;
   userId: string;
-  productId: string;
+  targetId: string;
   approvalId: string;
+  action: "sales_record_edit" | "stock_adjustment";
+  targetTable: "products" | "ingredients";
 }) {
   const supabase = getSupabaseServiceClient();
+  const consumedAt = new Date().toISOString();
   const { data, error } = await supabase
     .from("manager_pin_approvals")
-    .select("id,approved_by,expires_at")
+    .update({ consumed_at: consumedAt })
     .eq("id", input.approvalId)
     .eq("tenant_id", input.tenantId)
     .eq("branch_id", input.branchId)
     .eq("requested_by", input.userId)
-    .eq("action", "sales_record_edit")
-    .eq("target_table", "products")
-    .eq("target_id", input.productId)
-    .gt("expires_at", new Date().toISOString())
-    .maybeSingle<{ id: string; approved_by: string; expires_at: string }>();
+    .eq("action", input.action)
+    .eq("target_table", input.targetTable)
+    .eq("target_id", input.targetId)
+    .gt("expires_at", consumedAt)
+    .is("consumed_at", null)
+    .select("id,approved_by,expires_at,consumed_at")
+    .maybeSingle<{ id: string; approved_by: string; expires_at: string; consumed_at: string }>();
 
   if (error) throw error;
   return data;
@@ -106,17 +111,6 @@ export async function POST(request: Request) {
         return fail("invalid_price_action", "Product, new price, and PIN approval are required.", 422);
       }
 
-      const approval = await validatePriceApproval({
-        tenantId: auth.tenantId,
-        branchId: auth.branchId,
-        userId: auth.userId,
-        productId,
-        approvalId
-      });
-      if (!approval) {
-        return fail("approval_invalid", "PIN approval is invalid, expired, or belongs to another action.", 403);
-      }
-
       const supabase = getSupabaseServiceClient();
       const { data: product, error: productError } = await supabase
         .from("products")
@@ -140,6 +134,19 @@ export async function POST(request: Request) {
           before_price: beforePrice,
           after_price: afterPrice
         });
+      }
+
+      const approval = await consumeAiApproval({
+        tenantId: auth.tenantId,
+        branchId: auth.branchId,
+        userId: auth.userId,
+        targetId: product.id,
+        approvalId,
+        action: "sales_record_edit",
+        targetTable: "products"
+      });
+      if (!approval) {
+        return fail("approval_invalid", "PIN นี้หมดอายุ ถูกใช้ไปแล้ว หรือไม่ตรงกับรายการที่กำลังเปลี่ยน", 403);
       }
 
       const { error: updateError } = await supabase
@@ -189,6 +196,19 @@ export async function POST(request: Request) {
       return fail("invalid_stock_action", "Ingredient, quantity, and PIN approval are required.", 422);
     }
 
+    const stockApproval = await consumeAiApproval({
+      tenantId: auth.tenantId,
+      branchId: auth.branchId,
+      userId: auth.userId,
+      targetId: ingredientId,
+      approvalId,
+      action: "stock_adjustment",
+      targetTable: "ingredients"
+    });
+    if (!stockApproval) {
+      return fail("approval_invalid", "PIN นี้หมดอายุ ถูกใช้ไปแล้ว หรือไม่ตรงกับรายการปรับสต๊อก", 403);
+    }
+
     const result = await executeStockAdjustmentTransaction({
       auth,
       input: {
@@ -216,7 +236,8 @@ export async function POST(request: Request) {
         ingredient_id: ingredientId,
         quantity_delta: Number(quantityDelta.toFixed(3)),
         reason,
-        approval_id: approvalId
+        approval_id: approvalId,
+        approved_by: stockApproval.approved_by
       }
     });
 
