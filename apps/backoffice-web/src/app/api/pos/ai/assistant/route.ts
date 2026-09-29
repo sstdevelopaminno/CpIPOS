@@ -710,7 +710,16 @@ export async function DELETE() {
       return fail("ai_assistant_disabled_by_it", "CpiPOS AI is disabled for this store by IT policy.", 403);
     }
     await deleteAiConversationForUser(conversationScope(auth));
-    return ok({ cleared: true });
+    const clearedAt = new Date().toISOString();
+    const { error: redactError } = await getSupabaseServiceClient()
+      .from("pos_ai_usage_events")
+      .update({ prompt_text: null, history_cleared_at: clearedAt })
+      .eq("tenant_id", auth.tenantId!)
+      .eq("branch_id", auth.branchId!)
+      .eq("user_id", auth.userId)
+      .is("history_cleared_at", null);
+    if (redactError) throw new Error(`ai_usage_prompt_redaction_failed:${redactError.message}`);
+    return ok({ cleared: true, usage_accounting_retained: true });
   } catch (error) {
     return fail("ai_history_clear_failed", error instanceof Error ? error.message : "Unable to clear CpiPOS AI history.", 500);
   }
