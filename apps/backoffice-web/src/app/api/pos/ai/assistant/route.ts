@@ -3,6 +3,7 @@ import { readEnv } from "@/lib/env";
 import { fail, ok } from "@/lib/http";
 import { isTenantPosMenuEnabled } from "@/lib/server/pos-menu-policy-service";
 import { addAiConversationItems, deleteAiConversationForUser, getOrCreateAiConversation, listAiConversationMessages } from "@/lib/services/ai-conversation-service";
+import { AiQuotaError, assertAiQuotaAvailable, loadAiQuotaStatus, recordAiUsage } from "@/lib/services/ai-usage-service";
 import { loadPosSalesSummaryData } from "@/lib/services/pos-sales-summary-service";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
 
