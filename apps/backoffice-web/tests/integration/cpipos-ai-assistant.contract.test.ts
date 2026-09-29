@@ -94,7 +94,21 @@ describe("CpiPOS AI store assistant", () => {
     expect(aiWorkspace).toContain("AiRichText");
     expect(aiWorkspace).toContain("InlineRichText");
     expect(aiWorkspace).not.toContain("xl:grid-cols-[minmax(0,1.7fr)_minmax(330px,0.8fr)]");
-    expect(aiWorkspace).toContain('className="mt-3 flex flex-wrap gap-2"');
+  });
+
+  it("uses a GPT-like bounded chat surface with collapsible prompts and smart auto-scroll", () => {
+    expect(aiWorkspace).toContain('cpipos-ai-show-suggestions');
+    expect(aiWorkspace).toContain("toggleSuggestions");
+    expect(aiWorkspace).toContain("ซ่อนคำถามแนะนำ");
+    expect(aiWorkspace).toContain("แสดงคำถามแนะนำ");
+    expect(aiWorkspace).toContain("chatScrollRef");
+    expect(aiWorkspace).toContain("handleChatScroll");
+    expect(aiWorkspace).toContain("scrollToBottom");
+    expect(aiWorkspace).toContain("showScrollToBottom");
+    expect(aiWorkspace).toContain("↓ กลับลงล่าง");
+    expect(aiWorkspace).toContain('className="sticky bottom-0 z-20');
+    expect(aiWorkspace).toContain("resizeComposer");
+    expect(aiWorkspace).toContain("friendlyAiError");
   });
 
   it("stores only a tiny tenant/branch/user pointer in CpiPOS instead of duplicating chat messages", () => {
@@ -110,6 +124,9 @@ describe("CpiPOS AI store assistant", () => {
     expect(aiApi).toContain("assertAiQuotaAvailable");
     expect(aiApi).toContain("recordAiUsage");
     expect(aiApi).toContain("prompt_cache_key");
+    expect(aiApi).toContain("makePromptCacheKey");
+    expect(aiApi).toContain('createHash("sha256")');
+    expect(aiApi).toContain(".slice(0, 64)");
     expect(aiApi).toContain("AiQuotaError");
     expect(usageService).toContain("pos_ai_package_quotas");
     expect(usageService).toContain("pos_ai_tenant_quota_overrides");
@@ -132,7 +149,13 @@ describe("CpiPOS AI store assistant", () => {
 
   it("keeps destructive or financial reversal actions outside Phase 2", () => {
     expect(aiApi).toContain("ห้ามเสนอหรือดำเนินการยกเลิกบิล คืนเงิน");
+    expect(aiApi).toContain("RESTRICTED_AI_REQUESTS");
+    expect(aiApi).toContain("isRestrictedAiRequest");
+    expect(aiApi).toContain("รัน SQL/คำสั่งฐานข้อมูลโดยตรง");
+    expect(aiApi).toContain("ข้าม PIN/approval");
     expect(aiActions).not.toContain('"cancel_bill"');
     expect(aiActions).not.toContain('"refund"');
+    expect(aiActions).not.toContain('"run_sql"');
+    expect(aiActions).not.toContain('"delete_user"');
   });
 });
