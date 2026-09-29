@@ -4,6 +4,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { FormEvent, KeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
 import type { Language } from "@/lib/i18n";
+import { PosManagerApprovalModal } from "@/components/pos-ui/pos-manager-approval-modal";
 
 type Overview = {
   generated_at: string;
@@ -51,10 +52,52 @@ type Overview = {
   };
 };
 
+type AiProposal =
+  | {
+      id: string;
+      type: "update_product_price";
+      title: string;
+      product_id: string;
+      product_name: string;
+      current_price: number;
+      new_price: number;
+      reason: string;
+      requires_pin: true;
+    }
+  | {
+      id: string;
+      type: "adjust_stock";
+      title: string;
+      ingredient_id: string;
+      ingredient_name: string;
+      unit: string;
+      current_quantity: number;
+      quantity_delta: number;
+      reason: string;
+      requires_pin: true;
+    }
+  | {
+      id: string;
+      type: "marketing_campaign";
+      title: string;
+      offer: string;
+      audience: string;
+      channels: string[];
+      copy_text: string;
+      reason: string;
+      requires_pin: false;
+    };
+
+type ProposalStatus = {
+  state: "idle" | "executing" | "success" | "error";
+  message?: string;
+};
+
 type ChatMessage = {
   id: string;
   role: "assistant" | "user";
   text: string;
+  proposals?: AiProposal[];
 };
 
 type ApiEnvelope<T> = {
@@ -65,6 +108,7 @@ type ApiEnvelope<T> = {
 const QUICK_PROMPTS = [
   "สรุปยอดขายวันนี้ให้หน่อย",
   "เมนูไหนกำไรน้อยที่สุด",
+  "ช่วยเสนอราคาสินค้าที่มาร์จิ้นต่ำ",
   "มีสินค้าอะไรใกล้หมดบ้าง",
   "ช่วยคิดโปรโมชันเพิ่มยอดขาย",
   "วิเคราะห์สินค้าขายดี 30 วัน"
@@ -117,6 +161,8 @@ export function CpiPosAiAssistant({ lang }: { lang: Language }) {
   const [overviewError, setOverviewError] = useState<string | null>(null);
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
+  const [pendingProposal, setPendingProposal] = useState<AiProposal | null>(null);
+  const [proposalStatus, setProposalStatus] = useState<Record<string, ProposalStatus>>({});
   const [messages, setMessages] = useState<ChatMessage[]>([
     {
       id: "welcome",
@@ -189,7 +235,7 @@ export function CpiPosAiAssistant({ lang }: { lang: Language }) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ message: messageText, history })
       });
-      const body = (await response.json().catch(() => null)) as ApiEnvelope<{ answer?: string; overview?: Overview }>;
+      const body = (await response.json().catch(() => null)) as ApiEnvelope<{ answer?: string; overview?: Overview; proposals?: AiProposal[] }>;
       if (!response.ok) throw new Error(body?.error?.message ?? "CpiPOS AI ไม่สามารถตอบได้ในขณะนี้");
 
       if (body?.data?.overview) setOverview(body.data.overview);
@@ -198,7 +244,8 @@ export function CpiPosAiAssistant({ lang }: { lang: Language }) {
         {
           id: `assistant-${Date.now()}`,
           role: "assistant",
-          text: String(body?.data?.answer ?? "ยังไม่มีคำตอบจาก CpiPOS AI")
+          text: String(body?.data?.answer ?? "ยังไม่มีคำตอบจาก CpiPOS AI"),
+          proposals: Array.isArray(body?.data?.proposals) ? body.data.proposals : []
         }
       ]);
     } catch (error) {
@@ -212,6 +259,84 @@ export function CpiPosAiAssistant({ lang }: { lang: Language }) {
       ]);
     } finally {
       setSending(false);
+    }
+  }
+
+  async function refreshOverview() {
+    try {
+      const response = await fetch("/api/pos/ai/assistant", { cache: "no-store" });
+      const body = (await response.json().catch(() => null)) as ApiEnvelope<{ overview?: Overview }>;
+      if (response.ok && body?.data?.overview) setOverview(body.data.overview);
+    } catch {
+      // Keep the confirmed action result visible even if the dashboard refresh fails.
+    }
+  }
+
+  function requestExecution(proposal: AiProposal) {
+    if (!proposal.requires_pin) return;
+    const detail = proposal.type === "update_product_price"
+      ? `${proposal.product_name}: ฿${money(proposal.current_price)} → ฿${money(proposal.new_price)}`
+      : `${proposal.ingredient_name}: ${money(proposal.quantity_delta)} ${proposal.unit}`;
+    if (!window.confirm(`ยืนยันรายการที่ CpiPOS AI เตรียมไว้?\n\n${detail}\n\nขั้นตอนถัดไปต้องกรอก PIN Owner/Manager ก่อนระบบจึงจะเปลี่ยนข้อมูลจริง`)) return;
+    setPendingProposal(proposal);
+  }
+
+  async function executeProposal(proposal: AiProposal, approvalId: string) {
+    if (!proposal.requires_pin) return;
+    setProposalStatus((current) => ({ ...current, [proposal.id]: { state: "executing", message: "กำลังดำเนินการ..." } }));
+    try {
+      const payload = proposal.type === "update_product_price"
+        ? {
+            action: "update_product_price",
+            product_id: proposal.product_id,
+            new_price: proposal.new_price,
+            reason: proposal.reason,
+            approval_id: approvalId
+          }
+        : {
+            action: "adjust_stock",
+            ingredient_id: proposal.ingredient_id,
+            quantity_delta: proposal.quantity_delta,
+            reason: proposal.reason,
+            approval_id: approvalId
+          };
+      const response = await fetch("/api/pos/ai/actions", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-idempotency-key": `cpipos-ai-${proposal.id}`
+        },
+        body: JSON.stringify(payload)
+      });
+      const body = (await response.json().catch(() => null)) as ApiEnvelope<Record<string, unknown>>;
+      if (!response.ok) throw new Error(body?.error?.message ?? "ไม่สามารถดำเนินการได้");
+
+      const successText = proposal.type === "update_product_price"
+        ? `ปรับราคาหน้าร้าน ${proposal.product_name} เป็น ฿${money(proposal.new_price)} เรียบร้อยแล้ว`
+        : `ปรับสต๊อก ${proposal.ingredient_name} ${proposal.quantity_delta > 0 ? "+" : ""}${money(proposal.quantity_delta)} ${proposal.unit} เรียบร้อยแล้ว`;
+      setProposalStatus((current) => ({ ...current, [proposal.id]: { state: "success", message: successText } }));
+      setMessages((current) => [...current, {
+        id: `assistant-action-${Date.now()}`,
+        role: "assistant",
+        text: `✅ ${successText}\nระบบบันทึก Audit Log ของรายการนี้แล้วครับ`
+      }]);
+      await refreshOverview();
+    } catch (error) {
+      setProposalStatus((current) => ({
+        ...current,
+        [proposal.id]: { state: "error", message: error instanceof Error ? error.message : "ดำเนินการไม่สำเร็จ" }
+      }));
+    } finally {
+      setPendingProposal(null);
+    }
+  }
+
+  async function copyMarketing(proposal: Extract<AiProposal, { type: "marketing_campaign" }>) {
+    try {
+      await navigator.clipboard.writeText(proposal.copy_text);
+      setProposalStatus((current) => ({ ...current, [proposal.id]: { state: "success", message: "คัดลอกข้อความการตลาดแล้ว" } }));
+    } catch {
+      setProposalStatus((current) => ({ ...current, [proposal.id]: { state: "error", message: "คัดลอกไม่สำเร็จ กรุณาเลือกข้อความด้วยตนเอง" } }));
     }
   }
 
@@ -281,8 +406,59 @@ export function CpiPosAiAssistant({ lang }: { lang: Language }) {
                       <Image src="/brand/cpipos-symbol-sidebar.png" alt="" width={28} height={28} className="h-7 w-7 object-contain" />
                     </span>
                   ) : null}
-                  <div className={`max-w-[86%] whitespace-pre-wrap rounded-2xl px-4 py-3 text-sm font-medium leading-6 shadow-sm ${message.role === "user" ? "rounded-br-md bg-gradient-to-br from-blue-600 to-cyan-500 text-white" : "rounded-bl-md border border-slate-100 bg-slate-50 text-slate-700"}`}>
-                    {message.text}
+                  <div className={`max-w-[86%] ${message.role === "user" ? "" : "min-w-0"}`}>
+                    <div className={`whitespace-pre-wrap rounded-2xl px-4 py-3 text-sm font-medium leading-6 shadow-sm ${message.role === "user" ? "rounded-br-md bg-gradient-to-br from-blue-600 to-cyan-500 text-white" : "rounded-bl-md border border-slate-100 bg-slate-50 text-slate-700"}`}>
+                      {message.text}
+                    </div>
+                    {message.role === "assistant" && message.proposals?.length ? (
+                      <div className="mt-2 grid gap-2">
+                        {message.proposals.map((proposal) => {
+                          const status = proposalStatus[proposal.id] ?? { state: "idle" as const };
+                          if (proposal.type === "marketing_campaign") {
+                            return (
+                              <div key={proposal.id} className="rounded-2xl border border-violet-200 bg-violet-50/60 p-3">
+                                <div className="flex items-center justify-between gap-2">
+                                  <strong className="text-sm font-black text-violet-900">{proposal.title}</strong>
+                                  <span className="rounded-full bg-violet-600 px-2 py-0.5 text-[10px] font-black text-white">MARKETING</span>
+                                </div>
+                                <p className="mt-1 text-xs font-semibold text-violet-700">{proposal.offer}</p>
+                                <p className="mt-2 whitespace-pre-wrap rounded-xl bg-white/80 p-3 text-xs leading-5 text-slate-700">{proposal.copy_text}</p>
+                                <p className="mt-2 text-[11px] text-slate-500">กลุ่มเป้าหมาย: {proposal.audience || "-"}{proposal.channels.length ? ` · ช่องทาง: ${proposal.channels.join(", ")}` : ""}</p>
+                                <div className="mt-3 flex items-center gap-2">
+                                  <button type="button" onClick={() => void copyMarketing(proposal)} className="rounded-xl bg-violet-600 px-3 py-2 text-xs font-black text-white">คัดลอกข้อความ</button>
+                                  {status.message ? <span className={`text-[11px] font-bold ${status.state === "error" ? "text-red-600" : "text-emerald-600"}`}>{status.message}</span> : null}
+                                </div>
+                              </div>
+                            );
+                          }
+
+                          const detail = proposal.type === "update_product_price"
+                            ? `฿${money(proposal.current_price)} → ฿${money(proposal.new_price)}`
+                            : `${money(proposal.current_quantity)} ${proposal.unit} · ปรับ ${proposal.quantity_delta > 0 ? "+" : ""}${money(proposal.quantity_delta)} ${proposal.unit}`;
+                          return (
+                            <div key={proposal.id} className="rounded-2xl border border-blue-200 bg-blue-50/70 p-3">
+                              <div className="flex flex-wrap items-center justify-between gap-2">
+                                <strong className="text-sm font-black text-blue-950">{proposal.title}</strong>
+                                <span className="rounded-full bg-blue-600 px-2 py-0.5 text-[10px] font-black text-white">ยืนยัน + PIN</span>
+                              </div>
+                              <p className="mt-2 text-sm font-black text-slate-900">{detail}</p>
+                              <p className="mt-1 text-xs leading-5 text-slate-600">{proposal.reason}</p>
+                              <div className="mt-3 flex flex-wrap items-center gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => requestExecution(proposal)}
+                                  disabled={status.state === "executing" || status.state === "success"}
+                                  className="rounded-xl bg-gradient-to-r from-blue-600 to-cyan-500 px-3 py-2 text-xs font-black text-white shadow-sm disabled:cursor-not-allowed disabled:opacity-50"
+                                >
+                                  {status.state === "executing" ? "กำลังดำเนินการ..." : status.state === "success" ? "ดำเนินการแล้ว" : "ตรวจสอบและยืนยัน"}
+                                </button>
+                                {status.message ? <span className={`text-[11px] font-bold ${status.state === "error" ? "text-red-600" : "text-emerald-600"}`}>{status.message}</span> : null}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ) : null}
                   </div>
                 </div>
               ))}
@@ -322,7 +498,7 @@ export function CpiPosAiAssistant({ lang }: { lang: Language }) {
                   </svg>
                 </button>
               </div>
-              <p className="mt-2 px-1 text-[11px] font-medium text-slate-400">เวอร์ชันทดลองเป็นโหมดวิเคราะห์เท่านั้น ยังไม่แก้ไขราคา สต๊อก บิล หรือข้อมูลบัญชีโดยอัตโนมัติ</p>
+              <p className="mt-2 px-1 text-[11px] font-medium text-slate-400">Phase 2: AI เตรียมรายการให้ได้ แต่การเปลี่ยนราคา/สต๊อกจะเกิดขึ้นเฉพาะเมื่อคุณกดยืนยันและผ่าน PIN Owner/Manager เท่านั้น</p>
             </form>
           </section>
 
@@ -392,11 +568,24 @@ export function CpiPosAiAssistant({ lang }: { lang: Language }) {
             </section>
 
             <section className="rounded-2xl border border-amber-100 bg-amber-50/70 px-4 py-3 text-xs font-medium leading-5 text-amber-800">
-              <strong className="font-black">หมายเหตุ:</strong> การวิเคราะห์ต้นทุนเป็นค่าประมาณจากข้อมูลวัตถุดิบและสูตรที่บันทึกในระบบ ควรตรวจสอบก่อนนำไปปรับราคา ตัดสินใจทางบัญชี หรือทำโปรโมชันจริง
+              <strong className="font-black">หมายเหตุ:</strong> การวิเคราะห์ต้นทุนเป็นค่าประมาณจากข้อมูลวัตถุดิบและสูตรที่บันทึกในระบบ การเปลี่ยนข้อมูลจริงใน Phase 2 ต้องยืนยันและผ่าน PIN และทุกการทำงานจะบันทึก Audit Log
             </section>
           </aside>
         </div>
       </section>
+
+      {pendingProposal && pendingProposal.requires_pin ? (
+        <PosManagerApprovalModal
+          open
+          title="ยืนยันการทำงานของ CpiPOS AI"
+          action={pendingProposal.type === "update_product_price" ? "ai_product_price_update" : "stock_adjustment"}
+          targetTable={pendingProposal.type === "update_product_price" ? "products" : "ingredients"}
+          targetId={pendingProposal.type === "update_product_price" ? pendingProposal.product_id : pendingProposal.ingredient_id}
+          onClose={() => setPendingProposal(null)}
+          onApproved={(approvalId) => void executeProposal(pendingProposal, approvalId)}
+          lang={lang === "en" ? "en" : "th"}
+        />
+      ) : null}
     </main>
   );
 }
