@@ -332,7 +332,7 @@ export function CpiPosAiAssistant({ lang }: { lang: Language }) {
 
   async function sendMessage(prompt?: string) {
     const messageText = String(prompt ?? input).trim();
-    if (!messageText || sending) return;
+    if (!messageText || sending || quota?.exhausted || quota?.enabled === false) return;
 
     const userMessage: ChatMessage = {
       id: `user-${Date.now()}`,
@@ -556,7 +556,7 @@ export function CpiPosAiAssistant({ lang }: { lang: Language }) {
                     key={prompt}
                     type="button"
                     onClick={() => void sendMessage(prompt)}
-                    disabled={sending}
+                    disabled={sending || quota?.exhausted || quota?.enabled === false}
                     className="shrink-0 rounded-full border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-bold text-blue-700 transition hover:border-blue-300 hover:bg-blue-100 disabled:cursor-wait disabled:opacity-50"
                   >
                     {prompt}
@@ -651,12 +651,12 @@ export function CpiPosAiAssistant({ lang }: { lang: Language }) {
                   onKeyDown={handleKeyDown}
                   rows={1}
                   maxLength={1200}
-                  placeholder="พิมพ์คำถามถึง CpiPOS AI..."
+                  placeholder={quota?.exhausted ? "โควตา AI เดือนนี้ครบแล้ว" : quota?.enabled === false ? "AI ถูกปิดสำหรับร้านนี้" : "พิมพ์คำถามถึง CpiPOS AI..."}
                   className="max-h-32 min-h-[42px] flex-1 resize-none border-0 bg-transparent px-1 py-2.5 text-sm font-medium text-slate-800 outline-none placeholder:text-slate-400"
                 />
                 <button
                   type="submit"
-                  disabled={sending || !input.trim()}
+                  disabled={sending || !input.trim() || quota?.exhausted || quota?.enabled === false}
                   className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-blue-600 to-cyan-500 text-white shadow-lg shadow-blue-500/20 transition hover:scale-[1.02] disabled:cursor-not-allowed disabled:opacity-40"
                   aria-label="ส่งข้อความ"
                 >
