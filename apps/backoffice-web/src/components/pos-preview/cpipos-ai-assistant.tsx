@@ -52,6 +52,16 @@ type Overview = {
   };
 };
 
+type AiQuotaStatus = {
+  enabled: boolean;
+  source: "package" | "tenant_custom" | "tenant_unlimited";
+  month_key: string;
+  limits: { requests: number | null; tokens: number | null; cost_usd: number | null };
+  usage: { requests: number; total_tokens: number; cost_usd: number };
+  exhausted: boolean;
+  exhausted_by: Array<"requests" | "tokens" | "cost">;
+};
+
 type AiProposal =
   | {
       id: string;
