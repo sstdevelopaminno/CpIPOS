@@ -128,6 +128,27 @@ function money(value: number | null | undefined) {
   return new Intl.NumberFormat("th-TH", { minimumFractionDigits: 0, maximumFractionDigits: 2 }).format(Number(value ?? 0));
 }
 
+function friendlyAiError(message: unknown) {
+  const text = String(message ?? "").trim();
+  if (!text) return "ขออภัย ระบบ CpiPOS AI ขัดข้องชั่วคราว กรุณาลองใหม่อีกครั้ง";
+  if (/prompt_cache_key|maximum length 64/i.test(text)) {
+    return "ขออภัย ระบบแคชชั่วคราวขัดข้อง กรุณาลองส่งข้อความอีกครั้ง";
+  }
+  if (/quota|โควตา/i.test(text)) {
+    return "โควตา CpiPOS AI ของร้านนี้ครบหรือถูกปิดแล้ว กรุณาตรวจสอบแพ็กเกจหรือติดต่อผู้ดูแลระบบ";
+  }
+  if (/OPENAI_API_KEY|api key|authorization/i.test(text)) {
+    return "CpiPOS AI ยังไม่พร้อมใช้งานชั่วคราว กรุณาติดต่อผู้ดูแลระบบ";
+  }
+  if (/rate[_ -]?limit|too many requests/i.test(text)) {
+    return "มีการเรียกใช้งาน CpiPOS AI ถี่เกินไป กรุณารอสักครู่แล้วลองใหม่";
+  }
+  if (/ai_assistant_disabled_by_it|disabled for this store/i.test(text)) {
+    return "CpiPOS AI ถูกปิดสำหรับร้านนี้ตามนโยบายของบริษัท";
+  }
+  return "ขออภัย CpiPOS AI ไม่สามารถตอบได้ในขณะนี้ กรุณาลองใหม่อีกครั้ง";
+}
+
 function SparkleIcon({ size = 18 }: { size?: number }) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
@@ -280,8 +301,13 @@ export function CpiPosAiAssistant({ lang }: { lang: Language }) {
   const [proposalStatus, setProposalStatus] = useState<Record<string, ProposalStatus>>({});
   const [todayModalOpen, setTodayModalOpen] = useState(false);
   const [recommendationModalOpen, setRecommendationModalOpen] = useState(false);
+  const [showSuggestions, setShowSuggestions] = useState(true);
+  const [autoScroll, setAutoScroll] = useState(true);
+  const [showScrollToBottom, setShowScrollToBottom] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([welcomeMessage(lang)]);
   const chatEndRef = useRef<HTMLDivElement | null>(null);
+  const chatScrollRef = useRef<HTMLDivElement | null>(null);
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
 
   const lowMargin = overview?.cost.low_margin_products?.[0] ?? null;
   const bestSeller = overview?.today.top_products?.[0] ?? overview?.last_30_days.top_products?.[0] ?? null;
@@ -315,7 +341,7 @@ export function CpiPosAiAssistant({ lang }: { lang: Language }) {
           setMessages(storedHistory.length ? storedHistory : [welcomeMessage(lang)]);
         }
       } catch (error) {
-        if (!cancelled) setOverviewError(error instanceof Error ? error.message : "ไม่สามารถโหลดข้อมูลร้านได้");
+        if (!cancelled) setOverviewError(friendlyAiError(error instanceof Error ? error.message : error));
       } finally {
         if (!cancelled) setOverviewLoading(false);
       }
@@ -327,8 +353,51 @@ export function CpiPosAiAssistant({ lang }: { lang: Language }) {
   }, []);
 
   useEffect(() => {
-    chatEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
-  }, [messages, sending]);
+    try {
+      const saved = window.localStorage.getItem("cpipos-ai-show-suggestions");
+      if (saved === "0") setShowSuggestions(false);
+      if (saved === "1") setShowSuggestions(true);
+    } catch {
+      // Local preference is optional.
+    }
+  }, []);
+
+  function scrollToBottom(behavior: ScrollBehavior = "smooth") {
+    const container = chatScrollRef.current;
+    if (!container) return;
+    container.scrollTo({ top: container.scrollHeight, behavior });
+  }
+
+  function handleChatScroll() {
+    const container = chatScrollRef.current;
+    if (!container) return;
+    const distance = container.scrollHeight - container.scrollTop - container.clientHeight;
+    const nearBottom = distance < 120;
+    setAutoScroll(nearBottom);
+    setShowScrollToBottom(!nearBottom);
+  }
+
+  function toggleSuggestions() {
+    setShowSuggestions((current) => {
+      const next = !current;
+      try {
+        window.localStorage.setItem("cpipos-ai-show-suggestions", next ? "1" : "0");
+      } catch {
+        // Local preference is optional.
+      }
+      return next;
+    });
+  }
+
+  function resizeComposer(target: HTMLTextAreaElement) {
+    target.style.height = "auto";
+    target.style.height = `${Math.min(target.scrollHeight, 128)}px`;
+  }
+
+  useEffect(() => {
+    if (!autoScroll) return;
+    requestAnimationFrame(() => scrollToBottom(sending ? "auto" : "smooth"));
+  }, [messages, sending, autoScroll]);
 
   async function sendMessage(prompt?: string) {
     const messageText = String(prompt ?? input).trim();
@@ -339,9 +408,13 @@ export function CpiPosAiAssistant({ lang }: { lang: Language }) {
       role: "user",
       text: messageText
     };
+    setAutoScroll(true);
+    setShowScrollToBottom(false);
     setMessages((current) => [...current, userMessage]);
     setInput("");
+    if (textareaRef.current) textareaRef.current.style.height = "auto";
     setSending(true);
+    requestAnimationFrame(() => scrollToBottom("smooth"));
 
     try {
       const response = await fetch("/api/pos/ai/assistant", {
@@ -350,7 +423,7 @@ export function CpiPosAiAssistant({ lang }: { lang: Language }) {
         body: JSON.stringify({ message: messageText })
       });
       const body = (await response.json().catch(() => null)) as ApiEnvelope<{ answer?: string; overview?: Overview; proposals?: AiProposal[]; quota?: AiQuotaStatus }>;
-      if (!response.ok) throw new Error(body?.error?.message ?? "CpiPOS AI ไม่สามารถตอบได้ในขณะนี้");
+      if (!response.ok) throw new Error(friendlyAiError(body?.error?.message));
 
       if (body?.data?.overview) setOverview(body.data.overview);
       if (body?.data?.quota) setQuota(body.data.quota);
@@ -369,7 +442,7 @@ export function CpiPosAiAssistant({ lang }: { lang: Language }) {
         {
           id: `assistant-error-${Date.now()}`,
           role: "assistant",
-          text: error instanceof Error ? error.message : "CpiPOS AI ไม่สามารถตอบได้ในขณะนี้"
+          text: friendlyAiError(error instanceof Error ? error.message : error)
         }
       ]);
     } finally {
@@ -383,14 +456,14 @@ export function CpiPosAiAssistant({ lang }: { lang: Language }) {
     try {
       const response = await fetch("/api/pos/ai/assistant", { method: "DELETE" });
       const body = (await response.json().catch(() => null)) as ApiEnvelope<{ cleared?: boolean }>;
-      if (!response.ok) throw new Error(body?.error?.message ?? "ไม่สามารถล้างประวัติ AI ได้");
+      if (!response.ok) throw new Error(friendlyAiError(body?.error?.message));
       setMessages([welcomeMessage(lang)]);
       setProposalStatus({});
     } catch (error) {
       setMessages((current) => [...current, {
         id: `history-error-${Date.now()}`,
         role: "assistant",
-        text: error instanceof Error ? error.message : "ไม่สามารถล้างประวัติ AI ได้"
+        text: friendlyAiError(error instanceof Error ? error.message : error)
       }]);
     } finally {
       setSending(false);
@@ -489,8 +562,8 @@ export function CpiPosAiAssistant({ lang }: { lang: Language }) {
   }
 
   return (
-    <main className="h-full min-h-0 w-full overflow-y-auto bg-[#f5f9ff] p-3 sm:p-4 xl:p-5">
-      <section className="mx-auto flex min-h-full w-full max-w-[1500px] flex-col gap-3">
+    <main className="h-full min-h-0 w-full overflow-hidden bg-[#f5f9ff] p-3 sm:p-4 xl:p-5">
+      <section className="mx-auto flex h-full min-h-0 w-full max-w-[1500px] flex-col gap-3">
         <header className="relative overflow-hidden rounded-3xl border border-blue-100 bg-[radial-gradient(circle_at_78%_15%,rgba(56,189,248,0.28),transparent_24%),linear-gradient(120deg,#ffffff,#eef6ff_58%,#e9fbff)] px-4 py-4 shadow-[0_10px_35px_rgba(37,99,235,0.08)] sm:px-6">
           <div className="absolute -right-6 -top-8 h-32 w-32 rounded-full bg-blue-300/20 blur-2xl" />
           <div className="relative flex items-center gap-4">
@@ -544,28 +617,46 @@ export function CpiPosAiAssistant({ lang }: { lang: Language }) {
         </header>
 
         <div className="min-h-0 flex-1">
-          <section className="flex min-h-[620px] flex-col overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-[0_12px_36px_rgba(15,23,42,0.07)]">
-            <div className="border-b border-slate-100 px-4 py-3 sm:px-5">
+          <section className="flex h-full min-h-0 flex-col overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-[0_12px_36px_rgba(15,23,42,0.07)]">
+            <div className="shrink-0 border-b border-slate-100 px-4 py-3 sm:px-5">
               <div className="flex flex-wrap items-center gap-2">
                 <span className="text-xs font-black uppercase tracking-[0.14em] text-blue-600">AI CHAT</span>
-                <span className="text-xs font-medium text-slate-400">ถามเป็นภาษาไทยได้เลย</span>
+                <span className="rounded-full bg-blue-50 px-2.5 py-1 text-[10px] font-bold text-blue-700">ถามเป็นภาษาไทยได้เลย</span>
+                <button
+                  type="button"
+                  onClick={toggleSuggestions}
+                  className="ml-auto inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-[11px] font-bold text-slate-600 transition hover:border-blue-200 hover:text-blue-700"
+                  aria-expanded={showSuggestions}
+                >
+                  {showSuggestions ? "ซ่อนคำถามแนะนำ" : "แสดงคำถามแนะนำ"}
+                  <svg width="13" height="13" viewBox="0 0 20 20" fill="currentColor" aria-hidden className={`transition-transform ${showSuggestions ? "rotate-180" : ""}`}>
+                    <path d="M5.5 7.5 10 12l4.5-4.5" />
+                  </svg>
+                </button>
               </div>
-              <div className="mt-3 flex flex-wrap gap-2">
-                {QUICK_PROMPTS.map((prompt) => (
-                  <button
-                    key={prompt}
-                    type="button"
-                    onClick={() => void sendMessage(prompt)}
-                    disabled={sending || quota?.exhausted || quota?.enabled === false}
-                    className="shrink-0 rounded-full border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-bold text-blue-700 transition hover:border-blue-300 hover:bg-blue-100 disabled:cursor-wait disabled:opacity-50"
-                  >
-                    {prompt}
-                  </button>
-                ))}
-              </div>
+              {showSuggestions ? (
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {QUICK_PROMPTS.map((prompt) => (
+                    <button
+                      key={prompt}
+                      type="button"
+                      onClick={() => void sendMessage(prompt)}
+                      disabled={sending || quota?.exhausted || quota?.enabled === false}
+                      className="shrink-0 rounded-full border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-bold text-blue-700 transition hover:border-blue-300 hover:bg-blue-100 disabled:cursor-wait disabled:opacity-50"
+                    >
+                      {prompt}
+                    </button>
+                  ))}
+                </div>
+              ) : null}
             </div>
 
-            <div className="min-h-0 flex-1 space-y-4 overflow-y-auto bg-[linear-gradient(180deg,#ffffff,#fbfdff)] px-4 py-5 sm:px-5">
+            <div className="relative min-h-0 flex-1">
+              <div
+                ref={chatScrollRef}
+                onScroll={handleChatScroll}
+                className="h-full min-h-0 space-y-4 overflow-y-auto overscroll-contain bg-[linear-gradient(180deg,#ffffff,#fbfdff)] px-4 py-5 sm:px-5"
+              >
               {messages.map((message) => (
                 <div key={message.id} className={`flex gap-3 ${message.role === "user" ? "justify-end" : "justify-start"}`}>
                   {message.role === "assistant" ? (
@@ -639,15 +730,33 @@ export function CpiPosAiAssistant({ lang }: { lang: Language }) {
                   </div>
                 </div>
               ) : null}
-              <div ref={chatEndRef} />
+                <div ref={chatEndRef} />
+              </div>
+              {showScrollToBottom ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAutoScroll(true);
+                    setShowScrollToBottom(false);
+                    scrollToBottom("smooth");
+                  }}
+                  className="absolute bottom-3 right-4 z-10 inline-flex h-9 items-center gap-1 rounded-full border border-slate-200 bg-white/95 px-3 text-xs font-black text-slate-600 shadow-lg backdrop-blur transition hover:border-blue-200 hover:text-blue-700"
+                >
+                  ↓ กลับลงล่าง
+                </button>
+              ) : null}
             </div>
 
-            <form onSubmit={submit} className="border-t border-slate-100 bg-white p-3 sm:p-4">
+            <form onSubmit={submit} className="sticky bottom-0 z-20 shrink-0 border-t border-slate-100 bg-white/95 p-3 backdrop-blur sm:p-4">
               <div className="flex items-end gap-2 rounded-2xl border border-blue-200 bg-white p-2 shadow-[0_5px_20px_rgba(37,99,235,0.06)] focus-within:border-blue-400 focus-within:ring-2 focus-within:ring-blue-100">
                 <span className="mb-2 ml-1 text-blue-500"><SparkleIcon size={19} /></span>
                 <textarea
+                  ref={textareaRef}
                   value={input}
-                  onChange={(event) => setInput(event.target.value)}
+                  onChange={(event) => {
+                    setInput(event.target.value);
+                    resizeComposer(event.currentTarget);
+                  }}
                   onKeyDown={handleKeyDown}
                   rows={1}
                   maxLength={1200}
