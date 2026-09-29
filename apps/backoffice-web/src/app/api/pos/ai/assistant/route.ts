@@ -667,15 +667,35 @@ export async function POST(request: Request) {
       return fail(status === 503 ? "ai_not_configured" : "ai_provider_failed", messageText, status);
     }
 
+    let metering: Awaited<ReturnType<typeof recordAiUsage>> | null = null;
+    try {
+      metering = await recordAiUsage({
+        tenantId: auth.tenantId!,
+        branchId: auth.branchId!,
+        userId: auth.userId,
+        conversationId,
+        promptText: message,
+        responsePayload: result.payload,
+        fallbackModel: AI_MODEL
+      });
+    } catch (meterError) {
+      console.error("[cpipos-ai] usage metering failed", meterError);
+    }
+
     return ok({
       answer: result.text,
       proposals: result.proposals,
       overview,
+      quota,
+      metering,
       model: AI_MODEL,
       mode: "confirm_then_pin",
       history_source: "openai_conversations"
     });
   } catch (error) {
+    if (error instanceof AiQuotaError) {
+      return fail(error.code, error.message, error.status);
+    }
     return fail("ai_assistant_failed", error instanceof Error ? error.message : "Unable to use CpiPOS AI.", 500);
   }
 }
