@@ -2,7 +2,7 @@ import { getPosApiAuthContext } from "@/lib/pos-api-auth";
 import { readEnv } from "@/lib/env";
 import { fail, ok } from "@/lib/http";
 import { isTenantPosMenuEnabled } from "@/lib/server/pos-menu-policy-service";
-import { deleteAiConversationForUser, getOrCreateAiConversation, listAiConversationMessages } from "@/lib/services/ai-conversation-service";
+import { addAiConversationItems, deleteAiConversationForUser, getOrCreateAiConversation, listAiConversationMessages } from "@/lib/services/ai-conversation-service";
 import { loadPosSalesSummaryData } from "@/lib/services/pos-sales-summary-service";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
 
@@ -561,6 +561,24 @@ async function callOpenAi(
         ? String((payload as { error?: { message?: string } }).error?.message ?? "AI request failed.")
         : "AI request failed.";
     throw new Error(detail);
+  }
+
+  const toolCalls = ((payload as { output?: Array<{ type?: string; call_id?: string; name?: string }> }).output ?? [])
+    .filter((item) => item.type === "function_call" && item.call_id);
+  if (toolCalls.length) {
+    await addAiConversationItems(
+      conversationId,
+      toolCalls.map((item) => ({
+        type: "function_call_output",
+        call_id: item.call_id,
+        output: JSON.stringify({
+          status: "proposal_prepared",
+          executed: false,
+          requires_user_confirmation: true,
+          note: "The current store snapshot in the next turn is authoritative for whether the user later executed this proposal."
+        })
+      }))
+    );
   }
 
   const proposals = extractProposals(payload, snapshot);
