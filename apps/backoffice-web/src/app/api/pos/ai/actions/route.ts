@@ -56,7 +56,7 @@ async function validatePriceApproval(input: {
     .eq("tenant_id", input.tenantId)
     .eq("branch_id", input.branchId)
     .eq("requested_by", input.userId)
-    .eq("action", "ai_product_price_update")
+    .eq("action", "sales_record_edit")
     .eq("target_table", "products")
     .eq("target_id", input.productId)
     .gt("expires_at", new Date().toISOString())
