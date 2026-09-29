@@ -154,7 +154,7 @@ function canUseAi(branchRole: string | null, _platformRole: string | null) {
 
 async function aiPolicyAllowed(tenantId: string | null) {
   if (!tenantId) return false;
-  return isTenantPosMenuEnabled(tenantId, "more.ai_assistant");
+  return isTenantPosMenuEnabled(tenantId, "main.ai_assistant");
 }
 
 function bangkokDate(offsetDays = 0) {
