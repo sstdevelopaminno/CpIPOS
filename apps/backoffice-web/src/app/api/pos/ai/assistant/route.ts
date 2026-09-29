@@ -660,7 +660,8 @@ export async function GET() {
       history_source: "openai_conversations"
     });
   } catch (error) {
-    return fail("ai_assistant_overview_failed", error instanceof Error ? error.message : "Unable to load AI overview.", 500);
+    console.error("[cpipos-ai] overview failed", error);
+    return fail("ai_assistant_overview_failed", "ไม่สามารถโหลดข้อมูล CpiPOS AI ได้ในขณะนี้", 500);
   }
 }
 
@@ -708,7 +709,14 @@ export async function POST(request: Request) {
     } catch (error) {
       const messageText = error instanceof Error ? error.message : "CpiPOS AI request failed.";
       const status = messageText.includes("OPENAI_API_KEY") ? 503 : 502;
-      return fail(status === 503 ? "ai_not_configured" : "ai_provider_failed", messageText, status);
+      console.error("[cpipos-ai] provider request failed", error);
+      return fail(
+        status === 503 ? "ai_not_configured" : "ai_provider_failed",
+        status === 503
+          ? "CpiPOS AI ยังไม่พร้อมใช้งาน กรุณาติดต่อผู้ดูแลระบบ"
+          : "CpiPOS AI เชื่อมต่อบริการ AI ไม่สำเร็จชั่วคราว กรุณาลองใหม่อีกครั้ง",
+        status
+      );
     }
 
     let metering: Awaited<ReturnType<typeof recordAiUsage>> | null = null;
@@ -741,7 +749,8 @@ export async function POST(request: Request) {
     if (error instanceof AiQuotaError) {
       return fail(error.code, error.message, error.status);
     }
-    return fail("ai_assistant_failed", error instanceof Error ? error.message : "Unable to use CpiPOS AI.", 500);
+    console.error("[cpipos-ai] assistant failed", error);
+    return fail("ai_assistant_failed", "CpiPOS AI ขัดข้องชั่วคราว กรุณาลองใหม่อีกครั้ง", 500);
   }
 }
 
@@ -766,6 +775,7 @@ export async function DELETE() {
     if (redactError) throw new Error(`ai_usage_prompt_redaction_failed:${redactError.message}`);
     return ok({ cleared: true, usage_accounting_retained: true });
   } catch (error) {
-    return fail("ai_history_clear_failed", error instanceof Error ? error.message : "Unable to clear CpiPOS AI history.", 500);
+    console.error("[cpipos-ai] history clear failed", error);
+    return fail("ai_history_clear_failed", "ไม่สามารถล้างประวัติ CpiPOS AI ได้ในขณะนี้", 500);
   }
 }
