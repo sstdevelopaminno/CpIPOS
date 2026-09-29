@@ -38,7 +38,7 @@ function textValue(value: unknown, max = 500) {
 
 async function ensureAiPolicy(tenantId: string | null) {
   if (!tenantId) return false;
-  return isTenantPosMenuEnabled(tenantId, "more.ai_assistant");
+  return isTenantPosMenuEnabled(tenantId, "main.ai_assistant");
 }
 
 async function validatePriceApproval(input: {
