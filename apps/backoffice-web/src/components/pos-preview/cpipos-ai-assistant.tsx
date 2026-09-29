@@ -496,22 +496,21 @@ export function CpiPosAiAssistant({ lang }: { lang: Language }) {
           <div className="relative flex items-center gap-4">
             <div className="relative flex h-16 w-16 shrink-0 items-center justify-center rounded-2xl border border-white bg-white/85 shadow-lg shadow-blue-500/10">
               <Image src="/brand/cpipos-symbol-sidebar.png" alt="CpiPOS" width={50} height={50} className="h-12 w-12 object-contain" priority />
-              <span className="absolute -bottom-1 -right-2 rounded-full border-2 border-white bg-gradient-to-r from-blue-600 to-cyan-400 px-2 py-0.5 text-[9px] font-black tracking-wide text-white shadow-md">
-                AI
-              </span>
             </div>
             <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-2">
                 <h1 className="text-xl font-black tracking-tight text-[#0d2344] sm:text-2xl">CpiPOS AI ผู้ช่วยร้านค้า</h1>
-                <span className="inline-flex items-center gap-1 rounded-full bg-blue-600/10 px-2.5 py-1 text-[11px] font-black text-blue-700">
-                  <SparkleIcon size={13} /> BETA
-                </span>
               </div>
               <p className="mt-1 text-sm font-medium text-slate-600">ผู้ช่วยอัจฉริยะสำหรับยอดขาย ต้นทุน สต๊อก และการตลาด — วิเคราะห์จากข้อมูลร้านใน CpiPOS</p>
               <div className="mt-2 flex flex-wrap items-center gap-2">
                 <span className="rounded-full border border-blue-100 bg-white/75 px-2.5 py-1 text-[10px] font-bold text-blue-700">
                   ประวัติส่วนตัวตามบัญชี Owner/Manager · OpenAI Conversation
                 </span>
+                {quota ? (
+                  <span className={`rounded-full border px-2.5 py-1 text-[10px] font-bold ${quota.exhausted ? "border-red-200 bg-red-50 text-red-700" : "border-emerald-200 bg-emerald-50 text-emerald-700"}`}>
+                    เดือน {quota.month_key}: {quota.usage.requests}{quota.limits.requests ? `/${quota.limits.requests}` : ""} ครั้ง · {new Intl.NumberFormat("th-TH").format(quota.usage.total_tokens)} tokens
+                  </span>
+                ) : null}
                 <button
                   type="button"
                   onClick={() => void clearHistory()}
