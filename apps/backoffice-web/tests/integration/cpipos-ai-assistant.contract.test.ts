@@ -17,6 +17,8 @@ const policyService = source("../../src/lib/server/pos-menu-policy-service.ts");
 const sharedTypes = source("../../../../packages/shared-types/src/index.ts");
 const conversationService = source("../../src/lib/services/ai-conversation-service.ts");
 const conversationMigration = source("../../../../supabase/migrations/20260929183000_pos_ai_openai_conversation_links.sql");
+const usageService = source("../../src/lib/services/ai-usage-service.ts");
+const usageMigration = source("../../../../supabase/migrations/20260929224000_pos_ai_usage_quota.sql");
 
 describe("CpiPOS AI store assistant", () => {
   it("promotes AI to a first-class main menu and removes it from More", () => {
@@ -102,6 +104,29 @@ describe("CpiPOS AI store assistant", () => {
     expect(conversationMigration).not.toContain("message_text");
     expect(aiWorkspace).toContain("OpenAI Conversation");
     expect(aiWorkspace).toContain("ล้างประวัติของฉัน");
+  });
+
+  it("enforces package/store monthly quota and records token cost", () => {
+    expect(aiApi).toContain("assertAiQuotaAvailable");
+    expect(aiApi).toContain("recordAiUsage");
+    expect(aiApi).toContain("prompt_cache_key");
+    expect(aiApi).toContain("AiQuotaError");
+    expect(usageService).toContain("pos_ai_package_quotas");
+    expect(usageService).toContain("pos_ai_tenant_quota_overrides");
+    expect(usageService).toContain("pos_ai_usage_events");
+    expect(usageService).toContain('"gpt-6-luna"');
+    expect(usageService).toContain("cached_input_tokens");
+    expect(usageService).toContain("cache_write_tokens");
+    expect(usageService).toContain("total_cost_usd");
+    expect(usageMigration).toContain("monthly_request_limit");
+    expect(usageMigration).toContain("monthly_token_limit");
+    expect(usageMigration).toContain("monthly_cost_limit_usd");
+  });
+
+  it("keeps the promoted AI menu compact without extra AI/BETA badges", () => {
+    expect(staffMenu).not.toContain("bg-cyan-300/15");
+    expect(aiWorkspace).not.toContain("BETA");
+    expect(aiWorkspace).toContain("เดือน {quota.month_key}");
   });
 
   it("keeps destructive or financial reversal actions outside Phase 2", () => {
