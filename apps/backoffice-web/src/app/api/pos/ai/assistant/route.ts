@@ -3,6 +3,7 @@ import { readEnv } from "@/lib/env";
 import { fail, ok } from "@/lib/http";
 import { isTenantPosMenuEnabled } from "@/lib/server/pos-menu-policy-service";
 import { addAiConversationItems, deleteAiConversationForUser, getOrCreateAiConversation, listAiConversationMessages } from "@/lib/services/ai-conversation-service";
+import { AiQuotaError, assertAiQuotaAvailable, loadAiQuotaStatus, recordAiUsage } from "@/lib/services/ai-usage-service";
 import { loadPosSalesSummaryData } from "@/lib/services/pos-sales-summary-service";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
 
@@ -519,7 +520,8 @@ const AI_INSTRUCTIONS = [
 async function callOpenAi(
   message: string,
   conversationId: string,
-  snapshot: Awaited<ReturnType<typeof loadBusinessSnapshot>>
+  snapshot: Awaited<ReturnType<typeof loadBusinessSnapshot>>,
+  promptCacheKey: string
 ) {
   const apiKey = readEnv("OPENAI_API_KEY");
   if (!apiKey) throw new Error("OPENAI_API_KEY is not configured for CpiPOS AI.");
@@ -540,6 +542,7 @@ async function callOpenAi(
     body: JSON.stringify({
       model: AI_MODEL,
       conversation: conversationId,
+      prompt_cache_key: promptCacheKey,
       instructions,
       input: [
         {
@@ -587,7 +590,7 @@ async function callOpenAi(
       ? "ผมเตรียมรายการให้แล้วครับ กรุณาตรวจสอบรายละเอียดด้านล่างก่อนยืนยันดำเนินการ"
       : "ผมยังไม่สามารถสรุปคำตอบจากข้อมูลรอบนี้ได้ กรุณาลองถามใหม่อีกครั้ง");
 
-  return { text, proposals };
+  return { text, proposals, payload };
 }
 
 function conversationScope(auth: Awaited<ReturnType<typeof getPosApiAuthContext>>) {
@@ -611,14 +614,16 @@ export async function GET() {
     if (!(await aiPolicyAllowed(auth.tenantId))) {
       return fail("ai_assistant_disabled_by_it", "CpiPOS AI is disabled for this store by IT policy.", 403);
     }
-    const [overview, conversationId] = await Promise.all([
+    const [overview, conversationId, quota] = await Promise.all([
       loadBusinessSnapshot(auth),
-      getOrCreateAiConversation(conversationScope(auth))
+      getOrCreateAiConversation(conversationScope(auth)),
+      loadAiQuotaStatus(auth.tenantId!)
     ]);
     const history = await listAiConversationMessages(conversationId, 60);
     return ok({
       overview,
       history,
+      quota,
       model: AI_MODEL,
       mode: "confirm_then_pin",
       history_source: "openai_conversations"
@@ -642,6 +647,7 @@ export async function POST(request: Request) {
     const message = String(body?.message ?? "").trim().slice(0, 1200);
     if (!message) return fail("ai_message_required", "Please enter a question for CpiPOS AI.", 422);
 
+    const quota = await assertAiQuotaAvailable(auth.tenantId!);
     const [overview, conversationId] = await Promise.all([
       loadBusinessSnapshot(auth),
       getOrCreateAiConversation(conversationScope(auth))
@@ -649,22 +655,48 @@ export async function POST(request: Request) {
 
     let result: Awaited<ReturnType<typeof callOpenAi>>;
     try {
-      result = await callOpenAi(message, conversationId, overview);
+      result = await callOpenAi(
+        message,
+        conversationId,
+        overview,
+        `cpipos:${auth.tenantId}:${auth.userId}`
+      );
     } catch (error) {
       const messageText = error instanceof Error ? error.message : "CpiPOS AI request failed.";
       const status = messageText.includes("OPENAI_API_KEY") ? 503 : 502;
       return fail(status === 503 ? "ai_not_configured" : "ai_provider_failed", messageText, status);
     }
 
+    let metering: Awaited<ReturnType<typeof recordAiUsage>> | null = null;
+    try {
+      metering = await recordAiUsage({
+        tenantId: auth.tenantId!,
+        branchId: auth.branchId!,
+        userId: auth.userId,
+        conversationId,
+        promptText: message,
+        responsePayload: result.payload,
+        fallbackModel: AI_MODEL
+      });
+    } catch (meterError) {
+      console.error("[cpipos-ai] usage metering failed", meterError);
+    }
+
+    const quotaAfter = metering ? await loadAiQuotaStatus(auth.tenantId!) : quota;
     return ok({
       answer: result.text,
       proposals: result.proposals,
       overview,
+      quota: quotaAfter,
+      metering,
       model: AI_MODEL,
       mode: "confirm_then_pin",
       history_source: "openai_conversations"
     });
   } catch (error) {
+    if (error instanceof AiQuotaError) {
+      return fail(error.code, error.message, error.status);
+    }
     return fail("ai_assistant_failed", error instanceof Error ? error.message : "Unable to use CpiPOS AI.", 500);
   }
 }
@@ -679,7 +711,16 @@ export async function DELETE() {
       return fail("ai_assistant_disabled_by_it", "CpiPOS AI is disabled for this store by IT policy.", 403);
     }
     await deleteAiConversationForUser(conversationScope(auth));
-    return ok({ cleared: true });
+    const clearedAt = new Date().toISOString();
+    const { error: redactError } = await getSupabaseServiceClient()
+      .from("pos_ai_usage_events")
+      .update({ prompt_text: null, history_cleared_at: clearedAt })
+      .eq("tenant_id", auth.tenantId!)
+      .eq("branch_id", auth.branchId!)
+      .eq("user_id", auth.userId)
+      .is("history_cleared_at", null);
+    if (redactError) throw new Error(`ai_usage_prompt_redaction_failed:${redactError.message}`);
+    return ok({ cleared: true, usage_accounting_retained: true });
   } catch (error) {
     return fail("ai_history_clear_failed", error instanceof Error ? error.message : "Unable to clear CpiPOS AI history.", 500);
   }

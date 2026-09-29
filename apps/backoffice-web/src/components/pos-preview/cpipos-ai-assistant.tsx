@@ -52,6 +52,16 @@ type Overview = {
   };
 };
 
+type AiQuotaStatus = {
+  enabled: boolean;
+  source: "package" | "tenant_custom" | "tenant_unlimited";
+  month_key: string;
+  limits: { requests: number | null; tokens: number | null; cost_usd: number | null };
+  usage: { requests: number; total_tokens: number; cost_usd: number };
+  exhausted: boolean;
+  exhausted_by: Array<"requests" | "tokens" | "cost">;
+};
+
 type AiProposal =
   | {
       id: string;
@@ -263,6 +273,7 @@ export function CpiPosAiAssistant({ lang }: { lang: Language }) {
   const [overview, setOverview] = useState<Overview | null>(null);
   const [overviewLoading, setOverviewLoading] = useState(true);
   const [overviewError, setOverviewError] = useState<string | null>(null);
+  const [quota, setQuota] = useState<AiQuotaStatus | null>(null);
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
   const [pendingProposal, setPendingProposal] = useState<AiProposal | null>(null);
@@ -293,10 +304,11 @@ export function CpiPosAiAssistant({ lang }: { lang: Language }) {
       setOverviewError(null);
       try {
         const response = await fetch("/api/pos/ai/assistant", { cache: "no-store" });
-        const body = (await response.json().catch(() => null)) as ApiEnvelope<{ overview?: Overview; history?: ChatMessage[] }>;
+        const body = (await response.json().catch(() => null)) as ApiEnvelope<{ overview?: Overview; history?: ChatMessage[]; quota?: AiQuotaStatus }>;
         if (!response.ok) throw new Error(body?.error?.message ?? "ไม่สามารถโหลดข้อมูลร้านได้");
         if (!cancelled) {
           setOverview(body?.data?.overview ?? null);
+          setQuota(body?.data?.quota ?? null);
           const storedHistory = Array.isArray(body?.data?.history)
             ? body.data.history.filter((message) => message.role === "user" || message.role === "assistant")
             : [];
@@ -320,7 +332,7 @@ export function CpiPosAiAssistant({ lang }: { lang: Language }) {
 
   async function sendMessage(prompt?: string) {
     const messageText = String(prompt ?? input).trim();
-    if (!messageText || sending) return;
+    if (!messageText || sending || quota?.exhausted || quota?.enabled === false) return;
 
     const userMessage: ChatMessage = {
       id: `user-${Date.now()}`,
@@ -337,10 +349,11 @@ export function CpiPosAiAssistant({ lang }: { lang: Language }) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ message: messageText })
       });
-      const body = (await response.json().catch(() => null)) as ApiEnvelope<{ answer?: string; overview?: Overview; proposals?: AiProposal[] }>;
+      const body = (await response.json().catch(() => null)) as ApiEnvelope<{ answer?: string; overview?: Overview; proposals?: AiProposal[]; quota?: AiQuotaStatus }>;
       if (!response.ok) throw new Error(body?.error?.message ?? "CpiPOS AI ไม่สามารถตอบได้ในขณะนี้");
 
       if (body?.data?.overview) setOverview(body.data.overview);
+      if (body?.data?.quota) setQuota(body.data.quota);
       setMessages((current) => [
         ...current,
         {
@@ -387,8 +400,9 @@ export function CpiPosAiAssistant({ lang }: { lang: Language }) {
   async function refreshOverview() {
     try {
       const response = await fetch("/api/pos/ai/assistant", { cache: "no-store" });
-      const body = (await response.json().catch(() => null)) as ApiEnvelope<{ overview?: Overview }>;
+      const body = (await response.json().catch(() => null)) as ApiEnvelope<{ overview?: Overview; quota?: AiQuotaStatus }>;
       if (response.ok && body?.data?.overview) setOverview(body.data.overview);
+      if (response.ok && body?.data?.quota) setQuota(body.data.quota);
     } catch {
       // Keep the confirmed action result visible even if the dashboard refresh fails.
     }
@@ -482,22 +496,21 @@ export function CpiPosAiAssistant({ lang }: { lang: Language }) {
           <div className="relative flex items-center gap-4">
             <div className="relative flex h-16 w-16 shrink-0 items-center justify-center rounded-2xl border border-white bg-white/85 shadow-lg shadow-blue-500/10">
               <Image src="/brand/cpipos-symbol-sidebar.png" alt="CpiPOS" width={50} height={50} className="h-12 w-12 object-contain" priority />
-              <span className="absolute -bottom-1 -right-2 rounded-full border-2 border-white bg-gradient-to-r from-blue-600 to-cyan-400 px-2 py-0.5 text-[9px] font-black tracking-wide text-white shadow-md">
-                AI
-              </span>
             </div>
             <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-2">
                 <h1 className="text-xl font-black tracking-tight text-[#0d2344] sm:text-2xl">CpiPOS AI ผู้ช่วยร้านค้า</h1>
-                <span className="inline-flex items-center gap-1 rounded-full bg-blue-600/10 px-2.5 py-1 text-[11px] font-black text-blue-700">
-                  <SparkleIcon size={13} /> BETA
-                </span>
               </div>
               <p className="mt-1 text-sm font-medium text-slate-600">ผู้ช่วยอัจฉริยะสำหรับยอดขาย ต้นทุน สต๊อก และการตลาด — วิเคราะห์จากข้อมูลร้านใน CpiPOS</p>
               <div className="mt-2 flex flex-wrap items-center gap-2">
                 <span className="rounded-full border border-blue-100 bg-white/75 px-2.5 py-1 text-[10px] font-bold text-blue-700">
                   ประวัติส่วนตัวตามบัญชี Owner/Manager · OpenAI Conversation
                 </span>
+                {quota ? (
+                  <span className={`rounded-full border px-2.5 py-1 text-[10px] font-bold ${quota.exhausted ? "border-red-200 bg-red-50 text-red-700" : "border-emerald-200 bg-emerald-50 text-emerald-700"}`}>
+                    เดือน {quota.month_key}: {quota.usage.requests}{quota.limits.requests ? `/${quota.limits.requests}` : ""} ครั้ง · {new Intl.NumberFormat("th-TH").format(quota.usage.total_tokens)} tokens
+                  </span>
+                ) : null}
                 <button
                   type="button"
                   onClick={() => void clearHistory()}
@@ -543,7 +556,7 @@ export function CpiPosAiAssistant({ lang }: { lang: Language }) {
                     key={prompt}
                     type="button"
                     onClick={() => void sendMessage(prompt)}
-                    disabled={sending}
+                    disabled={sending || quota?.exhausted || quota?.enabled === false}
                     className="shrink-0 rounded-full border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-bold text-blue-700 transition hover:border-blue-300 hover:bg-blue-100 disabled:cursor-wait disabled:opacity-50"
                   >
                     {prompt}
@@ -638,12 +651,12 @@ export function CpiPosAiAssistant({ lang }: { lang: Language }) {
                   onKeyDown={handleKeyDown}
                   rows={1}
                   maxLength={1200}
-                  placeholder="พิมพ์คำถามถึง CpiPOS AI..."
+                  placeholder={quota?.exhausted ? "โควตา AI เดือนนี้ครบแล้ว" : quota?.enabled === false ? "AI ถูกปิดสำหรับร้านนี้" : "พิมพ์คำถามถึง CpiPOS AI..."}
                   className="max-h-32 min-h-[42px] flex-1 resize-none border-0 bg-transparent px-1 py-2.5 text-sm font-medium text-slate-800 outline-none placeholder:text-slate-400"
                 />
                 <button
                   type="submit"
-                  disabled={sending || !input.trim()}
+                  disabled={sending || !input.trim() || quota?.exhausted || quota?.enabled === false}
                   className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-blue-600 to-cyan-500 text-white shadow-lg shadow-blue-500/20 transition hover:scale-[1.02] disabled:cursor-not-allowed disabled:opacity-40"
                   aria-label="ส่งข้อความ"
                 >
