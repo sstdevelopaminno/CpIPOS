@@ -155,7 +155,6 @@ export function PosStaffMenu({ lang, collapsed, orientation = "vertical", sessio
         >
           <span className="inline-flex w-4 justify-center text-cyan-200" aria-hidden><MenuIcon name="ai" /></span>
           {(!collapsed || isHorizontal) ? <span className="truncate text-[13px]">{aiLabel}</span> : null}
-          {(!collapsed || isHorizontal) && !aiPolicyLocked && !aiFeatureLocked ? <span className="ml-auto rounded-full bg-cyan-300/15 px-1.5 py-0.5 text-[9px] font-black text-cyan-100">AI</span> : null}
           {renderLock(aiPolicyLocked || aiFeatureLocked)}
         </Link>
       ) : null}
