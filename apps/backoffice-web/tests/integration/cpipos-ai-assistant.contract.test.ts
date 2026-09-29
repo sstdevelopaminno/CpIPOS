@@ -55,12 +55,12 @@ describe("CpiPOS AI store assistant", () => {
     expect(aiApi).toContain("propose_marketing_campaign");
     expect(aiApi).toContain('mode: "confirm_then_pin"');
     expect(aiWorkspace).toContain("PosManagerApprovalModal");
-    expect(aiWorkspace).toContain("ai_product_price_update");
+    expect(aiWorkspace).toContain("sales_record_edit");
     expect(aiWorkspace).toContain('fetch("/api/pos/ai/actions"');
     expect(aiActions).toContain('action: "update_product_price"');
     expect(aiActions).toContain('action: "adjust_stock"');
     expect(aiActions).toContain("appendAuditLog");
-    expect(sharedTypes).toContain('"ai_product_price_update"');
+    expect(sharedTypes).toContain('"sales_record_edit"');
     expect(featureMap).toContain('"/preview/pos/ai-assistant": "core_pos_sales"');
   });
 
