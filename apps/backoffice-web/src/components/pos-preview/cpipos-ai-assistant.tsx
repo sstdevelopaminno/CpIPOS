@@ -137,7 +137,7 @@ function friendlyAiError(message: unknown) {
   if (/quota|โควตา/i.test(text)) {
     return "โควตา CpiPOS AI ของร้านนี้ครบหรือถูกปิดแล้ว กรุณาตรวจสอบแพ็กเกจหรือติดต่อผู้ดูแลระบบ";
   }
-  if (/OPENAI_API_KEY|api key|authorization/i.test(text)) {
+  if (/api key|authorization/i.test(text)) {
     return "CpiPOS AI ยังไม่พร้อมใช้งานชั่วคราว กรุณาติดต่อผู้ดูแลระบบ";
   }
   if (/rate[_ -]?limit|too many requests/i.test(text)) {
