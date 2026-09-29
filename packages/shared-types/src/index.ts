@@ -19,7 +19,8 @@ export type ApprovalAction =
   | "transfer_payment_override"
   | "payment_account_delete"
   | "sales_record_edit"
-  | "sales_record_delete";
+  | "sales_record_delete"
+  | "ai_product_price_update";
 export type PrinterConnectionType = "NETWORK_ESC_POS" | "STAR_WEBPRNT" | "LOCAL_BRIDGE" | "BLUETOOTH_BRIDGE";
 export type PrinterRole = "receipt" | "kitchen" | "report";
 export type PrintJobStatus = "pending" | "printing" | "printed" | "failed" | "retrying";
