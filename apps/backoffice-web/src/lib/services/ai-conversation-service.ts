@@ -125,6 +125,17 @@ export async function getOrCreateAiConversation(scope: AiConversationScope): Pro
   return conversationId;
 }
 
+export async function addAiConversationItems(conversationId: string, items: Array<Record<string, unknown>>): Promise<void> {
+  if (!items.length) return;
+  await openAiFetch(
+    `/conversations/${encodeURIComponent(conversationId)}/items`,
+    {
+      method: "POST",
+      body: JSON.stringify({ items: items.slice(0, 20) })
+    }
+  );
+}
+
 function textFromItem(item: ConversationItem) {
   if (item.type !== "message") return "";
   return (item.content ?? [])
