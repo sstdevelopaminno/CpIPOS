@@ -30,6 +30,9 @@ describe("CpiPOS AI workspace and document vault", () => {
     expect(ui).toContain("แนบรูปเพื่อวิเคราะห์");
     expect(ui).toContain("image/jpeg");
     expect(aiApi).toContain("compactSnapshotForMessage");
+    expect(aiApi).toContain("loadBusinessSnapshotForMessage");
+    expect(aiApi).toContain("loaded_sections");
+    expect(aiApi).toContain("includeCatalog: false");
     expect(aiApi).toContain("responseTokenBudget");
     expect(aiApi).toContain("CPIPOS_HELP_GUIDE");
     expect(aiApi).toContain('type: "input_image"');
@@ -48,6 +51,7 @@ describe("CpiPOS AI workspace and document vault", () => {
     expect(documentService).toContain("MAX_SOURCE_BYTES");
     expect(documentService).toContain("storage_limit_mb");
     expect(documentService).toContain("max_files");
+    expect(documentService).toContain('rpc("pos_ai_document_tenant_usage"');
     expect(documentsApi).toContain("saveAiDocument");
   });
 
