@@ -42,8 +42,16 @@ export async function GET(_request: Request, context: { params: Promise<{ roomId
     const { roomId } = await context.params;
     const room = await getAiChatRoom(scopeFrom(checked.auth), roomId);
     if (!room) return fail("ai_chat_room_not_found", "ไม่พบห้องแชทนี้", 404);
-    const messages = await listAiConversationMessages(room.openai_conversation_id, 120);
-    return ok({ room: publicAiChatRoom(room), messages });
+
+    let messages: Awaited<ReturnType<typeof listAiConversationMessages>> = [];
+    let historyWarning: string | null = null;
+    try {
+      messages = await listAiConversationMessages(room.openai_conversation_id, 120);
+    } catch (error) {
+      console.warn("[cpipos-ai] room history temporarily unavailable", error);
+      historyWarning = "ห้องแชทยังอยู่ แต่โหลดข้อความเก่าไม่สำเร็จชั่วคราว กรุณาลองเปิดห้องนี้อีกครั้ง";
+    }
+    return ok({ room: publicAiChatRoom(room), messages, history_warning: historyWarning });
   } catch (error) {
     console.error("[cpipos-ai] room messages failed", error);
     return fail("ai_chat_room_messages_failed", "ไม่สามารถโหลดข้อความห้องแชทนี้ได้", 500);
