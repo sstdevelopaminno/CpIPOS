@@ -11,6 +11,10 @@ const server = read("../../src/lib/server/pos-menu-policy-service.ts");
 const qrPortal = read("../../src/components/pos-preview/table-qr-settings-menu-portal.tsx");
 const settingsPage = read("../../src/app/preview/pos/settings/page.tsx");
 const lockDialog = read("../../src/components/pos-preview/it-menu-lock-dialog.tsx");
+const featureMap = read("../../src/lib/pos-feature-map.ts");
+const shiftJoinApi = read("../../src/app/api/pos/shifts/join/route.ts");
+const shiftCurrentApi = read("../../src/app/api/pos/shifts/current/route.ts");
+const shiftHistoryApi = read("../../src/app/api/pos/shifts/history/route.ts");
 
 describe("POS tenant menu toggle regression", () => {
   it("uses one authoritative policy table in the POS feature endpoint", () => {
@@ -52,6 +56,16 @@ describe("POS tenant menu toggle regression", () => {
     expect(lockDialog).toContain("event.stopPropagation()");
     expect(lockDialog).toContain("รับทราบ");
     expect(lockDialog).toContain("z-[300]");
+  });
+
+  it("keeps open/close shift as a core POS workflow for every package", () => {
+    expect(featureMap).not.toContain('"/preview/pos/shift": "attendance_tracking"');
+    expect(featureMap).not.toContain('"shift:join": "attendance_tracking"');
+    for (const source of [shiftJoinApi, shiftCurrentApi, shiftHistoryApi]) {
+      expect(source).not.toContain("attendance_tracking");
+      expect(source).not.toContain("requireTenantFeature");
+    }
+    expect(staffMenu).toContain('featureForPosRoute("/preview/pos/shift")');
   });
 
   it("preserves POS direct URL availability; IT menu locks are UI-only, not 404 gates", () => {
