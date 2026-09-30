@@ -399,6 +399,28 @@ export async function deleteAllAiChatRoomsForUser(scope: AiConversationScope): P
   return rooms.length;
 }
 
+export async function pruneExpiredAiChatRooms(scope: AiConversationScope, retentionDays: number | null | undefined): Promise<number> {
+  const days = Number(retentionDays ?? 0);
+  if (!Number.isFinite(days) || days <= 0) return 0;
+  const cutoff = new Date(Date.now() - Math.trunc(days) * 24 * 60 * 60 * 1000).toISOString();
+  const db = getSupabaseServiceClient();
+  const { data, error } = await db
+    .from("pos_ai_chat_rooms")
+    .select("id")
+    .eq("tenant_id", scope.tenantId)
+    .eq("branch_id", scope.branchId)
+    .eq("user_id", scope.userId)
+    .lt("last_message_at", cutoff)
+    .limit(100)
+    .returns<Array<{ id: string }>>();
+  if (error) throw new Error(`ai_chat_room_retention_scan_failed:${error.message}`);
+
+  for (const room of data ?? []) {
+    await deleteAiChatRoom(scope, room.id);
+  }
+  return (data ?? []).length;
+}
+
 // Backward-compatible helpers used by older call sites during the room migration.
 export async function getOrCreateAiConversation(scope: AiConversationScope): Promise<string> {
   return (await getOrCreateAiChatRoom(scope)).openai_conversation_id;
