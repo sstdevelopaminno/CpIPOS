@@ -9,12 +9,14 @@ describe("POS CUSTOM package request flow", () => {
   const route = src("src/app/api/pos/billing/requests/route.ts");
   const ui = src("src/components/pos-preview/pos-subscription-center.tsx");
   const migration = src("../../supabase/migrations/20260928210000_custom_package_commercial_controls.sql");
+  const businessMigration = src("../../supabase/migrations/20260930090000_business_package_catalog.sql");
 
-  it("locks standard retention to six months and gives CUSTOM per-store retention", () => {
-    expect(migration).toContain("new.retention_months := 6");
+  it("keeps CUSTOM per-store retention while fixed packages now own their retention", () => {
     expect(migration).toContain("tenant_custom_package_terms");
-    expect(migration).toContain("when coalesce(sp.quota_mode,'standard') = 'custom'");
-    expect(migration).toContain("else 6");
+    expect(businessMigration).toContain("Starter 6, Growth 12, Business 24");
+    expect(businessMigration).toContain("else coalesce(sp.retention_months,6)");
+    expect(businessMigration).toContain("retention_months = 12");
+    expect(businessMigration).toContain("retention_months = 24");
   });
 
   it("exposes discounted standard package prices and CUSTOM contact-sales state", () => {
