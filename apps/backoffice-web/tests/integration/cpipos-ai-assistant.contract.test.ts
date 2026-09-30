@@ -17,6 +17,9 @@ const policyService = source("../../src/lib/server/pos-menu-policy-service.ts");
 const sharedTypes = source("../../../../packages/shared-types/src/index.ts");
 const conversationService = source("../../src/lib/services/ai-conversation-service.ts");
 const conversationMigration = source("../../../../supabase/migrations/20260929183000_pos_ai_openai_conversation_links.sql");
+const roomMigration = source("../../../../supabase/migrations/20260930133000_cpipos_ai_chat_rooms_retention.sql");
+const roomListApi = source("../../src/app/api/pos/ai/conversations/route.ts");
+const roomApi = source("../../src/app/api/pos/ai/conversations/[roomId]/route.ts");
 const usageService = source("../../src/lib/services/ai-usage-service.ts");
 const usageMigration = source("../../../../supabase/migrations/20260929224000_pos_ai_usage_quota.sql");
 const oneTimeApprovalMigration = source("../../../../supabase/migrations/20260930062000_one_time_manager_pin_approvals.sql");
@@ -121,13 +124,42 @@ describe("CpiPOS AI store assistant", () => {
     expect(aiWorkspace).toContain("friendlyAiError");
   });
 
-  it("stores only a tiny tenant/branch/user pointer in CpiPOS instead of duplicating chat messages", () => {
+  it("stores only a tiny room index locally while full chat content stays in OpenAI Conversations", () => {
     expect(conversationMigration).toContain("pos_ai_conversation_links");
-    expect(conversationMigration).toContain("primary key (tenant_id, branch_id, user_id)");
-    expect(conversationMigration).toContain("openai_conversation_id text not null");
-    expect(conversationMigration).not.toContain("message_text");
-    expect(aiWorkspace).toContain("OpenAI Conversation");
-    expect(aiWorkspace).toContain("ล้างประวัติของฉัน");
+    expect(roomMigration).toContain("create table if not exists public.pos_ai_chat_rooms");
+    expect(roomMigration).toContain("openai_conversation_id text not null unique");
+    expect(roomMigration).not.toContain("message_text");
+    expect(roomMigration).not.toContain("message_content");
+    expect(conversationService).toContain("listAiChatRooms");
+    expect(conversationService).toContain("createAiChatRoom");
+    expect(conversationService).toContain("deleteOpenAiConversationById");
+    expect(roomListApi).toContain('storage: "openai_conversations"');
+    expect(roomApi).toContain("listAiConversationMessages");
+    expect(aiWorkspace).toContain("OpenAI Conversations");
+  });
+
+  it("supports one active room at a time with GPT-like room navigation and deletion", () => {
+    expect(aiWorkspace).toContain("function ChatRoomPanel");
+    expect(aiWorkspace).toContain("แชทใหม่");
+    expect(aiWorkspace).toContain("activeRoomId");
+    expect(aiWorkspace).toContain("openRoom(roomId");
+    expect(aiWorkspace).toContain("createRoom()");
+    expect(aiWorkspace).toContain("deleteRoom(room");
+    expect(aiWorkspace).toContain("☰ ห้องแชท");
+    expect(aiApi).toContain("room_id");
+    expect(aiApi).toContain("getOrCreateAiChatRoom");
+    expect(aiApi).toContain("touchAiChatRoom");
+    expect(roomApi).toContain("deleteAiChatRoom");
+  });
+
+  it("enforces package-controlled OpenAI chat retention without storing transcripts in Supabase", () => {
+    expect(roomMigration).toContain("history_retention_days");
+    expect(roomMigration).toContain("when 'growth' then 365");
+    expect(roomMigration).toContain("when 'business' then 730");
+    expect(usageService).toContain("history_retention_days");
+    expect(conversationService).toContain("pruneExpiredAiChatRooms");
+    expect(aiApi).toContain("pruneExpiredAiChatRooms");
+    expect(conversationService).toContain("history_cleared_at");
   });
 
   it("enforces package/store monthly quota and records token cost", () => {
@@ -153,7 +185,7 @@ describe("CpiPOS AI store assistant", () => {
 
   it("keeps the promoted AI menu compact without extra AI/BETA badges", () => {
     expect(staffMenu).not.toContain("bg-cyan-300/15");
-    expect(staffMenu).toContain('isHorizontal ? "max-w-[170px]" : "min-w-0 flex-1"');
+    expect(staffMenu).toContain('const aiLabel = lang === "th" ? "CpiPOS AI" : "CpiPOS AI"');
     expect(aiWorkspace).not.toContain("BETA");
     expect(aiWorkspace).toContain("เดือน {quota.month_key}");
   });

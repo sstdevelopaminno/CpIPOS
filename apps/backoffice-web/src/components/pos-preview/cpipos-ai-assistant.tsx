@@ -60,6 +60,16 @@ type AiQuotaStatus = {
   usage: { requests: number; total_tokens: number; cost_usd: number };
   exhausted: boolean;
   exhausted_by: Array<"requests" | "tokens" | "cost">;
+  history_retention_days: number | null;
+};
+
+type AiChatRoom = {
+  id: string;
+  title: string;
+  openai_conversation_id: string;
+  created_at: string;
+  updated_at: string;
+  last_message_at: string;
 };
 
 type AiProposal =
@@ -280,6 +290,83 @@ function AiRichText({ text }: { text: string }) {
   );
 }
 
+function ChatRoomPanel({
+  rooms,
+  activeRoomId,
+  retentionDays,
+  busy,
+  onCreate,
+  onOpen,
+  onDelete
+}: {
+  rooms: AiChatRoom[];
+  activeRoomId: string | null;
+  retentionDays: number | null | undefined;
+  busy: boolean;
+  onCreate: () => void;
+  onOpen: (roomId: string) => void;
+  onDelete: (room: AiChatRoom) => void;
+}) {
+  return (
+    <div className="flex h-full min-h-0 flex-col bg-[#f7f7f8] text-slate-800">
+      <div className="shrink-0 p-3">
+        <button
+          type="button"
+          onClick={onCreate}
+          disabled={busy}
+          className="flex h-10 w-full items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-sm font-semibold shadow-sm transition hover:bg-slate-50 disabled:opacity-50"
+        >
+          <span className="text-lg font-light">＋</span>
+          แชทใหม่
+        </button>
+      </div>
+      <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-2">
+        <p className="px-2 pb-2 pt-1 text-[11px] font-semibold text-slate-400">แชทของฉัน</p>
+        <div className="space-y-1">
+          {rooms.length ? rooms.map((room) => {
+            const active = room.id === activeRoomId;
+            return (
+              <div key={room.id} className={`group flex items-center rounded-lg transition ${active ? "bg-slate-200/80" : "hover:bg-slate-200/55"}`}>
+                <button
+                  type="button"
+                  onClick={() => onOpen(room.id)}
+                  className="min-w-0 flex-1 px-3 py-2.5 text-left"
+                >
+                  <span className="block truncate text-[13px] font-medium text-slate-800">{room.title}</span>
+                  <span className="mt-0.5 block text-[10px] text-slate-400">
+                    {new Date(room.last_message_at).toLocaleDateString("th-TH", { day: "numeric", month: "short" })}
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onDelete(room)}
+                  disabled={busy}
+                  className="mr-1 grid h-8 w-8 shrink-0 place-items-center rounded-lg text-slate-400 opacity-0 transition hover:bg-white hover:text-red-600 group-hover:opacity-100 focus:opacity-100 disabled:opacity-30"
+                  aria-label={`ลบห้อง ${room.title}`}
+                  title="ลบห้องแชท"
+                >
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden>
+                    <path d="M4 7h16M9 7V4h6v3M7 7l1 13h8l1-13M10 11v5M14 11v5" />
+                  </svg>
+                </button>
+              </div>
+            );
+          }) : (
+            <div className="px-3 py-8 text-center text-xs leading-5 text-slate-400">
+              ยังไม่มีห้องแชท<br />กด “แชทใหม่” เพื่อเริ่มต้น
+            </div>
+          )}
+        </div>
+      </div>
+      <div className="shrink-0 border-t border-slate-200 p-3 text-[10px] leading-5 text-slate-400">
+        <strong className="block font-semibold text-slate-500">OpenAI Conversations</strong>
+        ข้อความเก็บฝั่ง OpenAI
+        {retentionDays ? <> · เก็บตามแพ็กเกจ {retentionDays} วัน</> : <> · ระยะเก็บตามสัญญา</>}
+      </div>
+    </div>
+  );
+}
+
 function welcomeMessage(lang: Language): ChatMessage {
   return {
     id: "welcome",
@@ -304,11 +391,16 @@ export function CpiPosAiAssistant({ lang }: { lang: Language }) {
   const [showSuggestions, setShowSuggestions] = useState(true);
   const [autoScroll, setAutoScroll] = useState(true);
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
+  const [rooms, setRooms] = useState<AiChatRoom[]>([]);
+  const [activeRoomId, setActiveRoomId] = useState<string | null>(null);
+  const [roomDrawerOpen, setRoomDrawerOpen] = useState(false);
+  const [roomBusy, setRoomBusy] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([welcomeMessage(lang)]);
   const chatEndRef = useRef<HTMLDivElement | null>(null);
   const chatScrollRef = useRef<HTMLDivElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
 
+  const activeRoom = useMemo(() => rooms.find((room) => room.id === activeRoomId) ?? null, [rooms, activeRoomId]);
   const lowMargin = overview?.cost.low_margin_products?.[0] ?? null;
   const bestSeller = overview?.today.top_products?.[0] ?? overview?.last_30_days.top_products?.[0] ?? null;
 
@@ -330,11 +422,15 @@ export function CpiPosAiAssistant({ lang }: { lang: Language }) {
       setOverviewError(null);
       try {
         const response = await fetch("/api/pos/ai/assistant", { cache: "no-store" });
-        const body = (await response.json().catch(() => null)) as ApiEnvelope<{ overview?: Overview; history?: ChatMessage[]; quota?: AiQuotaStatus }>;
+        const body = (await response.json().catch(() => null)) as ApiEnvelope<{ overview?: Overview; rooms?: AiChatRoom[]; active_room?: AiChatRoom | null; history?: ChatMessage[]; quota?: AiQuotaStatus }>;
         if (!response.ok) throw new Error(body?.error?.message ?? "ไม่สามารถโหลดข้อมูลร้านได้");
         if (!cancelled) {
           setOverview(body?.data?.overview ?? null);
           setQuota(body?.data?.quota ?? null);
+          const loadedRooms = Array.isArray(body?.data?.rooms) ? body.data.rooms : [];
+          const loadedActiveRoom = body?.data?.active_room ?? loadedRooms[0] ?? null;
+          setRooms(loadedRooms);
+          setActiveRoomId(loadedActiveRoom?.id ?? null);
           const storedHistory = Array.isArray(body?.data?.history)
             ? body.data.history.filter((message) => message.role === "user" || message.role === "assistant")
             : [];
@@ -351,6 +447,86 @@ export function CpiPosAiAssistant({ lang }: { lang: Language }) {
       cancelled = true;
     };
   }, []);
+
+  async function openRoom(roomId: string) {
+    if (roomBusy || roomId === activeRoomId) {
+      setRoomDrawerOpen(false);
+      return;
+    }
+    setRoomBusy(true);
+    setOverviewError(null);
+    try {
+      const response = await fetch(`/api/pos/ai/conversations/${encodeURIComponent(roomId)}`, { cache: "no-store" });
+      const body = (await response.json().catch(() => null)) as ApiEnvelope<{ room?: AiChatRoom; messages?: ChatMessage[] }>;
+      if (!response.ok || !body?.data?.room) throw new Error(body?.error?.message ?? "ไม่สามารถเปิดห้องแชทได้");
+      setActiveRoomId(body.data.room.id);
+      setMessages(Array.isArray(body.data.messages) && body.data.messages.length ? body.data.messages : [welcomeMessage(lang)]);
+      setProposalStatus({});
+      setAutoScroll(true);
+      setRoomDrawerOpen(false);
+      requestAnimationFrame(() => scrollToBottom("auto"));
+    } catch (error) {
+      setOverviewError(friendlyAiError(error instanceof Error ? error.message : error));
+    } finally {
+      setRoomBusy(false);
+    }
+  }
+
+  async function createRoom() {
+    if (roomBusy || sending || quota?.enabled === false) return;
+    setRoomBusy(true);
+    setOverviewError(null);
+    try {
+      const response = await fetch("/api/pos/ai/conversations", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title: "แชทใหม่" })
+      });
+      const body = (await response.json().catch(() => null)) as ApiEnvelope<{ room?: AiChatRoom }>;
+      if (!response.ok || !body?.data?.room) throw new Error(body?.error?.message ?? "สร้างห้องแชทไม่สำเร็จ");
+      const room = body.data.room;
+      setRooms((current) => [room, ...current.filter((item) => item.id !== room.id)]);
+      setActiveRoomId(room.id);
+      setMessages([welcomeMessage(lang)]);
+      setRooms([]);
+      setActiveRoomId(null);
+      setProposalStatus({});
+      setRoomDrawerOpen(false);
+      requestAnimationFrame(() => textareaRef.current?.focus());
+    } catch (error) {
+      setOverviewError(friendlyAiError(error instanceof Error ? error.message : error));
+    } finally {
+      setRoomBusy(false);
+    }
+  }
+
+  async function deleteRoom(room: AiChatRoom) {
+    if (roomBusy || sending) return;
+    if (!window.confirm(`ลบห้องแชท “${room.title}” หรือไม่?\n\nข้อความในห้องนี้จะถูกลบจาก OpenAI Conversation และไม่สามารถกู้คืนได้`)) return;
+    setRoomBusy(true);
+    setOverviewError(null);
+    try {
+      const response = await fetch(`/api/pos/ai/conversations/${encodeURIComponent(room.id)}`, { method: "DELETE" });
+      const body = (await response.json().catch(() => null)) as ApiEnvelope<{ deleted?: boolean }>;
+      if (!response.ok) throw new Error(body?.error?.message ?? "ลบห้องแชทไม่สำเร็จ");
+      const remaining = rooms.filter((item) => item.id !== room.id);
+      setRooms(remaining);
+      if (activeRoomId === room.id) {
+        const nextRoom = remaining[0] ?? null;
+        setActiveRoomId(nextRoom?.id ?? null);
+        if (nextRoom) {
+          setRoomBusy(false);
+          await openRoom(nextRoom.id);
+          return;
+        }
+        setMessages([welcomeMessage(lang)]);
+      }
+    } catch (error) {
+      setOverviewError(friendlyAiError(error instanceof Error ? error.message : error));
+    } finally {
+      setRoomBusy(false);
+    }
+  }
 
   useEffect(() => {
     try {
@@ -420,13 +596,18 @@ export function CpiPosAiAssistant({ lang }: { lang: Language }) {
       const response = await fetch("/api/pos/ai/assistant", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: messageText })
+        body: JSON.stringify({ message: messageText, room_id: activeRoomId })
       });
-      const body = (await response.json().catch(() => null)) as ApiEnvelope<{ answer?: string; overview?: Overview; proposals?: AiProposal[]; quota?: AiQuotaStatus }>;
+      const body = (await response.json().catch(() => null)) as ApiEnvelope<{ answer?: string; overview?: Overview; room?: AiChatRoom; proposals?: AiProposal[]; quota?: AiQuotaStatus }>;
       if (!response.ok) throw new Error(friendlyAiError(body?.error?.message));
 
       if (body?.data?.overview) setOverview(body.data.overview);
       if (body?.data?.quota) setQuota(body.data.quota);
+      if (body?.data?.room) {
+        const room = body.data.room;
+        setActiveRoomId(room.id);
+        setRooms((current) => [room, ...current.filter((item) => item.id !== room.id)]);
+      }
       setMessages((current) => [
         ...current,
         {
@@ -562,19 +743,22 @@ export function CpiPosAiAssistant({ lang }: { lang: Language }) {
   }
 
   return (
-    <main className="h-full min-h-0 w-full overflow-hidden bg-[#f5f9ff] p-3 sm:p-4 xl:p-5">
+    <main
+      className="h-full min-h-0 w-full overflow-hidden bg-[#f7f7f8] p-3 sm:p-4 xl:p-5"
+      style={{ fontFamily: 'ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans Thai", sans-serif' }}
+    >
       <section className="mx-auto flex h-full min-h-0 w-full max-w-[1500px] flex-col gap-3">
-        <header className="relative overflow-hidden rounded-3xl border border-blue-100 bg-[radial-gradient(circle_at_78%_15%,rgba(56,189,248,0.28),transparent_24%),linear-gradient(120deg,#ffffff,#eef6ff_58%,#e9fbff)] px-4 py-4 shadow-[0_10px_35px_rgba(37,99,235,0.08)] sm:px-6">
-          <div className="absolute -right-6 -top-8 h-32 w-32 rounded-full bg-blue-300/20 blur-2xl" />
+        <header className="relative overflow-hidden rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm sm:px-5">
+          <div className="absolute -right-10 -top-12 h-28 w-28 rounded-full bg-blue-100/50 blur-2xl" />
           <div className="relative flex items-center gap-4">
-            <div className="relative flex h-16 w-16 shrink-0 items-center justify-center rounded-2xl border border-white bg-white/85 shadow-lg shadow-blue-500/10">
-              <Image src="/brand/cpipos-symbol-sidebar.png" alt="CpiPOS" width={50} height={50} className="h-12 w-12 object-contain" priority />
+            <div className="relative flex h-12 w-12 shrink-0 items-center justify-center rounded-xl border border-slate-100 bg-white shadow-sm">
+              <Image src="/brand/cpipos-symbol-sidebar.png" alt="CpiPOS" width={40} height={40} className="h-9 w-9 object-contain" priority />
             </div>
             <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-2">
-                <h1 className="text-xl font-black tracking-tight text-[#0d2344] sm:text-2xl">CpiPOS AI ผู้ช่วยร้านค้า</h1>
+                <h1 className="text-lg font-semibold tracking-tight text-slate-950 sm:text-xl">CpiPOS AI ผู้ช่วยร้านค้า</h1>
               </div>
-              <p className="mt-1 text-sm font-medium text-slate-600">ผู้ช่วยอัจฉริยะสำหรับยอดขาย ต้นทุน สต๊อก และการตลาด — วิเคราะห์จากข้อมูลร้านใน CpiPOS</p>
+              <p className="mt-1 text-xs font-normal text-slate-500 sm:text-sm">ผู้ช่วยอัจฉริยะสำหรับยอดขาย ต้นทุน สต๊อก และการตลาด — วิเคราะห์จากข้อมูลร้านใน CpiPOS</p>
               <div className="mt-2 flex flex-wrap items-center gap-2">
                 <span className="rounded-full border border-blue-100 bg-white/75 px-2.5 py-1 text-[10px] font-bold text-blue-700">
                   ประวัติส่วนตัวตามบัญชี Owner/Manager · OpenAI Conversation
@@ -616,11 +800,31 @@ export function CpiPosAiAssistant({ lang }: { lang: Language }) {
           </div>
         </header>
 
-        <div className="min-h-0 flex-1">
-          <section className="flex h-full min-h-0 flex-col overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-[0_12px_36px_rgba(15,23,42,0.07)]">
+        <div className="flex min-h-0 flex-1 gap-3">
+          <aside className="hidden w-[260px] shrink-0 overflow-hidden rounded-2xl border border-slate-200 bg-[#f7f7f8] lg:block">
+            <ChatRoomPanel
+              rooms={rooms}
+              activeRoomId={activeRoomId}
+              retentionDays={quota?.history_retention_days}
+              busy={roomBusy || sending}
+              onCreate={() => void createRoom()}
+              onOpen={(roomId) => void openRoom(roomId)}
+              onDelete={(room) => void deleteRoom(room)}
+            />
+          </aside>
+          <div className="min-h-0 min-w-0 flex-1">
+          <section className="flex h-full min-h-0 flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_8px_28px_rgba(15,23,42,0.05)]">
             <div className="shrink-0 border-b border-slate-100 px-4 py-3 sm:px-5">
               <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setRoomDrawerOpen(true)}
+                  className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 text-xs font-semibold text-slate-600 lg:hidden"
+                >
+                  ☰ ห้องแชท
+                </button>
                 <span className="text-xs font-black uppercase tracking-[0.14em] text-blue-600">AI CHAT</span>
+                <span className="max-w-[230px] truncate text-xs font-semibold text-slate-700">{activeRoom?.title ?? "แชทใหม่"}</span>
                 <span className="rounded-full bg-blue-50 px-2.5 py-1 text-[10px] font-bold text-blue-700">ถามเป็นภาษาไทยได้เลย</span>
                 <button
                   type="button"
@@ -642,7 +846,7 @@ export function CpiPosAiAssistant({ lang }: { lang: Language }) {
                       type="button"
                       onClick={() => void sendMessage(prompt)}
                       disabled={sending || quota?.exhausted || quota?.enabled === false}
-                      className="shrink-0 rounded-full border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-bold text-blue-700 transition hover:border-blue-300 hover:bg-blue-100 disabled:cursor-wait disabled:opacity-50"
+                      className="shrink-0 rounded-full border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-700 transition hover:bg-slate-100 disabled:cursor-wait disabled:opacity-50"
                     >
                       {prompt}
                     </button>
@@ -658,14 +862,14 @@ export function CpiPosAiAssistant({ lang }: { lang: Language }) {
                 className="h-full min-h-0 space-y-4 overflow-y-auto overscroll-contain bg-[linear-gradient(180deg,#ffffff,#fbfdff)] px-4 py-5 sm:px-5"
               >
               {messages.map((message) => (
-                <div key={message.id} className={`flex gap-3 ${message.role === "user" ? "justify-end" : "justify-start"}`}>
+                <div key={message.id} className={`mx-auto flex w-full max-w-[860px] gap-3 ${message.role === "user" ? "justify-end" : "justify-start"}`}>
                   {message.role === "assistant" ? (
-                    <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-blue-100 bg-white shadow-sm">
-                      <Image src="/brand/cpipos-symbol-sidebar.png" alt="" width={28} height={28} className="h-7 w-7 object-contain" />
+                    <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-slate-100 bg-white shadow-sm">
+                      <Image src="/brand/cpipos-symbol-sidebar.png" alt="" width={24} height={24} className="h-6 w-6 object-contain" />
                     </span>
                   ) : null}
-                  <div className={`max-w-[86%] ${message.role === "user" ? "" : "min-w-0"}`}>
-                    <div className={`rounded-2xl px-4 py-3 text-sm font-medium leading-6 shadow-sm ${message.role === "user" ? "rounded-br-md bg-gradient-to-br from-blue-600 to-cyan-500 text-white" : "rounded-bl-md border border-slate-100 bg-slate-50 text-slate-700"}`}>
+                  <div className={`max-w-[88%] ${message.role === "user" ? "" : "min-w-0 flex-1"}`}>
+                    <div className={`px-4 py-3 text-[15px] font-normal leading-7 ${message.role === "user" ? "rounded-3xl bg-[#f4f4f4] text-slate-900" : "px-1 text-slate-800"}`}>
                       <AiRichText text={message.text} />
                     </div>
                     {message.role === "assistant" && message.proposals?.length ? (
@@ -721,11 +925,11 @@ export function CpiPosAiAssistant({ lang }: { lang: Language }) {
                 </div>
               ))}
               {sending ? (
-                <div className="flex items-center gap-3">
-                  <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-blue-100 bg-white shadow-sm">
+                <div className="mx-auto flex w-full max-w-[860px] items-center gap-3">
+                  <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-slate-100 bg-white shadow-sm">
                     <Image src="/brand/cpipos-symbol-sidebar.png" alt="" width={28} height={28} className="h-7 w-7 object-contain" />
                   </span>
-                  <div className="rounded-2xl rounded-bl-md border border-slate-100 bg-slate-50 px-4 py-3 text-sm font-bold text-slate-500">
+                  <div className="px-1 py-3 text-sm font-medium text-slate-500">
                     <span className="inline-flex items-center gap-2"><span className="h-2 w-2 animate-pulse rounded-full bg-blue-500" />กำลังวิเคราะห์ข้อมูลร้าน...</span>
                   </div>
                 </div>
@@ -747,8 +951,8 @@ export function CpiPosAiAssistant({ lang }: { lang: Language }) {
               ) : null}
             </div>
 
-            <form onSubmit={submit} className="sticky bottom-0 z-20 shrink-0 border-t border-slate-100 bg-white/95 p-3 backdrop-blur sm:p-4">
-              <div className="flex items-end gap-2 rounded-2xl border border-blue-200 bg-white p-2 shadow-[0_5px_20px_rgba(37,99,235,0.06)] focus-within:border-blue-400 focus-within:ring-2 focus-within:ring-blue-100">
+            <form onSubmit={submit} className="sticky bottom-0 z-20 shrink-0 bg-gradient-to-t from-white via-white to-white/80 px-3 pb-3 pt-4 backdrop-blur sm:px-4 sm:pb-4">
+              <div className="mx-auto flex max-w-[860px] items-end gap-2 rounded-[26px] border border-slate-200 bg-white p-2 shadow-[0_8px_28px_rgba(15,23,42,0.08)] focus-within:border-slate-300">
                 <span className="mb-2 ml-1 text-blue-500"><SparkleIcon size={19} /></span>
                 <textarea
                   ref={textareaRef}
@@ -761,12 +965,12 @@ export function CpiPosAiAssistant({ lang }: { lang: Language }) {
                   rows={1}
                   maxLength={1200}
                   placeholder={quota?.exhausted ? "โควตา AI เดือนนี้ครบแล้ว" : quota?.enabled === false ? "AI ถูกปิดสำหรับร้านนี้" : "พิมพ์คำถามถึง CpiPOS AI..."}
-                  className="max-h-32 min-h-[42px] flex-1 resize-none border-0 bg-transparent px-1 py-2.5 text-sm font-medium text-slate-800 outline-none placeholder:text-slate-400"
+                  className="max-h-32 min-h-[42px] flex-1 resize-none border-0 bg-transparent px-1 py-2.5 text-[15px] font-normal leading-6 text-slate-900 outline-none placeholder:text-slate-400"
                 />
                 <button
                   type="submit"
                   disabled={sending || !input.trim() || quota?.exhausted || quota?.enabled === false}
-                  className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-blue-600 to-cyan-500 text-white shadow-lg shadow-blue-500/20 transition hover:scale-[1.02] disabled:cursor-not-allowed disabled:opacity-40"
+                  className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-slate-950 text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400"
                   aria-label="ส่งข้อความ"
                 >
                   <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
@@ -774,13 +978,34 @@ export function CpiPosAiAssistant({ lang }: { lang: Language }) {
                   </svg>
                 </button>
               </div>
-              <p className="mt-2 px-1 text-[11px] font-medium text-slate-400">Phase 2: AI เตรียมรายการให้ได้ แต่การเปลี่ยนราคา/สต๊อกจะเกิดขึ้นเฉพาะเมื่อคุณกดยืนยันและผ่าน PIN Owner/Manager เท่านั้น</p>
+              <p className="mx-auto mt-2 max-w-[860px] px-2 text-center text-[10px] font-normal text-slate-400">CpiPOS AI อาจตอบคลาดเคลื่อนได้ · การเปลี่ยนราคา/สต๊อกต้องยืนยันและผ่าน PIN Owner/Manager</p>
             </form>
           </section>
-
-
+          </div>
         </div>
       </section>
+
+      {roomDrawerOpen ? (
+        <div className="fixed inset-0 z-[110] bg-slate-950/35 lg:hidden" onMouseDown={(event) => { if (event.target === event.currentTarget) setRoomDrawerOpen(false); }}>
+          <aside className="h-full w-[300px] max-w-[86vw] overflow-hidden border-r border-slate-200 bg-[#f7f7f8] shadow-2xl">
+            <div className="flex h-12 items-center justify-between border-b border-slate-200 px-3">
+              <strong className="text-sm font-semibold text-slate-800">CpiPOS AI</strong>
+              <button type="button" onClick={() => setRoomDrawerOpen(false)} className="grid h-8 w-8 place-items-center rounded-lg text-slate-500 hover:bg-slate-200">×</button>
+            </div>
+            <div className="h-[calc(100%-48px)]">
+              <ChatRoomPanel
+                rooms={rooms}
+                activeRoomId={activeRoomId}
+                retentionDays={quota?.history_retention_days}
+                busy={roomBusy || sending}
+                onCreate={() => void createRoom()}
+                onOpen={(roomId) => void openRoom(roomId)}
+                onDelete={(room) => void deleteRoom(room)}
+              />
+            </div>
+          </aside>
+        </div>
+      ) : null}
 
       <AiModal
         open={todayModalOpen}

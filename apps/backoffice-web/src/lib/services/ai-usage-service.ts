@@ -21,6 +21,7 @@ type PackageQuotaRow = {
   monthly_request_limit: number | null;
   monthly_token_limit: number | null;
   monthly_cost_limit_usd: number | string | null;
+  history_retention_days: number | null;
 };
 
 type TenantOverrideRow = {
@@ -30,6 +31,7 @@ type TenantOverrideRow = {
   monthly_request_limit: number | null;
   monthly_token_limit: number | null;
   monthly_cost_limit_usd: number | string | null;
+  history_retention_days: number | null;
 };
 
 type UsageSummaryRow = {
@@ -72,6 +74,7 @@ export type AiQuotaStatus = {
   };
   exhausted: boolean;
   exhausted_by: Array<"requests" | "tokens" | "cost">;
+  history_retention_days: number | null;
 };
 
 export class AiQuotaError extends Error {
@@ -162,13 +165,13 @@ export async function loadAiQuotaStatus(tenantId: string): Promise<AiQuotaStatus
     packageId
       ? supabase
           .from("pos_ai_package_quotas")
-          .select("package_id,is_enabled,monthly_request_limit,monthly_token_limit,monthly_cost_limit_usd")
+          .select("package_id,is_enabled,monthly_request_limit,monthly_token_limit,monthly_cost_limit_usd,history_retention_days")
           .eq("package_id", packageId)
           .maybeSingle<PackageQuotaRow>()
       : Promise.resolve({ data: null as PackageQuotaRow | null, error: null }),
     supabase
       .from("pos_ai_tenant_quota_overrides")
-      .select("tenant_id,quota_mode,is_enabled_override,monthly_request_limit,monthly_token_limit,monthly_cost_limit_usd")
+      .select("tenant_id,quota_mode,is_enabled_override,monthly_request_limit,monthly_token_limit,monthly_cost_limit_usd,history_retention_days")
       .eq("tenant_id", tenantId)
       .maybeSingle<TenantOverrideRow>(),
     supabase.rpc("pos_ai_usage_summary", {
@@ -205,6 +208,9 @@ export async function loadAiQuotaStatus(tenantId: string): Promise<AiQuotaStatus
         };
 
   const enabled = override?.is_enabled_override ?? packageQuota?.is_enabled ?? true;
+  const historyRetentionDays =
+    nullableLimit(override?.history_retention_days) ??
+    nullableLimit(packageQuota?.history_retention_days);
   const row = ((usageResult.data ?? []) as UsageSummaryRow[])[0] ?? null;
   const usage = {
     requests: Math.max(0, Math.trunc(numberValue(row?.request_count))),
@@ -232,7 +238,8 @@ export async function loadAiQuotaStatus(tenantId: string): Promise<AiQuotaStatus
     limits,
     usage,
     exhausted: exhaustedBy.length > 0,
-    exhausted_by: exhaustedBy
+    exhausted_by: exhaustedBy,
+    history_retention_days: historyRetentionDays
   };
 }
 
