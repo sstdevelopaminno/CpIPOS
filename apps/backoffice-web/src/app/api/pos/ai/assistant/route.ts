@@ -367,7 +367,10 @@ async function loadAiCatalog(tenantId: string, branchId: string) {
   return { products, ingredients };
 }
 
-async function loadBusinessSnapshot(auth: Awaited<ReturnType<typeof getPosApiAuthContext>>) {
+async function loadBusinessSnapshot(
+  auth: Awaited<ReturnType<typeof getPosApiAuthContext>>,
+  options: { includeCatalog?: boolean } = {}
+) {
   const today = bangkokDate(0);
   const from30 = bangkokDate(-29);
   const scope = {
@@ -393,7 +396,9 @@ async function loadBusinessSnapshot(auth: Awaited<ReturnType<typeof getPosApiAut
     }),
     loadLowStock(auth.tenantId!, auth.branchId!),
     loadCostSnapshot(auth.tenantId!, auth.branchId!),
-    loadAiCatalog(auth.tenantId!, auth.branchId!)
+    options.includeCatalog
+      ? loadAiCatalog(auth.tenantId!, auth.branchId!)
+      : Promise.resolve({ products: [] as ProductCatalogItem[], ingredients: [] as IngredientCatalogItem[] })
   ]);
 
   return {
@@ -442,7 +447,84 @@ async function loadBusinessSnapshot(auth: Awaited<ReturnType<typeof getPosApiAut
       available: costSnapshot.costDataAvailable,
       low_margin_products: costSnapshot.lowMarginProducts
     },
-    catalog
+    catalog,
+    loaded_sections: { sales: true, stock: true, cost: true, catalog: Boolean(options.includeCatalog) }
+  };
+}
+
+function needsMutationCatalog(message: string) {
+  return /(?:(?:ปรับ|เปลี่ยน|ตั้ง|แก้|เพิ่ม|ลด).{0,20}(?:ราคา|สต๊อก|stock|วัตถุดิบ)|(?:ราคา|สต๊อก|stock|วัตถุดิบ).{0,20}(?:ปรับ|เปลี่ยน|ตั้ง|แก้|เพิ่ม|ลด))/i.test(message);
+}
+
+async function loadBusinessSnapshotForMessage(
+  auth: Awaited<ReturnType<typeof getPosApiAuthContext>>,
+  message: string
+) {
+  const today = bangkokDate(0);
+  const from30 = bangkokDate(-29);
+  const scope = {
+    userId: auth.userId,
+    tenantId: auth.tenantId,
+    branchId: auth.branchId,
+    branchRole: auth.branchRole,
+    platformRole: auth.platformRole
+  };
+  const guideOnly = needsHelpGuide(message) &&
+    !/(?:ยอดขาย|รายได้|บิล|ต้นทุน|กำไร|มาร์จิ้น|สต๊อก|stock|วัตถุดิบ|คงเหลือ|ขายดี|การตลาด|โปรโมชัน|บัญชี|ภาษี)/i.test(message);
+  const needsSales = !guideOnly &&
+    /(?:ยอดขาย|รายได้|ขาย|บิล|เงินสด|โอน|บัตร|ภาษี|บัญชี|การตลาด|โปรโมชัน|ลูกค้า|ขายดี|30\s*วัน|กำไร)/i.test(message);
+  const needsStock = !guideOnly &&
+    /(?:สต๊อก|stock|วัตถุดิบ|คงเหลือ|ใกล้หมด|ต้นทุน|มาร์จิ้น|กำไร|ราคา)/i.test(message);
+  const needsCost = !guideOnly &&
+    /(?:ต้นทุน|มาร์จิ้น|กำไร|ราคา|cost|margin)/i.test(message);
+  const needsCatalog = needsMutationCatalog(message);
+
+  const [todaySummary, monthSummary, lowStock, costSnapshot, catalog] = await Promise.all([
+    needsSales
+      ? loadPosSalesSummaryData(scope, { dateFrom: today, dateTo: today, branchId: auth.branchId, status: "all" })
+      : Promise.resolve(null),
+    needsSales
+      ? loadPosSalesSummaryData(scope, { dateFrom: from30, dateTo: today, branchId: auth.branchId, status: "all" })
+      : Promise.resolve(null),
+    needsStock ? loadLowStock(auth.tenantId!, auth.branchId!) : Promise.resolve([]),
+    needsCost ? loadCostSnapshot(auth.tenantId!, auth.branchId!) : Promise.resolve({ lowMarginProducts: [], costDataAvailable: false }),
+    needsCatalog
+      ? loadAiCatalog(auth.tenantId!, auth.branchId!)
+      : Promise.resolve({ products: [] as ProductCatalogItem[], ingredients: [] as IngredientCatalogItem[] })
+  ]);
+
+  return {
+    generated_at: new Date().toISOString(),
+    period: { today, last_30_days_from: from30, last_30_days_to: today },
+    today: {
+      net_sales: todaySummary?.summary.netSales ?? 0,
+      gross_sales: todaySummary?.summary.grossSales ?? 0,
+      receipts: todaySummary?.summary.receiptCount ?? 0,
+      average_receipt: todaySummary?.summary.averageReceiptValue ?? 0,
+      cash: todaySummary?.summary.cashTotal ?? 0,
+      transfer_qr: todaySummary?.summary.qrTransferTotal ?? 0,
+      card: todaySummary?.summary.cardTotal ?? 0,
+      discounts: todaySummary?.summary.discountTotal ?? 0,
+      tax: todaySummary?.summary.taxTotal ?? 0,
+      cancelled_count: todaySummary?.summary.cancelledCount ?? 0,
+      top_products: (todaySummary?.bestSellingProducts ?? []).slice(0, 5).map((row) => ({
+        product_id: row.productId, name: row.productName, category: row.category,
+        units: row.quantitySold, revenue: row.netAmount
+      }))
+    },
+    last_30_days: {
+      net_sales: monthSummary?.summary.netSales ?? 0,
+      receipts: monthSummary?.summary.receiptCount ?? 0,
+      average_receipt: monthSummary?.summary.averageReceiptValue ?? 0,
+      top_products: (monthSummary?.bestSellingProducts ?? []).slice(0, 10).map((row) => ({
+        product_id: row.productId, name: row.productName, category: row.category,
+        units: row.quantitySold, revenue: row.netAmount
+      }))
+    },
+    stock: { low_stock_count: lowStock.length, low_stock: lowStock },
+    cost: { available: costSnapshot.costDataAvailable, low_margin_products: costSnapshot.lowMarginProducts },
+    catalog,
+    loaded_sections: { sales: needsSales, stock: needsStock, cost: needsCost, catalog: needsCatalog }
   };
 }
 
@@ -592,9 +674,7 @@ function compactSnapshotForMessage(
   snapshot: Awaited<ReturnType<typeof loadBusinessSnapshot>>,
   message: string
 ) {
-  const mutationNeedsCatalog =
-    /(?:(?:ปรับ|เปลี่ยน|ตั้ง|แก้|เพิ่ม|ลด).{0,20}(?:ราคา|สต๊อก|stock|วัตถุดิบ)|(?:ราคา|สต๊อก|stock|วัตถุดิบ).{0,20}(?:ปรับ|เปลี่ยน|ตั้ง|แก้|เพิ่ม|ลด))/i.test(message);
-  if (mutationNeedsCatalog) return snapshot;
+  if (needsMutationCatalog(message)) return snapshot;
   return {
     ...snapshot,
     stock: {
@@ -637,6 +717,7 @@ async function callOpenAi(
     needsHelpGuide(message) ? CPIPOS_HELP_GUIDE : "",
     "ข้อมูลร้านปัจจุบันสำหรับเทิร์นนี้ (JSON):",
     JSON.stringify(promptSnapshot),
+    "loaded_sections บอกว่าส่วนใดถูกโหลดจริงในเทิร์นนี้ ค่า 0/รายการว่างในส่วนที่ loaded_sections=false หมายถึงไม่ได้โหลด ไม่ใช่ข้อสรุปว่าร้านมียอดหรือสต๊อกเป็นศูนย์",
     "ใช้ข้อมูล JSON นี้เป็นข้อมูลสดของร้านในเทิร์นปัจจุบัน และอย่านำข้อมูลของร้านอื่นมาใช้"
   ].filter(Boolean).join("\n\n");
 
@@ -729,7 +810,7 @@ export async function GET(request: Request) {
     const scope = conversationScope(auth);
     const requestedRoomId = new URL(request.url).searchParams.get("room_id");
     const [overview, quota] = await Promise.all([
-      loadBusinessSnapshot(auth),
+      loadBusinessSnapshot(auth, { includeCatalog: false }),
       loadAiQuotaStatus(auth.tenantId!)
     ]);
     await pruneExpiredAiChatRooms(scope, quota.history_retention_days);
@@ -784,7 +865,7 @@ export async function POST(request: Request) {
     const scope = conversationScope(auth);
     await pruneExpiredAiChatRooms(scope, quota.history_retention_days);
     const [overview, room] = await Promise.all([
-      loadBusinessSnapshot(auth),
+      loadBusinessSnapshotForMessage(auth, effectiveMessage),
       getOrCreateAiChatRoom(scope, roomId)
     ]);
     const conversationId = room.openai_conversation_id;
