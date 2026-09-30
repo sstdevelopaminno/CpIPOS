@@ -408,7 +408,8 @@ export function CpiPosAiAssistant({ lang }: { lang: Language }) {
   const [activeRoomId, setActiveRoomId] = useState<string | null>(null);
   const [roomDrawerOpen, setRoomDrawerOpen] = useState(false);
   const [roomBusy, setRoomBusy] = useState(false);
-  const [messages, setMessages] = useState<ChatMessage[]>([welcomeMessage(lang)]);
+  const [savingDocumentId, setSavingDocumentId] = useState<string | null>(null);
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
   const chatEndRef = useRef<HTMLDivElement | null>(null);
   const chatScrollRef = useRef<HTMLDivElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
@@ -642,6 +643,42 @@ export function CpiPosAiAssistant({ lang }: { lang: Language }) {
     }
   }
 
+  async function saveMessageAsDocument(message: ChatMessage) {
+    if (message.role !== "assistant" || !message.text.trim() || savingDocumentId) return;
+    const fallbackTitle = activeRoom?.title && activeRoom.title !== "แชทใหม่"
+      ? activeRoom.title
+      : message.text.trim().split(/\n+/)[0].slice(0, 80) || "เอกสาร CpiPOS AI";
+    const title = window.prompt("ชื่อเอกสาร", fallbackTitle)?.trim();
+    if (!title) return;
+    setSavingDocumentId(message.id);
+    setOverviewError(null);
+    try {
+      const response = await fetch("/api/pos/ai/documents", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title,
+          content: message.text,
+          room_id: activeRoomId,
+          document_type: "ai_summary"
+        })
+      });
+      const body = (await response.json().catch(() => null)) as ApiEnvelope<{ document?: { id: string } }>;
+      if (!response.ok) throw new Error(body?.error?.message ?? "บันทึกเอกสารไม่สำเร็จ");
+      setProposalStatus((current) => ({
+        ...current,
+        [`doc:${message.id}`]: { state: "success", message: "บันทึกไว้ใน เก็บไฟล์เอกสาร แล้ว" }
+      }));
+    } catch (error) {
+      setProposalStatus((current) => ({
+        ...current,
+        [`doc:${message.id}`]: { state: "error", message: error instanceof Error ? error.message : "บันทึกเอกสารไม่สำเร็จ" }
+      }));
+    } finally {
+      setSavingDocumentId(null);
+    }
+  }
+
   async function clearHistory() {
     if (!window.confirm("ล้างประวัติ CpiPOS AI ของบัญชีผู้ใช้นี้ในสาขานี้ทั้งหมดหรือไม่?\n\nประวัติของ Owner/Manager คนอื่นจะไม่ถูกลบ")) return;
     setSending(true);
@@ -868,6 +905,23 @@ export function CpiPosAiAssistant({ lang }: { lang: Language }) {
                         ? "max-w-[78%] rounded-[24px] bg-[#eaf3ff] px-4 py-2.5 text-slate-900"
                         : "w-full px-1 py-1 text-slate-800"} text-[15px] font-normal leading-7 sm:text-[15.5px]`}>
                         <AiRichText text={message.text} />
+                        {message.role === "assistant" ? (
+                          <div className="mt-3 flex flex-wrap items-center gap-2 text-[11px]">
+                            <button
+                              type="button"
+                              onClick={() => void saveMessageAsDocument(message)}
+                              disabled={savingDocumentId === message.id}
+                              className="rounded-lg px-2 py-1 font-semibold text-slate-500 transition hover:bg-white hover:text-blue-700 disabled:opacity-50"
+                            >
+                              {savingDocumentId === message.id ? "กำลังบันทึก…" : "บันทึกเป็นเอกสาร"}
+                            </button>
+                            {proposalStatus[`doc:${message.id}`]?.message ? (
+                              <span className={proposalStatus[`doc:${message.id}`]?.state === "error" ? "text-red-600" : "text-emerald-600"}>
+                                {proposalStatus[`doc:${message.id}`]?.message}
+                              </span>
+                            ) : null}
+                          </div>
+                        ) : null}
                         {message.role === "assistant" && message.proposals?.length ? (
                           <div className="mt-3 grid gap-2">
                             {message.proposals.map((proposal) => {
