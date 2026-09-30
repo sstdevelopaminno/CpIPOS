@@ -850,7 +850,6 @@ export function CpiPosAiAssistant({ lang }: { lang: Language }) {
                   <div className={`mx-auto flex w-full max-w-[820px] ${message.role === "user" ? "justify-end" : "justify-start"}`}>
                     <div className={`${message.role === "user" ? "max-w-[78%] rounded-[24px] bg-[#f4f4f4] px-4 py-2.5 text-slate-900" : "w-full px-1 py-2 text-slate-800"} text-[15px] font-normal leading-7 sm:text-[15.5px]`}>
                       <AiRichText text={message.text} />
-                    </div>
                     {message.role === "assistant" && message.proposals?.length ? (
                       <div className="mt-2 grid gap-2">
                         {message.proposals.map((proposal) => {
