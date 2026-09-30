@@ -865,13 +865,23 @@ export async function GET(request: Request) {
     const rooms = room && !initialRooms.some((item) => item.id === room!.id)
       ? [room, ...initialRooms]
       : initialRooms;
-    const history = room ? await listAiConversationMessages(room.openai_conversation_id, 120) : [];
+    let history: Awaited<ReturnType<typeof listAiConversationMessages>> = [];
+    let historyWarning: string | null = null;
+    if (room) {
+      try {
+        history = await listAiConversationMessages(room.openai_conversation_id, 120);
+      } catch (error) {
+        console.warn("[cpipos-ai] chat history temporarily unavailable", error);
+        historyWarning = "ห้องแชทยังอยู่ แต่โหลดข้อความเก่าไม่สำเร็จชั่วคราว กรุณาลองเปิดห้องนี้อีกครั้ง";
+      }
+    }
 
     return ok({
       overview,
       rooms: rooms.map(publicAiChatRoom),
       active_room: room ? publicAiChatRoom(room) : null,
       history,
+      history_warning: historyWarning,
       quota,
       mode: "confirm_then_pin"
     });
