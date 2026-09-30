@@ -875,7 +875,6 @@ export async function POST(request: Request) {
       return ok({
         answer: restrictedAiReply(),
         proposals: [],
-        overview,
         room: publicAiChatRoom(roomAfter),
         quota,
         metering: null,
@@ -927,7 +926,6 @@ export async function POST(request: Request) {
     return ok({
       answer: result.text,
       proposals: result.proposals,
-      overview,
       room: publicAiChatRoom(roomAfter),
       quota: quotaAfter,
       metering,
