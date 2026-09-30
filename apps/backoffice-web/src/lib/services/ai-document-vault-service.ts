@@ -143,13 +143,11 @@ export async function pruneExpiredAiDocuments(tenantId: string, limit = 30) {
 
 export async function loadAiDocumentUsage(tenantId: string) {
   const db = getSupabaseServiceClient();
-  const { data, error } = await db.from("pos_ai_documents")
-    .select("size_bytes")
-    .eq("tenant_id", tenantId)
-    .returns<Array<{ size_bytes: number | null }>>();
+  const { data, error } = await db.rpc("pos_ai_document_tenant_usage", { p_tenant_id: tenantId })
+    .maybeSingle<{ file_count: number | string | null; total_bytes: number | string | null }>();
   if (error) throw new Error(`ai_document_usage_failed:${error.message}`);
-  const files = data?.length ?? 0;
-  const bytes = (data ?? []).reduce((sum, row) => sum + Math.max(0, Number(row.size_bytes ?? 0)), 0);
+  const files = Math.max(0, Math.trunc(Number(data?.file_count ?? 0)));
+  const bytes = Math.max(0, Number(data?.total_bytes ?? 0));
   return { files, bytes, storage_mb: Number((bytes / (1024 * 1024)).toFixed(3)) };
 }
 
