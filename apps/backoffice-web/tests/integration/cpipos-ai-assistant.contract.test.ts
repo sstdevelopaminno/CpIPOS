@@ -23,6 +23,10 @@ const roomApi = source("../../src/app/api/pos/ai/conversations/[roomId]/route.ts
 const usageService = source("../../src/lib/services/ai-usage-service.ts");
 const usageMigration = source("../../../../supabase/migrations/20260929224000_pos_ai_usage_quota.sql");
 const oneTimeApprovalMigration = source("../../../../supabase/migrations/20260930062000_one_time_manager_pin_approvals.sql");
+const documentMigration = source("../../../../supabase/migrations/20260930161000_cpipos_ai_document_vault.sql");
+const documentService = source("../../src/lib/services/ai-document-service.ts");
+const documentApi = source("../../src/app/api/pos/ai/documents/route.ts");
+const documentWorkspace = source("../../src/components/pos-preview/pos-ai-document-vault.tsx");
 
 describe("CpiPOS AI store assistant", () => {
   it("promotes AI to a first-class main menu and removes it from More", () => {
@@ -110,6 +114,34 @@ describe("CpiPOS AI store assistant", () => {
     expect(aiWorkspace).toContain("AiRichText");
     expect(aiWorkspace).toContain("InlineRichText");
     expect(aiWorkspace).not.toContain("xl:grid-cols-[minmax(0,1.7fr)_minmax(330px,0.8fr)]");
+  });
+
+  it("uses a connected GPT-like workspace with centered empty state and smart auto-scroll", () => {
+    expect(aiWorkspace).toContain("/brand/cpipos-symbol-transparent.png");
+    expect(aiWorkspace).toContain("วันนี้อยากให้ CpiPOS AI ช่วยเรื่องอะไร");
+    expect(aiWorkspace).toContain("hasConversationContent");
+    expect(aiWorkspace).toContain("bg-[radial-gradient");
+    expect(aiWorkspace).not.toContain("OpenAI");
+    expect(aiWorkspace).toContain("chatScrollRef");
+    expect(aiWorkspace).toContain("scrollToBottom");
+    expect(aiWorkspace).toContain("showScrollToBottom");
+    expect(aiWorkspace).toContain("↓ กลับลงล่าง");
+    expect(aiWorkspace).toContain('className="sticky bottom-0 z-20');
+    expect(aiWorkspace).toContain("resizeComposer");
+    expect(aiWorkspace).toContain("friendlyAiError");
+  });
+
+  it("supports compact task-aware replies, image analysis and table rendering", () => {
+    expect(aiApi).toContain("detectAiTask");
+    expect(aiApi).toContain("CPIPOS_GUIDE");
+    expect(aiApi).toContain('reasoning: { effort: "low" }');
+    expect(aiApi).toContain('type: "input_image"');
+    expect(aiApi).toContain('detail: "low"');
+    expect(aiApi).toContain("2-6 บรรทัด");
+    expect(aiWorkspace).toContain("compressImageForAi");
+    expect(aiWorkspace).toContain('accept="image/png,image/jpeg,image/webp"');
+    expect(aiWorkspace).toContain("splitTableRow");
+    expect(aiWorkspace).toContain("บันทึกเอกสาร");
   });
 
   it("uses a GPT-like bounded chat surface with collapsible prompts and smart auto-scroll", () => {
@@ -201,6 +233,21 @@ describe("CpiPOS AI store assistant", () => {
     expect(aiWorkspace).not.toContain("ประวัติส่วนตัวตามบัญชี Owner/Manager");
     expect(aiWorkspace).not.toContain("cpipos-symbol-sidebar.png");
     expect(aiWorkspace).toContain("เดือน {quota.month_key}");
+  });
+
+  it("stores generated documents outside Postgres payload rows with package-controlled limits", () => {
+    expect(sharedTypes).toContain('"ai_document_vault"');
+    expect(menuPolicy).toContain('key: "more.ai_documents"');
+    expect(featureMap).toContain('"/preview/pos/documents": "ai_document_vault"');
+    expect(moreWorkspace).toContain("เก็บไฟล์เอกสาร");
+    expect(documentMigration).toContain("storage.buckets");
+    expect(documentMigration).toContain("'cpipos-ai-documents'");
+    expect(documentMigration).toContain("create table if not exists public.pos_ai_documents");
+    expect(documentMigration).toContain("Metadata only");
+    expect(documentService).toContain('.storage.from(BUCKET).upload');
+    expect(documentService).toContain("pos_ai_document_usage");
+    expect(documentApi).toContain('"ai_document_vault"');
+    expect(documentWorkspace).toContain("พิมพ์ / บันทึก PDF");
   });
 
   it("keeps destructive or financial reversal actions outside Phase 2", () => {
