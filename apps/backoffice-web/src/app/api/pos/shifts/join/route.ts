@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
 import { appendAuditLog } from "@/lib/audit-log";
-import { FeatureGateError, requireTenantFeature } from "@/lib/feature-gate";
 import {
   PosGuardError,
   getTenantBranchScopeFromSession,
@@ -28,7 +27,6 @@ export async function POST(request: Request) {
   try {
     const scope = await requirePosSession();
     requirePermission(scope, "shift:join");
-    await requireTenantFeature(scope.session.tenant_id, "attendance_tracking", scope.session.branch_id);
     const body = (await request.json().catch(() => null)) as { shift_id?: string } | null;
     const shiftId = String(body?.shift_id ?? "").trim();
     if (!shiftId) {
@@ -113,9 +111,6 @@ export async function POST(request: Request) {
     });
     return withPosSessionCookie(response, scope.session.id);
   } catch (error) {
-    if (error instanceof FeatureGateError) {
-      return NextResponse.json({ data: null, error: { code: error.code, message: error.message } }, { status: error.status });
-    }
     if (error instanceof PosGuardError) {
       return NextResponse.json({ data: null, error: { code: error.code, message: error.message } }, { status: error.status });
     }
