@@ -292,7 +292,7 @@ function LoginEmployeePageContent() {
         );
         const redirectTo = String(deviceBody?.data?.redirect_to ?? "").trim();
         if (deviceResponse.ok && redirectTo) {
-          window.location.assign(redirectTo);
+          window.location.assign(consumePosReturnPath(redirectTo));
           return;
         }
       } catch {
