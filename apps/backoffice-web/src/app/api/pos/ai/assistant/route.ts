@@ -17,6 +17,7 @@ import {
 import { AiQuotaError, assertAiQuotaAvailable, loadAiQuotaStatus, recordAiUsage } from "@/lib/services/ai-usage-service";
 import { loadPosSalesSummaryData } from "@/lib/services/pos-sales-summary-service";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
+import { PosGuardError } from "@/lib/pos-session-guard";
 
 export const runtime = "nodejs";
 
@@ -895,6 +896,9 @@ export async function GET(request: Request) {
       mode: "confirm_then_pin"
     });
   } catch (error) {
+    if (error instanceof PosGuardError) {
+      return fail(error.code, error.message, error.status);
+    }
     console.error("[cpipos-ai] overview failed", error);
     return fail("ai_assistant_overview_failed", "ไม่สามารถโหลดข้อมูล CpiPOS AI ได้ในขณะนี้", 500);
   }
@@ -1003,6 +1007,9 @@ export async function POST(request: Request) {
       mode: "confirm_then_pin"
     });
   } catch (error) {
+    if (error instanceof PosGuardError) {
+      return fail(error.code, error.message, error.status);
+    }
     if (error instanceof AiQuotaError) {
       return fail(error.code, error.message, error.status);
     }
@@ -1032,6 +1039,9 @@ export async function DELETE() {
     if (redactError) throw new Error(`ai_usage_prompt_redaction_failed:${redactError.message}`);
     return ok({ cleared: true, usage_accounting_retained: true });
   } catch (error) {
+    if (error instanceof PosGuardError) {
+      return fail(error.code, error.message, error.status);
+    }
     console.error("[cpipos-ai] history clear failed", error);
     return fail("ai_history_clear_failed", "ไม่สามารถล้างประวัติ CpiPOS AI ได้ในขณะนี้", 500);
   }
