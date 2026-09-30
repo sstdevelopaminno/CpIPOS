@@ -748,17 +748,17 @@ export function CpiPosAiAssistant({ lang }: { lang: Language }) {
       style={{ fontFamily: 'ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans Thai", sans-serif' }}
     >
       <section className="mx-auto flex h-full min-h-0 w-full max-w-[1500px] flex-col gap-3">
-        <header className="relative overflow-hidden rounded-3xl border border-blue-100 bg-[radial-gradient(circle_at_78%_15%,rgba(56,189,248,0.28),transparent_24%),linear-gradient(120deg,#ffffff,#eef6ff_58%,#e9fbff)] px-4 py-4 shadow-[0_10px_35px_rgba(37,99,235,0.08)] sm:px-6">
-          <div className="absolute -right-6 -top-8 h-32 w-32 rounded-full bg-blue-300/20 blur-2xl" />
+        <header className="relative overflow-hidden rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm sm:px-5">
+          <div className="absolute -right-10 -top-12 h-28 w-28 rounded-full bg-blue-100/50 blur-2xl" />
           <div className="relative flex items-center gap-4">
-            <div className="relative flex h-16 w-16 shrink-0 items-center justify-center rounded-2xl border border-white bg-white/85 shadow-lg shadow-blue-500/10">
-              <Image src="/brand/cpipos-symbol-sidebar.png" alt="CpiPOS" width={50} height={50} className="h-12 w-12 object-contain" priority />
+            <div className="relative flex h-12 w-12 shrink-0 items-center justify-center rounded-xl border border-slate-100 bg-white shadow-sm">
+              <Image src="/brand/cpipos-symbol-sidebar.png" alt="CpiPOS" width={40} height={40} className="h-9 w-9 object-contain" priority />
             </div>
             <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-2">
-                <h1 className="text-xl font-black tracking-tight text-[#0d2344] sm:text-2xl">CpiPOS AI ผู้ช่วยร้านค้า</h1>
+                <h1 className="text-lg font-semibold tracking-tight text-slate-950 sm:text-xl">CpiPOS AI ผู้ช่วยร้านค้า</h1>
               </div>
-              <p className="mt-1 text-sm font-medium text-slate-600">ผู้ช่วยอัจฉริยะสำหรับยอดขาย ต้นทุน สต๊อก และการตลาด — วิเคราะห์จากข้อมูลร้านใน CpiPOS</p>
+              <p className="mt-1 text-xs font-normal text-slate-500 sm:text-sm">ผู้ช่วยอัจฉริยะสำหรับยอดขาย ต้นทุน สต๊อก และการตลาด — วิเคราะห์จากข้อมูลร้านใน CpiPOS</p>
               <div className="mt-2 flex flex-wrap items-center gap-2">
                 <span className="rounded-full border border-blue-100 bg-white/75 px-2.5 py-1 text-[10px] font-bold text-blue-700">
                   ประวัติส่วนตัวตามบัญชี Owner/Manager · OpenAI Conversation
@@ -846,7 +846,7 @@ export function CpiPosAiAssistant({ lang }: { lang: Language }) {
                       type="button"
                       onClick={() => void sendMessage(prompt)}
                       disabled={sending || quota?.exhausted || quota?.enabled === false}
-                      className="shrink-0 rounded-full border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-bold text-blue-700 transition hover:border-blue-300 hover:bg-blue-100 disabled:cursor-wait disabled:opacity-50"
+                      className="shrink-0 rounded-full border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-700 transition hover:bg-slate-100 disabled:cursor-wait disabled:opacity-50"
                     >
                       {prompt}
                     </button>
@@ -862,14 +862,14 @@ export function CpiPosAiAssistant({ lang }: { lang: Language }) {
                 className="h-full min-h-0 space-y-4 overflow-y-auto overscroll-contain bg-[linear-gradient(180deg,#ffffff,#fbfdff)] px-4 py-5 sm:px-5"
               >
               {messages.map((message) => (
-                <div key={message.id} className={`flex gap-3 ${message.role === "user" ? "justify-end" : "justify-start"}`}>
+                <div key={message.id} className={`mx-auto flex w-full max-w-[860px] gap-3 ${message.role === "user" ? "justify-end" : "justify-start"}`}>
                   {message.role === "assistant" ? (
-                    <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-blue-100 bg-white shadow-sm">
-                      <Image src="/brand/cpipos-symbol-sidebar.png" alt="" width={28} height={28} className="h-7 w-7 object-contain" />
+                    <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-slate-100 bg-white shadow-sm">
+                      <Image src="/brand/cpipos-symbol-sidebar.png" alt="" width={24} height={24} className="h-6 w-6 object-contain" />
                     </span>
                   ) : null}
-                  <div className={`max-w-[86%] ${message.role === "user" ? "" : "min-w-0"}`}>
-                    <div className={`rounded-2xl px-4 py-3 text-sm font-medium leading-6 shadow-sm ${message.role === "user" ? "rounded-br-md bg-gradient-to-br from-blue-600 to-cyan-500 text-white" : "rounded-bl-md border border-slate-100 bg-slate-50 text-slate-700"}`}>
+                  <div className={`max-w-[88%] ${message.role === "user" ? "" : "min-w-0 flex-1"}`}>
+                    <div className={`px-4 py-3 text-[15px] font-normal leading-7 ${message.role === "user" ? "rounded-3xl bg-[#f4f4f4] text-slate-900" : "px-1 text-slate-800"}`}>
                       <AiRichText text={message.text} />
                     </div>
                     {message.role === "assistant" && message.proposals?.length ? (
@@ -925,11 +925,11 @@ export function CpiPosAiAssistant({ lang }: { lang: Language }) {
                 </div>
               ))}
               {sending ? (
-                <div className="flex items-center gap-3">
-                  <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-blue-100 bg-white shadow-sm">
+                <div className="mx-auto flex w-full max-w-[860px] items-center gap-3">
+                  <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-slate-100 bg-white shadow-sm">
                     <Image src="/brand/cpipos-symbol-sidebar.png" alt="" width={28} height={28} className="h-7 w-7 object-contain" />
                   </span>
-                  <div className="rounded-2xl rounded-bl-md border border-slate-100 bg-slate-50 px-4 py-3 text-sm font-bold text-slate-500">
+                  <div className="px-1 py-3 text-sm font-medium text-slate-500">
                     <span className="inline-flex items-center gap-2"><span className="h-2 w-2 animate-pulse rounded-full bg-blue-500" />กำลังวิเคราะห์ข้อมูลร้าน...</span>
                   </div>
                 </div>
@@ -951,8 +951,8 @@ export function CpiPosAiAssistant({ lang }: { lang: Language }) {
               ) : null}
             </div>
 
-            <form onSubmit={submit} className="sticky bottom-0 z-20 shrink-0 border-t border-slate-100 bg-white/95 p-3 backdrop-blur sm:p-4">
-              <div className="flex items-end gap-2 rounded-2xl border border-blue-200 bg-white p-2 shadow-[0_5px_20px_rgba(37,99,235,0.06)] focus-within:border-blue-400 focus-within:ring-2 focus-within:ring-blue-100">
+            <form onSubmit={submit} className="sticky bottom-0 z-20 shrink-0 bg-gradient-to-t from-white via-white to-white/80 px-3 pb-3 pt-4 backdrop-blur sm:px-4 sm:pb-4">
+              <div className="mx-auto flex max-w-[860px] items-end gap-2 rounded-[26px] border border-slate-200 bg-white p-2 shadow-[0_8px_28px_rgba(15,23,42,0.08)] focus-within:border-slate-300">
                 <span className="mb-2 ml-1 text-blue-500"><SparkleIcon size={19} /></span>
                 <textarea
                   ref={textareaRef}
@@ -965,12 +965,12 @@ export function CpiPosAiAssistant({ lang }: { lang: Language }) {
                   rows={1}
                   maxLength={1200}
                   placeholder={quota?.exhausted ? "โควตา AI เดือนนี้ครบแล้ว" : quota?.enabled === false ? "AI ถูกปิดสำหรับร้านนี้" : "พิมพ์คำถามถึง CpiPOS AI..."}
-                  className="max-h-32 min-h-[42px] flex-1 resize-none border-0 bg-transparent px-1 py-2.5 text-sm font-medium text-slate-800 outline-none placeholder:text-slate-400"
+                  className="max-h-32 min-h-[42px] flex-1 resize-none border-0 bg-transparent px-1 py-2.5 text-[15px] font-normal leading-6 text-slate-900 outline-none placeholder:text-slate-400"
                 />
                 <button
                   type="submit"
                   disabled={sending || !input.trim() || quota?.exhausted || quota?.enabled === false}
-                  className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-blue-600 to-cyan-500 text-white shadow-lg shadow-blue-500/20 transition hover:scale-[1.02] disabled:cursor-not-allowed disabled:opacity-40"
+                  className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-slate-950 text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400"
                   aria-label="ส่งข้อความ"
                 >
                   <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
@@ -978,7 +978,7 @@ export function CpiPosAiAssistant({ lang }: { lang: Language }) {
                   </svg>
                 </button>
               </div>
-              <p className="mt-2 px-1 text-[11px] font-medium text-slate-400">Phase 2: AI เตรียมรายการให้ได้ แต่การเปลี่ยนราคา/สต๊อกจะเกิดขึ้นเฉพาะเมื่อคุณกดยืนยันและผ่าน PIN Owner/Manager เท่านั้น</p>
+              <p className="mx-auto mt-2 max-w-[860px] px-2 text-center text-[10px] font-normal text-slate-400">CpiPOS AI อาจตอบคลาดเคลื่อนได้ · การเปลี่ยนราคา/สต๊อกต้องยืนยันและผ่าน PIN Owner/Manager</p>
             </form>
           </section>
           </div>
