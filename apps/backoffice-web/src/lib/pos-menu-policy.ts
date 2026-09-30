@@ -47,7 +47,13 @@ export const POS_MENU_CATALOG: readonly PosMenuDefinition[] = [
 ] as const;
 const catalog = new Map(POS_MENU_CATALOG.map(item => [item.key, item]));
 export function isValidPosMenuKey(key: string): boolean { return catalog.has(key); }
+export function isPosMenuAlwaysEnabled(key: string): boolean {
+  return key === "main.shift";
+}
 export function isPosMenuEnabled(key: string, overrides: Record<string, boolean>): boolean {
+  // Shift is an operational prerequisite for POS sales, not an optional menu or
+  // package entitlement. Never let a stale IT override lock it.
+  if (isPosMenuAlwaysEnabled(key)) return true;
   // A disabled main menu does not implicitly disable other child menus or APIs.
   // The UI decides whether to show a lock on the selected menu entry only.
   if (!catalog.has(key)) return true;
