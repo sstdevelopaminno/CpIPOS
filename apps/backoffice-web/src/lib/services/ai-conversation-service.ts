@@ -25,6 +25,13 @@ export type AiChatRoom = {
   last_message_at: string;
 };
 
+export type PublicAiChatRoom = Omit<AiChatRoom, "openai_conversation_id">;
+
+export function publicAiChatRoom(room: AiChatRoom): PublicAiChatRoom {
+  const { openai_conversation_id: _providerConversationId, ...publicRoom } = room;
+  return publicRoom;
+}
+
 type OpenAiConversation = {
   id: string;
   object?: string;

@@ -45,17 +45,20 @@ describe("CpiPOS AI store assistant", () => {
     expect(aiActions).not.toContain('platformRole === "it_admin"');
   });
 
-  it("keeps durable per-user history in OpenAI Conversations while response-object storage stays disabled", () => {
+  it("keeps durable per-user history server-side while the POS client stays provider-neutral", () => {
     expect(aiApi).toContain('readEnv("OPENAI_API_KEY")');
     expect(aiApi).toContain('fetch("https://api.openai.com/v1/responses"');
     expect(aiApi).toContain("conversation: conversationId");
     expect(aiApi).toContain("store: false");
-    expect(aiApi).toContain('history_source: "openai_conversations"');
+    expect(aiApi).toContain("publicAiChatRoom");
+    expect(aiApi).not.toContain('history_source: "openai_conversations"');
     expect(aiWorkspace).not.toContain("OPENAI_API_KEY");
+    expect(aiWorkspace).not.toContain("OpenAI");
     expect(conversationService).toContain('openAiFetch<OpenAiConversation>("/conversations"');
     expect(conversationService).toContain("tenant_id: scope.tenantId");
     expect(conversationService).toContain("branch_id: scope.branchId");
     expect(conversationService).toContain("user_id: scope.userId");
+    expect(conversationService).toContain("publicAiChatRoom");
   });
 
   it("loads real POS sales, stock, and cost context before answering", () => {
@@ -124,7 +127,7 @@ describe("CpiPOS AI store assistant", () => {
     expect(aiWorkspace).toContain("friendlyAiError");
   });
 
-  it("stores only a tiny room index locally while full chat content stays in OpenAI Conversations", () => {
+  it("stores only a tiny local room index while full chat content stays in the provider conversation store", () => {
     expect(conversationMigration).toContain("pos_ai_conversation_links");
     expect(roomMigration).toContain("create table if not exists public.pos_ai_chat_rooms");
     expect(roomMigration).toContain("openai_conversation_id text not null unique");
@@ -133,9 +136,11 @@ describe("CpiPOS AI store assistant", () => {
     expect(conversationService).toContain("listAiChatRooms");
     expect(conversationService).toContain("createAiChatRoom");
     expect(conversationService).toContain("deleteOpenAiConversationById");
-    expect(roomListApi).toContain('storage: "openai_conversations"');
+    expect(roomListApi).toContain("publicAiChatRoom");
+    expect(roomListApi).not.toContain('storage: "openai_conversations"');
     expect(roomApi).toContain("listAiConversationMessages");
-    expect(aiWorkspace).toContain("OpenAI Conversations");
+    expect(roomApi).toContain("publicAiChatRoom");
+    expect(aiWorkspace).not.toContain("OpenAI");
   });
 
   it("supports one active room at a time with GPT-like room navigation and deletion", () => {
@@ -146,6 +151,9 @@ describe("CpiPOS AI store assistant", () => {
     expect(aiWorkspace).toContain("createRoom()");
     expect(aiWorkspace).toContain("deleteRoom(room");
     expect(aiWorkspace).toContain("☰ ห้องแชท");
+    expect(aiWorkspace).toContain("ข้อมูลสำคัญวันนี้");
+    expect(aiWorkspace).toContain("เมนูแนะนำสำหรับคุณ");
+    expect(aiWorkspace).not.toContain("setRooms([]);");
     expect(aiApi).toContain("room_id");
     expect(aiApi).toContain("getOrCreateAiChatRoom");
     expect(aiApi).toContain("touchAiChatRoom");
@@ -183,10 +191,15 @@ describe("CpiPOS AI store assistant", () => {
     expect(usageMigration).toContain("monthly_cost_limit_usd");
   });
 
-  it("keeps the promoted AI menu compact without extra AI/BETA badges", () => {
+  it("keeps the promoted AI menu compact and simplifies the customer-facing AI header", () => {
     expect(staffMenu).not.toContain("bg-cyan-300/15");
     expect(staffMenu).toContain('const aiLabel = lang === "th" ? "CpiPOS AI" : "CpiPOS AI"');
     expect(aiWorkspace).not.toContain("BETA");
+    expect(aiWorkspace).toContain(">CpiPOS AI</h1>");
+    expect(aiWorkspace).not.toContain("CpiPOS AI ผู้ช่วยร้านค้า</h1>");
+    expect(aiWorkspace).not.toContain("ผู้ช่วยอัจฉริยะสำหรับยอดขาย ต้นทุน สต๊อก และการตลาด");
+    expect(aiWorkspace).not.toContain("ประวัติส่วนตัวตามบัญชี Owner/Manager");
+    expect(aiWorkspace).not.toContain("cpipos-symbol-sidebar.png");
     expect(aiWorkspace).toContain("เดือน {quota.month_key}");
   });
 

@@ -1,7 +1,7 @@
 import { getPosApiAuthContext } from "@/lib/pos-api-auth";
 import { fail, ok } from "@/lib/http";
 import { isTenantPosMenuEnabled } from "@/lib/server/pos-menu-policy-service";
-import { createAiChatRoom, listAiChatRooms, pruneExpiredAiChatRooms } from "@/lib/services/ai-conversation-service";
+import { createAiChatRoom, listAiChatRooms, pruneExpiredAiChatRooms, publicAiChatRoom } from "@/lib/services/ai-conversation-service";
 import { loadAiQuotaStatus } from "@/lib/services/ai-usage-service";
 
 export const runtime = "nodejs";
@@ -43,9 +43,8 @@ export async function GET() {
     await pruneExpiredAiChatRooms(scope, checked.quota.history_retention_days);
     const rooms = await listAiChatRooms(scope);
     return ok({
-      rooms,
-      history_retention_days: checked.quota.history_retention_days,
-      storage: "openai_conversations"
+      rooms: rooms.map(publicAiChatRoom),
+      history_retention_days: checked.quota.history_retention_days
     });
   } catch (error) {
     console.error("[cpipos-ai] room list failed", error);
@@ -60,9 +59,8 @@ export async function POST(request: Request) {
     const body = (await request.json().catch(() => null)) as { title?: string } | null;
     const room = await createAiChatRoom(scopeFrom(checked.auth), body?.title ?? "แชทใหม่");
     return ok({
-      room,
-      history_retention_days: checked.quota.history_retention_days,
-      storage: "openai_conversations"
+      room: publicAiChatRoom(room),
+      history_retention_days: checked.quota.history_retention_days
     }, 201);
   } catch (error) {
     console.error("[cpipos-ai] room create failed", error);

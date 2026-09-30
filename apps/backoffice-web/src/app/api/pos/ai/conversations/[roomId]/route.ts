@@ -1,7 +1,7 @@
 import { getPosApiAuthContext } from "@/lib/pos-api-auth";
 import { fail, ok } from "@/lib/http";
 import { isTenantPosMenuEnabled } from "@/lib/server/pos-menu-policy-service";
-import { deleteAiChatRoom, getAiChatRoom, listAiConversationMessages, renameAiChatRoom } from "@/lib/services/ai-conversation-service";
+import { deleteAiChatRoom, getAiChatRoom, listAiConversationMessages, publicAiChatRoom, renameAiChatRoom } from "@/lib/services/ai-conversation-service";
 import { loadAiQuotaStatus } from "@/lib/services/ai-usage-service";
 
 export const runtime = "nodejs";
@@ -43,7 +43,7 @@ export async function GET(_request: Request, context: { params: Promise<{ roomId
     const room = await getAiChatRoom(scopeFrom(checked.auth), roomId);
     if (!room) return fail("ai_chat_room_not_found", "ไม่พบห้องแชทนี้", 404);
     const messages = await listAiConversationMessages(room.openai_conversation_id, 120);
-    return ok({ room, messages, storage: "openai_conversations" });
+    return ok({ room: publicAiChatRoom(room), messages });
   } catch (error) {
     console.error("[cpipos-ai] room messages failed", error);
     return fail("ai_chat_room_messages_failed", "ไม่สามารถโหลดข้อความห้องแชทนี้ได้", 500);
@@ -59,7 +59,7 @@ export async function PATCH(request: Request, context: { params: Promise<{ roomI
     const title = String(body?.title ?? "").trim();
     if (!title) return fail("invalid_ai_chat_room_title", "กรุณาระบุชื่อห้องแชท", 422);
     const room = await renameAiChatRoom(scopeFrom(checked.auth), roomId, title);
-    return ok({ room });
+    return ok({ room: publicAiChatRoom(room) });
   } catch (error) {
     console.error("[cpipos-ai] room rename failed", error);
     return fail("ai_chat_room_rename_failed", "ไม่สามารถเปลี่ยนชื่อห้องแชทได้", 500);

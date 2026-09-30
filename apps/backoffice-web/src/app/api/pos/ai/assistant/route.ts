@@ -11,6 +11,7 @@ import {
   listAiChatRooms,
   listAiConversationMessages,
   pruneExpiredAiChatRooms,
+  publicAiChatRoom,
   touchAiChatRoom
 } from "@/lib/services/ai-conversation-service";
 import { AiQuotaError, assertAiQuotaAvailable, loadAiQuotaStatus, recordAiUsage } from "@/lib/services/ai-usage-service";
@@ -675,13 +676,11 @@ export async function GET(request: Request) {
 
     return ok({
       overview,
-      rooms,
-      active_room: room,
+      rooms: rooms.map(publicAiChatRoom),
+      active_room: room ? publicAiChatRoom(room) : null,
       history,
       quota,
-      model: AI_MODEL,
-      mode: "confirm_then_pin",
-      history_source: "openai_conversations"
+      mode: "confirm_then_pin"
     });
   } catch (error) {
     console.error("[cpipos-ai] overview failed", error);
@@ -719,12 +718,10 @@ export async function POST(request: Request) {
         answer: restrictedAiReply(),
         proposals: [],
         overview,
-        room: roomAfter,
+        room: publicAiChatRoom(roomAfter),
         quota,
         metering: null,
-        model: AI_MODEL,
-        mode: "safe_read_only",
-        history_source: "openai_conversations"
+        mode: "safe_read_only"
       });
     }
 
@@ -772,12 +769,10 @@ export async function POST(request: Request) {
       answer: result.text,
       proposals: result.proposals,
       overview,
-      room: roomAfter,
+      room: publicAiChatRoom(roomAfter),
       quota: quotaAfter,
       metering,
-      model: AI_MODEL,
-      mode: "confirm_then_pin",
-      history_source: "openai_conversations"
+      mode: "confirm_then_pin"
     });
   } catch (error) {
     if (error instanceof AiQuotaError) {
