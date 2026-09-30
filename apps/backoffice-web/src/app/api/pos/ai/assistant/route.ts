@@ -23,7 +23,11 @@ export const runtime = "nodejs";
 type AiRequestBody = {
   message?: string;
   room_id?: string;
+  image_data_url?: string | null;
+  image_name?: string | null;
 };
+
+type AiTaskKind = "smalltalk" | "help" | "sales" | "accounting" | "stock" | "cost" | "marketing" | "general";
 
 type IngredientRow = {
   id: string;
@@ -99,10 +103,10 @@ export type AiProposal =
     };
 
 const AI_MODEL = readEnv("CPIPOS_AI_MODEL") ?? "gpt-6-luna";
-const MAX_OUTPUT_TOKENS_RAW = Number(readEnv("CPIPOS_AI_MAX_OUTPUT_TOKENS") ?? "900");
+const MAX_OUTPUT_TOKENS_RAW = Number(readEnv("CPIPOS_AI_MAX_OUTPUT_TOKENS") ?? "550");
 const MAX_OUTPUT_TOKENS = Number.isFinite(MAX_OUTPUT_TOKENS_RAW)
-  ? Math.max(256, Math.min(1600, Math.trunc(MAX_OUTPUT_TOKENS_RAW)))
-  : 900;
+  ? Math.max(192, Math.min(900, Math.trunc(MAX_OUTPUT_TOKENS_RAW)))
+  : 550;
 
 const RESTRICTED_AI_REQUESTS: RegExp[] = [
   /(?:drop|truncate|delete\s+from|alter\s+table|grant\s+|revoke\s+|execute\s+sql|run\s+sql|raw\s+sql)/i,
@@ -130,6 +134,44 @@ function restrictedAiReply() {
     "ผมไม่สามารถลบ/รีเซ็ตฐานข้อมูล, ยกเลิกบิลหรือคืนเงิน, เปลี่ยนสิทธิ์ผู้ใช้/แพ็กเกจ/นโยบาย IT, รัน SQL โดยตรง หรือเข้าถึงข้อมูลร้านอื่นได้",
     "หากต้องการ ผมช่วยวิเคราะห์ข้อมูลหรือเตรียมข้อเสนอที่ปลอดภัยให้ Owner/Manager ตรวจสอบและยืนยันผ่าน PIN ได้ครับ"
   ].join("\n");
+}
+
+const CPIPOS_GUIDE = [
+  "หน้าขาย: เปิดบิล เลือกสินค้า รับชำระ และใช้โหมดขายที่แพ็กเกจอนุญาต",
+  "รายการขาย: ดูบิล/รายการขายและสถานะย้อนหลัง",
+  "ครัว: รับคิวอาหาร; จัดการครัวใช้กำหนดโซนและ KDS",
+  "เปิด/ปิดกะ: เปิดกะ เข้ากะ ปิดกะ และสรุปเงิน",
+  "สรุปยอดขาย: ยอดขาย ภาษี เงินสด/โอน และสรุปประจำกะ",
+  "ใบเสร็จย้อนหลัง: ค้นหาและพิมพ์ใบเสร็จ",
+  "จัดการโต๊ะ: โซน โต๊ะ และผังร้าน",
+  "จัดการสินค้า: สินค้า ราคา สต๊อก วัตถุดิบ สูตร และหมวดหมู่",
+  "สมาชิก: ข้อมูลสมาชิกลูกค้า",
+  "ออกใบกำกับภาษี: ค้นบิลและออกเอกสารภาษี",
+  "รายการขายสินค้า: วิเคราะห์สินค้าที่ขายและสินค้าขายดี",
+  "เก็บไฟล์เอกสาร: เก็บสรุปยอด ตาราง แผนการตลาด และเอกสารจาก CpiPOS AI",
+  "ชำระแพ็กเกจ: ดูสิทธิ์ เลือก/อัปเกรดแพ็กเกจ และแจ้งชำระ",
+  "ตั้งค่า: ร้าน/บริษัท สาขา อุปกรณ์ ผู้ใช้ ภาษี ชำระเงิน การแจ้งเตือน ภาษา และหน้าจอ"
+].join("\n");
+
+function detectAiTask(message: string, hasImage: boolean): AiTaskKind {
+  const text = message.toLowerCase();
+  if (hasImage) return "stock";
+  if (/^(สวัสดี|หวัดดี|hello|hi|ขอบคุณ|thanks)[ครับค่ะ!\s.]*$/i.test(text)) return "smalltalk";
+  if (/(วิธี|คู่มือ|สอน|เข้าใช้งาน|ใช้งานยังไง|เมนู.*ทำอะไร|อยู่ตรงไหน|ตั้งค่ายังไง|หาเมนู)/i.test(text)) return "help";
+  if (/(บัญชี|รายรับ|รายจ่าย|เงินสด|โอน|ภาษี|กระทบยอด|ยอดชำระ|cash flow|บัญชีร้าน)/i.test(text)) return "accounting";
+  if (/(สต๊อก|stock|วัตถุดิบ|ของใกล้หมด|เติมของ|รับของ|ปรับจำนวน|ใบส่งของ)/i.test(text)) return "stock";
+  if (/(ต้นทุน|กำไร|มาร์จิ้น|margin|cost|ปรับราคา|ราคาใหม่|food cost)/i.test(text)) return "cost";
+  if (/(การตลาด|โปรโมชัน|โปรโมชั่น|แคมเปญ|ยอดขายเพิ่ม|ลูกค้า|facebook|line|marketing)/i.test(text)) return "marketing";
+  if (/(ยอดขาย|ขายดี|ขายอะไร|บิล|receipt|sales|วันนี้ขาย|30 วัน)/i.test(text)) return "sales";
+  return "general";
+}
+
+function cleanImageDataUrl(value: unknown) {
+  const text = String(value ?? "").trim();
+  if (!text) return null;
+  if (!/^data:image\/(?:png|jpe?g|webp);base64,[a-z0-9+/=\r\n]+$/i.test(text)) return null;
+  if (text.length > 2_800_000) return null;
+  return text;
 }
 
 const AI_PROPOSAL_TOOLS = [
@@ -356,7 +398,11 @@ async function loadAiCatalog(tenantId: string, branchId: string) {
   return { products, ingredients };
 }
 
-async function loadBusinessSnapshot(auth: Awaited<ReturnType<typeof getPosApiAuthContext>>) {
+async function loadBusinessSnapshot(
+  auth: Awaited<ReturnType<typeof getPosApiAuthContext>>,
+  task: AiTaskKind = "general",
+  message = ""
+) {
   const today = bangkokDate(0);
   const from30 = bangkokDate(-29);
   const scope = {
@@ -367,22 +413,27 @@ async function loadBusinessSnapshot(auth: Awaited<ReturnType<typeof getPosApiAut
     platformRole: auth.platformRole
   };
 
+  const needsSales = task === "sales" || task === "accounting" || task === "marketing" || task === "general";
+  const needsStock = task === "stock" || task === "cost" || task === "general";
+  const needsCost = task === "cost" || task === "marketing" || task === "general";
+  const needsCatalog = task === "stock" || task === "cost" || /(?:ปรับราคา|เพิ่มสต๊อก|ลดสต๊อก|แก้สต๊อก|รับของ)/i.test(message);
+
   const [todaySummary, monthSummary, lowStock, costSnapshot, catalog] = await Promise.all([
-    loadPosSalesSummaryData(scope, {
+    needsSales ? loadPosSalesSummaryData(scope, {
       dateFrom: today,
       dateTo: today,
       branchId: auth.branchId,
       status: "all"
-    }),
-    loadPosSalesSummaryData(scope, {
+    }) : Promise.resolve(null),
+    needsSales ? loadPosSalesSummaryData(scope, {
       dateFrom: from30,
       dateTo: today,
       branchId: auth.branchId,
       status: "all"
-    }),
-    loadLowStock(auth.tenantId!, auth.branchId!),
-    loadCostSnapshot(auth.tenantId!, auth.branchId!),
-    loadAiCatalog(auth.tenantId!, auth.branchId!)
+    }) : Promise.resolve(null),
+    needsStock ? loadLowStock(auth.tenantId!, auth.branchId!) : Promise.resolve([]),
+    needsCost ? loadCostSnapshot(auth.tenantId!, auth.branchId!) : Promise.resolve({ lowMarginProducts: [], costDataAvailable: false }),
+    needsCatalog ? loadAiCatalog(auth.tenantId!, auth.branchId!) : Promise.resolve({ products: [], ingredients: [] })
   ]);
 
   return {
@@ -393,17 +444,17 @@ async function loadBusinessSnapshot(auth: Awaited<ReturnType<typeof getPosApiAut
       last_30_days_to: today
     },
     today: {
-      net_sales: todaySummary.summary.netSales,
-      gross_sales: todaySummary.summary.grossSales,
-      receipts: todaySummary.summary.receiptCount,
-      average_receipt: todaySummary.summary.averageReceiptValue,
-      cash: todaySummary.summary.cashTotal,
-      transfer_qr: todaySummary.summary.qrTransferTotal,
-      card: todaySummary.summary.cardTotal,
-      discounts: todaySummary.summary.discountTotal,
-      tax: todaySummary.summary.taxTotal,
-      cancelled_count: todaySummary.summary.cancelledCount,
-      top_products: todaySummary.bestSellingProducts.slice(0, 5).map((row) => ({
+      net_sales: todaySummary?.summary.netSales ?? 0,
+      gross_sales: todaySummary?.summary.grossSales ?? 0,
+      receipts: todaySummary?.summary.receiptCount ?? 0,
+      average_receipt: todaySummary?.summary.averageReceiptValue ?? 0,
+      cash: todaySummary?.summary.cashTotal ?? 0,
+      transfer_qr: todaySummary?.summary.qrTransferTotal ?? 0,
+      card: todaySummary?.summary.cardTotal ?? 0,
+      discounts: todaySummary?.summary.discountTotal ?? 0,
+      tax: todaySummary?.summary.taxTotal ?? 0,
+      cancelled_count: todaySummary?.summary.cancelledCount ?? 0,
+      top_products: (todaySummary?.bestSellingProducts ?? []).slice(0, 5).map((row) => ({
         product_id: row.productId,
         name: row.productName,
         category: row.category,
@@ -412,10 +463,10 @@ async function loadBusinessSnapshot(auth: Awaited<ReturnType<typeof getPosApiAut
       }))
     },
     last_30_days: {
-      net_sales: monthSummary.summary.netSales,
-      receipts: monthSummary.summary.receiptCount,
-      average_receipt: monthSummary.summary.averageReceiptValue,
-      top_products: monthSummary.bestSellingProducts.slice(0, 10).map((row) => ({
+      net_sales: monthSummary?.summary.netSales ?? 0,
+      receipts: monthSummary?.summary.receiptCount ?? 0,
+      average_receipt: monthSummary?.summary.averageReceiptValue ?? 0,
+      top_products: (monthSummary?.bestSellingProducts ?? []).slice(0, 10).map((row) => ({
         product_id: row.productId,
         name: row.productName,
         category: row.category,
@@ -545,6 +596,9 @@ function extractProposals(payload: unknown, snapshot: Awaited<ReturnType<typeof 
 const AI_INSTRUCTIONS = [
   "คุณคือ CpiPOS AI ผู้ช่วยร้านค้าสำหรับเจ้าของหรือผู้จัดการร้าน",
   "ตอบภาษาไทยเป็นหลัก กระชับ ชัดเจน และใช้ภาษาธุรกิจที่เจ้าของร้านเข้าใจง่าย",
+  "โดยค่าเริ่มต้นตอบให้สั้น: 2-6 บรรทัดหรือไม่เกิน 6 bullet และไม่ทวนคำถาม เว้นแต่ผู้ใช้ขอรายละเอียด ตาราง รายงาน หรือแผนเชิงลึก",
+  "เมื่อผู้ใช้ขอตาราง ให้ใช้ Markdown table แบบเล็ก อ่านง่าย และเลือกเฉพาะคอลัมน์ที่จำเป็น",
+  "ช่วยได้ทั้งยอดขาย ต้นทุน/มาร์จิ้น สต๊อก การตลาด สรุปเชิงบัญชีเบื้องต้น และคู่มือใช้งาน CpiPOS โดยไม่อ้างว่าเป็นคำแนะนำบัญชี/ภาษีวิชาชีพ",
   "ใช้เฉพาะข้อมูลร้านที่ระบบส่งมาให้ ห้ามแต่งยอดขาย ต้นทุน สต๊อก รหัสสินค้า หรือรหัสวัตถุดิบที่ไม่มีในข้อมูล",
   "ถ้าข้อมูลไม่พอ ให้บอกตรง ๆ ว่ายังวิเคราะห์ส่วนนั้นไม่ได้ และบอกว่าควรเพิ่มข้อมูลอะไร",
   "ข้อมูลต้นทุนเป็นต้นทุนประมาณจากสูตร/วัตถุดิบ จึงใช้คำว่า 'กำไรขั้นต้นโดยประมาณ' และห้ามเรียกว่า 'กำไรสุทธิ' เว้นแต่มีค่าใช้จ่ายครบ",
@@ -563,17 +617,22 @@ async function callOpenAi(
   message: string,
   conversationId: string,
   snapshot: Awaited<ReturnType<typeof loadBusinessSnapshot>>,
-  promptCacheKey: string
+  promptCacheKey: string,
+  task: AiTaskKind,
+  imageDataUrl: string | null
 ) {
   const apiKey = readEnv("OPENAI_API_KEY");
   if (!apiKey) throw new Error("OPENAI_API_KEY is not configured for CpiPOS AI.");
 
-  const instructions = [
+  const contextParts = [
     AI_INSTRUCTIONS,
-    "ข้อมูลร้านปัจจุบันสำหรับเทิร์นนี้ (JSON):",
-    JSON.stringify(snapshot),
-    "ใช้ข้อมูล JSON นี้เป็นข้อมูลสดของร้านในเทิร์นปัจจุบัน และอย่านำข้อมูลของร้านอื่นมาใช้"
-  ].join("\n\n");
+    task === "help" ? "คู่มือเมนู CpiPOS แบบย่อ:\n" + CPIPOS_GUIDE : "",
+    task === "smalltalk" || task === "help"
+      ? ""
+      : "ข้อมูลร้านปัจจุบันสำหรับเทิร์นนี้ (JSON):\n" + JSON.stringify(snapshot),
+    "ใช้เฉพาะบริบทที่ให้ในเทิร์นนี้และประวัติห้องแชทปัจจุบัน ห้ามนำข้อมูลจากร้านอื่นมาใช้"
+  ].filter(Boolean);
+  const instructions = contextParts.join("\n\n");
 
   const response = await fetch("https://api.openai.com/v1/responses", {
     method: "POST",
@@ -587,13 +646,21 @@ async function callOpenAi(
       prompt_cache_key: promptCacheKey,
       safety_identifier: promptCacheKey,
       instructions,
+      reasoning: { effort: "low" },
       input: [
         {
           role: "user",
-          content: [{ type: "input_text", text: message }]
+          content: [
+            { type: "input_text", text: message },
+            ...(imageDataUrl ? [{ type: "input_image", image_url: imageDataUrl, detail: "low" }] : [])
+          ]
         }
       ],
-      tools: AI_PROPOSAL_TOOLS,
+      tools: task === "marketing"
+        ? [AI_PROPOSAL_TOOLS[2]]
+        : (task === "stock" || task === "cost")
+          ? [AI_PROPOSAL_TOOLS[0], AI_PROPOSAL_TOOLS[1]]
+          : [],
       tool_choice: "auto",
       store: false,
       max_output_tokens: MAX_OUTPUT_TOKENS
@@ -661,7 +728,7 @@ export async function GET(request: Request) {
     const scope = conversationScope(auth);
     const requestedRoomId = new URL(request.url).searchParams.get("room_id");
     const [overview, quota] = await Promise.all([
-      loadBusinessSnapshot(auth),
+      loadBusinessSnapshot(auth, "general"),
       loadAiQuotaStatus(auth.tenantId!)
     ]);
     await pruneExpiredAiChatRooms(scope, quota.history_retention_days);
@@ -701,13 +768,16 @@ export async function POST(request: Request) {
     const body = (await request.json().catch(() => null)) as AiRequestBody | null;
     const message = String(body?.message ?? "").trim().slice(0, 1200);
     const roomId = String(body?.room_id ?? "").trim() || null;
-    if (!message) return fail("ai_message_required", "Please enter a question for CpiPOS AI.", 422);
+    const imageDataUrl = cleanImageDataUrl(body?.image_data_url);
+    const task = detectAiTask(message, Boolean(imageDataUrl));
+    if (!message && !imageDataUrl) return fail("ai_message_required", "กรุณาพิมพ์คำถามหรือแนบรูปภาพ", 422);
+    if (body?.image_data_url && !imageDataUrl) return fail("ai_image_invalid", "รูปภาพต้องเป็น PNG/JPEG/WEBP และมีขนาดไม่เกินที่ระบบกำหนด", 422);
 
     const quota = await assertAiQuotaAvailable(auth.tenantId!);
     const scope = conversationScope(auth);
     await pruneExpiredAiChatRooms(scope, quota.history_retention_days);
     const [overview, room] = await Promise.all([
-      loadBusinessSnapshot(auth),
+      loadBusinessSnapshot(auth, task, message),
       getOrCreateAiChatRoom(scope, roomId)
     ]);
     const conversationId = room.openai_conversation_id;
@@ -731,7 +801,9 @@ export async function POST(request: Request) {
         message,
         conversationId,
         overview,
-        makePromptCacheKey("cpipos", auth.tenantId, auth.branchId, auth.userId)
+        makePromptCacheKey("cpipos", auth.tenantId, auth.branchId, auth.userId),
+        task,
+        imageDataUrl
       );
     } catch (error) {
       const messageText = error instanceof Error ? error.message : "CpiPOS AI request failed.";
