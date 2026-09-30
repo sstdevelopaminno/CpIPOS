@@ -343,13 +343,13 @@ function ChatRoomPanel({
   onOpenRecommendations: () => void;
 }) {
   return (
-    <div className="flex h-full min-h-0 flex-col bg-[#f7f7f8] text-slate-800">
+    <div className="flex h-full min-h-0 flex-col bg-transparent text-slate-800">
       <div className="shrink-0 space-y-2 p-3">
         <button
           type="button"
           onClick={onCreate}
           disabled={busy}
-          className="flex h-10 w-full items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-sm font-semibold shadow-sm transition hover:bg-slate-50 disabled:opacity-50"
+          className="flex h-10 w-full items-center gap-2 rounded-xl border border-white/80 bg-white/70 px-3 text-sm font-semibold shadow-sm backdrop-blur transition hover:bg-white disabled:opacity-50"
         >
           <span className="text-lg font-light">＋</span>
           แชทใหม่
@@ -357,7 +357,7 @@ function ChatRoomPanel({
         <button
           type="button"
           onClick={onOpenToday}
-          className="flex min-h-10 w-full items-center justify-between gap-2 rounded-xl border border-blue-100 bg-white px-3 text-left text-xs font-semibold text-slate-700 transition hover:bg-blue-50"
+          className="flex min-h-10 w-full items-center justify-between gap-2 rounded-xl border border-white/80 bg-white/65 px-3 text-left text-xs font-semibold text-slate-700 shadow-sm backdrop-blur transition hover:bg-white"
         >
           <span className="inline-flex min-w-0 items-center gap-2"><span aria-hidden>📊</span><span className="truncate">ข้อมูลสำคัญวันนี้</span></span>
           {todaySales != null ? <span className="shrink-0 rounded-full bg-blue-50 px-2 py-0.5 text-[10px] font-bold text-blue-700">฿{money(todaySales)}</span> : null}
@@ -365,7 +365,7 @@ function ChatRoomPanel({
         <button
           type="button"
           onClick={onOpenRecommendations}
-          className="flex min-h-10 w-full items-center gap-2 rounded-xl border border-violet-100 bg-white px-3 text-left text-xs font-semibold text-slate-700 transition hover:bg-violet-50"
+          className="flex min-h-10 w-full items-center gap-2 rounded-xl border border-white/80 bg-white/65 px-3 text-left text-xs font-semibold text-slate-700 shadow-sm backdrop-blur transition hover:bg-white"
         >
           <span className="text-violet-600"><SparkleIcon size={14} /></span>
           <span className="truncate">เมนูแนะนำสำหรับคุณ</span>
@@ -435,7 +435,7 @@ export function CpiPosAiAssistant({ lang }: { lang: Language }) {
   const [proposalStatus, setProposalStatus] = useState<Record<string, ProposalStatus>>({});
   const [todayModalOpen, setTodayModalOpen] = useState(false);
   const [recommendationModalOpen, setRecommendationModalOpen] = useState(false);
-  const [showSuggestions, setShowSuggestions] = useState(true);
+  const [showSuggestions, setShowSuggestions] = useState(false);
   const [autoScroll, setAutoScroll] = useState(true);
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
   const [rooms, setRooms] = useState<AiChatRoom[]>([]);
