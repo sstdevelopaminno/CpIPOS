@@ -1,6 +1,5 @@
 "use client";
 
-import Image from "next/image";
 import Link from "next/link";
 import { FormEvent, KeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
 import type { Language } from "@/lib/i18n";
@@ -66,7 +65,6 @@ type AiQuotaStatus = {
 type AiChatRoom = {
   id: string;
   title: string;
-  openai_conversation_id: string;
   created_at: string;
   updated_at: string;
   last_message_at: string;
@@ -293,23 +291,27 @@ function AiRichText({ text }: { text: string }) {
 function ChatRoomPanel({
   rooms,
   activeRoomId,
-  retentionDays,
   busy,
+  todaySales,
   onCreate,
   onOpen,
-  onDelete
+  onDelete,
+  onOpenToday,
+  onOpenRecommendations
 }: {
   rooms: AiChatRoom[];
   activeRoomId: string | null;
-  retentionDays: number | null | undefined;
   busy: boolean;
+  todaySales: number | null;
   onCreate: () => void;
   onOpen: (roomId: string) => void;
   onDelete: (room: AiChatRoom) => void;
+  onOpenToday: () => void;
+  onOpenRecommendations: () => void;
 }) {
   return (
     <div className="flex h-full min-h-0 flex-col bg-[#f7f7f8] text-slate-800">
-      <div className="shrink-0 p-3">
+      <div className="shrink-0 space-y-2 p-3">
         <button
           type="button"
           onClick={onCreate}
@@ -318,6 +320,22 @@ function ChatRoomPanel({
         >
           <span className="text-lg font-light">＋</span>
           แชทใหม่
+        </button>
+        <button
+          type="button"
+          onClick={onOpenToday}
+          className="flex min-h-10 w-full items-center justify-between gap-2 rounded-xl border border-blue-100 bg-white px-3 text-left text-xs font-semibold text-slate-700 transition hover:bg-blue-50"
+        >
+          <span className="inline-flex min-w-0 items-center gap-2"><span aria-hidden>📊</span><span className="truncate">ข้อมูลสำคัญวันนี้</span></span>
+          {todaySales != null ? <span className="shrink-0 rounded-full bg-blue-50 px-2 py-0.5 text-[10px] font-bold text-blue-700">฿{money(todaySales)}</span> : null}
+        </button>
+        <button
+          type="button"
+          onClick={onOpenRecommendations}
+          className="flex min-h-10 w-full items-center gap-2 rounded-xl border border-violet-100 bg-white px-3 text-left text-xs font-semibold text-slate-700 transition hover:bg-violet-50"
+        >
+          <span className="text-violet-600"><SparkleIcon size={14} /></span>
+          <span className="truncate">เมนูแนะนำสำหรับคุณ</span>
         </button>
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-2">
@@ -358,11 +376,7 @@ function ChatRoomPanel({
           )}
         </div>
       </div>
-      <div className="shrink-0 border-t border-slate-200 p-3 text-[10px] leading-5 text-slate-400">
-        <strong className="block font-semibold text-slate-500">OpenAI Conversations</strong>
-        ข้อความเก็บฝั่ง OpenAI
-        {retentionDays ? <> · เก็บตามแพ็กเกจ {retentionDays} วัน</> : <> · ระยะเก็บตามสัญญา</>}
-      </div>
+
     </div>
   );
 }
@@ -488,8 +502,6 @@ export function CpiPosAiAssistant({ lang }: { lang: Language }) {
       setRooms((current) => [room, ...current.filter((item) => item.id !== room.id)]);
       setActiveRoomId(room.id);
       setMessages([welcomeMessage(lang)]);
-      setRooms([]);
-      setActiveRoomId(null);
       setProposalStatus({});
       setRoomDrawerOpen(false);
       requestAnimationFrame(() => textareaRef.current?.focus());
@@ -502,7 +514,7 @@ export function CpiPosAiAssistant({ lang }: { lang: Language }) {
 
   async function deleteRoom(room: AiChatRoom) {
     if (roomBusy || sending) return;
-    if (!window.confirm(`ลบห้องแชท “${room.title}” หรือไม่?\n\nข้อความในห้องนี้จะถูกลบจาก OpenAI Conversation และไม่สามารถกู้คืนได้`)) return;
+    if (!window.confirm(`ลบห้องแชท “${room.title}” หรือไม่?\n\nข้อความในห้องนี้จะถูกลบถาวรและไม่สามารถกู้คืนได้`)) return;
     setRoomBusy(true);
     setOverviewError(null);
     try {
@@ -750,52 +762,22 @@ export function CpiPosAiAssistant({ lang }: { lang: Language }) {
       <section className="mx-auto flex h-full min-h-0 w-full max-w-[1500px] flex-col gap-3">
         <header className="relative overflow-hidden rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm sm:px-5">
           <div className="absolute -right-10 -top-12 h-28 w-28 rounded-full bg-blue-100/50 blur-2xl" />
-          <div className="relative flex items-center gap-4">
-            <div className="relative flex h-12 w-12 shrink-0 items-center justify-center rounded-xl border border-slate-100 bg-white shadow-sm">
-              <Image src="/brand/cpipos-symbol-sidebar.png" alt="CpiPOS" width={40} height={40} className="h-9 w-9 object-contain" priority />
-            </div>
-            <div className="min-w-0">
-              <div className="flex flex-wrap items-center gap-2">
-                <h1 className="text-lg font-semibold tracking-tight text-slate-950 sm:text-xl">CpiPOS AI ผู้ช่วยร้านค้า</h1>
-              </div>
-              <p className="mt-1 text-xs font-normal text-slate-500 sm:text-sm">ผู้ช่วยอัจฉริยะสำหรับยอดขาย ต้นทุน สต๊อก และการตลาด — วิเคราะห์จากข้อมูลร้านใน CpiPOS</p>
-              <div className="mt-2 flex flex-wrap items-center gap-2">
-                <span className="rounded-full border border-blue-100 bg-white/75 px-2.5 py-1 text-[10px] font-bold text-blue-700">
-                  ประวัติส่วนตัวตามบัญชี Owner/Manager · OpenAI Conversation
+          <div className="relative flex flex-wrap items-center justify-between gap-3">
+            <h1 className="text-xl font-semibold tracking-[-0.02em] text-slate-950 sm:text-2xl">CpiPOS AI</h1>
+            <div className="flex flex-wrap items-center gap-2">
+              {quota ? (
+                <span className={`rounded-full border px-2.5 py-1 text-[10px] font-semibold ${quota.exhausted ? "border-red-200 bg-red-50 text-red-700" : "border-emerald-200 bg-emerald-50 text-emerald-700"}`}>
+                  เดือน {quota.month_key}: {quota.usage.requests}{quota.limits.requests ? `/${quota.limits.requests}` : ""} ครั้ง · {new Intl.NumberFormat("th-TH").format(quota.usage.total_tokens)} tokens
                 </span>
-                {quota ? (
-                  <span className={`rounded-full border px-2.5 py-1 text-[10px] font-bold ${quota.exhausted ? "border-red-200 bg-red-50 text-red-700" : "border-emerald-200 bg-emerald-50 text-emerald-700"}`}>
-                    เดือน {quota.month_key}: {quota.usage.requests}{quota.limits.requests ? `/${quota.limits.requests}` : ""} ครั้ง · {new Intl.NumberFormat("th-TH").format(quota.usage.total_tokens)} tokens
-                  </span>
-                ) : null}
-                <button
-                  type="button"
-                  onClick={() => void clearHistory()}
-                  disabled={sending}
-                  className="rounded-full border border-slate-200 bg-white/80 px-2.5 py-1 text-[10px] font-bold text-slate-500 transition hover:border-red-200 hover:text-red-600 disabled:opacity-50"
-                >
-                  ล้างประวัติของฉัน
-                </button>
-              </div>
-              <div className="mt-3 flex flex-wrap gap-2">
-                <button
-                  type="button"
-                  onClick={() => setTodayModalOpen(true)}
-                  className="inline-flex min-h-10 items-center gap-2 rounded-xl border border-blue-200 bg-white/90 px-3 text-xs font-black text-blue-700 shadow-sm transition hover:border-blue-300 hover:bg-blue-50"
-                >
-                  <span aria-hidden>📊</span>
-                  ข้อมูลสำคัญวันนี้
-                  {overview ? <span className="rounded-full bg-blue-50 px-2 py-0.5 text-[10px]">฿${money(overview.today.net_sales)}</span> : null}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setRecommendationModalOpen(true)}
-                  className="inline-flex min-h-10 items-center gap-2 rounded-xl border border-violet-200 bg-white/90 px-3 text-xs font-black text-violet-700 shadow-sm transition hover:border-violet-300 hover:bg-violet-50"
-                >
-                  <SparkleIcon size={14} />
-                  เมนูแนะนำสำหรับคุณ
-                </button>
-              </div>
+              ) : null}
+              <button
+                type="button"
+                onClick={() => void clearHistory()}
+                disabled={sending}
+                className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[10px] font-semibold text-slate-500 transition hover:border-red-200 hover:text-red-600 disabled:opacity-50"
+              >
+                ล้างประวัติของฉัน
+              </button>
             </div>
           </div>
         </header>
