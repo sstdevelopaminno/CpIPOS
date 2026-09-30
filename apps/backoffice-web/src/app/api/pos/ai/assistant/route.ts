@@ -10,6 +10,7 @@ import {
   getOrCreateAiChatRoom,
   listAiChatRooms,
   listAiConversationMessages,
+  pruneExpiredAiChatRooms,
   touchAiChatRoom
 } from "@/lib/services/ai-conversation-service";
 import { AiQuotaError, assertAiQuotaAvailable, loadAiQuotaStatus, recordAiUsage } from "@/lib/services/ai-usage-service";
@@ -658,11 +659,12 @@ export async function GET(request: Request) {
 
     const scope = conversationScope(auth);
     const requestedRoomId = new URL(request.url).searchParams.get("room_id");
-    const [overview, quota, initialRooms] = await Promise.all([
+    const [overview, quota] = await Promise.all([
       loadBusinessSnapshot(auth),
-      loadAiQuotaStatus(auth.tenantId!),
-      listAiChatRooms(scope)
+      loadAiQuotaStatus(auth.tenantId!)
     ]);
+    await pruneExpiredAiChatRooms(scope, quota.history_retention_days);
+    const initialRooms = await listAiChatRooms(scope);
 
     let room = requestedRoomId ? await getAiChatRoom(scope, requestedRoomId) : initialRooms[0] ?? null;
     if (!room && quota.enabled) room = await getOrCreateAiChatRoom(scope);
@@ -704,6 +706,7 @@ export async function POST(request: Request) {
 
     const quota = await assertAiQuotaAvailable(auth.tenantId!);
     const scope = conversationScope(auth);
+    await pruneExpiredAiChatRooms(scope, quota.history_retention_days);
     const [overview, room] = await Promise.all([
       loadBusinessSnapshot(auth),
       getOrCreateAiChatRoom(scope, roomId)
