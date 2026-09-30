@@ -60,7 +60,7 @@ describe("POS tenant menu toggle regression", () => {
       "payments/page.tsx", "more/page.tsx", "sales-summary/page.tsx",
       "receipts/page.tsx", "tables/page.tsx", "members/page.tsx",
       "stock/page.tsx", "stock/media/page.tsx", "kitchen/manage/page.tsx",
-      "buffet-pricing/page.tsx", "product-sales/page.tsx", "ai-assistant/page.tsx",
+      "buffet-pricing/page.tsx", "product-sales/page.tsx", "ai-assistant/page.tsx", "documents/page.tsx",
       "tax-invoices/page.tsx", "settings/page.tsx",
       "settings/order-kitchen/page.tsx", "settings/table-qr/page.tsx",
       "settings/table-qr/timeline/page.tsx", "customer-display/page.tsx",
