@@ -87,6 +87,8 @@ describe("CpiPOS AI store assistant", () => {
   it("enforces the promoted per-tenant IT AI policy on page and APIs", () => {
     expect(policyService).toContain("isTenantPosMenuEnabled");
     expect(aiPage).toContain('isTenantPosMenuEnabled(scope.session.tenant_id, "main.ai_assistant")');
+    expect(aiPage).toContain('hasBranchFeature(scope.session.tenant_id, scope.session.branch_id, "cpipos_ai")');
+    expect(aiPage).toContain('redirect("/preview/pos/payments/package")');
     expect(aiApi).toContain('isTenantPosMenuEnabled(tenantId, "main.ai_assistant")');
     expect(aiActions).toContain('isTenantPosMenuEnabled(tenantId, "main.ai_assistant")');
     expect(aiApi).toContain("ai_assistant_disabled_by_it");
