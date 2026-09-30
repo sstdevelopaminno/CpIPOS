@@ -232,6 +232,14 @@ const AI_PROPOSAL_TOOLS = [
   }
 ] as const;
 
+function proposalToolsForMessage(message: string) {
+  const selected: Array<(typeof AI_PROPOSAL_TOOLS)[number]> = [];
+  if (/(?:ราคา|มาร์จิ้น|margin|กำไรน้อย|ปรับราคา|ตั้งราคา)/i.test(message)) selected.push(AI_PROPOSAL_TOOLS[0]);
+  if (/(?:สต๊อก|stock|วัตถุดิบ|คงเหลือ|เพิ่มของ|รับของ|ลงของ)/i.test(message)) selected.push(AI_PROPOSAL_TOOLS[1]);
+  if (/(?:การตลาด|marketing|โปรโมชัน|โปรโมชั่น|แคมเปญ|เพิ่มยอดขาย|โพสต์ขาย)/i.test(message)) selected.push(AI_PROPOSAL_TOOLS[2]);
+  return selected;
+}
+
 function canUseAi(branchRole: string | null, _platformRole: string | null) {
   return branchRole === "owner" || branchRole === "manager";
 }
@@ -744,6 +752,7 @@ async function callOpenAi(
   if (!apiKey) throw new Error("OPENAI_API_KEY is not configured for CpiPOS AI.");
 
   const promptSnapshot = compactSnapshotForMessage(snapshot, message);
+  const proposalTools = proposalToolsForMessage(message);
   const instructions = [
     AI_INSTRUCTIONS,
     needsHelpGuide(message) ? CPIPOS_HELP_GUIDE : "",
@@ -774,8 +783,8 @@ async function callOpenAi(
           ]
         }
       ],
-      tools: AI_PROPOSAL_TOOLS,
-      tool_choice: "auto",
+      tools: proposalTools,
+      tool_choice: proposalTools.length ? "auto" : "none",
       text: { verbosity: "low" },
       store: false,
       max_output_tokens: responseTokenBudget(message)
