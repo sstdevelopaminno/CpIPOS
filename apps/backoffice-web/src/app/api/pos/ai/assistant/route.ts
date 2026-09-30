@@ -3,7 +3,15 @@ import { getPosApiAuthContext } from "@/lib/pos-api-auth";
 import { readEnv } from "@/lib/env";
 import { fail, ok } from "@/lib/http";
 import { isTenantPosMenuEnabled } from "@/lib/server/pos-menu-policy-service";
-import { addAiConversationItems, deleteAiConversationForUser, getOrCreateAiConversation, listAiConversationMessages } from "@/lib/services/ai-conversation-service";
+import {
+  addAiConversationItems,
+  deleteAiConversationForUser,
+  getAiChatRoom,
+  getOrCreateAiChatRoom,
+  listAiChatRooms,
+  listAiConversationMessages,
+  touchAiChatRoom
+} from "@/lib/services/ai-conversation-service";
 import { AiQuotaError, assertAiQuotaAvailable, loadAiQuotaStatus, recordAiUsage } from "@/lib/services/ai-usage-service";
 import { loadPosSalesSummaryData } from "@/lib/services/pos-sales-summary-service";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
@@ -12,6 +20,7 @@ export const runtime = "nodejs";
 
 type AiRequestBody = {
   message?: string;
+  room_id?: string;
 };
 
 type IngredientRow = {
@@ -637,7 +646,7 @@ function conversationScope(auth: Awaited<ReturnType<typeof getPosApiAuthContext>
   };
 }
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
     const auth = await getPosApiAuthContext({ requireBranchScope: true });
     if (!canUseAi(auth.branchRole, auth.platformRole)) {
@@ -646,14 +655,26 @@ export async function GET() {
     if (!(await aiPolicyAllowed(auth.tenantId))) {
       return fail("ai_assistant_disabled_by_it", "CpiPOS AI is disabled for this store by IT policy.", 403);
     }
-    const [overview, conversationId, quota] = await Promise.all([
+
+    const scope = conversationScope(auth);
+    const requestedRoomId = new URL(request.url).searchParams.get("room_id");
+    const [overview, quota, initialRooms] = await Promise.all([
       loadBusinessSnapshot(auth),
-      getOrCreateAiConversation(conversationScope(auth)),
-      loadAiQuotaStatus(auth.tenantId!)
+      loadAiQuotaStatus(auth.tenantId!),
+      listAiChatRooms(scope)
     ]);
-    const history = await listAiConversationMessages(conversationId, 60);
+
+    let room = requestedRoomId ? await getAiChatRoom(scope, requestedRoomId) : initialRooms[0] ?? null;
+    if (!room && quota.enabled) room = await getOrCreateAiChatRoom(scope);
+    const rooms = room && !initialRooms.some((item) => item.id === room!.id)
+      ? [room, ...initialRooms]
+      : initialRooms;
+    const history = room ? await listAiConversationMessages(room.openai_conversation_id, 120) : [];
+
     return ok({
       overview,
+      rooms,
+      active_room: room,
       history,
       quota,
       model: AI_MODEL,
@@ -678,26 +699,31 @@ export async function POST(request: Request) {
 
     const body = (await request.json().catch(() => null)) as AiRequestBody | null;
     const message = String(body?.message ?? "").trim().slice(0, 1200);
+    const roomId = String(body?.room_id ?? "").trim() || null;
     if (!message) return fail("ai_message_required", "Please enter a question for CpiPOS AI.", 422);
 
+    const quota = await assertAiQuotaAvailable(auth.tenantId!);
+    const scope = conversationScope(auth);
+    const [overview, room] = await Promise.all([
+      loadBusinessSnapshot(auth),
+      getOrCreateAiChatRoom(scope, roomId)
+    ]);
+    const conversationId = room.openai_conversation_id;
+
     if (isRestrictedAiRequest(message)) {
+      const roomAfter = await touchAiChatRoom(scope, room.id, message);
       return ok({
         answer: restrictedAiReply(),
         proposals: [],
-        overview: await loadBusinessSnapshot(auth),
-        quota: await loadAiQuotaStatus(auth.tenantId!),
+        overview,
+        room: roomAfter,
+        quota,
         metering: null,
         model: AI_MODEL,
         mode: "safe_read_only",
         history_source: "openai_conversations"
       });
     }
-
-    const quota = await assertAiQuotaAvailable(auth.tenantId!);
-    const [overview, conversationId] = await Promise.all([
-      loadBusinessSnapshot(auth),
-      getOrCreateAiConversation(conversationScope(auth))
-    ]);
 
     let result: Awaited<ReturnType<typeof callOpenAi>>;
     try {
@@ -735,11 +761,15 @@ export async function POST(request: Request) {
       console.error("[cpipos-ai] usage metering failed", meterError);
     }
 
-    const quotaAfter = metering ? await loadAiQuotaStatus(auth.tenantId!) : quota;
+    const [quotaAfter, roomAfter] = await Promise.all([
+      metering ? loadAiQuotaStatus(auth.tenantId!) : Promise.resolve(quota),
+      touchAiChatRoom(scope, room.id, message)
+    ]);
     return ok({
       answer: result.text,
       proposals: result.proposals,
       overview,
+      room: roomAfter,
       quota: quotaAfter,
       metering,
       model: AI_MODEL,
