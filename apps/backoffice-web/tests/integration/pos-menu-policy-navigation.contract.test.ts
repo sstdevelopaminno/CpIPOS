@@ -15,6 +15,9 @@ const featureMap = read("../../src/lib/pos-feature-map.ts");
 const shiftJoinApi = read("../../src/app/api/pos/shifts/join/route.ts");
 const shiftCurrentApi = read("../../src/app/api/pos/shifts/current/route.ts");
 const shiftHistoryApi = read("../../src/app/api/pos/shifts/history/route.ts");
+const featureGate = read("../../src/lib/feature-gate.ts");
+const featuresApi = read("../../src/app/api/pos/features/route.ts");
+const salesModes = read("../../src/lib/pos-sales-modes.ts");
 
 describe("POS tenant menu toggle regression", () => {
   it("uses one authoritative policy table in the POS feature endpoint", () => {
@@ -66,6 +69,16 @@ describe("POS tenant menu toggle regression", () => {
       expect(source).not.toContain("requireTenantFeature");
     }
     expect(staffMenu).toContain('featureForPosRoute("/preview/pos/shift")');
+  });
+
+  it("treats dine-in table, kitchen and notification capabilities as operational dependencies", () => {
+    expect(salesModes).toContain("DINE_IN_LINKED_FEATURE_CODES");
+    expect(salesModes).toContain('"table_management"');
+    expect(salesModes).toContain('"kitchen_printing"');
+    expect(salesModes).toContain('"qr_table_ordering"');
+    expect(featureGate).toContain("isDineInExplicitlyEnabled");
+    expect(featureGate).toContain("isDineInLinkedFeature");
+    expect(featuresApi).toContain("salesModes.dine_in && isDineInLinkedFeature(feature)");
   });
 
   it("preserves POS direct URL availability; IT menu locks are UI-only, not 404 gates", () => {
