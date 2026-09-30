@@ -953,13 +953,20 @@ export async function POST(request: Request) {
       const notConfigured = messageText.includes("OPENAI_API_KEY");
       const rateLimited = providerStatus === 429 || /rate limit|too many requests|tokens per min|tpm/i.test(messageText);
       const answer = providerFailureReply(error);
-      console.error("[cpipos-ai] provider request failed", error);
+      const providerCode = notConfigured ? "ai_not_configured" : rateLimited ? "ai_provider_rate_limited" : "ai_provider_failed";
+      if (rateLimited) console.warn("[cpipos-ai] provider rate limited", error);
+      else console.error("[cpipos-ai] provider request failed", error);
       await persistConversationTurn(conversationId, effectiveMessage, answer);
-      return fail(
-        notConfigured ? "ai_not_configured" : rateLimited ? "ai_provider_rate_limited" : "ai_provider_failed",
+      return ok({
         answer,
-        notConfigured ? 503 : rateLimited ? 429 : 502
-      );
+        proposals: [],
+        room: publicAiChatRoom(roomAfterInput),
+        quota,
+        metering: null,
+        mode: "provider_unavailable",
+        provider_code: providerCode,
+        retryable: !notConfigured
+      });
     }
 
     let metering: Awaited<ReturnType<typeof recordAiUsage>> | null = null;
