@@ -12,6 +12,7 @@ describe("canonical Business package catalog", () => {
   const features = src("src/app/api/pos/features/route.ts");
   const featureMap = src("src/lib/pos-feature-map.ts");
   const shared = src("../../packages/shared-types/src/index.ts");
+  const demoAiMigration = src("../../supabase/migrations/20260930093500_internal_demo_ai_entitlement.sql");
 
   it("defines only Starter, Growth, Business and CUSTOM as canonical commercial tiers", () => {
     expect(migration).toContain("Starter -> Growth -> Business -> CUSTOM");
@@ -39,6 +40,10 @@ describe("canonical Business package catalog", () => {
     expect(catalog).toContain("ai_monthly_requests: 2000");
     expect(migration).toContain("when 'business' then 2000");
     expect(migration).toContain("where tdl.lifecycle_status = 'sales_demo'");
+    expect(demoAiMigration).toContain("quota_exempt");
+    expect(demoAiMigration).toContain("internal_demo");
+    expect(demoAiMigration).toContain("'cpipos_ai'");
+    expect(demoAiMigration).toContain("'internal_demo_ai'");
   });
 
   it("exposes package limits to the POS comparison table and supports upgrades", () => {
