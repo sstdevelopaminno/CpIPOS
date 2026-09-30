@@ -10,6 +10,7 @@ describe("canonical Business package catalog", () => {
   const service = src("src/lib/services/pos-subscription-center-service.ts");
   const ui = src("src/components/pos-preview/pos-subscription-center.tsx");
   const features = src("src/app/api/pos/features/route.ts");
+  const featureMap = src("src/lib/pos-feature-map.ts");
   const shared = src("../../packages/shared-types/src/index.ts");
 
   it("defines only Starter, Growth, Business and CUSTOM as canonical commercial tiers", () => {
@@ -32,6 +33,7 @@ describe("canonical Business package catalog", () => {
   it("includes Business AI and keeps Growth AI as a tenant add-on", () => {
     expect(shared).toContain('| "cpipos_ai"');
     expect(catalog).toContain('code: "cpipos_ai"');
+    expect(featureMap).toContain('"/preview/pos/ai-assistant": "cpipos_ai"');
     expect(catalog).toContain("ai_addon_monthly_price: 299");
     expect(catalog).toContain("ai_addon_monthly_requests: 500");
     expect(catalog).toContain("ai_monthly_requests: 2000");
