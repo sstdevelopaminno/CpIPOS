@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
 import { FormEvent, KeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
 import type { Language } from "@/lib/i18n";
@@ -310,13 +311,13 @@ function ChatRoomPanel({
   onOpenRecommendations: () => void;
 }) {
   return (
-    <div className="flex h-full min-h-0 flex-col bg-[#f7f7f8] text-slate-800">
-      <div className="shrink-0 space-y-2 p-3">
+    <div className="flex h-full min-h-0 flex-col bg-white/45 text-slate-800 backdrop-blur-[2px]">
+      <div className="shrink-0 space-y-2 px-3 pb-3 pt-2">
         <button
           type="button"
           onClick={onCreate}
           disabled={busy}
-          className="flex h-10 w-full items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-sm font-semibold shadow-sm transition hover:bg-slate-50 disabled:opacity-50"
+          className="flex h-11 w-full items-center gap-2 rounded-xl border border-slate-200/80 bg-white/90 px-3 text-sm font-semibold shadow-[0_1px_2px_rgba(15,23,42,0.04)] transition hover:border-blue-200 hover:bg-white disabled:opacity-50"
         >
           <span className="text-lg font-light">＋</span>
           แชทใหม่
@@ -324,7 +325,7 @@ function ChatRoomPanel({
         <button
           type="button"
           onClick={onOpenToday}
-          className="flex min-h-10 w-full items-center justify-between gap-2 rounded-xl border border-blue-100 bg-white px-3 text-left text-xs font-semibold text-slate-700 transition hover:bg-blue-50"
+          className="flex min-h-10 w-full items-center justify-between gap-2 rounded-xl border border-blue-100/90 bg-white/85 px-3 text-left text-xs font-semibold text-slate-700 transition hover:bg-blue-50/80"
         >
           <span className="inline-flex min-w-0 items-center gap-2"><span aria-hidden>📊</span><span className="truncate">ข้อมูลสำคัญวันนี้</span></span>
           {todaySales != null ? <span className="shrink-0 rounded-full bg-blue-50 px-2 py-0.5 text-[10px] font-bold text-blue-700">฿{money(todaySales)}</span> : null}
@@ -332,19 +333,19 @@ function ChatRoomPanel({
         <button
           type="button"
           onClick={onOpenRecommendations}
-          className="flex min-h-10 w-full items-center gap-2 rounded-xl border border-violet-100 bg-white px-3 text-left text-xs font-semibold text-slate-700 transition hover:bg-violet-50"
+          className="flex min-h-10 w-full items-center gap-2 rounded-xl border border-violet-100/90 bg-white/85 px-3 text-left text-xs font-semibold text-slate-700 transition hover:bg-violet-50/80"
         >
           <span className="text-violet-600"><SparkleIcon size={14} /></span>
           <span className="truncate">เมนูแนะนำสำหรับคุณ</span>
         </button>
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-2">
-        <p className="px-2 pb-2 pt-1 text-[11px] font-semibold text-slate-400">แชทของฉัน</p>
+        <p className="px-2 pb-2 pt-1 text-[11px] font-semibold tracking-wide text-slate-400">แชทของฉัน</p>
         <div className="space-y-1">
           {rooms.length ? rooms.map((room) => {
             const active = room.id === activeRoomId;
             return (
-              <div key={room.id} className={`group flex items-center rounded-lg transition ${active ? "bg-slate-200/80" : "hover:bg-slate-200/55"}`}>
+              <div key={room.id} className={`group flex items-center rounded-xl transition ${active ? "bg-blue-50/90" : "hover:bg-white/85"}`}>
                 <button
                   type="button"
                   onClick={() => onOpen(room.id)}
@@ -415,6 +416,7 @@ export function CpiPosAiAssistant({ lang }: { lang: Language }) {
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
 
   const activeRoom = useMemo(() => rooms.find((room) => room.id === activeRoomId) ?? null, [rooms, activeRoomId]);
+  const hasConversationContent = messages.some((message) => message.id !== "welcome");
   const lowMargin = overview?.cost.low_margin_products?.[0] ?? null;
   const bestSeller = overview?.today.top_products?.[0] ?? overview?.last_30_days.top_products?.[0] ?? null;
 
@@ -598,7 +600,7 @@ export function CpiPosAiAssistant({ lang }: { lang: Language }) {
     };
     setAutoScroll(true);
     setShowScrollToBottom(false);
-    setMessages((current) => [...current, userMessage]);
+    setMessages((current) => current.length === 1 && current[0]?.id === "welcome" ? [userMessage] : [...current, userMessage]);
     setInput("");
     if (textareaRef.current) textareaRef.current.style.height = "auto";
     setSending(true);
@@ -756,14 +758,13 @@ export function CpiPosAiAssistant({ lang }: { lang: Language }) {
 
   return (
     <main
-      className="h-full min-h-0 w-full overflow-hidden bg-[#f7f7f8] p-3 sm:p-4 xl:p-5"
-      style={{ fontFamily: 'ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans Thai", sans-serif' }}
+      className="h-full min-h-0 w-full overflow-hidden bg-[radial-gradient(circle_at_85%_8%,rgba(56,189,248,0.18),transparent_30%),radial-gradient(circle_at_15%_0%,rgba(59,130,246,0.10),transparent_28%),linear-gradient(180deg,#f9fcff_0%,#f2f8ff_46%,#eef7ff_100%)]"
+      style={{ fontFamily: 'ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans Thai", "Tahoma", sans-serif' }}
     >
-      <section className="mx-auto flex h-full min-h-0 w-full max-w-[1500px] flex-col gap-3">
-        <header className="relative overflow-hidden rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm sm:px-5">
-          <div className="absolute -right-10 -top-12 h-28 w-28 rounded-full bg-blue-100/50 blur-2xl" />
-          <div className="relative flex flex-wrap items-center justify-between gap-3">
-            <h1 className="text-xl font-semibold tracking-[-0.02em] text-slate-950 sm:text-2xl">CpiPOS AI</h1>
+      <section className="mx-auto flex h-full min-h-0 w-full max-w-[1540px] flex-col">
+        <header className="shrink-0 border-b border-blue-100/70 bg-white/35 px-5 py-3 backdrop-blur-md sm:px-7">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <h1 className="text-[22px] font-semibold tracking-[-0.035em] text-slate-950 sm:text-[25px]">CpiPOS AI</h1>
             <div className="flex flex-wrap items-center gap-2">
               {quota ? (
                 <span className={`rounded-full border px-2.5 py-1 text-[10px] font-semibold ${quota.exhausted ? "border-red-200 bg-red-50 text-red-700" : "border-emerald-200 bg-emerald-50 text-emerald-700"}`}>
@@ -782,8 +783,8 @@ export function CpiPosAiAssistant({ lang }: { lang: Language }) {
           </div>
         </header>
 
-        <div className="flex min-h-0 flex-1 gap-3">
-          <aside className="hidden w-[260px] shrink-0 overflow-hidden rounded-2xl border border-slate-200 bg-[#f7f7f8] lg:block">
+        <div className="flex min-h-0 flex-1">
+          <aside className="hidden w-[272px] shrink-0 overflow-hidden border-r border-blue-100/70 bg-white/28 lg:block">
             <ChatRoomPanel
               rooms={rooms}
               activeRoomId={activeRoomId}
@@ -797,8 +798,8 @@ export function CpiPosAiAssistant({ lang }: { lang: Language }) {
             />
           </aside>
           <div className="min-h-0 min-w-0 flex-1">
-          <section className="flex h-full min-h-0 flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_8px_28px_rgba(15,23,42,0.05)]">
-            <div className="shrink-0 border-b border-slate-100 px-4 py-3 sm:px-5">
+          <section className="flex h-full min-h-0 flex-col overflow-hidden bg-white/20">
+            <div className="shrink-0 border-b border-blue-100/60 bg-white/22 px-4 py-3 backdrop-blur-sm sm:px-6">
               <div className="flex flex-wrap items-center gap-2">
                 <button
                   type="button"
@@ -807,9 +808,8 @@ export function CpiPosAiAssistant({ lang }: { lang: Language }) {
                 >
                   ☰ ห้องแชท
                 </button>
-                <span className="text-xs font-black uppercase tracking-[0.14em] text-blue-600">AI CHAT</span>
-                <span className="max-w-[230px] truncate text-xs font-semibold text-slate-700">{activeRoom?.title ?? "แชทใหม่"}</span>
-                <span className="rounded-full bg-blue-50 px-2.5 py-1 text-[10px] font-bold text-blue-700">ถามเป็นภาษาไทยได้เลย</span>
+                <span className="max-w-[280px] truncate text-sm font-semibold tracking-[-0.01em] text-slate-800">{activeRoom?.title ?? "แชทใหม่"}</span>
+                <span className="rounded-full bg-white/75 px-2.5 py-1 text-[10px] font-semibold text-blue-700 shadow-sm">ถามเป็นภาษาไทยได้เลย</span>
                 <button
                   type="button"
                   onClick={toggleSuggestions}
@@ -843,12 +843,29 @@ export function CpiPosAiAssistant({ lang }: { lang: Language }) {
               <div
                 ref={chatScrollRef}
                 onScroll={handleChatScroll}
-                className="h-full min-h-0 overflow-y-auto overscroll-contain bg-white px-4 py-4 sm:px-5"
+                className="h-full min-h-0 overflow-y-auto overscroll-contain bg-transparent px-4 py-4 sm:px-6"
               >
-              {messages.map((message) => (
+              {!hasConversationContent ? (
+                <div className="mx-auto flex min-h-full w-full max-w-[860px] flex-col items-center justify-center px-4 pb-24 text-center">
+                  <div className="relative">
+                    <div className="absolute inset-0 scale-[1.8] rounded-full bg-cyan-200/25 blur-3xl" />
+                    <Image
+                      src="/brand/cpipos-symbol-transparent.png"
+                      alt=""
+                      width={84}
+                      height={84}
+                      priority
+                      className="relative h-[76px] w-[76px] object-contain drop-shadow-[0_12px_26px_rgba(37,99,235,0.18)] sm:h-[84px] sm:w-[84px]"
+                    />
+                  </div>
+                  <h2 className="mt-5 text-2xl font-semibold tracking-[-0.035em] text-slate-900">วันนี้อยากให้ CpiPOS AI ช่วยเรื่องอะไร</h2>
+                  <p className="mt-2 max-w-xl text-sm leading-6 text-slate-500">ถามเรื่องยอดขาย ต้นทุน สต๊อก การตลาด การใช้งานระบบ หรือให้ช่วยสรุปข้อมูลร้านได้เลย</p>
+                </div>
+              ) : null}
+              {messages.filter((message) => hasConversationContent || message.id !== "welcome").map((message) => (
                 <div key={message.id} className="w-full py-2.5 sm:py-3.5">
-                  <div className={`mx-auto flex w-full max-w-[820px] ${message.role === "user" ? "justify-end" : "justify-start"}`}>
-                    <div className={`${message.role === "user" ? "max-w-[78%] rounded-[24px] bg-[#f4f4f4] px-4 py-2.5 text-slate-900" : "w-full px-1 py-2 text-slate-800"} text-[15px] font-normal leading-7 sm:text-[15.5px]`}>
+                  <div className={`mx-auto flex w-full max-w-[860px] ${message.role === "user" ? "justify-end" : "justify-start"}`}>
+                    <div className={`${message.role === "user" ? "max-w-[76%] rounded-[22px] bg-white/78 px-4 py-2.5 text-slate-900 shadow-[0_1px_2px_rgba(15,23,42,0.04)]" : "w-full px-1 py-2 text-slate-800"} text-[15px] font-normal leading-7 tracking-[-0.005em] sm:text-[15.5px]`}>
                       <AiRichText text={message.text} />
                     {message.role === "assistant" && message.proposals?.length ? (
                       <div className="mt-2 grid gap-2">
@@ -905,7 +922,7 @@ export function CpiPosAiAssistant({ lang }: { lang: Language }) {
               ))}
               {sending ? (
                 <div className="w-full py-3">
-                  <div className="mx-auto w-full max-w-[820px] px-1 text-sm font-medium text-slate-500">
+                  <div className="mx-auto w-full max-w-[860px] px-1 text-sm font-medium text-slate-500">
                     <span className="inline-flex items-center gap-2"><span className="h-2 w-2 animate-pulse rounded-full bg-slate-400" />กำลังวิเคราะห์ข้อมูลร้าน...</span>
                   </div>
                 </div>
@@ -927,8 +944,8 @@ export function CpiPosAiAssistant({ lang }: { lang: Language }) {
               ) : null}
             </div>
 
-            <form onSubmit={submit} className="sticky bottom-0 z-20 shrink-0 bg-gradient-to-t from-white via-white to-white/80 px-3 pb-3 pt-4 backdrop-blur sm:px-4 sm:pb-4">
-              <div className="mx-auto flex max-w-[820px] items-end gap-2 rounded-[26px] border border-slate-200 bg-white p-2 shadow-[0_8px_28px_rgba(15,23,42,0.08)] focus-within:border-slate-300">
+            <form onSubmit={submit} className="sticky bottom-0 z-20 shrink-0 bg-gradient-to-t from-[#eef7ff] via-[#f4f9ff]/95 to-transparent px-3 pb-4 pt-7 backdrop-blur-[2px] sm:px-5 sm:pb-5">
+              <div className="mx-auto flex max-w-[860px] items-end gap-2 rounded-[26px] border border-blue-200/85 bg-white/94 p-2 shadow-[0_12px_36px_rgba(37,99,235,0.10)] focus-within:border-blue-400 focus-within:ring-4 focus-within:ring-blue-100/60">
                 <span className="mb-2 ml-1 text-blue-500"><SparkleIcon size={19} /></span>
                 <textarea
                   ref={textareaRef}
@@ -954,7 +971,7 @@ export function CpiPosAiAssistant({ lang }: { lang: Language }) {
                   </svg>
                 </button>
               </div>
-              <p className="mx-auto mt-2 max-w-[820px] px-2 text-center text-[10px] font-normal text-slate-400">CpiPOS AI อาจตอบคลาดเคลื่อนได้ · การเปลี่ยนราคา/สต๊อกต้องยืนยันและผ่าน PIN Owner/Manager</p>
+              <p className="mx-auto mt-2 max-w-[860px] px-2 text-center text-[10px] font-normal text-slate-400">CpiPOS AI อาจตอบคลาดเคลื่อนได้ · การเปลี่ยนข้อมูลจริงต้องยืนยันและผ่าน PIN Owner/Manager</p>
             </form>
           </section>
           </div>
@@ -963,7 +980,7 @@ export function CpiPosAiAssistant({ lang }: { lang: Language }) {
 
       {roomDrawerOpen ? (
         <div className="fixed inset-0 z-[110] bg-slate-950/35 lg:hidden" onMouseDown={(event) => { if (event.target === event.currentTarget) setRoomDrawerOpen(false); }}>
-          <aside className="h-full w-[300px] max-w-[86vw] overflow-hidden border-r border-slate-200 bg-[#f7f7f8] shadow-2xl">
+          <aside className="h-full w-[300px] max-w-[86vw] overflow-hidden border-r border-blue-100 bg-[#f7fbff] shadow-2xl">
             <div className="flex h-12 items-center justify-between border-b border-slate-200 px-3">
               <strong className="text-sm font-semibold text-slate-800">CpiPOS AI</strong>
               <button type="button" onClick={() => setRoomDrawerOpen(false)} className="grid h-8 w-8 place-items-center rounded-lg text-slate-500 hover:bg-slate-200">×</button>
