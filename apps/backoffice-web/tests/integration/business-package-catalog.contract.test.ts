@@ -23,7 +23,7 @@ describe("canonical Business package catalog", () => {
     expect(migration).toContain("max_products = 5000");
     expect(migration).toContain("monthly_bill_limit = 10000");
     expect(migration).toContain("retention_months = 24");
-    expect(migration).toContain("where code not in ('starter','growth','business','custom')");
+    expect(migration).toContain("where code not in ('starter', 'growth', 'business', 'custom')");
     expect(catalog).toContain('code: "business"');
     expect(catalog).toContain('name: "Business"');
     expect(catalog).not.toContain('code: "enterprise"');
@@ -58,7 +58,7 @@ describe("canonical Business package catalog", () => {
     expect(features).toContain("salesModePolicy");
     expect(features).toContain("sales_mode_limit");
     expect(features).toContain("default_sales_modes");
-    expect(migration).toContain("Starter 6, Growth 12, Business 24");
-    expect(migration).toContain("else coalesce(sp.retention_months,6)");
+    expect(migration).toContain("Starter 6 months, Growth 12 months, Business 24 months");
+    expect(migration).toContain("else coalesce(sp.retention_months, 6)");
   });
 });
