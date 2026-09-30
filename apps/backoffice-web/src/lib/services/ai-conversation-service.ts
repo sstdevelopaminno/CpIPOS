@@ -16,6 +16,15 @@ export type AiStoredMessage = {
   text: string;
 };
 
+export type AiChatRoom = {
+  id: string;
+  title: string;
+  openai_conversation_id: string;
+  created_at: string;
+  updated_at: string;
+  last_message_at: string;
+};
+
 type OpenAiConversation = {
   id: string;
   object?: string;
@@ -33,6 +42,12 @@ type ConversationItemsPage = {
   data?: ConversationItem[];
   has_more?: boolean;
   last_id?: string | null;
+};
+
+type RoomRow = AiChatRoom & {
+  tenant_id: string;
+  branch_id: string;
+  user_id: string;
 };
 
 function apiKey() {
@@ -63,21 +78,42 @@ async function openAiFetch<T>(path: string, init?: RequestInit): Promise<T> {
   return payload as T;
 }
 
-async function createConversation(scope: AiConversationScope): Promise<string> {
+function cleanRoomTitle(value: unknown, fallback = "แชทใหม่") {
+  const text = String(value ?? "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 80);
+  return text || fallback;
+}
+
+export function roomTitleFromMessage(message: string) {
+  return cleanRoomTitle(message.replace(/[\r\n]+/g, " "));
+}
+
+async function createConversation(scope: AiConversationScope, roomId: string, title: string): Promise<string> {
   const conversation = await openAiFetch<OpenAiConversation>("/conversations", {
     method: "POST",
     body: JSON.stringify({
       metadata: {
         app: "cpipos",
+        room_id: roomId,
         tenant_id: scope.tenantId,
         branch_id: scope.branchId,
         user_id: scope.userId,
-        role: scope.role
+        role: scope.role,
+        title: cleanRoomTitle(title)
       }
     })
   });
   if (!conversation.id) throw new Error("OpenAI conversation ID was not returned.");
   return conversation.id;
+}
+
+async function updateConversationMetadata(conversationId: string, metadata: Record<string, string>) {
+  await openAiFetch<OpenAiConversation>(`/conversations/${encodeURIComponent(conversationId)}`, {
+    method: "POST",
+    body: JSON.stringify({ metadata })
+  });
 }
 
 async function conversationExists(conversationId: string): Promise<boolean> {
@@ -91,38 +127,170 @@ async function conversationExists(conversationId: string): Promise<boolean> {
   }
 }
 
-export async function getOrCreateAiConversation(scope: AiConversationScope): Promise<string> {
+function roomSelect() {
+  return "id,title,openai_conversation_id,created_at,updated_at,last_message_at,tenant_id,branch_id,user_id";
+}
+
+export async function listAiChatRooms(scope: AiConversationScope): Promise<AiChatRoom[]> {
   const db = getSupabaseServiceClient();
   const { data, error } = await db
-    .from("pos_ai_conversation_links")
-    .select("openai_conversation_id")
+    .from("pos_ai_chat_rooms")
+    .select(roomSelect())
     .eq("tenant_id", scope.tenantId)
     .eq("branch_id", scope.branchId)
     .eq("user_id", scope.userId)
-    .maybeSingle<{ openai_conversation_id: string }>();
+    .order("last_message_at", { ascending: false })
+    .limit(100)
+    .returns<RoomRow[]>();
 
-  if (error) throw new Error(`ai_conversation_link_lookup_failed:${error.message}`);
+  if (error) throw new Error(`ai_chat_room_list_failed:${error.message}`);
+  return (data ?? []).map(({ tenant_id: _tenant, branch_id: _branch, user_id: _user, ...room }) => room);
+}
 
-  if (data?.openai_conversation_id) {
-    if (await conversationExists(data.openai_conversation_id)) {
-      return data.openai_conversation_id;
-    }
+export async function getAiChatRoom(scope: AiConversationScope, roomId: string): Promise<AiChatRoom | null> {
+  const db = getSupabaseServiceClient();
+  const { data, error } = await db
+    .from("pos_ai_chat_rooms")
+    .select(roomSelect())
+    .eq("id", roomId)
+    .eq("tenant_id", scope.tenantId)
+    .eq("branch_id", scope.branchId)
+    .eq("user_id", scope.userId)
+    .maybeSingle<RoomRow>();
+
+  if (error) throw new Error(`ai_chat_room_lookup_failed:${error.message}`);
+  if (!data) return null;
+
+  const exists = await conversationExists(data.openai_conversation_id);
+  if (!exists) {
+    await db.from("pos_ai_chat_rooms").delete().eq("id", data.id);
+    return null;
   }
+  const { tenant_id: _tenant, branch_id: _branch, user_id: _user, ...room } = data;
+  return room;
+}
 
-  const conversationId = await createConversation(scope);
-  const { error: upsertError } = await db
-    .from("pos_ai_conversation_links")
-    .upsert({
+export async function createAiChatRoom(scope: AiConversationScope, title = "แชทใหม่"): Promise<AiChatRoom> {
+  const db = getSupabaseServiceClient();
+  const roomId = crypto.randomUUID();
+  const roomTitle = cleanRoomTitle(title);
+  const conversationId = await createConversation(scope, roomId, roomTitle);
+  const now = new Date().toISOString();
+
+  const { data, error } = await db
+    .from("pos_ai_chat_rooms")
+    .insert({
+      id: roomId,
       tenant_id: scope.tenantId,
       branch_id: scope.branchId,
       user_id: scope.userId,
-      openai_conversation_id: conversationId
-    }, { onConflict: "tenant_id,branch_id,user_id" });
+      openai_conversation_id: conversationId,
+      title: roomTitle,
+      last_message_at: now
+    })
+    .select(roomSelect())
+    .single<RoomRow>();
 
-  if (upsertError) {
-    throw new Error(`ai_conversation_link_write_failed:${upsertError.message}`);
+  if (error) {
+    try {
+      await deleteOpenAiConversationById(conversationId);
+    } catch {
+      // Best effort cleanup after local pointer failure.
+    }
+    throw new Error(`ai_chat_room_create_failed:${error.message}`);
   }
-  return conversationId;
+
+  const { tenant_id: _tenant, branch_id: _branch, user_id: _user, ...room } = data;
+  return room;
+}
+
+export async function getOrCreateAiChatRoom(scope: AiConversationScope, roomId?: string | null): Promise<AiChatRoom> {
+  if (roomId) {
+    const room = await getAiChatRoom(scope, roomId);
+    if (room) return room;
+  }
+  const rooms = await listAiChatRooms(scope);
+  if (rooms[0]) {
+    const room = await getAiChatRoom(scope, rooms[0].id);
+    if (room) return room;
+  }
+  return createAiChatRoom(scope);
+}
+
+export async function renameAiChatRoom(scope: AiConversationScope, roomId: string, title: string): Promise<AiChatRoom> {
+  const db = getSupabaseServiceClient();
+  const room = await getAiChatRoom(scope, roomId);
+  if (!room) throw new Error("ai_chat_room_not_found");
+  const nextTitle = cleanRoomTitle(title);
+
+  const { data, error } = await db
+    .from("pos_ai_chat_rooms")
+    .update({ title: nextTitle })
+    .eq("id", room.id)
+    .eq("tenant_id", scope.tenantId)
+    .eq("branch_id", scope.branchId)
+    .eq("user_id", scope.userId)
+    .select(roomSelect())
+    .single<RoomRow>();
+
+  if (error) throw new Error(`ai_chat_room_rename_failed:${error.message}`);
+
+  try {
+    await updateConversationMetadata(room.openai_conversation_id, {
+      app: "cpipos",
+      room_id: room.id,
+      tenant_id: scope.tenantId,
+      branch_id: scope.branchId,
+      user_id: scope.userId,
+      role: scope.role,
+      title: nextTitle
+    });
+  } catch {
+    // The local room index remains authoritative for display.
+  }
+
+  const { tenant_id: _tenant, branch_id: _branch, user_id: _user, ...result } = data;
+  return result;
+}
+
+export async function touchAiChatRoom(scope: AiConversationScope, roomId: string, firstMessage?: string | null) {
+  const db = getSupabaseServiceClient();
+  const room = await getAiChatRoom(scope, roomId);
+  if (!room) throw new Error("ai_chat_room_not_found");
+
+  const patch: Record<string, unknown> = { last_message_at: new Date().toISOString() };
+  if (room.title === "แชทใหม่" && firstMessage) {
+    patch.title = roomTitleFromMessage(firstMessage);
+  }
+  const { data, error } = await db
+    .from("pos_ai_chat_rooms")
+    .update(patch)
+    .eq("id", room.id)
+    .eq("tenant_id", scope.tenantId)
+    .eq("branch_id", scope.branchId)
+    .eq("user_id", scope.userId)
+    .select(roomSelect())
+    .single<RoomRow>();
+  if (error) throw new Error(`ai_chat_room_touch_failed:${error.message}`);
+
+  if (typeof patch.title === "string") {
+    try {
+      await updateConversationMetadata(room.openai_conversation_id, {
+        app: "cpipos",
+        room_id: room.id,
+        tenant_id: scope.tenantId,
+        branch_id: scope.branchId,
+        user_id: scope.userId,
+        role: scope.role,
+        title: patch.title
+      });
+    } catch {
+      // Non-blocking metadata sync.
+    }
+  }
+
+  const { tenant_id: _tenant, branch_id: _branch, user_id: _user, ...result } = data;
+  return result;
 }
 
 export async function addAiConversationItems(conversationId: string, items: Array<Record<string, unknown>>): Promise<void> {
@@ -146,7 +314,7 @@ function textFromItem(item: ConversationItem) {
     .trim();
 }
 
-export async function listAiConversationMessages(conversationId: string, maxMessages = 60): Promise<AiStoredMessage[]> {
+export async function listAiConversationMessages(conversationId: string, maxMessages = 100): Promise<AiStoredMessage[]> {
   const collected: ConversationItem[] = [];
   let after: string | null = null;
 
@@ -178,47 +346,64 @@ export async function listAiConversationMessages(conversationId: string, maxMess
     .reverse();
 }
 
-export async function deleteAiConversationForUser(scope: AiConversationScope): Promise<void> {
-  const db = getSupabaseServiceClient();
-  const { data } = await db
-    .from("pos_ai_conversation_links")
-    .select("openai_conversation_id")
-    .eq("tenant_id", scope.tenantId)
-    .eq("branch_id", scope.branchId)
-    .eq("user_id", scope.userId)
-    .maybeSingle<{ openai_conversation_id: string }>();
-
-  if (data?.openai_conversation_id) {
-    const conversationId = data.openai_conversation_id;
-    try {
-      // OpenAI conversation deletion does not delete its items, so remove every
-      // item explicitly before deleting the conversation container.
-      for (let pageNumber = 0; pageNumber < 100; pageNumber += 1) {
-        const page = await openAiFetch<ConversationItemsPage>(
-          `/conversations/${encodeURIComponent(conversationId)}/items?order=desc&limit=100`
+export async function deleteOpenAiConversationById(conversationId: string): Promise<void> {
+  try {
+    for (let pageNumber = 0; pageNumber < 100; pageNumber += 1) {
+      const page = await openAiFetch<ConversationItemsPage>(
+        `/conversations/${encodeURIComponent(conversationId)}/items?order=desc&limit=100`
+      );
+      const ids = (page.data ?? []).map((item) => String(item.id ?? "")).filter(Boolean);
+      if (!ids.length) break;
+      for (const itemId of ids) {
+        await openAiFetch(
+          `/conversations/${encodeURIComponent(conversationId)}/items/${encodeURIComponent(itemId)}`,
+          { method: "DELETE" }
         );
-        const ids = (page.data ?? []).map((item) => String(item.id ?? "")).filter(Boolean);
-        if (!ids.length) break;
-        for (const itemId of ids) {
-          await openAiFetch(
-            `/conversations/${encodeURIComponent(conversationId)}/items/${encodeURIComponent(itemId)}`,
-            { method: "DELETE" }
-          );
-        }
-        if (!page.has_more) break;
       }
-      await openAiFetch(`/conversations/${encodeURIComponent(conversationId)}`, { method: "DELETE" });
-    } catch (error) {
-      const status = (error as Error & { status?: number }).status;
-      if (status !== 404) throw error;
+      if (!page.has_more) break;
     }
+    await openAiFetch(`/conversations/${encodeURIComponent(conversationId)}`, { method: "DELETE" });
+  } catch (error) {
+    const status = (error as Error & { status?: number }).status;
+    if (status !== 404) throw error;
   }
+}
 
-  const { error } = await db
-    .from("pos_ai_conversation_links")
-    .delete()
-    .eq("tenant_id", scope.tenantId)
-    .eq("branch_id", scope.branchId)
-    .eq("user_id", scope.userId);
-  if (error) throw new Error(`ai_conversation_link_delete_failed:${error.message}`);
+export async function deleteAiChatRoom(scope: AiConversationScope, roomId: string): Promise<void> {
+  const db = getSupabaseServiceClient();
+  const room = await getAiChatRoom(scope, roomId);
+  if (!room) return;
+
+  await deleteOpenAiConversationById(room.openai_conversation_id);
+
+  const [deleted, redacted] = await Promise.all([
+    db.from("pos_ai_chat_rooms")
+      .delete()
+      .eq("id", room.id)
+      .eq("tenant_id", scope.tenantId)
+      .eq("branch_id", scope.branchId)
+      .eq("user_id", scope.userId),
+    db.from("pos_ai_usage_events")
+      .update({ prompt_text: null, history_cleared_at: new Date().toISOString() })
+      .eq("tenant_id", scope.tenantId)
+      .eq("openai_conversation_id", room.openai_conversation_id)
+  ]);
+
+  if (deleted.error) throw new Error(`ai_chat_room_delete_failed:${deleted.error.message}`);
+  if (redacted.error) throw new Error(`ai_chat_room_usage_redact_failed:${redacted.error.message}`);
+}
+
+export async function deleteAllAiChatRoomsForUser(scope: AiConversationScope): Promise<number> {
+  const rooms = await listAiChatRooms(scope);
+  for (const room of rooms) await deleteAiChatRoom(scope, room.id);
+  return rooms.length;
+}
+
+// Backward-compatible helpers used by older call sites during the room migration.
+export async function getOrCreateAiConversation(scope: AiConversationScope): Promise<string> {
+  return (await getOrCreateAiChatRoom(scope)).openai_conversation_id;
+}
+
+export async function deleteAiConversationForUser(scope: AiConversationScope): Promise<void> {
+  await deleteAllAiChatRoomsForUser(scope);
 }
