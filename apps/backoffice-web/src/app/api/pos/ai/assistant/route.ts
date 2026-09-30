@@ -680,7 +680,6 @@ export async function GET(request: Request) {
       active_room: room ? publicAiChatRoom(room) : null,
       history,
       quota,
-      model: AI_MODEL,
       mode: "confirm_then_pin"
     });
   } catch (error) {
@@ -722,7 +721,6 @@ export async function POST(request: Request) {
         room: publicAiChatRoom(roomAfter),
         quota,
         metering: null,
-        model: AI_MODEL,
         mode: "safe_read_only"
       });
     }
@@ -774,7 +772,6 @@ export async function POST(request: Request) {
       room: publicAiChatRoom(roomAfter),
       quota: quotaAfter,
       metering,
-      model: AI_MODEL,
       mode: "confirm_then_pin"
     });
   } catch (error) {
