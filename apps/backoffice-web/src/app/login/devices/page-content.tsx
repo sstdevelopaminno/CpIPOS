@@ -41,6 +41,19 @@ type PopupState =
 const AUTH_REQUEST_TIMEOUT_MS = process.env.NODE_ENV === "development" ? 20000 : 15000;
 const DEVICE_SELECT_REQUEST_TIMEOUT_MS = process.env.NODE_ENV === "development" ? 60000 : 45000;
 const POS_ENTRY_GATE_SKIP_SPLASH_KEY = "pos_skip_entry_gate_overlay_once_v1";
+
+function consumePosReturnPath(fallback: string) {
+  try {
+    const stored = window.sessionStorage.getItem("cpipos-ai-return-path");
+    if (stored === "/preview/pos/ai-assistant") {
+      window.sessionStorage.removeItem("cpipos-ai-return-path");
+      return stored;
+    }
+  } catch {
+    // Fall back to the normal POS landing route.
+  }
+  return fallback;
+}
 const SPLASH_LOGO_SRC = "/brand/cpipos-symbol-transparent.png";
 
 function statusLabel(status: DeviceItem["status"]) {
@@ -295,7 +308,7 @@ function LoginDevicesPageContent() {
         } catch {
           // Continue routing even if browser storage is unavailable.
         }
-        window.location.assign(redirectTo);
+        window.location.assign(consumePosReturnPath(redirectTo));
       } else if (!hasFailure) {
         setSubmitting(false);
         setPopup({ type: "none" });
