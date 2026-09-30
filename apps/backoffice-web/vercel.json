@@ -7,6 +7,9 @@
     "bom1"
   ],
   "git": {
-    "deploymentEnabled": false
+    "deploymentEnabled": {
+      "*": false,
+      "agent-docs-preflight-schema-drift": true
+    }
   }
 }
