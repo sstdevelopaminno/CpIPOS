@@ -100,7 +100,8 @@ export type AiProposal =
     };
 
 const AI_MODEL = readEnv("CPIPOS_AI_MODEL") ?? "gpt-6-luna";
-const MAX_OUTPUT_TOKENS_RAW = Number(readEnv("CPIPOS_AI_MAX_OUTPUT_TOKENS") ?? "900");
+const AI_FALLBACK_MODEL = readEnv("CPIPOS_AI_FALLBACK_MODEL") ?? "gpt-5.6-luna";
+const MAX_OUTPUT_TOKENS_RAW = Number(readEnv("CPIPOS_AI_MAX_OUTPUT_TOKENS") ?? "800");
 const MAX_OUTPUT_TOKENS = Number.isFinite(MAX_OUTPUT_TOKENS_RAW)
   ? Math.max(256, Math.min(1600, Math.trunc(MAX_OUTPUT_TOKENS_RAW)))
   : 900;
@@ -141,6 +142,37 @@ function restrictedAiReply() {
     "ผมไม่สามารถลบ/รีเซ็ตฐานข้อมูล, ยกเลิกบิลหรือคืนเงิน, เปลี่ยนสิทธิ์ผู้ใช้/แพ็กเกจ/นโยบาย IT, รัน SQL โดยตรง หรือเข้าถึงข้อมูลร้านอื่นได้",
     "หากต้องการ ผมช่วยวิเคราะห์ข้อมูลหรือเตรียมข้อเสนอที่ปลอดภัยให้ Owner/Manager ตรวจสอบและยืนยันผ่าน PIN ได้ครับ"
   ].join("\n");
+}
+
+function providerFailureReply(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error ?? "");
+  const status = (error as Error & { status?: number })?.status;
+  if (status === 429 || /rate limit|too many requests|tokens per min|tpm/i.test(message)) {
+    return "ขณะนี้โควตาบริการ AI ภายนอกถึงขีดจำกัดชั่วคราวครับ ข้อความนี้ถูกเก็บไว้ในห้องแชทแล้ว กรุณาลองใหม่ภายหลัง";
+  }
+  if (/OPENAI_API_KEY|authorization|api key/i.test(message)) {
+    return "CpiPOS AI ยังไม่พร้อมเชื่อมต่อบริการ AI ข้อความนี้ถูกเก็บไว้ในห้องแชทแล้ว กรุณาติดต่อผู้ดูแลระบบ";
+  }
+  return "CpiPOS AI เชื่อมต่อบริการ AI ไม่สำเร็จชั่วคราว ข้อความนี้ถูกเก็บไว้ในห้องแชทแล้ว กรุณาลองใหม่อีกครั้ง";
+}
+
+async function persistConversationTurn(conversationId: string, userText: string, assistantText: string) {
+  try {
+    await addAiConversationItems(conversationId, [
+      {
+        type: "message",
+        role: "user",
+        content: [{ type: "input_text", text: userText }]
+      },
+      {
+        type: "message",
+        role: "assistant",
+        content: [{ type: "output_text", text: assistantText }]
+      }
+    ]);
+  } catch (error) {
+    console.error("[cpipos-ai] failed to persist fallback conversation turn", error);
+  }
 }
 
 const AI_PROPOSAL_TOOLS = [
@@ -698,7 +730,7 @@ function needsHelpGuide(message: string) {
 
 function responseTokenBudget(message: string) {
   const wantsLong = /(?:ละเอียด|รายงาน|เอกสาร|ตาราง|แผนงาน|วิเคราะห์เชิงลึก|สรุปรายเดือน|สรุปรายปี)/i.test(message);
-  return Math.min(MAX_OUTPUT_TOKENS, wantsLong ? 1000 : 650);
+  return Math.min(MAX_OUTPUT_TOKENS, wantsLong ? 800 : 420);
 }
 
 async function callOpenAi(
@@ -721,14 +753,14 @@ async function callOpenAi(
     "ใช้ข้อมูล JSON นี้เป็นข้อมูลสดของร้านในเทิร์นปัจจุบัน และอย่านำข้อมูลของร้านอื่นมาใช้"
   ].filter(Boolean).join("\n\n");
 
-  const response = await fetch("https://api.openai.com/v1/responses", {
+  const makeRequest = (model: string) => fetch("https://api.openai.com/v1/responses", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       Authorization: `Bearer ${apiKey}`
     },
     body: JSON.stringify({
-      model: AI_MODEL,
+      model,
       conversation: conversationId,
       prompt_cache_key: promptCacheKey,
       safety_identifier: promptCacheKey,
@@ -744,18 +776,29 @@ async function callOpenAi(
       ],
       tools: AI_PROPOSAL_TOOLS,
       tool_choice: "auto",
+      text: { verbosity: "low" },
       store: false,
       max_output_tokens: responseTokenBudget(message)
     })
   });
 
-  const payload = (await response.json().catch(() => null)) as unknown;
+  let response = await makeRequest(AI_MODEL);
+  let payload = (await response.json().catch(() => null)) as unknown;
+
+  if (!response.ok && response.status === 429 && AI_FALLBACK_MODEL && AI_FALLBACK_MODEL !== AI_MODEL) {
+    console.warn("[cpipos-ai] primary model rate limited; trying fallback model", { primary: AI_MODEL, fallback: AI_FALLBACK_MODEL });
+    response = await makeRequest(AI_FALLBACK_MODEL);
+    payload = (await response.json().catch(() => null)) as unknown;
+  }
+
   if (!response.ok) {
     const detail =
       payload && typeof payload === "object" && "error" in payload
         ? String((payload as { error?: { message?: string } }).error?.message ?? "AI request failed.")
         : "AI request failed.";
-    throw new Error(detail);
+    const providerError = new Error(detail) as Error & { status?: number };
+    providerError.status = response.status;
+    throw providerError;
   }
 
   const toolCalls = ((payload as { output?: Array<{ type?: string; call_id?: string; name?: string }> }).output ?? [])
@@ -816,7 +859,8 @@ export async function GET(request: Request) {
     await pruneExpiredAiChatRooms(scope, quota.history_retention_days);
     const initialRooms = await listAiChatRooms(scope);
 
-    let room = requestedRoomId ? await getAiChatRoom(scope, requestedRoomId) : initialRooms[0] ?? null;
+    let room = requestedRoomId ? await getAiChatRoom(scope, requestedRoomId) : null;
+    if (!room) room = initialRooms[0] ?? null;
     if (!room && quota.enabled) room = await getOrCreateAiChatRoom(scope);
     const rooms = room && !initialRooms.some((item) => item.id === room!.id)
       ? [room, ...initialRooms]
@@ -869,13 +913,15 @@ export async function POST(request: Request) {
       getOrCreateAiChatRoom(scope, roomId)
     ]);
     const conversationId = room.openai_conversation_id;
+    const roomAfterInput = await touchAiChatRoom(scope, room.id, effectiveMessage);
 
     if (isRestrictedAiRequest(effectiveMessage)) {
-      const roomAfter = await touchAiChatRoom(scope, room.id, effectiveMessage);
+      const answer = restrictedAiReply();
+      await persistConversationTurn(conversationId, effectiveMessage, answer);
       return ok({
-        answer: restrictedAiReply(),
+        answer,
         proposals: [],
-        room: publicAiChatRoom(roomAfter),
+        room: publicAiChatRoom(roomAfterInput),
         quota,
         metering: null,
         mode: "safe_read_only"
@@ -893,14 +939,16 @@ export async function POST(request: Request) {
       );
     } catch (error) {
       const messageText = error instanceof Error ? error.message : "CpiPOS AI request failed.";
-      const status = messageText.includes("OPENAI_API_KEY") ? 503 : 502;
+      const providerStatus = (error as Error & { status?: number })?.status;
+      const notConfigured = messageText.includes("OPENAI_API_KEY");
+      const rateLimited = providerStatus === 429 || /rate limit|too many requests|tokens per min|tpm/i.test(messageText);
+      const answer = providerFailureReply(error);
       console.error("[cpipos-ai] provider request failed", error);
+      await persistConversationTurn(conversationId, effectiveMessage, answer);
       return fail(
-        status === 503 ? "ai_not_configured" : "ai_provider_failed",
-        status === 503
-          ? "CpiPOS AI ยังไม่พร้อมใช้งาน กรุณาติดต่อผู้ดูแลระบบ"
-          : "CpiPOS AI เชื่อมต่อบริการ AI ไม่สำเร็จชั่วคราว กรุณาลองใหม่อีกครั้ง",
-        status
+        notConfigured ? "ai_not_configured" : rateLimited ? "ai_provider_rate_limited" : "ai_provider_failed",
+        answer,
+        notConfigured ? 503 : rateLimited ? 429 : 502
       );
     }
 
@@ -919,14 +967,11 @@ export async function POST(request: Request) {
       console.error("[cpipos-ai] usage metering failed", meterError);
     }
 
-    const [quotaAfter, roomAfter] = await Promise.all([
-      metering ? loadAiQuotaStatus(auth.tenantId!) : Promise.resolve(quota),
-      touchAiChatRoom(scope, room.id, effectiveMessage)
-    ]);
+    const quotaAfter = metering ? await loadAiQuotaStatus(auth.tenantId!) : quota;
     return ok({
       answer: result.text,
       proposals: result.proposals,
-      room: publicAiChatRoom(roomAfter),
+      room: publicAiChatRoom(roomAfterInput),
       quota: quotaAfter,
       metering,
       mode: "confirm_then_pin"
