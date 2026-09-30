@@ -411,6 +411,8 @@ export function CpiPosAiAssistant({ lang }: { lang: Language }) {
       setRooms((current) => [room, ...current.filter((item) => item.id !== room.id)]);
       setActiveRoomId(room.id);
       setMessages([welcomeMessage(lang)]);
+      setRooms([]);
+      setActiveRoomId(null);
       setProposalStatus({});
       setRoomDrawerOpen(false);
       requestAnimationFrame(() => textareaRef.current?.focus());
@@ -517,13 +519,18 @@ export function CpiPosAiAssistant({ lang }: { lang: Language }) {
       const response = await fetch("/api/pos/ai/assistant", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: messageText })
+        body: JSON.stringify({ message: messageText, room_id: activeRoomId })
       });
-      const body = (await response.json().catch(() => null)) as ApiEnvelope<{ answer?: string; overview?: Overview; proposals?: AiProposal[]; quota?: AiQuotaStatus }>;
+      const body = (await response.json().catch(() => null)) as ApiEnvelope<{ answer?: string; overview?: Overview; room?: AiChatRoom; proposals?: AiProposal[]; quota?: AiQuotaStatus }>;
       if (!response.ok) throw new Error(friendlyAiError(body?.error?.message));
 
       if (body?.data?.overview) setOverview(body.data.overview);
       if (body?.data?.quota) setQuota(body.data.quota);
+      if (body?.data?.room) {
+        const room = body.data.room;
+        setActiveRoomId(room.id);
+        setRooms((current) => [room, ...current.filter((item) => item.id !== room.id)]);
+      }
       setMessages((current) => [
         ...current,
         {
