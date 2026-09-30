@@ -430,6 +430,8 @@ export function CpiPosAiAssistant({ lang }: { lang: Language }) {
   const [overviewError, setOverviewError] = useState<string | null>(null);
   const [quota, setQuota] = useState<AiQuotaStatus | null>(null);
   const [input, setInput] = useState("");
+  const [imageDataUrl, setImageDataUrl] = useState<string | null>(null);
+  const [imageName, setImageName] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
   const [pendingProposal, setPendingProposal] = useState<AiProposal | null>(null);
   const [proposalStatus, setProposalStatus] = useState<Record<string, ProposalStatus>>({});
@@ -448,6 +450,7 @@ export function CpiPosAiAssistant({ lang }: { lang: Language }) {
   const chatEndRef = useRef<HTMLDivElement | null>(null);
   const chatScrollRef = useRef<HTMLDivElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const activeRoom = useMemo(() => rooms.find((room) => room.id === activeRoomId) ?? null, [rooms, activeRoomId]);
   const visibleMessages = useMemo(() => messages.filter((message) => message.id !== "welcome"), [messages]);
@@ -624,19 +627,45 @@ export function CpiPosAiAssistant({ lang }: { lang: Language }) {
     requestAnimationFrame(() => scrollToBottom(sending ? "auto" : "smooth"));
   }, [messages, sending, autoScroll]);
 
+  function attachImage(file: File | null) {
+    if (!file) return;
+    if (!["image/jpeg","image/png","image/webp"].includes(file.type)) {
+      setOverviewError("รองรับเฉพาะรูป JPEG, PNG หรือ WebP");
+      return;
+    }
+    if (file.size > 2 * 1024 * 1024) {
+      setOverviewError("รูปภาพต้องมีขนาดไม่เกิน 2 MB เพื่อควบคุมความเร็วและค่าใช้ AI");
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      const value = typeof reader.result === "string" ? reader.result : null;
+      setImageDataUrl(value);
+      setImageName(file.name);
+      setOverviewError(null);
+      requestAnimationFrame(() => textareaRef.current?.focus());
+    };
+    reader.onerror = () => setOverviewError("อ่านรูปภาพไม่สำเร็จ");
+    reader.readAsDataURL(file);
+  }
+
   async function sendMessage(prompt?: string) {
     const messageText = String(prompt ?? input).trim();
-    if (!messageText || sending || quota?.exhausted || quota?.enabled === false) return;
-
+    if ((!messageText && !imageDataUrl) || sending || quota?.exhausted || quota?.enabled === false) return;
+    const displayedText = messageText || "ช่วยอ่านรูปภาพนี้ให้หน่อย";
     const userMessage: ChatMessage = {
       id: `user-${Date.now()}`,
       role: "user",
-      text: messageText
+      text: imageName ? `${displayedText}\n📎 ${imageName}` : displayedText
     };
     setAutoScroll(true);
     setShowScrollToBottom(false);
     setMessages((current) => [...current, userMessage]);
     setInput("");
+    const attachedImage = imageDataUrl;
+    setImageDataUrl(null);
+    setImageName(null);
+    if (fileInputRef.current) fileInputRef.current.value = "";
     if (textareaRef.current) textareaRef.current.style.height = "auto";
     setSending(true);
     requestAnimationFrame(() => scrollToBottom("smooth"));
@@ -645,7 +674,7 @@ export function CpiPosAiAssistant({ lang }: { lang: Language }) {
       const response = await fetch("/api/pos/ai/assistant", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: messageText, room_id: activeRoomId })
+        body: JSON.stringify({ message: messageText, room_id: activeRoomId, image_data_url: attachedImage })
       });
       const body = (await response.json().catch(() => null)) as ApiEnvelope<{ answer?: string; overview?: Overview; room?: AiChatRoom; proposals?: AiProposal[]; quota?: AiQuotaStatus }>;
       if (!response.ok) throw new Error(friendlyAiError(body?.error?.message));
@@ -1009,8 +1038,17 @@ export function CpiPosAiAssistant({ lang }: { lang: Language }) {
             </div>
 
             <form onSubmit={submit} className="sticky bottom-0 z-20 shrink-0 bg-gradient-to-t from-[#f8fbff] via-[#f8fbff]/95 to-transparent px-3 pb-4 pt-6 sm:px-6">
+              {imageName ? (
+                <div className="mx-auto mb-2 flex max-w-[860px] items-center gap-2 px-2">
+                  <span className="inline-flex max-w-full items-center gap-2 rounded-full border border-blue-100 bg-white/80 px-3 py-1.5 text-xs font-medium text-slate-700 shadow-sm">
+                    <span aria-hidden>🖼️</span><span className="truncate">{imageName}</span>
+                    <button type="button" onClick={() => { setImageDataUrl(null); setImageName(null); if (fileInputRef.current) fileInputRef.current.value = ""; }} className="text-slate-400 hover:text-red-600" aria-label="เอารูปออก">×</button>
+                  </span>
+                </div>
+              ) : null}
               <div className="mx-auto flex max-w-[860px] items-end gap-2 rounded-[28px] border border-white/90 bg-white/82 p-2 shadow-[0_14px_42px_rgba(30,64,175,0.10)] backdrop-blur-xl focus-within:border-blue-200">
-                <span className="mb-2 ml-1 text-blue-500"><SparkleIcon size={19} /></span>
+                <input ref={fileInputRef} type="file" accept="image/jpeg,image/png,image/webp" className="hidden" onChange={(event) => attachImage(event.target.files?.[0] ?? null)} />
+                <button type="button" onClick={() => fileInputRef.current?.click()} disabled={sending} className="mb-1 grid h-9 w-9 shrink-0 place-items-center rounded-full text-xl font-light text-slate-600 transition hover:bg-slate-100 disabled:opacity-40" aria-label="แนบรูปภาพ" title="แนบรูปเพื่อวิเคราะห์">＋</button>
                 <textarea
                   ref={textareaRef}
                   value={input}
@@ -1026,7 +1064,7 @@ export function CpiPosAiAssistant({ lang }: { lang: Language }) {
                 />
                 <button
                   type="submit"
-                  disabled={sending || !input.trim() || quota?.exhausted || quota?.enabled === false}
+                  disabled={sending || (!input.trim() && !imageDataUrl) || quota?.exhausted || quota?.enabled === false}
                   className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-slate-950 text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400"
                   aria-label="ส่งข้อความ"
                 >
@@ -1035,7 +1073,7 @@ export function CpiPosAiAssistant({ lang }: { lang: Language }) {
                   </svg>
                 </button>
               </div>
-              <p className="mx-auto mt-2 max-w-[820px] px-2 text-center text-[10px] font-normal text-slate-400">CpiPOS AI อาจตอบคลาดเคลื่อนได้ · การเปลี่ยนราคา/สต๊อกต้องยืนยันและผ่าน PIN Owner/Manager</p>
+              <p className="mx-auto mt-2 max-w-[820px] px-2 text-center text-[10px] font-normal text-slate-400">แนบรูปได้เมื่อจำเป็น · CpiPOS AI อาจตอบคลาดเคลื่อนได้ · การเปลี่ยนราคา/สต๊อกต้องยืนยันและผ่าน PIN Owner/Manager</p>
             </form>
           </section>
           </div>
