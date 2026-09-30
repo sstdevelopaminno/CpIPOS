@@ -3,6 +3,7 @@ import { fail, ok } from "@/lib/http";
 import { isTenantPosMenuEnabled } from "@/lib/server/pos-menu-policy-service";
 import { createAiChatRoom, listAiChatRooms, pruneExpiredAiChatRooms, publicAiChatRoom } from "@/lib/services/ai-conversation-service";
 import { loadAiQuotaStatus } from "@/lib/services/ai-usage-service";
+import { PosGuardError } from "@/lib/pos-session-guard";
 
 export const runtime = "nodejs";
 
@@ -47,6 +48,7 @@ export async function GET() {
       history_retention_days: checked.quota.history_retention_days
     });
   } catch (error) {
+    if (error instanceof PosGuardError) return fail(error.code, error.message, error.status);
     console.error("[cpipos-ai] room list failed", error);
     return fail("ai_chat_rooms_failed", "ไม่สามารถโหลดห้องแชท CpiPOS AI ได้ในขณะนี้", 500);
   }
@@ -63,6 +65,7 @@ export async function POST(request: Request) {
       history_retention_days: checked.quota.history_retention_days
     }, 201);
   } catch (error) {
+    if (error instanceof PosGuardError) return fail(error.code, error.message, error.status);
     console.error("[cpipos-ai] room create failed", error);
     return fail("ai_chat_room_create_failed", "ไม่สามารถสร้างห้องแชทใหม่ได้ในขณะนี้", 500);
   }
