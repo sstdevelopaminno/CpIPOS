@@ -38,3 +38,19 @@ export function posUiModeToControlKey(value: string | null | undefined): PosSale
   if (value === "general_sale") return "general_sale";
   return null;
 }
+
+
+export const DINE_IN_LINKED_FEATURE_CODES = [
+  "table_management",
+  "kitchen_printing",
+  "qr_table_ordering"
+] as const;
+
+export function isDineInLinkedFeature(featureCode: string): boolean {
+  return (DINE_IN_LINKED_FEATURE_CODES as readonly string[]).includes(String(featureCode ?? "").trim());
+}
+
+export function isDineInExplicitlyEnabled(value: unknown): boolean {
+  const record = asRecord(value);
+  return record.dine_in === true;
+}
