@@ -1,7 +1,7 @@
 import { getPosApiAuthContext } from "@/lib/pos-api-auth";
 import { fail, ok } from "@/lib/http";
 import { isTenantPosMenuEnabled } from "@/lib/server/pos-menu-policy-service";
-import { createAiChatRoom, listAiChatRooms } from "@/lib/services/ai-conversation-service";
+import { createAiChatRoom, listAiChatRooms, pruneExpiredAiChatRooms } from "@/lib/services/ai-conversation-service";
 import { loadAiQuotaStatus } from "@/lib/services/ai-usage-service";
 
 export const runtime = "nodejs";
@@ -39,7 +39,9 @@ export async function GET() {
   try {
     const checked = await guard();
     if ("response" in checked) return checked.response;
-    const rooms = await listAiChatRooms(scopeFrom(checked.auth));
+    const scope = scopeFrom(checked.auth);
+    await pruneExpiredAiChatRooms(scope, checked.quota.history_retention_days);
+    const rooms = await listAiChatRooms(scope);
     return ok({
       rooms,
       history_retention_days: checked.quota.history_retention_days,
