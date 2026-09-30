@@ -269,23 +269,56 @@ function InlineRichText({ text }: { text: string }) {
 
 function AiRichText({ text }: { text: string }) {
   const lines = text.split(/\r?\n/);
-  return (
-    <div className="space-y-1.5">
-      {lines.map((raw, index) => {
-        const line = raw.trimEnd();
-        if (!line.trim()) return <div key={index} className="h-1" />;
-        const bullet = line.match(/^[-•]\s+(.+)$/);
-        const numbered = line.match(/^\d+[.)]\s+(.+)$/);
-        if (bullet) {
-          return <div key={index} className="flex gap-2"><span className="mt-[1px] text-blue-500">•</span><span><InlineRichText text={bullet[1]} /></span></div>;
-        }
-        if (numbered) {
-          return <div key={index} className="flex gap-2"><span className="font-bold text-blue-600">{line.match(/^\d+/)?.[0]}.</span><span><InlineRichText text={numbered[1]} /></span></div>;
-        }
-        return <p key={index}><InlineRichText text={line} /></p>;
-      })}
-    </div>
-  );
+  const nodes: React.ReactNode[] = [];
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index].trimEnd();
+    const next = lines[index + 1]?.trim() ?? "";
+    if (line.includes("|") && /^\|?\s*:?-{3,}/.test(next)) {
+      const headers = line.split("|").map((item) => item.trim()).filter(Boolean);
+      const rows: string[][] = [];
+      index += 2;
+      while (index < lines.length && lines[index].includes("|") && lines[index].trim()) {
+        rows.push(lines[index].split("|").map((item) => item.trim()).filter(Boolean));
+        index += 1;
+      }
+      index -= 1;
+      nodes.push(
+        <div key={`table-${index}`} className="my-3 overflow-x-auto rounded-xl border border-slate-200">
+          <table className="min-w-full border-collapse text-left text-sm">
+            <thead className="bg-slate-50"><tr>{headers.map((cell, cellIndex) => <th key={cellIndex} className="border-b border-slate-200 px-3 py-2 font-semibold text-slate-700"><InlineRichText text={cell} /></th>)}</tr></thead>
+            <tbody className="divide-y divide-slate-100">{rows.map((row, rowIndex) => <tr key={rowIndex}>{row.map((cell, cellIndex) => <td key={cellIndex} className="px-3 py-2 align-top text-slate-700"><InlineRichText text={cell} /></td>)}</tr>)}</tbody>
+          </table>
+        </div>
+      );
+      continue;
+    }
+    if (!line.trim()) {
+      nodes.push(<div key={index} className="h-1" />);
+      continue;
+    }
+    const bullet = line.match(/^[-•]\s+(.+)$/);
+    const numbered = line.match(/^\d+[.)]\s+(.+)$/);
+    if (bullet) {
+      nodes.push(<div key={index} className="flex gap-2"><span className="mt-[1px] text-blue-500">•</span><span><InlineRichText text={bullet[1]} /></span></div>);
+      continue;
+    }
+    if (numbered) {
+      nodes.push(<div key={index} className="flex gap-2"><span className="font-semibold text-blue-600">{line.match(/^\d+/)?.[0]}.</span><span><InlineRichText text={numbered[1]} /></span></div>);
+      continue;
+    }
+    nodes.push(<p key={index}><InlineRichText text={line} /></p>);
+  }
+  return <div className="space-y-1.5">{nodes}</div>;
+}
+
+function documentCategory(text: string) {
+  if (/การตลาด|โปรโมชัน|แคมเปญ|ลูกค้า/.test(text)) return "marketing";
+  if (/ต้นทุน|กำไร|margin|มาร์จิ้น/.test(text)) return "cost";
+  if (/สต๊อก|วัตถุดิบ|คงเหลือ/.test(text)) return "stock";
+  if (/บัญชี|ภาษี|รายรับ|รายจ่าย|ชำระ/.test(text)) return "accounting";
+  if (/วิธีใช้|คู่มือ|เมนู|ตั้งค่า|เข้าใช้งาน/.test(text)) return "guide";
+  if (/ยอดขาย|ขายดี|บิล/.test(text)) return "sales";
+  return "general";
 }
 
 function ChatRoomPanel({
@@ -310,13 +343,13 @@ function ChatRoomPanel({
   onOpenRecommendations: () => void;
 }) {
   return (
-    <div className="flex h-full min-h-0 flex-col bg-[#f7f7f8] text-slate-800">
+    <div className="flex h-full min-h-0 flex-col bg-transparent text-slate-800">
       <div className="shrink-0 space-y-2 p-3">
         <button
           type="button"
           onClick={onCreate}
           disabled={busy}
-          className="flex h-10 w-full items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-sm font-semibold shadow-sm transition hover:bg-slate-50 disabled:opacity-50"
+          className="flex h-10 w-full items-center gap-2 rounded-xl border border-white/80 bg-white/70 px-3 text-sm font-semibold shadow-sm backdrop-blur transition hover:bg-white disabled:opacity-50"
         >
           <span className="text-lg font-light">＋</span>
           แชทใหม่
@@ -324,7 +357,7 @@ function ChatRoomPanel({
         <button
           type="button"
           onClick={onOpenToday}
-          className="flex min-h-10 w-full items-center justify-between gap-2 rounded-xl border border-blue-100 bg-white px-3 text-left text-xs font-semibold text-slate-700 transition hover:bg-blue-50"
+          className="flex min-h-10 w-full items-center justify-between gap-2 rounded-xl border border-white/80 bg-white/65 px-3 text-left text-xs font-semibold text-slate-700 shadow-sm backdrop-blur transition hover:bg-white"
         >
           <span className="inline-flex min-w-0 items-center gap-2"><span aria-hidden>📊</span><span className="truncate">ข้อมูลสำคัญวันนี้</span></span>
           {todaySales != null ? <span className="shrink-0 rounded-full bg-blue-50 px-2 py-0.5 text-[10px] font-bold text-blue-700">฿{money(todaySales)}</span> : null}
@@ -332,7 +365,7 @@ function ChatRoomPanel({
         <button
           type="button"
           onClick={onOpenRecommendations}
-          className="flex min-h-10 w-full items-center gap-2 rounded-xl border border-violet-100 bg-white px-3 text-left text-xs font-semibold text-slate-700 transition hover:bg-violet-50"
+          className="flex min-h-10 w-full items-center gap-2 rounded-xl border border-white/80 bg-white/65 px-3 text-left text-xs font-semibold text-slate-700 shadow-sm backdrop-blur transition hover:bg-white"
         >
           <span className="text-violet-600"><SparkleIcon size={14} /></span>
           <span className="truncate">เมนูแนะนำสำหรับคุณ</span>
@@ -397,24 +430,31 @@ export function CpiPosAiAssistant({ lang }: { lang: Language }) {
   const [overviewError, setOverviewError] = useState<string | null>(null);
   const [quota, setQuota] = useState<AiQuotaStatus | null>(null);
   const [input, setInput] = useState("");
+  const [imageDataUrl, setImageDataUrl] = useState<string | null>(null);
+  const [imageName, setImageName] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
   const [pendingProposal, setPendingProposal] = useState<AiProposal | null>(null);
   const [proposalStatus, setProposalStatus] = useState<Record<string, ProposalStatus>>({});
   const [todayModalOpen, setTodayModalOpen] = useState(false);
   const [recommendationModalOpen, setRecommendationModalOpen] = useState(false);
-  const [showSuggestions, setShowSuggestions] = useState(true);
+  const [showSuggestions, setShowSuggestions] = useState(false);
   const [autoScroll, setAutoScroll] = useState(true);
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
   const [rooms, setRooms] = useState<AiChatRoom[]>([]);
   const [activeRoomId, setActiveRoomId] = useState<string | null>(null);
   const [roomDrawerOpen, setRoomDrawerOpen] = useState(false);
   const [roomBusy, setRoomBusy] = useState(false);
+  const [documentBusyId, setDocumentBusyId] = useState<string | null>(null);
+  const [documentNotice, setDocumentNotice] = useState<Record<string,string>>({});
   const [messages, setMessages] = useState<ChatMessage[]>([welcomeMessage(lang)]);
   const chatEndRef = useRef<HTMLDivElement | null>(null);
   const chatScrollRef = useRef<HTMLDivElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const activeRoom = useMemo(() => rooms.find((room) => room.id === activeRoomId) ?? null, [rooms, activeRoomId]);
+  const visibleMessages = useMemo(() => messages.filter((message) => message.id !== "welcome"), [messages]);
+  const hasConversation = visibleMessages.some((message) => message.role === "user");
   const lowMargin = overview?.cost.low_margin_products?.[0] ?? null;
   const bestSeller = overview?.today.top_products?.[0] ?? overview?.last_30_days.top_products?.[0] ?? null;
 
@@ -587,19 +627,45 @@ export function CpiPosAiAssistant({ lang }: { lang: Language }) {
     requestAnimationFrame(() => scrollToBottom(sending ? "auto" : "smooth"));
   }, [messages, sending, autoScroll]);
 
+  function attachImage(file: File | null) {
+    if (!file) return;
+    if (!["image/jpeg","image/png","image/webp"].includes(file.type)) {
+      setOverviewError("รองรับเฉพาะรูป JPEG, PNG หรือ WebP");
+      return;
+    }
+    if (file.size > 2 * 1024 * 1024) {
+      setOverviewError("รูปภาพต้องมีขนาดไม่เกิน 2 MB เพื่อควบคุมความเร็วและค่าใช้ AI");
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      const value = typeof reader.result === "string" ? reader.result : null;
+      setImageDataUrl(value);
+      setImageName(file.name);
+      setOverviewError(null);
+      requestAnimationFrame(() => textareaRef.current?.focus());
+    };
+    reader.onerror = () => setOverviewError("อ่านรูปภาพไม่สำเร็จ");
+    reader.readAsDataURL(file);
+  }
+
   async function sendMessage(prompt?: string) {
     const messageText = String(prompt ?? input).trim();
-    if (!messageText || sending || quota?.exhausted || quota?.enabled === false) return;
-
+    if ((!messageText && !imageDataUrl) || sending || quota?.exhausted || quota?.enabled === false) return;
+    const displayedText = messageText || "ช่วยอ่านรูปภาพนี้ให้หน่อย";
     const userMessage: ChatMessage = {
       id: `user-${Date.now()}`,
       role: "user",
-      text: messageText
+      text: imageName ? `${displayedText}\n📎 ${imageName}` : displayedText
     };
     setAutoScroll(true);
     setShowScrollToBottom(false);
     setMessages((current) => [...current, userMessage]);
     setInput("");
+    const attachedImage = imageDataUrl;
+    setImageDataUrl(null);
+    setImageName(null);
+    if (fileInputRef.current) fileInputRef.current.value = "";
     if (textareaRef.current) textareaRef.current.style.height = "auto";
     setSending(true);
     requestAnimationFrame(() => scrollToBottom("smooth"));
@@ -608,7 +674,7 @@ export function CpiPosAiAssistant({ lang }: { lang: Language }) {
       const response = await fetch("/api/pos/ai/assistant", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: messageText, room_id: activeRoomId })
+        body: JSON.stringify({ message: messageText, room_id: activeRoomId, image_data_url: attachedImage })
       });
       const body = (await response.json().catch(() => null)) as ApiEnvelope<{ answer?: string; overview?: Overview; room?: AiChatRoom; proposals?: AiProposal[]; quota?: AiQuotaStatus }>;
       if (!response.ok) throw new Error(friendlyAiError(body?.error?.message));
@@ -742,6 +808,32 @@ export function CpiPosAiAssistant({ lang }: { lang: Language }) {
     }
   }
 
+  async function saveMessageAsDocument(message: ChatMessage) {
+    if (message.role !== "assistant" || message.id === "welcome" || !message.text.trim()) return;
+    setDocumentBusyId(message.id);
+    try {
+      const titleBase = activeRoom?.title && activeRoom.title !== "แชทใหม่" ? activeRoom.title : "เอกสารจาก CpiPOS AI";
+      const response = await fetch("/api/pos/ai/documents", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: titleBase,
+          category: documentCategory(message.text),
+          content: message.text,
+          room_id: activeRoomId,
+          source_message_id: message.id
+        })
+      });
+      const body = (await response.json().catch(() => null)) as ApiEnvelope<{ document?: { id: string } }>;
+      if (!response.ok) throw new Error(body?.error?.message ?? "บันทึกเอกสารไม่สำเร็จ");
+      setDocumentNotice((current) => ({ ...current, [message.id]: "บันทึกแล้ว" }));
+    } catch (error) {
+      setDocumentNotice((current) => ({ ...current, [message.id]: error instanceof Error ? error.message : "บันทึกไม่สำเร็จ" }));
+    } finally {
+      setDocumentBusyId(null);
+    }
+  }
+
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     void sendMessage();
@@ -756,17 +848,16 @@ export function CpiPosAiAssistant({ lang }: { lang: Language }) {
 
   return (
     <main
-      className="h-full min-h-0 w-full overflow-hidden bg-[#f7f7f8] p-3 sm:p-4 xl:p-5"
-      style={{ fontFamily: 'ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans Thai", sans-serif' }}
+      className="h-full min-h-0 w-full overflow-hidden bg-[radial-gradient(circle_at_76%_6%,rgba(56,189,248,0.18),transparent_28%),radial-gradient(circle_at_42%_24%,rgba(59,130,246,0.11),transparent_34%),linear-gradient(180deg,#f7fbff_0%,#f4f8fd_52%,#f8fafc_100%)]"
+      style={{ fontFamily: 'ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans Thai", Tahoma, sans-serif' }}
     >
-      <section className="mx-auto flex h-full min-h-0 w-full max-w-[1500px] flex-col gap-3">
-        <header className="relative overflow-hidden rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm sm:px-5">
-          <div className="absolute -right-10 -top-12 h-28 w-28 rounded-full bg-blue-100/50 blur-2xl" />
-          <div className="relative flex flex-wrap items-center justify-between gap-3">
-            <h1 className="text-xl font-semibold tracking-[-0.02em] text-slate-950 sm:text-2xl">CpiPOS AI</h1>
+      <section className="mx-auto flex h-full min-h-0 w-full max-w-[1600px] flex-col">
+        <header className="shrink-0 border-b border-white/70 bg-white/35 px-4 py-3 backdrop-blur-xl sm:px-6">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <h1 className="text-xl font-semibold tracking-[-0.03em] text-slate-950 sm:text-[26px]">CpiPOS AI</h1>
             <div className="flex flex-wrap items-center gap-2">
               {quota ? (
-                <span className={`rounded-full border px-2.5 py-1 text-[10px] font-semibold ${quota.exhausted ? "border-red-200 bg-red-50 text-red-700" : "border-emerald-200 bg-emerald-50 text-emerald-700"}`}>
+                <span className={`rounded-full border px-2.5 py-1 text-[10px] font-semibold backdrop-blur ${quota.exhausted ? "border-red-200 bg-red-50/90 text-red-700" : "border-emerald-200 bg-emerald-50/90 text-emerald-700"}`}>
                   เดือน {quota.month_key}: {quota.usage.requests}{quota.limits.requests ? `/${quota.limits.requests}` : ""} ครั้ง · {new Intl.NumberFormat("th-TH").format(quota.usage.total_tokens)} tokens
                 </span>
               ) : null}
@@ -774,7 +865,7 @@ export function CpiPosAiAssistant({ lang }: { lang: Language }) {
                 type="button"
                 onClick={() => void clearHistory()}
                 disabled={sending}
-                className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[10px] font-semibold text-slate-500 transition hover:border-red-200 hover:text-red-600 disabled:opacity-50"
+                className="rounded-full border border-white/90 bg-white/70 px-3 py-1.5 text-[10px] font-semibold text-slate-500 shadow-sm transition hover:text-red-600 disabled:opacity-50"
               >
                 ล้างประวัติของฉัน
               </button>
@@ -782,8 +873,8 @@ export function CpiPosAiAssistant({ lang }: { lang: Language }) {
           </div>
         </header>
 
-        <div className="flex min-h-0 flex-1 gap-3">
-          <aside className="hidden w-[260px] shrink-0 overflow-hidden rounded-2xl border border-slate-200 bg-[#f7f7f8] lg:block">
+        <div className="flex min-h-0 flex-1">
+          <aside className="hidden w-[270px] shrink-0 overflow-hidden border-r border-white/80 bg-white/42 backdrop-blur-xl lg:block">
             <ChatRoomPanel
               rooms={rooms}
               activeRoomId={activeRoomId}
@@ -796,9 +887,9 @@ export function CpiPosAiAssistant({ lang }: { lang: Language }) {
               onOpenRecommendations={() => setRecommendationModalOpen(true)}
             />
           </aside>
-          <div className="min-h-0 min-w-0 flex-1">
-          <section className="flex h-full min-h-0 flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_8px_28px_rgba(15,23,42,0.05)]">
-            <div className="shrink-0 border-b border-slate-100 px-4 py-3 sm:px-5">
+          <div className="min-h-0 min-w-0 flex-1 bg-white/20">
+          <section className="flex h-full min-h-0 flex-col overflow-hidden">
+            <div className="shrink-0 border-b border-white/70 bg-white/30 px-4 py-3 backdrop-blur-lg sm:px-6">
               <div className="flex flex-wrap items-center gap-2">
                 <button
                   type="button"
@@ -807,9 +898,8 @@ export function CpiPosAiAssistant({ lang }: { lang: Language }) {
                 >
                   ☰ ห้องแชท
                 </button>
-                <span className="text-xs font-black uppercase tracking-[0.14em] text-blue-600">AI CHAT</span>
-                <span className="max-w-[230px] truncate text-xs font-semibold text-slate-700">{activeRoom?.title ?? "แชทใหม่"}</span>
-                <span className="rounded-full bg-blue-50 px-2.5 py-1 text-[10px] font-bold text-blue-700">ถามเป็นภาษาไทยได้เลย</span>
+                <span className="max-w-[260px] truncate text-sm font-semibold text-slate-800">{activeRoom?.title ?? "แชทใหม่"}</span>
+                <span className="rounded-full bg-white/70 px-2.5 py-1 text-[10px] font-semibold text-blue-700">ถามเป็นภาษาไทยได้เลย</span>
                 <button
                   type="button"
                   onClick={toggleSuggestions}
@@ -843,13 +933,33 @@ export function CpiPosAiAssistant({ lang }: { lang: Language }) {
               <div
                 ref={chatScrollRef}
                 onScroll={handleChatScroll}
-                className="h-full min-h-0 overflow-y-auto overscroll-contain bg-white px-4 py-4 sm:px-5"
+                className="h-full min-h-0 overflow-y-auto overscroll-contain px-4 py-4 sm:px-6"
               >
-              {messages.map((message) => (
+              {!hasConversation ? (
+                <div className="mx-auto flex min-h-full max-w-[820px] flex-col items-center justify-center px-4 pb-24 text-center">
+                  <img src="/brand/cpipos-symbol-transparent.png" alt="" className="h-20 w-20 object-contain drop-shadow-[0_10px_24px_rgba(37,99,235,0.18)] sm:h-24 sm:w-24" />
+                  <h2 className="mt-5 text-2xl font-semibold tracking-[-0.03em] text-slate-900">วันนี้อยากให้ CpiPOS AI ช่วยอะไร</h2>
+                  <p className="mt-2 max-w-xl text-sm leading-6 text-slate-500">ถามยอดขาย ต้นทุน สต๊อก บัญชี การตลาด หรือวิธีใช้งาน CpiPOS ได้เลย</p>
+                  <div className="mt-5 flex max-w-[760px] flex-wrap justify-center gap-2">
+                    {QUICK_PROMPTS.slice(0,4).map((prompt) => (
+                      <button key={prompt} type="button" onClick={() => void sendMessage(prompt)} disabled={sending || quota?.exhausted || quota?.enabled === false} className="rounded-full border border-white/90 bg-white/65 px-3 py-2 text-xs font-medium text-slate-700 shadow-sm backdrop-blur transition hover:bg-white disabled:opacity-50">{prompt}</button>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+              {visibleMessages.map((message) => (
                 <div key={message.id} className="w-full py-2.5 sm:py-3.5">
                   <div className={`mx-auto flex w-full max-w-[820px] ${message.role === "user" ? "justify-end" : "justify-start"}`}>
-                    <div className={`${message.role === "user" ? "max-w-[78%] rounded-[24px] bg-[#f4f4f4] px-4 py-2.5 text-slate-900" : "w-full px-1 py-2 text-slate-800"} text-[15px] font-normal leading-7 sm:text-[15.5px]`}>
+                    <div className={`${message.role === "user" ? "max-w-[78%] rounded-[24px] bg-white/78 px-4 py-2.5 text-slate-900 shadow-sm backdrop-blur" : "w-full px-1 py-2 text-slate-800"} text-[15px] font-normal leading-7 sm:text-[15.5px]`}>
                       <AiRichText text={message.text} />
+                      {message.role === "assistant" ? (
+                        <div className="mt-2 flex items-center gap-2 text-[11px] text-slate-400">
+                          <button type="button" onClick={() => void saveMessageAsDocument(message)} disabled={documentBusyId === message.id} className="rounded-lg px-2 py-1 font-medium transition hover:bg-white/70 hover:text-blue-700 disabled:opacity-50">
+                            {documentBusyId === message.id ? "กำลังบันทึก..." : "บันทึกเป็นเอกสาร"}
+                          </button>
+                          {documentNotice[message.id] ? <span className="text-slate-500">{documentNotice[message.id]}</span> : null}
+                        </div>
+                      ) : null}
                     {message.role === "assistant" && message.proposals?.length ? (
                       <div className="mt-2 grid gap-2">
                         {message.proposals.map((proposal) => {
@@ -927,9 +1037,18 @@ export function CpiPosAiAssistant({ lang }: { lang: Language }) {
               ) : null}
             </div>
 
-            <form onSubmit={submit} className="sticky bottom-0 z-20 shrink-0 bg-gradient-to-t from-white via-white to-white/80 px-3 pb-3 pt-4 backdrop-blur sm:px-4 sm:pb-4">
-              <div className="mx-auto flex max-w-[820px] items-end gap-2 rounded-[26px] border border-slate-200 bg-white p-2 shadow-[0_8px_28px_rgba(15,23,42,0.08)] focus-within:border-slate-300">
-                <span className="mb-2 ml-1 text-blue-500"><SparkleIcon size={19} /></span>
+            <form onSubmit={submit} className="sticky bottom-0 z-20 shrink-0 bg-gradient-to-t from-[#f8fbff] via-[#f8fbff]/95 to-transparent px-3 pb-4 pt-6 sm:px-6">
+              {imageName ? (
+                <div className="mx-auto mb-2 flex max-w-[860px] items-center gap-2 px-2">
+                  <span className="inline-flex max-w-full items-center gap-2 rounded-full border border-blue-100 bg-white/80 px-3 py-1.5 text-xs font-medium text-slate-700 shadow-sm">
+                    <span aria-hidden>🖼️</span><span className="truncate">{imageName}</span>
+                    <button type="button" onClick={() => { setImageDataUrl(null); setImageName(null); if (fileInputRef.current) fileInputRef.current.value = ""; }} className="text-slate-400 hover:text-red-600" aria-label="เอารูปออก">×</button>
+                  </span>
+                </div>
+              ) : null}
+              <div className="mx-auto flex max-w-[860px] items-end gap-2 rounded-[28px] border border-white/90 bg-white/82 p-2 shadow-[0_14px_42px_rgba(30,64,175,0.10)] backdrop-blur-xl focus-within:border-blue-200">
+                <input ref={fileInputRef} type="file" accept="image/jpeg,image/png,image/webp" className="hidden" onChange={(event) => attachImage(event.target.files?.[0] ?? null)} />
+                <button type="button" onClick={() => fileInputRef.current?.click()} disabled={sending} className="mb-1 grid h-9 w-9 shrink-0 place-items-center rounded-full text-xl font-light text-slate-600 transition hover:bg-slate-100 disabled:opacity-40" aria-label="แนบรูปภาพ" title="แนบรูปเพื่อวิเคราะห์">＋</button>
                 <textarea
                   ref={textareaRef}
                   value={input}
@@ -945,7 +1064,7 @@ export function CpiPosAiAssistant({ lang }: { lang: Language }) {
                 />
                 <button
                   type="submit"
-                  disabled={sending || !input.trim() || quota?.exhausted || quota?.enabled === false}
+                  disabled={sending || (!input.trim() && !imageDataUrl) || quota?.exhausted || quota?.enabled === false}
                   className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-slate-950 text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400"
                   aria-label="ส่งข้อความ"
                 >
@@ -954,7 +1073,7 @@ export function CpiPosAiAssistant({ lang }: { lang: Language }) {
                   </svg>
                 </button>
               </div>
-              <p className="mx-auto mt-2 max-w-[820px] px-2 text-center text-[10px] font-normal text-slate-400">CpiPOS AI อาจตอบคลาดเคลื่อนได้ · การเปลี่ยนราคา/สต๊อกต้องยืนยันและผ่าน PIN Owner/Manager</p>
+              <p className="mx-auto mt-2 max-w-[820px] px-2 text-center text-[10px] font-normal text-slate-400">แนบรูปได้เมื่อจำเป็น · CpiPOS AI อาจตอบคลาดเคลื่อนได้ · การเปลี่ยนราคา/สต๊อกต้องยืนยันและผ่าน PIN Owner/Manager</p>
             </form>
           </section>
           </div>
