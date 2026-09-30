@@ -846,7 +846,7 @@ export function CpiPosAiAssistant({ lang }: { lang: Language }) {
                 className="h-full min-h-0 overflow-y-auto overscroll-contain bg-white px-4 py-4 sm:px-5"
               >
               {messages.map((message) => (
-                <div key={message.id} className={`w-full py-2.5 sm:py-3.5 ${message.role === "assistant" ? "border-b border-slate-100/70" : ""}`}>
+                <div key={message.id} className="w-full py-2.5 sm:py-3.5">
                   <div className={`mx-auto flex w-full max-w-[820px] ${message.role === "user" ? "justify-end" : "justify-start"}`}>
                     <div className={`${message.role === "user" ? "max-w-[78%] rounded-[24px] bg-[#f4f4f4] px-4 py-2.5 text-slate-900" : "w-full px-1 py-2 text-slate-800"} text-[15px] font-normal leading-7 sm:text-[15.5px]`}>
                       <AiRichText text={message.text} />
