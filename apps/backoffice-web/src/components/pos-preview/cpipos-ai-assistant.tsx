@@ -510,7 +510,7 @@ export function CpiPosAiAssistant({ lang }: { lang: Language }) {
           ? `/api/pos/ai/assistant?room_id=${encodeURIComponent(preferredRoomId)}`
           : "/api/pos/ai/assistant";
         const response = await fetch(initialUrl, { cache: "no-store" });
-        const body = (await response.json().catch(() => null)) as ApiEnvelope<{ overview?: Overview; rooms?: AiChatRoom[]; active_room?: AiChatRoom | null; history?: ChatMessage[]; quota?: AiQuotaStatus }>;
+        const body = (await response.json().catch(() => null)) as ApiEnvelope<{ overview?: Overview; rooms?: AiChatRoom[]; active_room?: AiChatRoom | null; history?: ChatMessage[]; history_warning?: string | null; quota?: AiQuotaStatus }>;
         if (!response.ok) throw new Error(body?.error?.message ?? "ไม่สามารถโหลดข้อมูลร้านได้");
         if (!cancelled) {
           setOverview(body?.data?.overview ?? null);
@@ -523,7 +523,14 @@ export function CpiPosAiAssistant({ lang }: { lang: Language }) {
           const storedHistory = Array.isArray(body?.data?.history)
             ? body.data.history.filter((message) => message.role === "user" || message.role === "assistant")
             : [];
-          setMessages(storedHistory.length ? storedHistory : [welcomeMessage(lang)]);
+          const historyWarning = String(body?.data?.history_warning ?? "").trim();
+          setMessages(
+            storedHistory.length
+              ? storedHistory
+              : historyWarning
+                ? [{ id: "history-warning", role: "assistant", text: historyWarning }]
+                : [welcomeMessage(lang)]
+          );
         }
       } catch (error) {
         if (!cancelled) setOverviewError(friendlyAiError(error instanceof Error ? error.message : error));
@@ -546,11 +553,19 @@ export function CpiPosAiAssistant({ lang }: { lang: Language }) {
     setOverviewError(null);
     try {
       const response = await fetch(`/api/pos/ai/conversations/${encodeURIComponent(roomId)}`, { cache: "no-store" });
-      const body = (await response.json().catch(() => null)) as ApiEnvelope<{ room?: AiChatRoom; messages?: ChatMessage[] }>;
+      const body = (await response.json().catch(() => null)) as ApiEnvelope<{ room?: AiChatRoom; messages?: ChatMessage[]; history_warning?: string | null }>;
       if (!response.ok || !body?.data?.room) throw new Error(body?.error?.message ?? "ไม่สามารถเปิดห้องแชทได้");
       setActiveRoomId(body.data.room.id);
       rememberActiveRoom(body.data.room.id);
-      setMessages(Array.isArray(body.data.messages) && body.data.messages.length ? body.data.messages : [welcomeMessage(lang)]);
+      const roomMessages = Array.isArray(body.data.messages) ? body.data.messages : [];
+      const historyWarning = String(body.data.history_warning ?? "").trim();
+      setMessages(
+        roomMessages.length
+          ? roomMessages
+          : historyWarning
+            ? [{ id: "history-warning", role: "assistant", text: historyWarning }]
+            : [welcomeMessage(lang)]
+      );
       setProposalStatus({});
       setAutoScroll(true);
       setRoomDrawerOpen(false);
