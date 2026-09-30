@@ -120,8 +120,31 @@ type ChatMessage = {
 
 type ApiEnvelope<T> = {
   data?: T | null;
-  error?: { message?: string } | null;
+  error?: { code?: string; message?: string } | null;
 };
+
+const POS_SESSION_AUTH_CODES = new Set([
+  "session_expired",
+  "session_not_active",
+  "session_not_found",
+  "missing_pos_session",
+  "invalid_handoff_token",
+  "session_claim_mismatch",
+  "session_user_inactive"
+]);
+
+function isPosSessionAuthFailure(status: number, code: unknown) {
+  return status === 401 || POS_SESSION_AUTH_CODES.has(String(code ?? "").trim());
+}
+
+function redirectToPosLogin() {
+  try {
+    window.sessionStorage.setItem("cpipos-ai-return-path", "/preview/pos/ai-assistant");
+  } catch {
+    // Re-authentication must still work if sessionStorage is unavailable.
+  }
+  window.location.assign("/login/employee");
+}
 
 const QUICK_PROMPTS = [
   "สรุปยอดขายวันนี้ให้หน่อย",
@@ -139,6 +162,9 @@ function money(value: number | null | undefined) {
 function friendlyAiError(message: unknown) {
   const text = String(message ?? "").trim();
   if (!text) return "ขออภัย ระบบ CpiPOS AI ขัดข้องชั่วคราว กรุณาลองใหม่อีกครั้ง";
+  if (/session is expired|session_expired|missing_pos_session|session_not_active|session_not_found/i.test(text)) {
+    return "เซสชัน POS หมดอายุ กรุณาเข้าสู่ระบบพนักงานอีกครั้ง";
+  }
   if (/prompt_cache_key|maximum length 64/i.test(text)) {
     return "ขออภัย ระบบแคชชั่วคราวขัดข้อง กรุณาลองส่งข้อความอีกครั้ง";
   }
@@ -511,6 +537,10 @@ export function CpiPosAiAssistant({ lang }: { lang: Language }) {
           : "/api/pos/ai/assistant";
         const response = await fetch(initialUrl, { cache: "no-store" });
         const body = (await response.json().catch(() => null)) as ApiEnvelope<{ overview?: Overview; rooms?: AiChatRoom[]; active_room?: AiChatRoom | null; history?: ChatMessage[]; history_warning?: string | null; quota?: AiQuotaStatus }>;
+        if (isPosSessionAuthFailure(response.status, body?.error?.code)) {
+          redirectToPosLogin();
+          return;
+        }
         if (!response.ok) throw new Error(body?.error?.message ?? "ไม่สามารถโหลดข้อมูลร้านได้");
         if (!cancelled) {
           setOverview(body?.data?.overview ?? null);
@@ -554,6 +584,10 @@ export function CpiPosAiAssistant({ lang }: { lang: Language }) {
     try {
       const response = await fetch(`/api/pos/ai/conversations/${encodeURIComponent(roomId)}`, { cache: "no-store" });
       const body = (await response.json().catch(() => null)) as ApiEnvelope<{ room?: AiChatRoom; messages?: ChatMessage[]; history_warning?: string | null }>;
+      if (isPosSessionAuthFailure(response.status, body?.error?.code)) {
+        redirectToPosLogin();
+        return;
+      }
       if (!response.ok || !body?.data?.room) throw new Error(body?.error?.message ?? "ไม่สามารถเปิดห้องแชทได้");
       setActiveRoomId(body.data.room.id);
       rememberActiveRoom(body.data.room.id);
@@ -588,6 +622,10 @@ export function CpiPosAiAssistant({ lang }: { lang: Language }) {
         body: JSON.stringify({ title: "แชทใหม่" })
       });
       const body = (await response.json().catch(() => null)) as ApiEnvelope<{ room?: AiChatRoom }>;
+      if (isPosSessionAuthFailure(response.status, body?.error?.code)) {
+        redirectToPosLogin();
+        return;
+      }
       if (!response.ok || !body?.data?.room) throw new Error(body?.error?.message ?? "สร้างห้องแชทไม่สำเร็จ");
       const room = body.data.room;
       setRooms((current) => [room, ...current.filter((item) => item.id !== room.id)]);
@@ -612,6 +650,10 @@ export function CpiPosAiAssistant({ lang }: { lang: Language }) {
     try {
       const response = await fetch(`/api/pos/ai/conversations/${encodeURIComponent(room.id)}`, { method: "DELETE" });
       const body = (await response.json().catch(() => null)) as ApiEnvelope<{ deleted?: boolean }>;
+      if (isPosSessionAuthFailure(response.status, body?.error?.code)) {
+        redirectToPosLogin();
+        return;
+      }
       if (!response.ok) throw new Error(body?.error?.message ?? "ลบห้องแชทไม่สำเร็จ");
       const remaining = rooms.filter((item) => item.id !== room.id);
       setRooms(remaining);
@@ -731,6 +773,15 @@ export function CpiPosAiAssistant({ lang }: { lang: Language }) {
         body: JSON.stringify({ message: messageText, room_id: activeRoomId, image_data_url: attachedImage })
       });
       const body = (await response.json().catch(() => null)) as ApiEnvelope<{ answer?: string; overview?: Overview; room?: AiChatRoom; proposals?: AiProposal[]; quota?: AiQuotaStatus }>;
+      if (isPosSessionAuthFailure(response.status, body?.error?.code)) {
+        setMessages((current) => [...current, {
+          id: `assistant-session-${Date.now()}`,
+          role: "assistant",
+          text: "เซสชัน POS หมดอายุ กำลังพาไปเข้าสู่ระบบพนักงานอีกครั้ง..."
+        }]);
+        window.setTimeout(redirectToPosLogin, 450);
+        return;
+      }
       if (!response.ok) throw new Error(body?.error?.message ?? "CpiPOS AI ไม่สามารถตอบได้ในขณะนี้");
 
       if (body?.data?.overview) setOverview(body.data.overview);
@@ -770,6 +821,10 @@ export function CpiPosAiAssistant({ lang }: { lang: Language }) {
     try {
       const response = await fetch("/api/pos/ai/assistant", { method: "DELETE" });
       const body = (await response.json().catch(() => null)) as ApiEnvelope<{ cleared?: boolean }>;
+      if (isPosSessionAuthFailure(response.status, body?.error?.code)) {
+        redirectToPosLogin();
+        return;
+      }
       if (!response.ok) throw new Error(body?.error?.message ?? "ไม่สามารถล้างประวัติ CpiPOS AI ได้");
       setMessages([welcomeMessage(lang)]);
       setRooms([]);
