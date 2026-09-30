@@ -47,7 +47,6 @@ export const POS_ROUTE_FEATURES = {
   "/preview/pos/members": "core_pos_sales",
   "/preview/pos/customer-display": "customer_facing_display",
   "/preview/pos/users": "user_management",
-  "/preview/pos/shift": "attendance_tracking",
   "/preview/pos/settings": "core_pos_sales"
 } as const satisfies Record<string, PosFeatureCode>;
 
@@ -85,7 +84,6 @@ export const POS_PERMISSION_FEATURES = {
   "customer_display:manage": "customer_facing_display",
   "users:view": "user_management",
   "users:manage": "user_management",
-  "shift:join": "attendance_tracking",
   "settings:view": "core_pos_sales"
 } as const satisfies Partial<Record<PosPermissionKey, PosFeatureCode>>;
 
