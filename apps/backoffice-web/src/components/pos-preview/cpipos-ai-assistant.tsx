@@ -148,8 +148,11 @@ function friendlyAiError(message: unknown) {
   if (/api key|authorization/i.test(text)) {
     return "CpiPOS AI ยังไม่พร้อมใช้งานชั่วคราว กรุณาติดต่อผู้ดูแลระบบ";
   }
-  if (/rate[_ -]?limit|too many requests/i.test(text)) {
-    return "มีการเรียกใช้งาน CpiPOS AI ถี่เกินไป กรุณารอสักครู่แล้วลองใหม่";
+  if (/ข้อความนี้ถูกเก็บไว้ในห้องแชทแล้ว|โควตาบริการ AI ภายนอก/i.test(text)) {
+    return text;
+  }
+  if (/rate[_ -]?limit|too many requests|tokens per min|tpm/i.test(text)) {
+    return "ขณะนี้โควตาบริการ AI ภายนอกถึงขีดจำกัดชั่วคราวครับ ข้อความนี้ถูกเก็บไว้ในห้องแชทแล้ว กรุณาลองใหม่ภายหลัง";
   }
   if (/ai_assistant_disabled_by_it|disabled for this store/i.test(text)) {
     return "CpiPOS AI ถูกปิดสำหรับร้านนี้ตามนโยบายของบริษัท";
@@ -443,6 +446,7 @@ export function CpiPosAiAssistant({ lang }: { lang: Language }) {
   const [rooms, setRooms] = useState<AiChatRoom[]>([]);
   const [activeRoomId, setActiveRoomId] = useState<string | null>(null);
   const [roomDrawerOpen, setRoomDrawerOpen] = useState(false);
+  const [roomSidebarCollapsed, setRoomSidebarCollapsed] = useState(false);
   const [roomBusy, setRoomBusy] = useState(false);
   const [documentBusyId, setDocumentBusyId] = useState<string | null>(null);
   const [documentNotice, setDocumentNotice] = useState<Record<string,string>>({});
@@ -457,6 +461,27 @@ export function CpiPosAiAssistant({ lang }: { lang: Language }) {
   const hasConversation = visibleMessages.some((message) => message.role === "user");
   const lowMargin = overview?.cost.low_margin_products?.[0] ?? null;
   const bestSeller = overview?.today.top_products?.[0] ?? overview?.last_30_days.top_products?.[0] ?? null;
+
+  function rememberActiveRoom(roomId: string | null) {
+    try {
+      if (roomId) window.localStorage.setItem("cpipos-ai-active-room-id", roomId);
+      else window.localStorage.removeItem("cpipos-ai-active-room-id");
+    } catch {
+      // Restoring the active room is a convenience only.
+    }
+  }
+
+  function toggleRoomSidebar() {
+    setRoomSidebarCollapsed((current) => {
+      const next = !current;
+      try {
+        window.localStorage.setItem("cpipos-ai-room-sidebar-collapsed", next ? "1" : "0");
+      } catch {
+        // Local preference is optional.
+      }
+      return next;
+    });
+  }
 
   const updatedLabel = useMemo(() => {
     if (!overview?.generated_at) return "-";
@@ -475,7 +500,16 @@ export function CpiPosAiAssistant({ lang }: { lang: Language }) {
       setOverviewLoading(true);
       setOverviewError(null);
       try {
-        const response = await fetch("/api/pos/ai/assistant", { cache: "no-store" });
+        let preferredRoomId = "";
+        try {
+          preferredRoomId = window.localStorage.getItem("cpipos-ai-active-room-id") ?? "";
+        } catch {
+          // A missing local preference should not block AI startup.
+        }
+        const initialUrl = preferredRoomId
+          ? `/api/pos/ai/assistant?room_id=${encodeURIComponent(preferredRoomId)}`
+          : "/api/pos/ai/assistant";
+        const response = await fetch(initialUrl, { cache: "no-store" });
         const body = (await response.json().catch(() => null)) as ApiEnvelope<{ overview?: Overview; rooms?: AiChatRoom[]; active_room?: AiChatRoom | null; history?: ChatMessage[]; quota?: AiQuotaStatus }>;
         if (!response.ok) throw new Error(body?.error?.message ?? "ไม่สามารถโหลดข้อมูลร้านได้");
         if (!cancelled) {
@@ -485,6 +519,7 @@ export function CpiPosAiAssistant({ lang }: { lang: Language }) {
           const loadedActiveRoom = body?.data?.active_room ?? loadedRooms[0] ?? null;
           setRooms(loadedRooms);
           setActiveRoomId(loadedActiveRoom?.id ?? null);
+          rememberActiveRoom(loadedActiveRoom?.id ?? null);
           const storedHistory = Array.isArray(body?.data?.history)
             ? body.data.history.filter((message) => message.role === "user" || message.role === "assistant")
             : [];
@@ -514,6 +549,7 @@ export function CpiPosAiAssistant({ lang }: { lang: Language }) {
       const body = (await response.json().catch(() => null)) as ApiEnvelope<{ room?: AiChatRoom; messages?: ChatMessage[] }>;
       if (!response.ok || !body?.data?.room) throw new Error(body?.error?.message ?? "ไม่สามารถเปิดห้องแชทได้");
       setActiveRoomId(body.data.room.id);
+      rememberActiveRoom(body.data.room.id);
       setMessages(Array.isArray(body.data.messages) && body.data.messages.length ? body.data.messages : [welcomeMessage(lang)]);
       setProposalStatus({});
       setAutoScroll(true);
@@ -541,7 +577,11 @@ export function CpiPosAiAssistant({ lang }: { lang: Language }) {
       const room = body.data.room;
       setRooms((current) => [room, ...current.filter((item) => item.id !== room.id)]);
       setActiveRoomId(room.id);
+      rememberActiveRoom(room.id);
       setMessages([welcomeMessage(lang)]);
+      setRooms([]);
+      setActiveRoomId(null);
+      rememberActiveRoom(null);
       setProposalStatus({});
       setRoomDrawerOpen(false);
       requestAnimationFrame(() => textareaRef.current?.focus());
@@ -566,6 +606,7 @@ export function CpiPosAiAssistant({ lang }: { lang: Language }) {
       if (activeRoomId === room.id) {
         const nextRoom = remaining[0] ?? null;
         setActiveRoomId(nextRoom?.id ?? null);
+        rememberActiveRoom(nextRoom?.id ?? null);
         if (nextRoom) {
           setRoomBusy(false);
           await openRoom(nextRoom.id);
@@ -585,6 +626,7 @@ export function CpiPosAiAssistant({ lang }: { lang: Language }) {
       const saved = window.localStorage.getItem("cpipos-ai-show-suggestions");
       if (saved === "0") setShowSuggestions(false);
       if (saved === "1") setShowSuggestions(true);
+      setRoomSidebarCollapsed(window.localStorage.getItem("cpipos-ai-room-sidebar-collapsed") === "1");
     } catch {
       // Local preference is optional.
     }
@@ -677,13 +719,14 @@ export function CpiPosAiAssistant({ lang }: { lang: Language }) {
         body: JSON.stringify({ message: messageText, room_id: activeRoomId, image_data_url: attachedImage })
       });
       const body = (await response.json().catch(() => null)) as ApiEnvelope<{ answer?: string; overview?: Overview; room?: AiChatRoom; proposals?: AiProposal[]; quota?: AiQuotaStatus }>;
-      if (!response.ok) throw new Error(friendlyAiError(body?.error?.message));
+      if (!response.ok) throw new Error(body?.error?.message ?? "CpiPOS AI ไม่สามารถตอบได้ในขณะนี้");
 
       if (body?.data?.overview) setOverview(body.data.overview);
       if (body?.data?.quota) setQuota(body.data.quota);
       if (body?.data?.room) {
         const room = body.data.room;
         setActiveRoomId(room.id);
+        rememberActiveRoom(room.id);
         setRooms((current) => [room, ...current.filter((item) => item.id !== room.id)]);
       }
       setMessages((current) => [
@@ -854,7 +897,20 @@ export function CpiPosAiAssistant({ lang }: { lang: Language }) {
       <section className="mx-auto flex h-full min-h-0 w-full max-w-[1600px] flex-col">
         <header className="shrink-0 border-b border-white/70 bg-white/35 px-4 py-3 backdrop-blur-xl sm:px-6">
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <h1 className="text-xl font-semibold tracking-[-0.03em] text-slate-950 sm:text-[26px]">CpiPOS AI</h1>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={toggleRoomSidebar}
+                className="hidden h-9 w-9 items-center justify-center rounded-xl border border-white/90 bg-white/70 text-slate-500 shadow-sm transition hover:bg-white hover:text-blue-700 lg:inline-flex"
+                aria-label={roomSidebarCollapsed ? "เปิดแถบห้องแชท" : "ซ่อนแถบห้องแชท"}
+                title={roomSidebarCollapsed ? "เปิดแถบห้องแชท" : "ซ่อนแถบห้องแชท"}
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                  {roomSidebarCollapsed ? <path d="m9 18 6-6-6-6" /> : <path d="m15 18-6-6 6-6" />}
+                </svg>
+              </button>
+              <h1 className="text-xl font-semibold tracking-[-0.03em] text-slate-950 sm:text-[26px]">CpiPOS AI</h1>
+            </div>
             <div className="flex flex-wrap items-center gap-2">
               {quota ? (
                 <span className={`rounded-full border px-2.5 py-1 text-[10px] font-semibold backdrop-blur ${quota.exhausted ? "border-red-200 bg-red-50/90 text-red-700" : "border-emerald-200 bg-emerald-50/90 text-emerald-700"}`}>
@@ -874,7 +930,7 @@ export function CpiPosAiAssistant({ lang }: { lang: Language }) {
         </header>
 
         <div className="flex min-h-0 flex-1">
-          <aside className="hidden w-[270px] shrink-0 overflow-hidden border-r border-white/80 bg-white/42 backdrop-blur-xl lg:block">
+          <aside className={`hidden shrink-0 overflow-hidden bg-white/42 backdrop-blur-xl transition-[width,opacity,border-color] duration-200 lg:block ${roomSidebarCollapsed ? "lg:w-0 lg:border-r-0 lg:opacity-0 lg:pointer-events-none" : "lg:w-[270px] lg:border-r lg:border-white/80 lg:opacity-100"}`}>
             <ChatRoomPanel
               rooms={rooms}
               activeRoomId={activeRoomId}
