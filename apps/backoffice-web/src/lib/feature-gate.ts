@@ -2,6 +2,7 @@ import "server-only";
 
 import { isFeatureUnlockEnabled } from "@/lib/feature-unlock";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
+import { isDineInExplicitlyEnabled, isDineInLinkedFeature } from "@/lib/pos-sales-modes";
 
 export type QuotaResourceType = "branches" | "devices" | "users";
 
@@ -271,6 +272,14 @@ export async function hasBranchFeature(tenantId: string, branchId: string | null
 
   if (branchOverride) {
     enabled = branchOverride.is_enabled;
+  }
+
+  // Dine-in cannot operate safely without table, kitchen and table-call
+  // notification infrastructure. These are operational dependencies of the
+  // selected sales mode, not optional package add-ons. IT menu policy remains
+  // the authority for whether the corresponding navigation entry is locked.
+  if (isDineInExplicitlyEnabled(contract?.metadata?.sales_modes) && isDineInLinkedFeature(featureCode)) {
+    enabled = true;
   }
 
   writeFeatureDecisionCache(cacheKey, enabled);
