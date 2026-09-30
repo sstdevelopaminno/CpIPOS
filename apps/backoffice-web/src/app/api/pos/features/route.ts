@@ -2,7 +2,7 @@ import { isFeatureUnlockEnabled } from "@/lib/feature-unlock";
 import { fail, ok } from "@/lib/http";
 import { allPosMenuFeatureCodes } from "@/lib/pos-feature-map";
 import { requirePosSession, PosGuardError } from "@/lib/pos-session-guard";
-import { DEFAULT_POS_SALES_MODES, POS_SALES_MODE_KEYS, normalizePosSalesModes, type PosSalesModeSettings } from "@/lib/pos-sales-modes";
+import { DEFAULT_POS_SALES_MODES, POS_SALES_MODE_KEYS, isDineInLinkedFeature, normalizePosSalesModes, type PosSalesModeSettings } from "@/lib/pos-sales-modes";
 import { readThroughRuntimeCache } from "@/lib/route-runtime-cache";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
 import { getTenantPosMenuOverrides } from "@/lib/server/pos-menu-policy-service";
@@ -174,6 +174,7 @@ async function loadTenantFeatureSnapshot(tenantId: string, branchId: string) {
       let enabled = packageFeatures.get(feature) ?? false;
       if (tenantOverrides.has(feature)) enabled = tenantOverrides.get(feature) ?? false;
       if (branchOverrides.has(feature)) enabled = branchOverrides.get(feature) ?? false;
+      if (salesModes.dine_in && isDineInLinkedFeature(feature)) enabled = true;
       return [feature, enabled];
     })
   );
