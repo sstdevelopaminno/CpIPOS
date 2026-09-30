@@ -123,17 +123,6 @@ async function updateConversationMetadata(conversationId: string, metadata: Reco
   });
 }
 
-async function conversationExists(conversationId: string): Promise<boolean> {
-  try {
-    await openAiFetch<OpenAiConversation>(`/conversations/${encodeURIComponent(conversationId)}`);
-    return true;
-  } catch (error) {
-    const status = (error as Error & { status?: number }).status;
-    if (status === 404) return false;
-    throw error;
-  }
-}
-
 function roomSelect() {
   return "id,title,openai_conversation_id,created_at,updated_at,last_message_at,tenant_id,branch_id,user_id";
 }
@@ -168,11 +157,10 @@ export async function getAiChatRoom(scope: AiConversationScope, roomId: string):
   if (error) throw new Error(`ai_chat_room_lookup_failed:${error.message}`);
   if (!data) return null;
 
-  const exists = await conversationExists(data.openai_conversation_id);
-  if (!exists) {
-    await db.from("pos_ai_chat_rooms").delete().eq("id", data.id);
-    return null;
-  }
+  // The Supabase room index is authoritative for room navigation. Do not
+  // delete a customer's room just because the provider is temporarily
+  // unavailable or an older provider conversation cannot be resolved.
+  // This also avoids one provider API round-trip every time a room is opened.
   const { tenant_id: _tenant, branch_id: _branch, user_id: _user, ...room } = data;
   return room;
 }
