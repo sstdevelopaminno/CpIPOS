@@ -787,11 +787,13 @@ export function CpiPosAiAssistant({ lang }: { lang: Language }) {
             <ChatRoomPanel
               rooms={rooms}
               activeRoomId={activeRoomId}
-              retentionDays={quota?.history_retention_days}
               busy={roomBusy || sending}
+              todaySales={overview?.today.net_sales ?? null}
               onCreate={() => void createRoom()}
               onOpen={(roomId) => void openRoom(roomId)}
               onDelete={(room) => void deleteRoom(room)}
+              onOpenToday={() => setTodayModalOpen(true)}
+              onOpenRecommendations={() => setRecommendationModalOpen(true)}
             />
           </aside>
           <div className="min-h-0 min-w-0 flex-1">
@@ -841,17 +843,12 @@ export function CpiPosAiAssistant({ lang }: { lang: Language }) {
               <div
                 ref={chatScrollRef}
                 onScroll={handleChatScroll}
-                className="h-full min-h-0 space-y-4 overflow-y-auto overscroll-contain bg-[linear-gradient(180deg,#ffffff,#fbfdff)] px-4 py-5 sm:px-5"
+                className="h-full min-h-0 overflow-y-auto overscroll-contain bg-white px-4 py-4 sm:px-5"
               >
               {messages.map((message) => (
-                <div key={message.id} className={`mx-auto flex w-full max-w-[860px] gap-3 ${message.role === "user" ? "justify-end" : "justify-start"}`}>
-                  {message.role === "assistant" ? (
-                    <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-slate-100 bg-white shadow-sm">
-                      <Image src="/brand/cpipos-symbol-sidebar.png" alt="" width={24} height={24} className="h-6 w-6 object-contain" />
-                    </span>
-                  ) : null}
-                  <div className={`max-w-[88%] ${message.role === "user" ? "" : "min-w-0 flex-1"}`}>
-                    <div className={`px-4 py-3 text-[15px] font-normal leading-7 ${message.role === "user" ? "rounded-3xl bg-[#f4f4f4] text-slate-900" : "px-1 text-slate-800"}`}>
+                <div key={message.id} className={`w-full py-2.5 sm:py-3.5 ${message.role === "assistant" ? "border-b border-slate-100/70" : ""}`}>
+                  <div className={`mx-auto flex w-full max-w-[820px] ${message.role === "user" ? "justify-end" : "justify-start"}`}>
+                    <div className={`${message.role === "user" ? "max-w-[78%] rounded-[24px] bg-[#f4f4f4] px-4 py-2.5 text-slate-900" : "w-full px-1 py-2 text-slate-800"} text-[15px] font-normal leading-7 sm:text-[15.5px]`}>
                       <AiRichText text={message.text} />
                     </div>
                     {message.role === "assistant" && message.proposals?.length ? (
@@ -907,12 +904,9 @@ export function CpiPosAiAssistant({ lang }: { lang: Language }) {
                 </div>
               ))}
               {sending ? (
-                <div className="mx-auto flex w-full max-w-[860px] items-center gap-3">
-                  <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-slate-100 bg-white shadow-sm">
-                    <Image src="/brand/cpipos-symbol-sidebar.png" alt="" width={28} height={28} className="h-7 w-7 object-contain" />
-                  </span>
-                  <div className="px-1 py-3 text-sm font-medium text-slate-500">
-                    <span className="inline-flex items-center gap-2"><span className="h-2 w-2 animate-pulse rounded-full bg-blue-500" />กำลังวิเคราะห์ข้อมูลร้าน...</span>
+                <div className="w-full py-3">
+                  <div className="mx-auto w-full max-w-[820px] px-1 text-sm font-medium text-slate-500">
+                    <span className="inline-flex items-center gap-2"><span className="h-2 w-2 animate-pulse rounded-full bg-slate-400" />กำลังวิเคราะห์ข้อมูลร้าน...</span>
                   </div>
                 </div>
               ) : null}
@@ -934,7 +928,7 @@ export function CpiPosAiAssistant({ lang }: { lang: Language }) {
             </div>
 
             <form onSubmit={submit} className="sticky bottom-0 z-20 shrink-0 bg-gradient-to-t from-white via-white to-white/80 px-3 pb-3 pt-4 backdrop-blur sm:px-4 sm:pb-4">
-              <div className="mx-auto flex max-w-[860px] items-end gap-2 rounded-[26px] border border-slate-200 bg-white p-2 shadow-[0_8px_28px_rgba(15,23,42,0.08)] focus-within:border-slate-300">
+              <div className="mx-auto flex max-w-[820px] items-end gap-2 rounded-[26px] border border-slate-200 bg-white p-2 shadow-[0_8px_28px_rgba(15,23,42,0.08)] focus-within:border-slate-300">
                 <span className="mb-2 ml-1 text-blue-500"><SparkleIcon size={19} /></span>
                 <textarea
                   ref={textareaRef}
@@ -960,7 +954,7 @@ export function CpiPosAiAssistant({ lang }: { lang: Language }) {
                   </svg>
                 </button>
               </div>
-              <p className="mx-auto mt-2 max-w-[860px] px-2 text-center text-[10px] font-normal text-slate-400">CpiPOS AI อาจตอบคลาดเคลื่อนได้ · การเปลี่ยนราคา/สต๊อกต้องยืนยันและผ่าน PIN Owner/Manager</p>
+              <p className="mx-auto mt-2 max-w-[820px] px-2 text-center text-[10px] font-normal text-slate-400">CpiPOS AI อาจตอบคลาดเคลื่อนได้ · การเปลี่ยนราคา/สต๊อกต้องยืนยันและผ่าน PIN Owner/Manager</p>
             </form>
           </section>
           </div>
@@ -978,11 +972,13 @@ export function CpiPosAiAssistant({ lang }: { lang: Language }) {
               <ChatRoomPanel
                 rooms={rooms}
                 activeRoomId={activeRoomId}
-                retentionDays={quota?.history_retention_days}
                 busy={roomBusy || sending}
+                todaySales={overview?.today.net_sales ?? null}
                 onCreate={() => void createRoom()}
                 onOpen={(roomId) => void openRoom(roomId)}
                 onDelete={(room) => void deleteRoom(room)}
+                onOpenToday={() => { setRoomDrawerOpen(false); setTodayModalOpen(true); }}
+                onOpenRecommendations={() => { setRoomDrawerOpen(false); setRecommendationModalOpen(true); }}
               />
             </div>
           </aside>
