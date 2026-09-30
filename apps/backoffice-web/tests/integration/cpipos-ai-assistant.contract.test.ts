@@ -160,7 +160,8 @@ describe("CpiPOS AI store assistant", () => {
     expect(aiWorkspace).toContain("rememberActiveRoom");
     expect(aiWorkspace).toContain("ข้อมูลสำคัญวันนี้");
     expect(aiWorkspace).toContain("เมนูแนะนำสำหรับคุณ");
-    expect(aiWorkspace).not.toContain("setRooms([]);");
+    expect(aiWorkspace).toContain("setRooms([]);");
+    expect(aiWorkspace).toContain("rememberActiveRoom(null)");
     expect(aiApi).toContain("room_id");
     expect(aiApi).toContain("getOrCreateAiChatRoom");
     expect(aiApi).toContain("touchAiChatRoom");
