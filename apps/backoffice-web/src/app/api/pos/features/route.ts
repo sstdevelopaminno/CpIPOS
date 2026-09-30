@@ -2,7 +2,7 @@ import { isFeatureUnlockEnabled } from "@/lib/feature-unlock";
 import { fail, ok } from "@/lib/http";
 import { allPosMenuFeatureCodes } from "@/lib/pos-feature-map";
 import { requirePosSession, PosGuardError } from "@/lib/pos-session-guard";
-import { normalizePosSalesModes } from "@/lib/pos-sales-modes";
+import { DEFAULT_POS_SALES_MODES, POS_SALES_MODE_KEYS, normalizePosSalesModes, type PosSalesModeSettings } from "@/lib/pos-sales-modes";
 import { readThroughRuntimeCache } from "@/lib/route-runtime-cache";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
 import { getTenantPosMenuOverrides } from "@/lib/server/pos-menu-policy-service";
@@ -17,6 +17,10 @@ type ContractRow = {
 type PackageFeatureRow = {
   feature_code: string;
   included: boolean | null;
+};
+
+type PackagePolicyRow = {
+  metadata: Record<string, unknown> | null;
 };
 
 type FeatureOverrideRow = {
@@ -34,6 +38,53 @@ function contractAllowsAccess(contract: ContractRow | null) {
   return !Number.isFinite(endMs) || endMs > Date.now();
 }
 
+function salesModePolicy(
+  contractMetadata: Record<string, unknown>,
+  packageMetadata: Record<string, unknown> | null | undefined
+): PosSalesModeSettings {
+  const explicit = contractMetadata.sales_modes;
+  const hasExplicit = Boolean(explicit && typeof explicit === "object" && !Array.isArray(explicit));
+  const packageDefaults = Array.isArray(packageMetadata?.default_sales_modes)
+    ? packageMetadata!.default_sales_modes.map((item) => String(item ?? "").trim())
+    : [];
+  const rawLimit = Number(packageMetadata?.sales_mode_limit ?? 0);
+  const limit = Number.isFinite(rawLimit) && rawLimit > 0
+    ? Math.min(POS_SALES_MODE_KEYS.length, Math.trunc(rawLimit))
+    : null;
+
+  let modes: PosSalesModeSettings;
+  if (hasExplicit) {
+    modes = normalizePosSalesModes(explicit);
+  } else if (packageDefaults.length) {
+    modes = { ...DEFAULT_POS_SALES_MODES };
+    for (const key of POS_SALES_MODE_KEYS) modes[key] = false;
+    for (const key of packageDefaults) {
+      if ((POS_SALES_MODE_KEYS as readonly string[]).includes(key)) {
+        modes[key as keyof PosSalesModeSettings] = true;
+      }
+    }
+  } else {
+    modes = normalizePosSalesModes(explicit);
+  }
+
+  if (limit === null) return modes;
+
+  const enabledKeys = POS_SALES_MODE_KEYS.filter((key) => modes[key]);
+  if (enabledKeys.length <= limit) return modes;
+
+  const preferred = packageDefaults.length
+    ? packageDefaults.filter((key) => (POS_SALES_MODE_KEYS as readonly string[]).includes(key))
+    : [...POS_SALES_MODE_KEYS];
+  const allowed = new Set<string>();
+  for (const key of [...preferred, ...POS_SALES_MODE_KEYS]) {
+    if (modes[key as keyof PosSalesModeSettings] && allowed.size < limit) allowed.add(key);
+  }
+
+  return Object.fromEntries(
+    POS_SALES_MODE_KEYS.map((key) => [key, allowed.has(key)])
+  ) as PosSalesModeSettings;
+}
+
 async function loadTenantFeatureSnapshot(tenantId: string, branchId: string) {
   const supabase = getSupabaseServiceClient();
   const { data: contract, error: contractError } = await supabase
@@ -49,20 +100,19 @@ async function loadTenantFeatureSnapshot(tenantId: string, branchId: string) {
   }
 
   const metadata = contract?.metadata && typeof contract.metadata === "object" ? contract.metadata : {};
-  const salesModes = normalizePosSalesModes(metadata.sales_modes);
   const featureCodes = allPosMenuFeatureCodes();
 
   if (isFeatureUnlockEnabled()) {
     return {
       features: Object.fromEntries(featureCodes.map((feature) => [feature, true])),
-      salesModes
+      salesModes: normalizePosSalesModes(metadata.sales_modes)
     };
   }
 
   if (!featureCodes.length || !contractAllowsAccess(contract ?? null) || !contract?.package_id) {
     return {
       features: Object.fromEntries(featureCodes.map((feature) => [feature, false])),
-      salesModes
+      salesModes: normalizePosSalesModes(metadata.sales_modes)
     };
   }
 
@@ -72,7 +122,7 @@ async function loadTenantFeatureSnapshot(tenantId: string, branchId: string) {
   // serverless runtime that multiplied a single /api/pos/features request into
   // dozens of edge/postgrest log events and was the largest source of Log
   // Ingestion usage.
-  const [packageResult, overrideResult] = await Promise.all([
+  const [packageResult, overrideResult, packagePolicyResult] = await Promise.all([
     supabase
       .from("subscription_package_features")
       .select("feature_code,included")
@@ -83,7 +133,12 @@ async function loadTenantFeatureSnapshot(tenantId: string, branchId: string) {
       .select("feature_code,branch_id,is_enabled")
       .eq("tenant_id", tenantId)
       .in("feature_code", featureCodes)
-      .or(`branch_id.is.null,branch_id.eq.${branchId}`)
+      .or(`branch_id.is.null,branch_id.eq.${branchId}`),
+    supabase
+      .from("subscription_packages")
+      .select("metadata")
+      .eq("id", contract.package_id)
+      .maybeSingle<PackagePolicyRow>()
   ]);
 
   if (packageResult.error) {
@@ -92,7 +147,11 @@ async function loadTenantFeatureSnapshot(tenantId: string, branchId: string) {
   if (overrideResult.error) {
     throw new Error(`feature_override_query_failed:${overrideResult.error.message}`);
   }
+  if (packagePolicyResult.error) {
+    throw new Error(`package_policy_query_failed:${packagePolicyResult.error.message}`);
+  }
 
+  const salesModes = salesModePolicy(metadata, packagePolicyResult.data?.metadata);
   const packageFeatures = new Map<string, boolean>();
   for (const row of (packageResult.data ?? []) as PackageFeatureRow[]) {
     packageFeatures.set(String(row.feature_code), Boolean(row.included));
@@ -147,7 +206,7 @@ export async function GET() {
       features: snapshot.features,
       menu_policy: menuPolicy,
       sales_modes: snapshot.salesModes,
-      sales_modes_source: "tenant_subscription_contracts.metadata.sales_modes"
+      sales_modes_source: "package_metadata + tenant_subscription_contracts.metadata.sales_modes"
     });
 
     // Feature entitlements change infrequently. A short private browser cache cuts
