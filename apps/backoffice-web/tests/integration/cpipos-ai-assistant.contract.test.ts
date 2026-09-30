@@ -148,6 +148,15 @@ describe("CpiPOS AI store assistant", () => {
     expect(aiWorkspace).not.toContain("OpenAI");
   });
 
+  it("handles expired POS sessions without turning them into generic AI failures", () => {
+    expect(aiApi).toContain("PosGuardError");
+    expect(aiApi).toContain("return fail(error.code, error.message, error.status)");
+    expect(aiWorkspace).toContain("POS_SESSION_AUTH_CODES");
+    expect(aiWorkspace).toContain("redirectToPosLogin");
+    expect(aiWorkspace).toContain("เซสชัน POS หมดอายุ");
+    expect(aiPage).toContain('redirect("/login/employee")');
+  });
+
   it("supports one active room at a time with GPT-like room navigation and deletion", () => {
     expect(aiWorkspace).toContain("function ChatRoomPanel");
     expect(aiWorkspace).toContain("แชทใหม่");
