@@ -3,6 +3,7 @@ import { fail, ok } from "@/lib/http";
 import { isTenantPosMenuEnabled } from "@/lib/server/pos-menu-policy-service";
 import { deleteAiChatRoom, getAiChatRoom, listAiConversationMessages, publicAiChatRoom, renameAiChatRoom } from "@/lib/services/ai-conversation-service";
 import { loadAiQuotaStatus } from "@/lib/services/ai-usage-service";
+import { PosGuardError } from "@/lib/pos-session-guard";
 
 export const runtime = "nodejs";
 
@@ -53,6 +54,7 @@ export async function GET(_request: Request, context: { params: Promise<{ roomId
     }
     return ok({ room: publicAiChatRoom(room), messages, history_warning: historyWarning });
   } catch (error) {
+    if (error instanceof PosGuardError) return fail(error.code, error.message, error.status);
     console.error("[cpipos-ai] room messages failed", error);
     return fail("ai_chat_room_messages_failed", "ไม่สามารถโหลดข้อความห้องแชทนี้ได้", 500);
   }
@@ -69,6 +71,7 @@ export async function PATCH(request: Request, context: { params: Promise<{ roomI
     const room = await renameAiChatRoom(scopeFrom(checked.auth), roomId, title);
     return ok({ room: publicAiChatRoom(room) });
   } catch (error) {
+    if (error instanceof PosGuardError) return fail(error.code, error.message, error.status);
     console.error("[cpipos-ai] room rename failed", error);
     return fail("ai_chat_room_rename_failed", "ไม่สามารถเปลี่ยนชื่อห้องแชทได้", 500);
   }
@@ -82,6 +85,7 @@ export async function DELETE(_request: Request, context: { params: Promise<{ roo
     await deleteAiChatRoom(scopeFrom(checked.auth), roomId);
     return ok({ deleted: true, room_id: roomId });
   } catch (error) {
+    if (error instanceof PosGuardError) return fail(error.code, error.message, error.status);
     console.error("[cpipos-ai] room delete failed", error);
     return fail("ai_chat_room_delete_failed", "ไม่สามารถลบห้องแชทได้ในขณะนี้", 500);
   }
