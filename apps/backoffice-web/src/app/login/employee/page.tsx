@@ -40,6 +40,19 @@ type PopupState =
 
 const AUTH_REQUEST_TIMEOUT_MS = process.env.NODE_ENV === "development" ? 20000 : 15000;
 
+function consumePosReturnPath(fallback: string) {
+  try {
+    const stored = window.sessionStorage.getItem("cpipos-ai-return-path");
+    if (stored === "/preview/pos/ai-assistant") {
+      window.sessionStorage.removeItem("cpipos-ai-return-path");
+      return stored;
+    }
+  } catch {
+    // Fall back to the normal POS landing route.
+  }
+  return fallback;
+}
+
 function getCopy(lang: AppLanguage) {
   if (lang === "en") {
     return {
@@ -258,7 +271,7 @@ function LoginEmployeePageContent() {
       );
       const redirectTo = String(kitchenBody?.data?.redirect_to ?? "").trim();
       if (kitchenResponse.ok && redirectTo) {
-        window.location.assign(redirectTo);
+        window.location.assign(consumePosReturnPath(redirectTo));
         return;
       }
       throw new Error(kitchenBody?.error?.message ?? copy.verifyFailed);
