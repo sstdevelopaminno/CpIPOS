@@ -1,6 +1,5 @@
 import { PosGuardError, requirePermission, requirePosSession } from "@/lib/pos-session-guard";
 import { fail, ok } from "@/lib/http";
-import { FeatureGateError, requireTenantFeature } from "@/lib/feature-gate";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
 import { calculateShiftSalesSummary } from "@/lib/pos-shift-sales-summary";
 import { collectPagedShiftRows, collectShiftRowsForIds } from "@/lib/pos-shift-query-pagination";
@@ -100,7 +99,6 @@ export async function GET(request: Request) {
   try {
     const scope = await requirePosSession();
     requirePermission(scope, "shift:join");
-    await requireTenantFeature(scope.session.tenant_id, "attendance_tracking", scope.session.branch_id);
     const role = scope.session.role;
     const canViewBranchWide = role === "owner" || role === "manager";
     if (canViewBranchWide) {
@@ -383,9 +381,6 @@ export async function GET(request: Request) {
       shifts: payloadShifts
     });
   } catch (error) {
-    if (error instanceof FeatureGateError) {
-      return fail(error.code, error.message, error.status);
-    }
     if (error instanceof PosGuardError) {
       return fail(error.code, error.message, error.status);
     }
