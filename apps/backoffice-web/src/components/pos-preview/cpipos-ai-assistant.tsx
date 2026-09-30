@@ -901,6 +901,7 @@ export function CpiPosAiAssistant({ lang }: { lang: Language }) {
                     ) : null}
                   </div>
                 </div>
+              </div>
               ))}
               {sending ? (
                 <div className="w-full py-3">
