@@ -180,13 +180,6 @@ export async function GET() {
     response.headers.set("server-timing", `total;dur=${durationMs}`);
     return withPosSessionCookie(response, scope.session.id);
   } catch (error) {
-    if (error instanceof FeatureGateError) {
-      const response = NextResponse.json({ data: null, error: { code: error.code, message: error.message } }, { status: error.status });
-      const durationMs = Date.now() - startedAt;
-      response.headers.set("x-pos-api-ms", String(durationMs));
-      response.headers.set("server-timing", `total;dur=${durationMs}`);
-      return response;
-    }
     if (error instanceof PosGuardError) {
       const response = NextResponse.json({ data: null, error: { code: error.code, message: error.message } }, { status: error.status });
       const durationMs = Date.now() - startedAt;
