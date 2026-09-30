@@ -51,7 +51,8 @@ const MORE_CHILD_ROUTES = [
   "/preview/pos/buffet-pricing",
   "/preview/pos/members",
   "/preview/pos/tax-invoices",
-  "/preview/pos/product-sales"
+  "/preview/pos/product-sales",
+  "/preview/pos/ai-documents"
 ];
 
 function resolveMenuRole(role: PosRole | null): PosRole {
