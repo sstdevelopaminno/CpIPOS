@@ -13,8 +13,8 @@ describe("POS CUSTOM package request flow", () => {
 
   it("keeps CUSTOM per-store retention while fixed packages now own their retention", () => {
     expect(migration).toContain("tenant_custom_package_terms");
-    expect(businessMigration).toContain("Starter 6, Growth 12, Business 24");
-    expect(businessMigration).toContain("else coalesce(sp.retention_months,6)");
+    expect(businessMigration).toContain("Starter 6 months, Growth 12 months, Business 24 months");
+    expect(businessMigration).toContain("else coalesce(sp.retention_months, 6)");
     expect(businessMigration).toContain("retention_months = 12");
     expect(businessMigration).toContain("retention_months = 24");
   });
