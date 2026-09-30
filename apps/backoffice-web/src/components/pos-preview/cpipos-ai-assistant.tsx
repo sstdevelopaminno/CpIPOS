@@ -743,7 +743,10 @@ export function CpiPosAiAssistant({ lang }: { lang: Language }) {
   }
 
   return (
-    <main className="h-full min-h-0 w-full overflow-hidden bg-[#f5f9ff] p-3 sm:p-4 xl:p-5">
+    <main
+      className="h-full min-h-0 w-full overflow-hidden bg-[#f7f7f8] p-3 sm:p-4 xl:p-5"
+      style={{ fontFamily: 'ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans Thai", sans-serif' }}
+    >
       <section className="mx-auto flex h-full min-h-0 w-full max-w-[1500px] flex-col gap-3">
         <header className="relative overflow-hidden rounded-3xl border border-blue-100 bg-[radial-gradient(circle_at_78%_15%,rgba(56,189,248,0.28),transparent_24%),linear-gradient(120deg,#ffffff,#eef6ff_58%,#e9fbff)] px-4 py-4 shadow-[0_10px_35px_rgba(37,99,235,0.08)] sm:px-6">
           <div className="absolute -right-6 -top-8 h-32 w-32 rounded-full bg-blue-300/20 blur-2xl" />
@@ -797,11 +800,31 @@ export function CpiPosAiAssistant({ lang }: { lang: Language }) {
           </div>
         </header>
 
-        <div className="min-h-0 flex-1">
-          <section className="flex h-full min-h-0 flex-col overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-[0_12px_36px_rgba(15,23,42,0.07)]">
+        <div className="flex min-h-0 flex-1 gap-3">
+          <aside className="hidden w-[260px] shrink-0 overflow-hidden rounded-2xl border border-slate-200 bg-[#f7f7f8] lg:block">
+            <ChatRoomPanel
+              rooms={rooms}
+              activeRoomId={activeRoomId}
+              retentionDays={quota?.history_retention_days}
+              busy={roomBusy || sending}
+              onCreate={() => void createRoom()}
+              onOpen={(roomId) => void openRoom(roomId)}
+              onDelete={(room) => void deleteRoom(room)}
+            />
+          </aside>
+          <div className="min-h-0 min-w-0 flex-1">
+          <section className="flex h-full min-h-0 flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_8px_28px_rgba(15,23,42,0.05)]">
             <div className="shrink-0 border-b border-slate-100 px-4 py-3 sm:px-5">
               <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setRoomDrawerOpen(true)}
+                  className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 text-xs font-semibold text-slate-600 lg:hidden"
+                >
+                  ☰ ห้องแชท
+                </button>
                 <span className="text-xs font-black uppercase tracking-[0.14em] text-blue-600">AI CHAT</span>
+                <span className="max-w-[230px] truncate text-xs font-semibold text-slate-700">{activeRoom?.title ?? "แชทใหม่"}</span>
                 <span className="rounded-full bg-blue-50 px-2.5 py-1 text-[10px] font-bold text-blue-700">ถามเป็นภาษาไทยได้เลย</span>
                 <button
                   type="button"
@@ -958,10 +981,31 @@ export function CpiPosAiAssistant({ lang }: { lang: Language }) {
               <p className="mt-2 px-1 text-[11px] font-medium text-slate-400">Phase 2: AI เตรียมรายการให้ได้ แต่การเปลี่ยนราคา/สต๊อกจะเกิดขึ้นเฉพาะเมื่อคุณกดยืนยันและผ่าน PIN Owner/Manager เท่านั้น</p>
             </form>
           </section>
-
-
+          </div>
         </div>
       </section>
+
+      {roomDrawerOpen ? (
+        <div className="fixed inset-0 z-[110] bg-slate-950/35 lg:hidden" onMouseDown={(event) => { if (event.target === event.currentTarget) setRoomDrawerOpen(false); }}>
+          <aside className="h-full w-[300px] max-w-[86vw] overflow-hidden border-r border-slate-200 bg-[#f7f7f8] shadow-2xl">
+            <div className="flex h-12 items-center justify-between border-b border-slate-200 px-3">
+              <strong className="text-sm font-semibold text-slate-800">CpiPOS AI</strong>
+              <button type="button" onClick={() => setRoomDrawerOpen(false)} className="grid h-8 w-8 place-items-center rounded-lg text-slate-500 hover:bg-slate-200">×</button>
+            </div>
+            <div className="h-[calc(100%-48px)]">
+              <ChatRoomPanel
+                rooms={rooms}
+                activeRoomId={activeRoomId}
+                retentionDays={quota?.history_retention_days}
+                busy={roomBusy || sending}
+                onCreate={() => void createRoom()}
+                onOpen={(roomId) => void openRoom(roomId)}
+                onDelete={(room) => void deleteRoom(room)}
+              />
+            </div>
+          </aside>
+        </div>
+      ) : null}
 
       <AiModal
         open={todayModalOpen}
