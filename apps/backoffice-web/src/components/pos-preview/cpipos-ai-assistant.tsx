@@ -268,25 +268,77 @@ function InlineRichText({ text }: { text: string }) {
   );
 }
 
+function splitTableRow(line: string) {
+  return line.trim().replace(/^\||\|$/g, "").split("|").map((cell) => cell.trim());
+}
+
 function AiRichText({ text }: { text: string }) {
   const lines = text.split(/\r?\n/);
-  return (
-    <div className="space-y-1.5">
-      {lines.map((raw, index) => {
-        const line = raw.trimEnd();
-        if (!line.trim()) return <div key={index} className="h-1" />;
-        const bullet = line.match(/^[-•]\s+(.+)$/);
-        const numbered = line.match(/^\d+[.)]\s+(.+)$/);
-        if (bullet) {
-          return <div key={index} className="flex gap-2"><span className="mt-[1px] text-blue-500">•</span><span><InlineRichText text={bullet[1]} /></span></div>;
-        }
-        if (numbered) {
-          return <div key={index} className="flex gap-2"><span className="font-bold text-blue-600">{line.match(/^\d+/)?.[0]}.</span><span><InlineRichText text={numbered[1]} /></span></div>;
-        }
-        return <p key={index}><InlineRichText text={line} /></p>;
-      })}
-    </div>
-  );
+  const nodes: React.ReactNode[] = [];
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index].trimEnd();
+    const next = lines[index + 1] ?? "";
+    if (line.includes("|") && /^\s*\|?(?:\s*:?-{3,}:?\s*\|)+\s*:?-{3,}:?\s*\|?\s*$/.test(next)) {
+      const header = splitTableRow(line);
+      const rows: string[][] = [];
+      index += 2;
+      while (index < lines.length && lines[index].includes("|") && lines[index].trim()) {
+        rows.push(splitTableRow(lines[index]));
+        index += 1;
+      }
+      index -= 1;
+      nodes.push(
+        <div key={`table-${index}`} className="my-3 overflow-x-auto rounded-xl border border-slate-200 bg-white/70">
+          <table className="min-w-full border-collapse text-left text-xs">
+            <thead className="bg-slate-50/90"><tr>{header.map((cell, cellIndex) => <th key={cellIndex} className="border-b border-slate-200 px-3 py-2 font-bold text-slate-700"><InlineRichText text={cell} /></th>)}</tr></thead>
+            <tbody>{rows.map((row, rowIndex) => <tr key={rowIndex} className="border-b border-slate-100 last:border-0">{row.map((cell, cellIndex) => <td key={cellIndex} className="px-3 py-2 align-top text-slate-600"><InlineRichText text={cell} /></td>)}</tr>)}</tbody>
+          </table>
+        </div>
+      );
+      continue;
+    }
+    if (!line.trim()) {
+      nodes.push(<div key={index} className="h-1" />);
+      continue;
+    }
+    const bullet = line.match(/^[-•]\s+(.+)$/);
+    const numbered = line.match(/^\d+[.)]\s+(.+)$/);
+    if (bullet) {
+      nodes.push(<div key={index} className="flex gap-2"><span className="mt-[1px] text-blue-500">•</span><span><InlineRichText text={bullet[1]} /></span></div>);
+      continue;
+    }
+    if (numbered) {
+      nodes.push(<div key={index} className="flex gap-2"><span className="font-bold text-blue-600">{line.match(/^\d+/)?.[0]}.</span><span><InlineRichText text={numbered[1]} /></span></div>);
+      continue;
+    }
+    nodes.push(<p key={index}><InlineRichText text={line} /></p>);
+  }
+  return <div className="space-y-1.5">{nodes}</div>;
+}
+
+async function compressImageForAi(file: File) {
+  if (!/^image\/(?:png|jpeg|webp)$/i.test(file.type)) throw new Error("รองรับเฉพาะ PNG, JPG หรือ WEBP");
+  if (file.size > 8 * 1024 * 1024) throw new Error("รูปภาพต้องมีขนาดไม่เกิน 8 MB");
+  const bitmap = await createImageBitmap(file);
+  const maxSide = 1400;
+  const scale = Math.min(1, maxSide / Math.max(bitmap.width, bitmap.height));
+  const width = Math.max(1, Math.round(bitmap.width * scale));
+  const height = Math.max(1, Math.round(bitmap.height * scale));
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const context = canvas.getContext("2d");
+  if (!context) throw new Error("ไม่สามารถเตรียมรูปภาพได้");
+  context.drawImage(bitmap, 0, 0, width, height);
+  bitmap.close();
+  const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/jpeg", 0.78));
+  if (!blob) throw new Error("ไม่สามารถบีบอัดรูปภาพได้");
+  return await new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result ?? ""));
+    reader.onerror = () => reject(new Error("อ่านรูปภาพไม่สำเร็จ"));
+    reader.readAsDataURL(blob);
+  });
 }
 
 function ChatRoomPanel({
@@ -410,10 +462,14 @@ export function CpiPosAiAssistant({ lang }: { lang: Language }) {
   const [activeRoomId, setActiveRoomId] = useState<string | null>(null);
   const [roomDrawerOpen, setRoomDrawerOpen] = useState(false);
   const [roomBusy, setRoomBusy] = useState(false);
+  const [imageAttachment, setImageAttachment] = useState<{ name: string; dataUrl: string } | null>(null);
+  const [imageBusy, setImageBusy] = useState(false);
+  const [documentStatus, setDocumentStatus] = useState<Record<string, string>>({});
   const [messages, setMessages] = useState<ChatMessage[]>([welcomeMessage(lang)]);
   const chatEndRef = useRef<HTMLDivElement | null>(null);
   const chatScrollRef = useRef<HTMLDivElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const imageInputRef = useRef<HTMLInputElement | null>(null);
 
   const activeRoom = useMemo(() => rooms.find((room) => room.id === activeRoomId) ?? null, [rooms, activeRoomId]);
   const hasConversationContent = messages.some((message) => message.id !== "welcome");
@@ -591,17 +647,20 @@ export function CpiPosAiAssistant({ lang }: { lang: Language }) {
 
   async function sendMessage(prompt?: string) {
     const messageText = String(prompt ?? input).trim();
-    if (!messageText || sending || quota?.exhausted || quota?.enabled === false) return;
+    const attachedImage = prompt ? null : imageAttachment;
+    if ((!messageText && !attachedImage) || sending || quota?.exhausted || quota?.enabled === false) return;
 
+    const displayText = [messageText || "ช่วยวิเคราะห์รูปภาพนี้", attachedImage ? `📎 แนบรูป: ${attachedImage.name}` : ""].filter(Boolean).join("\n");
     const userMessage: ChatMessage = {
       id: `user-${Date.now()}`,
       role: "user",
-      text: messageText
+      text: displayText
     };
     setAutoScroll(true);
     setShowScrollToBottom(false);
     setMessages((current) => current.length === 1 && current[0]?.id === "welcome" ? [userMessage] : [...current, userMessage]);
     setInput("");
+    setImageAttachment(null);
     if (textareaRef.current) textareaRef.current.style.height = "auto";
     setSending(true);
     requestAnimationFrame(() => scrollToBottom("smooth"));
@@ -610,7 +669,12 @@ export function CpiPosAiAssistant({ lang }: { lang: Language }) {
       const response = await fetch("/api/pos/ai/assistant", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: messageText, room_id: activeRoomId })
+        body: JSON.stringify({
+          message: messageText || "ช่วยอ่านข้อมูลจากรูปภาพและสรุปสิ่งที่พบ หากเกี่ยวกับสต๊อกให้เตรียมข้อเสนอโดยยังไม่แก้ข้อมูลจริง",
+          room_id: activeRoomId,
+          image_data_url: attachedImage?.dataUrl ?? null,
+          image_name: attachedImage?.name ?? null
+        })
       });
       const body = (await response.json().catch(() => null)) as ApiEnvelope<{ answer?: string; overview?: Overview; room?: AiChatRoom; proposals?: AiProposal[]; quota?: AiQuotaStatus }>;
       if (!response.ok) throw new Error(friendlyAiError(body?.error?.message));
@@ -642,6 +706,47 @@ export function CpiPosAiAssistant({ lang }: { lang: Language }) {
       ]);
     } finally {
       setSending(false);
+    }
+  }
+
+  async function selectImage(file: File | null) {
+    if (!file || imageBusy || sending) return;
+    setImageBusy(true);
+    setOverviewError(null);
+    try {
+      const dataUrl = await compressImageForAi(file);
+      setImageAttachment({ name: file.name.slice(0, 120), dataUrl });
+      requestAnimationFrame(() => textareaRef.current?.focus());
+    } catch (error) {
+      setOverviewError(error instanceof Error ? error.message : "เตรียมรูปภาพไม่สำเร็จ");
+    } finally {
+      setImageBusy(false);
+      if (imageInputRef.current) imageInputRef.current.value = "";
+    }
+  }
+
+  async function saveMessageAsDocument(message: ChatMessage) {
+    if (message.role !== "assistant" || !message.text.trim()) return;
+    setDocumentStatus((current) => ({ ...current, [message.id]: "saving" }));
+    try {
+      const firstLine = message.text.split(/\r?\n/).find((line) => line.trim())?.replace(/\*\*/g, "").trim() ?? "";
+      const title = firstLine.slice(0, 90) || activeRoom?.title || "เอกสารจาก CpiPOS AI";
+      const response = await fetch("/api/pos/ai/documents", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title,
+          content: message.text,
+          format: "markdown",
+          room_id: activeRoomId,
+          source_message_id: message.id
+        })
+      });
+      const body = (await response.json().catch(() => null)) as ApiEnvelope<{ document?: { id: string } }>;
+      if (!response.ok) throw new Error(body?.error?.message ?? "บันทึกเอกสารไม่สำเร็จ");
+      setDocumentStatus((current) => ({ ...current, [message.id]: "saved" }));
+    } catch (error) {
+      setDocumentStatus((current) => ({ ...current, [message.id]: error instanceof Error ? error.message : "บันทึกไม่สำเร็จ" }));
     }
   }
 
@@ -916,6 +1021,19 @@ export function CpiPosAiAssistant({ lang }: { lang: Language }) {
                         })}
                       </div>
                     ) : null}
+                    {message.role === "assistant" && message.id !== "welcome" ? (
+                      <div className="mt-2 flex items-center gap-2 text-[11px] text-slate-400">
+                        <button
+                          type="button"
+                          onClick={() => void saveMessageAsDocument(message)}
+                          disabled={documentStatus[message.id] === "saving" || documentStatus[message.id] === "saved"}
+                          className="rounded-lg px-2 py-1 font-semibold transition hover:bg-white/70 hover:text-blue-700 disabled:opacity-60"
+                        >
+                          {documentStatus[message.id] === "saving" ? "กำลังบันทึก…" : documentStatus[message.id] === "saved" ? "บันทึกแล้ว ✓" : "บันทึกเอกสาร"}
+                        </button>
+                        {documentStatus[message.id] && !["saving","saved"].includes(documentStatus[message.id]) ? <span className="text-red-500">{documentStatus[message.id]}</span> : null}
+                      </div>
+                    ) : null}
                   </div>
                 </div>
               </div>
@@ -945,8 +1063,22 @@ export function CpiPosAiAssistant({ lang }: { lang: Language }) {
             </div>
 
             <form onSubmit={submit} className="sticky bottom-0 z-20 shrink-0 bg-gradient-to-t from-[#eef7ff] via-[#f4f9ff]/95 to-transparent px-3 pb-4 pt-7 backdrop-blur-[2px] sm:px-5 sm:pb-5">
+              {imageAttachment ? (
+                <div className="mx-auto mb-2 flex max-w-[860px] items-center justify-between gap-3 rounded-xl border border-blue-100 bg-white/90 px-3 py-2 text-xs text-slate-600 shadow-sm">
+                  <span className="min-w-0 truncate">📎 {imageAttachment.name} · ส่งเพื่ออ่านข้อมูล/ช่วยเตรียมรายการสต๊อก</span>
+                  <button type="button" onClick={() => setImageAttachment(null)} className="shrink-0 font-bold text-slate-400 hover:text-red-600">×</button>
+                </div>
+              ) : null}
               <div className="mx-auto flex max-w-[860px] items-end gap-2 rounded-[26px] border border-blue-200/85 bg-white/94 p-2 shadow-[0_12px_36px_rgba(37,99,235,0.10)] focus-within:border-blue-400 focus-within:ring-4 focus-within:ring-blue-100/60">
-                <span className="mb-2 ml-1 text-blue-500"><SparkleIcon size={19} /></span>
+                <input ref={imageInputRef} type="file" accept="image/png,image/jpeg,image/webp" className="hidden" onChange={(event) => void selectImage(event.target.files?.[0] ?? null)} />
+                <button
+                  type="button"
+                  onClick={() => imageInputRef.current?.click()}
+                  disabled={sending || imageBusy}
+                  className="mb-1 grid h-9 w-9 shrink-0 place-items-center rounded-full text-lg text-slate-500 transition hover:bg-blue-50 hover:text-blue-700 disabled:opacity-40"
+                  aria-label="แนบรูปภาพ"
+                  title="แนบรูปเพื่ออ่านข้อมูล/เตรียมสต๊อก"
+                >＋</button>
                 <textarea
                   ref={textareaRef}
                   value={input}
@@ -962,7 +1094,7 @@ export function CpiPosAiAssistant({ lang }: { lang: Language }) {
                 />
                 <button
                   type="submit"
-                  disabled={sending || !input.trim() || quota?.exhausted || quota?.enabled === false}
+                  disabled={sending || (!input.trim() && !imageAttachment) || quota?.exhausted || quota?.enabled === false}
                   className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-slate-950 text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400"
                   aria-label="ส่งข้อความ"
                 >
