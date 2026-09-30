@@ -31,7 +31,7 @@ export const POS_ROUTE_FEATURES = {
   "/preview/pos": "core_pos_sales",
   "/preview/pos/sales-list": "advanced_sales_reports",
   "/preview/pos/product-sales": "advanced_sales_reports",
-  "/preview/pos/ai-assistant": "core_pos_sales",
+  "/preview/pos/ai-assistant": "cpipos_ai",
   "/preview/pos/more": "core_pos_sales",
   "/preview/pos/payments": "core_pos_sales",
   "/preview/pos/stock": "stock_management",

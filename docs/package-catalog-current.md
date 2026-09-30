@@ -1,84 +1,49 @@
 # CpIPOS Current Package Catalog
 
-Authoritative commercial baseline as of 2026-08-11.
+Authoritative commercial baseline as of 2026-09-30.
 
-## Canonical packages
+Only four customer-selectable packages are canonical:
 
-Only these packages are current and selectable:
+| Package | Monthly | Yearly | Branches | POS devices | Users | Products | Bills/month | Storage | Sales retention | Sales modes | CpiPOS AI |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- |
+| Starter | 350 THB | 3,780 THB | 1 | 1 | 4 | 1,000 | 3,000 | 3 GB | 6 months | up to 1 | not included |
+| Growth | 550 THB | 5,940 THB | 1 | 2 | 9 | 2,000 | 5,000 | 5 GB | 12 months | up to 3 | optional add-on 299 THB/month, 500 requests/month |
+| Business | 1,500 THB | 16,200 THB | 2 | 4 | 20 | 5,000 | 10,000 | 10 GB | 24 months | all 5 | included, 2,000 requests/month |
+| CUSTOM | contract | contract | contract | contract | contract | contract | contract | contract | contract | contract | contract |
 
-### STARTER — 350 THB / month
+The annual fixed-plan price is a 10% discount from twelve monthly payments:
+- Starter list 4,200 THB -> 3,780 THB/year.
+- Growth list 6,600 THB -> 5,940 THB/year.
+- Business list 18,000 THB -> 16,200 THB/year.
 
-- 1 branch
-- 1 POS device
-- up to 1,000 products
-- up to 3,000 bills / month
-- 3 GB storage
-- 6 months data retention
-- CSV export
-- Tablet POS / Windows POS supported
-- registered-device enforcement remains required
-- device quota source: package
+## Business
 
-### GROWTH — 550 THB / month
+Business is the premium fixed package. It includes the full commercial POS feature bundle, all five supported sales modes (General Sale, Takeaway, Dine-in, Buffet/Table and Delivery), and CpiPOS AI.
 
-- 1 branch
-- 2 POS devices
-- up to 2,000 products
-- up to 5,000 bills / month
-- 5 GB storage
-- 12 months data retention
-- up to 5 staff accounts
-- real-time sync
-- CSV export
-- Tablet POS / Windows POS supported
-- registered-device enforcement remains required
-- device quota source: package
-- recommended package
+The CpiPOS AI package quota is controlled independently from POS transaction quotas. Business includes 2,000 AI requests/month with internal token/cost safety ceilings. Reaching an internal safety ceiling may suspend AI while the rest of POS remains available.
 
-### CUSTOM — contact sales / inquiry
+## Growth AI add-on
 
-CUSTOM is designed with the customer based on business requirements. It is not a fixed unlimited retail package.
+Growth does not include CpiPOS AI by default. IT may sell the AI add-on for 299 THB/month and enable a tenant-scoped AI override with 500 requests/month. The add-on must never weaken tenant, branch, role, PIN or audit controls.
 
-- price is configured by IT / commercial agreement
-- branch, terminal, user, product, bill, storage and retention limits are negotiated
-- effective limits must come from the active tenant subscription contract controlled by IT Admin
-- Tablet POS / Windows POS may be enabled under the contract
-- all POS tablets/terminals remain registered devices
-- device enrollment, approval, revoke, health/diagnostics and safe MDM commands remain tenant + branch + device scoped and audit controlled
-- CUSTOM must never disable registered-device policy or bypass POS session/auth guards
+## CUSTOM
+
+CUSTOM remains negotiated per tenant. Pricing, branches, devices, users, products, bills, storage, retention, feature entitlements, sales modes and AI quota come from the reviewed tenant contract / IT controls rather than fixed public package limits.
+
+## Package enforcement
+
+Package limits are runtime entitlements, not presentation-only labels.
+
+- Package/contract controls branch, device, user and commercial limits.
+- POS sales-mode policy applies the package mode ceiling and any reviewed contract override.
+- CpiPOS AI access requires Owner/Manager role, IT menu policy and the effective AI package/tenant quota.
+- Registered-device policy, tenant isolation, branch isolation, POS session guards, RLS, confirmation/PIN and Audit Log remain mandatory.
+- Sales retention workers use the active package retention: Starter 6 months, Growth 12 months, Business 24 months, CUSTOM reviewed terms.
 
 ## Trial
 
-Trial is not a paid package row.
-
-- 7-day Trial lifecycle
-- business data is routed to the Trial data plane while `data_home='trial'`
-- paid activation/promotion must be verified before switching to Primary
-- Trial must fail closed; never silently fall back to Primary
-- Trial tenants must not retain a Starter/Growth/CUSTOM or retired paid-package assignment until paid activation is approved
-
-## IT Admin / MDM integration rule
-
-Package entitlement and device management are separate but connected layers:
-
-1. Package/contract decides how many branches/devices the tenant is entitled to use.
-2. IT Admin controls device enrollment and approval within that entitlement.
-3. Tablet/Windows POS must still pass server-side tenant, branch, device and POS-session validation.
-4. MDM/diagnostics may monitor application/runtime/device health and issue only audited, scoped commands supported by the system.
-5. No package may grant a security bypass. Registered-device enforcement, tenant isolation, branch isolation, session guards and RLS remain mandatory.
-6. CUSTOM device quota is contract-driven; STARTER/GROWTH device quota is package-driven.
-
-Current Primary control-plane foundation already includes:
-
-- `branch_devices` — authoritative POS device registration per tenant + branch
-- `device_enrollments` — enrollment / approval / revoke / trust state
-- `device_commands` — scoped remote command queue for managed devices
-- `pos_device_health_latest` and health snapshots/incidents — runtime/device health and diagnostics
-
-For Tablet POS, package selection therefore does not directly bypass or auto-approve a tablet. The package/contract supplies entitlement; IT Admin/MDM controls which physical tablet is enrolled, approved and allowed to operate.
+Trial is lifecycle-based and is not a paid package row. Trial must fail closed and must not silently fall back to paid Primary access.
 
 ## Retired packages
 
-Any package code other than `starter`, `growth`, or `custom` is not a current package and must not appear in sales, signup, renewal or activation UI.
-
-Retired package feature mappings and active Trial assignments are removed from runtime use. Obsolete rows with no tenant/contract references are physically deleted. If a legacy package row is still referenced by historical contract/audit records, only a hidden audit stub is retained (`status='retired'`, `is_active=false`, `public_package=false`) so financial/audit history is not corrupted; it has no current runtime entitlement.
+Any package code other than `starter`, `growth`, `business` or `custom` is not customer-selectable. Legacy referenced rows remain retired audit/history records only.

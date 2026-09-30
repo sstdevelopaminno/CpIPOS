@@ -13,7 +13,11 @@ type Lifecycle = { lifecycle_status: string; subscription_expires_at: string | n
   access_locked: boolean; lock_reason: string | null; metadata: Record<string, unknown> | null };
 type Package = { id: string; code: string; name: string; monthly_price: number | null; yearly_price: number | null;
   monthly_discount_percent: number | null; yearly_discount_percent: number | null; quota_mode: string | null;
-  max_branches: number | null; max_devices: number | null; max_users: number | null; metadata: Record<string, unknown> | null };
+  max_branches: number | null; max_devices: number | null; max_users: number | null;
+  max_products: number | null; monthly_bill_limit: number | null; storage_limit_gb: number | null;
+  retention_months: number | null; metadata: Record<string, unknown> | null };
+type AiPackageQuota = { package_id: string; is_enabled: boolean; monthly_request_limit: number | null;
+  monthly_token_limit: number | null; monthly_cost_limit_usd: number | null };
 type Issuer = { billing_legal_name_th: string; billing_bank_name: string; billing_bank_account_name: string;
   billing_bank_account_number: string; billing_promptpay_id: string; billing_email: string;
   support_email: string; billing_vat_registered: boolean };
@@ -36,6 +40,19 @@ function amount(value: unknown): number | null {
   const n = Number(value);
   return Number.isFinite(n) && n > 0 ? n : null;
 }
+function metadataNumber(metadata: Record<string, unknown> | null | undefined, key: string): number | null {
+  const value = metadata?.[key];
+  if (value === null || value === undefined || value === "") return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+function metadataBoolean(metadata: Record<string, unknown> | null | undefined, key: string): boolean {
+  return metadata?.[key] === true;
+}
+function metadataStrings(metadata: Record<string, unknown> | null | undefined, key: string): string[] {
+  const value = metadata?.[key];
+  return Array.isArray(value) ? value.map((item) => String(item ?? "").trim()).filter(Boolean) : [];
+}
 function discountedAmount(base: unknown, discount: unknown): number | null {
   const raw = Number(base ?? 0);
   const percent = Number(discount ?? 0);
@@ -48,7 +65,7 @@ function discountedAmount(base: unknown, discount: unknown): number | null {
 export async function loadPosSubscriptionCenter(tenantId: string) {
   // Commercial authority lives in CpiPOS-001, never in a trial tenant sales data plane.
   const db = getPrimarySupabaseServiceClient();
-  const [tenantResult, contractResult, lifecycleResult, issuerResult, packagesResult, requestResult, cycleResult, receiptResult, receiptAnnotationResult] = await Promise.all([
+  const [tenantResult, contractResult, lifecycleResult, issuerResult, packagesResult, aiQuotaResult, requestResult, cycleResult, receiptResult, receiptAnnotationResult] = await Promise.all([
     db.from("tenants").select("id,code,name,display_name,package_id")
       .eq("id",tenantId).maybeSingle<Tenant>(),
     db.from("tenant_subscription_contracts")
@@ -61,8 +78,11 @@ export async function loadPosSubscriptionCenter(tenantId: string) {
       .select("billing_legal_name_th,billing_bank_name,billing_bank_account_name,billing_bank_account_number,billing_promptpay_id,billing_email,support_email,billing_vat_registered")
       .eq("id","default").maybeSingle<Issuer>(),
     db.from("subscription_packages")
-      .select("id,code,name,monthly_price,yearly_price,monthly_discount_percent,yearly_discount_percent,quota_mode,max_branches,max_devices,max_users,metadata")
+      .select("id,code,name,monthly_price,yearly_price,monthly_discount_percent,yearly_discount_percent,quota_mode,max_branches,max_devices,max_users,max_products,monthly_bill_limit,storage_limit_gb,retention_months,metadata")
       .eq("is_active",true).order("display_order",{ascending:true}).limit(30).returns<Package[]>(),
+    db.from("pos_ai_package_quotas")
+      .select("package_id,is_enabled,monthly_request_limit,monthly_token_limit,monthly_cost_limit_usd")
+      .returns<AiPackageQuota[]>(),
     db.from("tenant_subscription_payment_requests")
       .select("id,request_type,requested_package_id,status,amount_reported,currency,submitted_at,reviewed_at,review_note,evidence_url,metadata")
       .eq("tenant_id",tenantId).order("created_at",{ascending:false}).limit(30).returns<RequestRow[]>(),
@@ -75,7 +95,7 @@ export async function loadPosSubscriptionCenter(tenantId: string) {
     db.from("tenant_subscription_receipt_annotations")
       .select("receipt_id,correction_note,voided_at").eq("tenant_id",tenantId).returns<ReceiptAnnotation[]>()
   ]);
-  for (const item of [tenantResult,contractResult,lifecycleResult,issuerResult,packagesResult,requestResult,cycleResult,receiptResult,receiptAnnotationResult]) {
+  for (const item of [tenantResult,contractResult,lifecycleResult,issuerResult,packagesResult,aiQuotaResult,requestResult,cycleResult,receiptResult,receiptAnnotationResult]) {
     if (item.error) throw new Error("Subscription information is temporarily unavailable.");
   }
   const tenant = tenantResult.data;
@@ -83,6 +103,7 @@ export async function loadPosSubscriptionCenter(tenantId: string) {
   const contract = contractResult.data;
   const lifecycle = lifecycleResult.data;
   const packages = packagesResult.data ?? [];
+  const aiQuotaByPackage = new Map((aiQuotaResult.data ?? []).map((row) => [row.package_id, row]));
   const pkg = packages.find((entry)=>entry.id === (contract?.package_id || tenant.package_id));
   const isInternalDemo = lifecycle?.lifecycle_status === "sales_demo" || lifecycle?.metadata?.quota_exempt === true;
   const cyclePrice = contract?.billing_interval === "yearly"
@@ -114,16 +135,38 @@ export async function loadPosSubscriptionCenter(tenantId: string) {
     },
     packages: packages.map((row)=>{
       const contactSales = row.code === "custom" || row.quota_mode === "custom" || row.metadata?.contact_sales === true;
+      const aiQuota = aiQuotaByPackage.get(row.id);
+      const monthlyPrice = contactSales ? null : discountedAmount(row.monthly_price,row.monthly_discount_percent);
+      const yearlyPrice = contactSales ? null : discountedAmount(row.yearly_price,row.yearly_discount_percent);
+      const yearlyList = metadataNumber(row.metadata, "yearly_list_price")
+        ?? (monthlyPrice == null ? null : Number((monthlyPrice * 12).toFixed(2)));
       return {
         id: row.id, code: row.code, name: row.name,
         quota_mode: row.quota_mode ?? "standard",
         monthly_list_price: amount(row.monthly_price),
-        yearly_list_price: amount(row.yearly_price),
+        yearly_list_price: yearlyList,
         monthly_discount_percent: Number(row.monthly_discount_percent ?? 0),
         yearly_discount_percent: Number(row.yearly_discount_percent ?? 0),
-        monthly_price: contactSales ? null : discountedAmount(row.monthly_price,row.monthly_discount_percent),
-        yearly_price: contactSales ? null : discountedAmount(row.yearly_price,row.yearly_discount_percent),
-        contact_sales: contactSales
+        annual_discount_percent: metadataNumber(row.metadata, "annual_discount_percent") ?? 0,
+        monthly_price: monthlyPrice,
+        yearly_price: yearlyPrice,
+        yearly_savings: yearlyList != null && yearlyPrice != null ? Math.max(0, Number((yearlyList - yearlyPrice).toFixed(2))) : null,
+        contact_sales: contactSales,
+        max_branches: positive(row.max_branches),
+        max_devices: positive(row.max_devices),
+        max_users: positive(row.max_users),
+        max_products: positive(row.max_products),
+        monthly_bill_limit: positive(row.monthly_bill_limit),
+        storage_limit_gb: amount(row.storage_limit_gb),
+        retention_months: positive(row.retention_months),
+        sales_mode_limit: positive(metadataNumber(row.metadata, "sales_mode_limit")),
+        default_sales_modes: metadataStrings(row.metadata, "default_sales_modes"),
+        full_feature_bundle: metadataBoolean(row.metadata, "full_feature_bundle"),
+        ai_included: Boolean(aiQuota?.is_enabled ?? metadataBoolean(row.metadata, "ai_included")),
+        ai_monthly_requests: positive(aiQuota?.monthly_request_limit ?? metadataNumber(row.metadata, "ai_monthly_requests")),
+        ai_addon_available: metadataBoolean(row.metadata, "ai_addon_available"),
+        ai_addon_monthly_price: amount(metadataNumber(row.metadata, "ai_addon_monthly_price")),
+        ai_addon_monthly_requests: positive(metadataNumber(row.metadata, "ai_addon_monthly_requests"))
       };
     }),
     issuer: {
