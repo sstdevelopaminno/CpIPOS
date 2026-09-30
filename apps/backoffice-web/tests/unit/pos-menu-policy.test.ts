@@ -1,11 +1,15 @@
 import { describe, expect, it } from "vitest";
 import {
-  POS_MENU_CATALOG, isPosMenuEnabled, posMenuKeyForRoute
+  POS_MENU_CATALOG, isPosMenuAlwaysEnabled, isPosMenuEnabled, posMenuKeyForRoute
 } from "../../src/lib/pos-menu-policy";
 
 describe("IT-controlled POS tenant menu policy", () => {
   it("keeps all existing pages visible if IT has not configured an override", () => {
     for (const item of POS_MENU_CATALOG) expect(isPosMenuEnabled(item.key, {})).toBe(true);
+  });
+  it("keeps shift always enabled because POS sales require an open shift", () => {
+    expect(isPosMenuAlwaysEnabled("main.shift")).toBe(true);
+    expect(isPosMenuEnabled("main.shift", { "main.shift": false })).toBe(true);
   });
   it("locks only the exact menu selected by IT; never cascades across main and submenus", () => {
     const overrides = { "main.more": false, "more.receipts": true };
