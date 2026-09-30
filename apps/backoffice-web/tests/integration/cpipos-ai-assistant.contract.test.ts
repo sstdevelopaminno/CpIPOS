@@ -125,6 +125,10 @@ describe("CpiPOS AI store assistant", () => {
     expect(aiWorkspace).toContain('className="sticky bottom-0 z-20');
     expect(aiWorkspace).toContain("resizeComposer");
     expect(aiWorkspace).toContain("friendlyAiError");
+    expect(aiWorkspace).toContain("cpipos-ai-room-sidebar-collapsed");
+    expect(aiWorkspace).toContain("toggleRoomSidebar");
+    expect(aiWorkspace).toContain("เปิดแถบห้องแชท");
+    expect(aiWorkspace).toContain("ซ่อนแถบห้องแชท");
   });
 
   it("stores only a tiny local room index while full chat content stays in the provider conversation store", () => {
@@ -136,6 +140,7 @@ describe("CpiPOS AI store assistant", () => {
     expect(conversationService).toContain("listAiChatRooms");
     expect(conversationService).toContain("createAiChatRoom");
     expect(conversationService).toContain("deleteOpenAiConversationById");
+    expect(conversationService).not.toContain("conversationExists");
     expect(roomListApi).toContain("publicAiChatRoom");
     expect(roomListApi).not.toContain('storage: "openai_conversations"');
     expect(roomApi).toContain("listAiConversationMessages");
@@ -151,6 +156,8 @@ describe("CpiPOS AI store assistant", () => {
     expect(aiWorkspace).toContain("createRoom()");
     expect(aiWorkspace).toContain("deleteRoom(room");
     expect(aiWorkspace).toContain("☰ ห้องแชท");
+    expect(aiWorkspace).toContain("cpipos-ai-active-room-id");
+    expect(aiWorkspace).toContain("rememberActiveRoom");
     expect(aiWorkspace).toContain("ข้อมูลสำคัญวันนี้");
     expect(aiWorkspace).toContain("เมนูแนะนำสำหรับคุณ");
     expect(aiWorkspace).not.toContain("setRooms([]);");
@@ -179,6 +186,10 @@ describe("CpiPOS AI store assistant", () => {
     expect(aiApi).toContain('createHash("sha256")');
     expect(aiApi).toContain(".slice(0, 64)");
     expect(aiApi).toContain("AiQuotaError");
+    expect(aiApi).toContain("AI_FALLBACK_MODEL");
+    expect(aiApi).toContain("ai_provider_rate_limited");
+    expect(aiApi).toContain("persistConversationTurn");
+    expect(aiApi).toContain('text: { verbosity: "low" }');
     expect(usageService).toContain("pos_ai_package_quotas");
     expect(usageService).toContain("pos_ai_tenant_quota_overrides");
     expect(usageService).toContain("pos_ai_usage_events");
