@@ -1,5 +1,4 @@
 import { NextResponse } from "next/server";
-import { FeatureGateError, requireTenantFeature } from "@/lib/feature-gate";
 import { PosGuardError, requirePermission, requirePosSession, withPosSessionCookie } from "@/lib/pos-session-guard";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
 
@@ -68,7 +67,6 @@ export async function GET() {
   try {
     const scope = await requirePosSession();
     requirePermission(scope, "shift:join");
-    await requireTenantFeature(scope.session.tenant_id, "attendance_tracking", scope.session.branch_id);
     const supabase = getSupabaseServiceClient();
 
     const currentShiftQuery = await withQueryTimeout(
