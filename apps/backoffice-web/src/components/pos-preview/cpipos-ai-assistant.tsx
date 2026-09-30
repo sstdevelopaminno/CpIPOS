@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
 import { FormEvent, KeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
 import type { Language } from "@/lib/i18n";
@@ -310,13 +311,13 @@ function ChatRoomPanel({
   onOpenRecommendations: () => void;
 }) {
   return (
-    <div className="flex h-full min-h-0 flex-col bg-[#f7f7f8] text-slate-800">
-      <div className="shrink-0 space-y-2 p-3">
+    <div className="flex h-full min-h-0 flex-col bg-transparent text-slate-800">
+      <div className="shrink-0 space-y-2 px-3 pb-3 pt-2">
         <button
           type="button"
           onClick={onCreate}
           disabled={busy}
-          className="flex h-10 w-full items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-sm font-semibold shadow-sm transition hover:bg-slate-50 disabled:opacity-50"
+          className="flex h-10 w-full items-center gap-2 rounded-xl bg-slate-900 px-3 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:opacity-50"
         >
           <span className="text-lg font-light">＋</span>
           แชทใหม่
@@ -324,7 +325,7 @@ function ChatRoomPanel({
         <button
           type="button"
           onClick={onOpenToday}
-          className="flex min-h-10 w-full items-center justify-between gap-2 rounded-xl border border-blue-100 bg-white px-3 text-left text-xs font-semibold text-slate-700 transition hover:bg-blue-50"
+          className="flex min-h-10 w-full items-center justify-between gap-2 rounded-xl px-3 text-left text-xs font-semibold text-slate-700 transition hover:bg-white/80"
         >
           <span className="inline-flex min-w-0 items-center gap-2"><span aria-hidden>📊</span><span className="truncate">ข้อมูลสำคัญวันนี้</span></span>
           {todaySales != null ? <span className="shrink-0 rounded-full bg-blue-50 px-2 py-0.5 text-[10px] font-bold text-blue-700">฿{money(todaySales)}</span> : null}
@@ -332,7 +333,7 @@ function ChatRoomPanel({
         <button
           type="button"
           onClick={onOpenRecommendations}
-          className="flex min-h-10 w-full items-center gap-2 rounded-xl border border-violet-100 bg-white px-3 text-left text-xs font-semibold text-slate-700 transition hover:bg-violet-50"
+          className="flex min-h-10 w-full items-center gap-2 rounded-xl px-3 text-left text-xs font-semibold text-slate-700 transition hover:bg-white/80"
         >
           <span className="text-violet-600"><SparkleIcon size={14} /></span>
           <span className="truncate">เมนูแนะนำสำหรับคุณ</span>
@@ -344,7 +345,7 @@ function ChatRoomPanel({
           {rooms.length ? rooms.map((room) => {
             const active = room.id === activeRoomId;
             return (
-              <div key={room.id} className={`group flex items-center rounded-lg transition ${active ? "bg-slate-200/80" : "hover:bg-slate-200/55"}`}>
+              <div key={room.id} className={`group flex items-center rounded-lg transition ${active ? "bg-white shadow-sm" : "hover:bg-white/70"}`}>
                 <button
                   type="button"
                   onClick={() => onOpen(room.id)}
@@ -381,13 +382,11 @@ function ChatRoomPanel({
   );
 }
 
-function welcomeMessage(lang: Language): ChatMessage {
+function welcomeMessage(_lang: Language): ChatMessage {
   return {
     id: "welcome",
     role: "assistant",
-    text: lang === "th"
-      ? "สวัสดีครับ ผมคือ CpiPOS AI 👋\nผมช่วยสรุปยอดขาย วิเคราะห์ต้นทุนและสต๊อก พร้อมช่วยคิดการตลาดจากข้อมูลจริงของร้านได้ครับ"
-      : "Hello, I’m CpiPOS AI 👋\nI can summarize sales, analyze cost and stock, and help with marketing using your store data."
+    text: ""
   };
 }
 
@@ -448,7 +447,7 @@ export function CpiPosAiAssistant({ lang }: { lang: Language }) {
           const storedHistory = Array.isArray(body?.data?.history)
             ? body.data.history.filter((message) => message.role === "user" || message.role === "assistant")
             : [];
-          setMessages(storedHistory.length ? storedHistory : [welcomeMessage(lang)]);
+          setMessages(storedHistory.length ? storedHistory : []);
         }
       } catch (error) {
         if (!cancelled) setOverviewError(friendlyAiError(error instanceof Error ? error.message : error));
@@ -474,7 +473,7 @@ export function CpiPosAiAssistant({ lang }: { lang: Language }) {
       const body = (await response.json().catch(() => null)) as ApiEnvelope<{ room?: AiChatRoom; messages?: ChatMessage[] }>;
       if (!response.ok || !body?.data?.room) throw new Error(body?.error?.message ?? "ไม่สามารถเปิดห้องแชทได้");
       setActiveRoomId(body.data.room.id);
-      setMessages(Array.isArray(body.data.messages) && body.data.messages.length ? body.data.messages : [welcomeMessage(lang)]);
+      setMessages(Array.isArray(body.data.messages) ? body.data.messages : []);
       setProposalStatus({});
       setAutoScroll(true);
       setRoomDrawerOpen(false);
@@ -501,7 +500,7 @@ export function CpiPosAiAssistant({ lang }: { lang: Language }) {
       const room = body.data.room;
       setRooms((current) => [room, ...current.filter((item) => item.id !== room.id)]);
       setActiveRoomId(room.id);
-      setMessages([welcomeMessage(lang)]);
+      setMessages([]);
       setProposalStatus({});
       setRoomDrawerOpen(false);
       requestAnimationFrame(() => textareaRef.current?.focus());
@@ -531,7 +530,7 @@ export function CpiPosAiAssistant({ lang }: { lang: Language }) {
           await openRoom(nextRoom.id);
           return;
         }
-        setMessages([welcomeMessage(lang)]);
+        setMessages([]);
       }
     } catch (error) {
       setOverviewError(friendlyAiError(error instanceof Error ? error.message : error));
@@ -754,36 +753,35 @@ export function CpiPosAiAssistant({ lang }: { lang: Language }) {
     }
   }
 
+  const hasChatContent = messages.some((message) => Boolean(message.text.trim()));
+
   return (
     <main
-      className="h-full min-h-0 w-full overflow-hidden bg-[#f7f7f8] p-3 sm:p-4 xl:p-5"
-      style={{ fontFamily: 'ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans Thai", sans-serif' }}
+      className="h-full min-h-0 w-full overflow-hidden bg-[radial-gradient(circle_at_85%_5%,rgba(56,189,248,0.13),transparent_28%),linear-gradient(180deg,#f7fbff_0%,#f7f7f8_38%,#f7f7f8_100%)]"
+      style={{ fontFamily: '"Noto Sans Thai","Leelawadee UI",ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif' }}
     >
-      <section className="mx-auto flex h-full min-h-0 w-full max-w-[1500px] flex-col gap-3">
-        <header className="relative overflow-hidden rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm sm:px-5">
-          <div className="absolute -right-10 -top-12 h-28 w-28 rounded-full bg-blue-100/50 blur-2xl" />
-          <div className="relative flex flex-wrap items-center justify-between gap-3">
-            <h1 className="text-xl font-semibold tracking-[-0.02em] text-slate-950 sm:text-2xl">CpiPOS AI</h1>
-            <div className="flex flex-wrap items-center gap-2">
-              {quota ? (
-                <span className={`rounded-full border px-2.5 py-1 text-[10px] font-semibold ${quota.exhausted ? "border-red-200 bg-red-50 text-red-700" : "border-emerald-200 bg-emerald-50 text-emerald-700"}`}>
-                  เดือน {quota.month_key}: {quota.usage.requests}{quota.limits.requests ? `/${quota.limits.requests}` : ""} ครั้ง · {new Intl.NumberFormat("th-TH").format(quota.usage.total_tokens)} tokens
-                </span>
-              ) : null}
-              <button
-                type="button"
-                onClick={() => void clearHistory()}
-                disabled={sending}
-                className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[10px] font-semibold text-slate-500 transition hover:border-red-200 hover:text-red-600 disabled:opacity-50"
-              >
-                ล้างประวัติของฉัน
-              </button>
-            </div>
+      <section className="mx-auto flex h-full min-h-0 w-full max-w-[1600px] flex-col">
+        <header className="flex h-[62px] shrink-0 items-center justify-between border-b border-slate-200/70 bg-white/70 px-5 backdrop-blur-xl sm:px-7">
+          <h1 className="text-[22px] font-semibold tracking-[-0.025em] text-slate-950">CpiPOS AI</h1>
+          <div className="flex items-center gap-2">
+            {quota ? (
+              <span className={`hidden rounded-full px-3 py-1.5 text-[11px] font-semibold sm:inline-flex ${quota.exhausted ? "bg-red-50 text-red-700" : "bg-emerald-50 text-emerald-700"}`}>
+                {quota.usage.requests}{quota.limits.requests ? `/${quota.limits.requests}` : ""} ครั้ง · {new Intl.NumberFormat("th-TH").format(quota.usage.total_tokens)} tokens
+              </span>
+            ) : null}
+            <button
+              type="button"
+              onClick={() => void clearHistory()}
+              disabled={sending}
+              className="rounded-full px-3 py-1.5 text-[11px] font-semibold text-slate-500 transition hover:bg-white hover:text-red-600 disabled:opacity-50"
+            >
+              ล้างแชททั้งหมด
+            </button>
           </div>
         </header>
 
-        <div className="flex min-h-0 flex-1 gap-3">
-          <aside className="hidden w-[260px] shrink-0 overflow-hidden rounded-2xl border border-slate-200 bg-[#f7f7f8] lg:block">
+        <div className="flex min-h-0 flex-1">
+          <aside className="hidden w-[270px] shrink-0 border-r border-slate-200/70 bg-slate-50/75 lg:block">
             <ChatRoomPanel
               rooms={rooms}
               activeRoomId={activeRoomId}
@@ -796,122 +794,136 @@ export function CpiPosAiAssistant({ lang }: { lang: Language }) {
               onOpenRecommendations={() => setRecommendationModalOpen(true)}
             />
           </aside>
-          <div className="min-h-0 min-w-0 flex-1">
-          <section className="flex h-full min-h-0 flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_8px_28px_rgba(15,23,42,0.05)]">
-            <div className="shrink-0 border-b border-slate-100 px-4 py-3 sm:px-5">
-              <div className="flex flex-wrap items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => setRoomDrawerOpen(true)}
-                  className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 text-xs font-semibold text-slate-600 lg:hidden"
-                >
-                  ☰ ห้องแชท
-                </button>
-                <span className="text-xs font-black uppercase tracking-[0.14em] text-blue-600">AI CHAT</span>
-                <span className="max-w-[230px] truncate text-xs font-semibold text-slate-700">{activeRoom?.title ?? "แชทใหม่"}</span>
-                <span className="rounded-full bg-blue-50 px-2.5 py-1 text-[10px] font-bold text-blue-700">ถามเป็นภาษาไทยได้เลย</span>
-                <button
-                  type="button"
-                  onClick={toggleSuggestions}
-                  className="ml-auto inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-[11px] font-bold text-slate-600 transition hover:border-blue-200 hover:text-blue-700"
-                  aria-expanded={showSuggestions}
-                >
-                  {showSuggestions ? "ซ่อนคำถามแนะนำ" : "แสดงคำถามแนะนำ"}
-                  <svg width="13" height="13" viewBox="0 0 20 20" fill="currentColor" aria-hidden className={`transition-transform ${showSuggestions ? "rotate-180" : ""}`}>
-                    <path d="M5.5 7.5 10 12l4.5-4.5" />
-                  </svg>
-                </button>
-              </div>
-              {showSuggestions ? (
-                <div className="mt-3 flex flex-wrap gap-2">
+
+          <section className="relative flex min-h-0 min-w-0 flex-1 flex-col bg-white/55">
+            <div className="flex h-[52px] shrink-0 items-center gap-2 border-b border-slate-200/70 bg-white/65 px-4 backdrop-blur sm:px-6">
+              <button
+                type="button"
+                onClick={() => setRoomDrawerOpen(true)}
+                className="inline-flex h-8 items-center gap-1.5 rounded-lg px-2.5 text-xs font-semibold text-slate-600 transition hover:bg-white lg:hidden"
+              >
+                ☰ แชท
+              </button>
+              <span className="text-xs font-black uppercase tracking-[0.14em] text-blue-600">AI CHAT</span>
+              <span className="max-w-[260px] truncate text-xs font-semibold text-slate-700">{activeRoom?.title ?? "แชทใหม่"}</span>
+              <span className="rounded-full bg-blue-50 px-2.5 py-1 text-[10px] font-bold text-blue-700">ถามเป็นภาษาไทยได้เลย</span>
+              <button
+                type="button"
+                onClick={toggleSuggestions}
+                className="ml-auto inline-flex items-center gap-1 rounded-full px-3 py-1.5 text-[11px] font-bold text-slate-600 transition hover:bg-white"
+                aria-expanded={showSuggestions}
+              >
+                {showSuggestions ? "ซ่อนคำถามแนะนำ" : "แสดงคำถามแนะนำ"}
+                <svg width="13" height="13" viewBox="0 0 20 20" fill="currentColor" aria-hidden className={`transition-transform ${showSuggestions ? "rotate-180" : ""}`}>
+                  <path d="M5.5 7.5 10 12l4.5-4.5" />
+                </svg>
+              </button>
+            </div>
+
+            {showSuggestions ? (
+              <div className="shrink-0 border-b border-slate-200/60 bg-white/45 px-4 py-2.5 sm:px-6">
+                <div className="mx-auto flex max-w-[920px] flex-wrap gap-2">
                   {QUICK_PROMPTS.map((prompt) => (
                     <button
                       key={prompt}
                       type="button"
                       onClick={() => void sendMessage(prompt)}
                       disabled={sending || quota?.exhausted || quota?.enabled === false}
-                      className="shrink-0 rounded-full border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-700 transition hover:bg-slate-100 disabled:cursor-wait disabled:opacity-50"
+                      className="rounded-full bg-white/85 px-3 py-1.5 text-[11px] font-medium text-slate-700 shadow-sm ring-1 ring-slate-200/80 transition hover:bg-slate-50 disabled:opacity-50"
                     >
                       {prompt}
                     </button>
                   ))}
                 </div>
-              ) : null}
-            </div>
+              </div>
+            ) : null}
 
             <div className="relative min-h-0 flex-1">
               <div
                 ref={chatScrollRef}
                 onScroll={handleChatScroll}
-                className="h-full min-h-0 overflow-y-auto overscroll-contain bg-white px-4 py-4 sm:px-5"
+                className="h-full min-h-0 overflow-y-auto overscroll-contain px-4 pb-36 pt-4 sm:px-6"
               >
-              {messages.map((message) => (
-                <div key={message.id} className="w-full py-2.5 sm:py-3.5">
-                  <div className={`mx-auto flex w-full max-w-[820px] ${message.role === "user" ? "justify-end" : "justify-start"}`}>
-                    <div className={`${message.role === "user" ? "max-w-[78%] rounded-[24px] bg-[#f4f4f4] px-4 py-2.5 text-slate-900" : "w-full px-1 py-2 text-slate-800"} text-[15px] font-normal leading-7 sm:text-[15.5px]`}>
-                      <AiRichText text={message.text} />
-                    {message.role === "assistant" && message.proposals?.length ? (
-                      <div className="mt-2 grid gap-2">
-                        {message.proposals.map((proposal) => {
-                          const status = proposalStatus[proposal.id] ?? { state: "idle" as const };
-                          if (proposal.type === "marketing_campaign") {
-                            return (
-                              <div key={proposal.id} className="rounded-2xl border border-violet-200 bg-violet-50/60 p-3">
-                                <div className="flex items-center justify-between gap-2">
-                                  <strong className="text-sm font-black text-violet-900">{proposal.title}</strong>
-                                  <span className="rounded-full bg-violet-600 px-2 py-0.5 text-[10px] font-black text-white">MARKETING</span>
-                                </div>
-                                <p className="mt-1 text-xs font-semibold text-violet-700">{proposal.offer}</p>
-                                <p className="mt-2 whitespace-pre-wrap rounded-xl bg-white/80 p-3 text-xs leading-5 text-slate-700">{proposal.copy_text}</p>
-                                <p className="mt-2 text-[11px] text-slate-500">กลุ่มเป้าหมาย: {proposal.audience || "-"}{proposal.channels.length ? ` · ช่องทาง: ${proposal.channels.join(", ")}` : ""}</p>
-                                <div className="mt-3 flex items-center gap-2">
-                                  <button type="button" onClick={() => void copyMarketing(proposal)} className="rounded-xl bg-violet-600 px-3 py-2 text-xs font-black text-white">คัดลอกข้อความ</button>
-                                  {status.message ? <span className={`text-[11px] font-bold ${status.state === "error" ? "text-red-600" : "text-emerald-600"}`}>{status.message}</span> : null}
-                                </div>
-                              </div>
-                            );
-                          }
+                {!hasChatContent && !sending ? (
+                  <div className="mx-auto flex min-h-[68%] max-w-[820px] flex-col items-center justify-center text-center">
+                    <Image
+                      src="/brand/cpipos-symbol-transparent.png"
+                      width={92}
+                      height={92}
+                      alt="CpiPOS AI"
+                      priority
+                      className="h-[88px] w-[88px] object-contain drop-shadow-[0_8px_18px_rgba(37,99,235,0.18)]"
+                    />
+                    <h2 className="mt-5 text-2xl font-semibold tracking-[-0.025em] text-slate-950 sm:text-3xl">วันนี้ให้ CpiPOS AI ช่วยอะไร?</h2>
+                    <p className="mt-2 max-w-[560px] text-sm leading-6 text-slate-500">
+                      ถามเรื่องยอดขาย ต้นทุน สต๊อก การตลาด การใช้งานระบบ หรือให้ช่วยสรุปข้อมูลร้านได้เลย
+                    </p>
+                  </div>
+                ) : null}
 
-                          const detail = proposal.type === "update_product_price"
-                            ? `฿${money(proposal.current_price)} → ฿${money(proposal.new_price)}`
-                            : `${money(proposal.current_quantity)} ${proposal.unit} · ปรับ ${proposal.quantity_delta > 0 ? "+" : ""}${money(proposal.quantity_delta)} ${proposal.unit}`;
-                          return (
-                            <div key={proposal.id} className="rounded-2xl border border-blue-200 bg-blue-50/70 p-3">
-                              <div className="flex flex-wrap items-center justify-between gap-2">
-                                <strong className="text-sm font-black text-blue-950">{proposal.title}</strong>
-                                <span className="rounded-full bg-blue-600 px-2 py-0.5 text-[10px] font-black text-white">ยืนยัน + PIN</span>
-                              </div>
-                              <p className="mt-2 text-sm font-black text-slate-900">{detail}</p>
-                              <p className="mt-1 text-xs leading-5 text-slate-600">{proposal.reason}</p>
-                              <div className="mt-3 flex flex-wrap items-center gap-2">
-                                <button
-                                  type="button"
-                                  onClick={() => requestExecution(proposal)}
-                                  disabled={status.state === "executing" || status.state === "success"}
-                                  className="rounded-xl bg-gradient-to-r from-blue-600 to-cyan-500 px-3 py-2 text-xs font-black text-white shadow-sm disabled:cursor-not-allowed disabled:opacity-50"
-                                >
-                                  {status.state === "executing" ? "กำลังดำเนินการ..." : status.state === "success" ? "ดำเนินการแล้ว" : "ตรวจสอบและยืนยัน"}
-                                </button>
-                                {status.message ? <span className={`text-[11px] font-bold ${status.state === "error" ? "text-red-600" : "text-emerald-600"}`}>{status.message}</span> : null}
-                              </div>
-                            </div>
-                          );
-                        })}
+                {messages.filter((message) => message.text.trim()).map((message) => (
+                  <div key={message.id} className="w-full py-3 sm:py-4">
+                    <div className={`mx-auto flex w-full max-w-[880px] ${message.role === "user" ? "justify-end" : "justify-start"}`}>
+                      <div className={`${message.role === "user"
+                        ? "max-w-[78%] rounded-[24px] bg-[#eaf3ff] px-4 py-2.5 text-slate-900"
+                        : "w-full px-1 py-1 text-slate-800"} text-[15px] font-normal leading-7 sm:text-[15.5px]`}>
+                        <AiRichText text={message.text} />
+                        {message.role === "assistant" && message.proposals?.length ? (
+                          <div className="mt-3 grid gap-2">
+                            {message.proposals.map((proposal) => {
+                              const status = proposalStatus[proposal.id] ?? { state: "idle" as const };
+                              if (proposal.type === "marketing_campaign") {
+                                return (
+                                  <div key={proposal.id} className="rounded-2xl border border-violet-200 bg-violet-50/60 p-3">
+                                    <strong className="text-sm font-black text-violet-900">{proposal.title}</strong>
+                                    <p className="mt-1 text-xs font-semibold text-violet-700">{proposal.offer}</p>
+                                    <p className="mt-2 whitespace-pre-wrap rounded-xl bg-white/80 p-3 text-xs leading-5 text-slate-700">{proposal.copy_text}</p>
+                                    <div className="mt-3 flex items-center gap-2">
+                                      <button type="button" onClick={() => void copyMarketing(proposal)} className="rounded-xl bg-violet-600 px-3 py-2 text-xs font-black text-white">คัดลอกข้อความ</button>
+                                      {status.message ? <span className={`text-[11px] font-bold ${status.state === "error" ? "text-red-600" : "text-emerald-600"}`}>{status.message}</span> : null}
+                                    </div>
+                                  </div>
+                                );
+                              }
+                              const detail = proposal.type === "update_product_price"
+                                ? `฿${money(proposal.current_price)} → ฿${money(proposal.new_price)}`
+                                : `${money(proposal.current_quantity)} ${proposal.unit} · ปรับ ${proposal.quantity_delta > 0 ? "+" : ""}${money(proposal.quantity_delta)} ${proposal.unit}`;
+                              return (
+                                <div key={proposal.id} className="rounded-2xl border border-blue-200 bg-blue-50/70 p-3">
+                                  <strong className="text-sm font-black text-blue-950">{proposal.title}</strong>
+                                  <p className="mt-2 text-sm font-black text-slate-900">{detail}</p>
+                                  <p className="mt-1 text-xs leading-5 text-slate-600">{proposal.reason}</p>
+                                  <div className="mt-3 flex flex-wrap items-center gap-2">
+                                    <button
+                                      type="button"
+                                      onClick={() => requestExecution(proposal)}
+                                      disabled={status.state === "executing" || status.state === "success"}
+                                      className="rounded-xl bg-blue-600 px-3 py-2 text-xs font-black text-white disabled:opacity-50"
+                                    >
+                                      {status.state === "executing" ? "กำลังดำเนินการ..." : status.state === "success" ? "ดำเนินการแล้ว" : "ตรวจสอบและยืนยัน"}
+                                    </button>
+                                    {status.message ? <span className={`text-[11px] font-bold ${status.state === "error" ? "text-red-600" : "text-emerald-600"}`}>{status.message}</span> : null}
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        ) : null}
                       </div>
-                    ) : null}
+                    </div>
                   </div>
-                </div>
-              </div>
-              ))}
-              {sending ? (
-                <div className="w-full py-3">
-                  <div className="mx-auto w-full max-w-[820px] px-1 text-sm font-medium text-slate-500">
-                    <span className="inline-flex items-center gap-2"><span className="h-2 w-2 animate-pulse rounded-full bg-slate-400" />กำลังวิเคราะห์ข้อมูลร้าน...</span>
+                ))}
+
+                {sending ? (
+                  <div className="w-full py-3">
+                    <div className="mx-auto w-full max-w-[880px] px-1 text-sm font-medium text-slate-500">
+                      <span className="inline-flex items-center gap-2"><span className="h-2 w-2 animate-pulse rounded-full bg-slate-400" />กำลังวิเคราะห์...</span>
+                    </div>
                   </div>
-                </div>
-              ) : null}
+                ) : null}
                 <div ref={chatEndRef} />
               </div>
+
               {showScrollToBottom ? (
                 <button
                   type="button"
@@ -920,44 +932,43 @@ export function CpiPosAiAssistant({ lang }: { lang: Language }) {
                     setShowScrollToBottom(false);
                     scrollToBottom("smooth");
                   }}
-                  className="absolute bottom-3 right-4 z-10 inline-flex h-9 items-center gap-1 rounded-full border border-slate-200 bg-white/95 px-3 text-xs font-black text-slate-600 shadow-lg backdrop-blur transition hover:border-blue-200 hover:text-blue-700"
+                  className="absolute bottom-28 left-1/2 z-10 -translate-x-1/2 rounded-full bg-white px-3 py-2 text-xs font-semibold text-slate-600 shadow-lg ring-1 ring-slate-200"
                 >
                   ↓ กลับลงล่าง
                 </button>
               ) : null}
-            </div>
 
-            <form onSubmit={submit} className="sticky bottom-0 z-20 shrink-0 bg-gradient-to-t from-white via-white to-white/80 px-3 pb-3 pt-4 backdrop-blur sm:px-4 sm:pb-4">
-              <div className="mx-auto flex max-w-[820px] items-end gap-2 rounded-[26px] border border-slate-200 bg-white p-2 shadow-[0_8px_28px_rgba(15,23,42,0.08)] focus-within:border-slate-300">
-                <span className="mb-2 ml-1 text-blue-500"><SparkleIcon size={19} /></span>
-                <textarea
-                  ref={textareaRef}
-                  value={input}
-                  onChange={(event) => {
-                    setInput(event.target.value);
-                    resizeComposer(event.currentTarget);
-                  }}
-                  onKeyDown={handleKeyDown}
-                  rows={1}
-                  maxLength={1200}
-                  placeholder={quota?.exhausted ? "โควตา AI เดือนนี้ครบแล้ว" : quota?.enabled === false ? "AI ถูกปิดสำหรับร้านนี้" : "พิมพ์คำถามถึง CpiPOS AI..."}
-                  className="max-h-32 min-h-[42px] flex-1 resize-none border-0 bg-transparent px-1 py-2.5 text-[15px] font-normal leading-6 text-slate-900 outline-none placeholder:text-slate-400"
-                />
-                <button
-                  type="submit"
-                  disabled={sending || !input.trim() || quota?.exhausted || quota?.enabled === false}
-                  className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-slate-950 text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400"
-                  aria-label="ส่งข้อความ"
-                >
-                  <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-                    <path d="m22 2-7 20-4-9-9-4Z" /><path d="M22 2 11 13" />
-                  </svg>
-                </button>
-              </div>
-              <p className="mx-auto mt-2 max-w-[820px] px-2 text-center text-[10px] font-normal text-slate-400">CpiPOS AI อาจตอบคลาดเคลื่อนได้ · การเปลี่ยนราคา/สต๊อกต้องยืนยันและผ่าน PIN Owner/Manager</p>
-            </form>
+              <form onSubmit={submit} className="absolute inset-x-0 bottom-0 z-20 bg-gradient-to-t from-white via-white/95 to-transparent px-4 pb-4 pt-10 sm:px-6">
+                <div className="mx-auto flex max-w-[880px] items-end gap-2 rounded-[28px] border border-slate-200 bg-white p-2 shadow-[0_12px_42px_rgba(15,23,42,0.10)] focus-within:border-blue-300">
+                  <span className="mb-2 ml-1 text-blue-500"><SparkleIcon size={19} /></span>
+                  <textarea
+                    ref={textareaRef}
+                    value={input}
+                    onChange={(event) => {
+                      setInput(event.target.value);
+                      resizeComposer(event.currentTarget);
+                    }}
+                    onKeyDown={handleKeyDown}
+                    rows={1}
+                    maxLength={1200}
+                    placeholder={quota?.exhausted ? "โควตา AI เดือนนี้ครบแล้ว" : quota?.enabled === false ? "AI ถูกปิดสำหรับร้านนี้" : "ถาม CpiPOS AI"}
+                    className="max-h-32 min-h-[42px] flex-1 resize-none border-0 bg-transparent px-1 py-2.5 text-[15px] font-normal leading-6 text-slate-900 outline-none placeholder:text-slate-400"
+                  />
+                  <button
+                    type="submit"
+                    disabled={sending || !input.trim() || quota?.exhausted || quota?.enabled === false}
+                    className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-slate-950 text-white transition hover:bg-slate-800 disabled:bg-slate-200 disabled:text-slate-400"
+                    aria-label="ส่งข้อความ"
+                  >
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                      <path d="m22 2-7 20-4-9-9-4Z" /><path d="M22 2 11 13" />
+                    </svg>
+                  </button>
+                </div>
+                <p className="mx-auto mt-2 max-w-[880px] px-2 text-center text-[10px] font-normal text-slate-400">AI อาจตอบคลาดเคลื่อนได้ · งานที่เปลี่ยนข้อมูลจริงต้องตรวจสอบและยืนยันก่อน</p>
+              </form>
+            </div>
           </section>
-          </div>
         </div>
       </section>
 
