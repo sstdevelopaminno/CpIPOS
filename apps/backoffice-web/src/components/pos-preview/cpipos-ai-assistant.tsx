@@ -579,9 +579,6 @@ export function CpiPosAiAssistant({ lang }: { lang: Language }) {
       setActiveRoomId(room.id);
       rememberActiveRoom(room.id);
       setMessages([welcomeMessage(lang)]);
-      setRooms([]);
-      setActiveRoomId(null);
-      rememberActiveRoom(null);
       setProposalStatus({});
       setRoomDrawerOpen(false);
       requestAnimationFrame(() => textareaRef.current?.focus());
@@ -758,8 +755,11 @@ export function CpiPosAiAssistant({ lang }: { lang: Language }) {
     try {
       const response = await fetch("/api/pos/ai/assistant", { method: "DELETE" });
       const body = (await response.json().catch(() => null)) as ApiEnvelope<{ cleared?: boolean }>;
-      if (!response.ok) throw new Error(friendlyAiError(body?.error?.message));
+      if (!response.ok) throw new Error(body?.error?.message ?? "ไม่สามารถล้างประวัติ CpiPOS AI ได้");
       setMessages([welcomeMessage(lang)]);
+      setRooms([]);
+      setActiveRoomId(null);
+      rememberActiveRoom(null);
       setProposalStatus({});
     } catch (error) {
       setMessages((current) => [...current, {
