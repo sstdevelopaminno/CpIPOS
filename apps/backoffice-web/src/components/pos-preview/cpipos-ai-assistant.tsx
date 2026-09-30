@@ -60,6 +60,16 @@ type AiQuotaStatus = {
   usage: { requests: number; total_tokens: number; cost_usd: number };
   exhausted: boolean;
   exhausted_by: Array<"requests" | "tokens" | "cost">;
+  history_retention_days: number | null;
+};
+
+type AiChatRoom = {
+  id: string;
+  title: string;
+  openai_conversation_id: string;
+  created_at: string;
+  updated_at: string;
+  last_message_at: string;
 };
 
 type AiProposal =
@@ -304,11 +314,16 @@ export function CpiPosAiAssistant({ lang }: { lang: Language }) {
   const [showSuggestions, setShowSuggestions] = useState(true);
   const [autoScroll, setAutoScroll] = useState(true);
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
+  const [rooms, setRooms] = useState<AiChatRoom[]>([]);
+  const [activeRoomId, setActiveRoomId] = useState<string | null>(null);
+  const [roomDrawerOpen, setRoomDrawerOpen] = useState(false);
+  const [roomBusy, setRoomBusy] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([welcomeMessage(lang)]);
   const chatEndRef = useRef<HTMLDivElement | null>(null);
   const chatScrollRef = useRef<HTMLDivElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
 
+  const activeRoom = useMemo(() => rooms.find((room) => room.id === activeRoomId) ?? null, [rooms, activeRoomId]);
   const lowMargin = overview?.cost.low_margin_products?.[0] ?? null;
   const bestSeller = overview?.today.top_products?.[0] ?? overview?.last_30_days.top_products?.[0] ?? null;
 
@@ -330,11 +345,15 @@ export function CpiPosAiAssistant({ lang }: { lang: Language }) {
       setOverviewError(null);
       try {
         const response = await fetch("/api/pos/ai/assistant", { cache: "no-store" });
-        const body = (await response.json().catch(() => null)) as ApiEnvelope<{ overview?: Overview; history?: ChatMessage[]; quota?: AiQuotaStatus }>;
+        const body = (await response.json().catch(() => null)) as ApiEnvelope<{ overview?: Overview; rooms?: AiChatRoom[]; active_room?: AiChatRoom | null; history?: ChatMessage[]; quota?: AiQuotaStatus }>;
         if (!response.ok) throw new Error(body?.error?.message ?? "ไม่สามารถโหลดข้อมูลร้านได้");
         if (!cancelled) {
           setOverview(body?.data?.overview ?? null);
           setQuota(body?.data?.quota ?? null);
+          const loadedRooms = Array.isArray(body?.data?.rooms) ? body.data.rooms : [];
+          const loadedActiveRoom = body?.data?.active_room ?? loadedRooms[0] ?? null;
+          setRooms(loadedRooms);
+          setActiveRoomId(loadedActiveRoom?.id ?? null);
           const storedHistory = Array.isArray(body?.data?.history)
             ? body.data.history.filter((message) => message.role === "user" || message.role === "assistant")
             : [];
@@ -351,6 +370,84 @@ export function CpiPosAiAssistant({ lang }: { lang: Language }) {
       cancelled = true;
     };
   }, []);
+
+  async function openRoom(roomId: string) {
+    if (roomBusy || roomId === activeRoomId) {
+      setRoomDrawerOpen(false);
+      return;
+    }
+    setRoomBusy(true);
+    setOverviewError(null);
+    try {
+      const response = await fetch(`/api/pos/ai/conversations/${encodeURIComponent(roomId)}`, { cache: "no-store" });
+      const body = (await response.json().catch(() => null)) as ApiEnvelope<{ room?: AiChatRoom; messages?: ChatMessage[] }>;
+      if (!response.ok || !body?.data?.room) throw new Error(body?.error?.message ?? "ไม่สามารถเปิดห้องแชทได้");
+      setActiveRoomId(body.data.room.id);
+      setMessages(Array.isArray(body.data.messages) && body.data.messages.length ? body.data.messages : [welcomeMessage(lang)]);
+      setProposalStatus({});
+      setAutoScroll(true);
+      setRoomDrawerOpen(false);
+      requestAnimationFrame(() => scrollToBottom("auto"));
+    } catch (error) {
+      setOverviewError(friendlyAiError(error instanceof Error ? error.message : error));
+    } finally {
+      setRoomBusy(false);
+    }
+  }
+
+  async function createRoom() {
+    if (roomBusy || sending || quota?.enabled === false) return;
+    setRoomBusy(true);
+    setOverviewError(null);
+    try {
+      const response = await fetch("/api/pos/ai/conversations", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title: "แชทใหม่" })
+      });
+      const body = (await response.json().catch(() => null)) as ApiEnvelope<{ room?: AiChatRoom }>;
+      if (!response.ok || !body?.data?.room) throw new Error(body?.error?.message ?? "สร้างห้องแชทไม่สำเร็จ");
+      const room = body.data.room;
+      setRooms((current) => [room, ...current.filter((item) => item.id !== room.id)]);
+      setActiveRoomId(room.id);
+      setMessages([welcomeMessage(lang)]);
+      setProposalStatus({});
+      setRoomDrawerOpen(false);
+      requestAnimationFrame(() => textareaRef.current?.focus());
+    } catch (error) {
+      setOverviewError(friendlyAiError(error instanceof Error ? error.message : error));
+    } finally {
+      setRoomBusy(false);
+    }
+  }
+
+  async function deleteRoom(room: AiChatRoom) {
+    if (roomBusy || sending) return;
+    if (!window.confirm(`ลบห้องแชท “${room.title}” หรือไม่?\n\nข้อความในห้องนี้จะถูกลบจาก OpenAI Conversation และไม่สามารถกู้คืนได้`)) return;
+    setRoomBusy(true);
+    setOverviewError(null);
+    try {
+      const response = await fetch(`/api/pos/ai/conversations/${encodeURIComponent(room.id)}`, { method: "DELETE" });
+      const body = (await response.json().catch(() => null)) as ApiEnvelope<{ deleted?: boolean }>;
+      if (!response.ok) throw new Error(body?.error?.message ?? "ลบห้องแชทไม่สำเร็จ");
+      const remaining = rooms.filter((item) => item.id !== room.id);
+      setRooms(remaining);
+      if (activeRoomId === room.id) {
+        const nextRoom = remaining[0] ?? null;
+        setActiveRoomId(nextRoom?.id ?? null);
+        if (nextRoom) {
+          setRoomBusy(false);
+          await openRoom(nextRoom.id);
+          return;
+        }
+        setMessages([welcomeMessage(lang)]);
+      }
+    } catch (error) {
+      setOverviewError(friendlyAiError(error instanceof Error ? error.message : error));
+    } finally {
+      setRoomBusy(false);
+    }
+  }
 
   useEffect(() => {
     try {
