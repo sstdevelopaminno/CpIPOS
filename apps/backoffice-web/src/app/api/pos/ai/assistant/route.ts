@@ -23,6 +23,7 @@ export const runtime = "nodejs";
 type AiRequestBody = {
   message?: string;
   room_id?: string;
+  image_data_url?: string | null;
 };
 
 type IngredientRow = {
@@ -118,6 +119,16 @@ function makePromptCacheKey(...parts: Array<string | null | undefined>) {
     .update(parts.filter(Boolean).join(":"))
     .digest("hex")
     .slice(0, 64);
+}
+
+function validatedImageDataUrl(value: unknown) {
+  const text = typeof value === "string" ? value.trim() : "";
+  if (!text) return null;
+  const match = text.match(/^data:(image\/(?:jpeg|png|webp));base64,([A-Za-z0-9+/=]+)$/);
+  if (!match) throw new Error("ai_image_invalid");
+  const estimatedBytes = Math.floor((match[2].length * 3) / 4);
+  if (estimatedBytes > 2 * 1024 * 1024) throw new Error("ai_image_too_large");
+  return text;
 }
 
 function isRestrictedAiRequest(message: string) {
@@ -569,6 +580,7 @@ const AI_INSTRUCTIONS = [
   "Phase 2 อนุญาตให้คุณเตรียมข้อเสนอการทำงานได้ แต่ห้ามอ้างว่าดำเนินการแล้วเอง",
   "หากผู้ใช้ต้องการปรับราคาสินค้าจริง ให้เรียก propose_product_price_update โดยใช้ product_id จาก catalog.products เท่านั้น",
   "หากผู้ใช้ต้องการแก้/เพิ่ม/ลดสต๊อกจริง ให้เรียก propose_stock_adjustment โดยใช้ ingredient_id จาก catalog.ingredients เท่านั้น",
+  "ถ้ามีรูปภาพแนบมา เช่น ใบรับของ บันทึกสต๊อก หรือฉลากสินค้า ให้อ่านเฉพาะสิ่งที่เห็นชัดเจน ถ้าชื่อ/จำนวนไม่แน่ใจให้ถามยืนยัน ห้ามเดา และการลงสต๊อกจริงยังต้องผ่านข้อเสนอ + PIN",
   "หากผู้ใช้ต้องการทำการตลาด ให้เรียก propose_marketing_campaign เพื่อสร้างข้อความและแผนสำหรับตรวจสอบ",
   "การเปลี่ยนราคาและสต๊อกต้องให้ผู้ใช้ยืนยันและผ่าน Owner/Manager PIN ใน CpiPOS ก่อนเสมอ",
   "ห้ามเสนอหรือดำเนินการยกเลิกบิล คืนเงิน ลบบัญชีผู้ใช้ เปลี่ยนสิทธิ์/บทบาท/แพ็กเกจ/นโยบาย IT เปลี่ยนข้อมูลภาษี หรือรัน SQL/คำสั่งฐานข้อมูลโดยตรง",
@@ -613,7 +625,8 @@ async function callOpenAi(
   message: string,
   conversationId: string,
   snapshot: Awaited<ReturnType<typeof loadBusinessSnapshot>>,
-  promptCacheKey: string
+  promptCacheKey: string,
+  imageDataUrl?: string | null
 ) {
   const apiKey = readEnv("OPENAI_API_KEY");
   if (!apiKey) throw new Error("OPENAI_API_KEY is not configured for CpiPOS AI.");
@@ -642,7 +655,10 @@ async function callOpenAi(
       input: [
         {
           role: "user",
-          content: [{ type: "input_text", text: message }]
+          content: [
+            { type: "input_text", text: message },
+            ...(imageDataUrl ? [{ type: "input_image", image_url: imageDataUrl, detail: "low" }] : [])
+          ]
         }
       ],
       tools: AI_PROPOSAL_TOOLS,
@@ -753,7 +769,16 @@ export async function POST(request: Request) {
     const body = (await request.json().catch(() => null)) as AiRequestBody | null;
     const message = String(body?.message ?? "").trim().slice(0, 1200);
     const roomId = String(body?.room_id ?? "").trim() || null;
-    if (!message) return fail("ai_message_required", "Please enter a question for CpiPOS AI.", 422);
+    let imageDataUrl: string | null = null;
+    try {
+      imageDataUrl = validatedImageDataUrl(body?.image_data_url);
+    } catch (error) {
+      const code = error instanceof Error ? error.message : "";
+      return fail(code === "ai_image_too_large" ? "ai_image_too_large" : "ai_image_invalid",
+        code === "ai_image_too_large" ? "รูปภาพต้องมีขนาดไม่เกิน 2 MB" : "รองรับเฉพาะรูป JPEG, PNG หรือ WebP", 422);
+    }
+    if (!message && !imageDataUrl) return fail("ai_message_required", "กรุณาพิมพ์คำถามหรือแนบรูปภาพ", 422);
+    const effectiveMessage = message || "ช่วยอ่านรูปภาพนี้และสรุปข้อมูลที่เกี่ยวข้องกับร้านให้หน่อย";
 
     const quota = await assertAiQuotaAvailable(auth.tenantId!);
     const scope = conversationScope(auth);
@@ -764,8 +789,8 @@ export async function POST(request: Request) {
     ]);
     const conversationId = room.openai_conversation_id;
 
-    if (isRestrictedAiRequest(message)) {
-      const roomAfter = await touchAiChatRoom(scope, room.id, message);
+    if (isRestrictedAiRequest(effectiveMessage)) {
+      const roomAfter = await touchAiChatRoom(scope, room.id, effectiveMessage);
       return ok({
         answer: restrictedAiReply(),
         proposals: [],
@@ -780,10 +805,11 @@ export async function POST(request: Request) {
     let result: Awaited<ReturnType<typeof callOpenAi>>;
     try {
       result = await callOpenAi(
-        message,
+        effectiveMessage,
         conversationId,
         overview,
-        makePromptCacheKey("cpipos", auth.tenantId, auth.branchId, auth.userId)
+        makePromptCacheKey("cpipos", auth.tenantId, auth.branchId, auth.userId),
+        imageDataUrl
       );
     } catch (error) {
       const messageText = error instanceof Error ? error.message : "CpiPOS AI request failed.";
@@ -805,7 +831,7 @@ export async function POST(request: Request) {
         branchId: auth.branchId!,
         userId: auth.userId,
         conversationId,
-        promptText: message,
+        promptText: effectiveMessage,
         responsePayload: result.payload,
         fallbackModel: AI_MODEL
       });
@@ -815,7 +841,7 @@ export async function POST(request: Request) {
 
     const [quotaAfter, roomAfter] = await Promise.all([
       metering ? loadAiQuotaStatus(auth.tenantId!) : Promise.resolve(quota),
-      touchAiChatRoom(scope, room.id, message)
+      touchAiChatRoom(scope, room.id, effectiveMessage)
     ]);
     return ok({
       answer: result.text,
