@@ -8,7 +8,7 @@ import { t, type Language } from "@/lib/i18n";
 import { featureForPosRoute } from "@/lib/pos-feature-map";
 import { isPosMenuEnabled, posMenuKeyForRoute } from "@/lib/pos-menu-policy";
 
-type MoreIconName = "summary" | "receipt" | "tables" | "stock" | "members" | "kitchen" | "buffet" | "tax" | "sales";
+type MoreIconName = "summary" | "receipt" | "tables" | "stock" | "members" | "kitchen" | "buffet" | "tax" | "sales" | "documents";
 type PosRole = "owner" | "manager" | "staff" | "accountant";
 type MoreItem = {
   href: string;
@@ -28,7 +28,8 @@ const MORE_ITEMS: MoreItem[] = [
   { href: "/preview/pos/buffet-pricing", icon: "buffet", label: { th: "ตั้งค่าราคาบุฟเฟ่", en: "Buffet Price Settings" }, roles: ["owner", "manager"], desc: { th: "กำหนดราคาบุฟเฟ่รายท่านและแบบชุดสำหรับหน้าขาย", en: "Set per-person and set prices for Buffet sales" } },
   { href: "/preview/pos/members", icon: "members", labelKey: "pos_menu_members", roles: ["owner", "manager", "accountant"], desc: { th: "ค้นหาและจัดการข้อมูลสมาชิกหน้าร้าน", en: "Search and manage store member records" } },
   { href: "/preview/pos/tax-invoices", icon: "tax", label: { th: "ออกใบกำกับภาษี", en: "Tax Invoices" }, roles: ["owner", "manager", "staff", "accountant"], desc: { th: "ทะเบียนผู้เสียภาษี ค้นบิลย้อนหลัง และพิมพ์ใบกำกับภาษี 58/80mm", en: "Tax recipient registry, receipt search, and 58/80mm printing" } },
-  { href: "/preview/pos/product-sales", icon: "sales", label: { th: "รายการขายสินค้า", en: "Product Sales" }, roles: ["owner", "manager", "accountant"], desc: { th: "ดูสินค้าที่ขาย วันที่ ราคา จำนวน และสถานะสินค้าขายดี", en: "Review sold products, dates, prices, quantities, and best-seller status" } }
+  { href: "/preview/pos/product-sales", icon: "sales", label: { th: "รายการขายสินค้า", en: "Product Sales" }, roles: ["owner", "manager", "accountant"], desc: { th: "ดูสินค้าที่ขาย วันที่ ราคา จำนวน และสถานะสินค้าขายดี", en: "Review sold products, dates, prices, quantities, and best-seller status" } },
+  { href: "/preview/pos/ai-documents", icon: "documents", label: { th: "เก็บไฟล์เอกสาร", en: "AI Documents" }, roles: ["owner", "manager"], desc: { th: "เก็บรายงาน สรุปยอด ตาราง และแผนงานที่สร้างจาก CpiPOS AI", en: "Store reports, summaries, tables and plans created by CpiPOS AI" } }
 ];
 
 function MoreIcon({ name }: { name: MoreIconName }) {
@@ -41,6 +42,7 @@ function MoreIcon({ name }: { name: MoreIconName }) {
   if (name === "buffet") return <svg {...common}><path d="M4 15h16M6 15a6 6 0 0 1 12 0M12 8V5M10.5 5h3M5 19h14"/></svg>;
   if (name === "tax") return <svg {...common}><path d="M6 3h9l3 3v15H6z"/><path d="M15 3v4h4M9 11h6M9 15h6"/><path d="M10 19h4"/></svg>;
   if (name === "sales") return <svg {...common}><path d="M5 4h14v16H5z"/><path d="M8 8h8M8 12h5M8 16h8"/><path d="m15 12 1.5 1.5L19 11"/></svg>;
+  if (name === "documents") return <svg {...common}><path d="M7 3h8l4 4v14H7z"/><path d="M15 3v5h5M10 12h6M10 16h6"/></svg>;
   return <svg {...common}><circle cx="9" cy="8" r="3"/><path d="M3.5 20c.7-3.2 2.9-5 5.5-5s4.8 1.8 5.5 5"/><circle cx="17" cy="10" r="2.2"/><path d="M14.5 17.5c.7-1.4 1.9-2.2 3.5-2.2 1.3 0 2.4.5 3.1 1.5"/></svg>;
 }
 
