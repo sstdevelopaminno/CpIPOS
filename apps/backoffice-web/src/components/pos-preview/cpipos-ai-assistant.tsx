@@ -290,6 +290,83 @@ function AiRichText({ text }: { text: string }) {
   );
 }
 
+function ChatRoomPanel({
+  rooms,
+  activeRoomId,
+  retentionDays,
+  busy,
+  onCreate,
+  onOpen,
+  onDelete
+}: {
+  rooms: AiChatRoom[];
+  activeRoomId: string | null;
+  retentionDays: number | null | undefined;
+  busy: boolean;
+  onCreate: () => void;
+  onOpen: (roomId: string) => void;
+  onDelete: (room: AiChatRoom) => void;
+}) {
+  return (
+    <div className="flex h-full min-h-0 flex-col bg-[#f7f7f8] text-slate-800">
+      <div className="shrink-0 p-3">
+        <button
+          type="button"
+          onClick={onCreate}
+          disabled={busy}
+          className="flex h-10 w-full items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-sm font-semibold shadow-sm transition hover:bg-slate-50 disabled:opacity-50"
+        >
+          <span className="text-lg font-light">＋</span>
+          แชทใหม่
+        </button>
+      </div>
+      <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-2">
+        <p className="px-2 pb-2 pt-1 text-[11px] font-semibold text-slate-400">แชทของฉัน</p>
+        <div className="space-y-1">
+          {rooms.length ? rooms.map((room) => {
+            const active = room.id === activeRoomId;
+            return (
+              <div key={room.id} className={`group flex items-center rounded-lg transition ${active ? "bg-slate-200/80" : "hover:bg-slate-200/55"}`}>
+                <button
+                  type="button"
+                  onClick={() => onOpen(room.id)}
+                  className="min-w-0 flex-1 px-3 py-2.5 text-left"
+                >
+                  <span className="block truncate text-[13px] font-medium text-slate-800">{room.title}</span>
+                  <span className="mt-0.5 block text-[10px] text-slate-400">
+                    {new Date(room.last_message_at).toLocaleDateString("th-TH", { day: "numeric", month: "short" })}
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onDelete(room)}
+                  disabled={busy}
+                  className="mr-1 grid h-8 w-8 shrink-0 place-items-center rounded-lg text-slate-400 opacity-0 transition hover:bg-white hover:text-red-600 group-hover:opacity-100 focus:opacity-100 disabled:opacity-30"
+                  aria-label={`ลบห้อง ${room.title}`}
+                  title="ลบห้องแชท"
+                >
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden>
+                    <path d="M4 7h16M9 7V4h6v3M7 7l1 13h8l1-13M10 11v5M14 11v5" />
+                  </svg>
+                </button>
+              </div>
+            );
+          }) : (
+            <div className="px-3 py-8 text-center text-xs leading-5 text-slate-400">
+              ยังไม่มีห้องแชท<br />กด “แชทใหม่” เพื่อเริ่มต้น
+            </div>
+          )}
+        </div>
+      </div>
+      <div className="shrink-0 border-t border-slate-200 p-3 text-[10px] leading-5 text-slate-400">
+        <strong className="block font-semibold text-slate-500">OpenAI Conversations</strong>
+        ข้อความเก็บฝั่ง OpenAI
+        {retentionDays ? <> · เก็บตามแพ็กเกจ {retentionDays} วัน</> : <> · ระยะเก็บตามสัญญา</>}
+      </div>
+    </div>
+  );
+}
+
 function welcomeMessage(lang: Language): ChatMessage {
   return {
     id: "welcome",
