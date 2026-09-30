@@ -6,7 +6,7 @@ import { PosSupportChat } from "@/components/pos-preview/pos-support-chat";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { PosSubscriptionCenterData } from "@/lib/services/pos-subscription-center-service";
 
-type Tab = "overview" | "renew" | "notice" | "history" | "documents";
+type Tab = "overview" | "packages" | "renew" | "notice" | "history" | "documents";
 type Envelope<T> = { data?: T; error?: { code?: string; message?: string } };
 type IconName = "payment" | "refresh" | "store" | "calendar" | "chart" | "bank" | "copy" |
   "crown" | "file" | "check" | "support" | "upload" | "send" | "clock" | "mail" | "phone" |
@@ -59,6 +59,19 @@ function formatDate(value: string | null) {
   return new Intl.DateTimeFormat("th-TH", { dateStyle: "medium", timeZone: "Asia/Bangkok" })
     .format(new Date(value));
 }
+function limitText(value: number | null | undefined, suffix = "") {
+  return value == null ? "ตามสัญญา" : `${new Intl.NumberFormat("th-TH").format(value)}${suffix}`;
+}
+function salesModeText(row: PosSubscriptionCenterData["packages"][number]) {
+  if (row.contact_sales || row.sales_mode_limit == null) return "กำหนดตามสัญญา";
+  return row.sales_mode_limit >= 5 ? "ครบ 5 โหมด" : `สูงสุด ${row.sales_mode_limit} โหมด`;
+}
+function aiText(row: PosSubscriptionCenterData["packages"][number]) {
+  if (row.contact_sales) return "กำหนดตามสัญญา";
+  if (row.ai_included) return row.ai_monthly_requests ? `รวม ${new Intl.NumberFormat("th-TH").format(row.ai_monthly_requests)} ครั้ง/เดือน` : "รวม CpiPOS AI";
+  if (row.ai_addon_available) return `Add-on ${formatMoney(row.ai_addon_monthly_price)}/เดือน`;
+  return "ไม่รวม";
+}
 function ToneIcon({ icon, tone = "blue", size = 22 }: {
   icon: IconName; tone?: "blue" | "green" | "purple" | "orange"; size?: number;
 }) {
@@ -90,7 +103,8 @@ function SummaryCard({ label, value, detail, icon, tone }: {
 
 const tabs: Array<{ key: Tab; label: string; icon: IconName }> = [
   { key: "overview", label: "ภาพรวม", icon: "chart" },
-  { key: "renew", label: "ต่ออายุแพ็กเกจ", icon: "wallet" },
+  { key: "packages", label: "เลือก / อัปเกรดแพ็กเกจ", icon: "crown" },
+  { key: "renew", label: "ต่ออายุ / เปลี่ยนแพ็กเกจ", icon: "wallet" },
   { key: "notice", label: "แจ้งชำระเงิน", icon: "payment" },
   { key: "history", label: "ประวัติ", icon: "history" },
   { key: "documents", label: "เอกสาร", icon: "file" }
@@ -160,6 +174,13 @@ export function PosSubscriptionCenter({ initial, isOwner, showContactActions = t
   }
   function selectTab(next: Tab) { setTab(next); setError(""); }
   function openTab(next: Tab) { selectTab(next); setPopupOpen(true); setInfoPopup(null); }
+  function choosePackage(row: PosSubscriptionCenterData["packages"][number]) {
+    if (!isOwner || demo || pending) return;
+    setSelectedPackage(row.id);
+    setInterval("monthly");
+    changed();
+    setTab("renew");
+  }
   function closePopup() { setPopupOpen(false); setInfoPopup(null); setError(""); }
 
   const reload = useCallback(async () => {
@@ -377,8 +398,12 @@ export function PosSubscriptionCenter({ initial, isOwner, showContactActions = t
               <Icon name="support" size={16}/>ติดต่อสอบถาม / แจ้งปัญหา
             </button>
           </> : null}
+          <button type="button" disabled={!isOwner || demo} onClick={() => openTab("packages")}
+            className="ml-auto inline-flex items-center gap-2 rounded-xl border border-blue-200 bg-white px-4 py-2.5 text-sm font-black text-blue-700 shadow-sm transition hover:bg-blue-50 disabled:opacity-50">
+            <Icon name="crown" size={16}/>เลือก / อัปเกรดแพ็กเกจ
+          </button>
           <button type="button" disabled={!isOwner || demo} onClick={() => openTab("renew")}
-            className="ml-auto inline-flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-black text-white shadow-sm disabled:opacity-50">
+            className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-black text-white shadow-sm disabled:opacity-50">
             <Icon name="wallet" size={16}/>ต่ออายุแพ็กเกจ
           </button>
           <button type="button" disabled={!isOwner || demo} onClick={() => openTab("notice")}
@@ -447,6 +472,9 @@ export function PosSubscriptionCenter({ initial, isOwner, showContactActions = t
               </div>)}
             </div>
             <div className="flex flex-wrap gap-2">
+              <button type="button" disabled={!isOwner || demo} onClick={() => selectTab("packages")}
+                className="rounded-xl border border-blue-200 bg-white px-5 py-3 text-sm font-bold text-blue-700 disabled:opacity-50">
+                ดูและเลือกแพ็กเกจ</button>
               <button type="button" disabled={!isOwner || demo} onClick={() => selectTab("renew")}
                 className="rounded-xl bg-blue-600 px-5 py-3 text-sm font-bold text-white disabled:opacity-50">
                 ต่ออายุแพ็กเกจ</button>
@@ -456,13 +484,90 @@ export function PosSubscriptionCenter({ initial, isOwner, showContactActions = t
             </div>
           </section> : null}
 
+          {tab === "packages" ? <section className={box + " space-y-4 p-4 sm:p-5"}>
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <ToneIcon icon="crown" tone="purple" />
+                <div>
+                  <h2 className="text-lg font-extrabold text-[#152541]">เลือก / อัปเกรดแพ็กเกจ</h2>
+                  <p className="text-xs leading-5 text-slate-500">เปรียบเทียบ Starter, Growth, Business และ CUSTOM จากข้อมูล CpiPOS-001</p>
+                </div>
+              </div>
+              <span className="rounded-full bg-blue-50 px-3 py-1.5 text-xs font-bold text-blue-700">
+                แพ็กเกจปัจจุบัน · {snapshot.contract.package_name}
+              </span>
+            </div>
+            {!isOwner ? <p className="rounded-lg bg-amber-50 p-3 text-sm text-amber-900">เฉพาะเจ้าของร้านเท่านั้นที่ส่งคำขอเปลี่ยนแพ็กเกจได้</p> : null}
+            {demo ? <p className="rounded-lg bg-blue-50 p-3 text-sm text-blue-900">บัญชีทดสอบภายในให้ IT เป็นผู้จัดการแพ็กเกจ</p> : null}
+            {pending ? <p className="rounded-lg bg-amber-50 p-3 text-sm text-amber-900">มีคำขอแพ็กเกจที่กำลังดำเนินการอยู่ กรุณารอให้รายการเดิมเสร็จก่อนเลือกแพ็กเกจใหม่</p> : null}
+            <div className="overflow-x-auto rounded-2xl border border-slate-200 bg-white">
+              <table className="w-full min-w-[980px] border-collapse text-sm">
+                <thead>
+                  <tr className="bg-slate-50">
+                    <th className="w-[190px] border-b border-r border-slate-200 px-4 py-4 text-left text-xs font-black uppercase tracking-wide text-slate-500">สิทธิ์ / แพ็กเกจ</th>
+                    {snapshot.packages.map((row) => {
+                      const current = row.id === snapshot.contract.package_id;
+                      const premium = row.code === "business";
+                      return <th key={row.id} className={`min-w-[195px] border-b border-slate-200 px-4 py-4 text-center align-top ${premium ? "bg-blue-50/70" : "bg-white"}`}>
+                        <div className="flex flex-col items-center gap-1">
+                          <span className="text-base font-black text-slate-950">{row.name}</span>
+                          {premium ? <span className="rounded-full bg-blue-600 px-2.5 py-1 text-[10px] font-black text-white">แนะนำสำหรับธุรกิจ</span> : null}
+                          {current ? <span className="rounded-full bg-emerald-50 px-2.5 py-1 text-[10px] font-black text-emerald-700">แพ็กเกจปัจจุบัน</span> : null}
+                          <strong className="mt-1 text-xl text-blue-700">{row.contact_sales ? "ตามสัญญา" : `${formatMoney(row.monthly_price)}/เดือน`}</strong>
+                          {!row.contact_sales && row.yearly_price ? <span className="text-[11px] font-semibold text-slate-500">{formatMoney(row.yearly_price)}/ปี{row.yearly_savings ? ` · ประหยัด ${formatMoney(row.yearly_savings)}` : ""}</span> : null}
+                        </div>
+                      </th>;
+                    })}
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {([
+                    ["สาขา", (row: PosSubscriptionCenterData["packages"][number]) => limitText(row.max_branches)],
+                    ["เครื่อง POS", (row: PosSubscriptionCenterData["packages"][number]) => limitText(row.max_devices)],
+                    ["ผู้ใช้งาน", (row: PosSubscriptionCenterData["packages"][number]) => limitText(row.max_users)],
+                    ["สินค้า", (row: PosSubscriptionCenterData["packages"][number]) => limitText(row.max_products)],
+                    ["บิล / เดือน", (row: PosSubscriptionCenterData["packages"][number]) => limitText(row.monthly_bill_limit)],
+                    ["Storage", (row: PosSubscriptionCenterData["packages"][number]) => row.storage_limit_gb == null ? "ตามสัญญา" : `${row.storage_limit_gb} GB`],
+                    ["เก็บข้อมูลยอดขาย", (row: PosSubscriptionCenterData["packages"][number]) => row.retention_months == null ? "ตามสัญญา" : `${row.retention_months} เดือน`],
+                    ["โหมดการขาย", (row: PosSubscriptionCenterData["packages"][number]) => salesModeText(row)],
+                    ["CpiPOS AI", (row: PosSubscriptionCenterData["packages"][number]) => aiText(row)]
+                  ] as Array<[string, (row: PosSubscriptionCenterData["packages"][number]) => string]>).map(([label, render]) =>
+                    <tr key={label}>
+                      <th className="border-r border-slate-100 bg-slate-50/70 px-4 py-3 text-left text-xs font-bold text-slate-600">{label}</th>
+                      {snapshot.packages.map((row) => <td key={row.id} className={`px-4 py-3 text-center text-xs font-semibold text-slate-700 ${row.code === "business" ? "bg-blue-50/35" : ""}`}>{render(row)}</td>)}
+                    </tr>
+                  )}
+                  <tr>
+                    <th className="border-r border-slate-100 bg-slate-50/70 px-4 py-4 text-left text-xs font-bold text-slate-600">เลือกแพ็กเกจ</th>
+                    {snapshot.packages.map((row) => {
+                      const current = row.id === snapshot.contract.package_id;
+                      return <td key={row.id} className={`px-4 py-4 text-center ${row.code === "business" ? "bg-blue-50/35" : ""}`}>
+                        <button
+                          type="button"
+                          disabled={!isOwner || demo || Boolean(pending) || current}
+                          onClick={() => choosePackage(row)}
+                          className={`rounded-xl px-4 py-2 text-xs font-black transition disabled:cursor-not-allowed disabled:opacity-50 ${row.code === "business" ? "bg-blue-600 text-white hover:bg-blue-700" : "border border-blue-200 bg-white text-blue-700 hover:bg-blue-50"}`}
+                        >
+                          {current ? "ใช้งานอยู่" : row.contact_sales ? "ขอใบเสนอราคา" : "เลือกแพ็กเกจ"}
+                        </button>
+                      </td>;
+                    })}
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <p className="text-xs leading-5 text-slate-500">
+              Growth สามารถขอเปิด CpiPOS AI Add-on ผ่านฝ่าย IT ได้ตามราคาที่แสดง ส่วน Business รวม CpiPOS AI และเปิดได้ครบ 5 โหมดการขาย
+            </p>
+          </section> : null}
+
           {(tab === "renew" || tab === "notice") ? <section className={box + " space-y-3 p-4 sm:p-5"}>
             <div className="flex items-center gap-3 pb-1">
               <ToneIcon icon={tab === "renew" ? "wallet" : "upload"} />
               <div><h2 className="text-lg font-extrabold text-[#152541]">
-                {tab === "renew" ? "ต่ออายุแพ็กเกจ" : "แจ้งชำระเงิน"}</h2>
+                {tab === "renew" ? (selectedPackage === snapshot.contract.package_id ? "ต่ออายุแพ็กเกจ" : "เปลี่ยน / อัปเกรดแพ็กเกจ") : "แจ้งชำระเงิน"}</h2>
                 <p className="text-xs leading-5 text-slate-500">
-                  {tab === "renew" ? "ส่งความประสงค์ต่ออายุ เพื่อให้ IT ตรวจสอบรายละเอียด" :
+                  {tab === "renew" ? "เลือกแพ็กเกจและรอบชำระ จากนั้นส่งคำขอให้ IT ตรวจสอบรายละเอียด" :
                     "กรุณากรอกข้อมูลและแนบหลักฐานการโอนเงิน เพื่อให้ทีมงานตรวจสอบ"}</p>
               </div>
             </div>
