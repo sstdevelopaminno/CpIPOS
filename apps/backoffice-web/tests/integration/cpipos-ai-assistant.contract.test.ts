@@ -81,7 +81,7 @@ describe("CpiPOS AI store assistant", () => {
     expect(aiActions).toContain('"update_product_price"');
     expect(aiActions).toContain('"adjust_stock"');
     expect(sharedTypes).toContain('"sales_record_edit"');
-    expect(featureMap).toContain('"/preview/pos/ai-assistant": "core_pos_sales"');
+    expect(featureMap).toContain('"/preview/pos/ai-assistant": "cpipos_ai"');
   });
 
   it("enforces the promoted per-tenant IT AI policy on page and APIs", () => {
