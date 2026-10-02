@@ -49,7 +49,7 @@ describe("POS help center navigation", () => {
     expect(supportCenter).toContain("PosSupportChat");
     expect(supportPage).toContain("PosSupportCenter");
     expect(packagePage).toContain("showContactActions={false}");
-    expect(packagePage).toContain('backHref="/preview/pos/payments"');
+    expect(packagePage).toContain('redirect("/preview/pos/payments")');
     expect(subscriptionCenter).toContain("showContactActions ? <>");
   });
 });
