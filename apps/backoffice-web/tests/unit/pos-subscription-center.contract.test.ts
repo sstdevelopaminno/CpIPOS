@@ -157,6 +157,25 @@ describe("POS subscription center (commercial billing, not cashier payments)", (
     expect(ui).toContain('selectTab("notice")');
   });
 
+  it("opens recorded billing cycles from a dedicated history action", () => {
+    expect(ui).toContain("setBillingCyclesOpen(true)");
+    expect(ui).toContain('aria-label="รอบบิลที่บันทึกแล้ว"');
+    expect(ui).toContain("snapshot.cycles.length");
+    expect(ui).toContain("ยอดบันทึกชำระ");
+    expect(ui).toContain('cycle.status === "paid" ? "ชำระแล้ว"');
+  });
+
+  it("renders CpiPOS AI as package cards using IT quota plus Subscription Add-on data", () => {
+    expect(snapshot).toContain('from("pos_ai_package_quotas")');
+    expect(snapshot).toContain("ai_quota_enabled");
+    expect(snapshot).toContain("ai_monthly_tokens");
+    expect(ui).toContain("AI Quota ต่อแพ็กเกจ / ต่อเดือน");
+    expect(ui).toContain("แพ็กเกจ / Subscription");
+    expect(ui).toContain("AI Add-on · รอบเดือนปัจจุบัน");
+    expect(ui).toContain("snapshot.packages.map");
+    expect(ui).toContain("aiPurchaseReady");
+  });
+
   it("reflects receipt correction and void status written by IT", () => {
     expect(snapshot).toContain('from("tenant_subscription_receipt_annotations")');
     expect(snapshot).toContain("receiptAnnotationById");
