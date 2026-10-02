@@ -1300,6 +1300,7 @@ export async function POST(request: Request) {
     let result: Awaited<ReturnType<typeof callOpenAi>>;
     try {
       result = await callOpenAi(
+        auth,
         effectiveMessage,
         conversationId,
         overview,
@@ -1337,7 +1338,7 @@ export async function POST(request: Request) {
         conversationId,
         promptText: effectiveMessage,
         responsePayload: result.payload,
-        fallbackModel: AI_MODEL
+        fallbackModel: result.model
       });
     } catch (meterError) {
       console.error("[cpipos-ai] usage metering failed", meterError);
