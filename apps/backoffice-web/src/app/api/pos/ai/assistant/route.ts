@@ -54,6 +54,9 @@ type ProductCatalogItem = {
   name: string;
   category: string;
   price: number;
+  stock_quantity: number | null;
+  stock_unit: string | null;
+  stock_ingredient_id: string | null;
 };
 
 type IngredientCatalogItem = {
@@ -512,24 +515,56 @@ async function loadAiCatalog(tenantId: string, branchId: string) {
       .limit(80)
   ]);
 
-  const products: ProductCatalogItem[] = productsResult.error
-    ? []
-    : (productsResult.data ?? []).map((row) => ({
-        id: String(row.id),
-        name: String(row.name ?? row.id),
-        category: String(row.category ?? "-"),
-        price: asMoney(row.price)
-      }));
+  const productRows = productsResult.error ? [] : (productsResult.data ?? []);
+  const productIds = productRows.map((row) => String(row.id));
+  const stockBridgeByProduct = new Map<string, { id: string; quantity: number; unit: string }>();
+  if (productIds.length) {
+    const recipeResult = await supabase
+      .from("recipes")
+      .select("product_id,ingredient_id,ingredients(id,name,base_unit,quantity_on_hand)")
+      .eq("tenant_id", tenantId)
+      .eq("branch_id", branchId)
+      .in("product_id", productIds)
+      .eq("applies_when_takeaway_only", false)
+      .limit(500);
+    if (!recipeResult.error) {
+      for (const row of recipeResult.data ?? []) {
+        const ingredient = Array.isArray(row.ingredients) ? row.ingredients[0] : row.ingredients;
+        const name = String(ingredient?.name ?? "");
+        if (!name.startsWith("STOCK:")) continue;
+        stockBridgeByProduct.set(String(row.product_id), {
+          id: String(row.ingredient_id),
+          quantity: Number(ingredient?.quantity_on_hand ?? 0),
+          unit: String(ingredient?.base_unit ?? "piece")
+        });
+      }
+    }
+  }
+
+  const products: ProductCatalogItem[] = productRows.map((row) => {
+    const bridge = stockBridgeByProduct.get(String(row.id)) ?? null;
+    return {
+      id: String(row.id),
+      name: String(row.name ?? row.id),
+      category: String(row.category ?? "-"),
+      price: asMoney(row.price),
+      stock_quantity: bridge?.quantity ?? null,
+      stock_unit: bridge?.unit ?? null,
+      stock_ingredient_id: bridge?.id ?? null
+    };
+  });
 
   const ingredients: IngredientCatalogItem[] = ingredientsResult.error
     ? []
-    : (ingredientsResult.data ?? []).map((row) => ({
-        id: String(row.id),
-        name: String(row.name ?? row.id),
-        unit: String(row.base_unit ?? ""),
-        quantity_on_hand: Number(row.quantity_on_hand ?? 0),
-        reorder_level: Number(row.reorder_level ?? 0)
-      }));
+    : (ingredientsResult.data ?? [])
+        .filter((row) => !String(row.name ?? "").startsWith("STOCK:"))
+        .map((row) => ({
+          id: String(row.id),
+          name: String(row.name ?? row.id),
+          unit: String(row.base_unit ?? ""),
+          quantity_on_hand: Number(row.quantity_on_hand ?? 0),
+          reorder_level: Number(row.reorder_level ?? 0)
+        }));
 
   return { products, ingredients };
 }
