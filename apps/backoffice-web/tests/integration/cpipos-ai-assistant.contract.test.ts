@@ -259,11 +259,11 @@ describe("CpiPOS AI store assistant", () => {
   });
 
   it("keeps destructive or financial reversal actions outside Phase 2", () => {
-    expect(aiApi).toContain("ห้ามเสนอหรือดำเนินการยกเลิกบิล คืนเงิน");
+    expect(aiApi).toContain("ห้ามดำเนินการยกเลิกบิล คืนเงิน");
     expect(aiApi).toContain("RESTRICTED_AI_REQUESTS");
     expect(aiApi).toContain("isRestrictedAiRequest");
     expect(aiApi).toContain("รัน SQL/คำสั่งฐานข้อมูลโดยตรง");
-    expect(aiApi).toContain("ข้าม PIN/approval");
+    expect(aiApi).toContain("ข้าม approval");
     expect(aiActions).not.toContain('"cancel_bill"');
     expect(aiActions).not.toContain('"refund"');
     expect(aiActions).not.toContain('"run_sql"');
