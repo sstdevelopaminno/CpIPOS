@@ -15,7 +15,8 @@ describe("Support chat stale conversation recovery", () => {
     expect(chat).toContain('setError("")');
   });
 
-  it("disables automatic Vercel Git deployments", () => {
-    expect(vercel.git?.deploymentEnabled).toBe(false);
+  it("keeps Vercel Git deployment production-only", () => {
+    expect(vercel.git?.deploymentEnabled?.["*"]).toBe(false);
+    expect(vercel.git?.deploymentEnabled?.["agent-docs-preflight-schema-drift"]).toBe(true);
   });
 });

@@ -290,6 +290,29 @@ class PosMdmAgent(
             .put("displays", rows)
     }
 
+    private fun buildRuntimeCapabilities(): JSONObject {
+        return JSONObject()
+            .put("schema_version", 4)
+            .put(
+                "updates",
+                JSONObject()
+                    .put("channel", BuildConfig.CPIPOS_UPDATE_CHANNEL)
+                    .put("silent_install", false)
+                    .put("forced_update", false)
+            )
+            .put(
+                "printer",
+                JSONObject()
+                    .put("target_probe", true)
+                    .put("one_time_verification_print", true)
+                    .put("explicit_assignment_first", true)
+                    .put("auto_setup", true)
+                    .put("automatic_reassignment", false)
+                    .put("assignment_protection", "preserve_existing_or_require_confirmation")
+                    .put("bluetooth_exact_bonded_verification", true)
+            )
+    }
+
     private fun buildUpdateCapabilities(): JSONObject {
         val updaterEnabled = BuildConfig.CPIPOS_MANAGED_UPDATER_ENABLED
         return JSONObject()
@@ -316,6 +339,7 @@ class PosMdmAgent(
             .put("safe_command_allowlist", JSONArray(SAFE_ACTIONS.toList()))
             .put("full_mdm", fullMdmAgent.snapshot())
             .put("full_mdm_results", fullMdmAgent.pendingResults())
+            .put("runtime_capabilities", buildRuntimeCapabilities())
             .put("update_capabilities", buildUpdateCapabilities())
             .put("update_state", updateManager.snapshot())
             .put(
@@ -379,6 +403,7 @@ class PosMdmAgent(
                     .put("configured_port", diagnostics.printerPort())
                     .put("last_reachable", printer?.reachable)
                     .put("last_error", printer?.lastError)
+                    .put("inventory", diagnostics.printerInventoryJson())
             )
             .put(
                 "last_command",

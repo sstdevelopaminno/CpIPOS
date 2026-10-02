@@ -52,7 +52,10 @@ const DEEP_IDLE_AFTER_EMPTY_POLLS = 6;
 const MAX_ERROR_BACKOFF_MS = 60000;
 const SERIAL_RETRY_DELAY_MS = 350;
 const SERIAL_MAX_OPEN_FAILURES_BEFORE_FORGET = 3;
-const APP_VERSION = "browser-web-serial-1.0.5-hard-serial-reset";
+const APP_VERSION = "browser-web-serial-1.0.6-dedupe";
+const PRINTED_JOB_LEDGER_KEY = "cpi_browser_printed_job_ledger_v1";
+const PRINTED_JOB_TTL_MS = 24 * 60 * 60 * 1000;
+const PRINTED_JOB_LEDGER_MAX = 120;
 
 function readBool(value: string | null) {
   return value === "1" || value === "true";
@@ -62,6 +65,37 @@ function readBaudRate(value: string | null) {
   const parsed = Number(value);
   if (!Number.isFinite(parsed)) return 9600;
   return Math.min(921600, Math.max(1200, Math.trunc(parsed)));
+}
+
+function readPrintedJobLedger() {
+  if (typeof window === "undefined") return {} as Record<string, number>;
+  const now = Date.now();
+  let parsed: Record<string, number> = {};
+  try {
+    const raw = JSON.parse(window.localStorage.getItem(PRINTED_JOB_LEDGER_KEY) ?? "{}") as Record<string, unknown>;
+    for (const [jobId, value] of Object.entries(raw)) {
+      const printedAt = Number(value);
+      if (Number.isFinite(printedAt) && printedAt > 0 && now - printedAt <= PRINTED_JOB_TTL_MS) {
+        parsed[jobId] = printedAt;
+      }
+    }
+  } catch {
+    parsed = {};
+  }
+  return parsed;
+}
+
+function wasRecentlyPrinted(jobId: string) {
+  const ledger = readPrintedJobLedger();
+  return typeof ledger[jobId] === "number";
+}
+
+function rememberPrinted(jobId: string) {
+  if (typeof window === "undefined") return;
+  const ledger = readPrintedJobLedger();
+  ledger[jobId] = Date.now();
+  const entries = Object.entries(ledger).sort((a, b) => b[1] - a[1]).slice(0, PRINTED_JOB_LEDGER_MAX);
+  window.localStorage.setItem(PRINTED_JOB_LEDGER_KEY, JSON.stringify(Object.fromEntries(entries)));
 }
 
 function readConfig() {
@@ -332,19 +366,41 @@ export function BrowserPrintAgent() {
         emptyPollStreak = jobs.length > 0 ? 0 : Math.min(emptyPollStreak + 1, DEEP_IDLE_AFTER_EMPTY_POLLS);
         for (const job of jobs) {
           const agentAttemptId = agentAttemptIdForJob(job);
+          lastJobIdRef.current = job.id;
+
+          if (wasRecentlyPrinted(job.id)) {
+            try {
+              const ack = await postAgentApi<{ error?: { message?: string } }>(`/api/print-agent/v1/jobs/${encodeURIComponent(job.id)}/ack`, config.agentKey, {
+                agent_attempt_id: agentAttemptId,
+                provider_job_id: `browser-dedupe:${job.id}`,
+                bytes_sent: 0,
+                metadata: {
+                  provider: "browser_web_serial",
+                  baud_rate: config.baudRate,
+                  app_version: APP_VERSION,
+                  dedupe_replay: true,
+                  physical_print_skipped: true
+                }
+              });
+              if (!ack.response.ok || ack.body?.error) {
+                publish("browser_print_ack_pending", ack.body?.error?.message ?? `ack_failed_${ack.response.status}`);
+              }
+            } catch (ackError) {
+              publish("browser_print_ack_pending", ackError instanceof Error ? ackError.message : "ack_failed");
+            }
+            continue;
+          }
+
+          let bytes: Uint8Array;
           try {
-            const bytes = isCashDrawerJob(job) ? bytesForCashDrawer() : await bytesForReceipt(job);
+            bytes = isCashDrawerJob(job) ? bytesForCashDrawer() : await bytesForReceipt(job);
             await writeToPort(ensured.port, bytes);
-            await postAgentApi(`/api/print-agent/v1/jobs/${encodeURIComponent(job.id)}/ack`, config.agentKey, {
-              agent_attempt_id: agentAttemptId,
-              provider_job_id: `browser:${Date.now()}`,
-              bytes_sent: bytes.length,
-              metadata: { provider: "browser_web_serial", baud_rate: config.baudRate, app_version: APP_VERSION }
-            });
+
+            // Physical output succeeded. Persist this before ACK so a lost ACK cannot cause
+            // the same leased job to be printed a second time.
+            rememberPrinted(job.id);
             jobsPrintedRef.current += 1;
-            lastJobIdRef.current = job.id;
           } catch (jobError) {
-            lastJobIdRef.current = job.id;
             const message = jobError instanceof Error ? jobError.message : "browser_serial_print_failed";
             const port = portRef.current;
             portRef.current = null;
@@ -357,6 +413,28 @@ export function BrowserPrintAgent() {
               metadata: { provider: "browser_web_serial", baud_rate: config.baudRate, app_version: APP_VERSION }
             });
             publish("browser_serial_print_failed", message);
+            continue;
+          }
+
+          try {
+            const ack = await postAgentApi<{ error?: { message?: string } }>(`/api/print-agent/v1/jobs/${encodeURIComponent(job.id)}/ack`, config.agentKey, {
+              agent_attempt_id: agentAttemptId,
+              provider_job_id: `browser:${Date.now()}`,
+              bytes_sent: bytes.length,
+              metadata: {
+                provider: "browser_web_serial",
+                baud_rate: config.baudRate,
+                app_version: APP_VERSION,
+                dedupe_replay: false
+              }
+            });
+            if (!ack.response.ok || ack.body?.error) {
+              publish("browser_print_ack_pending", ack.body?.error?.message ?? `ack_failed_${ack.response.status}`);
+            }
+          } catch (ackError) {
+            // Do NOT mark the print as failed here. The paper is already out. Let the lease
+            // retry and the persistent dedupe ledger ACK it without printing again.
+            publish("browser_print_ack_pending", ackError instanceof Error ? ackError.message : "ack_failed");
           }
         }
 
