@@ -15,6 +15,8 @@ import {
   dispatchStatus as dispatchSharedStatus,
   isCashDrawerJob,
   postAgentApi,
+  recentlyPhysicallyPrinted,
+  rememberPhysicalPrint,
   sleep,
   type ClaimResponse
 } from "@/components/printing/browser-print-shared";
@@ -210,6 +212,7 @@ export function BrowserBluetoothPrintAgent() {
     let timer: number | null = null;
     let errorStreak = 0;
     let emptyPollStreak = 0;
+    let tickInFlight = false;
     const supported = typeof navigator !== "undefined" && Boolean(navigator.bluetooth);
 
     const publish = (code: string, message: string, connected: boolean) => {
@@ -280,7 +283,13 @@ export function BrowserBluetoothPrintAgent() {
 
     const tick = async () => {
       if (!active) return;
+      if (tickInFlight) {
+        scheduleNext(POLL_MS);
+        return;
+      }
+      tickInFlight = true;
       if (typeof document !== "undefined" && document.visibilityState === "hidden") {
+        tickInFlight = false;
         scheduleNext(HIDDEN_POLL_MS);
         return;
       }
@@ -315,20 +324,59 @@ export function BrowserBluetoothPrintAgent() {
         emptyPollStreak = jobs.length > 0 ? 0 : Math.min(emptyPollStreak + 1, DEEP_IDLE_AFTER_EMPTY_POLLS);
         for (const job of jobs) {
           const agentAttemptId = agentAttemptIdForJob(job);
+          const alreadySent = recentlyPhysicallyPrinted(job.id);
+          if (alreadySent) {
+            const recoveredAck = await postAgentApi<{ error?: { message?: string } }>(
+              `/api/print-agent/v1/jobs/${encodeURIComponent(job.id)}/ack`,
+              config.agentKey,
+              {
+                agent_attempt_id: agentAttemptId,
+                provider_job_id: `bluetooth-recovered:${job.id}`,
+                bytes_sent: alreadySent.bytes_sent,
+                metadata: {
+                  provider: "browser_web_bluetooth",
+                  app_version: APP_VERSION,
+                  duplicate_suppressed: true,
+                  physical_send_recovered: true,
+                  physical_sent_at_ms: alreadySent.sent_at_ms
+                }
+              }
+            );
+            if (!recoveredAck.response.ok || recoveredAck.body?.error) {
+              throw new Error(recoveredAck.body?.error?.message ?? `ack_recovery_failed_${recoveredAck.response.status}`);
+            }
+            lastJobIdRef.current = job.id;
+            continue;
+          }
+
+          let physicallySent = false;
           try {
             const bytes = isCashDrawerJob(job) ? bytesForCashDrawer() : await bytesForReceipt(job);
             await writeBytesInChunks(connection.characteristic, bytes);
-            await postAgentApi(`/api/print-agent/v1/jobs/${encodeURIComponent(job.id)}/ack`, config.agentKey, {
-              agent_attempt_id: agentAttemptId,
-              provider_job_id: `bluetooth:${Date.now()}`,
-              bytes_sent: bytes.length,
-              metadata: { provider: "browser_web_bluetooth", device_name: connection.deviceName, app_version: APP_VERSION }
-            });
+            physicallySent = true;
+            rememberPhysicalPrint(job.id, "browser_web_bluetooth", bytes.length);
+            const ack = await postAgentApi<{ error?: { message?: string } }>(
+              `/api/print-agent/v1/jobs/${encodeURIComponent(job.id)}/ack`,
+              config.agentKey,
+              {
+                agent_attempt_id: agentAttemptId,
+                provider_job_id: `bluetooth:${Date.now()}`,
+                bytes_sent: bytes.length,
+                metadata: { provider: "browser_web_bluetooth", device_name: connection.deviceName, app_version: APP_VERSION }
+              }
+            );
+            if (!ack.response.ok || ack.body?.error) {
+              throw new Error(ack.body?.error?.message ?? `ack_failed_${ack.response.status}`);
+            }
             jobsPrintedRef.current += 1;
             lastJobIdRef.current = job.id;
           } catch (jobError) {
             lastJobIdRef.current = job.id;
             const message = jobError instanceof Error ? jobError.message : "browser_bluetooth_print_failed";
+            if (physicallySent) {
+              publish("print_ack_pending", "พิมพ์ออกแล้ว แต่ยืนยันผลกับเซิร์ฟเวอร์ยังไม่สำเร็จ ระบบจะยืนยันซ้ำโดยไม่พิมพ์กระดาษซ้ำ", true);
+              continue;
+            }
             characteristicRef.current = null;
             await postAgentApi(`/api/print-agent/v1/jobs/${encodeURIComponent(job.id)}/fail`, config.agentKey, {
               agent_attempt_id: agentAttemptId,
@@ -348,6 +396,7 @@ export function BrowserBluetoothPrintAgent() {
         emptyPollStreak = 0;
         publish("agent_error", error instanceof Error ? error.message : "Bluetooth Print Agent failed.", false);
       } finally {
+        tickInFlight = false;
         const idleDelay = emptyPollStreak >= DEEP_IDLE_AFTER_EMPTY_POLLS ? DEEP_IDLE_POLL_MS : emptyPollStreak > 0 ? IDLE_POLL_MS : POLL_MS;
         const backoffDelay = errorStreak > 0 ? Math.min(POLL_MS * 2 ** errorStreak, MAX_ERROR_BACKOFF_MS) : idleDelay;
         scheduleNext(backoffDelay);
@@ -357,6 +406,10 @@ export function BrowserBluetoothPrintAgent() {
     const handleVisibilityChange = () => {
       if (document.visibilityState === "visible") {
         emptyPollStreak = 0;
+        if (timer) {
+          window.clearTimeout(timer);
+          timer = null;
+        }
         void tick();
       }
     };
