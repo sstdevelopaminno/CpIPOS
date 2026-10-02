@@ -105,6 +105,38 @@ type AiProposal =
       copy_text: string;
       reason: string;
       requires_pin: false;
+    }
+  | {
+      id: string;
+      type: "create_product";
+      title: string;
+      product_id: string;
+      product_name: string;
+      category: string;
+      stock_quantity: number;
+      store_price: number;
+      delivery_price: number;
+      reason: string;
+      requires_pin: true;
+    }
+  | {
+      id: string;
+      type: "product_image";
+      title: string;
+      product_id: string;
+      product_name: string;
+      prompt: string;
+      reason: string;
+      requires_pin: false;
+    }
+  | {
+      id: string;
+      type: "document";
+      title: string;
+      category: "general" | "sales" | "stock" | "cost" | "marketing" | "accounting" | "guide";
+      content: string;
+      reason: string;
+      requires_pin: false;
     };
 
 type ProposalStatus = {
@@ -467,6 +499,7 @@ export function CpiPosAiAssistant({ lang }: { lang: Language }) {
   const [sending, setSending] = useState(false);
   const [pendingProposal, setPendingProposal] = useState<AiProposal | null>(null);
   const [proposalStatus, setProposalStatus] = useState<Record<string, ProposalStatus>>({});
+  const [generatedProductImages, setGeneratedProductImages] = useState<Record<string, string>>({});
   const [todayModalOpen, setTodayModalOpen] = useState(false);
   const [recommendationModalOpen, setRecommendationModalOpen] = useState(false);
   const [showSuggestions, setShowSuggestions] = useState(false);
