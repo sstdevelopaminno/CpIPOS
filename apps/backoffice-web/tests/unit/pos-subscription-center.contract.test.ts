@@ -47,7 +47,7 @@ describe("POS subscription center (commercial billing, not cashier payments)", (
     expect(request).toContain("completingItPreparedPayment");
     expect(request).toContain('existingById.metadata?.source==="it_tenant_control"');
     expect(request).toContain('.eq("requested_package_id",target.id)');
-    expect(ui).toContain("แนบสลิปและแจ้งชำระคำขอเดิม");
+    expect(ui).toContain("AI สแกนสลิปและแจ้งชำระคำขอเดิม");
     expect(ui).toContain("เมื่อ IT ตรวจสอบเงินเข้าบัญชีบริษัท");
     expect(request).not.toContain('"approved"');
     expect(request).not.toContain('from("payments")');
@@ -60,7 +60,7 @@ describe("POS subscription center (commercial billing, not cashier payments)", (
     expect(ui).toContain("pendingCanAcceptPayment");
     expect(ui).toContain("ฝ่าย IT สร้างรายการชำระไว้แล้ว");
     expect(ui).toContain("รายการชำระถูกเตรียมจากฝ่าย IT แล้ว");
-    expect(ui).toContain("ระบบจะอัปเดตรายการเดิม ไม่สร้างคำขอซ้ำ");
+    expect(ui).toContain("อัปเดตรายการเดิมโดยไม่สร้างคำขอซ้ำ");
     expect(ui).toContain("pendingCanAcceptPayment && pending");
     expect(request).toContain("upgradingRenewal || completingItPreparedPayment");
   });
@@ -131,21 +131,30 @@ describe("POS subscription center (commercial billing, not cashier payments)", (
     expect(sessionGuard).toContain("await assertSubscriptionAllowsSales(scope.session.tenant_id)");
   });
 
-  it("uses clean popup payment actions with renew-to-payment handoff and camera/file slip upload", () => {
-    expect(ui).toContain("ภาพรวมการใช้งาน");
+  it("uses a single AI slip upload instead of manual transfer fields or camera duplication", () => {
     expect(ui).toContain("ประวัติการชำระแพ็กเกจ");
     expect(ui).toContain("เอกสารแพ็กเกจ");
-    expect(ui).toContain("บัญชีรับชำระของบริษัท");
-    expect(ui).toContain("LINE · QR ติดต่อบริษัท");
-    expect(ui).toContain("ติดต่อสอบถาม / แจ้งปัญหา");
     expect(ui).toContain("ต่ออายุแพ็กเกจ");
     expect(ui).toContain("แจ้งชำระเงิน");
-    expect(ui).toContain('capture="environment"');
-    expect(ui).toContain("ถ่ายรูปสลิป");
-    expect(ui).toContain("อัปโหลดไฟล์สลิป");
-    expect(ui).toContain("ส่งข้อมูลสำเร็จ");
+    expect(ui).toContain("AI Slip Scan");
+    expect(ui).toContain("เลือกรูปสลิปจากเครื่อง");
+    expect(ui).toContain("AI สแกนสลิปและส่งแจ้งชำระเงิน");
+    expect(ui).toContain('accept="image/jpeg,image/png,image/webp"');
+    expect(ui).not.toContain('capture="environment"');
+    expect(ui).not.toContain("ถ่ายรูปสลิป");
+    expect(ui).not.toContain("จำนวนเงินที่โอน");
+    expect(ui).not.toContain("วันที่และเวลาที่โอน");
+    expect(ui).not.toContain("ชื่อผู้โอน</");
+    expect(ui).not.toContain("เลขที่อ้างอิงการโอน");
+    expect(ui).not.toContain("กลับศูนย์ช่วยเหลือ");
+    expect(request).toContain("scanSubscriptionSlip");
+    expect(request).toContain("slip_ai:");
+    expect(request).toContain("slip_ai_status");
+    expect(request).not.toContain('form.get("amount_reported")');
+    expect(request).not.toContain('form.get("payer_name")');
+    expect(request).not.toContain('form.get("transfer_reference")');
+    expect(request).not.toContain('form.get("transfer_at")');
     expect(ui).toContain('selectTab("notice")');
-    expect(ui).toContain("บัญชีรับชำระของบริษัท");
   });
 
   it("reflects receipt correction and void status written by IT", () => {
