@@ -11,5 +11,5 @@ export default async function PosPackageBillingPage() {
   if (!["owner", "manager"].includes(scope.session.role)) redirect("/preview/pos/payments");
   await assertPosMenuPageAllowed(scope.session.tenant_id, "/preview/pos/payments/package");
   const data = await loadPosSubscriptionCenter(scope.session.tenant_id);
-  return <PosSubscriptionCenter initial={data} isOwner={scope.session.role === "owner"} showContactActions={false} backHref="/preview/pos/payments" />;
+  return <PosSubscriptionCenter initial={data} isOwner={scope.session.role === "owner"} showContactActions={false} />;
 }
