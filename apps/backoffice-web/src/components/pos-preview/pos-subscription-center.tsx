@@ -1089,14 +1089,23 @@ export function PosSubscriptionCenter({ initial, isOwner, showContactActions = t
       </div> : null}
 
       {successPopup ? <div className="fixed inset-0 z-[460] grid place-items-center bg-slate-950/45 p-4">
-        <section role="dialog" aria-modal="true" className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl">
+        <section role="dialog" aria-modal="true" className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-2xl">
           <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-emerald-100 text-emerald-700">
             <Icon name="check" size={28}/>
           </div>
-          <h2 className="mt-4 text-center text-xl font-black text-slate-950">ส่งข้อมูลสำเร็จ</h2>
+          <h2 className="mt-4 text-center text-xl font-black text-slate-950">{successPopupTitle}</h2>
           <p className="mt-2 text-center text-sm leading-6 text-slate-600">{successPopup}</p>
-          <button type="button" onClick={() => setSuccessPopup("")}
-            className="mt-5 w-full rounded-xl bg-emerald-600 px-4 py-3 text-sm font-black text-white">รับทราบ</button>
+          {successPopupAction !== "close" ? <div className="mt-4 rounded-xl border border-blue-100 bg-blue-50 p-3 text-sm text-blue-900">
+            <strong className="block text-xs font-black uppercase tracking-wide text-blue-700">ขั้นตอนถัดไป</strong>
+            <p className="mt-1 text-xs leading-5">
+              {successPopupAction === "notice" ? "ไปที่หน้าแจ้งชำระเงินเพื่อแนบหลักฐานในคำขอเดิม" :
+               successPopupAction === "history" ? "เปิดประวัติการชำระเพื่อตรวจสอบสถานะรายการที่ส่ง" :
+               successPopupAction === "overview" ? "กลับหน้าภาพรวมและรอฝ่าย IT ดำเนินการตามคำขอ" :
+               "ดำเนินการต่อจากสถานะล่าสุด"}
+            </p>
+          </div> : null}
+          <button type="button" onClick={continueFromResultPopup}
+            className="mt-5 w-full rounded-xl bg-emerald-600 px-4 py-3 text-sm font-black text-white">{successPopupButton}</button>
         </section>
       </div> : null}
     </div>
