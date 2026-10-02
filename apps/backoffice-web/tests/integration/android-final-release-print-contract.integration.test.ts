@@ -43,7 +43,7 @@ describe("Android 1.0.23 final release and native print contract", () => {
     expect(printAgent).toContain("/api/print-agent/v1/jobs/claim");
     expect(printAgent).toContain("/ack");
     expect(printAgent).toContain("/fail");
-    expect(printAgent).toContain("IDLE_BACKOFF_SECONDS = longArrayOf(1L, 3L, 8L)");
+    expect(printAgent).toContain("IDLE_BACKOFF_SECONDS = longArrayOf(1L, 3L, 8L, 15L)");
     expect(printAgent).toContain("WAKE_RETRY_DELAY_MS = 350L");
   });
 
