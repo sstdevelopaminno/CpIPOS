@@ -901,8 +901,10 @@ export function CpiPosAiAssistant({ lang }: { lang: Language }) {
     if (!proposal.requires_pin) return;
     const detail = proposal.type === "update_product_price"
       ? `${proposal.product_name}: ฿${money(proposal.current_price)} → ฿${money(proposal.new_price)}`
-      : `${proposal.ingredient_name}: ${money(proposal.quantity_delta)} ${proposal.unit}`;
-    if (!window.confirm(`ยืนยันรายการที่ CpiPOS AI เตรียมไว้?\n\n${detail}\n\nขั้นตอนถัดไปต้องกรอก PIN Owner/Manager ก่อนระบบจึงจะเปลี่ยนข้อมูลจริง`)) return;
+      : proposal.type === "create_product"
+        ? `${proposal.product_name} · ${proposal.category} · สต๊อก ${money(proposal.stock_quantity)} · หน้าร้าน ฿${money(proposal.store_price)} · เดลิเวอรี่ ฿${money(proposal.delivery_price)}`
+        : `${proposal.ingredient_name}: ${money(proposal.quantity_delta)} ${proposal.unit}`;
+    if (!window.confirm(`ยืนยันรายการที่ CpiPOS AI เตรียมไว้?\n\n${detail}\n\nกรอก PIN Owner/Manager เพื่อยืนยันการเปลี่ยนข้อมูลจริง`)) return;
     setPendingProposal(proposal);
   }
 
@@ -918,13 +920,25 @@ export function CpiPosAiAssistant({ lang }: { lang: Language }) {
             reason: proposal.reason,
             approval_id: approvalId
           }
-        : {
-            action: "adjust_stock",
-            ingredient_id: proposal.ingredient_id,
-            quantity_delta: proposal.quantity_delta,
-            reason: proposal.reason,
-            approval_id: approvalId
-          };
+        : proposal.type === "create_product"
+          ? {
+              action: "create_product",
+              product_id: proposal.product_id,
+              name: proposal.product_name,
+              category: proposal.category,
+              stock_quantity: proposal.stock_quantity,
+              store_price: proposal.store_price,
+              delivery_price: proposal.delivery_price,
+              reason: proposal.reason,
+              approval_id: approvalId
+            }
+          : {
+              action: "adjust_stock",
+              ingredient_id: proposal.ingredient_id,
+              quantity_delta: proposal.quantity_delta,
+              reason: proposal.reason,
+              approval_id: approvalId
+            };
       const response = await fetch("/api/pos/ai/actions", {
         method: "POST",
         headers: {
@@ -938,12 +952,14 @@ export function CpiPosAiAssistant({ lang }: { lang: Language }) {
 
       const successText = proposal.type === "update_product_price"
         ? `ปรับราคาหน้าร้าน ${proposal.product_name} เป็น ฿${money(proposal.new_price)} เรียบร้อยแล้ว`
-        : `ปรับสต๊อก ${proposal.ingredient_name} ${proposal.quantity_delta > 0 ? "+" : ""}${money(proposal.quantity_delta)} ${proposal.unit} เรียบร้อยแล้ว`;
+        : proposal.type === "create_product"
+          ? `เพิ่มสินค้า ${proposal.product_name} พร้อมสต๊อกและราคาเรียบร้อยแล้ว`
+          : `ปรับสต๊อก ${proposal.ingredient_name} ${proposal.quantity_delta > 0 ? "+" : ""}${money(proposal.quantity_delta)} ${proposal.unit} เรียบร้อยแล้ว`;
       setProposalStatus((current) => ({ ...current, [proposal.id]: { state: "success", message: successText } }));
       setMessages((current) => [...current, {
         id: `assistant-action-${Date.now()}`,
         role: "assistant",
-        text: `✅ ${successText}\nระบบบันทึก Audit Log ของรายการนี้แล้วครับ`
+        text: `✅ ${successText}\nระบบบันทึก Audit Log ของรายการนี้แล้ว`
       }]);
       await refreshOverview();
     } catch (error) {
