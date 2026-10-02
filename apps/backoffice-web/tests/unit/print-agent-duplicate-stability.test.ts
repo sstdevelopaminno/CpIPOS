@@ -2,13 +2,15 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
+const root = resolve(process.cwd(), "../..");
 const src = (path: string) => readFileSync(resolve(process.cwd(), path), "utf8");
+const repoSrc = (path: string) => readFileSync(resolve(root, path), "utf8");
 
 describe("print agent duplicate and discovery stability", () => {
   const browserAgent = src("src/components/printing/browser-print-agent.tsx");
-  const androidAgent = src("../../pos-android/app/src/main/java/com/cpipos/pos/PosPrintAgent.kt");
-  const diagnostics = src("../../pos-android/app/src/main/java/com/cpipos/pos/AndroidDiagnostics.kt");
-  const mdmAgent = src("../../pos-android/app/src/main/java/com/cpipos/pos/PosMdmAgent.kt");
+  const androidAgent = repoSrc("apps/pos-android/app/src/main/java/com/cpipos/pos/PosPrintAgent.kt");
+  const diagnostics = repoSrc("apps/pos-android/app/src/main/java/com/cpipos/pos/AndroidDiagnostics.kt");
+  const mdmAgent = repoSrc("apps/pos-android/app/src/main/java/com/cpipos/pos/PosMdmAgent.kt");
   const autoRegistry = src("src/lib/printing/printer-mdm-auto-registry.ts");
 
   it("persists physical print success before ACK on browser and Android", () => {
