@@ -1,15 +1,23 @@
 package com.cpipos.pos
 
+import android.Manifest
 import android.app.ActivityManager
+import android.bluetooth.BluetoothManager
 import android.app.admin.DevicePolicyManager
 import android.content.ComponentName
 import android.content.Context
+import android.content.pm.PackageManager
+import android.hardware.usb.UsbConstants
+import android.hardware.usb.UsbManager
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.os.BatteryManager
 import android.os.Process
 import android.os.StatFs
 import android.os.SystemClock
+import androidx.core.content.ContextCompat
+import org.json.JSONArray
+import org.json.JSONObject
 import java.net.InetSocketAddress
 import java.net.Socket
 
@@ -95,6 +103,88 @@ class AndroidDiagnostics(context: Context) {
     fun isDeviceOwnerKnown(): Boolean? = devicePolicyManager?.isDeviceOwnerApp(appContext.packageName)
 
     fun isDeviceAdminActive(): Boolean = devicePolicyManager?.isAdminActive(deviceAdminComponent) == true
+
+    fun printerInventoryJson(): JSONObject {
+        val usbManager = appContext.getSystemService(UsbManager::class.java)
+        val usbRows = JSONArray()
+        usbManager?.deviceList?.values
+            ?.sortedWith(compareBy({ it.vendorId }, { it.productId }, { it.deviceName }))
+            ?.forEach { device ->
+                var printerCandidate = false
+                for (interfaceIndex in 0 until device.interfaceCount) {
+                    val usbInterface = device.getInterface(interfaceIndex)
+                    if (usbInterface.interfaceClass == UsbConstants.USB_CLASS_PRINTER) printerCandidate = true
+                    for (endpointIndex in 0 until usbInterface.endpointCount) {
+                        val endpoint = usbInterface.getEndpoint(endpointIndex)
+                        if (endpoint.direction == UsbConstants.USB_DIR_OUT &&
+                            (endpoint.type == UsbConstants.USB_ENDPOINT_XFER_BULK ||
+                                endpoint.type == UsbConstants.USB_ENDPOINT_XFER_INT)
+                        ) {
+                            printerCandidate = true
+                        }
+                    }
+                }
+                if (!printerCandidate) return@forEach
+
+                val hasPermission = usbManager.hasPermission(device)
+                val serial = if (hasPermission) runCatching { device.serialNumber?.trim() }.getOrNull() else null
+                val stableToken = serial?.takeIf { it.isNotBlank() }
+                    ?.let { "serial:${it.lowercase()}" }
+                    ?: "path:${device.deviceName.lowercase()}"
+                val fingerprint = "usb:${device.vendorId}:${device.productId}:$stableToken"
+                usbRows.put(
+                    JSONObject()
+                        .put("vendor_id", device.vendorId)
+                        .put("product_id", device.productId)
+                        .put("device_id", device.deviceId)
+                        .put("device_name", device.deviceName)
+                        .put("manufacturer_name", if (hasPermission) runCatching { device.manufacturerName }.getOrNull() else null)
+                        .put("product_name", if (hasPermission) runCatching { device.productName }.getOrNull() else null)
+                        .put("serial_number", serial)
+                        .put("has_permission", hasPermission)
+                        .put("physical_fingerprint", fingerprint)
+                        .put("physical_fingerprint_stability", if (serial.isNullOrBlank()) "port_path" else "stable")
+                        .put("safe_autobind_candidate", hasPermission)
+                        .put("native_transport_candidate", true)
+                )
+            }
+
+        val bluetooth = JSONObject()
+        val bluetoothManager = appContext.getSystemService(BluetoothManager::class.java)
+        val adapter = bluetoothManager?.adapter
+        val connectPermission = android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.S ||
+            ContextCompat.checkSelfPermission(appContext, Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED
+        val bondedRows = JSONArray()
+        if (adapter != null && connectPermission) {
+            runCatching { adapter.bondedDevices.orEmpty() }.getOrDefault(emptySet()).forEach { device ->
+                val name = runCatching { device.name }.getOrNull()?.trim().orEmpty()
+                val address = runCatching { device.address }.getOrNull()?.trim().orEmpty()
+                val printerHint = name.lowercase().let {
+                    it.contains("printer") || it.contains("thermal") || it.contains("pos") ||
+                        it.contains("receipt") || it.contains("58") || it.contains("80")
+                }
+                if (address.isNotBlank()) {
+                    bondedRows.put(
+                        JSONObject()
+                            .put("name", name.ifBlank { "Bluetooth Device" })
+                            .put("address", address)
+                            .put("physical_fingerprint", "bluetooth:mac:${address.lowercase()}")
+                            .put("printer_name_hint", printerHint)
+                            .put("native_transport_candidate", true)
+                    )
+                }
+            }
+        }
+        bluetooth
+            .put("supported", adapter != null)
+            .put("enabled", adapter?.isEnabled == true)
+            .put("connect_permission_granted", connectPermission)
+            .put("bonded_devices", bondedRows)
+
+        return JSONObject()
+            .put("usb", JSONObject().put("supported", usbManager != null).put("devices", usbRows))
+            .put("bluetooth", bluetooth)
+    }
 
     fun printerHost(): String? = printerPrefs.getString("host", null)?.trim()?.takeIf { it.isNotBlank() }
 
