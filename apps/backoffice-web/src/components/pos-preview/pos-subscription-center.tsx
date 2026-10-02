@@ -314,7 +314,6 @@ export function PosSubscriptionCenter({ initial, isOwner, showContactActions = t
         </div>
         <div className="flex flex-wrap items-center justify-end gap-2">
           <span
-            role="status"          <span
             role="status"
             className="inline-flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-bold text-emerald-700"
             title={"แหล่งข้อมูล: " + snapshot.control_plane.source + " · " + snapshot.control_plane.authority}
@@ -407,7 +406,7 @@ export function PosSubscriptionCenter({ initial, isOwner, showContactActions = t
             className="inline-flex items-center gap-2 rounded-xl border border-blue-100 bg-blue-50 px-3.5 py-2.5 text-sm font-bold text-blue-700 transition hover:bg-blue-100">
             <Icon name={icon as IconName} size={16}/>{label}
           </button>)}
-          {showContactActions ? <>          {showContactActions ? <>
+          {showContactActions ? <>
             <button type="button" onClick={() => { setInfoPopup("line"); setPopupOpen(true); setLineOpen(true); }}
               className="inline-flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-3.5 py-2.5 text-sm font-bold text-emerald-700 hover:bg-emerald-100">
               LINE · QR ติดต่อบริษัท
@@ -724,7 +723,7 @@ export function PosSubscriptionCenter({ initial, isOwner, showContactActions = t
 
               {!hasBank ? <p className="rounded-xl bg-amber-50 p-3 text-sm text-amber-900">
                 ยังไม่ได้ตั้งค่าบัญชีบริษัท กรุณาติดต่อ Support ก่อนชำระเงิน</p> : null}
-            </> : isCustomSelection ? <>            </> : isCustomSelection ? <>
+            </> : isCustomSelection ? <>
               <div className="rounded-xl border border-blue-200 bg-blue-50 p-4">
                 <p className="text-sm font-black text-blue-800">ขอแพ็กเกจ CUSTOM</p>
                 <p className="mt-1 text-xs leading-5 text-slate-600">กดส่งคำขอ จากนั้นทีม IT จะติดต่อเพื่อตกลงราคา จำนวนสาขา เครื่อง ผู้ใช้ อายุข้อมูล และสิทธิ์ที่ต้องการ</p>
