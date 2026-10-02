@@ -169,6 +169,7 @@ describe("POS subscription center (commercial billing, not cashier payments)", (
     expect(snapshot).toContain('from("pos_ai_package_quotas")');
     expect(snapshot).toContain("ai_quota_enabled");
     expect(snapshot).toContain("ai_monthly_tokens");
+    expect(snapshot).toContain("ai_monthly_tokens: amount(aiQuota?.monthly_token_limit)");
     expect(ui).toContain("AI Quota ต่อแพ็กเกจ / ต่อเดือน");
     expect(ui).toContain("แพ็กเกจ / Subscription");
     expect(ui).toContain("AI Add-on · รอบเดือนปัจจุบัน");
