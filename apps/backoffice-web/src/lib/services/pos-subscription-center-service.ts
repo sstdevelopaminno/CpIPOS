@@ -17,7 +17,7 @@ type Package = { id: string; code: string; name: string; monthly_price: number |
   max_products: number | null; monthly_bill_limit: number | null; storage_limit_gb: number | null;
   retention_months: number | null; metadata: Record<string, unknown> | null };
 type AiPackageQuota = { package_id: string; is_enabled: boolean; monthly_request_limit: number | null;
-  monthly_token_limit: number | null; monthly_cost_limit_usd: number | null };
+  monthly_token_limit: number | null; monthly_cost_limit_usd: number | null; history_retention_days: number | null };
 type Issuer = { billing_legal_name_th: string; billing_bank_name: string; billing_bank_account_name: string;
   billing_bank_account_number: string; billing_promptpay_id: string; billing_email: string;
   support_email: string; billing_vat_registered: boolean };
@@ -81,7 +81,7 @@ export async function loadPosSubscriptionCenter(tenantId: string) {
       .select("id,code,name,monthly_price,yearly_price,monthly_discount_percent,yearly_discount_percent,quota_mode,max_branches,max_devices,max_users,max_products,monthly_bill_limit,storage_limit_gb,retention_months,metadata")
       .eq("is_active",true).order("display_order",{ascending:true}).limit(30).returns<Package[]>(),
     db.from("pos_ai_package_quotas")
-      .select("package_id,is_enabled,monthly_request_limit,monthly_token_limit,monthly_cost_limit_usd")
+      .select("package_id,is_enabled,monthly_request_limit,monthly_token_limit,monthly_cost_limit_usd,history_retention_days")
       .returns<AiPackageQuota[]>(),
     db.from("tenant_subscription_payment_requests")
       .select("id,request_type,requested_package_id,status,amount_reported,currency,submitted_at,reviewed_at,review_note,evidence_url,metadata")
@@ -172,7 +172,11 @@ export async function loadPosSubscriptionCenter(tenantId: string) {
         default_sales_modes: metadataStrings(row.metadata, "default_sales_modes"),
         full_feature_bundle: metadataBoolean(row.metadata, "full_feature_bundle"),
         ai_included: Boolean(aiQuota?.is_enabled ?? metadataBoolean(row.metadata, "ai_included")),
+        ai_quota_enabled: Boolean(aiQuota?.is_enabled ?? metadataBoolean(row.metadata, "ai_included")),
         ai_monthly_requests: positive(aiQuota?.monthly_request_limit ?? metadataNumber(row.metadata, "ai_monthly_requests")),
+        ai_monthly_tokens: positive(aiQuota?.monthly_token_limit),
+        ai_monthly_cost_usd: amount(aiQuota?.monthly_cost_limit_usd),
+        ai_history_retention_days: positive(aiQuota?.history_retention_days),
         ai_addon_available: metadataBoolean(row.metadata, "ai_addon_available"),
         ai_addon_monthly_price: amount(metadataNumber(row.metadata, "ai_addon_monthly_price")),
         ai_addon_monthly_requests: addonRequests,
