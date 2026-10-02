@@ -941,7 +941,99 @@ function responseTokenBudget(message: string) {
   return Math.min(MAX_OUTPUT_TOKENS, wantsLong ? 2400 : simpleGuide ? 900 : 1500);
 }
 
+async function executeAiReadTool(
+  auth: Awaited<ReturnType<typeof getPosApiAuthContext>>,
+  name: string,
+  rawArguments: unknown
+) {
+  const args = parseArguments(rawArguments);
+  if (name !== "query_sales_period") {
+    return { status: "unsupported_tool", tool: name };
+  }
+
+  const dateFrom = safeText(args.date_from, 10);
+  const dateTo = safeText(args.date_to, 10);
+  const ymd = /^\d{4}-\d{2}-\d{2}$/;
+  if (!ymd.test(dateFrom) || !ymd.test(dateTo)) {
+    return { status: "invalid_date", message: "date_from/date_to must be YYYY-MM-DD" };
+  }
+
+  const fromMs = Date.parse(dateFrom + "T00:00:00+07:00");
+  const toMs = Date.parse(dateTo + "T23:59:59+07:00");
+  if (!Number.isFinite(fromMs) || !Number.isFinite(toMs) || fromMs > toMs) {
+    return { status: "invalid_range", message: "date_from must be before or equal to date_to" };
+  }
+  if ((toMs - fromMs) > 366 * 24 * 60 * 60 * 1000) {
+    return { status: "range_too_large", message: "Query at most 366 days at a time." };
+  }
+
+  const scope = {
+    userId: auth.userId,
+    tenantId: auth.tenantId,
+    branchId: auth.branchId,
+    branchRole: auth.branchRole,
+    platformRole: auth.platformRole
+  };
+  const summary = await loadPosSalesSummaryData(scope, {
+    dateFrom,
+    dateTo,
+    branchId: auth.branchId,
+    status: "all"
+  });
+
+  return {
+    status: "ok",
+    period: { date_from: dateFrom, date_to: dateTo },
+    summary: {
+      net_sales: summary.summary.netSales,
+      gross_sales: summary.summary.grossSales,
+      receipt_count: summary.summary.receiptCount,
+      average_receipt: summary.summary.averageReceiptValue,
+      cash: summary.summary.cashTotal,
+      transfer_qr: summary.summary.qrTransferTotal,
+      card: summary.summary.cardTotal,
+      discounts: summary.summary.discountTotal,
+      tax: summary.summary.taxTotal,
+      cancelled_count: summary.summary.cancelledCount
+    },
+    top_products: summary.bestSellingProducts.slice(0, 15).map((row) => ({
+      product_id: row.productId,
+      name: row.productName,
+      category: row.category,
+      units: row.quantitySold,
+      revenue: row.netAmount
+    }))
+  };
+}
+
+function mergeAiResponseUsage(primary: unknown, followup: unknown) {
+  if (!followup || typeof followup !== "object") return primary;
+  const a = (primary ?? {}) as Record<string, any>;
+  const b = followup as Record<string, any>;
+  const au = a.usage ?? {};
+  const bu = b.usage ?? {};
+  const sum = (left: unknown, right: unknown) =>
+    Math.max(0, Math.trunc(Number(left ?? 0))) + Math.max(0, Math.trunc(Number(right ?? 0)));
+  return {
+    ...b,
+    model: b.model ?? a.model,
+    usage: {
+      input_tokens: sum(au.input_tokens, bu.input_tokens),
+      output_tokens: sum(au.output_tokens, bu.output_tokens),
+      total_tokens: sum(au.total_tokens, bu.total_tokens),
+      input_tokens_details: {
+        cached_tokens: sum(au.input_tokens_details?.cached_tokens, bu.input_tokens_details?.cached_tokens),
+        cache_write_tokens: sum(au.input_tokens_details?.cache_write_tokens, bu.input_tokens_details?.cache_write_tokens)
+      },
+      output_tokens_details: {
+        reasoning_tokens: sum(au.output_tokens_details?.reasoning_tokens, bu.output_tokens_details?.reasoning_tokens)
+      }
+    }
+  };
+}
+
 async function callOpenAi(
+  auth: Awaited<ReturnType<typeof getPosApiAuthContext>>,
   message: string,
   conversationId: string,
   snapshot: Awaited<ReturnType<typeof loadBusinessSnapshot>>,
@@ -953,50 +1045,79 @@ async function callOpenAi(
 
   const promptSnapshot = compactSnapshotForMessage(snapshot, message);
   const proposalTools = proposalToolsForMessage(message);
+  const readTools = readToolsForMessage(message);
+  const tools: Array<Record<string, unknown>> = [
+    ...(proposalTools as unknown as Array<Record<string, unknown>>),
+    ...(readTools as unknown as Array<Record<string, unknown>>)
+  ];
+  if (needsMarketWeb(message)) tools.push({ type: "web_search" });
+
+  const useQuality = needsQualityModel(message);
+  const primaryModel = useQuality ? AI_QUALITY_MODEL : AI_FAST_MODEL;
+  const reasoningEffort = useQuality ? (needsDeepReasoning(message) ? "high" : "medium") : "low";
   const instructions = [
     AI_INSTRUCTIONS,
     needsHelpGuide(message) ? CPIPOS_HELP_GUIDE : "",
     "ข้อมูลร้านปัจจุบันสำหรับเทิร์นนี้ (JSON):",
     JSON.stringify(promptSnapshot),
     "loaded_sections บอกว่าส่วนใดถูกโหลดจริงในเทิร์นนี้ ค่า 0/รายการว่างในส่วนที่ loaded_sections=false หมายถึงไม่ได้โหลด ไม่ใช่ข้อสรุปว่าร้านมียอดหรือสต๊อกเป็นศูนย์",
-    "ใช้ข้อมูล JSON นี้เป็นข้อมูลสดของร้านในเทิร์นปัจจุบัน และอย่านำข้อมูลของร้านอื่นมาใช้"
+    "ใช้ข้อมูล JSON นี้เป็นข้อมูลสดของร้านในเทิร์นปัจจุบัน และอย่านำข้อมูลของร้านอื่นมาใช้",
+    readTools.length ? "หากช่วงเวลาที่ผู้ใช้ถามไม่ตรงกับ today หรือ last_30_days ให้เรียก query_sales_period ก่อนสรุปตัวเลข" : "",
+    needsMarketWeb(message) ? "สำหรับข้อมูลตลาดปัจจุบัน ใช้ web search และระบุแหล่งอ้างอิงในคำตอบอย่างกระชับ" : ""
   ].filter(Boolean).join("\n\n");
 
-  const makeRequest = (model: string) => fetch("https://api.openai.com/v1/responses", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${apiKey}`
-    },
-    body: JSON.stringify({
+  const makeRequest = (
+    model: string,
+    input: unknown[],
+    options: { allowTools: boolean; maxOutputTokens?: number }
+  ) => {
+    const body: Record<string, unknown> = {
       model,
       conversation: conversationId,
       prompt_cache_key: promptCacheKey,
       safety_identifier: promptCacheKey,
       instructions,
-      input: [
-        {
-          role: "user",
-          content: [
-            { type: "input_text", text: message },
-            ...(imageDataUrl ? [{ type: "input_image", image_url: imageDataUrl, detail: "low" }] : [])
-          ]
-        }
-      ],
-      tools: proposalTools,
-      tool_choice: proposalTools.length ? "auto" : "none",
-      text: { verbosity: "low" },
+      input,
+      reasoning: { effort: reasoningEffort },
+      text: { verbosity: useQuality ? "medium" : "low" },
       store: false,
-      max_output_tokens: responseTokenBudget(message)
-    })
-  });
+      max_output_tokens: options.maxOutputTokens ?? responseTokenBudget(message)
+    };
+    if (options.allowTools && tools.length) {
+      body.tools = tools;
+      body.tool_choice = "auto";
+    }
+    return fetch("https://api.openai.com/v1/responses", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${apiKey}`
+      },
+      body: JSON.stringify(body)
+    });
+  };
 
-  let response = await makeRequest(AI_MODEL);
+  const initialInput = [
+    {
+      role: "user",
+      content: [
+        { type: "input_text", text: message },
+        ...(imageDataUrl ? [{ type: "input_image", image_url: imageDataUrl, detail: "high" }] : [])
+      ]
+    }
+  ];
+
+  let activeModel = primaryModel;
+  let response = await makeRequest(activeModel, initialInput, { allowTools: true });
   let payload = (await response.json().catch(() => null)) as unknown;
 
-  if (!response.ok && response.status === 429 && AI_FALLBACK_MODEL && AI_FALLBACK_MODEL !== AI_MODEL) {
-    console.warn("[cpipos-ai] primary model rate limited; trying fallback model", { primary: AI_MODEL, fallback: AI_FALLBACK_MODEL });
-    response = await makeRequest(AI_FALLBACK_MODEL);
+  if (!response.ok && response.status === 429 && AI_FALLBACK_MODEL && AI_FALLBACK_MODEL !== activeModel) {
+    console.warn("[cpipos-ai] primary model rate limited; trying fallback model", {
+      primary: activeModel,
+      fallback: AI_FALLBACK_MODEL
+    });
+    activeModel = AI_FALLBACK_MODEL;
+    response = await makeRequest(activeModel, initialInput, { allowTools: true });
     payload = (await response.json().catch(() => null)) as unknown;
   }
 
@@ -1010,31 +1131,57 @@ async function callOpenAi(
     throw providerError;
   }
 
-  const toolCalls = ((payload as { output?: Array<{ type?: string; call_id?: string; name?: string }> }).output ?? [])
-    .filter((item) => item.type === "function_call" && item.call_id);
-  if (toolCalls.length) {
-    await addAiConversationItems(
-      conversationId,
-      toolCalls.map((item) => ({
+  const firstPayload = payload;
+  const proposals = extractProposals(firstPayload, snapshot);
+  const functionCalls = ((firstPayload as {
+    output?: Array<{ type?: string; call_id?: string; name?: string; arguments?: unknown }>
+  }).output ?? []).filter((item) => item.type === "function_call" && item.call_id && item.name);
+
+  let finalPayload: unknown = firstPayload;
+  if (functionCalls.length) {
+    const functionOutputs = [];
+    for (const item of functionCalls) {
+      const isReadTool = item.name === "query_sales_period";
+      const output = isReadTool
+        ? await executeAiReadTool(auth, String(item.name), item.arguments)
+        : {
+            status: "proposal_prepared",
+            executed: false,
+            requires_user_confirmation: true,
+            note: "The proposal is rendered as an action card in CpiPOS. Explain the value and next step without asking the user to repeat information."
+          };
+      functionOutputs.push({
         type: "function_call_output",
         call_id: item.call_id,
-        output: JSON.stringify({
-          status: "proposal_prepared",
-          executed: false,
-          requires_user_confirmation: true,
-          note: "The current store snapshot in the next turn is authoritative for whether the user later executed this proposal."
-        })
-      }))
-    );
+        output: JSON.stringify(output)
+      });
+    }
+
+    const followup = await makeRequest(activeModel, functionOutputs, {
+      allowTools: false,
+      maxOutputTokens: Math.min(MAX_OUTPUT_TOKENS, Math.max(900, responseTokenBudget(message)))
+    });
+    const followupPayload = (await followup.json().catch(() => null)) as unknown;
+    if (followup.ok) {
+      finalPayload = followupPayload;
+    } else {
+      console.warn("[cpipos-ai] tool follow-up failed; using first response", {
+        status: followup.status
+      });
+    }
   }
 
-  const proposals = extractProposals(payload, snapshot);
-  const text = extractOutputText(payload) ||
+  const text = extractOutputText(finalPayload) || extractOutputText(firstPayload) ||
     (proposals.length
-      ? "ผมเตรียมรายการให้แล้วครับ กรุณาตรวจสอบรายละเอียดด้านล่างก่อนยืนยันดำเนินการ"
-      : "ผมยังไม่สามารถสรุปคำตอบจากข้อมูลรอบนี้ได้ กรุณาลองถามใหม่อีกครั้ง");
+      ? "เตรียมงานให้แล้วครับ ตรวจสอบการ์ดด้านล่างแล้วกดดำเนินการได้เลย"
+      : "ข้อมูลรอบนี้ยังไม่พอสำหรับข้อสรุปที่แม่นยำ ลองระบุช่วงเวลาหรือรายการที่ต้องการตรวจสอบ");
 
-  return { text, proposals, payload };
+  return {
+    text,
+    proposals,
+    payload: mergeAiResponseUsage(firstPayload, finalPayload === firstPayload ? null : finalPayload),
+    model: activeModel
+  };
 }
 
 function conversationScope(auth: Awaited<ReturnType<typeof getPosApiAuthContext>>) {
