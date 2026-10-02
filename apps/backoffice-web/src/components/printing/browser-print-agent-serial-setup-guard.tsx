@@ -4,7 +4,6 @@ import { useEffect } from "react";
 
 const BROWSER_PRINT_AGENT_CONFIG_EVENT = "cpi-browser-print-agent-config";
 const BROWSER_PRINT_AGENT_RESET_EVENT = "cpi-browser-print-agent-reset";
-const BROWSER_PRINT_AGENT_FORGET_PORTS_EVENT = "cpi-browser-print-agent-forget-ports";
 const BROWSER_PRINT_AGENT_STATUS_EVENT = "cpi-browser-print-agent-status";
 const BROWSER_PRINT_AGENT_ENABLED_KEY = "cpi_browser_print_agent_enabled_v1";
 const BROWSER_PRINT_AGENT_SETUP_GUARD_ACTIVE_KEY = "cpi_browser_print_agent_setup_guard_active_until_v1";
@@ -43,10 +42,6 @@ function dispatchConfigReload(delayMs = 0) {
 
 function dispatchReset(delayMs = 0) {
   window.setTimeout(() => window.dispatchEvent(new CustomEvent(BROWSER_PRINT_AGENT_RESET_EVENT)), delayMs);
-}
-
-function dispatchForgetPorts(delayMs = 0) {
-  window.setTimeout(() => window.dispatchEvent(new CustomEvent(BROWSER_PRINT_AGENT_FORGET_PORTS_EVENT)), delayMs);
 }
 
 function dispatchStatus(code: string, message: string) {
@@ -134,7 +129,6 @@ export function BrowserPrintAgentSerialSetupGuard() {
     serial.requestPort = async (options?: unknown) => {
       if (directWebSerialDisabled()) {
         rememberAndPauseAgent();
-        await forgetAuthorizedPorts(serial);
         dispatchStatus(
           "direct_web_serial_disabled_use_bridge",
           "ปิดการเลือกพอร์ต Web Serial โดยตรงแล้ว กรุณาใช้ Local Bridge / Print Station แทน"
