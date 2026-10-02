@@ -140,6 +140,15 @@ export async function loadPosSubscriptionCenter(tenantId: string) {
       const yearlyPrice = contactSales ? null : discountedAmount(row.yearly_price,row.yearly_discount_percent);
       const yearlyList = metadataNumber(row.metadata, "yearly_list_price")
         ?? (monthlyPrice == null ? null : Number((monthlyPrice * 12).toFixed(2)));
+      const addonRequests = positive(metadataNumber(row.metadata, "ai_addon_monthly_requests"));
+      const configuredAddonTokens = positive(metadataNumber(row.metadata, "ai_addon_monthly_tokens"));
+      const baseRequests = positive(aiQuota?.monthly_request_limit);
+      const baseTokens = positive(aiQuota?.monthly_token_limit);
+      const derivedAddonTokens = configuredAddonTokens ?? (
+        addonRequests && baseRequests && baseTokens
+          ? Math.max(1, Math.trunc((addonRequests * baseTokens) / baseRequests))
+          : null
+      );
       return {
         id: row.id, code: row.code, name: row.name,
         quota_mode: row.quota_mode ?? "standard",
@@ -166,7 +175,9 @@ export async function loadPosSubscriptionCenter(tenantId: string) {
         ai_monthly_requests: positive(aiQuota?.monthly_request_limit ?? metadataNumber(row.metadata, "ai_monthly_requests")),
         ai_addon_available: metadataBoolean(row.metadata, "ai_addon_available"),
         ai_addon_monthly_price: amount(metadataNumber(row.metadata, "ai_addon_monthly_price")),
-        ai_addon_monthly_requests: positive(metadataNumber(row.metadata, "ai_addon_monthly_requests"))
+        ai_addon_monthly_requests: addonRequests,
+        ai_addon_monthly_tokens: derivedAddonTokens,
+        ai_addon_monthly_cost_usd: amount(metadataNumber(row.metadata, "ai_addon_monthly_cost_usd"))
       };
     }),
     issuer: {
@@ -192,9 +203,14 @@ export async function loadPosSubscriptionCenter(tenantId: string) {
         review_note:row.review_note,has_evidence:Boolean(row.evidence_url),
         kind: row.metadata?.kind === "payment_notice"
           ? "payment_notice"
-          : row.metadata?.kind === "custom_quote_request"
-            ? "custom_quote_request"
-            : "renewal_intent",
+          : row.metadata?.kind === "ai_addon_payment"
+            ? "ai_addon_payment"
+            : row.metadata?.kind === "custom_quote_request"
+              ? "custom_quote_request"
+              : "renewal_intent",
+        ai_addon_name: typeof row.metadata?.ai_addon_name === "string" ? row.metadata.ai_addon_name : null,
+        ai_addon_requests: Number.isFinite(Number(row.metadata?.ai_addon_requests)) ? Number(row.metadata?.ai_addon_requests) : null,
+        ai_addon_tokens: Number.isFinite(Number(row.metadata?.ai_addon_tokens)) ? Number(row.metadata?.ai_addon_tokens) : null,
         source: typeof row.metadata?.source === "string" ? row.metadata.source : "unknown",
         created_by_it: row.metadata?.source === "it_tenant_control" || row.metadata?.source === "it_custom_agreement",
         receipt: issuedReceipt ? {

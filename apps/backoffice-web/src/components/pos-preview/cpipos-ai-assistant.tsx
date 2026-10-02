@@ -59,6 +59,7 @@ type AiQuotaStatus = {
   usage: { requests: number; total_tokens: number; cost_usd: number };
   exhausted: boolean;
   exhausted_by: Array<"requests" | "tokens" | "cost">;
+  addons?: { purchases: number; requests: number; tokens: number; cost_usd: number };
   history_retention_days: number | null;
 };
 
@@ -458,6 +459,8 @@ export function CpiPosAiAssistant({ lang }: { lang: Language }) {
   const [overviewLoading, setOverviewLoading] = useState(true);
   const [overviewError, setOverviewError] = useState<string | null>(null);
   const [quota, setQuota] = useState<AiQuotaStatus | null>(null);
+  const [quotaPopupOpen, setQuotaPopupOpen] = useState(false);
+  const quotaPopupKeyRef = useRef("");
   const [input, setInput] = useState("");
   const [imageDataUrl, setImageDataUrl] = useState<string | null>(null);
   const [imageName, setImageName] = useState<string | null>(null);
@@ -519,6 +522,14 @@ export function CpiPosAiAssistant({ lang }: { lang: Language }) {
       minute: "2-digit"
     }).format(date);
   }, [overview?.generated_at]);
+
+  useEffect(() => {
+    if (!quota?.exhausted) return;
+    const key = `${quota.month_key}:${quota.exhausted_by.join(",")}:${quota.usage.requests}:${quota.usage.total_tokens}`;
+    if (quotaPopupKeyRef.current === key) return;
+    quotaPopupKeyRef.current = key;
+    setQuotaPopupOpen(true);
+  }, [quota?.exhausted, quota?.month_key, quota?.usage.requests, quota?.usage.total_tokens, quota?.exhausted_by]);
 
   useEffect(() => {
     let cancelled = false;
@@ -983,9 +994,10 @@ export function CpiPosAiAssistant({ lang }: { lang: Language }) {
             </div>
             <div className="flex flex-wrap items-center gap-2">
               {quota ? (
-                <span className={`rounded-full border px-2.5 py-1 text-[10px] font-semibold backdrop-blur ${quota.exhausted ? "border-red-200 bg-red-50/90 text-red-700" : "border-emerald-200 bg-emerald-50/90 text-emerald-700"}`}>
+                <button type="button" onClick={() => quota.exhausted && setQuotaPopupOpen(true)}
+                  className={`rounded-full border px-2.5 py-1 text-[10px] font-semibold backdrop-blur ${quota.exhausted ? "cursor-pointer border-red-200 bg-red-50/90 text-red-700" : "cursor-default border-emerald-200 bg-emerald-50/90 text-emerald-700"}`}>
                   เดือน {quota.month_key}: {quota.usage.requests}{quota.limits.requests ? `/${quota.limits.requests}` : ""} ครั้ง · {new Intl.NumberFormat("th-TH").format(quota.usage.total_tokens)} tokens
-                </span>
+                </button>
               ) : null}
               <button
                 type="button"
@@ -1205,6 +1217,43 @@ export function CpiPosAiAssistant({ lang }: { lang: Language }) {
           </div>
         </div>
       </section>
+
+      <AiModal
+        open={quotaPopupOpen && Boolean(quota?.exhausted)}
+        title="โควตา CpiPOS AI ของแพ็กเกจครบแล้ว"
+        subtitle={quota ? `รอบเดือน ${quota.month_key} · การใช้งานถึงเพดานที่ฝ่าย IT กำหนด` : undefined}
+        onClose={() => setQuotaPopupOpen(false)}
+      >
+        <div className="space-y-4">
+          <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-950">
+            <p className="font-black">CpiPOS AI ถูกพักการส่งคำถามใหม่ชั่วคราว</p>
+            <p className="mt-1 leading-6">ระบบจะเปิดใช้งานต่อเมื่อรอบโควตาใหม่เริ่มต้น หรือเมื่อร้านซื้อ AI Add-on / ฝ่าย IT เพิ่มสิทธิ์ให้ร้าน</p>
+          </div>
+          {quota ? <div className="grid gap-3 sm:grid-cols-2">
+            <div className="rounded-2xl border border-slate-200 bg-white p-4">
+              <p className="text-xs font-bold text-slate-500">จำนวนคำขอ</p>
+              <p className="mt-1 text-xl font-black text-slate-950">{quota.usage.requests}{quota.limits.requests != null ? ` / ${quota.limits.requests}` : ""}</p>
+            </div>
+            <div className="rounded-2xl border border-slate-200 bg-white p-4">
+              <p className="text-xs font-bold text-slate-500">Tokens</p>
+              <p className="mt-1 text-xl font-black text-slate-950">{new Intl.NumberFormat("th-TH").format(quota.usage.total_tokens)}{quota.limits.tokens != null ? ` / ${new Intl.NumberFormat("th-TH").format(quota.limits.tokens)}` : ""}</p>
+            </div>
+          </div> : null}
+          <p className="text-xs font-semibold text-slate-500">
+            ถึงเพดานจาก: {quota?.exhausted_by.map((item) => item === "requests" ? "จำนวนครั้ง" : item === "tokens" ? "Tokens" : "งบ AI").join(" · ") || "โควตาแพ็กเกจ"}
+          </p>
+          <div className="grid gap-2 sm:grid-cols-2">
+            <Link href="/preview/pos/payments/support?open=chat&subject=CpiPOS%20AI%20quota"
+              className="inline-flex min-h-12 items-center justify-center rounded-xl border border-blue-200 bg-blue-50 px-4 text-sm font-black text-blue-700">
+              ติดต่อศูนย์ช่วยเหลือ
+            </Link>
+            <Link href="/preview/pos/payments/package?mode=ai-addon"
+              className="inline-flex min-h-12 items-center justify-center rounded-xl bg-blue-600 px-4 text-sm font-black text-white shadow-sm">
+              ซื้อแพ็กเกจ AI เพิ่ม
+            </Link>
+          </div>
+        </div>
+      </AiModal>
 
       {roomDrawerOpen ? (
         <div className="fixed inset-0 z-[110] bg-slate-950/35 lg:hidden" onMouseDown={(event) => { if (event.target === event.currentTarget) setRoomDrawerOpen(false); }}>

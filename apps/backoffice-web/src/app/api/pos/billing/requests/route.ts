@@ -39,11 +39,13 @@ export async function POST(request: Request) {
     const requestKey = str(form.get("request_key"),40);
     if (!UUID.test(requestKey)) return fail("request_key_invalid","A valid request identifier is required.",422);
     const kind = str(form.get("kind"),24);
-    if (!["renewal_intent","payment_notice","custom_quote_request"].includes(kind)) {
+    if (!["renewal_intent","payment_notice","custom_quote_request","ai_addon_payment"].includes(kind)) {
       return fail("invalid_kind","Select a valid subscription request.",422);
     }
     const desiredPackage = str(form.get("package_id"),50);
     const billingInterval = str(form.get("billing_interval"),12);
+    const isAiAddon = kind === "ai_addon_payment";
+    const isPayment = kind === "payment_notice" || isAiAddon;
     if (!["monthly","yearly"].includes(billingInterval)) return fail("invalid_interval","Choose a billing interval.",422);
 
     const db = getPrimarySupabaseServiceClient();
@@ -76,16 +78,27 @@ export async function POST(request: Request) {
     const target = snapshot.packages.find(item=>item.id===desiredPackage);
     if (!target) return fail("package_unavailable","Choose an available subscription package.",422);
     const isCustomTarget = target.contact_sales === true || target.quota_mode === "custom" || target.code === "custom";
-    if (kind === "custom_quote_request" && !isCustomTarget) {
+    if (isAiAddon) {
+      if (target.id !== snapshot.contract.package_id) {
+        return fail("ai_addon_current_package_required","AI Add-on must match the store's current package.",422);
+      }
+      if (!target.ai_addon_available || !target.ai_addon_monthly_price || target.ai_addon_monthly_price <= 0) {
+        return fail("ai_addon_unavailable","This package does not have an AI Add-on configured by IT.",422);
+      }
+      if (!target.ai_addon_monthly_requests && !target.ai_addon_monthly_tokens && !target.ai_addon_monthly_cost_usd) {
+        return fail("ai_addon_quota_missing","IT has not configured quota for this AI Add-on.",422);
+      }
+    }
+    if (!isAiAddon && kind === "custom_quote_request" && !isCustomTarget) {
       return fail("custom_package_required","CUSTOM request can only target the CUSTOM package.",422);
     }
-    if (isCustomTarget && kind === "renewal_intent") {
+    if (!isAiAddon && isCustomTarget && kind === "renewal_intent") {
       return fail("custom_requires_it_agreement","CUSTOM must be requested first so IT can agree the price and limits.",422);
     }
-    if (isCustomTarget && kind === "payment_notice" && !completingItPreparedPayment) {
+    if (!isAiAddon && isCustomTarget && kind === "payment_notice" && !completingItPreparedPayment) {
       return fail("custom_requires_it_agreement","Wait for IT to approve the CUSTOM terms before sending payment evidence.",409);
     }
-    if (kind !== "custom_quote_request" && billingInterval === "yearly" && !target.yearly_price &&
+    if (!isAiAddon && kind !== "custom_quote_request" && billingInterval === "yearly" && !target.yearly_price &&
       !(target.id === snapshot.contract.package_id && snapshot.contract.billing_interval === "yearly" && snapshot.contract.amount_per_cycle)) {
       return fail("yearly_unavailable","Annual price is not configured for this package.",422);
     }
@@ -102,18 +115,20 @@ export async function POST(request: Request) {
       return fail("renewal_selection_locked","Use the package and interval from your pending request.",409);
     }
 
-    const expected = kind === "custom_quote_request"
-      ? null
-      : target.id===snapshot.contract.package_id && billingInterval === snapshot.contract.billing_interval
-        ? snapshot.contract.amount_per_cycle
-        : billingInterval==="yearly" ? target.yearly_price : target.monthly_price;
+    const expected = isAiAddon
+      ? target.ai_addon_monthly_price
+      : kind === "custom_quote_request"
+        ? null
+        : target.id===snapshot.contract.package_id && billingInterval === snapshot.contract.billing_interval
+          ? snapshot.contract.amount_per_cycle
+          : billingInterval==="yearly" ? target.yearly_price : target.monthly_price;
     const amountText = str(form.get("amount_reported"),32);
-    const amountReported = kind === "payment_notice" ? Number(amountText) : null;
-    if (kind === "payment_notice" && (!/^\d+(?:\.\d{1,2})?$/.test(amountText)
+    const amountReported = isPayment ? Number(amountText) : null;
+    if (isPayment && (!/^\d+(?:\.\d{1,2})?$/.test(amountText)
       || amountReported === null || !Number.isFinite(amountReported) || amountReported <= 0 || amountReported > 10_000_000)) {
       return fail("amount_invalid","Enter the actual transfer amount, up to two decimal places.",422);
     }
-    if (kind === "payment_notice" && !snapshot.issuer.account_number && !snapshot.issuer.promptpay_id) {
+    if (isPayment && !snapshot.issuer.account_number && !snapshot.issuer.promptpay_id) {
       return fail("receiving_account_not_configured","Company receiving account is not configured. Contact Support.",422);
     }
 
@@ -121,10 +136,10 @@ export async function POST(request: Request) {
     const payerName = str(form.get("payer_name"),160);
     const transferAt = str(form.get("transfer_at"),32);
     const note = str(form.get("note"),500);
-    if (kind === "payment_notice" && !payerName) {
+    if (isPayment && !payerName) {
       return fail("payer_name_required","Enter the name used for the transfer.",422);
     }
-    if (kind === "payment_notice") {
+    if (isPayment) {
       const parsedTransfer = Date.parse(transferAt + "+07:00");
       if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(transferAt)
         || !Number.isFinite(parsedTransfer)
@@ -138,7 +153,7 @@ export async function POST(request: Request) {
     let filePath: string | null = null;
     let fileBuffer: Buffer | null = null;
     let fileMime: string | null = null;
-    if (kind === "payment_notice") {
+    if (isPayment) {
       if (!(evidence instanceof File) || evidence.size<=0 || evidence.size>MAX_SLIP || !FILE_TYPES[evidence.type]) {
         return fail("slip_required","Attach a JPG, PNG, WebP or PDF slip up to 4 MB.",422);
       }
@@ -160,16 +175,22 @@ export async function POST(request: Request) {
       }
     }
 
-    const type = !snapshot.contract.package_id ? "new_subscription"
+    const type = isAiAddon ? "ai_addon_purchase"
+      : !snapshot.contract.package_id ? "new_subscription"
       : snapshot.contract.status==="trial" ? "trial_conversion"
       : snapshot.contract.package_id!==target.id ? "package_change" : "renewal";
     const metadata = {
       ...(upgrading ? existingById?.metadata ?? {} : {}),
       kind,
-      billing_interval: kind === "custom_quote_request" ? "monthly" : billingInterval,
+      billing_interval: isAiAddon || kind === "custom_quote_request" ? "monthly" : billingInterval,
       expected_amount: kind === "custom_quote_request"
         ? null
         : upgrading ? existingById?.metadata?.expected_amount ?? expected : expected,
+      ai_addon_code: isAiAddon ? `${target.code}-ai-addon` : null,
+      ai_addon_name: isAiAddon ? `CpiPOS AI Add-on · ${target.name}` : null,
+      ai_addon_requests: isAiAddon ? target.ai_addon_monthly_requests : null,
+      ai_addon_tokens: isAiAddon ? target.ai_addon_monthly_tokens : null,
+      ai_addon_cost_usd: isAiAddon ? target.ai_addon_monthly_cost_usd : null,
       source:"pos_subscription_center",
       submitted_by:scope.session.user_id,
       payer_name:kind === "custom_quote_request" ? "" : payerName,
@@ -196,16 +217,18 @@ export async function POST(request: Request) {
     }
     await appendAuditLog({
       tenantId:scope.session.tenant_id,actorUserId:scope.session.user_id,actorRole:"owner",
-      action:kind==="payment_notice"
-        ? "subscription_payment_reported"
-        : kind==="custom_quote_request"
+      action:isAiAddon
+        ? "ai_addon_payment_reported"
+        : kind==="payment_notice"
+          ? "subscription_payment_reported"
+          : kind==="custom_quote_request"
           ? "subscription_custom_package_requested"
           : "subscription_renewal_requested",
       targetTable:"tenant_subscription_payment_requests",targetId:inserted.data.id,module:"subscription",
       metadata:{
         kind,
         requested_package_id:target.id,
-        billing_interval:kind === "custom_quote_request" ? "monthly" : billingInterval,
+        billing_interval:isAiAddon || kind === "custom_quote_request" ? "monthly" : billingInterval,
         has_evidence:Boolean(filePath)
       }
     });
@@ -213,9 +236,11 @@ export async function POST(request: Request) {
       audience: "it",
       kind: "request",
       title: `คำขอใหม่ · ${snapshot.store.name}`,
-      body: kind === "payment_notice"
-        ? "ลูกค้าแจ้งชำระเงินแพ็กเกจ"
-        : kind === "custom_quote_request"
+      body: isAiAddon
+        ? "ลูกค้าแจ้งชำระ CpiPOS AI Add-on"
+        : kind === "payment_notice"
+          ? "ลูกค้าแจ้งชำระเงินแพ็กเกจ"
+          : kind === "custom_quote_request"
           ? "ลูกค้าส่งคำขอแพ็กเกจ CUSTOM"
           : "ลูกค้าส่งคำขอต่ออายุแพ็กเกจ",
       url: "/it-admin/requests",

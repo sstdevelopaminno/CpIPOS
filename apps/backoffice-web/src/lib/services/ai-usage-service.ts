@@ -34,6 +34,13 @@ type TenantOverrideRow = {
   history_retention_days: number | null;
 };
 
+type AiAddonPurchaseRow = {
+  id: string;
+  extra_request_limit: number | null;
+  extra_token_limit: number | string | null;
+  extra_cost_limit_usd: number | string | null;
+};
+
 type UsageSummaryRow = {
   request_count: number | string | null;
   input_tokens: number | string | null;
@@ -74,6 +81,7 @@ export type AiQuotaStatus = {
   };
   exhausted: boolean;
   exhausted_by: Array<"requests" | "tokens" | "cost">;
+  addons: { purchases: number; requests: number; tokens: number; cost_usd: number };
   history_retention_days: number | null;
 };
 
@@ -161,7 +169,7 @@ export async function loadAiQuotaStatus(tenantId: string): Promise<AiQuotaStatus
   if (contractResult.error) throw new Error(`ai_quota_contract_lookup_failed:${contractResult.error.message}`);
 
   const packageId = contractResult.data?.package_id ?? null;
-  const [packageResult, overrideResult, usageResult] = await Promise.all([
+  const [packageResult, overrideResult, usageResult, addonResult] = await Promise.all([
     packageId
       ? supabase
           .from("pos_ai_package_quotas")
@@ -178,12 +186,27 @@ export async function loadAiQuotaStatus(tenantId: string): Promise<AiQuotaStatus
       p_tenant_id: tenantId,
       p_started_at: bounds.start,
       p_ended_at: bounds.end
-    })
+    }),
+    supabase
+      .from("pos_ai_tenant_addon_purchases")
+      .select("id,extra_request_limit,extra_token_limit,extra_cost_limit_usd")
+      .eq("tenant_id", tenantId)
+      .eq("quota_month_key", bounds.monthKey)
+      .returns<AiAddonPurchaseRow[]>()
   ]);
 
   if (packageResult.error) throw new Error(`ai_package_quota_lookup_failed:${packageResult.error.message}`);
   if (overrideResult.error) throw new Error(`ai_tenant_quota_lookup_failed:${overrideResult.error.message}`);
   if (usageResult.error) throw new Error(`ai_usage_summary_failed:${usageResult.error.message}`);
+  if (addonResult.error) throw new Error(`ai_addon_lookup_failed:${addonResult.error.message}`);
+
+  const addonRows = addonResult.data ?? [];
+  const addonTotals = addonRows.reduce((sum, row) => ({
+    purchases: sum.purchases + 1,
+    requests: sum.requests + Math.max(0, Math.trunc(numberValue(row.extra_request_limit))),
+    tokens: sum.tokens + Math.max(0, Math.trunc(numberValue(row.extra_token_limit))),
+    cost_usd: Number((sum.cost_usd + Math.max(0, numberValue(row.extra_cost_limit_usd))).toFixed(6))
+  }), { purchases: 0, requests: 0, tokens: 0, cost_usd: 0 });
 
   const packageQuota = packageResult.data;
   const override = overrideResult.data;
@@ -193,7 +216,7 @@ export async function loadAiQuotaStatus(tenantId: string): Promise<AiQuotaStatus
     mode === "custom" ? "tenant_custom" :
     "package";
 
-  const limits = mode === "unlimited"
+  const baseLimits = mode === "unlimited"
     ? { requests: null, tokens: null, cost_usd: null }
     : mode === "custom"
       ? {
@@ -206,6 +229,11 @@ export async function loadAiQuotaStatus(tenantId: string): Promise<AiQuotaStatus
           tokens: nullableLimit(packageQuota?.monthly_token_limit),
           cost_usd: nullableLimit(packageQuota?.monthly_cost_limit_usd)
         };
+  const limits = mode === "unlimited" ? baseLimits : {
+    requests: baseLimits.requests === null ? null : baseLimits.requests + addonTotals.requests,
+    tokens: baseLimits.tokens === null ? null : baseLimits.tokens + addonTotals.tokens,
+    cost_usd: baseLimits.cost_usd === null ? null : Number((baseLimits.cost_usd + addonTotals.cost_usd).toFixed(6))
+  };
 
   const enabled = override?.is_enabled_override ?? packageQuota?.is_enabled ?? true;
   const historyRetentionDays =
@@ -239,6 +267,7 @@ export async function loadAiQuotaStatus(tenantId: string): Promise<AiQuotaStatus
     usage,
     exhausted: exhaustedBy.length > 0,
     exhausted_by: exhaustedBy,
+    addons: addonTotals,
     history_retention_days: historyRetentionDays
   };
 }

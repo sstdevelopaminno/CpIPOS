@@ -6,7 +6,7 @@ import { PosSupportChat } from "@/components/pos-preview/pos-support-chat";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { PosSubscriptionCenterData } from "@/lib/services/pos-subscription-center-service";
 
-type Tab = "overview" | "packages" | "renew" | "notice" | "history" | "documents";
+type Tab = "overview" | "packages" | "renew" | "notice" | "ai" | "history" | "documents";
 type Envelope<T> = { data?: T; error?: { code?: string; message?: string } };
 type IconName = "payment" | "refresh" | "store" | "calendar" | "chart" | "bank" | "copy" |
   "crown" | "file" | "check" | "support" | "upload" | "send" | "clock" | "mail" | "phone" |
@@ -106,6 +106,7 @@ const tabs: Array<{ key: Tab; label: string; icon: IconName }> = [
   { key: "packages", label: "เลือก / อัปเกรดแพ็กเกจ", icon: "crown" },
   { key: "renew", label: "ต่ออายุ / เปลี่ยนแพ็กเกจ", icon: "wallet" },
   { key: "notice", label: "แจ้งชำระเงิน", icon: "payment" },
+  { key: "ai", label: "ซื้อ CpiPOS AI เพิ่ม", icon: "crown" },
   { key: "history", label: "ประวัติ", icon: "history" },
   { key: "documents", label: "เอกสาร", icon: "file" }
 ];
@@ -140,6 +141,7 @@ export function PosSubscriptionCenter({ initial, isOwner, showContactActions = t
   const [error, setError] = useState("");
   const [copyStatus, setCopyStatus] = useState("");
   const requestKey = useRef<string | null>(null);
+  const deepLinkHandledRef = useRef(false);
 
   const pending = snapshot.requests.find((row) => ["pending", "under_review"].includes(row.status));
   const lastRequest = snapshot.requests[0];
@@ -151,6 +153,11 @@ export function PosSubscriptionCenter({ initial, isOwner, showContactActions = t
     (!pending || (tab === "notice" && pendingCanAcceptPayment));
   const packageRow = useMemo(() =>
     snapshot.packages.find((row) => row.id === selectedPackage), [selectedPackage, snapshot.packages]);
+  const currentPackageRow = useMemo(() =>
+    snapshot.packages.find((row) => row.id === snapshot.contract.package_id) ?? null,
+    [snapshot.packages, snapshot.contract.package_id]);
+  const aiAddonAvailable = Boolean(currentPackageRow?.ai_addon_available && currentPackageRow?.ai_addon_monthly_price);
+  const aiAddonDue = currentPackageRow?.ai_addon_monthly_price ?? null;
   const isCustomSelection = Boolean(packageRow?.contact_sales || packageRow?.quota_mode === "custom" || packageRow?.code === "custom");
   const isPendingCustomQuote = pending?.kind === "custom_quote_request";
   const cycleLabel = snapshot.contract.billing_interval === "yearly" ? "รายปี" : "รายเดือน";
@@ -203,14 +210,35 @@ export function PosSubscriptionCenter({ initial, isOwner, showContactActions = t
   }, []);
 
   useEffect(() => {
+    if (deepLinkHandledRef.current) return;
+    try {
+      const params = new URLSearchParams(window.location.search);
+      if (params.get("mode") === "ai-addon") {
+        deepLinkHandledRef.current = true;
+        setTab("ai");
+        setPopupOpen(true);
+        if (aiAddonDue) setAmount(String(aiAddonDue));
+      }
+    } catch {
+      // Optional deep-link only.
+    }
+  }, [aiAddonDue]);
+
+  useEffect(() => {
     const onRuntimeChanged = () => { void reload(); };
     window.addEventListener("cpipos-subscription-runtime-changed", onRuntimeChanged);
     return () => window.removeEventListener("cpipos-subscription-runtime-changed", onRuntimeChanged);
   }, [reload]);
 
-  async function submit(kind: "renewal_intent" | "payment_notice" | "custom_quote_request") {
-    if (!canSubmit || !packageRow) return;
-    if (kind === "payment_notice") {
+  async function submit(kind: "renewal_intent" | "payment_notice" | "custom_quote_request" | "ai_addon_payment") {
+    const targetPackage = kind === "ai_addon_payment" ? currentPackageRow : packageRow;
+    if (!canSubmit || !targetPackage) return;
+    const paymentKind = kind === "payment_notice" || kind === "ai_addon_payment";
+    if (kind === "ai_addon_payment" && (!aiAddonAvailable || !aiAddonDue)) {
+      setError("แพ็กเกจปัจจุบันยังไม่มี AI Add-on ที่ฝ่าย IT เปิดขาย");
+      return;
+    }
+    if (paymentKind) {
       if (!hasBank || !slip) { setError("โปรดตรวจสอบบัญชีรับเงินและแนบสลิปก่อนส่ง"); return; }
       if (slip.size > 4 * 1024 * 1024) { setError("สลิปต้องมีขนาดไม่เกิน 4 MB"); return; }
       if (!amount || !Number.isFinite(Number(amount)) || Number(amount) <= 0) {
@@ -227,10 +255,10 @@ export function PosSubscriptionCenter({ initial, isOwner, showContactActions = t
     const form = new FormData();
     form.set("request_key", requestKey.current);
     form.set("kind", kind);
-    form.set("package_id", selectedPackage);
-    form.set("billing_interval", kind === "custom_quote_request" ? "monthly" : interval);
+    form.set("package_id", targetPackage.id);
+    form.set("billing_interval", kind === "ai_addon_payment" || kind === "custom_quote_request" ? "monthly" : interval);
     form.set("note", kind === "custom_quote_request" ? "" : note);
-    if (kind === "payment_notice") {
+    if (paymentKind) {
       form.set("amount_reported", amount);
       form.set("payer_name", payer);
       form.set("transfer_reference", reference);
@@ -242,7 +270,12 @@ export function PosSubscriptionCenter({ initial, isOwner, showContactActions = t
       const json = await response.json() as Envelope<{ id: string; status: string; already_submitted: boolean }>;
       if (!response.ok || !json.data) throw new Error(json.error?.message || "ส่งคำขอไม่สำเร็จ");
       requestKey.current = null;
-      if (kind === "payment_notice") {
+      if (kind === "ai_addon_payment") {
+        setMessage("บันทึกการชำระ CpiPOS AI Add-on แล้ว รอ IT ตรวจสอบเงินเข้า");
+        setSuccessPopup("ส่งแจ้งชำระ AI Add-on สำเร็จ · เมื่อ IT ยืนยันเงินเข้า quota AI จะเพิ่มในรอบเดือนปัจจุบันทันที");
+        setPopupOpen(false);
+        selectTab("history");
+      } else if (kind === "payment_notice") {
         setMessage("บันทึกการแจ้งชำระแล้ว รอ IT ตรวจสอบรายการรับเงินจริง");
         setSuccessPopup("ส่งแจ้งชำระเงินสำเร็จ · กรุณารอฝ่าย IT ตรวจสอบเงินเข้าและอนุมัติแพ็กเกจ");
         setPopupOpen(false);
@@ -398,8 +431,12 @@ export function PosSubscriptionCenter({ initial, isOwner, showContactActions = t
               <Icon name="support" size={16}/>ติดต่อสอบถาม / แจ้งปัญหา
             </button>
           </> : null}
+          <button type="button" disabled={!isOwner || demo} onClick={() => { if (aiAddonDue) setAmount(String(aiAddonDue)); openTab("ai"); }}
+            className="ml-auto inline-flex items-center gap-2 rounded-xl border border-violet-200 bg-violet-50 px-4 py-2.5 text-sm font-black text-violet-700 shadow-sm transition hover:bg-violet-100 disabled:opacity-50">
+            <Icon name="crown" size={16}/>ซื้อ CpiPOS AI เพิ่ม
+          </button>
           <button type="button" disabled={!isOwner || demo} onClick={() => openTab("packages")}
-            className="ml-auto inline-flex items-center gap-2 rounded-xl border border-blue-200 bg-white px-4 py-2.5 text-sm font-black text-blue-700 shadow-sm transition hover:bg-blue-50 disabled:opacity-50">
+            className="inline-flex items-center gap-2 rounded-xl border border-blue-200 bg-white px-4 py-2.5 text-sm font-black text-blue-700 shadow-sm transition hover:bg-blue-50 disabled:opacity-50">
             <Icon name="crown" size={16}/>เลือก / อัปเกรดแพ็กเกจ
           </button>
           <button type="button" disabled={!isOwner || demo} onClick={() => openTab("renew")}
@@ -561,13 +598,14 @@ export function PosSubscriptionCenter({ initial, isOwner, showContactActions = t
             </p>
           </section> : null}
 
-          {(tab === "renew" || tab === "notice") ? <section className={box + " space-y-3 p-4 sm:p-5"}>
+          {(tab === "renew" || tab === "notice" || tab === "ai") ? <section className={box + " space-y-3 p-4 sm:p-5"}>
             <div className="flex items-center gap-3 pb-1">
-              <ToneIcon icon={tab === "renew" ? "wallet" : "upload"} />
+              <ToneIcon icon={tab === "renew" ? "wallet" : tab === "ai" ? "crown" : "upload"} tone={tab === "ai" ? "purple" : "blue"} />
               <div><h2 className="text-lg font-extrabold text-[#152541]">
-                {tab === "renew" ? (selectedPackage === snapshot.contract.package_id ? "ต่ออายุแพ็กเกจ" : "เปลี่ยน / อัปเกรดแพ็กเกจ") : "แจ้งชำระเงิน"}</h2>
+                {tab === "ai" ? "ซื้อ CpiPOS AI Add-on" : tab === "renew" ? (selectedPackage === snapshot.contract.package_id ? "ต่ออายุแพ็กเกจ" : "เปลี่ยน / อัปเกรดแพ็กเกจ") : "แจ้งชำระเงิน"}</h2>
                 <p className="text-xs leading-5 text-slate-500">
-                  {tab === "renew" ? "เลือกแพ็กเกจและรอบชำระ จากนั้นส่งคำขอให้ IT ตรวจสอบรายละเอียด" :
+                  {tab === "ai" ? "ซื้อโควตา AI เพิ่มสำหรับรอบเดือนปัจจุบัน โดยใช้ราคาและจำนวนครั้ง/Tokens ที่ฝ่าย IT กำหนด" :
+                   tab === "renew" ? "เลือกแพ็กเกจและรอบชำระ จากนั้นส่งคำขอให้ IT ตรวจสอบรายละเอียด" :
                     "กรุณากรอกข้อมูลและแนบหลักฐานการโอนเงิน เพื่อให้ทีมงานตรวจสอบ"}</p>
               </div>
             </div>
@@ -585,7 +623,15 @@ export function PosSubscriptionCenter({ initial, isOwner, showContactActions = t
               </p>
             </div> : null}
             <div className="grid gap-2 sm:grid-cols-2">
-              <label className="min-w-0 rounded-xl border border-[#e4ebf6] p-3">
+              {tab === "ai" ? <div className="min-w-0 rounded-xl border border-violet-200 bg-violet-50/60 p-3">
+                <StepLabel number={1}>แพ็กเกจ AI สำหรับร้านนี้</StepLabel>
+                <p className="mt-3 text-sm font-black text-slate-950">{currentPackageRow ? `CpiPOS AI Add-on · ${currentPackageRow.name}` : "ยังไม่พบแพ็กเกจร้าน"}</p>
+                <p className="mt-1 text-xs leading-5 text-slate-600">
+                  {aiAddonAvailable
+                    ? `เพิ่ม ${limitText(currentPackageRow?.ai_addon_monthly_requests, " ครั้ง")} · ${limitText(currentPackageRow?.ai_addon_monthly_tokens, " tokens")} · ใช้ในรอบเดือนปัจจุบัน`
+                    : "แพ็กเกจนี้ยังไม่มี AI Add-on ที่ฝ่าย IT เปิดขาย"}
+                </p>
+              </div> :               <label className="min-w-0 rounded-xl border border-[#e4ebf6] p-3">
                 <StepLabel number={1}>เลือกแพ็กเกจ</StepLabel>
                 <select className={field} value={selectedPackage} disabled={!canSubmit || Boolean(pending)}
                   onChange={(event) => { setSelectedPackage(event.target.value); changed(); }}>
@@ -593,8 +639,12 @@ export function PosSubscriptionCenter({ initial, isOwner, showContactActions = t
                     {row.contact_sales ? `${row.name} · ติดต่อ IT` : `${row.name} · ${formatMoney(row.monthly_price)}/เดือน`}
                   </option>)}
                 </select>
-              </label>
-              {tab === "renew" && isCustomSelection ? <div className="rounded-xl border border-blue-200 bg-blue-50 p-4">
+              </label>}
+              {tab === "ai" ? <div className="rounded-xl border border-violet-200 bg-white p-4">
+                <p className="text-xs font-black text-violet-700">ราคา AI Add-on จาก IT</p>
+                <p className="mt-1 text-2xl font-black text-slate-950">{formatMoney(aiAddonDue)}</p>
+                <p className="mt-1 text-xs leading-5 text-slate-500">การซื้อ Add-on จะเพิ่มเฉพาะโควตา CpiPOS AI และไม่เปลี่ยนแพ็กเกจ POS หลัก</p>
+              </div> : tab === "renew" && isCustomSelection ? <div className="rounded-xl border border-blue-200 bg-blue-50 p-4">
                 <p className="text-xs font-black text-blue-700">CUSTOM</p>
                 <p className="mt-1 text-sm font-bold text-slate-900">ให้ทีม IT กำหนดราคาและสิทธิ์เฉพาะร้าน</p>
                 <p className="mt-1 text-xs leading-5 text-slate-600">ส่งคำขอก่อนได้เลย ไม่ต้องกรอกราคา โควตา หรือข้อมูลชำระเงิน</p>
@@ -628,7 +678,7 @@ export function PosSubscriptionCenter({ initial, isOwner, showContactActions = t
               </div>}
             </div>
 
-            {tab === "notice" ? <>
+            {(tab === "notice" || tab === "ai") ? <>
               <div className="rounded-xl border border-blue-200 bg-blue-50 p-4">
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <div>
@@ -637,8 +687,8 @@ export function PosSubscriptionCenter({ initial, isOwner, showContactActions = t
                     <p className="mt-1 text-lg font-black tracking-wide text-blue-800">{snapshot.issuer.account_number || "ยังไม่ได้ตั้งเลขบัญชี"}</p>
                   </div>
                   <div className="rounded-xl bg-white px-4 py-3 text-right">
-                    <p className="text-xs text-slate-500">ยอดตามแพ็กเกจ</p>
-                    <strong className="text-xl text-blue-700">{formatMoney(due)}</strong>
+                    <p className="text-xs text-slate-500">{tab === "ai" ? "ยอด AI Add-on" : "ยอดตามแพ็กเกจ"}</p>
+                    <strong className="text-xl text-blue-700">{formatMoney(tab === "ai" ? aiAddonDue : due)}</strong>
                   </div>
                 </div>
               </div>
@@ -646,7 +696,7 @@ export function PosSubscriptionCenter({ initial, isOwner, showContactActions = t
                 <div className="min-w-0 rounded-xl border border-[#e4ebf6] p-3">
                   <StepLabel number={3}>ยอดที่ต้องชำระ</StepLabel>
                   <div className={field + " flex min-h-11 items-center justify-between bg-[#f3f6fa] font-bold"}>
-                    <span>{packageRow?.contact_sales && due === null ? "ตามสัญญา" : formatMoney(due)}</span>
+                    <span>{tab === "ai" ? formatMoney(aiAddonDue) : packageRow?.contact_sales && due === null ? "ตามสัญญา" : formatMoney(due)}</span>
                   </div>
                   <p className="mt-1 text-xs text-slate-500">
                     ราคาอ้างอิงจากฝ่าย IT · CpiPOS-001 · ฝ่าย IT เป็นผู้กำหนดราคาแพ็กเกจ · รอ IT ยืนยันเงินจริง
@@ -726,17 +776,23 @@ export function PosSubscriptionCenter({ initial, isOwner, showContactActions = t
             </>}
             <div className="flex items-start gap-2 rounded-lg bg-amber-50 px-3 py-2.5 text-xs leading-5 text-amber-900">
               <Icon name="info" size={17} className="mt-0.5" />
-              <p>{tab === "renew" && isCustomSelection
-                ? "คำขอ CUSTOM ยังไม่ใช่การชำระเงิน และจะยังไม่เปลี่ยนแพ็กเกจจนกว่า IT จะตกลงเงื่อนไขและตรวจสอบการชำระเรียบร้อย"
-                : "การแจ้งชำระและสลิปยังไม่ถือว่ารับเงินจริง ระบบจะเปลี่ยนแพ็กเกจเมื่อ IT ตรวจสอบเงินเข้าบัญชีบริษัทและ Settlement สำเร็จ"}</p>
+              <p>{tab === "ai"
+                ? "การแจ้งชำระยังไม่เพิ่ม quota ทันที ระบบจะเพิ่มโควตา AI ของเดือนปัจจุบันหลังฝ่าย IT ตรวจสอบเงินเข้าบัญชีบริษัทและอนุมัติรายการ"
+                : tab === "renew" && isCustomSelection
+                  ? "คำขอ CUSTOM ยังไม่ใช่การชำระเงิน และจะยังไม่เปลี่ยนแพ็กเกจจนกว่า IT จะตกลงเงื่อนไขและตรวจสอบการชำระเรียบร้อย"
+                  : "การแจ้งชำระและสลิปยังไม่ถือว่ารับเงินจริง ระบบจะเปลี่ยนแพ็กเกจเมื่อ IT ตรวจสอบเงินเข้าบัญชีบริษัทและ Settlement สำเร็จ"}</p>
             </div>
             <button type="button" disabled={!canSubmit ||
-              (tab === "notice" && (!slip || !hasBank || !amount || !transferAt || !payer.trim()))}
-              onClick={() => void submit(tab === "renew"
-                ? isCustomSelection ? "custom_quote_request" : "renewal_intent"
-                : "payment_notice")}
+              ((tab === "notice" || tab === "ai") && (!slip || !hasBank || !amount || !transferAt || !payer.trim())) ||
+              (tab === "ai" && !aiAddonAvailable)}
+              onClick={() => void submit(tab === "ai"
+                ? "ai_addon_payment"
+                : tab === "renew"
+                  ? isCustomSelection ? "custom_quote_request" : "renewal_intent"
+                  : "payment_notice")}
               className="flex w-full items-center justify-center gap-2 rounded-xl bg-[#1862ed] px-5 py-3 text-sm font-bold text-white shadow-[0_6px_12px_rgba(24,98,237,0.2)] transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-300 disabled:shadow-none">
               <Icon name="send" size={17} />{busy ? "กำลังส่งคำขอ..." :
+                tab === "ai" ? "ส่งแจ้งชำระ CpiPOS AI Add-on" :
                 tab === "renew" ? isCustomSelection ? "ส่งคำขอ CUSTOM" : "ส่งคำขอต่ออายุ" :
                   pending?.kind === "renewal_intent" ? "แนบสลิปและแจ้งชำระคำขอเดิม" : "ส่งแจ้งชำระเงิน"}
             </button>
@@ -774,7 +830,8 @@ export function PosSubscriptionCenter({ initial, isOwner, showContactActions = t
                   <td className="p-3"><strong>{row.package_name || "แพ็กเกจ"}</strong><br/>
                     <span className="text-xs text-slate-500">{row.billing_interval === "yearly" ? "รายปี" : "รายเดือน"}</span></td>
                   <td className="p-3">{row.kind === "payment_notice" ? "แจ้งชำระเงิน" :
-                    row.kind === "custom_quote_request" ? "ขอ CUSTOM" : "ขอต่ออายุ"}</td>
+                    row.kind === "ai_addon_payment" ? "AI Add-on" :
+                     row.kind === "custom_quote_request" ? "ขอ CUSTOM" : "ขอต่ออายุ"}</td>
                   <td className="p-3">{formatMoney(row.expected_amount)}</td>
                   <td className="p-3">{row.amount === null ? "—" : formatMoney(row.amount)}</td>
                   <td className="p-3 font-semibold">{LABELS[row.status] || row.status}</td>

@@ -218,6 +218,19 @@ export function PosSupportChat({ storeCode, storeName }: { storeCode: string; st
   }, [loadHeads]);
 
   useEffect(() => {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      if (params.get("open") === "chat") {
+        setOpen(true);
+        const requestedSubject = params.get("subject")?.trim();
+        if (requestedSubject) setSubject(requestedSubject.slice(0, 180));
+      }
+    } catch {
+      // Deep-link assistance is optional; the Support page still works normally.
+    }
+  }, []);
+
+  useEffect(() => {
     if (!open || !selectedId) return;
     void loadMessages(selectedId);
   }, [open, selectedId, loadMessages]);
