@@ -708,7 +708,7 @@ export function PosSubscriptionCenter({ initial, isOwner, showContactActions = t
               </div>}
             </div>}
 
-            {(tab === "notice" || (tab === "ai" && aiPurchaseReady)) ? <>            {(tab === "notice" || tab === "ai") ? <>
+            {(tab === "notice" || (tab === "ai" && aiPurchaseReady)) ? <>
               <div className="overflow-hidden rounded-2xl border border-blue-200 bg-[linear-gradient(135deg,#eef6ff_0%,#ffffff_55%,#f5f3ff_100%)] shadow-[0_10px_28px_rgba(37,99,235,0.08)]">
                 <div className="grid gap-4 p-4 sm:p-5 lg:grid-cols-[1fr_auto] lg:items-center">
                   <div className="flex min-w-0 items-start gap-3">
@@ -768,7 +768,10 @@ export function PosSubscriptionCenter({ initial, isOwner, showContactActions = t
 
               {!hasBank ? <p className="rounded-xl bg-amber-50 p-3 text-sm text-amber-900">
                 ยังไม่ได้ตั้งค่าบัญชีบริษัท กรุณาติดต่อ Support ก่อนชำระเงิน</p> : null}
-            </> : isCustomSelection ? <>
+            </> : tab === "ai" ? <div className="rounded-2xl border border-violet-200 bg-violet-50 p-5 text-sm text-violet-900">
+              <strong>แพ็กเกจปัจจุบันไม่มี AI Add-on แบบชำระเพิ่ม</strong>
+              <p className="mt-1 text-xs leading-5">ตรวจสอบสิทธิ์ AI ที่รวมอยู่ในแพ็กเกจด้านบน หากต้องการโควตาเพิ่มสำหรับแพ็กเกจนี้ กรุณาติดต่อฝ่าย IT หรือเปลี่ยนแพ็กเกจ POS ตามเงื่อนไขที่บริษัทกำหนด</p>
+            </div> : isCustomSelection ? <>
               <div className="rounded-xl border border-blue-200 bg-blue-50 p-4">
                 <p className="text-sm font-black text-blue-800">ขอแพ็กเกจ CUSTOM</p>
                 <p className="mt-1 text-xs leading-5 text-slate-600">กดส่งคำขอ จากนั้นทีม IT จะติดต่อเพื่อตกลงราคา จำนวนสาขา เครื่อง ผู้ใช้ อายุข้อมูล และสิทธิ์ที่ต้องการ</p>
@@ -790,12 +793,14 @@ export function PosSubscriptionCenter({ initial, isOwner, showContactActions = t
             <div className="flex items-start gap-2 rounded-lg bg-amber-50 px-3 py-2.5 text-xs leading-5 text-amber-900">
               <Icon name="info" size={17} className="mt-0.5" />
               <p>{tab === "ai"
-                ? "การแจ้งชำระยังไม่เพิ่ม quota ทันที ระบบจะเพิ่มโควตา AI ของเดือนปัจจุบันหลังฝ่าย IT ตรวจสอบเงินเข้าบัญชีบริษัทและอนุมัติรายการ"
+                ? aiPurchaseReady
+                  ? "การแจ้งชำระยังไม่เพิ่ม quota ทันที ระบบจะเพิ่มโควตา AI ของเดือนปัจจุบันหลังฝ่าย IT ตรวจสอบเงินเข้าบัญชีบริษัทและอนุมัติรายการ"
+                  : "สิทธิ์ AI และโควตาที่แสดงอ้างอิงจาก CpiPOS-001 ซึ่งฝ่าย IT เป็นผู้ควบคุมต่อแพ็กเกจและต่อเดือน"
                 : tab === "renew" && isCustomSelection
                   ? "คำขอ CUSTOM ยังไม่ใช่การชำระเงิน และจะยังไม่เปลี่ยนแพ็กเกจจนกว่า IT จะตกลงเงื่อนไขและตรวจสอบการชำระเรียบร้อย"
                   : "AI ช่วยอ่านข้อมูลจากสลิปเพื่อส่งให้ฝ่าย IT ตรวจสอบ แต่ยังไม่ถือว่ารับเงินจริง ระบบจะเปลี่ยนแพ็กเกจเมื่อ IT ยืนยันเงินเข้าบัญชีบริษัทและ Settlement สำเร็จ"}</p>
             </div>
-            <button type="button" disabled={!canSubmit ||
+            {(tab !== "ai" || aiPurchaseReady) ? <button type="button" disabled={!canSubmit ||
               ((tab === "notice" || tab === "ai") && (!slip || !hasBank)) ||
               (tab === "ai" && !aiAddonAvailable)}
               onClick={() => void submit(tab === "ai"
@@ -808,7 +813,7 @@ export function PosSubscriptionCenter({ initial, isOwner, showContactActions = t
                 tab === "ai" ? "AI สแกนสลิปและส่งแจ้งชำระ CpiPOS AI" :
                 tab === "renew" ? isCustomSelection ? "ส่งคำขอ CUSTOM" : "ส่งคำขอต่ออายุ" :
                   pending?.kind === "renewal_intent" ? "AI สแกนสลิปและแจ้งชำระคำขอเดิม" : "AI สแกนสลิปและส่งแจ้งชำระเงิน"}
-            </button>
+            </button> : null}
           </section> : null}
 
           {tab === "history" ? <section className={box + " space-y-5 p-4 sm:p-5"}>
@@ -858,18 +863,45 @@ export function PosSubscriptionCenter({ initial, isOwner, showContactActions = t
                     {row.review_note ? <p className="mt-1 text-xs text-slate-500">{row.review_note}</p> : null}</td>
                 </tr>)}</tbody>
               </table></div>}
-            <h3 className="text-base font-bold text-slate-900">รอบบิลที่บันทึกแล้ว</h3>
-            {snapshot.cycles.length === 0 ? <p className="rounded-xl bg-slate-50 p-5 text-sm text-slate-500">
-              ยังไม่มีรอบบิลที่บันทึกไว้</p> :
-              <div className="overflow-x-auto"><table className="min-w-[570px] w-full text-left text-sm">
-                <thead><tr>{["วันเริ่ม", "วันสิ้นสุด", "ยอดเรียกเก็บ", "ยอดบันทึกชำระ", "สถานะ"].map((head) =>
-                  <th className="border-b p-3 text-xs text-slate-500" key={head}>{head}</th>)}</tr></thead>
-                <tbody>{snapshot.cycles.map((cycle) => <tr key={cycle.id} className="border-b">
-                  <td className="p-3">{cycle.period_start}</td><td className="p-3">{cycle.period_end}</td>
-                  <td className="p-3">{formatMoney(cycle.amount_due)}</td>
-                  <td className="p-3">{formatMoney(cycle.amount_paid)}</td><td className="p-3">{cycle.status}</td>
-                </tr>)}</tbody>
-              </table></div>}
+            <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-slate-50 p-3">
+              <div>
+                <h3 className="text-sm font-black text-slate-900">รอบบิลที่บันทึกแล้ว</h3>
+                <p className="mt-0.5 text-xs text-slate-500">ดูรอบบิล ยอดเรียกเก็บ ยอดที่บันทึกชำระ และสถานะย้อนหลัง</p>
+              </div>
+              <button type="button" onClick={() => setBillingCyclesOpen(true)}
+                className="inline-flex items-center gap-2 rounded-xl border border-blue-200 bg-white px-4 py-2.5 text-sm font-black text-blue-700 shadow-sm hover:bg-blue-50">
+                <Icon name="calendar" size={16}/>รอบบิลที่บันทึกแล้ว
+                <span className="rounded-full bg-blue-50 px-2 py-0.5 text-[11px]">{snapshot.cycles.length}</span>
+              </button>
+            </div>
+            {billingCyclesOpen ? <div className="fixed inset-0 z-[460] flex items-center justify-center bg-slate-950/45 p-4"
+              onMouseDown={(event) => { if (event.target === event.currentTarget) setBillingCyclesOpen(false); }}>
+              <section role="dialog" aria-modal="true" aria-label="รอบบิลที่บันทึกแล้ว"
+                className="w-full max-w-4xl overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl">
+                <header className="flex items-center justify-between gap-3 border-b border-slate-200 px-5 py-4">
+                  <div><h3 className="text-lg font-black text-slate-950">รอบบิลที่บันทึกแล้ว</h3>
+                    <p className="text-xs text-slate-500">ข้อมูลจาก CpiPOS-001 · {snapshot.store.name}</p></div>
+                  <button type="button" onClick={() => setBillingCyclesOpen(false)}
+                    className="h-9 w-9 rounded-full border border-slate-200 text-xl text-slate-500 hover:bg-slate-50">×</button>
+                </header>
+                <div className="max-h-[68vh] overflow-auto p-4">
+                  {snapshot.cycles.length === 0 ? <p className="rounded-xl bg-slate-50 p-8 text-center text-sm text-slate-500">
+                    ยังไม่มีรอบบิลที่บันทึกไว้</p> :
+                    <div className="overflow-x-auto rounded-xl border border-slate-200"><table className="min-w-[650px] w-full text-left text-sm">
+                      <thead className="bg-slate-50"><tr>{["วันเริ่ม", "วันสิ้นสุด", "ยอดเรียกเก็บ", "ยอดบันทึกชำระ", "สถานะ"].map((head) =>
+                        <th className="border-b border-slate-200 px-4 py-3 text-xs font-bold text-slate-500" key={head}>{head}</th>)}</tr></thead>
+                      <tbody className="divide-y divide-slate-100">{snapshot.cycles.map((cycle) => <tr key={cycle.id}>
+                        <td className="px-4 py-3">{cycle.period_start}</td><td className="px-4 py-3">{cycle.period_end}</td>
+                        <td className="px-4 py-3">{formatMoney(cycle.amount_due)}</td>
+                        <td className="px-4 py-3">{formatMoney(cycle.amount_paid)}</td>
+                        <td className="px-4 py-3"><span className={"rounded-full px-2.5 py-1 text-xs font-bold " +
+                          (cycle.status === "paid" ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-700")}>
+                          {cycle.status === "paid" ? "ชำระแล้ว" : cycle.status}</span></td>
+                      </tr>)}</tbody>
+                    </table></div>}
+                </div>
+              </section>
+            </div> : null}
           </section> : null}
 
           {tab === "documents" ? <section className={box + " p-5"}>
