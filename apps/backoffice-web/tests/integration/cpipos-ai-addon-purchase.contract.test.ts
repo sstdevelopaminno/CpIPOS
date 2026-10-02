@@ -23,12 +23,15 @@ describe("CpiPOS AI quota top-up purchase flow",()=>{
     expect(usage).toContain("baseLimits.requests + addonTotals.requests");
   });
 
-  it("uses IT-defined base quota and Subscription Add-on values in package-style POS cards",()=>{
+  it("uses IT-defined package cards and a guided Add-on checkout before slip upload",()=>{
     expect(billing).toContain('tab === "ai"');
     expect(billing).toContain("AI Quota ต่อแพ็กเกจ / ต่อเดือน");
     expect(billing).toContain("AI Add-on · รอบเดือนปัจจุบัน");
     expect(billing).toContain("ai_monthly_tokens");
     expect(billing).toContain("ai_addon_monthly_tokens");
+    expect(billing).toContain("setAiCheckoutOpen(true)");
+    expect(billing).toContain("aiCheckoutActive");
+    expect(billing).toContain("ส่งหลักฐานการชำระ CpiPOS AI Add-on");
     expect(billing).toContain('"ai_addon_payment"');
     expect(request).toContain('kind === "ai_addon_payment"');
     expect(request).toContain("target.ai_addon_monthly_price");
