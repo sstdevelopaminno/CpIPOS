@@ -232,7 +232,7 @@ const AI_PROPOSAL_TOOLS = [
   {
     type: "function",
     name: "propose_stock_adjustment",
-    description: "Prepare, but do not execute, a manual stock adjustment for a real ingredient in the supplied inventory. Use only when the user asks to correct or add/subtract stock.",
+    description: "Prepare, but do not execute, a stock adjustment. For normal ingredients use catalog.ingredients IDs. When the user refers to a unit-tracked product, use that product's catalog.products.stock_ingredient_id and calculate the delta from stock_quantity.",
     strict: true,
     parameters: {
       type: "object",
@@ -766,6 +766,16 @@ function extractProposals(payload: unknown, snapshot: Awaited<ReturnType<typeof 
   };
   const products = new Map(snapshot.catalog.products.map((item) => [item.id, item]));
   const ingredients = new Map(snapshot.catalog.ingredients.map((item) => [item.id, item]));
+  for (const product of snapshot.catalog.products) {
+    if (!product.stock_ingredient_id) continue;
+    ingredients.set(product.stock_ingredient_id, {
+      id: product.stock_ingredient_id,
+      name: product.name,
+      unit: product.stock_unit ?? "piece",
+      quantity_on_hand: product.stock_quantity ?? 0,
+      reorder_level: 0
+    });
+  }
   const proposals: AiProposal[] = [];
 
   for (const [index, item] of (body.output ?? []).entries()) {
