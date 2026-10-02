@@ -1,7 +1,6 @@
 "use client";
 
 import Image from "next/image";
-import Link from "next/link";
 import { PosSupportChat } from "@/components/pos-preview/pos-support-chat";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { PosSubscriptionCenterData } from "@/lib/services/pos-subscription-center-service";
@@ -111,11 +110,10 @@ const tabs: Array<{ key: Tab; label: string; icon: IconName }> = [
   { key: "documents", label: "เอกสาร", icon: "file" }
 ];
 
-export function PosSubscriptionCenter({ initial, isOwner, showContactActions = true, backHref }: {
+export function PosSubscriptionCenter({ initial, isOwner, showContactActions = true }: {
   initial: PosSubscriptionCenterData;
   isOwner: boolean;
   showContactActions?: boolean;
-  backHref?: string;
 }) {
   const [snapshot, setSnapshot] = useState(initial);
   const initialPending = initial.requests.find((row) => ["pending", "under_review"].includes(row.status));
@@ -124,11 +122,6 @@ export function PosSubscriptionCenter({ initial, isOwner, showContactActions = t
     initial.contract.package_id || initial.packages[0]?.id || "");
   const [interval, setInterval] = useState(initialPending?.billing_interval === "yearly" ||
     (!initialPending && initial.contract.billing_interval === "yearly") ? "yearly" : "monthly");
-  const [amount, setAmount] = useState(initialPending?.created_by_it && initialPending.expected_amount
-    ? String(initialPending.expected_amount) : "");
-  const [payer, setPayer] = useState("");
-  const [reference, setReference] = useState("");
-  const [transferAt, setTransferAt] = useState("");
   const [note, setNote] = useState("");
   const [slip, setSlip] = useState<File | null>(null);
   const [lineOpen, setLineOpen] = useState(false);
@@ -201,9 +194,6 @@ export function PosSubscriptionCenter({ initial, isOwner, showContactActions = t
       if (open) {
         setSelectedPackage(open.package_id || "");
         setInterval(open.billing_interval === "yearly" ? "yearly" : "monthly");
-        if (open.created_by_it && !open.has_evidence && open.expected_amount) {
-          setAmount(String(open.expected_amount));
-        }
       }
     } catch (cause) { setError(cause instanceof Error ? cause.message : "โหลดข้อมูลไม่สำเร็จ"); }
     finally { setRefreshing(false); }
@@ -217,7 +207,6 @@ export function PosSubscriptionCenter({ initial, isOwner, showContactActions = t
         deepLinkHandledRef.current = true;
         setTab("ai");
         setPopupOpen(true);
-        if (aiAddonDue) setAmount(String(aiAddonDue));
       }
     } catch {
       // Optional deep-link only.
@@ -240,12 +229,10 @@ export function PosSubscriptionCenter({ initial, isOwner, showContactActions = t
     }
     if (paymentKind) {
       if (!hasBank || !slip) { setError("โปรดตรวจสอบบัญชีรับเงินและแนบสลิปก่อนส่ง"); return; }
-      if (slip.size > 4 * 1024 * 1024) { setError("สลิปต้องมีขนาดไม่เกิน 4 MB"); return; }
-      if (!amount || !Number.isFinite(Number(amount)) || Number(amount) <= 0) {
-        setError("กรุณาระบุยอดเงินที่โอนจริง"); return;
+      if (!["image/jpeg", "image/png", "image/webp"].includes(slip.type)) {
+        setError("รองรับสลิป JPG, PNG และ WebP เท่านั้น"); return;
       }
-      if (!transferAt) { setError("กรุณาระบุวันและเวลาที่โอน"); return; }
-      if (!payer.trim()) { setError("กรุณาระบุชื่อผู้โอน"); return; }
+      if (slip.size > 4 * 1024 * 1024) { setError("สลิปต้องมีขนาดไม่เกิน 4 MB"); return; }
     }
     if (!requestKey.current) {
       requestKey.current = kind === "payment_notice" && pendingCanAcceptPayment && pending
@@ -258,26 +245,33 @@ export function PosSubscriptionCenter({ initial, isOwner, showContactActions = t
     form.set("package_id", targetPackage.id);
     form.set("billing_interval", kind === "ai_addon_payment" || kind === "custom_quote_request" ? "monthly" : interval);
     form.set("note", kind === "custom_quote_request" ? "" : note);
-    if (paymentKind) {
-      form.set("amount_reported", amount);
-      form.set("payer_name", payer);
-      form.set("transfer_reference", reference);
-      form.set("transfer_at", transferAt);
-      if (slip) form.set("slip", slip);
-    }
+    if (paymentKind && slip) form.set("slip", slip);
     try {
       const response = await fetch("/api/pos/billing/requests", { method: "POST", body: form });
-      const json = await response.json() as Envelope<{ id: string; status: string; already_submitted: boolean }>;
+      const json = await response.json() as Envelope<{
+        id: string;
+        status: string;
+        already_submitted: boolean;
+        slip_scan?: {
+          status: "verified" | "needs_review" | "error";
+          parsed: { amount: number | null; payer_name: string | null; transfer_datetime: string | null; reference_no: string | null };
+          checks: { passed: boolean; issues: string[] };
+        } | null;
+      }>;
       if (!response.ok || !json.data) throw new Error(json.error?.message || "ส่งคำขอไม่สำเร็จ");
       requestKey.current = null;
       if (kind === "ai_addon_payment") {
         setMessage("บันทึกการชำระ CpiPOS AI Add-on แล้ว รอ IT ตรวจสอบเงินเข้า");
-        setSuccessPopup("ส่งแจ้งชำระ AI Add-on สำเร็จ · เมื่อ IT ยืนยันเงินเข้า quota AI จะเพิ่มในรอบเดือนปัจจุบันทันที");
+        setSuccessPopup(json.data.slip_scan?.status === "verified"
+          ? "AI อ่านข้อมูลสลิปสำเร็จและส่งหลักฐานให้ฝ่าย IT แล้ว · เมื่อ IT ยืนยันเงินเข้า quota AI จะเพิ่มในรอบเดือนปัจจุบัน"
+          : "ส่งสลิปให้ฝ่าย IT แล้ว · AI ทำเครื่องหมายให้ตรวจสอบเพิ่มเติมก่อนยืนยันเงินเข้า");
         setPopupOpen(false);
         selectTab("history");
       } else if (kind === "payment_notice") {
         setMessage("บันทึกการแจ้งชำระแล้ว รอ IT ตรวจสอบรายการรับเงินจริง");
-        setSuccessPopup("ส่งแจ้งชำระเงินสำเร็จ · กรุณารอฝ่าย IT ตรวจสอบเงินเข้าและอนุมัติแพ็กเกจ");
+        setSuccessPopup(json.data.slip_scan?.status === "verified"
+          ? "AI อ่านข้อมูลสลิปสำเร็จและส่งให้ฝ่าย IT ตรวจสอบแล้ว · ไม่ต้องกรอกยอด วันเวลา ชื่อผู้โอน หรือเลขอ้างอิง"
+          : "ส่งสลิปให้ฝ่าย IT แล้ว · AI อ่านข้อมูลได้ไม่ครบหรือพบจุดที่ต้องตรวจสอบเพิ่มเติม");
         setPopupOpen(false);
         selectTab("history");
       } else if (kind === "custom_quote_request") {
@@ -319,11 +313,8 @@ export function PosSubscriptionCenter({ initial, isOwner, showContactActions = t
           </div>
         </div>
         <div className="flex flex-wrap items-center justify-end gap-2">
-          {backHref ? <Link href={backHref}
-            className="inline-flex items-center gap-2 rounded-xl border border-[#d9e4f7] bg-white px-4 py-2.5 text-sm font-bold text-slate-700 shadow-sm transition hover:bg-slate-50">
-            <span aria-hidden>←</span>กลับศูนย์ช่วยเหลือ
-          </Link> : null}
           <span
+            role="status"          <span
             role="status"
             className="inline-flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-bold text-emerald-700"
             title={"แหล่งข้อมูล: " + snapshot.control_plane.source + " · " + snapshot.control_plane.authority}
@@ -409,7 +400,6 @@ export function PosSubscriptionCenter({ initial, isOwner, showContactActions = t
       <section className={box + " p-3 sm:p-4"}>
         <div className="flex flex-wrap items-center gap-2">
           {[
-            ["overview","ภาพรวมการใช้งาน","chart"],
             ["history","ประวัติการชำระแพ็กเกจ","history"],
             ["documents","เอกสารแพ็กเกจ","file"]
           ].map(([key,label,icon]) => <button type="button" key={key}
@@ -417,11 +407,7 @@ export function PosSubscriptionCenter({ initial, isOwner, showContactActions = t
             className="inline-flex items-center gap-2 rounded-xl border border-blue-100 bg-blue-50 px-3.5 py-2.5 text-sm font-bold text-blue-700 transition hover:bg-blue-100">
             <Icon name={icon as IconName} size={16}/>{label}
           </button>)}
-          <button type="button" onClick={() => { setInfoPopup("bank"); setPopupOpen(true); }}
-            className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-sm font-bold text-slate-700 hover:bg-slate-50">
-            <Icon name="bank" size={16}/>บัญชีรับชำระของบริษัท
-          </button>
-          {showContactActions ? <>
+          {showContactActions ? <>          {showContactActions ? <>
             <button type="button" onClick={() => { setInfoPopup("line"); setPopupOpen(true); setLineOpen(true); }}
               className="inline-flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-3.5 py-2.5 text-sm font-bold text-emerald-700 hover:bg-emerald-100">
               LINE · QR ติดต่อบริษัท
@@ -431,7 +417,7 @@ export function PosSubscriptionCenter({ initial, isOwner, showContactActions = t
               <Icon name="support" size={16}/>ติดต่อสอบถาม / แจ้งปัญหา
             </button>
           </> : null}
-          <button type="button" disabled={!isOwner || demo} onClick={() => { if (aiAddonDue) setAmount(String(aiAddonDue)); openTab("ai"); }}
+          <button type="button" disabled={!isOwner || demo} onClick={() => openTab("ai")}
             className="ml-auto inline-flex items-center gap-2 rounded-xl border border-violet-200 bg-violet-50 px-4 py-2.5 text-sm font-black text-violet-700 shadow-sm transition hover:bg-violet-100 disabled:opacity-50">
             <Icon name="crown" size={16}/>ซื้อ CpiPOS AI เพิ่ม
           </button>
@@ -619,7 +605,7 @@ export function PosSubscriptionCenter({ initial, isOwner, showContactActions = t
               <p className="mt-1 text-xs leading-5">
                 ฝ่าย IT สร้างรายการชำระไว้แล้ว · แพ็กเกจ {pending.package_name || "—"} · {pending.billing_interval === "yearly" ? "รายปี" : "รายเดือน"} ·
                 ยอดตามแพ็กเกจ {formatMoney(pending.expected_amount)}
-                กรุณาแนบสลิปและกรอกข้อมูลการโอน ระบบจะอัปเดตรายการเดิม ไม่สร้างคำขอซ้ำ
+                กรุณาแนบสลิป ระบบจะใช้ AI อ่านยอดเงิน วันเวลา ชื่อผู้โอน และเลขอ้างอิงให้อัตโนมัติ แล้วอัปเดตรายการเดิมโดยไม่สร้างคำขอซ้ำ
               </p>
             </div> : null}
             <div className="grid gap-2 sm:grid-cols-2">
@@ -679,83 +665,66 @@ export function PosSubscriptionCenter({ initial, isOwner, showContactActions = t
             </div>
 
             {(tab === "notice" || tab === "ai") ? <>
-              <div className="rounded-xl border border-blue-200 bg-blue-50 p-4">
-                <div className="flex flex-wrap items-center justify-between gap-3">
-                  <div>
-                    <p className="text-xs font-bold text-blue-700">บัญชีรับชำระของบริษัท</p>
-                    <p className="mt-1 text-sm font-black text-slate-900">{snapshot.issuer.bank_name || "—"} · {snapshot.issuer.account_name || "—"}</p>
-                    <p className="mt-1 text-lg font-black tracking-wide text-blue-800">{snapshot.issuer.account_number || "ยังไม่ได้ตั้งเลขบัญชี"}</p>
+              <div className="overflow-hidden rounded-2xl border border-blue-200 bg-[linear-gradient(135deg,#eef6ff_0%,#ffffff_55%,#f5f3ff_100%)] shadow-[0_10px_28px_rgba(37,99,235,0.08)]">
+                <div className="grid gap-4 p-4 sm:p-5 lg:grid-cols-[1fr_auto] lg:items-center">
+                  <div className="flex min-w-0 items-start gap-3">
+                    <ToneIcon icon="bank" tone="blue" />
+                    <div className="min-w-0">
+                      <p className="text-xs font-bold uppercase tracking-wide text-blue-600">โอนเข้าบัญชีบริษัท</p>
+                      <p className="mt-1 text-sm font-black text-slate-950">{snapshot.issuer.bank_name || "—"} · {snapshot.issuer.account_name || "—"}</p>
+                      <p className="mt-1 break-all text-lg font-black tracking-wide text-blue-800">{snapshot.issuer.account_number || snapshot.issuer.promptpay_id || "ยังไม่ได้ตั้งบัญชีรับชำระ"}</p>
+                      <p className="mt-2 text-xs leading-5 text-slate-600">หลังโอนเสร็จ แนบเพียงรูปสลิป ระบบจะอ่านข้อมูลการโอนให้อัตโนมัติด้วย AI</p>
+                    </div>
                   </div>
-                  <div className="rounded-xl bg-white px-4 py-3 text-right">
-                    <p className="text-xs text-slate-500">{tab === "ai" ? "ยอด AI Add-on" : "ยอดตามแพ็กเกจ"}</p>
-                    <strong className="text-xl text-blue-700">{formatMoney(tab === "ai" ? aiAddonDue : due)}</strong>
+                  <div className="rounded-2xl border border-white/80 bg-white px-5 py-4 text-left shadow-sm lg:min-w-[210px] lg:text-right">
+                    <p className="text-xs font-semibold text-slate-500">{tab === "ai" ? "CpiPOS AI Add-on" : "แพ็กเกจที่เลือก"}</p>
+                    <strong className="mt-1 block text-2xl text-blue-700">{formatMoney(tab === "ai" ? aiAddonDue : due)}</strong>
+                    <span className="mt-1 block text-[11px] font-semibold text-emerald-700">AI จะเทียบยอดกับสลิปให้อัตโนมัติ</span>
                   </div>
                 </div>
               </div>
-              <div className="grid gap-2 sm:grid-cols-3">
-                <div className="min-w-0 rounded-xl border border-[#e4ebf6] p-3">
-                  <StepLabel number={3}>ยอดที่ต้องชำระ</StepLabel>
-                  <div className={field + " flex min-h-11 items-center justify-between bg-[#f3f6fa] font-bold"}>
-                    <span>{tab === "ai" ? formatMoney(aiAddonDue) : packageRow?.contact_sales && due === null ? "ตามสัญญา" : formatMoney(due)}</span>
+
+              <div className="grid gap-3 lg:grid-cols-[1.35fr_.65fr]">
+                <label className="group min-w-0 rounded-2xl border border-[#dbe7f8] bg-white p-4 shadow-sm transition hover:border-blue-300 hover:shadow-md">
+                  <StepLabel number={3}>แนบหลักฐานการโอนเงิน</StepLabel>
+                  <span className="mt-3 flex min-h-[150px] cursor-pointer flex-col items-center justify-center rounded-2xl border-2 border-dashed border-blue-300 bg-[linear-gradient(180deg,#f8fbff_0%,#eef6ff_100%)] px-5 py-6 text-center transition group-hover:border-blue-500">
+                    <span className="mb-3 inline-flex h-14 w-14 items-center justify-center rounded-2xl bg-blue-600 text-white shadow-lg shadow-blue-100">
+                      <Icon name={slip ? "check" : "upload"} size={27}/>
+                    </span>
+                    <strong className="text-sm text-slate-900">{slip ? slip.name : "เลือกรูปสลิปจากเครื่อง"}</strong>
+                    <span className="mt-1 text-xs leading-5 text-slate-500">
+                      {slip ? "พร้อมให้ AI สแกนข้อมูลเมื่อกดส่ง" : "รองรับ JPG, PNG, WebP · สูงสุด 4 MB"}
+                    </span>
+                    <input className="sr-only" type="file" accept="image/jpeg,image/png,image/webp"
+                      disabled={!canSubmit} onChange={(event) => { setSlip(event.target.files?.[0] ?? null); changed(); }} />
+                  </span>
+                  <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                    {[
+                      "ยอดเงิน",
+                      "วันและเวลาที่โอน",
+                      "ชื่อผู้โอน",
+                      "เลขอ้างอิง / Transaction ID"
+                    ].map((item) => <span key={item} className="inline-flex items-center gap-2 rounded-xl bg-emerald-50 px-3 py-2 text-xs font-bold text-emerald-800">
+                      <Icon name="check" size={15}/>{item}
+                    </span>)}
                   </div>
-                  <p className="mt-1 text-xs text-slate-500">
-                    ราคาอ้างอิงจากฝ่าย IT · CpiPOS-001 · ฝ่าย IT เป็นผู้กำหนดราคาแพ็กเกจ · รอ IT ยืนยันเงินจริง
+                  <p className="mt-3 rounded-xl bg-violet-50 px-3 py-2 text-xs leading-5 text-violet-800">
+                    <strong>AI Slip Scan:</strong> ลูกค้าไม่ต้องกรอกข้อมูลการโอนเอง ระบบจะบันทึกข้อมูลที่ AI อ่านได้พร้อมไฟล์สลิปส่งไปยังฝ่าย IT และให้เจ้าหน้าที่เป็นผู้ยืนยันเงินจริงอีกครั้ง
                   </p>
-                </div>
-                <label className="min-w-0 rounded-xl border border-[#e4ebf6] p-3">
-                  <StepLabel number={4}>จำนวนเงินที่โอน</StepLabel>
-                  <input className={field} type="number" inputMode="decimal" min="0.01"
-                    step="0.01" max="10000000" value={amount}
-                    onChange={(event) => { setAmount(event.target.value); changed(); }}
-                    placeholder="กรอกจำนวนเงินจริง (บาท)" disabled={!canSubmit} />
                 </label>
-                <label className="min-w-0 rounded-xl border border-[#e4ebf6] p-3">
-                  <StepLabel number={5}>วันที่และเวลาที่โอน</StepLabel>
-                  <input className={field} type="datetime-local" value={transferAt}
-                    onChange={(event) => { setTransferAt(event.target.value); changed(); }}
-                    disabled={!canSubmit} />
-                </label>
-              </div>
-              <div className="grid gap-2 sm:grid-cols-2">
-                <label className="min-w-0 rounded-xl border border-[#e4ebf6] p-3">
-                  <StepLabel number={6}>ชื่อผู้โอน</StepLabel>
-                  <input className={field} maxLength={160} placeholder="ระบุชื่อผู้โอน"
-                    value={payer} disabled={!canSubmit}
-                    onChange={(event) => { setPayer(event.target.value); changed(); }} />
-                </label>
-                <label className="min-w-0 rounded-xl border border-[#e4ebf6] p-3">
-                  <StepLabel number={7}>เลขที่อ้างอิงการโอน</StepLabel>
-                  <input className={field} maxLength={120} placeholder="เช่น เลขที่สลิป, Ref. No."
-                    value={reference} disabled={!canSubmit}
-                    onChange={(event) => { setReference(event.target.value); changed(); }} />
-                </label>
-              </div>
-              <div className="grid gap-2 sm:grid-cols-2">
-                <label className="min-w-0 rounded-xl border border-[#e4ebf6] p-3">
-                  <StepLabel number={8}>แนบหลักฐานการโอนเงิน</StepLabel>
-                  <div className="mt-2 grid gap-2 sm:grid-cols-2">
-                    <span className="flex min-h-[70px] cursor-pointer items-center justify-center gap-2 rounded-xl border-2 border-dashed border-blue-300 bg-[#f9fcff] px-3 py-3 text-center text-xs font-semibold text-blue-700">
-                      <Icon name="upload" size={22}/><span>{slip ? slip.name : "อัปโหลดไฟล์สลิป"}</span>
-                      <input className="sr-only" type="file" accept="image/jpeg,image/png,image/webp,application/pdf"
-                        disabled={!canSubmit} onChange={(event) => { setSlip(event.target.files?.[0] ?? null); changed(); }} />
-                    </span>
-                    <span className="flex min-h-[70px] cursor-pointer items-center justify-center gap-2 rounded-xl border-2 border-dashed border-emerald-300 bg-emerald-50 px-3 py-3 text-center text-xs font-semibold text-emerald-700">
-                      <Icon name="upload" size={22}/><span>ถ่ายรูปสลิป</span>
-                      <input className="sr-only" type="file" accept="image/*" capture="environment"
-                        disabled={!canSubmit} onChange={(event) => { setSlip(event.target.files?.[0] ?? null); changed(); }} />
-                    </span>
-                  </div>
-                </label>
-                <label className="min-w-0 rounded-xl border border-[#e4ebf6] p-3">
-                  <StepLabel number={9}>หมายเหตุ (ถ้ามี)</StepLabel>
-                  <textarea className={field} rows={2} maxLength={500} disabled={!canSubmit}
-                    placeholder="ระบุข้อมูลเพิ่มเติมสำหรับทีมงาน เช่น เดือนที่ชำระ"
+
+                <label className="min-w-0 rounded-2xl border border-[#e4ebf6] bg-white p-4 shadow-sm">
+                  <StepLabel number={4}>หมายเหตุ (ถ้ามี)</StepLabel>
+                  <textarea className={field} rows={6} maxLength={500} disabled={!canSubmit}
+                    placeholder="เช่น เดือนที่ชำระ หรือข้อมูลเพิ่มเติมสำหรับฝ่าย IT"
                     value={note} onChange={(event) => { setNote(event.target.value); changed(); }} />
+                  <p className="mt-3 text-xs leading-5 text-slate-500">ไม่จำเป็นต้องพิมพ์ยอดเงิน วันเวลา ชื่อผู้โอน หรือเลขอ้างอิง เพราะระบบจะอ่านจากสลิป</p>
                 </label>
               </div>
-              {!hasBank ? <p className="rounded-lg bg-amber-50 p-3 text-sm text-amber-900">
+
+              {!hasBank ? <p className="rounded-xl bg-amber-50 p-3 text-sm text-amber-900">
                 ยังไม่ได้ตั้งค่าบัญชีบริษัท กรุณาติดต่อ Support ก่อนชำระเงิน</p> : null}
-            </> : isCustomSelection ? <>
+            </> : isCustomSelection ? <>            </> : isCustomSelection ? <>
               <div className="rounded-xl border border-blue-200 bg-blue-50 p-4">
                 <p className="text-sm font-black text-blue-800">ขอแพ็กเกจ CUSTOM</p>
                 <p className="mt-1 text-xs leading-5 text-slate-600">กดส่งคำขอ จากนั้นทีม IT จะติดต่อเพื่อตกลงราคา จำนวนสาขา เครื่อง ผู้ใช้ อายุข้อมูล และสิทธิ์ที่ต้องการ</p>
@@ -780,10 +749,10 @@ export function PosSubscriptionCenter({ initial, isOwner, showContactActions = t
                 ? "การแจ้งชำระยังไม่เพิ่ม quota ทันที ระบบจะเพิ่มโควตา AI ของเดือนปัจจุบันหลังฝ่าย IT ตรวจสอบเงินเข้าบัญชีบริษัทและอนุมัติรายการ"
                 : tab === "renew" && isCustomSelection
                   ? "คำขอ CUSTOM ยังไม่ใช่การชำระเงิน และจะยังไม่เปลี่ยนแพ็กเกจจนกว่า IT จะตกลงเงื่อนไขและตรวจสอบการชำระเรียบร้อย"
-                  : "การแจ้งชำระและสลิปยังไม่ถือว่ารับเงินจริง ระบบจะเปลี่ยนแพ็กเกจเมื่อ IT ตรวจสอบเงินเข้าบัญชีบริษัทและ Settlement สำเร็จ"}</p>
+                  : "AI ช่วยอ่านข้อมูลจากสลิปเพื่อส่งให้ฝ่าย IT ตรวจสอบ แต่ยังไม่ถือว่ารับเงินจริง ระบบจะเปลี่ยนแพ็กเกจเมื่อ IT ยืนยันเงินเข้าบัญชีบริษัทและ Settlement สำเร็จ"}</p>
             </div>
             <button type="button" disabled={!canSubmit ||
-              ((tab === "notice" || tab === "ai") && (!slip || !hasBank || !amount || !transferAt || !payer.trim())) ||
+              ((tab === "notice" || tab === "ai") && (!slip || !hasBank)) ||
               (tab === "ai" && !aiAddonAvailable)}
               onClick={() => void submit(tab === "ai"
                 ? "ai_addon_payment"
@@ -792,9 +761,9 @@ export function PosSubscriptionCenter({ initial, isOwner, showContactActions = t
                   : "payment_notice")}
               className="flex w-full items-center justify-center gap-2 rounded-xl bg-[#1862ed] px-5 py-3 text-sm font-bold text-white shadow-[0_6px_12px_rgba(24,98,237,0.2)] transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-300 disabled:shadow-none">
               <Icon name="send" size={17} />{busy ? "กำลังส่งคำขอ..." :
-                tab === "ai" ? "ส่งแจ้งชำระ CpiPOS AI Add-on" :
+                tab === "ai" ? "AI สแกนสลิปและส่งแจ้งชำระ CpiPOS AI" :
                 tab === "renew" ? isCustomSelection ? "ส่งคำขอ CUSTOM" : "ส่งคำขอต่ออายุ" :
-                  pending?.kind === "renewal_intent" ? "แนบสลิปและแจ้งชำระคำขอเดิม" : "ส่งแจ้งชำระเงิน"}
+                  pending?.kind === "renewal_intent" ? "AI สแกนสลิปและแจ้งชำระคำขอเดิม" : "AI สแกนสลิปและส่งแจ้งชำระเงิน"}
             </button>
           </section> : null}
 
