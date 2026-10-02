@@ -34,6 +34,7 @@ class PosPrintAgent(
     private val prefs = appContext.getSharedPreferences("cpipos_native_print_agent", Context.MODE_PRIVATE)
     private val transport = NativePrintTransport(appContext)
     private val started = AtomicBoolean(false)
+    private val wakeBurstPending = AtomicBoolean(false)
     private var executor: ScheduledExecutorService? = null
     private var idleBackoffIndex = 0
     @Volatile private var bootstrapRetryAfterElapsedMs: Long = 0L
@@ -78,23 +79,49 @@ class PosPrintAgent(
     fun notifyPrintQueued() {
         if (!started.get()) return
         idleBackoffIndex = 0
-        scheduleWakeClaim(0L)
-        scheduleWakeClaim(WAKE_RETRY_DELAY_MS)
+        scheduleWakeBurst()
     }
 
-    private fun scheduleWakeClaim(delayMs: Long) {
+    private fun scheduleWakeBurst() {
         val service = executor ?: return
         if (!started.get() || service.isShutdown) return
+        if (!wakeBurstPending.compareAndSet(false, true)) return
+
         runCatching {
             service.schedule({
-                if (!started.get()) return@schedule
-                val claimedJobs = runCatching { tick() }.getOrElse { error ->
+                if (!started.get()) {
+                    wakeBurstPending.set(false)
+                    return@schedule
+                }
+                val firstClaim = runCatching { tick() }.getOrElse { error ->
                     lastError = error.message ?: error::class.java.simpleName
                     0
                 }
-                if (claimedJobs > 0) idleBackoffIndex = 0
-            }, delayMs.coerceAtLeast(0L), TimeUnit.MILLISECONDS)
+                if (firstClaim > 0) {
+                    idleBackoffIndex = 0
+                    wakeBurstPending.set(false)
+                    return@schedule
+                }
+
+                runCatching {
+                    service.schedule({
+                        try {
+                            if (!started.get()) return@schedule
+                            val retryClaim = runCatching { tick() }.getOrElse { error ->
+                                lastError = error.message ?: error::class.java.simpleName
+                                0
+                            }
+                            if (retryClaim > 0) idleBackoffIndex = 0
+                        } finally {
+                            wakeBurstPending.set(false)
+                        }
+                    }, WAKE_RETRY_DELAY_MS, TimeUnit.MILLISECONDS)
+                }.onFailure {
+                    wakeBurstPending.set(false)
+                }
+            }, 0L, TimeUnit.MILLISECONDS)
         }.onFailure { error ->
+            wakeBurstPending.set(false)
             if (started.get()) lastError = error.message ?: "print_agent_wake_schedule_failed"
         }
     }
@@ -247,35 +274,56 @@ class PosPrintAgent(
             return
         }
 
+        if (wasRecentlyPrinted(jobId)) {
+            val ack = acknowledgePrintedJob(
+                agentKey = agentKey,
+                jobId = jobId,
+                attemptId = attemptId,
+                providerJobId = "android-dedupe:$jobId",
+                bytesSent = 0,
+                metadata = JSONObject()
+                    .put("runtime", "android_native")
+                    .put("transport", parsed.printer.metadata.optString("transport_mode", parsed.printer.connectionType))
+                    .put("device_model", Build.MODEL)
+                    .put("app_version", BuildConfig.VERSION_NAME)
+                    .put("dedupe_replay", true)
+                    .put("physical_print_skipped", true)
+            )
+            if (ack) {
+                lastSuccessAtMs = System.currentTimeMillis()
+                lastError = null
+            }
+            return
+        }
+
         val printStartedAt = SystemClock.elapsedRealtime()
         try {
             val result = transport.print(parsed)
             val nativePrintMs = (SystemClock.elapsedRealtime() - printStartedAt).coerceAtLeast(0L)
-            val ack = postJson(
-                url = "${BuildConfig.CPIPOS_API_BASE_URL}/api/print-agent/v1/jobs/$jobId/ack",
-                body = JSONObject()
-                    .put("agent_attempt_id", attemptId)
-                    .put("provider_job_id", result.providerJobId)
+
+            // Persist physical success BEFORE server ACK. If ACK is lost or times out, the
+            // same job may be leased again; the retry must ACK without printing twice.
+            rememberPrinted(jobId)
+
+            val acked = acknowledgePrintedJob(
+                agentKey = agentKey,
+                jobId = jobId,
+                attemptId = attemptId,
+                providerJobId = result.providerJobId,
+                bytesSent = result.bytesSent,
+                metadata = JSONObject()
+                    .put("runtime", "android_native")
+                    .put("transport", result.transport)
+                    .put("device_model", Build.MODEL)
+                    .put("app_version", BuildConfig.VERSION_NAME)
+                    .put("native_print_ms", nativePrintMs)
                     .put("bytes_sent", result.bytesSent)
-                    .put(
-                        "metadata",
-                        JSONObject()
-                            .put("runtime", "android_native")
-                            .put("transport", result.transport)
-                            .put("device_model", Build.MODEL)
-                            .put("app_version", BuildConfig.VERSION_NAME)
-                            .put("native_print_ms", nativePrintMs)
-                            .put("bytes_sent", result.bytesSent)
-                    ),
-                agentKey = agentKey
+                    .put("dedupe_replay", false)
             )
-            if (ack.status in 200..299) {
+            if (acked) {
                 lastTransport = result.transport
                 lastSuccessAtMs = System.currentTimeMillis()
                 lastError = null
-            } else {
-                lastError = readApiError(ack.body) ?: "print_agent_ack_http_${ack.status}"
-                if (ack.status == 401 || ack.status == 403) clearAgentKey()
             }
         } catch (error: NativePrintException) {
             lastError = "${error.code}:${error.message.orEmpty()}"
@@ -309,6 +357,67 @@ class PosPrintAgent(
                     .put("native_print_ms", (SystemClock.elapsedRealtime() - printStartedAt).coerceAtLeast(0L))
             )
         }
+    }
+
+    private fun acknowledgePrintedJob(
+        agentKey: String,
+        jobId: String,
+        attemptId: String,
+        providerJobId: String,
+        bytesSent: Int,
+        metadata: JSONObject
+    ): Boolean {
+        val ack = postJson(
+            url = "${BuildConfig.CPIPOS_API_BASE_URL}/api/print-agent/v1/jobs/$jobId/ack",
+            body = JSONObject()
+                .put("agent_attempt_id", attemptId)
+                .put("provider_job_id", providerJobId)
+                .put("bytes_sent", bytesSent)
+                .put("metadata", metadata),
+            agentKey = agentKey
+        )
+        if (ack.status in 200..299) return true
+
+        lastError = readApiError(ack.body) ?: "print_agent_ack_http_${ack.status}"
+        if (ack.status == 401 || ack.status == 403) clearAgentKey()
+        return false
+    }
+
+    private fun wasRecentlyPrinted(jobId: String): Boolean {
+        val now = System.currentTimeMillis()
+        val retained = readPrintedJobLedger(now)
+        return retained.optLong(jobId, 0L).let { printedAt ->
+            printedAt > 0L && now - printedAt <= PRINTED_JOB_TTL_MS
+        }
+    }
+
+    private fun rememberPrinted(jobId: String) {
+        val now = System.currentTimeMillis()
+        val ledger = readPrintedJobLedger(now)
+        ledger.put(jobId, now)
+
+        val keys = ledger.keys().asSequence().toList()
+        if (keys.size > PRINTED_JOB_LEDGER_MAX) {
+            keys.sortedBy { ledger.optLong(it, Long.MAX_VALUE) }
+                .take(keys.size - PRINTED_JOB_LEDGER_MAX)
+                .forEach { ledger.remove(it) }
+        }
+        prefs.edit().putString(PREF_PRINTED_JOB_LEDGER, ledger.toString()).apply()
+    }
+
+    private fun readPrintedJobLedger(now: Long): JSONObject {
+        val ledger = runCatching {
+            JSONObject(prefs.getString(PREF_PRINTED_JOB_LEDGER, "{}").orEmpty())
+        }.getOrElse { JSONObject() }
+        val expired = ledger.keys().asSequence().toList().filter { key ->
+            val printedAt = ledger.optLong(key, 0L)
+            printedAt <= 0L || now - printedAt > PRINTED_JOB_TTL_MS
+        }
+        if (expired.isNotEmpty()) {
+            expired.forEach { ledger.remove(it) }
+            prefs.edit().putString(PREF_PRINTED_JOB_LEDGER, ledger.toString()).apply()
+        }
+        return ledger
     }
 
     private fun reportFailure(
@@ -416,11 +525,14 @@ class PosPrintAgent(
         private const val PREF_AGENT_KEY = "agent_key"
         private const val PREF_AGENT_ID = "agent_id"
         private const val PREF_DEVICE_CODE = "device_code"
+        private const val PREF_PRINTED_JOB_LEDGER = "printed_job_ledger_v1"
         private const val HEARTBEAT_INTERVAL_SECONDS = 45L
         private const val HEARTBEAT_INTERVAL_MS = HEARTBEAT_INTERVAL_SECONDS * 1_000L
         private const val WAKE_RETRY_DELAY_MS = 350L
         private const val BOOTSTRAP_AUTH_RETRY_DELAY_MS = 5L * 60L * 1_000L
         private const val BOOTSTRAP_TRANSIENT_RETRY_DELAY_MS = 30L * 1_000L
-        private val IDLE_BACKOFF_SECONDS = longArrayOf(1L, 3L, 8L)
+        private const val PRINTED_JOB_TTL_MS = 24L * 60L * 60L * 1_000L
+        private const val PRINTED_JOB_LEDGER_MAX = 120
+        private val IDLE_BACKOFF_SECONDS = longArrayOf(1L, 3L, 8L, 15L)
     }
 }
