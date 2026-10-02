@@ -165,7 +165,7 @@ function validatedImageDataUrl(value: unknown) {
   const match = text.match(/^data:(image\/(?:jpeg|png|webp));base64,([A-Za-z0-9+/=]+)$/);
   if (!match) throw new Error("ai_image_invalid");
   const estimatedBytes = Math.floor((match[2].length * 3) / 4);
-  if (estimatedBytes > 2 * 1024 * 1024) throw new Error("ai_image_too_large");
+  if (estimatedBytes > 8 * 1024 * 1024) throw new Error("ai_image_too_large");
   return text;
 }
 
@@ -1335,7 +1335,7 @@ export async function POST(request: Request) {
     }
 
     const body = (await request.json().catch(() => null)) as AiRequestBody | null;
-    const message = String(body?.message ?? "").trim().slice(0, 1200);
+    const message = String(body?.message ?? "").trim().slice(0, 4000);
     const roomId = String(body?.room_id ?? "").trim() || null;
     let imageDataUrl: string | null = null;
     try {
@@ -1343,7 +1343,7 @@ export async function POST(request: Request) {
     } catch (error) {
       const code = error instanceof Error ? error.message : "";
       return fail(code === "ai_image_too_large" ? "ai_image_too_large" : "ai_image_invalid",
-        code === "ai_image_too_large" ? "รูปภาพต้องมีขนาดไม่เกิน 2 MB" : "รองรับเฉพาะรูป JPEG, PNG หรือ WebP", 422);
+        code === "ai_image_too_large" ? "รูปภาพต้องมีขนาดไม่เกิน 8 MB" : "รองรับเฉพาะรูป JPEG, PNG หรือ WebP", 422);
     }
     if (!message && !imageDataUrl) return fail("ai_message_required", "กรุณาพิมพ์คำถามหรือแนบรูปภาพ", 422);
     const effectiveMessage = message || "ช่วยอ่านรูปภาพนี้และสรุปข้อมูลที่เกี่ยวข้องกับร้านให้หน่อย";
