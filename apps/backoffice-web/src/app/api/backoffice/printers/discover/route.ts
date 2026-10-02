@@ -2,13 +2,14 @@ import { fail, ok } from "@/lib/http";
 import { loggedPrintApiFail } from "@/lib/printing/print-api-errors";
 import { listPrintAgents } from "@/lib/printing/print-agent-service";
 import { getPrinterSettingsAuthContext } from "@/lib/printing/printer-settings-auth";
+import { getPrinterSettingsRegistry } from "@/lib/printing/printer-device-registry";
 import { listPrinterProfiles } from "@/lib/printing/print-service";
 
 type CustomerConnectionMode = "lan" | "usb" | "bluetooth";
 type DiscoveryStatus = "online" | "offline" | "checking" | "connecting" | "needs_check" | "disabled";
 type DiscoveryCandidate = {
   id: string; name: string; mode: CustomerConnectionMode; paper_width_mm: 58 | 80;
-  source: "windows_runtime" | "android_mdm" | "configured_profile" | "manual_lan"; status: DiscoveryStatus;
+  source: "windows_runtime" | "android_mdm" | "android_inventory" | "configured_profile" | "manual_lan"; status: DiscoveryStatus;
   runtime_device_code: string | null; printer_profile_id: string | null; functions: string[]; capabilities: Record<string, boolean>; helper: string;
 };
 function asRecord(value: unknown): Record<string, unknown> { return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {}; }
@@ -31,12 +32,41 @@ export async function GET(req: Request) {
     const url = new URL(req.url);
     const rawMode = url.searchParams.get("mode");
     const modeFilter: CustomerConnectionMode | "all" = rawMode === "all" ? "all" : parseRequestedMode(rawMode) ?? "usb";
-    const [profiles, agents] = await Promise.all([listPrinterProfiles(auth), listPrintAgents(auth)]);
+    const [profiles, agents, registry] = await Promise.all([listPrinterProfiles(auth), listPrintAgents(auth), getPrinterSettingsRegistry(auth)]);
     const candidates: DiscoveryCandidate[] = [];
     for (const profile of profiles) {
       const metadata = asRecord(profile.metadata); const mode = normalizeProfileMode(profile.connection_type, metadata); const functions = normalizeFunctions(profile.printer_role, metadata);
       candidates.push({ id: `profile:${profile.id}`, name: profile.printer_name, mode, paper_width_mm: profile.paper_width_mm, source: "configured_profile", status: normalizeStatus(profile.enabled, metadata), runtime_device_code: readText(metadata.agent_device_code ?? metadata.runtime_device_code ?? metadata.device_code), printer_profile_id: profile.id, functions, capabilities: profileCapabilities(functions, metadata), helper: profile.enabled ? "โปรไฟล์เครื่องพิมพ์ที่ระบบบันทึกไว้แล้ว" : "โปรไฟล์ที่ถูกตัดการเชื่อมต่อ สามารถกดเชื่อมต่อใหม่ได้" });
     }
+    for (const device of registry.devices) {
+      if (device.printer_profile_id) continue;
+      const mode = parseRequestedMode(device.connection_mode);
+      if (!mode) continue;
+      const status = ["online","offline","checking","connecting","needs_check","disabled"].includes(String(device.status))
+        ? String(device.status) as DiscoveryStatus
+        : "checking";
+      candidates.push({
+        id: `inventory:${device.id}`,
+        name: device.display_name,
+        mode,
+        paper_width_mm: device.paper_width_mm === 58 ? 58 : 80,
+        source: "android_inventory",
+        status,
+        runtime_device_code: readText(device.runtime_device_code),
+        printer_profile_id: null,
+        functions: ["receipt"],
+        capabilities: {
+          receipt: true,
+          kitchen: true,
+          cash_drawer: mode !== "lan",
+          reprint: true,
+          shift_report: true,
+          payment_slip: true
+        },
+        helper: `ตรวจพบจาก Android Runtime ${device.runtime_device_code ?? ""} · ยังไม่ได้กำหนดเส้นทางพิมพ์`
+      });
+    }
+
     for (const agent of agents) {
       const metadata = asRecord(agent.metadata);
       const appVersion = readText(agent.app_version)?.toLowerCase() ?? "";
