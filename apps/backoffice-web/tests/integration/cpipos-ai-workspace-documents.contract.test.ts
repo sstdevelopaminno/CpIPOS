@@ -36,7 +36,7 @@ describe("CpiPOS AI workspace and document vault", () => {
     expect(aiApi).toContain("responseTokenBudget");
     expect(aiApi).toContain("CPIPOS_HELP_GUIDE");
     expect(aiApi).toContain('type: "input_image"');
-    expect(aiApi).toContain('detail: "low"');
+    expect(aiApi).toContain('detail: "high"');
     expect(aiApi).toContain("2 * 1024 * 1024");
     expect(aiApi).toContain("ห้ามเดา");
   });
@@ -61,6 +61,9 @@ describe("CpiPOS AI workspace and document vault", () => {
     expect(more).toContain("เก็บไฟล์เอกสาร");
     expect(documentsPage).toContain('"cpipos_ai"');
     expect(ui).toContain("บันทึกเป็นเอกสาร");
+    expect(aiApi).toContain("propose_document");
+    expect(ui).toContain("สร้างไฟล์เอกสาร");
+    expect(ui).toContain("saveDocumentProposal");
     expect(ui).toContain('fetch("/api/pos/ai/documents"');
     const vaultUi = src("src/components/pos-preview/pos-ai-document-vault.tsx");
     expect(vaultUi).toContain("พิมพ์ / PDF");
