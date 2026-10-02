@@ -309,27 +309,48 @@ export function PosSubscriptionCenter({ initial, isOwner, showContactActions = t
       requestKey.current = null;
       if (kind === "ai_addon_payment") {
         setMessage("บันทึกการชำระ CpiPOS AI Add-on แล้ว รอ IT ตรวจสอบเงินเข้า");
-        setSuccessPopup(json.data.slip_scan?.status === "verified"
-          ? "AI อ่านข้อมูลสลิปสำเร็จและส่งหลักฐานให้ฝ่าย IT แล้ว · เมื่อ IT ยืนยันเงินเข้า quota AI จะเพิ่มในรอบเดือนปัจจุบัน"
-          : "ส่งสลิปให้ฝ่าย IT แล้ว · AI ทำเครื่องหมายให้ตรวจสอบเพิ่มเติมก่อนยืนยันเงินเข้า");
+        setAiCheckoutOpen(false);
         setPopupOpen(false);
         selectTab("history");
+        showResultPopup({
+          title: "ส่งหลักฐาน CpiPOS AI Add-on สำเร็จ",
+          message: json.data.slip_scan?.status === "verified"
+            ? "ระบบรับหลักฐานการโอนเรียบร้อยแล้ว ขั้นตอนต่อไปฝ่าย IT จะตรวจสอบเงินเข้าบัญชีบริษัท เมื่ออนุมัติแล้วโควตา AI Add-on จะเพิ่มให้ในรอบเดือนปัจจุบัน"
+            : "ระบบรับหลักฐานการโอนเรียบร้อยแล้ว รายการถูกส่งให้ฝ่าย IT ตรวจสอบเพิ่มเติม เมื่อยืนยันเงินเข้าเรียบร้อยแล้วโควตา AI Add-on จะถูกเพิ่มให้ในรอบเดือนปัจจุบัน",
+          action: "history",
+          button: "ดูสถานะการชำระ"
+        });
       } else if (kind === "payment_notice") {
         setMessage("บันทึกการแจ้งชำระแล้ว รอ IT ตรวจสอบรายการรับเงินจริง");
-        setSuccessPopup(json.data.slip_scan?.status === "verified"
-          ? "AI อ่านข้อมูลสลิปสำเร็จและส่งให้ฝ่าย IT ตรวจสอบแล้ว · ไม่ต้องกรอกยอด วันเวลา ชื่อผู้โอน หรือเลขอ้างอิง"
-          : "ส่งสลิปให้ฝ่าย IT แล้ว · AI อ่านข้อมูลได้ไม่ครบหรือพบจุดที่ต้องตรวจสอบเพิ่มเติม");
         setPopupOpen(false);
         selectTab("history");
+        showResultPopup({
+          title: "ส่งหลักฐานการชำระเงินสำเร็จ",
+          message: json.data.slip_scan?.status === "verified"
+            ? "ระบบรับหลักฐานการโอนเรียบร้อยแล้ว ขั้นตอนต่อไปฝ่าย IT จะตรวจสอบเงินเข้าบัญชีบริษัทและยืนยันรายการ เมื่อดำเนินการเสร็จสถานะแพ็กเกจจะอัปเดตอัตโนมัติ"
+            : "ระบบรับหลักฐานการโอนเรียบร้อยแล้ว รายการถูกส่งให้ฝ่าย IT ตรวจสอบรายละเอียดเพิ่มเติม เมื่อยืนยันเงินเข้าเรียบร้อยแล้วระบบจะดำเนินการตามคำขอแพ็กเกจ",
+          action: "history",
+          button: "ดูสถานะการชำระ"
+        });
       } else if (kind === "custom_quote_request") {
         setMessage("ส่งคำขอ CUSTOM แล้ว รอทีม IT ติดต่อกลับ");
-        setSuccessPopup("ส่งคำขอ CUSTOM สำเร็จ · ทีม IT จะติดต่อเพื่อตกลงราคาและสิทธิ์ก่อนเข้าสู่ขั้นตอนชำระเงิน");
         setPopupOpen(false);
         selectTab("overview");
+        showResultPopup({
+          title: "ส่งคำขอ CUSTOM สำเร็จ",
+          message: "ฝ่าย IT ได้รับคำขอแล้ว ขั้นตอนต่อไปทีมงานจะติดต่อเพื่อตกลงราคา จำนวนสาขา เครื่อง ผู้ใช้งาน โควตา และสิทธิ์ ก่อนจัดทำรายการชำระเงิน",
+          action: "overview",
+          button: "รับทราบ"
+        });
       } else {
         setMessage("ส่งคำขอต่ออายุแล้ว ขั้นต่อไปกรุณาแจ้งชำระเงินและแนบสลิป");
-        selectTab("notice");
-        setPopupOpen(true);
+        setPopupOpen(false);
+        showResultPopup({
+          title: "ส่งคำขอต่ออายุสำเร็จ",
+          message: "ระบบบันทึกแพ็กเกจและรอบชำระที่เลือกแล้ว ขั้นตอนต่อไปคือแจ้งชำระเงินและแนบหลักฐานการโอนในคำขอเดิม",
+          action: "notice",
+          button: "ไปแจ้งชำระเงิน"
+        });
       }
       await reload();
     } catch (cause) { setError(cause instanceof Error ? cause.message : "ส่งคำขอไม่สำเร็จ"); }
