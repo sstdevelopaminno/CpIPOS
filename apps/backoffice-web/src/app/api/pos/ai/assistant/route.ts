@@ -502,7 +502,7 @@ async function loadAiCatalog(tenantId: string, branchId: string) {
       .eq("branch_id", branchId)
       .eq("is_active", true)
       .order("updated_at", { ascending: false })
-      .limit(60),
+      .limit(200),
     supabase
       .from("ingredients")
       .select("id,name,base_unit,quantity_on_hand,reorder_level")
@@ -620,7 +620,7 @@ async function loadBusinessSnapshot(
 }
 
 function needsMutationCatalog(message: string) {
-  return /(?:(?:ปรับ|เปลี่ยน|ตั้ง|แก้|เพิ่ม|ลด).{0,20}(?:ราคา|สต๊อก|stock|วัตถุดิบ)|(?:ราคา|สต๊อก|stock|วัตถุดิบ).{0,20}(?:ปรับ|เปลี่ยน|ตั้ง|แก้|เพิ่ม|ลด))/i.test(message);
+  return /(?:(?:ปรับ|เปลี่ยน|ตั้ง|แก้|เพิ่ม|ลด|สร้าง|ทำ).{0,24}(?:ราคา|สต๊อก|stock|วัตถุดิบ|สินค้า|เมนู|ภาพ|รูป)|(?:ราคา|สต๊อก|stock|วัตถุดิบ|สินค้า|เมนู|ภาพ|รูป).{0,24}(?:ปรับ|เปลี่ยน|ตั้ง|แก้|เพิ่ม|ลด|สร้าง|ทำ))/i.test(message);
 }
 
 async function loadBusinessSnapshotForMessage(
@@ -639,7 +639,7 @@ async function loadBusinessSnapshotForMessage(
   const guideOnly = needsHelpGuide(message) &&
     !/(?:ยอดขาย|รายได้|บิล|ต้นทุน|กำไร|มาร์จิ้น|สต๊อก|stock|วัตถุดิบ|คงเหลือ|ขายดี|การตลาด|โปรโมชัน|บัญชี|ภาษี)/i.test(message);
   const needsSales = !guideOnly &&
-    /(?:ยอดขาย|รายได้|ขาย|บิล|เงินสด|โอน|บัตร|ภาษี|บัญชี|การตลาด|โปรโมชัน|ลูกค้า|ขายดี|30\s*วัน|กำไร)/i.test(message);
+    /(?:ยอดขาย|รายได้|ขาย|บิล|เงินสด|โอน|บัตร|ภาษี|บัญชี|การตลาด|โปรโมชัน|ลูกค้า|ขายดี|ย้อนหลัง|เดือนที่แล้ว|สัปดาห์|ไตรมาส|ปีที่แล้ว|เทียบ|แนวโน้ม|30\s*วัน|กำไร)/i.test(message);
   const needsStock = !guideOnly &&
     /(?:สต๊อก|stock|วัตถุดิบ|คงเหลือ|ใกล้หมด|ต้นทุน|มาร์จิ้น|กำไร|ราคา)/i.test(message);
   const needsCost = !guideOnly &&
