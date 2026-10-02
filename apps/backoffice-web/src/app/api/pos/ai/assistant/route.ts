@@ -731,6 +731,7 @@ async function loadBusinessSnapshotForMessage(
       code: identity.tenant?.code ?? null,
       name: identity.tenant?.display_name ?? identity.tenant?.name ?? null,
       company_address: identity.tenant?.company_address ?? null,
+      contact_phone: identity.tenant?.contact_phone ?? null,
       branch_code: identity.branch?.code ?? null,
       branch_name: identity.branch?.name ?? null,
       branch_address: identity.branch?.address ?? null
