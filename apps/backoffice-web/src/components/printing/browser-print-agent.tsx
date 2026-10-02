@@ -370,7 +370,7 @@ export function BrowserPrintAgent() {
 
           if (wasRecentlyPrinted(job.id)) {
             try {
-              const ack = await postAgentApi(`/api/print-agent/v1/jobs/${encodeURIComponent(job.id)}/ack`, config.agentKey, {
+              const ack = await postAgentApi<{ error?: { message?: string } }>(`/api/print-agent/v1/jobs/${encodeURIComponent(job.id)}/ack`, config.agentKey, {
                 agent_attempt_id: agentAttemptId,
                 provider_job_id: `browser-dedupe:${job.id}`,
                 bytes_sent: 0,
@@ -417,7 +417,7 @@ export function BrowserPrintAgent() {
           }
 
           try {
-            const ack = await postAgentApi(`/api/print-agent/v1/jobs/${encodeURIComponent(job.id)}/ack`, config.agentKey, {
+            const ack = await postAgentApi<{ error?: { message?: string } }>(`/api/print-agent/v1/jobs/${encodeURIComponent(job.id)}/ack`, config.agentKey, {
               agent_attempt_id: agentAttemptId,
               provider_job_id: `browser:${Date.now()}`,
               bytes_sent: bytes.length,
