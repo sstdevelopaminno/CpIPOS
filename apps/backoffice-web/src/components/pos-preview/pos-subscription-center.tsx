@@ -786,22 +786,23 @@ export function PosSubscriptionCenter({ initial, isOwner, showContactActions = t
               </div>}
             </div>}
 
-            {(tab === "notice" || (tab === "ai" && aiPurchaseReady)) ? <>
+            {(tab === "notice" || aiCheckoutActive) ? <>
               <div className="overflow-hidden rounded-2xl border border-blue-200 bg-[linear-gradient(135deg,#eef6ff_0%,#ffffff_55%,#f5f3ff_100%)] shadow-[0_10px_28px_rgba(37,99,235,0.08)]">
                 <div className="grid gap-4 p-4 sm:p-5 lg:grid-cols-[1fr_auto] lg:items-center">
                   <div className="flex min-w-0 items-start gap-3">
                     <ToneIcon icon="bank" tone="blue" />
                     <div className="min-w-0">
-                      <p className="text-xs font-bold uppercase tracking-wide text-blue-600">โอนเข้าบัญชีบริษัท</p>
+                      {tab === "ai" ? <StepLabel number={2}>ชำระค่า AI Add-on</StepLabel> :
+                        <p className="text-xs font-bold uppercase tracking-wide text-blue-600">โอนเข้าบัญชีบริษัท</p>}
                       <p className="mt-1 text-sm font-black text-slate-950">{snapshot.issuer.bank_name || "—"} · {snapshot.issuer.account_name || "—"}</p>
                       <p className="mt-1 break-all text-lg font-black tracking-wide text-blue-800">{snapshot.issuer.account_number || snapshot.issuer.promptpay_id || "ยังไม่ได้ตั้งบัญชีรับชำระ"}</p>
-                      <p className="mt-2 text-xs leading-5 text-slate-600">หลังโอนเสร็จ แนบเพียงรูปสลิป ระบบจะอ่านข้อมูลการโอนให้อัตโนมัติด้วย AI</p>
+                      <p className="mt-2 text-xs leading-5 text-slate-600">หลังโอนเงินเรียบร้อยแล้ว กรุณาแนบสลิปการโอนในขั้นตอนถัดไป</p>
                     </div>
                   </div>
                   <div className="rounded-2xl border border-white/80 bg-white px-5 py-4 text-left shadow-sm lg:min-w-[210px] lg:text-right">
                     <p className="text-xs font-semibold text-slate-500">{tab === "ai" ? "CpiPOS AI Add-on" : "แพ็กเกจที่เลือก"}</p>
                     <strong className="mt-1 block text-2xl text-blue-700">{formatMoney(tab === "ai" ? aiAddonDue : due)}</strong>
-                    <span className="mt-1 block text-[11px] font-semibold text-emerald-700">AI จะเทียบยอดกับสลิปให้อัตโนมัติ</span>
+                    <span className="mt-1 block text-[11px] font-semibold text-emerald-700">ยอดที่ต้องชำระตามรายการนี้</span>
                   </div>
                 </div>
               </div>
@@ -815,23 +816,13 @@ export function PosSubscriptionCenter({ initial, isOwner, showContactActions = t
                     </span>
                     <strong className="text-sm text-slate-900">{slip ? slip.name : "เลือกรูปสลิปจากเครื่อง"}</strong>
                     <span className="mt-1 text-xs leading-5 text-slate-500">
-                      {slip ? "พร้อมให้ AI สแกนข้อมูลเมื่อกดส่ง" : "รองรับ JPG, PNG, WebP · สูงสุด 4 MB"}
+                      {slip ? "แนบสลิปเรียบร้อย · พร้อมส่งให้ฝ่าย IT ตรวจสอบ" : "รองรับ JPG, PNG, WebP · สูงสุด 4 MB"}
                     </span>
                     <input className="sr-only" type="file" accept="image/jpeg,image/png,image/webp"
                       disabled={!canSubmit} onChange={(event) => { setSlip(event.target.files?.[0] ?? null); changed(); }} />
                   </span>
-                  <div className="mt-3 grid gap-2 sm:grid-cols-2">
-                    {[
-                      "ยอดเงิน",
-                      "วันและเวลาที่โอน",
-                      "ชื่อผู้โอน",
-                      "เลขอ้างอิง / Transaction ID"
-                    ].map((item) => <span key={item} className="inline-flex items-center gap-2 rounded-xl bg-emerald-50 px-3 py-2 text-xs font-bold text-emerald-800">
-                      <Icon name="check" size={15}/>{item}
-                    </span>)}
-                  </div>
-                  <p className="mt-3 rounded-xl bg-violet-50 px-3 py-2 text-xs leading-5 text-violet-800">
-                    <strong>AI Slip Scan:</strong> ลูกค้าไม่ต้องกรอกข้อมูลการโอนเอง ระบบจะบันทึกข้อมูลที่ AI อ่านได้พร้อมไฟล์สลิปส่งไปยังฝ่าย IT และให้เจ้าหน้าที่เป็นผู้ยืนยันเงินจริงอีกครั้ง
+                  <p className="mt-3 rounded-xl bg-slate-50 px-3 py-2 text-xs leading-5 text-slate-600">
+                    ใช้สลิปจากรายการโอนจริงของคำขอนี้ เพื่อให้ฝ่าย IT ตรวจสอบและยืนยันการรับชำระ
                   </p>
                 </label>
 
@@ -840,7 +831,7 @@ export function PosSubscriptionCenter({ initial, isOwner, showContactActions = t
                   <textarea className={field} rows={6} maxLength={500} disabled={!canSubmit}
                     placeholder="เช่น เดือนที่ชำระ หรือข้อมูลเพิ่มเติมสำหรับฝ่าย IT"
                     value={note} onChange={(event) => { setNote(event.target.value); changed(); }} />
-                  <p className="mt-3 text-xs leading-5 text-slate-500">ไม่จำเป็นต้องพิมพ์ยอดเงิน วันเวลา ชื่อผู้โอน หรือเลขอ้างอิง เพราะระบบจะอ่านจากสลิป</p>
+                  <p className="mt-3 text-xs leading-5 text-slate-500">หมายเหตุเป็นข้อมูลเสริมเท่านั้น รายละเอียดการชำระจะยึดตามหลักฐานที่แนบและการตรวจสอบของฝ่าย IT</p>
                 </label>
               </div>
 
