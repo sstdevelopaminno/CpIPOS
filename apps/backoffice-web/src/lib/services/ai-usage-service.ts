@@ -110,6 +110,12 @@ const PRICING: Record<string, {
     long: { input: 0.20, cachedInput: 0.02, cacheWrite: 0.25, output: 0.75 },
     longContextThreshold: 272_000,
     source: "openai:gpt-6-luna:2026-09-29:standard"
+  },
+  "gpt-6-sol": {
+    short: { input: 2.00, cachedInput: 0.20, cacheWrite: 2.50, output: 10.00 },
+    long: { input: 4.00, cachedInput: 0.40, cacheWrite: 5.00, output: 15.00 },
+    longContextThreshold: 272_000,
+    source: "openai:gpt-6-sol:2026-10-02:standard"
   }
 };
 
