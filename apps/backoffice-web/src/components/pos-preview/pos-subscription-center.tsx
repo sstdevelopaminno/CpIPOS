@@ -837,10 +837,10 @@ export function PosSubscriptionCenter({ initial, isOwner, showContactActions = t
 
               {!hasBank ? <p className="rounded-xl bg-amber-50 p-3 text-sm text-amber-900">
                 ยังไม่ได้ตั้งค่าบัญชีบริษัท กรุณาติดต่อ Support ก่อนชำระเงิน</p> : null}
-            </> : tab === "ai" ? <div className="rounded-2xl border border-violet-200 bg-violet-50 p-5 text-sm text-violet-900">
+            </> : tab === "ai" ? (!aiPurchaseReady ? <div className="rounded-2xl border border-violet-200 bg-violet-50 p-5 text-sm text-violet-900">
               <strong>แพ็กเกจปัจจุบันไม่มี AI Add-on แบบชำระเพิ่ม</strong>
               <p className="mt-1 text-xs leading-5">ตรวจสอบสิทธิ์ AI ที่รวมอยู่ในแพ็กเกจด้านบน หากต้องการโควตาเพิ่มสำหรับแพ็กเกจนี้ กรุณาติดต่อฝ่าย IT หรือเปลี่ยนแพ็กเกจ POS ตามเงื่อนไขที่บริษัทกำหนด</p>
-            </div> : isCustomSelection ? <>
+            </div> : null) : isCustomSelection ? <>
               <div className="rounded-xl border border-blue-200 bg-blue-50 p-4">
                 <p className="text-sm font-black text-blue-800">ขอแพ็กเกจ CUSTOM</p>
                 <p className="mt-1 text-xs leading-5 text-slate-600">กดส่งคำขอ จากนั้นทีม IT จะติดต่อเพื่อตกลงราคา จำนวนสาขา เครื่อง ผู้ใช้ อายุข้อมูล และสิทธิ์ที่ต้องการ</p>
@@ -859,30 +859,32 @@ export function PosSubscriptionCenter({ initial, isOwner, showContactActions = t
                   disabled={!canSubmit} onChange={(event) => { setNote(event.target.value); changed(); }} />
               </label>
             </>}
-            <div className="flex items-start gap-2 rounded-lg bg-amber-50 px-3 py-2.5 text-xs leading-5 text-amber-900">
-              <Icon name="info" size={17} className="mt-0.5" />
-              <p>{tab === "ai"
-                ? aiPurchaseReady
-                  ? "การแจ้งชำระยังไม่เพิ่ม quota ทันที ระบบจะเพิ่มโควตา AI ของเดือนปัจจุบันหลังฝ่าย IT ตรวจสอบเงินเข้าบัญชีบริษัทและอนุมัติรายการ"
-                  : "สิทธิ์ AI และโควตาที่แสดงอ้างอิงจาก CpiPOS-001 ซึ่งฝ่าย IT เป็นผู้ควบคุมต่อแพ็กเกจและต่อเดือน"
-                : tab === "renew" && isCustomSelection
-                  ? "คำขอ CUSTOM ยังไม่ใช่การชำระเงิน และจะยังไม่เปลี่ยนแพ็กเกจจนกว่า IT จะตกลงเงื่อนไขและตรวจสอบการชำระเรียบร้อย"
-                  : "AI ช่วยอ่านข้อมูลจากสลิปเพื่อส่งให้ฝ่าย IT ตรวจสอบ แต่ยังไม่ถือว่ารับเงินจริง ระบบจะเปลี่ยนแพ็กเกจเมื่อ IT ยืนยันเงินเข้าบัญชีบริษัทและ Settlement สำเร็จ"}</p>
-            </div>
-            {(tab !== "ai" || aiPurchaseReady) ? <button type="button" disabled={!canSubmit ||
-              ((tab === "notice" || tab === "ai") && (!slip || !hasBank)) ||
-              (tab === "ai" && !aiAddonAvailable)}
-              onClick={() => void submit(tab === "ai"
-                ? "ai_addon_payment"
-                : tab === "renew"
-                  ? isCustomSelection ? "custom_quote_request" : "renewal_intent"
-                  : "payment_notice")}
-              className="flex w-full items-center justify-center gap-2 rounded-xl bg-[#1862ed] px-5 py-3 text-sm font-bold text-white shadow-[0_6px_12px_rgba(24,98,237,0.2)] transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-300 disabled:shadow-none">
-              <Icon name="send" size={17} />{busy ? "กำลังส่งคำขอ..." :
-                tab === "ai" ? "AI สแกนสลิปและส่งแจ้งชำระ CpiPOS AI" :
-                tab === "renew" ? isCustomSelection ? "ส่งคำขอ CUSTOM" : "ส่งคำขอต่ออายุ" :
-                  pending?.kind === "renewal_intent" ? "AI สแกนสลิปและแจ้งชำระคำขอเดิม" : "AI สแกนสลิปและส่งแจ้งชำระเงิน"}
-            </button> : null}
+            {(tab !== "ai" || aiCheckoutActive) ? <>
+              <div className="flex items-start gap-2 rounded-lg bg-amber-50 px-3 py-2.5 text-xs leading-5 text-amber-900">
+                <Icon name="info" size={17} className="mt-0.5" />
+                <p>{tab === "ai"
+                  ? "เมื่อส่งหลักฐานแล้ว รายการจะรอฝ่าย IT ตรวจสอบเงินเข้าบัญชีบริษัท เมื่ออนุมัติแล้วโควตา AI Add-on จะเพิ่มให้ในรอบเดือนปัจจุบัน"
+                  : tab === "renew" && isCustomSelection
+                    ? "คำขอ CUSTOM ยังไม่ใช่การชำระเงิน และจะยังไม่เปลี่ยนแพ็กเกจจนกว่า IT จะตกลงเงื่อนไขและตรวจสอบการชำระเรียบร้อย"
+                    : tab === "notice"
+                      ? "ระบบจะเปลี่ยนหรือต่ออายุแพ็กเกจเมื่อฝ่าย IT ยืนยันเงินเข้าบัญชีบริษัทและดำเนินการรับชำระเรียบร้อยแล้ว"
+                      : "หลังส่งคำขอ ระบบจะแจ้งขั้นตอนถัดไปให้ดำเนินการต่อ"}</p>
+              </div>
+              <button type="button" disabled={!canSubmit ||
+                ((tab === "notice" || tab === "ai") && (!slip || !hasBank)) ||
+                (tab === "ai" && !aiAddonAvailable)}
+                onClick={() => void submit(tab === "ai"
+                  ? "ai_addon_payment"
+                  : tab === "renew"
+                    ? isCustomSelection ? "custom_quote_request" : "renewal_intent"
+                    : "payment_notice")}
+                className="flex w-full items-center justify-center gap-2 rounded-xl bg-[#1862ed] px-5 py-3 text-sm font-bold text-white shadow-[0_6px_12px_rgba(24,98,237,0.2)] transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-300 disabled:shadow-none">
+                <Icon name="send" size={17} />{busy ? "กำลังส่งคำขอ..." :
+                  tab === "ai" ? "ส่งหลักฐานการชำระ CpiPOS AI Add-on" :
+                  tab === "renew" ? isCustomSelection ? "ส่งคำขอ CUSTOM" : "ส่งคำขอต่ออายุ" :
+                    pending?.kind === "renewal_intent" ? "ส่งหลักฐานการชำระคำขอเดิม" : "ส่งหลักฐานการชำระเงิน"}
+              </button>
+            </> : null}
           </section> : null}
 
           {tab === "history" ? <section className={box + " space-y-5 p-4 sm:p-5"}>
