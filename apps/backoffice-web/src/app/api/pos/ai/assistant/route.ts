@@ -569,6 +569,25 @@ async function loadAiCatalog(tenantId: string, branchId: string) {
   return { products, ingredients };
 }
 
+async function loadBusinessIdentity(tenantId: string, branchId: string) {
+  const db = getSupabaseServiceClient();
+  const [tenantResult, branchResult] = await Promise.all([
+    db.from("tenants")
+      .select("code,name,display_name,company_address,contact_phone")
+      .eq("id", tenantId)
+      .maybeSingle<{ code: string | null; name: string | null; display_name: string | null; company_address: string | null; contact_phone: string | null }>(),
+    db.from("branches")
+      .select("code,name,address")
+      .eq("tenant_id", tenantId)
+      .eq("id", branchId)
+      .maybeSingle<{ code: string | null; name: string | null; address: string | null }>()
+  ]);
+  return {
+    tenant: tenantResult.error ? null : tenantResult.data,
+    branch: branchResult.error ? null : branchResult.data
+  };
+}
+
 async function loadBusinessSnapshot(
   auth: Awaited<ReturnType<typeof getPosApiAuthContext>>,
   options: { includeCatalog?: boolean } = {}
@@ -583,7 +602,7 @@ async function loadBusinessSnapshot(
     platformRole: auth.platformRole
   };
 
-  const [todaySummary, monthSummary, lowStock, costSnapshot, catalog] = await Promise.all([
+  const [todaySummary, monthSummary, lowStock, costSnapshot, catalog, identity] = await Promise.all([
     loadPosSalesSummaryData(scope, {
       dateFrom: today,
       dateTo: today,
@@ -600,11 +619,21 @@ async function loadBusinessSnapshot(
     loadCostSnapshot(auth.tenantId!, auth.branchId!),
     options.includeCatalog
       ? loadAiCatalog(auth.tenantId!, auth.branchId!)
-      : Promise.resolve({ products: [] as ProductCatalogItem[], ingredients: [] as IngredientCatalogItem[] })
+      : Promise.resolve({ products: [] as ProductCatalogItem[], ingredients: [] as IngredientCatalogItem[] }),
+    loadBusinessIdentity(auth.tenantId!, auth.branchId!)
   ]);
 
   return {
     generated_at: new Date().toISOString(),
+    store: {
+      code: identity.tenant?.code ?? null,
+      name: identity.tenant?.display_name ?? identity.tenant?.name ?? null,
+      company_address: identity.tenant?.company_address ?? null,
+      contact_phone: identity.tenant?.contact_phone ?? null,
+      branch_code: identity.branch?.code ?? null,
+      branch_name: identity.branch?.name ?? null,
+      branch_address: identity.branch?.address ?? null
+    },
     period: {
       today,
       last_30_days_from: from30,
