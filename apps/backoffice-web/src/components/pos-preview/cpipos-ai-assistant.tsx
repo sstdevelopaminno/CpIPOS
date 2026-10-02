@@ -981,6 +981,119 @@ export function CpiPosAiAssistant({ lang }: { lang: Language }) {
     }
   }
 
+  async function saveDocumentProposal(proposal: Extract<AiProposal, { type: "document" }>) {
+    setProposalStatus((current) => ({ ...current, [proposal.id]: { state: "executing", message: "กำลังสร้างเอกสาร..." } }));
+    try {
+      const response = await fetch("/api/pos/ai/documents", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: proposal.title,
+          category: proposal.category,
+          content: proposal.content,
+          room_id: activeRoomId,
+          source_message_id: proposal.id
+        })
+      });
+      const body = (await response.json().catch(() => null)) as ApiEnvelope<{ document?: { id: string } }>;
+      if (!response.ok || !body?.data?.document?.id) throw new Error(body?.error?.message ?? "สร้างเอกสารไม่สำเร็จ");
+      setProposalStatus((current) => ({
+        ...current,
+        [proposal.id]: { state: "success", message: "สร้างไฟล์เอกสารแล้ว · เปิดได้ที่เมนูเก็บไฟล์เอกสาร" }
+      }));
+    } catch (error) {
+      setProposalStatus((current) => ({
+        ...current,
+        [proposal.id]: { state: "error", message: error instanceof Error ? error.message : "สร้างเอกสารไม่สำเร็จ" }
+      }));
+    }
+  }
+
+  async function generateProductImage(proposal: Extract<AiProposal, { type: "product_image" }>) {
+    setProposalStatus((current) => ({ ...current, [proposal.id]: { state: "executing", message: "กำลังสร้างภาพสินค้า..." } }));
+    try {
+      const response = await fetch("/api/pos/ai/product-image", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ product_id: proposal.product_id, prompt: proposal.prompt })
+      });
+      const body = (await response.json().catch(() => null)) as ApiEnvelope<{ image_data_url?: string }>;
+      if (!response.ok || !body?.data?.image_data_url) throw new Error(body?.error?.message ?? "สร้างภาพสินค้าไม่สำเร็จ");
+      setGeneratedProductImages((current) => ({ ...current, [proposal.id]: body.data!.image_data_url! }));
+      setProposalStatus((current) => ({
+        ...current,
+        [proposal.id]: { state: "success", message: "สร้างภาพสินค้าแล้ว · ตรวจสอบภาพก่อนกดใช้กับสินค้า" }
+      }));
+    } catch (error) {
+      setProposalStatus((current) => ({
+        ...current,
+        [proposal.id]: { state: "error", message: error instanceof Error ? error.message : "สร้างภาพสินค้าไม่สำเร็จ" }
+      }));
+    }
+  }
+
+  async function imageDataUrlToWebpFile(dataUrl: string, size: number, name: string, quality: number) {
+    const image = new Image();
+    image.decoding = "async";
+    const loaded = new Promise<void>((resolve, reject) => {
+      image.onload = () => resolve();
+      image.onerror = () => reject(new Error("อ่านภาพที่สร้างไม่สำเร็จ"));
+    });
+    image.src = dataUrl;
+    await loaded;
+
+    const canvas = document.createElement("canvas");
+    canvas.width = size;
+    canvas.height = size;
+    const context = canvas.getContext("2d");
+    if (!context) throw new Error("เบราว์เซอร์ไม่รองรับการเตรียมรูปสินค้า");
+
+    const scale = Math.max(size / image.naturalWidth, size / image.naturalHeight);
+    const width = image.naturalWidth * scale;
+    const height = image.naturalHeight * scale;
+    context.drawImage(image, (size - width) / 2, (size - height) / 2, width, height);
+    const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/webp", quality));
+    if (!blob) throw new Error("แปลงรูปสินค้าไม่สำเร็จ");
+    return new File([blob], name, { type: "image/webp" });
+  }
+
+  async function attachGeneratedProductImage(proposal: Extract<AiProposal, { type: "product_image" }>) {
+    const imageDataUrl = generatedProductImages[proposal.id];
+    if (!imageDataUrl) return;
+    if (!window.confirm(`ใช้ภาพที่สร้างเป็นรูปสินค้า “${proposal.product_name}” ในระบบ POS หรือไม่?`)) return;
+
+    setProposalStatus((current) => ({ ...current, [proposal.id]: { state: "executing", message: "กำลังบันทึกรูปสินค้า..." } }));
+    try {
+      const [display, thumbnail] = await Promise.all([
+        imageDataUrlToWebpFile(imageDataUrl, 1024, `${proposal.product_name}-display.webp`, 0.84),
+        imageDataUrlToWebpFile(imageDataUrl, 400, `${proposal.product_name}-thumb.webp`, 0.76)
+      ]);
+      const form = new FormData();
+      form.set("display", display);
+      form.set("thumbnail", thumbnail);
+      form.set("display_width", "1024");
+      form.set("display_height", "1024");
+      form.set("thumbnail_width", "400");
+      form.set("thumbnail_height", "400");
+
+      const response = await fetch(`/api/pos/product-media/${encodeURIComponent(proposal.product_id)}`, {
+        method: "POST",
+        body: form
+      });
+      const body = (await response.json().catch(() => null)) as ApiEnvelope<Record<string, unknown>>;
+      if (!response.ok) throw new Error(body?.error?.message ?? "บันทึกรูปสินค้าไม่สำเร็จ");
+      setProposalStatus((current) => ({
+        ...current,
+        [proposal.id]: { state: "success", message: "บันทึกรูปสินค้าเข้าเมนูจัดการสินค้าแล้ว" }
+      }));
+    } catch (error) {
+      setProposalStatus((current) => ({
+        ...current,
+        [proposal.id]: { state: "error", message: error instanceof Error ? error.message : "บันทึกรูปสินค้าไม่สำเร็จ" }
+      }));
+    }
+  }
+
   async function saveMessageAsDocument(message: ChatMessage) {
     if (message.role !== "assistant" || message.id === "welcome" || !message.text.trim()) return;
     setDocumentBusyId(message.id);
