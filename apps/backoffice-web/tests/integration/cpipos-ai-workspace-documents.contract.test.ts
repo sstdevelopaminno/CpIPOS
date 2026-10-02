@@ -37,8 +37,8 @@ describe("CpiPOS AI workspace and document vault", () => {
     expect(aiApi).toContain("CPIPOS_HELP_GUIDE");
     expect(aiApi).toContain('type: "input_image"');
     expect(aiApi).toContain('detail: "high"');
-    expect(aiApi).toContain("2 * 1024 * 1024");
-    expect(aiApi).toContain("ห้ามเดา");
+    expect(aiApi).toContain("8 * 1024 * 1024");
+    expect(aiApi).toContain("ห้ามแต่งยอดขาย");
   });
 
   it("stores document bodies in private object storage and metadata only in Postgres", () => {
