@@ -245,7 +245,7 @@ const AI_PROPOSAL_TOOLS = [
   {
     type: "function",
     name: "propose_marketing_campaign",
-    description: "Prepare a marketing campaign draft based on store data. This creates copy for review and does not publish externally.",
+    description: "Prepare a concrete marketing campaign based on store data and, when available, current market research. Include an actionable offer, audience, channels and ready-to-use copy.",
     strict: true,
     parameters: {
       type: "object",
@@ -263,15 +263,108 @@ const AI_PROPOSAL_TOOLS = [
       },
       required: ["title", "offer", "audience", "channels", "copy_text", "reason"]
     }
+  },
+  {
+    type: "function",
+    name: "propose_create_product",
+    description: "Prepare a new POS product with initial stock, store price and delivery price. Use when the owner/manager asks to add or create a product. Do not use for an existing product.",
+    strict: true,
+    parameters: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        name: { type: "string" },
+        category: { type: "string" },
+        stock_quantity: { type: "number", minimum: 0 },
+        store_price: { type: "number", minimum: 0 },
+        delivery_price: { type: "number", minimum: 0 },
+        reason: { type: "string" }
+      },
+      required: ["name", "category", "stock_quantity", "store_price", "delivery_price", "reason"]
+    }
+  },
+  {
+    type: "function",
+    name: "propose_product_image",
+    description: "Prepare an image-generation job for an existing product in catalog.products. Use when the user asks to create, redesign or generate a product/menu image and optionally put it into POS.",
+    strict: true,
+    parameters: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        product_id: { type: "string" },
+        prompt: { type: "string" },
+        reason: { type: "string" }
+      },
+      required: ["product_id", "prompt", "reason"]
+    }
+  },
+  {
+    type: "function",
+    name: "propose_document",
+    description: "Prepare a complete business document/file from the answer, such as a report, plan, checklist, SOP, sales summary or marketing plan. The content must be usable as-is.",
+    strict: true,
+    parameters: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        title: { type: "string" },
+        category: { type: "string", enum: ["general","sales","stock","cost","marketing","accounting","guide"] },
+        content: { type: "string" },
+        reason: { type: "string" }
+      },
+      required: ["title", "category", "content", "reason"]
+    }
+  }
+] as const;
+
+const AI_READ_TOOLS = [
+  {
+    type: "function",
+    name: "query_sales_period",
+    description: "Read authoritative POS sales data for an exact date range in the current branch. Use this instead of estimating when the user asks for historical sales, comparisons, trends, previous month/week, or an exact period.",
+    strict: true,
+    parameters: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        date_from: { type: "string", description: "YYYY-MM-DD in Asia/Bangkok" },
+        date_to: { type: "string", description: "YYYY-MM-DD in Asia/Bangkok" }
+      },
+      required: ["date_from", "date_to"]
+    }
   }
 ] as const;
 
 function proposalToolsForMessage(message: string) {
   const selected: Array<(typeof AI_PROPOSAL_TOOLS)[number]> = [];
   if (/(?:ราคา|มาร์จิ้น|margin|กำไรน้อย|ปรับราคา|ตั้งราคา)/i.test(message)) selected.push(AI_PROPOSAL_TOOLS[0]);
-  if (/(?:สต๊อก|stock|วัตถุดิบ|คงเหลือ|เพิ่มของ|รับของ|ลงของ)/i.test(message)) selected.push(AI_PROPOSAL_TOOLS[1]);
-  if (/(?:การตลาด|marketing|โปรโมชัน|โปรโมชั่น|แคมเปญ|เพิ่มยอดขาย|โพสต์ขาย)/i.test(message)) selected.push(AI_PROPOSAL_TOOLS[2]);
+  if (/(?:สต๊อก|stock|วัตถุดิบ|คงเหลือ|เพิ่มของ|รับของ|ลงของ|ปรับจำนวน)/i.test(message)) selected.push(AI_PROPOSAL_TOOLS[1]);
+  if (/(?:การตลาด|marketing|โปรโมชัน|โปรโมชั่น|แคมเปญ|เพิ่มยอดขาย|โพสต์ขาย|วางแผนตลาด)/i.test(message)) selected.push(AI_PROPOSAL_TOOLS[2]);
+  if (/(?:เพิ่มสินค้า|สร้างสินค้า|สินค้าใหม่|เพิ่มเมนู|สร้างเมนู|ลงสินค้า)/i.test(message)) selected.push(AI_PROPOSAL_TOOLS[3]);
+  if (/(?:สร้างภาพ|ทำภาพ|รูปสินค้า|ภาพสินค้า|รูปเมนู|ภาพเมนู|generate image|product image)/i.test(message)) selected.push(AI_PROPOSAL_TOOLS[4]);
+  if (/(?:สร้างไฟล์|ทำไฟล์|เอกสาร|รายงาน|แผนงาน|SOP|เช็กลิสต์|checklist|บันทึกเป็นเอกสาร)/i.test(message)) selected.push(AI_PROPOSAL_TOOLS[5]);
   return selected;
+}
+
+function readToolsForMessage(message: string) {
+  return /(?:ย้อนหลัง|เดือนที่แล้ว|สัปดาห์ที่แล้ว|ไตรมาส|ปีนี้|ปีที่แล้ว|ช่วงวันที่|ตั้งแต่|ถึงวันที่|เทียบ|แนวโน้ม|historical|last month|last week|sales period)/i.test(message)
+    ? [...AI_READ_TOOLS]
+    : [];
+}
+
+function needsMarketWeb(message: string) {
+  return /(?:ตลาด|คู่แข่ง|เทรนด์|แนวโน้มตลาด|ทำเล|พฤติกรรมลูกค้า|ราคาในตลาด|benchmark|คู่แข่งในพื้นที่|เทียบตลาด)/i.test(message);
+}
+
+function needsQualityModel(message: string) {
+  if (needsHelpGuide(message) && message.length < 120 &&
+      !/(?:วิเคราะห์|ยอดขาย|ต้นทุน|กำไร|สต๊อก|ราคา|ตลาด|แผน|สินค้า|เอกสาร|ภาพ)/i.test(message)) return false;
+  return true;
+}
+
+function needsDeepReasoning(message: string) {
+  return /(?:วิเคราะห์เชิงลึก|วิเคราะห์|วางแผน|กลยุทธ์|ตลาด|คู่แข่ง|ทำเล|กำไร|ต้นทุน|แนวโน้ม|เปรียบเทียบ|forecast|คาดการณ์|แผนงาน)/i.test(message);
 }
 
 function canUseAi(branchRole: string | null, _platformRole: string | null) {
