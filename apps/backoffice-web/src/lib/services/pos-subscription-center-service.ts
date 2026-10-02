@@ -141,9 +141,9 @@ export async function loadPosSubscriptionCenter(tenantId: string) {
       const yearlyList = metadataNumber(row.metadata, "yearly_list_price")
         ?? (monthlyPrice == null ? null : Number((monthlyPrice * 12).toFixed(2)));
       const addonRequests = positive(metadataNumber(row.metadata, "ai_addon_monthly_requests"));
-      const configuredAddonTokens = positive(metadataNumber(row.metadata, "ai_addon_monthly_tokens"));
+      const configuredAddonTokens = amount(metadataNumber(row.metadata, "ai_addon_monthly_tokens"));
       const baseRequests = positive(aiQuota?.monthly_request_limit);
-      const baseTokens = positive(aiQuota?.monthly_token_limit);
+      const baseTokens = amount(aiQuota?.monthly_token_limit);
       const derivedAddonTokens = configuredAddonTokens ?? (
         addonRequests && baseRequests && baseTokens
           ? Math.max(1, Math.trunc((addonRequests * baseTokens) / baseRequests))
@@ -174,7 +174,7 @@ export async function loadPosSubscriptionCenter(tenantId: string) {
         ai_included: Boolean(aiQuota?.is_enabled ?? metadataBoolean(row.metadata, "ai_included")),
         ai_quota_enabled: Boolean(aiQuota?.is_enabled ?? metadataBoolean(row.metadata, "ai_included")),
         ai_monthly_requests: positive(aiQuota?.monthly_request_limit ?? metadataNumber(row.metadata, "ai_monthly_requests")),
-        ai_monthly_tokens: positive(aiQuota?.monthly_token_limit),
+        ai_monthly_tokens: amount(aiQuota?.monthly_token_limit),
         ai_monthly_cost_usd: amount(aiQuota?.monthly_cost_limit_usd),
         ai_history_retention_days: positive(aiQuota?.history_retention_days),
         ai_addon_available: metadataBoolean(row.metadata, "ai_addon_available"),
