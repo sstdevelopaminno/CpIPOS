@@ -7,6 +7,8 @@ import {
   bytesForReceipt,
   isCashDrawerJob,
   postAgentApi,
+  recentlyPhysicallyPrinted,
+  rememberPhysicalPrint,
   sleep,
   dispatchStatus as dispatchSharedStatus,
   type BrowserPrintAgentStatus,
@@ -51,7 +53,7 @@ const HIDDEN_POLL_MS = 30000;
 const DEEP_IDLE_AFTER_EMPTY_POLLS = 6;
 const MAX_ERROR_BACKOFF_MS = 60000;
 const SERIAL_RETRY_DELAY_MS = 350;
-const SERIAL_MAX_OPEN_FAILURES_BEFORE_FORGET = 3;
+const SERIAL_MAX_OPEN_FAILURES_BEFORE_RESELECT = 3;
 const APP_VERSION = "browser-web-serial-1.0.5-hard-serial-reset";
 
 function readBool(value: string | null) {
@@ -156,14 +158,14 @@ async function ensureSerialPort(
   }
 
   consecutiveOpenFailuresRef.current += 1;
-  if (consecutiveOpenFailuresRef.current >= SERIAL_MAX_OPEN_FAILURES_BEFORE_FORGET) {
-    await forgetRememberedPorts();
-    consecutiveOpenFailuresRef.current = 0;
-    portRef.current = null;
+  if (consecutiveOpenFailuresRef.current >= SERIAL_MAX_OPEN_FAILURES_BEFORE_RESELECT) {
+    // Never revoke Web Serial permission automatically. Another tab/runtime can temporarily
+    // own the same COM port; forgetting it here made the printer disappear from Settings and
+    // forced the operator to discover/pair it again. Explicit "forget/reset" remains available.
     return {
       ok: false,
-      code: "serial_permission_required",
-      message: "Chrome ล้างพอร์ตเดิมที่เปิดไม่ได้แล้ว กรุณากดเลือกเครื่องจาก Windows ใหม่หนึ่งครั้ง"
+      code: "serial_reselect_required",
+      message: "พอร์ตเครื่องพิมพ์ยังถูกใช้งานหรือเปิดไม่ได้ กรุณาปิดแท็บ/โปรแกรมที่ใช้เครื่องนี้ แล้วลองใหม่ หากต้องล้างสิทธิ์ให้กดรีเซ็ตเครื่องพิมพ์ด้วยตนเอง"
     };
   }
 
@@ -275,6 +277,7 @@ export function BrowserPrintAgent() {
     let timer: number | null = null;
     let errorStreak = 0;
     let emptyPollStreak = 0;
+    let tickInFlight = false;
     const supported = Boolean(navigator.serial);
 
     const publish = (code: string, message: string) => {
@@ -297,7 +300,13 @@ export function BrowserPrintAgent() {
 
     const tick = async () => {
       if (!active) return;
+      if (tickInFlight) {
+        scheduleNext(POLL_MS);
+        return;
+      }
+      tickInFlight = true;
       if (typeof document !== "undefined" && document.visibilityState === "hidden") {
+        tickInFlight = false;
         scheduleNext(HIDDEN_POLL_MS);
         return;
       }
@@ -332,20 +341,53 @@ export function BrowserPrintAgent() {
         emptyPollStreak = jobs.length > 0 ? 0 : Math.min(emptyPollStreak + 1, DEEP_IDLE_AFTER_EMPTY_POLLS);
         for (const job of jobs) {
           const agentAttemptId = agentAttemptIdForJob(job);
+          const alreadySent = recentlyPhysicallyPrinted(job.id);
+          if (alreadySent) {
+            const recoveredAck = await postAgentApi(`/api/print-agent/v1/jobs/${encodeURIComponent(job.id)}/ack`, config.agentKey, {
+              agent_attempt_id: agentAttemptId,
+              provider_job_id: `browser-recovered:${job.id}`,
+              bytes_sent: alreadySent.bytes_sent,
+              metadata: {
+                provider: "browser_web_serial",
+                app_version: APP_VERSION,
+                duplicate_suppressed: true,
+                physical_send_recovered: true,
+                physical_sent_at_ms: alreadySent.sent_at_ms
+              }
+            });
+            if (!recoveredAck.response.ok || recoveredAck.body?.error) {
+              throw new Error(recoveredAck.body?.error?.message ?? `ack_recovery_failed_${recoveredAck.response.status}`);
+            }
+            lastJobIdRef.current = job.id;
+            continue;
+          }
+
+          let physicallySent = false;
           try {
             const bytes = isCashDrawerJob(job) ? bytesForCashDrawer() : await bytesForReceipt(job);
             await writeToPort(ensured.port, bytes);
-            await postAgentApi(`/api/print-agent/v1/jobs/${encodeURIComponent(job.id)}/ack`, config.agentKey, {
+            physicallySent = true;
+            rememberPhysicalPrint(job.id, "browser_web_serial", bytes.length);
+            const ack = await postAgentApi(`/api/print-agent/v1/jobs/${encodeURIComponent(job.id)}/ack`, config.agentKey, {
               agent_attempt_id: agentAttemptId,
               provider_job_id: `browser:${Date.now()}`,
               bytes_sent: bytes.length,
               metadata: { provider: "browser_web_serial", baud_rate: config.baudRate, app_version: APP_VERSION }
             });
+            if (!ack.response.ok || ack.body?.error) {
+              throw new Error(ack.body?.error?.message ?? `ack_failed_${ack.response.status}`);
+            }
             jobsPrintedRef.current += 1;
             lastJobIdRef.current = job.id;
           } catch (jobError) {
             lastJobIdRef.current = job.id;
             const message = jobError instanceof Error ? jobError.message : "browser_serial_print_failed";
+            if (physicallySent) {
+              // The printer already accepted the bytes. Do not mark the job failed or it may
+              // be printed twice. Let the lease retry and recover via the durable local ledger.
+              publish("print_ack_pending", "พิมพ์ออกแล้ว แต่ยืนยันผลกับเซิร์ฟเวอร์ยังไม่สำเร็จ ระบบจะยืนยันซ้ำโดยไม่พิมพ์กระดาษซ้ำ");
+              continue;
+            }
             const port = portRef.current;
             portRef.current = null;
             void safeClosePort(port);
@@ -367,6 +409,7 @@ export function BrowserPrintAgent() {
         emptyPollStreak = 0;
         publish("agent_error", error instanceof Error ? error.message : "Browser Print Agent failed.");
       } finally {
+        tickInFlight = false;
         const idleDelay = emptyPollStreak >= DEEP_IDLE_AFTER_EMPTY_POLLS ? DEEP_IDLE_POLL_MS : emptyPollStreak > 0 ? IDLE_POLL_MS : POLL_MS;
         const backoffDelay = errorStreak > 0 ? Math.min(POLL_MS * 2 ** errorStreak, MAX_ERROR_BACKOFF_MS) : idleDelay;
         scheduleNext(backoffDelay);
@@ -376,6 +419,10 @@ export function BrowserPrintAgent() {
     const handleVisibilityChange = () => {
       if (document.visibilityState === "visible") {
         emptyPollStreak = 0;
+        if (timer) {
+          window.clearTimeout(timer);
+          timer = null;
+        }
         void tick();
       }
     };
