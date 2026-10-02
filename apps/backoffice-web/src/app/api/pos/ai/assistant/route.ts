@@ -710,7 +710,7 @@ async function loadBusinessSnapshotForMessage(
     /(?:ต้นทุน|มาร์จิ้น|กำไร|ราคา|cost|margin)/i.test(message);
   const needsCatalog = needsMutationCatalog(message);
 
-  const [todaySummary, monthSummary, lowStock, costSnapshot, catalog] = await Promise.all([
+  const [todaySummary, monthSummary, lowStock, costSnapshot, catalog, identity] = await Promise.all([
     needsSales
       ? loadPosSalesSummaryData(scope, { dateFrom: today, dateTo: today, branchId: auth.branchId, status: "all" })
       : Promise.resolve(null),
@@ -721,11 +721,20 @@ async function loadBusinessSnapshotForMessage(
     needsCost ? loadCostSnapshot(auth.tenantId!, auth.branchId!) : Promise.resolve({ lowMarginProducts: [], costDataAvailable: false }),
     needsCatalog
       ? loadAiCatalog(auth.tenantId!, auth.branchId!)
-      : Promise.resolve({ products: [] as ProductCatalogItem[], ingredients: [] as IngredientCatalogItem[] })
+      : Promise.resolve({ products: [] as ProductCatalogItem[], ingredients: [] as IngredientCatalogItem[] }),
+    loadBusinessIdentity(auth.tenantId!, auth.branchId!)
   ]);
 
   return {
     generated_at: new Date().toISOString(),
+    store: {
+      code: identity.tenant?.code ?? null,
+      name: identity.tenant?.display_name ?? identity.tenant?.name ?? null,
+      company_address: identity.tenant?.company_address ?? null,
+      branch_code: identity.branch?.code ?? null,
+      branch_name: identity.branch?.name ?? null,
+      branch_address: identity.branch?.address ?? null
+    },
     period: { today, last_30_days_from: from30, last_30_days_to: today },
     today: {
       net_sales: todaySummary?.summary.netSales ?? 0,
