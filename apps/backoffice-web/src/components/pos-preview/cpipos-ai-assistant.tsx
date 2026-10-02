@@ -1282,9 +1282,61 @@ export function CpiPosAiAssistant({ lang }: { lang: Language }) {
                             );
                           }
 
+                          if (proposal.type === "document") {
+                            return (
+                              <div key={proposal.id} className="rounded-2xl border border-emerald-200 bg-emerald-50/60 p-3">
+                                <div className="flex flex-wrap items-center justify-between gap-2">
+                                  <strong className="text-sm font-black text-emerald-950">{proposal.title}</strong>
+                                  <span className="rounded-full bg-emerald-600 px-2 py-0.5 text-[10px] font-black text-white">DOCUMENT</span>
+                                </div>
+                                <p className="mt-2 max-h-40 overflow-hidden whitespace-pre-wrap rounded-xl bg-white/80 p-3 text-xs leading-5 text-slate-700">{proposal.content}</p>
+                                <p className="mt-2 text-[11px] text-slate-500">{proposal.reason}</p>
+                                <div className="mt-3 flex flex-wrap items-center gap-2">
+                                  <button type="button" onClick={() => void saveDocumentProposal(proposal)}
+                                    disabled={status.state === "executing" || status.state === "success"}
+                                    className="rounded-xl bg-emerald-600 px-3 py-2 text-xs font-black text-white disabled:opacity-50">
+                                    {status.state === "executing" ? "กำลังสร้างไฟล์..." : status.state === "success" ? "สร้างไฟล์แล้ว" : "สร้างไฟล์เอกสาร"}
+                                  </button>
+                                  {status.message ? <span className={`text-[11px] font-bold ${status.state === "error" ? "text-red-600" : "text-emerald-600"}`}>{status.message}</span> : null}
+                                </div>
+                              </div>
+                            );
+                          }
+
+                          if (proposal.type === "product_image") {
+                            const generatedImage = generatedProductImages[proposal.id];
+                            return (
+                              <div key={proposal.id} className="rounded-2xl border border-fuchsia-200 bg-fuchsia-50/60 p-3">
+                                <div className="flex flex-wrap items-center justify-between gap-2">
+                                  <strong className="text-sm font-black text-fuchsia-950">{proposal.title}</strong>
+                                  <span className="rounded-full bg-fuchsia-600 px-2 py-0.5 text-[10px] font-black text-white">IMAGE</span>
+                                </div>
+                                <p className="mt-2 text-xs leading-5 text-slate-600">{proposal.reason}</p>
+                                {generatedImage ? <img src={generatedImage} alt={proposal.product_name}
+                                  className="mt-3 aspect-square w-full max-w-[360px] rounded-2xl border border-white object-cover shadow-sm" /> :
+                                  <p className="mt-2 rounded-xl bg-white/80 p-3 text-xs leading-5 text-slate-600">{proposal.prompt}</p>}
+                                <div className="mt-3 flex flex-wrap items-center gap-2">
+                                  <button type="button" onClick={() => void generateProductImage(proposal)}
+                                    disabled={status.state === "executing"}
+                                    className="rounded-xl bg-fuchsia-600 px-3 py-2 text-xs font-black text-white disabled:opacity-50">
+                                    {status.state === "executing" ? "กำลังสร้างภาพ..." : generatedImage ? "สร้างภาพใหม่" : "สร้างภาพสินค้า"}
+                                  </button>
+                                  {generatedImage ? <button type="button" onClick={() => void attachGeneratedProductImage(proposal)}
+                                    disabled={status.state === "executing"}
+                                    className="rounded-xl border border-fuchsia-200 bg-white px-3 py-2 text-xs font-black text-fuchsia-700 disabled:opacity-50">
+                                    ใช้รูปนี้ในสินค้า
+                                  </button> : null}
+                                  {status.message ? <span className={`text-[11px] font-bold ${status.state === "error" ? "text-red-600" : "text-emerald-600"}`}>{status.message}</span> : null}
+                                </div>
+                              </div>
+                            );
+                          }
+
                           const detail = proposal.type === "update_product_price"
                             ? `฿${money(proposal.current_price)} → ฿${money(proposal.new_price)}`
-                            : `${money(proposal.current_quantity)} ${proposal.unit} · ปรับ ${proposal.quantity_delta > 0 ? "+" : ""}${money(proposal.quantity_delta)} ${proposal.unit}`;
+                            : proposal.type === "create_product"
+                              ? `${proposal.category} · สต๊อก ${money(proposal.stock_quantity)} · หน้าร้าน ฿${money(proposal.store_price)} · เดลิเวอรี่ ฿${money(proposal.delivery_price)}`
+                              : `${money(proposal.current_quantity)} ${proposal.unit} · ปรับ ${proposal.quantity_delta > 0 ? "+" : ""}${money(proposal.quantity_delta)} ${proposal.unit}`;
                           return (
                             <div key={proposal.id} className="rounded-2xl border border-blue-200 bg-blue-50/70 p-3">
                               <div className="flex flex-wrap items-center justify-between gap-2">
