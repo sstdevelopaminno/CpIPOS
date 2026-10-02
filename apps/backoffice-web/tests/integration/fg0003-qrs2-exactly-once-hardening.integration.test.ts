@@ -55,8 +55,9 @@ describe("Restaurant QR exactly-once hardening contracts", () => {
   });
 
   it("returns existing Restaurant QR print jobs on duplicate idempotency and separates routed copies", () => {
-    expect(printService).toContain("isRestaurantQrScope");
     expect(printService).toContain("isUniqueConstraintError");
+    expect(printService).toContain("if (input.idempotencyKey && isUniqueConstraintError(error))");
+    expect(printService).not.toContain("isRestaurantQrScope");
     expect(printService).toContain("loadExistingPrintJobByIdempotencyKey");
     expect(printService).toContain("if (existing) return existing");
     expect(routedPrintService).toContain("buildRoutePrintIdempotencyKey");
