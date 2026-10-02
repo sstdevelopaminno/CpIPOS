@@ -237,6 +237,27 @@ describe("CpiPOS AI store assistant", () => {
     expect(aiWorkspace).toContain("เดือน {quota.month_key}");
   });
 
+  it("queries exact historical sales and can research current market context", () => {
+    expect(aiApi).toContain("query_sales_period");
+    expect(aiApi).toContain("executeAiReadTool");
+    expect(aiApi).toContain("date_from");
+    expect(aiApi).toContain("date_to");
+    expect(aiApi).toContain('type: "web_search"');
+    expect(aiApi).toContain("needsMarketWeb");
+    expect(aiApi).toContain("loadBusinessIdentity");
+    expect(aiApi).toContain("อย่าถามซ้ำ");
+  });
+
+  it("creates products and can generate then attach product images", () => {
+    expect(aiActions).toContain('body.action === "create_product"');
+    expect(aiActions).toContain('from("product_channel_prices")');
+    expect(aiActions).toContain('from("recipes")');
+    expect(aiWorkspace).toContain("generateProductImage");
+    expect(aiWorkspace).toContain("attachGeneratedProductImage");
+    expect(aiWorkspace).toContain("/api/pos/product-media/");
+    expect(aiImage).toContain("gpt-image-2.5-sunburst");
+  });
+
   it("keeps destructive or financial reversal actions outside Phase 2", () => {
     expect(aiApi).toContain("ห้ามเสนอหรือดำเนินการยกเลิกบิล คืนเงิน");
     expect(aiApi).toContain("RESTRICTED_AI_REQUESTS");
