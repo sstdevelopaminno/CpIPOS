@@ -1565,9 +1565,9 @@ export function CpiPosAiAssistant({ lang }: { lang: Language }) {
         <PosManagerApprovalModal
           open
           title="ยืนยันการทำงานของ CpiPOS AI"
-          action={pendingProposal.type === "update_product_price" ? "sales_record_edit" : "stock_adjustment"}
-          targetTable={pendingProposal.type === "update_product_price" ? "products" : "ingredients"}
-          targetId={pendingProposal.type === "update_product_price" ? pendingProposal.product_id : pendingProposal.ingredient_id}
+          action={pendingProposal.type === "adjust_stock" ? "stock_adjustment" : "sales_record_edit"}
+          targetTable={pendingProposal.type === "adjust_stock" ? "ingredients" : "products"}
+          targetId={pendingProposal.type === "adjust_stock" ? pendingProposal.ingredient_id : pendingProposal.product_id}
           onClose={() => setPendingProposal(null)}
           onApproved={(approvalId) => void executeProposal(pendingProposal, approvalId)}
           lang={lang === "en" ? "en" : "th"}
