@@ -609,29 +609,72 @@ export function PosSubscriptionCenter({ initial, isOwner, showContactActions = t
                 กรุณาแนบสลิป ระบบจะใช้ AI อ่านยอดเงิน วันเวลา ชื่อผู้โอน และเลขอ้างอิงให้อัตโนมัติ แล้วอัปเดตรายการเดิมโดยไม่สร้างคำขอซ้ำ
               </p>
             </div> : null}
-            <div className="grid gap-2 sm:grid-cols-2">
-              {tab === "ai" ? <div className="min-w-0 rounded-xl border border-violet-200 bg-violet-50/60 p-3">
-                <StepLabel number={1}>แพ็กเกจ AI สำหรับร้านนี้</StepLabel>
-                <p className="mt-3 text-sm font-black text-slate-950">{currentPackageRow ? `CpiPOS AI Add-on · ${currentPackageRow.name}` : "ยังไม่พบแพ็กเกจร้าน"}</p>
-                <p className="mt-1 text-xs leading-5 text-slate-600">
-                  {aiAddonAvailable
-                    ? `เพิ่ม ${limitText(currentPackageRow?.ai_addon_monthly_requests, " ครั้ง")} · ${limitText(currentPackageRow?.ai_addon_monthly_tokens, " tokens")} · ใช้ในรอบเดือนปัจจุบัน`
-                    : "แพ็กเกจนี้ยังไม่มี AI Add-on ที่ฝ่าย IT เปิดขาย"}
-                </p>
-              </div> :               <label className="min-w-0 rounded-xl border border-[#e4ebf6] p-3">
+            {tab === "ai" ? <div className="space-y-3">
+              <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+                {snapshot.packages.map((row) => {
+                  const current = row.id === snapshot.contract.package_id;
+                  const aiEnabled = row.contact_sales ? null : row.ai_quota_enabled;
+                  const canBuy = current && row.ai_addon_available && Boolean(row.ai_addon_monthly_price);
+                  return <article key={row.id}
+                    className={"relative overflow-hidden rounded-2xl border p-4 shadow-sm " +
+                      (current ? "border-violet-400 bg-violet-50/70 ring-2 ring-violet-100" :
+                        row.code === "business" ? "border-blue-200 bg-blue-50/50" : "border-slate-200 bg-white")}>
+                    <div className="flex items-start justify-between gap-2">
+                      <div>
+                        <p className="text-[11px] font-bold uppercase tracking-wide text-slate-500">CpiPOS AI · {row.name}</p>
+                        <h3 className="mt-1 text-lg font-black text-slate-950">
+                          {row.contact_sales ? "ตามสัญญา" : aiEnabled ? <>{limitText(row.ai_monthly_requests, " ครั้ง")}<span className="text-sm font-bold text-slate-500">/เดือน</span></> : "ไม่รวม AI"}
+                        </h3>
+                      </div>
+                      {current ? <span className="rounded-full bg-violet-600 px-2.5 py-1 text-[10px] font-black text-white">แพ็กเกจปัจจุบัน</span> : null}
+                    </div>
+                    <div className="mt-3 space-y-2 text-xs">
+                      <div className="flex items-center justify-between gap-2 rounded-xl bg-white/80 px-3 py-2">
+                        <span className="text-slate-500">Token / เดือน</span>
+                        <strong className="text-slate-800">{row.contact_sales ? "ตามสัญญา" :
+                          aiEnabled ? limitText(row.ai_monthly_tokens, " tokens") : "—"}</strong>
+                      </div>
+                      <div className="flex items-center justify-between gap-2 rounded-xl bg-white/80 px-3 py-2">
+                        <span className="text-slate-500">เก็บประวัติ AI</span>
+                        <strong className="text-slate-800">{row.contact_sales ? "ตามสัญญา" :
+                          row.ai_history_retention_days ? String(row.ai_history_retention_days) + " วัน" : "ตามนโยบาย IT"}</strong>
+                      </div>
+                    </div>
+                    {row.ai_addon_available && row.ai_addon_monthly_price ? <div className="mt-3 rounded-xl border border-violet-200 bg-white p-3">
+                      <p className="text-[11px] font-black text-violet-700">AI Add-on · รอบเดือนปัจจุบัน</p>
+                      <p className="mt-1 text-xl font-black text-slate-950">{formatMoney(row.ai_addon_monthly_price)}</p>
+                      <p className="mt-1 text-xs leading-5 text-slate-600">
+                        +{limitText(row.ai_addon_monthly_requests, " ครั้ง")} · +{limitText(row.ai_addon_monthly_tokens, " tokens")}
+                      </p>
+                    </div> : <div className="mt-3 rounded-xl bg-slate-50 px-3 py-3 text-xs leading-5 text-slate-500">
+                      {row.contact_sales ? "โควตาและราคา AI ให้ฝ่าย IT กำหนดตามสัญญา" :
+                        aiEnabled ? "โควตา AI รวมอยู่ในแพ็กเกจนี้แล้ว" : "แพ็กเกจนี้ยังไม่เปิด CpiPOS AI"}
+                    </div>}
+                    <button type="button" disabled={!canBuy}
+                      className={"mt-3 w-full rounded-xl px-3 py-2.5 text-xs font-black " +
+                        (canBuy ? "bg-violet-600 text-white hover:bg-violet-700" : "border border-slate-200 bg-white text-slate-400")}>
+                      {canBuy ? "เลือกซื้อ AI Add-on" :
+                        current ? row.contact_sales ? "ติดต่อ IT" : aiEnabled ? "ไม่มี Add-on เพิ่มสำหรับแพ็กเกจนี้" : "AI ยังไม่เปิดในแพ็กเกจนี้" :
+                        "อ้างอิงตามแพ็กเกจ POS"}
+                    </button>
+                  </article>;
+                })}
+              </div>
+              <div className="flex items-start gap-2 rounded-xl border border-blue-100 bg-blue-50 px-3 py-2.5 text-xs leading-5 text-blue-900">
+                <Icon name="info" size={17} className="mt-0.5" />
+                <p>สิทธิ์ AI หลักอ่านจาก <strong>AI Quota ต่อแพ็กเกจ / ต่อเดือน</strong> ของฝ่าย IT ส่วนราคาและโควตา Add-on อ่านจาก <strong>แพ็กเกจ / Subscription</strong> โดยตรง</p>
+              </div>
+            </div> : <div className="grid gap-2 sm:grid-cols-2">
+              <label className="min-w-0 rounded-xl border border-[#e4ebf6] p-3">
                 <StepLabel number={1}>เลือกแพ็กเกจ</StepLabel>
                 <select className={field} value={selectedPackage} disabled={!canSubmit || Boolean(pending)}
                   onChange={(event) => { setSelectedPackage(event.target.value); changed(); }}>
                   {snapshot.packages.map((row) => <option value={row.id} key={row.id}>
-                    {row.contact_sales ? `${row.name} · ติดต่อ IT` : `${row.name} · ${formatMoney(row.monthly_price)}/เดือน`}
+                    {row.contact_sales ? row.name + " · ติดต่อ IT" : row.name + " · " + formatMoney(row.monthly_price) + "/เดือน"}
                   </option>)}
                 </select>
-              </label>}
-              {tab === "ai" ? <div className="rounded-xl border border-violet-200 bg-white p-4">
-                <p className="text-xs font-black text-violet-700">ราคา AI Add-on จาก IT</p>
-                <p className="mt-1 text-2xl font-black text-slate-950">{formatMoney(aiAddonDue)}</p>
-                <p className="mt-1 text-xs leading-5 text-slate-500">การซื้อ Add-on จะเพิ่มเฉพาะโควตา CpiPOS AI และไม่เปลี่ยนแพ็กเกจ POS หลัก</p>
-              </div> : tab === "renew" && isCustomSelection ? <div className="rounded-xl border border-blue-200 bg-blue-50 p-4">
+              </label>
+              {tab === "renew" && isCustomSelection ? <div className="rounded-xl border border-blue-200 bg-blue-50 p-4">
                 <p className="text-xs font-black text-blue-700">CUSTOM</p>
                 <p className="mt-1 text-sm font-bold text-slate-900">ให้ทีม IT กำหนดราคาและสิทธิ์เฉพาะร้าน</p>
                 <p className="mt-1 text-xs leading-5 text-slate-600">ส่งคำขอก่อนได้เลย ไม่ต้องกรอกราคา โควตา หรือข้อมูลชำระเงิน</p>
@@ -663,9 +706,9 @@ export function PosSubscriptionCenter({ initial, isOwner, showContactActions = t
                   รายปีพร้อมใช้งาน · {formatMoney(packageRow.yearly_price)} / ปี
                 </p>}
               </div>}
-            </div>
+            </div>}
 
-            {(tab === "notice" || tab === "ai") ? <>
+            {(tab === "notice" || (tab === "ai" && aiPurchaseReady)) ? <>            {(tab === "notice" || tab === "ai") ? <>
               <div className="overflow-hidden rounded-2xl border border-blue-200 bg-[linear-gradient(135deg,#eef6ff_0%,#ffffff_55%,#f5f3ff_100%)] shadow-[0_10px_28px_rgba(37,99,235,0.08)]">
                 <div className="grid gap-4 p-4 sm:p-5 lg:grid-cols-[1fr_auto] lg:items-center">
                   <div className="flex min-w-0 items-start gap-3">
