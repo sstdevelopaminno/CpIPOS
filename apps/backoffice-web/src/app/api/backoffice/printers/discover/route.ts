@@ -10,7 +10,7 @@ type DiscoveryStatus = "online" | "offline" | "checking" | "connecting" | "needs
 type DiscoveryCandidate = {
   id: string; name: string; mode: CustomerConnectionMode; paper_width_mm: 58 | 80;
   source: "windows_runtime" | "android_mdm" | "android_inventory" | "configured_profile" | "manual_lan"; status: DiscoveryStatus;
-  runtime_device_code: string | null; printer_profile_id: string | null; functions: string[]; capabilities: Record<string, boolean>; helper: string;
+  runtime_device_code: string | null; printer_profile_id: string | null; device_fingerprint: string | null; functions: string[]; capabilities: Record<string, boolean>; helper: string;
 };
 function asRecord(value: unknown): Record<string, unknown> { return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {}; }
 function readText(value: unknown): string | null { return typeof value === "string" && value.trim() ? value.trim() : null; }
@@ -36,7 +36,7 @@ export async function GET(req: Request) {
     const candidates: DiscoveryCandidate[] = [];
     for (const profile of profiles) {
       const metadata = asRecord(profile.metadata); const mode = normalizeProfileMode(profile.connection_type, metadata); const functions = normalizeFunctions(profile.printer_role, metadata);
-      candidates.push({ id: `profile:${profile.id}`, name: profile.printer_name, mode, paper_width_mm: profile.paper_width_mm, source: "configured_profile", status: normalizeStatus(profile.enabled, metadata), runtime_device_code: readText(metadata.agent_device_code ?? metadata.runtime_device_code ?? metadata.device_code), printer_profile_id: profile.id, functions, capabilities: profileCapabilities(functions, metadata), helper: profile.enabled ? "โปรไฟล์เครื่องพิมพ์ที่ระบบบันทึกไว้แล้ว" : "โปรไฟล์ที่ถูกตัดการเชื่อมต่อ สามารถกดเชื่อมต่อใหม่ได้" });
+      candidates.push({ id: `profile:${profile.id}`, name: profile.printer_name, mode, paper_width_mm: profile.paper_width_mm, source: "configured_profile", status: normalizeStatus(profile.enabled, metadata), runtime_device_code: readText(metadata.agent_device_code ?? metadata.runtime_device_code ?? metadata.device_code), printer_profile_id: profile.id, device_fingerprint: readText(metadata.device_fingerprint), functions, capabilities: profileCapabilities(functions, metadata), helper: profile.enabled ? "โปรไฟล์เครื่องพิมพ์ที่ระบบบันทึกไว้แล้ว" : "โปรไฟล์ที่ถูกตัดการเชื่อมต่อ สามารถกดเชื่อมต่อใหม่ได้" });
     }
     for (const device of registry.devices) {
       if (device.printer_profile_id) continue;
@@ -54,6 +54,7 @@ export async function GET(req: Request) {
         status,
         runtime_device_code: readText(device.runtime_device_code),
         printer_profile_id: null,
+        device_fingerprint: readText(device.device_fingerprint),
         functions: ["receipt"],
         capabilities: {
           receipt: true,
@@ -73,10 +74,10 @@ export async function GET(req: Request) {
       const androidNative = isAndroidNativeAgent(metadata, appVersion);
       const modes = agentModes(metadata, appVersion);
       for (const agentMode of modes) {
-        candidates.push({ id: `agent:${agent.id}:${agentMode}`, name: agent.agent_name || agent.device_code, mode: agentMode, paper_width_mm: 58, source: androidNative ? "android_mdm" : "windows_runtime", status: agent.status === "active" ? "online" : agent.status === "blocked" ? "disabled" : "offline", runtime_device_code: agent.device_code, printer_profile_id: null, functions: ["receipt", "reprint", "cash_drawer"], capabilities: { receipt: true, kitchen: true, cash_drawer: true, reprint: true, shift_report: true, payment_slip: true }, helper: agentHelper(agentMode, androidNative, agent.device_code) });
+        candidates.push({ id: `agent:${agent.id}:${agentMode}`, name: agent.agent_name || agent.device_code, mode: agentMode, paper_width_mm: 58, source: androidNative ? "android_mdm" : "windows_runtime", status: agent.status === "active" ? "online" : agent.status === "blocked" ? "disabled" : "offline", runtime_device_code: agent.device_code, printer_profile_id: null, device_fingerprint: null, functions: ["receipt", "reprint", "cash_drawer"], capabilities: { receipt: true, kitchen: true, cash_drawer: true, reprint: true, shift_report: true, payment_slip: true }, helper: agentHelper(agentMode, androidNative, agent.device_code) });
       }
     }
-    candidates.push({ id: "manual:lan-escpos", name: "เครื่องพิมพ์ LAN / ESC/POS", mode: "lan", paper_width_mm: 80, source: "manual_lan", status: "checking", runtime_device_code: null, printer_profile_id: null, functions: ["kitchen"], capabilities: { receipt: true, kitchen: true, cash_drawer: false, reprint: false, shift_report: false, payment_slip: false }, helper: "ถ้าใช้ Print Agent ในร้าน ให้เลือก Runtime/Agent ด้านบน; ถ้าตั้งค่าเองให้กรอก IP/Port ของเครื่องพิมพ์ LAN" });
+    candidates.push({ id: "manual:lan-escpos", name: "เครื่องพิมพ์ LAN / ESC/POS", mode: "lan", paper_width_mm: 80, source: "manual_lan", status: "checking", runtime_device_code: null, printer_profile_id: null, device_fingerprint: null, functions: ["kitchen"], capabilities: { receipt: true, kitchen: true, cash_drawer: false, reprint: false, shift_report: false, payment_slip: false }, helper: "ถ้าใช้ Print Agent ในร้าน ให้เลือก Runtime/Agent ด้านบน; ถ้าตั้งค่าเองให้กรอก IP/Port ของเครื่องพิมพ์ LAN" });
     return ok({ items: candidates.filter((candidate) => isRequestedMode(candidate, modeFilter)), mode: modeFilter, note: "LAN / USB / Bluetooth คือโหมดที่ผู้ใช้เลือก ส่วน Windows Runtime / Android Print Agent / MDM เป็น transport ภายใน ระบบจะแสดง Agent ในทุกโหมดที่ Agent ประกาศว่ารองรับ" });
   } catch (error) {
     return loggedPrintApiFail("printer discovery failed", error, "printer_discovery_failed", "Printer discovery could not be loaded. Please retry.", 400);
