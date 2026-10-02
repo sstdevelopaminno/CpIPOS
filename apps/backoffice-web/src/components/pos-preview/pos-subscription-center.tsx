@@ -127,8 +127,12 @@ export function PosSubscriptionCenter({ initial, isOwner, showContactActions = t
   const [lineOpen, setLineOpen] = useState(false);
   const [popupOpen, setPopupOpen] = useState(false);
   const [billingCyclesOpen, setBillingCyclesOpen] = useState(false);
+  const [aiCheckoutOpen, setAiCheckoutOpen] = useState(false);
   const [infoPopup, setInfoPopup] = useState<"bank" | "line" | "support" | null>(null);
   const [successPopup, setSuccessPopup] = useState("");
+  const [successPopupTitle, setSuccessPopupTitle] = useState("ส่งข้อมูลสำเร็จ");
+  const [successPopupAction, setSuccessPopupAction] = useState<"close" | "notice" | "history" | "overview">("close");
+  const [successPopupButton, setSuccessPopupButton] = useState("รับทราบ");
   const [busy, setBusy] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [message, setMessage] = useState("");
@@ -175,7 +179,12 @@ export function PosSubscriptionCenter({ initial, isOwner, showContactActions = t
     setMessage("");
   }
   function selectTab(next: Tab) { setTab(next); setError(""); }
-  function openTab(next: Tab) { selectTab(next); setPopupOpen(true); setInfoPopup(null); }
+  function openTab(next: Tab) {
+    if (next === "ai") setAiCheckoutOpen(false);
+    selectTab(next);
+    setPopupOpen(true);
+    setInfoPopup(null);
+  }
   function choosePackage(row: PosSubscriptionCenterData["packages"][number]) {
     if (!isOwner || demo || pending) return;
     setSelectedPackage(row.id);
@@ -183,7 +192,43 @@ export function PosSubscriptionCenter({ initial, isOwner, showContactActions = t
     changed();
     setTab("renew");
   }
-  function closePopup() { setPopupOpen(false); setBillingCyclesOpen(false); setInfoPopup(null); setError(""); }
+  function closePopup() {
+    setPopupOpen(false);
+    setBillingCyclesOpen(false);
+    setAiCheckoutOpen(false);
+    setInfoPopup(null);
+    setError("");
+  }
+
+  function showResultPopup(input: {
+    title: string;
+    message: string;
+    action?: "close" | "notice" | "history" | "overview";
+    button?: string;
+  }) {
+    setSuccessPopupTitle(input.title);
+    setSuccessPopup(input.message);
+    setSuccessPopupAction(input.action ?? "close");
+    setSuccessPopupButton(input.button ?? "รับทราบ");
+  }
+
+  function continueFromResultPopup() {
+    const action = successPopupAction;
+    setSuccessPopup("");
+    if (action === "notice") {
+      selectTab("notice");
+      setPopupOpen(true);
+      return;
+    }
+    if (action === "history") {
+      selectTab("history");
+      setPopupOpen(true);
+      return;
+    }
+    if (action === "overview") {
+      selectTab("overview");
+    }
+  }
 
   const reload = useCallback(async () => {
     setRefreshing(true);
