@@ -47,8 +47,8 @@ describe("POS subscription center (commercial billing, not cashier payments)", (
     expect(request).toContain("completingItPreparedPayment");
     expect(request).toContain('existingById.metadata?.source==="it_tenant_control"');
     expect(request).toContain('.eq("requested_package_id",target.id)');
-    expect(ui).toContain("AI สแกนสลิปและแจ้งชำระคำขอเดิม");
-    expect(ui).toContain("เมื่อ IT ตรวจสอบเงินเข้าบัญชีบริษัท");
+    expect(ui).toContain("ส่งหลักฐานการชำระคำขอเดิม");
+    expect(ui).toContain("ฝ่าย IT ยืนยันเงินเข้าบัญชีบริษัท");
     expect(request).not.toContain('"approved"');
     expect(request).not.toContain('from("payments")');
     expect(request).not.toContain('from("shifts")');
@@ -60,7 +60,7 @@ describe("POS subscription center (commercial billing, not cashier payments)", (
     expect(ui).toContain("pendingCanAcceptPayment");
     expect(ui).toContain("ฝ่าย IT สร้างรายการชำระไว้แล้ว");
     expect(ui).toContain("รายการชำระถูกเตรียมจากฝ่าย IT แล้ว");
-    expect(ui).toContain("อัปเดตรายการเดิมโดยไม่สร้างคำขอซ้ำ");
+    expect(ui).toContain("บันทึกหลักฐานลงในคำขอเดิมโดยไม่สร้างรายการซ้ำ");
     expect(ui).toContain("pendingCanAcceptPayment && pending");
     expect(request).toContain("upgradingRenewal || completingItPreparedPayment");
   });
@@ -131,15 +131,18 @@ describe("POS subscription center (commercial billing, not cashier payments)", (
     expect(sessionGuard).toContain("await assertSubscriptionAllowsSales(scope.session.tenant_id)");
   });
 
-  it("uses a single AI slip upload instead of manual transfer fields or camera duplication", () => {
+  it("uses one slip upload without exposing internal AI scan copy or manual transfer fields", () => {
     expect(ui).toContain("ประวัติการชำระแพ็กเกจ");
     expect(ui).toContain("เอกสารแพ็กเกจ");
     expect(ui).toContain("ต่ออายุแพ็กเกจ");
     expect(ui).toContain("แจ้งชำระเงิน");
-    expect(ui).toContain("AI Slip Scan");
     expect(ui).toContain("เลือกรูปสลิปจากเครื่อง");
-    expect(ui).toContain("AI สแกนสลิปและส่งแจ้งชำระเงิน");
+    expect(ui).toContain("ส่งหลักฐานการชำระเงิน");
     expect(ui).toContain('accept="image/jpeg,image/png,image/webp"');
+    expect(ui).not.toContain("AI Slip Scan:");
+    expect(ui).not.toContain("AI จะเทียบยอดกับสลิปให้อัตโนมัติ");
+    expect(ui).not.toContain("หลังโอนเสร็จ แนบเพียงรูปสลิป ระบบจะอ่านข้อมูลการโอนให้อัตโนมัติด้วย AI");
+    expect(ui).not.toContain("AI ช่วยอ่านข้อมูลจากสลิปเพื่อส่งให้ฝ่าย IT ตรวจสอบ");
     expect(ui).not.toContain('capture="environment"');
     expect(ui).not.toContain("ถ่ายรูปสลิป");
     expect(ui).not.toContain("จำนวนเงินที่โอน");
@@ -155,6 +158,26 @@ describe("POS subscription center (commercial billing, not cashier payments)", (
     expect(request).not.toContain('form.get("transfer_reference")');
     expect(request).not.toContain('form.get("transfer_at")');
     expect(ui).toContain('selectTab("notice")');
+  });
+
+  it("reveals AI Add-on payment steps only after the owner selects the Add-on", () => {
+    expect(ui).toContain("setAiCheckoutOpen(true)");
+    expect(ui).toContain('const aiCheckoutActive = tab === "ai" && aiPurchaseReady && aiCheckoutOpen');
+    expect(ui).toContain("เลือก AI Add-on");
+    expect(ui).toContain("ชำระค่า AI Add-on");
+    expect(ui).toContain('<StepLabel number={3}>แนบหลักฐานการโอนเงิน</StepLabel>');
+    expect(ui).toContain("เลือกแล้ว · ดำเนินการต่อด้านล่าง");
+  });
+
+  it("uses detailed result dialogs with explicit next steps for every request path", () => {
+    expect(ui).toContain("showResultPopup");
+    expect(ui).toContain("ส่งคำขอต่ออายุสำเร็จ");
+    expect(ui).toContain("ไปแจ้งชำระเงิน");
+    expect(ui).toContain("ส่งหลักฐานการชำระเงินสำเร็จ");
+    expect(ui).toContain("ดูสถานะการชำระ");
+    expect(ui).toContain("ส่งคำขอ CUSTOM สำเร็จ");
+    expect(ui).toContain("ขั้นตอนถัดไป");
+    expect(ui).toContain("continueFromResultPopup");
   });
 
   it("opens recorded billing cycles from a dedicated history action", () => {
