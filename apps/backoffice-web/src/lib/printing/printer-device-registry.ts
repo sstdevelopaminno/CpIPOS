@@ -133,7 +133,6 @@ export async function getPrinterSettingsRegistry(auth: AuthContext) {
       .eq("tenant_id", auth.tenantId!)
       .eq("branch_id", auth.branchId!)
       .eq("is_active", true)
-      .not("printer_profile_id", "is", null)
       .order("updated_at", { ascending: false }),
     supabase
       .from("printer_device_history")
@@ -162,17 +161,15 @@ export async function getPrinterSettingsRegistry(auth: AuthContext) {
   if (kitchenZoneError) throw new Error(kitchenZoneError.message);
 
   const profileMap = new Map((profiles ?? []).map((profile) => [profile.id, profile]));
-  const currentDevices = (devices ?? []).flatMap((device) => {
+  const currentDevices = (devices ?? []).map((device) => {
     const profileId = device.printer_profile_id;
-    if (!profileId) return [];
-    const profile = profileMap.get(profileId);
-    if (!profile) return [];
-    return [{
+    const profile = profileId ? profileMap.get(profileId) : null;
+    return {
       ...device,
-      ip_address: profile.ip_address ?? null,
-      port: profile.port ?? null,
-      profile_enabled: profile.enabled !== false
-    }];
+      ip_address: profile?.ip_address ?? null,
+      port: profile?.port ?? null,
+      profile_enabled: profile ? profile.enabled !== false : false
+    };
   });
   const activeProfileIds = new Set(currentDevices.map((device) => device.printer_profile_id));
   const decoratedHistory = (history ?? []).map((item) => {
