@@ -343,7 +343,7 @@ export function BrowserPrintAgent() {
           const agentAttemptId = agentAttemptIdForJob(job);
           const alreadySent = recentlyPhysicallyPrinted(job.id);
           if (alreadySent) {
-            const recoveredAck = await postAgentApi(`/api/print-agent/v1/jobs/${encodeURIComponent(job.id)}/ack`, config.agentKey, {
+            const recoveredAck = await postAgentApi<{ error?: { message?: string } }>(`/api/print-agent/v1/jobs/${encodeURIComponent(job.id)}/ack`, config.agentKey, {
               agent_attempt_id: agentAttemptId,
               provider_job_id: `browser-recovered:${job.id}`,
               bytes_sent: alreadySent.bytes_sent,
@@ -368,7 +368,7 @@ export function BrowserPrintAgent() {
             await writeToPort(ensured.port, bytes);
             physicallySent = true;
             rememberPhysicalPrint(job.id, "browser_web_serial", bytes.length);
-            const ack = await postAgentApi(`/api/print-agent/v1/jobs/${encodeURIComponent(job.id)}/ack`, config.agentKey, {
+            const ack = await postAgentApi<{ error?: { message?: string } }>(`/api/print-agent/v1/jobs/${encodeURIComponent(job.id)}/ack`, config.agentKey, {
               agent_attempt_id: agentAttemptId,
               provider_job_id: `browser:${Date.now()}`,
               bytes_sent: bytes.length,
