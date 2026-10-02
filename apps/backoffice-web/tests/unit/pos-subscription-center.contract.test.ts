@@ -108,9 +108,8 @@ describe("POS subscription center (commercial billing, not cashier payments)", (
     expect(ui).toContain("รอบรายปียังไม่เปิดใช้งาน");
     expect(ui).toContain("รอฝ่าย IT บันทึกราคารายปีใน CpiPOS-001 ก่อน");
     expect(ui).toContain("รายปีพร้อมใช้งาน");
-    expect(ui).toContain("ราคาอ้างอิงจากฝ่าย IT");
-    expect(ui).toContain("ฝ่าย IT เป็นผู้กำหนดราคาแพ็กเกจ");
     expect(ui).toContain("choice === \"yearly\" && !annualAvailable");
+    expect(ui).toContain("Boolean(packageRow?.yearly_price)");
   });
 
   it("warns before expiry, blocks sales after expiry, and keeps billing access available", () => {
