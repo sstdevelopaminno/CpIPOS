@@ -67,10 +67,9 @@ function dispatchStatus(code: string, message: string) {
 }
 
 function directWebSerialDisabled() {
-  // Default to disabled because this hardware/browser combination repeatedly locks SerialPort.open().
-  // A technician can explicitly re-enable direct Web Serial in DevTools with:
-  // localStorage.setItem("cpi_disable_direct_web_serial_v1", "0")
-  return window.localStorage.getItem(DISABLE_DIRECT_WEB_SERIAL_KEY) !== "0";
+  // Direct Web Serial is available by default on supported desktop Chromium runtimes.
+  // Disable it only when a technician explicitly routes this station through Local Bridge.
+  return window.localStorage.getItem(DISABLE_DIRECT_WEB_SERIAL_KEY) === "1";
 }
 
 function rememberAndPauseAgent() {
@@ -79,7 +78,6 @@ function rememberAndPauseAgent() {
   window.localStorage.setItem(BROWSER_PRINT_AGENT_SETUP_GUARD_ACTIVE_KEY, nowPlus(MANUAL_SETUP_PAUSE_MS));
   window.localStorage.setItem(BROWSER_PRINT_AGENT_ENABLED_KEY, "0");
   dispatchReset();
-  dispatchForgetPorts(150);
   dispatchConfigReload(250);
 }
 
@@ -94,22 +92,6 @@ function resumeAgentLater() {
     dispatchConfigReload();
     dispatchConfigReload(1500);
   }, MANUAL_SETUP_PAUSE_MS);
-}
-
-async function forgetAuthorizedPorts(serial: SerialLike) {
-  const ports = await serial.getPorts().catch(() => []);
-  await Promise.allSettled(
-    ports.map(async (port) => {
-      try {
-        await port.close();
-      } catch {
-        // ignore stale close errors
-      }
-      if (typeof port.forget === "function") {
-        await port.forget().catch(() => undefined);
-      }
-    })
-  );
 }
 
 function looksLikeDirectSerialButton(target: EventTarget | null) {
@@ -161,8 +143,7 @@ export function BrowserPrintAgentSerialSetupGuard() {
       }
 
       rememberAndPauseAgent();
-      await forgetAuthorizedPorts(serial);
-      await new Promise((resolve) => window.setTimeout(resolve, 450));
+      await new Promise((resolve) => window.setTimeout(resolve, 250));
       try {
         const port = await originalRequestPort(options);
         window.localStorage.setItem(BROWSER_PRINT_AGENT_SETUP_GUARD_ACTIVE_KEY, nowPlus(MANUAL_SETUP_PAUSE_MS));
