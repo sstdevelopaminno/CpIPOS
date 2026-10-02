@@ -242,15 +242,6 @@ function commandIdForPrinterDevice(id: string): string {
   return `auto-printer:${id}`;
 }
 
-async function isPrinterAutoRegistryEnabled(tenantId: string): Promise<boolean> {
-  const supabase = getSupabaseServiceClient();
-  const { data, error } = await supabase.from("tenants").select("metadata").eq("id", tenantId).maybeSingle<{ metadata: JsonRecord | null }>();
-  if (error) return false;
-  const metadata = asRecord(data?.metadata);
-  const policy = asRecord(metadata.printer_auto_registry_policy);
-  return policy.enabled === true;
-}
-
 async function appendDiscoveryHistory(scope: PairedDeviceScope, device: PrinterDeviceRow, candidate: AutoCandidate) {
   const supabase = getSupabaseServiceClient();
   const { error } = await supabase.from("printer_device_history").insert({
@@ -495,10 +486,11 @@ export async function reconcileModernPrinterInventory(input: {
   if (!modernPrinterAutoEligible(input.payload)) {
     return { eligible: false, candidateCount: 0, commands: [] };
   }
-  if (!(await isPrinterAutoRegistryEnabled(input.device.tenantId))) {
-    return { eligible: false, candidateCount: 0, commands: [] };
-  }
-
+  // Modern runtimes already satisfy the strict safe-auto-setup contract above:
+  // stable physical fingerprint, explicit assignment before routing, and no automatic
+  // reassignment. Do not gate discovery on tenants.metadata: the production tenants
+  // table has no metadata column, which previously made every reconciliation fail
+  // silently and hid USB/Bluetooth printers from POS and IT.
   await acknowledgeAutoVerification(input.device, input.payload);
   const candidates = extractCandidates(input.payload);
   const rows = await reconcileCandidates(input.device, candidates);
