@@ -126,6 +126,7 @@ export function PosSubscriptionCenter({ initial, isOwner, showContactActions = t
   const [slip, setSlip] = useState<File | null>(null);
   const [lineOpen, setLineOpen] = useState(false);
   const [popupOpen, setPopupOpen] = useState(false);
+  const [billingCyclesOpen, setBillingCyclesOpen] = useState(false);
   const [infoPopup, setInfoPopup] = useState<"bank" | "line" | "support" | null>(null);
   const [successPopup, setSuccessPopup] = useState("");
   const [busy, setBusy] = useState(false);
@@ -151,6 +152,7 @@ export function PosSubscriptionCenter({ initial, isOwner, showContactActions = t
     [snapshot.packages, snapshot.contract.package_id]);
   const aiAddonAvailable = Boolean(currentPackageRow?.ai_addon_available && currentPackageRow?.ai_addon_monthly_price);
   const aiAddonDue = currentPackageRow?.ai_addon_monthly_price ?? null;
+  const aiPurchaseReady = Boolean(aiAddonAvailable && aiAddonDue);
   const isCustomSelection = Boolean(packageRow?.contact_sales || packageRow?.quota_mode === "custom" || packageRow?.code === "custom");
   const isPendingCustomQuote = pending?.kind === "custom_quote_request";
   const cycleLabel = snapshot.contract.billing_interval === "yearly" ? "รายปี" : "รายเดือน";
@@ -181,7 +183,7 @@ export function PosSubscriptionCenter({ initial, isOwner, showContactActions = t
     changed();
     setTab("renew");
   }
-  function closePopup() { setPopupOpen(false); setInfoPopup(null); setError(""); }
+  function closePopup() { setPopupOpen(false); setBillingCyclesOpen(false); setInfoPopup(null); setError(""); }
 
   const reload = useCallback(async () => {
     setRefreshing(true);
