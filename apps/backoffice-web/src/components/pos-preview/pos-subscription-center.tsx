@@ -157,6 +157,7 @@ export function PosSubscriptionCenter({ initial, isOwner, showContactActions = t
   const aiAddonAvailable = Boolean(currentPackageRow?.ai_addon_available && currentPackageRow?.ai_addon_monthly_price);
   const aiAddonDue = currentPackageRow?.ai_addon_monthly_price ?? null;
   const aiPurchaseReady = Boolean(aiAddonAvailable && aiAddonDue);
+  const aiCheckoutActive = tab === "ai" && aiPurchaseReady && aiCheckoutOpen;
   const isCustomSelection = Boolean(packageRow?.contact_sales || packageRow?.quota_mode === "custom" || packageRow?.code === "custom");
   const isPendingCustomQuote = pending?.kind === "custom_quote_request";
   const cycleLabel = snapshot.contract.billing_interval === "yearly" ? "รายปี" : "รายเดือน";
@@ -672,15 +673,19 @@ export function PosSubscriptionCenter({ initial, isOwner, showContactActions = t
               <p className="mt-1 text-xs leading-5">
                 ฝ่าย IT สร้างรายการชำระไว้แล้ว · แพ็กเกจ {pending.package_name || "—"} · {pending.billing_interval === "yearly" ? "รายปี" : "รายเดือน"} ·
                 ยอดตามแพ็กเกจ {formatMoney(pending.expected_amount)}
-                กรุณาแนบสลิป ระบบจะใช้ AI อ่านยอดเงิน วันเวลา ชื่อผู้โอน และเลขอ้างอิงให้อัตโนมัติ แล้วอัปเดตรายการเดิมโดยไม่สร้างคำขอซ้ำ
+                กรุณาแนบสลิปการโอนเงิน ระบบจะบันทึกหลักฐานลงในคำขอเดิมโดยไม่สร้างรายการซ้ำ
               </p>
             </div> : null}
             {tab === "ai" ? <div className="space-y-3">
+              <div className="flex items-center justify-between gap-3 rounded-xl border border-violet-100 bg-violet-50/60 px-3 py-2.5">
+                <StepLabel number={1}>เลือก AI Add-on</StepLabel>
+                <span className="text-xs font-semibold text-violet-700">เลือกได้เฉพาะ Add-on ของแพ็กเกจปัจจุบัน</span>
+              </div>
               <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
                 {snapshot.packages.map((row) => {
                   const current = row.id === snapshot.contract.package_id;
                   const aiEnabled = row.contact_sales ? null : row.ai_quota_enabled;
-                  const canBuy = current && row.ai_addon_available && Boolean(row.ai_addon_monthly_price);
+                  const canBuy = current && row.ai_addon_available && Boolean(row.ai_addon_monthly_price) && canSubmit;
                   return <article key={row.id}
                     className={"relative overflow-hidden rounded-2xl border p-4 shadow-sm " +
                       (current ? "border-violet-400 bg-violet-50/70 ring-2 ring-violet-100" :
@@ -717,9 +722,16 @@ export function PosSubscriptionCenter({ initial, isOwner, showContactActions = t
                         aiEnabled ? "โควตา AI รวมอยู่ในแพ็กเกจนี้แล้ว" : "แพ็กเกจนี้ยังไม่เปิด CpiPOS AI"}
                     </div>}
                     <button type="button" disabled={!canBuy}
+                      onClick={() => {
+                        setAiCheckoutOpen(true);
+                        setSlip(null);
+                        setNote("");
+                        changed();
+                      }}
                       className={"mt-3 w-full rounded-xl px-3 py-2.5 text-xs font-black " +
                         (canBuy ? "bg-violet-600 text-white hover:bg-violet-700" : "border border-slate-200 bg-white text-slate-400")}>
-                      {canBuy ? "เลือกซื้อ AI Add-on" :
+                      {canBuy ? (aiCheckoutOpen ? "เลือกแล้ว · ดำเนินการต่อด้านล่าง" : "เลือกซื้อ AI Add-on") :
+                        current && pending ? "มีคำขอรอตรวจสอบ" :
                         current ? row.contact_sales ? "ติดต่อ IT" : aiEnabled ? "ไม่มี Add-on เพิ่มสำหรับแพ็กเกจนี้" : "AI ยังไม่เปิดในแพ็กเกจนี้" :
                         "อ้างอิงตามแพ็กเกจ POS"}
                     </button>
