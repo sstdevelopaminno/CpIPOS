@@ -180,12 +180,12 @@ function redirectToPosLogin() {
 }
 
 const QUICK_PROMPTS = [
-  "สรุปยอดขายวันนี้ให้หน่อย",
-  "เมนูไหนกำไรน้อยที่สุด",
-  "ช่วยเสนอราคาสินค้าที่มาร์จิ้นต่ำ",
-  "มีสินค้าอะไรใกล้หมดบ้าง",
-  "ช่วยคิดโปรโมชันเพิ่มยอดขาย",
-  "วิเคราะห์สินค้าขายดี 30 วัน"
+  "สรุปยอดขายวันนี้และเทียบกับเดือนนี้",
+  "วิเคราะห์ยอดขายย้อนหลังเดือนที่แล้ว",
+  "ช่วยวางแผนการตลาดจากข้อมูลร้านและเทรนด์ตลาดตอนนี้",
+  "ช่วยเพิ่มสินค้าใหม่พร้อมราคาและสต๊อก",
+  "สร้างภาพสินค้าให้สินค้าที่มีอยู่แล้ว",
+  "สร้างรายงานยอดขายเป็นเอกสาร"
 ];
 
 function money(value: number | null | undefined) {
@@ -481,7 +481,7 @@ function welcomeMessage(lang: Language): ChatMessage {
     id: "welcome",
     role: "assistant",
     text: lang === "th"
-      ? "สวัสดีครับ ผมคือ CpiPOS AI 👋\nผมช่วยสรุปยอดขาย วิเคราะห์ต้นทุนและสต๊อก พร้อมช่วยคิดการตลาดจากข้อมูลจริงของร้านได้ครับ"
+      ? "สวัสดีครับ ผมคือ CpiPOS AI 👋\nผมช่วยวิเคราะห์ยอดขายย้อนหลัง ต้นทุน สต๊อก ราคาและตลาด รวมถึงเพิ่มสินค้า สร้างภาพสินค้า สร้างเอกสาร และเตรียมงานให้ดำเนินการต่อในระบบได้ครับ"
       : "Hello, I’m CpiPOS AI 👋\nI can summarize sales, analyze cost and stock, and help with marketing using your store data."
   };
 }
@@ -1425,7 +1425,7 @@ export function CpiPosAiAssistant({ lang }: { lang: Language }) {
                   </svg>
                 </button>
               </div>
-              <p className="mx-auto mt-2 max-w-[820px] px-2 text-center text-[10px] font-normal text-slate-400">แนบรูปได้เมื่อจำเป็น · CpiPOS AI อาจตอบคลาดเคลื่อนได้ · การเปลี่ยนราคา/สต๊อกต้องยืนยันและผ่าน PIN Owner/Manager</p>
+              <p className="mx-auto mt-2 max-w-[820px] px-2 text-center text-[10px] font-normal text-slate-400">วิเคราะห์ข้อมูลร้าน · ยอดย้อนหลัง · ตลาด · เพิ่มสินค้า · สร้างภาพและเอกสาร · งานที่เปลี่ยนข้อมูลจริงจะให้ Owner/Manager ยืนยันก่อน</p>
             </form>
           </section>
           </div>
@@ -1557,7 +1557,7 @@ export function CpiPosAiAssistant({ lang }: { lang: Language }) {
           </button>
         </div>
         <div className="mt-4 rounded-2xl border border-amber-100 bg-amber-50/70 px-4 py-3 text-xs font-medium leading-5 text-amber-800">
-          <strong className="font-black">หมายเหตุ:</strong> การวิเคราะห์ต้นทุนเป็นค่าประมาณจากข้อมูลวัตถุดิบและสูตรที่บันทึกในระบบ การเปลี่ยนข้อมูลจริงใน Phase 2 ต้องยืนยันและผ่าน PIN และทุกการทำงานจะบันทึก Audit Log
+          <strong className="font-black">หมายเหตุ:</strong> การวิเคราะห์ต้นทุนอ้างอิงวัตถุดิบและสูตรที่บันทึกในระบบ ส่วนงานที่เปลี่ยนข้อมูลจริงจะมีขั้นตอนยืนยัน และระบบบันทึก Audit Log
         </div>
       </AiModal>
 
