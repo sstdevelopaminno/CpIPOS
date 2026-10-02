@@ -6,10 +6,13 @@ function source(path: string) {
 }
 
 describe("printer settings v3 regression coverage", () => {
-  it("uses the current v3 printer settings UI", () => {
+  it("uses the current v3 printer settings UI on every customer entry point", () => {
     const moduleSource = source("src/components/backoffice/printers-module.tsx");
+    const settingsPage = source("src/app/(backoffice)/backoffice/settings/printers/page.tsx");
     expect(moduleSource).toContain("PrinterConnectionManagerV3");
     expect(moduleSource).not.toContain("PrinterConnectionManagerV2");
+    expect(settingsPage).toContain("PrinterConnectionManagerV3");
+    expect(settingsPage).not.toContain("PrinterConnectionManagerV2");
   });
 
   it("discovers every transport declared by a native print agent", () => {
