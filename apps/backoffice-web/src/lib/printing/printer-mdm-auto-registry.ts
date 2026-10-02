@@ -112,7 +112,8 @@ function extractUsbCandidates(inventory: JsonRecord): AutoCandidate[] {
     const row = asRecord(value);
     const fingerprint = text(row.physical_fingerprint)?.toLowerCase() ?? null;
     if (!fingerprint?.startsWith("usb:")) continue;
-    if (String(row.physical_fingerprint_stability ?? "") !== "stable") continue;
+    const stability = String(row.physical_fingerprint_stability ?? "");
+    if (stability !== "stable" && stability !== "port_path") continue;
     if (!bool(row.safe_autobind_candidate) || !bool(row.native_transport_candidate)) continue;
 
     const productName = text(row.product_name);
