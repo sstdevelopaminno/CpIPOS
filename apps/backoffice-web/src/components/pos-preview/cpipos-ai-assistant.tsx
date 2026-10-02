@@ -773,8 +773,8 @@ export function CpiPosAiAssistant({ lang }: { lang: Language }) {
       setOverviewError("รองรับเฉพาะรูป JPEG, PNG หรือ WebP");
       return;
     }
-    if (file.size > 2 * 1024 * 1024) {
-      setOverviewError("รูปภาพต้องมีขนาดไม่เกิน 2 MB เพื่อควบคุมความเร็วและค่าใช้ AI");
+    if (file.size > 8 * 1024 * 1024) {
+      setOverviewError("รูปภาพต้องมีขนาดไม่เกิน 8 MB");
       return;
     }
     const reader = new FileReader();
@@ -1410,7 +1410,7 @@ export function CpiPosAiAssistant({ lang }: { lang: Language }) {
                   }}
                   onKeyDown={handleKeyDown}
                   rows={1}
-                  maxLength={1200}
+                  maxLength={4000}
                   placeholder={quota?.exhausted ? "โควตา AI เดือนนี้ครบแล้ว" : quota?.enabled === false ? "AI ถูกปิดสำหรับร้านนี้" : "พิมพ์คำถามถึง CpiPOS AI..."}
                   className="max-h-32 min-h-[42px] flex-1 resize-none border-0 bg-transparent px-1 py-2.5 text-[15px] font-normal leading-6 text-slate-900 outline-none placeholder:text-slate-400"
                 />
