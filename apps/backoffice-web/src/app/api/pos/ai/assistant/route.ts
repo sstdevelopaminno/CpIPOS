@@ -783,23 +783,89 @@ function extractProposals(payload: unknown, snapshot: Awaited<ReturnType<typeof 
       const channels = Array.isArray(args.channels)
         ? args.channels.map((value) => safeText(value, 50)).filter(Boolean).slice(0, 6)
         : [];
-      const copyText = safeText(args.copy_text, 1200);
+      const copyText = safeText(args.copy_text, 3000);
       if (!copyText) continue;
       proposals.push({
         id,
         type: "marketing_campaign",
         title: safeText(args.title, 160) || "แผนการตลาดจาก CpiPOS AI",
-        offer: safeText(args.offer, 300),
-        audience: safeText(args.audience, 300),
+        offer: safeText(args.offer, 500),
+        audience: safeText(args.audience, 500),
         channels,
         copy_text: copyText,
-        reason: safeText(args.reason, 500),
+        reason: safeText(args.reason, 800),
         requires_pin: false
       });
+      continue;
+    }
+
+    if (item.name === "propose_create_product") {
+      const name = safeText(args.name, 160);
+      const category = safeText(args.category, 120);
+      const stockQuantity = Number(args.stock_quantity);
+      const storePrice = Number(args.store_price);
+      const deliveryPrice = Number(args.delivery_price);
+      if (!name || !category ||
+          !Number.isFinite(stockQuantity) || stockQuantity < 0 ||
+          !Number.isFinite(storePrice) || storePrice < 0 || storePrice > 999_999 ||
+          !Number.isFinite(deliveryPrice) || deliveryPrice < 0 || deliveryPrice > 999_999) continue;
+      proposals.push({
+        id,
+        type: "create_product",
+        title: `เพิ่มสินค้า: ${name}`,
+        product_id: crypto.randomUUID(),
+        product_name: name,
+        category,
+        stock_quantity: Number(stockQuantity.toFixed(3)),
+        store_price: Number(storePrice.toFixed(2)),
+        delivery_price: Number(deliveryPrice.toFixed(2)),
+        reason: safeText(args.reason, 800) || "เพิ่มสินค้าจาก CpiPOS AI",
+        requires_pin: true
+      });
+      continue;
+    }
+
+    if (item.name === "propose_product_image") {
+      const productId = safeText(args.product_id, 80);
+      const product = products.get(productId);
+      const prompt = safeText(args.prompt, 1800);
+      if (!product || !prompt) continue;
+      proposals.push({
+        id,
+        type: "product_image",
+        title: `สร้างภาพสินค้า: ${product.name}`,
+        product_id: product.id,
+        product_name: product.name,
+        prompt,
+        reason: safeText(args.reason, 800) || "สร้างภาพสินค้าเพื่อใช้ใน POS",
+        requires_pin: false
+      });
+      continue;
+    }
+
+    if (item.name === "propose_document") {
+      const title = safeText(args.title, 160);
+      const content = safeText(args.content, 20_000);
+      const categoryRaw = safeText(args.category, 40);
+      const category = (["general","sales","stock","cost","marketing","accounting","guide"] as const)
+        .includes(categoryRaw as "general" | "sales" | "stock" | "cost" | "marketing" | "accounting" | "guide")
+        ? categoryRaw as "general" | "sales" | "stock" | "cost" | "marketing" | "accounting" | "guide"
+        : "general";
+      if (!title || !content) continue;
+      proposals.push({
+        id,
+        type: "document",
+        title,
+        category,
+        content,
+        reason: safeText(args.reason, 800) || "เอกสารที่สร้างจาก CpiPOS AI",
+        requires_pin: false
+      });
+      continue;
     }
   }
 
-  return proposals.slice(0, 3);
+  return proposals.slice(0, 5);
 }
 
 const CPIPOS_HELP_GUIDE = [
