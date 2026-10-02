@@ -1,4 +1,4 @@
-name: Validate Android Full MDM 1.0.23
+name: Validate Android Full MDM 1.0.24
 
 on:
   workflow_dispatch:
@@ -28,12 +28,12 @@ permissions:
 
 env:
   ANDROID_RUNTIME_MODULE: apps/pos-android
-  ANDROID_RUNTIME_VERSION: 1.0.23
-  ANDROID_RUNTIME_VERSION_CODE: "32"
+  ANDROID_RUNTIME_VERSION: 1.0.24
+  ANDROID_RUNTIME_VERSION_CODE: "33"
 
 jobs:
   validate-full-mdm-runtime:
-    name: Compile and test Android 1.0.23 Full MDM candidate
+    name: Compile and test Android 1.0.24 Full MDM candidate
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -113,7 +113,7 @@ jobs:
             fi
           done
 
-      - name: Run Android unit tests as 1.0.23 candidate
+      - name: Run Android unit tests as 1.0.24 candidate
         working-directory: ${{ env.ANDROID_RUNTIME_MODULE }}
         run: >-
           gradle :app:testDebugUnitTest
@@ -124,7 +124,7 @@ jobs:
           -PcpiposDualScreen=true
           --no-daemon --stacktrace
 
-      - name: Compile Android 1.0.23 debug APK
+      - name: Compile Android 1.0.24 debug APK
         working-directory: ${{ env.ANDROID_RUNTIME_MODULE }}
         run: >-
           gradle :app:assembleDebug
@@ -147,12 +147,12 @@ jobs:
           echo "$badging" | grep -q "versionName='${ANDROID_RUNTIME_VERSION}'"
           "$aaptPath" dump permissions "$apkPath" | grep -q "android.permission.REQUEST_DELETE_PACKAGES"
           "$aaptPath" dump xmltree "$apkPath" AndroidManifest.xml | grep -q "MdmUninstallResultReceiver"
-          echo "Android Full MDM 1.0.23 code ${ANDROID_RUNTIME_VERSION_CODE} candidate compiled successfully."
+          echo "Android Full MDM 1.0.24 code ${ANDROID_RUNTIME_VERSION_CODE} candidate compiled successfully."
 
       - name: Upload debug APK for physical-device validation
         uses: actions/upload-artifact@v4
         with:
-          name: CpIPOS-Android-POS-1.0.23-code32-MDM-FINAL-RC-DEBUG
+          name: CpIPOS-Android-POS-1.0.24-code33-MDM-PRINT-STABILITY-RC-DEBUG
           path: ${{ env.ANDROID_RUNTIME_MODULE }}/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 7

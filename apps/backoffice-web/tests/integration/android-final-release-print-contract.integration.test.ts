@@ -14,16 +14,16 @@ const mdmAgent = src("apps/pos-android/app/src/main/java/com/cpipos/pos/FullMdmA
 const runtimeRelease = src("apps/backoffice-web/src/lib/android-runtime-release.ts");
 const latestRoute = src("apps/backoffice-web/src/app/download/android/latest/route.ts");
 
-describe("Android 1.0.23 final release and native print contract", () => {
+describe("Android 1.0.24 print stability release and native print contract", () => {
   it("uses one final Modern release identity with an upgradeable versionCode", () => {
-    expect(modernWorkflow).toContain("ANDROID_RUNTIME_VERSION: 1.0.23");
-    expect(modernWorkflow).toContain('ANDROID_RUNTIME_VERSION_CODE: "32"');
-    expect(modernWorkflow).toContain("ANDROID_RUNTIME_RELEASE_TAG: android-runtime-modern-1.0.23-final");
-    expect(runtimeRelease).toContain('versionName: "1.0.23"');
-    expect(runtimeRelease).toContain("versionCode: 32");
-    expect(runtimeRelease).toContain('releaseTag: "android-runtime-modern-1.0.23-final"');
+    expect(modernWorkflow).toContain("ANDROID_RUNTIME_VERSION: 1.0.24");
+    expect(modernWorkflow).toContain('ANDROID_RUNTIME_VERSION_CODE: "33"');
+    expect(modernWorkflow).toContain("ANDROID_RUNTIME_RELEASE_TAG: android-runtime-modern-1.0.24-final");
+    expect(runtimeRelease).toContain('versionName: "1.0.24"');
+    expect(runtimeRelease).toContain("versionCode: 33");
+    expect(runtimeRelease).toContain('releaseTag: "android-runtime-modern-1.0.24-final"');
     expect(latestRoute).toContain("ANDROID_MODERN_RELEASE.releaseTag");
-    expect(latestRoute).not.toContain('const expectedVersion = "1.0.23"');
+    expect(latestRoute).not.toContain('const expectedVersion = "1.0.24"');
   });
 
   it("requires production signing and rejects a debuggable final APK", () => {
@@ -54,6 +54,6 @@ describe("Android 1.0.23 final release and native print contract", () => {
     expect(mdmAgent).toContain('capabilities.put("app_uninstall")');
     expect(mdmAgent).toContain("packageInstaller.uninstall");
     expect(mdmWorkflow).toContain("MdmUninstallResultReceiver");
-    expect(mdmWorkflow).toContain('ANDROID_RUNTIME_VERSION_CODE: "32"');
+    expect(mdmWorkflow).toContain('ANDROID_RUNTIME_VERSION_CODE: "33"');
   });
 });

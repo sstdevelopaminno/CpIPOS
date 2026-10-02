@@ -24,17 +24,17 @@ permissions:
 
 env:
   ANDROID_RUNTIME_MODULE: apps/pos-android
-  ANDROID_RUNTIME_VERSION: 1.0.23
-  ANDROID_RUNTIME_VERSION_CODE: "32"
-  ANDROID_RUNTIME_RELEASE_TAG: android-runtime-modern-1.0.23-final
-  ANDROID_RUNTIME_APK_ASSET_NAME: CpIPOS-Android-POS-1.0.23.apk
+  ANDROID_RUNTIME_VERSION: 1.0.24
+  ANDROID_RUNTIME_VERSION_CODE: "33"
+  ANDROID_RUNTIME_RELEASE_TAG: android-runtime-modern-1.0.24-final
+  ANDROID_RUNTIME_APK_ASSET_NAME: CpIPOS-Android-POS-1.0.24.apk
   ANDROID_RUNTIME_COMPAT_ASSET_NAME: CpIPOS-Android-POS-Modern.apk
-  ANDROID_RUNTIME_MANIFEST_ASSET_NAME: CpIPOS-Android-POS-1.0.23.manifest.json
+  ANDROID_RUNTIME_MANIFEST_ASSET_NAME: CpIPOS-Android-POS-1.0.24.manifest.json
   ANDROID_SIGNING_CERT_SHA256: 6be0a9aef346a5b47162c8928c5018a01d0e7d81b4eb177bf2fb89922dc2a27a
 
 jobs:
   build-android-modern-runtime:
-    name: Build Android Modern 1.0.23 code 32
+    name: Build Android Modern 1.0.24 code 33
     runs-on: ubuntu-latest
     timeout-minutes: 35
     steps:
@@ -170,11 +170,11 @@ jobs:
             exit 1
           fi
           "$aaptPath" dump permissions "$apkPath" | grep -q "android.permission.REQUEST_DELETE_PACKAGES" || {
-            echo "Final 1.0.23 APK is missing REQUEST_DELETE_PACKAGES required by Full MDM uninstall"
+            echo "Final 1.0.24 APK is missing REQUEST_DELETE_PACKAGES required by Full MDM uninstall"
             exit 1
           }
           "$aaptPath" dump xmltree "$apkPath" AndroidManifest.xml | grep -q "MdmUninstallResultReceiver" || {
-            echo "Final 1.0.23 APK is missing the private uninstall result receiver"
+            echo "Final 1.0.24 APK is missing the private uninstall result receiver"
             exit 1
           }
 
@@ -220,7 +220,7 @@ jobs:
             gh release create "$tag" \
               --target "${{ github.sha }}" \
               --title "CpIPOS Android POS Modern ${ANDROID_RUNTIME_VERSION} Final" \
-              --notes "Final Modern 1.0.23 production build (versionCode 32) with verified stable signing, native LAN/USB/Bluetooth ESC/POS print agent, Full MDM Device Owner controls, managed updater verification, and third-party uninstall completion audit."
+              --notes "Final Modern 1.0.24 production build (versionCode 32) with verified stable signing, native LAN/USB/Bluetooth ESC/POS print agent, Full MDM Device Owner controls, managed updater verification, and third-party uninstall completion audit."
           fi
           gh release upload "$tag" \
             "artifacts/${ANDROID_RUNTIME_APK_ASSET_NAME}" \

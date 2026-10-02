@@ -32,6 +32,54 @@ export type ClaimResponse = {
 };
 
 const AGENT_API_TIMEOUT_MS = 12_000;
+const PHYSICAL_SEND_LEDGER_KEY = "cpi_print_agent_physical_send_ledger_v1";
+const PHYSICAL_SEND_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+const PHYSICAL_SEND_MAX_ENTRIES = 120;
+
+type PhysicalSendLedgerEntry = {
+  job_id: string;
+  sent_at_ms: number;
+  provider: string;
+  bytes_sent: number;
+};
+
+function readPhysicalSendLedger(): PhysicalSendLedgerEntry[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const parsed = JSON.parse(window.localStorage.getItem(PHYSICAL_SEND_LEDGER_KEY) ?? "[]");
+    if (!Array.isArray(parsed)) return [];
+    const cutoff = Date.now() - PHYSICAL_SEND_MAX_AGE_MS;
+    return parsed
+      .filter((row): row is PhysicalSendLedgerEntry =>
+        row && typeof row === "object" &&
+        typeof row.job_id === "string" &&
+        typeof row.sent_at_ms === "number" &&
+        row.sent_at_ms >= cutoff
+      )
+      .slice(-PHYSICAL_SEND_MAX_ENTRIES);
+  } catch {
+    return [];
+  }
+}
+
+function writePhysicalSendLedger(rows: PhysicalSendLedgerEntry[]) {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(PHYSICAL_SEND_LEDGER_KEY, JSON.stringify(rows.slice(-PHYSICAL_SEND_MAX_ENTRIES)));
+  } catch {
+    // Printing must not fail only because browser storage is unavailable.
+  }
+}
+
+export function rememberPhysicalPrint(jobId: string, provider: string, bytesSent: number) {
+  const rows = readPhysicalSendLedger().filter((row) => row.job_id !== jobId);
+  rows.push({ job_id: jobId, sent_at_ms: Date.now(), provider, bytes_sent: Math.max(0, Math.trunc(bytesSent)) });
+  writePhysicalSendLedger(rows);
+}
+
+export function recentlyPhysicallyPrinted(jobId: string): PhysicalSendLedgerEntry | null {
+  return readPhysicalSendLedger().find((row) => row.job_id === jobId) ?? null;
+}
 
 export function readRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};

@@ -74,6 +74,27 @@ function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
 }
 
+function transportIdentityMetadata(metadata: Record<string, unknown>, mode: CustomerConnectionMode) {
+  const observation = asRecord(metadata.last_observation);
+  if (mode === "usb") {
+    const vendorId = Number(observation.vendor_id);
+    const productId = Number(observation.product_id);
+    return {
+      usb_vendor_id: Number.isFinite(vendorId) ? vendorId : undefined,
+      usb_product_id: Number.isFinite(productId) ? productId : undefined,
+      usb_device_name: clean(observation.device_name),
+      usb_serial_number: clean(observation.serial_number)
+    };
+  }
+  if (mode === "bluetooth") {
+    return {
+      bluetooth_address: clean(observation.address),
+      bluetooth_name: clean(observation.name)
+    };
+  }
+  return {};
+}
+
 function normalizePurposes(values: unknown): PrinterPurpose[] {
   if (!Array.isArray(values)) return [];
   return Array.from(new Set(values.filter((value): value is PrinterPurpose => typeof value === "string" && PURPOSES.has(value as PrinterPurpose))));
@@ -330,7 +351,16 @@ export async function POST(req: Request) {
     const { name, mode, paper, purposes, assignments } = validate(body);
     await validateKitchenZones(auth.tenantId!, auth.branchId!, assignments);
     const target = await resolveCreatePhysicalTarget(auth.tenantId!, auth.branchId!, body, mode);
-    const bodyWithFingerprint: Payload = { ...body, device_fingerprint: target.fingerprint };
+    const discoveredIdentity = transportIdentityMetadata(target.discoveredMetadata, mode);
+    const bodyWithFingerprint: Payload = {
+      ...body,
+      device_fingerprint: target.fingerprint,
+      metadata: {
+        ...target.discoveredMetadata,
+        ...asRecord(body.metadata),
+        ...discoveredIdentity
+      }
+    };
     const metadata = profileMetadata(bodyWithFingerprint, mode, purposes, assignments);
     const profile = await createPrinterProfile(auth, { printer_name: name, printer_role: roleFor(purposes), connection_type: connectionTypeFor(mode), ip_address: mode === "lan" ? clean(body.ip_address) : null, port: mode === "lan" ? Number(body.port || 9100) : null, paper_width_mm: paper, enabled: body.enabled ?? true, metadata });
     try {
@@ -381,7 +411,21 @@ export async function PATCH(req: Request) {
     if (body.action === "reconnect") return ok({ device: await reconnectPrinterDevice(auth, printerId), reconnected: true });
     const { name, mode, paper, purposes, assignments } = validate(body);
     await validateKitchenZones(auth.tenantId!, auth.branchId!, assignments);
-    const metadata = profileMetadata(body, mode, purposes, assignments);
+    const profileStore = getSupabaseServiceClient();
+    const { data: existingProfile, error: existingProfileError } = await profileStore
+      .from("printer_profiles")
+      .select("metadata")
+      .eq("id", printerId)
+      .eq("tenant_id", auth.tenantId!)
+      .eq("branch_id", auth.branchId!)
+      .maybeSingle<{ metadata: Record<string, unknown> | null }>();
+    if (existingProfileError) throw new Error(existingProfileError.message);
+    if (!existingProfile) throw new Error("printer_not_found");
+    const bodyWithCurrentMetadata: Payload = {
+      ...body,
+      metadata: { ...asRecord(existingProfile.metadata), ...asRecord(body.metadata) }
+    };
+    const metadata = profileMetadata(bodyWithCurrentMetadata, mode, purposes, assignments);
     const profile = await updatePrinterProfile(auth, printerId, { printer_name: name, printer_role: roleFor(purposes), connection_type: connectionTypeFor(mode), ip_address: mode === "lan" ? clean(body.ip_address) : null, port: mode === "lan" ? Number(body.port || 9100) : null, paper_width_mm: paper, enabled: body.enabled ?? true, metadata });
     const device = await syncPrinterDevice(auth, { printerProfileId: profile.id, displayName: name, brand: clean(body.brand), model: clean(body.model), connectionMode: mode, paperWidthMm: paper, purposes, assignments, deviceFingerprint: buildFingerprint(body, mode), runtimeDeviceCode: clean(body.runtime_device_code), capabilities: (metadata.capabilities ?? {}) as Record<string, unknown>, metadata: { source: "printer_settings_v3" }, eventType: "updated" });
     return ok({ profile, device });

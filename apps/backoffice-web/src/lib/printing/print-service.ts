@@ -11,7 +11,6 @@ import type {
 import type { AuthContext } from "@/lib/auth-context";
 import { appendAuditLog } from "@/lib/audit-log";
 import { readEnv } from "@/lib/env";
-import { isRestaurantQrScope } from "@/lib/restaurant-qr-profile";
 import { loadReceiptStoreProfile, type ReceiptStoreProfile } from "@/lib/services/store-profile-service";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
 import { BluetoothBridgeAdapter } from "@/lib/printing/adapters/bluetooth-bridge-adapter";
@@ -672,11 +671,7 @@ export async function enqueuePrintJob(input: EnqueuePrintJobInput): Promise<Prin
     .single();
 
   if (error) {
-    if (
-      input.idempotencyKey &&
-      isRestaurantQrScope({ tenantId: input.auth.tenantId, branchId: input.auth.branchId }) &&
-      isUniqueConstraintError(error)
-    ) {
+    if (input.idempotencyKey && isUniqueConstraintError(error)) {
       const existing = await loadExistingPrintJobByIdempotencyKey(input);
       if (existing) return existing;
     }

@@ -49,7 +49,7 @@ type Registry = {
   history: History[];
   kitchen_zones: KitchenZone[];
 };
-type Candidate = { id: string; name: string; mode: Mode; paper_width_mm: 58 | 80; source: string; status: string; runtime_device_code: string | null; printer_profile_id: string | null; functions: string[]; helper: string };
+type Candidate = { id: string; name: string; mode: Mode; paper_width_mm: 58 | 80; source: string; status: string; runtime_device_code: string | null; printer_profile_id: string | null; device_fingerprint: string | null; functions: string[]; helper: string };
 type Discovery = { items: Candidate[]; note: string };
 type Envelope<T> = { data?: T; error?: { code?: string; message?: string } };
 
@@ -271,7 +271,7 @@ export function PrinterConnectionManagerV3() {
 
   function applyCandidate(item: Candidate) {
     setEditId(null);
-    setPhysicalFingerprint(null);
+    setPhysicalFingerprint(item.device_fingerprint ?? null);
     setMode(item.mode);
     setName(item.name);
     setModel(item.name);

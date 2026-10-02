@@ -235,6 +235,7 @@ export async function queueRoutedSalesReceipt(args: {
       auth: args.auth,
       route,
       orderId: args.order.id,
+      idempotencyKey: `receipt:${args.order.id}:payment:${args.paymentMethod}`,
       printerRole: "receipt",
       payloadText: payload,
       payloadJson: {
@@ -317,6 +318,7 @@ export async function queueRoutedPaymentNotice(args: {
       auth: args.auth,
       route,
       orderId: args.order.id,
+      idempotencyKey: `payment_notice:${args.order.id}`,
       printerRole: "receipt",
       payloadText: `PAYMENT NOTICE\n${args.order.order_no}\n${args.order.total_amount.toFixed(2)}`,
       payloadJson: {

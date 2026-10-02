@@ -34,6 +34,7 @@ class PosPrintAgent(
     private val prefs = appContext.getSharedPreferences("cpipos_native_print_agent", Context.MODE_PRIVATE)
     private val transport = NativePrintTransport(appContext)
     private val started = AtomicBoolean(false)
+    private val wakeClaimScheduled = AtomicBoolean(false)
     private var executor: ScheduledExecutorService? = null
     private var idleBackoffIndex = 0
     @Volatile private var bootstrapRetryAfterElapsedMs: Long = 0L
@@ -60,6 +61,7 @@ class PosPrintAgent(
         idleBackoffIndex = 0
         bootstrapRetryAfterElapsedMs = 0L
         lastHeartbeatElapsedMs = 0L
+        wakeClaimScheduled.set(false)
     }
 
     fun diagnosticsJson(): JSONObject = JSONObject()
@@ -78,23 +80,40 @@ class PosPrintAgent(
     fun notifyPrintQueued() {
         if (!started.get()) return
         idleBackoffIndex = 0
-        scheduleWakeClaim(0L)
-        scheduleWakeClaim(WAKE_RETRY_DELAY_MS)
-    }
-
-    private fun scheduleWakeClaim(delayMs: Long) {
         val service = executor ?: return
-        if (!started.get() || service.isShutdown) return
+        if (service.isShutdown || !wakeClaimScheduled.compareAndSet(false, true)) return
+
         runCatching {
-            service.schedule({
-                if (!started.get()) return@schedule
-                val claimedJobs = runCatching { tick() }.getOrElse { error ->
+            service.execute {
+                if (!started.get()) {
+                    wakeClaimScheduled.set(false)
+                    return@execute
+                }
+                val firstClaimed = runCatching { tick() }.getOrElse { error ->
                     lastError = error.message ?: error::class.java.simpleName
                     0
                 }
-                if (claimedJobs > 0) idleBackoffIndex = 0
-            }, delayMs.coerceAtLeast(0L), TimeUnit.MILLISECONDS)
+                if (firstClaimed > 0) idleBackoffIndex = 0
+
+                runCatching {
+                    service.schedule({
+                        try {
+                            if (!started.get()) return@schedule
+                            val retryClaimed = runCatching { tick() }.getOrElse { error ->
+                                lastError = error.message ?: error::class.java.simpleName
+                                0
+                            }
+                            if (retryClaimed > 0) idleBackoffIndex = 0
+                        } finally {
+                            wakeClaimScheduled.set(false)
+                        }
+                    }, WAKE_RETRY_DELAY_MS, TimeUnit.MILLISECONDS)
+                }.onFailure {
+                    wakeClaimScheduled.set(false)
+                }
+            }
         }.onFailure { error ->
+            wakeClaimScheduled.set(false)
             if (started.get()) lastError = error.message ?: "print_agent_wake_schedule_failed"
         }
     }
@@ -234,6 +253,37 @@ class PosPrintAgent(
         if (jobId.isEmpty() || attemptId.isEmpty()) return
 
         lastJobId = jobId
+        val previouslySent = recentlyPhysicallySent(jobId)
+        if (previouslySent != null) {
+            val recoveredAck = postJson(
+                url = "${BuildConfig.CPIPOS_API_BASE_URL}/api/print-agent/v1/jobs/$jobId/ack",
+                body = JSONObject()
+                    .put("agent_attempt_id", attemptId)
+                    .put("provider_job_id", "android-recovered:$jobId")
+                    .put("bytes_sent", previouslySent.optInt("bytes_sent", 0))
+                    .put(
+                        "metadata",
+                        JSONObject()
+                            .put("runtime", "android_native")
+                            .put("transport", previouslySent.optString("transport", "unknown"))
+                            .put("app_version", BuildConfig.VERSION_NAME)
+                            .put("duplicate_suppressed", true)
+                            .put("physical_send_recovered", true)
+                            .put("physical_sent_at_ms", previouslySent.optLong("sent_at_ms", 0L))
+                    ),
+                agentKey = agentKey
+            )
+            if (recoveredAck.status in 200..299) {
+                lastTransport = previouslySent.optString("transport", null)
+                lastSuccessAtMs = System.currentTimeMillis()
+                lastError = null
+            } else {
+                lastError = readApiError(recoveredAck.body) ?: "print_agent_ack_recovery_http_${recoveredAck.status}"
+                if (recoveredAck.status == 401 || recoveredAck.status == 403) clearAgentKey()
+            }
+            return
+        }
+
         val parsed = runCatching { parseJob(row) }.getOrElse { error ->
             reportFailure(
                 agentKey,
@@ -251,6 +301,7 @@ class PosPrintAgent(
         try {
             val result = transport.print(parsed)
             val nativePrintMs = (SystemClock.elapsedRealtime() - printStartedAt).coerceAtLeast(0L)
+            rememberPhysicalSend(jobId, result.transport, result.bytesSent)
             val ack = postJson(
                 url = "${BuildConfig.CPIPOS_API_BASE_URL}/api/print-agent/v1/jobs/$jobId/ack",
                 body = JSONObject()
@@ -400,6 +451,44 @@ class PosPrintAgent(
         }
     }
 
+    private fun recentlyPhysicallySent(jobId: String): JSONObject? {
+        val now = System.currentTimeMillis()
+        val cutoff = now - PHYSICAL_SEND_MAX_AGE_MS
+        val ledger = runCatching { JSONObject(prefs.getString(PREF_PHYSICAL_SEND_LEDGER, "{}") ?: "{}") }.getOrElse { JSONObject() }
+        var changed = false
+        val keys = ledger.keys().asSequence().toList()
+        for (key in keys) {
+            val row = ledger.optJSONObject(key)
+            val sentAt = row?.optLong("sent_at_ms", 0L) ?: 0L
+            if (sentAt < cutoff) {
+                ledger.remove(key)
+                changed = true
+            }
+        }
+        if (changed) prefs.edit().putString(PREF_PHYSICAL_SEND_LEDGER, ledger.toString()).apply()
+        return ledger.optJSONObject(jobId)
+    }
+
+    private fun rememberPhysicalSend(jobId: String, transportName: String, bytesSent: Int) {
+        val ledger = runCatching { JSONObject(prefs.getString(PREF_PHYSICAL_SEND_LEDGER, "{}") ?: "{}") }.getOrElse { JSONObject() }
+        ledger.put(
+            jobId,
+            JSONObject()
+                .put("sent_at_ms", System.currentTimeMillis())
+                .put("transport", transportName)
+                .put("bytes_sent", bytesSent.coerceAtLeast(0))
+        )
+        val keys = ledger.keys().asSequence().toList()
+        if (keys.size > PHYSICAL_SEND_MAX_ENTRIES) {
+            keys
+                .mapNotNull { key -> ledger.optJSONObject(key)?.optLong("sent_at_ms", 0L)?.let { key to it } }
+                .sortedBy { it.second }
+                .take(keys.size - PHYSICAL_SEND_MAX_ENTRIES)
+                .forEach { ledger.remove(it.first) }
+        }
+        prefs.edit().putString(PREF_PHYSICAL_SEND_LEDGER, ledger.toString()).apply()
+    }
+
     private fun readApiError(body: JSONObject?): String? {
         val error = body?.optJSONObject("error") ?: return null
         val code = error.optString("code", "").trim()
@@ -416,6 +505,9 @@ class PosPrintAgent(
         private const val PREF_AGENT_KEY = "agent_key"
         private const val PREF_AGENT_ID = "agent_id"
         private const val PREF_DEVICE_CODE = "device_code"
+        private const val PREF_PHYSICAL_SEND_LEDGER = "physical_send_ledger_v1"
+        private const val PHYSICAL_SEND_MAX_AGE_MS = 24L * 60L * 60L * 1_000L
+        private const val PHYSICAL_SEND_MAX_ENTRIES = 120
         private const val HEARTBEAT_INTERVAL_SECONDS = 45L
         private const val HEARTBEAT_INTERVAL_MS = HEARTBEAT_INTERVAL_SECONDS * 1_000L
         private const val WAKE_RETRY_DELAY_MS = 350L

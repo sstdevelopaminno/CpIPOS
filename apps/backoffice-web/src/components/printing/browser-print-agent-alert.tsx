@@ -152,9 +152,9 @@ function copyForStatus(status: BrowserPrintAgentStatus): AlertCopy {
   }
   if (status.code === "serial_permission_required" || status.code === "serial_reselect_required") {
     return {
-      title: "ไม่ใช้ Web Serial เป็นเส้นหลักแล้ว",
-      detail: "Chrome/Windows เปิดพอร์ตเครื่องพิมพ์เดิมไม่ได้ซ้ำ ๆ จึงไม่ควรใช้ปุ่มเลือกพอร์ต Web Serial กับเครื่องนี้",
-      actionHint: "ตั้งค่า Bridge URL เป็น Local Bridge แล้วให้ bridge เป็นตัวคุยกับเครื่องพิมพ์แทน",
+      title: "ต้องเลือกหรือปล่อยพอร์ตเครื่องพิมพ์",
+      detail: "Chrome ยังไม่มีสิทธิ์ใช้พอร์ต หรือพอร์ตเดิมกำลังถูกแท็บ/โปรแกรมอื่นใช้งาน ระบบจะไม่ล้างสิทธิ์เครื่องพิมพ์ให้อัตโนมัติอีกแล้ว",
+      actionHint: "ปิดแท็บหรือโปรแกรมอื่นที่จับพอร์ตอยู่ แล้วเลือกเครื่องเดิมอีกครั้ง หากร้านใช้ Local Bridge ให้ปิด Direct Web Serial ในการตั้งค่าช่าง",
       severity: "warning"
     };
   }
