@@ -98,14 +98,47 @@ export type AiProposal =
       copy_text: string;
       reason: string;
       requires_pin: false;
+    }
+  | {
+      id: string;
+      type: "create_product";
+      title: string;
+      product_id: string;
+      product_name: string;
+      category: string;
+      stock_quantity: number;
+      store_price: number;
+      delivery_price: number;
+      reason: string;
+      requires_pin: true;
+    }
+  | {
+      id: string;
+      type: "product_image";
+      title: string;
+      product_id: string;
+      product_name: string;
+      prompt: string;
+      reason: string;
+      requires_pin: false;
+    }
+  | {
+      id: string;
+      type: "document";
+      title: string;
+      category: "general" | "sales" | "stock" | "cost" | "marketing" | "accounting" | "guide";
+      content: string;
+      reason: string;
+      requires_pin: false;
     };
 
-const AI_MODEL = readEnv("CPIPOS_AI_MODEL") ?? "gpt-6-luna";
-const AI_FALLBACK_MODEL = readEnv("CPIPOS_AI_FALLBACK_MODEL") ?? "gpt-5.6-luna";
-const MAX_OUTPUT_TOKENS_RAW = Number(readEnv("CPIPOS_AI_MAX_OUTPUT_TOKENS") ?? "800");
+const AI_QUALITY_MODEL = readEnv("CPIPOS_AI_QUALITY_MODEL") ?? "gpt-6-sol";
+const AI_FAST_MODEL = readEnv("CPIPOS_AI_FAST_MODEL") ?? "gpt-6-luna";
+const AI_FALLBACK_MODEL = readEnv("CPIPOS_AI_FALLBACK_MODEL") ?? "gpt-6-luna";
+const MAX_OUTPUT_TOKENS_RAW = Number(readEnv("CPIPOS_AI_MAX_OUTPUT_TOKENS") ?? "2400");
 const MAX_OUTPUT_TOKENS = Number.isFinite(MAX_OUTPUT_TOKENS_RAW)
-  ? Math.max(256, Math.min(1600, Math.trunc(MAX_OUTPUT_TOKENS_RAW)))
-  : 900;
+  ? Math.max(800, Math.min(4000, Math.trunc(MAX_OUTPUT_TOKENS_RAW)))
+  : 2400;
 
 const RESTRICTED_AI_REQUESTS: RegExp[] = [
   /(?:drop|truncate|delete\s+from|alter\s+table|grant\s+|revoke\s+|execute\s+sql|run\s+sql|raw\s+sql)/i,
