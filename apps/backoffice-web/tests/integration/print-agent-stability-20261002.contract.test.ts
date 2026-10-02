@@ -16,6 +16,8 @@ describe("print agent stability 2026-10-02", () => {
   const registry = app("src/lib/printing/printer-device-registry.ts");
   const autoRegistry = app("src/lib/printing/printer-mdm-auto-registry.ts");
   const discovery = app("src/app/api/backoffice/printers/discover/route.ts");
+  const devicesRoute = app("src/app/api/backoffice/printers/devices/route.ts");
+  const manager = app("src/components/backoffice/printer-connection-manager-v3.tsx");
   const androidAgent = repo("apps/pos-android/app/src/main/java/com/cpipos/pos/PosPrintAgent.kt");
 
   it("deduplicates automatic receipts and payment notices for every tenant scope", () => {
@@ -57,6 +59,16 @@ describe("print agent stability 2026-10-02", () => {
     expect(registry).toContain("profile_enabled: profile ? profile.enabled !== false : false");
     expect(discovery).toContain('"android_inventory"');
     expect(discovery).toContain("registry.devices");
+  });
+
+  it("keeps the selected USB/Bluetooth physical identity across discovery and profile edits", () => {
+    expect(discovery).toContain("device_fingerprint: readText(device.device_fingerprint)");
+    expect(manager).toContain("setPhysicalFingerprint(item.device_fingerprint ?? null)");
+    expect(devicesRoute).toContain("transportIdentityMetadata");
+    expect(devicesRoute).toContain("usb_vendor_id");
+    expect(devicesRoute).toContain("usb_serial_number");
+    expect(devicesRoute).toContain("bluetooth_address");
+    expect(devicesRoute).toContain("bodyWithCurrentMetadata");
   });
 
   it("prevents overlapping browser polling ticks", () => {
