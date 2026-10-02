@@ -26,11 +26,24 @@ type StockAction = {
   approval_id?: unknown;
 };
 
-type ActionBody = PriceAction | StockAction;
+type CreateProductAction = {
+  action: "create_product";
+  product_id?: unknown;
+  name?: unknown;
+  category?: unknown;
+  stock_quantity?: unknown;
+  store_price?: unknown;
+  delivery_price?: unknown;
+  reason?: unknown;
+  approval_id?: unknown;
+};
+
+type ActionBody = PriceAction | StockAction | CreateProductAction;
 
 const ALLOWED_MUTATING_AI_ACTIONS = new Set<ActionBody["action"]>([
   "update_product_price",
-  "adjust_stock"
+  "adjust_stock",
+  "create_product"
 ]);
 
 function canExecuteAiAction(branchRole: string | null, _platformRole: string | null) {
@@ -100,6 +113,150 @@ export async function POST(request: Request) {
     }
 
     await requirePosApiFeature(auth, "stock_management");
+
+    if (body.action === "create_product") {
+      const productId = textValue(body.product_id, 80);
+      const approvalId = textValue(body.approval_id, 80);
+      const name = textValue(body.name, 160);
+      const category = textValue(body.category, 120);
+      const reason = textValue(body.reason, 400) || "CpiPOS AI confirmed product creation";
+      const stockQuantity = Number(body.stock_quantity);
+      const storePrice = Number(body.store_price);
+      const deliveryPrice = Number(body.delivery_price);
+      const uuidRe = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+      if (!uuidRe.test(productId) || !approvalId || !name || !category ||
+          !Number.isFinite(stockQuantity) || stockQuantity < 0 || stockQuantity > 1_000_000 ||
+          !Number.isFinite(storePrice) || storePrice < 0 || storePrice > 999_999 ||
+          !Number.isFinite(deliveryPrice) || deliveryPrice < 0 || deliveryPrice > 999_999) {
+        return fail("invalid_create_product_action", "Product name, category, stock, prices, and PIN approval are required.", 422);
+      }
+
+      const supabase = getSupabaseServiceClient();
+      const { data: duplicate, error: duplicateError } = await supabase
+        .from("products")
+        .select("id,name")
+        .eq("tenant_id", auth.tenantId)
+        .eq("branch_id", auth.branchId)
+        .eq("name", name)
+        .eq("is_active", true)
+        .limit(1)
+        .maybeSingle<{ id: string; name: string }>();
+      if (duplicateError) throw duplicateError;
+      if (duplicate) {
+        return fail("product_name_exists", `มีสินค้า “${duplicate.name}” อยู่ในสาขานี้แล้ว กรุณาใช้รายการเดิมหรือเปลี่ยนชื่อสินค้า`, 409);
+      }
+
+      const approval = await consumeAiApproval({
+        tenantId: auth.tenantId,
+        branchId: auth.branchId,
+        userId: auth.userId,
+        targetId: productId,
+        approvalId,
+        action: "sales_record_edit",
+        targetTable: "products"
+      });
+      if (!approval) {
+        return fail("approval_invalid", "PIN นี้หมดอายุ ถูกใช้ไปแล้ว หรือไม่ตรงกับรายการเพิ่มสินค้า", 403);
+      }
+
+      const sku = (Date.now().toString() + Math.floor(Math.random() * 1_000_000).toString().padStart(6, "0")).slice(0, 40);
+      let fallbackIngredientId: string | null = null;
+      try {
+        const { error: productError } = await supabase.from("products").insert({
+          id: productId,
+          tenant_id: auth.tenantId,
+          branch_id: auth.branchId,
+          sku,
+          name,
+          category,
+          price: Number(storePrice.toFixed(2)),
+          sell_unit: "ชิ้น",
+          stock_deduction_mode: "recipe_deduction",
+          is_active: true
+        });
+        if (productError) throw productError;
+
+        const channelRows = ["line_man", "grab", "shopee"].map((channel) => ({
+          tenant_id: auth.tenantId,
+          branch_id: auth.branchId,
+          product_id: productId,
+          channel,
+          app_price: Number(deliveryPrice.toFixed(2)),
+          is_active: true,
+          created_by: auth.userId,
+          updated_by: auth.userId
+        }));
+        const channelResult = await supabase
+          .from("product_channel_prices")
+          .upsert(channelRows, { onConflict: "tenant_id,branch_id,product_id,channel" });
+        if (channelResult.error) throw channelResult.error;
+
+        const { data: ingredient, error: ingredientError } = await supabase.from("ingredients").insert({
+          tenant_id: auth.tenantId,
+          branch_id: auth.branchId,
+          name: `STOCK:${sku}:${name}`.slice(0, 120),
+          base_unit: "piece",
+          quantity_on_hand: Number(stockQuantity.toFixed(3)),
+          reorder_level: 0
+        }).select("id").single<{ id: string }>();
+        if (ingredientError) throw ingredientError;
+        fallbackIngredientId = ingredient.id;
+
+        const recipeResult = await supabase.from("recipes").insert({
+          tenant_id: auth.tenantId,
+          branch_id: auth.branchId,
+          product_id: productId,
+          ingredient_id: fallbackIngredientId,
+          quantity_per_item: 1,
+          applies_when_takeaway_only: false
+        });
+        if (recipeResult.error) throw recipeResult.error;
+      } catch (createError) {
+        if (fallbackIngredientId) {
+          await supabase.from("ingredients").delete()
+            .eq("tenant_id", auth.tenantId).eq("branch_id", auth.branchId).eq("id", fallbackIngredientId);
+        }
+        await supabase.from("products").delete()
+          .eq("tenant_id", auth.tenantId).eq("branch_id", auth.branchId).eq("id", productId);
+        throw createError;
+      }
+
+      await appendAuditLog({
+        tenantId: auth.tenantId,
+        branchId: auth.branchId,
+        actorUserId: auth.userId,
+        actorRole: auth.branchRole ?? auth.platformRole,
+        action: "ai_product_created",
+        targetTable: "products",
+        targetId: productId,
+        module: "cpipos_ai",
+        afterData: {
+          name,
+          category,
+          stock_quantity: Number(stockQuantity.toFixed(3)),
+          store_price: Number(storePrice.toFixed(2)),
+          delivery_price: Number(deliveryPrice.toFixed(2))
+        },
+        metadata: {
+          source: "cpipos_ai_agent",
+          reason,
+          approval_id: approval.id,
+          approved_by: approval.approved_by
+        }
+      });
+
+      return ok({
+        action: body.action,
+        status: "completed",
+        product_id: productId,
+        product_name: name,
+        category,
+        stock_quantity: Number(stockQuantity.toFixed(3)),
+        store_price: Number(storePrice.toFixed(2)),
+        delivery_price: Number(deliveryPrice.toFixed(2))
+      });
+    }
 
     if (body.action === "update_product_price") {
       const productId = textValue(body.product_id, 80);
