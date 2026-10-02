@@ -1104,8 +1104,10 @@ export function PosSubscriptionCenter({ initial, isOwner, showContactActions = t
                "ดำเนินการต่อจากสถานะล่าสุด"}
             </p>
           </div> : null}
-          <button type="button" onClick={continueFromResultPopup}
-            className="mt-5 w-full rounded-xl bg-emerald-600 px-4 py-3 text-sm font-black text-white">{successPopupButton}</button>
+          <button type="button" onClick={continueFromResultPopup} disabled={busy || refreshing}
+            className="mt-5 w-full rounded-xl bg-emerald-600 px-4 py-3 text-sm font-black text-white disabled:cursor-wait disabled:bg-slate-300">
+            {busy || refreshing ? "กำลังเตรียมขั้นตอนถัดไป..." : successPopupButton}
+          </button>
         </section>
       </div> : null}
     </div>
