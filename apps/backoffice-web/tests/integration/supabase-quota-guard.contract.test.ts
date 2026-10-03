@@ -13,6 +13,7 @@ describe("Supabase log-ingestion guard", () => {
   const devicePolicy = src("src/lib/pos-device-status.ts");
   const authContext = src("src/lib/auth-context.ts");
   const posSession = src("src/lib/pos-session-guard.ts");
+  const sessionCurrent = src("src/app/api/pos/session/current/route.ts");
 
   it("does not verify POS clock every minute", () => {
     expect(shiftGuard).toContain("5 * 60 * 1000");
@@ -58,5 +59,11 @@ describe("Supabase log-ingestion guard", () => {
     expect(authContext).toContain("AUTH_SCOPE_CACHE_TTL_MS = 30_000");
     expect(authContext).toContain("__authMembershipInFlight");
     expect(authContext).toContain("__platformRoleInFlight");
+  });
+
+  it("keeps session scope reads schema-clean and coalesces duplicate shift metrics", () => {
+    expect(posSession).toContain('.from("tenants").select("id,name,code,is_active")');
+    expect(posSession).not.toContain('.from("tenants").select("id,name,code,is_active,metadata")');
+    expect(sessionCurrent).toContain("SHIFT_METRICS_CACHE_TTL_MS = 30_000");
   });
 });
