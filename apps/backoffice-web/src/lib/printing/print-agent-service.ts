@@ -77,6 +77,54 @@ const AGENT_JOB_SELECT =
 const PRINTER_SELECT =
   "id,printer_name,printer_role,connection_type,ip_address,port,paper_width_mm,enabled,metadata";
 const HEARTBEAT_WRITE_MIN_INTERVAL_MS = 15_000;
+const PRINT_AGENT_AUTH_CACHE_TTL_MS = 10_000;
+
+type PrintAgentAuthCacheEntry = {
+  value: PrintAgentRow;
+  expiresAt: number;
+};
+
+function getPrintAgentAuthCache() {
+  const scopedGlobal = globalThis as typeof globalThis & {
+    __printAgentAuthCache?: Map<string, PrintAgentAuthCacheEntry>;
+  };
+  scopedGlobal.__printAgentAuthCache ??= new Map<string, PrintAgentAuthCacheEntry>();
+  return scopedGlobal.__printAgentAuthCache;
+}
+
+function getPrintAgentAuthInFlight() {
+  const scopedGlobal = globalThis as typeof globalThis & {
+    __printAgentAuthInFlight?: Map<string, Promise<PrintAgentRow>>;
+  };
+  scopedGlobal.__printAgentAuthInFlight ??= new Map<string, Promise<PrintAgentRow>>();
+  return scopedGlobal.__printAgentAuthInFlight;
+}
+
+function readPrintAgentAuthCache(keyHash: string) {
+  const cache = getPrintAgentAuthCache();
+  const entry = cache.get(keyHash);
+  if (!entry) return null;
+  if (entry.expiresAt <= Date.now() || entry.value.status !== "active") {
+    cache.delete(keyHash);
+    return null;
+  }
+  return entry.value;
+}
+
+function writePrintAgentAuthCache(keyHash: string, agent: PrintAgentRow) {
+  if (agent.status !== "active") return;
+  getPrintAgentAuthCache().set(keyHash, {
+    value: agent,
+    expiresAt: Date.now() + PRINT_AGENT_AUTH_CACHE_TTL_MS
+  });
+}
+
+function invalidatePrintAgentAuthCache(agentId: string) {
+  const cache = getPrintAgentAuthCache();
+  for (const [keyHash, entry] of cache.entries()) {
+    if (entry.value.id === agentId) cache.delete(keyHash);
+  }
+}
 
 function hashAgentKey(value: string) {
   return createHash("sha256").update(value, "utf8").digest("hex");
@@ -162,21 +210,37 @@ export async function requirePrintAgent(req: Request, options: { signal?: AbortS
   const rawKey = readAgentKey(req);
   if (!rawKey) throw new Error("agent_key_required");
   const keyHash = hashAgentKey(rawKey);
-  const supabase = getPrimarySupabaseServiceClient();
-  const query = supabase
-    .from("print_agents")
-    .select(AGENT_SELECT)
-    .eq("api_key_hash", keyHash);
-  const executable = options.signal ? query.abortSignal(options.signal) : query;
-  const { data, error } = await executable.maybeSingle();
-  if (error) {
-    if (options.signal?.aborted) throw new BoundedTimeoutError("print_agent_auth_timeout", 0);
-    throw new Error(error.message);
-  }
-  const agent = data as PrintAgentRow | null;
-  if (!agent || !safeEqual(agent.api_key_hash, keyHash)) throw new Error("agent_unauthorized");
-  if (agent.status !== "active") throw new Error("agent_inactive");
-  return agent;
+
+  const cached = readPrintAgentAuthCache(keyHash);
+  if (cached) return cached;
+
+  const inFlight = getPrintAgentAuthInFlight();
+  const existing = inFlight.get(keyHash);
+  if (existing) return existing;
+
+  const promise = (async () => {
+    const supabase = getPrimarySupabaseServiceClient();
+    const query = supabase
+      .from("print_agents")
+      .select(AGENT_SELECT)
+      .eq("api_key_hash", keyHash);
+    const executable = options.signal ? query.abortSignal(options.signal) : query;
+    const { data, error } = await executable.maybeSingle();
+    if (error) {
+      if (options.signal?.aborted) throw new BoundedTimeoutError("print_agent_auth_timeout", 0);
+      throw new Error(error.message);
+    }
+    const agent = data as PrintAgentRow | null;
+    if (!agent || !safeEqual(agent.api_key_hash, keyHash)) throw new Error("agent_unauthorized");
+    if (agent.status !== "active") throw new Error("agent_inactive");
+    writePrintAgentAuthCache(keyHash, agent);
+    return agent;
+  })().finally(() => {
+    inFlight.delete(keyHash);
+  });
+
+  inFlight.set(keyHash, promise);
+  return promise;
 }
 
 export async function listPrintAgents(auth: AuthContext): Promise<SafePrintAgentRow[]> {
@@ -260,6 +324,7 @@ export async function revokePrintAgent(auth: AuthContext, agentId: string, statu
   if (!data) throw new Error("agent_not_found");
 
   const agent = data as PrintAgentRow;
+  invalidatePrintAgentAuthCache(agent.id);
   await appendAuditLog({
     tenantId: auth.tenantId!,
     branchId: auth.branchId!,
@@ -299,6 +364,7 @@ export async function deletePrintAgent(auth: AuthContext, agentId: string) {
   if (!data) throw new Error("agent_not_found");
 
   const agent = data as PrintAgentRow;
+  invalidatePrintAgentAuthCache(agent.id);
   await appendAuditLog({
     tenantId: auth.tenantId!,
     branchId: auth.branchId!,
