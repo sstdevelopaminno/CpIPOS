@@ -19,7 +19,7 @@ export const POS_GUARDS = {
   printQueueHardLimit: readIntEnv("POS_PRINT_QUEUE_HARD_LIMIT", 250, 10, 5000),
   staleQueuedMinutes: readIntEnv("POS_ORDER_QUEUE_STALE_MINUTES", 20, 1, 240),
   deadLetterWindowMinutes: readIntEnv("POS_DEAD_LETTER_WINDOW_MINUTES", 60, 5, 1440),
-  clientMonitorPollMs: readIntEnv("NEXT_PUBLIC_POS_MONITOR_POLL_MS", 30000, 15000, 120000)
+  clientMonitorPollMs: readIntEnv("NEXT_PUBLIC_POS_MONITOR_POLL_MS", 60000, 30000, 120000)
 } as const;
 
 export class PosTimeoutError extends Error {
