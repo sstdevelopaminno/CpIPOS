@@ -54,7 +54,7 @@ const EMPTY_SHIFT_METRICS = {
   transfer_total: 0
 };
 
-const SHIFT_METRICS_CACHE_TTL_MS = 10_000;
+const SHIFT_METRICS_CACHE_TTL_MS = 30_000;
 
 function setTimingHeaders(response: NextResponse, startedAt: number) {
   const durationMs = Date.now() - startedAt;
