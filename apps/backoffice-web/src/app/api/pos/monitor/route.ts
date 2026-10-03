@@ -41,7 +41,10 @@ export async function GET() {
     const cacheKey = `pos-monitor:${auth.tenantId}:${auth.branchId}`;
     const { value: payload, source: cacheSource } = await readThroughRuntimeCache({
       key: cacheKey,
-      ttlMs: 10000,
+      ttlMs: 60_000,
+      staleIfErrorMs: 3 * 60_000,
+      loaderTimeoutMs: 4_000,
+      timeoutCode: "pos_monitor_loader_timeout",
       loader: async () => {
         const supabase = getSupabaseServiceClient();
         const staleSinceIso = new Date(Date.now() - POS_GUARDS.staleQueuedMinutes * 60_000).toISOString();
@@ -93,35 +96,61 @@ export async function GET() {
           return fallbackResult.data?.updated_at ?? null;
         };
 
-        const safePerfErrorSummary = async () => {
-          const { data, error } = await supabase
-            .from("audit_logs")
-            .select("metadata")
+        const safeQueuedOrderSummary = async () => {
+          const { data, count, error } = await supabase
+            .from("orders")
+            .select("created_at", { count: "exact" })
             .eq("tenant_id", auth.tenantId!)
             .eq("branch_id", auth.branchId!)
-            .eq("action", "pos_route_perf")
+            .eq("status", "queued")
+            .order("created_at", { ascending: true })
+            .limit(POS_GUARDS.orderQueueHardLimit + 1);
+          if (error) {
+            if (isSchemaMissingError(error.message)) return { depth: 0, stale: 0 };
+            throw new Error(error.message);
+          }
+          const staleCutoff = Date.parse(staleSinceIso);
+          const stale = (data ?? []).reduce((total, row) => {
+            const createdAt = Date.parse(String((row as { created_at?: string | null }).created_at ?? ""));
+            return total + (Number.isFinite(createdAt) && createdAt < staleCutoff ? 1 : 0);
+          }, 0);
+          return { depth: count ?? (data ?? []).length, stale };
+        };
+
+        const safeAuditSummary = async () => {
+          const deadLetterActions = new Set(["pos_order_dead_letter", "pos_payment_dead_letter", "pos_print_dead_letter"]);
+          const { data, error } = await supabase
+            .from("audit_logs")
+            .select("action,metadata")
+            .eq("tenant_id", auth.tenantId!)
+            .eq("branch_id", auth.branchId!)
+            .in("action", [...deadLetterActions, "pos_route_perf"])
             .gt("created_at", deadLetterSinceIso)
             .order("created_at", { ascending: false })
-            .limit(500);
+            .limit(1000);
           if (error) {
             if (isSchemaMissingError(error.message)) {
               return {
-                total: 0,
-                c4xx: 0,
-                c409: 0,
-                c5xx: 0,
-                topRoutes: [] as Array<{ route: string; count: number }>
+                deadLetters: 0,
+                perf: { total: 0, c4xx: 0, c409: 0, c5xx: 0, topRoutes: [] as Array<{ route: string; count: number }> }
               };
             }
             throw new Error(error.message);
           }
 
+          let deadLetters = 0;
           let total = 0;
           let c4xx = 0;
           let c409 = 0;
           let c5xx = 0;
           const routeMap = new Map<string, number>();
           for (const row of data ?? []) {
+            const action = String((row as { action?: string | null }).action ?? "");
+            if (deadLetterActions.has(action)) {
+              deadLetters += 1;
+              continue;
+            }
+            if (action !== "pos_route_perf") continue;
             const metadata = (row as { metadata?: Record<string, unknown> | null }).metadata ?? {};
             const statusCode = parseStatusCode(metadata.status_code);
             if (!statusCode || statusCode < 400) continue;
@@ -136,27 +165,11 @@ export async function GET() {
             .map(([route, count]) => ({ route, count }))
             .sort((a, b) => b.count - a.count)
             .slice(0, 3);
-          return { total, c4xx, c409, c5xx, topRoutes };
+          return { deadLetters, perf: { total, c4xx, c409, c5xx, topRoutes } };
         };
 
-        const [queueDepth, staleCount, printDepth, printFailedCount, deadLetterCount, latestPaymentAt, perfErrorSummary] = await Promise.all([
-          safeCount(
-            supabase
-              .from("orders")
-              .select("id", { count: "exact", head: true })
-              .eq("tenant_id", auth.tenantId!)
-              .eq("branch_id", auth.branchId!)
-              .eq("status", "queued")
-          ),
-          safeCount(
-            supabase
-              .from("orders")
-              .select("id", { count: "exact", head: true })
-              .eq("tenant_id", auth.tenantId!)
-              .eq("branch_id", auth.branchId!)
-              .eq("status", "queued")
-              .lt("created_at", staleSinceIso)
-          ),
+        const [queuedOrderSummary, printDepth, printFailedCount, latestPaymentAt, auditSummary] = await Promise.all([
+          safeQueuedOrderSummary(),
           safeCount(
             supabase
               .from("print_jobs")
@@ -174,18 +187,13 @@ export async function GET() {
               .eq("status", "failed")
               .gt("created_at", deadLetterSinceIso)
           ),
-          safeCount(
-            supabase
-              .from("audit_logs")
-              .select("id", { count: "exact", head: true })
-              .eq("tenant_id", auth.tenantId!)
-              .eq("branch_id", auth.branchId!)
-              .in("action", ["pos_order_dead_letter", "pos_payment_dead_letter", "pos_print_dead_letter"])
-              .gt("created_at", deadLetterSinceIso)
-          ),
           safeLatestPayment(),
-          safePerfErrorSummary()
+          safeAuditSummary()
         ]);
+        const queueDepth = queuedOrderSummary.depth;
+        const staleCount = queuedOrderSummary.stale;
+        const deadLetterCount = auditSummary.deadLetters;
+        const perfErrorSummary = auditSummary.perf;
 
         let level: "ok" | "warn" | "critical" = "ok";
         if (queueDepth >= POS_GUARDS.orderQueueHardLimit || printDepth >= POS_GUARDS.printQueueHardLimit) {
@@ -223,6 +231,7 @@ export async function GET() {
     const response = ok(payload);
     response.headers.set("x-pos-monitor-cache", cacheSource);
     response.headers.set("x-pos-monitor-ms", String(Date.now() - startedAt));
+    response.headers.set("Cache-Control", "private, max-age=30, stale-while-revalidate=60");
     return response;
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown monitor error";
