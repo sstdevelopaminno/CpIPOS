@@ -228,28 +228,23 @@ export async function POST(req: Request) {
 
     if (snapshotError) throw snapshotError;
 
-    if (snapshot.incidents.length > 0) {
-      const { error: incidentError } = await supabase.from("pos_device_incidents").insert(
-        snapshot.incidents.map((incident) => ({
-          latest_id: latestRow?.id ?? null,
-          snapshot_id: snapshotRow?.id ?? null,
-          tenant_id: scope.session.tenant_id,
-          branch_id: scope.session.branch_id,
-          pos_device_id: scope.session.device_id ?? null,
-          pos_session_id: scope.session.id,
-          device_code: deviceCode,
-          machine_id: machineId,
-          code: incident.code,
-          severity: incident.severity,
-          title: incident.title,
-          message: incident.message,
-          metadata: incident.metadata ?? {},
-          detected_at: incident.detected_at
-        }))
-      );
+    // Coalesce heartbeat incidents instead of inserting a duplicate row on every poll.
+    // The RPC keeps one active row per device+incident code, increments occurrence_count,
+    // updates last_seen_at, and resolves codes that disappeared from the latest heartbeat.
+    const { error: incidentError } = await supabase.rpc("record_pos_device_incidents", {
+      p_latest_id: latestRow?.id ?? null,
+      p_snapshot_id: snapshotRow?.id ?? null,
+      p_tenant_id: scope.session.tenant_id,
+      p_branch_id: scope.session.branch_id,
+      p_pos_device_id: scope.session.device_id ?? null,
+      p_pos_session_id: scope.session.id,
+      p_device_code: deviceCode,
+      p_machine_id: machineId,
+      p_incidents: snapshot.incidents,
+      p_captured_at: snapshot.captured_at
+    });
 
-      if (incidentError) throw incidentError;
-    }
+    if (incidentError) throw incidentError;
 
     const pendingActions = await deliverPendingDeviceCommands(supabase, scope.session.device_id ?? null);
 
