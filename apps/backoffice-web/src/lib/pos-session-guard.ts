@@ -49,6 +49,9 @@ type TenantRow = {
   name: string | null;
   code: string;
   is_active: boolean;
+  // Kept for source compatibility with older consumers. Current CpiPOS-001
+  // tenants schema has no metadata column, so the hot-path query does not select it.
+  metadata?: unknown;
 };
 
 type HandoffPayload = {
