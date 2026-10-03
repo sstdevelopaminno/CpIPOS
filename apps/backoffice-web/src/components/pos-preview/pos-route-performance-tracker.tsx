@@ -60,8 +60,8 @@ function resolveRouteTtfb(navStartAt: number): { ttfbMs: number | null; resource
 // Sample before the API call to lower Vercel invocations and runtime CPU.
 function postPerf(payload: PerfPayload) {
   if (document.visibilityState === "hidden") return;
-  const configured = Number(process.env.NEXT_PUBLIC_POS_PERF_SAMPLE_RATE ?? "0.1");
-  const sampleRate = Number.isFinite(configured) ? Math.max(0, Math.min(1, configured)) : 0.1;
+  const configured = Number(process.env.NEXT_PUBLIC_POS_PERF_SAMPLE_RATE ?? "0.02");
+  const sampleRate = Number.isFinite(configured) ? Math.max(0, Math.min(1, configured)) : 0.02;
   if (Math.random() >= sampleRate) return;
 
   const body = JSON.stringify(payload);
