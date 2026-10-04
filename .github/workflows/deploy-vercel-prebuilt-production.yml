@@ -1,11 +1,6 @@
 name: Production Deploy (Prebuilt)
 
 on:
-  push:
-    branches:
-      - agent-docs-preflight-schema-drift
-    paths:
-      - ".github/workflows/deploy-vercel-prebuilt-production.yml"
   workflow_dispatch:
 
 permissions:
@@ -24,7 +19,7 @@ env:
 jobs:
   deploy:
     name: Build on GitHub and deploy prebuilt Production
-    if: github.event_name == 'workflow_dispatch' || github.event_name == 'push'
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 25
     environment: production
