@@ -2,6 +2,11 @@ name: Production Deploy (Prebuilt)
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - agent-docs-preflight-schema-drift
+    paths:
+      - ".github/deploy-slip-bridge-20261004.trigger"
 
 permissions:
   contents: read
