@@ -1,3 +1,4 @@
+// Production bridge for CpIPOS IT LINE Payment Center.
 import { createHash, timingSafeEqual } from "node:crypto";
 import { fail, ok } from "@/lib/http";
 import { readEnv } from "@/lib/env";
