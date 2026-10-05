@@ -8,6 +8,7 @@ const notice = readFileSync(resolve(process.cwd(), "src/lib/printing/payment-not
 const sales = readFileSync(resolve(process.cwd(), "src/components/pos/pos-sales-module.tsx"), "utf8");
 const agent = readFileSync(resolve(root, "apps/pos-android/app/src/main/java/com/cpipos/pos/PosPrintAgent.kt"), "utf8");
 const main = readFileSync(resolve(root, "apps/pos-android/app/src/main/java/com/cpipos/pos/MainActivity.kt"), "utf8");
+const mdm = readFileSync(resolve(root, "apps/pos-android/app/src/main/java/com/cpipos/pos/PosMdmAgent.kt"), "utf8");
 const gradle = readFileSync(resolve(root, "apps/pos-android/app/build.gradle.kts"), "utf8");
 const migration = readFileSync(resolve(root, "supabase/migrations/202608170002_prioritize_cash_drawer_print_claim.sql"), "utf8");
 
@@ -25,6 +26,13 @@ describe("print latency stability contract", () => {
     expect(agent).toContain("WAKE_RETRY_DELAY_MS = 350L");
     expect(agent).toContain("scheduleWakeBurst()");
     expect(agent).toContain("wakeBurstPending.compareAndSet(false, true)");
+  });
+
+  it("throttles routine device-health writes without suppressing error/command heartbeats", () => {
+    expect(mdm).toContain("HEALTH_HEARTBEAT_MIN_INTERVAL_MS = 30_000L");
+    expect(mdm).toContain('reason == "periodic" || reason == "page_finished"');
+    expect(mdm).toContain('sendHeartbeat("page_error")');
+    expect(mdm).toContain('sendHeartbeat("command_ping")');
   });
 
   it("prefetches payment QR data and tightens only the QR layout gap", () => {
