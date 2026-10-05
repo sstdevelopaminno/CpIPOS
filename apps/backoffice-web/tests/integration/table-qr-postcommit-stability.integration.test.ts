@@ -28,7 +28,9 @@ describe("table QR post-commit stability", () => {
     expect(mobile).toContain("submitRetryRef.current = { requestId, fingerprint };");
   });
 
-  it("refreshes authoritative cashier bill state quickly", () => {
-    expect(mobile).toContain("const MENU_STATUS_POLL_MS = 3_000;");
+  it("refreshes authoritative cashier bill state quickly after an order while backing off idle browsing", () => {
+    expect(mobile).toContain("const MENU_STATUS_FAST_POLL_MS = 3_000;");
+    expect(mobile).toContain("const MENU_STATUS_IDLE_POLL_MS = 15_000;");
+    expect(mobile).toContain("hasSubmittedFoodOrder || menu.has_submitted_food_order");
   });
 });
