@@ -21,8 +21,8 @@ import java.util.concurrent.atomic.AtomicBoolean
  * locally so LAN/USB/Bluetooth printers are reachable at the customer site.
  *
  * Production polling contract:
- * - heartbeat is independent from job polling and runs every 45 seconds;
- * - empty claims back off 1 -> 3 -> 8 seconds;
+ * - heartbeat is independent from job polling and runs every 60 seconds;
+ * - empty claims back off 1 -> 3 -> 8 -> 15 -> 30 seconds;
  * - any claimed work resets the idle backoff to one second;
  * - only one scheduled worker exists, so claim requests cannot overlap.
  */
@@ -198,7 +198,7 @@ class PosPrintAgent(
                     JSONObject()
                         .put("runtime", "android_native_print_agent")
                         .put("device_model", Build.MODEL)
-                        .put("claim_poll_policy", "adaptive_1_3_8s")
+                        .put("claim_poll_policy", "adaptive_1_3_8_15_30s_wake")
                 ),
             agentKey = agentKey
         )
@@ -526,13 +526,13 @@ class PosPrintAgent(
         private const val PREF_AGENT_ID = "agent_id"
         private const val PREF_DEVICE_CODE = "device_code"
         private const val PREF_PRINTED_JOB_LEDGER = "printed_job_ledger_v1"
-        private const val HEARTBEAT_INTERVAL_SECONDS = 45L
+        private const val HEARTBEAT_INTERVAL_SECONDS = 60L
         private const val HEARTBEAT_INTERVAL_MS = HEARTBEAT_INTERVAL_SECONDS * 1_000L
         private const val WAKE_RETRY_DELAY_MS = 350L
         private const val BOOTSTRAP_AUTH_RETRY_DELAY_MS = 5L * 60L * 1_000L
         private const val BOOTSTRAP_TRANSIENT_RETRY_DELAY_MS = 30L * 1_000L
         private const val PRINTED_JOB_TTL_MS = 24L * 60L * 60L * 1_000L
         private const val PRINTED_JOB_LEDGER_MAX = 120
-        private val IDLE_BACKOFF_SECONDS = longArrayOf(1L, 3L, 8L, 15L)
+        private val IDLE_BACKOFF_SECONDS = longArrayOf(1L, 3L, 8L, 15L, 30L)
     }
 }
