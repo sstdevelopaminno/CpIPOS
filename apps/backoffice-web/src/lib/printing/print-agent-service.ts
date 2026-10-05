@@ -78,6 +78,7 @@ const PRINTER_SELECT =
   "id,printer_name,printer_role,connection_type,ip_address,port,paper_width_mm,enabled,metadata";
 const HEARTBEAT_WRITE_MIN_INTERVAL_MS = 60_000;
 const PRINT_AGENT_AUTH_CACHE_TTL_MS = 10_000;
+const CLAIM_ACTIVITY_WRITE_MIN_INTERVAL_MS = 60_000;
 
 type PrintAgentAuthCacheEntry = {
   value: PrintAgentRow;
@@ -408,14 +409,23 @@ export async function claimPrintJobs(
   agent: PrintAgentRow,
   input: { limit?: unknown; lease_seconds?: unknown; app_version?: string | null }
 ): Promise<ClaimedAgentJobRow[]> {
-  const nowIso = new Date().toISOString();
-  const primary = getPrimarySupabaseServiceClient();
-  await primary
-    .from("print_agents")
-    .update({ last_seen_at: nowIso, last_claim_at: nowIso, app_version: input.app_version ?? agent.app_version })
-    .eq("id", agent.id)
-    .eq("tenant_id", agent.tenant_id)
-    .eq("branch_id", agent.branch_id);
+  const nowMs = Date.now();
+  const requestedVersion = input.app_version ?? agent.app_version;
+  const lastClaimMs = agent.last_claim_at ? new Date(agent.last_claim_at).getTime() : 0;
+  const shouldWriteClaimActivity =
+    lastClaimMs <= 0 ||
+    nowMs - lastClaimMs >= CLAIM_ACTIVITY_WRITE_MIN_INTERVAL_MS ||
+    requestedVersion !== agent.app_version;
+  if (shouldWriteClaimActivity) {
+    const nowIso = new Date(nowMs).toISOString();
+    const primary = getPrimarySupabaseServiceClient();
+    await primary
+      .from("print_agents")
+      .update({ last_seen_at: nowIso, last_claim_at: nowIso, app_version: requestedVersion })
+      .eq("id", agent.id)
+      .eq("tenant_id", agent.tenant_id)
+      .eq("branch_id", agent.branch_id);
+  }
 
   const { client } = await getPrintExecutionDataPlaneClient(agent.tenant_id);
   const { data: printerData, error: printerError } = await client
