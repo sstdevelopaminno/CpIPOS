@@ -44,6 +44,8 @@ class PosPrintAgent(
     @Volatile private var lastTransport: String? = null
     @Volatile private var lastSuccessAtMs: Long? = null
     @Volatile private var lastHeartbeatElapsedMs: Long = 0L
+    @Volatile private var lastFailureAtMs: Long? = null
+    @Volatile private var lastPrintDurationMs: Long? = null
 
     fun start() {
         if (!started.compareAndSet(false, true)) return
@@ -69,6 +71,8 @@ class PosPrintAgent(
         .put("last_job_id", lastJobId)
         .put("last_transport", lastTransport)
         .put("last_success_at_ms", lastSuccessAtMs)
+        .put("last_failure_at_ms", lastFailureAtMs)
+        .put("last_print_duration_ms", lastPrintDurationMs)
         .put("last_error", lastError)
         .put("idle_backoff_seconds", IDLE_BACKOFF_SECONDS[idleBackoffIndex.coerceIn(0, IDLE_BACKOFF_SECONDS.lastIndex)])
         .put("bootstrap_retry_after_ms", (bootstrapRetryAfterElapsedMs - SystemClock.elapsedRealtime()).coerceAtLeast(0L))
@@ -199,6 +203,12 @@ class PosPrintAgent(
                         .put("runtime", "android_native_print_agent")
                         .put("device_model", Build.MODEL)
                         .put("claim_poll_policy", "adaptive_1_3_8_15_30s_wake")
+                        .put("print_health_state", if (lastError == null) "healthy" else "degraded")
+                        .put("last_print_success_at_ms", lastSuccessAtMs)
+                        .put("last_print_failure_at_ms", lastFailureAtMs)
+                        .put("last_print_duration_ms", lastPrintDurationMs)
+                        .put("last_print_error", lastError?.take(240))
+                        .put("last_transport", lastTransport)
                 ),
             agentKey = agentKey
         )
@@ -300,6 +310,7 @@ class PosPrintAgent(
         try {
             val result = transport.print(parsed)
             val nativePrintMs = (SystemClock.elapsedRealtime() - printStartedAt).coerceAtLeast(0L)
+            lastPrintDurationMs = nativePrintMs
 
             // Persist physical success BEFORE server ACK. If ACK is lost or times out, the
             // same job may be leased again; the retry must ACK without printing twice.
@@ -326,6 +337,8 @@ class PosPrintAgent(
                 lastError = null
             }
         } catch (error: NativePrintException) {
+            lastFailureAtMs = System.currentTimeMillis()
+            lastPrintDurationMs = (SystemClock.elapsedRealtime() - printStartedAt).coerceAtLeast(0L)
             lastError = "${error.code}:${error.message.orEmpty()}"
             reportFailure(
                 agentKey,
@@ -342,6 +355,8 @@ class PosPrintAgent(
                     .put("native_print_ms", (SystemClock.elapsedRealtime() - printStartedAt).coerceAtLeast(0L))
             )
         } catch (error: Throwable) {
+            lastFailureAtMs = System.currentTimeMillis()
+            lastPrintDurationMs = (SystemClock.elapsedRealtime() - printStartedAt).coerceAtLeast(0L)
             lastError = error.message ?: "native_print_failed"
             reportFailure(
                 agentKey,
