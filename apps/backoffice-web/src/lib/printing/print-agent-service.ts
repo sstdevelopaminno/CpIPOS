@@ -76,7 +76,7 @@ const AGENT_JOB_SELECT =
 
 const PRINTER_SELECT =
   "id,printer_name,printer_role,connection_type,ip_address,port,paper_width_mm,enabled,metadata";
-const HEARTBEAT_WRITE_MIN_INTERVAL_MS = 15_000;
+const HEARTBEAT_WRITE_MIN_INTERVAL_MS = 60_000;
 const PRINT_AGENT_AUTH_CACHE_TTL_MS = 10_000;
 
 type PrintAgentAuthCacheEntry = {
