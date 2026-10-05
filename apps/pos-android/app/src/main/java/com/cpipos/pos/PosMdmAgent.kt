@@ -49,6 +49,7 @@ class PosMdmAgent(
     @Volatile private var lastCommandSource: String? = null
     @Volatile private var lastCommandAtMs: Long? = null
     @Volatile private var lastPrinterDiagnostic: PrinterDiagnostic? = null
+    @Volatile private var lastHeartbeatElapsedMs: Long = 0L
 
     val installId: String by lazy {
         val existing = prefs.getString("install_id", null)?.takeIf { it.isNotBlank() }
@@ -167,6 +168,11 @@ class PosMdmAgent(
     }
 
     private fun sendHeartbeat(reason: String) {
+        val now = SystemClock.elapsedRealtime()
+        val throttleable = reason == "periodic" || reason == "page_finished"
+        if (throttleable && lastHeartbeatElapsedMs != 0L &&
+            now - lastHeartbeatElapsedMs < HEALTH_HEARTBEAT_MIN_INTERVAL_MS
+        ) return
         val service = executor
         if (service == null) {
             Thread { postHeartbeat(reason) }.start()
@@ -202,8 +208,9 @@ class PosMdmAgent(
             }
             connection.disconnect()
 
-            if (status in 200..299 && responseText.isNotBlank()) {
-                applyCommandsFromResponse(responseText)
+            if (status in 200..299) {
+                lastHeartbeatElapsedMs = SystemClock.elapsedRealtime()
+                if (responseText.isNotBlank()) applyCommandsFromResponse(responseText)
             }
         }
     }
@@ -415,6 +422,7 @@ class PosMdmAgent(
     }
 
     companion object {
+        private const val HEALTH_HEARTBEAT_MIN_INTERVAL_MS = 30_000L
         private val SAFE_ACTIONS = setOf(
             "ping",
             "collect_diagnostics",
