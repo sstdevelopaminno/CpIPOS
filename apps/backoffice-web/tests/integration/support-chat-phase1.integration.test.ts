@@ -92,10 +92,13 @@ describe("Support Chat Phase 1 - POS", () => {
     expect(messages).toContain("const bridgePromise = issuePosSupportChatBridge(scope)");
   });
 
-  it("optimizes perceived realtime delivery without polling", () => {
+  it("optimizes perceived realtime delivery without polling or per-message history churn", () => {
     expect(chat).toContain("Optimistic local echo");
     expect(chat).toContain("preview:");
     expect(chat).toContain("setHeads((current)");
+    expect(chat).toContain("scheduleMessageReconcile");
+    expect(chat).toContain("messageReconcileTimerRef");
+    expect(chat).toContain("1500");
     expect(chat).not.toContain("void loadHeads();\n        if (!selectedId");
     expect(messages).toContain("head_changed");
   });
