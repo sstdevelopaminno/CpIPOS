@@ -5,7 +5,7 @@ import {
   buildAndroidModernUpdateOffer
 } from "@/lib/android-runtime-release";
 
-function modernPayload(versionCode: number, stagedUpdater = false) {
+function modernPayload(versionCode: number, stagedUpdater = false, deviceOwner = false) {
   return {
     app: { version_code: versionCode },
     runtime_capabilities: {
@@ -20,7 +20,8 @@ function modernPayload(versionCode: number, stagedUpdater = false) {
           interactive_install: true,
           package_installer: true,
           sha256_verification: true,
-          signing_certificate_verification: true
+          signing_certificate_verification: true,
+          device_owner_silent_install: deviceOwner
         } : {})
       }
     }
@@ -109,4 +110,22 @@ describe("android modern update offer", () => {
     (payload.runtime_capabilities.updates as Record<string, unknown>).silent_install = true;
     expect(buildAndroidModernUpdateOffer({ tenantCode: "900001", payload })).toBeNull();
   });
+  it("automatically stages a verified update for a managed Device Owner runtime without maintenance lock", () => {
+    expect(buildAndroidModernUpdateOffer({
+      tenantCode: "POS01",
+      payload: modernPayload(26, true, true),
+      deviceStatus: "active",
+      deviceLocked: false
+    })).toEqual(expectedOffer("staged"));
+  });
+
+  it("keeps a non-Device-Owner runtime notice-only outside maintenance", () => {
+    expect(buildAndroidModernUpdateOffer({
+      tenantCode: "POS02",
+      payload: modernPayload(26, true, false),
+      deviceStatus: "active",
+      deviceLocked: false
+    })).toEqual(expectedOffer("notice_only"));
+  });
+
 });
