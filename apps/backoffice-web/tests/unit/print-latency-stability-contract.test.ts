@@ -8,13 +8,15 @@ const notice = readFileSync(resolve(process.cwd(), "src/lib/printing/payment-not
 const sales = readFileSync(resolve(process.cwd(), "src/components/pos/pos-sales-module.tsx"), "utf8");
 const agent = readFileSync(resolve(root, "apps/pos-android/app/src/main/java/com/cpipos/pos/PosPrintAgent.kt"), "utf8");
 const main = readFileSync(resolve(root, "apps/pos-android/app/src/main/java/com/cpipos/pos/MainActivity.kt"), "utf8");
+const mdm = readFileSync(resolve(root, "apps/pos-android/app/src/main/java/com/cpipos/pos/PosMdmAgent.kt"), "utf8");
 const gradle = readFileSync(resolve(root, "apps/pos-android/app/build.gradle.kts"), "utf8");
 const migration = readFileSync(resolve(root, "supabase/migrations/202608170002_prioritize_cash_drawer_print_claim.sql"), "utf8");
 
 describe("print latency stability contract", () => {
   it("keeps idle polling adaptive while allowing a fresh job through server suppression quickly", () => {
     expect(claim).toContain("const EMPTY_CLAIM_BACKOFF_MS = 250;");
-    expect(agent).toContain("longArrayOf(1L, 3L, 8L, 15L)");
+    expect(agent).toContain("longArrayOf(1L, 3L, 8L, 15L, 30L)");
+    expect(agent).toContain("HEARTBEAT_INTERVAL_SECONDS = 60L");
   });
 
   it("wakes the single-thread Android print worker after queue-producing POS calls", () => {
@@ -22,6 +24,15 @@ describe("print latency stability contract", () => {
     expect(main).toContain('addJavascriptInterface(nativePrintAgent, "CpiposPrint")');
     expect(agent).toContain("fun notifyPrintQueued()");
     expect(agent).toContain("WAKE_RETRY_DELAY_MS = 350L");
+    expect(agent).toContain("scheduleWakeBurst()");
+    expect(agent).toContain("wakeBurstPending.compareAndSet(false, true)");
+  });
+
+  it("throttles routine device-health writes without suppressing error/command heartbeats", () => {
+    expect(mdm).toContain("HEALTH_HEARTBEAT_MIN_INTERVAL_MS = 30_000L");
+    expect(mdm).toContain('reason == "periodic" || reason == "page_finished"');
+    expect(mdm).toContain('sendHeartbeat("page_error")');
+    expect(mdm).toContain('sendHeartbeat("command_ping")');
   });
 
   it("prefetches payment QR data and tightens only the QR layout gap", () => {
