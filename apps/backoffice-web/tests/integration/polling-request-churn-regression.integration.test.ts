@@ -23,12 +23,14 @@ describe("polling request-churn regression guard", () => {
     expect(globalAlert).toContain('document.addEventListener("visibilitychange", onVisibilityChange)');
   });
 
-  it("keeps customer Table QR status polling fast, bounded and non-overlapping", () => {
-    expect(tableOrderMobile).toContain("const MENU_STATUS_POLL_MS = 3_000");
+  it("keeps customer Table QR status polling fast after ordering and low-frequency while browsing", () => {
+    expect(tableOrderMobile).toContain("const MENU_STATUS_FAST_POLL_MS = 3_000");
+    expect(tableOrderMobile).toContain("const MENU_STATUS_IDLE_POLL_MS = 15_000");
+    expect(tableOrderMobile).toContain("hasSubmittedFoodOrder || menu.has_submitted_food_order");
     expect(tableOrderMobile).toContain("cancelled || inFlight || document.visibilityState === \"hidden\"");
     expect(tableOrderMobile).toContain("inFlight = true");
     expect(tableOrderMobile).toContain("inFlight = false");
-    expect(tableOrderMobile).toContain("window.setInterval(() => void refresh(), MENU_STATUS_POLL_MS)");
+    expect(tableOrderMobile).toContain("window.setInterval(() => void refresh(), pollMs)");
     expect(tableOrderMobile).toContain('window.addEventListener("focus", refresh)');
     expect(tableOrderMobile).toContain('document.addEventListener("visibilitychange", onVisible)');
   });
