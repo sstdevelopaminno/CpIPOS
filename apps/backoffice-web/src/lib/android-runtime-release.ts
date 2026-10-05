@@ -10,13 +10,13 @@ export const ANDROID_STABLE_RELEASE = {
 } as const;
 
 export const ANDROID_MODERN_RELEASE = {
-  versionName: "1.0.24",
-  versionCode: 33,
+  versionName: "1.0.25",
+  versionCode: 34,
   channel: "modern",
-  releaseTag: "android-runtime-modern-1.0.24-print-stability",
-  assetName: "CpIPOS-Android-POS-1.0.24.apk",
+  releaseTag: "android-runtime-modern-1.0.25-print-health-auto-update",
+  assetName: "CpIPOS-Android-POS-1.0.25.apk",
   compatibilityAssetName: "CpIPOS-Android-POS-Modern.apk",
-  manifestAssetName: "CpIPOS-Android-POS-1.0.24.manifest.json",
+  manifestAssetName: "CpIPOS-Android-POS-1.0.25.manifest.json",
   downloadPath: "/download/android/modern-latest",
   downloadUrl: "https://cp-ipos-web.vercel.app/download/android/modern-latest",
   manifestPath: "/download/android/modern-latest/manifest",

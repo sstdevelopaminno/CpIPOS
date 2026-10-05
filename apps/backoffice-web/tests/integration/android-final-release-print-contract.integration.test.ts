@@ -16,12 +16,12 @@ const latestRoute = src("apps/backoffice-web/src/app/download/android/latest/rou
 
 describe("Android Modern print stability release and native print contract", () => {
   it("uses one final Modern release identity with an upgradeable versionCode", () => {
-    expect(modernWorkflow).toContain("ANDROID_RUNTIME_VERSION: 1.0.24");
-    expect(modernWorkflow).toContain('ANDROID_RUNTIME_VERSION_CODE: "33"');
-    expect(modernWorkflow).toContain("ANDROID_RUNTIME_RELEASE_TAG: android-runtime-modern-1.0.24-print-stability");
-    expect(runtimeRelease).toContain('versionName: "1.0.24"');
-    expect(runtimeRelease).toContain("versionCode: 33");
-    expect(runtimeRelease).toContain('releaseTag: "android-runtime-modern-1.0.24-print-stability"');
+    expect(modernWorkflow).toContain("ANDROID_RUNTIME_VERSION: 1.0.25");
+    expect(modernWorkflow).toContain('ANDROID_RUNTIME_VERSION_CODE: "34"');
+    expect(modernWorkflow).toContain("ANDROID_RUNTIME_RELEASE_TAG: android-runtime-modern-1.0.25-print-health-auto-update");
+    expect(runtimeRelease).toContain('versionName: "1.0.25"');
+    expect(runtimeRelease).toContain("versionCode: 34");
+    expect(runtimeRelease).toContain('releaseTag: "android-runtime-modern-1.0.25-print-health-auto-update"');
     expect(latestRoute).toContain("ANDROID_MODERN_RELEASE.releaseTag");
     expect(latestRoute).not.toContain('const expectedVersion = "1.0.23"');
   });
