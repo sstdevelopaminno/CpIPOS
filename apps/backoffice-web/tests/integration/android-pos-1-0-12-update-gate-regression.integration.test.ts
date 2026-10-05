@@ -53,10 +53,13 @@ describe("Android POS stable/Modern update safety regression contract", () => {
     expect(androidRuntimeRelease).toContain('mandatory: false');
   });
 
-  it("keeps staged updates fail-closed unless a verified updater is maintenance locked", () => {
+  it("keeps staged updates verified and allows Device Owner auto-online staging", () => {
     expect(androidRuntimeRelease).toContain('const requestedInstallPolicy = String(updatePolicy.install_policy ?? updates.install_policy ?? "").trim().toLowerCase();');
-    expect(androidRuntimeRelease).toContain('const requiresStagedUpdater = requestedInstallPolicy === "staged" || updatePolicy.require_verified_staged_updater === true;');
-    expect(androidRuntimeRelease).toContain('if (requiresStagedUpdater && !(verifiedStagedUpdater && maintenanceLocked)) return null;');
+    expect(androidRuntimeRelease).toContain('const deviceOwnerSilentInstall = updates.device_owner_silent_install === true;');
+    expect(androidRuntimeRelease).toContain('const autoOnlineUpdate = verifiedStagedUpdater && deviceOwnerSilentInstall;');
+    expect(androidRuntimeRelease).toContain('const maintenanceStaged = policyRequestsStaged && verifiedStagedUpdater && maintenanceLocked;');
+    expect(androidRuntimeRelease).toContain('const requiresStagedUpdater = autoOnlineUpdate || maintenanceStaged;');
+    expect(androidRuntimeRelease).toContain('if (policyRequestsStaged && !requiresStagedUpdater) return null;');
     expect(androidRuntimeRelease).toContain('install_policy: requiresStagedUpdater ? "staged" : "notice_only"');
     expect(mdmHeartbeat).toContain('deviceStatus: scope.status');
     expect(mdmHeartbeat).toContain('deviceLocked: scope.is_locked');
