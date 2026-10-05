@@ -27,46 +27,84 @@ export function PosSupportNotifier() {
   const [toast, setToast] = useState<{ title: string; message: string } | null>(null);
   const [activeConversationId, setActiveConversationId] = useState("");
   const broadcastRef = useRef<RealtimeChannel | null>(null);
+  const headsRef = useRef(new Map<string, Head>());
 
   useEffect(() => {
     let alive = true;
+    let realtimeHealthy = false;
     const supabase = getSupabaseBrowserClient();
+
+    const publishLocalHeads = () => {
+      const heads = Array.from(headsRef.current.values());
+      announceUnread(heads.reduce((sum, row) => sum + Number(row.unread_store_count || 0), 0));
+      const open = heads.find((row) => row.status !== "closed");
+      setActiveConversationId(open?.conversation_id ?? "");
+    };
 
     const refresh = async () => {
       const heads = await loadHeads().catch(() => []);
       if (!alive) return;
-      announceUnread(heads.reduce((sum, row) => sum + Number(row.unread_store_count || 0), 0));
-      const open = heads.find((row) => row.status !== "closed");
-      setActiveConversationId(open?.conversation_id ?? "");
+      headsRef.current = new Map(heads.map((row) => [row.conversation_id, row]));
+      publishLocalHeads();
     };
 
     void refresh();
     const channel = supabase.channel("pos-support-global-notifier")
       .on("postgres_changes", { event: "*", schema: "public", table: "support_chat_heads" }, (payload) => {
         const next = (payload.new ?? {}) as Partial<Head>;
+        const previous = (payload.old ?? {}) as Partial<Head>;
         if (!alive) return;
-        if (next.conversation_id && next.status !== "closed") setActiveConversationId(next.conversation_id);
+
+        const conversationId = next.conversation_id || previous.conversation_id;
+        if (conversationId) {
+          if (payload.eventType === "DELETE") {
+            headsRef.current.delete(conversationId);
+          } else {
+            const current = headsRef.current.get(conversationId);
+            headsRef.current.set(conversationId, { ...current, ...next, conversation_id: conversationId } as Head);
+          }
+          publishLocalHeads();
+        }
+
         if (next.latest_sender_type === "it" && next.latest_message_preview) {
           const title = next.assigned_user_name ? `ข้อความจาก ${next.assigned_user_name}` : "ข้อความใหม่จาก IT Support";
           setToast({ title, message: next.latest_message_preview });
           window.setTimeout(() => setToast(null), 5000);
         }
-        void refresh();
       })
-      .subscribe();
+      .subscribe((status) => {
+        if (status === "SUBSCRIBED") {
+          realtimeHealthy = true;
+          return;
+        }
+        if (status === "CHANNEL_ERROR" || status === "TIMED_OUT" || status === "CLOSED") {
+          realtimeHealthy = false;
+          window.setTimeout(() => {
+            if (alive) void refresh();
+          }, 1500);
+        }
+      });
 
     const onPush = (event: Event) => {
       const payload = (event as CustomEvent<{ title?: string; body?: string; kind?: string }>).detail;
       if (payload?.kind !== "chat") return;
       setToast({ title: payload.title || "ข้อความใหม่", message: payload.body || "" });
       window.setTimeout(() => setToast(null), 5000);
-      void refresh();
+      if (!realtimeHealthy) void refresh();
     };
+    const onRecovery = () => { if (alive) void refresh(); };
+    const onVisible = () => { if (document.visibilityState === "visible") onRecovery(); };
     window.addEventListener("cpipos-pos-push-notification", onPush);
+    window.addEventListener("focus", onRecovery);
+    window.addEventListener("online", onRecovery);
+    document.addEventListener("visibilitychange", onVisible);
 
     return () => {
       alive = false;
       window.removeEventListener("cpipos-pos-push-notification", onPush);
+      window.removeEventListener("focus", onRecovery);
+      window.removeEventListener("online", onRecovery);
+      document.removeEventListener("visibilitychange", onVisible);
       void supabase.removeChannel(channel);
     };
   }, []);
