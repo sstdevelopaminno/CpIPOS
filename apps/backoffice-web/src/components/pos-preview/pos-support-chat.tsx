@@ -127,6 +127,7 @@ export function PosSupportChat({ storeCode, storeName }: { storeCode: string; st
   const typingTimerRef = useRef<number | null>(null);
   const typingSentAtRef = useRef(0);
   const headSignalRef = useRef("");
+  const messageReconcileTimerRef = useRef<number | null>(null);
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
 
@@ -213,6 +214,22 @@ export function PosSupportChat({ storeCode, storeName }: { storeCode: string; st
     }
   }, [clearGoneConversation, resetClosedConversation]);
 
+  const scheduleMessageReconcile = useCallback((id: string) => {
+    if (!id) return;
+    if (messageReconcileTimerRef.current) window.clearTimeout(messageReconcileTimerRef.current);
+    messageReconcileTimerRef.current = window.setTimeout(() => {
+      messageReconcileTimerRef.current = null;
+      void loadMessages(id);
+    }, 1500);
+  }, [loadMessages]);
+
+  useEffect(() => () => {
+    if (messageReconcileTimerRef.current) {
+      window.clearTimeout(messageReconcileTimerRef.current);
+      messageReconcileTimerRef.current = null;
+    }
+  }, [selectedId]);
+
   useEffect(() => {
     void loadHeads();
   }, [loadHeads]);
@@ -288,7 +305,7 @@ export function PosSupportChat({ storeCode, storeName }: { storeCode: string; st
               attachments: []
             }];
           });
-          void loadMessages(selectedId);
+          scheduleMessageReconcile(selectedId);
           return;
         }
 
@@ -301,7 +318,7 @@ export function PosSupportChat({ storeCode, storeName }: { storeCode: string; st
       })
       .subscribe();
     return () => { void supabase.removeChannel(channel); };
-  }, [loadMessages, selectedId, conversation?.status, conversation?.assigned_user_id, resetClosedConversation]);
+  }, [loadMessages, scheduleMessageReconcile, selectedId, conversation?.status, conversation?.assigned_user_id, resetClosedConversation]);
 
   useEffect(() => {
     if (!selectedId || conversation?.status === "closed") {
