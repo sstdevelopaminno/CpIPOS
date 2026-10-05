@@ -7,6 +7,7 @@ const src = (path: string) => readFileSync(resolve(process.cwd(), path), "utf8")
 describe("Support Chat Phase 1 - POS", () => {
   const center = src("src/components/pos-preview/pos-subscription-center.tsx");
   const chat = src("src/components/pos-preview/pos-support-chat.tsx");
+  const notifier = src("src/components/pos-preview/pos-support-notifier.tsx");
   const bridge = src("src/lib/services/support-chat/support-chat-bridge.ts");
   const conversations = src("src/app/api/pos/support-chat/conversations/route.ts");
   const messages = src("src/app/api/pos/support-chat/conversations/[conversationId]/messages/route.ts");
@@ -73,6 +74,15 @@ describe("Support Chat Phase 1 - POS", () => {
     expect(messages).toContain('"get_messages"');
     expect(messages).toContain("mark_read: true");
     expect(chat).not.toContain("setInterval(");
+  });
+
+  it("keeps the global POS support notifier realtime-first without per-event HTTP refresh", () => {
+    expect(notifier).toContain('"postgres_changes"');
+    expect(notifier).toContain("headsRef");
+    expect(notifier).toContain("realtimeHealthy");
+    expect(notifier).toContain('window.addEventListener("focus", onRecovery)');
+    expect(notifier).toContain('window.addEventListener("online", onRecovery)');
+    expect(notifier).not.toContain("void refresh();\n      })");
   });
 
   it("publishes a secure realtime head preview before cross-project persistence", () => {
