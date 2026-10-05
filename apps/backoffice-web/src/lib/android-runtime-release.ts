@@ -78,10 +78,22 @@ export function buildAndroidModernUpdateOffer(input: UpdateOfferInput): AndroidM
 
   const updatePolicy = asRecord(input.updatePolicy);
   const requestedInstallPolicy = String(updatePolicy.install_policy ?? updates.install_policy ?? "").trim().toLowerCase();
-  const requiresStagedUpdater = requestedInstallPolicy === "staged" || updatePolicy.require_verified_staged_updater === true;
   const verifiedStagedUpdater = supportsVerifiedStagedUpdater(updates);
-  const maintenanceLocked = String(input.deviceStatus ?? "").trim().toLowerCase() === "maintenance" && input.deviceLocked === true;
-  if (requiresStagedUpdater && !(verifiedStagedUpdater && maintenanceLocked)) return null;
+  const deviceOwnerSilentInstall = updates.device_owner_silent_install === true;
+
+  // Managed Modern Device Owner runtimes may update automatically as soon as they are
+  // online. The APK still passes the staged manifest/SHA-256/signing checks on-device.
+  // Non-Device-Owner runtimes stay notice-only unless explicitly placed in the existing
+  // maintenance-locked staged flow, because Android requires operator confirmation there.
+  const autoOnlineUpdate = verifiedStagedUpdater && deviceOwnerSilentInstall;
+  const policyRequestsStaged = requestedInstallPolicy === "staged" ||
+    updatePolicy.require_verified_staged_updater === true;
+  const maintenanceLocked = String(input.deviceStatus ?? "").trim().toLowerCase() === "maintenance" &&
+    input.deviceLocked === true;
+  const maintenanceStaged = policyRequestsStaged && verifiedStagedUpdater && maintenanceLocked;
+  const requiresStagedUpdater = autoOnlineUpdate || maintenanceStaged;
+
+  if (policyRequestsStaged && !requiresStagedUpdater) return null;
 
   return {
     channel: ANDROID_MODERN_RELEASE.channel,
