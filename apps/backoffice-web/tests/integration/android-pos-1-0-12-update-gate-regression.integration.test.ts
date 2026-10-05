@@ -43,9 +43,9 @@ describe("Android POS stable/Modern update safety regression contract", () => {
     expect(mandatoryUpdate).not.toContain("NATIVE_ANDROID_POS_PATTERN");
   });
 
-  it("offers Modern 1.0.24 code33 only by explicit capability opt-in", () => {
+  it("offers Modern 1.0.25 code34 only by explicit capability opt-in", () => {
     expect(androidRuntimeRelease).toContain('versionName: "1.0.24"');
-    expect(androidRuntimeRelease).toContain('versionCode: 33');
+    expect(androidRuntimeRelease).toContain('versionCode: 34');
     expect(androidRuntimeRelease).not.toContain('new Set(["FG0003", "FG00003"])');
     expect(androidRuntimeRelease).toContain('if (updates.managed_notice !== true) return null;');
     expect(androidRuntimeRelease).toContain('if (updates.silent_install !== false) return null;');
