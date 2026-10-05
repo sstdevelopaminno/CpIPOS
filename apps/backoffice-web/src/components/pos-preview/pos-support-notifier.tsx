@@ -34,11 +34,16 @@ export function PosSupportNotifier() {
     let realtimeHealthy = false;
     const supabase = getSupabaseBrowserClient();
 
-    const publishLocalHeads = () => {
+    const publishLocalHeads = (preferredConversationId?: string) => {
       const heads = Array.from(headsRef.current.values());
       announceUnread(heads.reduce((sum, row) => sum + Number(row.unread_store_count || 0), 0));
-      const open = heads.find((row) => row.status !== "closed");
-      setActiveConversationId(open?.conversation_id ?? "");
+      setActiveConversationId((current) => {
+        if (preferredConversationId && headsRef.current.get(preferredConversationId)?.status !== "closed") {
+          return preferredConversationId;
+        }
+        if (current && headsRef.current.get(current)?.status !== "closed") return current;
+        return heads.find((row) => row.status !== "closed")?.conversation_id ?? "";
+      });
     };
 
     const refresh = async () => {
@@ -63,7 +68,7 @@ export function PosSupportNotifier() {
             const current = headsRef.current.get(conversationId);
             headsRef.current.set(conversationId, { ...current, ...next, conversation_id: conversationId } as Head);
           }
-          publishLocalHeads();
+          publishLocalHeads(next.status !== "closed" ? conversationId : undefined);
         }
 
         if (next.latest_sender_type === "it" && next.latest_message_preview) {
