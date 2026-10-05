@@ -77,7 +77,8 @@ type SubmitItem = { product_id: string; quantity: number; note?: string | null; 
 
 const MENU_LOAD_TIMEOUT_MS = 45_000;
 const SUBMIT_TIMEOUT_MS = 20_000;
-const MENU_STATUS_POLL_MS = 3_000;
+const MENU_STATUS_FAST_POLL_MS = 3_000;
+const MENU_STATUS_IDLE_POLL_MS = 15_000;
 const ALL_CATEGORY = "\u0E17\u0E31\u0E49\u0E07\u0E2B\u0E21\u0E14";
 const RECOMMENDED_CATEGORY = "\u0E41\u0E19\u0E30\u0E19\u0E33";
 const LINK_CLOSED_MESSAGE = "ลิงก์สั่งอาหารหมดอายุหรือปิดบิลแล้ว";
@@ -332,6 +333,9 @@ export function TableOrderMobile({ token }: { token: string }) {
     if (!menu || linkClosed) return;
     let cancelled = false;
     let inFlight = false;
+    const pollMs = hasSubmittedFoodOrder || menu.has_submitted_food_order
+      ? MENU_STATUS_FAST_POLL_MS
+      : MENU_STATUS_IDLE_POLL_MS;
     const refresh = async () => {
       if (cancelled || inFlight || document.visibilityState === "hidden" || submitting || serviceSubmitting) return;
       inFlight = true;
@@ -344,7 +348,7 @@ export function TableOrderMobile({ token }: { token: string }) {
       } finally { inFlight = false; }
     };
     const onVisible = () => { if (document.visibilityState === "visible") void refresh(); };
-    const interval = window.setInterval(() => void refresh(), MENU_STATUS_POLL_MS);
+    const interval = window.setInterval(() => void refresh(), pollMs);
     window.addEventListener("focus", refresh);
     document.addEventListener("visibilitychange", onVisible);
     return () => {
@@ -353,7 +357,7 @@ export function TableOrderMobile({ token }: { token: string }) {
       window.removeEventListener("focus", refresh);
       document.removeEventListener("visibilitychange", onVisible);
     };
-  }, [applyStatusData, linkClosed, menu, serviceSubmitting, showLinkClosedPopup, statusUrl, submitting, tableOrderHeaders]);
+  }, [applyStatusData, hasSubmittedFoodOrder, linkClosed, menu, serviceSubmitting, showLinkClosedPopup, statusUrl, submitting, tableOrderHeaders]);
 
   const canOrder = menu?.can_order !== false && !linkClosed;
   const orderingLocked = menu?.can_order === false && !linkClosed;
