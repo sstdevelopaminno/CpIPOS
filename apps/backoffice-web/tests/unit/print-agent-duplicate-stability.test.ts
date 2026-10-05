@@ -28,7 +28,7 @@ describe("print agent duplicate and discovery stability", () => {
   it("coalesces Android wake bursts and uses deeper idle backoff", () => {
     expect(androidAgent).toContain("wakeBurstPending");
     expect(androidAgent).toContain("scheduleWakeBurst()");
-    expect(androidAgent).toContain("longArrayOf(1L, 3L, 8L, 15L)");
+    expect(androidAgent).toContain("longArrayOf(1L, 3L, 8L, 15L, 30L)");
   });
 
   it("publishes physical USB and paired Bluetooth inventory to MDM", () => {
