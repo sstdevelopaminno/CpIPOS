@@ -14,7 +14,8 @@ const migration = readFileSync(resolve(root, "supabase/migrations/202608170002_p
 describe("print latency stability contract", () => {
   it("keeps idle polling adaptive while allowing a fresh job through server suppression quickly", () => {
     expect(claim).toContain("const EMPTY_CLAIM_BACKOFF_MS = 250;");
-    expect(agent).toContain("longArrayOf(1L, 3L, 8L, 15L)");
+    expect(agent).toContain("longArrayOf(1L, 3L, 8L, 15L, 30L)");
+    expect(agent).toContain("HEARTBEAT_INTERVAL_SECONDS = 60L");
   });
 
   it("wakes the single-thread Android print worker after queue-producing POS calls", () => {
@@ -22,6 +23,8 @@ describe("print latency stability contract", () => {
     expect(main).toContain('addJavascriptInterface(nativePrintAgent, "CpiposPrint")');
     expect(agent).toContain("fun notifyPrintQueued()");
     expect(agent).toContain("WAKE_RETRY_DELAY_MS = 350L");
+    expect(agent).toContain("scheduleWakeBurst()");
+    expect(agent).toContain("wakeBurstPending.compareAndSet(false, true)");
   });
 
   it("prefetches payment QR data and tightens only the QR layout gap", () => {
