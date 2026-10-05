@@ -44,4 +44,37 @@ describe("print agent heartbeat metadata", () => {
 
     expect(metadata).toEqual({ runtime: "test", app_version: "1.0.11" });
   });
+  it("forwards print health deltas but suppresses unchanged health metadata", () => {
+    const current = {
+      runtime: "android_native_print_agent",
+      print_health_state: "healthy",
+      last_print_success_at_ms: 1000,
+      last_print_duration_ms: 420,
+      last_transport: "lan"
+    };
+    const unchanged = buildPrintAgentHeartbeatMetadata({
+      currentMetadata: current,
+      heartbeatMetadata: { ...current },
+      appVersion: null,
+      isActive: true
+    });
+    expect(unchanged).toEqual({});
+
+    const changed = buildPrintAgentHeartbeatMetadata({
+      currentMetadata: current,
+      heartbeatMetadata: {
+        ...current,
+        print_health_state: "degraded",
+        last_print_failure_at_ms: 2000,
+        last_print_error: "printer_offline"
+      },
+      appVersion: null,
+      isActive: true
+    });
+    expect(changed).toMatchObject({
+      print_health_state: "degraded",
+      last_print_failure_at_ms: 2000,
+      last_print_error: "printer_offline"
+    });
+  });
 });
