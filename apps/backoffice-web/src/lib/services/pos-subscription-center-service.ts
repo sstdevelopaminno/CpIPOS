@@ -30,6 +30,14 @@ type Receipt = {
   issued_at: string; amount: number; currency: string; package_snapshot: Record<string, unknown> | null
 };
 type ReceiptAnnotation = { receipt_id:string; correction_note:string|null; voided_at:string|null };
+type BillingDue = {
+  kind:string; status:string; payable_now:boolean; self_service_payment_allowed:boolean; support_required:boolean;
+  days_until_due:number|null; due_at:string|null; next_period_start:string|null; next_period_end:string|null;
+  billing_cycle_id:string|null; amount_due:number; amount_paid:number; outstanding:number;
+  currency:string; billing_interval:string; package_name:string|null; open_request_status:string|null;
+  auto_check_status:string|null; access_locked:boolean; lock_reason:string|null;
+  provisional_access_active:boolean; provisional_access_expires_at:string|null;
+};
 
 function positive(value: unknown) {
   const n = Number(value);
@@ -65,7 +73,7 @@ function discountedAmount(base: unknown, discount: unknown): number | null {
 export async function loadPosSubscriptionCenter(tenantId: string) {
   // Commercial authority lives in CpiPOS-001, never in a trial tenant sales data plane.
   const db = getPrimarySupabaseServiceClient();
-  const [tenantResult, contractResult, lifecycleResult, issuerResult, packagesResult, aiQuotaResult, requestResult, cycleResult, receiptResult, receiptAnnotationResult] = await Promise.all([
+  const [tenantResult, contractResult, lifecycleResult, issuerResult, packagesResult, aiQuotaResult, requestResult, cycleResult, receiptResult, receiptAnnotationResult, dueResult] = await Promise.all([
     db.from("tenants").select("id,code,name,display_name,package_id")
       .eq("id",tenantId).maybeSingle<Tenant>(),
     db.from("tenant_subscription_contracts")
@@ -93,10 +101,14 @@ export async function loadPosSubscriptionCenter(tenantId: string) {
       .select("id,payment_request_id,billing_cycle_id,receipt_number,issued_at,amount,currency,package_snapshot")
       .eq("tenant_id",tenantId).order("issued_at",{ascending:false}).limit(50).returns<Receipt[]>(),
     db.from("tenant_subscription_receipt_annotations")
-      .select("receipt_id,correction_note,voided_at").eq("tenant_id",tenantId).returns<ReceiptAnnotation[]>()
+      .select("receipt_id,correction_note,voided_at").eq("tenant_id",tenantId).returns<ReceiptAnnotation[]>(),
+    db.rpc("subscription_billing_due_state",{p_tenant_id:tenantId})
   ]);
   for (const item of [tenantResult,contractResult,lifecycleResult,issuerResult,packagesResult,aiQuotaResult,requestResult,cycleResult,receiptResult,receiptAnnotationResult]) {
     if (item.error) throw new Error("Subscription information is temporarily unavailable.");
+  }
+  if (dueResult.error) {
+    console.warn("[pos-subscription] canonical due-state lookup failed", { tenantId, error: dueResult.error.message });
   }
   const tenant = tenantResult.data;
   if (!tenant) throw new Error("Store not found.");
@@ -228,6 +240,7 @@ export async function loadPosSubscriptionCenter(tenantId: string) {
         } : null
       };
     }),
+    billing_due: dueResult.error ? null : (dueResult.data as BillingDue | null),
     cycles: (cycleResult.data ?? []).map((row)=>({...row})),
     payment_summary: (() => {
       const receipts = receiptResult.data ?? [];
