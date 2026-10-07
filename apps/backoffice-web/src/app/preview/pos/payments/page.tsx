@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import { requirePosSubscriptionPagePermission } from "@/lib/pos-page-guard";
 import { getCurrentLanguage } from "@/lib/i18n";
 import { loadPosPackageOverview } from "@/lib/services/pos-package-overview-service";
+import { SubscriptionSupportButton } from "@/components/pos/subscription-support-button";
 
 function displayLimit(value: number | null, unlimitedLabel: string) {
   return value === null ? unlimitedLabel : String(value);
@@ -170,7 +171,10 @@ export default async function PosPaymentsPage() {
             <div><p className="text-sm font-black text-slate-800">{copy.paymentStatus}: {dueStatusText}</p>
               <p className="mt-1 text-xs font-medium leading-5 text-slate-600">{copy.dueNotice}</p>
               {due.status==="provisional_review"&&due.provisional_access_expires_at?<p className="mt-1 text-xs font-bold text-emerald-700">เปิดใช้งานชั่วคราวถึง {dueDate(due.provisional_access_expires_at,th)} · IT ต้องยืนยันเงินจริงภายใน 3 วัน</p>:null}
-              {due.status==="support_required"?<p className="mt-1 text-xs font-bold text-red-700">ระบบชำระด้วยตนเองถูกปิด กรุณาติดต่อฝ่าย Support เพื่อให้ IT ตรวจสอบและเปิดสิทธิ์</p>:null}
+              {due.status==="support_required"?<>
+                <p className="mt-1 text-xs font-bold text-red-700">ระบบชำระด้วยตนเองถูกปิด กรุณาติดต่อฝ่าย Support เพื่อให้ IT ตรวจสอบและเปิดสิทธิ์</p>
+                <SubscriptionSupportButton storeCode={overview.storeCode}/>
+              </>:null}
             </div>
           </div> : null}
 
