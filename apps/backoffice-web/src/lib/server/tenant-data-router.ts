@@ -27,8 +27,17 @@ type LifecycleRow = {
 
 type TrialClient = ReturnType<typeof createTrialServiceClient>;
 
+type TenantDataRouteCacheEntry = {
+  value: TenantDataRoute;
+  expiresAt: number;
+};
+
+const TENANT_DATA_ROUTE_CACHE_TTL_MS = 30_000;
+
 declare global {
   var __posTrialSupabaseServiceClient: TrialClient | undefined;
+  var __tenantDataRouteCache: Map<string, TenantDataRouteCacheEntry> | undefined;
+  var __tenantDataRouteInFlight: Map<string, Promise<TenantDataRoute>> | undefined;
 }
 
 function readBooleanEnv(name: string, fallback = false) {
@@ -80,7 +89,51 @@ function getTrialServiceClient() {
   return globalThis.__posTrialSupabaseServiceClient;
 }
 
-export async function resolveTenantDataRoute(tenantId: string): Promise<TenantDataRoute> {
+function getTenantDataRouteCache() {
+  if (!globalThis.__tenantDataRouteCache) {
+    globalThis.__tenantDataRouteCache = new Map<string, TenantDataRouteCacheEntry>();
+  }
+  return globalThis.__tenantDataRouteCache;
+}
+
+function getTenantDataRouteInFlight() {
+  if (!globalThis.__tenantDataRouteInFlight) {
+    globalThis.__tenantDataRouteInFlight = new Map<string, Promise<TenantDataRoute>>();
+  }
+  return globalThis.__tenantDataRouteInFlight;
+}
+
+function readCachedTenantDataRoute(tenantId: string) {
+  const cache = getTenantDataRouteCache();
+  const cached = cache.get(tenantId);
+  if (!cached) return null;
+  if (cached.expiresAt <= Date.now()) {
+    cache.delete(tenantId);
+    return null;
+  }
+  return cached.value;
+}
+
+function writeCachedTenantDataRoute(tenantId: string, value: TenantDataRoute) {
+  getTenantDataRouteCache().set(tenantId, {
+    value,
+    expiresAt: Date.now() + TENANT_DATA_ROUTE_CACHE_TTL_MS
+  });
+}
+
+export function invalidateTenantDataRouteCache(tenantId?: string | null) {
+  const cache = getTenantDataRouteCache();
+  const inFlight = getTenantDataRouteInFlight();
+  if (!tenantId) {
+    cache.clear();
+    inFlight.clear();
+    return;
+  }
+  cache.delete(tenantId);
+  inFlight.delete(tenantId);
+}
+
+async function loadTenantDataRoute(tenantId: string): Promise<TenantDataRoute> {
   const primary = getSupabaseServiceClient();
   const { data, error } = await primary
     .from("tenant_data_lifecycle")
@@ -92,8 +145,6 @@ export async function resolveTenantDataRoute(tenantId: string): Promise<TenantDa
     throw new Error(`tenant_data_route_lookup_failed:${error.message}`);
   }
 
-  // Compatibility-safe default for tenants created before the lifecycle control
-  // plane. New onboarding must always create an explicit lifecycle row.
   if (!data) {
     return {
       tenantId,
@@ -115,11 +166,43 @@ export async function resolveTenantDataRoute(tenantId: string): Promise<TenantDa
   };
 }
 
+export async function resolveTenantDataRoute(
+  tenantId: string,
+  options?: { fresh?: boolean }
+): Promise<TenantDataRoute> {
+  if (!options?.fresh) {
+    const cached = readCachedTenantDataRoute(tenantId);
+    if (cached) return cached;
+
+    const inFlight = getTenantDataRouteInFlight();
+    const existing = inFlight.get(tenantId);
+    if (existing) return existing;
+
+    const pending = loadTenantDataRoute(tenantId)
+      .then((resolved) => {
+        writeCachedTenantDataRoute(tenantId, resolved);
+        return resolved;
+      })
+      .finally(() => {
+        inFlight.delete(tenantId);
+      });
+    inFlight.set(tenantId, pending);
+    return pending;
+  }
+
+  const resolved = await loadTenantDataRoute(tenantId);
+  writeCachedTenantDataRoute(tenantId, resolved);
+  return resolved;
+}
+
 export async function getTenantDataServiceClient(
   tenantId: string,
   options?: { mutation?: boolean }
 ) {
-  const route = await resolveTenantDataRoute(tenantId);
+  // Mutations always resolve routing fresh so a lifecycle cutover can never
+  // write to a stale data plane. Read-only paths use the short process-local cache
+  // to avoid one PostgREST request per API call.
+  const route = await resolveTenantDataRoute(tenantId, { fresh: options?.mutation === true });
 
   if (route.dataHome === "primary") {
     return { client: getSupabaseServiceClient(), route };
