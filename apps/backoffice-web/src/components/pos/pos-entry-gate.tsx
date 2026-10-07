@@ -24,6 +24,17 @@ type SessionCurrentResponse = {
     };
     shift: { id: string; status: string; opened_at: string; closed_at: string | null } | null;
     has_active_shift: boolean;
+    subscription?: {
+      status?: string;
+      access_locked?: boolean;
+      lock_reason?: string|null;
+      support_required?: boolean;
+      self_service_payment_allowed?: boolean;
+      due_at?: string|null;
+      outstanding?: number;
+      currency?: string;
+      provisional_access_expires_at?: string|null;
+    } | null;
   } | null;
   error?: { code: string; message: string } | null;
 };
@@ -460,6 +471,33 @@ export function PosEntryGate({ lang }: { lang: Lang }) {
             <button type="button" className="pos-entry-gate__ghost-btn" onClick={() => void resetSessionAndGoLogin()}>
               {text.goLogin}
             </button>
+          </div>
+        </div>
+      </section>
+    );
+  }
+
+  const subscriptionLocked=Boolean(session?.subscription?.access_locked);
+  if(session&&subscriptionLocked){
+    const supportOnly=Boolean(session.subscription?.support_required)
+      ||["subscription_payment_rejected","subscription_payment_review_timeout","subscription_payment_support_required"].includes(String(session.subscription?.lock_reason??""));
+    return (
+      <section className="pos-entry-gate">
+        <div className="pos-entry-gate__overlay" />
+        <div role="alertdialog" aria-modal="true" className="pos-entry-gate__panel pos-entry-gate__panel--device-blocked">
+          <header className="pos-entry-gate__header">
+            <div className="pos-entry-gate__header-icon pos-entry-gate__header-icon--danger"><SummaryIcon type="power" /></div>
+            <div>
+              <h2>{lang==="th"?"แพ็กเกจถูกระงับการใช้งาน":"Subscription access is locked"}</h2>
+              <p>{lang==="th"
+                ? ("รหัสร้าน "+(session.tenant.code??session.tenant.id)+" · "+(supportOnly?"โปรดติดต่อฝ่าย Support เพื่อให้ IT ตรวจสอบ":"กรุณาดำเนินการชำระแพ็กเกจตามรอบบิล"))
+                : ("Store "+(session.tenant.code??session.tenant.id)+" · "+(supportOnly?"Contact Support for IT review.":"Please complete the package payment."))}</p>
+            </div>
+          </header>
+          <div className="pos-entry-gate__button-row">
+            {supportOnly?<button type="button" className="pos-entry-gate__primary-btn" onClick={()=>window.location.assign("/preview/pos/payments?support=1")}>{lang==="th"?"เปิดแชท Support":"Open Support"}</button>
+              :<button type="button" className="pos-entry-gate__primary-btn" onClick={()=>window.location.assign("/preview/pos/payments")}>{lang==="th"?"ชำระแพ็กเกจ":"Pay package"}</button>}
+            <button type="button" className="pos-entry-gate__secondary-btn" onClick={() => void load()}>{text.retry}</button>
           </div>
         </div>
       </section>
