@@ -331,18 +331,19 @@ export function PosShiftCycleGuard({ lang }: { lang: Lang }) {
       setLoading(false);
       return;
     }
-    setShift({
+    setShift((current) => ({
       id: activeShift.id,
       opened_at: activeShift.opened_at,
       status: activeShift.status,
-      metrics: activeShift.metrics ?? {
-        order_count: 0,
-        cancelled_order_count: 0,
-        sales_total: 0,
-        cash_total: 0,
-        transfer_total: 0
-      }
-    });
+      metrics: activeShift.metrics ??
+        (current?.id === activeShift.id ? current.metrics : {
+          order_count: 0,
+          cancelled_order_count: 0,
+          sales_total: 0,
+          cash_total: 0,
+          transfer_total: 0
+        })
+    }));
     const nextCycle = resolveShiftCycle(activeShift.opened_at);
     setPhase(nextCycle ? resolveShiftGuardPhase(nextCycle) : "on_time");
     setLoading(false);
