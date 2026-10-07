@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import {
   PosGuardError,
   requirePosSession,
+  updateCachedPosSessionExpiry,
   updateCachedPosSessionShift,
   withPosSessionCookie
 } from "@/lib/pos-session-guard";
@@ -55,6 +56,47 @@ const EMPTY_SHIFT_METRICS = {
 };
 
 const SHIFT_METRICS_CACHE_TTL_MS = 30_000;
+const SESSION_LEASE_RENEW_THRESHOLD_MS = 6 * 60 * 60 * 1000;
+
+function resolveSessionLeaseHours() {
+  const raw = Number(process.env.POS_SESSION_TTL_HOURS ?? 24);
+  return Number.isFinite(raw) && raw > 0 && raw <= 72 ? raw : 24;
+}
+
+async function renewSessionLeaseIfNeeded(
+  supabase: ReturnType<typeof getSupabaseServiceClient>,
+  session: { id: string; status: string; expires_at: string }
+) {
+  if (session.status !== "active") return session.expires_at;
+  const expiresMs = Date.parse(session.expires_at);
+  const nowMs = Date.now();
+  if (!Number.isFinite(expiresMs) || expiresMs <= nowMs) return session.expires_at;
+  if (expiresMs - nowMs > SESSION_LEASE_RENEW_THRESHOLD_MS) return session.expires_at;
+
+  const nextExpiry = new Date(nowMs + resolveSessionLeaseHours() * 60 * 60 * 1000).toISOString();
+  const { data, error } = await supabase
+    .from("pos_sessions")
+    .update({ expires_at: nextExpiry, updated_at: new Date(nowMs).toISOString() })
+    .eq("id", session.id)
+    .eq("status", "active")
+    .gt("expires_at", new Date(nowMs).toISOString())
+    .select("expires_at")
+    .maybeSingle<{ expires_at: string }>();
+
+  if (error) {
+    console.warn("[pos-session-current] session lease renewal skipped", {
+      sessionId: session.id,
+      error: error.message
+    });
+    return session.expires_at;
+  }
+
+  const renewedExpiry = data?.expires_at ?? session.expires_at;
+  if (renewedExpiry !== session.expires_at) {
+    updateCachedPosSessionExpiry(session.id, renewedExpiry);
+  }
+  return renewedExpiry;
+}
 
 function setTimingHeaders(response: NextResponse, startedAt: number) {
   const durationMs = Date.now() - startedAt;
@@ -231,11 +273,16 @@ async function loadShiftMetrics(args: {
   return { metrics, degraded };
 }
 
-export async function GET() {
+export async function GET(request: Request) {
   const startedAt = Date.now();
   try {
     const scope = await requirePosSession();
     const supabase = getSupabaseServiceClient();
+    const lightweightShiftGuard = new URL(request.url).searchParams.get("view") === "shift_guard";
+    const renewedExpiry = await renewSessionLeaseIfNeeded(supabase, scope.session);
+    if (renewedExpiry !== scope.session.expires_at) {
+      scope.session.expires_at = renewedExpiry;
+    }
 
     const shiftId = scope.session.shift_id;
     let shiftSummary: { id: string; status: string; opened_at: string; closed_at: string | null } | null = null;
@@ -329,6 +376,29 @@ export async function GET() {
         { status: 503 }
       );
       response.headers.set("x-pos-session-shift-fallback", "1");
+      response.headers.set("x-pos-session-shift-rebound", reboundShiftBinding ? "1" : "0");
+      setTimingHeaders(response, startedAt);
+      return withPosSessionCookie(response, scope.session.id);
+    }
+
+    if (lightweightShiftGuard) {
+      const response = NextResponse.json({
+        data: {
+          session: {
+            id: scope.session.id,
+            status: scope.session.status,
+            expires_at: scope.session.expires_at
+          },
+          role: scope.session.role,
+          shift: shiftSummary,
+          has_active_shift: shiftSummary?.status === "open",
+          shift_lookup_degraded: shiftLookupFallback
+        },
+        error: null
+      });
+      response.headers.set("cache-control", "private, no-store");
+      response.headers.set("x-pos-session-view", "shift_guard");
+      response.headers.set("x-pos-session-shift-fallback", shiftLookupFallback ? "1" : "0");
       response.headers.set("x-pos-session-shift-rebound", reboundShiftBinding ? "1" : "0");
       setTimingHeaders(response, startedAt);
       return withPosSessionCookie(response, scope.session.id);
