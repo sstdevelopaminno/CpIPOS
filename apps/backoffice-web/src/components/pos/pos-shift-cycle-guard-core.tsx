@@ -218,7 +218,7 @@ export function PosShiftCycleGuard({ lang }: { lang: Lang }) {
             confirmClose: "ยืนยันปิดกะ",
             print: "พิมพ์รายงาน",
             cancel: "ยกเลิก",
-            autoClosing: "ระบบกำลังปิดกะอัตโนมัติ",
+            autoClosing: "ระบบกำลังปิดกะอัตโนมัติ โดยคงการเข้าสู่ระบบไว้",
             urgentHint: "เกินเวลาแล้ว กรุณาปิดกะทันที",
             logoutHint: "หลังปิดกะ ระบบจะพาไปหน้าเลือกสาขาอัตโนมัติ",
             closingProgress: "กำลังปิดกะและออกจากหน้าขาย...",
@@ -256,7 +256,7 @@ export function PosShiftCycleGuard({ lang }: { lang: Lang }) {
             confirmClose: "Confirm close",
             print: "Print report",
             cancel: "Cancel",
-            autoClosing: "System is auto-closing this shift.",
+            autoClosing: "System is auto-closing this shift and keeping your POS session active.",
             urgentHint: "Shift window has ended. Please close this shift now.",
             logoutHint: "After shift close, you will be redirected to branch selection.",
             closingProgress: "Closing shift and leaving sales screen...",
@@ -364,7 +364,7 @@ export function PosShiftCycleGuard({ lang }: { lang: Lang }) {
     if (loadStateInFlightRef.current) return;
     loadStateInFlightRef.current = true;
     try {
-      const { response, body } = await fetchJsonWithTimeout("/api/pos/session/current", { cache: "no-store" }, 8000);
+      const { response, body } = await fetchJsonWithTimeout("/api/pos/session/current?view=shift_guard", { cache: "no-store" }, 12000);
       const sessionBody = body as SessionResponse | null;
       if (!response.ok || !sessionBody?.data) {
         setShift(null);
@@ -535,7 +535,7 @@ export function PosShiftCycleGuard({ lang }: { lang: Lang }) {
       await closeShift(null, approvalPin);
       if (shouldCloseOnly) {
         setManagerPin("");
-        await logoutToBranchSelection();
+        await loadState();
         return;
       }
       await openNextShift();
@@ -584,7 +584,10 @@ export function PosShiftCycleGuard({ lang }: { lang: Lang }) {
     setError(null);
     resetShiftBlocker();
     void closeShift(null, "", true)
-      .then(() => logoutToBranchSelection())
+      .then(async () => {
+        await loadState();
+        setBusy(null);
+      })
       .catch((closeError) => {
         rememberBlockerFromError(closeError);
         setError(toErrorMessage(closeError));
