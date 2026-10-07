@@ -593,7 +593,7 @@ export function PosShiftCycleGuard({ lang }: { lang: Lang }) {
         setError(toErrorMessage(closeError));
         setBusy(null);
       });
-  }, [closeShift, cycle, logoutToBranchSelection, needsManagerApproval, phase, rememberBlockerFromError, resetShiftBlocker, shift, toErrorMessage]);
+  }, [closeShift, cycle, loadState, needsManagerApproval, phase, rememberBlockerFromError, resetShiftBlocker, shift, toErrorMessage]);
   function handleManageOpenBill() {
     if (!shift || busy) return;
     setShowCloseModal(false);
