@@ -59,7 +59,7 @@ type CachedPrinterIds = {
 
 const PRINTER_CONFIG_CACHE_MS = 45_000;
 const EMPTY_CLAIM_BACKOFF_MS = 250;
-export const PRINT_AGENT_CLAIM_TIMEOUT_MS = readBoundedTimeoutMs("PRINT_AGENT_CLAIM_TIMEOUT_MS", 5_000, 1_000, 30_000);
+export const PRINT_AGENT_CLAIM_TIMEOUT_MS = readBoundedTimeoutMs("PRINT_AGENT_CLAIM_TIMEOUT_MS", 10_000, 1_000, 30_000);
 const printerIdCache = new Map<string, CachedPrinterIds>();
 const emptyClaimBackoff = new Map<string, number>();
 
@@ -168,25 +168,37 @@ export async function claimPrintJobsStabilized(
 
     const nowIso = new Date().toISOString();
     const primary = getPrimarySupabaseServiceClient();
-    const { error: updateError } = await primary
-      .from("print_agents")
-      .update({ last_claim_at: nowIso, app_version: input.app_version ?? agent.app_version })
-      .eq("id", agent.id)
-      .eq("tenant_id", agent.tenant_id)
-      .eq("branch_id", agent.branch_id)
-      .abortSignal(signal);
-    if (updateError) {
-      if (signal.aborted) throw new BoundedTimeoutError("print_agent_claim_timeout", PRINT_AGENT_CLAIM_TIMEOUT_MS);
-      throw new Error(updateError.message);
-    }
 
-    const { data: jobs, error: jobsError } = await client
+    // Delivering already-leased print jobs is the critical path. Activity
+    // telemetry is useful but must never convert a successful claim into a
+    // timeout/500 and leave jobs waiting for lease expiry before retry.
+    const jobsPromise = client
       .from("print_jobs")
       .select(AGENT_JOB_SELECT)
       .eq("tenant_id", agent.tenant_id)
       .eq("branch_id", agent.branch_id)
       .in("id", jobIds)
       .abortSignal(signal);
+    const activityPromise = primary
+      .from("print_agents")
+      .update({ last_claim_at: nowIso, app_version: input.app_version ?? agent.app_version })
+      .eq("id", agent.id)
+      .eq("tenant_id", agent.tenant_id)
+      .eq("branch_id", agent.branch_id)
+      .abortSignal(signal);
+
+    const [{ data: jobs, error: jobsError }, activityResult] = await Promise.all([
+      jobsPromise,
+      activityPromise
+    ]);
+    if (activityResult.error && !signal.aborted) {
+      console.warn("[print-agent] claim telemetry update skipped", {
+        agentId: agent.id,
+        tenantId: agent.tenant_id,
+        branchId: agent.branch_id,
+        error: activityResult.error.message
+      });
+    }
     if (jobsError) {
       if (signal.aborted) throw new BoundedTimeoutError("print_agent_claim_timeout", PRINT_AGENT_CLAIM_TIMEOUT_MS);
       throw new Error(jobsError.message);
