@@ -8,6 +8,17 @@ function displayLimit(value: number | null, unlimitedLabel: string) {
   return value === null ? unlimitedLabel : String(value);
 }
 
+function dueStatus(value:string|null,th:boolean){
+  const status=String(value??"");
+  const thLabels:Record<string,string>={open:"รอชำระ",overdue:"เกินกำหนดชำระ",upcoming:"ยังไม่ถึงกำหนด",pending:"รอดำเนินการ",under_review:"รอตรวจสอบการชำระ",trial:"ทดลองใช้",trial_due:"Trial ใกล้หมด · รอชำระเพื่อใช้งานต่อ",prepaid:"ชำระล่วงหน้าแล้ว",not_payable:"ไม่เรียกเก็บ"};
+  const enLabels:Record<string,string>={open:"Payment due",overdue:"Overdue",upcoming:"Not due yet",pending:"Pending",under_review:"Payment under review",trial:"Trial",trial_due:"Trial ending · payment due to continue",prepaid:"Prepaid",not_payable:"Not billable"};
+  return (th?thLabels:enLabels)[status]||status||"—";
+}
+function dueDate(value:string|null,th:boolean){
+  if(!value)return"—";const parsed=new Date(value);if(Number.isNaN(parsed.getTime()))return"—";
+  return new Intl.DateTimeFormat(th?"th-TH":"en-US",{dateStyle:"medium",timeZone:"Asia/Bangkok"}).format(parsed);
+}
+
 function billingHint(interval: string | null, th: boolean) {
   const normalized = String(interval ?? "").trim().toLowerCase();
   if (!normalized) return undefined;
@@ -47,6 +58,10 @@ export default async function PosPaymentsPage() {
         unlimited: "ไม่จำกัด",
         unset: "ยังไม่ระบุ",
         price: "ราคา",
+        nextDue: "รอบชำระถัดไป",
+        paymentStatus: "สถานะชำระ",
+        dueAmount: "ยอดที่ต้องชำระ",
+        dueNotice: "สถานะรอบชำระคำนวณจากวันสิ้นสุดสิทธิ์ปัจจุบัน ไม่ใช้รอบ Settlement เก่ามาเป็นรอบที่ต้องชำระ",
         lineQr: "QR LINE บริษัท",
         lineHelp: "สแกนเพื่อเพิ่มเพื่อน หรือสอบถามข้อมูล",
         call: "โทร. 0985460355",
@@ -69,12 +84,22 @@ export default async function PosPaymentsPage() {
         unlimited: "Unlimited",
         unset: "Not set",
         price: "Price",
+        nextDue: "Next billing due",
+        paymentStatus: "Payment status",
+        dueAmount: "Amount due",
+        dueNotice: "Current billing status follows the active entitlement expiry, not a historical paid settlement cycle.",
         lineQr: "Company LINE QR",
         lineHelp: "Scan to add LINE or ask for support.",
         call: "Call 0985460355",
         scopeTitle: "Current store package and access information",
         scopeDescription: "The information on this page follows the store and permissions of the active session."
       };
+
+  const due=overview.billingDue;
+  const dueAmount=due?amountFormatter.format(Number(due.amount_due||0)):"—";
+  const dueStatusText=dueStatus(due?.status??null,th);
+  const dueDateText=dueDate(due?.due_at??null,th);
+  const dueUrgent=Boolean(due&&["open","overdue","trial_due"].includes(due.status));
 
   const quotaText =
     copy.branches +
@@ -134,8 +159,17 @@ export default async function PosPaymentsPage() {
               badge={isActive ? copy.active : undefined}
             />
             <InfoTile label={copy.price} value={price} hint={billingHint(overview.billingInterval, th)} icon={<WalletIcon />} tone="orange" />
+            <InfoTile label={copy.nextDue} value={dueDateText} hint={due?.days_until_due==null?undefined:(due.days_until_due<0?(th?`เกินกำหนด ${Math.abs(due.days_until_due)} วัน`:`${Math.abs(due.days_until_due)} days overdue`):(th?`อีก ${due.days_until_due} วัน`:`in ${due.days_until_due} days`))} icon={<CalendarIcon />} tone={dueUrgent?"orange":"blue"} />
+            <InfoTile label={copy.paymentStatus} value={dueStatusText} hint={due?.status==="under_review"?(th?"IT กำลังตรวจสอบรายการที่แจ้งชำระ":"IT is reviewing the submitted payment"):undefined} icon={<CheckCircleIcon />} tone={dueUrgent?"orange":"green"} valueClassName={dueUrgent?"text-amber-700":undefined} />
+            <InfoTile label={copy.dueAmount} value={dueAmount} hint={due?billingHint(due.billing_interval,th):undefined} icon={<WalletIcon />} tone="orange" />
             <InfoTile label={copy.quota} value={quotaText} icon={<CalendarIcon />} tone="violet" compactValue />
           </div>
+
+          {due ? <div className={`mt-5 flex items-start gap-3 rounded-2xl border px-4 py-4 sm:px-5 ${dueUrgent?"border-amber-200 bg-amber-50":"border-blue-100 bg-blue-50/70"}`}>
+            <span className={`mt-0.5 grid h-7 w-7 shrink-0 place-items-center rounded-full text-sm font-black text-white ${dueUrgent?"bg-amber-500":"bg-blue-600"}`} aria-hidden>฿</span>
+            <div><p className="text-sm font-black text-slate-800">{copy.paymentStatus}: {dueStatusText}</p>
+              <p className="mt-1 text-xs font-medium leading-5 text-slate-600">{copy.dueNotice}</p></div>
+          </div> : null}
 
           <div className="mt-5 flex items-center gap-3 rounded-2xl border border-blue-100 bg-gradient-to-r from-blue-50/80 to-slate-50 px-4 py-4 sm:px-5">
             <IconBadge tone="blue" size="small">
