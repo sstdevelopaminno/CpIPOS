@@ -58,6 +58,24 @@ function formatDate(value: string | null) {
   return new Intl.DateTimeFormat("th-TH", { dateStyle: "medium", timeZone: "Asia/Bangkok" })
     .format(new Date(value));
 }
+function billingDueLabel(value: string | null | undefined) {
+  const labels: Record<string,string> = {
+    open: "รอชำระ",
+    due: "ถึงกำหนดชำระ",
+    overdue: "เกินกำหนดชำระ",
+    upcoming: "ยังไม่ถึงกำหนด",
+    pending: "รอดำเนินการ",
+    under_review: "รอตรวจสอบการชำระ",
+    provisional_review: "เปิดใช้งานชั่วคราว · IT ตรวจสอบ",
+    support_required: "ติดต่อ Support",
+    trial: "ทดลองใช้งาน",
+    trial_due: "Trial ใกล้หมด · รอชำระเพื่อใช้งานต่อ",
+    prepaid: "ชำระล่วงหน้าแล้ว",
+    not_payable: "ไม่เรียกเก็บ"
+  };
+  const normalized = String(value ?? "");
+  return labels[normalized] || normalized || "—";
+}
 function limitText(value: number | null | undefined, suffix = "") {
   return value == null ? "ตามสัญญา" : `${new Intl.NumberFormat("th-TH").format(value)}${suffix}`;
 }
@@ -144,10 +162,13 @@ export function PosSubscriptionCenter({ initial, isOwner, showContactActions = t
   const pending = snapshot.requests.find((row) => ["pending", "under_review"].includes(row.status));
   const lastRequest = snapshot.requests[0];
   const demo = snapshot.contract.is_internal_demo;
+  const billingDue = snapshot.billing_due;
+  const supportRequired = Boolean(billingDue?.support_required || billingDue?.status === "support_required");
+  const selfServiceAllowed = billingDue?.self_service_payment_allowed !== false && !supportRequired;
   const hasBank = Boolean(snapshot.issuer.account_number || snapshot.issuer.promptpay_id);
   const pendingCanAcceptPayment = Boolean(pending && !pending.has_evidence &&
     (pending.kind === "renewal_intent" || (pending.kind === "payment_notice" && pending.created_by_it)));
-  const canSubmit = isOwner && !demo && !busy &&
+  const canSubmit = isOwner && !demo && !busy && selfServiceAllowed &&
     (!pending || (tab === "notice" && pendingCanAcceptPayment));
   const packageRow = useMemo(() =>
     snapshot.packages.find((row) => row.id === selectedPackage), [selectedPackage, snapshot.packages]);
@@ -399,6 +420,35 @@ export function PosSubscriptionCenter({ initial, isOwner, showContactActions = t
 
       {error ? <p role="alert" className="rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800">{error}</p> : null}
       {message ? <p role="status" className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800">{message}</p> : null}
+
+      {billingDue ? <section
+        aria-label="สถานะรอบชำระปัจจุบัน"
+        className={"rounded-2xl border p-4 text-sm shadow-sm " +
+          (supportRequired ? "border-rose-200 bg-rose-50 text-rose-900" :
+            billingDue.provisional_access_active ? "border-amber-200 bg-amber-50 text-amber-900" :
+            billingDue.payable_now ? "border-blue-200 bg-blue-50 text-blue-900" :
+            "border-slate-200 bg-white text-slate-700")}
+      >
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <p className="font-black">สถานะรอบชำระ · {billingDueLabel(billingDue.status)}</p>
+            <p className="mt-1 text-xs leading-5">
+              {billingDue.provisional_access_active
+                ? "ระบบเปิดใช้งานชั่วคราวระหว่างรอฝ่าย IT ตรวจสอบยอดเงินจริง"
+                : supportRequired
+                  ? "รอบนี้ปิดการชำระด้วยตนเองแล้ว กรุณาติดต่อ Support เพื่อให้ฝ่าย IT ตรวจสอบ"
+                  : billingDue.payable_now
+                    ? "ยอดที่ต้องชำระอ้างอิงจากรอบสิทธิ์ปัจจุบัน ไม่ใช้ประวัติ Settlement เก่า"
+                    : "สถานะนี้คำนวณจากรอบสิทธิ์แพ็กเกจปัจจุบันของร้าน"}
+            </p>
+          </div>
+          <div className="text-right text-xs leading-5">
+            <p><strong>กำหนดชำระ:</strong> {formatDate(billingDue.due_at)}</p>
+            <p><strong>ยอดคงค้าง:</strong> {formatMoney(Number(billingDue.outstanding ?? billingDue.amount_due ?? 0), billingDue.currency || "THB")}</p>
+            {billingDue.provisional_access_expires_at ? <p><strong>เปิดชั่วคราวถึง:</strong> {formatDate(billingDue.provisional_access_expires_at)}</p> : null}
+          </div>
+        </div>
+      </section> : null}
 
       <section aria-label="ข้อมูลแพ็กเกจปัจจุบัน"
         className="grid gap-0 overflow-hidden rounded-2xl border border-[#cadffc] bg-[linear-gradient(115deg,#ebf5ff_0%,#f2f8ff_65%,#e8f4ff_100%)] shadow-[0_5px_20px_rgba(24,80,170,0.04)] sm:grid-cols-2 xl:grid-cols-[1.25fr_1fr_.8fr_.95fr]">
