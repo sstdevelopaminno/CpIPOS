@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import {
   PosGuardError,
-  requirePosSession,
+  requirePosSessionForSubscriptionAccess,
   updateCachedPosSessionShift,
   withPosSessionCookie
 } from "@/lib/pos-session-guard";
@@ -234,7 +234,7 @@ async function loadShiftMetrics(args: {
 export async function GET() {
   const startedAt = Date.now();
   try {
-    const scope = await requirePosSession();
+    const scope = await requirePosSessionForSubscriptionAccess();
     const supabase = getSupabaseServiceClient();
 
     const shiftId = scope.session.shift_id;
@@ -335,7 +335,7 @@ export async function GET() {
     }
 
     const shiftMetricsShiftId = shiftSummary?.status === "open" ? shiftSummary.id : null;
-    const [devicePolicy, shiftMetricsCache] = await Promise.all([
+    const [devicePolicy, shiftMetricsCache, subscriptionResult] = await Promise.all([
       loadPosRuntimeDevicePolicyForSession(scope.session),
       readThroughRuntimeCache({
         key: `pos-session-current-shift-metrics:${scope.session.tenant_id}:${scope.session.branch_id}:${shiftMetricsShiftId ?? "none"}`,
@@ -347,7 +347,8 @@ export async function GET() {
             branchId: scope.session.branch_id,
             shiftId: shiftMetricsShiftId
           })
-      })
+      }),
+      supabase.rpc("subscription_billing_due_state",{p_tenant_id:scope.session.tenant_id})
     ]);
     const shiftMetricsResult = shiftMetricsCache.value;
     const response = NextResponse.json({
@@ -384,7 +385,8 @@ export async function GET() {
         shift: shiftSummary ? { ...shiftSummary, metrics: shiftMetricsResult.metrics } : null,
         has_active_shift: shiftSummary?.status === "open",
         shift_lookup_degraded: shiftLookupFallback,
-        shift_metrics_degraded: shiftMetricsResult.degraded
+        shift_metrics_degraded: shiftMetricsResult.degraded,
+        subscription: subscriptionResult.error ? null : subscriptionResult.data
       },
       error: null
     });
