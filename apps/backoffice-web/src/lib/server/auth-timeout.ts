@@ -13,8 +13,8 @@ export class AuthTimeoutError extends Error {
 }
 
 function readTimeoutMs() {
-  const raw = Number(process.env.AUTH_API_TIMEOUT_MS ?? 8000);
-  if (!Number.isFinite(raw)) return 8000;
+  const raw = Number(process.env.AUTH_API_TIMEOUT_MS ?? 12000);
+  if (!Number.isFinite(raw)) return 12000;
   return Math.min(30000, Math.max(2500, Math.trunc(raw)));
 }
 

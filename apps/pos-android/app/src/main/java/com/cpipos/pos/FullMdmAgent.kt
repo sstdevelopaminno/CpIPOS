@@ -30,6 +30,7 @@ class FullMdmAgent(context: Context) {
             if (deviceOwner) {
                 capabilities.put("remote_lock")
                 capabilities.put("app_uninstall")
+                capabilities.put("device_owner_release")
             }
         }
 
@@ -113,6 +114,8 @@ class FullMdmAgent(context: Context) {
 
             "lock_device" -> executeLockDevice()
 
+            "release_device_owner" -> executeReleaseDeviceOwner()
+
             else -> "failed" to JSONObject()
                 .put("ok", false)
                 .put("code", "full_mdm_command_not_implemented")
@@ -163,6 +166,51 @@ class FullMdmAgent(context: Context) {
         if (!UUID_PATTERN.matches(commandId)) return
         if (status != "succeeded" && status != "failed") return
         appendResult(commandId, status, result)
+    }
+
+    private fun executeReleaseDeviceOwner(): Pair<String, JSONObject> {
+        if (!isDeviceOwner()) {
+            return "succeeded" to JSONObject()
+                .put("ok", true)
+                .put("action", "release_device_owner")
+                .put("already_released", true)
+                .put("device_owner", false)
+                .put("executed_at_ms", System.currentTimeMillis())
+        }
+
+        val manager = appContext.getSystemService(Context.DEVICE_POLICY_SERVICE) as? DevicePolicyManager
+            ?: return "failed" to JSONObject()
+                .put("ok", false)
+                .put("code", "device_policy_manager_unavailable")
+                .put("action", "release_device_owner")
+
+        return runCatching {
+            // Device Owner must be removed before Android will allow the customer
+            // to uninstall the CpIPOS app normally. This command is delivered only
+            // by the audited IT offboarding flow.
+            manager.clearDeviceOwnerApp(appContext.packageName)
+            val stillOwner = isDeviceOwner()
+            if (stillOwner) {
+                "failed" to JSONObject()
+                    .put("ok", false)
+                    .put("code", "device_owner_release_not_applied")
+                    .put("action", "release_device_owner")
+                    .put("device_owner", true)
+            } else {
+                "succeeded" to JSONObject()
+                    .put("ok", true)
+                    .put("action", "release_device_owner")
+                    .put("device_owner", false)
+                    .put("customer_uninstall_allowed", true)
+                    .put("executed_at_ms", System.currentTimeMillis())
+            }
+        }.getOrElse { error ->
+            "failed" to JSONObject()
+                .put("ok", false)
+                .put("code", "device_owner_release_failed")
+                .put("action", "release_device_owner")
+                .put("error_type", error.javaClass.simpleName)
+        }
     }
 
     private fun executeLockDevice(): Pair<String, JSONObject> {

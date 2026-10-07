@@ -72,7 +72,7 @@ const RESULT_LIMIT = 10;
 const COMMAND_LIMIT = 3;
 const RETRY_PICKUP_AFTER_MS = 2 * 60_000;
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-const EXECUTOR_COMMANDS = new Set<MdmCommandType>(["diagnostics_ping", "sync_policy", "lock_device", "uninstall_app"]);
+const EXECUTOR_COMMANDS = new Set<MdmCommandType>(["diagnostics_ping", "sync_policy", "lock_device", "uninstall_app", "release_device_owner"]);
 
 function asRecord(value: unknown): JsonRecord {
   return value && typeof value === "object" && !Array.isArray(value) ? value as JsonRecord : {};
@@ -182,8 +182,8 @@ async function acknowledgeResults(scope: DeviceScope, results: ResultEnvelope[])
       .eq("tenant_id", scope.tenant_id)
       .eq("device_id", scope.id)
       .in("status", ["picked_up", "running"])
-      .select("id,command_type")
-      .maybeSingle<{ id: string; command_type: MdmCommandType }>();
+      .select("id,command_type,requested_by")
+      .maybeSingle<{ id: string; command_type: MdmCommandType; requested_by: string | null }>();
 
     if (error) {
       console.error("[full-mdm] result acknowledgement failed", { command_id: result.command_id, message: error.message });
@@ -203,6 +203,48 @@ async function acknowledgeResults(scope: DeviceScope, results: ResultEnvelope[])
       metadata: { result: result.result, delivery_surface: "android_full_mdm_heartbeat" }
     });
     if (auditError) console.error("[full-mdm] result audit failed", { command_id: command.id, message: auditError.message });
+
+    if (result.status === "succeeded" && command.command_type === "release_device_owner") {
+      const releasedAt = new Date().toISOString();
+      const { error: releaseStateError } = await supabase
+        .from("mdm_devices")
+        .update({
+          is_device_owner: false,
+          is_full_mdm_eligible: false,
+          enrollment_mode: "none",
+          last_heartbeat_at: releasedAt,
+          updated_at: releasedAt
+        })
+        .eq("tenant_id", scope.tenant_id)
+        .eq("device_id", scope.id);
+      if (releaseStateError) {
+        console.error("[full-mdm] device-owner release state sync failed", {
+          tenant_id: scope.tenant_id,
+          device_id: scope.id,
+          message: releaseStateError.message
+        });
+      }
+
+      const remainingOwners = await supabase
+        .from("mdm_devices")
+        .select("device_id", { count: "exact", head: true })
+        .eq("tenant_id", scope.tenant_id)
+        .eq("is_device_owner", true);
+
+      if (!remainingOwners.error && (remainingOwners.count ?? 0) === 0) {
+        const { error: reviewError } = await supabase.rpc("it_mark_tenant_mdm_release_completed", {
+          p_tenant_id: scope.tenant_id,
+          p_actor_user_id: command.requested_by,
+          p_note: "All managed Android Device Owner connections were released successfully."
+        });
+        if (reviewError) {
+          console.error("[full-mdm] tenant deletion review MDM completion failed", {
+            tenant_id: scope.tenant_id,
+            message: reviewError.message
+          });
+        }
+      }
+    }
   }
 
   return acknowledged;
