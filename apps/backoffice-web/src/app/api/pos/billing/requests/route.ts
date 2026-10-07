@@ -76,6 +76,13 @@ export async function POST(request: Request) {
 
     const snapshot = await loadPosSubscriptionCenter(scope.session.tenant_id);
     if (snapshot.contract.is_internal_demo) return fail("internal_demo","Internal demo stores are not charged for subscriptions.",422);
+    const canonicalDue = snapshot.billing_due;
+    if (!isAiAddon && kind === "payment_notice" && canonicalDue?.support_required) {
+      return fail("subscription_support_required","รอบนี้ไม่สามารถชำระด้วยตนเองได้ กรุณาติดต่อ Support เพื่อให้ฝ่าย IT ตรวจสอบ",423);
+    }
+    if (!isAiAddon && kind === "payment_notice" && canonicalDue?.self_service_payment_allowed === false) {
+      return fail("subscription_self_service_locked","การชำระด้วยตนเองถูกปิดสำหรับสถานะรอบบิลปัจจุบัน กรุณาติดต่อ Support",423);
+    }
     const target = snapshot.packages.find(item=>item.id===desiredPackage);
     if (!target) return fail("package_unavailable","Choose an available subscription package.",422);
     const isCustomTarget = target.contact_sales === true || target.quota_mode === "custom" || target.code === "custom";
@@ -116,13 +123,22 @@ export async function POST(request: Request) {
       return fail("renewal_selection_locked","Use the package and interval from your pending request.",409);
     }
 
+    const canonicalCurrentAmount = canonicalDue && canonicalDue.payable_now
+      ? Number(canonicalDue.outstanding > 0 ? canonicalDue.outstanding : canonicalDue.amount_due)
+      : null;
     const expected = isAiAddon
       ? target.ai_addon_monthly_price
       : kind === "custom_quote_request"
         ? null
-        : target.id===snapshot.contract.package_id && billingInterval === snapshot.contract.billing_interval
-          ? snapshot.contract.amount_per_cycle
-          : billingInterval==="yearly" ? target.yearly_price : target.monthly_price;
+        : kind === "payment_notice" &&
+            target.id===snapshot.contract.package_id &&
+            billingInterval === snapshot.contract.billing_interval &&
+            Number.isFinite(canonicalCurrentAmount) &&
+            Number(canonicalCurrentAmount) > 0
+          ? Number(canonicalCurrentAmount)
+          : target.id===snapshot.contract.package_id && billingInterval === snapshot.contract.billing_interval
+            ? snapshot.contract.amount_per_cycle
+            : billingInterval==="yearly" ? target.yearly_price : target.monthly_price;
     if (isPayment && !snapshot.issuer.account_number && !snapshot.issuer.promptpay_id) {
       return fail("receiving_account_not_configured","Company receiving account is not configured. Contact Support.",422);
     }
