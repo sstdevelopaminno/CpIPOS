@@ -16,7 +16,7 @@ describe("internal subscription slip scanner",()=>{
     expect(route).toContain("billing_bank_account_name");
     expect(route).toContain("billing_bank_account_number");
     expect(route).toContain("billing_promptpay_id");
-    expect(route).toContain("caller amount does not match billing control plane");
+    expect(route).toContain("Caller amount does not match billing control plane");
     expect(route).toContain("cents(parsed.amount)===cents(expectedAmount)");
   });
   it("only verifies a slip when amount, recipient, datetime, reference and confidence pass",()=>{
