@@ -35,6 +35,12 @@ type PackageRow = {
   max_users: number | null;
 };
 
+export type PosBillingDueState = {
+  kind:string;status:string;payable_now:boolean;days_until_due:number|null;due_at:string|null;
+  next_period_start:string|null;next_period_end:string|null;amount_due:number;amount_paid:number;outstanding:number;
+  currency:string;billing_interval:string;package_name:string|null;open_request_status:string|null;
+};
+
 export type PosPackageOverview = {
   storeCode: string;
   storeName: string;
@@ -47,6 +53,7 @@ export type PosPackageOverview = {
   maxBranches: number | null;
   maxDevices: number | null;
   maxUsers: number | null;
+  billingDue: PosBillingDueState | null;
 };
 
 function clean(value: unknown) {
@@ -114,7 +121,13 @@ async function readPackage(packageId: string | null | undefined) {
 }
 
 export async function loadPosPackageOverview(tenantId: string): Promise<PosPackageOverview> {
-  const [tenant, contract] = await Promise.all([readTenant(tenantId), readLatestContract(tenantId)]);
+  const supabase=getSupabaseServiceClient();
+  const [tenant, contract, dueResult] = await Promise.all([
+    readTenant(tenantId),
+    readLatestContract(tenantId),
+    supabase.rpc("subscription_billing_due_state",{p_tenant_id:tenantId})
+  ]);
+  if(dueResult.error) console.warn("[pos-package-overview] due state lookup failed",{tenantId,error:dueResult.error.message});
   const packageRow = await readPackage(contract?.package_id ?? tenant?.package_id ?? null);
   const amountFromPackage = contract?.billing_interval === "yearly" ? packageRow?.yearly_price : packageRow?.monthly_price;
 
@@ -129,6 +142,7 @@ export async function loadPosPackageOverview(tenantId: string): Promise<PosPacka
     currency: clean(contract?.currency) || "THB",
     maxBranches: positiveInt(contract?.max_branches) ?? positiveInt(contract?.branch_limit) ?? positiveInt(packageRow?.max_branches),
     maxDevices: positiveInt(contract?.max_devices) ?? positiveInt(contract?.terminal_limit_per_branch) ?? positiveInt(packageRow?.max_devices),
-    maxUsers: positiveInt(contract?.max_users) ?? positiveInt(packageRow?.max_users)
+    maxUsers: positiveInt(contract?.max_users) ?? positiveInt(packageRow?.max_users),
+    billingDue: dueResult.error ? null : (dueResult.data as PosBillingDueState | null)
   };
 }
