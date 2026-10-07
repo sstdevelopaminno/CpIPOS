@@ -130,7 +130,8 @@ function getSubscriptionAccessCache() {
   return scopedGlobal.__posSubscriptionAccessCache;
 }
 
-// Compatibility note: older POS builds used the error code "subscription_locked"; canonical runtime lock uses "subscription_access_locked".\nasync function assertSubscriptionAllowsSales(tenantId: string) {
+// Compatibility note: older POS builds used the error code "subscription_locked"; canonical runtime lock uses "subscription_access_locked".
+async function assertSubscriptionAllowsSales(tenantId: string) {
   const now = Date.now();
   const cache = getSubscriptionAccessCache();
   const cached = cache.get(tenantId);
