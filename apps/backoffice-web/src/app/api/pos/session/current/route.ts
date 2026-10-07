@@ -279,9 +279,12 @@ export async function GET(request?: Request) {
     const scope = await requirePosSession();
     const supabase = getSupabaseServiceClient();
     const lightweightShiftGuard = request ? new URL(request.url).searchParams.get("view") === "shift_guard" : false;
-    const renewedExpiry = await renewSessionLeaseIfNeeded(supabase, scope.session);
-    if (renewedExpiry !== scope.session.expires_at) {
-      scope.session.expires_at = renewedExpiry;
+    const devicePolicy = await loadPosRuntimeDevicePolicyForSession(scope.session);
+    if (devicePolicy.status === "active" && !devicePolicy.block_sales) {
+      const renewedExpiry = await renewSessionLeaseIfNeeded(supabase, scope.session);
+      if (renewedExpiry !== scope.session.expires_at) {
+        scope.session.expires_at = renewedExpiry;
+      }
     }
 
     const shiftId = scope.session.shift_id;
@@ -405,9 +408,7 @@ export async function GET(request?: Request) {
     }
 
     const shiftMetricsShiftId = shiftSummary?.status === "open" ? shiftSummary.id : null;
-    const [devicePolicy, shiftMetricsCache] = await Promise.all([
-      loadPosRuntimeDevicePolicyForSession(scope.session),
-      readThroughRuntimeCache({
+    const shiftMetricsCache = await readThroughRuntimeCache({
         key: `pos-session-current-shift-metrics:${scope.session.tenant_id}:${scope.session.branch_id}:${shiftMetricsShiftId ?? "none"}`,
         ttlMs: SHIFT_METRICS_CACHE_TTL_MS,
         loader: () =>
@@ -417,8 +418,7 @@ export async function GET(request?: Request) {
             branchId: scope.session.branch_id,
             shiftId: shiftMetricsShiftId
           })
-      })
-    ]);
+      });
     const shiftMetricsResult = shiftMetricsCache.value;
     const response = NextResponse.json({
       data: {
