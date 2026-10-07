@@ -204,6 +204,7 @@ export function PosEntryGate({ lang }: { lang: Lang }) {
   const [session, setSession] = useState<SessionCurrentResponse["data"]>(null);
   const [error, setError] = useState<string | null>(null);
   const [sessionExpiredError, setSessionExpiredError] = useState(false);
+  const [subscriptionLocked,setSubscriptionLocked]=useState(false);
   const [skipSplashOnce, setSkipSplashOnce] = useState(false);
 
   const hasActiveShift = Boolean(session?.has_active_shift && session.shift?.status === "open");
@@ -220,6 +221,9 @@ export function PosEntryGate({ lang }: { lang: Lang }) {
             loading: "กำลังตรวจสอบสิทธิ์เข้าใช้งาน POS...",
             quickLoading: "กำลังพาเข้าหน้าขาย...",
             missingSessionTitle: "ยังไม่พบ session สำหรับเข้าหน้าขาย",
+            subscriptionLockedTitle:"แพ็กเกจถูกระงับการใช้งาน",
+            subscriptionLockedBody:"ไม่สามารถชำระผ่านระบบด้วยตนเองในสถานะนี้ได้ กรุณาติดต่อฝ่าย Support เพื่อให้ Support ส่งเรื่องไปยัง IT ตรวจสอบ",
+            openSupport:"เปิดแชท Support",
             missingSessionBody: "กรุณาเข้าสู่ระบบผ่านหน้าร้านค้า แล้วเลือกสาขา พนักงาน และเครื่องแคชเชียร์ก่อน",
             sessionExpiredHint: "Session หมดอายุหรือไม่ถูกต้อง กรุณาเข้าสู่ระบบใหม่",
             goLogin: "ไปหน้าล็อกอิน",
@@ -248,6 +252,9 @@ export function PosEntryGate({ lang }: { lang: Lang }) {
             loading: "Checking POS access...",
             quickLoading: "Opening sales screen...",
             missingSessionTitle: "No POS session found",
+            subscriptionLockedTitle:"Package access is locked",
+            subscriptionLockedBody:"Self-service payment is unavailable in this state. Contact Support so the case can be handed to IT for review.",
+            openSupport:"Open Support chat",
             missingSessionBody: "Please complete login flow (store, branch, employee, device) before entering sales.",
             sessionExpiredHint: "Your session is invalid or expired. Please sign in again.",
             goLogin: "Go to login",
@@ -307,6 +314,7 @@ export function PosEntryGate({ lang }: { lang: Lang }) {
     setLoading(true);
     setError(null);
     setSessionExpiredError(false);
+    setSubscriptionLocked(false);
     try {
       const sessionStartedAt = performance.now();
       const { response: sessionRes, body: sessionBodyRaw } = await fetchJsonWithTimeout("/api/pos/session/current");
@@ -314,6 +322,12 @@ export function PosEntryGate({ lang }: { lang: Lang }) {
       const sessionBody = sessionBodyRaw as SessionCurrentResponse | null;
       if (!sessionRes.ok || !sessionBody?.data) {
         const sessionCode = sessionBody?.error?.code ?? "";
+        if(sessionCode==="subscription_access_locked"){
+          setSession(null);
+          setSubscriptionLocked(true);
+          setError(sessionBody?.error?.message??text.subscriptionLockedBody);
+          return;
+        }
         if (SESSION_EXPIRED_CODES.has(sessionCode)) {
           setSession(null);
           publishSessionRole(null);
@@ -379,6 +393,11 @@ export function PosEntryGate({ lang }: { lang: Lang }) {
     window.location.assign(shiftMenuUrl);
   }
 
+  function openSubscriptionSupport(){
+    void fetch("/api/pos/subscription/support",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({message:"POS package lock popup"})}).catch(()=>null);
+    window.open("https://lin.ee/f1LXpAF","_blank","noopener,noreferrer");
+  }
+
   if (loading && skipSplashOnce) {
     return (
       <section className="surface" style={{ maxWidth: 760, margin: "0 auto", display: "grid", gap: 12 }}>
@@ -433,6 +452,25 @@ export function PosEntryGate({ lang }: { lang: Lang }) {
             <button type="button" onClick={() => void resetSessionAndGoLogin()} style={{ minHeight: 42 }}>
               {text.goLogin}
             </button>
+          </div>
+        </div>
+      </section>
+    );
+  }
+
+  if(!session&&subscriptionLocked){
+    return (
+      <section className="pos-entry-gate">
+        <div className="pos-entry-gate__overlay" />
+        <div role="alertdialog" aria-modal="true" className="pos-entry-gate__panel pos-entry-gate__panel--device-blocked">
+          <header className="pos-entry-gate__header">
+            <div className="pos-entry-gate__header-icon pos-entry-gate__header-icon--danger"><SummaryIcon type="power"/></div>
+            <div><h2>{text.subscriptionLockedTitle}</h2><p>{text.subscriptionLockedBody}</p></div>
+          </header>
+          {error?<p role="alert" className="pos-entry-gate__error">{error}</p>:null}
+          <div className="pos-entry-gate__button-row">
+            <button type="button" className="pos-entry-gate__primary-btn" onClick={openSubscriptionSupport}>{text.openSupport}</button>
+            <button type="button" className="pos-entry-gate__secondary-btn" onClick={()=>void load()}>{text.retry}</button>
           </div>
         </div>
       </section>

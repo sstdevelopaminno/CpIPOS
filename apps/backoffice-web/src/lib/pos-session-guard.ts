@@ -4,7 +4,7 @@ import crypto from "node:crypto";
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import { readRequiredEnv } from "@/lib/env";
-import { getSupabaseServiceClient } from "@/lib/supabase-admin";
+import { getPrimarySupabaseServiceClient, getSupabaseServiceClient } from "@/lib/supabase-admin";
 
 export type PosSessionRow = {
   id: string;
@@ -580,11 +580,33 @@ async function resolveSessionFromCookies(): Promise<PosSessionRow> {
   return session;
 }
 
+async function assertSubscriptionAccess(tenantId:string,storeCode:string|null|undefined){
+  const db=getPrimarySupabaseServiceClient();
+  const {data,error}=await db.from("tenant_subscription_runtime")
+    .select("access_locked,lock_reason,lifecycle_status,expires_at")
+    .eq("tenant_id",tenantId)
+    .maybeSingle<{access_locked:boolean;lock_reason:string|null;lifecycle_status:string;expires_at:string|null}>();
+  if(error){
+    console.error("[pos-session-guard] subscription runtime lookup failed",{tenantId,error:error.message});
+    return;
+  }
+  if(data?.access_locked){
+    const code=String(storeCode??tenantId.slice(0,8).toUpperCase());
+    const reason=String(data.lock_reason??"subscription_access_locked");
+    throw new PosGuardError(
+      "subscription_access_locked",
+      `รหัสร้าน ${code} ถูกระงับสิทธิ์แพ็กเกจ (${reason}) โปรดติดต่อฝ่าย Support เพื่อให้ IT ตรวจสอบและเปิดใช้งาน`,
+      423
+    );
+  }
+}
+
 export async function requirePosSession(): Promise<PosSessionScope> {
   const session = await resolveSessionFromCookies();
   assertActiveSession(session);
   const scopedSession = await resolveScopeSession(session);
   const extras = await loadScopeExtras(scopedSession);
+  await assertSubscriptionAccess(scopedSession.tenant_id,extras.tenant?.code);
   return {
     session: scopedSession,
     ...extras,
