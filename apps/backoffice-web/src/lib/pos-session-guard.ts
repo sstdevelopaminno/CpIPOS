@@ -580,7 +580,7 @@ async function resolveSessionFromCookies(): Promise<PosSessionRow> {
   return session;
 }
 
-export async function requirePosSession(): Promise<PosSessionScope> {
+async function buildPosSessionScope(): Promise<PosSessionScope> {
   const session = await resolveSessionFromCookies();
   assertActiveSession(session);
   const scopedSession = await resolveScopeSession(session);
@@ -590,6 +590,32 @@ export async function requirePosSession(): Promise<PosSessionScope> {
     ...extras,
     permissions: computePermissions(scopedSession.role)
   };
+}
+
+async function assertSubscriptionAccess(tenantId:string){
+  const supabase=getSupabaseServiceClient();
+  const {data,error}=await supabase.from("tenant_subscription_runtime")
+    .select("access_locked,lock_reason,lifecycle_status")
+    .eq("tenant_id",tenantId)
+    .maybeSingle<{access_locked:boolean|null;lock_reason:string|null;lifecycle_status:string|null}>();
+  if(error)throw new PosGuardError("subscription_runtime_query_failed","Unable to verify package access.",503);
+  if(data?.access_locked===true){
+    throw new PosGuardError(
+      "subscription_access_locked",
+      data.lock_reason||"Subscription access is locked.",
+      403
+    );
+  }
+}
+
+export async function requirePosSession(): Promise<PosSessionScope> {
+  const scope=await buildPosSessionScope();
+  await assertSubscriptionAccess(scope.session.tenant_id);
+  return scope;
+}
+
+export async function requirePosSessionForSubscriptionAccess(): Promise<PosSessionScope> {
+  return buildPosSessionScope();
 }
 
 export async function requirePosSessionForShiftClose(): Promise<PosSessionScope> {
