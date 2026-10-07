@@ -187,7 +187,7 @@ export async function claimPrintJobsStabilized(
       .eq("branch_id", agent.branch_id)
       .abortSignal(signal);
 
-    void activityPromise.then((activityResult) => {
+    void Promise.resolve(activityPromise).then((activityResult) => {
       if (activityResult.error && !signal.aborted) {
         console.warn("[print-agent] claim telemetry update skipped", {
           agentId: agent.id,
@@ -196,7 +196,7 @@ export async function claimPrintJobsStabilized(
           error: activityResult.error.message
         });
       }
-    }).catch((activityError) => {
+    }).catch((activityError: unknown) => {
       if (!signal.aborted) {
         console.warn("[print-agent] claim telemetry update failed", {
           agentId: agent.id,
