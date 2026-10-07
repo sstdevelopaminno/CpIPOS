@@ -125,7 +125,8 @@ describe("POS subscription center (commercial billing, not cashier payments)", (
     expect(lifecycleGuard).toContain("บัญชีบริษัท:");
     expect(previewLayout).toContain("PosSubscriptionLifecycleGuard");
     expect(sessionGuard).toContain("assertSubscriptionAllowsSales");
-    expect(sessionGuard).toContain('from("tenant_subscription_runtime")');\n    expect(sessionGuard).toContain("subscription_access_locked");
+    expect(sessionGuard).toContain('from("tenant_subscription_runtime")');
+    expect(sessionGuard).toContain("subscription_access_locked");
     expect(sessionGuard).toContain("getPrimarySupabaseServiceClient");
     expect(sessionGuard).toContain("await assertSubscriptionAllowsSales(scope.session.tenant_id)");
   });
