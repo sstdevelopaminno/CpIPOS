@@ -187,18 +187,27 @@ export async function claimPrintJobsStabilized(
       .eq("branch_id", agent.branch_id)
       .abortSignal(signal);
 
-    const [{ data: jobs, error: jobsError }, activityResult] = await Promise.all([
-      jobsPromise,
-      activityPromise
-    ]);
-    if (activityResult.error && !signal.aborted) {
-      console.warn("[print-agent] claim telemetry update skipped", {
-        agentId: agent.id,
-        tenantId: agent.tenant_id,
-        branchId: agent.branch_id,
-        error: activityResult.error.message
-      });
-    }
+    void activityPromise.then((activityResult) => {
+      if (activityResult.error && !signal.aborted) {
+        console.warn("[print-agent] claim telemetry update skipped", {
+          agentId: agent.id,
+          tenantId: agent.tenant_id,
+          branchId: agent.branch_id,
+          error: activityResult.error.message
+        });
+      }
+    }).catch((activityError) => {
+      if (!signal.aborted) {
+        console.warn("[print-agent] claim telemetry update failed", {
+          agentId: agent.id,
+          tenantId: agent.tenant_id,
+          branchId: agent.branch_id,
+          error: activityError instanceof Error ? activityError.message : "unknown"
+        });
+      }
+    });
+
+    const { data: jobs, error: jobsError } = await jobsPromise;
     if (jobsError) {
       if (signal.aborted) throw new BoundedTimeoutError("print_agent_claim_timeout", PRINT_AGENT_CLAIM_TIMEOUT_MS);
       throw new Error(jobsError.message);
