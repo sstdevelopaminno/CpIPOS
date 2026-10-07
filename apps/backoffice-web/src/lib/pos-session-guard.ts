@@ -135,22 +135,68 @@ async function assertSubscriptionAllowsSales(tenantId: string) {
   const cache = getSubscriptionAccessCache();
   const cached = cache.get(tenantId);
   if (cached && cached.expiresAt > now) {
-    if (cached.locked) throw new PosGuardError("subscription_locked", cached.reason || "Subscription payment is required.", 423);
+    if (cached.locked) {
+      throw new PosGuardError(
+        "subscription_access_locked",
+        cached.reason || "Subscription payment is required.",
+        423
+      );
+    }
     return;
   }
 
   const primary = getPrimarySupabaseServiceClient();
-  const result = await primary.from("tenant_data_lifecycle")
+  const runtime = await primary.from("tenant_subscription_runtime")
+    .select("access_locked,lock_reason,lifecycle_status,expires_at")
+    .eq("tenant_id", tenantId)
+    .maybeSingle<{
+      access_locked:boolean;
+      lock_reason:string|null;
+      lifecycle_status:string;
+      expires_at:string|null;
+    }>();
+
+  if (!runtime.error && runtime.data) {
+    const locked = runtime.data.access_locked === true;
+    const reason = runtime.data.lock_reason || (locked ? "subscription_access_locked" : null);
+    if (locked) {
+      cache.delete(tenantId);
+      throw new PosGuardError(
+        "subscription_access_locked",
+        reason || "Subscription payment is required.",
+        423
+      );
+    }
+    const expiryAt = runtime.data.expires_at && Number.isFinite(Date.parse(runtime.data.expires_at))
+      ? Date.parse(runtime.data.expires_at)
+      : Number.POSITIVE_INFINITY;
+    cache.set(tenantId,{
+      locked:false,
+      reason:null,
+      expiresAt:Math.min(now+POS_SUBSCRIPTION_ACTIVE_CACHE_TTL_MS,expiryAt)
+    });
+    return;
+  }
+
+  if (runtime.error) {
+    console.warn("[pos-session-guard] subscription runtime lookup failed; using lifecycle fallback", {
+      tenantId,
+      error: runtime.error.message
+    });
+  }
+
+  const fallback = await primary.from("tenant_data_lifecycle")
     .select("lifecycle_status,access_locked,lock_reason,subscription_expires_at,trial_expires_at,grace_until,metadata")
     .eq("tenant_id", tenantId).maybeSingle<{
       lifecycle_status:string; access_locked:boolean; lock_reason:string|null;
       subscription_expires_at:string|null; trial_expires_at:string|null; grace_until:string|null; metadata:Record<string,unknown>|null;
     }>();
-  if (result.error) {
-    console.error("[pos-session-guard] subscription access lookup failed", result.error.message);
+  if (fallback.error) {
+    console.error("[pos-session-guard] subscription access lookup failed", fallback.error.message);
     throw new PosGuardError("subscription_lookup_failed", "Unable to verify subscription access.", 503);
   }
-  const row = result.data;
+
+  const row = fallback.data;
   const exempt = row?.lifecycle_status === "sales_demo" || row?.metadata?.quota_exempt === true;
   const expiry = row?.lifecycle_status === "trial"
     ? row.trial_expires_at
@@ -161,18 +207,20 @@ async function assertSubscriptionAllowsSales(tenantId: string) {
   const locked = Boolean(row && !exempt && (row.access_locked || expiredByTime));
   const reason = row?.lock_reason || (expiredByTime ? "subscription_expired" : null);
   if (locked) {
-    // Never retain a locked decision in memory. IT settlement may unlock the
-    // tenant at any moment and the next sales request must see it immediately.
     cache.delete(tenantId);
-  } else {
-    const expiryAt = expiry && Number.isFinite(Date.parse(expiry)) ? Date.parse(expiry) : Number.POSITIVE_INFINITY;
-    cache.set(tenantId,{
-      locked:false,
-      reason:null,
-      expiresAt:Math.min(now+POS_SUBSCRIPTION_ACTIVE_CACHE_TTL_MS,expiryAt)
-    });
+    throw new PosGuardError(
+      "subscription_access_locked",
+      reason || "Subscription payment is required.",
+      423
+    );
   }
-  if (locked) throw new PosGuardError("subscription_locked", reason || "Subscription payment is required.", 423);
+
+  const expiryAt = expiry && Number.isFinite(Date.parse(expiry)) ? Date.parse(expiry) : Number.POSITIVE_INFINITY;
+  cache.set(tenantId,{
+    locked:false,
+    reason:null,
+    expiresAt:Math.min(now+POS_SUBSCRIPTION_ACTIVE_CACHE_TTL_MS,expiryAt)
+  });
 }
 
 function readPosSessionRowCache(sessionId: string): PosSessionRow | null | undefined {
@@ -649,6 +697,7 @@ export async function requirePosSession(): Promise<PosSessionScope> {
   assertActiveSession(session);
   const scopedSession = await resolveScopeSession(session);
   const extras = await loadScopeExtras(scopedSession);
+  await assertSubscriptionAllowsSales(scopedSession.tenant_id);
   return {
     session: scopedSession,
     ...extras,
