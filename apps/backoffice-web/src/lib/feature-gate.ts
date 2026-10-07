@@ -164,18 +164,7 @@ function parseLimit(value: unknown): number | null {
 
 function contractAllowsAccess(contract: ContractRow | null): boolean {
   if (!contract) return false;
-  if (contract.status !== "active" && contract.status !== "trial") {
-    return false;
-  }
-
-  if (contract.ended_at) {
-    const endMs = new Date(contract.ended_at).getTime();
-    if (Number.isFinite(endMs) && endMs <= Date.now()) {
-      return false;
-    }
-  }
-
-  return true;
+  return contract.status === "active" || contract.status === "trial";
 }
 
 async function getLatestContract(tenantId: string): Promise<ContractRow | null> {
@@ -228,6 +217,15 @@ export async function hasBranchFeature(tenantId: string, branchId: string | null
   }
 
   const supabase = getSupabaseServiceClient();
+  const runtimeResult=await supabase.from("tenant_subscription_runtime")
+    .select("access_locked,lock_reason")
+    .eq("tenant_id",tenantId)
+    .maybeSingle<{access_locked:boolean|null;lock_reason:string|null}>();
+  if(runtimeResult.error)throw new FeatureGateError("subscription_runtime_query_failed",runtimeResult.error.message,500);
+  if(runtimeResult.data?.access_locked===true){
+    writeFeatureDecisionCache(cacheKey,false);
+    return false;
+  }
   const [{ data: planFeatureRow, error: planFeatureError }, { data: tenantOverride, error: tenantOverrideError }, { data: branchOverride, error: branchOverrideError }] = await Promise.all([
     supabase
       .from("subscription_package_features")
