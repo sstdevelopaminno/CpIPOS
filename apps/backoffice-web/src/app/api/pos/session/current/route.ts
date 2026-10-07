@@ -273,12 +273,12 @@ async function loadShiftMetrics(args: {
   return { metrics, degraded };
 }
 
-export async function GET(request: Request) {
+export async function GET(request?: Request) {
   const startedAt = Date.now();
   try {
     const scope = await requirePosSession();
     const supabase = getSupabaseServiceClient();
-    const lightweightShiftGuard = new URL(request.url).searchParams.get("view") === "shift_guard";
+    const lightweightShiftGuard = request ? new URL(request.url).searchParams.get("view") === "shift_guard" : false;
     const renewedExpiry = await renewSessionLeaseIfNeeded(supabase, scope.session);
     if (renewedExpiry !== scope.session.expires_at) {
       scope.session.expires_at = renewedExpiry;
