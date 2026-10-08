@@ -15,7 +15,7 @@
 - **Physical gates:** #74 printer E2E and #153 multi-store POS acceptance remain open. Offline sales library exists but no fully verified offline cash-sale-to-sync path or Android offline-first release is accepted.
 
 ## Safe release gate order
-1. Decide Mobile entitlements and rate-limit provider; configure secrets directly in Vercel without copying values to GitHub/chat. Verify cross-instance behavior.
+1. Decide Mobile entitlements and rate-limit provider; configure secrets directly in Vercel without copying values to GitHub/chat. Run `node scripts/check-production-readiness.mjs --trial-required` **inside a trusted env** (prints only env names / block reasons), then verify cross-instance rate-limit behavior. This preflight checks presence, not whether a credential is valid.
 2. Reconcile migration version lists using `node scripts/audit-live-migration-history.mjs --history /private/path/export.json` and a separate `--plane trial` export. **The tool exits 2 on mismatch and does not run SQL.** Keep reconciliation/export outside Git; audit the SQL bodies and live objects rather than matching names alone.
 3. Review owner/tenant/branch controls of each callable SECURITY DEFINER function; keep intentional RLS-deny tables service-only.
 4. Finish staging E2E order+payment+stock consistency, table/Kitchen/QR, physical printer, native platform and MDM tests; attach per-case test artifacts using `docs/manual-qa-checklist.md`.
