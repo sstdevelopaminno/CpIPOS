@@ -11,6 +11,11 @@ on:
         description: "Expected full 40-character Git commit SHA"
         required: true
         type: string
+      verify_only:
+        description: "Verify GitHub VERCEL_TOKEN and deployment without promoting"
+        required: true
+        default: true
+        type: boolean
 
 permissions:
   contents: read
@@ -77,6 +82,7 @@ jobs:
             }
 
       - name: Promote verified deployment to Production without rebuild
+        if: ${{ inputs.verify_only == false }}
         shell: bash
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
@@ -91,6 +97,7 @@ jobs:
           esac
 
       - name: Verify Production alias points to expected commit
+        if: ${{ inputs.verify_only == false }}
         shell: bash
         run: |
           set -euo pipefail
@@ -102,3 +109,7 @@ jobs:
             sleep 5
           done
           echo "::error::Production did not switch to expected commit $EXPECTED_COMMIT_SHA."; exit 1
+
+      - name: Confirm safe credential preflight
+        if: ${{ inputs.verify_only == true }}
+        run: echo "Vercel credential and deployment checks passed. Verify-only mode; Production alias unchanged."
