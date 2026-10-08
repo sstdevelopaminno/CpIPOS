@@ -97,6 +97,7 @@ QA scenarios: [manual-qa-checklist.md](manual-qa-checklist.md)
 - [ ] Attach photos and device logs for LAN/Bluetooth/USB physical receipt + Kitchen printing, retry/reprint and offline hardware failure; link Issue #74.
 - [ ] Validate Android Stable/Modern and native Mobile APK, Windows installer, MDM enroll/update/rollback on representative devices/OEMs.
 - [ ] Perform documented restore/rollback drill and mixed multi-tenant load/soak, with p50/p95/p99/error rate and queue age.
+- [ ] Cloudflare Free standby, if adopted: independently build and health-test the second runtime, validate Free-plan resource limits and `nodejs_compat`, verify identical required server-only secrets without leakage, rehearse safe manual routing/rollback for a test hostname, and prove Supabase backup/restore separately. **DNS/CDN/proxy alone is not a failover server.** See [Cloudflare free standby runbook](CLOUDFLARE-FREE-STANDBY-RUNBOOK-2026-10-08.md).
 - [ ] Attach QA/Engineering/Operations signoff and clear Issue #153 only after all gates pass.
 
 **Audit decision: BLOCKED for new/multi-store rollout.** This is an acceptance-evidence status, not a claim of an active customer outage. The 2026-07-29 evidence above is historical and is not a release signoff for current Production.
