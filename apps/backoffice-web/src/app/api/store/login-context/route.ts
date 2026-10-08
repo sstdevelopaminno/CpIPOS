@@ -54,7 +54,8 @@ export async function POST(request: Request) {
     namespace: "login_context",
     key: rateLimitKey,
     max: rateLimitMax,
-    windowMs: rateLimitWindowSeconds * 1000
+    windowMs: rateLimitWindowSeconds * 1000,
+    failClosedOnBackendError: true
   });
   if (!rateLimitResult.ok) {
     console.warn("[store-login-context] Rate limit exceeded", {
