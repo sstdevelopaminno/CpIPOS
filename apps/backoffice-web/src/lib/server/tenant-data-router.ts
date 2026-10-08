@@ -180,16 +180,26 @@ export async function resolveTenantDataRoute(
 
     const pending = loadTenantDataRoute(tenantId)
       .then((resolved) => {
-        writeCachedTenantDataRoute(tenantId, resolved);
+        // A mutation may have invalidated this lookup while it was in flight.
+        // Never let an older read overwrite a route refreshed for a write.
+        if (inFlight.get(tenantId) === pending) {
+          writeCachedTenantDataRoute(tenantId, resolved);
+        }
         return resolved;
       })
       .finally(() => {
-        inFlight.delete(tenantId);
+        // Do not clear a newer in-flight request after an invalidation.
+        if (inFlight.get(tenantId) === pending) {
+          inFlight.delete(tenantId);
+        }
       });
     inFlight.set(tenantId, pending);
     return pending;
   }
 
+  // Invalidate the previous read cache and its in-flight resolution before a
+  // mutation decides the authoritative data home (Primary versus Trial).
+  invalidateTenantDataRouteCache(tenantId);
   const resolved = await loadTenantDataRoute(tenantId);
   writeCachedTenantDataRoute(tenantId, resolved);
   return resolved;
