@@ -209,10 +209,10 @@ export async function getTenantDataServiceClient(
   tenantId: string,
   options?: { mutation?: boolean }
 ) {
-  // Mutations always resolve routing fresh so a lifecycle cutover can never
-  // write to a stale data plane. Read-only paths use the short process-local cache
-  // to avoid one PostgREST request per API call.
-  const route = await resolveTenantDataRoute(tenantId, { fresh: options?.mutation === true });
+  // Only explicitly read-only callers may cache routing. Legacy callers
+  // without a mutation flag still resolve fresh to avoid stale data-plane writes.
+  // Mutations also invalidate any prior cache/in-flight read resolution.
+  const route = await resolveTenantDataRoute(tenantId, { fresh: options?.mutation !== false });
 
   if (route.dataHome === "primary") {
     return { client: getSupabaseServiceClient(), route };
