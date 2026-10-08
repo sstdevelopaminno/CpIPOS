@@ -24,7 +24,9 @@
     "build:turbo": "corepack pnpm --filter backoffice-web build",
     "lint": "corepack pnpm --filter backoffice-web lint",
     "typecheck": "corepack pnpm --filter backoffice-web typecheck",
-    "test": "corepack pnpm --filter backoffice-web test"
+    "test": "corepack pnpm --filter backoffice-web test",
+    "qa:migration-history": "node scripts/audit-live-migration-history.mjs",
+    "test:migration-history": "node --test scripts/tests/audit-live-migration-history.test.mjs"
   },
   "devDependencies": {
     "playwright": "1.55.0",
