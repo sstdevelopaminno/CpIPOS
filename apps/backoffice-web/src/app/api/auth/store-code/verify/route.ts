@@ -119,7 +119,8 @@ export async function POST(request: Request) {
         namespace: "store_code_verify",
         key: buildRateLimitKey({ namespace: "login:store-code", parts: [clientIp, storeCode] }),
         max: readRateLimitSetting("POS_STORE_RESOLVE_RATE_LIMIT_MAX", 30, { min: 5, max: 500 }),
-        windowMs: readRateLimitSetting("POS_PUBLIC_RATE_LIMIT_WINDOW_SECONDS", 60, { min: 10, max: 3600 }) * 1000
+        windowMs: readRateLimitSetting("POS_PUBLIC_RATE_LIMIT_WINDOW_SECONDS", 60, { min: 10, max: 3600 }) * 1000,
+        failClosedOnBackendError: true
       }),
       "store_rate_limit_timeout"
     );
