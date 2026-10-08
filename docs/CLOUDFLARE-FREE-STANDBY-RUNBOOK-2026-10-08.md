@@ -39,6 +39,12 @@ Acceptance evidence before marking WAF **PASS**:
 
 A successful GitHub CI or presence-only environment check does **not** prove WAF enforcement.
 
+### Live Vercel Firewall availability finding (2026-10-08)
+
+During this work package, the connected Vercel API returned HTTP **404 \`Seawall Config not found\`** for both active and draft WAF configurations and also for an attempted **log-only** rate-limit rule insertion (the attempt did **not** publish anything). Consequently **no project custom WAF rate-limit rule is installed or confirmed active**; automatic platform DDoS protection is separate.
+
+A project owner should visit **Vercel Dashboard → cp-ipos-web → Firewall → Configure**, initialize the project WAF configuration if prompted, create the narrowly scoped rule shown above in **log-only / observe** mode where supported, review its pricing and confirm the draft, then **Publish** after checking a safe traffic baseline. If configuration needs a billing confirmation, the owner must explicitly approve it. Do not invent an API rule ID or treat a 404 as proof of a working rule. After publishing, read the **active** configuration again before checking this security gate.
+
 ## B. Cloudflare Free: safest low-cost standby sequence
 
 **Prerequisites**: Cloudflare account, domain owned by company (optional for \`*.workers.dev\` testing), independent review of Free limits and all required server-only secrets. **No Cloudflare account or credentials are connected to this assistant.** Do not paste credentials into PRs, chat, commits, or public logs.
