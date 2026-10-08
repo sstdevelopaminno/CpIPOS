@@ -17,7 +17,9 @@
 - [Done] Staff-card secrets are hashed at rest and lifecycle-validated (`active|inactive|lost|revoked`).
 - [Done] Public API responses use safe error messages (no DB detail leakage).
 - [Must do before go-live] Rotate all production secrets.
-- [Must do before go-live] Configure shared rate-limit backend env (`RATE_LIMIT_BACKEND=upstash|redis`) in production and verify fail-closed behavior.
+- [Done for configuration intent, 2026-10-08] Approved no-Upstash mode: Vercel Production `RATE_LIMIT_BACKEND=memory` (per-instance memory only). No credentials are needed; this is a documented reduced-security mode and not proof of distributed throttling.
+- [Must do before multi-store go-live] Independently configure and test a Vercel WAF IP-based rule for high-risk login POST endpoints. Review false positives for shared-IP staff networks and provider pricing. Confirm enforcement using bounded test traffic; don't substitute a green source CI for actual WAF verification.
+- [Alternative if explicitly required] `RATE_LIMIT_BACKEND=upstash` with both REST credentials, verified cross-instance counter and failure recovery. Redis TCP (`redis`) is unsupported. To require this mode in preflight, pass `--distributed-rate-limit-required`.
 
 ## Database
 - [Done] Migrations committed in `supabase/migrations`.
@@ -39,7 +41,7 @@
 - [Done] Monitoring/alerting runbook documented.
 - [Not done] Alert rules configured in monitoring tools with on-call routing.
 - [Must do before go-live] Confirm alert ownership + escalation contact list.
-- [Must do before go-live] Add alert on rate-limiter backend failures and auth fail-closed spikes.
+- [Must do before go-live] Alert on login brute-force spikes and WAF rate-limit/429 events; also alert on Redis backend failures **only if** Upstash is later enabled.
 
 ## Definition of Done + QA
 - [Done] Definition of Done documented (`docs/definition-of-done.md`).
