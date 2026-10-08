@@ -46,10 +46,10 @@ describe("Supabase log-ingestion guard", () => {
     expect(lifecycle).toContain("Math.min(now+GUARD_ACTIVE_CACHE_TTL_MS,expiryAt)");
   });
 
-  it("briefly caches device status without weakening subscription unlock or expiry checks", () => {
+  it("bounds device, session and active subscription caches and clamps expiry checks", () => {
     expect(devicePolicy).toContain("DEVICE_POLICY_CACHE_TTL_MS = 15_000");
-    expect(posSession).toContain("POS_SESSION_ROW_CACHE_TTL_MS = 4000");
-    expect(posSession).toContain("POS_SUBSCRIPTION_ACTIVE_CACHE_TTL_MS = 5000");
+    expect(posSession).toContain("POS_SESSION_ROW_CACHE_TTL_MS = 15000");
+    expect(posSession).toContain("POS_SUBSCRIPTION_ACTIVE_CACHE_TTL_MS = 30000");
     expect(posSession).toContain("cache.delete(tenantId)");
     expect(posSession).toContain("Math.min(now+POS_SUBSCRIPTION_ACTIVE_CACHE_TTL_MS,expiryAt)");
     expect(posSession).not.toContain("POS_SUBSCRIPTION_ACCESS_CACHE_TTL_MS = 60000");
