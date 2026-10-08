@@ -41,7 +41,7 @@
 - [Done] Monitoring/alerting runbook documented.
 - [Not done] Alert rules configured in monitoring tools with on-call routing.
 - [Must do before go-live] Confirm alert ownership + escalation contact list.
-- [Must do before go-live] Add alert on rate-limiter backend failures and auth fail-closed spikes.
+- [Must do before go-live] Alert on login brute-force spikes and WAF rate-limit/429 events; also alert on Redis backend failures **only if** Upstash is later enabled.
 
 ## Definition of Done + QA
 - [Done] Definition of Done documented (`docs/definition-of-done.md`).
