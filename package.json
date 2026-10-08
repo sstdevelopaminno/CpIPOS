@@ -26,7 +26,8 @@
     "typecheck": "corepack pnpm --filter backoffice-web typecheck",
     "test": "corepack pnpm --filter backoffice-web test",
     "qa:migration-history": "node scripts/audit-live-migration-history.mjs",
-    "test:migration-history": "node --test scripts/tests/audit-live-migration-history.test.mjs"
+    "test:migration-history": "node --test scripts/tests/*.test.mjs",
+    "qa:release-config": "node scripts/check-production-readiness.mjs"
   },
   "devDependencies": {
     "playwright": "1.55.0",
