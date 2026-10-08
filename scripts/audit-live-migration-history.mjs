@@ -11,7 +11,7 @@
  */
 import fs from "node:fs/promises";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { pathToFileURL } from "node:url";
 
 const MIGRATION_DIRS = Object.freeze({
   primary: "supabase/migrations",
@@ -106,7 +106,7 @@ function parseArgs(argv) {
   return args;
 }
 
-if (process.argv[1] && import.meta.url === new URL(`file://${path.resolve(process.argv[1])}`).href) {
+if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
   try {
     const args = parseArgs(process.argv.slice(2));
     const result = await auditMigrationHistory(args);
