@@ -178,7 +178,7 @@ export async function resolveTenantDataRoute(
     const existing = inFlight.get(tenantId);
     if (existing) return existing;
 
-    const pending = loadTenantDataRoute(tenantId)
+    const pending: Promise<TenantDataRoute> = loadTenantDataRoute(tenantId)
       .then((resolved) => {
         // A mutation may have invalidated this lookup while it was in flight.
         // Never let an older read overwrite a route refreshed for a write.
