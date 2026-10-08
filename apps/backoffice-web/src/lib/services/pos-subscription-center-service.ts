@@ -35,6 +35,7 @@ type BillingDue = {
   days_until_due:number|null; due_at:string|null; next_period_start:string|null; next_period_end:string|null;
   billing_cycle_id:string|null; amount_due:number; amount_paid:number; outstanding:number;
   currency:string; billing_interval:string; package_name:string|null; open_request_status:string|null;
+  open_request_id:string|null;
   auto_check_status:string|null; access_locked:boolean; lock_reason:string|null;
   provisional_access_active:boolean; provisional_access_expires_at:string|null;
 };
