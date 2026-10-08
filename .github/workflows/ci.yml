@@ -58,9 +58,9 @@ jobs:
         timeout-minutes: 5
         run: corepack pnpm schema:drift
 
-      - name: Audit migration history tool tests
+      - name: Audit migration history and safe release preflight tests
         timeout-minutes: 3
-        run: node --test scripts/tests/audit-live-migration-history.test.mjs
+        run: node --test scripts/tests/*.test.mjs
 
       - name: CpiPOS-002 trial SQL separation preflight
         timeout-minutes: 5
