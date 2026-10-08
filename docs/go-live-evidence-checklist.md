@@ -79,3 +79,24 @@ Required evidence:
 - Rate limit spike/backend failure alert configured:
 - 5xx spike alert configured:
 - Evidence link:
+
+---
+
+## Release acceptance update — 2026-10-08 (source + read-only production audit)
+
+Evidence report: [PRODUCTION-CLOSURE-AUDIT-2026-10-08.md](PRODUCTION-CLOSURE-AUDIT-2026-10-08.md)
+QA scenarios: [manual-qa-checklist.md](manual-qa-checklist.md)
+
+- [ ] Verify the **exact Production** deployment SHA matches the approved main commit and accepted PRs; the audited Production was `93c8ad9`.
+- [ ] Reconcile Primary **and** Trial migration version lists with the repo by exact numeric version prefix; investigate divergent SQL content. The source marker scan is insufficient.
+- [ ] Attach read-only Supabase security/performance advisor review with decisions for callable `SECURITY DEFINER` functions, RLS/no-policy service-only access, and hot foreign-key indexes.
+- [ ] Configure distributed Production login rate limiting (Upstash/Redis REST or an explicitly reviewed equivalent), test cross-instance 429 and backend failure handling, retain secrets only in provider settings.
+- [ ] Confirm Mobile entitlement policy: all package records had `mobile_app_enabled=false` at audit; do not silently flip without a commercial decision.
+- [ ] Verify Trial routing credentials and a reversible Trial-to-Paid canary in a dedicated test scope; do not change Production `tenant_data_lifecycle.data_home` merely to pass this checklist.
+- [ ] Reconcile real shift/order/payment/stock totals under simultaneous cashier, terminal and Table QR activity.
+- [ ] Attach photos and device logs for LAN/Bluetooth/USB physical receipt + Kitchen printing, retry/reprint and offline hardware failure; link Issue #74.
+- [ ] Validate Android Stable/Modern and native Mobile APK, Windows installer, MDM enroll/update/rollback on representative devices/OEMs.
+- [ ] Perform documented restore/rollback drill and mixed multi-tenant load/soak, with p50/p95/p99/error rate and queue age.
+- [ ] Attach QA/Engineering/Operations signoff and clear Issue #153 only after all gates pass.
+
+**Audit decision: BLOCKED for new/multi-store rollout.** This is an acceptance-evidence status, not a claim of an active customer outage. The 2026-07-29 evidence above is historical and is not a release signoff for current Production.
