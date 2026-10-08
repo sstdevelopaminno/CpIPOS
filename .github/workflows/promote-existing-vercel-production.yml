@@ -1,10 +1,21 @@
 name: Promote Existing Vercel Deployment
 
 on:
-  push:
-    paths:
-      - ".github/workflows/promote-existing-vercel-production.yml"
   workflow_dispatch:
+    inputs:
+      target_deployment_id:
+        description: "Existing READY production deployment ID (dpl_...) to promote"
+        required: true
+        type: string
+      expected_commit_sha:
+        description: "Expected full 40-character Git commit SHA"
+        required: true
+        type: string
+      verify_only:
+        description: "Verify GitHub VERCEL_TOKEN and deployment without promoting"
+        required: true
+        default: true
+        type: boolean
 
 permissions:
   contents: read
@@ -16,8 +27,8 @@ concurrency:
 env:
   VERCEL_TEAM_ID: team_ZKmv6uQSU9QUyP08mxAr2YDI
   VERCEL_PROJECT_ID: prj_NLRmnCWPvQfSJZvoJE224zqVT4dj
-  TARGET_DEPLOYMENT_ID: dpl_EM9QzmvpuYRxRT81GBaNZq5is3Nb
-  EXPECTED_COMMIT_SHA: c17d3a4afd7598681d09c2ef99a6b916d61c3983
+  TARGET_DEPLOYMENT_ID: ${{ inputs.target_deployment_id }}
+  EXPECTED_COMMIT_SHA: ${{ inputs.expected_commit_sha }}
 
 jobs:
   promote:
@@ -26,6 +37,17 @@ jobs:
     timeout-minutes: 10
     environment: production
     steps:
+      - name: Validate promotion inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ ! "$TARGET_DEPLOYMENT_ID" =~ ^dpl_[A-Za-z0-9]+$ ]]; then
+            echo "::error::Provide a valid Vercel deployment ID (dpl_...)."; exit 1
+          fi
+          if [[ ! "$EXPECTED_COMMIT_SHA" =~ ^[a-f0-9]{40}$ ]]; then
+            echo "::error::Provide the full expected 40-character Git SHA."; exit 1
+          fi
+
       - name: Require valid Vercel Personal Access Token
         shell: bash
         env:
@@ -33,49 +55,61 @@ jobs:
         run: |
           set -euo pipefail
           if [ -z "$VERCEL_TOKEN" ]; then
-            echo "::error::Missing VERCEL_TOKEN repository secret."
-            exit 1
+            echo "::error::Missing VERCEL_TOKEN repository secret."; exit 1
           fi
           status=$(curl --silent --show-error --output /tmp/vercel-user.json --write-out "%{http_code}" \
-            -H "Authorization: Bearer $VERCEL_TOKEN" \
-            "https://api.vercel.com/v2/user")
-          cat /tmp/vercel-user.json
+            -H "Authorization: Bearer $VERCEL_TOKEN" "https://api.vercel.com/v2/user")
           if [ "$status" != "200" ]; then
-            echo "::error::VERCEL_TOKEN is not a valid Vercel Personal/Account Access Token for this account."
-            exit 1
+            echo "::error::VERCEL_TOKEN is invalid or unauthorized. Rotate it in GitHub Actions secrets."; exit 1
           fi
 
-      - name: Promote READY deployment to Production without rebuild
+      - name: Verify exact READY production deployment before promotion
+        shell: bash
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          set -euo pipefail
+          status=$(curl --silent --show-error --output /tmp/vercel-target.json --write-out "%{http_code}" \
+            -H "Authorization: Bearer $VERCEL_TOKEN" \
+            "https://api.vercel.com/v13/deployments/$TARGET_DEPLOYMENT_ID?teamId=$VERCEL_TEAM_ID")
+          if [ "$status" != "200" ]; then
+            echo "::error::Target deployment is not accessible (HTTP $status)."; exit 1
+          fi
+          jq -e --arg project "$VERCEL_PROJECT_ID" --arg sha "$EXPECTED_COMMIT_SHA" \
+            '(.readyState == "READY" or .state == "READY") and .target == "production" and ((.project.id // .projectId) == $project) and .meta.githubCommitSha == $sha' \
+            /tmp/vercel-target.json >/dev/null || {
+              echo "::error::Deployment must be READY, production-targeted and match the expected project/commit."; exit 1;
+            }
+
+      - name: Promote verified deployment to Production without rebuild
+        if: ${{ inputs.verify_only == false }}
         shell: bash
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
         run: |
           set -euo pipefail
           status=$(curl --silent --show-error --output /tmp/vercel-promote.json --write-out "%{http_code}" \
-            -X POST \
-            -H "Authorization: Bearer $VERCEL_TOKEN" \
+            -X POST -H "Authorization: Bearer $VERCEL_TOKEN" \
             "https://api.vercel.com/v10/projects/$VERCEL_PROJECT_ID/promote/$TARGET_DEPLOYMENT_ID?teamId=$VERCEL_TEAM_ID")
-          cat /tmp/vercel-promote.json
           case "$status" in
             200|201|202) ;;
-            *)
-              echo "::error::Vercel Promote API failed with HTTP $status."
-              exit 1
-              ;;
+            *) echo "::error::Vercel Promote API failed with HTTP $status."; exit 1 ;;
           esac
 
-      - name: Verify Production alias points to expected deployment
+      - name: Verify Production alias points to expected commit
+        if: ${{ inputs.verify_only == false }}
         shell: bash
         run: |
           set -euo pipefail
           for attempt in 1 2 3 4 5 6; do
             payload=$(curl --fail --silent --show-error "https://cp-ipos-web.vercel.app/api/system/build-info" || true)
-            echo "Attempt $attempt: $payload"
-            if printf '%s' "$payload" | grep -q "$EXPECTED_COMMIT_SHA"; then
-              echo "Production is serving expected commit $EXPECTED_COMMIT_SHA"
-              exit 0
+            if printf "%s" "$payload" | grep -q "$EXPECTED_COMMIT_SHA"; then
+              echo "Production is serving expected commit $EXPECTED_COMMIT_SHA"; exit 0
             fi
             sleep 5
           done
-          echo "::error::Production did not switch to expected commit $EXPECTED_COMMIT_SHA."
-          exit 1
+          echo "::error::Production did not switch to expected commit $EXPECTED_COMMIT_SHA."; exit 1
+
+      - name: Confirm safe credential preflight
+        if: ${{ inputs.verify_only == true }}
+        run: echo "Vercel credential and deployment checks passed. Verify-only mode; Production alias unchanged."
