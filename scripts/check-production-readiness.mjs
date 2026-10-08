@@ -65,7 +65,7 @@ export function assessProductionReadiness(env, { trialRequired = false, distribu
     blockedCapabilities: blocked,
     warnings,
     rateLimitBackend: backend,
-    rateLimitSharedAcrossInstances: backend === "upstash" && !missing.includes("UPSTASH_REDIS_REST_URL") && !missing.includes("UPSTASH_REDIS_REST_TOKEN"),
+    rateLimitSharedBackendConfigured: backend === "upstash" && !missing.includes("UPSTASH_REDIS_REST_URL") && !missing.includes("UPSTASH_REDIS_REST_TOKEN"),
     trialRoutingConfigured: trialConfigured,
     evaluated: "presence-only; provider credentials, WAF enforcement, external reachability and device acceptance were NOT verified"
   };
