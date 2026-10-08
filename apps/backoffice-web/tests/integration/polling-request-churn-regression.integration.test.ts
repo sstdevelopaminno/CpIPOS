@@ -78,5 +78,7 @@ describe("polling request-churn regression guard", () => {
     expect(tenantDataRouter).toContain("const TENANT_DATA_ROUTE_CACHE_TTL_MS = 30_000");
     expect(tenantDataRouter).toContain("__tenantDataRouteInFlight");
     expect(tenantDataRouter).toContain("fresh: options?.mutation === true");
+    expect(tenantDataRouter).toContain("if (inFlight.get(tenantId) === pending)");
+    expect(tenantDataRouter).toContain("invalidateTenantDataRouteCache(tenantId);");
   });
 });
