@@ -76,7 +76,9 @@ describe("POS SD general sale source contract", () => {
     const featuresRoute = readRepoFile("src", "app", "api", "pos", "features", "route.ts");
 
     expect(featureMap).toContain('general_sale: "barcode_scanner_mode"');
-    expect(controller).toContain('fetch("/api/pos/features"');
+    expect(controller).toContain('fetch("/api/pos/features?refresh=1"');
+    expect(controller).toContain('cache: "no-store"');
+    expect(controller).toContain("sales_modes?.general_sale === true");
     expect(controller).toContain("POS_MODE_FEATURES.general_sale");
     expect(featuresRoute).toContain("hasBranchFeatureSafe");
     expect(controller).not.toContain("350");
