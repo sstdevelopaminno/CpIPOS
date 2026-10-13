@@ -25,7 +25,8 @@ describe("live POS mode policy refresh across IT and the selector", () => {
     expect(selector).toContain("sales_modes?.general_sale === true");
     expect(selector).toContain("if (generalSaleActive && (opticalActive ? !opticalAllowed : !generalSaleAllowed))");
     expect(selector).toContain('window.addEventListener("focus", onFocus)');
-    expect(selector).toContain('window.clearInterval(policyTimer)');
+    expect(selector).not.toContain('window.setInterval(() => {');
+    expect(selector).toContain('window.addEventListener("focus", onFocus)');
   });
 
   it("updates all ordinary mode cards from the same fresh IT entitlement", () => {
