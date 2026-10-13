@@ -199,6 +199,9 @@ async function loadTenantFeatureSnapshot(tenantId: string, branchId: string) {
     })
   );
 
+  if (isCustom && salesModes.optical_retail) {
+    features.barcode_scanner_mode = true;
+  }
   return { features, salesModes, isCustom };
 }
 
