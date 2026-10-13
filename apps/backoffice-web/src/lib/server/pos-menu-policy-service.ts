@@ -1,7 +1,8 @@
 import "server-only";
 import { notFound } from "next/navigation";
-import { isCustomPosMenuVisible, posMenuKeyForRoute } from "@/lib/pos-menu-policy";
+import { POS_MENU_CATALOG, isCustomPosMenuVisible, posMenuKeyForRoute } from "@/lib/pos-menu-policy";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
+import { getInternalItTestMode } from "@/lib/server/internal-it-test-store";
 
 /** Read the authoritative tenant policy; absent rows preserve existing POS menus. */
 export async function getTenantPosMenuOverrides(tenantId: string): Promise<Record<string, boolean>> {
@@ -21,6 +22,11 @@ export async function getTenantPosMenuOverrides(tenantId: string): Promise<Recor
   if (overrides["settings.support"] === undefined && overrides["main.payments"] !== undefined) {
     overrides["settings.support"] = overrides["main.payments"];
   }
+  if (await getInternalItTestMode(tenantId) === "full") {
+    return Object.fromEntries(POS_MENU_CATALOG.map(item =>
+      [item.key, overrides[item.key] !== false]
+    ));
+  }
   return overrides;
 }
 
@@ -37,6 +43,7 @@ export async function isTenantPosMenuEnabled(tenantId: string, menuKey: string):
  */
 /** Shared server-side CUSTOM discriminator for POS page authorization. */
 export async function isTenantCustomPosPackage(tenantId: string): Promise<boolean> {
+  if (await getInternalItTestMode(tenantId) === "full") return true;
   const supabase = getSupabaseServiceClient();
   const { data: contract, error: contractError } = await supabase
     .from("tenant_subscription_contracts")
