@@ -723,10 +723,8 @@ export function PosGeneralSaleTableController() {
     const onFocus = () => {
       if (latestSelector) void loadAccess();
     };
-    // Keep an already-open mode dialog in sync when IT changes an entitlement.
-    const policyTimer = window.setInterval(() => {
-      if (latestSelector && document.visibilityState === "visible") void loadAccess();
-    }, 30_000);
+    // Refresh on modal opening, tab activation and focus rather than polling
+    // Supabase every few seconds on tablets left open throughout the day.
 
     document.addEventListener("click", onModeClick, true);
     document.addEventListener("click", onTableClick, true);
@@ -754,7 +752,6 @@ export function PosGeneralSaleTableController() {
       window.removeEventListener("storage", onStorage);
       document.removeEventListener("visibilitychange", onVisibility);
       window.removeEventListener("focus", onFocus);
-      window.clearInterval(policyTimer);
       accessSequence += 1;
       deactivateGeneralSale();
       removeGeneralSaleButton();
