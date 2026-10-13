@@ -2,6 +2,7 @@ import "server-only";
 
 import { isFeatureUnlockEnabled } from "@/lib/feature-unlock";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
+import { getInternalItTestMode } from "@/lib/server/internal-it-test-store";
 import { isDineInExplicitlyEnabled, isDineInLinkedFeature } from "@/lib/pos-sales-modes";
 
 export type QuotaResourceType = "branches" | "devices" | "users";
@@ -221,6 +222,13 @@ export async function hasBranchFeature(tenantId: string, branchId: string | null
   const cacheKey = `${tenantId}:${normalizedBranchId}:${featureCode}`;
   const cached = readFeatureDecisionCache(cacheKey);
   if (cached !== null) return cached;
+  // QA grants affect ONLY the doubly verified internal tenant, not all stores.
+  if (await getInternalItTestMode(tenantId) === "full") {
+    // QA must never authorize an unknown feature name supplied by a caller.
+    const enabled = await isFeatureKeyConfigured(featureCode);
+    writeFeatureDecisionCache(cacheKey, enabled);
+    return enabled;
+  }
 
   const contract = await getLatestContract(tenantId);
   if (!contractAllowsAccess(contract)) {
@@ -368,7 +376,7 @@ export async function getTenantLimits(tenantId: string): Promise<TenantLimits> {
 
 export async function enforceQuota(tenantId: string, resourceType: QuotaResourceType, branchId?: string | null): Promise<TenantLimits> {
   const limits = await getTenantLimits(tenantId);
-  if (isFeatureUnlockEnabled()) return limits;
+  if (isFeatureUnlockEnabled() || await getInternalItTestMode(tenantId) === "full") return limits;
 
   if (limits.contractStatus && limits.contractStatus !== "active" && limits.contractStatus !== "trial") {
     throw new FeatureGateError("contract_suspended", "Tenant contract is not active for provisioning actions.", 403);

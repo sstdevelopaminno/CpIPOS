@@ -6,6 +6,7 @@ import { DEFAULT_POS_SALES_MODES, POS_SALES_MODE_KEYS, isDineInLinkedFeature, no
 import { readThroughRuntimeCache } from "@/lib/route-runtime-cache";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
 import { getTenantPosMenuOverrides } from "@/lib/server/pos-menu-policy-service";
+import { getInternalItTestMode } from "@/lib/server/internal-it-test-store";
 
 type ContractRow = {
   package_id: string | null;
@@ -101,6 +102,14 @@ async function loadTenantFeatureSnapshot(tenantId: string, branchId: string) {
   }
 
   const metadata = contract?.metadata && typeof contract.metadata === "object" ? contract.metadata : {};
+  if (await getInternalItTestMode(tenantId) === "full") {
+    return {
+      features: Object.fromEntries(allPosMenuFeatureCodes().map(feature => [feature, true])),
+      salesModes: normalizePosSalesModes(metadata.sales_modes),
+      isCustom: true,
+      internalTestFull: true
+    };
+  }
   const featureCodes = allPosMenuFeatureCodes();
 
   if (isFeatureUnlockEnabled()) {
@@ -213,6 +222,7 @@ export async function GET() {
       features: snapshot.features,
       menu_policy: menuPolicy,
       is_custom: snapshot.isCustom,
+      is_internal_test_full: "internalTestFull" in snapshot && snapshot.internalTestFull === true,
       sales_modes: snapshot.salesModes,
       sales_modes_source: "package_metadata + tenant_subscription_contracts.metadata.sales_modes"
     });
