@@ -59,6 +59,7 @@ export function PosShellSidebar({ lang, settingsLabel, placement }: Props) {
   const [enabledFeatures, setEnabledFeatures] = useState<Record<string, boolean> | null>(null);
   const [menuPolicy, setMenuPolicy] = useState<Record<string, boolean>>({});
   const [isCustom, setIsCustom] = useState(false);
+  const [policyReady, setPolicyReady] = useState(false);
   const [packageLockOpen, setPackageLockOpen] = useState(false);
   const [itLockedMenu, setItLockedMenu] = useState<string | null>(null);
   const [logoutModalOpen, setLogoutModalOpen] = useState(false);
@@ -125,6 +126,7 @@ export function PosShellSidebar({ lang, settingsLabel, placement }: Props) {
           setEnabledFeatures(body?.data?.features ?? {});
           setMenuPolicy(body?.data?.menu_policy ?? {});
           setIsCustom(body?.data?.is_custom === true);
+          setPolicyReady(true);
         }
       } catch {
         if (!cancelled) setEnabledFeatures({});
@@ -242,7 +244,7 @@ export function PosShellSidebar({ lang, settingsLabel, placement }: Props) {
       ) : null}
 
       <div className={`${isHorizontal ? "min-w-0 flex-1 overflow-hidden" : "pos-shell-sidebar__menu-scroll mt-2 min-h-0 flex-1 overflow-y-auto overscroll-contain"}`} suppressHydrationWarning>
-        <div className={`${isHorizontal ? "flex min-w-0 items-center gap-1" : "flex min-h-full flex-col justify-start"}`}>
+        <div className={`${isHorizontal ? "flex min-w-0 items-center gap-1" : "flex min-h-full flex-col justify-start"}`} style={policyReady ? undefined : { visibility: "hidden" }}>
           <PosStaffMenu
             lang={lang}
             collapsed={isHorizontal ? false : collapsed}
