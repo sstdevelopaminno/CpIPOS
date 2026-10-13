@@ -685,6 +685,9 @@ export function PosGeneralSaleTableController() {
         });
         const body = (await response.json().catch(() => null)) as PosFeaturesResponse | null;
         if (destroyed || sequence !== accessSequence) return;
+        if (response.ok && body?.data) {
+          window.dispatchEvent(new CustomEvent("cpipos:pos-feature-policy-updated", { detail: body.data }));
+        }
         generalSaleAllowed = Boolean(response.ok && body?.data?.features?.[POS_MODE_FEATURES.general_sale] === true
           && body?.data?.sales_modes?.general_sale === true);
         opticalAllowed = Boolean(response.ok && (body?.data?.is_custom === true || body?.data?.is_internal_test_full === true)
