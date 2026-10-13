@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { MouseEvent, useMemo } from "react";
 import { t, type Language } from "@/lib/i18n";
-import { isPosMenuEnabled, posMenuKeyForRoute } from "@/lib/pos-menu-policy";
+import { isCustomPosMenuVisible, isPosMenuEnabled, posMenuKeyForRoute } from "@/lib/pos-menu-policy";
 import { POS_MENU_LOCK_TITLE_EN, POS_MENU_LOCK_TITLE_TH, featureForPosRoute } from "@/lib/pos-feature-map";
 
 type IconName = "sales" | "list" | "kitchen" | "shift" | "more" | "payment" | "ai";
@@ -85,21 +85,22 @@ function entryClass(args: { active: boolean; locked: boolean; horizontal: boolea
   return `group relative inline-flex min-h-[42px] items-center text-[13px] font-semibold leading-tight transition ${layout} ${state}`;
 }
 
-export function PosStaffMenu({ lang, collapsed, orientation = "vertical", sessionRole, enabledFeatures, menuPolicy, onLockedFeature, onLockedMenu }: {
+export function PosStaffMenu({ lang, collapsed, orientation = "vertical", sessionRole, enabledFeatures, menuPolicy, isCustom = false, onLockedFeature, onLockedMenu }: {
   lang: Language;
   collapsed: boolean;
   orientation?: "vertical" | "horizontal";
   sessionRole: PosRole | null;
   enabledFeatures: Record<string, boolean> | null;
   menuPolicy: Record<string, boolean>;
+  isCustom?: boolean;
   onLockedFeature: () => void;
   onLockedMenu: (menuLabel: string) => void;
 }) {
   const pathname = usePathname();
   const effectiveRole = resolveMenuRole(sessionRole);
   const menuItems = useMemo(
-    () => MENU_DEFS.map((item) => ({ ...item, label: labelFor(item, lang) })).filter((item) => item.roles.includes(effectiveRole)),
-    [effectiveRole, lang]
+    () => MENU_DEFS.map((item) => ({ ...item, label: labelFor(item, lang) })).filter((item) => item.roles.includes(effectiveRole) && (!isCustom || isCustomPosMenuVisible(posMenuKeyForRoute(item.href) ?? "", menuPolicy, true))),
+    [effectiveRole, lang, isCustom, menuPolicy]
   );
   const isHorizontal = orientation === "horizontal";
   const aiVisible = sessionRole === "owner" || sessionRole === "manager";
@@ -146,7 +147,7 @@ export function PosStaffMenu({ lang, collapsed, orientation = "vertical", sessio
         );
       })}
 
-      {aiVisible ? (
+      {aiVisible && (!isCustom || (isCustomPosMenuVisible("main.ai_assistant", menuPolicy, true) && !aiFeatureLocked)) ? (
         <Link
           href="/preview/pos/ai-assistant"
           onClick={(event) => aiPolicyLocked ? (event.preventDefault(), onLockedMenu(aiLabel)) : aiFeatureLocked ? (event.preventDefault(), onLockedFeature()) : handleNavigate(event, "/preview/pos/ai-assistant")}
@@ -160,7 +161,7 @@ export function PosStaffMenu({ lang, collapsed, orientation = "vertical", sessio
         </Link>
       ) : null}
 
-      {moreVisible ? (
+      {moreVisible && (!isCustom || isCustomPosMenuVisible("main.more", menuPolicy, true)) ? (
         <Link
           href="/preview/pos/more"
           onClick={(event) => morePolicyLocked ? (event.preventDefault(), onLockedMenu(t(lang, "pos_menu_more"))) : handleNavigate(event, "/preview/pos/more")}
@@ -174,7 +175,7 @@ export function PosStaffMenu({ lang, collapsed, orientation = "vertical", sessio
         </Link>
       ) : null}
 
-      {(sessionRole === "owner" || sessionRole === "manager") ? (
+      {(sessionRole === "owner" || sessionRole === "manager") && (!isCustom || isCustomPosMenuVisible("main.package_payment", menuPolicy, true)) ? (
         <Link
           href="/preview/pos/payments/package"
           onClick={(event) => billingPolicyLocked ? (event.preventDefault(), onLockedMenu(billingLabel)) : handleNavigate(event, "/preview/pos/payments/package")}
