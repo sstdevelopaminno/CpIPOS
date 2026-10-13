@@ -24,7 +24,7 @@ describe("POS tenant menu toggle regression", () => {
     expect(api).toContain("getTenantPosMenuOverrides");
     expect(api).toContain("menu_policy:");
     expect(server).toContain('from("tenant_pos_menu_policies")');
-    expect(server).not.toContain("notFound()");
+    expect(server).toContain("notFound()");
     expect(server).toContain("assertPosMenuPageAllowed");
     expect(server).toContain("isCustomPosMenuVisible(menuKey, overrides, true)");
   });
