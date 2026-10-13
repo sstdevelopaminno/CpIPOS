@@ -3,7 +3,7 @@ import "server-only";
 import { isFeatureUnlockEnabled } from "@/lib/feature-unlock";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
 import { getInternalItTestMode } from "@/lib/server/internal-it-test-store";
-import { isDineInExplicitlyEnabled, isDineInLinkedFeature } from "@/lib/pos-sales-modes";
+import { isDineInExplicitlyEnabled, isDineInLinkedFeature, isOpticalRetailExplicitlyEnabled } from "@/lib/pos-sales-modes";
 
 export type QuotaResourceType = "branches" | "devices" | "users";
 
@@ -280,6 +280,20 @@ export async function hasBranchFeature(tenantId: string, branchId: string | null
 
   if (branchOverride) {
     enabled = branchOverride.is_enabled;
+  }
+
+  // Optical retail uses the existing secured SKU/scanner workflow.
+  // This additional grant exists ONLY for a CUSTOM contract explicitly
+  // enabled by IT; fixed packages retain their normal barcode entitlements.
+  if (featureCode === "barcode_scanner_mode" && !enabled
+    && isOpticalRetailExplicitlyEnabled(contract?.metadata?.sales_modes)) {
+    const currentPackage = await supabase.from("subscription_packages")
+      .select("code").eq("id", contract!.package_id)
+      .maybeSingle<{ code: string }>();
+    if (currentPackage.error) throw new FeatureGateError(
+      "optical_package_check_failed", currentPackage.error.message, 500
+    );
+    if (String(currentPackage.data?.code ?? "").toLowerCase() === "custom") enabled = true;
   }
 
   // Dine-in cannot operate safely without table, kitchen and table-call
