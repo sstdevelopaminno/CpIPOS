@@ -30,6 +30,14 @@ export function normalizePosSalesModes(value: unknown): PosSalesModeSettings {
   };
 }
 
+/** CUSTOM never silently enables sales modes omitted by the IT contract. */
+export function normalizeCustomPosSalesModes(value: unknown): PosSalesModeSettings {
+  const record = asRecord(value);
+  return Object.fromEntries(
+    POS_SALES_MODE_KEYS.map((key) => [key, record[key] === true])
+  ) as PosSalesModeSettings;
+}
+
 export function posUiModeToControlKey(value: string | null | undefined): PosSalesModeKey | null {
   if (value === "home" || value === "takeaway") return "takeaway";
   if (value === "dine_in") return "dine_in";
