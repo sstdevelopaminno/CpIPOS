@@ -13,6 +13,8 @@ import {
   GENERAL_SALE_ADD_PRODUCT_RESULT_EVENT,
   GENERAL_SALE_CHECKOUT_BASE_MODE,
   OPTICAL_ACTIVATE_BASE_MODE_EVENT,
+  OPTICAL_DEACTIVATE_BASE_MODE_EVENT,
+  OPTICAL_ACTIVE_ROOT_ATTRIBUTE,
   GENERAL_SALE_LAYOUT_ATTRIBUTE,
   GENERAL_SALE_LAYOUT_STORAGE_KEY,
   GENERAL_SALE_MODE_ID,
@@ -190,11 +192,14 @@ export function PosGeneralSaleTableController() {
       if (active) {
         document.documentElement.setAttribute(GENERAL_SALE_ROOT_ATTRIBUTE, GENERAL_SALE_MODE_ID);
         document.documentElement.setAttribute(GENERAL_SALE_LAYOUT_ATTRIBUTE, "table");
+        if (opticalActive) document.documentElement.setAttribute(OPTICAL_ACTIVE_ROOT_ATTRIBUTE, "1");
+        else document.documentElement.removeAttribute(OPTICAL_ACTIVE_ROOT_ATTRIBUTE);
       } else {
         if (document.documentElement.getAttribute(GENERAL_SALE_ROOT_ATTRIBUTE) === GENERAL_SALE_MODE_ID) {
           document.documentElement.removeAttribute(GENERAL_SALE_ROOT_ATTRIBUTE);
         }
         document.documentElement.removeAttribute(GENERAL_SALE_LAYOUT_ATTRIBUTE);
+        document.documentElement.removeAttribute(OPTICAL_ACTIVE_ROOT_ATTRIBUTE);
       }
     };
 
@@ -229,6 +234,9 @@ export function PosGeneralSaleTableController() {
     };
 
     const deactivateGeneralSale = () => {
+      if (opticalActive) {
+        window.dispatchEvent(new Event(OPTICAL_DEACTIVATE_BASE_MODE_EVENT));
+      }
       generalSaleActive = false;
       opticalActive = false;
       setRootMode(false);
@@ -565,6 +573,7 @@ export function PosGeneralSaleTableController() {
           const homeButton = grid.querySelector<HTMLElement>(`[${MODE_ATTRIBUTE}="${GENERAL_SALE_CHECKOUT_BASE_MODE}"]`);
           if (!homeButton) return;
           homeButton.click();
+          if (opticalActive) window.dispatchEvent(new Event(OPTICAL_DEACTIVATE_BASE_MODE_EVENT));
           generalSaleActive = true;
           opticalActive = false;
           removeScanner();
