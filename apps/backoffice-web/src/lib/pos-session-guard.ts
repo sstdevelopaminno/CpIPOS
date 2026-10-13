@@ -250,6 +250,18 @@ export function updateCachedPosSessionShift(sessionId: string, shiftId: string |
   writePosSessionRowCache(normalizedSessionId, { ...cached, shift_id: shiftId });
 }
 
+export function updateCachedPosSessionExpiry(sessionId: string, expiresAt: string) {
+  const normalizedSessionId = sessionId.trim().replace(/^"+|"+$/g, "");
+  const cached = readPosSessionRowCache(normalizedSessionId);
+  if (!cached) return;
+  writePosSessionRowCache(normalizedSessionId, { ...cached, expires_at: expiresAt });
+}
+
+function readPosSessionLeaseHours() {
+  const raw = Number(process.env.POS_SESSION_TTL_HOURS ?? 24);
+  return Number.isFinite(raw) && raw > 0 && raw <= 72 ? raw : 24;
+}
+
 function readPosScopeExtrasCache(cacheKey: string): Omit<PosSessionScope, "session" | "permissions"> | null {
   const cache = getPosScopeExtrasCache();
   const entry = cache.get(cacheKey);
@@ -815,7 +827,7 @@ export function withPosSessionCookie(response: NextResponse, sessionId: string) 
     sameSite: "lax",
     path: "/",
     domain: config.domain,
-    maxAge: 12 * 60 * 60
+    maxAge: Math.round(readPosSessionLeaseHours() * 60 * 60)
   });
   return response;
 }

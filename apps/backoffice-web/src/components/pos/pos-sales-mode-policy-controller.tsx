@@ -8,10 +8,12 @@ const LOCK_ATTRIBUTE = "data-it-sales-mode-locked";
 const BADGE_ATTRIBUTE = "data-it-sales-mode-lock-badge";
 const STYLE_ID = "cpipos-it-sales-mode-policy-style";
 const POLICY_REFRESH_MS = 5 * 60_000;
+const CUSTOM_HIDDEN_ATTRIBUTE = "data-it-custom-mode-hidden";
 
 type FeaturesEnvelope = {
   data?: {
     sales_modes?: unknown;
+    is_custom?: boolean;
   } | null;
 };
 
@@ -20,6 +22,7 @@ function ensurePolicyStyles() {
   const style = document.createElement("style");
   style.id = STYLE_ID;
   style.textContent = `
+    [${CUSTOM_HIDDEN_ATTRIBUTE}="1"] { display: none !important; }
     [${LOCK_ATTRIBUTE}="1"] {
       position: relative !important;
       cursor: not-allowed !important;
@@ -105,6 +108,7 @@ export function PosSalesModePolicyController() {
   useEffect(() => {
     let destroyed = false;
     let modes: PosSalesModeSettings = { ...DEFAULT_POS_SALES_MODES };
+    let isCustom = false;
     let requestSequence = 0;
     let applyFrame: number | null = null;
 
@@ -116,7 +120,13 @@ export function PosSalesModePolicyController() {
         const key = posUiModeToControlKey(element.getAttribute(MODE_ATTRIBUTE));
         if (!key) return;
         element.setAttribute("data-it-sales-mode-lock-key", key);
-        setElementLocked(element, modes[key] === false);
+        if (isCustom && modes[key] !== true) {
+          element.setAttribute(CUSTOM_HIDDEN_ATTRIBUTE, "1");
+          setElementLocked(element, false);
+        } else {
+          element.removeAttribute(CUSTOM_HIDDEN_ATTRIBUTE);
+          setElementLocked(element, !isCustom && modes[key] === false);
+        }
       });
     };
 
@@ -140,6 +150,7 @@ export function PosSalesModePolicyController() {
         const payload = (await response.json().catch(() => null)) as FeaturesEnvelope | null;
         if (destroyed || sequence !== requestSequence) return;
         modes = normalizePosSalesModes(payload?.data?.sales_modes);
+        isCustom = payload?.data?.is_custom === true;
         scheduleApplyPolicy();
       } catch {
         // Keep the last known policy. Temporary network problems must not rewrite the UI policy.
@@ -154,7 +165,11 @@ export function PosSalesModePolicyController() {
       event.preventDefault();
       event.stopPropagation();
       event.stopImmediatePropagation();
-      setElementLocked(target, true);
+      if (isCustom) {
+        target.setAttribute(CUSTOM_HIDDEN_ATTRIBUTE, "1");
+      } else {
+        setElementLocked(target, true);
+      }
     };
 
     const observer = new MutationObserver(() => scheduleApplyPolicy());
@@ -185,6 +200,7 @@ export function PosSalesModePolicyController() {
       document.removeEventListener("visibilitychange", onVisibility);
       window.removeEventListener("focus", onFocus);
       document.querySelectorAll<HTMLElement>(`[${LOCK_ATTRIBUTE}="1"]`).forEach((element) => setElementLocked(element, false));
+      document.querySelectorAll<HTMLElement>(`[${CUSTOM_HIDDEN_ATTRIBUTE}="1"]`).forEach((element) => element.removeAttribute(CUSTOM_HIDDEN_ATTRIBUTE));
     };
   }, []);
 

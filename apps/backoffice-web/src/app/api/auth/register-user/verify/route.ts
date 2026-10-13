@@ -121,7 +121,8 @@ export async function POST(request: Request) {
     namespace: "register_user_verify",
     key: buildRateLimitKey({ namespace: "login:register-user", parts: [clientIp, storeCode, username] }),
     max: readRateLimitSetting("POS_REGISTER_VERIFY_RATE_LIMIT_MAX", 20, { min: 5, max: 200 }),
-    windowMs: readRateLimitSetting("POS_PUBLIC_RATE_LIMIT_WINDOW_SECONDS", 60, { min: 10, max: 3600 }) * 1000
+    windowMs: readRateLimitSetting("POS_PUBLIC_RATE_LIMIT_WINDOW_SECONDS", 60, { min: 10, max: 3600 }) * 1000,
+    failClosedOnBackendError: true
   });
   if (!rateResult.ok) {
     const response = NextResponse.json(

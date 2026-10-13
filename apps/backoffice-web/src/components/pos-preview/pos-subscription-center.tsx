@@ -168,8 +168,13 @@ export function PosSubscriptionCenter({ initial, isOwner, showContactActions = t
   const hasBank = Boolean(snapshot.issuer.account_number || snapshot.issuer.promptpay_id);
   const pendingCanAcceptPayment = Boolean(pending && !pending.has_evidence &&
     (pending.kind === "renewal_intent" || (pending.kind === "payment_notice" && pending.created_by_it)));
-  const canSubmit = isOwner && !demo && !busy && selfServiceAllowed &&
-    (!pending || (tab === "notice" && pendingCanAcceptPayment));
+  // A pre-existing renewal awaiting its slip is already part of the current
+  // billing cycle. The open request disables NEW self-service payments, but must
+  // not disable its own evidence-upload form. The API enforces the exact request ID.
+  const completingPendingPayment = tab === "notice" && pendingCanAcceptPayment && !supportRequired;
+  const canSubmit = isOwner && !demo && !busy &&
+    (selfServiceAllowed || completingPendingPayment) &&
+    (!pending || completingPendingPayment);
   const packageRow = useMemo(() =>
     snapshot.packages.find((row) => row.id === selectedPackage), [selectedPackage, snapshot.packages]);
   const currentPackageRow = useMemo(() =>

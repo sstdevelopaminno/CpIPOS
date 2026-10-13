@@ -7,7 +7,7 @@ import { PackageLockDialog } from "@/components/pos-preview/package-lock-dialog"
 import { ItMenuLockDialog } from "@/components/pos-preview/it-menu-lock-dialog";
 import { PosStaffMenu } from "@/components/pos-preview/pos-staff-menu";
 import { PosSupportPushBridge } from "@/components/pos-preview/pos-support-push-control";
-import { isPosMenuEnabled } from "@/lib/pos-menu-policy";
+import { isCustomPosMenuVisible, isPosMenuEnabled } from "@/lib/pos-menu-policy";
 import { t, type Language } from "@/lib/i18n";
 import {
   POS_MENU_LOCK_TITLE_EN,
@@ -58,6 +58,8 @@ export function PosShellSidebar({ lang, settingsLabel, placement }: Props) {
   const [sessionRole, setSessionRole] = useState<PosRole | null>(null);
   const [enabledFeatures, setEnabledFeatures] = useState<Record<string, boolean> | null>(null);
   const [menuPolicy, setMenuPolicy] = useState<Record<string, boolean>>({});
+  const [isCustom, setIsCustom] = useState(false);
+  const [policyReady, setPolicyReady] = useState(false);
   const [packageLockOpen, setPackageLockOpen] = useState(false);
   const [itLockedMenu, setItLockedMenu] = useState<string | null>(null);
   const [logoutModalOpen, setLogoutModalOpen] = useState(false);
@@ -119,10 +121,12 @@ export function PosShellSidebar({ lang, settingsLabel, placement }: Props) {
     async function loadFeatures() {
       try {
         const response = await fetch("/api/pos/features", { cache: "no-store" });
-        const body = (await response.json().catch(() => null)) as { data?: { features?: Record<string, boolean>; menu_policy?: Record<string, boolean> } | null } | null;
+        const body = (await response.json().catch(() => null)) as { data?: { features?: Record<string, boolean>; menu_policy?: Record<string, boolean>; is_custom?: boolean } | null } | null;
         if (!cancelled && response.ok) {
           setEnabledFeatures(body?.data?.features ?? {});
           setMenuPolicy(body?.data?.menu_policy ?? {});
+          setIsCustom(body?.data?.is_custom === true);
+          setPolicyReady(true);
         }
       } catch {
         if (!cancelled) setEnabledFeatures({});
@@ -240,7 +244,7 @@ export function PosShellSidebar({ lang, settingsLabel, placement }: Props) {
       ) : null}
 
       <div className={`${isHorizontal ? "min-w-0 flex-1 overflow-hidden" : "pos-shell-sidebar__menu-scroll mt-2 min-h-0 flex-1 overflow-y-auto overscroll-contain"}`} suppressHydrationWarning>
-        <div className={`${isHorizontal ? "flex min-w-0 items-center gap-1" : "flex min-h-full flex-col justify-start"}`}>
+        <div className={`${isHorizontal ? "flex min-w-0 items-center gap-1" : "flex min-h-full flex-col justify-start"}`} style={policyReady ? undefined : { visibility: "hidden" }}>
           <PosStaffMenu
             lang={lang}
             collapsed={isHorizontal ? false : collapsed}
@@ -248,11 +252,12 @@ export function PosShellSidebar({ lang, settingsLabel, placement }: Props) {
             sessionRole={sessionRole}
             enabledFeatures={enabledFeatures}
             menuPolicy={menuPolicy}
+            isCustom={isCustom}
             onLockedFeature={() => setPackageLockOpen(true)}
             onLockedMenu={setItLockedMenu}
           />
 
-          {showAdvancedMenus ? (
+          {showAdvancedMenus && (!isCustom || isCustomPosMenuVisible("main.settings", menuPolicy, true)) ? (
             <Link
               href="/preview/pos/settings"
               onClick={handleSettingsNavigate}
