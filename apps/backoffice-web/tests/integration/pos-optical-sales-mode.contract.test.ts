@@ -23,7 +23,8 @@ describe("IMDC Optical is opt-in and bound to the active POS retail controller",
     expect(page).toContain("<PosGeneralSaleTableController />");
     expect(controller).toContain('const OPTICAL_MODE_ID = "optical_retail"');
     expect(controller).toContain("if (!opticalAllowed) return");
-    expect(controller).toContain('home.click()');
+    expect(controller).toContain("new Event(OPTICAL_ACTIVATE_BASE_MODE_EVENT)");
+    expect(source("src/components/pos/pos-sales-module.tsx")).toContain('applyQuickMode("home")');
     expect(controller).toContain("IMDC OPTICAL");
   });
 
