@@ -32,7 +32,7 @@ import { TableZoneTabs } from "@/components/tables/table-zone-tabs";
 import type { DiningTableItem, FloorPlanObjectItem, TableZoneItem } from "@/components/tables/types";
 import { calculateDeliveryPricingBreakdown } from "@/lib/delivery-pricing";
 import { POS_MODE_FEATURES } from "@/lib/pos-feature-map";
-import { OPTICAL_ACTIVATE_BASE_MODE_EVENT } from "@/lib/pos-general-sale-mode";
+import { OPTICAL_ACTIVATE_BASE_MODE_EVENT, OPTICAL_DEACTIVATE_BASE_MODE_EVENT } from "@/lib/pos-general-sale-mode";
 import { beginPosActionTrace, clearPosTraceEvents, endPosActionTrace, readPosTraceEvents, usePosRenderProfiler } from "@/lib/pos-ui-profiler";
 import { naturalCompareTableCode } from "@/lib/table-management";
 import { cachePosSalesOfflineCatalogSnapshot } from "@/lib/pos-offline-catalog-snapshot";
@@ -1756,6 +1756,16 @@ function DeviceBlockIcon({ status }: { status: PosSalesDevicePolicy["status"] })
   );
 }
 
+function OpticalRetailModeIcon() {
+  return (
+    <svg viewBox="0 0 48 48" aria-hidden="true" className="h-8 w-8 shrink-0" fill="none">
+      <path d="M5 21.5 10 19l8 1.5 5 4h2l5-4 8-1.5 5 2.5" stroke="#065f46" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M10 22c-1 0-2 1-2 3v5c0 4 3 7 8 7s8-3 8-8v-4l-6-3h-8Z" stroke="#047857" strokeWidth="3" fill="#d1fae5" />
+      <path d="m30 22-6 3v4c0 5 3 8 8 8s8-3 8-7v-5c0-2-1-3-2-3h-8Z" stroke="#047857" strokeWidth="3" fill="#d1fae5" />
+    </svg>
+  );
+}
+
 function QuickModeIcon({ mode }: { mode: QuickMode }) {
   if (mode === "dine_in") {
     return (
@@ -2077,6 +2087,7 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
   const [discountAmountInput, setDiscountAmountInput] = useState("");
   const [discountEditMode, setDiscountEditMode] = useState<"percent" | "amount">("percent");
   const [quickMode, setQuickMode] = useState<QuickMode>("home");
+  const [opticalRetailActive, setOpticalRetailActive] = useState(false);
   const [modeSelectorOpen, setModeSelectorOpen] = useState(false);
   const [salesTopbarCollapsed, setSalesTopbarCollapsed] = useState(false);
   const [enabledFeatures, setEnabledFeatures] = useState<Record<string, boolean> | null>(null);
@@ -5947,6 +5958,7 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
   }
 
   function applyQuickMode(mode: QuickMode) {
+    setOpticalRetailActive(false);
     setModeSelectorOpen(false);
     if (mode === "home") {
       invalidateTableUiContext();
@@ -6011,9 +6023,19 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
   // The specialized retail mode has a tenant-scoped entitlement. Its base
   // order type is takeaway, but IT may hide the ordinary takeaway card.
   useEffect(() => {
-    const onOpticalActivate = () => applyQuickMode("home");
+    const onOpticalActivate = () => {
+      // Reuse the existing takeaway transaction/stock/receipt pipeline without
+      // exposing the ordinary takeaway selling mode as the Optical UI.
+      applyQuickMode("home");
+      setOpticalRetailActive(true);
+    };
+    const onOpticalDeactivate = () => setOpticalRetailActive(false);
     window.addEventListener(OPTICAL_ACTIVATE_BASE_MODE_EVENT, onOpticalActivate);
-    return () => window.removeEventListener(OPTICAL_ACTIVATE_BASE_MODE_EVENT, onOpticalActivate);
+    window.addEventListener(OPTICAL_DEACTIVATE_BASE_MODE_EVENT, onOpticalDeactivate);
+    return () => {
+      window.removeEventListener(OPTICAL_ACTIVATE_BASE_MODE_EVENT, onOpticalActivate);
+      window.removeEventListener(OPTICAL_DEACTIVATE_BASE_MODE_EVENT, onOpticalDeactivate);
+    };
   });
 
   function isQuickModeLocked(mode: QuickMode) {
@@ -6034,7 +6056,7 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
       setDeliveryMaintenanceOpen(true);
       return;
     }
-    if (mode === quickMode) {
+    if (mode === quickMode && !opticalRetailActive) {
       setModeSelectorOpen(false);
       return;
     }
@@ -8195,6 +8217,7 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
   }
 
   function getQuickModeLabel() {
+    if (opticalRetailActive) return "IMDC OPTICAL";
     if (quickMode === "buffet_table") return lang === "th" ? "โต๊ะบุฟเฟ่" : "Buffet table";
     if (quickMode === "dine_in") return text.dineIn;
     if (quickMode === "delivery") return text.delivery;
@@ -9062,7 +9085,19 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
 
       <PosShell
         topBar={
-          <div className={`posui-sales-topbar ${salesTopbarCollapsed ? "is-collapsed" : ""} ${showInlineTopbarCategories ? "has-inline-categories" : ""} ${showInlineTopbarTableControls ? "has-inline-table-controls" : ""}`}>
+          <div className={`posui-sales-topbar ${opticalRetailActive ? "is-optical-retail" : ""} ${salesTopbarCollapsed ? "is-collapsed" : ""} ${showInlineTopbarCategories ? "has-inline-categories" : ""} ${showInlineTopbarTableControls ? "has-inline-table-controls" : ""}`}>
+            {opticalRetailActive ? (
+              <div className="mb-2 flex flex-wrap items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-emerald-900" data-testid="pos-optical-sale-header" role="status">
+                <OpticalRetailModeIcon />
+                <div className="min-w-0 flex-1">
+                  <strong className="block text-sm font-extrabold">IMDC OPTICAL</strong>
+                  <span className="text-xs font-semibold">{lang === "th" ? "โหมดร้านแว่นตา · ขายกรอบ / เลนส์ ด้วย SKU และบาร์โค้ด" : "Optical retail · frames and lenses · SKU / barcode"}</span>
+                </div>
+                <span className="rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-xs font-bold text-amber-900">
+                  {lang === "th" ? "กำลังพัฒนา · ยังไม่รองรับเงินกีบและมัดจำ" : "In development · LAK & deposits unavailable"}
+                </span>
+              </div>
+            ) : null}
             <div className="posui-mode-header-row">
               <button
                 type="button"
@@ -9101,11 +9136,14 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
                     aria-label={`${text.switchMode}: ${getQuickModeLabel()}`}
                   >
                     <span className="posui-mode-switch-button__icon" aria-hidden="true">
-                      <QuickModeIcon mode={quickMode === "buffet_table" ? "dine_in" : quickMode} />
+                      {opticalRetailActive ? <OpticalRetailModeIcon /> : <QuickModeIcon mode={quickMode === "buffet_table" ? "dine_in" : quickMode} />}
                     </span>
                     <span className="posui-mode-switch-button__action">{text.switchMode}</span>
                   </button>
                   <div className="posui-mode-stack-meta">
+                    {opticalRetailActive ? (
+                      <span className="rounded-lg bg-emerald-50 px-3 py-1 text-xs font-extrabold text-emerald-800" data-testid="pos-active-optical-mode">IMDC OPTICAL</span>
+                    ) : null}
                     {quickMode === "delivery" ? (
                       <button
                         type="button"
@@ -9383,7 +9421,7 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
             <div className="posui-mode-selector__grid">
               <button
                 type="button"
-                className={`posui-mode-option ${quickMode === "home" ? "is-active" : ""}`}
+                className={`posui-mode-option ${quickMode === "home" && !opticalRetailActive ? "is-active" : ""}`}
                 onClick={() => selectQuickMode("home")}
               >
                 <span className="posui-mode-option__icon" aria-hidden="true">
