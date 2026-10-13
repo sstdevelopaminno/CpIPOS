@@ -165,7 +165,11 @@ export function PosSalesModePolicyController() {
       event.preventDefault();
       event.stopPropagation();
       event.stopImmediatePropagation();
-      setElementLocked(target, true);
+      if (isCustom) {
+        target.setAttribute(CUSTOM_HIDDEN_ATTRIBUTE, "1");
+      } else {
+        setElementLocked(target, true);
+      }
     };
 
     const observer = new MutationObserver(() => scheduleApplyPolicy());
