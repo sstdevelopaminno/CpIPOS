@@ -2,7 +2,7 @@ import { isFeatureUnlockEnabled } from "@/lib/feature-unlock";
 import { fail, ok } from "@/lib/http";
 import { allPosMenuFeatureCodes } from "@/lib/pos-feature-map";
 import { requirePosSession, PosGuardError } from "@/lib/pos-session-guard";
-import { DEFAULT_POS_SALES_MODES, POS_SALES_MODE_KEYS, isDineInLinkedFeature, normalizePosSalesModes, type PosSalesModeSettings } from "@/lib/pos-sales-modes";
+import { DEFAULT_POS_SALES_MODES, POS_SALES_MODE_KEYS, isDineInLinkedFeature, normalizePosSalesModes, normalizeCustomPosSalesModes, type PosSalesModeSettings } from "@/lib/pos-sales-modes";
 import { readThroughRuntimeCache } from "@/lib/route-runtime-cache";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
 import { getTenantPosMenuOverrides } from "@/lib/server/pos-menu-policy-service";
@@ -20,6 +20,7 @@ type PackageFeatureRow = {
 };
 
 type PackagePolicyRow = {
+  code: string;
   metadata: Record<string, unknown> | null;
 };
 
@@ -105,14 +106,16 @@ async function loadTenantFeatureSnapshot(tenantId: string, branchId: string) {
   if (isFeatureUnlockEnabled()) {
     return {
       features: Object.fromEntries(featureCodes.map((feature) => [feature, true])),
-      salesModes: normalizePosSalesModes(metadata.sales_modes)
+      salesModes: normalizePosSalesModes(metadata.sales_modes),
+      isCustom: false
     };
   }
 
   if (!featureCodes.length || !contractAllowsAccess(contract ?? null) || !contract?.package_id) {
     return {
       features: Object.fromEntries(featureCodes.map((feature) => [feature, false])),
-      salesModes: normalizePosSalesModes(metadata.sales_modes)
+      salesModes: normalizeCustomPosSalesModes(metadata.sales_modes),
+      isCustom: false
     };
   }
 
@@ -136,7 +139,7 @@ async function loadTenantFeatureSnapshot(tenantId: string, branchId: string) {
       .or(`branch_id.is.null,branch_id.eq.${branchId}`),
     supabase
       .from("subscription_packages")
-      .select("metadata")
+      .select("code,metadata")
       .eq("id", contract.package_id)
       .maybeSingle<PackagePolicyRow>()
   ]);
@@ -151,7 +154,10 @@ async function loadTenantFeatureSnapshot(tenantId: string, branchId: string) {
     throw new Error(`package_policy_query_failed:${packagePolicyResult.error.message}`);
   }
 
-  const salesModes = salesModePolicy(metadata, packagePolicyResult.data?.metadata);
+  const isCustom = String(packagePolicyResult.data?.code ?? "").toLowerCase() === "custom";
+  const salesModes = isCustom
+    ? normalizeCustomPosSalesModes(metadata.sales_modes)
+    : salesModePolicy(metadata, packagePolicyResult.data?.metadata);
   const packageFeatures = new Map<string, boolean>();
   for (const row of (packageResult.data ?? []) as PackageFeatureRow[]) {
     packageFeatures.set(String(row.feature_code), Boolean(row.included));
@@ -179,7 +185,7 @@ async function loadTenantFeatureSnapshot(tenantId: string, branchId: string) {
     })
   );
 
-  return { features, salesModes };
+  return { features, salesModes, isCustom };
 }
 
 export async function GET() {
@@ -206,6 +212,7 @@ export async function GET() {
       branch_id: scope.session.branch_id,
       features: snapshot.features,
       menu_policy: menuPolicy,
+      is_custom: snapshot.isCustom,
       sales_modes: snapshot.salesModes,
       sales_modes_source: "package_metadata + tenant_subscription_contracts.metadata.sales_modes"
     });
