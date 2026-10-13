@@ -224,8 +224,10 @@ export async function hasBranchFeature(tenantId: string, branchId: string | null
   if (cached !== null) return cached;
   // QA grants affect ONLY the doubly verified internal tenant, not all stores.
   if (await getInternalItTestMode(tenantId) === "full") {
-    writeFeatureDecisionCache(cacheKey, true);
-    return true;
+    // QA must never authorize an unknown feature name supplied by a caller.
+    const enabled = await isFeatureKeyConfigured(featureCode);
+    writeFeatureDecisionCache(cacheKey, enabled);
+    return enabled;
   }
 
   const contract = await getLatestContract(tenantId);
