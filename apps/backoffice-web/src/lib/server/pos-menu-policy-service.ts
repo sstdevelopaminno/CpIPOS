@@ -35,9 +35,8 @@ export async function isTenantPosMenuEnabled(tenantId: string, menuKey: string):
  * against the same explicit IT allowlist used by the navigation and CRM.
  * Never authorize a CUSTOM page based on browser-side visibility alone.
  */
-export async function assertPosMenuPageAllowed(tenantId: string, path: string): Promise<void> {
-  const menuKey = posMenuKeyForRoute(path);
-  if (!menuKey) return;
+/** Shared server-side CUSTOM discriminator for POS page authorization. */
+export async function isTenantCustomPosPackage(tenantId: string): Promise<boolean> {
   const supabase = getSupabaseServiceClient();
   const { data: contract, error: contractError } = await supabase
     .from("tenant_subscription_contracts")
@@ -47,13 +46,19 @@ export async function assertPosMenuPageAllowed(tenantId: string, path: string): 
     .limit(1)
     .maybeSingle<{ package_id: string | null }>();
   if (contractError) throw new Error("custom_menu_contract_lookup_failed:" + contractError.message);
-  if (!contract?.package_id) return;
+  if (!contract?.package_id) return false;
   const { data: pkg, error: packageError } = await supabase
     .from("subscription_packages")
     .select("code").eq("id", contract.package_id)
     .maybeSingle<{ code: string }>();
   if (packageError) throw new Error("custom_menu_package_lookup_failed:" + packageError.message);
-  if (String(pkg?.code ?? "").toLowerCase() !== "custom") return;
+  return String(pkg?.code ?? "").toLowerCase() === "custom";
+}
+
+export async function assertPosMenuPageAllowed(tenantId: string, path: string): Promise<void> {
+  const menuKey = posMenuKeyForRoute(path);
+  if (!menuKey) return;
+  if (!await isTenantCustomPosPackage(tenantId)) return;
   const overrides = await getTenantPosMenuOverrides(tenantId);
   if (!isCustomPosMenuVisible(menuKey, overrides, true)) notFound();
 }
