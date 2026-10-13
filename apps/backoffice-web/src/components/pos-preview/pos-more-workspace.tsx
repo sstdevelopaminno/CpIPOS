@@ -50,6 +50,7 @@ export function PosMoreWorkspace({ lang, role }: { lang: Language; role: PosRole
   const [enabledFeatures, setEnabledFeatures] = useState<Record<string, boolean> | null>(null);
   const [menuPolicy, setMenuPolicy] = useState<Record<string, boolean>>({});
   const [isCustom, setIsCustom] = useState(false);
+  const [policyReady, setPolicyReady] = useState(false);
   const [packageLockOpen, setPackageLockOpen] = useState(false);
   const [itLockedMenu, setItLockedMenu] = useState<string | null>(null);
   const items = MORE_ITEMS.filter((item) => item.roles.includes(role));
@@ -64,6 +65,7 @@ export function PosMoreWorkspace({ lang, role }: { lang: Language; role: PosRole
           setEnabledFeatures(body?.data?.features ?? {});
           setMenuPolicy(body?.data?.menu_policy ?? {});
           setIsCustom(body?.data?.is_custom === true);
+          setPolicyReady(true);
         }
       } catch {
         if (!cancelled) setEnabledFeatures({});
@@ -110,6 +112,7 @@ export function PosMoreWorkspace({ lang, role }: { lang: Language; role: PosRole
         <header className="mb-5"><h1 className="text-2xl font-black text-slate-950">{t(lang, "pos_menu_more_title")}</h1><p className="mt-1 text-sm font-semibold text-slate-500">{t(lang, "pos_menu_more_desc")}</p></header>
         <div className="grid gap-4 lg:grid-cols-2 xl:grid-cols-3">
           {items.map((item) => {
+            if (!policyReady) return null;
             if (isCustom && (!isCustomPosMenuVisible(posMenuKeyForRoute(item.href) ?? "", menuPolicy, true) || isLocked(item.href))) return null;
             const menuLocked = isMenuLocked(item.href);
             const locked = menuLocked || isLocked(item.href);
