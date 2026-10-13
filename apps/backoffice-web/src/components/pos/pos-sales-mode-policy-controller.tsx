@@ -112,6 +112,7 @@ export function PosSalesModePolicyController() {
     let isCustom = false;
     let requestSequence = 0;
     let applyFrame: number | null = null;
+    let latestSelector: HTMLElement | null = null;
 
     ensurePolicyStyles();
 
@@ -145,12 +146,12 @@ export function PosSalesModePolicyController() {
       });
     };
 
-    const requestPolicy = async () => {
+    const requestPolicy = async (fresh = false) => {
       const sequence = ++requestSequence;
       try {
-        const response = await fetch("/api/pos/features", {
+        const response = await fetch(fresh ? "/api/pos/features?refresh=1" : "/api/pos/features", {
           method: "GET",
-          cache: "default",
+          cache: fresh ? "no-store" : "default",
           credentials: "same-origin"
         });
         if (!response.ok) return;
@@ -179,17 +180,36 @@ export function PosSalesModePolicyController() {
       }
     };
 
-    const observer = new MutationObserver(() => scheduleApplyPolicy());
+    // The retail selector does its own authenticated fresh entitlement check.
+    // Share that result so the base mode cards and Optical mode never diverge.
+    const onFeaturePolicyUpdated = (event: Event) => {
+      const data = (event as CustomEvent<FeaturesEnvelope["data"]>).detail;
+      if (!data) return;
+      requestSequence += 1;
+      modes = normalizePosSalesModes(data.sales_modes);
+      isCustom = data.is_custom === true || data.is_internal_test_full === true;
+      scheduleApplyPolicy();
+    };
+    window.addEventListener("cpipos:pos-feature-policy-updated", onFeaturePolicyUpdated);
+
+    const observer = new MutationObserver(() => {
+      const selector = document.querySelector<HTMLElement>(".posui-mode-selector");
+      if (selector !== latestSelector) {
+        latestSelector = selector;
+        if (selector) void requestPolicy(true);
+      }
+      scheduleApplyPolicy();
+    });
     observer.observe(document.body, { childList: true, subtree: true });
     document.addEventListener("click", onClickCapture, true);
 
     const onVisibility = () => {
       if (document.visibilityState === "visible") {
         scheduleApplyPolicy();
-        void requestPolicy();
+        void requestPolicy(Boolean(latestSelector));
       }
     };
-    const onFocus = () => void requestPolicy();
+    const onFocus = () => void requestPolicy(Boolean(latestSelector));
     document.addEventListener("visibilitychange", onVisibility);
     window.addEventListener("focus", onFocus);
 
@@ -200,9 +220,11 @@ export function PosSalesModePolicyController() {
 
     return () => {
       destroyed = true;
+      requestSequence += 1;
       window.clearInterval(intervalId);
       if (applyFrame !== null) window.cancelAnimationFrame(applyFrame);
       observer.disconnect();
+      window.removeEventListener("cpipos:pos-feature-policy-updated", onFeaturePolicyUpdated);
       document.removeEventListener("click", onClickCapture, true);
       document.removeEventListener("visibilitychange", onVisibility);
       window.removeEventListener("focus", onFocus);

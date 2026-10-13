@@ -12,6 +12,7 @@ import {
   GENERAL_SALE_ADD_PRODUCT_EVENT,
   GENERAL_SALE_ADD_PRODUCT_RESULT_EVENT,
   GENERAL_SALE_CHECKOUT_BASE_MODE,
+  OPTICAL_ACTIVATE_BASE_MODE_EVENT,
   GENERAL_SALE_LAYOUT_ATTRIBUTE,
   GENERAL_SALE_LAYOUT_STORAGE_KEY,
   GENERAL_SALE_MODE_ID,
@@ -159,6 +160,8 @@ export function PosGeneralSaleTableController() {
   useEffect(() => {
     let destroyed = false;
     let accessResolved = false;
+    let accessSequence = 0;
+    let latestSelector: HTMLElement | null = null;
     let generalSaleAllowed = false;
     let opticalAllowed = false;
     let generalSaleActive = false;
@@ -602,9 +605,9 @@ export function PosGeneralSaleTableController() {
         );
         opticalButton.addEventListener("click", () => {
           if (!opticalAllowed) return;
-          const home = grid.querySelector<HTMLElement>(`[${MODE_ATTRIBUTE}="${GENERAL_SALE_CHECKOUT_BASE_MODE}"]`);
-          if (!home) return;
-          home.click();
+          // Optical retains the existing POS checkout pipeline even when
+          // IT has disabled the public takeaway button. No synthetic click.
+          window.dispatchEvent(new Event(OPTICAL_ACTIVATE_BASE_MODE_EVENT));
           generalSaleActive = true;
           opticalActive = true;
           removeScanner();
@@ -646,6 +649,13 @@ export function PosGeneralSaleTableController() {
 
     const reconcile = () => {
       if (destroyed) return;
+      const selector = document.querySelector<HTMLElement>(MODE_SELECTOR_QUERY);
+      if (selector !== latestSelector) {
+        latestSelector = selector;
+        // A sales-mode dialog may open long after the first POS page load.
+        // Re-fetch the authoritative IT toggles every time this dialog opens.
+        if (selector) void loadAccess();
+      }
       enhanceSelector();
       if (!generalSaleActive) return;
       setRootMode(true);
@@ -668,19 +678,36 @@ export function PosGeneralSaleTableController() {
     };
 
     async function loadAccess() {
+      const sequence = ++accessSequence;
       try {
-        const response = await fetch("/api/pos/features", { cache: "no-store", credentials: "include" });
+        const response = await fetch("/api/pos/features?refresh=1", {
+          cache: "no-store",
+          credentials: "same-origin"
+        });
         const body = (await response.json().catch(() => null)) as PosFeaturesResponse | null;
+        if (destroyed || sequence !== accessSequence) return;
+        if (response.ok && body?.data) {
+          window.dispatchEvent(new CustomEvent("cpipos:pos-feature-policy-updated", { detail: body.data }));
+        }
         generalSaleAllowed = Boolean(response.ok && body?.data?.features?.[POS_MODE_FEATURES.general_sale] === true
-          && body?.data?.sales_modes?.general_sale !== false);
+          && body?.data?.sales_modes?.general_sale === true);
         opticalAllowed = Boolean(response.ok && (body?.data?.is_custom === true || body?.data?.is_internal_test_full === true)
           && body?.data?.sales_modes?.optical_retail === true && body?.data?.features?.core_pos_sales === true);
+        // When IT removes a grant while a retail mode is active, close the
+        // extra scanner UI without modifying any existing bill/cart data.
+        if (generalSaleActive && (opticalActive ? !opticalAllowed : !generalSaleAllowed)) {
+          deactivateGeneralSale();
+        }
       } catch {
+        if (destroyed || sequence !== accessSequence) return;
         generalSaleAllowed = false;
         opticalAllowed = false;
+        if (generalSaleActive) deactivateGeneralSale();
       } finally {
-        accessResolved = true;
-        scheduleReconcile();
+        if (!destroyed && sequence === accessSequence) {
+          accessResolved = true;
+          scheduleReconcile();
+        }
       }
     }
 
@@ -689,14 +716,22 @@ export function PosGeneralSaleTableController() {
       if (event.key === POS_TAKEAWAY_CART_STORAGE_KEY || event.key === POS_SALES_SNAPSHOT_STORAGE_KEY) scheduleTableRender(0);
     };
     const onVisibility = () => {
-      if (document.visibilityState === "visible") scheduleReconcile();
+      if (document.visibilityState !== "visible") return;
+      scheduleReconcile();
+      if (latestSelector) void loadAccess();
     };
+    const onFocus = () => {
+      if (latestSelector) void loadAccess();
+    };
+    // Refresh on modal opening, tab activation and focus rather than polling
+    // Supabase every few seconds on tablets left open throughout the day.
 
     document.addEventListener("click", onModeClick, true);
     document.addEventListener("click", onTableClick, true);
     window.addEventListener(CART_MUTATED_EVENT, onCartMutated);
     window.addEventListener("storage", onStorage);
     document.addEventListener("visibilitychange", onVisibility);
+    window.addEventListener("focus", onFocus);
     const observer = new MutationObserver((mutations) => {
       if (document.visibilityState !== "visible") return;
       if (mutations.length > 0 && mutations.every(isInternalMutation)) return;
@@ -716,6 +751,8 @@ export function PosGeneralSaleTableController() {
       window.removeEventListener(CART_MUTATED_EVENT, onCartMutated);
       window.removeEventListener("storage", onStorage);
       document.removeEventListener("visibilitychange", onVisibility);
+      window.removeEventListener("focus", onFocus);
+      accessSequence += 1;
       deactivateGeneralSale();
       removeGeneralSaleButton();
       document.getElementById(GENERAL_SALE_STYLE_ID)?.remove();

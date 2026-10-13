@@ -205,23 +205,29 @@ async function loadTenantFeatureSnapshot(tenantId: string, branchId: string) {
   return { features, salesModes, isCustom };
 }
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
     const scope = await requirePosSession();
-    const bundle = await readThroughRuntimeCache({
-      key: `pos-feature-bundle:${scope.session.tenant_id}:${scope.session.branch_id}`,
-      ttlMs: 60_000,
-      staleIfErrorMs: 5 * 60_000,
-      loaderTimeoutMs: 4_000,
-      timeoutCode: "pos_feature_bundle_timeout",
-      loader: async () => {
-        const [snapshot, menuPolicy] = await Promise.all([
-          loadTenantFeatureSnapshot(scope.session.tenant_id, scope.session.branch_id),
-          getTenantPosMenuOverrides(scope.session.tenant_id)
-        ]);
-        return { snapshot, menuPolicy };
-      }
-    });
+    // Explicit UI refreshes must observe IT changes to sales modes immediately.
+    // The normal shared server cache is kept for the startup/background traffic.
+    const forceFresh = new URL(request.url).searchParams.get("refresh") === "1";
+    const loader = async () => {
+      const [snapshot, menuPolicy] = await Promise.all([
+        loadTenantFeatureSnapshot(scope.session.tenant_id, scope.session.branch_id),
+        getTenantPosMenuOverrides(scope.session.tenant_id)
+      ]);
+      return { snapshot, menuPolicy };
+    };
+    const bundle = forceFresh
+      ? { value: await loader() }
+      : await readThroughRuntimeCache({
+          key: `pos-feature-bundle:${scope.session.tenant_id}:${scope.session.branch_id}`,
+          ttlMs: 60_000,
+          staleIfErrorMs: 5 * 60_000,
+          loaderTimeoutMs: 4_000,
+          timeoutCode: "pos_feature_bundle_timeout",
+          loader
+        });
     const { snapshot, menuPolicy } = bundle.value;
 
     const response = ok({
@@ -238,7 +244,9 @@ export async function GET() {
     // Feature entitlements change infrequently. A short private browser cache cuts
     // duplicate startup/navigation reads without allowing shared/CDN caching or
     // delaying IT entitlement changes for more than a few seconds.
-    response.headers.set("Cache-Control", "private, max-age=60, stale-while-revalidate=60");
+    response.headers.set("Cache-Control", forceFresh
+      ? "private, no-store, max-age=0"
+      : "private, max-age=60, stale-while-revalidate=60");
     return response;
   } catch (error) {
     if (error instanceof PosGuardError) {

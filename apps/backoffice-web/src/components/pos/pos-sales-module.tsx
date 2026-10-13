@@ -32,6 +32,7 @@ import { TableZoneTabs } from "@/components/tables/table-zone-tabs";
 import type { DiningTableItem, FloorPlanObjectItem, TableZoneItem } from "@/components/tables/types";
 import { calculateDeliveryPricingBreakdown } from "@/lib/delivery-pricing";
 import { POS_MODE_FEATURES } from "@/lib/pos-feature-map";
+import { OPTICAL_ACTIVATE_BASE_MODE_EVENT } from "@/lib/pos-general-sale-mode";
 import { beginPosActionTrace, clearPosTraceEvents, endPosActionTrace, readPosTraceEvents, usePosRenderProfiler } from "@/lib/pos-ui-profiler";
 import { naturalCompareTableCode } from "@/lib/table-management";
 import { cachePosSalesOfflineCatalogSnapshot } from "@/lib/pos-offline-catalog-snapshot";
@@ -6006,6 +6007,14 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
     setBillPaymentMethod(null);
     pushSubmitMessage(text.delivery);
   }
+
+  // The specialized retail mode has a tenant-scoped entitlement. Its base
+  // order type is takeaway, but IT may hide the ordinary takeaway card.
+  useEffect(() => {
+    const onOpticalActivate = () => applyQuickMode("home");
+    window.addEventListener(OPTICAL_ACTIVATE_BASE_MODE_EVENT, onOpticalActivate);
+    return () => window.removeEventListener(OPTICAL_ACTIVATE_BASE_MODE_EVENT, onOpticalActivate);
+  });
 
   function isQuickModeLocked(mode: QuickMode) {
     const feature =
