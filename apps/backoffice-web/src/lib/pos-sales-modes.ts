@@ -1,4 +1,4 @@
-export const POS_SALES_MODE_KEYS = ["takeaway", "dine_in", "buffet_table", "delivery", "general_sale"] as const;
+export const POS_SALES_MODE_KEYS = ["takeaway", "dine_in", "buffet_table", "delivery", "general_sale", "optical_retail"] as const;
 
 export type PosSalesModeKey = (typeof POS_SALES_MODE_KEYS)[number];
 export type PosSalesModeSettings = Record<PosSalesModeKey, boolean>;
@@ -8,7 +8,8 @@ export const DEFAULT_POS_SALES_MODES: PosSalesModeSettings = {
   dine_in: true,
   buffet_table: true,
   delivery: true,
-  general_sale: true
+  general_sale: true,
+  optical_retail: false
 };
 
 function asRecord(value: unknown): Record<string, unknown> {
@@ -26,7 +27,8 @@ export function normalizePosSalesModes(value: unknown): PosSalesModeSettings {
     dine_in: asBoolean(record.dine_in, DEFAULT_POS_SALES_MODES.dine_in),
     buffet_table: asBoolean(record.buffet_table, DEFAULT_POS_SALES_MODES.buffet_table),
     delivery: asBoolean(record.delivery, DEFAULT_POS_SALES_MODES.delivery),
-    general_sale: asBoolean(record.general_sale, DEFAULT_POS_SALES_MODES.general_sale)
+    general_sale: asBoolean(record.general_sale, DEFAULT_POS_SALES_MODES.general_sale),
+    optical_retail: asBoolean(record.optical_retail, DEFAULT_POS_SALES_MODES.optical_retail)
   };
 }
 
@@ -44,6 +46,7 @@ export function posUiModeToControlKey(value: string | null | undefined): PosSale
   if (value === "buffet_table") return "buffet_table";
   if (value === "delivery") return "delivery";
   if (value === "general_sale") return "general_sale";
+  if (value === "optical_retail") return "optical_retail";
   return null;
 }
 
@@ -61,4 +64,9 @@ export function isDineInLinkedFeature(featureCode: string): boolean {
 export function isDineInExplicitlyEnabled(value: unknown): boolean {
   const record = asRecord(value);
   return record.dine_in === true;
+}
+
+/** Optical checkout reuses the general retail scanner only when explicitly enabled by IT. */
+export function isOpticalRetailExplicitlyEnabled(value: unknown): boolean {
+  return asRecord(value).optical_retail === true;
 }

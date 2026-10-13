@@ -105,7 +105,12 @@ async function loadTenantFeatureSnapshot(tenantId: string, branchId: string) {
   if (await getInternalItTestMode(tenantId) === "full") {
     return {
       features: Object.fromEntries(allPosMenuFeatureCodes().map(feature => [feature, true])),
-      salesModes: normalizePosSalesModes(metadata.sales_modes),
+      salesModes: {
+        ...normalizePosSalesModes(metadata.sales_modes),
+        optical_retail: (metadata.sales_modes && typeof metadata.sales_modes === "object"
+          && !Array.isArray(metadata.sales_modes)
+          && (metadata.sales_modes as Record<string, unknown>).optical_retail !== false)
+      },
       isCustom: true,
       internalTestFull: true
     };
@@ -194,6 +199,9 @@ async function loadTenantFeatureSnapshot(tenantId: string, branchId: string) {
     })
   );
 
+  if (isCustom && salesModes.optical_retail) {
+    features.barcode_scanner_mode = true;
+  }
   return { features, salesModes, isCustom };
 }
 

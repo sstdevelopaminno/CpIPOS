@@ -14,6 +14,7 @@ type FeaturesEnvelope = {
   data?: {
     sales_modes?: unknown;
     is_custom?: boolean;
+    is_internal_test_full?: boolean;
   } | null;
 };
 
@@ -120,6 +121,12 @@ export function PosSalesModePolicyController() {
         const key = posUiModeToControlKey(element.getAttribute(MODE_ATTRIBUTE));
         if (!key) return;
         element.setAttribute("data-it-sales-mode-lock-key", key);
+        // Optical is a contract-only module and must never appear for fixed packages.
+        if (key === "optical_retail" && !isCustom) {
+          element.setAttribute(CUSTOM_HIDDEN_ATTRIBUTE, "1");
+          setElementLocked(element, false);
+          return;
+        }
         if (isCustom && modes[key] !== true) {
           element.setAttribute(CUSTOM_HIDDEN_ATTRIBUTE, "1");
           setElementLocked(element, false);
@@ -150,7 +157,7 @@ export function PosSalesModePolicyController() {
         const payload = (await response.json().catch(() => null)) as FeaturesEnvelope | null;
         if (destroyed || sequence !== requestSequence) return;
         modes = normalizePosSalesModes(payload?.data?.sales_modes);
-        isCustom = payload?.data?.is_custom === true;
+        isCustom = payload?.data?.is_custom === true || payload?.data?.is_internal_test_full === true;
         scheduleApplyPolicy();
       } catch {
         // Keep the last known policy. Temporary network problems must not rewrite the UI policy.
@@ -161,7 +168,7 @@ export function PosSalesModePolicyController() {
       const target = event.target instanceof Element ? event.target.closest<HTMLElement>(`[${MODE_ATTRIBUTE}]`) : null;
       if (!target) return;
       const key = posUiModeToControlKey(target.getAttribute(MODE_ATTRIBUTE));
-      if (!key || modes[key] !== false) return;
+      if (!key || (key !== "optical_retail" && modes[key] !== false) || (key === "optical_retail" && isCustom && modes[key] === true)) return;
       event.preventDefault();
       event.stopPropagation();
       event.stopImmediatePropagation();

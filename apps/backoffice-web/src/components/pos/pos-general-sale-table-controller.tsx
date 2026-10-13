@@ -26,6 +26,9 @@ type Lang = "th" | "en";
 type PosFeaturesResponse = {
   data?: {
     features?: Record<string, boolean>;
+    sales_modes?: { general_sale?: boolean; optical_retail?: boolean };
+    is_custom?: boolean;
+    is_internal_test_full?: boolean;
   } | null;
 };
 type ProductLookupResponse = {
@@ -44,6 +47,8 @@ const MODE_ATTRIBUTE = "data-pos-sale-mode";
 const MODE_ENHANCED_ATTRIBUTE = "data-pos-mode-preferences-enhanced";
 const PRODUCT_GRID_WRAP_QUERY = ".posui-product-grid-wrap";
 const GENERAL_SALE_BUTTON_ATTRIBUTE = "data-pos-general-sale-mode-button";
+const OPTICAL_BUTTON_ATTRIBUTE = "data-pos-optical-retail-mode-button";
+const OPTICAL_MODE_ID = "optical_retail";
 const GENERAL_SALE_SCANNER_ATTRIBUTE = "data-pos-general-sale-scanner";
 const GENERAL_SALE_TABLE_ATTRIBUTE = "data-pos-general-sale-cart-table";
 const GENERAL_SALE_STYLE_ID = "cpipos-general-sale-table-only-style";
@@ -155,7 +160,9 @@ export function PosGeneralSaleTableController() {
     let destroyed = false;
     let accessResolved = false;
     let generalSaleAllowed = false;
+    let opticalAllowed = false;
     let generalSaleActive = false;
+    let opticalActive = false;
     let scannerPanel: HTMLElement | null = null;
     let scannerInput: HTMLInputElement | null = null;
     let scannerSubmit: HTMLButtonElement | null = null;
@@ -191,8 +198,10 @@ export function PosGeneralSaleTableController() {
     const setModeVisualState = () => {
       const selector = document.querySelector<HTMLElement>(MODE_SELECTOR_QUERY);
       const generalSaleButton = selector?.querySelector<HTMLButtonElement>(`[${GENERAL_SALE_BUTTON_ATTRIBUTE}="1"]`) ?? null;
+      const opticalButton = selector?.querySelector<HTMLButtonElement>(`[${OPTICAL_BUTTON_ATTRIBUTE}="1"]`) ?? null;
+      opticalButton?.classList.toggle("is-active", generalSaleActive && opticalActive);
       const homeButton = selector?.querySelector<HTMLElement>(`[${MODE_ATTRIBUTE}="${GENERAL_SALE_CHECKOUT_BASE_MODE}"]`) ?? null;
-      generalSaleButton?.classList.toggle("is-active", generalSaleActive);
+      generalSaleButton?.classList.toggle("is-active", generalSaleActive && !opticalActive);
       if (generalSaleActive) homeButton?.classList.remove("is-active");
     };
 
@@ -218,6 +227,7 @@ export function PosGeneralSaleTableController() {
 
     const deactivateGeneralSale = () => {
       generalSaleActive = false;
+      opticalActive = false;
       setRootMode(false);
       setModeVisualState();
       removeTable();
@@ -225,11 +235,11 @@ export function PosGeneralSaleTableController() {
     };
 
     const removeGeneralSaleButton = () => {
-      document.querySelectorAll<HTMLElement>(`[${GENERAL_SALE_BUTTON_ATTRIBUTE}="1"]`).forEach((node) => node.remove());
+      document.querySelectorAll<HTMLElement>(`[${GENERAL_SALE_BUTTON_ATTRIBUTE}="1"], [${OPTICAL_BUTTON_ATTRIBUTE}="1"]`).forEach((node) => node.remove());
     };
 
     const ensureTableHost = () => {
-      if (!generalSaleAllowed || !generalSaleActive) {
+      if ((!generalSaleAllowed && !opticalAllowed) || !generalSaleActive) {
         removeTable();
         return null;
       }
@@ -454,7 +464,7 @@ export function PosGeneralSaleTableController() {
     };
 
     const ensureScanner = () => {
-      if (!generalSaleAllowed || !generalSaleActive) {
+      if ((!generalSaleAllowed && !opticalAllowed) || !generalSaleActive) {
         removeScanner();
         return;
       }
@@ -473,14 +483,14 @@ export function PosGeneralSaleTableController() {
       const panel = document.createElement("section");
       panel.setAttribute(GENERAL_SALE_SCANNER_ATTRIBUTE, "1");
       panel.className = "grid gap-2 rounded-xl border border-emerald-200 bg-emerald-50 p-3";
-      panel.setAttribute("aria-label", lang === "th" ? "สแกนสินค้าโหมดขายทั่วไป SD" : "SD general sale product scanner");
+      panel.setAttribute("aria-label", lang === "th" ? (opticalActive ? "ขายกรอบแว่นและเลนส์" : "สแกนสินค้าโหมดขายทั่วไป SD") : (opticalActive ? "Optical sale scanner" : "SD general sale product scanner"));
       const heading = document.createElement("div");
       heading.className = "flex flex-wrap items-center justify-between gap-3";
       const headingCopy = document.createElement("div");
       headingCopy.className = "grid gap-1";
       headingCopy.append(
-        createTextElement("strong", "text-sm font-black text-emerald-950", lang === "th" ? "ร้านชำ · สแกน SKU / บาร์โค้ด" : "Grocery · SKU / barcode scan"),
-        createTextElement("small", "text-xs font-bold text-emerald-700", lang === "th" ? "โหมดนี้ใช้ตารางขายสินค้าเพียงรูปแบบเดียว" : "This mode uses the sales table only")
+        createTextElement("strong", "text-sm font-black text-emerald-950", lang === "th" ? (opticalActive ? "IMDC OPTICAL · กรอบ / เลนส์ · บาร์โค้ด" : "ร้านชำ · สแกน SKU / บาร์โค้ด") : (opticalActive ? "IMDC OPTICAL · Frames / lenses" : "Grocery · SKU / barcode scan")),
+        createTextElement("small", "text-xs font-bold text-emerald-700", lang === "th" ? (opticalActive ? "ขายสินค้าได้ทันที · ค่าสายตา งานสั่งทำ และมัดจำยังไม่เปิดใช้งาน" : "โหมดนี้ใช้ตารางขายสินค้าเพียงรูปแบบเดียว") : (opticalActive ? "Retail checkout only; prescriptions, orders and deposits coming later" : "This mode uses the sales table only"))
       );
       const tableMode = createTextElement("span", "cpipos-sd-table-mode", lang === "th" ? "ตาราง" : "Table");
       heading.append(headingCopy, tableMode);
@@ -519,7 +529,7 @@ export function PosGeneralSaleTableController() {
     };
 
     const enhanceSelector = () => {
-      if (!accessResolved || !generalSaleAllowed) {
+      if (!accessResolved || (!generalSaleAllowed && !opticalAllowed)) {
         deactivateGeneralSale();
         removeGeneralSaleButton();
         return;
@@ -529,7 +539,7 @@ export function PosGeneralSaleTableController() {
       const grid = selector.querySelector<HTMLElement>(MODE_GRID_QUERY);
       if (!grid) return;
       let generalSaleButton = grid.querySelector<HTMLButtonElement>(`[${GENERAL_SALE_BUTTON_ATTRIBUTE}="1"]`);
-      if (!generalSaleButton) {
+      if (!generalSaleButton && generalSaleAllowed) {
         generalSaleButton = document.createElement("button");
         generalSaleButton.type = "button";
         generalSaleButton.className = "posui-mode-option";
@@ -553,6 +563,9 @@ export function PosGeneralSaleTableController() {
           if (!homeButton) return;
           homeButton.click();
           generalSaleActive = true;
+          opticalActive = false;
+          removeScanner();
+          removeTable();
           setRootMode(true);
           window.setTimeout(() => {
             if (destroyed || !generalSaleActive) return;
@@ -563,6 +576,50 @@ export function PosGeneralSaleTableController() {
         });
         grid.appendChild(generalSaleButton);
       }
+      if (!generalSaleAllowed) generalSaleButton?.remove();
+
+      let opticalButton = grid.querySelector<HTMLButtonElement>(`[${OPTICAL_BUTTON_ATTRIBUTE}="1"]`);
+      if (!opticalAllowed) {
+        opticalButton?.remove();
+      } else if (!opticalButton) {
+        opticalButton = document.createElement("button");
+        opticalButton.type = "button";
+        opticalButton.className = "posui-mode-option";
+        opticalButton.setAttribute(MODE_ATTRIBUTE, OPTICAL_MODE_ID);
+        opticalButton.setAttribute(OPTICAL_BUTTON_ATTRIBUTE, "1");
+        opticalButton.style.order = "100";
+        opticalButton.style.borderColor = "#6ee7b7";
+        const label = document.createElement("span");
+        label.className = "posui-mode-option__copy";
+        label.append(
+          createTextElement("strong", "", lang === "th" ? "ร้านแว่นตา · IMDC OPTICAL" : "Optical Shop · IMDC"),
+          createTextElement("small", "", lang === "th" ? "กรอบ / เลนส์ · SKU / บาร์โค้ด" : "Frames / lenses · SKU / barcode")
+        );
+        opticalButton.append(
+          createTextElement("span", "posui-mode-option__icon", "◉"),
+          label,
+          createTextElement("span", "posui-mode-option__check", "✓")
+        );
+        opticalButton.addEventListener("click", () => {
+          if (!opticalAllowed) return;
+          const home = grid.querySelector<HTMLElement>(`[${MODE_ATTRIBUTE}="${GENERAL_SALE_CHECKOUT_BASE_MODE}"]`);
+          if (!home) return;
+          home.click();
+          generalSaleActive = true;
+          opticalActive = true;
+          removeScanner();
+          removeTable();
+          setRootMode(true);
+          window.setTimeout(() => {
+            if (destroyed || !opticalAllowed || !generalSaleActive || !opticalActive) return;
+            setModeVisualState();
+            ensureScanner();
+            ensureTableHost();
+            scheduleTableRender(0);
+          }, 0);
+        });
+        grid.appendChild(opticalButton);
+      }
       setModeVisualState();
     };
 
@@ -571,7 +628,7 @@ export function PosGeneralSaleTableController() {
       const modeCard = event.target.closest<HTMLElement>(`[${MODE_ATTRIBUTE}]`);
       if (!modeCard) return;
       const mode = modeCard.getAttribute(MODE_ATTRIBUTE);
-      if (mode && mode !== GENERAL_SALE_MODE_ID) deactivateGeneralSale();
+      if (mode && mode !== GENERAL_SALE_MODE_ID && mode !== OPTICAL_MODE_ID) deactivateGeneralSale();
     };
 
     const onTableClick = (event: Event) => {
@@ -614,9 +671,13 @@ export function PosGeneralSaleTableController() {
       try {
         const response = await fetch("/api/pos/features", { cache: "no-store", credentials: "include" });
         const body = (await response.json().catch(() => null)) as PosFeaturesResponse | null;
-        generalSaleAllowed = Boolean(response.ok && body?.data?.features?.[POS_MODE_FEATURES.general_sale] === true);
+        generalSaleAllowed = Boolean(response.ok && body?.data?.features?.[POS_MODE_FEATURES.general_sale] === true
+          && body?.data?.sales_modes?.general_sale !== false);
+        opticalAllowed = Boolean(response.ok && (body?.data?.is_custom === true || body?.data?.is_internal_test_full === true)
+          && body?.data?.sales_modes?.optical_retail === true && body?.data?.features?.core_pos_sales === true);
       } catch {
         generalSaleAllowed = false;
+        opticalAllowed = false;
       } finally {
         accessResolved = true;
         scheduleReconcile();
