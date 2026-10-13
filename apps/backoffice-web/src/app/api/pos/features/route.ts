@@ -88,15 +88,6 @@ function salesModePolicy(
 }
 
 async function loadTenantFeatureSnapshot(tenantId: string, branchId: string) {
-  if (await getInternalItTestMode(tenantId) === "full") {
-    const featureCodes = allPosMenuFeatureCodes();
-    return {
-      features: Object.fromEntries(featureCodes.map(feature => [feature, true])),
-      salesModes: { ...DEFAULT_POS_SALES_MODES },
-      isCustom: true,
-      internalTestFull: true
-    };
-  }
   const supabase = getSupabaseServiceClient();
   const { data: contract, error: contractError } = await supabase
     .from("tenant_subscription_contracts")
@@ -111,6 +102,14 @@ async function loadTenantFeatureSnapshot(tenantId: string, branchId: string) {
   }
 
   const metadata = contract?.metadata && typeof contract.metadata === "object" ? contract.metadata : {};
+  if (await getInternalItTestMode(tenantId) === "full") {
+    return {
+      features: Object.fromEntries(allPosMenuFeatureCodes().map(feature => [feature, true])),
+      salesModes: normalizePosSalesModes(metadata.sales_modes),
+      isCustom: true,
+      internalTestFull: true
+    };
+  }
   const featureCodes = allPosMenuFeatureCodes();
 
   if (isFeatureUnlockEnabled()) {
