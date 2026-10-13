@@ -1,4 +1,6 @@
 import "server-only";
+import { notFound } from "next/navigation";
+import { isCustomPosMenuVisible, posMenuKeyForRoute } from "@/lib/pos-menu-policy";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
 
 /** Read the authoritative tenant policy; absent rows preserve existing POS menus. */
@@ -29,10 +31,29 @@ export async function isTenantPosMenuEnabled(tenantId: string, menuKey: string):
 }
 
 /**
- * Legacy page call-site kept as a no-op for compatibility.
- * IT menu switches affect only navigation controls. Direct links, internal POS
- * workflows and package/role authorization must not inherit a menu lock.
+ * Fixed plans preserve legacy navigation locks; CUSTOM pages are server-gated
+ * against the same explicit IT allowlist used by the navigation and CRM.
+ * Never authorize a CUSTOM page based on browser-side visibility alone.
  */
-export async function assertPosMenuPageAllowed(_tenantId: string, _path: string): Promise<void> {
-  return;
+export async function assertPosMenuPageAllowed(tenantId: string, path: string): Promise<void> {
+  const menuKey = posMenuKeyForRoute(path);
+  if (!menuKey) return;
+  const supabase = getSupabaseServiceClient();
+  const { data: contract, error: contractError } = await supabase
+    .from("tenant_subscription_contracts")
+    .select("package_id")
+    .eq("tenant_id", tenantId)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle<{ package_id: string | null }>();
+  if (contractError) throw new Error("custom_menu_contract_lookup_failed:" + contractError.message);
+  if (!contract?.package_id) return;
+  const { data: pkg, error: packageError } = await supabase
+    .from("subscription_packages")
+    .select("code").eq("id", contract.package_id)
+    .maybeSingle<{ code: string }>();
+  if (packageError) throw new Error("custom_menu_package_lookup_failed:" + packageError.message);
+  if (String(pkg?.code ?? "").toLowerCase() !== "custom") return;
+  const overrides = await getTenantPosMenuOverrides(tenantId);
+  if (!isCustomPosMenuVisible(menuKey, overrides, true)) notFound();
 }
