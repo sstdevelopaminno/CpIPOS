@@ -59,6 +59,24 @@ export function isPosMenuEnabled(key: string, overrides: Record<string, boolean>
   if (!catalog.has(key)) return true;
   return overrides[key] !== false;
 }
+/**
+ * CUSTOM menus are an explicit allowlist controlled by IT.
+ * Existing fixed plans retain their historical lock/visible behavior.
+ * Parent denial cascades only for CUSTOM navigation and authorization.
+ */
+export function isCustomPosMenuVisible(
+  key: string,
+  overrides: Record<string, boolean>,
+  isCustom: boolean
+): boolean {
+  if (!isCustom) return isPosMenuEnabled(key, overrides);
+  if (isPosMenuAlwaysEnabled(key)) return true;
+  const entry = catalog.get(key);
+  if (!entry) return false;
+  if (overrides[key] !== true) return false;
+  return !entry.parent || isCustomPosMenuVisible(entry.parent, overrides, true);
+}
+
 /** Longest path wins; /preview/pos is an exact-match root, not a wildcard. */
 export function posMenuKeyForRoute(pathname: string): string | null {
   const path = pathname.split("?")[0].replace(/\/$/, "") || "/";
