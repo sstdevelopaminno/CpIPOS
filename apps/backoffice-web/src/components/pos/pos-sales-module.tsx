@@ -5957,8 +5957,8 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
     void fetchPosTables({ timeoutMs: 10000, retries: 0 }).catch(() => undefined);
   }
 
-  function applyQuickMode(mode: QuickMode) {
-    setOpticalRetailActive(false);
+  function applyQuickMode(mode: QuickMode, fromOptical = false) {
+    setOpticalRetailActive(fromOptical);
     setModeSelectorOpen(false);
     if (mode === "home") {
       invalidateTableUiContext();
@@ -5978,7 +5978,7 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
       setCart(readTakeawayCartDraft());
       setTableTransferVerifications([]);
       setBillPaymentMethod(null);
-      pushSubmitMessage(text.goHome);
+      pushSubmitMessage(fromOptical ? "IMDC OPTICAL" : text.goHome);
       return;
     }
 
@@ -6026,8 +6026,7 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
     const onOpticalActivate = () => {
       // Reuse the existing takeaway transaction/stock/receipt pipeline without
       // exposing the ordinary takeaway selling mode as the Optical UI.
-      applyQuickMode("home");
-      setOpticalRetailActive(true);
+      applyQuickMode("home", true);
     };
     const onOpticalDeactivate = () => setOpticalRetailActive(false);
     window.addEventListener(OPTICAL_ACTIVATE_BASE_MODE_EVENT, onOpticalActivate);
