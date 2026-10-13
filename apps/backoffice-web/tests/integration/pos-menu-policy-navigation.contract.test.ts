@@ -25,7 +25,8 @@ describe("POS tenant menu toggle regression", () => {
     expect(api).toContain("menu_policy:");
     expect(server).toContain('from("tenant_pos_menu_policies")');
     expect(server).not.toContain("notFound()");
-    expect(server).toContain("Legacy page call-site kept as a no-op");
+    expect(server).toContain("assertPosMenuPageAllowed");
+    expect(server).toContain("isCustomPosMenuVisible(menuKey, overrides, true)");
   });
   it("retains menus across all POS navigation surfaces without overriding package/role access", () => {
     expect(shell).toContain('isPosMenuEnabled("main.settings", menuPolicy)');
@@ -81,7 +82,7 @@ describe("POS tenant menu toggle regression", () => {
     expect(featuresApi).toContain("salesModes.dine_in && isDineInLinkedFeature(feature)");
   });
 
-  it("preserves POS direct URL availability; IT menu locks are UI-only, not 404 gates", () => {
+  it("gates CUSTOM direct URL access while fixed plans retain their legacy behavior", () => {
     const pages = [
       "page.tsx", "sales-list/page.tsx", "kitchen/page.tsx", "shift/page.tsx",
       "payments/page.tsx", "more/page.tsx", "sales-summary/page.tsx",
@@ -97,7 +98,7 @@ describe("POS tenant menu toggle regression", () => {
       const source = read("../../src/app/preview/pos/" + page);
       expect(source, page).toContain("assertPosMenuPageAllowed");
     }
-    expect(server).toContain("navigation controls");
+    expect(server).toContain("notFound()");
     expect(server).toContain("isTenantPosMenuEnabled");
     expect(shell).toContain("isSettingsPolicyLocked");
     expect(shell).toContain("PosSupportPushBridge");
