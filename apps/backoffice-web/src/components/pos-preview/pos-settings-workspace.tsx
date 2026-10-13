@@ -11,7 +11,7 @@ import { PackageLockDialog } from "@/components/pos-preview/package-lock-dialog"
 import { ItMenuLockDialog } from "@/components/pos-preview/it-menu-lock-dialog";
 import { PosSupportPushSettingsModal } from "@/components/pos-preview/pos-support-push-control";
 import { POS_SETTINGS_FEATURES } from "@/lib/pos-feature-map";
-import { isPosMenuEnabled } from "@/lib/pos-menu-policy";
+import { isCustomPosMenuVisible, isPosMenuEnabled } from "@/lib/pos-menu-policy";
 import { getProductProfilePolicy } from "@/lib/product-profile-policy";
 import type {
   BranchSettings,
@@ -3378,6 +3378,7 @@ export function PosSettingsWorkspace({ lang, initialData }: { lang: Language; in
   const [menuPlacementPopupOpen, setMenuPlacementPopupOpen] = useState(false);
   const [pushSettingsOpen, setPushSettingsOpen] = useState(false);
   const [menuPolicy, setMenuPolicy] = useState<Record<string, boolean>>({});
+  const [isCustom, setIsCustom] = useState(false);
   const canManage = initialData.metadata.can_manage;
   const productProfilePolicy = getProductProfilePolicy(initialData.metadata.product_profile);
 
@@ -3398,10 +3399,11 @@ export function PosSettingsWorkspace({ lang, initialData }: { lang: Language; in
     async function loadFeatures() {
       try {
         const response = await fetch("/api/pos/features", { cache: "no-store" });
-        const body = (await response.json().catch(() => null)) as { data?: { features?: Record<string, boolean>; menu_policy?: Record<string, boolean> } | null } | null;
+        const body = (await response.json().catch(() => null)) as { data?: { features?: Record<string, boolean>; menu_policy?: Record<string, boolean>; is_custom?: boolean } | null } | null;
         if (!cancelled && response.ok) {
           setEnabledFeatures(body?.data?.features ?? {});
           setMenuPolicy(body?.data?.menu_policy ?? {});
+          setIsCustom(body?.data?.is_custom === true);
         }
       } catch {
         if (!cancelled) setEnabledFeatures({});
@@ -3459,39 +3461,39 @@ export function PosSettingsWorkspace({ lang, initialData }: { lang: Language; in
 
         {view === "menu" ? (
           <div className="grid gap-4 lg:grid-cols-2 xl:grid-cols-3">
-            <MenuButton icon="store" title={labels.store} desc={labels.storeDesc} onClick={() => openSettingsView("store")}  locked={isSettingLocked("store") || !menuVisible("settings.store")} />
-            {!isStoreSpecificSettingHidden("branches") ? <MenuButton icon="branch" title={labels.branches} desc={labels.branchesDesc} onClick={() => openSettingsView("branches")}  locked={isSettingLocked("branches") || !menuVisible("settings.branches")} /> : null}
-            <MenuButton icon="terminal" title={labels.devices} desc={labels.devicesDesc} onClick={() => openSettingsView("devices")}  locked={isSettingLocked("devices") || !menuVisible("settings.devices")} />
+            <MenuButton icon="store" title={labels.store} desc={labels.storeDesc} onClick={() => openSettingsView("store")}  menuEnabled={!isCustom || isCustomPosMenuVisible("settings.store", menuPolicy, true)} locked={isSettingLocked("store") || !menuVisible("settings.store")} />
+            {!isStoreSpecificSettingHidden("branches") ? <MenuButton icon="branch" title={labels.branches} desc={labels.branchesDesc} onClick={() => openSettingsView("branches")}  menuEnabled={!isCustom || isCustomPosMenuVisible("settings.branches", menuPolicy, true)} locked={isSettingLocked("branches") || !menuVisible("settings.branches")} /> : null}
+            <MenuButton icon="terminal" title={labels.devices} desc={labels.devicesDesc} onClick={() => openSettingsView("devices")}  menuEnabled={!isCustom || isCustomPosMenuVisible("settings.devices", menuPolicy, true)} locked={isSettingLocked("devices") || !menuVisible("settings.devices")} />
             <MenuButton
               icon="terminal"
               title={lang === "en" ? "Printer Settings" : "เธ•เธฑเนเธเธเนเธฒเน€เธเธฃเธทเนเธญเธเธเธดเธกเธเน"}
               desc={lang === "en" ? "Receipt printers, Print Agents, branch printers, and cash drawers" : "เธ•เธฑเนเธเธเนเธฒเนเธเน€เธชเธฃเนเธ, Print Agents, เน€เธเธฃเธทเนเธญเธเธเธดเธกเธเนเธชเธฒเธเธฒ เนเธฅเธฐเธฅเธดเนเธเธเธฑเธเน€เธเนเธเน€เธเธดเธ"}
               onClick={() => openSettingsView("printers")}
-               locked={isSettingLocked("printers") || !menuVisible("settings.printers")}
+               menuEnabled={!isCustom || isCustomPosMenuVisible("settings.printers", menuPolicy, true)} locked={isSettingLocked("printers") || !menuVisible("settings.printers")}
             />
-            {!isStoreSpecificSettingHidden("activity") ? <MenuButton icon="activity" title={labels.activityAudit} desc={labels.activityAuditDesc} onClick={() => openSettingsView("activity")}  locked={isSettingLocked("activity") || !menuVisible("settings.activity")} /> : null}
-            <MenuButton icon="payment" title={labels.payments} desc={labels.paymentsDesc} onClick={() => openSettingsView("payments")}  locked={isSettingLocked("payments") || !menuVisible("settings.payments")} compact />
+            {!isStoreSpecificSettingHidden("activity") ? <MenuButton icon="activity" title={labels.activityAudit} desc={labels.activityAuditDesc} onClick={() => openSettingsView("activity")}  menuEnabled={!isCustom || isCustomPosMenuVisible("settings.activity", menuPolicy, true)} locked={isSettingLocked("activity") || !menuVisible("settings.activity")} /> : null}
+            <MenuButton icon="payment" title={labels.payments} desc={labels.paymentsDesc} onClick={() => openSettingsView("payments")}  menuEnabled={!isCustom || isCustomPosMenuVisible("settings.payments", menuPolicy, true)} locked={isSettingLocked("payments") || !menuVisible("settings.payments")} compact />
             <MenuButton
               icon="payment"
               title={lang === "en" ? "INET QR" : "INET QR"}
               desc={lang === "en" ? "Dynamic QR, branch activation, and UAT connection" : "QR เนเธเธเธเธณเธซเธเธ”เธขเธญเธ”, เน€เธเธดเธ”เนเธเนเธเธฒเธเธฃเธฒเธขเธชเธฒเธเธฒ เนเธฅเธฐเธ—เธ”เธชเธญเธ UAT"}
               onClick={() => openSettingsView("inet_nops")}
-               locked={isSettingLocked("inet_nops") || !menuVisible("settings.inet_nops")}
+               menuEnabled={!isCustom || isCustomPosMenuVisible("settings.inet_nops", menuPolicy, true)} locked={isSettingLocked("inet_nops") || !menuVisible("settings.inet_nops")}
             />
-            {!isStoreSpecificSettingHidden("taxes") ? <MenuButton icon="tax" title={labels.taxes} desc={labels.taxesDesc} onClick={() => openSettingsView("taxes")}  locked={isSettingLocked("taxes") || !menuVisible("settings.taxes")} /> : null}
+            {!isStoreSpecificSettingHidden("taxes") ? <MenuButton icon="tax" title={labels.taxes} desc={labels.taxesDesc} onClick={() => openSettingsView("taxes")}  menuEnabled={!isCustom || isCustomPosMenuVisible("settings.taxes", menuPolicy, true)} locked={isSettingLocked("taxes") || !menuVisible("settings.taxes")} /> : null}
             <MenuButton
               icon="bell"
               title={lang === "en" ? "Notification Settings" : "เธ•เธฑเนเธเธเนเธฒเธเธฒเธฃเนเธเนเธเน€เธ•เธทเธญเธ"}
               desc={lang === "en" ? "Popup and sound alerts for table QR customer calls" : "POP UP เนเธฅเธฐเน€เธชเธตเธขเธเนเธเนเธเน€เธ•เธทเธญเธเน€เธกเธทเนเธญเธฅเธนเธเธเนเธฒเน€เธฃเธตเธขเธเธเธฒเธ QR เนเธ•เนเธฐ"}
               onClick={() => openSettingsView("notifications")}
-               locked={isSettingLocked("notifications") || !menuVisible("settings.notifications")}
+               menuEnabled={!isCustom || isCustomPosMenuVisible("settings.notifications", menuPolicy, true)} locked={isSettingLocked("notifications") || !menuVisible("settings.notifications")}
             />
             <MenuLink
               icon="support"
               title={lang === "en" ? "Help Center" : "ศูนย์ช่วยเหลือ"}
               desc={lang === "en" ? "Contact support, report issues, and open CpiPOS Support chat" : "ติดต่อสอบถาม แจ้งปัญหา และพูดคุยกับทีม CpiPOS Support"}
               href="/preview/pos/payments"
-              locked={!menuVisible("settings.support")}
+              menuEnabled={!isCustom || isCustomPosMenuVisible("settings.support", menuPolicy, true)} locked={!menuVisible("settings.support")}
               onLocked={() => setItLockedMenu(lang === "en" ? "Help Center" : "ศูนย์ช่วยเหลือ")}
             />
             <MenuButton
@@ -3499,12 +3501,12 @@ export function PosSettingsWorkspace({ lang, initialData }: { lang: Language; in
               title={lang === "en" ? "Device Notifications" : "การแจ้งเตือนอุปกรณ์"}
               desc={lang === "en" ? "Push Notification permission and status for this device" : "สถานะ Push Notification และการอนุญาตแจ้งเตือนของเครื่องนี้"}
               onClick={() => !menuVisible("settings.push_notifications") ? setItLockedMenu(lang === "en" ? "Device Notifications" : "การแจ้งเตือนอุปกรณ์") : setPushSettingsOpen(true)}
-              locked={!menuVisible("settings.push_notifications")}
+              menuEnabled={!isCustom || isCustomPosMenuVisible("settings.push_notifications", menuPolicy, true)} locked={!menuVisible("settings.push_notifications")}
             />
-            <MenuButton icon="users" title={labels.users} desc={labels.usersDesc} onClick={() => openSettingsView("users")}  locked={isSettingLocked("users") || !menuVisible("settings.users")} />
-            <MenuButton icon="language" title={labels.language} desc={labels.languageDesc}  onClick={() => !menuVisible("settings.language") ? setItLockedMenu(lang === "th" ? "เปลี่ยนภาษา" : "Change Language") : setLanguagePopupOpen(true)} locked={!menuVisible("settings.language")} />
-            <MenuButton icon="language" title={labels.mainMenuPlacement} desc={labels.mainMenuPlacementDesc}  onClick={() => !menuVisible("settings.placement") ? setItLockedMenu(lang === "th" ? "สลับแถบเมนูหลัก" : "Main Menu Placement") : setMenuPlacementPopupOpen(true)} locked={!menuVisible("settings.placement")} />
-            {!isStoreSpecificSettingHidden("display") ? <MenuLink icon="display" title={labels.display} desc={labels.displayDesc} href="/preview/pos/customer-display"  locked={isSettingLocked("display") || !menuVisible("settings.display")} onLocked={() => !menuVisible("settings.display") ? setItLockedMenu(labels.display) : setPackageLockOpen(true)} /> : null}
+            <MenuButton icon="users" title={labels.users} desc={labels.usersDesc} onClick={() => openSettingsView("users")}  menuEnabled={!isCustom || isCustomPosMenuVisible("settings.users", menuPolicy, true)} locked={isSettingLocked("users") || !menuVisible("settings.users")} />
+            <MenuButton icon="language" title={labels.language} desc={labels.languageDesc}  onClick={() => !menuVisible("settings.language") ? setItLockedMenu(lang === "th" ? "เปลี่ยนภาษา" : "Change Language") : setLanguagePopupOpen(true)} menuEnabled={!isCustom || isCustomPosMenuVisible("settings.language", menuPolicy, true)} locked={!menuVisible("settings.language")} />
+            <MenuButton icon="language" title={labels.mainMenuPlacement} desc={labels.mainMenuPlacementDesc}  onClick={() => !menuVisible("settings.placement") ? setItLockedMenu(lang === "th" ? "สลับแถบเมนูหลัก" : "Main Menu Placement") : setMenuPlacementPopupOpen(true)} menuEnabled={!isCustom || isCustomPosMenuVisible("settings.placement", menuPolicy, true)} locked={!menuVisible("settings.placement")} />
+            {!isStoreSpecificSettingHidden("display") ? <MenuLink icon="display" title={labels.display} desc={labels.displayDesc} href="/preview/pos/customer-display"  menuEnabled={!isCustom || isCustomPosMenuVisible("settings.display", menuPolicy, true)} locked={isSettingLocked("display") || !menuVisible("settings.display")} onLocked={() => !menuVisible("settings.display") ? setItLockedMenu(labels.display) : setPackageLockOpen(true)} /> : null}
           </div>
         ) : null}
 
