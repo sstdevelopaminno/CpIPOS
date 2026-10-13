@@ -65,3 +65,8 @@ export function isDineInExplicitlyEnabled(value: unknown): boolean {
   const record = asRecord(value);
   return record.dine_in === true;
 }
+
+/** Optical checkout reuses the general retail scanner only when explicitly enabled by IT. */
+export function isOpticalRetailExplicitlyEnabled(value: unknown): boolean {
+  return asRecord(value).optical_retail === true;
+}
