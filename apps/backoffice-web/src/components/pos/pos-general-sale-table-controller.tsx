@@ -12,6 +12,7 @@ import {
   GENERAL_SALE_ADD_PRODUCT_EVENT,
   GENERAL_SALE_ADD_PRODUCT_RESULT_EVENT,
   GENERAL_SALE_CHECKOUT_BASE_MODE,
+  OPTICAL_ACTIVATE_BASE_MODE_EVENT,
   GENERAL_SALE_LAYOUT_ATTRIBUTE,
   GENERAL_SALE_LAYOUT_STORAGE_KEY,
   GENERAL_SALE_MODE_ID,
@@ -604,9 +605,9 @@ export function PosGeneralSaleTableController() {
         );
         opticalButton.addEventListener("click", () => {
           if (!opticalAllowed) return;
-          const home = grid.querySelector<HTMLElement>(`[${MODE_ATTRIBUTE}="${GENERAL_SALE_CHECKOUT_BASE_MODE}"]`);
-          if (!home) return;
-          home.click();
+          // Optical retains the existing POS checkout pipeline even when
+          // IT has disabled the public takeaway button. No synthetic click.
+          window.dispatchEvent(new Event(OPTICAL_ACTIVATE_BASE_MODE_EVENT));
           generalSaleActive = true;
           opticalActive = true;
           removeScanner();
