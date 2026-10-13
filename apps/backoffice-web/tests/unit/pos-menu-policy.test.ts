@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  POS_MENU_CATALOG, isPosMenuAlwaysEnabled, isPosMenuEnabled, posMenuKeyForRoute
+  POS_MENU_CATALOG, isCustomPosMenuVisible, isPosMenuAlwaysEnabled, isPosMenuEnabled, posMenuKeyForRoute
 } from "../../src/lib/pos-menu-policy";
 
 describe("IT-controlled POS tenant menu policy", () => {
@@ -18,6 +18,15 @@ describe("IT-controlled POS tenant menu policy", () => {
     expect(isPosMenuEnabled("settings.store", overrides)).toBe(true);
     expect(isPosMenuEnabled("more.receipts", { "main.more": true, "more.receipts": false })).toBe(false);
     expect(isPosMenuEnabled("main.more", { "main.more": true, "more.receipts": false })).toBe(true);
+  });
+  it("hides CUSTOM menus unless IT explicitly enabled the menu and its parent", () => {
+    expect(isCustomPosMenuVisible("main.more", {}, true)).toBe(false);
+    expect(isCustomPosMenuVisible("more.stock", { "more.stock": true }, true)).toBe(false);
+    expect(isCustomPosMenuVisible("more.stock", { "main.more": true, "more.stock": true }, true)).toBe(true);
+    expect(isCustomPosMenuVisible("more.stock", { "main.more": true, "more.stock": false }, true)).toBe(false);
+    expect(isCustomPosMenuVisible("main.shift", {}, true)).toBe(true);
+    expect(isCustomPosMenuVisible("more.stock", {}, false)).toBe(true);
+    expect(isCustomPosMenuVisible("unknown", {}, true)).toBe(false);
   });
   it("matches the most specific parent/submenu route and never disables unknown paths", () => {
     expect(posMenuKeyForRoute("/preview/pos")).toBe("main.sales");
