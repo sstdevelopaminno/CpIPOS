@@ -3379,6 +3379,7 @@ export function PosSettingsWorkspace({ lang, initialData }: { lang: Language; in
   const [pushSettingsOpen, setPushSettingsOpen] = useState(false);
   const [menuPolicy, setMenuPolicy] = useState<Record<string, boolean>>({});
   const [isCustom, setIsCustom] = useState(false);
+  const [policyReady, setPolicyReady] = useState(false);
   const canManage = initialData.metadata.can_manage;
   const productProfilePolicy = getProductProfilePolicy(initialData.metadata.product_profile);
 
@@ -3404,6 +3405,7 @@ export function PosSettingsWorkspace({ lang, initialData }: { lang: Language; in
           setEnabledFeatures(body?.data?.features ?? {});
           setMenuPolicy(body?.data?.menu_policy ?? {});
           setIsCustom(body?.data?.is_custom === true);
+          setPolicyReady(true);
         }
       } catch {
         if (!cancelled) setEnabledFeatures({});
@@ -3459,7 +3461,8 @@ export function PosSettingsWorkspace({ lang, initialData }: { lang: Language; in
           </div>
         ) : null}
 
-        {view === "menu" ? (
+        {view === "menu" && !policyReady ? <p role="status">กำลังตรวจสอบสิทธิ์เมนู...</p> : null}
+        {view === "menu" && policyReady ? (
           <div className="grid gap-4 lg:grid-cols-2 xl:grid-cols-3">
             <MenuButton icon="store" title={labels.store} desc={labels.storeDesc} onClick={() => openSettingsView("store")}  menuEnabled={!isCustom || isCustomPosMenuVisible("settings.store", menuPolicy, true)} locked={isSettingLocked("store") || !menuVisible("settings.store")} />
             {!isStoreSpecificSettingHidden("branches") ? <MenuButton icon="branch" title={labels.branches} desc={labels.branchesDesc} onClick={() => openSettingsView("branches")}  menuEnabled={!isCustom || isCustomPosMenuVisible("settings.branches", menuPolicy, true)} locked={isSettingLocked("branches") || !menuVisible("settings.branches")} /> : null}
