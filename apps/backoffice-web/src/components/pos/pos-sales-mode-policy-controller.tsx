@@ -180,6 +180,18 @@ export function PosSalesModePolicyController() {
       }
     };
 
+    // The retail selector does its own authenticated fresh entitlement check.
+    // Share that result so the base mode cards and Optical mode never diverge.
+    const onFeaturePolicyUpdated = (event: Event) => {
+      const data = (event as CustomEvent<FeaturesEnvelope["data"]>).detail;
+      if (!data) return;
+      requestSequence += 1;
+      modes = normalizePosSalesModes(data.sales_modes);
+      isCustom = data.is_custom === true || data.is_internal_test_full === true;
+      scheduleApplyPolicy();
+    };
+    window.addEventListener("cpipos:pos-feature-policy-updated", onFeaturePolicyUpdated);
+
     const observer = new MutationObserver(() => {
       const selector = document.querySelector<HTMLElement>(".posui-mode-selector");
       if (selector !== latestSelector) {
@@ -212,6 +224,7 @@ export function PosSalesModePolicyController() {
       window.clearInterval(intervalId);
       if (applyFrame !== null) window.cancelAnimationFrame(applyFrame);
       observer.disconnect();
+      window.removeEventListener("cpipos:pos-feature-policy-updated", onFeaturePolicyUpdated);
       document.removeEventListener("click", onClickCapture, true);
       document.removeEventListener("visibilitychange", onVisibility);
       window.removeEventListener("focus", onFocus);
