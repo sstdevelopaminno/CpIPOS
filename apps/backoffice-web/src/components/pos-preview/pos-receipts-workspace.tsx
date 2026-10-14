@@ -73,6 +73,8 @@ type ReceiptPayload = {
     completedCount: number;
     grossTotal: number;
     paidTotal: number;
+    byCurrency?: Record<"THB" | "LAK", { count: number; grossTotal: number; paidTotal: number }>;
+    mixedCurrencies?: boolean;
   };
   pagination: {
     page: number;
@@ -769,8 +771,10 @@ export function PosReceiptsWorkspace({ lang }: { lang: Language }) {
           <section className="grid gap-3 md:grid-cols-4">
             <Metric label={copy.receipts} value={String(payload?.summary.receiptCount ?? 0)} />
             <Metric label={copy.completed} value={String(payload?.summary.completedCount ?? 0)} />
-            <Metric label={copy.gross} value={formatMoney(payload?.summary.grossTotal ?? 0, lang, payload?.currencyCode)} />
-            <Metric label={copy.paid} value={formatMoney(payload?.summary.paidTotal ?? 0, lang, payload?.currencyCode)} />
+            {(payload?.summary.byCurrency ? (["THB", "LAK"] as const).filter(code => (payload.summary.byCurrency?.[code]?.count ?? 0) > 0) : [payload?.currencyCode ?? "THB"]).flatMap(code => [
+              <Metric key={code + "-gross"} label={`${copy.gross} (${code})`} value={formatMoney(payload?.summary.byCurrency?.[code]?.grossTotal ?? payload?.summary.grossTotal ?? 0, lang, code)} />,
+              <Metric key={code + "-paid"} label={`${copy.paid} (${code})`} value={formatMoney(payload?.summary.byCurrency?.[code]?.paidTotal ?? payload?.summary.paidTotal ?? 0, lang, code)} />
+            ])}
           </section>
         ) : null}
 
