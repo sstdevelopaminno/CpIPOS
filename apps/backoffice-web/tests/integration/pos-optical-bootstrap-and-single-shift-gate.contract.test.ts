@@ -12,15 +12,16 @@ describe("Optical CUSTOM standalone startup and shift-gate regression", () => {
     expect(entry).toContain('window.location.assign(shiftMenuUrl)');
   });
 
-  it("allows only one open-shift dialog per active POS session even during route transitions", () => {
+  it("allows only one open-shift dialog across session handoffs and route transitions", () => {
     const entry = read("src/components/pos/pos-entry-gate.tsx");
     const singleton = read("src/lib/pos-shift-entry-singleton.ts");
     expect(entry).toContain("usePosShiftEntryLeader");
     expect(entry).toContain("if (!shiftEntryLeader) return null");
     expect(entry).toContain('data-pos-open-shift-gate="1"');
     expect(singleton).toContain("useSyncExternalStore");
-    expect(singleton).toContain("owners.get(sessionId)?.[0] === token.current");
-    expect(singleton).toContain("owners.delete(sessionId)");
+    expect(singleton).toContain("sharedStore().owners[0] === token.current");
+    expect(singleton).toContain("store.owners.splice(index, 1)");
+    expect(singleton).toContain("__cpiposShiftEntryStore");
   });
 
   it("waits for React to register the real Optical activation listener", () => {
