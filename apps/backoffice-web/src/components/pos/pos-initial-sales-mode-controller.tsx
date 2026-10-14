@@ -30,7 +30,7 @@ const MODE_SWITCH_QUERY = ".posui-mode-switch-button";
 const WAIT_STEP_MS = 100;
 const SCOPE_WAIT_LIMIT = 50;
 const MODE_READY_WAIT_LIMIT = 50;
-const ACTIVATION_TIMEOUT_MS = 8000;
+const ACTIVATION_TIMEOUT_MS = 30000;
 
 const ACTIVE_POS_KEYS = [
   "pos_pending_submit_v012",
