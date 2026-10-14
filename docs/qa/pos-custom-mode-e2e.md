@@ -30,14 +30,17 @@ Run:
 ```sh
 corepack pnpm install --frozen-lockfile
 corepack pnpm exec playwright install chromium
-POS_E2E_CASES_FILE=.qa/pos-custom-modes.json node scripts/pos-custom-mode-e2e.mjs
+POS_E2E_ORIGIN=http://localhost:3000 POS_E2E_CASES_FILE=.qa/pos-custom-modes.json node scripts/pos-custom-mode-e2e.mjs
 ```
 
 Windows PowerShell:
 ```powershell
+$env:POS_E2E_ORIGIN="http://localhost:3000"
 $env:POS_E2E_CASES_FILE=".qa/pos-custom-modes.json"
 node scripts/pos-custom-mode-e2e.mjs
 ```
+
+Run the **PR branch code locally**, not the existing Production deployment (which still runs the old commit). The script requires `POS_E2E_ORIGIN` and rejects the Production hostname by default. An authenticated QA browser state must be captured for the target origin. To test actual shift reopening or IT entitlement changes, perform those steps separately with an authorized QA account and record evidence.
 
 The script checks the **committed React mode**, a dismissed startup gate, Optical header, and a browser reload. It saves error screenshots and `.qa/pos-custom-evidence/report.json` locally (do not publish session information). Also manually check switch-mode list visibility, E2E shift transition, session switch and preservation of a cart/draft. All must pass to authorize release.
 
