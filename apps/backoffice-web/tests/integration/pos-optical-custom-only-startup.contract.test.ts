@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { getAuthorizedCustomPosStartupMode } from "../../src/lib/pos-sales-mode-preferences";
-import { normalizeCustomPosSalesModes } from "../../src/lib/pos-sales-modes";
+import { isAuthorizedOpticalRetailMode, normalizeCustomPosSalesModes } from "../../src/lib/pos-sales-modes";
 
 const read = (file: string) => readFileSync(resolve(process.cwd(),file),"utf8");
 
@@ -38,9 +38,21 @@ describe("CUSTOM IMDC Optical as the only permitted POS sales mode", () => {
   expect(bridge).toContain('const MODE_SWITCH_BUTTON_QUERY = ".posui-mode-switch-button"');
   expect(bridge).toContain('processingStartupRequestId === request.requestId');
   expect(bridge).toContain('pendingStartupMode = request');
-  expect(bridge).toContain('document.querySelector(MODE_SWITCH_BUTTON_QUERY)');
+  expect(bridge).toContain('document.documentElement.getAttribute(OPTICAL_HANDLER_READY_ATTRIBUTE) === "1"');
   expect(bridge).toContain('applyRetailStartup(request)');
-  expect(bridge).toContain("body?.data?.features?.core_pos_sales === true");
+  expect(bridge).toContain("isAuthorizedOpticalRetailMode(body.data)");
+ });
+ it("permits IT-authorized Optical even if the fixed-package core feature is absent",()=>{
+  const snapshot={is_custom:true,sales_modes:{takeaway:false,optical_retail:true},features:{core_pos_sales:false}};
+  expect(isAuthorizedOpticalRetailMode(snapshot)).toBe(true);
+  expect(isAuthorizedOpticalRetailMode({is_custom:true,sales_modes:{optical_retail:false}})).toBe(false);
+  expect(isAuthorizedOpticalRetailMode({is_custom:false,sales_modes:{optical_retail:true}})).toBe(false);
+  expect(isAuthorizedOpticalRetailMode({is_custom:true,sales_modes:{}})).toBe(false);
+  const boot=read("src/components/pos/pos-initial-sales-mode-controller.tsx");
+  const bridge=read("src/components/pos/pos-general-sale-table-controller.tsx");
+  expect(boot).toContain("isAuthorizedOpticalRetailMode(payload.data)");
+  expect(bridge).toContain("isAuthorizedOpticalRetailMode(body.data)");
+  expect(bridge).toContain("attempt < 450");
  });
  it("never opens a disabled sales mode when the backend rejects Optical",()=>{
   const bridge=read("src/components/pos/pos-general-sale-table-controller.tsx");

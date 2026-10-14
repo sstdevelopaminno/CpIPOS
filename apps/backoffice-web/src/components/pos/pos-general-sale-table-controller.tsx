@@ -2,6 +2,7 @@
 
 import { useEffect } from "react";
 import { POS_MODE_FEATURES } from "@/lib/pos-feature-map";
+import { isAuthorizedOpticalRetailMode } from "@/lib/pos-sales-modes";
 import {
   buildGeneralSaleCartTableRows,
   buildGeneralSaleCartTableSignature,
@@ -794,7 +795,7 @@ export function PosGeneralSaleTableController() {
       // POS sales is dynamically imported after session validation. Its
       // Optical activation listener is registered after React mounts the
       // sales screen, not when the IT feature request first resolves.
-      if (!(document.querySelector(MODE_SWITCH_BUTTON_QUERY) && document.documentElement.getAttribute(OPTICAL_HANDLER_READY_ATTRIBUTE) === "1")) {
+      if (document.documentElement.getAttribute(OPTICAL_HANDLER_READY_ATTRIBUTE) !== "1") {
         pendingStartupMode = request;
         return;
       }
@@ -829,7 +830,7 @@ export function PosGeneralSaleTableController() {
           ? opticalActive && Boolean(document.querySelector('[data-testid="pos-active-optical-mode"]'))
           : generalSaleActive && !opticalActive
             && document.documentElement.getAttribute(GENERAL_SALE_ROOT_ATTRIBUTE) === GENERAL_SALE_MODE_ID;
-        if (allowed && !correctMode && attempt < 90) {
+        if (allowed && !correctMode && attempt < 450) {
           window.setTimeout(() => reportWhenRendered(attempt + 1), 40);
           return;
         }
@@ -898,7 +899,7 @@ export function PosGeneralSaleTableController() {
       enhanceSelector();
       // When POS has mounted after the entitlement request, activate exactly
       // once with the already checked grant. No public takeaway mode is needed.
-      if (pendingStartupMode && accessResolved && (document.querySelector(MODE_SWITCH_BUTTON_QUERY) && document.documentElement.getAttribute(OPTICAL_HANDLER_READY_ATTRIBUTE) === "1")) {
+      if (pendingStartupMode && accessResolved && document.documentElement.getAttribute(OPTICAL_HANDLER_READY_ATTRIBUTE) === "1") {
         const request = pendingStartupMode;
         pendingStartupMode = null;
         applyRetailStartup(request);
@@ -938,8 +939,9 @@ export function PosGeneralSaleTableController() {
         window.dispatchEvent(new CustomEvent("cpipos:pos-feature-policy-updated", { detail: body.data }));
         generalSaleAllowed = Boolean(body?.data?.features?.[POS_MODE_FEATURES.general_sale] === true
           && body?.data?.sales_modes?.general_sale === true);
-        opticalAllowed = Boolean(response.ok && (body?.data?.is_custom === true || body?.data?.is_internal_test_full === true)
-          && body?.data?.sales_modes?.optical_retail === true && body?.data?.features?.core_pos_sales === true);
+        // Optical is independently enabled by IT for this CUSTOM tenant.
+        // The ordinary takeaway feature is not a prerequisite for entering its UI.
+        opticalAllowed = isAuthorizedOpticalRetailMode(body.data);
         // When IT removes a grant while a retail mode is active, close the
         // extra scanner UI without modifying any existing bill/cart data.
         if (generalSaleActive && (opticalActive ? !opticalAllowed : !generalSaleAllowed)) {

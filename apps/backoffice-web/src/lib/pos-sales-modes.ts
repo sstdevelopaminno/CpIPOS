@@ -66,6 +66,21 @@ export function isDineInExplicitlyEnabled(value: unknown): boolean {
   return record.dine_in === true;
 }
 
+/** IT's per-tenant CUSTOM grant is the authoritative Optical mode entitlement.
+ * Do not require the generic core_pos_sales feature: a CUSTOM package can
+ * explicitly grant Optical without including the ordinary takeaway package feature.
+ * UI visibility is not server payment authorization; transactional endpoints must
+ * still separately check the POS session and their own access controls.
+ */
+export function isAuthorizedOpticalRetailMode(snapshot: {
+  is_custom?: boolean;
+  is_internal_test_full?: boolean;
+  sales_modes?: unknown;
+} | null | undefined): boolean {
+  if (!snapshot || !(snapshot.is_custom === true || snapshot.is_internal_test_full === true)) return false;
+  return normalizeCustomPosSalesModes(snapshot.sales_modes).optical_retail === true;
+}
+
 /** Optical checkout reuses the general retail scanner only when explicitly enabled by IT. */
 export function isOpticalRetailExplicitlyEnabled(value: unknown): boolean {
   return asRecord(value).optical_retail === true;
