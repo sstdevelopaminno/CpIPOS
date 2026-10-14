@@ -34,6 +34,7 @@ type ReceiptTaxLine = {
 type ReceiptRecord = {
   id: string;
   orderNo: string;
+  currencyCode: "THB" | "LAK";
   orderType: string;
   channel: string;
   tableLabel: string;
@@ -65,6 +66,7 @@ type ReceiptPayload = {
   branch: { id: string; name: string; store_profile?: ReceiptStoreProfile | null };
   range: { label: string };
   records: ReceiptRecord[];
+  currencyCode: "THB" | "LAK";
   summary: {
     receiptCount: number;
     completedCount: number;
@@ -120,11 +122,11 @@ function formatDateTime(value: string | null, lang: Language) {
   }).format(new Date(value));
 }
 
-function formatMoney(value: number, lang: Language) {
-  return new Intl.NumberFormat(lang === "th" ? "th-TH" : "en-US", {
-    style: "currency",
-    currency: "THB",
-    maximumFractionDigits: 2
+function formatMoney(value: number, lang: Language, currencyCode: "THB" | "LAK" = "THB") {
+  return new Intl.NumberFormat(currencyCode === "LAK" ? "lo-LA" : lang === "th" ? "th-TH" : "en-US", {
+    style: "currency", currency: currencyCode,
+    minimumFractionDigits: currencyCode === "LAK" ? 0 : 2,
+    maximumFractionDigits: currencyCode === "LAK" ? 0 : 2
   }).format(Number(value || 0));
 }
 
@@ -260,6 +262,9 @@ function buildReceiptPrintHtml(args: {
   autoPrint?: boolean;
 }) {
   const { record, branchName, lang, autoPrint = false } = args;
+  const currencySymbol = record.currencyCode === "LAK" ? "₭" : "฿";
+  const formatMoneyPlain = (value: number) => new Intl.NumberFormat("en-US", { minimumFractionDigits: record.currencyCode === "LAK" ? 0 : 2, maximumFractionDigits: record.currencyCode === "LAK" ? 0 : 2 }).format(value);
+  const formatSignedMoneyPlain = (amount: number) => `${amount < 0 ? "-" : "+"}${currencySymbol}${formatMoneyPlain(Math.abs(amount))}`;
   const storeProfile = args.storeProfile ?? null;
   const storeName = String(storeProfile?.display_name ?? storeProfile?.name ?? "").trim() || (lang === "th" ? "ร้านค้า" : "Store");
   const storeAddress = String(storeProfile?.company_address ?? "").trim();
@@ -267,6 +272,12 @@ function buildReceiptPrintHtml(args: {
   const logoPath = normalizeReceiptLogoPath(storeProfile?.logo_url) ?? "/brand/cpipos-logo.png";
   const logoUrl = getAbsoluteAssetUrl(logoPath);
   const labels =
+    lang === "lo" ? {
+      seller: "ຜູ້ຂາຍ", shift: "ກະ", mode: "ໂໝດ", billNo: "ເລກໃບບິນ",
+      externalCode: "ລະຫັດຄຳສັ່ງ", member: "ສະມາຊິກ", date: "ວັນທີ", note: "ໝາຍເຫດ",
+      discount: "ສ່ວນຫຼຸດ", tax: "ພາສີ", paymentMethod: "ຊຳລະເງິນ",
+      totalDue: "ຍອດສຸດທິ", cashReceived: "ຮັບເງິນ", change: "ເງິນທອນ"
+    } :
     lang === "th"
       ? {
           seller: "ชื่อผู้ขาย",
@@ -340,8 +351,8 @@ function buildReceiptPrintHtml(args: {
   const cashSummaryLines =
     record.paymentMethods.includes("cash")
       ? `
-    <div class="summary-line is-aux"><span>${escapeHtml(labels.cashReceived)}</span><strong>฿${escapeHtml(formatMoneyPlain(record.cashReceived))}</strong></div>
-    <div class="summary-line is-aux"><span>${escapeHtml(labels.change)}</span><strong>฿${escapeHtml(formatMoneyPlain(record.changeAmount))}</strong></div>`
+    <div class="summary-line is-aux"><span>${escapeHtml(labels.cashReceived)}</span><strong>${currencySymbol}${escapeHtml(formatMoneyPlain(record.cashReceived))}</strong></div>
+    <div class="summary-line is-aux"><span>${escapeHtml(labels.change)}</span><strong>${currencySymbol}${escapeHtml(formatMoneyPlain(record.changeAmount))}</strong></div>`
       : "";
   const autoPrintScript = autoPrint ? "<script>window.addEventListener('load',()=>setTimeout(()=>window.print(),120));</script>" : "";
 
@@ -352,7 +363,7 @@ function buildReceiptPrintHtml(args: {
   <title>${escapeHtml(storeName)} - ${escapeHtml(record.orderNo)}</title>
   <style>
     @page { size: 58mm ${pageHeightMm}mm; margin: 0; }
-    html, body { margin: 0; padding: 0; width: 58mm !important; min-height: ${pageHeightMm}mm; background: #fff; color: #000; font-family: "Noto Sans Thai", "Tahoma", "Segoe UI", sans-serif; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    html, body { margin: 0; padding: 0; width: 58mm !important; min-height: ${pageHeightMm}mm; background: #fff; color: #000; font-family: "Noto Sans Lao", "Noto Sans Thai", "Tahoma", "Segoe UI", sans-serif; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
     * { box-sizing: border-box; }
     .receipt58 { width: ${printableWidthMm}mm; margin: 0 auto; padding: 1.2mm 0 1.8mm; min-height: ${Math.max(90, pageHeightMm - 4)}mm; font-size: 11px; line-height: 1.28; }
     .logo-wrap { text-align: center; margin-bottom: 0.8mm; }
@@ -405,9 +416,9 @@ function buildReceiptPrintHtml(args: {
     <table><tbody>${itemRows}</tbody></table>
     <div class="hr"></div>
     <div class="summary-line is-heading"><span>${escapeHtml(labels.paymentMethod)}</span><strong>${escapeHtml(resolveReceiptPaymentMethod(record, lang))}</strong></div>
-    <div class="summary-line is-muted"><span>${escapeHtml(labels.discount)}</span><strong>฿${escapeHtml(formatMoneyPlain(record.discountAmount))}</strong></div>
+    <div class="summary-line is-muted"><span>${escapeHtml(labels.discount)}</span><strong>${currencySymbol}${escapeHtml(formatMoneyPlain(record.discountAmount))}</strong></div>
     ${taxSummaryLines}
-    <div class="summary-line grand"><span>${escapeHtml(labels.totalDue)}</span><strong>฿${escapeHtml(formatMoneyPlain(record.totalAmount))}</strong></div>
+    <div class="summary-line grand"><span>${escapeHtml(labels.totalDue)}</span><strong>${currencySymbol}${escapeHtml(formatMoneyPlain(record.totalAmount))}</strong></div>
     ${cashSummaryLines}
     <div class="hr"></div>
     <div class="foot">CpIPOS</div>
@@ -753,8 +764,8 @@ export function PosReceiptsWorkspace({ lang }: { lang: Language }) {
           <section className="grid gap-3 md:grid-cols-4">
             <Metric label={copy.receipts} value={String(payload?.summary.receiptCount ?? 0)} />
             <Metric label={copy.completed} value={String(payload?.summary.completedCount ?? 0)} />
-            <Metric label={copy.gross} value={formatMoney(payload?.summary.grossTotal ?? 0, lang)} />
-            <Metric label={copy.paid} value={formatMoney(payload?.summary.paidTotal ?? 0, lang)} />
+            <Metric label={copy.gross} value={formatMoney(payload?.summary.grossTotal ?? 0, lang, payload?.currencyCode)} />
+            <Metric label={copy.paid} value={formatMoney(payload?.summary.paidTotal ?? 0, lang, payload?.currencyCode)} />
           </section>
         ) : null}
 
@@ -792,7 +803,7 @@ export function PosReceiptsWorkspace({ lang }: { lang: Language }) {
                         <span className="text-xs text-slate-500">{record.tableLabel}</span>
                       </Td>
                       <Td>{paymentLabel(record.paymentMethods, lang)}</Td>
-                      <Td strong>{formatMoney(record.totalAmount, lang)}</Td>
+                      <Td strong>{formatMoney(record.totalAmount, lang, record.currencyCode)}</Td>
                       <Td>
                         <button
                           type="button"

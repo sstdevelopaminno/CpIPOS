@@ -5,6 +5,7 @@ import { fail, ok } from "@/lib/http";
 import { buildPaginationMeta, parsePagination } from "@/lib/query-params";
 import { loadReceiptStoreProfile } from "@/lib/services/store-profile-service";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
+import { getTenantPosCurrencyCode } from "@/lib/server/custom-pos-currency";
 
 function toBangkokDate(value: Date) {
   const formatter = new Intl.DateTimeFormat("en-CA", {
@@ -221,6 +222,7 @@ export async function GET(req: Request) {
       itemsByOrder.set(key, list);
     }
 
+    const shopCurrencyCode = await getTenantPosCurrencyCode(auth.tenantId!);
     const records = rows.map((row) => {
       const payments = paymentsByOrder.get(row.id) ?? [];
       const rawItems = itemsByOrder.get(row.id) ?? [];
@@ -232,6 +234,7 @@ export async function GET(req: Request) {
       return {
         id: row.id,
         orderNo: row.order_no,
+        currencyCode: readMetadataString(row.metadata, "currency_code") === "LAK" ? "LAK" : readMetadataString(row.metadata, "currency_code") === "THB" ? "THB" : shopCurrencyCode,
         orderType: row.order_type,
         channel: row.channel,
         tableLabel: row.table_id ? tableMap.get(row.table_id) ?? "-" : "-",
@@ -272,6 +275,7 @@ export async function GET(req: Request) {
       branch: { id: auth.branchId, name: String(branchResult.data?.name ?? auth.branchId), store_profile: storeProfile },
       range: dateWindow,
       records,
+      currencyCode: shopCurrencyCode,
       summary,
       pagination: buildPaginationMeta(page, pageSize, count)
     }));

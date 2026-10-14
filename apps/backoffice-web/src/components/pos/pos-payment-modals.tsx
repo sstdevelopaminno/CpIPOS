@@ -455,7 +455,7 @@ export function PosPaymentModals({
                   <div className="posui-cash-quick__grid">
                     {cashQuickAmounts.map((amount) => (
                       <button key={amount} type="button" className="posui-btn posui-cash-quick__btn" onClick={() => onApplyQuickCashAmount(amount)} disabled={cashSubmitting}>
-                        {`฿${amount.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+                        {formatMoney(amount)}
                       </button>
                     ))}
                   </div>
