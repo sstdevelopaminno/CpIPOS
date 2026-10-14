@@ -96,19 +96,27 @@ async function activateModeWithoutDialog(
   mode: PosStartupSalesMode,
   isCancelled: () => boolean
 ): Promise<boolean> {
-  for (let index = 0; index < MODE_READY_WAIT_LIMIT && !isCancelled(); index += 1) {
-    if (document.querySelector<HTMLButtonElement>(MODE_SWITCH_QUERY)) break;
-    await wait(WAIT_STEP_MS);
+  const retailStartup = mode === "optical_retail" || mode === "general_sale";
+  // Unlike standard mode cards, CUSTOM Optical/SD activates via a dedicated
+  // runtime event. Waiting for the ordinary mode switch can deadlock when the
+  // storefront intentionally hides all regular modes.
+  if (!retailStartup) {
+    for (let index = 0; index < MODE_READY_WAIT_LIMIT && !isCancelled(); index += 1) {
+      if (document.querySelector<HTMLButtonElement>(MODE_SWITCH_QUERY)) break;
+      await wait(WAIT_STEP_MS);
+    }
+    if (isCancelled() || !document.querySelector(MODE_SWITCH_QUERY)) return false;
   }
-  if (isCancelled() || !document.querySelector(MODE_SWITCH_QUERY)) return false;
 
   const requestId = crypto.randomUUID();
   return new Promise<boolean>((resolve) => {
     let settled = false;
+    let retryId: number | null = null;
     const finish = (success: boolean) => {
       if (settled) return;
       settled = true;
       window.clearTimeout(timeoutId);
+      if (retryId !== null) window.clearInterval(retryId);
       window.removeEventListener(POS_STARTUP_MODE_RESULT_EVENT, onResult as EventListener);
       resolve(success);
     };
@@ -125,6 +133,15 @@ async function activateModeWithoutDialog(
     }
     const detail: PosStartupModeRequest = { requestId, mode };
     window.dispatchEvent(new CustomEvent<PosStartupModeRequest>(POS_STARTUP_MODE_REQUEST_EVENT, { detail }));
+    // A dynamically imported POS controller may mount just after this first
+    // event. Re-announce the same request ID until acknowledged, rather than
+    // treating hydration latency as revoked IT authorization.
+    if (retailStartup) {
+      retryId = window.setInterval(() => {
+        if (isCancelled()) { finish(false); return; }
+        if (!settled) window.dispatchEvent(new CustomEvent<PosStartupModeRequest>(POS_STARTUP_MODE_REQUEST_EVENT, { detail }));
+      }, 500);
+    }
   });
 }
 
