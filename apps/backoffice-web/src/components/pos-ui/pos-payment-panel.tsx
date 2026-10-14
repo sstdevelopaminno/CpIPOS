@@ -336,9 +336,14 @@ export function PosPaymentPanel({
 
   if (opticalRetail) {
     const th = opticalLanguage === "th";
-    const buttonClass = "flex min-h-[68px] min-w-0 flex-col items-center justify-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-3 text-center text-sm font-bold leading-snug text-slate-700 shadow-sm transition-colors enabled:hover:border-emerald-400 enabled:hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-60";
+    const buttonClass = "flex min-h-[78px] w-full min-w-0 flex-col items-center justify-center gap-1.5 rounded-xl border border-slate-200 bg-white px-2.5 py-3 text-center text-sm font-bold leading-tight text-slate-700 shadow-sm transition-colors enabled:hover:border-emerald-400 enabled:hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-60";
     return (
-      <section className="posui-payment-panel !gap-3" data-testid="pos-optical-payment-panel" aria-label={th ? "แผงชำระเงินร้านแว่นตา" : "Optical checkout controls"}>
+      <section
+        className="posui-payment-panel"
+        data-testid="pos-optical-payment-panel"
+        aria-label={th ? "แผงชำระเงินร้านแว่นตา" : "Optical checkout controls"}
+        style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr)", rowGap: 14, padding: 12 }}
+      >
         <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
           <p className="flex items-center justify-between border-b border-slate-100 px-4 py-3 text-sm font-bold text-slate-600">
             <span>{th ? "ยอดสินค้า" : "Items total"}</span>
@@ -372,7 +377,7 @@ export function PosPaymentPanel({
             {cashDrawerBusy ? openingCashDrawerLabel : th ? "เปิดลิ้นชัก" : "Open drawer"}
           </button>
         </div>
-        <div className="grid grid-cols-2 gap-3" data-testid="pos-optical-pending-actions">
+        <div className="grid min-w-0 grid-cols-2 gap-3 px-1" data-testid="pos-optical-pending-actions">
           <button
             type="button"
             disabled
@@ -381,7 +386,7 @@ export function PosPaymentPanel({
             className={`${buttonClass} border-emerald-200 bg-emerald-50 text-emerald-900`}
           >
             <span aria-hidden="true" className="text-lg leading-none">▣</span>
-            <span>{th ? "ชำระเงินมัดจำ" : "Deposit"}</span>
+            <span className="break-words leading-tight">{th ? "ชำระเงินมัดจำ" : "Deposit"}</span>
             <span className="text-[11px] font-semibold">{th ? "ยังไม่เปิดใช้งาน" : "Coming soon"}</span>
           </button>
           <button
@@ -391,7 +396,7 @@ export function PosPaymentPanel({
             className={`${buttonClass} border-emerald-300 bg-emerald-100 text-emerald-900 enabled:hover:bg-emerald-200`}
           >
             <span aria-hidden="true" className="text-lg leading-none">♙</span>
-            <span>{th ? "เพิ่มประวัติลูกค้า" : "Customer history"}</span>
+            <span className="break-words leading-tight">{th ? "เพิ่มประวัติลูกค้า" : "Customer history"}</span>
             <span className="text-[11px] font-semibold">{th ? "บันทึกค่าสายตา" : "Examination records"}</span>
           </button>
         </div>
