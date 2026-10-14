@@ -566,6 +566,7 @@ export type TranslationKey = keyof (typeof dict)["th"];
 const laoDictionary: Partial<Record<TranslationKey, string>> = {
   ...laoPosTranslations,
   ...laoSalesListTranslations,
+  ...laoCommonTranslations,
   "common_settings": "ຕັ້ງຄ່າ",
   "language": "ພາສາ",
   "thai": "ພາສາໄທ",
