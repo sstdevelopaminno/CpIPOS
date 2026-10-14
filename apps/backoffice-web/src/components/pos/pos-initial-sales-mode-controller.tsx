@@ -15,7 +15,7 @@ import {
 } from "@/lib/pos-sales-mode-preferences";
 import { fetchCurrentProductProfile, readCachedProductProfile } from "@/lib/pos-product-profile-client";
 import { POS_MODE_FEATURES } from "@/lib/pos-feature-map";
-import { normalizeCustomPosSalesModes } from "@/lib/pos-sales-modes";
+import { isAuthorizedOpticalRetailMode, normalizeCustomPosSalesModes } from "@/lib/pos-sales-modes";
 import {
   POS_STARTUP_MODE_REQUEST_EVENT,
   POS_STARTUP_MODE_RESULT_EVENT,
@@ -31,6 +31,7 @@ const WAIT_STEP_MS = 100;
 const SCOPE_WAIT_LIMIT = 50;
 const MODE_READY_WAIT_LIMIT = 50;
 const ACTIVATION_TIMEOUT_MS = 30000;
+const FEATURE_RETRY_DELAYS_MS = [250, 650] as const;
 
 const ACTIVE_POS_KEYS = [
   "pos_pending_submit_v012",
@@ -84,6 +85,32 @@ function readScope() {
 
 function wait(ms: number) {
   return new Promise<void>((resolve) => window.setTimeout(resolve, ms));
+}
+
+/** Retry only transient feature-service failures; a 401/403 is authoritative.
+ * Never use localStorage grants or a disabled legacy selling mode as fallback.
+ */
+async function readFreshStartupFeatures(isCancelled: () => boolean): Promise<PosFeaturesSnapshot | null> {
+  for (let attempt = 0; attempt <= FEATURE_RETRY_DELAYS_MS.length && !isCancelled(); attempt += 1) {
+    try {
+      const response = await fetch(FEATURES_API, {
+        method: "GET",
+        credentials: "same-origin",
+        cache: "no-store"
+      });
+      if (response.ok) {
+        const body = (await response.json().catch(() => null)) as PosFeaturesSnapshot | null;
+        if (body?.data) return body;
+      }
+      if (response.status === 401 || response.status === 403 || (response.status >= 400 && response.status < 500 && response.status !== 429)) {
+        return null;
+      }
+    } catch {
+      // Temporary offline/transport failure; try again briefly.
+    }
+    if (attempt < FEATURE_RETRY_DELAYS_MS.length) await wait(FEATURE_RETRY_DELAYS_MS[attempt]);
+  }
+  return null;
 }
 
 function parseModeOrder(payload: unknown): PosSalesMode[] | null {
@@ -168,13 +195,7 @@ export function PosInitialSalesModeController({initialScope}: {initialScope?: Po
       let customPolicy = false;
       let customModeGrants: unknown = null;
       try {
-        const response = await fetch(FEATURES_API, {
-          method: "GET",
-          credentials: "same-origin",
-          cache: "no-store"
-        });
-        if (!response.ok || cancelled) return complete("error");
-        const payload = (await response.json().catch(() => null)) as PosFeaturesSnapshot | null;
+        const payload = await readFreshStartupFeatures(() => cancelled);
         if (!payload?.data || cancelled) return complete("error");
         customPolicy = payload.data.is_custom === true || payload.data.is_internal_test_full === true;
         if (customPolicy) {
@@ -183,7 +204,7 @@ export function PosInitialSalesModeController({initialScope}: {initialScope?: Po
           customModeGrants = {
             ...grants,
             takeaway: grants.takeaway && features.core_pos_sales === true,
-            optical_retail: grants.optical_retail && features.core_pos_sales === true,
+            optical_retail: isAuthorizedOpticalRetailMode(payload.data),
             general_sale: grants.general_sale && features[POS_MODE_FEATURES.general_sale] === true,
             dine_in: grants.dine_in && features[POS_MODE_FEATURES.dine_in] === true,
             buffet_table: grants.buffet_table && features[POS_MODE_FEATURES.buffet_table] === true,
