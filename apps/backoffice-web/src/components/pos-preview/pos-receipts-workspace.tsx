@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { PosBackButton } from "@/components/pos-preview/pos-back-button";
 import type { Language } from "@/lib/i18n";
+import { LAO_RECEIPT_COPY } from "@/lib/printing/receipt-history-lao";
 
 type ReceiptItem = {
   product_id: string;
@@ -475,7 +476,7 @@ export function PosReceiptsWorkspace({ lang }: { lang: Language }) {
   const [error, setError] = useState<string | null>(null);
   const [reprint, setReprint] = useState<ReprintState | null>(null);
 
-  const copy = lang === "th"
+  const copy = lang === "lo" ? LAO_RECEIPT_COPY : lang === "th"
     ? {
         title: "ใบเสร็จย้อนหลัง",
         desc: "ค้นหาใบเสร็จตามวัน เดือน ปี หรือเลขบิล แล้วพิมพ์ย้อนหลังขนาด 58mm ด้วย PIN ผู้จัดการหรือเจ้าของร้าน",
