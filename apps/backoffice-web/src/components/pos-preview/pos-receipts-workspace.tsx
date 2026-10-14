@@ -115,7 +115,7 @@ function getBangkokToday() {
 
 function formatDateTime(value: string | null, lang: Language) {
   if (!value) return "-";
-  return new Intl.DateTimeFormat(lang === "th" ? "th-TH" : "en-US", {
+  return new Intl.DateTimeFormat(lang === "lo" ? "lo-LA" : lang === "th" ? "th-TH" : "en-US", {
     dateStyle: "medium",
     timeStyle: "short",
     timeZone: "Asia/Bangkok"
