@@ -9,6 +9,7 @@ import { PosHeldBillsModal } from "@/components/pos/pos-held-bills-modal";
 import { PosBuffetPricePickerModal } from "@/components/pos/pos-buffet-price-picker-modal";
 import { PosBuffetTableModeButton } from "@/components/pos/features/pos-buffet-table-mode-button";
 import { PosMemberMaintenanceModal } from "@/components/pos/pos-member-maintenance-modal";
+import { PosOpticalCustomerModal } from "@/components/pos/pos-optical-customer-modal";
 import { PosPaymentModals } from "@/components/pos/pos-payment-modals";
 import { PosProductCatalog } from "@/components/pos/pos-product-catalog";
 import { PosRealtimeClock } from "@/components/pos/pos-realtime-clock";
@@ -2095,6 +2096,7 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
   const [discountEditMode, setDiscountEditMode] = useState<"percent" | "amount">("percent");
   const [quickMode, setQuickMode] = useState<QuickMode>("home");
   const [opticalRetailActive, setOpticalRetailActive] = useState(false);
+  const [opticalCustomerOpen, setOpticalCustomerOpen] = useState(false);
   const [modeSelectorOpen, setModeSelectorOpen] = useState(false);
   const [salesTopbarCollapsed, setSalesTopbarCollapsed] = useState(false);
   const [enabledFeatures, setEnabledFeatures] = useState<Record<string, boolean> | null>(null);
@@ -8953,6 +8955,7 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
           onOpenHeldBills={openHeldBillsPanel}
           opticalRetail={opticalRetailActive}
           opticalLanguage={lang}
+          onOpticalCustomer={() => setOpticalCustomerOpen(true)}
           onMember={
             orderType === "delivery_manual"
               ? undefined
@@ -9283,6 +9286,7 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
         }
       />
 
+      <PosOpticalCustomerModal open={opticalRetailActive && opticalCustomerOpen} onClose={() => setOpticalCustomerOpen(false)} />
       <PosMemberMaintenanceModal open={memberMaintenanceOpen} lang={lang} onClose={() => setMemberMaintenanceOpen(false)} />
 
       {memberPickerOpen ? (

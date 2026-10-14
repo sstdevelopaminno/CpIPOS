@@ -186,6 +186,7 @@ export function PosGeneralSaleTableController() {
     let lastTableSignature = "";
     let scanBusy = false;
     let opticalAutoScanTimer: number | null = null;
+    let opticalBillScanTimer: number | null = null;
     let opticalLastKeyAt = 0;
     let opticalFastKeyCount = 0;
     const scanQueue: string[] = [];
@@ -241,6 +242,10 @@ export function PosGeneralSaleTableController() {
         opticalAutoScanTimer = null;
       }
       opticalFastKeyCount = 0;
+      if (opticalBillScanTimer !== null) {
+        window.clearTimeout(opticalBillScanTimer);
+        opticalBillScanTimer = null;
+      }
       scannerPanel?.remove();
       scannerPanel = null;
       scannerInput = null;
@@ -625,8 +630,38 @@ export function PosGeneralSaleTableController() {
         billStatus.className = "block min-h-4 pt-1 text-xs font-semibold text-amber-800";
         billStatus.setAttribute("aria-live", "polite");
         billForm.append(billInput, billSubmit);
+        let lastBillKeyAt = 0;
+        let billBurst = 0;
+        billInput.addEventListener("keydown", (event) => {
+          if (event.key.length !== 1) return;
+          const now = window.performance.now();
+          billBurst = now - lastBillKeyAt <= OPTICAL_SCAN_KEY_INTERVAL_MS ? billBurst + 1 : 1;
+          lastBillKeyAt = now;
+        });
+        billInput.addEventListener("input", (event) => {
+          if (opticalBillScanTimer !== null) window.clearTimeout(opticalBillScanTimer);
+          opticalBillScanTimer = null;
+          const reference = billInput.value.trim();
+          const paste = event instanceof InputEvent
+            && (event.inputType === "insertFromPaste" || (event.data?.length ?? 0) >= 4);
+          if (reference.length < (paste ? 4 : 6) || (!paste && billBurst < 5)) return;
+          opticalBillScanTimer = window.setTimeout(() => {
+            opticalBillScanTimer = null;
+            if (destroyed || !opticalActive || !generalSaleActive || billInput.value.trim() !== reference) return;
+            billBurst = 0;
+            // Request is intentionally read-only until ledger-backed retrieval
+            // can prohibit paid/void invoices and duplicate bill settlement.
+            billForm.requestSubmit();
+          }, OPTICAL_SCAN_IDLE_MS);
+        });
+        billInput.addEventListener("blur", () => {
+          if (opticalBillScanTimer !== null) window.clearTimeout(opticalBillScanTimer);
+          opticalBillScanTimer = null;
+        });
         billForm.addEventListener("submit", (event) => {
           event.preventDefault();
+          if (opticalBillScanTimer !== null) window.clearTimeout(opticalBillScanTimer);
+          opticalBillScanTimer = null;
           if (!billInput.value.trim()) {
             billStatus.textContent = lang === "th" ? "กรุณากรอกเลขอ้างอิงบิล" : "Enter a bill reference.";
             return;

@@ -33,6 +33,7 @@ type Props = {
   onOpenHeldBills?: () => void;
   opticalRetail?: boolean;
   opticalLanguage?: "th" | "en";
+  onOpticalCustomer?: () => void;
   onMember?: () => void;
   onTableQrOrder?: () => void;
   onPromotion?: () => void;
@@ -256,6 +257,7 @@ export function PosPaymentPanel({
   onOpenHeldBills,
   opticalRetail = false,
   opticalLanguage = "th",
+  onOpticalCustomer,
   onMember,
   onTableQrOrder,
   onPromotion,
@@ -380,27 +382,29 @@ export function PosPaymentPanel({
           <button type="button" disabled aria-disabled="true" title={th ? "รอระบบบัญชีมัดจำและสต๊อก" : "Pending deposit ledger and stock controls"} className="min-h-14 rounded-xl border border-emerald-200 bg-emerald-50 px-2 py-2 text-sm font-bold text-emerald-900 opacity-70">
             {th ? "ชำระเงินมัดจำ" : "Deposit"}<span className="block text-[10px] font-semibold">{th ? "ยังไม่เปิดใช้งาน" : "Coming soon"}</span>
           </button>
-          <button type="button" disabled aria-disabled="true" title={th ? "รอระบบใบสั่งงานและการจอง" : "Pending reservation workflow"} className="min-h-14 rounded-xl border border-emerald-200 bg-emerald-50 px-2 py-2 text-sm font-bold text-emerald-900 opacity-70">
-            {th ? "ทำจอง" : "Reserve"}<span className="block text-[10px] font-semibold">{th ? "ยังไม่เปิดใช้งาน" : "Coming soon"}</span>
+          <button type="button" onClick={onOpticalCustomer} disabled={!onOpticalCustomer || actionsDisabled} className="min-h-14 rounded-xl border border-emerald-300 bg-emerald-100 px-2 py-2 text-sm font-bold text-emerald-900 transition-colors enabled:hover:bg-emerald-200 disabled:opacity-40">
+            {th ? "เพิ่มประวัติลูกค้า" : "Customer history"}<span className="block text-[10px] font-semibold">{th ? "บันทึกค่าสายตา" : "Examination records"}</span>
           </button>
         </div>
-        <button
-          type="button"
-          className="min-h-14 rounded-xl bg-orange-500 px-3 py-3 text-base font-black text-white transition-colors enabled:hover:bg-orange-600 disabled:cursor-not-allowed disabled:opacity-45"
-          onClick={onCheckout}
-          disabled={checkoutDisabled || submitting}
-          data-testid="pos-optical-checkout"
-        >
-          {submitting ? submittingLabel : th ? "ชำระเงิน" : "Checkout"}
-        </button>
-        <button
-          type="button"
-          className="min-h-12 rounded-xl border border-rose-200 bg-rose-50 px-3 py-3 text-sm font-bold text-rose-700 enabled:hover:bg-rose-100 disabled:cursor-not-allowed disabled:opacity-45"
-          onClick={onCancelBill}
-          disabled={!onCancelBill || actionsDisabled || cancelBillDisabled}
-        >
-          {th ? "ยกเลิกบิล" : "Cancel bill"}
-        </button>
+        <div className="grid w-full grid-cols-1 gap-3 px-1 pt-1" data-testid="pos-optical-primary-actions">
+          <button
+            type="button"
+            className="flex min-h-14 w-full items-center justify-center rounded-xl bg-orange-500 px-4 py-3 text-center text-base font-black text-white transition-colors enabled:hover:bg-orange-600 disabled:cursor-not-allowed disabled:opacity-45"
+            onClick={onCheckout}
+            disabled={checkoutDisabled || submitting}
+            data-testid="pos-optical-checkout"
+          >
+            {submitting ? submittingLabel : th ? "ชำระเงิน" : "Checkout"}
+          </button>
+          <button
+            type="button"
+            className="flex min-h-14 w-full items-center justify-center rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-center text-base font-bold text-rose-700 enabled:hover:bg-rose-100 disabled:cursor-not-allowed disabled:opacity-45"
+            onClick={onCancelBill}
+            disabled={!onCancelBill || actionsDisabled || cancelBillDisabled}
+          >
+            {th ? "ยกเลิกบิล" : "Cancel bill"}
+          </button>
+        </div>
         {onRetry ? <button type="button" className="posui-btn posui-btn--retry-emergency" onClick={onRetry} disabled={retryDisabled || submitting}>{retryLabel ?? text.retry}</button> : null}
       </section>
     );
