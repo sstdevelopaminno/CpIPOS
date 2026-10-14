@@ -65,6 +65,9 @@ const CART_MUTATED_EVENT = "cpipos:pos-cart-mutated";
 const CART_BRIDGE_TIMEOUT_MS = 1800;
 const CART_RENDER_DELAY_MS = 48;
 const MAX_QUEUED_SCANS = 25;
+const OPTICAL_SCAN_IDLE_MS = 140;
+const OPTICAL_SCAN_KEY_INTERVAL_MS = 85;
+const PRODUCT_LOOKUP_TIMEOUT_MS = 5500;
 
 function resolveLang(): Lang {
   return document.documentElement.lang.toLowerCase().startsWith("en") ? "en" : "th";
@@ -182,6 +185,9 @@ export function PosGeneralSaleTableController() {
     let reconcileFrame: number | null = null;
     let lastTableSignature = "";
     let scanBusy = false;
+    let opticalAutoScanTimer: number | null = null;
+    let opticalLastKeyAt = 0;
+    let opticalFastKeyCount = 0;
     const scanQueue: string[] = [];
     const lookupProductsById = new Map<string, GeneralSaleLookupProduct>();
     const lang = resolveLang();
@@ -230,6 +236,11 @@ export function PosGeneralSaleTableController() {
     };
 
     const removeScanner = () => {
+      if (opticalAutoScanTimer !== null) {
+        window.clearTimeout(opticalAutoScanTimer);
+        opticalAutoScanTimer = null;
+      }
+      opticalFastKeyCount = 0;
       scannerPanel?.remove();
       scannerPanel = null;
       scannerInput = null;
@@ -435,10 +446,14 @@ export function PosGeneralSaleTableController() {
       submit.textContent = lang === "th" ? "กำลังเพิ่ม..." : "Adding...";
       status.textContent = lang === "th" ? `กำลังค้นหา SKU: ${scanCode}` : `Looking up SKU: ${scanCode}`;
       status.dataset.tone = "pending";
+      const controller = new AbortController();
+      const lookupTimeout = window.setTimeout(() => controller.abort(), PRODUCT_LOOKUP_TIMEOUT_MS);
       try {
+        // One exact SKU lookup per completed scan; never on each keystroke.
         const response = await fetch(`/api/pos/products/lookup?sku=${encodeURIComponent(scanCode)}`, {
           cache: "no-store",
-          credentials: "include"
+          credentials: "same-origin",
+          signal: controller.signal
         });
         const body = (await response.json().catch(() => null)) as ProductLookupResponse | null;
         if (!response.ok || body?.error || !body?.data?.product) {
@@ -470,10 +485,12 @@ export function PosGeneralSaleTableController() {
         status.textContent = lang === "th" ? "เชื่อมต่อค้นหาสินค้าไม่สำเร็จ กรุณาตรวจสอบเครือข่ายแล้วลองใหม่" : "Product lookup connection failed. Check the network and retry.";
         status.dataset.tone = "error";
       } finally {
+        window.clearTimeout(lookupTimeout);
         scanBusy = false;
         submit.disabled = false;
         submit.textContent = lang === "th" ? "เพิ่มสินค้า" : "Add item";
-        input.focus();
+        // Do not steal focus when the cashier is entering a deposit/bill reference.
+        if (document.activeElement === input || document.activeElement === document.body) input.focus();
         const nextCode = scanQueue.shift();
         if (nextCode && !destroyed && generalSaleActive) window.setTimeout(() => void submitScan(nextCode, status, input, submit), 0);
       }
@@ -498,42 +515,130 @@ export function PosGeneralSaleTableController() {
 
       const panel = document.createElement("section");
       panel.setAttribute(GENERAL_SALE_SCANNER_ATTRIBUTE, "1");
-      panel.className = "grid gap-2 rounded-xl border border-emerald-200 bg-emerald-50 p-3";
-      panel.setAttribute("aria-label", lang === "th" ? (opticalActive ? "ขายกรอบแว่นและเลนส์" : "สแกนสินค้าโหมดขายทั่วไป SD") : (opticalActive ? "Optical sale scanner" : "SD general sale product scanner"));
-      const heading = document.createElement("div");
-      heading.className = "flex flex-wrap items-center justify-between gap-3";
-      const headingCopy = document.createElement("div");
-      headingCopy.className = "grid gap-1";
-      headingCopy.append(
-        createTextElement("strong", "text-sm font-black text-emerald-950", lang === "th" ? (opticalActive ? "IMDC OPTICAL · กรอบ / เลนส์ · บาร์โค้ด" : "ร้านชำ · สแกน SKU / บาร์โค้ด") : (opticalActive ? "IMDC OPTICAL · Frames / lenses" : "Grocery · SKU / barcode scan")),
-        createTextElement("small", "text-xs font-bold text-emerald-700", lang === "th" ? (opticalActive ? "ขายสินค้าได้ทันที · ค่าสายตา งานสั่งทำ และมัดจำยังไม่เปิดใช้งาน" : "โหมดนี้ใช้ตารางขายสินค้าเพียงรูปแบบเดียว") : (opticalActive ? "Retail checkout only; prescriptions, orders and deposits coming later" : "This mode uses the sales table only"))
-      );
-      const tableMode = createTextElement("span", "cpipos-sd-table-mode", lang === "th" ? "ตาราง" : "Table");
-      heading.append(headingCopy, tableMode);
+      panel.className = opticalActive
+        ? "rounded-xl border border-emerald-100 bg-white p-3"
+        : "grid gap-2 rounded-xl border border-emerald-200 bg-emerald-50 p-3";
+      panel.setAttribute("aria-label", lang === "th"
+        ? (opticalActive ? "ค้นหาสินค้าและบิลร้านแว่นตา" : "สแกนสินค้าโหมดขายทั่วไป SD")
+        : (opticalActive ? "Optical product and bill lookup" : "SD general sale product scanner"));
 
+      if (!opticalActive) {
+        const heading = document.createElement("div");
+        heading.className = "flex flex-wrap items-center justify-between gap-3";
+        const headingCopy = document.createElement("div");
+        headingCopy.className = "grid gap-1";
+        headingCopy.append(
+          createTextElement("strong", "text-sm font-black text-emerald-950", lang === "th" ? "ร้านชำ · สแกน SKU / บาร์โค้ด" : "Grocery · SKU / barcode scan"),
+          createTextElement("small", "text-xs font-bold text-emerald-700", lang === "th" ? "โหมดนี้ใช้ตารางขายสินค้าเพียงรูปแบบเดียว" : "This mode uses the sales table only")
+        );
+        const tableMode = createTextElement("span", "cpipos-sd-table-mode", lang === "th" ? "ตาราง" : "Table");
+        heading.append(headingCopy, tableMode);
+        panel.appendChild(heading);
+      }
+
+      const row = document.createElement("div");
+      row.className = opticalActive ? "grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]" : "grid gap-2";
+      const productGroup = document.createElement("div");
+      productGroup.className = "min-w-0";
       const form = document.createElement("form");
-      form.className = "grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto]";
+      form.className = opticalActive ? "flex max-w-[440px] items-center gap-2" : "grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto]";
       const input = document.createElement("input");
       input.type = "text";
       input.inputMode = "text";
       input.autocomplete = "off";
       input.spellcheck = false;
-      input.className = "posui-payment-modal__input";
-      input.placeholder = lang === "th" ? "ยิงบาร์โค้ด/กรอก SKU แล้วกด Enter" : "Scan barcode / enter SKU and press Enter";
+      input.maxLength = 128;
+      input.className = "posui-payment-modal__input min-w-0 flex-1";
+      input.placeholder = lang === "th"
+        ? (opticalActive ? "ยิงบาร์โค้ด / SKU สินค้า" : "ยิงบาร์โค้ด/กรอก SKU แล้วกด Enter")
+        : (opticalActive ? "Scan barcode / product SKU" : "Scan barcode / enter SKU and press Enter");
       input.setAttribute("aria-label", lang === "th" ? "รหัส SKU สินค้า" : "Product SKU");
       const submit = document.createElement("button");
       submit.type = "submit";
-      submit.className = "posui-btn posui-btn--primary";
+      submit.className = "posui-btn posui-btn--primary shrink-0";
       submit.textContent = lang === "th" ? "เพิ่มสินค้า" : "Add item";
       const status = document.createElement("small");
-      status.className = "min-h-4 text-xs font-bold text-slate-600";
+      status.className = "block min-h-4 pt-1 text-xs font-bold text-slate-600";
       status.setAttribute("aria-live", "polite");
       form.append(input, submit);
       form.addEventListener("submit", (event) => {
         event.preventDefault();
+        if (opticalAutoScanTimer !== null) {
+          window.clearTimeout(opticalAutoScanTimer);
+          opticalAutoScanTimer = null;
+        }
+        opticalFastKeyCount = 0;
         void submitScan(input.value, status, input, submit);
       });
-      panel.append(heading, form, status);
+      if (opticalActive) {
+        // Most USB/Bluetooth scanners send a rapid key burst or paste; Enter is
+        // supported separately. Slow manual typing does not trigger per-key API calls.
+        input.addEventListener("keydown", (event) => {
+          if (event.key.length !== 1) return;
+          const now = window.performance.now();
+          opticalFastKeyCount = now - opticalLastKeyAt <= OPTICAL_SCAN_KEY_INTERVAL_MS ? opticalFastKeyCount + 1 : 1;
+          opticalLastKeyAt = now;
+        });
+        input.addEventListener("input", (event) => {
+          if (opticalAutoScanTimer !== null) window.clearTimeout(opticalAutoScanTimer);
+          opticalAutoScanTimer = null;
+          const code = normalizeGeneralSaleScanCode(input.value);
+          const paste = event instanceof InputEvent
+            && (event.inputType === "insertFromPaste" || (event.data?.length ?? 0) >= 4);
+          if (code.length < (paste ? 4 : 6) || (!paste && opticalFastKeyCount < 5)) return;
+          opticalAutoScanTimer = window.setTimeout(() => {
+            opticalAutoScanTimer = null;
+            if (destroyed || !opticalActive || !generalSaleActive || normalizeGeneralSaleScanCode(input.value) !== code) return;
+            opticalFastKeyCount = 0;
+            void submitScan(code, status, input, submit);
+          }, OPTICAL_SCAN_IDLE_MS);
+        });
+        input.addEventListener("blur", () => {
+          if (opticalAutoScanTimer !== null) window.clearTimeout(opticalAutoScanTimer);
+          opticalAutoScanTimer = null;
+        });
+      }
+      productGroup.append(form, status);
+      row.appendChild(productGroup);
+
+      if (opticalActive) {
+        const billGroup = document.createElement("div");
+        billGroup.className = "min-w-0";
+        const billForm = document.createElement("form");
+        billForm.className = "flex items-center gap-2";
+        const billInput = document.createElement("input");
+        billInput.type = "text";
+        billInput.inputMode = "text";
+        billInput.autocomplete = "off";
+        billInput.spellcheck = false;
+        billInput.maxLength = 256;
+        billInput.className = "posui-payment-modal__input min-w-0 flex-1";
+        billInput.placeholder = lang === "th" ? "ยิง QR / บาร์โค้ด / เลขบิลมัดจำ-จอง" : "Scan QR / deposit or reservation reference";
+        billInput.setAttribute("aria-label", lang === "th" ? "ค้นหาบิลมัดจำหรือบิลจอง" : "Deposit or reservation lookup");
+        const billSubmit = document.createElement("button");
+        billSubmit.type = "submit";
+        billSubmit.className = "posui-btn shrink-0";
+        billSubmit.textContent = lang === "th" ? "ค้นหาบิล" : "Find bill";
+        const billStatus = document.createElement("small");
+        billStatus.className = "block min-h-4 pt-1 text-xs font-semibold text-amber-800";
+        billStatus.setAttribute("aria-live", "polite");
+        billForm.append(billInput, billSubmit);
+        billForm.addEventListener("submit", (event) => {
+          event.preventDefault();
+          if (!billInput.value.trim()) {
+            billStatus.textContent = lang === "th" ? "กรุณากรอกเลขอ้างอิงบิล" : "Enter a bill reference.";
+            return;
+          }
+          // Read-only UI placeholder until tenant-scoped deposit/job APIs,
+          // reconciliation and idempotent settlement are ready.
+          billStatus.textContent = lang === "th"
+            ? "ยังไม่เปิดค้นหาบิลมัดจำ/จอง — ไม่มีการเปลี่ยนแปลงบิลหรือยอดชำระ"
+            : "Deposit/reservation lookup is not enabled yet. No bill or payment was changed.";
+        });
+        billGroup.append(billForm, billStatus);
+        row.appendChild(billGroup);
+      }
+      panel.appendChild(row);
       gridWrap.parentElement.insertBefore(panel, gridWrap);
       scannerPanel = panel;
       scannerInput = input;
