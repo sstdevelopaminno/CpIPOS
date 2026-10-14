@@ -1,4 +1,3 @@
-import type { PosStartupSalesMode } from "@/lib/pos-sales-mode-preferences";
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type PointerEvent as ReactPointerEvent } from "react";
@@ -34,14 +33,11 @@ import { TableZoneTabs } from "@/components/tables/table-zone-tabs";
 import type { DiningTableItem, FloorPlanObjectItem, TableZoneItem } from "@/components/tables/types";
 import { calculateDeliveryPricingBreakdown } from "@/lib/delivery-pricing";
 import { POS_MODE_FEATURES } from "@/lib/pos-feature-map";
+import type { PosStartupSalesMode } from "@/lib/pos-sales-mode-preferences";
 import {
   GENERAL_SALE_ACTIVATE_BASE_MODE_EVENT,
   OPTICAL_ACTIVATE_BASE_MODE_EVENT,
-  OPTICAL_DEACTIVATE_BASE_MODE_EVENT,
-  POS_STARTUP_MODE_REQUEST_EVENT,
-  POS_STARTUP_MODE_RESULT_EVENT,
-  type PosStartupModeRequest,
-  type PosStartupModeResult
+  OPTICAL_DEACTIVATE_BASE_MODE_EVENT
 } from "@/lib/pos-general-sale-mode";
 import { beginPosActionTrace, clearPosTraceEvents, endPosActionTrace, readPosTraceEvents, usePosRenderProfiler } from "@/lib/pos-ui-profiler";
 import { naturalCompareTableCode } from "@/lib/table-management";
