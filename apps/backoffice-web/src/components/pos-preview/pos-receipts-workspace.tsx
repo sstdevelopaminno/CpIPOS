@@ -234,6 +234,7 @@ function statusLabel(status: string, lang: Language) {
 }
 
 function orderTypeLabel(type: string, lang: Language) {
+  if (lang === "lo") return ({ dine_in: "ຮັບປະທານທີ່ຮ້ານ", delivery_manual: "ຈັດສົ່ງ", takeaway: "ເອົາກັບບ້ານ" } as Record<string, string>)[type] ?? "ເອົາກັບບ້ານ";
   if (type === "dine_in") return lang === "th" ? "ทานที่ร้าน" : "Dine-in";
   if (type === "delivery_manual") return lang === "th" ? "เดลิเวอรี่" : "Delivery";
   return lang === "th" ? "กลับบ้าน" : "Takeaway";
