@@ -61,7 +61,8 @@ describe("POS SD general sale source contract", () => {
     expect(controller).toContain('window.localStorage.setItem(GENERAL_SALE_LAYOUT_STORAGE_KEY, "table")');
     expect(controller).toContain('document.documentElement.setAttribute(GENERAL_SALE_LAYOUT_ATTRIBUTE, "table")');
     expect(controller).toContain("GENERAL_SALE_CHECKOUT_BASE_MODE");
-    expect(controller).toContain("homeButton.click();");
+    expect(controller).toContain("new Event(GENERAL_SALE_ACTIVATE_BASE_MODE_EVENT)");
+    expect(controller).not.toContain("homeButton.click();");
     expect(controller).not.toContain('data.sdLayout = "grid"');
     expect(controller).not.toContain('"สินค้า + ตะกร้า"');
     expect(controller).not.toContain('fetch("/api/pos/sales"');

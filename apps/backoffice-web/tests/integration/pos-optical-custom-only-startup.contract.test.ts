@@ -26,10 +26,11 @@ describe("CUSTOM IMDC Optical as the only permitted POS sales mode", () => {
   expect(route).toContain("initialScope={{ tenantId: posMenuScope.session.tenant_id, branchId: posMenuScope.session.branch_id }}");
   expect(gate).toContain("if (hasActiveShift && canEnterSales)");
  });
- it("does not require the ordinary selector button before dispatching Optical startup",()=>{
+ it("does not require the ordinary Home selector for any granted CUSTOM mode",()=>{
   const boot=read("src/components/pos/pos-initial-sales-mode-controller.tsx");
-  expect(boot).toContain('mode === "optical_retail" || mode === "general_sale"');
-  expect(boot).toContain('if (!retailStartup) {');
+  expect(boot).not.toContain("MODE_SWITCH_QUERY");
+  expect(boot).not.toContain("if (!retailStartup) {");
+  expect(boot).toContain("if (!settled) window.dispatchEvent");
   expect(boot).toContain("window.setInterval(() => {");
   expect(boot).toContain("window.clearInterval(retryId)");
  });
@@ -53,6 +54,27 @@ describe("CUSTOM IMDC Optical as the only permitted POS sales mode", () => {
   expect(boot).toContain("isAuthorizedOpticalRetailMode(payload.data)");
   expect(bridge).toContain("isAuthorizedOpticalRetailMode(body.data)");
   expect(bridge).toContain("attempt < 450");
+ });
+ it("selects standalone CUSTOM modes without granting Home",()=>{
+  const allOff={takeaway:false,dine_in:false,buffet_table:false,delivery:false,general_sale:false,optical_retail:false};
+  for(const [entitlement,expected] of [
+    ["dine_in","dine_in"], ["buffet_table","buffet_table"], ["delivery","delivery"],
+    ["general_sale","general_sale"], ["optical_retail","optical_retail"]
+  ] as const){
+    const modes={...allOff,[entitlement]:true};
+    expect(getAuthorizedCustomPosStartupMode(["home","dine_in","buffet_table","delivery"],"STANDARD",modes)).toBe(expected);
+    expect(modes.takeaway).toBe(false);
+  }
+  expect(getAuthorizedCustomPosStartupMode(["home","dine_in","buffet_table","delivery"],"STANDARD",allOff)).toBeNull();
+ });
+ it("opens authorized SD via a React event, never a hidden Home card click",()=>{
+  const bridge=read("src/components/pos/pos-general-sale-table-controller.tsx");
+  const sales=read("src/components/pos/pos-sales-module.tsx");
+  expect(bridge).toContain("new Event(GENERAL_SALE_ACTIVATE_BASE_MODE_EVENT)");
+  expect(bridge).not.toContain("homeButton.click()");
+  expect(sales).toContain("window.addEventListener(GENERAL_SALE_ACTIVATE_BASE_MODE_EVENT, onGeneralSaleActivate)");
+  expect(sales).toContain('applyQuickMode("home")');
+  expect(sales).toContain('if (opticalRetailActive && quickMode === "home") return');
  });
  it("never opens a disabled sales mode when the backend rejects Optical",()=>{
   const bridge=read("src/components/pos/pos-general-sale-table-controller.tsx");

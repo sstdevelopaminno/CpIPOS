@@ -34,6 +34,7 @@ import type { DiningTableItem, FloorPlanObjectItem, TableZoneItem } from "@/comp
 import { calculateDeliveryPricingBreakdown } from "@/lib/delivery-pricing";
 import { POS_MODE_FEATURES } from "@/lib/pos-feature-map";
 import {
+  GENERAL_SALE_ACTIVATE_BASE_MODE_EVENT,
   OPTICAL_ACTIVATE_BASE_MODE_EVENT,
   OPTICAL_DEACTIVATE_BASE_MODE_EVENT,
   POS_STARTUP_MODE_REQUEST_EVENT,
@@ -2111,6 +2112,7 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
   const [discountAmountInput, setDiscountAmountInput] = useState("");
   const [discountEditMode, setDiscountEditMode] = useState<"percent" | "amount">("percent");
   const [quickMode, setQuickMode] = useState<QuickMode>("home");
+  const lastHandledStartupRequestIdRef = useRef<string | null>(null);
   const [opticalRetailActive, setOpticalRetailActive] = useState(false);
   const [opticalCustomerOpen, setOpticalCustomerOpen] = useState(false);
   const [modeSelectorOpen, setModeSelectorOpen] = useState(false);
@@ -6052,10 +6054,20 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
     const onOpticalActivate = () => {
       // Reuse the existing takeaway transaction/stock/receipt pipeline without
       // exposing the ordinary takeaway selling mode as the Optical UI.
+      // Startup may re-announce an authorized activation after hydration;
+      // never clear an already active Optical bill/cart on duplicate events.
+      if (opticalRetailActive && quickMode === "home") return;
       applyQuickMode("home", true);
+    };
+    const onGeneralSaleActivate = () => {
+      // IT may grant SD without granting public takeaway. Switch the React
+      // checkout baseline directly instead of clicking the hidden Home card.
+      if (!opticalRetailActive && quickMode === "home") return;
+      applyQuickMode("home");
     };
     const onOpticalDeactivate = () => setOpticalRetailActive(false);
     window.addEventListener(OPTICAL_ACTIVATE_BASE_MODE_EVENT, onOpticalActivate);
+    window.addEventListener(GENERAL_SALE_ACTIVATE_BASE_MODE_EVENT, onGeneralSaleActivate);
     window.addEventListener(OPTICAL_DEACTIVATE_BASE_MODE_EVENT, onOpticalDeactivate);
     // A visible mode button does not mean React effects are attached yet.
     // Publish readiness after installing the actual Optical event listener.
@@ -6064,6 +6076,7 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
     return () => {
       document.documentElement.removeAttribute("data-pos-optical-handler-ready");
       window.removeEventListener(OPTICAL_ACTIVATE_BASE_MODE_EVENT, onOpticalActivate);
+      window.removeEventListener(GENERAL_SALE_ACTIVATE_BASE_MODE_EVENT, onGeneralSaleActivate);
       window.removeEventListener(OPTICAL_DEACTIVATE_BASE_MODE_EVENT, onOpticalDeactivate);
     };
   });
@@ -6076,8 +6089,14 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
       if (!request?.requestId) return;
       if (request.mode !== "home" && request.mode !== "dine_in"
         && request.mode !== "buffet_table" && request.mode !== "delivery") return;
-      if (request.mode !== quickMode || opticalRetailActive) {
-        applyQuickMode(request.mode);
+      // The startup controller retries the SAME request ID while the dynamic
+      // module mounts. Handle a transition only once: reapplying dine-in after
+      // the table browser is opened would clear a selected table and draft.
+      if (lastHandledStartupRequestIdRef.current !== request.requestId) {
+        lastHandledStartupRequestIdRef.current = request.requestId;
+        if (request.mode !== quickMode || opticalRetailActive) {
+          applyQuickMode(request.mode);
+        }
       }
       window.requestAnimationFrame(() => {
         const result: PosStartupModeResult = { requestId: request.requestId, mode: request.mode, activated: true };

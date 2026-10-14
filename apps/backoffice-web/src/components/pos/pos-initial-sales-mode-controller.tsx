@@ -26,10 +26,8 @@ import {
 const POS_SCOPE_KEY = "pos_scope_v001";
 const SALES_MODE_ORDER_API = "/api/pos/settings/sales-mode-order";
 const FEATURES_API = "/api/pos/features?refresh=1";
-const MODE_SWITCH_QUERY = ".posui-mode-switch-button";
 const WAIT_STEP_MS = 100;
 const SCOPE_WAIT_LIMIT = 50;
-const MODE_READY_WAIT_LIMIT = 50;
 const ACTIVATION_TIMEOUT_MS = 30000;
 const FEATURE_RETRY_DELAYS_MS = [250, 650] as const;
 
@@ -124,18 +122,10 @@ async function activateModeWithoutDialog(
   mode: PosStartupSalesMode,
   isCancelled: () => boolean
 ): Promise<boolean> {
-  const retailStartup = mode === "optical_retail" || mode === "general_sale";
-  // Unlike standard mode cards, CUSTOM Optical/SD activates via a dedicated
-  // runtime event. Waiting for the ordinary mode switch can deadlock when the
-  // storefront intentionally hides all regular modes.
-  if (!retailStartup) {
-    for (let index = 0; index < MODE_READY_WAIT_LIMIT && !isCancelled(); index += 1) {
-      if (document.querySelector<HTMLButtonElement>(MODE_SWITCH_QUERY)) break;
-      await wait(WAIT_STEP_MS);
-    }
-    if (isCancelled() || !document.querySelector(MODE_SWITCH_QUERY)) return false;
-  }
-
+  // Every IT-authorized mode uses the React startup event, including a
+  // standalone dine-in, buffet or delivery mode. Waiting for the takeaway
+  // mode-switch DOM button makes other modes depend on Home being visible.
+  // The caller has already checked a fresh, authenticated IT allowlist.
   const requestId = crypto.randomUUID();
   return new Promise<boolean>((resolve) => {
     let settled = false;
@@ -161,15 +151,13 @@ async function activateModeWithoutDialog(
     }
     const detail: PosStartupModeRequest = { requestId, mode };
     window.dispatchEvent(new CustomEvent<PosStartupModeRequest>(POS_STARTUP_MODE_REQUEST_EVENT, { detail }));
-    // A dynamically imported POS controller may mount just after this first
-    // event. Re-announce the same request ID until acknowledged, rather than
-    // treating hydration latency as revoked IT authorization.
-    if (retailStartup) {
-      retryId = window.setInterval(() => {
-        if (isCancelled()) { finish(false); return; }
-        if (!settled) window.dispatchEvent(new CustomEvent<PosStartupModeRequest>(POS_STARTUP_MODE_REQUEST_EVENT, { detail }));
-      }, 500);
-    }
+    // React may not yet have registered its mode listener. Re-announce the
+    // same request ID for ALL modes until acknowledged. The receiving React
+    // component deduplicates it and never submits a bill or payment.
+    retryId = window.setInterval(() => {
+      if (isCancelled()) { finish(false); return; }
+      if (!settled) window.dispatchEvent(new CustomEvent<PosStartupModeRequest>(POS_STARTUP_MODE_REQUEST_EVENT, { detail }));
+    }, 500);
   });
 }
 
