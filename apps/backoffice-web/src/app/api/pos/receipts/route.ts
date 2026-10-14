@@ -270,7 +270,7 @@ export async function GET(req: Request) {
       LAK: { count: 0, grossTotal: 0, paidTotal: 0 }
     };
     for (const receipt of records) {
-      const bucket = byCurrency[receipt.currencyCode];
+      const bucket = byCurrency[receipt.currencyCode === "LAK" ? "LAK" : "THB"];
       bucket.count += 1;
       bucket.grossTotal += receipt.totalAmount;
       bucket.paidTotal += receipt.paidTotal;
