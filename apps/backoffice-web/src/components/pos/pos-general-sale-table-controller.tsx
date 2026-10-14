@@ -830,6 +830,19 @@ export function PosGeneralSaleTableController() {
           ? opticalActive && Boolean(document.querySelector('[data-testid="pos-active-optical-mode"]'))
           : generalSaleActive && !opticalActive
             && document.documentElement.getAttribute(GENERAL_SALE_ROOT_ATTRIBUTE) === GENERAL_SALE_MODE_ID;
+        // The sales module registers its Optical listener in a React effect.
+        // During shift entry, subsequent hydration/reconciliation can briefly
+        // detach that effect between the readiness probe and our first event.
+        // A startup request is already authenticated and the cashier is gated;
+        // re-issue ONLY the Optical UI activation if no Optical header appeared.
+        // Do not re-submit an order, alter the bill, or call a payment API.
+        if (allowed && !correctMode && request.mode === OPTICAL_MODE_ID
+          && (attempt === 30 || attempt === 75 || attempt === 130)
+          && document.documentElement.getAttribute(OPTICAL_HANDLER_READY_ATTRIBUTE) === "1") {
+          window.dispatchEvent(new Event(OPTICAL_ACTIVATE_BASE_MODE_EVENT));
+          ensureScanner();
+          ensureTableHost();
+        }
         if (allowed && !correctMode && attempt < 450) {
           window.setTimeout(() => reportWhenRendered(attempt + 1), 40);
           return;
