@@ -455,7 +455,7 @@ export default function LoginDevicesPage() {
     <Suspense
       fallback={
         <PreEntryShell mode="multi" activeStep={4} title="" subtitle="" layout="store" showModePill={false} showStepbar={false}>
-          <p className="ipos-loading-text">{T("กำลังโหลดรายการเครื่องแคชเชียร์...")}</p>
+          <p className="ipos-loading-text">กำลังโหลดรายการเครื่องแคชเชียร์...</p>
         </PreEntryShell>
       }
     >
