@@ -37,6 +37,13 @@ describe("Optical POS sale identity is separate from internal takeaway order typ
     expect(panel).toContain('data-testid="pos-optical-pending-actions"');
     expect(panel).toContain('className={`${buttonClass} col-span-2`}');
     expect(panel).toContain('grid grid-cols-2 gap-3');
+    // The global .posui-payment-panel is a block; gap-* alone creates NO spacing.
+    // The Optical root must explicitly be grid and have a vertical row gap.
+    expect(panel).toContain('display: "grid", gridTemplateColumns: "minmax(0, 1fr)", rowGap: 14, padding: 12');
+    expect(panel).toContain('grid min-w-0 grid-cols-2 gap-3 px-1');
+    expect(panel).toContain("min-h-[78px] w-full min-w-0");
+    expect(panel).toContain('break-words leading-tight');
+
     expect(panel).not.toContain("Current checkout uses THB · LAK and deposits are unavailable");
     expect(panel).not.toContain("ระบบรับชำระปัจจุบันใช้ THB · เงินกีบและมัดจำยังไม่เปิดใช้งาน");
     expect(panel).not.toContain('aria-hidden="true">\n            IMDC OPTICAL');
