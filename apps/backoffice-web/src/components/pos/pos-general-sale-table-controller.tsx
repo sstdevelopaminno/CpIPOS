@@ -49,6 +49,7 @@ type ProductLookupResponse = {
 };
 
 const MODE_SELECTOR_QUERY = ".posui-mode-selector";
+const MODE_SWITCH_BUTTON_QUERY = ".posui-mode-switch-button";
 const MODE_GRID_QUERY = ".posui-mode-selector__grid";
 const MODE_ATTRIBUTE = "data-pos-sale-mode";
 const MODE_ENHANCED_ATTRIBUTE = "data-pos-mode-preferences-enhanced";
@@ -176,6 +177,7 @@ export function PosGeneralSaleTableController() {
     let generalSaleActive = false;
     let opticalActive = false;
     let pendingStartupMode: PosStartupModeRequest | null = null;
+    let processingStartupRequestId: string | null = null;
     let scannerPanel: HTMLElement | null = null;
     let scannerInput: HTMLInputElement | null = null;
     let scannerSubmit: HTMLButtonElement | null = null;
@@ -784,6 +786,15 @@ export function PosGeneralSaleTableController() {
 
     const applyRetailStartup = (request: PosStartupModeRequest) => {
       if (request.mode !== OPTICAL_MODE_ID && request.mode !== GENERAL_SALE_MODE_ID) return;
+      if (processingStartupRequestId === request.requestId) return;
+      // POS sales is dynamically imported after session validation. Its
+      // Optical activation listener is registered after React mounts the
+      // sales screen, not when the IT feature request first resolves.
+      if (!document.querySelector(MODE_SWITCH_BUTTON_QUERY)) {
+        pendingStartupMode = request;
+        return;
+      }
+      processingStartupRequestId = request.requestId;
       const allowed = request.mode === OPTICAL_MODE_ID ? opticalAllowed : generalSaleAllowed;
       if (allowed) {
         if (request.mode === OPTICAL_MODE_ID) {
@@ -814,7 +825,7 @@ export function PosGeneralSaleTableController() {
           ? opticalActive && Boolean(document.querySelector('[data-testid="pos-active-optical-mode"]'))
           : generalSaleActive && !opticalActive
             && document.documentElement.getAttribute(GENERAL_SALE_ROOT_ATTRIBUTE) === GENERAL_SALE_MODE_ID;
-        if (allowed && !correctMode && attempt < 50) {
+        if (allowed && !correctMode && attempt < 90) {
           window.setTimeout(() => reportWhenRendered(attempt + 1), 40);
           return;
         }
@@ -831,6 +842,7 @@ export function PosGeneralSaleTableController() {
     const onStartupMode = (event: Event) => {
       const request = (event as CustomEvent<PosStartupModeRequest>).detail;
       if (!request?.requestId || (request.mode !== OPTICAL_MODE_ID && request.mode !== GENERAL_SALE_MODE_ID)) return;
+      if (request.requestId === processingStartupRequestId || request.requestId === pendingStartupMode?.requestId) return;
       // Wait for, or retry, the controller's own authenticated fresh grant.
       // This covers an early temporary feature-fetch failure without reading
       // browser cache or opening a disallowed sales mode.
@@ -874,6 +886,13 @@ export function PosGeneralSaleTableController() {
         if (selector) void loadAccess();
       }
       enhanceSelector();
+      // When POS has mounted after the entitlement request, activate exactly
+      // once with the already checked grant. No public takeaway mode is needed.
+      if (pendingStartupMode && accessResolved && document.querySelector(MODE_SWITCH_BUTTON_QUERY)) {
+        const request = pendingStartupMode;
+        pendingStartupMode = null;
+        applyRetailStartup(request);
+      }
       if (!generalSaleActive) return;
       setRootMode(true);
       setModeVisualState();
