@@ -3191,10 +3191,73 @@ function PaymentPanel({
   );
 }
 
+function CurrencySettingsPopup({ onClose, lang, canManage }: { onClose: () => void; lang: Language; canManage: boolean }) {
+  const [current, setCurrent] = useState<"THB" | "LAK">("THB");
+  const [choice, setChoice] = useState<"THB" | "LAK">("THB");
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
+  useEffect(() => {
+    let alive = true;
+    void fetch("/api/pos/settings/currency", { cache: "no-store" }).then(async response => {
+      const body = await response.json();
+      if (!response.ok) throw new Error(body?.error?.message || "Currency settings unavailable");
+      if (alive) {
+        const value = body?.data?.currency_code === "LAK" ? "LAK" : "THB";
+        setCurrent(value); setChoice(value);
+      }
+    }).catch(e => { if (alive) setError(String(e?.message || e)); })
+      .finally(() => { if (alive) setLoading(false); });
+    return () => { alive = false; };
+  }, []);
+  async function save() {
+    if (!canManage || busy || choice === current) return;
+    setBusy(true); setError(""); setNotice("");
+    try {
+      const response = await fetch("/api/pos/settings/currency", {
+        method: "PATCH", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ currency_code: choice })
+      });
+      const body = await response.json();
+      if (!response.ok) throw new Error(body?.error?.message || "Unable to save currency");
+      setCurrent(choice);
+      setNotice(lang === "lo" ? "ບັນທຶກສຳເລັດ" : "บันทึกสกุลเงินสำเร็จ");
+    } catch (e) { setError(e instanceof Error ? e.message : "Unable to save currency"); }
+    finally { setBusy(false); }
+  }
+  return (
+    <div className="fixed inset-0 z-[96] grid place-items-center bg-slate-950/45 p-4" role="dialog" aria-modal="true" aria-label="Currency settings" onClick={onClose}>
+      <section className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-5 shadow-2xl" onClick={event => event.stopPropagation()}>
+        <div className="flex items-center justify-between gap-3">
+          <h3 className="text-lg font-black text-slate-950">{lang === "lo" ? "ຕັ້ງຄ່າສະກຸນເງິນ" : "ตั้งค่าสกุลเงิน"}</h3>
+          <button type="button" onClick={onClose} aria-label="Close">✕</button>
+        </div>
+        <p className="mt-2 text-sm text-slate-600">{lang === "lo" ? "ກຳນົດສະກຸນເງິນຂອງຮ້ານ" : "กำหนดสกุลเงินประจำร้าน Custom ที่ฝ่าย IT อนุญาต"}</p>
+        {loading ? <p role="status">Loading...</p> : <>
+          <div className="mt-4 grid gap-2">
+            {([{ code: "THB", label: "🇹🇭 THB — บาท" }, { code: "LAK", label: "🇱🇦 LAK — ກີບ" }] as const).map(option =>
+              <label key={option.code} className="flex cursor-pointer items-center gap-3 rounded-xl border border-slate-200 p-4">
+                <input type="radio" checked={choice === option.code} onChange={() => setChoice(option.code)} disabled={!canManage}/>
+                <span className="font-bold">{option.label}</span>
+              </label>)}
+          </div>
+          <p className="mt-3 text-xs text-amber-700">เพื่อความถูกต้องของบัญชี ระบบไม่อนุญาตเปลี่ยนสกุลเงินของร้านที่มีรายการขายแล้ว และไม่แปลงราคาสินค้าอัตโนมัติ</p>
+          {error ? <p role="alert" className="mt-2 text-sm text-red-700">{error}</p> : null}
+          {notice ? <p role="status" className="mt-2 text-sm text-green-700">{notice}</p> : null}
+          <button type="button" onClick={() => void save()} disabled={!canManage || busy || choice === current}
+            className="mt-4 w-full rounded-xl bg-blue-600 px-4 py-3 font-bold text-white disabled:opacity-50">{busy ? "Saving..." : (lang === "lo" ? "ບັນທຶກ" : "บันทึก")}</button>
+        </>}
+      </section>
+    </div>
+  );
+}
+
 function LanguageSettingsPopup({ lang, labels, onClose }: { lang: Language; labels: Labels; onClose: () => void }) {
   const options: Array<{ code: Language; label: string; shortLabel: string }> = [
     { code: "th", label: labels.thai, shortLabel: "TH" },
-    { code: "en", label: labels.english, shortLabel: "EN" }
+    { code: "en", label: labels.english, shortLabel: "EN" },
+    { code: "lo", label: "ລາວ", shortLabel: "LO" }
   ];
 
   function switchLanguage(nextLang: Language) {
@@ -3360,7 +3423,7 @@ function MainMenuPlacementPopup({
 }
 
 export function PosSettingsWorkspace({ lang, initialData }: { lang: Language; initialData: PosSettingsSnapshot }) {
-  const labels = lang === "en" ? TEXT.en : TEXT.th;
+  const labels = lang === "en" ? TEXT.en : lang === "lo" ? { ...TEXT.th, title: "ຕັ້ງຄ່າ", language: "ປ່ຽນພາສາ", languageDesc: "ເລືອກພາສາໄທ ອັງກິດ ຫຼື ລາວ", languageTitle: "ຕັ້ງຄ່າພາສາ", languageCurrent: "ພາສາປັດຈຸບັນ", languageChoose: "ເລືອກພາສາທີ່ຕ້ອງການ", thai: "ໄທ", english: "English" } : TEXT.th;
   const [view, setView] = useState<SettingsView>("menu");
   const [store, setStore] = useState(initialData.store);
   const [branches, setBranches] = useState(initialData.branches);
@@ -3375,6 +3438,7 @@ export function PosSettingsWorkspace({ lang, initialData }: { lang: Language; in
   const [packageLockOpen, setPackageLockOpen] = useState(false);
   const [itLockedMenu, setItLockedMenu] = useState<string | null>(null);
   const [languagePopupOpen, setLanguagePopupOpen] = useState(false);
+  const [currencyPopupOpen, setCurrencyPopupOpen] = useState(false);
   const [menuPlacementPopupOpen, setMenuPlacementPopupOpen] = useState(false);
   const [pushSettingsOpen, setPushSettingsOpen] = useState(false);
   const [menuPolicy, setMenuPolicy] = useState<Record<string, boolean>>({});
@@ -3507,6 +3571,12 @@ export function PosSettingsWorkspace({ lang, initialData }: { lang: Language; in
               menuEnabled={!isCustom || isCustomPosMenuVisible("settings.push_notifications", menuPolicy, true)} locked={!menuVisible("settings.push_notifications")}
             />
             <MenuButton icon="users" title={labels.users} desc={labels.usersDesc} onClick={() => openSettingsView("users")}  menuEnabled={!isCustom || isCustomPosMenuVisible("settings.users", menuPolicy, true)} locked={isSettingLocked("users") || !menuVisible("settings.users")} />
+            {isCustom && menuVisible("settings.currency") ? (
+              <MenuButton icon="payment"
+                title={lang === "lo" ? "ຕັ້ງຄ່າສະກຸນເງິນ" : "ตั้งค่าสกุลเงิน"}
+                desc={lang === "lo" ? "ເລືອກ THB ຫຼື LAK ສໍາລັບຮ້ານ" : "กำหนดเงินบาท THB หรือเงินกีบ LAK สำหรับร้าน Custom"}
+                onClick={() => setCurrencyPopupOpen(true)} menuEnabled locked={false} />
+            ) : null}
             <MenuButton icon="language" title={labels.language} desc={labels.languageDesc}  onClick={() => !menuVisible("settings.language") ? setItLockedMenu(lang === "th" ? "เปลี่ยนภาษา" : "Change Language") : setLanguagePopupOpen(true)} menuEnabled={!isCustom || isCustomPosMenuVisible("settings.language", menuPolicy, true)} locked={!menuVisible("settings.language")} />
             <MenuButton icon="language" title={labels.mainMenuPlacement} desc={labels.mainMenuPlacementDesc}  onClick={() => !menuVisible("settings.placement") ? setItLockedMenu(lang === "th" ? "สลับแถบเมนูหลัก" : "Main Menu Placement") : setMenuPlacementPopupOpen(true)} menuEnabled={!isCustom || isCustomPosMenuVisible("settings.placement", menuPolicy, true)} locked={!menuVisible("settings.placement")} />
             {!isStoreSpecificSettingHidden("display") ? <MenuLink icon="display" title={labels.display} desc={labels.displayDesc} href="/preview/pos/customer-display"  menuEnabled={!isCustom || isCustomPosMenuVisible("settings.display", menuPolicy, true)} locked={isSettingLocked("display") || !menuVisible("settings.display")} onLocked={() => !menuVisible("settings.display") ? setItLockedMenu(labels.display) : setPackageLockOpen(true)} /> : null}
@@ -3614,6 +3684,7 @@ export function PosSettingsWorkspace({ lang, initialData }: { lang: Language; in
       </section>
       {savePopup ? <SaveSuccessPopup labels={labels} message={savePopup} onClose={() => setSavePopup("")} /> : null}
       {languagePopupOpen ? <LanguageSettingsPopup lang={lang} labels={labels} onClose={() => setLanguagePopupOpen(false)} /> : null}
+      {currencyPopupOpen ? <CurrencySettingsPopup onClose={() => setCurrencyPopupOpen(false)} lang={lang} canManage={canManage} /> : null}
       {menuPlacementPopupOpen ? (
         <MainMenuPlacementPopup
           labels={labels}
