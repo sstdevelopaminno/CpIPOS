@@ -447,13 +447,15 @@ export function PosGeneralSaleTableController() {
       status.textContent = lang === "th" ? `กำลังค้นหา SKU: ${scanCode}` : `Looking up SKU: ${scanCode}`;
       status.dataset.tone = "pending";
       const controller = new AbortController();
-      const lookupTimeout = window.setTimeout(() => controller.abort(), PRODUCT_LOOKUP_TIMEOUT_MS);
+      const lookupTimeout = opticalActive
+        ? window.setTimeout(() => controller.abort(), PRODUCT_LOOKUP_TIMEOUT_MS)
+        : null;
       try {
         // One exact SKU lookup per completed scan; never on each keystroke.
         const response = await fetch(`/api/pos/products/lookup?sku=${encodeURIComponent(scanCode)}`, {
           cache: "no-store",
-          credentials: "same-origin",
-          signal: controller.signal
+          credentials: "include",
+          ...(opticalActive ? { signal: controller.signal } : {})
         });
         const body = (await response.json().catch(() => null)) as ProductLookupResponse | null;
         if (!response.ok || body?.error || !body?.data?.product) {
@@ -485,7 +487,7 @@ export function PosGeneralSaleTableController() {
         status.textContent = lang === "th" ? "เชื่อมต่อค้นหาสินค้าไม่สำเร็จ กรุณาตรวจสอบเครือข่ายแล้วลองใหม่" : "Product lookup connection failed. Check the network and retry.";
         status.dataset.tone = "error";
       } finally {
-        window.clearTimeout(lookupTimeout);
+        if (lookupTimeout !== null) window.clearTimeout(lookupTimeout);
         scanBusy = false;
         submit.disabled = false;
         submit.textContent = lang === "th" ? "เพิ่มสินค้า" : "Add item";
@@ -547,7 +549,7 @@ export function PosGeneralSaleTableController() {
       input.inputMode = "text";
       input.autocomplete = "off";
       input.spellcheck = false;
-      input.maxLength = 128;
+      if (opticalActive) input.maxLength = 128;
       input.className = "posui-payment-modal__input min-w-0 flex-1";
       input.placeholder = lang === "th"
         ? (opticalActive ? "ยิงบาร์โค้ด / SKU สินค้า" : "ยิงบาร์โค้ด/กรอก SKU แล้วกด Enter")
