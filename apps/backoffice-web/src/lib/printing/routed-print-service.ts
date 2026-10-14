@@ -3,7 +3,8 @@ import "server-only";
 import type { PaymentMethod } from "@pos/shared-types";
 import type { AuthContext } from "@/lib/auth-context";
 import { readEnv } from "@/lib/env";
-import { enqueuePrintJob, loadReceiptSellerName, processPrintJob, renderKitchenTicketTemplate, renderReceiptTemplate } from "@/lib/printing/print-service";
+import { enqueuePrintJob, loadReceiptSellerName, processPrintJob, renderKitchenTicketTemplate } from "@/lib/printing/print-service";
+import { renderLocalizedReceiptText } from "@/lib/printing/receipt-text-localized";
 import { renderPaymentNoticeHtml, type PaymentNoticeItem } from "@/lib/printing/payment-notice-html-template";
 import { renderKitchenTicketHtml } from "@/lib/printing/kitchen-ticket-html-template";
 import { renderReceiptHtml } from "@/lib/printing/receipt-html-template";
@@ -195,7 +196,7 @@ export async function queueRoutedSalesReceipt(args: {
   const jobs = [];
   for (const route of routes) {
     const paidAtIso = new Date().toISOString();
-    const payload = renderReceiptTemplate({
+    const payload = renderLocalizedReceiptText({
       ...storeTemplateFields(storeProfile),
       order_id: args.order.id,
       order_no: args.order.order_no,
@@ -213,7 +214,7 @@ export async function queueRoutedSalesReceipt(args: {
       change_amount: args.order.change_amount ?? null,
       mode_label: args.order.mode_label ?? null,
       note: args.order.notes ?? undefined
-    }, route.printer.paper_width_mm);
+    }, route.printer.paper_width_mm, receiptLanguage, currencyCode);
     const receiptHtml = renderReceiptHtml({
       paperWidthMm: route.printer.paper_width_mm,
       currencyCode,
@@ -618,7 +619,7 @@ export async function queueRoutedReceiptReprint(args: {
   const sellerName = await loadReceiptSellerName(args.auth, String(order.created_by ?? args.auth.userId));
   const jobs = [];
   for (const route of routes) {
-    const payload = renderReceiptTemplate({
+    const payload = renderLocalizedReceiptText({
       ...storeTemplateFields(storeProfile),
       order_id: args.orderId,
       order_no: String(order.order_no),
@@ -635,7 +636,7 @@ export async function queueRoutedReceiptReprint(args: {
       cash_received: Number(order.cash_received ?? totalAmount),
       change_amount: Number(order.change_amount ?? 0),
       note: `Reprint for order ${order.order_no}`
-    }, route.printer.paper_width_mm);
+    }, route.printer.paper_width_mm, receiptLanguage, currencyCode);
     const fallbackHtml = renderReceiptHtml({
       paperWidthMm: route.printer.paper_width_mm,
       currencyCode,
