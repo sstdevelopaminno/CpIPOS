@@ -2060,11 +2060,13 @@ function updateSelectedIngredientNoteQuantity(notes: string, ingredients: Recipe
 export function PosSalesModule({
   lang = "th",
   startupMode,
-  onStartupModeReady
+  onStartupModeReady,
+  onStartupModeBlocked
 }: {
   lang?: Lang;
   startupMode?: PosStartupSalesMode;
   onStartupModeReady?: (mode: PosStartupSalesMode) => void;
+  onStartupModeBlocked?: (mode: PosStartupSalesMode) => void;
 }) {
   const [posCurrencyCode, setPosCurrencyCode] = useState<"THB" | "LAK">("THB");
   useEffect(() => {
@@ -6112,6 +6114,7 @@ export function PosSalesModule({
       }
       // An incompatible persisted draft requires review; never clear it or
       // acknowledge an unauthorized mode just to dismiss the startup gate.
+      if (lastAppliedStartupModeRef.current !== startupMode) onStartupModeBlocked?.(startupMode);
       return;
     }
     lastAppliedStartupModeRef.current = startupMode;
