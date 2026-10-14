@@ -34,6 +34,12 @@ describe("Optical POS sale identity is separate from internal takeaway order typ
     expect(panel).toContain("เพิ่มประวัติลูกค้า");
     expect(panel).toContain('aria-disabled="true"');
     expect(panel).toContain("onOpenHeldBills");
+    expect(panel).toContain('data-testid="pos-optical-pending-actions"');
+    expect(panel).toContain('className={`${buttonClass} col-span-2`}');
+    expect(panel).toContain('grid grid-cols-2 gap-3');
+    expect(panel).not.toContain("Current checkout uses THB · LAK and deposits are unavailable");
+    expect(panel).not.toContain("ระบบรับชำระปัจจุบันใช้ THB · เงินกีบและมัดจำยังไม่เปิดใช้งาน");
+    expect(panel).not.toContain('aria-hidden="true">\n            IMDC OPTICAL');
     expect(keypad).toContain("isOpticalRetailActive()");
     expect(keypad).toContain("if (active && !isOpticalRetailActive()) renderPanel()");
   });
