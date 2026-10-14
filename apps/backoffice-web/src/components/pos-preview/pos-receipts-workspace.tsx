@@ -214,6 +214,7 @@ function resolveReceiptTaxLines(record: ReceiptRecord, fallbackLabel: string): R
 }
 
 function paymentLabel(methods: string[], lang: Language) {
+  if (lang === "lo") return methods.length ? Array.from(new Set(methods.map(method => ({ cash: "ເງິນສົດ", bank_transfer: "ໂອນເງິນ", card: "ບັດ" } as Record<string, string>)[method] ?? method))).join(" + ") : "ຍັງບໍ່ຊຳລະ";
   if (methods.length === 0) return lang === "th" ? "ยังไม่ชำระ" : "Unpaid";
   const labels = methods.map((method) => {
     if (method === "cash") return lang === "th" ? "เงินสด" : "Cash";
