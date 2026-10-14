@@ -2069,15 +2069,46 @@ export function PosSalesModule({
   onStartupModeBlocked?: (mode: PosStartupSalesMode) => void;
 }) {
   const [posCurrencyCode, setPosCurrencyCode] = useState<"THB" | "LAK">("THB");
+  // An early unauthenticated response must not silently make an Optical cashier use THB.
+  const [posCurrencyResolved, setPosCurrencyResolved] = useState(false);
   useEffect(() => {
     let active = true;
-    // Fixed packages and unapproved CUSTOM tenants retain THB; their API responds 403.
-    void fetch("/api/pos/store-currency", { cache: "no-store" })
-      .then(async response => response.ok ? response.json() : null)
-      .then(body => { if (active) setPosCurrencyCode(body?.data?.currency_code === "LAK" ? "LAK" : "THB"); })
-      .catch(() => { if (active) setPosCurrencyCode("THB"); });
-    return () => { active = false; };
+    async function reloadCurrency() {
+      try {
+        const response = await fetch("/api/pos/store-currency", { cache: "no-store", credentials: "include" });
+        if (!response.ok) throw new Error("pos_currency_read_failed");
+        const body = await response.json();
+        const code = body?.data?.currency_code;
+        if (code !== "LAK" && code !== "THB") throw new Error("pos_currency_invalid");
+        if (active) {
+          setPosCurrencyCode(code);
+          setPosCurrencyResolved(true);
+        }
+      } catch {
+        // No change to a previously resolved currency when the network is temporarily down.
+        // On initial failure, the Optical checkout stays disabled until the server responds.
+      }
+    }
+    function onVisibilityChange() {
+      if (document.visibilityState === "visible") void reloadCurrency();
+    }
+    window.addEventListener("focus", reloadCurrency);
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    void reloadCurrency();
+    return () => {
+      active = false;
+      window.removeEventListener("focus", reloadCurrency);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+    };
   }, []);
+  useEffect(() => {
+    if (!posCurrencyResolved) return;
+    document.documentElement.setAttribute("data-pos-store-currency", posCurrencyCode);
+    window.dispatchEvent(new Event("cpipos:store-currency-updated"));
+    return () => {
+      document.documentElement.removeAttribute("data-pos-store-currency");
+    };
+  }, [posCurrencyCode, posCurrencyResolved]);
   const currencySymbol = posCurrencyCode === "LAK" ? "₭" : "฿";
   const formatMoneyPlain = (value: number) => new Intl.NumberFormat("en-US", {
     minimumFractionDigits: posCurrencyCode === "LAK" ? 0 : 2,
@@ -2094,6 +2125,25 @@ export function PosSalesModule({
   const [categories, setCategories] = useState<string[]>([]);
   const [allowNegativeStock, setAllowNegativeStock] = useState(false);
   const [shift, setShift] = useState<ShiftRow>(null);
+  useEffect(() => {
+    // Refresh after employee login/shift selection: the first request can predate session setup.
+    if (!shift?.id) return;
+    let active = true;
+    void fetch("/api/pos/store-currency", { cache: "no-store", credentials: "include" })
+      .then(async response => {
+        if (!response.ok) throw new Error("pos_currency_read_failed");
+        return response.json();
+      })
+      .then(body => {
+        const code = body?.data?.currency_code;
+        if (active && (code === "THB" || code === "LAK")) {
+          setPosCurrencyCode(code);
+          setPosCurrencyResolved(true);
+        }
+      })
+      .catch(() => undefined);
+    return () => { active = false; };
+  }, [shift?.id]);
   const [sellerName, setSellerName] = useState(lang === "th" ? "ไม่ทราบชื่อผู้ขาย" : "Unknown Seller");
   const [branchName, setBranchName] = useState(lang === "th" ? "ไม่ทราบสาขา" : "Unknown Branch");
   const [posScope, setPosScope] = useState<{ tenantId: string | null; branchId: string | null }>({ tenantId: null, branchId: null });
@@ -4773,6 +4823,7 @@ export function PosSalesModule({
   const activePromptPayPhone = paymentAccount?.promptpay_phone ? sanitizePromptPayPhone(paymentAccount.promptpay_phone) : "";
   const activePaymentQrMode = paymentAccount?.qr_mode ?? "promptpay_link";
   const promptPayQrUrl =
+    posCurrencyCode === "LAK" ? null :
     paymentAccount && activePaymentQrMode === "qr_image" && paymentAccount.qr_image_url
       ? paymentAccount.qr_image_url
       : paymentAccount
@@ -6658,6 +6709,10 @@ export function PosSalesModule({
   }
   async function handleCheckout() {
     if (isBusy || checkoutRequestLockRef.current) return;
+    if (opticalRetailActive && !posCurrencyResolved) {
+      pushSubmitMessage(lang === "th" ? "ยังตรวจสอบสกุลเงินหน้าขายไม่ได้ กรุณาเชื่อมต่อและเปิดหน้าขายใหม่" : "Sales currency not verified. Reconnect and reopen checkout.");
+      return;
+    }
     checkoutRequestLockRef.current = true;
     if (isEmptyOpenDineInBill) {
       try {
@@ -9035,6 +9090,7 @@ export function PosSalesModule({
           onHoldBill={holdBill}
           onOpenHeldBills={openHeldBillsPanel}
           opticalRetail={opticalRetailActive}
+          opticalCurrencyCode={posCurrencyCode}
           opticalLanguage={lang}
           onOpticalCustomer={() => setOpticalCustomerOpen(true)}
           onMember={
@@ -9056,6 +9112,7 @@ export function PosSalesModule({
           checkoutDisabled={
             isBusy ||
             !shift?.id ||
+            (opticalRetailActive && !posCurrencyResolved) ||
             (cart.length === 0 && !activeOrder && !isEmptyOpenDineInBill) ||
             (orderType === "dine_in" && (!selectedTable || !selectedTable.active_session_id)) ||
             (orderType === "delivery_manual" && (!selectedDeliveryApp || !deliveryExternalCode.trim()))

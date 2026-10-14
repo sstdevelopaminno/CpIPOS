@@ -32,6 +32,7 @@ type Props = {
   onHoldBill?: () => void;
   onOpenHeldBills?: () => void;
   opticalRetail?: boolean;
+  opticalCurrencyCode?: "THB" | "LAK";
   opticalLanguage?: "th" | "en";
   onOpticalCustomer?: () => void;
   onMember?: () => void;
@@ -112,8 +113,12 @@ type LocalBridgeCommandBody = {
 
 const ACTIVE_SALES_MODE_LABEL_KEY = "cpipos_active_sales_mode_label";
 
-function formatMoney(value: number): string {
-  return `฿${new Intl.NumberFormat("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value)}`;
+function formatMoney(value: number, currencyCode: "THB" | "LAK" = "THB"): string {
+  const symbol = currencyCode === "LAK" ? "₭" : "฿";
+  const fractionDigits = currencyCode === "LAK" ? 0 : 2;
+  return symbol + new Intl.NumberFormat("en-US", {
+    minimumFractionDigits: fractionDigits, maximumFractionDigits: fractionDigits
+  }).format(Number.isFinite(value) ? value : 0);
 }
 
 function readWindowsRuntimePayload(): LocalBridgeRuntimePayload | null {
@@ -256,6 +261,7 @@ export function PosPaymentPanel({
   onHoldBill,
   onOpenHeldBills,
   opticalRetail = false,
+  opticalCurrencyCode = "THB",
   opticalLanguage = "th",
   onOpticalCustomer,
   onMember,
@@ -347,13 +353,16 @@ export function PosPaymentPanel({
         <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
           <p className="flex items-center justify-between border-b border-slate-100 px-4 py-3 text-sm font-bold text-slate-600">
             <span>{th ? "ยอดสินค้า" : "Items total"}</span>
-            <strong className="text-lg font-extrabold tabular-nums text-slate-800">{formatMoney(Math.max(0, subtotal))}</strong>
+            <strong className="text-lg font-extrabold tabular-nums text-slate-800">{formatMoney(Math.max(0, subtotal), opticalCurrencyCode)}</strong>
           </p>
           <p className="flex items-center justify-between px-4 py-3 text-sm font-bold text-slate-700">
             <span>{th ? "ยอดชำระ" : "Amount due"}</span>
-            <strong className="text-2xl font-black tabular-nums text-orange-600">{formatMoney(total)}</strong>
+            <strong className="text-2xl font-black tabular-nums text-orange-600">{formatMoney(total, opticalCurrencyCode)}</strong>
           </p>
         </div>
+        <p data-testid="pos-optical-sales-currency" className="text-center text-xs font-bold text-slate-500">
+          {th ? "สกุลเงินหน้าขาย" : "Sales currency"}: {opticalCurrencyCode}
+        </p>
         <div className="grid grid-cols-2 gap-3" data-testid="pos-optical-bill-actions">
           <button type="button" className={buttonClass} onClick={onHoldBill} disabled={!onHoldBill || !showHoldBill || actionsDisabled}>
             <span aria-hidden="true" className="text-lg">▣</span>{th ? "พักบิล" : "Hold bill"}
