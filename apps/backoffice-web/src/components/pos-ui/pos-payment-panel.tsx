@@ -336,7 +336,7 @@ export function PosPaymentPanel({
 
   if (opticalRetail) {
     const th = opticalLanguage === "th";
-    const buttonClass = "flex min-h-16 flex-col items-center justify-center gap-1 rounded-xl border border-slate-200 bg-white px-2 py-2.5 text-center text-sm font-bold text-slate-700 shadow-sm transition-colors enabled:hover:border-emerald-400 enabled:hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-45";
+    const buttonClass = "flex min-h-[68px] min-w-0 flex-col items-center justify-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-3 text-center text-sm font-bold leading-snug text-slate-700 shadow-sm transition-colors enabled:hover:border-emerald-400 enabled:hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-60";
     return (
       <section className="posui-payment-panel !gap-3" data-testid="pos-optical-payment-panel" aria-label={th ? "แผงชำระเงินร้านแว่นตา" : "Optical checkout controls"}>
         <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
@@ -348,11 +348,8 @@ export function PosPaymentPanel({
             <span>{th ? "ยอดชำระ" : "Amount due"}</span>
             <strong className="text-2xl font-black tabular-nums text-orange-600">{formatMoney(total)}</strong>
           </p>
-          <p className="border-t border-slate-100 px-4 py-2 text-xs font-semibold text-amber-800">
-            {th ? "ระบบรับชำระปัจจุบันใช้ THB · เงินกีบและมัดจำยังไม่เปิดใช้งาน" : "Current checkout uses THB · LAK and deposits are unavailable"}
-          </p>
         </div>
-        <div className="grid grid-cols-2 gap-2" data-testid="pos-optical-bill-actions">
+        <div className="grid grid-cols-2 gap-3" data-testid="pos-optical-bill-actions">
           <button type="button" className={buttonClass} onClick={onHoldBill} disabled={!onHoldBill || !showHoldBill || actionsDisabled}>
             <span aria-hidden="true" className="text-lg">▣</span>{th ? "พักบิล" : "Hold bill"}
           </button>
@@ -367,26 +364,38 @@ export function PosPaymentPanel({
           </button>
           <button
             type="button"
-            className={buttonClass}
+            className={`${buttonClass} col-span-2`}
             onClick={() => void handleOpenCashDrawerClick()}
             disabled={!onOpenCashDrawer || openCashDrawerDisabled || cashDrawerBusy || submitting}
           >
             <span aria-hidden="true" className="text-lg">▤</span>
             {cashDrawerBusy ? openingCashDrawerLabel : th ? "เปิดลิ้นชัก" : "Open drawer"}
           </button>
-          <div className="flex items-center justify-center rounded-xl border border-dashed border-slate-200 bg-slate-50 p-2 text-center text-xs text-slate-400" aria-hidden="true">
-            IMDC OPTICAL
-          </div>
         </div>
-        <div className="grid grid-cols-2 gap-2" data-testid="pos-optical-pending-actions">
-          <button type="button" disabled aria-disabled="true" title={th ? "รอระบบบัญชีมัดจำและสต๊อก" : "Pending deposit ledger and stock controls"} className="min-h-14 rounded-xl border border-emerald-200 bg-emerald-50 px-2 py-2 text-sm font-bold text-emerald-900 opacity-70">
-            {th ? "ชำระเงินมัดจำ" : "Deposit"}<span className="block text-[10px] font-semibold">{th ? "ยังไม่เปิดใช้งาน" : "Coming soon"}</span>
+        <div className="grid grid-cols-2 gap-3" data-testid="pos-optical-pending-actions">
+          <button
+            type="button"
+            disabled
+            aria-disabled="true"
+            title={th ? "รอระบบบัญชีมัดจำและสต๊อก" : "Pending deposit ledger and stock controls"}
+            className={`${buttonClass} border-emerald-200 bg-emerald-50 text-emerald-900`}
+          >
+            <span aria-hidden="true" className="text-lg leading-none">▣</span>
+            <span>{th ? "ชำระเงินมัดจำ" : "Deposit"}</span>
+            <span className="text-[11px] font-semibold">{th ? "ยังไม่เปิดใช้งาน" : "Coming soon"}</span>
           </button>
-          <button type="button" onClick={onOpticalCustomer} disabled={!onOpticalCustomer || actionsDisabled} className="min-h-14 rounded-xl border border-emerald-300 bg-emerald-100 px-2 py-2 text-sm font-bold text-emerald-900 transition-colors enabled:hover:bg-emerald-200 disabled:opacity-40">
-            {th ? "เพิ่มประวัติลูกค้า" : "Customer history"}<span className="block text-[10px] font-semibold">{th ? "บันทึกค่าสายตา" : "Examination records"}</span>
+          <button
+            type="button"
+            onClick={onOpticalCustomer}
+            disabled={!onOpticalCustomer || actionsDisabled}
+            className={`${buttonClass} border-emerald-300 bg-emerald-100 text-emerald-900 enabled:hover:bg-emerald-200`}
+          >
+            <span aria-hidden="true" className="text-lg leading-none">♙</span>
+            <span>{th ? "เพิ่มประวัติลูกค้า" : "Customer history"}</span>
+            <span className="text-[11px] font-semibold">{th ? "บันทึกค่าสายตา" : "Examination records"}</span>
           </button>
         </div>
-        <div className="grid w-full grid-cols-1 gap-3 px-1 pt-1" data-testid="pos-optical-primary-actions">
+        <div className="grid w-full grid-cols-1 gap-3 pt-1" data-testid="pos-optical-primary-actions">
           <button
             type="button"
             className="flex min-h-14 w-full items-center justify-center rounded-xl bg-orange-500 px-4 py-3 text-center text-base font-black text-white transition-colors enabled:hover:bg-orange-600 disabled:cursor-not-allowed disabled:opacity-45"
