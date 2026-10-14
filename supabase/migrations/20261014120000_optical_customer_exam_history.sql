@@ -173,8 +173,17 @@ begin
   values
     (p_tenant_id,p_branch_id,v_customer_id,p_exam_date,p_age,p_right_sph,p_right_cyl,p_right_axis,
      p_right_add,p_left_sph,p_left_cyl,p_left_axis,p_left_add,p_pd_mm,p_previous_prescription,p_examiner_name,p_notes,auth.uid(),v_request_id)
-  on conflict (tenant_id,branch_id,request_id) do update set request_id = excluded.request_id
+  on conflict (tenant_id,branch_id,request_id) do nothing
   returning id into v_exam_id;
+
+  if v_exam_id is null then
+    select id into v_exam_id from public.optical_eye_exams
+    where tenant_id=p_tenant_id and branch_id=p_branch_id
+      and request_id=v_request_id and customer_id=v_customer_id;
+    if v_exam_id is null then
+      raise exception 'optical_exam_idempotency_conflict' using errcode='23505';
+    end if;
+  end if;
 
   return jsonb_build_object('customer_id',v_customer_id,'exam_id',v_exam_id,'request_id',v_request_id);
 end;
