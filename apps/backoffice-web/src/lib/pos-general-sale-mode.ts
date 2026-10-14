@@ -1,6 +1,7 @@
 export const GENERAL_SALE_MODE_ID = "general_sale" as const;
 export const GENERAL_SALE_BUSINESS_GROUP = "SD" as const;
 export const GENERAL_SALE_CHECKOUT_BASE_MODE = "home" as const;
+export const GENERAL_SALE_ACTIVATE_BASE_MODE_EVENT = "cpipos:pos-general-sale-activate-base";
 export const OPTICAL_ACTIVATE_BASE_MODE_EVENT = "cpipos:pos-optical-activate-base";
 export const OPTICAL_DEACTIVATE_BASE_MODE_EVENT = "cpipos:pos-optical-deactivate-base";
 export const OPTICAL_ACTIVE_ROOT_ATTRIBUTE = "data-pos-optical-retail-active";
