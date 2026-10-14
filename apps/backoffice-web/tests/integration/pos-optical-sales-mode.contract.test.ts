@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
+  isAuthorizedOpticalRetailMode,
   normalizeCustomPosSalesModes,
   normalizePosSalesModes,
   posUiModeToControlKey
@@ -31,8 +32,9 @@ describe("IMDC Optical is opt-in and bound to the active POS retail controller",
   it("checks a CUSTOM/IT policy and does not invent a prescription checkout API", () => {
     const controller = source("src/components/pos/pos-general-sale-table-controller.tsx");
     const gate = source("src/components/pos/pos-sales-mode-policy-controller.tsx");
-    expect(controller).toContain('body?.data?.sales_modes?.optical_retail === true');
-    expect(controller).toContain('body?.data?.features?.core_pos_sales === true');
+    expect(controller).toContain("isAuthorizedOpticalRetailMode(body.data)");
+    expect(isAuthorizedOpticalRetailMode({is_custom:true,sales_modes:{optical_retail:true}})).toBe(true);
+    expect(isAuthorizedOpticalRetailMode({is_custom:false,sales_modes:{optical_retail:true}})).toBe(false);
     expect(gate).toContain('key === "optical_retail" && !isCustom');
   });
 });
