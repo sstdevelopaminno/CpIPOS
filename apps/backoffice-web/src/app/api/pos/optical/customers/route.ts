@@ -99,7 +99,8 @@ export async function POST(request: Request) {
       p_right_axis:optionalNumber(input.right_axis),p_right_add:optionalNumber(input.right_add),
       p_left_sph:optionalNumber(input.left_sph),p_left_cyl:optionalNumber(input.left_cyl),
       p_left_axis:optionalNumber(input.left_axis),p_left_add:optionalNumber(input.left_add),
-      p_notes:safe(input.notes,1500)||null,p_request_id:requestId||crypto.randomUUID()
+      p_notes:safe(input.notes,1500)||null,p_request_id:requestId||crypto.randomUUID(),
+      p_actor:scope.session.user_id
     });
     if(error) return fail("optical_customer_save_failed",error.message,500);
     return ok({record:data});
