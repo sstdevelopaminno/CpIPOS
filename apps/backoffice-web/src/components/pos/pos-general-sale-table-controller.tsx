@@ -849,7 +849,13 @@ export function PosGeneralSaleTableController() {
       const allowed = request.mode === OPTICAL_MODE_ID ? opticalAllowed : generalSaleAllowed;
       if (!accessResolved || !allowed) {
         pendingStartupMode = request;
-        if (accessResolved) void loadAccess();
+        if (accessResolved) {
+          // Invalidate the previously denied snapshot before the deferred
+          // renderer runs; it must await the fresh IT state instead of
+          // rejecting a newly enabled Optical entitlement too early.
+          accessResolved = false;
+          void loadAccess();
+        }
         return;
       }
       applyRetailStartup(request);
