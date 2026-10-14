@@ -13,6 +13,7 @@ import {
   GENERAL_SALE_ADD_PRODUCT_EVENT,
   GENERAL_SALE_ADD_PRODUCT_RESULT_EVENT,
   GENERAL_SALE_CHECKOUT_BASE_MODE,
+  GENERAL_SALE_ACTIVATE_BASE_MODE_EVENT,
   OPTICAL_ACTIVATE_BASE_MODE_EVENT,
   OPTICAL_DEACTIVATE_BASE_MODE_EVENT,
   OPTICAL_ACTIVE_ROOT_ATTRIBUTE,
@@ -724,9 +725,9 @@ export function PosGeneralSaleTableController() {
         generalSaleButton.append(icon, copy, check);
         generalSaleButton.addEventListener("click", () => {
           if (!generalSaleAllowed) return;
-          const homeButton = grid.querySelector<HTMLElement>(`[${MODE_ATTRIBUTE}="${GENERAL_SALE_CHECKOUT_BASE_MODE}"]`);
-          if (!homeButton) return;
-          homeButton.click();
+          // The SD mode is independently authorized. Never click the public
+          // Home card: it may be hidden by a CUSTOM contract.
+          window.dispatchEvent(new Event(GENERAL_SALE_ACTIVATE_BASE_MODE_EVENT));
           if (opticalActive) window.dispatchEvent(new Event(OPTICAL_DEACTIVATE_BASE_MODE_EVENT));
           generalSaleActive = true;
           opticalActive = false;
@@ -809,6 +810,8 @@ export function PosGeneralSaleTableController() {
           generalSaleActive = true;
           opticalActive = true;
         } else {
+          // Standalone general sale must not depend on the Home/takeaway card.
+          window.dispatchEvent(new Event(GENERAL_SALE_ACTIVATE_BASE_MODE_EVENT));
           if (opticalActive) window.dispatchEvent(new Event(OPTICAL_DEACTIVATE_BASE_MODE_EVENT));
           generalSaleActive = true;
           opticalActive = false;
