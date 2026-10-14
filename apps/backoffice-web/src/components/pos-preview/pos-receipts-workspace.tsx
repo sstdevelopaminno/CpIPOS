@@ -278,7 +278,7 @@ function buildReceiptPrintHtml(args: {
   const logoUrl = getAbsoluteAssetUrl(logoPath);
   const labels =
     lang === "lo" ? {
-      seller: "ຜູ້ຂາຍ", shift: "ກະ", mode: "ໂໝດ", billNo: "ເລກໃບບິນ",
+      seller: "ຜູ້ຂາຍ", shift: "ສະຖານະ", mode: "ໂໝດ", billNo: "ເລກໃບບິນ",
       externalCode: "ລະຫັດຄຳສັ່ງ", member: "ສະມາຊິກ", date: "ວັນທີ", note: "ໝາຍເຫດ",
       discount: "ສ່ວນຫຼຸດ", tax: "ພາສີ", paymentMethod: "ຊຳລະເງິນ",
       totalDue: "ຍອດສຸດທິ", cashReceived: "ຮັບເງິນ", change: "ເງິນທອນ"
@@ -286,7 +286,7 @@ function buildReceiptPrintHtml(args: {
     lang === "th"
       ? {
           seller: "ชื่อผู้ขาย",
-          shift: "กะ",
+          shift: "สถานะ",
           mode: "โหมด",
           billNo: "เลขที่บิล",
           externalCode: "รหัสออเดอร์",
@@ -302,7 +302,7 @@ function buildReceiptPrintHtml(args: {
         }
       : {
           seller: "Seller",
-          shift: "Shift",
+          shift: "Status",
           mode: "Mode",
           billNo: "Bill No.",
           externalCode: "Order code",
