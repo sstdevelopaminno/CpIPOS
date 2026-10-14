@@ -30,6 +30,9 @@ type Props = {
   onManagerOverride?: () => void;
   onCancelBill?: () => void;
   onHoldBill?: () => void;
+  onOpenHeldBills?: () => void;
+  opticalRetail?: boolean;
+  opticalLanguage?: "th" | "en";
   onMember?: () => void;
   onTableQrOrder?: () => void;
   onPromotion?: () => void;
@@ -250,6 +253,9 @@ export function PosPaymentPanel({
   onManagerOverride,
   onCancelBill,
   onHoldBill,
+  onOpenHeldBills,
+  opticalRetail = false,
+  opticalLanguage = "th",
   onMember,
   onTableQrOrder,
   onPromotion,
@@ -324,6 +330,80 @@ export function PosPaymentPanel({
     } finally {
       setLocalCashDrawerOpening(false);
     }
+  }
+
+  if (opticalRetail) {
+    const th = opticalLanguage === "th";
+    const buttonClass = "flex min-h-16 flex-col items-center justify-center gap-1 rounded-xl border border-slate-200 bg-white px-2 py-2.5 text-center text-sm font-bold text-slate-700 shadow-sm transition-colors enabled:hover:border-emerald-400 enabled:hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-45";
+    return (
+      <section className="posui-payment-panel !gap-3" data-testid="pos-optical-payment-panel" aria-label={th ? "แผงชำระเงินร้านแว่นตา" : "Optical checkout controls"}>
+        <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
+          <p className="flex items-center justify-between border-b border-slate-100 px-4 py-3 text-sm font-bold text-slate-600">
+            <span>{th ? "ยอดสินค้า" : "Items total"}</span>
+            <strong className="text-lg font-extrabold tabular-nums text-slate-800">{formatMoney(Math.max(0, subtotal))}</strong>
+          </p>
+          <p className="flex items-center justify-between px-4 py-3 text-sm font-bold text-slate-700">
+            <span>{th ? "ยอดชำระ" : "Amount due"}</span>
+            <strong className="text-2xl font-black tabular-nums text-orange-600">{formatMoney(total)}</strong>
+          </p>
+          <p className="border-t border-slate-100 px-4 py-2 text-xs font-semibold text-amber-800">
+            {th ? "ระบบรับชำระปัจจุบันใช้ THB · เงินกีบและมัดจำยังไม่เปิดใช้งาน" : "Current checkout uses THB · LAK and deposits are unavailable"}
+          </p>
+        </div>
+        <div className="grid grid-cols-2 gap-2" data-testid="pos-optical-bill-actions">
+          <button type="button" className={buttonClass} onClick={onHoldBill} disabled={!onHoldBill || !showHoldBill || actionsDisabled}>
+            <span aria-hidden="true" className="text-lg">▣</span>{th ? "พักบิล" : "Hold bill"}
+          </button>
+          <button type="button" className={buttonClass} onClick={onOpenHeldBills} disabled={!onOpenHeldBills || actionsDisabled}>
+            <span aria-hidden="true" className="text-lg">☷</span>{th ? "บิลพัก" : "Held bills"}
+          </button>
+          <button type="button" className={buttonClass} onClick={onMember} disabled={!onMember || actionsDisabled}>
+            <span aria-hidden="true" className="text-lg">♙</span>{th ? "สมาชิก" : "Member"}
+          </button>
+          <button type="button" className={buttonClass} onClick={onPromotion} disabled={!onPromotion || actionsDisabled}>
+            <span aria-hidden="true" className="text-lg">%</span>{th ? "ส่วนลด" : "Discount"}
+          </button>
+          <button
+            type="button"
+            className={buttonClass}
+            onClick={() => void handleOpenCashDrawerClick()}
+            disabled={!onOpenCashDrawer || openCashDrawerDisabled || cashDrawerBusy || submitting}
+          >
+            <span aria-hidden="true" className="text-lg">▤</span>
+            {cashDrawerBusy ? openingCashDrawerLabel : th ? "เปิดลิ้นชัก" : "Open drawer"}
+          </button>
+          <div className="flex items-center justify-center rounded-xl border border-dashed border-slate-200 bg-slate-50 p-2 text-center text-xs text-slate-400" aria-hidden="true">
+            IMDC OPTICAL
+          </div>
+        </div>
+        <div className="grid grid-cols-2 gap-2" data-testid="pos-optical-pending-actions">
+          <button type="button" disabled aria-disabled="true" title={th ? "รอระบบบัญชีมัดจำและสต๊อก" : "Pending deposit ledger and stock controls"} className="min-h-14 rounded-xl border border-emerald-200 bg-emerald-50 px-2 py-2 text-sm font-bold text-emerald-900 opacity-70">
+            {th ? "ชำระเงินมัดจำ" : "Deposit"}<span className="block text-[10px] font-semibold">{th ? "ยังไม่เปิดใช้งาน" : "Coming soon"}</span>
+          </button>
+          <button type="button" disabled aria-disabled="true" title={th ? "รอระบบใบสั่งงานและการจอง" : "Pending reservation workflow"} className="min-h-14 rounded-xl border border-emerald-200 bg-emerald-50 px-2 py-2 text-sm font-bold text-emerald-900 opacity-70">
+            {th ? "ทำจอง" : "Reserve"}<span className="block text-[10px] font-semibold">{th ? "ยังไม่เปิดใช้งาน" : "Coming soon"}</span>
+          </button>
+        </div>
+        <button
+          type="button"
+          className="min-h-14 rounded-xl bg-orange-500 px-3 py-3 text-base font-black text-white transition-colors enabled:hover:bg-orange-600 disabled:cursor-not-allowed disabled:opacity-45"
+          onClick={onCheckout}
+          disabled={checkoutDisabled || submitting}
+          data-testid="pos-optical-checkout"
+        >
+          {submitting ? submittingLabel : th ? "ชำระเงิน" : "Checkout"}
+        </button>
+        <button
+          type="button"
+          className="min-h-12 rounded-xl border border-rose-200 bg-rose-50 px-3 py-3 text-sm font-bold text-rose-700 enabled:hover:bg-rose-100 disabled:cursor-not-allowed disabled:opacity-45"
+          onClick={onCancelBill}
+          disabled={!onCancelBill || actionsDisabled || cancelBillDisabled}
+        >
+          {th ? "ยกเลิกบิล" : "Cancel bill"}
+        </button>
+        {onRetry ? <button type="button" className="posui-btn posui-btn--retry-emergency" onClick={onRetry} disabled={retryDisabled || submitting}>{retryLabel ?? text.retry}</button> : null}
+      </section>
+    );
   }
 
   const secondaryActions = ([
