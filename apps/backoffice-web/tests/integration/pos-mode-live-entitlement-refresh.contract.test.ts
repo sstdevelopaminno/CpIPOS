@@ -68,6 +68,10 @@ describe("live POS mode policy refresh across IT and the selector", () => {
     expect(startup).toContain("POS-START-FEATURES");
     expect(startup).toContain("POS-START-GRANTS");
     expect(startup).toContain("POS-START-HANDSHAKE");
+    // React may restore a saved cart while an already authorized mode is
+    // activating. Do not convert that into an erroneous permissions screen.
+    expect(startup).toContain("activateModeWithoutDialog(preferred, () => cancelled)");
+    expect(startup).not.toContain("activateModeWithoutDialog(preferred, () => cancelled || hasBlockingWork())");
     expect(startup).toContain('data-testid="pos-startup-failure-code"');
   });
 
