@@ -16,6 +16,15 @@ describe("CUSTOM IMDC Optical as the only permitted POS sales mode", () => {
   expect(grants.takeaway).toBe(false);
   expect(grants.general_sale).toBe(false);
  });
+ it("actually mounts the sales entry gate and its startup controller on the production selling route",()=>{
+  const route=read("src/app/preview/pos/page.tsx");
+  const gate=read("src/components/pos/pos-entry-gate.tsx");
+  expect(route).toContain("<PosEntryGate");
+  expect(route).toContain("<PosGeneralSaleTableController />");
+  expect(gate).toContain("<PosSalesModule lang={lang} />");
+  expect(gate).toContain("<PosInitialSalesModeController />");
+  expect(gate).toContain("if (hasActiveShift && canEnterSales)");
+ });
  it("does not require the ordinary selector button before dispatching Optical startup",()=>{
   const boot=read("src/components/pos/pos-initial-sales-mode-controller.tsx");
   expect(boot).toContain('mode === "optical_retail" || mode === "general_sale"');
