@@ -4,6 +4,9 @@ import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
 import { useRouter, useSearchParams } from "next/navigation";
 import { PreEntryShell } from "@/components/pre-entry/pre-entry-shell";
+import { AppLanguageSwitcher } from "@/components/i18n/app-language-switcher";
+import { useAppLanguage } from "@/lib/app-language-client";
+import { loginFlowText } from "@/lib/pre-entry-language";
 import { clearPreEntryClientCache, warmRoute } from "@/lib/pre-entry-client-cache";
 
 type DeviceItem = {
@@ -130,6 +133,8 @@ async function fetchJsonWithRetry<T>(input: RequestInfo | URL, init?: RequestIni
 
 function LoginDevicesPageContent() {
   const router = useRouter();
+  const {lang,setLanguage}=useAppLanguage("th");
+  const T=(value:string)=>loginFlowText(lang,value);
   const searchParams = useSearchParams();
   const flow = searchParams.get("flow") === "single" ? "single" : "multi";
   const [branchName, setBranchName] = useState("");
@@ -344,6 +349,7 @@ function LoginDevicesPageContent() {
 
   return (
     <PreEntryShell mode={flow} activeStep={flow === "multi" ? 4 : 3} title="" subtitle="" layout="store" showModePill={false} showStepbar={false}>
+      <div className="store-v2-topbar"><AppLanguageSwitcher lang={lang} onChange={setLanguage} /></div>
       {branchName ? (
         <p className="ipos-employee-branch ipos-employee-branch-with-icon">
           <span className="ipos-icon-box" aria-hidden="true">
@@ -359,14 +365,14 @@ function LoginDevicesPageContent() {
               />
             </svg>
           </span>
-          <span>{noBranchMode ? "โหมดร้านเดี่ยว: ไม่มีการเลือกสาขา" : `สาขา: ${branchName}`}</span>
+          <span>{noBranchMode ? T("โหมดร้านเดี่ยว: ไม่มีการเลือกสาขา") : `${T("สาขา")}: ${branchName}`}</span>
         </p>
       ) : null}
-      {loading ? <p className="ipos-loading-text">กำลังโหลดรายการเครื่องแคชเชียร์...</p> : null}
+      {loading ? <p className="ipos-loading-text">{T("กำลังโหลดรายการเครื่องแคชเชียร์...")}</p> : null}
 
       {!loading ? (
         <div className="ipos-branch-selector-card ipos-device-selector-card">
-          <h3 className="ipos-branch-selector-title">เลือกเครื่องแคชเชียร์</h3>
+          <h3 className="ipos-branch-selector-title">{T("เลือกเครื่องแคชเชียร์")}</h3>
 
           <div className="ipos-device-grid ipos-device-grid-compact">
             {devices.map((device) => {
@@ -388,12 +394,12 @@ function LoginDevicesPageContent() {
                 >
                   <h3>{device.deviceName}</h3>
                   <p>
-                    รหัสเครื่อง <strong>{device.deviceCode}</strong>
+                    {T("รหัสเครื่อง")} <strong>{device.deviceCode}</strong>
                   </p>
                   <p>{device.counterName}</p>
-                  {device.currentUser ? <p className="ipos-device-warning">กำลังใช้งานโดย {device.currentUser.name}</p> : null}
+                  {device.currentUser ? <p className="ipos-device-warning">{T("กำลังใช้งานโดย")} {device.currentUser.name}</p> : null}
                   <div className="ipos-mt-10">
-                    <span className={`ipos-status ${device.status}`}>{statusLabel(device.status)}</span>
+                    <span className={`ipos-status ${device.status}`}>{T(statusLabel(device.status))}</span>
                   </div>
                 </button>
               );
@@ -402,14 +408,14 @@ function LoginDevicesPageContent() {
         </div>
       ) : null}
 
-      {error ? <p className="ipos-error">{error}</p> : null}
+      {error ? <p className="ipos-error">{T(error)}</p> : null}
 
       <div className="ipos-inline-actions ipos-branch-actions">
         <button type="button" className="ipos-outline-btn" onClick={() => void handleBack()} disabled={submitting}>
-          ย้อนกลับ
+          {T("ย้อนกลับ")}
         </button>
         <button type="button" className="ipos-primary-btn ipos-btn-compact" onClick={() => void handleSelectDevice()} disabled={submitting || loading || !selectedDeviceCanOpen}>
-          {submitting ? "กำลังเข้าสู่ระบบ..." : "เปิดแคช"}
+          {submitting ? T("กำลังเข้าสู่ระบบ...") : T("เปิดแคช")}
         </button>
       </div>
 
@@ -422,18 +428,18 @@ function LoginDevicesPageContent() {
                   <Image src={SPLASH_LOGO_SRC} alt="" width={180} height={180} sizes="180px" priority />
                 </div>
                 <div className="store-v2-popup-spinner ipos-entry-splash-spinner" aria-hidden="true" />
-                <p className="store-v2-popup-title">กำลังเปิดแคช</p>
-                <p className="store-v2-popup-text">{popup.message}</p>
+                <p className="store-v2-popup-title">{T("กำลังเปิดแคช")}</p>
+                <p className="store-v2-popup-text">{T(popup.message)}</p>
               </>
             ) : (
               <>
                 <div className="store-v2-popup-error-icon" aria-hidden="true">
                   !
                 </div>
-                <p className="store-v2-popup-title">ดำเนินการไม่สำเร็จ</p>
-                <p className="store-v2-popup-text">{popup.message}</p>
+                <p className="store-v2-popup-title">{T("ดำเนินการไม่สำเร็จ")}</p>
+                <p className="store-v2-popup-text">{T(popup.message)}</p>
                 <button type="button" className="store-v2-popup-close-btn" onClick={() => setPopup({ type: "none" })}>
-                  ปิด
+                  {T("ปิด")}
                 </button>
               </>
             )}
@@ -449,7 +455,7 @@ export default function LoginDevicesPage() {
     <Suspense
       fallback={
         <PreEntryShell mode="multi" activeStep={4} title="" subtitle="" layout="store" showModePill={false} showStepbar={false}>
-          <p className="ipos-loading-text">กำลังโหลดรายการเครื่องแคชเชียร์...</p>
+          <p className="ipos-loading-text">{T("กำลังโหลดรายการเครื่องแคชเชียร์...")}</p>
         </PreEntryShell>
       }
     >
