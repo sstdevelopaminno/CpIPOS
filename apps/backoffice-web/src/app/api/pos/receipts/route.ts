@@ -264,11 +264,24 @@ export async function GET(req: Request) {
     });
 
     const completed = records.filter((record) => record.status === "completed");
+    // Never aggregate THB and LAK into a single financial figure.
+    const byCurrency = {
+      THB: { count: 0, grossTotal: 0, paidTotal: 0 },
+      LAK: { count: 0, grossTotal: 0, paidTotal: 0 }
+    };
+    for (const receipt of records) {
+      const bucket = byCurrency[receipt.currencyCode];
+      bucket.count += 1;
+      bucket.grossTotal += receipt.totalAmount;
+      bucket.paidTotal += receipt.paidTotal;
+    }
     const summary = {
       receiptCount: records.length,
       completedCount: completed.length,
-      grossTotal: records.reduce((sum, row) => sum + row.totalAmount, 0),
-      paidTotal: records.reduce((sum, row) => sum + row.paidTotal, 0)
+      grossTotal: byCurrency[shopCurrencyCode].grossTotal,
+      paidTotal: byCurrency[shopCurrencyCode].paidTotal,
+      byCurrency,
+      mixedCurrencies: byCurrency.THB.count > 0 && byCurrency.LAK.count > 0
     };
 
     return withTiming(ok({
