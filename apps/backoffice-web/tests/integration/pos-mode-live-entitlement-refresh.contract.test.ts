@@ -63,6 +63,8 @@ describe("live POS mode policy refresh across IT and the selector", () => {
     expect(startup).not.toContain("POS_STARTUP_MODE_REQUEST_EVENT");
     expect(sales).toContain('opticalRetailActive && quickMode === "home" && startupRetailKind === "optical_retail"');
     expect(sales).toContain('data-pos-react-sales-mode=');
+    expect(sales).toContain('tableBrowserOpen || Boolean(selectedTable?.id)');
+    expect(sales).toContain('orderType === "takeaway" && !selectedTable?.id');
     expect(selector).toContain('reactMode === OPTICAL_MODE_ID && opticalAllowed');
     expect(selector).toContain('reactMode === GENERAL_SALE_MODE_ID && generalSaleAllowed');
   });
