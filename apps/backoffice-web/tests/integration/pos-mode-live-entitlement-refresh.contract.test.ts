@@ -42,7 +42,7 @@ describe("live POS mode policy refresh across IT and the selector", () => {
     const startup = source("src/components/pos/pos-initial-sales-mode-controller.tsx");
     expect(startup).toContain('const FEATURES_API = "/api/pos/features?refresh=1"');
     expect(startup).toContain("getAuthorizedCustomPosStartupMode(order ?? [], productProfile, customModeGrants)");
-    expect(startup).toContain('if (customPolicy && !authorizedCustomMode) return complete("error")');
+    expect(startup).toContain('if (customPolicy && !authorizedCustomMode) return complete("error", "POS-START-GRANTS")');
     expect(startup).toContain("activateModeWithoutDialog(preferred");
     expect(startup).toContain("POS_STARTUP_MODE_REQUEST_EVENT");
     expect(startup).not.toContain("switchButton.click()");
@@ -56,6 +56,19 @@ describe("live POS mode policy refresh across IT and the selector", () => {
     const salesModule = source("src/components/pos/pos-sales-module.tsx");
     expect(salesModule).toContain("POS_STARTUP_MODE_REQUEST_EVENT");
     expect(salesModule).toContain("applyQuickMode(request.mode)");
+  });
+
+  it("recovers a transient React listener race without bypassing denied CUSTOM grants", () => {
+    const startup = source("src/components/pos/pos-initial-sales-mode-controller.tsx");
+    expect(selector).toContain('attempt === 30 || attempt === 75 || attempt === 130');
+    expect(selector).toContain('request.mode === OPTICAL_MODE_ID');
+    expect(selector).toContain("document.documentElement.getAttribute(OPTICAL_HANDLER_READY_ATTRIBUTE)");
+    expect(selector).toContain("new Event(OPTICAL_ACTIVATE_BASE_MODE_EVENT)");
+    expect(selector).toContain("activated: allowed && correctMode");
+    expect(startup).toContain("POS-START-FEATURES");
+    expect(startup).toContain("POS-START-GRANTS");
+    expect(startup).toContain("POS-START-HANDSHAKE");
+    expect(startup).toContain('data-testid="pos-startup-failure-code"');
   });
 
   it("keeps legacy background cache for normal polling, but forces fresh on dialog opening", () => {
