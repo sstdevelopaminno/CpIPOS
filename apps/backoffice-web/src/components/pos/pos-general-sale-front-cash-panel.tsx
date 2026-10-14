@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
-import { GENERAL_SALE_MODE_ID, GENERAL_SALE_ROOT_ATTRIBUTE } from "@/lib/pos-general-sale-mode";
+import { GENERAL_SALE_MODE_ID, GENERAL_SALE_ROOT_ATTRIBUTE, OPTICAL_ACTIVE_ROOT_ATTRIBUTE } from "@/lib/pos-general-sale-mode";
 
 const STYLE_ID = "cpipos-general-sale-front-cash-style";
 const PANEL_ATTRIBUTE = "data-pos-general-sale-front-cash";
@@ -23,6 +23,10 @@ type CashDraft = {
 
 function resolveLang(): Lang {
   return document.documentElement.lang.toLowerCase().startsWith("en") ? "en" : "th";
+}
+
+function isOpticalRetailActive(): boolean {
+  return document.documentElement.getAttribute(OPTICAL_ACTIVE_ROOT_ATTRIBUTE) === "1";
 }
 
 function isGeneralSaleActive(): boolean {
@@ -133,6 +137,7 @@ function ensureStyles() {
     }
     html[${GENERAL_SALE_ROOT_ATTRIBUTE}="${GENERAL_SALE_MODE_ID}"] .cpipos-sd-table__name { min-width: 210px; }
 
+    html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] [${PANEL_ATTRIBUTE}="1"] { display: none !important; }
     [${PANEL_ATTRIBUTE}="1"] {
       display: grid;
       gap: 12px;
@@ -237,7 +242,7 @@ export function PosGeneralSaleFrontCashPanel() {
     };
 
     const renderPanel = () => {
-      if (disposed || !isGeneralSaleActive()) {
+      if (disposed || !isGeneralSaleActive() || isOpticalRetailActive()) {
         removePanel();
         return;
       }
@@ -347,9 +352,9 @@ export function PosGeneralSaleFrontCashPanel() {
       previousGeneralSaleActive = active;
       previousCartItemCount = cartItemCount;
 
-      if (active) renderPanel();
+      if (active && !isOpticalRetailActive()) renderPanel();
       else removePanel();
-      inspectPaymentModal();
+      if (!isOpticalRetailActive()) inspectPaymentModal();
     };
 
     const scheduleReconcile = () => {
