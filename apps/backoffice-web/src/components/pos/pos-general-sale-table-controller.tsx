@@ -15,6 +15,10 @@ import {
   OPTICAL_ACTIVATE_BASE_MODE_EVENT,
   OPTICAL_DEACTIVATE_BASE_MODE_EVENT,
   OPTICAL_ACTIVE_ROOT_ATTRIBUTE,
+  POS_STARTUP_MODE_REQUEST_EVENT,
+  POS_STARTUP_MODE_RESULT_EVENT,
+  type PosStartupModeRequest,
+  type PosStartupModeResult,
   GENERAL_SALE_LAYOUT_ATTRIBUTE,
   GENERAL_SALE_LAYOUT_STORAGE_KEY,
   GENERAL_SALE_MODE_ID,
@@ -168,6 +172,7 @@ export function PosGeneralSaleTableController() {
     let opticalAllowed = false;
     let generalSaleActive = false;
     let opticalActive = false;
+    let pendingStartupMode: PosStartupModeRequest | null = null;
     let scannerPanel: HTMLElement | null = null;
     let scannerInput: HTMLInputElement | null = null;
     let scannerSubmit: HTMLButtonElement | null = null;
@@ -635,6 +640,50 @@ export function PosGeneralSaleTableController() {
       setModeVisualState();
     };
 
+    const applyRetailStartup = (request: PosStartupModeRequest) => {
+      if (request.mode !== OPTICAL_MODE_ID && request.mode !== GENERAL_SALE_MODE_ID) return;
+      const allowed = request.mode === OPTICAL_MODE_ID ? opticalAllowed : generalSaleAllowed;
+      if (allowed) {
+        if (request.mode === OPTICAL_MODE_ID) {
+          // The underlying order type can stay takeaway, but the visible UI
+          // must start in Optical without opening the modal or clicking home.
+          window.dispatchEvent(new Event(OPTICAL_ACTIVATE_BASE_MODE_EVENT));
+          generalSaleActive = true;
+          opticalActive = true;
+        } else {
+          if (opticalActive) window.dispatchEvent(new Event(OPTICAL_DEACTIVATE_BASE_MODE_EVENT));
+          generalSaleActive = true;
+          opticalActive = false;
+        }
+        removeScanner();
+        removeTable();
+        setRootMode(true);
+        setModeVisualState();
+        ensureScanner();
+        ensureTableHost();
+        scheduleTableRender(0);
+      }
+      window.requestAnimationFrame(() => {
+        if (destroyed) return;
+        const result: PosStartupModeResult = {
+          requestId: request.requestId,
+          mode: request.mode,
+          activated: allowed
+        };
+        window.dispatchEvent(new CustomEvent(POS_STARTUP_MODE_RESULT_EVENT, { detail: result }));
+      });
+    };
+
+    const onStartupMode = (event: Event) => {
+      const request = (event as CustomEvent<PosStartupModeRequest>).detail;
+      if (!request?.requestId || (request.mode !== OPTICAL_MODE_ID && request.mode !== GENERAL_SALE_MODE_ID)) return;
+      if (!accessResolved) {
+        pendingStartupMode = request;
+        return;
+      }
+      applyRetailStartup(request);
+    };
+
     const onModeClick = (event: Event) => {
       if (!(event.target instanceof Element)) return;
       const modeCard = event.target.closest<HTMLElement>(`[${MODE_ATTRIBUTE}]`);
@@ -715,6 +764,9 @@ export function PosGeneralSaleTableController() {
       } finally {
         if (!destroyed && sequence === accessSequence) {
           accessResolved = true;
+          const startup = pendingStartupMode;
+          pendingStartupMode = null;
+          if (startup) applyRetailStartup(startup);
           scheduleReconcile();
         }
       }
@@ -737,6 +789,7 @@ export function PosGeneralSaleTableController() {
 
     document.addEventListener("click", onModeClick, true);
     document.addEventListener("click", onTableClick, true);
+    window.addEventListener(POS_STARTUP_MODE_REQUEST_EVENT, onStartupMode as EventListener);
     window.addEventListener(CART_MUTATED_EVENT, onCartMutated);
     window.addEventListener("storage", onStorage);
     document.addEventListener("visibilitychange", onVisibility);
@@ -757,6 +810,7 @@ export function PosGeneralSaleTableController() {
       observer.disconnect();
       document.removeEventListener("click", onModeClick, true);
       document.removeEventListener("click", onTableClick, true);
+      window.removeEventListener(POS_STARTUP_MODE_REQUEST_EVENT, onStartupMode as EventListener);
       window.removeEventListener(CART_MUTATED_EVENT, onCartMutated);
       window.removeEventListener("storage", onStorage);
       document.removeEventListener("visibilitychange", onVisibility);
