@@ -21,9 +21,13 @@ type Fields = {
   left_add: string;
   notes: string;
 };
+const todayLocal = () => {
+  const now = new Date();
+  return new Date(now.getTime() - now.getTimezoneOffset() * 60_000).toISOString().slice(0, 10);
+};
 const initial = (): Fields => ({
   customer_code: "", full_name: "", phone: "", age: "",
-  exam_date: new Date().toLocaleDateString("en-CA"), previous_prescription: "",
+  exam_date: todayLocal(), previous_prescription: "",
   pd_mm: "", examiner_name: "",
   right_sph: "", right_cyl: "", right_axis: "", right_add: "",
   left_sph: "", left_cyl: "", left_axis: "", left_add: "", notes: ""
@@ -48,7 +52,7 @@ export function PosOpticalCustomerModal({open,onClose}:{open:boolean;onClose:()=
       <span>{label}</span>
       <input
         className="min-h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900"
-        type={opts.type??"text"} placeholder={opts.placeholder}
+        type={opts.type??"text"} step={opts.type==="number"?"any":undefined} placeholder={opts.placeholder}
         value={fields[key]} required={opts.required}
         onChange={e=>update(key,e.target.value)}
         disabled={busy}
@@ -74,6 +78,7 @@ export function PosOpticalCustomerModal({open,onClose}:{open:boolean;onClose:()=
       const body=await response.json().catch(()=>null) as {error?:{message?:string};data?:{record?:unknown}}|null;
       if(!response.ok)throw new Error(body?.error?.message||"บันทึกข้อมูลลูกค้าไม่สำเร็จ");
       setSuccess("บันทึกข้อมูลลูกค้าและผลตรวจสายตาแล้ว");
+      setFields(initial());
       requestRef.current=crypto.randomUUID();
     }catch(e){setError(e instanceof Error?e.message:"ไม่สามารถบันทึกได้");}
     finally{setBusy(false);}
