@@ -28,7 +28,7 @@ export async function PATCH(request: Request) {
     const { count, error: orderError } = await admin.from("orders")
       .select("id", { count: "exact", head: true }).eq("tenant_id", auth.tenantId!);
     if (orderError) throw new Error("pos_currency_history_check_failed");
-    if ((count ?? 0) > 0) return fail("currency_change_requires_migration", "Existing sales must be reconciled by IT before changing the store currency.", 409);
+    if ((count ?? 0) > 0) return fail("currency_change_requires_migration", "ร้านมีประวัติการขายแล้ว กรุณาให้ฝ่าย IT ไปที่ Tenants / Stores → เปิดปิดเมนูหลัก → ตั้งค่าสกุลเงิน (CUSTOM) เพื่อตรวจบิลและอนุมัติ", 409);
     const existing = ctx.contract.metadata && typeof ctx.contract.metadata === "object" && !Array.isArray(ctx.contract.metadata)
       ? ctx.contract.metadata as Record<string, unknown> : {};
     const { data: updated, error: writeError } = await admin.from("tenant_subscription_contracts")
