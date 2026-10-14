@@ -51,6 +51,25 @@ describe("Optical POS sale identity is separate from internal takeaway order typ
     expect(keypad).toContain("if (active && !isOpticalRetailActive()) renderPanel()");
   });
 
+  it("shows authorized LAK in Optical cashier and rechecks after POS login", () => {
+    const panel = read("src/components/pos-ui/pos-payment-panel.tsx");
+    const mode = read("src/components/pos/pos-general-sale-mode-controller.tsx");
+    expect(panel).toContain('opticalCurrencyCode?: "THB" | "LAK"');
+    expect(panel).toContain('opticalCurrencyCode = "THB"');
+    expect(panel).toContain('currencyCode === "LAK" ? "₭" : "฿"');
+    expect(panel).toContain('data-testid="pos-optical-sales-currency"');
+    expect(panel).toContain("formatMoney(total, opticalCurrencyCode)");
+    expect(pos).toContain("opticalCurrencyCode={posCurrencyCode}");
+    expect(pos).toContain('credentials: "include"');
+    expect(pos).toContain('if (!shift?.id) return;');
+    expect(pos).toContain('opticalRetailActive && !posCurrencyResolved');
+    expect(pos).toContain('data-pos-store-currency');
+    expect(pos).toContain('posCurrencyCode === "LAK" ? null :');
+    expect(mode).toContain('getAttribute("data-pos-store-currency")');
+    expect(mode).toContain('cpipos:store-currency-updated');
+    expect(mode).toContain('currency: "THB"');
+  });
+
   it("has compact product barcode scan and a non-financial read-only reservation lookup", () => {
     expect(controller).toContain("OPTICAL_SCAN_IDLE_MS = 140");
     expect(controller).toContain('event.inputType === "insertFromPaste"');
