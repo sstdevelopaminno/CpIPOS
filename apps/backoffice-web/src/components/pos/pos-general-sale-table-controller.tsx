@@ -178,6 +178,8 @@ export function PosGeneralSaleTableController() {
     let opticalActive = false;
     let pendingStartupMode: PosStartupModeRequest | null = null;
     let processingStartupRequestId: string | null = null;
+    let pendingStartupRetryCount = 0;
+    let pendingStartupRetryTimer: number | null = null;
     let scannerPanel: HTMLElement | null = null;
     let scannerInput: HTMLInputElement | null = null;
     let scannerSubmit: HTMLButtonElement | null = null;
@@ -423,6 +425,7 @@ export function PosGeneralSaleTableController() {
 
     const scheduleTableRender = (delayMs = CART_RENDER_DELAY_MS) => {
       if (!generalSaleActive) return;
+      if (pendingStartupRetryTimer !== null) window.clearTimeout(pendingStartupRetryTimer);
       if (tableRenderTimer !== null) window.clearTimeout(tableRenderTimer);
       tableRenderTimer = window.setTimeout(renderTable, delayMs);
     };
@@ -921,6 +924,7 @@ export function PosGeneralSaleTableController() {
 
     async function loadAccess() {
       const sequence = ++accessSequence;
+      let shouldRetryPending = false;
       try {
         const response = await fetch("/api/pos/features?refresh=1", {
           cache: "no-store",
@@ -928,10 +932,10 @@ export function PosGeneralSaleTableController() {
         });
         const body = (await response.json().catch(() => null)) as PosFeaturesResponse | null;
         if (destroyed || sequence !== accessSequence) return;
-        if (response.ok && body?.data) {
-          window.dispatchEvent(new CustomEvent("cpipos:pos-feature-policy-updated", { detail: body.data }));
-        }
-        generalSaleAllowed = Boolean(response.ok && body?.data?.features?.[POS_MODE_FEATURES.general_sale] === true
+        if (!response.ok || !body?.data) throw new Error("pos_feature_snapshot_unavailable");
+        pendingStartupRetryCount = 0;
+        window.dispatchEvent(new CustomEvent("cpipos:pos-feature-policy-updated", { detail: body.data }));
+        generalSaleAllowed = Boolean(body?.data?.features?.[POS_MODE_FEATURES.general_sale] === true
           && body?.data?.sales_modes?.general_sale === true);
         opticalAllowed = Boolean(response.ok && (body?.data?.is_custom === true || body?.data?.is_internal_test_full === true)
           && body?.data?.sales_modes?.optical_retail === true && body?.data?.features?.core_pos_sales === true);
@@ -942,16 +946,31 @@ export function PosGeneralSaleTableController() {
         }
       } catch {
         if (destroyed || sequence !== accessSequence) return;
-        generalSaleAllowed = false;
-        opticalAllowed = false;
-        if (generalSaleActive) deactivateGeneralSale();
+        // A temporary Supabase/network failure must not be reported as a
+        // revoked IT Optical grant. Retry only a pending startup, at most twice.
+        shouldRetryPending = pendingStartupMode !== null && pendingStartupRetryCount < 2;
+        if (!shouldRetryPending) {
+          generalSaleAllowed = false;
+          opticalAllowed = false;
+          if (generalSaleActive) deactivateGeneralSale();
+        }
       } finally {
         if (!destroyed && sequence === accessSequence) {
-          accessResolved = true;
-          const startup = pendingStartupMode;
-          pendingStartupMode = null;
-          if (startup) applyRetailStartup(startup);
-          scheduleReconcile();
+          if (shouldRetryPending) {
+            accessResolved = false;
+            pendingStartupRetryCount += 1;
+            if (pendingStartupRetryTimer !== null) window.clearTimeout(pendingStartupRetryTimer);
+            pendingStartupRetryTimer = window.setTimeout(() => {
+              pendingStartupRetryTimer = null;
+              if (!destroyed) void loadAccess();
+            }, pendingStartupRetryCount * 350);
+          } else {
+            accessResolved = true;
+            const startup = pendingStartupMode;
+            pendingStartupMode = null;
+            if (startup) applyRetailStartup(startup);
+            scheduleReconcile();
+          }
         }
       }
     }
