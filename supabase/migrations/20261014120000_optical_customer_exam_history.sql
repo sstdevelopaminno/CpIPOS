@@ -128,7 +128,8 @@ create or replace function public.optical_save_customer_exam(
   p_right_axis smallint default null, p_right_add numeric default null,
   p_left_sph numeric default null, p_left_cyl numeric default null,
   p_left_axis smallint default null, p_left_add numeric default null,
-  p_notes text default null, p_request_id uuid default null
+  p_notes text default null, p_request_id uuid default null,
+  p_actor uuid default null
 ) returns jsonb
 language plpgsql security definer set search_path = public, pg_temp
 as $$
@@ -159,12 +160,12 @@ begin
   values
     (p_tenant_id,p_branch_id,trim(p_customer_code),trim(p_full_name),
      nullif(trim(coalesce(p_phone,'')),''),p_age,p_previous_prescription,
-     p_exam_date,p_examiner_name,p_notes,auth.uid(),auth.uid())
+     p_exam_date,p_examiner_name,p_notes,coalesce(auth.uid(),p_actor),coalesce(auth.uid(),p_actor))
   on conflict (tenant_id,branch_id,customer_code) do update set
     full_name=excluded.full_name,phone=excluded.phone,age=excluded.age,
     previous_prescription=excluded.previous_prescription,
     last_exam_date=excluded.last_exam_date,examiner_name=excluded.examiner_name,
-    notes=excluded.notes,updated_at=now(),updated_by=auth.uid(),deleted_at=null
+    notes=excluded.notes,updated_at=now(),updated_by=coalesce(auth.uid(),p_actor),deleted_at=null
   returning id into v_customer_id;
 
   insert into public.optical_eye_exams
@@ -172,7 +173,7 @@ begin
      right_add,left_sph,left_cyl,left_axis,left_add,pd_mm,previous_prescription,examiner_name,notes,created_by,request_id)
   values
     (p_tenant_id,p_branch_id,v_customer_id,p_exam_date,p_age,p_right_sph,p_right_cyl,p_right_axis,
-     p_right_add,p_left_sph,p_left_cyl,p_left_axis,p_left_add,p_pd_mm,p_previous_prescription,p_examiner_name,p_notes,auth.uid(),v_request_id)
+     p_right_add,p_left_sph,p_left_cyl,p_left_axis,p_left_add,p_pd_mm,p_previous_prescription,p_examiner_name,p_notes,coalesce(auth.uid(),p_actor),v_request_id)
   on conflict (tenant_id,branch_id,request_id) do nothing
   returning id into v_exam_id;
 
@@ -190,9 +191,9 @@ end;
 $$;
 revoke all on function public.optical_save_customer_exam(
   uuid,uuid,text,text,text,smallint,date,text,numeric,text,numeric,numeric,smallint,numeric,
-  numeric,numeric,smallint,numeric,text,uuid
+  numeric,numeric,smallint,numeric,text,uuid,uuid
 ) from public,anon;
 grant execute on function public.optical_save_customer_exam(
   uuid,uuid,text,text,text,smallint,date,text,numeric,text,numeric,numeric,smallint,numeric,
-  numeric,numeric,smallint,numeric,text,uuid
+  numeric,numeric,smallint,numeric,text,uuid,uuid
 ) to authenticated,service_role;
