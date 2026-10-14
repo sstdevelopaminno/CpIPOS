@@ -225,6 +225,7 @@ function paymentLabel(methods: string[], lang: Language) {
 }
 
 function statusLabel(status: string, lang: Language) {
+  if (lang === "lo") return ({ completed: "ຊຳລະແລ້ວ", cancelled: "ຍົກເລີກ", queued: "ລໍຖ້າຊຳລະ" } as Record<string, string>)[status] ?? status;
   if (status === "completed") return lang === "lo" ? "ຊຳລະແລ້ວ" : lang === "th" ? "ชำระแล้ว" : "Paid";
   if (status === "cancelled") return lang === "th" ? "ยกเลิก" : "Cancelled";
   if (status === "queued") return lang === "th" ? "รอชำระ" : "Queued";
