@@ -10,6 +10,7 @@ import { buildPaginationMeta, parsePagination } from "@/lib/query-params";
 import { dispatchOrderToKitchen } from "@/lib/services/kitchen-routing-service";
 import { resolveOrderPricing } from "@/lib/services/pos-sales-mvp-service";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
+import { getTenantPosCurrencyCode } from "@/lib/server/custom-pos-currency";
 
 function normalizeBranchRole(role: string): AuthContext["branchRole"] {
   if (role === "owner" || role === "manager" || role === "staff" || role === "accountant") return role;
@@ -186,6 +187,7 @@ export async function POST(request: Request) {
       return fail("order_create_failed", "Order creation returned no order ID.", 500);
     }
 
+    const currencyCode = await getTenantPosCurrencyCode(scope.session.tenant_id);
     await supabase
       .from("orders")
       .update({
@@ -195,7 +197,7 @@ export async function POST(request: Request) {
         tax_total: pricing.totals.tax_total,
         grand_total: pricing.totals.grand_total,
         paid_total: 0,
-        metadata: { source: "pos_sales_mvp", request_id: requestId }
+        metadata: { source: "pos_sales_mvp", request_id: requestId, currency_code: currencyCode }
       })
       .eq("tenant_id", scope.session.tenant_id)
       .eq("branch_id", scope.session.branch_id)
