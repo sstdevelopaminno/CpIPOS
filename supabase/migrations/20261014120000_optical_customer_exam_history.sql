@@ -1,6 +1,8 @@
 -- Additive optical-customer history for IT-authorized CUSTOM Optical stores.
 -- No existing POS orders, stock, payment or subscription rows are modified.
 -- Review against a staging snapshot before applying to production.
+create unique index if not exists branches_id_tenant_scope_idx on public.branches(id,tenant_id);
+
 create table if not exists public.optical_customers (
   id uuid primary key default gen_random_uuid(),
   tenant_id uuid not null references public.tenants(id),
@@ -65,6 +67,10 @@ set search_path = public, pg_temp
 as $$
   select auth.uid() is not null
     and exists (
+      select 1 from public.users_profiles profile
+      where profile.id = auth.uid() and profile.is_active = true and profile.archived_at is null
+    )
+    and exists (
       select 1 from public.user_branch_roles ubr
       where ubr.user_id=auth.uid() and ubr.tenant_id=p_tenant
         and ubr.branch_id=p_branch and ubr.role::text in ('owner','manager')
@@ -74,12 +80,14 @@ as $$
       from public.tenant_subscription_contracts c
       join public.subscription_packages pkg on pkg.id=c.package_id
       where c.tenant_id=p_tenant
+        and c.id = (
+          select latest.id from public.tenant_subscription_contracts latest
+          where latest.tenant_id = p_tenant order by latest.created_at desc limit 1
+        )
         and c.status in ('active','trial')
         and (c.ended_at is null or c.ended_at > now())
         and lower(pkg.code)='custom'
         and c.metadata->'sales_modes'->>'optical_retail'='true'
-      order by c.created_at desc
-      limit 1
     );
 $$;
 revoke all on function public.can_manage_optical_customer_data(uuid,uuid) from public, anon;
