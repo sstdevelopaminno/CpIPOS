@@ -13,7 +13,13 @@ if (!casesFile) {
 }
 const cases = JSON.parse(await fs.readFile(casesFile, "utf8"));
 if (!Array.isArray(cases) || !cases.length) throw new Error("Expected nonempty QA cases array.");
-const origin = process.env.POS_E2E_ORIGIN || "https://cp-ipos-web.vercel.app";
+const origin = process.env.POS_E2E_ORIGIN;
+if (!origin) throw new Error("POS_E2E_ORIGIN is required: use a local or isolated QA server containing this PR commit.");
+const target = new URL(origin);
+if (!["http:", "https:"].includes(target.protocol)) throw new Error("POS_E2E_ORIGIN must be HTTP(S)");
+if (target.hostname === "cp-ipos-web.vercel.app" && process.env.POS_E2E_ALLOW_PRODUCTION !== "1") {
+  throw new Error("Refusing to run pre-merge PR E2E against old Production. Set a local/QA URL, not Production.");
+}
 const timeoutMs = Math.max(15000, Number(process.env.POS_E2E_TIMEOUT_MS || 55000));
 const evidenceDir = path.resolve(process.env.POS_E2E_OUTPUT_DIR || ".qa/pos-custom-evidence");
 await fs.mkdir(evidenceDir, { recursive: true });
@@ -66,7 +72,13 @@ try {
       result.errors.push(e instanceof Error ? e.message : String(e));
       try { await page.screenshot({path:path.join(evidenceDir,safeName+".png"),fullPage:true}); } catch {}
     } finally {
-      result.errors.push(...errors.slice(0,12));
+      if (errors.length) {
+        result.errors.push(...errors.slice(0,12));
+        if (result.passed) {
+          result.passed = false;
+          failures += 1;
+        }
+      }
       results.push(result);
       await context.close();
     }
