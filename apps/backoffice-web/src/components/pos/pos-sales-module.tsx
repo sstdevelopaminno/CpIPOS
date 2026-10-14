@@ -2112,6 +2112,7 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
   const [discountAmountInput, setDiscountAmountInput] = useState("");
   const [discountEditMode, setDiscountEditMode] = useState<"percent" | "amount">("percent");
   const [quickMode, setQuickMode] = useState<QuickMode>("home");
+  const lastHandledStartupRequestIdRef = useRef<string | null>(null);
   const [opticalRetailActive, setOpticalRetailActive] = useState(false);
   const [opticalCustomerOpen, setOpticalCustomerOpen] = useState(false);
   const [modeSelectorOpen, setModeSelectorOpen] = useState(false);
@@ -6088,8 +6089,14 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
       if (!request?.requestId) return;
       if (request.mode !== "home" && request.mode !== "dine_in"
         && request.mode !== "buffet_table" && request.mode !== "delivery") return;
-      if (request.mode !== quickMode || opticalRetailActive) {
-        applyQuickMode(request.mode);
+      // The startup controller retries the SAME request ID while the dynamic
+      // module mounts. Handle a transition only once: reapplying dine-in after
+      // the table browser is opened would clear a selected table and draft.
+      if (lastHandledStartupRequestIdRef.current !== request.requestId) {
+        lastHandledStartupRequestIdRef.current = request.requestId;
+        if (request.mode !== quickMode || opticalRetailActive) {
+          applyQuickMode(request.mode);
+        }
       }
       window.requestAnimationFrame(() => {
         const result: PosStartupModeResult = { requestId: request.requestId, mode: request.mode, activated: true };
