@@ -93,13 +93,19 @@ export function PosInitialSalesModeController({
 }: {
   initialScope?: PosScopeIdentity | null;
   lang: "th" | "en";
-  SalesComponent: ComponentType<{lang?: "th" | "en"; startupMode?: PosStartupSalesMode; onStartupModeReady?: (mode: PosStartupSalesMode) => void}>;
+  SalesComponent: ComponentType<{lang?: "th" | "en"; startupMode?: PosStartupSalesMode; onStartupModeReady?: (mode: PosStartupSalesMode) => void; onStartupModeBlocked?: (mode: PosStartupSalesMode) => void}>;
 }) {
   const [attempt, setAttempt] = useState(0);
   const [startupStatus, setStartupStatus] = useState<"pending" | "ready" | "error">("pending");
   const [startupFailureCode, setStartupFailureCode] = useState<string | null>(null);
   const [authorizedMode, setAuthorizedMode] = useState<PosStartupSalesMode | null>(null);
   const activeModeRef = useRef<PosStartupSalesMode | null>(null);
+
+  const onBlocked = useCallback((mode: PosStartupSalesMode) => {
+    if (mode !== activeModeRef.current) return;
+    setStartupFailureCode("POS-START-DRAFT");
+    setStartupStatus("error");
+  }, []);
 
   const onReady = useCallback((mode: PosStartupSalesMode) => {
     // Ignore a stale child from a prior Session/branch or retry.
@@ -227,7 +233,7 @@ export function PosInitialSalesModeController({
 
   return (
     <>
-      {authorizedMode ? <SalesComponent lang={lang} startupMode={authorizedMode} onStartupModeReady={onReady} /> : null}
+      {authorizedMode ? <SalesComponent lang={lang} startupMode={authorizedMode} onStartupModeReady={onReady} onStartupModeBlocked={onBlocked} /> : null}
       {startupStatus !== "ready" ? (
         <div className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-50 px-6"
           role={startupStatus === "error" ? "alert" : "status"}
@@ -239,7 +245,9 @@ export function PosInitialSalesModeController({
             ) : (
               <>
                 <p className="mt-3 text-sm text-red-700">
-                  {startupFailureCode === "POS-START-REACT"
+                  {startupFailureCode === "POS-START-DRAFT"
+                    ? "มีบิลหรือตะกร้าของโหมดเดิมที่ยังดำเนินการไม่เสร็จ ระบบคงข้อมูลไว้และไม่สลับโหมดอัตโนมัติ กรุณาตรวจสอบบิลค้างก่อน"
+                    : startupFailureCode === "POS-START-REACT"
                     ? "ระบบตรวจสิทธิ์ผ่านแล้ว แต่ React ยังไม่ยืนยันการเปิดหน้าขาย โปรดตรวจสอบสถานะหน้าขาย"
                     : startupFailureCode === "POS-START-FEATURES"
                       ? "โหลดสิทธิ์จากเซิร์ฟเวอร์ไม่สำเร็จ กรุณาตรวจสอบ Session หรือการเชื่อมต่อ"
