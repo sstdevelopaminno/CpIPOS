@@ -50,6 +50,7 @@ type ProductLookupResponse = {
 
 const MODE_SELECTOR_QUERY = ".posui-mode-selector";
 const MODE_SWITCH_BUTTON_QUERY = ".posui-mode-switch-button";
+const OPTICAL_HANDLER_READY_ATTRIBUTE = "data-pos-optical-handler-ready";
 const MODE_GRID_QUERY = ".posui-mode-selector__grid";
 const MODE_ATTRIBUTE = "data-pos-sale-mode";
 const MODE_ENHANCED_ATTRIBUTE = "data-pos-mode-preferences-enhanced";
@@ -793,7 +794,7 @@ export function PosGeneralSaleTableController() {
       // POS sales is dynamically imported after session validation. Its
       // Optical activation listener is registered after React mounts the
       // sales screen, not when the IT feature request first resolves.
-      if (!document.querySelector(MODE_SWITCH_BUTTON_QUERY)) {
+      if (!(document.querySelector(MODE_SWITCH_BUTTON_QUERY) && document.documentElement.getAttribute(OPTICAL_HANDLER_READY_ATTRIBUTE) === "1")) {
         pendingStartupMode = request;
         return;
       }
@@ -897,7 +898,7 @@ export function PosGeneralSaleTableController() {
       enhanceSelector();
       // When POS has mounted after the entitlement request, activate exactly
       // once with the already checked grant. No public takeaway mode is needed.
-      if (pendingStartupMode && accessResolved && document.querySelector(MODE_SWITCH_BUTTON_QUERY)) {
+      if (pendingStartupMode && accessResolved && (document.querySelector(MODE_SWITCH_BUTTON_QUERY) && document.documentElement.getAttribute(OPTICAL_HANDLER_READY_ATTRIBUTE) === "1")) {
         const request = pendingStartupMode;
         pendingStartupMode = null;
         applyRetailStartup(request);
@@ -993,6 +994,7 @@ export function PosGeneralSaleTableController() {
     document.addEventListener("click", onModeClick, true);
     document.addEventListener("click", onTableClick, true);
     window.addEventListener(POS_STARTUP_MODE_REQUEST_EVENT, onStartupMode as EventListener);
+    window.addEventListener("cpipos:optical-handler-ready", scheduleReconcile);
     window.addEventListener(CART_MUTATED_EVENT, onCartMutated);
     window.addEventListener("storage", onStorage);
     document.addEventListener("visibilitychange", onVisibility);
@@ -1014,6 +1016,7 @@ export function PosGeneralSaleTableController() {
       document.removeEventListener("click", onModeClick, true);
       document.removeEventListener("click", onTableClick, true);
       window.removeEventListener(POS_STARTUP_MODE_REQUEST_EVENT, onStartupMode as EventListener);
+      window.removeEventListener("cpipos:optical-handler-ready", scheduleReconcile);
       window.removeEventListener(CART_MUTATED_EVENT, onCartMutated);
       window.removeEventListener("storage", onStorage);
       document.removeEventListener("visibilitychange", onVisibility);
