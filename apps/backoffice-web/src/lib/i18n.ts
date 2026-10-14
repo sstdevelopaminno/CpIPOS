@@ -1,3 +1,5 @@
+import { laoPosTranslations } from "@/lib/lao-pos-translations";
+
 export const supportedLanguages = ["th", "en", "lo"] as const;
 export type Language = (typeof supportedLanguages)[number];
 
@@ -560,6 +562,7 @@ const dict = {
 export type TranslationKey = keyof (typeof dict)["th"];
 
 const laoDictionary: Partial<Record<TranslationKey, string>> = {
+  ...laoPosTranslations,
   "common_settings": "ຕັ້ງຄ່າ",
   "language": "ພາສາ",
   "thai": "ພາສາໄທ",
