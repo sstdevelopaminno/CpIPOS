@@ -18,6 +18,10 @@ function getBrowserLanguage(): AppLanguage {
 
 function readLanguageFromClientStorage(): AppLanguage | null {
   if (typeof window === "undefined") return null;
+  // POS and pre-entry previously wrote different keys. The POS language is
+  // authoritative when leaving the sales screen and returning to login.
+  const posStorage = window.localStorage.getItem("pos_lang");
+  if (posStorage === "th" || posStorage === "en" || posStorage === "lo") return posStorage;
   const fromStorage = window.localStorage.getItem(LANGUAGE_STORAGE_KEY);
   if (fromStorage === "th" || fromStorage === "en" || fromStorage === "lo") return fromStorage;
   const fromCookie = document.cookie
@@ -32,7 +36,9 @@ function readLanguageFromClientStorage(): AppLanguage | null {
 function persistLanguageOnClient(lang: AppLanguage) {
   if (typeof window === "undefined") return;
   window.localStorage.setItem(LANGUAGE_STORAGE_KEY, lang);
+  window.localStorage.setItem("pos_lang", lang);
   document.cookie = `${LANGUAGE_COOKIE_KEY}=${lang}; Path=/; Max-Age=31536000; SameSite=Lax`;
+  document.cookie = `pos_lang=${lang}; Path=/; Max-Age=31536000; SameSite=Lax`;
 }
 
 export function useAppLanguage(defaultLanguage: AppLanguage = "th") {
@@ -41,15 +47,9 @@ export function useAppLanguage(defaultLanguage: AppLanguage = "th") {
 
   useEffect(() => {
     const preferred = readLanguageFromClientStorage() ?? getBrowserLanguage();
-    if (preferred !== lang) {
-      setLang(preferred);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    setLang(preferred);
+    persistLanguageOnClient(preferred);
   }, []);
-
-  useEffect(() => {
-    persistLanguageOnClient(lang);
-  }, [lang]);
 
   const api = useMemo(
     () => ({
