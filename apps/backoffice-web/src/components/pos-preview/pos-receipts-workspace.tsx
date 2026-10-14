@@ -225,7 +225,7 @@ function paymentLabel(methods: string[], lang: Language) {
 }
 
 function statusLabel(status: string, lang: Language) {
-  if (status === "completed") return lang === "th" ? "ชำระแล้ว" : "Paid";
+  if (status === "completed") return lang === "lo" ? "ຊຳລະແລ້ວ" : lang === "th" ? "ชำระแล้ว" : "Paid";
   if (status === "cancelled") return lang === "th" ? "ยกเลิก" : "Cancelled";
   if (status === "queued") return lang === "th" ? "รอชำระ" : "Queued";
   return status;
