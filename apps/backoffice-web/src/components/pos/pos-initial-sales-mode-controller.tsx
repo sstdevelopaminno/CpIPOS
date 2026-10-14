@@ -1,31 +1,35 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import {
   buildPosSalesModeOrderStorageKey,
   getPreferredPosSalesMode,
   getVisiblePosSalesModeOrder,
   getAuthorizedCustomPosStartupMode,
-  type PosStartupSalesMode,
   normalizePosSalesModeOrder,
   parsePosScopeIdentity,
   shouldForcePreferredPosSalesMode,
-  type PosSalesMode
+  type PosSalesMode,
+  type PosStartupSalesMode
 } from "@/lib/pos-sales-mode-preferences";
 import { fetchCurrentProductProfile, readCachedProductProfile } from "@/lib/pos-product-profile-client";
 import { POS_MODE_FEATURES } from "@/lib/pos-feature-map";
 import { normalizeCustomPosSalesModes } from "@/lib/pos-sales-modes";
+import {
+  POS_STARTUP_MODE_REQUEST_EVENT,
+  POS_STARTUP_MODE_RESULT_EVENT,
+  type PosStartupModeRequest,
+  type PosStartupModeResult
+} from "@/lib/pos-general-sale-mode";
 
 const POS_SCOPE_KEY = "pos_scope_v001";
 const SALES_MODE_ORDER_API = "/api/pos/settings/sales-mode-order";
 const FEATURES_API = "/api/pos/features?refresh=1";
 const MODE_SWITCH_QUERY = ".posui-mode-switch-button";
-const MODE_SELECTOR_QUERY = ".posui-mode-selector";
-const MODE_ATTRIBUTE = "data-pos-sale-mode";
-const HIDDEN_ATTRIBUTE = "data-pos-mode-hidden";
 const WAIT_STEP_MS = 100;
 const SCOPE_WAIT_LIMIT = 50;
-const SELECTOR_WAIT_LIMIT = 40;
+const MODE_READY_WAIT_LIMIT = 50;
+const ACTIVATION_TIMEOUT_MS = 8000;
 
 const ACTIVE_POS_KEYS = [
   "pos_pending_submit_v012",
@@ -55,7 +59,7 @@ function hasActivePosWork(): boolean {
       return raw.trim().length > 0 && raw !== "null" && raw !== "{}" && raw !== "[]";
     });
   } catch {
-    // Storage uncertainty must never trigger a generic automatic mode transition.
+    // On storage uncertainty, never reset an in-flight bill to change modes.
     return true;
   }
 }
@@ -88,31 +92,61 @@ function parseModeOrder(payload: unknown): PosSalesMode[] | null {
   return normalizePosSalesModeOrder((data as { order?: unknown }).order);
 }
 
-function findRenderedBuffetCard(): HTMLElement | null {
-  const selector = document.querySelector<HTMLElement>(MODE_SELECTOR_QUERY);
-  if (!selector) return null;
-  const candidates = Array.from(selector.querySelectorAll<HTMLElement>("button, [role=button]"));
-  return (
-    candidates.find((candidate) => {
-      const text = String(candidate.textContent ?? "").toLowerCase();
-      return text.includes("บุฟเฟต์") || text.includes("บุฟเฟ่ต์") || text.includes("buffet");
-    }) ?? null
-  );
+async function activateModeWithoutDialog(
+  mode: PosStartupSalesMode,
+  isCancelled: () => boolean
+): Promise<boolean> {
+  for (let index = 0; index < MODE_READY_WAIT_LIMIT && !isCancelled(); index += 1) {
+    if (document.querySelector<HTMLButtonElement>(MODE_SWITCH_QUERY)) break;
+    await wait(WAIT_STEP_MS);
+  }
+  if (isCancelled() || !document.querySelector(MODE_SWITCH_QUERY)) return false;
+
+  const requestId = crypto.randomUUID();
+  return new Promise<boolean>((resolve) => {
+    let settled = false;
+    const finish = (success: boolean) => {
+      if (settled) return;
+      settled = true;
+      window.clearTimeout(timeoutId);
+      window.removeEventListener(POS_STARTUP_MODE_RESULT_EVENT, onResult as EventListener);
+      resolve(success);
+    };
+    const onResult = (event: Event) => {
+      const detail = (event as CustomEvent<PosStartupModeResult>).detail;
+      if (detail?.requestId !== requestId || detail.mode !== mode) return;
+      finish(detail.activated === true);
+    };
+    window.addEventListener(POS_STARTUP_MODE_RESULT_EVENT, onResult as EventListener);
+    const timeoutId = window.setTimeout(() => finish(false), ACTIVATION_TIMEOUT_MS);
+    if (isCancelled()) {
+      finish(false);
+      return;
+    }
+    const detail: PosStartupModeRequest = { requestId, mode };
+    window.dispatchEvent(new CustomEvent<PosStartupModeRequest>(POS_STARTUP_MODE_REQUEST_EVENT, { detail }));
+  });
 }
 
 export function PosInitialSalesModeController() {
+  const [attempt, setAttempt] = useState(0);
+  const [startupStatus, setStartupStatus] = useState<"pending" | "ready" | "error">("pending");
+
   useEffect(() => {
     let cancelled = false;
-
+    const complete = (status: "ready" | "error") => {
+      if (!cancelled) setStartupStatus(status);
+    };
     const run = async () => {
       let scope = readScope();
-      for (let index = 0; !scope && index < SCOPE_WAIT_LIMIT && !cancelled; index += 1) {
+      for (let i = 0; !scope && i < SCOPE_WAIT_LIMIT && !cancelled; i += 1) {
         await wait(WAIT_STEP_MS);
         scope = readScope();
       }
-      if (!scope || cancelled) return;
+      if (cancelled) return;
+      if (!scope) return complete("error");
 
-      // Startup must use a fresh IT entitlement snapshot, not a stale mode order.
+      // The authenticated IT policy (not browser storage) selects CUSTOM modes.
       let customPolicy = false;
       let customModeGrants: unknown = null;
       try {
@@ -121,15 +155,16 @@ export function PosInitialSalesModeController() {
           credentials: "same-origin",
           cache: "no-store"
         });
-        if (!response.ok || cancelled) return;
+        if (!response.ok || cancelled) return complete("error");
         const payload = (await response.json().catch(() => null)) as PosFeaturesSnapshot | null;
-        if (!payload?.data || cancelled) return;
+        if (!payload?.data || cancelled) return complete("error");
         customPolicy = payload.data.is_custom === true || payload.data.is_internal_test_full === true;
         if (customPolicy) {
           const grants = normalizeCustomPosSalesModes(payload.data.sales_modes);
           const features = payload.data.features ?? {};
           customModeGrants = {
             ...grants,
+            takeaway: grants.takeaway && features.core_pos_sales === true,
             optical_retail: grants.optical_retail && features.core_pos_sales === true,
             general_sale: grants.general_sale && features[POS_MODE_FEATURES.general_sale] === true,
             dine_in: grants.dine_in && features[POS_MODE_FEATURES.dine_in] === true,
@@ -138,21 +173,23 @@ export function PosInitialSalesModeController() {
           };
         }
       } catch {
-        // No automatic navigation from unverified or stale permissions.
-        return;
+        return complete("error");
       }
 
       let productProfile = readCachedProductProfile(scope.tenantId);
-      const fetchedProfile = await fetchCurrentProductProfile(scope.tenantId);
+      try {
+        const fetchedProfile = await fetchCurrentProductProfile(scope.tenantId);
+        if (fetchedProfile) productProfile = fetchedProfile;
+      } catch {
+        // Product-profile fetch may fail; CUSTOM still uses fresh IT grants.
+      }
       if (cancelled) return;
-      productProfile = fetchedProfile ?? productProfile;
       const forcePreferredMode = shouldForcePreferredPosSalesMode(productProfile);
       const forcedPreferredMode = getPreferredPosSalesMode(productProfile);
       const hasBlockingWork = () => !forcePreferredMode && hasActivePosWork();
 
-      // Generic tenants keep the conservative restore guard. Product profiles may
-      // force a safe starting mode so stale local storage cannot pin a terminal to the wrong flow.
-      if (hasBlockingWork()) return;
+      // Do not reset a retained bill or queued payment just to change screens.
+      if (hasBlockingWork()) return complete("ready");
 
       let order: PosSalesMode[] | null = null;
       try {
@@ -162,20 +199,18 @@ export function PosInitialSalesModeController() {
           cache: "no-store"
         });
         if (response.ok) {
-          const payload = (await response.json().catch(() => null)) as unknown;
-          order = parseModeOrder(payload);
+          order = parseModeOrder(await response.json().catch(() => null));
           if (order) {
             try {
               window.localStorage.setItem(buildPosSalesModeOrderStorageKey(scope), JSON.stringify(order));
             } catch {
-              // Cache is optional; the server result is authoritative for this startup.
+              // Optional cache is not an authorization source.
             }
           }
         }
       } catch {
-        // Fail soft to the cached branch preference below.
+        // Use the cached ordering as a display preference only.
       }
-
       if (!order) {
         try {
           const raw = window.localStorage.getItem(buildPosSalesModeOrderStorageKey(scope));
@@ -184,58 +219,60 @@ export function PosInitialSalesModeController() {
           order = null;
         }
       }
-      if ((!order && !forcePreferredMode && !customPolicy) || cancelled || hasBlockingWork()) return;
+
+      if (cancelled) return;
+      if (!customPolicy && !order && !forcePreferredMode) return complete("ready");
 
       const authorizedCustomMode = customPolicy
         ? getAuthorizedCustomPosStartupMode(order ?? [], productProfile, customModeGrants)
         : null;
-      // A CUSTOM store with no allowed modes must not silently enter takeaway.
-      if (customPolicy && !authorizedCustomMode) return;
+      if (customPolicy && !authorizedCustomMode) return complete("error");
+
       const preferred: PosStartupSalesMode = customPolicy
         ? authorizedCustomMode!
         : forcePreferredMode
           ? forcedPreferredMode
           : getVisiblePosSalesModeOrder(order ?? [], scope.tenantId, productProfile).find((mode) => mode !== "delivery") ?? "home";
-      if (preferred === "home") return;
 
-      let switchButton: HTMLButtonElement | null = null;
-      for (let index = 0; !switchButton && index < SELECTOR_WAIT_LIMIT && !cancelled; index += 1) {
-        const candidate = document.querySelector<HTMLButtonElement>(MODE_SWITCH_QUERY);
-        if (candidate && !candidate.disabled) switchButton = candidate;
-        if (!switchButton) await wait(WAIT_STEP_MS);
-      }
-      if (!switchButton || cancelled || hasBlockingWork()) return;
-
-      switchButton.click();
-
-      for (let index = 0; index < SELECTOR_WAIT_LIMIT && !cancelled; index += 1) {
-        if (hasBlockingWork()) return;
-        let target = document.querySelector<HTMLElement>(`[${MODE_ATTRIBUTE}="${preferred}"]`);
-
-        // Buffet product profiles must be resilient to legacy DOM-index tagging.
-        // Resolve the actual rendered Buffet card by its label when the generic enhancer has not settled yet.
-        if (forcePreferredMode && preferred === "buffet_table" && (!target || target.getAttribute(HIDDEN_ATTRIBUTE) === "true")) {
-          target = findRenderedBuffetCard();
-        }
-
-        const blockedByIt = target?.getAttribute("data-it-custom-mode-hidden") === "1"
-          || target?.getAttribute("data-it-sales-mode-locked") === "1";
-        if (target && !blockedByIt && ((forcePreferredMode && !customPolicy) || target.getAttribute(HIDDEN_ATTRIBUTE) !== "true")) {
-          target.click();
-          return;
-        }
-        await wait(WAIT_STEP_MS);
-      }
-
-      // If the selector enhancer is unavailable, close the selector without mutating sales state.
-      document.querySelector<HTMLButtonElement>(".posui-mode-selector__close")?.click();
+      if (preferred === "home") return complete("ready");
+      const activated = await activateModeWithoutDialog(preferred, () => cancelled || hasBlockingWork());
+      if (!cancelled) complete(activated ? "ready" : "error");
     };
 
-    void run();
+    void run().catch(() => complete("error"));
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [attempt]);
 
-  return null;
+  if (startupStatus === "ready") return null;
+  return (
+    <div
+      className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-50 px-6"
+      role={startupStatus === "error" ? "alert" : "status"}
+      aria-live="polite"
+      data-testid="pos-startup-mode-gate"
+    >
+      <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-7 text-center shadow-lg">
+        <strong className="block text-lg font-bold text-slate-900">กำลังเตรียมหน้าขาย CpiPOS</strong>
+        {startupStatus === "pending" ? (
+          <p className="mt-3 text-sm text-slate-600">กำลังตรวจสิทธิ์และเปิดโหมดขายที่ได้รับอนุญาต…</p>
+        ) : (
+          <>
+            <p className="mt-3 text-sm text-red-700">ยังไม่สามารถยืนยันหรือเปิดโหมดขายที่ได้รับอนุญาต กรุณาตรวจสอบการเชื่อมต่อหรือสิทธิ์ใน IT Admin</p>
+            <button
+              type="button"
+              className="mt-5 rounded-lg bg-blue-700 px-5 py-3 font-semibold text-white"
+              onClick={() => {
+                setStartupStatus("pending");
+                setAttempt((current) => current + 1);
+              }}
+            >
+              ตรวจสอบสิทธิ์อีกครั้ง
+            </button>
+          </>
+        )}
+      </div>
+    </div>
+  );
 }

@@ -32,7 +32,14 @@ import { TableZoneTabs } from "@/components/tables/table-zone-tabs";
 import type { DiningTableItem, FloorPlanObjectItem, TableZoneItem } from "@/components/tables/types";
 import { calculateDeliveryPricingBreakdown } from "@/lib/delivery-pricing";
 import { POS_MODE_FEATURES } from "@/lib/pos-feature-map";
-import { OPTICAL_ACTIVATE_BASE_MODE_EVENT, OPTICAL_DEACTIVATE_BASE_MODE_EVENT } from "@/lib/pos-general-sale-mode";
+import {
+  OPTICAL_ACTIVATE_BASE_MODE_EVENT,
+  OPTICAL_DEACTIVATE_BASE_MODE_EVENT,
+  POS_STARTUP_MODE_REQUEST_EVENT,
+  POS_STARTUP_MODE_RESULT_EVENT,
+  type PosStartupModeRequest,
+  type PosStartupModeResult
+} from "@/lib/pos-general-sale-mode";
 import { beginPosActionTrace, clearPosTraceEvents, endPosActionTrace, readPosTraceEvents, usePosRenderProfiler } from "@/lib/pos-ui-profiler";
 import { naturalCompareTableCode } from "@/lib/table-management";
 import { cachePosSalesOfflineCatalogSnapshot } from "@/lib/pos-offline-catalog-snapshot";
@@ -6035,6 +6042,26 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
       window.removeEventListener(OPTICAL_ACTIVATE_BASE_MODE_EVENT, onOpticalActivate);
       window.removeEventListener(OPTICAL_DEACTIVATE_BASE_MODE_EVENT, onOpticalDeactivate);
     };
+  });
+
+  // Authorized startup navigates within React without briefly opening the
+  // public mode-selection dialog. Optical/SD are handled by the retail bridge.
+  useEffect(() => {
+    const onStartupMode = (event: Event) => {
+      const request = (event as CustomEvent<PosStartupModeRequest>).detail;
+      if (!request?.requestId) return;
+      if (request.mode !== "home" && request.mode !== "dine_in"
+        && request.mode !== "buffet_table" && request.mode !== "delivery") return;
+      if (request.mode !== quickMode || opticalRetailActive) {
+        applyQuickMode(request.mode);
+      }
+      window.requestAnimationFrame(() => {
+        const result: PosStartupModeResult = { requestId: request.requestId, mode: request.mode, activated: true };
+        window.dispatchEvent(new CustomEvent(POS_STARTUP_MODE_RESULT_EVENT, { detail: result }));
+      });
+    };
+    window.addEventListener(POS_STARTUP_MODE_REQUEST_EVENT, onStartupMode as EventListener);
+    return () => window.removeEventListener(POS_STARTUP_MODE_REQUEST_EVENT, onStartupMode as EventListener);
   });
 
   function isQuickModeLocked(mode: QuickMode) {

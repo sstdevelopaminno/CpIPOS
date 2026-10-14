@@ -15,6 +15,10 @@ import {
   OPTICAL_ACTIVATE_BASE_MODE_EVENT,
   OPTICAL_DEACTIVATE_BASE_MODE_EVENT,
   OPTICAL_ACTIVE_ROOT_ATTRIBUTE,
+  POS_STARTUP_MODE_REQUEST_EVENT,
+  POS_STARTUP_MODE_RESULT_EVENT,
+  type PosStartupModeRequest,
+  type PosStartupModeResult,
   GENERAL_SALE_LAYOUT_ATTRIBUTE,
   GENERAL_SALE_LAYOUT_STORAGE_KEY,
   GENERAL_SALE_MODE_ID,
@@ -168,6 +172,7 @@ export function PosGeneralSaleTableController() {
     let opticalAllowed = false;
     let generalSaleActive = false;
     let opticalActive = false;
+    let pendingStartupMode: PosStartupModeRequest | null = null;
     let scannerPanel: HTMLElement | null = null;
     let scannerInput: HTMLInputElement | null = null;
     let scannerSubmit: HTMLButtonElement | null = null;
@@ -635,6 +640,67 @@ export function PosGeneralSaleTableController() {
       setModeVisualState();
     };
 
+    const applyRetailStartup = (request: PosStartupModeRequest) => {
+      if (request.mode !== OPTICAL_MODE_ID && request.mode !== GENERAL_SALE_MODE_ID) return;
+      const allowed = request.mode === OPTICAL_MODE_ID ? opticalAllowed : generalSaleAllowed;
+      if (allowed) {
+        if (request.mode === OPTICAL_MODE_ID) {
+          // The underlying order type can stay takeaway, but the visible UI
+          // must start in Optical without opening the modal or clicking home.
+          window.dispatchEvent(new Event(OPTICAL_ACTIVATE_BASE_MODE_EVENT));
+          generalSaleActive = true;
+          opticalActive = true;
+        } else {
+          if (opticalActive) window.dispatchEvent(new Event(OPTICAL_DEACTIVATE_BASE_MODE_EVENT));
+          generalSaleActive = true;
+          opticalActive = false;
+        }
+        removeScanner();
+        removeTable();
+        setRootMode(true);
+        setModeVisualState();
+        ensureScanner();
+        ensureTableHost();
+        scheduleTableRender(0);
+      }
+      // Do not remove the startup loading screen before the React Optical
+      // header has actually committed. Otherwise a frame of the old home UI
+      // can flash between the event and the component's next render.
+      const reportWhenRendered = (attempt: number) => {
+        if (destroyed) return;
+        const correctMode = request.mode === OPTICAL_MODE_ID
+          ? opticalActive && Boolean(document.querySelector('[data-testid="pos-active-optical-mode"]'))
+          : generalSaleActive && !opticalActive
+            && document.documentElement.getAttribute(GENERAL_SALE_ROOT_ATTRIBUTE) === GENERAL_SALE_MODE_ID;
+        if (allowed && !correctMode && attempt < 50) {
+          window.setTimeout(() => reportWhenRendered(attempt + 1), 40);
+          return;
+        }
+        const result: PosStartupModeResult = {
+          requestId: request.requestId,
+          mode: request.mode,
+          activated: allowed && correctMode
+        };
+        window.dispatchEvent(new CustomEvent(POS_STARTUP_MODE_RESULT_EVENT, { detail: result }));
+      };
+      reportWhenRendered(0);
+    };
+
+    const onStartupMode = (event: Event) => {
+      const request = (event as CustomEvent<PosStartupModeRequest>).detail;
+      if (!request?.requestId || (request.mode !== OPTICAL_MODE_ID && request.mode !== GENERAL_SALE_MODE_ID)) return;
+      // Wait for, or retry, the controller's own authenticated fresh grant.
+      // This covers an early temporary feature-fetch failure without reading
+      // browser cache or opening a disallowed sales mode.
+      const allowed = request.mode === OPTICAL_MODE_ID ? opticalAllowed : generalSaleAllowed;
+      if (!accessResolved || !allowed) {
+        pendingStartupMode = request;
+        if (accessResolved) void loadAccess();
+        return;
+      }
+      applyRetailStartup(request);
+    };
+
     const onModeClick = (event: Event) => {
       if (!(event.target instanceof Element)) return;
       const modeCard = event.target.closest<HTMLElement>(`[${MODE_ATTRIBUTE}]`);
@@ -715,6 +781,9 @@ export function PosGeneralSaleTableController() {
       } finally {
         if (!destroyed && sequence === accessSequence) {
           accessResolved = true;
+          const startup = pendingStartupMode;
+          pendingStartupMode = null;
+          if (startup) applyRetailStartup(startup);
           scheduleReconcile();
         }
       }
@@ -737,6 +806,7 @@ export function PosGeneralSaleTableController() {
 
     document.addEventListener("click", onModeClick, true);
     document.addEventListener("click", onTableClick, true);
+    window.addEventListener(POS_STARTUP_MODE_REQUEST_EVENT, onStartupMode as EventListener);
     window.addEventListener(CART_MUTATED_EVENT, onCartMutated);
     window.addEventListener("storage", onStorage);
     document.addEventListener("visibilitychange", onVisibility);
@@ -757,6 +827,7 @@ export function PosGeneralSaleTableController() {
       observer.disconnect();
       document.removeEventListener("click", onModeClick, true);
       document.removeEventListener("click", onTableClick, true);
+      window.removeEventListener(POS_STARTUP_MODE_REQUEST_EVENT, onStartupMode as EventListener);
       window.removeEventListener(CART_MUTATED_EVENT, onCartMutated);
       window.removeEventListener("storage", onStorage);
       document.removeEventListener("visibilitychange", onVisibility);
