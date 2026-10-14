@@ -1037,7 +1037,7 @@ export function PosGeneralSaleTableController() {
       if (mutations.length > 0 && mutations.every(isInternalMutation)) return;
       scheduleReconcile();
     });
-    observer.observe(document.body, { childList: true, subtree: true });
+    observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ["data-pos-react-sales-mode"] });
     void loadAccess();
     scheduleReconcile();
 
