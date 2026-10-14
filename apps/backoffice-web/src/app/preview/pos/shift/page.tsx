@@ -9,6 +9,6 @@ export default async function PosShiftPage() {
   await assertPosMenuPageAllowed(posMenuScope.session.tenant_id, "/preview/pos/shift");
   await requirePosPagePermission("shift:join");
   const lang = await getCurrentLanguage();
-  return <PosShiftHistoryModule lang={lang} />;
+  return <PosShiftHistoryModule lang={lang === "lo" ? "en" : lang} />;
 }
 

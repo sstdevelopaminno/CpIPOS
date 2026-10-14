@@ -17,7 +17,7 @@ export default async function PosLanguageSettingsPage() {
   if (String(sessionScope.session.role ?? "").trim().toLowerCase() === "kitchen") {
     return (
       <section className="h-full min-h-0 flex-1 overflow-y-auto bg-slate-50 p-3 md:p-5">
-        <PrintersModule lang={lang} />
+        <PrintersModule lang={lang === "lo" ? "en" : lang} />
       </section>
     );
   }

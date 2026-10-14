@@ -2076,9 +2076,7 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
     maximumFractionDigits: posCurrencyCode === "LAK" ? 0 : 2
   }).format(value);
   const formatMoney = (value: number) => currencySymbol + formatMoneyPlain(value);
-  const text = posCurrencyCode === "LAK"
-    ? { ...uiText[lang], discountAmountLabel: lang === "th" ? "ส่วนลด (ກີບ)" : "Discount (LAK)" }
-    : uiText[lang];
+  const text = uiText[lang];
   const localizeApiMessage = useCallback((message: string) => localizeApiErrorMessage({ message, lang }), [lang]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);

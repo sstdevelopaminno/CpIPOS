@@ -1571,7 +1571,7 @@ export function TableManagementPage({ lang = "th", initialRole = null }: { lang?
       {tableApprovalRequest ? (
         <PosManagerApprovalModal
           open
-          lang={lang}
+          lang={lang === "lo" ? "en" : lang}
           title={lang === "th" ? "ยืนยัน PIN ก่อนแก้ไข/ลบโต๊ะ" : "PIN approval required for table edit/delete"}
           action="table_move_bill"
           targetTable="dining_tables"

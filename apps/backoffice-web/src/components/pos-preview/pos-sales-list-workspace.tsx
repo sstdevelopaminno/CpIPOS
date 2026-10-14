@@ -423,7 +423,7 @@ export function PosSalesListWorkspace({
           action={pinAction.approvalAction}
           targetTable="orders"
           targetId={pinAction.row.id}
-          lang={lang}
+          lang={lang === "lo" ? "en" : lang}
           labels={{ pinLabel: th ? "PIN" : "PIN", pinKeypadHint: th ? "กรอก PIN เพื่อยืนยัน" : "Enter PIN to approve", pinLengthError: th ? "PIN ไม่ถูกต้อง" : "Invalid PIN length", pinRejected: th ? "PIN ไม่ถูกต้องหรือไม่มีสิทธิ์" : "PIN rejected", checkingAccess: th ? "กำลังตรวจสอบ..." : "Checking...", clear: th ? "ล้าง" : "Clear", remove: th ? "ลบ" : "Remove", closeAriaLabel: th ? "ปิด" : "Close" }}
           onClose={() => setPinAction(null)}
           onApproved={(approvalId) => { const action = pinAction; setPinAction(null); void runAuthorizedAction(action, approvalId); }}

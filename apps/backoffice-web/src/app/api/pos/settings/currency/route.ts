@@ -37,7 +37,7 @@ export async function PATCH(request: Request) {
       .eq("updated_at", ctx.contract.updated_at).select("id").maybeSingle();
     if (writeError) throw new Error("pos_currency_update_failed");
     if (!updated) return fail("currency_settings_conflict", "Settings changed concurrently. Refresh and retry.", 409);
-    await appendAuditLog({ tenantId: auth.tenantId!, branchId: auth.branchId!, userId: auth.userId, role: auth.branchRole,
+    await appendAuditLog({ tenantId: auth.tenantId!, branchId: auth.branchId!, actorUserId: auth.userId, actorRole: auth.branchRole,
       action: "custom_pos_currency_changed", targetTable: "tenant_subscription_contracts", targetId: ctx.contract.id,
       metadata: { previous: ctx.currency_code, currency_code: body.currency_code } });
     return ok({ currency_code: body.currency_code });

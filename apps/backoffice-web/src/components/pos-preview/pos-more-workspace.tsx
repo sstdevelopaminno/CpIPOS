@@ -14,9 +14,9 @@ type MoreItem = {
   href: string;
   icon: MoreIconName;
   labelKey?: "pos_menu_sales_summary" | "pos_menu_receipts" | "pos_menu_tables" | "pos_menu_stock" | "pos_menu_members";
-  label?: Record<Language, string>;
+  label?: Record<Exclude<Language, "lo">, string>;
   roles: PosRole[];
-  desc: Record<Language, string>;
+  desc: Record<Exclude<Language, "lo">, string>;
 };
 
 const MORE_ITEMS: MoreItem[] = [
@@ -116,11 +116,11 @@ export function PosMoreWorkspace({ lang, role }: { lang: Language; role: PosRole
             if (isCustom && (!isCustomPosMenuVisible(posMenuKeyForRoute(item.href) ?? "", menuPolicy, true) || isLocked(item.href))) return null;
             const menuLocked = isMenuLocked(item.href);
             const locked = menuLocked || isLocked(item.href);
-            const label = item.label ? item.label[lang] : t(lang, item.labelKey!);
+            const label = item.label ? item.label[lang === "lo" ? "en" : lang] : t(lang, item.labelKey!);
             return (
               <Link key={item.href} href={item.href} prefetch={false} onClick={(event) => { if (menuLocked) { event.preventDefault(); setItLockedMenu(label); } else if (locked) handleLocked(event); }} aria-disabled={locked} className={`group grid min-h-[92px] grid-cols-[42px_1fr_24px] items-center gap-3 rounded-2xl border p-4 text-left transition ${locked ? "border-slate-200 bg-slate-50 text-slate-500" : "border-slate-200 bg-white hover:border-blue-200 hover:bg-blue-50/50"}`}>
                 <span className={`inline-flex h-10 w-10 items-center justify-center rounded-xl ${locked ? "bg-slate-100 text-slate-400" : "bg-slate-100 text-slate-700 group-hover:bg-blue-100 group-hover:text-blue-700"}`}><MoreIcon name={item.icon}/></span>
-                <span className="min-w-0"><span className="block text-base font-black text-slate-950">{item.label ? item.label[lang] : t(lang, item.labelKey!)}</span><span className="mt-1 block text-sm font-medium leading-5 text-slate-500">{item.desc[lang]}</span></span>
+                <span className="min-w-0"><span className="block text-base font-black text-slate-950">{item.label ? item.label[lang === "lo" ? "en" : lang] : t(lang, item.labelKey!)}</span><span className="mt-1 block text-sm font-medium leading-5 text-slate-500">{item.desc[lang === "lo" ? "en" : lang]}</span></span>
                 <span className="text-slate-400">{locked ? <span aria-hidden>🔒</span> : "›"}</span>
               </Link>
             );

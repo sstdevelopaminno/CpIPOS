@@ -3176,7 +3176,7 @@ function PaymentPanel({
         action="payment_account_delete"
         targetTable="tenant_payment_accounts"
         targetId={deleteTarget?.id ?? ""}
-        lang={lang}
+        lang={lang === "lo" ? "en" : lang}
         onClose={() => {
           if (!isBusy) setDeleteTarget(null);
         }}
