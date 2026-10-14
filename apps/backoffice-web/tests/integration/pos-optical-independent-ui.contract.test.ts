@@ -31,7 +31,7 @@ describe("Optical POS sale identity is separate from internal takeaway order typ
     const keypad = read("src/components/pos/pos-general-sale-front-cash-panel.tsx");
     expect(panel).toContain('data-testid="pos-optical-payment-panel"');
     expect(panel).toContain("ชำระเงินมัดจำ");
-    expect(panel).toContain("ทำจอง");
+    expect(panel).toContain("เพิ่มประวัติลูกค้า");
     expect(panel).toContain('aria-disabled="true"');
     expect(panel).toContain("onOpenHeldBills");
     expect(keypad).toContain("isOpticalRetailActive()");
