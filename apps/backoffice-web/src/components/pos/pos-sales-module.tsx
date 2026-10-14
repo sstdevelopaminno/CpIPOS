@@ -2060,7 +2060,25 @@ function updateSelectedIngredientNoteQuantity(notes: string, ingredients: Recipe
 }
 
 export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
-  const text = uiText[lang];
+  const [posCurrencyCode, setPosCurrencyCode] = useState<"THB" | "LAK">("THB");
+  useEffect(() => {
+    let active = true;
+    // Fixed packages and unapproved CUSTOM tenants retain THB; their API responds 403.
+    void fetch("/api/pos/settings/currency", { cache: "no-store" })
+      .then(async response => response.ok ? response.json() : null)
+      .then(body => { if (active) setPosCurrencyCode(body?.data?.currency_code === "LAK" ? "LAK" : "THB"); })
+      .catch(() => { if (active) setPosCurrencyCode("THB"); });
+    return () => { active = false; };
+  }, []);
+  const currencySymbol = posCurrencyCode === "LAK" ? "₭" : "฿";
+  const formatMoneyPlain = (value: number) => new Intl.NumberFormat("en-US", {
+    minimumFractionDigits: posCurrencyCode === "LAK" ? 0 : 2,
+    maximumFractionDigits: posCurrencyCode === "LAK" ? 0 : 2
+  }).format(value);
+  const formatMoney = (value: number) => currencySymbol + formatMoneyPlain(value);
+  const text = posCurrencyCode === "LAK"
+    ? { ...uiText[lang], discountAmountLabel: lang === "th" ? "ส่วนลด (ກີບ)" : "Discount (LAK)" }
+    : uiText[lang];
   const localizeApiMessage = useCallback((message: string) => localizeApiErrorMessage({ message, lang }), [lang]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -4752,7 +4770,8 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
       : paymentAccount
         ? buildPromptPayQrUrl(activePromptPayPhone, transferPromptPayAmount)
         : null;
-  const inetQrEnabled = paymentProviders.inet_nops?.is_active === true;
+  // INET NOPS is THB-only; do not issue a Thai QR for a LAK bill.
+  const inetQrEnabled = posCurrencyCode === "THB" && paymentProviders.inet_nops?.is_active === true;
   const visibleTransferPaymentMode = inetQrEnabled ? transferPaymentMode : "manual";
   const inetQrUrl = normalizeQrImageSource(inetPaymentIntent?.qr_code);
   const promptPayPhoneDisplay = formatPromptPayPhoneDisplay(activePromptPayPhone);
@@ -8355,7 +8374,7 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
     const storeAddressLine = receiptStoreAddress ? `<div class="muted">${escapeHtml(receiptStoreAddress)}</div>` : "";
     const storePhoneLine = receiptStorePhone ? `<div class="muted">${escapeHtml(receiptStorePhone)}</div>` : "";
     const paymentMethodLine = `<div class="summary-line is-heading"><span>${escapeHtml(text.paymentMethod)}</span><strong>${escapeHtml(getReceiptPaymentMethodLabel(session))}</strong></div>`;
-    const discountLine = `<div class="summary-line is-muted"><span>${escapeHtml(text.discount)}</span><strong>฿${escapeHtml(formatMoneyPlain(receiptDiscountAmount))}</strong></div>`;
+    const discountLine = `<div class="summary-line is-muted"><span>${escapeHtml(text.discount)}</span><strong>${currencySymbol}${escapeHtml(formatMoneyPlain(receiptDiscountAmount))}</strong></div>`;
     const taxSummaryLines = receiptTaxLines
       .map(
         (line) =>
@@ -8365,8 +8384,8 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
     const cashSummaryLines =
       session.payment_method === "cash"
         ? `
-    <div class="summary-line is-aux"><span>${escapeHtml(text.cashReceivedLabel)}</span><strong>฿${escapeHtml(formatMoneyPlain(session.cash_received))}</strong></div>
-    <div class="summary-line is-aux"><span>${escapeHtml(text.cashChange)}</span><strong>฿${escapeHtml(formatMoneyPlain(session.change_amount))}</strong></div>`
+    <div class="summary-line is-aux"><span>${escapeHtml(text.cashReceivedLabel)}</span><strong>${currencySymbol}${escapeHtml(formatMoneyPlain(session.cash_received))}</strong></div>
+    <div class="summary-line is-aux"><span>${escapeHtml(text.cashChange)}</span><strong>${currencySymbol}${escapeHtml(formatMoneyPlain(session.change_amount))}</strong></div>`
         : "";
 
     return `<!doctype html>
@@ -8449,7 +8468,7 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
     ${paymentMethodLine}
     ${discountLine}
     ${taxSummaryLines}
-    <div class="summary-line grand"><span>${escapeHtml(text.paymentTotalDue)}</span><strong>฿${escapeHtml(formatMoneyPlain(session.total_amount))}</strong></div>
+    <div class="summary-line grand"><span>${escapeHtml(text.paymentTotalDue)}</span><strong>${currencySymbol}${escapeHtml(formatMoneyPlain(session.total_amount))}</strong></div>
     ${cashSummaryLines}
     <div class="hr"></div>
     <div class="foot">CpIPOS</div>
