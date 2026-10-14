@@ -11,6 +11,7 @@ import { getPosApiAuthContext } from "@/lib/pos-api-auth";
 import { hasBranchFeatureSafe } from "@/lib/server/feature-gate-safe";
 import { requirePermission, requirePosSession } from "@/lib/pos-session-guard";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
+import { getTenantPosCurrencyCode } from "@/lib/server/custom-pos-currency";
 
 type Payload = {
   order_id?: string;
@@ -75,6 +76,9 @@ export async function POST(request: Request) {
       const response = fail("feature_not_enabled", "INET QR is not included in this branch package.", 403);
       response.headers.set("x-pos-inet-qr-ms", String(Date.now() - startedAt));
       return response;
+    }
+    if (await getTenantPosCurrencyCode(auth.tenantId!) === "LAK") {
+      return fail("payment_provider_currency_unsupported", "INET NOPS QR accepts THB only; do not issue a QR for a LAK sale.", 422);
     }
     const body = (await request.json().catch(() => null)) as Payload | null;
     const orderId = String(body?.order_id ?? "").trim();
