@@ -58,7 +58,9 @@ describe("live POS mode policy refresh across IT and the selector", () => {
     const sales=source("src/components/pos/pos-sales-module.tsx");
     expect(startup).toContain('"POS-START-REACT"');
     expect(startup).toContain('window.addEventListener("cpipos:pos-feature-policy-updated", onPolicyUpdated)');
-    expect(startup).toContain("if (granted[modeKey] === true) return");
+    expect(startup).toContain("if (allowed) return");
+    expect(startup).toContain("launchedWithCustomPolicyRef.current");
+    expect(startup).toContain('isAuthorizedOpticalRetailMode(data)');
     expect(startup).not.toContain("activateModeWithoutDialog(");
     expect(startup).not.toContain("POS_STARTUP_MODE_REQUEST_EVENT");
     expect(sales).toContain('opticalRetailActive && quickMode === "home" && startupRetailKind === "optical_retail"');
