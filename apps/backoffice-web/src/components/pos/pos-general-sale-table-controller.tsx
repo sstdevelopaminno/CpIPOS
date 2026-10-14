@@ -677,8 +677,13 @@ export function PosGeneralSaleTableController() {
     const onStartupMode = (event: Event) => {
       const request = (event as CustomEvent<PosStartupModeRequest>).detail;
       if (!request?.requestId || (request.mode !== OPTICAL_MODE_ID && request.mode !== GENERAL_SALE_MODE_ID)) return;
-      if (!accessResolved) {
+      // Wait for, or retry, the controller's own authenticated fresh grant.
+      // This covers an early temporary feature-fetch failure without reading
+      // browser cache or opening a disallowed sales mode.
+      const allowed = request.mode === OPTICAL_MODE_ID ? opticalAllowed : generalSaleAllowed;
+      if (!accessResolved || !allowed) {
         pendingStartupMode = request;
+        if (accessResolved) void loadAccess();
         return;
       }
       applyRetailStartup(request);
