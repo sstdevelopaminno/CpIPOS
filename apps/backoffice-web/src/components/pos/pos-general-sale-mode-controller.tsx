@@ -782,6 +782,7 @@ export function PosGeneralSaleModeController() {
 
     document.addEventListener("click", onModeClick, true);
     document.addEventListener("click", onTableClick, true);
+    window.addEventListener("cpipos:store-currency-updated", scheduleTableRender);
     const observer = new MutationObserver(reconcile);
     observer.observe(document.body, { childList: true, subtree: true });
     void loadAccess();
@@ -793,6 +794,7 @@ export function PosGeneralSaleModeController() {
       observer.disconnect();
       document.removeEventListener("click", onModeClick, true);
       document.removeEventListener("click", onTableClick, true);
+      window.removeEventListener("cpipos:store-currency-updated", scheduleTableRender);
       deactivateGeneralSale();
       removeGeneralSaleButton();
       document.getElementById(GENERAL_SALE_STYLE_ID)?.remove();
