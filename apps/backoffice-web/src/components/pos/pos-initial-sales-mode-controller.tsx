@@ -176,11 +176,15 @@ async function activateModeWithoutDialog(
 export function PosInitialSalesModeController({initialScope}: {initialScope?: PosScopeIdentity | null}) {
   const [attempt, setAttempt] = useState(0);
   const [startupStatus, setStartupStatus] = useState<"pending" | "ready" | "error">("pending");
+  const [startupFailureCode, setStartupFailureCode] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
-    const complete = (status: "ready" | "error") => {
-      if (!cancelled) setStartupStatus(status);
+    const complete = (status: "ready" | "error", failureCode: string | null = null) => {
+      if (!cancelled) {
+        setStartupFailureCode(failureCode);
+        setStartupStatus(status);
+      }
     };
     const run = async () => {
       let scope = initialScope?.tenantId && initialScope.branchId ? initialScope : readScope();
@@ -189,14 +193,14 @@ export function PosInitialSalesModeController({initialScope}: {initialScope?: Po
         scope = initialScope?.tenantId && initialScope.branchId ? initialScope : readScope();
       }
       if (cancelled) return;
-      if (!scope) return complete("error");
+      if (!scope) return complete("error", "POS-START-SCOPE");
 
       // The authenticated IT policy (not browser storage) selects CUSTOM modes.
       let customPolicy = false;
       let customModeGrants: unknown = null;
       try {
         const payload = await readFreshStartupFeatures(() => cancelled);
-        if (!payload?.data || cancelled) return complete("error");
+        if (!payload?.data || cancelled) return complete("error", "POS-START-FEATURES");
         customPolicy = payload.data.is_custom === true || payload.data.is_internal_test_full === true;
         if (customPolicy) {
           const grants = normalizeCustomPosSalesModes(payload.data.sales_modes);
@@ -212,7 +216,7 @@ export function PosInitialSalesModeController({initialScope}: {initialScope?: Po
           };
         }
       } catch {
-        return complete("error");
+        return complete("error", "POS-START-FEATURES");
       }
 
       let productProfile = readCachedProductProfile(scope.tenantId);
@@ -265,7 +269,7 @@ export function PosInitialSalesModeController({initialScope}: {initialScope?: Po
       const authorizedCustomMode = customPolicy
         ? getAuthorizedCustomPosStartupMode(order ?? [], productProfile, customModeGrants)
         : null;
-      if (customPolicy && !authorizedCustomMode) return complete("error");
+      if (customPolicy && !authorizedCustomMode) return complete("error", "POS-START-GRANTS");
 
       const preferred: PosStartupSalesMode = customPolicy
         ? authorizedCustomMode!
@@ -275,10 +279,10 @@ export function PosInitialSalesModeController({initialScope}: {initialScope?: Po
 
       if (preferred === "home") return complete("ready");
       const activated = await activateModeWithoutDialog(preferred, () => cancelled || hasBlockingWork());
-      if (!cancelled) complete(activated ? "ready" : "error");
+      if (!cancelled) complete(activated ? "ready" : "error", activated ? null : "POS-START-HANDSHAKE");
     };
 
-    void run().catch(() => complete("error"));
+    void run().catch(() => complete("error", "POS-START-UNEXPECTED"));
     return () => {
       cancelled = true;
     };
@@ -298,12 +302,20 @@ export function PosInitialSalesModeController({initialScope}: {initialScope?: Po
           <p className="mt-3 text-sm text-slate-600">กำลังตรวจสิทธิ์และเปิดโหมดขายที่ได้รับอนุญาต…</p>
         ) : (
           <>
-            <p className="mt-3 text-sm text-red-700">ยังไม่สามารถยืนยันหรือเปิดโหมดขายที่ได้รับอนุญาต กรุณาตรวจสอบการเชื่อมต่อหรือสิทธิ์ใน IT Admin</p>
+            <p className="mt-3 text-sm text-red-700">
+              {startupFailureCode === "POS-START-HANDSHAKE"
+                ? "ระบบยืนยันสิทธิ์แล้ว แต่หน้าขายยังตอบรับการเปิดโหมดไม่สำเร็จ กรุณากดตรวจสอบอีกครั้ง"
+                : startupFailureCode === "POS-START-FEATURES"
+                  ? "โหลดสิทธิ์จากเซิร์ฟเวอร์ไม่สำเร็จ กรุณาตรวจสอบ Session หรือการเชื่อมต่อ"
+                  : "ยังไม่สามารถยืนยันหรือเปิดโหมดขายที่ได้รับอนุญาต กรุณาตรวจสอบการเชื่อมต่อหรือสิทธิ์ใน IT Admin"}
+            </p>
+            {startupFailureCode ? <p className="mt-2 font-mono text-xs text-slate-500" data-testid="pos-startup-failure-code">รหัสตรวจสอบ: {startupFailureCode}</p> : null}
             <button
               type="button"
               className="mt-5 rounded-lg bg-blue-700 px-5 py-3 font-semibold text-white"
               onClick={() => {
                 setStartupStatus("pending");
+                setStartupFailureCode(null);
                 setAttempt((current) => current + 1);
               }}
             >
