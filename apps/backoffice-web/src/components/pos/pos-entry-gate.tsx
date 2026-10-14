@@ -639,8 +639,7 @@ export function PosEntryGate({ lang, initialScope }: { lang: Lang; initialScope?
   }
 
   if (hasActiveShift && canEnterSales) {
-    return <PosInitialSalesModeController initialScope={initialScope}
-      renderSales={(mode, onReady) => <PosSalesModule lang={lang} startupMode={mode} onStartupModeReady={onReady} />} />;
+    return <PosInitialSalesModeController initialScope={initialScope} lang={lang} SalesComponent={PosSalesModule} />;
   }
 
   // A pending Next.js route tree must not render a duplicate shift dialog.
