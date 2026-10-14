@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ComponentType } from "react";
 import {
   buildPosSalesModeOrderStorageKey,
   getPreferredPosSalesMode,
@@ -88,10 +88,12 @@ function parseModeOrder(payload: unknown): PosSalesMode[] | null {
  */
 export function PosInitialSalesModeController({
   initialScope,
-  renderSales
+  lang,
+  SalesComponent
 }: {
   initialScope?: PosScopeIdentity | null;
-  renderSales: (mode: PosStartupSalesMode, onReady: (mode: PosStartupSalesMode) => void) => ReactNode;
+  lang: "th" | "en";
+  SalesComponent: ComponentType<{lang?: "th" | "en"; startupMode?: PosStartupSalesMode; onStartupModeReady?: (mode: PosStartupSalesMode) => void}>;
 }) {
   const [attempt, setAttempt] = useState(0);
   const [startupStatus, setStartupStatus] = useState<"pending" | "ready" | "error">("pending");
@@ -225,7 +227,7 @@ export function PosInitialSalesModeController({
 
   return (
     <>
-      {authorizedMode ? renderSales(authorizedMode, onReady) : null}
+      {authorizedMode ? <SalesComponent lang={lang} startupMode={authorizedMode} onStartupModeReady={onReady} /> : null}
       {startupStatus !== "ready" ? (
         <div className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-50 px-6"
           role={startupStatus === "error" ? "alert" : "status"}
