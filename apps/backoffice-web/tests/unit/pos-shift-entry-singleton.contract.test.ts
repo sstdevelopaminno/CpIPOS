@@ -10,7 +10,7 @@ describe("single shift-required gate across POS route transitions",()=>{
   expect(source).toContain("window as ShiftEntryWindow");
   expect(source).toContain("__cpiposShiftEntryStore");
   expect(source).toContain("owners: symbol[]");
-  expect(source).toContain("store.owners[0] === token.current");
+  expect(source).toContain("sharedStore().owners[0] === token.current");
   expect(source).not.toContain("new Map<string, symbol[]>()");
  });
  it("releases the leader when a session becomes active or an old route unmounts",()=>{
