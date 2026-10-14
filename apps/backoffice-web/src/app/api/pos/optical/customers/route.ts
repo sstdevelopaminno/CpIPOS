@@ -1,3 +1,5 @@
+import type { BranchRole } from "@pos/shared-types";
+import { appendAuditLog } from "@/lib/audit-log";
 import { fail, ok } from "@/lib/http";
 import { PosGuardError, requirePermission, requirePosSession } from "@/lib/pos-session-guard";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
@@ -103,6 +105,18 @@ export async function POST(request: Request) {
       p_actor:scope.session.user_id
     });
     if(error) return fail("optical_customer_save_failed",error.message,500);
+    const saved = data as {customer_id?:string;exam_id?:string;request_id?:string}|null;
+    // Audit identifiers only; do not copy private optometry values into logs.
+    void appendAuditLog({
+      tenantId:scope.session.tenant_id,
+      branchId:scope.session.branch_id,
+      actorUserId:scope.session.user_id,
+      actorRole:scope.session.role as BranchRole,
+      action:"optical_customer_exam_saved",
+      targetTable:"optical_customers",
+      targetId:saved?.customer_id,
+      metadata:{exam_id:saved?.exam_id??null,request_id:saved?.request_id??null}
+    });
     return ok({record:data});
   } catch(error){return failFromError(error);}
 }
