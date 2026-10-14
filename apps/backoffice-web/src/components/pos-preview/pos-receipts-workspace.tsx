@@ -250,6 +250,7 @@ function receiptMemberLabel(record: Pick<ReceiptRecord, "memberName" | "memberPh
 }
 
 function resolveReceiptPaymentMethod(record: ReceiptRecord, lang: Language) {
+  if (lang === "lo") return paymentLabel(record.paymentMethods, lang);
   const firstMethod = record.paymentMethods[0] ?? "";
   if (firstMethod === "cash") return lang === "th" ? "เงินสด" : "Cash";
   if (firstMethod === "bank_transfer") return lang === "th" ? "โอนเงิน" : "Transfer";
