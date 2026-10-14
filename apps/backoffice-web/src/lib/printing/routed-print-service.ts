@@ -573,7 +573,7 @@ export async function queueRoutedReceiptReprint(args: {
   const supabase = getSupabaseServiceClient();
   const { data: order, error: orderError } = await supabase
     .from("orders")
-    .select("id,order_no,subtotal,total_amount,grand_total,discount_amount,tax_total,notes,created_by,payment_completed_at,created_at,cash_received,change_amount")
+    .select("id,order_no,subtotal,total_amount,grand_total,discount_amount,tax_total,notes,metadata,created_by,payment_completed_at,created_at,cash_received,change_amount")
     .eq("tenant_id", args.auth.tenantId!)
     .eq("branch_id", args.auth.branchId!)
     .eq("id", args.orderId)
@@ -602,7 +602,9 @@ export async function queueRoutedReceiptReprint(args: {
   });
   if (routes.length === 0) throw new Error("receipt_printer_not_configured");
 
-  const [currencyCode, receiptLanguage] = await Promise.all([getTenantPosCurrencyCode(args.auth.tenantId!), getCurrentLanguage()]);
+  // Historic orders have an immutable currency snapshot; missing snapshot means legacy THB.
+  const currencyCode: "THB" | "LAK" = (order.metadata && typeof order.metadata === "object" && !Array.isArray(order.metadata) && (order.metadata as Record<string, unknown>).currency_code === "LAK") ? "LAK" : "THB";
+  const receiptLanguage = await getCurrentLanguage();
   const totalAmount = Number(order.grand_total ?? order.total_amount ?? 0);
   const receiptItems = (itemsResult.data ?? []).map((item) => ({
     name: String(item.name ?? item.product_id ?? "Item"),
