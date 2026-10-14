@@ -663,15 +663,27 @@ export function PosGeneralSaleTableController() {
         ensureTableHost();
         scheduleTableRender(0);
       }
-      window.requestAnimationFrame(() => {
+      // Do not remove the startup loading screen before the React Optical
+      // header has actually committed. Otherwise a frame of the old home UI
+      // can flash between the event and the component's next render.
+      const reportWhenRendered = (attempt: number) => {
         if (destroyed) return;
+        const correctMode = request.mode === OPTICAL_MODE_ID
+          ? opticalActive && Boolean(document.querySelector('[data-testid="pos-active-optical-mode"]'))
+          : generalSaleActive && !opticalActive
+            && document.documentElement.getAttribute(GENERAL_SALE_ROOT_ATTRIBUTE) === GENERAL_SALE_MODE_ID;
+        if (allowed && !correctMode && attempt < 50) {
+          window.setTimeout(() => reportWhenRendered(attempt + 1), 40);
+          return;
+        }
         const result: PosStartupModeResult = {
           requestId: request.requestId,
           mode: request.mode,
-          activated: allowed
+          activated: allowed && correctMode
         };
         window.dispatchEvent(new CustomEvent(POS_STARTUP_MODE_RESULT_EVENT, { detail: result }));
-      });
+      };
+      reportWhenRendered(0);
     };
 
     const onStartupMode = (event: Event) => {
