@@ -5,15 +5,20 @@ import {
   buildPosSalesModeOrderStorageKey,
   getPreferredPosSalesMode,
   getVisiblePosSalesModeOrder,
+  getAuthorizedCustomPosStartupMode,
+  type PosStartupSalesMode,
   normalizePosSalesModeOrder,
   parsePosScopeIdentity,
   shouldForcePreferredPosSalesMode,
   type PosSalesMode
 } from "@/lib/pos-sales-mode-preferences";
 import { fetchCurrentProductProfile, readCachedProductProfile } from "@/lib/pos-product-profile-client";
+import { POS_MODE_FEATURES } from "@/lib/pos-feature-map";
+import { normalizeCustomPosSalesModes } from "@/lib/pos-sales-modes";
 
 const POS_SCOPE_KEY = "pos_scope_v001";
 const SALES_MODE_ORDER_API = "/api/pos/settings/sales-mode-order";
+const FEATURES_API = "/api/pos/features?refresh=1";
 const MODE_SWITCH_QUERY = ".posui-mode-switch-button";
 const MODE_SELECTOR_QUERY = ".posui-mode-selector";
 const MODE_ATTRIBUTE = "data-pos-sale-mode";
@@ -54,6 +59,15 @@ function hasActivePosWork(): boolean {
     return true;
   }
 }
+
+type PosFeaturesSnapshot = {
+  data?: {
+    is_custom?: boolean;
+    is_internal_test_full?: boolean;
+    sales_modes?: unknown;
+    features?: Record<string, boolean>;
+  } | null;
+};
 
 function readScope() {
   try {
@@ -98,6 +112,36 @@ export function PosInitialSalesModeController() {
       }
       if (!scope || cancelled) return;
 
+      // Startup must use a fresh IT entitlement snapshot, not a stale mode order.
+      let customPolicy = false;
+      let customModeGrants: unknown = null;
+      try {
+        const response = await fetch(FEATURES_API, {
+          method: "GET",
+          credentials: "same-origin",
+          cache: "no-store"
+        });
+        if (!response.ok || cancelled) return;
+        const payload = (await response.json().catch(() => null)) as PosFeaturesSnapshot | null;
+        if (!payload?.data || cancelled) return;
+        customPolicy = payload.data.is_custom === true || payload.data.is_internal_test_full === true;
+        if (customPolicy) {
+          const grants = normalizeCustomPosSalesModes(payload.data.sales_modes);
+          const features = payload.data.features ?? {};
+          customModeGrants = {
+            ...grants,
+            optical_retail: grants.optical_retail && features.core_pos_sales === true,
+            general_sale: grants.general_sale && features[POS_MODE_FEATURES.general_sale] === true,
+            dine_in: grants.dine_in && features[POS_MODE_FEATURES.dine_in] === true,
+            buffet_table: grants.buffet_table && features[POS_MODE_FEATURES.buffet_table] === true,
+            delivery: grants.delivery && features[POS_MODE_FEATURES.delivery] === true
+          };
+        }
+      } catch {
+        // No automatic navigation from unverified or stale permissions.
+        return;
+      }
+
       let productProfile = readCachedProductProfile(scope.tenantId);
       const fetchedProfile = await fetchCurrentProductProfile(scope.tenantId);
       if (cancelled) return;
@@ -140,11 +184,18 @@ export function PosInitialSalesModeController() {
           order = null;
         }
       }
-      if ((!order && !forcePreferredMode) || cancelled || hasBlockingWork()) return;
+      if ((!order && !forcePreferredMode && !customPolicy) || cancelled || hasBlockingWork()) return;
 
-      const preferred: PosSalesMode = forcePreferredMode
-        ? forcedPreferredMode
-        : getVisiblePosSalesModeOrder(order ?? [], scope.tenantId, productProfile).find((mode) => mode !== "delivery") ?? "home";
+      const authorizedCustomMode = customPolicy
+        ? getAuthorizedCustomPosStartupMode(order ?? [], productProfile, customModeGrants)
+        : null;
+      // A CUSTOM store with no allowed modes must not silently enter takeaway.
+      if (customPolicy && !authorizedCustomMode) return;
+      const preferred: PosStartupSalesMode = customPolicy
+        ? authorizedCustomMode!
+        : forcePreferredMode
+          ? forcedPreferredMode
+          : getVisiblePosSalesModeOrder(order ?? [], scope.tenantId, productProfile).find((mode) => mode !== "delivery") ?? "home";
       if (preferred === "home") return;
 
       let switchButton: HTMLButtonElement | null = null;
@@ -167,7 +218,9 @@ export function PosInitialSalesModeController() {
           target = findRenderedBuffetCard();
         }
 
-        if (target && (forcePreferredMode || target.getAttribute(HIDDEN_ATTRIBUTE) !== "true")) {
+        const blockedByIt = target?.getAttribute("data-it-custom-mode-hidden") === "1"
+          || target?.getAttribute("data-it-sales-mode-locked") === "1";
+        if (target && !blockedByIt && ((forcePreferredMode && !customPolicy) || target.getAttribute(HIDDEN_ATTRIBUTE) !== "true")) {
           target.click();
           return;
         }

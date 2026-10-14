@@ -1,8 +1,34 @@
 ﻿import { getProductProfilePolicy } from "@/lib/product-profile-policy";
+import { normalizeCustomPosSalesModes } from "@/lib/pos-sales-modes";
 
 export type PosSalesMode = "home" | "dine_in" | "buffet_table" | "delivery";
 
 export const DEFAULT_POS_SALES_MODE_ORDER: PosSalesMode[] = ["home", "dine_in", "buffet_table", "delivery"];
+
+export type PosStartupSalesMode = PosSalesMode | "general_sale" | "optical_retail";
+
+/**
+ * Use the IT allowlist for CUSTOM startup, not the last cached UI preference.
+ * Do not fall back to an ungranted takeaway ("home") selling mode.
+ */
+export function getAuthorizedCustomPosStartupMode(
+  order: PosSalesMode[],
+  productProfile: string | null | undefined,
+  rawEntitlements: unknown
+): PosStartupSalesMode | null {
+  const allowed = normalizeCustomPosSalesModes(rawEntitlements);
+  const visible = getVisiblePosSalesModeOrder(order, null, productProfile);
+  // Preserve the branch's ordinary-mode order. Delivery is last because its
+  // existing selector button enters the separate delivery management workflow.
+  const priority: PosStartupSalesMode[] = [
+    ...visible.filter((mode) => mode !== "delivery"),
+    "general_sale",
+    "optical_retail",
+    "delivery"
+  ];
+  return priority.find((mode) => allowed[mode === "home" ? "takeaway" : mode] === true) ?? null;
+}
+
 
 const POS_SALES_MODE_ORDER_STORAGE_PREFIX = "pos_sales_mode_order_v1";
 

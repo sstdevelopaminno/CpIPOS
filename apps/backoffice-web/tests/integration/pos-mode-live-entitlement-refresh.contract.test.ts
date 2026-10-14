@@ -37,6 +37,18 @@ describe("live POS mode policy refresh across IT and the selector", () => {
     expect(policy).toContain('key === "optical_retail" && !isCustom');
   });
 
+  it("resolves initial selling mode from fresh CUSTOM entitlements", () => {
+    const startup = source("src/components/pos/pos-initial-sales-mode-controller.tsx");
+    expect(startup).toContain('const FEATURES_API = "/api/pos/features?refresh=1"');
+    expect(startup).toContain("getAuthorizedCustomPosStartupMode(order ?? [], productProfile, customModeGrants)");
+    expect(startup).toContain("if (customPolicy && !authorizedCustomMode) return");
+    expect(startup).toContain('target?.getAttribute("data-it-custom-mode-hidden") === "1"');
+    expect(startup).toContain("target.click()");
+    expect(startup).toContain("hasBlockingWork()");
+    expect(selector).toContain('opticalButton.setAttribute(MODE_ATTRIBUTE, OPTICAL_MODE_ID)');
+    expect(selector).toContain("new Event(OPTICAL_ACTIVATE_BASE_MODE_EVENT)");
+  });
+
   it("keeps legacy background cache for normal polling, but forces fresh on dialog opening", () => {
     expect(api).toContain("ttlMs: 60_000");
     expect(policy).toContain("if (selector) void requestPolicy(true)");
