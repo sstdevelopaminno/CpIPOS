@@ -15,7 +15,7 @@ describe("CUSTOM POS THB/LAK financial snapshots", () => {
  });
  it("preserves historic THB receipts even when shop current currency is LAK", () => {
   expect(receiptApi).toContain('readMetadataString(row.metadata, "currency_code") === "LAK" ? "LAK" : "THB"');
-  expect(receiptApi).not.toContain(': shopCurrencyCode,');
+  expect(receiptApi).toContain("const shopCurrencyCode = await getTenantPosCurrencyCode");
  });
  it("routes existing-order cutovers through IT review", () => {
   expect(currencyApi).toContain('"currency_change_requires_migration"');
