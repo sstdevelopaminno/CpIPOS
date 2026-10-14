@@ -422,7 +422,18 @@ export function PosDineInCommitResetBoundary({ lang }: { lang: Lang }) {
     };
   }, []);
 
-  if (!entryReady) return null;
+  if (!entryReady) {
+    // Keep the generic home sale from flashing while we restore entry context
+    // and load the server-authorized startup selling mode.
+    return (
+      <div className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-50 px-6" role="status" aria-live="polite">
+        <div className="rounded-2xl border border-slate-200 bg-white px-8 py-6 text-center shadow-lg">
+          <strong className="text-lg font-bold text-slate-900">กำลังเตรียมหน้าขาย CpiPOS</strong>
+          <p className="mt-2 text-sm text-slate-600">กำลังตรวจสอบสถานะบิลและโหมดขาย…</p>
+        </div>
+      </div>
+    );
+  }
   return (
     <>
       <PosEntryGate lang={lang} />
