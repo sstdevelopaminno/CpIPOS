@@ -234,7 +234,7 @@ export async function GET(req: Request) {
       return {
         id: row.id,
         orderNo: row.order_no,
-        currencyCode: readMetadataString(row.metadata, "currency_code") === "LAK" ? "LAK" : readMetadataString(row.metadata, "currency_code") === "THB" ? "THB" : shopCurrencyCode,
+        currencyCode: readMetadataString(row.metadata, "currency_code") === "LAK" ? "LAK" : "THB",
         orderType: row.order_type,
         channel: row.channel,
         tableLabel: row.table_id ? tableMap.get(row.table_id) ?? "-" : "-",
