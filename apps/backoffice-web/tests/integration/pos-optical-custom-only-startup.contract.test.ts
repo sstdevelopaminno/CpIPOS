@@ -22,7 +22,7 @@ describe("CUSTOM IMDC Optical as the only permitted POS sales mode", () => {
   expect(route).toContain("<PosEntryGate");
   expect(route).toContain("<PosGeneralSaleTableController />");
   expect(gate).toContain("<PosInitialSalesModeController initialScope={initialScope}");
-  expect(gate).toContain("startupMode={mode} onStartupModeReady={onReady}");
+  expect(gate).toContain("SalesComponent={PosSalesModule}");
   const boundary=read("src/components/pos/pos-dine-in-commit-reset-boundary.tsx");
   expect(boundary).not.toContain("<PosEntryGate");
   expect(boundary).not.toContain("<PosInitialSalesModeController");
@@ -34,7 +34,7 @@ describe("CUSTOM IMDC Optical as the only permitted POS sales mode", () => {
   expect(boot).not.toContain("MODE_SWITCH_QUERY");
   expect(boot).not.toContain("if (!retailStartup) {");
   expect(boot).not.toContain("POS_STARTUP_MODE_REQUEST_EVENT");
-  expect(boot).toContain("renderSales(authorizedMode, onReady)");
+  expect(boot).toContain("<SalesComponent lang={lang} startupMode={authorizedMode} onStartupModeReady={onReady} />");
   expect(boot).toContain('readFreshStartupFeatures(() => cancelled)');
  });
  it("acknowledges startup only after React commits the authorized sales mode",()=>{
