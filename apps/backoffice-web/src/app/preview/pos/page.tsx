@@ -18,7 +18,7 @@ export default async function PosPreviewPage() {
     <main className="h-full min-h-0 w-full">
       <PosCustomerDisplayV2Publisher />
       <PosCustomerDisplayV2PaymentObserver />
-      <PosDineInCommitResetBoundary lang={lang} />
+      <PosDineInCommitResetBoundary lang={lang === "lo" ? "en" : lang} />
       <PosGeneralSaleTableController />
       <PosGeneralSaleRuntime />
     </main>
