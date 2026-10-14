@@ -7,6 +7,8 @@ import { enqueuePrintJob, loadReceiptSellerName, processPrintJob, renderKitchenT
 import { renderPaymentNoticeHtml, type PaymentNoticeItem } from "@/lib/printing/payment-notice-html-template";
 import { renderKitchenTicketHtml } from "@/lib/printing/kitchen-ticket-html-template";
 import { renderReceiptHtml } from "@/lib/printing/receipt-html-template";
+import { getTenantPosCurrencyCode } from "@/lib/server/custom-pos-currency";
+import { getCurrentLanguage } from "@/lib/i18n";
 import { resolvePrinterRoutes, type ResolvedPrinterRoute } from "@/lib/printing/printer-routing-service";
 import { loadReceiptStoreProfile } from "@/lib/services/store-profile-service";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
@@ -184,6 +186,7 @@ export async function queueRoutedSalesReceipt(args: {
   });
   if (routes.length === 0) return [];
 
+  const [currencyCode, receiptLanguage] = await Promise.all([getTenantPosCurrencyCode(args.auth.tenantId!), getCurrentLanguage()]);
   const [storeProfile, sellerName] = await Promise.all([
     loadReceiptStoreProfile(args.auth.tenantId!),
     loadReceiptSellerName(args.auth, args.auth.userId, { seller_name: args.sellerName ?? null })
@@ -199,7 +202,7 @@ export async function queueRoutedSalesReceipt(args: {
       branch_name: branchName,
       cashier_name: sellerName,
       paid_at_iso: paidAtIso,
-      currency: "THB",
+      currency: currencyCode,
       items: args.items.map((item) => ({ name: item.product_name, qty: item.quantity, unit_price: item.unit_price, line_total: item.line_total })),
       subtotal: args.order.total_amount + args.order.discount_amount,
       discount_amount: args.order.discount_amount,
@@ -213,6 +216,8 @@ export async function queueRoutedSalesReceipt(args: {
     }, route.printer.paper_width_mm);
     const receiptHtml = renderReceiptHtml({
       paperWidthMm: route.printer.paper_width_mm,
+      currencyCode,
+      languageCode: receiptLanguage,
       storeName: String(storeProfile?.display_name ?? storeProfile?.name ?? branchName),
       branchName,
       storeAddress: storeProfile?.company_address ?? null,
@@ -597,6 +602,7 @@ export async function queueRoutedReceiptReprint(args: {
   });
   if (routes.length === 0) throw new Error("receipt_printer_not_configured");
 
+  const [currencyCode, receiptLanguage] = await Promise.all([getTenantPosCurrencyCode(args.auth.tenantId!), getCurrentLanguage()]);
   const totalAmount = Number(order.grand_total ?? order.total_amount ?? 0);
   const receiptItems = (itemsResult.data ?? []).map((item) => ({
     name: String(item.name ?? item.product_id ?? "Item"),
@@ -617,7 +623,7 @@ export async function queueRoutedReceiptReprint(args: {
       branch_name: branchName,
       cashier_name: sellerName,
       paid_at_iso: paidAtIso,
-      currency: "THB",
+      currency: currencyCode,
       items: receiptItems.length > 0 ? receiptItems : [{ name: "Reprint copy", qty: 1, unit_price: 0, line_total: 0 }],
       subtotal: Number(order.subtotal ?? order.total_amount ?? 0),
       discount_amount: Number(order.discount_amount ?? 0),
@@ -630,6 +636,8 @@ export async function queueRoutedReceiptReprint(args: {
     }, route.printer.paper_width_mm);
     const fallbackHtml = renderReceiptHtml({
       paperWidthMm: route.printer.paper_width_mm,
+      currencyCode,
+      languageCode: receiptLanguage,
       storeName: String(storeProfile?.display_name ?? storeProfile?.name ?? branchName),
       branchName,
       storeAddress: storeProfile?.company_address ?? null,
