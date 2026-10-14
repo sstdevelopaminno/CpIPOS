@@ -6094,6 +6094,26 @@ export function PosSalesModule({
   // application per mounted sales module preserves table/cart drafts.
   useEffect(() => {
     if (!isHydrated || !startupMode || lastAppliedStartupModeRef.current === startupMode) return;
+    // Persisted carts, table sessions and payment queues must not be reset
+    // by a mode bootstrap. A legacy Home draft can be shown in the allowed
+    // specialized retail UI, but no order/payment state is modified here.
+    const hasRestoredWork = cart.length > 0 || Boolean(activeOrder?.id)
+      || pendingQueue.length > 0 || pendingPaymentQueue.length > 0
+      || Boolean(selectedTable?.id);
+    if (hasRestoredWork) {
+      if (quickMode === "home" && (startupMode === "optical_retail" || startupMode === "general_sale")) {
+        lastAppliedStartupModeRef.current = startupMode;
+        setOpticalRetailActive(startupMode === "optical_retail");
+        setStartupRetailKind(startupMode);
+      } else if (startupMode === quickMode) {
+        lastAppliedStartupModeRef.current = startupMode;
+        setOpticalRetailActive(false);
+        setStartupRetailKind(null);
+      }
+      // An incompatible persisted draft requires review; never clear it or
+      // acknowledge an unauthorized mode just to dismiss the startup gate.
+      return;
+    }
     lastAppliedStartupModeRef.current = startupMode;
     if (startupMode === "optical_retail") {
       applyQuickMode("home", true);
