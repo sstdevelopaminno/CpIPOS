@@ -22,7 +22,7 @@ export default async function PosPreviewPage() {
       <PosDineInCommitResetBoundary lang={lang === "lo" ? "en" : lang} />
       <PosGeneralSaleTableController />
       <PosGeneralSaleRuntime />
-      <PosEntryGate lang={lang === "lo" ? "en" : lang} />
+      <PosEntryGate lang={lang === "lo" ? "en" : lang} initialScope={{ tenantId: posMenuScope.session.tenant_id, branchId: posMenuScope.session.branch_id }} />
     </main>
   );
 }
