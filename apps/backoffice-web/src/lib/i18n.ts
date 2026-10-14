@@ -1,4 +1,4 @@
-export const supportedLanguages = ["th", "en"] as const;
+export const supportedLanguages = ["th", "en", "lo"] as const;
 export type Language = (typeof supportedLanguages)[number];
 
 export const languageCookieName = "pos_lang";
@@ -559,7 +559,63 @@ const dict = {
 
 export type TranslationKey = keyof (typeof dict)["th"];
 
+const laoDictionary: Partial<Record<TranslationKey, string>> = {
+  "common_settings": "ຕັ້ງຄ່າ",
+  "language": "ພາສາ",
+  "thai": "ພາສາໄທ",
+  "english": "ພາສາອັງກິດ",
+  "backoffice_title": "ຈັດການຫຼັງຮ້ານ",
+  "dashboard": "ພາບລວມ",
+  "orders": "ລາຍການຂາຍ",
+  "stock": "ຈັດການສິນຄ້າ",
+  "staff": "ພະນັກງານ",
+  "language_settings_title": "ຕັ້ງຄ່າພາສາ",
+  "language_settings_desc": "ເລືອກພາສາທີ່ຕ້ອງການໃຊ້",
+  "pos_menu_sales": "ໜ້າຂາຍ",
+  "pos_menu_sales_list": "ລາຍການຂາຍ",
+  "pos_menu_stock": "ຈັດການສິນຄ້າ",
+  "pos_menu_sales_summary": "ສະຫຼຸບຍອດຂາຍ",
+  "pos_menu_receipts": "ໃບຮັບເງິນຍ້ອນຫຼັງ",
+  "pos_menu_tables": "ຈັດການໂຕະ",
+  "pos_menu_members": "ສະມາຊິກ",
+  "pos_menu_shift": "ເປີດ/ປິດກະ",
+  "pos_menu_more": "ເພີ່ມເຕີມ",
+  "pos_menu_more_title": "ເພີ່ມເຕີມ",
+  "pos_menu_customer_display": "ຈໍລູກຄ້າ",
+  "pos_menu_users": "ຜູ້ໃຊ້ງານ",
+  "pos_menu_logout": "ອອກຈາກລະບົບ",
+  "pos_menu_staff_aria": "ເມນູພະນັກງານ",
+  "pos_receipts_title": "ໃບບິນ / ໃບຮັບເງິນ",
+  "pos_receipts_desc": "ຄົ້ນຫາໃບບິນ ແລະ ພິມໃບຮັບເງິນ",
+  "pos_settings_title": "ຕັ້ງຄ່າພາສາ",
+  "pos_settings_desc": "ເລືອກພາສາສໍາລັບ POS",
+  "pos_settings_action": "ກັບໄປໜ້າຂາຍ",
+  "pos_board_customer_name": "ລູກຄ້າ",
+  "pos_board_remove_item": "ລຶບ",
+  "pos_board_cart_button": "ກະຕ່າ",
+  "pos_board_cart_drawer_title": "ກະຕ່າ ແລະ ຊຳລະເງິນ",
+  "pos_board_close": "ປິດ",
+  "pos_sales_preview_title": "ລາຍການຂາຍ",
+  "pos_sales_preview_visible_tickets": "ໃບບິນທີ່ສະແດງ",
+  "pos_sales_preview_paid_amount": "ຊຳລະແລ້ວ",
+  "pos_sales_preview_pending_bills": "ລໍຖ້າຊຳລະ",
+  "pos_sales_preview_search_placeholder": "ຄົ້ນຫາເລກໃບບິນ",
+  "pos_sales_preview_bill_no": "ເລກໃບບິນ",
+  "pos_sales_preview_channel": "ຊ່ອງທາງ",
+  "pos_sales_preview_table": "ໂຕະ",
+  "pos_sales_preview_total": "ຍອດລວມ",
+  "pos_sales_preview_cashier": "ພະນັກງານຂາຍ",
+  "pos_sales_preview_time": "ເວລາ",
+  "pos_sales_preview_status": "ສະຖານະ",
+  "pos_sales_preview_no_records": "ບໍ່ພົບລາຍການ",
+  "pos_sales_preview_status_paid": "ຊຳລະແລ້ວ",
+  "pos_sales_preview_status_pending": "ລໍຖ້າຊຳລະ",
+  "pos_sales_preview_status_cancelled": "ຍົກເລີກ",
+  "pos_sales_preview_filter_all": "ທັງໝົດ"
+};
+
 export function t(lang: Language, key: TranslationKey): string {
+  if (lang === "lo") return laoDictionary[key] ?? dict.en[key] ?? dict.th[key];
   return dict[lang][key] ?? dict.th[key];
 }
 

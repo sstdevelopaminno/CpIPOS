@@ -2,30 +2,30 @@
 
 import { useEffect, useMemo, useState } from "react";
 
-export type AppLanguage = "th" | "en";
+export type AppLanguage = "th" | "en" | "lo";
 
 const LANGUAGE_COOKIE_KEY = "sstipos_lang";
 const LANGUAGE_STORAGE_KEY = "sstipos_lang";
 
 export function normalizeLanguage(value?: string | null): AppLanguage {
-  return value === "en" ? "en" : "th";
+  return value === "en" || value === "lo" ? value : "th";
 }
 
 function getBrowserLanguage(): AppLanguage {
   if (typeof navigator === "undefined") return "th";
-  return navigator.language?.toLowerCase().startsWith("en") ? "en" : "th";
+  return navigator.language?.toLowerCase().startsWith("lo") ? "lo" : navigator.language?.toLowerCase().startsWith("en") ? "en" : "th";
 }
 
 function readLanguageFromClientStorage(): AppLanguage | null {
   if (typeof window === "undefined") return null;
   const fromStorage = window.localStorage.getItem(LANGUAGE_STORAGE_KEY);
-  if (fromStorage === "th" || fromStorage === "en") return fromStorage;
+  if (fromStorage === "th" || fromStorage === "en" || fromStorage === "lo") return fromStorage;
   const fromCookie = document.cookie
     .split(";")
     .map((entry) => entry.trim())
     .find((entry) => entry.startsWith(`${LANGUAGE_COOKIE_KEY}=`))
     ?.split("=")[1];
-  if (fromCookie === "th" || fromCookie === "en") return fromCookie;
+  if (fromCookie === "th" || fromCookie === "en" || fromCookie === "lo") return fromCookie;
   return null;
 }
 
