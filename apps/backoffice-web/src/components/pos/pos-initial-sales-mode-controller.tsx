@@ -278,7 +278,11 @@ export function PosInitialSalesModeController({initialScope}: {initialScope?: Po
           : getVisiblePosSalesModeOrder(order ?? [], scope.tenantId, productProfile).find((mode) => mode !== "delivery") ?? "home";
 
       if (preferred === "home") return complete("ready");
-      const activated = await activateModeWithoutDialog(preferred, () => cancelled || hasBlockingWork());
+      // Check for existing work BEFORE switching. During activation React may
+      // restore the saved cart; that is a valid result of opening the authorized
+      // checkout mode, not a reason to cancel its in-flight handshake.
+      if (hasBlockingWork()) return complete("ready");
+      const activated = await activateModeWithoutDialog(preferred, () => cancelled);
       if (!cancelled) complete(activated ? "ready" : "error", activated ? null : "POS-START-HANDSHAKE");
     };
 
