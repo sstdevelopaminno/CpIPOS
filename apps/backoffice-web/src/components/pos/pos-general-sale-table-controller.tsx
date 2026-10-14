@@ -67,7 +67,7 @@ const CART_RENDER_DELAY_MS = 48;
 const MAX_QUEUED_SCANS = 25;
 const OPTICAL_SCAN_IDLE_MS = 140;
 const OPTICAL_SCAN_KEY_INTERVAL_MS = 85;
-const PRODUCT_LOOKUP_TIMEOUT_MS = 5500;
+const PRODUCT_LOOKUP_TIMEOUT_MS = 5200;
 
 function resolveLang(): Lang {
   return document.documentElement.lang.toLowerCase().startsWith("en") ? "en" : "th";
