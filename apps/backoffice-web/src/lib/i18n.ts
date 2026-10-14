@@ -1,4 +1,5 @@
 import { laoPosTranslations } from "@/lib/lao-pos-translations";
+import { laoSalesListTranslations } from "@/lib/lao-sales-list-translations";
 
 export const supportedLanguages = ["th", "en", "lo"] as const;
 export type Language = (typeof supportedLanguages)[number];
