@@ -100,6 +100,7 @@ export function PosInitialSalesModeController({
   const [startupFailureCode, setStartupFailureCode] = useState<string | null>(null);
   const [authorizedMode, setAuthorizedMode] = useState<PosStartupSalesMode | null>(null);
   const activeModeRef = useRef<PosStartupSalesMode | null>(null);
+  const launchedWithCustomPolicyRef = useRef(false);
 
   const onBlocked = useCallback((mode: PosStartupSalesMode) => {
     if (mode !== activeModeRef.current) return;
@@ -146,6 +147,7 @@ export function PosInitialSalesModeController({
       if (cancelled) return;
       if (!payload?.data) return fail("POS-START-FEATURES");
       const customPolicy = payload.data.is_custom === true || payload.data.is_internal_test_full === true;
+      launchedWithCustomPolicyRef.current = customPolicy;
       let customModeGrants: unknown = null;
       if (customPolicy) {
         const grants = normalizeCustomPosSalesModes(payload.data.sales_modes);
@@ -218,10 +220,23 @@ export function PosInitialSalesModeController({
     if (!authorizedMode) return;
     const onPolicyUpdated = (event: Event) => {
       const data = (event as CustomEvent<PosFeaturesSnapshot["data"]>).detail;
-      if (!data || !(data.is_custom || data.is_internal_test_full)) return;
+      if (!data) return;
+      const isCustomNow = data.is_custom === true || data.is_internal_test_full === true;
+      // Standard tenants are unaffected unless IT has since changed their
+      // contract to CUSTOM. A CUSTOM -> standard transition must also revoke
+      // the formerly authorized specialized mode until re-evaluation.
+      if (!isCustomNow && !launchedWithCustomPolicyRef.current) return;
       const granted = normalizeCustomPosSalesModes(data.sales_modes);
-      const modeKey = authorizedMode === "home" ? "takeaway" : authorizedMode;
-      if (granted[modeKey] === true) return;
+      const features = data.features ?? {};
+      const allowed = isCustomNow && (
+        authorizedMode === "optical_retail" ? isAuthorizedOpticalRetailMode(data)
+        : authorizedMode === "general_sale" ? granted.general_sale && features[POS_MODE_FEATURES.general_sale] === true
+        : authorizedMode === "dine_in" ? granted.dine_in && features[POS_MODE_FEATURES.dine_in] === true
+        : authorizedMode === "buffet_table" ? granted.buffet_table && features[POS_MODE_FEATURES.buffet_table] === true
+        : authorizedMode === "delivery" ? granted.delivery && features[POS_MODE_FEATURES.delivery] === true
+        : granted.takeaway && features.core_pos_sales === true
+      );
+      if (allowed) return;
       activeModeRef.current = null;
       setAuthorizedMode(null);
       setStartupFailureCode("POS-START-GRANTS");
