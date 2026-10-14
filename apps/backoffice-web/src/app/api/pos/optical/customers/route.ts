@@ -107,7 +107,7 @@ export async function POST(request: Request) {
     if(error) return fail("optical_customer_save_failed",error.message,500);
     const saved = data as {customer_id?:string;exam_id?:string;request_id?:string}|null;
     // Audit identifiers only; do not copy private optometry values into logs.
-    void appendAuditLog({
+    await appendAuditLog({
       tenantId:scope.session.tenant_id,
       branchId:scope.session.branch_id,
       actorUserId:scope.session.user_id,
