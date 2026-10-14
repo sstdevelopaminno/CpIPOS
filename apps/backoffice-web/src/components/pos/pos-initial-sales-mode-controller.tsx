@@ -10,6 +10,7 @@ import {
   parsePosScopeIdentity,
   shouldForcePreferredPosSalesMode,
   type PosSalesMode,
+  type PosScopeIdentity,
   type PosStartupSalesMode
 } from "@/lib/pos-sales-mode-preferences";
 import { fetchCurrentProductProfile, readCachedProductProfile } from "@/lib/pos-product-profile-client";
@@ -145,7 +146,7 @@ async function activateModeWithoutDialog(
   });
 }
 
-export function PosInitialSalesModeController() {
+export function PosInitialSalesModeController({initialScope}: {initialScope?: PosScopeIdentity | null}) {
   const [attempt, setAttempt] = useState(0);
   const [startupStatus, setStartupStatus] = useState<"pending" | "ready" | "error">("pending");
 
@@ -155,10 +156,10 @@ export function PosInitialSalesModeController() {
       if (!cancelled) setStartupStatus(status);
     };
     const run = async () => {
-      let scope = readScope();
+      let scope = initialScope?.tenantId && initialScope.branchId ? initialScope : readScope();
       for (let i = 0; !scope && i < SCOPE_WAIT_LIMIT && !cancelled; i += 1) {
         await wait(WAIT_STEP_MS);
-        scope = readScope();
+        scope = initialScope?.tenantId && initialScope.branchId ? initialScope : readScope();
       }
       if (cancelled) return;
       if (!scope) return complete("error");
@@ -260,7 +261,7 @@ export function PosInitialSalesModeController() {
     return () => {
       cancelled = true;
     };
-  }, [attempt]);
+  }, [attempt, initialScope?.tenantId, initialScope?.branchId]);
 
   if (startupStatus === "ready") return null;
   return (
