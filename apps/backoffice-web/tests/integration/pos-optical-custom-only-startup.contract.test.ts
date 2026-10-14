@@ -34,7 +34,7 @@ describe("CUSTOM IMDC Optical as the only permitted POS sales mode", () => {
   expect(boot).not.toContain("MODE_SWITCH_QUERY");
   expect(boot).not.toContain("if (!retailStartup) {");
   expect(boot).not.toContain("POS_STARTUP_MODE_REQUEST_EVENT");
-  expect(boot).toContain("<SalesComponent lang={lang} startupMode={authorizedMode} onStartupModeReady={onReady} />");
+  expect(boot).toContain("<SalesComponent lang={lang} startupMode={authorizedMode} onStartupModeReady={onReady} onStartupModeBlocked={onBlocked} />");
   expect(boot).toContain('readFreshStartupFeatures(() => cancelled)');
  });
  it("acknowledges startup only after React commits the authorized sales mode",()=>{
