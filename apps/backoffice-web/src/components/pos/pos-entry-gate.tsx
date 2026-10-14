@@ -199,7 +199,7 @@ function getDeviceStatusLabel(status: DeviceRuntimeStatus | undefined, lang: Lan
   return lang === "th" ? "ไม่ทราบสถานะ" : "Unknown";
 }
 
-export function PosEntryGate({ lang }: { lang: Lang }) {
+export function PosEntryGate({ lang, initialScope }: { lang: Lang; initialScope?: {tenantId:string;branchId:string} }) {
   const [loading, setLoading] = useState(true);
   const [loadingSeconds, setLoadingSeconds] = useState(0);
   const [session, setSession] = useState<SessionCurrentResponse["data"]>(null);
@@ -637,7 +637,7 @@ export function PosEntryGate({ lang }: { lang: Lang }) {
   }
 
   if (hasActiveShift && canEnterSales) {
-    return <><PosSalesModule lang={lang} /><PosInitialSalesModeController /></>;
+    return <><PosSalesModule lang={lang} /><PosInitialSalesModeController initialScope={initialScope} /></>;
   }
 
   return (
