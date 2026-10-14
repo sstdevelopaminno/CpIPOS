@@ -22,7 +22,7 @@ describe("single shift-required gate across POS route transitions",()=>{
  });
  it("continues to require an active shift before mounting sales or any CUSTOM mode",()=>{
   expect(gate).toContain("if (hasActiveShift && canEnterSales) {");
-  expect(gate).toContain("<PosInitialSalesModeController initialScope={initialScope} />");
+  expect(gate).toContain("<PosInitialSalesModeController initialScope={initialScope} lang={lang} SalesComponent={PosSalesModule} />");
   expect(gate).toContain('data-pos-open-shift-gate="1"');
  });
 });

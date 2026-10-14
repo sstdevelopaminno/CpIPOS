@@ -913,6 +913,21 @@ export function PosGeneralSaleTableController() {
         if (selector) void loadAccess();
       }
       enhanceSelector();
+      // The React sales topbar is the source of truth for the committed mode.
+      // This legacy scanner/table adapter follows it, after verifying the IT
+      // allowlist; it no longer determines whether POS startup may complete.
+      const reactMode = document.querySelector<HTMLElement>(".posui-sales-topbar")
+        ?.getAttribute("data-pos-react-sales-mode");
+      if (accessResolved && reactMode === OPTICAL_MODE_ID && opticalAllowed) {
+        generalSaleActive = true;
+        opticalActive = true;
+      } else if (accessResolved && reactMode === GENERAL_SALE_MODE_ID && generalSaleAllowed) {
+        generalSaleActive = true;
+        opticalActive = false;
+      } else if (reactMode && generalSaleActive
+        && reactMode !== OPTICAL_MODE_ID && reactMode !== GENERAL_SALE_MODE_ID) {
+        deactivateGeneralSale();
+      }
       // When POS has mounted after the entitlement request, activate exactly
       // once with the already checked grant. No public takeaway mode is needed.
       if (pendingStartupMode && accessResolved && document.documentElement.getAttribute(OPTICAL_HANDLER_READY_ATTRIBUTE) === "1") {
@@ -1022,7 +1037,7 @@ export function PosGeneralSaleTableController() {
       if (mutations.length > 0 && mutations.every(isInternalMutation)) return;
       scheduleReconcile();
     });
-    observer.observe(document.body, { childList: true, subtree: true });
+    observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ["data-pos-react-sales-mode"] });
     void loadAccess();
     scheduleReconcile();
 

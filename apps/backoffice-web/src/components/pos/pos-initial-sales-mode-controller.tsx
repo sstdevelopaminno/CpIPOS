@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type ComponentType } from "react";
 import {
   buildPosSalesModeOrderStorageKey,
   getPreferredPosSalesMode,
@@ -16,12 +16,6 @@ import {
 import { fetchCurrentProductProfile, readCachedProductProfile } from "@/lib/pos-product-profile-client";
 import { POS_MODE_FEATURES } from "@/lib/pos-feature-map";
 import { isAuthorizedOpticalRetailMode, normalizeCustomPosSalesModes } from "@/lib/pos-sales-modes";
-import {
-  POS_STARTUP_MODE_REQUEST_EVENT,
-  POS_STARTUP_MODE_RESULT_EVENT,
-  type PosStartupModeRequest,
-  type PosStartupModeResult
-} from "@/lib/pos-general-sale-mode";
 
 const POS_SCOPE_KEY = "pos_scope_v001";
 const SALES_MODE_ORDER_API = "/api/pos/settings/sales-mode-order";
@@ -30,39 +24,6 @@ const WAIT_STEP_MS = 100;
 const SCOPE_WAIT_LIMIT = 50;
 const ACTIVATION_TIMEOUT_MS = 30000;
 const FEATURE_RETRY_DELAYS_MS = [250, 650] as const;
-
-const ACTIVE_POS_KEYS = [
-  "pos_pending_submit_v012",
-  "pos_pending_submit_queue_v001",
-  "pos_pending_payment_queue_v001",
-  "pos_active_order_v001",
-  "pos_dine_in_selected_table_v001"
-] as const;
-
-function hasMeaningfulJsonArray(raw: string | null): boolean {
-  if (!raw) return false;
-  try {
-    const parsed = JSON.parse(raw) as unknown;
-    return Array.isArray(parsed) ? parsed.length > 0 : Boolean(parsed);
-  } catch {
-    return true;
-  }
-}
-
-function hasActivePosWork(): boolean {
-  try {
-    if (hasMeaningfulJsonArray(window.localStorage.getItem("pos_sales_cart_v012"))) return true;
-    return ACTIVE_POS_KEYS.some((key) => {
-      const raw = window.localStorage.getItem(key);
-      if (!raw) return false;
-      if (key.includes("queue")) return hasMeaningfulJsonArray(raw);
-      return raw.trim().length > 0 && raw !== "null" && raw !== "{}" && raw !== "[]";
-    });
-  } catch {
-    // On storage uncertainty, never reset an in-flight bill to change modes.
-    return true;
-  }
-}
 
 type PosFeaturesSnapshot = {
   data?: {
@@ -118,61 +79,60 @@ function parseModeOrder(payload: unknown): PosSalesMode[] | null {
   return normalizePosSalesModeOrder((data as { order?: unknown }).order);
 }
 
-async function activateModeWithoutDialog(
-  mode: PosStartupSalesMode,
-  isCancelled: () => boolean
-): Promise<boolean> {
-  // Every IT-authorized mode uses the React startup event, including a
-  // standalone dine-in, buffet or delivery mode. Waiting for the takeaway
-  // mode-switch DOM button makes other modes depend on Home being visible.
-  // The caller has already checked a fresh, authenticated IT allowlist.
-  const requestId = crypto.randomUUID();
-  return new Promise<boolean>((resolve) => {
-    let settled = false;
-    let retryId: number | null = null;
-    const finish = (success: boolean) => {
-      if (settled) return;
-      settled = true;
-      window.clearTimeout(timeoutId);
-      if (retryId !== null) window.clearInterval(retryId);
-      window.removeEventListener(POS_STARTUP_MODE_RESULT_EVENT, onResult as EventListener);
-      resolve(success);
-    };
-    const onResult = (event: Event) => {
-      const detail = (event as CustomEvent<PosStartupModeResult>).detail;
-      if (detail?.requestId !== requestId || detail.mode !== mode) return;
-      finish(detail.activated === true);
-    };
-    window.addEventListener(POS_STARTUP_MODE_RESULT_EVENT, onResult as EventListener);
-    const timeoutId = window.setTimeout(() => finish(false), ACTIVATION_TIMEOUT_MS);
-    if (isCancelled()) {
-      finish(false);
-      return;
-    }
-    const detail: PosStartupModeRequest = { requestId, mode };
-    window.dispatchEvent(new CustomEvent<PosStartupModeRequest>(POS_STARTUP_MODE_REQUEST_EVENT, { detail }));
-    // React may not yet have registered its mode listener. Re-announce the
-    // same request ID for ALL modes until acknowledged. The receiving React
-    // component deduplicates it and never submits a bill or payment.
-    retryId = window.setInterval(() => {
-      if (isCancelled()) { finish(false); return; }
-      if (!settled) window.dispatchEvent(new CustomEvent<PosStartupModeRequest>(POS_STARTUP_MODE_REQUEST_EVENT, { detail }));
-    }, 500);
-  });
-}
-
-export function PosInitialSalesModeController({initialScope}: {initialScope?: PosScopeIdentity | null}) {
+/**
+ * The authenticated POS session/shift gate mounts this controller before the
+ * dynamic React sales module. Server entitlements choose ONE initial mode.
+ * Its child receives that mode as a React prop and acknowledges AFTER commit.
+ * Neither authorization nor the initial selection depends on DOM selectors,
+ * event timing, a mounted takeaway button or a separate scanner controller.
+ */
+export function PosInitialSalesModeController({
+  initialScope,
+  lang,
+  SalesComponent
+}: {
+  initialScope?: PosScopeIdentity | null;
+  lang: "th" | "en";
+  SalesComponent: ComponentType<{lang?: "th" | "en"; startupMode?: PosStartupSalesMode; onStartupModeReady?: (mode: PosStartupSalesMode) => void; onStartupModeBlocked?: (mode: PosStartupSalesMode) => void}>;
+}) {
   const [attempt, setAttempt] = useState(0);
   const [startupStatus, setStartupStatus] = useState<"pending" | "ready" | "error">("pending");
   const [startupFailureCode, setStartupFailureCode] = useState<string | null>(null);
+  const [authorizedMode, setAuthorizedMode] = useState<PosStartupSalesMode | null>(null);
+  const activeModeRef = useRef<PosStartupSalesMode | null>(null);
+  const launchedWithCustomPolicyRef = useRef(false);
+
+  const onBlocked = useCallback((mode: PosStartupSalesMode) => {
+    if (mode !== activeModeRef.current) return;
+    setStartupFailureCode("POS-START-DRAFT");
+    setStartupStatus("error");
+  }, []);
+
+  const onReady = useCallback((mode: PosStartupSalesMode) => {
+    // Ignore a stale child from a prior Session/branch or retry.
+    if (mode !== activeModeRef.current) return;
+    setStartupFailureCode(null);
+    setStartupStatus("ready");
+  }, []);
+
+  useEffect(() => {
+    if (!authorizedMode || startupStatus !== "pending") return;
+    const timer = window.setTimeout(() => {
+      setStartupFailureCode("POS-START-REACT");
+      setStartupStatus("error");
+    }, ACTIVATION_TIMEOUT_MS);
+    return () => window.clearTimeout(timer);
+  }, [authorizedMode, startupStatus]);
 
   useEffect(() => {
     let cancelled = false;
-    const complete = (status: "ready" | "error", failureCode: string | null = null) => {
-      if (!cancelled) {
-        setStartupFailureCode(failureCode);
-        setStartupStatus(status);
-      }
+    activeModeRef.current = null;
+    const fail = (failureCode: string) => {
+      if (cancelled) return;
+      activeModeRef.current = null;
+      setAuthorizedMode(null);
+      setStartupFailureCode(failureCode);
+      setStartupStatus("error");
     };
     const run = async () => {
       let scope = initialScope?.tenantId && initialScope.branchId ? initialScope : readScope();
@@ -181,141 +141,149 @@ export function PosInitialSalesModeController({initialScope}: {initialScope?: Po
         scope = initialScope?.tenantId && initialScope.branchId ? initialScope : readScope();
       }
       if (cancelled) return;
-      if (!scope) return complete("error", "POS-START-SCOPE");
+      if (!scope) return fail("POS-START-SCOPE");
 
-      // The authenticated IT policy (not browser storage) selects CUSTOM modes.
-      let customPolicy = false;
+      const payload = await readFreshStartupFeatures(() => cancelled);
+      if (cancelled) return;
+      if (!payload?.data) return fail("POS-START-FEATURES");
+      const customPolicy = payload.data.is_custom === true || payload.data.is_internal_test_full === true;
+      launchedWithCustomPolicyRef.current = customPolicy;
       let customModeGrants: unknown = null;
-      try {
-        const payload = await readFreshStartupFeatures(() => cancelled);
-        if (!payload?.data || cancelled) return complete("error", "POS-START-FEATURES");
-        customPolicy = payload.data.is_custom === true || payload.data.is_internal_test_full === true;
-        if (customPolicy) {
-          const grants = normalizeCustomPosSalesModes(payload.data.sales_modes);
-          const features = payload.data.features ?? {};
-          customModeGrants = {
-            ...grants,
-            takeaway: grants.takeaway && features.core_pos_sales === true,
-            optical_retail: isAuthorizedOpticalRetailMode(payload.data),
-            general_sale: grants.general_sale && features[POS_MODE_FEATURES.general_sale] === true,
-            dine_in: grants.dine_in && features[POS_MODE_FEATURES.dine_in] === true,
-            buffet_table: grants.buffet_table && features[POS_MODE_FEATURES.buffet_table] === true,
-            delivery: grants.delivery && features[POS_MODE_FEATURES.delivery] === true
-          };
-        }
-      } catch {
-        return complete("error", "POS-START-FEATURES");
+      if (customPolicy) {
+        const grants = normalizeCustomPosSalesModes(payload.data.sales_modes);
+        const features = payload.data.features ?? {};
+        customModeGrants = {
+          ...grants,
+          takeaway: grants.takeaway && features.core_pos_sales === true,
+          optical_retail: isAuthorizedOpticalRetailMode(payload.data),
+          general_sale: grants.general_sale && features[POS_MODE_FEATURES.general_sale] === true,
+          dine_in: grants.dine_in && features[POS_MODE_FEATURES.dine_in] === true,
+          buffet_table: grants.buffet_table && features[POS_MODE_FEATURES.buffet_table] === true,
+          delivery: grants.delivery && features[POS_MODE_FEATURES.delivery] === true
+        };
       }
-
       let productProfile = readCachedProductProfile(scope.tenantId);
       try {
         const fetchedProfile = await fetchCurrentProductProfile(scope.tenantId);
         if (fetchedProfile) productProfile = fetchedProfile;
       } catch {
-        // Product-profile fetch may fail; CUSTOM still uses fresh IT grants.
+        // A profile lookup cannot grant a disabled CUSTOM mode.
       }
       if (cancelled) return;
-      const forcePreferredMode = shouldForcePreferredPosSalesMode(productProfile);
-      const forcedPreferredMode = getPreferredPosSalesMode(productProfile);
-      const hasBlockingWork = () => !forcePreferredMode && hasActivePosWork();
-
-      // Do not reset a retained bill or queued payment just to change screens.
-      if (hasBlockingWork()) return complete("ready");
-
       let order: PosSalesMode[] | null = null;
       try {
         const response = await fetch(SALES_MODE_ORDER_API, {
-          method: "GET",
-          credentials: "same-origin",
-          cache: "no-store"
+          method: "GET", credentials: "same-origin", cache: "no-store"
         });
         if (response.ok) {
           order = parseModeOrder(await response.json().catch(() => null));
           if (order) {
             try {
               window.localStorage.setItem(buildPosSalesModeOrderStorageKey(scope), JSON.stringify(order));
-            } catch {
-              // Optional cache is not an authorization source.
-            }
+            } catch { /* Display order is optional and never grants a mode. */ }
           }
         }
-      } catch {
-        // Use the cached ordering as a display preference only.
-      }
+      } catch { /* Fall back to display order only. */ }
       if (!order) {
         try {
           const raw = window.localStorage.getItem(buildPosSalesModeOrderStorageKey(scope));
           if (raw) order = normalizePosSalesModeOrder(JSON.parse(raw));
-        } catch {
-          order = null;
-        }
+        } catch { order = null; }
       }
-
       if (cancelled) return;
-      if (!customPolicy && !order && !forcePreferredMode) return complete("ready");
-
       const authorizedCustomMode = customPolicy
         ? getAuthorizedCustomPosStartupMode(order ?? [], productProfile, customModeGrants)
         : null;
-      if (customPolicy && !authorizedCustomMode) return complete("error", "POS-START-GRANTS");
-
-      const preferred: PosStartupSalesMode = customPolicy
+      if (customPolicy && !authorizedCustomMode) return fail("POS-START-GRANTS");
+      const forcePreferred = shouldForcePreferredPosSalesMode(productProfile);
+      const mode: PosStartupSalesMode = customPolicy
         ? authorizedCustomMode!
-        : forcePreferredMode
-          ? forcedPreferredMode
-          : getVisiblePosSalesModeOrder(order ?? [], scope.tenantId, productProfile).find((mode) => mode !== "delivery") ?? "home";
-
-      if (preferred === "home") return complete("ready");
-      // Check for existing work BEFORE switching. During activation React may
-      // restore the saved cart; that is a valid result of opening the authorized
-      // checkout mode, not a reason to cancel its in-flight handshake.
-      if (hasBlockingWork()) return complete("ready");
-      const activated = await activateModeWithoutDialog(preferred, () => cancelled);
-      if (!cancelled) complete(activated ? "ready" : "error", activated ? null : "POS-START-HANDSHAKE");
+        : forcePreferred
+          ? getPreferredPosSalesMode(productProfile)
+          : getVisiblePosSalesModeOrder(order ?? [], scope.tenantId, productProfile)
+              .find((entry) => entry !== "delivery") ?? "home";
+      // A restored cart is NOT an authorization bypass. The child applies the
+      // authorized mode without submitting or deleting any existing transaction.
+      activeModeRef.current = mode;
+      setAuthorizedMode(mode);
     };
-
-    void run().catch(() => complete("error", "POS-START-UNEXPECTED"));
+    void run().catch(() => fail("POS-START-UNEXPECTED"));
     return () => {
       cancelled = true;
+      activeModeRef.current = null;
     };
   }, [attempt, initialScope?.tenantId, initialScope?.branchId]);
 
-  if (startupStatus === "ready") return null;
+  // The IT admin can revoke a mode while an existing POS tab is open. The
+  // server-backed policy refresh event fails closed, including for Optical.
+  useEffect(() => {
+    if (!authorizedMode) return;
+    const onPolicyUpdated = (event: Event) => {
+      const data = (event as CustomEvent<PosFeaturesSnapshot["data"]>).detail;
+      if (!data) return;
+      const isCustomNow = data.is_custom === true || data.is_internal_test_full === true;
+      // Standard tenants are unaffected unless IT has since changed their
+      // contract to CUSTOM. A CUSTOM -> standard transition must also revoke
+      // the formerly authorized specialized mode until re-evaluation.
+      if (!isCustomNow && !launchedWithCustomPolicyRef.current) return;
+      const granted = normalizeCustomPosSalesModes(data.sales_modes);
+      const features = data.features ?? {};
+      const allowed = isCustomNow && (
+        authorizedMode === "optical_retail" ? isAuthorizedOpticalRetailMode(data)
+        : authorizedMode === "general_sale" ? granted.general_sale && features[POS_MODE_FEATURES.general_sale] === true
+        : authorizedMode === "dine_in" ? granted.dine_in && features[POS_MODE_FEATURES.dine_in] === true
+        : authorizedMode === "buffet_table" ? granted.buffet_table && features[POS_MODE_FEATURES.buffet_table] === true
+        : authorizedMode === "delivery" ? granted.delivery && features[POS_MODE_FEATURES.delivery] === true
+        : granted.takeaway && features.core_pos_sales === true
+      );
+      if (allowed) return;
+      activeModeRef.current = null;
+      setAuthorizedMode(null);
+      setStartupFailureCode("POS-START-GRANTS");
+      setStartupStatus("error");
+    };
+    window.addEventListener("cpipos:pos-feature-policy-updated", onPolicyUpdated);
+    return () => window.removeEventListener("cpipos:pos-feature-policy-updated", onPolicyUpdated);
+  }, [authorizedMode]);
+
   return (
-    <div
-      className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-50 px-6"
-      role={startupStatus === "error" ? "alert" : "status"}
-      aria-live="polite"
-      data-testid="pos-startup-mode-gate"
-    >
-      <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-7 text-center shadow-lg">
-        <strong className="block text-lg font-bold text-slate-900">กำลังเตรียมหน้าขาย CpiPOS</strong>
-        {startupStatus === "pending" ? (
-          <p className="mt-3 text-sm text-slate-600">กำลังตรวจสิทธิ์และเปิดโหมดขายที่ได้รับอนุญาต…</p>
-        ) : (
-          <>
-            <p className="mt-3 text-sm text-red-700">
-              {startupFailureCode === "POS-START-HANDSHAKE"
-                ? "ระบบยืนยันสิทธิ์แล้ว แต่หน้าขายยังตอบรับการเปิดโหมดไม่สำเร็จ กรุณากดตรวจสอบอีกครั้ง"
-                : startupFailureCode === "POS-START-FEATURES"
-                  ? "โหลดสิทธิ์จากเซิร์ฟเวอร์ไม่สำเร็จ กรุณาตรวจสอบ Session หรือการเชื่อมต่อ"
-                  : "ยังไม่สามารถยืนยันหรือเปิดโหมดขายที่ได้รับอนุญาต กรุณาตรวจสอบการเชื่อมต่อหรือสิทธิ์ใน IT Admin"}
-            </p>
-            {startupFailureCode ? <p className="mt-2 font-mono text-xs text-slate-500" data-testid="pos-startup-failure-code">รหัสตรวจสอบ: {startupFailureCode}</p> : null}
-            <button
-              type="button"
-              className="mt-5 rounded-lg bg-blue-700 px-5 py-3 font-semibold text-white"
-              onClick={() => {
-                setStartupStatus("pending");
-                setStartupFailureCode(null);
-                setAttempt((current) => current + 1);
-              }}
-            >
-              ตรวจสอบสิทธิ์อีกครั้ง
-            </button>
-          </>
-        )}
-      </div>
-    </div>
+    <>
+      {authorizedMode ? <SalesComponent lang={lang} startupMode={authorizedMode} onStartupModeReady={onReady} onStartupModeBlocked={onBlocked} /> : null}
+      {startupStatus !== "ready" ? (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-50 px-6"
+          role={startupStatus === "error" ? "alert" : "status"}
+          aria-live="polite" data-testid="pos-startup-mode-gate">
+          <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-7 text-center shadow-lg">
+            <strong className="block text-lg font-bold text-slate-900">กำลังเตรียมหน้าขาย CpiPOS</strong>
+            {startupStatus === "pending" ? (
+              <p className="mt-3 text-sm text-slate-600">กำลังตรวจสิทธิ์และเปิดโหมดขายที่ได้รับอนุญาต…</p>
+            ) : (
+              <>
+                <p className="mt-3 text-sm text-red-700">
+                  {startupFailureCode === "POS-START-DRAFT"
+                    ? "มีบิลหรือตะกร้าของโหมดเดิมที่ยังดำเนินการไม่เสร็จ ระบบคงข้อมูลไว้และไม่สลับโหมดอัตโนมัติ กรุณาตรวจสอบบิลค้างก่อน"
+                    : startupFailureCode === "POS-START-REACT"
+                    ? "ระบบตรวจสิทธิ์ผ่านแล้ว แต่ React ยังไม่ยืนยันการเปิดหน้าขาย โปรดตรวจสอบสถานะหน้าขาย"
+                    : startupFailureCode === "POS-START-FEATURES"
+                      ? "โหลดสิทธิ์จากเซิร์ฟเวอร์ไม่สำเร็จ กรุณาตรวจสอบ Session หรือการเชื่อมต่อ"
+                      : "ยังไม่สามารถเปิดโหมดขายที่ได้รับอนุญาต กรุณาตรวจสอบสิทธิ์ใน IT Admin"}
+                </p>
+                {startupFailureCode
+                  ? <p className="mt-2 font-mono text-xs text-slate-500" data-testid="pos-startup-failure-code">รหัสตรวจสอบ: {startupFailureCode}</p>
+                  : null}
+                <button type="button" className="mt-5 rounded-lg bg-blue-700 px-5 py-3 font-semibold text-white"
+                  onClick={() => {
+                    activeModeRef.current = null;
+                    setAuthorizedMode(null);
+                    setStartupStatus("pending");
+                    setStartupFailureCode(null);
+                    setAttempt((current) => current + 1);
+                  }}>ตรวจสอบสิทธิ์อีกครั้ง</button>
+              </>
+            )}
+          </div>
+        </div>
+      ) : null}
+    </>
   );
 }

@@ -21,8 +21,11 @@ describe("CUSTOM IMDC Optical as the only permitted POS sales mode", () => {
   const gate=read("src/components/pos/pos-entry-gate.tsx");
   expect(route).toContain("<PosEntryGate");
   expect(route).toContain("<PosGeneralSaleTableController />");
-  expect(gate).toContain("<PosSalesModule lang={lang} />");
-  expect(gate).toContain("<PosInitialSalesModeController initialScope={initialScope} />");
+  expect(gate).toContain("<PosInitialSalesModeController initialScope={initialScope}");
+  expect(gate).toContain("SalesComponent={PosSalesModule}");
+  const boundary=read("src/components/pos/pos-dine-in-commit-reset-boundary.tsx");
+  expect(boundary).not.toContain("<PosEntryGate");
+  expect(boundary).not.toContain("<PosInitialSalesModeController");
   expect(route).toContain("initialScope={{ tenantId: posMenuScope.session.tenant_id, branchId: posMenuScope.session.branch_id }}");
   expect(gate).toContain("if (hasActiveShift && canEnterSales)");
  });
@@ -30,17 +33,17 @@ describe("CUSTOM IMDC Optical as the only permitted POS sales mode", () => {
   const boot=read("src/components/pos/pos-initial-sales-mode-controller.tsx");
   expect(boot).not.toContain("MODE_SWITCH_QUERY");
   expect(boot).not.toContain("if (!retailStartup) {");
-  expect(boot).toContain("if (!settled) window.dispatchEvent");
-  expect(boot).toContain("window.setInterval(() => {");
-  expect(boot).toContain("window.clearInterval(retryId)");
+  expect(boot).not.toContain("POS_STARTUP_MODE_REQUEST_EVENT");
+  expect(boot).toContain("<SalesComponent lang={lang} startupMode={authorizedMode} onStartupModeReady={onReady} onStartupModeBlocked={onBlocked} />");
+  expect(boot).toContain('readFreshStartupFeatures(() => cancelled)');
  });
- it("waits for the real React POS sales UI and deduplicates a repeated authorization handshake",()=>{
+ it("acknowledges startup only after React commits the authorized sales mode",()=>{
   const bridge=read("src/components/pos/pos-general-sale-table-controller.tsx");
-  expect(bridge).toContain('const MODE_SWITCH_BUTTON_QUERY = ".posui-mode-switch-button"');
-  expect(bridge).toContain('processingStartupRequestId === request.requestId');
-  expect(bridge).toContain('pendingStartupMode = request');
-  expect(bridge).toContain('document.documentElement.getAttribute(OPTICAL_HANDLER_READY_ATTRIBUTE) === "1"');
-  expect(bridge).toContain('applyRetailStartup(request)');
+  const sales=read("src/components/pos/pos-sales-module.tsx");
+  expect(sales).toContain('lastAppliedStartupModeRef.current === startupMode');
+  expect(sales).toContain('onStartupModeReady?.(startupMode)');
+  expect(sales).toContain('data-pos-react-sales-mode=');
+  expect(bridge).toContain('reactMode === OPTICAL_MODE_ID && opticalAllowed');
   expect(bridge).toContain("isAuthorizedOpticalRetailMode(body.data)");
  });
  it("permits IT-authorized Optical even if the fixed-package core feature is absent",()=>{
@@ -53,7 +56,7 @@ describe("CUSTOM IMDC Optical as the only permitted POS sales mode", () => {
   const bridge=read("src/components/pos/pos-general-sale-table-controller.tsx");
   expect(boot).toContain("isAuthorizedOpticalRetailMode(payload.data)");
   expect(bridge).toContain("isAuthorizedOpticalRetailMode(body.data)");
-  expect(bridge).toContain("attempt < 450");
+  expect(boot).not.toContain("POS-START-HANDSHAKE");
  });
  it("selects standalone CUSTOM modes without granting Home",()=>{
   const allOff={takeaway:false,dine_in:false,buffet_table:false,delivery:false,general_sale:false,optical_retail:false};
@@ -81,6 +84,6 @@ describe("CUSTOM IMDC Optical as the only permitted POS sales mode", () => {
   const startup=read("src/components/pos/pos-initial-sales-mode-controller.tsx");
   expect(bridge).toContain('const allowed = request.mode === OPTICAL_MODE_ID ? opticalAllowed : generalSaleAllowed');
   expect(bridge).toContain('activated: allowed && correctMode');
-  expect(startup).toContain('if (customPolicy && !authorizedCustomMode) return complete("error", "POS-START-GRANTS")');
+  expect(startup).toContain('if (customPolicy && !authorizedCustomMode) return fail("POS-START-GRANTS")');
  });
 });

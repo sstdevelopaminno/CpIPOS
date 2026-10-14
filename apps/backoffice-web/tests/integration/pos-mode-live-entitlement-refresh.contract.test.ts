@@ -38,41 +38,37 @@ describe("live POS mode policy refresh across IT and the selector", () => {
     expect(policy).toContain('key === "optical_retail" && !isCustom');
   });
 
-  it("resolves initial selling mode from fresh CUSTOM entitlements", () => {
-    const startup = source("src/components/pos/pos-initial-sales-mode-controller.tsx");
+  it("resolves initial React mode from a fresh authenticated CUSTOM snapshot", () => {
+    const startup=source("src/components/pos/pos-initial-sales-mode-controller.tsx");
+    const entry=source("src/components/pos/pos-entry-gate.tsx");
+    const sales=source("src/components/pos/pos-sales-module.tsx");
     expect(startup).toContain('const FEATURES_API = "/api/pos/features?refresh=1"');
     expect(startup).toContain("getAuthorizedCustomPosStartupMode(order ?? [], productProfile, customModeGrants)");
-    expect(startup).toContain('if (customPolicy && !authorizedCustomMode) return complete("error", "POS-START-GRANTS")');
-    expect(startup).toContain("activateModeWithoutDialog(preferred");
-    expect(startup).toContain("POS_STARTUP_MODE_REQUEST_EVENT");
-    expect(startup).not.toContain("switchButton.click()");
-    expect(startup).not.toContain("target.click()");
-    expect(startup).toContain("hasBlockingWork()");
-    expect(startup).toContain('data-testid="pos-startup-mode-gate"');
-    expect(selector).toContain("applyRetailStartup(startup)");
-    expect(selector).toContain("POS_STARTUP_MODE_RESULT_EVENT");
-    expect(selector).toContain('opticalButton.setAttribute(MODE_ATTRIBUTE, OPTICAL_MODE_ID)');
-    expect(selector).toContain("new Event(OPTICAL_ACTIVATE_BASE_MODE_EVENT)");
-    const salesModule = source("src/components/pos/pos-sales-module.tsx");
-    expect(salesModule).toContain("POS_STARTUP_MODE_REQUEST_EVENT");
-    expect(salesModule).toContain("applyQuickMode(request.mode)");
+    expect(startup).toContain('if (customPolicy && !authorizedCustomMode) return fail("POS-START-GRANTS")');
+    expect(startup).toContain("activeModeRef.current = mode;");
+    expect(startup).toContain("<SalesComponent lang={lang} startupMode={authorizedMode} onStartupModeReady={onReady} onStartupModeBlocked={onBlocked} />");
+    expect(entry).toContain("SalesComponent={PosSalesModule}");
+    expect(sales).toContain("lastAppliedStartupModeRef.current === startupMode");
+    expect(sales).toContain("onStartupModeReady?.(startupMode)");
+    expect(sales).not.toContain("window.addEventListener(POS_STARTUP_MODE_REQUEST_EVENT");
   });
 
-  it("recovers a transient React listener race without bypassing denied CUSTOM grants", () => {
-    const startup = source("src/components/pos/pos-initial-sales-mode-controller.tsx");
-    expect(selector).toContain('attempt === 30 || attempt === 75 || attempt === 130');
-    expect(selector).toContain('request.mode === OPTICAL_MODE_ID');
-    expect(selector).toContain("document.documentElement.getAttribute(OPTICAL_HANDLER_READY_ATTRIBUTE)");
-    expect(selector).toContain("new Event(OPTICAL_ACTIVATE_BASE_MODE_EVENT)");
-    expect(selector).toContain("activated: allowed && correctMode");
-    expect(startup).toContain("POS-START-FEATURES");
-    expect(startup).toContain("POS-START-GRANTS");
-    expect(startup).toContain("POS-START-HANDSHAKE");
-    // React may restore a saved cart while an already authorized mode is
-    // activating. Do not convert that into an erroneous permissions screen.
-    expect(startup).toContain("activateModeWithoutDialog(preferred, () => cancelled)");
-    expect(startup).not.toContain("activateModeWithoutDialog(preferred, () => cancelled || hasBlockingWork())");
-    expect(startup).toContain('data-testid="pos-startup-failure-code"');
+  it("does not treat a server grant as a rendered checkout, and revokes disabled modes", () => {
+    const startup=source("src/components/pos/pos-initial-sales-mode-controller.tsx");
+    const sales=source("src/components/pos/pos-sales-module.tsx");
+    expect(startup).toContain('"POS-START-REACT"');
+    expect(startup).toContain('window.addEventListener("cpipos:pos-feature-policy-updated", onPolicyUpdated)');
+    expect(startup).toContain("if (allowed) return");
+    expect(startup).toContain("launchedWithCustomPolicyRef.current");
+    expect(startup).toContain('isAuthorizedOpticalRetailMode(data)');
+    expect(startup).not.toContain("activateModeWithoutDialog(");
+    expect(startup).not.toContain("POS_STARTUP_MODE_REQUEST_EVENT");
+    expect(sales).toContain('opticalRetailActive && quickMode === "home" && startupRetailKind === "optical_retail"');
+    expect(sales).toContain('data-pos-react-sales-mode=');
+    expect(sales).toContain('tableBrowserOpen || Boolean(selectedTable?.id)');
+    expect(sales).toContain('orderType === "takeaway" && !selectedTable?.id');
+    expect(selector).toContain('reactMode === OPTICAL_MODE_ID && opticalAllowed');
+    expect(selector).toContain('reactMode === GENERAL_SALE_MODE_ID && generalSaleAllowed');
   });
 
   it("keeps legacy background cache for normal polling, but forces fresh on dialog opening", () => {

@@ -1,8 +1,6 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { PosEntryGate } from "@/components/pos/pos-entry-gate";
-import { PosInitialSalesModeController } from "@/components/pos/pos-initial-sales-mode-controller";
 import { PosSalesModePreferenceEnhancer } from "@/components/pos/pos-sales-mode-preference-enhancer";
 
 type Lang = "th" | "en";
@@ -434,11 +432,9 @@ export function PosDineInCommitResetBoundary({ lang }: { lang: Lang }) {
       </div>
     );
   }
-  return (
-    <>
-      <PosEntryGate lang={lang} />
-      <PosSalesModePreferenceEnhancer lang={lang} />
-      <PosInitialSalesModeController />
-    </>
-  );
+  // /preview/pos owns the only Session/Shift gate and authorized startup.
+  // This boundary only restores kitchen/table context; rendering a second
+  // PosEntryGate here used to mount a duplicate sales module and compete for
+  // startup acknowledgements (POS-START-HANDSHAKE).
+  return <PosSalesModePreferenceEnhancer lang={lang} />;
 }

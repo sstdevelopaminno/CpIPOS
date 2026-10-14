@@ -33,14 +33,11 @@ import { TableZoneTabs } from "@/components/tables/table-zone-tabs";
 import type { DiningTableItem, FloorPlanObjectItem, TableZoneItem } from "@/components/tables/types";
 import { calculateDeliveryPricingBreakdown } from "@/lib/delivery-pricing";
 import { POS_MODE_FEATURES } from "@/lib/pos-feature-map";
+import type { PosStartupSalesMode } from "@/lib/pos-sales-mode-preferences";
 import {
   GENERAL_SALE_ACTIVATE_BASE_MODE_EVENT,
   OPTICAL_ACTIVATE_BASE_MODE_EVENT,
-  OPTICAL_DEACTIVATE_BASE_MODE_EVENT,
-  POS_STARTUP_MODE_REQUEST_EVENT,
-  POS_STARTUP_MODE_RESULT_EVENT,
-  type PosStartupModeRequest,
-  type PosStartupModeResult
+  OPTICAL_DEACTIVATE_BASE_MODE_EVENT
 } from "@/lib/pos-general-sale-mode";
 import { beginPosActionTrace, clearPosTraceEvents, endPosActionTrace, readPosTraceEvents, usePosRenderProfiler } from "@/lib/pos-ui-profiler";
 import { naturalCompareTableCode } from "@/lib/table-management";
@@ -2060,7 +2057,17 @@ function updateSelectedIngredientNoteQuantity(notes: string, ingredients: Recipe
     .join(", ");
 }
 
-export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
+export function PosSalesModule({
+  lang = "th",
+  startupMode,
+  onStartupModeReady,
+  onStartupModeBlocked
+}: {
+  lang?: Lang;
+  startupMode?: PosStartupSalesMode;
+  onStartupModeReady?: (mode: PosStartupSalesMode) => void;
+  onStartupModeBlocked?: (mode: PosStartupSalesMode) => void;
+}) {
   const [posCurrencyCode, setPosCurrencyCode] = useState<"THB" | "LAK">("THB");
   useEffect(() => {
     let active = true;
@@ -2112,7 +2119,8 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
   const [discountAmountInput, setDiscountAmountInput] = useState("");
   const [discountEditMode, setDiscountEditMode] = useState<"percent" | "amount">("percent");
   const [quickMode, setQuickMode] = useState<QuickMode>("home");
-  const lastHandledStartupRequestIdRef = useRef<string | null>(null);
+  const lastAppliedStartupModeRef = useRef<PosStartupSalesMode | null>(null);
+  const [startupRetailKind, setStartupRetailKind] = useState<"optical_retail" | "general_sale" | null>(null);
   const [opticalRetailActive, setOpticalRetailActive] = useState(false);
   const [opticalCustomerOpen, setOpticalCustomerOpen] = useState(false);
   const [modeSelectorOpen, setModeSelectorOpen] = useState(false);
@@ -5987,6 +5995,7 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
 
   function applyQuickMode(mode: QuickMode, fromOptical = false) {
     setOpticalRetailActive(fromOptical);
+    setStartupRetailKind(fromOptical ? "optical_retail" : null);
     setModeSelectorOpen(false);
     if (mode === "home") {
       invalidateTableUiContext();
@@ -6064,6 +6073,7 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
       // checkout baseline directly instead of clicking the hidden Home card.
       if (!opticalRetailActive && quickMode === "home") return;
       applyQuickMode("home");
+      setStartupRetailKind("general_sale");
     };
     const onOpticalDeactivate = () => setOpticalRetailActive(false);
     window.addEventListener(OPTICAL_ACTIVATE_BASE_MODE_EVENT, onOpticalActivate);
@@ -6081,31 +6091,61 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
     };
   });
 
-  // Authorized startup navigates within React without briefly opening the
-  // public mode-selection dialog. Optical/SD are handled by the retail bridge.
+  // The initial authorized mode comes from the authenticated server policy via
+  // React props, never from a global DOM event/hidden Home selector. One
+  // application per mounted sales module preserves table/cart drafts.
   useEffect(() => {
-    const onStartupMode = (event: Event) => {
-      const request = (event as CustomEvent<PosStartupModeRequest>).detail;
-      if (!request?.requestId) return;
-      if (request.mode !== "home" && request.mode !== "dine_in"
-        && request.mode !== "buffet_table" && request.mode !== "delivery") return;
-      // The startup controller retries the SAME request ID while the dynamic
-      // module mounts. Handle a transition only once: reapplying dine-in after
-      // the table browser is opened would clear a selected table and draft.
-      if (lastHandledStartupRequestIdRef.current !== request.requestId) {
-        lastHandledStartupRequestIdRef.current = request.requestId;
-        if (request.mode !== quickMode || opticalRetailActive) {
-          applyQuickMode(request.mode);
-        }
+    if (!isHydrated || !startupMode || lastAppliedStartupModeRef.current === startupMode) return;
+    // Persisted carts, table sessions and payment queues must not be reset
+    // by a mode bootstrap. A legacy Home draft can be shown in the allowed
+    // specialized retail UI, but no order/payment state is modified here.
+    const hasRestoredWork = cart.length > 0 || Boolean(activeOrder?.id)
+      || pendingQueue.length > 0 || pendingPaymentQueue.length > 0
+      || Boolean(selectedTable?.id);
+    if (hasRestoredWork) {
+      if (quickMode === "home" && orderType === "takeaway" && !selectedTable?.id
+        && (startupMode === "optical_retail" || startupMode === "general_sale")) {
+        lastAppliedStartupModeRef.current = startupMode;
+        setOpticalRetailActive(startupMode === "optical_retail");
+        setStartupRetailKind(startupMode);
+      } else if (startupMode === quickMode) {
+        lastAppliedStartupModeRef.current = startupMode;
+        setOpticalRetailActive(false);
+        setStartupRetailKind(null);
       }
-      window.requestAnimationFrame(() => {
-        const result: PosStartupModeResult = { requestId: request.requestId, mode: request.mode, activated: true };
-        window.dispatchEvent(new CustomEvent(POS_STARTUP_MODE_RESULT_EVENT, { detail: result }));
-      });
-    };
-    window.addEventListener(POS_STARTUP_MODE_REQUEST_EVENT, onStartupMode as EventListener);
-    return () => window.removeEventListener(POS_STARTUP_MODE_REQUEST_EVENT, onStartupMode as EventListener);
-  });
+      // An incompatible persisted draft requires review; never clear it or
+      // acknowledge an unauthorized mode just to dismiss the startup gate.
+      if (lastAppliedStartupModeRef.current !== startupMode) onStartupModeBlocked?.(startupMode);
+      return;
+    }
+    lastAppliedStartupModeRef.current = startupMode;
+    if (startupMode === "optical_retail") {
+      applyQuickMode("home", true);
+    } else if (startupMode === "general_sale") {
+      applyQuickMode("home");
+      setStartupRetailKind("general_sale");
+    } else if (quickMode !== startupMode || opticalRetailActive) {
+      applyQuickMode(startupMode);
+    }
+    // The controller owns startup authorization; do not replay mode activation
+    // on product/table/cart changes or on re-renders after hydration.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isHydrated, startupMode]);
+
+  // React notifies its parent only after the authorized mode is committed.
+  // Neither a successful feature fetch nor an event sent to the legacy scanner
+  // is proof that a sales mode was rendered.
+  useEffect(() => {
+    if (!isHydrated || !startupMode) return;
+    const ready = startupMode === "optical_retail"
+      ? opticalRetailActive && quickMode === "home" && startupRetailKind === "optical_retail"
+      : startupMode === "general_sale"
+        ? !opticalRetailActive && quickMode === "home" && startupRetailKind === "general_sale"
+        : !opticalRetailActive && quickMode === startupMode
+          && (!isTableSalesMode(startupMode) || tableBrowserOpen || Boolean(selectedTable?.id));
+    if (!ready) return;
+    onStartupModeReady?.(startupMode);
+  }, [isHydrated, startupMode, quickMode, opticalRetailActive, startupRetailKind, tableBrowserOpen, selectedTable?.id, onStartupModeReady]);
 
   function isQuickModeLocked(mode: QuickMode) {
     const feature =
@@ -9158,7 +9198,7 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
 
       <PosShell
         topBar={
-          <div className={`posui-sales-topbar ${opticalRetailActive ? "is-optical-retail" : ""} ${salesTopbarCollapsed ? "is-collapsed" : ""} ${showInlineTopbarCategories ? "has-inline-categories" : ""} ${showInlineTopbarTableControls ? "has-inline-table-controls" : ""}`}>
+          <div className={`posui-sales-topbar ${opticalRetailActive ? "is-optical-retail" : ""} ${salesTopbarCollapsed ? "is-collapsed" : ""} ${showInlineTopbarCategories ? "has-inline-categories" : ""} ${showInlineTopbarTableControls ? "has-inline-table-controls" : ""}`} data-pos-react-sales-mode={opticalRetailActive ? "optical_retail" : startupRetailKind === "general_sale" && quickMode === "home" ? "general_sale" : quickMode}>
             <div className="posui-mode-header-row">
               <button
                 type="button"
