@@ -4,6 +4,7 @@ import dynamic from "next/dynamic";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { t } from "@/lib/i18n";
 import { PosInitialSalesModeController } from "@/components/pos/pos-initial-sales-mode-controller";
+import { usePosShiftEntryLeader } from "@/lib/pos-shift-entry-singleton";
 
 type Lang = "th" | "en";
 
@@ -209,6 +210,7 @@ export function PosEntryGate({ lang, initialScope }: { lang: Lang; initialScope?
   const [skipSplashOnce, setSkipSplashOnce] = useState(false);
 
   const hasActiveShift = Boolean(session?.has_active_shift && session.shift?.status === "open");
+  const shiftEntryLeader = usePosShiftEntryLeader(!loading && session && !hasActiveShift ? session.session.id : null);
   const canEnterSales = Boolean(session?.permissions.includes("sales:enter"));
   const deviceBlocksSales = Boolean(session?.device.block_sales);
   const blockedDeviceStatus = session?.device.status;
@@ -640,10 +642,13 @@ export function PosEntryGate({ lang, initialScope }: { lang: Lang; initialScope?
     return <><PosSalesModule lang={lang} /><PosInitialSalesModeController initialScope={initialScope} /></>;
   }
 
+  // A pending Next.js route tree must not render a duplicate shift dialog.
+  if (!shiftEntryLeader) return null;
+
   return (
     <section className="pos-entry-gate">
       <div className="pos-entry-gate__overlay" />
-      <div role="dialog" aria-modal="true" className="pos-entry-gate__panel">
+      <div role="dialog" aria-modal="true" data-pos-open-shift-gate="1" className="pos-entry-gate__panel">
         <header className="pos-entry-gate__header">
           <div className="pos-entry-gate__header-icon">
             <SummaryIcon type="role" />
