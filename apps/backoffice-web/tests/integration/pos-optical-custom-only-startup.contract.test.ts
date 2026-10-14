@@ -22,7 +22,8 @@ describe("CUSTOM IMDC Optical as the only permitted POS sales mode", () => {
   expect(route).toContain("<PosEntryGate");
   expect(route).toContain("<PosGeneralSaleTableController />");
   expect(gate).toContain("<PosSalesModule lang={lang} />");
-  expect(gate).toContain("<PosInitialSalesModeController />");
+  expect(gate).toContain("<PosInitialSalesModeController initialScope={initialScope} />");
+  expect(route).toContain("initialScope={{ tenantId: posMenuScope.session.tenant_id, branchId: posMenuScope.session.branch_id }}");
   expect(gate).toContain("if (hasActiveShift && canEnterSales)");
  });
  it("does not require the ordinary selector button before dispatching Optical startup",()=>{
