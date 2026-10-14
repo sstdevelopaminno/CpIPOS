@@ -18,12 +18,37 @@ describe("Optical POS sale identity is separate from internal takeaway order typ
     expect(pos).toContain('setOrderType("takeaway")');
   });
   it("renders optical branding instead of the Takeaway mode on the sales UI", () => {
-    expect(pos).toContain('data-testid="pos-optical-sale-header"');
+    // The dedicated Optical mode tag remains in the cashier header, but the
+    // redundant green in-development banner is intentionally gone.
+    expect(pos).not.toContain('data-testid="pos-optical-sale-header"');
     expect(pos).toContain('data-testid="pos-active-optical-mode"');
     expect(pos).toContain("<OpticalRetailModeIcon />");
     expect(pos).toContain('quickMode === "home" && !opticalRetailActive');
-    expect(pos).toContain('ยังไม่รองรับเงินกีบและมัดจำ');
+    expect(pos).toContain('opticalRetail={opticalRetailActive}');
   });
+  it("shows a dedicated right panel without the SD keypad and keeps future money actions disabled", () => {
+    const panel = read("src/components/pos-ui/pos-payment-panel.tsx");
+    const keypad = read("src/components/pos/pos-general-sale-front-cash-panel.tsx");
+    expect(panel).toContain('data-testid="pos-optical-payment-panel"');
+    expect(panel).toContain("ชำระเงินมัดจำ");
+    expect(panel).toContain("ทำจอง");
+    expect(panel).toContain('aria-disabled="true"');
+    expect(panel).toContain("onOpenHeldBills");
+    expect(keypad).toContain("isOpticalRetailActive()");
+    expect(keypad).toContain("if (active && !isOpticalRetailActive()) renderPanel()");
+  });
+
+  it("has compact product barcode scan and a non-financial read-only reservation lookup", () => {
+    expect(controller).toContain("OPTICAL_SCAN_IDLE_MS = 140");
+    expect(controller).toContain('event.inputType === "insertFromPaste"');
+    expect(controller).toContain("opticalFastKeyCount < 5");
+    expect(controller).toContain("AbortController()");
+    expect(controller).toContain("PRODUCT_LOOKUP_TIMEOUT_MS");
+    expect(controller).toContain("ค้นหาบิลมัดจำหรือบิลจอง");
+    expect(controller).toContain("ไม่มีการเปลี่ยนแปลงบิลหรือยอดชำระ");
+    expect(controller).not.toContain("/api/pos/optical/deposit");
+  });
+
   it("stops showing optical UI after the seller changes modes or IT revokes access", () => {
     expect(shared).toContain('OPTICAL_DEACTIVATE_BASE_MODE_EVENT');
     expect(controller).toContain('if (opticalActive) {');

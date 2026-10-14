@@ -8950,6 +8950,9 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
           onRetry={showEmergencyRetry ? handleEmergencyRetry : undefined}
           onCancelBill={canCancelActiveOrder || isEmptyOpenDineInBill ? requestCancelBill : undefined}
           onHoldBill={holdBill}
+          onOpenHeldBills={openHeldBillsPanel}
+          opticalRetail={opticalRetailActive}
+          opticalLanguage={lang}
           onMember={
             orderType === "delivery_manual"
               ? undefined
@@ -9112,18 +9115,6 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
       <PosShell
         topBar={
           <div className={`posui-sales-topbar ${opticalRetailActive ? "is-optical-retail" : ""} ${salesTopbarCollapsed ? "is-collapsed" : ""} ${showInlineTopbarCategories ? "has-inline-categories" : ""} ${showInlineTopbarTableControls ? "has-inline-table-controls" : ""}`}>
-            {opticalRetailActive ? (
-              <div className="mb-2 flex flex-wrap items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-emerald-900" data-testid="pos-optical-sale-header" role="status">
-                <OpticalRetailModeIcon />
-                <div className="min-w-0 flex-1">
-                  <strong className="block text-sm font-extrabold">IMDC OPTICAL</strong>
-                  <span className="text-xs font-semibold">{lang === "th" ? "โหมดร้านแว่นตา · ขายกรอบ / เลนส์ ด้วย SKU และบาร์โค้ด" : "Optical retail · frames and lenses · SKU / barcode"}</span>
-                </div>
-                <span className="rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-xs font-bold text-amber-900">
-                  {lang === "th" ? "กำลังพัฒนา · ยังไม่รองรับเงินกีบและมัดจำ" : "In development · LAK & deposits unavailable"}
-                </span>
-              </div>
-            ) : null}
             <div className="posui-mode-header-row">
               <button
                 type="button"
