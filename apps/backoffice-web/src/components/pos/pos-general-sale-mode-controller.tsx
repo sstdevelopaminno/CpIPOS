@@ -78,12 +78,17 @@ function createRequestId() {
 }
 
 function formatMoney(value: number): string {
+  const safeValue = Number.isFinite(value) ? value : 0;
+  const code = document.documentElement.getAttribute("data-pos-store-currency");
+  if (code === "LAK") {
+    return "₭" + new Intl.NumberFormat("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(safeValue);
+  }
   return new Intl.NumberFormat("th-TH", {
     style: "currency",
     currency: "THB",
     minimumFractionDigits: 2,
     maximumFractionDigits: 2
-  }).format(Number.isFinite(value) ? value : 0);
+  }).format(safeValue);
 }
 
 function readLayoutPreference(): GeneralSaleCartLayout {
@@ -308,7 +313,7 @@ export function PosGeneralSaleModeController() {
         snapshotProducts: parseGeneralSaleSalesSnapshot(snapshotText),
         lookupProducts: lookupProductsById.values()
       });
-      const signature = `${generalSaleLayout}:${buildGeneralSaleCartTableSignature(rows)}`;
+      const signature = `${generalSaleLayout}:${document.documentElement.getAttribute("data-pos-store-currency") ?? "THB"}:${buildGeneralSaleCartTableSignature(rows)}`;
       if (signature === lastTableSignature && host.childElementCount > 0) return;
       lastTableSignature = signature;
 
