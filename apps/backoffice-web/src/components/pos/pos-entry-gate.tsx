@@ -3,6 +3,7 @@
 import dynamic from "next/dynamic";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { t } from "@/lib/i18n";
+import { PosInitialSalesModeController } from "@/components/pos/pos-initial-sales-mode-controller";
 
 type Lang = "th" | "en";
 
@@ -636,7 +637,7 @@ export function PosEntryGate({ lang }: { lang: Lang }) {
   }
 
   if (hasActiveShift && canEnterSales) {
-    return <PosSalesModule lang={lang} />;
+    return <><PosSalesModule lang={lang} /><PosInitialSalesModeController /></>;
   }
 
   return (
