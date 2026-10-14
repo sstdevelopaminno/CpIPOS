@@ -41,12 +41,20 @@ describe("live POS mode policy refresh across IT and the selector", () => {
     const startup = source("src/components/pos/pos-initial-sales-mode-controller.tsx");
     expect(startup).toContain('const FEATURES_API = "/api/pos/features?refresh=1"');
     expect(startup).toContain("getAuthorizedCustomPosStartupMode(order ?? [], productProfile, customModeGrants)");
-    expect(startup).toContain("if (customPolicy && !authorizedCustomMode) return");
-    expect(startup).toContain('target?.getAttribute("data-it-custom-mode-hidden") === "1"');
-    expect(startup).toContain("target.click()");
+    expect(startup).toContain('if (customPolicy && !authorizedCustomMode) return complete("error")');
+    expect(startup).toContain("activateModeWithoutDialog(preferred");
+    expect(startup).toContain("POS_STARTUP_MODE_REQUEST_EVENT");
+    expect(startup).not.toContain("switchButton.click()");
+    expect(startup).not.toContain("target.click()");
     expect(startup).toContain("hasBlockingWork()");
+    expect(startup).toContain('data-testid="pos-startup-mode-gate"');
+    expect(selector).toContain("applyRetailStartup(startup)");
+    expect(selector).toContain("POS_STARTUP_MODE_RESULT_EVENT");
     expect(selector).toContain('opticalButton.setAttribute(MODE_ATTRIBUTE, OPTICAL_MODE_ID)');
     expect(selector).toContain("new Event(OPTICAL_ACTIVATE_BASE_MODE_EVENT)");
+    const salesModule = source("src/components/pos/pos-sales-module.tsx");
+    expect(salesModule).toContain("POS_STARTUP_MODE_REQUEST_EVENT");
+    expect(salesModule).toContain("applyQuickMode(request.mode)");
   });
 
   it("keeps legacy background cache for normal polling, but forces fresh on dialog opening", () => {
