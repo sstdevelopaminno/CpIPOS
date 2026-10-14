@@ -21,7 +21,8 @@ describe("live POS mode policy refresh across IT and the selector", () => {
     expect(selector).toContain("selector !== latestSelector");
     expect(selector).toContain("if (selector) void loadAccess()");
     expect(selector).toContain('fetch("/api/pos/features?refresh=1"');
-    expect(selector).toContain("sales_modes?.optical_retail === true");
+    expect(selector).toContain("isAuthorizedOpticalRetailMode(body.data)");
+    expect(selector).not.toContain("body?.data?.features?.core_pos_sales === true");
     expect(selector).toContain("sales_modes?.general_sale === true");
     expect(selector).toContain("if (generalSaleActive && (opticalActive ? !opticalAllowed : !generalSaleAllowed))");
     expect(selector).toContain('window.addEventListener("focus", onFocus)');
