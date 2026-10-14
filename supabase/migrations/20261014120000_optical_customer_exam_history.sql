@@ -51,7 +51,9 @@ create table if not exists public.optical_eye_exams (
   examiner_name text,
   notes text,
   created_by uuid,
+  request_id uuid not null,
   created_at timestamptz not null default now(),
+  constraint optical_exam_idempotency unique (tenant_id,branch_id,request_id),
   constraint optical_exam_customer_scope foreign key (tenant_id,branch_id,customer_id)
     references public.optical_customers(tenant_id,branch_id,id)
 );
@@ -113,3 +115,75 @@ create policy optical_exams_insert on public.optical_eye_exams for insert to aut
 
 comment on table public.optical_customers is 'Tenant/branch-isolated Optical customer registry, private health-related optometry information.';
 comment on table public.optical_eye_exams is 'Immutable Optical refraction history; corrections require new dated examination.';
+
+-- Single-transaction Optical customer registration + examination history.
+-- Permission checks also apply when called directly by Customer Portal.
+create or replace function public.optical_save_customer_exam(
+  p_tenant_id uuid, p_branch_id uuid, p_customer_code text,
+  p_full_name text, p_phone text default null,
+  p_age smallint default null, p_exam_date date default null,
+  p_previous_prescription text default null, p_pd_mm numeric default null,
+  p_examiner_name text default null,
+  p_right_sph numeric default null, p_right_cyl numeric default null,
+  p_right_axis smallint default null, p_right_add numeric default null,
+  p_left_sph numeric default null, p_left_cyl numeric default null,
+  p_left_axis smallint default null, p_left_add numeric default null,
+  p_notes text default null, p_request_id uuid default null
+) returns jsonb
+language plpgsql security definer set search_path = public, pg_temp
+as $$
+declare v_customer_id uuid; v_exam_id uuid; v_request_id uuid;
+begin
+  if coalesce(auth.role(), '') <> 'service_role'
+     and not public.can_manage_optical_customer_data(p_tenant_id,p_branch_id) then
+    raise exception 'optical_customer_forbidden' using errcode='42501';
+  end if;
+  if p_tenant_id is null or p_branch_id is null
+     or length(trim(coalesce(p_customer_code,''))) not between 1 and 48
+     or length(trim(coalesce(p_full_name,''))) not between 1 and 240 then
+    raise exception 'invalid_optical_customer' using errcode='22023';
+  end if;
+  if p_age is not null and p_age not between 0 and 130 then
+    raise exception 'invalid_customer_age' using errcode='22023';
+  end if;
+  if p_pd_mm is not null and p_pd_mm not between 30 and 90 then
+    raise exception 'invalid_pd_mm' using errcode='22023';
+  end if;
+  if p_exam_date is null then
+    raise exception 'exam_date_required' using errcode='22023';
+  end if;
+  v_request_id := coalesce(p_request_id, gen_random_uuid());
+  insert into public.optical_customers
+    (tenant_id,branch_id,customer_code,full_name,phone,age,
+     previous_prescription,last_exam_date,examiner_name,notes,created_by,updated_by)
+  values
+    (p_tenant_id,p_branch_id,trim(p_customer_code),trim(p_full_name),
+     nullif(trim(coalesce(p_phone,'')),''),p_age,p_previous_prescription,
+     p_exam_date,p_examiner_name,p_notes,auth.uid(),auth.uid())
+  on conflict (tenant_id,branch_id,customer_code) do update set
+    full_name=excluded.full_name,phone=excluded.phone,age=excluded.age,
+    previous_prescription=excluded.previous_prescription,
+    last_exam_date=excluded.last_exam_date,examiner_name=excluded.examiner_name,
+    notes=excluded.notes,updated_at=now(),updated_by=auth.uid(),deleted_at=null
+  returning id into v_customer_id;
+
+  insert into public.optical_eye_exams
+    (tenant_id,branch_id,customer_id,examined_at,age_at_exam,right_sph,right_cyl,right_axis,
+     right_add,left_sph,left_cyl,left_axis,left_add,pd_mm,previous_prescription,examiner_name,notes,created_by,request_id)
+  values
+    (p_tenant_id,p_branch_id,v_customer_id,p_exam_date,p_age,p_right_sph,p_right_cyl,p_right_axis,
+     p_right_add,p_left_sph,p_left_cyl,p_left_axis,p_left_add,p_pd_mm,p_previous_prescription,p_examiner_name,p_notes,auth.uid(),v_request_id)
+  on conflict (tenant_id,branch_id,request_id) do update set request_id = excluded.request_id
+  returning id into v_exam_id;
+
+  return jsonb_build_object('customer_id',v_customer_id,'exam_id',v_exam_id,'request_id',v_request_id);
+end;
+$$;
+revoke all on function public.optical_save_customer_exam(
+  uuid,uuid,text,text,text,smallint,date,text,numeric,text,numeric,numeric,smallint,numeric,
+  numeric,numeric,smallint,numeric,text,uuid
+) from public,anon;
+grant execute on function public.optical_save_customer_exam(
+  uuid,uuid,text,text,text,smallint,date,text,numeric,text,numeric,numeric,smallint,numeric,
+  numeric,numeric,smallint,numeric,text,uuid
+) to authenticated,service_role;
