@@ -6057,7 +6057,12 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
     const onOpticalDeactivate = () => setOpticalRetailActive(false);
     window.addEventListener(OPTICAL_ACTIVATE_BASE_MODE_EVENT, onOpticalActivate);
     window.addEventListener(OPTICAL_DEACTIVATE_BASE_MODE_EVENT, onOpticalDeactivate);
+    // A visible mode button does not mean React effects are attached yet.
+    // Publish readiness after installing the actual Optical event listener.
+    document.documentElement.setAttribute("data-pos-optical-handler-ready", "1");
+    window.dispatchEvent(new Event("cpipos:optical-handler-ready"));
     return () => {
+      document.documentElement.removeAttribute("data-pos-optical-handler-ready");
       window.removeEventListener(OPTICAL_ACTIVATE_BASE_MODE_EVENT, onOpticalActivate);
       window.removeEventListener(OPTICAL_DEACTIVATE_BASE_MODE_EVENT, onOpticalDeactivate);
     };
