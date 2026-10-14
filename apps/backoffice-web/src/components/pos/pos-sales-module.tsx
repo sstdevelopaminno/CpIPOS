@@ -6103,7 +6103,8 @@ export function PosSalesModule({
       || pendingQueue.length > 0 || pendingPaymentQueue.length > 0
       || Boolean(selectedTable?.id);
     if (hasRestoredWork) {
-      if (quickMode === "home" && (startupMode === "optical_retail" || startupMode === "general_sale")) {
+      if (quickMode === "home" && orderType === "takeaway" && !selectedTable?.id
+        && (startupMode === "optical_retail" || startupMode === "general_sale")) {
         lastAppliedStartupModeRef.current = startupMode;
         setOpticalRetailActive(startupMode === "optical_retail");
         setStartupRetailKind(startupMode);
@@ -6141,10 +6142,10 @@ export function PosSalesModule({
       : startupMode === "general_sale"
         ? !opticalRetailActive && quickMode === "home" && startupRetailKind === "general_sale"
         : !opticalRetailActive && quickMode === startupMode
-          && (!isTableSalesMode(startupMode) || tableBrowserOpen);
+          && (!isTableSalesMode(startupMode) || tableBrowserOpen || Boolean(selectedTable?.id));
     if (!ready) return;
     onStartupModeReady?.(startupMode);
-  }, [isHydrated, startupMode, quickMode, opticalRetailActive, startupRetailKind, tableBrowserOpen, onStartupModeReady]);
+  }, [isHydrated, startupMode, quickMode, opticalRetailActive, startupRetailKind, tableBrowserOpen, selectedTable?.id, onStartupModeReady]);
 
   function isQuickModeLocked(mode: QuickMode) {
     const feature =
