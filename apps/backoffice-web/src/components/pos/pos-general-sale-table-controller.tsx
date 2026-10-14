@@ -963,7 +963,7 @@ export function PosGeneralSaleTableController() {
             pendingStartupRetryTimer = window.setTimeout(() => {
               pendingStartupRetryTimer = null;
               if (!destroyed) void loadAccess();
-            }, pendingStartupRetryCount * 350);
+            }, pendingStartupRetryCount * 400);
           } else {
             accessResolved = true;
             const startup = pendingStartupMode;
