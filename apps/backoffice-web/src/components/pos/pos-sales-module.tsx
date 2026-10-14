@@ -2064,7 +2064,7 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
   useEffect(() => {
     let active = true;
     // Fixed packages and unapproved CUSTOM tenants retain THB; their API responds 403.
-    void fetch("/api/pos/settings/currency", { cache: "no-store" })
+    void fetch("/api/pos/store-currency", { cache: "no-store" })
       .then(async response => response.ok ? response.json() : null)
       .then(body => { if (active) setPosCurrencyCode(body?.data?.currency_code === "LAK" ? "LAK" : "THB"); })
       .catch(() => { if (active) setPosCurrencyCode("THB"); });

@@ -26,7 +26,7 @@ export async function getCustomPosCurrencyContext(tenantId: string) {
   const enabled = isCustom && isCustomPosMenuVisible("settings.currency", policy, true);
   const metadata = contract.metadata && typeof contract.metadata === "object" && !Array.isArray(contract.metadata)
     ? contract.metadata as Record<string, unknown> : {};
-  return { enabled, currency_code: enabled ? normalizePosCurrencyCode(metadata.pos_currency_code) : "THB" as PosCurrencyCode, contract };
+  return { enabled, currency_code: normalizePosCurrencyCode(metadata.pos_currency_code), contract };
 }
 export async function getTenantPosCurrencyCode(tenantId: string): Promise<PosCurrencyCode> {
   return (await getCustomPosCurrencyContext(tenantId)).currency_code;
