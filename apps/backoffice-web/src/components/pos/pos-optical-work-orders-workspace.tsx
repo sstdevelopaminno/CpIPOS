@@ -111,6 +111,25 @@ export function PosOpticalWorkOrdersWorkspace(){
     finally{setBusy(false);}
   };
 
+  // Barcode/QR HID scanners may not send Enter. A complete bill locator
+  // automatically triggers a read-only, authenticated tenant/branch lookup.
+  useEffect(()=>{
+    const value=recallCode.trim();
+    if(!/^CPI-OPTICAL-RECALL:1:[0-9a-f-]{36}$/i.test(value))return;
+    const ctrl=new AbortController();
+    const timer=window.setTimeout(()=>{
+      void api<{bill:WorkOrder;remaining_amount:number}>(
+        "/api/pos/optical/work-orders/recall?code="+encodeURIComponent(value),
+        {signal:ctrl.signal}
+      ).then(result=>{
+        if(!ctrl.signal.aborted){setOrder(result.bill);setNotice("โหลดบิลมัดจำที่ยังค้างชำระแล้ว");setError("");}
+      }).catch(e=>{
+        if(!ctrl.signal.aborted)setError(String(e instanceof Error?e.message:e));
+      });
+    },180);
+    return()=>{window.clearTimeout(timer);ctrl.abort();};
+  },[recallCode]);
+
   const pay=async()=>{
     if(!order||!Number.isSafeInteger(deposit)||deposit<=0||
       deposit>order.total_amount-order.paid_total){
@@ -196,7 +215,7 @@ export function PosOpticalWorkOrdersWorkspace(){
     <section className="rounded-xl border border-emerald-200 bg-white p-4">
       <h2 className="font-bold">เรียกบิลมัดจำจาก QR / สแกนรหัส</h2>
       <div className="mt-2 flex gap-2">
-        <input value={recallCode} onChange={e=>setRecallCode(e.target.value)} placeholder="CPI-OPTICAL-RECALL:1:..."
+        <input value={recallCode} onChange={e=>setRecallCode(e.target.value)} placeholder="ยิง QR ใบเสร็จเพื่อค้นหาบิลอัตโนมัติ"
           className="min-w-0 flex-1 rounded-lg border p-2"/>
         <button type="button" onClick={()=>void recall()} disabled={busy} className="rounded-lg bg-emerald-600 px-4 py-2 text-white">ค้นหา</button>
       </div>
