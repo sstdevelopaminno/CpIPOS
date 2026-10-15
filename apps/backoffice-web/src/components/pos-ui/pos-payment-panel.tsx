@@ -32,7 +32,7 @@ type Props = {
   onHoldBill?: () => void;
   onOpenHeldBills?: () => void;
   opticalRetail?: boolean;
-  opticalCurrencyCode?: "THB" | "LAK";
+  opticalCurrencyCode?: "THB" | "LAK" | "USD";
   opticalLanguage?: "th" | "en";
   onOpticalCustomer?: () => void;
   onMember?: () => void;
@@ -113,8 +113,8 @@ type LocalBridgeCommandBody = {
 
 const ACTIVE_SALES_MODE_LABEL_KEY = "cpipos_active_sales_mode_label";
 
-function formatMoney(value: number, currencyCode: "THB" | "LAK" = "THB"): string {
-  const symbol = currencyCode === "LAK" ? "₭" : "฿";
+function formatMoney(value: number, currencyCode: "THB" | "LAK" | "USD" = "THB"): string {
+  const symbol = currencyCode === "LAK" ? "₭" : currencyCode === "USD" ? "$" : "฿";
   const fractionDigits = currencyCode === "LAK" ? 0 : 2;
   return symbol + new Intl.NumberFormat("en-US", {
     minimumFractionDigits: fractionDigits, maximumFractionDigits: fractionDigits
@@ -527,23 +527,23 @@ export function PosPaymentPanel({
         {showDiscount ? (
           <p>
             <span>{text.subtotal}</span>
-            <strong>{formatMoney(Math.max(0, subtotal))}</strong>
+            <strong>{formatMoney(Math.max(0, subtotal), opticalCurrencyCode)}</strong>
           </p>
         ) : null}
         {showTax && taxLines.length > 0 ? taxLines.map((line) => (
           <p key={line.id}>
             <span>{line.label}</span>
-            <strong>{line.amount < 0 ? "-" : "+"}{formatMoney(Math.abs(line.amount))}</strong>
+            <strong>{line.amount < 0 ? "-" : "+"}{formatMoney(Math.abs(line.amount), opticalCurrencyCode)}</strong>
           </p>
         )) : showTax && text.tax ? (
           <p>
             <span>{text.tax}</span>
-            <strong>{formatMoney(Math.max(0, taxAmount ?? 0))}</strong>
+            <strong>{formatMoney(Math.max(0, taxAmount ?? 0), opticalCurrencyCode)}</strong>
           </p>
         ) : null}
         <p className="is-total">
           <span>{text.total}</span>
-          <strong>{formatMoney(total)}</strong>
+          <strong>{formatMoney(total, opticalCurrencyCode)}</strong>
         </p>
       </div>
 
