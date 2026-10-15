@@ -259,6 +259,37 @@ export function OpticalStockWorkspace({rows,branch,currency,canManage}:{
                 {Object.entries(types).map(([k,v])=><option key={k} value={k}>{v}</option>)}
               </select>
             </label>
+            <label className="text-sm font-semibold">แบรนด์ / ยี่ห้อ
+              <input className={field+" mt-1"} value={draft.brand} maxLength={120}
+                onChange={e=>change("brand",e.target.value)}/>
+            </label>
+            {draft.kind==="frame"?<>
+              <label className="text-sm font-semibold">รุ่น
+                <input className={field+" mt-1"} value={draft.model} maxLength={120}
+                  onChange={e=>change("model",e.target.value)}/></label>
+              <label className="text-sm font-semibold">สี
+                <input className={field+" mt-1"} value={draft.color} maxLength={80}
+                  onChange={e=>change("color",e.target.value)}/></label>
+              <label className="text-sm font-semibold">ขนาด
+                <input className={field+" mt-1"} value={draft.frame_size} maxLength={60}
+                  onChange={e=>change("frame_size",e.target.value)}/></label>
+            </>:draft.kind==="lens"?<>
+              <label className="text-sm font-semibold">ชื่อเลนส์
+                <input className={field+" mt-1"} value={draft.lens_name} maxLength={120}
+                  onChange={e=>change("lens_name",e.target.value)}/></label>
+              <label className="text-sm font-semibold">Index
+                <input className={field+" mt-1"} value={draft.lens_index} maxLength={40}
+                  onChange={e=>change("lens_index",e.target.value)}/></label>
+              <label className="text-sm font-semibold">SPH
+                <input className={field+" mt-1"} type="number" step="0.25" value={draft.lens_sph}
+                  onChange={e=>change("lens_sph",e.target.value)}/></label>
+              <label className="text-sm font-semibold">CYL
+                <input className={field+" mt-1"} type="number" step="0.25" value={draft.lens_cyl}
+                  onChange={e=>change("lens_cyl",e.target.value)}/></label>
+              <label className="text-sm font-semibold">Axis
+                <input className={field+" mt-1"} type="number" min="0" max="180" value={draft.lens_axis}
+                  onChange={e=>change("lens_axis",e.target.value)}/></label>
+            </>:null}
             <label className="text-sm font-semibold">SKU / บาร์โค้ด (กรอกเอง) *
               <input className={field+" mt-1"} value={draft.sku} maxLength={90} onChange={e=>change("sku",e.target.value)}/>
             </label>
