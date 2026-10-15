@@ -9,6 +9,7 @@ import {
 import { loadPosRuntimeDevicePolicyForSession } from "@/lib/pos-device-status";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
 import { readThroughRuntimeCache } from "@/lib/route-runtime-cache";
+import { getOpticalShiftUiPolicy } from "@/lib/server/optical-shift-ui-policy";
 
 async function withQueryTimeout<T>(queryPromise: Promise<T>, timeoutMs: number): Promise<T | null> {
   let timeoutId: ReturnType<typeof setTimeout> | null = null;
@@ -385,6 +386,11 @@ export async function GET(request?: Request) {
     }
 
     if (lightweightShiftGuard) {
+      const opticalShiftPolicy=await readThroughRuntimeCache({
+        key:`pos-optical-shift-policy:${scope.session.tenant_id}`,
+        ttlMs:45_000,
+        loader:()=>getOpticalShiftUiPolicy(scope.session.tenant_id)
+      });
       const response = NextResponse.json({
         data: {
           session: {
@@ -394,6 +400,7 @@ export async function GET(request?: Request) {
           },
           role: scope.session.role,
           shift: shiftSummary,
+          optical_shift_policy: opticalShiftPolicy.value,
           has_active_shift: shiftSummary?.status === "open",
           shift_lookup_degraded: shiftLookupFallback
         },
