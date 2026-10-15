@@ -35,13 +35,13 @@ const forEdit=(r:OpticalRow):Draft=>({name:r.name,sku:r.sku??"",kind:kind(r),
   model:String(r.opticalBin?.model??r.metadata?.optical_model??""),
   color:String(r.opticalBin?.color??r.metadata?.optical_color??""),
   frame_size:String(r.opticalBin?.frame_size??r.metadata?.optical_frame_size??""),
-  lens_name:String(r.metadata?.optical_lens_name??r.name),
+  lens_name:String(r.opticalBin?.model??r.metadata?.optical_lens_name??r.name),
   lens_index:String(r.opticalBin?.lens_index??r.metadata?.optical_lens_index??""),
   lens_sph:String(r.opticalBin?.lens_sph??r.metadata?.optical_lens_sph??""),
   lens_cyl:String(r.opticalBin?.lens_cyl??r.metadata?.optical_lens_cyl??""),
   lens_axis:String(r.metadata?.optical_lens_axis??"")});
 function detail(r:OpticalRow,key:"brand"|"model"|"color"|"frame_size"|"lens_index"|"lens_sph"|"lens_cyl"|"lens_type"|"lens_name") {
-  const raw=key==="lens_name"?r.metadata?.optical_lens_name??r.name:
+  const raw=key==="lens_name"?r.opticalBin?.model??r.metadata?.optical_lens_name??r.name:
     r.opticalBin?.[key]??r.metadata?.["optical_"+key];
   return raw===null||raw===undefined||String(raw).trim()===""?"—":String(raw);
 }
