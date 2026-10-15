@@ -11,7 +11,7 @@ export type OpticalRow={
 };
 type Kind="frame"|"lens"|"accessory";
 type Draft={name:string;sku:string;kind:Kind;price:string;unit:string;note:string};
-type Modal=null|"add"|"bulk"|"edit"|"delete";
+type Modal=null|"add"|"bulk"|"edit"|"delete"|"sku";
 const types:Record<Kind,string>={frame:"กรอบแว่น",lens:"เลนส์",accessory:"อุปกรณ์เสริม"};
 const blank=():Draft=>({name:"",sku:"",kind:"frame",price:"",unit:"ชิ้น",note:""});
 const field="min-h-10 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100";
