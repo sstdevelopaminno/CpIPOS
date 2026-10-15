@@ -86,6 +86,10 @@ export function OpticalStockWorkspace({rows,branch,currency,canManage}:{
       window.location.reload();
     }catch(e){setError(e instanceof Error?e.message:"เกิดข้อผิดพลาด");setBusy(false);}
   }
+  const summaryCards:[string,number][]=[["สินค้า",rows.length],
+    ["เหลือ 1",rows.filter(r=>r.available===1).length],
+    ["หมด",rows.filter(r=>r.available===0).length],
+    ["รอตรวจสต๊อก",rows.filter(r=>r.available===null).length]];
   const pages=Array.from({length:totalPages},(_,i)=>i+1).filter(p=>
     totalPages<=7||p===1||p===totalPages||Math.abs(p-currentPage)<=2);
   return <main className="mx-auto w-full max-w-7xl space-y-4 px-3 pb-8 pt-3 lg:px-6" data-testid="custom-optical-inventory">
@@ -102,9 +106,7 @@ export function OpticalStockWorkspace({rows,branch,currency,canManage}:{
       <p className="mt-1 text-sm text-slate-600">{branch} · ข้อมูลแยกตาม Tenant และ Branch</p>
     </header>
     <section className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-      {([["สินค้า",rows.length],["เหลือ 1",rows.filter(r=>r.available===1).length],
-        ["หมด",rows.filter(r=>r.available===0).length],["รอตรวจสต๊อก",rows.filter(r=>r.available===null).length]]
-        as [string,number][]).map(([label,value])=><div key={label} className="rounded-xl border border-emerald-100 bg-white p-4 shadow-sm">
+      {summaryCards.map(([label,value])=><div key={label} className="rounded-xl border border-emerald-100 bg-white p-4 shadow-sm">
           <p className="text-xs text-slate-500">{label}</p><strong className="mt-2 block text-2xl text-emerald-800">{value}</strong>
         </div>)}
     </section>
