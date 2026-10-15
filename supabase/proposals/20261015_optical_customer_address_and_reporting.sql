@@ -17,21 +17,18 @@ create table if not exists public.optical_customer_profile_audit (
 );
 alter table public.optical_customer_profile_audit enable row level security;
 revoke all on public.optical_customer_profile_audit from PUBLIC,anon,authenticated;
-grant select,insert on public.optical_customer_profile_audit to authenticated;
+grant select on public.optical_customer_profile_audit to authenticated;
 create policy optical_customer_address_audit_select
   on public.optical_customer_profile_audit for select to authenticated
   using (public.can_manage_optical_customer_data(tenant_id,branch_id));
-create policy optical_customer_address_audit_insert
-  on public.optical_customer_profile_audit for insert to authenticated
-  with check (public.can_manage_optical_customer_data(tenant_id,branch_id)
-    and actor_id=auth.uid());
+-- Only the audited function can insert audit rows; browser clients cannot forge history.
 
 create or replace function public.optical_save_customer_address_v1(
   p_tenant_id uuid,p_branch_id uuid,p_customer_id uuid,
   p_address text,p_request_id uuid
 )
 returns boolean
-language plpgsql security invoker set search_path=public,pg_temp
+language plpgsql security definer set search_path=public,pg_temp
 as $
 declare v_old text; v_new text;
 begin
