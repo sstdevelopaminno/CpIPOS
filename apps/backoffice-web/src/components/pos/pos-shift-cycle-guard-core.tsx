@@ -534,7 +534,7 @@ export function PosShiftCycleGuard({ lang }: { lang: Lang }) {
   }
 
   async function handleContinueToNextShift() {
-    if (!shift || busy) return;
+    if (!shift || busy || opticalPolicy?.enabled) return;
     const approvalPin = getApprovalPinOrFail();
     if (approvalPin === null) return;
     setBusy("continue");
@@ -555,7 +555,7 @@ export function PosShiftCycleGuard({ lang }: { lang: Lang }) {
   }
 
   async function handleClearOpenBillsAndContinue() {
-    if (!shift || busy) return;
+    if (!shift || busy || opticalPolicy?.enabled) return;
     const approvalPin = getApprovalPinOrFail();
     if (approvalPin === null) return;
     const shouldCloseOnly = (phase === "urgent" || phase === "auto_close") && !needsManagerApproval;
@@ -637,6 +637,7 @@ export function PosShiftCycleGuard({ lang }: { lang: Lang }) {
 
   if (loading || !shift || !cycle || phase === "on_time") return null;
 
+  const opticalManualCloseRequired=opticalPolicy?.enabled===true && !opticalPolicy.automaticClosureReady;
   const forceClose = (phase === "urgent" || phase === "auto_close") && !needsManagerApproval;
   const hasOpenBillBlockers = shiftBlockerCode === "shift_has_open_bills" && shiftBlockers.length > 0;
   if (dismissedBlockerShiftId === shift.id && hasOpenBillBlockers) return null;
@@ -652,7 +653,7 @@ export function PosShiftCycleGuard({ lang }: { lang: Lang }) {
         : busy
           ? copy.closingProgress
           : null;
-  const canClearOpenBills = !hasOpenBillBlockers && (shiftBlockerCode === "shift_has_open_bills" || forceClose);
+  const canClearOpenBills = !opticalPolicy?.enabled && !hasOpenBillBlockers && (shiftBlockerCode === "shift_has_open_bills" || forceClose);
   const hasClosingCashInput = closingCash.trim().length > 0;
   const closingCashAmount = Number(closingCash.trim() || "0");
   const closingCashIsValid = Number.isFinite(closingCashAmount) && closingCashAmount >= 0;
@@ -706,7 +707,11 @@ export function PosShiftCycleGuard({ lang }: { lang: Lang }) {
             {copy.windowEnded}: <strong>{formatDateTime(cycle.endAt.toISOString(), lang)}</strong>
           </p>
           {phase === "urgent" ? <p className="mt-1 font-bold text-amber-700">{copy.urgentHint}</p> : null}
-          {phase === "auto_close" ? <p className="mt-1 font-bold text-rose-700">{copy.autoClosing}</p> : null}
+          {phase === "auto_close" ? <p className="mt-1 font-bold text-rose-700">
+            {opticalManualCloseRequired
+              ? (lang==="th"?"ครบวันทำการแล้ว · โปรดนับเงินสดและปิดกะรายวัน (ตัวจัดตารางงานเซิร์ฟเวอร์ยังไม่เปิดใช้งาน)":"Business day ended · Count cash and close the daily shift; server job is pending.")
+              : copy.autoClosing}
+          </p> : null}
         </div>
 
         {needsManagerApproval ? (
@@ -753,7 +758,7 @@ export function PosShiftCycleGuard({ lang }: { lang: Lang }) {
           >
             {logoutBusy ? copy.closingProgress : copy.logoutLabel}
           </button>
-          {!forceClose ? (
+          {!forceClose && !opticalPolicy?.enabled ? (
             <button
               type="button"
               onClick={() => void handleContinueToNextShift()}
