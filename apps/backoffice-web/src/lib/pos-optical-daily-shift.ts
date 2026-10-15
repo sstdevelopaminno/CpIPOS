@@ -99,8 +99,8 @@ export function resolveOpticalDailyShift(args:{
   return {
     country:args.country,currency:currencyByCountry[args.country],
     timeZone,openedAt,cutoffAt,
-    warningAt:new Date(cutoffAt.getTime()+30*60*1000),
-    autoCloseAt:new Date(cutoffAt.getTime()+45*60*1000)
+    warningAt:new Date(cutoffAt.getTime()-15*60*1000),
+    autoCloseAt:cutoffAt
   };
 }
 
