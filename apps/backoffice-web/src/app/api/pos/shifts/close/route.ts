@@ -205,6 +205,9 @@ export async function POST(request: Request) {
           openedAt:shift.opened_at,country:opticalPolicy.country,
           approvedTimeZone:opticalPolicy.timeZone
         }):null;
+    if(opticalPolicy.enabled && !opticalDay) {
+      return NextResponse.json({data:null,error:{code:"optical_shift_timezone_required",message:"The store needs an approved timezone before closing the daily Optical shift."}},{status:409});
+    }
     const overdueAutoClose=opticalPolicy.enabled && !opticalDay
       ? false : shiftRequiresManagerApproval(shift.opened_at,opticalDay?.autoCloseAt);
     if (isStaffRole && shift.opened_by !== scope.session.user_id) {
