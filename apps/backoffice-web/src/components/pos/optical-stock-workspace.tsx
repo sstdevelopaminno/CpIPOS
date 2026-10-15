@@ -10,7 +10,7 @@ export type OpticalRow={
   available:number|null;recipeAttached:boolean;
   opticalBin?:{product_id:string;kind:string;brand:string|null;model:string|null;
     color:string|null;frame_size:string|null;lens_type:string|null;lens_index:string|null;
-    lens_sph:number|null;lens_cyl:number|null;on_hand:number;reserved:number;currency_code:string}|null
+    lens_sph:number|null;lens_cyl:number|null;on_hand:number;reserved:number;unit_price:number;currency_code:string}|null
 };
 type Kind="frame"|"lens"|"accessory";
 type Draft={name:string;sku:string;kind:Kind;price:string;unit:string;note:string;
@@ -30,7 +30,7 @@ const kind=(row:OpticalRow):Kind=>{
   return "frame";
 };
 const forEdit=(r:OpticalRow):Draft=>({name:r.name,sku:r.sku??"",kind:kind(r),
-  price:String(r.price),unit:r.sell_unit??"ชิ้น",note:String(r.metadata?.optical_note??""),
+  price:String(r.opticalBin?.unit_price??r.price),unit:r.sell_unit??"ชิ้น",note:String(r.metadata?.optical_note??""),
   brand:String(r.opticalBin?.brand??r.metadata?.optical_brand??""),
   model:String(r.opticalBin?.model??r.metadata?.optical_model??""),
   color:String(r.opticalBin?.color??r.metadata?.optical_color??""),
@@ -202,7 +202,7 @@ export function OpticalStockWorkspace({rows,branch,currency,canManage}:{
               <td className="px-3 py-3">{row.category??"—"}</td>
               <td className="px-3 py-3">—</td><td className="px-3 py-3">{row.sell_unit??"ชิ้น"}</td>
             </>}
-            <td className="px-3 py-3 text-right">{formatSalesMoney(Number(row.price),currency)}</td>
+            <td className="px-3 py-3 text-right">{formatSalesMoney(Number(row.opticalBin?.unit_price??row.price),currency)}</td>
             <td className="px-3 py-3 text-right font-semibold">{initialCount(row)??"—"}</td>
             <td className="px-3 py-3 text-right font-semibold">
               {remaining(row)??"รอยืนยัน"}
