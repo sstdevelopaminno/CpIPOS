@@ -224,11 +224,17 @@ export function OpticalStockWorkspace({rows,branch,currency,canManage}:{
         className={"flex max-h-[92vh] w-full flex-col overflow-hidden rounded-2xl bg-white shadow-2xl "+(modal==="bulk"?"max-w-6xl":"max-w-xl")}>
         <header className="flex justify-between gap-3 border-b border-slate-200 p-5">
           <div><h2 id="optical-modal-title" className="text-lg font-extrabold">
-            {modal==="add"?"เพิ่มสินค้า":modal==="edit"?"แก้ไขสินค้า":modal==="bulk"?"สร้างสินค้าหลายรายการ":"ยืนยันการลบสินค้า"}
-          </h2>{modal!=="delete"?<p className="mt-1 text-xs text-slate-500">SKU / บาร์โค้ด กรอกเองได้ · ไม่เปลี่ยนจำนวนสต๊อกอัตโนมัติ</p>:null}</div>
+            {modal==="add"?"เพิ่มสินค้า":modal==="edit"?"แก้ไขสินค้า":modal==="bulk"?"สร้างสินค้าหลายรายการ":modal==="sku"?"SKU / บาร์โค้ด":"ยืนยันการลบสินค้า"}
+          </h2>{modal!=="delete"&&modal!=="sku"?<p className="mt-1 text-xs text-slate-500">SKU / บาร์โค้ด กรอกเองได้ · ไม่เปลี่ยนจำนวนสต๊อกอัตโนมัติ</p>:null}</div>
           <button aria-label="ปิด" disabled={busy} className="px-2 text-xl" onClick={close}>×</button>
         </header>
         <div className="min-h-0 overflow-y-auto p-5">
+          {modal==="sku"?<div className="rounded-xl border border-emerald-200 bg-emerald-50 p-5">
+            <p className="text-sm text-slate-600">{selected?.name}</p>
+            <code className="mt-3 block break-all text-lg font-bold text-slate-900">{selected?.sku??"—"}</code>
+            <button type="button" className="mt-4 rounded-lg bg-emerald-700 px-4 py-2 text-sm font-bold text-white"
+              onClick={()=>void navigator.clipboard?.writeText(selected?.sku??"")}>คัดลอกรหัส</button>
+          </div>:null}
           {modal==="delete"?<p className="rounded-lg bg-rose-50 p-4 text-sm text-rose-800">
             ต้องการลบสินค้า <strong>{selected?.name}</strong> ใช่หรือไม่? ระบบใช้ Soft Delete และจะบล็อกสินค้าที่มีสต๊อก สูตร หรือใบสั่งงานผูกอยู่
           </p>:null}
@@ -283,8 +289,8 @@ export function OpticalStockWorkspace({rows,branch,currency,canManage}:{
         </div>
         <footer className="flex justify-end gap-2 border-t border-slate-200 bg-slate-50 p-4">
           <button className={btn} disabled={busy} onClick={close}>ยกเลิก</button>
-          <button className={"min-h-10 rounded-xl px-5 py-2 text-sm font-bold text-white disabled:opacity-50 "+(modal==="delete"?"bg-rose-700":"bg-emerald-700")}
-            disabled={busy} onClick={()=>void save()}>{busy?"กำลังบันทึก...":modal==="delete"?"ยืนยันลบ":modal==="bulk"?"บันทึกทั้งหมด":"บันทึก"}</button>
+          {modal!=="sku"?<button className={"min-h-10 rounded-xl px-5 py-2 text-sm font-bold text-white disabled:opacity-50 "+(modal==="delete"?"bg-rose-700":"bg-emerald-700")}
+            disabled={busy} onClick={()=>void save()}>{busy?"กำลังบันทึก...":modal==="delete"?"ยืนยันลบ":modal==="bulk"?"บันทึกทั้งหมด":"บันทึก"}</button>:null}
         </footer>
       </section>
     </div>:null}
