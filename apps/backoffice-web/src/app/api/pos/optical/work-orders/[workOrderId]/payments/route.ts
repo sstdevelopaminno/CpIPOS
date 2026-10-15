@@ -8,7 +8,7 @@ export async function POST(request:Request,{params}:{params:Promise<{workOrderId
   try {
     const scope=await requirePosSession();
     requirePermission(scope,"sale:create");
-    await requireActiveShift(scope);
+    const {shift}=await requireActiveShift(scope);
     if(!await requireOpticalFinanceModule(scope.session.tenant_id,"optical_deposit"))
       return fail("optical_deposit_disabled","Deposit payments require IT approval.",403);
     const {workOrderId}=await params;
@@ -27,7 +27,7 @@ export async function POST(request:Request,{params}:{params:Promise<{workOrderId
     const {data,error}=await getSupabaseServiceClient().rpc("optical_post_deposit_tx",{
       p_tenant_id:scope.session.tenant_id,p_branch_id:scope.session.branch_id,
       p_work_order_id:workOrderId,p_actor:scope.session.user_id,
-      p_request_id:body!.request_id,p_amount_lak:body!.amount_lak,
+      p_shift_id:shift.id,p_request_id:body!.request_id,p_amount_lak:body!.amount_lak,
       p_method:"cash",p_transfer_reference:null,p_verified_by:null
     });
     if(error)return fail("optical_deposit_rejected","Payment was rejected; verify bill status and outstanding balance.",409);
