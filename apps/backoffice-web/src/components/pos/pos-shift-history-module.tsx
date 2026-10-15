@@ -280,6 +280,10 @@ function isOverdueAutoClosedShift(shift: ShiftHistoryItem) {
 }
 
 function shiftStatusBadge(shift: ShiftHistoryItem, lang: Lang) {
+  if (shift.status !== "open" && shift.metadata?.close_reason === "optical_daily_auto_close_midnight") {
+    return {label:lang==="th"?"ปิดกะอัตโนมัติ":"Auto closed",
+      className:"bg-teal-100 text-teal-800 ring-1 ring-teal-200"};
+  }
   if (shift.status === "open") {
     return {
       label: lang === "th" ? "เปิดอยู่" : "Open",
