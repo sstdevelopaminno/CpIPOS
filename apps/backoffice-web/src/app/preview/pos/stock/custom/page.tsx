@@ -12,7 +12,8 @@ export const dynamic="force-dynamic";
 
 type CatalogRow={
   id:string;sku:string|null;name:string;category:string|null;price:number;
-  sell_unit:string|null;stock_deduction_mode:string|null
+  sell_unit:string|null;stock_deduction_mode:string|null;
+  metadata:Record<string,unknown>|null
 };
 type RecipeRow={product_id:string;ingredient_id:string;quantity_per_item:number};
 type IngredientRow={id:string;quantity_on_hand:number};
@@ -33,7 +34,7 @@ export default async function CustomModeStockPage() {
   const optical=mode!=="retail";
   const db=getSupabaseServiceClient();
   const [{data:products,error:productError},{data:branch,error:branchError},currency]=await Promise.all([
-    db.from("products").select("id,sku,name,category,price,sell_unit,stock_deduction_mode")
+    db.from("products").select("id,sku,name,category,price,sell_unit,stock_deduction_mode,metadata")
       .eq("tenant_id",tenantId).eq("branch_id",branchId).is("deleted_at",null)
       .eq("is_active",true).order("name",{ascending:true}).limit(250),
     db.from("branches").select("name").eq("tenant_id",tenantId).eq("id",branchId).maybeSingle(),
@@ -42,7 +43,16 @@ export default async function CustomModeStockPage() {
   if(productError||branchError)return <main role="alert" className="mx-auto max-w-4xl rounded-xl border border-rose-200 bg-rose-50 p-6 text-rose-800">
     ไม่สามารถโหลดสต๊อกของสาขาที่ได้รับสิทธิ์ได้ กรุณาตรวจสอบกับฝ่าย IT
   </main>;
-  const rows=(products??[]) as CatalogRow[];
+  const rows=((products??[]) as CatalogRow[]).filter(product=>{
+    // Mixed CUSTOM must not render restaurant stock as Optical inventory.
+    // A product belongs to the Optical tab only when explicitly tagged by
+    // its business module or assigned to an optical-specific category.
+    if(mode!=="mixed")return true;
+    const metadata=product.metadata??{};
+    if(metadata.business_mode==="optical_retail" || metadata.optical_kind==="frame" ||
+       metadata.optical_kind==="lens" || metadata.optical_kind==="accessory")return true;
+    return /^(กรอบแว่น|เลนส์|แว่นตา|optical|frames?|lenses?)$/i.test(String(product.category??"").trim());
+  });
   const ids=rows.map(p=>p.id);
   const recipes=ids.length?await db.from("recipes").select("product_id,ingredient_id,quantity_per_item")
     .eq("tenant_id",tenantId).eq("branch_id",branchId).in("product_id",ids):{data:[] as RecipeRow[],error:null};
