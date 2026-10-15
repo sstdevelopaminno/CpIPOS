@@ -44,14 +44,15 @@ export default async function CustomModeStockPage() {
     ไม่สามารถโหลดสต๊อกของสาขาที่ได้รับสิทธิ์ได้ กรุณาตรวจสอบกับฝ่าย IT
   </main>;
   const rows=((products??[]) as CatalogRow[]).filter(product=>{
-    // Mixed CUSTOM must not render restaurant stock as Optical inventory.
-    // A product belongs to the Optical tab only when explicitly tagged by
-    // its business module or assigned to an optical-specific category.
-    if(mode!=="mixed")return true;
+    // Optical CUSTOM (including mixed modes) is scoped by the product's
+    // optical classification. A dedicated Optical store may still have old
+    // restaurant products in its legacy catalog; never display those here.
+    // Retail-only CUSTOM retains its original generic stock list.
+    if(!optical)return true;
     const metadata=product.metadata??{};
     if(metadata.business_mode==="optical_retail" || metadata.optical_kind==="frame" ||
        metadata.optical_kind==="lens" || metadata.optical_kind==="accessory")return true;
-    return /^(กรอบแว่น|เลนส์|แว่นตา|optical|frames?|lenses?)$/i.test(String(product.category??"").trim());
+    return /^(กรอบแว่น|เลนส์|แว่นตา|optical|frames?|lenses?|imdc optical qa)(\s|$)/i.test(String(product.category??"").trim());
   });
   const ids=rows.map(p=>p.id);
   const recipes=ids.length?await db.from("recipes").select("product_id,ingredient_id,quantity_per_item")
@@ -85,7 +86,7 @@ export default async function CustomModeStockPage() {
       <p className="mt-1 text-sm text-slate-600">{branch?.name??"สาขาที่ได้รับสิทธิ์"} · ข้อมูลแยกตาม Tenant และ Branch</p>
     </header>
     <p role="note" className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-900">
-      ข้อมูลนี้เป็นภาพรวมสต๊อกจากระบบ POS เดิม ใช้สำหรับตรวจสอบก่อนย้ายเข้าระบบจองสินค้า Optical
+      {optical?"แสดงเฉพาะรายการกรอบแว่น เลนส์ หรือสินค้าที่กำหนดเป็น Optical ไม่รวมสินค้าอาหาร/ร้านค้าทั่วไป":"ภาพรวมสต๊อกขายทั่วไป"} · ข้อมูลนี้เป็นภาพรวมสต๊อกจาก POS เดิม
       ยังไม่อนุญาตให้ปรับยอดหรือตัดสต๊อกจากหน้านี้
     </p>
     <section className="grid grid-cols-2 gap-3 lg:grid-cols-4" aria-label="สรุปสต๊อก">
