@@ -30,7 +30,16 @@ describe("CUSTOM Optical shift boundary and legacy isolation contract",()=>{
     expect(history).toContain("branch_filter_forbidden");
     expect(history).toContain('optical_policy: opticalPolicy');
   });
-  it("preserves normal IT package billing, tax invoices and general receipts unchanged",()=>{
+  it("renders daily labels only for IT-granted optical mode, including shift receipts",()=>{
+    const ui=read("components/pos/pos-shift-history-module.tsx");
+    const schedule=read("lib/pos-optical-daily-shift.ts");
+    expect(ui).toContain("const opticalDaily=payload?.optical_policy?.enabled===true");
+    expect(ui).toContain('args.opticalDaily ? slotLabel("daily",lang)');
+    expect(ui).toContain('opticalDaily ? slotLabel("daily",lang)');
+    expect(schedule).toContain("autoCloseAt:cutoffAt");
+    expect(schedule).toContain("warningAt:new Date(cutoffAt.getTime()-15*60*1000)");
+  });
+    it("preserves normal IT package billing, tax invoices and general receipts unchanged",()=>{
     const page=read("app/preview/pos/shift/page.tsx");
     const history=read("components/pos/pos-shift-history-module.tsx");
     expect(page).toContain("PosShiftHistoryModule");
