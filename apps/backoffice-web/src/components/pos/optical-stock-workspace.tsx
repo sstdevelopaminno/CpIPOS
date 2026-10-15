@@ -1,6 +1,7 @@
 "use client";
 
-import {useMemo,useState} from "react";
+import {useEffect,useMemo,useState} from "react";
+import {ProductMediaManager} from "@/components/pos-preview/product-media-manager";
 import {formatSalesMoney,type SalesCurrencyCode} from "@/lib/pos-money";
 import {PosBackButton} from "@/components/pos-preview/pos-back-button";
 
@@ -16,7 +17,7 @@ type Kind="frame"|"lens"|"accessory";
 type Draft={name:string;sku:string;kind:Kind;price:string;unit:string;note:string;
   brand:string;model:string;color:string;frame_size:string;lens_name:string;
   lens_index:string;lens_sph:string;lens_cyl:string;lens_axis:string};
-type Modal=null|"add"|"bulk"|"edit"|"delete"|"sku";
+type Modal=null|"add"|"bulk"|"edit"|"delete"|"sku"|"media";
 const types:Record<Kind,string>={frame:"กรอบแว่น",lens:"เลนส์",accessory:"อุปกรณ์เสริม"};
 const blank=():Draft=>({name:"",sku:"",kind:"frame",price:"",unit:"ชิ้น",note:"",
   brand:"",model:"",color:"",frame_size:"",lens_name:"",lens_index:"",lens_sph:"",lens_cyl:"",lens_axis:""});
@@ -63,8 +64,8 @@ function checkRows(rows:Draft[],currency:SalesCurrencyCode){
   }
   return "";
 }
-export function OpticalStockWorkspace({rows,branch,currency,canManage}:{
-  rows:OpticalRow[];branch:string;currency:SalesCurrencyCode;canManage:boolean
+export function OpticalStockWorkspace({rows,branch,branchId,currency,canManage}:{
+  rows:OpticalRow[];branch:string;branchId:string;currency:SalesCurrencyCode;canManage:boolean
 }){
   const [search,setSearch]=useState(""),[filter,setFilter]=useState("all"),[stock,setStock]=useState("all");
   const [tab,setTab]=useState<Kind>("frame");
@@ -72,6 +73,7 @@ export function OpticalStockWorkspace({rows,branch,currency,canManage}:{
   const [modal,setModal]=useState<Modal>(null),[selected,setSelected]=useState<OpticalRow|null>(null);
   const [draft,setDraft]=useState<Draft>(blank()),[bulk,setBulk]=useState<Draft[]>([blank(),blank(),blank()]);
   const [busy,setBusy]=useState(false),[error,setError]=useState("");
+  const [images,setImages]=useState<Record<string,{thumbnail_url:string}>>({});
   const displayed=useMemo(()=>rows.filter(r=>{
     if(search&&!([r.name,r.sku,r.category].some(v=>String(v??"").toLowerCase().includes(search.trim().toLowerCase()))))return false;
     if(kind(r)!==tab)return false;
@@ -84,6 +86,16 @@ export function OpticalStockWorkspace({rows,branch,currency,canManage}:{
   }),[rows,search,filter,stock,tab]);
   const totalPages=Math.max(1,Math.ceil(displayed.length/pageSize)),currentPage=Math.min(page,totalPages);
   const subset=displayed.slice((currentPage-1)*pageSize,currentPage*pageSize);
+  const visibleIds=subset.map(item=>item.id).join(",");
+  useEffect(()=>{
+    if(!visibleIds)return;
+    const controller=new AbortController();
+    void fetch("/api/pos/product-media?product_ids="+encodeURIComponent(visibleIds),
+      {signal:controller.signal,cache:"no-store"}).then(r=>r.json()).then(body=>{
+        if(!controller.signal.aborted&&body.data?.images)setImages(body.data.images);
+      }).catch(()=>{});
+    return()=>controller.abort();
+  },[visibleIds,modal]);
   const change=(key:keyof Draft,value:string)=>setDraft(s=>({...s,[key]:value}));
   const changeBulk=(idx:number,key:keyof Draft,value:string)=>
     setBulk(s=>s.map((r,i)=>i===idx?{...r,[key]:value}:r));
@@ -96,7 +108,7 @@ export function OpticalStockWorkspace({rows,branch,currency,canManage}:{
   const close=()=>{if(!busy){setModal(null);setError("");}};
   async function save(){
     if(!modal||busy)return;
-    if(modal==="sku")return;
+    if(modal==="sku"||modal==="media")return;
     const items=modal==="bulk"?bulk:[draft];
     if(modal!=="delete"){
       const err=checkRows(items,currency);
@@ -173,7 +185,7 @@ export function OpticalStockWorkspace({rows,branch,currency,canManage}:{
       <div className="overflow-x-auto">
         <table className="w-full min-w-[1080px] border-collapse text-sm">
           <thead className="bg-emerald-50 text-left text-slate-700"><tr>
-            {["SKU / บาร์โค้ด",...(tab==="frame"
+            {["SKU / บาร์โค้ด","รูปสินค้า",...(tab==="frame"
               ?["แบรนด์","รุ่น","สี","ขนาด"]
               :tab==="lens"?["ยี่ห้อ","ชื่อเลนส์","Index","ค่าสายตา"]
               :["ชื่อสินค้า","ประเภท","รายละเอียด","หน่วย"]),
@@ -184,6 +196,14 @@ export function OpticalStockWorkspace({rows,branch,currency,canManage}:{
             <td className="px-3 py-3">
               <button type="button" className="whitespace-nowrap rounded-lg border border-emerald-200 bg-white px-3 py-2 text-xs font-bold text-emerald-800"
                 onClick={()=>show("sku",row)}>ดูรหัส</button>
+            </td>
+            <td className="px-3 py-3">
+              <button type="button" title="ดูหรืออัปโหลดรูปสินค้า" className="rounded-lg border border-slate-200 p-1"
+                onClick={()=>show("media",row)}>
+                {images[row.id]?.thumbnail_url?<img src={images[row.id].thumbnail_url}
+                  alt={row.name} className="h-12 w-12 rounded-md object-cover" loading="lazy"/>:
+                  <span className="grid h-12 w-12 place-items-center text-[10px] text-slate-500">+ รูป</span>}
+              </button>
             </td>
             {tab==="frame"?<>
               <td className="px-3 py-3">{detail(row,"brand")}</td>
@@ -233,14 +253,17 @@ export function OpticalStockWorkspace({rows,branch,currency,canManage}:{
     </section>
     {modal?<div className="fixed inset-0 z-[160] flex items-center justify-center bg-slate-950/60 p-3">
       <section role="dialog" aria-modal="true" aria-labelledby="optical-modal-title"
-        className={"flex max-h-[92vh] w-full flex-col overflow-hidden rounded-2xl bg-white shadow-2xl "+(modal==="bulk"?"max-w-6xl":"max-w-xl")}>
+        className={"flex max-h-[92vh] w-full flex-col overflow-hidden rounded-2xl bg-white shadow-2xl "+(modal==="bulk"||modal==="media"?"max-w-6xl":"max-w-xl")}>
         <header className="flex justify-between gap-3 border-b border-slate-200 p-5">
           <div><h2 id="optical-modal-title" className="text-lg font-extrabold">
-            {modal==="add"?"เพิ่มสินค้า":modal==="edit"?"แก้ไขสินค้า":modal==="bulk"?"สร้างสินค้าหลายรายการ":modal==="sku"?"SKU / บาร์โค้ด":"ยืนยันการลบสินค้า"}
-          </h2>{modal!=="delete"&&modal!=="sku"?<p className="mt-1 text-xs text-slate-500">SKU / บาร์โค้ด กรอกเองได้ · ไม่เปลี่ยนจำนวนสต๊อกอัตโนมัติ</p>:null}</div>
+            {modal==="add"?"เพิ่มสินค้า":modal==="edit"?"แก้ไขสินค้า":modal==="bulk"?"สร้างสินค้าหลายรายการ":modal==="sku"?"SKU / บาร์โค้ด":modal==="media"?"จัดการรูปสินค้า":"ยืนยันการลบสินค้า"}
+          </h2>{modal!=="delete"&&modal!=="sku"&&modal!=="media"?<p className="mt-1 text-xs text-slate-500">SKU / บาร์โค้ด กรอกเองได้ · ไม่เปลี่ยนจำนวนสต๊อกอัตโนมัติ</p>:null}</div>
           <button aria-label="ปิด" disabled={busy} className="px-2 text-xl" onClick={close}>×</button>
         </header>
         <div className="min-h-0 overflow-y-auto p-5">
+          {modal==="media"&&selected?<ProductMediaManager
+            th branchId={branchId} branchName={branch} canManage={canManage}
+            products={[{id:selected.id,sku:selected.sku??"",name:selected.name,category:selected.category??"Optical"}]}/>:null}
           {modal==="sku"?<div className="rounded-xl border border-emerald-200 bg-emerald-50 p-5">
             <p className="text-sm text-slate-600">{selected?.name}</p>
             <code className="mt-3 block break-all text-lg font-bold text-slate-900">{selected?.sku??"—"}</code>
@@ -345,7 +368,7 @@ export function OpticalStockWorkspace({rows,branch,currency,canManage}:{
         </div>
         <footer className="flex justify-end gap-2 border-t border-slate-200 bg-slate-50 p-4">
           <button className={btn} disabled={busy} onClick={close}>ยกเลิก</button>
-          {modal!=="sku"?<button className={"min-h-10 rounded-xl px-5 py-2 text-sm font-bold text-white disabled:opacity-50 "+(modal==="delete"?"bg-rose-700":"bg-emerald-700")}
+          {modal!=="sku"&&modal!=="media"?<button className={"min-h-10 rounded-xl px-5 py-2 text-sm font-bold text-white disabled:opacity-50 "+(modal==="delete"?"bg-rose-700":"bg-emerald-700")}
             disabled={busy} onClick={()=>void save()}>{busy?"กำลังบันทึก...":modal==="delete"?"ยืนยันลบ":modal==="bulk"?"บันทึกทั้งหมด":"บันทึก"}</button>:null}
         </footer>
       </section>
