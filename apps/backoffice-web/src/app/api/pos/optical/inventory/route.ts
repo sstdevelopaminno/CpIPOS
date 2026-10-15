@@ -14,7 +14,16 @@ export async function GET() {
       .eq("tenant_id",scope.session.tenant_id).eq("branch_id",scope.session.branch_id)
       .order("created_at",{ascending:false}).limit(200);
     if(error)return fail("optical_inventory_unavailable","Unable to read Optical inventory.",503);
-    return ok({items:(data??[]).map(item=>({...item,available:Number(item.on_hand)-Number(item.reserved)}))});
+    const ids=(data??[]).map(item=>item.product_id);
+    const products=ids.length?await getSupabaseServiceClient().from("products")
+      .select("id,sku,name").eq("tenant_id",scope.session.tenant_id)
+      .eq("branch_id",scope.session.branch_id).in("id",ids)
+      :{data:[],error:null};
+    if(products.error)return fail("optical_inventory_product_unavailable","Unable to read Optical product details.",503);
+    const names=new Map((products.data??[]).map(p=>[p.id,p]));
+    return ok({items:(data??[]).map(item=>({...item,
+      sku:names.get(item.product_id)?.sku??"",name:names.get(item.product_id)?.name??"",
+      available:Number(item.on_hand)-Number(item.reserved)}))});
   }catch(error){
     return error instanceof PosGuardError?fail(error.code,error.message,error.status)
       : fail("optical_inventory_unavailable","Optical inventory is currently unavailable.",503);
