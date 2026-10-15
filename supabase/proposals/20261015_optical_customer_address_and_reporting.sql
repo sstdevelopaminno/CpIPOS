@@ -29,7 +29,7 @@ create or replace function public.optical_save_customer_address_v1(
 )
 returns boolean
 language plpgsql security definer set search_path=public,pg_temp
-as $
+as $$
 declare v_old text; v_new text;
 begin
   if not public.can_manage_optical_customer_data(p_tenant_id,p_branch_id)
@@ -57,7 +57,7 @@ begin
     where c.id=p_customer_id and c.tenant_id=p_tenant_id and c.branch_id=p_branch_id;
   return true;
 end;
-$;
+$$;
 revoke all on function public.optical_save_customer_address_v1(uuid,uuid,uuid,text,uuid)
   from PUBLIC,anon;
 grant execute on function public.optical_save_customer_address_v1(uuid,uuid,uuid,text,uuid)
@@ -71,7 +71,7 @@ create or replace function public.optical_report_v1(
 )
 returns table(metric text,label text,quantity bigint,amount_lak numeric)
 language plpgsql stable security invoker set search_path=public,pg_temp
-as $
+as $$
 begin
  -- RLS already scopes Optical records. Financial reporting is further
  -- restricted to the owner; managers may manage customers but not see this.
@@ -115,7 +115,7 @@ begin
    where oi.tenant_id=p_tenant_id and oi.branch_id=p_branch_id
    group by oi.sku_snapshot;
 end;
-$;
+$$;
 revoke all on function public.optical_report_v1(uuid,uuid,timestamptz,timestamptz) from PUBLIC,anon;
 grant execute on function public.optical_report_v1(uuid,uuid,timestamptz,timestamptz) to authenticated;
 -- Only owner/manager can see optical reporting through existing RLS.
