@@ -653,7 +653,8 @@ export function PosShiftCycleGuard({ lang }: { lang: Lang }) {
         : busy
           ? copy.closingProgress
           : null;
-  const canClearOpenBills = !opticalPolicy?.enabled && !hasOpenBillBlockers && (shiftBlockerCode === "shift_has_open_bills" || forceClose);
+  const canClearOpenBills = !hasOpenBillBlockers && (shiftBlockerCode === "shift_has_open_bills" || forceClose);
+  const allowClearOpenBills = canClearOpenBills && !opticalPolicy?.enabled;
   const hasClosingCashInput = closingCash.trim().length > 0;
   const closingCashAmount = Number(closingCash.trim() || "0");
   const closingCashIsValid = Number.isFinite(closingCashAmount) && closingCashAmount >= 0;
@@ -778,7 +779,7 @@ export function PosShiftCycleGuard({ lang }: { lang: Lang }) {
               {openBillTarget ? `${copy.manageOpenBillLabel} ${openBillTarget}` : copy.manageOpenBillLabel}
             </button>
           ) : null}
-          {canClearOpenBills ? (
+          {allowClearOpenBills ? (
             <button
               type="button"
               onClick={() => void handleClearOpenBillsAndContinue()}
