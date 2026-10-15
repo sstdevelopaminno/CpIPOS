@@ -19,7 +19,11 @@ type CatalogRow={
 };
 type RecipeRow={product_id:string;ingredient_id:string;quantity_per_item:number};
 type IngredientRow={id:string;quantity_on_hand:number};
-type RenderRow=CatalogRow&{available:number|null;recipeAttached:boolean};
+type OpticalBin={product_id:string;kind:string;brand:string|null;model:string|null;color:string|null;
+  frame_size:string|null;lens_type:string|null;lens_index:string|null;lens_sph:number|null;
+  lens_cyl:number|null;on_hand:number;reserved:number;currency_code:string};
+type RenderRow=CatalogRow&{available:number|null;recipeAttached:boolean;
+  opticalBin?:OpticalBin|null};
 
 /**
  * No stock or contract writes. Keeps recipe-based legacy quantities visible
@@ -85,9 +89,24 @@ export default async function CustomModeStockPage() {
       ?Math.max(0,Math.floor(onHand/Number(recipe.quantity_per_item))):null;
     return {...p,available:units,recipeAttached:productRecipes.length>0};
   });
-  if(optical)return <OpticalStockWorkspace rows={mapped}
-    branch={branch?.name??"สาขาที่ได้รับสิทธิ์"} currency={currency}
-    canManage={["owner","manager"].includes(String(scope.session.role??"").toLowerCase())}/>;
+  // Verified Optical bins are authoritative for quantity/remaining. Legacy
+  // recipe estimates are presented separately and never treated as verified.
+  if(optical) {
+    const binRows=ids.length?await collectShiftRowsForIds<OpticalBin>(ids,(batch,from,to)=>
+      db.from("optical_stock_bins").select(
+        "product_id,kind,brand,model,color,frame_size,lens_type,lens_index,lens_sph,lens_cyl,on_hand,reserved,currency_code"
+      ).eq("tenant_id",tenantId).eq("branch_id",branchId).in("product_id",batch)
+      .order("product_id",{ascending:true}).range(from,to))
+      :{data:[] as OpticalBin[],error:null};
+    if(binRows.error)return <main role="alert" className="rounded-xl border border-rose-200 bg-rose-50 p-6">
+      ไม่สามารถตรวจสอบสต๊อก Optical ได้ โปรดตรวจสอบกับฝ่าย IT
+    </main>;
+    const binMap=new Map((binRows.data??[]).map(item=>[item.product_id,item]));
+    const enriched=mapped.map(row=>({...row,opticalBin:binMap.get(row.id)??null}));
+    return <OpticalStockWorkspace rows={enriched}
+      branch={branch?.name??"สาขาที่ได้รับสิทธิ์"} currency={currency}
+      canManage={["owner","manager"].includes(String(scope.session.role??"").toLowerCase())}/>;
+  }
   const low=mapped.filter(x=>x.available===1).length;
   const out=mapped.filter(x=>x.available===0).length;
   const legacy=mapped.filter(x=>x.recipeAttached).length;
