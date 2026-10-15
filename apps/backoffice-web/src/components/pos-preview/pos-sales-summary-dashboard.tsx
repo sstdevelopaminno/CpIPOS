@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState, useTransition, type ReactNode } from "react";
 import { PosBackButton } from "@/components/pos-preview/pos-back-button";
+import { formatSalesMoney, type SalesCurrencyCode } from "@/lib/pos-money";
 import { downloadExcelCsv, type CsvCellValue } from "@/lib/excel-csv";
 import type { Language } from "@/lib/i18n";
 import type { PosSalesSummaryPayload } from "@/lib/services/pos-sales-summary-service";
@@ -40,13 +41,8 @@ const paymentOptions = [
 const inputClass =
   "h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm font-semibold text-slate-900 outline-none transition focus:border-blue-400 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400";
 
-function money(value: number, lang: Language): string {
-  return new Intl.NumberFormat(lang === "th" ? "th-TH" : "en-US", {
-    style: "currency",
-    currency: "THB",
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2
-  }).format(value);
+function money(value: number, lang: Language, code: SalesCurrencyCode): string {
+  return formatSalesMoney(value, code, lang === "th" ? "th-TH" : "en-US");
 }
 
 function number(value: number, lang: Language): string {
@@ -110,16 +106,16 @@ export function PosSalesSummaryDashboard({ lang, initialPayload }: Props) {
   }, [payload.salesRows, salesRowsPage, salesRowsTotalPages]);
   const activeMoreExport = useMemo(() => buildMoreDialogExport(payload, moreDialogTab, lang), [lang, moreDialogTab, payload]);
   const kpis = [
-    { label: "ยอดขายรวม", value: money(payload.summary.grossSales, lang), tone: "text-slate-900" },
-    { label: "ยอดขายสุทธิ", value: money(payload.summary.netSales, lang), tone: "text-blue-700" },
+    { label: "ยอดขายรวม", value: money(payload.summary.grossSales, lang, payload.currencyCode), tone: "text-slate-900" },
+    { label: "ยอดขายสุทธิ", value: money(payload.summary.netSales, lang, payload.currencyCode), tone: "text-blue-700" },
     { label: "จำนวนบิล", value: number(payload.summary.receiptCount, lang), tone: "text-slate-900" },
-    { label: "เงินสด", value: money(payload.summary.cashTotal, lang), tone: "text-green-700" },
-    { label: "โอน / QR", value: money(payload.summary.qrTransferTotal, lang), tone: "text-blue-700" },
-    { label: "บัตรเครดิต / เดบิต", value: money(payload.summary.cardTotal, lang), tone: "text-violet-700" },
-    { label: "ส่วนลด", value: money(payload.summary.discountTotal, lang), tone: "text-amber-700" },
+    { label: "เงินสด", value: money(payload.summary.cashTotal, lang, payload.currencyCode), tone: "text-green-700" },
+    { label: "โอน / QR", value: money(payload.summary.qrTransferTotal, lang, payload.currencyCode), tone: "text-blue-700" },
+    { label: "บัตรเครดิต / เดบิต", value: money(payload.summary.cardTotal, lang, payload.currencyCode), tone: "text-violet-700" },
+    { label: "ส่วนลด", value: money(payload.summary.discountTotal, lang, payload.currencyCode), tone: "text-amber-700" },
     {
       label: "ยกเลิก / คืนเงิน",
-      value: `${money(payload.summary.cancelledTotal + payload.summary.refundTotal, lang)} (${payload.summary.cancelledCount})`,
+      value: `${money(payload.summary.cancelledTotal + payload.summary.refundTotal, lang, payload.currencyCode)} (${payload.summary.cancelledCount})`,
       tone: "text-red-700"
     }
   ];
@@ -158,11 +154,11 @@ export function PosSalesSummaryDashboard({ lang, initialPayload }: Props) {
         dateTime(shift.closedAt, lang),
         shift.branchName,
         shift.cashierName,
-        money(shift.openingCash, lang),
-        money(shift.cashSales, lang),
-        money(shift.expectedCash, lang),
-        shift.actualCash == null ? "-" : money(shift.actualCash, lang),
-        shift.difference == null ? "-" : money(shift.difference, lang)
+        money(shift.openingCash, lang, payload.currencyCode),
+        money(shift.cashSales, lang, payload.currencyCode),
+        money(shift.expectedCash, lang, payload.currencyCode),
+        shift.actualCash == null ? "-" : money(shift.actualCash, lang, payload.currencyCode),
+        shift.difference == null ? "-" : money(shift.difference, lang, payload.currencyCode)
       ])
     ];
     downloadExcelCsv(`shift-summary-${payload.filters.dateFrom}-${payload.filters.dateTo}-page-${shiftPage}.csv`, rows);
@@ -183,10 +179,10 @@ export function PosSalesSummaryDashboard({ lang, initialPayload }: Props) {
         row.branchName,
         row.cashierName,
         paymentLabel(row.paymentLabel, row.paymentMethod, lang),
-        money(row.grossTotal, lang),
-        money(row.discount, lang),
-        money(row.tax, lang),
-        money(row.netTotal, lang),
+        money(row.grossTotal, lang, payload.currencyCode),
+        money(row.discount, lang, payload.currencyCode),
+        money(row.tax, lang, payload.currencyCode),
+        money(row.netTotal, lang, payload.currencyCode),
         statusLabel(row.status, lang)
       ])
     ];
@@ -230,6 +226,17 @@ export function PosSalesSummaryDashboard({ lang, initialPayload }: Props) {
         </header>
 
         {error ? <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">{error}</div> : null}
+        <div className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-950" data-testid="sales-summary-currency-ledger">
+          <strong>ยอดสรุปหน้าปัจจุบัน: {payload.currencyCode}</strong>
+          <p className="mt-1">บิลเก่าที่เป็น THB และบิลใหม่ LAK/USD จะไม่ถูกรวมเป็นยอดเงินเดียวกัน รายการย้อนหลังดูได้ในเมนูรายการขาย</p>
+          <div className="mt-2 flex flex-wrap gap-3">
+            {payload.currencyBuckets.map((bucket) => (
+              <span key={bucket.currencyCode} className="rounded-lg bg-white px-3 py-2 font-bold shadow-sm">
+                {bucket.currencyCode}: {money(bucket.netSales, lang, bucket.currencyCode)} ({bucket.receiptCount} บิล)
+              </span>
+            ))}
+          </div>
+        </div>
 
         <Panel title="สรุปกะ">
           <ScrollTable minWidth="860px">
@@ -256,11 +263,11 @@ export function PosSalesSummaryDashboard({ lang, initialPayload }: Props) {
                     <Td>{dateTime(shift.closedAt, lang)}</Td>
                     <Td>{shift.branchName}</Td>
                     <Td>{shift.cashierName}</Td>
-                    <Td align="right">{money(shift.openingCash, lang)}</Td>
-                    <Td align="right">{money(shift.cashSales, lang)}</Td>
-                    <Td align="right">{money(shift.expectedCash, lang)}</Td>
-                    <Td align="right">{shift.actualCash == null ? "-" : money(shift.actualCash, lang)}</Td>
-                    <Td align="right" tone={shift.difference == null ? "normal" : shift.difference === 0 ? "good" : "bad"}>{shift.difference == null ? "-" : money(shift.difference, lang)}</Td>
+                    <Td align="right">{money(shift.openingCash, lang, payload.currencyCode)}</Td>
+                    <Td align="right">{money(shift.cashSales, lang, payload.currencyCode)}</Td>
+                    <Td align="right">{money(shift.expectedCash, lang, payload.currencyCode)}</Td>
+                    <Td align="right">{shift.actualCash == null ? "-" : money(shift.actualCash, lang, payload.currencyCode)}</Td>
+                    <Td align="right" tone={shift.difference == null ? "normal" : shift.difference === 0 ? "good" : "bad"}>{shift.difference == null ? "-" : money(shift.difference, lang, payload.currencyCode)}</Td>
                   </tr>
                 ))
               )}
@@ -339,7 +346,7 @@ export function PosSalesSummaryDashboard({ lang, initialPayload }: Props) {
               <thead><tr><Th>เลขที่บิล</Th><Th>วันเวลา</Th><Th>สาขา</Th><Th>พนักงาน</Th><Th>ชำระเงิน</Th><Th align="right">ยอดรวม</Th><Th align="right">ส่วนลด</Th><Th align="right">ภาษี</Th><Th align="right">สุทธิ</Th><Th>สถานะ</Th></tr></thead>
               <tbody>{payload.salesRows.length === 0 ? <EmptyRow colSpan={10} /> : visibleSalesRows.map((row) => (
                 <tr key={row.id} className="border-t border-slate-100">
-                  <Td strong>{row.receiptNo}</Td><Td>{dateTime(row.createdAt, lang)}</Td><Td>{row.branchName}</Td><Td>{row.cashierName}</Td><Td>{paymentLabel(row.paymentLabel, row.paymentMethod, lang)}</Td><Td align="right">{money(row.grossTotal, lang)}</Td><Td align="right">{money(row.discount, lang)}</Td><Td align="right">{money(row.tax, lang)}</Td><Td align="right" strong>{money(row.netTotal, lang)}</Td><Td><StatusBadge status={row.status} lang={lang} /></Td>
+                  <Td strong>{row.receiptNo}</Td><Td>{dateTime(row.createdAt, lang)}</Td><Td>{row.branchName}</Td><Td>{row.cashierName}</Td><Td>{paymentLabel(row.paymentLabel, row.paymentMethod, lang)}</Td><Td align="right">{money(row.grossTotal, lang, payload.currencyCode)}</Td><Td align="right">{money(row.discount, lang, payload.currencyCode)}</Td><Td align="right">{money(row.tax, lang, payload.currencyCode)}</Td><Td align="right" strong>{money(row.netTotal, lang, payload.currencyCode)}</Td><Td><StatusBadge status={row.status} lang={lang} /></Td>
                 </tr>
               ))}</tbody>
             </ScrollTable>
@@ -369,8 +376,8 @@ function buildMoreDialogExport(payload: PosSalesSummaryPayload, tab: MoreDialogT
           product.productName,
           product.category,
           number(product.quantitySold, lang),
-          money(product.grossAmount, lang),
-          money(product.netAmount, lang)
+          money(product.grossAmount, lang, payload.currencyCode),
+          money(product.netAmount, lang, payload.currencyCode)
         ])
       ]
     };
@@ -384,10 +391,10 @@ function buildMoreDialogExport(payload: PosSalesSummaryPayload, tab: MoreDialogT
         ...payload.cashiers.map((cashier) => [
           cashier.cashierName,
           number(cashier.receiptCount, lang),
-          money(cashier.grossSales, lang),
-          money(cashier.netSales, lang),
+          money(cashier.grossSales, lang, payload.currencyCode),
+          money(cashier.netSales, lang, payload.currencyCode),
           cashier.cancelledCount,
-          money(cashier.averageReceiptValue, lang)
+          money(cashier.averageReceiptValue, lang, payload.currencyCode)
         ])
       ]
     };
@@ -397,21 +404,21 @@ function buildMoreDialogExport(payload: PosSalesSummaryPayload, tab: MoreDialogT
     slug: "payments",
     rows: [
       lang === "th" ? ["ช่องทางชำระเงิน", "จำนวนบิล", "ยอดรวม"] : ["Payment Method", "Bills", "Amount"],
-      ...payload.paymentMethods.map((method) => [paymentLabel(method.label, method.method, lang), method.receiptCount, money(method.amount, lang)])
+      ...payload.paymentMethods.map((method) => [paymentLabel(method.label, method.method, lang), method.receiptCount, money(method.amount, lang, payload.currencyCode)])
     ]
   };
 }
 
 function PaymentsPanel({ payload, lang, maxPaymentAmount }: { payload: PosSalesSummaryPayload; lang: Language; maxPaymentAmount: number }) {
-  return <Panel title="ช่องทางชำระเงิน">{payload.paymentMethods.length === 0 ? <EmptyState /> : <div className="grid gap-3">{payload.paymentMethods.map((method) => <div key={method.method}><div className="flex items-baseline justify-between gap-3"><span className="text-sm font-bold text-slate-800">{paymentLabel(method.label, method.method, lang)}</span><span className="text-sm font-black text-slate-950">{money(method.amount, lang)}</span></div><div className="mt-2 h-2 overflow-hidden rounded-full bg-slate-100"><div className="h-full rounded-full bg-blue-600" style={{ width: `${Math.max(5, (method.amount / maxPaymentAmount) * 100)}%` }} /></div><p className="mt-1 text-xs text-slate-500">{method.receiptCount} บิล</p></div>)}</div>}</Panel>;
+  return <Panel title="ช่องทางชำระเงิน">{payload.paymentMethods.length === 0 ? <EmptyState /> : <div className="grid gap-3">{payload.paymentMethods.map((method) => <div key={method.method}><div className="flex items-baseline justify-between gap-3"><span className="text-sm font-bold text-slate-800">{paymentLabel(method.label, method.method, lang)}</span><span className="text-sm font-black text-slate-950">{money(method.amount, lang, payload.currencyCode)}</span></div><div className="mt-2 h-2 overflow-hidden rounded-full bg-slate-100"><div className="h-full rounded-full bg-blue-600" style={{ width: `${Math.max(5, (method.amount / maxPaymentAmount) * 100)}%` }} /></div><p className="mt-1 text-xs text-slate-500">{method.receiptCount} บิล</p></div>)}</div>}</Panel>;
 }
 
 function ProductsPanel({ payload, lang }: { payload: PosSalesSummaryPayload; lang: Language }) {
-  return <Panel title="สินค้าขายดี"><ScrollTable minWidth="680px"><thead><tr><Th>สินค้า</Th><Th>หมวดหมู่</Th><Th align="right">จำนวน</Th><Th align="right">ยอดรวม</Th><Th align="right">ยอดสุทธิ</Th></tr></thead><tbody>{payload.bestSellingProducts.length === 0 ? <EmptyRow colSpan={5} /> : payload.bestSellingProducts.slice(0, 10).map((product, index) => <tr key={product.productId} className="border-t border-slate-100"><Td strong><span className="mr-2 inline-flex h-6 w-6 items-center justify-center rounded-full bg-slate-100 text-xs font-black text-slate-700">{index + 1}</span>{product.productName}</Td><Td>{product.category}</Td><Td align="right">{number(product.quantitySold, lang)}</Td><Td align="right">{money(product.grossAmount, lang)}</Td><Td align="right">{money(product.netAmount, lang)}</Td></tr>)}</tbody></ScrollTable></Panel>;
+  return <Panel title="สินค้าขายดี"><ScrollTable minWidth="680px"><thead><tr><Th>สินค้า</Th><Th>หมวดหมู่</Th><Th align="right">จำนวน</Th><Th align="right">ยอดรวม</Th><Th align="right">ยอดสุทธิ</Th></tr></thead><tbody>{payload.bestSellingProducts.length === 0 ? <EmptyRow colSpan={5} /> : payload.bestSellingProducts.slice(0, 10).map((product, index) => <tr key={product.productId} className="border-t border-slate-100"><Td strong><span className="mr-2 inline-flex h-6 w-6 items-center justify-center rounded-full bg-slate-100 text-xs font-black text-slate-700">{index + 1}</span>{product.productName}</Td><Td>{product.category}</Td><Td align="right">{number(product.quantitySold, lang)}</Td><Td align="right">{money(product.grossAmount, lang, payload.currencyCode)}</Td><Td align="right">{money(product.netAmount, lang, payload.currencyCode)}</Td></tr>)}</tbody></ScrollTable></Panel>;
 }
 
 function CashiersPanel({ payload, lang }: { payload: PosSalesSummaryPayload; lang: Language }) {
-  return <Panel title="ประสิทธิภาพพนักงาน"><ScrollTable minWidth="720px"><thead><tr><Th>พนักงาน</Th><Th align="right">บิล</Th><Th align="right">ยอดรวม</Th><Th align="right">ยอดสุทธิ</Th><Th align="right">ยกเลิก</Th><Th align="right">เฉลี่ย/บิล</Th></tr></thead><tbody>{payload.cashiers.length === 0 ? <EmptyRow colSpan={6} /> : payload.cashiers.map((cashier) => <tr key={cashier.cashierId} className="border-t border-slate-100"><Td strong>{cashier.cashierName}</Td><Td align="right">{number(cashier.receiptCount, lang)}</Td><Td align="right">{money(cashier.grossSales, lang)}</Td><Td align="right">{money(cashier.netSales, lang)}</Td><Td align="right">{cashier.cancelledCount}</Td><Td align="right">{money(cashier.averageReceiptValue, lang)}</Td></tr>)}</tbody></ScrollTable></Panel>;
+  return <Panel title="ประสิทธิภาพพนักงาน"><ScrollTable minWidth="720px"><thead><tr><Th>พนักงาน</Th><Th align="right">บิล</Th><Th align="right">ยอดรวม</Th><Th align="right">ยอดสุทธิ</Th><Th align="right">ยกเลิก</Th><Th align="right">เฉลี่ย/บิล</Th></tr></thead><tbody>{payload.cashiers.length === 0 ? <EmptyRow colSpan={6} /> : payload.cashiers.map((cashier) => <tr key={cashier.cashierId} className="border-t border-slate-100"><Td strong>{cashier.cashierName}</Td><Td align="right">{number(cashier.receiptCount, lang)}</Td><Td align="right">{money(cashier.grossSales, lang, payload.currencyCode)}</Td><Td align="right">{money(cashier.netSales, lang, payload.currencyCode)}</Td><Td align="right">{cashier.cancelledCount}</Td><Td align="right">{money(cashier.averageReceiptValue, lang, payload.currencyCode)}</Td></tr>)}</tbody></ScrollTable></Panel>;
 }
 
 function Dialog({
