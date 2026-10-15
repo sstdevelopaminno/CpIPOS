@@ -59,3 +59,5 @@ jobs:
         run: psql -v ON_ERROR_STOP=1 -f supabase/proposals/20261015_optical_cutover_and_shift_safety.sql
       - name: Assert no duplicate money, exactly one stock movement, and kitchen isolation
         run: psql -v ON_ERROR_STOP=1 -f scripts/sql/optical-scratch-regression.sql
+      - name: Assert two concurrent cashiers cannot overpay one bill
+        run: bash scripts/sql/optical-scratch-concurrency.sh
