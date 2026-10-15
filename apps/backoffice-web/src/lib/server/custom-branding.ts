@@ -1,5 +1,5 @@
 import "server-only";
-import {getSupabaseServiceClient} from "@/lib/supabase-admin";
+import {getPrimarySupabaseServiceClient} from "@/lib/supabase-admin";
 
 export const BRAND_COLORS = ["#1453A6","#047857","#7C3AED","#DB2777","#EA580C","#0F766E","#DC2626","#0F172A"] as const;
 export type CustomBranding = {system_name:string;accent_color:string;sidebar_color:string;logo_url:string|null};
@@ -30,7 +30,7 @@ export function normalizeCustomBranding(input:unknown):CustomBranding {
   };
 }
 export async function requireCustomBrandingTenant(tenantId:string) {
-  const db=getSupabaseServiceClient();
+  const db=getPrimarySupabaseServiceClient();
   const {data,error}=await db.from("tenant_subscription_contracts")
     .select("package_id,status,ended_at")
     .eq("tenant_id",tenantId).order("created_at",{ascending:false}).limit(1).maybeSingle();
@@ -42,7 +42,7 @@ export async function requireCustomBrandingTenant(tenantId:string) {
 }
 export async function loadTenantBranding(tenantId:string):Promise<CustomBranding|null>{
   if(!await requireCustomBrandingTenant(tenantId))return null;
-  const {data,error}=await getSupabaseServiceClient().from("tenants")
+  const {data,error}=await getPrimarySupabaseServiceClient().from("tenants")
     .select("metadata").eq("id",tenantId).maybeSingle();
   if(error||!data)throw new Error("custom_branding_unavailable");
   const metadata=(data.metadata&&typeof data.metadata==="object")?data.metadata as Record<string,unknown>:{};
