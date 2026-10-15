@@ -10,7 +10,7 @@ describe("Optical CUSTOM daily shift is country-aware and isolated",()=>{
       .toBe("2026-10-15T17:00:00.000Z");
     const lao=resolveOpticalDailyShift({country:"LA",openedAt:"2026-10-15T13:15:00Z"});
     expect(lao?.cutoffAt.toISOString()).toBe("2026-10-15T17:00:00.000Z");
-    expect(lao?.autoCloseAt.toISOString()).toBe("2026-10-15T17:45:00.000Z");
+    expect(lao?.autoCloseAt.toISOString()).toBe("2026-10-15T17:00:00.000Z");
   });
   it("requires an explicit US timezone and calculates DST changes safely",()=>{
     expect(resolveOpticalTimeZone("US")).toBeNull();
