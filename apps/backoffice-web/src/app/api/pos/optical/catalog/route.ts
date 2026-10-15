@@ -15,7 +15,9 @@ import { collectPagedShiftRows } from "@/lib/pos-shift-query-pagination";
  * The shared restaurant and general CUSTOM product flows are untouched.
  */
 type Kind = "frame" | "lens" | "accessory";
-type ProductInput = {name?:unknown;sku?:unknown;kind?:unknown;price?:unknown;unit?:unknown;note?:unknown};
+type ProductInput = {name?:unknown;sku?:unknown;kind?:unknown;price?:unknown;unit?:unknown;note?:unknown;
+  brand?:unknown;model?:unknown;color?:unknown;frame_size?:unknown;
+  lens_name?:unknown;lens_index?:unknown;lens_sph?:unknown;lens_cyl?:unknown;lens_axis?:unknown};
 const categories:Record<Kind,string> = {frame:"กรอบแว่น",lens:"เลนส์",accessory:"อุปกรณ์เสริม"};
 const safe=(v:unknown,max:number)=>typeof v==="string"?v.trim().slice(0,max):"";
 function response(code:string,message:string,status:number) {
@@ -24,6 +26,18 @@ function response(code:string,message:string,status:number) {
 function parseItem(input:ProductInput,currency:string) {
   const name=safe(input.name,180),sku=safe(input.sku,90),unit=safe(input.unit,30)||"ชิ้น";
   const note=safe(input.note,500);
+  const brand=safe(input.brand,120),model=safe(input.model,120),
+    color=safe(input.color,80),frame_size=safe(input.frame_size,60),
+    lens_name=safe(input.lens_name,120),lens_index=safe(input.lens_index,40);
+  const numeric=(raw:unknown,min:number,max:number)=>{
+    if(raw===null||raw===undefined||raw==="")return null;
+    const value=Number(raw);
+    if(!Number.isFinite(value)||value<min||value>max)throw new PosGuardError(
+      "optical_catalog_prescription_invalid","ค่าสายตาต้องเป็นตัวเลขในช่วงที่กำหนด",422);
+    return value;
+  };
+  const lens_sph=numeric(input.lens_sph,-30,30),
+    lens_cyl=numeric(input.lens_cyl,-15,15),lens_axis=numeric(input.lens_axis,0,180);
   const kind=input.kind as Kind;
   const price=Number(input.price);
   if(!name||!sku||!Object.prototype.hasOwnProperty.call(categories,kind)) {
@@ -37,7 +51,8 @@ function parseItem(input:ProductInput,currency:string) {
     Math.round(price*100)/100!==price) {
     throw new PosGuardError("optical_catalog_price_invalid","ราคาสินค้าไม่ถูกต้อง หรือมีทศนิยมเกินที่สกุลเงินรองรับ",422);
   }
-  return {name,sku,kind,unit,note,price,category:categories[kind]};
+  return {name,sku,kind,unit,note,price,category:categories[kind],
+    brand,model,color,frame_size,lens_name,lens_index,lens_sph,lens_cyl,lens_axis};
 }
 function ownOrigin(request:Request) {
   const origin=request.headers.get("origin");
@@ -125,7 +140,11 @@ export async function POST(request:Request){
       name:row.name,sku:row.sku,category:row.category,price:row.price,sell_unit:row.unit,
       stock_deduction_mode:"unit_only",is_combo:false,is_active:true,
       metadata:{business_mode:"optical_retail",optical_kind:row.kind,
-        optical_note:row.note,currency_code:ctx.currency,stock_verification:"pending"}
+        optical_note:row.note,currency_code:ctx.currency,stock_verification:"pending",
+        optical_brand:row.brand,optical_model:row.model,optical_color:row.color,
+        optical_frame_size:row.frame_size,optical_lens_name:row.lens_name,
+        optical_lens_index:row.lens_index,optical_lens_sph:row.lens_sph,
+        optical_lens_cyl:row.lens_cyl,optical_lens_axis:row.lens_axis}
     }))).select("id,sku");
     if(error)return response(error.code==="23505"?"optical_catalog_sku_duplicate":"optical_catalog_insert_failed",
       error.code==="23505"?"SKU / บาร์โค้ด ซ้ำภายในสาขา":"บันทึกสินค้าไม่สำเร็จ",error.code==="23505"?409:500);
@@ -153,9 +172,28 @@ export async function PATCH(request:Request){
         "สินค้านี้เชื่อมสต๊อก Optical แล้ว การเปลี่ยนราคา/ประเภทต้องผ่านระบบปรับสต๊อกที่ตรวจสอบได้",409);
     }
     const metadata=product.metadata && typeof product.metadata==="object"?product.metadata:{};
+    // Optical stock bins are authoritative. Never silently rewrite a linked
+    // brand, model, color, size or prescription from a legacy product mutation.
+    if(bin && (String(metadata.optical_brand??"")!==item.brand ||
+      String(metadata.optical_model??"")!==item.model ||
+      String(metadata.optical_color??"")!==item.color ||
+      String(metadata.optical_frame_size??"")!==item.frame_size ||
+      String(metadata.optical_lens_name??"")!==item.lens_name ||
+      String(metadata.optical_lens_index??"")!==item.lens_index ||
+      (metadata.optical_lens_sph??null)!==item.lens_sph ||
+      (metadata.optical_lens_cyl??null)!==item.lens_cyl ||
+      (metadata.optical_lens_axis??null)!==item.lens_axis)) {
+      return response("optical_catalog_stock_linked",
+        "สินค้าที่เชื่อมสต๊อก Optical แล้วต้องแก้ข้อมูลรุ่น/ค่าสายตาผ่านการตรวจสอบสต๊อก",409);
+    }
     const {error}=await ctx.db.from("products").update({
       name:item.name,sku:item.sku,category:item.category,price:item.price,sell_unit:item.unit,
-      metadata:{...metadata,business_mode:"optical_retail",optical_kind:item.kind,optical_note:item.note},
+      metadata:{...metadata,business_mode:"optical_retail",optical_kind:item.kind,
+        optical_note:item.note,optical_brand:item.brand,optical_model:item.model,
+        optical_color:item.color,optical_frame_size:item.frame_size,
+        optical_lens_name:item.lens_name,optical_lens_index:item.lens_index,
+        optical_lens_sph:item.lens_sph,optical_lens_cyl:item.lens_cyl,
+        optical_lens_axis:item.lens_axis},
       updated_at:new Date().toISOString()
     }).eq("id",product.id).eq("tenant_id",ctx.scope.session.tenant_id)
       .eq("branch_id",ctx.scope.session.branch_id).is("deleted_at",null);
