@@ -28,6 +28,15 @@ const kind=(row:OpticalRow):Kind=>{
 };
 const forEdit=(r:OpticalRow):Draft=>({name:r.name,sku:r.sku??"",kind:kind(r),
   price:String(r.price),unit:r.sell_unit??"ชิ้น",note:String(r.metadata?.optical_note??"")});
+function detail(r:OpticalRow,key:"brand"|"model"|"color"|"frame_size"|"lens_index"|"lens_sph"|"lens_cyl"|"lens_type"|"lens_name") {
+  const raw=key==="lens_name"?r.metadata?.optical_lens_name??r.name:
+    r.opticalBin?.[key]??r.metadata?.["optical_"+key];
+  return raw===null||raw===undefined||String(raw).trim()===""?"—":String(raw);
+}
+const initialCount=(r:OpticalRow)=>r.opticalBin?.on_hand??r.available;
+const remaining=(r:OpticalRow)=>r.opticalBin
+  ?Math.max(0,Number(r.opticalBin.on_hand)-Number(r.opticalBin.reserved)):null;
+
 function checkRows(rows:Draft[],currency:SalesCurrencyCode){
   const keys=new Set<string>();
   for(let i=0;i<rows.length;i++){
@@ -96,6 +105,8 @@ export function OpticalStockWorkspace({rows,branch,currency,canManage}:{
     ["เหลือ 1",rows.filter(r=>r.available===1).length],
     ["หมด",rows.filter(r=>r.available===0).length],
     ["รอตรวจสต๊อก",rows.filter(r=>r.available===null).length]];
+  const stockTabs:Kind[]=rows.some(row=>kind(row)==="accessory")
+    ?["frame","lens","accessory"]:["frame","lens"];
   const pages=Array.from({length:totalPages},(_,i)=>i+1).filter(p=>
     totalPages<=7||p===1||p===totalPages||Math.abs(p-currentPage)<=2);
   return <main className="mx-auto w-full max-w-7xl space-y-4 px-3 pb-8 pt-3 lg:px-6" data-testid="custom-optical-inventory">
