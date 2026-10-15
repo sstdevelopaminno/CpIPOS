@@ -163,26 +163,24 @@ export async function PATCH(request:Request){
     if(await skuTaken(ctx,[item.sku],product.id))
       return response("optical_catalog_sku_duplicate","SKU / บาร์โค้ด ซ้ำภายในสาขา",409);
     const {data:bin,error:binError}=await ctx.db.from("optical_stock_bins")
-      .select("id,kind,unit_price").eq("tenant_id",ctx.scope.session.tenant_id)
+      .select("id,kind,unit_price,brand,model,color,frame_size,lens_index,lens_sph,lens_cyl")
+      .eq("tenant_id",ctx.scope.session.tenant_id)
       .eq("branch_id",ctx.scope.session.branch_id).eq("product_id",product.id).maybeSingle();
     if(binError)return response("optical_catalog_inventory_check_failed","ตรวจสอบสต๊อกสินค้าไม่สำเร็จ",503);
-    if(bin && (Number(product.price)!==item.price || bin.kind!==item.kind ||
-      Number(bin.unit_price)!==item.price)) {
+    if(bin && (bin.kind!==item.kind || Number(bin.unit_price)!==item.price)) {
       return response("optical_catalog_inventory_linked",
         "สินค้านี้เชื่อมสต๊อก Optical แล้ว การเปลี่ยนราคา/ประเภทต้องผ่านระบบปรับสต๊อกที่ตรวจสอบได้",409);
     }
     const metadata=product.metadata && typeof product.metadata==="object"?product.metadata:{};
     // Optical stock bins are authoritative. Never silently rewrite a linked
     // brand, model, color, size or prescription from a legacy product mutation.
-    if(bin && (String(metadata.optical_brand??"")!==item.brand ||
-      String(metadata.optical_model??"")!==item.model ||
-      String(metadata.optical_color??"")!==item.color ||
-      String(metadata.optical_frame_size??"")!==item.frame_size ||
-      String(metadata.optical_lens_name??"")!==item.lens_name ||
-      String(metadata.optical_lens_index??"")!==item.lens_index ||
-      (metadata.optical_lens_sph??null)!==item.lens_sph ||
-      (metadata.optical_lens_cyl??null)!==item.lens_cyl ||
-      (metadata.optical_lens_axis??null)!==item.lens_axis)) {
+    if(bin && (String(bin.brand??"")!==item.brand ||
+      (bin.kind==="frame" && (String(bin.model??"")!==item.model ||
+        String(bin.color??"")!==item.color || String(bin.frame_size??"")!==item.frame_size)) ||
+      (bin.kind==="lens" && (String(bin.model??"")!==item.lens_name ||
+        String(bin.lens_index??"")!==item.lens_index ||
+        (bin.lens_sph??null)!==item.lens_sph ||
+        (bin.lens_cyl??null)!==item.lens_cyl)))) {
       return response("optical_catalog_stock_linked",
         "สินค้าที่เชื่อมสต๊อก Optical แล้วต้องแก้ข้อมูลรุ่น/ค่าสายตาผ่านการตรวจสอบสต๊อก",409);
     }
