@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { resolveShiftCycle, slotLabel, slotWindowLabel } from "@/lib/pos-shift-schedule";
+import { resolveOpticalDailyShift } from "@/lib/pos-optical-daily-shift";
 
 type Lang = "th" | "en";
 type ModalKind = "open" | "close" | "active" | "receipt" | "details" | "summary" | null;
@@ -475,6 +476,7 @@ function buildShiftPeriodReceiptHtml(args: {
   period: string;
   branch: string;
   lang: Lang;
+  opticalDaily?: boolean;
 }) {
   const { shifts, summary, lang } = args;
   const th = lang === "th";
@@ -484,7 +486,7 @@ function buildShiftPeriodReceiptHtml(args: {
   const shiftRows = [...shifts].sort((a, b) => a.opened_at.localeCompare(b.opened_at))
     .map((shift, index) => {
       const cycle = resolveShiftCycle(shift.opened_at);
-      const name = `${index + 1}. ${cycle ? slotLabel(cycle.slot, lang) : (th ? "กะ" : "Shift")}`;
+      const name = `${index + 1}. ${args.opticalDaily ? slotLabel("daily", lang) : cycle ? slotLabel(cycle.slot, lang) : (th ? "กะ" : "Shift")}`;
       return `<div class="break"></div>
         <p><strong>${escapeHtml(name)}</strong> ${escapeHtml(formatDateTime(shift.opened_at, lang))}</p>
         ${line(th ? "บิล" : "Bills", String(shift.metrics.order_count))}
@@ -526,6 +528,7 @@ ${line(th ? "โอน/QR" : "Transfer/QR", money(summary.transfer_total))}
 function buildShiftDetailReceiptHtml(args: {
   shift: ShiftHistoryItem;
   lang: Lang;
+  opticalDaily?: boolean;
   labels: {
     title: string;
     shiftName: string;
@@ -571,7 +574,7 @@ h1,p{margin:0;}
   </header>
   <div class="divider"></div>
   <section class="summary">
-    ${line(labels.shiftName, escapeHtml(cycle ? slotLabel(cycle.slot, lang) : "-"))}
+    ${line(labels.shiftName, escapeHtml(args.opticalDaily ? slotLabel("daily",lang) : cycle ? slotLabel(cycle.slot, lang) : "-"))}
     ${line(labels.openedBy, escapeHtml(shift.opened_by_name ?? "-"))}
     ${line(labels.closedBy, escapeHtml(shift.closed_by_name ?? "-"))}
     ${line(labels.openedAt, dt(shift.opened_at))}
@@ -769,10 +772,19 @@ export function PosShiftHistoryModule({ lang }: { lang: Lang }) {
     [lang]
   );
 
+  const opticalDaily=payload?.optical_policy?.enabled===true && Boolean(payload.optical_policy.timeZone);
   const currentCycle = useMemo(() => {
     if (!sessionShift?.opened_at || sessionShift.status !== "open") return null;
+    if (opticalDaily && payload?.optical_policy?.country && payload.optical_policy.timeZone) {
+      const day=resolveOpticalDailyShift({
+        openedAt:sessionShift.opened_at,country:payload.optical_policy.country,
+        approvedTimeZone:payload.optical_policy.timeZone
+      });
+      return day ? {slot:"daily" as const,openedAt:day.openedAt,endAt:day.cutoffAt,
+        warningAt:day.warningAt,autoCloseAt:day.autoCloseAt,nextSlot:"daily" as const}:null;
+    }
     return resolveShiftCycle(sessionShift.opened_at);
-  }, [sessionShift?.opened_at, sessionShift?.status]);
+  }, [sessionShift?.opened_at,sessionShift?.status,opticalDaily,payload?.optical_policy?.country,payload?.optical_policy?.timeZone]);
   const activeShift = useMemo(() => {
     if (!sessionShift?.id) return null;
     return payload?.shifts.find((shift) => shift.id === sessionShift.id) ?? null;
@@ -1050,7 +1062,8 @@ export function PosShiftHistoryModule({ lang }: { lang: Lang }) {
       summary: payload.summary,
       period: periodLabel,
       branch: periodBranchLabel,
-      lang
+      lang,
+      opticalDaily
     });
     setPeriodPrintNotice(null);
     if (!viaBluetooth) {
@@ -1224,6 +1237,7 @@ export function PosShiftHistoryModule({ lang }: { lang: Lang }) {
     const receiptHtml = buildShiftDetailReceiptHtml({
       shift: selectedShift,
       lang,
+      opticalDaily,
       labels: {
         title: detailsTitle,
         shiftName: text.shiftName,
@@ -1592,7 +1606,7 @@ export function PosShiftHistoryModule({ lang }: { lang: Lang }) {
                       const cycle = resolveShiftCycle(shift.opened_at);
                       return (
                         <div key={shift.id} className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs">
-                          <p className="font-bold text-slate-900">{cycle ? slotLabel(cycle.slot, lang) : text.shiftName} · {formatDateTime(shift.opened_at, lang)}</p>
+                          <p className="font-bold text-slate-900">{opticalDaily ? slotLabel("daily",lang) : cycle ? slotLabel(cycle.slot, lang) : text.shiftName} · {formatDateTime(shift.opened_at, lang)}</p>
                           <p className="text-slate-500">{shift.branch_name ?? shift.branch_code ?? "-"}</p>
                           <div className="mt-1 flex justify-between gap-2"><span>{text.orders}</span><strong>{shift.metrics.order_count}</strong></div>
                           <div className="flex justify-between gap-2"><span>{text.sales}</span><strong>{formatMoney(shift.metrics.sales_total, lang)}</strong></div>
@@ -1719,7 +1733,7 @@ export function PosShiftHistoryModule({ lang }: { lang: Lang }) {
                     <>
                       <p className="flex justify-between gap-3">
                         <span>{text.shiftName}</span>
-                        <strong>{cycle ? slotLabel(cycle.slot, lang) : "-"}</strong>
+                        <strong>{opticalDaily ? slotLabel("daily",lang) : cycle ? slotLabel(cycle.slot, lang) : "-"}</strong>
                       </p>
                       <p className="flex justify-between gap-3">
                         <span>{openedByLabel}</span>
