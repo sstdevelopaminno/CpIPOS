@@ -22,7 +22,7 @@ describe("CUSTOM Optical catalog UI and API isolation",()=>{
     expect(ui).toContain("สร้างสินค้าหลายรายการ");
     expect(ui).toContain("กรอกเอง");
     expect(ui).toContain('role="dialog"');
-    expect(ui).toContain('setBulk(r=>[...r,blank()])');
+    expect(ui).toContain('setBulk(r=>[...r,{...blank(),kind:tab}])');
     expect(ui).toContain('"PATCH":"POST"');
     expect(ui).toContain("Soft Delete");
     expect(ui).toContain("สต๊อกกรอบแว่น");
@@ -31,6 +31,18 @@ describe("CUSTOM Optical catalog UI and API isolation",()=>{
     expect(ui).toContain("จำนวนคงเหลือ");
     expect(ui).toContain("lens_sph");
     expect(ui).toContain("frame_size");
+    expect(ui).toContain("เลือกสาขา");
+    expect(ui).toContain("สินค้าขายดี");
+    expect(ui).toContain("targetBranchId");
+    expect(ui).toContain("branch_id:destination");
+  });
+  it("best sellers only include paid completed sales from a scoped branch",()=>{
+    const report=text("app/api/pos/optical/best-sellers/route.ts");
+    expect(report).toContain('verifyOpticalBranch');
+    expect(report).toContain('.eq("status","completed")');
+    expect(report).toContain('"order_items"');
+    expect(report).toContain('period_days:30');
+    expect(report).toContain("sampled:truncated");
   });
   it("requires IT-approved CUSTOM Optical and owner/manager on every write",()=>{
     const api=text("app/api/pos/optical/catalog/route.ts");
@@ -39,7 +51,8 @@ describe("CUSTOM Optical catalog UI and API isolation",()=>{
     expect(api).toContain('role!=="owner"&&role!=="manager"');
     expect(api).toContain('requirePermission(scope,"inventory:view")');
     expect(api).toContain('requireTenantFeature(scope.session.tenant_id,"stock_management"');
-    expect(api).toContain('eq("branch_id",ctx.scope.session.branch_id)');
+    expect(api).toContain('eq("branch_id",ctx.branchId)');
+    expect(api).toContain('verifyOpticalBranch');
     expect(api).toContain("case-sensitive");
     expect(api).toContain('stock_deduction_mode:"unit_only"');
     expect(api).toContain('optical_catalog_sku_duplicate');
