@@ -4,6 +4,7 @@ on:
     branches: [main]
     paths:
       - 'supabase/proposals/20261015_optical_*.sql'
+      - 'supabase/migrations/20261015091500_optical_schema_only_qa_disabled.sql'
       - 'scripts/sql/optical-scratch-*.sql'
       - '.github/workflows/optical-sql-scratch.yml'
   workflow_dispatch:
@@ -49,7 +50,11 @@ jobs:
           psql --version
       - name: Isolated fake schema (never Production)
         run: psql -v ON_ERROR_STOP=1 -f scripts/sql/optical-scratch-bootstrap.sql
-      - name: Validate Optical inventory, work order, deposit and RLS DDL
+      - name: Validate Stage-1 locked Optical migration against PostgreSQL 17
+        run: psql -v ON_ERROR_STOP=1 -f supabase/migrations/20261015091500_optical_schema_only_qa_disabled.sql
+      - name: Verify Stage-1 tables have RLS and no client access
+        run: psql -v ON_ERROR_STOP=1 -f scripts/sql/optical-stage1-locked-assertions.sql
+      - name: Validate future Optical tenant-scoped policy proposal
         run: psql -v ON_ERROR_STOP=1 -f supabase/proposals/20261015_optical_work_order_ledger_isolated.sql
       - name: Validate Optical idempotent transaction functions
         run: psql -v ON_ERROR_STOP=1 -f supabase/proposals/20261015_optical_atomic_transactions.sql
