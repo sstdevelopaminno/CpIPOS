@@ -2,7 +2,7 @@ import {NextResponse} from "next/server";
 import {requirePosSession,requirePermission,PosGuardError} from "@/lib/pos-session-guard";
 import {getSupabaseServiceClient} from "@/lib/supabase-admin";
 import {getCustomPosStockUiMode} from "@/lib/server/custom-stock-ui-policy";
-import {requireOpticalRetailEntitlement} from "@/lib/server/optical-retail-entitlement";
+import {requireOpticalRetailEntitlement} from "@/lib/server/optical-entitlement";
 import {getOpticalBranchScope,verifyOpticalBranch} from "@/lib/server/optical-stock-branch-scope";
 import {collectPagedShiftRows,collectShiftRowsForIds} from "@/lib/pos-shift-query-pagination";
 export const dynamic="force-dynamic";
