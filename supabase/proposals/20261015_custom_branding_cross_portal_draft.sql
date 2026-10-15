@@ -79,3 +79,24 @@ for insert to authenticated with check(
      and lower(sp.code)='custom')
 );
 -- Public reads only from public bucket; no UPDATE/DELETE policy to users.
+
+-- POS authenticated session is validated by the Next.js API, which then calls
+-- a service-only atomic JSON patch. Reject all browser roles at database level.
+create or replace function public.cpipos_service_save_custom_branding_v1(
+  p_tenant_id uuid,p_branding jsonb)
+returns void language plpgsql security invoker
+set search_path=pg_catalog,public
+as $$
+begin
+ if current_user not in ('service_role','postgres') then
+  raise exception 'BRANDING_SERVICE_ONLY'; end if;
+ update public.tenants set
+  metadata=jsonb_set(coalesce(metadata,'{}'::jsonb),
+    '{custom_branding}',p_branding,true),
+  updated_at=now() where id=p_tenant_id;
+ if not found then raise exception 'BRANDING_TENANT_NOT_FOUND'; end if;
+end $$;
+revoke all on function public.cpipos_service_save_custom_branding_v1(uuid,jsonb)
+ from PUBLIC,anon,authenticated;
+grant execute on function public.cpipos_service_save_custom_branding_v1(uuid,jsonb)
+ to service_role;
