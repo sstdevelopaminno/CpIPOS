@@ -13,7 +13,7 @@ as $$
 declare
   v_id uuid; v_bin record; v_entry record;
   v_qty integer; v_subtotal numeric(18,2):=0; v_discount numeric(18,2);
-  v_entries jsonb:='[]'::jsonb; v_existing uuid;
+  v_entries jsonb:='[]'::jsonb; v_existing uuid; v_payload_hash text;
 begin
   if p_request_id is null or p_actor is null or p_tenant_id is null or p_branch_id is null then
     raise exception 'OPTICAL_SCOPE_REQUIRED';
@@ -34,13 +34,20 @@ begin
       and c.metadata->'sales_modes'->>'optical_retail'='true'
       and c.metadata->'custom_features'->>'optical_work_orders'='true'
   ) then raise exception 'OPTICAL_WORK_ORDERS_NOT_APPROVED'; end if;
+  -- A repeated UUID with different items, discount or customer must NOT be
+  -- mistaken for a successful replay, even when the request races.
+  v_payload_hash:=md5(jsonb_build_object('customer',p_customer_id,'exam',p_eye_exam_id,
+    'items',p_items,'discount',coalesce(p_discount_lak,0),'due_at',p_due_at,
+    'note',coalesce(p_note,''))::text);
   perform pg_advisory_xact_lock(hashtextextended(
     p_tenant_id::text||':'||p_branch_id::text||':'||p_request_id::text, 0));
   select w.id into v_existing from public.optical_work_orders w
-  where w.tenant_id=p_tenant_id and w.branch_id=p_branch_id and w.request_id=p_request_id;
-  if found then
-    return query select v_existing,true; return;
-  end if;
+  where w.tenant_id=p_tenant_id and w.branch_id=p_branch_id
+    and w.request_id=p_request_id and w.request_payload_hash=v_payload_hash;
+  if found then return query select v_existing,true; return; end if;
+  if exists(select 1 from public.optical_work_orders w
+    where w.tenant_id=p_tenant_id and w.branch_id=p_branch_id and w.request_id=p_request_id)
+    then raise exception 'OPTICAL_CREATE_IDEMPOTENCY_CONFLICT'; end if;
   if not exists(select 1 from public.optical_customers c where c.id=p_customer_id
     and c.tenant_id=p_tenant_id and c.branch_id=p_branch_id and c.deleted_at is null) then
     raise exception 'OPTICAL_CUSTOMER_NOT_FOUND';
@@ -86,9 +93,10 @@ begin
   if v_discount<0 or v_discount<>trunc(v_discount) or v_discount>=v_subtotal then
     raise exception 'OPTICAL_DISCOUNT_INVALID'; end if;
   insert into public.optical_work_orders(tenant_id,branch_id,customer_id,eye_exam_id,
-    seller_id,request_id,status,currency_code,subtotal,discount_amount,total_amount,due_at,note)
+    seller_id,request_id,request_payload_hash,status,currency_code,
+    subtotal,discount_amount,total_amount,due_at,note)
   values(p_tenant_id,p_branch_id,p_customer_id,p_eye_exam_id,p_actor,p_request_id,
-    'received','LAK',v_subtotal,v_discount,v_subtotal-v_discount,p_due_at,left(p_note,1000))
+    v_payload_hash,'received','LAK',v_subtotal,v_discount,v_subtotal-v_discount,p_due_at,left(p_note,1000))
   returning id into v_id;
   for v_entry in select value from jsonb_array_elements(v_entries)
   loop
@@ -105,9 +113,12 @@ begin
     insert into public.optical_stock_reservations(tenant_id,branch_id,work_order_id,stock_bin_id,quantity)
     values(p_tenant_id,p_branch_id,v_id,(v_entry.value->>'bin_id')::uuid,v_qty);
   end loop;
+  insert into public.optical_work_order_events(
+    tenant_id,branch_id,work_order_id,request_id,previous_status,next_status,actor_id)
+    values(p_tenant_id,p_branch_id,v_id,p_request_id,null,'received',p_actor);
   return query select v_id,false;
 end;
-$$;
+$;
 revoke all on function public.optical_create_work_order_tx(
 uuid,uuid,uuid,uuid,uuid,jsonb,numeric,uuid,timestamptz,text) from PUBLIC,anon,authenticated;
 grant execute on function public.optical_create_work_order_tx(
@@ -190,7 +201,7 @@ create or replace function public.optical_transition_work_order_tx(
 returns table(status text,duplicate_request boolean)
 language plpgsql security invoker set search_path=pg_catalog,public,app
 as $$
-declare v public.optical_work_orders%rowtype; r record;
+declare v public.optical_work_orders%rowtype; r record; v_prior public.optical_work_order_events%rowtype;
 begin
  if p_actor is null or p_request_id is null then raise exception 'OPTICAL_TRANSITION_SCOPE_REQUIRED'; end if;
  if not exists(select 1 from public.user_branch_roles b join public.users_profiles u on u.id=b.user_id
@@ -207,8 +218,12 @@ begin
  select * into v from public.optical_work_orders
    where id=p_work_order_id and tenant_id=p_tenant_id and branch_id=p_branch_id for update;
  if not found then raise exception 'OPTICAL_WORK_ORDER_NOT_FOUND'; end if;
- if v.status='collected' and p_next_status='collected' and v.collected_request_id=p_request_id then
-  return query select v.status,true; return;
+ select * into v_prior from public.optical_work_order_events e
+   where e.tenant_id=p_tenant_id and e.branch_id=p_branch_id and e.request_id=p_request_id;
+ if found then
+   if v_prior.work_order_id<>p_work_order_id or v_prior.next_status<>p_next_status
+     then raise exception 'OPTICAL_TRANSITION_IDEMPOTENCY_CONFLICT'; end if;
+   return query select v.status,true; return;
  end if;
  if not ((v.status='received' and p_next_status in('lens_ordered','cancelled'))
      or (v.status='lens_ordered' and p_next_status in('edging','cancelled'))
@@ -254,9 +269,12 @@ begin
      collected_request_id=case when p_next_status='collected' then p_request_id else w.collected_request_id end,
      cancelled_at=case when p_next_status='cancelled' then now() else w.cancelled_at end
    where w.id=p_work_order_id and w.tenant_id=p_tenant_id and w.branch_id=p_branch_id;
+ insert into public.optical_work_order_events(
+  tenant_id,branch_id,work_order_id,request_id,previous_status,next_status,actor_id)
+  values(p_tenant_id,p_branch_id,p_work_order_id,p_request_id,v.status,p_next_status,p_actor);
  return query select p_next_status,false;
 end;
-$$;
+$;
 revoke all on function public.optical_transition_work_order_tx(
 uuid,uuid,uuid,uuid,text,uuid) from PUBLIC,anon,authenticated;
 grant execute on function public.optical_transition_work_order_tx(
