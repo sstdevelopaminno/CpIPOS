@@ -489,6 +489,8 @@ function buildShiftPeriodReceiptHtml(args: {
         <p><strong>${escapeHtml(name)}</strong> ${escapeHtml(formatDateTime(shift.opened_at, lang))}</p>
         ${line(th ? "บิล" : "Bills", String(shift.metrics.order_count))}
         ${line(th ? "ยอดขายกะ" : "Shift sales", money(shift.metrics.sales_total))}
+        ${shift.metrics.deposit_total !== undefined ? line(th?"เงินมัดจำ":"Deposits",
+           shift.metrics.deposit_total===null?"—":money(shift.metrics.deposit_total)) : ""}
         ${line(th ? "เงินสด" : "Cash", money(shift.metrics.cash_total))}
         ${line(th ? "โอน/QR" : "Transfer/QR", money(shift.metrics.transfer_total))}`;
     }).join("");
@@ -512,6 +514,8 @@ ${line(th ? "จำนวนบิล" : "Bills", String(summary.order_count))}
 ${line(th ? "บิลยกเลิก" : "Cancelled", String(summary.cancelled_order_count))}
 <div class="total">
 ${line(th ? "ยอดขายรวม" : "Total sales", money(summary.sales_total))}
+${summary.deposit_total !== undefined ? line(th?"เงินมัดจำ":"Deposits",
+  summary.deposit_total===null?"—":money(summary.deposit_total)) : ""}
 ${line(th ? "เงินสด" : "Cash", money(summary.cash_total))}
 ${line(th ? "โอน/QR" : "Transfer/QR", money(summary.transfer_total))}
 </div><p>${th ? "แยกตามกะ" : "By shift"}</p>${shiftRows}
@@ -579,6 +583,8 @@ h1,p{margin:0;}
     ${line(labels.cancelled, String(shift.metrics.cancelled_order_count))}
     <div class="divider"></div>
     ${line(labels.sales, money(shift.metrics.sales_total))}
+    ${shift.metrics.deposit_total !== undefined ?
+      line(lang==="th"?"เงินมัดจำ":"Deposits",shift.metrics.deposit_total===null?"—":money(shift.metrics.deposit_total)) : ""}
     ${line(labels.cash, money(shift.metrics.cash_total))}
     ${line(labels.transfer, money(shift.metrics.transfer_total))}
     <div class="divider"></div>
@@ -1738,6 +1744,9 @@ export function PosShiftHistoryModule({ lang }: { lang: Lang }) {
                         <span>{text.sales}</span>
                         <strong>{formatMoney(selectedShift.metrics.sales_total, lang)}</strong>
                       </p>
+                      {payload?.optical_policy?.enabled ? <p className="flex justify-between gap-3">
+                        <span>{shiftTableLabels.deposit}</span><strong>{payload.optical_policy.financeEnabled ? formatMoney(selectedShift.metrics.deposit_total??0,lang) : "—"}</strong>
+                      </p> : null}
                       <p className="flex justify-between gap-3">
                         <span>{text.cash}</span>
                         <strong>{formatMoney(selectedShift.metrics.cash_total, lang)}</strong>
