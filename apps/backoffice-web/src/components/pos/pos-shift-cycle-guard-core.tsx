@@ -1,18 +1,39 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { resolveOpticalDailyShift, type OpticalCountry } from "@/lib/pos-optical-daily-shift";
 import {
   resolveShiftCycle,
   resolveShiftGuardPhase,
   slotLabel,
   slotWindowLabel,
-  type ShiftGuardPhase
+  type ShiftGuardPhase, type ShiftCycle
 } from "@/lib/pos-shift-schedule";
 
 type Lang = "th" | "en";
 
+type OpticalGuardPolicy={
+  enabled:boolean;country:OpticalCountry|null;timeZone:string|null;automaticClosureReady:boolean;
+};
+
+function resolveAuthorizedShiftCycle(openedAt:string,policy:OpticalGuardPolicy|null):ShiftCycle|null {
+  // Fail closed while IT rights are loading: never auto-close an Optical
+  // day shift using the food afternoon/night deadline.
+  if(!policy)return null;
+  if(!policy.enabled)return resolveShiftCycle(openedAt);
+  if(!policy.country||!policy.timeZone)return null;
+  const day=resolveOpticalDailyShift({
+    openedAt,country:policy.country,approvedTimeZone:policy.timeZone
+  });
+  return day ? {
+    slot:"daily",openedAt:day.openedAt,endAt:day.cutoffAt,
+    warningAt:day.warningAt,autoCloseAt:day.autoCloseAt,nextSlot:"daily"
+  }:null;
+}
+
 type SessionResponse = {
   data?: {
+    optical_shift_policy?:OpticalGuardPolicy;
     shift: {
       id: string;
       status: string;
@@ -184,6 +205,8 @@ export function PosShiftCycleGuard({ lang }: { lang: Lang }) {
   const [shiftBlockers, setShiftBlockers] = useState<ShiftOpenBillBlocker[]>([]);
   const [dismissedBlockerShiftId, setDismissedBlockerShiftId] = useState<string | null>(null);
   const [phase, setPhase] = useState<ShiftGuardPhase>("on_time");
+  const [opticalPolicy,setOpticalPolicy]=useState<OpticalGuardPolicy|null>(null);
+  const opticalPolicyRef=useRef<OpticalGuardPolicy|null>(null);
   const [shift, setShift] = useState<{
     id: string;
     opened_at: string;
@@ -320,9 +343,16 @@ export function PosShiftCycleGuard({ lang }: { lang: Lang }) {
     };
   }, []);
 
-  const cycle = useMemo(() => (shift ? resolveShiftCycle(shift.opened_at) : null), [shift]);
+  const cycle=useMemo(()=>shift
+    ? resolveAuthorizedShiftCycle(shift.opened_at,opticalPolicy):null,[shift,opticalPolicy]);
 
   const applySessionState = useCallback((sessionData: SessionResponse["data"]) => {
+    // Some legacy session-change events omit the policy. Keep the last verified
+    // IT policy rather than assuming the food schedule when such events fire.
+    if(sessionData?.optical_shift_policy) {
+      opticalPolicyRef.current=sessionData.optical_shift_policy;
+      setOpticalPolicy(sessionData.optical_shift_policy);
+    }
     const activeShift = sessionData?.has_active_shift && sessionData.shift?.status === "open" ? sessionData.shift : null;
     if (!activeShift) {
       setShift(null);
@@ -344,7 +374,7 @@ export function PosShiftCycleGuard({ lang }: { lang: Lang }) {
           transfer_total: 0
         })
     }));
-    const nextCycle = resolveShiftCycle(activeShift.opened_at);
+    const nextCycle=resolveAuthorizedShiftCycle(activeShift.opened_at,opticalPolicyRef.current);
     setPhase(nextCycle ? resolveShiftGuardPhase(nextCycle) : "on_time");
     setLoading(false);
   }, []);
@@ -504,7 +534,7 @@ export function PosShiftCycleGuard({ lang }: { lang: Lang }) {
   }
 
   async function handleContinueToNextShift() {
-    if (!shift || busy) return;
+    if (!shift || busy || opticalPolicy?.enabled) return;
     const approvalPin = getApprovalPinOrFail();
     if (approvalPin === null) return;
     setBusy("continue");
@@ -525,7 +555,7 @@ export function PosShiftCycleGuard({ lang }: { lang: Lang }) {
   }
 
   async function handleClearOpenBillsAndContinue() {
-    if (!shift || busy) return;
+    if (!shift || busy || opticalPolicy?.enabled) return;
     const approvalPin = getApprovalPinOrFail();
     if (approvalPin === null) return;
     const shouldCloseOnly = (phase === "urgent" || phase === "auto_close") && !needsManagerApproval;
@@ -578,6 +608,9 @@ export function PosShiftCycleGuard({ lang }: { lang: Lang }) {
   useEffect(() => {
     if (!shift || !cycle) return;
     if (phase !== "auto_close") return;
+    // No reliable background close/finance reconciliation has been activated.
+    // An open Optical session must not run the legacy food auto-close path.
+    if(opticalPolicy?.enabled && !opticalPolicy.automaticClosureReady)return;
     if (needsManagerApproval) return;
     if (autoCloseRunRef.current === shift.id) return;
     autoCloseRunRef.current = shift.id;
@@ -594,7 +627,7 @@ export function PosShiftCycleGuard({ lang }: { lang: Lang }) {
         setError(toErrorMessage(closeError));
         setBusy(null);
       });
-  }, [closeShift, cycle, loadState, needsManagerApproval, phase, rememberBlockerFromError, resetShiftBlocker, shift, toErrorMessage]);
+  }, [closeShift, cycle, loadState, needsManagerApproval, phase, opticalPolicy, rememberBlockerFromError, resetShiftBlocker, shift, toErrorMessage]);
   function handleManageOpenBill() {
     if (!shift || busy) return;
     setShowCloseModal(false);
@@ -604,6 +637,7 @@ export function PosShiftCycleGuard({ lang }: { lang: Lang }) {
 
   if (loading || !shift || !cycle || phase === "on_time") return null;
 
+  const opticalManualCloseRequired=opticalPolicy?.enabled===true && !opticalPolicy.automaticClosureReady;
   const forceClose = (phase === "urgent" || phase === "auto_close") && !needsManagerApproval;
   const hasOpenBillBlockers = shiftBlockerCode === "shift_has_open_bills" && shiftBlockers.length > 0;
   if (dismissedBlockerShiftId === shift.id && hasOpenBillBlockers) return null;
@@ -620,6 +654,7 @@ export function PosShiftCycleGuard({ lang }: { lang: Lang }) {
           ? copy.closingProgress
           : null;
   const canClearOpenBills = !hasOpenBillBlockers && (shiftBlockerCode === "shift_has_open_bills" || forceClose);
+  const allowClearOpenBills = canClearOpenBills && !opticalPolicy?.enabled;
   const hasClosingCashInput = closingCash.trim().length > 0;
   const closingCashAmount = Number(closingCash.trim() || "0");
   const closingCashIsValid = Number.isFinite(closingCashAmount) && closingCashAmount >= 0;
@@ -673,7 +708,11 @@ export function PosShiftCycleGuard({ lang }: { lang: Lang }) {
             {copy.windowEnded}: <strong>{formatDateTime(cycle.endAt.toISOString(), lang)}</strong>
           </p>
           {phase === "urgent" ? <p className="mt-1 font-bold text-amber-700">{copy.urgentHint}</p> : null}
-          {phase === "auto_close" ? <p className="mt-1 font-bold text-rose-700">{copy.autoClosing}</p> : null}
+          {phase === "auto_close" ? <p className="mt-1 font-bold text-rose-700">
+            {opticalManualCloseRequired
+              ? (lang==="th"?"ครบวันทำการแล้ว · โปรดนับเงินสดและปิดกะรายวัน (ตัวจัดตารางงานเซิร์ฟเวอร์ยังไม่เปิดใช้งาน)":"Business day ended · Count cash and close the daily shift; server job is pending.")
+              : copy.autoClosing}
+          </p> : null}
         </div>
 
         {needsManagerApproval ? (
@@ -720,7 +759,7 @@ export function PosShiftCycleGuard({ lang }: { lang: Lang }) {
           >
             {logoutBusy ? copy.closingProgress : copy.logoutLabel}
           </button>
-          {!forceClose ? (
+          {!forceClose && !opticalPolicy?.enabled ? (
             <button
               type="button"
               onClick={() => void handleContinueToNextShift()}
@@ -740,7 +779,7 @@ export function PosShiftCycleGuard({ lang }: { lang: Lang }) {
               {openBillTarget ? `${copy.manageOpenBillLabel} ${openBillTarget}` : copy.manageOpenBillLabel}
             </button>
           ) : null}
-          {canClearOpenBills ? (
+          {allowClearOpenBills ? (
             <button
               type="button"
               onClick={() => void handleClearOpenBillsAndContinue()}

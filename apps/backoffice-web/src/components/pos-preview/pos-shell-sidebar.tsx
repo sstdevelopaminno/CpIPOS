@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { MouseEvent, useEffect, useState } from "react";
+import type {CSSProperties} from "react";
 import { PackageLockDialog } from "@/components/pos-preview/package-lock-dialog";
 import { ItMenuLockDialog } from "@/components/pos-preview/it-menu-lock-dialog";
 import { PosStaffMenu } from "@/components/pos-preview/pos-staff-menu";
@@ -59,6 +60,7 @@ export function PosShellSidebar({ lang, settingsLabel, placement }: Props) {
   const [enabledFeatures, setEnabledFeatures] = useState<Record<string, boolean> | null>(null);
   const [menuPolicy, setMenuPolicy] = useState<Record<string, boolean>>({});
   const [isCustom, setIsCustom] = useState(false);
+  const [customBrand,setCustomBrand] = useState<{system_name:string;accent_color:string;sidebar_color:string;logo_url:string|null}|null>(null);
   const [policyReady, setPolicyReady] = useState(false);
   const [packageLockOpen, setPackageLockOpen] = useState(false);
   const [itLockedMenu, setItLockedMenu] = useState<string | null>(null);
@@ -153,6 +155,21 @@ export function PosShellSidebar({ lang, settingsLabel, placement }: Props) {
     };
   }, []);
 
+  useEffect(()=>{
+    if(!isCustom){setCustomBrand(null);return;}
+    let disposed=false;
+    async function refreshBrand(){
+      try{
+        const result=await fetch("/api/pos/settings/custom-branding",{cache:"no-store"});
+        const json=await result.json();
+        if(!disposed)setCustomBrand(result.ok&&json.data?.enabled?json.data.branding:null);
+      }catch{if(!disposed)setCustomBrand(null);}
+    }
+    void refreshBrand();
+    window.addEventListener("cpipos-custom-branding-updated",refreshBrand);
+    return()=>{disposed=true;window.removeEventListener("cpipos-custom-branding-updated",refreshBrand);};
+  },[isCustom]);
+
   function handleSettingsNavigate(event: MouseEvent<HTMLAnchorElement>) {
     if (
       event.defaultPrevented ||
@@ -206,6 +223,11 @@ export function PosShellSidebar({ lang, settingsLabel, placement }: Props) {
 
   return (
     <aside
+      data-custom-branded={isCustom&&customBrand?"true":undefined}
+      style={isCustom&&customBrand?({
+        "--pos-custom-accent":customBrand.accent_color,
+        backgroundImage:`linear-gradient(185deg, ${customBrand.sidebar_color}, #08152B)`
+      } as CSSProperties):undefined}
       className={`pos-shell-sidebar pos-shell-sidebar--${placement} hidden min-h-0 shrink-0 overflow-hidden border-slate-900/40 bg-[radial-gradient(circle_at_80%_-20%,rgba(56,189,248,0.28),transparent_45%),radial-gradient(circle_at_20%_120%,rgba(37,99,235,0.26),transparent_40%),linear-gradient(185deg,#07142c,#081c3b_45%,#071731)] p-3 text-white md:flex ${
         isHorizontal
           ? "h-[78px] w-full flex-row items-center gap-3 border-r-0"
@@ -224,6 +246,11 @@ export function PosShellSidebar({ lang, settingsLabel, placement }: Props) {
             className="pos-shell-sidebar__logo-mark"
           />
         </div>
+        {isCustom&&customBrand&&(!collapsed||isHorizontal)?<div className="mt-1 flex items-center gap-2 rounded-lg bg-white/5 px-2 py-1">
+          {customBrand.logo_url?<img src={customBrand.logo_url} alt="โลโก้ร้าน" className="h-9 w-9 shrink-0 rounded bg-white object-contain"/>:null}
+          <div className="min-w-0"><strong className="block truncate text-xs">{customBrand.system_name}</strong>
+            <span className="block text-[10px] text-slate-300">Powered by CpiPOS</span></div>
+        </div>:null}
       </div>
 
       {!isHorizontal ? (

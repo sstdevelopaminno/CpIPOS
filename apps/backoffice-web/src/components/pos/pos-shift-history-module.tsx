@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { resolveShiftCycle, slotLabel, slotWindowLabel } from "@/lib/pos-shift-schedule";
+import { resolveOpticalDailyShift } from "@/lib/pos-optical-daily-shift";
 
 type Lang = "th" | "en";
 type ModalKind = "open" | "close" | "active" | "receipt" | "details" | "summary" | null;
@@ -35,7 +36,12 @@ type ShiftHistoryResponse = {
       selected_branch_id: string | null;
       branch_options: Array<{ id: string; code: string | null; name: string | null }>;
     };
+    optical_policy?: {
+      enabled:boolean;country:"TH"|"LA"|"US"|null;currency:"THB"|"LAK"|"USD"|null;
+      timeZone:string|null;financeEnabled:boolean;automaticClosureReady:boolean;
+    };
     summary: {
+      deposit_total?:number|null;deposit_cash?:number|null;deposit_transfer?:number|null;
       shift_count: number;
       order_count: number;
       cancelled_order_count: number;
@@ -59,6 +65,7 @@ type ShiftHistoryResponse = {
       status: string;
       metadata: Record<string, unknown> | null;
       metrics: {
+        deposit_total?:number|null;deposit_cash?:number|null;deposit_transfer?:number|null;
         order_count: number;
         cancelled_order_count: number;
         sales_total: number;
@@ -273,6 +280,10 @@ function isOverdueAutoClosedShift(shift: ShiftHistoryItem) {
 }
 
 function shiftStatusBadge(shift: ShiftHistoryItem, lang: Lang) {
+  if (shift.status !== "open" && shift.metadata?.close_reason === "optical_daily_auto_close_midnight") {
+    return {label:lang==="th"?"ปิดกะอัตโนมัติ":"Auto closed",
+      className:"bg-teal-100 text-teal-800 ring-1 ring-teal-200"};
+  }
   if (shift.status === "open") {
     return {
       label: lang === "th" ? "เปิดอยู่" : "Open",
@@ -304,6 +315,7 @@ type ShiftHistoryTableLabels = {
   cash: string;
   transfer: string;
   cashVariance: string;
+  deposit: string;
 };
 
 type ShiftHistoryTableRow = {
@@ -318,18 +330,26 @@ type ShiftHistoryTableRow = {
   cash: string;
   transfer: string;
   cashVariance: string;
+  deposit: string;
 };
 
-function getShiftCashVariance(shift: ShiftHistoryItem) {
-  return shift.actual_cash === null ? null : Number((shift.actual_cash - (shift.opening_cash + shift.metrics.cash_total)).toFixed(2));
+function getShiftCashVariance(shift: ShiftHistoryItem, opticalFinance=false) {
+  // Optical deposits enter the drawer separately. Use a persisted expected_cash
+  // only after the finance close flow is approved, never add deposits twice.
+  const expected=opticalFinance ? shift.expected_cash : shift.opening_cash + shift.metrics.cash_total;
+  return shift.actual_cash===null || expected===null ? null
+    : Number((shift.actual_cash-expected).toFixed(2));
 }
 
-function getShiftHistoryTableRows(shifts: ShiftHistoryItem[], lang: Lang): ShiftHistoryTableRow[] {
+function isOpticalDailyRow(shift:ShiftHistoryItem,opticalDaily:boolean):boolean {
+  return opticalDaily && shift.metadata?.business_shift_mode==="optical_daily";
+}
+function getShiftHistoryTableRows(shifts: ShiftHistoryItem[], lang: Lang, opticalDaily=false, opticalFinance=false): ShiftHistoryTableRow[] {
   return shifts.map((shift) => {
     const cycle = resolveShiftCycle(shift.opened_at);
-    const cashVariance = getShiftCashVariance(shift);
+    const cashVariance = getShiftCashVariance(shift,opticalFinance);
     return {
-      shiftName: cycle ? slotLabel(cycle.slot, lang) : "-",
+      shiftName: isOpticalDailyRow(shift,opticalDaily) ? (lang==="th"?"กะรายวัน":"Daily Shift") : cycle ? slotLabel(cycle.slot, lang) : "-",
       branch: shift.branch_name ?? shift.branch_code ?? "-",
       openedAt: formatDateTime(shift.opened_at, lang),
       closedAt: shift.closed_at ? formatDateTime(shift.closed_at, lang) : "-",
@@ -339,6 +359,7 @@ function getShiftHistoryTableRows(shifts: ShiftHistoryItem[], lang: Lang): Shift
       sales: formatMoney(shift.metrics.sales_total, lang),
       cash: formatMoney(shift.metrics.cash_total, lang),
       transfer: formatMoney(shift.metrics.transfer_total, lang),
+      deposit: opticalFinance ? formatMoney(shift.metrics.deposit_total??0,lang) : "—",
       cashVariance: cashVariance === null ? "-" : formatSignedMoney(cashVariance, lang)
     };
   });
@@ -353,6 +374,7 @@ function buildShiftHistoryCsv(args: {
   rows: ShiftHistoryTableRow[];
   labels: ShiftHistoryTableLabels;
   includeBranch: boolean;
+  includeDeposit?: boolean;
 }) {
   const headers = [
     args.labels.shiftName,
@@ -363,6 +385,7 @@ function buildShiftHistoryCsv(args: {
     args.labels.orders,
     args.labels.cancelled,
     args.labels.sales,
+    ...(args.includeDeposit ? [args.labels.deposit] : []),
     args.labels.cash,
     args.labels.transfer,
     args.labels.cashVariance
@@ -376,6 +399,7 @@ function buildShiftHistoryCsv(args: {
     row.orders,
     row.cancelled,
     row.sales,
+    ...(args.includeDeposit ? [row.deposit] : []),
     row.cash,
     row.transfer,
     row.cashVariance
@@ -388,6 +412,7 @@ function buildShiftHistoryPrintHtml(args: {
   labels: ShiftHistoryTableLabels;
   includeBranch: boolean;
   generatedAt: string;
+  includeDeposit?: boolean;
 }) {
   const headers = [
     args.labels.shiftName,
@@ -398,6 +423,7 @@ function buildShiftHistoryPrintHtml(args: {
     args.labels.orders,
     args.labels.cancelled,
     args.labels.sales,
+    ...(args.includeDeposit ? [args.labels.deposit] : []),
     args.labels.cash,
     args.labels.transfer,
     args.labels.cashVariance
@@ -411,6 +437,7 @@ function buildShiftHistoryPrintHtml(args: {
     row.orders,
     row.cancelled,
     row.sales,
+    ...(args.includeDeposit ? [row.deposit] : []),
     row.cash,
     row.transfer,
     row.cashVariance
@@ -456,6 +483,7 @@ function buildShiftPeriodReceiptHtml(args: {
   period: string;
   branch: string;
   lang: Lang;
+  opticalDaily?: boolean;
 }) {
   const { shifts, summary, lang } = args;
   const th = lang === "th";
@@ -465,11 +493,13 @@ function buildShiftPeriodReceiptHtml(args: {
   const shiftRows = [...shifts].sort((a, b) => a.opened_at.localeCompare(b.opened_at))
     .map((shift, index) => {
       const cycle = resolveShiftCycle(shift.opened_at);
-      const name = `${index + 1}. ${cycle ? slotLabel(cycle.slot, lang) : (th ? "กะ" : "Shift")}`;
+      const name = `${index + 1}. ${isOpticalDailyRow(shift,Boolean(args.opticalDaily)) ? slotLabel("daily", lang) : cycle ? slotLabel(cycle.slot, lang) : (th ? "กะ" : "Shift")}`;
       return `<div class="break"></div>
         <p><strong>${escapeHtml(name)}</strong> ${escapeHtml(formatDateTime(shift.opened_at, lang))}</p>
         ${line(th ? "บิล" : "Bills", String(shift.metrics.order_count))}
         ${line(th ? "ยอดขายกะ" : "Shift sales", money(shift.metrics.sales_total))}
+        ${shift.metrics.deposit_total !== undefined ? line(th?"เงินมัดจำ":"Deposits",
+           shift.metrics.deposit_total===null?"—":money(shift.metrics.deposit_total)) : ""}
         ${line(th ? "เงินสด" : "Cash", money(shift.metrics.cash_total))}
         ${line(th ? "โอน/QR" : "Transfer/QR", money(shift.metrics.transfer_total))}`;
     }).join("");
@@ -493,6 +523,8 @@ ${line(th ? "จำนวนบิล" : "Bills", String(summary.order_count))}
 ${line(th ? "บิลยกเลิก" : "Cancelled", String(summary.cancelled_order_count))}
 <div class="total">
 ${line(th ? "ยอดขายรวม" : "Total sales", money(summary.sales_total))}
+${summary.deposit_total !== undefined ? line(th?"เงินมัดจำ":"Deposits",
+  summary.deposit_total===null?"—":money(summary.deposit_total)) : ""}
 ${line(th ? "เงินสด" : "Cash", money(summary.cash_total))}
 ${line(th ? "โอน/QR" : "Transfer/QR", money(summary.transfer_total))}
 </div><p>${th ? "แยกตามกะ" : "By shift"}</p>${shiftRows}
@@ -503,6 +535,7 @@ ${line(th ? "โอน/QR" : "Transfer/QR", money(summary.transfer_total))}
 function buildShiftDetailReceiptHtml(args: {
   shift: ShiftHistoryItem;
   lang: Lang;
+  opticalDaily?: boolean;
   labels: {
     title: string;
     shiftName: string;
@@ -548,7 +581,7 @@ h1,p{margin:0;}
   </header>
   <div class="divider"></div>
   <section class="summary">
-    ${line(labels.shiftName, escapeHtml(cycle ? slotLabel(cycle.slot, lang) : "-"))}
+    ${line(labels.shiftName, escapeHtml(isOpticalDailyRow(shift,Boolean(args.opticalDaily)) ? slotLabel("daily",lang) : cycle ? slotLabel(cycle.slot, lang) : "-"))}
     ${line(labels.openedBy, escapeHtml(shift.opened_by_name ?? "-"))}
     ${line(labels.closedBy, escapeHtml(shift.closed_by_name ?? "-"))}
     ${line(labels.openedAt, dt(shift.opened_at))}
@@ -560,6 +593,8 @@ h1,p{margin:0;}
     ${line(labels.cancelled, String(shift.metrics.cancelled_order_count))}
     <div class="divider"></div>
     ${line(labels.sales, money(shift.metrics.sales_total))}
+    ${shift.metrics.deposit_total !== undefined ?
+      line(lang==="th"?"เงินมัดจำ":"Deposits",shift.metrics.deposit_total===null?"—":money(shift.metrics.deposit_total)) : ""}
     ${line(labels.cash, money(shift.metrics.cash_total))}
     ${line(labels.transfer, money(shift.metrics.transfer_total))}
     <div class="divider"></div>
@@ -744,10 +779,19 @@ export function PosShiftHistoryModule({ lang }: { lang: Lang }) {
     [lang]
   );
 
+  const opticalDaily=payload?.optical_policy?.enabled===true && Boolean(payload.optical_policy.timeZone);
   const currentCycle = useMemo(() => {
     if (!sessionShift?.opened_at || sessionShift.status !== "open") return null;
+    if (opticalDaily && payload?.shifts.some(x=>x.id===sessionShift.id && x.metadata?.business_shift_mode==="optical_daily") && payload?.optical_policy?.country && payload.optical_policy.timeZone) {
+      const day=resolveOpticalDailyShift({
+        openedAt:sessionShift.opened_at,country:payload.optical_policy.country,
+        approvedTimeZone:payload.optical_policy.timeZone
+      });
+      return day ? {slot:"daily" as const,openedAt:day.openedAt,endAt:day.cutoffAt,
+        warningAt:day.warningAt,autoCloseAt:day.autoCloseAt,nextSlot:"daily" as const}:null;
+    }
     return resolveShiftCycle(sessionShift.opened_at);
-  }, [sessionShift?.opened_at, sessionShift?.status]);
+  }, [sessionShift?.id,sessionShift?.opened_at,sessionShift?.status,opticalDaily,payload?.shifts,payload?.optical_policy?.country,payload?.optical_policy?.timeZone]);
   const activeShift = useMemo(() => {
     if (!sessionShift?.id) return null;
     return payload?.shifts.find((shift) => shift.id === sessionShift.id) ?? null;
@@ -787,7 +831,8 @@ export function PosShiftHistoryModule({ lang }: { lang: Lang }) {
       sales: text.sales,
       cash: text.cash,
       transfer: text.transfer,
-      cashVariance: text.expected
+      cashVariance: text.expected,
+      deposit: lang === "th" ? "ยอดมัดจำ" : "Deposits"
     }),
     [text]
   );
@@ -1024,7 +1069,8 @@ export function PosShiftHistoryModule({ lang }: { lang: Lang }) {
       summary: payload.summary,
       period: periodLabel,
       branch: periodBranchLabel,
-      lang
+      lang,
+      opticalDaily
     });
     setPeriodPrintNotice(null);
     if (!viaBluetooth) {
@@ -1066,11 +1112,14 @@ export function PosShiftHistoryModule({ lang }: { lang: Lang }) {
 
   function exportShiftHistoryCsv() {
     if (!payload?.shifts.length) return;
-    const rows = getShiftHistoryTableRows(payload.shifts, lang);
+    const rows = getShiftHistoryTableRows(payload.shifts,lang,
+      payload.optical_policy?.enabled===true&&Boolean(payload.optical_policy.timeZone),
+      payload.optical_policy?.financeEnabled===true);
     const csv = buildShiftHistoryCsv({
       rows,
       labels: shiftTableLabels,
-      includeBranch: payload.filters.can_view_branch_wide
+      includeBranch: payload.filters.can_view_branch_wide,
+      includeDeposit: payload.optical_policy?.enabled===true
     });
     const fileDate = new Date().toISOString().slice(0, 10);
     const rangePart = startDate || endDate ? `${startDate || "from"}-${endDate || "to"}` : `${days}d`;
@@ -1087,11 +1136,14 @@ export function PosShiftHistoryModule({ lang }: { lang: Lang }) {
 
   function printShiftHistoryReport() {
     if (!payload?.shifts.length) return;
-    const rows = getShiftHistoryTableRows(payload.shifts, lang);
+    const rows = getShiftHistoryTableRows(payload.shifts,lang,
+      payload.optical_policy?.enabled===true&&Boolean(payload.optical_policy.timeZone),
+      payload.optical_policy?.financeEnabled===true);
     const printHtml = buildShiftHistoryPrintHtml({
       rows,
       labels: shiftTableLabels,
       includeBranch: payload.filters.can_view_branch_wide,
+      includeDeposit: payload.optical_policy?.enabled===true,
       generatedAt: formatDateTime(new Date().toISOString(), lang)
     });
     const printWindow = window.open("", "_blank", "width=1120,height=760");
@@ -1192,6 +1244,7 @@ export function PosShiftHistoryModule({ lang }: { lang: Lang }) {
     const receiptHtml = buildShiftDetailReceiptHtml({
       shift: selectedShift,
       lang,
+      opticalDaily,
       labels: {
         title: detailsTitle,
         shiftName: text.shiftName,
@@ -1353,6 +1406,14 @@ export function PosShiftHistoryModule({ lang }: { lang: Lang }) {
             </div>
           </div>
 
+          {payload?.optical_policy?.enabled ? <p role="note"
+            className="mt-3 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-900">
+            {lang==="th"?"CUSTOM Optical · กะรายวันสิ้นสุดเที่ยงคืน":"CUSTOM Optical · Daily shift"}
+            {payload.optical_policy.currency ? ` · ${payload.optical_policy.currency}` : ""}
+            {payload.optical_policy.timeZone ? ` · ${payload.optical_policy.timeZone}` : " · กรุณากำหนดเขตเวลาจาก IT"}
+            {!payload.optical_policy.automaticClosureReady ? " · ปิดกะอัตโนมัติฝั่งเซิร์ฟเวอร์ยังไม่เปิด" : ""}
+            {!payload.optical_policy.financeEnabled ? " · ยอดมัดจำยังไม่เปิดรับเงินจริง" : ""}
+          </p> : null}
           {loading ? <p className="mt-4 text-sm text-slate-500">Loading...</p> : null}
           {!loading && payload && payload.shifts.length === 0 ? <p className="mt-4 text-sm text-slate-500">{text.noData}</p> : null}
 
@@ -1367,6 +1428,7 @@ export function PosShiftHistoryModule({ lang }: { lang: Lang }) {
                     <th className="px-3 py-3">{text.status}</th>
                     <th className="px-3 py-3 text-right">{text.orders}</th>
                     <th className="px-3 py-3 text-right">{text.sales}</th>
+                    {payload.optical_policy?.enabled ? <th className="px-3 py-3 text-right">{shiftTableLabels.deposit}</th> : null}
                      <th className="px-3 py-3 text-right">{text.cash}</th>
                      <th className="px-3 py-3 text-right">{text.transfer}</th>
                     <th className="px-3 py-3 text-right">{text.expected}</th>
@@ -1376,7 +1438,7 @@ export function PosShiftHistoryModule({ lang }: { lang: Lang }) {
                 <tbody>
                   {pagedShifts.map((shift) => {
                     const cycle = resolveShiftCycle(shift.opened_at);
-                    const cashVariance = getShiftCashVariance(shift);
+                    const cashVariance = getShiftCashVariance(shift,payload.optical_policy?.financeEnabled===true);
                     const cashVarianceClass =
                       cashVariance === null
                         ? "text-slate-400"
@@ -1387,7 +1449,7 @@ export function PosShiftHistoryModule({ lang }: { lang: Lang }) {
                             : "text-orange-600";
                     return (
                       <tr key={shift.id} className="border-t border-slate-200">
-                        <td className="px-3 py-3 font-semibold text-slate-700">{cycle ? slotLabel(cycle.slot, lang) : "-"}</td>
+                        <td className="px-3 py-3 font-semibold text-slate-700">{isOpticalDailyRow(shift,opticalDaily) ? (lang==="th"?"กะรายวัน":"Daily Shift") : cycle ? slotLabel(cycle.slot, lang) : "-"}</td>
                         <td className="px-3 py-3 text-slate-600">{formatDateTime(shift.opened_at, lang)}</td>
                         <td className="px-3 py-3 text-slate-600">{shift.closed_at ? formatDateTime(shift.closed_at, lang) : "-"}</td>
                         <td className="px-3 py-3">
@@ -1404,6 +1466,7 @@ export function PosShiftHistoryModule({ lang }: { lang: Lang }) {
                         </td>
                         <td className="px-3 py-3 text-right">{shift.metrics.order_count}</td>
                         <td className="px-3 py-3 text-right">{formatMoney(shift.metrics.sales_total, lang)}</td>
+                        {payload.optical_policy?.enabled ? <td className="px-3 py-3 text-right font-semibold text-emerald-700">{payload.optical_policy.financeEnabled ? formatMoney(shift.metrics.deposit_total??0,lang) : "—"}</td> : null}
                          <td className="px-3 py-3 text-right">{formatMoney(shift.metrics.cash_total, lang)}</td>
                          <td className="px-3 py-3 text-right">{formatMoney(shift.metrics.transfer_total, lang)}</td>
                         <td className={`px-3 py-3 text-right font-bold ${cashVarianceClass}`}>
@@ -1532,6 +1595,8 @@ export function PosShiftHistoryModule({ lang }: { lang: Lang }) {
                     [text.shifts, String(payload?.summary.shift_count ?? 0)],
                     [text.orders, String(payload?.summary.order_count ?? 0)],
                     [text.cancelled, String(payload?.summary.cancelled_order_count ?? 0)],
+                    ...(payload?.optical_policy?.enabled ? [[shiftTableLabels.deposit,
+                      payload.optical_policy.financeEnabled ? formatMoney(payload.summary.deposit_total??0,lang) : "—"]] : []),
                     [text.cash, formatMoney(payload?.summary.cash_total ?? 0, lang)],
                     [lang === "th" ? "โอน/QR" : "Transfer/QR", formatMoney(payload?.summary.transfer_total ?? 0, lang)]
                   ] as const).map(([label, value]) => (
@@ -1548,10 +1613,11 @@ export function PosShiftHistoryModule({ lang }: { lang: Lang }) {
                       const cycle = resolveShiftCycle(shift.opened_at);
                       return (
                         <div key={shift.id} className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs">
-                          <p className="font-bold text-slate-900">{cycle ? slotLabel(cycle.slot, lang) : text.shiftName} · {formatDateTime(shift.opened_at, lang)}</p>
+                          <p className="font-bold text-slate-900">{isOpticalDailyRow(shift,opticalDaily) ? slotLabel("daily",lang) : cycle ? slotLabel(cycle.slot, lang) : text.shiftName} · {formatDateTime(shift.opened_at, lang)}</p>
                           <p className="text-slate-500">{shift.branch_name ?? shift.branch_code ?? "-"}</p>
                           <div className="mt-1 flex justify-between gap-2"><span>{text.orders}</span><strong>{shift.metrics.order_count}</strong></div>
                           <div className="flex justify-between gap-2"><span>{text.sales}</span><strong>{formatMoney(shift.metrics.sales_total, lang)}</strong></div>
+                          {payload.optical_policy?.enabled ? <div className="flex justify-between gap-2"><span>{shiftTableLabels.deposit}</span><strong>{payload.optical_policy.financeEnabled ? formatMoney(shift.metrics.deposit_total??0,lang) : "—"}</strong></div> : null}
                           <div className="flex justify-between gap-2"><span>{lang === "th" ? "โอน/QR" : "Transfer/QR"}</span><strong>{formatMoney(shift.metrics.transfer_total, lang)}</strong></div>
                         </div>
                       );
@@ -1674,7 +1740,7 @@ export function PosShiftHistoryModule({ lang }: { lang: Lang }) {
                     <>
                       <p className="flex justify-between gap-3">
                         <span>{text.shiftName}</span>
-                        <strong>{cycle ? slotLabel(cycle.slot, lang) : "-"}</strong>
+                        <strong>{isOpticalDailyRow(selectedShift,opticalDaily) ? slotLabel("daily",lang) : cycle ? slotLabel(cycle.slot, lang) : "-"}</strong>
                       </p>
                       <p className="flex justify-between gap-3">
                         <span>{openedByLabel}</span>
@@ -1699,6 +1765,9 @@ export function PosShiftHistoryModule({ lang }: { lang: Lang }) {
                         <span>{text.sales}</span>
                         <strong>{formatMoney(selectedShift.metrics.sales_total, lang)}</strong>
                       </p>
+                      {payload?.optical_policy?.enabled ? <p className="flex justify-between gap-3">
+                        <span>{shiftTableLabels.deposit}</span><strong>{payload.optical_policy.financeEnabled ? formatMoney(selectedShift.metrics.deposit_total??0,lang) : "—"}</strong>
+                      </p> : null}
                       <p className="flex justify-between gap-3">
                         <span>{text.cash}</span>
                         <strong>{formatMoney(selectedShift.metrics.cash_total, lang)}</strong>

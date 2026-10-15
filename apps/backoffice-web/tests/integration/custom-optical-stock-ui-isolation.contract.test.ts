@@ -24,7 +24,13 @@ describe("CUSTOM inventory UI is isolated from food POS",()=>{
     expect(specialized).toContain('if(mode!=="optical"&&mode!=="retail"&&mode!=="mixed")notFound()');
     expect(specialized).toContain('.eq("tenant_id",tenantId).eq("branch_id",branchId)');
   });
-  it("has no inventory or payment writers; legacy product stock is explicitly unverified",()=>{
+  it("filters old food products in both optical-only and mixed CUSTOM while leaving retail unchanged",()=>{
+    expect(specialized).toContain('if(!optical)return true;');
+    expect(specialized).toContain('metadata.business_mode==="optical_retail"');
+    expect(specialized).toContain('imdc optical qa');
+    expect(specialized).not.toContain('if(mode!=="mixed")return true;');
+  });
+    it("has no inventory or payment writers; legacy product stock is explicitly unverified",()=>{
     expect(specialized).not.toContain('insert(');
     expect(specialized).not.toContain('update(');
     expect(specialized).not.toContain('delete(');

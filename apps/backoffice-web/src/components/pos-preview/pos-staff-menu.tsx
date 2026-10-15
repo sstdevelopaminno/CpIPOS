@@ -135,6 +135,7 @@ export function PosStaffMenu({ lang, collapsed, orientation = "vertical", sessio
           <Link
             key={item.href}
             href={item.href}
+            aria-current={active?"page":undefined}
             onClick={(event) => menuLocked ? (event.preventDefault(), onLockedMenu(item.label)) : featureLocked ? (event.preventDefault(), onLockedFeature()) : handleNavigate(event, item.href)}
             className={entryClass({ active, locked, horizontal: isHorizontal, collapsed })}
             title={collapsed && !isHorizontal ? item.label : menuLocked ? (lang === "th" ? "ล็อกโดยผู้ดูแลระบบ IT" : "Locked by IT") : featureLocked ? (lang === "th" ? POS_MENU_LOCK_TITLE_TH : POS_MENU_LOCK_TITLE_EN) : undefined}
