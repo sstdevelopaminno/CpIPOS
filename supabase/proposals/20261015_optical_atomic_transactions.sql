@@ -130,7 +130,7 @@ begin
     values(p_tenant_id,p_branch_id,v_id,p_request_id,null,'received',p_actor);
   return query select v_id,false;
 end;
-$;
+$$;
 revoke all on function public.optical_create_work_order_tx(
 uuid,uuid,uuid,uuid,uuid,uuid,jsonb,numeric,uuid,timestamptz,text) from PUBLIC,anon,authenticated;
 grant execute on function public.optical_create_work_order_tx(
@@ -299,7 +299,7 @@ begin
   values(p_tenant_id,p_branch_id,p_work_order_id,p_request_id,v.status,p_next_status,p_actor);
  return query select p_next_status,false;
 end;
-$;
+$$;
 revoke all on function public.optical_transition_work_order_tx(
 uuid,uuid,uuid,uuid,text,uuid) from PUBLIC,anon,authenticated;
 grant execute on function public.optical_transition_work_order_tx(
