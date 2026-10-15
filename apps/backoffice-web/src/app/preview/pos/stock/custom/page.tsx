@@ -108,7 +108,7 @@ export default async function CustomModeStockPage() {
       return {...row,opticalBin:bin?.currency_code===currency?bin:null};
     });
     return <OpticalStockWorkspace rows={enriched}
-      branch={branch?.name??"สาขาที่ได้รับสิทธิ์"} currency={currency}
+      branch={branch?.name??"สาขาที่ได้รับสิทธิ์"} branchId={branchId} currency={currency}
       canManage={["owner","manager"].includes(String(scope.session.role??"").toLowerCase())}/>;
   }
   const low=mapped.filter(x=>x.available===1).length;
