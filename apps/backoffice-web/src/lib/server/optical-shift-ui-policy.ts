@@ -24,13 +24,13 @@ const disabled:OpticalShiftUiPolicy={
  * subscription billing, shift state, financial ledger, or another sales mode.
  */
 export async function getOpticalShiftUiPolicy(tenantId:string):Promise<OpticalShiftUiPolicy> {
-  const entitled=await requireOpticalRetailEntitlement(tenantId).catch(()=>false);
+  const entitled=await requireOpticalRetailEntitlement(tenantId);
   if(!entitled) return disabled;
   const db=getSupabaseServiceClient();
   const {data,error}=await db.from("tenant_subscription_contracts")
     .select("metadata").eq("tenant_id",tenantId).in("status",["active","trial"])
     .order("created_at",{ascending:false}).limit(1).maybeSingle();
-  if(error||!data) return disabled;
+  if(error||!data) throw new Error("optical_shift_contract_context_unavailable");
   const metadata=(data.metadata??{}) as Record<string,unknown>;
   const currencyRaw=metadata.pos_currency_code;
   const currency:OpticalCurrency|null=
