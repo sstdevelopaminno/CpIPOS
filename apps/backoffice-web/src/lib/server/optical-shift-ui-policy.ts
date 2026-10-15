@@ -43,7 +43,7 @@ export async function getOpticalShiftUiPolicy(tenantId:string):Promise<OpticalSh
   if(!country||!currency||
     (country==="TH"&&currency!=="THB")||
     (country==="LA"&&currency!=="LAK")||
-    (country==="US"&&currency!=="USD")) return disabled;
+    (country==="US"&&currency!=="USD")) return {...disabled,enabled:true};
   const timeZone=resolveOpticalTimeZone(
     country,typeof metadata.pos_timezone==="string"?metadata.pos_timezone:null
   );
