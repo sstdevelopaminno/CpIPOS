@@ -36,7 +36,7 @@ declare
   v_deposit numeric(18,2);
   v_expected numeric(18,2);
 begin
-  if current_user<>'service_role' then
+  if current_user not in ('service_role','postgres') then
     raise exception 'OPTICAL_AUTO_CLOSE_SERVICE_ONLY';
   end if;
   if p_limit<1 or p_limit>100 then raise exception 'OPTICAL_BATCH_LIMIT_INVALID'; end if;
@@ -138,7 +138,7 @@ revoke all on function public.optical_auto_close_daily_shifts_v1(integer)
   from PUBLIC,anon,authenticated;
 grant execute on function public.optical_auto_close_daily_shifts_v1(integer) to service_role;
 
--- AFTER approving and staging ALL dependencies, the database scheduler can
+-- pg_cron jobs normally execute as their creating database role (postgres);\n-- the function permits only postgres/service_role, never app roles.\n-- AFTER approving and staging ALL dependencies, the database scheduler can
 -- invoke this at one-minute cadence (not tied to any browser or Vercel):
 -- SELECT cron.schedule('cpipos-optical-daily-midnight-v1','* * * * *',
 --    $$SELECT * FROM public.optical_auto_close_daily_shifts_v1(20);$$);
