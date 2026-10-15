@@ -53,9 +53,10 @@ if ! grep -q "OPTICAL_PAYMENT_AMOUNT_INVALID" /tmp/optical-pay-one.log &&
 fi
 
 psql -v ON_ERROR_STOP=1 -v oid="$work_order" <<'SQL'
+select set_config('optical.test_work_order_id', :'oid', false);
 do $verify$
 declare
-  v_order uuid := :'oid'::uuid;
+  v_order uuid := current_setting('optical.test_work_order_id')::uuid;
   v_paid numeric;
   v_count integer;
 begin
