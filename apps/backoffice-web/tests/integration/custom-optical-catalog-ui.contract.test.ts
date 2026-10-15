@@ -6,7 +6,7 @@ describe("CUSTOM Optical catalog UI and API isolation",()=>{
   it("retains legacy restaurant + retail stock page and hides old Optical read-only notice",()=>{
     const page=text("app/preview/pos/stock/custom/page.tsx");
     const legacy=text("app/preview/pos/stock/page.tsx");
-    expect(page).toContain("if(optical)return <OpticalStockWorkspace");
+    expect(page).toContain("return <OpticalStockWorkspace rows={enriched}");
     expect(page).toContain("optical ? collectPagedShiftRows<CatalogRow>");
     expect(page).toContain("collectShiftRowsForIds<RecipeRow>");
     expect(page).toContain('if(!optical)return true;');
@@ -25,6 +25,12 @@ describe("CUSTOM Optical catalog UI and API isolation",()=>{
     expect(ui).toContain('setBulk(r=>[...r,blank()])');
     expect(ui).toContain('"PATCH":"POST"');
     expect(ui).toContain("Soft Delete");
+    expect(ui).toContain("สต๊อกกรอบแว่น");
+    expect(ui).toContain("สต๊อกเลนส์");
+    expect(ui).toContain("ดูรหัส");
+    expect(ui).toContain("จำนวนคงเหลือ");
+    expect(ui).toContain("lens_sph");
+    expect(ui).toContain("frame_size");
   });
   it("requires IT-approved CUSTOM Optical and owner/manager on every write",()=>{
     const api=text("app/api/pos/optical/catalog/route.ts");
