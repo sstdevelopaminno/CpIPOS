@@ -1,6 +1,8 @@
 -- Runs only against fresh Docker PostgreSQL service in GitHub Actions.
 \set ON_ERROR_STOP on
 grant select on all tables in schema public to service_role;
+-- Test trigger behavior as service_role (production grants are unchanged).
+grant insert on public.order_items to service_role;
 grant insert,update,delete on public.optical_stock_bins,public.optical_work_orders,
  public.optical_work_order_lines,public.optical_stock_reservations,
  public.optical_payment_ledger,public.optical_stock_movements,public.optical_work_order_events
