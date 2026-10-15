@@ -3,7 +3,7 @@
 -- Execute as service_role only, from POS routes that already require session, shift,
 -- feature access and per-branch role. No browser-supplied tenant authorization.
 create or replace function public.optical_create_work_order_tx(
-  p_tenant_id uuid, p_branch_id uuid, p_actor uuid, p_customer_id uuid,
+  p_tenant_id uuid, p_branch_id uuid, p_actor uuid, p_seller_id uuid, p_customer_id uuid,
   p_eye_exam_id uuid, p_items jsonb, p_discount_lak numeric,
   p_request_id uuid, p_due_at timestamptz default null, p_note text default null
 )
@@ -25,6 +25,12 @@ begin
       and r.tenant_id=p_tenant_id and r.branch_id=p_branch_id
       and r.role::text in ('owner','manager','staff')
   ) then raise exception 'OPTICAL_ACTOR_NOT_AUTHORIZED'; end if;
+  if p_seller_id is not null and not exists(
+    select 1 from public.users_profiles u
+    join public.user_branch_roles r on r.user_id=u.id where u.id=p_seller_id
+      and u.is_active and u.archived_at is null and r.tenant_id=p_tenant_id
+      and r.branch_id=p_branch_id and r.role::text in('owner','manager','staff')
+  ) then raise exception 'OPTICAL_SELLER_SCOPE_INVALID'; end if;
   if not exists (
     select 1 from public.tenant_subscription_contracts c
     join public.subscription_packages pkg on pkg.id=c.package_id
@@ -37,7 +43,7 @@ begin
   -- A repeated UUID with different items, discount or customer must NOT be
   -- mistaken for a successful replay, even when the request races.
   v_payload_hash:=md5(jsonb_build_object('customer',p_customer_id,'exam',p_eye_exam_id,
-    'items',p_items,'discount',coalesce(p_discount_lak,0),'due_at',p_due_at,
+    'items',p_items,'seller',coalesce(p_seller_id,p_actor),'discount',coalesce(p_discount_lak,0),'due_at',p_due_at,
     'note',coalesce(p_note,''))::text);
   perform pg_advisory_xact_lock(hashtextextended(
     p_tenant_id::text||':'||p_branch_id::text||':'||p_request_id::text, 0));
@@ -95,7 +101,7 @@ begin
   insert into public.optical_work_orders(tenant_id,branch_id,customer_id,eye_exam_id,
     seller_id,request_id,request_payload_hash,status,currency_code,
     subtotal,discount_amount,total_amount,due_at,note)
-  values(p_tenant_id,p_branch_id,p_customer_id,p_eye_exam_id,p_actor,p_request_id,
+  values(p_tenant_id,p_branch_id,p_customer_id,p_eye_exam_id,coalesce(p_seller_id,p_actor),p_request_id,
     v_payload_hash,'received','LAK',v_subtotal,v_discount,v_subtotal-v_discount,p_due_at,left(p_note,1000))
   returning id into v_id;
   for v_entry in select value from jsonb_array_elements(v_entries)
@@ -120,9 +126,9 @@ begin
 end;
 $;
 revoke all on function public.optical_create_work_order_tx(
-uuid,uuid,uuid,uuid,uuid,jsonb,numeric,uuid,timestamptz,text) from PUBLIC,anon,authenticated;
+uuid,uuid,uuid,uuid,uuid,uuid,jsonb,numeric,uuid,timestamptz,text) from PUBLIC,anon,authenticated;
 grant execute on function public.optical_create_work_order_tx(
-uuid,uuid,uuid,uuid,uuid,jsonb,numeric,uuid,timestamptz,text) to service_role;
+uuid,uuid,uuid,uuid,uuid,uuid,jsonb,numeric,uuid,timestamptz,text) to service_role;
 
 create or replace function public.optical_post_deposit_tx(
   p_tenant_id uuid,p_branch_id uuid,p_work_order_id uuid,p_actor uuid,
