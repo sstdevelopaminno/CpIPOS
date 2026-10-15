@@ -25,6 +25,12 @@ begin
       and r.tenant_id=p_tenant_id and r.branch_id=p_branch_id
       and r.role::text in ('owner','manager','staff')
   ) then raise exception 'OPTICAL_ACTOR_NOT_AUTHORIZED'; end if;
+  -- Refuse ambiguous overlapping contracts rather than granting access based
+  -- on one of multiple active agreements.
+  if (select count(*) from public.tenant_subscription_contracts c
+      where c.tenant_id=p_tenant_id and c.status in ('active','trial')
+      and (c.ended_at is null or c.ended_at>now())) <> 1
+  then raise exception 'OPTICAL_CONTRACT_AMBIGUOUS'; end if;
   if p_seller_id is not null and not exists(
     select 1 from public.users_profiles u
     join public.user_branch_roles r on r.user_id=u.id where u.id=p_seller_id
@@ -152,6 +158,10 @@ begin
     and r.tenant_id=p_tenant_id and r.branch_id=p_branch_id
     and r.role::text in ('owner','manager','staff')) then
    raise exception 'OPTICAL_PAYMENT_ACTOR_DENIED'; end if;
+ if (select count(*) from public.tenant_subscription_contracts c
+     where c.tenant_id=p_tenant_id and c.status in ('active','trial')
+       and (c.ended_at is null or c.ended_at>now())) <> 1
+ then raise exception 'OPTICAL_CONTRACT_AMBIGUOUS'; end if;
  if not exists(select 1 from public.tenant_subscription_contracts c
    join public.subscription_packages pkg on pkg.id=c.package_id
    where c.tenant_id=p_tenant_id and c.status in ('active','trial')
@@ -217,6 +227,10 @@ begin
   where b.user_id=p_actor and b.tenant_id=p_tenant_id and b.branch_id=p_branch_id
     and b.role::text in ('owner','manager','staff') and u.is_active and u.archived_at is null)
  then raise exception 'OPTICAL_TRANSITION_DENIED'; end if;
+ if (select count(*) from public.tenant_subscription_contracts c
+     where c.tenant_id=p_tenant_id and c.status in ('active','trial')
+       and (c.ended_at is null or c.ended_at>now())) <> 1
+ then raise exception 'OPTICAL_CONTRACT_AMBIGUOUS'; end if;
  if not exists(select 1 from public.tenant_subscription_contracts c
    join public.subscription_packages pkg on pkg.id=c.package_id
    where c.tenant_id=p_tenant_id and c.status in('active','trial')
