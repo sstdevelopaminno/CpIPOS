@@ -100,6 +100,21 @@ export function OpticalStockWorkspace({rows,branch,branchId,branches,currency,ca
       }).catch(()=>{});
     return()=>controller.abort();
   },[visibleIds,modal,branchId]);
+  useEffect(()=>{
+    if(modal!=="best")return;
+    const controller=new AbortController();
+    setBestLoading(true);setBestError("");setBestRows([]);
+    void fetch("/api/pos/optical/best-sellers?branch_id="+encodeURIComponent(branchId),
+      {signal:controller.signal,cache:"no-store"}).then(async response=>{
+        const body=await response.json();
+        if(!response.ok)throw new Error(body.error?.message??"โหลดสินค้าขายดีไม่สำเร็จ");
+        if(!controller.signal.aborted){
+          setBestRows(body.data?.ranked??[]);setSampled(Boolean(body.data?.sampled));
+        }
+      }).catch(e=>{if(!controller.signal.aborted)setBestError(e instanceof Error?e.message:"โหลดไม่สำเร็จ");})
+      .finally(()=>{if(!controller.signal.aborted)setBestLoading(false);});
+    return()=>controller.abort();
+  },[modal,branchId]);
   const change=(key:keyof Draft,value:string)=>setDraft(s=>({...s,[key]:value}));
   const changeBulk=(idx:number,key:keyof Draft,value:string)=>
     setBulk(s=>s.map((r,i)=>i===idx?{...r,[key]:value}:r));
@@ -144,10 +159,22 @@ export function OpticalStockWorkspace({rows,branch,branchId,branches,currency,ca
     <header className="rounded-2xl border border-emerald-200 bg-gradient-to-r from-emerald-100 via-green-50 to-white p-5 shadow-sm">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <PosBackButton lang="th" href="/preview/pos/more" label="กลับเมนูเพิ่มเติม"/>
+        <div className="flex flex-wrap items-center gap-2">
+          <label className="text-xs font-bold text-slate-700">เลือกสาขา
+            <select aria-label="เลือกสาขาสต๊อก" value={branchId}
+              className={field+" ml-2 w-auto"}
+              disabled={branches.length<=1}
+              onChange={e=>window.location.assign("/preview/pos/stock/custom?branch_id="+encodeURIComponent(e.target.value))}>
+              {branches.map(b=><option key={b.id} value={b.id}>{b.name}</option>)}
+            </select>
+          </label>
+          <button className="min-h-10 rounded-xl border border-amber-400 bg-amber-50 px-4 py-2 text-sm font-bold text-amber-900"
+            onClick={()=>show("best")}>★ สินค้าขายดี</button>
         {canManage?<div className="flex flex-wrap gap-2">
           <button className="min-h-10 rounded-xl bg-emerald-700 px-4 py-2 text-sm font-bold text-white" onClick={()=>show("add")}>+ เพิ่มสินค้า</button>
           <button className="min-h-10 rounded-xl border border-emerald-600 bg-white px-4 py-2 text-sm font-bold text-emerald-800" onClick={()=>show("bulk")}>+ สร้างสินค้าหลายรายการ</button>
         </div>:null}
+        </div>
       </div>
       <p className="mt-3 text-xs font-bold tracking-widest text-emerald-800">CUSTOM · OPTICAL INVENTORY</p>
       <h1 className="mt-1 text-2xl font-extrabold text-slate-900">สต๊อกกรอบแว่นและเลนส์</h1>
@@ -263,11 +290,26 @@ export function OpticalStockWorkspace({rows,branch,branchId,branches,currency,ca
         className={"flex max-h-[92vh] w-full flex-col overflow-hidden rounded-2xl bg-white shadow-2xl "+(modal==="bulk"||modal==="media"?"max-w-6xl":"max-w-xl")}>
         <header className="flex justify-between gap-3 border-b border-slate-200 p-5">
           <div><h2 id="optical-modal-title" className="text-lg font-extrabold">
-            {modal==="add"?"เพิ่มสินค้า":modal==="edit"?"แก้ไขสินค้า":modal==="bulk"?"สร้างสินค้าหลายรายการ":modal==="sku"?"SKU / บาร์โค้ด":modal==="media"?"จัดการรูปสินค้า":"ยืนยันการลบสินค้า"}
-          </h2>{modal!=="delete"&&modal!=="sku"&&modal!=="media"?<p className="mt-1 text-xs text-slate-500">SKU / บาร์โค้ด กรอกเองได้ · ไม่เปลี่ยนจำนวนสต๊อกอัตโนมัติ</p>:null}</div>
+            {modal==="add"?"เพิ่มสินค้า":modal==="edit"?"แก้ไขสินค้า":modal==="bulk"?"สร้างสินค้าหลายรายการ":modal==="sku"?"SKU / บาร์โค้ด":modal==="media"?"จัดการรูปสินค้า":modal==="best"?"สินค้าขายดี 30 วันย้อนหลัง":"ยืนยันการลบสินค้า"}
+          </h2>{modal!=="delete"&&modal!=="sku"&&modal!=="media"&&modal!=="best"?<p className="mt-1 text-xs text-slate-500">SKU / บาร์โค้ด กรอกเองได้ · ไม่เปลี่ยนจำนวนสต๊อกอัตโนมัติ</p>:null}</div>
           <button aria-label="ปิด" disabled={busy} className="px-2 text-xl" onClick={close}>×</button>
         </header>
         <div className="min-h-0 overflow-y-auto p-5">
+          {modal==="best"?<div className="space-y-3">
+            <p className="text-sm text-slate-600">สาขา: {branch} · จัดอันดับตามจำนวนที่ขายจริง (เฉพาะบิลสำเร็จ ไม่รวมยกเลิก)</p>
+            {bestLoading?<p role="status">กำลังรวบรวมยอดขาย...</p>:null}
+            {bestError?<p role="alert" className="text-rose-700">{bestError}</p>:null}
+            {!bestLoading&&!bestError&&!bestRows.length?<p className="rounded-lg bg-slate-50 p-5 text-center">ไม่พบยอดขายสินค้า Optical ใน 30 วันที่ผ่านมา</p>:null}
+            {sampled?<p role="note" className="rounded-lg bg-amber-50 p-3 text-sm text-amber-800">ยอดขายมีมากกว่า 2,000 บิล แสดงอันดับจาก 2,000 บิลล่าสุดเท่านั้น</p>:null}
+            {bestRows.length?<div className="overflow-x-auto"><table className="w-full min-w-[520px] text-sm">
+              <thead className="bg-emerald-50"><tr>{["อันดับ","สินค้า","จำนวนขาย (ชิ้น)","ยอดขาย"].map(x=><th key={x} className="px-3 py-2 text-left">{x}</th>)}</tr></thead>
+              <tbody>{bestRows.map((x,i)=><tr key={x.product_id} className="border-b">
+                <td className="px-3 py-3 font-bold">{i+1}</td>
+                <td className="px-3 py-3">{x.name}</td>
+                <td className="px-3 py-3 text-right">{x.units}</td>
+                <td className="px-3 py-3 text-right">{formatSalesMoney(x.revenue,currency)}</td>
+              </tr>)}</tbody></table></div>:null}
+          </div>:null}
           {modal==="media"&&selected?<ProductMediaManager
             th branchId={branchId} branchName={branch} canManage={canManage}
             products={[{id:selected.id,sku:selected.sku??"",name:selected.name,category:selected.category??"Optical"}]}/>:null}
@@ -280,6 +322,10 @@ export function OpticalStockWorkspace({rows,branch,branchId,branches,currency,ca
           {modal==="delete"?<p className="rounded-lg bg-rose-50 p-4 text-sm text-rose-800">
             ต้องการลบสินค้า <strong>{selected?.name}</strong> ใช่หรือไม่? ระบบใช้ Soft Delete และจะบล็อกสินค้าที่มีสต๊อก สูตร หรือใบสั่งงานผูกอยู่
           </p>:null}
+          {(modal==="add"||modal==="bulk")?<label className="mb-4 block text-sm font-bold">เลือกสาขาที่ต้องการลงสินค้า
+            <select value={targetBranchId} className={field+" mt-2"} onChange={e=>setTargetBranchId(e.target.value)}>
+              {branches.map(option=><option key={option.id} value={option.id}>{option.name}</option>)}
+            </select></label>:null}
           {(modal==="add"||modal==="edit")?<div className="grid gap-3 sm:grid-cols-2">
             <label className="sm:col-span-2 text-sm font-semibold">ชื่อสินค้า *
               <input className={field+" mt-1"} maxLength={180} value={draft.name} onChange={e=>change("name",e.target.value)}/>
@@ -367,7 +413,7 @@ export function OpticalStockWorkspace({rows,branch,branchId,branches,currency,ca
               </table>
             </div>
             <div className="mt-3 flex justify-between gap-2">
-              <button className={btn} disabled={bulk.length>=50||busy} onClick={()=>setBulk(r=>[...r,blank()])}>+ เพิ่มแถว</button>
+              <button className={btn} disabled={bulk.length>=50||busy} onClick={()=>setBulk(r=>[...r,{...blank(),kind:tab}])}>+ เพิ่มแถว</button>
               <span className="text-xs text-slate-500">{bulk.length}/50 รายการ</span>
             </div>
           </>:null}
@@ -375,7 +421,7 @@ export function OpticalStockWorkspace({rows,branch,branchId,branches,currency,ca
         </div>
         <footer className="flex justify-end gap-2 border-t border-slate-200 bg-slate-50 p-4">
           <button className={btn} disabled={busy} onClick={close}>ยกเลิก</button>
-          {modal!=="sku"&&modal!=="media"?<button className={"min-h-10 rounded-xl px-5 py-2 text-sm font-bold text-white disabled:opacity-50 "+(modal==="delete"?"bg-rose-700":"bg-emerald-700")}
+          {modal!=="sku"&&modal!=="media"&&modal!=="best"?<button className={"min-h-10 rounded-xl px-5 py-2 text-sm font-bold text-white disabled:opacity-50 "+(modal==="delete"?"bg-rose-700":"bg-emerald-700")}
             disabled={busy} onClick={()=>void save()}>{busy?"กำลังบันทึก...":modal==="delete"?"ยืนยันลบ":modal==="bulk"?"บันทึกทั้งหมด":"บันทึก"}</button>:null}
         </footer>
       </section>
