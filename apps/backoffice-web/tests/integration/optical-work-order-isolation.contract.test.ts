@@ -45,6 +45,7 @@ describe("Optical-only finance isolation (not deployed)",()=>{
     expect(receipt).toContain("QRCode.toDataURL");
     expect(receipt).toContain("renderOpticalDepositReceipt80mm");
     expect(receipt).toContain('Cache-Control":"no-store, private"');
-    expect(receipt).toContain("no live printer");
+    expect(receipt).not.toContain("queueRoutedSalesReceipt(");
+    expect(receipt).not.toContain("window.print(");
   });
 });
