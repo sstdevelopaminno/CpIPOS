@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { appendAuditLog } from "@/lib/audit-log";
 import { clearShiftOpenBills, getShiftOpenBillBlockers, ShiftOpenBillsBlockedError, type ShiftOpenBillBlocker } from "@/lib/pos-shift-open-bills";
 import { resolveShiftCycle } from "@/lib/pos-shift-schedule";
+import { resolveOpticalDailyShift } from "@/lib/pos-optical-daily-shift";
+import { getOpticalShiftUiPolicy } from "@/lib/server/optical-shift-ui-policy";
 import {
   PosGuardError,
   getTenantBranchScopeFromSession,
@@ -53,8 +55,8 @@ function isWithinWindow(createdAt: string | null | undefined, openedAt: string, 
   return created.getTime() >= opened.getTime() && created.getTime() <= endAt.getTime();
 }
 
-function shiftRequiresManagerApproval(openedAt: string) {
-  const cycle = resolveShiftCycle(openedAt);
+function shiftRequiresManagerApproval(openedAt: string, opticalAutoCloseAt?: Date | null) {
+  const cycle = opticalAutoCloseAt ? {autoCloseAt:opticalAutoCloseAt}:resolveShiftCycle(openedAt);
   if (!cycle) return false;
   return Date.now() >= cycle.autoCloseAt.getTime();
 }
@@ -197,7 +199,14 @@ export async function POST(request: Request) {
     const isStaffRole = scope.session.role !== "owner" && scope.session.role !== "manager" && scope.session.role !== "accountant";
 
     const sessionScope = getTenantBranchScopeFromSession(scope);
-    const overdueAutoClose = shiftRequiresManagerApproval(shift.opened_at);
+    const opticalPolicy=await getOpticalShiftUiPolicy(sessionScope.tenantId);
+    const opticalDay=opticalPolicy.enabled&&opticalPolicy.country&&opticalPolicy.timeZone
+      ? resolveOpticalDailyShift({
+          openedAt:shift.opened_at,country:opticalPolicy.country,
+          approvedTimeZone:opticalPolicy.timeZone
+        }):null;
+    const overdueAutoClose=opticalPolicy.enabled && !opticalDay
+      ? false : shiftRequiresManagerApproval(shift.opened_at,opticalDay?.autoCloseAt);
     if (isStaffRole && shift.opened_by !== scope.session.user_id) {
       return NextResponse.json(
         { data: null, error: { code: "shift_close_forbidden", message: "Staff can close only their own shift." } },
@@ -268,6 +277,22 @@ export async function POST(request: Request) {
       return openBillsBlockedResponse({ count: openTableSessions.count, blockers: openTableSessions.blockers, source: "table_session_precheck" });
     }
 
+    // Optical work orders/deposits require a verified cash count until the
+    // server-side automatic reconciliation worker has passed QA.
+    if(opticalPolicy.enabled && !opticalPolicy.automaticClosureReady && closingCash===null) {
+      return NextResponse.json(
+        {data:null,error:{code:"optical_manual_shift_close_required",
+          message:"An Optical shift requires a cashier-confirmed closing cash amount."}},
+        {status:409}
+      );
+    }
+    if(opticalPolicy.financeEnabled) {
+      return NextResponse.json(
+        {data:null,error:{code:"optical_shift_finance_reconciliation_pending",
+          message:"Optical cash/deposit ledger reconciliation must be approved before closing."}},
+        {status:409}
+      );
+    }
     const closedAtIso = new Date().toISOString();
     const closedByDifferentUser = shift.opened_by !== sessionScope.userId;
     const autoCloseWithoutCashCount = overdueAutoClose && closingCash === null;
@@ -370,7 +395,8 @@ export async function POST(request: Request) {
     }
     const openingCashValue = toNumber(openingCashLookup.data?.opening_cash);
 
-    const summaryCutoffAt = getBangkokDayEndUtc(shift.opened_at);
+    const summaryCutoffAt=opticalDay
+      ? new Date(opticalDay.cutoffAt.getTime()-1) :getBangkokDayEndUtc(shift.opened_at);
     const shiftSummaryEndAt =
       summaryCutoffAt && new Date(closedAtIso).getTime() > summaryCutoffAt.getTime()
         ? summaryCutoffAt
