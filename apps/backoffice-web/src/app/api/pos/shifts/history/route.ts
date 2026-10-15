@@ -123,7 +123,7 @@ export async function GET(request: Request) {
     const endDateRaw = String(searchParams.get("end_date") ?? "").trim();
     const getDateBoundary=(value:string,edge:"start"|"end")=>{
       if(!opticalPolicy.enabled||!opticalPolicy.timeZone) return getBangkokDateBoundaryUtc(value,edge);
-      const parsed=/^(\\d{4})-(\\d{2})-(\\d{2})$/.exec(value);
+      const parsed=/^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
       if(!parsed)return null;
       const localDay=edge==="start"?value:new Date(Date.UTC(Number(parsed[1]),Number(parsed[2])-1,Number(parsed[3])+1))
         .toISOString().slice(0,10);
