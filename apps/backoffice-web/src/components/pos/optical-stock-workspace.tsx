@@ -7,7 +7,10 @@ import {PosBackButton} from "@/components/pos-preview/pos-back-button";
 export type OpticalRow={
   id:string;name:string;sku:string|null;category:string|null;price:number;
   sell_unit:string|null;metadata:Record<string,unknown>|null;
-  available:number|null;recipeAttached:boolean
+  available:number|null;recipeAttached:boolean;
+  opticalBin?:{product_id:string;kind:string;brand:string|null;model:string|null;
+    color:string|null;frame_size:string|null;lens_type:string|null;lens_index:string|null;
+    lens_sph:number|null;lens_cyl:number|null;on_hand:number;reserved:number;currency_code:string}|null
 };
 type Kind="frame"|"lens"|"accessory";
 type Draft={name:string;sku:string;kind:Kind;price:string;unit:string;note:string};
@@ -43,19 +46,21 @@ export function OpticalStockWorkspace({rows,branch,currency,canManage}:{
   rows:OpticalRow[];branch:string;currency:SalesCurrencyCode;canManage:boolean
 }){
   const [search,setSearch]=useState(""),[filter,setFilter]=useState("all"),[stock,setStock]=useState("all");
+  const [tab,setTab]=useState<Kind>("frame");
   const [page,setPage]=useState(1),[pageSize,setPageSize]=useState(10);
   const [modal,setModal]=useState<Modal>(null),[selected,setSelected]=useState<OpticalRow|null>(null);
   const [draft,setDraft]=useState<Draft>(blank()),[bulk,setBulk]=useState<Draft[]>([blank(),blank(),blank()]);
   const [busy,setBusy]=useState(false),[error,setError]=useState("");
   const displayed=useMemo(()=>rows.filter(r=>{
     if(search&&!([r.name,r.sku,r.category].some(v=>String(v??"").toLowerCase().includes(search.trim().toLowerCase()))))return false;
+    if(kind(r)!==tab)return false;
     if(filter!=="all"&&kind(r)!==filter)return false;
     if(stock==="low"&&r.available!==1)return false;
     if(stock==="out"&&r.available!==0)return false;
     if(stock==="unverified"&&r.available!==null)return false;
     if(stock==="available"&&!(r.available!==null&&r.available>1))return false;
     return true;
-  }),[rows,search,filter,stock]);
+  }),[rows,search,filter,stock,tab]);
   const totalPages=Math.max(1,Math.ceil(displayed.length/pageSize)),currentPage=Math.min(page,totalPages);
   const subset=displayed.slice((currentPage-1)*pageSize,currentPage*pageSize);
   const change=(key:keyof Draft,value:string)=>setDraft(s=>({...s,[key]:value}));
@@ -70,6 +75,7 @@ export function OpticalStockWorkspace({rows,branch,currency,canManage}:{
   const close=()=>{if(!busy){setModal(null);setError("");}};
   async function save(){
     if(!modal||busy)return;
+    if(modal==="sku")return;
     const items=modal==="bulk"?bulk:[draft];
     if(modal!=="delete"){
       const err=checkRows(items,currency);
