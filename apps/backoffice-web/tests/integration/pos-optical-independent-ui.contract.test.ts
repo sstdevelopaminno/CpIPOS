@@ -67,7 +67,8 @@ describe("Optical POS sale identity is separate from internal takeaway order typ
     expect(pos).toContain('posCurrencyCode === "LAK" ? null :');
     expect(mode).toContain('getAttribute("data-pos-store-currency")');
     expect(mode).toContain('cpipos:store-currency-updated');
-    expect(mode).toContain('currency: "THB"');
+    expect(mode).toContain("formatSalesMoney(value, normalizeSalesCurrency(");
+    expect(mode).toContain('attributeFilter: ["data-pos-store-currency"]');
   });
 
   it("has compact product barcode scan and a non-financial read-only reservation lookup", () => {
