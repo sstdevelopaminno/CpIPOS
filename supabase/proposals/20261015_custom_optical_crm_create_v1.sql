@@ -22,7 +22,9 @@ begin
  select exists(
   select 1 from public.tenant_subscription_contracts c
   join public.subscription_packages p on p.id=c.package_id
-  where c.tenant_id=p_tenant_id and c.status in ('active','trial')
+  where c.id=(select d.id from public.tenant_subscription_contracts d
+    where d.tenant_id=p_tenant_id order by d.created_at desc limit 1)
+   and c.status in ('active','trial')
    and (c.ended_at is null or c.ended_at>now())
    and lower(p.code)='custom'
    and c.metadata->'sales_modes'->>'optical_retail'='true'
@@ -45,6 +47,58 @@ begin
    where tenant_id=p_tenant_id and branch_id=p_branch_id
      and lower(sku)=lower(v_sku))
  then raise exception 'OPTICAL_SKU_DUPLICATE'; end if;
+ if (nullif(p_product->>'lens_sph','') is not null and
+      (p_product->>'lens_sph' !~ '^-?[0-9]{1,2}([.][0-9]{1,2})?
+  when 'lens' then 'เลนส์' else 'อุปกรณ์เสริม' end;
+ v_fields=jsonb_build_object(
+  'business_mode','optical_retail','optical_kind',v_kind,
+  'optical_brand',left(coalesce(p_product->>'brand',''),120),
+  'optical_model',left(coalesce(p_product->>'model',''),120),
+  'optical_color',left(coalesce(p_product->>'color',''),80),
+  'optical_frame_size',left(coalesce(p_product->>'frame_size',''),60),
+  'optical_lens_name',left(coalesce(p_product->>'lens_name',''),120),
+  'optical_lens_index',left(coalesce(p_product->>'lens_index',''),40),
+  'optical_lens_sph',nullif(p_product->>'lens_sph',''),
+  'optical_lens_cyl',nullif(p_product->>'lens_cyl',''),
+  'currency_code',p_currency,'stock_verification','pending'
+ );
+ insert into public.products
+ (tenant_id,branch_id,sku,name,category,price,sell_unit,stock_deduction_mode,is_combo,is_active,metadata)
+ values (p_tenant_id,p_branch_id,v_sku,v_name,v_category,v_price,'ชิ้น','unit_only',false,true,v_fields)
+ returning id into v_id;
+ return v_id;
+end $$;
+revoke all on function public.customer_portal_optical_product_create_v1(uuid,uuid,jsonb,text) from public,anon;
+grant execute on function public.customer_portal_optical_product_create_v1(uuid,uuid,jsonb,text) to authenticated;
+
+        or abs((p_product->>'lens_sph')::numeric)>30))
+    or (nullif(p_product->>'lens_cyl','') is not null and
+      (p_product->>'lens_cyl' !~ '^-?[0-9]{1,2}([.][0-9]{1,2})?
+  when 'lens' then 'เลนส์' else 'อุปกรณ์เสริม' end;
+ v_fields=jsonb_build_object(
+  'business_mode','optical_retail','optical_kind',v_kind,
+  'optical_brand',left(coalesce(p_product->>'brand',''),120),
+  'optical_model',left(coalesce(p_product->>'model',''),120),
+  'optical_color',left(coalesce(p_product->>'color',''),80),
+  'optical_frame_size',left(coalesce(p_product->>'frame_size',''),60),
+  'optical_lens_name',left(coalesce(p_product->>'lens_name',''),120),
+  'optical_lens_index',left(coalesce(p_product->>'lens_index',''),40),
+  'optical_lens_sph',nullif(p_product->>'lens_sph',''),
+  'optical_lens_cyl',nullif(p_product->>'lens_cyl',''),
+  'currency_code',p_currency,'stock_verification','pending'
+ );
+ insert into public.products
+ (tenant_id,branch_id,sku,name,category,price,sell_unit,stock_deduction_mode,is_combo,is_active,metadata)
+ values (p_tenant_id,p_branch_id,v_sku,v_name,v_category,v_price,'ชิ้น','unit_only',false,true,v_fields)
+ returning id into v_id;
+ return v_id;
+end $$;
+revoke all on function public.customer_portal_optical_product_create_v1(uuid,uuid,jsonb,text) from public,anon;
+grant execute on function public.customer_portal_optical_product_create_v1(uuid,uuid,jsonb,text) to authenticated;
+
+        or abs((p_product->>'lens_cyl')::numeric)>15)) then
+   raise exception 'OPTICAL_INVALID_PRESCRIPTION';
+ end if;
  v_category=case v_kind when 'frame' then 'กรอบแว่น'
   when 'lens' then 'เลนส์' else 'อุปกรณ์เสริม' end;
  v_fields=jsonb_build_object(
