@@ -1,0 +1,61 @@
+import QRCode from "qrcode";
+import { PosGuardError, requirePermission, requirePosSession } from "@/lib/pos-session-guard";
+import { renderOpticalDepositReceipt80mm } from "@/lib/optical/optical-deposit-receipt-80mm";
+import { getSupabaseServiceClient } from "@/lib/supabase-admin";
+import { requireOpticalFinanceModule } from "@/lib/server/optical-finance-policy";
+import { buildOpticalBillRecallCode, type OpticalBillSnapshot } from "@/lib/optical/optical-deposit-contract";
+
+const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+function unavailable(status=403) {
+  return new Response("Optical deposit receipt unavailable.",{status,headers:{"Cache-Control":"no-store"}});
+}
+export async function GET(_request:Request,{params}:{params:Promise<{workOrderId:string}>}) {
+  try {
+    const scope=await requirePosSession();
+    requirePermission(scope,"receipts:view");
+    if(!await requireOpticalFinanceModule(scope.session.tenant_id,"optical_deposit"))return unavailable();
+    const {workOrderId}=await params;
+    if(!uuid.test(workOrderId))return unavailable(422);
+    const client=getSupabaseServiceClient();
+    const tenantId=scope.session.tenant_id,branchId=scope.session.branch_id;
+    const [{data:order,error:orderError},{data:lines,error:lineError},
+      {data:payment,error:paymentError},{data:branch,error:branchError}]=await Promise.all([
+      client.from("optical_work_orders").select("id,tenant_id,branch_id,status,total_amount,paid_total,currency_code,customer_id")
+        .eq("id",workOrderId).eq("tenant_id",tenantId).eq("branch_id",branchId).maybeSingle(),
+      client.from("optical_work_order_lines").select("description_snapshot,quantity,line_total")
+        .eq("work_order_id",workOrderId).eq("tenant_id",tenantId).eq("branch_id",branchId),
+      client.from("optical_payment_ledger").select("id,method,received_at,received_by")
+        .eq("work_order_id",workOrderId).eq("tenant_id",tenantId).eq("branch_id",branchId)
+        .order("received_at",{ascending:false}).limit(1).maybeSingle(),
+      client.from("branches").select("name").eq("id",branchId).eq("tenant_id",tenantId).maybeSingle()
+    ]);
+    if(orderError||lineError||paymentError||branchError||!order||!payment||!lines?.length)return unavailable(404);
+    const bill:OpticalBillSnapshot={
+      tenantId,branchId,orderId:order.id,currencyCode:"LAK",
+      totalAmount:Number(order.total_amount),paidAmount:Number(order.paid_total),
+      status:order.status==="cancelled"?"cancelled":order.status==="collected"?"paid":
+        Number(order.paid_total)>=Number(order.total_amount)?"paid":
+        Number(order.paid_total)>0?"partially_paid":"unpaid"
+    };
+    const code=buildOpticalBillRecallCode(bill);
+    if(!code)return unavailable(409);
+    const image=await QRCode.toDataURL(code,{errorCorrectionLevel:"M",margin:1,width:220});
+    const receipt=renderOpticalDepositReceipt80mm({
+      bill,receiptNumber:"OPT-"+payment.id,storeName:"IMDC OPTICAL",
+      branchName:branch?.name??branchId,createdAtIso:payment.received_at,
+      cashierName:payment.received_by??"-",
+      paymentMethod:payment.method==="bank_transfer"?"bank_transfer":"cash",
+      items:lines.map(row=>({description:row.description_snapshot,
+        quantity:Number(row.quantity),lineTotal:Number(row.line_total)})),
+      qrImageDataUrl:image
+    });
+    // HTML preview only: never dispatch a thermal printer without a committed
+    // receipt-print queue idempotency check and explicit cashier request.
+    return new Response(receipt,{status:200,headers:{
+      "Content-Type":"text/html; charset=utf-8","Cache-Control":"no-store, private",
+      "X-Content-Type-Options":"nosniff","Content-Security-Policy":"default-src 'none'; img-src data:; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
+    }});
+  }catch(error){
+    return error instanceof PosGuardError?unavailable(error.status):unavailable(503);
+  }
+}
