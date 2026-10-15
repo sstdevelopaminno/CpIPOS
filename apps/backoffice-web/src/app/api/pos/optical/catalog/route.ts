@@ -8,6 +8,7 @@ import { getCustomPosStockUiMode } from "@/lib/server/custom-stock-ui-policy";
 import { requireOpticalRetailEntitlement } from "@/lib/server/optical-entitlement";
 import { getTenantPosCurrencyCode } from "@/lib/server/custom-pos-currency";
 import { collectPagedShiftRows } from "@/lib/pos-shift-query-pagination";
+import {getOpticalBranchScope,verifyOpticalBranch} from "@/lib/server/optical-stock-branch-scope";
 
 /**
  * Optical-specific catalog writes only. Stock quantities / inventory movements
@@ -59,11 +60,13 @@ function ownOrigin(request:Request) {
   if(!origin)return true;
   try{return new URL(origin).host===new URL(request.url).host;}catch{return false;}
 }
-async function context(request:Request) {
+async function context(request:Request,requestedBranchId?:string|null) {
   if(!ownOrigin(request))throw new PosGuardError("origin_forbidden","Invalid request origin",403);
   const scope=await requirePosSession();
   requirePermission(scope,"inventory:view");
-  await requireTenantFeature(scope.session.tenant_id,"stock_management",scope.session.branch_id);
+  const branches=await getOpticalBranchScope(scope);
+  const branchId=verifyOpticalBranch(requestedBranchId||scope.session.branch_id,branches);
+  await requireTenantFeature(scope.session.tenant_id,"stock_management",branchId);
   const mode=await getCustomPosStockUiMode(scope.session.tenant_id);
   if((mode!=="optical"&&mode!=="mixed") ||
     !await requireOpticalRetailEntitlement(scope.session.tenant_id)) {
@@ -74,13 +77,13 @@ async function context(request:Request) {
     throw new PosGuardError("optical_catalog_role_forbidden","Only an owner or manager can change Optical products.",403);
   }
   const currency=await getTenantPosCurrencyCode(scope.session.tenant_id);
-  return {scope,currency,db:getSupabaseServiceClient()};
+  return {scope,branchId,currency,db:getSupabaseServiceClient()};
 }
 async function audit(ctx:Awaited<ReturnType<typeof context>>,action:string,ids:string[]) {
   for(const id of ids.slice(0,50)){
     try{await appendAuditLog({
       tenantId:ctx.scope.session.tenant_id,
-      branchId:ctx.scope.session.branch_id,
+      branchId:ctx.branchId,
       actorUserId:ctx.scope.session.user_id,
       actorRole:ctx.scope.session.role as BranchRole,
       action,targetTable:"products",targetId:id,
@@ -105,7 +108,7 @@ async function findProduct(ctx:Awaited<ReturnType<typeof context>>,id:string) {
   const {data,error}=await ctx.db.from("products")
     .select("id,name,sku,price,category,sell_unit,metadata,stock_deduction_mode")
     .eq("id",id).eq("tenant_id",ctx.scope.session.tenant_id)
-    .eq("branch_id",ctx.scope.session.branch_id)
+    .eq("branch_id",ctx.branchId)
     .is("deleted_at",null).maybeSingle();
   if(error)throw new Error(error.message);
   return data && isOpticalProduct(data)?data:null;
@@ -116,7 +119,7 @@ async function skuTaken(ctx:Awaited<ReturnType<typeof context>>,skus:string[],ex
   const result=await collectPagedShiftRows<{id:string;sku:string}>((from,to)=>
     ctx.db.from("products").select("id,sku")
       .eq("tenant_id",ctx.scope.session.tenant_id)
-      .eq("branch_id",ctx.scope.session.branch_id)
+      .eq("branch_id",ctx.branchId)
       .order("id",{ascending:true}).range(from,to)
   );
   if(result.error)throw new Error("Scoped SKU validation unavailable");
@@ -126,8 +129,8 @@ async function skuTaken(ctx:Awaited<ReturnType<typeof context>>,skus:string[],ex
 
 export async function POST(request:Request){
   try{
-    const ctx=await context(request);
-    const body=await request.json().catch(()=>null) as {items?:ProductInput[]}|null;
+    const body=await request.json().catch(()=>null) as {items?:ProductInput[];branch_id?:string}|null;
+    const ctx=await context(request,body?.branch_id);
     if(!body||!Array.isArray(body.items)||body.items.length<1||body.items.length>50)
       return response("optical_catalog_batch_invalid","เพิ่มสินค้าได้ครั้งละ 1–50 รายการ",422);
     const items=body.items.map(row=>parseItem(row,ctx.currency));
@@ -136,7 +139,7 @@ export async function POST(request:Request){
       return response("optical_catalog_sku_duplicate","SKU / บาร์โค้ด ซ้ำกับรายการในฟอร์มหรือภายในสาขา",409);
     }
     const {data,error}=await ctx.db.from("products").insert(items.map(row=>({
-      tenant_id:ctx.scope.session.tenant_id,branch_id:ctx.scope.session.branch_id,
+      tenant_id:ctx.scope.session.tenant_id,branch_id:ctx.branchId,
       name:row.name,sku:row.sku,category:row.category,price:row.price,sell_unit:row.unit,
       stock_deduction_mode:"unit_only",is_combo:false,is_active:true,
       metadata:{business_mode:"optical_retail",optical_kind:row.kind,
@@ -154,8 +157,8 @@ export async function POST(request:Request){
 }
 export async function PATCH(request:Request){
   try{
-    const ctx=await context(request);
-    const body=await request.json().catch(()=>null) as {id?:string;item?:ProductInput}|null;
+    const body=await request.json().catch(()=>null) as {id?:string;item?:ProductInput;branch_id?:string}|null;
+    const ctx=await context(request,body?.branch_id);
     const product=await findProduct(ctx,String(body?.id??""));
     if(!product)return response("optical_catalog_not_found","ไม่พบสินค้า Optical ในสาขานี้",404);
     if(!body?.item)return response("optical_catalog_invalid","ข้อมูลสินค้าไม่ครบ",422);
@@ -165,7 +168,7 @@ export async function PATCH(request:Request){
     const {data:bin,error:binError}=await ctx.db.from("optical_stock_bins")
       .select("id,kind,unit_price,brand,model,color,frame_size,lens_index,lens_sph,lens_cyl")
       .eq("tenant_id",ctx.scope.session.tenant_id)
-      .eq("branch_id",ctx.scope.session.branch_id).eq("product_id",product.id).maybeSingle();
+      .eq("branch_id",ctx.branchId).eq("product_id",product.id).maybeSingle();
     if(binError)return response("optical_catalog_inventory_check_failed","ตรวจสอบสต๊อกสินค้าไม่สำเร็จ",503);
     if(bin && (bin.kind!==item.kind || Number(bin.unit_price)!==item.price)) {
       return response("optical_catalog_inventory_linked",
@@ -194,7 +197,7 @@ export async function PATCH(request:Request){
         optical_lens_axis:item.lens_axis},
       updated_at:new Date().toISOString()
     }).eq("id",product.id).eq("tenant_id",ctx.scope.session.tenant_id)
-      .eq("branch_id",ctx.scope.session.branch_id).is("deleted_at",null);
+      .eq("branch_id",ctx.branchId).is("deleted_at",null);
     if(error)return response(error.code==="23505"?"optical_catalog_sku_duplicate":"optical_catalog_update_failed",
       error.code==="23505"?"SKU / บาร์โค้ด ซ้ำภายในสาขา":"แก้ไขสินค้าไม่สำเร็จ",error.code==="23505"?409:500);
     await audit(ctx,"optical_catalog_updated",[product.id]);
@@ -203,19 +206,19 @@ export async function PATCH(request:Request){
 }
 export async function DELETE(request:Request){
   try{
-    const ctx=await context(request);
-    const body=await request.json().catch(()=>null) as {id?:string}|null;
+    const body=await request.json().catch(()=>null) as {id?:string;branch_id?:string}|null;
+    const ctx=await context(request,body?.branch_id);
     const product=await findProduct(ctx,String(body?.id??""));
     if(!product)return response("optical_catalog_not_found","ไม่พบสินค้า Optical ในสาขานี้",404);
     // Deleting an inventory-linked SKU could break outstanding reservations,
     // receipts or legacy recipes: require a separate stock cutover instead.
     const refs=await Promise.all([
       ctx.db.from("optical_stock_bins").select("id").eq("tenant_id",ctx.scope.session.tenant_id)
-        .eq("branch_id",ctx.scope.session.branch_id).eq("product_id",product.id).limit(1),
+        .eq("branch_id",ctx.branchId).eq("product_id",product.id).limit(1),
       ctx.db.from("recipes").select("product_id").eq("tenant_id",ctx.scope.session.tenant_id)
-        .eq("branch_id",ctx.scope.session.branch_id).eq("product_id",product.id).limit(1),
+        .eq("branch_id",ctx.branchId).eq("product_id",product.id).limit(1),
       ctx.db.from("optical_work_order_lines").select("id").eq("tenant_id",ctx.scope.session.tenant_id)
-        .eq("branch_id",ctx.scope.session.branch_id).eq("product_id",product.id).limit(1)
+        .eq("branch_id",ctx.branchId).eq("product_id",product.id).limit(1)
     ]);
     if(refs.some(r=>r.error))return response("optical_catalog_reference_check_failed","ตรวจสอบรายการอ้างอิงไม่สำเร็จ",503);
     if(refs.some(r=>(r.data??[]).length>0))return response("optical_catalog_in_use",
@@ -224,7 +227,7 @@ export async function DELETE(request:Request){
       is_active:false,deleted_at:new Date().toISOString(),
       deleted_by:ctx.scope.session.user_id,delete_reason:"optical_catalog_soft_delete"
     }).eq("id",product.id).eq("tenant_id",ctx.scope.session.tenant_id)
-      .eq("branch_id",ctx.scope.session.branch_id).is("deleted_at",null);
+      .eq("branch_id",ctx.branchId).is("deleted_at",null);
     if(error)return response("optical_catalog_delete_failed","ไม่สามารถลบสินค้าได้",500);
     await audit(ctx,"optical_catalog_soft_deleted",[product.id]);
     return NextResponse.json({data:{deleted:true},error:null});
