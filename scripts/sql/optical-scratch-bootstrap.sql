@@ -65,7 +65,7 @@ create table public.order_items(
  tenant_id uuid not null,branch_id uuid not null,product_id uuid not null
 );
 create or replace function public.can_manage_optical_customer_data(p_tenant uuid,p_branch uuid)
-returns boolean language sql stable as $$
+returns boolean language sql stable security definer set search_path=public,pg_temp as $
   select auth.uid() is not null and exists(
     select 1 from public.user_branch_roles r
      where r.user_id=auth.uid() and r.tenant_id=p_tenant and r.branch_id=p_branch
@@ -100,3 +100,6 @@ insert into public.recipes(tenant_id,branch_id,product_id) values
  ('00000000-0000-4000-8000-000000000002','00000000-0000-4000-8000-000000000022','00000000-0000-4000-8000-000000000202');
 insert into public.shifts values
  ('00000000-0000-4000-8000-000000000401','00000000-0000-4000-8000-000000000001','00000000-0000-4000-8000-000000000011','open');
+
+-- Synthetic owner reports also read assigned roles directly under authenticated RLS.
+grant select on public.users_profiles,public.user_branch_roles to authenticated;
