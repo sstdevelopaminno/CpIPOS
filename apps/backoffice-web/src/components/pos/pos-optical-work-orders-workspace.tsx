@@ -64,6 +64,22 @@ export function PosOpticalWorkOrdersWorkspace(){
     setSelected(found);setSku("");setQty(1);setError("");
   };
 
+  // Barcode scanners can send an alphanumeric SKU without Enter.
+  // Resolve only an exact stock-approved SKU after the input burst has settled,
+  // without a per-keystroke network request. Ordinary restaurant scanning
+  // remains owned by the existing POS adapter.
+  useEffect(()=>{
+    const code=sku.trim().toLowerCase();
+    if(!code || !items.length)return;
+    const timer=window.setTimeout(()=>{
+      const hit=items.find(item=>item.sku.toLowerCase()===code);
+      if(hit&&hit.available>0){
+        setSelected(hit);setSku("");setQty(1);setError("");
+      }
+    },300);
+    return()=>window.clearTimeout(timer);
+  },[sku,items]);
+
   const create=async()=>{
     if(!customerId||!sellerId||!selected||qty<1||qty>selected.available||
       discount<0||!Number.isInteger(discount)||discount>=selected.unit_price*qty){
@@ -156,7 +172,7 @@ export function PosOpticalWorkOrdersWorkspace(){
       <label className="text-sm">ยิงบาร์โค้ด / SKU
         <input className="mt-1 w-full rounded-lg border p-2" value={sku} onChange={e=>setSku(e.target.value)}
           onKeyDown={e=>{if(e.key==="Enter"){e.preventDefault();submitSku();}}}
-          placeholder="ยิง SKU แล้วกด Enter"/>
+          placeholder="ยิง SKU เพื่อเพิ่มรายการอัตโนมัติ"/>
       </label>
       <label className="text-sm">วันที่นัดรับ
         <input type="date" className="mt-1 w-full rounded-lg border p-2" value={dueAt} onChange={e=>setDueAt(e.target.value)}/>
