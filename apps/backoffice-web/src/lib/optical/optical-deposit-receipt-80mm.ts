@@ -58,7 +58,7 @@ export function renderOpticalDepositReceipt80mm(input: OpticalDepositReceipt80mm
     return `<tr><td>${escapeHtml(item.description)}</td><td class="num">${escapeHtml(item.quantity)}</td><td class="num">${money(item.lineTotal,currency)}</td></tr>`;
   }).join("");
   return `<!doctype html><html lang="th"><head><meta charset="utf-8">
-    <title>IMDC OPTICAL — ใบเสร็จมัดจำ</title>
+    <title>${escapeHtml(input.storeName)} — ใบเสร็จมัดจำ</title>
     <style>
       @page { size: 80mm auto; margin: 0; }
       html,body { width: 80mm; padding: 0; margin: 0; color: #000; background: #fff; font-family: Tahoma, sans-serif; }
@@ -77,9 +77,9 @@ export function renderOpticalDepositReceipt80mm(input: OpticalDepositReceipt80mm
       .code { text-align: center; font-size: 9px; overflow-wrap: anywhere; }
       hr { border: 0; border-top: 1px dashed #666; }
     </style></head><body><main class="receipt">
-      <h1>IMDC OPTICAL</h1>
+      <h1>${escapeHtml(input.storeName)}</h1>
       <h2>ใบเสร็จรับเงินมัดจำ</h2>
-      <p class="center">${escapeHtml(input.storeName)} / ${escapeHtml(input.branchName)}</p>
+      <p class="center">${escapeHtml(input.branchName)}</p>
       <p>เลขที่ใบเสร็จ: ${escapeHtml(input.receiptNumber)}</p>
       <p>เลขบิล: ${escapeHtml(bill.orderId)}</p>
       <p>วันที่: ${escapeHtml(input.createdAtIso)}</p>
