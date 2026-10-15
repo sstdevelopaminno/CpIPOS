@@ -48,6 +48,7 @@ begin
       join public.tenant_subscription_contracts c on c.tenant_id=s.tenant_id
       join public.subscription_packages pkg on pkg.id=c.package_id
       where s.status='open'
+        and s.metadata->>'business_shift_mode'='optical_daily'
         and lower(pkg.code)='custom'
         and c.status in ('active','trial')
         and (c.ended_at is null or c.ended_at>now())
