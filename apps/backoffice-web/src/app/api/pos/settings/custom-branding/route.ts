@@ -1,6 +1,6 @@
 import {NextResponse} from "next/server";
 import {requirePermission,requirePosSession,PosGuardError} from "@/lib/pos-session-guard";
-import {getSupabaseServiceClient} from "@/lib/supabase-admin";
+import {getPrimarySupabaseServiceClient} from "@/lib/supabase-admin";
 import {DEFAULT_BRANDING,loadTenantBranding,normalizeCustomBranding,requireCustomBrandingTenant} from "@/lib/server/custom-branding";
 
 function out(code:string,message:string,status:number){
@@ -36,13 +36,13 @@ export async function PATCH(request:Request){
   const branding=normalizeCustomBranding(d);
   const tenant=scope.session.tenant_id;
   if(d.logo_url!==null&&d.logo_url!==undefined&&d.logo_url!==""){
-    const db=getSupabaseServiceClient();
+    const db=getPrimarySupabaseServiceClient();
     const publicBase=db.storage.from("custom-branding").getPublicUrl(tenant+"/").data.publicUrl;
     if(!branding.logo_url||!branding.logo_url.startsWith(publicBase) ||
       !/^[-\w]+\.(png|jpg|webp)$/i.test(branding.logo_url.substring(publicBase.length)))
       return out("invalid_branding_logo","ต้องใช้โลโก้ที่อัปโหลดสำหรับร้านนี้เท่านั้น",422);
   }
-  const {error}=await getSupabaseServiceClient().rpc("cpipos_service_save_custom_branding_v1",{
+  const {error}=await getPrimarySupabaseServiceClient().rpc("cpipos_service_save_custom_branding_v1",{
    p_tenant_id:tenant,p_branding:branding
   });
   if(error)throw error;
