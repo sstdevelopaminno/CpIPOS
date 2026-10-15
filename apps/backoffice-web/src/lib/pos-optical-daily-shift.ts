@@ -69,7 +69,7 @@ export function nextOpticalMidnightUtc(openedAt: Date,timeZone: string): Date | 
  * Search by civil date rather than assuming a fixed UTC offset.
  */
 export function startOfOpticalLocalDateUtc(dateText:string,timeZone:string):Date|null {
-  const match=/^(\\d{4})-(\\d{2})-(\\d{2})$/.exec(dateText);
+  const match=/^(\d{4})-(\d{2})-(\d{2})$/.exec(dateText);
   if(!match) return null;
   const year=Number(match[1]),month=Number(match[2]),day=Number(match[3]);
   const pivot=Date.UTC(year,month-1,day);
