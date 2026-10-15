@@ -99,6 +99,7 @@ create table if not exists public.optical_payment_ledger (
   tenant_id uuid not null,
   branch_id uuid not null,
   work_order_id uuid not null,
+  shift_id uuid not null references public.shifts(id),
   request_id uuid not null,
   currency_code text not null check(currency_code='LAK'),
   method text not null check(method in ('cash','bank_transfer')),
@@ -114,6 +115,7 @@ create table if not exists public.optical_payment_ledger (
   check(method='cash' or (reference_no is not null and verified_by is not null))
 );
 create index if not exists idx_optical_payments_order on public.optical_payment_ledger(tenant_id,branch_id,work_order_id,received_at);
+create index if not exists idx_optical_payments_shift on public.optical_payment_ledger(tenant_id,branch_id,shift_id,received_at);
 
 create table if not exists public.optical_work_order_events (
   id uuid primary key default gen_random_uuid(),
