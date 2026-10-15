@@ -782,7 +782,7 @@ export function PosGeneralSaleModeController() {
     // The React currency fetch may resolve AFTER the scanner-cart DOM first renders.
     // Observe the authoritative root attribute too; do not leave the first THB
     // placeholder cached on an already approved LAK store.
-    const currencyObserver = new MutationObserver(scheduleTableRender);
+    const currencyObserver = new MutationObserver(() => scheduleTableRender());
     currencyObserver.observe(document.documentElement, {
       attributes: true, attributeFilter: ["data-pos-store-currency"]
     });
