@@ -64,6 +64,28 @@ export function nextOpticalMidnightUtc(openedAt: Date,timeZone: string): Date | 
   }
 }
 
+/**
+ * The exact beginning of an ISO local date, including US DST transitions.
+ * Search by civil date rather than assuming a fixed UTC offset.
+ */
+export function startOfOpticalLocalDateUtc(dateText:string,timeZone:string):Date|null {
+  const match=/^(\\d{4})-(\\d{2})-(\\d{2})$/.exec(dateText);
+  if(!match) return null;
+  const year=Number(match[1]),month=Number(match[2]),day=Number(match[3]);
+  const pivot=Date.UTC(year,month-1,day);
+  if(!Number.isFinite(pivot)||new Date(pivot).toISOString().slice(0,10)!==dateText) return null;
+  try {
+    let lo=pivot-36*60*60*1000,hi=pivot+36*60*60*1000;
+    if(localDateKey(new Date(lo),timeZone)>=dateText||localDateKey(new Date(hi),timeZone)<dateText)return null;
+    while(hi-lo>1) {
+      const mid=Math.floor((lo+hi)/2);
+      if(localDateKey(new Date(mid),timeZone)>=dateText)hi=mid;
+      else lo=mid;
+    }
+    return localDateKey(new Date(hi),timeZone)===dateText?new Date(hi):null;
+  }catch{return null;}
+}
+
 export function resolveOpticalDailyShift(args:{
   openedAt:string|Date;
   country:OpticalCountry;
