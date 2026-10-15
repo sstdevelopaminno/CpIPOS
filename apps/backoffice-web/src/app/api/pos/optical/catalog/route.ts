@@ -7,6 +7,7 @@ import { getSupabaseServiceClient } from "@/lib/supabase-admin";
 import { getCustomPosStockUiMode } from "@/lib/server/custom-stock-ui-policy";
 import { requireOpticalRetailEntitlement } from "@/lib/server/optical-entitlement";
 import { getTenantPosCurrencyCode } from "@/lib/server/custom-pos-currency";
+import { collectPagedShiftRows } from "@/lib/pos-shift-query-pagination";
 
 /**
  * Optical-specific catalog writes only. Stock quantities / inventory movements
@@ -96,14 +97,16 @@ async function findProduct(ctx:Awaited<ReturnType<typeof context>>,id:string) {
 }
 async function skuTaken(ctx:Awaited<ReturnType<typeof context>>,skus:string[],exceptId?:string) {
   // Match case-insensitively even though the DB unique index is case-sensitive.
-  // A bounded scoped scan fails closed rather than silently missing a collision.
-  const {data,error,count}=await ctx.db.from("products").select("id,sku",{count:"exact"})
-    .eq("tenant_id",ctx.scope.session.tenant_id)
-    .eq("branch_id",ctx.scope.session.branch_id)
-    .range(0,9999);
-  if(error||count===null||count>10000)throw new Error("Scoped SKU validation unavailable");
+  // Page through the full branch catalog: PostgREST caps a single response.
+  const result=await collectPagedShiftRows<{id:string;sku:string}>((from,to)=>
+    ctx.db.from("products").select("id,sku")
+      .eq("tenant_id",ctx.scope.session.tenant_id)
+      .eq("branch_id",ctx.scope.session.branch_id)
+      .order("id",{ascending:true}).range(from,to)
+  );
+  if(result.error)throw new Error("Scoped SKU validation unavailable");
   const set=new Set(skus.map(x=>x.toLocaleLowerCase()));
-  return (data??[]).some(p=>p.id!==exceptId && set.has(String(p.sku).toLocaleLowerCase()));
+  return (result.data??[]).some(p=>p.id!==exceptId && set.has(String(p.sku).toLocaleLowerCase()));
 }
 
 export async function POST(request:Request){
