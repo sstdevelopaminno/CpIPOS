@@ -127,6 +127,14 @@ export function OpticalStockWorkspace({rows,branch,currency,canManage}:{
           <p className="text-xs text-slate-500">{label}</p><strong className="mt-2 block text-2xl text-emerald-800">{value}</strong>
         </div>)}
     </section>
+    <nav role="tablist" aria-label="สลับประเภทสต๊อก Optical" className="flex flex-wrap gap-2">
+      {stockTabs.map(value=><button key={value} role="tab" type="button" aria-selected={tab===value}
+        className={tab===value?"rounded-xl bg-emerald-700 px-5 py-3 font-bold text-white":
+          "rounded-xl border border-emerald-200 bg-white px-5 py-3 font-bold text-emerald-800"}
+        onClick={()=>{setTab(value);setFilter("all");setPage(1);}}>
+        {value==="frame"?"สต๊อกกรอบแว่น":value==="lens"?"สต๊อกเลนส์":"อุปกรณ์เสริม"}
+      </button>)}
+    </nav>
     <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
       <div className="flex flex-wrap items-end gap-3 border-b border-slate-200 bg-slate-50 p-4">
         <label className="min-w-[230px] flex-1 text-xs font-bold text-slate-600">ค้นหา ชื่อสินค้า / SKU / บาร์โค้ด
@@ -151,30 +159,52 @@ export function OpticalStockWorkspace({rows,branch,currency,canManage}:{
         </label>
       </div>
       <div className="overflow-x-auto">
-        <table className="w-full min-w-[900px] border-collapse text-sm">
+        <table className="w-full min-w-[1080px] border-collapse text-sm">
           <thead className="bg-emerald-50 text-left text-slate-700"><tr>
-            {["สินค้า","ประเภท","SKU / บาร์โค้ด","ราคา ("+currency+")","หน่วย","คงเหลือ","สถานะ",...(canManage?["จัดการ"]:[])]
-              .map(s=><th className="whitespace-nowrap px-4 py-3" key={s}>{s}</th>)}
+            {["SKU / บาร์โค้ด",...(tab==="frame"
+              ?["แบรนด์","รุ่น","สี","ขนาด"]
+              :tab==="lens"?["ยี่ห้อ","ชื่อเลนส์","Index","ค่าสายตา"]
+              :["ชื่อสินค้า","ประเภท","รายละเอียด","หน่วย"]),
+              "ราคา ("+currency+")","จำนวน","จำนวนคงเหลือ",...(canManage?["จัดการ"]:[])]
+              .map(label=><th key={label} className="whitespace-nowrap px-3 py-3">{label}</th>)}
           </tr></thead>
-          <tbody>{subset.map(r=><tr className="border-t border-slate-100 hover:bg-slate-50" key={r.id}>
-            <td className="max-w-[250px] px-4 py-3 font-semibold">{r.name}</td>
-            <td className="px-4 py-3">{types[kind(r)]}</td>
-            <td className="px-4 py-3 font-mono text-xs">{r.sku??"—"}</td>
-            <td className="px-4 py-3 text-right">{formatSalesMoney(Number(r.price),currency)}</td>
-            <td className="px-4 py-3">{r.sell_unit??"ชิ้น"}</td>
-            <td className="px-4 py-3 text-right font-bold">{r.available===null?"—":r.available}</td>
-            <td className="px-4 py-3"><span className={"whitespace-nowrap rounded-full px-3 py-1 text-xs font-bold "+
-              (r.available===null?"bg-slate-100 text-slate-700":r.available===0?"bg-rose-100 text-rose-800":
-                r.available===1?"bg-amber-100 text-amber-800":"bg-emerald-100 text-emerald-800")}>
-              {r.available===null?"รอยืนยัน":r.available===0?"หมด":r.available===1?"เหลือ 1":"มีสินค้า"}
-            </span>{r.recipeAttached?<div className="mt-1 text-xs text-amber-700">สต๊อกสูตรเดิม</div>:null}</td>
-            {canManage?<td className="whitespace-nowrap px-4 py-3">
-              <button className="mr-2 rounded-lg border border-blue-200 px-3 py-2 text-xs font-bold text-blue-700" onClick={()=>show("edit",r)}>แก้ไข</button>
-              <button className="rounded-lg border border-rose-200 px-3 py-2 text-xs font-bold text-rose-700" onClick={()=>show("delete",r)}>ลบ</button>
+          <tbody>{subset.map(row=><tr key={row.id} className="border-t border-slate-100 hover:bg-slate-50">
+            <td className="px-3 py-3">
+              <button type="button" className="whitespace-nowrap rounded-lg border border-emerald-200 bg-white px-3 py-2 text-xs font-bold text-emerald-800"
+                onClick={()=>show("sku",row)}>ดูรหัส</button>
+            </td>
+            {tab==="frame"?<>
+              <td className="px-3 py-3">{detail(row,"brand")}</td>
+              <td className="px-3 py-3 font-semibold">{detail(row,"model")==="—"?row.name:detail(row,"model")}</td>
+              <td className="px-3 py-3">{detail(row,"color")}</td>
+              <td className="px-3 py-3">{detail(row,"frame_size")}</td>
+            </>:tab==="lens"?<>
+              <td className="px-3 py-3">{detail(row,"brand")}</td>
+              <td className="px-3 py-3 font-semibold">{detail(row,"lens_name")}</td>
+              <td className="px-3 py-3">{detail(row,"lens_index")}</td>
+              <td className="px-3 py-3 whitespace-nowrap">
+                SPH {detail(row,"lens_sph")} · CYL {detail(row,"lens_cyl")}
+              </td>
+            </>:<>
+              <td className="px-3 py-3 font-semibold">{row.name}</td>
+              <td className="px-3 py-3">{row.category??"—"}</td>
+              <td className="px-3 py-3">—</td><td className="px-3 py-3">{row.sell_unit??"ชิ้น"}</td>
+            </>}
+            <td className="px-3 py-3 text-right">{formatSalesMoney(Number(row.price),currency)}</td>
+            <td className="px-3 py-3 text-right font-semibold">{initialCount(row)??"—"}</td>
+            <td className="px-3 py-3 text-right font-semibold">
+              {remaining(row)??"รอยืนยัน"}
+              {!row.opticalBin?<small className="block text-xs text-amber-700">ยังไม่รับรองยอด Optical</small>:null}
+            </td>
+            {canManage?<td className="whitespace-nowrap px-3 py-3">
+              <button type="button" className="mr-2 rounded-lg border border-blue-200 px-3 py-2 text-xs text-blue-700"
+                onClick={()=>show("edit",row)}>แก้ไข</button>
+              <button type="button" className="rounded-lg border border-rose-200 px-3 py-2 text-xs text-rose-700"
+                onClick={()=>show("delete",row)}>ลบ</button>
             </td>:null}
           </tr>)}</tbody>
         </table>
-        {subset.length===0?<p className="p-8 text-center text-sm text-slate-500">ไม่พบรายการสินค้าที่ค้นหา</p>:null}
+        {!subset.length?<p className="p-8 text-center text-sm text-slate-500">ไม่พบสินค้าที่ตรงกับประเภทหรือเงื่อนไขค้นหา</p>:null}
       </div>
       <nav aria-label="แบ่งหน้าสินค้า" className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-200 p-4 text-sm">
         <span className="text-slate-600">แสดง {displayed.length?(currentPage-1)*pageSize+1:0}–{Math.min(currentPage*pageSize,displayed.length)} จาก {displayed.length} รายการ</span>
