@@ -116,6 +116,7 @@ export async function GET(request: Request) {
     }
 
     const opticalPolicy=await getOpticalShiftUiPolicy(scope.session.tenant_id);
+    if(opticalPolicy.enabled && !opticalPolicy.timeZone) return fail("optical_shift_timezone_required","IT must configure an IANA timezone for this Optical store.",409);
     const { searchParams } = new URL(request.url);
     const daysRaw = Number(searchParams.get("days") ?? 30);
     const days = Number.isFinite(daysRaw) ? Math.max(1, Math.min(90, Math.trunc(daysRaw))) : 30;
