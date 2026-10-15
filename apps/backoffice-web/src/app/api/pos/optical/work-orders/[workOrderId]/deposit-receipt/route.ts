@@ -19,7 +19,7 @@ export async function GET(_request:Request,{params}:{params:Promise<{workOrderId
     const client=getSupabaseServiceClient();
     const tenantId=scope.session.tenant_id,branchId=scope.session.branch_id;
     const [{data:order,error:orderError},{data:lines,error:lineError},
-      {data:payment,error:paymentError},{data:branch,error:branchError}]=await Promise.all([
+      {data:payment,error:paymentError},{data:branch,error:branchError},{data:tenant,error:tenantError}]=await Promise.all([
       client.from("optical_work_orders").select("id,tenant_id,branch_id,status,total_amount,paid_total,currency_code,customer_id")
         .eq("id",workOrderId).eq("tenant_id",tenantId).eq("branch_id",branchId).maybeSingle(),
       client.from("optical_work_order_lines").select("description_snapshot,quantity,line_total")
@@ -27,9 +27,10 @@ export async function GET(_request:Request,{params}:{params:Promise<{workOrderId
       client.from("optical_payment_ledger").select("id,method,received_at,received_by")
         .eq("work_order_id",workOrderId).eq("tenant_id",tenantId).eq("branch_id",branchId)
         .order("received_at",{ascending:false}).limit(1).maybeSingle(),
-      client.from("branches").select("name").eq("id",branchId).eq("tenant_id",tenantId).maybeSingle()
+      client.from("branches").select("name").eq("id",branchId).eq("tenant_id",tenantId).maybeSingle(),
+      client.from("tenants").select("name,display_name").eq("id",tenantId).maybeSingle()
     ]);
-    if(orderError||lineError||paymentError||branchError||!order||!payment||!lines?.length)return unavailable(404);
+    if(orderError||lineError||paymentError||branchError||tenantError||!order||!payment||!lines?.length)return unavailable(404);
     const bill:OpticalBillSnapshot={
       tenantId,branchId,orderId:order.id,currencyCode:"LAK",
       totalAmount:Number(order.total_amount),paidAmount:Number(order.paid_total),
@@ -41,7 +42,7 @@ export async function GET(_request:Request,{params}:{params:Promise<{workOrderId
     if(!code)return unavailable(409);
     const image=await QRCode.toDataURL(code,{errorCorrectionLevel:"M",margin:1,width:220});
     const receipt=renderOpticalDepositReceipt80mm({
-      bill,receiptNumber:"OPT-"+payment.id,storeName:"IMDC OPTICAL",
+      bill,receiptNumber:"OPT-"+payment.id,storeName:tenant?.display_name||tenant?.name||"Optical",
       branchName:branch?.name??branchId,createdAtIso:payment.received_at,
       cashierName:payment.received_by??"-",
       paymentMethod:payment.method==="bank_transfer"?"bank_transfer":"cash",
