@@ -7,6 +7,8 @@ import { getTenantPosCurrencyCode } from "@/lib/server/custom-pos-currency";
 import { getCustomPosStockUiMode } from "@/lib/server/custom-stock-ui-policy";
 import { formatSalesMoney } from "@/lib/pos-money";
 import { PosBackButton } from "@/components/pos-preview/pos-back-button";
+import { OpticalStockWorkspace } from "@/components/pos/optical-stock-workspace";
+import { collectPagedShiftRows, collectShiftRowsForIds } from "@/lib/pos-shift-query-pagination";
 
 export const dynamic="force-dynamic";
 
@@ -27,14 +29,18 @@ type RenderRow=CatalogRow&{available:number|null;recipeAttached:boolean};
 export default async function CustomModeStockPage() {
   const session=await requirePosSession();
   await assertPosMenuPageAllowed(session.session.tenant_id,"/preview/pos/stock");
-  await requirePosPagePermission("inventory:view");
+  const scope=await requirePosPagePermission("inventory:view");
   const tenantId=session.session.tenant_id,branchId=session.session.branch_id;
   const mode=await getCustomPosStockUiMode(tenantId);
   if(mode!=="optical"&&mode!=="retail"&&mode!=="mixed")notFound();
   const optical=mode!=="retail";
   const db=getSupabaseServiceClient();
   const [{data:products,error:productError},{data:branch,error:branchError},currency]=await Promise.all([
-    db.from("products").select("id,sku,name,category,price,sell_unit,stock_deduction_mode,metadata")
+    optical ? collectPagedShiftRows<CatalogRow>((from,to)=>db.from("products")
+      .select("id,sku,name,category,price,sell_unit,stock_deduction_mode,metadata")
+      .eq("tenant_id",tenantId).eq("branch_id",branchId).is("deleted_at",null)
+      .eq("is_active",true).order("name",{ascending:true}).order("id",{ascending:true}).range(from,to))
+    : db.from("products").select("id,sku,name,category,price,sell_unit,stock_deduction_mode,metadata")
       .eq("tenant_id",tenantId).eq("branch_id",branchId).is("deleted_at",null)
       .eq("is_active",true).order("name",{ascending:true}).limit(250),
     db.from("branches").select("name").eq("tenant_id",tenantId).eq("id",branchId).maybeSingle(),
@@ -55,14 +61,18 @@ export default async function CustomModeStockPage() {
     return /^(กรอบแว่น|เลนส์|แว่นตา|optical|frames?|lenses?|imdc optical qa)(\s|$)/i.test(String(product.category??"").trim());
   });
   const ids=rows.map(p=>p.id);
-  const recipes=ids.length?await db.from("recipes").select("product_id,ingredient_id,quantity_per_item")
-    .eq("tenant_id",tenantId).eq("branch_id",branchId).in("product_id",ids):{data:[] as RecipeRow[],error:null};
+  const recipes=ids.length?await collectShiftRowsForIds<RecipeRow>(ids,(batch,from,to)=>db.from("recipes")
+    .select("product_id,ingredient_id,quantity_per_item").eq("tenant_id",tenantId)
+    .eq("branch_id",branchId).in("product_id",batch)
+    .order("product_id",{ascending:true}).order("ingredient_id",{ascending:true}).range(from,to))
+    :{data:[] as RecipeRow[],error:null};
   if(recipes.error)return <main role="alert" className="p-6 text-rose-800">ตรวจสอบสต๊อกเดิมไม่สำเร็จ</main>;
   const links=(recipes.data??[]) as RecipeRow[];
   const ingredientIds=[...new Set(links.map(r=>r.ingredient_id))];
-  const ingredients=ingredientIds.length?await db.from("ingredients")
+  const ingredients=ingredientIds.length?await collectShiftRowsForIds<IngredientRow>(ingredientIds,(batch,from,to)=>db.from("ingredients")
     .select("id,quantity_on_hand").eq("tenant_id",tenantId).eq("branch_id",branchId)
-    .in("id",ingredientIds):{data:[] as IngredientRow[],error:null};
+    .in("id",batch).order("id",{ascending:true}).range(from,to))
+    :{data:[] as IngredientRow[],error:null};
   if(ingredients.error)return <main role="alert" className="p-6 text-rose-800">ตรวจสอบจำนวนสินค้าไม่สำเร็จ</main>;
   const stockMap=new Map(((ingredients.data??[]) as IngredientRow[]).map(i=>[i.id,Number(i.quantity_on_hand)]));
   const mapped:RenderRow[]=rows.map(p=>{
@@ -75,6 +85,9 @@ export default async function CustomModeStockPage() {
       ?Math.max(0,Math.floor(onHand/Number(recipe.quantity_per_item))):null;
     return {...p,available:units,recipeAttached:productRecipes.length>0};
   });
+  if(optical)return <OpticalStockWorkspace rows={mapped}
+    branch={branch?.name??"สาขาที่ได้รับสิทธิ์"} currency={currency}
+    canManage={["owner","manager"].includes(String(scope.session.role??"").toLowerCase())}/>;
   const low=mapped.filter(x=>x.available===1).length;
   const out=mapped.filter(x=>x.available===0).length;
   const legacy=mapped.filter(x=>x.recipeAttached).length;
