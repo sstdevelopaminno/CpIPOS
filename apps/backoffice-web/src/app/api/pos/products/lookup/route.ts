@@ -54,22 +54,32 @@ export async function GET(request: Request) {
     await requireTenantFeature(scope.session.tenant_id, "barcode_scanner_mode", scope.session.branch_id);
 
     const { searchParams } = new URL(request.url);
-    const rawCode = searchParams.get("sku") ?? "";
+    const rawCode = (searchParams.get("sku") ?? "").normalize("NFKC").trim();
     const scanCode = normalizeGeneralSaleScanCode(rawCode);
-    if (!scanCode || scanCode.length > 40) {
-      return fail("invalid_scan_code", "SKU is required and must not exceed 40 characters.", 422);
+    if (!scanCode || scanCode.length > 40 || rawCode.length > 128) {
+      return fail("invalid_scan_code", "SKU is required and must not exceed allowed length.", 422);
     }
 
     const supabase = getSupabaseServiceClient();
     const tenantId = scope.session.tenant_id;
     const branchId = scope.session.branch_id;
 
-    const exactResult = await selectProductQuery({ tenantId, branchId, supabase }).eq("sku", scanCode).limit(2);
+    // Full alphanumeric SKUs must win BEFORE digit-only legacy normalization.
+    // Optical codes like QA-LAK-FRAME-001 normalize to "001", which can
+    // collide with unrelated SKUs as the tenant catalog grows.
+    const canonicalSku = rawCode.toLocaleUpperCase("en-US");
+    const exactCode = canonicalSku && canonicalSku !== scanCode ? canonicalSku : scanCode;
+    const exactResult = await selectProductQuery({ tenantId, branchId, supabase }).eq("sku", exactCode).limit(2);
     if (exactResult.error) {
       return fail("product_lookup_query_failed", exactResult.error.message, 500);
     }
 
     let candidates = (exactResult.data ?? []) as ProductRow[];
+    if (candidates.length === 0 && exactCode !== scanCode) {
+      const normalizedResult = await selectProductQuery({ tenantId, branchId, supabase }).eq("sku", scanCode).limit(2);
+      if (normalizedResult.error) return fail("product_lookup_query_failed", normalizedResult.error.message, 500);
+      candidates = (normalizedResult.data ?? []) as ProductRow[];
+    }
 
     // Legacy products may still carry a display-style SKU such as PRD-...-097339.
     // Product Management now persists the digit-normalized form, so for numeric scans
