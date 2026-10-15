@@ -9,6 +9,7 @@ import { formatSalesMoney } from "@/lib/pos-money";
 import { PosBackButton } from "@/components/pos-preview/pos-back-button";
 import { OpticalStockWorkspace } from "@/components/pos/optical-stock-workspace";
 import { collectPagedShiftRows, collectShiftRowsForIds } from "@/lib/pos-shift-query-pagination";
+import {getOpticalBranchScope,verifyOpticalBranch} from "@/lib/server/optical-stock-branch-scope";
 
 export const dynamic="force-dynamic";
 
@@ -30,11 +31,14 @@ type RenderRow=CatalogRow&{available:number|null;recipeAttached:boolean;
  * for reconciliation but does NOT migrate the item to optical_stock_bins.
  * Finance stock and queued order cutover must be reviewed separately.
  */
-export default async function CustomModeStockPage() {
+export default async function CustomModeStockPage({searchParams}:{searchParams?:Promise<{branch_id?:string}>}) {
   const session=await requirePosSession();
   await assertPosMenuPageAllowed(session.session.tenant_id,"/preview/pos/stock");
   const scope=await requirePosPagePermission("inventory:view");
-  const tenantId=session.session.tenant_id,branchId=session.session.branch_id;
+  const tenantId=session.session.tenant_id;
+  const branches=await getOpticalBranchScope(scope);
+  const params=await searchParams;
+  const branchId=verifyOpticalBranch(params?.branch_id||scope.session.branch_id,branches);
   const mode=await getCustomPosStockUiMode(tenantId);
   if(mode!=="optical"&&mode!=="retail"&&mode!=="mixed")notFound();
   const optical=mode!=="retail";
@@ -108,7 +112,7 @@ export default async function CustomModeStockPage() {
       return {...row,opticalBin:bin?.currency_code===currency?bin:null};
     });
     return <OpticalStockWorkspace rows={enriched}
-      branch={branch?.name??"สาขาที่ได้รับสิทธิ์"} branchId={branchId} currency={currency}
+      branch={branch?.name??"สาขาที่ได้รับสิทธิ์"} branchId={branchId} branches={branches} currency={currency}
       canManage={["owner","manager"].includes(String(scope.session.role??"").toLowerCase())}/>;
   }
   const low=mapped.filter(x=>x.available===1).length;
