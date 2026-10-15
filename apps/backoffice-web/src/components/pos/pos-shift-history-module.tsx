@@ -341,12 +341,15 @@ function getShiftCashVariance(shift: ShiftHistoryItem, opticalFinance=false) {
     : Number((shift.actual_cash-expected).toFixed(2));
 }
 
+function isOpticalDailyRow(shift:ShiftHistoryItem,opticalDaily:boolean):boolean {
+  return opticalDaily && shift.metadata?.business_shift_mode==="optical_daily";
+}
 function getShiftHistoryTableRows(shifts: ShiftHistoryItem[], lang: Lang, opticalDaily=false, opticalFinance=false): ShiftHistoryTableRow[] {
   return shifts.map((shift) => {
     const cycle = resolveShiftCycle(shift.opened_at);
     const cashVariance = getShiftCashVariance(shift,opticalFinance);
     return {
-      shiftName: opticalDaily ? (lang==="th"?"กะรายวัน":"Daily Shift") : cycle ? slotLabel(cycle.slot, lang) : "-",
+      shiftName: isOpticalDailyRow(shift,opticalDaily) ? (lang==="th"?"กะรายวัน":"Daily Shift") : cycle ? slotLabel(cycle.slot, lang) : "-",
       branch: shift.branch_name ?? shift.branch_code ?? "-",
       openedAt: formatDateTime(shift.opened_at, lang),
       closedAt: shift.closed_at ? formatDateTime(shift.closed_at, lang) : "-",
@@ -490,7 +493,7 @@ function buildShiftPeriodReceiptHtml(args: {
   const shiftRows = [...shifts].sort((a, b) => a.opened_at.localeCompare(b.opened_at))
     .map((shift, index) => {
       const cycle = resolveShiftCycle(shift.opened_at);
-      const name = `${index + 1}. ${args.opticalDaily ? slotLabel("daily", lang) : cycle ? slotLabel(cycle.slot, lang) : (th ? "กะ" : "Shift")}`;
+      const name = `${index + 1}. ${isOpticalDailyRow(shift,Boolean(args.opticalDaily)) ? slotLabel("daily", lang) : cycle ? slotLabel(cycle.slot, lang) : (th ? "กะ" : "Shift")}`;
       return `<div class="break"></div>
         <p><strong>${escapeHtml(name)}</strong> ${escapeHtml(formatDateTime(shift.opened_at, lang))}</p>
         ${line(th ? "บิล" : "Bills", String(shift.metrics.order_count))}
@@ -578,7 +581,7 @@ h1,p{margin:0;}
   </header>
   <div class="divider"></div>
   <section class="summary">
-    ${line(labels.shiftName, escapeHtml(args.opticalDaily ? slotLabel("daily",lang) : cycle ? slotLabel(cycle.slot, lang) : "-"))}
+    ${line(labels.shiftName, escapeHtml(isOpticalDailyRow(shift,Boolean(args.opticalDaily)) ? slotLabel("daily",lang) : cycle ? slotLabel(cycle.slot, lang) : "-"))}
     ${line(labels.openedBy, escapeHtml(shift.opened_by_name ?? "-"))}
     ${line(labels.closedBy, escapeHtml(shift.closed_by_name ?? "-"))}
     ${line(labels.openedAt, dt(shift.opened_at))}
@@ -779,7 +782,7 @@ export function PosShiftHistoryModule({ lang }: { lang: Lang }) {
   const opticalDaily=payload?.optical_policy?.enabled===true && Boolean(payload.optical_policy.timeZone);
   const currentCycle = useMemo(() => {
     if (!sessionShift?.opened_at || sessionShift.status !== "open") return null;
-    if (opticalDaily && payload?.optical_policy?.country && payload.optical_policy.timeZone) {
+    if (opticalDaily && payload?.shifts.some(x=>x.id===sessionShift.id && x.metadata?.business_shift_mode==="optical_daily") && payload?.optical_policy?.country && payload.optical_policy.timeZone) {
       const day=resolveOpticalDailyShift({
         openedAt:sessionShift.opened_at,country:payload.optical_policy.country,
         approvedTimeZone:payload.optical_policy.timeZone
@@ -788,7 +791,7 @@ export function PosShiftHistoryModule({ lang }: { lang: Lang }) {
         warningAt:day.warningAt,autoCloseAt:day.autoCloseAt,nextSlot:"daily" as const}:null;
     }
     return resolveShiftCycle(sessionShift.opened_at);
-  }, [sessionShift?.opened_at,sessionShift?.status,opticalDaily,payload?.optical_policy?.country,payload?.optical_policy?.timeZone]);
+  }, [sessionShift?.id,sessionShift?.opened_at,sessionShift?.status,opticalDaily,payload?.shifts,payload?.optical_policy?.country,payload?.optical_policy?.timeZone]);
   const activeShift = useMemo(() => {
     if (!sessionShift?.id) return null;
     return payload?.shifts.find((shift) => shift.id === sessionShift.id) ?? null;
@@ -1446,7 +1449,7 @@ export function PosShiftHistoryModule({ lang }: { lang: Lang }) {
                             : "text-orange-600";
                     return (
                       <tr key={shift.id} className="border-t border-slate-200">
-                        <td className="px-3 py-3 font-semibold text-slate-700">{payload.optical_policy?.enabled&&payload.optical_policy.timeZone ? (lang==="th"?"กะรายวัน":"Daily Shift") : cycle ? slotLabel(cycle.slot, lang) : "-"}</td>
+                        <td className="px-3 py-3 font-semibold text-slate-700">{isOpticalDailyRow(shift,opticalDaily) ? (lang==="th"?"กะรายวัน":"Daily Shift") : cycle ? slotLabel(cycle.slot, lang) : "-"}</td>
                         <td className="px-3 py-3 text-slate-600">{formatDateTime(shift.opened_at, lang)}</td>
                         <td className="px-3 py-3 text-slate-600">{shift.closed_at ? formatDateTime(shift.closed_at, lang) : "-"}</td>
                         <td className="px-3 py-3">
@@ -1610,7 +1613,7 @@ export function PosShiftHistoryModule({ lang }: { lang: Lang }) {
                       const cycle = resolveShiftCycle(shift.opened_at);
                       return (
                         <div key={shift.id} className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs">
-                          <p className="font-bold text-slate-900">{opticalDaily ? slotLabel("daily",lang) : cycle ? slotLabel(cycle.slot, lang) : text.shiftName} · {formatDateTime(shift.opened_at, lang)}</p>
+                          <p className="font-bold text-slate-900">{isOpticalDailyRow(shift,opticalDaily) ? slotLabel("daily",lang) : cycle ? slotLabel(cycle.slot, lang) : text.shiftName} · {formatDateTime(shift.opened_at, lang)}</p>
                           <p className="text-slate-500">{shift.branch_name ?? shift.branch_code ?? "-"}</p>
                           <div className="mt-1 flex justify-between gap-2"><span>{text.orders}</span><strong>{shift.metrics.order_count}</strong></div>
                           <div className="flex justify-between gap-2"><span>{text.sales}</span><strong>{formatMoney(shift.metrics.sales_total, lang)}</strong></div>
@@ -1737,7 +1740,7 @@ export function PosShiftHistoryModule({ lang }: { lang: Lang }) {
                     <>
                       <p className="flex justify-between gap-3">
                         <span>{text.shiftName}</span>
-                        <strong>{opticalDaily ? slotLabel("daily",lang) : cycle ? slotLabel(cycle.slot, lang) : "-"}</strong>
+                        <strong>{isOpticalDailyRow(selectedShift,opticalDaily) ? slotLabel("daily",lang) : cycle ? slotLabel(cycle.slot, lang) : "-"}</strong>
                       </p>
                       <p className="flex justify-between gap-3">
                         <span>{openedByLabel}</span>
