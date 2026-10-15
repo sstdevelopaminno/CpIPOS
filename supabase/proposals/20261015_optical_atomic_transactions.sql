@@ -126,7 +126,7 @@ uuid,uuid,uuid,uuid,uuid,jsonb,numeric,uuid,timestamptz,text) to service_role;
 
 create or replace function public.optical_post_deposit_tx(
   p_tenant_id uuid,p_branch_id uuid,p_work_order_id uuid,p_actor uuid,
-  p_request_id uuid,p_amount_lak numeric,p_method text,
+  p_shift_id uuid,p_request_id uuid,p_amount_lak numeric,p_method text,
   p_transfer_reference text default null,p_verified_by uuid default null
 )
 returns table(payment_id uuid,paid_total numeric,remaining_amount numeric,duplicate_request boolean)
@@ -137,6 +137,9 @@ declare
  v_id uuid; v_paid numeric(18,2);
 begin
  if p_actor is null or p_request_id is null then raise exception 'OPTICAL_PAYMENT_SCOPE_REQUIRED'; end if;
+ if not exists(select 1 from public.shifts s where s.id=p_shift_id
+   and s.tenant_id=p_tenant_id and s.branch_id=p_branch_id and s.status::text='open')
+ then raise exception 'OPTICAL_SHIFT_NOT_ACTIVE'; end if;
  if not exists(select 1 from public.users_profiles u
     join public.user_branch_roles r on r.user_id=u.id where u.id=p_actor
     and u.is_active and u.archived_at is null
@@ -178,9 +181,9 @@ begin
  end if;
  v_paid:=v_order.paid_total+p_amount_lak;
  insert into public.optical_payment_ledger(
-    tenant_id,branch_id,work_order_id,request_id,currency_code,method,
+    tenant_id,branch_id,work_order_id,shift_id,request_id,currency_code,method,
     amount,cumulative_paid,reference_no,verified_by,received_by)
- values(p_tenant_id,p_branch_id,p_work_order_id,p_request_id,'LAK',p_method,
+ values(p_tenant_id,p_branch_id,p_work_order_id,p_shift_id,p_request_id,'LAK',p_method,
     p_amount_lak,v_paid,nullif(left(trim(p_transfer_reference),120),''),p_verified_by,p_actor)
  returning id into v_id;
  update public.optical_work_orders
@@ -190,9 +193,9 @@ begin
 end;
 $$;
 revoke all on function public.optical_post_deposit_tx(
-uuid,uuid,uuid,uuid,uuid,numeric,text,text,uuid) from PUBLIC,anon,authenticated;
+uuid,uuid,uuid,uuid,uuid,uuid,numeric,text,text,uuid) from PUBLIC,anon,authenticated;
 grant execute on function public.optical_post_deposit_tx(
-uuid,uuid,uuid,uuid,uuid,numeric,text,text,uuid) to service_role;
+uuid,uuid,uuid,uuid,uuid,uuid,numeric,text,text,uuid) to service_role;
 
 create or replace function public.optical_transition_work_order_tx(
  p_tenant_id uuid,p_branch_id uuid,p_work_order_id uuid,p_actor uuid,
