@@ -307,7 +307,7 @@ export function OpticalStockWorkspace({rows,branch,currency,canManage}:{
           {modal==="bulk"?<>
             <div className="overflow-x-auto rounded-xl border border-slate-200">
               <table className="min-w-[850px] w-full text-sm">
-                <thead className="bg-emerald-50 text-left"><tr>{["#","ชื่อสินค้า *","ประเภท","SKU / บาร์โค้ด *","ราคา ("+currency+") *","หน่วย","ลบแถว"].map(x=><th className="p-2" key={x}>{x}</th>)}</tr></thead>
+                <thead className="bg-emerald-50 text-left"><tr>{["#","ชื่อสินค้า *","ประเภท","SKU / บาร์โค้ด *","แบรนด์ / ยี่ห้อ","รุ่น / ชื่อเลนส์","สี / Index","ขนาด / SPH","CYL","ราคา ("+currency+") *","หน่วย","ลบแถว"].map(x=><th className="p-2" key={x}>{x}</th>)}</tr></thead>
                 <tbody>{bulk.map((row,i)=><tr className="border-t border-slate-100" key={i}>
                   <td className="p-2">{i+1}</td>
                   <td className="p-2"><input className={field} maxLength={180} value={row.name} onChange={e=>changeBulk(i,"name",e.target.value)}/></td>
@@ -315,6 +315,19 @@ export function OpticalStockWorkspace({rows,branch,currency,canManage}:{
                     {Object.entries(types).map(([k,v])=><option key={k} value={k}>{v}</option>)}
                   </select></td>
                   <td className="p-2"><input className={field} value={row.sku} maxLength={90} onChange={e=>changeBulk(i,"sku",e.target.value)} placeholder="กรอกเอง"/></td>
+                  <td className="p-2"><input className={field} maxLength={120} value={row.brand}
+                    onChange={e=>changeBulk(i,"brand",e.target.value)}/></td>
+                  <td className="p-2"><input className={field} maxLength={120}
+                    value={row.kind==="lens"?row.lens_name:row.model}
+                    onChange={e=>changeBulk(i,row.kind==="lens"?"lens_name":"model",e.target.value)}/></td>
+                  <td className="p-2"><input className={field} maxLength={80}
+                    value={row.kind==="lens"?row.lens_index:row.color}
+                    onChange={e=>changeBulk(i,row.kind==="lens"?"lens_index":"color",e.target.value)}/></td>
+                  <td className="p-2"><input className={field} maxLength={60}
+                    value={row.kind==="lens"?row.lens_sph:row.frame_size}
+                    onChange={e=>changeBulk(i,row.kind==="lens"?"lens_sph":"frame_size",e.target.value)}/></td>
+                  <td className="p-2">{row.kind==="lens"?<input className={field}
+                    value={row.lens_cyl} onChange={e=>changeBulk(i,"lens_cyl",e.target.value)}/>: "—"}</td>
                   <td className="p-2"><input className={field} type="number" min="0" step={currency==="LAK"?"1":"0.01"}
                     value={row.price} onChange={e=>changeBulk(i,"price",e.target.value)}/></td>
                   <td className="p-2"><input className={field} value={row.unit} maxLength={30} onChange={e=>changeBulk(i,"unit",e.target.value)}/></td>
