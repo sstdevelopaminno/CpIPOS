@@ -1,4 +1,4 @@
-export type ShiftSlot = "morning" | "afternoon" | "night";
+export type ShiftSlot = "morning" | "afternoon" | "night" | "daily";
 export type ShiftGuardPhase = "on_time" | "overdue" | "urgent" | "auto_close";
 
 export type ShiftCycle = {
@@ -81,10 +81,12 @@ export function resolveShiftGuardPhase(cycle: ShiftCycle, now = new Date()): Shi
 
 export function slotLabel(slot: ShiftSlot, lang: "th" | "en") {
   if (lang === "th") {
+    if (slot === "daily") return "กะรายวัน";
     if (slot === "morning") return "กะเช้า";
     if (slot === "afternoon") return "กะบ่าย";
     return "กะดึก";
   }
+  if (slot === "daily") return "Daily Shift";
   if (slot === "morning") return "Morning Shift";
   if (slot === "afternoon") return "Afternoon Shift";
   return "Night Shift";
@@ -92,7 +94,9 @@ export function slotLabel(slot: ShiftSlot, lang: "th" | "en") {
 
 export function slotWindowLabel(slot: ShiftSlot, lang: "th" | "en") {
   if (lang === "th") {
-    if (slot === "morning") return "00:00 - 12:59";
+    if (slot === "daily") return "00:00 - 23:59";
+    if (slot === "daily") return "00:00 - 23:59";
+  if (slot === "morning") return "00:00 - 12:59";
     if (slot === "afternoon") return "13:00 - 17:59";
     return "18:00 - 23:59";
   }
