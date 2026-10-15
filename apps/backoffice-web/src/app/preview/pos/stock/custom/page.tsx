@@ -102,7 +102,11 @@ export default async function CustomModeStockPage() {
       ไม่สามารถตรวจสอบสต๊อก Optical ได้ โปรดตรวจสอบกับฝ่าย IT
     </main>;
     const binMap=new Map((binRows.data??[]).map(item=>[item.product_id,item]));
-    const enriched=mapped.map(row=>({...row,opticalBin:binMap.get(row.id)??null}));
+    const enriched=mapped.map(row=>{
+      const bin=binMap.get(row.id);
+      // Do not display quantity or price under a different store currency.
+      return {...row,opticalBin:bin?.currency_code===currency?bin:null};
+    });
     return <OpticalStockWorkspace rows={enriched}
       branch={branch?.name??"สาขาที่ได้รับสิทธิ์"} currency={currency}
       canManage={["owner","manager"].includes(String(scope.session.role??"").toLowerCase())}/>;
