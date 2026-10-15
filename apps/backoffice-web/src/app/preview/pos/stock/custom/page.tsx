@@ -21,7 +21,7 @@ type RecipeRow={product_id:string;ingredient_id:string;quantity_per_item:number}
 type IngredientRow={id:string;quantity_on_hand:number};
 type OpticalBin={product_id:string;kind:string;brand:string|null;model:string|null;color:string|null;
   frame_size:string|null;lens_type:string|null;lens_index:string|null;lens_sph:number|null;
-  lens_cyl:number|null;on_hand:number;reserved:number;currency_code:string};
+  lens_cyl:number|null;on_hand:number;reserved:number;unit_price:number;currency_code:string};
 type RenderRow=CatalogRow&{available:number|null;recipeAttached:boolean;
   opticalBin?:OpticalBin|null};
 
@@ -94,7 +94,7 @@ export default async function CustomModeStockPage() {
   if(optical) {
     const binRows=ids.length?await collectShiftRowsForIds<OpticalBin>(ids,(batch,from,to)=>
       db.from("optical_stock_bins").select(
-        "product_id,kind,brand,model,color,frame_size,lens_type,lens_index,lens_sph,lens_cyl,on_hand,reserved,currency_code"
+        "product_id,kind,brand,model,color,frame_size,lens_type,lens_index,lens_sph,lens_cyl,on_hand,reserved,unit_price,currency_code"
       ).eq("tenant_id",tenantId).eq("branch_id",branchId).in("product_id",batch)
       .order("product_id",{ascending:true}).range(from,to))
       :{data:[] as OpticalBin[],error:null};
