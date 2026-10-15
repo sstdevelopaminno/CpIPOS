@@ -34,9 +34,9 @@ begin
  if not found then raise exception 'BRANDING_TENANT_NOT_FOUND'; end if;
  if p_payload is not null then
    if jsonb_typeof(p_payload)<>'object' then raise exception 'BRANDING_INVALID'; end if;
-   v_name=btrim(p_payload->>'system_name');
-   v_accent=upper(p_payload->>'accent_color');
-   v_sidebar=upper(p_payload->>'sidebar_color');
+   v_name=btrim(coalesce(p_payload->>'system_name',''));
+   v_accent=upper(coalesce(p_payload->>'accent_color',''));
+   v_sidebar=upper(coalesce(p_payload->>'sidebar_color',''));
    v_logo=nullif(btrim(coalesce(p_payload->>'logo_url','')),'');
    if char_length(v_name)<2 or char_length(v_name)>55 or v_name~'[<>]' then
      raise exception 'BRANDING_NAME_INVALID'; end if;
@@ -44,7 +44,7 @@ begin
      raise exception 'BRANDING_COLOR_INVALID'; end if;
    if v_logo is not null and (
     char_length(v_logo)>900 or
-    v_logo !~ ('^https://[^/]+/storage/v1/object/public/custom-branding/'||
+    v_logo !~ ('^https://deejlitaivfnsbwqdugy[.]supabase[.]co/storage/v1/object/public/custom-branding/'||
       p_tenant_id::text||'/[A-Za-z0-9_.-]+[.](png|jpg|webp)$')
    ) then raise exception 'BRANDING_LOGO_INVALID'; end if;
    v_value=jsonb_build_object('system_name',v_name,'accent_color',v_accent,
@@ -61,22 +61,33 @@ end $$;
 revoke all on function public.customer_portal_custom_branding_v1(uuid,jsonb) from PUBLIC,anon;
 grant execute on function public.customer_portal_custom_branding_v1(uuid,jsonb) to authenticated;
 
--- Upload path is TENANT-ID/file.ext. CRM authenticated uploads use the same
--- branch-owner/manager CUSTOM checks. Server-side POS uses service_role.
-create policy "custom_branding_owner_upload" on storage.objects
-for insert to authenticated with check(
- bucket_id='custom-branding'
- and (storage.foldername(name))[1] is not null
- and exists(select 1 from public.user_branch_roles r
+-- Upload path is TENANT-ID/file.ext. Grants require active CUSTOM and
+-- an authenticated owner/manager; helper runs through guarded membership.
+create or replace function app.can_manage_custom_branding(p_tenant_id uuid)
+returns boolean language sql stable security definer
+set search_path=pg_catalog,public,auth,app
+as $$
+ select exists(
+   select 1 from public.user_branch_roles r
    join public.users_profiles u on u.id=r.user_id and u.is_active=true
    join public.tenant_subscription_contracts c on c.tenant_id=r.tenant_id
    join public.subscription_packages sp on sp.id=c.package_id
-   where r.user_id=auth.uid() and r.role::text in ('owner','manager')
-     and r.tenant_id::text=(storage.foldername(name))[1]
+   where r.user_id=auth.uid() and r.tenant_id=p_tenant_id
+     and r.role::text in ('owner','manager')
      and c.id=(select d.id from public.tenant_subscription_contracts d
-       where d.tenant_id=r.tenant_id order by d.created_at desc limit 1)
+       where d.tenant_id=p_tenant_id order by d.created_at desc limit 1)
      and c.status in ('active','trial') and (c.ended_at is null or c.ended_at>now())
-     and lower(sp.code)='custom')
+     and lower(sp.code)='custom'
+ );
+$$;
+revoke all on function app.can_manage_custom_branding(uuid) from PUBLIC,anon;
+grant execute on function app.can_manage_custom_branding(uuid) to authenticated;
+
+create policy "custom_branding_owner_upload" on storage.objects
+for insert to authenticated with check(
+ bucket_id='custom-branding'
+ and (storage.foldername(name))[1] ~ '^[0-9a-fA-F-]{36}$'
+ and app.can_manage_custom_branding(((storage.foldername(name))[1])::uuid)
 );
 -- Public reads only from public bucket; no UPDATE/DELETE policy to users.
 
