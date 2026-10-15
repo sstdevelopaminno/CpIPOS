@@ -61,3 +61,5 @@ jobs:
         run: psql -v ON_ERROR_STOP=1 -f scripts/sql/optical-scratch-regression.sql
       - name: Assert two concurrent cashiers cannot overpay one bill
         run: bash scripts/sql/optical-scratch-concurrency.sh
+      - name: Assert owner reporting, cross-tenant and no-session RLS
+        run: psql -v ON_ERROR_STOP=1 -f scripts/sql/optical-scratch-rls.sql
