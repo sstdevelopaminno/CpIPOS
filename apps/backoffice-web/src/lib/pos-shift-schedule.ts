@@ -93,14 +93,13 @@ export function slotLabel(slot: ShiftSlot, lang: "th" | "en") {
 }
 
 export function slotWindowLabel(slot: ShiftSlot, lang: "th" | "en") {
-  if (lang === "th") {
-    if (slot === "daily") return "00:00 - 23:59";
-    if (slot === "daily") return "00:00 - 23:59";
-  if (slot === "morning") return "00:00 - 12:59";
-    if (slot === "afternoon") return "13:00 - 17:59";
+  if(slot === "daily") return "00:00 - 23:59";
+  if(lang === "th") {
+    if(slot === "morning") return "00:00 - 12:59";
+    if(slot === "afternoon") return "13:00 - 17:59";
     return "18:00 - 23:59";
   }
-  if (slot === "morning") return "00:00 - 12:59";
-  if (slot === "afternoon") return "13:00 - 17:59";
+  if(slot === "morning") return "00:00 - 12:59";
+  if(slot === "afternoon") return "13:00 - 17:59";
   return "18:00 - 23:59";
 }
