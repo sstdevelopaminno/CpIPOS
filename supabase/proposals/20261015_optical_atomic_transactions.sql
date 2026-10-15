@@ -176,7 +176,9 @@ begin
    where tenant_id=p_tenant_id and branch_id=p_branch_id and request_id=p_request_id;
  if found then
    if v_existing.work_order_id<>p_work_order_id or v_existing.amount<>p_amount_lak
-       or v_existing.method<>p_method then raise exception 'OPTICAL_IDEMPOTENCY_CONFLICT'; end if;
+       or v_existing.method<>p_method or v_existing.shift_id<>p_shift_id
+       or v_existing.received_by<>p_actor
+       then raise exception 'OPTICAL_IDEMPOTENCY_CONFLICT'; end if;
    return query select v_existing.id,v_order.paid_total,v_order.total_amount-v_order.paid_total,true;
    return;
  end if;
