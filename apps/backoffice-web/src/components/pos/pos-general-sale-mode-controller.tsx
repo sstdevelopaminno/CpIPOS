@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
+import { formatSalesMoney, normalizeSalesCurrency } from "@/lib/pos-money";
 import { POS_MODE_FEATURES } from "@/lib/pos-feature-map";
 import {
   buildGeneralSaleCartTableRows,
@@ -78,17 +79,9 @@ function createRequestId() {
 }
 
 function formatMoney(value: number): string {
-  const safeValue = Number.isFinite(value) ? value : 0;
-  const code = document.documentElement.getAttribute("data-pos-store-currency");
-  if (code === "LAK") {
-    return "₭" + new Intl.NumberFormat("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(safeValue);
-  }
-  return new Intl.NumberFormat("th-TH", {
-    style: "currency",
-    currency: "THB",
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2
-  }).format(safeValue);
+  return formatSalesMoney(value, normalizeSalesCurrency(
+    document.documentElement.getAttribute("data-pos-store-currency")
+  ));
 }
 
 function readLayoutPreference(): GeneralSaleCartLayout {
@@ -786,6 +779,13 @@ export function PosGeneralSaleModeController() {
     window.addEventListener("cpipos:store-currency-updated", onStoreCurrencyUpdated);
     const observer = new MutationObserver(reconcile);
     observer.observe(document.body, { childList: true, subtree: true });
+    // The React currency fetch may resolve AFTER the scanner-cart DOM first renders.
+    // Observe the authoritative root attribute too; do not leave the first THB
+    // placeholder cached on an already approved LAK store.
+    const currencyObserver = new MutationObserver(scheduleTableRender);
+    currencyObserver.observe(document.documentElement, {
+      attributes: true, attributeFilter: ["data-pos-store-currency"]
+    });
     void loadAccess();
     reconcile();
 
@@ -793,6 +793,7 @@ export function PosGeneralSaleModeController() {
       destroyed = true;
       if (tableRenderTimer !== null) window.clearTimeout(tableRenderTimer);
       observer.disconnect();
+      currencyObserver.disconnect();
       document.removeEventListener("click", onModeClick, true);
       document.removeEventListener("click", onTableClick, true);
       window.removeEventListener("cpipos:store-currency-updated", onStoreCurrencyUpdated);
