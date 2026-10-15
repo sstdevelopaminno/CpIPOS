@@ -4,6 +4,7 @@ import type { ApprovalAction, BranchRole, PlatformRole } from "@pos/shared-types
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { PosManagerApprovalModal } from "@/components/pos-ui/pos-manager-approval-modal";
 import { downloadExcelCsv } from "@/lib/excel-csv";
+import { formatSalesMoney, type SalesCurrencyCode } from "@/lib/pos-money";
 import type { Language } from "@/lib/i18n";
 import type { PosSalesBranchOption, PosSalesListRecord, PosSalesShiftOption } from "@/lib/services/pos-sales-list-service";
 
@@ -55,8 +56,8 @@ function bangkokToday() {
   return bangkokDate(new Date());
 }
 
-function money(value: number, lang: Language) {
-  return Number(value || 0).toLocaleString(lang === "th" ? "th-TH" : "en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+function money(value: number, lang: Language, currency: SalesCurrencyCode) {
+  return formatSalesMoney(Number(value || 0), currency, lang === "th" ? "th-TH" : "en-US");
 }
 
 function formatQuantity(value: number, lang: Language) {
@@ -183,12 +184,21 @@ export function PosSalesListWorkspace({
   const totalPages = Math.max(1, Math.ceil(sortedRows.length / PAGE_SIZE));
   const safePage = Math.min(currentPage, totalPages);
   const pagedRows = useMemo(() => sortedRows.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE), [safePage, sortedRows]);
-  const metrics = useMemo(() => ({
-    bills: filteredRows.length,
-    paid: filteredRows.filter((row) => row.saleStatus === "paid").length,
-    voided: filteredRows.filter((row) => row.saleStatus === "void").length,
-    total: filteredRows.filter((row) => row.saleStatus !== "void").reduce((sum, row) => sum + Number(row.total || 0), 0)
-  }), [filteredRows]);
+  const metrics = useMemo(() => {
+    const totals: Record<SalesCurrencyCode, number> = { THB: 0, LAK: 0, USD: 0 };
+    for (const row of filteredRows) {
+      if (row.saleStatus !== "void") totals[row.currencyCode] += Number(row.total || 0);
+    }
+    return {
+      bills: filteredRows.length,
+      paid: filteredRows.filter((row) => row.saleStatus === "paid").length,
+      voided: filteredRows.filter((row) => row.saleStatus === "void").length,
+      totals
+    };
+  }, [filteredRows]);
+  const currencyTotals = (["THB", "LAK", "USD"] as const)
+    .filter((code) => filteredRows.some((row) => row.currencyCode === code))
+    .map((code) => money(metrics.totals[code], lang, code)).join(" / ") || money(0, lang, "THB");
 
   useEffect(() => setCurrentPage(1), [effectiveBranchId, fromDate, paymentFilter, query, quickRange, shiftFilter, statusFilter, toDate]);
   useEffect(() => { if (currentPage > totalPages) setCurrentPage(totalPages); }, [currentPage, totalPages]);
@@ -215,8 +225,8 @@ export function PosSalesListWorkspace({
 
   function exportCsv() {
     const rows: Array<Array<string | number>> = [
-      [th ? "เลขบิล" : "Bill", th ? "วันที่" : "Date", th ? "ช่องทาง" : "Channel", th ? "จำนวนรายการ" : "Items", th ? "ยอดรวม" : "Total", th ? "การชำระ" : "Payment", th ? "สถานะ" : "Status", th ? "ผู้ทำรายการ" : "Cashier"],
-      ...sortedRows.map((row) => [row.billNo, dateTimeFormatter.format(new Date(row.openedAt)), channelLabel(row.channel), row.items, row.total, paymentLabel(row.paymentStatus), saleStatusLabel(row.saleStatus), row.cashier])
+      [th ? "เลขบิล" : "Bill", th ? "วันที่" : "Date", th ? "ช่องทาง" : "Channel", th ? "จำนวนรายการ" : "Items", th ? "ยอดรวม" : "Total", th ? "สกุลเงิน" : "Currency", th ? "การชำระ" : "Payment", th ? "สถานะ" : "Status", th ? "ผู้ทำรายการ" : "Cashier"],
+      ...sortedRows.map((row) => [row.billNo, dateTimeFormatter.format(new Date(row.openedAt)), channelLabel(row.channel), row.items, row.total, row.currencyCode, paymentLabel(row.paymentStatus), saleStatusLabel(row.saleStatus), row.cashier])
     ];
     downloadExcelCsv(`cpipos-sales-${today}.csv`, rows);
   }
@@ -325,9 +335,15 @@ export function PosSalesListWorkspace({
           <Metric label={th ? "จำนวนบิล" : "Bills"} value={String(metrics.bills)} />
           <Metric label={th ? "ชำระแล้ว" : "Paid"} value={String(metrics.paid)} />
           <Metric label={th ? "ยกเลิก" : "Cancelled"} value={String(metrics.voided)} />
-          <Metric label={th ? "ยอดขายสุทธิ" : "Net sales"} value={`฿${money(metrics.total, lang)}`} />
+          <Metric label={th ? "ยอดขายสุทธิ" : "Net sales"} value={currencyTotals} />
         </div>
 
+        {new Set(filteredRows.map((row) => row.currencyCode)).size > 1 ? (
+          <p className="mt-3 rounded-lg border border-blue-200 bg-blue-50 p-3 text-sm text-blue-900" role="note">
+            {th ? "มีหลายสกุลเงินในช่วงที่เลือก: แสดงยอดแยกตามสกุลเงินของแต่ละบิล ไม่รวมยอด THB, LAK และ USD เข้าด้วยกัน" :
+              "Multiple currencies: totals are separated by each bill's recorded currency, never added together."}
+          </p>
+        ) : null}
         {notice || mutationError ? <div className={`mt-3 rounded-xl border px-3 py-2 text-sm font-semibold ${mutationError ? "border-red-200 bg-red-50 text-red-700" : "border-green-200 bg-green-50 text-green-700"}`}>{mutationError || notice}</div> : null}
 
         <div className="mt-4 overflow-hidden rounded-xl border border-slate-200">
@@ -346,7 +362,7 @@ export function PosSalesListWorkspace({
                       <td className="px-3 py-3"><p>{row.tableLabel}</p><p className="text-xs text-slate-500">{channelLabel(row.channel)}</p></td>
                       <td className="px-3 py-3">{row.items}</td>
                       <td className="px-3 py-3"><p>{branch?.name ?? "-"}</p><p className="text-xs text-slate-500">{branch?.code ?? "-"}</p></td>
-                      <td className="px-3 py-3 text-right font-bold">฿{money(row.total, lang)}</td>
+                      <td className="px-3 py-3 text-right font-bold">{money(row.total, lang, row.currencyCode)}</td>
                       <td className="px-3 py-3"><Badge tone={row.paymentStatus === "unpaid" ? "slate" : "green"}>{paymentLabel(row.paymentStatus)}</Badge></td>
                       <td className="px-3 py-3"><Badge tone={row.saleStatus === "void" ? "red" : row.saleStatus === "paid" ? "blue" : "orange"}>{saleStatusLabel(row.saleStatus)}</Badge></td>
                       <td className="px-3 py-3">{row.cashier || "-"}</td>
@@ -386,10 +402,10 @@ export function PosSalesListWorkspace({
               <Detail label={th ? "โต๊ะ/ช่องทาง" : "Table/channel"} value={`${selectedDetailRow.tableLabel} · ${channelLabel(selectedDetailRow.channel)}`} />
               <Detail label={th ? "ลูกค้า" : "Customer"} value={selectedDetailRow.customerName || "-"} />
               <Detail label={th ? "จำนวนรายการ" : "Items"} value={String(selectedDetailRow.items)} />
-              <Detail label={th ? "ยอดสุทธิ" : "Net total"} value={`฿${money(selectedDetailRow.total, lang)}`} />
-              <Detail label={th ? "ส่วนลด" : "Discount"} value={`฿${money(selectedDetailRow.discountAmount, lang)}`} />
-              <Detail label={th ? "รับเงินสด" : "Cash received"} value={selectedDetailRow.cashReceived == null ? "-" : `฿${money(selectedDetailRow.cashReceived, lang)}`} />
-              <Detail label={th ? "เงินทอน" : "Change"} value={selectedDetailRow.changeAmount == null ? "-" : `฿${money(selectedDetailRow.changeAmount, lang)}`} />
+              <Detail label={th ? "ยอดสุทธิ" : "Net total"} value={money(selectedDetailRow.total, lang, selectedDetailRow.currencyCode)} />
+              <Detail label={th ? "ส่วนลด" : "Discount"} value={money(selectedDetailRow.discountAmount, lang, selectedDetailRow.currencyCode)} />
+              <Detail label={th ? "รับเงินสด" : "Cash received"} value={selectedDetailRow.cashReceived == null ? "-" : money(selectedDetailRow.cashReceived, lang, selectedDetailRow.currencyCode)} />
+              <Detail label={th ? "เงินทอน" : "Change"} value={selectedDetailRow.changeAmount == null ? "-" : money(selectedDetailRow.changeAmount, lang, selectedDetailRow.currencyCode)} />
               <Detail label={th ? "ชำระเงิน" : "Payment"} value={paymentLabel(selectedDetailRow.paymentStatus)} />
               <Detail label={th ? "สถานะ" : "Status"} value={saleStatusLabel(selectedDetailRow.saleStatus)} />
               <Detail label={th ? "ผู้ทำรายการ" : "Cashier"} value={selectedDetailRow.cashier || "-"} />
@@ -409,9 +425,9 @@ export function PosSalesListWorkspace({
             <div className="flex items-center justify-between"><div><h3 className="text-lg font-black">{th ? "รายการสินค้าต่อบิล" : "Products in bill"}</h3><p className="text-sm text-slate-500">{billItems?.order.bill_no ?? selectedDetailRow?.billNo ?? ""}</p></div><button type="button" onClick={() => setBillItemsOpen(false)} className="h-9 rounded-lg border border-slate-300 px-3 text-sm font-bold">{th ? "ปิด" : "Close"}</button></div>
             {billItemsError ? <p className="mt-3 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm font-semibold text-red-700">{billItemsError}</p> : null}
             <div className="mt-4 max-h-[60vh] overflow-auto rounded-xl border border-slate-200">
-              <table className="min-w-[760px] w-full text-sm"><thead className="sticky top-0 bg-slate-100 text-left text-xs font-bold text-slate-600"><tr><th className="px-3 py-3">{th ? "สินค้า" : "Product"}</th><th className="px-3 py-3">SKU</th><th className="px-3 py-3">{th ? "หมวดหมู่" : "Category"}</th><th className="px-3 py-3 text-right">{th ? "ราคา" : "Price"}</th><th className="px-3 py-3 text-right">{th ? "จำนวน" : "Qty"}</th><th className="px-3 py-3 text-right">{th ? "รวม" : "Total"}</th></tr></thead><tbody className="divide-y divide-slate-100">{billItemsLoading ? <tr><td colSpan={6} className="px-4 py-10 text-center text-slate-500">{th ? "กำลังโหลด..." : "Loading..."}</td></tr> : !(billItems?.items.length) ? <tr><td colSpan={6} className="px-4 py-10 text-center text-slate-500">{th ? "ไม่พบสินค้าในบิล" : "No bill items."}</td></tr> : billItems.items.map((item) => <tr key={item.id}><td className="px-3 py-3 font-bold">{item.name}</td><td className="px-3 py-3 text-slate-600">{item.sku ?? "-"}</td><td className="px-3 py-3 text-slate-600">{item.category ?? "-"}</td><td className="px-3 py-3 text-right">฿{money(item.unit_price, lang)}</td><td className="px-3 py-3 text-right font-bold">{formatQuantity(item.quantity, lang)}</td><td className="px-3 py-3 text-right font-bold">฿{money(item.line_total, lang)}</td></tr>)}</tbody></table>
+              <table className="min-w-[760px] w-full text-sm"><thead className="sticky top-0 bg-slate-100 text-left text-xs font-bold text-slate-600"><tr><th className="px-3 py-3">{th ? "สินค้า" : "Product"}</th><th className="px-3 py-3">SKU</th><th className="px-3 py-3">{th ? "หมวดหมู่" : "Category"}</th><th className="px-3 py-3 text-right">{th ? "ราคา" : "Price"}</th><th className="px-3 py-3 text-right">{th ? "จำนวน" : "Qty"}</th><th className="px-3 py-3 text-right">{th ? "รวม" : "Total"}</th></tr></thead><tbody className="divide-y divide-slate-100">{billItemsLoading ? <tr><td colSpan={6} className="px-4 py-10 text-center text-slate-500">{th ? "กำลังโหลด..." : "Loading..."}</td></tr> : !(billItems?.items.length) ? <tr><td colSpan={6} className="px-4 py-10 text-center text-slate-500">{th ? "ไม่พบสินค้าในบิล" : "No bill items."}</td></tr> : billItems.items.map((item) => <tr key={item.id}><td className="px-3 py-3 font-bold">{item.name}</td><td className="px-3 py-3 text-slate-600">{item.sku ?? "-"}</td><td className="px-3 py-3 text-slate-600">{item.category ?? "-"}</td><td className="px-3 py-3 text-right">{money(item.unit_price, lang, selectedDetailRow?.currencyCode ?? "THB")}</td><td className="px-3 py-3 text-right font-bold">{formatQuantity(item.quantity, lang)}</td><td className="px-3 py-3 text-right font-bold">{money(item.line_total, lang, selectedDetailRow?.currencyCode ?? "THB")}</td></tr>)}</tbody></table>
             </div>
-            {billItems ? <div className="mt-3 text-right text-base font-black">{th ? "รวมบิล" : "Bill total"}: ฿{money(billItems.order.total, lang)}</div> : null}
+            {billItems ? <div className="mt-3 text-right text-base font-black">{th ? "รวมบิล" : "Bill total"}: {money(billItems.order.total, lang, selectedDetailRow?.currencyCode ?? "THB")}</div> : null}
           </div>
         </ModalLayer>
       ) : null}
