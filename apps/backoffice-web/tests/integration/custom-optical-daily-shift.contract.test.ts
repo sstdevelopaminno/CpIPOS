@@ -7,6 +7,9 @@ describe("CUSTOM Optical shift boundary and legacy isolation contract",()=>{
   it("never lets an Optical shift use restaurant auto-close deadlines",()=>{
     const guard=read("components/pos/pos-shift-cycle-guard-core.tsx");
     const session=read("app/api/pos/session/current/route.ts");
+    const open=read("app/api/pos/shifts/open/route.ts");
+    expect(open).toContain('business_shift_mode:"optical_daily"');
+    expect(open).toContain("if(opticalShift.enabled) return NextResponse.json");
     expect(guard).toContain("resolveAuthorizedShiftCycle");
     expect(guard).toContain('slot:"daily"');
     expect(guard).toContain("if(!policy)return null");
@@ -35,7 +38,8 @@ describe("CUSTOM Optical shift boundary and legacy isolation contract",()=>{
     const schedule=read("lib/pos-optical-daily-shift.ts");
     expect(ui).toContain("const opticalDaily=payload?.optical_policy?.enabled===true");
     expect(ui).toContain('args.opticalDaily ? slotLabel("daily",lang)');
-    expect(ui).toContain('opticalDaily ? slotLabel("daily",lang)');
+    expect(ui).toContain('isOpticalDailyRow(shift,opticalDaily) ? slotLabel("daily",lang)');
+    expect(ui).toContain('shift.metadata?.business_shift_mode==="optical_daily"');
     expect(schedule).toContain("autoCloseAt:cutoffAt");
     expect(schedule).toContain("warningAt:new Date(cutoffAt.getTime()-15*60*1000)");
   });
