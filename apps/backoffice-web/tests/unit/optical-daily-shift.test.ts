@@ -1,6 +1,6 @@
 import {describe,expect,it} from "vitest";
 import {
-  nextOpticalMidnightUtc,resolveOpticalDailyShift,resolveOpticalTimeZone,
+  nextOpticalMidnightUtc,startOfOpticalLocalDateUtc,resolveOpticalDailyShift,resolveOpticalTimeZone,
   sumVerifiedOpticalDeposits,type OpticalLedgerPayment
 } from "@/lib/pos-optical-daily-shift";
 
@@ -21,6 +21,15 @@ describe("Optical CUSTOM daily shift is country-aware and isolated",()=>{
     expect(resolveOpticalDailyShift({
       country:"US",openedAt:"2026-11-01T04:30:00Z",approvedTimeZone:"America/New_York"
     })?.currency).toBe("USD");
+  });
+  it("derives exact local date filtering even when the US DST clock changes",()=>{
+    expect(startOfOpticalLocalDateUtc("2026-11-01","America/New_York")?.toISOString())
+      .toBe("2026-11-01T04:00:00.000Z");
+    expect(startOfOpticalLocalDateUtc("2026-11-02","America/New_York")?.toISOString())
+      .toBe("2026-11-02T05:00:00.000Z");
+    expect(startOfOpticalLocalDateUtc("2026-10-15","Asia/Bangkok")?.toISOString())
+      .toBe("2026-10-14T17:00:00.000Z");
+    expect(startOfOpticalLocalDateUtc("2026-02-30","Asia/Bangkok")).toBeNull();
   });
   it("does not include full settlement or unverified transfers in deposit revenue",()=>{
     const base={shift_id:"shift-1",branch_id:"branch-1",work_order_id:"job-1",
