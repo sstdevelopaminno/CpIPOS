@@ -8,13 +8,20 @@ create or replace function public.optical_report_v1(
  p_tenant_id uuid,p_branch_id uuid,p_from timestamptz,p_to timestamptz
 )
 returns table(metric text,label text,quantity bigint,amount_lak numeric)
-language sql stable security invoker set search_path=public,pg_temp
-as $$
- with allowed as (
-   select 1 from public.optical_customers c
-    where c.tenant_id=p_tenant_id and c.branch_id=p_branch_id limit 1
- ), -- RLS on every referenced Optical table limits branch/tenant.
- money as (
+language plpgsql stable security invoker set search_path=public,pg_temp
+as $
+begin
+ -- RLS already scopes Optical records. Financial reporting is further
+ -- restricted to the owner; managers may manage customers but not see this.
+ if auth.uid() is null or not exists(
+   select 1 from public.user_branch_roles r
+     join public.users_profiles u on u.id=r.user_id
+   where r.user_id=auth.uid() and r.tenant_id=p_tenant_id
+     and r.branch_id=p_branch_id and r.role::text='owner'
+     and u.is_active and u.archived_at is null
+ ) then raise exception 'OPTICAL_REPORT_OWNER_REQUIRED'; end if;
+ return query
+ with money as (
   select l.id,l.method,l.amount,l.received_at,w.seller_id
    from public.optical_payment_ledger l
    join public.optical_work_orders w on w.id=l.work_order_id
@@ -45,7 +52,8 @@ as $$
    from sales s join public.optical_work_order_lines oi on oi.work_order_id=s.id
    where oi.tenant_id=p_tenant_id and oi.branch_id=p_branch_id
    group by oi.sku_snapshot;
-$$;
+end;
+$;
 revoke all on function public.optical_report_v1(uuid,uuid,timestamptz,timestamptz) from PUBLIC,anon;
 grant execute on function public.optical_report_v1(uuid,uuid,timestamptz,timestamptz) to authenticated;
 -- Only owner/manager can see optical reporting through existing RLS.
