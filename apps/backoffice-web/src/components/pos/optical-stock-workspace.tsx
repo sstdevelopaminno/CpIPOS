@@ -17,7 +17,7 @@ type Kind="frame"|"lens"|"accessory";
 type Draft={name:string;sku:string;kind:Kind;price:string;unit:string;note:string;
   brand:string;model:string;color:string;frame_size:string;lens_name:string;
   lens_index:string;lens_sph:string;lens_cyl:string;lens_axis:string};
-type Modal=null|"add"|"bulk"|"edit"|"delete"|"sku"|"media";
+type Modal=null|"add"|"bulk"|"edit"|"delete"|"sku"|"media"|"best";
 const types:Record<Kind,string>={frame:"กรอบแว่น",lens:"เลนส์",accessory:"อุปกรณ์เสริม"};
 const blank=():Draft=>({name:"",sku:"",kind:"frame",price:"",unit:"ชิ้น",note:"",
   brand:"",model:"",color:"",frame_size:"",lens_name:"",lens_index:"",lens_sph:"",lens_cyl:"",lens_axis:""});
@@ -64,8 +64,8 @@ function checkRows(rows:Draft[],currency:SalesCurrencyCode){
   }
   return "";
 }
-export function OpticalStockWorkspace({rows,branch,branchId,currency,canManage}:{
-  rows:OpticalRow[];branch:string;branchId:string;currency:SalesCurrencyCode;canManage:boolean
+export function OpticalStockWorkspace({rows,branch,branchId,branches,currency,canManage}:{
+  rows:OpticalRow[];branch:string;branchId:string;branches:{id:string;name:string}[];currency:SalesCurrencyCode;canManage:boolean
 }){
   const [search,setSearch]=useState(""),[filter,setFilter]=useState("all"),[stock,setStock]=useState("all");
   const [tab,setTab]=useState<Kind>("frame");
@@ -74,14 +74,18 @@ export function OpticalStockWorkspace({rows,branch,branchId,currency,canManage}:
   const [draft,setDraft]=useState<Draft>(blank()),[bulk,setBulk]=useState<Draft[]>([blank(),blank(),blank()]);
   const [busy,setBusy]=useState(false),[error,setError]=useState("");
   const [images,setImages]=useState<Record<string,{thumbnail_url:string}>>({});
+  const [targetBranchId,setTargetBranchId]=useState(branchId);
+  const [bestLoading,setBestLoading]=useState(false),[bestError,setBestError]=useState("");
+  const [bestRows,setBestRows]=useState<{product_id:string;name:string;sku:string|null;units:number;revenue:number}[]>([]);
+  const [sampled,setSampled]=useState(false);
   const displayed=useMemo(()=>rows.filter(r=>{
     if(search&&!([r.name,r.sku,r.category].some(v=>String(v??"").toLowerCase().includes(search.trim().toLowerCase()))))return false;
     if(kind(r)!==tab)return false;
     if(filter!=="all"&&kind(r)!==filter)return false;
-    if(stock==="low"&&r.available!==1)return false;
-    if(stock==="out"&&r.available!==0)return false;
-    if(stock==="unverified"&&r.available!==null)return false;
-    if(stock==="available"&&!(r.available!==null&&r.available>1))return false;
+    if(stock==="low"&&(r.opticalBin?.on_hand??r.available)!==1)return false;
+    if(stock==="out"&&(r.opticalBin?.on_hand??r.available)!==0)return false;
+    if(stock==="unverified"&&r.opticalBin)return false;
+    if(stock==="available"&&!(r.opticalBin&&remaining(r)!==null&&remaining(r)!>0))return false;
     return true;
   }),[rows,search,filter,stock,tab]);
   const totalPages=Math.max(1,Math.ceil(displayed.length/pageSize)),currentPage=Math.min(page,totalPages);
@@ -90,25 +94,26 @@ export function OpticalStockWorkspace({rows,branch,branchId,currency,canManage}:
   useEffect(()=>{
     if(!visibleIds)return;
     const controller=new AbortController();
-    void fetch("/api/pos/product-media?product_ids="+encodeURIComponent(visibleIds),
+    void fetch("/api/pos/product-media?branch_id="+encodeURIComponent(branchId)+"&product_ids="+encodeURIComponent(visibleIds),
       {signal:controller.signal,cache:"no-store"}).then(r=>r.json()).then(body=>{
         if(!controller.signal.aborted&&body.data?.images)setImages(body.data.images);
       }).catch(()=>{});
     return()=>controller.abort();
-  },[visibleIds,modal]);
+  },[visibleIds,modal,branchId]);
   const change=(key:keyof Draft,value:string)=>setDraft(s=>({...s,[key]:value}));
   const changeBulk=(idx:number,key:keyof Draft,value:string)=>
     setBulk(s=>s.map((r,i)=>i===idx?{...r,[key]:value}:r));
   const show=(m:Modal,r?:OpticalRow)=>{
     setError("");setSelected(r??null);setModal(m);
     if(m==="add")setDraft({...blank(),kind:tab});
+    if(m==="add"||m==="bulk")setTargetBranchId(branchId);
     if(m==="edit"&&r)setDraft(forEdit(r));
     if(m==="bulk")setBulk([blank(),blank(),blank()].map(row=>({...row,kind:tab})));
   };
   const close=()=>{if(!busy){setModal(null);setError("");}};
   async function save(){
     if(!modal||busy)return;
-    if(modal==="sku"||modal==="media")return;
+    if(modal==="sku"||modal==="media"||modal==="best")return;
     const items=modal==="bulk"?bulk:[draft];
     if(modal!=="delete"){
       const err=checkRows(items,currency);
@@ -116,19 +121,21 @@ export function OpticalStockWorkspace({rows,branch,branchId,currency,canManage}:
     }
     setBusy(true);setError("");
     const method=modal==="delete"?"DELETE":modal==="edit"?"PATCH":"POST";
-    const body=modal==="delete"?{id:selected?.id}:modal==="edit"?{id:selected?.id,item:draft}:{items};
+    const destination=(modal==="add"||modal==="bulk")?targetBranchId:branchId;
+    const body=modal==="delete"?{id:selected?.id,branch_id:branchId}
+      :modal==="edit"?{id:selected?.id,item:draft,branch_id:branchId}:{items,branch_id:destination};
     try{
       const res=await fetch("/api/pos/optical/catalog",{method,credentials:"same-origin",
         headers:{"Content-Type":"application/json"},body:JSON.stringify(body),cache:"no-store"});
       const json=await res.json().catch(()=>null) as {error?:{message?:string}}|null;
       if(!res.ok)throw new Error(json?.error?.message??"บันทึกไม่สำเร็จ");
-      window.location.reload();
+      window.location.assign("/preview/pos/stock/custom?branch_id="+encodeURIComponent(destination));
     }catch(e){setError(e instanceof Error?e.message:"เกิดข้อผิดพลาด");setBusy(false);}
   }
   const summaryCards:[string,number][]=[["สินค้า",rows.length],
-    ["เหลือ 1",rows.filter(r=>r.available===1).length],
-    ["หมด",rows.filter(r=>r.available===0).length],
-    ["รอตรวจสต๊อก",rows.filter(r=>r.available===null).length]];
+    ["เหลือ 1",rows.filter(r=>r.opticalBin&&remaining(r)===1).length],
+    ["หมด",rows.filter(r=>r.opticalBin&&remaining(r)===0).length],
+    ["รอตรวจสต๊อก",rows.filter(r=>!r.opticalBin).length]];
   const stockTabs:Kind[]=rows.some(row=>kind(row)==="accessory")
     ?["frame","lens","accessory"]:["frame","lens"];
   const pages=Array.from({length:totalPages},(_,i)=>i+1).filter(p=>
