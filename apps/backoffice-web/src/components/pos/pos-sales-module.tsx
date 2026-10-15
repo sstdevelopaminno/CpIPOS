@@ -5476,7 +5476,7 @@ export function PosSalesModule({
       .reduce((sum, row) => sum + row.quantity, 0);
     if (!allowNegativeStock && stockUnits !== null && stockUnits !== undefined && cartQty + quantity > Number(stockUnits)) {
       showOutOfStockNotice(product.name);
-      return;
+      return false;
     }
     const unitPrice = Number((getProductPriceForCurrentMode(product) + Math.max(0, Number(input?.extraPrice ?? 0))).toFixed(2));
     markDineInCashierCartMutation();
@@ -5490,14 +5490,20 @@ export function PosSalesModule({
       }
       return [...current, { cart_line_id: cartLineId, product_id: product.id, name: product.name, quantity, price: unitPrice, notes: notes || null }];
     });
+    return true;
   }
 
-  function addToCart(product: ProductRow) {
+  function addToCart(product: ProductRow): boolean {
+    // Optical is an IT-authorized CUSTOM business workflow, not a restaurant.
+    // A frame, lens, pair or kit goes straight into the cart. Its existing
+    // recipe-backed stock unit still deducts on the real payment transaction;
+    // never open food ingredient/extra-price modifiers for this sales mode.
+    if (opticalRetailActive) return addCartLine(product);
     if (product.has_recipe_deduction) {
       setModifierDraft({ product, quantity: 1, notes: "", extraPrice: 0, linkedIngredientQuantity: 1 });
-      return;
+      return true;
     }
-    addCartLine(product);
+    return addCartLine(product);
   }
 
   function removeFromCart(cartLineId: string) {
