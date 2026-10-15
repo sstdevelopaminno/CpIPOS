@@ -35,7 +35,8 @@ describe("POS SD general sale source contract", () => {
     expect(lookupRoute).not.toContain("export async function POST");
 
     expect(catalog).toContain("GENERAL_SALE_ADD_PRODUCT_EVENT");
-    expect(catalog).toContain("onAddProduct(product);");
+    expect(catalog).toContain("const accepted = onAddProduct(product);");
+    expect(catalog).toContain('accepted === false ? "unavailable" : "added"');
     expect(catalog).toContain('status: "added"');
   });
 
