@@ -3510,7 +3510,7 @@ export function PosSettingsWorkspace({ lang, initialData }: { lang: Language; in
       setItLockedMenu(lang === "th" ? "เมนูตั้งค่า" : "Settings");
       return;
     }
-    if (isSettingLocked(viewKey)) {
+    if (viewKey !== "branding" && isSettingLocked(viewKey)) {
       setPackageLockOpen(true);
       return;
     }
