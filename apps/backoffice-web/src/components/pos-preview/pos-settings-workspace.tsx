@@ -9,6 +9,7 @@ import { PosUsersModule } from "@/components/pos/pos-users-module";
 import { InetNopsSettingsPanel } from "@/components/pos-preview/inet-nops-settings-panel";
 import { PackageLockDialog } from "@/components/pos-preview/package-lock-dialog";
 import { ItMenuLockDialog } from "@/components/pos-preview/it-menu-lock-dialog";
+import {CustomBrandingSettings} from "@/components/pos-preview/custom-branding-settings";
 import { PosSupportPushSettingsModal } from "@/components/pos-preview/pos-support-push-control";
 import { POS_SETTINGS_FEATURES } from "@/lib/pos-feature-map";
 import { isCustomPosMenuVisible, isPosMenuEnabled } from "@/lib/pos-menu-policy";
@@ -26,7 +27,7 @@ import type {
 import type { ActivityAuditItem, ActivityAuditPeriod } from "@/lib/services/activity-audit-service";
 import type { Language } from "@/lib/i18n";
 
-type SettingsView = "menu" | "store" | "branches" | "devices" | "printers" | "activity" | "payments" | "inet_nops" | "taxes" | "notifications" | "users";
+type SettingsView = "menu" | "branding" | "store" | "branches" | "devices" | "printers" | "activity" | "payments" | "inet_nops" | "taxes" | "notifications" | "users";
 type MenuIconName = "store" | "branch" | "payment" | "tax" | "users" | "display" | "terminal" | "activity" | "bell" | "support" | "tables" | "language" | "stock" | "summary" | "receipt" | "members" | "back" | "edit" | "trash" | "plus";
 type MainMenuPlacement = "left" | "top" | "bottom";
 const POS_TAX_SETTINGS_UPDATED_EVENT = "pos:tax-settings-updated";
@@ -3528,6 +3529,11 @@ export function PosSettingsWorkspace({ lang, initialData }: { lang: Language; in
         {view === "menu" && !policyReady ? <p role="status">กำลังตรวจสอบสิทธิ์เมนู...</p> : null}
         {view === "menu" && policyReady ? (
           <div className="grid gap-4 lg:grid-cols-2 xl:grid-cols-3">
+            {isCustom && canManage && menuVisible("settings.store") ? (
+              <MenuButton icon="store" title="ธีมสี / โลโก้ / ชื่อระบบ (CUSTOM)"
+                desc="เลือกสีไฮไลต์และพื้นหลังเมนู พร้อมโลโก้และชื่อร้าน · Powered by CpiPOS"
+                onClick={()=>setView("branding")} menuEnabled locked={false}/>
+            ):null}
             <MenuButton icon="store" title={labels.store} desc={labels.storeDesc} onClick={() => openSettingsView("store")}  menuEnabled={!isCustom || isCustomPosMenuVisible("settings.store", menuPolicy, true)} locked={isSettingLocked("store") || !menuVisible("settings.store")} />
             {!isStoreSpecificSettingHidden("branches") ? <MenuButton icon="branch" title={labels.branches} desc={labels.branchesDesc} onClick={() => openSettingsView("branches")}  menuEnabled={!isCustom || isCustomPosMenuVisible("settings.branches", menuPolicy, true)} locked={isSettingLocked("branches") || !menuVisible("settings.branches")} /> : null}
             <MenuButton icon="terminal" title={labels.devices} desc={labels.devicesDesc} onClick={() => openSettingsView("devices")}  menuEnabled={!isCustom || isCustomPosMenuVisible("settings.devices", menuPolicy, true)} locked={isSettingLocked("devices") || !menuVisible("settings.devices")} />
@@ -3583,6 +3589,7 @@ export function PosSettingsWorkspace({ lang, initialData }: { lang: Language; in
           </div>
         ) : null}
 
+        {view === "branding" && isCustom && canManage ? <CustomBrandingSettings onBack={()=>setView("menu")}/> : null}
         {view === "store" ? (
           <StorePanel labels={labels} store={store} setStore={setStore} onBack={() => setView("menu")} canManage={canManage} reportStatus={reportStatus} />
         ) : null}
