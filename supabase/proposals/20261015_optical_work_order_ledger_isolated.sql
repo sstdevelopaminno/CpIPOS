@@ -32,6 +32,7 @@ create table if not exists public.optical_work_orders (
   eye_exam_id uuid references public.optical_eye_exams(id),
   seller_id uuid not null,
   request_id uuid not null,
+  request_payload_hash text not null,
   status text not null default 'received'
     check(status in ('received','lens_ordered','edging','ready_for_pickup','collected','cancelled')),
   currency_code text not null default 'LAK' check(currency_code='LAK'),
@@ -114,6 +115,21 @@ create table if not exists public.optical_payment_ledger (
 );
 create index if not exists idx_optical_payments_order on public.optical_payment_ledger(tenant_id,branch_id,work_order_id,received_at);
 
+create table if not exists public.optical_work_order_events (
+  id uuid primary key default gen_random_uuid(),
+  tenant_id uuid not null,
+  branch_id uuid not null,
+  work_order_id uuid not null,
+  request_id uuid not null,
+  previous_status text,
+  next_status text not null,
+  actor_id uuid not null,
+  occurred_at timestamptz not null default now(),
+  foreign key(work_order_id,tenant_id,branch_id)
+    references public.optical_work_orders(id,tenant_id,branch_id),
+  unique(tenant_id,branch_id,request_id)
+);
+
 create table if not exists public.optical_stock_movements (
   id uuid primary key default gen_random_uuid(),
   tenant_id uuid not null,
@@ -142,16 +158,17 @@ alter table public.optical_work_order_lines enable row level security;
 alter table public.optical_stock_reservations enable row level security;
 alter table public.optical_payment_ledger enable row level security;
 alter table public.optical_stock_movements enable row level security;
+alter table public.optical_work_order_events enable row level security;
 
 revoke all on public.optical_stock_bins,public.optical_work_orders,
   public.optical_work_order_lines,public.optical_stock_reservations,
-  public.optical_payment_ledger,public.optical_stock_movements from PUBLIC,anon,authenticated;
+  public.optical_payment_ledger,public.optical_stock_movements,public.optical_work_order_events from PUBLIC,anon,authenticated;
 grant select on public.optical_stock_bins,public.optical_work_orders,
   public.optical_work_order_lines,public.optical_stock_reservations,
-  public.optical_payment_ledger,public.optical_stock_movements to authenticated;
+  public.optical_payment_ledger,public.optical_stock_movements,public.optical_work_order_events to authenticated;
 grant all on public.optical_stock_bins,public.optical_work_orders,
   public.optical_work_order_lines,public.optical_stock_reservations,
-  public.optical_payment_ledger,public.optical_stock_movements to service_role;
+  public.optical_payment_ledger,public.optical_stock_movements,public.optical_work_order_events to service_role;
 
 create policy optical_inventory_read on public.optical_stock_bins for select to authenticated
 using (public.can_manage_optical_customer_data(tenant_id,branch_id));
@@ -164,6 +181,8 @@ using (public.can_manage_optical_customer_data(tenant_id,branch_id));
 create policy optical_payment_ledger_read on public.optical_payment_ledger for select to authenticated
 using (public.can_manage_optical_customer_data(tenant_id,branch_id));
 create policy optical_stock_movements_read on public.optical_stock_movements for select to authenticated
+using (public.can_manage_optical_customer_data(tenant_id,branch_id));
+create policy optical_work_order_events_read on public.optical_work_order_events for select to authenticated
 using (public.can_manage_optical_customer_data(tenant_id,branch_id));
 
 -- No authenticated INSERT/UPDATE/DELETE or API route is granted until atomic
