@@ -74,7 +74,10 @@ describe("Optical POS sale identity is separate from internal takeaway order typ
   it("has compact product barcode scan and a non-financial read-only reservation lookup", () => {
     expect(controller).toContain("OPTICAL_SCAN_IDLE_MS = 140");
     expect(controller).toContain('event.inputType === "insertFromPaste"');
-    expect(controller).toContain("opticalFastKeyCount < 5");
+    expect(controller).toContain("OPTICAL_MANUAL_IDLE_MS = 480");
+    expect(controller).toContain("opticalFastKeyCount >= 5");
+    expect(controller).toContain("input.value.trim() !== raw");
+    expect(controller).toContain("void submitScan(raw, status, input, submit)");
     expect(controller).toContain("AbortController()");
     expect(controller).toContain("PRODUCT_LOOKUP_TIMEOUT_MS");
     expect(controller).toContain("ค้นหาบิลมัดจำหรือบิลจอง");

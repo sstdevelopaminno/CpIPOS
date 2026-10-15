@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
+import { formatSalesMoney, normalizeSalesCurrency } from "@/lib/pos-money";
 import { POS_MODE_FEATURES } from "@/lib/pos-feature-map";
 import { isAuthorizedOpticalRetailMode } from "@/lib/pos-sales-modes";
 import {
@@ -70,6 +71,7 @@ const CART_BRIDGE_TIMEOUT_MS = 1800;
 const CART_RENDER_DELAY_MS = 48;
 const MAX_QUEUED_SCANS = 25;
 const OPTICAL_SCAN_IDLE_MS = 140;
+const OPTICAL_MANUAL_IDLE_MS = 480;
 const OPTICAL_SCAN_KEY_INTERVAL_MS = 85;
 const PRODUCT_LOOKUP_TIMEOUT_MS = 5200;
 
@@ -90,12 +92,9 @@ function createRequestId() {
 }
 
 function formatMoney(value: number): string {
-  return new Intl.NumberFormat("th-TH", {
-    style: "currency",
-    currency: "THB",
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2
-  }).format(Number.isFinite(value) ? value : 0);
+  return formatSalesMoney(value, normalizeSalesCurrency(
+    document.documentElement.getAttribute("data-pos-store-currency")
+  ));
 }
 
 function addLookupProductToReactCart(product: GeneralSaleLookupProduct): Promise<GeneralSaleAddProductResult["status"] | "timeout"> {
@@ -330,7 +329,9 @@ export function PosGeneralSaleTableController() {
         snapshotProducts: parseGeneralSaleSalesSnapshot(snapshotText),
         lookupProducts: lookupProductsById.values()
       });
-      const signature = buildGeneralSaleCartTableSignature(rows);
+      // A late server-approved currency response must re-render the same cart
+      // rather than leaving its previous THB formatted amount on screen.
+      const signature = `${document.documentElement.getAttribute("data-pos-store-currency") ?? "THB"}:${buildGeneralSaleCartTableSignature(rows)}`;
       if (signature === lastTableSignature && host.childElementCount > 0) return;
       lastTableSignature = signature;
 
@@ -434,7 +435,8 @@ export function PosGeneralSaleTableController() {
     };
 
     const submitScan = async (rawCode: string, status: HTMLElement, input: HTMLInputElement, submit: HTMLButtonElement) => {
-      const scanCode = normalizeGeneralSaleScanCode(rawCode);
+      const originalSku = rawCode.trim();
+      const scanCode = normalizeGeneralSaleScanCode(originalSku);
       if (!scanCode) {
         status.textContent = lang === "th" ? "กรุณาสแกนหรือกรอกรหัส SKU สินค้า" : "Scan or enter a product SKU.";
         status.dataset.tone = "error";
@@ -448,7 +450,7 @@ export function PosGeneralSaleTableController() {
           status.dataset.tone = "error";
           return;
         }
-        scanQueue.push(scanCode);
+        scanQueue.push(opticalActive ? originalSku : scanCode);
         status.textContent = lang === "th" ? `รับรหัส ${scanCode} เข้าคิวแล้ว · รอ ${scanQueue.length} รายการ` : `Queued ${scanCode} · ${scanQueue.length} waiting`;
         status.dataset.tone = "pending";
         return;
@@ -465,7 +467,7 @@ export function PosGeneralSaleTableController() {
         : null;
       try {
         // One exact SKU lookup per completed scan; never on each keystroke.
-        const response = await fetch(`/api/pos/products/lookup?sku=${encodeURIComponent(scanCode)}`, {
+        const response = await fetch(`/api/pos/products/lookup?sku=${encodeURIComponent(opticalActive ? originalSku : scanCode)}`, {
           cache: "no-store",
           credentials: "include",
           ...(opticalActive ? { signal: controller.signal } : {})
@@ -586,8 +588,8 @@ export function PosGeneralSaleTableController() {
         void submitScan(input.value, status, input, submit);
       });
       if (opticalActive) {
-        // Most USB/Bluetooth scanners send a rapid key burst or paste; Enter is
-        // supported separately. Slow manual typing does not trigger per-key API calls.
+        // Automatic after barcode/paste/typing settles, including scanners
+        // without an Enter suffix. No per-keystroke backend requests.
         input.addEventListener("keydown", (event) => {
           if (event.key.length !== 1) return;
           const now = window.performance.now();
@@ -597,16 +599,22 @@ export function PosGeneralSaleTableController() {
         input.addEventListener("input", (event) => {
           if (opticalAutoScanTimer !== null) window.clearTimeout(opticalAutoScanTimer);
           opticalAutoScanTimer = null;
-          const code = normalizeGeneralSaleScanCode(input.value);
+          const raw = input.value.trim();
+          const code = normalizeGeneralSaleScanCode(raw);
           const paste = event instanceof InputEvent
             && (event.inputType === "insertFromPaste" || (event.data?.length ?? 0) >= 4);
-          if (code.length < (paste ? 4 : 6) || (!paste && opticalFastKeyCount < 5)) return;
+          // Evaluate only a COMPLETED input burst/idle. Some Bluetooth scanners
+          // type slowly or omit Enter; a prefixed SKU such as QA-LAK-FRAME-001
+          // normalizes to short numeric digits ("001") and must still work.
+          // Keep this behavior strictly inside the IT-authorized Optical mode.
+          if (!code || raw.length < 3) return;
+          const delay = paste || opticalFastKeyCount >= 5 ? OPTICAL_SCAN_IDLE_MS : OPTICAL_MANUAL_IDLE_MS;
           opticalAutoScanTimer = window.setTimeout(() => {
             opticalAutoScanTimer = null;
-            if (destroyed || !opticalActive || !generalSaleActive || normalizeGeneralSaleScanCode(input.value) !== code) return;
+            if (destroyed || !opticalActive || !opticalAllowed || !generalSaleActive || input.value.trim() !== raw) return;
             opticalFastKeyCount = 0;
-            void submitScan(code, status, input, submit);
-          }, OPTICAL_SCAN_IDLE_MS);
+            void submitScan(raw, status, input, submit);
+          }, delay);
         });
         input.addEventListener("blur", () => {
           if (opticalAutoScanTimer !== null) window.clearTimeout(opticalAutoScanTimer);
@@ -1010,6 +1018,7 @@ export function PosGeneralSaleTableController() {
     }
 
     const onCartMutated = () => scheduleTableRender(0);
+    const onCurrencyUpdated = () => scheduleTableRender(0);
     const onStorage = (event: StorageEvent) => {
       if (event.key === POS_TAKEAWAY_CART_STORAGE_KEY || event.key === POS_SALES_SNAPSHOT_STORAGE_KEY) scheduleTableRender(0);
     };
@@ -1029,6 +1038,9 @@ export function PosGeneralSaleTableController() {
     window.addEventListener(POS_STARTUP_MODE_REQUEST_EVENT, onStartupMode as EventListener);
     window.addEventListener("cpipos:optical-handler-ready", scheduleReconcile);
     window.addEventListener(CART_MUTATED_EVENT, onCartMutated);
+    window.addEventListener("cpipos:store-currency-updated", onCurrencyUpdated);
+    const currencyObserver = new MutationObserver(() => scheduleTableRender(0));
+    currencyObserver.observe(document.documentElement, { attributes: true, attributeFilter: ["data-pos-store-currency"] });
     window.addEventListener("storage", onStorage);
     document.addEventListener("visibilitychange", onVisibility);
     window.addEventListener("focus", onFocus);
@@ -1046,11 +1058,13 @@ export function PosGeneralSaleTableController() {
       if (tableRenderTimer !== null) window.clearTimeout(tableRenderTimer);
       if (reconcileFrame !== null) window.cancelAnimationFrame(reconcileFrame);
       observer.disconnect();
+      currencyObserver.disconnect();
       document.removeEventListener("click", onModeClick, true);
       document.removeEventListener("click", onTableClick, true);
       window.removeEventListener(POS_STARTUP_MODE_REQUEST_EVENT, onStartupMode as EventListener);
       window.removeEventListener("cpipos:optical-handler-ready", scheduleReconcile);
       window.removeEventListener(CART_MUTATED_EVENT, onCartMutated);
+      window.removeEventListener("cpipos:store-currency-updated", onCurrencyUpdated);
       window.removeEventListener("storage", onStorage);
       document.removeEventListener("visibilitychange", onVisibility);
       window.removeEventListener("focus", onFocus);
