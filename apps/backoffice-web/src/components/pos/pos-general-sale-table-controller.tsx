@@ -435,7 +435,8 @@ export function PosGeneralSaleTableController() {
     };
 
     const submitScan = async (rawCode: string, status: HTMLElement, input: HTMLInputElement, submit: HTMLButtonElement) => {
-      const scanCode = normalizeGeneralSaleScanCode(rawCode);
+      const originalSku = rawCode.trim();
+      const scanCode = normalizeGeneralSaleScanCode(originalSku);
       if (!scanCode) {
         status.textContent = lang === "th" ? "กรุณาสแกนหรือกรอกรหัส SKU สินค้า" : "Scan or enter a product SKU.";
         status.dataset.tone = "error";
@@ -449,7 +450,7 @@ export function PosGeneralSaleTableController() {
           status.dataset.tone = "error";
           return;
         }
-        scanQueue.push(scanCode);
+        scanQueue.push(opticalActive ? originalSku : scanCode);
         status.textContent = lang === "th" ? `รับรหัส ${scanCode} เข้าคิวแล้ว · รอ ${scanQueue.length} รายการ` : `Queued ${scanCode} · ${scanQueue.length} waiting`;
         status.dataset.tone = "pending";
         return;
@@ -466,7 +467,7 @@ export function PosGeneralSaleTableController() {
         : null;
       try {
         // One exact SKU lookup per completed scan; never on each keystroke.
-        const response = await fetch(`/api/pos/products/lookup?sku=${encodeURIComponent(scanCode)}`, {
+        const response = await fetch(`/api/pos/products/lookup?sku=${encodeURIComponent(opticalActive ? originalSku : scanCode)}`, {
           cache: "no-store",
           credentials: "include",
           ...(opticalActive ? { signal: controller.signal } : {})
