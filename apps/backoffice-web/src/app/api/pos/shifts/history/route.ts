@@ -3,7 +3,7 @@ import { fail, ok } from "@/lib/http";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
 import { calculateShiftSalesSummary } from "@/lib/pos-shift-sales-summary";
 import { collectPagedShiftRows, collectShiftRowsForIds } from "@/lib/pos-shift-query-pagination";
-import { resolveOpticalDailyShift, sumVerifiedOpticalDeposits, type OpticalLedgerPayment, type OpticalWorkOrderTotal } from "@/lib/pos-optical-daily-shift";
+import { startOfOpticalLocalDateUtc, resolveOpticalDailyShift, sumVerifiedOpticalDeposits, type OpticalLedgerPayment, type OpticalWorkOrderTotal } from "@/lib/pos-optical-daily-shift";
 import { getOpticalShiftUiPolicy, type OpticalShiftUiPolicy } from "@/lib/server/optical-shift-ui-policy";
 
 type ShiftRow = {
@@ -115,13 +115,23 @@ export async function GET(request: Request) {
       requirePermission(scope, "reports:view");
     }
 
+    const opticalPolicy=await getOpticalShiftUiPolicy(scope.session.tenant_id);
     const { searchParams } = new URL(request.url);
     const daysRaw = Number(searchParams.get("days") ?? 30);
     const days = Number.isFinite(daysRaw) ? Math.max(1, Math.min(90, Math.trunc(daysRaw))) : 30;
     const startDateRaw = String(searchParams.get("start_date") ?? "").trim();
     const endDateRaw = String(searchParams.get("end_date") ?? "").trim();
-    const startDate = startDateRaw ? getBangkokDateBoundaryUtc(startDateRaw, "start") : null;
-    const endDate = endDateRaw ? getBangkokDateBoundaryUtc(endDateRaw, "end") : null;
+    const getDateBoundary=(value:string,edge:"start"|"end")=>{
+      if(!opticalPolicy.enabled||!opticalPolicy.timeZone) return getBangkokDateBoundaryUtc(value,edge);
+      const parsed=/^(\\d{4})-(\\d{2})-(\\d{2})$/.exec(value);
+      if(!parsed)return null;
+      const localDay=edge==="start"?value:new Date(Date.UTC(Number(parsed[1]),Number(parsed[2])-1,Number(parsed[3])+1))
+        .toISOString().slice(0,10);
+      const bound=startOfOpticalLocalDateUtc(localDay,opticalPolicy.timeZone);
+      return bound&&edge==="end"?new Date(bound.getTime()-1):bound;
+    };
+    const startDate = startDateRaw ? getDateBoundary(startDateRaw, "start") : null;
+    const endDate = endDateRaw ? getDateBoundary(endDateRaw, "end") : null;
     const view = String(searchParams.get("view") ?? "auto").trim().toLowerCase();
     const selfOnly = canViewBranchWide ? view === "self" : true;
     const branchFilterRaw = String(searchParams.get("branch_id") ?? "all").trim();
@@ -130,7 +140,6 @@ export async function GET(request: Request) {
 
     const startedAfter = (startDate ?? new Date(Date.now() - days * 24 * 60 * 60 * 1000)).toISOString();
     const supabase = getSupabaseServiceClient();
-    const opticalPolicy=await getOpticalShiftUiPolicy(scope.session.tenant_id);
 
     const branchOptionsResult = canViewBranchWide
       ? await supabase
@@ -411,9 +420,9 @@ export async function GET(request: Request) {
         acc.cash_total += shift.metrics.cash_total;
         acc.transfer_total += shift.metrics.transfer_total;
         if(opticalPolicy.financeEnabled) {
-          acc.deposit_total! += shift.metrics.deposit_total ?? 0;
-          acc.deposit_cash! += shift.metrics.deposit_cash ?? 0;
-          acc.deposit_transfer! += shift.metrics.deposit_transfer ?? 0;
+          acc.deposit_total = (acc.deposit_total ?? 0) + (shift.metrics.deposit_total ?? 0);
+          acc.deposit_cash = (acc.deposit_cash ?? 0) + (shift.metrics.deposit_cash ?? 0);
+          acc.deposit_transfer = (acc.deposit_transfer ?? 0) + (shift.metrics.deposit_transfer ?? 0);
         }
         return acc;
       },
