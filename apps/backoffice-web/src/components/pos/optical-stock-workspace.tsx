@@ -13,10 +13,13 @@ export type OpticalRow={
     lens_sph:number|null;lens_cyl:number|null;on_hand:number;reserved:number;currency_code:string}|null
 };
 type Kind="frame"|"lens"|"accessory";
-type Draft={name:string;sku:string;kind:Kind;price:string;unit:string;note:string};
+type Draft={name:string;sku:string;kind:Kind;price:string;unit:string;note:string;
+  brand:string;model:string;color:string;frame_size:string;lens_name:string;
+  lens_index:string;lens_sph:string;lens_cyl:string;lens_axis:string};
 type Modal=null|"add"|"bulk"|"edit"|"delete"|"sku";
 const types:Record<Kind,string>={frame:"กรอบแว่น",lens:"เลนส์",accessory:"อุปกรณ์เสริม"};
-const blank=():Draft=>({name:"",sku:"",kind:"frame",price:"",unit:"ชิ้น",note:""});
+const blank=():Draft=>({name:"",sku:"",kind:"frame",price:"",unit:"ชิ้น",note:"",
+  brand:"",model:"",color:"",frame_size:"",lens_name:"",lens_index:"",lens_sph:"",lens_cyl:"",lens_axis:""});
 const field="min-h-10 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100";
 const btn="min-h-10 rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-40";
 const kind=(row:OpticalRow):Kind=>{
@@ -27,7 +30,16 @@ const kind=(row:OpticalRow):Kind=>{
   return "frame";
 };
 const forEdit=(r:OpticalRow):Draft=>({name:r.name,sku:r.sku??"",kind:kind(r),
-  price:String(r.price),unit:r.sell_unit??"ชิ้น",note:String(r.metadata?.optical_note??"")});
+  price:String(r.price),unit:r.sell_unit??"ชิ้น",note:String(r.metadata?.optical_note??""),
+  brand:String(r.opticalBin?.brand??r.metadata?.optical_brand??""),
+  model:String(r.opticalBin?.model??r.metadata?.optical_model??""),
+  color:String(r.opticalBin?.color??r.metadata?.optical_color??""),
+  frame_size:String(r.opticalBin?.frame_size??r.metadata?.optical_frame_size??""),
+  lens_name:String(r.metadata?.optical_lens_name??r.name),
+  lens_index:String(r.opticalBin?.lens_index??r.metadata?.optical_lens_index??""),
+  lens_sph:String(r.opticalBin?.lens_sph??r.metadata?.optical_lens_sph??""),
+  lens_cyl:String(r.opticalBin?.lens_cyl??r.metadata?.optical_lens_cyl??""),
+  lens_axis:String(r.metadata?.optical_lens_axis??"")});
 function detail(r:OpticalRow,key:"brand"|"model"|"color"|"frame_size"|"lens_index"|"lens_sph"|"lens_cyl"|"lens_type"|"lens_name") {
   const raw=key==="lens_name"?r.metadata?.optical_lens_name??r.name:
     r.opticalBin?.[key]??r.metadata?.["optical_"+key];
@@ -77,9 +89,9 @@ export function OpticalStockWorkspace({rows,branch,currency,canManage}:{
     setBulk(s=>s.map((r,i)=>i===idx?{...r,[key]:value}:r));
   const show=(m:Modal,r?:OpticalRow)=>{
     setError("");setSelected(r??null);setModal(m);
-    if(m==="add")setDraft(blank());
+    if(m==="add")setDraft({...blank(),kind:tab});
     if(m==="edit"&&r)setDraft(forEdit(r));
-    if(m==="bulk")setBulk([blank(),blank(),blank()]);
+    if(m==="bulk")setBulk([blank(),blank(),blank()].map(row=>({...row,kind:tab})));
   };
   const close=()=>{if(!busy){setModal(null);setError("");}};
   async function save(){
