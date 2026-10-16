@@ -25,11 +25,14 @@ describe("Optical customer history does not bypass IT or legacy financial contro
     expect(migration).toContain("optical_exam_idempotency");
     expect(migration).toContain("enable row level security");
   });
-  it("aligns full checkout/cancel and keeps deposit disabled",()=>{
+  it("keeps checkout unchanged while guarding real deposit settlement",()=>{
     expect(payment).toContain('data-testid="pos-optical-primary-actions"');
-    expect(payment).toContain("min-h-14 w-full items-center justify-center");
+    expect(payment).toContain("min-h-12 w-full items-center justify-center");
     expect(payment).toContain("ชำระเงินมัดจำ");
-    expect(payment).toContain('aria-disabled="true"');
+    expect(payment).toContain('onOpticalDeposit');
+    const dialog=source("src/components/pos/pos-optical-deposit-dialog.tsx");
+    expect(dialog).toContain('disabled={busy||!onSubmit}');
+    expect(dialog).not.toContain('onCheckout');
     expect(payment).toContain("เพิ่มประวัติลูกค้า");
     expect(ui).toContain("/api/pos/optical/customers");
     expect(api).not.toContain("complete_pos_payment_tx");
