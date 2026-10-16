@@ -187,7 +187,7 @@ export function ProductSalesWorkspace({ lang, canViewAllBranches, initialBranchI
 
   const dateTime = useMemo(
     () =>
-      new Intl.DateTimeFormat(lang === "lo" ? "lo-LA" : th ? ui("th-TH") : "en-US", {
+      new Intl.DateTimeFormat(lang === "lo" ? "lo-LA" : lang === "lo" ? "lo-LA" : th ? "th-TH" : "en-US", {
         timeZone: "Asia/Bangkok",
         dateStyle: "short",
         timeStyle: "short"
@@ -254,12 +254,12 @@ export function ProductSalesWorkspace({ lang, canViewAllBranches, initialBranchI
         {opticalMode ? (
           <section className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-3" aria-label="ภาพรวมรายการขายสินค้า Optical" data-testid="optical-product-sales-kpis">
             <Summary label={th ? ui("รายการที่พบ") : "Sale lines"} value={filteredSummary.line_count.toLocaleString()} />
-            <Summary label={th ? ui("จำนวนขายสำเร็จ (ชิ้น)") : "Units sold"} value={filteredSummary.units.toLocaleString(th ? ui("th-TH") : "en-US", { maximumFractionDigits: 3 })} />
+            <Summary label={th ? ui("จำนวนขายสำเร็จ (ชิ้น)") : "Units sold"} value={filteredSummary.units.toLocaleString(lang === "lo" ? "lo-LA" : th ? "th-TH" : "en-US", { maximumFractionDigits: 3 })} />
             <article className="rounded-xl border border-emerald-200 bg-emerald-50 p-3">
               <p className="text-xs font-semibold text-emerald-900">{th ? ui("ยอดขายแยกตามสกุลเงิน") : "Sales by currency"}</p>
               {opticalCurrencyTotals.length ? opticalCurrencyTotals.map(([code, total]) => (
                 <strong key={code} className="mt-1 block text-lg font-black text-emerald-900">
-                  {code}: {formatSalesMoney(total, code, th ? ui("th-TH") : "en-US")}
+                  {code}: {formatSalesMoney(total, code, lang === "lo" ? "lo-LA" : th ? "th-TH" : "en-US")}
                 </strong>
               )) : <strong className="mt-1 block text-lg font-black text-emerald-900">—</strong>}
             </article>
@@ -306,11 +306,11 @@ export function ProductSalesWorkspace({ lang, canViewAllBranches, initialBranchI
                           {row.sku ?? "-"} · {row.category ?? "-"}
                         </p>
                       </td>
-                      <td className="px-3 py-3 text-right">{opticalMode ? formatSalesMoney(row.unit_price, row.currency_code ?? "THB", th ? ui("th-TH") : "en-US") : `฿${formatMoney(row.unit_price, lang)}`}</td>
+                      <td className="px-3 py-3 text-right">{opticalMode ? formatSalesMoney(row.unit_price, row.currency_code ?? "THB", lang === "lo" ? "lo-LA" : th ? "th-TH" : "en-US") : `฿${formatMoney(row.unit_price, lang)}`}</td>
                       <td className="px-3 py-3 text-right font-bold">
-                        {row.quantity.toLocaleString(th ? ui("th-TH") : "en-US", { maximumFractionDigits: 3 })}
+                        {row.quantity.toLocaleString(lang === "lo" ? "lo-LA" : th ? "th-TH" : "en-US", { maximumFractionDigits: 3 })}
                       </td>
-                      <td className="px-3 py-3 text-right font-bold">{opticalMode ? formatSalesMoney(row.line_total, row.currency_code ?? "THB", th ? ui("th-TH") : "en-US") : `฿${formatMoney(row.line_total, lang)}`}</td>
+                      <td className="px-3 py-3 text-right font-bold">{opticalMode ? formatSalesMoney(row.line_total, row.currency_code ?? "THB", lang === "lo" ? "lo-LA" : th ? "th-TH" : "en-US") : `฿${formatMoney(row.line_total, lang)}`}</td>
                       <td className="px-3 py-3">{row.branch_name}</td>
                       <td className="px-3 py-3">
                         <Badge tone={row.order_status === "cancelled" ? "red" : "green"}>
@@ -562,13 +562,13 @@ export function ProductSalesWorkspace({ lang, canViewAllBranches, initialBranchI
               <Summary label={th ? ui("จำนวนรายการ") : "Lines"} value={String(filteredSummary.line_count)} />
               <Summary
                 label={th ? ui("จำนวนขายรวม") : "Units sold"}
-                value={Number(filteredSummary.units).toLocaleString(th ? ui("th-TH") : "en-US", { maximumFractionDigits: 3 })}
+                value={Number(filteredSummary.units).toLocaleString(lang === "lo" ? "lo-LA" : th ? "th-TH" : "en-US", { maximumFractionDigits: 3 })}
               />
               {opticalMode ? (
                 <article className="rounded-xl border border-emerald-200 bg-emerald-50 p-3">
                   <p className="text-xs font-semibold text-emerald-900">{th ? ui("ยอดขายตามสกุลเงิน") : "Revenue by currency"}</p>
                   {opticalCurrencyTotals.length ? opticalCurrencyTotals.map(([code, amount]) => (
-                    <strong key={code} className="mt-1 block text-lg font-black text-emerald-900">{code}: {formatSalesMoney(amount, code, th ? ui("th-TH") : "en-US")}</strong>
+                    <strong key={code} className="mt-1 block text-lg font-black text-emerald-900">{code}: {formatSalesMoney(amount, code, lang === "lo" ? "lo-LA" : th ? "th-TH" : "en-US")}</strong>
                   )) : <strong className="mt-1 block text-lg font-black">—</strong>}
                 </article>
               ) : <Summary label={th ? ui("ยอดขายรวม") : "Revenue"} value={`฿${formatMoney(filteredSummary.revenue, lang)}`} />}
