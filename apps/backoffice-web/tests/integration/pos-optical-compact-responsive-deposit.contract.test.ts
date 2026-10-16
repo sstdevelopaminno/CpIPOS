@@ -34,6 +34,21 @@ describe("CUSTOM Optical responsive POS and safe deposit UI",()=>{
   expect(source).toContain("sticky top-0 z-10");
   expect(source).toContain("remaining(row)");
  });
+ it("keeps the primary checkout reachable on short tablet landscapes without changing other modes",()=>{
+  const controller=read("components/pos/pos-general-sale-table-controller.tsx");
+  const viewport=read("lib/viewport-hooks.ts");
+  const panel=read("components/pos-ui/pos-payment-panel.tsx");
+  expect(controller).toContain('@media (max-height: 650px) and (orientation: landscape)');
+  expect(controller).toContain('[data-testid="pos-optical-primary-actions"]');
+  expect(controller).toContain("order: 1; gap: 5px");
+  expect(controller).toContain('[data-testid="pos-optical-bill-actions"]');
+  expect(controller).toContain("order: 2; gap: 5px");
+  expect(controller).toContain('[data-testid="pos-optical-pending-actions"]');
+  expect(controller).toContain("order: 3; gap: 5px");
+  expect(controller).toContain('html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"]');
+  expect(viewport).toContain("size.width < 768");
+  expect(panel).toContain('data-testid="pos-optical-checkout"');
+ });
  it("separates deposit entry and payment method, never using onCheckout for a deposit",()=>{
   const panel=read("components/pos-ui/pos-payment-panel.tsx");
   const dialog=read("components/pos/pos-optical-deposit-dialog.tsx");
