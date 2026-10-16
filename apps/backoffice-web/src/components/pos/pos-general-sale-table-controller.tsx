@@ -518,7 +518,7 @@ export function PosGeneralSaleTableController({ lang = "th" }: { lang?: Lang }) 
       const existing = document.querySelector<HTMLElement>(`[${GENERAL_SALE_SCANNER_ATTRIBUTE}="1"]`);
       if (existing) {
         scannerPanel = existing;
-        scannerInput = existing.querySelector<HTMLInputElement>('input[aria-label="รหัส SKU สินค้า"], input[aria-label="Product SKU"]');
+        scannerInput = existing.querySelector<HTMLInputElement>('input[data-pos-general-sale-sku="1"]') ?? existing.querySelector<HTMLInputElement>("form input");
         scannerSubmit = existing.querySelector<HTMLButtonElement>('button[type="submit"]');
         scannerStatus = existing.querySelector<HTMLElement>('[aria-live="polite"]');
         return;
@@ -562,10 +562,11 @@ export function PosGeneralSaleTableController({ lang = "th" }: { lang?: Lang }) 
       input.className = "posui-payment-modal__input min-w-0 flex-1";
       input.placeholder = opticalActive ? copy.opticalPlaceholder : copy.groceryPlaceholder;
       input.setAttribute("aria-label", copy.skuAria);
+      input.setAttribute("data-pos-general-sale-sku", "1");
       const submit = document.createElement("button");
       submit.type = "submit";
       submit.className = "posui-btn posui-btn--primary shrink-0";
-      submit.textContent = lang === "th" ? "เพิ่มสินค้า" : "Add item";
+      submit.textContent = copy.add;
       const status = document.createElement("small");
       status.className = "block min-h-4 pt-1 text-xs font-bold text-slate-600";
       status.setAttribute("aria-live", "polite");
