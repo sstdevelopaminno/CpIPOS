@@ -91,8 +91,8 @@ describe("POS SD general sale source contract", () => {
     const previewPage = readRepoFile("src", "app", "preview", "pos", "page.tsx");
     const salesPage = readRepoFile("src", "app", "(backoffice)", "pos", "sales", "page.tsx");
 
-    expect(previewPage).toContain("<PosGeneralSaleTableController />");
-    expect(salesPage).toContain("<PosGeneralSaleTableController />");
+    expect(previewPage).toContain("<PosGeneralSaleTableController lang={lang} />");
+    expect(salesPage).toContain("<PosGeneralSaleTableController lang={lang} />");
     expect(previewPage).not.toContain("<PosGeneralSaleModeController />");
     expect(salesPage).not.toContain("<PosGeneralSaleModeController />");
   });
