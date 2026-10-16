@@ -2159,13 +2159,7 @@ export function PosSalesModule({
     maximumFractionDigits: posCurrencyCode === "LAK" ? 0 : 2
   }).format(value);
   const formatMoney = (value: number) => currencySymbol + formatMoneyPlain(value);
-  // Text is translated independently of business currency; QR provider and transfer paths are untouched.
-  const text = {
-    ...uiText[lang],
-    discountAmountLabel: lang==="lo" ? `ສ່ວນຫຼຸດ (${posCurrencyCode})`
-      : lang==="en" ? `Discount (${posCurrencyCode})`
-      : `ส่วนลด (${posCurrencyCode})`
-  };
+  const text = uiText[lang];
   const localizeApiMessage = useCallback((message: string) => localizeApiErrorMessage({ message, lang:lang==="lo"?"th":lang }), [lang]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
