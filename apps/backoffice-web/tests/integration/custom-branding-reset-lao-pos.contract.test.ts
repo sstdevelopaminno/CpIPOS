@@ -22,6 +22,9 @@ describe("CUSTOM branding reset and Lao POS interface contracts",()=>{
    expect(menu).toContain("moreLao[item.href]");
    expect(staff).toContain('lang === "lo" ? "ຊຳລະຄ່າແພັກເກດ"');
    expect(settings).toContain("settingsLaoLabels");
+   expect(settings).toContain('menuVisible("settings.branding")');
+   expect(settings).toContain('openSettingsView("branding")');
+   expect(settings).toContain('isCustom && canManage && menuVisible("settings.branding")');
    expect(settings).toContain('lang === "lo" ? { ...TEXT.en, ...settingsLaoLabels }');
  });
  it("passes server-side selected language to package center and localizes reports",()=>{

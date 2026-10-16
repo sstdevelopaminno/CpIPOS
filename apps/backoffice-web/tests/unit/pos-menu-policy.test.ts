@@ -19,6 +19,13 @@ describe("IT-controlled POS tenant menu policy", () => {
     expect(isPosMenuEnabled("more.receipts", { "main.more": true, "more.receipts": false })).toBe(false);
     expect(isPosMenuEnabled("main.more", { "main.more": true, "more.receipts": false })).toBe(true);
   });
+  it("controls only the CUSTOM branding child via the independent IT switch", () => {
+    expect(POS_MENU_CATALOG.some(x => x.key === "settings.branding" && x.parent === "main.settings")).toBe(true);
+    expect(isCustomPosMenuVisible("settings.branding", {"main.settings":true,"settings.store":true},true)).toBe(false);
+    expect(isCustomPosMenuVisible("settings.branding", {"main.settings":true,"settings.branding":true},true)).toBe(true);
+    expect(isCustomPosMenuVisible("settings.branding", {"main.settings":true,"settings.branding":false,"settings.store":true},true)).toBe(false);
+    expect(isCustomPosMenuVisible("settings.store", {"main.settings":true,"settings.store":true,"settings.branding":false},true)).toBe(true);
+  });
   it("hides CUSTOM menus unless IT explicitly enabled the menu and its parent", () => {
     expect(isCustomPosMenuVisible("main.more", {}, true)).toBe(false);
     expect(isCustomPosMenuVisible("more.stock", { "more.stock": true }, true)).toBe(false);

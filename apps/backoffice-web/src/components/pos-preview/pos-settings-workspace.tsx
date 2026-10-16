@@ -3530,10 +3530,10 @@ export function PosSettingsWorkspace({ lang, initialData }: { lang: Language; in
         {view === "menu" && !policyReady ? <p role="status">กำลังตรวจสอบสิทธิ์เมนู...</p> : null}
         {view === "menu" && policyReady ? (
           <div className="grid gap-4 lg:grid-cols-2 xl:grid-cols-3">
-            {isCustom && canManage && menuVisible("settings.store") ? (
-              <MenuButton icon="store" title={lang === "lo" ? "ສີທີມ / ໂລໂກ້ / ຊື່ລະບົບ (CUSTOM)" : "ธีมสี / โลโก้ / ชื่อระบบ (CUSTOM)"}
+            {isCustom && canManage && menuVisible("settings.branding") ? (
+              <MenuButton icon="store" title={lang === "lo" ? "ສີທີມ / ໂລໂກ້ / ຊື່ລະບົບ (CUSTOM)" : lang === "en" ? "Theme / Logo / System Name (CUSTOM)" : "ธีมสี / โลโก้ / ชื่อระบบ (CUSTOM)"}
                 desc={lang === "lo" ? "ຕັ້ງສີໄຮໄລທ໌ ພື້ນຫຼັງ ໂລໂກ້ ແລະຊື່ລະບົບ · Powered by CpiPOS" : "เลือกสีไฮไลต์และพื้นหลังเมนู พร้อมโลโก้และชื่อร้าน · Powered by CpiPOS"}
-                onClick={()=>setView("branding")} menuEnabled locked={false}/>
+                onClick={() => openSettingsView("branding")} menuEnabled locked={false}/>
             ):null}
             <MenuButton icon="store" title={labels.store} desc={labels.storeDesc} onClick={() => openSettingsView("store")}  menuEnabled={!isCustom || isCustomPosMenuVisible("settings.store", menuPolicy, true)} locked={isSettingLocked("store") || !menuVisible("settings.store")} />
             {!isStoreSpecificSettingHidden("branches") ? <MenuButton icon="branch" title={labels.branches} desc={labels.branchesDesc} onClick={() => openSettingsView("branches")}  menuEnabled={!isCustom || isCustomPosMenuVisible("settings.branches", menuPolicy, true)} locked={isSettingLocked("branches") || !menuVisible("settings.branches")} /> : null}
@@ -3590,7 +3590,7 @@ export function PosSettingsWorkspace({ lang, initialData }: { lang: Language; in
           </div>
         ) : null}
 
-        {view === "branding" && isCustom && canManage ? <CustomBrandingSettings lang={lang} onBack={()=>setView("menu")}/> : null}
+        {view === "branding" && isCustom && canManage && menuVisible("settings.branding") ? <CustomBrandingSettings lang={lang} onBack={()=>setView("menu")}/> : null}
         {view === "store" ? (
           <StorePanel labels={labels} store={store} setStore={setStore} onBack={() => setView("menu")} canManage={canManage} reportStatus={reportStatus} />
         ) : null}
