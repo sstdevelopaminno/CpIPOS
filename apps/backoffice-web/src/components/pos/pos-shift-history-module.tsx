@@ -687,7 +687,7 @@ function shiftSlotLabel(slot:Parameters<typeof slotLabel>[0], lang:Lang):string{
    if(slot==="night")return "ກະກາງຄືນ";
    if(slot==="daily")return "ກະລາຍວັນ";
  }
- return slotLabel(slot,lang);
+ return slotLabel(slot,lang==="lo"?"th":lang);
 }
 function shiftSlotWindowLabel(slot:Parameters<typeof slotWindowLabel>[0],lang:Lang):string{
  return slotWindowLabel(slot,lang==="lo"?"th":lang);
