@@ -33,7 +33,7 @@ type Props = {
   onOpenHeldBills?: () => void;
   opticalRetail?: boolean;
   opticalCurrencyCode?: "THB" | "LAK" | "USD";
-  opticalLanguage?: "th" | "en";
+  opticalLanguage?: "th" | "en" | "lo";
   onOpticalCustomer?: () => void;
   onMember?: () => void;
   onTableQrOrder?: () => void;
@@ -341,40 +341,57 @@ export function PosPaymentPanel({
   }
 
   if (opticalRetail) {
-    const th = opticalLanguage === "th";
+    const localized = (thai: string, english: string) => opticalLanguage === "lo" ? ({
+      "แผงชำระเงินร้านแว่นตา": "ໜ້າຊຳລະເງິນຮ້ານແວ່ນຕາ",
+      "ยอดสินค้า": "ຍອດສິນຄ້າ",
+      "ยอดชำระ": "ຍອດຕ້ອງຊຳລະ",
+      "สกุลเงินหน้าขาย": "ສະກຸນເງິນໜ້າຂາຍ",
+      "พักบิล": "ພັກບິນ",
+      "บิลพัก": "ບິນທີ່ພັກ",
+      "สมาชิก": "ສະມາຊິກ",
+      "ส่วนลด": "ສ່ວນຫຼຸດ",
+      "เปิดลิ้นชัก": "ເປີດລິ້ນຊັກ",
+      "รอระบบบัญชีมัดจำและสต๊อก": "ລໍຖ້າລະບົບເງິນມັດຈຳ ແລະສະຕັອກ",
+      "ชำระเงินมัดจำ": "ຊຳລະເງິນມັດຈຳ",
+      "ยังไม่เปิดใช้งาน": "ຍັງບໍ່ເປີດໃຊ້ງານ",
+      "เพิ่มประวัติลูกค้า": "ເພີ່ມປະຫວັດລູກຄ້າ",
+      "บันทึกค่าสายตา": "ບັນທຶກຄ່າສາຍຕາ",
+      "ชำระเงิน": "ຊຳລະເງິນ",
+      "ยกเลิกบิล": "ຍົກເລີກບິນ",
+    } as Record<string,string>)[thai] ?? thai : opticalLanguage === "th" ? thai : english;
     const buttonClass = "flex min-h-[78px] w-full min-w-0 flex-col items-center justify-center gap-1.5 rounded-xl border border-slate-200 bg-white px-2.5 py-3 text-center text-sm font-bold leading-tight text-slate-700 shadow-sm transition-colors enabled:hover:border-emerald-400 enabled:hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-60";
     return (
       <section
         className="posui-payment-panel"
         data-testid="pos-optical-payment-panel"
-        aria-label={th ? "แผงชำระเงินร้านแว่นตา" : "Optical checkout controls"}
+        aria-label={localized("แผงชำระเงินร้านแว่นตา", "Optical checkout controls")}
         style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr)", rowGap: 14, padding: 12 }}
       >
         <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
           <p className="flex items-center justify-between border-b border-slate-100 px-4 py-3 text-sm font-bold text-slate-600">
-            <span>{th ? "ยอดสินค้า" : "Items total"}</span>
+            <span>{localized("ยอดสินค้า", "Items total")}</span>
             <strong className="text-lg font-extrabold tabular-nums text-slate-800">{formatMoney(Math.max(0, subtotal), opticalCurrencyCode)}</strong>
           </p>
           <p className="flex items-center justify-between px-4 py-3 text-sm font-bold text-slate-700">
-            <span>{th ? "ยอดชำระ" : "Amount due"}</span>
+            <span>{localized("ยอดชำระ", "Amount due")}</span>
             <strong className="text-2xl font-black tabular-nums text-orange-600">{formatMoney(total, opticalCurrencyCode)}</strong>
           </p>
         </div>
         <p data-testid="pos-optical-sales-currency" className="text-center text-xs font-bold text-slate-500">
-          {th ? "สกุลเงินหน้าขาย" : "Sales currency"}: {opticalCurrencyCode}
+          {localized("สกุลเงินหน้าขาย", "Sales currency")}: {opticalCurrencyCode}
         </p>
         <div className="grid grid-cols-2 gap-3" data-testid="pos-optical-bill-actions">
           <button type="button" className={buttonClass} onClick={onHoldBill} disabled={!onHoldBill || !showHoldBill || actionsDisabled}>
-            <span aria-hidden="true" className="text-lg">▣</span>{th ? "พักบิล" : "Hold bill"}
+            <span aria-hidden="true" className="text-lg">▣</span>{localized("พักบิล", "Hold bill")}
           </button>
           <button type="button" className={buttonClass} onClick={onOpenHeldBills} disabled={!onOpenHeldBills || actionsDisabled}>
-            <span aria-hidden="true" className="text-lg">☷</span>{th ? "บิลพัก" : "Held bills"}
+            <span aria-hidden="true" className="text-lg">☷</span>{localized("บิลพัก", "Held bills")}
           </button>
           <button type="button" className={buttonClass} onClick={onMember} disabled={!onMember || actionsDisabled}>
-            <span aria-hidden="true" className="text-lg">♙</span>{th ? "สมาชิก" : "Member"}
+            <span aria-hidden="true" className="text-lg">♙</span>{localized("สมาชิก", "Member")}
           </button>
           <button type="button" className={buttonClass} onClick={onPromotion} disabled={!onPromotion || actionsDisabled}>
-            <span aria-hidden="true" className="text-lg">%</span>{th ? "ส่วนลด" : "Discount"}
+            <span aria-hidden="true" className="text-lg">%</span>{localized("ส่วนลด", "Discount")}
           </button>
           <button
             type="button"
@@ -383,7 +400,7 @@ export function PosPaymentPanel({
             disabled={!onOpenCashDrawer || openCashDrawerDisabled || cashDrawerBusy || submitting}
           >
             <span aria-hidden="true" className="text-lg">▤</span>
-            {cashDrawerBusy ? openingCashDrawerLabel : th ? "เปิดลิ้นชัก" : "Open drawer"}
+            {cashDrawerBusy ? openingCashDrawerLabel : localized("เปิดลิ้นชัก", "Open drawer")}
           </button>
         </div>
         <div className="grid min-w-0 grid-cols-2 gap-3 px-1" data-testid="pos-optical-pending-actions">
@@ -391,12 +408,12 @@ export function PosPaymentPanel({
             type="button"
             disabled
             aria-disabled="true"
-            title={th ? "รอระบบบัญชีมัดจำและสต๊อก" : "Pending deposit ledger and stock controls"}
+            title={localized("รอระบบบัญชีมัดจำและสต๊อก", "Pending deposit ledger and stock controls")}
             className={`${buttonClass} border-emerald-200 bg-emerald-50 text-emerald-900`}
           >
             <span aria-hidden="true" className="text-lg leading-none">▣</span>
-            <span className="break-words leading-tight">{th ? "ชำระเงินมัดจำ" : "Deposit"}</span>
-            <span className="text-[11px] font-semibold">{th ? "ยังไม่เปิดใช้งาน" : "Coming soon"}</span>
+            <span className="break-words leading-tight">{localized("ชำระเงินมัดจำ", "Deposit")}</span>
+            <span className="text-[11px] font-semibold">{localized("ยังไม่เปิดใช้งาน", "Coming soon")}</span>
           </button>
           <button
             type="button"
@@ -405,8 +422,8 @@ export function PosPaymentPanel({
             className={`${buttonClass} border-emerald-300 bg-emerald-100 text-emerald-900 enabled:hover:bg-emerald-200`}
           >
             <span aria-hidden="true" className="text-lg leading-none">♙</span>
-            <span className="break-words leading-tight">{th ? "เพิ่มประวัติลูกค้า" : "Customer history"}</span>
-            <span className="text-[11px] font-semibold">{th ? "บันทึกค่าสายตา" : "Examination records"}</span>
+            <span className="break-words leading-tight">{localized("เพิ่มประวัติลูกค้า", "Customer history")}</span>
+            <span className="text-[11px] font-semibold">{localized("บันทึกค่าสายตา", "Examination records")}</span>
           </button>
         </div>
         <div className="grid w-full grid-cols-1 gap-3 pt-1" data-testid="pos-optical-primary-actions">
@@ -417,7 +434,7 @@ export function PosPaymentPanel({
             disabled={checkoutDisabled || submitting}
             data-testid="pos-optical-checkout"
           >
-            {submitting ? submittingLabel : th ? "ชำระเงิน" : "Checkout"}
+            {submitting ? submittingLabel : localized("ชำระเงิน", "Checkout")}
           </button>
           <button
             type="button"
@@ -425,7 +442,7 @@ export function PosPaymentPanel({
             onClick={onCancelBill}
             disabled={!onCancelBill || actionsDisabled || cancelBillDisabled}
           >
-            {th ? "ยกเลิกบิล" : "Cancel bill"}
+            {localized("ยกเลิกบิล", "Cancel bill")}
           </button>
         </div>
         {onRetry ? <button type="button" className="posui-btn posui-btn--retry-emergency" onClick={onRetry} disabled={retryDisabled || submitting}>{retryLabel ?? text.retry}</button> : null}
