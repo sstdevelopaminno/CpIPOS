@@ -32,6 +32,19 @@ const MORE_ITEMS: MoreItem[] = [
   { href: "/preview/pos/ai-documents", icon: "documents", label: { th: "เก็บไฟล์เอกสาร", en: "AI Documents" }, roles: ["owner", "manager"], desc: { th: "เก็บรายงาน สรุปยอด ตาราง และแผนงานที่สร้างจาก CpiPOS AI", en: "Store reports, summaries, tables and plans created by CpiPOS AI" } }
 ];
 
+const moreLao:Record<string,{label:string;desc:string}>={
+ "/preview/pos/sales-summary":{label:"ສະຫຼຸບຍອດຂາຍ",desc:"ເບິ່ງຍອດຂາຍ ພາສີ ເງິນສົດ/ໂອນ ແລະລາຍງານກະ"},
+ "/preview/pos/receipts":{label:"ໃບຮັບເງິນຍ້ອນຫຼັງ",desc:"ຄົ້ນຫາ ແລະພິມໃບຮັບເງິນຊ້ຳ 58mm"},
+ "/preview/pos/tables":{label:"ຈັດການໂຕະ",desc:"ຈັດການໂຕະ ໂຊນ ແລະຜັງຮ້ານ"},
+ "/preview/pos/kitchen/manage":{label:"ຈັດການເຮືອນຄົວ",desc:"ຕັ້ງຄ່າໂຊນເຮືອນຄົວ ແລະຈໍ KDS"},
+ "/preview/pos/stock":{label:"ຈັດການສິນຄ້າ",desc:"ສິນຄ້າ ສະຕັອກ ລາຄາ ແລະໝວດໝູ່"},
+ "/preview/pos/buffet-pricing":{label:"ລາຄາບຸບເຟ່",desc:"ກຳນົດລາຄາບຸບເຟ່ຕໍ່ຄົນ ແລະແບບຊຸດ"},
+ "/preview/pos/members":{label:"ສະມາຊິກ",desc:"ຄົ້ນຫາ ແລະຈັດການສະມາຊິກ"},
+ "/preview/pos/tax-invoices":{label:"ອອກໃບກຳກັບພາສີ",desc:"ຄົ້ນຫາບິນເກົ່າ ແລະພິມໃບພາສີ 58/80mm"},
+ "/preview/pos/product-sales":{label:"ລາຍການຂາຍສິນຄ້າ",desc:"ສິນຄ້າທີ່ຂາຍ ວັນທີ ລາຄາ ຈຳນວນ ແລະສະຖານະ"},
+ "/preview/pos/ai-documents":{label:"ເກັບໄຟລ໌ເອກະສານ",desc:"ເກັບລາຍງານ ສະຫຼຸບຍອດ ແລະແຜນງານຈາກ CpiPOS AI"}
+};
+
 function MoreIcon({ name }: { name: MoreIconName }) {
   const common = { width: 22, height: 22, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 2, strokeLinecap: "round" as const, strokeLinejoin: "round" as const };
   if (name === "summary") return <svg {...common}><path d="M4 19h16"/><path d="M7 16V9"/><path d="M12 16V5"/><path d="M17 16v-4"/></svg>;
@@ -116,11 +129,11 @@ export function PosMoreWorkspace({ lang, role }: { lang: Language; role: PosRole
             if (isCustom && (!isCustomPosMenuVisible(posMenuKeyForRoute(item.href) ?? "", menuPolicy, true) || isLocked(item.href))) return null;
             const menuLocked = isMenuLocked(item.href);
             const locked = menuLocked || isLocked(item.href);
-            const label = item.label ? item.label[lang === "lo" ? "en" : lang] : t(lang, item.labelKey!);
+            const label = lang === "lo" ? moreLao[item.href]?.label ?? t(lang,item.labelKey!) : item.label ? item.label[lang] : t(lang, item.labelKey!);
             return (
               <Link key={item.href} href={item.href} prefetch={false} onClick={(event) => { if (menuLocked) { event.preventDefault(); setItLockedMenu(label); } else if (locked) handleLocked(event); }} aria-disabled={locked} className={`group grid min-h-[92px] grid-cols-[42px_1fr_24px] items-center gap-3 rounded-2xl border p-4 text-left transition ${locked ? "border-slate-200 bg-slate-50 text-slate-500" : "border-slate-200 bg-white hover:border-blue-200 hover:bg-blue-50/50"}`}>
                 <span className={`inline-flex h-10 w-10 items-center justify-center rounded-xl ${locked ? "bg-slate-100 text-slate-400" : "bg-slate-100 text-slate-700 group-hover:bg-blue-100 group-hover:text-blue-700"}`}><MoreIcon name={item.icon}/></span>
-                <span className="min-w-0"><span className="block text-base font-black text-slate-950">{item.label ? item.label[lang === "lo" ? "en" : lang] : t(lang, item.labelKey!)}</span><span className="mt-1 block text-sm font-medium leading-5 text-slate-500">{item.desc[lang === "lo" ? "en" : lang]}</span></span>
+                <span className="min-w-0"><span className="block text-base font-black text-slate-950">{label}</span><span className="mt-1 block text-sm font-medium leading-5 text-slate-500">{lang === "lo" ? moreLao[item.href]?.desc ?? item.desc.en : item.desc[lang]}</span></span>
                 <span className="text-slate-400">{locked ? <span aria-hidden>🔒</span> : "›"}</span>
               </Link>
             );
