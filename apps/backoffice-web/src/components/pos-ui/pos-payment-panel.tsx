@@ -305,6 +305,7 @@ export function PosPaymentPanel({
 }: Props) {
   const [localCashDrawerOpening, setLocalCashDrawerOpening] = useState(false);
   const [opticalDepositOpen, setOpticalDepositOpen] = useState(false);
+  useEffect(() => { if (!opticalRetail) setOpticalDepositOpen(false); }, [opticalRetail]);
   const [activeSalesModeLabel, setActiveSalesModeLabel] = useState<string | null>(() => readActiveSalesModeLabel());
   const cashDrawerBusy = openingCashDrawer || localCashDrawerOpening;
   const displayModeStatusValue = resolveDisplayModeStatusValue({
