@@ -92,7 +92,7 @@ export function CustomBrandingSettings({onBack,lang="th"}:{onBack:()=>void;lang?
    </div>
    <div className="overflow-hidden rounded-2xl border border-slate-200 bg-slate-50">
     <div style={{backgroundColor:data.sidebar_color}} className="space-y-5 p-5 text-white">
-     <div className="flex items-center gap-3">{data.logo_url?<img src={data.logo_url} alt="" className="h-14 w-14 rounded-xl bg-white object-contain"/>:null}
+     <div className="flex items-center gap-3">{data.logo_url?<img src={data.logo_url} alt={text("โลโก้ร้าน")} className="h-14 w-14 rounded-xl bg-white object-contain"/>:<img src="/brand/cpipos-symbol-sidebar.png" alt="CpiPOS" className="h-14 w-14 rounded-xl object-contain"/>}
       <div><h3 className="font-extrabold">{data.system_name||text("ชื่อระบบ")}</h3>
        <p className="text-xs text-slate-200">Powered by CpiPOS</p></div></div>
      <p className="rounded-xl p-3 font-bold" style={{backgroundColor:data.accent_color}}>{text("หน้าขาย · เมนูที่เลือก")}</p>
