@@ -64,7 +64,9 @@ describe("Optical POS sale identity is separate from internal takeaway order typ
     expect(pos).toContain('if (!shift?.id) return;');
     expect(pos).toContain('opticalRetailActive && !posCurrencyResolved');
     expect(pos).toContain('data-pos-store-currency');
-    expect(pos).toContain('posCurrencyCode === "LAK" ? null :');
+    expect(pos).toContain('activePaymentQrMode === "qr_image" && paymentAccount.qr_image_url');
+     expect(pos).toContain('posCurrencyCode === "THB" && paymentAccount && activePaymentQrMode === "promptpay_link"');
+     expect(pos).toContain('const inetQrEnabled = posCurrencyCode === "THB"');
     expect(mode).toContain('getAttribute("data-pos-store-currency")');
     expect(mode).toContain('cpipos:store-currency-updated');
     expect(mode).toContain("formatSalesMoney(value, normalizeSalesCurrency(");

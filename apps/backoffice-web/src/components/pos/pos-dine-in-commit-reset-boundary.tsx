@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { PosSalesModePreferenceEnhancer } from "@/components/pos/pos-sales-mode-preference-enhancer";
 
-type Lang = "th" | "en";
+type Lang = "th" | "en" | "lo";
 
 type StoredCartItem = {
   product_id: string;

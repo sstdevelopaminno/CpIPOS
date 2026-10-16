@@ -6,7 +6,7 @@ import { t } from "@/lib/i18n";
 import { PosInitialSalesModeController } from "@/components/pos/pos-initial-sales-mode-controller";
 import { usePosShiftEntryLeader } from "@/lib/pos-shift-entry-singleton";
 
-type Lang = "th" | "en";
+type Lang = "th" | "en" | "lo";
 
 type SessionCurrentResponse = {
   data?: {
@@ -113,7 +113,7 @@ function normalizeRoleLabel(role: string, lang: Lang) {
 function formatDateTime(value: string, lang: Lang) {
   const date = new Date(value);
   if (Number.isNaN(date.valueOf())) return value;
-  const locale = lang === "th" ? "th-TH" : "en-US";
+  const locale = lang === "lo" ? "lo-LA" : lang === "th" ? "th-TH" : "en-US";
   return date.toLocaleString(locale, {
     timeZone: POS_DISPLAY_TIMEZONE,
     year: "numeric",

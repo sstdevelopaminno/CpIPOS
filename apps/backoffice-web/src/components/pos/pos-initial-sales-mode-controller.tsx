@@ -92,8 +92,8 @@ export function PosInitialSalesModeController({
   SalesComponent
 }: {
   initialScope?: PosScopeIdentity | null;
-  lang: "th" | "en";
-  SalesComponent: ComponentType<{lang?: "th" | "en"; startupMode?: PosStartupSalesMode; onStartupModeReady?: (mode: PosStartupSalesMode) => void; onStartupModeBlocked?: (mode: PosStartupSalesMode) => void}>;
+  lang: "th" | "en" | "lo";
+  SalesComponent: ComponentType<{lang?: "th" | "en" | "lo"; startupMode?: PosStartupSalesMode; onStartupModeReady?: (mode: PosStartupSalesMode) => void; onStartupModeBlocked?: (mode: PosStartupSalesMode) => void}>;
 }) {
   const [attempt, setAttempt] = useState(0);
   const [startupStatus, setStartupStatus] = useState<"pending" | "ready" | "error">("pending");

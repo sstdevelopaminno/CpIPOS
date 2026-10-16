@@ -10,5 +10,5 @@ export default async function PosUsersPage() {
   await requirePosPagePermission("users:view");
   const lang = await getCurrentLanguage();
 
-  return <PosUsersModule lang={lang === "lo" ? "en" : lang} />;
+  return <PosUsersModule lang={lang} />;
 }

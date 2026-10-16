@@ -37,7 +37,8 @@ describe("CUSTOM Optical shift boundary and legacy isolation contract",()=>{
     const ui=read("components/pos/pos-shift-history-module.tsx");
     const schedule=read("lib/pos-optical-daily-shift.ts");
     expect(ui).toContain("const opticalDaily=payload?.optical_policy?.enabled===true");
-    expect(ui).toContain('isOpticalDailyRow(shift,opticalDaily) ? slotLabel("daily",lang)');
+    expect(ui).toContain('isOpticalDailyRow(shift,opticalDaily) ? shiftSlotLabel("daily",lang)');
+     expect(ui).toContain('lang==="lo"?"th":lang');
     expect(ui).toContain('shift.metadata?.business_shift_mode==="optical_daily"');
     expect(schedule).toContain("autoCloseAt:cutoffAt");
     expect(schedule).toContain("warningAt:new Date(cutoffAt.getTime()-15*60*1000)");

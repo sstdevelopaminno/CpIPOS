@@ -19,10 +19,10 @@ export default async function PosPreviewPage() {
     <main className="h-full min-h-0 w-full">
       <PosCustomerDisplayV2Publisher />
       <PosCustomerDisplayV2PaymentObserver />
-      <PosDineInCommitResetBoundary lang={lang === "lo" ? "en" : lang} />
+      <PosDineInCommitResetBoundary lang={lang} />
       <PosGeneralSaleTableController />
       <PosGeneralSaleRuntime />
-      <PosEntryGate lang={lang === "lo" ? "en" : lang} initialScope={{ tenantId: posMenuScope.session.tenant_id, branchId: posMenuScope.session.branch_id }} />
+      <PosEntryGate lang={lang} initialScope={{ tenantId: posMenuScope.session.tenant_id, branchId: posMenuScope.session.branch_id }} />
     </main>
   );
 }

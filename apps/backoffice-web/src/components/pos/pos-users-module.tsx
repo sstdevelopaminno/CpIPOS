@@ -6,7 +6,7 @@ import { fetchWithTimeout } from "@/lib/client-fetch";
 
 type BranchRole = "owner" | "manager" | "staff" | "accountant" | "kitchen";
 type ScopeMode = "all_devices" | "single_device";
-type Lang = "th" | "en";
+type Lang = "th" | "en" | "lo";
 type AlertDialogState = { tone: "success" | "error"; title: string; message: string };
 type Branch = { id: string; code: string; name: string };
 type Device = { id: string; branch_id: string; device_code: string; device_name: string; status: string };
@@ -53,9 +53,78 @@ const copy = {
     savingMessage: "Please wait while the user information is validated and saved.", saveSuccessTitle: "Saved successfully", saveErrorTitle: "Save failed", acknowledge: "OK", employeeCodeDuplicate: "This employee code is already in use. Enter a unique employee code.",
     deleteError: "Could not delete user.", editUnavailable: "This role cannot edit this user.", deleteUnavailable: "Only the store owner can delete POS users.", accessOwner: "", accessManager: "Manager: view users; only the store Owner or IT can create, edit or delete accounts.",
   },
-} satisfies Record<Lang, Record<string, string>>;
+} satisfies Record<Exclude<Lang,"lo">, Record<string,string>>;
+
+const laoUsers:Partial<Record<keyof typeof copy.th,string>>={
+  "title": "ຜູ້ໃຊ້ງານ POS",
+  "refresh": "ໂຫຼດຂໍ້ມູນໃໝ່",
+  "filter": "ກັ່ນຕອງ",
+  "filterTitle": "ກັ່ນຕອງຜູ້ໃຊ້ງານ",
+  "previousPage": "ກ່ອນໜ້າ",
+  "nextPage": "ຖັດໄປ",
+  "add": "ເພີ່ມຜູ້ໃຊ້ງານ",
+  "search": "ຄົ້ນຫາຊື່ ອີເມວ ຫຼືລະຫັດພະນັກງານ",
+  "allBranches": "ທຸກສາຂາ",
+  "allRoles": "ທຸກບົດບາດ",
+  "allStatus": "ທຸກສະຖານະ",
+  "activeOnly": "ເປີດໃຊ້ງານ",
+  "inactiveOnly": "ປິດໃຊ້ງານ",
+  "total": "ຜູ້ໃຊ້ທັງໝົດ",
+  "active": "ເປີດໃຊ້ງານ",
+  "managers": "ຜູ້ຈັດການ",
+  "staff": "ພະນັກງານ",
+  "employeeCode": "ລະຫັດພະນັກງານ",
+  "employeeCodeHint": "ປ່ຽນລະຫັດພະນັກງານໄດ້ ໂດຍຕ້ອງຢືນຢັນ PIN",
+  "name": "ຊື່",
+  "position": "ຕຳແໜ່ງ",
+  "permissionRole": "ສິດຜູ້ໃຊ້",
+  "branch": "ສາຂາ",
+  "role": "ບົດບາດ",
+  "status": "ສະຖານະ",
+  "deviceScope": "ຂອບເຂດອຸປະກອນ",
+  "actions": "ຈັດການ",
+  "edit": "ແກ້ໄຂ",
+  "delete": "ລຶບ",
+  "save": "ບັນທຶກ",
+  "cancel": "ຍົກເລີກ",
+  "close": "ປິດ",
+  "pin": "PIN ຜູ້ໃຊ້",
+  "approvalPin": "PIN ຢືນຢັນ",
+  "pinHint": "ປ້ອນເມື່ອຕັ້ງ ຫຼືປ່ຽນ PIN",
+  "approvalPinHint": "PIN ເຈົ້າຂອງຮ້ານ ຫຼືຜູ້ຈັດການ",
+  "cancelBillApproval": "ສິດ PIN ຍົກເລີກບິນ",
+  "cancelBillApprovalEnabled": "ອະນຸຍາດໃຫ້ພະນັກງານຢືນຢັນຍົກເລີກບິນ",
+  "cancelBillApprovalDisabled": "ບໍ່ມີສິດຢືນຢັນຍົກເລີກບິນ",
+  "cancelBillApprovalOwnerOnly": "ສະເພາະເຈົ້າຂອງຮ້ານປ່ຽນສິດນີ້ໄດ້",
+  "staffPinHint": "ກຳນົດ PIN 4–12 ຫຼັກ",
+  "staffPinRequired": "ກະລຸນາກຳນົດ PIN ພະນັກງານ 4–12 ຫຼັກ",
+  "email": "ອີເມວ",
+  "fullName": "ຊື່ຜູ້ໃຊ້",
+  "allDevices": "ທຸກອຸປະກອນໃນສາຂາ",
+  "specificDevice": "ອຸປະກອນສະເພາະ",
+  "chooseDevice": "ເລືອກອຸປະກອນ",
+  "empty": "ບໍ່ພົບຜູ້ໃຊ້ຕາມຕົວກອງ",
+  "confirmDelete": "ຢືນຢັນລຶບສິດຜູ້ໃຊ້ຈາກສາຂາ?",
+  "addTitle": "ເພີ່ມຜູ້ໃຊ້",
+  "editTitle": "ແກ້ໄຂຜູ້ໃຊ້",
+  "saved": "ບັນທຶກສຳເລັດ",
+  "deleted": "ລຶບຜູ້ໃຊ້ສຳເລັດ",
+  "loadError": "ໂຫຼດຜູ້ໃຊ້ບໍ່ສຳເລັດ",
+  "saveError": "ບັນທຶກຜູ້ໃຊ້ບໍ່ສຳເລັດ",
+  "savingTitle": "ກຳລັງບັນທຶກ",
+  "savingMessage": "ກະລຸນາລໍຖ້າຂະນະກວດສອບ ແລະບັນທຶກຜູ້ໃຊ້",
+  "saveSuccessTitle": "ບັນທຶກສຳເລັດ",
+  "saveErrorTitle": "ບັນທຶກບໍ່ສຳເລັດ",
+  "acknowledge": "ຕົກລົງ",
+  "employeeCodeDuplicate": "ລະຫັດພະນັກງານຊ້ຳ ກະລຸນາກຳນົດລະຫັດໃໝ່",
+  "deleteError": "ລຶບຜູ້ໃຊ້ບໍ່ສຳເລັດ",
+  "editUnavailable": "ບໍ່ມີສິດແກ້ໄຂລາຍການນີ້",
+  "deleteUnavailable": "ສະເພາະເຈົ້າຂອງຮ້ານລຶບຜູ້ໃຊ້ໄດ້",
+  "accessManager": "ຜູ້ຈັດການສາມາດເບິ່ງລາຍຊື່ ແຕ່ມີພຽງເຈົ້າຂອງຮ້ານ ຫຼື IT ທີ່ເພີ່ມ ແກ້ໄຂ ແລະລຶບຜູ້ໃຊ້ໄດ້"
+};
 
 const roleLabels: Record<Lang, Record<BranchRole, string>> = {
+  lo:{owner:"ເຈົ້າຂອງຮ້ານ",manager:"ຜູ້ຈັດການ",staff:"ພະນັກງານ",accountant:"ບັນຊີ",kitchen:"ເຮືອນຄົວ"},
   th: { owner: "เจ้าของร้าน", manager: "ผู้จัดการ", staff: "พนักงาน", accountant: "บัญชี", kitchen: "ครัว" },
   en: { owner: "Owner", manager: "Manager", staff: "Staff", accountant: "Accountant", kitchen: "Kitchen" },
 };
@@ -70,7 +139,7 @@ function buildEmptyForm(defaultBranchId: string): FormState {
 function normalizeEmployeeCodeInput(value: string) { return String(value ?? "").replace(/\D/g, "").slice(0, 32); }
 
 export function PosUsersModule({ lang, embedded = false, onBack }: { lang: Lang; embedded?: boolean; onBack?: () => void }) {
-  const t = copy[lang];
+  const t:Record<string,string> = lang==="lo"?{...copy.th,...laoUsers}:copy[lang];
   const [items, setItems] = useState<PosUser[]>([]); const [branches, setBranches] = useState<Branch[]>([]); const [devices, setDevices] = useState<Device[]>([]);
   const [metadata, setMetadata] = useState<UsersResponse["metadata"] | null>(null); const [loading, setLoading] = useState(true); const [saving, setSaving] = useState(false);
   const [error, setError] = useState(""); const [notice, setNotice] = useState(""); const [query, setQuery] = useState(""); const [branchFilter, setBranchFilter] = useState("all");
@@ -165,12 +234,12 @@ export function PosUsersModule({ lang, embedded = false, onBack }: { lang: Lang;
     <section className={embedded ? "space-y-5 text-slate-950" : "min-h-screen bg-slate-50 px-5 py-6 text-slate-950 lg:px-8"}>
       <div className={embedded ? "space-y-5" : "mx-auto max-w-[1440px] space-y-5"}>
         <header className="flex flex-wrap items-start justify-between gap-4"><div><p className="text-xs font-semibold uppercase tracking-[0.16em] text-blue-600">CpIPOS</p><h1 className="mt-1 text-2xl font-bold tracking-normal text-slate-950">{t.title}</h1>{t.subtitle ? <p className="mt-2 max-w-3xl text-sm text-slate-600">{t.subtitle}</p> : null}{currentRole !== "owner" ? <p className="mt-2 text-xs font-semibold text-slate-500">{t.accessManager}</p> : null}</div>
-          <div className="flex flex-wrap items-center justify-end gap-2">{onBack ? <button type="button" onClick={onBack} className="rounded-md border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm hover:border-blue-200 hover:text-blue-700">{lang === "en" ? "Back" : "ย้อนกลับ"}</button> : null}<button type="button" onClick={() => setIsFilterOpen(true)} className="rounded-md border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm hover:border-blue-200 hover:text-blue-700">{t.filter}</button><button type="button" onClick={() => void loadUsers()} className="rounded-md border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm hover:border-blue-200 hover:text-blue-700 disabled:opacity-60" disabled={loading}>{t.refresh}</button>{canAdd ? <button type="button" onClick={openAdd} className="rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-blue-700">+ {t.add}</button> : null}</div></header>
+          <div className="flex flex-wrap items-center justify-end gap-2">{onBack ? <button type="button" onClick={onBack} className="rounded-md border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm hover:border-blue-200 hover:text-blue-700">{lang === "lo" ? "ກັບຄືນ" : lang === "en" ? "Back" : "ย้อนกลับ"}</button> : null}<button type="button" onClick={() => setIsFilterOpen(true)} className="rounded-md border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm hover:border-blue-200 hover:text-blue-700">{t.filter}</button><button type="button" onClick={() => void loadUsers()} className="rounded-md border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm hover:border-blue-200 hover:text-blue-700 disabled:opacity-60" disabled={loading}>{t.refresh}</button>{canAdd ? <button type="button" onClick={openAdd} className="rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-blue-700">+ {t.add}</button> : null}</div></header>
         <div className="grid gap-3 md:grid-cols-4"><StatCard label={t.total} value={stats.total} /><StatCard label={t.active} value={stats.active} /><StatCard label={t.managers} value={stats.managers} /><StatCard label={t.staff} value={stats.staff} /></div>
         <div className="rounded-lg border border-slate-200 bg-white shadow-sm">{error ? <div className="mx-4 mt-4 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">{error}</div> : null}{notice ? <div className="mx-4 mt-4 rounded-md border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-700">{notice}</div> : null}
           <div className="overflow-x-auto"><table className="min-w-[1380px] text-left text-sm"><thead className="bg-slate-100 text-xs font-bold uppercase text-slate-500"><tr><th className="px-4 py-3">{t.employeeCode}</th><th className="px-4 py-3">{t.name}</th><th className="px-4 py-3">{t.position}</th><th className="px-4 py-3">{t.permissionRole}</th><th className="px-4 py-3">{t.branch}</th><th className="px-4 py-3">{t.chooseDevice}</th><th className="px-4 py-3">{t.role}</th><th className="px-4 py-3">{t.cancelBillApproval}</th><th className="px-4 py-3">{t.status}</th><th className="sticky right-0 bg-slate-100 px-4 py-3 text-right shadow-[-8px_0_12px_-14px_rgba(15,23,42,0.45)]">{t.actions}</th></tr></thead>
-            <tbody className="divide-y divide-slate-100">{loading ? <tr><td className="px-4 py-10 text-center text-slate-500" colSpan={10}>Loading...</td></tr> : filteredItems.length ? paginatedItems.map((item) => <tr key={`${item.branch_id}:${item.user_id}`} className="group bg-white hover:bg-slate-50"><td className="px-4 py-4 font-bold text-slate-900">{item.employee_code}</td><td className="px-4 py-4"><div className="font-bold text-slate-950">{item.full_name}</div><div className="text-xs text-slate-500">{item.email}</div></td><td className="px-4 py-4 font-semibold text-slate-700">{item.position_title || "-"}</td><td className="px-4 py-4 font-semibold text-slate-700">{item.permission_role}</td><td className="px-4 py-4"><div className="font-semibold text-slate-900">{item.branch_name}</div><div className="text-xs text-slate-500">{item.branch_code}</div></td><td className="px-4 py-4 font-semibold text-slate-700">{item.device_scope.scope_mode === "all_devices" ? t.allDevices : deviceById.get(item.device_scope.device_id ?? "")?.device_name || deviceById.get(item.device_scope.device_id ?? "")?.device_code || "-"}</td><td className="px-4 py-4"><span className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-bold ${roleTone[item.role]}`}>{roleLabels[lang][item.role]}</span></td><td className="px-4 py-4">{item.role === "staff" ? <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-bold ${item.can_approve_cancel_bill ? "bg-amber-50 text-amber-700" : "bg-slate-100 text-slate-500"}`}>{item.can_approve_cancel_bill ? t.activeOnly : t.inactiveOnly}</span> : <span className="text-xs font-semibold text-slate-400">-</span>}</td><td className="px-4 py-4"><span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-bold ${item.is_active ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-500"}`}>{item.is_active ? t.activeOnly : t.inactiveOnly}</span></td><td className="sticky right-0 bg-white px-4 py-4 shadow-[-8px_0_12px_-14px_rgba(15,23,42,0.45)] group-hover:bg-slate-50"><div className="flex min-w-[128px] justify-end gap-2"><button type="button" onClick={() => openEdit(item)} disabled={!item.can_edit} title={item.can_edit ? t.edit : t.editUnavailable} className={`rounded-md border px-3 py-2 text-xs font-bold ${item.can_edit ? "border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100" : "cursor-not-allowed border-slate-200 bg-slate-50 text-slate-400"}`}>{t.edit}</button><button type="button" onClick={() => void deleteUser(item)} disabled={saving || !canDelete || !item.can_delete} title={canDelete && item.can_delete ? t.delete : t.deleteUnavailable} className={`rounded-md border px-3 py-2 text-xs font-bold disabled:opacity-70 ${canDelete && item.can_delete ? "border-red-200 bg-red-50 text-red-700 hover:bg-red-100" : "cursor-not-allowed border-slate-200 bg-slate-50 text-slate-400"}`}>{t.delete}</button></div></td></tr>) : <tr><td className="px-4 py-12 text-center text-slate-500" colSpan={10}>{t.empty}</td></tr>}</tbody></table></div>
-          {!loading && filteredItems.length > USER_ROWS_PER_PAGE ? <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-200 px-4 py-3 text-sm font-semibold text-slate-600"><span>{lang === "en" ? `Showing ${pageStart}-${pageEnd} of ${filteredItems.length} users` : `แสดง ${pageStart}-${pageEnd} จาก ${filteredItems.length} รายการ`}</span><div className="flex items-center gap-2"><button type="button" onClick={() => setCurrentPage((page) => Math.max(1, page - 1))} disabled={currentPage === 1} className="rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-700 hover:border-blue-200 hover:text-blue-700 disabled:cursor-not-allowed disabled:opacity-50">{t.previousPage}</button><span className="min-w-20 text-center text-slate-700">{lang === "en" ? `Page ${currentPage} / ${totalPages}` : `หน้า ${currentPage} / ${totalPages}`}</span><button type="button" onClick={() => setCurrentPage((page) => Math.min(totalPages, page + 1))} disabled={currentPage === totalPages} className="rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-700 hover:border-blue-200 hover:text-blue-700 disabled:cursor-not-allowed disabled:opacity-50">{t.nextPage}</button></div></div> : null}
+            <tbody className="divide-y divide-slate-100">{loading ? <tr><td className="px-4 py-10 text-center text-slate-500" colSpan={10}>{lang==="lo"?"ກຳລັງໂຫຼດ...":lang==="th"?"กำลังโหลด...":"Loading..."}</td></tr> : filteredItems.length ? paginatedItems.map((item) => <tr key={`${item.branch_id}:${item.user_id}`} className="group bg-white hover:bg-slate-50"><td className="px-4 py-4 font-bold text-slate-900">{item.employee_code}</td><td className="px-4 py-4"><div className="font-bold text-slate-950">{item.full_name}</div><div className="text-xs text-slate-500">{item.email}</div></td><td className="px-4 py-4 font-semibold text-slate-700">{item.position_title || "-"}</td><td className="px-4 py-4 font-semibold text-slate-700">{item.permission_role}</td><td className="px-4 py-4"><div className="font-semibold text-slate-900">{item.branch_name}</div><div className="text-xs text-slate-500">{item.branch_code}</div></td><td className="px-4 py-4 font-semibold text-slate-700">{item.device_scope.scope_mode === "all_devices" ? t.allDevices : deviceById.get(item.device_scope.device_id ?? "")?.device_name || deviceById.get(item.device_scope.device_id ?? "")?.device_code || "-"}</td><td className="px-4 py-4"><span className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-bold ${roleTone[item.role]}`}>{roleLabels[lang][item.role]}</span></td><td className="px-4 py-4">{item.role === "staff" ? <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-bold ${item.can_approve_cancel_bill ? "bg-amber-50 text-amber-700" : "bg-slate-100 text-slate-500"}`}>{item.can_approve_cancel_bill ? t.activeOnly : t.inactiveOnly}</span> : <span className="text-xs font-semibold text-slate-400">-</span>}</td><td className="px-4 py-4"><span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-bold ${item.is_active ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-500"}`}>{item.is_active ? t.activeOnly : t.inactiveOnly}</span></td><td className="sticky right-0 bg-white px-4 py-4 shadow-[-8px_0_12px_-14px_rgba(15,23,42,0.45)] group-hover:bg-slate-50"><div className="flex min-w-[128px] justify-end gap-2"><button type="button" onClick={() => openEdit(item)} disabled={!item.can_edit} title={item.can_edit ? t.edit : t.editUnavailable} className={`rounded-md border px-3 py-2 text-xs font-bold ${item.can_edit ? "border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100" : "cursor-not-allowed border-slate-200 bg-slate-50 text-slate-400"}`}>{t.edit}</button><button type="button" onClick={() => void deleteUser(item)} disabled={saving || !canDelete || !item.can_delete} title={canDelete && item.can_delete ? t.delete : t.deleteUnavailable} className={`rounded-md border px-3 py-2 text-xs font-bold disabled:opacity-70 ${canDelete && item.can_delete ? "border-red-200 bg-red-50 text-red-700 hover:bg-red-100" : "cursor-not-allowed border-slate-200 bg-slate-50 text-slate-400"}`}>{t.delete}</button></div></td></tr>) : <tr><td className="px-4 py-12 text-center text-slate-500" colSpan={10}>{t.empty}</td></tr>}</tbody></table></div>
+          {!loading && filteredItems.length > USER_ROWS_PER_PAGE ? <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-200 px-4 py-3 text-sm font-semibold text-slate-600"><span>{lang === "lo" ? `ສະແດງ ${pageStart}-${pageEnd} ຈາກ ${filteredItems.length} ຄົນ` : lang === "en" ? `Showing ${pageStart}-${pageEnd} of ${filteredItems.length} users` : `แสดง ${pageStart}-${pageEnd} จาก ${filteredItems.length} รายการ`}</span><div className="flex items-center gap-2"><button type="button" onClick={() => setCurrentPage((page) => Math.max(1, page - 1))} disabled={currentPage === 1} className="rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-700 hover:border-blue-200 hover:text-blue-700 disabled:cursor-not-allowed disabled:opacity-50">{t.previousPage}</button><span className="min-w-20 text-center text-slate-700">{lang === "lo" ? `ໜ້າ ${currentPage} / ${totalPages}` : lang === "en" ? `Page ${currentPage} / ${totalPages}` : `หน้า ${currentPage} / ${totalPages}`}</span><button type="button" onClick={() => setCurrentPage((page) => Math.min(totalPages, page + 1))} disabled={currentPage === totalPages} className="rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-700 hover:border-blue-200 hover:text-blue-700 disabled:cursor-not-allowed disabled:opacity-50">{t.nextPage}</button></div></div> : null}
         </div>
       </div>
 
