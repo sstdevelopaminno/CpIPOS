@@ -276,7 +276,7 @@ export function PosSalesSummaryDashboard({ lang, initialPayload, opticalMode = f
             </thead>
             <tbody>
               {payload.shifts.length === 0 ? (
-                <EmptyRow colSpan={9} />
+                <EmptyRow colSpan={9} lang={lang} />
               ) : (
                 visibleShifts.map((shift) => (
                   <tr key={shift.id} className="border-t border-slate-100 transition hover:bg-emerald-50/40">
@@ -295,6 +295,7 @@ export function PosSalesSummaryDashboard({ lang, initialPayload, opticalMode = f
             </tbody>
           </ScrollTable>
           <PaginationControls
+            lang={lang}
             page={Math.min(shiftPage, shiftTotalPages)}
             totalPages={shiftTotalPages}
             totalRows={payload.shifts.length}
@@ -303,7 +304,7 @@ export function PosSalesSummaryDashboard({ lang, initialPayload, opticalMode = f
           />
         </Panel>
 
-        <Dialog open={summaryDialogOpen} title={ui("สรุปยอดขาย")} onClose={() => setSummaryDialogOpen(false)} wide>
+        <Dialog lang={lang} open={summaryDialogOpen} title={ui("สรุปยอดขาย")} onClose={() => setSummaryDialogOpen(false)} wide>
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
             {kpis.map((item) => (
               <article key={item.label} className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
@@ -314,7 +315,7 @@ export function PosSalesSummaryDashboard({ lang, initialPayload, opticalMode = f
           </div>
         </Dialog>
 
-        <Dialog open={filterDialogOpen} title={ui("คัดกรอง")} onClose={() => setFilterDialogOpen(false)}>
+        <Dialog lang={lang} open={filterDialogOpen} title={ui("คัดกรอง")} onClose={() => setFilterDialogOpen(false)}>
           <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
             <Field label={lang==="en"?"From date":ui("ตั้งแต่")}><input value={dateFrom} onChange={(event) => setDateFrom(event.target.value)} type="date" className={inputClass} /></Field>
             <Field label={lang==="en"?"To date":ui("ถึง")}><input value={dateTo} onChange={(event) => setDateTo(event.target.value)} type="date" className={inputClass} /></Field>
@@ -337,6 +338,7 @@ export function PosSalesSummaryDashboard({ lang, initialPayload, opticalMode = f
         </Dialog>
 
         <Dialog
+          lang={lang}
           open={moreDialogOpen}
           title={lang==="en"?"More details":ui("ดูเพิ่มเติม")}
           onClose={() => setMoreDialogOpen(false)}
@@ -356,6 +358,7 @@ export function PosSalesSummaryDashboard({ lang, initialPayload, opticalMode = f
         </Dialog>
 
         <Dialog
+          lang={lang}
           open={salesRowsDialogOpen}
           title={lang==="en"?"Sales list":ui("รายการขาย")}
           onClose={() => setSalesRowsDialogOpen(false)}
@@ -372,6 +375,7 @@ export function PosSalesSummaryDashboard({ lang, initialPayload, opticalMode = f
               ))}</tbody>
             </ScrollTable>
             <PaginationControls
+            lang={lang}
               page={Math.min(salesRowsPage, salesRowsTotalPages)}
               totalPages={salesRowsTotalPages}
               totalRows={payload.salesRows.length}
@@ -443,6 +447,7 @@ function CashiersPanel({ payload, lang }: { payload: PosSalesSummaryPayload; lan
 }
 
 function Dialog({
+  lang="th",
   open,
   title,
   onClose,
@@ -450,6 +455,7 @@ function Dialog({
   headerActions,
   wide = false
 }: {
+  lang?:Language;
   open: boolean;
   title: string;
   onClose: () => void;
@@ -458,7 +464,7 @@ function Dialog({
   wide?: boolean;
 }) {
   if (!open) return null;
-  return <div className="fixed inset-0 z-50 grid place-items-center bg-slate-950/45 p-4" role="presentation" onMouseDown={onClose}><section role="dialog" aria-modal="true" aria-label={title} className={`max-h-[86vh] w-full overflow-y-auto rounded-2xl border border-slate-200 bg-white p-4 shadow-2xl ${wide ? "max-w-6xl" : "max-w-4xl"}`} onMouseDown={(event) => event.stopPropagation()}><header className="mb-4 flex items-center justify-between gap-3 border-b border-slate-100 pb-3"><h2 className="text-lg font-black text-slate-950">{title}</h2><div className="flex items-center gap-2">{headerActions}<button type="button" onClick={onClose} aria-label="ปิด" className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 bg-white text-sm font-bold text-slate-700 transition hover:bg-slate-50">ปิด</button></div></header>{children}</section></div>;
+  return <div className="fixed inset-0 z-50 grid place-items-center bg-slate-950/45 p-4" role="presentation" onMouseDown={onClose}><section role="dialog" aria-modal="true" aria-label={title} className={`max-h-[86vh] w-full overflow-y-auto rounded-2xl border border-slate-200 bg-white p-4 shadow-2xl ${wide ? "max-w-6xl" : "max-w-4xl"}`} onMouseDown={(event) => event.stopPropagation()}><header className="mb-4 flex items-center justify-between gap-3 border-b border-slate-100 pb-3"><h2 className="text-lg font-black text-slate-950">{title}</h2><div className="flex items-center gap-2">{headerActions}<button type="button" onClick={onClose} aria-label={lang==="en"?"Close":loUi(lang,"ปิด")} className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 bg-white text-sm font-bold text-slate-700 transition hover:bg-slate-50">{lang==="en"?"Close":loUi(lang,"ปิด")}</button></div></header>{children}</section></div>;
 }
 
 function ActionButton({ children, onClick, disabled = false }: { children: ReactNode; onClick: () => void; disabled?: boolean }) {
@@ -466,12 +472,14 @@ function ActionButton({ children, onClick, disabled = false }: { children: React
 }
 
 function PaginationControls({
+  lang="th",
   page,
   totalPages,
   totalRows,
   onPrev,
   onNext
 }: {
+  lang?:Language;
   page: number;
   totalPages: number;
   totalRows: number;
@@ -481,11 +489,11 @@ function PaginationControls({
   return (
     <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-sm">
       <span className="font-semibold text-slate-500">
-        ทั้งหมด {totalRows} รายการ · หน้า {page}/{totalPages}
+        {lang==="en"?"Total":loUi(lang,"ทั้งหมด")} {totalRows} {lang==="en"?"records":loUi(lang,"รายการ")} · {lang==="en"?"page":loUi(lang,"หน้า")} {page}/{totalPages}
       </span>
       <div className="flex gap-2">
-        <ActionButton onClick={onPrev} disabled={page <= 1}>ก่อนหน้า</ActionButton>
-        <ActionButton onClick={onNext} disabled={page >= totalPages}>ถัดไป</ActionButton>
+        <ActionButton onClick={onPrev} disabled={page <= 1}>{lang==="en"?"Previous":loUi(lang,"ก่อนหน้า")}</ActionButton>
+        <ActionButton onClick={onNext} disabled={page >= totalPages}>{lang==="en"?"Next":loUi(lang,"ถัดไป")}</ActionButton>
       </div>
     </div>
   );
