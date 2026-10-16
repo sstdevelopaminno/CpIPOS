@@ -58,7 +58,7 @@ function bangkokToday() {
 }
 
 function money(value: number, lang: Language, currency: SalesCurrencyCode) {
-  return formatSalesMoney(Number(value || 0), currency, lang === "lo" ? "lo-LA" : lang === "lo" ? "lo-LA" : lang === "th" ? "th-TH" : "en-US");
+  return formatSalesMoney(Number(value || 0), currency, lang === "lo" ? "lo-LA" : lang === "th" ? "th-TH" : "en-US");
 }
 
 function formatQuantity(value: number, lang: Language) {
@@ -206,7 +206,7 @@ export function PosSalesListWorkspace({
   useEffect(() => setCurrentPage(1), [effectiveBranchId, fromDate, paymentFilter, query, quickRange, shiftFilter, statusFilter, toDate]);
   useEffect(() => { if (currentPage > totalPages) setCurrentPage(totalPages); }, [currentPage, totalPages]);
 
-  const dateTimeFormatter = useMemo(() => new Intl.DateTimeFormat(ui("th-TH","en-US"), { timeZone: "Asia/Bangkok", dateStyle: "short", timeStyle: "short" }), [th]);
+  const dateTimeFormatter = useMemo(() => new Intl.DateTimeFormat(lang === "lo" ? "lo-LA" : ui("th-TH","en-US"), { timeZone: "Asia/Bangkok", dateStyle: "short", timeStyle: "short" }), [th]);
 
   function saleStatusLabel(value: PosSalesListRecord["saleStatus"] | SaleStatus) {
     if (value === "paid") return ui("ชำระแล้ว","Paid");
