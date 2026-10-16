@@ -9677,7 +9677,7 @@ export function PosSalesModule({
                 placeholder="0"
               />
               <label className="posui-payment-modal__input-label" htmlFor="pos-discount-amount">
-                {text.discountAmountLabel}
+                {lang === "lo" ? `ສ່ວນຫຼຸດ (${posCurrencyCode})` : lang === "th" ? `ส่วนลด (${posCurrencyCode})` : `Discount (${posCurrencyCode})`}
               </label>
               <input
                 id="pos-discount-amount"
