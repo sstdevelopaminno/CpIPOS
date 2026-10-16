@@ -10,6 +10,7 @@ import type { PosSalesSummaryPayload } from "@/lib/services/pos-sales-summary-se
 type Props = {
   lang: Language;
   initialPayload: PosSalesSummaryPayload;
+  opticalMode?: boolean;
 };
 
 type ApiBody = {
@@ -72,7 +73,7 @@ function paymentLabel(label: string, method?: string, lang: Language = "th"): st
   return label || "-";
 }
 
-export function PosSalesSummaryDashboard({ lang, initialPayload }: Props) {
+export function PosSalesSummaryDashboard({ lang, initialPayload, opticalMode = false }: Props) {
   const [payload, setPayload] = useState(initialPayload);
   const [dateFrom, setDateFrom] = useState(initialPayload.filters.dateFrom);
   const [dateTo, setDateTo] = useState(initialPayload.filters.dateTo);
@@ -205,15 +206,16 @@ export function PosSalesSummaryDashboard({ lang, initialPayload }: Props) {
   return (
     <section className="min-h-[calc(100vh-48px)] bg-[#f6f7f9] p-4 lg:p-5">
       <div className="mx-auto grid max-w-[1480px] gap-4">
-        <header className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm lg:p-5">
+        <header className={opticalMode ? "rounded-2xl border border-emerald-200 bg-gradient-to-r from-emerald-50 via-white to-white p-4 shadow-sm lg:p-5" : "rounded-2xl border border-slate-200 bg-white p-4 shadow-sm lg:p-5"}>
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div className="min-w-[260px]">
               <PosBackButton lang={lang} href="/preview/pos/more" label={lang === "th" ? "กลับเมนูเพิ่มเติม" : "Back to More"} className="mb-3" />
+              {opticalMode ? <p className="mb-2 text-xs font-black tracking-[0.16em] text-emerald-800">CUSTOM · OPTICAL REPORTS</p> : null}
               <h1 className="text-2xl font-black text-slate-950 lg:text-3xl">สรุปยอดขาย</h1>
               <p className="mt-1 max-w-3xl text-sm text-slate-600">ดูภาพรวมยอดขายตามวัน กะ พนักงาน ช่องทางชำระเงิน และสาขา</p>
             </div>
             <div className="flex flex-wrap gap-2">
-              <ActionButton onClick={() => setSummaryDialogOpen(true)}>สรุปยอดขาย</ActionButton>
+              <ActionButton onClick={() => setSummaryDialogOpen(true)}>{opticalMode ? "ดูรายละเอียดสรุป" : "สรุปยอดขาย"}</ActionButton>
               <ActionButton onClick={() => setFilterDialogOpen(true)}>คัดกรอง</ActionButton>
               <ActionButton onClick={() => setMoreDialogOpen(true)}>ดูเพิ่มเติม</ActionButton>
               <ActionButton onClick={() => setSalesRowsDialogOpen(true)}>รายการขาย</ActionButton>
@@ -238,7 +240,24 @@ export function PosSalesSummaryDashboard({ lang, initialPayload }: Props) {
           </div>
         </div>
 
-        <Panel title="สรุปกะ">
+        {opticalMode ? (
+          <section aria-label="ภาพรวมยอดขาย Optical" className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4" data-testid="optical-sales-summary-kpis">
+            {[
+              { label: "ยอดขายรวม", value: money(payload.summary.grossSales, lang, payload.currencyCode), tone: "text-slate-950" },
+              { label: "ยอดขายสุทธิ", value: money(payload.summary.netSales, lang, payload.currencyCode), tone: "text-emerald-800" },
+              { label: "จำนวนบิล", value: number(payload.summary.receiptCount, lang), tone: "text-slate-950" },
+              { label: "เงินสด / โอน", value: `${money(payload.summary.cashTotal, lang, payload.currencyCode)} / ${money(payload.summary.qrTransferTotal, lang, payload.currencyCode)}`, tone: "text-slate-950" }
+            ].map(kpi => (
+              <article key={kpi.label} className="rounded-2xl border border-emerald-100 bg-white p-4 shadow-sm">
+                <p className="text-xs font-bold text-slate-500">{kpi.label}</p>
+                <strong className={`mt-2 block break-words text-xl font-black ${kpi.tone}`}>{kpi.value}</strong>
+                <span className="mt-2 block text-[11px] font-semibold text-emerald-700">{payload.currencyCode} · {payload.filters.dateFrom} – {payload.filters.dateTo}</span>
+              </article>
+            ))}
+          </section>
+        ) : null}
+
+        <Panel title={opticalMode ? "ประวัติสรุปกะ (ตามช่วงเวลาที่บันทึก)" : "สรุปกะ"}>
           <ScrollTable minWidth="860px">
             <thead>
               <tr>
@@ -258,7 +277,7 @@ export function PosSalesSummaryDashboard({ lang, initialPayload }: Props) {
                 <EmptyRow colSpan={9} />
               ) : (
                 visibleShifts.map((shift) => (
-                  <tr key={shift.id} className="border-t border-slate-100">
+                  <tr key={shift.id} className="border-t border-slate-100 transition hover:bg-emerald-50/40">
                     <Td>{dateTime(shift.openedAt, lang)}</Td>
                     <Td>{dateTime(shift.closedAt, lang)}</Td>
                     <Td>{shift.branchName}</Td>
