@@ -192,6 +192,34 @@ function ensureGeneralSaleStyles() {
       html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .posui-cash-keypad__grid { gap: 5px; }
       html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .posui-payment-modal--review-bill .posui-payment-modal__items { max-height: 28vh; overflow-y: auto; }
     }
+    /* Compact landscape tablet: checkout stays reachable without scrolling through
+       secondary actions. Only Optical CUSTOM gets this reordered presentation. */
+    @media (max-height: 650px) and (orientation: landscape) {
+      html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .posui-cart-panel__header { min-height: 42px; }
+      html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] [data-testid="pos-optical-payment-panel"] {
+        display: flex !important; flex-direction: column; gap: 5px !important;
+        padding: 5px !important; max-height: 100%; overflow-y: auto;
+      }
+      html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] [data-testid="pos-optical-payment-panel"] > div:first-child p {
+        padding: 6px 8px;
+      }
+      html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] [data-testid="pos-optical-primary-actions"] {
+        order: 1; gap: 5px;
+      }
+      html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] [data-testid="pos-optical-primary-actions"] button {
+        min-height: 42px; padding: 6px;
+      }
+      html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] [data-testid="pos-optical-bill-actions"] {
+        order: 2; gap: 5px;
+      }
+      html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] [data-testid="pos-optical-pending-actions"] {
+        order: 3; gap: 5px;
+      }
+      html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] [data-testid="pos-optical-bill-actions"] button,
+      html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] [data-testid="pos-optical-pending-actions"] button {
+        min-height: 44px; padding: 5px; font-size: 11px;
+      }
+    }
     @media (max-width: 1080px) and (orientation: landscape) {
       html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .posui-body { grid-template-columns: minmax(0, 1fr) 240px; gap: 6px; }
       html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .cpipos-sd-table__name { width: 36%; }
