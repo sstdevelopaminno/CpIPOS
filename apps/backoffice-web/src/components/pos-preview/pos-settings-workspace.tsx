@@ -3541,7 +3541,7 @@ export function PosSettingsWorkspace({ lang, initialData }: { lang: Language; in
             <MenuButton
               icon="terminal"
               title={lang === "lo" ? "ຕັ້ງຄ່າເຄື່ອງພິມ" : lang === "en" ? "Printer Settings" : "เธ•เธฑเนเธเธเนเธฒเน€เธเธฃเธทเนเธญเธเธเธดเธกเธเน"}
-              desc={lang === "en" ? "Receipt printers, Print Agents, branch printers, and cash drawers" : "เธ•เธฑเนเธเธเนเธฒเนเธเน€เธชเธฃเนเธ, Print Agents, เน€เธเธฃเธทเนเธญเธเธเธดเธกเธเนเธชเธฒเธเธฒ เนเธฅเธฐเธฅเธดเนเธเธเธฑเธเน€เธเนเธเน€เธเธดเธ"}
+              desc={lang === "lo" ? "ເຄື່ອງພິມໃບຮັບເງິນ Print Agents ເຄື່ອງພິມສາຂາ ແລະລິ້ນຊັກເງິນ" : lang === "en" ? "Receipt printers, Print Agents, branch printers, and cash drawers" : "เธ•เธฑเนเธเธเนเธฒเนเธเน€เธชเธฃเนเธ, Print Agents, เน€เธเธฃเธทเนเธญเธเธเธดเธกเธเนเธชเธฒเธเธฒ เนเธฅเธฐเธฅเธดเนเธเธเธฑเธเน€เธเนเธเน€เธเธดเธ"}
               onClick={() => openSettingsView("printers")}
                menuEnabled={!isCustom || isCustomPosMenuVisible("settings.printers", menuPolicy, true)} locked={isSettingLocked("printers") || !menuVisible("settings.printers")}
             />
@@ -3550,7 +3550,7 @@ export function PosSettingsWorkspace({ lang, initialData }: { lang: Language; in
             <MenuButton
               icon="payment"
               title={lang === "en" ? "INET QR" : "INET QR"}
-              desc={lang === "en" ? "Dynamic QR, branch activation, and UAT connection" : "QR เนเธเธเธเธณเธซเธเธ”เธขเธญเธ”, เน€เธเธดเธ”เนเธเนเธเธฒเธเธฃเธฒเธขเธชเธฒเธเธฒ เนเธฅเธฐเธ—เธ”เธชเธญเธ UAT"}
+              desc={lang === "lo" ? "QR ກຳນົດຍອດ ເປີດໃຊ້ຕາມສາຂາ ແລະທົດສອບ UAT" : lang === "en" ? "Dynamic QR, branch activation, and UAT connection" : "QR เนเธเธเธเธณเธซเธเธ”เธขเธญเธ”, เน€เธเธดเธ”เนเธเนเธเธฒเธเธฃเธฒเธขเธชเธฒเธเธฒ เนเธฅเธฐเธ—เธ”เธชเธญเธ UAT"}
               onClick={() => openSettingsView("inet_nops")}
                menuEnabled={!isCustom || isCustomPosMenuVisible("settings.inet_nops", menuPolicy, true)} locked={isSettingLocked("inet_nops") || !menuVisible("settings.inet_nops")}
             />
@@ -3558,7 +3558,7 @@ export function PosSettingsWorkspace({ lang, initialData }: { lang: Language; in
             <MenuButton
               icon="bell"
               title={lang === "lo" ? "ຕັ້ງຄ່າການແຈ້ງເຕືອນ" : lang === "en" ? "Notification Settings" : "เธ•เธฑเนเธเธเนเธฒเธเธฒเธฃเนเธเนเธเน€เธ•เธทเธญเธ"}
-              desc={lang === "en" ? "Popup and sound alerts for table QR customer calls" : "POP UP เนเธฅเธฐเน€เธชเธตเธขเธเนเธเนเธเน€เธ•เธทเธญเธเน€เธกเธทเนเธญเธฅเธนเธเธเนเธฒเน€เธฃเธตเธขเธเธเธฒเธ QR เนเธ•เนเธฐ"}
+              desc={lang === "lo" ? "ການແຈ້ງເຕືອນ POP UP ແລະສຽງເມື່ອລູກຄ້າເອີ້ນຜ່ານ QR ໂຕະ" : lang === "en" ? "Popup and sound alerts for table QR customer calls" : "POP UP เนเธฅเธฐเน€เธชเธตเธขเธเนเธเนเธเน€เธ•เธทเธญเธเน€เธกเธทเนเธญเธฅเธนเธเธเนเธฒเน€เธฃเธตเธขเธเธเธฒเธ QR เนเธ•เนเธฐ"}
               onClick={() => openSettingsView("notifications")}
                menuEnabled={!isCustom || isCustomPosMenuVisible("settings.notifications", menuPolicy, true)} locked={isSettingLocked("notifications") || !menuVisible("settings.notifications")}
             />
