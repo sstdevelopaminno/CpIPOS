@@ -88,6 +88,7 @@ type DateMode = "day" | "month" | "year" | "custom";
 
 const RECEIPTS_PAGE_SIZE = 10;
 const RECEIPT_SUMMARY_VISIBILITY_KEY = "cpipos_receipts_summary_visible_v1";
+const OPTICAL_RECEIPT_SUMMARY_VISIBILITY_KEY = "cpipos_custom_optical_receipts_summary_visible_v1";
 
 type ReprintState = {
   order: ReceiptRecord;
@@ -593,11 +594,12 @@ export function PosReceiptsWorkspace({ lang, opticalMode = false }: { lang: Lang
 
   useEffect(() => {
     try {
-      setSummaryVisible(window.localStorage.getItem(RECEIPT_SUMMARY_VISIBILITY_KEY) === "1");
+      const value = window.localStorage.getItem(opticalMode ? OPTICAL_RECEIPT_SUMMARY_VISIBILITY_KEY : RECEIPT_SUMMARY_VISIBILITY_KEY);
+      setSummaryVisible(opticalMode ? value !== "0" : value === "1");
     } catch {
-      setSummaryVisible(false);
+      setSummaryVisible(opticalMode);
     }
-  }, []);
+  }, [opticalMode]);
 
   useEffect(() => {
     void load(1);
@@ -608,7 +610,7 @@ export function PosReceiptsWorkspace({ lang, opticalMode = false }: { lang: Lang
     setSummaryVisible((current) => {
       const next = !current;
       try {
-        window.localStorage.setItem(RECEIPT_SUMMARY_VISIBILITY_KEY, next ? "1" : "0");
+        window.localStorage.setItem(opticalMode ? OPTICAL_RECEIPT_SUMMARY_VISIBILITY_KEY : RECEIPT_SUMMARY_VISIBILITY_KEY, next ? "1" : "0");
       } catch {
         // Keep the in-memory preference when storage is unavailable.
       }
