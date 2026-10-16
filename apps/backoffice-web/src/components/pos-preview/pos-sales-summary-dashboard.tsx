@@ -316,29 +316,29 @@ export function PosSalesSummaryDashboard({ lang, initialPayload, opticalMode = f
 
         <Dialog open={filterDialogOpen} title={ui("คัดกรอง")} onClose={() => setFilterDialogOpen(false)}>
           <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-            <Field label="ตั้งแต่"><input value={dateFrom} onChange={(event) => setDateFrom(event.target.value)} type="date" className={inputClass} /></Field>
-            <Field label="ถึง"><input value={dateTo} onChange={(event) => setDateTo(event.target.value)} type="date" className={inputClass} /></Field>
-            <Field label="สาขา">
+            <Field label={lang==="en"?"From date":ui("ตั้งแต่")}><input value={dateFrom} onChange={(event) => setDateFrom(event.target.value)} type="date" className={inputClass} /></Field>
+            <Field label={lang==="en"?"To date":ui("ถึง")}><input value={dateTo} onChange={(event) => setDateTo(event.target.value)} type="date" className={inputClass} /></Field>
+            <Field label={lang==="en"?"Branch":ui("สาขา")}>
               <select value={branchId} onChange={(event) => setBranchId(event.target.value)} disabled={!payload.access.canViewMultipleBranches} className={inputClass}>
                 {payload.access.canViewMultipleBranches ? <option value="all">{ui("ทุกสาขา")}</option> : null}
                 {payload.branchOptions.map((branch) => <option key={branch.id} value={branch.id}>{branch.name} ({branch.code})</option>)}
               </select>
             </Field>
-            <Field label="กะ"><select value={shiftId} onChange={(event) => setShiftId(event.target.value)} className={inputClass}><option value="all">{ui("ทุกกะ")}</option>{payload.shiftOptions.map((shift) => <option key={shift.id} value={shift.id}>{shift.label}</option>)}</select></Field>
-            <Field label="พนักงาน"><select value={cashierId} onChange={(event) => setCashierId(event.target.value)} className={inputClass}><option value="all">{ui("ทุกคน")}</option>{payload.cashierOptions.map((cashier) => <option key={cashier.id} value={cashier.id}>{cashier.label}</option>)}</select></Field>
-            <Field label="ชำระเงิน"><select value={paymentMethod} onChange={(event) => setPaymentMethod(event.target.value)} className={inputClass}>{paymentOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></Field>
-            <Field label="สถานะ"><select value={status} onChange={(event) => setStatus(event.target.value)} className={inputClass}>{statusOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></Field>
+            <Field label={lang==="en"?"Shift":ui("กะ")}><select value={shiftId} onChange={(event) => setShiftId(event.target.value)} className={inputClass}><option value="all">{ui("ทุกกะ")}</option>{payload.shiftOptions.map((shift) => <option key={shift.id} value={shift.id}>{shift.label}</option>)}</select></Field>
+            <Field label={lang==="en"?"Employee":ui("พนักงาน")}><select value={cashierId} onChange={(event) => setCashierId(event.target.value)} className={inputClass}><option value="all">{ui("ทุกคน")}</option>{payload.cashierOptions.map((cashier) => <option key={cashier.id} value={cashier.id}>{cashier.label}</option>)}</select></Field>
+            <Field label={lang==="en"?"Payment":ui("ชำระเงิน")}><select value={paymentMethod} onChange={(event) => setPaymentMethod(event.target.value)} className={inputClass}>{paymentOptions.map((option) => <option key={option.value} value={option.value}>{lang==="en"?({all:"All",cash:"Cash",bank_transfer:"Transfer / QR",card:"Card",other:"Other",completed:"Completed",cancelled:"Cancelled",draft:"Draft",queued:"Queued",preparing:"Preparing"}[option.value]??option.label):ui(option.label)}</option>)}</select></Field>
+            <Field label={lang==="en"?"Status":ui("สถานะ")}><select value={status} onChange={(event) => setStatus(event.target.value)} className={inputClass}>{statusOptions.map((option) => <option key={option.value} value={option.value}>{lang==="en"?({all:"All",cash:"Cash",bank_transfer:"Transfer / QR",card:"Card",other:"Other",completed:"Completed",cancelled:"Cancelled",draft:"Draft",queued:"Queued",preparing:"Preparing"}[option.value]??option.label):ui(option.label)}</option>)}</select></Field>
           </div>
           {payload.access.selfOnly ? <p className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-700">{ui("สิทธิ์ปัจจุบันดูได้เฉพาะข้อมูลกะ/ผู้ใช้งานของตัวเอง")}</p> : null}
           <DialogActions>
             <ActionButton onClick={() => setFilterDialogOpen(false)}>{ui("ปิด")}</ActionButton>
-            <button type="button" onClick={() => { refresh(); setFilterDialogOpen(false); }} disabled={isPending} className="h-10 rounded-lg border border-blue-200 bg-blue-600 px-4 text-sm font-bold text-white transition hover:bg-blue-700 disabled:cursor-wait disabled:opacity-70">{isPending ? "กำลังโหลด" : "ใช้ตัวกรอง"}</button>
+            <button type="button" onClick={() => { refresh(); setFilterDialogOpen(false); }} disabled={isPending} className="h-10 rounded-lg border border-blue-200 bg-blue-600 px-4 text-sm font-bold text-white transition hover:bg-blue-700 disabled:cursor-wait disabled:opacity-70">{isPending ? (lang==="en"?"Loading":ui("กำลังโหลด")) : (lang==="en"?"Apply filters":ui("ใช้ตัวกรอง"))}</button>
           </DialogActions>
         </Dialog>
 
         <Dialog
           open={moreDialogOpen}
-          title="ดูเพิ่มเติม"
+          title={lang==="en"?"More details":ui("ดูเพิ่มเติม")}
           onClose={() => setMoreDialogOpen(false)}
           headerActions={<ActionButton onClick={exportMoreDialogCsv} disabled={activeMoreExport.rows.length <= 1}>Export CSV: {activeMoreExport.label}</ActionButton>}
           wide
@@ -346,7 +346,7 @@ export function PosSalesSummaryDashboard({ lang, initialPayload, opticalMode = f
           <div className="grid gap-4">
             <div className="flex flex-wrap gap-2 rounded-2xl border border-slate-200 bg-slate-50 p-2">
               {[{ id: "payments" as const, label: "ช่องทางชำระเงิน" }, { id: "products" as const, label: "สินค้าขายดี" }, { id: "cashiers" as const, label: "ประสิทธิภาพพนักงาน" }].map((tab) => (
-                <button key={tab.id} type="button" onClick={() => setMoreDialogTab(tab.id)} className={`h-10 rounded-xl px-4 text-sm font-black transition ${moreDialogTab === tab.id ? "bg-blue-600 text-white shadow-sm" : "bg-white text-slate-700 ring-1 ring-slate-200 hover:bg-blue-50"}`}>{tab.label}</button>
+                <button key={tab.id} type="button" onClick={() => setMoreDialogTab(tab.id)} className={`h-10 rounded-xl px-4 text-sm font-black transition ${moreDialogTab === tab.id ? "bg-blue-600 text-white shadow-sm" : "bg-white text-slate-700 ring-1 ring-slate-200 hover:bg-blue-50"}`}>{lang==="en"?({payments:"Payment methods",products:"Best products",cashiers:"Cashier performance"}[tab.id]):ui(tab.label)}</button>
               ))}
             </div>
             {moreDialogTab === "payments" ? <PaymentsPanel payload={payload} lang={lang} maxPaymentAmount={maxPaymentAmount} /> : null}
@@ -357,15 +357,15 @@ export function PosSalesSummaryDashboard({ lang, initialPayload, opticalMode = f
 
         <Dialog
           open={salesRowsDialogOpen}
-          title="รายการขาย"
+          title={lang==="en"?"Sales list":ui("รายการขาย")}
           onClose={() => setSalesRowsDialogOpen(false)}
           headerActions={<ActionButton onClick={exportSalesRowsDialogCsv} disabled={payload.salesRows.length === 0}>Export CSV</ActionButton>}
           wide
         >
-          <Panel title="รายการขาย">
+          <Panel title={lang==="en"?"Sales list":ui("รายการขาย")}>
             <ScrollTable minWidth="1040px">
               <thead><tr><Th>{ui("เลขที่บิล")}</Th><Th>{ui("วันเวลา")}</Th><Th>{ui("สาขา")}</Th><Th>{ui("พนักงาน")}</Th><Th>{ui("ชำระเงิน")}</Th><Th align="right">{ui("ยอดรวม")}</Th><Th align="right">{ui("ส่วนลด")}</Th><Th align="right">{ui("ภาษี")}</Th><Th align="right">{ui("สุทธิ")}</Th><Th>{ui("สถานะ")}</Th></tr></thead>
-              <tbody>{payload.salesRows.length === 0 ? <EmptyRow colSpan={10} /> : visibleSalesRows.map((row) => (
+              <tbody>{payload.salesRows.length === 0 ? <EmptyRow colSpan={10} lang={lang} /> : visibleSalesRows.map((row) => (
                 <tr key={row.id} className="border-t border-slate-100">
                   <Td strong>{row.receiptNo}</Td><Td>{dateTime(row.createdAt, lang)}</Td><Td>{row.branchName}</Td><Td>{row.cashierName}</Td><Td>{paymentLabel(row.paymentLabel, row.paymentMethod, lang)}</Td><Td align="right">{money(row.grossTotal, lang, payload.currencyCode)}</Td><Td align="right">{money(row.discount, lang, payload.currencyCode)}</Td><Td align="right">{money(row.tax, lang, payload.currencyCode)}</Td><Td align="right" strong>{money(row.netTotal, lang, payload.currencyCode)}</Td><Td><StatusBadge status={row.status} lang={lang} /></Td>
                 </tr>
@@ -431,15 +431,15 @@ function buildMoreDialogExport(payload: PosSalesSummaryPayload, tab: MoreDialogT
 }
 
 function PaymentsPanel({ payload, lang, maxPaymentAmount }: { payload: PosSalesSummaryPayload; lang: Language; maxPaymentAmount: number }) {
-  return <Panel title="ช่องทางชำระเงิน">{payload.paymentMethods.length === 0 ? <EmptyState /> : <div className="grid gap-3">{payload.paymentMethods.map((method) => <div key={method.method}><div className="flex items-baseline justify-between gap-3"><span className="text-sm font-bold text-slate-800">{paymentLabel(method.label, method.method, lang)}</span><span className="text-sm font-black text-slate-950">{money(method.amount, lang, payload.currencyCode)}</span></div><div className="mt-2 h-2 overflow-hidden rounded-full bg-slate-100"><div className="h-full rounded-full bg-blue-600" style={{ width: `${Math.max(5, (method.amount / maxPaymentAmount) * 100)}%` }} /></div><p className="mt-1 text-xs text-slate-500">{method.receiptCount} บิล</p></div>)}</div>}</Panel>;
+  return <Panel title={lang==="en"?"Payment methods":loUi(lang,"ช่องทางชำระเงิน")}>{payload.paymentMethods.length === 0 ? <EmptyState lang={lang} /> : <div className="grid gap-3">{payload.paymentMethods.map((method) => <div key={method.method}><div className="flex items-baseline justify-between gap-3"><span className="text-sm font-bold text-slate-800">{paymentLabel(method.label, method.method, lang)}</span><span className="text-sm font-black text-slate-950">{money(method.amount, lang, payload.currencyCode)}</span></div><div className="mt-2 h-2 overflow-hidden rounded-full bg-slate-100"><div className="h-full rounded-full bg-blue-600" style={{ width: `${Math.max(5, (method.amount / maxPaymentAmount) * 100)}%` }} /></div><p className="mt-1 text-xs text-slate-500">{method.receiptCount} บิล</p></div>)}</div>}</Panel>;
 }
 
 function ProductsPanel({ payload, lang }: { payload: PosSalesSummaryPayload; lang: Language }) {
-  return <Panel title="สินค้าขายดี"><ScrollTable minWidth="680px"><thead><tr><Th>สินค้า</Th><Th>หมวดหมู่</Th><Th align="right">จำนวน</Th><Th align="right">ยอดรวม</Th><Th align="right">ยอดสุทธิ</Th></tr></thead><tbody>{payload.bestSellingProducts.length === 0 ? <EmptyRow colSpan={5} /> : payload.bestSellingProducts.slice(0, 10).map((product, index) => <tr key={product.productId} className="border-t border-slate-100"><Td strong><span className="mr-2 inline-flex h-6 w-6 items-center justify-center rounded-full bg-slate-100 text-xs font-black text-slate-700">{index + 1}</span>{product.productName}</Td><Td>{product.category}</Td><Td align="right">{number(product.quantitySold, lang)}</Td><Td align="right">{money(product.grossAmount, lang, payload.currencyCode)}</Td><Td align="right">{money(product.netAmount, lang, payload.currencyCode)}</Td></tr>)}</tbody></ScrollTable></Panel>;
+  return <Panel title={lang==="en"?"Best products":loUi(lang,"สินค้าขายดี")}><ScrollTable minWidth="680px"><thead><tr><Th>{lang==="en"?"Product":loUi(lang,"สินค้า")}</Th><Th>{lang==="en"?"Category":loUi(lang,"หมวดหมู่")}</Th><Th align="right">{lang==="en"?"Quantity":loUi(lang,"จำนวน")}</Th><Th align="right">{lang==="en"?"Gross":loUi(lang,"ยอดรวม")}</Th><Th align="right">{lang==="en"?"Net":loUi(lang,"ยอดสุทธิ")}</Th></tr></thead><tbody>{payload.bestSellingProducts.length === 0 ? <EmptyRow colSpan={5} lang={lang} /> : payload.bestSellingProducts.slice(0, 10).map((product, index) => <tr key={product.productId} className="border-t border-slate-100"><Td strong><span className="mr-2 inline-flex h-6 w-6 items-center justify-center rounded-full bg-slate-100 text-xs font-black text-slate-700">{index + 1}</span>{product.productName}</Td><Td>{product.category}</Td><Td align="right">{number(product.quantitySold, lang)}</Td><Td align="right">{money(product.grossAmount, lang, payload.currencyCode)}</Td><Td align="right">{money(product.netAmount, lang, payload.currencyCode)}</Td></tr>)}</tbody></ScrollTable></Panel>;
 }
 
 function CashiersPanel({ payload, lang }: { payload: PosSalesSummaryPayload; lang: Language }) {
-  return <Panel title="ประสิทธิภาพพนักงาน"><ScrollTable minWidth="720px"><thead><tr><Th>พนักงาน</Th><Th align="right">บิล</Th><Th align="right">ยอดรวม</Th><Th align="right">ยอดสุทธิ</Th><Th align="right">ยกเลิก</Th><Th align="right">เฉลี่ย/บิล</Th></tr></thead><tbody>{payload.cashiers.length === 0 ? <EmptyRow colSpan={6} /> : payload.cashiers.map((cashier) => <tr key={cashier.cashierId} className="border-t border-slate-100"><Td strong>{cashier.cashierName}</Td><Td align="right">{number(cashier.receiptCount, lang)}</Td><Td align="right">{money(cashier.grossSales, lang, payload.currencyCode)}</Td><Td align="right">{money(cashier.netSales, lang, payload.currencyCode)}</Td><Td align="right">{cashier.cancelledCount}</Td><Td align="right">{money(cashier.averageReceiptValue, lang, payload.currencyCode)}</Td></tr>)}</tbody></ScrollTable></Panel>;
+  return <Panel title={lang==="en"?"Cashier performance":loUi(lang,"ประสิทธิภาพพนักงาน")}><ScrollTable minWidth="720px"><thead><tr><Th>{lang==="en"?"Cashier":loUi(lang,"พนักงาน")}</Th><Th align="right">{lang==="en"?"Bills":loUi(lang,"บิล")}</Th><Th align="right">{lang==="en"?"Gross":loUi(lang,"ยอดรวม")}</Th><Th align="right">{lang==="en"?"Net":loUi(lang,"ยอดสุทธิ")}</Th><Th align="right">{lang==="en"?"Cancelled":loUi(lang,"ยกเลิก")}</Th><Th align="right">{lang==="en"?"Average / bill":loUi(lang,"เฉลี่ย/บิล")}</Th></tr></thead><tbody>{payload.cashiers.length === 0 ? <EmptyRow colSpan={6} lang={lang} /> : payload.cashiers.map((cashier) => <tr key={cashier.cashierId} className="border-t border-slate-100"><Td strong>{cashier.cashierName}</Td><Td align="right">{number(cashier.receiptCount, lang)}</Td><Td align="right">{money(cashier.grossSales, lang, payload.currencyCode)}</Td><Td align="right">{money(cashier.netSales, lang, payload.currencyCode)}</Td><Td align="right">{cashier.cancelledCount}</Td><Td align="right">{money(cashier.averageReceiptValue, lang, payload.currencyCode)}</Td></tr>)}</tbody></ScrollTable></Panel>;
 }
 
 function Dialog({
@@ -516,12 +516,12 @@ function Td({ children, align = "left", strong = false, tone = "normal" }: { chi
   return <td className={`px-3 py-2 ${align === "right" ? "text-right" : "text-left"} ${strong ? "font-bold text-slate-950" : toneClass}`}>{children}</td>;
 }
 
-function EmptyRow({ colSpan }: { colSpan: number }) {
-  return <tr><td colSpan={colSpan} className="px-3 py-10 text-center text-sm font-semibold text-slate-500">ยังไม่มีข้อมูลยอดขายในช่วงเวลานี้</td></tr>;
+function EmptyRow({ colSpan, lang="th" }: { colSpan: number; lang?:Language }) {
+  return <tr><td colSpan={colSpan} className="px-3 py-10 text-center text-sm font-semibold text-slate-500">{lang==="en"?"No sales in this period":loUi(lang,"ยังไม่มีข้อมูลยอดขายในช่วงเวลานี้")}</td></tr>;
 }
 
-function EmptyState() {
-  return <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-8 text-center text-sm font-semibold text-slate-500">ยังไม่มีข้อมูลยอดขายในช่วงเวลานี้</div>;
+function EmptyState({lang="th"}:{lang?:Language}) {
+  return <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-8 text-center text-sm font-semibold text-slate-500">{lang==="en"?"No sales in this period":loUi(lang,"ยังไม่มีข้อมูลยอดขายในช่วงเวลานี้")}</div>;
 }
 
 function StatusBadge({ status, lang }: { status: string; lang: Language }) {
@@ -531,7 +531,7 @@ function StatusBadge({ status, lang }: { status: string; lang: Language }) {
 }
 
 function statusLabel(status: string, lang: Language = "th") {
-  if (lang !== "th") {
+  if (lang === "en") {
     return status === "completed"
       ? "Completed"
       : status === "cancelled"
@@ -544,6 +544,7 @@ function statusLabel(status: string, lang: Language = "th") {
               ? "Preparing"
               : status;
   }
+  if(lang==="lo")return ({completed:"ສຳເລັດ",cancelled:"ຍົກເລີກ",draft:"ຮ່າງ",queued:"ລໍຖ້າ",preparing:"ກຳລັງຈັດກຽມ"} as Record<string,string>)[status]??status;
   return status === "completed"
     ? "สำเร็จ"
     : status === "cancelled"
