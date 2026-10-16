@@ -686,7 +686,7 @@ export function PosReceiptsWorkspace({ lang, opticalMode = false }: { lang: Lang
             <p className="mt-1 max-w-3xl text-sm text-slate-600">{copy.desc}</p>
           </div>
           <div className="flex flex-wrap items-center justify-end gap-2">
-            <PosBackButton lang={lang} href="/preview/pos/more" label={lang === "th" ? "กลับเมนูเพิ่มเติม" : "Back to More"} />
+            <PosBackButton lang={lang} href="/preview/pos/more" label={lang === "lo" ? "ກັບເມນູເພີ່ມເຕີມ" : lang === "th" ? "กลับเมนูเพิ่มเติม" : "Back to More"} />
             <button
               type="button"
               onClick={() => void load(1)}
@@ -735,7 +735,7 @@ export function PosReceiptsWorkspace({ lang, opticalMode = false }: { lang: Lang
 
           <div className="grid gap-2 lg:grid-cols-[1fr_180px_180px_auto]">
             <input
-              aria-label={lang === "th" ? "ค้นหาเลขบิล ลูกค้า หรือเลขเดลิเวอรี่" : "Search receipt or customer"}
+              aria-label={lang === "lo" ? "ຄົ້ນຫາບິນ ຫຼືລູກຄ້າ" : lang === "th" ? "ค้นหาเลขบิล ลูกค้า หรือเลขเดลิเวอรี่" : "Search receipt or customer"}
               value={q}
               onChange={(event) => setQ(event.target.value)}
               onKeyDown={(event) => {
@@ -759,7 +759,7 @@ export function PosReceiptsWorkspace({ lang, opticalMode = false }: { lang: Lang
                 <input type="date" value={to} onChange={(event) => setTo(event.target.value)} className="h-10 rounded-lg border border-slate-300 px-3 text-sm font-semibold" />
               </>
             ) : null}
-            <select aria-label={lang === "th" ? "สถานะใบเสร็จ" : "Receipt status"} value={status} onChange={(event) => setStatus(event.target.value)} className="h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm font-semibold">
+            <select aria-label={lang === "lo" ? "ສະຖານະໃບຮັບເງິນ" : lang === "th" ? "สถานะใบเสร็จ" : "Receipt status"} value={status} onChange={(event) => setStatus(event.target.value)} className="h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm font-semibold">
               <option value="completed">{copy.statusPaid}</option>
               <option value="queued">{copy.statusQueued}</option>
               <option value="cancelled">{copy.statusCancelled}</option>
@@ -834,7 +834,7 @@ export function PosReceiptsWorkspace({ lang, opticalMode = false }: { lang: Lang
                   {!loading && records.length === 0 ? (
                     <tr>
                       <td colSpan={6} className="px-4 py-10 text-center text-sm font-semibold text-slate-500">
-                        {opticalMode ? (lang === "th" ? "ไม่พบใบเสร็จตามวันที่หรือสถานะที่เลือก ลองเปลี่ยนช่วงเวลาเป็นรายเดือนหรือเลือกทุกสถานะ" : "No matching receipts. Try another date or status.") : copy.noData}
+                        {opticalMode ? (lang === "lo" ? "ບໍ່ພົບໃບຮັບເງິນຕາມວັນທີຫຼືສະຖານະ · ລອງປ່ຽນເປັນລາຍເດືອນ ຫຼືທຸກສະຖານະ" : lang === "th" ? "ไม่พบใบเสร็จตามวันที่หรือสถานะที่เลือก ลองเปลี่ยนช่วงเวลาเป็นรายเดือนหรือเลือกทุกสถานะ" : "No matching receipts. Try another date or status.") : copy.noData}
                       </td>
                     </tr>
                   ) : null}

@@ -10,6 +10,7 @@ import { InetNopsSettingsPanel } from "@/components/pos-preview/inet-nops-settin
 import { PackageLockDialog } from "@/components/pos-preview/package-lock-dialog";
 import { ItMenuLockDialog } from "@/components/pos-preview/it-menu-lock-dialog";
 import {CustomBrandingSettings} from "@/components/pos-preview/custom-branding-settings";
+import {settingsLaoLabels} from "@/lib/lao-pos-ui";
 import { PosSupportPushSettingsModal } from "@/components/pos-preview/pos-support-push-control";
 import { POS_SETTINGS_FEATURES } from "@/lib/pos-feature-map";
 import { isCustomPosMenuVisible, isPosMenuEnabled } from "@/lib/pos-menu-policy";
@@ -3424,7 +3425,7 @@ function MainMenuPlacementPopup({
 }
 
 export function PosSettingsWorkspace({ lang, initialData }: { lang: Language; initialData: PosSettingsSnapshot }) {
-  const labels = lang === "en" ? TEXT.en : lang === "lo" ? { ...TEXT.th, title: "ຕັ້ງຄ່າ", language: "ປ່ຽນພາສາ", languageDesc: "ເລືອກພາສາໄທ ອັງກິດ ຫຼື ລາວ", languageTitle: "ຕັ້ງຄ່າພາສາ", languageCurrent: "ພາສາປັດຈຸບັນ", languageChoose: "ເລືອກພາສາທີ່ຕ້ອງການ", thai: "ໄທ", english: "English" } : TEXT.th;
+  const labels = lang === "en" ? TEXT.en : lang === "lo" ? { ...TEXT.en, ...settingsLaoLabels } : TEXT.th;
   const [view, setView] = useState<SettingsView>("menu");
   const [store, setStore] = useState(initialData.store);
   const [branches, setBranches] = useState(initialData.branches);
@@ -3530,8 +3531,8 @@ export function PosSettingsWorkspace({ lang, initialData }: { lang: Language; in
         {view === "menu" && policyReady ? (
           <div className="grid gap-4 lg:grid-cols-2 xl:grid-cols-3">
             {isCustom && canManage && menuVisible("settings.store") ? (
-              <MenuButton icon="store" title="ธีมสี / โลโก้ / ชื่อระบบ (CUSTOM)"
-                desc="เลือกสีไฮไลต์และพื้นหลังเมนู พร้อมโลโก้และชื่อร้าน · Powered by CpiPOS"
+              <MenuButton icon="store" title={lang === "lo" ? "ສີທີມ / ໂລໂກ້ / ຊື່ລະບົບ (CUSTOM)" : "ธีมสี / โลโก้ / ชื่อระบบ (CUSTOM)"}
+                desc={lang === "lo" ? "ຕັ້ງສີໄຮໄລທ໌ ພື້ນຫຼັງ ໂລໂກ້ ແລະຊື່ລະບົບ · Powered by CpiPOS" : "เลือกสีไฮไลต์และพื้นหลังเมนู พร้อมโลโก้และชื่อร้าน · Powered by CpiPOS"}
                 onClick={()=>setView("branding")} menuEnabled locked={false}/>
             ):null}
             <MenuButton icon="store" title={labels.store} desc={labels.storeDesc} onClick={() => openSettingsView("store")}  menuEnabled={!isCustom || isCustomPosMenuVisible("settings.store", menuPolicy, true)} locked={isSettingLocked("store") || !menuVisible("settings.store")} />
@@ -3539,8 +3540,8 @@ export function PosSettingsWorkspace({ lang, initialData }: { lang: Language; in
             <MenuButton icon="terminal" title={labels.devices} desc={labels.devicesDesc} onClick={() => openSettingsView("devices")}  menuEnabled={!isCustom || isCustomPosMenuVisible("settings.devices", menuPolicy, true)} locked={isSettingLocked("devices") || !menuVisible("settings.devices")} />
             <MenuButton
               icon="terminal"
-              title={lang === "en" ? "Printer Settings" : "เธ•เธฑเนเธเธเนเธฒเน€เธเธฃเธทเนเธญเธเธเธดเธกเธเน"}
-              desc={lang === "en" ? "Receipt printers, Print Agents, branch printers, and cash drawers" : "เธ•เธฑเนเธเธเนเธฒเนเธเน€เธชเธฃเนเธ, Print Agents, เน€เธเธฃเธทเนเธญเธเธเธดเธกเธเนเธชเธฒเธเธฒ เนเธฅเธฐเธฅเธดเนเธเธเธฑเธเน€เธเนเธเน€เธเธดเธ"}
+              title={lang === "lo" ? "ຕັ້ງຄ່າເຄື່ອງພິມ" : lang === "en" ? "Printer Settings" : "เธ•เธฑเนเธเธเนเธฒเน€เธเธฃเธทเนเธญเธเธเธดเธกเธเน"}
+              desc={lang === "lo" ? "ເຄື່ອງພິມໃບຮັບເງິນ Print Agents ເຄື່ອງພິມສາຂາ ແລະລິ້ນຊັກເງິນ" : lang === "en" ? "Receipt printers, Print Agents, branch printers, and cash drawers" : "เธ•เธฑเนเธเธเนเธฒเนเธเน€เธชเธฃเนเธ, Print Agents, เน€เธเธฃเธทเนเธญเธเธเธดเธกเธเนเธชเธฒเธเธฒ เนเธฅเธฐเธฅเธดเนเธเธเธฑเธเน€เธเนเธเน€เธเธดเธ"}
               onClick={() => openSettingsView("printers")}
                menuEnabled={!isCustom || isCustomPosMenuVisible("settings.printers", menuPolicy, true)} locked={isSettingLocked("printers") || !menuVisible("settings.printers")}
             />
@@ -3549,30 +3550,30 @@ export function PosSettingsWorkspace({ lang, initialData }: { lang: Language; in
             <MenuButton
               icon="payment"
               title={lang === "en" ? "INET QR" : "INET QR"}
-              desc={lang === "en" ? "Dynamic QR, branch activation, and UAT connection" : "QR เนเธเธเธเธณเธซเธเธ”เธขเธญเธ”, เน€เธเธดเธ”เนเธเนเธเธฒเธเธฃเธฒเธขเธชเธฒเธเธฒ เนเธฅเธฐเธ—เธ”เธชเธญเธ UAT"}
+              desc={lang === "lo" ? "QR ກຳນົດຍອດ ເປີດໃຊ້ຕາມສາຂາ ແລະທົດສອບ UAT" : lang === "en" ? "Dynamic QR, branch activation, and UAT connection" : "QR เนเธเธเธเธณเธซเธเธ”เธขเธญเธ”, เน€เธเธดเธ”เนเธเนเธเธฒเธเธฃเธฒเธขเธชเธฒเธเธฒ เนเธฅเธฐเธ—เธ”เธชเธญเธ UAT"}
               onClick={() => openSettingsView("inet_nops")}
                menuEnabled={!isCustom || isCustomPosMenuVisible("settings.inet_nops", menuPolicy, true)} locked={isSettingLocked("inet_nops") || !menuVisible("settings.inet_nops")}
             />
             {!isStoreSpecificSettingHidden("taxes") ? <MenuButton icon="tax" title={labels.taxes} desc={labels.taxesDesc} onClick={() => openSettingsView("taxes")}  menuEnabled={!isCustom || isCustomPosMenuVisible("settings.taxes", menuPolicy, true)} locked={isSettingLocked("taxes") || !menuVisible("settings.taxes")} /> : null}
             <MenuButton
               icon="bell"
-              title={lang === "en" ? "Notification Settings" : "เธ•เธฑเนเธเธเนเธฒเธเธฒเธฃเนเธเนเธเน€เธ•เธทเธญเธ"}
-              desc={lang === "en" ? "Popup and sound alerts for table QR customer calls" : "POP UP เนเธฅเธฐเน€เธชเธตเธขเธเนเธเนเธเน€เธ•เธทเธญเธเน€เธกเธทเนเธญเธฅเธนเธเธเนเธฒเน€เธฃเธตเธขเธเธเธฒเธ QR เนเธ•เนเธฐ"}
+              title={lang === "lo" ? "ຕັ້ງຄ່າການແຈ້ງເຕືອນ" : lang === "en" ? "Notification Settings" : "เธ•เธฑเนเธเธเนเธฒเธเธฒเธฃเนเธเนเธเน€เธ•เธทเธญเธ"}
+              desc={lang === "lo" ? "ການແຈ້ງເຕືອນ POP UP ແລະສຽງເມື່ອລູກຄ້າເອີ້ນຜ່ານ QR ໂຕະ" : lang === "en" ? "Popup and sound alerts for table QR customer calls" : "POP UP เนเธฅเธฐเน€เธชเธตเธขเธเนเธเนเธเน€เธ•เธทเธญเธเน€เธกเธทเนเธญเธฅเธนเธเธเนเธฒเน€เธฃเธตเธขเธเธเธฒเธ QR เนเธ•เนเธฐ"}
               onClick={() => openSettingsView("notifications")}
                menuEnabled={!isCustom || isCustomPosMenuVisible("settings.notifications", menuPolicy, true)} locked={isSettingLocked("notifications") || !menuVisible("settings.notifications")}
             />
             <MenuLink
               icon="support"
-              title={lang === "en" ? "Help Center" : "ศูนย์ช่วยเหลือ"}
-              desc={lang === "en" ? "Contact support, report issues, and open CpiPOS Support chat" : "ติดต่อสอบถาม แจ้งปัญหา และพูดคุยกับทีม CpiPOS Support"}
+              title={lang === "lo" ? "ສູນຊ່ວຍເຫຼືອ" : lang === "en" ? "Help Center" : "ศูนย์ช่วยเหลือ"}
+              desc={lang === "lo" ? "ຕິດຕໍ່ຝ່າຍຊ່ວຍເຫຼືອ ແຈ້ງບັນຫາ ແລະສົນທະນາກັບ CpiPOS Support" : lang === "en" ? "Contact support, report issues, and open CpiPOS Support chat" : "ติดต่อสอบถาม แจ้งปัญหา และพูดคุยกับทีม CpiPOS Support"}
               href="/preview/pos/payments"
               menuEnabled={!isCustom || isCustomPosMenuVisible("settings.support", menuPolicy, true)} locked={!menuVisible("settings.support")}
               onLocked={() => setItLockedMenu(lang === "en" ? "Help Center" : "ศูนย์ช่วยเหลือ")}
             />
             <MenuButton
               icon="bell"
-              title={lang === "en" ? "Device Notifications" : "การแจ้งเตือนอุปกรณ์"}
-              desc={lang === "en" ? "Push Notification permission and status for this device" : "สถานะ Push Notification และการอนุญาตแจ้งเตือนของเครื่องนี้"}
+              title={lang === "lo" ? "ການແຈ້ງເຕືອນອຸປະກອນ" : lang === "en" ? "Device Notifications" : "การแจ้งเตือนอุปกรณ์"}
+              desc={lang === "lo" ? "ສະຖານະ ແລະສິດແຈ້ງເຕືອນ Push ຂອງອຸປະກອນ" : lang === "en" ? "Push Notification permission and status for this device" : "สถานะ Push Notification และการอนุญาตแจ้งเตือนของเครื่องนี้"}
               onClick={() => !menuVisible("settings.push_notifications") ? setItLockedMenu(lang === "en" ? "Device Notifications" : "การแจ้งเตือนอุปกรณ์") : setPushSettingsOpen(true)}
               menuEnabled={!isCustom || isCustomPosMenuVisible("settings.push_notifications", menuPolicy, true)} locked={!menuVisible("settings.push_notifications")}
             />
@@ -3589,7 +3590,7 @@ export function PosSettingsWorkspace({ lang, initialData }: { lang: Language; in
           </div>
         ) : null}
 
-        {view === "branding" && isCustom && canManage ? <CustomBrandingSettings onBack={()=>setView("menu")}/> : null}
+        {view === "branding" && isCustom && canManage ? <CustomBrandingSettings lang={lang} onBack={()=>setView("menu")}/> : null}
         {view === "store" ? (
           <StorePanel labels={labels} store={store} setStore={setStore} onBack={() => setView("menu")} canManage={canManage} reportStatus={reportStatus} />
         ) : null}

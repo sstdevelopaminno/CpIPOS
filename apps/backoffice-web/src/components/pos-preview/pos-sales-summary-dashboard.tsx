@@ -5,6 +5,7 @@ import { PosBackButton } from "@/components/pos-preview/pos-back-button";
 import { formatSalesMoney, type SalesCurrencyCode } from "@/lib/pos-money";
 import { downloadExcelCsv, type CsvCellValue } from "@/lib/excel-csv";
 import type { Language } from "@/lib/i18n";
+import {loUi} from "@/lib/lao-pos-ui";
 import type { PosSalesSummaryPayload } from "@/lib/services/pos-sales-summary-service";
 
 type Props = {
@@ -43,16 +44,16 @@ const inputClass =
   "h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm font-semibold text-slate-900 outline-none transition focus:border-blue-400 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400";
 
 function money(value: number, lang: Language, code: SalesCurrencyCode): string {
-  return formatSalesMoney(value, code, lang === "th" ? "th-TH" : "en-US");
+  return formatSalesMoney(value, code, lang === "lo" ? "lo-LA" : lang === "th" ? "th-TH" : "en-US");
 }
 
 function number(value: number, lang: Language): string {
-  return new Intl.NumberFormat(lang === "th" ? "th-TH" : "en-US", { maximumFractionDigits: 3 }).format(value);
+  return new Intl.NumberFormat(lang === "lo" ? "lo-LA" : lang === "th" ? "th-TH" : "en-US", { maximumFractionDigits: 3 }).format(value);
 }
 
 function dateTime(value: string | null, lang: Language): string {
   if (!value) return "-";
-  return new Intl.DateTimeFormat(lang === "th" ? "th-TH" : "en-US", {
+  return new Intl.DateTimeFormat(lang === "lo" ? "lo-LA" : lang === "th" ? "th-TH" : "en-US", {
     dateStyle: "short",
     timeStyle: "short",
     timeZone: "Asia/Bangkok"
@@ -60,20 +61,21 @@ function dateTime(value: string | null, lang: Language): string {
 }
 
 function shiftSummaryCsvHeaders(lang: Language): string[] {
-  return lang === "th"
-    ? ["เปิดกะ", "ปิดกะ", "สาขา", "พนักงาน", "เงินต้น", "เงินสด", "คาดหวัง", "เงินจริง", "ต่าง"]
+  return lang === "lo" ? ["ເປີດກະ","ປິດກະ","ສາຂາ","ພະນັກງານ","ເງິນທອນຕົ້ນກະ","ເງິນສົດ","ເງິນຄາດຫວັງ","ເງິນນັບຈິງ","ສ່ວນຕ່າງ"]
+    : lang === "th" ? ["เปิดกะ", "ปิดกะ", "สาขา", "พนักงาน", "เงินต้น", "เงินสด", "คาดหวัง", "เงินจริง", "ต่าง"]
     : ["Opened at", "Closed at", "Branch", "Cashier", "Opening cash", "Cash sales", "Expected cash", "Actual cash", "Difference"];
 }
 
 function paymentLabel(label: string, method?: string, lang: Language = "th"): string {
-  if (method === "cash") return lang === "th" ? "เงินสด" : "Cash";
-  if (method === "bank_transfer") return lang === "th" ? "โอน / QR" : "Transfer / QR";
-  if (method === "card") return lang === "th" ? "บัตรเครดิต / เดบิต" : "Credit / Debit Card";
+  if (method === "cash") return lang === "lo" ? "ເງິນສົດ" : lang === "th" ? "เงินสด" : "Cash";
+  if (method === "bank_transfer") return lang === "lo" ? "ໂອນ / QR" : lang === "th" ? "โอน / QR" : "Transfer / QR";
+  if (method === "card") return lang === "lo" ? "ບັດເຄຣດິດ / ເດບິດ" : lang === "th" ? "บัตรเครดิต / เดบิต" : "Credit / Debit Card";
   if (label.includes("เธ") || label.includes("เน")) return method === "other" ? (lang === "th" ? "อื่น ๆ" : "Other") : lang === "th" ? "ยังไม่ชำระ" : "Unpaid";
   return label || "-";
 }
 
 export function PosSalesSummaryDashboard({ lang, initialPayload, opticalMode = false }: Props) {
+  const ui=(value:string)=>loUi(lang,value);
   const [payload, setPayload] = useState(initialPayload);
   const [dateFrom, setDateFrom] = useState(initialPayload.filters.dateFrom);
   const [dateTo, setDateTo] = useState(initialPayload.filters.dateTo);
@@ -107,15 +109,15 @@ export function PosSalesSummaryDashboard({ lang, initialPayload, opticalMode = f
   }, [payload.salesRows, salesRowsPage, salesRowsTotalPages]);
   const activeMoreExport = useMemo(() => buildMoreDialogExport(payload, moreDialogTab, lang), [lang, moreDialogTab, payload]);
   const kpis = [
-    { label: "ยอดขายรวม", value: money(payload.summary.grossSales, lang, payload.currencyCode), tone: "text-slate-900" },
-    { label: "ยอดขายสุทธิ", value: money(payload.summary.netSales, lang, payload.currencyCode), tone: "text-blue-700" },
-    { label: "จำนวนบิล", value: number(payload.summary.receiptCount, lang), tone: "text-slate-900" },
-    { label: "เงินสด", value: money(payload.summary.cashTotal, lang, payload.currencyCode), tone: "text-green-700" },
-    { label: "โอน / QR", value: money(payload.summary.qrTransferTotal, lang, payload.currencyCode), tone: "text-blue-700" },
-    { label: "บัตรเครดิต / เดบิต", value: money(payload.summary.cardTotal, lang, payload.currencyCode), tone: "text-violet-700" },
-    { label: "ส่วนลด", value: money(payload.summary.discountTotal, lang, payload.currencyCode), tone: "text-amber-700" },
+    { label: ui("ยอดขายรวม"), value: money(payload.summary.grossSales, lang, payload.currencyCode), tone: "text-slate-900" },
+    { label: ui("ยอดขายสุทธิ"), value: money(payload.summary.netSales, lang, payload.currencyCode), tone: "text-blue-700" },
+    { label: ui("จำนวนบิล"), value: number(payload.summary.receiptCount, lang), tone: "text-slate-900" },
+    { label: ui("เงินสด"), value: money(payload.summary.cashTotal, lang, payload.currencyCode), tone: "text-green-700" },
+    { label: ui("โอน / QR"), value: money(payload.summary.qrTransferTotal, lang, payload.currencyCode), tone: "text-blue-700" },
+    { label: ui("บัตรเครดิต / เดบิต"), value: money(payload.summary.cardTotal, lang, payload.currencyCode), tone: "text-violet-700" },
+    { label: ui("ส่วนลด"), value: money(payload.summary.discountTotal, lang, payload.currencyCode), tone: "text-amber-700" },
     {
-      label: "ยกเลิก / คืนเงิน",
+      label: ui("ยกเลิก / คืนเงิน"),
       value: `${money(payload.summary.cancelledTotal + payload.summary.refundTotal, lang, payload.currencyCode)} (${payload.summary.cancelledCount})`,
       tone: "text-red-700"
     }
@@ -209,16 +211,16 @@ export function PosSalesSummaryDashboard({ lang, initialPayload, opticalMode = f
         <header className={opticalMode ? "rounded-2xl border border-emerald-200 bg-gradient-to-r from-emerald-50 via-white to-white p-4 shadow-sm lg:p-5" : "rounded-2xl border border-slate-200 bg-white p-4 shadow-sm lg:p-5"}>
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div className="min-w-[260px]">
-              <PosBackButton lang={lang} href="/preview/pos/more" label={lang === "th" ? "กลับเมนูเพิ่มเติม" : "Back to More"} className="mb-3" />
+              <PosBackButton lang={lang} href="/preview/pos/more" label={lang === "lo" ? "ກັບເມນູເພີ່ມເຕີມ" : lang === "th" ? "กลับเมนูเพิ่มเติม" : "Back to More"} className="mb-3" />
               {opticalMode ? <p className="mb-2 text-xs font-black tracking-[0.16em] text-emerald-800">CUSTOM · OPTICAL REPORTS</p> : null}
-              <h1 className="text-2xl font-black text-slate-950 lg:text-3xl">สรุปยอดขาย</h1>
-              <p className="mt-1 max-w-3xl text-sm text-slate-600">ดูภาพรวมยอดขายตามวัน กะ พนักงาน ช่องทางชำระเงิน และสาขา</p>
+              <h1 className="text-2xl font-black text-slate-950 lg:text-3xl">{ui("สรุปยอดขาย")}</h1>
+              <p className="mt-1 max-w-3xl text-sm text-slate-600">{ui("ดูภาพรวมยอดขายตามวัน กะ พนักงาน ช่องทางชำระเงิน และสาขา")}</p>
             </div>
             <div className="flex flex-wrap gap-2">
-              <ActionButton onClick={() => setSummaryDialogOpen(true)}>{opticalMode ? "ดูรายละเอียดสรุป" : "สรุปยอดขาย"}</ActionButton>
-              <ActionButton onClick={() => setFilterDialogOpen(true)}>คัดกรอง</ActionButton>
-              <ActionButton onClick={() => setMoreDialogOpen(true)}>ดูเพิ่มเติม</ActionButton>
-              <ActionButton onClick={() => setSalesRowsDialogOpen(true)}>รายการขาย</ActionButton>
+              <ActionButton onClick={() => setSummaryDialogOpen(true)}>{opticalMode ? ui("ดูรายละเอียดสรุป") : ui("สรุปยอดขาย")}</ActionButton>
+              <ActionButton onClick={() => setFilterDialogOpen(true)}>{ui("คัดกรอง")}</ActionButton>
+              <ActionButton onClick={() => setMoreDialogOpen(true)}>{ui("ดูเพิ่มเติม")}</ActionButton>
+              <ActionButton onClick={() => setSalesRowsDialogOpen(true)}>{ui("รายการขาย")}</ActionButton>
               <button type="button" onClick={refresh} disabled={isPending} className="h-10 rounded-lg border border-blue-200 bg-blue-600 px-4 text-sm font-bold text-white transition hover:bg-blue-700 disabled:cursor-wait disabled:opacity-70">
                 {isPending ? "กำลังโหลด" : "รีเฟรช"}
               </button>
@@ -230,7 +232,7 @@ export function PosSalesSummaryDashboard({ lang, initialPayload, opticalMode = f
         {error ? <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">{error}</div> : null}
         <div className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-950" data-testid="sales-summary-currency-ledger">
           <strong>ยอดสรุปหน้าปัจจุบัน: {payload.currencyCode}</strong>
-          <p className="mt-1">บิลเก่าที่เป็น THB และบิลใหม่ LAK/USD จะไม่ถูกรวมเป็นยอดเงินเดียวกัน รายการย้อนหลังดูได้ในเมนูรายการขาย</p>
+          <p className="mt-1">{ui("บิลเก่าที่เป็น THB และบิลใหม่ LAK/USD จะไม่ถูกรวมเป็นยอดเงินเดียวกัน รายการย้อนหลังดูได้ในเมนูรายการขาย")}</p>
           <div className="mt-2 flex flex-wrap gap-3">
             {payload.currencyBuckets.map((bucket) => (
               <span key={bucket.currencyCode} className="rounded-lg bg-white px-3 py-2 font-bold shadow-sm">
@@ -243,10 +245,10 @@ export function PosSalesSummaryDashboard({ lang, initialPayload, opticalMode = f
         {opticalMode ? (
           <section aria-label="ภาพรวมยอดขาย Optical" className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4" data-testid="optical-sales-summary-kpis">
             {[
-              { label: "ยอดขายรวม", value: money(payload.summary.grossSales, lang, payload.currencyCode), tone: "text-slate-950" },
-              { label: "ยอดขายสุทธิ", value: money(payload.summary.netSales, lang, payload.currencyCode), tone: "text-emerald-800" },
-              { label: "จำนวนบิล", value: number(payload.summary.receiptCount, lang), tone: "text-slate-950" },
-              { label: "เงินสด / โอน", value: `${money(payload.summary.cashTotal, lang, payload.currencyCode)} / ${money(payload.summary.qrTransferTotal, lang, payload.currencyCode)}`, tone: "text-slate-950" }
+              { label: ui("ยอดขายรวม"), value: money(payload.summary.grossSales, lang, payload.currencyCode), tone: "text-slate-950" },
+              { label: ui("ยอดขายสุทธิ"), value: money(payload.summary.netSales, lang, payload.currencyCode), tone: "text-emerald-800" },
+              { label: ui("จำนวนบิล"), value: number(payload.summary.receiptCount, lang), tone: "text-slate-950" },
+              { label: ui("เงินสด / โอน"), value: `${money(payload.summary.cashTotal, lang, payload.currencyCode)} / ${money(payload.summary.qrTransferTotal, lang, payload.currencyCode)}`, tone: "text-slate-950" }
             ].map(kpi => (
               <article key={kpi.label} className="rounded-2xl border border-emerald-100 bg-white p-4 shadow-sm">
                 <p className="text-xs font-bold text-slate-500">{kpi.label}</p>
@@ -257,19 +259,19 @@ export function PosSalesSummaryDashboard({ lang, initialPayload, opticalMode = f
           </section>
         ) : null}
 
-        <Panel title={opticalMode ? "ประวัติสรุปกะ (ตามช่วงเวลาที่บันทึก)" : "สรุปกะ"}>
+        <Panel title={opticalMode ? ui("ประวัติสรุปกะ (ตามช่วงเวลาที่บันทึก)") : ui("สรุปกะ")}>
           <ScrollTable minWidth="860px">
             <thead>
               <tr>
-                <Th>เปิดกะ</Th>
-                <Th>ปิดกะ</Th>
-                <Th>สาขา</Th>
-                <Th>พนักงาน</Th>
-                <Th align="right">เงินต้น</Th>
-                <Th align="right">เงินสด</Th>
-                <Th align="right">คาดหวัง</Th>
-                <Th align="right">เงินจริง</Th>
-                <Th align="right">ต่าง</Th>
+                <Th>{ui("เปิดกะ")}</Th>
+                <Th>{ui("ปิดกะ")}</Th>
+                <Th>{ui("สาขา")}</Th>
+                <Th>{ui("พนักงาน")}</Th>
+                <Th align="right">{ui("เงินต้น")}</Th>
+                <Th align="right">{ui("เงินสด")}</Th>
+                <Th align="right">{ui("คาดหวัง")}</Th>
+                <Th align="right">{ui("เงินจริง")}</Th>
+                <Th align="right">{ui("ต่าง")}</Th>
               </tr>
             </thead>
             <tbody>
@@ -301,7 +303,7 @@ export function PosSalesSummaryDashboard({ lang, initialPayload, opticalMode = f
           />
         </Panel>
 
-        <Dialog open={summaryDialogOpen} title="สรุปยอดขาย" onClose={() => setSummaryDialogOpen(false)} wide>
+        <Dialog open={summaryDialogOpen} title={ui("สรุปยอดขาย")} onClose={() => setSummaryDialogOpen(false)} wide>
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
             {kpis.map((item) => (
               <article key={item.label} className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
@@ -312,24 +314,24 @@ export function PosSalesSummaryDashboard({ lang, initialPayload, opticalMode = f
           </div>
         </Dialog>
 
-        <Dialog open={filterDialogOpen} title="คัดกรองข้อมูล" onClose={() => setFilterDialogOpen(false)}>
+        <Dialog open={filterDialogOpen} title={ui("คัดกรอง")} onClose={() => setFilterDialogOpen(false)}>
           <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
             <Field label="ตั้งแต่"><input value={dateFrom} onChange={(event) => setDateFrom(event.target.value)} type="date" className={inputClass} /></Field>
             <Field label="ถึง"><input value={dateTo} onChange={(event) => setDateTo(event.target.value)} type="date" className={inputClass} /></Field>
             <Field label="สาขา">
               <select value={branchId} onChange={(event) => setBranchId(event.target.value)} disabled={!payload.access.canViewMultipleBranches} className={inputClass}>
-                {payload.access.canViewMultipleBranches ? <option value="all">ทุกสาขา</option> : null}
+                {payload.access.canViewMultipleBranches ? <option value="all">{ui("ทุกสาขา")}</option> : null}
                 {payload.branchOptions.map((branch) => <option key={branch.id} value={branch.id}>{branch.name} ({branch.code})</option>)}
               </select>
             </Field>
-            <Field label="กะ"><select value={shiftId} onChange={(event) => setShiftId(event.target.value)} className={inputClass}><option value="all">ทุกกะ</option>{payload.shiftOptions.map((shift) => <option key={shift.id} value={shift.id}>{shift.label}</option>)}</select></Field>
-            <Field label="พนักงาน"><select value={cashierId} onChange={(event) => setCashierId(event.target.value)} className={inputClass}><option value="all">ทุกคน</option>{payload.cashierOptions.map((cashier) => <option key={cashier.id} value={cashier.id}>{cashier.label}</option>)}</select></Field>
+            <Field label="กะ"><select value={shiftId} onChange={(event) => setShiftId(event.target.value)} className={inputClass}><option value="all">{ui("ทุกกะ")}</option>{payload.shiftOptions.map((shift) => <option key={shift.id} value={shift.id}>{shift.label}</option>)}</select></Field>
+            <Field label="พนักงาน"><select value={cashierId} onChange={(event) => setCashierId(event.target.value)} className={inputClass}><option value="all">{ui("ทุกคน")}</option>{payload.cashierOptions.map((cashier) => <option key={cashier.id} value={cashier.id}>{cashier.label}</option>)}</select></Field>
             <Field label="ชำระเงิน"><select value={paymentMethod} onChange={(event) => setPaymentMethod(event.target.value)} className={inputClass}>{paymentOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></Field>
             <Field label="สถานะ"><select value={status} onChange={(event) => setStatus(event.target.value)} className={inputClass}>{statusOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></Field>
           </div>
-          {payload.access.selfOnly ? <p className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-700">สิทธิ์ปัจจุบันดูได้เฉพาะข้อมูลกะ/ผู้ใช้งานของตัวเอง</p> : null}
+          {payload.access.selfOnly ? <p className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-700">{ui("สิทธิ์ปัจจุบันดูได้เฉพาะข้อมูลกะ/ผู้ใช้งานของตัวเอง")}</p> : null}
           <DialogActions>
-            <ActionButton onClick={() => setFilterDialogOpen(false)}>ปิด</ActionButton>
+            <ActionButton onClick={() => setFilterDialogOpen(false)}>{ui("ปิด")}</ActionButton>
             <button type="button" onClick={() => { refresh(); setFilterDialogOpen(false); }} disabled={isPending} className="h-10 rounded-lg border border-blue-200 bg-blue-600 px-4 text-sm font-bold text-white transition hover:bg-blue-700 disabled:cursor-wait disabled:opacity-70">{isPending ? "กำลังโหลด" : "ใช้ตัวกรอง"}</button>
           </DialogActions>
         </Dialog>
@@ -362,7 +364,7 @@ export function PosSalesSummaryDashboard({ lang, initialPayload, opticalMode = f
         >
           <Panel title="รายการขาย">
             <ScrollTable minWidth="1040px">
-              <thead><tr><Th>เลขที่บิล</Th><Th>วันเวลา</Th><Th>สาขา</Th><Th>พนักงาน</Th><Th>ชำระเงิน</Th><Th align="right">ยอดรวม</Th><Th align="right">ส่วนลด</Th><Th align="right">ภาษี</Th><Th align="right">สุทธิ</Th><Th>สถานะ</Th></tr></thead>
+              <thead><tr><Th>{ui("เลขที่บิล")}</Th><Th>{ui("วันเวลา")}</Th><Th>{ui("สาขา")}</Th><Th>{ui("พนักงาน")}</Th><Th>{ui("ชำระเงิน")}</Th><Th align="right">{ui("ยอดรวม")}</Th><Th align="right">{ui("ส่วนลด")}</Th><Th align="right">{ui("ภาษี")}</Th><Th align="right">{ui("สุทธิ")}</Th><Th>{ui("สถานะ")}</Th></tr></thead>
               <tbody>{payload.salesRows.length === 0 ? <EmptyRow colSpan={10} /> : visibleSalesRows.map((row) => (
                 <tr key={row.id} className="border-t border-slate-100">
                   <Td strong>{row.receiptNo}</Td><Td>{dateTime(row.createdAt, lang)}</Td><Td>{row.branchName}</Td><Td>{row.cashierName}</Td><Td>{paymentLabel(row.paymentLabel, row.paymentMethod, lang)}</Td><Td align="right">{money(row.grossTotal, lang, payload.currencyCode)}</Td><Td align="right">{money(row.discount, lang, payload.currencyCode)}</Td><Td align="right">{money(row.tax, lang, payload.currencyCode)}</Td><Td align="right" strong>{money(row.netTotal, lang, payload.currencyCode)}</Td><Td><StatusBadge status={row.status} lang={lang} /></Td>

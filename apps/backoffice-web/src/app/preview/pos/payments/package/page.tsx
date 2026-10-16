@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import {getCurrentLanguage} from "@/lib/i18n";
 import { PosSubscriptionCenter } from "@/components/pos-preview/pos-subscription-center";
 import { assertPosMenuPageAllowed } from "@/lib/server/pos-menu-policy-service";
 import { requirePosSession } from "@/lib/pos-session-guard";
@@ -11,5 +12,6 @@ export default async function PosPackageBillingPage() {
   if (!["owner", "manager"].includes(scope.session.role)) redirect("/preview/pos/payments");
   await assertPosMenuPageAllowed(scope.session.tenant_id, "/preview/pos/payments/package");
   const data = await loadPosSubscriptionCenter(scope.session.tenant_id);
-  return <PosSubscriptionCenter initial={data} isOwner={scope.session.role === "owner"} showContactActions={false} />;
+  const lang = await getCurrentLanguage();
+  return <PosSubscriptionCenter lang={lang} initial={data} isOwner={scope.session.role === "owner"} showContactActions={false} />;
 }

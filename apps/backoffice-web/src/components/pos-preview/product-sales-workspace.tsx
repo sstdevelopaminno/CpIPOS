@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { Language } from "@/lib/i18n";
+import {loUi} from "@/lib/lao-pos-ui";
 import { formatSalesMoney, type SalesCurrencyCode } from "@/lib/pos-money";
 
 type RangeMode = "today" | "custom" | "month" | "year";
@@ -74,7 +75,8 @@ function bestSellerLabel(row: ProductSaleRow, th: boolean) {
 }
 
 export function ProductSalesWorkspace({ lang, canViewAllBranches, initialBranchId, opticalMode = false }: Props) {
-  const th = lang === "th";
+  const th = lang !== "en";
+  const ui=(value:string)=>loUi(lang,value);
   const today = useMemo(() => bangkokToday(), []);
   const [mode, setMode] = useState<RangeMode>("today");
   const [fromDate, setFromDate] = useState(today);
@@ -103,7 +105,7 @@ export function ProductSalesWorkspace({ lang, canViewAllBranches, initialBranchI
     const range = resolveRange();
     if (!range.from || !range.to) return false;
     if (range.to < range.from) {
-      setErrorText(th ? "วันที่สิ้นสุดต้องไม่น้อยกว่าวันที่เริ่มต้น" : "End date must not be before start date.");
+      setErrorText(th ? ui("วันที่สิ้นสุดต้องไม่น้อยกว่าวันที่เริ่มต้น") : "End date must not be before start date.");
       return false;
     }
 
@@ -115,7 +117,7 @@ export function ProductSalesWorkspace({ lang, canViewAllBranches, initialBranchI
       const response = await fetch(`/api/pos/product-sales?${params.toString()}`, { cache: "no-store" });
       const body = (await response.json().catch(() => null)) as ApiEnvelope<ProductSalesPayload> | null;
       if (!response.ok || !body?.data || body.error) {
-        throw new Error(body?.error?.message ?? (th ? "โหลดรายการขายสินค้าไม่สำเร็จ" : "Unable to load product sales."));
+        throw new Error(body?.error?.message ?? (th ? ui("โหลดรายการขายสินค้าไม่สำเร็จ") : "Unable to load product sales."));
       }
       if (requestId !== requestIdRef.current) return false;
       setPayload(body.data);
@@ -123,7 +125,7 @@ export function ProductSalesWorkspace({ lang, canViewAllBranches, initialBranchI
       return true;
     } catch (error) {
       if (requestId !== requestIdRef.current) return false;
-      setErrorText(error instanceof Error ? error.message : th ? "โหลดรายการขายสินค้าไม่สำเร็จ" : "Unable to load product sales.");
+      setErrorText(error instanceof Error ? error.message : th ? ui("โหลดรายการขายสินค้าไม่สำเร็จ") : "Unable to load product sales.");
       return false;
     } finally {
       if (requestId === requestIdRef.current) setLoading(false);
@@ -185,12 +187,12 @@ export function ProductSalesWorkspace({ lang, canViewAllBranches, initialBranchI
 
   const dateTime = useMemo(
     () =>
-      new Intl.DateTimeFormat(th ? "th-TH" : "en-US", {
+      new Intl.DateTimeFormat(lang === "lo" ? "lo-LA" : th ? "th-TH" : "en-US", {
         timeZone: "Asia/Bangkok",
         dateStyle: "short",
         timeStyle: "short"
       }),
-    [th]
+    [lang, th]
   );
 
   async function applyFilters() {
@@ -208,10 +210,10 @@ export function ProductSalesWorkspace({ lang, canViewAllBranches, initialBranchI
               prefetch={false}
               className="mb-3 inline-flex h-9 items-center rounded-lg border border-slate-300 bg-white px-3 text-sm font-bold text-slate-700 shadow-sm hover:bg-slate-50"
             >
-              ← {th ? "กลับเมนูเพิ่มเติม" : "Back to More"}
+              ← {th ? ui("กลับเมนูเพิ่มเติม") : "Back to More"}
             </Link>
             {opticalMode ? <p className="mb-1 text-xs font-black tracking-[0.16em] text-emerald-800">CUSTOM · OPTICAL PRODUCT SALES</p> : null}
-            <h1 className="text-2xl font-black text-slate-950">{th ? "รายการขายสินค้า" : "Product Sales"}</h1>
+            <h1 className="text-2xl font-black text-slate-950">{th ? ui("รายการขายสินค้า") : "Product Sales"}</h1>
             <p className="mt-1 text-sm font-medium text-slate-500">
               {th
                 ? "ตรวจสอบสินค้าที่ขายจริง ราคา จำนวน สาขา และสถานะสินค้าขายดี"
@@ -225,14 +227,14 @@ export function ProductSalesWorkspace({ lang, canViewAllBranches, initialBranchI
               onClick={() => setFilterPopupOpen(true)}
               className="h-10 rounded-lg border border-slate-300 bg-white px-4 text-sm font-bold text-slate-700 shadow-sm hover:bg-slate-50"
             >
-              {th ? "ตัวกรอง" : "Filters"}
+              {th ? ui("ตัวกรอง") : "Filters"}
             </button>
             <button
               type="button"
               onClick={() => setSummaryPopupOpen(true)}
               className="h-10 rounded-lg border border-slate-300 bg-white px-4 text-sm font-bold text-slate-700 shadow-sm hover:bg-slate-50"
             >
-              {th ? "แสดงสรุป" : "Summary"}
+              {th ? ui("แสดงสรุป") : "Summary"}
             </button>
             <button
               type="button"
@@ -240,7 +242,7 @@ export function ProductSalesWorkspace({ lang, canViewAllBranches, initialBranchI
               disabled={loading}
               className="h-10 rounded-lg bg-slate-900 px-4 text-sm font-bold text-white disabled:cursor-not-allowed disabled:opacity-60"
             >
-              {loading ? (th ? "กำลังโหลด..." : "Loading...") : th ? "รีเฟรช" : "Refresh"}
+              {loading ? (th ? ui("กำลังโหลด...") : "Loading...") : th ? ui("รีเฟรช") : "Refresh"}
             </button>
           </div>
         </div>
@@ -251,13 +253,13 @@ export function ProductSalesWorkspace({ lang, canViewAllBranches, initialBranchI
 
         {opticalMode ? (
           <section className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-3" aria-label="ภาพรวมรายการขายสินค้า Optical" data-testid="optical-product-sales-kpis">
-            <Summary label={th ? "รายการที่พบ" : "Sale lines"} value={filteredSummary.line_count.toLocaleString()} />
-            <Summary label={th ? "จำนวนขายสำเร็จ (ชิ้น)" : "Units sold"} value={filteredSummary.units.toLocaleString(th ? "th-TH" : "en-US", { maximumFractionDigits: 3 })} />
+            <Summary label={th ? ui("รายการที่พบ") : "Sale lines"} value={filteredSummary.line_count.toLocaleString()} />
+            <Summary label={th ? ui("จำนวนขายสำเร็จ (ชิ้น)") : "Units sold"} value={filteredSummary.units.toLocaleString(lang === "lo" ? "lo-LA" : th ? "th-TH" : "en-US", { maximumFractionDigits: 3 })} />
             <article className="rounded-xl border border-emerald-200 bg-emerald-50 p-3">
-              <p className="text-xs font-semibold text-emerald-900">{th ? "ยอดขายแยกตามสกุลเงิน" : "Sales by currency"}</p>
+              <p className="text-xs font-semibold text-emerald-900">{th ? ui("ยอดขายแยกตามสกุลเงิน") : "Sales by currency"}</p>
               {opticalCurrencyTotals.length ? opticalCurrencyTotals.map(([code, total]) => (
                 <strong key={code} className="mt-1 block text-lg font-black text-emerald-900">
-                  {code}: {formatSalesMoney(total, code, th ? "th-TH" : "en-US")}
+                  {code}: {formatSalesMoney(total, code, lang === "lo" ? "lo-LA" : th ? "th-TH" : "en-US")}
                 </strong>
               )) : <strong className="mt-1 block text-lg font-black text-emerald-900">—</strong>}
             </article>
@@ -269,15 +271,15 @@ export function ProductSalesWorkspace({ lang, canViewAllBranches, initialBranchI
             <table className="min-w-[1100px] w-full text-sm">
               <thead className={opticalMode ? "sticky top-0 z-10 bg-emerald-50 text-left text-xs font-bold text-slate-600" : "sticky top-0 z-10 bg-slate-100 text-left text-xs font-bold text-slate-600 shadow-[0_1px_0_rgba(148,163,184,0.25)]"}>
                 <tr>
-                  <th className="px-3 py-3">{th ? "วันที่ขาย" : "Sold at"}</th>
-                  <th className="px-3 py-3">{th ? "เลขบิล" : "Bill"}</th>
-                  <th className="px-3 py-3">{th ? "สินค้า" : "Product"}</th>
-                  <th className="px-3 py-3 text-right">{th ? "ราคา" : "Price"}</th>
-                  <th className="px-3 py-3 text-right">{th ? "จำนวนขาย" : "Qty"}</th>
-                  <th className="px-3 py-3 text-right">{th ? "ยอดรวม" : "Total"}</th>
-                  <th className="px-3 py-3">{th ? "สาขา" : "Branch"}</th>
-                  <th className="px-3 py-3">{th ? "สถานะบิล" : "Bill status"}</th>
-                  <th className="px-3 py-3">{th ? "สถานะ" : "Status"}</th>
+                  <th className="px-3 py-3">{th ? ui("วันที่ขาย") : "Sold at"}</th>
+                  <th className="px-3 py-3">{th ? ui("เลขบิล") : "Bill"}</th>
+                  <th className="px-3 py-3">{th ? ui("สินค้า") : "Product"}</th>
+                  <th className="px-3 py-3 text-right">{th ? ui("ราคา") : "Price"}</th>
+                  <th className="px-3 py-3 text-right">{th ? ui("จำนวนขาย") : "Qty"}</th>
+                  <th className="px-3 py-3 text-right">{th ? ui("ยอดรวม") : "Total"}</th>
+                  <th className="px-3 py-3">{th ? ui("สาขา") : "Branch"}</th>
+                  <th className="px-3 py-3">{th ? ui("สถานะบิล") : "Bill status"}</th>
+                  <th className="px-3 py-3">{th ? ui("สถานะ") : "Status"}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 bg-white">
@@ -304,15 +306,15 @@ export function ProductSalesWorkspace({ lang, canViewAllBranches, initialBranchI
                           {row.sku ?? "-"} · {row.category ?? "-"}
                         </p>
                       </td>
-                      <td className="px-3 py-3 text-right">{opticalMode ? formatSalesMoney(row.unit_price, row.currency_code ?? "THB", th ? "th-TH" : "en-US") : `฿${formatMoney(row.unit_price, lang)}`}</td>
+                      <td className="px-3 py-3 text-right">{opticalMode ? formatSalesMoney(row.unit_price, row.currency_code ?? "THB", lang === "lo" ? "lo-LA" : th ? "th-TH" : "en-US") : `฿${formatMoney(row.unit_price, lang)}`}</td>
                       <td className="px-3 py-3 text-right font-bold">
-                        {row.quantity.toLocaleString(th ? "th-TH" : "en-US", { maximumFractionDigits: 3 })}
+                        {row.quantity.toLocaleString(lang === "lo" ? "lo-LA" : th ? "th-TH" : "en-US", { maximumFractionDigits: 3 })}
                       </td>
-                      <td className="px-3 py-3 text-right font-bold">{opticalMode ? formatSalesMoney(row.line_total, row.currency_code ?? "THB", th ? "th-TH" : "en-US") : `฿${formatMoney(row.line_total, lang)}`}</td>
+                      <td className="px-3 py-3 text-right font-bold">{opticalMode ? formatSalesMoney(row.line_total, row.currency_code ?? "THB", lang === "lo" ? "lo-LA" : th ? "th-TH" : "en-US") : `฿${formatMoney(row.line_total, lang)}`}</td>
                       <td className="px-3 py-3">{row.branch_name}</td>
                       <td className="px-3 py-3">
                         <Badge tone={row.order_status === "cancelled" ? "red" : "green"}>
-                          {row.order_status === "cancelled" ? (th ? "ยกเลิก" : "Cancelled") : th ? "ขายสำเร็จ" : "Completed"}
+                          {row.order_status === "cancelled" ? (th ? ui("ยกเลิก") : "Cancelled") : th ? ui("ขายสำเร็จ") : "Completed"}
                         </Badge>
                       </td>
                       <td className="px-3 py-3">
@@ -325,7 +327,7 @@ export function ProductSalesWorkspace({ lang, canViewAllBranches, initialBranchI
                                 : "slate"
                           }
                         >
-                          {bestSellerLabel(row, th)}
+                          {ui(bestSellerLabel(row, th))}
                         </Badge>
                       </td>
                     </tr>
@@ -337,7 +339,7 @@ export function ProductSalesWorkspace({ lang, canViewAllBranches, initialBranchI
 
           <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-200 bg-slate-50 px-3 py-2.5">
             <p className="text-xs font-semibold text-slate-500">
-              {pageStart} - {pageEnd} / {filteredRows.length} {th ? "รายการ" : "items"}
+              {pageStart} - {pageEnd} / {filteredRows.length} {th ? ui("รายการ") : "items"}
             </p>
             <div className="flex items-center gap-2">
               <button
@@ -346,10 +348,10 @@ export function ProductSalesWorkspace({ lang, canViewAllBranches, initialBranchI
                 disabled={safePage <= 1}
                 className="h-9 rounded-lg border border-slate-300 bg-white px-3 text-sm font-bold text-slate-700 disabled:cursor-not-allowed disabled:opacity-40"
               >
-                {th ? "ก่อนหน้า" : "Previous"}
+                {th ? ui("ก่อนหน้า") : "Previous"}
               </button>
               <span className="min-w-20 rounded-lg border border-slate-200 bg-white px-3 py-2 text-center text-xs font-bold text-slate-600">
-                {th ? "หน้า" : "Page"} {safePage} / {totalPages}
+                {th ? ui("หน้า") : "Page"} {safePage} / {totalPages}
               </span>
               <button
                 type="button"
@@ -357,7 +359,7 @@ export function ProductSalesWorkspace({ lang, canViewAllBranches, initialBranchI
                 disabled={safePage >= totalPages}
                 className="h-9 rounded-lg border border-blue-600 bg-blue-600 px-3 text-sm font-bold text-white disabled:cursor-not-allowed disabled:border-slate-300 disabled:bg-slate-200 disabled:text-slate-500"
               >
-                {th ? "ถัดไป" : "Next"}
+                {th ? ui("ถัดไป") : "Next"}
               </button>
             </div>
           </div>
@@ -372,15 +374,15 @@ export function ProductSalesWorkspace({ lang, canViewAllBranches, initialBranchI
           <section
             role="dialog"
             aria-modal="true"
-            aria-label={th ? "ตัวกรองรายการขายสินค้า" : "Product sales filters"}
+            aria-label={th ? ui("ตัวกรองรายการขายสินค้า") : "Product sales filters"}
             onClick={(event) => event.stopPropagation()}
             className="max-h-[88vh] w-full max-w-3xl overflow-y-auto rounded-2xl border border-slate-200 bg-white p-4 shadow-2xl sm:p-5"
           >
             <div className="flex items-start justify-between gap-3">
               <div>
-                <h2 className="text-lg font-black text-slate-950">{th ? "ตัวกรอง" : "Filters"}</h2>
+                <h2 className="text-lg font-black text-slate-950">{th ? ui("ตัวกรอง") : "Filters"}</h2>
                 <p className="mt-1 text-xs font-medium text-slate-500">
-                  {th ? "เลือกช่วงเวลา สาขา และค้นหารายการขายสินค้า" : "Choose period, branch and search product sales."}
+                  {th ? ui("เลือกช่วงเวลา สาขา และค้นหารายการขายสินค้า") : "Choose period, branch and search product sales."}
                 </p>
               </div>
               <button
@@ -388,7 +390,7 @@ export function ProductSalesWorkspace({ lang, canViewAllBranches, initialBranchI
                 onClick={() => setFilterPopupOpen(false)}
                 className="h-9 rounded-lg border border-slate-300 bg-white px-3 text-sm font-bold text-slate-700"
               >
-                {th ? "ปิด" : "Close"}
+                {th ? ui("ปิด") : "Close"}
               </button>
             </div>
 
@@ -428,7 +430,7 @@ export function ProductSalesWorkspace({ lang, canViewAllBranches, initialBranchI
                 {mode === "custom" ? (
                   <>
                     <label className="grid gap-1 text-xs font-bold text-slate-600">
-                      {th ? "จากวันที่" : "From"}
+                      {th ? ui("จากวันที่") : "From"}
                       <input
                         type="date"
                         value={fromDate}
@@ -437,7 +439,7 @@ export function ProductSalesWorkspace({ lang, canViewAllBranches, initialBranchI
                       />
                     </label>
                     <label className="grid gap-1 text-xs font-bold text-slate-600">
-                      {th ? "ถึงวันที่" : "To"}
+                      {th ? ui("ถึงวันที่") : "To"}
                       <input
                         type="date"
                         value={toDate}
@@ -450,7 +452,7 @@ export function ProductSalesWorkspace({ lang, canViewAllBranches, initialBranchI
 
                 {mode === "month" ? (
                   <label className="grid gap-1 text-xs font-bold text-slate-600">
-                    {th ? "เดือน" : "Month"}
+                    {th ? ui("เดือน") : "Month"}
                     <input
                       type="month"
                       value={month}
@@ -462,7 +464,7 @@ export function ProductSalesWorkspace({ lang, canViewAllBranches, initialBranchI
 
                 {mode === "year" ? (
                   <label className="grid gap-1 text-xs font-bold text-slate-600">
-                    {th ? "ปี" : "Year"}
+                    {th ? ui("ปี") : "Year"}
                     <input
                       type="number"
                       min={2020}
@@ -475,14 +477,14 @@ export function ProductSalesWorkspace({ lang, canViewAllBranches, initialBranchI
                 ) : null}
 
                 <label className="grid gap-1 text-xs font-bold text-slate-600">
-                  {th ? "สาขา" : "Branch"}
+                  {th ? ui("สาขา") : "Branch"}
                   <select
                     value={branchId}
                     onChange={(event) => setBranchId(event.target.value)}
                     disabled={!canViewAllBranches}
                     className="h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm font-semibold disabled:bg-slate-100"
                   >
-                    {canViewAllBranches ? <option value="all">{th ? "ทุกสาขา" : "All branches"}</option> : null}
+                    {canViewAllBranches ? <option value="all">{th ? ui("ทุกสาขา") : "All branches"}</option> : null}
                     {(payload?.branch_options ?? []).map((branch) => (
                       <option key={branch.id} value={branch.id}>
                         {branch.name} ({branch.code})
@@ -492,11 +494,11 @@ export function ProductSalesWorkspace({ lang, canViewAllBranches, initialBranchI
                 </label>
 
                 <label className="grid gap-1 text-xs font-bold text-slate-600 md:col-span-2">
-                  {th ? "ค้นหา" : "Search"}
+                  {th ? ui("ค้นหา") : "Search"}
                   <input
                     value={search}
                     onChange={(event) => setSearch(event.target.value)}
-                    placeholder={th ? "บิล / สินค้า / SKU / สาขา" : "Bill / product / SKU / branch"}
+                    placeholder={th ? ui("บิล / สินค้า / SKU / สาขา") : "Bill / product / SKU / branch"}
                     className="h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm"
                   />
                 </label>
@@ -513,7 +515,7 @@ export function ProductSalesWorkspace({ lang, canViewAllBranches, initialBranchI
                 onClick={() => setFilterPopupOpen(false)}
                 className="h-10 rounded-lg border border-slate-300 bg-white px-4 text-sm font-bold text-slate-700"
               >
-                {th ? "ยกเลิก" : "Cancel"}
+                {th ? ui("ยกเลิก") : "Cancel"}
               </button>
               <button
                 type="button"
@@ -521,7 +523,7 @@ export function ProductSalesWorkspace({ lang, canViewAllBranches, initialBranchI
                 disabled={loading}
                 className="h-10 rounded-lg border border-blue-600 bg-blue-600 px-4 text-sm font-bold text-white disabled:cursor-not-allowed disabled:opacity-60"
               >
-                {loading ? (th ? "กำลังโหลด..." : "Loading...") : th ? "ใช้ตัวกรอง" : "Apply filters"}
+                {loading ? (th ? ui("กำลังโหลด...") : "Loading...") : th ? ui("ใช้ตัวกรอง") : "Apply filters"}
               </button>
             </div>
           </section>
@@ -536,13 +538,13 @@ export function ProductSalesWorkspace({ lang, canViewAllBranches, initialBranchI
           <section
             role="dialog"
             aria-modal="true"
-            aria-label={th ? "สรุปรายการขายสินค้า" : "Product sales summary"}
+            aria-label={th ? ui("สรุปรายการขายสินค้า") : "Product sales summary"}
             onClick={(event) => event.stopPropagation()}
             className="w-full max-w-3xl rounded-2xl border border-slate-200 bg-white p-4 shadow-2xl sm:p-5"
           >
             <div className="flex items-start justify-between gap-3">
               <div>
-                <h2 className="text-lg font-black text-slate-950">{th ? "สรุปรายการขายสินค้า" : "Product Sales Summary"}</h2>
+                <h2 className="text-lg font-black text-slate-950">{th ? ui("สรุปรายการขายสินค้า") : "Product Sales Summary"}</h2>
                 <p className="mt-1 text-xs font-medium text-slate-500">
                   {payload ? `${payload.from} - ${payload.to}` : "-"}
                 </p>
@@ -552,24 +554,24 @@ export function ProductSalesWorkspace({ lang, canViewAllBranches, initialBranchI
                 onClick={() => setSummaryPopupOpen(false)}
                 className="h-9 rounded-lg border border-slate-300 bg-white px-3 text-sm font-bold text-slate-700"
               >
-                {th ? "ปิด" : "Close"}
+                {th ? ui("ปิด") : "Close"}
               </button>
             </div>
 
             <div className="mt-4 grid gap-3 sm:grid-cols-3">
-              <Summary label={th ? "จำนวนรายการ" : "Lines"} value={String(filteredSummary.line_count)} />
+              <Summary label={th ? ui("จำนวนรายการ") : "Lines"} value={String(filteredSummary.line_count)} />
               <Summary
-                label={th ? "จำนวนขายรวม" : "Units sold"}
-                value={Number(filteredSummary.units).toLocaleString(th ? "th-TH" : "en-US", { maximumFractionDigits: 3 })}
+                label={th ? ui("จำนวนขายรวม") : "Units sold"}
+                value={Number(filteredSummary.units).toLocaleString(lang === "lo" ? "lo-LA" : th ? "th-TH" : "en-US", { maximumFractionDigits: 3 })}
               />
               {opticalMode ? (
                 <article className="rounded-xl border border-emerald-200 bg-emerald-50 p-3">
-                  <p className="text-xs font-semibold text-emerald-900">{th ? "ยอดขายตามสกุลเงิน" : "Revenue by currency"}</p>
+                  <p className="text-xs font-semibold text-emerald-900">{th ? ui("ยอดขายตามสกุลเงิน") : "Revenue by currency"}</p>
                   {opticalCurrencyTotals.length ? opticalCurrencyTotals.map(([code, amount]) => (
-                    <strong key={code} className="mt-1 block text-lg font-black text-emerald-900">{code}: {formatSalesMoney(amount, code, th ? "th-TH" : "en-US")}</strong>
+                    <strong key={code} className="mt-1 block text-lg font-black text-emerald-900">{code}: {formatSalesMoney(amount, code, lang === "lo" ? "lo-LA" : th ? "th-TH" : "en-US")}</strong>
                   )) : <strong className="mt-1 block text-lg font-black">—</strong>}
                 </article>
-              ) : <Summary label={th ? "ยอดขายรวม" : "Revenue"} value={`฿${formatMoney(filteredSummary.revenue, lang)}`} />}
+              ) : <Summary label={th ? ui("ยอดขายรวม") : "Revenue"} value={`฿${formatMoney(filteredSummary.revenue, lang)}`} />}
             </div>
           </section>
         </div>

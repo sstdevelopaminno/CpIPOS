@@ -1,3 +1,4 @@
+import {loUi} from "@/lib/lao-pos-ui";
 import { laoPosTranslations } from "@/lib/lao-pos-translations";
 import { laoSalesListTranslations } from "@/lib/lao-sales-list-translations";
 import { laoCommonTranslations } from "@/lib/lao-common-translations";
@@ -622,7 +623,10 @@ const laoDictionary: Partial<Record<TranslationKey, string>> = {
 };
 
 export function t(lang: Language, key: TranslationKey): string {
-  if (lang === "lo") return laoDictionary[key] ?? dict.en[key] ?? dict.th[key];
+  if (lang === "lo") {
+    const translated = loUi("lo", dict.th[key]);
+    return laoDictionary[key] ?? (translated !== dict.th[key] ? translated : dict.en[key] ?? dict.th[key]);
+  }
   return dict[lang][key] ?? dict.th[key];
 }
 
