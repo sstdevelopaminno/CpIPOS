@@ -8,8 +8,8 @@ export default async function PosSalesPage() {
   const lang = await getCurrentLanguage();
   return (
     <>
-      <PosSalesModule lang={lang === "lo" ? "en" : lang} />
-      <PosGeneralSaleTableController />
+      <PosSalesModule lang={lang} />
+      <PosGeneralSaleTableController lang={lang} />
       <PosGeneralSaleRuntime />
       <PosSalesModePolicyController />
     </>

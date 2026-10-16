@@ -21,12 +21,13 @@ describe("IMDC Optical is opt-in and bound to the active POS retail controller",
   it("uses the production-mounted table controller, not the old unused controller", () => {
     const page = source("src/app/preview/pos/page.tsx");
     const controller = source("src/components/pos/pos-general-sale-table-controller.tsx");
-    expect(page).toContain("<PosGeneralSaleTableController />");
+    expect(page).toContain("<PosGeneralSaleTableController lang={lang} />");
     expect(controller).toContain('const OPTICAL_MODE_ID = "optical_retail"');
     expect(controller).toContain("if (!opticalAllowed) return");
     expect(controller).toContain("new Event(OPTICAL_ACTIVATE_BASE_MODE_EVENT)");
     expect(source("src/components/pos/pos-sales-module.tsx")).toContain('applyQuickMode("home", true)');
-    expect(controller).toContain("IMDC OPTICAL");
+    expect(controller).toContain("generalSaleUi[lang].opticalMode");
+    expect(source("src/lib/pos-general-sale-i18n.ts")).toContain("IMDC OPTICAL");
   });
 
   it("checks a CUSTOM/IT policy and does not invent a prescription checkout API", () => {

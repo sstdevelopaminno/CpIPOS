@@ -2,6 +2,7 @@
 
 import { useEffect } from "react";
 import { formatSalesMoney, normalizeSalesCurrency } from "@/lib/pos-money";
+import { generalSaleUi, type GeneralSaleLanguage } from "@/lib/pos-general-sale-i18n";
 import { POS_MODE_FEATURES } from "@/lib/pos-feature-map";
 import { isAuthorizedOpticalRetailMode } from "@/lib/pos-sales-modes";
 import {
@@ -32,7 +33,7 @@ import {
   type GeneralSaleLookupProduct
 } from "@/lib/pos-general-sale-mode";
 
-type Lang = "th" | "en";
+type Lang = GeneralSaleLanguage;
 type PosFeaturesResponse = {
   data?: {
     features?: Record<string, boolean>;
@@ -75,9 +76,6 @@ const OPTICAL_MANUAL_IDLE_MS = 480;
 const OPTICAL_SCAN_KEY_INTERVAL_MS = 85;
 const PRODUCT_LOOKUP_TIMEOUT_MS = 5200;
 
-function resolveLang(): Lang {
-  return document.documentElement.lang.toLowerCase().startsWith("en") ? "en" : "th";
-}
 
 function createTextElement(tag: "p" | "span" | "strong" | "small", className: string, text: string) {
   const element = document.createElement(tag);
@@ -168,7 +166,7 @@ function ensureGeneralSaleStyles() {
   document.head.appendChild(style);
 }
 
-export function PosGeneralSaleTableController() {
+export function PosGeneralSaleTableController({ lang = "th" }: { lang?: Lang }) {
   useEffect(() => {
     let destroyed = false;
     let accessResolved = false;
@@ -197,7 +195,7 @@ export function PosGeneralSaleTableController() {
     let opticalFastKeyCount = 0;
     const scanQueue: string[] = [];
     const lookupProductsById = new Map<string, GeneralSaleLookupProduct>();
-    const lang = resolveLang();
+    const copy = generalSaleUi[lang];
 
     ensureGeneralSaleStyles();
     try {
@@ -292,7 +290,7 @@ export function PosGeneralSaleTableController() {
       const host = document.createElement("section");
       host.setAttribute(GENERAL_SALE_TABLE_ATTRIBUTE, "1");
       host.className = "cpipos-sd-table";
-      host.setAttribute("aria-label", lang === "th" ? "ตารางขายสินค้า" : "General sale table");
+      host.setAttribute("aria-label", copy.tableAria);
       gridWrap.parentElement.insertBefore(host, gridWrap);
       tableHost = host;
       return host;
@@ -331,7 +329,7 @@ export function PosGeneralSaleTableController() {
       });
       // A late server-approved currency response must re-render the same cart
       // rather than leaving its previous THB formatted amount on screen.
-      const signature = `${document.documentElement.getAttribute("data-pos-store-currency") ?? "THB"}:${buildGeneralSaleCartTableSignature(rows)}`;
+      const signature = `${lang}:${document.documentElement.getAttribute("data-pos-store-currency") ?? "THB"}:${buildGeneralSaleCartTableSignature(rows)}`;
       if (signature === lastTableSignature && host.childElementCount > 0) return;
       lastTableSignature = signature;
 
@@ -340,7 +338,7 @@ export function PosGeneralSaleTableController() {
       const count = rows.reduce((sum, row) => sum + row.quantity, 0);
       const total = rows.reduce((sum, row) => sum + row.lineTotal, 0);
       summary.append(
-        createTextElement("p", "", lang === "th" ? `ตารางขายสินค้า · ${count} ชิ้น · ${rows.length} รายการ` : `Sales table · ${count} units · ${rows.length} lines`),
+        createTextElement("p", "", `${copy.tableTitle} · ${count} ${copy.units} · ${rows.length} ${copy.lines}`),
         createTextElement("strong", "", formatMoney(total))
       );
 
@@ -349,15 +347,13 @@ export function PosGeneralSaleTableController() {
       if (rows.length === 0) {
         const empty = document.createElement("div");
         empty.className = "cpipos-sd-table__empty";
-        empty.textContent = lang === "th" ? "ยังไม่มีสินค้า · ยิงบาร์โค้ดหรือกรอก SKU ด้านบนเพื่อเพิ่มสินค้า" : "No items yet. Scan a barcode or enter an SKU above.";
+        empty.textContent = copy.empty;
         scroll.appendChild(empty);
       } else {
         const table = document.createElement("table");
         const thead = document.createElement("thead");
         const headerRow = document.createElement("tr");
-        const headers = lang === "th"
-          ? ["#", "SKU / บาร์โค้ด", "หมวดหมู่", "สินค้า", "จำนวน", "ราคา/หน่วย", "ราคารวม", "ลบ"]
-          : ["#", "SKU / barcode", "Category", "Product", "Qty", "Unit price", "Total", "Remove"];
+        const headers = copy.headers;
         const classes = ["cpipos-sd-table__index", "cpipos-sd-table__sku", "cpipos-sd-table__category", "cpipos-sd-table__name", "cpipos-sd-table__qty", "cpipos-sd-table__money", "cpipos-sd-table__money", "cpipos-sd-table__actions"];
         headers.forEach((label, index) => {
           const th = document.createElement("th");
@@ -392,14 +388,14 @@ export function PosGeneralSaleTableController() {
           decrease.textContent = "−";
           decrease.dataset.sdAction = "decrease";
           decrease.dataset.sdIndex = String(index);
-          decrease.setAttribute("aria-label", `Decrease ${row.name}`);
+          decrease.setAttribute("aria-label", `${copy.decrease} ${row.name}`);
           const qtyValue = createTextElement("span", "", String(row.quantity));
           const increase = document.createElement("button");
           increase.type = "button";
           increase.textContent = "+";
           increase.dataset.sdAction = "increase";
           increase.dataset.sdIndex = String(index);
-          increase.setAttribute("aria-label", `Increase ${row.name}`);
+          increase.setAttribute("aria-label", `${copy.increase} ${row.name}`);
           qty.append(decrease, qtyValue, increase);
           qtyCell.appendChild(qty);
           const unitPriceCell = document.createElement("td");
@@ -416,7 +412,7 @@ export function PosGeneralSaleTableController() {
           remove.textContent = "×";
           remove.dataset.sdAction = "delete";
           remove.dataset.sdIndex = String(index);
-          remove.setAttribute("aria-label", `Remove ${row.name}`);
+          remove.setAttribute("aria-label", `${copy.remove} ${row.name}`);
           actionCell.appendChild(remove);
           tr.append(indexCell, skuCell, categoryCell, nameCell, qtyCell, unitPriceCell, totalCell, actionCell);
           tbody.appendChild(tr);
@@ -438,7 +434,7 @@ export function PosGeneralSaleTableController() {
       const originalSku = rawCode.trim();
       const scanCode = normalizeGeneralSaleScanCode(originalSku);
       if (!scanCode) {
-        status.textContent = lang === "th" ? "กรุณาสแกนหรือกรอกรหัส SKU สินค้า" : "Scan or enter a product SKU.";
+        status.textContent = copy.missingSku;
         status.dataset.tone = "error";
         input.focus();
         return;
@@ -446,20 +442,20 @@ export function PosGeneralSaleTableController() {
       input.value = "";
       if (scanBusy) {
         if (scanQueue.length >= MAX_QUEUED_SCANS) {
-          status.textContent = lang === "th" ? "คิวสแกนเต็ม กรุณารอสักครู่แล้วสแกนใหม่" : "Scan queue is full. Wait briefly and scan again.";
+          status.textContent = copy.queueFull;
           status.dataset.tone = "error";
           return;
         }
         scanQueue.push(opticalActive ? originalSku : scanCode);
-        status.textContent = lang === "th" ? `รับรหัส ${scanCode} เข้าคิวแล้ว · รอ ${scanQueue.length} รายการ` : `Queued ${scanCode} · ${scanQueue.length} waiting`;
+        status.textContent = lang === "lo" ? `ເພີ່ມ ${scanCode} ເຂົ້າຄິວແລ້ວ · ລໍຖ້າ ${scanQueue.length} ລາຍການ` : lang === "th" ? `รับรหัส ${scanCode} เข้าคิวแล้ว · รอ ${scanQueue.length} รายการ` : `Queued ${scanCode} · ${scanQueue.length} waiting`;
         status.dataset.tone = "pending";
         return;
       }
 
       scanBusy = true;
       submit.disabled = true;
-      submit.textContent = lang === "th" ? "กำลังเพิ่ม..." : "Adding...";
-      status.textContent = lang === "th" ? `กำลังค้นหา SKU: ${scanCode}` : `Looking up SKU: ${scanCode}`;
+      submit.textContent = copy.adding;
+      status.textContent = lang === "lo" ? `ກຳລັງຄົ້ນຫາ SKU: ${scanCode}` : lang === "th" ? `กำลังค้นหา SKU: ${scanCode}` : `Looking up SKU: ${scanCode}`;
       status.dataset.tone = "pending";
       const controller = new AbortController();
       const lookupTimeout = opticalActive
@@ -476,36 +472,36 @@ export function PosGeneralSaleTableController() {
         if (!response.ok || body?.error || !body?.data?.product) {
           const code = body?.error?.code ?? "product_lookup_failed";
           status.textContent = code === "product_not_found"
-            ? (lang === "th" ? `ไม่พบสินค้า SKU: ${scanCode}` : `SKU not found: ${scanCode}`)
-            : body?.error?.message || (lang === "th" ? "ค้นหาสินค้าไม่สำเร็จ กรุณาลองใหม่" : "Product lookup failed. Please retry.");
+            ? (lang === "lo" ? `ບໍ່ພົບສິນຄ້າ SKU: ${scanCode}` : lang === "th" ? `ไม่พบสินค้า SKU: ${scanCode}` : `SKU not found: ${scanCode}`)
+            : body?.error?.message || (copy.lookupFailed);
           status.dataset.tone = "error";
           return;
         }
         const product = body.data.product;
         lookupProductsById.set(product.id, product);
         if (product.is_active === false || product.is_out_of_stock === true) {
-          status.textContent = lang === "th" ? `สินค้า ${product.name || scanCode} ไม่พร้อมขาย/หมดสต๊อก` : `${product.name || scanCode} is unavailable or out of stock.`;
+          status.textContent = lang === "lo" ? `ສິນຄ້າ ${product.name || scanCode} ບໍ່ພ້ອມຂາຍ/ໝົດສະຕັອກ` : lang === "th" ? `สินค้า ${product.name || scanCode} ไม่พร้อมขาย/หมดสต๊อก` : `${product.name || scanCode} is unavailable or out of stock.`;
           status.dataset.tone = "error";
           return;
         }
         const bridgeStatus = await addLookupProductToReactCart(product);
         if (destroyed || !generalSaleActive) return;
         if (bridgeStatus !== "added") {
-          status.textContent = lang === "th" ? "ไม่สามารถเชื่อมรายการสินค้าเข้าตะกร้าได้ กรุณาลองใหม่" : "Unable to add the product to the cart. Please retry.";
+          status.textContent = copy.addFailed;
           status.dataset.tone = "error";
           return;
         }
-        status.textContent = lang === "th" ? `เพิ่ม ${product.name} (${scanCode}) ลงตารางแล้ว` : `Added ${product.name} (${scanCode}) to the table.`;
+        status.textContent = lang === "lo" ? `ເພີ່ມ ${product.name} (${scanCode}) ໃນຕາຕະລາງແລ້ວ` : lang === "th" ? `เพิ่ม ${product.name} (${scanCode}) ลงตารางแล้ว` : `Added ${product.name} (${scanCode}) to the table.`;
         status.dataset.tone = "success";
         scheduleTableRender(0);
       } catch {
-        status.textContent = lang === "th" ? "เชื่อมต่อค้นหาสินค้าไม่สำเร็จ กรุณาตรวจสอบเครือข่ายแล้วลองใหม่" : "Product lookup connection failed. Check the network and retry.";
+        status.textContent = copy.networkFailed;
         status.dataset.tone = "error";
       } finally {
         if (lookupTimeout !== null) window.clearTimeout(lookupTimeout);
         scanBusy = false;
         submit.disabled = false;
-        submit.textContent = lang === "th" ? "เพิ่มสินค้า" : "Add item";
+        submit.textContent = copy.add;
         // Do not steal focus when the cashier is entering a deposit/bill reference.
         if (document.activeElement === input || document.activeElement === document.body) input.focus();
         const nextCode = scanQueue.shift();
@@ -535,9 +531,7 @@ export function PosGeneralSaleTableController() {
       panel.className = opticalActive
         ? "rounded-xl border border-emerald-100 bg-white p-3"
         : "grid gap-2 rounded-xl border border-emerald-200 bg-emerald-50 p-3";
-      panel.setAttribute("aria-label", lang === "th"
-        ? (opticalActive ? "ค้นหาสินค้าและบิลร้านแว่นตา" : "สแกนสินค้าโหมดขายทั่วไป SD")
-        : (opticalActive ? "Optical product and bill lookup" : "SD general sale product scanner"));
+      panel.setAttribute("aria-label", opticalActive ? copy.opticalScannerAria : copy.groceryScannerAria);
 
       if (!opticalActive) {
         const heading = document.createElement("div");
@@ -545,10 +539,10 @@ export function PosGeneralSaleTableController() {
         const headingCopy = document.createElement("div");
         headingCopy.className = "grid gap-1";
         headingCopy.append(
-          createTextElement("strong", "text-sm font-black text-emerald-950", lang === "th" ? "ร้านชำ · สแกน SKU / บาร์โค้ด" : "Grocery · SKU / barcode scan"),
-          createTextElement("small", "text-xs font-bold text-emerald-700", lang === "th" ? "โหมดนี้ใช้ตารางขายสินค้าเพียงรูปแบบเดียว" : "This mode uses the sales table only")
+          createTextElement("strong", "text-sm font-black text-emerald-950", copy.groceryHeading),
+          createTextElement("small", "text-xs font-bold text-emerald-700", copy.groceryHint)
         );
-        const tableMode = createTextElement("span", "cpipos-sd-table-mode", lang === "th" ? "ตาราง" : "Table");
+        const tableMode = createTextElement("span", "cpipos-sd-table-mode", copy.tableMode);
         heading.append(headingCopy, tableMode);
         panel.appendChild(heading);
       }
@@ -566,10 +560,8 @@ export function PosGeneralSaleTableController() {
       input.spellcheck = false;
       if (opticalActive) input.maxLength = 128;
       input.className = "posui-payment-modal__input min-w-0 flex-1";
-      input.placeholder = lang === "th"
-        ? (opticalActive ? "ยิงบาร์โค้ด / SKU สินค้า" : "ยิงบาร์โค้ด/กรอก SKU แล้วกด Enter")
-        : (opticalActive ? "Scan barcode / product SKU" : "Scan barcode / enter SKU and press Enter");
-      input.setAttribute("aria-label", lang === "th" ? "รหัส SKU สินค้า" : "Product SKU");
+      input.placeholder = opticalActive ? copy.opticalPlaceholder : copy.groceryPlaceholder;
+      input.setAttribute("aria-label", copy.skuAria);
       const submit = document.createElement("button");
       submit.type = "submit";
       submit.className = "posui-btn posui-btn--primary shrink-0";
@@ -636,12 +628,12 @@ export function PosGeneralSaleTableController() {
         billInput.spellcheck = false;
         billInput.maxLength = 256;
         billInput.className = "posui-payment-modal__input min-w-0 flex-1";
-        billInput.placeholder = lang === "th" ? "ยิง QR / บาร์โค้ด / เลขบิลมัดจำ-จอง" : "Scan QR / deposit or reservation reference";
-        billInput.setAttribute("aria-label", lang === "th" ? "ค้นหาบิลมัดจำหรือบิลจอง" : "Deposit or reservation lookup");
+        billInput.placeholder = copy.billPlaceholder;
+        billInput.setAttribute("aria-label", copy.billAria);
         const billSubmit = document.createElement("button");
         billSubmit.type = "submit";
         billSubmit.className = "posui-btn shrink-0";
-        billSubmit.textContent = lang === "th" ? "ค้นหาบิล" : "Find bill";
+        billSubmit.textContent = copy.billSearch;
         const billStatus = document.createElement("small");
         billStatus.className = "block min-h-4 pt-1 text-xs font-semibold text-amber-800";
         billStatus.setAttribute("aria-live", "polite");
@@ -679,14 +671,12 @@ export function PosGeneralSaleTableController() {
           if (opticalBillScanTimer !== null) window.clearTimeout(opticalBillScanTimer);
           opticalBillScanTimer = null;
           if (!billInput.value.trim()) {
-            billStatus.textContent = lang === "th" ? "กรุณากรอกเลขอ้างอิงบิล" : "Enter a bill reference.";
+            billStatus.textContent = copy.billRequired;
             return;
           }
           // Read-only UI placeholder until tenant-scoped deposit/job APIs,
           // reconciliation and idempotent settlement are ready.
-          billStatus.textContent = lang === "th"
-            ? "ยังไม่เปิดค้นหาบิลมัดจำ/จอง — ไม่มีการเปลี่ยนแปลงบิลหรือยอดชำระ"
-            : "Deposit/reservation lookup is not enabled yet. No bill or payment was changed.";
+          billStatus.textContent = copy.billDisabled;
         });
         billGroup.append(billForm, billStatus);
         row.appendChild(billGroup);
@@ -725,8 +715,8 @@ export function PosGeneralSaleTableController() {
         const copy = document.createElement("span");
         copy.className = "posui-mode-option__copy";
         copy.append(
-          createTextElement("strong", "", lang === "th" ? "ขายทั่วไป (SD)" : "General Sale (SD)"),
-          createTextElement("small", "", lang === "th" ? "SKU/บาร์โค้ด · ตารางขายสินค้า" : "SKU/barcode · sales table")
+          createTextElement("strong", "", generalSaleUi[lang].generalMode),
+          createTextElement("small", "", generalSaleUi[lang].generalModeHint)
         );
         const check = createTextElement("span", "posui-mode-option__check", "✓");
         check.setAttribute("aria-hidden", "true");
@@ -767,8 +757,8 @@ export function PosGeneralSaleTableController() {
         const label = document.createElement("span");
         label.className = "posui-mode-option__copy";
         label.append(
-          createTextElement("strong", "", lang === "th" ? "ร้านแว่นตา · IMDC OPTICAL" : "Optical Shop · IMDC"),
-          createTextElement("small", "", lang === "th" ? "กรอบ / เลนส์ · SKU / บาร์โค้ด" : "Frames / lenses · SKU / barcode")
+          createTextElement("strong", "", generalSaleUi[lang].opticalMode),
+          createTextElement("small", "", generalSaleUi[lang].opticalModeHint)
         );
         opticalButton.append(
           createTextElement("span", "posui-mode-option__icon", "◉"),
@@ -1077,7 +1067,7 @@ export function PosGeneralSaleTableController() {
       void scannerSubmit;
       void scannerStatus;
     };
-  }, []);
+  }, [lang]);
 
   return null;
 }
