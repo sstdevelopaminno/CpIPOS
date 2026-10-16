@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import {PosOpticalDepositDialog} from "@/components/pos/pos-optical-deposit-dialog";
+import type {OpticalDepositMethod} from "@/lib/optical-deposit-amount";
 
 type PaymentText = {
   subtotal: string;
@@ -35,6 +37,8 @@ type Props = {
   opticalCurrencyCode?: "THB" | "LAK" | "USD";
   opticalLanguage?: "th" | "en" | "lo";
   onOpticalCustomer?: () => void;
+  /** Only supplied when the authenticated Optical ledger transaction is live. */
+  onOpticalDeposit?: (amount: number, method: OpticalDepositMethod) => Promise<void> | void;
   onMember?: () => void;
   onTableQrOrder?: () => void;
   onPromotion?: () => void;
@@ -264,6 +268,7 @@ export function PosPaymentPanel({
   opticalCurrencyCode = "THB",
   opticalLanguage = "th",
   onOpticalCustomer,
+  onOpticalDeposit,
   onMember,
   onTableQrOrder,
   onPromotion,
@@ -299,6 +304,8 @@ export function PosPaymentPanel({
   text
 }: Props) {
   const [localCashDrawerOpening, setLocalCashDrawerOpening] = useState(false);
+  const [opticalDepositOpen, setOpticalDepositOpen] = useState(false);
+  useEffect(() => { if (!opticalRetail) setOpticalDepositOpen(false); }, [opticalRetail]);
   const [activeSalesModeLabel, setActiveSalesModeLabel] = useState<string | null>(() => readActiveSalesModeLabel());
   const cashDrawerBusy = openingCashDrawer || localCashDrawerOpening;
   const displayModeStatusValue = resolveDisplayModeStatusValue({
@@ -359,28 +366,28 @@ export function PosPaymentPanel({
       "ชำระเงิน": "ຊຳລະເງິນ",
       "ยกเลิกบิล": "ຍົກເລີກບິນ",
     } as Record<string,string>)[thai] ?? thai : opticalLanguage === "th" ? thai : english;
-    const buttonClass = "flex min-h-[78px] w-full min-w-0 flex-col items-center justify-center gap-1.5 rounded-xl border border-slate-200 bg-white px-2.5 py-3 text-center text-sm font-bold leading-tight text-slate-700 shadow-sm transition-colors enabled:hover:border-emerald-400 enabled:hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-60";
+    const buttonClass = "flex min-h-[56px] w-full min-w-0 flex-col items-center justify-center gap-1 rounded-xl border border-slate-200 bg-white px-2 py-1.5 text-center text-[clamp(11px,1vw,13px)] font-bold leading-tight text-slate-700 shadow-sm transition-colors enabled:hover:border-emerald-400 enabled:hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-60";
     return (
       <section
         className="posui-payment-panel"
         data-testid="pos-optical-payment-panel"
         aria-label={localized("แผงชำระเงินร้านแว่นตา", "Optical checkout controls")}
-        style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr)", rowGap: 14, padding: 12 }}
+        style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr)", rowGap: 8, padding: 8, maxHeight: "100%", overflowY: "auto", overscrollBehavior: "contain" }}
       >
         <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
-          <p className="flex items-center justify-between border-b border-slate-100 px-4 py-3 text-sm font-bold text-slate-600">
+          <p className="flex items-center justify-between border-b border-slate-100 px-3 py-2 text-xs font-bold text-slate-600">
             <span>{localized("ยอดสินค้า", "Items total")}</span>
             <strong className="text-lg font-extrabold tabular-nums text-slate-800">{formatMoney(Math.max(0, subtotal), opticalCurrencyCode)}</strong>
           </p>
-          <p className="flex items-center justify-between px-4 py-3 text-sm font-bold text-slate-700">
+          <p className="flex items-center justify-between px-3 py-2 text-xs font-bold text-slate-700">
             <span>{localized("ยอดชำระ", "Amount due")}</span>
-            <strong className="text-2xl font-black tabular-nums text-orange-600">{formatMoney(total, opticalCurrencyCode)}</strong>
+            <strong className="text-xl font-black tabular-nums text-orange-600">{formatMoney(total, opticalCurrencyCode)}</strong>
           </p>
         </div>
         <p data-testid="pos-optical-sales-currency" className="text-center text-xs font-bold text-slate-500">
           {localized("สกุลเงินหน้าขาย", "Sales currency")}: {opticalCurrencyCode}
         </p>
-        <div className="grid grid-cols-2 gap-3" data-testid="pos-optical-bill-actions">
+        <div className="grid grid-cols-2 gap-2" data-testid="pos-optical-bill-actions">
           <button type="button" className={buttonClass} onClick={onHoldBill} disabled={!onHoldBill || !showHoldBill || actionsDisabled}>
             <span aria-hidden="true" className="text-lg">▣</span>{localized("พักบิล", "Hold bill")}
           </button>
@@ -403,17 +410,17 @@ export function PosPaymentPanel({
             {cashDrawerBusy ? openingCashDrawerLabel : localized("เปิดลิ้นชัก", "Open drawer")}
           </button>
         </div>
-        <div className="grid min-w-0 grid-cols-2 gap-3 px-1" data-testid="pos-optical-pending-actions">
+        <div className="grid min-w-0 grid-cols-2 gap-2" data-testid="pos-optical-pending-actions">
           <button
             type="button"
-            disabled
-            aria-disabled="true"
-            title={localized("รอระบบบัญชีมัดจำและสต๊อก", "Pending deposit ledger and stock controls")}
+            onClick={()=>setOpticalDepositOpen(true)}
+            disabled={total<=0 || actionsDisabled || submitting}
+            title={localized("ชำระเงินมัดจำ", "Enter deposit amount")}
             className={`${buttonClass} border-emerald-200 bg-emerald-50 text-emerald-900`}
           >
             <span aria-hidden="true" className="text-lg leading-none">▣</span>
             <span className="break-words leading-tight">{localized("ชำระเงินมัดจำ", "Deposit")}</span>
-            <span className="text-[11px] font-semibold">{localized("ยังไม่เปิดใช้งาน", "Coming soon")}</span>
+
           </button>
           <button
             type="button"
@@ -426,10 +433,10 @@ export function PosPaymentPanel({
             <span className="text-[11px] font-semibold">{localized("บันทึกค่าสายตา", "Examination records")}</span>
           </button>
         </div>
-        <div className="grid w-full grid-cols-1 gap-3 pt-1" data-testid="pos-optical-primary-actions">
+        <div className="grid w-full grid-cols-1 gap-2 pt-0.5" data-testid="pos-optical-primary-actions">
           <button
             type="button"
-            className="flex min-h-14 w-full items-center justify-center rounded-xl bg-orange-500 px-4 py-3 text-center text-base font-black text-white transition-colors enabled:hover:bg-orange-600 disabled:cursor-not-allowed disabled:opacity-45"
+            className="flex min-h-12 w-full items-center justify-center rounded-xl bg-orange-500 px-3 py-2 text-center text-base font-black text-white transition-colors enabled:hover:bg-orange-600 disabled:cursor-not-allowed disabled:opacity-45"
             onClick={onCheckout}
             disabled={checkoutDisabled || submitting}
             data-testid="pos-optical-checkout"
@@ -438,7 +445,7 @@ export function PosPaymentPanel({
           </button>
           <button
             type="button"
-            className="flex min-h-14 w-full items-center justify-center rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-center text-base font-bold text-rose-700 enabled:hover:bg-rose-100 disabled:cursor-not-allowed disabled:opacity-45"
+            className="flex min-h-12 w-full items-center justify-center rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-center text-base font-bold text-rose-700 enabled:hover:bg-rose-100 disabled:cursor-not-allowed disabled:opacity-45"
             onClick={onCancelBill}
             disabled={!onCancelBill || actionsDisabled || cancelBillDisabled}
           >
@@ -446,6 +453,8 @@ export function PosPaymentPanel({
           </button>
         </div>
         {onRetry ? <button type="button" className="posui-btn posui-btn--retry-emergency" onClick={onRetry} disabled={retryDisabled || submitting}>{retryLabel ?? text.retry}</button> : null}
+        {opticalDepositOpen ? <PosOpticalDepositDialog total={total} currency={opticalCurrencyCode} language={opticalLanguage}
+          onClose={()=>setOpticalDepositOpen(false)} onSubmit={onOpticalDeposit}/> : null}
       </section>
     );
   }

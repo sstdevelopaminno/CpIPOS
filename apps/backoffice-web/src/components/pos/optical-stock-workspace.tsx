@@ -155,7 +155,7 @@ export function OpticalStockWorkspace({rows,branch,branchId,branches,currency,ca
     ?["frame","lens","accessory"]:["frame","lens"];
   const pages=Array.from({length:totalPages},(_,i)=>i+1).filter(p=>
     totalPages<=7||p===1||p===totalPages||Math.abs(p-currentPage)<=2);
-  return <main className="mx-auto w-full max-w-7xl space-y-4 px-3 pb-8 pt-3 lg:px-6" data-testid="custom-optical-inventory">
+  return <main className="mx-auto h-full min-h-0 w-full max-w-7xl space-y-4 overflow-y-auto overscroll-y-contain px-3 pb-12 pt-3 lg:px-6" data-testid="custom-optical-inventory">
     <header className="rounded-2xl border border-emerald-200 bg-gradient-to-r from-emerald-100 via-green-50 to-white p-5 shadow-sm">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <PosBackButton lang="th" href="/preview/pos/more" label="กลับเมนูเพิ่มเติม"/>
@@ -193,7 +193,7 @@ export function OpticalStockWorkspace({rows,branch,branchId,branches,currency,ca
         {value==="frame"?"สต๊อกกรอบแว่น":value==="lens"?"สต๊อกเลนส์":"อุปกรณ์เสริม"}
       </button>)}
     </nav>
-    <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+    <section className="min-w-0 rounded-2xl border border-slate-200 bg-white shadow-sm">
       <div className="flex flex-wrap items-end gap-3 border-b border-slate-200 bg-slate-50 p-4">
         <label className="min-w-[230px] flex-1 text-xs font-bold text-slate-600">ค้นหา ชื่อสินค้า / SKU / บาร์โค้ด
           <input type="search" className={field+" mt-1"} value={search}
@@ -216,9 +216,9 @@ export function OpticalStockWorkspace({rows,branch,branchId,branches,currency,ca
           </select>
         </label>
       </div>
-      <div className="overflow-x-auto">
+      <div className="max-h-[min(62vh,720px)] overflow-auto overscroll-contain" role="region" aria-label="รายการสต๊อก Optical" tabIndex={0}>
         <table className="w-full min-w-[1080px] border-collapse text-sm">
-          <thead className="bg-emerald-50 text-left text-slate-700"><tr>
+          <thead className="sticky top-0 z-10 bg-emerald-50 text-left text-slate-700"><tr>
             {["SKU / บาร์โค้ด","รูปสินค้า",...(tab==="frame"
               ?["แบรนด์","รุ่น","สี","ขนาด"]
               :tab==="lens"?["ยี่ห้อ","ชื่อเลนส์","Index","ค่าสายตา"]

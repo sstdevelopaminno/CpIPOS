@@ -159,6 +159,79 @@ function ensureGeneralSaleStyles() {
     [${GENERAL_SALE_SCANNER_ATTRIBUTE}="1"] [data-tone="error"] { color: #dc2626; }
     [${GENERAL_SALE_SCANNER_ATTRIBUTE}="1"] [data-tone="success"] { color: #047857; }
     [${GENERAL_SALE_SCANNER_ATTRIBUTE}="1"] [data-tone="pending"] { color: #0369a1; }
+
+    /* Only CUSTOM Optical. Restaurant/retail tables retain their original structure. */
+    html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .cpipos-sd-table table { width: 100%; min-width: 0; table-layout: fixed; }
+    html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .cpipos-sd-table__name { width: 38%; min-width: 0; overflow-wrap: anywhere; }
+    html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .cpipos-sd-table__qty { width: 23%; }
+    html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .cpipos-sd-table__money { width: 14%; }
+    html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .cpipos-sd-table__actions { width: 11%; }
+    html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .cpipos-sd-table__scroll { max-height: min(54vh, 520px); }
+    html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .cpipos-sd-table th,
+    html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .cpipos-sd-table td { padding: 8px 4px; font-size: clamp(10px, .96vw, 13px); }
+    html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .cpipos-sd-table__summary { padding: 9px 11px; gap: 6px; }
+    html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .cpipos-sd-qty { width: 100%; grid-template-columns: minmax(25px, 1fr) minmax(20px, 1fr) minmax(25px, 1fr); }
+    html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .cpipos-sd-qty button { width: 100%; min-width: 0; }
+    html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .cpipos-sd-qty span { padding: 0 2px; }
+    html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .posui-body { grid-template-columns: minmax(0, 1fr) clamp(235px, 26vw, 288px); gap: 8px; }
+    html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .posui-catalog-col,
+    html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .posui-cart-col { min-width: 0; }
+    /* Optical review/cash modals must remain reachable above the software keyboard
+       on compact 8.5-inch landscape tablets; payment logic is unchanged. */
+    @media (max-height: 760px) and (orientation: landscape) {
+      html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .posui-payment-modal-backdrop { padding: 6px; }
+      html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .posui-payment-modal--cash,
+      html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .posui-payment-modal--review-bill {
+        max-height: calc(100dvh - 12px); overflow-y: auto; overscroll-behavior: contain;
+        padding: 10px;
+      }
+      html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .posui-cash-layout {
+        grid-template-columns: minmax(0, 1fr) minmax(175px, 215px); gap: 8px;
+      }
+      html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .posui-cash-keypad__key { min-height: 40px; font-size: 20px; }
+      html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .posui-cash-keypad__grid { gap: 5px; }
+      html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .posui-payment-modal--review-bill .posui-payment-modal__items { max-height: 28vh; overflow-y: auto; }
+    }
+    /* Compact landscape tablet: checkout stays reachable without scrolling through
+       secondary actions. Only Optical CUSTOM gets this reordered presentation. */
+    @media (max-height: 650px) and (orientation: landscape) {
+      html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .posui-cart-panel__header { min-height: 42px; }
+      html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] [data-testid="pos-optical-payment-panel"] {
+        display: flex !important; flex-direction: column; gap: 5px !important;
+        padding: 5px !important; max-height: 100%; overflow-y: auto;
+      }
+      html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] [data-testid="pos-optical-payment-panel"] > div:first-child p {
+        padding: 6px 8px;
+      }
+      html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] [data-testid="pos-optical-primary-actions"] {
+        order: 1; gap: 5px;
+      }
+      html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] [data-testid="pos-optical-primary-actions"] button {
+        min-height: 42px; padding: 6px;
+      }
+      html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] [data-testid="pos-optical-bill-actions"] {
+        order: 2; gap: 5px;
+      }
+      html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] [data-testid="pos-optical-pending-actions"] {
+        order: 3; gap: 5px;
+      }
+      html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] [data-testid="pos-optical-bill-actions"] button,
+      html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] [data-testid="pos-optical-pending-actions"] button {
+        min-height: 44px; padding: 5px; font-size: 11px;
+      }
+    }
+    @media (max-width: 1080px) and (orientation: landscape) {
+      html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .posui-body { grid-template-columns: minmax(0, 1fr) 240px; gap: 6px; }
+      html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .cpipos-sd-table__name { width: 36%; }
+      html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .cpipos-sd-table__qty { width: 25%; }
+      html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .cpipos-sd-table th,
+      html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .cpipos-sd-table td { padding: 7px 3px; font-size: 11px; }
+    }
+    @media (max-width: 740px), (max-width: 980px) and (orientation: portrait) {
+      html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .posui-body { display: flex; flex-direction: column; overflow-y: auto; }
+      html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .posui-cart-col { height: auto; min-height: fit-content; flex: none; }
+      html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .cpipos-sd-table__scroll { max-height: 48vh; }
+    }
     @media (max-width: 900px) {
       .cpipos-sd-table__summary { align-items: flex-start; flex-direction: column; }
     }
@@ -329,7 +402,7 @@ export function PosGeneralSaleTableController({ lang = "th" }: { lang?: Lang }) 
       });
       // A late server-approved currency response must re-render the same cart
       // rather than leaving its previous THB formatted amount on screen.
-      const signature = `${lang}:${document.documentElement.getAttribute("data-pos-store-currency") ?? "THB"}:${buildGeneralSaleCartTableSignature(rows)}`;
+      const signature = `${lang}:${opticalActive?"optical":"general"}:${document.documentElement.getAttribute("data-pos-store-currency") ?? "THB"}:${buildGeneralSaleCartTableSignature(rows)}`;
       if (signature === lastTableSignature && host.childElementCount > 0) return;
       lastTableSignature = signature;
 
@@ -353,8 +426,9 @@ export function PosGeneralSaleTableController({ lang = "th" }: { lang?: Lang }) 
         const table = document.createElement("table");
         const thead = document.createElement("thead");
         const headerRow = document.createElement("tr");
-        const headers = copy.headers;
-        const classes = ["cpipos-sd-table__index", "cpipos-sd-table__sku", "cpipos-sd-table__category", "cpipos-sd-table__name", "cpipos-sd-table__qty", "cpipos-sd-table__money", "cpipos-sd-table__money", "cpipos-sd-table__actions"];
+        const headers = opticalActive ? copy.headers.slice(3) : copy.headers;
+        const fullClasses = ["cpipos-sd-table__index", "cpipos-sd-table__sku", "cpipos-sd-table__category", "cpipos-sd-table__name", "cpipos-sd-table__qty", "cpipos-sd-table__money", "cpipos-sd-table__money", "cpipos-sd-table__actions"];
+        const classes = opticalActive ? fullClasses.slice(3) : fullClasses;
         headers.forEach((label, index) => {
           const th = document.createElement("th");
           th.className = classes[index];
@@ -378,7 +452,7 @@ export function PosGeneralSaleTableController({ lang = "th" }: { lang?: Lang }) 
           const nameCell = document.createElement("td");
           nameCell.className = "cpipos-sd-table__name";
           nameCell.appendChild(createTextElement("strong", "", row.name));
-          if (row.notes) nameCell.appendChild(createTextElement("small", "", row.notes));
+          if (!opticalActive && row.notes) nameCell.appendChild(createTextElement("small", "", row.notes));
           const qtyCell = document.createElement("td");
           qtyCell.className = "cpipos-sd-table__qty";
           const qty = document.createElement("div");
@@ -414,7 +488,8 @@ export function PosGeneralSaleTableController({ lang = "th" }: { lang?: Lang }) 
           remove.dataset.sdIndex = String(index);
           remove.setAttribute("aria-label", `${copy.remove} ${row.name}`);
           actionCell.appendChild(remove);
-          tr.append(indexCell, skuCell, categoryCell, nameCell, qtyCell, unitPriceCell, totalCell, actionCell);
+          if (opticalActive) tr.append(nameCell, qtyCell, unitPriceCell, totalCell, actionCell);
+          else tr.append(indexCell, skuCell, categoryCell, nameCell, qtyCell, unitPriceCell, totalCell, actionCell);
           tbody.appendChild(tr);
         });
         table.append(thead, tbody);

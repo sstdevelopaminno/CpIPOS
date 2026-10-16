@@ -26,22 +26,24 @@ describe("Optical POS sale identity is separate from internal takeaway order typ
     expect(pos).toContain('quickMode === "home" && !opticalRetailActive');
     expect(pos).toContain('opticalRetail={opticalRetailActive}');
   });
-  it("shows a dedicated right panel without the SD keypad and keeps future money actions disabled", () => {
+  it("shows compact Optical controls and keeps financial deposit submission gated", () => {
     const panel = read("src/components/pos-ui/pos-payment-panel.tsx");
     const keypad = read("src/components/pos/pos-general-sale-front-cash-panel.tsx");
     expect(panel).toContain('data-testid="pos-optical-payment-panel"');
     expect(panel).toContain("ชำระเงินมัดจำ");
     expect(panel).toContain("เพิ่มประวัติลูกค้า");
-    expect(panel).toContain('aria-disabled="true"');
+    expect(panel).toContain("PosOpticalDepositDialog");
+    expect(panel).toContain("onOpticalDeposit");
+    expect(read("src/components/pos/pos-optical-deposit-dialog.tsx")).toContain("disabled={busy||!onSubmit}");
     expect(panel).toContain("onOpenHeldBills");
     expect(panel).toContain('data-testid="pos-optical-pending-actions"');
     expect(panel).toContain('className={`${buttonClass} col-span-2`}');
-    expect(panel).toContain('grid grid-cols-2 gap-3');
+    expect(panel).toContain('grid grid-cols-2 gap-2');
     // The global .posui-payment-panel is a block; gap-* alone creates NO spacing.
     // The Optical root must explicitly be grid and have a vertical row gap.
-    expect(panel).toContain('display: "grid", gridTemplateColumns: "minmax(0, 1fr)", rowGap: 14, padding: 12');
-    expect(panel).toContain('grid min-w-0 grid-cols-2 gap-3 px-1');
-    expect(panel).toContain("min-h-[78px] w-full min-w-0");
+    expect(panel).toContain('display: "grid", gridTemplateColumns: "minmax(0, 1fr)", rowGap: 8, padding: 8');
+    expect(panel).toContain('grid min-w-0 grid-cols-2 gap-2');
+    expect(panel).toContain("min-h-[56px] w-full min-w-0");
     expect(panel).toContain('break-words leading-tight');
 
     expect(panel).not.toContain("Current checkout uses THB · LAK and deposits are unavailable");
