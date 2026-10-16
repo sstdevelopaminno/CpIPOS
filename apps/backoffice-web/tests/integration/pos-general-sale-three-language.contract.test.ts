@@ -32,6 +32,10 @@ describe("POS scanner/table and printer Thai English Lao UI",()=>{
    expect(table).toContain("input.placeholder = opticalActive ? copy.opticalPlaceholder : copy.groceryPlaceholder");
    expect(table).toContain("empty.textContent = copy.empty");
    expect(table).toContain("const headers = copy.headers");
+   expect(table).toContain("submit.textContent = copy.add;");
+   expect(table).toContain('input.setAttribute("data-pos-general-sale-sku", "1")');
+   expect(table).toContain('input[data-pos-general-sale-sku="1"]');
+   expect(table).not.toContain('submit.textContent = lang === "th" ? "เพิ่มสินค้า" : "Add item"');
    expect(table).toContain("billInput.placeholder = copy.billPlaceholder");
    expect(table).toContain("}, [lang]);");
    expect(table).not.toContain("document.documentElement.lang.toLowerCase()");
