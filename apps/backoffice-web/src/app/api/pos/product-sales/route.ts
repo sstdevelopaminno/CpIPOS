@@ -2,9 +2,10 @@ import { getPosApiAuthContext } from "@/lib/pos-api-auth";
 import { featureGateFail, requirePosApiFeature } from "@/lib/pos-api-feature-guard";
 import { fail, ok } from "@/lib/http";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
+import { orderCurrencyFromMetadata } from "@/lib/pos-money";
 
 type BranchRow = { id: string; code: string | null; name: string | null; is_active: boolean | null };
-type OrderRow = { id: string; order_no: string; branch_id: string; status: string; created_at: string };
+type OrderRow = { id: string; order_no: string; branch_id: string; status: string; created_at: string; metadata: Record<string, unknown> | null };
 type ProductJoin = { id?: string | null; sku?: string | null; name?: string | null; category?: string | null };
 type ItemRow = {
   id: string;
@@ -101,7 +102,7 @@ export async function GET(request: Request) {
 
     let ordersQuery = supabase
       .from("orders")
-      .select("id,order_no,branch_id,status,created_at")
+      .select("id,order_no,branch_id,status,created_at,metadata")
       .eq("tenant_id", auth.tenantId!)
       .in("status", ["completed", "cancelled"])
       .gte("created_at", dateStartIso(fromDate))
@@ -172,6 +173,7 @@ export async function GET(request: Request) {
           sold_at: order.created_at,
           branch_id: order.branch_id,
           branch_name: branchById.get(order.branch_id)?.name ?? order.branch_id,
+          currency_code: orderCurrencyFromMetadata(order.metadata),
           product_id: item.product_id,
           sku: product?.sku ?? null,
           product_name: item.name ?? product?.name ?? item.product_id,
