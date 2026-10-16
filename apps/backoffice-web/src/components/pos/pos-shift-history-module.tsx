@@ -230,7 +230,7 @@ function formatSignedMoney(value: number, lang: Lang) {
 function formatDateTime(value: string, lang: Lang) {
   const date = new Date(value);
   if (Number.isNaN(date.valueOf())) return value;
-  return date.toLocaleString(lang==="lo"?"lo-LA":lang==="lo" ? "lo-LA" : lang==="th" ? "th-TH" : "en-US", {
+  return date.toLocaleString(lang==="lo" ? "lo-LA" : lang==="th" ? "th-TH" : "en-US", {
     year: "numeric",
     month: "short",
     day: "2-digit",
