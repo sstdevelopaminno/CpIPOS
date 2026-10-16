@@ -3628,7 +3628,7 @@ export function PosSettingsWorkspace({ lang, initialData }: { lang: Language; in
                 {labels.back}
               </ActionButton>
             </div>
-            <PrintersModule lang={lang === "en" ? "en" : "th"} />
+            <PrintersModule lang={lang} />
           </div>
         ) : null}
         {view === "activity" ? (
@@ -3688,7 +3688,7 @@ export function PosSettingsWorkspace({ lang, initialData }: { lang: Language; in
             reportStatus={reportStatus}
           />
         ) : null}
-        {view === "users" ? <PosUsersModule lang={lang === "en" ? "en" : "th"} embedded onBack={() => setView("menu")} /> : null}
+        {view === "users" ? <PosUsersModule lang={lang} embedded onBack={() => setView("menu")} /> : null}
       </section>
       {savePopup ? <SaveSuccessPopup labels={labels} message={savePopup} onClose={() => setSavePopup("")} /> : null}
       {languagePopupOpen ? <LanguageSettingsPopup lang={lang} labels={labels} onClose={() => setLanguagePopupOpen(false)} /> : null}
