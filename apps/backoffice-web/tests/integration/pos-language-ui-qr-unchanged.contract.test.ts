@@ -25,7 +25,7 @@ describe("three POS languages and legacy QR preservation",()=>{
   expect(sales).toContain('activePaymentQrMode === "qr_image" ? paymentAccount?.qr_image_url');
   expect(sales).toContain("posCurrencyCode");
   expect(sales).toContain("discountAmountLabel:");
-  expect(sales).toContain('lang==="lo" ? `ສ່ວນຫຼຸດ');
+  expect(sales).toContain('lang === "lo" ? `ສ່ວນຫຼຸດ');
  });
  it("keeps printer discovery while translating labels",()=>{
   const printers=source("components/backoffice/printer-connection-manager-v3.tsx");
