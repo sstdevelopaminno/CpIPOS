@@ -462,7 +462,7 @@ function buildQuery(params: {
   return search.toString();
 }
 
-export function PosReceiptsWorkspace({ lang }: { lang: Language }) {
+export function PosReceiptsWorkspace({ lang, opticalMode = false }: { lang: Language; opticalMode?: boolean }) {
   const today = useMemo(() => getBangkokToday(), []);
   const tableScrollRef = useRef<HTMLDivElement | null>(null);
   const [mode, setMode] = useState<DateMode>("day");
@@ -477,7 +477,7 @@ export function PosReceiptsWorkspace({ lang }: { lang: Language }) {
   const [payload, setPayload] = useState<ReceiptPayload | null>(null);
   const [selected, setSelected] = useState<ReceiptRecord | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
-  const [summaryVisible, setSummaryVisible] = useState(false);
+  const [summaryVisible, setSummaryVisible] = useState(opticalMode);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [reprint, setReprint] = useState<ReprintState | null>(null);
@@ -677,8 +677,9 @@ export function PosReceiptsWorkspace({ lang }: { lang: Language }) {
   return (
     <main className="min-h-full bg-slate-50 px-4 py-4 text-slate-950 xl:px-6">
       <section className="mx-auto grid max-w-[1480px] gap-4">
-        <header className="flex flex-wrap items-end justify-between gap-3">
+        <header className={opticalMode ? "flex flex-wrap items-end justify-between gap-3 rounded-2xl border border-emerald-200 bg-gradient-to-r from-emerald-50 via-white to-white p-4 shadow-sm" : "flex flex-wrap items-end justify-between gap-3"}>
           <div>
+            {opticalMode ? <p className="mb-1 text-xs font-black tracking-[0.16em] text-emerald-800">CUSTOM · OPTICAL RECEIPTS</p> : null}
             <h1 className="m-0 text-[26px] font-black tracking-normal text-slate-950">{copy.title}</h1>
             <p className="mt-1 max-w-3xl text-sm text-slate-600">{copy.desc}</p>
           </div>
@@ -694,7 +695,7 @@ export function PosReceiptsWorkspace({ lang }: { lang: Language }) {
           </div>
         </header>
 
-        <section className="grid gap-3 rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
+        <section className={opticalMode ? "grid gap-3 rounded-2xl border border-emerald-100 bg-white p-4 shadow-sm" : "grid gap-3 rounded-lg border border-slate-200 bg-white p-3 shadow-sm"}>
           <div className="flex flex-wrap gap-2">
             {([
               ["day", copy.day],
@@ -710,7 +711,7 @@ export function PosReceiptsWorkspace({ lang }: { lang: Language }) {
                   setPage(1);
                 }}
                 className={`h-9 rounded-lg px-3 text-sm font-bold ${
-                  mode === value ? "bg-blue-600 text-white" : "border border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100"
+                  mode === value ? (opticalMode ? "bg-emerald-700 text-white" : "bg-blue-600 text-white") : "border border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100"
                 }`}
               >
                 {label}
@@ -732,6 +733,7 @@ export function PosReceiptsWorkspace({ lang }: { lang: Language }) {
 
           <div className="grid gap-2 lg:grid-cols-[1fr_180px_180px_auto]">
             <input
+              aria-label={lang === "th" ? "ค้นหาเลขบิล ลูกค้า หรือเลขเดลิเวอรี่" : "Search receipt or customer"}
               value={q}
               onChange={(event) => setQ(event.target.value)}
               onKeyDown={(event) => {
@@ -755,7 +757,7 @@ export function PosReceiptsWorkspace({ lang }: { lang: Language }) {
                 <input type="date" value={to} onChange={(event) => setTo(event.target.value)} className="h-10 rounded-lg border border-slate-300 px-3 text-sm font-semibold" />
               </>
             ) : null}
-            <select value={status} onChange={(event) => setStatus(event.target.value)} className="h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm font-semibold">
+            <select aria-label={lang === "th" ? "สถานะใบเสร็จ" : "Receipt status"} value={status} onChange={(event) => setStatus(event.target.value)} className="h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm font-semibold">
               <option value="completed">{copy.statusPaid}</option>
               <option value="queued">{copy.statusQueued}</option>
               <option value="cancelled">{copy.statusCancelled}</option>
@@ -782,9 +784,9 @@ export function PosReceiptsWorkspace({ lang }: { lang: Language }) {
 
         <section>
           <div className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
-            <div ref={tableScrollRef} className="max-h-[52vh] min-h-[260px] overflow-auto overscroll-contain">
+            <div ref={tableScrollRef} className={opticalMode ? "max-h-[64vh] min-h-[260px] overflow-auto overscroll-contain" : "max-h-[52vh] min-h-[260px] overflow-auto overscroll-contain"}>
               <table className="w-full min-w-[920px] border-collapse text-left text-sm">
-                <thead className="sticky top-0 z-10 bg-slate-100 text-xs uppercase text-slate-500 shadow-[0_1px_0_rgba(148,163,184,0.25)]">
+                <thead className={opticalMode ? "sticky top-0 z-10 bg-emerald-50 text-xs font-bold text-slate-600 shadow-[0_1px_0_rgba(148,163,184,0.25)]" : "sticky top-0 z-10 bg-slate-100 text-xs uppercase text-slate-500 shadow-[0_1px_0_rgba(148,163,184,0.25)]"}>
                   <tr>
                     <Th>{copy.bill}</Th>
                     <Th>{copy.time}</Th>
@@ -796,7 +798,7 @@ export function PosReceiptsWorkspace({ lang }: { lang: Language }) {
                 </thead>
                 <tbody>
                   {records.map((record) => (
-                    <tr key={record.id} className={`border-t border-slate-100 ${selected?.id === record.id ? "bg-blue-50" : "hover:bg-slate-50"}`}>
+                    <tr key={record.id} className={`border-t border-slate-100 ${selected?.id === record.id ? (opticalMode ? "bg-emerald-50" : "bg-blue-50") : "hover:bg-slate-50"}`}>
                       <Td>
                         <button type="button" onClick={() => setSelected(record)} className="text-left font-black text-slate-950">
                           {record.orderNo}
@@ -830,7 +832,7 @@ export function PosReceiptsWorkspace({ lang }: { lang: Language }) {
                   {!loading && records.length === 0 ? (
                     <tr>
                       <td colSpan={6} className="px-4 py-10 text-center text-sm font-semibold text-slate-500">
-                        {copy.noData}
+                        {opticalMode ? (lang === "th" ? "ไม่พบใบเสร็จตามวันที่หรือสถานะที่เลือก ลองเปลี่ยนช่วงเวลาเป็นรายเดือนหรือเลือกทุกสถานะ" : "No matching receipts. Try another date or status.") : copy.noData}
                       </td>
                     </tr>
                   ) : null}
