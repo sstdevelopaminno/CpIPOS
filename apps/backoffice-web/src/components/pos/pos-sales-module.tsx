@@ -1781,10 +1781,10 @@ async function fetchJsonWithTimeout<TBody extends ApiErrorBody>(
 }
 
 function getSalesDeviceStatusLabel(status: PosSalesDevicePolicy["status"] | undefined, lang: Lang) {
-  if (status === "inactive") return lang === "th" ? "ปิดใช้งาน" : "Disabled";
-  if (status === "maintenance") return lang === "th" ? "บำรุงรักษา" : "Maintenance";
-  if (status === "active") return lang === "th" ? "ใช้งาน" : "Active";
-  return lang === "th" ? "ไม่ทราบสถานะ" : "Unknown";
+  if (status === "inactive") return lang === "lo" ? "ປິດໃຊ້ງານ" : lang === "th" ? "ปิดใช้งาน" : "Disabled";
+  if (status === "maintenance") return lang === "lo" ? "ບຳລຸງຮັກສາ" : lang === "th" ? "บำรุงรักษา" : "Maintenance";
+  if (status === "active") return lang === "lo" ? "ເປີດໃຊ້ງານ" : lang === "th" ? "ใช้งาน" : "Active";
+  return lang === "lo" ? "ບໍ່ຮູ້ສະຖານະ" : lang === "th" ? "ไม่ทราบสถานะ" : "Unknown";
 }
 
 function DeviceBlockIcon({ status }: { status: PosSalesDevicePolicy["status"] }) {
@@ -1950,7 +1950,7 @@ function normalizeHeldBillEntry(entry: HeldBill): HeldBill {
 function formatReceiptDateTime(value: string, lang: Lang): string {
   const parsed = new Date(value);
   if (Number.isNaN(parsed.getTime())) return value;
-  return new Intl.DateTimeFormat(lang === "th" ? "th-TH" : "en-US", {
+  return new Intl.DateTimeFormat(lang === "lo" ? "lo-LA" : lang === "th" ? "th-TH" : "en-US", {
     dateStyle: "medium",
     timeStyle: "medium",
     timeZone: "Asia/Bangkok"
@@ -2035,7 +2035,7 @@ function formatIngredientUnit(unit: string | null | undefined, lang: Lang): stri
 }
 
 function formatIngredientAmount(value: number, lang: Lang): string {
-  return Number(value).toLocaleString(lang === "th" ? "th-TH" : "en-US", {
+  return Number(value).toLocaleString(lang === "lo" ? "lo-LA" : lang === "th" ? "th-TH" : "en-US", {
     maximumFractionDigits: 2
   });
 }
