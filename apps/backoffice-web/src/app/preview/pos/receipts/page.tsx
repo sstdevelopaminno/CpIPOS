@@ -3,6 +3,7 @@ import { requirePosSession } from "@/lib/pos-session-guard";
 import { PosReceiptsWorkspace } from "@/components/pos-preview/pos-receipts-workspace";
 import { getCurrentLanguage } from "@/lib/i18n";
 import { requirePosPagePermission } from "@/lib/pos-page-guard";
+import { requireOpticalRetailEntitlement } from "@/lib/server/optical-entitlement";
 
 export default async function PosReceiptsPage() {
   const posMenuScope = await requirePosSession();
@@ -10,5 +11,6 @@ export default async function PosReceiptsPage() {
   await requirePosPagePermission("receipts:view");
   const lang = await getCurrentLanguage();
 
-  return <PosReceiptsWorkspace lang={lang} />;
+  const opticalMode = await requireOpticalRetailEntitlement(posMenuScope.session.tenant_id);
+  return <PosReceiptsWorkspace lang={lang} opticalMode={opticalMode} />;
 }
