@@ -2117,7 +2117,7 @@ export function PosSalesModule({
   }).format(value);
   const formatMoney = (value: number) => currencySymbol + formatMoneyPlain(value);
   const text = uiText[lang];
-  const localizeApiMessage = useCallback((message: string) => localizeApiErrorMessage({ message, lang }), [lang]);
+  const localizeApiMessage = useCallback((message: string) => localizeApiErrorMessage({ message, lang:lang==="lo"?"th":lang }), [lang]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [products, setProducts] = useState<ProductRow[]>([]);
@@ -8992,7 +8992,7 @@ export function PosSalesModule({
   function renderTableBrowser() {
     return (
       <PosTableBrowser
-        lang={lang}
+        lang={lang==="lo"?"th":lang}
         text={text}
         tableLoadError={tableLoadError}
         tableLoading={tableLoading}
@@ -9380,7 +9380,7 @@ export function PosSalesModule({
                       </div>
                     </dl>
                     <dl className="posui-sales-meta-list posui-sales-meta-list--right">
-                      <PosRealtimeClock lang={lang} dateLabel={text.date} timeLabel={text.time} />
+                      <PosRealtimeClock lang={lang==="lo"?"th":lang} dateLabel={text.date} timeLabel={text.time} />
                       <div className="posui-sales-meta-row">
                         <dt>{text.cashierDeviceCode}</dt>
                         <dd>{devicePolicy?.code || devicePolicy?.name || "-"}</dd>
@@ -9430,8 +9430,8 @@ export function PosSalesModule({
         }
       />
 
-      <PosOpticalCustomerModal open={opticalRetailActive && opticalCustomerOpen} onClose={() => setOpticalCustomerOpen(false)} />
-      <PosMemberMaintenanceModal open={memberMaintenanceOpen} lang={lang} onClose={() => setMemberMaintenanceOpen(false)} />
+      <PosOpticalCustomerModal lang={lang} open={opticalRetailActive && opticalCustomerOpen} onClose={() => setOpticalCustomerOpen(false)} />
+      <PosMemberMaintenanceModal open={memberMaintenanceOpen} lang={lang==="lo"?"th":lang} onClose={() => setMemberMaintenanceOpen(false)} />
 
       {memberPickerOpen ? (
         <div className="posui-payment-modal-backdrop" role="dialog" aria-modal="true" aria-label={text.member} onClick={() => setMemberPickerOpen(false)}>
@@ -9866,7 +9866,7 @@ export function PosSalesModule({
         action="cancel_bill"
         targetTable="orders"
         targetId={cancelBillTargetOrder?.id ?? "00000000-0000-0000-0000-000000000000"}
-        lang={lang}
+        lang={lang==="lo"?"th":lang}
         labels={{
           pinLabel: text.pinModalLabel,
           pinKeypadHint: text.pinModalHint,
@@ -9918,7 +9918,7 @@ export function PosSalesModule({
         action="stock_adjustment"
         targetTable="stock_movements"
         targetId={stockTargetId || "stock-adjustment"}
-        lang={lang}
+        lang={lang==="lo"?"th":lang}
         labels={{
           pinLabel: text.pinModalLabel,
           pinKeypadHint: text.pinModalHint,
@@ -9953,7 +9953,7 @@ export function PosSalesModule({
         action="transfer_payment_override"
         targetTable="orders"
         targetId={transferReviewOrder?.order_id ?? "00000000-0000-0000-0000-000000000000"}
-        lang={lang}
+        lang={lang==="lo"?"th":lang}
         labels={{
           pinLabel: text.pinModalLabel,
           pinKeypadHint: text.pinModalHint,
@@ -10310,7 +10310,7 @@ export function PosSalesModule({
 
       <PosBuffetPricePickerModal
         open={buffetPicker.open}
-        lang={lang}
+        lang={lang==="lo"?"th":lang}
         tableCode={buffetPicker.table?.table_code ?? selectedTable?.table_code ?? null}
         isBusy={isBusy}
         onClose={closeBuffetPicker}
@@ -10572,7 +10572,7 @@ export function PosSalesModule({
       <PackageLockDialog lang={lang} open={packageLockOpen} onClose={() => setPackageLockOpen(false)} />
       <PosMemberMaintenanceModal
         open={deliveryMaintenanceOpen}
-        lang={lang}
+        lang={lang==="lo"?"th":lang}
         title={text.deliveryMaintenanceTitle}
         message={text.deliveryMaintenanceMessage}
         onClose={() => setDeliveryMaintenanceOpen(false)}
