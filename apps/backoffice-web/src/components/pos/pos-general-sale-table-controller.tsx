@@ -715,8 +715,8 @@ export function PosGeneralSaleTableController({ lang = "th" }: { lang?: Lang }) 
         const copy = document.createElement("span");
         copy.className = "posui-mode-option__copy";
         copy.append(
-          createTextElement("strong", "", copy.generalMode),
-          createTextElement("small", "", copy.generalModeHint)
+          createTextElement("strong", "", generalSaleUi[lang].generalMode),
+          createTextElement("small", "", generalSaleUi[lang].generalModeHint)
         );
         const check = createTextElement("span", "posui-mode-option__check", "✓");
         check.setAttribute("aria-hidden", "true");
@@ -757,8 +757,8 @@ export function PosGeneralSaleTableController({ lang = "th" }: { lang?: Lang }) 
         const label = document.createElement("span");
         label.className = "posui-mode-option__copy";
         label.append(
-          createTextElement("strong", "", copy.opticalMode),
-          createTextElement("small", "", copy.opticalModeHint)
+          createTextElement("strong", "", generalSaleUi[lang].opticalMode),
+          createTextElement("small", "", generalSaleUi[lang].opticalModeHint)
         );
         opticalButton.append(
           createTextElement("span", "posui-mode-option__icon", "◉"),
