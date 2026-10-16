@@ -2286,30 +2286,30 @@ function NotificationPanel({
   canManage: boolean;
   reportStatus: StatusReporter;
 }) {
-  const text =
-    lang === "en"
-      ? {
-          title: "Notification Settings",
-          desc: "Configure table QR customer call alerts on the POS sales screen.",
-          branch: "Notification branch",
-          branchHint: "Popup and sound settings are stored separately for each branch.",
-          popup: "Show popup on sales screen",
-          sound: "Play alert sound",
-          volume: "Sound volume",
-          saved: "Notification settings saved.",
-          loading: "Loading notification settings..."
-        }
-      : {
-          title: "เธ•เธฑเนเธเธเนเธฒเธเธฒเธฃเนเธเนเธเน€เธ•เธทเธญเธ",
-          desc: "เธเธณเธซเธเธ” POP UP เนเธฅเธฐเน€เธชเธตเธขเธเนเธเนเธเน€เธ•เธทเธญเธเน€เธกเธทเนเธญเธฅเธนเธเธเนเธฒเธเธ”เน€เธฃเธตเธขเธเธเธฒเธ QR เนเธ•เนเธฐ",
-          branch: "เธชเธฒเธเธฒเธ—เธตเนเธ•เธฑเนเธเธเนเธฒเธเธฒเธฃเนเธเนเธเน€เธ•เธทเธญเธ",
-          branchHint: "เธเธฒเธฃเนเธเนเธเน€เธ•เธทเธญเธเนเธฅเธฐเน€เธชเธตเธขเธเธเธฐเนเธขเธเธเธฒเธฃเธ•เธฑเนเธเธเนเธฒเธ•เธฒเธกเธชเธฒเธเธฒ",
-          popup: "เนเธชเธ”เธ POP UP เธเธเธซเธเนเธฒเธเธฒเธข",
-          sound: "เน€เธเธดเธ”เน€เธชเธตเธขเธเนเธเนเธเน€เธ•เธทเธญเธ",
-          volume: "เธฃเธฐเธ”เธฑเธเน€เธชเธตเธขเธ",
-          saved: "เธเธฑเธเธ—เธถเธเธเธฒเธฃเธ•เธฑเนเธเธเนเธฒเธเธฒเธฃเนเธเนเธเน€เธ•เธทเธญเธเนเธฅเนเธง",
-          loading: "เธเธณเธฅเธฑเธเนเธซเธฅเธ”เธเธฒเธฃเนเธเนเธเน€เธ•เธทเธญเธเธเธญเธเธชเธฒเธเธฒ..."
-        };
+  const text = {
+    th:{
+      title:"ตั้งค่าการแจ้งเตือน",
+      desc:"กำหนดป๊อปอัปและเสียงแจ้งเตือนเมื่อมีลูกค้าเรียกจาก QR โต๊ะ",
+      branch:"สาขาที่ตั้งค่าการแจ้งเตือน",
+      branchHint:"การแจ้งเตือนและเสียงถูกบันทึกแยกตามสาขา",
+      popup:"แสดง POP UP บนหน้าขาย",sound:"เปิดเสียงแจ้งเตือน",
+      volume:"ระดับเสียง",saved:"บันทึกการแจ้งเตือนแล้ว",loading:"กำลังโหลดการแจ้งเตือน..."
+    },
+    en:{
+      title:"Notification settings",
+      desc:"Configure customer-call popup and sound alerts for table QR orders.",
+      branch:"Notification branch",branchHint:"Popup and sound settings are saved separately for each branch.",
+      popup:"Show popup on sales screen",sound:"Play alert sound",
+      volume:"Sound volume",saved:"Notification settings saved.",loading:"Loading notification settings..."
+    },
+    lo:{
+      title:"ຕັ້ງຄ່າການແຈ້ງເຕືອນ",
+      desc:"ກຳນົດ POP UP ແລະສຽງແຈ້ງເຕືອນເມື່ອລູກຄ້າເອີ້ນຜ່ານ QR ໂຕະ",
+      branch:"ສາຂາທີ່ຕັ້ງຄ່າການແຈ້ງເຕືອນ",branchHint:"ການແຈ້ງເຕືອນ ແລະສຽງແຍກຕາມສາຂາ",
+      popup:"ສະແດງ POP UP ຢູ່ໜ້າຂາຍ",sound:"ເປີດສຽງແຈ້ງເຕືອນ",
+      volume:"ລະດັບສຽງ",saved:"ບັນທຶກການແຈ້ງເຕືອນແລ້ວ",loading:"ກຳລັງໂຫຼດການແຈ້ງເຕືອນ..."
+    }
+  }[lang];
   const availableBranches = canManage ? branches : branches.filter((branch) => branch.id === activeBranchId);
   const initialBranchId = availableBranches.find((branch) => branch.id === activeBranchId)?.id ?? availableBranches[0]?.id ?? "";
   const [selectedBranchId, setSelectedBranchId] = useState(initialBranchId);
@@ -3628,7 +3628,7 @@ export function PosSettingsWorkspace({ lang, initialData }: { lang: Language; in
                 {labels.back}
               </ActionButton>
             </div>
-            <PrintersModule lang={lang === "en" ? "en" : "th"} />
+            <PrintersModule lang={lang} />
           </div>
         ) : null}
         {view === "activity" ? (
@@ -3688,7 +3688,7 @@ export function PosSettingsWorkspace({ lang, initialData }: { lang: Language; in
             reportStatus={reportStatus}
           />
         ) : null}
-        {view === "users" ? <PosUsersModule lang={lang === "en" ? "en" : "th"} embedded onBack={() => setView("menu")} /> : null}
+        {view === "users" ? <PosUsersModule lang={lang} embedded onBack={() => setView("menu")} /> : null}
       </section>
       {savePopup ? <SaveSuccessPopup labels={labels} message={savePopup} onClose={() => setSavePopup("")} /> : null}
       {languagePopupOpen ? <LanguageSettingsPopup lang={lang} labels={labels} onClose={() => setLanguagePopupOpen(false)} /> : null}
