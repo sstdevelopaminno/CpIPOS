@@ -4823,10 +4823,9 @@ export function PosSalesModule({
   const activePromptPayPhone = paymentAccount?.promptpay_phone ? sanitizePromptPayPhone(paymentAccount.promptpay_phone) : "";
   const activePaymentQrMode = paymentAccount?.qr_mode ?? "promptpay_link";
   const promptPayQrUrl =
-    posCurrencyCode === "LAK" ? null :
     paymentAccount && activePaymentQrMode === "qr_image" && paymentAccount.qr_image_url
       ? paymentAccount.qr_image_url
-      : paymentAccount
+      : posCurrencyCode === "THB" && paymentAccount && activePaymentQrMode === "promptpay_link"
         ? buildPromptPayQrUrl(activePromptPayPhone, transferPromptPayAmount)
         : null;
   // INET NOPS is THB-only; do not issue a Thai QR for a LAK bill.
