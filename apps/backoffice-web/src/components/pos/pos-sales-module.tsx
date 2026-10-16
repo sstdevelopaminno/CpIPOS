@@ -44,7 +44,7 @@ import { naturalCompareTableCode } from "@/lib/table-management";
 import { cachePosSalesOfflineCatalogSnapshot } from "@/lib/pos-offline-catalog-snapshot";
 import { wakeNativePrintAgent } from "@/lib/native-print-wake";
 
-type Lang = "th" | "en";
+type Lang = "th" | "en" | "lo";
 type QuickMode = "home" | "dine_in" | "delivery" | "buffet_table";
 type TableViewMode = "list" | "floor";
 
@@ -676,7 +676,7 @@ function sanitizeSubmitMessage(args: {
   return message;
 }
 
-const uiText = {
+const uiTextBase = {
   th: {
     modeLabel: "โหมด",
     salesInfoTitle: "ข้อมูลการขาย",
@@ -1383,7 +1383,8 @@ const uiText = {
     receiptSaved: "Saved",
     receiptClose: "Close"
   }
-} as const;
+ } as const;
+const uiText = {...uiTextBase, lo:{...uiTextBase.th, ...{"modeLabel":"ໂໝດ","salesInfoTitle":"ຂໍ້ມູນການຂາຍ","sellerName":"ຜູ້ຂາຍ","branchName":"ສາຂາ","shiftName":"ກະ","cashierDeviceCode":"ລະຫັດເຄື່ອງຂາຍ","date":"ວັນທີ","time":"ເວລາ","goHome":"ຊື້ກັບບ້ານ","dineIn":"ກິນຢູ່ຮ້ານ","delivery":"ສົ່ງເຖິງບ້ານ","switchMode":"ເລືອກໂໝດ","selectMode":"ເລືອກໂໝດການຂາຍ","selectModeHint":"ເລືອກວິທີຮັບອໍເດີ","currentMode":"ໂໝດປັດຈຸບັນ","previewMode":"ໜ້າຂາຍ POS","shift":"ກະ","noShift":"ຍັງບໍ່ເປີດກະ","checkout":"ຊຳລະເງິນ","openCashDrawer":"ເປີດລິ້ນຊັກເງິນ","discount":"ສ່ວນຫຼຸດ","total":"ຍອດລວມ","cancelBill":"ຍົກເລີກບິນ","holdBill":"ພັກບິນ","discountPopupTitle":"ຕັ້ງຄ່າສ່ວນຫຼຸດ","discountPopupHint":"ປ້ອນສ່ວນຫຼຸດເປັນເປີເຊັນ ຫຼືຈຳນວນເງິນ ລະບົບຄຳນວນໃຫ້ອັດຕະໂນມັດ","discountPercentLabel":"ສ່ວນຫຼຸດ (%)","discountAmountLabel":"ສ່ວນຫຼຸດ (LAK)","discountApply":"ນຳໃຊ້ສ່ວນຫຼຸດ","discountClear":"ລ້າງສ່ວນຫຼຸດ","billNo":"ເລກບິນ","paymentMethod":"ວິທີຊຳລະເງິນ","paymentMethodNone":"ຍັງບໍ່ຊຳລະ","close":"ປິດ","paymentProcessing":"ກຳລັງບັນທຶກການຊຳລະ...","member":"ສະມາຊິກ","memberComingSoon":"ເປີດຂໍ້ມູນສະມາຊິກ","heldBills":"ພັກບິນ","heldBillsOpen":"ເບິ່ງບິນພັກ","heldBillsEmpty":"ຍັງບໍ່ມີບິນພັກ","heldBillsRestore":"ເອີ້ນຄືນ","heldBillsDelete":"ລຶບບິນພັກ","heldBillsTitle":"ລາຍການບິນພັກ","heldBillsSaved":"ພັກບິນແລ້ວ","heldBillsSearchPlaceholder":"ຄົ້ນຫາເລກບິນພັກ","heldBillsRestoreLatest":"ເອີ້ນບິນຫຼ້າສຸດ","heldBillsHeldAt":"ເວລາພັກບິນ","heldBillsNoMatch":"ບໍ່ພົບບິນພັກທີ່ຄົ້ນຫາ","reviewBillTitle":"ລາຍການກ່ອນຊຳລະເງິນ","reviewBillHint":"ກວດສອບສິນຄ້າ ແລະຍອດລວມກ່ອນເລືອກວິທີຊຳລະ","reviewItemsHeader":"ສິນຄ້າ","reviewQtyHeader":"ຈຳນວນ","reviewQtyPriceLabel":"ຈຳນວນ x ລາຄາຕໍ່ໜ່ວຍ","reviewLineTotalLabel":"ຍອດຕໍ່ລາຍການ","reviewGrandTotalLabel":"ຍອດລວມທັງໝົດ","paymentCash":"ຈ່າຍເງິນສົດ","paymentTransfer":"ຈ່າຍເງິນໂອນ","transferTitle":"ຮັບເງິນໂອນ","transferHint":"ສະແກນ QR ເພື່ອຊຳລະເງິນ","transferQrTitle":"ສະແກນ QR ເພື່ອຊຳລະເງິນ","transferQrHint":"ສະແກນຜ່ານແອັບທະນາຄານ","transferQrImageSettingsHint":"QR ນີ້ມາຈາກຮູບ QR ໃນຕັ້ງຄ່າຮັບເງິນ","transferPromptPayPhoneLabel":"ເບີ PromptPay","transferPaymentAccountLabel":"ບັນຊີຮັບເງິນ","transferPaymentSettingsRequiredTitle":"ກະລຸນາເປີດຮັບຊຳລະກ່ອນ","transferPaymentSettingsRequiredBody":"ຍັງບໍ່ມີ QR ທີ່ເປີດໃຊ້ສຳລັບສາຂານີ້ ກະລຸນາເພີ່ມຮູບ QR ໃນຕັ້ງຄ່າຮັບເງິນ","transferPaymentSettingsRequiredClose":"ປິດໜ້າຕ່າງ","transferQrImageModeLabel":"ຮູບ QR ຈາກການຕັ້ງຄ່າ","transferPromptPayAmountLabel":"ຍອດຕ້ອງຊຳລະ","transferUploadSlipLabel":"ອັບໂຫຼດສະລິບ","transferSlipNeedUpload":"ກະລຸນາແນບສະລິບກ່ອນຢືນຢັນ","transferSlipVerifyPassed":"ກວດສອບສະລິບຜ່ານ","transferSlipVerifyFailed":"ກວດສອບສະລິບບໍ່ຜ່ານ","transferSlipInfoPayer":"ຜູ້ໂອນ","transferSlipInfoPayee":"ຜູ້ຮັບ","transferSlipInfoDateTime":"ເວລາໂອນ","transferSlipInfoTxn":"ເລກລາຍການ","transferSlipInfoAmount":"ຍອດໃນສະລິບ","transferConfirm":"ຢືນຢັນເງິນໂອນ","transferManualMode":"ໂອນແບບເດີມ","transferInetMode":"INET QR","transferInetHint":"ລູກຄ້າສະແກນ INET QR ແລ້ວລະບົບລໍຖ້າຜົນຊຳລະ","paymentTotalDue":"ຍອດຕ້ອງຈ່າຍ","cashReceiveTitle":"ຮັບຊຳລະເງິນສົດ","cashReceiveHint":"ປ້ອນຈຳນວນເງິນທີ່ຮັບຈາກລູກຄ້າ","cashReceivedLabel":"ຮັບເງິນ","cashInsufficient":"ເງິນທີ່ຮັບຕ້ອງບໍ່ນ້ອຍກວ່າຍອດຊຳລະ","cashRemaining":"ຍອດຄ້າງ","cashChange":"ເງິນທອນ","cashConfirm":"ຢືນຢັນຊຳລະ","cashQuickBlocksLabel":"ເງິນດ່ວນ","cashKeypadTitle":"ແປ້ນຕົວເລກ","cashKeyClear":"ລ້າງ","cashKeyBackspace":"ລຶບ","creatingOrderTitle":"ກຳລັງສ້າງບິນ","creatingOrderHint":"ລະບົບກຳລັງສ້າງບິນ ກະລຸນາລໍຖ້າ","receiptSaved":"ບັນທຶກສຳເລັດ","receiptClose":"ປິດໜ້າຕ່າງ"}}} as const;
 
 const RECEIPT_MODAL_MIN_VISIBLE_MS = 2200;
 const RECEIPT_MODAL_SAFE_TIMEOUT_MS = 8000;
@@ -1868,7 +1869,7 @@ function PosDeviceBlockedOverlay({
 function formatHeldAt(value: string, lang: Lang): string {
   const parsed = new Date(value);
   if (Number.isNaN(parsed.getTime())) return value;
-  return new Intl.DateTimeFormat(lang === "th" ? "th-TH" : "en-US", {
+  return new Intl.DateTimeFormat(lang === "lo" ? "lo-LA" : lang === "th" ? "th-TH" : "en-US", {
     dateStyle: "medium",
     timeStyle: "medium",
     timeZone: "Asia/Bangkok"
@@ -2144,8 +2145,8 @@ export function PosSalesModule({
       .catch(() => undefined);
     return () => { active = false; };
   }, [shift?.id]);
-  const [sellerName, setSellerName] = useState(lang === "th" ? "ไม่ทราบชื่อผู้ขาย" : "Unknown Seller");
-  const [branchName, setBranchName] = useState(lang === "th" ? "ไม่ทราบสาขา" : "Unknown Branch");
+  const [sellerName, setSellerName] = useState(lang === "lo" ? "ບໍ່ຮູ້ຊື່ຜູ້ຂາຍ" : lang === "th" ? "ไม่ทราบชื่อผู้ขาย" : "Unknown Seller");
+  const [branchName, setBranchName] = useState(lang === "lo" ? "ບໍ່ຮູ້ສາຂາ" : lang === "th" ? "ไม่ทราบสาขา" : "Unknown Branch");
   const [posScope, setPosScope] = useState<{ tenantId: string | null; branchId: string | null }>({ tenantId: null, branchId: null });
   const [storeProfile, setStoreProfile] = useState<StoreProfile | null>(null);
   const [isHydrated, setIsHydrated] = useState(false);
@@ -2550,8 +2551,8 @@ export function PosSalesModule({
     const memberName = session.member_name?.trim();
     const memberPhone = session.member_phone?.trim();
     const memberCode = session.member_code?.trim();
-    const pointText = Number.isFinite(Number(session.member_points)) ? `${Number(session.member_points)} ${lang === "th" ? "คะแนน" : "pts"}` : "";
-    const stampText = Number.isFinite(Number(session.member_stamps)) ? `${Number(session.member_stamps)} ${lang === "th" ? "แต้ม" : "stamps"}` : "";
+    const pointText = Number.isFinite(Number(session.member_points)) ? `${Number(session.member_points)} ${lang === "lo" ? "ຄະແນນ" : lang === "th" ? "คะแนน" : "pts"}` : "";
+    const stampText = Number.isFinite(Number(session.member_stamps)) ? `${Number(session.member_stamps)} ${lang === "lo" ? "ແຕ້ມ" : lang === "th" ? "แต้ม" : "stamps"}` : "";
     const identity = [memberName, memberCode ? `#${memberCode}` : "", memberPhone].filter(Boolean).join(" / ");
     const balances = [pointText, stampText].filter(Boolean).join(" / ");
     if (!identity && !balances) return null;
@@ -9478,7 +9479,7 @@ export function PosSalesModule({
                         </small>
                       </span>
                       <span className="text-right text-xs font-black text-slate-700">
-                        {member.points} {lang === "th" ? "คะแนน" : "pts"} / {member.stamps} {lang === "th" ? "แต้ม" : "stamps"}
+                        {member.points} {lang === "lo" ? "ຄະແນນ" : lang === "th" ? "คะแนน" : "pts"} / {member.stamps} {lang === "lo" ? "ແຕ້ມ" : lang === "th" ? "แต้ม" : "stamps"}
                       </span>
                     </button>
                   );
