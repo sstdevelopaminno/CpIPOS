@@ -176,6 +176,22 @@ function ensureGeneralSaleStyles() {
     html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .posui-body { grid-template-columns: minmax(0, 1fr) clamp(235px, 26vw, 288px); gap: 8px; }
     html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .posui-catalog-col,
     html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .posui-cart-col { min-width: 0; }
+    /* Optical review/cash modals must remain reachable above the software keyboard
+       on compact 8.5-inch landscape tablets; payment logic is unchanged. */
+    @media (max-height: 760px) and (orientation: landscape) {
+      html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .posui-payment-modal-backdrop { padding: 6px; }
+      html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .posui-payment-modal--cash,
+      html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .posui-payment-modal--review-bill {
+        max-height: calc(100dvh - 12px); overflow-y: auto; overscroll-behavior: contain;
+        padding: 10px;
+      }
+      html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .posui-cash-layout {
+        grid-template-columns: minmax(0, 1fr) minmax(175px, 215px); gap: 8px;
+      }
+      html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .posui-cash-keypad__key { min-height: 40px; font-size: 20px; }
+      html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .posui-cash-keypad__grid { gap: 5px; }
+      html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .posui-payment-modal--review-bill .posui-payment-modal__items { max-height: 28vh; overflow-y: auto; }
+    }
     @media (max-width: 1080px) and (orientation: landscape) {
       html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .posui-body { grid-template-columns: minmax(0, 1fr) 240px; gap: 6px; }
       html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .cpipos-sd-table__name { width: 36%; }
