@@ -602,7 +602,7 @@ export function PosSubscriptionCenter({ initial, isOwner, showContactActions = t
               className={"inline-flex shrink-0 items-center gap-2 whitespace-nowrap border-b-[3px] px-3 py-3 text-[13px] font-bold transition " +
                 (tab === item.key ? "border-blue-600 text-blue-700" :
                   "border-transparent text-slate-600 hover:bg-blue-50 hover:text-blue-700")}>
-              <Icon name={item.icon} size={17} />{item.label}
+              <Icon name={item.icon} size={17} />{ui(item.label)}
             </button>)}
           </nav>
 
