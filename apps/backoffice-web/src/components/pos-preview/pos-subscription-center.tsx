@@ -55,9 +55,9 @@ function formatMoney(number: number | null, currency = "THB") {
   return number == null ? "ยังไม่กำหนดราคา" :
     new Intl.NumberFormat("th-TH", { style: "currency", currency }).format(number);
 }
-function formatDate(value: string | null) {
+function formatDate(value: string | null, lang:Language="th") {
   if (!value || !Number.isFinite(Date.parse(value))) return "—";
-  return new Intl.DateTimeFormat("th-TH", { dateStyle: "medium", timeZone: "Asia/Bangkok" })
+  return new Intl.DateTimeFormat(lang==="lo"?"lo-LA":"th-TH", { dateStyle: "medium", timeZone: "Asia/Bangkok" })
     .format(new Date(value));
 }
 function billingDueLabel(value: string | null | undefined) {
@@ -190,15 +190,15 @@ export function PosSubscriptionCenter({ initial, isOwner, showContactActions = t
   const aiCheckoutActive = tab === "ai" && aiPurchaseReady && aiCheckoutOpen;
   const isCustomSelection = Boolean(packageRow?.contact_sales || packageRow?.quota_mode === "custom" || packageRow?.code === "custom");
   const isPendingCustomQuote = pending?.kind === "custom_quote_request";
-  const cycleLabel = snapshot.contract.billing_interval === "yearly" ? "รายปี" : "รายเดือน";
+  const cycleLabel = ui(snapshot.contract.billing_interval === "yearly" ? "รายปี" : "รายเดือน");
   const due = packageRow?.id === snapshot.contract.package_id && interval === snapshot.contract.billing_interval
     ? snapshot.contract.amount_per_cycle
     : interval === "yearly" ? packageRow?.yearly_price ?? null : packageRow?.monthly_price ?? null;
-  const priceLabel = demo ? "ยกเว้นการเรียกเก็บ" :
+  const priceLabel = demo ? ui("ยกเว้นการเรียกเก็บ") :
     snapshot.contract.package_code === "custom" && snapshot.contract.amount_per_cycle === null
-      ? "ตามสัญญา" : formatMoney(snapshot.contract.amount_per_cycle, snapshot.contract.currency);
-  const expiryLabel = demo ? "ไม่กำหนดวันหมดอายุ" : formatDate(snapshot.contract.expires_at);
-  const dayCount = demo ? "บัญชีภายใน" : snapshot.contract.days_remaining === null ? "ยังไม่กำหนด" :
+      ? ui("ตามสัญญา") : formatMoney(snapshot.contract.amount_per_cycle, snapshot.contract.currency);
+  const expiryLabel = demo ? ui("ไม่กำหนดวันหมดอายุ") : formatDate(snapshot.contract.expires_at,lang);
+  const dayCount = demo ? ui("บัญชีภายใน") : snapshot.contract.days_remaining === null ? ui("ยังไม่กำหนด") :
     snapshot.contract.days_remaining < 0 ? "เกิน " + Math.abs(snapshot.contract.days_remaining) + " วัน" :
     snapshot.contract.days_remaining + " วัน";
   const statusLabel = demo ? ui("บัญชีทดสอบภายใน") :
@@ -440,7 +440,7 @@ export function PosSubscriptionCenter({ initial, isOwner, showContactActions = t
       >
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
-            <p className="font-black">สถานะรอบชำระ · {billingDueLabel(billingDue.status)}</p>
+            <p className="font-black">สถานะรอบชำระ · {ui(billingDueLabel(billingDue.status))}</p>
             <p className="mt-1 text-xs leading-5">
               {billingDue.provisional_access_active
                 ? "ระบบเปิดใช้งานชั่วคราวระหว่างรอฝ่าย IT ตรวจสอบยอดเงินจริง"
@@ -452,9 +452,9 @@ export function PosSubscriptionCenter({ initial, isOwner, showContactActions = t
             </p>
           </div>
           <div className="text-right text-xs leading-5">
-            <p><strong>{ui("กำหนดชำระ:")}</strong> {formatDate(billingDue.due_at)}</p>
+            <p><strong>{ui("กำหนดชำระ:")}</strong> {formatDate(billingDue.due_at,lang)}</p>
             <p><strong>{ui("ยอดคงค้าง:")}</strong> {formatMoney(Number(billingDue.outstanding ?? billingDue.amount_due ?? 0), billingDue.currency || "THB")}</p>
-            {billingDue.provisional_access_expires_at ? <p><strong>{ui("เปิดชั่วคราวถึง:")}</strong> {formatDate(billingDue.provisional_access_expires_at)}</p> : null}
+            {billingDue.provisional_access_expires_at ? <p><strong>{ui("เปิดชั่วคราวถึง:")}</strong> {formatDate(billingDue.provisional_access_expires_at,lang)}</p> : null}
           </div>
         </div>
       </section> : null}
@@ -494,7 +494,7 @@ export function PosSubscriptionCenter({ initial, isOwner, showContactActions = t
         <div className="flex min-w-0 flex-col justify-center gap-2 border-t border-[#d5e5fa] px-5 py-5 sm:border-l xl:border-t-0">
           <div className="flex items-start gap-2"><Icon name="calendar" size={17} className="mt-0.5 text-blue-600" />
             <div><p className="text-xs text-slate-500">{ui("วันที่เริ่มใช้งาน")}</p>
-              <p className="text-sm font-extrabold text-[#152542]">{formatDate(snapshot.contract.started_at)}</p>
+              <p className="text-sm font-extrabold text-[#152542]">{formatDate(snapshot.contract.started_at,lang)}</p>
             </div>
           </div>
           <div className="flex items-start gap-2"><Icon name="calendar" size={17} className="mt-0.5 text-blue-600" />
@@ -521,7 +521,7 @@ export function PosSubscriptionCenter({ initial, isOwner, showContactActions = t
             lastRequest ? LABELS[lastRequest.status] || lastRequest.status : "ไม่มีคำขอรอดำเนินการ"}</span>}
           detail={pending ? pending.kind === "renewal_intent" ? "รอการแจ้งชำระหรือ IT ตรวจสอบ" :
             "รอ IT ยืนยันยอดรับเงินจริง" :
-            lastRequest ? "รายการล่าสุด " + formatDate(lastRequest.submitted_at) : "ยังไม่มีรายการแจ้งชำระ"} />
+            lastRequest ? "รายการล่าสุด " + formatDate(lastRequest.submitted_at,lang) : "ยังไม่มีรายการแจ้งชำระ"} />
       </section>
 
       <section className={box + " p-3 sm:p-4"}>
@@ -568,7 +568,7 @@ export function PosSubscriptionCenter({ initial, isOwner, showContactActions = t
         <div>
           <p className="font-semibold">{isPendingCustomQuote
             ? "คำขอ CUSTOM อยู่ระหว่างดำเนินการ"
-            : `มีคำขอแพ็กเกจรอตรวจสอบ (${LABELS[pending.status] || pending.status})`}</p>
+            : `มีคำขอแพ็กเกจรอตรวจสอบ (${ui(LABELS[pending.status] || pending.status)})`}</p>
           <p className="mt-0.5">{isPendingCustomQuote
             ? "ทีม IT จะติดต่อเพื่อตกลงราคา โควตา และสิทธิ์ เมื่ออนุมัติแล้วรายการชำระจะปรากฏในระบบ"
             : pendingCanAcceptPayment
@@ -974,7 +974,7 @@ export function PosSubscriptionCenter({ initial, isOwner, showContactActions = t
                 <thead><tr>{["วันที่", "แพ็กเกจ / รอบ", "ประเภท", "ยอดตามแพ็กเกจ", "ยอดที่แจ้ง", "สถานะ", "ใบเสร็จ / หมายเหตุ"].map((head) =>
                   <th className="border-b p-3 text-xs text-slate-500" key={head}>{head}</th>)}</tr></thead>
                 <tbody>{snapshot.requests.map((row) => <tr key={row.id} className="border-b align-top">
-                  <td className="p-3">{formatDate(row.submitted_at)}</td>
+                  <td className="p-3">{formatDate(row.submitted_at,lang)}</td>
                   <td className="p-3"><strong>{row.package_name || "แพ็กเกจ"}</strong><br/>
                     <span className="text-xs text-slate-500">{row.billing_interval === "yearly" ? "รายปี" : "รายเดือน"}</span></td>
                   <td className="p-3">{row.kind === "payment_notice" ? "แจ้งชำระเงิน" :
@@ -982,7 +982,7 @@ export function PosSubscriptionCenter({ initial, isOwner, showContactActions = t
                      row.kind === "custom_quote_request" ? "ขอ CUSTOM" : "ขอต่ออายุ"}</td>
                   <td className="p-3">{formatMoney(row.expected_amount)}</td>
                   <td className="p-3">{row.amount === null ? "—" : formatMoney(row.amount)}</td>
-                  <td className="p-3 font-semibold">{LABELS[row.status] || row.status}</td>
+                  <td className="p-3 font-semibold">{ui(LABELS[row.status] || row.status)}</td>
                   <td className="p-3">{row.receipt ? <a
                     href={"/api/pos/billing/receipts/" + encodeURIComponent(row.receipt.id)}
                     target="_blank" rel="noopener noreferrer"
@@ -1057,7 +1057,7 @@ export function PosSubscriptionCenter({ initial, isOwner, showContactActions = t
                         {document.number}
                         {document.voided ? <span className="ml-2 rounded-full bg-red-50 px-2 py-1 text-[10px] no-underline">{ui("ยกเลิกเอกสาร")}</span> : null}
                       </td>
-                      <td className="px-4 py-3">{formatDate(document.issued_at)}</td>
+                      <td className="px-4 py-3">{formatDate(document.issued_at,lang)}</td>
                       <td className="px-4 py-3">{document.package_name || "แพ็กเกจ"}<br/>
                         <span className="text-xs text-slate-500">{document.billing_interval === "yearly" ? "รายปี" : "รายเดือน"}</span></td>
                       <td className="px-4 py-3 text-xs text-slate-600">{document.period_start || "—"} → {document.period_end || "—"}</td>
