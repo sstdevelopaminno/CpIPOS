@@ -32,6 +32,6 @@ describe("three POS languages and legacy QR preservation",()=>{
   expect(printers).toContain("const printerText");
   expect(printers).toContain("const tr=");
   expect(printers).toContain('"/api/backoffice/printers/devices"');
-  expect(printers).toContain('"/api/backoffice/printers/discover');
+  expect(printers).toContain("/api/backoffice/printers/discover");
  });
 });
