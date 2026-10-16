@@ -20,7 +20,7 @@ describe("CUSTOM IMDC Optical as the only permitted POS sales mode", () => {
   const route=read("src/app/preview/pos/page.tsx");
   const gate=read("src/components/pos/pos-entry-gate.tsx");
   expect(route).toContain("<PosEntryGate");
-  expect(route).toContain("<PosGeneralSaleTableController />");
+  expect(route).toContain("<PosGeneralSaleTableController lang={lang} />");
   expect(gate).toContain("<PosInitialSalesModeController initialScope={initialScope}");
   expect(gate).toContain("SalesComponent={PosSalesModule}");
   const boundary=read("src/components/pos/pos-dine-in-commit-reset-boundary.tsx");
