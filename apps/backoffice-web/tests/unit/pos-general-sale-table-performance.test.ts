@@ -21,7 +21,7 @@ describe("POS general-sale table-only performance contract", () => {
     expect(controller).toContain('window.localStorage.setItem(GENERAL_SALE_LAYOUT_STORAGE_KEY, "table")');
     expect(controller).toContain('document.documentElement.setAttribute(GENERAL_SALE_LAYOUT_ATTRIBUTE, "table")');
     expect(controller).toContain("copy.tableMode");
-    expect(readRepoFile("src", "lib", "pos-general-sale-i18n.ts")).toContain('tableMode: "ຕາຕະລາງ"');
+    expect(readSource("src/lib/pos-general-sale-i18n.ts")).toContain('tableMode: "ຕາຕະລາງ"');
     expect(controller).not.toContain('data.sdLayout = "grid"');
     expect(controller).not.toContain('"สินค้า + ตะกร้า"');
   });
