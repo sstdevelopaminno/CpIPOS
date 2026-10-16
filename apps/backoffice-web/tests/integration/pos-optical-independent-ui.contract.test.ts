@@ -84,7 +84,8 @@ describe("Optical POS sale identity is separate from internal takeaway order typ
     expect(controller).toContain("PRODUCT_LOOKUP_TIMEOUT_MS");
     expect(controller).toContain("copy.billAria");
     expect(read("src/lib/pos-general-sale-i18n.ts")).toContain("ค้นหาบิลมัดจำหรือบิลจอง");
-    expect(controller).toContain("ไม่มีการเปลี่ยนแปลงบิลหรือยอดชำระ");
+    expect(controller).toContain("copy.billDisabled");
+    expect(read("src/lib/pos-general-sale-i18n.ts")).toContain("ไม่มีการเปลี่ยนแปลงบิลหรือยอดชำระ");
     expect(controller).not.toContain("/api/pos/optical/deposit");
   });
 
