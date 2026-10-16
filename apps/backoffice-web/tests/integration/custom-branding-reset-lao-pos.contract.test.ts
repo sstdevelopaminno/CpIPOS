@@ -31,7 +31,7 @@ describe("CUSTOM branding reset and Lao POS interface contracts",()=>{
    const product=file("components/pos-preview/product-sales-workspace.tsx");
    expect(packagePage).toContain("getCurrentLanguage");
    expect(packagePage).toContain("lang={lang}");
-   expect(packageUi).toContain("ui(tab.label)");
+   expect(packageUi).toContain("ui(item.label)");
    expect(sales).toContain("loUi(lang");
    expect(product).toContain('lang !== "en"');
    expect(product).toContain("lo-LA");
