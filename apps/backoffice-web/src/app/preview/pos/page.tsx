@@ -20,7 +20,7 @@ export default async function PosPreviewPage() {
       <PosCustomerDisplayV2Publisher />
       <PosCustomerDisplayV2PaymentObserver />
       <PosDineInCommitResetBoundary lang={lang} />
-      <PosGeneralSaleTableController />
+      <PosGeneralSaleTableController lang={lang} />
       <PosGeneralSaleRuntime />
       <PosEntryGate lang={lang} initialScope={{ tenantId: posMenuScope.session.tenant_id, branchId: posMenuScope.session.branch_id }} />
     </main>
