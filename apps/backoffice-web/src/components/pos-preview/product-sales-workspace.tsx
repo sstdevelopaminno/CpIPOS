@@ -187,12 +187,12 @@ export function ProductSalesWorkspace({ lang, canViewAllBranches, initialBranchI
 
   const dateTime = useMemo(
     () =>
-      new Intl.DateTimeFormat(lang === "lo" ? "lo-LA" : lang === "lo" ? "lo-LA" : th ? "th-TH" : "en-US", {
+      new Intl.DateTimeFormat(lang === "lo" ? "lo-LA" : th ? "th-TH" : "en-US", {
         timeZone: "Asia/Bangkok",
         dateStyle: "short",
         timeStyle: "short"
       }),
-    [th]
+    [lang, th]
   );
 
   async function applyFilters() {
