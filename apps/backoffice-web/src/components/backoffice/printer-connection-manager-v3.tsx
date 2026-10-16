@@ -54,6 +54,35 @@ type Discovery = { items: Candidate[]; note: string };
 type Envelope<T> = { data?: T; error?: { code?: string; message?: string } };
 
 const printerText:Record<string,{lo:string;en:string}>={"ตั้งค่าเครื่องพิมพ์":{"lo":"ຕັ້ງຄ່າເຄື່ອງພິມ","en":"Printer settings"},"สาขา":{"lo":"ສາຂາ","en":"Branch"},"สาขาปัจจุบัน":{"lo":"ສາຂາປັດຈຸບັນ","en":"Current branch"},"รีเฟรช":{"lo":"ໂຫຼດໃໝ່","en":"Refresh"},"คำสั่งพิมพ์ / วัตถุประสงค์":{"lo":"ວຽກພິມ / ຈຸດປະສົງ","en":"Printing purpose"},"ทั้งหมด":{"lo":"ທັງໝົດ","en":"All"},"ใบเสร็จหน้าขาย":{"lo":"ໃບຮັບເງິນໜ້າຂາຍ","en":"Sales receipt"},"ครัว":{"lo":"ເຮືອນຄົວ","en":"Kitchen"},"เครื่องดื่ม":{"lo":"ເຄື່ອງດື່ມ","en":"Drinks"},"บาร์":{"lo":"ບາ","en":"Bar"},"ใบเสร็จย้อนหลัง":{"lo":"ໃບຮັບເງິນຍ້ອນຫຼັງ","en":"Receipt reprint"},"ปิดกะ / รายงานกะ":{"lo":"ປິດກະ / ລາຍງານກະ","en":"Shift report"},"สลิปชำระเงิน":{"lo":"ສະລິບຊຳລະເງິນ","en":"Payment slip"},"ลิ้นชักเงินสด":{"lo":"ລິ້ນຊັກເງິນສົດ","en":"Cash drawer"},"ชื่อเครื่องพิมพ์":{"lo":"ຊື່ເຄື່ອງພິມ","en":"Printer name"},"ยี่ห้อ":{"lo":"ຍີ່ຫໍ້","en":"Brand"},"รุ่น":{"lo":"ຮຸ່ນ","en":"Model"},"รูปแบบเชื่อมต่อ":{"lo":"ຮູບແບບເຊື່ອມຕໍ່","en":"Connection mode"},"ขนาดกระดาษ":{"lo":"ຂະໜາດເຈ້ຍ","en":"Paper size"},"รหัสเครื่อง POS / Runtime":{"lo":"ລະຫັດເຄື່ອງ POS / Runtime","en":"POS / Runtime code"},"IP เครื่องพิมพ์":{"lo":"IP ເຄື່ອງພິມ","en":"Printer IP"},"ล้างค่า":{"lo":"ລ້າງຄ່າ","en":"Clear"},"เพิ่มเครื่องพิมพ์":{"lo":"ເພີ່ມເຄື່ອງພິມ","en":"Add printer"},"รายการเครื่องพิมพ์":{"lo":"ລາຍການເຄື່ອງພິມ","en":"Printers"},"สถานะ":{"lo":"ສະຖານະ","en":"Status"},"ชื่อเครื่อง":{"lo":"ຊື່ເຄື່ອງ","en":"Device name"},"รุ่น / ยี่ห้อ":{"lo":"ຮຸ່ນ / ຍີ່ຫໍ້","en":"Model / Brand"},"โหมด / POS":{"lo":"ໂໝດ / POS","en":"Mode / POS"},"โซน / หน้าที่":{"lo":"ໂຊນ / ໜ້າທີ່","en":"Zone / Purpose"},"กระดาษ":{"lo":"ເຈ້ຍ","en":"Paper"},"ออนไลน์ล่าสุด":{"lo":"ອອນລາຍຫຼ້າສຸດ","en":"Last online"},"การทำงาน":{"lo":"ການເຮັດວຽກ","en":"Operations"},"จัดการ":{"lo":"ຈັດການ","en":"Actions"},"พิมพ์ทดสอบ":{"lo":"ທົດສອບພິມ","en":"Test print"},"เปิดลิ้นชักทดสอบ":{"lo":"ທົດສອບລິ້ນຊັກ","en":"Test cash drawer"},"แก้ไข":{"lo":"ແກ້ໄຂ","en":"Edit"},"ตั้งค่าเส้นทางพิมพ์":{"lo":"ຕັ້ງຄ່າເສັ້ນທາງພິມ","en":"Configure print route"},"ตั้งค่าเส้นทาง":{"lo":"ຕັ້ງຄ່າເສັ້ນທາງ","en":"Configure route"},"ยกเลิกเชื่อมต่อ":{"lo":"ຕັດການເຊື່ອມຕໍ່","en":"Disconnect"},"ลบ":{"lo":"ລຶບ","en":"Delete"},"บันทึกการเปลี่ยนแปลง":{"lo":"ບັນທຶກການປ່ຽນແປງ","en":"Save changes"},"บันทึกเส้นทางพิมพ์":{"lo":"ບັນທຶກເສັ້ນທາງພິມ","en":"Save print route"},"เชื่อมต่อและบันทึก":{"lo":"ເຊື່ອມຕໍ່ ແລະບັນທຶກ","en":"Connect and save"},"กำลังบันทึก...":{"lo":"ກຳລັງບັນທຶກ...","en":"Saving..."},"กำลังค้นหา...":{"lo":"ກຳລັງຄົ້ນຫາ...","en":"Searching..."},"⌕ ค้นหาอุปกรณ์":{"lo":"⌕ ຄົ້ນຫາອຸປະກອນ","en":"⌕ Find devices"},"เชื่อมต่อใหม่":{"lo":"ເຊື່ອມຕໍ່ໃໝ່","en":"Reconnect"},"กำลังเชื่อมต่อ...":{"lo":"ກຳລັງເຊື່ອມຕໍ່...","en":"Connecting..."},"บันทึกไว้แล้ว":{"lo":"ບັນທຶກແລ້ວ","en":"Saved"},"ใช้เครื่องนี้":{"lo":"ໃຊ້ເຄື່ອງນີ້","en":"Use this printer"},"ยกเลิก":{"lo":"ຍົກເລີກ","en":"Cancel"},"ออนไลน์":{"lo":"ອອນລາຍ","en":"Online"},"ออฟไลน์":{"lo":"ອອຟລາຍ","en":"Offline"},"กำลังตรวจสอบ":{"lo":"ກຳລັງກວດສອບ","en":"Checking"},"กำลังเชื่อมต่อ":{"lo":"ກຳລັງເຊື່ອມຕໍ່","en":"Connecting"},"ต้องตรวจสอบ":{"lo":"ຕ້ອງກວດສອບ","en":"Needs checking"},"ปิดใช้งาน":{"lo":"ປິດໃຊ້ງານ","en":"Disabled"},"ยกเลิกการเชื่อมต่อ":{"lo":"ຕັດການເຊື່ອມຕໍ່","en":"Disconnected"},"ทั่วไป":{"lo":"ທົ່ວໄປ","en":"Generic"},"ไม่ระบุรุ่น":{"lo":"ບໍ່ລະບຸຮຸ່ນ","en":"Model unspecified"},"ทั้งสาขา":{"lo":"ທັງສາຂາ","en":"Entire branch"},"พร้อมเข้าคิวพิมพ์":{"lo":"ພ້ອມເຂົ້າຄິວພິມ","en":"Ready for print queue"},"รอลูกค้ากำหนดเส้นทาง":{"lo":"ລໍຖ້າກຳນົດເສັ້ນທາງ","en":"Awaiting print routing"},"ยังไม่มีเครื่องพิมพ์ในตัวกรองนี้":{"lo":"ບໍ່ມີເຄື່ອງພິມຕາມຕົວກອງ","en":"No printers match these filters"},"ประวัติเครื่องที่เคยเชื่อมต่อ":{"lo":"ປະຫວັດເຄື່ອງພິມທີ່ເຄີຍເຊື່ອມຕໍ່","en":"Connection history"},"เชื่อมต่อ":{"lo":"ເຊື່ອມຕໍ່","en":"Connected"},"ตรวจพบอัตโนมัติ":{"lo":"ກວດພົບອັດຕະໂນມັດ","en":"Auto discovered"},"บันทึกไม่สำเร็จ":{"lo":"ບັນທຶກບໍ່ສຳເລັດ","en":"Could not save"},"ดำเนินการไม่สำเร็จ":{"lo":"ດຳເນີນການບໍ່ສຳເລັດ","en":"Operation failed"}};
+const extraPrinterText:Record<string,{lo:string;en:string}>={
+"Modern Runtime ตรวจพบเครื่องพิมพ์อัตโนมัติ; ลูกค้าเป็นผู้กำหนดเส้นทางพิมพ์ตาม สาขา → เครื่อง POS → หน้าที่/โซนครัว":{lo:"Modern Runtime ກວດພົບເຄື່ອງພິມອັດຕະໂນມັດ; ລູກຄ້າກຳນົດການພິມຕາມສາຂາ → POS → ໜ້າທີ່/ໂຊນຄົວ",en:"Modern Runtime discovers printers automatically. Set print routing by branch → POS → purpose/kitchen zone."},
+"✣ ค้นหาอุปกรณ์ที่ระบบรองรับ":{lo:"✣ ຄົ້ນຫາອຸປະກອນທີ່ຮອງຮັບ",en:"Find supported devices"},
+"Modern Android 1.0.17+ ส่ง USB/Bluetooth inventory เข้าระบบอัตโนมัติและรายการด้านล่างรีเฟรชทุก 15 วินาที; ปุ่มนี้ใช้ตรวจ Runtime/โปรไฟล์เพิ่มเติม ส่วน LAN ยังคงกรอก IP/Port เอง":{lo:"Modern Android 1.0.17+ ສົ່ງລາຍການ USB/Bluetooth ແລະໂຫຼດໃໝ່ທຸກ 15 ວິນາທີ; ໃຊ້ປຸ່ມນີ້ກວດ Runtime/ໂປຣໄຟລ໌, ສ່ວນ LAN ໃຫ້ປ້ອນ IP/Port",en:"Modern Android 1.0.17+ sends USB/Bluetooth inventory and refreshes every 15 seconds. Use this to check Runtime/profiles; configure LAN IP/Port manually."},
+"เครื่องที่ Modern Runtime ตรวจพบอัตโนมัติจะแสดงใน “รายการเครื่องพิมพ์” ด้านล่าง ส่วนปุ่มค้นหาใช้ดู Runtime/Agent/โปรไฟล์ที่ระบบรู้จักเพิ่มเติม":{lo:"ເຄື່ອງພິມທີ່ Modern Runtime ກວດພົບຈະສະແດງໃນລາຍການດ້ານລຸ່ມ; ປຸ່ມຄົ້ນຫາໃຊ້ກວດ Runtime/Agent/ໂປຣໄຟລ໌",en:"Automatically discovered printers appear below. Use search to inspect known Runtime/Agent/profiles."},
+"แก้ไขเครื่องพิมพ์และเส้นทาง":{lo:"ແກ້ໄຂເຄື່ອງພິມ ແລະເສັ້ນທາງພິມ",en:"Edit printer and routing"},
+"ตั้งค่าเส้นทางให้เครื่องที่ตรวจพบอัตโนมัติ":{lo:"ຕັ້ງຄ່າການພິມໃຫ້ເຄື່ອງທີ່ກວດພົບ",en:"Configure discovered printer routing"},
+"+ เพิ่มเครื่องพิมพ์":{lo:"+ ເພີ່ມເຄື່ອງພິມ",en:"+ Add printer"},
+"เช่น เคาน์เตอร์ 1, ครัวร้อน":{lo:"ເຊັ່ນ: ເຄົາເຕີ 1, ເຮືອນຄົວຮ້ອນ",en:"e.g. Counter 1, Hot kitchen"},
+"เช่น Epson, Xprinter":{lo:"ເຊັ່ນ: Epson, Xprinter",en:"e.g. Epson, Xprinter"},
+"เช่น TM-T82, XP-58":{lo:"ເຊັ່ນ: TM-T82, XP-58",en:"e.g. TM-T82, XP-58"},
+"สาขานี้ยังไม่มี Kitchen Zone — เครื่องจะเป็นค่าเริ่มต้นแบบทั้งสาขา จนกว่าจะสร้างโซนครัว":{lo:"ສາຂານີ້ຍັງບໍ່ມີ Kitchen Zone; ເຄື່ອງນີ້ຈະຮັບງານທັງສາຂາຈົນກວ່າຈະຕັ້ງໂຊນຄົວ",en:"No kitchen zones exist for this branch. Printer defaults to entire branch."},
+"⚙ ตั้งค่าขั้นสูง / ผูกเครื่อง POS":{lo:"⚙ ຕັ້ງຄ່າຂັ້ນສູງ / ເຊື່ອມເຄື່ອງ POS",en:"Advanced settings / POS binding"},
+"เช่น POS-COUNTER-01":{lo:"ເຊັ່ນ: POS-COUNTER-01",en:"e.g. POS-COUNTER-01"},
+"เครื่องที่ตรวจพบอัตโนมัติจะล็อกกับ Runtime ที่รายงาน physical fingerprint นั้น; เครื่องที่เพิ่มเองสามารถเว้นว่างเพื่อเป็นเครื่องประจำสาขา":{lo:"ເຄື່ອງທີ່ກວດພົບຈະຜູກກັບ Runtime ທີ່ສົ່ງ fingerprint; ເຄື່ອງທີ່ເພີ່ມເອງປ່ອຍວ່າງໄດ້ເພື່ອໃຊ້ທົ່ວສາຂາ",en:"Discovered printers are bound to reporting Runtime fingerprint; manual printers can be branch-wide."},
+"รายการเครื่องพิมพ์ ":{lo:"ລາຍການເຄື່ອງພິມ ",en:"Printers "},
+"เครื่อง Modern ที่ตรวจพบจะขึ้น Online ก่อนโดยยังไม่มี routing; ลูกค้าเป็นผู้เลือกเส้นทางพิมพ์เอง":{lo:"ເຄື່ອງ Modern ທີ່ກວດພົບຈະສະແດງ Online ແຕ່ຍັງບໍ່ມີການກຳນົດທາງພິມ; ລູກຄ້າຕ້ອງຕັ້ງຄ່າເອງ",en:"Discovered Modern printers appear online without routing until the customer configures a print route."},
+"Physical device จาก Modern Runtime":{lo:"ອຸປະກອນຈາກ Modern Runtime",en:"Physical device from Modern Runtime"},
+"เก็บทั้งการตรวจพบอัตโนมัติ การเชื่อมต่อ/ยกเลิก และการทดสอบ โดยการยกเลิกของลูกค้าจะไม่ถูก auto-discovery เปิดกลับเอง":{lo:"ບັນທຶກການຄົ້ນພົບ, ການເຊື່ອມຕໍ່/ຍົກເລີກ ແລະການທົດສອບ; ການຍົກເລີກບໍ່ຖືກເປີດຄືນອັດຕະໂນມັດ",en:"Records discovery, connection, disconnection and tests. Automatic discovery never reverses a manual disconnect."},
+"ยังไม่มีประวัติการเชื่อมต่อ":{lo:"ຍັງບໍ່ມີປະຫວັດການເຊື່ອມຕໍ່",en:"No connection history"},
+"ระบบล็อก physical fingerprint ของเครื่องนี้ไว้แล้ว การเลือกด้านล่างเป็นการตั้ง routing เท่านั้นและไม่เปลี่ยนเครื่องพิมพ์ตัวอื่น":{lo:"ເຄື່ອງນີ້ຖືກຜູກ fingerprint ແລ້ວ; ການຕັ້ງຄ່າຕໍ່ໄປຈະບໍ່ປ່ຽນເຄື່ອງອື່ນ",en:"This printer fingerprint is locked. Routing changes here do not affect other printers."},
+"การตั้งค่านี้มีผลเฉพาะสาขาปัจจุบัน เครื่อง POS และเครื่องพิมพ์ของสาขาอื่นไม่ถูกแก้ไข":{lo:"ການຕັ້ງຄ່ານີ້ໃຊ້ສະເພາະສາຂານີ້; ບໍ່ປ່ຽນ POS ຫຼືເຄື່ອງພິມສາຂາອື່ນ",en:"These settings apply only to this branch, not other POS terminals or branches."},
+"ไม่ได้เลือกโซน: ใช้เป็นเส้นทางสำรองของทั้งสาขา":{lo:"ບໍ່ໄດ້ເລືອກໂຊນ: ໃຊ້ເປັນເສັ້ນທາງສຳຮອງທັງສາຂາ",en:"No zone selected: branch-wide fallback"},
+"ตรวจพบอัตโนมัติ · ยังไม่ได้ตั้งเส้นทาง":{lo:"ກວດພົບອັດຕະໂນມັດ · ຍັງບໍ່ຕັ້ງທາງພິມ",en:"Discovered · not yet routed"},
+"ยังไม่ผูก profile":{lo:"ຍັງບໍ່ຜູກໂປຣໄຟລ໌",en:"No profile linked"},
+"กำลังเชื่อมต่อ...":{lo:"ກຳລັງເຊື່ອມຕໍ່...",en:"Connecting..."},
+"เครื่อง":{lo:"ເຄື່ອງ",en:"printers"},
+"โซน":{lo:"ໂຊນ",en:"zones"},
+};
 const modeCards: Array<{ mode: Mode; title: string; icon: string; desc: string; help: string }> = [
   { mode: "lan", title: "LAN", icon: "▣", desc: "เชื่อมต่อผ่านเครือข่ายร้าน", help: "เหมาะกับครัวและเครื่องพิมพ์ประจำจุด" },
   { mode: "usb", title: "USB", icon: "⌁", desc: "ต่อสายตรงกับเครื่อง POS", help: "Modern Runtime ตรวจพบอัตโนมัติเมื่ออุปกรณ์ยืนยันตัวตนได้" },
@@ -198,7 +227,7 @@ function emptyZoneSelections(): Record<ZonedPurpose, string[]> {
 }
 
 export function PrinterConnectionManagerV3({lang="th"}:{lang?:"th"|"en"|"lo"}) {
-  const tr=(value:string)=>lang==="th"?value:printerText[value]?.[lang]??value;
+  const tr=(value:string)=>lang==="th"?value:(printerText[value]??extraPrinterText[value])?.[lang]??value;
   const [registry, setRegistry] = useState<Registry | null>(null);
   const [mode, setMode] = useState<Mode>("lan");
   const [purposeFilter, setPurposeFilter] = useState<Purpose | "all">("all");
@@ -452,7 +481,7 @@ export function PrinterConnectionManagerV3({lang="th"}:{lang?:"th"|"en"|"lo"}) {
         </div>
       </div>
       <div className={styles.topActions}>
-        <span className={styles.branchBadge}>⌂ {registry?.branch?.name ?? "สาขาปัจจุบัน"}{registry?.branch?.code ? ` · ${registry.branch.code}` : ""}</span>
+        <span className={styles.branchBadge}>⌂ {registry?.branch?.name ?? tr("สาขาปัจจุบัน")}{registry?.branch?.code ? ` · ${registry.branch.code}` : ""}</span>
         <button className={styles.ghost} onClick={() => void load()}>{tr("รีเฟรช")}</button>
       </div>
     </div>
@@ -499,7 +528,7 @@ export function PrinterConnectionManagerV3({lang="th"}:{lang?:"th"|"en"|"lo"}) {
             <div className={styles.candidateName}>{item.name}</div>
             <div className={styles.meta}>{item.mode.toUpperCase()} · {item.paper_width_mm}mm · {item.helper}</div>
           </div>
-          {item.printer_profile_id ? item.status === "disabled" ? <button className={styles.secondary} onClick={() => void reconnectPrinter(item.printer_profile_id!, item.id)} disabled={busy === `reconnect:${item.id}`}>{busy === `reconnect:${item.id}` ? "กำลังเชื่อมต่อ..." : tr("เชื่อมต่อใหม่")}</button> : <button className={styles.secondary} disabled>{tr(tr("บันทึกไว้แล้ว"))}</button> : <button className={styles.secondary} onClick={() => applyCandidate(item)}>{tr(tr("ใช้เครื่องนี้"))}</button>}
+          {item.printer_profile_id ? item.status === "disabled" ? <button className={styles.secondary} onClick={() => void reconnectPrinter(item.printer_profile_id!, item.id)} disabled={busy === `reconnect:${item.id}`}>{busy === `reconnect:${item.id}` ? tr("กำลังเชื่อมต่อ...") : tr("เชื่อมต่อใหม่")}</button> : <button className={styles.secondary} disabled>{tr("บันทึกไว้แล้ว")}</button> : <button className={styles.secondary} onClick={() => applyCandidate(item)}>{tr("ใช้เครื่องนี้")}</button>}
         </div>)}
       </div> : <div className={styles.empty}>{tr("เครื่องที่ Modern Runtime ตรวจพบอัตโนมัติจะแสดงใน “รายการเครื่องพิมพ์” ด้านล่าง ส่วนปุ่มค้นหาใช้ดู Runtime/Agent/โปรไฟล์ที่ระบบรู้จักเพิ่มเติม")}</div>}
     </section>
@@ -508,7 +537,7 @@ export function PrinterConnectionManagerV3({lang="th"}:{lang?:"th"|"en"|"lo"}) {
       <div className={styles.sectionHead}>
         <div>
           <h2 className={styles.sectionTitle}>{editId ? tr("แก้ไขเครื่องพิมพ์และเส้นทาง") : configuringDiscovered ? tr("ตั้งค่าเส้นทางให้เครื่องที่ตรวจพบอัตโนมัติ") : tr("+ เพิ่มเครื่องพิมพ์")}</h2>
-          <span className={styles.hint}>{configuringDiscovered ? "ระบบล็อก physical fingerprint ของเครื่องนี้ไว้แล้ว การเลือกด้านล่างเป็นการตั้ง routing เท่านั้นและไม่เปลี่ยนเครื่องพิมพ์ตัวอื่น" : "การตั้งค่านี้มีผลเฉพาะสาขาปัจจุบัน เครื่อง POS และเครื่องพิมพ์ของสาขาอื่นไม่ถูกแก้ไข"}</span>
+          <span className={styles.hint}>{configuringDiscovered ? tr("ระบบล็อก physical fingerprint ของเครื่องนี้ไว้แล้ว การเลือกด้านล่างเป็นการตั้ง routing เท่านั้นและไม่เปลี่ยนเครื่องพิมพ์ตัวอื่น") : tr("การตั้งค่านี้มีผลเฉพาะสาขาปัจจุบัน เครื่อง POS และเครื่องพิมพ์ของสาขาอื่นไม่ถูกแก้ไข")}</span>
         </div>
         {(editId || configuringDiscovered) ? <button className={styles.ghost} onClick={() => resetForm(mode)}>{tr("ยกเลิก")}</button> : null}
       </div>
@@ -549,7 +578,7 @@ export function PrinterConnectionManagerV3({lang="th"}:{lang?:"th"|"en"|"lo"}) {
             <span>{zone.zone_name} · {zone.zone_code}</span>
           </label>)}
         </div> : <div className={styles.hint}>{tr("สาขานี้ยังไม่มี Kitchen Zone — เครื่องจะเป็นค่าเริ่มต้นแบบทั้งสาขา จนกว่าจะสร้างโซนครัว")}</div>}
-        <div className={styles.hint}>{zoneSelections[purpose].length === 0 ? "ไม่ได้เลือกโซน: ใช้เป็นเส้นทางสำรองของทั้งสาขา" : `เลือก ${zoneSelections[purpose].length} โซน: งานของแต่ละโซนจะส่งไปเครื่องนี้`}</div>
+        <div className={styles.hint}>{zoneSelections[purpose].length === 0 ? tr("ไม่ได้เลือกโซน: ใช้เป็นเส้นทางสำรองของทั้งสาขา") : lang==="lo" ? `ເລືອກ ${zoneSelections[purpose].length} ໂຊນ: ສົ່ງວຽກພິມໃຫ້ເຄື່ອງນີ້` : lang==="en" ? `Selected ${zoneSelections[purpose].length} zones: jobs are routed to this printer` : `เลือก ${zoneSelections[purpose].length} โซน: งานของแต่ละโซนจะส่งไปเครื่องนี้`}</div>
       </div>)}
 
       <details className={styles.advanced}>
@@ -580,10 +609,10 @@ export function PrinterConnectionManagerV3({lang="th"}:{lang?:"th"|"en"|"lo"}) {
     <section className={`${styles.panel} ${styles.tablePanel}`}>
       <div className={styles.tableHeader}>
         <div>
-          <h2 className={styles.sectionTitle}>{tr("รายการเครื่องพิมพ์ ")}<span className={styles.hint}>({filtered.length} เครื่อง)</span></h2>
+          <h2 className={styles.sectionTitle}>{tr("รายการเครื่องพิมพ์ ")}<span className={styles.hint}>({filtered.length} {tr("เครื่อง")})</span></h2>
           <span className={styles.hint}>{tr("เครื่อง Modern ที่ตรวจพบจะขึ้น Online ก่อนโดยยังไม่มี routing; ลูกค้าเป็นผู้เลือกเส้นทางพิมพ์เอง")}</span>
         </div>
-        <button className={styles.primary} onClick={() => resetForm(mode)}>{tr(tr("+ เพิ่มเครื่องพิมพ์"))}</button>
+        <button className={styles.primary} onClick={() => resetForm(mode)}>{tr("+ เพิ่มเครื่องพิมพ์")}</button>
       </div>
       <div className={styles.tableWrap}>
         <table className={styles.table}>
@@ -595,7 +624,7 @@ export function PrinterConnectionManagerV3({lang="th"}:{lang?:"th"|"en"|"lo"}) {
             const autoDetected = !device.printer_profile_id && Boolean(device.device_fingerprint);
             return <tr key={device.id}>
               <td><span className={styles.status}><span className={`${styles.dot} ${statusClass(device.status)}`} />{tr(statusLabel(device.status))}</span>{verification ? <div className={styles.meta}>{tr(verification)}</div> : null}</td>
-              <td><div className={styles.deviceName}>{device.display_name}</div><div className={styles.meta}>{device.printer_profile_id ? tr("พร้อมเข้าคิวพิมพ์") : autoDetected ? "ตรวจพบอัตโนมัติ · ยังไม่ได้ตั้งเส้นทาง" : "ยังไม่ผูก profile"}</div></td>
+              <td><div className={styles.deviceName}>{device.display_name}</div><div className={styles.meta}>{device.printer_profile_id ? tr("พร้อมเข้าคิวพิมพ์") : autoDetected ? tr("ตรวจพบอัตโนมัติ · ยังไม่ได้ตั้งเส้นทาง") : tr("ยังไม่ผูก profile")}</div></td>
               <td>{device.brand || tr("ทั่วไป")}<div className={styles.meta}>{device.model || tr("ไม่ระบุรุ่น")}</div></td>
               <td>{device.connection_mode.toUpperCase()}<div className={styles.meta}>{device.runtime_device_code ? `POS: ${device.runtime_device_code}` : tr("ทั้งสาขา")}</div></td>
               <td>{registry?.branch?.name ?? "สาขาปัจจุบัน"}</td>
