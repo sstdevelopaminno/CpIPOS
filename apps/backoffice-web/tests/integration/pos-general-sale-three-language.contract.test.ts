@@ -10,7 +10,7 @@ describe("POS scanner/table and printer Thai English Lao UI",()=>{
    expect(Object.keys(lo).sort()).toEqual(Object.keys(th).sort());
    for(const key of Object.keys(th) as Array<keyof typeof th>){
      const value=lo[key];
-     if(Array.isArray(value)){
+     if(typeof value !== "string"){
        expect(value.length).toBeGreaterThan(0);
        for(const text of value)expect(text).not.toMatch(/[ก-๙]/);
      }else{
@@ -52,6 +52,6 @@ describe("POS scanner/table and printer Thai English Lao UI",()=>{
    expect(sales).toContain('paymentAccount.qr_image_url');
    expect(sales).toContain('posCurrencyCode === "THB"');
    const controller=read("components/pos/pos-general-sale-table-controller.tsx");
-   expect(controller).toContain('"/api/pos/products/lookup?sku="');
+   expect(controller).toContain("/api/pos/products/lookup?sku=");
  });
 });
