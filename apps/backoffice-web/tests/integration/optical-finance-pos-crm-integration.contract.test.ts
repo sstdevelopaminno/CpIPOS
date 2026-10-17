@@ -14,9 +14,10 @@ describe("Optical finance V1 staged integration",()=>{
   expect(orders).toContain('requireActiveShift(scope)');
   expect(orders).toContain('requirePermission(scope,"sale:create")');
   expect(payments).toContain('requireActiveShift(scope)');
-  expect(payments).toContain('optical_transfer_verification_pending');
+  expect(payments).toContain('optical_transfer_manager_required');
   expect(payments).toContain('p_tenant_id:scope.session.tenant_id');
   expect(payments).toContain('p_branch_id:scope.session.branch_id');
+  expect(payments).toContain('p_verified_by:transfer?scope.session.user_id:null');
   expect(orders).toContain('getTenantPosCurrencyCode(scope.session.tenant_id)!=="LAK"');
   expect(payments).toContain('getTenantPosCurrencyCode(scope.session.tenant_id)!=="LAK"');
   expect(payments).not.toContain('.from("payments").insert');
@@ -29,6 +30,8 @@ describe("Optical finance V1 staged integration",()=>{
   expect(dialog).toContain('"/api/pos/optical/customers"');
   expect(dialog).toContain('onSubmit(amount,method,customerId)');
   expect(dialog).toContain('method==="bank_transfer"');
+  expect(dialog).toContain('data-testid="optical-bank-reference"');
+  expect(dialog).toContain('manager_verified:managerVerified');
   expect(panel).toContain('customerId: string');
   expect(sale).toContain('opticalDepositAttemptsRef.current.get(signature)');
   expect(sale).toContain('request_id:attempt.orderId');
@@ -37,7 +40,7 @@ describe("Optical finance V1 staged integration",()=>{
   expect(sale).toContain('setCart([])');
   expect(sale).toContain('opticalDepositLockedRef.current=true');
   expect(sale).toContain('onOpticalDeposit={opticalRetailActive && posCurrencyResolved && posCurrencyCode==="LAK"');
-  expect(sale).toContain('if(method!=="cash")');
+  expect(sale).toContain('if(method==="bank_transfer"');
  });
  it("stock reservation, cash settlement and handover are Optical-only and atomic",()=>{
   const sql=proposal("20261017_custom_optical_atomic_transactions_review.sql");
