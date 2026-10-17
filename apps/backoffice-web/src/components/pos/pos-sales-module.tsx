@@ -9165,18 +9165,17 @@ export function PosSalesModule({
         if(!res.ok)throw new Error(payload?.error?.message||"Optical work-order finance is not ready");
         return payload;
       };
-      const created=await decode(await fetch("/api/pos/optical/work-orders",{
+      // One server RPC opens/reserves and records the deposit in a single
+      // database transaction. A failed payment rolls back stock reservations.
+      const paid=await decode(await fetch("/api/pos/optical/deposits",{
         method:"POST",credentials:"same-origin",headers:{"Content-Type":"application/json"},
-        body:JSON.stringify({request_id:attempt.orderId,customer_id:customerId,items,discount_lak:discount})
+        body:JSON.stringify({order_request_id:attempt.orderId,payment_request_id:attempt.paymentId,
+          customer_id:customerId,items,discount_lak:discount,amount_lak:amount,method,
+          reference_no:evidence?.reference_no,manager_verified:evidence?.manager_verified===true})
       }));
-      const workOrderId=created?.data?.work_order_id;
-      if(typeof workOrderId!=="string"||!workOrderId)throw new Error("Optical work order was not confirmed");
-      const paid=await decode(await fetch(`/api/pos/optical/work-orders/${encodeURIComponent(workOrderId)}/payments`,{
-        method:"POST",credentials:"same-origin",headers:{"Content-Type":"application/json"},
-        body:JSON.stringify({request_id:attempt.paymentId,amount_lak:amount,method,reference_no:evidence?.reference_no,manager_verified:evidence?.manager_verified===true})
-      }));
-      if(typeof paid?.data?.payment_id!=="string"||!paid.data.payment_id)
-        throw new Error("Optical deposit ledger was not confirmed");
+      const workOrderId=paid?.data?.work_order_id;
+      if(typeof workOrderId!=="string"||typeof paid?.data?.payment_id!=="string")
+        throw new Error("Optical deposit and work order were not confirmed");
       const remainder=Number(paid.data.remaining_amount);
       pushSubmitMessage(`Optical ${method==="cash"?"cash":"manually verified bank"} deposit recorded: ₭${amount.toLocaleString("en-US")} · Remaining ₭${remainder.toLocaleString("en-US")}`);
       setCart([]);
