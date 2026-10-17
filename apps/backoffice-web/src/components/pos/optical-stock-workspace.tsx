@@ -314,7 +314,7 @@ export function OpticalStockWorkspace({rows,branch,branchId,branches,currency,ca
               </tr>)}</tbody></table></div>:null}
           </div>:null}
           {modal==="media"&&selected?<ProductMediaManager
-            th branchId={branchId} branchName={branch} canManage={canManage}
+            th={lang==="th"} language={lang} branchId={branchId} branchName={branch} canManage={canManage}
             products={[{id:selected.id,sku:selected.sku??"",name:selected.name,category:selected.category??"Optical"}]}/>:null}
           {modal==="sku"?<div className="rounded-xl border border-emerald-200 bg-emerald-50 p-5">
             <p className="text-sm text-slate-600">{selected?.name}</p>
