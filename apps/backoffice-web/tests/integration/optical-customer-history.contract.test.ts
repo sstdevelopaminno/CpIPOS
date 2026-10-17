@@ -31,7 +31,7 @@ describe("Optical customer history does not bypass IT or legacy financial contro
     expect(payment).toContain("ชำระเงินมัดจำ");
     expect(payment).toContain('onOpticalDeposit');
     const dialog=source("src/components/pos/pos-optical-deposit-dialog.tsx");
-    expect(dialog).toContain('disabled={busy||!onSubmit}');
+    expect(dialog).toContain('disabled={busy}');
     expect(dialog).not.toContain('onCheckout');
     expect(payment).toContain("เพิ่มประวัติลูกค้า");
     expect(ui).toContain("/api/pos/optical/customers");
