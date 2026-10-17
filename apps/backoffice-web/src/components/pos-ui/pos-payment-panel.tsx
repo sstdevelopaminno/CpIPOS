@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import {PosOpticalDepositDialog} from "@/components/pos/pos-optical-deposit-dialog";
+import {PosOpticalDepositDialog, type OpticalBankVerification} from "@/components/pos/pos-optical-deposit-dialog";
 import type {OpticalDepositMethod} from "@/lib/optical-deposit-amount";
 
 type PaymentText = {
@@ -38,7 +38,7 @@ type Props = {
   opticalLanguage?: "th" | "en" | "lo";
   onOpticalCustomer?: () => void;
   /** Only supplied when the authenticated Optical ledger transaction is live. */
-  onOpticalDeposit?: (amount: number, method: OpticalDepositMethod, customerId: string) => Promise<void> | void;
+  onOpticalDeposit?: (amount: number, method: OpticalDepositMethod, customerId: string, evidence?: OpticalBankVerification) => Promise<void> | void;
   onMember?: () => void;
   onTableQrOrder?: () => void;
   onPromotion?: () => void;
