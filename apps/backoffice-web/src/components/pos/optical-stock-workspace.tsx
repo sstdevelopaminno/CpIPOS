@@ -4,7 +4,7 @@ import {useEffect,useMemo,useState} from "react";
 import {ProductMediaManager} from "@/components/pos-preview/product-media-manager";
 import {formatSalesMoney,type SalesCurrencyCode} from "@/lib/pos-money";
 import {PosBackButton} from "@/components/pos-preview/pos-back-button";
-import {opticalStockText} from "@/lib/optical-stock-i18n";
+import {opticalStockText,opticalStockError} from "@/lib/optical-stock-i18n";
 import type {Language} from "@/lib/i18n";
 
 export type OpticalRow={
@@ -114,7 +114,7 @@ export function OpticalStockWorkspace({rows,branch,branchId,branches,currency,ca
         if(!controller.signal.aborted){
           setBestRows(body.data?.ranked??[]);setSampled(Boolean(body.data?.sampled));
         }
-      }).catch(e=>{if(!controller.signal.aborted)setBestError(e instanceof Error?e.message:"โหลดไม่สำเร็จ");})
+      }).catch(e=>{if(!controller.signal.aborted)setBestError(opticalStockError(lang,e instanceof Error?e.message:"โหลดไม่สำเร็จ"));})
       .finally(()=>{if(!controller.signal.aborted)setBestLoading(false);});
     return()=>controller.abort();
   },[modal,branchId]);
@@ -135,7 +135,7 @@ export function OpticalStockWorkspace({rows,branch,branchId,branches,currency,ca
     const items=modal==="bulk"?bulk:[draft];
     if(modal!=="delete"){
       const err=checkRows(items,currency);
-      if(err){setError(err);return;}
+      if(err){setError(opticalStockError(lang,err));return;}
     }
     setBusy(true);setError("");
     const method=modal==="delete"?"DELETE":modal==="edit"?"PATCH":"POST";
@@ -148,7 +148,7 @@ export function OpticalStockWorkspace({rows,branch,branchId,branches,currency,ca
       const json=await res.json().catch(()=>null) as {error?:{message?:string}}|null;
       if(!res.ok)throw new Error(json?.error?.message??"บันทึกไม่สำเร็จ");
       window.location.assign("/preview/pos/stock/custom?branch_id="+encodeURIComponent(destination));
-    }catch(e){setError(e instanceof Error?e.message:"เกิดข้อผิดพลาด");setBusy(false);}
+    }catch(e){setError(opticalStockError(lang,e instanceof Error?e.message:"เกิดข้อผิดพลาด"));setBusy(false);}
   }
   const summaryCards:[string,number][]=[["สินค้า",rows.length],
     ["เหลือ 1",rows.filter(r=>r.opticalBin&&remaining(r)===1).length],
@@ -257,12 +257,12 @@ export function OpticalStockWorkspace({rows,branch,branchId,branches,currency,ca
             </>:<>
               <td className="px-3 py-3 font-semibold">{row.name}</td>
               <td className="px-3 py-3">{row.category??"—"}</td>
-              <td className="px-3 py-3">—</td><td className="px-3 py-3">{row.sell_unit??"ชิ้น"}</td>
+              <td className="px-3 py-3">—</td><td className="px-3 py-3">{row.sell_unit??T("ชิ้น")}</td>
             </>}
             <td className="px-3 py-3 text-right">{formatSalesMoney(Number(row.opticalBin?.unit_price??row.price),currency)}</td>
             <td className="px-3 py-3 text-right font-semibold">{initialCount(row)??"—"}</td>
             <td className="px-3 py-3 text-right font-semibold">
-              {remaining(row)??"รอยืนยัน"}
+              {remaining(row)??T("รอยืนยัน")}
               {!row.opticalBin?<small className="block text-xs text-amber-700">{T("ยังไม่รับรองยอด Optical")}</small>:null}
             </td>
             {canManage?<td className="whitespace-nowrap px-3 py-3">
