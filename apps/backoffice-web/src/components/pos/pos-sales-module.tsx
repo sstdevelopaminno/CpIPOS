@@ -2217,6 +2217,9 @@ export function PosSalesModule({
   const [startupRetailKind, setStartupRetailKind] = useState<"optical_retail" | "general_sale" | null>(null);
   const [opticalRetailActive, setOpticalRetailActive] = useState(false);
   const [opticalCustomerOpen, setOpticalCustomerOpen] = useState(false);
+  // Stable keys ensure network retries cannot create an extra Optical bill/payment.
+  const opticalDepositAttemptsRef = useRef(new Map<string,{orderId:string;paymentId:string}>());
+  const opticalDepositLockedRef = useRef(false);
   const [modeSelectorOpen, setModeSelectorOpen] = useState(false);
   const [salesTopbarCollapsed, setSalesTopbarCollapsed] = useState(false);
   const [enabledFeatures, setEnabledFeatures] = useState<Record<string, boolean> | null>(null);
@@ -9124,6 +9127,59 @@ export function PosSalesModule({
     );
   }
 
+
+  async function submitOpticalCashDeposit(amount:number,method:"cash"|"bank_transfer",customerId:string):Promise<void> {
+    if(opticalDepositLockedRef.current)throw new Error("Optical payment is already processing");
+    if(!opticalRetailActive || !posCurrencyResolved || posCurrencyCode!=="LAK")
+      throw new Error("Optical cash deposits require a verified LAK store");
+    if(method!=="cash")throw new Error("Bank transfer requires independent manager verification before funds are recorded");
+    if(!shift?.id || !/^[0-9a-f]{8}-[0-9a-f-]{27,}$/i.test(customerId))
+      throw new Error("Select a verified Optical customer and open a shift");
+    if(!cart.length || !cart.every(row=>row.product_id&&Number.isSafeInteger(row.quantity)&&row.quantity>0))
+      throw new Error("No valid Optical products in this cart");
+    const items=cart.map(row=>({product_id:row.product_id,quantity:row.quantity}));
+    const subtotal=cart.reduce((sum,row)=>sum+Number(row.price)*row.quantity,0);
+    const discount=subtotal-total;
+    // Server-side bin prices are authoritative. No legacy recipe, tax or
+    // floating-point conversion may silently alter the deposit.
+    if(!Number.isSafeInteger(subtotal)||!Number.isSafeInteger(total)
+       ||!Number.isSafeInteger(discount)||discount<0||discount>=subtotal
+       ||!Number.isSafeInteger(amount)||amount<=0||amount>total)
+      throw new Error("Verify LAK product prices, discounts and deposit amount before proceeding");
+    const signature=JSON.stringify({customerId,items,subtotal,discount,total,amount,method,branch:posScope.branchId});
+    let attempt=opticalDepositAttemptsRef.current.get(signature);
+    if(!attempt){
+      attempt={orderId:crypto.randomUUID(),paymentId:crypto.randomUUID()};
+      opticalDepositAttemptsRef.current.set(signature,attempt);
+    }
+    opticalDepositLockedRef.current=true;
+    try{
+      const decode=async(res:Response):Promise<{data?:Record<string,unknown>;error?:{message?:string}}|null>=>{
+        const payload=await res.json().catch(()=>null) as {data?:Record<string,unknown>;error?:{message?:string}}|null;
+        if(!res.ok)throw new Error(payload?.error?.message||"Optical work-order finance is not ready");
+        return payload;
+      };
+      const created=await decode(await fetch("/api/pos/optical/work-orders",{
+        method:"POST",credentials:"same-origin",headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({request_id:attempt.orderId,customer_id:customerId,items,discount_lak:discount})
+      }));
+      const workOrderId=created?.data?.work_order_id;
+      if(typeof workOrderId!=="string"||!workOrderId)throw new Error("Optical work order was not confirmed");
+      const paid=await decode(await fetch(`/api/pos/optical/work-orders/${encodeURIComponent(workOrderId)}/payments`,{
+        method:"POST",credentials:"same-origin",headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({request_id:attempt.paymentId,amount_lak:amount,method:"cash"})
+      }));
+      if(typeof paid?.data?.payment_id!=="string"||!paid.data.payment_id)
+        throw new Error("Optical deposit ledger was not confirmed");
+      const remainder=Number(paid.data.remaining_amount);
+      pushSubmitMessage(`Optical deposit recorded: ₭${amount.toLocaleString("en-US")} · Remaining ₭${remainder.toLocaleString("en-US")}`);
+      setCart([]);
+      opticalDepositAttemptsRef.current.delete(signature);
+    }finally{
+      opticalDepositLockedRef.current=false;
+    }
+  }
+
   function renderCartContent() {
     return (
       <>
@@ -9142,6 +9198,7 @@ export function PosSalesModule({
           opticalCurrencyCode={posCurrencyCode}
           opticalLanguage={lang}
           onOpticalCustomer={() => setOpticalCustomerOpen(true)}
+          onOpticalDeposit={opticalRetailActive && posCurrencyResolved && posCurrencyCode==="LAK" ? submitOpticalCashDeposit : undefined}
           onMember={
             orderType === "delivery_manual"
               ? undefined
