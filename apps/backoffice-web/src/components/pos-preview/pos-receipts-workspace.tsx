@@ -35,7 +35,7 @@ type ReceiptTaxLine = {
 type ReceiptRecord = {
   id: string;
   orderNo: string;
-  currencyCode: "THB" | "LAK";
+  currencyCode: "THB" | "LAK" | "USD" | "UNKNOWN";
   orderType: string;
   channel: string;
   tableLabel: string;
@@ -67,13 +67,14 @@ type ReceiptPayload = {
   branch: { id: string; name: string; store_profile?: ReceiptStoreProfile | null };
   range: { label: string };
   records: ReceiptRecord[];
-  currencyCode: "THB" | "LAK";
+  currencyCode: "THB" | "LAK" | "USD";
   summary: {
     receiptCount: number;
     completedCount: number;
     grossTotal: number;
     paidTotal: number;
-    byCurrency?: Record<"THB" | "LAK", { count: number; grossTotal: number; paidTotal: number }>;
+    byCurrency?: Record<"THB" | "LAK" | "USD" | "UNKNOWN", { count: number; grossTotal: number; paidTotal: number }>;
+    unknownCurrencyCount?:number;
     mixedCurrencies?: boolean;
   };
   pagination: {
@@ -126,7 +127,8 @@ function formatDateTime(value: string | null, lang: Language) {
   }).format(new Date(value));
 }
 
-function formatMoney(value: number, lang: Language, currencyCode: "THB" | "LAK" = "THB") {
+function formatMoney(value: number, lang: Language, currencyCode: "THB" | "LAK" | "USD" | "UNKNOWN" = "THB") {
+  if(currencyCode==="UNKNOWN")return new Intl.NumberFormat(lang==="lo"?"lo-LA":lang==="th"?"th-TH":"en-US",{minimumFractionDigits:2,maximumFractionDigits:2}).format(Number(value||0))+" ("+(lang==="lo"?"ບໍ່ລະບຸສະກຸນເງິນ":lang==="th"?"ไม่ระบุสกุลเงิน":"currency unknown")+")";
   return new Intl.NumberFormat(currencyCode === "LAK" ? "lo-LA" : lang === "th" ? "th-TH" : "en-US", {
     style: "currency", currency: currencyCode,
     minimumFractionDigits: currencyCode === "LAK" ? 0 : 2,
@@ -270,7 +272,7 @@ function buildReceiptPrintHtml(args: {
   autoPrint?: boolean;
 }) {
   const { record, branchName, lang, autoPrint = false } = args;
-  const currencySymbol = record.currencyCode === "LAK" ? "₭" : "฿";
+  const currencySymbol = record.currencyCode === "LAK" ? "₭" : record.currencyCode === "THB" ? "฿" : record.currencyCode === "USD" ? "$" : "";
   const formatMoneyPlain = (value: number) => new Intl.NumberFormat("en-US", { minimumFractionDigits: record.currencyCode === "LAK" ? 0 : 2, maximumFractionDigits: record.currencyCode === "LAK" ? 0 : 2 }).format(value);
   const formatSignedMoneyPlain = (amount: number) => `${amount < 0 ? "-" : "+"}${currencySymbol}${formatMoneyPlain(Math.abs(amount))}`;
   const storeProfile = args.storeProfile ?? null;
@@ -420,6 +422,7 @@ function buildReceiptPrintHtml(args: {
     ${externalOrderCodeMeta}
     ${receiptMemberMeta}
     <div class="meta-line"><span>${escapeHtml(labels.date)}</span><span>${escapeHtml(formatDateTime(record.createdAt, lang))}</span></div>
+    ${record.currencyCode==="UNKNOWN"?`<p style="font-size:10px;font-weight:bold;border:1px dashed #a16207;padding:4px">${escapeHtml(lang==="lo"?"ບິນເກົ່າ: ບໍ່ລະບຸສະກຸນເງິນ":lang==="th"?"บิลเก่า: ยังไม่ยืนยันสกุลเงิน":"Historical bill: currency not recorded")}</p>`:""}
     <div class="hr"></div>
     <table><tbody>${itemRows}</tbody></table>
     <div class="hr"></div>
@@ -775,9 +778,9 @@ export function PosReceiptsWorkspace({ lang, opticalMode = false }: { lang: Lang
           <section className="grid gap-3 md:grid-cols-4">
             <Metric label={copy.receipts} value={String(payload?.summary.receiptCount ?? 0)} />
             <Metric label={copy.completed} value={String(payload?.summary.completedCount ?? 0)} />
-            {(payload?.summary.byCurrency ? (["THB", "LAK"] as const).filter(code => (payload.summary.byCurrency?.[code]?.count ?? 0) > 0) : [payload?.currencyCode ?? "THB"]).flatMap(code => [
-              <Metric key={code + "-gross"} label={`${copy.gross} (${code})`} value={formatMoney(payload?.summary.byCurrency?.[code]?.grossTotal ?? payload?.summary.grossTotal ?? 0, lang, code)} />,
-              <Metric key={code + "-paid"} label={`${copy.paid} (${code})`} value={formatMoney(payload?.summary.byCurrency?.[code]?.paidTotal ?? payload?.summary.paidTotal ?? 0, lang, code)} />
+            {(payload?.summary.byCurrency ? (["THB", "LAK", "USD", "UNKNOWN"] as const).filter(code => (payload.summary.byCurrency?.[code]?.count ?? 0) > 0) : [payload?.currencyCode ?? "THB"]).flatMap(code => [
+              <Metric key={code + "-gross"} label={`${copy.gross} (${code==="UNKNOWN"?(lang==="lo"?"ບໍ່ລະບຸສະກຸນເງິນ":lang==="th"?"ไม่ระบุสกุลเงิน":"Unverified currency"):code})`} value={formatMoney(payload?.summary.byCurrency?.[code]?.grossTotal ?? payload?.summary.grossTotal ?? 0, lang, code)} />,
+              <Metric key={code + "-paid"} label={`${copy.paid} (${code==="UNKNOWN"?(lang==="lo"?"ບໍ່ລະບຸສະກຸນເງິນ":lang==="th"?"ไม่ระบุสกุลเงิน":"Unverified currency"):code})`} value={formatMoney(payload?.summary.byCurrency?.[code]?.paidTotal ?? payload?.summary.paidTotal ?? 0, lang, code)} />
             ])}
           </section>
         ) : null}
@@ -785,8 +788,8 @@ export function PosReceiptsWorkspace({ lang, opticalMode = false }: { lang: Lang
         {error ? <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm font-bold text-red-700">{error}</p> : null}
 
         <section>
-          <div className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
-            <div ref={tableScrollRef} className={opticalMode ? "max-h-[64vh] min-h-[260px] overflow-auto overscroll-contain" : "max-h-[52vh] min-h-[260px] overflow-auto overscroll-contain"}>
+          <div className="min-h-0 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
+            <div ref={tableScrollRef} className={opticalMode ? "max-h-[min(62dvh,650px)] min-h-0 overflow-auto overscroll-contain" : "max-h-[52vh] min-h-[260px] overflow-auto overscroll-contain"}>
               <table className="w-full min-w-[920px] border-collapse text-left text-sm">
                 <thead className={opticalMode ? "sticky top-0 z-10 bg-emerald-50 text-xs font-bold text-slate-600 shadow-[0_1px_0_rgba(148,163,184,0.25)]" : "sticky top-0 z-10 bg-slate-100 text-xs uppercase text-slate-500 shadow-[0_1px_0_rgba(148,163,184,0.25)]"}>
                   <tr>
@@ -878,7 +881,7 @@ export function PosReceiptsWorkspace({ lang, opticalMode = false }: { lang: Lang
                 x
               </button>
             </header>
-            <div className="flex flex-1 justify-center overflow-auto bg-slate-100 px-4 py-5">
+            <div className="flex min-h-0 flex-1 justify-center overflow-auto overscroll-contain bg-slate-100 px-3 py-3">
               <div className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
                 <iframe
                   title={`${copy.detail} ${selected.orderNo}`}
@@ -888,7 +891,7 @@ export function PosReceiptsWorkspace({ lang, opticalMode = false }: { lang: Lang
                     storeProfile: payload?.branch.store_profile ?? null,
                     lang
                   })}
-                  className="h-[calc(100vh-190px)] w-[58mm] border-0 bg-white"
+                  className="h-[min(68dvh,660px)] w-[58mm] max-w-full border-0 bg-white"
                   sandbox=""
                 />
               </div>
