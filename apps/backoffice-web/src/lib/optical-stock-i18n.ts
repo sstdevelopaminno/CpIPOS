@@ -431,3 +431,17 @@ export function opticalStockText(lang:Language,thai:string):string{
   const translated=copy[thai];
   return translated?.[lang==="lo"?1:0]??thai;
 }
+
+/** Localize validation errors while retaining row index and SKU identity. */
+export function opticalStockError(lang:Language,error:string):string{
+  if(lang==="th")return error;
+  for(const prefix of [
+    "กรุณากรอกชื่อและ SKU / บาร์โค้ด ในแถว ",
+    "รูปแบบ SKU / บาร์โค้ดไม่ถูกต้อง ในแถว ",
+    "SKU / บาร์โค้ดซ้ำ ในแถว ",
+    "ราคาสินค้าไม่ถูกต้อง ในแถว "
+  ]){
+    if(error.startsWith(prefix))return opticalStockText(lang,prefix)+error.slice(prefix.length);
+  }
+  return opticalStockText(lang,error);
+}
