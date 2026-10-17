@@ -372,6 +372,58 @@ const copy:Readonly<Record<string,readonly [string,string]>>={
   "บันทึกไม่สำเร็จ": [
     "Unable to save",
     "ບັນທຶກບໍ່ສຳເລັດ"
+  ],
+  "แสดง": [
+    "Showing",
+    "ສະແດງ"
+  ],
+  "จาก": [
+    "of",
+    "ຈາກ"
+  ],
+  "รายการ": [
+    "items",
+    "ລາຍການ"
+  ],
+  "ประเภท *": [
+    "Type *",
+    "ປະເພດ *"
+  ],
+  "SKU / บาร์โค้ด (กรอกเอง) *": [
+    "SKU / Barcode (manual) *",
+    "SKU / ບາໂຄດ (ປ້ອນເອງ) *"
+  ],
+  "จัดอันดับตามจำนวนที่ขายจริง (เฉพาะบิลสำเร็จ ไม่รวมยกเลิก)": [
+    "Ranked by completed sales (excluding cancellations)",
+    "ຈັດອັນດັບຕາມຍອດຂາຍສຳເລັດ (ບໍ່ລວມຍົກເລີກ)"
+  ],
+  "ต้องการลบสินค้า": [
+    "Delete product",
+    "ຕ້ອງການລຶບສິນຄ້າ"
+  ],
+  "ใช่หรือไม่? ระบบใช้ Soft Delete และจะบล็อกสินค้าที่มีสต๊อก สูตร หรือใบสั่งงานผูกอยู่": [
+    "? Soft delete is used. Products with stock, recipes or orders cannot be deleted.",
+    "ຫຼືບໍ່? ລະບົບໃຊ້ Soft Delete ແລະ ປ້ອງກັນການລຶບສິນຄ້າທີ່ມີສະຕັອກ ຫຼື ໃບສັ່ງງານ"
+  ],
+  "กรุณากรอกชื่อและ SKU / บาร์โค้ด ในแถว ": [
+    "Enter name and SKU/barcode in row ",
+    "ປ້ອນຊື່ ແລະ SKU/ບາໂຄດ ໃນແຖວ "
+  ],
+  "รูปแบบ SKU / บาร์โค้ดไม่ถูกต้อง ในแถว ": [
+    "Invalid SKU/barcode in row ",
+    "SKU/ບາໂຄດບໍ່ຖືກຕ້ອງ ແຖວ "
+  ],
+  "SKU / บาร์โค้ดซ้ำ ในแถว ": [
+    "Duplicate SKU/barcode in row ",
+    "SKU/ບາໂຄດຊ້ຳ ແຖວ "
+  ],
+  "ราคาสินค้าไม่ถูกต้อง ในแถว ": [
+    "Invalid price in row ",
+    "ລາຄາບໍ່ຖືກຕ້ອງ ແຖວ "
+  ],
+  "แสดงรายการ": [
+    "Items shown",
+    "ສະແດງລາຍການ"
   ]
 };
 export function opticalStockText(lang:Language,thai:string):string{
