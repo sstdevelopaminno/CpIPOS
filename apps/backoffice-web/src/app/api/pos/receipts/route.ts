@@ -6,6 +6,7 @@ import { buildPaginationMeta, parsePagination } from "@/lib/query-params";
 import { loadReceiptStoreProfile } from "@/lib/services/store-profile-service";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
 import { getTenantPosCurrencyCode } from "@/lib/server/custom-pos-currency";
+import {getCustomPosStockUiMode} from "@/lib/server/custom-stock-ui-policy";
 
 function toBangkokDate(value: Date) {
   const formatter = new Intl.DateTimeFormat("en-CA", {
@@ -77,6 +78,7 @@ export async function GET(req: Request) {
     const auth = await getPosApiAuthContext({ requireBranchScope: true, requiredPermission: "receipts:view" });
     await requirePosApiFeature(auth, "receipt_reprint_history");
     const supabase = getSupabaseServiceClient();
+    const opticalCurrencyAudit=(await getCustomPosStockUiMode(auth.tenantId!))==="optical";
     const { searchParams } = new URL(req.url);
     const { page, pageSize } = parsePagination(searchParams, 20);
     const fromIndex = (page - 1) * pageSize;
@@ -234,7 +236,7 @@ export async function GET(req: Request) {
       return {
         id: row.id,
         orderNo: row.order_no,
-        currencyCode: (["THB","LAK","USD"].includes(readMetadataString(row.metadata, "currency_code") ?? "") ? readMetadataString(row.metadata, "currency_code") : "UNKNOWN"),
+        currencyCode: (["THB","LAK","USD"].includes(readMetadataString(row.metadata, "currency_code") ?? "") ? readMetadataString(row.metadata, "currency_code") : opticalCurrencyAudit?"UNKNOWN":"THB"),
         orderType: row.order_type,
         channel: row.channel,
         tableLabel: row.table_id ? tableMap.get(row.table_id) ?? "-" : "-",
