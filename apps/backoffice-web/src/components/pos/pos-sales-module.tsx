@@ -9128,11 +9128,12 @@ export function PosSalesModule({
   }
 
 
-  async function submitOpticalCashDeposit(amount:number,method:"cash"|"bank_transfer",customerId:string):Promise<void> {
+  async function submitOpticalCashDeposit(amount:number,method:"cash"|"bank_transfer",customerId:string,evidence?:{reference_no:string;manager_verified:boolean}):Promise<void> {
     if(opticalDepositLockedRef.current)throw new Error("Optical payment is already processing");
     if(!opticalRetailActive || !posCurrencyResolved || posCurrencyCode!=="LAK")
       throw new Error("Optical cash deposits require a verified LAK store");
-    if(method!=="cash")throw new Error("Bank transfer requires independent manager verification before funds are recorded");
+    if(method==="bank_transfer" && (!evidence?.manager_verified||evidence.reference_no.trim().length<6))
+      throw new Error("Bank transfer requires independently verified bank credit and a manager's reference");
     if(!shift?.id || !/^[0-9a-f]{8}-[0-9a-f-]{27,}$/i.test(customerId))
       throw new Error("Select a verified Optical customer and open a shift");
     if(!cart.length || !cart.every(row=>row.product_id&&Number.isSafeInteger(row.quantity)&&row.quantity>0))
@@ -9146,7 +9147,7 @@ export function PosSalesModule({
        ||!Number.isSafeInteger(discount)||discount<0||discount>=subtotal
        ||!Number.isSafeInteger(amount)||amount<=0||amount>total)
       throw new Error("Verify LAK product prices, discounts and deposit amount before proceeding");
-    const signature=JSON.stringify({customerId,items,subtotal,discount,total,amount,method,branch:posScope.branchId});
+    const signature=JSON.stringify({customerId,items,subtotal,discount,total,amount,method,evidence:evidence?.reference_no??null,branch:posScope.branchId});
     let attempt=opticalDepositAttemptsRef.current.get(signature);
     if(!attempt){
       attempt={orderId:crypto.randomUUID(),paymentId:crypto.randomUUID()};
@@ -9167,12 +9168,12 @@ export function PosSalesModule({
       if(typeof workOrderId!=="string"||!workOrderId)throw new Error("Optical work order was not confirmed");
       const paid=await decode(await fetch(`/api/pos/optical/work-orders/${encodeURIComponent(workOrderId)}/payments`,{
         method:"POST",credentials:"same-origin",headers:{"Content-Type":"application/json"},
-        body:JSON.stringify({request_id:attempt.paymentId,amount_lak:amount,method:"cash"})
+        body:JSON.stringify({request_id:attempt.paymentId,amount_lak:amount,method,reference_no:evidence?.reference_no,manager_verified:evidence?.manager_verified===true})
       }));
       if(typeof paid?.data?.payment_id!=="string"||!paid.data.payment_id)
         throw new Error("Optical deposit ledger was not confirmed");
       const remainder=Number(paid.data.remaining_amount);
-      pushSubmitMessage(`Optical deposit recorded: ₭${amount.toLocaleString("en-US")} · Remaining ₭${remainder.toLocaleString("en-US")}`);
+      pushSubmitMessage(`Optical ${method==="cash"?"cash":"manually verified bank"} deposit recorded: ₭${amount.toLocaleString("en-US")} · Remaining ₭${remainder.toLocaleString("en-US")}`);
       setCart([]);
       opticalDepositAttemptsRef.current.delete(signature);
     }finally{
