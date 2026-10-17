@@ -232,7 +232,7 @@ export function PosSalesSummaryDashboard({ lang, initialPayload, opticalMode = f
         {error ? <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">{error}</div> : null}
         <div className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-950" data-testid="sales-summary-currency-ledger">
           <strong>{lang==="lo"?"ສະກຸນເງິນລາຍງານປັດຈຸບັນ":lang==="th"?"สกุลเงินรายงานปัจจุบัน":"Current report currency"}: {payload.currencyCode}</strong>
-          <p className="mt-1">{ui("บิลที่ระบุ THB/LAK/USD จะแยกยอดตามสกุลเงิน บิลที่ไม่ได้บันทึกสกุลเงินจะแสดงแยกเป็นไม่ยืนยัน ไม่รวมเข้าเงินสกุลใด")}</p>
+          <p className="mt-1">{lang==="lo"?"ບິນທີ່ລະບຸ THB/LAK/USD ຈະແຍກຍອດຕາມສະກຸນເງິນ. ບິນເກົ່າທີ່ບໍ່ລະບຸສະກຸນເງິນຈະບໍ່ນຳໄປລວມກັບສະກຸນອື່ນ.":lang==="th"?"แยกยอด THB/LAK/USD ตามสกุลเงินที่บันทึกจริง บิลที่ไม่ได้บันทึกสกุลเงินจะอยู่ในกลุ่มไม่ยืนยัน และไม่รวมเข้ายอดสกุลใด":"THB/LAK/USD totals are separate. Historical receipts without a recorded currency are shown as unverified and excluded from currency-specific totals."}</p>
           <div className="mt-2 flex flex-wrap gap-3">
             {payload.currencyBuckets.map((bucket) => (
               <span key={bucket.currencyCode} className="rounded-lg bg-white px-3 py-2 font-bold shadow-sm">
