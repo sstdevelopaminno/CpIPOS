@@ -17,8 +17,10 @@ describe("tenant currency across POS reports", () => {
   it("prevents cross-currency KPI aggregation in sales summary", () => {
     const server = read("lib/services/pos-sales-summary-service.ts");
     const ui = read("components/pos-preview/pos-sales-summary-dashboard.tsx");
-    expect(server).toContain("const currencyCode = await getTenantPosCurrencyCode(scope.tenantId)");
-    expect(server).toContain("orderCurrencyFromMetadata(order.metadata) === currencyCode");
+    expect(server).toContain("getTenantPosCurrencyCode(scope.tenantId)");
+    expect(server).toContain("getCustomPosStockUiMode(scope.tenantId)");
+    expect(server).toContain("order.metadata?.currency_code===currencyCode:orderCurrencyFromMetadata(order.metadata)===currencyCode");
+    expect(server).toContain('"UNKNOWN"');
     expect(server).toContain("currencyBuckets");
     expect(server).toContain("currencyCode: orderCurrencyFromMetadata(order.metadata)");
     expect(ui).toContain('data-testid="sales-summary-currency-ledger"');
