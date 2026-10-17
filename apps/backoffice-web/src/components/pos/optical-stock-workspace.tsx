@@ -299,7 +299,7 @@ export function OpticalStockWorkspace({rows,branch,branchId,branches,currency,ca
         </header>
         <div className="min-h-0 overflow-y-auto p-5">
           {modal==="best"?<div className="space-y-3">
-            <p className="text-sm text-slate-600">{T("สาขา: ")}{branch} · จัดอันดับตามจำนวนที่ขายจริง (เฉพาะบิลสำเร็จ ไม่รวมยกเลิก)</p>
+            <p className="text-sm text-slate-600">{T("สาขา: ")}{branch} · {T("จัดอันดับตามจำนวนที่ขายจริง (เฉพาะบิลสำเร็จ ไม่รวมยกเลิก)")}</p>
             {bestLoading?<p role="status">{T("กำลังรวบรวมยอดขาย...")}</p>:null}
             {bestError?<p role="alert" className="text-rose-700">{bestError}</p>:null}
             {!bestLoading&&!bestError&&!bestRows.length?<p className="rounded-lg bg-slate-50 p-5 text-center">{T("ไม่พบยอดขายสินค้า Optical ใน 30 วันที่ผ่านมา")}</p>:null}
@@ -323,7 +323,7 @@ export function OpticalStockWorkspace({rows,branch,branchId,branches,currency,ca
               onClick={()=>void navigator.clipboard?.writeText(selected?.sku??"")}>{T("คัดลอกรหัส")}</button>
           </div>:null}
           {modal==="delete"?<p className="rounded-lg bg-rose-50 p-4 text-sm text-rose-800">
-            ต้องการลบสินค้า <strong>{selected?.name}</strong> ใช่หรือไม่? ระบบใช้ Soft Delete และจะบล็อกสินค้าที่มีสต๊อก สูตร หรือใบสั่งงานผูกอยู่
+            {T("ต้องการลบสินค้า")} <strong>{selected?.name}</strong> {T("ใช่หรือไม่? ระบบใช้ Soft Delete และจะบล็อกสินค้าที่มีสต๊อก สูตร หรือใบสั่งงานผูกอยู่")}
           </p>:null}
           {(modal==="add"||modal==="bulk")?<label className="mb-4 block text-sm font-bold">{T("เลือกสาขาที่ต้องการลงสินค้า")}
             <select value={targetBranchId} className={field+" mt-2"} onChange={e=>setTargetBranchId(e.target.value)}>
@@ -333,7 +333,7 @@ export function OpticalStockWorkspace({rows,branch,branchId,branches,currency,ca
             <label className="sm:col-span-2 text-sm font-semibold">{T("ชื่อสินค้า *")}
               <input className={field+" mt-1"} maxLength={180} value={draft.name} onChange={e=>change("name",e.target.value)}/>
             </label>
-            <label className="text-sm font-semibold">ประเภท *
+            <label className="text-sm font-semibold">{T("ประเภท *")}
               <select className={field+" mt-1"} value={draft.kind} onChange={e=>change("kind",e.target.value)}>
                 {Object.entries(types).map(([k,v])=><option key={k} value={k}>{T(v)}</option>)}
               </select>
