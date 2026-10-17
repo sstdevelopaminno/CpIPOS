@@ -34,8 +34,14 @@ describe("Optical finance V1 staged integration",()=>{
   expect(dialog).toContain('manager_verified:managerVerified');
   expect(panel).toContain('customerId: string');
   expect(sale).toContain('opticalDepositAttemptsRef.current.get(signature)');
-  expect(sale).toContain('request_id:attempt.orderId');
-  expect(sale).toContain('request_id:attempt.paymentId');
+  expect(sale).toContain('order_request_id:attempt.orderId');
+  expect(sale).toContain('payment_request_id:attempt.paymentId');
+  expect(sale).toContain('fetch("/api/pos/optical/deposits"');
+  expect(sale).not.toContain('fetch("/api/pos/optical/work-orders"');
+  const atomicRoute=file("app/api/pos/optical/deposits/route.ts");
+  expect(atomicRoute).toContain('rpc("optical_open_with_deposit_tx"');
+  expect(atomicRoute).toContain('requireActiveShift(scope)');
+  expect(atomicRoute).toContain('p_verified_by:transfer?scope.session.user_id:null');
   expect(sale).toContain('typeof paid?.data?.payment_id!=="string"');
   expect(sale).toContain('setCart([])');
   expect(sale).toContain('opticalDepositLockedRef.current=true');
@@ -51,6 +57,10 @@ describe("Optical finance V1 staged integration",()=>{
   expect(sql).toContain("OPTICAL_IDEMPOTENCY_CONFLICT");
   expect(sql).toContain("OPTICAL_INSUFFICIENT_AVAILABLE_STOCK");
   expect(sql).toContain("OPTICAL_OUTSTANDING_BALANCE");
+  expect(sql).toContain("create or replace function public.optical_open_with_deposit_tx");
+  expect(sql).toContain("optical_payment_unique_bank_reference_v1");
+  expect(sql).toContain("select * into v_order from public.optical_create_work_order_tx");
+  expect(sql).toContain("select * into v_payment from public.optical_post_deposit_tx");
   expect(sql).not.toContain("insert into public.payments");
   expect(sql).not.toContain("insert into public.orders");
   expect(sql).not.toContain("update public.ingredients");
