@@ -309,3 +309,50 @@ revoke all on function public.optical_transition_work_order_tx(
 uuid,uuid,uuid,uuid,text,uuid) from PUBLIC,anon,authenticated;
 grant execute on function public.optical_transition_work_order_tx(
 uuid,uuid,uuid,uuid,text,uuid) to service_role;
+
+
+-- A single POS checkout must atomically create the stock reservation AND
+-- record verified funds. If the second call rejects, Postgres rolls back the
+-- first one: no orphan work order or reserved stock.
+create or replace function public.optical_open_with_deposit_tx(
+ p_tenant_id uuid,p_branch_id uuid,p_actor uuid,p_shift_id uuid,
+ p_customer_id uuid,p_seller_id uuid,p_items jsonb,p_discount_lak numeric,
+ p_order_request_id uuid,p_payment_request_id uuid,
+ p_amount_lak numeric,p_method text,p_transfer_reference text default null,
+ p_verified_by uuid default null
+)
+returns table(work_order_id uuid,payment_id uuid,paid_total numeric,
+ remaining_amount numeric,duplicate_request boolean)
+language plpgsql security invoker set search_path=pg_catalog,public,app
+as $optical_atomic$
+declare v_order record;v_payment record;
+begin
+ if p_order_request_id is null or p_payment_request_id is null
+   or p_order_request_id=p_payment_request_id
+ then raise exception 'OPTICAL_IDEMPOTENCY_KEYS_INVALID';end if;
+ select * into v_order from public.optical_create_work_order_tx(
+   p_tenant_id,p_branch_id,p_actor,p_seller_id,p_customer_id,
+   null,p_items,p_discount_lak,p_order_request_id,null,null);
+ if not found or v_order.work_order_id is null
+ then raise exception 'OPTICAL_ATOMIC_CREATE_FAILED';end if;
+ select * into v_payment from public.optical_post_deposit_tx(
+   p_tenant_id,p_branch_id,v_order.work_order_id,p_actor,p_shift_id,
+   p_payment_request_id,p_amount_lak,p_method,p_transfer_reference,p_verified_by);
+ if not found or v_payment.payment_id is null
+ then raise exception 'OPTICAL_ATOMIC_PAYMENT_FAILED';end if;
+ return query select v_order.work_order_id,v_payment.payment_id,
+   v_payment.paid_total,v_payment.remaining_amount,v_payment.duplicate_request;
+end;
+$optical_atomic$;
+revoke all on function public.optical_open_with_deposit_tx(
+ uuid,uuid,uuid,uuid,uuid,uuid,jsonb,numeric,uuid,uuid,numeric,text,text,uuid)
+ from PUBLIC,anon,authenticated;
+grant execute on function public.optical_open_with_deposit_tx(
+ uuid,uuid,uuid,uuid,uuid,uuid,jsonb,numeric,uuid,uuid,numeric,text,text,uuid)
+ to service_role;
+
+-- Stop reuse of the same bank transaction reference for a second Optical
+-- payment at the same store/branch. No impact on cash payments.
+create unique index if not exists optical_payment_unique_bank_reference_v1
+on public.optical_payment_ledger(tenant_id,branch_id,reference_no)
+where method='bank_transfer' and reference_no is not null;
