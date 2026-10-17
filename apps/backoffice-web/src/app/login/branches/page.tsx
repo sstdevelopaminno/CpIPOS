@@ -1,8 +1,11 @@
 ﻿"use client";
 
-import { Suspense, useEffect, useState } from "react";
+import { Suspense, useCallback, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { PreEntryShell } from "@/components/pre-entry/pre-entry-shell";
+import { AppLanguageSwitcher } from "@/components/i18n/app-language-switcher";
+import { useAppLanguage, type AppLanguage } from "@/lib/app-language-client";
+import { loginFlowText } from "@/lib/pre-entry-language";
 import {
   cacheBranches,
   cacheSelectedBranch,
@@ -43,11 +46,11 @@ function isRetryableRequestError(error: unknown) {
   return error instanceof TypeError;
 }
 
-function mapNetworkErrorMessage(error: unknown) {
+function mapNetworkErrorMessage(error: unknown, lang: AppLanguage) {
   if (error instanceof DOMException && error.name === "AbortError") {
-    return "หมดเวลาการเชื่อมต่อ กรุณาลองใหม่อีกครั้ง";
+    return loginFlowText(lang, "หมดเวลาการเชื่อมต่อ กรุณาลองใหม่อีกครั้ง");
   }
-  return "ไม่สามารถเชื่อมต่อเซิร์ฟเวอร์ได้";
+  return loginFlowText(lang, "ไม่สามารถเชื่อมต่อเซิร์ฟเวอร์ได้");
 }
 
 async function fetchWithTimeout(input: RequestInfo | URL, init?: RequestInit, timeoutMs = AUTH_REQUEST_TIMEOUT_MS) {
@@ -83,6 +86,8 @@ async function fetchJsonWithRetry<T>(input: RequestInfo | URL, init?: RequestIni
 
 function LoginBranchesPageContent() {
   const router = useRouter();
+  const {lang,setLanguage}=useAppLanguage("th");
+  const T=useCallback((value:string)=>loginFlowText(lang,value),[lang]);
   const searchParams = useSearchParams();
   const [branches, setBranches] = useState<Branch[]>([]);
   const [selectedBranchId, setSelectedBranchId] = useState("");
@@ -128,8 +133,8 @@ function LoginBranchesPageContent() {
 
         if (uniqueBranches.length === 0) {
           if (mounted) {
-            setError("ไม่พบรายการสาขาที่ใช้งานได้");
-            setPopup({ type: "error", message: "ไม่พบรายการสาขาที่ใช้งานได้" });
+            setError(T("ไม่พบรายการสาขาที่ใช้งานได้"));
+            setPopup({ type: "error", message: T("ไม่พบรายการสาขาที่ใช้งานได้") });
           }
           return;
         }
@@ -150,7 +155,7 @@ function LoginBranchesPageContent() {
         }
       } catch (requestError) {
         if (mounted) {
-          const message = mapNetworkErrorMessage(requestError);
+          const message = mapNetworkErrorMessage(requestError,lang);
           setError(message);
           setPopup({ type: "error", message });
         }
@@ -161,13 +166,13 @@ function LoginBranchesPageContent() {
     return () => {
       mounted = false;
     };
-  }, [employeeQuery, router]);
+  }, [employeeQuery, router, lang, T]);
 
   async function handleSelect() {
     if (submitting || loading) return;
 
     if (!selectedBranchId) {
-      const message = "กรุณาเลือกสาขา";
+      const message = T("กรุณาเลือกสาขา");
       setError(message);
       setPopup({ type: "error", message });
       return;
@@ -175,7 +180,7 @@ function LoginBranchesPageContent() {
 
     const selectedExists = branches.some((branch) => branch.id === selectedBranchId);
     if (!selectedExists) {
-      const message = "สาขาที่เลือกไม่ถูกต้อง กรุณาเลือกใหม่";
+      const message = T("สาขาที่เลือกไม่ถูกต้อง กรุณาเลือกใหม่");
       setError(message);
       setPopup({ type: "error", message });
       return;
@@ -183,7 +188,7 @@ function LoginBranchesPageContent() {
 
     setSubmitting(true);
     setError("");
-    setPopup({ type: "loading", message: "กำลังเข้าสู่ระบบ..." });
+    setPopup({ type: "loading", message: T("กำลังเข้าสู่ระบบ...") });
     let hasFailure = false;
     let shouldNavigate = false;
     try {
@@ -193,7 +198,7 @@ function LoginBranchesPageContent() {
         body: JSON.stringify({ branch_id: selectedBranchId })
       });
       if (!response.ok || !body?.data || body.data.next_step !== "employee") {
-        const message = "ไม่สามารถเลือกสาขาได้";
+        const message = T("ไม่สามารถเลือกสาขาได้");
         setError(message);
         setPopup({ type: "error", message });
         hasFailure = true;
@@ -204,7 +209,7 @@ function LoginBranchesPageContent() {
       if (selectedBranch) cacheSelectedBranch(selectedBranch);
       warmRoute(router, `/login/employee?flow=multi${employeeQuery}`);
     } catch (requestError) {
-      const message = mapNetworkErrorMessage(requestError);
+      const message = mapNetworkErrorMessage(requestError,lang);
       setError(message);
       setPopup({ type: "error", message });
       hasFailure = true;
@@ -227,11 +232,12 @@ function LoginBranchesPageContent() {
 
   return (
     <PreEntryShell mode="multi" activeStep={2} title="" layout="store" showModePill={false} showStepbar={false}>
-      {loading ? <p className="ipos-loading-text">กำลังโหลดรายการสาขา...</p> : null}
+      <div className="store-v2-topbar"><AppLanguageSwitcher lang={lang} onChange={setLanguage} /></div>
+      {loading ? <p className="ipos-loading-text">{T("กำลังโหลดรายการสาขา...")}</p> : null}
 
       {!loading ? (
         <div className="ipos-branch-selector-card">
-          <h3 className="ipos-branch-selector-title">เลือกสาขา</h3>
+          <h3 className="ipos-branch-selector-title">{T("เลือกสาขา")}</h3>
           <div className="ipos-branch-list ipos-branch-list-compact">
             {branches.map((branch) => {
               const branchCode = branch.code?.trim() || "";
@@ -257,7 +263,7 @@ function LoginBranchesPageContent() {
                     </span>
                     <span className="ipos-branch-text">
                       <span className="ipos-branch-name">{branchName}</span>
-                      {showBranchCode ? <span className="ipos-branch-code">รหัสสาขา: {branchCode}</span> : null}
+                      {showBranchCode ? <span className="ipos-branch-code">{T("รหัสสาขา")}: {branchCode}</span> : null}
                     </span>
                   </div>
                   <span className={`ipos-select-dot ${selectedBranchId === branch.id ? "active" : ""}`} />
@@ -271,10 +277,10 @@ function LoginBranchesPageContent() {
       {error ? <p className="ipos-error">{error}</p> : null}
       <div className="ipos-inline-actions ipos-branch-actions">
         <button type="button" className="ipos-outline-btn ipos-btn-compact-secondary" onClick={handleLogout}>
-          ออกจากระบบ
+          {T("ออกจากระบบ")}
         </button>
         <button type="button" className="ipos-primary-btn ipos-btn-compact" onClick={handleSelect} disabled={submitting || loading}>
-          {submitting ? "กำลังบันทึก..." : "ถัดไป"}
+          {submitting ? T("กำลังบันทึก...") : T("ถัดไป")}
         </button>
       </div>
 
@@ -284,7 +290,7 @@ function LoginBranchesPageContent() {
             {popup.type === "loading" ? (
               <>
                 <div className="store-v2-popup-spinner" aria-hidden="true" />
-                <p className="store-v2-popup-title">กำลังเข้าสู่ระบบ</p>
+                <p className="store-v2-popup-title">{T("กำลังเข้าสู่ระบบ")}</p>
                 <p className="store-v2-popup-text">{popup.message}</p>
               </>
             ) : (
@@ -292,10 +298,10 @@ function LoginBranchesPageContent() {
                 <div className="store-v2-popup-error-icon" aria-hidden="true">
                   !
                 </div>
-                <p className="store-v2-popup-title">ดำเนินการไม่สำเร็จ</p>
+                <p className="store-v2-popup-title">{T("ดำเนินการไม่สำเร็จ")}</p>
                 <p className="store-v2-popup-text">{popup.message}</p>
                 <button type="button" className="store-v2-popup-close-btn" onClick={() => setPopup({ type: "none" })}>
-                  ปิด
+                  {T("ปิด")}
                 </button>
               </>
             )}

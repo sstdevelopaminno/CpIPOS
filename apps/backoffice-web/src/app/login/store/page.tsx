@@ -32,6 +32,30 @@ type PopupState =
 const AUTH_REQUEST_TIMEOUT_MS = process.env.NODE_ENV === "development" ? 20000 : 15000;
 
 function getCopy(lang: AppLanguage) {
+  if (lang === "lo") {
+    return {
+      subtitle: "ເຂົ້າສູ່ລະບົບຂາຍ POS",
+      storeCodeLabel: "ລະຫັດຮ້ານຄ້າ",
+      storeCodePlaceholder: "ປ້ອນລະຫັດຮ້ານຄ້າ",
+      submit: "ເຂົ້າລະບົບ",
+      submitting: "ກຳລັງກວດສອບ...",
+      checking: "ກຳລັງກວດສອບຂໍ້ມູນຮ້ານຄ້າ...",
+      checkingTitle: "ກຳລັງກວດສອບ",
+      close: "ປິດ",
+      failedTitle: "ເຂົ້າລະບົບບໍ່ສຳເລັດ",
+      requiredError: "ກະລຸນາປ້ອນລະຫັດຮ້ານຄ້າ",
+      formatError: "ຮູບແບບລະຫັດຮ້ານຄ້າບໍ່ຖືກຕ້ອງ",
+      notFoundError: "ບໍ່ພົບລະຫັດຮ້ານຄ້າ ຫຼືຮ້ານຍັງບໍ່ເປີດໃຊ້ງານ",
+      rateLimitError: "ພະຍາຍາມຫຼາຍຄັ້ງເກີນໄປ ກະລຸນາລໍຖ້າແລ້ວລອງໃໝ່",
+      verifyFailedError: "ບໍ່ສາມາດກວດສອບລະຫັດຮ້ານຄ້າໄດ້ໃນຂະນະນີ້",
+      defaultError: "ບໍ່ສາມາດເຂົ້າລະບົບໄດ້ ກະລຸນາກວດສອບລະຫັດຮ້ານຄ້າ",
+      timeoutError: "ໝົດເວລາເຊື່ອມຕໍ່ ກະລຸນາລອງໃໝ່",
+      networkError: "ບໍ່ສາມາດເຊື່ອມຕໍ່ເຊີບເວີໄດ້",
+      cancel: "ຍົກເລີກ",
+      showCode: "ສະແດງລະຫັດຮ້ານຄ້າ",
+      hideCode: "ເຊື່ອງລະຫັດຮ້ານຄ້າ"
+    };
+  }
   if (lang === "en") {
     return {
       subtitle: "Enter POS system",

@@ -56,7 +56,7 @@ describe("SD front cash panel", () => {
   it("mounts alongside Customer Display while front-cash helpers are scoped to active grocery mode", () => {
     expect(previewPage).toContain('<PosCustomerDisplayV2Publisher />');
     expect(previewPage).toContain('<PosCustomerDisplayV2PaymentObserver />');
-    expect(previewPage).toContain('<PosGeneralSaleTableController />');
+    expect(previewPage).toContain('<PosGeneralSaleTableController lang={lang} />');
     expect(previewPage).toContain('<PosGeneralSaleRuntime />');
     expect(previewPage).not.toContain('<PosGeneralSaleFrontCashPanel />');
     expect(generalSaleRuntime).toContain('if (!active) return null');

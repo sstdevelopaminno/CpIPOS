@@ -3,6 +3,8 @@ import { fail, ok } from "@/lib/http";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
 import { calculateShiftSalesSummary } from "@/lib/pos-shift-sales-summary";
 import { collectPagedShiftRows, collectShiftRowsForIds } from "@/lib/pos-shift-query-pagination";
+import { startOfOpticalLocalDateUtc, resolveOpticalDailyShift, sumVerifiedOpticalDeposits, type OpticalLedgerPayment, type OpticalWorkOrderTotal } from "@/lib/pos-optical-daily-shift";
+import { getOpticalShiftUiPolicy, type OpticalShiftUiPolicy } from "@/lib/server/optical-shift-ui-policy";
 
 type ShiftRow = {
   id: string;
@@ -74,7 +76,15 @@ function getBangkokDateBoundaryUtc(dateText: string, edge: "start" | "end") {
   return new Date(Date.UTC(year, month, day, hour, minute, second, ms) - BANGKOK_UTC_OFFSET_MS);
 }
 
-function resolveShiftSummaryEndAt(shift: ShiftRow) {
+function resolveShiftSummaryEndAt(shift: ShiftRow, optical?: OpticalShiftUiPolicy) {
+  if(optical?.enabled && optical.country && optical.timeZone) {
+    const day=resolveOpticalDailyShift({openedAt:shift.opened_at,country:optical.country,
+      approvedTimeZone:optical.timeZone});
+    if(!day) return null;
+    const cutoff=new Date(day.cutoffAt.getTime()-1); // end of local business day, exclusive midnight
+    const closed=shift.closed_at?new Date(shift.closed_at):null;
+    return closed && Number.isFinite(closed.getTime()) && closed<cutoff ? closed:cutoff;
+  }
   const bangkokDayEnd = getBangkokDayEndUtc(shift.opened_at);
   if (!bangkokDayEnd) return shift.closed_at ? new Date(shift.closed_at) : null;
   const closedAt = shift.closed_at ? new Date(shift.closed_at) : null;
@@ -105,13 +115,24 @@ export async function GET(request: Request) {
       requirePermission(scope, "reports:view");
     }
 
+    const opticalPolicy=await getOpticalShiftUiPolicy(scope.session.tenant_id);
+    if(opticalPolicy.enabled && !opticalPolicy.timeZone) return fail("optical_shift_timezone_required","IT must configure an IANA timezone for this Optical store.",409);
     const { searchParams } = new URL(request.url);
     const daysRaw = Number(searchParams.get("days") ?? 30);
     const days = Number.isFinite(daysRaw) ? Math.max(1, Math.min(90, Math.trunc(daysRaw))) : 30;
     const startDateRaw = String(searchParams.get("start_date") ?? "").trim();
     const endDateRaw = String(searchParams.get("end_date") ?? "").trim();
-    const startDate = startDateRaw ? getBangkokDateBoundaryUtc(startDateRaw, "start") : null;
-    const endDate = endDateRaw ? getBangkokDateBoundaryUtc(endDateRaw, "end") : null;
+    const getDateBoundary=(value:string,edge:"start"|"end")=>{
+      if(!opticalPolicy.enabled||!opticalPolicy.timeZone) return getBangkokDateBoundaryUtc(value,edge);
+      const parsed=/^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+      if(!parsed)return null;
+      const localDay=edge==="start"?value:new Date(Date.UTC(Number(parsed[1]),Number(parsed[2])-1,Number(parsed[3])+1))
+        .toISOString().slice(0,10);
+      const bound=startOfOpticalLocalDateUtc(localDay,opticalPolicy.timeZone);
+      return bound&&edge==="end"?new Date(bound.getTime()-1):bound;
+    };
+    const startDate = startDateRaw ? getDateBoundary(startDateRaw, "start") : null;
+    const endDate = endDateRaw ? getDateBoundary(endDateRaw, "end") : null;
     const view = String(searchParams.get("view") ?? "auto").trim().toLowerCase();
     const selfOnly = canViewBranchWide ? view === "self" : true;
     const branchFilterRaw = String(searchParams.get("branch_id") ?? "all").trim();
@@ -194,8 +215,12 @@ export async function GET(request: Request) {
           cancelled_order_count: 0,
           sales_total: 0,
           cash_total: 0,
-          transfer_total: 0
+          transfer_total: 0,
+          deposit_total: opticalPolicy.financeEnabled ? 0 : null,
+          deposit_cash: opticalPolicy.financeEnabled ? 0 : null,
+          deposit_transfer: opticalPolicy.financeEnabled ? 0 : null
         },
+        optical_policy: opticalPolicy,
         shifts: []
       });
     }
@@ -203,7 +228,7 @@ export async function GET(request: Request) {
     const shiftIds = shifts.map((shift) => shift.id);
     const shiftMap = new Map<string, ShiftRow>(shifts.map((shift) => [shift.id, shift]));
     const shiftEndAtMap = new Map<string, Date | undefined>(
-      shifts.map((shift) => [shift.id, resolveShiftSummaryEndAt(shift) ?? undefined])
+      shifts.map((shift) => [shift.id, resolveShiftSummaryEndAt(shift,opticalPolicy) ?? undefined])
     );
     const branchIds = Array.from(new Set(shifts.map((shift) => shift.branch_id).filter((id) => Boolean(id))));
     const userIds = Array.from(new Set(shifts.flatMap((shift) => [shift.opened_by, shift.closed_by]).filter((id): id is string => Boolean(id))));
@@ -293,6 +318,39 @@ export async function GET(request: Request) {
       paymentsByShift.set(shiftId, items);
     }
 
+    // Read the isolated Optical ledger only when IT explicitly approves both
+    // optical finance modules and the rollout flag. Never change shared orders
+    // or treat deposits as completed sales.
+    const depositByShift=new Map<string, ReturnType<typeof sumVerifiedOpticalDeposits>>();
+    if(opticalPolicy.financeEnabled && opticalPolicy.currency) {
+      const ledgerResult=await collectShiftRowsForIds(shiftIds,async(batch,from,to)=>
+        supabase.from("optical_payment_ledger")
+          .select("shift_id,branch_id,work_order_id,request_id,method,currency_code,amount,cumulative_paid,received_at,verified_by")
+          .eq("tenant_id",scope.session.tenant_id).in("shift_id",batch)
+          .order("id",{ascending:true}).range(from,to)
+      );
+      if(ledgerResult.error) return fail("optical_shift_ledger_query_failed",ledgerResult.error.message,500);
+      const ledger=(ledgerResult.data??[]) as OpticalLedgerPayment[];
+      const workIds=[...new Set(ledger.map(x=>x.work_order_id))];
+      const workResult=await collectShiftRowsForIds(workIds,async(batch,from,to)=>
+        supabase.from("optical_work_orders")
+          .select("id,branch_id,total_amount,currency_code")
+          .eq("tenant_id",scope.session.tenant_id).in("id",batch)
+          .order("id",{ascending:true}).range(from,to)
+      );
+      if(workResult.error) return fail("optical_shift_work_orders_query_failed",workResult.error.message,500);
+      const workOrders=(workResult.data??[]) as OpticalWorkOrderTotal[];
+      for(const shift of shifts) {
+        const cutoff=shiftEndAtMap.get(shift.id);
+        if(!cutoff) continue;
+        depositByShift.set(shift.id,sumVerifiedOpticalDeposits({
+          shiftId:shift.id,branchId:shift.branch_id,currency:opticalPolicy.currency,
+          received:ledger,orders:workOrders,
+          openedAt:new Date(shift.opened_at),cutoffAt:new Date(cutoff.getTime()+1)
+        }));
+      }
+    }
+
     // Exactly the same reconciliation used by the close response and 58mm receipt.
     const totalsByShift = new Map<string, ReturnType<typeof calculateShiftSalesSummary>>(
       shifts.map((shift) => [
@@ -321,7 +379,12 @@ export async function GET(request: Request) {
         opened_by_name: userMap.get(shift.opened_by) ?? shift.opened_by,
         closed_by_name: shift.closed_by ? userMap.get(shift.closed_by) ?? shift.closed_by : null,
         summary_cutoff_at: (shiftEndAtMap.get(shift.id) ?? null)?.toISOString() ?? null,
-        metrics: totals,
+        metrics: {
+          ...totals,
+          deposit_total: opticalPolicy.financeEnabled ? (depositByShift.get(shift.id)?.deposit_total ?? 0) : null,
+          deposit_cash: opticalPolicy.financeEnabled ? (depositByShift.get(shift.id)?.deposit_cash ?? 0) : null,
+          deposit_transfer: opticalPolicy.financeEnabled ? (depositByShift.get(shift.id)?.deposit_transfer ?? 0) : null
+        },
         bills: (ordersByShift.get(shift.id) ?? [])
           .filter((order) => {
             const createdAt = new Date(order.created_at).getTime();
@@ -357,6 +420,11 @@ export async function GET(request: Request) {
         acc.sales_total += shift.metrics.sales_total;
         acc.cash_total += shift.metrics.cash_total;
         acc.transfer_total += shift.metrics.transfer_total;
+        if(opticalPolicy.financeEnabled) {
+          acc.deposit_total = (acc.deposit_total ?? 0) + (shift.metrics.deposit_total ?? 0);
+          acc.deposit_cash = (acc.deposit_cash ?? 0) + (shift.metrics.deposit_cash ?? 0);
+          acc.deposit_transfer = (acc.deposit_transfer ?? 0) + (shift.metrics.deposit_transfer ?? 0);
+        }
         return acc;
       },
       {
@@ -365,7 +433,10 @@ export async function GET(request: Request) {
         cancelled_order_count: 0,
         sales_total: 0,
         cash_total: 0,
-        transfer_total: 0
+        transfer_total: 0,
+        deposit_total: opticalPolicy.financeEnabled ? 0 : null,
+        deposit_cash: opticalPolicy.financeEnabled ? 0 : null,
+        deposit_transfer: opticalPolicy.financeEnabled ? 0 : null
       }
     );
 
@@ -378,6 +449,7 @@ export async function GET(request: Request) {
         branch_options: branchOptions
       },
       summary,
+      optical_policy: opticalPolicy,
       shifts: payloadShifts
     });
   } catch (error) {

@@ -12,6 +12,9 @@ import { requirePosPagePermission } from "@/lib/pos-page-guard";
 import { mergeCategoryCountItems } from "@/lib/pos/category-normalization";
 import { isProductRecommended } from "@/lib/pos/product-metadata";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
+import { redirect } from "next/navigation";
+import Link from "next/link";
+import { getCustomPosStockUiMode } from "@/lib/server/custom-stock-ui-policy";
 
 const ARCHIVED_INGREDIENT_PREFIX = "__archived__:";
 const FALLBACK_INGREDIENT_PREFIX = "STOCK:";
@@ -118,6 +121,13 @@ export default async function PosStockPage({
   const posMenuScope = await requirePosSession();
   await assertPosMenuPageAllowed(posMenuScope.session.tenant_id, "/preview/pos/stock");
   const scope = await requirePosPagePermission("inventory:view");
+  // Optical-only/retail-only CUSTOM gets its own read-only catalogue instead
+  // of restaurant ingredient popups; food, fixed plans and ambiguous grants
+  // retain their existing stock workflow unchanged.
+  const customStockMode = await getCustomPosStockUiMode(scope.session.tenant_id);
+  if(customStockMode==="optical"||customStockMode==="retail") {
+    redirect("/preview/pos/stock/custom");
+  }
   const lang = await getCurrentLanguage();
   const th = lang === "th";
 
@@ -465,6 +475,10 @@ export default async function PosStockPage({
             <h2 className="mt-1 text-xl font-extrabold text-slate-900 lg:text-2xl">
               {t(lang, "pos_stock_title")}
             </h2>
+            {customStockMode==="mixed"?<Link href="/preview/pos/stock/custom"
+              className="mt-2 inline-flex min-h-10 items-center rounded-xl border border-emerald-300 bg-emerald-50 px-4 text-sm font-bold text-emerald-800 hover:bg-emerald-100">
+              สต๊อกกรอบแว่น / เลนส์ (CUSTOM)
+            </Link>:null}
           </div>
 
           <div className="lg:pt-1 [&>div]:mt-0">

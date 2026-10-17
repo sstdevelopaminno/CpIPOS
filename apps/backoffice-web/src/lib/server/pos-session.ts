@@ -41,8 +41,8 @@ export async function createPosSession(input: {
   const supabase = getSupabaseServiceClient();
   const nowIso = new Date().toISOString();
 
-  const ttlHoursRaw = Number(process.env.POS_SESSION_TTL_HOURS ?? 12);
-  const ttlHours = Number.isFinite(ttlHoursRaw) && ttlHoursRaw > 0 && ttlHoursRaw <= 72 ? ttlHoursRaw : 12;
+  const ttlHoursRaw = Number(process.env.POS_SESSION_TTL_HOURS ?? 24);
+  const ttlHours = Number.isFinite(ttlHoursRaw) && ttlHoursRaw > 0 && ttlHoursRaw <= 72 ? ttlHoursRaw : 24;
   const expiresAt = new Date(Date.now() + ttlHours * 60 * 60 * 1000).toISOString();
 
   // Important multi-cashier rule:
@@ -184,7 +184,9 @@ export function resolveSessionCookieConfig() {
   const domain = String(process.env.POS_SESSION_COOKIE_DOMAIN ?? "").trim() || undefined;
   const secureEnv = String(process.env.POS_SESSION_COOKIE_SECURE ?? "").trim().toLowerCase();
   const secure = secureEnv ? secureEnv === "1" || secureEnv === "true" : process.env.NODE_ENV === "production";
-  const sessionMaxAgeSeconds = 12 * 60 * 60;
+  const ttlHoursRaw = Number(process.env.POS_SESSION_TTL_HOURS ?? 24);
+  const ttlHours = Number.isFinite(ttlHoursRaw) && ttlHoursRaw > 0 && ttlHoursRaw <= 72 ? ttlHoursRaw : 24;
+  const sessionMaxAgeSeconds = Math.round(ttlHours * 60 * 60);
 
   return { name, sessionIdName, domain, secure, sessionMaxAgeSeconds };
 }

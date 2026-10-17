@@ -9,6 +9,8 @@ import {
   withPosSessionCookie
 } from "@/lib/pos-session-guard";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
+import { getOpticalShiftUiPolicy } from "@/lib/server/optical-shift-ui-policy";
+import { resolveOpticalDailyShift } from "@/lib/pos-optical-daily-shift";
 
 function isMissingSessionShiftColumnError(error: { code?: string; message?: string } | null | undefined) {
   if (!error) return false;
@@ -56,6 +58,10 @@ export async function POST(request: Request) {
     }
 
     const sessionScope = getTenantBranchScopeFromSession(scope);
+    const opticalShift=await getOpticalShiftUiPolicy(sessionScope.tenantId);
+    if(opticalShift.enabled && (!opticalShift.timeZone||!opticalShift.country)) {
+      return NextResponse.json({data:null,error:{code:"optical_daily_shift_policy_incomplete",message:"IT must configure Optical store timezone and country."}},{status:409});
+    }
     const supabase = getSupabaseServiceClient();
 
     type OpenShiftSummary = {
@@ -132,6 +138,21 @@ export async function POST(request: Request) {
       );
     }
     if (existingLookup.data) {
+      if(opticalShift.enabled && opticalShift.country && opticalShift.timeZone) {
+        const {data:old,error:oldError}=await supabase.from("shifts")
+          .select("metadata").eq("id",existingLookup.data.id)
+          .eq("tenant_id",sessionScope.tenantId).eq("branch_id",sessionScope.branchId).maybeSingle();
+        if(oldError||!old || (old.metadata as Record<string,unknown>|null)?.business_shift_mode!=="optical_daily") {
+          return NextResponse.json({data:null,error:{code:"optical_existing_legacy_shift_requires_review",
+            message:"Existing legacy shift requires manager close/reconciliation before a daily Optical shift can open."}},{status:409});
+        }
+        const day=resolveOpticalDailyShift({openedAt:existingLookup.data.opened_at,
+          country:opticalShift.country,approvedTimeZone:opticalShift.timeZone});
+        if(!day||Date.now()>=day.cutoffAt.getTime()) {
+          return NextResponse.json({data:null,error:{code:"optical_existing_overdue_shift_requires_close",
+            message:"Previous Optical business day is overdue; close/reconcile that shift before opening a new one."}},{status:409});
+        }
+      }
       return reuseExistingShift(existingLookup.data);
     }
 
@@ -146,7 +167,9 @@ export async function POST(request: Request) {
         opening_cash: openingCash,
         metadata: {
           opened_via: "pos_session_gate",
-          session_id: scope.session.id
+          session_id: scope.session.id,
+          ...(opticalShift.enabled ? {business_shift_mode:"optical_daily",optical_timezone:opticalShift.timeZone,
+            optical_country:opticalShift.country,optical_currency:opticalShift.currency}: {})
         }
       })
       .select("id,status,opened_at,opening_cash,device_code")
@@ -161,6 +184,8 @@ export async function POST(request: Request) {
     let createError = createResult.error;
 
     if (isMissingShiftDeviceCodeColumnError(createResult.error) || shouldUseLegacyShiftInsert(createResult.error)) {
+      // Do not create an untagged Optical shift if the old DB lacks metadata.
+      if(opticalShift.enabled) return NextResponse.json({data:null,error:{code:"optical_shift_metadata_required",message:"Optical shift requires the metadata-enabled shifts schema."}},{status:409});
       const legacyCreateResult = await supabase
         .from("shifts")
         .insert({

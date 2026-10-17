@@ -31,7 +31,7 @@ type Props = {
   stockRemainingLabel?: string;
   outOfStockLabel?: string;
   getProductPrice: (product: ProductCatalogItem) => number;
-  onAddProduct: (product: ProductCatalogItem) => void;
+  onAddProduct: (product: ProductCatalogItem) => boolean | void;
 };
 
 type MediaResponse = {
@@ -64,10 +64,15 @@ function PosProductCatalogInner({ products, isDeliveryMode, storefrontPriceLabel
         return;
       }
 
-      // Use the same React cart mutation as a normal product-card tap. This keeps
-      // quantity merging, checkout, payment and stock commit behavior on one path.
-      onAddProduct(product);
-      emitGeneralSaleResult({ requestId, status: "added" });
+      // Optical is a direct sale of stocked units; a restaurant modifier
+      // remains a separate intentional path for ordinary modes. Do not report
+      // success when a stock cap blocked the React cart mutation.
+      try {
+        const accepted = onAddProduct(product);
+        emitGeneralSaleResult({ requestId, status: accepted === false ? "unavailable" : "added" });
+      } catch {
+        emitGeneralSaleResult({ requestId, status: "invalid" });
+      }
     };
 
     window.addEventListener(GENERAL_SALE_ADD_PRODUCT_EVENT, onGeneralSaleAddProduct as EventListener);

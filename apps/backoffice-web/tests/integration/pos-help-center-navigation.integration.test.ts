@@ -22,7 +22,8 @@ describe("POS help center navigation", () => {
     expect(staffMenu).not.toContain('href="/preview/pos/payments"');
     expect(staffMenu).toContain('href="/preview/pos/payments/package"');
     expect(staffMenu).toContain('isPosMenuEnabled("main.package_payment", menuPolicy)');
-    expect(settings).toContain('title={lang === "en" ? "Help Center" : "ศูนย์ช่วยเหลือ"}');
+    expect(settings).toContain('lang === "lo" ? "ສູນຊ່ວຍເຫຼືອ"');
+    expect(settings).toContain('lang === "en" ? "Help Center" : "ศูนย์ช่วยเหลือ"');
     expect(settings).toContain('href="/preview/pos/payments"');
     expect(settings).toContain('menuVisible("settings.support")');
     expect(rootPage).toContain("PosHelpCenter");

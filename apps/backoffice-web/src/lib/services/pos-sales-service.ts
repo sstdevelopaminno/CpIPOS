@@ -5,6 +5,7 @@ import { calculateRecipeUsage, toIntegerGrams, validateStockBeforeDeduction } fr
 import { appendPosDeadLetter, POS_TIMEOUT_POLICY, PosTimeoutError, withTimeout } from "@/lib/pos-resilience";
 import { attachOrderToTableSession } from "@/lib/services/table-service";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
+import { getTenantPosCurrencyCode } from "@/lib/server/custom-pos-currency";
 
 type RpcResult<T> = {
   data: T | null;
@@ -752,6 +753,7 @@ async function executeCreatePosOrderDirectFallback(args: {
     return { ok: false as const, code: "invalid_total", status: 422, message: "Order total cannot be negative." };
   }
 
+  const currencyCode = await getTenantPosCurrencyCode(auth.tenantId);
   const orderId = crypto.randomUUID();
   const nowIso = new Date().toISOString();
   const buildBaseOrderInsertPayload = (orderNo: string) => ({
@@ -789,7 +791,8 @@ async function executeCreatePosOrderDirectFallback(args: {
       member_phone: input.member_phone ?? null,
       member_code: input.member_code ?? null,
       member_points: input.member_points ?? null,
-      member_stamps: input.member_stamps ?? null
+      member_stamps: input.member_stamps ?? null,
+      currency_code: currencyCode
     },
     status: "queued",
     created_by: auth.userId
@@ -818,7 +821,8 @@ async function executeCreatePosOrderDirectFallback(args: {
       member_phone: input.member_phone ?? null,
       member_code: input.member_code ?? null,
       member_points: input.member_points ?? null,
-      member_stamps: input.member_stamps ?? null
+      member_stamps: input.member_stamps ?? null,
+      currency_code: currencyCode
     },
     status: "queued",
     created_by: auth.userId

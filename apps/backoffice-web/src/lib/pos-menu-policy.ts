@@ -27,6 +27,7 @@ export const POS_MENU_CATALOG: readonly PosMenuDefinition[] = [
   { key: "more.tax_invoices", label: "ออกใบกำกับภาษี", group: "more", parent: "main.more", route: "/preview/pos/tax-invoices" },
   { key: "more.product_sales", label: "รายการขายสินค้า", group: "more", parent: "main.more", route: "/preview/pos/product-sales" },
   { key: "more.ai_documents", label: "เก็บไฟล์เอกสาร", group: "more", parent: "main.more", route: "/preview/pos/ai-documents", protected: true },
+  { key: "settings.branding", label: "ธีมสี / โลโก้ / ชื่อระบบ (CUSTOM)", group: "settings", parent: "main.settings" },
   { key: "settings.store", label: "ข้อมูลร้านค้า/บริษัท", group: "settings", parent: "main.settings" },
   { key: "settings.branches", label: "เพิ่มสาขา", group: "settings", parent: "main.settings" },
   { key: "settings.devices", label: "เพิ่มเครื่องแคชเชียร์", group: "settings", parent: "main.settings" },
@@ -40,6 +41,7 @@ export const POS_MENU_CATALOG: readonly PosMenuDefinition[] = [
   { key: "settings.push_notifications", label: "การแจ้งเตือนอุปกรณ์", group: "settings", parent: "main.settings" },
   { key: "settings.users", label: "ผู้ใช้งาน", group: "settings", parent: "main.settings", route: "/preview/pos/users" },
   { key: "settings.language", label: "เปลี่ยนภาษา", group: "settings", parent: "main.settings" },
+  { key: "settings.currency", label: "ตั้งค่าสกุลเงิน", group: "settings", parent: "main.settings" },
   { key: "settings.placement", label: "สลับแถบเมนูหลัก", group: "settings", parent: "main.settings" },
   { key: "settings.display", label: "จอลูกค้า", group: "settings", parent: "main.settings", route: "/preview/pos/customer-display" },
   { key: "settings.order_kitchen", label: "การแจ้งเตือนออเดอร์และครัว", group: "settings", parent: "main.settings", route: "/preview/pos/settings/order-kitchen" },
@@ -59,6 +61,24 @@ export function isPosMenuEnabled(key: string, overrides: Record<string, boolean>
   if (!catalog.has(key)) return true;
   return overrides[key] !== false;
 }
+/**
+ * CUSTOM menus are an explicit allowlist controlled by IT.
+ * Existing fixed plans retain their historical lock/visible behavior.
+ * Parent denial cascades only for CUSTOM navigation and authorization.
+ */
+export function isCustomPosMenuVisible(
+  key: string,
+  overrides: Record<string, boolean>,
+  isCustom: boolean
+): boolean {
+  if (!isCustom) return isPosMenuEnabled(key, overrides);
+  if (isPosMenuAlwaysEnabled(key)) return true;
+  const entry = catalog.get(key);
+  if (!entry) return false;
+  if (overrides[key] !== true) return false;
+  return !entry.parent || isCustomPosMenuVisible(entry.parent, overrides, true);
+}
+
 /** Longest path wins; /preview/pos is an exact-match root, not a wildcard. */
 export function posMenuKeyForRoute(pathname: string): string | null {
   const path = pathname.split("?")[0].replace(/\/$/, "") || "/";

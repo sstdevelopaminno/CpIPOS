@@ -6,7 +6,7 @@ import { PackageLockDialog } from "@/components/pos-preview/package-lock-dialog"
 import { ItMenuLockDialog } from "@/components/pos-preview/it-menu-lock-dialog";
 import { t, type Language } from "@/lib/i18n";
 import { featureForPosRoute } from "@/lib/pos-feature-map";
-import { isPosMenuEnabled, posMenuKeyForRoute } from "@/lib/pos-menu-policy";
+import { isCustomPosMenuVisible, isPosMenuEnabled, posMenuKeyForRoute } from "@/lib/pos-menu-policy";
 
 type MoreIconName = "summary" | "receipt" | "tables" | "stock" | "members" | "kitchen" | "buffet" | "tax" | "sales" | "documents";
 type PosRole = "owner" | "manager" | "staff" | "accountant";
@@ -14,9 +14,9 @@ type MoreItem = {
   href: string;
   icon: MoreIconName;
   labelKey?: "pos_menu_sales_summary" | "pos_menu_receipts" | "pos_menu_tables" | "pos_menu_stock" | "pos_menu_members";
-  label?: Record<Language, string>;
+  label?: Record<Exclude<Language, "lo">, string>;
   roles: PosRole[];
-  desc: Record<Language, string>;
+  desc: Record<Exclude<Language, "lo">, string>;
 };
 
 const MORE_ITEMS: MoreItem[] = [
@@ -31,6 +31,19 @@ const MORE_ITEMS: MoreItem[] = [
   { href: "/preview/pos/product-sales", icon: "sales", label: { th: "รายการขายสินค้า", en: "Product Sales" }, roles: ["owner", "manager", "accountant"], desc: { th: "ดูสินค้าที่ขาย วันที่ ราคา จำนวน และสถานะสินค้าขายดี", en: "Review sold products, dates, prices, quantities, and best-seller status" } },
   { href: "/preview/pos/ai-documents", icon: "documents", label: { th: "เก็บไฟล์เอกสาร", en: "AI Documents" }, roles: ["owner", "manager"], desc: { th: "เก็บรายงาน สรุปยอด ตาราง และแผนงานที่สร้างจาก CpiPOS AI", en: "Store reports, summaries, tables and plans created by CpiPOS AI" } }
 ];
+
+const moreLao:Record<string,{label:string;desc:string}>={
+ "/preview/pos/sales-summary":{label:"ສະຫຼຸບຍອດຂາຍ",desc:"ເບິ່ງຍອດຂາຍ ພາສີ ເງິນສົດ/ໂອນ ແລະລາຍງານກະ"},
+ "/preview/pos/receipts":{label:"ໃບຮັບເງິນຍ້ອນຫຼັງ",desc:"ຄົ້ນຫາ ແລະພິມໃບຮັບເງິນຊ້ຳ 58mm"},
+ "/preview/pos/tables":{label:"ຈັດການໂຕະ",desc:"ຈັດການໂຕະ ໂຊນ ແລະຜັງຮ້ານ"},
+ "/preview/pos/kitchen/manage":{label:"ຈັດການເຮືອນຄົວ",desc:"ຕັ້ງຄ່າໂຊນເຮືອນຄົວ ແລະຈໍ KDS"},
+ "/preview/pos/stock":{label:"ຈັດການສິນຄ້າ",desc:"ສິນຄ້າ ສະຕັອກ ລາຄາ ແລະໝວດໝູ່"},
+ "/preview/pos/buffet-pricing":{label:"ລາຄາບຸບເຟ່",desc:"ກຳນົດລາຄາບຸບເຟ່ຕໍ່ຄົນ ແລະແບບຊຸດ"},
+ "/preview/pos/members":{label:"ສະມາຊິກ",desc:"ຄົ້ນຫາ ແລະຈັດການສະມາຊິກ"},
+ "/preview/pos/tax-invoices":{label:"ອອກໃບກຳກັບພາສີ",desc:"ຄົ້ນຫາບິນເກົ່າ ແລະພິມໃບພາສີ 58/80mm"},
+ "/preview/pos/product-sales":{label:"ລາຍການຂາຍສິນຄ້າ",desc:"ສິນຄ້າທີ່ຂາຍ ວັນທີ ລາຄາ ຈຳນວນ ແລະສະຖານະ"},
+ "/preview/pos/ai-documents":{label:"ເກັບໄຟລ໌ເອກະສານ",desc:"ເກັບລາຍງານ ສະຫຼຸບຍອດ ແລະແຜນງານຈາກ CpiPOS AI"}
+};
 
 function MoreIcon({ name }: { name: MoreIconName }) {
   const common = { width: 22, height: 22, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 2, strokeLinecap: "round" as const, strokeLinejoin: "round" as const };
@@ -49,6 +62,8 @@ function MoreIcon({ name }: { name: MoreIconName }) {
 export function PosMoreWorkspace({ lang, role }: { lang: Language; role: PosRole }) {
   const [enabledFeatures, setEnabledFeatures] = useState<Record<string, boolean> | null>(null);
   const [menuPolicy, setMenuPolicy] = useState<Record<string, boolean>>({});
+  const [isCustom, setIsCustom] = useState(false);
+  const [policyReady, setPolicyReady] = useState(false);
   const [packageLockOpen, setPackageLockOpen] = useState(false);
   const [itLockedMenu, setItLockedMenu] = useState<string | null>(null);
   const items = MORE_ITEMS.filter((item) => item.roles.includes(role));
@@ -58,10 +73,12 @@ export function PosMoreWorkspace({ lang, role }: { lang: Language; role: PosRole
     async function loadFeatures() {
       try {
         const response = await fetch("/api/pos/features", { cache: "no-store" });
-        const body = (await response.json().catch(() => null)) as { data?: { features?: Record<string, boolean>; menu_policy?: Record<string, boolean> } | null } | null;
+        const body = (await response.json().catch(() => null)) as { data?: { features?: Record<string, boolean>; menu_policy?: Record<string, boolean>; is_custom?: boolean } | null } | null;
         if (!cancelled && response.ok) {
           setEnabledFeatures(body?.data?.features ?? {});
           setMenuPolicy(body?.data?.menu_policy ?? {});
+          setIsCustom(body?.data?.is_custom === true);
+          setPolicyReady(true);
         }
       } catch {
         if (!cancelled) setEnabledFeatures({});
@@ -108,13 +125,15 @@ export function PosMoreWorkspace({ lang, role }: { lang: Language; role: PosRole
         <header className="mb-5"><h1 className="text-2xl font-black text-slate-950">{t(lang, "pos_menu_more_title")}</h1><p className="mt-1 text-sm font-semibold text-slate-500">{t(lang, "pos_menu_more_desc")}</p></header>
         <div className="grid gap-4 lg:grid-cols-2 xl:grid-cols-3">
           {items.map((item) => {
+            if (!policyReady) return null;
+            if (isCustom && (!isCustomPosMenuVisible(posMenuKeyForRoute(item.href) ?? "", menuPolicy, true) || isLocked(item.href))) return null;
             const menuLocked = isMenuLocked(item.href);
             const locked = menuLocked || isLocked(item.href);
-            const label = item.label ? item.label[lang] : t(lang, item.labelKey!);
+            const label = lang === "lo" ? moreLao[item.href]?.label ?? t(lang,item.labelKey!) : item.label ? item.label[lang] : t(lang, item.labelKey!);
             return (
               <Link key={item.href} href={item.href} prefetch={false} onClick={(event) => { if (menuLocked) { event.preventDefault(); setItLockedMenu(label); } else if (locked) handleLocked(event); }} aria-disabled={locked} className={`group grid min-h-[92px] grid-cols-[42px_1fr_24px] items-center gap-3 rounded-2xl border p-4 text-left transition ${locked ? "border-slate-200 bg-slate-50 text-slate-500" : "border-slate-200 bg-white hover:border-blue-200 hover:bg-blue-50/50"}`}>
                 <span className={`inline-flex h-10 w-10 items-center justify-center rounded-xl ${locked ? "bg-slate-100 text-slate-400" : "bg-slate-100 text-slate-700 group-hover:bg-blue-100 group-hover:text-blue-700"}`}><MoreIcon name={item.icon}/></span>
-                <span className="min-w-0"><span className="block text-base font-black text-slate-950">{item.label ? item.label[lang] : t(lang, item.labelKey!)}</span><span className="mt-1 block text-sm font-medium leading-5 text-slate-500">{item.desc[lang]}</span></span>
+                <span className="min-w-0"><span className="block text-base font-black text-slate-950">{label}</span><span className="mt-1 block text-sm font-medium leading-5 text-slate-500">{lang === "lo" ? moreLao[item.href]?.desc ?? item.desc.en : item.desc[lang]}</span></span>
                 <span className="text-slate-400">{locked ? <span aria-hidden>🔒</span> : "›"}</span>
               </Link>
             );

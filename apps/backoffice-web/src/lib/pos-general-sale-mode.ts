@@ -1,6 +1,16 @@
 export const GENERAL_SALE_MODE_ID = "general_sale" as const;
 export const GENERAL_SALE_BUSINESS_GROUP = "SD" as const;
 export const GENERAL_SALE_CHECKOUT_BASE_MODE = "home" as const;
+export const GENERAL_SALE_ACTIVATE_BASE_MODE_EVENT = "cpipos:pos-general-sale-activate-base";
+export const OPTICAL_ACTIVATE_BASE_MODE_EVENT = "cpipos:pos-optical-activate-base";
+export const OPTICAL_DEACTIVATE_BASE_MODE_EVENT = "cpipos:pos-optical-deactivate-base";
+export const OPTICAL_ACTIVE_ROOT_ATTRIBUTE = "data-pos-optical-retail-active";
+/** Direct startup activation; never opens the public mode-selection dialog. */
+export const POS_STARTUP_MODE_REQUEST_EVENT = "cpipos:pos-startup-mode-request";
+export const POS_STARTUP_MODE_RESULT_EVENT = "cpipos:pos-startup-mode-result";
+export type PosStartupModeRequest = { requestId: string; mode: "home" | "dine_in" | "buffet_table" | "delivery" | "general_sale" | "optical_retail" };
+export type PosStartupModeResult = { requestId: string; mode: PosStartupModeRequest["mode"]; activated: boolean };
+
 export const GENERAL_SALE_ROOT_ATTRIBUTE = "data-pos-business-mode";
 export const GENERAL_SALE_LAYOUT_ATTRIBUTE = "data-pos-general-sale-layout";
 export const GENERAL_SALE_LAYOUT_STORAGE_KEY = "cpipos_general_sale_layout_v1";

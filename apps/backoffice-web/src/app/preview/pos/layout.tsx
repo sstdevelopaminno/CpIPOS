@@ -108,13 +108,13 @@ export default async function PosPreviewLayout({ children }: { children: ReactNo
   return (
     <main className="pos-app-root flex h-screen w-screen overflow-hidden bg-slate-50">
       <PosRoutePerformanceTracker />
-      {!isKitchen ? <PosShiftCycleGuard lang={lang} /> : null}
+      {!isKitchen ? <PosShiftCycleGuard lang={lang === "lo" ? "en" : lang} /> : null}
       {!isKitchen ? <PosDeviceHeartbeatSender /> : null}
       {!isKitchen ? <PosFf0001SalesModeGuard /> : null}
       {!isKitchen ? <PosSalesModePolicyController /> : null}
       {!isKitchen ? <PosProductMediaToolbarLink th={lang === "th"} /> : null}
       {!isKitchen ? <PosBuffetToolsBridge th={lang === "th"} /> : null}
-      <PosViewportGuard lang={lang} />
+      <PosViewportGuard lang={lang === "lo" ? "en" : lang} />
       {!isKitchen ? <PosTableQrGlobalAlert lang={lang} /> : null}
       {!isKitchen ? <PosSubscriptionLifecycleGuard initial={subscriptionGuard} /> : null}
       {!isKitchen ? <PosSupportNotifier /> : null}

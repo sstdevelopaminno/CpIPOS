@@ -35,11 +35,11 @@ const CATEGORY_LABEL: Record<string,string> = {
   guide: "คู่มือ"
 };
 
-function formatDate(value: string | null) {
-  if (!value) return "ไม่หมดอายุ";
+function formatDate(value: string | null, lang:Language="th") {
+  if (!value) return lang==="lo"?"ບໍ່ໝົດອາຍຸ":lang==="en"?"No expiration":"ไม่หมดอายุ";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "—";
-  return new Intl.DateTimeFormat("th-TH", { dateStyle: "medium", timeZone: "Asia/Bangkok" }).format(date);
+  return new Intl.DateTimeFormat(lang==="lo"?"lo-LA":lang==="en"?"en-US":"th-TH", { dateStyle: "medium", timeZone: "Asia/Bangkok" }).format(date);
 }
 
 function formatBytes(value: number) {
@@ -52,7 +52,9 @@ function escapeHtml(value: string) {
   return value.replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[char] ?? char));
 }
 
-export function PosAiDocumentVault({ lang: _lang }: { lang: Language }) {
+const documentTranslations={lo:{"เก็บไฟล์เอกสาร":"ເກັບໄຟລ໌ເອກະສານ","เก็บสรุปยอดขาย รายงานต้นทุน แผนการตลาด ตาราง และเอกสารที่สร้างจาก CpiPOS AI":"ເກັບສະຫຼຸບຍອດຂາຍ ລາຍງານຕົ້ນທຶນ ແຜນການຕະຫຼາດ ຕາຕະລາງ ແລະເອກະສານຈາກ CpiPOS AI","สร้างเอกสารจาก AI":"ສ້າງເອກະສານຈາກ AI","รีเฟรช":"ໂຫຼດໃໝ່","จำนวนไฟล์":"ຈຳນວນໄຟລ໌","พื้นที่เอกสาร":"ພື້ນທີ່ເອກະສານ","ระยะเวลาเก็บ":"ໄລຍະເວລາເກັບ","ตามที่ IT กำหนด":"ຕາມທີ່ IT ກຳນົດ","กำลังโหลดเอกสาร...":"ກຳລັງໂຫຼດເອກະສານ...","ยังไม่มีเอกสาร":"ຍັງບໍ່ມີເອກະສານ","ในหน้า CpiPOS AI กด “บันทึกเป็นเอกสาร” ที่คำตอบที่ต้องการเก็บไว้":"ໃນ CpiPOS AI ກົດ “ບັນທຶກເປັນເອກະສານ” ທີ່ຄຳຕອບທີ່ຕ້ອງການເກັບ","เก็บถึง":"ເກັບເຖິງ","พิมพ์ / PDF":"ພິມ / PDF","ดาวน์โหลดต้นฉบับ":"ດາວໂຫຼດໄຟລ໌ຕົ້ນສະບັບ","ลบ":"ລຶບ","ทั่วไป":"ທົ່ວໄປ","ยอดขาย":"ຍອດຂາຍ","สต๊อก":"ສະຕັອກ","ต้นทุน":"ຕົ້ນທຶນ","การตลาด":"ການຕະຫຼາດ","บัญชี":"ບັນຊີ","คู่มือ":"ຄູ່ມື","ไม่หมดอายุ":"ບໍ່ໝົດອາຍຸ","วัน":"ມື້"},en:{"เก็บไฟล์เอกสาร":"Document vault","เก็บสรุปยอดขาย รายงานต้นทุน แผนการตลาด ตาราง และเอกสารที่สร้างจาก CpiPOS AI":"Store sales reports, costs, marketing plans, tables and documents from CpiPOS AI","สร้างเอกสารจาก AI":"Create with AI","รีเฟรช":"Refresh","จำนวนไฟล์":"Files","พื้นที่เอกสาร":"Document storage","ระยะเวลาเก็บ":"Retention period","ตามที่ IT กำหนด":"As configured by IT","กำลังโหลดเอกสาร...":"Loading documents...","ยังไม่มีเอกสาร":"No documents yet","ในหน้า CpiPOS AI กด “บันทึกเป็นเอกสาร” ที่คำตอบที่ต้องการเก็บไว้":"From CpiPOS AI choose Save as document","เก็บถึง":"Keep until","พิมพ์ / PDF":"Print / PDF","ดาวน์โหลดต้นฉบับ":"Download original","ลบ":"Delete","ทั่วไป":"General","ยอดขาย":"Sales","สต๊อก":"Stock","ต้นทุน":"Costs","การตลาด":"Marketing","บัญชี":"Accounting","คู่มือ":"Guide","ไม่หมดอายุ":"No expiration","วัน":"days"}};
+export function PosAiDocumentVault({ lang }: { lang: Language }) {
+  const ui=(thai:string)=>lang==="th"?thai:(documentTranslations[lang][thai as keyof typeof documentTranslations.en]??thai);
   const [documents, setDocuments] = useState<DocumentRow[]>([]);
   const [policy, setPolicy] = useState<Policy | null>(null);
   const [usage, setUsage] = useState<Usage | null>(null);
@@ -140,37 +142,37 @@ export function PosAiDocumentVault({ lang: _lang }: { lang: Language }) {
       <section className="mx-auto w-full max-w-[1240px]">
         <header className="flex flex-wrap items-center justify-between gap-4 pb-5">
           <div>
-            <h1 className="text-2xl font-semibold tracking-[-0.02em] text-slate-950">เก็บไฟล์เอกสาร</h1>
-            <p className="mt-1 text-sm text-slate-500">เก็บสรุปยอดขาย รายงานต้นทุน แผนการตลาด ตาราง และเอกสารที่สร้างจาก CpiPOS AI</p>
+            <h1 className="text-2xl font-semibold tracking-[-0.02em] text-slate-950">{ui("เก็บไฟล์เอกสาร")}</h1>
+            <p className="mt-1 text-sm text-slate-500">{ui("เก็บสรุปยอดขาย รายงานต้นทุน แผนการตลาด ตาราง และเอกสารที่สร้างจาก CpiPOS AI")}</p>
           </div>
           <div className="flex gap-2">
-            <Link href="/preview/pos/ai-assistant" className="rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-700">สร้างเอกสารจาก AI</Link>
-            <button type="button" onClick={() => void load()} className="rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50">รีเฟรช</button>
+            <Link href="/preview/pos/ai-assistant" className="rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-700">{ui("สร้างเอกสารจาก AI")}</Link>
+            <button type="button" onClick={() => void load()} className="rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50">{ui("รีเฟรช")}</button>
           </div>
         </header>
 
         <div className="mb-5 grid gap-3 sm:grid-cols-3">
-          <div className="rounded-2xl border border-white/80 bg-white/75 p-4 shadow-sm backdrop-blur"><p className="text-xs font-semibold text-slate-500">จำนวนไฟล์</p><p className="mt-1 text-2xl font-semibold">{usage?.files ?? 0}{policy?.max_files ? <span className="text-sm font-normal text-slate-400"> / {policy.max_files}</span> : null}</p></div>
-          <div className="rounded-2xl border border-white/80 bg-white/75 p-4 shadow-sm backdrop-blur"><p className="text-xs font-semibold text-slate-500">พื้นที่เอกสาร</p><p className="mt-1 text-2xl font-semibold">{usage?.storage_mb ?? 0} MB{policy?.storage_limit_mb ? <span className="text-sm font-normal text-slate-400"> / {policy.storage_limit_mb} MB</span> : null}</p>{policy?.storage_limit_mb ? <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-slate-100"><div className="h-full rounded-full bg-blue-500" style={{width:`${storagePct}%`}} /></div> : null}</div>
-          <div className="rounded-2xl border border-white/80 bg-white/75 p-4 shadow-sm backdrop-blur"><p className="text-xs font-semibold text-slate-500">ระยะเวลาเก็บ</p><p className="mt-1 text-2xl font-semibold">{policy?.retention_days ? `${policy.retention_days} วัน` : "ตามที่ IT กำหนด"}</p></div>
+          <div className="rounded-2xl border border-white/80 bg-white/75 p-4 shadow-sm backdrop-blur"><p className="text-xs font-semibold text-slate-500">{ui("จำนวนไฟล์")}</p><p className="mt-1 text-2xl font-semibold">{usage?.files ?? 0}{policy?.max_files ? <span className="text-sm font-normal text-slate-400"> / {policy.max_files}</span> : null}</p></div>
+          <div className="rounded-2xl border border-white/80 bg-white/75 p-4 shadow-sm backdrop-blur"><p className="text-xs font-semibold text-slate-500">{ui("พื้นที่เอกสาร")}</p><p className="mt-1 text-2xl font-semibold">{usage?.storage_mb ?? 0} MB{policy?.storage_limit_mb ? <span className="text-sm font-normal text-slate-400"> / {policy.storage_limit_mb} MB</span> : null}</p>{policy?.storage_limit_mb ? <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-slate-100"><div className="h-full rounded-full bg-blue-500" style={{width:`${storagePct}%`}} /></div> : null}</div>
+          <div className="rounded-2xl border border-white/80 bg-white/75 p-4 shadow-sm backdrop-blur"><p className="text-xs font-semibold text-slate-500">{ui("ระยะเวลาเก็บ")}</p><p className="mt-1 text-2xl font-semibold">{policy?.retention_days ? `${policy.retention_days} ${ui("วัน")}` : "ตามที่ IT กำหนด"}</p></div>
         </div>
 
         {error ? <div className="mb-4 rounded-xl border border-red-100 bg-red-50 px-4 py-3 text-sm font-medium text-red-700">{error}</div> : null}
 
         <section className="overflow-hidden rounded-2xl border border-slate-200/80 bg-white/85 shadow-sm backdrop-blur">
-          {loading ? <div className="p-10 text-center text-sm text-slate-400">กำลังโหลดเอกสาร...</div> :
-          documents.length === 0 ? <div className="p-14 text-center"><div className="text-4xl">📄</div><h2 className="mt-3 text-lg font-semibold text-slate-800">ยังไม่มีเอกสาร</h2><p className="mt-1 text-sm text-slate-500">ในหน้า CpiPOS AI กด “บันทึกเป็นเอกสาร” ที่คำตอบที่ต้องการเก็บไว้</p></div> :
+          {loading ? <div className="p-10 text-center text-sm text-slate-400">{ui("กำลังโหลดเอกสาร...")}</div> :
+          documents.length === 0 ? <div className="p-14 text-center"><div className="text-4xl">📄</div><h2 className="mt-3 text-lg font-semibold text-slate-800">{ui("ยังไม่มีเอกสาร")}</h2><p className="mt-1 text-sm text-slate-500">{ui("ในหน้า CpiPOS AI กด “บันทึกเป็นเอกสาร” ที่คำตอบที่ต้องการเก็บไว้")}</p></div> :
           <div className="divide-y divide-slate-100">
             {documents.map((row) => <div key={row.id} className="flex flex-wrap items-center gap-4 px-4 py-4 sm:px-5">
               <div className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-blue-50 text-lg">📄</div>
               <div className="min-w-0 flex-1">
-                <div className="flex flex-wrap items-center gap-2"><h3 className="truncate text-sm font-semibold text-slate-900">{row.title}</h3><span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-600">{CATEGORY_LABEL[row.category] ?? "ทั่วไป"}</span></div>
-                <p className="mt-1 text-xs text-slate-400">{formatDate(row.created_at)} · {formatBytes(row.size_bytes)} · เก็บถึง {formatDate(row.expires_at)}</p>
+                <div className="flex flex-wrap items-center gap-2"><h3 className="truncate text-sm font-semibold text-slate-900">{row.title}</h3><span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-600">{ui(CATEGORY_LABEL[row.category] ?? "ทั่วไป")}</span></div>
+                <p className="mt-1 text-xs text-slate-400">{formatDate(row.created_at,lang)} · {formatBytes(row.size_bytes)} · {ui("เก็บถึง")} {formatDate(row.expires_at,lang)}</p>
               </div>
               <div className="flex flex-wrap gap-2">
-                <button type="button" disabled={busyId===row.id} onClick={() => void printPdf(row.id)} className="rounded-lg border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50">พิมพ์ / PDF</button>
-                <button type="button" disabled={busyId===row.id} onClick={() => void download(row.id)} className="rounded-lg border border-blue-200 px-3 py-2 text-xs font-semibold text-blue-700 hover:bg-blue-50 disabled:opacity-50">ดาวน์โหลดต้นฉบับ</button>
-                <button type="button" disabled={busyId===row.id} onClick={() => void remove(row.id,row.title)} className="rounded-lg border border-red-100 px-3 py-2 text-xs font-semibold text-red-600 hover:bg-red-50 disabled:opacity-50">ลบ</button>
+                <button type="button" disabled={busyId===row.id} onClick={() => void printPdf(row.id)} className="rounded-lg border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50">{ui("พิมพ์ / PDF")}</button>
+                <button type="button" disabled={busyId===row.id} onClick={() => void download(row.id)} className="rounded-lg border border-blue-200 px-3 py-2 text-xs font-semibold text-blue-700 hover:bg-blue-50 disabled:opacity-50">{ui("ดาวน์โหลดต้นฉบับ")}</button>
+                <button type="button" disabled={busyId===row.id} onClick={() => void remove(row.id,row.title)} className="rounded-lg border border-red-100 px-3 py-2 text-xs font-semibold text-red-600 hover:bg-red-50 disabled:opacity-50">{ui("ลบ")}</button>
               </div>
             </div>)}
           </div>}

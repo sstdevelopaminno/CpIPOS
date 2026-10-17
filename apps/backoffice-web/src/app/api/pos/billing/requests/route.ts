@@ -80,7 +80,14 @@ export async function POST(request: Request) {
     if (!isAiAddon && kind === "payment_notice" && canonicalDue?.support_required) {
       return fail("subscription_support_required","รอบนี้ไม่สามารถชำระด้วยตนเองได้ กรุณาติดต่อ Support เพื่อให้ฝ่าย IT ตรวจสอบ",423);
     }
-    if (!isAiAddon && kind === "payment_notice" && canonicalDue?.self_service_payment_allowed === false) {
+    // A pending renewal itself disables self-service checkout in the canonical due
+    // state. Permit evidence upload ONLY to that exact existing open request; this
+    // does not permit a new request, change its package, or bypass Support lock.
+    const completingCanonicalOpenRequest = upgrading &&
+      canonicalDue?.open_request_id === requestKey &&
+      ["pending", "under_review"].includes(canonicalDue?.open_request_status ?? "");
+    if (!isAiAddon && kind === "payment_notice" &&
+      canonicalDue?.self_service_payment_allowed === false && !completingCanonicalOpenRequest) {
       return fail("subscription_self_service_locked","การชำระด้วยตนเองถูกปิดสำหรับสถานะรอบบิลปัจจุบัน กรุณาติดต่อ Support",423);
     }
     const target = snapshot.packages.find(item=>item.id===desiredPackage);

@@ -2,7 +2,8 @@ import "server-only";
 
 import { isFeatureUnlockEnabled } from "@/lib/feature-unlock";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
-import { isDineInExplicitlyEnabled, isDineInLinkedFeature } from "@/lib/pos-sales-modes";
+import { getInternalItTestMode } from "@/lib/server/internal-it-test-store";
+import { isDineInExplicitlyEnabled, isDineInLinkedFeature, isOpticalRetailExplicitlyEnabled } from "@/lib/pos-sales-modes";
 
 export type QuotaResourceType = "branches" | "devices" | "users";
 
@@ -221,6 +222,13 @@ export async function hasBranchFeature(tenantId: string, branchId: string | null
   const cacheKey = `${tenantId}:${normalizedBranchId}:${featureCode}`;
   const cached = readFeatureDecisionCache(cacheKey);
   if (cached !== null) return cached;
+  // QA grants affect ONLY the doubly verified internal tenant, not all stores.
+  if (await getInternalItTestMode(tenantId) === "full") {
+    // QA must never authorize an unknown feature name supplied by a caller.
+    const enabled = await isFeatureKeyConfigured(featureCode);
+    writeFeatureDecisionCache(cacheKey, enabled);
+    return enabled;
+  }
 
   const contract = await getLatestContract(tenantId);
   if (!contractAllowsAccess(contract)) {
@@ -272,6 +280,20 @@ export async function hasBranchFeature(tenantId: string, branchId: string | null
 
   if (branchOverride) {
     enabled = branchOverride.is_enabled;
+  }
+
+  // Optical retail uses the existing secured SKU/scanner workflow.
+  // This additional grant exists ONLY for a CUSTOM contract explicitly
+  // enabled by IT; fixed packages retain their normal barcode entitlements.
+  if (featureCode === "barcode_scanner_mode" && !enabled
+    && isOpticalRetailExplicitlyEnabled(contract?.metadata?.sales_modes)) {
+    const currentPackage = await supabase.from("subscription_packages")
+      .select("code").eq("id", contract!.package_id)
+      .maybeSingle<{ code: string }>();
+    if (currentPackage.error) throw new FeatureGateError(
+      "optical_package_check_failed", currentPackage.error.message, 500
+    );
+    if (String(currentPackage.data?.code ?? "").toLowerCase() === "custom") enabled = true;
   }
 
   // Dine-in cannot operate safely without table, kitchen and table-call
@@ -368,7 +390,7 @@ export async function getTenantLimits(tenantId: string): Promise<TenantLimits> {
 
 export async function enforceQuota(tenantId: string, resourceType: QuotaResourceType, branchId?: string | null): Promise<TenantLimits> {
   const limits = await getTenantLimits(tenantId);
-  if (isFeatureUnlockEnabled()) return limits;
+  if (isFeatureUnlockEnabled() || await getInternalItTestMode(tenantId) === "full") return limits;
 
   if (limits.contractStatus && limits.contractStatus !== "active" && limits.contractStatus !== "trial") {
     throw new FeatureGateError("contract_suspended", "Tenant contract is not active for provisioning actions.", 403);

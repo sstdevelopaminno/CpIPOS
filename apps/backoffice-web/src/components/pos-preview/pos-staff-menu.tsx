@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { MouseEvent, useMemo } from "react";
 import { t, type Language } from "@/lib/i18n";
-import { isPosMenuEnabled, posMenuKeyForRoute } from "@/lib/pos-menu-policy";
+import { isCustomPosMenuVisible, isPosMenuEnabled, posMenuKeyForRoute } from "@/lib/pos-menu-policy";
 import { POS_MENU_LOCK_TITLE_EN, POS_MENU_LOCK_TITLE_TH, featureForPosRoute } from "@/lib/pos-feature-map";
 
 type IconName = "sales" | "list" | "kitchen" | "shift" | "more" | "payment" | "ai";
@@ -63,7 +63,7 @@ function resolveMenuRole(role: PosRole | null): PosRole {
 
 function labelFor(item: MenuDef, lang: Language) {
   if (item.key) return t(lang, item.key);
-  return lang === "th" ? item.labelTh ?? "ครัว" : item.labelEn ?? "Kitchen";
+  return lang === "lo" ? "ເຮືອນຄົວ" : lang === "th" ? item.labelTh ?? "ครัว" : item.labelEn ?? "Kitchen";
 }
 
 function entryClass(args: { active: boolean; locked: boolean; horizontal: boolean; collapsed: boolean; accent?: boolean }) {
@@ -85,21 +85,22 @@ function entryClass(args: { active: boolean; locked: boolean; horizontal: boolea
   return `group relative inline-flex min-h-[42px] items-center text-[13px] font-semibold leading-tight transition ${layout} ${state}`;
 }
 
-export function PosStaffMenu({ lang, collapsed, orientation = "vertical", sessionRole, enabledFeatures, menuPolicy, onLockedFeature, onLockedMenu }: {
+export function PosStaffMenu({ lang, collapsed, orientation = "vertical", sessionRole, enabledFeatures, menuPolicy, isCustom = false, onLockedFeature, onLockedMenu }: {
   lang: Language;
   collapsed: boolean;
   orientation?: "vertical" | "horizontal";
   sessionRole: PosRole | null;
   enabledFeatures: Record<string, boolean> | null;
   menuPolicy: Record<string, boolean>;
+  isCustom?: boolean;
   onLockedFeature: () => void;
   onLockedMenu: (menuLabel: string) => void;
 }) {
   const pathname = usePathname();
   const effectiveRole = resolveMenuRole(sessionRole);
   const menuItems = useMemo(
-    () => MENU_DEFS.map((item) => ({ ...item, label: labelFor(item, lang) })).filter((item) => item.roles.includes(effectiveRole)),
-    [effectiveRole, lang]
+    () => MENU_DEFS.map((item) => ({ ...item, label: labelFor(item, lang) })).filter((item) => item.roles.includes(effectiveRole) && (!isCustom || isCustomPosMenuVisible(posMenuKeyForRoute(item.href) ?? "", menuPolicy, true))),
+    [effectiveRole, lang, isCustom, menuPolicy]
   );
   const isHorizontal = orientation === "horizontal";
   const aiVisible = sessionRole === "owner" || sessionRole === "manager";
@@ -110,7 +111,7 @@ export function PosStaffMenu({ lang, collapsed, orientation = "vertical", sessio
   const moreVisible = effectiveRole === "owner" || effectiveRole === "manager";
   const morePolicyLocked = !isPosMenuEnabled("main.more", menuPolicy);
   const isMoreActive = pathname === "/preview/pos/more" || MORE_CHILD_ROUTES.some((route) => pathname === route || pathname.startsWith(route + "/"));
-  const billingLabel = lang === "th" ? "ชำระแพ็กเกจ" : "Package Payment";
+  const billingLabel = lang === "lo" ? "ຊຳລະຄ່າແພັກເກດ" : lang === "th" ? "ชำระแพ็กเกจ" : "Package Payment";
   const billingPolicyLocked = !isPosMenuEnabled("main.package_payment", menuPolicy);
 
   function handleNavigate(event: MouseEvent<HTMLAnchorElement>, href: string) {
@@ -134,9 +135,10 @@ export function PosStaffMenu({ lang, collapsed, orientation = "vertical", sessio
           <Link
             key={item.href}
             href={item.href}
+            aria-current={active?"page":undefined}
             onClick={(event) => menuLocked ? (event.preventDefault(), onLockedMenu(item.label)) : featureLocked ? (event.preventDefault(), onLockedFeature()) : handleNavigate(event, item.href)}
             className={entryClass({ active, locked, horizontal: isHorizontal, collapsed })}
-            title={collapsed && !isHorizontal ? item.label : menuLocked ? (lang === "th" ? "ล็อกโดยผู้ดูแลระบบ IT" : "Locked by IT") : featureLocked ? (lang === "th" ? POS_MENU_LOCK_TITLE_TH : POS_MENU_LOCK_TITLE_EN) : undefined}
+            title={collapsed && !isHorizontal ? item.label : menuLocked ? (lang === "lo" ? "ລັອກໂດຍຝ່າຍ IT" : lang === "th" ? "ล็อกโดยผู้ดูแลระบบ IT" : "Locked by IT") : featureLocked ? (lang === "th" ? POS_MENU_LOCK_TITLE_TH : POS_MENU_LOCK_TITLE_EN) : undefined}
             aria-disabled={locked}
           >
             <span className="inline-flex w-4 justify-center" aria-hidden><MenuIcon name={item.icon} /></span>
@@ -146,12 +148,12 @@ export function PosStaffMenu({ lang, collapsed, orientation = "vertical", sessio
         );
       })}
 
-      {aiVisible ? (
+      {aiVisible && (!isCustom || (isCustomPosMenuVisible("main.ai_assistant", menuPolicy, true) && !aiFeatureLocked)) ? (
         <Link
           href="/preview/pos/ai-assistant"
           onClick={(event) => aiPolicyLocked ? (event.preventDefault(), onLockedMenu(aiLabel)) : aiFeatureLocked ? (event.preventDefault(), onLockedFeature()) : handleNavigate(event, "/preview/pos/ai-assistant")}
           className={entryClass({ active: pathname === "/preview/pos/ai-assistant", locked: aiPolicyLocked || aiFeatureLocked, horizontal: isHorizontal, collapsed, accent: true })}
-          title={aiPolicyLocked ? (lang === "th" ? "ล็อกโดยผู้ดูแลระบบ IT" : "Locked by IT") : aiFeatureLocked ? (lang === "th" ? POS_MENU_LOCK_TITLE_TH : POS_MENU_LOCK_TITLE_EN) : aiLabel}
+          title={aiPolicyLocked ? (lang === "lo" ? "ລັອກໂດຍຝ່າຍ IT" : lang === "th" ? "ล็อกโดยผู้ดูแลระบบ IT" : "Locked by IT") : aiFeatureLocked ? (lang === "th" ? POS_MENU_LOCK_TITLE_TH : POS_MENU_LOCK_TITLE_EN) : aiLabel}
           aria-disabled={aiPolicyLocked || aiFeatureLocked}
         >
           <span className="inline-flex w-4 justify-center text-cyan-200" aria-hidden><MenuIcon name="ai" /></span>
@@ -160,12 +162,12 @@ export function PosStaffMenu({ lang, collapsed, orientation = "vertical", sessio
         </Link>
       ) : null}
 
-      {moreVisible ? (
+      {moreVisible && (!isCustom || isCustomPosMenuVisible("main.more", menuPolicy, true)) ? (
         <Link
           href="/preview/pos/more"
           onClick={(event) => morePolicyLocked ? (event.preventDefault(), onLockedMenu(t(lang, "pos_menu_more"))) : handleNavigate(event, "/preview/pos/more")}
           className={entryClass({ active: isMoreActive, locked: morePolicyLocked, horizontal: isHorizontal, collapsed })}
-          title={collapsed && !isHorizontal ? t(lang, "pos_menu_more") : morePolicyLocked ? (lang === "th" ? "ล็อกโดยผู้ดูแลระบบ IT" : "Locked by IT") : undefined}
+          title={collapsed && !isHorizontal ? t(lang, "pos_menu_more") : morePolicyLocked ? (lang === "lo" ? "ລັອກໂດຍຝ່າຍ IT" : lang === "th" ? "ล็อกโดยผู้ดูแลระบบ IT" : "Locked by IT") : undefined}
           aria-disabled={morePolicyLocked}
         >
           <span className="inline-flex w-4 justify-center" aria-hidden><MenuIcon name="more" /></span>
@@ -174,12 +176,12 @@ export function PosStaffMenu({ lang, collapsed, orientation = "vertical", sessio
         </Link>
       ) : null}
 
-      {(sessionRole === "owner" || sessionRole === "manager") ? (
+      {(sessionRole === "owner" || sessionRole === "manager") && (!isCustom || isCustomPosMenuVisible("main.package_payment", menuPolicy, true)) ? (
         <Link
           href="/preview/pos/payments/package"
           onClick={(event) => billingPolicyLocked ? (event.preventDefault(), onLockedMenu(billingLabel)) : handleNavigate(event, "/preview/pos/payments/package")}
           className={entryClass({ active: pathname === "/preview/pos/payments/package", locked: billingPolicyLocked, horizontal: isHorizontal, collapsed })}
-          title={collapsed && !isHorizontal ? billingLabel : billingPolicyLocked ? (lang === "th" ? "ล็อกโดยผู้ดูแลระบบ IT" : "Locked by IT") : undefined}
+          title={collapsed && !isHorizontal ? billingLabel : billingPolicyLocked ? (lang === "lo" ? "ລັອກໂດຍຝ່າຍ IT" : lang === "th" ? "ล็อกโดยผู้ดูแลระบบ IT" : "Locked by IT") : undefined}
           aria-disabled={billingPolicyLocked}
         >
           <span className="inline-flex w-4 justify-center" aria-hidden><MenuIcon name="payment" /></span>
