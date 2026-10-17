@@ -45,6 +45,7 @@ type UploadResponse = {
 
 type Props = {
   th: boolean;
+  language?: "th" | "en" | "lo";
   branchId: string;
   branchName: string;
   products: ProductMediaManagerProduct[];
@@ -182,7 +183,8 @@ async function optimizeProductImage(file: File): Promise<OptimizedImage> {
   };
 }
 
-export function ProductMediaManager({ th, branchId, branchName, products, canManage }: Props) {
+export function ProductMediaManager({ th, language, branchId, branchName, products, canManage }: Props) {
+  const lo=language==="lo";
   const [images, setImages] = useState<Record<string, MediaAsset>>({});
   const [quota, setQuota] = useState<MediaQuota | null>(null);
   const [deviceCacheEnabled, setDeviceCacheEnabled] = useState(false);
@@ -367,28 +369,28 @@ export function ProductMediaManager({ th, branchId, branchName, products, canMan
           className="inline-flex min-h-9 items-center rounded-lg border border-slate-300 bg-white px-3 text-xs font-bold text-slate-700 shadow-sm transition hover:bg-slate-50"
           aria-expanded={showSummary}
         >
-          {showSummary ? (th ? "ซ่อนสรุป" : "Hide Summary") : (th ? "แสดงสรุป" : "Show Summary")}
+          {lo?(showSummary?"ເຊື່ອງສະຫຼຸບ":"ສະແດງສະຫຼຸບ"):showSummary ? (th ? "ซ่อนสรุป" : "Hide Summary") : (th ? "แสดงสรุป" : "Show Summary")}
         </button>
       </div>
 
       {showSummary ? (
         <section className="grid gap-3 lg:grid-cols-3">
           <div className="rounded-2xl border border-blue-200 bg-blue-50/60 p-4">
-            <div className="flex items-center justify-between gap-3"><strong className="text-sm text-blue-950">{th ? "พื้นที่ Cloud ตามแพ็กเกจ" : "Package Cloud Storage"}</strong><span className="rounded-full bg-white px-2 py-1 text-[11px] font-bold text-blue-700">{quota?.package_name ?? quota?.package_code ?? "-"}</span></div>
+            <div className="flex items-center justify-between gap-3"><strong className="text-sm text-blue-950">{lo?"ພື້ນທີ່ Cloud ຕາມແພັກເກດ":th ? "พื้นที่ Cloud ตามแพ็กเกจ" : "Package Cloud Storage"}</strong><span className="rounded-full bg-white px-2 py-1 text-[11px] font-bold text-blue-700">{quota?.package_name ?? quota?.package_code ?? "-"}</span></div>
             <p className="mt-3 text-xl font-extrabold text-slate-950">{formatBytes(quota?.cloud_used_bytes ?? 0)} <span className="text-sm font-semibold text-slate-500">/ {formatBytes(quota?.cloud_quota_bytes ?? 0)}</span></p>
             <div className="mt-2 h-2 overflow-hidden rounded-full bg-blue-100"><div className="h-full rounded-full bg-blue-600 transition-all" style={{ width: `${cloudPercent}%` }} /></div>
-            <p className="mt-2 text-xs text-slate-600">{th ? `${imageCount} รูป · รูป Cloud แสดงได้ทั้ง Web, POS และ QR โต๊ะ` : `${imageCount} images · Cloud images are shared by Web, POS and Table QR.`}</p>
+            <p className="mt-2 text-xs text-slate-600">{lo?`${imageCount} ຮູບ · ຮູບ Cloud ໃຊ້ຮ່ວມກັບ Web ແລະ POS`:th ? `${imageCount} รูป · รูป Cloud แสดงได้ทั้ง Web, POS และ QR โต๊ะ` : `${imageCount} images · Cloud images are shared by Web, POS and Table QR.`}</p>
           </div>
 
           <div className="rounded-2xl border border-violet-200 bg-violet-50/60 p-4">
-            <strong className="text-sm text-violet-950">{th ? "พื้นที่แคชเครื่อง POS ตามแพ็กเกจ" : "POS Device Media Cache"}</strong>
+            <strong className="text-sm text-violet-950">{lo?"ພື້ນທີ່ແຄດຮູບຂອງ POS":th ? "พื้นที่แคชเครื่อง POS ตามแพ็กเกจ" : "POS Device Media Cache"}</strong>
             <p className="mt-3 text-xl font-extrabold text-slate-950">{formatBytes(quota?.device_cache_quota_bytes ?? 0)}</p>
             <div className="mt-2 h-2 overflow-hidden rounded-full bg-violet-100"><div className="h-full rounded-full bg-violet-600 transition-all" style={{ width: `${devicePackagePercent}%` }} /></div>
             <p className="mt-2 text-xs text-slate-600">{deviceCacheEnabled ? (th ? "เครื่องนี้มี POS device session: ระบบสามารถเก็บสำเนารูปเพื่อเร่งโหลด/ออฟไลน์ได้" : "Registered POS device: local media caching can be used for faster/offline display.") : (th ? "เว็บทั่วไปใช้ Cloud เป็นหลักและไม่นับพื้นที่เครื่องเพิ่ม" : "Regular Web uses Cloud as the source of truth.")}</p>
           </div>
 
           <div className="rounded-2xl border border-emerald-200 bg-emerald-50/60 p-4">
-            <strong className="text-sm text-emerald-950">{th ? "พื้นที่เครื่อง/เบราว์เซอร์นี้" : "This Device / Browser"}</strong>
+            <strong className="text-sm text-emerald-950">{lo?"ພື້ນທີ່ອຸປະກອນ / ເບຣາເຊີ":th ? "พื้นที่เครื่อง/เบราว์เซอร์นี้" : "This Device / Browser"}</strong>
             <p className="mt-3 text-xl font-extrabold text-slate-950">{deviceEstimate ? formatBytes(Math.max(0, deviceEstimate.quota - deviceEstimate.usage)) : "-"}</p>
             <p className="mt-1 text-xs font-semibold text-slate-600">{deviceEstimate ? (th ? `คงเหลือโดยประมาณ · ใช้แล้ว ${formatBytes(deviceEstimate.usage)}` : `Approx. free · ${formatBytes(deviceEstimate.usage)} currently used`) : (th ? "เบราว์เซอร์ไม่รายงานพื้นที่ Storage" : "Storage estimate is unavailable.")}</p>
             <p className="mt-2 text-xs text-slate-500">{th ? "พื้นที่เครื่องเป็น cache เพิ่ม ไม่แทน Cloud; มือถือ QR จะอ่านรูปจาก Cloud เสมอ" : "Device space is additional cache, not a Cloud replacement; QR clients always read Cloud media."}</p>
@@ -398,15 +400,15 @@ export function ProductMediaManager({ th, branchId, branchName, products, canMan
 
       <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <div><h3 className="text-base font-extrabold text-slate-900">{th ? `รูปสินค้า · ${branchName}` : `Product Images · ${branchName}`}</h3><p className="mt-1 text-xs text-slate-500">{th ? "JPG/PNG/WebP สูงสุด 20 MB · ระบบครอป 1:1 และบีบอัดอัตโนมัติ" : "JPG/PNG/WebP up to 20 MB · auto-cropped and optimized automatically."}</p></div>
-          <input value={search} onChange={(event) => setSearch(event.target.value)} type="search" placeholder={th ? "ค้นหาชื่อ, SKU, หมวดหมู่..." : "Search name, SKU, category..."} className="min-h-10 w-full max-w-sm rounded-xl border border-slate-300 bg-white px-3 text-sm outline-none ring-blue-200 focus:ring-2" />
+          <div><h3 className="text-base font-extrabold text-slate-900">{lo?`ຮູບສິນຄ້າ · ${branchName}`:th ? `รูปสินค้า · ${branchName}` : `Product Images · ${branchName}`}</h3><p className="mt-1 text-xs text-slate-500">{lo?"JPG/PNG/WebP ບໍ່ເກີນ 20 MB · ຕັດຮູບ 1:1 ແລະ ບີບອັດອັດຕະໂນມັດ":th ? "JPG/PNG/WebP สูงสุด 20 MB · ระบบครอป 1:1 และบีบอัดอัตโนมัติ" : "JPG/PNG/WebP up to 20 MB · auto-cropped and optimized automatically."}</p></div>
+          <input value={search} onChange={(event) => setSearch(event.target.value)} type="search" placeholder={lo?"ຄົ້ນຫາຊື່, SKU, ໝວດໝູ່...":th ? "ค้นหาชื่อ, SKU, หมวดหมู่..." : "Search name, SKU, category..."} className="min-h-10 w-full max-w-sm rounded-xl border border-slate-300 bg-white px-3 text-sm outline-none ring-blue-200 focus:ring-2" />
         </div>
 
         {error ? <p className="mt-3 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm font-semibold text-red-700">{error}</p> : null}
         {notice ? <p className="mt-3 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-700">{notice}</p> : null}
-        {!canManage ? <p className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-800">{th ? "สิทธิ์ปัจจุบันดูรูปได้ แต่การเพิ่ม/แก้ไข/ลบรูปต้องเป็น Owner หรือ Manager" : "Current role can view images; Owner or Manager is required to add, edit, or delete them."}</p> : null}
+        {!canManage ? <p className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-800">{lo?"ສິດປັດຈຸບັນເບິ່ງຮູບໄດ້ · ການເພີ່ມ/ແກ້ໄຂ/ລຶບຕ້ອງເປັນ Owner ຫຼື Manager":th ? "สิทธิ์ปัจจุบันดูรูปได้ แต่การเพิ่ม/แก้ไข/ลบรูปต้องเป็น Owner หรือ Manager" : "Current role can view images; Owner or Manager is required to add, edit, or delete them."}</p> : null}
 
-        {loading ? <div className="py-12 text-center text-sm font-semibold text-slate-500">{th ? "กำลังโหลดรูปสินค้า..." : "Loading product images..."}</div> : (
+        {loading ? <div className="py-12 text-center text-sm font-semibold text-slate-500">{lo?"ກຳລັງໂຫຼດຮູບສິນຄ້າ...":th ? "กำลังโหลดรูปสินค้า..." : "Loading product images..."}</div> : (
           <div ref={listScrollRef} className="mt-4 max-h-[46vh] overflow-y-auto overscroll-contain pr-1 [scrollbar-gutter:stable]">
             <div className="grid gap-2">
               {pagedProducts.map((product) => {
@@ -416,9 +418,9 @@ export function ProductMediaManager({ th, branchId, branchName, products, canMan
                 return (
                   <article key={product.id} className="grid gap-3 rounded-xl border border-slate-200 bg-slate-50/60 p-3 sm:grid-cols-[88px_minmax(0,1fr)_auto] sm:items-center">
                     <div className="h-[88px] w-[88px] overflow-hidden rounded-xl border border-slate-200 bg-white">
-                      {asset ? <img src={asset.thumbnail_url} alt={product.name} className="h-full w-full object-cover" loading="lazy" /> : <div className="grid h-full w-full place-items-center text-xs font-bold text-slate-400">{th ? "ไม่มีรูป" : "No image"}</div>}
+                      {asset ? <img src={asset.thumbnail_url} alt={product.name} className="h-full w-full object-cover" loading="lazy" /> : <div className="grid h-full w-full place-items-center text-xs font-bold text-slate-400">{lo?"ບໍ່ມີຮູບ":th ? "ไม่มีรูป" : "No image"}</div>}
                     </div>
-                    <div className="min-w-0"><strong className="block truncate text-sm text-slate-950">{product.name}</strong><p className="mt-1 truncate text-xs text-slate-500">{product.sku || "-"} · {product.category || (th ? "ไม่ระบุหมวดหมู่" : "Uncategorized")}</p>{asset ? <p className="mt-1 text-[11px] font-semibold text-emerald-700">Cloud Published · {formatBytes(asset.display_bytes + asset.thumbnail_bytes)}</p> : <p className="mt-1 text-[11px] font-semibold text-slate-400">{th ? "ยังไม่เผยแพร่รูป" : "No published image"}</p>}</div>
+                    <div className="min-w-0"><strong className="block truncate text-sm text-slate-950">{product.name}</strong><p className="mt-1 truncate text-xs text-slate-500">{product.sku || "-"} · {product.category || (lo?"ບໍ່ລະບຸໝວດໝູ່":th ? "ไม่ระบุหมวดหมู่" : "Uncategorized")}</p>{asset ? <p className="mt-1 text-[11px] font-semibold text-emerald-700">Cloud Published · {formatBytes(asset.display_bytes + asset.thumbnail_bytes)}</p> : <p className="mt-1 text-[11px] font-semibold text-slate-400">{lo?"ຍັງບໍ່ເຜີຍແຜ່ຮູບ":th ? "ยังไม่เผยแพร่รูป" : "No published image"}</p>}</div>
                     <div className="flex flex-wrap items-center gap-2">
                       <button
                         type="button"
@@ -427,26 +429,26 @@ export function ProductMediaManager({ th, branchId, branchName, products, canMan
                         aria-label={asset ? (th ? `แก้ไขรูป ${product.name}` : `Edit image for ${product.name}`) : (th ? `เพิ่มรูป ${product.name}` : `Add image for ${product.name}`)}
                         className="inline-flex min-h-10 items-center rounded-lg border border-blue-600 bg-blue-600 px-4 text-xs font-bold text-white shadow-sm transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-400"
                       >
-                        {busy ? (th ? "กำลังประมวลผล..." : "Processing...") : asset ? (th ? "แก้ไขรูป" : "Edit Image") : (th ? "เพิ่มรูป" : "Add Image")}
+                        {lo?(busy?"ກຳລັງປະມວນຜົນ...":asset?"ແກ້ໄຂຮູບ":"ເພີ່ມຮູບ"):busy ? (th ? "กำลังประมวลผล..." : "Processing...") : asset ? (th ? "แก้ไขรูป" : "Edit Image") : (th ? "เพิ่มรูป" : "Add Image")}
                       </button>
-                      {asset ? <button type="button" onClick={() => void remove(product)} disabled={!canManage || Boolean(busyProductId)} aria-label={th ? `ลบรูป ${product.name}` : `Delete image for ${product.name}`} className="inline-flex min-h-10 items-center rounded-lg border border-red-200 bg-white px-3 text-xs font-bold text-red-600 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50">{th ? "ลบรูป" : "Delete Image"}</button> : null}
+                      {asset ? <button type="button" onClick={() => void remove(product)} disabled={!canManage || Boolean(busyProductId)} aria-label={th ? `ลบรูป ${product.name}` : `Delete image for ${product.name}`} className="inline-flex min-h-10 items-center rounded-lg border border-red-200 bg-white px-3 text-xs font-bold text-red-600 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50">{lo?"ລຶບຮູບ":th ? "ลบรูป" : "Delete Image"}</button> : null}
                     </div>
                   </article>
                 );
               })}
-              {filteredProducts.length === 0 ? <p className="py-10 text-center text-sm text-slate-500">{th ? "ไม่พบสินค้า" : "No products found."}</p> : null}
+              {filteredProducts.length === 0 ? <p className="py-10 text-center text-sm text-slate-500">{lo?"ບໍ່ພົບສິນຄ້າ":th ? "ไม่พบสินค้า" : "No products found."}</p> : null}
             </div>
           </div>
         )}
 
         <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5">
           <span className="text-xs font-semibold text-slate-600">
-            {th ? `${rangeStart} - ${rangeEnd} / ${filteredProducts.length} รายการ · มีรูป ${imageCount}` : `${rangeStart} - ${rangeEnd} / ${filteredProducts.length} items · ${imageCount} with images`}
+            {lo?`${rangeStart} - ${rangeEnd} / ${filteredProducts.length} ລາຍການ · ມີຮູບ ${imageCount}`:th ? `${rangeStart} - ${rangeEnd} / ${filteredProducts.length} รายการ · มีรูป ${imageCount}` : `${rangeStart} - ${rangeEnd} / ${filteredProducts.length} items · ${imageCount} with images`}
           </span>
           <div className="flex items-center gap-2">
-            <button type="button" onClick={() => movePage(safePage - 1)} disabled={safePage <= 1} className="min-h-9 rounded-lg border border-slate-300 bg-white px-3 text-xs font-bold text-slate-700 shadow-sm disabled:opacity-40">{th ? "ก่อนหน้า" : "Previous"}</button>
-            <strong className="min-w-24 rounded-lg border border-slate-200 bg-white px-3 py-2 text-center text-xs text-slate-700">{th ? `หน้า ${safePage} / ${totalPages}` : `Page ${safePage} / ${totalPages}`}</strong>
-            <button type="button" onClick={() => movePage(safePage + 1)} disabled={safePage >= totalPages} className="min-h-9 rounded-lg border border-blue-600 bg-blue-600 px-4 text-xs font-bold text-white shadow-sm disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-400">{th ? "ถัดไป" : "Next"}</button>
+            <button type="button" onClick={() => movePage(safePage - 1)} disabled={safePage <= 1} className="min-h-9 rounded-lg border border-slate-300 bg-white px-3 text-xs font-bold text-slate-700 shadow-sm disabled:opacity-40">{lo?"ກ່ອນໜ້າ":th ? "ก่อนหน้า" : "Previous"}</button>
+            <strong className="min-w-24 rounded-lg border border-slate-200 bg-white px-3 py-2 text-center text-xs text-slate-700">{lo?`ໜ້າ ${safePage} / ${totalPages}`:th ? `หน้า ${safePage} / ${totalPages}` : `Page ${safePage} / ${totalPages}`}</strong>
+            <button type="button" onClick={() => movePage(safePage + 1)} disabled={safePage >= totalPages} className="min-h-9 rounded-lg border border-blue-600 bg-blue-600 px-4 text-xs font-bold text-white shadow-sm disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-400">{lo?"ຖັດໄປ":th ? "ถัดไป" : "Next"}</button>
           </div>
         </div>
       </section>

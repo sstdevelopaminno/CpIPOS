@@ -6,6 +6,7 @@ import { getSupabaseServiceClient } from "@/lib/supabase-admin";
 import { getTenantPosCurrencyCode } from "@/lib/server/custom-pos-currency";
 import { getCustomPosStockUiMode } from "@/lib/server/custom-stock-ui-policy";
 import { formatSalesMoney } from "@/lib/pos-money";
+import {getCurrentLanguage} from "@/lib/i18n";
 import { PosBackButton } from "@/components/pos-preview/pos-back-button";
 import { OpticalStockWorkspace } from "@/components/pos/optical-stock-workspace";
 import { collectPagedShiftRows, collectShiftRowsForIds } from "@/lib/pos-shift-query-pagination";
@@ -43,6 +44,7 @@ export default async function CustomModeStockPage({searchParams}:{searchParams?:
   if(mode!=="optical"&&mode!=="retail"&&mode!=="mixed")notFound();
   const optical=mode!=="retail";
   const db=getSupabaseServiceClient();
+  const lang=await getCurrentLanguage();
   const [{data:products,error:productError},{data:branch,error:branchError},currency]=await Promise.all([
     optical ? collectPagedShiftRows<CatalogRow>((from,to)=>db.from("products")
       .select("id,sku,name,category,price,sell_unit,stock_deduction_mode,metadata")
@@ -113,7 +115,7 @@ export default async function CustomModeStockPage({searchParams}:{searchParams?:
     });
     return <OpticalStockWorkspace rows={enriched}
       branch={branch?.name??"สาขาที่ได้รับสิทธิ์"} branchId={branchId} branches={branches} currency={currency}
-      canManage={["owner","manager"].includes(String(scope.session.role??"").toLowerCase())}/>;
+      canManage={["owner","manager"].includes(String(scope.session.role??"").toLowerCase())} lang={lang}/>;
   }
   const low=mapped.filter(x=>x.available===1).length;
   const out=mapped.filter(x=>x.available===0).length;

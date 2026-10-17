@@ -6,6 +6,7 @@ import { buildPaginationMeta, parsePagination } from "@/lib/query-params";
 import { loadReceiptStoreProfile } from "@/lib/services/store-profile-service";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
 import { getTenantPosCurrencyCode } from "@/lib/server/custom-pos-currency";
+import {getCustomPosStockUiMode} from "@/lib/server/custom-stock-ui-policy";
 
 function toBangkokDate(value: Date) {
   const formatter = new Intl.DateTimeFormat("en-CA", {
@@ -77,6 +78,7 @@ export async function GET(req: Request) {
     const auth = await getPosApiAuthContext({ requireBranchScope: true, requiredPermission: "receipts:view" });
     await requirePosApiFeature(auth, "receipt_reprint_history");
     const supabase = getSupabaseServiceClient();
+    const opticalCurrencyAudit=(await getCustomPosStockUiMode(auth.tenantId!))==="optical";
     const { searchParams } = new URL(req.url);
     const { page, pageSize } = parsePagination(searchParams, 20);
     const fromIndex = (page - 1) * pageSize;
@@ -234,7 +236,7 @@ export async function GET(req: Request) {
       return {
         id: row.id,
         orderNo: row.order_no,
-        currencyCode: readMetadataString(row.metadata, "currency_code") === "LAK" ? "LAK" : "THB",
+        currencyCode: (["THB","LAK","USD"].includes(readMetadataString(row.metadata, "currency_code") ?? "") ? readMetadataString(row.metadata, "currency_code") : opticalCurrencyAudit?"UNKNOWN":"THB"),
         orderType: row.order_type,
         channel: row.channel,
         tableLabel: row.table_id ? tableMap.get(row.table_id) ?? "-" : "-",
@@ -267,10 +269,12 @@ export async function GET(req: Request) {
     // Never aggregate THB and LAK into a single financial figure.
     const byCurrency = {
       THB: { count: 0, grossTotal: 0, paidTotal: 0 },
-      LAK: { count: 0, grossTotal: 0, paidTotal: 0 }
+      LAK: { count: 0, grossTotal: 0, paidTotal: 0 },
+      USD: { count: 0, grossTotal: 0, paidTotal: 0 },
+      UNKNOWN: { count: 0, grossTotal: 0, paidTotal: 0 }
     };
     for (const receipt of records) {
-      const bucket = byCurrency[receipt.currencyCode === "LAK" ? "LAK" : "THB"];
+      const bucket = byCurrency[receipt.currencyCode as keyof typeof byCurrency] ?? byCurrency.UNKNOWN;
       bucket.count += 1;
       bucket.grossTotal += receipt.totalAmount;
       bucket.paidTotal += receipt.paidTotal;
@@ -281,7 +285,8 @@ export async function GET(req: Request) {
       grossTotal: byCurrency[shopCurrencyCode].grossTotal,
       paidTotal: byCurrency[shopCurrencyCode].paidTotal,
       byCurrency,
-      mixedCurrencies: byCurrency.THB.count > 0 && byCurrency.LAK.count > 0
+      mixedCurrencies: [byCurrency.THB.count,byCurrency.LAK.count,byCurrency.USD.count,byCurrency.UNKNOWN.count].filter(n=>n>0).length>1,
+      unknownCurrencyCount: byCurrency.UNKNOWN.count
     };
 
     return withTiming(ok({
