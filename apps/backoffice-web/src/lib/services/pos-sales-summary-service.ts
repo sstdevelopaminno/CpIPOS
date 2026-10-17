@@ -35,7 +35,7 @@ export type PosSalesSummaryScope = {
 export type PosSalesSummaryPayload = {
   currencyCode: SalesCurrencyCode;
   // Never sum THB, LAK or USD sales into one KPI.
-  currencyBuckets: Array<{ currencyCode: SalesCurrencyCode; receiptCount: number; netSales: number }>;
+  currencyBuckets: Array<{ currencyCode: SalesCurrencyCode | "UNKNOWN"; receiptCount: number; netSales: number }>;
   access: {
     canViewMultipleBranches: boolean;
     selfOnly: boolean;
@@ -406,23 +406,25 @@ export async function loadPosSalesSummaryData(
     selfOnlyUserId: selfOnly ? scope.userId : null
   });
   const allOrdersBeforeCashier = ordersRaw.filter((order) => (nextFilters.cashierId === "all" ? true : getOrderCashierId(order) === nextFilters.cashierId));
-  const buckets: Record<SalesCurrencyCode, { receiptCount: number; netSales: number }> = {
+  const buckets: Record<SalesCurrencyCode | "UNKNOWN", { receiptCount: number; netSales: number }> = {
     THB: { receiptCount: 0, netSales: 0 },
     LAK: { receiptCount: 0, netSales: 0 },
-    USD: { receiptCount: 0, netSales: 0 }
+    USD: { receiptCount: 0, netSales: 0 },
+    UNKNOWN: { receiptCount: 0, netSales: 0 }
   };
   for (const order of allOrdersBeforeCashier) {
     if (order.status !== "completed") continue;
-    const bucket = buckets[orderCurrencyFromMetadata(order.metadata)];
+    const declared=order.metadata?.currency_code;
+    const bucket = buckets[declared==="THB"||declared==="LAK"||declared==="USD"?declared:"UNKNOWN"];
     bucket.receiptCount++;
     bucket.netSales += getOrderNet(order);
   }
-  const currencyBuckets = (["THB", "LAK", "USD"] as const)
+  const currencyBuckets = (["THB", "LAK", "USD", "UNKNOWN"] as const)
     .filter((code) => buckets[code].receiptCount > 0)
     .map((code) => ({ currencyCode: code, receiptCount: buckets[code].receiptCount, netSales: roundMoney(buckets[code].netSales) }));
   // Existing aggregates are single-currency only, so a currency cutover cannot
   // cause historical THB amounts to appear as LAK or be added to them.
-  const ordersBeforeCashier = allOrdersBeforeCashier.filter((order) => orderCurrencyFromMetadata(order.metadata) === currencyCode);
+  const ordersBeforeCashier = allOrdersBeforeCashier.filter((order) => order.metadata?.currency_code === currencyCode);
   if (ordersBeforeCashier.length === 0) {
     return {
       ...emptyPayload(nextFilters),
