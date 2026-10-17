@@ -161,7 +161,21 @@ function ensureGeneralSaleStyles() {
     [${GENERAL_SALE_SCANNER_ATTRIBUTE}="1"] [data-tone="pending"] { color: #0369a1; }
 
     /* Only CUSTOM Optical. Restaurant/retail tables retain their original structure. */
-    html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .cpipos-sd-table table { width: 100%; min-width: 0; table-layout: fixed; }
+    html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .cpipos-sd-table__scroll {
+      /* Keep all five Optical columns visible at once; scrolling remains vertical. */
+      width: 100%; min-width: 0; overflow-x: hidden; overflow-y: auto;
+    }
+    html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .cpipos-sd-table table {
+      width: 100%; min-width: 0; max-width: 100%; table-layout: fixed;
+    }
+    html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .cpipos-sd-table th,
+    html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .cpipos-sd-table td {
+      min-width: 0; max-width: 100%; box-sizing: border-box; overflow-wrap: anywhere;
+    }
+    html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .cpipos-sd-table__money {
+      white-space: nowrap; overflow: hidden; text-overflow: clip;
+      font-variant-numeric: tabular-nums;
+    }
     /* Fixed-size quantity control frees space for name and original-price accuracy.
        Optical only: ordinary POS and other CUSTOM carts must not change. */
     html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .cpipos-sd-table__name { width: auto; min-width: 0; overflow-wrap: anywhere; }
@@ -169,9 +183,9 @@ function ensureGeneralSaleStyles() {
       display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2;
       line-clamp: 2; overflow: hidden; overflow-wrap: anywhere; line-height: 1.35;
     }
-    html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .cpipos-sd-table__qty { width: 110px; }
-    html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .cpipos-sd-table__money { width: clamp(88px, 17%, 122px); overflow-wrap: anywhere; }
-    html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .cpipos-sd-table__actions { width: 42px; }
+    html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .cpipos-sd-table__qty { width: 104px; }
+    html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .cpipos-sd-table__money { width: clamp(74px, 15%, 110px); }
+    html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .cpipos-sd-table__actions { width: 40px; }
     html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .cpipos-sd-qty {
       width: 104px; max-width: 100%;
       grid-template-columns: 34px minmax(28px, 1fr) 34px;
@@ -243,8 +257,8 @@ function ensureGeneralSaleStyles() {
     @media (max-width: 1080px) and (orientation: landscape) {
       html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .posui-body { grid-template-columns: minmax(0, 1fr) 240px; gap: 6px; }
       html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .cpipos-sd-table__name { width: auto; }
-      html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .cpipos-sd-table__qty { width: 108px; }
-      html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .cpipos-sd-table__money { width: clamp(82px, 17%, 108px); }
+      html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .cpipos-sd-table__qty { width: 104px; }
+      html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .cpipos-sd-table__money { width: clamp(74px, 15%, 96px); }
       html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .cpipos-sd-table__actions { width: 40px; }
       html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .cpipos-sd-table th,
       html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .cpipos-sd-table td { padding: 7px 3px; font-size: 11px; }
@@ -459,6 +473,17 @@ export function PosGeneralSaleTableController({ lang = "th" }: { lang?: Lang }) 
         });
         thead.appendChild(headerRow);
 
+        // Fixed column geometry avoids min-content growth from Lao labels,
+        // long optical product names and six-digit LAK prices.
+        if (opticalActive) {
+          const colgroup = document.createElement("colgroup");
+          for (const cls of ["cpipos-sd-table__name", "cpipos-sd-table__qty", "cpipos-sd-table__money", "cpipos-sd-table__money", "cpipos-sd-table__actions"]) {
+            const col = document.createElement("col");
+            col.className = cls;
+            colgroup.appendChild(col);
+          }
+          table.appendChild(colgroup);
+        }
         const tbody = document.createElement("tbody");
         rows.forEach((row, index) => {
           const tr = document.createElement("tr");

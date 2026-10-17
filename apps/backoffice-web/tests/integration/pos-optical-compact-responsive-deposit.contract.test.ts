@@ -31,13 +31,15 @@ describe("CUSTOM Optical responsive POS and safe deposit UI",()=>{
   expect(source).toContain("productName.title = row.name");
   expect(source).toContain("if (opticalActive) {");
   expect(source).toContain("-webkit-line-clamp: 2");
-  expect(source).toContain('html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .cpipos-sd-table__qty { width: 110px; }');
+  expect(source).toContain('html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .cpipos-sd-table__qty { width: 104px; }');
   expect(source).toContain("width: 104px; max-width: 100%");
+  expect(source).toContain("overflow-x: hidden; overflow-y: auto");
+  expect(source).toContain("const colgroup = document.createElement(\"colgroup\")");
   expect(source).toContain("grid-template-columns: 34px minmax(28px, 1fr) 34px");
   expect(source).toContain("width: 34px; height: 32px");
   expect(source).toContain('html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .cpipos-sd-table__money');
-  expect(source).toContain('html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .cpipos-sd-table__actions { width: 42px; }');
-  expect(source).toContain('html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .cpipos-sd-table__qty { width: 108px; }');
+  expect(source).toContain('html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .cpipos-sd-table__actions { width: 40px; }');
+  expect(source).toContain('html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .cpipos-sd-table__qty { width: 104px; }');
   expect(source).toContain("invokeCartAction(index, action)");
   expect(source).toContain('decrease.setAttribute("aria-label", `${copy.decrease} ${row.name}`)');
   expect(source).toContain('increase.setAttribute("aria-label", `${copy.increase} ${row.name}`)');
@@ -76,7 +78,8 @@ describe("CUSTOM Optical responsive POS and safe deposit UI",()=>{
   expect(dialog).toContain('data-testid="optical-deposit-amount"');
   expect(dialog).toContain('setStep("method")');
   expect(dialog).toContain("await onSubmit(amount,method)");
-  expect(dialog).toContain("disabled={busy||!onSubmit}");
+  expect(dialog).toContain("disabled={busy}");
+  expect(dialog).toContain("onSubmit?T.confirm:T.check");
   expect(dialog).toContain("if(!onSubmit){setError(T.unavailable);return;}");
   expect(dialog).not.toContain("onCheckout");
   expect(dialog).toContain('role="dialog"');
