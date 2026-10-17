@@ -77,7 +77,7 @@ describe("CUSTOM Optical responsive POS and safe deposit UI",()=>{
   expect(panel).toContain('data-testid="pos-optical-pending-actions"');
   expect(dialog).toContain('data-testid="optical-deposit-amount"');
   expect(dialog).toContain('setStep("method")');
-  expect(dialog).toContain("await onSubmit(amount,method)");
+  expect(dialog).toContain("await onSubmit(amount,method,customerId,");
   expect(dialog).toContain("disabled={busy}");
   expect(dialog).toContain("onSubmit?T.confirm:T.check");
   expect(dialog).toContain("if(!onSubmit){setError(T.unavailable);return;}");
