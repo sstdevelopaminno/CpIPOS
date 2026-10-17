@@ -2220,6 +2220,7 @@ export function PosSalesModule({
   // Stable keys ensure network retries cannot create an extra Optical bill/payment.
   const opticalDepositAttemptsRef = useRef(new Map<string,{orderId:string;paymentId:string}>());
   const opticalDepositLockedRef = useRef(false);
+  const [opticalLastDepositReceiptId,setOpticalLastDepositReceiptId]=useState<string|null>(null);
   const [modeSelectorOpen, setModeSelectorOpen] = useState(false);
   const [salesTopbarCollapsed, setSalesTopbarCollapsed] = useState(false);
   const [enabledFeatures, setEnabledFeatures] = useState<Record<string, boolean> | null>(null);
@@ -9175,6 +9176,7 @@ export function PosSalesModule({
       const remainder=Number(paid.data.remaining_amount);
       pushSubmitMessage(`Optical ${method==="cash"?"cash":"manually verified bank"} deposit recorded: ₭${amount.toLocaleString("en-US")} · Remaining ₭${remainder.toLocaleString("en-US")}`);
       setCart([]);
+      setOpticalLastDepositReceiptId(remainder>0?workOrderId:null);
       opticalDepositAttemptsRef.current.delete(signature);
     }finally{
       opticalDepositLockedRef.current=false;
@@ -9200,6 +9202,7 @@ export function PosSalesModule({
           opticalLanguage={lang}
           onOpticalCustomer={() => setOpticalCustomerOpen(true)}
           onOpticalDeposit={opticalRetailActive && posCurrencyResolved && posCurrencyCode==="LAK" ? submitOpticalCashDeposit : undefined}
+          onOpticalDepositReceipt={opticalLastDepositReceiptId ? ()=>window.open(`/api/pos/optical/work-orders/${encodeURIComponent(opticalLastDepositReceiptId)}/deposit-receipt`,"_blank","noopener,noreferrer") : undefined}
           onMember={
             orderType === "delivery_manual"
               ? undefined
