@@ -162,17 +162,37 @@ function ensureGeneralSaleStyles() {
 
     /* Only CUSTOM Optical. Restaurant/retail tables retain their original structure. */
     html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .cpipos-sd-table table { width: 100%; min-width: 0; table-layout: fixed; }
-    html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .cpipos-sd-table__name { width: 38%; min-width: 0; overflow-wrap: anywhere; }
-    html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .cpipos-sd-table__qty { width: 23%; }
-    html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .cpipos-sd-table__money { width: 14%; }
-    html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .cpipos-sd-table__actions { width: 11%; }
+    /* Fixed-size quantity control frees space for name and original-price accuracy.
+       Optical only: ordinary POS and other CUSTOM carts must not change. */
+    html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .cpipos-sd-table__name { width: auto; min-width: 0; overflow-wrap: anywhere; }
+    html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .cpipos-sd-table__name strong {
+      display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2;
+      line-clamp: 2; overflow: hidden; overflow-wrap: anywhere; line-height: 1.35;
+    }
+    html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .cpipos-sd-table__qty { width: 110px; }
+    html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .cpipos-sd-table__money { width: clamp(88px, 17%, 122px); overflow-wrap: anywhere; }
+    html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .cpipos-sd-table__actions { width: 42px; }
+    html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .cpipos-sd-qty {
+      width: 104px; max-width: 100%;
+      grid-template-columns: 34px minmax(28px, 1fr) 34px;
+      border-radius: 8px;
+    }
+    html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .cpipos-sd-qty button {
+      width: 34px; height: 32px; min-width: 0; font-size: 16px;
+      touch-action: manipulation;
+    }
+    html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .cpipos-sd-qty span {
+      min-width: 0; padding: 0 2px; font-size: 12px;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .cpipos-sd-qty button:focus-visible,
+    html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .cpipos-sd-delete:focus-visible {
+      outline: 2px solid #2563eb; outline-offset: 2px;
+    }
     html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .cpipos-sd-table__scroll { max-height: min(54vh, 520px); }
     html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .cpipos-sd-table th,
     html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .cpipos-sd-table td { padding: 8px 4px; font-size: clamp(10px, .96vw, 13px); }
     html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .cpipos-sd-table__summary { padding: 9px 11px; gap: 6px; }
-    html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .cpipos-sd-qty { width: 100%; grid-template-columns: minmax(25px, 1fr) minmax(20px, 1fr) minmax(25px, 1fr); }
-    html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .cpipos-sd-qty button { width: 100%; min-width: 0; }
-    html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .cpipos-sd-qty span { padding: 0 2px; }
     html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .posui-body { grid-template-columns: minmax(0, 1fr) clamp(235px, 26vw, 288px); gap: 8px; }
     html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .posui-catalog-col,
     html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .posui-cart-col { min-width: 0; }
@@ -222,8 +242,10 @@ function ensureGeneralSaleStyles() {
     }
     @media (max-width: 1080px) and (orientation: landscape) {
       html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .posui-body { grid-template-columns: minmax(0, 1fr) 240px; gap: 6px; }
-      html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .cpipos-sd-table__name { width: 36%; }
-      html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .cpipos-sd-table__qty { width: 25%; }
+      html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .cpipos-sd-table__name { width: auto; }
+      html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .cpipos-sd-table__qty { width: 108px; }
+      html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .cpipos-sd-table__money { width: clamp(82px, 17%, 108px); }
+      html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .cpipos-sd-table__actions { width: 40px; }
       html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .cpipos-sd-table th,
       html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .cpipos-sd-table td { padding: 7px 3px; font-size: 11px; }
     }
@@ -451,7 +473,13 @@ export function PosGeneralSaleTableController({ lang = "th" }: { lang?: Lang }) 
           categoryCell.textContent = row.category;
           const nameCell = document.createElement("td");
           nameCell.className = "cpipos-sd-table__name";
-          nameCell.appendChild(createTextElement("strong", "", row.name));
+          const productName = createTextElement("strong", "", row.name);
+          if (opticalActive) {
+            // Preserve the exact product name for pointer hover while keeping
+            // every row at two lines on narrow landscape POS screens.
+            productName.title = row.name;
+          }
+          nameCell.appendChild(productName);
           if (!opticalActive && row.notes) nameCell.appendChild(createTextElement("small", "", row.notes));
           const qtyCell = document.createElement("td");
           qtyCell.className = "cpipos-sd-table__qty";
