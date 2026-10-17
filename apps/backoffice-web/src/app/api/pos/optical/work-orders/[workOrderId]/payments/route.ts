@@ -15,22 +15,30 @@ export async function POST(request:Request,{params}:{params:Promise<{workOrderId
       return fail("optical_deposit_disabled","Deposit payments require IT approval.",403);
     const {workOrderId}=await params;
     const body=await request.json().catch(()=>null) as {
-      request_id?:string;amount_lak?:number;method?:"cash"|"bank_transfer";reference_no?:string
+      request_id?:string;amount_lak?:number;method?:"cash"|"bank_transfer";reference_no?:string;manager_verified?:boolean
     }|null;
     if(!uuid.test(workOrderId)||!uuid.test(body?.request_id??"")||
       !Number.isSafeInteger(body?.amount_lak)||Number(body?.amount_lak)<=0||
       !["cash","bank_transfer"].includes(body?.method??""))
       return fail("optical_payment_invalid","Invalid LAK payment or request ID.",422);
-    // Bank transfers require verifiable manager proof. This route intentionally
-    // fails closed until the IT-approved evidence workflow is connected;
-    // accepting a UI-provided verification boolean would permit fake deposits.
-    if(body?.method==="bank_transfer")
-      return fail("optical_transfer_verification_pending","Verified bank transfer workflow is not yet enabled.",403);
+    const transfer=body?.method==="bank_transfer";
+    const reference=String(body?.reference_no??"").trim();
+    const role=String(scope.session.role??"").toLowerCase();
+    // Never trust the browser checkbox as financial proof. Only an authenticated
+    // branch Owner/Manager can attest, after independently checking the actual
+    // bank-account credit. The ledger keeps the manager user ID and reference.
+    // This is *manual verification*, not an automatic bank-provider confirmation.
+    if(transfer){
+      if(role!=="owner"&&role!=="manager")
+        return fail("optical_transfer_manager_required","Owner or Manager must verify the actual bank deposit.",403);
+      if(body?.manager_verified!==true || reference.length<6 || reference.length>120 || /[\r\n]/.test(reference))
+        return fail("optical_transfer_proof_required","Verified bank statement reference and Owner/Manager attestation required.",422);
+    }
     const {data,error}=await getSupabaseServiceClient().rpc("optical_post_deposit_tx",{
       p_tenant_id:scope.session.tenant_id,p_branch_id:scope.session.branch_id,
       p_work_order_id:workOrderId,p_actor:scope.session.user_id,
       p_shift_id:shift.id,p_request_id:body!.request_id,p_amount_lak:body!.amount_lak,
-      p_method:"cash",p_transfer_reference:null,p_verified_by:null
+      p_method:transfer?"bank_transfer":"cash",p_transfer_reference:transfer?reference:null,p_verified_by:transfer?scope.session.user_id:null
     });
     if(error)return fail("optical_deposit_rejected","Payment was rejected; verify bill status and outstanding balance.",409);
     const entry=Array.isArray(data)?data[0]:null;
