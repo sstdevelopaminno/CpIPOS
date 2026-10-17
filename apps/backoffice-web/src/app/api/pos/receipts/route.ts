@@ -234,7 +234,7 @@ export async function GET(req: Request) {
       return {
         id: row.id,
         orderNo: row.order_no,
-        currencyCode: readMetadataString(row.metadata, "currency_code") === "LAK" ? "LAK" : "THB",
+        currencyCode: (["THB","LAK","USD"].includes(readMetadataString(row.metadata, "currency_code") ?? "") ? readMetadataString(row.metadata, "currency_code") : "UNKNOWN"),
         orderType: row.order_type,
         channel: row.channel,
         tableLabel: row.table_id ? tableMap.get(row.table_id) ?? "-" : "-",
@@ -267,10 +267,12 @@ export async function GET(req: Request) {
     // Never aggregate THB and LAK into a single financial figure.
     const byCurrency = {
       THB: { count: 0, grossTotal: 0, paidTotal: 0 },
-      LAK: { count: 0, grossTotal: 0, paidTotal: 0 }
+      LAK: { count: 0, grossTotal: 0, paidTotal: 0 },
+      USD: { count: 0, grossTotal: 0, paidTotal: 0 },
+      UNKNOWN: { count: 0, grossTotal: 0, paidTotal: 0 }
     };
     for (const receipt of records) {
-      const bucket = byCurrency[receipt.currencyCode === "LAK" ? "LAK" : "THB"];
+      const bucket = byCurrency[receipt.currencyCode as keyof typeof byCurrency] ?? byCurrency.UNKNOWN;
       bucket.count += 1;
       bucket.grossTotal += receipt.totalAmount;
       bucket.paidTotal += receipt.paidTotal;
@@ -281,7 +283,8 @@ export async function GET(req: Request) {
       grossTotal: byCurrency[shopCurrencyCode].grossTotal,
       paidTotal: byCurrency[shopCurrencyCode].paidTotal,
       byCurrency,
-      mixedCurrencies: byCurrency.THB.count > 0 && byCurrency.LAK.count > 0
+      mixedCurrencies: [byCurrency.THB.count,byCurrency.LAK.count,byCurrency.USD.count,byCurrency.UNKNOWN.count].filter(n=>n>0).length>1,
+      unknownCurrencyCount: byCurrency.UNKNOWN.count
     };
 
     return withTiming(ok({
