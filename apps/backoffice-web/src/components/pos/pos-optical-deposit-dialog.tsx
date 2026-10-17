@@ -8,9 +8,9 @@ type Language="th"|"en"|"lo";
 type Props={total:number;currency:OpticalDepositCurrency;language:Language;
   onClose:()=>void;onSubmit?: (amount:number,method:OpticalDepositMethod)=>Promise<void>|void};
 const languages={
- th:{title:"ชำระเงินมัดจำ",hint:"กรอกจำนวนเงินที่ลูกค้าต้องการมัดจำ",total:"ยอดสินค้า",due:"ยอดมัดจำ",balance:"คงค้างหลังมัดจำ",continue:"ยืนยันจำนวนเงิน",step2:"เลือกวิธีชำระเงินมัดจำ",cash:"เงินสด",transfer:"โอนเงิน",confirm:"ยืนยันรับเงินมัดจำ",back:"ย้อนกลับ",close:"ปิด",clear:"ล้าง",del:"ลบ",error:"จำนวนเงินต้องมากกว่า 0 และไม่เกินยอดสินค้า",unavailable:"ยังไม่สามารถรับเงินจริงได้: ต้องเชื่อมบัญชีมัดจำและการตัดสต๊อก Optical กับระบบหลังบ้านก่อน",note:"เป็นเงินมัดจำ ไม่ใช่การขายเต็มจำนวน"},
- en:{title:"Deposit payment",hint:"Enter the customer's deposit amount",total:"Order total",due:"Deposit",balance:"Remaining balance",continue:"Confirm amount",step2:"Deposit payment method",cash:"Cash",transfer:"Bank transfer",confirm:"Confirm deposit payment",back:"Back",close:"Close",clear:"Clear",del:"Delete",error:"Enter an amount greater than zero and no more than the order total",unavailable:"Payment not available: Optical deposit ledger and stock workflow must be connected first",note:"This is a deposit, not payment for the full order"},
- lo:{title:"ຊຳລະເງິນມັດຈຳ",hint:"ປ້ອນຈຳນວນເງິນມັດຈຳຂອງລູກຄ້າ",total:"ຍອດສິນຄ້າ",due:"ຍອດມັດຈຳ",balance:"ຍອດຄ້າງຫຼັງມັດຈຳ",continue:"ຢືນຢັນຈຳນວນ",step2:"ເລືອກວິທີຊຳລະເງິນມັດຈຳ",cash:"ເງິນສົດ",transfer:"ໂອນເງິນ",confirm:"ຢືນຢັນຮັບເງິນມັດຈຳ",back:"ກັບຄືນ",close:"ປິດ",clear:"ລ້າງ",del:"ລົບ",error:"ຈຳນວນເງິນຕ້ອງຫຼາຍກວ່າ 0 ແລະ ບໍ່ເກີນຍອດສິນຄ້າ",unavailable:"ຍັງຮັບເງິນຈິງບໍ່ໄດ້: ຕ້ອງເຊື່ອມບັນຊີມັດຈຳ ແລະ ສະຕັອກ Optical ກ່ອນ",note:"ເປັນເງິນມັດຈຳ ບໍ່ແມ່ນຈ່າຍເຕັມ"}
+ th:{title:"ชำระเงินมัดจำ",hint:"กรอกจำนวนเงินที่ลูกค้าต้องการมัดจำ",total:"ยอดสินค้า",due:"ยอดมัดจำ",balance:"คงค้างหลังมัดจำ",continue:"ยืนยันจำนวนเงิน",step2:"เลือกวิธีชำระเงินมัดจำ",cash:"เงินสด",transfer:"โอนเงิน",confirm:"ยืนยันรับเงินมัดจำ",check:"ตรวจสอบก่อนรับมัดจำ",back:"ย้อนกลับ",close:"ปิด",clear:"ล้าง",del:"ลบ",error:"จำนวนเงินต้องมากกว่า 0 และไม่เกินยอดสินค้า",unavailable:"ยังไม่สามารถรับเงินจริงได้: ต้องเชื่อมบัญชีมัดจำและการตัดสต๊อก Optical กับระบบหลังบ้านก่อน",note:"เป็นเงินมัดจำ ไม่ใช่การขายเต็มจำนวน"},
+ en:{title:"Deposit payment",hint:"Enter the customer's deposit amount",total:"Order total",due:"Deposit",balance:"Remaining balance",continue:"Confirm amount",step2:"Deposit payment method",cash:"Cash",transfer:"Bank transfer",confirm:"Confirm deposit payment",check:"Check deposit readiness",back:"Back",close:"Close",clear:"Clear",del:"Delete",error:"Enter an amount greater than zero and no more than the order total",unavailable:"Payment not available: Optical deposit ledger and stock workflow must be connected first",note:"This is a deposit, not payment for the full order"},
+ lo:{title:"ຊຳລະເງິນມັດຈຳ",hint:"ປ້ອນຈຳນວນເງິນມັດຈຳຂອງລູກຄ້າ",total:"ຍອດສິນຄ້າ",due:"ຍອດມັດຈຳ",balance:"ຍອດຄ້າງຫຼັງມັດຈຳ",continue:"ຢືນຢັນຈຳນວນ",step2:"ເລືອກວິທີຊຳລະເງິນມັດຈຳ",cash:"ເງິນສົດ",transfer:"ໂອນເງິນ",confirm:"ຢືນຢັນຮັບເງິນມັດຈຳ",check:"ກວດສອບຄວາມພ້ອມຮັບມັດຈຳ",back:"ກັບຄືນ",close:"ປິດ",clear:"ລ້າງ",del:"ລົບ",error:"ຈຳນວນເງິນຕ້ອງຫຼາຍກວ່າ 0 ແລະ ບໍ່ເກີນຍອດສິນຄ້າ",unavailable:"ຍັງຮັບເງິນຈິງບໍ່ໄດ້: ຕ້ອງເຊື່ອມບັນຊີມັດຈຳ ແລະ ສະຕັອກ Optical ກ່ອນ",note:"ເປັນເງິນມັດຈຳ ບໍ່ແມ່ນຈ່າຍເຕັມ"}
 } as const;
 export function PosOpticalDepositDialog({total,currency,language,onClose,onSubmit}:Props){
  const [input,setInput]=useState("");
@@ -93,7 +93,7 @@ export function PosOpticalDepositDialog({total,currency,language,onClose,onSubmi
          <button type="button" className="min-h-11 rounded-lg bg-orange-500 px-5 py-2 font-bold text-white disabled:opacity-50"
            disabled={amount===null} onClick={proceed}>{T.continue}</button>:
          <button type="button" className="min-h-11 rounded-lg bg-emerald-700 px-5 py-2 font-bold text-white disabled:opacity-50"
-           disabled={busy||!onSubmit} onClick={()=>void pay()}>{T.confirm}</button>}
+           disabled={busy} onClick={()=>void pay()}>{onSubmit?T.confirm:T.check}</button>}
      </footer>
    </section>
  </div>;
