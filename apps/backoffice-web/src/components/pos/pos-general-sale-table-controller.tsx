@@ -71,8 +71,8 @@ const CART_MUTATED_EVENT = "cpipos:pos-cart-mutated";
 const CART_BRIDGE_TIMEOUT_MS = 1800;
 const CART_RENDER_DELAY_MS = 48;
 const MAX_QUEUED_SCANS = 25;
-const OPTICAL_SCAN_IDLE_MS = 140;
-const OPTICAL_MANUAL_IDLE_MS = 480;
+const OPTICAL_SCAN_IDLE_MS = 75;
+const OPTICAL_MANUAL_IDLE_MS = 260;
 const OPTICAL_SCAN_KEY_INTERVAL_MS = 85;
 const PRODUCT_LOOKUP_TIMEOUT_MS = 5200;
 
@@ -402,6 +402,7 @@ export function PosGeneralSaleTableController({ lang = "th" }: { lang?: Lang }) 
     let opticalBillScanTimer: number | null = null;
     let opticalLastKeyAt = 0;
     let opticalFastKeyCount = 0;
+    let opticalPastedCode = false;
     const scanQueue: string[] = [];
     const lookupProductsById = new Map<string, GeneralSaleLookupProduct>();
     const copy = generalSaleUi[lang];
@@ -455,6 +456,7 @@ export function PosGeneralSaleTableController({ lang = "th" }: { lang?: Lang }) 
         opticalAutoScanTimer = null;
       }
       opticalFastKeyCount = 0;
+      opticalPastedCode = false;
       if (opticalBillScanTimer !== null) {
         window.clearTimeout(opticalBillScanTimer);
         opticalBillScanTimer = null;
@@ -676,6 +678,7 @@ export function PosGeneralSaleTableController({ lang = "th" }: { lang?: Lang }) 
         return;
       }
       input.value = "";
+      opticalPastedCode = false;
       if (scanBusy) {
         if (scanQueue.length >= MAX_QUEUED_SCANS) {
           status.textContent = copy.queueFull;
@@ -693,6 +696,7 @@ export function PosGeneralSaleTableController({ lang = "th" }: { lang?: Lang }) 
       submit.textContent = copy.adding;
       status.textContent = lang === "lo" ? `ກຳລັງຄົ້ນຫາ SKU: ${scanCode}` : lang === "th" ? `กำลังค้นหา SKU: ${scanCode}` : `Looking up SKU: ${scanCode}`;
       status.dataset.tone = "pending";
+      const lookupStartedAt = window.performance.now();
       const controller = new AbortController();
       const lookupTimeout = opticalActive
         ? window.setTimeout(() => controller.abort(), PRODUCT_LOOKUP_TIMEOUT_MS)
@@ -729,6 +733,7 @@ export function PosGeneralSaleTableController({ lang = "th" }: { lang?: Lang }) 
         }
         status.textContent = lang === "lo" ? `ເພີ່ມ ${product.name} (${scanCode}) ໃນຕາຕະລາງແລ້ວ` : lang === "th" ? `เพิ่ม ${product.name} (${scanCode}) ลงตารางแล้ว` : `Added ${product.name} (${scanCode}) to the table.`;
         status.dataset.tone = "success";
+        status.dataset.scanElapsedMs = String(Math.round(window.performance.now() - lookupStartedAt));
         scheduleTableRender(0);
       } catch {
         status.textContent = copy.networkFailed;
@@ -813,8 +818,13 @@ export function PosGeneralSaleTableController({ lang = "th" }: { lang?: Lang }) 
           window.clearTimeout(opticalAutoScanTimer);
           opticalAutoScanTimer = null;
         }
+        const value = input.value.trim();
         opticalFastKeyCount = 0;
-        void submitScan(input.value, status, input, submit);
+        opticalPastedCode = false;
+        // HID scanners may append Enter after the idle timer already submitted.
+        // Ignore empty trailing Enter instead of flashing a false "missing SKU".
+        if (!value) return;
+        void submitScan(value, status, input, submit);
       });
       if (opticalActive) {
         // Automatic after barcode/paste/typing settles, including scanners
@@ -837,17 +847,32 @@ export function PosGeneralSaleTableController({ lang = "th" }: { lang?: Lang }) 
           // normalizes to short numeric digits ("001") and must still work.
           // Keep this behavior strictly inside the IT-authorized Optical mode.
           if (!code || raw.length < 3) return;
-          const delay = paste || opticalFastKeyCount >= 5 ? OPTICAL_SCAN_IDLE_MS : OPTICAL_MANUAL_IDLE_MS;
+          opticalPastedCode = opticalPastedCode || paste;
+          // Give immediate feedback even before the network lookup starts.
+          status.textContent = lang === "lo" ? "ກຳລັງອ່ານບາໂຄດ..." : lang === "th" ? "กำลังอ่านบาร์โค้ด..." : "Reading barcode...";
+          status.dataset.tone = "pending";
+          const delay = opticalPastedCode ? 0 : opticalFastKeyCount >= 5 ? OPTICAL_SCAN_IDLE_MS : OPTICAL_MANUAL_IDLE_MS;
           opticalAutoScanTimer = window.setTimeout(() => {
             opticalAutoScanTimer = null;
             if (destroyed || !opticalActive || !opticalAllowed || !generalSaleActive || input.value.trim() !== raw) return;
             opticalFastKeyCount = 0;
+            opticalPastedCode = false;
             void submitScan(raw, status, input, submit);
           }, delay);
         });
         input.addEventListener("blur", () => {
           if (opticalAutoScanTimer !== null) window.clearTimeout(opticalAutoScanTimer);
           opticalAutoScanTimer = null;
+          // A scanner ending with Tab moves focus immediately. A completed fast
+          // HID burst/paste must be committed before the field is left.
+          // Incomplete manual typing is never added automatically on blur.
+          const value = input.value.trim();
+          const ready = opticalPastedCode || opticalFastKeyCount >= 5;
+          opticalFastKeyCount = 0;
+          opticalPastedCode = false;
+          if (ready && value.length >= 3 && normalizeGeneralSaleScanCode(value) && !destroyed && opticalActive && opticalAllowed && generalSaleActive) {
+            void submitScan(value, status, input, submit);
+          }
         });
       }
       productGroup.append(form, status);

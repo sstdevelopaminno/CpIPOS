@@ -32,9 +32,17 @@ describe("CUSTOM Optical scanner and single-unit stock path", () => {
   });
 
   it("supports no-Enter scanners, slow HID streams, paste and full alphanumeric SKUs", () => {
-    expect(controller).toContain("OPTICAL_SCAN_IDLE_MS = 140");
-    expect(controller).toContain("OPTICAL_MANUAL_IDLE_MS = 480");
+    expect(controller).toContain("OPTICAL_SCAN_IDLE_MS = 75");
+    expect(controller).toContain("OPTICAL_MANUAL_IDLE_MS = 260");
     expect(controller).toContain("input.value.trim() !== raw");
+    expect(controller).toContain("const delay = opticalPastedCode ? 0");
+    expect(controller).toContain("if (!value) return;");
+    expect(controller).toContain("opticalPastedCode || opticalFastKeyCount >= 5");
+    expect(controller).toContain("กำลังอ่านบาร์โค้ด...");
+    expect(controller).toContain("status.dataset.scanElapsedMs");
+    expect(lookup).toContain("await Promise.all([");
+    expect(lookup).toContain("const [exactResult, inventoryResult] = await Promise.all([");
+    expect(lookup).toContain("const { data: inventorySettings, error: inventoryError } = inventoryResult;");
     expect(controller).toContain("void submitScan(raw, status, input, submit)");
     expect(controller).toContain("opticalActive ? originalSku : scanCode");
     expect(controller).toContain("scanQueue.push(opticalActive ? originalSku : scanCode)");
