@@ -28,7 +28,7 @@ describe("Optical finance V1 staged integration",()=>{
   const sale=file("components/pos/pos-sales-module.tsx");
   expect(dialog).toContain('id="optical-deposit-customer"');
   expect(dialog).toContain('"/api/pos/optical/customers"');
-  expect(dialog).toContain('onSubmit(amount,method,customerId)');
+  expect(dialog).toContain('onSubmit(amount,method,customerId,method==="bank_transfer"');
   expect(dialog).toContain('method==="bank_transfer"');
   expect(dialog).toContain('data-testid="optical-bank-reference"');
   expect(dialog).toContain('manager_verified:managerVerified');
