@@ -1,6 +1,7 @@
 import type { BranchRole, PlatformRole } from "@pos/shared-types";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
 import { getTenantPosCurrencyCode } from "@/lib/server/custom-pos-currency";
+import {getCustomPosStockUiMode} from "@/lib/server/custom-stock-ui-policy";
 import { orderCurrencyFromMetadata, type SalesCurrencyCode } from "@/lib/pos-money";
 
 export type PosSalesSummaryBranchOption = {
@@ -360,7 +361,8 @@ export async function loadPosSalesSummaryData(
 ): Promise<PosSalesSummaryPayload> {
   const filters = getDefaultFilters(inputFilters);
   if (!scope.tenantId || !scope.userId) return emptyPayload(filters);
-  const currencyCode = await getTenantPosCurrencyCode(scope.tenantId);
+  const [currencyCode,stockMode] = await Promise.all([getTenantPosCurrencyCode(scope.tenantId),getCustomPosStockUiMode(scope.tenantId)]);
+  const opticalCurrencyAudit=stockMode==="optical";
 
   const supabase = getSupabaseServiceClient();
   const [branchesResult, membershipsResult] = await Promise.all([
@@ -415,7 +417,7 @@ export async function loadPosSalesSummaryData(
   for (const order of allOrdersBeforeCashier) {
     if (order.status !== "completed") continue;
     const declared=order.metadata?.currency_code;
-    const bucket = buckets[declared==="THB"||declared==="LAK"||declared==="USD"?declared:"UNKNOWN"];
+    const bucket = buckets[declared==="THB"||declared==="LAK"||declared==="USD"?declared:opticalCurrencyAudit?"UNKNOWN":"THB"];
     bucket.receiptCount++;
     bucket.netSales += getOrderNet(order);
   }
@@ -424,7 +426,7 @@ export async function loadPosSalesSummaryData(
     .map((code) => ({ currencyCode: code, receiptCount: buckets[code].receiptCount, netSales: roundMoney(buckets[code].netSales) }));
   // Existing aggregates are single-currency only, so a currency cutover cannot
   // cause historical THB amounts to appear as LAK or be added to them.
-  const ordersBeforeCashier = allOrdersBeforeCashier.filter((order) => order.metadata?.currency_code === currencyCode);
+  const ordersBeforeCashier = allOrdersBeforeCashier.filter((order) => opticalCurrencyAudit?order.metadata?.currency_code===currencyCode:orderCurrencyFromMetadata(order.metadata)===currencyCode);
   if (ordersBeforeCashier.length === 0) {
     return {
       ...emptyPayload(nextFilters),
