@@ -228,7 +228,7 @@ function ensureGeneralSaleStyles() {
       html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .cpipos-sd-table table,
       html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .cpipos-sd-table tbody {
         display: block; width: 100%; min-width: 0; max-width: 100%;
-        table-layout: auto;
+        box-sizing: border-box; table-layout: auto;
       }
       html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .cpipos-sd-table thead,
       html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .cpipos-sd-table colgroup {
