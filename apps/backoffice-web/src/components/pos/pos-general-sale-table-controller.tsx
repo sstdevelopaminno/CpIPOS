@@ -160,6 +160,13 @@ function ensureGeneralSaleStyles() {
     [${GENERAL_SALE_SCANNER_ATTRIBUTE}="1"] [data-tone="success"] { color: #047857; }
     [${GENERAL_SALE_SCANNER_ATTRIBUTE}="1"] [data-tone="pending"] { color: #0369a1; }
 
+    /* Optical card layout responds to the actual CART WIDTH, not window pixels.
+       On tablets the payment sidebar can leave <700px for the cart even when
+       the app window is 1200px wide. Other POS modes do not use this query. */
+    html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .cpipos-sd-table {
+      container-type: inline-size;
+      container-name: optical-cart;
+    }
     /* Only CUSTOM Optical. Restaurant/retail tables retain their original structure. */
     html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .cpipos-sd-table__scroll {
       /* Keep all five Optical columns visible at once; scrolling remains vertical. */
@@ -210,6 +217,99 @@ function ensureGeneralSaleStyles() {
     html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .posui-body { grid-template-columns: minmax(0, 1fr) clamp(235px, 26vw, 288px); gap: 8px; }
     html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .posui-catalog-col,
     html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .posui-cart-col { min-width: 0; }
+    /* At under 820px of USABLE CART SPACE each item becomes a 2-line card.
+       Product / Qty / Unit price / Total / Delete are all shown. This avoids
+       clipping monetary values and is safer than hiding horizontal overflow. */
+    @container optical-cart (max-width: 820px) {
+      html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .cpipos-sd-table__scroll {
+        overflow-x: hidden;
+        overflow-y: auto;
+      }
+      html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .cpipos-sd-table table,
+      html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .cpipos-sd-table tbody {
+        display: block; width: 100%; min-width: 0; max-width: 100%;
+        box-sizing: border-box; table-layout: auto;
+      }
+      html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .cpipos-sd-table thead,
+      html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .cpipos-sd-table colgroup {
+        display: none;
+      }
+      html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .cpipos-sd-table tbody {
+        padding: 6px;
+      }
+      html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .cpipos-sd-table tbody tr {
+        display: grid; min-width: 0;
+        grid-template-columns: 104px minmax(0, 1fr) minmax(0, 1fr) 40px;
+        grid-template-areas: "name name name remove" "qty unit total total";
+        gap: 5px 8px;
+        align-items: center;
+        padding: 8px;
+        border: 1px solid #e2e8f0;
+        border-radius: 10px;
+        background: #fff;
+        margin-bottom: 6px;
+      }
+      html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .cpipos-sd-table tbody tr:last-child {
+        margin-bottom: 0;
+      }
+      html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .cpipos-sd-table tbody td {
+        display: block; width: auto !important; max-width: none; min-width: 0;
+        padding: 0 !important; border: 0;
+        overflow: visible; font-size: 12px;
+      }
+      html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .cpipos-sd-table tbody .cpipos-sd-table__name {
+        grid-area: name; font-size: 12px; line-height: 1.4;
+      }
+      html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .cpipos-sd-table tbody .cpipos-sd-table__qty {
+        grid-area: qty;
+      }
+      html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .cpipos-sd-table tbody td:nth-child(3) {
+        grid-area: unit; text-align: right !important;
+      }
+      html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .cpipos-sd-table tbody td:nth-child(4) {
+        grid-area: total; text-align: right !important;
+        color: #0f766e; font-weight: 800;
+      }
+      html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .cpipos-sd-table tbody .cpipos-sd-table__money {
+        white-space: normal; overflow: visible;
+        word-break: normal; overflow-wrap: anywhere;
+        font-variant-numeric: tabular-nums;
+      }
+      html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .cpipos-sd-table tbody .cpipos-sd-table__money::before {
+        content: attr(data-optical-money-label);
+        display: block;
+        margin-bottom: 1px;
+        color: #64748b;
+        font-size: 10px;
+        font-weight: 500;
+        line-height: 1.2;
+      }
+      html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .cpipos-sd-table tbody .cpipos-sd-table__actions {
+        grid-area: remove; text-align: right !important;
+      }
+      html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .cpipos-sd-table tbody .cpipos-sd-qty {
+        width: 100px;
+        grid-template-columns: 32px minmax(24px, 1fr) 32px;
+      }
+      html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .cpipos-sd-table tbody .cpipos-sd-qty button {
+        width: 32px; height: 32px;
+      }
+    }
+    /* Very narrow cart widths (e.g. window snapping / small WebViews) keep
+       all monetary values in a separate row rather than squashing text. */
+    @container optical-cart (max-width: 365px) {
+      html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .cpipos-sd-table tbody tr {
+        grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 40px;
+        grid-template-areas:
+          "name name remove"
+          "qty qty qty"
+          "unit total total";
+      }
+      html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .cpipos-sd-table tbody td:nth-child(3) {
+        text-align: left !important;
+      }
+    }
+
     /* Optical review/cash modals must remain reachable above the software keyboard
        on compact 8.5-inch landscape tablets; payment logic is unchanged. */
     @media (max-height: 760px) and (orientation: landscape) {
@@ -528,9 +628,17 @@ export function PosGeneralSaleTableController({ lang = "th" }: { lang?: Lang }) 
           const unitPriceCell = document.createElement("td");
           unitPriceCell.className = "cpipos-sd-table__money";
           unitPriceCell.textContent = formatMoney(row.unitPrice);
+          if (opticalActive) {
+            unitPriceCell.dataset.opticalMoneyLabel = copy.headers[5];
+            unitPriceCell.setAttribute("aria-label", `${copy.headers[5]} ${unitPriceCell.textContent}`);
+          }
           const totalCell = document.createElement("td");
           totalCell.className = "cpipos-sd-table__money";
           totalCell.textContent = formatMoney(row.lineTotal);
+          if (opticalActive) {
+            totalCell.dataset.opticalMoneyLabel = copy.headers[6];
+            totalCell.setAttribute("aria-label", `${copy.headers[6]} ${totalCell.textContent}`);
+          }
           const actionCell = document.createElement("td");
           actionCell.className = "cpipos-sd-table__actions";
           const remove = document.createElement("button");
