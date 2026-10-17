@@ -180,6 +180,9 @@ begin
    if v_existing.work_order_id<>p_work_order_id or v_existing.amount<>p_amount_lak
        or v_existing.method<>p_method or v_existing.shift_id<>p_shift_id
        or v_existing.received_by<>p_actor
+       or (p_method='bank_transfer' and (
+          v_existing.reference_no is distinct from nullif(left(trim(p_transfer_reference),120),'')
+          or v_existing.verified_by is distinct from p_verified_by))
        then raise exception 'OPTICAL_IDEMPOTENCY_CONFLICT'; end if;
    return query select v_existing.id,v_order.paid_total,v_order.total_amount-v_order.paid_total,true;
    return;
