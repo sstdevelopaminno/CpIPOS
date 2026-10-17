@@ -1,0 +1,70 @@
+name: Optical SQL isolated PostgreSQL regression
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'supabase/proposals/20261015_optical_*.sql'
+      - 'supabase/migrations/20261015091500_optical_schema_only_qa_disabled.sql'
+      - 'scripts/sql/optical-scratch-*.sql'
+      - '.github/workflows/optical-sql-scratch.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: optical-scratch-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  isolated-postgres:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: optical_scratch
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres -d optical_scratch"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 15
+    env:
+      PGPASSWORD: postgres
+      PGHOST: 127.0.0.1
+      PGPORT: '5432'
+      PGUSER: postgres
+      PGDATABASE: optical_scratch
+    steps:
+      - uses: actions/checkout@v4
+      - name: PostgreSQL client
+        run: |
+          if ! command -v psql >/dev/null; then
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq postgresql-client
+          fi
+          psql --version
+      - name: Isolated fake schema (never Production)
+        run: psql -v ON_ERROR_STOP=1 -f scripts/sql/optical-scratch-bootstrap.sql
+      - name: Validate Stage-1 locked Optical migration against PostgreSQL 17
+        run: psql -v ON_ERROR_STOP=1 -f supabase/migrations/20261015091500_optical_schema_only_qa_disabled.sql
+      - name: Verify Stage-1 tables have RLS and no client access
+        run: psql -v ON_ERROR_STOP=1 -f scripts/sql/optical-stage1-locked-assertions.sql
+      - name: Validate future Optical tenant-scoped policy proposal
+        run: psql -v ON_ERROR_STOP=1 -f supabase/proposals/20261015_optical_work_order_ledger_isolated.sql
+      - name: Validate Optical idempotent transaction functions
+        run: psql -v ON_ERROR_STOP=1 -f supabase/proposals/20261015_optical_atomic_transactions.sql
+      - name: Validate Optical address audit and owner reporting
+        run: psql -v ON_ERROR_STOP=1 -f supabase/proposals/20261015_optical_customer_address_and_reporting.sql
+      - name: Validate checkout cutover guard and separate cash shift summary
+        run: psql -v ON_ERROR_STOP=1 -f supabase/proposals/20261015_optical_cutover_and_shift_safety.sql
+      - name: Assert no duplicate money, exactly one stock movement, and kitchen isolation
+        run: psql -v ON_ERROR_STOP=1 -f scripts/sql/optical-scratch-regression.sql
+      - name: Assert two concurrent cashiers cannot overpay one bill
+        run: bash scripts/sql/optical-scratch-concurrency.sh
+      - name: Assert owner reporting, cross-tenant and no-session RLS
+        run: psql -v ON_ERROR_STOP=1 -f scripts/sql/optical-scratch-rls.sql
