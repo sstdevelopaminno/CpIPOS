@@ -2221,6 +2221,10 @@ export function PosSalesModule({
   const opticalDepositAttemptsRef = useRef(new Map<string,{orderId:string;paymentId:string}>());
   const opticalDepositLockedRef = useRef(false);
   const [opticalLastDepositReceiptId,setOpticalLastDepositReceiptId]=useState<string|null>(null);
+  useEffect(()=>{
+    opticalDepositAttemptsRef.current.clear();
+    setOpticalLastDepositReceiptId(null);
+  },[posScope.tenantId,posScope.branchId]);
   const [modeSelectorOpen, setModeSelectorOpen] = useState(false);
   const [salesTopbarCollapsed, setSalesTopbarCollapsed] = useState(false);
   const [enabledFeatures, setEnabledFeatures] = useState<Record<string, boolean> | null>(null);
