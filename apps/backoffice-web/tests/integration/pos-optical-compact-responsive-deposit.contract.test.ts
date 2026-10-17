@@ -30,7 +30,7 @@ describe("CUSTOM Optical responsive POS and safe deposit UI",()=>{
   const source=read("components/pos/optical-stock-workspace.tsx");
   expect(source).toContain('data-testid="custom-optical-inventory"');
   expect(source).toContain("overflow-y-auto overscroll-y-contain");
-  expect(source).toContain('aria-label="รายการสต๊อก Optical"');
+  expect(source).toContain('aria-label={T("รายการสต๊อก Optical")}');
   expect(source).toContain("sticky top-0 z-10");
   expect(source).toContain("remaining(row)");
  });
