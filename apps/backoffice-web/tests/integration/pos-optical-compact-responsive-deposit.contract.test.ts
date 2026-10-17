@@ -26,6 +26,24 @@ describe("CUSTOM Optical responsive POS and safe deposit UI",()=>{
   expect(source).toContain('html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .cpipos-sd-table table');
   expect(source).toContain('orientation: landscape');
  });
+ it("shows a two-line full-name tooltip and fixed-size Optical quantity stepper on compact screens",()=>{
+  const source=read("components/pos/pos-general-sale-table-controller.tsx");
+  expect(source).toContain("productName.title = row.name");
+  expect(source).toContain("if (opticalActive) {");
+  expect(source).toContain("-webkit-line-clamp: 2");
+  expect(source).toContain('html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .cpipos-sd-table__qty { width: 110px; }');
+  expect(source).toContain("width: 104px; max-width: 100%");
+  expect(source).toContain("grid-template-columns: 34px minmax(28px, 1fr) 34px");
+  expect(source).toContain("width: 34px; height: 32px");
+  expect(source).toContain('html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .cpipos-sd-table__money');
+  expect(source).toContain('html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .cpipos-sd-table__actions { width: 42px; }');
+  expect(source).toContain('html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .cpipos-sd-table__qty { width: 108px; }');
+  expect(source).toContain("invokeCartAction(rowIndex");
+  expect(source).toContain('decrease.setAttribute("aria-label", `${copy.decrease} ${row.name}`)');
+  expect(source).toContain('increase.setAttribute("aria-label", `${copy.increase} ${row.name}`)');
+  expect(source).toContain("remove.setAttribute(\"aria-label\", `${copy.remove} ${row.name}`)");
+  expect(source).toContain("else tr.append(indexCell, skuCell, categoryCell, nameCell, qtyCell, unitPriceCell, totalCell, actionCell)");
+ });
  it("makes stock vertically scrollable without removing branch permissions or stock verification",()=>{
   const source=read("components/pos/optical-stock-workspace.tsx");
   expect(source).toContain('data-testid="custom-optical-inventory"');
