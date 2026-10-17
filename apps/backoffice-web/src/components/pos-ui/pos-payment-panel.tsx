@@ -38,7 +38,7 @@ type Props = {
   opticalLanguage?: "th" | "en" | "lo";
   onOpticalCustomer?: () => void;
   /** Only supplied when the authenticated Optical ledger transaction is live. */
-  onOpticalDeposit?: (amount: number, method: OpticalDepositMethod) => Promise<void> | void;
+  onOpticalDeposit?: (amount: number, method: OpticalDepositMethod, customerId: string) => Promise<void> | void;
   onMember?: () => void;
   onTableQrOrder?: () => void;
   onPromotion?: () => void;
