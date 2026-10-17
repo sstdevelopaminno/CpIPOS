@@ -38,7 +38,7 @@ describe("CUSTOM Optical responsive POS and safe deposit UI",()=>{
   expect(source).toContain('html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .cpipos-sd-table__money');
   expect(source).toContain('html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .cpipos-sd-table__actions { width: 42px; }');
   expect(source).toContain('html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .cpipos-sd-table__qty { width: 108px; }');
-  expect(source).toContain("invokeCartAction(rowIndex");
+  expect(source).toContain("invokeCartAction(index, action)");
   expect(source).toContain('decrease.setAttribute("aria-label", `${copy.decrease} ${row.name}`)');
   expect(source).toContain('increase.setAttribute("aria-label", `${copy.increase} ${row.name}`)');
   expect(source).toContain("remove.setAttribute(\"aria-label\", `${copy.remove} ${row.name}`)");
