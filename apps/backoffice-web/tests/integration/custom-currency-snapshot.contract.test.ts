@@ -13,8 +13,9 @@ describe("CUSTOM POS THB/LAK financial snapshots", () => {
   expect(migration).toContain("pos_currency_code");
   expect(migration).toContain("currency_code");
  });
- it("preserves historic THB receipts even when shop current currency is LAK", () => {
-  expect(receiptApi).toContain('readMetadataString(row.metadata, "currency_code") === "LAK" ? "LAK" : "THB"');
+ it("preserves explicit THB while identifying unverified currency for Optical historical receipts", () => {
+  expect(receiptApi).toContain('opticalCurrencyAudit?"UNKNOWN":"THB"');
+  expect(receiptApi).toContain('["THB","LAK","USD"]');
   expect(receiptApi).toContain("const shopCurrencyCode = await getTenantPosCurrencyCode");
  });
  it("routes existing-order cutovers through IT review", () => {
