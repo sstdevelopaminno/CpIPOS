@@ -31,6 +31,16 @@ describe("Staged Optical CRM staff permissions: IT eligibility and Owner authori
     expect(sql).toContain("revoke all on function public.customer_portal_set_staff_crm_permission_v1");
     expect(sql).toContain("grant execute on function public.customer_portal_set_staff_crm_permission_v1");
   });
+  it("allows customer exam edits only through the reviewed per-menu staff write grant",()=>{
+    const exam=readFileSync(resolve(process.cwd(),"../../supabase/migrations/20261018123000_crm_optical_staff_customer_edit_staged.sql"),"utf8");
+    expect(exam).toContain("public.optical_save_customer_exam");
+    expect(exam).toContain("app.custom_optical_crm_menu_allowed(p_tenant_id,'main.crm_optical_customers')");
+    expect(exam).toContain("public.can_manage_optical_customer_data(p_tenant_id,p_branch_id)");
+    expect(exam).toContain("app.crm_staff_permission_allowed(");
+    expect(exam).toContain("'main.crm_optical_customers',true");
+    expect(exam).toContain("on conflict (tenant_id,branch_id,request_id) do nothing");
+    expect(exam.match(/\\bcommit\\s*;/gi)).toHaveLength(1);
+  });
   it("never offers a staff session full CRM features or unchecked payment data",()=>{
     expect(sql).toContain("public.customer_portal_staff_feature_state_v1");
     for(const key of ["main.crm_staff","main.crm_package","main.crm_more","main.crm_settings","main.crm_optical_reports"])
