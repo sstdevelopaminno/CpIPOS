@@ -20,6 +20,7 @@ describe("Staged CUSTOM Optical CRM work-order draft lifecycle",()=>{
     expect(src).toContain("r.role::text='owner'");
     expect(src).toContain("settings.crm_optical_api_work_orders");
     expect(src).toContain("c.metadata->'custom_features'->>'optical_work_orders'='true'");
+    expect(src).toContain("c.metadata->>'pos_currency_code'='LAK'");
     expect(src).toContain("auth.uid()");
   });
   it("atomic issuance calls existing stock-reserving transaction, never the deposit payment API",()=>{
