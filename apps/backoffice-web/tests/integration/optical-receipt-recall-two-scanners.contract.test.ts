@@ -89,6 +89,10 @@ describe("Optical deposit receipt QR is a job locator, never another product SKU
     expect(printing).toContain('dedupeExisting:true');
     expect(printing).toContain('payload_format:"receipt_html_v1"');
     expect(printing).toContain('orderId:null,printerRole:"receipt"');
+    expect(printing).toContain('route.printer.connection_type==="LOCAL_BRIDGE"');
+    expect(printing).toContain('route.printer.connection_type==="BLUETOOTH_BRIDGE"');
+    expect(printing).toContain('printer_not_qr_capable');
+    expect(checkout).toContain('printStatus==="printer_not_qr_capable"');
     expect(deposits).toContain('await queueRoutedOpticalDepositReceipt(');
     expect(existingPayments).toContain('await queueRoutedOpticalDepositReceipt(');
     expect(deposits).toContain('if(result.duplicate_request!==true)');
