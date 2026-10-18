@@ -90,7 +90,8 @@ set search_path to 'pg_catalog','public','app' as $fn$
         and (c.ended_at is null or c.ended_at>now())
         and lower(pkg.code)='custom'
         and c.metadata->'sales_modes'->>'optical_retail'='true'
-        and c.metadata->'custom_features'->>'optical_work_orders'='true');
+        and c.metadata->'custom_features'->>'optical_work_orders'='true'
+        and c.metadata->>'pos_currency_code'='LAK');
 $fn$;
 revoke all on function app.optical_crm_draft_write_allowed(uuid,uuid) from public,anon;
 grant execute on function app.optical_crm_draft_write_allowed(uuid,uuid) to authenticated;
