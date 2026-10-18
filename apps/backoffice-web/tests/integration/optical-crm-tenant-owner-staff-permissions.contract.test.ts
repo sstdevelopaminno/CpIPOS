@@ -39,7 +39,7 @@ describe("Staged Optical CRM staff permissions: IT eligibility and Owner authori
     expect(exam).toContain("app.crm_staff_permission_allowed(");
     expect(exam).toContain("'main.crm_optical_customers',true");
     expect(exam).toContain("on conflict (tenant_id,branch_id,request_id) do nothing");
-    expect(exam.match(/\\bcommit\\s*;/gi)).toHaveLength(1);
+    expect(exam.match(/\bcommit\s*;/gi)).toHaveLength(1);
   });
   it("never offers a staff session full CRM features or unchecked payment data",()=>{
     expect(sql).toContain("public.customer_portal_staff_feature_state_v1");
