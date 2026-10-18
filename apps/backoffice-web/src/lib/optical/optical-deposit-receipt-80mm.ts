@@ -1,5 +1,5 @@
 /**
- * Isolated 80mm optical deposit slip preview. Do not render this until a
+ * Isolated 58/80mm optical deposit slip. Do not render this until a
  * backend-confirmed payment ledger entry has been committed and reconciled.
  * The existing fully paid POS/restaurant receipt remains untouched.
  */
@@ -7,6 +7,7 @@ import { formatSalesMoney, type SalesCurrencyCode } from "@/lib/pos-money";
 import { buildOpticalBillRecallCode, opticalDepositReceiptCanRecall, type OpticalBillSnapshot } from "./optical-deposit-contract";
 
 export type OpticalDepositReceipt80mmInput = {
+  paperWidthMm?: 58 | 80;
   bill: OpticalBillSnapshot;
   receiptNumber: string;
   storeName: string;
@@ -32,7 +33,13 @@ function money(value: number, currency: SalesCurrencyCode): string {
   return escapeHtml(formatSalesMoney(value, currency));
 }
 
-export function renderOpticalDepositReceipt80mm(input: OpticalDepositReceipt80mmInput): string {
+export function renderOpticalDepositReceipt(input: OpticalDepositReceipt80mmInput): string {
+  const paper = input.paperWidthMm ?? 80;
+  if(paper!==58 && paper!==80)throw new Error("optical_deposit_receipt_invalid_paper");
+  const printableMm = paper===58?48:70;
+  const fontPx = paper===58?10:12;
+  const headingPx = paper===58?14:17;
+  const qrMm = paper===58?25:28;
   const { bill } = input;
   const remaining = bill.totalAmount - bill.paidAmount;
   if (!opticalDepositReceiptCanRecall(bill) || remaining <= 0) {
@@ -60,12 +67,12 @@ export function renderOpticalDepositReceipt80mm(input: OpticalDepositReceipt80mm
   return `<!doctype html><html lang="th"><head><meta charset="utf-8">
     <title>${escapeHtml(input.storeName)} — ใบเสร็จมัดจำ</title>
     <style>
-      @page { size: 80mm auto; margin: 0; }
-      html,body { width: 80mm; padding: 0; margin: 0; color: #000; background: #fff; font-family: Tahoma, sans-serif; }
-      .receipt { width: 70mm; margin: auto; padding: 2mm 0; font-size: 12px; overflow-wrap: anywhere; }
+      @page { size: ${paper}mm auto; margin: 0; }
+      html,body { width: ${paper}mm; padding: 0; margin: 0; color: #000; background: #fff; font-family: Tahoma, sans-serif; }
+      .receipt { width: ${printableMm}mm; margin: auto; padding: 2mm 0; font-size: ${fontPx}px; overflow-wrap: anywhere; }
       h1,h2,p { margin: 0 0 5px; }
-      h1 { text-align: center; font-size: 17px; }
-      h2 { text-align: center; font-size: 14px; }
+      h1 { text-align: center; font-size: ${headingPx}px; }
+      h2 { text-align: center; font-size: ${paper===58?12:14}px; }
       .center { text-align: center; }
       .muted { color: #454545; }
       .line { display: flex; justify-content: space-between; gap: 8px; margin: 3px 0; }
@@ -73,8 +80,8 @@ export function renderOpticalDepositReceipt80mm(input: OpticalDepositReceipt80mm
       table { width: 100%; border-collapse: collapse; margin: 8px 0; }
       td,th { border-bottom: 1px dashed #666; padding: 4px 0; text-align: left; }
       .num { text-align: right; }
-      .qr { display: block; width: 28mm; height: 28mm; margin: 5px auto; }
-      .code { text-align: center; font-size: 9px; overflow-wrap: anywhere; }
+      .qr { display: block; width: ${qrMm}mm; height: ${qrMm}mm; margin: 5px auto; image-rendering: pixelated; }
+      .code { text-align: center; font-size: ${paper===58?8:9}px; overflow-wrap: anywhere; }
       hr { border: 0; border-top: 1px dashed #666; }
     </style></head><body><main class="receipt">
       <h1>${escapeHtml(input.storeName)}</h1>
@@ -96,4 +103,9 @@ export function renderOpticalDepositReceipt80mm(input: OpticalDepositReceipt80mm
       <p class="code">${escapeHtml(recallCode)}</p>
       <p class="center muted">การสแกนไม่ใช่การยืนยันการชำระเงิน</p>
     </main></body></html>`;
+}
+
+/** Backward-compatible print entry point. Existing 80mm jobs keep their size. */
+export function renderOpticalDepositReceipt80mm(input: OpticalDepositReceipt80mmInput): string {
+  return renderOpticalDepositReceipt({...input,paperWidthMm:80});
 }

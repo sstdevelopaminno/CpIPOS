@@ -1,6 +1,6 @@
 import QRCode from "qrcode";
 import { PosGuardError, requirePermission, requirePosSession } from "@/lib/pos-session-guard";
-import { renderOpticalDepositReceipt80mm } from "@/lib/optical/optical-deposit-receipt-80mm";
+import { renderOpticalDepositReceipt } from "@/lib/optical/optical-deposit-receipt-80mm";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
 import { requireOpticalFinanceModule } from "@/lib/server/optical-finance-policy";
 import { buildOpticalBillRecallCode, type OpticalBillSnapshot } from "@/lib/optical/optical-deposit-contract";
@@ -9,11 +9,14 @@ const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 function unavailable(status=403) {
   return new Response("Optical deposit receipt unavailable.",{status,headers:{"Cache-Control":"no-store"}});
 }
-export async function GET(_request:Request,{params}:{params:Promise<{workOrderId:string}>}) {
+export async function GET(request:Request,{params}:{params:Promise<{workOrderId:string}>}) {
   try {
     const scope=await requirePosSession();
     requirePermission(scope,"receipts:view");
     if(!await requireOpticalFinanceModule(scope.session.tenant_id,"optical_deposit"))return unavailable();
+    const paperParam=new URL(request.url).searchParams.get("paper");
+    if(paperParam!==null && paperParam!=="58" && paperParam!=="80")return unavailable(422);
+    const paperWidthMm:58|80=paperParam==="58"?58:80;
     const {workOrderId}=await params;
     if(!uuid.test(workOrderId))return unavailable(422);
     const client=getSupabaseServiceClient();
@@ -41,7 +44,8 @@ export async function GET(_request:Request,{params}:{params:Promise<{workOrderId
     const code=buildOpticalBillRecallCode(bill);
     if(!code)return unavailable(409);
     const image=await QRCode.toDataURL(code,{errorCorrectionLevel:"M",margin:1,width:220});
-    const receipt=renderOpticalDepositReceipt80mm({
+    const receipt=renderOpticalDepositReceipt({
+      paperWidthMm,
       bill,receiptNumber:"OPT-"+payment.id,storeName:tenant?.display_name||tenant?.name||"Optical",
       branchName:branch?.name??branchId,createdAtIso:payment.received_at,
       cashierName:payment.received_by??"-",

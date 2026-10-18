@@ -1,6 +1,7 @@
 import { fail, ok } from "@/lib/http";
 import {PosGuardError,requireActiveShift,requirePermission,requirePosSession} from "@/lib/pos-session-guard";
 import {getSupabaseServiceClient} from "@/lib/supabase-admin";
+import {queueRoutedOpticalDepositReceipt} from "@/lib/printing/routed-print-service";
 import {getTenantPosCurrencyCode} from "@/lib/server/custom-pos-currency";
 import {requireOpticalFinanceModule} from "@/lib/server/optical-finance-policy";
 
@@ -79,9 +80,29 @@ export async function POST(request:Request){
   const result=Array.isArray(data)?data[0]:null;
   if(!result?.work_order_id||!result?.payment_id)
    return fail("optical_atomic_receipt_unavailable","Payment confirmation not returned.",503);
+  // Commit first; automatic printing must NEVER roll back or re-charge the sale.
+  // The tenant's existing receipt-printer route selects 58/80 paper automatically.
+  let printing:{status:string;job_ids:string[]}={status:"not_queued",job_ids:[]};
+  if(result.duplicate_request!==true){
+    try{
+      printing=await queueRoutedOpticalDepositReceipt({
+        auth:{userId:scope.session.user_id,tenantId:scope.session.tenant_id,
+          branchId:scope.session.branch_id,platformRole:"tenant_user",
+          branchRole:role==="owner"?"owner":role==="manager"?"manager":"staff"},
+        runtimeDeviceCode:scope.session.device_code,
+        workOrderId:result.work_order_id,paymentId:result.payment_id
+      });
+    }catch(error){
+      console.error("[optical-deposit-print] confirmed payment, printer queue failed",{
+        code:error instanceof Error?error.message:"print_queue_failed"});
+      printing={status:"queue_failed",job_ids:[]};
+    }
+  }else{
+    printing={status:"already_processed",job_ids:[]};
+  }
   return ok({work_order_id:result.work_order_id,payment_id:result.payment_id,
    paid_total:result.paid_total,remaining_amount:result.remaining_amount,
-   duplicate_request:result.duplicate_request===true});
+   duplicate_request:result.duplicate_request===true,printing});
  }catch(error){
   if(error instanceof PosGuardError)return fail(error.code,error.message,error.status);
   return fail("optical_atomic_deposit_failed","Optical deposit unavailable.",503);

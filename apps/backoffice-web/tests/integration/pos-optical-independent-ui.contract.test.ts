@@ -86,7 +86,11 @@ describe("Optical POS sale identity is separate from internal takeaway order typ
     expect(controller).toContain("PRODUCT_LOOKUP_TIMEOUT_MS");
     expect(controller).toContain("copy.billAria");
     expect(read("src/lib/pos-general-sale-i18n.ts")).toContain("ค้นหาบิลมัดจำหรือบิลจอง");
-    expect(controller).toContain("copy.billDisabled");
+    expect(controller).toContain('billInput.setAttribute("data-pos-optical-receipt-qr", "1")');
+    expect(controller).toContain('work-orders/recall?code=');
+    expect(controller).toContain('method: "GET",credentials: "same-origin"');
+    expect(controller).toContain('billDetails.hidden = false;');
+    expect(controller).not.toContain('billStatus.textContent = copy.billDisabled;');
     expect(read("src/lib/pos-general-sale-i18n.ts")).toContain("ไม่มีการเปลี่ยนแปลงบิลหรือยอดชำระ");
     expect(controller).not.toContain("/api/pos/optical/deposit");
   });

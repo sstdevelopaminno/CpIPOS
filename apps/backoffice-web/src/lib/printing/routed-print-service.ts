@@ -1,4 +1,7 @@
 import "server-only";
+import QRCode from "qrcode";
+import {renderOpticalDepositReceipt} from "@/lib/optical/optical-deposit-receipt-80mm";
+import type {OpticalBillSnapshot} from "@/lib/optical/optical-deposit-contract";
 
 import type { PaymentMethod } from "@pos/shared-types";
 import type { AuthContext } from "@/lib/auth-context";
@@ -91,15 +94,28 @@ async function queueOnRoute(args: {
   payloadText: string;
   payloadJson?: JsonRecord;
   metadata?: JsonRecord;
+  dedupeExisting?: boolean;
 }) {
   const jobs = [];
   for (let copy = 1; copy <= args.route.copies; copy += 1) {
+    const scopedKey = buildRoutePrintIdempotencyKey({
+      baseKey: args.idempotencyKey, kitchenTicketId: args.kitchenTicketId,
+      route: args.route, copy
+    });
+    if(args.dedupeExisting && scopedKey){
+      const existing = await getSupabaseServiceClient().from("print_jobs")
+        .select("id,status").eq("tenant_id",args.auth.tenantId!)
+        .eq("branch_id",args.auth.branchId!).eq("idempotency_key",scopedKey)
+        .maybeSingle();
+      if(existing.error)throw new Error("optical_print_duplicate_check_failed");
+      if(existing.data){jobs.push(existing.data);continue;}
+    }
     const job = await enqueuePrintJob({
       auth: args.auth,
       printer: args.route.printer,
       orderId: args.orderId,
       kitchenTicketId: args.kitchenTicketId ?? null,
-      idempotencyKey: buildRoutePrintIdempotencyKey({ baseKey: args.idempotencyKey, kitchenTicketId: args.kitchenTicketId, route: args.route, copy }),
+      idempotencyKey: scopedKey,
       printerRole: args.printerRole,
       payloadText: args.payloadText,
       payloadJson: args.payloadJson ?? {},
@@ -785,4 +801,105 @@ export async function queueRoutedShiftReport(args: {
     }));
   }
   return jobs;
+}
+
+/** Queue a committed PARTIAL optical payment on the printer already configured
+ * by the tenant's Settings > Printers. 58/80mm is read from that profile.
+ * This is independent from the regular POS receipt/cart pipeline.
+ * A receipt QR locates the order; it neither charges the customer nor
+ * constitutes a handover confirmation.
+ */
+export async function queueRoutedOpticalDepositReceipt(args:{
+  auth:AuthContext;
+  workOrderId:string;
+  paymentId:string;
+  runtimeDeviceCode?:string|null;
+}):Promise<{status:"queued"|"printer_not_configured"|"printer_not_qr_capable"|"not_partial";job_ids:string[]}>{
+  if(!args.auth.tenantId||!args.auth.branchId)throw new Error("optical_print_scope_missing");
+  const client=getSupabaseServiceClient();
+  const tenantId=args.auth.tenantId,branchId=args.auth.branchId;
+  const [{data:payment,error:paymentError},{data:order,error:orderError},
+    {data:lines,error:linesError}]=await Promise.all([
+    client.from("optical_payment_ledger")
+      .select("id,work_order_id,method,received_at,received_by,amount,cumulative_paid,currency_code")
+      .eq("id",args.paymentId).eq("work_order_id",args.workOrderId)
+      .eq("tenant_id",tenantId).eq("branch_id",branchId).maybeSingle(),
+    client.from("optical_work_orders")
+      .select("id,status,total_amount,currency_code")
+      .eq("id",args.workOrderId).eq("tenant_id",tenantId)
+      .eq("branch_id",branchId).maybeSingle(),
+    client.from("optical_work_order_lines")
+      .select("description_snapshot,quantity,line_total")
+      .eq("work_order_id",args.workOrderId).eq("tenant_id",tenantId)
+      .eq("branch_id",branchId).limit(30)
+  ]);
+  if(paymentError||orderError||linesError||!payment||!order||!lines?.length)
+    throw new Error("optical_print_committed_payment_missing");
+  const total=Number(order.total_amount),paid=Number(payment.cumulative_paid);
+  if(order.currency_code!=="LAK"||payment.currency_code!=="LAK"||
+    !Number.isSafeInteger(total)||!Number.isSafeInteger(paid)||
+    total<=0||paid<=0||paid>total)
+    throw new Error("optical_print_payment_snapshot_invalid");
+  // The partial-deposit QR contract must not pretend a fully-paid job still
+  // has a debt. A separate final/pickup receipt remains a distinct workflow.
+  if(paid===total||["cancelled","collected"].includes(String(order.status)))
+    return {status:"not_partial",job_ids:[]};
+  const routes=await resolvePrinterRoutes({
+    auth:args.auth,purpose:"receipt",
+    runtimeDeviceCode:args.runtimeDeviceCode,legacyRole:"receipt"
+  });
+  if(!routes.length)return {status:"printer_not_configured",job_ids:[]};
+  // The direct ESC/POS and STAR adapters currently send payload_text only.
+  // QR must go through Print Agent (HTML raster) or an HTML-aware bridge;
+  // never claim the customer received a QR when the printer can only print text.
+  const qrRoutes=routes.filter(route=>shouldDefer(route)||
+    route.printer.connection_type==="LOCAL_BRIDGE"||
+    route.printer.connection_type==="BLUETOOTH_BRIDGE");
+  if(!qrRoutes.length)return {status:"printer_not_qr_capable",job_ids:[]};
+  const [profile,sellerName]=await Promise.all([
+    loadReceiptStoreProfile(tenantId),
+    loadReceiptSellerName(args.auth,payment.received_by)
+  ]);
+  const branchName=await loadBranchName(args.auth,profile?.display_name??profile?.name);
+  const bill:OpticalBillSnapshot={
+    tenantId,branchId,orderId:args.workOrderId,currencyCode:"LAK",
+    totalAmount:total,paidAmount:paid,status:"partially_paid"
+  };
+  const qrValue="CPI-OPTICAL-RECALL:1:"+args.workOrderId.toLowerCase();
+  const qrImageDataUrl=await QRCode.toDataURL(qrValue,{errorCorrectionLevel:"M",margin:1,width:220});
+  const jobs:string[]=[];
+  for(const route of qrRoutes){
+    const html=renderOpticalDepositReceipt({
+      paperWidthMm:route.printer.paper_width_mm,
+      bill,receiptNumber:"OPT-"+args.paymentId,
+      storeName:String(profile?.display_name??profile?.name??branchName),
+      branchName,createdAtIso:String(payment.received_at),
+      cashierName:sellerName,paymentMethod:payment.method==="bank_transfer"?"bank_transfer":"cash",
+      items:lines.map(l=>({description:String(l.description_snapshot),
+        quantity:Number(l.quantity),lineTotal:Number(l.line_total)})),
+      qrImageDataUrl
+    });
+    const queued=await queueOnRoute({
+      auth:args.auth,route,orderId:null,printerRole:"receipt",
+      idempotencyKey:"optical-deposit:"+args.paymentId,
+      dedupeExisting:true,
+      payloadText:`OPTICAL DEPOSIT RECEIPT\n${args.paymentId}\nPAID ${paid} LAK\nDUE ${total-paid} LAK\n${qrValue}`,
+      payloadJson:{
+        document_type:"optical_deposit_receipt",
+        optical_work_order_id:args.workOrderId,
+        optical_payment_id:args.paymentId,
+        currency_code:"LAK",paid_total:paid,remaining_amount:total-paid
+      },
+      metadata:{
+        request_source:"optical_deposit_committed",
+        document_type:"optical_deposit_receipt",
+        optical_work_order_id:args.workOrderId,
+        optical_payment_id:args.paymentId,
+        paper_width_mm:route.printer.paper_width_mm,
+        payload_format:"receipt_html_v1",payload_html:html
+      }
+    });
+    jobs.push(...queued.map(job=>job.id));
+  }
+  return {status:"queued",job_ids:jobs};
 }
