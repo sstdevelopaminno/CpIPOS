@@ -400,6 +400,7 @@ export function PosGeneralSaleTableController({ lang = "th" }: { lang?: Lang }) 
     let scanBusy = false;
     let opticalAutoScanTimer: number | null = null;
     let opticalBillScanTimer: number | null = null;
+    let opticalBillRecallRequest: AbortController | null = null;
     let opticalLastKeyAt = 0;
     let opticalFastKeyCount = 0;
     let opticalPastedCode = false;
@@ -461,6 +462,8 @@ export function PosGeneralSaleTableController({ lang = "th" }: { lang?: Lang }) 
         window.clearTimeout(opticalBillScanTimer);
         opticalBillScanTimer = null;
       }
+      opticalBillRecallRequest?.abort();
+      opticalBillRecallRequest = null;
       scannerPanel?.remove();
       scannerPanel = null;
       scannerInput = null;
@@ -892,6 +895,7 @@ export function PosGeneralSaleTableController({ lang = "th" }: { lang?: Lang }) 
         billInput.className = "posui-payment-modal__input min-w-0 flex-1";
         billInput.placeholder = copy.billPlaceholder;
         billInput.setAttribute("aria-label", copy.billAria);
+        billInput.setAttribute("data-pos-optical-receipt-qr", "1");
         const billSubmit = document.createElement("button");
         billSubmit.type = "submit";
         billSubmit.className = "posui-btn shrink-0";
@@ -899,6 +903,10 @@ export function PosGeneralSaleTableController({ lang = "th" }: { lang?: Lang }) 
         const billStatus = document.createElement("small");
         billStatus.className = "block min-h-4 pt-1 text-xs font-semibold text-amber-800";
         billStatus.setAttribute("aria-live", "polite");
+        const billDetails = document.createElement("div");
+        billDetails.className = "mt-2 grid gap-1 rounded-lg border border-emerald-100 bg-emerald-50 p-2 text-sm";
+        billDetails.setAttribute("data-pos-optical-recalled-bill", "1");
+        billDetails.hidden = true;
         billForm.append(billInput, billSubmit);
         let lastBillKeyAt = 0;
         let billBurst = 0;
@@ -912,6 +920,10 @@ export function PosGeneralSaleTableController({ lang = "th" }: { lang?: Lang }) 
           if (opticalBillScanTimer !== null) window.clearTimeout(opticalBillScanTimer);
           opticalBillScanTimer = null;
           const reference = billInput.value.trim();
+          opticalBillRecallRequest?.abort();
+          opticalBillRecallRequest = null;
+          billDetails.replaceChildren();
+          billDetails.hidden = true;
           const paste = event instanceof InputEvent
             && (event.inputType === "insertFromPaste" || (event.data?.length ?? 0) >= 4);
           if (reference.length < (paste ? 4 : 6) || (!paste && billBurst < 5)) return;
@@ -932,15 +944,71 @@ export function PosGeneralSaleTableController({ lang = "th" }: { lang?: Lang }) 
           event.preventDefault();
           if (opticalBillScanTimer !== null) window.clearTimeout(opticalBillScanTimer);
           opticalBillScanTimer = null;
-          if (!billInput.value.trim()) {
+          const reference = billInput.value.trim();
+          if (!reference) {
             billStatus.textContent = copy.billRequired;
             return;
           }
-          // Read-only UI placeholder until tenant-scoped deposit/job APIs,
-          // reconciliation and idempotent settlement are ready.
-          billStatus.textContent = copy.billDisabled;
+          // Receipt QR locates an authenticated, SAME-branch existing work order.
+          // NEVER route this through SKU lookup, add the job to the retail cart,
+          // create another work order, post a deposit, or mark goods collected.
+          opticalBillRecallRequest?.abort();
+          const controller = new AbortController();
+          opticalBillRecallRequest = controller;
+          billDetails.replaceChildren();
+          billDetails.hidden = true;
+          billStatus.textContent = lang === "lo" ? "ກຳລັງກວດໃບຮັບເງິນ..." : lang === "th" ? "กำลังตรวจ QR ใบเสร็จและสาขา..." : "Checking receipt QR and branch...";
+          void (async () => {
+            try {
+              const response = await fetch(`/api/pos/optical/work-orders/recall?code=${encodeURIComponent(reference)}`, {
+                method: "GET",credentials: "same-origin",cache: "no-store",signal: controller.signal
+              });
+              if (opticalBillRecallRequest !== controller || destroyed || !opticalActive || !generalSaleActive) return;
+              if (!response.ok) throw new Error("optical_recall_not_allowed");
+              const body = await response.json() as {
+                data?: {bill?:{id:string;status:string;total_amount:number;paid_total:number;currency_code:string};
+                  remaining_amount?:number;recall_state?:string;
+                  items?:Array<{description:string;sku:string;quantity:number}>}
+              };
+              const record = body.data;
+              if (!record?.bill || !Array.isArray(record.items) ||
+                !Number.isSafeInteger(record.remaining_amount) ||
+                !["balance_due","pickup_ready","paid_waiting_for_job"].includes(record.recall_state??"")) {
+                throw new Error("optical_recall_invalid_response");
+              }
+              const heading = record.recall_state==="balance_due"
+                ? (lang==="lo"?"ຍັງມີຍອດຄ້າງ":lang==="th"?"มีเงินค้างชำระ":"Outstanding balance")
+                :record.recall_state==="pickup_ready"
+                  ?(lang==="lo"?"ຊຳລະຄົບ ພ້ອມຮັບ":lang==="th"?"ชำระครบแล้ว · งานพร้อมรับ":"Paid · ready for pickup")
+                  :(lang==="lo"?"ຊຳລະຄົບ ລໍຖ້າສຳເລັດງານ":lang==="th"?"ชำระครบแล้ว · รอผลิต/เตรียมงาน":"Paid · awaiting completion");
+              const money = (value:number)=>`₭${value.toLocaleString("en-US")}`;
+              billDetails.append(
+                createTextElement("strong","font-bold text-emerald-950",heading),
+                createTextElement("small","text-slate-700",`Bill ${record.bill.id}`),
+                createTextElement("small","font-semibold",`${lang==="th"?"ยอดเต็ม":lang==="lo"?"ຍອດເຕັມ":"Total"}: ${money(record.bill.total_amount)} · ${lang==="th"?"รับแล้ว":lang==="lo"?"ຮັບແລ້ວ":"Paid"}: ${money(record.bill.paid_total)}`),
+                createTextElement("strong","text-emerald-900",`${lang==="th"?"ยอดค้าง":lang==="lo"?"ຍອດຄ້າງ":"Due"}: ${money(record.remaining_amount)}`)
+              );
+              for (const item of record.items.slice(0,30)) {
+                billDetails.append(createTextElement("small","text-slate-700",`${item.description} ${item.sku?`(${item.sku})`:""} × ${item.quantity}`));
+              }
+              billDetails.append(createTextElement("small","text-amber-800",
+                lang==="th"?"การสแกนเป็นเพียงการเปิดดูบิล ยังไม่ได้รับเงินหรือส่งมอบสินค้า":
+                  lang==="lo"?"ສະແກນເພື່ອເບິ່ງບິນເທົ່ານັ້ນ ບໍ່ແມ່ນຮັບເງິນ ຫຼື ສົ່ງມອບ":"Scan opens the bill only; no payment or handover is recorded."));
+              billDetails.hidden = false;
+              billStatus.textContent = lang==="th"?"เรียกบิลเดิมสำเร็จ":lang==="lo"?"ເປີດບິນເກົ່າແລ້ວ":"Existing bill recalled";
+              // Leave receipt QR available for another scan / a manual review.
+              billInput.value = "";
+            }catch(err){
+              if (controller.signal.aborted || opticalBillRecallRequest!==controller) return;
+              billStatus.textContent=lang==="lo"?"ກວດບໍ່ພົບບິນໃນສາຂານີ້ ຫຼື ຍັງບໍ່ເປີດໃຊ້":
+                lang==="th"?"ไม่พบบิลที่รับมัดจำในสาขานี้ หรือสิทธิ์เรียกบิลยังไม่เปิด":
+                "No eligible paid deposit bill found in this branch, or recall is disabled";
+            }finally{
+              if (opticalBillRecallRequest===controller) opticalBillRecallRequest=null;
+            }
+          })();
         });
-        billGroup.append(billForm, billStatus);
+        billGroup.append(billForm, billStatus, billDetails);
         row.appendChild(billGroup);
       }
       panel.appendChild(row);
