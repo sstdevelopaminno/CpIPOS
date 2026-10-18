@@ -155,11 +155,12 @@ create or replace function public.customer_portal_staff_feature_state_v1(
   p_tenant_id uuid,p_branch_id uuid
 ) returns jsonb language plpgsql stable security definer
 set search_path to 'pg_catalog','public','app' as $fn$
-declare v_custom boolean := false;
-declare v_currency text := null;
-declare v_package uuid;
-declare v_customers boolean := false;
-declare v_orders boolean := false;
+declare
+  v_custom boolean := false;
+  v_currency text := null;
+  v_package uuid;
+  v_customers boolean := false;
+  v_orders boolean := false;
 begin
   if auth.uid() is null or p_branch_id is null then
     raise exception 'crm_staff_scope_required' using errcode='42501';
