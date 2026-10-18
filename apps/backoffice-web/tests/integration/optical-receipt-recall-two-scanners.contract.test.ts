@@ -74,5 +74,13 @@ describe("Optical deposit receipt QR is a job locator, never another product SKU
     expect(scanner).not.toContain('fetch("/api/pos/optical/work-orders",');
     expect(depositRoute).toContain('paperParam!=="58" && paperParam!=="80"');
     expect(depositRoute).toContain('renderOpticalDepositReceipt({');
+    const paymentPanel=source("components/pos-ui/pos-payment-panel.tsx");
+    const checkout=source("components/pos/pos-sales-module.tsx");
+    expect(paymentPanel).toContain("onOpticalDepositReceipt?:(paperWidthMm:58|80)=>void");
+    expect(paymentPanel).toContain('([58,80] as const).map(paper=>');
+    expect(paymentPanel).toContain('onClick={()=>onOpticalDepositReceipt(paper)}');
+    expect(checkout).toContain('deposit-receipt?paper=${paperWidthMm}');
+    expect(checkout).not.toContain('onOpticalDepositReceipt={opticalLastDepositReceiptId ? ()=>');
+
   });
 });
