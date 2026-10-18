@@ -971,8 +971,9 @@ export function PosGeneralSaleTableController({ lang = "th" }: { lang?: Lang }) 
                   items?:Array<{description:string;sku:string;quantity:number}>}
               };
               const record = body.data;
+              const remaining = Number(record?.remaining_amount);
               if (!record?.bill || !Array.isArray(record.items) ||
-                !Number.isSafeInteger(record.remaining_amount) ||
+                !Number.isSafeInteger(remaining) ||
                 !["balance_due","pickup_ready","paid_waiting_for_job"].includes(record.recall_state??"")) {
                 throw new Error("optical_recall_invalid_response");
               }
@@ -986,7 +987,7 @@ export function PosGeneralSaleTableController({ lang = "th" }: { lang?: Lang }) 
                 createTextElement("strong","font-bold text-emerald-950",heading),
                 createTextElement("small","text-slate-700",`Bill ${record.bill.id}`),
                 createTextElement("small","font-semibold",`${lang==="th"?"ยอดเต็ม":lang==="lo"?"ຍອດເຕັມ":"Total"}: ${money(record.bill.total_amount)} · ${lang==="th"?"รับแล้ว":lang==="lo"?"ຮັບແລ້ວ":"Paid"}: ${money(record.bill.paid_total)}`),
-                createTextElement("strong","text-emerald-900",`${lang==="th"?"ยอดค้าง":lang==="lo"?"ຍອດຄ້າງ":"Due"}: ${money(record.remaining_amount)}`)
+                createTextElement("strong","text-emerald-900",`${lang==="th"?"ยอดค้าง":lang==="lo"?"ຍອດຄ້າງ":"Due"}: ${money(remaining)}`)
               );
               for (const item of record.items.slice(0,30)) {
                 billDetails.append(createTextElement("small","text-slate-700",`${item.description} ${item.sku?`(${item.sku})`:""} × ${item.quantity}`));
