@@ -30,6 +30,26 @@ create policy optical_address_events_read_v1
     and app.custom_optical_crm_menu_allowed(tenant_id,'main.crm_optical_customers')
   );
 
+-- Prevent direct authenticated Data API updates from silently bypassing
+-- address history. A validated RPC sets the transaction-local request context.
+create or replace function app.optical_address_rpc_guard()
+returns trigger language plpgsql security invoker
+set search_path = ''
+as $guard$
+begin
+  if old.address is distinct from new.address
+    and nullif(current_setting('app.optical_address_request_context',true),'') is null
+  then
+    raise exception 'OPTICAL_ADDRESS_USE_AUDITED_RPC' using errcode='42501';
+  end if;
+  return new;
+end;
+$guard$;
+drop trigger if exists optical_address_guard_v1 on public.optical_customers;
+create trigger optical_address_guard_v1
+before update of address on public.optical_customers
+for each row execute function app.optical_address_rpc_guard();
+
 -- Immutable audit ledger is written via the only authenticated RPC.
 -- auth.uid() and current roles come from the session, never from a browser actor_id.
 create or replace function public.optical_save_customer_address_v1(
@@ -76,9 +96,11 @@ begin
     return jsonb_build_object('customer_id',p_customer_id,'duplicate_request',true);
   end if;
   if v_previous is distinct from v_next then
+    perform set_config('app.optical_address_request_context',p_request_id::text,true);
     update public.optical_customers
     set address=v_next,updated_by=v_actor,updated_at=now()
     where id=p_customer_id and tenant_id=p_tenant_id and branch_id=p_branch_id;
+    perform set_config('app.optical_address_request_context','',true);
   end if;
   insert into public.optical_customer_address_events
     (tenant_id,branch_id,customer_id,request_id,previous_address,new_address,changed_by)
