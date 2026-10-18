@@ -165,7 +165,8 @@ begin
  if v_kind not in ('frame','lens','accessory') or length(v_name)<1 or length(v_name)>180 or
    length(v_sku)<1 or length(v_sku)>90 or v_sku ~ '[[:space:],;()]'
  then raise exception 'OPTICAL_INVALID_PRODUCT'; end if;
- if coalesce(p_product->>'price','') !~ '^[0-9]+([.][0-9]{1,2})? then raise exception 'OPTICAL_INVALID_PRICE'; end if;
+ if coalesce(p_product->>'price','') !~ '^[0-9]+([.][0-9]{1,2})?$'
+ then raise exception 'OPTICAL_INVALID_PRICE'; end if;
  v_price=(p_product->>'price')::numeric;
  if v_price>999999999 or (p_currency='LAK' and v_price<>trunc(v_price))
  then raise exception 'OPTICAL_INVALID_PRICE'; end if;
@@ -176,10 +177,12 @@ begin
  then raise exception 'OPTICAL_SKU_DUPLICATE'; end if;
  if v_kind='lens' and (
     (nullif(p_product->>'lens_sph','') is not null and
-      (p_product->>'lens_sph' !~ '^-?[0-9]{1,2}([.][0-9]{1,2})?       or abs((p_product->>'lens_sph')::numeric)>30))
+      (p_product->>'lens_sph' !~ '^-?[0-9]{1,2}([.][0-9]{1,2})?$'
+       or abs((p_product->>'lens_sph')::numeric)>30))
     or
     (nullif(p_product->>'lens_cyl','') is not null and
-      (p_product->>'lens_cyl' !~ '^-?[0-9]{1,2}([.][0-9]{1,2})?       or abs((p_product->>'lens_cyl')::numeric)>15))
+      (p_product->>'lens_cyl' !~ '^-?[0-9]{1,2}([.][0-9]{1,2})?$'
+       or abs((p_product->>'lens_cyl')::numeric)>15))
    ) then raise exception 'OPTICAL_INVALID_PRESCRIPTION'; end if;
  v_category=case v_kind when 'frame' then 'กรอบแว่น'
   when 'lens' then 'เลนส์' else 'อุปกรณ์เสริม' end;
