@@ -60,6 +60,7 @@ export function PosShellSidebar({ lang, settingsLabel, placement }: Props) {
   const [enabledFeatures, setEnabledFeatures] = useState<Record<string, boolean> | null>(null);
   const [menuPolicy, setMenuPolicy] = useState<Record<string, boolean>>({});
   const [isCustom, setIsCustom] = useState(false);
+  const [opticalMenuAllowed,setOpticalMenuAllowed] = useState(false);
   const [customBrand,setCustomBrand] = useState<{system_name:string;accent_color:string;sidebar_color:string;logo_url:string|null}|null>(null);
   const [policyReady, setPolicyReady] = useState(false);
   const [packageLockOpen, setPackageLockOpen] = useState(false);
@@ -123,15 +124,16 @@ export function PosShellSidebar({ lang, settingsLabel, placement }: Props) {
     async function loadFeatures() {
       try {
         const response = await fetch("/api/pos/features", { cache: "no-store" });
-        const body = (await response.json().catch(() => null)) as { data?: { features?: Record<string, boolean>; menu_policy?: Record<string, boolean>; is_custom?: boolean } | null } | null;
+        const body = (await response.json().catch(() => null)) as { data?: { features?: Record<string, boolean>; menu_policy?: Record<string, boolean>; is_custom?: boolean; is_internal_test_full?:boolean; sales_modes?:{optical_retail?:boolean} } | null } | null;
         if (!cancelled && response.ok) {
           setEnabledFeatures(body?.data?.features ?? {});
           setMenuPolicy(body?.data?.menu_policy ?? {});
           setIsCustom(body?.data?.is_custom === true);
+          setOpticalMenuAllowed(Boolean((body?.data?.is_custom || body?.data?.is_internal_test_full) && body?.data?.sales_modes?.optical_retail === true));
           setPolicyReady(true);
         }
       } catch {
-        if (!cancelled) setEnabledFeatures({});
+        if (!cancelled){setEnabledFeatures({});setOpticalMenuAllowed(false);}
       }
     }
     // Refresh the IT menu policy when staff returns to this tab after an IT
@@ -280,6 +282,7 @@ export function PosShellSidebar({ lang, settingsLabel, placement }: Props) {
             enabledFeatures={enabledFeatures}
             menuPolicy={menuPolicy}
             isCustom={isCustom}
+            opticalMenuAllowed={opticalMenuAllowed}
             onLockedFeature={() => setPackageLockOpen(true)}
             onLockedMenu={setItLockedMenu}
           />
