@@ -9205,7 +9205,7 @@ export function PosSalesModule({
           opticalLanguage={lang}
           onOpticalCustomer={() => setOpticalCustomerOpen(true)}
           onOpticalDeposit={opticalRetailActive && posCurrencyResolved && posCurrencyCode==="LAK" ? submitOpticalCashDeposit : undefined}
-          onOpticalDepositReceipt={opticalLastDepositReceiptId ? ()=>window.open(`/api/pos/optical/work-orders/${encodeURIComponent(opticalLastDepositReceiptId)}/deposit-receipt`,"_blank","noopener,noreferrer") : undefined}
+          onOpticalDepositReceipt={opticalLastDepositReceiptId ? (paperWidthMm)=>window.open(`/api/pos/optical/work-orders/${encodeURIComponent(opticalLastDepositReceiptId)}/deposit-receipt?paper=${paperWidthMm}`,"_blank","noopener,noreferrer") : undefined}
           onMember={
             orderType === "delivery_manual"
               ? undefined
