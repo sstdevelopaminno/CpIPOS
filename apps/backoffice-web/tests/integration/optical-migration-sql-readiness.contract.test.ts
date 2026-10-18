@@ -11,7 +11,7 @@ describe("Optical gated SQL migration release preflight", () => {
   it.each([["CRM RLS", rls], ["owner report", report]])("%s has one transaction and paired PL/pgSQL delimiters", (_name, sql) => {
     expect(sql.match(/^begin;$/gm)).toHaveLength(1);
     expect(sql.match(/^commit;$/gm)).toHaveLength(1);
-    expect((sql.match(/\\$function\\$/g) ?? []).length % 2).toBe(0);
+    expect((sql.split("$function$").length - 1) % 2).toBe(0);
     expect(sql.trimEnd().endsWith("commit;")).toBe(true);
   });
   it("restores Postgres dollar-anchored patterns in SECURITY DEFINER product RPC", () => {
@@ -19,7 +19,7 @@ describe("Optical gated SQL migration release preflight", () => {
     expect(rls).toContain("!~ '^-?[0-9]{1,2}([.][0-9]{1,2})?$'");
     expect(rls).toContain("OPTICAL_CRM_STOCK_IT_DISABLED");
     expect(rls).toContain("OPTICAL_CRM_CUSTOMERS_IT_DISABLED");
-    expect(rls).not.toMatch(/end \\$function\\$;/i);
+    expect(rls).not.toContain("end $function$;");
   });
   it("gates CRM reporting and cannot mutate shared finance, stock or products", () => {
     expect(report).toContain("create or replace function public.optical_report_v1");
@@ -33,7 +33,7 @@ describe("Optical gated SQL migration release preflight", () => {
     for (const metric of ["payment_received","fulfilled_sales","seller_received","popular_product"]) {
       expect(report).toContain(metric);
     }
-    expect(report).not.toMatch(/\\b(insert\\s+into|update\\s+public\\.|delete\\s+from|truncate)\\b/i);
+    for(const unsafe of ["insert into public.orders", "insert into public.payments", "update public.orders", "delete from public.", "truncate public."]) expect(report.toLowerCase()).not.toContain(unsafe);
     expect(report).not.toContain("from public.orders");
     expect(report).not.toContain("from public.payments");
     expect(report).toContain("p.currency_code='LAK'");
