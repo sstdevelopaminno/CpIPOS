@@ -29,6 +29,6 @@ describe("Staged CUSTOM Optical CRM work-order draft lifecycle",()=>{
     expect(src).toContain("insert into public.optical_work_order_draft_events(");
     expect(src).not.toContain("optical_post_deposit_tx");
     expect(src).not.toContain("optical_payment_ledger");
-    expect(src.match(/\\bcommit\\s*;/gi)).toHaveLength(1);
+    expect(src.match(/\bcommit\s*;/gi)).toHaveLength(1);
   });
 });
