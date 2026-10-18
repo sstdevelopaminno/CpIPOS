@@ -57,6 +57,7 @@ describe("Optical deposit receipt QR is a job locator, never another product SKU
     expect(api).toContain('requireOpticalFinanceModule(scope.session.tenant_id,"optical_deposit")');
     expect(api).toContain('.eq("tenant_id",tenantId).eq("branch_id",branchId)');
     expect(api).toContain('.eq("work_order_id",id).eq("tenant_id",tenantId).eq("branch_id",branchId)');
+    expect(api).toContain('response.headers.set("Cache-Control","no-store, private")');
     expect(api).toContain('remaining>0?"balance_due"');
     expect(api).toContain('data.status==="ready_for_pickup"?"pickup_ready"');
     expect(api).not.toContain("optical_post_deposit_tx");
