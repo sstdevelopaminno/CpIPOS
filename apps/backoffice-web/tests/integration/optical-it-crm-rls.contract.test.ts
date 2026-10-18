@@ -35,8 +35,8 @@ describe("CUSTOM Optical CRM tenant IT switches revoke Data API access",()=>{
     expect(migration).toContain("create or replace function app.custom_optical_crm_menu_allowed");
     expect(migration).toContain("OPTICAL_CRM_CUSTOMERS_IT_DISABLED");
     expect(migration).toContain("OPTICAL_CRM_STOCK_IT_DISABLED");
-    expect(migration).toContain("create or replace function public.optical_save_customer_exam".toUpperCase() === "" ? "" : "CREATE OR REPLACE FUNCTION public.optical_save_customer_exam");
+    expect(migration).toContain("CREATE OR REPLACE FUNCTION public.optical_save_customer_exam");
     expect(migration).toContain("CREATE OR REPLACE FUNCTION public.customer_portal_optical_product_create_v1");
-    expect(migration).not.toMatch(/(?:delete\\s+from|truncate\\s+table)/i);
+    expect(migration).not.toMatch(/(?:delete[ ]+from|truncate[ ]+table)/i);
   });
 });
