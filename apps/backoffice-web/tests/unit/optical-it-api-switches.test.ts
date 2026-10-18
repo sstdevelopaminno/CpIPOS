@@ -18,8 +18,8 @@ describe("Optical finance IT tenant API kill-switch backend behavior",()=>{
     const c=mockPolicy({data:{is_enabled:false},error:null});
     await expect(isOpticalItApiControlAllowed("tenant-a",OPTICAL_IT_API_CONTROLS.optical_deposit)).resolves.toBe(false);
     expect(c.from).toHaveBeenCalledWith("tenant_pos_menu_policies");
-    expect(c.eqTenant).toHaveBeenCalledWith("tenant-a");
-    expect(c.eqMenu).toHaveBeenCalledWith("settings.crm_optical_api_deposits");
+    expect(c.eqTenant).toHaveBeenCalledWith("tenant_id","tenant-a");
+    expect(c.eqMenu).toHaveBeenCalledWith("menu_key","settings.crm_optical_api_deposits");
   });
   it("allows a switch only when enabled or absent, without granting package permissions",async()=>{
     mockPolicy({data:{is_enabled:true},error:null});
