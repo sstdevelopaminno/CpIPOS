@@ -22,6 +22,11 @@ describe("CUSTOM Optical CRM customer address migration",()=>{
   expect(sql).toContain("c.branch_id=p_branch_id");
   expect(sql).toContain("for update");
   expect(sql).toContain("OPTICAL_ADDRESS_IDEMPOTENCY_CONFLICT");
+  expect(sql).toContain("create trigger optical_address_guard_v1");
+  expect(sql).toContain("before update of address on public.optical_customers");
+  expect(sql).toContain("OPTICAL_ADDRESS_USE_AUDITED_RPC");
+  expect(sql).toContain("perform set_config('app.optical_address_request_context',p_request_id::text,true)");
+
   expect(sql).toContain("raise exception 'OPTICAL_ADDRESS_ACCESS_DENIED'");
   expect(sql).toContain("grant execute on function public.optical_save_customer_address_v1");
  });
