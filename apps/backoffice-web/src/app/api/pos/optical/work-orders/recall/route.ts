@@ -34,7 +34,7 @@ export async function GET(request: Request) {
     if(linesError||!lines?.length)return fail("optical_recall_lines_unavailable","Unable to read verified job items.",503);
     const remaining=total-paid;
     const state=remaining>0?"balance_due":data.status==="ready_for_pickup"?"pickup_ready":"paid_waiting_for_job";
-    return ok({
+    const response=ok({
       bill:{id:data.id,status:data.status,total_amount:total,paid_total:paid,
         currency_code:"LAK",due_at:data.due_at},
       remaining_amount:remaining,
@@ -45,6 +45,8 @@ export async function GET(request: Request) {
         quantity:Number(line.quantity)
       }))
     });
+    response.headers.set("Cache-Control","no-store, private");
+    return response;
   }catch(error){
     return error instanceof PosGuardError
       ? fail(error.code,error.message,error.status)
