@@ -9176,6 +9176,17 @@ export function PosSalesModule({
         throw new Error("Optical deposit and work order were not confirmed");
       const remainder=Number(paid.data.remaining_amount);
       pushSubmitMessage(`Optical ${method==="cash"?"cash":"manually verified bank"} deposit recorded: ₭${amount.toLocaleString("en-US")} · Remaining ₭${remainder.toLocaleString("en-US")}`);
+      const printStatus=String((paid.data.printing as {status?:string}|undefined)?.status??"not_queued");
+      if(printStatus==="queued"){
+        pushSubmitMessage("บันทึกมัดจำสำเร็จ · ส่งใบเสร็จ QR ไปยังเครื่องพิมพ์ตามการตั้งค่าของสาขาแล้ว (รอ Print Agent ยืนยัน)");
+      }else if(printStatus==="printer_not_configured"){
+        pushSubmitMessage("บันทึกมัดจำสำเร็จ แต่ยังไม่มีเครื่องพิมพ์ใบเสร็จที่เปิดใช้งานในสาขา · กรุณาแจ้งผู้จัดการตรวจเมนูตั้งค่าเครื่องพิมพ์");
+      }else if(printStatus==="queue_failed"){
+        pushSubmitMessage("บันทึกมัดจำสำเร็จ แต่จัดคิวพิมพ์ไม่สำเร็จ · ห้ามกดรับเงินซ้ำ กรุณาให้ผู้จัดการตรวจงานพิมพ์");
+      }else if(printStatus==="not_partial"){
+        pushSubmitMessage("บันทึกชำระครบแล้ว · ใบเสร็จมัดจำพร้อม QR ใช้สำหรับยอดค้างเท่านั้น ขั้นตอนใบเสร็จชำระครบแยกจากกัน");
+      }
+
       setCart([]);
       opticalDepositAttemptsRef.current.delete(signature);
     }finally{
