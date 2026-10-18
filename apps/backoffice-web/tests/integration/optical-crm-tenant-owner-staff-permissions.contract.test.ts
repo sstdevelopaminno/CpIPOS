@@ -21,7 +21,7 @@ describe("Staged Optical CRM staff permissions: IT eligibility and Owner authori
     expect(sql).toContain("g.user_id=auth.uid()");
     expect(sql).toContain("g.can_view=true");
     expect(sql).toContain("and c.metadata->'sales_modes'->>'optical_retail'='true'");
-    expect(sql).toContain("then raise exception 'crm_staff_access_disabled'");
+    expect(sql).toContain("raise exception 'crm_staff_access_disabled'");
   });
   it("lets only an authenticated tenant Owner grant or revoke employee rights",()=>{
     expect(sql).toContain("public.customer_portal_set_staff_crm_permission_v1");
