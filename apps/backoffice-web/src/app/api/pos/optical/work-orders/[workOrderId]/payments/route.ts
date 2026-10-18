@@ -1,6 +1,7 @@
 import { fail, ok } from "@/lib/http";
 import { PosGuardError, requireActiveShift, requirePermission, requirePosSession } from "@/lib/pos-session-guard";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
+import {queueRoutedOpticalDepositReceipt} from "@/lib/printing/routed-print-service";
 import {getTenantPosCurrencyCode} from "@/lib/server/custom-pos-currency";
 import { requireOpticalFinanceModule } from "@/lib/server/optical-finance-policy";
 
@@ -43,8 +44,26 @@ export async function POST(request:Request,{params}:{params:Promise<{workOrderId
     if(error)return fail("optical_deposit_rejected","Payment was rejected; verify bill status and outstanding balance.",409);
     const entry=Array.isArray(data)?data[0]:null;
     if(!entry?.payment_id)return fail("optical_payment_missing","Payment confirmation was not returned.",500);
+    let printing:{status:string;job_ids:string[]}={status:"not_queued",job_ids:[]};
+    if(entry.duplicate_request!==true){
+      try{
+        printing=await queueRoutedOpticalDepositReceipt({
+          auth:{userId:scope.session.user_id,tenantId:scope.session.tenant_id,
+            branchId:scope.session.branch_id,platformRole:"tenant_user",
+            branchRole:role==="owner"?"owner":role==="manager"?"manager":"staff"},
+          runtimeDeviceCode:scope.session.device_code,
+          workOrderId,paymentId:entry.payment_id
+        });
+      }catch(error){
+        console.error("[optical-deposit-print] confirmed payment, printer queue failed",{
+          code:error instanceof Error?error.message:"print_queue_failed"});
+        printing={status:"queue_failed",job_ids:[]};
+      }
+    }else{
+      printing={status:"already_processed",job_ids:[]};
+    }
     return ok({payment_id:entry.payment_id,paid_total:entry.paid_total,
-      remaining_amount:entry.remaining_amount,duplicate_request:entry.duplicate_request===true});
+      remaining_amount:entry.remaining_amount,duplicate_request:entry.duplicate_request===true,printing});
   }catch(error){
     return error instanceof PosGuardError
       ? fail(error.code,error.message,error.status)
