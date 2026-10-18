@@ -3,6 +3,7 @@ import {requirePosSession,requirePermission,PosGuardError} from "@/lib/pos-sessi
 import {getSupabaseServiceClient} from "@/lib/supabase-admin";
 import {getCustomPosStockUiMode} from "@/lib/server/custom-stock-ui-policy";
 import {requireOpticalRetailEntitlement} from "@/lib/server/optical-entitlement";
+import { isOpticalItApiControlAllowed,OPTICAL_IT_API_CONTROLS } from "@/lib/server/optical-finance-policy";
 import {getOpticalBranchScope,verifyOpticalBranch} from "@/lib/server/optical-stock-branch-scope";
 import {collectPagedShiftRows,collectShiftRowsForIds} from "@/lib/pos-shift-query-pagination";
 export const dynamic="force-dynamic";
@@ -22,6 +23,8 @@ export async function GET(req:Request){
   const mode=await getCustomPosStockUiMode(tenant);
   if(!["optical","mixed"].includes(mode)||!await requireOpticalRetailEntitlement(tenant))
     return NextResponse.json({error:{message:"เฉพาะ CUSTOM Optical"}},{status:403});
+  if(!await isOpticalItApiControlAllowed(tenant,OPTICAL_IT_API_CONTROLS.optical_inventory))
+    return NextResponse.json({error:{message:"IT disabled Optical inventory API."}},{status:403});
   const branches=await getOpticalBranchScope(scope);
   const branch=verifyOpticalBranch(new URL(req.url).searchParams.get("branch_id")||scope.session.branch_id,branches);
   const db=getSupabaseServiceClient();
