@@ -814,7 +814,7 @@ export async function queueRoutedOpticalDepositReceipt(args:{
   workOrderId:string;
   paymentId:string;
   runtimeDeviceCode?:string|null;
-}):Promise<{status:"queued"|"printer_not_configured"|"not_partial";job_ids:string[]}>{
+}):Promise<{status:"queued"|"printer_not_configured"|"printer_not_qr_capable"|"not_partial";job_ids:string[]}>{
   if(!args.auth.tenantId||!args.auth.branchId)throw new Error("optical_print_scope_missing");
   const client=getSupabaseServiceClient();
   const tenantId=args.auth.tenantId,branchId=args.auth.branchId;
@@ -849,6 +849,13 @@ export async function queueRoutedOpticalDepositReceipt(args:{
     runtimeDeviceCode:args.runtimeDeviceCode,legacyRole:"receipt"
   });
   if(!routes.length)return {status:"printer_not_configured",job_ids:[]};
+  // The direct ESC/POS and STAR adapters currently send payload_text only.
+  // QR must go through Print Agent (HTML raster) or an HTML-aware bridge;
+  // never claim the customer received a QR when the printer can only print text.
+  const qrRoutes=routes.filter(route=>shouldDefer(route)||
+    route.printer.connection_type==="LOCAL_BRIDGE"||
+    route.printer.connection_type==="BLUETOOTH_BRIDGE");
+  if(!qrRoutes.length)return {status:"printer_not_qr_capable",job_ids:[]};
   const [profile,sellerName]=await Promise.all([
     loadReceiptStoreProfile(tenantId),
     loadReceiptSellerName(args.auth,payment.received_by)
@@ -861,7 +868,7 @@ export async function queueRoutedOpticalDepositReceipt(args:{
   const qrValue="CPI-OPTICAL-RECALL:1:"+args.workOrderId.toLowerCase();
   const qrImageDataUrl=await QRCode.toDataURL(qrValue,{errorCorrectionLevel:"M",margin:1,width:220});
   const jobs:string[]=[];
-  for(const route of routes){
+  for(const route of qrRoutes){
     const html=renderOpticalDepositReceipt({
       paperWidthMm:route.printer.paper_width_mm,
       bill,receiptNumber:"OPT-"+args.paymentId,
