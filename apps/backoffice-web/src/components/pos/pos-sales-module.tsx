@@ -9183,6 +9183,8 @@ export function PosSalesModule({
         pushSubmitMessage("บันทึกมัดจำสำเร็จ แต่ยังไม่มีเครื่องพิมพ์ใบเสร็จที่เปิดใช้งานในสาขา · กรุณาแจ้งผู้จัดการตรวจเมนูตั้งค่าเครื่องพิมพ์");
       }else if(printStatus==="queue_failed"){
         pushSubmitMessage("บันทึกมัดจำสำเร็จ แต่จัดคิวพิมพ์ไม่สำเร็จ · ห้ามกดรับเงินซ้ำ กรุณาให้ผู้จัดการตรวจงานพิมพ์");
+      }else if(printStatus==="printer_not_qr_capable"){
+        pushSubmitMessage("บันทึกมัดจำสำเร็จ แต่ปลายทางพิมพ์ QR ไม่ได้ · กรุณาตรวจ Print Agent/เครื่องพิมพ์ที่ตั้งค่า ห้ามรับเงินซ้ำ");
       }else if(printStatus==="not_partial"){
         pushSubmitMessage("บันทึกชำระครบแล้ว · ใบเสร็จมัดจำพร้อม QR ใช้สำหรับยอดค้างเท่านั้น ขั้นตอนใบเสร็จชำระครบแยกจากกัน");
       }
