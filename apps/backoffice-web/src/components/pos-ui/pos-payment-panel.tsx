@@ -39,7 +39,7 @@ type Props = {
   onOpticalCustomer?: () => void;
   /** Only supplied when the authenticated Optical ledger transaction is live. */
   onOpticalDeposit?: (amount: number, method: OpticalDepositMethod, customerId: string, evidence?: OpticalBankVerification) => Promise<void> | void;
-  onOpticalDepositReceipt?:()=>void;
+  onOpticalDepositReceipt?:(paperWidthMm:58|80)=>void;
   onMember?: () => void;
   onTableQrOrder?: () => void;
   onPromotion?: () => void;
@@ -454,10 +454,13 @@ export function PosPaymentPanel({
             {localized("ยกเลิกบิล", "Cancel bill")}
           </button>
         </div>
-        {onOpticalDepositReceipt?<button type="button" className="min-h-10 w-full rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-2 text-sm font-bold text-emerald-900"
-          onClick={onOpticalDepositReceipt} data-testid="optical-last-deposit-receipt">
-          {opticalLanguage==="lo"?"ເບິ່ງໃບຮັບເງິນມັດຈຳ 80mm":opticalLanguage==="en"?"View deposit receipt 80mm":"ดูใบรับเงินมัดจำ 80mm"}
-        </button>:null}
+        {onOpticalDepositReceipt?<div className="grid grid-cols-2 gap-2" aria-label={opticalLanguage==="th"?"เลือกขนาดใบเสร็จมัดจำ":opticalLanguage==="lo"?"ເລືອກຂະໜາດໃບມັດຈຳ":"Deposit receipt paper size"}>
+          {([58,80] as const).map(paper=><button key={paper} type="button"
+            className="min-h-10 rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-2 text-sm font-bold text-emerald-900"
+            onClick={()=>onOpticalDepositReceipt(paper)} data-testid={`optical-last-deposit-receipt-${paper}`}>
+            {opticalLanguage==="lo"?`ໃບມັດຈຳ ${paper}mm`:opticalLanguage==="en"?`Deposit receipt ${paper}mm`:`ใบเสร็จมัดจำ ${paper} มม.`}
+          </button>)}
+        </div>:null}
         {onRetry ? <button type="button" className="posui-btn posui-btn--retry-emergency" onClick={onRetry} disabled={retryDisabled || submitting}>{retryLabel ?? text.retry}</button> : null}
         {opticalDepositOpen ? <PosOpticalDepositDialog total={total} currency={opticalCurrencyCode} language={opticalLanguage}
           onClose={()=>setOpticalDepositOpen(false)} onSubmit={onOpticalDeposit}/> : null}
