@@ -1,0 +1,49 @@
+name: Optical Stock Receipt Synthetic PostgreSQL QA
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'supabase/migrations/20261019211500_optical_stock_adjustment_audit_v1.sql'
+      - 'scripts/sql/optical-stock-receive-scratch-assertions.sql'
+      - '.github/workflows/optical-stock-receive-scratch-ci.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+jobs:
+  verify-optical-stock-rpc:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: optical_scratch
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres -d optical_scratch"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 15
+    env:
+      PGPASSWORD: postgres
+      PGHOST: 127.0.0.1
+      PGPORT: '5432'
+      PGUSER: postgres
+      PGDATABASE: optical_scratch
+    steps:
+      - uses: actions/checkout@v4
+      - name: Ensure psql
+        run: |
+          if ! command -v psql >/dev/null; then
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq postgresql-client
+          fi
+      - name: Synthetic tenant and Optical stage1 base schema (not connected to Supabase)
+        run: |
+          psql -v ON_ERROR_STOP=1 -f scripts/sql/optical-scratch-bootstrap.sql
+          psql -v ON_ERROR_STOP=1 -f supabase/migrations/20261015091500_optical_schema_only_qa_disabled.sql
+      - name: Run atomic receipt / issue and isolation assertions
+        run: psql -v ON_ERROR_STOP=1 -f scripts/sql/optical-stock-receive-scratch-assertions.sql
