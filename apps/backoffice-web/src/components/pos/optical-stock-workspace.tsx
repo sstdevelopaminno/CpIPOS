@@ -432,6 +432,15 @@ export function OpticalStockWorkspace({rows,branch,branchId,branches,currency,ca
                 onKeyDown={e=>{if(e.key==="Enter")e.preventDefault();}}
                 onChange={e=>setAdjustSku(e.target.value)}/>
             </label>
+            {adjustBranchId===branchId?<label className="text-sm font-semibold">เลือกสินค้าจากรายการ
+              <select className={field+" mt-1"} value={rows.some(r=>r.sku===adjustSku)?adjustSku:""}
+                onChange={e=>setAdjustSku(e.target.value)}>
+                <option value="">-- เลือกสินค้า หรือยิงบาร์โค้ดด้านบน --</option>
+                {rows.filter(r=>r.sku).map(r=><option key={r.id} value={r.sku??""}>
+                  {r.name} ({r.sku})
+                </option>)}
+              </select>
+            </label>:null}
             <fieldset className="grid gap-2">
               <legend className="text-sm font-semibold">{T("ประเภทการปรับจำนวน")}</legend>
               <label className="flex items-center gap-2">
