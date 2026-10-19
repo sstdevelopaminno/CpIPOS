@@ -153,19 +153,19 @@ export function OpticalStockWorkspace({rows,branch,branchId,branches,currency,ca
   const summaryCards:[string,number][]=[["สินค้า",rows.length],
     ["เหลือ 1",rows.filter(r=>r.opticalBin&&remaining(r)===1).length],
     ["หมด",rows.filter(r=>r.opticalBin&&remaining(r)===0).length],
-    ["รอตรวจสต๊อก",rows.filter(r=>!r.opticalBin).length]];
+    ["ยังไม่มีรายการรับเข้าสต๊อก",rows.filter(r=>!r.opticalBin).length]];
   const stockTabs:Kind[]=rows.some(row=>kind(row)==="accessory")
     ?["frame","lens","accessory"]:["frame","lens"];
   const pages=Array.from({length:totalPages},(_,i)=>i+1).filter(p=>
     totalPages<=7||p===1||p===totalPages||Math.abs(p-currentPage)<=2);
   return <main className="mx-auto h-full min-h-0 w-full max-w-7xl space-y-4 overflow-y-auto overscroll-y-contain px-3 pb-12 pt-3 lg:px-6" data-testid="custom-optical-inventory">
     <header className="rounded-2xl border border-emerald-200 bg-gradient-to-r from-emerald-100 via-green-50 to-white p-5 shadow-sm">
-      <div className="flex flex-wrap items-center justify-between gap-3">
+      <div className="flex flex-wrap items-start justify-between gap-x-6 gap-y-4">
         <PosBackButton lang={lang} href="/preview/pos/more" label={T("กลับเมนูเพิ่มเติม")}/>
-        <div className="flex flex-wrap items-center gap-2">
-          <label className="text-xs font-bold text-slate-700">{T("เลือกสาขา")}
+        <div className="flex w-full min-w-0 flex-wrap items-end justify-start gap-x-4 gap-y-3 lg:w-auto lg:justify-end">
+          <label className="flex min-w-[180px] flex-col gap-1 text-xs font-bold text-slate-700">{T("เลือกสาขา")}
             <select aria-label={T("เลือกสาขาสต๊อก")} value={branchId}
-              className={field+" ml-2 w-auto"}
+              className={field+" w-full min-w-[180px]"}
               disabled={branches.length<=1}
               onChange={e=>window.location.assign("/preview/pos/stock/custom?branch_id="+encodeURIComponent(e.target.value))}>
               {branches.map(b=><option key={b.id} value={b.id}>{b.name}</option>)}
@@ -173,7 +173,7 @@ export function OpticalStockWorkspace({rows,branch,branchId,branches,currency,ca
           </label>
           <button className="min-h-10 rounded-xl border border-amber-400 bg-amber-50 px-4 py-2 text-sm font-bold text-amber-900"
             onClick={()=>show("best")}>{T("★ สินค้าขายดี")}</button>
-        {canManage?<div className="flex flex-wrap gap-2">
+        {canManage?<div className="flex flex-wrap items-center gap-3">
           <button className="min-h-10 rounded-xl bg-emerald-700 px-4 py-2 text-sm font-bold text-white" onClick={()=>show("add")}>{T("+ เพิ่มสินค้า")}</button>
           <button className="min-h-10 rounded-xl border border-emerald-600 bg-white px-4 py-2 text-sm font-bold text-emerald-800" onClick={()=>show("bulk")}>{T("+ สร้างสินค้าหลายรายการ")}</button>
         </div>:null}
@@ -210,7 +210,7 @@ export function OpticalStockWorkspace({rows,branch,branchId,branches,currency,ca
         <label className="text-xs font-bold text-slate-600">{T("สถานะ")}
           <select className={field+" mt-1"} value={stock} onChange={e=>{setStock(e.target.value);setPage(1);}}>
             <option value="all">{T("ทั้งหมด")}</option><option value="available">{T("มีสินค้า")}</option><option value="low">{T("เหลือ 1")}</option>
-            <option value="out">{T("หมด")}</option><option value="unverified">{T("รอยืนยัน")}</option>
+            <option value="out">{T("หมด")}</option><option value="unverified">{T("ยังไม่มีรายการรับเข้าสต๊อก")}</option>
           </select>
         </label>
         <label className="text-xs font-bold text-slate-600">{T("ต่อหน้า")}
@@ -262,8 +262,8 @@ export function OpticalStockWorkspace({rows,branch,branchId,branches,currency,ca
             <td className="px-3 py-3 text-right">{formatSalesMoney(Number(row.opticalBin?.unit_price??row.price),currency)}</td>
             <td className="px-3 py-3 text-right font-semibold">{initialCount(row)??"—"}</td>
             <td className="px-3 py-3 text-right font-semibold">
-              {remaining(row)??T("รอยืนยัน")}
-              {!row.opticalBin?<small className="block text-xs text-amber-700">{T("ยังไม่รับรองยอด Optical")}</small>:null}
+              {remaining(row)??"—"}
+              {!row.opticalBin?<small className="block max-w-[180px] text-xs font-medium text-amber-800">{T("ยังไม่บันทึกจำนวนรับเข้าสต๊อก ไม่ใช่ยอดคงเหลือ 0")}</small>:null}
             </td>
             {canManage?<td className="whitespace-nowrap px-3 py-3">
               <button type="button" className="mr-2 rounded-lg border border-blue-200 px-3 py-2 text-xs text-blue-700"
@@ -294,7 +294,7 @@ export function OpticalStockWorkspace({rows,branch,branchId,branches,currency,ca
         <header className="flex justify-between gap-3 border-b border-slate-200 p-5">
           <div><h2 id="optical-modal-title" className="text-lg font-extrabold">
             {T(modal==="add"?"เพิ่มสินค้า":modal==="edit"?"แก้ไขสินค้า":modal==="bulk"?"สร้างสินค้าหลายรายการ":modal==="sku"?"SKU / บาร์โค้ด":modal==="media"?"จัดการรูปสินค้า":modal==="best"?"สินค้าขายดี 30 วันย้อนหลัง":"ยืนยันการลบสินค้า")}
-          </h2>{modal!=="delete"&&modal!=="sku"&&modal!=="media"&&modal!=="best"?<p className="mt-1 text-xs text-slate-500">{T("SKU / บาร์โค้ด กรอกเองได้ · ไม่เปลี่ยนจำนวนสต๊อกอัตโนมัติ")}</p>:null}</div>
+          </h2>{modal!=="delete"&&modal!=="sku"&&modal!=="media"&&modal!=="best"?<p className="mt-1 text-xs text-slate-500">{T("กรอกหรือสแกนบาร์โค้ดได้ · การสร้าง/แก้สินค้าไม่ใช่การรับสต๊อก · ต้องบันทึกจำนวนรับเข้าแยกด้วยรายการตรวจสอบ")}</p>:null}</div>
           <button aria-label={T("ปิด")} disabled={busy} className="px-2 text-xl" onClick={close}>×</button>
         </header>
         <div className="min-h-0 overflow-y-auto p-5">
@@ -369,8 +369,8 @@ export function OpticalStockWorkspace({rows,branch,branchId,branches,currency,ca
                 <input className={field+" mt-1"} type="number" min="0" max="180" value={draft.lens_axis}
                   onChange={e=>change("lens_axis",e.target.value)}/></label>
             </>:null}
-            <label className="text-sm font-semibold">{T("SKU / บาร์โค้ด (กรอกเอง) *")}
-              <input className={field+" mt-1"} value={draft.sku} maxLength={90} onChange={e=>change("sku",e.target.value)}/>
+            <label className="text-sm font-semibold">{T("SKU / บาร์โค้ด (กรอกหรือสแกน) *")}
+              <input className={field+" mt-1"} value={draft.sku} maxLength={90} autoComplete="off" spellCheck={false} onKeyDown={e=>{if(e.key==="Enter")e.preventDefault();}} onChange={e=>change("sku",e.target.value)}/>
             </label>
             <label className="text-sm font-semibold">{T("ราคา (")}{currency}) *
               <input className={field+" mt-1"} value={draft.price} type="number" min="0"
@@ -393,7 +393,7 @@ export function OpticalStockWorkspace({rows,branch,branchId,branches,currency,ca
                   <td className="p-2"><select className={field} value={row.kind} onChange={e=>changeBulk(i,"kind",e.target.value)}>
                     {Object.entries(types).map(([k,v])=><option key={k} value={k}>{T(v)}</option>)}
                   </select></td>
-                  <td className="p-2"><input className={field} value={row.sku} maxLength={90} onChange={e=>changeBulk(i,"sku",e.target.value)} placeholder={T("กรอกเอง")}/></td>
+                  <td className="p-2"><input className={field} value={row.sku} maxLength={90} autoComplete="off" spellCheck={false} onKeyDown={e=>{if(e.key==="Enter")e.preventDefault();}} onChange={e=>changeBulk(i,"sku",e.target.value)} placeholder={T("กรอกหรือสแกน")}/></td>
                   <td className="p-2"><input className={field} maxLength={120} value={row.brand}
                     onChange={e=>changeBulk(i,"brand",e.target.value)}/></td>
                   <td className="p-2"><input className={field} maxLength={120}
