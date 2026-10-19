@@ -41,4 +41,14 @@ describe("Optical stock receive / issue audited workflow (staged only)",()=>{
   expect(ui).toContain('inputMode="numeric" type="number"');
   expect(ui).toContain('จำนวนรับเข้าเริ่มต้น');
  });
+ it("requires positive quantity per bulk row and queues each audited receipt for confirmation",()=>{
+  expect(ui).toContain('"จำนวนรับเข้าเริ่มต้น","ลบแถว"');
+  expect(ui).toContain('onChange={e=>changeBulk(i,"initial_quantity",e.target.value)}');
+  expect(ui).toContain("pendingBulkReceipts");
+  expect(ui).toContain("setPendingBulkReceipts(proposals.slice(1))");
+  expect(ui).toContain("advanceReceiptQueue()");
+  expect(ui).toContain("const catalogItems=items.map");
+  expect(ui).toContain("setAdjustQuantity(proposals[0].quantity)");
+  expect(ui).toContain("ไม่รับเข้าอัตโนมัติ");
+ });
 });
