@@ -95,6 +95,8 @@ function createQueryMock(table: string, calls: Array<{ kind: string; table?: str
       return query;
     }),
     eq: vi.fn(() => query),
+    order: vi.fn(() => query),
+    limit: vi.fn(() => query),
     in: vi.fn(() => query),
     maybeSingle: vi.fn(async () => resolveMaybeSingle(table, selectedColumns)),
     single: vi.fn(async () => resolveMaybeSingle(table, selectedColumns)),
