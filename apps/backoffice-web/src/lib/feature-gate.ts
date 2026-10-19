@@ -286,7 +286,8 @@ export async function hasBranchFeature(tenantId: string, branchId: string | null
   // authorized CUSTOM Optical tenant. Preserve explicit feature denials and
   // the independent contract quotas for actually creating users/branches.
   const opticalManagementMenu = featureCode === "user_management" ? "settings.users"
-    : featureCode === "branch_management" ? "settings.branches" : null;
+    : featureCode === "branch_management" ? "settings.branches"
+    : featureCode === "stock_management" ? "more.stock" : null;
   if (!enabled && !tenantOverride && !branchOverride && opticalManagementMenu &&
       isOpticalRetailExplicitlyEnabled(contract?.metadata?.sales_modes)) {
     const [plan, command] = await Promise.all([
