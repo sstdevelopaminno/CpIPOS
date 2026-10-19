@@ -7,6 +7,8 @@ import { readThroughRuntimeCache } from "@/lib/route-runtime-cache";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
 import { getTenantPosMenuOverrides } from "@/lib/server/pos-menu-policy-service";
 import { getInternalItTestMode } from "@/lib/server/internal-it-test-store";
+import { isCustomPosMenuVisible } from "@/lib/pos-menu-policy";
+import { OPTICAL_MORE_FEATURES } from "@/lib/server/optical-more-feature-access";
 
 type ContractRow = {
   package_id: string | null;
@@ -219,7 +221,15 @@ async function loadTenantFeatureSnapshot(tenantId: string, branchId: string, men
     }
     features.barcode_scanner_mode = true;
   }
-  return { features, salesModes, isCustom };
+  const opticalMoreAccess = Object.fromEntries(
+    Object.entries(OPTICAL_MORE_FEATURES).map(([key, cfg]) => [
+      cfg.route,
+      isCustom && salesModes.optical_retail &&
+        isCustomPosMenuVisible(key, menuPolicy, true) &&
+        tenantOverrides.get(cfg.feature) !== false && branchOverrides.get(cfg.feature) !== false
+    ])
+  );
+  return { features, salesModes, isCustom, opticalMoreAccess };
 }
 
 export async function GET(request: Request) {
@@ -253,6 +263,7 @@ export async function GET(request: Request) {
       is_custom: snapshot.isCustom,
       is_internal_test_full: "internalTestFull" in snapshot && snapshot.internalTestFull === true,
       sales_modes: snapshot.salesModes,
+      optical_more_access: "opticalMoreAccess" in snapshot ? snapshot.opticalMoreAccess : {},
       sales_modes_source: "package_metadata + tenant_subscription_contracts.metadata.sales_modes"
     });
 

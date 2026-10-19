@@ -1,5 +1,6 @@
 import { getPosApiAuthContext } from "@/lib/pos-api-auth";
 import { featureGateFail, requirePosApiFeature } from "@/lib/pos-api-feature-guard";
+import { authorizeOpticalMoreMenu } from "@/lib/server/optical-more-feature-access";
 import { fail, ok } from "@/lib/http";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
 import { orderCurrencyFromMetadata } from "@/lib/pos-money";
@@ -48,7 +49,9 @@ function canViewAcrossBranches(role: string | null) {
 export async function GET(request: Request) {
   try {
     const auth = await getPosApiAuthContext({ requireBranchScope: true, requiredPermission: "sales:list:view" });
-    await requirePosApiFeature(auth, "advanced_sales_reports");
+    if (!await authorizeOpticalMoreMenu(auth.tenantId!, auth.branchId, "more.product_sales")) {
+      await requirePosApiFeature(auth, "advanced_sales_reports");
+    }
     const supabase = getSupabaseServiceClient();
     const { searchParams } = new URL(request.url);
 

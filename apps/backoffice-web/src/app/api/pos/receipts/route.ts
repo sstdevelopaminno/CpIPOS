@@ -1,6 +1,7 @@
 import { filterBillingDocumentItems } from "@/lib/billing-document-policy";
 import { getPosApiAuthContext } from "@/lib/pos-api-auth";
 import { featureGateFail, requirePosApiFeature } from "@/lib/pos-api-feature-guard";
+import { authorizeOpticalMoreMenu } from "@/lib/server/optical-more-feature-access";
 import { fail, ok } from "@/lib/http";
 import { buildPaginationMeta, parsePagination } from "@/lib/query-params";
 import { loadReceiptStoreProfile } from "@/lib/services/store-profile-service";
@@ -76,7 +77,9 @@ export async function GET(req: Request) {
 
   try {
     const auth = await getPosApiAuthContext({ requireBranchScope: true, requiredPermission: "receipts:view" });
-    await requirePosApiFeature(auth, "receipt_reprint_history");
+    if (!await authorizeOpticalMoreMenu(auth.tenantId!, auth.branchId, "more.receipts")) {
+      await requirePosApiFeature(auth, "receipt_reprint_history");
+    }
     const supabase = getSupabaseServiceClient();
     const opticalCurrencyAudit=(await getCustomPosStockUiMode(auth.tenantId!))==="optical";
     const { searchParams } = new URL(req.url);
