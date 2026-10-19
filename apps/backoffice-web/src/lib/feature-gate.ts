@@ -282,6 +282,21 @@ export async function hasBranchFeature(tenantId: string, branchId: string | null
     enabled = branchOverride.is_enabled;
   }
 
+  // An IT-approved CUSTOM Optical contract includes core cashier access.
+  // Never override an explicit tenant/branch denial, even for Optical stores.
+  // Fixed packages and non-Optical CUSTOM modes retain their own entitlements.
+  if (!enabled && !tenantOverride && !branchOverride &&
+      (featureCode === "pos.sales.access" || featureCode === "pos_sales" || featureCode === "core_pos_sales") &&
+      isOpticalRetailExplicitlyEnabled(contract?.metadata?.sales_modes)) {
+    const packageLookup = await supabase.from("subscription_packages")
+      .select("code").eq("id", contract!.package_id)
+      .maybeSingle<{ code: string }>();
+    if (packageLookup.error) throw new FeatureGateError(
+      "optical_package_check_failed", packageLookup.error.message, 500
+    );
+    if (String(packageLookup.data?.code ?? "").toLowerCase() === "custom") enabled = true;
+  }
+
   // Optical retail uses the existing secured SKU/scanner workflow.
   // This additional grant exists ONLY for a CUSTOM contract explicitly
   // enabled by IT; fixed packages retain their normal barcode entitlements.
