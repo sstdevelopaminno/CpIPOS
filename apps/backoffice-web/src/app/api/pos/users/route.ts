@@ -5,6 +5,7 @@ import { getAuthContext, type AuthContext } from "@/lib/auth-context";
 import { fail, ok } from "@/lib/http";
 import { validateManagerPin } from "@/lib/pin-approval";
 import { getPosApiAuthContext } from "@/lib/pos-api-auth";
+import { enforceQuota, FeatureGateError } from "@/lib/feature-gate";
 import { featureGateFail, requirePosApiFeature } from "@/lib/pos-api-feature-guard";
 import { PosGuardError, type PosPermission } from "@/lib/pos-session-guard";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
@@ -584,6 +585,21 @@ export async function POST(request: Request) {
     const email = requestedEmail || `${employeeCodeInput || crypto.randomUUID()}@pos.local`.toLowerCase();
     const { data: existingProfile, error: existingError } = await supabase.from("users_profiles").select("id").eq("email", email).maybeSingle<{ id: string }>();
     if (existingError) return fail("user_lookup_failed", existingError.message, 500);
+    // New membership is quota-consuming even when a profile already exists
+    // elsewhere. Check before creating Supabase Auth/users_profiles records.
+    const existingMembership = existingProfile?.id
+      ? await supabase.from("user_branch_roles").select("user_id")
+          .eq("tenant_id", auth.tenantId!).eq("user_id", existingProfile.id)
+          .limit(1).maybeSingle<{ user_id: string }>()
+      : null;
+    if (existingMembership?.error) return fail("user_membership_lookup_failed", existingMembership.error.message, 500);
+    if (!existingMembership?.data) {
+      try { await enforceQuota(auth.tenantId!, "users"); }
+      catch (error) {
+        if (error instanceof FeatureGateError) return fail(error.code, error.message, error.status);
+        return fail("user_quota_lookup_failed", "Unable to verify tenant user quota.", 500);
+      }
+    }
     if (existingProfile?.id && await isItProtectedPrimaryOwner(auth.tenantId!, existingProfile.id)) {
       return fail("primary_owner_it_only", "Only IT Admin can modify the first Owner account.", 403);
     }
