@@ -1,5 +1,6 @@
 -- Synthetic QA, use only isolated Postgres17 service in GitHub CI.
 \set ON_ERROR_STOP on
+alter table public.branches add column is_active boolean not null default true;
 alter table public.products add column metadata jsonb not null default '{}'::jsonb;
 alter table public.products add column sell_unit text not null default 'ชิ้น';
 create table public.tenant_pos_menu_policies(
