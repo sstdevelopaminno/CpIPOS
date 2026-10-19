@@ -1032,7 +1032,7 @@ export async function saveBranchSettings(auth: AuthContext, input: BranchSetting
     const existing = await supabase.from("branches").select("is_active")
       .eq("tenant_id", auth.tenantId).eq("id", branchId).single<{ is_active: boolean }>();
     if (existing.error) throw new Error(existing.error.message);
-    if (!existing.data.is_active && input.is_active === true) {
+    if (!existing.data.is_active && input.is_active !== false) {
       await enforceQuota(auth.tenantId, "branches");
     }
     const { data, error } = await supabase
