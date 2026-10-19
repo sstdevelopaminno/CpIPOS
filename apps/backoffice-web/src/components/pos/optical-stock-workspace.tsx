@@ -87,6 +87,7 @@ export function OpticalStockWorkspace({rows,branch,branchId,branches,currency,ca
   const [adjustQuantity,setAdjustQuantity]=useState("");
   const [adjustNote,setAdjustNote]=useState("");
   const [adjustRequestId,setAdjustRequestId]=useState("");
+  const [adjustBranchId,setAdjustBranchId]=useState(branchId);
   const [newProductCreated,setNewProductCreated]=useState(false);
   const [initialReceiveQuantity,setInitialReceiveQuantity]=useState("");
   const displayed=useMemo(()=>rows.filter(r=>{
@@ -136,9 +137,10 @@ export function OpticalStockWorkspace({rows,branch,branchId,branches,currency,ca
     if(m==="edit"&&r)setDraft(forEdit(r));
     if(m==="bulk")setBulk([blank(),blank(),blank()].map(row=>({...row,kind:tab})));
   };
-  function openStockAdjustment(sku: string) {
+  function openStockAdjustment(sku: string, stockBranchId=branchId) {
     if (!canManage) return;
-    setAdjustSku(sku.trim());setAdjustDirection("receive");setAdjustQuantity("");
+    setAdjustSku(sku.trim());setAdjustBranchId(stockBranchId);
+    setAdjustDirection("receive");setAdjustQuantity("");
     setAdjustNote("");setAdjustRequestId(crypto.randomUUID());setError("");
     setModal("adjust");
   }
@@ -162,12 +164,12 @@ export function OpticalStockWorkspace({rows,branch,branchId,branches,currency,ca
       const res=await fetch("/api/pos/optical/stock/adjust",{
         method:"POST",credentials:"same-origin",cache:"no-store",
         headers:{"Content-Type":"application/json"},
-        body:JSON.stringify({branch_id:branchId,sku:adjustSku,quantity:amount,
+        body:JSON.stringify({branch_id:adjustBranchId,sku:adjustSku,quantity:amount,
           direction:adjustDirection,note:adjustNote.trim(),request_id:adjustRequestId})
       });
       const json=await res.json().catch(()=>null) as {error?:{message?:string}}|null;
       if (!res.ok) throw new Error(json?.error?.message??"บันทึกรายการปรับสต๊อกไม่สำเร็จ");
-      window.location.assign("/preview/pos/stock/custom?branch_id="+encodeURIComponent(branchId));
+      window.location.assign("/preview/pos/stock/custom?branch_id="+encodeURIComponent(adjustBranchId));
     } catch(e) {
       // Keep the request UUID stable for retries to prevent duplicated stock entries.
       setError(opticalStockError(lang,e instanceof Error?e.message:"บันทึกไม่สำเร็จ"));
@@ -175,7 +177,7 @@ export function OpticalStockWorkspace({rows,branch,branchId,branches,currency,ca
     }
   }
   const close=()=>{if(!busy){
-    if(newProductCreated){window.location.assign("/preview/pos/stock/custom?branch_id="+encodeURIComponent(branchId));return;}
+    if(newProductCreated){window.location.assign("/preview/pos/stock/custom?branch_id="+encodeURIComponent(adjustBranchId));return;}
     setModal(null);setError("");
   }};
   async function save(){
@@ -183,6 +185,11 @@ export function OpticalStockWorkspace({rows,branch,branchId,branches,currency,ca
     if(modal==="sku"||modal==="media"||modal==="best"||modal==="adjust")return;
     const items=modal==="bulk"?bulk:[draft];
     if(modal!=="delete"){
+      if(modal==="add" && initialReceiveQuantity.trim() &&
+        (!/^[1-9][0-9]*$/.test(initialReceiveQuantity.trim()) ||
+        Number(initialReceiveQuantity)>100000)) {
+        setError(T("ระบุจำนวนเต็มบวก และเหตุผลอย่างน้อย 3 ตัวอักษร"));return;
+      }
       const err=checkRows(items,currency);
       if(err){setError(opticalStockError(lang,err));return;}
     }
@@ -198,7 +205,7 @@ export function OpticalStockWorkspace({rows,branch,branchId,branches,currency,ca
       if(!res.ok)throw new Error(json?.error?.message??"บันทึกไม่สำเร็จ");
       if(modal==="add" && draft.sku.trim()){
         setNewProductCreated(true);setBusy(false);
-        openStockAdjustment(draft.sku);
+        openStockAdjustment(draft.sku,destination);
         setAdjustQuantity(initialReceiveQuantity);
         return;
       }
