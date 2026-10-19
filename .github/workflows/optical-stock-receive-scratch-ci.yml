@@ -4,6 +4,8 @@ on:
     branches: [main]
     paths:
       - 'supabase/migrations/20261019211500_optical_stock_adjustment_audit_v1.sql'
+      - 'supabase/migrations/20261019223000_optical_pos_paid_sale_atomic_deduction.sql'
+      - 'scripts/sql/optical-stock-paid-sale-scratch-assertions.sql'
       - 'scripts/sql/optical-stock-receive-scratch-assertions.sql'
       - '.github/workflows/optical-stock-receive-scratch-ci.yml'
   workflow_dispatch:
@@ -47,3 +49,5 @@ jobs:
           psql -v ON_ERROR_STOP=1 -f supabase/migrations/20261015091500_optical_schema_only_qa_disabled.sql
       - name: Run atomic receipt / issue and isolation assertions
         run: psql -v ON_ERROR_STOP=1 -f scripts/sql/optical-stock-receive-scratch-assertions.sql
+      - name: Run atomic Optical payment and unit-stock sale assertions
+        run: psql -v ON_ERROR_STOP=1 -f scripts/sql/optical-stock-paid-sale-scratch-assertions.sql
