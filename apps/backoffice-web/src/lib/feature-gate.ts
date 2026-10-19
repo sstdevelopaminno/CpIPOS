@@ -282,6 +282,27 @@ export async function hasBranchFeature(tenantId: string, branchId: string | null
     enabled = branchOverride.is_enabled;
   }
 
+  // The IT menu switch may grant management access only for the exact
+  // authorized CUSTOM Optical tenant. Preserve explicit feature denials and
+  // the independent contract quotas for actually creating users/branches.
+  const opticalManagementMenu = featureCode === "user_management" ? "settings.users"
+    : featureCode === "branch_management" ? "settings.branches" : null;
+  if (!enabled && !tenantOverride && !branchOverride && opticalManagementMenu &&
+      isOpticalRetailExplicitlyEnabled(contract?.metadata?.sales_modes)) {
+    const [plan, command] = await Promise.all([
+      supabase.from("subscription_packages").select("code")
+        .eq("id", contract!.package_id).maybeSingle<{ code: string }>(),
+      supabase.from("tenant_pos_menu_policies").select("is_enabled")
+        .eq("tenant_id", tenantId).eq("menu_key", opticalManagementMenu)
+        .maybeSingle<{ is_enabled: boolean }>()
+    ]);
+    if (plan.error || command.error) throw new FeatureGateError(
+      "optical_management_policy_check_failed",
+      (plan.error ?? command.error)!.message, 500
+    );
+    enabled = String(plan.data?.code ?? "").toLowerCase() === "custom" && command.data?.is_enabled === true;
+  }
+
   // An IT-approved CUSTOM Optical contract includes core cashier access.
   // Never override an explicit tenant/branch denial, even for Optical stores.
   // Fixed packages and non-Optical CUSTOM modes retain their own entitlements.

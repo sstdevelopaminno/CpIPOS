@@ -87,7 +87,7 @@ function salesModePolicy(
   ) as PosSalesModeSettings;
 }
 
-async function loadTenantFeatureSnapshot(tenantId: string, branchId: string) {
+async function loadTenantFeatureSnapshot(tenantId: string, branchId: string, menuPolicy: Record<string, boolean>) {
   const supabase = getSupabaseServiceClient();
   const { data: contract, error: contractError } = await supabase
     .from("tenant_subscription_contracts")
@@ -200,6 +200,16 @@ async function loadTenantFeatureSnapshot(tenantId: string, branchId: string) {
   );
 
   if (isCustom && salesModes.optical_retail) {
+    // IT-enabled management menus unlock only their own feature; explicit
+    // feature denials and backend provisioning quotas remain authoritative.
+    for (const [feature, menu] of [
+      ["user_management", "settings.users"],
+      ["branch_management", "settings.branches"]
+    ] as const) {
+      if (menuPolicy[menu] === true && !tenantOverrides.has(feature) && !branchOverrides.has(feature)) {
+        features[feature] = true;
+      }
+    }
     // Keep the sidebar in sync with the verified server-side cashier feature gate.
     // An active/trial IT-approved CUSTOM Optical contract includes core POS sales.
     // An explicit tenant/branch grant or denial must continue to win.
@@ -218,10 +228,8 @@ export async function GET(request: Request) {
     // The normal shared server cache is kept for the startup/background traffic.
     const forceFresh = new URL(request.url).searchParams.get("refresh") === "1";
     const loader = async () => {
-      const [snapshot, menuPolicy] = await Promise.all([
-        loadTenantFeatureSnapshot(scope.session.tenant_id, scope.session.branch_id),
-        getTenantPosMenuOverrides(scope.session.tenant_id)
-      ]);
+      const menuPolicy = await getTenantPosMenuOverrides(scope.session.tenant_id);
+      const snapshot = await loadTenantFeatureSnapshot(scope.session.tenant_id, scope.session.branch_id, menuPolicy);
       return { snapshot, menuPolicy };
     };
     const bundle = forceFresh
