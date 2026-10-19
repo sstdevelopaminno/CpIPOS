@@ -25,6 +25,8 @@ describe("CUSTOM Optical basic sales history security", () => {
   });
   it("keeps advanced report entitlements intact for regular tenants", () => {
     expect(page).toContain('requirePosPagePermission("sales:list:view")');
+    expect(page).toContain('"advanced_sales_reports"');
+    expect(page).toContain("!await hasBranchFeature(");
     expect(menu).toContain('item.href === "/preview/pos/sales-list"');
     expect(menu).toContain("const featureLocked = !opticalBasicHistory");
     expect(api).toContain('platformRole: "tenant_user"');
