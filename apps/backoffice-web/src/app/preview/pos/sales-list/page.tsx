@@ -1,5 +1,7 @@
 import { assertPosMenuPageAllowed } from "@/lib/server/pos-menu-policy-service";
-import { requirePosSession } from "@/lib/pos-session-guard";
+import { requirePermission, requirePosSession } from "@/lib/pos-session-guard";
+import { requireOpticalRetailEntitlement } from "@/lib/server/optical-entitlement";
+import { PosOpticalBasicSalesHistory } from "@/components/pos-preview/pos-optical-basic-sales-history";
 import type { BranchRole } from "@pos/shared-types";
 import { PosSalesListWorkspace } from "@/components/pos-preview/pos-sales-list-workspace";
 import { getCurrentLanguage } from "@/lib/i18n";
@@ -9,6 +11,22 @@ import { loadPosSalesListData } from "@/lib/services/pos-sales-list-service";
 export default async function PosSalesListPage() {
   const posMenuScope = await requirePosSession();
   await assertPosMenuPageAllowed(posMenuScope.session.tenant_id, "/preview/pos/sales-list");
+  // A CUSTOM Optical contract can read its basic bill history without buying
+  // advanced_sales_reports. Never grant report exports or bill mutations here.
+  if (await requireOpticalRetailEntitlement(posMenuScope.session.tenant_id)) {
+    requirePermission(posMenuScope, "sales:list:view");
+    const lang = await getCurrentLanguage();
+    const branchRole = posMenuScope.session.role as BranchRole;
+    const history = await loadPosSalesListData({
+      userId: posMenuScope.session.user_id,
+      tenantId: posMenuScope.session.tenant_id,
+      branchId: posMenuScope.session.branch_id,
+      branchRole,
+      platformRole: "tenant_user"
+    });
+    return <PosOpticalBasicSalesHistory lang={lang} initialRecords={history.records}
+      initialBranches={history.branchOptions} />;
+  }
   const scope = await requirePosPagePermission("sales:list:view");
   const lang = await getCurrentLanguage();
   const branchRole = scope.session.role as BranchRole;
