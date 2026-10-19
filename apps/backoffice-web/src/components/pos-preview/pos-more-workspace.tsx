@@ -62,6 +62,7 @@ function MoreIcon({ name }: { name: MoreIconName }) {
 export function PosMoreWorkspace({ lang, role }: { lang: Language; role: PosRole }) {
   const [enabledFeatures, setEnabledFeatures] = useState<Record<string, boolean> | null>(null);
   const [menuPolicy, setMenuPolicy] = useState<Record<string, boolean>>({});
+  const [opticalMoreAccess, setOpticalMoreAccess] = useState<Record<string, boolean>>({});
   const [isCustom, setIsCustom] = useState(false);
   const [policyReady, setPolicyReady] = useState(false);
   const [policyError, setPolicyError] = useState("");
@@ -74,14 +75,15 @@ export function PosMoreWorkspace({ lang, role }: { lang: Language; role: PosRole
     let cancelled = false;
     async function loadFeatures() {
       try {
-        const response = await fetch("/api/pos/features", { cache: "no-store" });
-        const body = (await response.json().catch(() => null)) as { data?: { features?: Record<string, boolean>; menu_policy?: Record<string, boolean>; is_custom?: boolean } | null } | null;
+        const response = await fetch("/api/pos/features?refresh=1", { cache: "no-store" });
+        const body = (await response.json().catch(() => null)) as { data?: { features?: Record<string, boolean>; menu_policy?: Record<string, boolean>; is_custom?: boolean; optical_more_access?: Record<string, boolean> } | null } | null;
         if (!response.ok || !body?.data?.features || !body.data.menu_policy) {
           throw new Error("Failed to load POS menu policy");
         }
         if (!cancelled) {
           setEnabledFeatures(body.data.features);
           setMenuPolicy(body.data.menu_policy);
+          setOpticalMoreAccess(body.data.optical_more_access ?? {});
           setIsCustom(body.data.is_custom === true);
           setPolicyReady(true);
           setPolicyError("");
@@ -120,6 +122,9 @@ export function PosMoreWorkspace({ lang, role }: { lang: Language; role: PosRole
   }
 
   function isLocked(href: string) {
+    // Only the exact IT-approved CUSTOM Optical route has this additional access.
+    // Ordinary packages and unrelated advanced-report APIs keep their feature gates.
+    if (isCustom && opticalMoreAccess[href] === true && !isMenuLocked(href)) return false;
     const feature = featureForPosRoute(href);
     return Boolean(enabledFeatures !== null && feature && enabledFeatures[feature] === false);
   }
