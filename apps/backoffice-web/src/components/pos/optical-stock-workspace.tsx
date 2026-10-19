@@ -19,7 +19,7 @@ type Kind="frame"|"lens"|"accessory";
 type Draft={name:string;sku:string;kind:Kind;price:string;unit:string;note:string;
   brand:string;model:string;color:string;frame_size:string;lens_name:string;
   lens_index:string;lens_sph:string;lens_cyl:string;lens_axis:string;initial_quantity?:string};
-type Modal=null|"add"|"bulk"|"edit"|"delete"|"sku"|"media"|"best"|"adjust";
+type Modal=null|"add"|"bulk"|"edit"|"delete"|"sku"|"media"|"best"|"adjust"|"scan"|"summary";
 const types:Record<Kind,string>={frame:"กรอบแว่น",lens:"เลนส์",accessory:"อุปกรณ์เสริม"};
 const blank=():Draft=>({name:"",sku:"",kind:"frame",price:"",unit:"ชิ้น",note:"",
   brand:"",model:"",color:"",frame_size:"",lens_name:"",lens_index:"",lens_sph:"",lens_cyl:"",lens_axis:"",initial_quantity:""});
@@ -86,6 +86,7 @@ export function OpticalStockWorkspace({rows,branch,branchId,branches,currency,ca
   const [bestRows,setBestRows]=useState<{product_id:string;name:string;sku:string|null;units:number;revenue:number}[]>([]);
   const [sampled,setSampled]=useState(false);
   const [scanSku,setScanSku]=useState("");
+  const [adjustFieldError,setAdjustFieldError]=useState<"sku"|"quantity"|"note"|null>(null);
   const [adjustSku,setAdjustSku]=useState("");
   const [adjustDirection,setAdjustDirection]=useState<"receive"|"issue">("receive");
   const [adjustQuantity,setAdjustQuantity]=useState("");
@@ -137,7 +138,8 @@ export function OpticalStockWorkspace({rows,branch,branchId,branches,currency,ca
   const changeBulk=(idx:number,key:keyof Draft,value:string)=>
     setBulk(s=>s.map((r,i)=>i===idx?{...r,[key]:value}:r));
   const show=(m:Modal,r?:OpticalRow)=>{
-    setError("");setSelected(r??null);setModal(m);
+    setError("");setAdjustFieldError(null);setSelected(r??null);setModal(m);
+    if(m==="scan")setScanSku("");
     if(m==="add"){setDraft({...blank(),kind:tab});setInitialReceiveQuantity("");setNewProductCreated(false);}
     if(m==="add"||m==="bulk")setTargetBranchId(branchId);
     if(m==="edit"&&r)setDraft(forEdit(r));
@@ -150,13 +152,13 @@ export function OpticalStockWorkspace({rows,branch,branchId,branches,currency,ca
     if (!canManage) return;
     setAdjustSku(sku.trim());setAdjustBranchId(stockBranchId);
     setAdjustDirection("receive");setAdjustQuantity("");
-    setAdjustNote("");setAdjustRequestId(crypto.randomUUID());setError("");
+    setAdjustNote("");setAdjustRequestId(crypto.randomUUID());setError("");setAdjustFieldError(null);
     setModal("adjust");
   }
   function handleBarcodeScan() {
-    const barcode=scanSku.trim();
-    if (!barcode) return;
-    const match=rows.find(row=>row.sku?.toLowerCase()===barcode.toLowerCase());
+    const barcode=scanSku.trim().toLowerCase();
+    if (!barcode){setError(T("กรุณากรอกหรือยิงบาร์โค้ดสินค้า"));return;}
+    const match=rows.find(row=>row.sku?.toLowerCase()===barcode);
     if (!match) {setError(T("ไม่พบ SKU / บาร์โค้ดในสาขานี้"));return;}
     setScanSku("");openStockAdjustment(match.sku??barcode);
   }
@@ -173,12 +175,23 @@ export function OpticalStockWorkspace({rows,branch,branchId,branches,currency,ca
   async function saveStockAdjustment() {
     if (!canManage || busy) return;
     const amount=Number(adjustQuantity);
-    if (!/^[1-9][0-9]*$/.test(adjustQuantity.trim()) ||
-        !Number.isSafeInteger(amount) || amount>100000 ||
-        adjustNote.trim().length<3 || adjustNote.trim().length>300) {
-      setError(T("ระบุจำนวนเต็มบวก และเหตุผลอย่างน้อย 3 ตัวอักษร"));return;
+    if(!/^[^\s,;()]{1,90}$/.test(adjustSku.trim())){
+      setAdjustFieldError("sku");setError(T("กรุณาระบุ SKU / บาร์โค้ดสินค้าที่ถูกต้อง"));return;
     }
-    setBusy(true);setError("");
+    if (!/^[1-9][0-9]*$/.test(adjustQuantity.trim()) ||
+        !Number.isSafeInteger(amount) || amount>100000) {
+      setAdjustFieldError("quantity");setError(T("จำนวนต้องเป็นจำนวนเต็มบวกตั้งแต่ 1 ถึง 100,000 ชิ้น"));return;
+    }
+    if (!adjustNote.trim()) {
+      setAdjustFieldError("note");setError(T("กรุณาระบุเหตุผลในการปรับสต๊อก"));return;
+    }
+    if(adjustNote.trim().length<3) {
+      setAdjustFieldError("note");setError(T("เหตุผลในการปรับสต๊อกต้องมีอย่างน้อย 3 ตัวอักษร"));return;
+    }
+    if(adjustNote.trim().length>300){
+      setAdjustFieldError("note");setError(T("เหตุผลในการปรับสต๊อกต้องไม่เกิน 300 ตัวอักษร"));return;
+    }
+    setBusy(true);setError("");setAdjustFieldError(null);
     try {
       const res=await fetch("/api/pos/optical/stock/adjust",{
         method:"POST",credentials:"same-origin",cache:"no-store",
@@ -207,13 +220,13 @@ export function OpticalStockWorkspace({rows,branch,branchId,branches,currency,ca
   }};
   async function save(){
     if(!modal||busy)return;
-    if(modal==="sku"||modal==="media"||modal==="best"||modal==="adjust")return;
+    if(modal==="sku"||modal==="media"||modal==="best"||modal==="adjust"||modal==="scan"||modal==="summary")return;
     const items=modal==="bulk"?bulk:[draft];
     if(modal!=="delete"){
       if(modal==="add" && initialReceiveQuantity.trim() &&
         (!/^[1-9][0-9]*$/.test(initialReceiveQuantity.trim()) ||
         Number(initialReceiveQuantity)>100000)) {
-        setError(T("ระบุจำนวนเต็มบวก และเหตุผลอย่างน้อย 3 ตัวอักษร"));return;
+        setError(T("จำนวนรับเข้าเริ่มต้นต้องเป็นจำนวนเต็มบวก 1–100,000 ชิ้น"));return;
       }
       const err=checkRows(items,currency);
       if(err){setError(opticalStockError(lang,err));return;}
@@ -276,6 +289,11 @@ export function OpticalStockWorkspace({rows,branch,branchId,branches,currency,ca
               {branches.map(b=><option key={b.id} value={b.id}>{b.name}</option>)}
             </select>
           </label>
+          <button type="button" className={btn} onClick={()=>show("summary")}>
+            {T("ดูสรุปสต๊อก")}
+          </button>
+          {canManage?<button type="button" className="min-h-10 rounded-xl border border-emerald-700 bg-white px-4 py-2 text-sm font-bold text-emerald-800"
+            onClick={()=>show("scan")}>{T("สแกนเพิ่ม/ลดสต๊อก")}</button>:null}
           <button className="min-h-10 rounded-xl border border-amber-400 bg-amber-50 px-4 py-2 text-sm font-bold text-amber-900"
             onClick={()=>show("best")}>{T("★ สินค้าขายดี")}</button>
         {canManage?<div className="flex flex-wrap items-center gap-3">
@@ -288,23 +306,7 @@ export function OpticalStockWorkspace({rows,branch,branchId,branches,currency,ca
       <h1 className="mt-1 text-2xl font-extrabold text-slate-900">{T("สต๊อกกรอบแว่นและเลนส์")}</h1>
       <p className="mt-1 text-sm text-slate-600">{branch} · ข้อมูลแยกตาม Tenant และ Branch</p>
     </header>
-    {canManage?<section aria-label={T("สแกนเพื่อปรับสต๊อก")} className="flex flex-wrap items-end gap-3 rounded-xl border border-emerald-200 bg-white p-3">
-      <label className="min-w-[220px] flex-1 text-sm font-semibold">{T("สแกนบาร์โค้ดเพื่อเพิ่ม/ลดจำนวน")}
-        <input className={field+" mt-1"} value={scanSku} autoComplete="off" spellCheck={false}
-          placeholder={T("ยิงบาร์โค้ด แล้วกด Enter")}
-          onChange={e=>setScanSku(e.target.value)}
-          onKeyDown={e=>{if(e.key==="Enter"){e.preventDefault();handleBarcodeScan();}}}/>
-      </label>
-      <button type="button" className={btn} onClick={()=>scanSku.trim()?handleBarcodeScan():openStockAdjustment("")}>
-        {T("+ เพิ่ม/ลดสต๊อก")}
-      </button>
-    </section>:null}
     {error&&!modal?<p role="alert" className="rounded-lg bg-rose-50 p-3 text-sm text-rose-700">{error}</p>:null}
-    <section className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-      {summaryCards.map(([label,value])=><div key={label} className="rounded-xl border border-emerald-100 bg-white p-4 shadow-sm">
-          <p className="text-xs text-slate-500">{T(label)}</p><strong className="mt-2 block text-2xl text-emerald-800">{value}</strong>
-        </div>)}
-    </section>
     <nav role="tablist" aria-label={T("สลับประเภทสต๊อก Optical")} className="flex flex-wrap gap-2">
       {stockTabs.map(value=><button key={value} role="tab" type="button" aria-selected={tab===value}
         className={tab===value?"rounded-xl bg-emerald-700 px-5 py-3 font-bold text-white":
@@ -412,11 +414,41 @@ export function OpticalStockWorkspace({rows,branch,branchId,branches,currency,ca
         className={"flex max-h-[92vh] w-full flex-col overflow-hidden rounded-2xl bg-white shadow-2xl "+(modal==="bulk"||modal==="media"?"max-w-6xl":"max-w-xl")}>
         <header className="flex justify-between gap-3 border-b border-slate-200 p-5">
           <div><h2 id="optical-modal-title" className="text-lg font-extrabold">
-            {T(modal==="add"?"เพิ่มสินค้า":modal==="edit"?"แก้ไขสินค้า":modal==="bulk"?"สร้างสินค้าหลายรายการ":modal==="sku"?"SKU / บาร์โค้ด":modal==="media"?"จัดการรูปสินค้า":modal==="best"?"สินค้าขายดี 30 วันย้อนหลัง":modal==="adjust"?"รับเข้า / เบิกออกสต๊อก Optical":"ยืนยันการลบสินค้า")}
-          </h2>{modal!=="delete"&&modal!=="sku"&&modal!=="media"&&modal!=="best"&&modal!=="adjust"?<p className="mt-1 text-xs text-slate-500">{T("กรอกหรือสแกนบาร์โค้ดได้ · การสร้าง/แก้สินค้าไม่ใช่การรับสต๊อก · ต้องบันทึกจำนวนรับเข้าแยกด้วยรายการตรวจสอบ")}</p>:null}</div>
+            {T(modal==="add"?"เพิ่มสินค้า":modal==="edit"?"แก้ไขสินค้า":modal==="bulk"?"สร้างสินค้าหลายรายการ":modal==="sku"?"SKU / บาร์โค้ด":modal==="media"?"จัดการรูปสินค้า":modal==="best"?"สินค้าขายดี 30 วันย้อนหลัง":modal==="scan"?"สแกนบาร์โค้ดเพื่อเพิ่ม/ลดสต๊อก":modal==="summary"?"สรุปจำนวนสินค้าในสต๊อก":modal==="adjust"?"รับเข้า / เบิกออกสต๊อก Optical":"ยืนยันการลบสินค้า")}
+          </h2>{modal!=="delete"&&modal!=="sku"&&modal!=="media"&&modal!=="best"&&modal!=="adjust"&&modal!=="scan"&&modal!=="summary"?<p className="mt-1 text-xs text-slate-500">{T("กรอกหรือสแกนบาร์โค้ดได้ · การสร้าง/แก้สินค้าไม่ใช่การรับสต๊อก · ต้องบันทึกจำนวนรับเข้าแยกด้วยรายการตรวจสอบ")}</p>:null}</div>
           <button aria-label={T("ปิด")} disabled={busy} className="px-2 text-xl" onClick={close}>×</button>
         </header>
         <div className="min-h-0 overflow-y-auto p-5">
+          {modal==="scan"?<div className="space-y-4">
+            <p className="text-sm text-slate-600">{T("ใช้เครื่องยิงบาร์โค้ดหรือพิมพ์ SKU แล้วกด Enter จากนั้นยืนยันการรับเข้า/เบิกออกในขั้นตอนถัดไป")}</p>
+            <label className="block text-sm font-semibold">{T("SKU / บาร์โค้ดสินค้า")}
+              <input className={field+" mt-1"} autoFocus autoComplete="off" spellCheck={false}
+                value={scanSku} placeholder={T("ยิงบาร์โค้ดหรือกรอกรหัสสินค้า")}
+                onChange={e=>{setScanSku(e.target.value);setError("");}}
+                onKeyDown={e=>{if(e.key==="Enter"){e.preventDefault();handleBarcodeScan();}}}/>
+            </label>
+            <button type="button" className="min-h-10 rounded-xl bg-emerald-700 px-4 py-2 text-sm font-bold text-white"
+              onClick={handleBarcodeScan}>{T("ค้นหาจากบาร์โค้ด")}</button>
+            <div className="max-h-[35vh] space-y-2 overflow-y-auto" aria-label={T("ผลการค้นหาสินค้า")}>
+              {rows.filter(r=>r.sku && (!scanSku.trim()||
+                [r.name,r.sku].some(v=>String(v??"").toLowerCase().includes(scanSku.trim().toLowerCase()))))
+                .slice(0,12).map(r=><button key={r.id} type="button"
+                  className="flex w-full items-center justify-between gap-3 rounded-xl border border-slate-200 px-4 py-3 text-left text-sm hover:border-emerald-400"
+                  onClick={()=>openStockAdjustment(r.sku??"")}>
+                  <span className="font-semibold text-slate-800">{r.name}</span>
+                  <span className="shrink-0 text-slate-500">{r.sku}</span>
+                </button>)}
+            </div>
+          </div>:null}
+          {modal==="summary"?<div>
+            <p className="mb-4 text-sm text-slate-600">{branch} · {T("ยอดอ้างอิงจากสต๊อกที่ยืนยันแล้ว ไม่ถือว่าสินค้ารอรับเข้ามียอดเป็นศูนย์")}</p>
+            <div className="grid grid-cols-2 gap-3">
+              {summaryCards.map(([label,value])=><div key={label} className="rounded-xl border border-emerald-100 bg-emerald-50 p-4" >
+                <p className="text-xs text-slate-600">{T(label)}</p>
+                <strong className="mt-2 block text-2xl text-emerald-800">{value}</strong>
+              </div>)}
+            </div>
+          </div>:null}
           {modal==="adjust"?<div className="grid gap-3">
             {newProductCreated?<p role="status" className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
               {bulkReceiptTotal>0
@@ -428,9 +460,10 @@ export function OpticalStockWorkspace({rows,branch,branchId,branches,currency,ca
             </p>
             <label className="text-sm font-semibold">{T("SKU / บาร์โค้ด")}
               <input className={field+" mt-1"} value={adjustSku}
-                autoFocus autoComplete="off" spellCheck={false}
+                autoFocus autoComplete="off" spellCheck={false} aria-invalid={adjustFieldError==="sku"}
                 onKeyDown={e=>{if(e.key==="Enter")e.preventDefault();}}
-                onChange={e=>setAdjustSku(e.target.value)}/>
+                onChange={e=>{setAdjustSku(e.target.value);if(adjustFieldError==="sku"){setAdjustFieldError(null);setError("");}}}/>
+              {adjustFieldError==="sku"&&error?<span role="alert" className="mt-1 block text-xs text-rose-700">{error}</span>:null}
             </label>
             {adjustBranchId===branchId?<label className="text-sm font-semibold">เลือกสินค้าจากรายการ
               <select className={field+" mt-1"} value={rows.some(r=>r.sku===adjustSku)?adjustSku:""}
@@ -455,12 +488,27 @@ export function OpticalStockWorkspace({rows,branch,branchId,branches,currency,ca
             <label className="text-sm font-semibold">{T("จำนวนชิ้นที่ต้องการเพิ่ม/ลด *")}
               <input className={field+" mt-1"} inputMode="numeric" type="number"
                 min={1} max={100000} step={1} value={adjustQuantity}
-                onChange={e=>setAdjustQuantity(e.target.value)}/>
+                aria-invalid={adjustFieldError==="quantity"}
+                onChange={e=>{setAdjustQuantity(e.target.value);if(adjustFieldError==="quantity"){setAdjustFieldError(null);setError("");}}}/>
+              {adjustFieldError==="quantity"&&error?<span role="alert" className="mt-1 block text-xs text-rose-700">{error}</span>:null}
             </label>
+            <div className="text-sm font-semibold">
+              <p className="mb-2">{T("เลือกเหตุผลอย่างรวดเร็ว (หรือพิมพ์เอง)")}</p>
+              <div className="flex flex-wrap gap-2">
+                {(adjustDirection==="receive"
+                  ?["รับสินค้าตามใบส่งของ","รับสินค้าเข้าใหม่","ปรับยอดจากผลตรวจนับ"]
+                  :["เบิกใช้ภายในร้าน","สินค้าชำรุด","ปรับยอดจากผลตรวจนับ"]
+                ).map(reason=><button type="button" key={reason} className={btn+" min-h-9"}
+                  onClick={()=>{setAdjustNote(reason);setError("");setAdjustFieldError(null);}}>{T(reason)}</button>)}
+              </div>
+            </div>
             <label className="text-sm font-semibold">{T("เหตุผล / เอกสารอ้างอิง *")}
-              <textarea className={field+" mt-1"} value={adjustNote} maxLength={300}
+              <textarea className={field+" mt-1"} value={adjustNote} minLength={3} maxLength={300} rows={2}
+                aria-invalid={adjustFieldError==="note"}
                 placeholder={T("เช่น รับสินค้าตามใบส่งของ / ปรับจากผลตรวจนับ")}
-                onChange={e=>setAdjustNote(e.target.value)}/>
+                onChange={e=>{setAdjustNote(e.target.value);if(adjustFieldError==="note"){setAdjustFieldError(null);setError("");}}}/>
+              <span className="mt-1 block text-xs font-normal text-slate-500">{T("ต้องระบุเหตุผลอย่างน้อย 3 ตัวอักษร เพื่อบันทึกประวัติตรวจสอบ")}</span>
+              {adjustFieldError==="note"&&error?<span role="alert" className="mt-1 block text-xs text-rose-700">{error}</span>:null}
             </label>
           </div>:null}
           {modal==="best"?<div className="space-y-3">
@@ -602,13 +650,13 @@ export function OpticalStockWorkspace({rows,branch,branchId,branches,currency,ca
               <span className="text-xs text-slate-500">{bulk.length}/50 รายการ</span>
             </div>
           </>:null}
-          {error?<p role="alert" className="mt-4 rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">{error}</p>:null}
+          {error&&(modal!=="adjust"||!adjustFieldError)?<p role="alert" className="mt-4 rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">{error}</p>:null}
         </div>
         <footer className="flex justify-end gap-2 border-t border-slate-200 bg-slate-50 p-4">
           <button className={btn} disabled={busy} onClick={close}>{T("ยกเลิก")}</button>
           {modal==="adjust"?<button className="min-h-10 rounded-xl bg-emerald-700 px-5 py-2 text-sm font-bold text-white disabled:opacity-50"
               disabled={busy} onClick={()=>void saveStockAdjustment()}>{T(busy?"กำลังบันทึก...":"ยืนยันปรับสต๊อก")}</button>:null}
-          {modal!=="sku"&&modal!=="media"&&modal!=="best"&&modal!=="adjust"?<button className={"min-h-10 rounded-xl px-5 py-2 text-sm font-bold text-white disabled:opacity-50 "+(modal==="delete"?"bg-rose-700":"bg-emerald-700")}
+          {modal!=="sku"&&modal!=="media"&&modal!=="best"&&modal!=="adjust"&&modal!=="scan"&&modal!=="summary"?<button className={"min-h-10 rounded-xl px-5 py-2 text-sm font-bold text-white disabled:opacity-50 "+(modal==="delete"?"bg-rose-700":"bg-emerald-700")}
             disabled={busy} onClick={()=>void save()}>{T(busy?"กำลังบันทึก...":modal==="delete"?"ยืนยันลบ":modal==="bulk"?"บันทึกทั้งหมด":"บันทึก")}</button>:null}
         </footer>
       </section>

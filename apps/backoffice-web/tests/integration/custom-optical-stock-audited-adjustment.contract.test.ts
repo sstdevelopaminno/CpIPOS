@@ -32,7 +32,7 @@ describe("Optical stock receive / issue audited workflow (staged only)",()=>{
   expect(sql).toContain("alter table public.optical_stock_adjustments enable row level security");
  });
  it("barcode scanner opens a popup; adjustments require user confirmation",()=>{
-  expect(ui).toContain('type Modal=null|"add"|"bulk"|"edit"|"delete"|"sku"|"media"|"best"|"adjust"');
+  expect(ui).toContain('type Modal=null|"add"|"bulk"|"edit"|"delete"|"sku"|"media"|"best"|"adjust"|"scan"|"summary"');
   expect(ui).toContain("handleBarcodeScan()");
   expect(ui).toContain('onClick={()=>openStockAdjustment(row.sku??"")}');
   expect(ui).toContain("saveStockAdjustment()");
@@ -50,5 +50,16 @@ describe("Optical stock receive / issue audited workflow (staged only)",()=>{
   expect(ui).toContain("const catalogItems=items.map");
   expect(ui).toContain("setAdjustQuantity(proposals[0].quantity)");
   expect(ui).toContain("ไม่รับเข้าอัตโนมัติ");
+ });
+ it("moves barcode scanner and summary cards into distinct dialogs without changing audited stock mutations",()=>{
+  expect(ui).toContain('onClick={()=>show("scan")}');
+  expect(ui).toContain('onClick={()=>show("summary")}');
+  expect(ui).toContain('modal==="scan"?<div');
+  expect(ui).toContain('modal==="summary"?<div');
+  expect(ui).toContain('role="alert" className="mt-1 block text-xs text-rose-700"');
+  expect(ui).toContain("กรุณาระบุเหตุผลในการปรับสต๊อก");
+  expect(ui).toContain("จำนวนต้องเป็นจำนวนเต็มบวก");
+  expect(ui).toContain("รับสินค้าตามใบส่งของ");
+  expect(ui).not.toContain('aria-label={T("สแกนเพื่อปรับสต๊อก")}');
  });
 });

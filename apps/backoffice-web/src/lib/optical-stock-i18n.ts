@@ -1,6 +1,27 @@
 /** CUSTOM Optical inventory: localized copy only. Business values and SKU never translated. */
 import type {Language} from "@/lib/i18n";
 const copy:Readonly<Record<string,readonly [string,string]>>={
+  "ดูสรุปสต๊อก": ["Stock summary","ສະຫຼຸບສະຕັອກ"],
+  "สแกนเพิ่ม/ลดสต๊อก": ["Scan to receive / issue","ສະແກນຮັບ/ຈ່າຍສະຕັອກ"],
+  "สแกนบาร์โค้ดเพื่อเพิ่ม/ลดสต๊อก": ["Scan barcode to receive / issue stock","ສະແກນບາໂຄດເພື່ອຮັບ/ຈ່າຍສະຕັອກ"],
+  "สรุปจำนวนสินค้าในสต๊อก": ["Inventory summary","ສະຫຼຸບຈຳນວນສິນຄ້າ"],
+  "SKU / บาร์โค้ดสินค้า": ["Product SKU / barcode","SKU / ບາໂຄດສິນຄ້າ"],
+  "ยิงบาร์โค้ดหรือกรอกรหัสสินค้า": ["Scan barcode or enter SKU","ສະແກນບາໂຄດ ຫຼື ປ້ອນ SKU"],
+  "ค้นหาจากบาร์โค้ด": ["Find barcode","ຄົ້ນຫາຈາກບາໂຄດ"],
+  "ผลการค้นหาสินค้า": ["Product search results","ຜົນຄົ້ນຫາສິນຄ້າ"],
+  "กรุณากรอกหรือยิงบาร์โค้ดสินค้า": ["Enter or scan a product barcode","ກະລຸນາປ້ອນ ຫຼື ສະແກນບາໂຄດ"],
+  "กรุณาระบุ SKU / บาร์โค้ดสินค้าที่ถูกต้อง": ["Enter a valid SKU / barcode","ກະລຸນາປ້ອນ SKU / ບາໂຄດທີ່ຖືກຕ້ອງ"],
+  "จำนวนต้องเป็นจำนวนเต็มบวกตั้งแต่ 1 ถึง 100,000 ชิ้น": ["Quantity must be a positive whole number from 1 to 100,000","ຈຳນວນຕ້ອງເປັນຈຳນວນເຕັມ 1–100,000"],
+  "กรุณาระบุเหตุผลในการปรับสต๊อก": ["Enter a reason for the stock adjustment","ກະລຸນາໃສ່ເຫດຜົນການປັບສະຕັອກ"],
+  "เหตุผลในการปรับสต๊อกต้องมีอย่างน้อย 3 ตัวอักษร": ["The reason must contain at least 3 characters","ເຫດຜົນຕ້ອງມີຢ່າງໜ້ອຍ 3 ຕົວອັກສອນ"],
+  "เหตุผลในการปรับสต๊อกต้องไม่เกิน 300 ตัวอักษร": ["Reason must not exceed 300 characters","ເຫດຜົນຕ້ອງບໍ່ເກີນ 300 ຕົວອັກສອນ"],
+  "เลือกเหตุผลอย่างรวดเร็ว (หรือพิมพ์เอง)": ["Choose a reason or type your own","ເລືອກເຫດຜົນ ຫຼື ພິມເອງ"],
+  "รับสินค้าตามใบส่งของ": ["Received from delivery note","ຮັບສິນຄ້າຕາມໃບສົ່ງ"],
+  "รับสินค้าเข้าใหม่": ["New stock received","ຮັບສິນຄ້າໃໝ່"],
+  "ปรับยอดจากผลตรวจนับ": ["Adjusted after stock count","ປັບຍອດຈາກການນັບສະຕັອກ"],
+  "เบิกใช้ภายในร้าน": ["Issued for store use","ເບີກໃຊ້ໃນຮ້ານ"],
+  "สินค้าชำรุด": ["Damaged stock","ສິນຄ້າເສຍຫາຍ"],
+  "จำนวนรับเข้าเริ่มต้นต้องเป็นจำนวนเต็มบวก 1–100,000 ชิ้น": ["Initial receipt must be a positive whole number from 1 to 100,000","ຈຳນວນຮັບເຂົ້າຕ້ອງເປັນຈຳນວນເຕັມ 1–100,000"],
   "กรอบแว่น": [
     "Frames",
     "ຂອບແວ່ນ"
