@@ -200,6 +200,12 @@ async function loadTenantFeatureSnapshot(tenantId: string, branchId: string) {
   );
 
   if (isCustom && salesModes.optical_retail) {
+    // Keep the sidebar in sync with the verified server-side cashier feature gate.
+    // An active/trial IT-approved CUSTOM Optical contract includes core POS sales.
+    // An explicit tenant/branch grant or denial must continue to win.
+    if (!tenantOverrides.has("core_pos_sales") && !branchOverrides.has("core_pos_sales")) {
+      features.core_pos_sales = true;
+    }
     features.barcode_scanner_mode = true;
   }
   return { features, salesModes, isCustom };
