@@ -87,6 +87,8 @@ export function OpticalStockWorkspace({rows,branch,branchId,branches,currency,ca
   const [adjustQuantity,setAdjustQuantity]=useState("");
   const [adjustNote,setAdjustNote]=useState("");
   const [adjustRequestId,setAdjustRequestId]=useState("");
+  const [newProductCreated,setNewProductCreated]=useState(false);
+  const [initialReceiveQuantity,setInitialReceiveQuantity]=useState("");
   const displayed=useMemo(()=>rows.filter(r=>{
     if(search&&!([r.name,r.sku,r.category].some(v=>String(v??"").toLowerCase().includes(search.trim().toLowerCase()))))return false;
     if(kind(r)!==tab)return false;
@@ -129,7 +131,7 @@ export function OpticalStockWorkspace({rows,branch,branchId,branches,currency,ca
     setBulk(s=>s.map((r,i)=>i===idx?{...r,[key]:value}:r));
   const show=(m:Modal,r?:OpticalRow)=>{
     setError("");setSelected(r??null);setModal(m);
-    if(m==="add")setDraft({...blank(),kind:tab});
+    if(m==="add"){setDraft({...blank(),kind:tab});setInitialReceiveQuantity("");setNewProductCreated(false);}
     if(m==="add"||m==="bulk")setTargetBranchId(branchId);
     if(m==="edit"&&r)setDraft(forEdit(r));
     if(m==="bulk")setBulk([blank(),blank(),blank()].map(row=>({...row,kind:tab})));
@@ -172,7 +174,10 @@ export function OpticalStockWorkspace({rows,branch,branchId,branches,currency,ca
       setBusy(false);
     }
   }
-  const close=()=>{if(!busy){setModal(null);setError("");}};
+  const close=()=>{if(!busy){
+    if(newProductCreated){window.location.assign("/preview/pos/stock/custom?branch_id="+encodeURIComponent(branchId));return;}
+    setModal(null);setError("");
+  }};
   async function save(){
     if(!modal||busy)return;
     if(modal==="sku"||modal==="media"||modal==="best"||modal==="adjust")return;
@@ -191,6 +196,12 @@ export function OpticalStockWorkspace({rows,branch,branchId,branches,currency,ca
         headers:{"Content-Type":"application/json"},body:JSON.stringify(body),cache:"no-store"});
       const json=await res.json().catch(()=>null) as {error?:{message?:string}}|null;
       if(!res.ok)throw new Error(json?.error?.message??"บันทึกไม่สำเร็จ");
+      if(modal==="add" && draft.sku.trim()){
+        setNewProductCreated(true);setBusy(false);
+        openStockAdjustment(draft.sku);
+        setAdjustQuantity(initialReceiveQuantity);
+        return;
+      }
       window.location.assign("/preview/pos/stock/custom?branch_id="+encodeURIComponent(destination));
     }catch(e){setError(opticalStockError(lang,e instanceof Error?e.message:"เกิดข้อผิดพลาด"));setBusy(false);}
   }
@@ -469,6 +480,12 @@ export function OpticalStockWorkspace({rows,branch,branchId,branches,currency,ca
             <label className="text-sm font-semibold">{T("หน่วย")}
               <input className={field+" mt-1"} value={draft.unit} maxLength={30} onChange={e=>change("unit",e.target.value)}/>
             </label>
+            {modal==="add"?<label className="sm:col-span-2 text-sm font-semibold">
+              {T("จำนวนรับเข้าเริ่มต้น (จะเปิดหน้าต่างยืนยันสต๊อกแยก)")}
+              <input type="number" min={1} max={100000} step={1}
+                className={field+" mt-1"} value={initialReceiveQuantity}
+                onChange={e=>setInitialReceiveQuantity(e.target.value)}/>
+            </label>:null}
             {modal==="edit"?<div className="sm:col-span-2 rounded-lg border border-amber-200 bg-amber-50 p-3">
               <p className="text-sm font-semibold">{T("จำนวนคงเหลือที่ยืนยันแล้ว")}: {selected?remaining(selected)??"—":"—"}</p>
               <p className="mt-1 text-xs">{T("กดปรับจำนวนเพื่อรับสินค้าเข้าหรือเบิกออก โดยมีประวัติตรวจสอบ")}</p>
