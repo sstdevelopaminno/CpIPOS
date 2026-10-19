@@ -1,6 +1,7 @@
 import { assertPosMenuPageAllowed } from "@/lib/server/pos-menu-policy-service";
 import { requirePermission, requirePosSession } from "@/lib/pos-session-guard";
 import { requireOpticalRetailEntitlement } from "@/lib/server/optical-entitlement";
+import { hasBranchFeature } from "@/lib/feature-gate";
 import { PosOpticalBasicSalesHistory } from "@/components/pos-preview/pos-optical-basic-sales-history";
 import type { BranchRole } from "@pos/shared-types";
 import { PosSalesListWorkspace } from "@/components/pos-preview/pos-sales-list-workspace";
@@ -13,7 +14,11 @@ export default async function PosSalesListPage() {
   await assertPosMenuPageAllowed(posMenuScope.session.tenant_id, "/preview/pos/sales-list");
   // A CUSTOM Optical contract can read its basic bill history without buying
   // advanced_sales_reports. Never grant report exports or bill mutations here.
-  if (await requireOpticalRetailEntitlement(posMenuScope.session.tenant_id)) {
+  // Optical stores that explicitly purchased advanced reports keep the full
+  // existing reporting page; the read-only alternative is for basic contracts.
+  const basicOptical = await requireOpticalRetailEntitlement(posMenuScope.session.tenant_id) &&
+    !await hasBranchFeature(posMenuScope.session.tenant_id, posMenuScope.session.branch_id, "advanced_sales_reports");
+  if (basicOptical) {
     requirePermission(posMenuScope, "sales:list:view");
     const lang = await getCurrentLanguage();
     const branchRole = posMenuScope.session.role as BranchRole;
