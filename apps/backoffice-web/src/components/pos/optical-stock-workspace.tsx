@@ -563,12 +563,12 @@ export function OpticalStockWorkspace({rows,branch,branchId,branches,currency,ca
           </div>:null}
           {modal==="bulk"?<>
             <div className="overflow-x-auto rounded-xl border border-slate-200">
-              <table className="min-w-[1100px] w-full text-sm">
+              <table className="min-w-[1650px] w-full text-sm">
                 <thead className="bg-emerald-50 text-left"><tr>{["#","ชื่อสินค้า *","ประเภท","SKU / บาร์โค้ด *","แบรนด์ / ยี่ห้อ","รุ่น / ชื่อเลนส์","สี / Index","ขนาด / SPH","CYL","ราคา ("+currency+") *","หน่วย","จำนวนรับเข้าเริ่มต้น","ลบแถว"].map(x=><th className="p-2" key={x}>{x.startsWith("ราคา (")?T("ราคา (")+currency+") *":T(x)}</th>)}</tr></thead>
                 <tbody>{bulk.map((row,i)=><tr className="border-t border-slate-100" key={i}>
                   <td className="p-2">{i+1}</td>
                   <td className="p-2"><input className={field} maxLength={180} value={row.name} onChange={e=>changeBulk(i,"name",e.target.value)}/></td>
-                  <td className="p-2"><select className={field} value={row.kind} onChange={e=>changeBulk(i,"kind",e.target.value)}>
+                  <td className="p-2"><select className={field+" min-w-[130px]"} value={row.kind} onChange={e=>changeBulk(i,"kind",e.target.value)}>
                     {Object.entries(types).map(([k,v])=><option key={k} value={k}>{T(v)}</option>)}
                   </select></td>
                   <td className="p-2"><input className={field} value={row.sku} maxLength={90} autoComplete="off" spellCheck={false} onKeyDown={e=>{if(e.key==="Enter")e.preventDefault();}} onChange={e=>changeBulk(i,"sku",e.target.value)} placeholder={T("กรอกหรือสแกน")}/></td>
