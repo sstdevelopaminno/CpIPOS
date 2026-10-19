@@ -19,6 +19,7 @@ import {
 import { deductIngredientStockForPaidOrderFallback } from "@/lib/services/pos-sales-service";
 import { loadReceiptStoreProfile } from "@/lib/services/store-profile-service";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
+import { requireOpticalRetailEntitlement } from "@/lib/server/optical-entitlement";
 
 type PayOrderPayload = {
   method?: string;
@@ -96,7 +97,9 @@ export async function POST(request: Request, context: { params: Promise<{ orderI
     }
 
     const requestGroupId = request.headers.get("x-idempotency-key")?.trim() || crypto.randomUUID();
-    const { data: paymentResultRows, error: paymentRpcError } = await supabase.rpc("complete_pos_payment_tx", {
+    const isOptical = await requireOpticalRetailEntitlement(scope.session.tenant_id);
+    const { data: paymentResultRows, error: paymentRpcError } = await supabase.rpc(
+      isOptical ? "optical_complete_pos_payment_tx" : "complete_pos_payment_tx", {
       p_tenant_id: scope.session.tenant_id,
       p_branch_id: scope.session.branch_id,
       p_order_id: orderRow.id,
@@ -131,21 +134,25 @@ export async function POST(request: Request, context: { params: Promise<{ orderI
     const paymentResult = Array.isArray(paymentResultRows) ? paymentResultRows[0] : null;
     const paidAmount = round2(Number(paymentResult?.total_paid ?? dueTotal));
 
-    const stockDeductionResult = await deductIngredientStockForPaidOrderFallback({
-      auth: {
-        userId: scope.session.user_id,
-        platformRole: "tenant_user",
-        tenantId: scope.session.tenant_id,
-        branchId: scope.session.branch_id,
-        branchRole: scope.session.role as BranchRole
-      },
-      orderId: orderRow.id
-    });
-    if (!stockDeductionResult.ok) {
-      return NextResponse.json(
-        { data: null, error: { code: stockDeductionResult.code, message: stockDeductionResult.message } },
-        { status: stockDeductionResult.status }
-      );
+    // Atomic Optical RPC has already changed both payment and optical bin counts.
+    // Never deduct legacy restaurant ingredients for this product mode.
+    if (!isOptical) {
+      const stockDeductionResult = await deductIngredientStockForPaidOrderFallback({
+        auth: {
+          userId: scope.session.user_id,
+          platformRole: "tenant_user",
+          tenantId: scope.session.tenant_id,
+          branchId: scope.session.branch_id,
+          branchRole: scope.session.role as BranchRole
+        },
+        orderId: orderRow.id
+      });
+      if (!stockDeductionResult.ok) {
+        return NextResponse.json(
+          { data: null, error: { code: stockDeductionResult.code, message: stockDeductionResult.message } },
+          { status: stockDeductionResult.status }
+        );
+      }
     }
 
     await supabase
