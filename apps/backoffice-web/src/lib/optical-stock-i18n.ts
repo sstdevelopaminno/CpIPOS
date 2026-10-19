@@ -29,6 +29,11 @@ const copy:Readonly<Record<string,readonly [string,string]>>={
     "Out of stock",
     "ໝົດ"
   ],
+  "ยังไม่มีรายการรับเข้าสต๊อก": ["No recorded stock receipt","ຍັງບໍ່ມີລາຍການຮັບສະຕັອກ"],
+  "ยังไม่บันทึกจำนวนรับเข้าสต๊อก ไม่ใช่ยอดคงเหลือ 0": ["Stock receipt not recorded (not zero inventory)","ຍັງບໍ່ບັນທຶກການຮັບສະຕັອກ (ບໍ່ແມ່ນຍອດ 0)"],
+  "กรอกหรือสแกนบาร์โค้ดได้ · การสร้าง/แก้สินค้าไม่ใช่การรับสต๊อก · ต้องบันทึกจำนวนรับเข้าแยกด้วยรายการตรวจสอบ": ["Enter or scan barcode. Catalog changes do not receive stock; quantities require a separate audited receipt.","ປ້ອນ ຫຼື ສະແກນບາໂຄດ · ການແກ້ສິນຄ້າບໍ່ແມ່ນການຮັບສະຕັອກ"],
+  "SKU / บาร์โค้ด (กรอกหรือสแกน) *": ["SKU / Barcode (enter or scan) *","SKU / ບາໂຄດ (ປ້ອນ ຫຼື ສະແກນ) *"],
+  "กรอกหรือสแกน": ["Enter or scan","ປ້ອນ ຫຼື ສະແກນ"],
   "รอตรวจสต๊อก": [
     "Pending stock verification",
     "ລໍຖ້າກວດສະຕັອກ"
