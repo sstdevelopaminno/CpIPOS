@@ -20,7 +20,7 @@ describe("CUSTOM Optical catalog UI and API isolation",()=>{
     expect(ui).toContain("ก่อนหน้า");
     expect(ui).toContain("ถัดไป");
     expect(ui).toContain("สร้างสินค้าหลายรายการ");
-    expect(ui).toContain("กรอกเอง");
+    expect(ui).toContain("กรอกหรือสแกน");
     expect(ui).toContain('role="dialog"');
     expect(ui).toContain('setBulk(r=>[...r,{...blank(),kind:tab}])');
     expect(ui).toContain('"PATCH":"POST"');
