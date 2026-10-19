@@ -111,7 +111,9 @@ describe("POS tenant menu toggle regression", () => {
       expect(component).toContain('document.removeEventListener("visibilitychange", onVisibility)');
       expect(component).toContain("lastRefresh < 5_000");
     }
-    // A failed /api/pos/features response must not overwrite the menu policy.
-    expect(more).toContain("if (!cancelled && response.ok) {");
+    // A failed /api/pos/features response must not grant or display unauthorized menus.
+    expect(more).toContain('if (!response.ok || !body?.data?.features || !body.data.menu_policy) {');
+    expect(more).toContain("setPolicyReady(false); // Fail closed");
+    expect(more).toContain("setPolicyError(");
   });
 });

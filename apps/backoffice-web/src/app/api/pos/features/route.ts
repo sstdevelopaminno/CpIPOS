@@ -204,7 +204,8 @@ async function loadTenantFeatureSnapshot(tenantId: string, branchId: string, men
     // feature denials and backend provisioning quotas remain authoritative.
     for (const [feature, menu] of [
       ["user_management", "settings.users"],
-      ["branch_management", "settings.branches"]
+      ["branch_management", "settings.branches"],
+      ["stock_management", "more.stock"]
     ] as const) {
       if (menuPolicy[menu] === true && !tenantOverrides.has(feature) && !branchOverrides.has(feature)) {
         features[feature] = true;

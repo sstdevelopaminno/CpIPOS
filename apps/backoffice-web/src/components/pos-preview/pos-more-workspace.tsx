@@ -64,6 +64,8 @@ export function PosMoreWorkspace({ lang, role }: { lang: Language; role: PosRole
   const [menuPolicy, setMenuPolicy] = useState<Record<string, boolean>>({});
   const [isCustom, setIsCustom] = useState(false);
   const [policyReady, setPolicyReady] = useState(false);
+  const [policyError, setPolicyError] = useState("");
+  const [refreshCounter, setRefreshCounter] = useState(0);
   const [packageLockOpen, setPackageLockOpen] = useState(false);
   const [itLockedMenu, setItLockedMenu] = useState<string | null>(null);
   const items = MORE_ITEMS.filter((item) => item.roles.includes(role));
@@ -74,14 +76,22 @@ export function PosMoreWorkspace({ lang, role }: { lang: Language; role: PosRole
       try {
         const response = await fetch("/api/pos/features", { cache: "no-store" });
         const body = (await response.json().catch(() => null)) as { data?: { features?: Record<string, boolean>; menu_policy?: Record<string, boolean>; is_custom?: boolean } | null } | null;
-        if (!cancelled && response.ok) {
-          setEnabledFeatures(body?.data?.features ?? {});
-          setMenuPolicy(body?.data?.menu_policy ?? {});
-          setIsCustom(body?.data?.is_custom === true);
+        if (!response.ok || !body?.data?.features || !body.data.menu_policy) {
+          throw new Error("Failed to load POS menu policy");
+        }
+        if (!cancelled) {
+          setEnabledFeatures(body.data.features);
+          setMenuPolicy(body.data.menu_policy);
+          setIsCustom(body.data.is_custom === true);
           setPolicyReady(true);
+          setPolicyError("");
         }
       } catch {
-        if (!cancelled) setEnabledFeatures({});
+        if (!cancelled) {
+          setPolicyReady(false); // Fail closed rather than rendering wrong package menus.
+          setEnabledFeatures(null);
+          setPolicyError(lang === "th" ? "ไม่สามารถโหลดสิทธิ์เมนูจากระบบได้ กรุณาลองอีกครั้ง" : "Unable to load POS menu permissions. Please retry.");
+        }
       }
     }
     // IT edits the shared Supabase table from another app. Refresh only when POS
@@ -103,7 +113,7 @@ export function PosMoreWorkspace({ lang, role }: { lang: Language; role: PosRole
       window.removeEventListener("focus", onFocus);
       document.removeEventListener("visibilitychange", onVisibility);
     };
-  }, []);
+  }, [refreshCounter, lang]);
 
   function isMenuLocked(href: string) {
     return !isPosMenuEnabled(posMenuKeyForRoute(href) ?? "", menuPolicy);
@@ -123,17 +133,30 @@ export function PosMoreWorkspace({ lang, role }: { lang: Language; role: PosRole
     <main className="h-full min-h-0 overflow-y-auto bg-slate-50 p-3 sm:p-5">
       <section className="min-h-full rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
         <header className="mb-5"><h1 className="text-2xl font-black text-slate-950">{t(lang, "pos_menu_more_title")}</h1><p className="mt-1 text-sm font-semibold text-slate-500">{t(lang, "pos_menu_more_desc")}</p></header>
+        {policyError ? <div role="alert" className="mb-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+          {policyError} <button type="button" className="ml-2 font-semibold underline" onClick={() => setRefreshCounter(n => n + 1)}>
+            {lang === "en" ? "Retry" : "ลองอีกครั้ง"}
+          </button>
+        </div> : null}
+        {!policyReady && !policyError ? <p role="status" className="text-sm text-slate-600">{lang === "en" ? "Loading menu permissions..." : "กำลังตรวจสอบสิทธิ์เมนู..."}</p> : null}
+        {policyReady && !items.some(item => !isCustom || isCustomPosMenuVisible(posMenuKeyForRoute(item.href) ?? "", menuPolicy, true))
+          ? <p role="status" className="rounded-lg bg-slate-50 p-4 text-sm text-slate-600">
+              {lang === "en" ? "No additional menus have been enabled for this store by IT." : "ยังไม่มีเมนูย่อยที่ IT เปิดให้ร้านนี้"}
+            </p> : null}
         <div className="grid gap-4 lg:grid-cols-2 xl:grid-cols-3">
           {items.map((item) => {
             if (!policyReady) return null;
-            if (isCustom && (!isCustomPosMenuVisible(posMenuKeyForRoute(item.href) ?? "", menuPolicy, true) || isLocked(item.href))) return null;
+            // IT controls visibility; package entitlements control whether the link is usable.
+            // Never hide an IT-approved CUSTOM menu just because its package feature is locked.
+            if (isCustom && !isCustomPosMenuVisible(posMenuKeyForRoute(item.href) ?? "", menuPolicy, true)) return null;
             const menuLocked = isMenuLocked(item.href);
             const locked = menuLocked || isLocked(item.href);
             const label = lang === "lo" ? moreLao[item.href]?.label ?? t(lang,item.labelKey!) : item.label ? item.label[lang] : t(lang, item.labelKey!);
             return (
               <Link key={item.href} href={item.href} prefetch={false} onClick={(event) => { if (menuLocked) { event.preventDefault(); setItLockedMenu(label); } else if (locked) handleLocked(event); }} aria-disabled={locked} className={`group grid min-h-[92px] grid-cols-[42px_1fr_24px] items-center gap-3 rounded-2xl border p-4 text-left transition ${locked ? "border-slate-200 bg-slate-50 text-slate-500" : "border-slate-200 bg-white hover:border-blue-200 hover:bg-blue-50/50"}`}>
                 <span className={`inline-flex h-10 w-10 items-center justify-center rounded-xl ${locked ? "bg-slate-100 text-slate-400" : "bg-slate-100 text-slate-700 group-hover:bg-blue-100 group-hover:text-blue-700"}`}><MoreIcon name={item.icon}/></span>
-                <span className="min-w-0"><span className="block text-base font-black text-slate-950">{label}</span><span className="mt-1 block text-sm font-medium leading-5 text-slate-500">{lang === "lo" ? moreLao[item.href]?.desc ?? item.desc.en : item.desc[lang]}</span></span>
+                <span className="min-w-0"><span className="block text-base font-black text-slate-950">{label}</span><span className="mt-1 block text-sm font-medium leading-5 text-slate-500">{lang === "lo" ? moreLao[item.href]?.desc ?? item.desc.en : item.desc[lang]}</span>
+                {isLocked(item.href) ? <span className="mt-1 block text-xs font-semibold text-amber-700">{lang === "en" ? "Enabled by IT · additional package entitlement required" : "IT เปิดเมนูแล้ว · ยังไม่มีสิทธิ์ฟีเจอร์ในแพ็กเกจ"}</span> : null}</span>
                 <span className="text-slate-400">{locked ? <span aria-hidden>🔒</span> : "›"}</span>
               </Link>
             );
