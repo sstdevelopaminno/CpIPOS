@@ -4,6 +4,7 @@ import { fail, ok } from "@/lib/http";
 import { PosGuardError, requirePermission, requirePosSession } from "@/lib/pos-session-guard";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
 import { requireOpticalRetailEntitlement } from "@/lib/server/optical-entitlement";
+import { isOpticalItApiControlAllowed,OPTICAL_IT_API_CONTROLS } from "@/lib/server/optical-finance-policy";
 
 type OpticalCustomerInput = {
   request_id?: string;
@@ -43,6 +44,7 @@ export async function GET(request: Request) {
     if (!await requireOpticalRetailEntitlement(scope.session.tenant_id)) {
       return fail("optical_mode_denied","This tenant does not have IT-authorized Optical access.",403);
     }
+    if(!await isOpticalItApiControlAllowed(scope.session.tenant_id,OPTICAL_IT_API_CONTROLS.optical_customers)) return fail("optical_customer_it_disabled","IT disabled Optical customer API.",403);
     const q = safe(new URL(request.url).searchParams.get("q"), 48);
     const supabase = getSupabaseServiceClient();
     let query = supabase.from("optical_customers")
@@ -69,6 +71,7 @@ export async function POST(request: Request) {
     if (!await requireOpticalRetailEntitlement(scope.session.tenant_id)) {
       return fail("optical_mode_denied","This tenant does not have IT-authorized Optical access.",403);
     }
+    if(!await isOpticalItApiControlAllowed(scope.session.tenant_id,OPTICAL_IT_API_CONTROLS.optical_customers)) return fail("optical_customer_it_disabled","IT disabled Optical customer API.",403);
     const input=await request.json().catch(()=>null) as OpticalCustomerInput | null;
     if (!input || safe(input.customer_code,48).length===0 || safe(input.full_name,240).length===0) {
       return fail("optical_customer_invalid","Customer code and name are required.",422);

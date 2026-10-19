@@ -6,6 +6,7 @@ import { PosGuardError, requirePermission, requirePosSession } from "@/lib/pos-s
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
 import { getCustomPosStockUiMode } from "@/lib/server/custom-stock-ui-policy";
 import { requireOpticalRetailEntitlement } from "@/lib/server/optical-entitlement";
+import { isOpticalItApiControlAllowed,OPTICAL_IT_API_CONTROLS } from "@/lib/server/optical-finance-policy";
 import { getTenantPosCurrencyCode } from "@/lib/server/custom-pos-currency";
 import { collectPagedShiftRows } from "@/lib/pos-shift-query-pagination";
 import {getOpticalBranchScope,verifyOpticalBranch} from "@/lib/server/optical-stock-branch-scope";
@@ -72,6 +73,8 @@ async function context(request:Request,requestedBranchId?:string|null) {
     !await requireOpticalRetailEntitlement(scope.session.tenant_id)) {
     throw new PosGuardError("optical_catalog_forbidden","This store is not IT-authorized CUSTOM Optical.",403);
   }
+  if(!await isOpticalItApiControlAllowed(scope.session.tenant_id,OPTICAL_IT_API_CONTROLS.optical_inventory))
+    throw new PosGuardError("optical_inventory_it_disabled","IT disabled Optical inventory API.",403);
   const role=String(scope.session.role??"").toLowerCase();
   if(role!=="owner"&&role!=="manager") {
     throw new PosGuardError("optical_catalog_role_forbidden","Only an owner or manager can change Optical products.",403);

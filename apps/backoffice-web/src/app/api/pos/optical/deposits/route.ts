@@ -2,7 +2,7 @@ import { fail, ok } from "@/lib/http";
 import {PosGuardError,requireActiveShift,requirePermission,requirePosSession} from "@/lib/pos-session-guard";
 import {getSupabaseServiceClient} from "@/lib/supabase-admin";
 import {getTenantPosCurrencyCode} from "@/lib/server/custom-pos-currency";
-import {requireOpticalFinanceModule} from "@/lib/server/optical-finance-policy";
+import {requireOpticalFinanceModule,isOpticalItApiControlAllowed,OPTICAL_IT_API_CONTROLS} from "@/lib/server/optical-finance-policy";
 
 const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 type Input={
@@ -48,6 +48,8 @@ export async function POST(request:Request){
   const reference=String(body.reference_no??"").trim();
   const role=String(scope.session.role??"").toLowerCase();
   if(transfer){
+    if(!await isOpticalItApiControlAllowed(scope.session.tenant_id,OPTICAL_IT_API_CONTROLS.optical_payment_verification))
+      return fail("optical_transfer_it_disabled","IT disabled Optical bank-transfer verification.",403);
    if(role!=="owner"&&role!=="manager")
     return fail("optical_transfer_manager_required","Owner or Manager must verify actual bank credit.",403);
    if(body.manager_verified!==true||reference.length<6||reference.length>120||/[\r\n]/.test(reference))

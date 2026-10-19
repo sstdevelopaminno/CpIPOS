@@ -7,8 +7,9 @@ describe("Optical finance V1 staged integration",()=>{
   const policy=file("lib/server/optical-finance-policy.ts");
   expect(policy).toContain('process.env.OPTICAL_FINANCE_V1_ENABLED !== "true"');
   expect(policy).toContain('contracts.length !== 1');
-  expect(policy).toContain('salesModes?.optical_retail === true');
-  expect(policy).toContain('customFeatures?.[feature] === true');
+  expect(policy).toContain('salesModes?.optical_retail !== true');
+  expect(policy).toContain('customFeatures?.[feature] !== true');
+  expect(policy).toContain('isOpticalItApiControlAllowed(tenantId,OPTICAL_IT_API_CONTROLS[feature])');
   const orders=file("app/api/pos/optical/work-orders/route.ts");
   const payments=file("app/api/pos/optical/work-orders/[workOrderId]/payments/route.ts");
   expect(orders).toContain('requireActiveShift(scope)');
