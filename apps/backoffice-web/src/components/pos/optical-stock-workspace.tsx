@@ -290,10 +290,10 @@ export function OpticalStockWorkspace({rows,branch,branchId,branches,currency,ca
             </select>
           </label>
           <button type="button" className={btn} onClick={()=>show("summary")}>
-            {T("▥ ดูสรุปสต๊อก")}
+            {T("ดูสรุปสต๊อก")}
           </button>
           {canManage?<button type="button" className="min-h-10 rounded-xl border border-emerald-700 bg-white px-4 py-2 text-sm font-bold text-emerald-800"
-            onClick={()=>show("scan")}>{T("▣ สแกนเพิ่ม/ลดสต๊อก")}</button>:null}
+            onClick={()=>show("scan")}>{T("สแกนเพิ่ม/ลดสต๊อก")}</button>:null}
           <button className="min-h-10 rounded-xl border border-amber-400 bg-amber-50 px-4 py-2 text-sm font-bold text-amber-900"
             onClick={()=>show("best")}>{T("★ สินค้าขายดี")}</button>
         {canManage?<div className="flex flex-wrap items-center gap-3">
