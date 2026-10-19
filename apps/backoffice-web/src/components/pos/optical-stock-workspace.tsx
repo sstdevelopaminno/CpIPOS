@@ -18,11 +18,11 @@ export type OpticalRow={
 type Kind="frame"|"lens"|"accessory";
 type Draft={name:string;sku:string;kind:Kind;price:string;unit:string;note:string;
   brand:string;model:string;color:string;frame_size:string;lens_name:string;
-  lens_index:string;lens_sph:string;lens_cyl:string;lens_axis:string};
+  lens_index:string;lens_sph:string;lens_cyl:string;lens_axis:string;initial_quantity?:string};
 type Modal=null|"add"|"bulk"|"edit"|"delete"|"sku"|"media"|"best"|"adjust";
 const types:Record<Kind,string>={frame:"กรอบแว่น",lens:"เลนส์",accessory:"อุปกรณ์เสริม"};
 const blank=():Draft=>({name:"",sku:"",kind:"frame",price:"",unit:"ชิ้น",note:"",
-  brand:"",model:"",color:"",frame_size:"",lens_name:"",lens_index:"",lens_sph:"",lens_cyl:"",lens_axis:""});
+  brand:"",model:"",color:"",frame_size:"",lens_name:"",lens_index:"",lens_sph:"",lens_cyl:"",lens_axis:"",initial_quantity:""});
 const field="min-h-10 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100";
 const btn="min-h-10 rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-40";
 const kind=(row:OpticalRow):Kind=>{
@@ -60,6 +60,10 @@ function checkRows(rows:Draft[],currency:SalesCurrencyCode){
     if(!/^[^\s,;()]{1,90}$/.test(sku))return "รูปแบบ SKU / บาร์โค้ดไม่ถูกต้อง ในแถว "+(i+1);
     if(keys.has(sku))return "SKU / บาร์โค้ดซ้ำ ในแถว "+(i+1);
     keys.add(sku);
+    // This is a proposal for a separately confirmed audited receipt, NOT catalog stock.
+    const initial=r.initial_quantity?.trim()??"";
+    if(initial && (!/^[1-9][0-9]*$/.test(initial) || Number(initial)>100000))
+      return "จำนวนรับเข้าเริ่มต้นต้องเป็นจำนวนเต็มบวก 1–100000 ในแถว "+(i+1)+" (เว้นว่างหากยังไม่รับสต๊อก)";
     if(!r.price.trim()||!Number.isFinite(price)||price<0||
       (currency==="LAK"&&!Number.isInteger(price))||Math.round(price*100)/100!==price)
       return "ราคาสินค้าไม่ถูกต้อง ในแถว "+(i+1);
@@ -90,6 +94,8 @@ export function OpticalStockWorkspace({rows,branch,branchId,branches,currency,ca
   const [adjustBranchId,setAdjustBranchId]=useState(branchId);
   const [newProductCreated,setNewProductCreated]=useState(false);
   const [initialReceiveQuantity,setInitialReceiveQuantity]=useState("");
+  const [pendingBulkReceipts,setPendingBulkReceipts]=useState<{sku:string;quantity:string;branchId:string}[]>([]);
+  const [bulkReceiptTotal,setBulkReceiptTotal]=useState(0);
   const displayed=useMemo(()=>rows.filter(r=>{
     if(search&&!([r.name,r.sku,r.category].some(v=>String(v??"").toLowerCase().includes(search.trim().toLowerCase()))))return false;
     if(kind(r)!==tab)return false;
@@ -135,7 +141,10 @@ export function OpticalStockWorkspace({rows,branch,branchId,branches,currency,ca
     if(m==="add"){setDraft({...blank(),kind:tab});setInitialReceiveQuantity("");setNewProductCreated(false);}
     if(m==="add"||m==="bulk")setTargetBranchId(branchId);
     if(m==="edit"&&r)setDraft(forEdit(r));
-    if(m==="bulk")setBulk([blank(),blank(),blank()].map(row=>({...row,kind:tab})));
+    if(m==="bulk"){
+      setNewProductCreated(false);setPendingBulkReceipts([]);setBulkReceiptTotal(0);
+      setBulk([blank(),blank(),blank()].map(row=>({...row,kind:tab})));
+    }
   };
   function openStockAdjustment(sku: string, stockBranchId=branchId) {
     if (!canManage) return;
@@ -150,6 +159,16 @@ export function OpticalStockWorkspace({rows,branch,branchId,branches,currency,ca
     const match=rows.find(row=>row.sku?.toLowerCase()===barcode.toLowerCase());
     if (!match) {setError(T("ไม่พบ SKU / บาร์โค้ดในสาขานี้"));return;}
     setScanSku("");openStockAdjustment(match.sku??barcode);
+  }
+  function advanceReceiptQueue() {
+    if(pendingBulkReceipts.length){
+      const [next,...rest]=pendingBulkReceipts;
+      setPendingBulkReceipts(rest);
+      openStockAdjustment(next.sku,next.branchId);
+      setAdjustQuantity(next.quantity);
+      return;
+    }
+    window.location.assign("/preview/pos/stock/custom?branch_id="+encodeURIComponent(adjustBranchId));
   }
   async function saveStockAdjustment() {
     if (!canManage || busy) return;
@@ -169,7 +188,12 @@ export function OpticalStockWorkspace({rows,branch,branchId,branches,currency,ca
       });
       const json=await res.json().catch(()=>null) as {error?:{message?:string}}|null;
       if (!res.ok) throw new Error(json?.error?.message??"บันทึกรายการปรับสต๊อกไม่สำเร็จ");
-      window.location.assign("/preview/pos/stock/custom?branch_id="+encodeURIComponent(adjustBranchId));
+      if(newProductCreated){
+        setBusy(false);
+        advanceReceiptQueue();
+      }else{
+        window.location.assign("/preview/pos/stock/custom?branch_id="+encodeURIComponent(adjustBranchId));
+      }
     } catch(e) {
       // Keep the request UUID stable for retries to prevent duplicated stock entries.
       setError(opticalStockError(lang,e instanceof Error?e.message:"บันทึกไม่สำเร็จ"));
@@ -177,7 +201,8 @@ export function OpticalStockWorkspace({rows,branch,branchId,branches,currency,ca
     }
   }
   const close=()=>{if(!busy){
-    if(newProductCreated){window.location.assign("/preview/pos/stock/custom?branch_id="+encodeURIComponent(adjustBranchId));return;}
+    // Cancel only skips this proposed receipt. It never rolls back the created catalog item.
+    if(newProductCreated){advanceReceiptQueue();return;}
     setModal(null);setError("");
   }};
   async function save(){
@@ -196,8 +221,13 @@ export function OpticalStockWorkspace({rows,branch,branchId,branches,currency,ca
     setBusy(true);setError("");
     const method=modal==="delete"?"DELETE":modal==="edit"?"PATCH":"POST";
     const destination=(modal==="add"||modal==="bulk")?targetBranchId:branchId;
+    // Never send proposed counts into catalog create. Stock must go via audited RPC.
+    const catalogItems=items.map(({initial_quantity: _proposedQuantity,...catalog})=>{
+      void _proposedQuantity;
+      return catalog;
+    });
     const body=modal==="delete"?{id:selected?.id,branch_id:branchId}
-      :modal==="edit"?{id:selected?.id,item:draft,branch_id:branchId}:{items,branch_id:destination};
+      :modal==="edit"?{id:selected?.id,item:draft,branch_id:branchId}:{items:catalogItems,branch_id:destination};
     try{
       const res=await fetch("/api/pos/optical/catalog",{method,credentials:"same-origin",
         headers:{"Content-Type":"application/json"},body:JSON.stringify(body),cache:"no-store"});
@@ -208,6 +238,19 @@ export function OpticalStockWorkspace({rows,branch,branchId,branches,currency,ca
         openStockAdjustment(draft.sku,destination);
         setAdjustQuantity(initialReceiveQuantity);
         return;
+      }
+      if(modal==="bulk"){
+        const proposals=bulk.filter(item=>item.initial_quantity?.trim()).map(item=>({
+          sku:item.sku.trim(),quantity:item.initial_quantity!.trim(),branchId:destination
+        }));
+        if(proposals.length){
+          setNewProductCreated(true);setBulkReceiptTotal(proposals.length);
+          setPendingBulkReceipts(proposals.slice(1));
+          setBusy(false);
+          openStockAdjustment(proposals[0].sku,destination);
+          setAdjustQuantity(proposals[0].quantity);
+          return;
+        }
       }
       window.location.assign("/preview/pos/stock/custom?branch_id="+encodeURIComponent(destination));
     }catch(e){setError(opticalStockError(lang,e instanceof Error?e.message:"เกิดข้อผิดพลาด"));setBusy(false);}
@@ -375,6 +418,11 @@ export function OpticalStockWorkspace({rows,branch,branchId,branches,currency,ca
         </header>
         <div className="min-h-0 overflow-y-auto p-5">
           {modal==="adjust"?<div className="grid gap-3">
+            {newProductCreated?<p role="status" className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+              {bulkReceiptTotal>0
+                ?"ยืนยันรับสต๊อกสินค้า "+(bulkReceiptTotal-pendingBulkReceipts.length)+"/"+bulkReceiptTotal+" รายการ · ยกเลิกเพื่อข้ามสินค้านี้ (จำนวนยังไม่รับเข้า)"
+                :"บันทึกสินค้าแล้ว · กรุณายืนยันจำนวนรับเข้า หรือยกเลิกเพื่อรับเข้าภายหลัง"}
+            </p>:null}
             <p className="rounded-lg border border-sky-200 bg-sky-50 p-3 text-xs text-sky-800">
               {T("รายการนี้บันทึกจำนวนสต๊อกจริง ไม่แก้ราคาขาย ไม่รับเงิน และไม่ตัดใบงานซ้ำ")}
             </p>
@@ -506,8 +554,8 @@ export function OpticalStockWorkspace({rows,branch,branchId,branches,currency,ca
           </div>:null}
           {modal==="bulk"?<>
             <div className="overflow-x-auto rounded-xl border border-slate-200">
-              <table className="min-w-[850px] w-full text-sm">
-                <thead className="bg-emerald-50 text-left"><tr>{["#","ชื่อสินค้า *","ประเภท","SKU / บาร์โค้ด *","แบรนด์ / ยี่ห้อ","รุ่น / ชื่อเลนส์","สี / Index","ขนาด / SPH","CYL","ราคา ("+currency+") *","หน่วย","ลบแถว"].map(x=><th className="p-2" key={x}>{x.startsWith("ราคา (")?T("ราคา (")+currency+") *":T(x)}</th>)}</tr></thead>
+              <table className="min-w-[1100px] w-full text-sm">
+                <thead className="bg-emerald-50 text-left"><tr>{["#","ชื่อสินค้า *","ประเภท","SKU / บาร์โค้ด *","แบรนด์ / ยี่ห้อ","รุ่น / ชื่อเลนส์","สี / Index","ขนาด / SPH","CYL","ราคา ("+currency+") *","หน่วย","จำนวนรับเข้าเริ่มต้น","ลบแถว"].map(x=><th className="p-2" key={x}>{x.startsWith("ราคา (")?T("ราคา (")+currency+") *":T(x)}</th>)}</tr></thead>
                 <tbody>{bulk.map((row,i)=><tr className="border-t border-slate-100" key={i}>
                   <td className="p-2">{i+1}</td>
                   <td className="p-2"><input className={field} maxLength={180} value={row.name} onChange={e=>changeBulk(i,"name",e.target.value)}/></td>
@@ -531,11 +579,15 @@ export function OpticalStockWorkspace({rows,branch,branchId,branches,currency,ca
                   <td className="p-2"><input className={field} type="number" min="0" step={currency==="LAK"?"1":"0.01"}
                     value={row.price} onChange={e=>changeBulk(i,"price",e.target.value)}/></td>
                   <td className="p-2"><input className={field} value={row.unit} maxLength={30} onChange={e=>changeBulk(i,"unit",e.target.value)}/></td>
+                  <td className="p-2"><input className={field+" min-w-[110px]"} type="number" min={1} max={100000} step={1}
+                    aria-label={"จำนวนรับเข้าเริ่มต้น แถว "+(i+1)} placeholder="รอยืนยัน"
+                    value={row.initial_quantity??""} onChange={e=>changeBulk(i,"initial_quantity",e.target.value)}/></td>
                   <td className="p-2"><button className="rounded-lg px-2 py-2 text-rose-700 disabled:opacity-40" disabled={bulk.length===1}
                     onClick={()=>setBulk(old=>old.filter((_,j)=>i!==j))}>{T("ลบ")}</button></td>
                 </tr>)}</tbody>
               </table>
             </div>
+            <p className="mt-2 text-xs text-amber-800">ช่องจำนวนใช้เสนอรับเข้าเริ่มต้นเท่านั้น · หลังบันทึกสินค้าต้องยืนยันใน Pop-up ทีละรายการ (ไม่รับเข้าอัตโนมัติ)</p>
             <div className="mt-3 flex justify-between gap-2">
               <button className={btn} disabled={bulk.length>=50||busy} onClick={()=>setBulk(r=>[...r,{...blank(),kind:tab}])}>{T("+ เพิ่มแถว")}</button>
               <span className="text-xs text-slate-500">{bulk.length}/50 รายการ</span>
