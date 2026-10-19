@@ -139,7 +139,8 @@ export function PosStaffMenu({ lang, collapsed, orientation = "vertical", sessio
       {menuItems.map((item) => {
         const active = pathname === item.href;
         const menuLocked = !isPosMenuEnabled(posMenuKeyForRoute(item.href) ?? "", menuPolicy);
-        const featureLocked = Boolean(enabledFeatures !== null && item.feature && enabledFeatures?.[item.feature] === false);
+        const opticalBasicHistory = isCustom && opticalMenuAllowed && item.href === "/preview/pos/sales-list";
+        const featureLocked = !opticalBasicHistory && Boolean(enabledFeatures !== null && item.feature && enabledFeatures?.[item.feature] === false);
         const locked = menuLocked || featureLocked;
         return (
           <Link
