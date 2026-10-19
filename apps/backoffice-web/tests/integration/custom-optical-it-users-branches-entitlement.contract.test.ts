@@ -24,7 +24,7 @@ describe("CUSTOM Optical users and branches settings rights", () => {
     expect(userApi.indexOf('await enforceQuota(auth.tenantId!, "users")'))
       .toBeLessThan(userApi.indexOf("auth.admin.createUser("));
     expect(branchService).toContain('await enforceQuota(auth.tenantId, "branches")');
-    expect(branchService).toContain('!existing.data.is_active && input.is_active === true');
+    expect(branchService).toContain('!existing.data.is_active && input.is_active !== false');
     expect(branchApi).toContain('requireOpticalBranchManagement(auth.tenantId!, auth.branchId)');
     expect(branchApi).toContain('requireTenantFeature(tenantId, "branch_management", branchId)');
   });
