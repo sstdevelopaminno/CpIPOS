@@ -5,6 +5,7 @@
 - Vercel Production `cp-ipos-web` served commit `c81d0ad2456fe12c14900593f81287999a988e0e` as of the inspection. A READY deployment/green CI does not replace authenticated POS UAT.
 - CpiPOS-001 only was available via connected Supabase. Trial data-plane CpiPOS-002 could not be inspected via connected permissions; never assume it matches CpiPOS-001.
 - The inspection and additive privilege fix did not change customer subscriptions, ledger, stock, print jobs or printer profiles.
+- Read-only global version comparison: 222 repository .sql migration files vs 312 applied live history entries, 129 matching version IDs, 93 repository-only version IDs and 183 database-only version IDs. Differences extend well beyond the two Optical migrations. This is a **global release/migration reconciliation BLOCKER**, not evidence that all 276 unmatched migrations need to run or that any tables are missing. Do not automatically run `db push` against production or alter `supabase_migrations.schema_migrations` to make the counts green.
 
 ## 1. Security advisory triage
 - Prior to this fix: 1 anon-executable SECURITY DEFINER Optical trigger helper, 30 authenticated-executable SECURITY DEFINER functions, 1 leaked-password-protection configuration warning, 103 RLS-on/no-policy INFO findings.
