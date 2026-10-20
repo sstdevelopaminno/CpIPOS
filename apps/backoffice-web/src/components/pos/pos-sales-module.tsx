@@ -2195,6 +2195,7 @@ export function PosSalesModule({
   const [isHydrated, setIsHydrated] = useState(false);
   const [activeCategory, setActiveCategory] = useState<string>("");
   const [cart, setCart] = useState<CartItem[]>([]);
+  const opticalCartScrollRef = useRef<HTMLDivElement | null>(null);
   const [modifierDraft, setModifierDraft] = useState<ModifierDraft | null>(null);
   const [modifierIngredients, setModifierIngredients] = useState<RecipeIngredientChoice[]>([]);
   const [modifierIngredientsLoading, setModifierIngredientsLoading] = useState(false);
@@ -8328,7 +8329,20 @@ export function PosSalesModule({
     }
 
     return (
-      <div className={`posui-cart-items ${cart.length > 5 ? "posui-cart-items--capped" : ""}`}>
+      <div className="min-w-0">
+        {opticalRetailActive?<div className="mb-2 flex items-center justify-end gap-2 text-xs text-slate-600">
+          <span>{localSaleLabel("เลื่อนตะกร้าเพื่อดูข้อมูล", "Scroll cart details")}</span>
+          <button type="button" className="min-h-9 rounded-lg border border-slate-300 px-3"
+            aria-label={localSaleLabel("เลื่อนตะกร้าไปซ้าย","Scroll cart left")}
+            onClick={()=>opticalCartScrollRef.current?.scrollBy({left:-300,behavior:"smooth"})}>←</button>
+          <button type="button" className="min-h-9 rounded-lg border border-slate-300 px-3"
+            aria-label={localSaleLabel("เลื่อนตะกร้าไปขวา","Scroll cart right")}
+            onClick={()=>opticalCartScrollRef.current?.scrollBy({left:300,behavior:"smooth"})}>→</button>
+        </div>:null}
+        <div ref={opticalRetailActive?opticalCartScrollRef:undefined}
+          className={opticalRetailActive?"max-w-full overflow-x-auto overscroll-x-contain":"min-w-0"} tabIndex={opticalRetailActive?0:undefined}>
+          <div className={`posui-cart-items ${cart.length > 5 ? "posui-cart-items--capped" : ""}`}
+            style={opticalRetailActive?{minWidth:720}:undefined}>
         {cart.map((item) => {
           const cartLineId = item.cart_line_id ?? item.product_id;
           const isEditingQuantity = editingCartQtyLineId === cartLineId;
@@ -8339,6 +8353,9 @@ export function PosSalesModule({
             </div>
             <div className="posui-cart-item__info">
               <p>{item.name}</p>
+              {opticalRetailActive?<small className="block select-text text-xs font-semibold text-emerald-800">
+                {localSaleLabel("รหัสสินค้า / SKU", "Product SKU")}: {productById.get(item.product_id)?.sku||"—"}
+              </small>:null}
               {item.notes ? <small>{item.notes}</small> : null}
               <small>{formatMoney(item.price)}</small>
               <div className="posui-qty-row">
@@ -8416,6 +8433,8 @@ export function PosSalesModule({
           </article>
           );
         })}
+          </div>
+        </div>
       </div>
     );
   }
@@ -9205,6 +9224,11 @@ export function PosSalesModule({
           opticalLanguage={lang}
           onOpticalCustomer={() => setOpticalCustomerOpen(true)}
           onOpticalDeposit={opticalRetailActive && posCurrencyResolved && posCurrencyCode==="LAK" ? submitOpticalCashDeposit : undefined}
+          opticalTransferAccount={paymentAccount?.is_active?{
+            bank_name:paymentAccount.bank_name,account_name:paymentAccount.account_name,
+            account_number:paymentAccount.account_number,
+            qr_image_url:paymentAccount.qr_mode==="qr_image"?paymentAccount.qr_image_url:null
+          }:null}
           onOpticalDepositReceipt={opticalLastDepositReceiptId ? ()=>window.open(`/api/pos/optical/work-orders/${encodeURIComponent(opticalLastDepositReceiptId)}/deposit-receipt`,"_blank","noopener,noreferrer") : undefined}
           onMember={
             orderType === "delivery_manual"
