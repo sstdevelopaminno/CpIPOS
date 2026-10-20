@@ -246,7 +246,7 @@ export function PrinterConnectionManagerV3({lang="th"}:{lang?:"th"|"en"|"lo"}) {
   const [registry, setRegistry] = useState<Registry | null>(null);
   const [activeSection,setActiveSection]=useState<PrinterSection>("overview");
   const opticalMode=registry?.optical_mode===true;
-  const visiblePurposes=opticalMode?purposes.filter(p=>!["kitchen","drink","bar"].includes(p.value)):purposes;
+  const visiblePurposes=opticalMode?purposes.filter(p=>!["kitchen","drink","bar"].includes(p.value)):purposes.filter(p=>p.value!=="work_order");
   const [mode, setMode] = useState<Mode>("lan");
   const [purposeFilter, setPurposeFilter] = useState<Purpose | "all">("all");
   const [page, setPage] = useState(1);
@@ -344,7 +344,7 @@ export function PrinterConnectionManagerV3({lang="th"}:{lang?:"th"|"en"|"lo"}) {
     setModel(device.model ?? "");
     setPaper(device.paper_width_mm);
     const enabledAssignments = device.printer_device_assignments.filter((assignment) => assignment.is_enabled);
-    setSelectedPurposes(Array.from(new Set(enabledAssignments.map((assignment) => assignment.purpose))).filter(p=>!opticalMode||!["kitchen","drink","bar"].includes(p)));
+    setSelectedPurposes(Array.from(new Set(enabledAssignments.map((assignment) => assignment.purpose))).filter(p=>opticalMode?!["kitchen","drink","bar"].includes(p):p!=="work_order"));
     const nextZones = emptyZoneSelections();
     for (const purpose of zonedPurposes) {
       nextZones[purpose] = Array.from(new Set(enabledAssignments.filter((assignment) => assignment.purpose === purpose && assignment.zone_key).map((assignment) => assignment.zone_key.toUpperCase())));
