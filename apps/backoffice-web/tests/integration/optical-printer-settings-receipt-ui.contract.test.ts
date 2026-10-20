@@ -17,7 +17,7 @@ describe("Optical work order UI uses existing printer settings",()=>{
  });
  it("selects an enabled receipt printer from the existing branch registry and queues its print job",()=>{
   const handler=src("src/app/api/pos/optical/work-orders/[workOrderId]/print/route.ts");
-  expect(handler).toContain('resolvePrinterRoutes({auth,purpose:"receipt",legacyRole:"receipt"})');
+  expect(handler).toContain('resolvePrinterRoutes({auth,purpose:"work_order",fallbackPurposes:["receipt"],legacyRole:"receipt"})');
   expect(handler).toContain("route.printer.paper_width_mm");
   expect(handler).toContain("routing_printer_device_id");
   expect(handler).toContain("payload_html:html");
