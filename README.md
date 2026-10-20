@@ -5,7 +5,9 @@ Production-oriented multi-tenant / multi-branch POS platform.
 ## Current source of truth
 
 - Repository: `sstdevelopaminno/CpIPOS`
-- Active integration branch: `agent-docs-preflight-schema-drift`
+- Active POS Production/integration branch: `main` (Vercel `cp-ipos-web` deployed from `main`, verified 2026-10-20).
+- GitHub repository default branch remains `agent-docs-preflight-schema-drift` until repository administration changes it. **Always explicitly target `main` for POS fixes/PRs**, never assume that the GitHub default equals Production. Legacy PR #257 is draft-only; do not merge into the old default branch.
+- Go-Live security, migration provenance and UAT gate: `docs/ops/CPIPOS-PRODUCTION-READINESS-20261020.md`. Do not auto-apply source migrations to live CpiPOS-001 while migration-history drift remains unresolved.
 - Web/POS Vercel project: `cp-ipos-web`
 - CpIPOS Mobile distribution: Native Android APK via GitHub Releases + `/download/mobile` on `cp-ipos-web`; there is no Mobile web runtime in the repository
 - **CpiPOS-001 / Primary:** Supabase ref `deejlitaivfnsbwqdugy`
