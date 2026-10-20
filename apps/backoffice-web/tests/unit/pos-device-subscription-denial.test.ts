@@ -42,8 +42,11 @@ describe("POS cashier device selection accurately classifies customer subscripti
  });
  it("never bypasses an expired contract when an old branch-level feature override is enabled",()=>{
   const src=readFileSync(resolve(process.cwd(),"src/app/api/auth/devices/select/select-handler.ts"),"utf8");
-  expect(src).toContain("classifyPosEntryDenial(subscription.contract,subscription.lifecycle)");
-  expect(src).toContain('if(denial||!posSalesEnabled)');
+  const access=readFileSync(resolve(process.cwd(),"src/lib/server/pos-entry-access-service.ts"),"utf8");
+  expect(access).toContain("classifyPosEntryDenial(subscription.contract,subscription.lifecycle)");
+  expect(access).toContain("if(lifecycleDenial)return {allowed:false");
+  expect(src).toContain("evaluatePosEntryAccess(supabase, flow.tenantId, flow.branchId)");
+  expect(src).toContain("if(!entryAccess.allowed)");
   expect(src).toContain('"feature_verification_unavailable"');
   expect(src).not.toContain('timedJsonError(403, "feature_not_enabled"');
  });
