@@ -6,7 +6,7 @@ describe("Optical work order UI uses existing printer settings",()=>{
  it("keeps PIN outside main view and opens a date-specific popup",()=>{
   const dialog=src("src/components/pos/pos-optical-work-order-detail-dialog.tsx");
   expect(dialog).toContain("ใส่วันนัดรับ");
-  expect(dialog).toContain('aria-label={action==="date"?"ใส่วันนัดรับ":"ยกเลิกใบงาน"}');
+  expect(dialog).toContain('aria-label={action==="date"?txt("ใส่วันนัดรับ"):txt("ยกเลิกใบงาน")}');
   expect(dialog).toContain('type="date"');
   expect(dialog).toContain('type="password"');
   expect(dialog).toContain('manager_pin:managerPin');
