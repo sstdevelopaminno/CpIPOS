@@ -182,6 +182,11 @@ export async function authorizePublicPackageCheckout(input: {
   const snapshot = await loadPosSubscriptionCenter(resolved.tenantId);
   if (snapshot.contract.is_internal_demo) throw new Error("internal_demo_not_billable");
 
+  // Reuse the canonical POS/IT request ledger. Evidence stays pending until
+  // IT explicitly reviews and settles the verified bank payment.
+  const openReview = snapshot.requests.find((row) =>
+    ["pending", "under_review"].includes(row.status) && row.evidence_url
+  ) ?? null;
   const target = snapshot.packages.find((row) => row.id === input.packageId);
   if (!target || target.contact_sales || target.quota_mode === "custom" || target.code === "custom") {
     throw new Error("package_unavailable");
@@ -220,6 +225,13 @@ export async function authorizePublicPackageCheckout(input: {
       amount: expected,
       currency: snapshot.contract.currency || "THB"
     },
+    pending_review: openReview ? {
+      status: openReview.status,
+      submitted_at: openReview.submitted_at,
+      review_due_at: Number.isFinite(Date.parse(openReview.submitted_at ?? ""))
+        ? new Date(Date.parse(openReview.submitted_at ?? "") + 3 * 24 * 60 * 60 * 1000).toISOString()
+        : null
+    } : null,
     issuer: snapshot.issuer
   };
 }
