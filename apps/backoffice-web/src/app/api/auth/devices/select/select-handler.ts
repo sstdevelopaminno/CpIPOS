@@ -1,11 +1,9 @@
 ﻿import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
-import { isFeatureUnlockEnabled } from "@/lib/feature-unlock";
 import { getRequestMeta, writeAuditLog, writeLoginAttempt } from "@/lib/server/audit-log";
 import { AuthTimeoutError, withAuthTimeout } from "@/lib/server/auth-timeout";
-import { hasBranchFeatureSafe } from "@/lib/server/feature-gate-safe";
-import { classifyPosEntryDenial, unavailablePosFeatureDenial, type PosEntryContract, type PosEntryLifecycle } from "@/lib/server/pos-entry-denial-reasons";
+import {evaluatePosEntryAccess,PosFeatureLookupUnavailable} from "@/lib/server/pos-entry-access-service";
 import { consumeLoginContext } from "@/lib/server/login-context";
 import { resolveDeviceSessionAccess } from "@/lib/server/pos-device-session-rules";
 import { createPosSession, createSessionHandoffToken, resolvePosRedirectTarget, resolveSessionCookieConfig } from "@/lib/server/pos-session";
@@ -35,11 +33,7 @@ type UserDeviceScopeRow = {
   device_id: string | null;
 };
 
-type BranchFeatureOverrideRow = {
-  enabled: boolean | null;
-};
 
-type SupabaseServiceClient = ReturnType<typeof getSupabaseServiceClient>;
 
 function isMissingRelationError(error: { code?: string | null; message?: string | null } | null | undefined, relationName: string) {
   if (!error) return false;
@@ -79,92 +73,7 @@ function pickNewestActiveSession(rows: Array<ActiveSessionRow | null | undefined
     .sort((a, b) => new Date(b.issued_at).getTime() - new Date(a.issued_at).getTime())[0] ?? null;
 }
 
-const POS_SALES_FEATURE_KEYS = ["pos.sales.access", "pos_sales", "core_pos_sales"] as const;
 const DEVICE_SELECT_AUTH_TIMEOUT_MS = 30000;
-class PosFeatureLookupUnavailable extends Error {
- constructor(){super("pos_sales_feature_lookup_unavailable");}
-}
-async function loadPosSubscriptionEntryState(supabase:SupabaseServiceClient,tenantId:string){
- const [contract,lifecycle]=await Promise.all([
-   supabase.from("tenant_subscription_contracts").select("status,ended_at,package_id")
-     .eq("tenant_id",tenantId).order("created_at",{ascending:false}).limit(1).maybeSingle<PosEntryContract>(),
-   supabase.from("tenant_data_lifecycle")
-     .select("lifecycle_status,access_locked,lock_reason,trial_expires_at,subscription_expires_at,grace_until,metadata")
-     .eq("tenant_id",tenantId).maybeSingle<PosEntryLifecycle>()
- ]);
- if(contract.error||lifecycle.error){
-   console.error("[auth/devices/select] subscription state unavailable",{
-     tenantId,source:contract.error?"contract":"lifecycle"
-   });
-   throw new PosFeatureLookupUnavailable();
- }
- return {contract:contract.data??null,lifecycle:lifecycle.data??null};
-}
-
-function isMissingBranchFeatureOverrideError(error: { code?: string | null; message?: string | null } | null | undefined) {
-  if (!error) return false;
-  const code = String(error.code ?? "");
-  const message = String(error.message ?? "").toLowerCase();
-  return code === "42P01" || message.includes("branch_feature_overrides") || message.includes("does not exist");
-}
-
-async function readBranchFeatureOverride(
-  supabase: SupabaseServiceClient,
-  tenantId: string,
-  branchId: string,
-  featureKey: string
-): Promise<boolean | null> {
-  const { data, error } = await supabase
-    .from("branch_feature_overrides")
-    .select("enabled")
-    .eq("tenant_id", tenantId)
-    .eq("branch_id", branchId)
-    .eq("feature_key", featureKey)
-    .maybeSingle<BranchFeatureOverrideRow>();
-
-  if (error) {
-    if (isMissingBranchFeatureOverrideError(error)) return null;
-
-    console.error("[auth/devices/select] branch feature override lookup failed", {
-      tenantId,
-      branchId,
-      featureKey,
-      error: error.message
-    });
-    throw new PosFeatureLookupUnavailable();
-  }
-
-  if (!data) return null;
-  return Boolean(data.enabled);
-}
-
-async function hasAnyPosSalesFeature(supabase: SupabaseServiceClient, tenantId: string, branchId: string) {
-  if (isFeatureUnlockEnabled()) return true;
-  for (const featureKey of POS_SALES_FEATURE_KEYS) {
-    const directOverrideEnabled = await readBranchFeatureOverride(supabase, tenantId, branchId, featureKey);
-    if (directOverrideEnabled === true) return true;
-  }
-
-  let lookupFailed=false;
-  for (const featureKey of POS_SALES_FEATURE_KEYS) {
-    try {
-      const enabled = await hasBranchFeatureSafe(tenantId, branchId, featureKey);
-      if (enabled) return true;
-    } catch (error) {
-      lookupFailed=true;
-      console.error("[auth/devices/select] POS sales feature lookup failed", {
-        tenantId,
-        branchId,
-        featureKey,
-        error: error instanceof Error ? error.message : "Unknown error"
-      });
-    }
-  }
-
-  if(lookupFailed)throw new PosFeatureLookupUnavailable();
-  return false;
-}
-
 export async function POST(request: Request) {
   const startedAt = Date.now();
   const timedJsonError = (status: number, code: string, message: string) =>
@@ -195,9 +104,9 @@ export async function POST(request: Request) {
   try {
     const supabase = getSupabaseServiceClient();
 
-    const [posSalesEnabled, deviceQuery, employee,subscription] = await withAuthTimeout(
+    const [entryAccess, deviceQuery, employee] = await withAuthTimeout(
       Promise.all([
-        hasAnyPosSalesFeature(supabase, flow.tenantId, flow.branchId),
+        evaluatePosEntryAccess(supabase, flow.tenantId, flow.branchId),
         supabase
           .from("branch_devices")
           .select("id,device_code,device_name,status")
@@ -209,8 +118,7 @@ export async function POST(request: Request) {
           tenantId: flow.tenantId,
           branchId: flow.branchId,
           userId: flow.userId
-        }),
-        loadPosSubscriptionEntryState(supabase,flow.tenantId)
+        })
       ]),
       "device_select_core_lookup_timeout",
       DEVICE_SELECT_AUTH_TIMEOUT_MS
@@ -224,9 +132,8 @@ export async function POST(request: Request) {
     }
     // Verify lifecycle independently of feature grants: an old branch override
     // must never bypass a completed trial or an explicit account lock.
-    const denial=classifyPosEntryDenial(subscription.contract,subscription.lifecycle);
-    if(denial||!posSalesEnabled){
-      const detail=denial??unavailablePosFeatureDenial();
+    if(!entryAccess.allowed){
+      const detail=entryAccess.denial;
       return withTimingHeaders(NextResponse.json({
         data:null,error:{
           code:detail.code,message:detail.message,title:detail.title,
