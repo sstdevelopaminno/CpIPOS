@@ -8,7 +8,11 @@ type PrinterInfo={configured:boolean;paper_width_mm:58|80;printer_name:string|nu
 const money=(x:number)=>Number(x||0).toLocaleString("en-US");
 const statusName:Record<string,string>={received:"รับงานแล้ว",lens_ordered:"สั่งเลนส์",edging:"ประกอบแว่น",ready_for_pickup:"พร้อมรับ",collected:"ส่งมอบแล้ว",cancelled:"ยกเลิก"};
 function dueLabel(date:string|null){return date?new Date(date).toLocaleDateString("th-TH",{day:"numeric",month:"short",year:"numeric",timeZone:"Asia/Bangkok"}):"ยังไม่กำหนด";}
-function localToday(){return new Intl.DateTimeFormat("en-CA",{timeZone:"Asia/Bangkok",year:"numeric",month:"2-digit",day:"2-digit"}).format(new Date());}
+function localToday(){
+ const parts=new Intl.DateTimeFormat("en-US",{timeZone:"Asia/Bangkok",year:"numeric",month:"2-digit",day:"2-digit"}).formatToParts(new Date());
+ const get=(type:string)=>parts.find(p=>p.type===type)?.value??"";
+ return `${get("year")}-${get("month")}-${get("day")}`;
+}
 export function PosOpticalWorkOrderDetailDialog({id,onClose,onChanged}:{id:string;onClose:()=>void;onChanged:()=>void}){
  const [info,setInfo]=useState<Info|null>(null),[error,setError]=useState("");
  const [notice,setNotice]=useState(""),[busy,setBusy]=useState(false);
@@ -84,7 +88,7 @@ export function PosOpticalWorkOrderDetailDialog({id,onClose,onChanged}:{id:strin
   className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/55 p-3 sm:p-6">
   <section role="dialog" aria-modal="true" aria-label="รายละเอียดใบสั่งงาน"
     onClick={event=>event.stopPropagation()}
-    className="flex max-h-[92vh] w-full max-w-4xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl">
+    className="relative flex max-h-[92vh] w-full max-w-4xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl">
    <header className="flex shrink-0 items-start justify-between gap-3 border-b border-slate-100 px-5 py-4 sm:px-6">
      <div><span className="text-xs font-semibold tracking-wider text-emerald-700">CUSTOM · OPTICAL</span>
        <h2 className="mt-1 text-xl font-bold text-slate-900">รายละเอียดใบสั่งงาน <span className="text-emerald-700">#{id.slice(0,8).toUpperCase()}</span></h2>
