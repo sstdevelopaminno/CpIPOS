@@ -9141,7 +9141,7 @@ export function PosSalesModule({
   }
 
 
-  async function submitOpticalCashDeposit(amount:number,method:"cash"|"bank_transfer",customerId:string,evidence?:{reference_no:string;manager_verified:boolean}):Promise<void> {
+  async function submitOpticalCashDeposit(amount:number,method:"cash"|"bank_transfer",customerId:string,evidence?:{reference_no:string;manager_verified:boolean},dueDate?:string):Promise<void> {
     if(opticalDepositLockedRef.current)throw new Error("Optical payment is already processing");
     if(!opticalRetailActive || !posCurrencyResolved || posCurrencyCode!=="LAK")
       throw new Error("Optical cash deposits require a verified LAK store");
@@ -9160,7 +9160,8 @@ export function PosSalesModule({
        ||!Number.isSafeInteger(discount)||discount<0||discount>=subtotal
        ||!Number.isSafeInteger(amount)||amount<=0||amount>total)
       throw new Error("Verify LAK product prices, discounts and deposit amount before proceeding");
-    const signature=JSON.stringify({customerId,items,subtotal,discount,total,amount,method,evidence:evidence?.reference_no??null,branch:posScope.branchId});
+    if(!dueDate||!/^\d{4}-\d{2}-\d{2}$/.test(dueDate))throw new Error("กรุณาเลือกวันที่นัดรับแว่น");
+    const signature=JSON.stringify({customerId,items,subtotal,discount,total,amount,method,dueDate,evidence:evidence?.reference_no??null,branch:posScope.branchId});
     let attempt=opticalDepositAttemptsRef.current.get(signature);
     if(!attempt){
       attempt={orderId:crypto.randomUUID(),paymentId:crypto.randomUUID()};
@@ -9179,7 +9180,7 @@ export function PosSalesModule({
         method:"POST",credentials:"same-origin",headers:{"Content-Type":"application/json"},
         body:JSON.stringify({order_request_id:attempt.orderId,payment_request_id:attempt.paymentId,
           customer_id:customerId,items,discount_lak:discount,amount_lak:amount,method,
-          reference_no:evidence?.reference_no,manager_verified:evidence?.manager_verified===true})
+          due_date:dueDate,reference_no:evidence?.reference_no,manager_verified:evidence?.manager_verified===true})
       }));
       const workOrderId=paid?.data?.work_order_id;
       if(typeof workOrderId!=="string"||typeof paid?.data?.payment_id!=="string")
