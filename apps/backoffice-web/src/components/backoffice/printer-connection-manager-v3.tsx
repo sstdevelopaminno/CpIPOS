@@ -505,10 +505,19 @@ export function PrinterConnectionManagerV3({lang="th"}:{lang?:"th"|"en"|"lo"}) {
       </div>
     </div>
 
+    <nav className={styles.sectionTabs} aria-label={lang==="en"?"Printer sections":lang==="lo"?"ຫົວຂໍ້ຕັ້ງຄ່າເຄື່ອງພິມ":"หัวข้อตั้งค่าเครื่องพิมพ์"}>
+      {sectionNames.map(section=><button key={section.id} type="button"
+        className={activeSection===section.id?styles.sectionTabActive:styles.sectionTab}
+        aria-current={activeSection===section.id?"page":undefined}
+        onClick={()=>setActiveSection(section.id)}>
+        {section[lang]}
+      </button>)}
+    </nav>
+    {opticalMode?<p className={styles.opticalHint}>{tr("ใช้งานสำหรับโหมดร้านแว่นตา")} · {tr("ใบสั่งงาน")}</p>:null}
     {notice ? <div className={styles.notice}>{notice}</div> : null}
     {error ? <div className={styles.error}>{error}</div> : null}
 
-    <section className={styles.panel}>
+    {activeSection==="overview"?<section className={styles.panel}>
       <div className={styles.toolbar}>
         <div>
           <span className={styles.label}>{tr("สาขา")}</span>
@@ -530,9 +539,9 @@ export function PrinterConnectionManagerV3({lang="th"}:{lang?:"th"|"en"|"lo"}) {
           <span><strong>{card.title}</strong><p>{tr(card.desc)}<br />{tr(card.help)}</p></span>
         </button>)}
       </div>
-    </section>
+    </section>:null}
 
-    <section className={`${styles.panel} ${styles.discovery}`}>
+    {activeSection==="discovery"?<section className={`${styles.panel} ${styles.discovery}`}>
       <div className={styles.sectionHead}>
         <div>
           <h2 className={styles.sectionTitle}>{tr("✣ ค้นหาอุปกรณ์ที่ระบบรองรับ")}</h2>
@@ -550,9 +559,9 @@ export function PrinterConnectionManagerV3({lang="th"}:{lang?:"th"|"en"|"lo"}) {
           {item.printer_profile_id ? item.status === "disabled" ? <button className={styles.secondary} onClick={() => void reconnectPrinter(item.printer_profile_id!, item.id)} disabled={busy === `reconnect:${item.id}`}>{busy === `reconnect:${item.id}` ? tr("กำลังเชื่อมต่อ...") : tr("เชื่อมต่อใหม่")}</button> : <button className={styles.secondary} disabled>{tr("บันทึกไว้แล้ว")}</button> : <button className={styles.secondary} onClick={() => applyCandidate(item)}>{tr("ใช้เครื่องนี้")}</button>}
         </div>)}
       </div> : <div className={styles.empty}>{tr("เครื่องที่ Modern Runtime ตรวจพบอัตโนมัติจะแสดงใน “รายการเครื่องพิมพ์” ด้านล่าง ส่วนปุ่มค้นหาใช้ดู Runtime/Agent/โปรไฟล์ที่ระบบรู้จักเพิ่มเติม")}</div>}
-    </section>
+    </section>:null}
 
-    <section id="printer-v3-config" className={`${styles.panel} ${styles.config}`}>
+    {activeSection==="configure"?<section id="printer-v3-config" className={`${styles.panel} ${styles.config}`}>
       <div className={styles.sectionHead}>
         <div>
           <h2 className={styles.sectionTitle}>{editId ? tr("แก้ไขเครื่องพิมพ์และเส้นทาง") : configuringDiscovered ? tr("ตั้งค่าเส้นทางให้เครื่องที่ตรวจพบอัตโนมัติ") : tr("+ เพิ่มเครื่องพิมพ์")}</h2>
@@ -623,9 +632,9 @@ export function PrinterConnectionManagerV3({lang="th"}:{lang?:"th"|"en"|"lo"}) {
         <button className={styles.ghost} onClick={() => resetForm(mode)}>{tr("ล้างค่า")}</button>
         <button className={styles.primary} onClick={() => void save()} disabled={busy === "save"}>{busy === "save" ? tr("กำลังบันทึก...") : editId ? tr("บันทึกการเปลี่ยนแปลง") : configuringDiscovered ? tr("บันทึกเส้นทางพิมพ์") : tr("เชื่อมต่อและบันทึก")}</button>
       </div>
-    </section>
+    </section>:null}
 
-    <section className={`${styles.panel} ${styles.tablePanel}`}>
+    {activeSection==="devices"?<section className={`${styles.panel} ${styles.tablePanel}`}>
       <div className={styles.tableHeader}>
         <div>
           <h2 className={styles.sectionTitle}>{tr("รายการเครื่องพิมพ์ ")}<span className={styles.hint}>({filtered.length} {tr("เครื่อง")})</span></h2>
@@ -675,9 +684,9 @@ export function PrinterConnectionManagerV3({lang="th"}:{lang?:"th"|"en"|"lo"}) {
         {Array.from({ length: totalPages }, (_, index) => index + 1).slice(Math.max(0, page - 3), Math.max(5, page + 2)).map((pageNumber) => <button key={pageNumber} className={`${styles.pageButton} ${page === pageNumber ? styles.pageActive : ""}`} onClick={() => setPage(pageNumber)}>{pageNumber}</button>)}
         <button className={styles.pageButton} disabled={page >= totalPages} onClick={() => setPage((current) => Math.min(totalPages, current + 1))}>›</button>
       </div>
-    </section>
+    </section>:null}
 
-    <section className={`${styles.panel} ${styles.history}`}>
+    {activeSection==="history"?<section className={`${styles.panel} ${styles.history}`}>
       <div className={styles.sectionHead}>
         <div>
           <h2 className={styles.sectionTitle}>{tr("ประวัติเครื่องที่เคยเชื่อมต่อ")}</h2>
@@ -696,6 +705,6 @@ export function PrinterConnectionManagerV3({lang="th"}:{lang?:"th"|"en"|"lo"}) {
           </div>
         </div>) : <div className={styles.empty}>{tr("ยังไม่มีประวัติการเชื่อมต่อ")}</div>}
       </div>
-    </section>
+    </section>:null}
   </div>;
 }
