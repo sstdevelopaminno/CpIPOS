@@ -2195,7 +2195,6 @@ export function PosSalesModule({
   const [isHydrated, setIsHydrated] = useState(false);
   const [activeCategory, setActiveCategory] = useState<string>("");
   const [cart, setCart] = useState<CartItem[]>([]);
-  const opticalCartScrollRef = useRef<HTMLDivElement | null>(null);
   const [modifierDraft, setModifierDraft] = useState<ModifierDraft | null>(null);
   const [modifierIngredients, setModifierIngredients] = useState<RecipeIngredientChoice[]>([]);
   const [modifierIngredientsLoading, setModifierIngredientsLoading] = useState(false);
@@ -8330,17 +8329,7 @@ export function PosSalesModule({
 
     return (
       <div className="min-w-0">
-        {opticalRetailActive?<div className="mb-2 flex items-center justify-end gap-2 text-xs text-slate-600">
-          <span>{localSaleLabel("เลื่อนตะกร้าเพื่อดูข้อมูล", "Scroll cart details")}</span>
-          <button type="button" className="min-h-9 rounded-lg border border-slate-300 px-3"
-            aria-label={localSaleLabel("เลื่อนตะกร้าไปซ้าย","Scroll cart left")}
-            onClick={()=>opticalCartScrollRef.current?.scrollBy({left:-300,behavior:"smooth"})}>←</button>
-          <button type="button" className="min-h-9 rounded-lg border border-slate-300 px-3"
-            aria-label={localSaleLabel("เลื่อนตะกร้าไปขวา","Scroll cart right")}
-            onClick={()=>opticalCartScrollRef.current?.scrollBy({left:300,behavior:"smooth"})}>→</button>
-        </div>:null}
-        <div ref={opticalRetailActive?opticalCartScrollRef:undefined}
-          className={opticalRetailActive?"max-w-full overflow-x-auto overscroll-x-contain":"min-w-0"} tabIndex={opticalRetailActive?0:undefined}>
+        <div className={opticalRetailActive?"max-w-full overflow-x-auto overscroll-x-contain":"min-w-0"} tabIndex={opticalRetailActive?0:undefined}>
           <div className={`posui-cart-items ${cart.length > 5 ? "posui-cart-items--capped" : ""}`}
             style={opticalRetailActive?{minWidth:720}:undefined}>
         {cart.map((item) => {
