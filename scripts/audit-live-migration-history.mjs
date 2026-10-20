@@ -60,17 +60,66 @@ export function analyzeMigrationVersions(sourceFiles, liveEntries) {
     .map(([version, item]) => ({ version, name: item?.name ?? null }))
     .sort((a, b) => a.version.localeCompare(b.version));
   const matched = [...source.keys()].filter((version) => live.has(version)).length;
+
+  // A shared version is not proof of identical migration semantics. Treat a
+  // different Supabase migration name as a blocking discrepancy when supplied.
+  const sourceNameFor = (file) => path.basename(file).replace(/^\\d{12,17}_/, "").replace(/\\.sql$/, "");
+  const versionNameConflicts = [...source].flatMap(([version, file]) => {
+    const installed = live.get(version);
+    const liveName = typeof installed?.name === "string" ? installed.name.trim() : "";
+    const sourceName = sourceNameFor(file);
+    return installed && liveName && liveName !== sourceName
+      ? [{ version, file, sourceName, liveName }] : [];
+  });
+
+  // Matching a name across DIFFERENT versions is a review hint, not evidence
+  // of deployment. Ambiguous matches must never be selected automatically.
+  const byName = (rows, readName) => {
+    const grouped = new Map();
+    for (const row of rows) {
+      const name = readName(row);
+      if (!name) continue;
+      grouped.set(name, [...(grouped.get(name) ?? []), row]);
+    }
+    return grouped;
+  };
+  const sourceOnlyNames = byName(repositoryOnly, (row) => sourceNameFor(row.file));
+  const liveOnlyNames = byName(databaseOnly, (row) => typeof row.name === "string" ? row.name.trim() : "");
+  const renumberedCandidates = [];
+  const ambiguousNameMatches = [];
+  for (const [name, sourceRows] of sourceOnlyNames) {
+    const liveRows = liveOnlyNames.get(name);
+    if (!liveRows) continue;
+    if (sourceRows.length === 1 && liveRows.length === 1) {
+      renumberedCandidates.push({
+        name, sourceVersion: sourceRows[0].version, liveVersion: liveRows[0].version,
+        sourceFile: sourceRows[0].file, verified: false
+      });
+    } else {
+      ambiguousNameMatches.push({
+        name, sourceVersions: sourceRows.map((row) => row.version),
+        liveVersions: liveRows.map((row) => row.version)
+      });
+    }
+  }
+  renumberedCandidates.sort((a, b) => a.sourceVersion.localeCompare(b.sourceVersion));
+  ambiguousNameMatches.sort((a, b) => a.name.localeCompare(b.name));
+
   return {
     repositoryTotal: source.size,
     databaseTotal: live.size,
     matched,
     repositoryOnly,
     databaseOnly,
+    versionNameConflicts,
+    renumberedCandidates,
+    ambiguousNameMatches,
     invalidSourceFiles,
     duplicateSourceVersions,
     invalidLiveVersions,
     duplicateLiveVersions,
     reconciled: matched === source.size && matched === live.size
+      && versionNameConflicts.length === 0 && ambiguousNameMatches.length === 0
       && invalidSourceFiles.length === 0 && duplicateSourceVersions.length === 0
       && invalidLiveVersions.length === 0 && duplicateLiveVersions.length === 0
   };
