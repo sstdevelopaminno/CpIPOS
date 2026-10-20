@@ -17,7 +17,7 @@ export function classifyPosEntryDenial(
  now:number=Date.now()
 ):PosEntryDenial|null {
  const exempt=Boolean(lifecycle?.lifecycle_status==="sales_demo"||lifecycle?.metadata?.quota_exempt===true);
- const trial=contract?.status==="trial" || lifecycle?.lifecycle_status==="trial";
+ const trial=contract?contract.status==="trial":lifecycle?.lifecycle_status==="trial";
  // Never assume a missing payment from a blocked sale. "Trial ended" is not a paid invoice.
  const expiry=trial
    ?contract?.ended_at??lifecycle?.trial_expires_at??null
