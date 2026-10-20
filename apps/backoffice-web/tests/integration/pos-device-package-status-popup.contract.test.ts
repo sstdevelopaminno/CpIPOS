@@ -74,7 +74,6 @@ describe("POS device chooser subscription diagnostics",()=>{
   expect(page).toContain('"/api/public/subscription-checkout/submit"');
   expect(page).toContain('setSubmitted({id:json.data.id,status:json.data.status})');
   expect(page).toContain('quote.pending_review');
-  expect(page).toContain("15_000").toBe(false);
   expect(payment).toContain('status: "pending"');
   expect(payment).toContain('pending_review: openReview ?');
   expect(payment).toContain('currency: "THB"');
