@@ -40,6 +40,7 @@ type Props = {
   /** Only supplied when the authenticated Optical ledger transaction is live. */
   onOpticalDeposit?: (amount: number, method: OpticalDepositMethod, customerId: string, evidence?: OpticalBankVerification) => Promise<void> | void;
   onOpticalDepositReceipt?:()=>void;
+  opticalTransferAccount?:{bank_name:string;account_name:string;account_number:string;qr_image_url:string|null}|null;
   onMember?: () => void;
   onTableQrOrder?: () => void;
   onPromotion?: () => void;
@@ -271,6 +272,7 @@ export function PosPaymentPanel({
   onOpticalCustomer,
   onOpticalDeposit,
   onOpticalDepositReceipt,
+  opticalTransferAccount,
   onMember,
   onTableQrOrder,
   onPromotion,
@@ -460,7 +462,7 @@ export function PosPaymentPanel({
         </button>:null}
         {onRetry ? <button type="button" className="posui-btn posui-btn--retry-emergency" onClick={onRetry} disabled={retryDisabled || submitting}>{retryLabel ?? text.retry}</button> : null}
         {opticalDepositOpen ? <PosOpticalDepositDialog total={total} currency={opticalCurrencyCode} language={opticalLanguage}
-          onClose={()=>setOpticalDepositOpen(false)} onSubmit={onOpticalDeposit}/> : null}
+          onClose={()=>setOpticalDepositOpen(false)} onSubmit={onOpticalDeposit} transferAccount={opticalTransferAccount}/> : null}
       </section>
     );
   }
