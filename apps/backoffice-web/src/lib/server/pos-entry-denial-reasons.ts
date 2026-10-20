@@ -7,7 +7,7 @@ export type PosEntryLifecycle={
 }|null;
 export type PosEntryDenialCode =
  "trial_expired"|"subscription_expired"|"subscription_locked"|"subscription_inactive"|
- "subscription_missing"|"feature_not_enabled";
+ "subscription_missing"|"feature_not_enabled"|"subscription_review_timeout"|"subscription_payment_rejected";
 export type PosEntryDenial={
  code:PosEntryDenialCode;title:string;message:string;expires_at:string|null;kind:"subscription"|"feature";
 };
@@ -17,6 +17,14 @@ export function classifyPosEntryDenial(
  now:number=Date.now()
 ):PosEntryDenial|null {
  const exempt=Boolean(lifecycle?.lifecycle_status==="sales_demo"||lifecycle?.metadata?.quota_exempt===true);
+ if(lifecycle?.lock_reason==="subscription_payment_review_timeout" ||
+    lifecycle?.lock_reason==="subscription_payment_rejected"){
+   const rejected=lifecycle.lock_reason==="subscription_payment_rejected";
+   return {code:rejected?"subscription_payment_rejected":"subscription_review_timeout",
+     kind:"subscription",title:"การชำระแพ็กเกจของคุณไม่ผ่านการอนุมัติ",
+     message:"การชำระแพ็กเกจของคุณไม่ผ่านการอนุมัติ โปรดติดต่อ Support",
+     expires_at:null};
+ }
  const trial=contract?contract.status==="trial":lifecycle?.lifecycle_status==="trial";
  // Never assume a missing payment from a blocked sale. "Trial ended" is not a paid invoice.
  const expiry=trial
