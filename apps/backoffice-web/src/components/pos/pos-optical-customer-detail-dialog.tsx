@@ -97,13 +97,13 @@ export function PosOpticalCustomerDetailDialog({id,onClose,onChanged,lang}:{
     </div>:null}
     <div className="flex flex-wrap gap-2">
      {editing?<button type="button" disabled={busy} onClick={()=>void save()}
-       className="rounded-lg bg-emerald-700 px-4 py-2 font-bold text-white">บันทึกการแก้ไข</button>:
+       className="rounded-lg bg-emerald-700 px-4 py-2 font-bold text-white">{txt("บันทึกการแก้ไข")}</button>:
        <button type="button" onClick={()=>setEditing(true)}
-       className="rounded-lg border border-blue-300 px-4 py-2 text-blue-800">แก้ไขข้อมูลลูกค้า</button>}
+       className="rounded-lg border border-blue-300 px-4 py-2 text-blue-800">{txt("แก้ไขข้อมูลลูกค้า")}</button>}
      {editing?<button type="button" onClick={()=>setEditing(false)}
-       className="rounded-lg border px-4 py-2">ยกเลิกแก้ไข</button>:null}
+       className="rounded-lg border px-4 py-2">{txt("ยกเลิกแก้ไข")}</button>:null}
      {data.canArchive?<button type="button" disabled={busy} onClick={()=>void archive()}
-       className="rounded-lg border border-rose-300 px-4 py-2 text-rose-800">ลบ (เก็บถาวร)</button>:null}
+       className="rounded-lg border border-rose-300 px-4 py-2 text-rose-800">{txt("ลบ (เก็บถาวร)")}</button>:null}
     </div>
     <div className="rounded-xl border border-slate-200 p-3">
      <h4 className="mb-3 font-bold">{txt("ประวัติตรวจสายตา")} ({data.exams.length} {txt("รายการ")})</h4>
