@@ -2,7 +2,7 @@ import type { AuthContext } from "@/lib/auth-context";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
 
 type JsonRecord = Record<string, unknown>;
-export type PrinterPurpose = "receipt" | "kitchen" | "drink" | "bar" | "reprint" | "shift_report" | "payment_slip" | "cash_drawer";
+export type PrinterPurpose = "receipt" | "kitchen" | "drink" | "bar" | "reprint" | "shift_report" | "payment_slip" | "cash_drawer" | "work_order";
 export type CustomerConnectionMode = "lan" | "usb" | "bluetooth";
 export type PrinterAssignmentInput = {
   purpose: PrinterPurpose;
