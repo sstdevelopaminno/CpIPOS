@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import styles from "./printer-connection-manager-v3.module.css";
 
 type Mode = "lan" | "usb" | "bluetooth";
-type Purpose = "receipt" | "kitchen" | "drink" | "bar" | "reprint" | "shift_report" | "payment_slip" | "cash_drawer";
+type Purpose = "receipt" | "kitchen" | "drink" | "bar" | "reprint" | "shift_report" | "payment_slip" | "cash_drawer" | "work_order";
 type ZonedPurpose = "kitchen" | "drink" | "bar";
 type Assignment = { id: string; purpose: Purpose; zone_key: string; is_enabled: boolean; is_default: boolean; copies: number };
 type KitchenZone = { id: string; zone_code: string; zone_name: string; display_order: number; is_active: boolean; default_printer_id: string | null };
@@ -45,6 +45,7 @@ type History = {
 };
 type Registry = {
   branch: { id: string; code: string | null; name: string | null };
+  optical_mode: boolean;
   devices: Device[];
   history: History[];
   kitchen_zones: KitchenZone[];
@@ -91,6 +92,7 @@ const modeCards: Array<{ mode: Mode; title: string; icon: string; desc: string; 
 ];
 const purposes: Array<{ value: Purpose; label: string }> = [
   { value: "receipt", label: "ใบเสร็จหน้าขาย" },
+  { value: "work_order", label: "ใบสั่งงาน" },
   { value: "kitchen", label: "ครัว" },
   { value: "drink", label: "เครื่องดื่ม" },
   { value: "bar", label: "บาร์" },
@@ -227,9 +229,24 @@ function emptyZoneSelections(): Record<ZonedPurpose, string[]> {
   return { kitchen: [], drink: [], bar: [] };
 }
 
+const sectionNames=[
+ {id:"overview",th:"ประเภทและการพิมพ์",en:"Printer purpose",lo:"ປະເພດການພິມ"},
+ {id:"discovery",th:"ค้นหาอุปกรณ์",en:"Find devices",lo:"ຄົ້ນຫາອຸປະກອນ"},
+ {id:"configure",th:"เพิ่ม/ตั้งค่าเครื่องพิมพ์",en:"Configure printer",lo:"ຕັ້ງຄ່າເຄື່ອງພິມ"},
+ {id:"devices",th:"รายการเครื่องพิมพ์",en:"Printer list",lo:"ລາຍການເຄື່ອງພິມ"},
+ {id:"history",th:"ประวัติการเชื่อมต่อ",en:"Connection history",lo:"ປະຫວັດການເຊື່ອມຕໍ່"}
+] as const;
+type PrinterSection=typeof sectionNames[number]["id"];
+const opticalLabels:Record<string,{en:string;lo:string}>={
+ "ใบสั่งงาน":{en:"Work order",lo:"ໃບສັ່ງງານ"},
+ "ใช้งานสำหรับโหมดร้านแว่นตา":{en:"Optical retail printer settings",lo:"ຕັ້ງຄ່າພິມຮ້ານແວ່ນຕາ"}
+};
 export function PrinterConnectionManagerV3({lang="th"}:{lang?:"th"|"en"|"lo"}) {
-  const tr=(value:string)=>lang==="th"?value:printerText[value]?.[lang]??printerExtraText[value]?.[lang]??missingPrinterText[value]?.[lang]??value;
+  const tr=(value:string)=>lang==="th"?value:printerText[value]?.[lang]??printerExtraText[value]?.[lang]??missingPrinterText[value]?.[lang]??opticalLabels[value]?.[lang]??value;
   const [registry, setRegistry] = useState<Registry | null>(null);
+  const [activeSection,setActiveSection]=useState<PrinterSection>("overview");
+  const opticalMode=registry?.optical_mode===true;
+  const visiblePurposes=opticalMode?purposes.filter(p=>!["kitchen","drink","bar"].includes(p.value)):purposes.filter(p=>p.value!=="work_order");
   const [mode, setMode] = useState<Mode>("lan");
   const [purposeFilter, setPurposeFilter] = useState<Purpose | "all">("all");
   const [page, setPage] = useState(1);
@@ -312,10 +329,10 @@ export function PrinterConnectionManagerV3({lang="th"}:{lang?:"th"|"en"|"lo"}) {
     setIp("");
     setPort("9100");
     setZoneSelections(emptyZoneSelections());
-    const fromCandidate = item.functions.filter((value): value is Purpose => purposes.some((candidatePurpose) => candidatePurpose.value === value));
+    const fromCandidate = item.functions.filter((value): value is Purpose => visiblePurposes.some((candidatePurpose) => candidatePurpose.value === value));
     setSelectedPurposes(fromCandidate.length ? fromCandidate : ["receipt"]);
     setNotice(`เลือก ${item.name} แล้ว ตรวจสอบหน้าที่ใช้งานและกดบันทึก`);
-    document.getElementById("printer-v3-config")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    setActiveSection("configure");
   }
 
   function edit(device: Device) {
@@ -327,7 +344,7 @@ export function PrinterConnectionManagerV3({lang="th"}:{lang?:"th"|"en"|"lo"}) {
     setModel(device.model ?? "");
     setPaper(device.paper_width_mm);
     const enabledAssignments = device.printer_device_assignments.filter((assignment) => assignment.is_enabled);
-    setSelectedPurposes(Array.from(new Set(enabledAssignments.map((assignment) => assignment.purpose))));
+    setSelectedPurposes(Array.from(new Set(enabledAssignments.map((assignment) => assignment.purpose))).filter(p=>opticalMode?!["kitchen","drink","bar"].includes(p):p!=="work_order"));
     const nextZones = emptyZoneSelections();
     for (const purpose of zonedPurposes) {
       nextZones[purpose] = Array.from(new Set(enabledAssignments.filter((assignment) => assignment.purpose === purpose && assignment.zone_key).map((assignment) => assignment.zone_key.toUpperCase())));
@@ -339,7 +356,7 @@ export function PrinterConnectionManagerV3({lang="th"}:{lang?:"th"|"en"|"lo"}) {
     if (!device.printer_profile_id) {
       setNotice(`ตรวจพบ ${device.display_name} อัตโนมัติแล้ว กรุณาเลือกเส้นทางพิมพ์ที่ต้องการก่อนบันทึก`);
     }
-    document.getElementById("printer-v3-config")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    setActiveSection("configure");
   }
 
   function togglePurpose(value: Purpose) {
@@ -417,6 +434,7 @@ export function PrinterConnectionManagerV3({lang="th"}:{lang?:"th"|"en"|"lo"}) {
       await api("/api/backoffice/printers/devices", { method: editId ? "PATCH" : "POST", body: JSON.stringify(payload) });
       setNotice(editId ? "อัปเดตเครื่องพิมพ์และเส้นทางพิมพ์แล้ว" : physicalFingerprint ? "บันทึกเส้นทางพิมพ์ให้เครื่องที่ตรวจพบแล้ว" : "เชื่อมต่อ บันทึก และตั้งเส้นทางพิมพ์แล้ว");
       resetForm(mode);
+      setActiveSection("devices");
       await load();
     } catch (err) {
       setError(err instanceof Error ? err.message : "บันทึกไม่สำเร็จ");
@@ -487,10 +505,19 @@ export function PrinterConnectionManagerV3({lang="th"}:{lang?:"th"|"en"|"lo"}) {
       </div>
     </div>
 
+    <nav className={styles.sectionTabs} aria-label={lang==="en"?"Printer sections":lang==="lo"?"ຫົວຂໍ້ຕັ້ງຄ່າເຄື່ອງພິມ":"หัวข้อตั้งค่าเครื่องพิมพ์"}>
+      {sectionNames.map(section=><button key={section.id} type="button"
+        className={activeSection===section.id?styles.sectionTabActive:styles.sectionTab}
+        aria-current={activeSection===section.id?"page":undefined}
+        onClick={()=>setActiveSection(section.id)}>
+        {section[lang]}
+      </button>)}
+    </nav>
+    {opticalMode?<p className={styles.opticalHint}>{tr("ใช้งานสำหรับโหมดร้านแว่นตา")} · {tr("ใบสั่งงาน")}</p>:null}
     {notice ? <div className={styles.notice}>{notice}</div> : null}
     {error ? <div className={styles.error}>{error}</div> : null}
 
-    <section className={styles.panel}>
+    {activeSection==="overview"?<section className={styles.panel}>
       <div className={styles.toolbar}>
         <div>
           <span className={styles.label}>{tr("สาขา")}</span>
@@ -502,7 +529,7 @@ export function PrinterConnectionManagerV3({lang="th"}:{lang?:"th"|"en"|"lo"}) {
           <span className={styles.label}>{tr("คำสั่งพิมพ์ / วัตถุประสงค์")}</span>
           <div className={styles.purposeTabs}>
             <button className={`${styles.tab} ${purposeFilter === "all" ? styles.tabActive : ""}`} onClick={() => { setPurposeFilter("all"); setPage(1); }}>{tr("ทั้งหมด")}</button>
-            {purposes.map((purpose) => <button key={purpose.value} className={`${styles.tab} ${purposeFilter === purpose.value ? styles.tabActive : ""}`} onClick={() => { setPurposeFilter(purpose.value); setPage(1); }}>{tr(purpose.label)}</button>)}
+            {visiblePurposes.map((purpose) => <button key={purpose.value} className={`${styles.tab} ${purposeFilter === purpose.value ? styles.tabActive : ""}`} onClick={() => { setPurposeFilter(purpose.value); setPage(1); }}>{tr(purpose.label)}</button>)}
           </div>
         </div>
       </div>
@@ -512,9 +539,9 @@ export function PrinterConnectionManagerV3({lang="th"}:{lang?:"th"|"en"|"lo"}) {
           <span><strong>{card.title}</strong><p>{tr(card.desc)}<br />{tr(card.help)}</p></span>
         </button>)}
       </div>
-    </section>
+    </section>:null}
 
-    <section className={`${styles.panel} ${styles.discovery}`}>
+    {activeSection==="discovery"?<section className={`${styles.panel} ${styles.discovery}`}>
       <div className={styles.sectionHead}>
         <div>
           <h2 className={styles.sectionTitle}>{tr("✣ ค้นหาอุปกรณ์ที่ระบบรองรับ")}</h2>
@@ -532,9 +559,9 @@ export function PrinterConnectionManagerV3({lang="th"}:{lang?:"th"|"en"|"lo"}) {
           {item.printer_profile_id ? item.status === "disabled" ? <button className={styles.secondary} onClick={() => void reconnectPrinter(item.printer_profile_id!, item.id)} disabled={busy === `reconnect:${item.id}`}>{busy === `reconnect:${item.id}` ? tr("กำลังเชื่อมต่อ...") : tr("เชื่อมต่อใหม่")}</button> : <button className={styles.secondary} disabled>{tr("บันทึกไว้แล้ว")}</button> : <button className={styles.secondary} onClick={() => applyCandidate(item)}>{tr("ใช้เครื่องนี้")}</button>}
         </div>)}
       </div> : <div className={styles.empty}>{tr("เครื่องที่ Modern Runtime ตรวจพบอัตโนมัติจะแสดงใน “รายการเครื่องพิมพ์” ด้านล่าง ส่วนปุ่มค้นหาใช้ดู Runtime/Agent/โปรไฟล์ที่ระบบรู้จักเพิ่มเติม")}</div>}
-    </section>
+    </section>:null}
 
-    <section id="printer-v3-config" className={`${styles.panel} ${styles.config}`}>
+    {activeSection==="configure"?<section id="printer-v3-config" className={`${styles.panel} ${styles.config}`}>
       <div className={styles.sectionHead}>
         <div>
           <h2 className={styles.sectionTitle}>{editId ? tr("แก้ไขเครื่องพิมพ์และเส้นทาง") : configuringDiscovered ? tr("ตั้งค่าเส้นทางให้เครื่องที่ตรวจพบอัตโนมัติ") : tr("+ เพิ่มเครื่องพิมพ์")}</h2>
@@ -565,7 +592,7 @@ export function PrinterConnectionManagerV3({lang="th"}:{lang?:"th"|"en"|"lo"}) {
         </div>
       </div>
       <div className={styles.purposeGrid}>
-        {purposes.map((purpose) => <label className={styles.check} key={purpose.value}>
+        {visiblePurposes.map((purpose) => <label className={styles.check} key={purpose.value}>
           <input type="checkbox" checked={selectedPurposes.includes(purpose.value)} onChange={() => togglePurpose(purpose.value)} />
           <span>{tr(purpose.label)}</span>
         </label>)}
@@ -605,15 +632,15 @@ export function PrinterConnectionManagerV3({lang="th"}:{lang?:"th"|"en"|"lo"}) {
         <button className={styles.ghost} onClick={() => resetForm(mode)}>{tr("ล้างค่า")}</button>
         <button className={styles.primary} onClick={() => void save()} disabled={busy === "save"}>{busy === "save" ? tr("กำลังบันทึก...") : editId ? tr("บันทึกการเปลี่ยนแปลง") : configuringDiscovered ? tr("บันทึกเส้นทางพิมพ์") : tr("เชื่อมต่อและบันทึก")}</button>
       </div>
-    </section>
+    </section>:null}
 
-    <section className={`${styles.panel} ${styles.tablePanel}`}>
+    {activeSection==="devices"?<section className={`${styles.panel} ${styles.tablePanel}`}>
       <div className={styles.tableHeader}>
         <div>
           <h2 className={styles.sectionTitle}>{tr("รายการเครื่องพิมพ์ ")}<span className={styles.hint}>({filtered.length} {tr("เครื่อง")})</span></h2>
           <span className={styles.hint}>{tr("เครื่อง Modern ที่ตรวจพบจะขึ้น Online ก่อนโดยยังไม่มี routing; ลูกค้าเป็นผู้เลือกเส้นทางพิมพ์เอง")}</span>
         </div>
-        <button className={styles.primary} onClick={() => resetForm(mode)}>{tr("+ เพิ่มเครื่องพิมพ์")}</button>
+        <button className={styles.primary} onClick={() => {resetForm(mode);setActiveSection("configure");}}>{tr("+ เพิ่มเครื่องพิมพ์")}</button>
       </div>
       <div className={styles.tableWrap}>
         <table className={styles.table}>
@@ -657,9 +684,9 @@ export function PrinterConnectionManagerV3({lang="th"}:{lang?:"th"|"en"|"lo"}) {
         {Array.from({ length: totalPages }, (_, index) => index + 1).slice(Math.max(0, page - 3), Math.max(5, page + 2)).map((pageNumber) => <button key={pageNumber} className={`${styles.pageButton} ${page === pageNumber ? styles.pageActive : ""}`} onClick={() => setPage(pageNumber)}>{pageNumber}</button>)}
         <button className={styles.pageButton} disabled={page >= totalPages} onClick={() => setPage((current) => Math.min(totalPages, current + 1))}>›</button>
       </div>
-    </section>
+    </section>:null}
 
-    <section className={`${styles.panel} ${styles.history}`}>
+    {activeSection==="history"?<section className={`${styles.panel} ${styles.history}`}>
       <div className={styles.sectionHead}>
         <div>
           <h2 className={styles.sectionTitle}>{tr("ประวัติเครื่องที่เคยเชื่อมต่อ")}</h2>
@@ -678,6 +705,6 @@ export function PrinterConnectionManagerV3({lang="th"}:{lang?:"th"|"en"|"lo"}) {
           </div>
         </div>) : <div className={styles.empty}>{tr("ยังไม่มีประวัติการเชื่อมต่อ")}</div>}
       </div>
-    </section>
+    </section>:null}
   </div>;
 }

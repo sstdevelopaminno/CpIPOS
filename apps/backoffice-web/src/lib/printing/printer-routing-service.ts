@@ -12,7 +12,8 @@ export type PrinterRoutingPurpose =
   | "reprint"
   | "shift_report"
   | "payment_slip"
-  | "cash_drawer";
+  | "cash_drawer"
+  | "work_order";
 
 type LegacyPrinterRole = "receipt" | "kitchen" | "report";
 type PrinterProfileRow = PrinterProfile & { created_by?: string | null };
