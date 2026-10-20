@@ -44,7 +44,7 @@ describe("POS cashier device selection accurately classifies customer subscripti
   const src=readFileSync(resolve(process.cwd(),"src/app/api/auth/devices/select/select-handler.ts"),"utf8");
   const access=readFileSync(resolve(process.cwd(),"src/lib/server/pos-entry-access-service.ts"),"utf8");
   expect(access).toContain("classifyPosEntryDenial(subscription.contract,subscription.lifecycle)");
-  expect(access).toContain("if(lifecycleDenial)return {allowed:false");
+  expect(access).toContain("if(lifecycleDenial && !temporary)return {allowed:false");
   expect(src).toContain("evaluatePosEntryAccess(supabase, flow.tenantId, flow.branchId)");
   expect(src).toContain("if(!entryAccess.allowed)");
   expect(src).toContain('"feature_verification_unavailable"');
@@ -56,7 +56,7 @@ describe("POS cashier device selection accurately classifies customer subscripti
   expect(ui).toContain("entryErrorTitle(popup.code)");
   expect(ui).toContain("entryExpiryDate(lang,popup.expiresAt)");
   expect(ui).toContain("PACKAGE_ENTRY_REASONS.has(popup.code)");
-  expect(ui).toContain("https://lin.ee/f1LXpAF");
+  expect(ui).toContain("/login/support-chat");
   expect(copy).toContain("ໄລຍະທົດລອງ");
   expect(copy).toContain("Trial period ended");
  });
