@@ -509,11 +509,11 @@ function LoginDevicesPageContent() {
                   !
                 </div>
                 <p className="store-v2-popup-title !text-slate-800" id="pos-device-entry-error-title">
-                   {T(paymentReview && popup.code && PACKAGE_ENTRY_REASONS.has(popup.code)
+                   {T(paymentReview && popup.code && PACKAGE_ENTRY_REASONS.has(popup.code) && !["subscription_review_timeout","subscription_payment_rejected"].includes(popup.code)
                      ? "อยู่ระหว่างรอตรวจสอบการชำระเงิน" : entryErrorTitle(popup.code))}
                  </p>
                  <p className="store-v2-popup-text !text-slate-600">
-                   {T(paymentReview && popup.code && PACKAGE_ENTRY_REASONS.has(popup.code)
+                   {T(paymentReview && popup.code && PACKAGE_ENTRY_REASONS.has(popup.code) && !["subscription_review_timeout","subscription_payment_rejected"].includes(popup.code)
                      ? "ฝ่าย IT กำลังตรวจสอบหลักฐานการชำระ หากสิทธิ์ชั่วคราวหมดอายุหรือไม่ได้รับการยืนยัน กรุณาติดต่อ Support"
                      : popup.message)}
                  </p>
@@ -533,7 +533,8 @@ function LoginDevicesPageContent() {
                      ):null}
                    </div>
                  ):null}
-                 <div className="mt-4 grid w-full grid-cols-3 gap-2" role="group" aria-label={T("ตัวเลือกการช่วยเหลือ")}>
+                 <div className={`mt-4 grid w-full gap-2 ${popup.code==="subscription_review_timeout"||popup.code==="subscription_payment_rejected"?"grid-cols-2":"grid-cols-3"}`} role="group" aria-label={T("ตัวเลือกการช่วยเหลือ")}>
+                   {popup.code!=="subscription_review_timeout"&&popup.code!=="subscription_payment_rejected"?(
                    <button type="button"
                      className="flex h-11 min-w-0 items-center justify-center rounded-xl bg-blue-700 px-2 text-center text-xs font-bold !text-white hover:bg-blue-800 sm:text-sm"
                      onClick={() => {
@@ -542,6 +543,7 @@ function LoginDevicesPageContent() {
                      }}>
                      {T(popup.code && PACKAGE_PAYMENT_REASONS.has(popup.code) ? "ชำระเงิน" : "ตรวจสอบอีกครั้ง")}
                    </button>
+                   ):null}
                    <a href="/login/support-chat"
                      className="flex h-11 min-w-0 items-center justify-center rounded-xl bg-emerald-700 px-2 text-center text-xs font-bold !text-white hover:bg-emerald-800 sm:text-sm">
                      {T("ติดต่อฝ่าย Support")}
