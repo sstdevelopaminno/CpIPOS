@@ -67,7 +67,7 @@ const field = "mt-1 block w-full rounded-lg border border-slate-300 bg-white px-
 
 export default function PreEntryPackagePaymentPage() {
   const router=useRouter();
-  const {lang}=useAppLanguage("th");
+  const {lang,setLanguage}=useAppLanguage("th");
   const t=localeCopy[lang];
   const [storeCode,setStoreCode]=useState("");
   const [pin,setPin]=useState("");
@@ -142,7 +142,7 @@ export default function PreEntryPackagePaymentPage() {
             <h1 className="mt-1 text-2xl font-bold text-slate-800">{t.title}</h1>
             <p className="mt-2 text-sm leading-6 text-slate-600">{t.intro}</p>
           </div>
-          <AppLanguageSwitcher />
+          <AppLanguageSwitcher lang={lang} onChange={setLanguage} />
         </header>
         <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm font-semibold text-amber-900">{t.locked}</div>
         {error ? <div role="alert" className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-800">{error}</div>:null}
