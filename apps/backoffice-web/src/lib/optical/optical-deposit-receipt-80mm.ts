@@ -97,14 +97,17 @@ export function renderOpticalDepositReceipt80mm(input: OpticalDepositReceipt80mm
       .code { text-align: center; font-size: 9px; overflow-wrap: anywhere; }
       hr { border: 0; border-top: 1px dashed #666; }
     </style></head><body><main class="receipt">
+      ${safeLogo ? `<img class="store-logo" src="${escapeHtml(safeLogo)}" alt="Store logo">` : ""}
       <h1>${escapeHtml(input.storeName)}</h1>
       <h2>${remaining>0?t.depositTitle:t.fullTitle}</h2>
       <p class="center">${escapeHtml(input.branchName)}</p>
-      <p>เลขที่ใบเสร็จ: ${escapeHtml(input.receiptNumber)}</p>
-      <p>เลขบิล: ${escapeHtml(bill.orderId)}</p>
-      <p>วันที่: ${escapeHtml(input.createdAtIso)}</p>
-      <p>พนักงาน: ${escapeHtml(input.cashierName)}</p>
-      ${input.customerLabel ? `<p>ลูกค้า: ${escapeHtml(input.customerLabel)}</p>` : ""}
+      ${input.storeAddress ? `<p class="store-address">${escapeHtml(input.storeAddress)}</p>` : ""}
+      ${input.storePhone ? `<p class="store-address">${escapeHtml(input.storePhone)}</p>` : ""}
+      <p>${t.receipt}: ${escapeHtml(receiptNumber)}</p>
+      <p>${t.bill}: ${escapeHtml(billNumber)}</p>
+      <p>${t.date}: ${escapeHtml(opticalReceiptDate(input.createdAtIso,lang))}</p>
+      <p>${t.cashier}: ${escapeHtml(input.cashierName)}</p>
+      ${input.customerLabel ? `<p>${t.customer}: ${escapeHtml(input.customerLabel)}</p>` : ""}
       <hr><table><thead><tr><th>${t.items}</th><th class="num">${t.qty}</th><th class="num">${t.price}</th></tr></thead>
       <tbody>${rows}</tbody></table>
       <div class="line"><span>${t.total}</span><strong>${money(bill.totalAmount,currency)}</strong></div>
