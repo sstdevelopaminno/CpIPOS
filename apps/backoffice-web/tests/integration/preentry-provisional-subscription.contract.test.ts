@@ -13,7 +13,7 @@ describe("Pre-entry subscription provisional activation",()=>{
   expect(page).toContain('/api/auth/subscription-checkout');
   expect(page).not.toContain("setPin(");
   expect(page).not.toContain("setStoreCode(");
-  expect(page).toContain("quote.package.amount");
+  expect(page).toContain("quote?.package.amount");
  });
  it("shows IT-configured bank details and QR, uploads slip only on submission",()=>{
   const page=src("app/login/package-payment/page.tsx");
