@@ -39,10 +39,16 @@ export async function GET(request:Request,{params}:{params:Promise<{workOrderId:
     };
     if(!buildOpticalPickupBarcode(order.id))return unavailable(409);
     const width=new URL(request.url).searchParams.get("width")==="58"?58:80;
+    // Payment receiver is an auth user ID, never a customer-facing employee name.
+    // Read the current profile at print time, scoped to a validated Optical receipt.
+    const {data:cashier,error:cashierError}=await client.from("users_profiles")
+      .select("full_name").eq("id",payment.received_by).maybeSingle();
+    if(cashierError)return unavailable(503);
+    const cashierName=String(cashier?.full_name??"").trim()||"ไม่ระบุชื่อพนักงาน";
     const receipt=renderOpticalDepositReceipt80mm({
       bill,receiptNumber:"OPT-"+payment.id,storeName:tenant?.display_name||tenant?.name||"Optical",
       branchName:branch?.name??branchId,createdAtIso:payment.received_at,
-      cashierName:payment.received_by??"-",
+      cashierName,
       paymentMethod:payment.method==="bank_transfer"?"bank_transfer":"cash",
       items:lines.map(row=>({description:row.description_snapshot,
         quantity:Number(row.quantity),lineTotal:Number(row.line_total)})),
