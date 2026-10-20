@@ -23,12 +23,18 @@ describe("Optical deposit search, safe bank transfer and SKU navigation",()=>{
   expect(api).toContain("optical_transfer_proof_required");
   expect(api).toContain('requireOpticalFinanceModule(scope.session.tenant_id,"optical_deposit")');
  });
- it("adds product SKU and both horizontal scroll buttons in Optical-specific cart",()=>{
+ it("shows Optical SKU without cart navigation arrows on both rendering paths",()=>{
   const c=src("components/pos/pos-general-sale-table-controller.tsx");
+  const sale=src("components/pos/pos-sales-module.tsx");
   expect(c).toContain("SKU / รหัสสินค้า: ");
-  expect(c).toContain("cpipos-sd-table__nav");
-  expect(c).toContain("scroll.scrollBy({left:-320");
-  expect(c).toContain("scroll.scrollBy({left:320");
   expect(c).toContain("if (opticalActive) tr.append(nameCell, qtyCell, unitPriceCell, totalCell, actionCell)");
+  expect(c).toContain("overflow-x: auto !important");
+  expect(c).not.toContain("cpipos-sd-table__nav");
+  expect(c).not.toContain("เลื่อนตารางเพื่อดูข้อมูล");
+  expect(c).not.toContain("scroll.scrollBy({left:");
+  expect(sale).toContain("max-w-full overflow-x-auto overscroll-x-contain");
+  expect(sale).not.toContain("เลื่อนตะกร้าเพื่อดูข้อมูล");
+  expect(sale).not.toContain("opticalCartScrollRef");
+  expect(sale).not.toContain("Scroll cart right");
  });
 });
