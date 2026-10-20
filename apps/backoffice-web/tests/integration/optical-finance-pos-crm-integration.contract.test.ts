@@ -41,7 +41,7 @@ describe("Optical finance V1 staged integration",()=>{
   expect(sale).toContain('fetch("/api/pos/optical/deposits"');
   expect(sale).not.toContain('fetch("/api/pos/optical/work-orders"');
   const atomicRoute=file("app/api/pos/optical/deposits/route.ts");
-  expect(atomicRoute).toContain('rpc("optical_open_with_deposit_tx"');
+  expect(atomicRoute).toContain('rpc("optical_open_with_deposit_due_v1"');
   expect(atomicRoute).toContain('requireActiveShift(scope)');
   expect(atomicRoute).toContain('p_verified_by:transfer?scope.session.user_id:null');
   expect(sale).toContain('typeof paid?.data?.payment_id!=="string"');
