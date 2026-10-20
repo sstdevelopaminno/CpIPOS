@@ -64,7 +64,7 @@ export async function POST(request:Request,{params}:{params:Promise<{workOrderId
      const receipt=await loadReceipt(new Request(url.toString()),{params:Promise.resolve({workOrderId})});
      if(!receipt.ok)return fail("optical_receipt_unavailable","ต้องมีรายการรับเงินที่ยืนยันแล้วก่อนพิมพ์ใบงาน",409);
      const html=await receipt.text();
-     if(!html.includes("บาร์โค้ดใบสั่งงาน")||!html.includes('class="barcode"'))
+     if(!html.includes('class="barcode"')||!html.includes("data:image/svg+xml;base64,"))
        return fail("optical_receipt_invalid","Receipt barcode is missing.",503);
      for(let copy=1;copy<=Math.min(5,route.copies);copy++){
        const job=await enqueuePrintJob({
