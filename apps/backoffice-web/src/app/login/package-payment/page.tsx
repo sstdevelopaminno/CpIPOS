@@ -17,7 +17,7 @@ type Submission={id:string;status:string;provisional_access_granted:boolean;prov
 type Envelope<T>={data?:T;error?:{code:string;message:string}};
 const words={
   th:{
-    title:"ชำระเงินแพ็กเกจ CpiPOS",store:"ร้านค้า",package:"แพ็กเกจ",cycle:"รอบชำระ",amount:"ยอดที่ต้องชำระ",
+    title:"ชำระเงินแพ็กเกจ CpiPOS",menu:"ชำระแพ็กเกจ",store:"ร้านค้า",package:"แพ็กเกจ",cycle:"รอบชำระ",amount:"ยอดที่ต้องชำระ",
     pay:"ชำระเงิน",account:"เลขบัญชี",bank:"ธนาคาร",owner:"ชื่อบัญชี",qr:"สแกน QR เพื่อชำระ",
     transfer:"ชำระเงินและแนบสลิป",submit:"ส่งหลักฐานการชำระ",slip:"แนบสลิป (JPG, PNG, WEBP ไม่เกิน 4 MB)",
     note:"หมายเหตุ (ไม่บังคับ)",back:"กลับไปเลือกเครื่อง",support:"ติดต่อ Support",close:"ปิด",
@@ -29,7 +29,7 @@ const words={
     sent:"ได้รับสลิปแล้ว",
   },
   en:{
-    title:"Pay CpiPOS subscription",store:"Store",package:"Package",cycle:"Next billing period",amount:"Amount due",
+    title:"Pay CpiPOS subscription",menu:"Package Payment",store:"Store",package:"Package",cycle:"Next billing period",amount:"Amount due",
     pay:"Pay now",account:"Account number",bank:"Bank",owner:"Account name",qr:"Scan to pay",
     transfer:"Pay and attach slip",submit:"Submit payment evidence",slip:"Attach slip (JPG PNG WEBP max 4 MB)",
     note:"Note (optional)",back:"Back to device selection",support:"Contact Support",close:"Close",
@@ -41,7 +41,7 @@ const words={
     sent:"Payment evidence received",
   },
   lo:{
-    title:"ຊຳລະຄ່າແພັກເກດ CpiPOS",store:"ຮ້ານຄ້າ",package:"ແພັກເກດ",cycle:"ຮອບບິນຕໍ່ໄປ",amount:"ຈຳນວນເງິນທີ່ຕ້ອງຊຳລະ",
+    title:"ຊຳລະຄ່າແພັກເກດ CpiPOS",menu:"ຊຳລະຄ່າແພັກເກດ",store:"ຮ້ານຄ້າ",package:"ແພັກເກດ",cycle:"ຮອບບິນຕໍ່ໄປ",amount:"ຈຳນວນເງິນທີ່ຕ້ອງຊຳລະ",
     pay:"ຊຳລະເງິນ",account:"ເລກບັນຊີ",bank:"ທະນາຄານ",owner:"ຊື່ບັນຊີ",qr:"ສະແກນ QR ເພື່ອຊຳລະ",
     transfer:"ຊຳລະເງິນ ແລະ ແນບສະລິບ",submit:"ສົ່ງຫຼັກຖານການຊຳລະ",slip:"ແນບສະລິບ JPG PNG WEBP ບໍ່ເກີນ 4 MB",
     note:"ໝາຍເຫດ",back:"ກັບໄປເລືອກເຄື່ອງ",support:"ຕິດຕໍ່ Support",close:"ປິດ",
@@ -109,6 +109,12 @@ export default function PreEntryPackagePaymentPage(){
           <h1 className="mt-2 text-2xl font-extrabold text-slate-800">{t.title}</h1></div>
         <AppLanguageSwitcher lang={lang} onChange={setLanguage}/>
       </div>
+      <nav aria-label={t.menu} className="mt-5 border-b border-slate-200 pb-3">
+        <a href="/preview/pos/payments/package?entry=subscription" aria-current="page"
+          className="inline-flex min-h-11 items-center gap-2 rounded-xl bg-blue-700 px-5 py-2 text-sm font-bold !text-white shadow-sm">
+          <span aria-hidden="true">▣</span>{t.menu}
+        </a>
+      </nav>
       {error?<p role="alert" className="mt-5 rounded-xl bg-red-50 p-3 text-sm text-red-800">{error}</p>:null}
       {loading?<p className="mt-6 text-slate-500">{t.waiting}</p>:null}
       {quote?<div className="mt-6 space-y-4">
