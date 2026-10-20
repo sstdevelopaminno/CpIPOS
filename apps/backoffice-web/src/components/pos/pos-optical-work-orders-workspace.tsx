@@ -1,13 +1,11 @@
 "use client";
 import {useCallback,useEffect,useMemo,useState} from "react";
 import type {Language} from "@/lib/i18n";
+import {opticalDetailStatus,opticalDetailText} from "@/lib/optical-detail-i18n";
 import {PosOpticalWorkOrderDetailDialog} from "@/components/pos/pos-optical-work-order-detail-dialog";
 
 type Job={id:string;status:string;currency_code:string;total_amount:number;paid_total:number;created_at:string;due_at:string|null;
   customer:{full_name:string;customer_code:string}|null};
-const statusTh:Record<string,string>={
-  received:"รับงานแล้ว",lens_ordered:"สั่งเลนส์",edging:"ประกอบแว่น",ready_for_pickup:"พร้อมรับ",collected:"ส่งมอบแล้ว",cancelled:"ยกเลิก"
-};
 export function PosOpticalWorkOrdersWorkspace({lang}:{lang:Language}){
   const [jobs,setJobs]=useState<Job[]>([]);
   const [search,setSearch]=useState("");
@@ -15,6 +13,7 @@ export function PosOpticalWorkOrdersWorkspace({lang}:{lang:Language}){
   const [loading,setLoading]=useState(true);
   const [error,setError]=useState("");
   const th=lang==="th",lo=lang==="lo";
+  const txt=(thai:string)=>opticalDetailText(lang,thai);
   const refresh=useCallback(async()=>{
     setLoading(true);setError("");
     try{
@@ -52,13 +51,13 @@ export function PosOpticalWorkOrdersWorkspace({lang}:{lang:Language}){
       <div className="overflow-x-auto">
         <table className="w-full min-w-[780px] text-left text-sm">
           <thead className="bg-emerald-50 text-emerald-950"><tr>
-            <th className="p-3">{th?"เลขใบงาน":"Order"}</th>
-            <th className="p-3">{th?"ลูกค้า":"Customer"}</th>
-            <th className="p-3">{th?"สถานะ":"Status"}</th>
-            <th className="p-3">{th?"ยอดรวม (LAK)":"Total (LAK)"}</th>
-            <th className="p-3">{th?"มัดจำ/ชำระแล้ว":"Paid"}</th>
-            <th className="p-3">{th?"ค้างชำระ":"Outstanding"}</th>
-            <th className="p-3">{th?"นัดรับ":"Due"}</th><th className="p-3">{th?"จัดการ":"Actions"}</th>
+            <th className="p-3">{th?"เลขใบงาน":lo?txt("เลขใบงาน"):"Order"}</th>
+            <th className="p-3">{th?"ลูกค้า":lo?txt("ลูกค้า"):"Customer"}</th>
+            <th className="p-3">{th?"สถานะ":lo?txt("สถานะ"):"Status"}</th>
+            <th className="p-3">{th?"ยอดรวม (LAK)":lo?txt("ยอดรวม (LAK)"):"Total (LAK)"}</th>
+            <th className="p-3">{th?"มัดจำ/ชำระแล้ว":lo?txt("มัดจำ/ชำระแล้ว"):"Paid"}</th>
+            <th className="p-3">{th?"ค้างชำระ":lo?txt("ค้างชำระ"):"Outstanding"}</th>
+            <th className="p-3">{th?"นัดรับ":lo?txt("นัดรับ"):"Due"}</th><th className="p-3">{th?"จัดการ":lo?txt("จัดการ"):"Actions"}</th>
           </tr></thead>
           <tbody className="divide-y divide-slate-100">
             {filtered.map(job=><tr key={job.id} tabIndex={0} onClick={()=>setSelectedOrderId(job.id)}
@@ -66,21 +65,21 @@ export function PosOpticalWorkOrdersWorkspace({lang}:{lang:Language}){
               className="cursor-pointer hover:bg-emerald-50">
               <td className="p-3 font-mono text-xs" title={job.id}>{job.id.slice(0,8).toUpperCase()}</td>
               <td className="p-3"><span className="font-semibold">{job.customer?.full_name||"—"}</span><span className="block text-xs text-slate-500">{job.customer?.customer_code||""}</span></td>
-              <td className="p-3">{th?statusTh[job.status]??job.status:job.status}</td>
+              <td className="p-3">{opticalDetailStatus(lang,job.status)}</td>
               <td className="p-3 text-right tabular-nums">{Number(job.total_amount).toLocaleString("en-US")}</td>
               <td className="p-3 text-right tabular-nums">{Number(job.paid_total).toLocaleString("en-US")}</td>
               <td className="p-3 text-right tabular-nums">{Math.max(0,Number(job.total_amount)-Number(job.paid_total)).toLocaleString("en-US")}</td>
               <td className="p-3">{job.due_at?.slice(0,10)||"—"}</td>
               <td className="p-3"><button type="button" className="rounded-lg border border-emerald-300 px-3 py-2 font-bold text-emerald-800"
-                 onClick={e=>{e.stopPropagation();setSelectedOrderId(job.id);}}>ดู / แก้ไข / ลบ</button></td>
+                 onClick={e=>{e.stopPropagation();setSelectedOrderId(job.id);}}>{txt("ดู / แก้ไข / ลบ")}</button></td>
             </tr>)}
             {!loading&&!filtered.length?<tr><td colSpan={8} className="p-8 text-center text-slate-500">{th?"ยังไม่มีใบสั่งงานในสาขานี้":lo?"ຍັງບໍ່ມີໃບສັ່ງງານ":"No work orders for this branch"}</td></tr>:null}
-            {loading?<tr><td colSpan={8} className="p-8 text-center text-slate-500">{th?"กำลังโหลด...":"Loading..."}</td></tr>:null}
+            {loading?<tr><td colSpan={8} className="p-8 text-center text-slate-500">{txt("กำลังโหลด...")}</td></tr>:null}
           </tbody>
         </table>
       </div>
     </div>
-    {selectedOrderId?<PosOpticalWorkOrderDetailDialog id={selectedOrderId}
+    {selectedOrderId?<PosOpticalWorkOrderDetailDialog id={selectedOrderId} lang={lang}
       onClose={()=>setSelectedOrderId(null)} onChanged={()=>{void refresh();}}/>:null}
   </section>;
 }
