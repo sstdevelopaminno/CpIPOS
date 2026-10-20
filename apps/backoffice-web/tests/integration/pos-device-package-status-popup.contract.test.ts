@@ -75,7 +75,8 @@ describe("POS device chooser subscription diagnostics",()=>{
   expect(page).toContain('"/api/auth/subscription-checkout"');
   expect(page).toContain('setSubmitted(body.data)');
   expect(page).toContain('quote.pending_review');
-  expect(payment).toContain('status: "pending"');
+  expect(payment).toContain('status:"pending"');
+  expect(payment).toContain('const inserted = completingExisting');
   expect(payment).toContain('pending_review: openReview ?');
   expect(payment).toContain('currency: "THB"');
   expect(itGate).toContain("classifyPosEntryDenial");

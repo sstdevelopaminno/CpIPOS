@@ -24,6 +24,7 @@ type CheckoutTokenPayload = {
   actor_role: "owner" | "manager" | "staff" | "accountant" | "kitchen";
   source?: "authenticated_preentry";
   billing_cycle_id?: string | null;
+  pending_request_id?: string | null;
   package_id: string;
   billing_interval: "monthly" | "yearly";
   expected_amount: number;
@@ -241,36 +242,81 @@ export async function authorizePublicPackageCheckout(input: {
 }
 
 /** Use the signed employee verification context and the canonical IT bill. */
+/**
+ * The IT billing cycle is authoritative, including an IT-prepared payment
+ * notice without a slip. That open notice must be COMPLETED, not recreated.
+ * This eligibility check never unlocks the POS itself.
+ */
+function pendingPreEntryEvidenceEligible(
+  snapshot: Awaited<ReturnType<typeof loadPosSubscriptionCenter>>,
+  request: (Awaited<ReturnType<typeof loadPosSubscriptionCenter>>) ["requests"][number]
+) {
+  const due=snapshot.billing_due;
+  const dueAmount=money(due && due.outstanding>0?due.outstanding:due?.amount_due);
+  const previousAmount=money(request.expected_amount);
+  return request.status==="pending" && request.kind==="payment_notice" &&
+    request.source==="it_tenant_control" && !request.has_evidence &&
+    request.package_id===snapshot.contract.package_id &&
+    request.billing_interval===snapshot.contract.billing_interval &&
+    due?.open_request_id===request.id && due?.open_request_status==="pending" &&
+    Boolean(due?.billing_cycle_id) && due?.support_required===false &&
+    due?.billing_interval===request.billing_interval &&
+    dueAmount!=null && previousAmount!=null &&
+    Math.abs(previousAmount-dueAmount)<0.01;
+}
+
 export async function authorizePreEntryPackageCheckout(input: {
   tenantId:string;userId:string;
   userRole:"owner"|"manager"|"staff"|"accountant"|"kitchen";
 }) {
   const snapshot=await loadPosSubscriptionCenter(input.tenantId);
-  if(snapshot.contract.is_internal_demo) throw new Error("internal_demo_not_billable");
+  if(snapshot.contract.is_internal_demo)throw new Error("internal_demo_not_billable");
   const due=snapshot.billing_due;
   const current=snapshot.packages.find(p=>p.id===snapshot.contract.package_id);
-  if(!current || current.contact_sales || current.code==="custom")throw new Error("subscription_support_required");
-  const activeRequest=snapshot.requests.find(req=>["pending","under_review"].includes(req.status) && req.kind==="payment_notice");
-  if(activeRequest){
+  if(!current || current.contact_sales || current.code==="custom")
+    throw new Error("subscription_support_required");
+  if(!snapshot.issuer.account_number && !snapshot.issuer.promptpay_id)
+    throw new Error("receiving_account_not_configured");
+  const expected=money(due && due.outstanding>0?due.outstanding:due?.amount_due);
+  // Showing the real price remains useful while IT reviews an already
+  // submitted slip; never substitute zero for the canonical outstanding.
+  const packageInfo={
+    id:current.id,code:current.code,name:current.name,
+    amount:expected ?? snapshot.contract.amount_per_cycle ?? 0,
+    currency:"THB",billing_interval:snapshot.contract.billing_interval,
+    next_period_start:due?.next_period_start??null,
+    next_period_end:due?.next_period_end??null
+  };
+  const activeRequest=snapshot.requests.find(req=>
+    ["pending","under_review"].includes(req.status) && req.kind==="payment_notice"
+  );
+  if(activeRequest) {
+    const allowEvidence=pendingPreEntryEvidenceEligible(snapshot,activeRequest);
+    const now=Math.floor(Date.now()/1000);
+    const token=allowEvidence && due?.billing_cycle_id && expected
+      ? signPayload({
+        v:1,tenant_id:input.tenantId,actor_user_id:input.userId,actor_role:input.userRole,
+        source:"authenticated_preentry",billing_cycle_id:due.billing_cycle_id,
+        pending_request_id:activeRequest.id,
+        package_id:current.id,billing_interval:snapshot.contract.billing_interval==="yearly"?"yearly":"monthly",
+        expected_amount:expected,issued_at:now,expires_at:now+TOKEN_TTL_SECONDS,nonce:crypto.randomUUID()
+      }):null;
     return {
-      store:snapshot.store,package:{name:current.name,currency:"THB",amount:0},
+      store:snapshot.store,package:packageInfo,issuer:snapshot.issuer,token,
       pending_review:{
         status:activeRequest.status,
         submitted_at:activeRequest.submitted_at,
         review_due_at:activeRequest.submitted_at && Number.isFinite(Date.parse(activeRequest.submitted_at))
-          ? new Date(Date.parse(activeRequest.submitted_at)+259200000).toISOString() : null,
-        has_evidence:activeRequest.has_evidence
-      },
-      issuer:snapshot.issuer,token:null
+          ?new Date(Date.parse(activeRequest.submitted_at)+259200000).toISOString():null,
+        has_evidence:activeRequest.has_evidence,
+        can_attach_evidence:allowEvidence
+      }
     };
   }
   if(!due || !due.self_service_payment_allowed || !due.payable_now || due.support_required ||
-     !due.billing_cycle_id || due.billing_interval!==snapshot.contract.billing_interval)
+    !due.billing_cycle_id || due.billing_interval!==snapshot.contract.billing_interval)
     throw new Error("subscription_support_required");
-  const expected=money(due.outstanding>0?due.outstanding:due.amount_due);
   if(!expected)throw new Error("package_price_missing");
-  if(!snapshot.issuer.account_number&&!snapshot.issuer.promptpay_id)
-    throw new Error("receiving_account_not_configured");
   const now=Math.floor(Date.now()/1000);
   const token=signPayload({
     v:1,tenant_id:input.tenantId,actor_user_id:input.userId,actor_role:input.userRole,
@@ -280,11 +326,7 @@ export async function authorizePreEntryPackageCheckout(input: {
   });
   return {
     token,store:snapshot.store,issuer:snapshot.issuer,pending_review:null,
-    package:{
-      id:current.id,code:current.code,name:current.name,
-      amount:expected,currency:"THB",billing_interval:due.billing_interval,
-      next_period_start:due.next_period_start,next_period_end:due.next_period_end
-    }
+    package:{...packageInfo,amount:expected}
   };
 }
 
@@ -318,22 +360,37 @@ export async function submitPublicPackageCheckout(input: {
     ? money(due && due.outstanding>0?due.outstanding:due?.amount_due)
     : payload.billing_interval === "yearly" ? money(target.yearly_price) : money(target.monthly_price);
   if(payload.source==="authenticated_preentry" &&
-     (!due?.self_service_payment_allowed || !due?.payable_now || due.support_required ||
-      !payload.billing_cycle_id || due.billing_cycle_id!==payload.billing_cycle_id ||
-      snapshot.contract.package_id!==target.id || due.billing_interval!==payload.billing_interval))
+     (!due || due.support_required || !payload.billing_cycle_id ||
+      due.billing_cycle_id!==payload.billing_cycle_id ||
+      snapshot.contract.package_id!==target.id ||
+      due.billing_interval!==payload.billing_interval ||
+      (payload.pending_request_id
+        ? due.open_request_id!==payload.pending_request_id || due.open_request_status!=="pending"
+        : !due.self_service_payment_allowed || !due.payable_now)))
     throw new Error("subscription_support_required");
   if (!currentAmount || Math.abs(currentAmount - payload.expected_amount) > 0.009) throw new Error("package_price_changed");
   if (!snapshot.issuer.account_number && !snapshot.issuer.promptpay_id) throw new Error("receiving_account_not_configured");
 
   const db = getPrimarySupabaseServiceClient();
   const open = await db.from("tenant_subscription_payment_requests")
-    .select("id")
+    .select("id,tenant_id,status,requested_package_id,amount_reported,evidence_url,metadata")
     .eq("tenant_id", payload.tenant_id)
     .in("status", ["pending", "under_review"])
     .limit(1)
-    .maybeSingle<{ id: string }>();
+    .maybeSingle<{id:string;tenant_id:string;status:string;requested_package_id:string|null;
+      amount_reported:number|null;evidence_url:string|null;metadata:Record<string,unknown>|null}>();
   if (open.error) throw new Error("open_request_lookup_failed");
-  if (open.data) throw new Error("open_request_exists");
+  const completingExisting=Boolean(payload.source==="authenticated_preentry" && payload.pending_request_id);
+  if(completingExisting){
+    const original=open.data;
+    const scoped=snapshot.requests.find(req=>req.id===payload.pending_request_id);
+    if(!original || !scoped || original.id!==payload.pending_request_id ||
+       original.status!=="pending" || original.evidence_url || original.amount_reported!=null ||
+       original.requested_package_id!==target.id ||
+       original.metadata?.source!=="it_tenant_control" ||
+       !pendingPreEntryEvidenceEligible(snapshot,scoped))
+      throw new Error("open_request_exists");
+  }else if(open.data)throw new Error("open_request_exists");
 
   const evidence = input.slip;
   if (!(evidence instanceof File) || evidence.size <= 0 || evidence.size > MAX_SLIP || !FILE_TYPES[evidence.type]) {
@@ -352,7 +409,7 @@ export async function submitPublicPackageCheckout(input: {
     expectedPromptPayId: snapshot.issuer.promptpay_id || ""
   });
 
-  const requestId = crypto.randomUUID();
+  const requestId = completingExisting ? payload.pending_request_id! : crypto.randomUUID();
   const filePath = payload.tenant_id + "/" + requestId + "/slip." + FILE_TYPES[detectedMime];
   const upload = await db.storage.from(SUBSCRIPTION_SLIP_BUCKET).upload(filePath, buffer, {
     contentType: detectedMime,
@@ -375,10 +432,13 @@ export async function submitPublicPackageCheckout(input: {
         : "renewal";
 
   const metadata = {
+    ...(completingExisting ? open.data?.metadata ?? {} : {}),
     kind: "payment_notice",
     billing_interval: payload.billing_interval,
     expected_amount: payload.expected_amount,
-    source: payload.source==="authenticated_preentry"?"pos_preentry_package_checkout":"company_website_package_checkout",
+    source: completingExisting ? "it_tenant_control"
+      : payload.source==="authenticated_preentry"?"pos_preentry_package_checkout":"company_website_package_checkout",
+    ...(completingExisting?{checkout_source:"pos_preentry_package_checkout"}:{}),
     ...(payload.billing_cycle_id?{billing_cycle_id:payload.billing_cycle_id}:{}),
     submitted_by: payload.actor_user_id,
     submitted_role: payload.actor_role,
@@ -397,17 +457,18 @@ export async function submitPublicPackageCheckout(input: {
     note: input.note.slice(0, 500)
   };
 
-  const inserted = await db.from("tenant_subscription_payment_requests").insert({
-    id: requestId,
-    tenant_id: payload.tenant_id,
-    requested_package_id: target.id,
-    request_type: type,
-    amount_reported: amountReported,
-    status: "pending",
-    currency: "THB",
-    evidence_url: filePath,
-    metadata
-  }).select("id,status").maybeSingle<{ id: string; status: string }>();
+  const inserted = completingExisting
+    ?await db.from("tenant_subscription_payment_requests").update({
+      amount_reported:amountReported,evidence_url:filePath,metadata,updated_at:new Date().toISOString()
+    }).eq("id",requestId).eq("tenant_id",payload.tenant_id)
+      .eq("requested_package_id",target.id).eq("status","pending")
+      .is("evidence_url",null).is("amount_reported",null)
+      .select("id,status").maybeSingle<{id:string;status:string}>()
+    :await db.from("tenant_subscription_payment_requests").insert({
+      id:requestId,tenant_id:payload.tenant_id,requested_package_id:target.id,
+      request_type:type,amount_reported:amountReported,status:"pending",
+      currency:"THB",evidence_url:filePath,metadata
+    }).select("id,status").maybeSingle<{id:string;status:string}>();
 
   if (inserted.error || !inserted.data) {
     await db.storage.from(SUBSCRIPTION_SLIP_BUCKET).remove([filePath]);
@@ -438,12 +499,13 @@ export async function submitPublicPackageCheckout(input: {
     tenantId: payload.tenant_id,
     actorUserId: payload.actor_user_id,
     actorRole: payload.actor_role,
-    action: "subscription_payment_reported_from_website",
+    action: completingExisting ? "subscription_payment_evidence_added" : "subscription_payment_reported_from_website",
     targetTable: "tenant_subscription_payment_requests",
     targetId: inserted.data.id,
     module: "subscription",
     metadata: {
-      source: "company_website_package_checkout",
+      source: payload.source==="authenticated_preentry"?"pos_preentry_package_checkout":"company_website_package_checkout",
+      completed_existing_request:completingExisting,
       requested_package_id: target.id,
       billing_interval: payload.billing_interval,
       expected_amount: payload.expected_amount,

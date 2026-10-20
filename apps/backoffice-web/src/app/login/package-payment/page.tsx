@@ -10,7 +10,7 @@ type Quote={
   token:string|null;store:{code:string;name:string};
   package:{name:string;amount:number;currency:string;billing_interval?:string;next_period_start?:string|null;next_period_end?:string|null};
   issuer:{bank_name:string;account_name:string;account_number:string;promptpay_id:string};
-  pending_review:{status:string;has_evidence?:boolean;review_due_at:string|null}|null;
+  pending_review:{status:string;has_evidence?:boolean;can_attach_evidence?:boolean;review_due_at:string|null}|null;
   qr_data_url:string|null;
 };
 type Submission={id:string;status:string;provisional_access_granted:boolean;provisional_access_expires_at:string|null};
@@ -21,7 +21,7 @@ const words={
     pay:"ชำระเงิน",account:"เลขบัญชี",bank:"ธนาคาร",owner:"ชื่อบัญชี",qr:"สแกน QR เพื่อชำระ",
     transfer:"ชำระเงินและแนบสลิป",submit:"ส่งหลักฐานการชำระ",slip:"แนบสลิป (JPG, PNG, WEBP ไม่เกิน 4 MB)",
     note:"หมายเหตุ (ไม่บังคับ)",back:"กลับไปเลือกเครื่อง",support:"ติดต่อ Support",close:"ปิด",
-    pending:"ส่งหลักฐานแล้ว อยู่ระหว่างรอ IT ตรวจสอบ",noApproval:"กรุณาติดต่อ Support เพื่อตรวจสอบสถานะแพ็กเกจ",
+    pending:"ได้รับหลักฐานการชำระแล้ว ระบบกำลังตรวจสอบรายการ",continuity:"ท่านสามารถชำระเงินผ่านระบบของเราได้ทันที เพื่อให้ระบบต่อเนื่อง",packagePrice:"ราคาแพ็กเกจ",noApproval:"กรุณาติดต่อ Support เพื่อตรวจสอบสถานะแพ็กเกจ",
     granted:"เปิดใช้งานชั่วคราวแล้ว",grantedMsg:"เข้า POS ได้ทันที โดยฝ่าย IT ต้องยืนยันการชำระภายใน 3 วัน หากไม่ยืนยัน ระบบจะกลับมาล็อกอัตโนมัติ",
     expiry:"สิทธิ์ชั่วคราวสิ้นสุด",review:"กำหนดตรวจสอบภายใน",waiting:"กำลังโหลดรอบบิลจากระบบ IT...",
     sending:"กำลังตรวจสอบหลักฐาน...",invalid:"สลิปยังไม่ผ่านการตรวจสอบอัตโนมัติ ระบบบันทึกหลักฐานให้ IT แล้ว กรุณาติดต่อ Support",
@@ -33,7 +33,7 @@ const words={
     pay:"Pay now",account:"Account number",bank:"Bank",owner:"Account name",qr:"Scan to pay",
     transfer:"Pay and attach slip",submit:"Submit payment evidence",slip:"Attach slip (JPG PNG WEBP max 4 MB)",
     note:"Note (optional)",back:"Back to device selection",support:"Contact Support",close:"Close",
-    pending:"Payment evidence submitted, awaiting IT review",noApproval:"Contact Support to review package status",
+    pending:"Payment evidence received and under review",continuity:"You can pay your subscription through our system now to maintain uninterrupted service.",packagePrice:"Package price",noApproval:"Contact Support to review package status",
     granted:"Temporary access is active",grantedMsg:"You can enter POS now. IT must confirm payment within three days or the system automatically locks again.",
     expiry:"Temporary access ends",review:"Expected review by",waiting:"Loading the IT billing cycle...",
     sending:"Checking payment evidence...",invalid:"Automatic slip verification did not pass. IT has received the evidence; contact Support.",
@@ -45,7 +45,7 @@ const words={
     pay:"ຊຳລະເງິນ",account:"ເລກບັນຊີ",bank:"ທະນາຄານ",owner:"ຊື່ບັນຊີ",qr:"ສະແກນ QR ເພື່ອຊຳລະ",
     transfer:"ຊຳລະເງິນ ແລະ ແນບສະລິບ",submit:"ສົ່ງຫຼັກຖານການຊຳລະ",slip:"ແນບສະລິບ JPG PNG WEBP ບໍ່ເກີນ 4 MB",
     note:"ໝາຍເຫດ",back:"ກັບໄປເລືອກເຄື່ອງ",support:"ຕິດຕໍ່ Support",close:"ປິດ",
-    pending:"ສົ່ງຫຼັກຖານແລ້ວ ກຳລັງລໍຖ້າ IT ກວດສອບ",noApproval:"ກະລຸນາຕິດຕໍ່ Support",
+    pending:"ໄດ້ຮັບຫຼັກຖານຊຳລະແລ້ວ ກຳລັງກວດສອບ",continuity:"ທ່ານສາມາດຊຳລະເງິນແພັກເກດຜ່ານລະບົບໄດ້ທັນທີ ເພື່ອໃຫ້ການໃຊ້ງານຕໍ່ເນື່ອງ",packagePrice:"ລາຄາແພັກເກດ",noApproval:"ກະລຸນາຕິດຕໍ່ Support",
     granted:"ເປີດໃຊ້ງານຊົ່ວຄາວແລ້ວ",grantedMsg:"ສາມາດເຂົ້າ POS ໄດ້ທັນທີ ແລະ IT ຕ້ອງຢືນຢັນພາຍໃນ 3 ມື້ ບໍ່ດັ່ງນັ້ນຈະລັອກອີກ",
     expiry:"ສິດຊົ່ວຄາວສິ້ນສຸດ",review:"ກຳນົດກວດສອບ",waiting:"ກຳລັງໂຫຼດຮອບບິນຈາກ IT...",
     sending:"ກຳລັງກວດສອບສະລິບ...",invalid:"ການກວດສະລິບອັດຕະໂນມັດບໍ່ຜ່ານ ສົ່ງໃຫ້ IT ແລ້ວ ກະລຸນາຕິດຕໍ່ Support",
@@ -110,10 +110,14 @@ export default function PreEntryPackagePaymentPage(){
         <AppLanguageSwitcher lang={lang} onChange={setLanguage}/>
       </div>
       <nav aria-label={t.menu} className="mt-5 border-b border-slate-200 pb-3">
-        <a href="/preview/pos/payments/package?entry=subscription" aria-current="page"
+        <button type="button" aria-current="page"
+          onClick={() => {
+            if (quote?.token) { setError("");setModal(true); }
+            else setError(quote?.pending_review?.has_evidence ? t.pending : t.notpayable);
+          }}
           className="inline-flex min-h-11 items-center gap-2 rounded-xl bg-blue-700 px-5 py-2 text-sm font-bold !text-white shadow-sm">
           <span aria-hidden="true">▣</span>{t.menu}
-        </a>
+        </button>
       </nav>
       {error?<p role="alert" className="mt-5 rounded-xl bg-red-50 p-3 text-sm text-red-800">{error}</p>:null}
       {loading?<p className="mt-6 text-slate-500">{t.waiting}</p>:null}
@@ -123,21 +127,27 @@ export default function PreEntryPackagePaymentPage(){
           <p className="text-lg font-extrabold text-slate-800">{quote.store.name} · {quote.store.code}</p>
           <p className="mt-3 text-sm text-slate-500">{t.package}</p>
           <p className="font-semibold text-slate-800">{quote.package.name}</p>
+          <div className="mt-3 flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 border-t border-slate-200 pt-3">
+            <p className="text-sm font-semibold text-slate-600">{t.packagePrice}</p>
+            <p className="text-xl font-extrabold tabular-nums text-blue-800">{money}</p>
+          </div>
           {quote.package.next_period_start?<p className="mt-2 text-sm text-slate-600">{t.cycle}: {date(quote.package.next_period_start,locale)} – {date(quote.package.next_period_end,locale)}</p>:null}
         </div>
         {submitted?<div role="status" className="rounded-2xl border border-blue-200 bg-blue-50 p-4">
           <h2 className="text-lg font-bold text-blue-900">{submitted.provisional_access_granted?t.granted:t.sent}</h2>
           <p className="mt-2 text-sm leading-6 text-blue-800">{submitted.provisional_access_granted?t.grantedMsg:t.invalid}</p>
           {submitted.provisional_access_expires_at?<p className="mt-2 font-bold text-blue-900">{t.expiry}: {date(submitted.provisional_access_expires_at,locale)}</p>:null}
-        </div>:quote.pending_review?<div role="status" className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-amber-900">
+        </div>:quote.pending_review?.has_evidence?<div role="status" className="rounded-2xl border border-blue-200 bg-blue-50 p-4 text-blue-900">
           <p className="font-bold">{t.pending}</p>
-          <p className="mt-1 text-sm">{quote.pending_review.has_evidence?t.noApproval:t.notpayable}</p>
+          <p className="mt-1 text-sm">{t.noApproval}</p>
           {quote.pending_review.review_due_at?<p className="mt-1 text-sm">{t.review}: {date(quote.pending_review.review_due_at,locale)}</p>:null}
         </div>:<div className="rounded-2xl border border-blue-200 bg-blue-50 p-5 text-center">
-          <p className="font-semibold text-blue-700">{t.amount}</p>
+          <p role="status" className="text-sm font-medium leading-relaxed text-blue-800">{t.continuity}</p>
+          <p className="mt-3 font-semibold text-blue-700">{t.amount}</p>
           <p className="mt-2 text-4xl font-extrabold tabular-nums text-blue-900">{money}</p>
           <p className="mt-2 text-xs text-slate-600">{t.paymentHint}</p>
-          <button type="button" onClick={()=>setModal(true)} className={button+" mx-auto mt-5 w-full bg-blue-700 !text-white hover:bg-blue-800"}>{t.pay}</button>
+          <button type="button" onClick={()=>quote.token?setModal(true):setError(t.notpayable)}
+            className={button+" mx-auto mt-5 w-full bg-blue-700 !text-white hover:bg-blue-800"}>{t.pay}</button>
         </div>}
       </div>:null}
       <div className="mt-6 grid grid-cols-2 gap-3">
