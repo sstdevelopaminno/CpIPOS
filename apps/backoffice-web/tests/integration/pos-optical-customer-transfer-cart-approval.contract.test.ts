@@ -22,6 +22,8 @@ describe("Optical deposit search, safe bank transfer and SKU navigation",()=>{
   expect(modal).not.toContain('data-testid="optical-bank-reference"');
   expect(api).toContain("optical_transfer_proof_required");
   expect(api).toContain('requireOpticalFinanceModule(scope.session.tenant_id,"optical_deposit")');
+  expect(api).toContain("ไม่ต้องให้ IT อนุมัติทุกบิล");
+  expect(api).toContain('return fail("optical_finance_disabled"');
  });
  it("shows Optical SKU without cart navigation arrows on both rendering paths",()=>{
   const c=src("components/pos/pos-general-sale-table-controller.tsx");
