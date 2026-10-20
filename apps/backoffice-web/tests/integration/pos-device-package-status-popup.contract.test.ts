@@ -52,7 +52,8 @@ describe("POS device chooser subscription diagnostics",()=>{
   expect(page).toContain("data.entry_access?.allowed!==false && data.auto_select_single_device");
   expect(page).toContain("const selectedDeviceCanOpen = !entryBlocked");
   expect(page).toContain('router.push("/login/package-payment")');
-  expect(page).toContain('grid-cols-3 gap-2');
+  expect(page).toContain('grid-cols-3');
+  expect(page).toContain('grid-cols-2');
   expect(page).toContain('T(popup.code && PACKAGE_PAYMENT_REASONS.has(popup.code) ? "ชำระเงิน" : "ตรวจสอบอีกครั้ง")');
   expect(page).toContain('paymentReview');
   expect(page).toContain('cpipos_checkout_store_code');
