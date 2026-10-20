@@ -173,6 +173,13 @@ function validate(body: Payload) {
   return { name, mode, paper, purposes, assignments };
 }
 
+async function validatePrinterPurposes(tenantId:string, assignments:PrinterAssignmentInput[]) {
+ const optical=await requireOpticalRetailEntitlement(tenantId);
+ const invalid=assignments.some(a=>optical
+   ? ["kitchen","drink","bar"].includes(a.purpose)
+   : a.purpose==="work_order");
+ if(invalid)throw new Error("printer_purpose_incompatible_with_mode");
+}
 async function validateKitchenZones(tenantId: string, branchId: string, assignments: PrinterAssignmentInput[]) {
   const zoneKeys = Array.from(new Set(assignments.filter((assignment) => ZONED_PURPOSES.has(assignment.purpose)).map((assignment) => clean(assignment.zoneKey)?.toUpperCase() ?? "").filter(Boolean)));
   if (zoneKeys.length === 0) return;
@@ -296,6 +303,7 @@ async function loadAutoDiscoveredDevices(tenantId: string, branchId: string) {
 }
 
 function validationFailure(message: string) {
+  if (message === "printer_purpose_incompatible_with_mode") return fail(message, "คำสั่งพิมพ์นี้ไม่รองรับในโหมดร้านค้าที่เลือก", 422);
   if (message === "lan_ip_required") return fail(message, "LAN ต้องมี IP ของเครื่องพิมพ์", 422);
   if (message.startsWith("printer_zone_invalid:")) return fail("printer_zone_invalid", `ไม่พบโซนครัว ${message.split(":")[1] ?? ""} ในสาขาปัจจุบัน`, 422);
   if (message === "discovered_printer_ambiguous") return fail(message, "พบเครื่องพิมพ์ที่ตรงกันมากกว่า 1 เครื่อง กรุณาเลือก physical target ให้ชัดเจน", 409);
@@ -306,7 +314,7 @@ function validationFailure(message: string) {
   return fail(message, "ข้อมูลเครื่องพิมพ์ไม่ครบ", 422);
 }
 function isValidationError(message: string) {
-  return message === "printer_name_required" || message === "connection_mode_invalid" || message === "paper_width_invalid" || message === "purpose_required" || message === "lan_ip_required" || message === "discovered_printer_ambiguous" || message === "printer_physical_target_already_claimed" || message === "printer_physical_target_disconnected" || message === "printer_physical_target_mode_mismatch" || message === "printer_physical_target_runtime_mismatch" || message.startsWith("printer_zone_invalid:");
+  return message === "printer_purpose_incompatible_with_mode" || message === "printer_name_required" || message === "connection_mode_invalid" || message === "paper_width_invalid" || message === "purpose_required" || message === "lan_ip_required" || message === "discovered_printer_ambiguous" || message === "printer_physical_target_already_claimed" || message === "printer_physical_target_disconnected" || message === "printer_physical_target_mode_mismatch" || message === "printer_physical_target_runtime_mismatch" || message.startsWith("printer_zone_invalid:");
 }
 
 export async function GET() {
@@ -330,6 +338,7 @@ export async function POST(req: Request) {
     const auth = await getPrinterSettingsAuthContext();
     const body = (await req.json()) as Payload;
     const { name, mode, paper, purposes, assignments } = validate(body);
+    await validatePrinterPurposes(auth.tenantId!, assignments);
     await validateKitchenZones(auth.tenantId!, auth.branchId!, assignments);
     const target = await resolveCreatePhysicalTarget(auth.tenantId!, auth.branchId!, body, mode);
     const bodyWithFingerprint: Payload = { ...body, device_fingerprint: target.fingerprint };
@@ -382,6 +391,7 @@ export async function PATCH(req: Request) {
     if (body.action === "disconnect") return ok({ device: await disconnectPrinterDevice(auth, printerId), disconnected: true });
     if (body.action === "reconnect") return ok({ device: await reconnectPrinterDevice(auth, printerId), reconnected: true });
     const { name, mode, paper, purposes, assignments } = validate(body);
+    await validatePrinterPurposes(auth.tenantId!, assignments);
     await validateKitchenZones(auth.tenantId!, auth.branchId!, assignments);
     const metadata = profileMetadata(body, mode, purposes, assignments);
     const profile = await updatePrinterProfile(auth, printerId, { printer_name: name, printer_role: roleFor(purposes), connection_type: connectionTypeFor(mode), ip_address: mode === "lan" ? clean(body.ip_address) : null, port: mode === "lan" ? Number(body.port || 9100) : null, paper_width_mm: paper, enabled: body.enabled ?? true, metadata });
