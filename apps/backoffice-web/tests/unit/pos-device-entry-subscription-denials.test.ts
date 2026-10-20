@@ -37,7 +37,7 @@ describe("Cashier terminal subscription reason and safe error popups",()=>{
   const handler=files("app/api/auth/devices/select/select-handler.ts");
   const access=files("lib/server/pos-entry-access-service.ts");
   expect(access).toContain("classifyPosEntryDenial(subscription.contract,subscription.lifecycle)");
-  expect(access).toContain("if(lifecycleDenial)return {allowed:false");
+  expect(access).toContain("if(lifecycleDenial && !temporary)return {allowed:false");
   expect(access.indexOf("const lifecycleDenial")).toBeLessThan(access.indexOf("const enabled=await hasAnyPosSalesFeature"));
   expect(handler).toContain("evaluatePosEntryAccess(supabase, flow.tenantId, flow.branchId)");
   expect(handler).toContain("if(!entryAccess.allowed)");
@@ -54,7 +54,7 @@ describe("Cashier terminal subscription reason and safe error popups",()=>{
   expect(ui).toContain('router.push("/login/package-payment")');
   expect(ui).toContain('paymentReview');
   expect(ui).toContain('entryExpiryDate(lang,popup.expiresAt)');
-  expect(ui).toContain("https://lin.ee/f1LXpAF");
+  expect(ui).toContain("/login/support-chat");
   expect(locale).toContain('"แพ็กเกจทดลองใช้งานสิ้นสุดแล้ว"');
   expect(locale).toContain('"แพ็กเกจสิ้นสุดระยะเวลาใช้งานแล้ว"');
   expect(locale).toContain('"ไม่พบสิทธิ์ใช้งานหน้าขายในแพ็กเกจหรือสาขานี้');
