@@ -538,7 +538,7 @@ function LoginDevicesPageContent() {
                    <button type="button"
                      className="flex h-11 min-w-0 items-center justify-center rounded-xl bg-blue-700 px-2 text-center text-xs font-bold !text-white hover:bg-blue-800 sm:text-sm"
                      onClick={() => {
-                       if(popup.code && PACKAGE_PAYMENT_REASONS.has(popup.code))router.push("/login/package-payment");
+                       if(popup.code && PACKAGE_PAYMENT_REASONS.has(popup.code))router.push("/preview/pos/payments/package?entry=subscription");
                        else window.location.reload();
                      }}>
                      {T(popup.code && PACKAGE_PAYMENT_REASONS.has(popup.code) ? "ชำระเงิน" : "ตรวจสอบอีกครั้ง")}
