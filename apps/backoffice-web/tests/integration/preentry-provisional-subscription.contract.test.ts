@@ -4,6 +4,24 @@ import {resolve} from "node:path";
 import {classifyPosEntryDenial} from "@/lib/server/pos-entry-denial-reasons";
 const src=(p:string)=>readFileSync(resolve(process.cwd(),"src",p),"utf8");
 describe("Pre-entry subscription provisional activation",()=>{
+ it("routes expired-device Pay to the canonical POS single-item package menu without granting a cashier session",()=>{
+  const proxy=readFileSync(resolve(process.cwd(),"src/proxy.ts"),"utf8");
+  const devices=src("app/login/devices/page-content.tsx");
+  const preentry=src("app/login/package-payment/page.tsx");
+  const mainMenu=src("components/pos-preview/pos-staff-menu.tsx");
+  const canonical=src("app/preview/pos/payments/package/page.tsx");
+  expect(devices).toContain('router.push("/preview/pos/payments/package?entry=subscription")');
+  expect(proxy).toContain('pathname === "/preview/pos/payments/package"');
+  expect(proxy).toContain('request.nextUrl.searchParams.get("entry") === "subscription" || !hasPosSession');
+  expect(proxy).toContain('NextResponse.rewrite(checkoutUrl)');
+  expect(proxy).toContain('"/preview/pos/payments/package",');
+  expect(proxy).not.toContain('pathname.startsWith("/preview/pos") && !hasPosSession');
+  expect(preentry).toContain('menu:"ชำระแพ็กเกจ"');
+  expect(preentry).toContain('aria-current="page"');
+  expect(preentry).toContain('"/api/auth/subscription-checkout"');
+  expect(mainMenu).toContain('href="/preview/pos/payments/package"');
+  expect(canonical).toContain('await requirePosSession()');
+ });
  it("reuses signed employee context and never asks for store or PIN again",()=>{
   const route=src("app/api/auth/subscription-checkout/route.ts");
   const page=src("app/login/package-payment/page.tsx");
