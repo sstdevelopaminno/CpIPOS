@@ -3,6 +3,8 @@ import { renderOpticalDepositReceipt80mm } from "@/lib/optical/optical-deposit-r
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
 import { requireOpticalFinanceModule } from "@/lib/server/optical-finance-policy";
 import {buildOpticalPickupBarcode,type OpticalBillSnapshot} from "@/lib/optical/optical-deposit-contract";
+import {loadReceiptStoreProfile} from "@/lib/services/store-profile-service";
+import {getCurrentLanguage} from "@/lib/i18n";
 
 const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 function unavailable(status=403) {
@@ -44,9 +46,24 @@ export async function GET(request:Request,{params}:{params:Promise<{workOrderId:
     const {data:cashier,error:cashierError}=await client.from("users_profiles")
       .select("full_name").eq("id",payment.received_by).maybeSingle();
     if(cashierError)return unavailable(503);
-    const cashierName=String(cashier?.full_name??"").trim()||"ไม่ระบุชื่อพนักงาน";
+    const cashierName=String(cashier?.full_name??"").trim()||"—";
+    const [profile,language,billNo,receiptNo]=await Promise.all([
+      loadReceiptStoreProfile(tenantId),getCurrentLanguage(),
+      client.from("optical_document_numbers").select("document_number")
+        .eq("tenant_id",tenantId).eq("branch_id",branchId).eq("kind","bill")
+        .eq("source_id",order.id).maybeSingle(),
+      client.from("optical_document_numbers").select("document_number")
+        .eq("tenant_id",tenantId).eq("branch_id",branchId).eq("kind","receipt")
+        .eq("source_id",payment.id).maybeSingle()
+    ]);
+    if(billNo.error||receiptNo.error||!billNo.data||!receiptNo.data)return unavailable(503);
+    const documentBillNumber=String(billNo.data.document_number).padStart(6,"0");
+    const documentReceiptNumber=String(receiptNo.data.document_number).padStart(6,"0");
     const receipt=renderOpticalDepositReceipt80mm({
-      bill,receiptNumber:"OPT-"+payment.id,storeName:tenant?.display_name||tenant?.name||"Optical",
+      bill,receiptNumber:documentReceiptNumber,documentReceiptNumber,documentBillNumber,
+      language,storeName:profile?.display_name||tenant?.display_name||tenant?.name||"Optical",
+      storeAddress:profile?.company_address??null,storePhone:profile?.contact_phone??null,
+      storeLogoUrl:profile?.logo_url??null,
       branchName:branch?.name??branchId,createdAtIso:payment.received_at,
       cashierName,
       paymentMethod:payment.method==="bank_transfer"?"bank_transfer":"cash",
@@ -58,7 +75,7 @@ export async function GET(request:Request,{params}:{params:Promise<{workOrderId:
     // receipt-print queue idempotency check and explicit cashier request.
     return new Response(receipt,{status:200,headers:{
       "Content-Type":"text/html; charset=utf-8","Cache-Control":"no-store, private",
-      "X-Content-Type-Options":"nosniff","Content-Security-Policy":"default-src 'none'; img-src data:; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
+      "X-Content-Type-Options":"nosniff","Content-Security-Policy":"default-src 'none'; img-src 'self' https: data:; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
     }});
   }catch(error){
     return error instanceof PosGuardError?unavailable(error.status):unavailable(503);
