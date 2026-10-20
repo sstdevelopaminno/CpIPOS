@@ -55,7 +55,7 @@ export function PosOpticalCustomersWorkspace({lang}:{lang:Language}){
             <th className="p-3">{th?"โทรศัพท์":lo?"ເບີໂທ":"Phone"}</th>
             <th className="p-3">{th?"ตรวจสายตาล่าสุด":lo?"ກວດສາຍຕາຫຼ້າສຸດ":"Last exam"}</th>
             <th className="p-3">{th?"ผู้ตรวจ":lo?"ຜູ້ກວດ":"Examiner"}</th>
-            <th className="p-3">{th?"จัดการ":"Actions"}</th>
+            <th className="p-3">{th?"จัดการ":lo?"ຈັດການ":"Actions"}</th>
           </tr></thead>
           <tbody className="divide-y divide-slate-100">
             {filtered.map(c=><tr key={c.id} className="cursor-pointer hover:bg-emerald-50" onClick={()=>setSelectedCustomerId(c.id)} tabIndex={0}
@@ -66,7 +66,7 @@ export function PosOpticalCustomersWorkspace({lang}:{lang:Language}){
               <td className="p-3">{c.last_exam_date||"—"}</td>
               <td className="p-3">{c.examiner_name||"—"}</td>
               <td className="p-3"><button type="button" className="rounded-lg border border-emerald-300 px-3 py-1.5 font-semibold text-emerald-800"
-                onClick={e=>{e.stopPropagation();setSelectedCustomerId(c.id);}}>{th?"ดู / แก้ไข / ลบ":"View / Edit / Archive"}</button></td>
+                onClick={e=>{e.stopPropagation();setSelectedCustomerId(c.id);}}>{th?"ดู / แก้ไข / ลบ":lo?"ເບິ່ງ / ແກ້ໄຂ / ເກັບຖາວອນ":"View / Edit / Archive"}</button></td>
             </tr>)}
             {!busy&&!filtered.length?<tr><td colSpan={6} className="p-8 text-center text-slate-500">{th?"ยังไม่พบลูกค้าในสาขานี้":lo?"ຍັງບໍ່ພົບລູກຄ້າ":"No customers in this branch"}</td></tr>:null}
             {busy?<tr><td colSpan={6} className="p-8 text-center text-slate-500">{th?"กำลังโหลด...":lo?"ກຳລັງໂຫຼດ...":"Loading..."}</td></tr>:null}
@@ -75,7 +75,7 @@ export function PosOpticalCustomersWorkspace({lang}:{lang:Language}){
       </div>
     </div>
     <PosOpticalCustomerModal open={open} lang={lang} onClose={()=>{setOpen(false);void reload();}}/>
-    {selectedCustomerId?<PosOpticalCustomerDetailDialog id={selectedCustomerId}
+    {selectedCustomerId?<PosOpticalCustomerDetailDialog id={selectedCustomerId} lang={lang}
        onClose={()=>setSelectedCustomerId(null)} onChanged={()=>{void reload();}}/>:null}
   </section>;
 }
