@@ -419,7 +419,7 @@ export async function submitPublicPackageCheckout(input: {
   // bank reference uniqueness, canonical cycle and 3-day access limit.
   // Unverified evidence never unlocks POS.
   let provisional:{granted?:boolean;review_deadline?:string|null;status?:string}|null=null;
-  if(payload.source==="authenticated_preentry" && payload.billing_cycle_id){
+  if(payload.source==="authenticated_preentry" && payload.billing_cycle_id && slipScan.status==="verified" && slipScan.model!=="mock"){
     const scan={
       status:slipScan.status,model:slipScan.model,
       parsed:slipScan.parsed,checks:slipScan.checks,error_message:slipScan.error_message
