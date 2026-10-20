@@ -5,6 +5,7 @@ import { isFeatureUnlockEnabled } from "@/lib/feature-unlock";
 import { getRequestMeta, writeAuditLog, writeLoginAttempt } from "@/lib/server/audit-log";
 import { AuthTimeoutError, withAuthTimeout } from "@/lib/server/auth-timeout";
 import { hasBranchFeatureSafe } from "@/lib/server/feature-gate-safe";
+import { classifyPosEntryDenial, unavailablePosFeatureDenial, type PosEntryContract, type PosEntryLifecycle } from "@/lib/server/pos-entry-denial-reasons";
 import { consumeLoginContext } from "@/lib/server/login-context";
 import { resolveDeviceSessionAccess } from "@/lib/server/pos-device-session-rules";
 import { createPosSession, createSessionHandoffToken, resolvePosRedirectTarget, resolveSessionCookieConfig } from "@/lib/server/pos-session";
@@ -80,6 +81,25 @@ function pickNewestActiveSession(rows: Array<ActiveSessionRow | null | undefined
 
 const POS_SALES_FEATURE_KEYS = ["pos.sales.access", "pos_sales", "core_pos_sales"] as const;
 const DEVICE_SELECT_AUTH_TIMEOUT_MS = 30000;
+class PosFeatureLookupUnavailable extends Error {
+ constructor(){super("pos_sales_feature_lookup_unavailable");}
+}
+async function loadPosSubscriptionEntryState(supabase:SupabaseServiceClient,tenantId:string){
+ const [contract,lifecycle]=await Promise.all([
+   supabase.from("tenant_subscription_contracts").select("status,ended_at,package_id")
+     .eq("tenant_id",tenantId).order("created_at",{ascending:false}).limit(1).maybeSingle<PosEntryContract>(),
+   supabase.from("tenant_data_lifecycle")
+     .select("lifecycle_status,access_locked,lock_reason,trial_expires_at,subscription_expires_at,grace_until,metadata")
+     .eq("tenant_id",tenantId).maybeSingle<PosEntryLifecycle>()
+ ]);
+ if(contract.error||lifecycle.error){
+   console.error("[auth/devices/select] subscription state unavailable",{
+     tenantId,source:contract.error?"contract":"lifecycle"
+   });
+   throw new PosFeatureLookupUnavailable();
+ }
+ return {contract:contract.data??null,lifecycle:lifecycle.data??null};
+}
 
 function isMissingBranchFeatureOverrideError(error: { code?: string | null; message?: string | null } | null | undefined) {
   if (!error) return false;
@@ -111,7 +131,7 @@ async function readBranchFeatureOverride(
       featureKey,
       error: error.message
     });
-    return null;
+    throw new PosFeatureLookupUnavailable();
   }
 
   if (!data) return null;
@@ -125,11 +145,13 @@ async function hasAnyPosSalesFeature(supabase: SupabaseServiceClient, tenantId: 
     if (directOverrideEnabled === true) return true;
   }
 
+  let lookupFailed=false;
   for (const featureKey of POS_SALES_FEATURE_KEYS) {
     try {
       const enabled = await hasBranchFeatureSafe(tenantId, branchId, featureKey);
       if (enabled) return true;
     } catch (error) {
+      lookupFailed=true;
       console.error("[auth/devices/select] POS sales feature lookup failed", {
         tenantId,
         branchId,
@@ -139,6 +161,7 @@ async function hasAnyPosSalesFeature(supabase: SupabaseServiceClient, tenantId: 
     }
   }
 
+  if(lookupFailed)throw new PosFeatureLookupUnavailable();
   return false;
 }
 
@@ -172,7 +195,7 @@ export async function POST(request: Request) {
   try {
     const supabase = getSupabaseServiceClient();
 
-    const [posSalesEnabled, deviceQuery, employee] = await withAuthTimeout(
+    const [posSalesEnabled, deviceQuery, employee,subscription] = await withAuthTimeout(
       Promise.all([
         hasAnyPosSalesFeature(supabase, flow.tenantId, flow.branchId),
         supabase
@@ -186,20 +209,30 @@ export async function POST(request: Request) {
           tenantId: flow.tenantId,
           branchId: flow.branchId,
           userId: flow.userId
-        })
+        }),
+        loadPosSubscriptionEntryState(supabase,flow.tenantId)
       ]),
       "device_select_core_lookup_timeout",
       DEVICE_SELECT_AUTH_TIMEOUT_MS
     );
 
-    if (!posSalesEnabled) {
-      return timedJsonError(403, "feature_not_enabled", "แพ็กเกจปัจจุบันยังไม่รองรับการเข้าใช้งานหน้าขาย");
-    }
     if (!employee) {
       return timedJsonError(401, "employee_not_found", "ไม่พบผู้ใช้งานในสาขานี้ หรือผู้ใช้งานไม่พร้อมใช้งาน");
     }
     if (!hasPermission(employee.permissions, "pos.sales.access")) {
       return timedJsonError(403, "permission_denied", "ผู้ใช้งานไม่มีสิทธิ์เข้าใช้งานหน้าขาย");
+    }
+    // Verify lifecycle independently of feature grants: an old branch override
+    // must never bypass a completed trial or an explicit account lock.
+    const denial=classifyPosEntryDenial(subscription.contract,subscription.lifecycle);
+    if(denial||!posSalesEnabled){
+      const detail=denial??unavailablePosFeatureDenial();
+      return withTimingHeaders(NextResponse.json({
+        data:null,error:{
+          code:detail.code,message:detail.message,title:detail.title,
+          expires_at:detail.expires_at,kind:detail.kind
+        }
+      },{status:403}),startedAt);
     }
 
     if (deviceQuery.error) {
@@ -487,6 +520,9 @@ export async function POST(request: Request) {
     clearPreEntryFlowState(response);
     return withTimingHeaders(response, startedAt);
   } catch (error) {
+    if(error instanceof PosFeatureLookupUnavailable){
+      return timedJsonError(503,"feature_verification_unavailable","ไม่สามารถตรวจสอบสถานะแพ็กเกจได้ชั่วคราว กรุณาลองใหม่หรือติดต่อฝ่าย Support");
+    }
     if (error instanceof AuthTimeoutError) {
       return timedJsonError(504, "auth_timeout", "ระบบตอบสนองช้าเกินไป กรุณาลองใหม่อีกครั้ง");
     }
