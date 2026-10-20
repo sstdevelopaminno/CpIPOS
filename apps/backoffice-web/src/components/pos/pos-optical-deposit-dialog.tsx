@@ -130,7 +130,7 @@ export function PosOpticalDepositDialog({total,currency,language,onClose,onSubmi
              <input type="radio" className="mr-2" checked={method==="cash"} onChange={()=>{setMethod("cash");setError("");}}/>{T.cash}
            </label>
            <label className={`cursor-pointer rounded-xl border p-3 text-center font-bold ${method==="bank_transfer"?"border-emerald-600 bg-emerald-50":"border-slate-300"}`}>
-             <input type="radio" className="mr-2" checked={method==="bank_transfer"} onChange={()=>{setMethod("bank_transfer");setError("");}}/>{T.transfer}
+             <input type="radio" className="mr-2" checked={method==="bank_transfer"} onChange={()=>{if(!customerId){setError(T.missingCustomer);return;}setMethod("bank_transfer");setStep("transfer");setError("");}}/>{T.transfer}
            </label>
          </fieldset>
          </div>:<div className="space-y-3 rounded-xl border border-emerald-200 bg-emerald-50 p-4">
