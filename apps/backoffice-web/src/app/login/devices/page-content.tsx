@@ -208,7 +208,7 @@ function LoginDevicesPageContent() {
         setCanOverride(data.can_override_in_use);
         if(data.entry_access?.allowed===false){
           const denial=data.entry_access.error??{code:"feature_verification_unavailable",
-            message:"ไม่สามารถตรวจสอบสถานะแพ็กเกจได้ชั่วคราว กรุณาลองใหม่หรือติดต่อฝ่าย Support"};
+            message:"ไม่สามารถตรวจสอบสถานะแพ็กเกจได้ชั่วคราว กรุณาลองใหม่หรือติดต่อฝ่าย Support",expires_at:null};
           setEntryBlocked(true);
           setEntryDenial(denial);
           setError(denial.message);
@@ -291,7 +291,7 @@ function LoginDevicesPageContent() {
     if (submitting || loading) return;
     if(entryBlocked){
       const denial=entryDenial??{code:"feature_verification_unavailable",
-        message:"ไม่สามารถตรวจสอบสถานะแพ็กเกจได้ชั่วคราว กรุณาลองใหม่หรือติดต่อฝ่าย Support"};
+        message:"ไม่สามารถตรวจสอบสถานะแพ็กเกจได้ชั่วคราว กรุณาลองใหม่หรือติดต่อฝ่าย Support",expires_at:null};
       setPopup({type:"error",message:denial.message,code:denial.code,expiresAt:denial.expires_at});
       return;
     }
