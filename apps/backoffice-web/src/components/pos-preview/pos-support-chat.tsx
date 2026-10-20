@@ -111,8 +111,10 @@ async function attachmentPayload(file: File) {
   };
 }
 
-export function PosSupportChat({ storeCode, storeName }: { storeCode: string; storeName: string }) {
-  const [open, setOpen] = useState(false);
+export function PosSupportChat({ storeCode, storeName,apiBase="/api/pos/support-chat",initiallyOpen=false }: {
+  storeCode: string; storeName: string;apiBase?:string;initiallyOpen?:boolean
+}) {
+  const [open, setOpen] = useState(initiallyOpen);
   const [heads, setHeads] = useState<Head[]>([]);
   const [selectedId, setSelectedId] = useState<string>("");
   const [conversation, setConversation] = useState<Conversation | null>(null);
@@ -164,7 +166,7 @@ export function PosSupportChat({ storeCode, storeName }: { storeCode: string; st
     setBusy("list");
     setError("");
     try {
-      const response = await fetch("/api/pos/support-chat/conversations", { cache: "no-store" });
+      const response = await fetch(`${apiBase}/conversations`, { cache: "no-store" });
       const json = await response.json().catch(() => null) as Envelope<{ conversations: Head[] }> | null;
       if (!response.ok || !json?.data) throw new Error(json?.error?.message || "โหลดรายการแชทไม่สำเร็จ");
       setHeads(json.data.conversations);
@@ -193,7 +195,7 @@ export function PosSupportChat({ storeCode, storeName }: { storeCode: string; st
     setBusy("messages");
     setError("");
     try {
-      const response = await fetch(`/api/pos/support-chat/conversations/${id}/messages`, { cache: "no-store" });
+      const response = await fetch(`${apiBase}/conversations/${id}/messages`, { cache: "no-store" });
       const json = await response.json().catch(() => null) as Envelope<{ conversation: Conversation; messages: Message[] }> | null;
       if (response.status === 404) {
         clearGoneConversation(id);
@@ -413,7 +415,7 @@ export function PosSupportChat({ storeCode, storeName }: { storeCode: string; st
     setBusy("create");
     setError("");
     try {
-      const response = await fetch("/api/pos/support-chat/conversations", {
+      const response = await fetch(`${apiBase}/conversations`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ subject, contact_name: contactName })
@@ -475,7 +477,7 @@ export function PosSupportChat({ storeCode, storeName }: { storeCode: string; st
     });
 
     try {
-      const response = await fetch(`/api/pos/support-chat/conversations/${selectedId}/messages`, {
+      const response = await fetch(`${apiBase}/conversations/${selectedId}/messages`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
@@ -534,7 +536,7 @@ export function PosSupportChat({ storeCode, storeName }: { storeCode: string; st
     setBusy("close");
     setError("");
     try {
-      const response = await fetch(`/api/pos/support-chat/conversations/${selectedId}`, {
+      const response = await fetch(`${apiBase}/conversations/${selectedId}`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ action: "close" })

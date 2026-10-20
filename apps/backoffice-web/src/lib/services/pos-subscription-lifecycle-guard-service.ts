@@ -105,7 +105,7 @@ function moneyValue(value: unknown): number | null {
 
 async function loadGuardUncached(tenantId:string):Promise<PosSubscriptionLifecycleGuardData|null>{
   const db=getPrimarySupabaseServiceClient();
-  const [life,contract,packages,issuer]=await Promise.all([
+  const [life,contract,packages,issuer,provisional]=await Promise.all([
     db.from("tenant_data_lifecycle")
       .select("lifecycle_status,access_locked,lock_reason,subscription_expires_at,trial_expires_at,grace_until,metadata")
       .eq("tenant_id",tenantId).maybeSingle<Lifecycle>(),
@@ -116,9 +116,15 @@ async function loadGuardUncached(tenantId:string):Promise<PosSubscriptionLifecyc
       .select("id,name,monthly_price,yearly_price").eq("is_active",true).limit(50).returns<Package[]>(),
     db.from("it_communication_settings")
       .select("billing_bank_name,billing_bank_account_name,billing_bank_account_number")
-      .eq("id","default").maybeSingle<Issuer>()
+      .eq("id","default").maybeSingle<Issuer>(),
+    db.from("tenant_subscription_payment_requests")
+      .select("id,provisional_access_expires_at")
+      .eq("tenant_id",tenantId).eq("status","under_review").eq("auto_check_status","passed")
+      .not("provisional_access_granted_at","is",null).is("provisional_access_revoked_at",null)
+      .gt("provisional_access_expires_at",new Date().toISOString())
+      .order("provisional_access_granted_at",{ascending:false}).limit(1).maybeSingle()
   ]);
-  if (life.error || contract.error || packages.error || issuer.error) return null;
+  if (life.error || contract.error || packages.error || issuer.error || provisional.error) return null;
   const lifecycle=life.data;
   const current=contract.data;
   const pkg=(packages.data??[]).find((row)=>row.id===current?.package_id);
@@ -132,14 +138,20 @@ async function loadGuardUncached(tenantId:string):Promise<PosSubscriptionLifecyc
     ? Math.ceil((Date.parse(expiry)-Date.now())/86400000) : null;
   const cycleAmount=moneyValue(current?.amount_per_cycle) ??
     moneyValue(current?.billing_interval==="yearly" ? pkg?.yearly_price : pkg?.monthly_price);
-  const locked=Boolean(!exempt && (lifecycle?.access_locked || (expiry && Date.parse(expiry)<=Date.now())));
+  const temporary=Boolean(provisional.data?.id && lifecycle?.access_locked===false &&
+    lifecycle.lock_reason==="subscription_payment_provisional_review" &&
+    lifecycle.metadata?.provisional_payment_request_id===provisional.data.id);
+  const locked=Boolean(!exempt && !temporary &&
+    (lifecycle?.access_locked || (expiry && Date.parse(expiry)<=Date.now()) ||
+     lifecycle?.lock_reason==="subscription_payment_review_timeout" ||
+     lifecycle?.lock_reason==="subscription_payment_rejected"));
   return {
     tenant_id:tenantId,
     exempt,
     locked,
     lock_reason:lifecycle?.lock_reason ?? (locked?"subscription_expired":null),
     lifecycle_status:lifecycle?.lifecycle_status ?? current?.status ?? "unknown",
-    expires_at:expiry,
+    expires_at:temporary?provisional.data!.provisional_access_expires_at:expiry,
     days_remaining:daysRemaining,
     package_name:pkg?.name ?? "แพ็กเกจ",
     billing_interval:current?.billing_interval==="yearly"?"yearly":"monthly",
