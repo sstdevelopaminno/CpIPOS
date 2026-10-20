@@ -4,6 +4,24 @@ import {resolve} from "node:path";
 import {classifyPosEntryDenial} from "@/lib/server/pos-entry-denial-reasons";
 const src=(p:string)=>readFileSync(resolve(process.cwd(),"src",p),"utf8");
 describe("Pre-entry subscription provisional activation",()=>{
+ it("keeps only the real payable CTA and scrolls below the fold despite locked root body",()=>{
+  const payment=src("app/login/package-payment/page.tsx");
+  const layout=src("app/layout.tsx");
+  expect(layout).toContain('overflow-hidden');
+  // Fixed-height scroll container is essential because body scrolling is disabled.
+  expect(payment).toContain("h-screen h-dvh w-full overflow-x-hidden overflow-y-auto");
+  expect(payment).toContain("overscroll-y-contain touch-pan-y");
+  expect(payment).toContain("sm:pb-12");
+  expect(payment).not.toContain('<nav aria-label={t.menu}');
+  expect(payment).not.toContain('<span aria-hidden="true">▣</span>{t.menu}');
+  expect(payment).toContain('className={button+" mx-auto mt-5 w-full bg-blue-700 !text-white hover:bg-blue-800"}');
+  expect(payment).toContain("onClick={()=>quote.token?setModal(true):setError(t.notpayable)}");
+  expect(payment).toContain('onClick={()=>router.push("/login/devices")}');
+  expect(payment).toContain('onClick={()=>router.push("/login/support-chat")}');
+  // The slip upload modal still has its own scrollport on compact screens.
+  expect(payment).toContain("max-h-[92vh]");
+  expect(payment).toContain("overflow-auto");
+ });
  it("keeps canonical outstanding and permits attaching a slip to the same IT-created pending request",()=>{
   const service=src("lib/services/public-package-checkout-service.ts");
   const page=src("app/login/package-payment/page.tsx");
@@ -48,7 +66,9 @@ describe("Pre-entry subscription provisional activation",()=>{
   expect(proxy).toContain('"/preview/pos/payments/package",');
   expect(proxy).not.toContain('pathname.startsWith("/preview/pos") && !hasPosSession');
   expect(preentry).toContain('menu:"ชำระแพ็กเกจ"');
-  expect(preentry).toContain('aria-current="page"');
+  expect(preentry).not.toContain('<nav aria-label={t.menu}');
+  expect(preentry).not.toContain('aria-current="page"');
+  expect(preentry).toContain('h-screen h-dvh w-full overflow-x-hidden overflow-y-auto');
   expect(preentry).toContain('"/api/auth/subscription-checkout"');
   expect(mainMenu).toContain('href="/preview/pos/payments/package"');
   expect(canonical).toContain('await requirePosSession()');

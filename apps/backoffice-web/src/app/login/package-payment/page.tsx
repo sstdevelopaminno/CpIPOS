@@ -102,23 +102,16 @@ export default function PreEntryPackagePaymentPage(){
   const amount=quote?.package.amount??0;
   const money=new Intl.NumberFormat(locale,{style:"currency",currency:"THB"}).format(amount);
   const bank=quote?.issuer;
-  return <main className="min-h-screen bg-slate-100 px-3 py-8 text-slate-800 sm:px-6">
+  // RootLayout locks body scrolling for the POS shell. The billing page
+  // needs its own viewport-sized scrollport so lower actions remain reachable
+  // in a small desktop window, tablet webview, and mobile browser.
+  return <main className="h-screen h-dvh w-full overflow-x-hidden overflow-y-auto overscroll-y-contain touch-pan-y bg-slate-100 px-3 py-6 pb-10 text-slate-800 sm:px-6 sm:py-8 sm:pb-12">
     <section className="mx-auto max-w-2xl rounded-3xl border border-slate-200 bg-white p-5 shadow-lg sm:p-8">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div><p className="text-xs font-bold tracking-widest text-blue-700">CpiPOS · SUBSCRIPTION</p>
           <h1 className="mt-2 text-2xl font-extrabold text-slate-800">{t.title}</h1></div>
         <AppLanguageSwitcher lang={lang} onChange={setLanguage}/>
       </div>
-      <nav aria-label={t.menu} className="mt-5 border-b border-slate-200 pb-3">
-        <button type="button" aria-current="page"
-          onClick={() => {
-            if (quote?.token) { setError("");setModal(true); }
-            else setError(quote?.pending_review?.has_evidence ? t.pending : t.notpayable);
-          }}
-          className="inline-flex min-h-11 items-center gap-2 rounded-xl bg-blue-700 px-5 py-2 text-sm font-bold !text-white shadow-sm">
-          <span aria-hidden="true">▣</span>{t.menu}
-        </button>
-      </nav>
       {error?<p role="alert" className="mt-5 rounded-xl bg-red-50 p-3 text-sm text-red-800">{error}</p>:null}
       {loading?<p className="mt-6 text-slate-500">{t.waiting}</p>:null}
       {quote?<div className="mt-6 space-y-4">
