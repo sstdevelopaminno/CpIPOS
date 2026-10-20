@@ -186,7 +186,7 @@ async function assertSubscriptionAllowsSales(tenantId: string) {
         throw new PosGuardError("subscription_access_locked",
           "การชำระแพ็กเกจของคุณไม่ผ่านการอนุมัติ โปรดติดต่อ Support",423);
       }
-      expiryAt=Math.min(expiryAt,Date.parse(recent.data.provisional_access_expires_at));
+      expiryAt=Number.POSITIVE_INFINITY;
     }
     cache.set(tenantId,{
       locked:false,
