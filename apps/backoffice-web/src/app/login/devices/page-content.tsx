@@ -294,21 +294,33 @@ function LoginDevicesPageContent() {
   const selectedDevice = useMemo(() => devices.find((device) => device.deviceCode === selectedCode) ?? null, [devices, selectedCode]);
   const selectedDeviceCanOpen = !entryBlocked && (selectedDevice ? canSelectDevice(selectedDevice, canOverride, employeeId) : false);
 
-  // Only the server-side IT settlement can restore cashier entitlement.
-  // Periodically re-check authorization while a submitted slip awaits review.
+  // A validated POS OR LINE slip can restore cashier entry before IT
+  // settlement. Always ask the authoritative backend, even if the slip was
+  // uploaded in LINE after this popup first opened.
   useEffect(()=>{
-    if(!entryBlocked || !paymentReview)return;
-    const poll=window.setInterval(()=>{
+    if(!entryBlocked)return;
+    const check=()=>{
       void fetch("/api/auth/devices",{cache:"no-store"})
         .then(async response=>{
           if(!response.ok)return;
           const body=await response.json() as DevicesResponse;
-          if(body.data?.entry_access?.allowed===true)window.location.reload();
-          else if(body.data?.payment_review)setPaymentReview(body.data.payment_review);
+          if(body.data?.entry_access?.allowed===true){
+            window.location.reload();
+            return;
+          }
+          setPaymentReview(body.data?.payment_review??null);
         }).catch(()=>null);
-    },15_000);
-    return ()=>window.clearInterval(poll);
-  },[entryBlocked,paymentReview]);
+    };
+    const onVisible=()=>{if(document.visibilityState==="visible")check();};
+    const poll=window.setInterval(check,5_000);
+    window.addEventListener("focus",check);
+    document.addEventListener("visibilitychange",onVisible);
+    return ()=>{
+      window.clearInterval(poll);
+      window.removeEventListener("focus",check);
+      document.removeEventListener("visibilitychange",onVisible);
+    };
+  },[entryBlocked]);
 
   async function handleSelectDevice(deviceCodeOverride?: string) {
     if (submitting || loading) return;

@@ -56,6 +56,11 @@ describe("POS device chooser subscription diagnostics",()=>{
   expect(page).toContain('grid-cols-2');
   expect(page).toContain('T(popup.code && PACKAGE_PAYMENT_REASONS.has(popup.code) ? "ชำระเงิน" : "ตรวจสอบอีกครั้ง")');
   expect(page).toContain('paymentReview');
+  expect(page).toContain('if(!entryBlocked)return;');
+  expect(page).toContain('window.setInterval(check,5_000)');
+  expect(page).toContain('window.addEventListener("focus",check)');
+  expect(page).toContain('body.data?.entry_access?.allowed===true');
+
   expect(page).toContain('cpipos_checkout_store_code');
   expect(page).toContain('ฝ่าย IT กำลังตรวจสอบหลักฐานการชำระ');
   expect(page).toContain('ฝ่าย IT จะตรวจสอบภายหลัง');
