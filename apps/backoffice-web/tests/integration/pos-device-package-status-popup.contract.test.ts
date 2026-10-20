@@ -58,7 +58,7 @@ describe("POS device chooser subscription diagnostics",()=>{
   expect(page).toContain('paymentReview');
   expect(page).toContain('cpipos_checkout_store_code');
   expect(page).toContain('ฝ่าย IT กำลังตรวจสอบหลักฐานการชำระ');
-  expect(page).toContain('ฝ่าย IT ตรวจสอบภายใน 3 วัน');
+  expect(page).toContain('ฝ่าย IT จะตรวจสอบภายหลัง');
   expect(page).toContain('!text-white');
   expect(page).toContain("entryExpiryDate(lang,popup.expiresAt)");
   expect(page).toContain("/login/support-chat");

@@ -56,11 +56,11 @@ async function loadOpenSubscriptionPaymentReview(supabase: ReturnType<typeof get
     .limit(1)
     .maybeSingle<{status:string;submitted_at:string|null}>();
   if (result.error || !result.data) return null;
-  const timestamp = Date.parse(result.data.submitted_at ?? "");
+
   return {
     status: result.data.status,
     submitted_at: result.data.submitted_at,
-    review_due_at: Number.isFinite(timestamp) ? new Date(timestamp + 3 * 24 * 60 * 60 * 1000).toISOString() : null
+    review_due_at: null
   };
 }
 

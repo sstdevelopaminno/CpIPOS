@@ -118,10 +118,10 @@ async function loadGuardUncached(tenantId:string):Promise<PosSubscriptionLifecyc
       .select("billing_bank_name,billing_bank_account_name,billing_bank_account_number")
       .eq("id","default").maybeSingle<Issuer>(),
     db.from("tenant_subscription_payment_requests")
-      .select("id,provisional_access_expires_at")
+      .select("id")
       .eq("tenant_id",tenantId).eq("status","under_review").eq("auto_check_status","passed")
       .not("provisional_access_granted_at","is",null).is("provisional_access_revoked_at",null)
-      .gt("provisional_access_expires_at",new Date().toISOString())
+      
       .order("provisional_access_granted_at",{ascending:false}).limit(1).maybeSingle()
   ]);
   if (life.error || contract.error || packages.error || issuer.error || provisional.error) return null;
@@ -151,8 +151,8 @@ async function loadGuardUncached(tenantId:string):Promise<PosSubscriptionLifecyc
     locked,
     lock_reason:lifecycle?.lock_reason ?? (locked?"subscription_expired":null),
     lifecycle_status:lifecycle?.lifecycle_status ?? current?.status ?? "unknown",
-    expires_at:temporary?provisional.data!.provisional_access_expires_at:expiry,
-    days_remaining:daysRemaining,
+    expires_at:temporary?null:expiry,
+    days_remaining:temporary?null:daysRemaining,
     package_name:pkg?.name ?? "แพ็กเกจ",
     billing_interval:current?.billing_interval==="yearly"?"yearly":"monthly",
     amount_due:cycleAmount,

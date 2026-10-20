@@ -525,8 +525,8 @@ function LoginDevicesPageContent() {
                      <p className="mt-1">
                        {T(popup.code==="subscription_review_timeout"||popup.code==="subscription_payment_rejected"
                        ? "การชำระแพ็กเกจของคุณไม่ผ่านการอนุมัติ โปรดติดต่อ Support"
-                       : paymentReview ? "ฝ่าย IT ตรวจสอบภายใน 3 วัน และระบบจะล็อกกลับหากยังไม่มีการยืนยัน"
-                       : "ชำระเงินและแนบสลิป ระบบจะตรวจหลักฐานและเปิดสิทธิ์ชั่วคราวได้สูงสุด 3 วันเมื่อผ่านการตรวจสอบ")}
+                       : paymentReview ? "ฝ่าย IT จะตรวจสอบภายหลัง หากไม่อนุมัติ ระบบจะล็อกและแจ้งให้ติดต่อ Support"
+                       : "ชำระเงินและแนบสลิป ระบบจะตรวจวันที่ ยอดเงิน และบัญชีผู้รับ ก่อนเปิดใช้ POS ได้ทันทีเมื่อผ่านการตรวจสอบ")}
                      </p>
                      {paymentReview?.review_due_at && entryExpiryDate(lang,paymentReview.review_due_at)?(
                        <p className="mt-1">{T("กำหนดตรวจสอบโดยประมาณ")}: <strong>{entryExpiryDate(lang,paymentReview.review_due_at)}</strong></p>

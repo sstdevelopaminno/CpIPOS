@@ -233,9 +233,7 @@ export async function authorizePublicPackageCheckout(input: {
     pending_review: openReview ? {
       status: openReview.status,
       submitted_at: openReview.submitted_at,
-      review_due_at: Number.isFinite(Date.parse(openReview.submitted_at ?? ""))
-        ? new Date(Date.parse(openReview.submitted_at ?? "") + 3 * 24 * 60 * 60 * 1000).toISOString()
-        : null
+      review_due_at: null
     } : null,
     issuer: snapshot.issuer
   };
@@ -306,8 +304,7 @@ export async function authorizePreEntryPackageCheckout(input: {
       pending_review:{
         status:activeRequest.status,
         submitted_at:activeRequest.submitted_at,
-        review_due_at:activeRequest.submitted_at && Number.isFinite(Date.parse(activeRequest.submitted_at))
-          ?new Date(Date.parse(activeRequest.submitted_at)+259200000).toISOString():null,
+        review_due_at:null,
         has_evidence:activeRequest.has_evidence,
         can_attach_evidence:allowEvidence
       }
@@ -477,7 +474,7 @@ export async function submitPublicPackageCheckout(input: {
   }
 
   // Service-role RPC validates OCR confidence, exact amount, payee,
-  // bank reference uniqueness, canonical cycle and 3-day access limit.
+  // bank reference uniqueness, canonical cycle and IT-only approval/rejection.
   // Unverified evidence never unlocks POS.
   let provisional:{granted?:boolean;review_deadline?:string|null;status?:string}|null=null;
   if(payload.source==="authenticated_preentry" && payload.billing_cycle_id && slipScan.status==="verified" && slipScan.model!=="mock"){
@@ -532,6 +529,6 @@ export async function submitPublicPackageCheckout(input: {
     expected_amount: payload.expected_amount,
     billing_interval: payload.billing_interval,
     provisional_access_granted:provisional?.granted===true,
-    provisional_access_expires_at:provisional?.granted?provisional.review_deadline??null:null
+    provisional_access_expires_at:null
   };
 }
