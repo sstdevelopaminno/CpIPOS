@@ -12,11 +12,11 @@ describe("Optical pickup, due date and barcode contracts",()=>{
   expect(code).toMatch(/^OP[0-9A-Z]{25}$/);
   expect(parseOpticalBillRecallCode(code!)).toBe(id);
   expect(parseOpticalBillRecallCode("CPI-OPTICAL-RECALL:1:"+id)).toBe(id);
-  expect(parseOpticalBillRecallCode("OP9999999999999999999999999")).toBeNull();
+  expect(parseOpticalBillRecallCode("OPZZZZZZZZZZZZZZZZZZZZZZZZZ")).toBeNull();
  });
  it("encodes a valid Code 128B with start and stop elements",()=>{
   const svg=opticalCode128Svg("OP0000000000000000000000000");
-  expect(svg).toMatch(/viewBox="0 [0-9]+ 65"/);
+  expect(svg).toMatch(/viewBox="0 0 [0-9]+ 65"/);
   expect(svg).toContain('<rect');
   expect(()=>opticalCode128Svg("❌")).toThrow();
  });
