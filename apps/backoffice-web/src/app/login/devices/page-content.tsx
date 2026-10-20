@@ -78,7 +78,7 @@ function canSelectDevice(device: DeviceItem, canOverride: boolean, employeeId: s
 }
 
 const PACKAGE_PAYMENT_REASONS = new Set(["trial_expired", "subscription_expired", "subscription_inactive", "subscription_missing"]);
-const PACKAGE_ENTRY_REASONS = new Set([
+const PACKAGE_ENTRY_REASONS = new Set(["subscription_review_timeout","subscription_payment_rejected",
  "trial_expired","subscription_expired","subscription_locked",
  "subscription_inactive","subscription_missing","feature_not_enabled","feature_verification_unavailable"
 ]);
@@ -106,6 +106,7 @@ function mapDeviceError(code?: string | null, fallback?: string | null) {
   if(code==="trial_expired")return "ระยะเวลาทดลองใช้งานครบกำหนดแล้ว กรุณาติดต่อฝ่าย Support เพื่อตรวจสอบการต่ออายุหรือเปิดใช้งานแพ็กเกจ";
   if(code==="subscription_expired")return "แพ็กเกจครบกำหนด กรุณาตรวจสอบสถานะต่ออายุหรือการชำระเงินกับฝ่าย Support";
   if(code==="subscription_locked")return "ระบบจำกัดการเข้าใช้งานชั่วคราว กรุณาติดต่อฝ่าย Support เพื่อตรวจสอบสถานะบัญชีและแพ็กเกจ";
+  if(code==="subscription_review_timeout"||code==="subscription_payment_rejected")return "การชำระแพ็กเกจของคุณไม่ผ่านการอนุมัติ โปรดติดต่อ Support";
   if(code==="subscription_inactive")return "สถานะแพ็กเกจไม่ได้เปิดใช้งาน กรุณาติดต่อฝ่าย Support เพื่อยืนยันสถานะ";
   if(code==="subscription_missing")return "กรุณาติดต่อฝ่าย Support เพื่อตรวจสอบการกำหนดแพ็กเกจของร้าน";
   if(code==="feature_not_enabled")return "ไม่พบสิทธิ์ใช้งานหน้าขายในแพ็กเกจหรือสาขานี้ กรุณาติดต่อฝ่าย Support เพื่อตรวจสอบสิทธิ์ POS";
@@ -513,7 +514,7 @@ function LoginDevicesPageContent() {
                  </p>
                  <p className="store-v2-popup-text !text-slate-600">
                    {T(paymentReview && popup.code && PACKAGE_ENTRY_REASONS.has(popup.code)
-                     ? "ระบบได้รับสลิปแล้ว กรุณารอฝ่าย IT อนุมัติการชำระเงิน ระบบจะยังล็อกการขายไว้จนกว่าจะอนุมัติ"
+                     ? "ฝ่าย IT กำลังตรวจสอบหลักฐานการชำระ หากสิทธิ์ชั่วคราวหมดอายุหรือไม่ได้รับการยืนยัน กรุณาติดต่อ Support"
                      : popup.message)}
                  </p>
                  {popup.code&&PACKAGE_ENTRY_REASONS.has(popup.code)?(
@@ -522,9 +523,10 @@ function LoginDevicesPageContent() {
                        <p>{T("วันสิ้นสุดสิทธิ์")}: <strong>{entryExpiryDate(lang,popup.expiresAt)}</strong></p>
                      ):null}
                      <p className="mt-1">
-                       {T(paymentReview
-                         ? "ฝ่าย IT ตั้งเป้าตรวจสอบภายใน 3 วัน การส่งสลิปหรือครบกำหนดตรวจสอบจะไม่ปลดล็อกโดยอัตโนมัติ"
-                         : "ชำระแพ็กเกจและส่งสลิปเพื่อให้ฝ่าย IT ตรวจสอบภายใน 3 วัน ระบบจะเปิดเมื่อ IT อนุมัติเท่านั้น")}
+                       {T(popup.code==="subscription_review_timeout"||popup.code==="subscription_payment_rejected"
+                       ? "การชำระแพ็กเกจของคุณไม่ผ่านการอนุมัติ โปรดติดต่อ Support"
+                       : paymentReview ? "ฝ่าย IT ตรวจสอบภายใน 3 วัน และระบบจะล็อกกลับหากยังไม่มีการยืนยัน"
+                       : "ชำระเงินและแนบสลิป ระบบจะตรวจหลักฐานและเปิดสิทธิ์ชั่วคราวได้สูงสุด 3 วันเมื่อผ่านการตรวจสอบ")}
                      </p>
                      {paymentReview?.review_due_at && entryExpiryDate(lang,paymentReview.review_due_at)?(
                        <p className="mt-1">{T("กำหนดตรวจสอบโดยประมาณ")}: <strong>{entryExpiryDate(lang,paymentReview.review_due_at)}</strong></p>
@@ -540,7 +542,7 @@ function LoginDevicesPageContent() {
                      }}>
                      {T(popup.code && PACKAGE_PAYMENT_REASONS.has(popup.code) ? "ชำระเงิน" : "ตรวจสอบอีกครั้ง")}
                    </button>
-                   <a href="https://lin.ee/f1LXpAF" target="_blank" rel="noopener noreferrer"
+                   <a href="/login/support-chat"
                      className="flex h-11 min-w-0 items-center justify-center rounded-xl bg-emerald-700 px-2 text-center text-xs font-bold !text-white hover:bg-emerald-800 sm:text-sm">
                      {T("ติดต่อฝ่าย Support")}
                    </a>
