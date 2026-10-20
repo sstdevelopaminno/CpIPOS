@@ -35,8 +35,12 @@ describe("Cashier terminal subscription reason and safe error popups",()=>{
  });
  it("requires server verification independently of branch feature overrides",()=>{
   const handler=files("app/api/auth/devices/select/select-handler.ts");
-  expect(handler).toContain("classifyPosEntryDenial(subscription.contract,subscription.lifecycle)");
-  expect(handler).toContain("if(denial||!posSalesEnabled)");
+  const access=files("lib/server/pos-entry-access-service.ts");
+  expect(access).toContain("classifyPosEntryDenial(subscription.contract,subscription.lifecycle)");
+  expect(access).toContain("if(lifecycleDenial)return {allowed:false");
+  expect(access.indexOf("const lifecycleDenial")).toBeLessThan(access.indexOf("const enabled=await hasAnyPosSalesFeature"));
+  expect(handler).toContain("evaluatePosEntryAccess(supabase, flow.tenantId, flow.branchId)");
+  expect(handler).toContain("if(!entryAccess.allowed)");
   expect(handler).toContain('code:detail.code,message:detail.message,title:detail.title');
   expect(handler).toContain('"feature_verification_unavailable"');
   expect(handler).not.toContain('return timedJsonError(403, "feature_not_enabled", "แพ็กเกจปัจจุบันยังไม่รองรับการเข้าใช้งานหน้าขาย")');

@@ -4,6 +4,8 @@ import type { AppLanguage } from "@/lib/app-language-client";
  * Backend codes, branch/device names and PIN values are never translated.
  */
 const copy: Record<string, {en: string; lo: string}> = {
+  "ไม่สามารถตรวจสอบแพ็กเกจได้":{en:"Unable to verify package",lo:"ບໍ່ສາມາດກວດສອບແພັກເກດໄດ້"},
+  "ตรวจสอบอีกครั้ง":{en:"Check again",lo:"ກວດສອບອີກຄັ້ງ"},
   "หมดเวลาการเชื่อมต่อ กรุณาลองใหม่อีกครั้ง": {en:"Connection timed out. Please try again.",lo:"ໝົດເວລາເຊື່ອມຕໍ່ ກະລຸນາລອງໃໝ່"},
   "ไม่สามารถเชื่อมต่อเซิร์ฟเวอร์ได้": {en:"Cannot connect to server.",lo:"ບໍ່ສາມາດເຊື່ອມຕໍ່ເຊີບເວີໄດ້"},
   "ไม่พบรายการสาขาที่ใช้งานได้": {en:"No available branches found.",lo:"ບໍ່ພົບສາຂາທີ່ພ້ອມໃຊ້ງານ"},
