@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   buildOpticalBillRecallCode,
+  buildOpticalPickupBarcode,
   opticalDepositReceiptCanRecall,
   parseOpticalBillRecallCode,
   validateOpticalDeposit,
@@ -72,20 +73,21 @@ describe("Optical 80mm partial-payment receipt preview", () => {
     expect(html).toContain("ยอดค้างชำระ");
     expect(html).toContain("₭1,000");
     expect(html).toContain("₭500");
-    expect(html).toContain("CPI-OPTICAL-RECALL:1:" + bill.orderId);
+    expect(html).toContain(buildOpticalPickupBarcode(bill.orderId));
+    expect(html).toContain('class="barcode"');
   });
-  it("refuses receipt for unpaid, paid or cancelled bill", () => {
-    expect(() => renderOpticalDepositReceipt80mm({ ...receipt, bill })).toThrow("requires_committed_partial_payment");
-    expect(() => renderOpticalDepositReceipt80mm({
-      ...receipt, bill: { ...depositBill, status: "paid" }
-    })).toThrow("requires_committed_partial_payment");
+  it("refuses unpaid/cancelled and allows fully paid receipt", () => {
+    expect(() => renderOpticalDepositReceipt80mm({ ...receipt, bill })).toThrow("optical_receipt_requires_confirmed_payment");
+    expect(renderOpticalDepositReceipt80mm({
+      ...receipt, bill: { ...depositBill, paidAmount: 1000, status: "paid" }
+    })).toContain("ใบเสร็จชำระเต็มจำนวน");
   });
-  it("escapes customer product HTML and refuses non-image QR URLs", () => {
+  it("escapes customer product HTML and emits only generated barcode SVG", () => {
     const html = renderOpticalDepositReceipt80mm({
       ...receipt,
       customerLabel: "<script>alert(1)</script>",
       items: [{ description: "<img onerror=1>", quantity: 1, lineTotal: 1000 }],
-      qrImageDataUrl: "javascript:alert(1)"
+      receiptWidthMm: 58
     });
     expect(html).not.toContain("<script>");
     expect(html).not.toContain("<img onerror");

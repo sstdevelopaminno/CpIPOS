@@ -11,7 +11,7 @@ export async function GET(request: Request) {
     if(!await requireOpticalFinanceModule(scope.session.tenant_id,"optical_deposit"))
       return fail("optical_recall_disabled","Deposit recall is not enabled for this store.",403);
     const id=parseOpticalBillRecallCode(new URL(request.url).searchParams.get("code")??"");
-    if(!id)return fail("invalid_optical_recall","Invalid QR or bill reference.",422);
+    if(!id)return fail("invalid_optical_recall","Invalid Optical pickup barcode or bill reference.",422);
     const {data,error}=await getSupabaseServiceClient().from("optical_work_orders")
       .select("id,status,total_amount,paid_total,currency_code,customer_id,due_at")
       .eq("id",id).eq("tenant_id",scope.session.tenant_id)
@@ -21,7 +21,15 @@ export async function GET(request: Request) {
       Number(data.paid_total)>=Number(data.total_amount)||
       ["cancelled","collected"].includes(String(data.status)))
       return fail("optical_bill_not_collectable","Bill is paid, cancelled, unavailable or cannot accept additional payment.",409);
-    return ok({bill:data,remaining_amount:Number(data.total_amount)-Number(data.paid_total)});
+    const {data:lines,error:lineError}=await getSupabaseServiceClient()
+      .from("optical_work_order_lines")
+      .select("sku_snapshot,description_snapshot,quantity,line_total")
+      .eq("work_order_id",id).eq("tenant_id",scope.session.tenant_id)
+      .eq("branch_id",scope.session.branch_id).limit(50);
+    if(lineError)return fail("optical_recall_lines_failed","Unable to read work-order items.",503);
+    const response=ok({bill:data,lines:lines??[],remaining_amount:Number(data.total_amount)-Number(data.paid_total)});
+    response.headers.set("Cache-Control","private, no-store");
+    return response;
   }catch(error){
     return error instanceof PosGuardError
       ? fail(error.code,error.message,error.status)

@@ -30,7 +30,7 @@ describe("Optical finance V1 staged integration",()=>{
   expect(dialog).toContain('"/api/pos/optical/customers"');
   expect(dialog).toContain('setStep("transfer")');
   expect(dialog).toContain('customerQuery');
-  expect(dialog).toContain('onSubmit(amount,"cash",customerId)');
+  expect(dialog).toContain('onSubmit(amount,"cash",customerId,undefined,dueDate)');
   expect(dialog).not.toContain('data-testid="optical-bank-reference"');
   expect(dialog).not.toContain('manager_verified:managerVerified');
   expect(dialog).toContain("ยังไม่บันทึกรับเงินจริง");
@@ -41,7 +41,7 @@ describe("Optical finance V1 staged integration",()=>{
   expect(sale).toContain('fetch("/api/pos/optical/deposits"');
   expect(sale).not.toContain('fetch("/api/pos/optical/work-orders"');
   const atomicRoute=file("app/api/pos/optical/deposits/route.ts");
-  expect(atomicRoute).toContain('rpc("optical_open_with_deposit_tx"');
+  expect(atomicRoute).toContain('rpc("optical_open_with_deposit_due_v1"');
   expect(atomicRoute).toContain('requireActiveShift(scope)');
   expect(atomicRoute).toContain('p_verified_by:transfer?scope.session.user_id:null');
   expect(sale).toContain('typeof paid?.data?.payment_id!=="string"');

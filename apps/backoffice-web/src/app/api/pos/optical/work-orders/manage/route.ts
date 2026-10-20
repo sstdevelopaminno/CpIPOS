@@ -3,8 +3,6 @@ import {requirePermission,requirePosSession,PosGuardError} from "@/lib/pos-sessi
 import {requireOpticalRetailEntitlement} from "@/lib/server/optical-entitlement";
 import {requireOpticalFinanceModule} from "@/lib/server/optical-finance-policy";
 import {getSupabaseServiceClient} from "@/lib/supabase-admin";
-import {appendAuditLog} from "@/lib/audit-log";
-import type {BranchRole} from "@pos/shared-types";
 const uuid=/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i;
 const errorResponse=(e:unknown)=>e instanceof PosGuardError?fail(e.code,e.message,e.status):fail("optical_order_action_failed","Unable to process the work order.",503);
 export async function GET(request:Request){
@@ -37,34 +35,35 @@ export async function GET(request:Request){
    payments=p.data??[];
   }
   const response=ok({order,lines:lines??[],payments,financeReady,
-   canManage:financeReady&&["owner","manager"].includes(String(scope.session.role))});
+   canManage:financeReady});
   response.headers.set("Cache-Control","private, no-store");return response;
  }catch(e){return errorResponse(e);}
 }
 export async function PATCH(request:Request){
  try{
   const scope=await requirePosSession();requirePermission(scope,"sale:create");
-  if(!["owner","manager"].includes(String(scope.session.role)))
-    return fail("optical_order_edit_denied","Owner or manager is required.",403);
+  // Staff may initiate an action, but the RPC always verifies a current
+  // owner/manager PIN for the same tenant and branch before mutating data.
   if(!await requireOpticalFinanceModule(scope.session.tenant_id,"optical_work_orders"))
     return fail("optical_finance_not_ready","ต้องอนุมัติระบบใบสั่งงานจาก IT และเปิด Optical finance rollout ก่อนแก้ไข/ยกเลิก",403);
-  const input=await request.json().catch(()=>null) as {id?:string;action?:string;note?:string;due_at?:string|null;request_id?:string}|null;
+  const origin=request.headers.get("origin");
+  if(origin){try{if(new URL(origin).host!==new URL(request.url).host)return fail("optical_origin_denied","Invalid origin.",403);}
+    catch{return fail("optical_origin_denied","Invalid origin.",403);}}
+  const input=await request.json().catch(()=>null) as {id?:string;action?:string;note?:string;due_at?:string|null;request_id?:string;manager_pin?:string}|null;
   if(!input||!uuid.test(input.id??"")||!uuid.test(input.request_id??"")||
     !["update","cancel"].includes(input.action??"")||
+    typeof input.manager_pin!=="string"||input.manager_pin.length<4||input.manager_pin.length>32||
     (input.action==="update"&&(typeof input.note!=="string"||input.note.length>1000||
        (input.due_at!==null&&(typeof input.due_at!=="string"||!Number.isFinite(Date.parse(input.due_at))))))
     )return fail("optical_order_invalid","Invalid work order edit/cancellation request.",422);
-  const {data,error}=await getSupabaseServiceClient().rpc("optical_manage_work_order_v1",{
+  const {data,error}=await getSupabaseServiceClient().rpc("optical_manage_work_order_pin_v2",{
     p_tenant_id:scope.session.tenant_id,p_branch_id:scope.session.branch_id,
     p_work_order_id:input.id,p_actor:scope.session.user_id,
     p_action:input.action,p_request_id:input.request_id,
-    p_note:input.note??null,p_due_at:input.due_at??null
+    p_manager_pin:input.manager_pin,p_note:input.note??null,p_due_at:input.due_at??null
   });
   if(error)return fail("optical_order_change_denied",error.message,409);
-  await appendAuditLog({tenantId:scope.session.tenant_id,branchId:scope.session.branch_id,
-    actorUserId:scope.session.user_id,actorRole:scope.session.role as BranchRole,
-    action:input.action==="cancel"?"optical_work_order_cancelled":"optical_work_order_details_updated",
-    targetTable:"optical_work_orders",targetId:input.id});
+  // PIN-verified action and approver are audited atomically by the database.
   return ok({result:data});
  }catch(e){return errorResponse(e);}
 }

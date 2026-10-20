@@ -23,7 +23,7 @@ describe("Optical customer and work-order detail dialogs",()=>{
   expect(page).toContain("PosOpticalWorkOrderDetailDialog");
   expect(dialog).toContain("ลบ (ยกเลิกใบงาน)");
   expect(route).toContain('requireOpticalFinanceModule');
-  expect(route).toContain('rpc("optical_manage_work_order_v1"');
+  expect(route).toContain('rpc("optical_manage_work_order_pin_v2"');
   expect(sql).toContain("optical_transition_work_order_tx");
   expect(sql).toContain("v.paid_total<>0");
   expect(sql).toContain("app.custom_optical_finance_read_enabled");

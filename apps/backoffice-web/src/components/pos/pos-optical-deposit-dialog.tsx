@@ -8,7 +8,7 @@ type Language="th"|"en"|"lo";
 type OpticalCustomerChoice={id:string;customer_code:string;full_name:string};
 export type OpticalBankVerification={reference_no:string;manager_verified:boolean};
 type Props={total:number;currency:OpticalDepositCurrency;language:Language;
-  onClose:()=>void;onSubmit?: (amount:number,method:OpticalDepositMethod,customerId:string,evidence?:OpticalBankVerification)=>Promise<void>|void;
+  onClose:()=>void;onSubmit?: (amount:number,method:OpticalDepositMethod,customerId:string,evidence?:OpticalBankVerification,dueDate?:string)=>Promise<void>|void;
   transferAccount?:{bank_name:string;account_name:string;account_number:string;qr_image_url:string|null}|null;};
 const languages={
  th:{title:"ชำระเงินมัดจำ",hint:"กรอกจำนวนเงินที่ลูกค้าต้องการมัดจำ",total:"ยอดสินค้า",due:"ยอดมัดจำ",balance:"คงค้างหลังมัดจำ",continue:"ยืนยันจำนวนเงิน",step2:"เลือกวิธีชำระเงินมัดจำ",cash:"เงินสด",transfer:"โอนเงิน",confirm:"ยืนยันรับเงินมัดจำ",check:"ตรวจสอบก่อนรับมัดจำ",back:"ย้อนกลับ",close:"ปิด",clear:"ล้าง",del:"ลบ",error:"จำนวนเงินต้องมากกว่า 0 และไม่เกินยอดสินค้า",unavailable:"ยังไม่สามารถรับเงินจริงได้: ต้องเชื่อมบัญชีมัดจำและการตัดสต๊อก Optical กับระบบหลังบ้านก่อน",note:"เป็นเงินมัดจำ ไม่ใช่การขายเต็มจำนวน",customer:"เลือกลูกค้า Optical สำหรับใบสั่งงาน",missingCustomer:"กรุณาเลือกลูกค้าและตรวจสอบสต๊อกก่อนรับมัดจำ",noCustomers:"ยังไม่มีลูกค้าร้านแว่นในสาขานี้ กรุณาเพิ่มประวัติลูกค้าก่อน",loadingCustomers:"กำลังโหลดรายชื่อลูกค้า...",transferPending:"เงินโอนต้องให้ Owner/Manager ตรวจสอบรายการเงินเข้าจากธนาคารก่อนบันทึกรับเงินจริง",reference:"เลขอ้างอิงรายการโอนจากธนาคาร",attest:"ฉันเป็น Owner/Manager และได้ตรวจสอบยอดเงินเข้าจากบัญชีธนาคารจริงแล้ว",invalidEvidence:"กรุณาระบุเลขอ้างอิง และให้ Owner/Manager ตรวจสอบหลักฐานเงินเข้า"},
@@ -23,6 +23,7 @@ export function PosOpticalDepositDialog({total,currency,language,onClose,onSubmi
  const [error,setError]=useState("");
  const [customers,setCustomers]=useState<OpticalCustomerChoice[]>([]);
  const [customerId,setCustomerId]=useState("");
+ const [dueDate,setDueDate]=useState("");
  const [customerQuery,setCustomerQuery]=useState("");
  const [customersBusy,setCustomersBusy]=useState(false);
 
@@ -62,6 +63,9 @@ export function PosOpticalDepositDialog({total,currency,language,onClose,onSubmi
  };
  const proceed=()=>{
    if(amount===null){setError(T.error);return;}
+   if(!dueDate||!/^\d{4}-\d{2}-\d{2}$/.test(dueDate)||dueDate<new Date().toLocaleDateString("en-CA",{timeZone:"Asia/Bangkok"})){
+     setError(language==="th"?"กรุณาเลือกวันนัดรับตั้งแต่วันนี้เป็นต้นไป":"Choose a pickup date from today onward");return;
+   }
    setError("");setStep("method");
  };
  const pay=async()=>{
@@ -73,7 +77,7 @@ export function PosOpticalDepositDialog({total,currency,language,onClose,onSubmi
      setStep("transfer");setError("");return;
    }
    setBusy(true);setError("");
-   try{await onSubmit(amount,"cash",customerId);onClose();}
+   try{await onSubmit(amount,"cash",customerId,undefined,dueDate);onClose();}
    catch(e){setError(e instanceof Error?e.message:T.unavailable);}
    finally{setBusy(false);}
  };
@@ -100,6 +104,12 @@ export function PosOpticalDepositDialog({total,currency,language,onClose,onSubmi
                className="h-14 w-full min-w-0 rounded-lg border border-slate-300 px-3 text-right text-2xl font-bold tabular-nums"
                placeholder="0" aria-describedby="optical-deposit-error"/>
              <p className="text-xs text-slate-500">{T.note}</p>
+             <label className="mt-3 grid gap-1 text-sm font-semibold" htmlFor="optical-pickup-date">
+               {language==="th"?"วันนัดรับแว่น *":language==="lo"?"ວັນນັດຮັບແວ່ນ *":"Pickup date *"}
+               <input id="optical-pickup-date" type="date" required value={dueDate}
+                 onChange={e=>{setDueDate(e.target.value);setError("");}}
+                 className="min-h-11 rounded-lg border border-slate-300 bg-white px-3"/>
+             </label>
            </div>
            <div className="grid grid-cols-3 gap-2" aria-label="Deposit keypad">
              {["1","2","3","4","5","6","7","8","9","C","0",currency==="LAK"?"⌫":"."].map((key,i)=>

@@ -27,6 +27,7 @@ import { PosCartPanel } from "@/components/pos-ui/pos-cart-panel";
 import { PosCategoryNav } from "@/components/pos-ui/pos-category-nav";
 import { PosManagerApprovalModal } from "@/components/pos-ui/pos-manager-approval-modal";
 import { PosPaymentPanel } from "@/components/pos-ui/pos-payment-panel";
+import {PosOpticalPickupBalanceDialog,type OpticalRecalledOrder} from "@/components/pos/pos-optical-pickup-balance-dialog";
 import { PosShell } from "@/components/pos-ui/pos-shell";
 import { PackageLockDialog } from "@/components/pos-preview/package-lock-dialog";
 import { sendPendingDeliveryBillNowWithEffects, submitOrderWithEffects, submitTransferPaymentWithEffects } from "@/components/pos/services/pos-sales-service-module";
@@ -2221,6 +2222,17 @@ export function PosSalesModule({
   const opticalDepositAttemptsRef = useRef(new Map<string,{orderId:string;paymentId:string}>());
   const opticalDepositLockedRef = useRef(false);
   const [opticalLastDepositReceiptId,setOpticalLastDepositReceiptId]=useState<string|null>(null);
+  const [opticalRecalledOrder,setOpticalRecalledOrder]=useState<OpticalRecalledOrder|null>(null);
+  useEffect(()=>{
+    const receive=(event:Event)=>{
+      const data=(event as CustomEvent<OpticalRecalledOrder>).detail;
+      if(data?.bill?.id&&Number.isSafeInteger(Number(data.remaining_amount))&&data.remaining_amount>0){
+        setOpticalRecalledOrder(data);
+      }
+    };
+    window.addEventListener("cpipos:optical-pickup-recalled",receive);
+    return()=>window.removeEventListener("cpipos:optical-pickup-recalled",receive);
+  },[]);
   useEffect(()=>{
     opticalDepositAttemptsRef.current.clear();
     setOpticalLastDepositReceiptId(null);
@@ -9141,7 +9153,7 @@ export function PosSalesModule({
   }
 
 
-  async function submitOpticalCashDeposit(amount:number,method:"cash"|"bank_transfer",customerId:string,evidence?:{reference_no:string;manager_verified:boolean}):Promise<void> {
+  async function submitOpticalCashDeposit(amount:number,method:"cash"|"bank_transfer",customerId:string,evidence?:{reference_no:string;manager_verified:boolean},dueDate?:string):Promise<void> {
     if(opticalDepositLockedRef.current)throw new Error("Optical payment is already processing");
     if(!opticalRetailActive || !posCurrencyResolved || posCurrencyCode!=="LAK")
       throw new Error("Optical cash deposits require a verified LAK store");
@@ -9160,7 +9172,8 @@ export function PosSalesModule({
        ||!Number.isSafeInteger(discount)||discount<0||discount>=subtotal
        ||!Number.isSafeInteger(amount)||amount<=0||amount>total)
       throw new Error("Verify LAK product prices, discounts and deposit amount before proceeding");
-    const signature=JSON.stringify({customerId,items,subtotal,discount,total,amount,method,evidence:evidence?.reference_no??null,branch:posScope.branchId});
+    if(!dueDate||!/^\d{4}-\d{2}-\d{2}$/.test(dueDate))throw new Error("กรุณาเลือกวันที่นัดรับแว่น");
+    const signature=JSON.stringify({customerId,items,subtotal,discount,total,amount,method,dueDate,evidence:evidence?.reference_no??null,branch:posScope.branchId});
     let attempt=opticalDepositAttemptsRef.current.get(signature);
     if(!attempt){
       attempt={orderId:crypto.randomUUID(),paymentId:crypto.randomUUID()};
@@ -9179,7 +9192,7 @@ export function PosSalesModule({
         method:"POST",credentials:"same-origin",headers:{"Content-Type":"application/json"},
         body:JSON.stringify({order_request_id:attempt.orderId,payment_request_id:attempt.paymentId,
           customer_id:customerId,items,discount_lak:discount,amount_lak:amount,method,
-          reference_no:evidence?.reference_no,manager_verified:evidence?.manager_verified===true})
+          due_date:dueDate,reference_no:evidence?.reference_no,manager_verified:evidence?.manager_verified===true})
       }));
       const workOrderId=paid?.data?.work_order_id;
       if(typeof workOrderId!=="string"||typeof paid?.data?.payment_id!=="string")
@@ -9187,7 +9200,7 @@ export function PosSalesModule({
       const remainder=Number(paid.data.remaining_amount);
       pushSubmitMessage(`Optical ${method==="cash"?"cash":"manually verified bank"} deposit recorded: ₭${amount.toLocaleString("en-US")} · Remaining ₭${remainder.toLocaleString("en-US")}`);
       setCart([]);
-      setOpticalLastDepositReceiptId(remainder>0?workOrderId:null);
+      setOpticalLastDepositReceiptId(workOrderId);
       opticalDepositAttemptsRef.current.delete(signature);
     }finally{
       opticalDepositLockedRef.current=false;
@@ -10521,6 +10534,9 @@ export function PosSalesModule({
         </div>
       ) : null}
 
+      {opticalRecalledOrder&&opticalRetailActive?<PosOpticalPickupBalanceDialog
+        data={opticalRecalledOrder} onClose={()=>setOpticalRecalledOrder(null)}
+        onSettled={orderId=>setOpticalLastDepositReceiptId(orderId)}/>:null}
       <PosHeldBillsModal
         open={heldBillsModalOpen}
         text={text}
