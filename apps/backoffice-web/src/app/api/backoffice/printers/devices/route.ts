@@ -14,6 +14,7 @@ import {
   type PrinterPurpose
 } from "@/lib/printing/printer-device-registry";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
+import {requireOpticalRetailEntitlement} from "@/lib/server/optical-entitlement";
 
 type Payload = {
   printer_id?: string | null;
@@ -311,11 +312,12 @@ function isValidationError(message: string) {
 export async function GET() {
   try {
     const auth = await getPrinterSettingsAuthContext();
-    const [registry, discovered] = await Promise.all([
+    const [registry, discovered, optical_mode] = await Promise.all([
       getPrinterSettingsRegistry(auth),
-      loadAutoDiscoveredDevices(auth.tenantId!, auth.branchId!)
+      loadAutoDiscoveredDevices(auth.tenantId!, auth.branchId!),
+      requireOpticalRetailEntitlement(auth.tenantId!)
     ]);
-    return ok({ ...registry, devices: [...discovered, ...registry.devices] });
+    return ok({ ...registry, optical_mode, devices: [...discovered, ...registry.devices] });
   } catch (error) {
     const message = error instanceof Error ? error.message : "unknown";
     if (message === "forbidden_role") return fail("forbidden_role", "Only manager, owner, or Kitchen can access printer settings.", 403);
