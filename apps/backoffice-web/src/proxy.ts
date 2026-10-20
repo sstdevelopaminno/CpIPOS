@@ -78,6 +78,22 @@ export async function proxy(request: NextRequest) {
   const { handoffName, sessionIdName } = resolvePosSessionCookieNames();
   const hasPosSession = Boolean(request.cookies.get(sessionIdName)?.value || request.cookies.get(handoffName)?.value);
 
+  // The POS main-menu "ชำระแพ็กเกจ" is also the recovery destination
+  // for an expired store before a cashier session can be established.
+  // Keep the canonical URL but render the signed pre-entry checkout there.
+  // All billing data/actions still require an employee-verified context
+  // through /api/auth/subscription-checkout. No sales route is unlocked.
+  if (pathname === "/preview/pos/payments/package" &&
+      (request.nextUrl.searchParams.get("entry") === "subscription" || !hasPosSession)) {
+    if (request.method !== "GET" && request.method !== "HEAD") {
+      return NextResponse.redirect(new URL("/login/store",request.url));
+    }
+    const checkoutUrl = new URL("/login/package-payment", request.url);
+    const response = NextResponse.rewrite(checkoutUrl);
+    response.headers.set("Cache-Control","private, no-store");
+    return response;
+  }
+
   // Product/stock screens inside the POS still use two legacy Backoffice APIs.
   // When a Supabase Control Plane cookie is present in the same browser, the
   // legacy auth-context prefers that cookie and can lose the valid POS tenant /
@@ -104,6 +120,7 @@ export async function proxy(request: NextRequest) {
 export const config = {
   matcher: [
     "/preview/pos",
+    "/preview/pos/payments/package",
     "/it-admin/:path*",
     "/api/backoffice/catalog",
     "/api/backoffice/stock/settings"
