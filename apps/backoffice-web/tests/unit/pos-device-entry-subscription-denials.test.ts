@@ -51,7 +51,7 @@ describe("Cashier terminal subscription reason and safe error popups",()=>{
   expect(ui).toContain('PACKAGE_ENTRY_REASONS.has(popup.code)');
   expect(ui).toContain('entryErrorTitle(popup.code)');
   expect(ui).toContain('PACKAGE_PAYMENT_REASONS.has(popup.code)');
-  expect(ui).toContain('router.push("/login/package-payment")');
+  expect(ui).toContain('router.push("/preview/pos/payments/package?entry=subscription")');
   expect(ui).toContain('paymentReview');
   expect(ui).toContain('entryExpiryDate(lang,popup.expiresAt)');
   expect(ui).toContain("/login/support-chat");
