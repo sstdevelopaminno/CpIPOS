@@ -223,7 +223,9 @@ export async function authorizePublicPackageCheckout(input: {
       name: target.name,
       billing_interval: input.billingInterval,
       amount: expected,
-      currency: snapshot.contract.currency || "THB"
+      // Subscription checkout settles in THB regardless of the tenant's POS sales currency.
+      // Never display LAK as payable when evidence/settlement records are THB.
+      currency: "THB"
     },
     pending_review: openReview ? {
       status: openReview.status,
