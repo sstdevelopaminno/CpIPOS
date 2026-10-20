@@ -1,6 +1,7 @@
 "use client";
 import {useCallback,useEffect,useMemo,useState} from "react";
 import type {Language} from "@/lib/i18n";
+import {PosOpticalWorkOrderDetailDialog} from "@/components/pos/pos-optical-work-order-detail-dialog";
 
 type Job={id:string;status:string;currency_code:string;total_amount:number;paid_total:number;created_at:string;due_at:string|null;
   customer:{full_name:string;customer_code:string}|null};
@@ -10,6 +11,7 @@ const statusTh:Record<string,string>={
 export function PosOpticalWorkOrdersWorkspace({lang}:{lang:Language}){
   const [jobs,setJobs]=useState<Job[]>([]);
   const [search,setSearch]=useState("");
+  const [selectedOrderId,setSelectedOrderId]=useState<string|null>(null);
   const [loading,setLoading]=useState(true);
   const [error,setError]=useState("");
   const th=lang==="th",lo=lang==="lo";
@@ -56,10 +58,12 @@ export function PosOpticalWorkOrdersWorkspace({lang}:{lang:Language}){
             <th className="p-3">{th?"ยอดรวม (LAK)":"Total (LAK)"}</th>
             <th className="p-3">{th?"มัดจำ/ชำระแล้ว":"Paid"}</th>
             <th className="p-3">{th?"ค้างชำระ":"Outstanding"}</th>
-            <th className="p-3">{th?"นัดรับ":"Due"}</th>
+            <th className="p-3">{th?"นัดรับ":"Due"}</th><th className="p-3">{th?"จัดการ":"Actions"}</th>
           </tr></thead>
           <tbody className="divide-y divide-slate-100">
-            {filtered.map(job=><tr key={job.id}>
+            {filtered.map(job=><tr key={job.id} tabIndex={0} onClick={()=>setSelectedOrderId(job.id)}
+              onKeyDown={e=>{if(e.key==="Enter")setSelectedOrderId(job.id);}}
+              className="cursor-pointer hover:bg-emerald-50">
               <td className="p-3 font-mono text-xs" title={job.id}>{job.id.slice(0,8).toUpperCase()}</td>
               <td className="p-3"><span className="font-semibold">{job.customer?.full_name||"—"}</span><span className="block text-xs text-slate-500">{job.customer?.customer_code||""}</span></td>
               <td className="p-3">{th?statusTh[job.status]??job.status:job.status}</td>
@@ -67,12 +71,16 @@ export function PosOpticalWorkOrdersWorkspace({lang}:{lang:Language}){
               <td className="p-3 text-right tabular-nums">{Number(job.paid_total).toLocaleString("en-US")}</td>
               <td className="p-3 text-right tabular-nums">{Math.max(0,Number(job.total_amount)-Number(job.paid_total)).toLocaleString("en-US")}</td>
               <td className="p-3">{job.due_at?.slice(0,10)||"—"}</td>
+              <td className="p-3"><button type="button" className="rounded-lg border border-emerald-300 px-3 py-2 font-bold text-emerald-800"
+                 onClick={e=>{e.stopPropagation();setSelectedOrderId(job.id);}}>ดู / แก้ไข / ลบ</button></td>
             </tr>)}
-            {!loading&&!filtered.length?<tr><td colSpan={7} className="p-8 text-center text-slate-500">{th?"ยังไม่มีใบสั่งงานในสาขานี้":lo?"ຍັງບໍ່ມີໃບສັ່ງງານ":"No work orders for this branch"}</td></tr>:null}
-            {loading?<tr><td colSpan={7} className="p-8 text-center text-slate-500">{th?"กำลังโหลด...":"Loading..."}</td></tr>:null}
+            {!loading&&!filtered.length?<tr><td colSpan={8} className="p-8 text-center text-slate-500">{th?"ยังไม่มีใบสั่งงานในสาขานี้":lo?"ຍັງບໍ່ມີໃບສັ່ງງານ":"No work orders for this branch"}</td></tr>:null}
+            {loading?<tr><td colSpan={8} className="p-8 text-center text-slate-500">{th?"กำลังโหลด...":"Loading..."}</td></tr>:null}
           </tbody>
         </table>
       </div>
     </div>
+    {selectedOrderId?<PosOpticalWorkOrderDetailDialog id={selectedOrderId}
+      onClose={()=>setSelectedOrderId(null)} onChanged={()=>{void refresh();}}/>:null}
   </section>;
 }
