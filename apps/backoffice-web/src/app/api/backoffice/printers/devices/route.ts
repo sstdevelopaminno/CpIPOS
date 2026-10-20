@@ -63,7 +63,7 @@ type CreatePhysicalTarget = {
   discoveredMetadata: Record<string, unknown>;
 };
 
-const PURPOSES = new Set<PrinterPurpose>(["receipt","kitchen","drink","bar","reprint","shift_report","payment_slip","cash_drawer"]);
+const PURPOSES = new Set<PrinterPurpose>(["receipt","kitchen","drink","bar","reprint","shift_report","payment_slip","cash_drawer","work_order"]);
 const ZONED_PURPOSES = new Set<PrinterPurpose>(["kitchen", "drink", "bar"]);
 
 function clean(value: unknown) {
@@ -95,7 +95,7 @@ function normalizeAssignments(body: Payload): PrinterAssignmentInput[] {
 }
 
 function roleFor(purposes: PrinterPurpose[]): "receipt" | "kitchen" | "report" {
-  if (purposes.some((value) => value === "receipt" || value === "cash_drawer" || value === "reprint" || value === "payment_slip")) return "receipt";
+  if (purposes.some((value) => value === "receipt" || value === "cash_drawer" || value === "reprint" || value === "payment_slip" || value === "work_order")) return "receipt";
   if (purposes.some((value) => value === "kitchen" || value === "drink" || value === "bar")) return "kitchen";
   if (purposes.includes("shift_report")) return "report";
   return "receipt";
