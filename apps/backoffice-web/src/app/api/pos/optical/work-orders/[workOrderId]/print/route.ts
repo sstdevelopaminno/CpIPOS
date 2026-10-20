@@ -21,7 +21,7 @@ async function context(){
 }
 async function getRoutes(){
  const auth=await context();
- const routes=await resolvePrinterRoutes({auth,purpose:"receipt",legacyRole:"receipt"});
+ const routes=await resolvePrinterRoutes({auth,purpose:"work_order",fallbackPurposes:["receipt"],legacyRole:"receipt"});
  return {auth,routes};
 }
 function errorResponse(e:unknown){
