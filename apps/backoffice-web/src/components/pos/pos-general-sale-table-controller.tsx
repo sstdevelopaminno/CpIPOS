@@ -949,9 +949,28 @@ export function PosGeneralSaleTableController({ lang = "th" }: { lang?: Lang }) 
             billStatus.textContent = copy.billRequired;
             return;
           }
-          // Read-only UI placeholder until tenant-scoped deposit/job APIs,
-          // reconciliation and idempotent settlement are ready.
-          billStatus.textContent = copy.billDisabled;
+          const reference=billInput.value.trim();
+          billSubmit.disabled=true;
+          billStatus.textContent=lang==="th"?"กำลังเรียกใบสั่งงาน...":"Loading Optical order...";
+          void fetch(`/api/pos/optical/work-orders/recall?code=${encodeURIComponent(reference)}`,{
+            cache:"no-store",credentials:"same-origin"
+          }).then(async response=>{
+            const payload=await response.json().catch(()=>null) as {
+              data?:{bill:{id:string;status:string;due_at:string|null;currency_code:string;total_amount:number;paid_total:number};
+                lines:Array<{sku_snapshot:string;description_snapshot:string;quantity:number;line_total:number}>;remaining_amount:number};
+              error?:{message?:string}
+            }|null;
+            if(!response.ok||!payload?.data)throw new Error(payload?.error?.message||"ไม่พบใบสั่งงานที่รับเงินค้างชำระ");
+            if(destroyed||!opticalActive)return;
+            billInput.value="";
+            billStatus.textContent=lang==="th"?"พบใบสั่งงานแล้ว กรุณาตรวจสอบยอดค้างชำระ":"Order found. Check the remaining balance.";
+            billStatus.dataset.tone="success";
+            window.dispatchEvent(new CustomEvent("cpipos:optical-pickup-recalled",{detail:payload.data}));
+          }).catch(error=>{
+            if(destroyed)return;
+            billStatus.textContent=error instanceof Error?error.message:copy.billDisabled;
+            billStatus.dataset.tone="error";
+          }).finally(()=>{billSubmit.disabled=false;});
         });
         billGroup.append(billForm, billStatus);
         row.appendChild(billGroup);
