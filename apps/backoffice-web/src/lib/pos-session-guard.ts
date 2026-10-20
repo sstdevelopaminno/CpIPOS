@@ -168,9 +168,26 @@ async function assertSubscriptionAllowsSales(tenantId: string) {
         423
       );
     }
-    const expiryAt = runtime.data.expires_at && Number.isFinite(Date.parse(runtime.data.expires_at))
+    let expiryAt = runtime.data.expires_at && Number.isFinite(Date.parse(runtime.data.expires_at))
       ? Date.parse(runtime.data.expires_at)
       : Number.POSITIVE_INFINITY;
+    if(runtime.data.lock_reason==="subscription_payment_provisional_review"){
+      // The cron worker is a backup; a cashier request must fail at the exact deadline.
+      const recent=await primary.from("tenant_subscription_payment_requests")
+        .select("id,provisional_access_expires_at")
+        .eq("tenant_id",tenantId).eq("status","under_review").eq("auto_check_status","passed")
+        .not("provisional_access_granted_at","is",null)
+        .is("provisional_access_revoked_at",null)
+        .gt("provisional_access_expires_at",new Date().toISOString())
+        .order("provisional_access_granted_at",{ascending:false})
+        .limit(1).maybeSingle();
+      if(recent.error||!recent.data?.id||!recent.data.provisional_access_expires_at){
+        cache.delete(tenantId);
+        throw new PosGuardError("subscription_payment_review_timeout",
+          "การชำระแพ็กเกจของคุณไม่ผ่านการอนุมัติ โปรดติดต่อ Support",423);
+      }
+      expiryAt=Math.min(expiryAt,Date.parse(recent.data.provisional_access_expires_at));
+    }
     cache.set(tenantId,{
       locked:false,
       reason:null,
