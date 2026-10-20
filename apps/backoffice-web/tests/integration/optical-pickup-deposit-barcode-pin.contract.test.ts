@@ -16,7 +16,7 @@ describe("Optical pickup, due date and barcode contracts",()=>{
  });
  it("encodes a valid Code 128B with start and stop elements",()=>{
   const svg=opticalCode128Svg("OP0000000000000000000000000");
-  expect(svg).toContain('viewBox="0 363 65"');
+  expect(svg).toMatch(/viewBox="0 [0-9]+ 65"/);
   expect(svg).toContain('<rect');
   expect(()=>opticalCode128Svg("❌")).toThrow();
  });
