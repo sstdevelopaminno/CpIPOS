@@ -4,12 +4,14 @@ import type { AppLanguage } from "@/lib/app-language-client";
  * Backend codes, branch/device names and PIN values are never translated.
  */
 const copy: Record<string, {en: string; lo: string}> = {
+  "การชำระแพ็กเกจของคุณไม่ผ่านการอนุมัติ":{en:"Your package payment was not approved",lo:"ການຊຳລະແພັກເກດຂອງທ່ານບໍ່ໄດ້ຮັບອະນຸມັດ"},
+  "การชำระแพ็กเกจของคุณไม่ผ่านการอนุมัติ โปรดติดต่อ Support":{en:"Your package payment was not approved. Contact Support.",lo:"ການຊຳລະຄ່າແພັກເກດບໍ່ຜ່ານ ກະລຸນາຕິດຕໍ່ Support"},
+  "ฝ่าย IT กำลังตรวจสอบหลักฐานการชำระ หากสิทธิ์ชั่วคราวหมดอายุหรือไม่ได้รับการยืนยัน กรุณาติดต่อ Support":{en:"IT is checking your payment. If temporary access expires without confirmation, contact Support.",lo:"IT ກຳລັງກວດສະລິບ ຫາກສິດຊົ່ວຄາວໝົດກຳນົດ ກະລຸນາຕິດຕໍ່ Support"},
+  "ฝ่าย IT ตรวจสอบภายใน 3 วัน และระบบจะล็อกกลับหากยังไม่มีการยืนยัน":{en:"IT reviews within three days. Access is locked again if no confirmation is received.",lo:"IT ກວດພາຍໃນ 3 ມື້ ລະບົບຈະລັອກຄືນຫາກຍັງບໍ່ຢືນຢັນ"},
+  "ชำระเงินและแนบสลิป ระบบจะตรวจหลักฐานและเปิดสิทธิ์ชั่วคราวได้สูงสุด 3 วันเมื่อผ่านการตรวจสอบ":{en:"Pay and attach your slip. A verified slip can activate temporary POS access for up to three days.",lo:"ຊຳລະເງິນ ແລະ ແນບສະລິບ ຫາກກວດຜ່ານ ຈະເປີດໃຊ້ຊົ່ວຄາວໄດ້ 3 ມື້"},
   "ไม่สามารถตรวจสอบแพ็กเกจได้":{en:"Unable to verify package",lo:"ບໍ່ສາມາດກວດສອບແພັກເກດໄດ້"},
   "ชำระเงิน":{en:"Pay package",lo:"ຊຳລະເງິນ"},
   "อยู่ระหว่างรอตรวจสอบการชำระเงิน":{en:"Payment pending IT review",lo:"ກຳລັງລໍຖ້າ IT ກວດສອບການຊຳລະ"},
-  "ระบบได้รับสลิปแล้ว กรุณารอฝ่าย IT อนุมัติการชำระเงิน ระบบจะยังล็อกการขายไว้จนกว่าจะอนุมัติ":{en:"Your payment slip has been received. Cashier access remains locked until IT verifies the payment and approves it.",lo:"ໄດ້ຮັບສະລິບແລ້ວ ລະບົບຂາຍຍັງຖືກລັອກຈົນກວ່າ IT ຈະກວດສອບ ແລະ ອະນຸມັດ"},
-  "ฝ่าย IT ตั้งเป้าตรวจสอบภายใน 3 วัน การส่งสลิปหรือครบกำหนดตรวจสอบจะไม่ปลดล็อกโดยอัตโนมัติ":{en:"IT aims to review within 3 days. Uploading a slip or reaching the review deadline never unlocks POS automatically.",lo:"IT ຕັ້ງເປົ້າກວດສອບພາຍໃນ 3 ມື້ ການສົ່ງສະລິບ ຫຼື ຄົບກຳນົດ ບໍ່ປົດລັອກອັດຕະໂນມັດ"},
-  "ชำระแพ็กเกจและส่งสลิปเพื่อให้ฝ่าย IT ตรวจสอบภายใน 3 วัน ระบบจะเปิดเมื่อ IT อนุมัติเท่านั้น":{en:"Pay for your package and upload the slip. IT aims to review within 3 days; POS opens only after IT approval.",lo:"ຊຳລະຄ່າແພັກເກດ ແລະ ສົ່ງສະລິບໃຫ້ IT ກວດພາຍໃນ 3 ມື້ ລະບົບເປີດເມື່ອ IT ອະນຸມັດເທົ່ານັ້ນ"},
   "กำหนดตรวจสอบโดยประมาณ":{en:"Estimated review",lo:"ຄາດວ່າກວດສອບ"},
   "ตัวเลือกการช่วยเหลือ":{en:"Support actions",lo:"ທາງເລືອກຊ່ວຍເຫຼືອ"},
   "ตรวจสอบอีกครั้ง":{en:"Check again",lo:"ກວດສອບອີກຄັ້ງ"},
