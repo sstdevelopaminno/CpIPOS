@@ -26,6 +26,12 @@ describe("Optical work order UI uses existing printer settings",()=>{
   expect(handler).toContain('orderId:null');
   expect(handler).toContain('loadReceipt(new Request(url.toString())');
   expect(handler).not.toContain("printReceiptAutomatically");
+  const cashier=src("src/components/pos/pos-sales-module.tsx");
+  const pickup=src("src/components/pos/pos-optical-pickup-balance-dialog.tsx");
+  expect(cashier).toContain("requestOpticalWorkOrderPrint(workOrderId)");
+  expect(pickup).toContain("requestOpticalWorkOrderPrint(orderId)");
+  expect(pickup).not.toContain("setReceiptWidth");
+
  });
  it("prints employee display name from saved identity rather than payment received_by UUID",()=>{
   const route=src("src/app/api/pos/optical/work-orders/[workOrderId]/deposit-receipt/route.ts");
