@@ -93,7 +93,7 @@ export function PosOpticalWorkOrderDetailDialog({id,onClose,onChanged,lang}:{id:
     className="relative flex max-h-[92vh] w-full max-w-4xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl">
    <header className="flex shrink-0 items-start justify-between gap-3 border-b border-slate-100 px-5 py-4 sm:px-6">
      <div><span className="text-xs font-semibold tracking-wider text-emerald-700">CUSTOM · OPTICAL</span>
-       <h2 className="mt-1 text-xl font-bold text-slate-900">รายละเอียดใบสั่งงาน <span className="text-emerald-700">#{id.slice(0,8).toUpperCase()}</span></h2>
+       <h2 className="mt-1 text-xl font-bold text-slate-900">{txt("รายละเอียดใบสั่งงาน")} <span className="text-emerald-700">#{id.slice(0,8).toUpperCase()}</span></h2>
        <p className="mt-1 text-xs text-slate-500">{txt("ตรวจสอบสินค้า การรับเงิน และกำหนดวันนัดรับ")}</p>
      </div>
      <button type="button" disabled={busy} onClick={onClose} className="shrink-0 rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-700 hover:bg-slate-50">{txt("ปิด")}</button>
