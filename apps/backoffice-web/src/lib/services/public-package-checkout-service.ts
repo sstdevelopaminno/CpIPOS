@@ -185,7 +185,7 @@ export async function authorizePublicPackageCheckout(input: {
   // Reuse the canonical POS/IT request ledger. Evidence stays pending until
   // IT explicitly reviews and settles the verified bank payment.
   const openReview = snapshot.requests.find((row) =>
-    ["pending", "under_review"].includes(row.status) && row.evidence_url
+    ["pending", "under_review"].includes(row.status) && row.has_evidence
   ) ?? null;
   const target = snapshot.packages.find((row) => row.id === input.packageId);
   if (!target || target.contact_sales || target.quota_mode === "custom" || target.code === "custom") {
