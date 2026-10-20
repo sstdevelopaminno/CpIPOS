@@ -27,6 +27,9 @@ type DevicesResponse = {
     single_device_mode: boolean;
     auto_select_single_device?: boolean;
     can_override_in_use: boolean;
+    entry_access?:{allowed:boolean;error?:{
+      code:string;title:string;message:string;expires_at?:string|null;kind?:string
+    }|null};
   } | null;
   error?: { code: string; message: string } | null;
 };
@@ -74,7 +77,7 @@ function canSelectDevice(device: DeviceItem, canOverride: boolean, employeeId: s
 
 const PACKAGE_ENTRY_REASONS = new Set([
  "trial_expired","subscription_expired","subscription_locked",
- "subscription_inactive","subscription_missing","feature_not_enabled"
+ "subscription_inactive","subscription_missing","feature_not_enabled","feature_verification_unavailable"
 ]);
 function entryErrorTitle(code?:string){
  if(code==="trial_expired")return "แพ็กเกจทดลองใช้งานสิ้นสุดแล้ว";
@@ -83,6 +86,7 @@ function entryErrorTitle(code?:string){
  if(code==="subscription_inactive")return "แพ็กเกจยังไม่พร้อมใช้งาน";
  if(code==="subscription_missing")return "ยังไม่พบแพ็กเกจที่เปิดใช้งาน";
  if(code==="feature_not_enabled")return "แพ็กเกจยังไม่เปิดสิทธิ์หน้าขาย";
+ if(code==="feature_verification_unavailable")return "ไม่สามารถตรวจสอบแพ็กเกจได้";
  return "ดำเนินการไม่สำเร็จ";
 }
 function entryExpiryDate(lang:"th"|"en"|"lo",iso:string){
@@ -173,6 +177,8 @@ function LoginDevicesPageContent() {
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
+  const [entryBlocked,setEntryBlocked]=useState(false);
+  const [entryDenial,setEntryDenial]=useState<{code:string;message:string;expires_at?:string|null}|null>(null);
   const [popup, setPopup] = useState<PopupState>({ type: "none" });
   const loadStartedRef = useRef(false);
   const autoSubmitCodeRef = useRef("");
@@ -200,8 +206,18 @@ function LoginDevicesPageContent() {
         setEmployeeId(data.employee?.id ?? "");
         setDevices(data.devices);
         setCanOverride(data.can_override_in_use);
+        if(data.entry_access?.allowed===false){
+          const denial=data.entry_access.error??{code:"feature_verification_unavailable",
+            message:"ไม่สามารถตรวจสอบสถานะแพ็กเกจได้ชั่วคราว กรุณาลองใหม่หรือติดต่อฝ่าย Support"};
+          setEntryBlocked(true);
+          setEntryDenial(denial);
+          setError(denial.message);
+          setPopup({type:"error",message:denial.message,code:denial.code,expiresAt:denial.expires_at});
+        }else{
+          setEntryBlocked(false);setEntryDenial(null);
+        }
 
-        if (data.devices.length === 0) {
+        if (data.entry_access?.allowed!==false && data.devices.length===0) {
           const message = "ไม่พบเครื่องแคชเชียร์ที่ใช้งานได้ในสาขานี้";
           setError(message);
           setPopup({ type: "error", message });
@@ -215,7 +231,7 @@ function LoginDevicesPageContent() {
           data.devices[0];
         setSelectedCode(firstAllowed?.deviceCode ?? "");
         if (
-          data.auto_select_single_device &&
+          data.entry_access?.allowed!==false && data.auto_select_single_device &&
           firstAllowed &&
           canSelectDevice(firstAllowed, data.can_override_in_use, data.employee?.id ?? "")
         ) {
@@ -269,10 +285,16 @@ function LoginDevicesPageContent() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loading, submitting]);
   const selectedDevice = useMemo(() => devices.find((device) => device.deviceCode === selectedCode) ?? null, [devices, selectedCode]);
-  const selectedDeviceCanOpen = selectedDevice ? canSelectDevice(selectedDevice, canOverride, employeeId) : false;
+  const selectedDeviceCanOpen = !entryBlocked && (selectedDevice ? canSelectDevice(selectedDevice, canOverride, employeeId) : false);
 
   async function handleSelectDevice(deviceCodeOverride?: string) {
     if (submitting || loading) return;
+    if(entryBlocked){
+      const denial=entryDenial??{code:"feature_verification_unavailable",
+        message:"ไม่สามารถตรวจสอบสถานะแพ็กเกจได้ชั่วคราว กรุณาลองใหม่หรือติดต่อฝ่าย Support"};
+      setPopup({type:"error",message:denial.message,code:denial.code,expiresAt:denial.expires_at});
+      return;
+    }
 
     const targetDevice = deviceCodeOverride ? devices.find((device) => device.deviceCode === deviceCodeOverride) ?? null : selectedDevice;
     const targetCanOpen = targetDevice ? canSelectDevice(targetDevice, canOverride, employeeId) : false;
@@ -435,7 +457,7 @@ function LoginDevicesPageContent() {
         </div>
       ) : null}
 
-      {error ? <p className="ipos-error">{T(error)}</p> : null}
+      {error && popup.type==="none" ? <p className="ipos-error" role="status">{T(error)}</p> : null}
 
       <div className="ipos-inline-actions ipos-branch-actions">
         <button type="button" className="ipos-outline-btn" onClick={() => void handleBack()} disabled={submitting}>
@@ -477,6 +499,9 @@ function LoginDevicesPageContent() {
                     </a>
                   </div>
                 ):null}
+                <button type="button" className="store-v2-popup-close-btn" onClick={() => window.location.reload()}>
+                  {T("ตรวจสอบอีกครั้ง")}
+                </button>
                 <button type="button" className="store-v2-popup-close-btn" onClick={() => setPopup({ type: "none" })}>
                   {T("ปิด")}
                 </button>
