@@ -1,15 +1,14 @@
-import QRCode from "qrcode";
 import { PosGuardError, requirePermission, requirePosSession } from "@/lib/pos-session-guard";
 import { renderOpticalDepositReceipt80mm } from "@/lib/optical/optical-deposit-receipt-80mm";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
 import { requireOpticalFinanceModule } from "@/lib/server/optical-finance-policy";
-import { buildOpticalBillRecallCode, type OpticalBillSnapshot } from "@/lib/optical/optical-deposit-contract";
+import {buildOpticalPickupBarcode,type OpticalBillSnapshot} from "@/lib/optical/optical-deposit-contract";
 
 const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 function unavailable(status=403) {
   return new Response("Optical deposit receipt unavailable.",{status,headers:{"Cache-Control":"no-store"}});
 }
-export async function GET(_request:Request,{params}:{params:Promise<{workOrderId:string}>}) {
+export async function GET(request:Request,{params}:{params:Promise<{workOrderId:string}>}) {
   try {
     const scope=await requirePosSession();
     requirePermission(scope,"receipts:view");
@@ -20,7 +19,7 @@ export async function GET(_request:Request,{params}:{params:Promise<{workOrderId
     const tenantId=scope.session.tenant_id,branchId=scope.session.branch_id;
     const [{data:order,error:orderError},{data:lines,error:lineError},
       {data:payment,error:paymentError},{data:branch,error:branchError},{data:tenant,error:tenantError}]=await Promise.all([
-      client.from("optical_work_orders").select("id,tenant_id,branch_id,status,total_amount,paid_total,currency_code,customer_id")
+      client.from("optical_work_orders").select("id,tenant_id,branch_id,status,total_amount,paid_total,currency_code,customer_id,due_at")
         .eq("id",workOrderId).eq("tenant_id",tenantId).eq("branch_id",branchId).maybeSingle(),
       client.from("optical_work_order_lines").select("description_snapshot,quantity,line_total")
         .eq("work_order_id",workOrderId).eq("tenant_id",tenantId).eq("branch_id",branchId),
@@ -38,9 +37,8 @@ export async function GET(_request:Request,{params}:{params:Promise<{workOrderId
         Number(order.paid_total)>=Number(order.total_amount)?"paid":
         Number(order.paid_total)>0?"partially_paid":"unpaid"
     };
-    const code=buildOpticalBillRecallCode(bill);
-    if(!code)return unavailable(409);
-    const image=await QRCode.toDataURL(code,{errorCorrectionLevel:"M",margin:1,width:220});
+    if(!buildOpticalPickupBarcode(order.id))return unavailable(409);
+    const width=new URL(request.url).searchParams.get("width")==="58"?58:80;
     const receipt=renderOpticalDepositReceipt80mm({
       bill,receiptNumber:"OPT-"+payment.id,storeName:tenant?.display_name||tenant?.name||"Optical",
       branchName:branch?.name??branchId,createdAtIso:payment.received_at,
@@ -48,7 +46,7 @@ export async function GET(_request:Request,{params}:{params:Promise<{workOrderId
       paymentMethod:payment.method==="bank_transfer"?"bank_transfer":"cash",
       items:lines.map(row=>({description:row.description_snapshot,
         quantity:Number(row.quantity),lineTotal:Number(row.line_total)})),
-      qrImageDataUrl:image
+      receiptWidthMm:width,pickupDateIso:order.due_at
     });
     // HTML preview only: never dispatch a thermal printer without a committed
     // receipt-print queue idempotency check and explicit cashier request.
