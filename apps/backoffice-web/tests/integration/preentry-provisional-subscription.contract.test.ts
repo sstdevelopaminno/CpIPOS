@@ -4,6 +4,37 @@ import {resolve} from "node:path";
 import {classifyPosEntryDenial} from "@/lib/server/pos-entry-denial-reasons";
 const src=(p:string)=>readFileSync(resolve(process.cwd(),"src",p),"utf8");
 describe("Pre-entry subscription provisional activation",()=>{
+ it("keeps canonical outstanding and permits attaching a slip to the same IT-created pending request",()=>{
+  const service=src("lib/services/public-package-checkout-service.ts");
+  const page=src("app/login/package-payment/page.tsx");
+  expect(service).toContain("request.source===\"it_tenant_control\"");
+  expect(service).toContain("request.status===\"pending\"");
+  expect(service).toContain("!request.has_evidence");
+  expect(service).toContain("request.package_id===snapshot.contract.package_id");
+  expect(service).toContain("due?.open_request_id===request.id");
+  expect(service).toContain("Math.abs(previousAmount-dueAmount)<0.01");
+  expect(service).toContain("pending_request_id:activeRequest.id");
+  expect(service).toContain("amount:expected ?? snapshot.contract.amount_per_cycle ?? 0");
+  expect(service).toContain("completingExisting ? payload.pending_request_id!");
+  expect(service).toContain('.eq("tenant_id",payload.tenant_id)');
+  expect(service).toContain('.is("evidence_url",null).is("amount_reported",null)');
+  expect(service).toContain('source: completingExisting ? "it_tenant_control"');
+  expect(page).toContain('quote.package.name');
+  expect(page).toContain('t.packagePrice');
+  expect(page).toContain('t.continuity');
+  expect(page).toContain('quote.pending_review?.has_evidence');
+  expect(page).toContain('setModal(true)');
+  expect(page).not.toContain('href="/preview/pos/payments/package?entry=subscription"');
+ });
+ it("rejects reusing a pending slip or an unrelated IT request instead of double billing",()=>{
+  const source=src("lib/services/public-package-checkout-service.ts");
+  expect(source).toContain('original.evidence_url || original.amount_reported!=null');
+  expect(source).toContain('original.id!==payload.pending_request_id');
+  expect(source).toContain('original.requested_package_id!==target.id');
+  expect(source).toContain('original.metadata?.source!=="it_tenant_control"');
+  expect(source).toContain('pendingPreEntryEvidenceEligible(snapshot,scoped)');
+  expect(source).toContain('throw new Error("open_request_exists")');
+ });
  it("routes expired-device Pay to the canonical POS single-item package menu without granting a cashier session",()=>{
   const proxy=readFileSync(resolve(process.cwd(),"src/proxy.ts"),"utf8");
   const devices=src("app/login/devices/page-content.tsx");
