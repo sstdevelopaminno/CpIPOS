@@ -1,213 +1,173 @@
 "use client";
 
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect,useState,type FormEvent } from "react";
 import { useRouter } from "next/navigation";
-import { AppLanguageSwitcher } from "@/components/i18n/app-language-switcher";
-import { useAppLanguage } from "@/lib/app-language-client";
+import Image from "next/image";
+import {AppLanguageSwitcher} from "@/components/i18n/app-language-switcher";
+import {useAppLanguage} from "@/lib/app-language-client";
 
-type CatalogItem = { id:string;code:string;name:string;contact_sales:boolean;monthly_price:number|null;yearly_price:number|null };
-type CheckoutReview = {status:string;submitted_at:string|null;review_due_at:string|null};
-type Quote = {
-  token:string;store:{code:string;name:string};
-  package:{name:string;amount:number;currency:string;billing_interval:string};
-  issuer:{name?:string;bank_name?:string;account_name?:string;account_number?:string;promptpay_id?:string};
-  pending_review:CheckoutReview|null;
+type Quote={
+  token:string|null;store:{code:string;name:string};
+  package:{name:string;amount:number;currency:string;billing_interval?:string;next_period_start?:string|null;next_period_end?:string|null};
+  issuer:{bank_name:string;account_name:string;account_number:string;promptpay_id:string};
+  pending_review:{status:string;has_evidence?:boolean;review_due_at:string|null}|null;
+  qr_data_url:string|null;
 };
-type ResponseEnvelope<T> = {data?:T|null;error?:{code?:string;message?:string}|null};
-const localeCopy = {
+type Submission={id:string;status:string;provisional_access_granted:boolean;provisional_access_expires_at:string|null};
+type Envelope<T>={data?:T;error?:{code:string;message:string}};
+const words={
   th:{
-    title:"ชำระเงินแพ็กเกจ CpiPOS",intro:"ยืนยันรหัสร้านและ PIN เจ้าของร้านหรือผู้จัดการเพื่อเลือกแพ็กเกจ แล้วแนบสลิปส่งให้ฝ่าย IT ตรวจสอบ",
-    store:"รหัสร้าน",pin:"PIN เจ้าของร้าน / ผู้จัดการ",package:"แพ็กเกจ",period:"รอบชำระ",month:"รายเดือน",year:"รายปี",
-    verify:"ตรวจสอบราคาและบัญชีชำระ",loading:"กำลังตรวจสอบ...",back:"กลับไปเลือกเครื่อง",
-    amount:"ยอดที่ต้องชำระ",bank:"บัญชีรับชำระ",account:"ชื่อบัญชี",number:"เลขบัญชี",promptpay:"พร้อมเพย์",
-    slip:"อัปโหลดสลิป (JPG, PNG, WebP ไม่เกิน 4 MB)",note:"หมายเหตุ (ไม่บังคับ)",
-    submit:"ส่งสลิปให้ฝ่าย IT ตรวจสอบ",submitting:"กำลังส่งหลักฐาน...",success:"รับหลักฐานการชำระเงินแล้ว",
-    pending:"อยู่ระหว่างรอฝ่าย IT ตรวจสอบ",pendingNote:"ระบบยังล็อกการขายไว้จนกว่าฝ่าย IT จะตรวจสอบเงินเข้าและกดอนุมัติ โดยตั้งเป้าตรวจสอบภายใน 3 วัน ไม่มีการปลดล็อกอัตโนมัติเมื่อครบกำหนด",
-    due:"กำหนดตรวจสอบโดยประมาณ",request:"เลขอ้างอิงคำขอ",support:"ติดต่อ Support",
-    unavailable:"ไม่มีแพ็กเกจที่เปิดขายด้วยตนเอง กรุณาติดต่อ Support",error:"ไม่สามารถดำเนินการได้ กรุณาลองอีกครั้ง",
-    selectSlip:"กรุณาเลือกสลิปก่อนส่ง",supportCustom:"แพ็กเกจ CUSTOM ต้องให้ฝ่าย IT ตกลงรายละเอียดก่อน",
-    fileTooLarge:"ไฟล์สลิปต้องไม่เกิน 4 MB",locked:"ส่งสลิปแล้วไม่ได้เปิดระบบทันที ต้องรอ IT อนุมัติก่อน"
+    title:"ชำระเงินแพ็กเกจ CpiPOS",store:"ร้านค้า",package:"แพ็กเกจ",cycle:"รอบชำระ",amount:"ยอดที่ต้องชำระ",
+    pay:"ชำระเงิน",account:"เลขบัญชี",bank:"ธนาคาร",owner:"ชื่อบัญชี",qr:"สแกน QR เพื่อชำระ",
+    transfer:"ชำระเงินและแนบสลิป",submit:"ส่งหลักฐานการชำระ",slip:"แนบสลิป (JPG, PNG, WEBP ไม่เกิน 4 MB)",
+    note:"หมายเหตุ (ไม่บังคับ)",back:"กลับไปเลือกเครื่อง",support:"ติดต่อ Support",close:"ปิด",
+    pending:"ส่งหลักฐานแล้ว อยู่ระหว่างรอ IT ตรวจสอบ",noApproval:"กรุณาติดต่อ Support เพื่อตรวจสอบสถานะแพ็กเกจ",
+    granted:"เปิดใช้งานชั่วคราวแล้ว",grantedMsg:"เข้า POS ได้ทันที โดยฝ่าย IT ต้องยืนยันการชำระภายใน 3 วัน หากไม่ยืนยัน ระบบจะกลับมาล็อกอัตโนมัติ",
+    expiry:"สิทธิ์ชั่วคราวสิ้นสุด",review:"กำหนดตรวจสอบภายใน",waiting:"กำลังโหลดรอบบิลจากระบบ IT...",
+    sending:"กำลังตรวจสอบหลักฐาน...",invalid:"สลิปยังไม่ผ่านการตรวจสอบอัตโนมัติ ระบบบันทึกหลักฐานให้ IT แล้ว กรุณาติดต่อ Support",
+    paymentHint:"ยอดและบัญชีรับชำระดึงจากฝ่าย IT โดยตรง",notpayable:"รายการนี้ต้องให้ฝ่าย IT ตรวจสอบ โปรดติดต่อ Support",
+    sent:"ได้รับสลิปแล้ว",
   },
   en:{
-    title:"Pay for CpiPOS package",intro:"Verify the store code and owner/manager PIN, choose a package and upload your payment slip for IT review.",
-    store:"Store code",pin:"Owner / manager PIN",package:"Package",period:"Billing cycle",month:"Monthly",year:"Yearly",
-    verify:"Verify pricing and bank details",loading:"Checking...",back:"Back to terminals",
-    amount:"Amount due",bank:"Receiving bank",account:"Account name",number:"Account number",promptpay:"PromptPay",
-    slip:"Upload payment slip (JPG, PNG, WebP, max 4 MB)",note:"Note (optional)",
-    submit:"Submit payment slip to IT",submitting:"Submitting...",success:"Payment evidence received",
-    pending:"Pending IT review",pendingNote:"Cashier access remains locked until IT verifies receipt of funds and explicitly approves. Target review: within 3 days. There is no automatic unlock after that time.",
-    due:"Estimated review date",request:"Request reference",support:"Contact Support",
-    unavailable:"No self-service packages are available. Contact Support.",error:"Unable to continue. Please retry.",
-    selectSlip:"Choose a payment slip first",supportCustom:"CUSTOM packages require an IT agreement before payment.",
-    fileTooLarge:"Slip must be 4 MB or less",locked:"Uploading a slip does not unlock POS. IT approval is required."
+    title:"Pay CpiPOS subscription",store:"Store",package:"Package",cycle:"Next billing period",amount:"Amount due",
+    pay:"Pay now",account:"Account number",bank:"Bank",owner:"Account name",qr:"Scan to pay",
+    transfer:"Pay and attach slip",submit:"Submit payment evidence",slip:"Attach slip (JPG PNG WEBP max 4 MB)",
+    note:"Note (optional)",back:"Back to device selection",support:"Contact Support",close:"Close",
+    pending:"Payment evidence submitted, awaiting IT review",noApproval:"Contact Support to review package status",
+    granted:"Temporary access is active",grantedMsg:"You can enter POS now. IT must confirm payment within three days or the system automatically locks again.",
+    expiry:"Temporary access ends",review:"Expected review by",waiting:"Loading the IT billing cycle...",
+    sending:"Checking payment evidence...",invalid:"Automatic slip verification did not pass. IT has received the evidence; contact Support.",
+    paymentHint:"The amount and bank details come directly from IT settings",notpayable:"IT assistance is required for this payment",
+    sent:"Payment evidence received",
   },
   lo:{
-    title:"ຊຳລະເງິນແພັກເກດ CpiPOS",intro:"ຢືນຢັນລະຫັດຮ້ານ ແລະ PIN ເຈົ້າຂອງ/ຜູ້ຈັດການ ເລືອກແພັກເກດ ແລ້ວສົ່ງສະລິບໃຫ້ IT ກວດສອບ",
-    store:"ລະຫັດຮ້ານ",pin:"PIN ເຈົ້າຂອງ / ຜູ້ຈັດການ",package:"ແພັກເກດ",period:"ຮອບຊຳລະ",month:"ລາຍເດືອນ",year:"ລາຍປີ",
-    verify:"ກວດສອບລາຄາ ແລະ ບັນຊີຮັບເງິນ",loading:"ກຳລັງກວດສອບ...",back:"ກັບໄປເລືອກເຄື່ອງ",
-    amount:"ຈຳນວນເງິນ",bank:"ທະນາຄານຮັບເງິນ",account:"ຊື່ບັນຊີ",number:"ເລກບັນຊີ",promptpay:"ພ້ອມເພ",
-    slip:"ອັບໂຫຼດສະລິບ (JPG, PNG, WebP ບໍ່ເກີນ 4 MB)",note:"ໝາຍເຫດ (ບໍ່ບັງຄັບ)",
-    submit:"ສົ່ງສະລິບໃຫ້ IT ກວດສອບ",submitting:"ກຳລັງສົ່ງ...",success:"ໄດ້ຮັບສະລິບແລ້ວ",
-    pending:"ກຳລັງລໍຖ້າ IT ກວດສອບ",pendingNote:"ລະບົບຍັງລັອກການຂາຍ ຈົນກວ່າ IT ຈະກວດສອບເງິນ ແລະ ອະນຸມັດ. ເປົ້າໝາຍກວດສອບພາຍໃນ 3 ມື້ ແລະ ບໍ່ປົດລັອກອັດຕະໂນມັດ",
-    due:"ຄາດວ່າກວດສອບ",request:"ເລກອ້າງອີງ",support:"ຕິດຕໍ່ Support",
-    unavailable:"ບໍ່ມີແພັກເກດສຳລັບຊື້ເອງ ກະລຸນາຕິດຕໍ່ Support",error:"ດຳເນີນການບໍ່ໄດ້ ກະລຸນາລອງໃໝ່",
-    selectSlip:"ກະລຸນາເລືອກສະລິບ",supportCustom:"ແພັກເກດ CUSTOM ຕ້ອງມີຂໍ້ຕົກລົງກັບ IT ກ່ອນ",
-    fileTooLarge:"ສະລິບຕ້ອງບໍ່ເກີນ 4 MB",locked:"ສົ່ງສະລິບແລ້ວຍັງບໍ່ປົດລັອກ ຕ້ອງລໍຖ້າ IT ອະນຸມັດ"
+    title:"ຊຳລະຄ່າແພັກເກດ CpiPOS",store:"ຮ້ານຄ້າ",package:"ແພັກເກດ",cycle:"ຮອບບິນຕໍ່ໄປ",amount:"ຈຳນວນເງິນທີ່ຕ້ອງຊຳລະ",
+    pay:"ຊຳລະເງິນ",account:"ເລກບັນຊີ",bank:"ທະນາຄານ",owner:"ຊື່ບັນຊີ",qr:"ສະແກນ QR ເພື່ອຊຳລະ",
+    transfer:"ຊຳລະເງິນ ແລະ ແນບສະລິບ",submit:"ສົ່ງຫຼັກຖານການຊຳລະ",slip:"ແນບສະລິບ JPG PNG WEBP ບໍ່ເກີນ 4 MB",
+    note:"ໝາຍເຫດ",back:"ກັບໄປເລືອກເຄື່ອງ",support:"ຕິດຕໍ່ Support",close:"ປິດ",
+    pending:"ສົ່ງຫຼັກຖານແລ້ວ ກຳລັງລໍຖ້າ IT ກວດສອບ",noApproval:"ກະລຸນາຕິດຕໍ່ Support",
+    granted:"ເປີດໃຊ້ງານຊົ່ວຄາວແລ້ວ",grantedMsg:"ສາມາດເຂົ້າ POS ໄດ້ທັນທີ ແລະ IT ຕ້ອງຢືນຢັນພາຍໃນ 3 ມື້ ບໍ່ດັ່ງນັ້ນຈະລັອກອີກ",
+    expiry:"ສິດຊົ່ວຄາວສິ້ນສຸດ",review:"ກຳນົດກວດສອບ",waiting:"ກຳລັງໂຫຼດຮອບບິນຈາກ IT...",
+    sending:"ກຳລັງກວດສອບສະລິບ...",invalid:"ການກວດສະລິບອັດຕະໂນມັດບໍ່ຜ່ານ ສົ່ງໃຫ້ IT ແລ້ວ ກະລຸນາຕິດຕໍ່ Support",
+    paymentHint:"ຍອດເງິນ ແລະ ບັນຊີມາຈາກ IT ໂດຍກົງ",notpayable:"ລາຍການນີ້ຕ້ອງໃຫ້ IT ຊ່ວຍ",
+    sent:"ໄດ້ຮັບສະລິບແລ້ວ"
   }
 };
-
-function dueLabel(value:string|null,lang:"th"|"en"|"lo") {
-  if (!value || !Number.isFinite(Date.parse(value))) return "—";
-  return new Intl.DateTimeFormat(lang==="lo"?"lo-LA":lang==="en"?"en-GB":"th-TH",{
-    timeZone:"Asia/Bangkok",dateStyle:"medium",timeStyle:"short"
-  }).format(new Date(value));
+function date(iso:string|null|undefined,locale:string){
+  if(!iso||!Number.isFinite(Date.parse(iso)))return "—";
+  return new Intl.DateTimeFormat(locale,{dateStyle:"medium",timeZone:"Asia/Bangkok"}).format(new Date(iso));
 }
-const button = "min-h-11 rounded-xl px-4 py-3 text-sm font-bold transition disabled:opacity-60";
-const field = "mt-1 block w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-slate-800 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100";
-
-export default function PreEntryPackagePaymentPage() {
+const button="flex min-h-11 items-center justify-center rounded-xl px-4 py-2 text-center text-sm font-bold disabled:opacity-50";
+export default function PreEntryPackagePaymentPage(){
   const router=useRouter();
   const {lang,setLanguage}=useAppLanguage("th");
-  const t=localeCopy[lang];
-  const [storeCode,setStoreCode]=useState("");
-  const [pin,setPin]=useState("");
-  const [catalog,setCatalog]=useState<CatalogItem[]>([]);
-  const [packageId,setPackageId]=useState("");
-  const [interval,setInterval]=useState<"monthly"|"yearly">("monthly");
+  const t=words[lang];
   const [quote,setQuote]=useState<Quote|null>(null);
+  const [submitted,setSubmitted]=useState<Submission|null>(null);
+  const [loading,setLoading]=useState(true);
+  const [modal,setModal]=useState(false);
   const [slip,setSlip]=useState<File|null>(null);
   const [note,setNote]=useState("");
-  const [submitted,setSubmitted]=useState<{id:string;status:string}|null>(null);
-  const [error,setError]=useState("");
   const [busy,setBusy]=useState(false);
-  const [loading,setLoading]=useState(true);
-
+  const [error,setError]=useState("");
   useEffect(()=>{
-    try { setStoreCode(window.sessionStorage.getItem("cpipos_checkout_store_code") ?? ""); } catch {}
-    let live=true;
-    void fetch("/api/public/subscription-checkout",{cache:"no-store"})
-      .then(async response=>{
-        const json=await response.json() as ResponseEnvelope<{packages:CatalogItem[]}>;
-        if(!response.ok||!json.data)throw new Error(json.error?.message??"");
-        if(!live)return;
-        const available=json.data.packages.filter(p=>!p.contact_sales && (p.monthly_price!==null||p.yearly_price!==null));
-        setCatalog(available);
-        setPackageId(available[0]?.id??"");
-      }).catch(()=>{if(live)setError(localeCopy.th.error);})
-      .finally(()=>{if(live)setLoading(false);});
-    return ()=>{live=false;};
+    let active=true;
+    void fetch("/api/auth/subscription-checkout",{cache:"no-store"})
+      .then(async res=>{
+        const body=await res.json() as Envelope<Quote>;
+        if(!res.ok||!body.data)throw Error(body.error?.message||words.th.notpayable);
+        if(active)setQuote(body.data);
+      }).catch(e=>{if(active)setError(e instanceof Error?e.message:words.th.notpayable);})
+      .finally(()=>{if(active)setLoading(false);});
+    return ()=>{active=false;};
   },[]);
-
-  async function verify(event:FormEvent<HTMLFormElement>) {
-    event.preventDefault();setBusy(true);setError("");setQuote(null);
-    try {
-      const response=await fetch("/api/public/subscription-checkout",{
-        method:"POST",headers:{"content-type":"application/json"},
-        body:JSON.stringify({store_code:storeCode.trim(),pin,package_id:packageId,billing_interval:interval})
-      });
-      const json=await response.json() as ResponseEnvelope<Quote>;
-      if(!response.ok||!json.data)throw new Error(json.error?.message??t.error);
-      setQuote(json.data);setPin("");
-    }catch(e){setError(e instanceof Error?e.message:t.error);}finally{setBusy(false);}
-  }
-
-  async function sendEvidence(event:FormEvent<HTMLFormElement>) {
+  async function sendSlip(event:FormEvent){
     event.preventDefault();
-    if(!quote?.token || quote.pending_review || submitted)return;
-    if(!slip){setError(t.selectSlip);return;}
-    if(slip.size>4*1024*1024){setError(t.fileTooLarge);return;}
+    if(!quote?.token||busy||!slip)return;
+    if(slip.size>4*1024*1024){setError("ไฟล์สลิปเกิน 4 MB");return;}
     setBusy(true);setError("");
     try{
       const form=new FormData();
-      form.set("checkout_token",quote.token);
-      form.set("slip",slip);
-      form.set("note",note);
-      const response=await fetch("/api/public/subscription-checkout/submit",{method:"POST",body:form});
-      const json=await response.json() as ResponseEnvelope<{id:string;status:string}>;
-      if(!response.ok||!json.data)throw new Error(json.error?.message??t.error);
-      setSubmitted({id:json.data.id,status:json.data.status});
-      setSlip(null);
-    }catch(e){setError(e instanceof Error?e.message:t.error);}finally{setBusy(false);}
+      form.append("checkout_token",quote.token);
+      form.append("slip",slip);
+      form.append("note",note);
+      const res=await fetch("/api/auth/subscription-checkout",{method:"POST",body:form});
+      const body=await res.json() as Envelope<Submission>;
+      if(!res.ok||!body.data)throw Error(body.error?.message||t.notpayable);
+      setSubmitted(body.data);setModal(false);
+    }catch(e){setError(e instanceof Error?e.message:t.notpayable);}
+    finally{setBusy(false);}
   }
-  const fmt=(v:number,c:string)=>new Intl.NumberFormat(lang==="lo"?"lo-LA":lang==="en"?"en-US":"th-TH",{
-    style:"currency",currency:c
-  }).format(v);
-  const review=quote?.pending_review;
-  return (
-    <main className="min-h-screen bg-slate-100 px-4 py-7 text-slate-800 sm:py-12">
-      <div className="mx-auto w-full max-w-[740px] space-y-5 rounded-3xl border border-slate-200 bg-white p-5 shadow-xl sm:p-8">
-        <header className="flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <p className="text-xs font-bold tracking-widest text-blue-700">CpiPOS · SUBSCRIPTION</p>
-            <h1 className="mt-1 text-2xl font-bold text-slate-800">{t.title}</h1>
-            <p className="mt-2 text-sm leading-6 text-slate-600">{t.intro}</p>
-          </div>
-          <AppLanguageSwitcher lang={lang} onChange={setLanguage} />
-        </header>
-        <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm font-semibold text-amber-900">{t.locked}</div>
-        {error ? <div role="alert" className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-800">{error}</div>:null}
-        {submitted||review?(
-          <section role="status" className="rounded-2xl border border-blue-200 bg-blue-50 p-5">
-            <h2 className="font-bold text-blue-900">{submitted?t.success:t.pending}</h2>
-            {submitted?<p className="mt-2 break-all text-xs text-blue-800">{t.request}: {submitted.id}</p>:null}
-            {review?.review_due_at?<p className="mt-2 text-sm text-blue-800">{t.due}: {dueLabel(review.review_due_at,lang)}</p>:null}
-            <p className="mt-3 text-sm leading-6 text-slate-700">{t.pendingNote}</p>
-          </section>
-        ):null}
-        {!quote && !submitted?(
-          <form onSubmit={verify} className="grid gap-4">
-            <label className="block text-sm font-semibold text-slate-700">{t.store}
-              <input className={field} value={storeCode} onChange={e=>setStoreCode(e.target.value)} autoComplete="off" required maxLength={32} />
-            </label>
-            <label className="block text-sm font-semibold text-slate-700">{t.pin}
-              <input className={field} type="password" value={pin} onChange={e=>setPin(e.target.value)} autoComplete="off" required maxLength={32}/>
-            </label>
-            <label className="block text-sm font-semibold text-slate-700">{t.package}
-              <select className={field} value={packageId} onChange={e=>setPackageId(e.target.value)} disabled={loading||busy} required>
-                {catalog.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}
-              </select>
-            </label>
-            <label className="block text-sm font-semibold text-slate-700">{t.period}
-              <select className={field} value={interval} onChange={e=>setInterval(e.target.value as "monthly"|"yearly")}>
-                <option value="monthly">{t.month}</option><option value="yearly">{t.year}</option>
-              </select>
-            </label>
-            {!loading&&catalog.length===0?<p className="text-sm text-amber-800">{t.unavailable}</p>:null}
-            <button type="submit" disabled={busy||loading||!catalog.length} className={button+" bg-blue-700 text-white hover:bg-blue-800"}>
-              {busy?t.loading:t.verify}
-            </button>
-          </form>
-        ):null}
-        {quote&&!review&&!submitted?(
-          <section className="space-y-4">
-            <div className="grid gap-2 rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700">
-              <strong className="text-lg text-slate-800">{quote.store.name} · {quote.package.name}</strong>
-              <p className="font-bold text-blue-800">{t.amount}: {fmt(quote.package.amount,quote.package.currency)}</p>
-              <p>{t.bank}: {quote.issuer.bank_name||"—"}</p>
-              <p>{t.account}: {quote.issuer.account_name||"—"}</p>
-              <p>{t.number}: {quote.issuer.account_number||"—"}</p>
-              {quote.issuer.promptpay_id?<p>{t.promptpay}: {quote.issuer.promptpay_id}</p>:null}
-            </div>
-            <form onSubmit={sendEvidence} className="grid gap-4">
-              <label className="block text-sm font-semibold text-slate-700">{t.slip}
-                <input className={field} type="file" accept="image/png,image/jpeg,image/webp" required
-                  onChange={e=>setSlip(e.target.files?.[0]??null)}/>
-              </label>
-              <label className="block text-sm font-semibold text-slate-700">{t.note}
-                <textarea className={field} value={note} maxLength={500} onChange={e=>setNote(e.target.value)} rows={2}/>
-              </label>
-              <button type="submit" disabled={busy} className={button+" bg-blue-700 text-white hover:bg-blue-800"}>
-                {busy?t.submitting:t.submit}
-              </button>
-            </form>
-          </section>
-        ):null}
-        <div className="grid grid-cols-2 gap-3 pt-2">
-          <button type="button" onClick={()=>router.push("/login/devices")} className={button+" border border-slate-300 bg-slate-50 text-slate-700"}>{t.back}</button>
-          <a href="https://lin.ee/f1LXpAF" target="_blank" rel="noopener noreferrer"
-            className={button+" flex items-center justify-center bg-emerald-700 text-center text-white hover:bg-emerald-800"}>{t.support}</a>
-        </div>
+  const locale=lang==="lo"?"lo-LA":lang==="en"?"en-GB":"th-TH";
+  const amount=quote?.package.amount??0;
+  const money=new Intl.NumberFormat(locale,{style:"currency",currency:"THB"}).format(amount);
+  const bank=quote?.issuer;
+  return <main className="min-h-screen bg-slate-100 px-3 py-8 text-slate-800 sm:px-6">
+    <section className="mx-auto max-w-2xl rounded-3xl border border-slate-200 bg-white p-5 shadow-lg sm:p-8">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div><p className="text-xs font-bold tracking-widest text-blue-700">CpiPOS · SUBSCRIPTION</p>
+          <h1 className="mt-2 text-2xl font-extrabold text-slate-800">{t.title}</h1></div>
+        <AppLanguageSwitcher lang={lang} onChange={setLanguage}/>
       </div>
-    </main>
-  );
+      {error?<p role="alert" className="mt-5 rounded-xl bg-red-50 p-3 text-sm text-red-800">{error}</p>:null}
+      {loading?<p className="mt-6 text-slate-500">{t.waiting}</p>:null}
+      {quote?<div className="mt-6 space-y-4">
+        <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+          <p className="text-sm font-semibold text-slate-500">{t.store}</p>
+          <p className="text-lg font-extrabold text-slate-800">{quote.store.name} · {quote.store.code}</p>
+          <p className="mt-3 text-sm text-slate-500">{t.package}</p>
+          <p className="font-semibold text-slate-800">{quote.package.name}</p>
+          {quote.package.next_period_start?<p className="mt-2 text-sm text-slate-600">{t.cycle}: {date(quote.package.next_period_start,locale)} – {date(quote.package.next_period_end,locale)}</p>:null}
+        </div>
+        {submitted?<div role="status" className="rounded-2xl border border-blue-200 bg-blue-50 p-4">
+          <h2 className="text-lg font-bold text-blue-900">{submitted.provisional_access_granted?t.granted:t.sent}</h2>
+          <p className="mt-2 text-sm leading-6 text-blue-800">{submitted.provisional_access_granted?t.grantedMsg:t.invalid}</p>
+          {submitted.provisional_access_expires_at?<p className="mt-2 font-bold text-blue-900">{t.expiry}: {date(submitted.provisional_access_expires_at,locale)}</p>:null}
+        </div>:quote.pending_review?<div role="status" className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-amber-900">
+          <p className="font-bold">{t.pending}</p>
+          <p className="mt-1 text-sm">{quote.pending_review.has_evidence?t.noApproval:t.notpayable}</p>
+          {quote.pending_review.review_due_at?<p className="mt-1 text-sm">{t.review}: {date(quote.pending_review.review_due_at,locale)}</p>:null}
+        </div>:<div className="rounded-2xl border border-blue-200 bg-blue-50 p-5 text-center">
+          <p className="font-semibold text-blue-700">{t.amount}</p>
+          <p className="mt-2 text-4xl font-extrabold tabular-nums text-blue-900">{money}</p>
+          <p className="mt-2 text-xs text-slate-600">{t.paymentHint}</p>
+          <button type="button" onClick={()=>setModal(true)} className={button+" mx-auto mt-5 w-full bg-blue-700 !text-white hover:bg-blue-800"}>{t.pay}</button>
+        </div>}
+      </div>:null}
+      <div className="mt-6 grid grid-cols-2 gap-3">
+        <button type="button" className={button+" border border-slate-300 bg-slate-50 text-slate-700"} onClick={()=>router.push("/login/devices")}>{t.back}</button>
+        <button type="button" className={button+" bg-emerald-700 !text-white"} onClick={()=>router.push("/login/support-chat")}>{t.support}</button>
+      </div>
+    </section>
+    {modal&&quote?.token?<div role="dialog" aria-modal="true" aria-label={t.transfer}
+      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/55 p-4">
+      <form onSubmit={sendSlip} className="max-h-[92vh] w-full max-w-lg space-y-4 overflow-auto rounded-3xl bg-white p-5 shadow-2xl sm:p-7">
+        <div className="flex items-center justify-between gap-3">
+          <h2 className="text-lg font-bold text-slate-800">{t.transfer}</h2>
+          <button type="button" className="text-sm font-semibold text-slate-600" onClick={()=>setModal(false)}>{t.close}</button>
+        </div>
+        <p className="text-center text-3xl font-extrabold text-blue-900">{money}</p>
+        <div className="rounded-xl bg-slate-50 p-4 text-sm text-slate-700">
+          <p>{t.bank}: <strong>{bank?.bank_name||"—"}</strong></p>
+          <p>{t.owner}: <strong>{bank?.account_name||"—"}</strong></p>
+          <p>{t.account}: <strong className="select-all">{bank?.account_number||"—"}</strong></p>
+          {bank?.promptpay_id?<p>PromptPay: <strong className="select-all">{bank.promptpay_id}</strong></p>:null}
+        </div>
+        {quote.qr_data_url?<div className="flex flex-col items-center gap-2">
+          <p className="text-sm font-bold text-blue-800">{t.qr}</p>
+          <Image src={quote.qr_data_url} alt="PromptPay QR" width={230} height={230} unoptimized className="rounded-xl border border-slate-200 p-2"/>
+        </div>:null}
+        <label className="block text-sm font-semibold text-slate-700">{t.slip}
+          <input type="file" accept="image/png,image/jpeg,image/webp" required
+            onChange={e=>setSlip(e.target.files?.[0]||null)}
+            className="mt-2 w-full rounded-xl border border-slate-300 p-3 text-sm"/>
+        </label>
+        <label className="block text-sm font-semibold text-slate-700">{t.note}
+          <textarea rows={2} value={note} onChange={e=>setNote(e.target.value.slice(0,500))}
+            className="mt-2 w-full rounded-xl border border-slate-300 p-3"/>
+        </label>
+        <button className={button+" w-full bg-blue-700 !text-white"} type="submit" disabled={busy||!slip}>{busy?t.sending:t.submit}</button>
+      </form>
+    </div>:null}
+  </main>;
 }
