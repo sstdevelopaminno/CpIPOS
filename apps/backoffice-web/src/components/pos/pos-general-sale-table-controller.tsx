@@ -682,10 +682,10 @@ export function PosGeneralSaleTableController({ lang = "th" }: { lang?: Lang }) 
         const nav=document.createElement("div");
         nav.className="cpipos-sd-table__nav";
         const caption=createTextElement("span","",lang==="lo"?"ເລື່ອນຕາຕະລາງ":lang==="en"?"Scroll cart details":"เลื่อนตารางเพื่อดูข้อมูล");
-        const previous=createTextElement("button","","←") as HTMLButtonElement;
+        const previous=document.createElement("button");previous.textContent="←";
         previous.type="button";previous.setAttribute("aria-label",lang==="en"?"Scroll cart left":"เลื่อนตะกร้าไปซ้าย");
         previous.addEventListener("click",()=>scroll.scrollBy({left:-320,behavior:"smooth"}));
-        const next=createTextElement("button","","→") as HTMLButtonElement;
+        const next=document.createElement("button");next.textContent="→";
         next.type="button";next.setAttribute("aria-label",lang==="en"?"Scroll cart right":"เลื่อนตะกร้าไปขวา");
         next.addEventListener("click",()=>scroll.scrollBy({left:320,behavior:"smooth"}));
         nav.append(caption,previous,next);
