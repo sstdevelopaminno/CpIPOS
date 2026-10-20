@@ -94,8 +94,28 @@ export function buildOpticalBillRecallCode(bill: OpticalBillSnapshot): string | 
   return prefix + bill.orderId.toLowerCase();
 }
 
+/** 28-character Code128 locator rather than a bulky QR. Never an authorization token. */
+export function buildOpticalPickupBarcode(orderId:string):string|null{
+ if(!uuidRegex.test(orderId))return null;
+ const numeric=BigInt("0x"+orderId.replaceAll("-",""));
+ return "OP"+numeric.toString(36).toUpperCase().padStart(25,"0");
+}
 export function parseOpticalBillRecallCode(value: string): string | null {
-  if (!value.startsWith(prefix)) return null;
-  const id = value.slice(prefix.length);
-  return uuidRegex.test(id) ? id.toLowerCase() : null;
+ const code=value.trim().toUpperCase();
+ if(/^OP[0-9A-Z]{25}$/.test(code)){
+   try{
+     let numeric=0n;
+     for(const digit of code.slice(2)){
+       const value=parseInt(digit,36);
+       if(!Number.isInteger(value)||value<0||value>35)return null;
+       numeric=numeric*36n+BigInt(value);
+     }
+     if(numeric>=(1n<<128n))return null;
+     const hex=numeric.toString(16).padStart(32,"0");
+     return [hex.slice(0,8),hex.slice(8,12),hex.slice(12,16),hex.slice(16,20),hex.slice(20)].join("-");
+   }catch{return null;}
+ }
+ if(!value.startsWith(prefix)) return null;
+ const id = value.slice(prefix.length);
+ return uuidRegex.test(id) ? id.toLowerCase() : null;
 }
