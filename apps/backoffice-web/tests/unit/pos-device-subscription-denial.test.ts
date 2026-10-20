@@ -22,6 +22,12 @@ describe("POS cashier device selection accurately classifies customer subscripti
     subscription_expires_at:"2026-10-26T00:00:00Z"
   },now)).toBeNull();
  });
+ it("a converted paid contract is not treated as an expired trial when lifecycle status lags",()=>{
+  expect(classifyPosEntryDenial(active("2026-11-15T00:00:00Z"),{
+    ...lifecycle,lifecycle_status:"trial",trial_expires_at:"2026-10-20T00:00:00Z",
+    subscription_expires_at:"2026-11-15T00:00:00Z"
+  },now)).toBeNull();
+ });
  it("no false subscription expiry for exempt sales demos",()=>{
   expect(classifyPosEntryDenial(active("2026-09-20T00:00:00Z"),{
     ...lifecycle,lifecycle_status:"sales_demo",access_locked:true,metadata:{quota_exempt:true}
