@@ -2,8 +2,9 @@
 
 import { useRef, useState, type FormEvent } from "react";
 import type {Language} from "@/lib/i18n";
-const opticalEnglishLabels:Record<string,string>={"เพิ่มประวัติลูกค้า · IMDC OPTICAL":"Add customer examination history · IMDC OPTICAL","ปิด":"Close","บันทึกข้อมูลเฉพาะร้านและสาขาที่เข้าสู่ระบบ ข้อมูลการตรวจครั้งก่อนจะยังคงอยู่ในประวัติ":"Store and branch-specific records. Previous examinations remain in history.","รหัสลูกค้า":"Customer code","ชื่อ–นามสกุล":"Full name","เบอร์โทรศัพท์":"Phone","อายุ (ปี)":"Age (years)","วันที่ตรวจล่าสุด":"Last examination date","พนักงานตรวจ / ผู้ตรวจ":"Examiner","ค่าสายตา R / L":"Prescription R / L","PD (มม.)":"PD (mm)","ค่าสายตาเดิม":"Previous prescription","หมายเหตุ":"Notes","กำลังบันทึก...":"Saving...","บันทึกประวัติลูกค้า":"Save examination history","บันทึกข้อมูลลูกค้าไม่สำเร็จ":"Failed to save customer","บันทึกข้อมูลลูกค้าและผลตรวจสายตาแล้ว":"Customer examination saved","ไม่สามารถบันทึกได้":"Unable to save"};
-const laoOpticalLabels:Record<string,string>={"เพิ่มประวัติลูกค้า · IMDC OPTICAL":"ເພີ່ມປະຫວັດລູກຄ້າ · IMDC OPTICAL","ปิด":"ປິດ","บันทึกข้อมูลเฉพาะร้านและสาขาที่เข้าสู่ระบบ ข้อมูลการตรวจครั้งก่อนจะยังคงอยู่ในประวัติ":"ບັນທຶກຂໍ້ມູນສະເພາະຮ້ານ ແລະສາຂາທີ່ເຂົ້າໃຊ້ ຜົນກວດຄັ້ງກ່ອນຍັງຖືກເກັບໄວ້","รหัสลูกค้า":"ລະຫັດລູກຄ້າ","ชื่อ–นามสกุล":"ຊື່-ນາມສະກຸນ","เบอร์โทรศัพท์":"ເບີໂທລະສັບ","อายุ (ปี)":"ອາຍຸ (ປີ)","วันที่ตรวจล่าสุด":"ວັນທີກວດຫຼ້າສຸດ","พนักงานตรวจ / ผู้ตรวจ":"ພະນັກງານກວດ / ຜູ້ກວດ","ค่าสายตา R / L":"ຄ່າສາຍຕາ R / L","PD (มม.)":"PD (ມມ.)","ค่าสายตาเดิม":"ຄ່າສາຍຕາເກົ່າ","หมายเหตุ":"ໝາຍເຫດ","กำลังบันทึก...":"ກຳລັງບັນທຶກ...","บันทึกประวัติลูกค้า":"ບັນທຶກປະຫວັດລູກຄ້າ","บันทึกข้อมูลลูกค้าไม่สำเร็จ":"ບັນທຶກຂໍ້ມູນລູກຄ້າບໍ່ສຳເລັດ","บันทึกข้อมูลลูกค้าและผลตรวจสายตาแล้ว":"ບັນທຶກລູກຄ້າ ແລະຜົນກວດສາຍຕາແລ້ວ","ไม่สามารถบันทึกได้":"ບໍ່ສາມາດບັນທຶກໄດ້"};
+import {validateOpticalExamNumbers} from "@/lib/optical/optical-eye-exam-validation";
+const opticalEnglishLabels:Record<string,string>={"ค่า L — AX ต้องเป็นจำนวนเต็มตั้งแต่ 0 ถึง 180 องศา":"L — AX must be a whole number from 0 to 180 degrees","ค่า R — AX ต้องเป็นจำนวนเต็มตั้งแต่ 0 ถึง 180 องศา":"R — AX must be a whole number from 0 to 180 degrees","เพิ่มประวัติลูกค้า · IMDC OPTICAL":"Add customer examination history · IMDC OPTICAL","ปิด":"Close","บันทึกข้อมูลเฉพาะร้านและสาขาที่เข้าสู่ระบบ ข้อมูลการตรวจครั้งก่อนจะยังคงอยู่ในประวัติ":"Store and branch-specific records. Previous examinations remain in history.","รหัสลูกค้า":"Customer code","ชื่อ–นามสกุล":"Full name","เบอร์โทรศัพท์":"Phone","อายุ (ปี)":"Age (years)","วันที่ตรวจล่าสุด":"Last examination date","พนักงานตรวจ / ผู้ตรวจ":"Examiner","ค่าสายตา R / L":"Prescription R / L","PD (มม.)":"PD (mm)","ค่าสายตาเดิม":"Previous prescription","หมายเหตุ":"Notes","กำลังบันทึก...":"Saving...","บันทึกประวัติลูกค้า":"Save examination history","บันทึกข้อมูลลูกค้าไม่สำเร็จ":"Failed to save customer","บันทึกข้อมูลลูกค้าและผลตรวจสายตาแล้ว":"Customer examination saved","ไม่สามารถบันทึกได้":"Unable to save"};
+const laoOpticalLabels:Record<string,string>={"ค่า L — AX ต้องเป็นจำนวนเต็มตั้งแต่ 0 ถึง 180 องศา":"L — AX ຕ້ອງເປັນຈຳນວນເຕັມ 0–180 ອົງສາ","ค่า R — AX ต้องเป็นจำนวนเต็มตั้งแต่ 0 ถึง 180 องศา":"R — AX ຕ້ອງເປັນຈຳນວນເຕັມ 0–180 ອົງສາ","เพิ่มประวัติลูกค้า · IMDC OPTICAL":"ເພີ່ມປະຫວັດລູກຄ້າ · IMDC OPTICAL","ปิด":"ປິດ","บันทึกข้อมูลเฉพาะร้านและสาขาที่เข้าสู่ระบบ ข้อมูลการตรวจครั้งก่อนจะยังคงอยู่ในประวัติ":"ບັນທຶກຂໍ້ມູນສະເພາະຮ້ານ ແລະສາຂາທີ່ເຂົ້າໃຊ້ ຜົນກວດຄັ້ງກ່ອນຍັງຖືກເກັບໄວ້","รหัสลูกค้า":"ລະຫັດລູກຄ້າ","ชื่อ–นามสกุล":"ຊື່-ນາມສະກຸນ","เบอร์โทรศัพท์":"ເບີໂທລະສັບ","อายุ (ปี)":"ອາຍຸ (ປີ)","วันที่ตรวจล่าสุด":"ວັນທີກວດຫຼ້າສຸດ","พนักงานตรวจ / ผู้ตรวจ":"ພະນັກງານກວດ / ຜູ້ກວດ","ค่าสายตา R / L":"ຄ່າສາຍຕາ R / L","PD (มม.)":"PD (ມມ.)","ค่าสายตาเดิม":"ຄ່າສາຍຕາເກົ່າ","หมายเหตุ":"ໝາຍເຫດ","กำลังบันทึก...":"ກຳລັງບັນທຶກ...","บันทึกประวัติลูกค้า":"ບັນທຶກປະຫວັດລູກຄ້າ","บันทึกข้อมูลลูกค้าไม่สำเร็จ":"ບັນທຶກຂໍ້ມູນລູກຄ້າບໍ່ສຳເລັດ","บันทึกข้อมูลลูกค้าและผลตรวจสายตาแล้ว":"ບັນທຶກລູກຄ້າ ແລະຜົນກວດສາຍຕາແລ້ວ","ไม่สามารถบันทึกได้":"ບໍ່ສາມາດບັນທຶກໄດ້"};
 
 
 type Fields = {
@@ -43,12 +44,14 @@ export function PosOpticalCustomerModal({open,onClose,lang="th"}:{open:boolean;o
   const [fields,setFields] = useState<Fields>(initial);
   const [busy,setBusy] = useState(false);
   const [error,setError] = useState("");
+  const [fieldError,setFieldError] = useState<keyof Fields|null>(null);
   const [success,setSuccess] = useState("");
   const requestRef = useRef<string>(crypto.randomUUID());
 
   if (!open) return null;
   const update=(key:keyof Fields,value:string)=>{
     setFields(current=>({...current,[key]:value}));
+    if(fieldError===key)setFieldError(null);
     setError("");setSuccess("");
     requestRef.current=crypto.randomUUID();
   };
@@ -56,21 +59,22 @@ export function PosOpticalCustomerModal({open,onClose,lang="th"}:{open:boolean;o
     <label key={key} className="flex min-w-0 flex-col gap-1 text-xs font-bold text-slate-700">
       <span>{label}</span>
       <input
-        className="min-h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900"
+        className={"min-h-10 w-full rounded-lg border bg-white px-3 text-sm text-slate-900 "+(fieldError===key?"border-rose-500 ring-2 ring-rose-100":"border-slate-300")} 
+        aria-invalid={fieldError===key}
         type={opts.type??"text"} step={opts.type==="number"?"any":undefined} placeholder={opts.placeholder}
         value={fields[key]} required={opts.required}
         onChange={e=>update(key,e.target.value)}
         disabled={busy}
       />
+      {fieldError===key&&error?<span className="text-xs font-semibold text-rose-700" role="alert">{error}</span>:null}
     </label>
   );
   const submit=async(event:FormEvent<HTMLFormElement>)=>{
     event.preventDefault();
     if(busy)return;
-    const age=numeric(fields.age),pd=numeric(fields.pd_mm);
-    if((age!==null && (age<0||age>130))||(pd!==null && (pd<30||pd>90))){
-      setError("กรุณาตรวจสอบอายุ (0–130) และ PD (30–90 มม.)");return;
-    }
+    const invalid=validateOpticalExamNumbers(fields);
+    if(invalid){setFieldError(invalid.field);setError(tr(invalid.message));return;}
+    setFieldError(null);
     setBusy(true);setError("");setSuccess("");
     try{
       const keys: Array<keyof Fields>=["age","pd_mm","right_sph","right_cyl","right_axis","right_add","left_sph","left_cyl","left_axis","left_add"];

@@ -4,6 +4,7 @@ import { fail, ok } from "@/lib/http";
 import { PosGuardError, requirePermission, requirePosSession } from "@/lib/pos-session-guard";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
 import { requireOpticalRetailEntitlement } from "@/lib/server/optical-entitlement";
+import {validateOpticalExamNumbers} from "@/lib/optical/optical-eye-exam-validation";
 
 type OpticalCustomerInput = {
   request_id?: string;
@@ -75,6 +76,11 @@ export async function POST(request: Request) {
     }
     const examined=safe(input.exam_date,10);
     if (!/^\d{4}-\d{2}-\d{2}$/.test(examined)) return fail("optical_exam_date_invalid","Exam date is required.",422);
+    // Reject invalid eye measurements before the RPC; keep SQL CHECK constraints intact.
+    const invalid=validateOpticalExamNumbers(input);
+    if(invalid){
+      return fail("optical_exam_"+invalid.field+"_invalid",invalid.message,422);
+    }
     const numbers=["age","pd_mm","right_sph","right_cyl","right_axis","right_add",
       "left_sph","left_cyl","left_axis","left_add"] as const;
     if (numbers.some(key=>Number.isNaN(optionalNumber(input[key])))) {
