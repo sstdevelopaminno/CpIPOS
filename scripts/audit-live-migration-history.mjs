@@ -63,7 +63,7 @@ export function analyzeMigrationVersions(sourceFiles, liveEntries) {
 
   // A shared version is not proof of identical migration semantics. Treat a
   // different Supabase migration name as a blocking discrepancy when supplied.
-  const sourceNameFor = (file) => path.basename(file).replace(/^\\d{12,17}_/, "").replace(/\\.sql$/, "");
+  const sourceNameFor = (file) => path.basename(file).replace(/^\d{12,17}_/, "").replace(/\.sql$/, "");
   const versionNameConflicts = [...source].flatMap(([version, file]) => {
     const installed = live.get(version);
     const liveName = typeof installed?.name === "string" ? installed.name.trim() : "";
