@@ -59,7 +59,7 @@ begin
   v_status:='cancelled';
  end if;
  insert into public.audit_logs(tenant_id,branch_id,actor_user_id,actor_role,action,target_table,target_id,metadata)
- values(p_tenant_id,p_branch_id,p_actor,v_actor_role::public.branch_role,
+ values(p_tenant_id,p_branch_id,p_actor,v_actor_role,
   case when p_action='cancel' then 'optical_order_pin_cancelled' else 'optical_order_pin_updated' end,
   'optical_work_orders',p_work_order_id,
   jsonb_build_object('approved_by',v_approver,'request_id',p_request_id,'paid_total',v_order.paid_total));
