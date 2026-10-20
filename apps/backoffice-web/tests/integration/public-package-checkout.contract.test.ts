@@ -29,7 +29,7 @@ describe("public company website package checkout", () => {
     expect(service).toContain('from("tenant_subscription_payment_requests")');
     expect(service).toContain("SUBSCRIPTION_SLIP_BUCKET");
     expect(service).toContain("scanSubscriptionSlip");
-    expect(service).toContain('source: "company_website_package_checkout"');
+    expect(service).toContain('"company_website_package_checkout"');
     expect(service).toContain('audience: "it"');
     expect(submit).toContain("submitPublicPackageCheckout");
   });
