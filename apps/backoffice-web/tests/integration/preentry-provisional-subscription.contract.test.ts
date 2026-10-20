@@ -103,7 +103,7 @@ describe("Pre-entry subscription provisional activation",()=>{
   expect(api).toContain('eq("status","under_review")');
   expect(api).toContain('eq("auto_check_status","passed")');
   expect(api).not.toContain('gt("provisional_access_expires_at"');
-  expect(session).toContain('subscription_payment_review_timeout');
+  expect(session).toContain('subscription_access_locked');
   expect(session).toContain("expiryAt=Number.POSITIVE_INFINITY");
  });
  it("shows non-approval popup on rejection or timeout",()=>{
