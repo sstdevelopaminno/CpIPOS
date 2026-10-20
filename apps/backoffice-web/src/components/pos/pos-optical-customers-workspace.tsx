@@ -2,12 +2,14 @@
 import {useCallback,useEffect,useMemo,useState} from "react";
 import type {Language} from "@/lib/i18n";
 import {PosOpticalCustomerModal} from "@/components/pos/pos-optical-customer-modal";
+import {PosOpticalCustomerDetailDialog} from "@/components/pos/pos-optical-customer-detail-dialog";
 
 type Customer={id:string;customer_code:string;full_name:string;phone:string|null;last_exam_date:string|null;examiner_name:string|null};
 export function PosOpticalCustomersWorkspace({lang}:{lang:Language}){
   const [all,setAll]=useState<Customer[]>([]);
   const [search,setSearch]=useState("");
   const [open,setOpen]=useState(false);
+  const [selectedCustomerId,setSelectedCustomerId]=useState<string|null>(null);
   const [busy,setBusy]=useState(true);
   const [error,setError]=useState("");
   const th=lang==="th",lo=lang==="lo";
@@ -53,21 +55,27 @@ export function PosOpticalCustomersWorkspace({lang}:{lang:Language}){
             <th className="p-3">{th?"โทรศัพท์":lo?"ເບີໂທ":"Phone"}</th>
             <th className="p-3">{th?"ตรวจสายตาล่าสุด":lo?"ກວດສາຍຕາຫຼ້າສຸດ":"Last exam"}</th>
             <th className="p-3">{th?"ผู้ตรวจ":lo?"ຜູ້ກວດ":"Examiner"}</th>
+            <th className="p-3">{th?"จัดการ":"Actions"}</th>
           </tr></thead>
           <tbody className="divide-y divide-slate-100">
-            {filtered.map(c=><tr key={c.id}>
+            {filtered.map(c=><tr key={c.id} className="cursor-pointer hover:bg-emerald-50" onClick={()=>setSelectedCustomerId(c.id)} tabIndex={0}
+              onKeyDown={e=>{if(e.key==="Enter")setSelectedCustomerId(c.id);}}>
               <td className="p-3 font-mono">{c.customer_code}</td>
               <td className="p-3 font-semibold">{c.full_name}</td>
               <td className="p-3">{c.phone||"—"}</td>
               <td className="p-3">{c.last_exam_date||"—"}</td>
               <td className="p-3">{c.examiner_name||"—"}</td>
+              <td className="p-3"><button type="button" className="rounded-lg border border-emerald-300 px-3 py-1.5 font-semibold text-emerald-800"
+                onClick={e=>{e.stopPropagation();setSelectedCustomerId(c.id);}}>{th?"ดู / แก้ไข / ลบ":"View / Edit / Archive"}</button></td>
             </tr>)}
-            {!busy&&!filtered.length?<tr><td colSpan={5} className="p-8 text-center text-slate-500">{th?"ยังไม่พบลูกค้าในสาขานี้":lo?"ຍັງບໍ່ພົບລູກຄ້າ":"No customers in this branch"}</td></tr>:null}
-            {busy?<tr><td colSpan={5} className="p-8 text-center text-slate-500">{th?"กำลังโหลด...":lo?"ກຳລັງໂຫຼດ...":"Loading..."}</td></tr>:null}
+            {!busy&&!filtered.length?<tr><td colSpan={6} className="p-8 text-center text-slate-500">{th?"ยังไม่พบลูกค้าในสาขานี้":lo?"ຍັງບໍ່ພົບລູກຄ້າ":"No customers in this branch"}</td></tr>:null}
+            {busy?<tr><td colSpan={6} className="p-8 text-center text-slate-500">{th?"กำลังโหลด...":lo?"ກຳລັງໂຫຼດ...":"Loading..."}</td></tr>:null}
           </tbody>
         </table>
       </div>
     </div>
     <PosOpticalCustomerModal open={open} lang={lang} onClose={()=>{setOpen(false);void reload();}}/>
+    {selectedCustomerId?<PosOpticalCustomerDetailDialog id={selectedCustomerId}
+       onClose={()=>setSelectedCustomerId(null)} onChanged={()=>{void reload();}}/>:null}
   </section>;
 }
