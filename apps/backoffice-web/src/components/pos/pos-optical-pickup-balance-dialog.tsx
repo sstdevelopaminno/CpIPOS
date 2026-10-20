@@ -1,5 +1,6 @@
 "use client";
 import {useRef,useState} from "react";
+import {requestOpticalWorkOrderPrint} from "@/lib/printing/optical-work-order-print-client";
 
 export type OpticalRecalledOrder={
   bill:{id:string;status:string;total_amount:number;paid_total:number;currency_code:string;due_at:string|null};
@@ -13,7 +14,7 @@ export function PosOpticalPickupBalanceDialog({data,onClose,onSettled}:{
   const [busy,setBusy]=useState(false),[error,setError]=useState("");
   const [remaining,setRemaining]=useState(data.remaining_amount);
   const [settled,setSettled]=useState(false);
-  const [receiptWidth,setReceiptWidth]=useState<58|80>(80);
+  const [printing,setPrinting]=useState(false),[printNotice,setPrintNotice]=useState("");
   const requestId=useRef(crypto.randomUUID());
   const orderId=data.bill.id;
   async function settle(){
@@ -32,9 +33,14 @@ export function PosOpticalPickupBalanceDialog({data,onClose,onSettled}:{
     }catch(e){setError(e instanceof Error?e.message:"บันทึกยอดคงเหลือไม่สำเร็จ");}
     finally{setBusy(false);}
   }
-  function print(){
-    window.open(`/api/pos/optical/work-orders/${encodeURIComponent(orderId)}/deposit-receipt?width=${receiptWidth}`,
-      "_blank","noopener,noreferrer");
+  async function print(){
+    if(printing)return;
+    setPrinting(true);setError("");setPrintNotice("");
+    try{
+      const result=await requestOpticalWorkOrderPrint(orderId);
+      setPrintNotice(`ส่งใบเสร็จ ${result.queued} ฉบับเข้าคิวเครื่องพิมพ์ที่ตั้งค่าไว้แล้ว`);
+    }catch(e){setError(e instanceof Error?e.message:"ไม่สามารถส่งพิมพ์ได้ กรุณาตรวจสอบการตั้งค่าเครื่องพิมพ์");}
+    finally{setPrinting(false);}
   }
   return <div className="fixed inset-0 z-[190] flex items-center justify-center bg-slate-950/60 p-3" role="presentation">
     <section role="dialog" aria-modal="true" aria-label="ใบงานนัดรับและยอดค้างชำระ"
@@ -63,14 +69,15 @@ export function PosOpticalPickupBalanceDialog({data,onClose,onSettled}:{
         สแกนบาร์โค้ดเป็นเพียงการค้นใบงาน การรับเงินต้องยืนยันแยกต่างหาก
         เงินโอนต้องให้ Owner/Manager ตรวจสอบบัญชีจริงก่อนลงบัญชี ไม่สามารถยืนยันอัตโนมัติจากการสแกน
       </p>}
+      {printNotice?<p role="status" className="mt-3 text-sm text-emerald-700">{printNotice}</p>:null}
       <footer className="mt-4 flex flex-wrap items-end justify-end gap-2">
-        {settled?<label className="grid gap-1 text-sm">ขนาดพิมพ์
-          <select value={receiptWidth} onChange={e=>setReceiptWidth(Number(e.target.value)===58?58:80)}
-            className="rounded-lg border p-2"><option value={58}>58 mm</option><option value={80}>80 mm</option></select>
-        </label>:null}
+        {settled?<a href={`/api/pos/optical/work-orders/${encodeURIComponent(orderId)}/deposit-receipt`}
+          target="_blank" rel="noopener noreferrer" className="rounded-lg border border-emerald-300 px-4 py-2 text-sm text-emerald-800">
+          ดูตัวอย่างใบเสร็จ</a>:null}
         <button type="button" onClick={onClose} disabled={busy} className="rounded-lg border px-4 py-2">ปิด</button>
-        {settled?<button type="button" onClick={print} className="rounded-lg bg-emerald-700 px-4 py-2 font-bold text-white">
-          พิมพ์ใบเสร็จ</button>:
+        {settled?<button type="button" disabled={printing} onClick={()=>void print()}
+          className="rounded-lg bg-emerald-700 px-4 py-2 font-bold text-white disabled:opacity-60">
+          {printing?"กำลังส่งพิมพ์...":"พิมพ์ผ่านเครื่องพิมพ์ที่ตั้งค่าไว้"}</button>:
         <button type="button" disabled={busy||remaining<=0} onClick={()=>void settle()}
           className="rounded-lg bg-emerald-700 px-4 py-2 font-bold text-white">
           {busy?"กำลังบันทึก...":"ยืนยันรับเงินสดคงเหลือ "+money(remaining)}

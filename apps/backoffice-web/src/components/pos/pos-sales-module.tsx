@@ -45,6 +45,7 @@ import { beginPosActionTrace, clearPosTraceEvents, endPosActionTrace, readPosTra
 import { naturalCompareTableCode } from "@/lib/table-management";
 import { cachePosSalesOfflineCatalogSnapshot } from "@/lib/pos-offline-catalog-snapshot";
 import { wakeNativePrintAgent } from "@/lib/native-print-wake";
+import {requestOpticalWorkOrderPrint} from "@/lib/printing/optical-work-order-print-client";
 
 const EXTRA_LAO_SALES_LABELS: Record<string,string> = {
   "ไม่ทราบชื่อผู้ขาย": "ບໍ່ຮູ້ຊື່ຜູ້ຂາຍ",
@@ -9231,7 +9232,12 @@ export function PosSalesModule({
             account_number:paymentAccount.account_number,
             qr_image_url:paymentAccount.qr_mode==="qr_image"?paymentAccount.qr_image_url:null
           }:null}
-          onOpticalDepositReceipt={opticalLastDepositReceiptId ? ()=>window.open(`/api/pos/optical/work-orders/${encodeURIComponent(opticalLastDepositReceiptId)}/deposit-receipt`,"_blank","noopener,noreferrer") : undefined}
+          onOpticalDepositReceipt={opticalLastDepositReceiptId ? ()=>{
+            const workOrderId=opticalLastDepositReceiptId;
+            void requestOpticalWorkOrderPrint(workOrderId)
+              .then(({queued})=>pushSubmitMessage(`ส่งใบเสร็จ Optical เข้าคิวพิมพ์ตามการตั้งค่าเครื่องพิมพ์แล้ว ${queued} ฉบับ`))
+              .catch(error=>pushSubmitMessage(error instanceof Error?error.message:"ไม่สามารถส่งใบเสร็จเข้าคิวพิมพ์"));
+          } : undefined}
           onMember={
             orderType === "delivery_manual"
               ? undefined
