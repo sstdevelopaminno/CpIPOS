@@ -33,7 +33,7 @@ export async function POST(request:Request){
    requireOpticalFinanceModule(scope.session.tenant_id,"optical_deposit")
   ]);
   if(!workOrdersAllowed||!depositsAllowed)
-    return fail("optical_finance_disabled","IT approval and Optical finance rollout required.",403);
+    return fail("optical_finance_disabled","ระบบรับมัดจำของร้านยังไม่ได้เปิดใช้งาน กรุณาให้ฝ่าย IT เปิดสิทธิ์ Optical Finance ระดับร้านครั้งเดียว และเปิดใช้งานระบบการเงินบน Vercel (ไม่ต้องให้ IT อนุมัติทุกบิล)",403);
   const body=await request.json().catch(()=>null) as Input|null;
   if(!body||!uuid.test(body.order_request_id??"")||!uuid.test(body.payment_request_id??"")||
     body.order_request_id===body.payment_request_id||!uuid.test(body.customer_id??"")||
