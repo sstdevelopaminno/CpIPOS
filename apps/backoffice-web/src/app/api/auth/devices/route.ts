@@ -43,6 +43,27 @@ async function safeResolveStoreMode(tenantId: string) {
   }
 }
 
+/** Report pending payment evidence only for a verified pre-entry tenant.
+ * Payment submission never bypasses the cashier entitlement guard.
+ */
+async function loadOpenSubscriptionPaymentReview(supabase: ReturnType<typeof getSupabaseServiceClient>, tenantId: string) {
+  const result = await supabase.from("tenant_subscription_payment_requests")
+    .select("status,submitted_at")
+    .eq("tenant_id", tenantId)
+    .in("status", ["pending", "under_review"])
+    .not("evidence_url", "is", null)
+    .order("submitted_at", { ascending: false })
+    .limit(1)
+    .maybeSingle<{status:string;submitted_at:string|null}>();
+  if (result.error || !result.data) return null;
+  const timestamp = Date.parse(result.data.submitted_at ?? "");
+  return {
+    status: result.data.status,
+    submitted_at: result.data.submitted_at,
+    review_due_at: Number.isFinite(timestamp) ? new Date(timestamp + 3 * 24 * 60 * 60 * 1000).toISOString() : null
+  };
+}
+
 export async function GET() {
   const startedAt = Date.now();
   const cookieStore = await cookies();
@@ -149,7 +170,7 @@ export async function GET() {
       } satisfies DeviceSessionOccupancy;
     });
 
-    const [storeMode,entryAccess]=await Promise.all([
+    const [storeMode,entryAccess,paymentReview]=await Promise.all([
       safeResolveStoreMode(flow.tenantId),
       evaluatePosEntryAccess(supabase,flow.tenantId,flow.branchId).catch(error=>{
         console.error("[auth/devices] package verification unavailable",{
@@ -162,7 +183,8 @@ export async function GET() {
           message:"ไม่สามารถตรวจสอบสถานะแพ็กเกจได้ชั่วคราว กรุณาลองใหม่หรือติดต่อฝ่าย Support",
           expires_at:null,kind:"verification" as const
         }};
-      })
+      }),
+      loadOpenSubscriptionPaymentReview(supabase, flow.tenantId).catch(() => null)
     ]);
     const devicesWithStatus = devices.map((device) => {
       const occupancy =
@@ -192,7 +214,8 @@ export async function GET() {
           devices: devicesWithStatus,
           single_device_mode: storeMode.singleRegister || devicesWithStatus.length === 1,
           auto_select_single_device:entryAccess.allowed && storeMode.singleRegister && devicesWithStatus.length===1,
-          entry_access:entryAccess.allowed
+          payment_review: entryAccess.allowed ? null : paymentReview,
+           entry_access:entryAccess.allowed
             ?{allowed:true as const,error:null}
             :{allowed:false as const,error:entryAccess.denial},
           store_mode: {

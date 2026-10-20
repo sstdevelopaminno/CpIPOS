@@ -21,12 +21,14 @@ type DeviceItem = {
 
 type DevicesResponse = {
   data?: {
+    tenant?:{code?:string|null;name?:string|null};
     branch: { name: string | null };
     employee?: { id: string | null; code?: string | null; name?: string | null; role?: string | null };
     devices: DeviceItem[];
     single_device_mode: boolean;
     auto_select_single_device?: boolean;
     can_override_in_use: boolean;
+    payment_review?:{status:"pending"|"under_review";submitted_at:string|null;review_due_at:string|null}|null;
     entry_access?:{allowed:boolean;error?:{
       code:string;title:string;message:string;expires_at?:string|null;kind?:string
     }|null};
@@ -75,6 +77,7 @@ function canSelectDevice(device: DeviceItem, canOverride: boolean, employeeId: s
   return false;
 }
 
+const PACKAGE_PAYMENT_REASONS = new Set(["trial_expired", "subscription_expired", "subscription_inactive", "subscription_missing"]);
 const PACKAGE_ENTRY_REASONS = new Set([
  "trial_expired","subscription_expired","subscription_locked",
  "subscription_inactive","subscription_missing","feature_not_enabled","feature_verification_unavailable"
@@ -178,6 +181,7 @@ function LoginDevicesPageContent() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
   const [entryBlocked,setEntryBlocked]=useState(false);
+  const [paymentReview,setPaymentReview]=useState<{status:"pending"|"under_review";submitted_at:string|null;review_due_at:string|null}|null>(null);
   const [entryDenial,setEntryDenial]=useState<{code:string;message:string;expires_at?:string|null}|null>(null);
   const [popup, setPopup] = useState<PopupState>({ type: "none" });
   const loadStartedRef = useRef(false);
@@ -199,6 +203,8 @@ function LoginDevicesPageContent() {
 
         const data = body.data;
         if (!mounted) return;
+        try { if(data.tenant?.code)window.sessionStorage.setItem("cpipos_checkout_store_code",data.tenant.code); } catch {}
+        setPaymentReview(data.payment_review??null);
 
         const resolvedBranchName = data.branch.name ?? "";
         setBranchName(resolvedBranchName);
@@ -286,6 +292,22 @@ function LoginDevicesPageContent() {
   }, [loading, submitting]);
   const selectedDevice = useMemo(() => devices.find((device) => device.deviceCode === selectedCode) ?? null, [devices, selectedCode]);
   const selectedDeviceCanOpen = !entryBlocked && (selectedDevice ? canSelectDevice(selectedDevice, canOverride, employeeId) : false);
+
+  // Only the server-side IT settlement can restore cashier entitlement.
+  // Periodically re-check authorization while a submitted slip awaits review.
+  useEffect(()=>{
+    if(!entryBlocked || !paymentReview)return;
+    const poll=window.setInterval(()=>{
+      void fetch("/api/auth/devices",{cache:"no-store"})
+        .then(async response=>{
+          if(!response.ok)return;
+          const body=await response.json() as DevicesResponse;
+          if(body.data?.entry_access?.allowed===true)window.location.reload();
+          else if(body.data?.payment_review)setPaymentReview(body.data.payment_review);
+        }).catch(()=>null);
+    },15_000);
+    return ()=>window.clearInterval(poll);
+  },[entryBlocked,paymentReview]);
 
   async function handleSelectDevice(deviceCodeOverride?: string) {
     if (submitting || loading) return;
@@ -485,26 +507,49 @@ function LoginDevicesPageContent() {
                 <div className="store-v2-popup-error-icon" aria-hidden="true">
                   !
                 </div>
-                <p className="store-v2-popup-title" id="pos-device-entry-error-title">{T(entryErrorTitle(popup.code))}</p>
-                <p className="store-v2-popup-text">{T(popup.message)}</p>
-                {popup.code&&PACKAGE_ENTRY_REASONS.has(popup.code)?(
-                  <div className="mt-3 w-full rounded-xl border border-amber-200 bg-amber-50 px-3 py-3 text-left text-xs leading-relaxed text-amber-900" role="status">
-                    {popup.expiresAt&&entryExpiryDate(lang,popup.expiresAt)?(
-                      <p>{T("วันสิ้นสุดสิทธิ์")}: <strong>{entryExpiryDate(lang,popup.expiresAt)}</strong></p>
-                    ):null}
-                    <p className="mt-1">{T("กรุณาติดต่อฝ่าย Support เพื่อให้เจ้าหน้าที่ตรวจสอบสิทธิ์ของร้าน โดยไม่จำเป็นต้องสมัครร้านใหม่")}</p>
-                    <a href="https://lin.ee/f1LXpAF" target="_blank" rel="noopener noreferrer"
-                      className="mt-2 inline-flex min-h-10 items-center rounded-lg bg-emerald-700 px-4 py-2 font-bold text-white">
-                      {T("ติดต่อฝ่าย Support")}
-                    </a>
-                  </div>
-                ):null}
-                <button type="button" className="store-v2-popup-close-btn" onClick={() => window.location.reload()}>
-                  {T("ตรวจสอบอีกครั้ง")}
-                </button>
-                <button type="button" className="store-v2-popup-close-btn" onClick={() => setPopup({ type: "none" })}>
-                  {T("ปิด")}
-                </button>
+                <p className="store-v2-popup-title !text-slate-800" id="pos-device-entry-error-title">
+                   {T(paymentReview && popup.code && PACKAGE_ENTRY_REASONS.has(popup.code)
+                     ? "อยู่ระหว่างรอตรวจสอบการชำระเงิน" : entryErrorTitle(popup.code))}
+                 </p>
+                 <p className="store-v2-popup-text !text-slate-600">
+                   {T(paymentReview && popup.code && PACKAGE_ENTRY_REASONS.has(popup.code)
+                     ? "ระบบได้รับสลิปแล้ว กรุณารอฝ่าย IT อนุมัติการชำระเงิน ระบบจะยังล็อกการขายไว้จนกว่าจะอนุมัติ"
+                     : popup.message)}
+                 </p>
+                 {popup.code&&PACKAGE_ENTRY_REASONS.has(popup.code)?(
+                   <div className="mt-3 w-full rounded-xl border border-amber-200 bg-amber-50 px-3 py-3 text-left text-xs leading-relaxed text-amber-900" role="status">
+                     {popup.expiresAt&&entryExpiryDate(lang,popup.expiresAt)?(
+                       <p>{T("วันสิ้นสุดสิทธิ์")}: <strong>{entryExpiryDate(lang,popup.expiresAt)}</strong></p>
+                     ):null}
+                     <p className="mt-1">
+                       {T(paymentReview
+                         ? "ฝ่าย IT ตั้งเป้าตรวจสอบภายใน 3 วัน การส่งสลิปหรือครบกำหนดตรวจสอบจะไม่ปลดล็อกโดยอัตโนมัติ"
+                         : "ชำระแพ็กเกจและส่งสลิปเพื่อให้ฝ่าย IT ตรวจสอบภายใน 3 วัน ระบบจะเปิดเมื่อ IT อนุมัติเท่านั้น")}
+                     </p>
+                     {paymentReview?.review_due_at && entryExpiryDate(lang,paymentReview.review_due_at)?(
+                       <p className="mt-1">{T("กำหนดตรวจสอบโดยประมาณ")}: <strong>{entryExpiryDate(lang,paymentReview.review_due_at)}</strong></p>
+                     ):null}
+                   </div>
+                 ):null}
+                 <div className="mt-4 grid w-full grid-cols-3 gap-2" role="group" aria-label={T("ตัวเลือกการช่วยเหลือ")}>
+                   <button type="button"
+                     className="flex h-11 min-w-0 items-center justify-center rounded-xl bg-blue-700 px-2 text-center text-xs font-bold !text-white hover:bg-blue-800 sm:text-sm"
+                     onClick={() => {
+                       if(popup.code && PACKAGE_PAYMENT_REASONS.has(popup.code))router.push("/login/package-payment");
+                       else window.location.reload();
+                     }}>
+                     {T(popup.code && PACKAGE_PAYMENT_REASONS.has(popup.code) ? "ชำระเงิน" : "ตรวจสอบอีกครั้ง")}
+                   </button>
+                   <a href="https://lin.ee/f1LXpAF" target="_blank" rel="noopener noreferrer"
+                     className="flex h-11 min-w-0 items-center justify-center rounded-xl bg-emerald-700 px-2 text-center text-xs font-bold !text-white hover:bg-emerald-800 sm:text-sm">
+                     {T("ติดต่อฝ่าย Support")}
+                   </a>
+                   <button type="button"
+                     className="flex h-11 min-w-0 items-center justify-center rounded-xl border border-slate-300 bg-slate-100 px-2 text-center text-xs font-bold !text-slate-700 hover:bg-slate-200 sm:text-sm"
+                     onClick={() => setPopup({ type: "none" })}>
+                     {T("ปิด")}
+                   </button>
+                 </div>
               </>
             )}
           </div>

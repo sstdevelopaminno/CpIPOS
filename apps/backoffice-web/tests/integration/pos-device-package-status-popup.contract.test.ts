@@ -51,10 +51,36 @@ describe("POS device chooser subscription diagnostics",()=>{
   expect(page).toContain("setPopup({type:\"error\",message:denial.message");
   expect(page).toContain("data.entry_access?.allowed!==false && data.auto_select_single_device");
   expect(page).toContain("const selectedDeviceCanOpen = !entryBlocked");
-  expect(page).toContain('T("ตรวจสอบอีกครั้ง")');
+  expect(page).toContain('router.push("/login/package-payment")');
+  expect(page).toContain('grid-cols-3 gap-2');
+  expect(page).toContain('T(popup.code && PACKAGE_PAYMENT_REASONS.has(popup.code) ? "ชำระเงิน" : "ตรวจสอบอีกครั้ง")');
+  expect(page).toContain('paymentReview');
+  expect(page).toContain('cpipos_checkout_store_code');
+  expect(page).toContain('ระบบได้รับสลิปแล้ว');
+  expect(page).toContain('ฝ่าย IT ตั้งเป้าตรวจสอบภายใน 3 วัน');
+  expect(page).toContain('!text-white');
   expect(page).toContain("entryExpiryDate(lang,popup.expiresAt)");
   expect(page).toContain("https://lin.ee/f1LXpAF");
+  const deviceRoute=src("src/app/api/auth/devices/route.ts");
+  expect(deviceRoute).toContain('payment_review: entryAccess.allowed ? null : paymentReview');
+  expect(deviceRoute).toContain('.not("evidence_url", "is", null)');
  });
+
+ it("reuses authorized public package checkout without unlocking the sales terminal on slip submission",()=>{
+  const page=src("src/app/login/package-payment/page.tsx");
+  const payment=src("src/lib/services/public-package-checkout-service.ts");
+  const itGate=src("src/lib/server/pos-entry-access-service.ts");
+  expect(page).toContain('"/api/public/subscription-checkout"');
+  expect(page).toContain('"/api/public/subscription-checkout/submit"');
+  expect(page).toContain('setSubmitted({id:json.data.id,status:json.data.status})');
+  expect(page).toContain('quote.pending_review');
+  expect(payment).toContain('status: "pending"');
+  expect(payment).toContain('pending_review: openReview ?');
+  expect(payment).toContain('currency: "THB"');
+  expect(itGate).toContain("classifyPosEntryDenial");
+  expect(page).not.toContain('access_locked:false');
+ });
+
  it("shows package diagnostics in Thai, Lao and English",()=>{
   expect(loginFlowText("lo","แพ็กเกจทดลองใช้งานสิ้นสุดแล้ว")).toContain("ໝົດອາຍຸ");
   expect(loginFlowText("en","แพ็กเกจสิ้นสุดระยะเวลาใช้งานแล้ว")).toContain("expired");

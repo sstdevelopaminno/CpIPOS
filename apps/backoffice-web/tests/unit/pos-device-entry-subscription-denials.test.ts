@@ -49,7 +49,10 @@ describe("Cashier terminal subscription reason and safe error popups",()=>{
   const ui=files("app/login/devices/page-content.tsx");
   const locale=files("lib/pre-entry-language.ts");
   expect(ui).toContain('PACKAGE_ENTRY_REASONS.has(popup.code)');
-  expect(ui).toContain('T(entryErrorTitle(popup.code))');
+  expect(ui).toContain('entryErrorTitle(popup.code)');
+  expect(ui).toContain('PACKAGE_PAYMENT_REASONS.has(popup.code)');
+  expect(ui).toContain('router.push("/login/package-payment")');
+  expect(ui).toContain('paymentReview');
   expect(ui).toContain('entryExpiryDate(lang,popup.expiresAt)');
   expect(ui).toContain("https://lin.ee/f1LXpAF");
   expect(locale).toContain('"แพ็กเกจทดลองใช้งานสิ้นสุดแล้ว"');

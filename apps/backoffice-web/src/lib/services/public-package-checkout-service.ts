@@ -182,6 +182,11 @@ export async function authorizePublicPackageCheckout(input: {
   const snapshot = await loadPosSubscriptionCenter(resolved.tenantId);
   if (snapshot.contract.is_internal_demo) throw new Error("internal_demo_not_billable");
 
+  // Reuse the canonical POS/IT request ledger. Evidence stays pending until
+  // IT explicitly reviews and settles the verified bank payment.
+  const openReview = snapshot.requests.find((row) =>
+    ["pending", "under_review"].includes(row.status) && row.has_evidence
+  ) ?? null;
   const target = snapshot.packages.find((row) => row.id === input.packageId);
   if (!target || target.contact_sales || target.quota_mode === "custom" || target.code === "custom") {
     throw new Error("package_unavailable");
@@ -218,8 +223,17 @@ export async function authorizePublicPackageCheckout(input: {
       name: target.name,
       billing_interval: input.billingInterval,
       amount: expected,
-      currency: snapshot.contract.currency || "THB"
+      // Subscription checkout settles in THB regardless of the tenant's POS sales currency.
+      // Never display LAK as payable when evidence/settlement records are THB.
+      currency: "THB"
     },
+    pending_review: openReview ? {
+      status: openReview.status,
+      submitted_at: openReview.submitted_at,
+      review_due_at: Number.isFinite(Date.parse(openReview.submitted_at ?? ""))
+        ? new Date(Date.parse(openReview.submitted_at ?? "") + 3 * 24 * 60 * 60 * 1000).toISOString()
+        : null
+    } : null,
     issuer: snapshot.issuer
   };
 }
