@@ -33,13 +33,13 @@ type DevicesResponse = {
 
 type SelectDeviceResponse = {
   data?: { redirect_to: string } | null;
-  error?: { code: string; message: string } | null;
+  error?: { code: string; message: string; title?: string; expires_at?: string|null } | null;
 };
 
 type PopupState =
   | { type: "none" }
   | { type: "loading"; message: string }
-  | { type: "error"; message: string };
+  | { type: "error"; message: string; code?: string; expiresAt?: string|null };
 
 const AUTH_REQUEST_TIMEOUT_MS = process.env.NODE_ENV === "development" ? 20000 : 15000;
 const DEVICE_SELECT_REQUEST_TIMEOUT_MS = process.env.NODE_ENV === "development" ? 60000 : 45000;
@@ -72,10 +72,37 @@ function canSelectDevice(device: DeviceItem, canOverride: boolean, employeeId: s
   return false;
 }
 
+const PACKAGE_ENTRY_REASONS = new Set([
+ "trial_expired","subscription_expired","subscription_locked",
+ "subscription_inactive","subscription_missing","feature_not_enabled"
+]);
+function entryErrorTitle(code?:string){
+ if(code==="trial_expired")return "แพ็กเกจทดลองใช้งานสิ้นสุดแล้ว";
+ if(code==="subscription_expired")return "แพ็กเกจสิ้นสุดระยะเวลาใช้งานแล้ว";
+ if(code==="subscription_locked")return "การใช้งานแพ็กเกจถูกระงับชั่วคราว";
+ if(code==="subscription_inactive")return "แพ็กเกจยังไม่พร้อมใช้งาน";
+ if(code==="subscription_missing")return "ยังไม่พบแพ็กเกจที่เปิดใช้งาน";
+ if(code==="feature_not_enabled")return "แพ็กเกจยังไม่เปิดสิทธิ์หน้าขาย";
+ return "ดำเนินการไม่สำเร็จ";
+}
+function entryExpiryDate(lang:"th"|"en"|"lo",iso:string){
+ const value=new Date(iso);
+ if(!Number.isFinite(value.valueOf()))return null;
+ return new Intl.DateTimeFormat(lang==="lo"?"lo-LA":lang==="en"?"en-GB":"th-TH",{
+  timeZone:"Asia/Bangkok",year:"numeric",month:"2-digit",day:"2-digit",
+  hour:"2-digit",minute:"2-digit"
+ }).format(value);
+}
 function mapDeviceError(code?: string | null, fallback?: string | null) {
   if (code === "device_required") return "กรุณาเลือกเครื่องแคชเชียร์";
   if (code === "missing_employee_context") return "กรุณายืนยันผู้ใช้งานก่อนเลือกเครื่อง";
-  if (code === "feature_not_enabled") return "แพ็กเกจปัจจุบันยังไม่รองรับการเข้าใช้งานหน้าขาย";
+  if(code==="trial_expired")return "ระยะเวลาทดลองใช้งานครบกำหนดแล้ว กรุณาติดต่อฝ่าย Support เพื่อตรวจสอบการต่ออายุหรือเปิดใช้งานแพ็กเกจ";
+  if(code==="subscription_expired")return "แพ็กเกจครบกำหนด กรุณาตรวจสอบสถานะต่ออายุหรือการชำระเงินกับฝ่าย Support";
+  if(code==="subscription_locked")return "ระบบจำกัดการเข้าใช้งานชั่วคราว กรุณาติดต่อฝ่าย Support เพื่อตรวจสอบสถานะบัญชีและแพ็กเกจ";
+  if(code==="subscription_inactive")return "สถานะแพ็กเกจไม่ได้เปิดใช้งาน กรุณาติดต่อฝ่าย Support เพื่อยืนยันสถานะ";
+  if(code==="subscription_missing")return "กรุณาติดต่อฝ่าย Support เพื่อตรวจสอบการกำหนดแพ็กเกจของร้าน";
+  if(code==="feature_not_enabled")return "ไม่พบสิทธิ์ใช้งานหน้าขายในแพ็กเกจหรือสาขานี้ กรุณาติดต่อฝ่าย Support เพื่อตรวจสอบสิทธิ์ POS";
+  if(code==="feature_verification_unavailable")return "ไม่สามารถตรวจสอบสถานะแพ็กเกจได้ชั่วคราว กรุณาลองใหม่หรือติดต่อฝ่าย Support";
   if (code === "device_not_found") return "ไม่พบเครื่องที่เลือกในสาขานี้";
   if (code === "device_disabled") return "เครื่องที่เลือกถูกปิดใช้งาน";
   if (code === "device_offline") return "เครื่องที่เลือกออฟไลน์หรืออยู่ระหว่างบำรุงรักษา";
@@ -293,7 +320,7 @@ function LoginDevicesPageContent() {
       if (!response.ok || !body?.data?.redirect_to) {
         const message = mapDeviceError(body?.error?.code, body?.error?.message);
         setError(message);
-        setPopup({ type: "error", message });
+        setPopup({ type: "error", message, code:body?.error?.code, expiresAt:body?.error?.expires_at });
         hasFailure = true;
         return;
       }
@@ -436,8 +463,20 @@ function LoginDevicesPageContent() {
                 <div className="store-v2-popup-error-icon" aria-hidden="true">
                   !
                 </div>
-                <p className="store-v2-popup-title">{T("ดำเนินการไม่สำเร็จ")}</p>
+                <p className="store-v2-popup-title" id="pos-device-entry-error-title">{T(entryErrorTitle(popup.code))}</p>
                 <p className="store-v2-popup-text">{T(popup.message)}</p>
+                {popup.code&&PACKAGE_ENTRY_REASONS.has(popup.code)?(
+                  <div className="mt-3 w-full rounded-xl border border-amber-200 bg-amber-50 px-3 py-3 text-left text-xs leading-relaxed text-amber-900" role="status">
+                    {popup.expiresAt&&entryExpiryDate(lang,popup.expiresAt)?(
+                      <p>{T("วันสิ้นสุดสิทธิ์")}: <strong>{entryExpiryDate(lang,popup.expiresAt)}</strong></p>
+                    ):null}
+                    <p className="mt-1">{T("กรุณาติดต่อฝ่าย Support เพื่อให้เจ้าหน้าที่ตรวจสอบสิทธิ์ของร้าน โดยไม่จำเป็นต้องสมัครร้านใหม่")}</p>
+                    <a href="https://lin.ee/f1LXpAF" target="_blank" rel="noopener noreferrer"
+                      className="mt-2 inline-flex min-h-10 items-center rounded-lg bg-emerald-700 px-4 py-2 font-bold text-white">
+                      {T("ติดต่อฝ่าย Support")}
+                    </a>
+                  </div>
+                ):null}
                 <button type="button" className="store-v2-popup-close-btn" onClick={() => setPopup({ type: "none" })}>
                   {T("ปิด")}
                 </button>
