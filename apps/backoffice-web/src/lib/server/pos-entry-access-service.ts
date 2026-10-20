@@ -95,8 +95,18 @@ export async function evaluatePosEntryAccess(supabase:SupabaseServiceClient,tena
   // Check lifecycle first. An expired trial must never be mislabeled as
   // an unavailable sales feature or bypassed via stale feature grants.
   const subscription=await loadPosSubscriptionEntryState(supabase,tenantId);
+  const provisional=await supabase.from("tenant_subscription_payment_requests")
+    .select("id,provisional_access_expires_at")
+    .eq("tenant_id",tenantId).eq("status","under_review").eq("auto_check_status","passed")
+    .not("provisional_access_granted_at","is",null).is("provisional_access_revoked_at",null)
+    .gt("provisional_access_expires_at",new Date().toISOString())
+    .order("provisional_access_granted_at",{ascending:false}).limit(1).maybeSingle();
+  if(provisional.error)throw new PosFeatureLookupUnavailable();
+  const temporary=Boolean(provisional.data?.id && subscription.lifecycle?.access_locked===false &&
+    subscription.lifecycle.lock_reason==="subscription_payment_provisional_review" &&
+    subscription.lifecycle.metadata?.provisional_payment_request_id===provisional.data.id);
   const lifecycleDenial=classifyPosEntryDenial(subscription.contract,subscription.lifecycle);
-  if(lifecycleDenial)return {allowed:false as const,denial:lifecycleDenial};
+  if(lifecycleDenial && !temporary)return {allowed:false as const,denial:lifecycleDenial};
   const enabled=await hasAnyPosSalesFeature(supabase,tenantId,branchId);
   if(!enabled)return {allowed:false as const,denial:unavailablePosFeatureDenial()};
   return {allowed:true as const,denial:null};
