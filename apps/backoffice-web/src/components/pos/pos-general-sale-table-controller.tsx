@@ -371,6 +371,24 @@ function ensureGeneralSaleStyles() {
     @media (max-width: 900px) {
       .cpipos-sd-table__summary { align-items: flex-start; flex-direction: column; }
     }
+    /* Optical only: allow horizontal access to long product details. */
+    html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .cpipos-sd-table__scroll {
+      overflow-x: auto !important; scroll-behavior: smooth; overscroll-behavior-x: contain;
+    }
+    html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .cpipos-sd-table__nav {
+      display: flex; align-items: center; justify-content: flex-end; gap: 8px; padding: 6px 12px; background: #fff;
+    }
+    html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .cpipos-sd-table__nav button {
+      min-height: 36px; min-width: 44px; border: 1px solid #cbd5e1;
+      border-radius: 8px; background: #fff; font-weight: 800;
+    }
+    html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .cpipos-sd-table__name .cpipos-sd-table__optical-sku {
+      display: block; margin-top: 4px; font-size: 11px;
+      color: #065f46; font-weight: 700; overflow-wrap: anywhere; user-select: text;
+    }
+    @container optical-cart (min-width: 821px) {
+      html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .cpipos-sd-table table { min-width: 890px; max-width: none; }
+    }
   `;
   document.head.appendChild(style);
 }
@@ -607,6 +625,8 @@ export function PosGeneralSaleTableController({ lang = "th" }: { lang?: Lang }) 
             productName.title = row.name;
           }
           nameCell.appendChild(productName);
+          if (opticalActive) nameCell.appendChild(createTextElement("small","cpipos-sd-table__optical-sku",
+            "SKU / รหัสสินค้า: "+(row.sku||"—")));
           if (!opticalActive && row.notes) nameCell.appendChild(createTextElement("small", "", row.notes));
           const qtyCell = document.createElement("td");
           qtyCell.className = "cpipos-sd-table__qty";
@@ -658,7 +678,19 @@ export function PosGeneralSaleTableController({ lang = "th" }: { lang?: Lang }) 
         table.append(thead, tbody);
         scroll.appendChild(table);
       }
-      host.replaceChildren(summary, scroll);
+      if(opticalActive&&rows.length){
+        const nav=document.createElement("div");
+        nav.className="cpipos-sd-table__nav";
+        const caption=createTextElement("span","",lang==="lo"?"ເລື່ອນຕາຕະລາງ":lang==="en"?"Scroll cart details":"เลื่อนตารางเพื่อดูข้อมูล");
+        const previous=createTextElement("button","","←") as HTMLButtonElement;
+        previous.type="button";previous.setAttribute("aria-label",lang==="en"?"Scroll cart left":"เลื่อนตะกร้าไปซ้าย");
+        previous.addEventListener("click",()=>scroll.scrollBy({left:-320,behavior:"smooth"}));
+        const next=createTextElement("button","","→") as HTMLButtonElement;
+        next.type="button";next.setAttribute("aria-label",lang==="en"?"Scroll cart right":"เลื่อนตะกร้าไปขวา");
+        next.addEventListener("click",()=>scroll.scrollBy({left:320,behavior:"smooth"}));
+        nav.append(caption,previous,next);
+        host.replaceChildren(summary,nav,scroll);
+      }else host.replaceChildren(summary,scroll);
     };
 
     const scheduleTableRender = (delayMs = CART_RENDER_DELAY_MS) => {
