@@ -8,7 +8,7 @@ import {opticalStockText,opticalStockError} from "@/lib/optical-stock-i18n";
 import type {Language} from "@/lib/i18n";
 
 export type OpticalRow={
-  id:string;name:string;sku:string|null;category:string|null;price:number;
+  id:string;name:string;sku:string|null;category:string|null;price:number;is_active:boolean;
   sell_unit:string|null;metadata:Record<string,unknown>|null;
   available:number|null;recipeAttached:boolean;
   opticalBin?:{product_id:string;kind:string;brand:string|null;model:string|null;
@@ -70,8 +70,8 @@ function checkRows(rows:Draft[],currency:SalesCurrencyCode){
   }
   return "";
 }
-export function OpticalStockWorkspace({rows,branch,branchId,branches,currency,canManage,lang}:{
-  rows:OpticalRow[];branch:string;branchId:string;branches:{id:string;name:string}[];currency:SalesCurrencyCode;canManage:boolean;lang:Language
+export function OpticalStockWorkspace({rows,branch,branchId,branches,currency,canManage,lang,showInactive}:{
+  rows:OpticalRow[];branch:string;branchId:string;branches:{id:string;name:string}[];currency:SalesCurrencyCode;canManage:boolean;lang:Language;showInactive:boolean
 }){
   const T=(thai:string)=>opticalStockText(lang,thai);
   const [search,setSearch]=useState(""),[filter,setFilter]=useState("all"),[stock,setStock]=useState("all");
@@ -218,6 +218,23 @@ export function OpticalStockWorkspace({rows,branch,branchId,branches,currency,ca
     if(newProductCreated){advanceReceiptQueue();return;}
     setModal(null);setError("");
   }};
+  async function changeSaleVisibility(item:OpticalRow,action:"archive"|"restore"){
+    if(!canManage||busy)return;
+    if(!window.confirm(T(action==="archive"?
+      "หยุดจำหน่ายสินค้านี้ โดยคงประวัติสต๊อกและใบสั่งงานไว้?":"เปิดจำหน่ายสินค้านี้อีกครั้ง?")))return;
+    setBusy(true);setError("");
+    try{
+      const res=await fetch("/api/pos/optical/catalog",{
+        method:"PUT",credentials:"same-origin",
+        headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({id:item.id,branch_id:branchId,action}),cache:"no-store"
+      });
+      const result=await res.json().catch(()=>null) as {error?:{message?:string}}|null;
+      if(!res.ok)throw new Error(result?.error?.message??T("เปลี่ยนสถานะสินค้าไม่สำเร็จ"));
+      window.location.assign("/preview/pos/stock/custom?branch_id="+encodeURIComponent(branchId)
+        +(showInactive?"&show_inactive=1":""));
+    }catch(e){setError(opticalStockError(lang,e instanceof Error?e.message:"เปลี่ยนสถานะสินค้าไม่สำเร็จ"));setBusy(false);}
+  }
   async function save(){
     if(!modal||busy)return;
     if(modal==="sku"||modal==="media"||modal==="best"||modal==="adjust"||modal==="scan"||modal==="summary")return;
@@ -304,6 +321,12 @@ export function OpticalStockWorkspace({rows,branch,branchId,branches,currency,ca
         </div>
       </div>
     </header>
+    {canManage?<div className="flex justify-end">
+      <a href={"/preview/pos/stock/custom?branch_id="+encodeURIComponent(branchId)+(showInactive?"":"&show_inactive=1")}
+        className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-900">
+        {T(showInactive?"ซ่อนรายการหยุดขาย":"แสดงรายการหยุดขาย")}
+      </a>
+    </div>:null}
     {error&&!modal?<p role="alert" className="rounded-lg bg-rose-50 p-3 text-sm text-rose-700">{error}</p>:null}
     <nav role="tablist" aria-label={T("สลับประเภทสต๊อก Optical")} className="flex flex-wrap gap-2">
       {stockTabs.map(value=><button key={value} role="tab" type="button" aria-selected={tab===value}
@@ -346,7 +369,7 @@ export function OpticalStockWorkspace({rows,branch,branchId,branches,currency,ca
               "ราคา ("+currency+")","จำนวน","จำนวนคงเหลือ",...(canManage?["จัดการ"]:[])]
               .map(label=><th key={label} className="whitespace-nowrap px-3 py-3">{label.startsWith("ราคา (")?T("ราคา (")+currency+")":T(label)}</th>)}
           </tr></thead>
-          <tbody>{subset.map(row=><tr key={row.id} className="border-t border-slate-100 hover:bg-slate-50">
+          <tbody>{subset.map(row=><tr key={row.id} className={"border-t border-slate-100 hover:bg-slate-50 "+(row.is_active?"":"bg-amber-50/60")}>
             <td className="px-3 py-3">
               <button type="button" className="whitespace-nowrap rounded-lg border border-emerald-200 bg-white px-3 py-2 text-xs font-bold text-emerald-800"
                 onClick={()=>show("sku",row)}>{T("ดูรหัส")}</button>
@@ -383,12 +406,16 @@ export function OpticalStockWorkspace({rows,branch,branchId,branches,currency,ca
               {!row.opticalBin?<small className="block max-w-[180px] text-xs font-medium text-amber-800">{T("ยังไม่บันทึกจำนวนรับเข้าสต๊อก ไม่ใช่ยอดคงเหลือ 0")}</small>:null}
             </td>
             {canManage?<td className="whitespace-nowrap px-3 py-3">
-              <button type="button" className="mr-2 rounded-lg border border-blue-200 px-3 py-2 text-xs text-blue-700"
+              {!row.is_active?<span className="mr-2 inline-block rounded bg-amber-100 px-2 py-1 text-xs font-bold text-amber-900">{T("หยุดขาย")}</span>:null}
+              <button type="button" disabled={!row.is_active} className="mr-2 rounded-lg border border-blue-200 px-3 py-2 text-xs text-blue-700 disabled:opacity-40"
                 onClick={()=>show("edit",row)}>{T("แก้ไข")}</button>
-              <button type="button" className="mr-2 rounded-lg border border-emerald-300 px-3 py-2 text-xs text-emerald-800"
+              <button type="button" disabled={!row.is_active} className="mr-2 rounded-lg border border-emerald-300 px-3 py-2 text-xs text-emerald-800 disabled:opacity-40"
                 onClick={()=>openStockAdjustment(row.sku??"")}>{T("+/- สต๊อก")}</button>
-              <button type="button" className="rounded-lg border border-rose-200 px-3 py-2 text-xs text-rose-700"
-                onClick={()=>show("delete",row)}>{T("ลบ")}</button>
+              <button type="button" className="mr-2 rounded-lg border border-amber-300 px-3 py-2 text-xs text-amber-900"
+                onClick={()=>void changeSaleVisibility(row,row.is_active?"archive":"restore")}>
+                {T(row.is_active?"หยุดขาย":"เปิดขายอีกครั้ง")}</button>
+              {row.is_active?<button type="button" className="rounded-lg border border-rose-200 px-3 py-2 text-xs text-rose-700"
+                onClick={()=>show("delete",row)}>{T("ลบ")}</button>:null}
             </td>:null}
           </tr>)}</tbody>
         </table>
@@ -535,6 +562,7 @@ export function OpticalStockWorkspace({rows,branch,branchId,branches,currency,ca
           </div>:null}
           {modal==="delete"?<p className="rounded-lg bg-rose-50 p-4 text-sm text-rose-800">
             {T("ต้องการลบสินค้า")} <strong>{selected?.name}</strong> {T("ใช่หรือไม่? ระบบใช้ Soft Delete และจะบล็อกสินค้าที่มีสต๊อก สูตร หรือใบสั่งงานผูกอยู่")}
+            <span className="mt-2 block font-semibold">{T("หากสินค้าเคยรับเข้า มีการจอง หรือมีใบสั่งงาน ให้ใช้ปุ่มหยุดขายแทน โดยจะเก็บยอดและประวัติทั้งหมดไว้")}</span>
           </p>:null}
           {(modal==="add"||modal==="bulk")?<label className="mb-4 block text-sm font-bold">{T("เลือกสาขาที่ต้องการลงสินค้า")}
             <select value={targetBranchId} className={field+" mt-2"} onChange={e=>setTargetBranchId(e.target.value)}>
