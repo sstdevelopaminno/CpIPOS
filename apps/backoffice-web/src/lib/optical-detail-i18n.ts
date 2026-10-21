@@ -317,6 +317,30 @@ const dictionary: Readonly<Record<string,{en:string;lo:string}>> = {
     "en": "Enter a valid name and age (0–130 years).",
     "lo": "ກະລຸນາໃສ່ຊື່ ແລະ ອາຍຸໃຫ້ຖືກຕ້ອງ (0–130 ປີ)"
   },
+  "ยืนยันการเก็บประวัติลูกค้า": {
+    "en": "Archive this customer?",
+    "lo": "ຢືນຢັນການເກັບປະຫວັດລູກຄ້າ"
+  },
+  "ต้องการเก็บประวัติลูกค้ารายนี้ใช่หรือไม่? หลังยืนยัน ลูกค้าจะไม่แสดงในรายการที่ใช้งานอยู่": {
+    "en": "Archive this customer? They will no longer appear in your active customer list.",
+    "lo": "ທ່ານຕ້ອງການເກັບປະຫວັດລູກຄ້ານີ້ບໍ? ຫຼັງຢືນຢັນ ລູກຄ້າຈະບໍ່ສະແດງໃນລາຍການທີ່ໃຊ້ງານຢູ່"
+  },
+  "ข้อมูลจะไม่ถูกลบถาวร": {
+    "en": "No data will be permanently deleted",
+    "lo": "ຂໍ້ມູນຈະບໍ່ຖືກລຶບຖາວອນ"
+  },
+  "ข้อมูลลูกค้าและประวัติการตรวจสายตาจะถูกเก็บไว้ในระบบ การเก็บถาวรอาจถูกปฏิเสธหากยังมีใบสั่งงานที่ใช้งานอยู่": {
+    "en": "Customer information and eye-exam history will be preserved. Archiving may be blocked if the customer has active work orders.",
+    "lo": "ຂໍ້ມູນລູກຄ້າ ແລະ ປະຫວັດການກວດສາຍຕາຈະຍັງຖືກເກັບໄວ້ ການເກັບຖາວອນອາດຖືກປະຕິເສດຖ້າຍັງມີໃບສັ່ງງານທີ່ໃຊ້ງານຢູ່"
+  },
+  "ยืนยันเก็บถาวร": {
+    "en": "Confirm archive",
+    "lo": "ຢືນຢັນເກັບຖາວອນ"
+  },
+  "กำลังเก็บถาวร...": {
+    "en": "Archiving...",
+    "lo": "ກຳລັງເກັບຖາວອນ..."
+  },
   "ย้ายลูกค้าเข้าประวัติเก็บถาวร? ข้อมูลผลตรวจจะไม่ถูกลบ": {
     "en": "Archive customer? Existing eye exams will not be deleted.",
     "lo": "ຍ້າຍລູກຄ້າເຂົ້າປະຫວັດຖາວອນ? ຜົນກວດຈະບໍ່ຖືກລຶບ"
