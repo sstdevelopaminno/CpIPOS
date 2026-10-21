@@ -1,5 +1,7 @@
 # CpIPOS Master System Scope & Architecture
 
+> **2026-10-21 CURRENT OVERRIDE — CpiPOS-002 is RETIRED.** The historical 2026-08-09 dual-plane design below is preserved for audit and is no longer the supported runtime architecture. All currently inspected `tenant_data_lifecycle` rows point to Primary CpiPOS-001. Trial packages use Primary, and stale Trial routes fail closed. See `README.md`, `AGENTS.md`, and merged POS PR #338 before new work. Do not re-create the old Trial database or apply its SQL bundle.
+
 > Canonical continuity document for ChatGPT, Codex, maintainers, and future sessions.
 >
 > Audit snapshot: 2026-08-09 15:40 ICT

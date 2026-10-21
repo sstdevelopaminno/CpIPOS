@@ -1,4 +1,4 @@
-# CpIPOS / SST iPOS Project Context (Historical Handoff)
+> **2026-10-21 CURRENT OVERRIDE — Primary-only database:** CpiPOS-002 no longer exists and was retired in POS PR #338 (merged to `main` at `1d9e28b`). Trial subscriptions run on CpiPOS-001; old Trial SQL/docs below are historical only. Do not recreate CpiPOS-002 or route customer records to it. Inspect current `README.md` and `AGENTS.md` before following old handoff notes. Unexpected stale `data_home=trial` must fail closed without modifying customer data.\n\n# CpIPOS / SST iPOS Project Context (Historical Handoff)
 
 Last reviewed for CpIPOS: 2026-08-17
 Current workspace: `E:\CpIPOS`
