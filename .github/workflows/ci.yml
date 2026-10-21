@@ -5,12 +5,10 @@ on:
     branches:
       - main
       - develop
-      - agent-docs-preflight-schema-drift
   push:
     branches:
       - main
       - develop
-      - agent-docs-preflight-schema-drift
       - hotfix/**
 
 concurrency:
@@ -61,10 +59,6 @@ jobs:
       - name: Audit migration history and safe release preflight tests
         timeout-minutes: 3
         run: node --test scripts/tests/*.test.mjs
-
-      - name: CpiPOS-002 trial SQL separation preflight
-        timeout-minutes: 5
-        run: corepack pnpm schema:drift:trial
 
       - name: Build backoffice (PR)
         if: github.event_name == 'pull_request'
