@@ -384,8 +384,15 @@ export async function isFeatureKeyConfigured(featureKey: string): Promise<boolea
 }
 
 export async function getTenantLimits(tenantId: string): Promise<TenantLimits> {
-  const contract = await getLatestContract(tenantId);
+  // Quota provisioning is an infrequent write operation and must reflect IT's
+  // latest saved CUSTOM capacity immediately. Feature-menu cache remains intact.
   const supabase = getSupabaseServiceClient();
+  const latest = await supabase.from("tenant_subscription_contracts")
+    .select("id,tenant_id,package_id,status,branch_limit,terminal_limit_per_branch,max_branches,max_devices,max_users,metadata,started_at,ended_at,created_at")
+    .eq("tenant_id", tenantId).order("created_at", { ascending: false })
+    .limit(1).maybeSingle<ContractRow>();
+  if (latest.error) throw new FeatureGateError("contract_query_failed", latest.error.message, 500);
+  const contract = latest.data ?? null;
 
   const [{ count: branchCount, error: branchCountError }, { count: deviceCount, error: deviceCountError }, { data: userRows, error: userRowsError }] = await Promise.all([
     supabase.from("branches").select("id", { count: "exact", head: true }).eq("tenant_id", tenantId).eq("is_active", true),
@@ -438,9 +445,18 @@ export async function enforceQuota(tenantId: string, resourceType: QuotaResource
   }
 
   if (resourceType === "devices" && limits.maxDevices !== null) {
+    // CUSTOM quotas are negotiated per store, not per branch. A two-device
+    // CUSTOM contract must never become two devices in EACH branch.
+    const supabase = getSupabaseServiceClient();
+    const packageResult = await supabase.from("subscription_packages")
+      .select("code").eq("id", limits.planId ?? "")
+      .maybeSingle<{ code: string }>();
+    if (packageResult.error) {
+      throw new FeatureGateError("quota_package_lookup_failed", packageResult.error.message, 500);
+    }
+    const isCustom = String(packageResult.data?.code ?? "").toLowerCase() === "custom";
     let deviceUsage = limits.usage.devices;
-    if (branchId) {
-      const supabase = getSupabaseServiceClient();
+    if (branchId && !isCustom) {
       const { count, error } = await supabase
         .from("branch_devices")
         .select("id", { count: "exact", head: true })
