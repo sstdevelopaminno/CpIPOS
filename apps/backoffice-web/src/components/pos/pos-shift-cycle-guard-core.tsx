@@ -583,6 +583,10 @@ export function PosShiftCycleGuard({ lang }: { lang: Lang }) {
 
   async function handleManualClose() {
     if (!shift || busy) return;
+    if(opticalPolicy?.enabled && !closingCash.trim()){
+      setError(lang==="th"?"กรุณานับและกรอกเงินสดปลายกะก่อนยืนยัน":"Count and enter the closing cash before confirming.");
+      return;
+    }
     const parsed = Number(closingCash.trim() || "0");
     if (!Number.isFinite(parsed) || parsed < 0) {
       setError(copy.invalidClosingCash);
@@ -608,9 +612,9 @@ export function PosShiftCycleGuard({ lang }: { lang: Lang }) {
   useEffect(() => {
     if (!shift || !cycle) return;
     if (phase !== "auto_close") return;
-    // No reliable background close/finance reconciliation has been activated.
-    // An open Optical session must not run the legacy food auto-close path.
-    if(opticalPolicy?.enabled && !opticalPolicy.automaticClosureReady)return;
+    // Optical CUSTOM is closed by pg_cron even if this screen is closed.
+    // Never send the restaurant cash-less close API from the browser.
+    if(opticalPolicy?.enabled)return;
     if (needsManagerApproval) return;
     if (autoCloseRunRef.current === shift.id) return;
     autoCloseRunRef.current = shift.id;
@@ -711,7 +715,9 @@ export function PosShiftCycleGuard({ lang }: { lang: Lang }) {
           {phase === "auto_close" ? <p className="mt-1 font-bold text-rose-700">
             {opticalManualCloseRequired
               ? (lang==="th"?"ครบวันทำการแล้ว · โปรดนับเงินสดและปิดกะรายวัน (ตัวจัดตารางงานเซิร์ฟเวอร์ยังไม่เปิดใช้งาน)":"Business day ended · Count cash and close the daily shift; server job is pending.")
-              : copy.autoClosing}
+              : opticalPolicy?.enabled
+                ? (lang==="th"?"ถึงเวลาปิดกะรายวันแล้ว · ระบบเซิร์ฟเวอร์กำลังตรวจยอดและปิดกะอัตโนมัติ":"Daily cutoff reached · Server is reconciling and closing this Optical shift.")
+                : copy.autoClosing}
           </p> : null}
         </div>
 
