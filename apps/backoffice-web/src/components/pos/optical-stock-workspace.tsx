@@ -278,12 +278,13 @@ export function OpticalStockWorkspace({rows,branch,branchId,branches,currency,ca
     totalPages<=7||p===1||p===totalPages||Math.abs(p-currentPage)<=2);
   return <main className="mx-auto h-full min-h-0 w-full max-w-7xl space-y-4 overflow-y-auto overscroll-y-contain px-3 pb-12 pt-3 lg:px-6" data-testid="custom-optical-inventory">
     <header className="rounded-2xl border border-emerald-200 bg-gradient-to-r from-emerald-100 via-green-50 to-white p-5 shadow-sm">
-      <div className="flex flex-wrap items-start justify-between gap-x-6 gap-y-4">
+      <div className="grid grid-cols-1 items-start gap-3 lg:grid-cols-[auto_minmax(0,1fr)] lg:gap-x-4" data-testid="optical-inventory-toolbar">
         <PosBackButton lang={lang} href="/preview/pos/more" label={T("กลับเมนูเพิ่มเติม")}/>
-        <div className="flex w-full min-w-0 flex-wrap items-end justify-start gap-x-4 gap-y-3 lg:w-auto lg:justify-end">
-          <label className="flex min-w-[180px] flex-col gap-1 text-xs font-bold text-slate-700">{T("เลือกสาขา")}
+        <div className="flex w-full min-w-0 flex-wrap items-center justify-start gap-3 lg:justify-end" data-testid="optical-inventory-actions">
+          <label className="flex min-w-0 items-center gap-2 text-xs font-bold text-slate-700">
+            <span className="shrink-0">{T("เลือกสาขา")}</span>
             <select aria-label={T("เลือกสาขาสต๊อก")} value={branchId}
-              className={field+" w-full min-w-[180px]"}
+              className={field+" !w-40 min-w-0"}
               disabled={branches.length<=1}
               onChange={e=>window.location.assign("/preview/pos/stock/custom?branch_id="+encodeURIComponent(e.target.value))}>
               {branches.map(b=><option key={b.id} value={b.id}>{b.name}</option>)}
@@ -294,17 +295,14 @@ export function OpticalStockWorkspace({rows,branch,branchId,branches,currency,ca
           </button>
           {canManage?<button type="button" className="min-h-10 rounded-xl border border-emerald-700 bg-white px-4 py-2 text-sm font-bold text-emerald-800"
             onClick={()=>show("scan")}>{T("สแกนเพิ่ม/ลดสต๊อก")}</button>:null}
-          <button className="min-h-10 rounded-xl border border-amber-400 bg-amber-50 px-4 py-2 text-sm font-bold text-amber-900"
+          <button type="button" className="min-h-10 rounded-xl border border-amber-400 bg-amber-50 px-4 py-2 text-sm font-bold text-amber-900"
             onClick={()=>show("best")}>{T("★ สินค้าขายดี")}</button>
-        {canManage?<div className="flex flex-wrap items-center gap-3">
-          <button className="min-h-10 rounded-xl bg-emerald-700 px-4 py-2 text-sm font-bold text-white" onClick={()=>show("add")}>{T("+ เพิ่มสินค้า")}</button>
-          <button className="min-h-10 rounded-xl border border-emerald-600 bg-white px-4 py-2 text-sm font-bold text-emerald-800" onClick={()=>show("bulk")}>{T("+ สร้างสินค้าหลายรายการ")}</button>
-        </div>:null}
+          {canManage?<div className="flex flex-wrap items-center gap-3">
+            <button type="button" className="min-h-10 rounded-xl bg-emerald-700 px-4 py-2 text-sm font-bold text-white" onClick={()=>show("add")}>{T("+ เพิ่มสินค้า")}</button>
+            <button type="button" className="min-h-10 rounded-xl border border-emerald-600 bg-white px-4 py-2 text-sm font-bold text-emerald-800" onClick={()=>show("bulk")}>{T("+ สร้างสินค้าหลายรายการ")}</button>
+          </div>:null}
         </div>
       </div>
-      <p className="mt-3 text-xs font-bold tracking-widest text-emerald-800">CUSTOM · OPTICAL INVENTORY</p>
-      <h1 className="mt-1 text-2xl font-extrabold text-slate-900">{T("สต๊อกกรอบแว่นและเลนส์")}</h1>
-      <p className="mt-1 text-sm text-slate-600">{branch} · ข้อมูลแยกตาม Tenant และ Branch</p>
     </header>
     {error&&!modal?<p role="alert" className="rounded-lg bg-rose-50 p-3 text-sm text-rose-700">{error}</p>:null}
     <nav role="tablist" aria-label={T("สลับประเภทสต๊อก Optical")} className="flex flex-wrap gap-2">
