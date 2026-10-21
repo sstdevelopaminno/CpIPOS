@@ -11,8 +11,8 @@ export type OpticalShiftUiPolicy = {
   timeZone:string|null;
   /** Only when BOTH the server rollout and the tenant's IT feature are enabled. */
   financeEnabled:boolean;
-  /** Server-side scheduled daily closure is not yet deployed. */
-  automaticClosureReady:false;
+  /** Only IT-opted-in Lao CUSTOM stores use the server-side midnight worker. */
+  automaticClosureReady:boolean;
 };
 
 const disabled:OpticalShiftUiPolicy={
@@ -52,5 +52,11 @@ export async function getOpticalShiftUiPolicy(tenantId:string):Promise<OpticalSh
   const financeEnabled=Boolean(timeZone && country!=="US" &&
     process.env.OPTICAL_FINANCE_V1_ENABLED==="true" &&
     features.optical_deposit===true && features.optical_work_orders===true);
-  return {enabled:true,country,currency,timeZone,financeEnabled,automaticClosureReady:false};
+  // The cron worker is tenant opt-in, never inferred from optical mode alone.
+  // THB/USD, non-CUSTOM modes, and legacy stores are not silently enrolled.
+  const automaticClosureReady=Boolean(
+    country==="LA" && currency==="LAK" && timeZone==="Asia/Vientiane"
+    && features.optical_daily_auto_close===true
+  );
+  return {enabled:true,country,currency,timeZone,financeEnabled,automaticClosureReady};
 }
