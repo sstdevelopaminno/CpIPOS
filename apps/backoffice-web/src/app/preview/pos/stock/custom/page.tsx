@@ -15,7 +15,7 @@ import {getOpticalBranchScope,verifyOpticalBranch} from "@/lib/server/optical-st
 export const dynamic="force-dynamic";
 
 type CatalogRow={
-  id:string;sku:string|null;name:string;category:string|null;price:number;
+  id:string;sku:string|null;name:string;category:string|null;price:number;is_active:boolean;
   sell_unit:string|null;stock_deduction_mode:string|null;
   metadata:Record<string,unknown>|null
 };
@@ -32,7 +32,7 @@ type RenderRow=CatalogRow&{available:number|null;recipeAttached:boolean;
  * for reconciliation but does NOT migrate the item to optical_stock_bins.
  * Finance stock and queued order cutover must be reviewed separately.
  */
-export default async function CustomModeStockPage({searchParams}:{searchParams?:Promise<{branch_id?:string}>}) {
+export default async function CustomModeStockPage({searchParams}:{searchParams?:Promise<{branch_id?:string;show_inactive?:string}>}) {
   const session=await requirePosSession();
   await assertPosMenuPageAllowed(session.session.tenant_id,"/preview/pos/stock");
   const scope=await requirePosPagePermission("inventory:view");
@@ -43,14 +43,18 @@ export default async function CustomModeStockPage({searchParams}:{searchParams?:
   const mode=await getCustomPosStockUiMode(tenantId);
   if(mode!=="optical"&&mode!=="retail"&&mode!=="mixed")notFound();
   const optical=mode!=="retail";
+  const showInactive=optical&&params?.show_inactive==="1";
   const db=getSupabaseServiceClient();
   const lang=await getCurrentLanguage();
   const [{data:products,error:productError},{data:branch,error:branchError},currency]=await Promise.all([
-    optical ? collectPagedShiftRows<CatalogRow>((from,to)=>db.from("products")
-      .select("id,sku,name,category,price,sell_unit,stock_deduction_mode,metadata")
-      .eq("tenant_id",tenantId).eq("branch_id",branchId).is("deleted_at",null)
-      .eq("is_active",true).order("name",{ascending:true}).order("id",{ascending:true}).range(from,to))
-    : db.from("products").select("id,sku,name,category,price,sell_unit,stock_deduction_mode,metadata")
+    optical ? collectPagedShiftRows<CatalogRow>((from,to)=>{
+      const query=db.from("products")
+        .select("id,sku,name,category,price,sell_unit,stock_deduction_mode,metadata,is_active")
+        .eq("tenant_id",tenantId).eq("branch_id",branchId).is("deleted_at",null)
+        .order("name",{ascending:true}).order("id",{ascending:true});
+      return showInactive?query.range(from,to):query.eq("is_active",true).range(from,to);
+    })
+    : db.from("products").select("id,sku,name,category,price,sell_unit,stock_deduction_mode,metadata,is_active")
       .eq("tenant_id",tenantId).eq("branch_id",branchId).is("deleted_at",null)
       .eq("is_active",true).order("name",{ascending:true}).limit(250),
     db.from("branches").select("name").eq("tenant_id",tenantId).eq("id",branchId).maybeSingle(),
@@ -115,7 +119,8 @@ export default async function CustomModeStockPage({searchParams}:{searchParams?:
     });
     return <OpticalStockWorkspace rows={enriched}
       branch={branch?.name??"สาขาที่ได้รับสิทธิ์"} branchId={branchId} branches={branches} currency={currency}
-      canManage={["owner","manager"].includes(String(scope.session.role??"").toLowerCase())} lang={lang}/>;
+      canManage={["owner","manager"].includes(String(scope.session.role??"").toLowerCase())} lang={lang}
+      showInactive={showInactive}/>;
   }
   const low=mapped.filter(x=>x.available===1).length;
   const out=mapped.filter(x=>x.available===0).length;
