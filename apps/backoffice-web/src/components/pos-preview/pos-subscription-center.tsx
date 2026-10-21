@@ -330,6 +330,7 @@ export function PosSubscriptionCenter({ initial, isOwner, showContactActions = t
         id: string;
         status: string;
         already_submitted: boolean;
+        provisional_access_granted?: boolean;
         slip_scan?: {
           status: "verified" | "needs_review" | "error";
           parsed: { amount: number | null; payer_name: string | null; transfer_datetime: string | null; reference_no: string | null };
@@ -352,14 +353,18 @@ export function PosSubscriptionCenter({ initial, isOwner, showContactActions = t
           button: "ดูสถานะการชำระ"
         });
       } else if (kind === "payment_notice") {
-        setMessage("บันทึกการแจ้งชำระแล้ว รอ IT ตรวจสอบรายการรับเงินจริง");
+        setMessage(json.data.provisional_access_granted
+          ? "ตรวจสลิปผ่านแล้ว · เปิด POS ใช้งานได้ทันทีระหว่างรอ IT ยืนยันเงินเข้าจริง"
+          : "รับสลิปแล้ว · รอ IT ตรวจสอบรายละเอียดเพิ่มเติม");
         setPopupOpen(false);
         selectTab("history");
         showResultPopup({
-          title: "ส่งหลักฐานการชำระเงินสำเร็จ",
-          message: json.data.slip_scan?.status === "verified"
-            ? "ระบบรับหลักฐานการโอนเรียบร้อยแล้ว ขั้นตอนต่อไปฝ่าย IT จะตรวจสอบเงินเข้าบัญชีบริษัทและยืนยันรายการ เมื่อดำเนินการเสร็จสถานะแพ็กเกจจะอัปเดตอัตโนมัติ"
-            : "ระบบรับหลักฐานการโอนเรียบร้อยแล้ว รายการถูกส่งให้ฝ่าย IT ตรวจสอบรายละเอียดเพิ่มเติม เมื่อยืนยันเงินเข้าเรียบร้อยแล้วระบบจะดำเนินการตามคำขอแพ็กเกจ",
+          title: json.data.provisional_access_granted
+            ? "เปิดใช้งาน POS สำเร็จ · รอ IT ตรวจสอบ"
+            : "ส่งหลักฐานการชำระเงินสำเร็จ",
+          message: json.data.provisional_access_granted
+            ? "ตรวจวันที่ ยอดเงิน บัญชีผู้รับและข้อมูลสลิปเบื้องต้นผ่านแล้ว สามารถใช้งาน POS ได้ทันที ฝ่าย IT ยังจะตรวจเงินเข้าจริงภายหลัง และหาก IT ไม่อนุมัติ ระบบจะล็อกจนกว่า IT จะแก้ไขให้"
+            : "ระบบรับสลิปแล้ว แต่ยังไม่เปิด POS อัตโนมัติ เนื่องจากข้อมูลสลิปหรือรอบบิลต้องตรวจสอบเพิ่ม กรุณาติดต่อ Support และรอ IT ตรวจสอบ",
           action: "history",
           button: "ดูสถานะการชำระ"
         });
