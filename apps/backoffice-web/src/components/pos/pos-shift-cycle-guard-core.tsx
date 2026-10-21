@@ -583,6 +583,10 @@ export function PosShiftCycleGuard({ lang }: { lang: Lang }) {
 
   async function handleManualClose() {
     if (!shift || busy) return;
+    if(opticalPolicy?.enabled && !closingCash.trim()){
+      setError(lang==="th"?"กรุณานับและกรอกเงินสดปลายกะก่อนยืนยัน":"Count and enter the closing cash before confirming.");
+      return;
+    }
     const parsed = Number(closingCash.trim() || "0");
     if (!Number.isFinite(parsed) || parsed < 0) {
       setError(copy.invalidClosingCash);
