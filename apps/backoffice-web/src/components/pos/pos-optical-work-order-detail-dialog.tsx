@@ -8,6 +8,17 @@ type Payment={id:string;amount:number;method:string;received_at:string;reference
 type Info={order:WorkOrder;lines:Line[];payments:Payment[];financeReady:boolean;canManage:boolean};
 type PrinterInfo={configured:boolean;paper_width_mm:58|80;printer_name:string|null};
 const money=(x:number)=>Number(x||0).toLocaleString("en-US");
+function workOrderActionError(lang:Language,error:string){
+  const messages:Record<string,[string,string,string]>={
+    "OPTICAL_MANAGER_PIN_INVALID":["PIN ผู้จัดการหรือเจ้าของร้านไม่ถูกต้อง กรุณาใช้ PIN ปัจจุบันของผู้มีสิทธิ์ในสาขานี้","Invalid manager/owner PIN for this branch.","PIN ຜູ້ຈັດການ ຫຼື ເຈົ້າຂອງຮ້ານບໍ່ຖືກຕ້ອງ"],
+    "OPTICAL_MANAGER_PIN_REQUIRED":["กรุณากรอก PIN ผู้จัดการหรือเจ้าของร้าน","Manager/owner PIN required.","ກະລຸນາກອກ PIN ຜູ້ຈັດການ"],
+    "OPTICAL_REFUND_REQUIRED_BEFORE_CANCELLATION":["ใบงานนี้รับเงินแล้ว ต้องคืนเงินจริงพร้อมบันทึกหลักฐานคืนเงินก่อน จึงจะยกเลิกได้","This order has received a payment. Refund with an auditable record before cancellation.","ໃບສັ່ງງານນີ້ຮັບເງິນແລ້ວ ຕ້ອງຄືນເງິນພ້ອມຫຼັກຖານກ່ອນຍົກເລີກ"],
+    "OPTICAL_ORDER_CLOSED":["ใบสั่งงานปิดแล้ว จึงแก้ไขวันนัดรับไม่ได้","Work order is closed.","ໃບສັ່ງງານປິດແລ້ວ"],
+    "OPTICAL_ORDER_ALREADY_TERMINAL":["ใบงานปิดหรือยกเลิกไปแล้ว","Work order already closed or cancelled.","ໃບສັ່ງງານປິດ ຫຼື ຍົກເລີກແລ້ວ"]
+  };
+  const code=Object.keys(messages).find(value=>error.includes(value));
+  return code?messages[code][lang==="en"?1:lang==="lo"?2:0]:error;
+}
 function dueLabel(lang:Language,date:string|null){return date?opticalDetailDate(lang,date):opticalDetailText(lang,"ยังไม่กำหนด");}
 function localToday(){
  const parts=new Intl.DateTimeFormat("en-US",{timeZone:"Asia/Bangkok",year:"numeric",month:"2-digit",day:"2-digit"}).formatToParts(new Date());
@@ -50,8 +61,8 @@ export function PosOpticalWorkOrderDetailDialog({id,onClose,onChanged,lang}:{id:
    if(managerPin.trim().length<4)return setError(txt("กรุณากรอก PIN ผู้จัดการหรือเจ้าของร้านให้ถูกต้อง"));
    if(action==="date"&&(!due||!/^\d{4}-\d{2}-\d{2}$/.test(due)||due<localToday()))
      return setError(txt("กรุณาระบุวันนัดรับให้ถูกต้อง ตั้งแต่วันนี้เป็นต้นไป"));
-   if(action==="cancel"&&info.order.paid_total>0)
-     return setError(txt("ใบงานมีเงินรับแล้ว ต้องทำรายการคืนเงินที่ตรวจสอบได้ก่อนยกเลิก"));
+   // Always require and verify an owner/manager PIN on the server.
+   // The database independently prevents cancelling paid orders without refund reconciliation.
    if(action==="cancel"&&!window.confirm(txt("ยืนยันยกเลิกใบงาน โดยใช้ PIN ผู้จัดการหรือเจ้าของร้าน?")))return;
    setBusy(true);setError("");
    try{
@@ -63,7 +74,7 @@ export function PosOpticalWorkOrderDetailDialog({id,onClose,onChanged,lang}:{id:
       })
     });
     const body=await response.json() as {error?:{message?:string}};
-    if(!response.ok)throw new Error(body.error?.message??txt("ดำเนินการไม่สำเร็จ"));
+    if(!response.ok)throw new Error(workOrderActionError(lang,body.error?.message??txt("ดำเนินการไม่สำเร็จ")));
     setManagerPin("");onChanged();onClose();
    }catch(e){setError(e instanceof Error?e.message:txt("บันทึกไม่สำเร็จ"));}
    finally{setBusy(false);}
@@ -156,8 +167,8 @@ export function PosOpticalWorkOrderDetailDialog({id,onClose,onChanged,lang}:{id:
    </div>
    {info?<footer className="flex shrink-0 flex-wrap items-center justify-end gap-2 border-t border-slate-100 bg-slate-50 px-5 py-4 sm:px-6">
      {info.canManage&&!["collected","cancelled"].includes(info.order.status)?<>
-       {paid===0?<button type="button" className="mr-auto rounded-lg border border-rose-200 bg-white px-4 py-2 text-sm font-medium text-rose-700"
-          onClick={()=>{setError("");setAction("cancel");}}>{txt("ยกเลิกใบงาน")}</button>:null}
+       <button type="button" className="mr-auto rounded-lg border border-rose-200 bg-white px-4 py-2 text-sm font-medium text-rose-700"
+          onClick={()=>{setError("");setAction("cancel");}}>{txt("ยกเลิกใบงาน")}</button>
        <button type="button" className="rounded-lg bg-emerald-700 px-5 py-2.5 text-sm font-bold text-white hover:bg-emerald-800"
          onClick={()=>{setError("");setAction("date");}}>{txt("ใส่วันนัดรับ")}</button>
      </>:null}
@@ -174,7 +185,11 @@ export function PosOpticalWorkOrderDetailDialog({id,onClose,onChanged,lang}:{id:
          <label className="grid gap-1 text-sm font-semibold">{txt("หมายเหตุ")}
            <textarea maxLength={1000} rows={3} value={note} onChange={e=>setNote(e.target.value)}
              className="rounded-lg border border-slate-300 p-3"/></label>
-       </>:<p className="rounded-lg bg-rose-50 p-3 text-sm text-rose-800">{txt("ยกเลิกใบงานที่ยังไม่มีการรับเงิน และคืนสต๊อกจองตามธุรกรรมเท่านั้น")}</p>}
+       </>:<div className="space-y-2 rounded-lg bg-rose-50 p-3 text-sm text-rose-800">
+        <p>{txt("การยกเลิกใบงานต้องยืนยันด้วย PIN ผู้จัดการหรือเจ้าของร้าน")}</p>
+        {paid>0?<p className="font-semibold">{txt("ใบงานนี้มีเงินรับแล้ว")} {money(paid)} {info?.order.currency_code} · {txt("ต้องคืนเงินจริงและบันทึกหลักฐานคืนเงินก่อน จึงจะยกเลิกได้")}</p>:
+          <p>{txt("การยกเลิกจะคืนสต๊อกที่จองไว้ พร้อมบันทึกประวัติไว้ตรวจสอบ")}</p>}
+       </div>}
        <label className="grid gap-1 text-sm font-semibold">{txt("PIN ผู้จัดการหรือเจ้าของร้าน *")}
          <input type="password" inputMode="numeric" autoComplete="off" maxLength={32} value={managerPin}
            onChange={e=>setManagerPin(e.target.value)} className="min-h-11 rounded-lg border border-slate-300 px-3 py-2"/></label>
