@@ -63,13 +63,12 @@ begin
       and c.metadata->>'pos_currency_code'='LAK'
       and coalesce(c.metadata->>'pos_country_code','LA')='LA'
       and coalesce(c.metadata->>'pos_timezone','Asia/Vientiane')='Asia/Vientiane'
-      and not exists (
-        select 1 from public.tenant_subscription_contracts c2
-        where c2.tenant_id=s.tenant_id and c2.id<>c.package_id
+      and (
+        select count(*) from public.tenant_subscription_contracts c2
+        where c2.tenant_id=s.tenant_id
           and c2.status in ('active','trial')
           and (c2.ended_at is null or c2.ended_at>now())
-          and c2.created_at>c.ended_at
-      )
+      )=1
       and now() >= (
         date_trunc('day',s.opened_at at time zone 'Asia/Vientiane')+interval '1 day'
       ) at time zone 'Asia/Vientiane'
