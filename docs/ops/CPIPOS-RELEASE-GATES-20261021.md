@@ -43,6 +43,7 @@ These are metadata/version comparisons, **not** SQL semantic equivalence checks.
 - `main` contains focused fixes in PRs #317–#336 for expired trial messaging, canonical invoice display, verified-slip provisional access, IT manual review without automatic timeout, CUSTOM quote approval and tenant-wide provisioning limits.
 - Evidence to gather using **controlled QA tenants only**: Trial expiry vs paid status, fixed Growth vs CUSTOM IT-approved invoice, bank slip amount/payee/reference/transfer-time validation, duplicate submission, denial before IT quote approval, provisional access while pending IT settlement, IT rejection rollback, locked cash-register refresh from LINE, and users/branches/device quota changes.
 - Never infer a legitimate bank credit solely from OCR evidence. No live slip uploads or customer payment rewrites in this audit.
+- **Live contract anomaly (read-only, same-day query):** one tenant currently has **three** simultaneously effective active/trial contract rows under a simple `started_at` / `ended_at` / `status` effective-window check. IT must reconcile authoritative billing/approval provenance before updating contracts or running Optical stock-adjustment UAT; do not pick the newest row or delete/supersede a contract by guesswork. Related staged IT guard PR #147 remains unmerged.
 - Latest main CI passed but signed-in two-tenant/two-branch API and browser acceptance evidence is outstanding.
 
 ## Gate 4 — CUSTOM Optical ↔ IT ↔ CRM & hardware
