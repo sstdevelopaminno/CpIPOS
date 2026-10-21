@@ -101,15 +101,11 @@ function createPrimaryClient(): DynamicClient {
 }
 
 function createTrialClient(): DynamicClient {
-  const url = String(process.env.TRIAL_SUPABASE_URL ?? "").trim();
-  const key = String(process.env.TRIAL_SUPABASE_SERVICE_ROLE_KEY ?? "").trim();
-  if (!url || !key) {
-    throw new TenantDataRoutingError(
-      "trial_data_plane_credentials_missing",
-      "CpiPOS-002 is authoritative for this tenant, but server-only Trial Supabase credentials are missing."
-    );
-  }
-  return createClient(url, key, { auth: { autoRefreshToken: false, persistSession: false } });
+  // CpiPOS-002 is retired. Stale secrets must not reconnect an old data plane.
+  throw new TenantDataRoutingError(
+    "trial_data_plane_retired",
+    "Legacy Trial Data Plane is retired; review tenant metadata with IT."
+  );
 }
 
 export function getPrimarySupabaseServiceClient(): DynamicClient {
@@ -127,8 +123,8 @@ export function getTrialSupabaseServiceClient(): DynamicClient {
 }
 
 function trialRoutingEnabled() {
-  const value = String(process.env.TRIAL_DATA_ROUTING_ENABLED ?? "false").trim().toLowerCase();
-  return value === "true" || value === "1";
+  // Hard-disabled even when stale TRIAL_DATA_ROUTING_ENABLED is set.
+  return false;
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {
