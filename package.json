@@ -19,7 +19,6 @@
     "qa:pos-soak": "node scripts/pos-load-soak.mjs",
     "qa:ui-click-latency": "node scripts/pos-ui-click-latency.mjs",
     "schema:drift": "node scripts/schema-drift-check.mjs",
-    "schema:drift:trial": "node scripts/trial-schema-drift-check.mjs",
     "build": "corepack pnpm --filter backoffice-web build",
     "build:turbo": "corepack pnpm --filter backoffice-web build",
     "lint": "corepack pnpm --filter backoffice-web lint",
