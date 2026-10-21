@@ -11,6 +11,8 @@ const androidMandatoryUpdate = source("../../src/components/android-pos/android-
 const productMediaRoute = source("../../src/app/api/pos/product-media/route.ts");
 const featureGate = source("../../src/lib/feature-gate.ts");
 const posFeaturesRoute = source("../../src/app/api/pos/features/route.ts");
+const posSessionGuard = source("../../src/lib/pos-session-guard.ts");
+const tenantDataRouter = source("../../src/lib/server/tenant-data-router.ts");
 
 describe("polling request-churn regression guard", () => {
   it("backs the global POS Table QR alert off to 30s while idle", () => {
@@ -68,5 +70,18 @@ describe("polling request-churn regression guard", () => {
     expect(posFeaturesRoute).toContain('searchParams.get("refresh") === "1"');
     expect(posFeaturesRoute).toContain('"private, no-store, max-age=0"');
     expect(posFeaturesRoute).toContain("ttlMs: 60_000");
+  });
+
+  it("bounds repeated POS session and subscription verification reads", () => {
+    expect(posSessionGuard).toContain("const POS_SESSION_ROW_CACHE_TTL_MS = 15000");
+    expect(posSessionGuard).toContain("const POS_SUBSCRIPTION_ACTIVE_CACHE_TTL_MS = 30000");
+  });
+
+  it("caches read-only tenant routing but always refreshes mutation routing", () => {
+    expect(tenantDataRouter).toContain("const TENANT_DATA_ROUTE_CACHE_TTL_MS = 30_000");
+    expect(tenantDataRouter).toContain("__tenantDataRouteInFlight");
+    expect(tenantDataRouter).toContain("fresh: options?.mutation !== false");
+    expect(tenantDataRouter).toContain("if (inFlight.get(tenantId) === pending)");
+    expect(tenantDataRouter).toContain("invalidateTenantDataRouteCache(tenantId);");
   });
 });
