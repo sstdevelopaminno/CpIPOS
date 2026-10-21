@@ -189,7 +189,7 @@ export function PosOpticalWorkOrderDetailDialog({id,onClose,onChanged,lang}:{id:
         <p>{txt("การยกเลิกใบงานต้องยืนยันด้วย PIN ผู้จัดการหรือเจ้าของร้าน")}</p>
         {paid>0?<p className="font-semibold">{txt("ใบงานนี้มีเงินรับแล้ว")} {money(paid)} {info?.order.currency_code} · {txt("ต้องคืนเงินจริงและบันทึกหลักฐานคืนเงินก่อน จึงจะยกเลิกได้")}</p>:
           <p>{txt("การยกเลิกจะคืนสต๊อกที่จองไว้ พร้อมบันทึกประวัติไว้ตรวจสอบ")}</p>}
-       </div>
+       </div>}
        <label className="grid gap-1 text-sm font-semibold">{txt("PIN ผู้จัดการหรือเจ้าของร้าน *")}
          <input type="password" inputMode="numeric" autoComplete="off" maxLength={32} value={managerPin}
            onChange={e=>setManagerPin(e.target.value)} className="min-h-11 rounded-lg border border-slate-300 px-3 py-2"/></label>
