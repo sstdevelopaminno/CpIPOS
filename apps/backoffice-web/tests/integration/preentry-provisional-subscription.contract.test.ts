@@ -36,7 +36,7 @@ describe("Pre-entry subscription provisional activation",()=>{
   expect(service).toContain("completingExisting ? payload.pending_request_id!");
   expect(service).toContain('.eq("tenant_id",payload.tenant_id)');
   expect(service).toContain('.is("evidence_url",null).is("amount_reported",null)');
-  expect(service).toContain('source: completingExisting ? "it_tenant_control"');
+  expect(service).toContain('source: completingExisting ? String(open.data?.metadata?.source??"it_tenant_control")');
   expect(page).toContain('quote.package.name');
   expect(page).toContain('t.packagePrice');
   expect(page).toContain('t.continuity');
@@ -49,7 +49,7 @@ describe("Pre-entry subscription provisional activation",()=>{
   expect(source).toContain('original.evidence_url || original.amount_reported!=null');
   expect(source).toContain('original.id!==payload.pending_request_id');
   expect(source).toContain('original.requested_package_id!==target.id');
-  expect(source).toContain('original.metadata?.source!=="it_tenant_control"');
+  expect(source).toContain('!["it_tenant_control","it_custom_agreement"].includes(String(original.metadata?.source))');
   expect(source).toContain('pendingPreEntryEvidenceEligible(snapshot,scoped)');
   expect(source).toContain('throw new Error("open_request_exists")');
  });
@@ -93,7 +93,7 @@ describe("Pre-entry subscription provisional activation",()=>{
   expect(quote).toContain("billing_cycle_id:due.billing_cycle_id");
   expect(quote).toContain('subscription_support_required');
  });
- it("uses existing scan-verified SQL grace grant with strict per-tenant 3-day cutoff",()=>{
+ it("uses existing scan-verified SQL grant with no IT review-timeout cutoff",()=>{
   const quote=src("lib/services/public-package-checkout-service.ts");
   const api=src("lib/server/pos-entry-access-service.ts");
   const session=src("lib/pos-session-guard.ts");
