@@ -253,7 +253,8 @@ function pendingPreEntryEvidenceEligible(
   const dueAmount=money(due && due.outstanding>0?due.outstanding:due?.amount_due);
   const previousAmount=money(request.expected_amount);
   return request.status==="pending" && request.kind==="payment_notice" &&
-    request.source==="it_tenant_control" && !request.has_evidence &&
+    (request.source==="it_tenant_control" || request.source==="it_custom_agreement") &&
+    !request.has_evidence &&
     request.package_id===snapshot.contract.package_id &&
     request.billing_interval===snapshot.contract.billing_interval &&
     due?.open_request_id===request.id && due?.open_request_status==="pending" &&
@@ -271,8 +272,8 @@ export async function authorizePreEntryPackageCheckout(input: {
   if(snapshot.contract.is_internal_demo)throw new Error("internal_demo_not_billable");
   const due=snapshot.billing_due;
   const current=snapshot.packages.find(p=>p.id===snapshot.contract.package_id);
-  if(!current || current.contact_sales || current.code==="custom")
-    throw new Error("subscription_support_required");
+  if(!current)throw new Error("subscription_support_required");
+  const isCustom=current.code==="custom" || current.contact_sales===true;
   if(!snapshot.issuer.account_number && !snapshot.issuer.promptpay_id)
     throw new Error("receiving_account_not_configured");
   const expected=money(due && due.outstanding>0?due.outstanding:due?.amount_due);
@@ -289,7 +290,8 @@ export async function authorizePreEntryPackageCheckout(input: {
     ["pending","under_review"].includes(req.status) && req.kind==="payment_notice"
   );
   if(activeRequest) {
-    const allowEvidence=pendingPreEntryEvidenceEligible(snapshot,activeRequest);
+    const allowEvidence=pendingPreEntryEvidenceEligible(snapshot,activeRequest) &&
+      (!isCustom || activeRequest.source==="it_custom_agreement");
     const now=Math.floor(Date.now()/1000);
     const token=allowEvidence && due?.billing_cycle_id && expected
       ? signPayload({
@@ -310,6 +312,9 @@ export async function authorizePreEntryPackageCheckout(input: {
       }
     };
   }
+  // CUSTOM is never an open self-service checkout. IT must first agree price,
+  // billing interval and issue a specific pending payment_notice (same ID).
+  if(isCustom)throw new Error("subscription_support_required");
   if(!due || !due.self_service_payment_allowed || !due.payable_now || due.support_required ||
     !due.billing_cycle_id || due.billing_interval!==snapshot.contract.billing_interval)
     throw new Error("subscription_support_required");
@@ -350,7 +355,10 @@ export async function submitPublicPackageCheckout(input: {
 
   const snapshot = await loadPosSubscriptionCenter(payload.tenant_id);
   const target = snapshot.packages.find((row) => row.id === payload.package_id);
-  if (!target || target.contact_sales || target.code === "custom") throw new Error("package_unavailable");
+  if (!target ||
+      ((target.contact_sales || target.code==="custom") &&
+       !(payload.source==="authenticated_preentry" && payload.pending_request_id)))
+    throw new Error("package_unavailable");
 
   const due=snapshot.billing_due;
   const currentAmount = payload.source==="authenticated_preentry"
@@ -384,7 +392,9 @@ export async function submitPublicPackageCheckout(input: {
     if(!original || !scoped || original.id!==payload.pending_request_id ||
        original.status!=="pending" || original.evidence_url || original.amount_reported!=null ||
        original.requested_package_id!==target.id ||
-       original.metadata?.source!=="it_tenant_control" ||
+       !["it_tenant_control","it_custom_agreement"].includes(String(original.metadata?.source)) ||
+       (target.code==="custom" &&
+        (original.metadata?.source!=="it_custom_agreement" || !original.metadata?.custom_terms_snapshot)) ||
        !pendingPreEntryEvidenceEligible(snapshot,scoped))
       throw new Error("open_request_exists");
   }else if(open.data)throw new Error("open_request_exists");
@@ -433,7 +443,7 @@ export async function submitPublicPackageCheckout(input: {
     kind: "payment_notice",
     billing_interval: payload.billing_interval,
     expected_amount: payload.expected_amount,
-    source: completingExisting ? "it_tenant_control"
+    source: completingExisting ? String(open.data?.metadata?.source??"it_tenant_control")
       : payload.source==="authenticated_preentry"?"pos_preentry_package_checkout":"company_website_package_checkout",
     ...(completingExisting?{checkout_source:"pos_preentry_package_checkout"}:{}),
     ...(payload.billing_cycle_id?{billing_cycle_id:payload.billing_cycle_id}:{}),
