@@ -13,14 +13,15 @@ describe("CUSTOM Optical shift boundary and legacy isolation contract",()=>{
     expect(guard).toContain("resolveAuthorizedShiftCycle");
     expect(guard).toContain('slot:"daily"');
     expect(guard).toContain("if(!policy)return null");
-    expect(guard).toContain("!opticalPolicy.automaticClosureReady");
+    expect(guard).toContain("if(opticalPolicy?.enabled)return;");
     expect(session).toContain("optical_shift_policy: opticalShiftPolicy.value");
   });
   it("requires closed-loop Optical finance before activating cashless auto-close",()=>{
     const close=read("app/api/pos/shifts/close/route.ts");
     const history=read("app/api/pos/shifts/history/route.ts");
     expect(close).toContain("optical_manual_shift_close_required");
-    expect(close).toContain("optical_shift_finance_reconciliation_pending");
+    expect(close).toContain("opticalExpectedCash");
+    expect(close).toContain("optical_shift_ledger_needs_review");
     expect(close).toContain("getOpticalShiftUiPolicy");
     expect(history).toContain("sumVerifiedOpticalDeposits");
     expect(history).toContain("opticalPolicy.financeEnabled");
