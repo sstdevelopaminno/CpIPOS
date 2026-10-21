@@ -438,9 +438,18 @@ export async function enforceQuota(tenantId: string, resourceType: QuotaResource
   }
 
   if (resourceType === "devices" && limits.maxDevices !== null) {
+    // CUSTOM quotas are negotiated per store, not per branch. A two-device
+    // CUSTOM contract must never become two devices in EACH branch.
+    const supabase = getSupabaseServiceClient();
+    const packageResult = await supabase.from("subscription_packages")
+      .select("code").eq("id", limits.planId ?? "")
+      .maybeSingle<{ code: string }>();
+    if (packageResult.error) {
+      throw new FeatureGateError("quota_package_lookup_failed", packageResult.error.message, 500);
+    }
+    const isCustom = String(packageResult.data?.code ?? "").toLowerCase() === "custom";
     let deviceUsage = limits.usage.devices;
-    if (branchId) {
-      const supabase = getSupabaseServiceClient();
+    if (branchId && !isCustom) {
       const { count, error } = await supabase
         .from("branch_devices")
         .select("id", { count: "exact", head: true })
