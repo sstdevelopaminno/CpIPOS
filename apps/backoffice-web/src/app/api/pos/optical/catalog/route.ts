@@ -204,6 +204,34 @@ export async function PATCH(request:Request){
     return NextResponse.json({data:{updated:true},error:null});
   }catch(error){return catchError(error);}
 }
+/** Hide or restore a referenced Optical SKU without touching stock, reservations,
+ * work-order links or receipts. Scoped to an active manager/owner in this branch. */
+export async function PUT(request:Request){
+  try{
+    const body=await request.json().catch(()=>null) as {id?:string;branch_id?:string;action?:string}|null;
+    const ctx=await context(request,body?.branch_id);
+    if(!body||!["archive","restore"].includes(body.action??""))
+      return response("optical_catalog_visibility_invalid","Invalid inventory visibility action.",422);
+    const product=await findProduct(ctx,String(body.id??""));
+    if(!product)return response("optical_catalog_not_found","ไม่พบสินค้า Optical ในสาขานี้",404);
+    const archived=body.action==="archive";
+    const metadata=product.metadata && typeof product.metadata==="object"?product.metadata:{};
+    const {error}=await ctx.db.from("products").update({
+      is_active:!archived,
+      metadata:{
+        ...metadata,
+        optical_sale_archived_at:archived?new Date().toISOString():null,
+        optical_sale_archived_by:archived?ctx.scope.session.user_id:null
+      },
+      updated_at:new Date().toISOString()
+    }).eq("id",product.id).eq("tenant_id",ctx.scope.session.tenant_id)
+      .eq("branch_id",ctx.branchId).is("deleted_at",null);
+    if(error)return response("optical_catalog_visibility_failed","เปลี่ยนสถานะการจำหน่ายไม่สำเร็จ",503);
+    await audit(ctx,archived?"optical_catalog_sale_archived":"optical_catalog_sale_restored",[product.id]);
+    return NextResponse.json({data:{archived},error:null});
+  }catch(error){return catchError(error);}
+}
+
 export async function DELETE(request:Request){
   try{
     const body=await request.json().catch(()=>null) as {id?:string;branch_id?:string}|null;
