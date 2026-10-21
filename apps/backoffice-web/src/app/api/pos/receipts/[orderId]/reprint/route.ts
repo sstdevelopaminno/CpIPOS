@@ -3,6 +3,7 @@ import { fail, ok } from "@/lib/http";
 import { validateManagerPin } from "@/lib/pin-approval";
 import { getPosApiAuthContext } from "@/lib/pos-api-auth";
 import { featureGateFail, requirePosApiFeature } from "@/lib/pos-api-feature-guard";
+import { authorizeOpticalMoreMenu } from "@/lib/server/optical-more-feature-access";
 import { requirePosSession } from "@/lib/pos-session-guard";
 import { queueRoutedReceiptReprint } from "@/lib/printing/routed-print-service";
 
@@ -17,7 +18,9 @@ export async function POST(req: Request, context: { params: Promise<{ orderId: s
   try {
     const auth = await getPosApiAuthContext({ requireBranchScope: true, requiredPermission: "receipts:view" });
     const scope = await requirePosSession();
-    await requirePosApiFeature(auth, "receipt_reprint_history");
+    if (!await authorizeOpticalMoreMenu(auth.tenantId!, auth.branchId, "more.receipts")) {
+      await requirePosApiFeature(auth, "receipt_reprint_history");
+    }
     const { orderId } = await context.params;
     const body = (await req.json().catch(() => null)) as ReprintPayload | null;
     const managerPin = String(body?.manager_pin ?? "").trim();

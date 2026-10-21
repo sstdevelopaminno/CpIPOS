@@ -2,7 +2,8 @@ import "server-only";
 
 import { isFeatureUnlockEnabled } from "@/lib/feature-unlock";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
-import { isDineInExplicitlyEnabled, isDineInLinkedFeature } from "@/lib/pos-sales-modes";
+import { getInternalItTestMode } from "@/lib/server/internal-it-test-store";
+import { isDineInExplicitlyEnabled, isDineInLinkedFeature, isOpticalRetailExplicitlyEnabled } from "@/lib/pos-sales-modes";
 
 export type QuotaResourceType = "branches" | "devices" | "users";
 
@@ -221,6 +222,13 @@ export async function hasBranchFeature(tenantId: string, branchId: string | null
   const cacheKey = `${tenantId}:${normalizedBranchId}:${featureCode}`;
   const cached = readFeatureDecisionCache(cacheKey);
   if (cached !== null) return cached;
+  // QA grants affect ONLY the doubly verified internal tenant, not all stores.
+  if (await getInternalItTestMode(tenantId) === "full") {
+    // QA must never authorize an unknown feature name supplied by a caller.
+    const enabled = await isFeatureKeyConfigured(featureCode);
+    writeFeatureDecisionCache(cacheKey, enabled);
+    return enabled;
+  }
 
   const contract = await getLatestContract(tenantId);
   if (!contractAllowsAccess(contract)) {
@@ -274,6 +282,57 @@ export async function hasBranchFeature(tenantId: string, branchId: string | null
     enabled = branchOverride.is_enabled;
   }
 
+  // The IT menu switch may grant management access only for the exact
+  // authorized CUSTOM Optical tenant. Preserve explicit feature denials and
+  // the independent contract quotas for actually creating users/branches.
+  const opticalManagementMenu = featureCode === "user_management" ? "settings.users"
+    : featureCode === "branch_management" ? "settings.branches"
+    : featureCode === "stock_management" ? "more.stock" : null;
+  if (!enabled && !tenantOverride && !branchOverride && opticalManagementMenu &&
+      isOpticalRetailExplicitlyEnabled(contract?.metadata?.sales_modes)) {
+    const [plan, command] = await Promise.all([
+      supabase.from("subscription_packages").select("code")
+        .eq("id", contract!.package_id).maybeSingle<{ code: string }>(),
+      supabase.from("tenant_pos_menu_policies").select("is_enabled")
+        .eq("tenant_id", tenantId).eq("menu_key", opticalManagementMenu)
+        .maybeSingle<{ is_enabled: boolean }>()
+    ]);
+    if (plan.error || command.error) throw new FeatureGateError(
+      "optical_management_policy_check_failed",
+      (plan.error ?? command.error)!.message, 500
+    );
+    enabled = String(plan.data?.code ?? "").toLowerCase() === "custom" && command.data?.is_enabled === true;
+  }
+
+  // An IT-approved CUSTOM Optical contract includes core cashier access.
+  // Never override an explicit tenant/branch denial, even for Optical stores.
+  // Fixed packages and non-Optical CUSTOM modes retain their own entitlements.
+  if (!enabled && !tenantOverride && !branchOverride &&
+      (featureCode === "pos.sales.access" || featureCode === "pos_sales" || featureCode === "core_pos_sales") &&
+      isOpticalRetailExplicitlyEnabled(contract?.metadata?.sales_modes)) {
+    const packageLookup = await supabase.from("subscription_packages")
+      .select("code").eq("id", contract!.package_id)
+      .maybeSingle<{ code: string }>();
+    if (packageLookup.error) throw new FeatureGateError(
+      "optical_package_check_failed", packageLookup.error.message, 500
+    );
+    if (String(packageLookup.data?.code ?? "").toLowerCase() === "custom") enabled = true;
+  }
+
+  // Optical retail uses the existing secured SKU/scanner workflow.
+  // This additional grant exists ONLY for a CUSTOM contract explicitly
+  // enabled by IT; fixed packages retain their normal barcode entitlements.
+  if (featureCode === "barcode_scanner_mode" && !enabled
+    && isOpticalRetailExplicitlyEnabled(contract?.metadata?.sales_modes)) {
+    const currentPackage = await supabase.from("subscription_packages")
+      .select("code").eq("id", contract!.package_id)
+      .maybeSingle<{ code: string }>();
+    if (currentPackage.error) throw new FeatureGateError(
+      "optical_package_check_failed", currentPackage.error.message, 500
+    );
+    if (String(currentPackage.data?.code ?? "").toLowerCase() === "custom") enabled = true;
+  }
+
   // Dine-in cannot operate safely without table, kitchen and table-call
   // notification infrastructure. These are operational dependencies of the
   // selected sales mode, not optional package add-ons. IT menu policy remains
@@ -325,8 +384,15 @@ export async function isFeatureKeyConfigured(featureKey: string): Promise<boolea
 }
 
 export async function getTenantLimits(tenantId: string): Promise<TenantLimits> {
-  const contract = await getLatestContract(tenantId);
+  // Quota provisioning is an infrequent write operation and must reflect IT's
+  // latest saved CUSTOM capacity immediately. Feature-menu cache remains intact.
   const supabase = getSupabaseServiceClient();
+  const latest = await supabase.from("tenant_subscription_contracts")
+    .select("id,tenant_id,package_id,status,branch_limit,terminal_limit_per_branch,max_branches,max_devices,max_users,metadata,started_at,ended_at,created_at")
+    .eq("tenant_id", tenantId).order("created_at", { ascending: false })
+    .limit(1).maybeSingle<ContractRow>();
+  if (latest.error) throw new FeatureGateError("contract_query_failed", latest.error.message, 500);
+  const contract = latest.data ?? null;
 
   const [{ count: branchCount, error: branchCountError }, { count: deviceCount, error: deviceCountError }, { data: userRows, error: userRowsError }] = await Promise.all([
     supabase.from("branches").select("id", { count: "exact", head: true }).eq("tenant_id", tenantId).eq("is_active", true),
@@ -368,7 +434,7 @@ export async function getTenantLimits(tenantId: string): Promise<TenantLimits> {
 
 export async function enforceQuota(tenantId: string, resourceType: QuotaResourceType, branchId?: string | null): Promise<TenantLimits> {
   const limits = await getTenantLimits(tenantId);
-  if (isFeatureUnlockEnabled()) return limits;
+  if (isFeatureUnlockEnabled() || await getInternalItTestMode(tenantId) === "full") return limits;
 
   if (limits.contractStatus && limits.contractStatus !== "active" && limits.contractStatus !== "trial") {
     throw new FeatureGateError("contract_suspended", "Tenant contract is not active for provisioning actions.", 403);
@@ -379,9 +445,18 @@ export async function enforceQuota(tenantId: string, resourceType: QuotaResource
   }
 
   if (resourceType === "devices" && limits.maxDevices !== null) {
+    // CUSTOM quotas are negotiated per store, not per branch. A two-device
+    // CUSTOM contract must never become two devices in EACH branch.
+    const supabase = getSupabaseServiceClient();
+    const packageResult = await supabase.from("subscription_packages")
+      .select("code").eq("id", limits.planId ?? "")
+      .maybeSingle<{ code: string }>();
+    if (packageResult.error) {
+      throw new FeatureGateError("quota_package_lookup_failed", packageResult.error.message, 500);
+    }
+    const isCustom = String(packageResult.data?.code ?? "").toLowerCase() === "custom";
     let deviceUsage = limits.usage.devices;
-    if (branchId) {
-      const supabase = getSupabaseServiceClient();
+    if (branchId && !isCustom) {
       const { count, error } = await supabase
         .from("branch_devices")
         .select("id", { count: "exact", head: true })

@@ -80,7 +80,14 @@ export async function POST(request: Request) {
     if (!isAiAddon && kind === "payment_notice" && canonicalDue?.support_required) {
       return fail("subscription_support_required","รอบนี้ไม่สามารถชำระด้วยตนเองได้ กรุณาติดต่อ Support เพื่อให้ฝ่าย IT ตรวจสอบ",423);
     }
-    if (!isAiAddon && kind === "payment_notice" && canonicalDue?.self_service_payment_allowed === false) {
+    // A pending renewal itself disables self-service checkout in the canonical due
+    // state. Permit evidence upload ONLY to that exact existing open request; this
+    // does not permit a new request, change its package, or bypass Support lock.
+    const completingCanonicalOpenRequest = upgrading &&
+      canonicalDue?.open_request_id === requestKey &&
+      ["pending", "under_review"].includes(canonicalDue?.open_request_status ?? "");
+    if (!isAiAddon && kind === "payment_notice" &&
+      canonicalDue?.self_service_payment_allowed === false && !completingCanonicalOpenRequest) {
       return fail("subscription_self_service_locked","การชำระด้วยตนเองถูกปิดสำหรับสถานะรอบบิลปัจจุบัน กรุณาติดต่อ Support",423);
     }
     const target = snapshot.packages.find(item=>item.id===desiredPackage);
@@ -123,7 +130,7 @@ export async function POST(request: Request) {
       return fail("renewal_selection_locked","Use the package and interval from your pending request.",409);
     }
 
-    const canonicalCurrentAmount = canonicalDue && canonicalDue.payable_now
+    const canonicalCurrentAmount = canonicalDue && (canonicalDue.payable_now || completingCanonicalOpenRequest)
       ? Number(canonicalDue.outstanding > 0 ? canonicalDue.outstanding : canonicalDue.amount_due)
       : null;
     const expected = isAiAddon
@@ -207,7 +214,14 @@ export async function POST(request: Request) {
       ai_addon_requests: isAiAddon ? target.ai_addon_monthly_requests : null,
       ai_addon_tokens: isAiAddon ? target.ai_addon_monthly_tokens : null,
       ai_addon_cost_usd: isAiAddon ? target.ai_addon_monthly_cost_usd : null,
-      source:"pos_subscription_center",
+      source:upgrading ? String(existingById?.metadata?.source??"pos_subscription_center") : "pos_subscription_center",
+      checkout_source:"pos_subscription_center",
+      ...(!isAiAddon && kind==="payment_notice" && target.id===snapshot.contract.package_id &&
+        billingInterval===snapshot.contract.billing_interval &&
+        canonicalDue?.billing_cycle_id && canonicalDue.support_required===false &&
+        Number.isFinite(canonicalCurrentAmount) &&
+        Number(canonicalCurrentAmount)>0 && Number(expectedForScan)===Number(canonicalCurrentAmount)
+        ? {billing_cycle_id:canonicalDue.billing_cycle_id} : {}),
       submitted_by:scope.session.user_id,
       payer_name:kind === "custom_quote_request" ? "" : slipScan?.parsed.payer_name ?? "",
       transfer_reference:kind === "custom_quote_request" ? "" :
@@ -239,6 +253,37 @@ export async function POST(request: Request) {
       if (filePath) await db.storage.from(SUBSCRIPTION_SLIP_BUCKET).remove([filePath]);
       if (inserted.error?.code==="23505") return fail("open_request_exists","Another subscription request is already open.",409);
       throw new Error("Unable to save subscription request.");
+    }
+    // POS self-service uses the same signed bank-slip authorization as LINE.
+    // A saved slip is not a settlement; only exact canonical invoice + verified,
+    // non-mock date/payee/amount/reference can trigger provisional POS access.
+    let provisionalGranted=false;
+    const canGrant=kind==="payment_notice" &&
+      slipScan?.status==="verified" && slipScan.checks.passed && slipScan.model!=="mock" &&
+      target.id===snapshot.contract.package_id &&
+      billingInterval===snapshot.contract.billing_interval &&
+      canonicalDue?.support_required===false &&
+      Boolean(canonicalDue?.billing_cycle_id) &&
+      Number.isFinite(canonicalCurrentAmount) && Number(canonicalCurrentAmount)>0 &&
+      Number(expectedForScan)===Number(canonicalCurrentAmount);
+    if(canGrant && slipScan){
+      const verified=await db.rpc("grant_provisional_subscription_access",{
+        p_request_id:inserted.data.id,
+        p_scan:{status:slipScan.status,model:slipScan.model,parsed:slipScan.parsed,
+          checks:slipScan.checks,error_message:slipScan.error_message},
+        p_actor_id:scope.session.user_id
+      });
+      if(!verified.error && verified.data && typeof verified.data==="object"){
+        provisionalGranted=(verified.data as {granted?:boolean}).granted===true;
+      }else if(verified.error){
+        console.warn("[pos-subscription] provisional grant requires IT review",{
+          requestId:inserted.data.id,reason:verified.error.message.slice(0,120)
+        });
+        await db.from("tenant_subscription_payment_requests").update({
+          auto_check_status:"needs_review",
+          auto_check_reason:"provisional_grant_failed:"+verified.error.message.slice(0,140)
+        }).eq("id",inserted.data.id).eq("tenant_id",scope.session.tenant_id);
+      }
     }
     await appendAuditLog({
       tenantId:scope.session.tenant_id,actorUserId:scope.session.user_id,actorRole:"owner",
@@ -280,6 +325,7 @@ export async function POST(request: Request) {
       status:inserted.data.status,
       already_submitted:false,
       upgraded:Boolean(upgrading),
+      provisional_access_granted:provisionalGranted,
       slip_scan: slipScan ? {
         status: slipScan.status,
         parsed: slipScan.parsed,

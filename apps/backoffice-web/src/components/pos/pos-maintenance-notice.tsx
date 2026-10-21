@@ -7,10 +7,8 @@ const BANGKOK_TIME_ZONE = "Asia/Bangkok";
 const REPEAT_INTERVAL_MS = 60 * 60 * 1000;
 const AUTO_HIDE_MS = 15 * 1000;
 const CHECK_INTERVAL_MS = 30 * 1000;
-const BROADCAST_REFRESH_MS = 120 * 1000;
+const BROADCAST_REFRESH_MS = 30 * 1000;
 const LAST_SHOWN_STORAGE_KEY = "cpipos:pos-maintenance-notice:last-shown-at";
-const BROADCAST_API_BASE =
-  process.env.NEXT_PUBLIC_CPIPOS_IT_PUBLIC_URL ?? "https://cp-ipos-it-web.vercel.app";
 
 type Broadcast = {
   id: string;
@@ -64,6 +62,23 @@ function dismissedBroadcastKey(updatedAt: string) {
   return `cpipos:emergency-broadcast:dismissed:${updatedAt}`;
 }
 
+function resolveBroadcastIcon(broadcast: Broadcast | null) {
+  if (!broadcast) return "⚠️";
+  const topic = `${broadcast.title_th} ${broadcast.title_en} ${broadcast.message_th} ${broadcast.message_en}`.toLowerCase();
+
+  if (/(ฝน|น้ำท่วม|พายุ|อากาศ|weather|rain|flood|storm)/i.test(topic)) return "🌧️";
+  if (/(api|server|เซิร์ฟเวอร์|database|ฐานข้อมูล|network|เครือข่าย|internet|อินเทอร์เน็ต)/i.test(topic)) return "🌐";
+  if (/(ปรับปรุง|maintenance|ปิดระบบ|upgrade|อัปเดตระบบ)/i.test(topic)) return "🛠️";
+  if (/(ชำระ|แพ็กเกจ|package|payment|billing|ค่าบริการ)/i.test(topic)) return "💳";
+  if (/(security|ความปลอดภัย|บัญชี|password|รหัสผ่าน)/i.test(topic)) return "🔒";
+  if (/(ประกาศ|announcement|ข่าว|notice)/i.test(topic)) return "📢";
+
+  if (broadcast.severity === "emergency") return "🚨";
+  if (broadcast.severity === "danger") return "⛔";
+  if (broadcast.severity === "warning") return "⚠️";
+  return "ℹ️";
+}
+
 export function PosMaintenanceNotice() {
   const pathname = usePathname();
   const [maintenanceVisible, setMaintenanceVisible] = useState(false);
@@ -79,10 +94,10 @@ export function PosMaintenanceNotice() {
 
     const requestPromise = (async () => {
       try {
-        const response = await fetch(
-          `${BROADCAST_API_BASE.replace(/\/$/, "")}/api/public/emergency-broadcast?target=pos`,
-          { cache: "no-store", credentials: "omit" }
-        );
+        const response = await fetch("/api/public/emergency-broadcast?target=pos", {
+          cache: "no-store",
+          credentials: "same-origin"
+        });
         if (!response.ok) return;
 
         const payload = await response.json();
@@ -251,7 +266,9 @@ export function PosMaintenanceNotice() {
         role="alert"
         aria-live={emergencyVisible ? "assertive" : "polite"}
       >
-        <span className="mt-0.5 text-lg" aria-hidden="true">⚠️</span>
+        <span className="mt-0.5 text-lg" aria-hidden="true">
+          {emergencyVisible ? resolveBroadcastIcon(broadcast) : "🛠️"}
+        </span>
 
         <div className="min-w-0 flex-1">
           <p className="text-sm font-black sm:text-base">{title}</p>

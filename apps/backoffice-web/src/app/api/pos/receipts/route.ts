@@ -1,10 +1,13 @@
 import { filterBillingDocumentItems } from "@/lib/billing-document-policy";
 import { getPosApiAuthContext } from "@/lib/pos-api-auth";
 import { featureGateFail, requirePosApiFeature } from "@/lib/pos-api-feature-guard";
+import { authorizeOpticalMoreMenu } from "@/lib/server/optical-more-feature-access";
 import { fail, ok } from "@/lib/http";
 import { buildPaginationMeta, parsePagination } from "@/lib/query-params";
 import { loadReceiptStoreProfile } from "@/lib/services/store-profile-service";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
+import { getTenantPosCurrencyCode } from "@/lib/server/custom-pos-currency";
+import {getCustomPosStockUiMode} from "@/lib/server/custom-stock-ui-policy";
 
 function toBangkokDate(value: Date) {
   const formatter = new Intl.DateTimeFormat("en-CA", {
@@ -74,8 +77,11 @@ export async function GET(req: Request) {
 
   try {
     const auth = await getPosApiAuthContext({ requireBranchScope: true, requiredPermission: "receipts:view" });
-    await requirePosApiFeature(auth, "receipt_reprint_history");
+    if (!await authorizeOpticalMoreMenu(auth.tenantId!, auth.branchId, "more.receipts")) {
+      await requirePosApiFeature(auth, "receipt_reprint_history");
+    }
     const supabase = getSupabaseServiceClient();
+    const opticalCurrencyAudit=(await getCustomPosStockUiMode(auth.tenantId!))==="optical";
     const { searchParams } = new URL(req.url);
     const { page, pageSize } = parsePagination(searchParams, 20);
     const fromIndex = (page - 1) * pageSize;
@@ -221,6 +227,7 @@ export async function GET(req: Request) {
       itemsByOrder.set(key, list);
     }
 
+    const shopCurrencyCode = await getTenantPosCurrencyCode(auth.tenantId!);
     const records = rows.map((row) => {
       const payments = paymentsByOrder.get(row.id) ?? [];
       const rawItems = itemsByOrder.get(row.id) ?? [];
@@ -232,6 +239,7 @@ export async function GET(req: Request) {
       return {
         id: row.id,
         orderNo: row.order_no,
+        currencyCode: (["THB","LAK","USD"].includes(readMetadataString(row.metadata, "currency_code") ?? "") ? readMetadataString(row.metadata, "currency_code") : opticalCurrencyAudit?"UNKNOWN":"THB"),
         orderType: row.order_type,
         channel: row.channel,
         tableLabel: row.table_id ? tableMap.get(row.table_id) ?? "-" : "-",
@@ -261,17 +269,34 @@ export async function GET(req: Request) {
     });
 
     const completed = records.filter((record) => record.status === "completed");
+    // Never aggregate THB and LAK into a single financial figure.
+    const byCurrency = {
+      THB: { count: 0, grossTotal: 0, paidTotal: 0 },
+      LAK: { count: 0, grossTotal: 0, paidTotal: 0 },
+      USD: { count: 0, grossTotal: 0, paidTotal: 0 },
+      UNKNOWN: { count: 0, grossTotal: 0, paidTotal: 0 }
+    };
+    for (const receipt of records) {
+      const bucket = byCurrency[receipt.currencyCode as keyof typeof byCurrency] ?? byCurrency.UNKNOWN;
+      bucket.count += 1;
+      bucket.grossTotal += receipt.totalAmount;
+      bucket.paidTotal += receipt.paidTotal;
+    }
     const summary = {
       receiptCount: records.length,
       completedCount: completed.length,
-      grossTotal: records.reduce((sum, row) => sum + row.totalAmount, 0),
-      paidTotal: records.reduce((sum, row) => sum + row.paidTotal, 0)
+      grossTotal: byCurrency[shopCurrencyCode].grossTotal,
+      paidTotal: byCurrency[shopCurrencyCode].paidTotal,
+      byCurrency,
+      mixedCurrencies: [byCurrency.THB.count,byCurrency.LAK.count,byCurrency.USD.count,byCurrency.UNKNOWN.count].filter(n=>n>0).length>1,
+      unknownCurrencyCount: byCurrency.UNKNOWN.count
     };
 
     return withTiming(ok({
       branch: { id: auth.branchId, name: String(branchResult.data?.name ?? auth.branchId), store_profile: storeProfile },
       range: dateWindow,
       records,
+      currencyCode: shopCurrencyCode,
       summary,
       pagination: buildPaginationMeta(page, pageSize, count)
     }));

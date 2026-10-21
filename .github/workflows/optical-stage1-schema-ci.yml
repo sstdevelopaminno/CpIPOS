@@ -1,0 +1,64 @@
+name: Optical Stage-1 locked schema safety
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'supabase/migrations/20261015091500_optical_schema_only_qa_disabled.sql'
+      - 'scripts/sql/optical-stage1-locked-assertions.sql'
+      - 'scripts/sql/optical-scratch-bootstrap.sql'
+      - '.github/workflows/optical-stage1-schema-ci.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+jobs:
+  verify-postgres17:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: optical_scratch
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres -d optical_scratch"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 15
+    env:
+      PGPASSWORD: postgres
+      PGHOST: 127.0.0.1
+      PGPORT: '5432'
+      PGUSER: postgres
+      PGDATABASE: optical_scratch
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install PostgreSQL client if needed
+        run: |
+          if ! command -v psql >/dev/null; then
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq postgresql-client
+          fi
+      - name: Create fake tenants, POS and restaurant tables
+        run: psql -v ON_ERROR_STOP=1 -f scripts/sql/optical-scratch-bootstrap.sql
+      - name: Apply isolated Stage-1 only (not a production connection)
+        run: psql -v ON_ERROR_STOP=1 -f supabase/migrations/20261015091500_optical_schema_only_qa_disabled.sql
+      - name: Check RLS, revoked client grants and zero money data
+        run: psql -v ON_ERROR_STOP=1 -f scripts/sql/optical-stage1-locked-assertions.sql
+      - name: Assert food POS table remains writable
+        run: |
+          psql -v ON_ERROR_STOP=1 <<'SQL'
+          insert into public.order_items(tenant_id,branch_id,product_id) values (
+            '00000000-0000-4000-8000-000000000002'::uuid,
+            '00000000-0000-4000-8000-000000000022'::uuid,
+            '00000000-0000-4000-8000-000000000202'::uuid
+          );
+          do $$ begin
+            if (select count(*) from public.order_items)<>1 then
+              raise exception 'restaurant inserts are blocked';
+            end if;
+          end $$;
+          SQL

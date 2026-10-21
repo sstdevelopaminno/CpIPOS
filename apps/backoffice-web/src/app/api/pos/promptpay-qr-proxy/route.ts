@@ -1,4 +1,5 @@
 import { requirePosSession } from "@/lib/pos-session-guard";
+import { getTenantPosCurrencyCode } from "@/lib/server/custom-pos-currency";
 
 type PromptPayQrProxyPayload = {
   path?: string | null;
@@ -14,7 +15,9 @@ function fail(code: string, message: string, status: number) {
 
 export async function POST(req: Request) {
   try {
-    await requirePosSession();
+    const scope = await requirePosSession();
+    if (await getTenantPosCurrencyCode(scope.session.tenant_id) === "LAK")
+      return fail("payment_provider_currency_unsupported", "Thai PromptPay QR is unavailable for LAK sales.", 422);
 
     const body = (await req.json()) as PromptPayQrProxyPayload;
     const requestedPath = String(body.path ?? "").trim();

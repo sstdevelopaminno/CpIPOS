@@ -54,6 +54,41 @@ function consumePosReturnPath(fallback: string) {
 }
 
 function getCopy(lang: AppLanguage) {
+  if (lang === "lo") {
+    return {
+      branchPrefix: "ສາຂາ",
+      loadingContext: "ກຳລັງໂຫຼດຂໍ້ມູນເຂົ້າລະບົບ...",
+      verifyLabel: "ລະຫັດພະນັກງານ",
+      verifyPlaceholder: "ລະຫັດພະນັກງານຈາກລະບົບຈັດການ",
+      verifyButton: "ຢືນຢັນພະນັກງານ",
+      verifyingButton: "ກຳລັງຢືນຢັນ...",
+      pinLabel: "ລະຫັດ Owner / Manager PIN",
+      pinPlaceholder: "PIN 4–6 ຕົວເລກ",
+      pinHint: "PIN ແຍກຕ່າງຫາກຈາກລະຫັດພະນັກງານ ຕັ້ງຄ່າຜ່ານ IT Control Center",
+      pinRequired: "ກະລຸນາປ້ອນ Owner / Manager PIN ເພື່ອສືບຕໍ່",
+      pinInvalid: "Owner / Manager PIN ບໍ່ຖືກຕ້ອງ ຫຼືຍັງບໍ່ໄດ້ຕັ້ງຄ່າ",
+      backButton: "ກັບຄືນ",
+      changeEmployee: "ປ່ຽນລະຫັດພະນັກງານ",
+      loadContextError: "ບໍ່ສາມາດໂຫຼດຂໍ້ມູນລັອກອິນ ກະລຸນາລອງໃໝ່",
+      connectError: "ບໍ່ສາມາດເຊື່ອມຕໍ່ເຊີບເວີໄດ້",
+      requiredError: "ກະລຸນາປ້ອນລະຫັດພະນັກງານ",
+      employeeNotFound: "ບໍ່ພົບລະຫັດພະນັກງານໃນສາຂານີ້",
+      permissionDenied: "ພະນັກງານນີ້ບໍ່ມີສິດເຂົ້າ POS",
+      featureNotEnabled: "ສາຂານີ້ຍັງບໍ່ເປີດການເຂົ້າດ້ວຍລະຫັດພະນັກງານ",
+      missingBranchContext: "ກະລຸນາເລືອກສາຂາກ່ອນຢືນຢັນພະນັກງານ",
+      invalidEmployeeCode: "ລະຫັດພະນັກງານຕ້ອງເປັນຕົວເລກເທົ່ານັ້ນ",
+      verifyFailed: "ບໍ່ສາມາດຢືນຢັນພະນັກງານໄດ້",
+      popupCheckingTitle: "ກຳລັງກວດສອບ",
+      popupLoginTitle: "ກຳລັງເຂົ້າລະບົບ",
+      popupCheckingUser: "ກຳລັງຢືນຢັນພະນັກງານ...",
+      popupCheckingPin: "ກຳລັງກວດສອບ Owner / Manager PIN...",
+      popupEnteringPos: "ກຳລັງເປີດໂໝດ POS...",
+      popupFailedTitle: "ດຳເນີນການບໍ່ສຳເລັດ",
+      popupClose: "ປິດ",
+      showCode: "ສະແດງ",
+      hideCode: "ເຊື່ອງ"
+    };
+  }
   if (lang === "en") {
     return {
       branchPrefix: "Branch",

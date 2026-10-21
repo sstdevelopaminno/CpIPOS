@@ -9,6 +9,6 @@ import { PrinterConnectionManagerV3 } from "@/components/backoffice/printer-conn
  * and device registry APIs so LAN / USB / Bluetooth remain user-facing modes
  * while Runtime / Print Agent stays an internal transport detail.
  */
-export function PrintersModule({ lang: _lang = "th" }: { lang?: "th" | "en" }) {
-  return <PrinterConnectionManagerV3 />;
+export function PrintersModule({ lang = "th" }: { lang?: "th" | "en" | "lo" }) {
+  return <PrinterConnectionManagerV3 lang={lang} />;
 }

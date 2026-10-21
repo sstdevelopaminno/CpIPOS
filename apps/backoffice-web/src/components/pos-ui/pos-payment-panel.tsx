@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import {PosOpticalDepositDialog, type OpticalBankVerification} from "@/components/pos/pos-optical-deposit-dialog";
+import type {OpticalDepositMethod} from "@/lib/optical-deposit-amount";
 
 type PaymentText = {
   subtotal: string;
@@ -30,6 +32,15 @@ type Props = {
   onManagerOverride?: () => void;
   onCancelBill?: () => void;
   onHoldBill?: () => void;
+  onOpenHeldBills?: () => void;
+  opticalRetail?: boolean;
+  opticalCurrencyCode?: "THB" | "LAK" | "USD";
+  opticalLanguage?: "th" | "en" | "lo";
+  onOpticalCustomer?: () => void;
+  /** Only supplied when the authenticated Optical ledger transaction is live. */
+  onOpticalDeposit?: (amount: number, method: OpticalDepositMethod, customerId: string, evidence?: OpticalBankVerification, dueDate?:string) => Promise<void> | void;
+  onOpticalDepositReceipt?:()=>void;
+  opticalTransferAccount?:{bank_name:string;account_name:string;account_number:string;qr_image_url:string|null}|null;
   onMember?: () => void;
   onTableQrOrder?: () => void;
   onPromotion?: () => void;
@@ -108,8 +119,12 @@ type LocalBridgeCommandBody = {
 
 const ACTIVE_SALES_MODE_LABEL_KEY = "cpipos_active_sales_mode_label";
 
-function formatMoney(value: number): string {
-  return `฿${new Intl.NumberFormat("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value)}`;
+function formatMoney(value: number, currencyCode: "THB" | "LAK" | "USD" = "THB"): string {
+  const symbol = currencyCode === "LAK" ? "₭" : currencyCode === "USD" ? "$" : "฿";
+  const fractionDigits = currencyCode === "LAK" ? 0 : 2;
+  return symbol + new Intl.NumberFormat("en-US", {
+    minimumFractionDigits: fractionDigits, maximumFractionDigits: fractionDigits
+  }).format(Number.isFinite(value) ? value : 0);
 }
 
 function readWindowsRuntimePayload(): LocalBridgeRuntimePayload | null {
@@ -250,6 +265,14 @@ export function PosPaymentPanel({
   onManagerOverride,
   onCancelBill,
   onHoldBill,
+  onOpenHeldBills,
+  opticalRetail = false,
+  opticalCurrencyCode = "THB",
+  opticalLanguage = "th",
+  onOpticalCustomer,
+  onOpticalDeposit,
+  onOpticalDepositReceipt,
+  opticalTransferAccount,
   onMember,
   onTableQrOrder,
   onPromotion,
@@ -285,6 +308,8 @@ export function PosPaymentPanel({
   text
 }: Props) {
   const [localCashDrawerOpening, setLocalCashDrawerOpening] = useState(false);
+  const [opticalDepositOpen, setOpticalDepositOpen] = useState(false);
+  useEffect(() => { if (!opticalRetail) setOpticalDepositOpen(false); }, [opticalRetail]);
   const [activeSalesModeLabel, setActiveSalesModeLabel] = useState<string | null>(() => readActiveSalesModeLabel());
   const cashDrawerBusy = openingCashDrawer || localCashDrawerOpening;
   const displayModeStatusValue = resolveDisplayModeStatusValue({
@@ -324,6 +349,122 @@ export function PosPaymentPanel({
     } finally {
       setLocalCashDrawerOpening(false);
     }
+  }
+
+  if (opticalRetail) {
+    const localized = (thai: string, english: string) => opticalLanguage === "lo" ? ({
+      "แผงชำระเงินร้านแว่นตา": "ໜ້າຊຳລະເງິນຮ້ານແວ່ນຕາ",
+      "ยอดสินค้า": "ຍອດສິນຄ້າ",
+      "ยอดชำระ": "ຍອດຕ້ອງຊຳລະ",
+      "สกุลเงินหน้าขาย": "ສະກຸນເງິນໜ້າຂາຍ",
+      "พักบิล": "ພັກບິນ",
+      "บิลพัก": "ບິນທີ່ພັກ",
+      "สมาชิก": "ສະມາຊິກ",
+      "ส่วนลด": "ສ່ວນຫຼຸດ",
+      "เปิดลิ้นชัก": "ເປີດລິ້ນຊັກ",
+      "รอระบบบัญชีมัดจำและสต๊อก": "ລໍຖ້າລະບົບເງິນມັດຈຳ ແລະສະຕັອກ",
+      "ชำระเงินมัดจำ": "ຊຳລະເງິນມັດຈຳ",
+      "ยังไม่เปิดใช้งาน": "ຍັງບໍ່ເປີດໃຊ້ງານ",
+      "เพิ่มประวัติลูกค้า": "ເພີ່ມປະຫວັດລູກຄ້າ",
+      "บันทึกค่าสายตา": "ບັນທຶກຄ່າສາຍຕາ",
+      "ชำระเงิน": "ຊຳລະເງິນ",
+      "ยกเลิกบิล": "ຍົກເລີກບິນ",
+    } as Record<string,string>)[thai] ?? thai : opticalLanguage === "th" ? thai : english;
+    const buttonClass = "flex min-h-[56px] w-full min-w-0 flex-col items-center justify-center gap-1 rounded-xl border border-slate-200 bg-white px-2 py-1.5 text-center text-[clamp(11px,1vw,13px)] font-bold leading-tight text-slate-700 shadow-sm transition-colors enabled:hover:border-emerald-400 enabled:hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-60";
+    return (
+      <section
+        className="posui-payment-panel"
+        data-testid="pos-optical-payment-panel"
+        aria-label={localized("แผงชำระเงินร้านแว่นตา", "Optical checkout controls")}
+        style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr)", rowGap: 8, padding: 8, maxHeight: "100%", overflowY: "auto", overscrollBehavior: "contain" }}
+      >
+        <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
+          <p className="flex items-center justify-between border-b border-slate-100 px-3 py-2 text-xs font-bold text-slate-600">
+            <span>{localized("ยอดสินค้า", "Items total")}</span>
+            <strong className="text-lg font-extrabold tabular-nums text-slate-800">{formatMoney(Math.max(0, subtotal), opticalCurrencyCode)}</strong>
+          </p>
+          <p className="flex items-center justify-between px-3 py-2 text-xs font-bold text-slate-700">
+            <span>{localized("ยอดชำระ", "Amount due")}</span>
+            <strong className="text-xl font-black tabular-nums text-orange-600">{formatMoney(total, opticalCurrencyCode)}</strong>
+          </p>
+        </div>
+        <p data-testid="pos-optical-sales-currency" className="text-center text-xs font-bold text-slate-500">
+          {localized("สกุลเงินหน้าขาย", "Sales currency")}: {opticalCurrencyCode}
+        </p>
+        <div className="grid grid-cols-2 gap-2" data-testid="pos-optical-bill-actions">
+          <button type="button" className={buttonClass} onClick={onHoldBill} disabled={!onHoldBill || !showHoldBill || actionsDisabled}>
+            <span aria-hidden="true" className="text-lg">▣</span>{localized("พักบิล", "Hold bill")}
+          </button>
+          <button type="button" className={buttonClass} onClick={onOpenHeldBills} disabled={!onOpenHeldBills || actionsDisabled}>
+            <span aria-hidden="true" className="text-lg">☷</span>{localized("บิลพัก", "Held bills")}
+          </button>
+          <button type="button" className={buttonClass} onClick={onMember} disabled={!onMember || actionsDisabled}>
+            <span aria-hidden="true" className="text-lg">♙</span>{localized("สมาชิก", "Member")}
+          </button>
+          <button type="button" className={buttonClass} onClick={onPromotion} disabled={!onPromotion || actionsDisabled}>
+            <span aria-hidden="true" className="text-lg">%</span>{localized("ส่วนลด", "Discount")}
+          </button>
+          <button
+            type="button"
+            className={`${buttonClass} col-span-2`}
+            onClick={() => void handleOpenCashDrawerClick()}
+            disabled={!onOpenCashDrawer || openCashDrawerDisabled || cashDrawerBusy || submitting}
+          >
+            <span aria-hidden="true" className="text-lg">▤</span>
+            {cashDrawerBusy ? openingCashDrawerLabel : localized("เปิดลิ้นชัก", "Open drawer")}
+          </button>
+        </div>
+        <div className="grid min-w-0 grid-cols-2 gap-2" data-testid="pos-optical-pending-actions">
+          <button
+            type="button"
+            onClick={()=>setOpticalDepositOpen(true)}
+            disabled={total<=0 || actionsDisabled || submitting}
+            title={localized("ชำระเงินมัดจำ", "Enter deposit amount")}
+            className={`${buttonClass} border-emerald-200 bg-emerald-50 text-emerald-900`}
+          >
+            <span aria-hidden="true" className="text-lg leading-none">▣</span>
+            <span className="break-words leading-tight">{localized("ชำระเงินมัดจำ", "Deposit")}</span>
+
+          </button>
+          <button
+            type="button"
+            onClick={onOpticalCustomer}
+            disabled={!onOpticalCustomer || actionsDisabled}
+            className={`${buttonClass} border-emerald-300 bg-emerald-100 text-emerald-900 enabled:hover:bg-emerald-200`}
+          >
+            <span aria-hidden="true" className="text-lg leading-none">♙</span>
+            <span className="break-words leading-tight">{localized("เพิ่มประวัติลูกค้า", "Customer history")}</span>
+            <span className="text-[11px] font-semibold">{localized("บันทึกค่าสายตา", "Examination records")}</span>
+          </button>
+        </div>
+        <div className="grid w-full grid-cols-1 gap-2 pt-0.5" data-testid="pos-optical-primary-actions">
+          <button
+            type="button"
+            className="flex min-h-12 w-full items-center justify-center rounded-xl bg-orange-500 px-3 py-2 text-center text-base font-black text-white transition-colors enabled:hover:bg-orange-600 disabled:cursor-not-allowed disabled:opacity-45"
+            onClick={onCheckout}
+            disabled={checkoutDisabled || submitting}
+            data-testid="pos-optical-checkout"
+          >
+            {submitting ? submittingLabel : localized("ชำระเงิน", "Checkout")}
+          </button>
+          <button
+            type="button"
+            className="flex min-h-12 w-full items-center justify-center rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-center text-base font-bold text-rose-700 enabled:hover:bg-rose-100 disabled:cursor-not-allowed disabled:opacity-45"
+            onClick={onCancelBill}
+            disabled={!onCancelBill || actionsDisabled || cancelBillDisabled}
+          >
+            {localized("ยกเลิกบิล", "Cancel bill")}
+          </button>
+        </div>
+        {onOpticalDepositReceipt?<button type="button" className="min-h-10 w-full rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-2 text-sm font-bold text-emerald-900"
+          onClick={onOpticalDepositReceipt} data-testid="optical-last-deposit-receipt">
+          {opticalLanguage==="lo"?"ເບິ່ງໃບຮັບເງິນມັດຈຳ 80mm":opticalLanguage==="en"?"View deposit receipt 80mm":"ดูใบรับเงินมัดจำ 80mm"}
+        </button>:null}
+        {onRetry ? <button type="button" className="posui-btn posui-btn--retry-emergency" onClick={onRetry} disabled={retryDisabled || submitting}>{retryLabel ?? text.retry}</button> : null}
+        {opticalDepositOpen ? <PosOpticalDepositDialog total={total} currency={opticalCurrencyCode} language={opticalLanguage}
+          onClose={()=>setOpticalDepositOpen(false)} onSubmit={onOpticalDeposit} transferAccount={opticalTransferAccount}/> : null}
+      </section>
+    );
   }
 
   const secondaryActions = ([
@@ -420,23 +561,23 @@ export function PosPaymentPanel({
         {showDiscount ? (
           <p>
             <span>{text.subtotal}</span>
-            <strong>{formatMoney(Math.max(0, subtotal))}</strong>
+            <strong>{formatMoney(Math.max(0, subtotal), opticalCurrencyCode)}</strong>
           </p>
         ) : null}
         {showTax && taxLines.length > 0 ? taxLines.map((line) => (
           <p key={line.id}>
             <span>{line.label}</span>
-            <strong>{line.amount < 0 ? "-" : "+"}{formatMoney(Math.abs(line.amount))}</strong>
+            <strong>{line.amount < 0 ? "-" : "+"}{formatMoney(Math.abs(line.amount), opticalCurrencyCode)}</strong>
           </p>
         )) : showTax && text.tax ? (
           <p>
             <span>{text.tax}</span>
-            <strong>{formatMoney(Math.max(0, taxAmount ?? 0))}</strong>
+            <strong>{formatMoney(Math.max(0, taxAmount ?? 0), opticalCurrencyCode)}</strong>
           </p>
         ) : null}
         <p className="is-total">
           <span>{text.total}</span>
-          <strong>{formatMoney(total)}</strong>
+          <strong>{formatMoney(total, opticalCurrencyCode)}</strong>
         </p>
       </div>
 

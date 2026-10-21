@@ -1,7 +1,10 @@
 "use client";
 
 import { useEffect } from "react";
+import { formatSalesMoney, normalizeSalesCurrency } from "@/lib/pos-money";
+import { generalSaleUi, type GeneralSaleLanguage } from "@/lib/pos-general-sale-i18n";
 import { POS_MODE_FEATURES } from "@/lib/pos-feature-map";
+import { isAuthorizedOpticalRetailMode } from "@/lib/pos-sales-modes";
 import {
   buildGeneralSaleCartTableRows,
   buildGeneralSaleCartTableSignature,
@@ -12,6 +15,14 @@ import {
   GENERAL_SALE_ADD_PRODUCT_EVENT,
   GENERAL_SALE_ADD_PRODUCT_RESULT_EVENT,
   GENERAL_SALE_CHECKOUT_BASE_MODE,
+  GENERAL_SALE_ACTIVATE_BASE_MODE_EVENT,
+  OPTICAL_ACTIVATE_BASE_MODE_EVENT,
+  OPTICAL_DEACTIVATE_BASE_MODE_EVENT,
+  OPTICAL_ACTIVE_ROOT_ATTRIBUTE,
+  POS_STARTUP_MODE_REQUEST_EVENT,
+  POS_STARTUP_MODE_RESULT_EVENT,
+  type PosStartupModeRequest,
+  type PosStartupModeResult,
   GENERAL_SALE_LAYOUT_ATTRIBUTE,
   GENERAL_SALE_LAYOUT_STORAGE_KEY,
   GENERAL_SALE_MODE_ID,
@@ -22,10 +33,13 @@ import {
   type GeneralSaleLookupProduct
 } from "@/lib/pos-general-sale-mode";
 
-type Lang = "th" | "en";
+type Lang = GeneralSaleLanguage;
 type PosFeaturesResponse = {
   data?: {
     features?: Record<string, boolean>;
+    sales_modes?: { general_sale?: boolean; optical_retail?: boolean };
+    is_custom?: boolean;
+    is_internal_test_full?: boolean;
   } | null;
 };
 type ProductLookupResponse = {
@@ -39,11 +53,15 @@ type ProductLookupResponse = {
 };
 
 const MODE_SELECTOR_QUERY = ".posui-mode-selector";
+const MODE_SWITCH_BUTTON_QUERY = ".posui-mode-switch-button";
+const OPTICAL_HANDLER_READY_ATTRIBUTE = "data-pos-optical-handler-ready";
 const MODE_GRID_QUERY = ".posui-mode-selector__grid";
 const MODE_ATTRIBUTE = "data-pos-sale-mode";
 const MODE_ENHANCED_ATTRIBUTE = "data-pos-mode-preferences-enhanced";
 const PRODUCT_GRID_WRAP_QUERY = ".posui-product-grid-wrap";
 const GENERAL_SALE_BUTTON_ATTRIBUTE = "data-pos-general-sale-mode-button";
+const OPTICAL_BUTTON_ATTRIBUTE = "data-pos-optical-retail-mode-button";
+const OPTICAL_MODE_ID = "optical_retail";
 const GENERAL_SALE_SCANNER_ATTRIBUTE = "data-pos-general-sale-scanner";
 const GENERAL_SALE_TABLE_ATTRIBUTE = "data-pos-general-sale-cart-table";
 const GENERAL_SALE_STYLE_ID = "cpipos-general-sale-table-only-style";
@@ -53,10 +71,11 @@ const CART_MUTATED_EVENT = "cpipos:pos-cart-mutated";
 const CART_BRIDGE_TIMEOUT_MS = 1800;
 const CART_RENDER_DELAY_MS = 48;
 const MAX_QUEUED_SCANS = 25;
+const OPTICAL_SCAN_IDLE_MS = 75;
+const OPTICAL_MANUAL_IDLE_MS = 260;
+const OPTICAL_SCAN_KEY_INTERVAL_MS = 85;
+const PRODUCT_LOOKUP_TIMEOUT_MS = 5200;
 
-function resolveLang(): Lang {
-  return document.documentElement.lang.toLowerCase().startsWith("en") ? "en" : "th";
-}
 
 function createTextElement(tag: "p" | "span" | "strong" | "small", className: string, text: string) {
   const element = document.createElement(tag);
@@ -71,12 +90,9 @@ function createRequestId() {
 }
 
 function formatMoney(value: number): string {
-  return new Intl.NumberFormat("th-TH", {
-    style: "currency",
-    currency: "THB",
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2
-  }).format(Number.isFinite(value) ? value : 0);
+  return formatSalesMoney(value, normalizeSalesCurrency(
+    document.documentElement.getAttribute("data-pos-store-currency")
+  ));
 }
 
 function addLookupProductToReactCart(product: GeneralSaleLookupProduct): Promise<GeneralSaleAddProductResult["status"] | "timeout"> {
@@ -143,19 +159,247 @@ function ensureGeneralSaleStyles() {
     [${GENERAL_SALE_SCANNER_ATTRIBUTE}="1"] [data-tone="error"] { color: #dc2626; }
     [${GENERAL_SALE_SCANNER_ATTRIBUTE}="1"] [data-tone="success"] { color: #047857; }
     [${GENERAL_SALE_SCANNER_ATTRIBUTE}="1"] [data-tone="pending"] { color: #0369a1; }
+
+    /* Optical card layout responds to the actual CART WIDTH, not window pixels.
+       On tablets the payment sidebar can leave <700px for the cart even when
+       the app window is 1200px wide. Other POS modes do not use this query. */
+    html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .cpipos-sd-table {
+      container-type: inline-size;
+      container-name: optical-cart;
+    }
+    /* Only CUSTOM Optical. Restaurant/retail tables retain their original structure. */
+    html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .cpipos-sd-table__scroll {
+      /* Keep all five Optical columns visible at once; scrolling remains vertical. */
+      width: 100%; min-width: 0; overflow-x: hidden; overflow-y: auto;
+    }
+    html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .cpipos-sd-table table {
+      width: 100%; min-width: 0; max-width: 100%; table-layout: fixed;
+    }
+    html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .cpipos-sd-table th,
+    html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .cpipos-sd-table td {
+      min-width: 0; max-width: 100%; box-sizing: border-box; overflow-wrap: anywhere;
+    }
+    html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .cpipos-sd-table__money {
+      white-space: nowrap; overflow: hidden; text-overflow: clip;
+      font-variant-numeric: tabular-nums;
+    }
+    /* Fixed-size quantity control frees space for name and original-price accuracy.
+       Optical only: ordinary POS and other CUSTOM carts must not change. */
+    html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .cpipos-sd-table__name { width: auto; min-width: 0; overflow-wrap: anywhere; }
+    html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .cpipos-sd-table__name strong {
+      display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2;
+      line-clamp: 2; overflow: hidden; overflow-wrap: anywhere; line-height: 1.35;
+    }
+    html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .cpipos-sd-table__qty { width: 104px; }
+    html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .cpipos-sd-table__money { width: clamp(74px, 15%, 110px); }
+    html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .cpipos-sd-table__actions { width: 40px; }
+    html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .cpipos-sd-qty {
+      width: 104px; max-width: 100%;
+      grid-template-columns: 34px minmax(28px, 1fr) 34px;
+      border-radius: 8px;
+    }
+    html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .cpipos-sd-qty button {
+      width: 34px; height: 32px; min-width: 0; font-size: 16px;
+      touch-action: manipulation;
+    }
+    html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .cpipos-sd-qty span {
+      min-width: 0; padding: 0 2px; font-size: 12px;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .cpipos-sd-qty button:focus-visible,
+    html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .cpipos-sd-delete:focus-visible {
+      outline: 2px solid #2563eb; outline-offset: 2px;
+    }
+    html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .cpipos-sd-table__scroll { max-height: min(54vh, 520px); }
+    html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .cpipos-sd-table th,
+    html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .cpipos-sd-table td { padding: 8px 4px; font-size: clamp(10px, .96vw, 13px); }
+    html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .cpipos-sd-table__summary { padding: 9px 11px; gap: 6px; }
+    html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .posui-body { grid-template-columns: minmax(0, 1fr) clamp(235px, 26vw, 288px); gap: 8px; }
+    html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .posui-catalog-col,
+    html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .posui-cart-col { min-width: 0; }
+    /* At under 820px of USABLE CART SPACE each item becomes a 2-line card.
+       Product / Qty / Unit price / Total / Delete are all shown. This avoids
+       clipping monetary values and is safer than hiding horizontal overflow. */
+    @container optical-cart (max-width: 820px) {
+      html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .cpipos-sd-table__scroll {
+        overflow-x: hidden;
+        overflow-y: auto;
+      }
+      html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .cpipos-sd-table table,
+      html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .cpipos-sd-table tbody {
+        display: block; width: 100%; min-width: 0; max-width: 100%;
+        box-sizing: border-box; table-layout: auto;
+      }
+      html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .cpipos-sd-table thead,
+      html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .cpipos-sd-table colgroup {
+        display: none;
+      }
+      html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .cpipos-sd-table tbody {
+        padding: 6px;
+      }
+      html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .cpipos-sd-table tbody tr {
+        display: grid; min-width: 0;
+        grid-template-columns: 104px minmax(0, 1fr) minmax(0, 1fr) 40px;
+        grid-template-areas: "name name name remove" "qty unit total total";
+        gap: 5px 8px;
+        align-items: center;
+        padding: 8px;
+        border: 1px solid #e2e8f0;
+        border-radius: 10px;
+        background: #fff;
+        margin-bottom: 6px;
+      }
+      html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .cpipos-sd-table tbody tr:last-child {
+        margin-bottom: 0;
+      }
+      html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .cpipos-sd-table tbody td {
+        display: block; width: auto !important; max-width: none; min-width: 0;
+        padding: 0 !important; border: 0;
+        overflow: visible; font-size: 12px;
+      }
+      html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .cpipos-sd-table tbody .cpipos-sd-table__name {
+        grid-area: name; font-size: 12px; line-height: 1.4;
+      }
+      html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .cpipos-sd-table tbody .cpipos-sd-table__qty {
+        grid-area: qty;
+      }
+      html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .cpipos-sd-table tbody td:nth-child(3) {
+        grid-area: unit; text-align: right !important;
+      }
+      html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .cpipos-sd-table tbody td:nth-child(4) {
+        grid-area: total; text-align: right !important;
+        color: #0f766e; font-weight: 800;
+      }
+      html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .cpipos-sd-table tbody .cpipos-sd-table__money {
+        white-space: normal; overflow: visible;
+        word-break: normal; overflow-wrap: anywhere;
+        font-variant-numeric: tabular-nums;
+      }
+      html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .cpipos-sd-table tbody .cpipos-sd-table__money::before {
+        content: attr(data-optical-money-label);
+        display: block;
+        margin-bottom: 1px;
+        color: #64748b;
+        font-size: 10px;
+        font-weight: 500;
+        line-height: 1.2;
+      }
+      html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .cpipos-sd-table tbody .cpipos-sd-table__actions {
+        grid-area: remove; text-align: right !important;
+      }
+      html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .cpipos-sd-table tbody .cpipos-sd-qty {
+        width: 100px;
+        grid-template-columns: 32px minmax(24px, 1fr) 32px;
+      }
+      html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .cpipos-sd-table tbody .cpipos-sd-qty button {
+        width: 32px; height: 32px;
+      }
+    }
+    /* Very narrow cart widths (e.g. window snapping / small WebViews) keep
+       all monetary values in a separate row rather than squashing text. */
+    @container optical-cart (max-width: 365px) {
+      html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .cpipos-sd-table tbody tr {
+        grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 40px;
+        grid-template-areas:
+          "name name remove"
+          "qty qty qty"
+          "unit total total";
+      }
+      html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .cpipos-sd-table tbody td:nth-child(3) {
+        text-align: left !important;
+      }
+    }
+
+    /* Optical review/cash modals must remain reachable above the software keyboard
+       on compact 8.5-inch landscape tablets; payment logic is unchanged. */
+    @media (max-height: 760px) and (orientation: landscape) {
+      html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .posui-payment-modal-backdrop { padding: 6px; }
+      html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .posui-payment-modal--cash,
+      html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .posui-payment-modal--review-bill {
+        max-height: calc(100dvh - 12px); overflow-y: auto; overscroll-behavior: contain;
+        padding: 10px;
+      }
+      html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .posui-cash-layout {
+        grid-template-columns: minmax(0, 1fr) minmax(175px, 215px); gap: 8px;
+      }
+      html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .posui-cash-keypad__key { min-height: 40px; font-size: 20px; }
+      html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .posui-cash-keypad__grid { gap: 5px; }
+      html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .posui-payment-modal--review-bill .posui-payment-modal__items { max-height: 28vh; overflow-y: auto; }
+    }
+    /* Compact landscape tablet: checkout stays reachable without scrolling through
+       secondary actions. Only Optical CUSTOM gets this reordered presentation. */
+    @media (max-height: 650px) and (orientation: landscape) {
+      html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .posui-cart-panel__header { min-height: 42px; }
+      html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] [data-testid="pos-optical-payment-panel"] {
+        display: flex !important; flex-direction: column; gap: 5px !important;
+        padding: 5px !important; max-height: 100%; overflow-y: auto;
+      }
+      html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] [data-testid="pos-optical-payment-panel"] > div:first-child p {
+        padding: 6px 8px;
+      }
+      html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] [data-testid="pos-optical-primary-actions"] {
+        order: 1; gap: 5px;
+      }
+      html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] [data-testid="pos-optical-primary-actions"] button {
+        min-height: 42px; padding: 6px;
+      }
+      html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] [data-testid="pos-optical-bill-actions"] {
+        order: 2; gap: 5px;
+      }
+      html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] [data-testid="pos-optical-pending-actions"] {
+        order: 3; gap: 5px;
+      }
+      html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] [data-testid="pos-optical-bill-actions"] button,
+      html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] [data-testid="pos-optical-pending-actions"] button {
+        min-height: 44px; padding: 5px; font-size: 11px;
+      }
+    }
+    @media (max-width: 1080px) and (orientation: landscape) {
+      html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .posui-body { grid-template-columns: minmax(0, 1fr) 240px; gap: 6px; }
+      html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .cpipos-sd-table__name { width: auto; }
+      html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .cpipos-sd-table__qty { width: 104px; }
+      html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .cpipos-sd-table__money { width: clamp(74px, 15%, 96px); }
+      html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .cpipos-sd-table__actions { width: 40px; }
+      html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .cpipos-sd-table th,
+      html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .cpipos-sd-table td { padding: 7px 3px; font-size: 11px; }
+    }
+    @media (max-width: 740px), (max-width: 980px) and (orientation: portrait) {
+      html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .posui-body { display: flex; flex-direction: column; overflow-y: auto; }
+      html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .posui-cart-col { height: auto; min-height: fit-content; flex: none; }
+      html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .cpipos-sd-table__scroll { max-height: 48vh; }
+    }
     @media (max-width: 900px) {
       .cpipos-sd-table__summary { align-items: flex-start; flex-direction: column; }
+    }
+    /* Optical only: allow horizontal access to long product details. */
+    html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .cpipos-sd-table__scroll {
+      overflow-x: auto !important; scroll-behavior: smooth; overscroll-behavior-x: contain;
+    }
+    html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .cpipos-sd-table__name .cpipos-sd-table__optical-sku {
+      display: block; margin-top: 4px; font-size: 11px;
+      color: #065f46; font-weight: 700; overflow-wrap: anywhere; user-select: text;
+    }
+    @container optical-cart (min-width: 821px) {
+      html[${OPTICAL_ACTIVE_ROOT_ATTRIBUTE}="1"] .cpipos-sd-table table { min-width: 890px; max-width: none; }
     }
   `;
   document.head.appendChild(style);
 }
 
-export function PosGeneralSaleTableController() {
+export function PosGeneralSaleTableController({ lang = "th" }: { lang?: Lang }) {
   useEffect(() => {
     let destroyed = false;
     let accessResolved = false;
+    let accessSequence = 0;
+    let latestSelector: HTMLElement | null = null;
     let generalSaleAllowed = false;
+    let opticalAllowed = false;
     let generalSaleActive = false;
+    let opticalActive = false;
+    let pendingStartupMode: PosStartupModeRequest | null = null;
+    let processingStartupRequestId: string | null = null;
+    let pendingStartupRetryCount = 0;
+    let pendingStartupRetryTimer: number | null = null;
     let scannerPanel: HTMLElement | null = null;
     let scannerInput: HTMLInputElement | null = null;
     let scannerSubmit: HTMLButtonElement | null = null;
@@ -165,9 +409,14 @@ export function PosGeneralSaleTableController() {
     let reconcileFrame: number | null = null;
     let lastTableSignature = "";
     let scanBusy = false;
+    let opticalAutoScanTimer: number | null = null;
+    let opticalBillScanTimer: number | null = null;
+    let opticalLastKeyAt = 0;
+    let opticalFastKeyCount = 0;
+    let opticalPastedCode = false;
     const scanQueue: string[] = [];
     const lookupProductsById = new Map<string, GeneralSaleLookupProduct>();
-    const lang = resolveLang();
+    const copy = generalSaleUi[lang];
 
     ensureGeneralSaleStyles();
     try {
@@ -180,19 +429,24 @@ export function PosGeneralSaleTableController() {
       if (active) {
         document.documentElement.setAttribute(GENERAL_SALE_ROOT_ATTRIBUTE, GENERAL_SALE_MODE_ID);
         document.documentElement.setAttribute(GENERAL_SALE_LAYOUT_ATTRIBUTE, "table");
+        if (opticalActive) document.documentElement.setAttribute(OPTICAL_ACTIVE_ROOT_ATTRIBUTE, "1");
+        else document.documentElement.removeAttribute(OPTICAL_ACTIVE_ROOT_ATTRIBUTE);
       } else {
         if (document.documentElement.getAttribute(GENERAL_SALE_ROOT_ATTRIBUTE) === GENERAL_SALE_MODE_ID) {
           document.documentElement.removeAttribute(GENERAL_SALE_ROOT_ATTRIBUTE);
         }
         document.documentElement.removeAttribute(GENERAL_SALE_LAYOUT_ATTRIBUTE);
+        document.documentElement.removeAttribute(OPTICAL_ACTIVE_ROOT_ATTRIBUTE);
       }
     };
 
     const setModeVisualState = () => {
       const selector = document.querySelector<HTMLElement>(MODE_SELECTOR_QUERY);
       const generalSaleButton = selector?.querySelector<HTMLButtonElement>(`[${GENERAL_SALE_BUTTON_ATTRIBUTE}="1"]`) ?? null;
+      const opticalButton = selector?.querySelector<HTMLButtonElement>(`[${OPTICAL_BUTTON_ATTRIBUTE}="1"]`) ?? null;
+      opticalButton?.classList.toggle("is-active", generalSaleActive && opticalActive);
       const homeButton = selector?.querySelector<HTMLElement>(`[${MODE_ATTRIBUTE}="${GENERAL_SALE_CHECKOUT_BASE_MODE}"]`) ?? null;
-      generalSaleButton?.classList.toggle("is-active", generalSaleActive);
+      generalSaleButton?.classList.toggle("is-active", generalSaleActive && !opticalActive);
       if (generalSaleActive) homeButton?.classList.remove("is-active");
     };
 
@@ -208,6 +462,16 @@ export function PosGeneralSaleTableController() {
     };
 
     const removeScanner = () => {
+      if (opticalAutoScanTimer !== null) {
+        window.clearTimeout(opticalAutoScanTimer);
+        opticalAutoScanTimer = null;
+      }
+      opticalFastKeyCount = 0;
+      opticalPastedCode = false;
+      if (opticalBillScanTimer !== null) {
+        window.clearTimeout(opticalBillScanTimer);
+        opticalBillScanTimer = null;
+      }
       scannerPanel?.remove();
       scannerPanel = null;
       scannerInput = null;
@@ -217,7 +481,11 @@ export function PosGeneralSaleTableController() {
     };
 
     const deactivateGeneralSale = () => {
+      if (opticalActive) {
+        window.dispatchEvent(new Event(OPTICAL_DEACTIVATE_BASE_MODE_EVENT));
+      }
       generalSaleActive = false;
+      opticalActive = false;
       setRootMode(false);
       setModeVisualState();
       removeTable();
@@ -225,11 +493,11 @@ export function PosGeneralSaleTableController() {
     };
 
     const removeGeneralSaleButton = () => {
-      document.querySelectorAll<HTMLElement>(`[${GENERAL_SALE_BUTTON_ATTRIBUTE}="1"]`).forEach((node) => node.remove());
+      document.querySelectorAll<HTMLElement>(`[${GENERAL_SALE_BUTTON_ATTRIBUTE}="1"], [${OPTICAL_BUTTON_ATTRIBUTE}="1"]`).forEach((node) => node.remove());
     };
 
     const ensureTableHost = () => {
-      if (!generalSaleAllowed || !generalSaleActive) {
+      if ((!generalSaleAllowed && !opticalAllowed) || !generalSaleActive) {
         removeTable();
         return null;
       }
@@ -244,7 +512,7 @@ export function PosGeneralSaleTableController() {
       const host = document.createElement("section");
       host.setAttribute(GENERAL_SALE_TABLE_ATTRIBUTE, "1");
       host.className = "cpipos-sd-table";
-      host.setAttribute("aria-label", lang === "th" ? "ตารางขายสินค้า" : "General sale table");
+      host.setAttribute("aria-label", copy.tableAria);
       gridWrap.parentElement.insertBefore(host, gridWrap);
       tableHost = host;
       return host;
@@ -281,7 +549,9 @@ export function PosGeneralSaleTableController() {
         snapshotProducts: parseGeneralSaleSalesSnapshot(snapshotText),
         lookupProducts: lookupProductsById.values()
       });
-      const signature = buildGeneralSaleCartTableSignature(rows);
+      // A late server-approved currency response must re-render the same cart
+      // rather than leaving its previous THB formatted amount on screen.
+      const signature = `${lang}:${opticalActive?"optical":"general"}:${document.documentElement.getAttribute("data-pos-store-currency") ?? "THB"}:${buildGeneralSaleCartTableSignature(rows)}`;
       if (signature === lastTableSignature && host.childElementCount > 0) return;
       lastTableSignature = signature;
 
@@ -290,7 +560,7 @@ export function PosGeneralSaleTableController() {
       const count = rows.reduce((sum, row) => sum + row.quantity, 0);
       const total = rows.reduce((sum, row) => sum + row.lineTotal, 0);
       summary.append(
-        createTextElement("p", "", lang === "th" ? `ตารางขายสินค้า · ${count} ชิ้น · ${rows.length} รายการ` : `Sales table · ${count} units · ${rows.length} lines`),
+        createTextElement("p", "", `${copy.tableTitle} · ${count} ${copy.units} · ${rows.length} ${copy.lines}`),
         createTextElement("strong", "", formatMoney(total))
       );
 
@@ -299,16 +569,15 @@ export function PosGeneralSaleTableController() {
       if (rows.length === 0) {
         const empty = document.createElement("div");
         empty.className = "cpipos-sd-table__empty";
-        empty.textContent = lang === "th" ? "ยังไม่มีสินค้า · ยิงบาร์โค้ดหรือกรอก SKU ด้านบนเพื่อเพิ่มสินค้า" : "No items yet. Scan a barcode or enter an SKU above.";
+        empty.textContent = copy.empty;
         scroll.appendChild(empty);
       } else {
         const table = document.createElement("table");
         const thead = document.createElement("thead");
         const headerRow = document.createElement("tr");
-        const headers = lang === "th"
-          ? ["#", "SKU / บาร์โค้ด", "หมวดหมู่", "สินค้า", "จำนวน", "ราคา/หน่วย", "ราคารวม", "ลบ"]
-          : ["#", "SKU / barcode", "Category", "Product", "Qty", "Unit price", "Total", "Remove"];
-        const classes = ["cpipos-sd-table__index", "cpipos-sd-table__sku", "cpipos-sd-table__category", "cpipos-sd-table__name", "cpipos-sd-table__qty", "cpipos-sd-table__money", "cpipos-sd-table__money", "cpipos-sd-table__actions"];
+        const headers = opticalActive ? copy.headers.slice(3) : copy.headers;
+        const fullClasses = ["cpipos-sd-table__index", "cpipos-sd-table__sku", "cpipos-sd-table__category", "cpipos-sd-table__name", "cpipos-sd-table__qty", "cpipos-sd-table__money", "cpipos-sd-table__money", "cpipos-sd-table__actions"];
+        const classes = opticalActive ? fullClasses.slice(3) : fullClasses;
         headers.forEach((label, index) => {
           const th = document.createElement("th");
           th.className = classes[index];
@@ -317,6 +586,17 @@ export function PosGeneralSaleTableController() {
         });
         thead.appendChild(headerRow);
 
+        // Fixed column geometry avoids min-content growth from Lao labels,
+        // long optical product names and six-digit LAK prices.
+        if (opticalActive) {
+          const colgroup = document.createElement("colgroup");
+          for (const cls of ["cpipos-sd-table__name", "cpipos-sd-table__qty", "cpipos-sd-table__money", "cpipos-sd-table__money", "cpipos-sd-table__actions"]) {
+            const col = document.createElement("col");
+            col.className = cls;
+            colgroup.appendChild(col);
+          }
+          table.appendChild(colgroup);
+        }
         const tbody = document.createElement("tbody");
         rows.forEach((row, index) => {
           const tr = document.createElement("tr");
@@ -331,8 +611,16 @@ export function PosGeneralSaleTableController() {
           categoryCell.textContent = row.category;
           const nameCell = document.createElement("td");
           nameCell.className = "cpipos-sd-table__name";
-          nameCell.appendChild(createTextElement("strong", "", row.name));
-          if (row.notes) nameCell.appendChild(createTextElement("small", "", row.notes));
+          const productName = createTextElement("strong", "", row.name);
+          if (opticalActive) {
+            // Preserve the exact product name for pointer hover while keeping
+            // every row at two lines on narrow landscape POS screens.
+            productName.title = row.name;
+          }
+          nameCell.appendChild(productName);
+          if (opticalActive) nameCell.appendChild(createTextElement("small","cpipos-sd-table__optical-sku",
+            "SKU / รหัสสินค้า: "+(row.sku||"—")));
+          if (!opticalActive && row.notes) nameCell.appendChild(createTextElement("small", "", row.notes));
           const qtyCell = document.createElement("td");
           qtyCell.className = "cpipos-sd-table__qty";
           const qty = document.createElement("div");
@@ -342,22 +630,30 @@ export function PosGeneralSaleTableController() {
           decrease.textContent = "−";
           decrease.dataset.sdAction = "decrease";
           decrease.dataset.sdIndex = String(index);
-          decrease.setAttribute("aria-label", `Decrease ${row.name}`);
+          decrease.setAttribute("aria-label", `${copy.decrease} ${row.name}`);
           const qtyValue = createTextElement("span", "", String(row.quantity));
           const increase = document.createElement("button");
           increase.type = "button";
           increase.textContent = "+";
           increase.dataset.sdAction = "increase";
           increase.dataset.sdIndex = String(index);
-          increase.setAttribute("aria-label", `Increase ${row.name}`);
+          increase.setAttribute("aria-label", `${copy.increase} ${row.name}`);
           qty.append(decrease, qtyValue, increase);
           qtyCell.appendChild(qty);
           const unitPriceCell = document.createElement("td");
           unitPriceCell.className = "cpipos-sd-table__money";
           unitPriceCell.textContent = formatMoney(row.unitPrice);
+          if (opticalActive) {
+            unitPriceCell.dataset.opticalMoneyLabel = copy.headers[5];
+            unitPriceCell.setAttribute("aria-label", `${copy.headers[5]} ${unitPriceCell.textContent}`);
+          }
           const totalCell = document.createElement("td");
           totalCell.className = "cpipos-sd-table__money";
           totalCell.textContent = formatMoney(row.lineTotal);
+          if (opticalActive) {
+            totalCell.dataset.opticalMoneyLabel = copy.headers[6];
+            totalCell.setAttribute("aria-label", `${copy.headers[6]} ${totalCell.textContent}`);
+          }
           const actionCell = document.createElement("td");
           actionCell.className = "cpipos-sd-table__actions";
           const remove = document.createElement("button");
@@ -366,95 +662,109 @@ export function PosGeneralSaleTableController() {
           remove.textContent = "×";
           remove.dataset.sdAction = "delete";
           remove.dataset.sdIndex = String(index);
-          remove.setAttribute("aria-label", `Remove ${row.name}`);
+          remove.setAttribute("aria-label", `${copy.remove} ${row.name}`);
           actionCell.appendChild(remove);
-          tr.append(indexCell, skuCell, categoryCell, nameCell, qtyCell, unitPriceCell, totalCell, actionCell);
+          if (opticalActive) tr.append(nameCell, qtyCell, unitPriceCell, totalCell, actionCell);
+          else tr.append(indexCell, skuCell, categoryCell, nameCell, qtyCell, unitPriceCell, totalCell, actionCell);
           tbody.appendChild(tr);
         });
         table.append(thead, tbody);
         scroll.appendChild(table);
       }
-      host.replaceChildren(summary, scroll);
+      host.replaceChildren(summary,scroll);
     };
 
     const scheduleTableRender = (delayMs = CART_RENDER_DELAY_MS) => {
       if (!generalSaleActive) return;
+      if (pendingStartupRetryTimer !== null) window.clearTimeout(pendingStartupRetryTimer);
       if (tableRenderTimer !== null) window.clearTimeout(tableRenderTimer);
       tableRenderTimer = window.setTimeout(renderTable, delayMs);
     };
 
     const submitScan = async (rawCode: string, status: HTMLElement, input: HTMLInputElement, submit: HTMLButtonElement) => {
-      const scanCode = normalizeGeneralSaleScanCode(rawCode);
+      const originalSku = rawCode.trim();
+      const scanCode = normalizeGeneralSaleScanCode(originalSku);
       if (!scanCode) {
-        status.textContent = lang === "th" ? "กรุณาสแกนหรือกรอกรหัส SKU สินค้า" : "Scan or enter a product SKU.";
+        status.textContent = copy.missingSku;
         status.dataset.tone = "error";
         input.focus();
         return;
       }
       input.value = "";
+      opticalPastedCode = false;
       if (scanBusy) {
         if (scanQueue.length >= MAX_QUEUED_SCANS) {
-          status.textContent = lang === "th" ? "คิวสแกนเต็ม กรุณารอสักครู่แล้วสแกนใหม่" : "Scan queue is full. Wait briefly and scan again.";
+          status.textContent = copy.queueFull;
           status.dataset.tone = "error";
           return;
         }
-        scanQueue.push(scanCode);
-        status.textContent = lang === "th" ? `รับรหัส ${scanCode} เข้าคิวแล้ว · รอ ${scanQueue.length} รายการ` : `Queued ${scanCode} · ${scanQueue.length} waiting`;
+        scanQueue.push(opticalActive ? originalSku : scanCode);
+        status.textContent = lang === "lo" ? `ເພີ່ມ ${scanCode} ເຂົ້າຄິວແລ້ວ · ລໍຖ້າ ${scanQueue.length} ລາຍການ` : lang === "th" ? `รับรหัส ${scanCode} เข้าคิวแล้ว · รอ ${scanQueue.length} รายการ` : `Queued ${scanCode} · ${scanQueue.length} waiting`;
         status.dataset.tone = "pending";
         return;
       }
 
       scanBusy = true;
       submit.disabled = true;
-      submit.textContent = lang === "th" ? "กำลังเพิ่ม..." : "Adding...";
-      status.textContent = lang === "th" ? `กำลังค้นหา SKU: ${scanCode}` : `Looking up SKU: ${scanCode}`;
+      submit.textContent = copy.adding;
+      status.textContent = lang === "lo" ? `ກຳລັງຄົ້ນຫາ SKU: ${scanCode}` : lang === "th" ? `กำลังค้นหา SKU: ${scanCode}` : `Looking up SKU: ${scanCode}`;
       status.dataset.tone = "pending";
+      const lookupStartedAt = window.performance.now();
+      const controller = new AbortController();
+      const lookupTimeout = opticalActive
+        ? window.setTimeout(() => controller.abort(), PRODUCT_LOOKUP_TIMEOUT_MS)
+        : null;
       try {
-        const response = await fetch(`/api/pos/products/lookup?sku=${encodeURIComponent(scanCode)}`, {
+        // One exact SKU lookup per completed scan; never on each keystroke.
+        const response = await fetch(`/api/pos/products/lookup?sku=${encodeURIComponent(opticalActive ? originalSku : scanCode)}`, {
           cache: "no-store",
-          credentials: "include"
+          credentials: "include",
+          ...(opticalActive ? { signal: controller.signal } : {})
         });
         const body = (await response.json().catch(() => null)) as ProductLookupResponse | null;
         if (!response.ok || body?.error || !body?.data?.product) {
           const code = body?.error?.code ?? "product_lookup_failed";
           status.textContent = code === "product_not_found"
-            ? (lang === "th" ? `ไม่พบสินค้า SKU: ${scanCode}` : `SKU not found: ${scanCode}`)
-            : body?.error?.message || (lang === "th" ? "ค้นหาสินค้าไม่สำเร็จ กรุณาลองใหม่" : "Product lookup failed. Please retry.");
+            ? (lang === "lo" ? `ບໍ່ພົບສິນຄ້າ SKU: ${scanCode}` : lang === "th" ? `ไม่พบสินค้า SKU: ${scanCode}` : `SKU not found: ${scanCode}`)
+            : body?.error?.message || (copy.lookupFailed);
           status.dataset.tone = "error";
           return;
         }
         const product = body.data.product;
         lookupProductsById.set(product.id, product);
         if (product.is_active === false || product.is_out_of_stock === true) {
-          status.textContent = lang === "th" ? `สินค้า ${product.name || scanCode} ไม่พร้อมขาย/หมดสต๊อก` : `${product.name || scanCode} is unavailable or out of stock.`;
+          status.textContent = lang === "lo" ? `ສິນຄ້າ ${product.name || scanCode} ບໍ່ພ້ອມຂາຍ/ໝົດສະຕັອກ` : lang === "th" ? `สินค้า ${product.name || scanCode} ไม่พร้อมขาย/หมดสต๊อก` : `${product.name || scanCode} is unavailable or out of stock.`;
           status.dataset.tone = "error";
           return;
         }
         const bridgeStatus = await addLookupProductToReactCart(product);
         if (destroyed || !generalSaleActive) return;
         if (bridgeStatus !== "added") {
-          status.textContent = lang === "th" ? "ไม่สามารถเชื่อมรายการสินค้าเข้าตะกร้าได้ กรุณาลองใหม่" : "Unable to add the product to the cart. Please retry.";
+          status.textContent = copy.addFailed;
           status.dataset.tone = "error";
           return;
         }
-        status.textContent = lang === "th" ? `เพิ่ม ${product.name} (${scanCode}) ลงตารางแล้ว` : `Added ${product.name} (${scanCode}) to the table.`;
+        status.textContent = lang === "lo" ? `ເພີ່ມ ${product.name} (${scanCode}) ໃນຕາຕະລາງແລ້ວ` : lang === "th" ? `เพิ่ม ${product.name} (${scanCode}) ลงตารางแล้ว` : `Added ${product.name} (${scanCode}) to the table.`;
         status.dataset.tone = "success";
+        status.dataset.scanElapsedMs = String(Math.round(window.performance.now() - lookupStartedAt));
         scheduleTableRender(0);
       } catch {
-        status.textContent = lang === "th" ? "เชื่อมต่อค้นหาสินค้าไม่สำเร็จ กรุณาตรวจสอบเครือข่ายแล้วลองใหม่" : "Product lookup connection failed. Check the network and retry.";
+        status.textContent = copy.networkFailed;
         status.dataset.tone = "error";
       } finally {
+        if (lookupTimeout !== null) window.clearTimeout(lookupTimeout);
         scanBusy = false;
         submit.disabled = false;
-        submit.textContent = lang === "th" ? "เพิ่มสินค้า" : "Add item";
-        input.focus();
+        submit.textContent = copy.add;
+        // Do not steal focus when the cashier is entering a deposit/bill reference.
+        if (document.activeElement === input || document.activeElement === document.body) input.focus();
         const nextCode = scanQueue.shift();
         if (nextCode && !destroyed && generalSaleActive) window.setTimeout(() => void submitScan(nextCode, status, input, submit), 0);
       }
     };
 
     const ensureScanner = () => {
-      if (!generalSaleAllowed || !generalSaleActive) {
+      if ((!generalSaleAllowed && !opticalAllowed) || !generalSaleActive) {
         removeScanner();
         return;
       }
@@ -462,7 +772,7 @@ export function PosGeneralSaleTableController() {
       const existing = document.querySelector<HTMLElement>(`[${GENERAL_SALE_SCANNER_ATTRIBUTE}="1"]`);
       if (existing) {
         scannerPanel = existing;
-        scannerInput = existing.querySelector<HTMLInputElement>('input[aria-label="รหัส SKU สินค้า"], input[aria-label="Product SKU"]');
+        scannerInput = existing.querySelector<HTMLInputElement>('input[data-pos-general-sale-sku="1"]') ?? existing.querySelector<HTMLInputElement>("form input");
         scannerSubmit = existing.querySelector<HTMLButtonElement>('button[type="submit"]');
         scannerStatus = existing.querySelector<HTMLElement>('[aria-live="polite"]');
         return;
@@ -472,42 +782,200 @@ export function PosGeneralSaleTableController() {
 
       const panel = document.createElement("section");
       panel.setAttribute(GENERAL_SALE_SCANNER_ATTRIBUTE, "1");
-      panel.className = "grid gap-2 rounded-xl border border-emerald-200 bg-emerald-50 p-3";
-      panel.setAttribute("aria-label", lang === "th" ? "สแกนสินค้าโหมดขายทั่วไป SD" : "SD general sale product scanner");
-      const heading = document.createElement("div");
-      heading.className = "flex flex-wrap items-center justify-between gap-3";
-      const headingCopy = document.createElement("div");
-      headingCopy.className = "grid gap-1";
-      headingCopy.append(
-        createTextElement("strong", "text-sm font-black text-emerald-950", lang === "th" ? "ร้านชำ · สแกน SKU / บาร์โค้ด" : "Grocery · SKU / barcode scan"),
-        createTextElement("small", "text-xs font-bold text-emerald-700", lang === "th" ? "โหมดนี้ใช้ตารางขายสินค้าเพียงรูปแบบเดียว" : "This mode uses the sales table only")
-      );
-      const tableMode = createTextElement("span", "cpipos-sd-table-mode", lang === "th" ? "ตาราง" : "Table");
-      heading.append(headingCopy, tableMode);
+      panel.className = opticalActive
+        ? "rounded-xl border border-emerald-100 bg-white p-3"
+        : "grid gap-2 rounded-xl border border-emerald-200 bg-emerald-50 p-3";
+      panel.setAttribute("aria-label", opticalActive ? copy.opticalScannerAria : copy.groceryScannerAria);
 
+      if (!opticalActive) {
+        const heading = document.createElement("div");
+        heading.className = "flex flex-wrap items-center justify-between gap-3";
+        const headingCopy = document.createElement("div");
+        headingCopy.className = "grid gap-1";
+        headingCopy.append(
+          createTextElement("strong", "text-sm font-black text-emerald-950", copy.groceryHeading),
+          createTextElement("small", "text-xs font-bold text-emerald-700", copy.groceryHint)
+        );
+        const tableMode = createTextElement("span", "cpipos-sd-table-mode", copy.tableMode);
+        heading.append(headingCopy, tableMode);
+        panel.appendChild(heading);
+      }
+
+      const row = document.createElement("div");
+      row.className = opticalActive ? "grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]" : "grid gap-2";
+      const productGroup = document.createElement("div");
+      productGroup.className = "min-w-0";
       const form = document.createElement("form");
-      form.className = "grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto]";
+      form.className = opticalActive ? "flex max-w-[440px] items-center gap-2" : "grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto]";
       const input = document.createElement("input");
       input.type = "text";
       input.inputMode = "text";
       input.autocomplete = "off";
       input.spellcheck = false;
-      input.className = "posui-payment-modal__input";
-      input.placeholder = lang === "th" ? "ยิงบาร์โค้ด/กรอก SKU แล้วกด Enter" : "Scan barcode / enter SKU and press Enter";
-      input.setAttribute("aria-label", lang === "th" ? "รหัส SKU สินค้า" : "Product SKU");
+      if (opticalActive) input.maxLength = 128;
+      input.className = "posui-payment-modal__input min-w-0 flex-1";
+      input.placeholder = opticalActive ? copy.opticalPlaceholder : copy.groceryPlaceholder;
+      input.setAttribute("aria-label", copy.skuAria);
+      input.setAttribute("data-pos-general-sale-sku", "1");
       const submit = document.createElement("button");
       submit.type = "submit";
-      submit.className = "posui-btn posui-btn--primary";
-      submit.textContent = lang === "th" ? "เพิ่มสินค้า" : "Add item";
+      submit.className = "posui-btn posui-btn--primary shrink-0";
+      submit.textContent = copy.add;
       const status = document.createElement("small");
-      status.className = "min-h-4 text-xs font-bold text-slate-600";
+      status.className = "block min-h-4 pt-1 text-xs font-bold text-slate-600";
       status.setAttribute("aria-live", "polite");
       form.append(input, submit);
       form.addEventListener("submit", (event) => {
         event.preventDefault();
-        void submitScan(input.value, status, input, submit);
+        if (opticalAutoScanTimer !== null) {
+          window.clearTimeout(opticalAutoScanTimer);
+          opticalAutoScanTimer = null;
+        }
+        const value = input.value.trim();
+        opticalFastKeyCount = 0;
+        opticalPastedCode = false;
+        // HID scanners may append Enter after the idle timer already submitted.
+        // Ignore empty trailing Enter instead of flashing a false "missing SKU".
+        if (!value) return;
+        void submitScan(value, status, input, submit);
       });
-      panel.append(heading, form, status);
+      if (opticalActive) {
+        // Automatic after barcode/paste/typing settles, including scanners
+        // without an Enter suffix. No per-keystroke backend requests.
+        input.addEventListener("keydown", (event) => {
+          if (event.key.length !== 1) return;
+          const now = window.performance.now();
+          opticalFastKeyCount = now - opticalLastKeyAt <= OPTICAL_SCAN_KEY_INTERVAL_MS ? opticalFastKeyCount + 1 : 1;
+          opticalLastKeyAt = now;
+        });
+        input.addEventListener("input", (event) => {
+          if (opticalAutoScanTimer !== null) window.clearTimeout(opticalAutoScanTimer);
+          opticalAutoScanTimer = null;
+          const raw = input.value.trim();
+          const code = normalizeGeneralSaleScanCode(raw);
+          const paste = event instanceof InputEvent
+            && (event.inputType === "insertFromPaste" || (event.data?.length ?? 0) >= 4);
+          // Evaluate only a COMPLETED input burst/idle. Some Bluetooth scanners
+          // type slowly or omit Enter; a prefixed SKU such as QA-LAK-FRAME-001
+          // normalizes to short numeric digits ("001") and must still work.
+          // Keep this behavior strictly inside the IT-authorized Optical mode.
+          if (!code || raw.length < 3) return;
+          opticalPastedCode = opticalPastedCode || paste;
+          // Give immediate feedback even before the network lookup starts.
+          status.textContent = lang === "lo" ? "ກຳລັງອ່ານບາໂຄດ..." : lang === "th" ? "กำลังอ่านบาร์โค้ด..." : "Reading barcode...";
+          status.dataset.tone = "pending";
+          const delay = opticalPastedCode ? 0 : opticalFastKeyCount >= 5 ? OPTICAL_SCAN_IDLE_MS : OPTICAL_MANUAL_IDLE_MS;
+          opticalAutoScanTimer = window.setTimeout(() => {
+            opticalAutoScanTimer = null;
+            if (destroyed || !opticalActive || !opticalAllowed || !generalSaleActive || input.value.trim() !== raw) return;
+            opticalFastKeyCount = 0;
+            opticalPastedCode = false;
+            void submitScan(raw, status, input, submit);
+          }, delay);
+        });
+        input.addEventListener("blur", () => {
+          if (opticalAutoScanTimer !== null) window.clearTimeout(opticalAutoScanTimer);
+          opticalAutoScanTimer = null;
+          // A scanner ending with Tab moves focus immediately. A completed fast
+          // HID burst/paste must be committed before the field is left.
+          // Incomplete manual typing is never added automatically on blur.
+          const value = input.value.trim();
+          const ready = opticalPastedCode || opticalFastKeyCount >= 5;
+          opticalFastKeyCount = 0;
+          opticalPastedCode = false;
+          if (ready && value.length >= 3 && normalizeGeneralSaleScanCode(value) && !destroyed && opticalActive && opticalAllowed && generalSaleActive) {
+            void submitScan(value, status, input, submit);
+          }
+        });
+      }
+      productGroup.append(form, status);
+      row.appendChild(productGroup);
+
+      if (opticalActive) {
+        const billGroup = document.createElement("div");
+        billGroup.className = "min-w-0";
+        const billForm = document.createElement("form");
+        billForm.className = "flex items-center gap-2";
+        const billInput = document.createElement("input");
+        billInput.type = "text";
+        billInput.inputMode = "text";
+        billInput.autocomplete = "off";
+        billInput.spellcheck = false;
+        billInput.maxLength = 256;
+        billInput.className = "posui-payment-modal__input min-w-0 flex-1";
+        billInput.placeholder = copy.billPlaceholder;
+        billInput.setAttribute("aria-label", copy.billAria);
+        const billSubmit = document.createElement("button");
+        billSubmit.type = "submit";
+        billSubmit.className = "posui-btn shrink-0";
+        billSubmit.textContent = copy.billSearch;
+        const billStatus = document.createElement("small");
+        billStatus.className = "block min-h-4 pt-1 text-xs font-semibold text-amber-800";
+        billStatus.setAttribute("aria-live", "polite");
+        billForm.append(billInput, billSubmit);
+        let lastBillKeyAt = 0;
+        let billBurst = 0;
+        billInput.addEventListener("keydown", (event) => {
+          if (event.key.length !== 1) return;
+          const now = window.performance.now();
+          billBurst = now - lastBillKeyAt <= OPTICAL_SCAN_KEY_INTERVAL_MS ? billBurst + 1 : 1;
+          lastBillKeyAt = now;
+        });
+        billInput.addEventListener("input", (event) => {
+          if (opticalBillScanTimer !== null) window.clearTimeout(opticalBillScanTimer);
+          opticalBillScanTimer = null;
+          const reference = billInput.value.trim();
+          const paste = event instanceof InputEvent
+            && (event.inputType === "insertFromPaste" || (event.data?.length ?? 0) >= 4);
+          if (reference.length < (paste ? 4 : 6) || (!paste && billBurst < 5)) return;
+          opticalBillScanTimer = window.setTimeout(() => {
+            opticalBillScanTimer = null;
+            if (destroyed || !opticalActive || !generalSaleActive || billInput.value.trim() !== reference) return;
+            billBurst = 0;
+            // Request is intentionally read-only until ledger-backed retrieval
+            // can prohibit paid/void invoices and duplicate bill settlement.
+            billForm.requestSubmit();
+          }, OPTICAL_SCAN_IDLE_MS);
+        });
+        billInput.addEventListener("blur", () => {
+          if (opticalBillScanTimer !== null) window.clearTimeout(opticalBillScanTimer);
+          opticalBillScanTimer = null;
+        });
+        billForm.addEventListener("submit", (event) => {
+          event.preventDefault();
+          if (opticalBillScanTimer !== null) window.clearTimeout(opticalBillScanTimer);
+          opticalBillScanTimer = null;
+          if (!billInput.value.trim()) {
+            billStatus.textContent = copy.billRequired;
+            return;
+          }
+          const reference=billInput.value.trim();
+          billSubmit.disabled=true;
+          billStatus.textContent=lang==="th"?"กำลังเรียกใบสั่งงาน...":"Loading Optical order...";
+          void fetch(`/api/pos/optical/work-orders/recall?code=${encodeURIComponent(reference)}`,{
+            cache:"no-store",credentials:"same-origin"
+          }).then(async response=>{
+            const payload=await response.json().catch(()=>null) as {
+              data?:{bill:{id:string;status:string;due_at:string|null;currency_code:string;total_amount:number;paid_total:number};
+                lines:Array<{sku_snapshot:string;description_snapshot:string;quantity:number;line_total:number}>;remaining_amount:number};
+              error?:{message?:string}
+            }|null;
+            if(!response.ok||!payload?.data)throw new Error(payload?.error?.message||"ไม่พบใบสั่งงานที่รับเงินค้างชำระ");
+            if(destroyed||!opticalActive)return;
+            billInput.value="";
+            billStatus.textContent=lang==="th"?"พบใบสั่งงานแล้ว กรุณาตรวจสอบยอดค้างชำระ":"Order found. Check the remaining balance.";
+            billStatus.dataset.tone="success";
+            window.dispatchEvent(new CustomEvent("cpipos:optical-pickup-recalled",{detail:payload.data}));
+          }).catch(error=>{
+            if(destroyed)return;
+            billStatus.textContent=error instanceof Error?error.message:copy.billDisabled;
+            billStatus.dataset.tone="error";
+          }).finally(()=>{billSubmit.disabled=false;});
+        });
+        billGroup.append(billForm, billStatus);
+        row.appendChild(billGroup);
+      }
+      panel.appendChild(row);
       gridWrap.parentElement.insertBefore(panel, gridWrap);
       scannerPanel = panel;
       scannerInput = input;
@@ -519,7 +987,7 @@ export function PosGeneralSaleTableController() {
     };
 
     const enhanceSelector = () => {
-      if (!accessResolved || !generalSaleAllowed) {
+      if (!accessResolved || (!generalSaleAllowed && !opticalAllowed)) {
         deactivateGeneralSale();
         removeGeneralSaleButton();
         return;
@@ -529,7 +997,7 @@ export function PosGeneralSaleTableController() {
       const grid = selector.querySelector<HTMLElement>(MODE_GRID_QUERY);
       if (!grid) return;
       let generalSaleButton = grid.querySelector<HTMLButtonElement>(`[${GENERAL_SALE_BUTTON_ATTRIBUTE}="1"]`);
-      if (!generalSaleButton) {
+      if (!generalSaleButton && generalSaleAllowed) {
         generalSaleButton = document.createElement("button");
         generalSaleButton.type = "button";
         generalSaleButton.className = "posui-mode-option";
@@ -541,18 +1009,22 @@ export function PosGeneralSaleTableController() {
         const copy = document.createElement("span");
         copy.className = "posui-mode-option__copy";
         copy.append(
-          createTextElement("strong", "", lang === "th" ? "ขายทั่วไป (SD)" : "General Sale (SD)"),
-          createTextElement("small", "", lang === "th" ? "SKU/บาร์โค้ด · ตารางขายสินค้า" : "SKU/barcode · sales table")
+          createTextElement("strong", "", generalSaleUi[lang].generalMode),
+          createTextElement("small", "", generalSaleUi[lang].generalModeHint)
         );
         const check = createTextElement("span", "posui-mode-option__check", "✓");
         check.setAttribute("aria-hidden", "true");
         generalSaleButton.append(icon, copy, check);
         generalSaleButton.addEventListener("click", () => {
           if (!generalSaleAllowed) return;
-          const homeButton = grid.querySelector<HTMLElement>(`[${MODE_ATTRIBUTE}="${GENERAL_SALE_CHECKOUT_BASE_MODE}"]`);
-          if (!homeButton) return;
-          homeButton.click();
+          // The SD mode is independently authorized. Never click the public
+          // Home card: it may be hidden by a CUSTOM contract.
+          window.dispatchEvent(new Event(GENERAL_SALE_ACTIVATE_BASE_MODE_EVENT));
+          if (opticalActive) window.dispatchEvent(new Event(OPTICAL_DEACTIVATE_BASE_MODE_EVENT));
           generalSaleActive = true;
+          opticalActive = false;
+          removeScanner();
+          removeTable();
           setRootMode(true);
           window.setTimeout(() => {
             if (destroyed || !generalSaleActive) return;
@@ -563,7 +1035,143 @@ export function PosGeneralSaleTableController() {
         });
         grid.appendChild(generalSaleButton);
       }
+      if (!generalSaleAllowed) generalSaleButton?.remove();
+
+      let opticalButton = grid.querySelector<HTMLButtonElement>(`[${OPTICAL_BUTTON_ATTRIBUTE}="1"]`);
+      if (!opticalAllowed) {
+        opticalButton?.remove();
+      } else if (!opticalButton) {
+        opticalButton = document.createElement("button");
+        opticalButton.type = "button";
+        opticalButton.className = "posui-mode-option";
+        opticalButton.setAttribute(MODE_ATTRIBUTE, OPTICAL_MODE_ID);
+        opticalButton.setAttribute(OPTICAL_BUTTON_ATTRIBUTE, "1");
+        opticalButton.style.order = "100";
+        opticalButton.style.borderColor = "#6ee7b7";
+        const label = document.createElement("span");
+        label.className = "posui-mode-option__copy";
+        label.append(
+          createTextElement("strong", "", generalSaleUi[lang].opticalMode),
+          createTextElement("small", "", generalSaleUi[lang].opticalModeHint)
+        );
+        opticalButton.append(
+          createTextElement("span", "posui-mode-option__icon", "◉"),
+          label,
+          createTextElement("span", "posui-mode-option__check", "✓")
+        );
+        opticalButton.addEventListener("click", () => {
+          if (!opticalAllowed) return;
+          // Optical retains the existing POS checkout pipeline even when
+          // IT has disabled the public takeaway button. No synthetic click.
+          window.dispatchEvent(new Event(OPTICAL_ACTIVATE_BASE_MODE_EVENT));
+          generalSaleActive = true;
+          opticalActive = true;
+          removeScanner();
+          removeTable();
+          setRootMode(true);
+          window.setTimeout(() => {
+            if (destroyed || !opticalAllowed || !generalSaleActive || !opticalActive) return;
+            setModeVisualState();
+            ensureScanner();
+            ensureTableHost();
+            scheduleTableRender(0);
+          }, 0);
+        });
+        grid.appendChild(opticalButton);
+      }
       setModeVisualState();
+    };
+
+    const applyRetailStartup = (request: PosStartupModeRequest) => {
+      if (request.mode !== OPTICAL_MODE_ID && request.mode !== GENERAL_SALE_MODE_ID) return;
+      if (processingStartupRequestId === request.requestId) return;
+      // POS sales is dynamically imported after session validation. Its
+      // Optical activation listener is registered after React mounts the
+      // sales screen, not when the IT feature request first resolves.
+      if (document.documentElement.getAttribute(OPTICAL_HANDLER_READY_ATTRIBUTE) !== "1") {
+        pendingStartupMode = request;
+        return;
+      }
+      processingStartupRequestId = request.requestId;
+      const allowed = request.mode === OPTICAL_MODE_ID ? opticalAllowed : generalSaleAllowed;
+      if (allowed) {
+        if (request.mode === OPTICAL_MODE_ID) {
+          // The underlying order type can stay takeaway, but the visible UI
+          // must start in Optical without opening the modal or clicking home.
+          window.dispatchEvent(new Event(OPTICAL_ACTIVATE_BASE_MODE_EVENT));
+          generalSaleActive = true;
+          opticalActive = true;
+        } else {
+          // Standalone general sale must not depend on the Home/takeaway card.
+          window.dispatchEvent(new Event(GENERAL_SALE_ACTIVATE_BASE_MODE_EVENT));
+          if (opticalActive) window.dispatchEvent(new Event(OPTICAL_DEACTIVATE_BASE_MODE_EVENT));
+          generalSaleActive = true;
+          opticalActive = false;
+        }
+        removeScanner();
+        removeTable();
+        setRootMode(true);
+        setModeVisualState();
+        ensureScanner();
+        ensureTableHost();
+        scheduleTableRender(0);
+      }
+      // Do not remove the startup loading screen before the React Optical
+      // header has actually committed. Otherwise a frame of the old home UI
+      // can flash between the event and the component's next render.
+      const reportWhenRendered = (attempt: number) => {
+        if (destroyed) return;
+        const correctMode = request.mode === OPTICAL_MODE_ID
+          ? opticalActive && Boolean(document.querySelector('[data-testid="pos-active-optical-mode"]'))
+          : generalSaleActive && !opticalActive
+            && document.documentElement.getAttribute(GENERAL_SALE_ROOT_ATTRIBUTE) === GENERAL_SALE_MODE_ID;
+        // The sales module registers its Optical listener in a React effect.
+        // During shift entry, subsequent hydration/reconciliation can briefly
+        // detach that effect between the readiness probe and our first event.
+        // A startup request is already authenticated and the cashier is gated;
+        // re-issue ONLY the Optical UI activation if no Optical header appeared.
+        // Do not re-submit an order, alter the bill, or call a payment API.
+        if (allowed && !correctMode && request.mode === OPTICAL_MODE_ID
+          && (attempt === 30 || attempt === 75 || attempt === 130)
+          && document.documentElement.getAttribute(OPTICAL_HANDLER_READY_ATTRIBUTE) === "1") {
+          window.dispatchEvent(new Event(OPTICAL_ACTIVATE_BASE_MODE_EVENT));
+          ensureScanner();
+          ensureTableHost();
+        }
+        if (allowed && !correctMode && attempt < 450) {
+          window.setTimeout(() => reportWhenRendered(attempt + 1), 40);
+          return;
+        }
+        const result: PosStartupModeResult = {
+          requestId: request.requestId,
+          mode: request.mode,
+          activated: allowed && correctMode
+        };
+        window.dispatchEvent(new CustomEvent(POS_STARTUP_MODE_RESULT_EVENT, { detail: result }));
+      };
+      reportWhenRendered(0);
+    };
+
+    const onStartupMode = (event: Event) => {
+      const request = (event as CustomEvent<PosStartupModeRequest>).detail;
+      if (!request?.requestId || (request.mode !== OPTICAL_MODE_ID && request.mode !== GENERAL_SALE_MODE_ID)) return;
+      if (request.requestId === processingStartupRequestId || request.requestId === pendingStartupMode?.requestId) return;
+      // Wait for, or retry, the controller's own authenticated fresh grant.
+      // This covers an early temporary feature-fetch failure without reading
+      // browser cache or opening a disallowed sales mode.
+      const allowed = request.mode === OPTICAL_MODE_ID ? opticalAllowed : generalSaleAllowed;
+      if (!accessResolved || !allowed) {
+        pendingStartupMode = request;
+        if (accessResolved) {
+          // Invalidate the previously denied snapshot before the deferred
+          // renderer runs; it must await the fresh IT state instead of
+          // rejecting a newly enabled Optical entitlement too early.
+          accessResolved = false;
+          void loadAccess();
+        }
+        return;
+      }
+      applyRetailStartup(request);
     };
 
     const onModeClick = (event: Event) => {
@@ -571,7 +1179,7 @@ export function PosGeneralSaleTableController() {
       const modeCard = event.target.closest<HTMLElement>(`[${MODE_ATTRIBUTE}]`);
       if (!modeCard) return;
       const mode = modeCard.getAttribute(MODE_ATTRIBUTE);
-      if (mode && mode !== GENERAL_SALE_MODE_ID) deactivateGeneralSale();
+      if (mode && mode !== GENERAL_SALE_MODE_ID && mode !== OPTICAL_MODE_ID) deactivateGeneralSale();
     };
 
     const onTableClick = (event: Event) => {
@@ -589,7 +1197,36 @@ export function PosGeneralSaleTableController() {
 
     const reconcile = () => {
       if (destroyed) return;
+      const selector = document.querySelector<HTMLElement>(MODE_SELECTOR_QUERY);
+      if (selector !== latestSelector) {
+        latestSelector = selector;
+        // A sales-mode dialog may open long after the first POS page load.
+        // Re-fetch the authoritative IT toggles every time this dialog opens.
+        if (selector) void loadAccess();
+      }
       enhanceSelector();
+      // The React sales topbar is the source of truth for the committed mode.
+      // This legacy scanner/table adapter follows it, after verifying the IT
+      // allowlist; it no longer determines whether POS startup may complete.
+      const reactMode = document.querySelector<HTMLElement>(".posui-sales-topbar")
+        ?.getAttribute("data-pos-react-sales-mode");
+      if (accessResolved && reactMode === OPTICAL_MODE_ID && opticalAllowed) {
+        generalSaleActive = true;
+        opticalActive = true;
+      } else if (accessResolved && reactMode === GENERAL_SALE_MODE_ID && generalSaleAllowed) {
+        generalSaleActive = true;
+        opticalActive = false;
+      } else if (reactMode && generalSaleActive
+        && reactMode !== OPTICAL_MODE_ID && reactMode !== GENERAL_SALE_MODE_ID) {
+        deactivateGeneralSale();
+      }
+      // When POS has mounted after the entitlement request, activate exactly
+      // once with the already checked grant. No public takeaway mode is needed.
+      if (pendingStartupMode && accessResolved && document.documentElement.getAttribute(OPTICAL_HANDLER_READY_ATTRIBUTE) === "1") {
+        const request = pendingStartupMode;
+        pendingStartupMode = null;
+        applyRetailStartup(request);
+      }
       if (!generalSaleActive) return;
       setRootMode(true);
       setModeVisualState();
@@ -611,37 +1248,92 @@ export function PosGeneralSaleTableController() {
     };
 
     async function loadAccess() {
+      const sequence = ++accessSequence;
+      let shouldRetryPending = false;
       try {
-        const response = await fetch("/api/pos/features", { cache: "no-store", credentials: "include" });
+        const response = await fetch("/api/pos/features?refresh=1", {
+          cache: "no-store",
+          credentials: "same-origin"
+        });
         const body = (await response.json().catch(() => null)) as PosFeaturesResponse | null;
-        generalSaleAllowed = Boolean(response.ok && body?.data?.features?.[POS_MODE_FEATURES.general_sale] === true);
+        if (destroyed || sequence !== accessSequence) return;
+        if (!response.ok || !body?.data) throw new Error("pos_feature_snapshot_unavailable");
+        pendingStartupRetryCount = 0;
+        window.dispatchEvent(new CustomEvent("cpipos:pos-feature-policy-updated", { detail: body.data }));
+        generalSaleAllowed = Boolean(body?.data?.features?.[POS_MODE_FEATURES.general_sale] === true
+          && body?.data?.sales_modes?.general_sale === true);
+        // Optical is independently enabled by IT for this CUSTOM tenant.
+        // The ordinary takeaway feature is not a prerequisite for entering its UI.
+        opticalAllowed = isAuthorizedOpticalRetailMode(body.data);
+        // When IT removes a grant while a retail mode is active, close the
+        // extra scanner UI without modifying any existing bill/cart data.
+        if (generalSaleActive && (opticalActive ? !opticalAllowed : !generalSaleAllowed)) {
+          deactivateGeneralSale();
+        }
       } catch {
-        generalSaleAllowed = false;
+        if (destroyed || sequence !== accessSequence) return;
+        // A temporary Supabase/network failure must not be reported as a
+        // revoked IT Optical grant. Retry only a pending startup, at most twice.
+        shouldRetryPending = pendingStartupMode !== null && pendingStartupRetryCount < 2;
+        if (!shouldRetryPending) {
+          generalSaleAllowed = false;
+          opticalAllowed = false;
+          if (generalSaleActive) deactivateGeneralSale();
+        }
       } finally {
-        accessResolved = true;
-        scheduleReconcile();
+        if (!destroyed && sequence === accessSequence) {
+          if (shouldRetryPending) {
+            accessResolved = false;
+            pendingStartupRetryCount += 1;
+            if (pendingStartupRetryTimer !== null) window.clearTimeout(pendingStartupRetryTimer);
+            pendingStartupRetryTimer = window.setTimeout(() => {
+              pendingStartupRetryTimer = null;
+              if (!destroyed) void loadAccess();
+            }, pendingStartupRetryCount * 400);
+          } else {
+            accessResolved = true;
+            const startup = pendingStartupMode;
+            pendingStartupMode = null;
+            if (startup) applyRetailStartup(startup);
+            scheduleReconcile();
+          }
+        }
       }
     }
 
     const onCartMutated = () => scheduleTableRender(0);
+    const onCurrencyUpdated = () => scheduleTableRender(0);
     const onStorage = (event: StorageEvent) => {
       if (event.key === POS_TAKEAWAY_CART_STORAGE_KEY || event.key === POS_SALES_SNAPSHOT_STORAGE_KEY) scheduleTableRender(0);
     };
     const onVisibility = () => {
-      if (document.visibilityState === "visible") scheduleReconcile();
+      if (document.visibilityState !== "visible") return;
+      scheduleReconcile();
+      if (latestSelector) void loadAccess();
     };
+    const onFocus = () => {
+      if (latestSelector) void loadAccess();
+    };
+    // Refresh on modal opening, tab activation and focus rather than polling
+    // Supabase every few seconds on tablets left open throughout the day.
 
     document.addEventListener("click", onModeClick, true);
     document.addEventListener("click", onTableClick, true);
+    window.addEventListener(POS_STARTUP_MODE_REQUEST_EVENT, onStartupMode as EventListener);
+    window.addEventListener("cpipos:optical-handler-ready", scheduleReconcile);
     window.addEventListener(CART_MUTATED_EVENT, onCartMutated);
+    window.addEventListener("cpipos:store-currency-updated", onCurrencyUpdated);
+    const currencyObserver = new MutationObserver(() => scheduleTableRender(0));
+    currencyObserver.observe(document.documentElement, { attributes: true, attributeFilter: ["data-pos-store-currency"] });
     window.addEventListener("storage", onStorage);
     document.addEventListener("visibilitychange", onVisibility);
+    window.addEventListener("focus", onFocus);
     const observer = new MutationObserver((mutations) => {
       if (document.visibilityState !== "visible") return;
       if (mutations.length > 0 && mutations.every(isInternalMutation)) return;
       scheduleReconcile();
     });
-    observer.observe(document.body, { childList: true, subtree: true });
+    observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ["data-pos-react-sales-mode"] });
     void loadAccess();
     scheduleReconcile();
 
@@ -650,11 +1342,17 @@ export function PosGeneralSaleTableController() {
       if (tableRenderTimer !== null) window.clearTimeout(tableRenderTimer);
       if (reconcileFrame !== null) window.cancelAnimationFrame(reconcileFrame);
       observer.disconnect();
+      currencyObserver.disconnect();
       document.removeEventListener("click", onModeClick, true);
       document.removeEventListener("click", onTableClick, true);
+      window.removeEventListener(POS_STARTUP_MODE_REQUEST_EVENT, onStartupMode as EventListener);
+      window.removeEventListener("cpipos:optical-handler-ready", scheduleReconcile);
       window.removeEventListener(CART_MUTATED_EVENT, onCartMutated);
+      window.removeEventListener("cpipos:store-currency-updated", onCurrencyUpdated);
       window.removeEventListener("storage", onStorage);
       document.removeEventListener("visibilitychange", onVisibility);
+      window.removeEventListener("focus", onFocus);
+      accessSequence += 1;
       deactivateGeneralSale();
       removeGeneralSaleButton();
       document.getElementById(GENERAL_SALE_STYLE_ID)?.remove();
@@ -663,7 +1361,7 @@ export function PosGeneralSaleTableController() {
       void scannerSubmit;
       void scannerStatus;
     };
-  }, []);
+  }, [lang]);
 
   return null;
 }

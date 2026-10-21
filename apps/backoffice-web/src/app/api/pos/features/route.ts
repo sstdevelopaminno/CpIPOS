@@ -2,10 +2,13 @@ import { isFeatureUnlockEnabled } from "@/lib/feature-unlock";
 import { fail, ok } from "@/lib/http";
 import { allPosMenuFeatureCodes } from "@/lib/pos-feature-map";
 import { requirePosSession, PosGuardError } from "@/lib/pos-session-guard";
-import { DEFAULT_POS_SALES_MODES, POS_SALES_MODE_KEYS, isDineInLinkedFeature, normalizePosSalesModes, type PosSalesModeSettings } from "@/lib/pos-sales-modes";
+import { DEFAULT_POS_SALES_MODES, POS_SALES_MODE_KEYS, isDineInLinkedFeature, normalizePosSalesModes, normalizeCustomPosSalesModes, type PosSalesModeSettings } from "@/lib/pos-sales-modes";
 import { readThroughRuntimeCache } from "@/lib/route-runtime-cache";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
 import { getTenantPosMenuOverrides } from "@/lib/server/pos-menu-policy-service";
+import { getInternalItTestMode } from "@/lib/server/internal-it-test-store";
+import { isCustomPosMenuVisible } from "@/lib/pos-menu-policy";
+import { OPTICAL_MORE_FEATURES } from "@/lib/server/optical-more-feature-access";
 
 type ContractRow = {
   package_id: string | null;
@@ -20,6 +23,7 @@ type PackageFeatureRow = {
 };
 
 type PackagePolicyRow = {
+  code: string;
   metadata: Record<string, unknown> | null;
 };
 
@@ -85,7 +89,7 @@ function salesModePolicy(
   ) as PosSalesModeSettings;
 }
 
-async function loadTenantFeatureSnapshot(tenantId: string, branchId: string) {
+async function loadTenantFeatureSnapshot(tenantId: string, branchId: string, menuPolicy: Record<string, boolean>) {
   const supabase = getSupabaseServiceClient();
   const { data: contract, error: contractError } = await supabase
     .from("tenant_subscription_contracts")
@@ -100,19 +104,34 @@ async function loadTenantFeatureSnapshot(tenantId: string, branchId: string) {
   }
 
   const metadata = contract?.metadata && typeof contract.metadata === "object" ? contract.metadata : {};
+  if (await getInternalItTestMode(tenantId) === "full") {
+    return {
+      features: Object.fromEntries(allPosMenuFeatureCodes().map(feature => [feature, true])),
+      salesModes: {
+        ...normalizePosSalesModes(metadata.sales_modes),
+        optical_retail: (metadata.sales_modes && typeof metadata.sales_modes === "object"
+          && !Array.isArray(metadata.sales_modes)
+          && (metadata.sales_modes as Record<string, unknown>).optical_retail !== false)
+      },
+      isCustom: true,
+      internalTestFull: true
+    };
+  }
   const featureCodes = allPosMenuFeatureCodes();
 
   if (isFeatureUnlockEnabled()) {
     return {
       features: Object.fromEntries(featureCodes.map((feature) => [feature, true])),
-      salesModes: normalizePosSalesModes(metadata.sales_modes)
+      salesModes: normalizePosSalesModes(metadata.sales_modes),
+      isCustom: false
     };
   }
 
   if (!featureCodes.length || !contractAllowsAccess(contract ?? null) || !contract?.package_id) {
     return {
       features: Object.fromEntries(featureCodes.map((feature) => [feature, false])),
-      salesModes: normalizePosSalesModes(metadata.sales_modes)
+      salesModes: normalizeCustomPosSalesModes(metadata.sales_modes),
+      isCustom: false
     };
   }
 
@@ -136,7 +155,7 @@ async function loadTenantFeatureSnapshot(tenantId: string, branchId: string) {
       .or(`branch_id.is.null,branch_id.eq.${branchId}`),
     supabase
       .from("subscription_packages")
-      .select("metadata")
+      .select("code,metadata")
       .eq("id", contract.package_id)
       .maybeSingle<PackagePolicyRow>()
   ]);
@@ -151,7 +170,10 @@ async function loadTenantFeatureSnapshot(tenantId: string, branchId: string) {
     throw new Error(`package_policy_query_failed:${packagePolicyResult.error.message}`);
   }
 
-  const salesModes = salesModePolicy(metadata, packagePolicyResult.data?.metadata);
+  const isCustom = String(packagePolicyResult.data?.code ?? "").toLowerCase() === "custom";
+  const salesModes = isCustom
+    ? normalizeCustomPosSalesModes(metadata.sales_modes)
+    : salesModePolicy(metadata, packagePolicyResult.data?.metadata);
   const packageFeatures = new Map<string, boolean>();
   for (const row of (packageResult.data ?? []) as PackageFeatureRow[]) {
     packageFeatures.set(String(row.feature_code), Boolean(row.included));
@@ -179,26 +201,58 @@ async function loadTenantFeatureSnapshot(tenantId: string, branchId: string) {
     })
   );
 
-  return { features, salesModes };
+  if (isCustom && salesModes.optical_retail) {
+    // IT-enabled management menus unlock only their own feature; explicit
+    // feature denials and backend provisioning quotas remain authoritative.
+    for (const [feature, menu] of [
+      ["user_management", "settings.users"],
+      ["branch_management", "settings.branches"],
+      ["stock_management", "more.stock"]
+    ] as const) {
+      if (menuPolicy[menu] === true && !tenantOverrides.has(feature) && !branchOverrides.has(feature)) {
+        features[feature] = true;
+      }
+    }
+    // Keep the sidebar in sync with the verified server-side cashier feature gate.
+    // An active/trial IT-approved CUSTOM Optical contract includes core POS sales.
+    // An explicit tenant/branch grant or denial must continue to win.
+    if (!tenantOverrides.has("core_pos_sales") && !branchOverrides.has("core_pos_sales")) {
+      features.core_pos_sales = true;
+    }
+    features.barcode_scanner_mode = true;
+  }
+  const opticalMoreAccess = Object.fromEntries(
+    Object.entries(OPTICAL_MORE_FEATURES).map(([key, cfg]) => [
+      cfg.route,
+      isCustom && salesModes.optical_retail &&
+        isCustomPosMenuVisible(key, menuPolicy, true) &&
+        tenantOverrides.get(cfg.feature) !== false && branchOverrides.get(cfg.feature) !== false
+    ])
+  );
+  return { features, salesModes, isCustom, opticalMoreAccess };
 }
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
     const scope = await requirePosSession();
-    const bundle = await readThroughRuntimeCache({
-      key: `pos-feature-bundle:${scope.session.tenant_id}:${scope.session.branch_id}`,
-      ttlMs: 60_000,
-      staleIfErrorMs: 5 * 60_000,
-      loaderTimeoutMs: 4_000,
-      timeoutCode: "pos_feature_bundle_timeout",
-      loader: async () => {
-        const [snapshot, menuPolicy] = await Promise.all([
-          loadTenantFeatureSnapshot(scope.session.tenant_id, scope.session.branch_id),
-          getTenantPosMenuOverrides(scope.session.tenant_id)
-        ]);
-        return { snapshot, menuPolicy };
-      }
-    });
+    // Explicit UI refreshes must observe IT changes to sales modes immediately.
+    // The normal shared server cache is kept for the startup/background traffic.
+    const forceFresh = new URL(request.url).searchParams.get("refresh") === "1";
+    const loader = async () => {
+      const menuPolicy = await getTenantPosMenuOverrides(scope.session.tenant_id);
+      const snapshot = await loadTenantFeatureSnapshot(scope.session.tenant_id, scope.session.branch_id, menuPolicy);
+      return { snapshot, menuPolicy };
+    };
+    const bundle = forceFresh
+      ? { value: await loader() }
+      : await readThroughRuntimeCache({
+          key: `pos-feature-bundle:${scope.session.tenant_id}:${scope.session.branch_id}`,
+          ttlMs: 60_000,
+          staleIfErrorMs: 5 * 60_000,
+          loaderTimeoutMs: 4_000,
+          timeoutCode: "pos_feature_bundle_timeout",
+          loader
+        });
     const { snapshot, menuPolicy } = bundle.value;
 
     const response = ok({
@@ -206,14 +260,19 @@ export async function GET() {
       branch_id: scope.session.branch_id,
       features: snapshot.features,
       menu_policy: menuPolicy,
+      is_custom: snapshot.isCustom,
+      is_internal_test_full: "internalTestFull" in snapshot && snapshot.internalTestFull === true,
       sales_modes: snapshot.salesModes,
+      optical_more_access: "opticalMoreAccess" in snapshot ? snapshot.opticalMoreAccess : {},
       sales_modes_source: "package_metadata + tenant_subscription_contracts.metadata.sales_modes"
     });
 
     // Feature entitlements change infrequently. A short private browser cache cuts
     // duplicate startup/navigation reads without allowing shared/CDN caching or
     // delaying IT entitlement changes for more than a few seconds.
-    response.headers.set("Cache-Control", "private, max-age=60, stale-while-revalidate=60");
+    response.headers.set("Cache-Control", forceFresh
+      ? "private, no-store, max-age=0"
+      : "private, max-age=60, stale-while-revalidate=60");
     return response;
   } catch (error) {
     if (error instanceof PosGuardError) {

@@ -5,6 +5,7 @@ import { PosCustomerDisplayV2Publisher } from "@/components/pos/pos-customer-dis
 import { PosDineInCommitResetBoundary } from "@/components/pos/pos-dine-in-commit-reset-boundary";
 import { PosGeneralSaleRuntime } from "@/components/pos/pos-general-sale-runtime";
 import { PosGeneralSaleTableController } from "@/components/pos/pos-general-sale-table-controller";
+import { PosEntryGate } from "@/components/pos/pos-entry-gate";
 import { getCurrentLanguage } from "@/lib/i18n";
 import { requirePosPagePermission } from "@/lib/pos-page-guard";
 
@@ -19,8 +20,9 @@ export default async function PosPreviewPage() {
       <PosCustomerDisplayV2Publisher />
       <PosCustomerDisplayV2PaymentObserver />
       <PosDineInCommitResetBoundary lang={lang} />
-      <PosGeneralSaleTableController />
+      <PosGeneralSaleTableController lang={lang} />
       <PosGeneralSaleRuntime />
+      <PosEntryGate lang={lang} initialScope={{ tenantId: posMenuScope.session.tenant_id, branchId: posMenuScope.session.branch_id }} />
     </main>
   );
 }

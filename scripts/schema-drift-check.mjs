@@ -124,6 +124,7 @@ async function main() {
   }
 
   console.log("Schema drift preflight passed.");
+  console.log("- NOTE: This only checks repository SQL markers; it does NOT reconcile live Supabase migration history.");
   console.log(`- migrations scanned: ${entries.filter((file) => file.endsWith(".sql")).length}`);
   console.log(`- required migrations: ${requiredMigrations.length}`);
   console.log(`- required SQL markers: ${requiredSqlMarkers.length}`);

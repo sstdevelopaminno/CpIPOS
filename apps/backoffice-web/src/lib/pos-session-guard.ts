@@ -168,13 +168,30 @@ async function assertSubscriptionAllowsSales(tenantId: string) {
         423
       );
     }
-    const expiryAt = runtime.data.expires_at && Number.isFinite(Date.parse(runtime.data.expires_at))
+    let expiryAt = runtime.data.expires_at && Number.isFinite(Date.parse(runtime.data.expires_at))
       ? Date.parse(runtime.data.expires_at)
       : Number.POSITIVE_INFINITY;
+    if(runtime.data.lock_reason==="subscription_payment_provisional_review"){
+      // No elapsed-time IT review cutoff: IT rejects or settles explicitly.
+      const recent=await primary.from("tenant_subscription_payment_requests")
+        .select("id")
+        .eq("tenant_id",tenantId).eq("status","under_review").eq("auto_check_status","passed")
+        .not("provisional_access_granted_at","is",null)
+        .is("provisional_access_revoked_at",null)
+        
+        .order("provisional_access_granted_at",{ascending:false})
+        .limit(1).maybeSingle();
+      if(recent.error||!recent.data?.id){
+        cache.delete(tenantId);
+        throw new PosGuardError("subscription_access_locked",
+          "การชำระแพ็กเกจของคุณไม่ผ่านการอนุมัติ โปรดติดต่อ Support",423);
+      }
+      expiryAt=Number.POSITIVE_INFINITY;
+    }
     cache.set(tenantId,{
       locked:false,
       reason:null,
-      expiresAt:Math.min(now+POS_SUBSCRIPTION_ACTIVE_CACHE_TTL_MS,expiryAt)
+      expiresAt:Math.min(now+(runtime.data.lock_reason==="subscription_payment_provisional_review"?1000:POS_SUBSCRIPTION_ACTIVE_CACHE_TTL_MS),expiryAt)
     });
     return;
   }
@@ -248,6 +265,18 @@ export function updateCachedPosSessionShift(sessionId: string, shiftId: string |
   const cached = readPosSessionRowCache(normalizedSessionId);
   if (!cached) return;
   writePosSessionRowCache(normalizedSessionId, { ...cached, shift_id: shiftId });
+}
+
+export function updateCachedPosSessionExpiry(sessionId: string, expiresAt: string) {
+  const normalizedSessionId = sessionId.trim().replace(/^"+|"+$/g, "");
+  const cached = readPosSessionRowCache(normalizedSessionId);
+  if (!cached) return;
+  writePosSessionRowCache(normalizedSessionId, { ...cached, expires_at: expiresAt });
+}
+
+function readPosSessionLeaseHours() {
+  const raw = Number(process.env.POS_SESSION_TTL_HOURS ?? 24);
+  return Number.isFinite(raw) && raw > 0 && raw <= 72 ? raw : 24;
 }
 
 function readPosScopeExtrasCache(cacheKey: string): Omit<PosSessionScope, "session" | "permissions"> | null {
@@ -815,7 +844,7 @@ export function withPosSessionCookie(response: NextResponse, sessionId: string) 
     sameSite: "lax",
     path: "/",
     domain: config.domain,
-    maxAge: 12 * 60 * 60
+    maxAge: Math.round(readPosSessionLeaseHours() * 60 * 60)
   });
   return response;
 }

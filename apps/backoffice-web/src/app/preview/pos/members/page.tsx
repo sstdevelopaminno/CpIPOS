@@ -15,7 +15,7 @@ export default async function PosMembersPage() {
       <div className="p-4">
         <PosBackButton lang={lang} href="/preview/pos/more" label={lang === "th" ? "กลับเมนูเพิ่มเติม" : "Back to More"} />
       </div>
-      <PosMemberMaintenanceModal open lang={lang} closeLabel={lang === "th" ? "< กลับเมนูเพิ่มเติม" : "< Back to More"} onCloseHref="/preview/pos/more" />
+      <PosMemberMaintenanceModal open lang={lang === "lo" ? "en" : lang} closeLabel={lang === "th" ? "< กลับเมนูเพิ่มเติม" : "< Back to More"} onCloseHref="/preview/pos/more" />
     </main>
   );
 }

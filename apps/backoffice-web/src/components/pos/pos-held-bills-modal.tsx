@@ -43,7 +43,7 @@ type DeliveryApp = {
 type Props = {
   open: boolean;
   text: any;
-  lang: "th" | "en";
+  lang: "th" | "en" | "lo";
   isDeliveryPendingPanelMode: boolean;
   heldBillSearch: string;
   heldBillPool: HeldBill[];
@@ -53,7 +53,7 @@ type Props = {
   deliveryActionBusyById: Record<string, "send" | "cancel">;
   isBusy: boolean;
   formatMoney: (value: number) => string;
-  formatHeldAt: (value: string, lang: "th" | "en") => string;
+  formatHeldAt: (value: string, lang: "th" | "en" | "lo") => string;
   getDeliveryPendingStatusLabel: (status: DeliveryPendingStatus | undefined) => string;
   normalizeHeldBillStatusHistory: (entry: HeldBill) => DeliveryPendingStatusHistoryEntry[];
   onClose: () => void;

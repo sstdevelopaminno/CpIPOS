@@ -14,7 +14,7 @@ import {
   type PosScopeIdentity
 } from "@/lib/pos-sales-mode-preferences";
 
-type Lang = "th" | "en";
+type Lang = "th" | "en" | "lo";
 type StatusTone = "info" | "error";
 
 type BranchSalesModeOrderApiData = {

@@ -1,9 +1,9 @@
 import { cookies } from "next/headers";
 
-export type AppLanguage = "th" | "en";
+export type AppLanguage = "th" | "en" | "lo";
 
 export function normalizeLanguage(value?: string | null): AppLanguage {
-  return value === "en" ? "en" : "th";
+  return value === "en" || value === "lo" ? value : "th";
 }
 
 export async function getServerLanguage(): Promise<AppLanguage> {
