@@ -170,6 +170,10 @@ export async function POST(request: Request, context: { params: Promise<{ orderI
       .eq("order_id", orderRow.id)
       .eq("request_group_id", requestGroupId);
 
+    const completedAt = new Date().toISOString();
+    const cashReceived = method === "cash" ? round2(amount) : null;
+    const changeAmount = method === "cash" ? round2(Math.max(0, amount - dueTotal)) : null;
+
     await supabase
       .from("orders")
       .update({
@@ -177,7 +181,11 @@ export async function POST(request: Request, context: { params: Promise<{ orderI
         pos_session_id: scope.session.id,
         cashier_user_id: scope.session.user_id,
         device_code: scope.session.device_code,
-        status: "completed"
+        status: "completed",
+        payment_completed_at: completedAt,
+        payment_completed_by: scope.session.user_id,
+        cash_received: cashReceived,
+        change_amount: changeAmount
       })
       .eq("tenant_id", scope.session.tenant_id)
       .eq("branch_id", scope.session.branch_id)
@@ -245,7 +253,8 @@ export async function POST(request: Request, context: { params: Promise<{ orderI
           store_profile: storeProfile,
           total: round2(orderRow.grand_total ?? orderRow.total_amount ?? paidAmount),
           paid_total: round2((orderRow.paid_total ?? 0) + paidAmount),
-          change_total: 0
+          cash_received: cashReceived,
+          change_total: changeAmount ?? 0
         }
       },
       error: null
