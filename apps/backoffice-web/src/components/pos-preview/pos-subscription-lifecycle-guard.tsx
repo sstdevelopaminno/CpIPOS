@@ -6,6 +6,12 @@ import { getSupabaseBrowserClient } from "@/lib/supabase-browser";
 import type { PosSubscriptionLifecycleGuardData } from "@/lib/services/pos-subscription-lifecycle-guard-service";
 
 type Envelope<T>={data?:T;error?:{code?:string;message?:string}};
+type RuntimeRefreshSource="realtime"|"push"|"focus"|"online"|"fallback";
+
+// Browser focus and visibilitychange often fire together. They are hints, not
+// separate subscription changes; genuine push/realtime/online updates bypass
+// this dedupe window so billing approvals still appear immediately.
+const PASSIVE_REFRESH_MIN_GAP_MS=15_000;
 
 function money(value:number|null,currency:string){
   return value==null ? "ยังไม่กำหนดราคา" :
@@ -29,15 +35,20 @@ export function PosSubscriptionLifecycleGuard({ initial }:{
   const [dismissed,setDismissed]=useState(false);
   const [clock,setClock]=useState(()=>Date.now());
   const refreshInFlight=useRef(false);
+  const lastRuntimeRefreshAt=useRef(0);
   const runtimeSignatureRef=useRef(initial
     ? [initial.lifecycle_status,initial.locked,initial.expires_at].join("|")
     : "");
 
-  const refreshRuntime=useCallback(async(source:"realtime"|"push"|"focus"|"fallback")=>{
+  const refreshRuntime=useCallback(async(source:RuntimeRefreshSource)=>{
+    const passive=source==="focus" || source==="fallback";
+    if(passive && document.visibilityState==="hidden")return;
+    if(passive && Date.now()-lastRuntimeRefreshAt.current<PASSIVE_REFRESH_MIN_GAP_MS)return;
     if(refreshInFlight.current)return;
     refreshInFlight.current=true;
+    lastRuntimeRefreshAt.current=Date.now();
     try{
-      const response=await fetch("/api/pos/billing/runtime",{cache:"no-store"});
+      const response=await fetch(`/api/pos/billing/runtime?reason=${source}`,{cache:"no-store"});
       const json=await response.json().catch(()=>null) as Envelope<{runtime:PosSubscriptionLifecycleGuardData|null}>|null;
       if(!response.ok || !json?.data)return;
       const next=json.data.runtime;
@@ -51,6 +62,9 @@ export function PosSubscriptionLifecycleGuard({ initial }:{
         detail:{runtime:next,source}
       }));
       if(changed)router.refresh();
+    }catch{
+      // Keep the last verified billing state during transient offline failures.
+      // Realtime/push or the next scheduled fallback can retry safely.
     }finally{
       refreshInFlight.current=false;
     }
@@ -86,7 +100,7 @@ export function PosSubscriptionLifecycleGuard({ initial }:{
 
   useEffect(()=>{
     const onFocus=()=>void refreshRuntime("focus");
-    const onOnline=()=>void refreshRuntime("focus");
+    const onOnline=()=>void refreshRuntime("online");
     const onVisibility=()=>{if(document.visibilityState==="visible")void refreshRuntime("focus");};
     const onPush=(event:Event)=>{
       const payload=(event as CustomEvent<{kind?:string}>).detail;
