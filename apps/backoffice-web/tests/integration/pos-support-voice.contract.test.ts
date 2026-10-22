@@ -44,6 +44,7 @@ describe("POS direct Support voice", () => {
     expect(voice).toContain('side: "store"');
     expect(voice).toContain("โทรหา Support");
     expect(voice).toContain("SpeechSynthesisUtterance");
+    expect(voice).toContain("speakQueueAnnouncement(data.queue)");
     expect(voice).toContain("voice_queue");
     expect(voice).toContain("12_000 + Math.floor(Math.random() * 8_000)");
     expect(voice).toContain("2 ** Math.min(queuePollFailuresRef.current, 2)");
