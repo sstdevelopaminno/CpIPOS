@@ -309,6 +309,7 @@ export function BrowserPrintAgent() {
     let timer: number | null = null;
     let errorStreak = 0;
     let emptyPollStreak = 0;
+    let tickInFlight = false;
     const supported = Boolean(navigator.serial);
 
     const publish = (code: string, message: string) => {
@@ -330,8 +331,10 @@ export function BrowserPrintAgent() {
     };
 
     const tick = async () => {
-      if (!active) return;
+      if (!active || tickInFlight) return;
+      tickInFlight = true;
       if (typeof document !== "undefined" && document.visibilityState === "hidden") {
+        tickInFlight = false;
         scheduleNext(HIDDEN_POLL_MS);
         return;
       }
@@ -445,6 +448,7 @@ export function BrowserPrintAgent() {
         emptyPollStreak = 0;
         publish("agent_error", error instanceof Error ? error.message : "Browser Print Agent failed.");
       } finally {
+        tickInFlight = false;
         const idleDelay = emptyPollStreak >= DEEP_IDLE_AFTER_EMPTY_POLLS ? DEEP_IDLE_POLL_MS : emptyPollStreak > 0 ? IDLE_POLL_MS : POLL_MS;
         const backoffDelay = errorStreak > 0 ? Math.min(POLL_MS * 2 ** errorStreak, MAX_ERROR_BACKOFF_MS) : idleDelay;
         scheduleNext(backoffDelay);
