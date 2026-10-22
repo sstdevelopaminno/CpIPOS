@@ -243,8 +243,12 @@ export function PosSupportVoice({
     void startWaitingMusic();
     speakQueueAnnouncement(null);
     void control("voice_request").then((data) => {
-      if (!data) stopWaitingMedia();
-      else if (data.queue) updateQueue(data.queue);
+      if (!data) {
+        stopWaitingMedia();
+      } else if (data.queue) {
+        updateQueue(data.queue);
+        speakQueueAnnouncement(data.queue);
+      }
     });
   }, [control, speakQueueAnnouncement, startWaitingMusic, stopWaitingMedia, updateQueue]);
 
