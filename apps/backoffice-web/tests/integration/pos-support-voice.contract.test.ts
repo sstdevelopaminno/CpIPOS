@@ -29,6 +29,8 @@ describe("POS direct Support voice", () => {
     expect(route).toContain('"get_voice_ice_config"');
     expect(route).toContain('"update_voice_call_state"');
     expect(route).toContain('"end_voice_call"');
+    expect(route).toContain('"get_voice_queue_status"');
+    expect(route).toContain('"voice_queue"');
     expect(route).toContain('data.origin = "cpipos_app"');
   });
 
@@ -41,7 +43,23 @@ describe("POS direct Support voice", () => {
     expect(chat).toContain("กรุณาวางสายก่อนปิดหน้าต่างแชท");
     expect(voice).toContain('side: "store"');
     expect(voice).toContain("โทรหา Support");
+    expect(voice).toContain("SpeechSynthesisUtterance");
+    expect(voice).toContain("speakQueueAnnouncement(data.queue)");
+    expect(voice).toContain("voice_queue");
+    expect(voice).toContain("12_000 + Math.floor(Math.random() * 8_000)");
+    expect(voice).toContain("2 ** Math.min(queuePollFailuresRef.current, 2)");
+    expect(voice).toContain("60_000");
+    expect(voice).toContain("source.loop = true");
     expect(supportCenter).toContain("ไม่จำเป็นต้องมี LINE");
+  });
+
+  it("shows FIFO waiting position without opening media early", () => {
+    expect(voice).toContain('call.direction === "store_to_it" && call.status === "requested"');
+    expect(voice).toContain("queuePosition={queue?.position}");
+    expect(voice).toContain("stopWaitingMedia");
+    expect(voice).toContain("กำลังติดต่อทีมซัพพอร์ต");
+    expect(src("src/components/support/support-voice-call-overlay.tsx")).toContain("กำลังรอคิว Support");
+    expect(src("src/components/support/support-voice-call-overlay.tsx")).toContain("ระหว่างรอยังไม่เปิดไมค์และยังไม่สร้างสาย WebRTC");
   });
 
   it("supports warm-transfer hold state and resilient WebRTC recovery", () => {
