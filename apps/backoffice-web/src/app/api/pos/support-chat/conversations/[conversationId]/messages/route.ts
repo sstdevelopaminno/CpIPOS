@@ -29,6 +29,7 @@ export async function GET(
     const data = await callSupportChat<{
       conversation: Record<string, unknown>;
       messages: Array<Record<string, unknown>>;
+      active_call?: Record<string, unknown> | null;
       head: SupportChatHead;
       head_changed?: boolean;
     }>(bridge, "get_messages", {
@@ -40,7 +41,11 @@ export async function GET(
       await mirrorSupportChatHead(data.head).catch(() => null);
     }
 
-    return ok({ conversation: data.conversation, messages: data.messages });
+    return ok({
+      conversation: data.conversation,
+      messages: data.messages,
+      active_call: data.active_call ?? null
+    });
   } catch (error) {
     if (error instanceof PosGuardError) return fail(error.code, error.message, error.status);
     const typed = error as Error & { status?: number; code?: string };
