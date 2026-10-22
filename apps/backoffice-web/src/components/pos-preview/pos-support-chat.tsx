@@ -141,6 +141,18 @@ export function PosSupportChat({ storeCode, storeName,apiBase="/api/pos/support-
     [heads]
   );
 
+  const voiceActive = Boolean(
+    activeCall && ["requested", "accepted", "connecting", "connected"].includes(activeCall.status)
+  );
+
+  const closeChatWindow = useCallback(() => {
+    if (voiceActive) {
+      setError("กำลังมีสาย Support อยู่ กรุณาวางสายก่อนปิดหน้าต่างแชท");
+      return;
+    }
+    setOpen(false);
+  }, [voiceActive]);
+
   const clearGoneConversation = useCallback((id: string) => {
     setHeads((current) => current.filter((row) => row.conversation_id !== id));
     setSelectedId((current) => current === id ? "" : current);
@@ -552,6 +564,10 @@ export function PosSupportChat({ storeCode, storeName,apiBase="/api/pos/support-
   }
 
   async function closeConversation() {
+    if (voiceActive) {
+      setError("กรุณาวางสาย Support ก่อนจบการสนทนา");
+      return;
+    }
     if (!selectedId || !window.confirm("จบการสนทนานี้? รูปภาพที่แนบจะถูกลบทันที แต่ข้อความจะยังเก็บไว้")) return;
     setBusy("close");
     setError("");
@@ -590,7 +606,7 @@ export function PosSupportChat({ storeCode, storeName,apiBase="/api/pos/support-
       </button>
 
       {open ? <div className="fixed inset-0 z-[520] grid place-items-center bg-slate-950/50 p-3 backdrop-blur-[2px]"
-        onMouseDown={(event) => { if (event.currentTarget === event.target) setOpen(false); }}>
+        onMouseDown={(event) => { if (event.currentTarget === event.target) closeChatWindow(); }}>
         <section role="dialog" aria-modal="true" className="flex h-[min(760px,92vh)] w-full max-w-4xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl">
           <header className="flex items-center gap-3 border-b border-slate-200 px-4 py-3">
             <div className="mr-auto">
@@ -599,7 +615,8 @@ export function PosSupportChat({ storeCode, storeName,apiBase="/api/pos/support-
             </div>
             {selectedId ? <button type="button" onClick={() => void loadMessages(selectedId)}
               className="rounded-lg border border-slate-200 px-3 py-2 text-xs font-bold text-slate-600">รีเฟรช</button> : null}
-            <button type="button" onClick={() => setOpen(false)}
+            <button type="button" onClick={closeChatWindow}
+              aria-label={voiceActive ? "วางสายก่อนปิดหน้าต่าง" : "ปิดหน้าต่างแชท"}
               className="h-9 w-9 rounded-full border border-slate-200 text-xl text-slate-500">×</button>
           </header>
 
