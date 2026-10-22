@@ -37,6 +37,8 @@ describe("POS direct Support voice", () => {
     expect(chat).toContain("PosSupportVoice");
     expect(chat).toContain("activeCall");
     expect(chat).toContain("refreshSelectedConversation");
+    expect(chat).toContain("voiceActive");
+    expect(chat).toContain("กรุณาวางสายก่อนปิดหน้าต่างแชท");
     expect(voice).toContain('side: "store"');
     expect(voice).toContain("โทรหา Support");
     expect(supportCenter).toContain("ไม่จำเป็นต้องมี LINE");
