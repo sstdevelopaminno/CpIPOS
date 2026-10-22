@@ -18,7 +18,8 @@ type VoiceAction =
   | "voice_cancel"
   | "voice_end"
   | "voice_state"
-  | "voice_ice";
+  | "voice_ice"
+  | "voice_queue";
 
 type VoiceResponse = {
   call?: Record<string, unknown>;
@@ -26,6 +27,14 @@ type VoiceResponse = {
   head?: SupportChatHead;
   ice_servers?: RTCIceServer[];
   turn_enabled?: boolean;
+  queue?: {
+    position: number;
+    ahead_count: number;
+    waiting_count: number;
+    active_calls: number;
+    queued_since: string | null;
+    lease_seconds: number;
+  } | null;
 };
 
 export async function POST(
@@ -47,7 +56,7 @@ export async function POST(
     const rate = await enforceRateLimit({
       namespace: "pos-support-voice",
       key: `${scope.session.tenant_id}:${conversationId}:${getClientIpAddress(request)}`,
-      max: action === "voice_ice" || action === "voice_state" ? 120 : 30,
+      max: action === "voice_ice" || action === "voice_state" || action === "voice_queue" ? 120 : 30,
       windowMs: 10 * 60_000,
       failClosedOnBackendError: true
     });
@@ -80,6 +89,9 @@ export async function POST(
       data.state = body?.state;
     } else if (action === "voice_ice") {
       backendAction = "get_voice_ice_config";
+      data.call_id = callId;
+    } else if (action === "voice_queue") {
+      backendAction = "get_voice_queue_status";
       data.call_id = callId;
     }
 
