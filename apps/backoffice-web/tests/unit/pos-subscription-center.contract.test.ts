@@ -165,7 +165,7 @@ describe("POS subscription center (commercial billing, not cashier payments)", (
     expect(ui).toContain('const aiCheckoutActive = tab === "ai" && aiPurchaseReady && aiCheckoutOpen');
     expect(ui).toContain("เลือก AI Add-on");
     expect(ui).toContain("ชำระค่า AI Add-on");
-    expect(ui).toContain('<StepLabel number={3}>แนบหลักฐานการโอนเงิน</StepLabel>');
+    expect(ui).toContain('<StepLabel number={3}>{ui("แนบหลักฐานการโอนเงิน")}</StepLabel>');
     expect(ui).toContain("เลือกแล้ว · ดำเนินการต่อด้านล่าง");
   });
 
@@ -182,7 +182,7 @@ describe("POS subscription center (commercial billing, not cashier payments)", (
 
   it("opens recorded billing cycles from a dedicated history action", () => {
     expect(ui).toContain("setBillingCyclesOpen(true)");
-    expect(ui).toContain('aria-label="รอบบิลที่บันทึกแล้ว"');
+    expect(ui).toContain('aria-label={ui("รอบบิลที่บันทึกแล้ว")}');
     expect(ui).toContain("snapshot.cycles.length");
     expect(ui).toContain("ยอดบันทึกชำระ");
     expect(ui).toContain('cycle.status === "paid" ? "ชำระแล้ว"');

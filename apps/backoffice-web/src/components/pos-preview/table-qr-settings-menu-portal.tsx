@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import type { Language } from "@/lib/i18n";
-import { isPosMenuEnabled } from "@/lib/pos-menu-policy";
+import { isCustomPosMenuVisible, isPosMenuEnabled } from "@/lib/pos-menu-policy";
 import { ItMenuLockDialog } from "@/components/pos-preview/it-menu-lock-dialog";
 
 const SLOT_ATTRIBUTE = "data-cpipos-table-qr-settings-slot";
@@ -57,8 +57,8 @@ function ensureTableQrSettingsSlot() {
 const cardClass = "group grid h-full min-h-[92px] grid-cols-[42px_1fr_24px] items-center gap-3 rounded-lg border border-slate-200 bg-white p-4 text-left transition hover:border-blue-200 hover:bg-blue-50/50";
 
 export function TableQrSettingsMenuPortal({
-  lang, timelineEnabled = false, menuPolicy
-}: { lang: Language; timelineEnabled?: boolean; menuPolicy: Record<string, boolean> }) {
+  lang, timelineEnabled = false, menuPolicy, isCustom = false
+}: { lang: Language; timelineEnabled?: boolean; menuPolicy: Record<string, boolean>; isCustom?: boolean }) {
   const [target, setTarget] = useState<HTMLElement | null>(null);
   const [itLockedMenu, setItLockedMenu] = useState<string | null>(null);
   useEffect(() => {
@@ -71,21 +71,23 @@ export function TableQrSettingsMenuPortal({
   }, []);
   const showOrderKitchen = isPosMenuEnabled("settings.order_kitchen", menuPolicy);
   const showTableQr = isPosMenuEnabled("settings.table_qr", menuPolicy);
+  const customOrderKitchenAllowed = !isCustom || isCustomPosMenuVisible("settings.order_kitchen", menuPolicy, true);
+  const customTableQrAllowed = !isCustom || isCustomPosMenuVisible("settings.table_qr", menuPolicy, true);
   if (!target) return null;
   return createPortal(<>
-    <Link href="/preview/pos/settings/order-kitchen" prefetch={false} className={`${cardClass} ${!showOrderKitchen ? "bg-slate-50 text-slate-500" : ""}`} aria-disabled={!showOrderKitchen}
+    {customOrderKitchenAllowed ? <Link href="/preview/pos/settings/order-kitchen" prefetch={false} className={`${cardClass} ${!showOrderKitchen ? "bg-slate-50 text-slate-500" : ""}`} aria-disabled={!showOrderKitchen}
       onClick={event => { if (!showOrderKitchen) { event.preventDefault(); setItLockedMenu(lang === "th" ? "การแจ้งเตือนออเดอร์และครัว" : "Order & Kitchen Automation"); } }}>
       <span className="inline-flex h-10 w-10 items-center justify-center rounded-lg bg-orange-50 text-orange-700 group-hover:bg-orange-100"><OrderKitchenIcon /></span>
       <span className="min-w-0"><span className="block text-base font-black text-slate-950">{lang === "th" ? "การแจ้งเตือนออเดอร์และครัว" : "Order & Kitchen Automation"}</span><span className="mt-1 block text-sm font-medium leading-5 text-slate-500">{lang === "th" ? "เปิด/ปิดแจ้งเตือน QR ส่งเข้าครัว และพิมพ์ใบครัวอัตโนมัติ" : "Control QR alerts, kitchen dispatch and automatic kitchen printing"}</span></span><span className="text-slate-400">›</span>
       {(!showOrderKitchen) ? <span aria-hidden className="text-slate-500">🔒</span> : null}
-    </Link>
-    <Link href="/preview/pos/settings/table-qr" prefetch={false} className={`${cardClass} ${!showTableQr ? "bg-slate-50 text-slate-500" : ""}`} aria-disabled={!showTableQr}
+    </Link> : null}
+    {customTableQrAllowed ? <Link href="/preview/pos/settings/table-qr" prefetch={false} className={`${cardClass} ${!showTableQr ? "bg-slate-50 text-slate-500" : ""}`} aria-disabled={!showTableQr}
       onClick={event => { if (!showTableQr) { event.preventDefault(); setItLockedMenu(lang === "th" ? "ตั้งค่า QR โต๊ะ" : "Table QR Settings"); } }}>
       <span className="inline-flex h-10 w-10 items-center justify-center rounded-lg bg-slate-100 text-slate-700 group-hover:bg-blue-100 group-hover:text-blue-700"><TableQrMenuIcon /></span>
       <span className="min-w-0"><span className="block text-base font-black text-slate-950">{lang === "th" ? "ตั้งค่า QR โต๊ะ" : "Table QR Settings"}</span><span className="mt-1 block text-sm font-medium leading-5 text-slate-500">{lang === "th" ? "กำหนดหมดอายุตามเวลา/ชั่วโมง หรือใช้งานตามบิล" : "Choose timed/hourly expiry or bill-lifecycle mode"}</span></span><span className="text-slate-400">›</span>
       {(!showTableQr) ? <span aria-hidden className="text-slate-500">🔒</span> : null}
-    </Link>
-    {timelineEnabled ? <Link href="/preview/pos/settings/table-qr/timeline" prefetch={false} className={`${cardClass} ${!showTableQr ? "bg-slate-50 text-slate-500" : ""}`} aria-disabled={!showTableQr}
+    </Link> : null}
+    {timelineEnabled && customTableQrAllowed ? <Link href="/preview/pos/settings/table-qr/timeline" prefetch={false} className={`${cardClass} ${!showTableQr ? "bg-slate-50 text-slate-500" : ""}`} aria-disabled={!showTableQr}
       onClick={event => { if (!showTableQr) { event.preventDefault(); setItLockedMenu(lang === "th" ? "ไทม์ไลน์สั่งอาหารจาก QR" : "QR Order Timeline"); } }}>
       <span className="inline-flex h-10 w-10 items-center justify-center rounded-lg bg-amber-50 text-amber-700 group-hover:bg-amber-100"><TimelineIcon /></span>
       <span className="min-w-0"><span className="block text-base font-black text-slate-950">{lang === "th" ? "ไทม์ไลน์สั่งอาหารจาก QR" : "QR Order Timeline"}</span><span className="mt-1 block text-sm font-medium leading-5 text-slate-500">{lang === "th" ? "ดูเครื่องที่กด รายการที่สั่ง สำเร็จ/ล้มเหลว/กดซ้ำ ย้อนหลัง 7 วัน" : "Audit device, items, success/failure and duplicate attempts for 7 days"}</span></span><span className="text-slate-400">›</span>

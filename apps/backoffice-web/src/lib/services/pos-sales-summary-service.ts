@@ -1,5 +1,8 @@
 import type { BranchRole, PlatformRole } from "@pos/shared-types";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
+import { getTenantPosCurrencyCode } from "@/lib/server/custom-pos-currency";
+import {getCustomPosStockUiMode} from "@/lib/server/custom-stock-ui-policy";
+import { orderCurrencyFromMetadata, type SalesCurrencyCode } from "@/lib/pos-money";
 
 export type PosSalesSummaryBranchOption = {
   id: string;
@@ -31,6 +34,9 @@ export type PosSalesSummaryScope = {
 };
 
 export type PosSalesSummaryPayload = {
+  currencyCode: SalesCurrencyCode;
+  // Never sum THB, LAK or USD sales into one KPI.
+  currencyBuckets: Array<{ currencyCode: SalesCurrencyCode | "UNKNOWN"; receiptCount: number; netSales: number }>;
   access: {
     canViewMultipleBranches: boolean;
     selfOnly: boolean;
@@ -116,6 +122,7 @@ export type PosSalesSummaryPayload = {
     tax: number;
     netTotal: number;
     status: string;
+    currencyCode: SalesCurrencyCode;
   }>;
 };
 
@@ -143,6 +150,7 @@ type OrderRow = {
   grand_total?: number | null;
   tax_total?: number | null;
   status: string | null;
+  metadata?: Record<string, unknown> | null;
   created_at: string;
   created_by: string | null;
   cashier_user_id?: string | null;
@@ -187,6 +195,8 @@ const VALID_PAYMENT_METHOD = new Set(["all", "cash", "bank_transfer", "card", "o
 
 function emptyPayload(filters: PosSalesSummaryPayload["filters"]): PosSalesSummaryPayload {
   return {
+    currencyCode: "THB",
+    currencyBuckets: [],
     access: { canViewMultipleBranches: false, selfOnly: true, selectedBranchId: filters.branchId },
     filters,
     branchOptions: [],
@@ -335,8 +345,8 @@ async function loadOrders(args: {
   };
 
   const fullSelect =
-    "id,order_no,branch_id,shift_id,subtotal,discount_amount,gp_amount,total_amount,grand_total,tax_total,status,created_at,created_by,cashier_user_id,payment_completed_by";
-  const baseSelect = "id,order_no,branch_id,shift_id,subtotal,discount_amount,gp_amount,total_amount,status,created_at,created_by";
+    "id,order_no,branch_id,shift_id,subtotal,discount_amount,gp_amount,total_amount,grand_total,tax_total,status,metadata,created_at,created_by,cashier_user_id,payment_completed_by";
+  const baseSelect = "id,order_no,branch_id,shift_id,subtotal,discount_amount,gp_amount,total_amount,status,metadata,created_at,created_by";
   let result = await buildQuery(fullSelect);
   if (result.error && isMissingColumnError(result.error.message)) {
     result = await buildQuery(baseSelect);
@@ -351,6 +361,8 @@ export async function loadPosSalesSummaryData(
 ): Promise<PosSalesSummaryPayload> {
   const filters = getDefaultFilters(inputFilters);
   if (!scope.tenantId || !scope.userId) return emptyPayload(filters);
+  const [currencyCode,stockMode] = await Promise.all([getTenantPosCurrencyCode(scope.tenantId),getCustomPosStockUiMode(scope.tenantId)]);
+  const opticalCurrencyAudit=stockMode==="optical";
 
   const supabase = getSupabaseServiceClient();
   const [branchesResult, membershipsResult] = await Promise.all([
@@ -387,7 +399,7 @@ export async function loadPosSalesSummaryData(
   const branchScopeIds = selectedBranchId === "all" ? branchOptions.map((branch) => branch.id) : selectedBranchId ? [selectedBranchId] : [];
   const selfOnly = !isPrivilegedRole(scope);
   const nextFilters = { ...filters, branchId: selectedBranchId || "all" };
-  if (branchScopeIds.length === 0) return { ...emptyPayload(nextFilters), branchOptions };
+  if (branchScopeIds.length === 0) return { ...emptyPayload(nextFilters), currencyCode, branchOptions };
 
   const ordersRaw = await loadOrders({
     tenantId: scope.tenantId,
@@ -395,10 +407,31 @@ export async function loadPosSalesSummaryData(
     filters: nextFilters,
     selfOnlyUserId: selfOnly ? scope.userId : null
   });
-  const ordersBeforeCashier = ordersRaw.filter((order) => (nextFilters.cashierId === "all" ? true : getOrderCashierId(order) === nextFilters.cashierId));
+  const allOrdersBeforeCashier = ordersRaw.filter((order) => (nextFilters.cashierId === "all" ? true : getOrderCashierId(order) === nextFilters.cashierId));
+  const buckets: Record<SalesCurrencyCode | "UNKNOWN", { receiptCount: number; netSales: number }> = {
+    THB: { receiptCount: 0, netSales: 0 },
+    LAK: { receiptCount: 0, netSales: 0 },
+    USD: { receiptCount: 0, netSales: 0 },
+    UNKNOWN: { receiptCount: 0, netSales: 0 }
+  };
+  for (const order of allOrdersBeforeCashier) {
+    if (order.status !== "completed") continue;
+    const declared=order.metadata?.currency_code;
+    const bucket = buckets[declared==="THB"||declared==="LAK"||declared==="USD"?declared:opticalCurrencyAudit?"UNKNOWN":"THB"];
+    bucket.receiptCount++;
+    bucket.netSales += getOrderNet(order);
+  }
+  const currencyBuckets = (["THB", "LAK", "USD", "UNKNOWN"] as const)
+    .filter((code) => buckets[code].receiptCount > 0)
+    .map((code) => ({ currencyCode: code, receiptCount: buckets[code].receiptCount, netSales: roundMoney(buckets[code].netSales) }));
+  // Existing aggregates are single-currency only, so a currency cutover cannot
+  // cause historical THB amounts to appear as LAK or be added to them.
+  const ordersBeforeCashier = allOrdersBeforeCashier.filter((order) => opticalCurrencyAudit?order.metadata?.currency_code===currencyCode:orderCurrencyFromMetadata(order.metadata)===currencyCode);
   if (ordersBeforeCashier.length === 0) {
     return {
       ...emptyPayload(nextFilters),
+      currencyCode,
+      currencyBuckets,
       access: { canViewMultipleBranches, selfOnly, selectedBranchId: nextFilters.branchId },
       branchOptions
     };
@@ -540,6 +573,8 @@ export async function loadPosSalesSummaryData(
     .sort((a, b) => a.label.localeCompare(b.label));
 
   return {
+    currencyCode,
+    currencyBuckets,
     access: { canViewMultipleBranches, selfOnly, selectedBranchId: nextFilters.branchId },
     filters: nextFilters,
     branchOptions,
@@ -625,7 +660,8 @@ export async function loadPosSalesSummaryData(
         discount: roundMoney(toNumber(order.discount_amount)),
         tax: roundMoney(toNumber(order.tax_total)),
         netTotal: roundMoney(getOrderNet(order)),
-        status: order.status ?? "-"
+        status: order.status ?? "-",
+        currencyCode: orderCurrencyFromMetadata(order.metadata)
       };
     })
   };

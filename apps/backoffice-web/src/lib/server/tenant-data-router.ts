@@ -1,6 +1,5 @@
 import "server-only";
 
-import { createClient } from "@supabase/supabase-js";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
 
 export type TenantDataHome = "primary" | "trial" | "archive";
@@ -25,59 +24,10 @@ type LifecycleRow = {
   routing_version: number;
 };
 
-type TrialClient = ReturnType<typeof createTrialServiceClient>;
-
-declare global {
-  var __posTrialSupabaseServiceClient: TrialClient | undefined;
-}
-
-function readBooleanEnv(name: string, fallback = false) {
-  const raw = String(process.env[name] ?? "").trim().toLowerCase();
-  if (!raw) return fallback;
-  return raw === "1" || raw === "true" || raw === "yes" || raw === "on";
-}
-
+// CpiPOS-002 has been retired. Keep the legacy discriminator to refuse stale
+// rows safely; no second Supabase client may be created.
 export function isTrialDataRoutingConfigured() {
-  return Boolean(
-    readBooleanEnv("TRIAL_DATA_ROUTING_ENABLED", false) &&
-      String(process.env.TRIAL_SUPABASE_URL ?? "").trim() &&
-      String(process.env.TRIAL_SUPABASE_SERVICE_ROLE_KEY ?? "").trim()
-  );
-}
-
-function createTrialServiceClient() {
-  if (typeof window !== "undefined") {
-    throw new Error("Trial Supabase service client can only be used on the server.");
-  }
-
-  const url = String(process.env.TRIAL_SUPABASE_URL ?? "").trim();
-  const key = String(process.env.TRIAL_SUPABASE_SERVICE_ROLE_KEY ?? "").trim();
-  if (!readBooleanEnv("TRIAL_DATA_ROUTING_ENABLED", false) || !url || !key) {
-    throw new Error("trial_data_route_unavailable");
-  }
-  if (!url.startsWith("https://")) {
-    throw new Error("trial_supabase_url_must_use_https");
-  }
-
-  return createClient(url, key, {
-    auth: {
-      autoRefreshToken: false,
-      persistSession: false
-    },
-    global: {
-      headers: {
-        "x-cpipos-data-home": "trial"
-      }
-    }
-  });
-}
-
-function getTrialServiceClient() {
-  if (globalThis.__posTrialSupabaseServiceClient) {
-    return globalThis.__posTrialSupabaseServiceClient;
-  }
-  globalThis.__posTrialSupabaseServiceClient = createTrialServiceClient();
-  return globalThis.__posTrialSupabaseServiceClient;
+  return false;
 }
 
 export async function resolveTenantDataRoute(tenantId: string): Promise<TenantDataRoute> {
@@ -126,12 +76,8 @@ export async function getTenantDataServiceClient(
   }
 
   if (route.dataHome === "trial") {
-    if (!isTrialDataRoutingConfigured()) {
-      // Never silently write a trial tenant back to Primary when the Trial DB is
-      // unavailable. That would create split-brain data during an outage.
-      throw new Error("trial_data_route_unavailable");
-    }
-    return { client: getTrialServiceClient(), route };
+    // Never silently fall back to Primary for a stale authoritative data_home.
+    throw new Error("trial_data_route_unavailable");
   }
 
   if (options?.mutation) {

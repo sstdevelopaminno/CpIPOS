@@ -10,8 +10,8 @@ const DATA_HOME_CACHE_MS = 45_000;
 const dataHomeCache = new Map<string, CachedDataHome>();
 
 function trialRoutingEnabled() {
-  const value = String(process.env.TRIAL_DATA_ROUTING_ENABLED ?? "false").trim().toLowerCase();
-  return value === "true" || value === "1";
+  // CpiPOS-002 is retired; printer jobs must never reach its former database.
+  return false;
 }
 
 async function resolveDataHome(tenantId: string, signal?: AbortSignal): Promise<PrintDataHome> {

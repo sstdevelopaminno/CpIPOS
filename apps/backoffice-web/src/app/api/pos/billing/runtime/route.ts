@@ -4,10 +4,15 @@ import { loadPosSubscriptionLifecycleGuard } from "@/lib/services/pos-subscripti
 
 export const dynamic="force-dynamic";
 
-export async function GET(){
+export async function GET(request: Request){
   try{
     const scope=await requirePosSession();
-    const runtime=await loadPosSubscriptionLifecycleGuard(scope.session.tenant_id,{forceFresh:true});
+    // A normal focus/fallback request can reuse the short-lived (5s) tenant
+    // cache. Realtime, push, online reconnection and legacy requests always
+    // bypass it so approved payments and access revocations remain immediate.
+    const reason=new URL(request.url).searchParams.get("reason");
+    const forceFresh=reason!=="focus" && reason!=="fallback";
+    const runtime=await loadPosSubscriptionLifecycleGuard(scope.session.tenant_id,{forceFresh});
     const response=ok({runtime});
     response.headers.set("cache-control","private, no-store");
     return response;

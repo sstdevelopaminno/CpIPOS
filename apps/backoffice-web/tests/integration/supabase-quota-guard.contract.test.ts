@@ -31,7 +31,8 @@ describe("Supabase log-ingestion guard", () => {
   it("does not poll the feature policy every minute", () => {
     expect(salesModePolicy).toContain("POLICY_REFRESH_MS = 5 * 60_000");
     expect(salesModePolicy).not.toContain("POLICY_REFRESH_MS = 60_000");
-    expect(salesModePolicy).toContain('cache: "default"');
+    expect(salesModePolicy).toContain('cache: fresh ? "no-store" : "default"');
+    expect(salesModePolicy).toContain("POLICY_REFRESH_MS = 5 * 60_000");
   });
 
   it("extends feature decision and contract caching", () => {

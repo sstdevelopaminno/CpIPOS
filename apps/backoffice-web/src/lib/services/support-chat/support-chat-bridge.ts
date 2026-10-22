@@ -60,6 +60,28 @@ export async function issuePosSupportChatBridge(scope: PosSessionScope): Promise
   return issued.data as BridgeToken;
 }
 
+/** Identical communication bridge for an employee-verified, pre-POS store.
+ * The signed pre-entry cookie is verified at the API route. Locked stores
+ * must still be able to reach their own IT support conversation.
+ */
+export async function issuePreEntrySupportChatBridge(identity:{
+ tenantId:string;branchId:string;userId:string;role:string
+}):Promise<BridgeToken>{
+ const db=getPrimarySupabaseServiceClient();
+ const [u,t]=await Promise.all([
+  db.from("users_profiles").select("full_name").eq("id",identity.userId).maybeSingle<{full_name:string|null}>(),
+  db.from("tenants").select("logo_url").eq("id",identity.tenantId).maybeSingle<{logo_url:string|null}>()
+ ]);
+ if(u.error||t.error)throw new Error("Unable to verify store support identity.");
+ const issued=await db.rpc("issue_support_chat_bridge_token",{
+   p_user_id:identity.userId,p_actor_type:"store",p_tenant_id:identity.tenantId,
+   p_branch_id:identity.branchId,p_role:identity.role,
+   p_display_name:u.data?.full_name||"ผู้ติดต่อร้านค้า",p_avatar_url:t.data?.logo_url||null
+ });
+ if(issued.error||!issued.data)throw new Error("Unable to authorize support chat.");
+ return issued.data as BridgeToken;
+}
+
 export async function callSupportChat<T>(
   bridge: BridgeToken,
   action: string,

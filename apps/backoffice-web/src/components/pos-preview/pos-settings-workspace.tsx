@@ -9,9 +9,11 @@ import { PosUsersModule } from "@/components/pos/pos-users-module";
 import { InetNopsSettingsPanel } from "@/components/pos-preview/inet-nops-settings-panel";
 import { PackageLockDialog } from "@/components/pos-preview/package-lock-dialog";
 import { ItMenuLockDialog } from "@/components/pos-preview/it-menu-lock-dialog";
+import {CustomBrandingSettings} from "@/components/pos-preview/custom-branding-settings";
+import {settingsLaoLabels} from "@/lib/lao-pos-ui";
 import { PosSupportPushSettingsModal } from "@/components/pos-preview/pos-support-push-control";
 import { POS_SETTINGS_FEATURES } from "@/lib/pos-feature-map";
-import { isPosMenuEnabled } from "@/lib/pos-menu-policy";
+import { isCustomPosMenuVisible, isPosMenuEnabled } from "@/lib/pos-menu-policy";
 import { getProductProfilePolicy } from "@/lib/product-profile-policy";
 import type {
   BranchSettings,
@@ -26,7 +28,7 @@ import type {
 import type { ActivityAuditItem, ActivityAuditPeriod } from "@/lib/services/activity-audit-service";
 import type { Language } from "@/lib/i18n";
 
-type SettingsView = "menu" | "store" | "branches" | "devices" | "printers" | "activity" | "payments" | "inet_nops" | "taxes" | "notifications" | "users";
+type SettingsView = "menu" | "branding" | "store" | "branches" | "devices" | "printers" | "activity" | "payments" | "inet_nops" | "taxes" | "notifications" | "users";
 type MenuIconName = "store" | "branch" | "payment" | "tax" | "users" | "display" | "terminal" | "activity" | "bell" | "support" | "tables" | "language" | "stock" | "summary" | "receipt" | "members" | "back" | "edit" | "trash" | "plus";
 type MainMenuPlacement = "left" | "top" | "bottom";
 const POS_TAX_SETTINGS_UPDATED_EVENT = "pos:tax-settings-updated";
@@ -2284,30 +2286,30 @@ function NotificationPanel({
   canManage: boolean;
   reportStatus: StatusReporter;
 }) {
-  const text =
-    lang === "en"
-      ? {
-          title: "Notification Settings",
-          desc: "Configure table QR customer call alerts on the POS sales screen.",
-          branch: "Notification branch",
-          branchHint: "Popup and sound settings are stored separately for each branch.",
-          popup: "Show popup on sales screen",
-          sound: "Play alert sound",
-          volume: "Sound volume",
-          saved: "Notification settings saved.",
-          loading: "Loading notification settings..."
-        }
-      : {
-          title: "เธ•เธฑเนเธเธเนเธฒเธเธฒเธฃเนเธเนเธเน€เธ•เธทเธญเธ",
-          desc: "เธเธณเธซเธเธ” POP UP เนเธฅเธฐเน€เธชเธตเธขเธเนเธเนเธเน€เธ•เธทเธญเธเน€เธกเธทเนเธญเธฅเธนเธเธเนเธฒเธเธ”เน€เธฃเธตเธขเธเธเธฒเธ QR เนเธ•เนเธฐ",
-          branch: "เธชเธฒเธเธฒเธ—เธตเนเธ•เธฑเนเธเธเนเธฒเธเธฒเธฃเนเธเนเธเน€เธ•เธทเธญเธ",
-          branchHint: "เธเธฒเธฃเนเธเนเธเน€เธ•เธทเธญเธเนเธฅเธฐเน€เธชเธตเธขเธเธเธฐเนเธขเธเธเธฒเธฃเธ•เธฑเนเธเธเนเธฒเธ•เธฒเธกเธชเธฒเธเธฒ",
-          popup: "เนเธชเธ”เธ POP UP เธเธเธซเธเนเธฒเธเธฒเธข",
-          sound: "เน€เธเธดเธ”เน€เธชเธตเธขเธเนเธเนเธเน€เธ•เธทเธญเธ",
-          volume: "เธฃเธฐเธ”เธฑเธเน€เธชเธตเธขเธ",
-          saved: "เธเธฑเธเธ—เธถเธเธเธฒเธฃเธ•เธฑเนเธเธเนเธฒเธเธฒเธฃเนเธเนเธเน€เธ•เธทเธญเธเนเธฅเนเธง",
-          loading: "เธเธณเธฅเธฑเธเนเธซเธฅเธ”เธเธฒเธฃเนเธเนเธเน€เธ•เธทเธญเธเธเธญเธเธชเธฒเธเธฒ..."
-        };
+  const text = {
+    th:{
+      title:"ตั้งค่าการแจ้งเตือน",
+      desc:"กำหนดป๊อปอัปและเสียงแจ้งเตือนเมื่อมีลูกค้าเรียกจาก QR โต๊ะ",
+      branch:"สาขาที่ตั้งค่าการแจ้งเตือน",
+      branchHint:"การแจ้งเตือนและเสียงถูกบันทึกแยกตามสาขา",
+      popup:"แสดง POP UP บนหน้าขาย",sound:"เปิดเสียงแจ้งเตือน",
+      volume:"ระดับเสียง",saved:"บันทึกการแจ้งเตือนแล้ว",loading:"กำลังโหลดการแจ้งเตือน..."
+    },
+    en:{
+      title:"Notification settings",
+      desc:"Configure customer-call popup and sound alerts for table QR orders.",
+      branch:"Notification branch",branchHint:"Popup and sound settings are saved separately for each branch.",
+      popup:"Show popup on sales screen",sound:"Play alert sound",
+      volume:"Sound volume",saved:"Notification settings saved.",loading:"Loading notification settings..."
+    },
+    lo:{
+      title:"ຕັ້ງຄ່າການແຈ້ງເຕືອນ",
+      desc:"ກຳນົດ POP UP ແລະສຽງແຈ້ງເຕືອນເມື່ອລູກຄ້າເອີ້ນຜ່ານ QR ໂຕະ",
+      branch:"ສາຂາທີ່ຕັ້ງຄ່າການແຈ້ງເຕືອນ",branchHint:"ການແຈ້ງເຕືອນ ແລະສຽງແຍກຕາມສາຂາ",
+      popup:"ສະແດງ POP UP ຢູ່ໜ້າຂາຍ",sound:"ເປີດສຽງແຈ້ງເຕືອນ",
+      volume:"ລະດັບສຽງ",saved:"ບັນທຶກການແຈ້ງເຕືອນແລ້ວ",loading:"ກຳລັງໂຫຼດການແຈ້ງເຕືອນ..."
+    }
+  }[lang];
   const availableBranches = canManage ? branches : branches.filter((branch) => branch.id === activeBranchId);
   const initialBranchId = availableBranches.find((branch) => branch.id === activeBranchId)?.id ?? availableBranches[0]?.id ?? "";
   const [selectedBranchId, setSelectedBranchId] = useState(initialBranchId);
@@ -3176,7 +3178,7 @@ function PaymentPanel({
         action="payment_account_delete"
         targetTable="tenant_payment_accounts"
         targetId={deleteTarget?.id ?? ""}
-        lang={lang}
+        lang={lang === "lo" ? "en" : lang}
         onClose={() => {
           if (!isBusy) setDeleteTarget(null);
         }}
@@ -3191,10 +3193,73 @@ function PaymentPanel({
   );
 }
 
+function CurrencySettingsPopup({ onClose, lang, canManage }: { onClose: () => void; lang: Language; canManage: boolean }) {
+  const [current, setCurrent] = useState<"THB" | "LAK">("THB");
+  const [choice, setChoice] = useState<"THB" | "LAK">("THB");
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
+  useEffect(() => {
+    let alive = true;
+    void fetch("/api/pos/settings/currency", { cache: "no-store" }).then(async response => {
+      const body = await response.json();
+      if (!response.ok) throw new Error(body?.error?.message || "Currency settings unavailable");
+      if (alive) {
+        const value = body?.data?.currency_code === "LAK" ? "LAK" : "THB";
+        setCurrent(value); setChoice(value);
+      }
+    }).catch(e => { if (alive) setError(String(e?.message || e)); })
+      .finally(() => { if (alive) setLoading(false); });
+    return () => { alive = false; };
+  }, []);
+  async function save() {
+    if (!canManage || busy || choice === current) return;
+    setBusy(true); setError(""); setNotice("");
+    try {
+      const response = await fetch("/api/pos/settings/currency", {
+        method: "PATCH", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ currency_code: choice })
+      });
+      const body = await response.json();
+      if (!response.ok) throw new Error(body?.error?.message || "Unable to save currency");
+      setCurrent(choice);
+      setNotice(lang === "lo" ? "ບັນທຶກສຳເລັດ" : "บันทึกสกุลเงินสำเร็จ");
+    } catch (e) { setError(e instanceof Error ? e.message : "Unable to save currency"); }
+    finally { setBusy(false); }
+  }
+  return (
+    <div className="fixed inset-0 z-[96] grid place-items-center bg-slate-950/45 p-4" role="dialog" aria-modal="true" aria-label="Currency settings" onClick={onClose}>
+      <section className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-5 shadow-2xl" onClick={event => event.stopPropagation()}>
+        <div className="flex items-center justify-between gap-3">
+          <h3 className="text-lg font-black text-slate-950">{lang === "lo" ? "ຕັ້ງຄ່າສະກຸນເງິນ" : "ตั้งค่าสกุลเงิน"}</h3>
+          <button type="button" onClick={onClose} aria-label="Close">✕</button>
+        </div>
+        <p className="mt-2 text-sm text-slate-600">{lang === "lo" ? "ກຳນົດສະກຸນເງິນຂອງຮ້ານ" : "กำหนดสกุลเงินประจำร้าน Custom ที่ฝ่าย IT อนุญาต"}</p>
+        {loading ? <p role="status">Loading...</p> : <>
+          <div className="mt-4 grid gap-2">
+            {([{ code: "THB", label: "🇹🇭 THB — บาท" }, { code: "LAK", label: "🇱🇦 LAK — ກີບ" }] as const).map(option =>
+              <label key={option.code} className="flex cursor-pointer items-center gap-3 rounded-xl border border-slate-200 p-4">
+                <input type="radio" checked={choice === option.code} onChange={() => setChoice(option.code)} disabled={!canManage}/>
+                <span className="font-bold">{option.label}</span>
+              </label>)}
+          </div>
+          <p className="mt-3 text-xs text-amber-700">เพื่อความถูกต้องของบัญชี ระบบไม่อนุญาตเปลี่ยนสกุลเงินของร้านที่มีรายการขายแล้ว และไม่แปลงราคาสินค้าอัตโนมัติ</p>
+          {error ? <p role="alert" className="mt-2 text-sm text-red-700">{error}</p> : null}
+          {notice ? <p role="status" className="mt-2 text-sm text-green-700">{notice}</p> : null}
+          <button type="button" onClick={() => void save()} disabled={!canManage || busy || choice === current}
+            className="mt-4 w-full rounded-xl bg-blue-600 px-4 py-3 font-bold text-white disabled:opacity-50">{busy ? "Saving..." : (lang === "lo" ? "ບັນທຶກ" : "บันทึก")}</button>
+        </>}
+      </section>
+    </div>
+  );
+}
+
 function LanguageSettingsPopup({ lang, labels, onClose }: { lang: Language; labels: Labels; onClose: () => void }) {
   const options: Array<{ code: Language; label: string; shortLabel: string }> = [
     { code: "th", label: labels.thai, shortLabel: "TH" },
-    { code: "en", label: labels.english, shortLabel: "EN" }
+    { code: "en", label: labels.english, shortLabel: "EN" },
+    { code: "lo", label: "ລາວ", shortLabel: "LO" }
   ];
 
   function switchLanguage(nextLang: Language) {
@@ -3360,7 +3425,7 @@ function MainMenuPlacementPopup({
 }
 
 export function PosSettingsWorkspace({ lang, initialData }: { lang: Language; initialData: PosSettingsSnapshot }) {
-  const labels = lang === "en" ? TEXT.en : TEXT.th;
+  const labels = lang === "en" ? TEXT.en : lang === "lo" ? { ...TEXT.en, ...settingsLaoLabels } : TEXT.th;
   const [view, setView] = useState<SettingsView>("menu");
   const [store, setStore] = useState(initialData.store);
   const [branches, setBranches] = useState(initialData.branches);
@@ -3375,9 +3440,12 @@ export function PosSettingsWorkspace({ lang, initialData }: { lang: Language; in
   const [packageLockOpen, setPackageLockOpen] = useState(false);
   const [itLockedMenu, setItLockedMenu] = useState<string | null>(null);
   const [languagePopupOpen, setLanguagePopupOpen] = useState(false);
+  const [currencyPopupOpen, setCurrencyPopupOpen] = useState(false);
   const [menuPlacementPopupOpen, setMenuPlacementPopupOpen] = useState(false);
   const [pushSettingsOpen, setPushSettingsOpen] = useState(false);
   const [menuPolicy, setMenuPolicy] = useState<Record<string, boolean>>({});
+  const [isCustom, setIsCustom] = useState(false);
+  const [policyReady, setPolicyReady] = useState(false);
   const canManage = initialData.metadata.can_manage;
   const productProfilePolicy = getProductProfilePolicy(initialData.metadata.product_profile);
 
@@ -3398,10 +3466,12 @@ export function PosSettingsWorkspace({ lang, initialData }: { lang: Language; in
     async function loadFeatures() {
       try {
         const response = await fetch("/api/pos/features", { cache: "no-store" });
-        const body = (await response.json().catch(() => null)) as { data?: { features?: Record<string, boolean>; menu_policy?: Record<string, boolean> } | null } | null;
+        const body = (await response.json().catch(() => null)) as { data?: { features?: Record<string, boolean>; menu_policy?: Record<string, boolean>; is_custom?: boolean } | null } | null;
         if (!cancelled && response.ok) {
           setEnabledFeatures(body?.data?.features ?? {});
           setMenuPolicy(body?.data?.menu_policy ?? {});
+          setIsCustom(body?.data?.is_custom === true);
+          setPolicyReady(true);
         }
       } catch {
         if (!cancelled) setEnabledFeatures({});
@@ -3428,7 +3498,7 @@ export function PosSettingsWorkspace({ lang, initialData }: { lang: Language; in
     };
   }, []);
 
-  function menuVisible(menuKey: string) { return isPosMenuEnabled(menuKey, menuPolicy); }
+  function menuVisible(menuKey: string) { return isCustom ? isCustomPosMenuVisible(menuKey, menuPolicy, true) : isPosMenuEnabled(menuKey, menuPolicy); }
 
   function isSettingLocked(viewKey: keyof typeof POS_SETTINGS_FEATURES) {
     if (viewKey === "devices") return false;
@@ -3441,7 +3511,7 @@ export function PosSettingsWorkspace({ lang, initialData }: { lang: Language; in
       setItLockedMenu(lang === "th" ? "เมนูตั้งค่า" : "Settings");
       return;
     }
-    if (isSettingLocked(viewKey)) {
+    if (viewKey !== "branding" && isSettingLocked(viewKey)) {
       setPackageLockOpen(true);
       return;
     }
@@ -3457,57 +3527,70 @@ export function PosSettingsWorkspace({ lang, initialData }: { lang: Language; in
           </div>
         ) : null}
 
-        {view === "menu" ? (
+        {view === "menu" && !policyReady ? <p role="status">กำลังตรวจสอบสิทธิ์เมนู...</p> : null}
+        {view === "menu" && policyReady ? (
           <div className="grid gap-4 lg:grid-cols-2 xl:grid-cols-3">
-            <MenuButton icon="store" title={labels.store} desc={labels.storeDesc} onClick={() => openSettingsView("store")}  locked={isSettingLocked("store") || !menuVisible("settings.store")} />
-            {!isStoreSpecificSettingHidden("branches") ? <MenuButton icon="branch" title={labels.branches} desc={labels.branchesDesc} onClick={() => openSettingsView("branches")}  locked={isSettingLocked("branches") || !menuVisible("settings.branches")} /> : null}
-            <MenuButton icon="terminal" title={labels.devices} desc={labels.devicesDesc} onClick={() => openSettingsView("devices")}  locked={isSettingLocked("devices") || !menuVisible("settings.devices")} />
+            {isCustom && canManage && menuVisible("settings.branding") ? (
+              <MenuButton icon="store" title={lang === "lo" ? "ສີທີມ / ໂລໂກ້ / ຊື່ລະບົບ (CUSTOM)" : lang === "en" ? "Theme / Logo / System Name (CUSTOM)" : "ธีมสี / โลโก้ / ชื่อระบบ (CUSTOM)"}
+                desc={lang === "lo" ? "ຕັ້ງສີໄຮໄລທ໌ ພື້ນຫຼັງ ໂລໂກ້ ແລະຊື່ລະບົບ · Powered by CpiPOS" : "เลือกสีไฮไลต์และพื้นหลังเมนู พร้อมโลโก้และชื่อร้าน · Powered by CpiPOS"}
+                onClick={() => openSettingsView("branding")} menuEnabled locked={false}/>
+            ):null}
+            <MenuButton icon="store" title={labels.store} desc={labels.storeDesc} onClick={() => openSettingsView("store")}  menuEnabled={!isCustom || isCustomPosMenuVisible("settings.store", menuPolicy, true)} locked={isSettingLocked("store") || !menuVisible("settings.store")} />
+            {!isStoreSpecificSettingHidden("branches") ? <MenuButton icon="branch" title={labels.branches} desc={labels.branchesDesc} onClick={() => openSettingsView("branches")}  menuEnabled={!isCustom || isCustomPosMenuVisible("settings.branches", menuPolicy, true)} locked={isSettingLocked("branches") || !menuVisible("settings.branches")} /> : null}
+            <MenuButton icon="terminal" title={labels.devices} desc={labels.devicesDesc} onClick={() => openSettingsView("devices")}  menuEnabled={!isCustom || isCustomPosMenuVisible("settings.devices", menuPolicy, true)} locked={isSettingLocked("devices") || !menuVisible("settings.devices")} />
             <MenuButton
               icon="terminal"
-              title={lang === "en" ? "Printer Settings" : "เธ•เธฑเนเธเธเนเธฒเน€เธเธฃเธทเนเธญเธเธเธดเธกเธเน"}
-              desc={lang === "en" ? "Receipt printers, Print Agents, branch printers, and cash drawers" : "เธ•เธฑเนเธเธเนเธฒเนเธเน€เธชเธฃเนเธ, Print Agents, เน€เธเธฃเธทเนเธญเธเธเธดเธกเธเนเธชเธฒเธเธฒ เนเธฅเธฐเธฅเธดเนเธเธเธฑเธเน€เธเนเธเน€เธเธดเธ"}
+              title={lang === "lo" ? "ຕັ້ງຄ່າເຄື່ອງພິມ" : lang === "en" ? "Printer Settings" : "เธ•เธฑเนเธเธเนเธฒเน€เธเธฃเธทเนเธญเธเธเธดเธกเธเน"}
+              desc={lang === "lo" ? "ເຄື່ອງພິມໃບຮັບເງິນ Print Agents ເຄື່ອງພິມສາຂາ ແລະລິ້ນຊັກເງິນ" : lang === "en" ? "Receipt printers, Print Agents, branch printers, and cash drawers" : "เธ•เธฑเนเธเธเนเธฒเนเธเน€เธชเธฃเนเธ, Print Agents, เน€เธเธฃเธทเนเธญเธเธเธดเธกเธเนเธชเธฒเธเธฒ เนเธฅเธฐเธฅเธดเนเธเธเธฑเธเน€เธเนเธเน€เธเธดเธ"}
               onClick={() => openSettingsView("printers")}
-               locked={isSettingLocked("printers") || !menuVisible("settings.printers")}
+               menuEnabled={!isCustom || isCustomPosMenuVisible("settings.printers", menuPolicy, true)} locked={isSettingLocked("printers") || !menuVisible("settings.printers")}
             />
-            {!isStoreSpecificSettingHidden("activity") ? <MenuButton icon="activity" title={labels.activityAudit} desc={labels.activityAuditDesc} onClick={() => openSettingsView("activity")}  locked={isSettingLocked("activity") || !menuVisible("settings.activity")} /> : null}
-            <MenuButton icon="payment" title={labels.payments} desc={labels.paymentsDesc} onClick={() => openSettingsView("payments")}  locked={isSettingLocked("payments") || !menuVisible("settings.payments")} compact />
+            {!isStoreSpecificSettingHidden("activity") ? <MenuButton icon="activity" title={labels.activityAudit} desc={labels.activityAuditDesc} onClick={() => openSettingsView("activity")}  menuEnabled={!isCustom || isCustomPosMenuVisible("settings.activity", menuPolicy, true)} locked={isSettingLocked("activity") || !menuVisible("settings.activity")} /> : null}
+            <MenuButton icon="payment" title={labels.payments} desc={labels.paymentsDesc} onClick={() => openSettingsView("payments")}  menuEnabled={!isCustom || isCustomPosMenuVisible("settings.payments", menuPolicy, true)} locked={isSettingLocked("payments") || !menuVisible("settings.payments")} compact />
             <MenuButton
               icon="payment"
               title={lang === "en" ? "INET QR" : "INET QR"}
-              desc={lang === "en" ? "Dynamic QR, branch activation, and UAT connection" : "QR เนเธเธเธเธณเธซเธเธ”เธขเธญเธ”, เน€เธเธดเธ”เนเธเนเธเธฒเธเธฃเธฒเธขเธชเธฒเธเธฒ เนเธฅเธฐเธ—เธ”เธชเธญเธ UAT"}
+              desc={lang === "lo" ? "QR ກຳນົດຍອດ ເປີດໃຊ້ຕາມສາຂາ ແລະທົດສອບ UAT" : lang === "en" ? "Dynamic QR, branch activation, and UAT connection" : "QR เนเธเธเธเธณเธซเธเธ”เธขเธญเธ”, เน€เธเธดเธ”เนเธเนเธเธฒเธเธฃเธฒเธขเธชเธฒเธเธฒ เนเธฅเธฐเธ—เธ”เธชเธญเธ UAT"}
               onClick={() => openSettingsView("inet_nops")}
-               locked={isSettingLocked("inet_nops") || !menuVisible("settings.inet_nops")}
+               menuEnabled={!isCustom || isCustomPosMenuVisible("settings.inet_nops", menuPolicy, true)} locked={isSettingLocked("inet_nops") || !menuVisible("settings.inet_nops")}
             />
-            {!isStoreSpecificSettingHidden("taxes") ? <MenuButton icon="tax" title={labels.taxes} desc={labels.taxesDesc} onClick={() => openSettingsView("taxes")}  locked={isSettingLocked("taxes") || !menuVisible("settings.taxes")} /> : null}
+            {!isStoreSpecificSettingHidden("taxes") ? <MenuButton icon="tax" title={labels.taxes} desc={labels.taxesDesc} onClick={() => openSettingsView("taxes")}  menuEnabled={!isCustom || isCustomPosMenuVisible("settings.taxes", menuPolicy, true)} locked={isSettingLocked("taxes") || !menuVisible("settings.taxes")} /> : null}
             <MenuButton
               icon="bell"
-              title={lang === "en" ? "Notification Settings" : "เธ•เธฑเนเธเธเนเธฒเธเธฒเธฃเนเธเนเธเน€เธ•เธทเธญเธ"}
-              desc={lang === "en" ? "Popup and sound alerts for table QR customer calls" : "POP UP เนเธฅเธฐเน€เธชเธตเธขเธเนเธเนเธเน€เธ•เธทเธญเธเน€เธกเธทเนเธญเธฅเธนเธเธเนเธฒเน€เธฃเธตเธขเธเธเธฒเธ QR เนเธ•เนเธฐ"}
+              title={lang === "lo" ? "ຕັ້ງຄ່າການແຈ້ງເຕືອນ" : lang === "en" ? "Notification Settings" : "เธ•เธฑเนเธเธเนเธฒเธเธฒเธฃเนเธเนเธเน€เธ•เธทเธญเธ"}
+              desc={lang === "lo" ? "ການແຈ້ງເຕືອນ POP UP ແລະສຽງເມື່ອລູກຄ້າເອີ້ນຜ່ານ QR ໂຕະ" : lang === "en" ? "Popup and sound alerts for table QR customer calls" : "POP UP เนเธฅเธฐเน€เธชเธตเธขเธเนเธเนเธเน€เธ•เธทเธญเธเน€เธกเธทเนเธญเธฅเธนเธเธเนเธฒเน€เธฃเธตเธขเธเธเธฒเธ QR เนเธ•เนเธฐ"}
               onClick={() => openSettingsView("notifications")}
-               locked={isSettingLocked("notifications") || !menuVisible("settings.notifications")}
+               menuEnabled={!isCustom || isCustomPosMenuVisible("settings.notifications", menuPolicy, true)} locked={isSettingLocked("notifications") || !menuVisible("settings.notifications")}
             />
             <MenuLink
               icon="support"
-              title={lang === "en" ? "Help Center" : "ศูนย์ช่วยเหลือ"}
-              desc={lang === "en" ? "Contact support, report issues, and open CpiPOS Support chat" : "ติดต่อสอบถาม แจ้งปัญหา และพูดคุยกับทีม CpiPOS Support"}
+              title={lang === "lo" ? "ສູນຊ່ວຍເຫຼືອ" : lang === "en" ? "Help Center" : "ศูนย์ช่วยเหลือ"}
+              desc={lang === "lo" ? "ຕິດຕໍ່ຝ່າຍຊ່ວຍເຫຼືອ ແຈ້ງບັນຫາ ແລະສົນທະນາກັບ CpiPOS Support" : lang === "en" ? "Contact support, report issues, and open CpiPOS Support chat" : "ติดต่อสอบถาม แจ้งปัญหา และพูดคุยกับทีม CpiPOS Support"}
               href="/preview/pos/payments"
-              locked={!menuVisible("settings.support")}
+              menuEnabled={!isCustom || isCustomPosMenuVisible("settings.support", menuPolicy, true)} locked={!menuVisible("settings.support")}
               onLocked={() => setItLockedMenu(lang === "en" ? "Help Center" : "ศูนย์ช่วยเหลือ")}
             />
             <MenuButton
               icon="bell"
-              title={lang === "en" ? "Device Notifications" : "การแจ้งเตือนอุปกรณ์"}
-              desc={lang === "en" ? "Push Notification permission and status for this device" : "สถานะ Push Notification และการอนุญาตแจ้งเตือนของเครื่องนี้"}
+              title={lang === "lo" ? "ການແຈ້ງເຕືອນອຸປະກອນ" : lang === "en" ? "Device Notifications" : "การแจ้งเตือนอุปกรณ์"}
+              desc={lang === "lo" ? "ສະຖານະ ແລະສິດແຈ້ງເຕືອນ Push ຂອງອຸປະກອນ" : lang === "en" ? "Push Notification permission and status for this device" : "สถานะ Push Notification และการอนุญาตแจ้งเตือนของเครื่องนี้"}
               onClick={() => !menuVisible("settings.push_notifications") ? setItLockedMenu(lang === "en" ? "Device Notifications" : "การแจ้งเตือนอุปกรณ์") : setPushSettingsOpen(true)}
-              locked={!menuVisible("settings.push_notifications")}
+              menuEnabled={!isCustom || isCustomPosMenuVisible("settings.push_notifications", menuPolicy, true)} locked={!menuVisible("settings.push_notifications")}
             />
-            <MenuButton icon="users" title={labels.users} desc={labels.usersDesc} onClick={() => openSettingsView("users")}  locked={isSettingLocked("users") || !menuVisible("settings.users")} />
-            <MenuButton icon="language" title={labels.language} desc={labels.languageDesc}  onClick={() => !menuVisible("settings.language") ? setItLockedMenu(lang === "th" ? "เปลี่ยนภาษา" : "Change Language") : setLanguagePopupOpen(true)} locked={!menuVisible("settings.language")} />
-            <MenuButton icon="language" title={labels.mainMenuPlacement} desc={labels.mainMenuPlacementDesc}  onClick={() => !menuVisible("settings.placement") ? setItLockedMenu(lang === "th" ? "สลับแถบเมนูหลัก" : "Main Menu Placement") : setMenuPlacementPopupOpen(true)} locked={!menuVisible("settings.placement")} />
-            {!isStoreSpecificSettingHidden("display") ? <MenuLink icon="display" title={labels.display} desc={labels.displayDesc} href="/preview/pos/customer-display"  locked={isSettingLocked("display") || !menuVisible("settings.display")} onLocked={() => !menuVisible("settings.display") ? setItLockedMenu(labels.display) : setPackageLockOpen(true)} /> : null}
+            <MenuButton icon="users" title={labels.users} desc={labels.usersDesc} onClick={() => openSettingsView("users")}  menuEnabled={!isCustom || isCustomPosMenuVisible("settings.users", menuPolicy, true)} locked={isSettingLocked("users") || !menuVisible("settings.users")} />
+            {isCustom && menuVisible("settings.currency") ? (
+              <MenuButton icon="payment"
+                title={lang === "lo" ? "ຕັ້ງຄ່າສະກຸນເງິນ" : "ตั้งค่าสกุลเงิน"}
+                desc={lang === "lo" ? "ເລືອກ THB ຫຼື LAK ສໍາລັບຮ້ານ" : "กำหนดเงินบาท THB หรือเงินกีบ LAK สำหรับร้าน Custom"}
+                onClick={() => setCurrencyPopupOpen(true)} menuEnabled locked={false} />
+            ) : null}
+            <MenuButton icon="language" title={labels.language} desc={labels.languageDesc}  onClick={() => !menuVisible("settings.language") ? setItLockedMenu(lang === "th" ? "เปลี่ยนภาษา" : "Change Language") : setLanguagePopupOpen(true)} menuEnabled={!isCustom || isCustomPosMenuVisible("settings.language", menuPolicy, true)} locked={!menuVisible("settings.language")} />
+            <MenuButton icon="language" title={labels.mainMenuPlacement} desc={labels.mainMenuPlacementDesc}  onClick={() => !menuVisible("settings.placement") ? setItLockedMenu(lang === "th" ? "สลับแถบเมนูหลัก" : "Main Menu Placement") : setMenuPlacementPopupOpen(true)} menuEnabled={!isCustom || isCustomPosMenuVisible("settings.placement", menuPolicy, true)} locked={!menuVisible("settings.placement")} />
+            {!isStoreSpecificSettingHidden("display") ? <MenuLink icon="display" title={labels.display} desc={labels.displayDesc} href="/preview/pos/customer-display"  menuEnabled={!isCustom || isCustomPosMenuVisible("settings.display", menuPolicy, true)} locked={isSettingLocked("display") || !menuVisible("settings.display")} onLocked={() => !menuVisible("settings.display") ? setItLockedMenu(labels.display) : setPackageLockOpen(true)} /> : null}
           </div>
         ) : null}
 
+        {view === "branding" && isCustom && canManage && menuVisible("settings.branding") ? <CustomBrandingSettings lang={lang} onBack={()=>setView("menu")}/> : null}
         {view === "store" ? (
           <StorePanel labels={labels} store={store} setStore={setStore} onBack={() => setView("menu")} canManage={canManage} reportStatus={reportStatus} />
         ) : null}
@@ -3545,7 +3628,7 @@ export function PosSettingsWorkspace({ lang, initialData }: { lang: Language; in
                 {labels.back}
               </ActionButton>
             </div>
-            <PrintersModule lang={lang === "en" ? "en" : "th"} />
+            <PrintersModule lang={lang} />
           </div>
         ) : null}
         {view === "activity" ? (
@@ -3605,10 +3688,11 @@ export function PosSettingsWorkspace({ lang, initialData }: { lang: Language; in
             reportStatus={reportStatus}
           />
         ) : null}
-        {view === "users" ? <PosUsersModule lang={lang === "en" ? "en" : "th"} embedded onBack={() => setView("menu")} /> : null}
+        {view === "users" ? <PosUsersModule lang={lang} embedded onBack={() => setView("menu")} /> : null}
       </section>
       {savePopup ? <SaveSuccessPopup labels={labels} message={savePopup} onClose={() => setSavePopup("")} /> : null}
       {languagePopupOpen ? <LanguageSettingsPopup lang={lang} labels={labels} onClose={() => setLanguagePopupOpen(false)} /> : null}
+      {currencyPopupOpen ? <CurrencySettingsPopup onClose={() => setCurrencyPopupOpen(false)} lang={lang} canManage={canManage} /> : null}
       {menuPlacementPopupOpen ? (
         <MainMenuPlacementPopup
           labels={labels}

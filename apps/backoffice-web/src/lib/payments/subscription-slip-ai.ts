@@ -111,6 +111,34 @@ function emptyParsed(): SubscriptionSlipParsed {
   };
 }
 
+/**
+ * OCR is a preliminary check, not a bank-credit confirmation.
+ * A newly submitted slip must contain a parsable transfer date and time
+ * within the past 7 days (allow 10 minutes of bank clock skew).
+ * Reject ambiguous text instead of assuming today's date.
+ */
+export function validateSubscriptionTransferDate(raw:string|null,now=Date.now()):boolean{
+  if(!raw)return false;
+  const text=raw.trim();
+  let timestamp:number;
+  if(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:\d{2})$/i.test(text)){
+    timestamp=Date.parse(text);
+  }else{
+    const m=/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})[ ,T]+(\d{1,2}):(\d{2})(?::(\d{2}))?$/.exec(text);
+    if(!m)return false;
+    const day=Number(m[1]),month=Number(m[2]);
+    const year=Number(m[3])>2400?Number(m[3])-543:Number(m[3]);
+    const hour=Number(m[4]),min=Number(m[5]),sec=Number(m[6]||0);
+    if(year<2020||month<1||month>12||day<1||day>31||hour>23||min>59||sec>59)return false;
+    const iso=`${year.toString().padStart(4,"0")}-${String(month).padStart(2,"0")}-${String(day).padStart(2,"0")}T${String(hour).padStart(2,"0")}:${String(min).padStart(2,"0")}:${String(sec).padStart(2,"0")}+07:00`;
+    timestamp=Date.parse(iso);
+    const dateInBangkok=new Date(timestamp+7*3600_000);
+    if(dateInBangkok.getUTCFullYear()!==year||dateInBangkok.getUTCMonth()+1!==month||
+       dateInBangkok.getUTCDate()!==day)return false;
+  }
+  return Number.isFinite(timestamp)&&timestamp<=now+10*60_000&&timestamp>=now-7*86400_000;
+}
+
 function buildChecks(args: {
   parsed: SubscriptionSlipParsed;
   expectedAmount: number | null;
@@ -141,7 +169,7 @@ function buildChecks(args: {
     ? nameMatch || accountMatch || promptPayMatch
     : true;
 
-  const datetimePresent = Boolean(args.parsed.transfer_datetime);
+  const datetimePresent = validateSubscriptionTransferDate(args.parsed.transfer_datetime);
   const confidencePass = args.parsed.confidence != null && args.parsed.confidence >= MIN_CONFIDENCE;
 
   const issues: string[] = [];
@@ -149,7 +177,7 @@ function buildChecks(args: {
     issues.push(`ยอดเงินในสลิปไม่ตรงกับยอดอ้างอิง (${args.parsed.amount ?? "-"} / ${args.expectedAmount ?? "-"})`);
   }
   if (!payeeMatch) issues.push("AI อ่านผู้รับเงินไม่ตรงกับบัญชีบริษัท หรือข้อมูลในสลิปไม่ชัดเจน");
-  if (!datetimePresent) issues.push("AI ไม่พบวันและเวลาที่โอน");
+  if (!datetimePresent) issues.push("วันที่และเวลาโอนในสลิปไม่ถูกต้อง หรือไม่อยู่ในช่วง 7 วันล่าสุด");
   if (!confidencePass) issues.push(`ความมั่นใจของ AI ต่ำกว่า ${Math.round(MIN_CONFIDENCE * 100)}%`);
 
   return {
@@ -197,7 +225,8 @@ export async function scanSubscriptionSlip(args: {
         "payer_name, payee_name, payee_account, amount, transfer_datetime, transaction_id, reference_no, confidence.",
         "Rules:",
         "- amount must be numeric and contain no currency symbol.",
-        "- transfer_datetime should preserve the slip value when possible.",
+        "- transfer_datetime MUST be the actual date AND time printed on the slip, normalized to ISO 8601 with UTC offset (+07:00 for Thailand); never infer or insert today's date.",
+        "- Keep unreadable or missing transfer date as null.",
         "- confidence must be a number from 0 to 1.",
         "- use null for unreadable or missing values.",
         `Expected amount (reference only): ${args.expectedAmount ?? "-"}`,

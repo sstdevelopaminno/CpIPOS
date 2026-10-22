@@ -27,6 +27,7 @@ export function AppLanguageSwitcher({ lang, onChange, className }: Props) {
       >
         EN
       </button>
+      <button type="button" className={`ipos-language-chip ${lang === "lo" ? "is-active" : ""}`} onClick={() => onChange("lo")} aria-pressed={lang === "lo"}>ລາວ</button>
     </div>
   );
 }

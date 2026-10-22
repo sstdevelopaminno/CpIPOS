@@ -9,7 +9,7 @@ export default async function PosSalesPage() {
   return (
     <>
       <PosSalesModule lang={lang} />
-      <PosGeneralSaleTableController />
+      <PosGeneralSaleTableController lang={lang} />
       <PosGeneralSaleRuntime />
       <PosSalesModePolicyController />
     </>

@@ -1,11 +1,9 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { PosEntryGate } from "@/components/pos/pos-entry-gate";
-import { PosInitialSalesModeController } from "@/components/pos/pos-initial-sales-mode-controller";
 import { PosSalesModePreferenceEnhancer } from "@/components/pos/pos-sales-mode-preference-enhancer";
 
-type Lang = "th" | "en";
+type Lang = "th" | "en" | "lo";
 
 type StoredCartItem = {
   product_id: string;
@@ -422,12 +420,21 @@ export function PosDineInCommitResetBoundary({ lang }: { lang: Lang }) {
     };
   }, []);
 
-  if (!entryReady) return null;
-  return (
-    <>
-      <PosEntryGate lang={lang} />
-      <PosSalesModePreferenceEnhancer lang={lang} />
-      <PosInitialSalesModeController />
-    </>
-  );
+  if (!entryReady) {
+    // Keep the generic home sale from flashing while we restore entry context
+    // and load the server-authorized startup selling mode.
+    return (
+      <div className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-50 px-6" role="status" aria-live="polite">
+        <div className="rounded-2xl border border-slate-200 bg-white px-8 py-6 text-center shadow-lg">
+          <strong className="text-lg font-bold text-slate-900">กำลังเตรียมหน้าขาย CpiPOS</strong>
+          <p className="mt-2 text-sm text-slate-600">กำลังตรวจสอบสถานะบิลและโหมดขาย…</p>
+        </div>
+      </div>
+    );
+  }
+  // /preview/pos owns the only Session/Shift gate and authorized startup.
+  // This boundary only restores kitchen/table context; rendering a second
+  // PosEntryGate here used to mount a duplicate sales module and compete for
+  // startup acknowledgements (POS-START-HANDSHAKE).
+  return <PosSalesModePreferenceEnhancer lang={lang} />;
 }

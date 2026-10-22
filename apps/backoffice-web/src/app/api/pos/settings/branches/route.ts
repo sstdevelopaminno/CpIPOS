@@ -1,5 +1,7 @@
 import { fail, ok } from "@/lib/http";
 import { getPosApiAuthContext } from "@/lib/pos-api-auth";
+import { FeatureGateError, requireTenantFeature } from "@/lib/feature-gate";
+import { requireOpticalRetailEntitlement } from "@/lib/server/optical-entitlement";
 import {
   deactivateBranchSettings,
   loadPosSettingsSnapshot,
@@ -7,7 +9,14 @@ import {
   type BranchSettingsInput
 } from "@/lib/services/pos-settings-service";
 
+async function requireOpticalBranchManagement(tenantId: string, branchId: string | null) {
+  if (await requireOpticalRetailEntitlement(tenantId)) {
+    await requireTenantFeature(tenantId, "branch_management", branchId);
+  }
+}
+
 function statusFromError(error: unknown) {
+  if (error instanceof FeatureGateError) return { code: error.code, message: error.message, status: error.status };
   const message = error instanceof Error ? error.message : "Settings request failed.";
   if (message.includes("Only owner")) return { code: "forbidden_role", message, status: 403 };
   if (message.includes("required")) return { code: "invalid_payload", message, status: 422 };
@@ -30,6 +39,7 @@ export async function GET() {
 export async function POST(request: Request) {
   try {
     const auth = await getPosApiAuthContext({ requireBranchScope: true, requiredPermission: "settings:view" });
+    await requireOpticalBranchManagement(auth.tenantId!, auth.branchId);
     const body = (await request.json()) as BranchSettingsInput;
     const branch = await saveBranchSettings(auth, body);
     return ok({ branch }, 201);
@@ -42,6 +52,7 @@ export async function POST(request: Request) {
 export async function PATCH(request: Request) {
   try {
     const auth = await getPosApiAuthContext({ requireBranchScope: true, requiredPermission: "settings:view" });
+    await requireOpticalBranchManagement(auth.tenantId!, auth.branchId);
     const body = (await request.json()) as BranchSettingsInput;
     const branch = await saveBranchSettings(auth, body);
     return ok({ branch });
@@ -54,6 +65,7 @@ export async function PATCH(request: Request) {
 export async function DELETE(request: Request) {
   try {
     const auth = await getPosApiAuthContext({ requireBranchScope: true, requiredPermission: "settings:view" });
+    await requireOpticalBranchManagement(auth.tenantId!, auth.branchId);
     const { searchParams } = new URL(request.url);
     const branch = await deactivateBranchSettings(auth, searchParams.get("branch_id") ?? "");
     return ok({ branch });

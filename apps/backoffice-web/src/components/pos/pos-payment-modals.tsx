@@ -114,7 +114,7 @@ function parseReceiptItemNotes(notes?: string | null) {
 
 type Props = {
   text: any;
-  lang: "th" | "en";
+  lang: "th" | "en" | "lo";
   shiftStatus: string | undefined;
   sellerName: string;
   quickMode: QuickMode;
@@ -167,7 +167,7 @@ type Props = {
   transferSlipInputRef: RefObject<HTMLInputElement | null>;
   formatMoney: (value: number) => string;
   formatQuantity: (value: number) => string;
-  formatReceiptDateTime: (value: string, lang: "th" | "en") => string;
+  formatReceiptDateTime: (value: string, lang: "th" | "en" | "lo") => string;
   renderExternalOrderCode: (order: CheckoutReviewOrder) => ReactNode;
   renderDineInPaymentIdentity: (tableId?: string | null) => ReactNode;
   getQuickModeLabel: () => string;
@@ -455,7 +455,7 @@ export function PosPaymentModals({
                   <div className="posui-cash-quick__grid">
                     {cashQuickAmounts.map((amount) => (
                       <button key={amount} type="button" className="posui-btn posui-cash-quick__btn" onClick={() => onApplyQuickCashAmount(amount)} disabled={cashSubmitting}>
-                        {`฿${amount.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+                        {formatMoney(amount)}
                       </button>
                     ))}
                   </div>

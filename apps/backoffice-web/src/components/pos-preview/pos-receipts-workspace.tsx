@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { PosBackButton } from "@/components/pos-preview/pos-back-button";
 import type { Language } from "@/lib/i18n";
+import { LAO_RECEIPT_COPY } from "@/lib/printing/receipt-history-lao";
 
 type ReceiptItem = {
   product_id: string;
@@ -34,6 +35,7 @@ type ReceiptTaxLine = {
 type ReceiptRecord = {
   id: string;
   orderNo: string;
+  currencyCode: "THB" | "LAK" | "USD" | "UNKNOWN";
   orderType: string;
   channel: string;
   tableLabel: string;
@@ -65,11 +67,15 @@ type ReceiptPayload = {
   branch: { id: string; name: string; store_profile?: ReceiptStoreProfile | null };
   range: { label: string };
   records: ReceiptRecord[];
+  currencyCode: "THB" | "LAK" | "USD";
   summary: {
     receiptCount: number;
     completedCount: number;
     grossTotal: number;
     paidTotal: number;
+    byCurrency?: Record<"THB" | "LAK" | "USD" | "UNKNOWN", { count: number; grossTotal: number; paidTotal: number }>;
+    unknownCurrencyCount?:number;
+    mixedCurrencies?: boolean;
   };
   pagination: {
     page: number;
@@ -83,6 +89,7 @@ type DateMode = "day" | "month" | "year" | "custom";
 
 const RECEIPTS_PAGE_SIZE = 10;
 const RECEIPT_SUMMARY_VISIBILITY_KEY = "cpipos_receipts_summary_visible_v1";
+const OPTICAL_RECEIPT_SUMMARY_VISIBILITY_KEY = "cpipos_custom_optical_receipts_summary_visible_v1";
 
 type ReprintState = {
   order: ReceiptRecord;
@@ -113,18 +120,19 @@ function getBangkokToday() {
 
 function formatDateTime(value: string | null, lang: Language) {
   if (!value) return "-";
-  return new Intl.DateTimeFormat(lang === "th" ? "th-TH" : "en-US", {
+  return new Intl.DateTimeFormat(lang === "lo" ? "lo-LA" : lang === "th" ? "th-TH" : "en-US", {
     dateStyle: "medium",
     timeStyle: "short",
     timeZone: "Asia/Bangkok"
   }).format(new Date(value));
 }
 
-function formatMoney(value: number, lang: Language) {
-  return new Intl.NumberFormat(lang === "th" ? "th-TH" : "en-US", {
-    style: "currency",
-    currency: "THB",
-    maximumFractionDigits: 2
+function formatMoney(value: number, lang: Language, currencyCode: "THB" | "LAK" | "USD" | "UNKNOWN" = "THB") {
+  if(currencyCode==="UNKNOWN")return new Intl.NumberFormat(lang==="lo"?"lo-LA":lang==="th"?"th-TH":"en-US",{minimumFractionDigits:2,maximumFractionDigits:2}).format(Number(value||0))+" ("+(lang==="lo"?"ບໍ່ລະບຸສະກຸນເງິນ":lang==="th"?"ไม่ระบุสกุลเงิน":"currency unknown")+")";
+  return new Intl.NumberFormat(currencyCode === "LAK" ? "lo-LA" : lang === "th" ? "th-TH" : "en-US", {
+    style: "currency", currency: currencyCode,
+    minimumFractionDigits: currencyCode === "LAK" ? 0 : 2,
+    maximumFractionDigits: currencyCode === "LAK" ? 0 : 2
   }).format(Number(value || 0));
 }
 
@@ -211,6 +219,7 @@ function resolveReceiptTaxLines(record: ReceiptRecord, fallbackLabel: string): R
 }
 
 function paymentLabel(methods: string[], lang: Language) {
+  if (lang === "lo") return methods.length ? Array.from(new Set(methods.map(method => ({ cash: "ເງິນສົດ", bank_transfer: "ໂອນເງິນ", card: "ບັດ" } as Record<string, string>)[method] ?? method))).join(" + ") : "ຍັງບໍ່ຊຳລະ";
   if (methods.length === 0) return lang === "th" ? "ยังไม่ชำระ" : "Unpaid";
   const labels = methods.map((method) => {
     if (method === "cash") return lang === "th" ? "เงินสด" : "Cash";
@@ -222,6 +231,7 @@ function paymentLabel(methods: string[], lang: Language) {
 }
 
 function statusLabel(status: string, lang: Language) {
+  if (lang === "lo") return ({ completed: "ຊຳລະແລ້ວ", cancelled: "ຍົກເລີກ", queued: "ລໍຖ້າຊຳລະ" } as Record<string, string>)[status] ?? status;
   if (status === "completed") return lang === "th" ? "ชำระแล้ว" : "Paid";
   if (status === "cancelled") return lang === "th" ? "ยกเลิก" : "Cancelled";
   if (status === "queued") return lang === "th" ? "รอชำระ" : "Queued";
@@ -229,6 +239,7 @@ function statusLabel(status: string, lang: Language) {
 }
 
 function orderTypeLabel(type: string, lang: Language) {
+  if (lang === "lo") return ({ dine_in: "ຮັບປະທານທີ່ຮ້ານ", delivery_manual: "ຈັດສົ່ງ", takeaway: "ເອົາກັບບ້ານ" } as Record<string, string>)[type] ?? "ເອົາກັບບ້ານ";
   if (type === "dine_in") return lang === "th" ? "ทานที่ร้าน" : "Dine-in";
   if (type === "delivery_manual") return lang === "th" ? "เดลิเวอรี่" : "Delivery";
   return lang === "th" ? "กลับบ้าน" : "Takeaway";
@@ -245,6 +256,7 @@ function receiptMemberLabel(record: Pick<ReceiptRecord, "memberName" | "memberPh
 }
 
 function resolveReceiptPaymentMethod(record: ReceiptRecord, lang: Language) {
+  if (lang === "lo") return paymentLabel(record.paymentMethods, lang);
   const firstMethod = record.paymentMethods[0] ?? "";
   if (firstMethod === "cash") return lang === "th" ? "เงินสด" : "Cash";
   if (firstMethod === "bank_transfer") return lang === "th" ? "โอนเงิน" : "Transfer";
@@ -260,6 +272,9 @@ function buildReceiptPrintHtml(args: {
   autoPrint?: boolean;
 }) {
   const { record, branchName, lang, autoPrint = false } = args;
+  const currencySymbol = record.currencyCode === "LAK" ? "₭" : record.currencyCode === "THB" ? "฿" : record.currencyCode === "USD" ? "$" : "";
+  const formatMoneyPlain = (value: number) => new Intl.NumberFormat("en-US", { minimumFractionDigits: record.currencyCode === "LAK" ? 0 : 2, maximumFractionDigits: record.currencyCode === "LAK" ? 0 : 2 }).format(value);
+  const formatSignedMoneyPlain = (amount: number) => `${amount < 0 ? "-" : "+"}${currencySymbol}${formatMoneyPlain(Math.abs(amount))}`;
   const storeProfile = args.storeProfile ?? null;
   const storeName = String(storeProfile?.display_name ?? storeProfile?.name ?? "").trim() || (lang === "th" ? "ร้านค้า" : "Store");
   const storeAddress = String(storeProfile?.company_address ?? "").trim();
@@ -267,10 +282,16 @@ function buildReceiptPrintHtml(args: {
   const logoPath = normalizeReceiptLogoPath(storeProfile?.logo_url) ?? "/brand/cpipos-logo.png";
   const logoUrl = getAbsoluteAssetUrl(logoPath);
   const labels =
+    lang === "lo" ? {
+      seller: "ຜູ້ຂາຍ", shift: "ສະຖານະ", mode: "ໂໝດ", billNo: "ເລກໃບບິນ",
+      externalCode: "ລະຫັດຄຳສັ່ງ", member: "ສະມາຊິກ", date: "ວັນທີ", note: "ໝາຍເຫດ",
+      discount: "ສ່ວນຫຼຸດ", tax: "ພາສີ", paymentMethod: "ຊຳລະເງິນ",
+      totalDue: "ຍອດສຸດທິ", cashReceived: "ຮັບເງິນ", change: "ເງິນທອນ"
+    } :
     lang === "th"
       ? {
           seller: "ชื่อผู้ขาย",
-          shift: "กะ",
+          shift: "สถานะ",
           mode: "โหมด",
           billNo: "เลขที่บิล",
           externalCode: "รหัสออเดอร์",
@@ -286,7 +307,7 @@ function buildReceiptPrintHtml(args: {
         }
       : {
           seller: "Seller",
-          shift: "Shift",
+          shift: "Status",
           mode: "Mode",
           billNo: "Bill No.",
           externalCode: "Order code",
@@ -340,8 +361,8 @@ function buildReceiptPrintHtml(args: {
   const cashSummaryLines =
     record.paymentMethods.includes("cash")
       ? `
-    <div class="summary-line is-aux"><span>${escapeHtml(labels.cashReceived)}</span><strong>฿${escapeHtml(formatMoneyPlain(record.cashReceived))}</strong></div>
-    <div class="summary-line is-aux"><span>${escapeHtml(labels.change)}</span><strong>฿${escapeHtml(formatMoneyPlain(record.changeAmount))}</strong></div>`
+    <div class="summary-line is-aux"><span>${escapeHtml(labels.cashReceived)}</span><strong>${currencySymbol}${escapeHtml(formatMoneyPlain(record.cashReceived))}</strong></div>
+    <div class="summary-line is-aux"><span>${escapeHtml(labels.change)}</span><strong>${currencySymbol}${escapeHtml(formatMoneyPlain(record.changeAmount))}</strong></div>`
       : "";
   const autoPrintScript = autoPrint ? "<script>window.addEventListener('load',()=>setTimeout(()=>window.print(),120));</script>" : "";
 
@@ -352,7 +373,7 @@ function buildReceiptPrintHtml(args: {
   <title>${escapeHtml(storeName)} - ${escapeHtml(record.orderNo)}</title>
   <style>
     @page { size: 58mm ${pageHeightMm}mm; margin: 0; }
-    html, body { margin: 0; padding: 0; width: 58mm !important; min-height: ${pageHeightMm}mm; background: #fff; color: #000; font-family: "Noto Sans Thai", "Tahoma", "Segoe UI", sans-serif; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    html, body { margin: 0; padding: 0; width: 58mm !important; min-height: ${pageHeightMm}mm; background: #fff; color: #000; font-family: "Noto Sans Lao", "Noto Sans Thai", "Tahoma", "Segoe UI", sans-serif; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
     * { box-sizing: border-box; }
     .receipt58 { width: ${printableWidthMm}mm; margin: 0 auto; padding: 1.2mm 0 1.8mm; min-height: ${Math.max(90, pageHeightMm - 4)}mm; font-size: 11px; line-height: 1.28; }
     .logo-wrap { text-align: center; margin-bottom: 0.8mm; }
@@ -401,13 +422,14 @@ function buildReceiptPrintHtml(args: {
     ${externalOrderCodeMeta}
     ${receiptMemberMeta}
     <div class="meta-line"><span>${escapeHtml(labels.date)}</span><span>${escapeHtml(formatDateTime(record.createdAt, lang))}</span></div>
+    ${record.currencyCode==="UNKNOWN"?`<p style="font-size:10px;font-weight:bold;border:1px dashed #a16207;padding:4px">${escapeHtml(lang==="lo"?"ບິນເກົ່າ: ບໍ່ລະບຸສະກຸນເງິນ":lang==="th"?"บิลเก่า: ยังไม่ยืนยันสกุลเงิน":"Historical bill: currency not recorded")}</p>`:""}
     <div class="hr"></div>
     <table><tbody>${itemRows}</tbody></table>
     <div class="hr"></div>
     <div class="summary-line is-heading"><span>${escapeHtml(labels.paymentMethod)}</span><strong>${escapeHtml(resolveReceiptPaymentMethod(record, lang))}</strong></div>
-    <div class="summary-line is-muted"><span>${escapeHtml(labels.discount)}</span><strong>฿${escapeHtml(formatMoneyPlain(record.discountAmount))}</strong></div>
+    <div class="summary-line is-muted"><span>${escapeHtml(labels.discount)}</span><strong>${currencySymbol}${escapeHtml(formatMoneyPlain(record.discountAmount))}</strong></div>
     ${taxSummaryLines}
-    <div class="summary-line grand"><span>${escapeHtml(labels.totalDue)}</span><strong>฿${escapeHtml(formatMoneyPlain(record.totalAmount))}</strong></div>
+    <div class="summary-line grand"><span>${escapeHtml(labels.totalDue)}</span><strong>${currencySymbol}${escapeHtml(formatMoneyPlain(record.totalAmount))}</strong></div>
     ${cashSummaryLines}
     <div class="hr"></div>
     <div class="foot">CpIPOS</div>
@@ -444,7 +466,7 @@ function buildQuery(params: {
   return search.toString();
 }
 
-export function PosReceiptsWorkspace({ lang }: { lang: Language }) {
+export function PosReceiptsWorkspace({ lang, opticalMode = false }: { lang: Language; opticalMode?: boolean }) {
   const today = useMemo(() => getBangkokToday(), []);
   const tableScrollRef = useRef<HTMLDivElement | null>(null);
   const [mode, setMode] = useState<DateMode>("day");
@@ -459,12 +481,12 @@ export function PosReceiptsWorkspace({ lang }: { lang: Language }) {
   const [payload, setPayload] = useState<ReceiptPayload | null>(null);
   const [selected, setSelected] = useState<ReceiptRecord | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
-  const [summaryVisible, setSummaryVisible] = useState(false);
+  const [summaryVisible, setSummaryVisible] = useState(opticalMode);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [reprint, setReprint] = useState<ReprintState | null>(null);
 
-  const copy = lang === "th"
+  const copy = lang === "lo" ? LAO_RECEIPT_COPY : lang === "th"
     ? {
         title: "ใบเสร็จย้อนหลัง",
         desc: "ค้นหาใบเสร็จตามวัน เดือน ปี หรือเลขบิล แล้วพิมพ์ย้อนหลังขนาด 58mm ด้วย PIN ผู้จัดการหรือเจ้าของร้าน",
@@ -575,11 +597,12 @@ export function PosReceiptsWorkspace({ lang }: { lang: Language }) {
 
   useEffect(() => {
     try {
-      setSummaryVisible(window.localStorage.getItem(RECEIPT_SUMMARY_VISIBILITY_KEY) === "1");
+      const value = window.localStorage.getItem(opticalMode ? OPTICAL_RECEIPT_SUMMARY_VISIBILITY_KEY : RECEIPT_SUMMARY_VISIBILITY_KEY);
+      setSummaryVisible(opticalMode ? value !== "0" : value === "1");
     } catch {
-      setSummaryVisible(false);
+      setSummaryVisible(opticalMode);
     }
-  }, []);
+  }, [opticalMode]);
 
   useEffect(() => {
     void load(1);
@@ -590,7 +613,7 @@ export function PosReceiptsWorkspace({ lang }: { lang: Language }) {
     setSummaryVisible((current) => {
       const next = !current;
       try {
-        window.localStorage.setItem(RECEIPT_SUMMARY_VISIBILITY_KEY, next ? "1" : "0");
+        window.localStorage.setItem(opticalMode ? OPTICAL_RECEIPT_SUMMARY_VISIBILITY_KEY : RECEIPT_SUMMARY_VISIBILITY_KEY, next ? "1" : "0");
       } catch {
         // Keep the in-memory preference when storage is unavailable.
       }
@@ -659,13 +682,14 @@ export function PosReceiptsWorkspace({ lang }: { lang: Language }) {
   return (
     <main className="min-h-full bg-slate-50 px-4 py-4 text-slate-950 xl:px-6">
       <section className="mx-auto grid max-w-[1480px] gap-4">
-        <header className="flex flex-wrap items-end justify-between gap-3">
+        <header className={opticalMode ? "flex flex-wrap items-end justify-between gap-3 rounded-2xl border border-emerald-200 bg-gradient-to-r from-emerald-50 via-white to-white p-4 shadow-sm" : "flex flex-wrap items-end justify-between gap-3"}>
           <div>
+            {opticalMode ? <p className="mb-1 text-xs font-black tracking-[0.16em] text-emerald-800">CUSTOM · OPTICAL RECEIPTS</p> : null}
             <h1 className="m-0 text-[26px] font-black tracking-normal text-slate-950">{copy.title}</h1>
             <p className="mt-1 max-w-3xl text-sm text-slate-600">{copy.desc}</p>
           </div>
           <div className="flex flex-wrap items-center justify-end gap-2">
-            <PosBackButton lang={lang} href="/preview/pos/more" label={lang === "th" ? "กลับเมนูเพิ่มเติม" : "Back to More"} />
+            <PosBackButton lang={lang} href="/preview/pos/more" label={lang === "lo" ? "ກັບເມນູເພີ່ມເຕີມ" : lang === "th" ? "กลับเมนูเพิ่มเติม" : "Back to More"} />
             <button
               type="button"
               onClick={() => void load(1)}
@@ -676,7 +700,7 @@ export function PosReceiptsWorkspace({ lang }: { lang: Language }) {
           </div>
         </header>
 
-        <section className="grid gap-3 rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
+        <section className={opticalMode ? "grid gap-3 rounded-2xl border border-emerald-100 bg-white p-4 shadow-sm" : "grid gap-3 rounded-lg border border-slate-200 bg-white p-3 shadow-sm"}>
           <div className="flex flex-wrap gap-2">
             {([
               ["day", copy.day],
@@ -692,7 +716,7 @@ export function PosReceiptsWorkspace({ lang }: { lang: Language }) {
                   setPage(1);
                 }}
                 className={`h-9 rounded-lg px-3 text-sm font-bold ${
-                  mode === value ? "bg-blue-600 text-white" : "border border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100"
+                  mode === value ? (opticalMode ? "bg-emerald-700 text-white" : "bg-blue-600 text-white") : "border border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100"
                 }`}
               >
                 {label}
@@ -714,6 +738,7 @@ export function PosReceiptsWorkspace({ lang }: { lang: Language }) {
 
           <div className="grid gap-2 lg:grid-cols-[1fr_180px_180px_auto]">
             <input
+              aria-label={lang === "lo" ? "ຄົ້ນຫາບິນ ຫຼືລູກຄ້າ" : lang === "th" ? "ค้นหาเลขบิล ลูกค้า หรือเลขเดลิเวอรี่" : "Search receipt or customer"}
               value={q}
               onChange={(event) => setQ(event.target.value)}
               onKeyDown={(event) => {
@@ -737,7 +762,7 @@ export function PosReceiptsWorkspace({ lang }: { lang: Language }) {
                 <input type="date" value={to} onChange={(event) => setTo(event.target.value)} className="h-10 rounded-lg border border-slate-300 px-3 text-sm font-semibold" />
               </>
             ) : null}
-            <select value={status} onChange={(event) => setStatus(event.target.value)} className="h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm font-semibold">
+            <select aria-label={lang === "lo" ? "ສະຖານະໃບຮັບເງິນ" : lang === "th" ? "สถานะใบเสร็จ" : "Receipt status"} value={status} onChange={(event) => setStatus(event.target.value)} className="h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm font-semibold">
               <option value="completed">{copy.statusPaid}</option>
               <option value="queued">{copy.statusQueued}</option>
               <option value="cancelled">{copy.statusCancelled}</option>
@@ -753,18 +778,20 @@ export function PosReceiptsWorkspace({ lang }: { lang: Language }) {
           <section className="grid gap-3 md:grid-cols-4">
             <Metric label={copy.receipts} value={String(payload?.summary.receiptCount ?? 0)} />
             <Metric label={copy.completed} value={String(payload?.summary.completedCount ?? 0)} />
-            <Metric label={copy.gross} value={formatMoney(payload?.summary.grossTotal ?? 0, lang)} />
-            <Metric label={copy.paid} value={formatMoney(payload?.summary.paidTotal ?? 0, lang)} />
+            {(payload?.summary.byCurrency ? (["THB", "LAK", "USD", "UNKNOWN"] as const).filter(code => (payload.summary.byCurrency?.[code]?.count ?? 0) > 0) : [payload?.currencyCode ?? "THB"]).flatMap(code => [
+              <Metric key={code + "-gross"} label={`${copy.gross} (${code==="UNKNOWN"?(lang==="lo"?"ບໍ່ລະບຸສະກຸນເງິນ":lang==="th"?"ไม่ระบุสกุลเงิน":"Unverified currency"):code})`} value={formatMoney(payload?.summary.byCurrency?.[code]?.grossTotal ?? payload?.summary.grossTotal ?? 0, lang, code)} />,
+              <Metric key={code + "-paid"} label={`${copy.paid} (${code==="UNKNOWN"?(lang==="lo"?"ບໍ່ລະບຸສະກຸນເງິນ":lang==="th"?"ไม่ระบุสกุลเงิน":"Unverified currency"):code})`} value={formatMoney(payload?.summary.byCurrency?.[code]?.paidTotal ?? payload?.summary.paidTotal ?? 0, lang, code)} />
+            ])}
           </section>
         ) : null}
 
         {error ? <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm font-bold text-red-700">{error}</p> : null}
 
         <section>
-          <div className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
-            <div ref={tableScrollRef} className="max-h-[52vh] min-h-[260px] overflow-auto overscroll-contain">
+          <div className="min-h-0 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
+            <div ref={tableScrollRef} className={opticalMode ? "max-h-[min(62dvh,650px)] min-h-0 overflow-auto overscroll-contain" : "max-h-[52vh] min-h-[260px] overflow-auto overscroll-contain"}>
               <table className="w-full min-w-[920px] border-collapse text-left text-sm">
-                <thead className="sticky top-0 z-10 bg-slate-100 text-xs uppercase text-slate-500 shadow-[0_1px_0_rgba(148,163,184,0.25)]">
+                <thead className={opticalMode ? "sticky top-0 z-10 bg-emerald-50 text-xs font-bold text-slate-600 shadow-[0_1px_0_rgba(148,163,184,0.25)]" : "sticky top-0 z-10 bg-slate-100 text-xs uppercase text-slate-500 shadow-[0_1px_0_rgba(148,163,184,0.25)]"}>
                   <tr>
                     <Th>{copy.bill}</Th>
                     <Th>{copy.time}</Th>
@@ -776,7 +803,7 @@ export function PosReceiptsWorkspace({ lang }: { lang: Language }) {
                 </thead>
                 <tbody>
                   {records.map((record) => (
-                    <tr key={record.id} className={`border-t border-slate-100 ${selected?.id === record.id ? "bg-blue-50" : "hover:bg-slate-50"}`}>
+                    <tr key={record.id} className={`border-t border-slate-100 ${selected?.id === record.id ? (opticalMode ? "bg-emerald-50" : "bg-blue-50") : "hover:bg-slate-50"}`}>
                       <Td>
                         <button type="button" onClick={() => setSelected(record)} className="text-left font-black text-slate-950">
                           {record.orderNo}
@@ -792,7 +819,7 @@ export function PosReceiptsWorkspace({ lang }: { lang: Language }) {
                         <span className="text-xs text-slate-500">{record.tableLabel}</span>
                       </Td>
                       <Td>{paymentLabel(record.paymentMethods, lang)}</Td>
-                      <Td strong>{formatMoney(record.totalAmount, lang)}</Td>
+                      <Td strong>{formatMoney(record.totalAmount, lang, record.currencyCode)}</Td>
                       <Td>
                         <button
                           type="button"
@@ -810,7 +837,7 @@ export function PosReceiptsWorkspace({ lang }: { lang: Language }) {
                   {!loading && records.length === 0 ? (
                     <tr>
                       <td colSpan={6} className="px-4 py-10 text-center text-sm font-semibold text-slate-500">
-                        {copy.noData}
+                        {opticalMode ? (lang === "lo" ? "ບໍ່ພົບໃບຮັບເງິນຕາມວັນທີຫຼືສະຖານະ · ລອງປ່ຽນເປັນລາຍເດືອນ ຫຼືທຸກສະຖານະ" : lang === "th" ? "ไม่พบใบเสร็จตามวันที่หรือสถานะที่เลือก ลองเปลี่ยนช่วงเวลาเป็นรายเดือนหรือเลือกทุกสถานะ" : "No matching receipts. Try another date or status.") : copy.noData}
                       </td>
                     </tr>
                   ) : null}
@@ -854,7 +881,7 @@ export function PosReceiptsWorkspace({ lang }: { lang: Language }) {
                 x
               </button>
             </header>
-            <div className="flex flex-1 justify-center overflow-auto bg-slate-100 px-4 py-5">
+            <div className="flex min-h-0 flex-1 justify-center overflow-auto overscroll-contain bg-slate-100 px-3 py-3">
               <div className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
                 <iframe
                   title={`${copy.detail} ${selected.orderNo}`}
@@ -864,7 +891,7 @@ export function PosReceiptsWorkspace({ lang }: { lang: Language }) {
                     storeProfile: payload?.branch.store_profile ?? null,
                     lang
                   })}
-                  className="h-[calc(100vh-190px)] w-[58mm] border-0 bg-white"
+                  className="h-[min(68dvh,660px)] w-[58mm] max-w-full border-0 bg-white"
                   sandbox=""
                 />
               </div>

@@ -1,7 +1,7 @@
 import type { FloorPlanObjectType, TableShape, TableStatus } from "@pos/shared-types";
 import type { Language } from "@/lib/i18n";
 
-const tableStatusLabels: Record<Language, Record<TableStatus, string>> = {
+const tableStatusLabels: Record<Exclude<Language, "lo">, Record<TableStatus, string>> = {
   en: {
     available: "Available",
     occupied: "Occupied",
@@ -20,7 +20,7 @@ const tableStatusLabels: Record<Language, Record<TableStatus, string>> = {
   }
 };
 
-const tableShapeLabels: Record<Language, Record<TableShape, string>> = {
+const tableShapeLabels: Record<Exclude<Language, "lo">, Record<TableShape, string>> = {
   en: {
     square: "Square",
     rectangle: "Rectangle",
@@ -33,7 +33,7 @@ const tableShapeLabels: Record<Language, Record<TableShape, string>> = {
   }
 };
 
-const floorObjectTypeLabels: Record<Language, Record<FloorPlanObjectType, string>> = {
+const floorObjectTypeLabels: Record<Exclude<Language, "lo">, Record<FloorPlanObjectType, string>> = {
   en: {
     counter: "Counter",
     cashier: "Cashier",
@@ -53,15 +53,15 @@ const floorObjectTypeLabels: Record<Language, Record<FloorPlanObjectType, string
 };
 
 export function getTableStatusLabel(lang: Language, status: TableStatus): string {
-  return tableStatusLabels[lang][status];
+  return tableStatusLabels[lang === "lo" ? "en" : lang][status];
 }
 
 export function getTableShapeLabel(lang: Language, shape: TableShape): string {
-  return tableShapeLabels[lang][shape];
+  return tableShapeLabels[lang === "lo" ? "en" : lang][shape];
 }
 
 export function getFloorObjectTypeLabel(lang: Language, objectType: FloorPlanObjectType): string {
-  return floorObjectTypeLabels[lang][objectType];
+  return floorObjectTypeLabels[lang === "lo" ? "en" : lang][objectType];
 }
 
 export function getTableUiText(lang: Language) {

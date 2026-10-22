@@ -50,26 +50,51 @@ export async function GET(request: Request) {
   try {
     const scope = await requirePosSession();
     requirePermission(scope, "sales:enter");
-    await requireTenantFeature(scope.session.tenant_id, "core_pos_sales", scope.session.branch_id);
-    await requireTenantFeature(scope.session.tenant_id, "barcode_scanner_mode", scope.session.branch_id);
+    // Independent authorization checks can run concurrently. Both must pass
+    // before any product data is queried or returned.
+    await Promise.all([
+      requireTenantFeature(scope.session.tenant_id, "core_pos_sales", scope.session.branch_id),
+      requireTenantFeature(scope.session.tenant_id, "barcode_scanner_mode", scope.session.branch_id)
+    ]);
 
     const { searchParams } = new URL(request.url);
-    const rawCode = searchParams.get("sku") ?? "";
+    const rawCode = (searchParams.get("sku") ?? "").normalize("NFKC").trim();
     const scanCode = normalizeGeneralSaleScanCode(rawCode);
-    if (!scanCode || scanCode.length > 40) {
-      return fail("invalid_scan_code", "SKU is required and must not exceed 40 characters.", 422);
+    if (!scanCode || scanCode.length > 40 || rawCode.length > 128) {
+      return fail("invalid_scan_code", "SKU is required and must not exceed allowed length.", 422);
     }
 
     const supabase = getSupabaseServiceClient();
     const tenantId = scope.session.tenant_id;
     const branchId = scope.session.branch_id;
 
-    const exactResult = await selectProductQuery({ tenantId, branchId, supabase }).eq("sku", scanCode).limit(2);
+    // Full alphanumeric SKUs must win BEFORE digit-only legacy normalization.
+    // Optical codes like QA-LAK-FRAME-001 normalize to "001", which can
+    // collide with unrelated SKUs as the tenant catalog grows.
+    const canonicalSku = rawCode.toLocaleUpperCase("en-US");
+    const exactCode = canonicalSku && canonicalSku !== scanCode ? canonicalSku : scanCode;
+    // Branch stock settings are independent of the exact-SKU lookup. Begin
+    // both in parallel instead of delaying settings until the recipe query.
+    const inventorySettingsPromise = supabase
+      .from("branch_inventory_settings")
+      .select("allow_negative_stock")
+      .eq("tenant_id", tenantId)
+      .eq("branch_id", branchId)
+      .maybeSingle<{ allow_negative_stock: boolean }>();
+    const [exactResult, inventoryResult] = await Promise.all([
+      selectProductQuery({ tenantId, branchId, supabase }).eq("sku", exactCode).limit(2),
+      inventorySettingsPromise
+    ]);
     if (exactResult.error) {
       return fail("product_lookup_query_failed", exactResult.error.message, 500);
     }
 
     let candidates = (exactResult.data ?? []) as ProductRow[];
+    if (candidates.length === 0 && exactCode !== scanCode) {
+      const normalizedResult = await selectProductQuery({ tenantId, branchId, supabase }).eq("sku", scanCode).limit(2);
+      if (normalizedResult.error) return fail("product_lookup_query_failed", normalizedResult.error.message, 500);
+      candidates = (normalizedResult.data ?? []) as ProductRow[];
+    }
 
     // Legacy products may still carry a display-style SKU such as PRD-...-097339.
     // Product Management now persists the digit-normalized form, so for numeric scans
@@ -98,20 +123,13 @@ export async function GET(request: Request) {
     }
 
     const product = candidates[0];
-    const [{ data: recipeRows, error: recipeError }, { data: inventorySettings, error: inventoryError }] = await Promise.all([
-      supabase
-        .from("recipes")
-        .select("quantity_per_item,ingredients(name,quantity_on_hand)")
-        .eq("tenant_id", tenantId)
-        .eq("branch_id", branchId)
-        .eq("product_id", product.id),
-      supabase
-        .from("branch_inventory_settings")
-        .select("allow_negative_stock")
-        .eq("tenant_id", tenantId)
-        .eq("branch_id", branchId)
-        .maybeSingle<{ allow_negative_stock: boolean }>()
-    ]);
+    const { data: recipeRows, error: recipeError } = await supabase
+      .from("recipes")
+      .select("quantity_per_item,ingredients(name,quantity_on_hand)")
+      .eq("tenant_id", tenantId)
+      .eq("branch_id", branchId)
+      .eq("product_id", product.id);
+    const { data: inventorySettings, error: inventoryError } = inventoryResult;
 
     if (recipeError) {
       return fail("product_stock_lookup_failed", recipeError.message, 500);

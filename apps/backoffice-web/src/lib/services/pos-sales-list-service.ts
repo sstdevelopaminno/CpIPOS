@@ -1,5 +1,6 @@
 import type { BranchRole, PaymentMethod, PlatformRole } from "@pos/shared-types";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
+import { orderCurrencyFromMetadata, type SalesCurrencyCode } from "@/lib/pos-money";
 
 export type PosSalesBranchOption = {
   id: string;
@@ -16,6 +17,7 @@ export type PosSalesShiftOption = {
 export type PosSalesListRecord = {
   id: string;
   billNo: string;
+  currencyCode: SalesCurrencyCode;
   openedAt: string;
   tableLabel: string;
   customerName: string;
@@ -462,6 +464,7 @@ async function loadPosSalesListDataRaw(scope: PosSalesListScope): Promise<PosSal
     return {
       id: row.id,
       billNo: row.order_no ?? row.id,
+      currencyCode: orderCurrencyFromMetadata(row.metadata),
       openedAt: row.created_at,
       tableLabel: toTableLabel(row, tableName),
       customerName: row.customer_name ?? row.external_order_code ?? "Walk-in",

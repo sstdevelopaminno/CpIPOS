@@ -8,18 +8,20 @@ type Props = {
   label: string;
   thaiLabel: string;
   englishLabel: string;
+  laoLabel?: string;
   compact?: boolean;
 };
 
-export function LanguageSwitcher({ currentLanguage, label, thaiLabel, englishLabel, compact = false }: Props) {
+export function LanguageSwitcher({ currentLanguage, label, thaiLabel, englishLabel, laoLabel = "ລາວ", compact = false }: Props) {
   const [lang, setLang] = useState<Language>(currentLanguage);
 
   const options = useMemo(
     () => [
       { code: "th" as const, label: thaiLabel },
-      { code: "en" as const, label: englishLabel }
+      { code: "en" as const, label: englishLabel },
+      { code: "lo" as const, label: laoLabel }
     ],
-    [thaiLabel, englishLabel]
+    [thaiLabel, englishLabel, laoLabel]
   );
 
   return (

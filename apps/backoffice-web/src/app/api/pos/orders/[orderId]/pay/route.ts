@@ -19,6 +19,7 @@ import {
 import { deductIngredientStockForPaidOrderFallback } from "@/lib/services/pos-sales-service";
 import { loadReceiptStoreProfile } from "@/lib/services/store-profile-service";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
+import { requireOpticalRetailEntitlement } from "@/lib/server/optical-entitlement";
 
 type PayOrderPayload = {
   method?: string;
@@ -96,7 +97,9 @@ export async function POST(request: Request, context: { params: Promise<{ orderI
     }
 
     const requestGroupId = request.headers.get("x-idempotency-key")?.trim() || crypto.randomUUID();
-    const { data: paymentResultRows, error: paymentRpcError } = await supabase.rpc("complete_pos_payment_tx", {
+    const isOptical = await requireOpticalRetailEntitlement(scope.session.tenant_id);
+    const { data: paymentResultRows, error: paymentRpcError } = await supabase.rpc(
+      isOptical ? "optical_complete_pos_payment_tx" : "complete_pos_payment_tx", {
       p_tenant_id: scope.session.tenant_id,
       p_branch_id: scope.session.branch_id,
       p_order_id: orderRow.id,
@@ -131,21 +134,25 @@ export async function POST(request: Request, context: { params: Promise<{ orderI
     const paymentResult = Array.isArray(paymentResultRows) ? paymentResultRows[0] : null;
     const paidAmount = round2(Number(paymentResult?.total_paid ?? dueTotal));
 
-    const stockDeductionResult = await deductIngredientStockForPaidOrderFallback({
-      auth: {
-        userId: scope.session.user_id,
-        platformRole: "tenant_user",
-        tenantId: scope.session.tenant_id,
-        branchId: scope.session.branch_id,
-        branchRole: scope.session.role as BranchRole
-      },
-      orderId: orderRow.id
-    });
-    if (!stockDeductionResult.ok) {
-      return NextResponse.json(
-        { data: null, error: { code: stockDeductionResult.code, message: stockDeductionResult.message } },
-        { status: stockDeductionResult.status }
-      );
+    // Atomic Optical RPC has already changed both payment and optical bin counts.
+    // Never deduct legacy restaurant ingredients for this product mode.
+    if (!isOptical) {
+      const stockDeductionResult = await deductIngredientStockForPaidOrderFallback({
+        auth: {
+          userId: scope.session.user_id,
+          platformRole: "tenant_user",
+          tenantId: scope.session.tenant_id,
+          branchId: scope.session.branch_id,
+          branchRole: scope.session.role as BranchRole
+        },
+        orderId: orderRow.id
+      });
+      if (!stockDeductionResult.ok) {
+        return NextResponse.json(
+          { data: null, error: { code: stockDeductionResult.code, message: stockDeductionResult.message } },
+          { status: stockDeductionResult.status }
+        );
+      }
     }
 
     await supabase
@@ -163,6 +170,10 @@ export async function POST(request: Request, context: { params: Promise<{ orderI
       .eq("order_id", orderRow.id)
       .eq("request_group_id", requestGroupId);
 
+    const completedAt = new Date().toISOString();
+    const cashReceived = method === "cash" ? round2(amount) : null;
+    const changeAmount = method === "cash" ? round2(Math.max(0, amount - dueTotal)) : null;
+
     await supabase
       .from("orders")
       .update({
@@ -170,7 +181,11 @@ export async function POST(request: Request, context: { params: Promise<{ orderI
         pos_session_id: scope.session.id,
         cashier_user_id: scope.session.user_id,
         device_code: scope.session.device_code,
-        status: "completed"
+        status: "completed",
+        payment_completed_at: completedAt,
+        payment_completed_by: scope.session.user_id,
+        cash_received: cashReceived,
+        change_amount: changeAmount
       })
       .eq("tenant_id", scope.session.tenant_id)
       .eq("branch_id", scope.session.branch_id)
@@ -238,7 +253,8 @@ export async function POST(request: Request, context: { params: Promise<{ orderI
           store_profile: storeProfile,
           total: round2(orderRow.grand_total ?? orderRow.total_amount ?? paidAmount),
           paid_total: round2((orderRow.paid_total ?? 0) + paidAmount),
-          change_total: 0
+          cash_received: cashReceived,
+          change_total: changeAmount ?? 0
         }
       },
       error: null

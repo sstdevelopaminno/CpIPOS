@@ -216,7 +216,7 @@ describe("printing template generation", () => {
     const end = source.indexOf("export async function queueRoutedKitchenFallback");
     const salesReceiptSource = source.slice(start, end);
 
-    expect(salesReceiptSource).toContain("}, route.printer.paper_width_mm)");
+    expect(salesReceiptSource).toContain("}, route.printer.paper_width_mm, receiptLanguage, currencyCode)");
     expect(salesReceiptSource).toContain("paperWidthMm: route.printer.paper_width_mm");
     expect(salesReceiptSource).not.toContain("paperWidthMm: 58");
   });

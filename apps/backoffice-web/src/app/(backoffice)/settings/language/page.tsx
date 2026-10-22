@@ -13,6 +13,7 @@ export default async function BackofficeLanguageSettingsPage() {
         label={t(lang, "language")}
         thaiLabel={t(lang, "thai")}
         englishLabel={t(lang, "english")}
+        laoLabel="ລາວ"
       />
     </section>
   );

@@ -1,10 +1,9 @@
 ﻿import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
-import { isFeatureUnlockEnabled } from "@/lib/feature-unlock";
 import { getRequestMeta, writeAuditLog, writeLoginAttempt } from "@/lib/server/audit-log";
 import { AuthTimeoutError, withAuthTimeout } from "@/lib/server/auth-timeout";
-import { hasBranchFeatureSafe } from "@/lib/server/feature-gate-safe";
+import {evaluatePosEntryAccess,PosFeatureLookupUnavailable} from "@/lib/server/pos-entry-access-service";
 import { consumeLoginContext } from "@/lib/server/login-context";
 import { resolveDeviceSessionAccess } from "@/lib/server/pos-device-session-rules";
 import { createPosSession, createSessionHandoffToken, resolvePosRedirectTarget, resolveSessionCookieConfig } from "@/lib/server/pos-session";
@@ -34,11 +33,7 @@ type UserDeviceScopeRow = {
   device_id: string | null;
 };
 
-type BranchFeatureOverrideRow = {
-  enabled: boolean | null;
-};
 
-type SupabaseServiceClient = ReturnType<typeof getSupabaseServiceClient>;
 
 function isMissingRelationError(error: { code?: string | null; message?: string | null } | null | undefined, relationName: string) {
   if (!error) return false;
@@ -78,70 +73,7 @@ function pickNewestActiveSession(rows: Array<ActiveSessionRow | null | undefined
     .sort((a, b) => new Date(b.issued_at).getTime() - new Date(a.issued_at).getTime())[0] ?? null;
 }
 
-const POS_SALES_FEATURE_KEYS = ["pos.sales.access", "pos_sales", "core_pos_sales"] as const;
 const DEVICE_SELECT_AUTH_TIMEOUT_MS = 30000;
-
-function isMissingBranchFeatureOverrideError(error: { code?: string | null; message?: string | null } | null | undefined) {
-  if (!error) return false;
-  const code = String(error.code ?? "");
-  const message = String(error.message ?? "").toLowerCase();
-  return code === "42P01" || message.includes("branch_feature_overrides") || message.includes("does not exist");
-}
-
-async function readBranchFeatureOverride(
-  supabase: SupabaseServiceClient,
-  tenantId: string,
-  branchId: string,
-  featureKey: string
-): Promise<boolean | null> {
-  const { data, error } = await supabase
-    .from("branch_feature_overrides")
-    .select("enabled")
-    .eq("tenant_id", tenantId)
-    .eq("branch_id", branchId)
-    .eq("feature_key", featureKey)
-    .maybeSingle<BranchFeatureOverrideRow>();
-
-  if (error) {
-    if (isMissingBranchFeatureOverrideError(error)) return null;
-
-    console.error("[auth/devices/select] branch feature override lookup failed", {
-      tenantId,
-      branchId,
-      featureKey,
-      error: error.message
-    });
-    return null;
-  }
-
-  if (!data) return null;
-  return Boolean(data.enabled);
-}
-
-async function hasAnyPosSalesFeature(supabase: SupabaseServiceClient, tenantId: string, branchId: string) {
-  if (isFeatureUnlockEnabled()) return true;
-  for (const featureKey of POS_SALES_FEATURE_KEYS) {
-    const directOverrideEnabled = await readBranchFeatureOverride(supabase, tenantId, branchId, featureKey);
-    if (directOverrideEnabled === true) return true;
-  }
-
-  for (const featureKey of POS_SALES_FEATURE_KEYS) {
-    try {
-      const enabled = await hasBranchFeatureSafe(tenantId, branchId, featureKey);
-      if (enabled) return true;
-    } catch (error) {
-      console.error("[auth/devices/select] POS sales feature lookup failed", {
-        tenantId,
-        branchId,
-        featureKey,
-        error: error instanceof Error ? error.message : "Unknown error"
-      });
-    }
-  }
-
-  return false;
-}
-
 export async function POST(request: Request) {
   const startedAt = Date.now();
   const timedJsonError = (status: number, code: string, message: string) =>
@@ -172,9 +104,9 @@ export async function POST(request: Request) {
   try {
     const supabase = getSupabaseServiceClient();
 
-    const [posSalesEnabled, deviceQuery, employee] = await withAuthTimeout(
+    const [entryAccess, deviceQuery, employee] = await withAuthTimeout(
       Promise.all([
-        hasAnyPosSalesFeature(supabase, flow.tenantId, flow.branchId),
+        evaluatePosEntryAccess(supabase, flow.tenantId, flow.branchId),
         supabase
           .from("branch_devices")
           .select("id,device_code,device_name,status")
@@ -192,14 +124,22 @@ export async function POST(request: Request) {
       DEVICE_SELECT_AUTH_TIMEOUT_MS
     );
 
-    if (!posSalesEnabled) {
-      return timedJsonError(403, "feature_not_enabled", "แพ็กเกจปัจจุบันยังไม่รองรับการเข้าใช้งานหน้าขาย");
-    }
     if (!employee) {
       return timedJsonError(401, "employee_not_found", "ไม่พบผู้ใช้งานในสาขานี้ หรือผู้ใช้งานไม่พร้อมใช้งาน");
     }
     if (!hasPermission(employee.permissions, "pos.sales.access")) {
       return timedJsonError(403, "permission_denied", "ผู้ใช้งานไม่มีสิทธิ์เข้าใช้งานหน้าขาย");
+    }
+    // Verify lifecycle independently of feature grants: an old branch override
+    // must never bypass a completed trial or an explicit account lock.
+    if(!entryAccess.allowed){
+      const detail=entryAccess.denial;
+      return withTimingHeaders(NextResponse.json({
+        data:null,error:{
+          code:detail.code,message:detail.message,title:detail.title,
+          expires_at:detail.expires_at,kind:detail.kind
+        }
+      },{status:403}),startedAt);
     }
 
     if (deviceQuery.error) {
@@ -487,6 +427,9 @@ export async function POST(request: Request) {
     clearPreEntryFlowState(response);
     return withTimingHeaders(response, startedAt);
   } catch (error) {
+    if(error instanceof PosFeatureLookupUnavailable){
+      return timedJsonError(503,"feature_verification_unavailable","ไม่สามารถตรวจสอบสถานะแพ็กเกจได้ชั่วคราว กรุณาลองใหม่หรือติดต่อฝ่าย Support");
+    }
     if (error instanceof AuthTimeoutError) {
       return timedJsonError(504, "auth_timeout", "ระบบตอบสนองช้าเกินไป กรุณาลองใหม่อีกครั้ง");
     }

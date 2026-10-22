@@ -44,7 +44,7 @@ export function PosSupportCenter({ storeCode, storeName, supportEmail }: { store
           <div className="flex items-center gap-3">
             <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-violet-50 text-violet-600"><SupportIcon kind="chat" /></span>
             <div><h2 className="text-lg font-black text-[#10213d]">แจ้งปัญหา</h2>
-              <p className="text-xs leading-5 text-slate-500">เชื่อมต่อระบบ Support Chat เดิม พร้อมส่งข้อความถึงฝ่าย IT</p></div>
+              <p className="text-xs leading-5 text-slate-500">แชทหรือโทรผ่านอินเทอร์เน็ตถึงฝ่าย IT ได้จาก POS โดยตรง ไม่จำเป็นต้องมี LINE</p></div>
           </div>
           <div className="mt-4 grid gap-2 sm:grid-cols-2">
             <a href="tel:0985460355" className="flex min-h-12 items-center justify-center gap-2 rounded-xl bg-blue-50 px-3 py-3 text-sm font-bold text-blue-700">

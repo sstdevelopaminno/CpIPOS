@@ -5,13 +5,15 @@ Production-oriented multi-tenant / multi-branch POS platform.
 ## Current source of truth
 
 - Repository: `sstdevelopaminno/CpIPOS`
-- Active integration branch: `agent-docs-preflight-schema-drift`
+- Active POS Production/integration branch: `main` (Vercel `cp-ipos-web` deployed from `main`, verified 2026-10-20).
+- GitHub repository default branch remains `agent-docs-preflight-schema-drift` until repository administration changes it. **Always explicitly target `main` for POS fixes/PRs**, never assume that the GitHub default equals Production. Legacy PR #257 was closed without merge on 2026-10-21; do not merge into the old default branch.
+- Go-Live security, migration provenance and UAT gate: `docs/ops/CPIPOS-PRODUCTION-READINESS-20261020.md`. Do not auto-apply source migrations to live CpiPOS-001 while migration-history drift remains unresolved.
 - Web/POS Vercel project: `cp-ipos-web`
 - CpIPOS Mobile distribution: Native Android APK via GitHub Releases + `/download/mobile` on `cp-ipos-web`; there is no Mobile web runtime in the repository
 - **CpiPOS-001 / Primary:** Supabase ref `deejlitaivfnsbwqdugy`
-- **CpiPOS-002 / Trial Data Plane:** Supabase ref `kawenyvpentwgugtzqec`
+- **CpiPOS-002 / Trial Data Plane: RETIRED (2026-10-21).** No longer a valid runtime target. Trial-period subscriptions remain on CpiPOS-001; stale `data_home=trial` rows must fail closed and be reviewed by IT.
 - Primary guardrails: `docs/AI-GUARDRAILS-CPIPOS.md`
-- Trial data-plane status/runbook: `docs/CPIPOS-TRIAL-DATA-PLANE-2026-08-08.md`
+- Historical retired Trial data-plane notes: `docs/CPIPOS-TRIAL-DATA-PLANE-2026-08-08.md` (archive only; not an active deployment).
 - Database housekeeping: `docs/DATABASE-HOUSEKEEPING-2026-08-07.md`
 - Table Management UI/UX checkpoint: `docs/TABLE-MANAGEMENT-UI-CLEANUP-2026-08-11.md`
 - Product Management UI/UX checkpoint: `docs/PRODUCT-MANAGEMENT-UI-CLEANUP-2026-08-11.md`
@@ -191,16 +193,17 @@ TRIAL_DATA_ROUTING_ENABLED=false
 
 `TRIAL_SUPABASE_SERVICE_ROLE_KEY` must never be committed, logged, placed in `NEXT_PUBLIC_*`, or sent to a browser. Keep `TRIAL_DATA_ROUTING_ENABLED=false` until the production server secret and final canary are verified.
 
-Production/serverless auth rate limiting should use distributed Upstash:
+**Approved 2026-10-08 no-Upstash option:** Production can use the built-in per-process login limiter without adding Redis:
 
 ```env
-RATE_LIMIT_BACKEND=upstash
-RATE_LIMIT_BACKEND_TIMEOUT_MS=2500
-UPSTASH_REDIS_REST_URL=
-UPSTASH_REDIS_REST_TOKEN=
+RATE_LIMIT_BACKEND=memory
 ```
 
-There is no Redis TCP backend implementation; do not set `RATE_LIMIT_BACKEND=redis`.
+This does **not** enforce a cross-instance rate limit: configure/test an independent Vercel WAF rule targeting high-risk login POST endpoints, review costs/legitimate shared-IP traffic, and keep the missing multi-instance guarantee visible in release evidence. Vercel's platform DDoS mitigation remains in place. The configuration preflight reports `ready_with_warnings` for memory mode; it does not certify WAF or actual load behavior.
+
+For an explicitly required central limiter, configure `RATE_LIMIT_BACKEND=upstash` together with both `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN`. `node scripts/check-production-readiness.mjs --distributed-rate-limit-required` rejects memory mode. The system has **no** Redis TCP backend; never set `RATE_LIMIT_BACKEND=redis`.
+
+Cloudflare Free standby evaluation: [Cloudflare free standby runbook](docs/CLOUDFLARE-FREE-STANDBY-RUNBOOK-2026-10-08.md). Cloudflare DNS/CDN is **not** a substitute for a second deployed application or database backups; do not automatically route customer POS transactions to an unverified Worker.
 
 ## Seed / tenant safety
 
