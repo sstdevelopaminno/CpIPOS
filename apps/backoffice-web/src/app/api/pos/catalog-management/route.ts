@@ -147,13 +147,14 @@ export async function POST(req: Request) {
     const db = getSupabaseServiceClient();
     const action = String(body.action ?? "");
     const id = safeText(body.id, 70);
-    const recordAudit = (actionName: string, table: string, targetId: string) => {
-      void appendAuditLog({
+    const recordAudit = async (actionName: string, table: string, targetId: string) => {
+      const result = await appendAuditLog({
         tenantId, branchId, actorUserId: scope.session.user_id,
         actorRole: scope.session.role as "owner" | "manager",
         action: actionName, targetTable: table, targetId,
         metadata: { source: "native_pos_2", device_code: scope.session.device_code }
-      }).catch(() => console.error("[native-catalog] audit_write_failed"));
+      });
+      if (!result.inserted) console.error("[native-catalog] audit_write_failed");
     };
     if (action === "save_product") {
       const name = safeText(body.name);
@@ -172,14 +173,14 @@ export async function POST(req: Request) {
           .eq("updated_at", previous.data.updated_at).select("id").maybeSingle();
         if (result.error) return fail("product_update_failed", 500);
         if (!result.data) return fail("product_changed_reload", 409);
-        recordAudit("native_catalog_product_update", "products", id);
+        await recordAudit("native_catalog_product_update", "products", id);
         return respond({ id }, scope.session.id);
       }
       const result = await db.from("products")
         .insert({ ...data, tenant_id: tenantId, branch_id: branchId, is_active: true,
           stock_deduction_mode: "unit_only" }).select("id").single();
       if (result.error) return fail("product_create_failed", 409);
-      recordAudit("native_catalog_product_create", "products", result.data.id);
+      await recordAudit("native_catalog_product_create", "products", result.data.id);
       return respond({ id: result.data.id }, scope.session.id);
     }
     if (action === "deactivate_product") {
@@ -215,7 +216,7 @@ export async function POST(req: Request) {
         .eq("is_active", true).select("id").maybeSingle();
       if (result.error) return fail("product_deactivation_failed", 500);
       if (!result.data) return fail("product_not_active", 409);
-      recordAudit("native_catalog_product_deactivate", "products", id);
+      await recordAudit("native_catalog_product_deactivate", "products", id);
       return respond({ id, deactivated: true }, scope.session.id);
     }
     if (action === "save_ingredient") {
@@ -234,7 +235,7 @@ export async function POST(req: Request) {
           .eq("updated_at", prev.data.updated_at).select("id").maybeSingle();
         if (result.error) return fail("ingredient_update_failed", 500);
         if (!result.data) return fail("ingredient_changed_reload", 409);
-        recordAudit("native_catalog_ingredient_update", "ingredients", id);
+        await recordAudit("native_catalog_ingredient_update", "ingredients", id);
         return respond({ id }, scope.session.id);
       }
       const result = await db.from("ingredients").insert({
@@ -242,7 +243,7 @@ export async function POST(req: Request) {
         quantity_on_hand: 0, reorder_level: 0
       }).select("id").single();
       if (result.error) return fail("ingredient_create_failed", 409);
-      recordAudit("native_catalog_ingredient_create", "ingredients", result.data.id);
+      await recordAudit("native_catalog_ingredient_create", "ingredients", result.data.id);
       return respond({ id: result.data.id }, scope.session.id);
     }
     // Ingredient stock must be adjusted through audited stock transactions;

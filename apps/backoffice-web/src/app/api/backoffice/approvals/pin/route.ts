@@ -12,6 +12,22 @@ export async function POST(req: Request) {
     const auth = await getPosApiAuthContext({ requireBranchScope: true });
     const supabase = getSupabaseServiceClient();
 
+    // Native product deactivation must be authorized for the actual current
+    // POS branch and a real, active product before a PIN token is issued.
+    if (body.action === "product_deactivate") {
+      if ((auth.branchRole !== "owner" && auth.branchRole !== "manager") ||
+          body.tenant_id !== auth.tenantId || body.branch_id !== auth.branchId ||
+          body.target_table !== "products" ||
+          !/^[0-9a-f-]{36}$/i.test(String(body.target_id ?? ""))) {
+        return fail("product_deactivate_forbidden", "Owner/manager in current branch required.", 403);
+      }
+      const candidate = await supabase.from("products").select("id")
+        .eq("tenant_id", auth.tenantId!).eq("branch_id", auth.branchId!)
+        .eq("id", body.target_id).eq("is_active", true).maybeSingle();
+      if (candidate.error) return fail("product_approval_target_failed", candidate.error.message, 500);
+      if (!candidate.data) return fail("product_approval_target_missing", "Product unavailable.", 404);
+    }
+
     const result = await executePinApproval({
       auth,
       input: body,
