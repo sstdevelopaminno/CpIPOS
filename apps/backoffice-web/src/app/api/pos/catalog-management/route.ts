@@ -184,6 +184,32 @@ export async function POST(req: Request) {
     }
     if (action === "deactivate_product") {
       if (!id) return fail("product_id_required");
+      const approvalId = safeText(body.approval_id, 70);
+      if (!/^[a-f0-9-]{36}$/i.test(approvalId)) return fail("product_deactivate_pin_required", 403);
+      const approval = await db.from("manager_pin_approvals")
+        .select("id,action,target_table,target_id,approved_by,requested_by,branch_id,expires_at,consumed_at")
+        .eq("tenant_id", tenantId).eq("branch_id", branchId)
+        .eq("requested_by", scope.session.user_id).eq("id", approvalId)
+        .maybeSingle();
+      if (approval.error) return fail("product_deactivate_approval_lookup_failed", 503);
+      const token = approval.data;
+      if (!token || token.action !== "product_deactivate" ||
+          token.target_table !== "products" || token.target_id !== id ||
+          !token.approved_by || token.consumed_at ||
+          !token.expires_at || !Number.isFinite(Date.parse(token.expires_at)) ||
+          Date.parse(token.expires_at) <= Date.now()) {
+        return fail("product_deactivate_pin_invalid_or_expired", 403);
+      }
+      // Consume exactly once before performing any mutation. A retry after
+      // a lost response cannot use the same approval a second time.
+      const consumed = await db.from("manager_pin_approvals")
+        .update({ consumed_at: new Date().toISOString() })
+        .eq("tenant_id", tenantId).eq("branch_id", branchId)
+        .eq("requested_by", scope.session.user_id)
+        .eq("id", approvalId).eq("action", "product_deactivate")
+        .eq("target_table", "products").eq("target_id", id)
+        .is("consumed_at", null).select("id").maybeSingle();
+      if (consumed.error || !consumed.data) return fail("product_deactivate_pin_used", 409);
       const result = await db.from("products").update({ is_active: false })
         .eq("tenant_id", tenantId).eq("branch_id", branchId).eq("id", id)
         .eq("is_active", true).select("id").maybeSingle();
