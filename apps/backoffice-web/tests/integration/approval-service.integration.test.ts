@@ -38,6 +38,27 @@ describe("executePinApproval", () => {
     expect(appendAuditLog.mock.calls[0]?.[0]?.action).toBe("pin_approval_failed");
   });
 
+  it("allows a product-specific manager PIN approval action", async () => {
+    const appendAuditLog = vi.fn(async () => undefined);
+    const scopedProduct = {
+      ...input, action: "product_deactivate" as const,
+      target_table: "products", target_id: "product-1"
+    };
+    const result = await executePinApproval({
+      auth,
+      input: scopedProduct,
+      validatePin: async () => ({ approved: true, approverUserId: "u-manager", approverRole: "manager" }),
+      appendAuditLog
+    });
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.data.action).toBe("product_deactivate");
+      expect(result.data.approver_role).toBe("manager");
+    }
+    expect(appendAuditLog).toHaveBeenCalledTimes(1);
+    expect(appendAuditLog.mock.calls[0]?.[0]?.targetTable).toBe("products");
+  });
+
   it("approves when manager pin matches", async () => {
     const appendAuditLog = vi.fn(async () => undefined);
 
