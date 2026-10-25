@@ -32,6 +32,7 @@ export async function PUT(req: Request) {
       branch_id: scope.session.branch_id,
       device_code: scope.session.device_code,
       user_id: scope.session.user_id,
+      session_id: scope.session.id,
       fcm_token: fcmToken,
       app_id: appId,
       enabled: true,

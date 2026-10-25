@@ -1,6 +1,6 @@
 import "server-only";
 import { createSign } from "node:crypto";
-import { getSupabaseServiceClient } from "@/lib/supabase-admin";
+import { getPrimarySupabaseServiceClient, getSupabaseServiceClient } from "@/lib/supabase-admin";
 
 export type NativeQrPushKind = "order" | "call_staff" | "request_checkout";
 export type NativeQrPushEvent = {
@@ -78,7 +78,7 @@ export async function dispatchNativeQrFcm(event: NativeQrPushEvent): Promise<voi
     const supabase = getSupabaseServiceClient();
     const cutoff = new Date(Date.now() - 7 * 86400000).toISOString();
     const { data, error } = await supabase.from("native_pos_push_devices")
-      .select("installation_id,fcm_token")
+      .select("session_id,installation_id,fcm_token")
       .eq("tenant_id", event.tenantId).eq("branch_id", event.branchId)
       .eq("enabled", true).gte("updated_at", cutoff)
       .order("updated_at", { ascending: false }).limit(40);
@@ -86,11 +86,24 @@ export async function dispatchNativeQrFcm(event: NativeQrPushEvent): Promise<voi
       console.warn("[native-fcm] recipients unavailable", error.code);
       return;
     }
-    const receivers = (data ?? []) as Array<{ installation_id: string; fcm_token: string }>;
+    const receivers = (data ?? []) as Array<{ session_id: string; installation_id: string; fcm_token: string }>;
     if (receivers.length === 0) return;
+    // POS sessions live in the primary control plane, even when tenant data
+    // routes to a trial database. Never notify a revoked or expired session.
+    const active = await getPrimarySupabaseServiceClient().from("pos_sessions")
+      .select("id").eq("tenant_id", event.tenantId).eq("branch_id", event.branchId)
+      .eq("status", "active").gt("expires_at", new Date().toISOString())
+      .in("id", [...new Set(receivers.map(row => row.session_id))]);
+    if (active.error) {
+      console.warn("[native-fcm] active session verification unavailable");
+      return;
+    }
+    const allowed = new Set((active.data ?? []).map(row => String(row.id)));
     const authorization = await getAccessToken(credentials);
     const message = notificationForNativeQr(event.kind, event.tableCode);
-    const tokens = Array.from(new Set(receivers.map(row => row.fcm_token))).slice(0, 40);
+    const tokens = Array.from(new Set(receivers.filter(row => allowed.has(row.session_id))
+      .map(row => row.fcm_token))).slice(0, 40);
+    if (!tokens.length) return;
     const results = await Promise.allSettled(tokens.map(async fcmToken => {
       const response = await fetch(
         "https://fcm.googleapis.com/v1/projects/" + credentials.project + "/messages:send", {

@@ -6,6 +6,7 @@ create table if not exists public.native_pos_push_devices (
   branch_id uuid not null,
   device_code text not null,
   user_id uuid not null,
+  session_id uuid not null,
   fcm_token text not null,
   app_id text not null,
   enabled boolean not null default true,
