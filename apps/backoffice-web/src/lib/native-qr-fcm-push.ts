@@ -76,6 +76,27 @@ export async function dispatchNativeQrFcm(event: NativeQrPushEvent): Promise<voi
   if (!credentials) return;
   try {
     const supabase = getSupabaseServiceClient();
+
+    // Use the same per-branch notification policy as CpIPOS Web/Native settings.
+    // A missing row keeps historical defaults; a read failure fails open so
+    // operational service calls are not silently lost.
+    let popupEnabled = true;
+    let soundEnabled = true;
+    let soundVolume = 0.8;
+    const policy = await supabase.from("tenant_pos_notification_settings")
+      .select("table_qr_popup_enabled,table_qr_sound_enabled,table_qr_sound_volume")
+      .eq("tenant_id", event.tenantId).eq("branch_id", event.branchId)
+      .maybeSingle();
+    if (!policy.error && policy.data) {
+      popupEnabled = policy.data.table_qr_popup_enabled !== false;
+      soundEnabled = policy.data.table_qr_sound_enabled !== false;
+      const volume = Number(policy.data.table_qr_sound_volume ?? 0.8);
+      soundVolume = Number.isFinite(volume) ? Math.min(1, Math.max(0, volume)) : 0.8;
+    }
+    // Match the existing table-qr-activity endpoint: popup setting suppresses
+    // food-order alerts. Staff/checkout calls remain operational alerts.
+    if (event.kind === "order" && !popupEnabled) return;
+
     const cutoff = new Date(Date.now() - 7 * 86400000).toISOString();
     const { data, error } = await supabase.from("native_pos_push_devices")
       .select("session_id,installation_id,fcm_token")
@@ -118,7 +139,9 @@ export async function dispatchNativeQrFcm(event: NativeQrPushEvent): Promise<voi
                 tenant_id: event.tenantId, branch_id: event.branchId,
                 table_code: event.tableCode.slice(0, 24),
                 title: message.title, body: message.body,
-                item_count: String(event.itemCount ?? 0)
+                item_count: String(event.itemCount ?? 0),
+                sound_enabled: String(soundEnabled),
+                sound_volume: String(soundVolume)
               },
               android: { priority: "HIGH", ttl: "3600s" }
             }
