@@ -102,11 +102,12 @@ export async function dispatchNativeQrFcm(event: NativeQrPushEvent): Promise<voi
               data: {
                 type: "native_qr_event", event_id: event.eventId,
                 event_type: event.kind, table_id: event.tableId,
+                tenant_id: event.tenantId, branch_id: event.branchId,
                 table_code: event.tableCode.slice(0, 24),
                 title: message.title, body: message.body,
                 item_count: String(event.itemCount ?? 0)
               },
-              android: { priority: "HIGH", ttl: "3600s", restricted_package_name: undefined }
+              android: { priority: "HIGH", ttl: "3600s" }
             }
           }),
           signal: AbortSignal.timeout(8000)
