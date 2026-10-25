@@ -1,6 +1,7 @@
 import { createHash, randomBytes } from "node:crypto";
 import { fail, ok } from "@/lib/http";
 import { getPrimarySupabaseServiceClient } from "@/lib/supabase-admin";
+import { PosGuardError, requirePosSession } from "@/lib/pos-session-guard";
 
 type JsonRecord = Record<string, unknown>;
 
@@ -52,7 +53,50 @@ async function findPairedDevice(installId: string) {
     .contains("metadata", { android_mdm_install_id: installId })
     .maybeSingle<BranchDeviceRow>();
   if (error) throw new Error(error.message);
-  return data ?? null;
+  if (data) return data;
+
+  // Native POS 2.0 already holds a server-issued POS session bound to one branch/device.
+  // Allow that authenticated runtime to bind its local install id to the SAME device.
+  // This never trusts a caller-supplied tenant/branch/device code.
+  try {
+    const scope = await requirePosSession();
+    const query = supabase
+      .from("branch_devices")
+      .select("id,tenant_id,branch_id,device_code,device_name,metadata")
+      .eq("tenant_id", scope.session.tenant_id)
+      .eq("branch_id", scope.session.branch_id)
+      .eq("is_active", true);
+    const resolved = scope.session.device_id
+      ? await query.eq("id", scope.session.device_id).maybeSingle<BranchDeviceRow>()
+      : await query.eq("device_code", scope.session.device_code).maybeSingle<BranchDeviceRow>();
+    if (resolved.error) throw new Error(resolved.error.message);
+    if (!resolved.data) return null;
+
+    const metadata = asRecord(resolved.data.metadata);
+    const now = new Date().toISOString();
+    const { data: bound, error: bindError } = await supabase
+      .from("branch_devices")
+      .update({
+        metadata: {
+          ...metadata,
+          android_mdm_install_id: installId,
+          native_pos_install_id: installId,
+          native_pos_print_agent_bound_at: now
+        },
+        last_seen_at: now,
+        updated_at: now
+      })
+      .eq("id", resolved.data.id)
+      .eq("tenant_id", scope.session.tenant_id)
+      .eq("branch_id", scope.session.branch_id)
+      .select("id,tenant_id,branch_id,device_code,device_name,metadata")
+      .single<BranchDeviceRow>();
+    if (bindError) throw new Error(bindError.message);
+    return bound;
+  } catch (error) {
+    if (error instanceof PosGuardError && error.status === 401) return null;
+    throw error;
+  }
 }
 
 export async function POST(request: Request) {
