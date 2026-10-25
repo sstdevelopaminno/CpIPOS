@@ -354,6 +354,65 @@ export async function POST(request: Request) {
       return ok({ profile: data, message: "บันทึกข้อมูลผู้เสียภาษีสำเร็จ" });
     }
 
+    if (action === "delete_profile") {
+      const profileId = text(body?.profile_id);
+      const managerPin = text(body?.manager_pin);
+      if (!profileId) return fail("tax_profile_id_required", "ไม่พบรายการผู้เสียภาษีที่ต้องการลบ", 422);
+      if (auth.branchRole !== "owner" && auth.branchRole !== "manager") {
+        return fail("forbidden_role", "เฉพาะ Owner หรือ Manager สามารถลบทะเบียนผู้เสียภาษีได้", 403);
+      }
+      if (managerPin.length < 4) {
+        return fail("pin_required", "กรุณากรอก PIN Owner/Manager เพื่อยืนยันการลบ", 422);
+      }
+      const approval = await validateManagerPin("sales_record_edit", managerPin, {
+        tenantId,
+        branchId
+      });
+      if (!approval.approved || !approval.approverUserId || !approval.approverRole || approval.approverRole === "it_admin") {
+        return fail("pin_rejected", "PIN Owner/Manager ไม่ถูกต้อง", 403);
+      }
+
+      const existing = await supabase
+        .from("pos_tax_invoice_profiles")
+        .select("id,display_name,tax_id,is_active")
+        .eq("tenant_id", tenantId)
+        .eq("branch_id", branchId)
+        .eq("id", profileId)
+        .maybeSingle<{ id: string; display_name: string; tax_id: string; is_active: boolean }>();
+      if (existing.error) return fail("tax_profile_query_failed", existing.error.message, 500);
+      if (!existing.data || existing.data.is_active === false) {
+        return fail("tax_profile_not_found", "ไม่พบทะเบียนผู้เสียภาษีในสาขานี้", 404);
+      }
+
+      const updated = await supabase
+        .from("pos_tax_invoice_profiles")
+        .update({
+          is_active: false,
+          updated_by: approval.approverUserId,
+          updated_at: new Date().toISOString()
+        })
+        .eq("tenant_id", tenantId)
+        .eq("branch_id", branchId)
+        .eq("id", profileId);
+      if (updated.error) return fail("tax_profile_delete_failed", updated.error.message, 500);
+
+      await appendAuditLog({
+        tenantId,
+        branchId,
+        actorUserId: approval.approverUserId,
+        actorRole: approval.approverRole,
+        action: "tax_invoice_profile_deactivated",
+        targetTable: "pos_tax_invoice_profiles",
+        targetId: profileId,
+        metadata: {
+          requested_by: auth.userId,
+          display_name: existing.data.display_name,
+          tax_id_last4: normalizeDigits(existing.data.tax_id).slice(-4)
+        }
+      });
+      return ok({ deleted: true, profile_id: profileId });
+    }
+
     if (action === "save_seller") {
       if (auth.branchRole !== "owner" && auth.branchRole !== "manager") {
         return fail("forbidden_role", "เฉพาะ Owner หรือ Manager ตั้งค่าผู้ออกใบกำกับภาษีได้", 403);
