@@ -1,8 +1,9 @@
 import crypto from "node:crypto";
-import { NextResponse } from "next/server";
+import { after, NextResponse } from "next/server";
 import type { BranchRole } from "@pos/shared-types";
 import { appendAuditLog } from "@/lib/audit-log";
 import { FeatureGateError, requireTenantFeature } from "@/lib/feature-gate";
+import { queueRoutedSalesReceipt } from "@/lib/printing/routed-print-service";
 import {
   PosGuardError,
   requireActiveShift,
@@ -48,7 +49,7 @@ export async function POST(request: Request, context: { params: Promise<{ orderI
     const supabase = getSupabaseServiceClient();
     const { data: orderRow, error: orderError } = await supabase
       .from("orders")
-      .select("id,order_no,status,shift_id,total_amount,grand_total,paid_total")
+      .select("id,order_no,status,shift_id,total_amount,grand_total,paid_total,discount_amount,notes")
       .eq("tenant_id", scope.session.tenant_id)
       .eq("branch_id", scope.session.branch_id)
       .eq("id", orderId)
@@ -60,6 +61,8 @@ export async function POST(request: Request, context: { params: Promise<{ orderI
         total_amount: number;
         grand_total: number | null;
         paid_total: number | null;
+        discount_amount: number | null;
+        notes: string | null;
       }>();
 
     if (orderError) {
@@ -233,6 +236,49 @@ export async function POST(request: Request, context: { params: Promise<{ orderI
       orderId: orderRow.id
     });
     const storeProfile = await loadReceiptStoreProfile(scope.session.tenant_id);
+
+    // Native takeaway uses this compact pay endpoint. Queue the same routed
+    // receipt used by /api/pos/payments, without coupling payment success to
+    // printer availability. The Android Print Agent claims the job by device_code.
+    const printAuth = {
+      userId: scope.session.user_id,
+      platformRole: "tenant_user" as const,
+      tenantId: scope.session.tenant_id,
+      branchId: scope.session.branch_id,
+      branchRole: scope.session.role as BranchRole
+    };
+    after(async () => {
+      try {
+        await queueRoutedSalesReceipt({
+          auth: printAuth,
+          runtimeDeviceCode: scope.session.device_code,
+          order: {
+            id: orderRow.id,
+            order_no: orderRow.order_no,
+            total_amount: round2(orderRow.grand_total ?? orderRow.total_amount ?? paidAmount),
+            discount_amount: round2(orderRow.discount_amount ?? 0),
+            notes: orderRow.notes,
+            cash_received: cashReceived,
+            change_amount: changeAmount,
+            mode_label: "กลับบ้าน"
+          },
+          items: items.map((item) => ({
+            product_name: item.name,
+            quantity: item.quantity,
+            unit_price: item.unit_price,
+            line_total: item.line_total,
+            note: null
+          })),
+          paymentMethod: method === "bank_transfer" ? "bank_transfer" : "cash",
+          sellerName: scope.user.full_name ?? null
+        });
+      } catch (printError) {
+        console.warn("[native-takeaway-print] receipt queue failed", {
+          order_id: orderRow.id,
+          message: printError instanceof Error ? printError.message : "unknown"
+        });
+      }
+    });
 
     const response = NextResponse.json({
       data: {
