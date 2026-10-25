@@ -218,7 +218,8 @@ export async function POST(request: Request, context: { params: Promise<{ token:
         after(() => dispatchNativeQrFcm({
           tenantId: qrContext.tenant_id, branchId: qrContext.branch_id,
           eventId: result.submission_id, tableId: qrContext.table_id,
-          tableCode: qrContext.table_code, kind: action
+          tableCode: qrContext.table_code,
+          kind: action === "call_staff" ? "call_staff" : "request_checkout"
         }));
       }
       return ok({ submission_id: result.submission_id, table_code: qrContext.table_code, action, duplicate_request: result.duplicate_request }, result.duplicate_request ? 200 : 201);
