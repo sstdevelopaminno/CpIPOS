@@ -202,6 +202,7 @@ export async function GET(req: Request) {
       .select("id,sku,name,category,price,stock_deduction_mode,is_active,updated_at,metadata", { count: "exact" })
       .eq("tenant_id", scope.session.tenant_id)
       .eq("branch_id", branch.id)
+      .eq("is_active", true)
       .order("updated_at", { ascending: false })
       .range(start, start + pageSize - 1);
     if (search) query = query.or("name.ilike.%" + search + "%,sku.ilike.%" + search + "%");
