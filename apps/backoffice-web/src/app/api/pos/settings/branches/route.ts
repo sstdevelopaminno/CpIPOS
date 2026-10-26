@@ -29,7 +29,8 @@ function statusFromError(error: unknown) {
 export async function GET() {
   try {
     const auth = await getPosApiAuthContext({ requireBranchScope: true, requiredPermission: "settings:view" });
-    await requirePosApiFeature(auth, "branch_management");
+    // Branch identity is shared reference data used by device/payment/user settings.
+    // Keep read access available; package-lock only branch mutations.
     const snapshot = await loadPosSettingsSnapshot(auth);
     return ok({ branches: snapshot.branches, metadata: snapshot.metadata });
   } catch (error) {
