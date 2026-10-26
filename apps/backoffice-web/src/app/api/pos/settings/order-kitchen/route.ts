@@ -1,5 +1,6 @@
 import { fail, ok } from "@/lib/http";
 import { getPosApiAuthContext } from "@/lib/pos-api-auth";
+import { featureGateFail, requirePosApiFeature } from "@/lib/pos-api-feature-guard";
 import {
   loadTableQrAutomationPolicy,
   saveStoreTableQrAutomationPolicy,
@@ -18,11 +19,14 @@ function statusFromError(error: unknown) {
 export async function GET(request: Request) {
   try {
     const auth = await getPosApiAuthContext({ requireBranchScope: true, requiredPermission: "settings:view" });
+    await requirePosApiFeature(auth, "qr_table_ordering");
     const { searchParams } = new URL(request.url);
     const branchId = String(searchParams.get("branch_id") ?? auth.branchId ?? "").trim();
     const policy = await loadTableQrAutomationPolicy(auth, branchId);
     return ok({ policy });
   } catch (error) {
+    const featureError = featureGateFail(error);
+    if (featureError) return featureError;
     const resolved = statusFromError(error);
     return fail(resolved.code, resolved.message, resolved.status);
   }
@@ -31,10 +35,13 @@ export async function GET(request: Request) {
 export async function PATCH(request: Request) {
   try {
     const auth = await getPosApiAuthContext({ requireBranchScope: true, requiredPermission: "settings:view" });
+    await requirePosApiFeature(auth, "qr_table_ordering");
     const body = (await request.json().catch(() => ({}))) as SaveStoreTableQrAutomationPolicyInput;
     const policy = await saveStoreTableQrAutomationPolicy(auth, body);
     return ok({ policy });
   } catch (error) {
+    const featureError = featureGateFail(error);
+    if (featureError) return featureError;
     const resolved = statusFromError(error);
     return fail(resolved.code, resolved.message, resolved.status);
   }
