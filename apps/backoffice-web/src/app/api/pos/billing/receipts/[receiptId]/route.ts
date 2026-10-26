@@ -1,5 +1,5 @@
 import { fail } from "@/lib/http";
-import { PosGuardError, requirePosSession } from "@/lib/pos-session-guard";
+import { PosGuardError, requirePosSessionForShiftClose } from "@/lib/pos-session-guard";
 import { renderSubscriptionReceiptHtml } from "@/lib/printing/subscription-receipt-html-template";
 import { getPrimarySupabaseServiceClient } from "@/lib/supabase-admin";
 
@@ -29,7 +29,7 @@ type ReceiptRow = {
 
 export async function GET(_request: Request, { params }: Params) {
   try {
-    const scope = await requirePosSession();
+    const scope = await requirePosSessionForShiftClose();
     if (!["owner","manager"].includes(scope.session.role)) {
       return fail("forbidden", "Store owner or manager access required.", 403);
     }
