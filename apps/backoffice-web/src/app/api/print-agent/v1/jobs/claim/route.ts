@@ -1,8 +1,9 @@
-﻿import { ok } from "@/lib/http";
+﻿import { fail, ok } from "@/lib/http";
 import { loggedPrintApiFail } from "@/lib/printing/print-api-errors";
 import { agentAuthFail, requirePrintAgent } from "@/lib/printing/print-agent-service";
 import { claimPrintJobsStabilized, PRINT_AGENT_CLAIM_TIMEOUT_MS } from "@/lib/printing/print-agent-claim-stabilized";
 import { BoundedTimeoutError, withAbortableTimeout } from "@/lib/server/bounded-timeout";
+import { loadPosSubscriptionLifecycleGuard } from "@/lib/services/pos-subscription-lifecycle-guard-service";
 
 type ClaimPayload = {
   limit?: number | null;
@@ -111,6 +112,24 @@ export async function POST(req: Request) {
   try {
     return await withAbortableTimeout(async (signal) => {
       const agent = await requirePrintAgent(req, { signal });
+      // Print-agent keys can outlive a POS UI session. Re-check the same
+      // tenant subscription lifecycle used by POS so an expired/suspended
+      // tenant cannot continue claiming physical print jobs with an old key.
+      const subscription = await loadPosSubscriptionLifecycleGuard(agent.tenant_id);
+      if (!subscription) {
+        return fail(
+          "subscription_runtime_unavailable",
+          "Unable to verify subscription access before claiming print jobs.",
+          503
+        );
+      }
+      if (subscription.locked && !subscription.exempt) {
+        return fail(
+          "subscription_access_locked",
+          subscription.lock_reason || "Subscription payment is required.",
+          423
+        );
+      }
       const body = (await req.json().catch(() => null)) as ClaimPayload | null;
       const modernRichLayout = isModernRichLayoutClient(body?.app_version);
       const jobs = await claimPrintJobsStabilized(agent, {
