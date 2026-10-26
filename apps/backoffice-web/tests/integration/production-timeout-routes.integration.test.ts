@@ -10,7 +10,8 @@ const mocks = vi.hoisted(() => ({
   getSupabaseServiceClient: vi.fn(),
   requirePrintAgent: vi.fn(),
   agentAuthFail: vi.fn(),
-  claimPrintJobsStabilized: vi.fn()
+  claimPrintJobsStabilized: vi.fn(),
+  loadPosSubscriptionLifecycleGuard: vi.fn()
 }));
 
 class MockPosGuardError extends Error {
@@ -48,6 +49,10 @@ vi.mock("@/lib/printing/print-agent-service", () => ({
 vi.mock("@/lib/printing/print-agent-claim-stabilized", () => ({
   PRINT_AGENT_CLAIM_TIMEOUT_MS: 1000,
   claimPrintJobsStabilized: mocks.claimPrintJobsStabilized
+}));
+
+vi.mock("@/lib/services/pos-subscription-lifecycle-guard-service", () => ({
+  loadPosSubscriptionLifecycleGuard: mocks.loadPosSubscriptionLifecycleGuard
 }));
 
 function hangingNativeStateClient(capture: { signal?: AbortSignal }) {
@@ -114,6 +119,11 @@ describe("production timeout route bounds", () => {
       };
     });
     mocks.agentAuthFail.mockReturnValue(null);
+    mocks.loadPosSubscriptionLifecycleGuard.mockResolvedValue({
+      locked: false,
+      exempt: false,
+      lock_reason: null
+    });
     mocks.claimPrintJobsStabilized.mockImplementation(() => new Promise(() => undefined));
 
     const { POST } = await import("@/app/api/print-agent/v1/jobs/claim/route");
