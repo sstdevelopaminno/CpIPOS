@@ -3,6 +3,7 @@ import { filterBillingDocumentItems } from "@/lib/billing-document-policy";
 import { fail, ok } from "@/lib/http";
 import { validateManagerPin } from "@/lib/pin-approval";
 import { getPosApiAuthContext } from "@/lib/pos-api-auth";
+import { featureGateFail, requirePosApiFeature } from "@/lib/pos-api-feature-guard";
 import { requirePosSession } from "@/lib/pos-session-guard";
 import {
   assertThaiAddressOption,
@@ -76,6 +77,7 @@ function text(value: unknown) {
 
 async function requireTaxScope() {
   const auth = await getPosApiAuthContext({ requireBranchScope: true, requiredPermission: "receipts:view" });
+  await requirePosApiFeature(auth, "core_pos_sales");
   const scope = await requirePosSession();
   if (scope.session.tenant_id !== auth.tenantId || scope.session.branch_id !== auth.branchId) {
     throw new Error("pos_scope_mismatch");
@@ -287,6 +289,8 @@ export async function GET(request: Request) {
       }))
     });
   } catch (error) {
+    const featureError = featureGateFail(error);
+    if (featureError) return featureError;
     const message = error instanceof Error ? error.message : "Unknown error";
     if (message.startsWith("thai_address_source_")) return fail("thai_address_unavailable", "ระบบค้นหาที่อยู่ไทยไม่พร้อมใช้งาน กรุณาลองใหม่", 503);
     if (message === "pos_scope_mismatch") return fail("pos_scope_mismatch", "POS session scope mismatch", 403);
@@ -595,6 +599,8 @@ export async function POST(request: Request) {
 
     return fail("tax_invoice_action_invalid", "Unknown tax invoice action", 422);
   } catch (error) {
+    const featureError = featureGateFail(error);
+    if (featureError) return featureError;
     const message = error instanceof Error ? error.message : "Unknown error";
     if (message === "thai_address_selection_invalid") return fail("thai_address_selection_invalid", "ตำบล/อำเภอ/จังหวัดไม่ตรงกับรหัสไปรษณีย์ที่เลือก", 422);
     if (message.startsWith("thai_address_source_")) return fail("thai_address_unavailable", "ระบบค้นหาที่อยู่ไทยไม่พร้อมใช้งาน กรุณาลองใหม่", 503);
