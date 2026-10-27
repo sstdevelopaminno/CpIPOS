@@ -1,12 +1,12 @@
 import { fail, ok } from "@/lib/http";
-import { PosGuardError, requirePosSessionForShiftClose } from "@/lib/pos-session-guard";
+import { PosGuardError, requirePosSessionForNonSaleRecovery } from "@/lib/pos-session-guard";
 import { loadPosSubscriptionLifecycleGuard } from "@/lib/services/pos-subscription-lifecycle-guard-service";
 
 export const dynamic="force-dynamic";
 
 export async function GET(request: Request){
   try{
-    const scope=await requirePosSessionForShiftClose();
+    const scope=await requirePosSessionForNonSaleRecovery();
     // A normal focus/fallback request can reuse the short-lived (5s) tenant
     // cache. Realtime, push, online reconnection and legacy requests always
     // bypass it so approved payments and access revocations remain immediate.
