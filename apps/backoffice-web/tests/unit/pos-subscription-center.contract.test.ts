@@ -72,7 +72,8 @@ describe("POS subscription center (commercial billing, not cashier payments)", (
     expect(ui).toContain("เปิดใบเสร็จ / พิมพ์ PDF");
     expect(ui).toContain("/api/pos/billing/receipts/");
     expect(ui).toContain("หนึ่งใบต่อหนึ่งรายการรับเงิน");
-    expect(receiptRoute).toContain("requirePosSessionForShiftClose()");\n    expect(receiptRoute).not.toContain("requirePosSession()");
+    expect(receiptRoute).toContain("requirePosSessionForShiftClose()");
+    expect(receiptRoute).not.toContain("requirePosSession()");
     expect(receiptRoute).toContain('.eq("tenant_id", scope.session.tenant_id)');
     expect(receiptRoute).toContain('from("tenant_subscription_receipts")');
     expect(receiptRoute).toContain("renderSubscriptionReceiptHtml");
