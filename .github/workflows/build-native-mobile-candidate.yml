@@ -13,17 +13,17 @@ permissions:
 
 env:
   NATIVE_REPOSITORY: sstdevelopaminno/cpipos-native-pos
-  NATIVE_SOURCE_SHA: 2b4c152e68396e323943df184e5cfdb4bbd73443
-  NATIVE_VERSION_NAME: 2.0.1-rc1
-  NATIVE_VERSION_CODE: "2000001"
-  NATIVE_RELEASE_TAG: native-mobile-v2.0.1-rc1
-  NATIVE_APK_ASSET_NAME: CpIPOS-Native-Mobile-2.0.1-rc1.apk
-  NATIVE_MANIFEST_ASSET_NAME: CpIPOS-Native-Mobile-2.0.1-rc1.manifest.json
+  NATIVE_SOURCE_SHA: caf6eca00fe1f1dad4f6d993543d4591a5292b5b
+  NATIVE_VERSION_NAME: 2.0.1-rc2
+  NATIVE_VERSION_CODE: "2000002"
+  NATIVE_RELEASE_TAG: native-mobile-v2.0.1-rc2
+  NATIVE_APK_ASSET_NAME: CpIPOS-Native-Mobile-2.0.1-rc2.apk
+  NATIVE_MANIFEST_ASSET_NAME: CpIPOS-Native-Mobile-2.0.1-rc2.manifest.json
   ANDROID_SIGNING_CERT_SHA256: 6be0a9aef346a5b47162c8928c5018a01d0e7d81b4eb177bf2fb89922dc2a27a
 
 jobs:
   build-native-mobile-release:
-    name: Build signed Native Mobile 2.0.1-rc1
+    name: Build signed Native Mobile 2.0.1-rc2
     runs-on: ubuntu-latest
     timeout-minutes: 35
 
@@ -98,7 +98,7 @@ jobs:
           ANDROID_RELEASE_KEY_PASSWORD: ${{ secrets.ANDROID_SIGNING_KEY_PASSWORD }}
         run: |
           set -euo pipefail
-          gradle :app:testDebugUnitTest :app:assembleRelease --no-daemon --stacktrace             -PCPIPOS_RELEASE_VERSION_NAME="$NATIVE_VERSION_NAME"             -PCPIPOS_RELEASE_VERSION_CODE="$NATIVE_VERSION_CODE"
+          gradle :app:testDebugUnitTest :app:lintVitalRelease :app:assembleRelease --no-daemon --stacktrace             -PCPIPOS_RELEASE_VERSION_NAME="$NATIVE_VERSION_NAME"             -PCPIPOS_RELEASE_VERSION_CODE="$NATIVE_VERSION_CODE"
 
       - name: Verify and stage signed Native APK
         run: |
@@ -150,7 +150,7 @@ jobs:
       - name: Upload signed Native artifact
         uses: actions/upload-artifact@v4
         with:
-          name: CpIPOS-Native-Mobile-2.0.1-rc1-signed
+          name: CpIPOS-Native-Mobile-2.0.1-rc2-signed
           path: |
             artifacts/${{ env.NATIVE_APK_ASSET_NAME }}
             artifacts/${{ env.NATIVE_MANIFEST_ASSET_NAME }}
