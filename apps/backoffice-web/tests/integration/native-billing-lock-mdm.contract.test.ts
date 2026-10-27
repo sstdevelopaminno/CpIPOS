@@ -17,7 +17,7 @@ describe("Native billing lock and MDM control-plane contract",()=>{
 
   it("keeps billing reachable while subscription access is locked",()=>{
     for(const route of [overview,requests,runtime,receipt]){
-      expect(route).toContain("requirePosSessionForShiftClose");
+      expect(route).toContain("requirePosSessionForNonSaleRecovery");
       expect(route).not.toContain("await requirePosSession()");
     }
     expect(overview).toContain('["owner", "manager"]');
@@ -29,7 +29,7 @@ describe("Native billing lock and MDM control-plane contract",()=>{
 
   it("keeps authenticated MDM heartbeat and acknowledgements alive during package lock",()=>{
     for(const route of [heartbeat,ack]){
-      expect(route).toContain("requirePosSessionForShiftClose");
+      expect(route).toContain("requirePosSessionForNonSaleRecovery");
       expect(route).not.toContain("await requirePosSession()");
     }
     expect(heartbeat).toContain("pending_actions");
