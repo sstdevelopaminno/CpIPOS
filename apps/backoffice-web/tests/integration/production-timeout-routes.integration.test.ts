@@ -144,4 +144,36 @@ describe("production timeout route bounds", () => {
     expect(routeSignal?.aborted).toBe(true);
     expect(mocks.claimPrintJobsStabilized).toHaveBeenCalledTimes(1);
   });
+  it("refuses print claims while a tenant subscription is locked", async () => {
+    mocks.requirePrintAgent.mockResolvedValue({
+      id: "agent-1", tenant_id: "tenant-1", branch_id: "branch-1", device_code: "POS-01"
+    });
+    mocks.loadPosSubscriptionLifecycleGuard.mockResolvedValue({
+      locked: true, exempt: false, lock_reason: "Subscription expired"
+    });
+    const { POST } = await import("@/app/api/print-agent/v1/jobs/claim/route");
+    const response = await POST(new Request("http://localhost/api/print-agent/v1/jobs/claim", {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: "Bearer test" },
+      body: JSON.stringify({ limit: 1 })
+    }));
+    expect(response.status).toBe(423);
+    expect(mocks.claimPrintJobsStabilized).not.toHaveBeenCalled();
+  });
+
+  it("fails closed when subscription authority cannot be reached", async () => {
+    mocks.requirePrintAgent.mockResolvedValue({
+      id: "agent-1", tenant_id: "tenant-1", branch_id: "branch-1", device_code: "POS-01"
+    });
+    mocks.loadPosSubscriptionLifecycleGuard.mockResolvedValue(null);
+    const { POST } = await import("@/app/api/print-agent/v1/jobs/claim/route");
+    const response = await POST(new Request("http://localhost/api/print-agent/v1/jobs/claim", {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: "Bearer test" },
+      body: JSON.stringify({ limit: 1 })
+    }));
+    expect(response.status).toBe(503);
+    expect(mocks.claimPrintJobsStabilized).not.toHaveBeenCalled();
+  });
+
 });
