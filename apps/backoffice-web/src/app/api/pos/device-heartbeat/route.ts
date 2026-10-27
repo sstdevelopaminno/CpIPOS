@@ -12,7 +12,7 @@ import {
 } from "@/lib/device-mdm-diagnostics";
 import type { PendingDeviceAction } from "@/lib/device-commands";
 import { fail, ok } from "@/lib/http";
-import { PosGuardError, requirePosSessionForShiftClose } from "@/lib/pos-session-guard";
+import { PosGuardError, requirePosSessionForNonSaleRecovery } from "@/lib/pos-session-guard";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
 
 type DeviceHeartbeatPayload = Partial<Omit<DeviceMdmHealthInput, "identity">> & {
@@ -104,7 +104,7 @@ function mapDeviceHeartbeatError(error: unknown) {
 
 export async function POST(req: Request) {
   try {
-    const scope = await requirePosSessionForShiftClose();
+    const scope = await requirePosSessionForNonSaleRecovery();
     const body = (await req.json().catch(() => ({}))) as DeviceHeartbeatPayload;
     const bodyIdentity = isRecord(body.identity) ? body.identity : {};
 
