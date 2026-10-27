@@ -52,6 +52,18 @@ describe("Native billing lock and MDM control-plane contract",()=>{
     expect(createIndex).toBeGreaterThan(accessIndex);
   });
 
+  it("rejects expired and inactive POS sessions on billing and MDM recovery routes",()=>{
+    const start=guard.indexOf("export async function requirePosSessionForNonSaleRecovery()");
+    const end=guard.indexOf("export async function requirePosSessionForShiftClose",start);
+    expect(start).toBeGreaterThan(0);
+    expect(end).toBeGreaterThan(start);
+    const recoveryGuard=guard.slice(start,end);
+    expect(recoveryGuard).toContain("assertActiveSession(session)");
+    expect(recoveryGuard).not.toContain("assertSubscriptionAllowsSales");
+    expect(guard).toContain('session.status !== "active"');
+    expect(guard).toContain("session.expires_at <= new Date().toISOString()");
+  });
+
   it("does not weaken normal sales guards",()=>{
     expect(guard).toContain("export async function requirePosSession()");
     expect(guard).toContain("export async function requireActiveShift");
