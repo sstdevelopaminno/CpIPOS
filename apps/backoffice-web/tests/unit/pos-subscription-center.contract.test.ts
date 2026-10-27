@@ -22,7 +22,8 @@ describe("POS subscription center (commercial billing, not cashier payments)", (
     expect(page).toContain("PosHelpCenter");
     expect(packagePage).toContain("requirePosSession()");
     expect(packagePage).toContain("PosSubscriptionCenter");
-    expect(overview).toContain("requirePosSessionForShiftClose()");\n    expect(overview).not.toContain("requirePosSession()");
+    expect(overview).toContain("requirePosSessionForShiftClose()");
+    expect(overview).not.toContain("requirePosSession()");
     expect(snapshot).toContain("getPrimarySupabaseServiceClient()");
     expect(snapshot).toContain('from("it_communication_settings")');
     expect(snapshot).toContain('from("tenant_subscription_payment_requests")');
