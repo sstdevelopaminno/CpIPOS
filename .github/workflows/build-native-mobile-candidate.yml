@@ -157,7 +157,7 @@ jobs:
           retention-days: 30
           if-no-files-found: error
 
-      - name: Publish stable Native Mobile release
+      - name: Publish signed Native Mobile prerelease
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -166,7 +166,8 @@ jobs:
           apk="artifacts/$NATIVE_APK_ASSET_NAME"
           manifest="artifacts/$NATIVE_MANIFEST_ASSET_NAME"
           if gh release view "$tag" >/dev/null 2>&1; then
-            echo "::error::Candidate release already exists; never overwrite immutable test APKs."\n            exit 1
+            echo "::error::Candidate release already exists; never overwrite immutable test APKs."
+            exit 1
           else
             gh release create "$tag" "$apk" "$manifest" --prerelease               --target "$GITHUB_SHA"               --title "CpIPOS Native Mobile $NATIVE_VERSION_NAME"               --notes "Signed Native Android POS for phones. Android 8.0+ (API 26). Source is pinned to cpipos-native-pos $NATIVE_SOURCE_SHA. Uses the existing CpIPOS stable Android signing identity."
           fi
