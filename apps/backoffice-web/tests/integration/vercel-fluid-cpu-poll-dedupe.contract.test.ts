@@ -30,7 +30,8 @@ describe("Hobby Fluid CPU: POS request deduplication without feature reductions"
     expect(billing).toContain('const forceFresh=reason!=="focus" && reason!=="fallback";');
     expect(billing).toContain("loadPosSubscriptionLifecycleGuard(scope.session.tenant_id,{forceFresh})");
     expect(billing).toContain('response.headers.set("cache-control","private, no-store")');
-    expect(billing).toContain("await requirePosSessionForShiftClose()");\n    expect(billing).not.toContain("await requirePosSession()");
+    expect(billing).toContain("await requirePosSessionForShiftClose()");
+    expect(billing).not.toContain("await requirePosSession()");
   });
 
   it("prevents concurrent print claims on focus while preserving fast and idle polling", () => {
