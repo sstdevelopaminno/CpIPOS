@@ -735,6 +735,22 @@ export async function requirePosSession(): Promise<PosSessionScope> {
   };
 }
 
+/** Allows authenticated billing and device-recovery operations while subscription
+ * sales access is locked, without accepting expired or inactive POS sessions.
+ * Unlike shift close, these routes must require fresh user authentication.
+ */
+export async function requirePosSessionForNonSaleRecovery(): Promise<PosSessionScope> {
+  const session = await resolveSessionFromCookies();
+  assertActiveSession(session);
+  const scopedSession = await resolveScopeSession(session);
+  const extras = await loadScopeExtras(scopedSession);
+  return {
+    session: scopedSession,
+    ...extras,
+    permissions: computePermissions(scopedSession.role)
+  };
+}
+
 export async function requirePosSessionForShiftClose(): Promise<PosSessionScope> {
   const session = await resolveSessionFromCookies();
   if (session.status === "revoked") {

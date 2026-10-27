@@ -1,12 +1,12 @@
 import { fail, ok } from "@/lib/http";
-import { PosGuardError, requirePosSession } from "@/lib/pos-session-guard";
+import { PosGuardError, requirePosSessionForNonSaleRecovery } from "@/lib/pos-session-guard";
 import { loadPosSubscriptionCenter } from "@/lib/services/pos-subscription-center-service";
 
 export const dynamic = "force-dynamic";
 
 export async function GET() {
   try {
-    const scope = await requirePosSession();
+    const scope = await requirePosSessionForNonSaleRecovery();
     if (!["owner", "manager"].includes(scope.session.role)) {
       return fail("forbidden", "Store owner or manager access required.", 403);
     }

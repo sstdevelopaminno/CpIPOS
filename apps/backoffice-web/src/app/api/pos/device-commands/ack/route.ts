@@ -1,6 +1,6 @@
 import { isDeviceCommandType, UNSUPPORTED_DEVICE_COMMAND_TYPES } from "@/lib/device-commands";
 import { fail, ok } from "@/lib/http";
-import { PosGuardError, requirePosSession } from "@/lib/pos-session-guard";
+import { PosGuardError, requirePosSessionForNonSaleRecovery } from "@/lib/pos-session-guard";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
 
 export const dynamic = "force-dynamic";
@@ -32,7 +32,7 @@ function jsonRecord(value: unknown): Record<string, unknown> {
 
 export async function POST(request: Request) {
   try {
-    const scope = await requirePosSession();
+    const scope = await requirePosSessionForNonSaleRecovery();
     const session = scope.session;
     const supabase = getSupabaseServiceClient();
     const body = (await request.json().catch(() => null)) as AckBody | null;

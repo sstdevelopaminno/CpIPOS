@@ -1,6 +1,6 @@
 import { appendAuditLog } from "@/lib/audit-log";
 import { fail, ok } from "@/lib/http";
-import { PosGuardError, requirePosSession } from "@/lib/pos-session-guard";
+import { PosGuardError, requirePosSessionForNonSaleRecovery } from "@/lib/pos-session-guard";
 import { loadPosSubscriptionCenter, SUBSCRIPTION_SLIP_BUCKET } from "@/lib/services/pos-subscription-center-service";
 import { getPrimarySupabaseServiceClient } from "@/lib/supabase-admin";
 import { dispatchSupportPush } from "@/lib/services/support-chat/support-push";
@@ -29,7 +29,7 @@ function actualMime(buffer: Buffer): string | null {
 
 export async function POST(request: Request) {
   try {
-    const scope = await requirePosSession();
+    const scope = await requirePosSessionForNonSaleRecovery();
     if (scope.session.role !== "owner") {
       return fail("owner_required","Only the store owner can submit subscription requests.",403);
     }

@@ -22,7 +22,8 @@ describe("POS subscription center (commercial billing, not cashier payments)", (
     expect(page).toContain("PosHelpCenter");
     expect(packagePage).toContain("requirePosSession()");
     expect(packagePage).toContain("PosSubscriptionCenter");
-    expect(overview).toContain("requirePosSession()");
+    expect(overview).toContain("requirePosSessionForNonSaleRecovery()");
+    expect(overview).not.toContain("requirePosSession()");
     expect(snapshot).toContain("getPrimarySupabaseServiceClient()");
     expect(snapshot).toContain('from("it_communication_settings")');
     expect(snapshot).toContain('from("tenant_subscription_payment_requests")');
@@ -71,7 +72,8 @@ describe("POS subscription center (commercial billing, not cashier payments)", (
     expect(ui).toContain("เปิดใบเสร็จ / พิมพ์ PDF");
     expect(ui).toContain("/api/pos/billing/receipts/");
     expect(ui).toContain("หนึ่งใบต่อหนึ่งรายการรับเงิน");
-    expect(receiptRoute).toContain("requirePosSession()");
+    expect(receiptRoute).toContain("requirePosSessionForNonSaleRecovery()");
+    expect(receiptRoute).not.toContain("requirePosSession()");
     expect(receiptRoute).toContain('.eq("tenant_id", scope.session.tenant_id)');
     expect(receiptRoute).toContain('from("tenant_subscription_receipts")');
     expect(receiptRoute).toContain("renderSubscriptionReceiptHtml");
