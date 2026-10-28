@@ -13,17 +13,17 @@ permissions:
 
 env:
   NATIVE_REPOSITORY: sstdevelopaminno/cpipos-native-pos
-  NATIVE_SOURCE_SHA: fe6767dad2d9927b9e0b37b14937312fa3db8c5a
-  NATIVE_VERSION_NAME: 2.0.1-rc3
-  NATIVE_VERSION_CODE: "2000003"
-  NATIVE_RELEASE_TAG: native-mobile-v2.0.1-rc3
-  NATIVE_APK_ASSET_NAME: CpIPOS-Native-Mobile-2.0.1-rc3.apk
-  NATIVE_MANIFEST_ASSET_NAME: CpIPOS-Native-Mobile-2.0.1-rc3.manifest.json
+  NATIVE_SOURCE_SHA: 7aebe84db0ad82ff3dab6284429b56c88443a041
+  NATIVE_VERSION_NAME: 2.0.1-rc4
+  NATIVE_VERSION_CODE: "2000004"
+  NATIVE_RELEASE_TAG: native-mobile-v2.0.1-rc4
+  NATIVE_APK_ASSET_NAME: CpIPOS-Native-Mobile-2.0.1-rc4.apk
+  NATIVE_MANIFEST_ASSET_NAME: CpIPOS-Native-Mobile-2.0.1-rc4.manifest.json
   ANDROID_SIGNING_CERT_SHA256: 6be0a9aef346a5b47162c8928c5018a01d0e7d81b4eb177bf2fb89922dc2a27a
 
 jobs:
   build-native-mobile-release:
-    name: Build signed Native Mobile 2.0.1-rc3
+    name: Build signed Native Mobile 2.0.1-rc4
     runs-on: ubuntu-latest
     timeout-minutes: 35
 
@@ -150,7 +150,7 @@ jobs:
       - name: Upload signed Native artifact
         uses: actions/upload-artifact@v4
         with:
-          name: CpIPOS-Native-Mobile-2.0.1-rc3-signed
+          name: CpIPOS-Native-Mobile-2.0.1-rc4-signed
           path: |
             artifacts/${{ env.NATIVE_APK_ASSET_NAME }}
             artifacts/${{ env.NATIVE_MANIFEST_ASSET_NAME }}
