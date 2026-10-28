@@ -103,35 +103,25 @@ Primary migrations live only in:
 supabase/migrations/
 ```
 
-### CpiPOS-002 โ€” Trial Data Plane
+### CpiPOS-002 — RETIRED Trial Data Plane
 
-CpiPOS-002 stores selected high-churn Trial business data:
+CpiPOS-002 is **not an active runtime target** as of 2026-10-21. Trial-period subscriptions remain on CpiPOS-001.
 
-- product/category catalog;
-- ingredients/recipes/inventory movements;
-- orders/order items/payments;
-- dine-in tables/table sessions/Table QR business state;
-- branch inventory/tax business settings used by those transaction paths.
+- Do not enable or restore Trial routing from this README.
+- Do not apply new Production migrations to CpiPOS-002.
+- Treat `supabase/trial-data-plane/migrations/` as historical compatibility/audit material unless an explicit, separately approved recovery task says otherwise.
+- Any stale tenant with `data_home=trial` must fail closed and be reviewed by IT; never silently route or copy Production writes to CpiPOS-002.
+- Clients must never choose a database or receive service-role credentials.
 
-Trial migrations live only in:
-
-```text
-supabase/trial-data-plane/migrations/
-```
-
-Never put Trial migrations into the Primary migration folder.
-
-Clients never choose a database. `apps/backoffice-web/src/lib/tenant-data-router.ts` resolves the server data plane from trusted CpiPOS-001 lifecycle state. `tenant_data_lifecycle.data_home` is authoritative; `desired_data_home` is not a routing signal.
-
-If a tenant is marked `data_home=trial` but Trial routing or credentials are unavailable, the request fails closed. Do not silently fall back to Primary because that can create split-brain writes.
+Historical design notes remain in `docs/CPIPOS-TRIAL-DATA-PLANE-2026-08-08.md` for audit only.
 
 ## Security model
 
 CpIPOS is tenant-scoped and server-trusted.
 
 - Never trust client-provided tenant, branch, role, device or permission scope.
-- Keep Primary and Trial service-role credentials server-only.
-- Browser/mobile clients call CpIPOS APIs; they do not receive or select CpiPOS-002 credentials.
+- Keep CpiPOS-001 service-role credentials server-only.
+- Browser/mobile clients call CpIPOS APIs; they never receive service-role credentials or select a database.
 - RLS remains enabled for client-reachable or server-only protected tables as designed.
 - Privileged POS transaction RPCs are service-role only.
 - Device, branch, POS-session, shift, feature and permission gates remain authoritative.
@@ -154,20 +144,18 @@ Rules:
 
 - `create_pos_order_tx` is the authoritative atomic order path.
 - `complete_pos_payment_tx` is the authoritative atomic payment path.
-- `create_stock_adjustment_tx` is the atomic stock-adjustment path on the Trial data plane.
+- `create_stock_adjustment_tx` references the historical Trial architecture and must not be treated as authorization to reactivate CpiPOS-002; current Production changes must follow CpiPOS-001 source-of-truth rules.
 - Table QR ordering uses a transactional RPC.
 - Retry order/payment mutations only with the same idempotency/request key after a timeout.
 - Negative-stock behavior is branch policy, not a generic bypass.
 - Dine-in/takeaway order-item price is enforced at the database boundary against the active catalog price; a modified client `unit_price` is rejected.
 - Delivery prices may differ from catalog only through the reviewed server-resolved channel pricing flow.
 
-## Cross-plane INET NOPS rule
+## INET NOPS rule
 
-INET provider intent/callback records remain CpiPOS-001 because provider callbacks arrive without a trusted POS session/tenant route.
+INET provider intent/callback records remain on CpiPOS-001. Provider credentials/tokens remain server-only, dynamic provider URLs must be HTTPS and hostname-allowlisted, and duplicate callbacks remain idempotent.
 
-`pos_payment_intents.order_id` is therefore a cross-plane UUID, not a same-database FK. Database trigger validation checks that order/tenant/branch exists either as a Primary order or in the server-only `tenant_data_object_routes` registry for a Trial order.
-
-Provider credentials/tokens remain server-only. Dynamic provider URLs must be HTTPS and hostname-allowlisted. Duplicate callbacks remain idempotent.
+Any cross-plane/Trial routing language in older documentation is historical only and must not be used to reactivate CpiPOS-002.
 
 ## Required production environment
 
@@ -183,15 +171,7 @@ POS_SESSION_HANDOFF_SECRET=
 TABLE_QR_SIGNING_SECRET=
 ```
 
-Trial data plane:
-
-```env
-TRIAL_SUPABASE_URL=https://kawenyvpentwgugtzqec.supabase.co
-TRIAL_SUPABASE_SERVICE_ROLE_KEY=
-TRIAL_DATA_ROUTING_ENABLED=false
-```
-
-`TRIAL_SUPABASE_SERVICE_ROLE_KEY` must never be committed, logged, placed in `NEXT_PUBLIC_*`, or sent to a browser. Keep `TRIAL_DATA_ROUTING_ENABLED=false` until the production server secret and final canary are verified.
+Retired Trial compatibility variables may still exist in historical source/configuration, but they are not an active Production requirement. Keep `TRIAL_DATA_ROUTING_ENABLED=false`; do not configure or expose CpiPOS-002 service-role credentials for active runtime use.
 
 **Approved 2026-10-08 no-Upstash option:** Production can use the built-in per-process login limiter without adding Redis:
 
@@ -223,13 +203,7 @@ For Primary changes:
 4. mirror the exact migration/version in `supabase/migrations/`;
 5. run Primary schema drift and CI.
 
-For Trial changes:
-
-1. inspect CpiPOS-002 state;
-2. create an additive Trial migration;
-3. apply and verify security/transaction invariants;
-4. mirror the exact migration/version in `supabase/trial-data-plane/migrations/`;
-5. run `schema:drift:trial` and CI.
+CpiPOS-002 is retired. Do not create or apply new Production Trial migrations unless a separately approved recovery task explicitly reopens that data plane.
 
 Do not blindly replay historical migrations on production projects.
 
@@ -244,7 +218,7 @@ Expected gates:
 - Web lint
 - Web tests
 - CpiPOS-001 schema drift
-- CpiPOS-002 schema drift
+- legacy CpiPOS-002 schema-drift check, where still present, is audit-only and does not authorize Trial runtime deployment
 - Web production build
 - Native Android architecture/version validation
 - Native Android APK build
@@ -262,22 +236,14 @@ corepack pnpm --filter backoffice-web build
 
 The retired `pos-mobile-web` package and its `*:mobile` pnpm scripts must not be reintroduced. Mobile customer distribution is APK-first through `/download/mobile`.
 
-## Trial cutover discipline
+## Retired Trial data-plane discipline
 
-Until the server-only CpiPOS-002 credential is confirmed in Vercel, current Trial tenants remain authoritative on Primary even if a verified snapshot exists on CpiPOS-002.
+CpiPOS-002 cutover is cancelled/retired as of 2026-10-21. Current Trial-period tenants remain on CpiPOS-001.
 
-Cutover sequence:
-
-1. keep `data_home=primary` while configuring server Trial credentials;
-2. run final delta copy and reconciliation;
-3. refresh object-route registry;
-4. canary `TEST-TH-003` first;
-5. verify session/shift, catalog, inventory, order, payment, receipt/print, Table QR, provider payment path where enabled, retries and outage fail-closed behavior;
-6. then cut over `BBQ-TH-002`;
-7. keep `NDL-TH-001` Primary;
-8. retain an explicit cutback/reconciliation plan.
-
-Detailed evidence/runbook: `docs/CPIPOS-TRIAL-DATA-PLANE-2026-08-08.md`.
+- Do not canary or cut tenants over to CpiPOS-002.
+- Keep any stale `data_home=trial` condition fail-closed and send it for IT review.
+- Do not add CpiPOS-002 credentials to active Production configuration.
+- Historical evidence/runbook: `docs/CPIPOS-TRIAL-DATA-PLANE-2026-08-08.md` (archive only).
 
 ## Performance guidance
 
