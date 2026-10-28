@@ -8,10 +8,10 @@ const source = readFileSync(
 );
 
 describe("POS maintenance and emergency broadcast contract", () => {
-  it("coalesces broadcast refreshes and keeps the alert user-dismissible", () => {
+  it("refreshes emergency broadcasts every 30s while visible, coalesces requests and allows dismissal", () => {
     expect(source).toContain("broadcastRequestRef");
     expect(source).toContain("if (broadcastRequestRef.current) return broadcastRequestRef.current");
-    expect(source).toContain("BROADCAST_REFRESH_MS = 120 * 1000");
+    expect(source).toContain("BROADCAST_REFRESH_MS = 30 * 1000");
     expect(source).toContain('document.visibilityState === "hidden"');
     expect(source).toContain("dismissedBroadcastKey");
     expect(source).toContain("setBroadcastDismissed(true)");

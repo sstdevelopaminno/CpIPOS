@@ -3,11 +3,12 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { MouseEvent, useEffect, useState } from "react";
+import type {CSSProperties} from "react";
 import { PackageLockDialog } from "@/components/pos-preview/package-lock-dialog";
 import { ItMenuLockDialog } from "@/components/pos-preview/it-menu-lock-dialog";
 import { PosStaffMenu } from "@/components/pos-preview/pos-staff-menu";
 import { PosSupportPushBridge } from "@/components/pos-preview/pos-support-push-control";
-import { isPosMenuEnabled } from "@/lib/pos-menu-policy";
+import { isCustomPosMenuVisible, isPosMenuEnabled } from "@/lib/pos-menu-policy";
 import { t, type Language } from "@/lib/i18n";
 import {
   POS_MENU_LOCK_TITLE_EN,
@@ -58,6 +59,10 @@ export function PosShellSidebar({ lang, settingsLabel, placement }: Props) {
   const [sessionRole, setSessionRole] = useState<PosRole | null>(null);
   const [enabledFeatures, setEnabledFeatures] = useState<Record<string, boolean> | null>(null);
   const [menuPolicy, setMenuPolicy] = useState<Record<string, boolean>>({});
+  const [isCustom, setIsCustom] = useState(false);
+  const [opticalMenuAllowed,setOpticalMenuAllowed] = useState(false);
+  const [customBrand,setCustomBrand] = useState<{system_name:string;accent_color:string;sidebar_color:string;logo_url:string|null}|null>(null);
+  const [policyReady, setPolicyReady] = useState(false);
   const [packageLockOpen, setPackageLockOpen] = useState(false);
   const [itLockedMenu, setItLockedMenu] = useState<string | null>(null);
   const [logoutModalOpen, setLogoutModalOpen] = useState(false);
@@ -119,13 +124,16 @@ export function PosShellSidebar({ lang, settingsLabel, placement }: Props) {
     async function loadFeatures() {
       try {
         const response = await fetch("/api/pos/features", { cache: "no-store" });
-        const body = (await response.json().catch(() => null)) as { data?: { features?: Record<string, boolean>; menu_policy?: Record<string, boolean> } | null } | null;
+        const body = (await response.json().catch(() => null)) as { data?: { features?: Record<string, boolean>; menu_policy?: Record<string, boolean>; is_custom?: boolean; is_internal_test_full?:boolean; sales_modes?:{optical_retail?:boolean} } | null } | null;
         if (!cancelled && response.ok) {
           setEnabledFeatures(body?.data?.features ?? {});
           setMenuPolicy(body?.data?.menu_policy ?? {});
+          setIsCustom(body?.data?.is_custom === true);
+          setOpticalMenuAllowed(Boolean((body?.data?.is_custom || body?.data?.is_internal_test_full) && body?.data?.sales_modes?.optical_retail === true));
+          setPolicyReady(true);
         }
       } catch {
-        if (!cancelled) setEnabledFeatures({});
+        if (!cancelled){setEnabledFeatures({});setOpticalMenuAllowed(false);}
       }
     }
     // Refresh the IT menu policy when staff returns to this tab after an IT
@@ -148,6 +156,21 @@ export function PosShellSidebar({ lang, settingsLabel, placement }: Props) {
       document.removeEventListener("visibilitychange", onVisibility);
     };
   }, []);
+
+  useEffect(()=>{
+    if(!isCustom){setCustomBrand(null);return;}
+    let disposed=false;
+    async function refreshBrand(){
+      try{
+        const result=await fetch("/api/pos/settings/custom-branding",{cache:"no-store"});
+        const json=await result.json();
+        if(!disposed)setCustomBrand(result.ok&&json.data?.enabled?json.data.branding:null);
+      }catch{if(!disposed)setCustomBrand(null);}
+    }
+    void refreshBrand();
+    window.addEventListener("cpipos-custom-branding-updated",refreshBrand);
+    return()=>{disposed=true;window.removeEventListener("cpipos-custom-branding-updated",refreshBrand);};
+  },[isCustom]);
 
   function handleSettingsNavigate(event: MouseEvent<HTMLAnchorElement>) {
     if (
@@ -202,6 +225,11 @@ export function PosShellSidebar({ lang, settingsLabel, placement }: Props) {
 
   return (
     <aside
+      data-custom-branded={isCustom&&customBrand?"true":undefined}
+      style={isCustom&&customBrand?({
+        "--pos-custom-accent":customBrand.accent_color,
+        backgroundImage:`linear-gradient(185deg, ${customBrand.sidebar_color}, #08152B)`
+      } as CSSProperties):undefined}
       className={`pos-shell-sidebar pos-shell-sidebar--${placement} hidden min-h-0 shrink-0 overflow-hidden border-slate-900/40 bg-[radial-gradient(circle_at_80%_-20%,rgba(56,189,248,0.28),transparent_45%),radial-gradient(circle_at_20%_120%,rgba(37,99,235,0.26),transparent_40%),linear-gradient(185deg,#07142c,#081c3b_45%,#071731)] p-3 text-white md:flex ${
         isHorizontal
           ? "h-[78px] w-full flex-row items-center gap-3 border-r-0"
@@ -220,6 +248,11 @@ export function PosShellSidebar({ lang, settingsLabel, placement }: Props) {
             className="pos-shell-sidebar__logo-mark"
           />
         </div>
+        {isCustom&&customBrand&&(!collapsed||isHorizontal)?<div className="mt-1 flex items-center gap-2 rounded-lg bg-white/5 px-2 py-1">
+          {customBrand.logo_url?<img src={customBrand.logo_url} alt="โลโก้ร้าน" className="h-9 w-9 shrink-0 rounded bg-white object-contain"/>:null}
+          <div className="min-w-0"><strong className="block truncate text-xs">{customBrand.system_name}</strong>
+            <span className="block text-[10px] text-slate-300">Powered by CpiPOS</span></div>
+        </div>:null}
       </div>
 
       {!isHorizontal ? (
@@ -240,7 +273,7 @@ export function PosShellSidebar({ lang, settingsLabel, placement }: Props) {
       ) : null}
 
       <div className={`${isHorizontal ? "min-w-0 flex-1 overflow-hidden" : "pos-shell-sidebar__menu-scroll mt-2 min-h-0 flex-1 overflow-y-auto overscroll-contain"}`} suppressHydrationWarning>
-        <div className={`${isHorizontal ? "flex min-w-0 items-center gap-1" : "flex min-h-full flex-col justify-start"}`}>
+        <div className={`${isHorizontal ? "flex min-w-0 items-center gap-1" : "flex min-h-full flex-col justify-start"}`} style={policyReady ? undefined : { visibility: "hidden" }}>
           <PosStaffMenu
             lang={lang}
             collapsed={isHorizontal ? false : collapsed}
@@ -248,11 +281,13 @@ export function PosShellSidebar({ lang, settingsLabel, placement }: Props) {
             sessionRole={sessionRole}
             enabledFeatures={enabledFeatures}
             menuPolicy={menuPolicy}
+            isCustom={isCustom}
+            opticalMenuAllowed={opticalMenuAllowed}
             onLockedFeature={() => setPackageLockOpen(true)}
             onLockedMenu={setItLockedMenu}
           />
 
-          {showAdvancedMenus ? (
+          {showAdvancedMenus && (!isCustom || isCustomPosMenuVisible("main.settings", menuPolicy, true)) ? (
             <Link
               href="/preview/pos/settings"
               onClick={handleSettingsNavigate}

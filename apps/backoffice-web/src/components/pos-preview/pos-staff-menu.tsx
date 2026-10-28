@@ -4,10 +4,10 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { MouseEvent, useMemo } from "react";
 import { t, type Language } from "@/lib/i18n";
-import { isPosMenuEnabled, posMenuKeyForRoute } from "@/lib/pos-menu-policy";
+import { isCustomPosMenuVisible, isPosMenuEnabled, posMenuKeyForRoute } from "@/lib/pos-menu-policy";
 import { POS_MENU_LOCK_TITLE_EN, POS_MENU_LOCK_TITLE_TH, featureForPosRoute } from "@/lib/pos-feature-map";
 
-type IconName = "sales" | "list" | "kitchen" | "shift" | "more" | "payment" | "ai";
+type IconName = "sales" | "list" | "kitchen" | "shift" | "more" | "payment" | "ai" | "glasses" | "work_orders";
 type PosRole = "owner" | "manager" | "staff" | "accountant" | "kitchen";
 type MenuKey = "pos_menu_sales" | "pos_menu_sales_list" | "pos_menu_shift";
 type MenuDef = {
@@ -30,6 +30,8 @@ function MenuIcon({ name }: { name: IconName }) {
   if (name === "list") return <svg {...common}><line x1="9" y1="7" x2="20" y2="7" /><line x1="9" y1="12" x2="20" y2="12" /><line x1="9" y1="17" x2="20" y2="17" /><circle cx="5" cy="7" r="1" /><circle cx="5" cy="12" r="1" /><circle cx="5" cy="17" r="1" /></svg>;
   if (name === "kitchen") return <svg {...common}><path d="M4 19h16" /><path d="M6 19v-2a6 6 0 0 1 12 0v2" /><path d="M12 7V4" /><path d="M9 5.5 8 3" /><path d="m15 5.5 1-2.5" /><path d="M5 10h14" /></svg>;
   if (name === "shift") return <svg {...common}><circle cx="12" cy="12" r="8" /><line x1="12" y1="8" x2="12" y2="12" /><line x1="12" y1="12" x2="15" y2="14" /></svg>;
+  if (name === "glasses") return <svg {...common}><circle cx="6.5" cy="14" r="4" /><circle cx="17.5" cy="14" r="4" /><path d="M10.5 14a1.5 1.5 0 0 1 3 0M2 12 3 7h4m10 0h4l1 5" /></svg>;
+  if (name === "work_orders") return <svg {...common}><rect x="4" y="4" width="16" height="17" rx="2" /><path d="M8 2h8v4H8zM8 11h8m-8 4h8m-8 4h5" /></svg>;
   if (name === "more") return <svg {...common}><rect x="4" y="4" width="7" height="7" rx="1.5" /><rect x="13" y="4" width="7" height="7" rx="1.5" /><rect x="4" y="13" width="7" height="7" rx="1.5" /><rect x="13" y="13" width="7" height="7" rx="1.5" /></svg>;
   if (name === "payment") return <svg {...common}><rect x="3" y="6" width="18" height="12" rx="2" /><line x1="3" y1="10" x2="21" y2="10" /><path d="M7 15h3" /><path d="M15 15h2" /></svg>;
   return <svg {...common}><path d="M12 3l1.2 3.1L16 7.3l-2.8 1.2L12 12l-1.2-3.5L8 7.3l2.8-1.2L12 3Z" /><path d="M5 13l.8 2.2L8 16l-2.2.8L5 19l-.8-2.2L2 16l2.2-.8L5 13Z" /><path d="M18 12l.9 2.4L21 15.3l-2.1.9L18 19l-.9-2.8-2.1-.9 2.1-.9L18 12Z" /></svg>;
@@ -39,7 +41,9 @@ const MENU_DEFS: MenuDef[] = [
   { key: "pos_menu_sales", href: "/preview/pos", icon: "sales", roles: ["owner", "manager", "staff"], feature: featureForPosRoute("/preview/pos") },
   { key: "pos_menu_sales_list", href: "/preview/pos/sales-list", icon: "list", roles: ["owner", "manager", "staff"], feature: featureForPosRoute("/preview/pos/sales-list") },
   { key: null, labelTh: "ครัว", labelEn: "Kitchen", href: "/preview/pos/kitchen", icon: "kitchen", roles: ["owner", "manager", "staff", "kitchen"], feature: null },
-  { key: "pos_menu_shift", href: "/preview/pos/shift", icon: "shift", roles: ["owner", "manager", "staff"], feature: featureForPosRoute("/preview/pos/shift") }
+  { key: "pos_menu_shift", href: "/preview/pos/shift", icon: "shift", roles: ["owner", "manager", "staff"], feature: featureForPosRoute("/preview/pos/shift") },
+  { key:null,labelTh:"ลูกค้าแว่นตา",labelEn:"Optical customers",href:"/preview/pos/optical/customers",icon:"glasses",roles:["owner","manager","staff"],feature:null },
+  { key:null,labelTh:"ใบสั่งงาน",labelEn:"Work orders",href:"/preview/pos/optical/work-orders",icon:"work_orders",roles:["owner","manager","staff"],feature:null }
 ];
 
 const MORE_CHILD_ROUTES = [
@@ -63,7 +67,9 @@ function resolveMenuRole(role: PosRole | null): PosRole {
 
 function labelFor(item: MenuDef, lang: Language) {
   if (item.key) return t(lang, item.key);
-  return lang === "th" ? item.labelTh ?? "ครัว" : item.labelEn ?? "Kitchen";
+  if(item.href==="/preview/pos/optical/customers")return lang==="lo"?"ລູກຄ້າແວ່ນຕາ":lang==="en"?"Optical customers":"ลูกค้าแว่นตา";
+  if(item.href==="/preview/pos/optical/work-orders")return lang==="lo"?"ໃບສັ່ງງານ":lang==="en"?"Work orders":"ใบสั่งงาน";
+  return lang === "lo" ? "ເຮືອນຄົວ" : lang === "th" ? item.labelTh ?? "ครัว" : item.labelEn ?? "Kitchen";
 }
 
 function entryClass(args: { active: boolean; locked: boolean; horizontal: boolean; collapsed: boolean; accent?: boolean }) {
@@ -85,21 +91,26 @@ function entryClass(args: { active: boolean; locked: boolean; horizontal: boolea
   return `group relative inline-flex min-h-[42px] items-center text-[13px] font-semibold leading-tight transition ${layout} ${state}`;
 }
 
-export function PosStaffMenu({ lang, collapsed, orientation = "vertical", sessionRole, enabledFeatures, menuPolicy, onLockedFeature, onLockedMenu }: {
+export function PosStaffMenu({ lang, collapsed, orientation = "vertical", sessionRole, enabledFeatures, menuPolicy, isCustom = false, opticalMenuAllowed = false, onLockedFeature, onLockedMenu }: {
   lang: Language;
   collapsed: boolean;
   orientation?: "vertical" | "horizontal";
   sessionRole: PosRole | null;
   enabledFeatures: Record<string, boolean> | null;
   menuPolicy: Record<string, boolean>;
+  isCustom?: boolean;
+  opticalMenuAllowed?:boolean;
   onLockedFeature: () => void;
   onLockedMenu: (menuLabel: string) => void;
 }) {
   const pathname = usePathname();
   const effectiveRole = resolveMenuRole(sessionRole);
   const menuItems = useMemo(
-    () => MENU_DEFS.map((item) => ({ ...item, label: labelFor(item, lang) })).filter((item) => item.roles.includes(effectiveRole)),
-    [effectiveRole, lang]
+     () => MENU_DEFS.map((item) => ({ ...item, label: labelFor(item, lang) })).filter((item) =>
+      item.roles.includes(effectiveRole) &&
+      (!item.href.startsWith("/preview/pos/optical/") || opticalMenuAllowed) &&
+      (!isCustom || isCustomPosMenuVisible(posMenuKeyForRoute(item.href) ?? "", menuPolicy, true))),
+    [effectiveRole, lang, isCustom, menuPolicy, opticalMenuAllowed]
   );
   const isHorizontal = orientation === "horizontal";
   const aiVisible = sessionRole === "owner" || sessionRole === "manager";
@@ -110,7 +121,7 @@ export function PosStaffMenu({ lang, collapsed, orientation = "vertical", sessio
   const moreVisible = effectiveRole === "owner" || effectiveRole === "manager";
   const morePolicyLocked = !isPosMenuEnabled("main.more", menuPolicy);
   const isMoreActive = pathname === "/preview/pos/more" || MORE_CHILD_ROUTES.some((route) => pathname === route || pathname.startsWith(route + "/"));
-  const billingLabel = lang === "th" ? "ชำระแพ็กเกจ" : "Package Payment";
+  const billingLabel = lang === "lo" ? "ຊຳລະຄ່າແພັກເກດ" : lang === "th" ? "ชำระแพ็กเกจ" : "Package Payment";
   const billingPolicyLocked = !isPosMenuEnabled("main.package_payment", menuPolicy);
 
   function handleNavigate(event: MouseEvent<HTMLAnchorElement>, href: string) {
@@ -128,15 +139,17 @@ export function PosStaffMenu({ lang, collapsed, orientation = "vertical", sessio
       {menuItems.map((item) => {
         const active = pathname === item.href;
         const menuLocked = !isPosMenuEnabled(posMenuKeyForRoute(item.href) ?? "", menuPolicy);
-        const featureLocked = Boolean(enabledFeatures !== null && item.feature && enabledFeatures?.[item.feature] === false);
+        const opticalBasicHistory = isCustom && opticalMenuAllowed && item.href === "/preview/pos/sales-list";
+        const featureLocked = !opticalBasicHistory && Boolean(enabledFeatures !== null && item.feature && enabledFeatures?.[item.feature] === false);
         const locked = menuLocked || featureLocked;
         return (
           <Link
             key={item.href}
             href={item.href}
+            aria-current={active?"page":undefined}
             onClick={(event) => menuLocked ? (event.preventDefault(), onLockedMenu(item.label)) : featureLocked ? (event.preventDefault(), onLockedFeature()) : handleNavigate(event, item.href)}
             className={entryClass({ active, locked, horizontal: isHorizontal, collapsed })}
-            title={collapsed && !isHorizontal ? item.label : menuLocked ? (lang === "th" ? "ล็อกโดยผู้ดูแลระบบ IT" : "Locked by IT") : featureLocked ? (lang === "th" ? POS_MENU_LOCK_TITLE_TH : POS_MENU_LOCK_TITLE_EN) : undefined}
+            title={collapsed && !isHorizontal ? item.label : menuLocked ? (lang === "lo" ? "ລັອກໂດຍຝ່າຍ IT" : lang === "th" ? "ล็อกโดยผู้ดูแลระบบ IT" : "Locked by IT") : featureLocked ? (lang === "th" ? POS_MENU_LOCK_TITLE_TH : POS_MENU_LOCK_TITLE_EN) : undefined}
             aria-disabled={locked}
           >
             <span className="inline-flex w-4 justify-center" aria-hidden><MenuIcon name={item.icon} /></span>
@@ -146,12 +159,12 @@ export function PosStaffMenu({ lang, collapsed, orientation = "vertical", sessio
         );
       })}
 
-      {aiVisible ? (
+      {aiVisible && (!isCustom || (isCustomPosMenuVisible("main.ai_assistant", menuPolicy, true) && !aiFeatureLocked)) ? (
         <Link
           href="/preview/pos/ai-assistant"
           onClick={(event) => aiPolicyLocked ? (event.preventDefault(), onLockedMenu(aiLabel)) : aiFeatureLocked ? (event.preventDefault(), onLockedFeature()) : handleNavigate(event, "/preview/pos/ai-assistant")}
           className={entryClass({ active: pathname === "/preview/pos/ai-assistant", locked: aiPolicyLocked || aiFeatureLocked, horizontal: isHorizontal, collapsed, accent: true })}
-          title={aiPolicyLocked ? (lang === "th" ? "ล็อกโดยผู้ดูแลระบบ IT" : "Locked by IT") : aiFeatureLocked ? (lang === "th" ? POS_MENU_LOCK_TITLE_TH : POS_MENU_LOCK_TITLE_EN) : aiLabel}
+          title={aiPolicyLocked ? (lang === "lo" ? "ລັອກໂດຍຝ່າຍ IT" : lang === "th" ? "ล็อกโดยผู้ดูแลระบบ IT" : "Locked by IT") : aiFeatureLocked ? (lang === "th" ? POS_MENU_LOCK_TITLE_TH : POS_MENU_LOCK_TITLE_EN) : aiLabel}
           aria-disabled={aiPolicyLocked || aiFeatureLocked}
         >
           <span className="inline-flex w-4 justify-center text-cyan-200" aria-hidden><MenuIcon name="ai" /></span>
@@ -160,12 +173,12 @@ export function PosStaffMenu({ lang, collapsed, orientation = "vertical", sessio
         </Link>
       ) : null}
 
-      {moreVisible ? (
+      {moreVisible && (!isCustom || isCustomPosMenuVisible("main.more", menuPolicy, true)) ? (
         <Link
           href="/preview/pos/more"
           onClick={(event) => morePolicyLocked ? (event.preventDefault(), onLockedMenu(t(lang, "pos_menu_more"))) : handleNavigate(event, "/preview/pos/more")}
           className={entryClass({ active: isMoreActive, locked: morePolicyLocked, horizontal: isHorizontal, collapsed })}
-          title={collapsed && !isHorizontal ? t(lang, "pos_menu_more") : morePolicyLocked ? (lang === "th" ? "ล็อกโดยผู้ดูแลระบบ IT" : "Locked by IT") : undefined}
+          title={collapsed && !isHorizontal ? t(lang, "pos_menu_more") : morePolicyLocked ? (lang === "lo" ? "ລັອກໂດຍຝ່າຍ IT" : lang === "th" ? "ล็อกโดยผู้ดูแลระบบ IT" : "Locked by IT") : undefined}
           aria-disabled={morePolicyLocked}
         >
           <span className="inline-flex w-4 justify-center" aria-hidden><MenuIcon name="more" /></span>
@@ -174,12 +187,12 @@ export function PosStaffMenu({ lang, collapsed, orientation = "vertical", sessio
         </Link>
       ) : null}
 
-      {(sessionRole === "owner" || sessionRole === "manager") ? (
+      {(sessionRole === "owner" || sessionRole === "manager") && (!isCustom || isCustomPosMenuVisible("main.package_payment", menuPolicy, true)) ? (
         <Link
           href="/preview/pos/payments/package"
           onClick={(event) => billingPolicyLocked ? (event.preventDefault(), onLockedMenu(billingLabel)) : handleNavigate(event, "/preview/pos/payments/package")}
           className={entryClass({ active: pathname === "/preview/pos/payments/package", locked: billingPolicyLocked, horizontal: isHorizontal, collapsed })}
-          title={collapsed && !isHorizontal ? billingLabel : billingPolicyLocked ? (lang === "th" ? "ล็อกโดยผู้ดูแลระบบ IT" : "Locked by IT") : undefined}
+          title={collapsed && !isHorizontal ? billingLabel : billingPolicyLocked ? (lang === "lo" ? "ລັອກໂດຍຝ່າຍ IT" : lang === "th" ? "ล็อกโดยผู้ดูแลระบบ IT" : "Locked by IT") : undefined}
           aria-disabled={billingPolicyLocked}
         >
           <span className="inline-flex w-4 justify-center" aria-hidden><MenuIcon name="payment" /></span>

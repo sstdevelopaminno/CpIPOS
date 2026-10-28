@@ -1,8 +1,9 @@
 import crypto from "node:crypto";
-import { NextResponse } from "next/server";
+import { after, NextResponse } from "next/server";
 import type { BranchRole } from "@pos/shared-types";
 import { appendAuditLog } from "@/lib/audit-log";
 import { FeatureGateError, requireTenantFeature } from "@/lib/feature-gate";
+import { queueRoutedSalesReceipt } from "@/lib/printing/routed-print-service";
 import {
   PosGuardError,
   requireActiveShift,
@@ -19,6 +20,7 @@ import {
 import { deductIngredientStockForPaidOrderFallback } from "@/lib/services/pos-sales-service";
 import { loadReceiptStoreProfile } from "@/lib/services/store-profile-service";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
+import { requireOpticalRetailEntitlement } from "@/lib/server/optical-entitlement";
 
 type PayOrderPayload = {
   method?: string;
@@ -47,7 +49,7 @@ export async function POST(request: Request, context: { params: Promise<{ orderI
     const supabase = getSupabaseServiceClient();
     const { data: orderRow, error: orderError } = await supabase
       .from("orders")
-      .select("id,order_no,status,shift_id,total_amount,grand_total,paid_total")
+      .select("id,order_no,status,shift_id,total_amount,grand_total,paid_total,discount_amount,notes")
       .eq("tenant_id", scope.session.tenant_id)
       .eq("branch_id", scope.session.branch_id)
       .eq("id", orderId)
@@ -59,6 +61,8 @@ export async function POST(request: Request, context: { params: Promise<{ orderI
         total_amount: number;
         grand_total: number | null;
         paid_total: number | null;
+        discount_amount: number | null;
+        notes: string | null;
       }>();
 
     if (orderError) {
@@ -96,7 +100,9 @@ export async function POST(request: Request, context: { params: Promise<{ orderI
     }
 
     const requestGroupId = request.headers.get("x-idempotency-key")?.trim() || crypto.randomUUID();
-    const { data: paymentResultRows, error: paymentRpcError } = await supabase.rpc("complete_pos_payment_tx", {
+    const isOptical = await requireOpticalRetailEntitlement(scope.session.tenant_id);
+    const { data: paymentResultRows, error: paymentRpcError } = await supabase.rpc(
+      isOptical ? "optical_complete_pos_payment_tx" : "complete_pos_payment_tx", {
       p_tenant_id: scope.session.tenant_id,
       p_branch_id: scope.session.branch_id,
       p_order_id: orderRow.id,
@@ -131,21 +137,25 @@ export async function POST(request: Request, context: { params: Promise<{ orderI
     const paymentResult = Array.isArray(paymentResultRows) ? paymentResultRows[0] : null;
     const paidAmount = round2(Number(paymentResult?.total_paid ?? dueTotal));
 
-    const stockDeductionResult = await deductIngredientStockForPaidOrderFallback({
-      auth: {
-        userId: scope.session.user_id,
-        platformRole: "tenant_user",
-        tenantId: scope.session.tenant_id,
-        branchId: scope.session.branch_id,
-        branchRole: scope.session.role as BranchRole
-      },
-      orderId: orderRow.id
-    });
-    if (!stockDeductionResult.ok) {
-      return NextResponse.json(
-        { data: null, error: { code: stockDeductionResult.code, message: stockDeductionResult.message } },
-        { status: stockDeductionResult.status }
-      );
+    // Atomic Optical RPC has already changed both payment and optical bin counts.
+    // Never deduct legacy restaurant ingredients for this product mode.
+    if (!isOptical) {
+      const stockDeductionResult = await deductIngredientStockForPaidOrderFallback({
+        auth: {
+          userId: scope.session.user_id,
+          platformRole: "tenant_user",
+          tenantId: scope.session.tenant_id,
+          branchId: scope.session.branch_id,
+          branchRole: scope.session.role as BranchRole
+        },
+        orderId: orderRow.id
+      });
+      if (!stockDeductionResult.ok) {
+        return NextResponse.json(
+          { data: null, error: { code: stockDeductionResult.code, message: stockDeductionResult.message } },
+          { status: stockDeductionResult.status }
+        );
+      }
     }
 
     await supabase
@@ -163,6 +173,10 @@ export async function POST(request: Request, context: { params: Promise<{ orderI
       .eq("order_id", orderRow.id)
       .eq("request_group_id", requestGroupId);
 
+    const completedAt = new Date().toISOString();
+    const cashReceived = method === "cash" ? round2(amount) : null;
+    const changeAmount = method === "cash" ? round2(Math.max(0, amount - dueTotal)) : null;
+
     await supabase
       .from("orders")
       .update({
@@ -170,7 +184,11 @@ export async function POST(request: Request, context: { params: Promise<{ orderI
         pos_session_id: scope.session.id,
         cashier_user_id: scope.session.user_id,
         device_code: scope.session.device_code,
-        status: "completed"
+        status: "completed",
+        payment_completed_at: completedAt,
+        payment_completed_by: scope.session.user_id,
+        cash_received: cashReceived,
+        change_amount: changeAmount
       })
       .eq("tenant_id", scope.session.tenant_id)
       .eq("branch_id", scope.session.branch_id)
@@ -219,6 +237,49 @@ export async function POST(request: Request, context: { params: Promise<{ orderI
     });
     const storeProfile = await loadReceiptStoreProfile(scope.session.tenant_id);
 
+    // Native takeaway uses this compact pay endpoint. Queue the same routed
+    // receipt used by /api/pos/payments, without coupling payment success to
+    // printer availability. The Android Print Agent claims the job by device_code.
+    const printAuth = {
+      userId: scope.session.user_id,
+      platformRole: "tenant_user" as const,
+      tenantId: scope.session.tenant_id,
+      branchId: scope.session.branch_id,
+      branchRole: scope.session.role as BranchRole
+    };
+    after(async () => {
+      try {
+        await queueRoutedSalesReceipt({
+          auth: printAuth,
+          runtimeDeviceCode: scope.session.device_code,
+          order: {
+            id: orderRow.id,
+            order_no: orderRow.order_no,
+            total_amount: round2(orderRow.grand_total ?? orderRow.total_amount ?? paidAmount),
+            discount_amount: round2(orderRow.discount_amount ?? 0),
+            notes: orderRow.notes,
+            cash_received: cashReceived,
+            change_amount: changeAmount,
+            mode_label: "กลับบ้าน"
+          },
+          items: items.map((item) => ({
+            product_name: item.name,
+            quantity: item.quantity,
+            unit_price: item.unit_price,
+            line_total: item.line_total,
+            note: null
+          })),
+          paymentMethod: method === "bank_transfer" ? "bank_transfer" : "cash",
+          sellerName: scope.user.full_name ?? null
+        });
+      } catch (printError) {
+        console.warn("[native-takeaway-print] receipt queue failed", {
+          order_id: orderRow.id,
+          message: printError instanceof Error ? printError.message : "unknown"
+        });
+      }
+    });
+
     const response = NextResponse.json({
       data: {
         order: {
@@ -238,7 +299,8 @@ export async function POST(request: Request, context: { params: Promise<{ orderI
           store_profile: storeProfile,
           total: round2(orderRow.grand_total ?? orderRow.total_amount ?? paidAmount),
           paid_total: round2((orderRow.paid_total ?? 0) + paidAmount),
-          change_total: 0
+          cash_received: cashReceived,
+          change_total: changeAmount ?? 0
         }
       },
       error: null

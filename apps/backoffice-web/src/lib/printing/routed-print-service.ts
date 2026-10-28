@@ -3,10 +3,13 @@ import "server-only";
 import type { PaymentMethod } from "@pos/shared-types";
 import type { AuthContext } from "@/lib/auth-context";
 import { readEnv } from "@/lib/env";
-import { enqueuePrintJob, loadReceiptSellerName, processPrintJob, renderKitchenTicketTemplate, renderReceiptTemplate } from "@/lib/printing/print-service";
+import { enqueuePrintJob, loadReceiptSellerName, processPrintJob, renderKitchenTicketTemplate } from "@/lib/printing/print-service";
+import { renderLocalizedReceiptText } from "@/lib/printing/receipt-text-localized";
 import { renderPaymentNoticeHtml, type PaymentNoticeItem } from "@/lib/printing/payment-notice-html-template";
 import { renderKitchenTicketHtml } from "@/lib/printing/kitchen-ticket-html-template";
 import { renderReceiptHtml } from "@/lib/printing/receipt-html-template";
+import { getTenantPosCurrencyCode } from "@/lib/server/custom-pos-currency";
+import { getCurrentLanguage } from "@/lib/i18n";
 import { resolvePrinterRoutes, type ResolvedPrinterRoute } from "@/lib/printing/printer-routing-service";
 import { loadReceiptStoreProfile } from "@/lib/services/store-profile-service";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
@@ -184,6 +187,7 @@ export async function queueRoutedSalesReceipt(args: {
   });
   if (routes.length === 0) return [];
 
+  const [currencyCode, receiptLanguage] = await Promise.all([getTenantPosCurrencyCode(args.auth.tenantId!), getCurrentLanguage()]);
   const [storeProfile, sellerName] = await Promise.all([
     loadReceiptStoreProfile(args.auth.tenantId!),
     loadReceiptSellerName(args.auth, args.auth.userId, { seller_name: args.sellerName ?? null })
@@ -192,14 +196,14 @@ export async function queueRoutedSalesReceipt(args: {
   const jobs = [];
   for (const route of routes) {
     const paidAtIso = new Date().toISOString();
-    const payload = renderReceiptTemplate({
+    const payload = renderLocalizedReceiptText({
       ...storeTemplateFields(storeProfile),
       order_id: args.order.id,
       order_no: args.order.order_no,
       branch_name: branchName,
       cashier_name: sellerName,
       paid_at_iso: paidAtIso,
-      currency: "THB",
+      currency: currencyCode,
       items: args.items.map((item) => ({ name: item.product_name, qty: item.quantity, unit_price: item.unit_price, line_total: item.line_total })),
       subtotal: args.order.total_amount + args.order.discount_amount,
       discount_amount: args.order.discount_amount,
@@ -210,9 +214,11 @@ export async function queueRoutedSalesReceipt(args: {
       change_amount: args.order.change_amount ?? null,
       mode_label: args.order.mode_label ?? null,
       note: args.order.notes ?? undefined
-    }, route.printer.paper_width_mm);
+    }, route.printer.paper_width_mm, receiptLanguage, currencyCode);
     const receiptHtml = renderReceiptHtml({
       paperWidthMm: route.printer.paper_width_mm,
+      currencyCode,
+      languageCode: receiptLanguage,
       storeName: String(storeProfile?.display_name ?? storeProfile?.name ?? branchName),
       branchName,
       storeAddress: storeProfile?.company_address ?? null,
@@ -568,7 +574,7 @@ export async function queueRoutedReceiptReprint(args: {
   const supabase = getSupabaseServiceClient();
   const { data: order, error: orderError } = await supabase
     .from("orders")
-    .select("id,order_no,subtotal,total_amount,grand_total,discount_amount,tax_total,notes,created_by,payment_completed_at,created_at,cash_received,change_amount")
+    .select("id,order_no,subtotal,total_amount,grand_total,discount_amount,tax_total,notes,metadata,created_by,payment_completed_at,created_at,cash_received,change_amount")
     .eq("tenant_id", args.auth.tenantId!)
     .eq("branch_id", args.auth.branchId!)
     .eq("id", args.orderId)
@@ -597,6 +603,9 @@ export async function queueRoutedReceiptReprint(args: {
   });
   if (routes.length === 0) throw new Error("receipt_printer_not_configured");
 
+  // Historic orders have an immutable currency snapshot; missing snapshot means legacy THB.
+  const currencyCode: "THB" | "LAK" = (order.metadata && typeof order.metadata === "object" && !Array.isArray(order.metadata) && (order.metadata as Record<string, unknown>).currency_code === "LAK") ? "LAK" : "THB";
+  const receiptLanguage = await getCurrentLanguage();
   const totalAmount = Number(order.grand_total ?? order.total_amount ?? 0);
   const receiptItems = (itemsResult.data ?? []).map((item) => ({
     name: String(item.name ?? item.product_id ?? "Item"),
@@ -610,14 +619,14 @@ export async function queueRoutedReceiptReprint(args: {
   const sellerName = await loadReceiptSellerName(args.auth, String(order.created_by ?? args.auth.userId));
   const jobs = [];
   for (const route of routes) {
-    const payload = renderReceiptTemplate({
+    const payload = renderLocalizedReceiptText({
       ...storeTemplateFields(storeProfile),
       order_id: args.orderId,
       order_no: String(order.order_no),
       branch_name: branchName,
       cashier_name: sellerName,
       paid_at_iso: paidAtIso,
-      currency: "THB",
+      currency: currencyCode,
       items: receiptItems.length > 0 ? receiptItems : [{ name: "Reprint copy", qty: 1, unit_price: 0, line_total: 0 }],
       subtotal: Number(order.subtotal ?? order.total_amount ?? 0),
       discount_amount: Number(order.discount_amount ?? 0),
@@ -627,9 +636,11 @@ export async function queueRoutedReceiptReprint(args: {
       cash_received: Number(order.cash_received ?? totalAmount),
       change_amount: Number(order.change_amount ?? 0),
       note: `Reprint for order ${order.order_no}`
-    }, route.printer.paper_width_mm);
+    }, route.printer.paper_width_mm, receiptLanguage, currencyCode);
     const fallbackHtml = renderReceiptHtml({
       paperWidthMm: route.printer.paper_width_mm,
+      currencyCode,
+      languageCode: receiptLanguage,
       storeName: String(storeProfile?.display_name ?? storeProfile?.name ?? branchName),
       branchName,
       storeAddress: storeProfile?.company_address ?? null,

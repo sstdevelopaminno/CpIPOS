@@ -9,6 +9,8 @@ import { PosHeldBillsModal } from "@/components/pos/pos-held-bills-modal";
 import { PosBuffetPricePickerModal } from "@/components/pos/pos-buffet-price-picker-modal";
 import { PosBuffetTableModeButton } from "@/components/pos/features/pos-buffet-table-mode-button";
 import { PosMemberMaintenanceModal } from "@/components/pos/pos-member-maintenance-modal";
+import { PosOpticalCustomerModal } from "@/components/pos/pos-optical-customer-modal";
+import { loUi } from "@/lib/lao-pos-ui";
 import { PosPaymentModals } from "@/components/pos/pos-payment-modals";
 import { PosProductCatalog } from "@/components/pos/pos-product-catalog";
 import { PosRealtimeClock } from "@/components/pos/pos-realtime-clock";
@@ -25,6 +27,7 @@ import { PosCartPanel } from "@/components/pos-ui/pos-cart-panel";
 import { PosCategoryNav } from "@/components/pos-ui/pos-category-nav";
 import { PosManagerApprovalModal } from "@/components/pos-ui/pos-manager-approval-modal";
 import { PosPaymentPanel } from "@/components/pos-ui/pos-payment-panel";
+import {PosOpticalPickupBalanceDialog,type OpticalRecalledOrder} from "@/components/pos/pos-optical-pickup-balance-dialog";
 import { PosShell } from "@/components/pos-ui/pos-shell";
 import { PackageLockDialog } from "@/components/pos-preview/package-lock-dialog";
 import { sendPendingDeliveryBillNowWithEffects, submitOrderWithEffects, submitTransferPaymentWithEffects } from "@/components/pos/services/pos-sales-service-module";
@@ -32,12 +35,60 @@ import { TableZoneTabs } from "@/components/tables/table-zone-tabs";
 import type { DiningTableItem, FloorPlanObjectItem, TableZoneItem } from "@/components/tables/types";
 import { calculateDeliveryPricingBreakdown } from "@/lib/delivery-pricing";
 import { POS_MODE_FEATURES } from "@/lib/pos-feature-map";
+import type { PosStartupSalesMode } from "@/lib/pos-sales-mode-preferences";
+import {
+  GENERAL_SALE_ACTIVATE_BASE_MODE_EVENT,
+  OPTICAL_ACTIVATE_BASE_MODE_EVENT,
+  OPTICAL_DEACTIVATE_BASE_MODE_EVENT
+} from "@/lib/pos-general-sale-mode";
 import { beginPosActionTrace, clearPosTraceEvents, endPosActionTrace, readPosTraceEvents, usePosRenderProfiler } from "@/lib/pos-ui-profiler";
 import { naturalCompareTableCode } from "@/lib/table-management";
 import { cachePosSalesOfflineCatalogSnapshot } from "@/lib/pos-offline-catalog-snapshot";
 import { wakeNativePrintAgent } from "@/lib/native-print-wake";
+import {requestOpticalWorkOrderPrint} from "@/lib/printing/optical-work-order-print-client";
 
-type Lang = "th" | "en";
+const EXTRA_LAO_SALES_LABELS: Record<string,string> = {
+  "ไม่ทราบชื่อผู้ขาย": "ບໍ່ຮູ້ຊື່ຜູ້ຂາຍ",
+  "ไม่ทราบสาขา": "ບໍ່ຮູ້ສາຂາ",
+  "ร้านค้า": "ຮ້ານຄ້າ",
+  "โต๊ะบุฟเฟ่": "ໂຕະບຸບເຟ່",
+  "ตะกร้าว่าง": "ກະຕ່າວ່າງ",
+  "โลโก้ CpIPOS": "ໂລໂກ້ CpiPOS",
+  "จำนวน": "ຈຳນວນ",
+  "บันทึกจำนวน": "ບັນທຶກຈຳນວນ",
+  "แก้ไขจำนวน": "ແກ້ໄຂຈຳນວນ",
+  "แก้ไข": "ແກ້ໄຂ",
+  "เลือกสมาชิก": "ເລືອກສະມາຊິກ",
+  "ค้นหาชื่อ เบอร์โทร หรือรหัสสมาชิก": "ຄົ້ນຫາຊື່ ເບີໂທ ຫຼືລະຫັດສະມາຊິກ",
+  "ค้นหา": "ຄົ້ນຫາ",
+  "สแกน QR": "ສະແກນ QR",
+  "ยังไม่พบสมาชิก": "ຍັງບໍ່ພົບສະມາຊິກ",
+  "คะแนน": "ຄະແນນ",
+  "แต้ม": "ແຕ້ມ",
+  "ล้างสมาชิก": "ລ້າງສະມາຊິກ",
+  "บันทึกสมาชิกในบิล": "ບັນທຶກສະມາຊິກໃສ່ບິນ",
+  "ทุกหมวดหมู่": "ທຸກໝວດໝູ່",
+  "รีเซ็ตลำดับ": "ຄືນລຳດັບເດີມ",
+  "เลื่อนขึ้น": "ຍ້າຍຂຶ້ນ",
+  "เลื่อนลง": "ຍ້າຍລົງ",
+  "รับกลับ ไม่ใช้โต๊ะ": "ຊື້ກັບບ້ານ ບໍ່ໃຊ້ໂຕະ",
+  "เลือกโต๊ะและเปิดบิล": "ເລືອກໂຕະ ແລະເປີດບິນ",
+  "รับออเดอร์จากแอป": "ຮັບອໍເດີຈາກແອັບ",
+  "แพ็กเกจปัจจุบันยังไม่เปิดใช้งานฟีเจอร์นี้": "ແພັກເກດປັດຈຸບັນຍັງບໍ່ເປີດໃຊ້ຄວາມສາມາດນີ້",
+  "แจ้งเตือนการชำระเงิน": "ແຈ້ງເຕືອນການຊຳລະເງິນ",
+  "ตกลง": "ຕົກລົງ",
+  "เลือกตัวเลือกสินค้า": "ເລືອກຕົວເລືອກສິນຄ້າ",
+  "วัตถุดิบที่ผูกไว้": "ວັດຖຸດິບທີ່ເຊື່ອມໄວ້",
+  "กำลังโหลดวัตถุดิบ...": "ກຳລັງໂຫຼດວັດຖຸດິບ...",
+  "ยังไม่มีรายการวัตถุดิบให้เลือก": "ຍັງບໍ່ມີລາຍການວັດຖຸດິບໃຫ້ເລືອກ",
+  "ส่งพิมพ์ใบแจ้งชำระเงินแล้ว": "ສົ່ງຄຳສັ່ງພິມໃບແຈ້ງຊຳລະແລ້ວ",
+  "ไม่สามารถเปิดหน้าพิมพ์ได้": "ບໍ່ສາມາດເປີດໜ້າພິມໄດ້",
+  "ยังตรวจสอบสกุลเงินหน้าขายไม่ได้ กรุณาเชื่อมต่อและเปิดหน้าขายใหม่": "ຍັງກວດສອບສະກຸນເງິນໜ້າຂາຍບໍ່ໄດ້ ກະລຸນາເຊື່ອມຕໍ່ ແລະເປີດໜ້າຂາຍໃໝ່",
+  "จัดลำดับสินค้าบนหน้าขายเท่านั้น ไม่กระทบสต๊อกหรือสูตรวัตถุดิบ": "ຈັດລຽງສິນຄ້າສະເພາະໜ້າຂາຍ ບໍ່ປ່ຽນສະຕັອກ ຫຼືສູດວັດຖຸດິບ",
+  "เปิดโต๊ะแล้วเลือกชุดราคาบุฟเฟ่": "ເປີດໂຕະແລ້ວເລືອກຊຸດລາຄາບຸບເຟ່",
+};
+
+type Lang = "th" | "en" | "lo";
 type QuickMode = "home" | "dine_in" | "delivery" | "buffet_table";
 type TableViewMode = "list" | "floor";
 
@@ -669,7 +720,7 @@ function sanitizeSubmitMessage(args: {
   return message;
 }
 
-const uiText = {
+const uiTextBase = {
   th: {
     modeLabel: "โหมด",
     salesInfoTitle: "ข้อมูลการขาย",
@@ -1376,7 +1427,8 @@ const uiText = {
     receiptSaved: "Saved",
     receiptClose: "Close"
   }
-} as const;
+ } as const;
+const uiText = {...uiTextBase, lo:{...uiTextBase.th, ...{"cart":"ລາຍການສິນຄ້າ","items":"ລາຍການ","noItems":"ຍັງບໍ່ມີສິນຄ້າໃນກະຕ່າ","clear":"ລ້າງລາຍການ","remove":"ລຶບສິນຄ້າ","cartSummary":"ກະຕ່າ","cartDrawerTitle":"ກະຕ່າ ແລະຊຳລະເງິນ","online":"ອອນລາຍ","offline":"ອອຟລາຍ","customerName":"ຊື່ລູກຄ້າ","externalCode":"ລະຫັດອໍເດີພາຍນອກ","manageMenu":"ຈັດການເມນູ","loading":"ກຳລັງໂຫຼດໜ້າຂາຍ...","processing":"ກຳລັງປະມວນຜົນ...","status":"ສະຖານະ","statusValue":"ເປີດໂຕະ","statusReady":"ພ້ອມຂາຍ","statusDelivery":"ຈັດສົ່ງ","tax":"ພາສີ","notes":"ໝາຍເຫດ","notesPlaceholder":"ໝາຍເຫດອໍເດີ","deliveryMaintenanceTitle":"ການຈັດສົ່ງ","deliveryMaintenanceMessage":"ລະບົບຈັດສົ່ງກຳລັງພັດທະນາ","network":"ເຄືອຂ່າຍ","dineInCheckout":"ຊຳລະເງິນ","otherChannel":"ອື່ນໆ","selectTable":"ເລືອກໂຕະ","addItemsFirst":"ກະລຸນາເພີ່ມສິນຄ້າກ່ອນ","openShiftRequired":"ຕ້ອງເປີດກະກ່ອນຂາຍ","storefront":"ໜ້າຮ້ານ","tableSelectTitle":"ເປີດບິນ / ເລືອກໂຕະ","tableListMode":"ລາຍການໂຕະ","tableFloorMode":"ຜັງຮ້ານ","pendingSync":"ລໍຖ້າຊິງຂໍ້ມູນ","submitting":"ກຳລັງສົ່ງ...","managerOverride":"ການອະນຸມັດຜູ້ຈັດການ","modeLabel":"ໂໝດ","salesInfoTitle":"ຂໍ້ມູນການຂາຍ","sellerName":"ຜູ້ຂາຍ","branchName":"ສາຂາ","shiftName":"ກະ","cashierDeviceCode":"ລະຫັດເຄື່ອງຂາຍ","date":"ວັນທີ","time":"ເວລາ","goHome":"ຊື້ກັບບ້ານ","dineIn":"ກິນຢູ່ຮ້ານ","delivery":"ສົ່ງເຖິງບ້ານ","switchMode":"ເລືອກໂໝດ","selectMode":"ເລືອກໂໝດການຂາຍ","selectModeHint":"ເລືອກວິທີຮັບອໍເດີ","currentMode":"ໂໝດປັດຈຸບັນ","previewMode":"ໜ້າຂາຍ POS","shift":"ກະ","noShift":"ຍັງບໍ່ເປີດກະ","checkout":"ຊຳລະເງິນ","openCashDrawer":"ເປີດລິ້ນຊັກເງິນ","discount":"ສ່ວນຫຼຸດ","total":"ຍອດລວມ","cancelBill":"ຍົກເລີກບິນ","holdBill":"ພັກບິນ","discountPopupTitle":"ຕັ້ງຄ່າສ່ວນຫຼຸດ","discountPopupHint":"ປ້ອນສ່ວນຫຼຸດເປັນເປີເຊັນ ຫຼືຈຳນວນເງິນ ລະບົບຄຳນວນໃຫ້ອັດຕະໂນມັດ","discountPercentLabel":"ສ່ວນຫຼຸດ (%)","discountAmountLabel":"ສ່ວນຫຼຸດ (LAK)","discountApply":"ນຳໃຊ້ສ່ວນຫຼຸດ","discountClear":"ລ້າງສ່ວນຫຼຸດ","billNo":"ເລກບິນ","paymentMethod":"ວິທີຊຳລະເງິນ","paymentMethodNone":"ຍັງບໍ່ຊຳລະ","close":"ປິດ","paymentProcessing":"ກຳລັງບັນທຶກການຊຳລະ...","member":"ສະມາຊິກ","memberComingSoon":"ເປີດຂໍ້ມູນສະມາຊິກ","heldBills":"ພັກບິນ","heldBillsOpen":"ເບິ່ງບິນພັກ","heldBillsEmpty":"ຍັງບໍ່ມີບິນພັກ","heldBillsRestore":"ເອີ້ນຄືນ","heldBillsDelete":"ລຶບບິນພັກ","heldBillsTitle":"ລາຍການບິນພັກ","heldBillsSaved":"ພັກບິນແລ້ວ","heldBillsSearchPlaceholder":"ຄົ້ນຫາເລກບິນພັກ","heldBillsRestoreLatest":"ເອີ້ນບິນຫຼ້າສຸດ","heldBillsHeldAt":"ເວລາພັກບິນ","heldBillsNoMatch":"ບໍ່ພົບບິນພັກທີ່ຄົ້ນຫາ","reviewBillTitle":"ລາຍການກ່ອນຊຳລະເງິນ","reviewBillHint":"ກວດສອບສິນຄ້າ ແລະຍອດລວມກ່ອນເລືອກວິທີຊຳລະ","reviewItemsHeader":"ສິນຄ້າ","reviewQtyHeader":"ຈຳນວນ","reviewQtyPriceLabel":"ຈຳນວນ x ລາຄາຕໍ່ໜ່ວຍ","reviewLineTotalLabel":"ຍອດຕໍ່ລາຍການ","reviewGrandTotalLabel":"ຍອດລວມທັງໝົດ","paymentCash":"ຈ່າຍເງິນສົດ","paymentTransfer":"ຈ່າຍເງິນໂອນ","transferTitle":"ຮັບເງິນໂອນ","transferHint":"ສະແກນ QR ເພື່ອຊຳລະເງິນ","transferQrTitle":"ສະແກນ QR ເພື່ອຊຳລະເງິນ","transferQrHint":"ສະແກນຜ່ານແອັບທະນາຄານ","transferQrImageSettingsHint":"QR ນີ້ມາຈາກຮູບ QR ໃນຕັ້ງຄ່າຮັບເງິນ","transferPromptPayPhoneLabel":"ເບີ PromptPay","transferPaymentAccountLabel":"ບັນຊີຮັບເງິນ","transferPaymentSettingsRequiredTitle":"ກະລຸນາເປີດຮັບຊຳລະກ່ອນ","transferPaymentSettingsRequiredBody":"ຍັງບໍ່ມີ QR ທີ່ເປີດໃຊ້ສຳລັບສາຂານີ້ ກະລຸນາເພີ່ມຮູບ QR ໃນຕັ້ງຄ່າຮັບເງິນ","transferPaymentSettingsRequiredClose":"ປິດໜ້າຕ່າງ","transferQrImageModeLabel":"ຮູບ QR ຈາກການຕັ້ງຄ່າ","transferPromptPayAmountLabel":"ຍອດຕ້ອງຊຳລະ","transferUploadSlipLabel":"ອັບໂຫຼດສະລິບ","transferSlipNeedUpload":"ກະລຸນາແນບສະລິບກ່ອນຢືນຢັນ","transferSlipVerifyPassed":"ກວດສອບສະລິບຜ່ານ","transferSlipVerifyFailed":"ກວດສອບສະລິບບໍ່ຜ່ານ","transferSlipInfoPayer":"ຜູ້ໂອນ","transferSlipInfoPayee":"ຜູ້ຮັບ","transferSlipInfoDateTime":"ເວລາໂອນ","transferSlipInfoTxn":"ເລກລາຍການ","transferSlipInfoAmount":"ຍອດໃນສະລິບ","transferConfirm":"ຢືນຢັນເງິນໂອນ","transferManualMode":"ໂອນແບບເດີມ","transferInetMode":"INET QR","transferInetHint":"ລູກຄ້າສະແກນ INET QR ແລ້ວລະບົບລໍຖ້າຜົນຊຳລະ","paymentTotalDue":"ຍອດຕ້ອງຈ່າຍ","cashReceiveTitle":"ຮັບຊຳລະເງິນສົດ","cashReceiveHint":"ປ້ອນຈຳນວນເງິນທີ່ຮັບຈາກລູກຄ້າ","cashReceivedLabel":"ຮັບເງິນ","cashInsufficient":"ເງິນທີ່ຮັບຕ້ອງບໍ່ນ້ອຍກວ່າຍອດຊຳລະ","cashRemaining":"ຍອດຄ້າງ","cashChange":"ເງິນທອນ","cashConfirm":"ຢືນຢັນຊຳລະ","cashQuickBlocksLabel":"ເງິນດ່ວນ","cashKeypadTitle":"ແປ້ນຕົວເລກ","cashKeyClear":"ລ້າງ","cashKeyBackspace":"ລຶບ","creatingOrderTitle":"ກຳລັງສ້າງບິນ","creatingOrderHint":"ລະບົບກຳລັງສ້າງບິນ ກະລຸນາລໍຖ້າ","receiptSaved":"ບັນທຶກສຳເລັດ","receiptClose":"ປິດໜ້າຕ່າງ"}}} as const;
 
 const RECEIPT_MODAL_MIN_VISIBLE_MS = 2200;
 const RECEIPT_MODAL_SAFE_TIMEOUT_MS = 8000;
@@ -1731,10 +1783,10 @@ async function fetchJsonWithTimeout<TBody extends ApiErrorBody>(
 }
 
 function getSalesDeviceStatusLabel(status: PosSalesDevicePolicy["status"] | undefined, lang: Lang) {
-  if (status === "inactive") return lang === "th" ? "ปิดใช้งาน" : "Disabled";
-  if (status === "maintenance") return lang === "th" ? "บำรุงรักษา" : "Maintenance";
-  if (status === "active") return lang === "th" ? "ใช้งาน" : "Active";
-  return lang === "th" ? "ไม่ทราบสถานะ" : "Unknown";
+  if (status === "inactive") return lang === "lo" ? "ປິດໃຊ້ງານ" : lang === "th" ? "ปิดใช้งาน" : "Disabled";
+  if (status === "maintenance") return lang === "lo" ? "ບຳລຸງຮັກສາ" : lang === "th" ? "บำรุงรักษา" : "Maintenance";
+  if (status === "active") return lang === "lo" ? "ເປີດໃຊ້ງານ" : lang === "th" ? "ใช้งาน" : "Active";
+  return lang === "lo" ? "ບໍ່ຮູ້ສະຖານະ" : lang === "th" ? "ไม่ทราบสถานะ" : "Unknown";
 }
 
 function DeviceBlockIcon({ status }: { status: PosSalesDevicePolicy["status"] }) {
@@ -1751,6 +1803,16 @@ function DeviceBlockIcon({ status }: { status: PosSalesDevicePolicy["status"] })
     <svg viewBox="0 0 24 24" aria-hidden="true">
       <path d="M12 3v9" />
       <path d="M7.1 6.2a8 8 0 1 0 9.8 0" />
+    </svg>
+  );
+}
+
+function OpticalRetailModeIcon() {
+  return (
+    <svg viewBox="0 0 48 48" aria-hidden="true" className="h-8 w-8 shrink-0" fill="none">
+      <path d="M5 21.5 10 19l8 1.5 5 4h2l5-4 8-1.5 5 2.5" stroke="#065f46" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M10 22c-1 0-2 1-2 3v5c0 4 3 7 8 7s8-3 8-8v-4l-6-3h-8Z" stroke="#047857" strokeWidth="3" fill="#d1fae5" />
+      <path d="m30 22-6 3v4c0 5 3 8 8 8s8-3 8-7v-5c0-2-1-3-2-3h-8Z" stroke="#047857" strokeWidth="3" fill="#d1fae5" />
     </svg>
   );
 }
@@ -1851,7 +1913,7 @@ function PosDeviceBlockedOverlay({
 function formatHeldAt(value: string, lang: Lang): string {
   const parsed = new Date(value);
   if (Number.isNaN(parsed.getTime())) return value;
-  return new Intl.DateTimeFormat(lang === "th" ? "th-TH" : "en-US", {
+  return new Intl.DateTimeFormat(lang === "lo" ? "lo-LA" : lang === "th" ? "th-TH" : "en-US", {
     dateStyle: "medium",
     timeStyle: "medium",
     timeZone: "Asia/Bangkok"
@@ -1890,7 +1952,7 @@ function normalizeHeldBillEntry(entry: HeldBill): HeldBill {
 function formatReceiptDateTime(value: string, lang: Lang): string {
   const parsed = new Date(value);
   if (Number.isNaN(parsed.getTime())) return value;
-  return new Intl.DateTimeFormat(lang === "th" ? "th-TH" : "en-US", {
+  return new Intl.DateTimeFormat(lang === "lo" ? "lo-LA" : lang === "th" ? "th-TH" : "en-US", {
     dateStyle: "medium",
     timeStyle: "medium",
     timeZone: "Asia/Bangkok"
@@ -1975,7 +2037,7 @@ function formatIngredientUnit(unit: string | null | undefined, lang: Lang): stri
 }
 
 function formatIngredientAmount(value: number, lang: Lang): string {
-  return Number(value).toLocaleString(lang === "th" ? "th-TH" : "en-US", {
+  return Number(value).toLocaleString(lang === "lo" ? "lo-LA" : lang === "th" ? "th-TH" : "en-US", {
     maximumFractionDigits: 2
   });
 }
@@ -2040,9 +2102,67 @@ function updateSelectedIngredientNoteQuantity(notes: string, ingredients: Recipe
     .join(", ");
 }
 
-export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
+export function PosSalesModule({
+  lang = "th",
+  startupMode,
+  onStartupModeReady,
+  onStartupModeBlocked
+}: {
+  lang?: Lang;
+  startupMode?: PosStartupSalesMode;
+  onStartupModeReady?: (mode: PosStartupSalesMode) => void;
+  onStartupModeBlocked?: (mode: PosStartupSalesMode) => void;
+}) {
+  const localSaleLabel=(thai:string,english:string)=>lang==="lo"?(EXTRA_LAO_SALES_LABELS[thai]??loUi("lo",thai)):lang==="th"?thai:english;
+  const [posCurrencyCode, setPosCurrencyCode] = useState<"THB" | "LAK">("THB");
+  // An early unauthenticated response must not silently make an Optical cashier use THB.
+  const [posCurrencyResolved, setPosCurrencyResolved] = useState(false);
+  useEffect(() => {
+    let active = true;
+    async function reloadCurrency() {
+      try {
+        const response = await fetch("/api/pos/store-currency", { cache: "no-store", credentials: "include" });
+        if (!response.ok) throw new Error("pos_currency_read_failed");
+        const body = await response.json();
+        const code = body?.data?.currency_code;
+        if (code !== "LAK" && code !== "THB") throw new Error("pos_currency_invalid");
+        if (active) {
+          setPosCurrencyCode(code);
+          setPosCurrencyResolved(true);
+        }
+      } catch {
+        // No change to a previously resolved currency when the network is temporarily down.
+        // On initial failure, the Optical checkout stays disabled until the server responds.
+      }
+    }
+    function onVisibilityChange() {
+      if (document.visibilityState === "visible") void reloadCurrency();
+    }
+    window.addEventListener("focus", reloadCurrency);
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    void reloadCurrency();
+    return () => {
+      active = false;
+      window.removeEventListener("focus", reloadCurrency);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+    };
+  }, []);
+  useEffect(() => {
+    if (!posCurrencyResolved) return;
+    document.documentElement.setAttribute("data-pos-store-currency", posCurrencyCode);
+    window.dispatchEvent(new Event("cpipos:store-currency-updated"));
+    return () => {
+      document.documentElement.removeAttribute("data-pos-store-currency");
+    };
+  }, [posCurrencyCode, posCurrencyResolved]);
+  const currencySymbol = posCurrencyCode === "LAK" ? "₭" : "฿";
+  const formatMoneyPlain = (value: number) => new Intl.NumberFormat("en-US", {
+    minimumFractionDigits: posCurrencyCode === "LAK" ? 0 : 2,
+    maximumFractionDigits: posCurrencyCode === "LAK" ? 0 : 2
+  }).format(value);
+  const formatMoney = (value: number) => currencySymbol + formatMoneyPlain(value);
   const text = uiText[lang];
-  const localizeApiMessage = useCallback((message: string) => localizeApiErrorMessage({ message, lang }), [lang]);
+  const localizeApiMessage = useCallback((message: string) => localizeApiErrorMessage({ message, lang:lang==="lo"?"th":lang }), [lang]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [products, setProducts] = useState<ProductRow[]>([]);
@@ -2051,8 +2171,27 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
   const [categories, setCategories] = useState<string[]>([]);
   const [allowNegativeStock, setAllowNegativeStock] = useState(false);
   const [shift, setShift] = useState<ShiftRow>(null);
-  const [sellerName, setSellerName] = useState(lang === "th" ? "ไม่ทราบชื่อผู้ขาย" : "Unknown Seller");
-  const [branchName, setBranchName] = useState(lang === "th" ? "ไม่ทราบสาขา" : "Unknown Branch");
+  useEffect(() => {
+    // Refresh after employee login/shift selection: the first request can predate session setup.
+    if (!shift?.id) return;
+    let active = true;
+    void fetch("/api/pos/store-currency", { cache: "no-store", credentials: "include" })
+      .then(async response => {
+        if (!response.ok) throw new Error("pos_currency_read_failed");
+        return response.json();
+      })
+      .then(body => {
+        const code = body?.data?.currency_code;
+        if (active && (code === "THB" || code === "LAK")) {
+          setPosCurrencyCode(code);
+          setPosCurrencyResolved(true);
+        }
+      })
+      .catch(() => undefined);
+    return () => { active = false; };
+  }, [shift?.id]);
+  const [sellerName, setSellerName] = useState(lang === "lo" ? "ບໍ່ຮູ້ຊື່ຜູ້ຂາຍ" : localSaleLabel("ไม่ทราบชื่อผู้ขาย", "Unknown Seller"));
+  const [branchName, setBranchName] = useState(lang === "lo" ? "ບໍ່ຮູ້ສາຂາ" : localSaleLabel("ไม่ทราบสาขา", "Unknown Branch"));
   const [posScope, setPosScope] = useState<{ tenantId: string | null; branchId: string | null }>({ tenantId: null, branchId: null });
   const [storeProfile, setStoreProfile] = useState<StoreProfile | null>(null);
   const [isHydrated, setIsHydrated] = useState(false);
@@ -2076,6 +2215,29 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
   const [discountAmountInput, setDiscountAmountInput] = useState("");
   const [discountEditMode, setDiscountEditMode] = useState<"percent" | "amount">("percent");
   const [quickMode, setQuickMode] = useState<QuickMode>("home");
+  const lastAppliedStartupModeRef = useRef<PosStartupSalesMode | null>(null);
+  const [startupRetailKind, setStartupRetailKind] = useState<"optical_retail" | "general_sale" | null>(null);
+  const [opticalRetailActive, setOpticalRetailActive] = useState(false);
+  const [opticalCustomerOpen, setOpticalCustomerOpen] = useState(false);
+  // Stable keys ensure network retries cannot create an extra Optical bill/payment.
+  const opticalDepositAttemptsRef = useRef(new Map<string,{orderId:string;paymentId:string}>());
+  const opticalDepositLockedRef = useRef(false);
+  const [opticalLastDepositReceiptId,setOpticalLastDepositReceiptId]=useState<string|null>(null);
+  const [opticalRecalledOrder,setOpticalRecalledOrder]=useState<OpticalRecalledOrder|null>(null);
+  useEffect(()=>{
+    const receive=(event:Event)=>{
+      const data=(event as CustomEvent<OpticalRecalledOrder>).detail;
+      if(data?.bill?.id&&Number.isSafeInteger(Number(data.remaining_amount))&&data.remaining_amount>0){
+        setOpticalRecalledOrder(data);
+      }
+    };
+    window.addEventListener("cpipos:optical-pickup-recalled",receive);
+    return()=>window.removeEventListener("cpipos:optical-pickup-recalled",receive);
+  },[]);
+  useEffect(()=>{
+    opticalDepositAttemptsRef.current.clear();
+    setOpticalLastDepositReceiptId(null);
+  },[posScope.tenantId,posScope.branchId]);
   const [modeSelectorOpen, setModeSelectorOpen] = useState(false);
   const [salesTopbarCollapsed, setSalesTopbarCollapsed] = useState(false);
   const [enabledFeatures, setEnabledFeatures] = useState<Record<string, boolean> | null>(null);
@@ -2453,8 +2615,8 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
     const memberName = session.member_name?.trim();
     const memberPhone = session.member_phone?.trim();
     const memberCode = session.member_code?.trim();
-    const pointText = Number.isFinite(Number(session.member_points)) ? `${Number(session.member_points)} ${lang === "th" ? "คะแนน" : "pts"}` : "";
-    const stampText = Number.isFinite(Number(session.member_stamps)) ? `${Number(session.member_stamps)} ${lang === "th" ? "แต้ม" : "stamps"}` : "";
+    const pointText = Number.isFinite(Number(session.member_points)) ? `${Number(session.member_points)} ${lang === "lo" ? "ຄະແນນ" : localSaleLabel("คะแนน", "pts")}` : "";
+    const stampText = Number.isFinite(Number(session.member_stamps)) ? `${Number(session.member_stamps)} ${lang === "lo" ? "ແຕ້ມ" : localSaleLabel("แต้ม", "stamps")}` : "";
     const identity = [memberName, memberCode ? `#${memberCode}` : "", memberPhone].filter(Boolean).join(" / ");
     const balances = [pointText, stampText].filter(Boolean).join(" / ");
     if (!identity && !balances) return null;
@@ -4292,8 +4454,8 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
         const nextProducts = salesResponse.body.data?.products ?? [];
         const nextCategories = salesResponse.body.data?.categories ?? [];
         const nextShift = (salesResponse.body.data?.shift ?? null) as ShiftRow;
-        const nextOperatorName = String(salesResponse.body.data?.operator_name ?? (lang === "th" ? "ไม่ทราบชื่อผู้ขาย" : "Unknown Seller"));
-        const nextBranchName = String(salesResponse.body.data?.branch_name ?? (lang === "th" ? "ไม่ทราบสาขา" : "Unknown Branch"));
+        const nextOperatorName = String(salesResponse.body.data?.operator_name ?? (localSaleLabel("ไม่ทราบชื่อผู้ขาย", "Unknown Seller")));
+        const nextBranchName = String(salesResponse.body.data?.branch_name ?? (localSaleLabel("ไม่ทราบสาขา", "Unknown Branch")));
         const nextStoreProfile = salesResponse.body.data?.store_profile ?? null;
         const nextPaymentAccount = salesResponse.body.data?.payment_account ?? null;
         const nextPaymentProviders = salesResponse.body.data?.payment_providers ?? {};
@@ -4728,10 +4890,11 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
   const promptPayQrUrl =
     paymentAccount && activePaymentQrMode === "qr_image" && paymentAccount.qr_image_url
       ? paymentAccount.qr_image_url
-      : paymentAccount
+      : posCurrencyCode === "THB" && paymentAccount && activePaymentQrMode === "promptpay_link"
         ? buildPromptPayQrUrl(activePromptPayPhone, transferPromptPayAmount)
         : null;
-  const inetQrEnabled = paymentProviders.inet_nops?.is_active === true;
+  // INET NOPS is THB-only; do not issue a Thai QR for a LAK bill.
+  const inetQrEnabled = posCurrencyCode === "THB" && paymentProviders.inet_nops?.is_active === true;
   const visibleTransferPaymentMode = inetQrEnabled ? transferPaymentMode : "manual";
   const inetQrUrl = normalizeQrImageSource(inetPaymentIntent?.qr_code);
   const promptPayPhoneDisplay = formatPromptPayPhoneDisplay(activePromptPayPhone);
@@ -4838,7 +5001,7 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
   const cashQuickAmounts = [500, 1000, 1500];
   const cashKeypadKeys = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "0", "00", "."];
   const activeReceiptStoreProfile = receiptSession?.store_profile ?? storeProfile;
-  const receiptStoreName = String(activeReceiptStoreProfile?.display_name ?? activeReceiptStoreProfile?.name ?? "").trim() || (lang === "th" ? "ร้านค้า" : "Store");
+  const receiptStoreName = String(activeReceiptStoreProfile?.display_name ?? activeReceiptStoreProfile?.name ?? "").trim() || (localSaleLabel("ร้านค้า", "Store"));
   const receiptStoreAddress = String(activeReceiptStoreProfile?.company_address ?? "").trim();
   const receiptStorePhone = String(activeReceiptStoreProfile?.contact_phone ?? "").trim();
   const receiptBranchLabel = branchName;
@@ -5377,7 +5540,7 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
       .reduce((sum, row) => sum + row.quantity, 0);
     if (!allowNegativeStock && stockUnits !== null && stockUnits !== undefined && cartQty + quantity > Number(stockUnits)) {
       showOutOfStockNotice(product.name);
-      return;
+      return false;
     }
     const unitPrice = Number((getProductPriceForCurrentMode(product) + Math.max(0, Number(input?.extraPrice ?? 0))).toFixed(2));
     markDineInCashierCartMutation();
@@ -5391,14 +5554,20 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
       }
       return [...current, { cart_line_id: cartLineId, product_id: product.id, name: product.name, quantity, price: unitPrice, notes: notes || null }];
     });
+    return true;
   }
 
-  function addToCart(product: ProductRow) {
+  function addToCart(product: ProductRow): boolean {
+    // Optical is an IT-authorized CUSTOM business workflow, not a restaurant.
+    // A frame, lens, pair or kit goes straight into the cart. Its existing
+    // recipe-backed stock unit still deducts on the real payment transaction;
+    // never open food ingredient/extra-price modifiers for this sales mode.
+    if (opticalRetailActive) return addCartLine(product);
     if (product.has_recipe_deduction) {
       setModifierDraft({ product, quantity: 1, notes: "", extraPrice: 0, linkedIngredientQuantity: 1 });
-      return;
+      return true;
     }
-    addCartLine(product);
+    return addCartLine(product);
   }
 
   function removeFromCart(cartLineId: string) {
@@ -5945,7 +6114,9 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
     void fetchPosTables({ timeoutMs: 10000, retries: 0 }).catch(() => undefined);
   }
 
-  function applyQuickMode(mode: QuickMode) {
+  function applyQuickMode(mode: QuickMode, fromOptical = false) {
+    setOpticalRetailActive(fromOptical);
+    setStartupRetailKind(fromOptical ? "optical_retail" : null);
     setModeSelectorOpen(false);
     if (mode === "home") {
       invalidateTableUiContext();
@@ -5965,7 +6136,7 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
       setCart(readTakeawayCartDraft());
       setTableTransferVerifications([]);
       setBillPaymentMethod(null);
-      pushSubmitMessage(text.goHome);
+      pushSubmitMessage(fromOptical ? "IMDC OPTICAL" : text.goHome);
       return;
     }
 
@@ -5976,7 +6147,7 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
       setQuickMode(mode);
       setOrderType(orderTypeForQuickMode(mode));
       openDineInTableBrowser();
-      pushSubmitMessage(mode === "buffet_table" ? (lang === "th" ? "โต๊ะบุฟเฟ่" : "Buffet table") : text.dineIn);
+      pushSubmitMessage(mode === "buffet_table" ? (localSaleLabel("โต๊ะบุฟเฟ่", "Buffet table")) : text.dineIn);
       if (posTables.length === 0 || tableLoadError) {
         void fetchPosTables().catch((tableError) => {
           markConnectivityFromError(tableError);
@@ -6007,6 +6178,96 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
     pushSubmitMessage(text.delivery);
   }
 
+  // The specialized retail mode has a tenant-scoped entitlement. Its base
+  // order type is takeaway, but IT may hide the ordinary takeaway card.
+  useEffect(() => {
+    const onOpticalActivate = () => {
+      // Reuse the existing takeaway transaction/stock/receipt pipeline without
+      // exposing the ordinary takeaway selling mode as the Optical UI.
+      // Startup may re-announce an authorized activation after hydration;
+      // never clear an already active Optical bill/cart on duplicate events.
+      if (opticalRetailActive && quickMode === "home") return;
+      applyQuickMode("home", true);
+    };
+    const onGeneralSaleActivate = () => {
+      // IT may grant SD without granting public takeaway. Switch the React
+      // checkout baseline directly instead of clicking the hidden Home card.
+      if (!opticalRetailActive && quickMode === "home") return;
+      applyQuickMode("home");
+      setStartupRetailKind("general_sale");
+    };
+    const onOpticalDeactivate = () => setOpticalRetailActive(false);
+    window.addEventListener(OPTICAL_ACTIVATE_BASE_MODE_EVENT, onOpticalActivate);
+    window.addEventListener(GENERAL_SALE_ACTIVATE_BASE_MODE_EVENT, onGeneralSaleActivate);
+    window.addEventListener(OPTICAL_DEACTIVATE_BASE_MODE_EVENT, onOpticalDeactivate);
+    // A visible mode button does not mean React effects are attached yet.
+    // Publish readiness after installing the actual Optical event listener.
+    document.documentElement.setAttribute("data-pos-optical-handler-ready", "1");
+    window.dispatchEvent(new Event("cpipos:optical-handler-ready"));
+    return () => {
+      document.documentElement.removeAttribute("data-pos-optical-handler-ready");
+      window.removeEventListener(OPTICAL_ACTIVATE_BASE_MODE_EVENT, onOpticalActivate);
+      window.removeEventListener(GENERAL_SALE_ACTIVATE_BASE_MODE_EVENT, onGeneralSaleActivate);
+      window.removeEventListener(OPTICAL_DEACTIVATE_BASE_MODE_EVENT, onOpticalDeactivate);
+    };
+  });
+
+  // The initial authorized mode comes from the authenticated server policy via
+  // React props, never from a global DOM event/hidden Home selector. One
+  // application per mounted sales module preserves table/cart drafts.
+  useEffect(() => {
+    if (!isHydrated || !startupMode || lastAppliedStartupModeRef.current === startupMode) return;
+    // Persisted carts, table sessions and payment queues must not be reset
+    // by a mode bootstrap. A legacy Home draft can be shown in the allowed
+    // specialized retail UI, but no order/payment state is modified here.
+    const hasRestoredWork = cart.length > 0 || Boolean(activeOrder?.id)
+      || pendingQueue.length > 0 || pendingPaymentQueue.length > 0
+      || Boolean(selectedTable?.id);
+    if (hasRestoredWork) {
+      if (quickMode === "home" && orderType === "takeaway" && !selectedTable?.id
+        && (startupMode === "optical_retail" || startupMode === "general_sale")) {
+        lastAppliedStartupModeRef.current = startupMode;
+        setOpticalRetailActive(startupMode === "optical_retail");
+        setStartupRetailKind(startupMode);
+      } else if (startupMode === quickMode) {
+        lastAppliedStartupModeRef.current = startupMode;
+        setOpticalRetailActive(false);
+        setStartupRetailKind(null);
+      }
+      // An incompatible persisted draft requires review; never clear it or
+      // acknowledge an unauthorized mode just to dismiss the startup gate.
+      if (lastAppliedStartupModeRef.current !== startupMode) onStartupModeBlocked?.(startupMode);
+      return;
+    }
+    lastAppliedStartupModeRef.current = startupMode;
+    if (startupMode === "optical_retail") {
+      applyQuickMode("home", true);
+    } else if (startupMode === "general_sale") {
+      applyQuickMode("home");
+      setStartupRetailKind("general_sale");
+    } else if (quickMode !== startupMode || opticalRetailActive) {
+      applyQuickMode(startupMode);
+    }
+    // The controller owns startup authorization; do not replay mode activation
+    // on product/table/cart changes or on re-renders after hydration.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isHydrated, startupMode]);
+
+  // React notifies its parent only after the authorized mode is committed.
+  // Neither a successful feature fetch nor an event sent to the legacy scanner
+  // is proof that a sales mode was rendered.
+  useEffect(() => {
+    if (!isHydrated || !startupMode) return;
+    const ready = startupMode === "optical_retail"
+      ? opticalRetailActive && quickMode === "home" && startupRetailKind === "optical_retail"
+      : startupMode === "general_sale"
+        ? !opticalRetailActive && quickMode === "home" && startupRetailKind === "general_sale"
+        : !opticalRetailActive && quickMode === startupMode
+          && (!isTableSalesMode(startupMode) || tableBrowserOpen || Boolean(selectedTable?.id));
+    if (!ready) return;
+    onStartupModeReady?.(startupMode);
+  }, [isHydrated, startupMode, quickMode, opticalRetailActive, startupRetailKind, tableBrowserOpen, selectedTable?.id, onStartupModeReady]);
+
   function isQuickModeLocked(mode: QuickMode) {
     const feature =
       mode === "dine_in"
@@ -6025,7 +6286,7 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
       setDeliveryMaintenanceOpen(true);
       return;
     }
-    if (mode === quickMode) {
+    if (mode === quickMode && !opticalRetailActive) {
       setModeSelectorOpen(false);
       return;
     }
@@ -6518,6 +6779,10 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
   }
   async function handleCheckout() {
     if (isBusy || checkoutRequestLockRef.current) return;
+    if (opticalRetailActive && !posCurrencyResolved) {
+      pushSubmitMessage(localSaleLabel("ยังตรวจสอบสกุลเงินหน้าขายไม่ได้ กรุณาเชื่อมต่อและเปิดหน้าขายใหม่", "Sales currency not verified. Reconnect and reopen checkout."));
+      return;
+    }
     checkoutRequestLockRef.current = true;
     if (isEmptyOpenDineInBill) {
       try {
@@ -7790,7 +8055,7 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
       );
       if (!response.ok || body.error) throw new Error(body.error?.message ?? "payment_notice_print_failed");
       if (Number(body.data?.print_jobs_queued ?? 0) <= 0) throw new Error("payment_notice_printer_not_configured");
-      pushSubmitMessage(lang === "th" ? "ส่งพิมพ์ใบแจ้งชำระเงินแล้ว" : "Payment notice queued");
+      pushSubmitMessage(localSaleLabel("ส่งพิมพ์ใบแจ้งชำระเงินแล้ว", "Payment notice queued"));
     } catch (error) {
       const message = error instanceof Error ? error.message : "payment_notice_print_failed";
       setPaymentNoticeError(message);
@@ -8062,11 +8327,11 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
   function renderCartList() {
     if (cart.length === 0) {
       return (
-        <div className="posui-cart-empty" aria-label={lang === "th" ? "ตะกร้าว่าง" : "Empty cart"}>
+        <div className="posui-cart-empty" aria-label={localSaleLabel("ตะกร้าว่าง", "Empty cart")}>
           <Image
             className="posui-cart-empty__logo"
             src="/brand/cpipos-logo.png"
-            alt={lang === "th" ? "โลโก้ CpIPOS" : "CpIPOS logo"}
+            alt={localSaleLabel("โลโก้ CpIPOS", "CpIPOS logo")}
             width={640}
             height={240}
             priority
@@ -8076,7 +8341,10 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
     }
 
     return (
-      <div className={`posui-cart-items ${cart.length > 5 ? "posui-cart-items--capped" : ""}`}>
+      <div className="min-w-0">
+        <div className={opticalRetailActive?"max-w-full overflow-x-auto overscroll-x-contain":"min-w-0"} tabIndex={opticalRetailActive?0:undefined}>
+          <div className={`posui-cart-items ${cart.length > 5 ? "posui-cart-items--capped" : ""}`}
+            style={opticalRetailActive?{minWidth:720}:undefined}>
         {cart.map((item) => {
           const cartLineId = item.cart_line_id ?? item.product_id;
           const isEditingQuantity = editingCartQtyLineId === cartLineId;
@@ -8087,6 +8355,9 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
             </div>
             <div className="posui-cart-item__info">
               <p>{item.name}</p>
+              {opticalRetailActive?<small className="block select-text text-xs font-semibold text-emerald-800">
+                {localSaleLabel("รหัสสินค้า / SKU", "Product SKU")}: {productById.get(item.product_id)?.sku||"—"}
+              </small>:null}
               {item.notes ? <small>{item.notes}</small> : null}
               <small>{formatMoney(item.price)}</small>
               <div className="posui-qty-row">
@@ -8100,7 +8371,7 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
                     min={1}
                     step={1}
                     value={editingCartQtyInput}
-                    aria-label={`${lang === "th" ? "จำนวน" : "Quantity"}: ${item.name}`}
+                    aria-label={`${localSaleLabel("จำนวน", "Quantity")}: ${item.name}`}
                     onChange={handleCartQtyInputChange}
                     onBlur={() => commitCartQtyEdit(cartLineId)}
                     onKeyDown={(event) => {
@@ -8123,7 +8394,7 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
                 <button
                   type="button"
                   className={`posui-qty-edit ${isEditingQuantity ? "is-saving" : ""}`}
-                  aria-label={`${isEditingQuantity ? (lang === "th" ? "บันทึกจำนวน" : "Save quantity") : (lang === "th" ? "แก้ไขจำนวน" : "Edit quantity")}: ${item.name}`}
+                  aria-label={`${isEditingQuantity ? (localSaleLabel("บันทึกจำนวน", "Save quantity")) : (localSaleLabel("แก้ไขจำนวน", "Edit quantity"))}: ${item.name}`}
                   onMouseDown={(event) => event.preventDefault()}
                   onClick={() => {
                     if (isEditingQuantity) {
@@ -8146,7 +8417,7 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
             <div className="posui-cart-item__sum">
               <strong>{formatMoney(item.quantity * item.price)}</strong>
               {productById.get(item.product_id)?.has_recipe_deduction ? (
-                <button type="button" className="posui-cart-action posui-cart-action--edit" aria-label={`${lang === "th" ? "แก้ไข" : "Edit"}: ${item.name}`} onClick={() => openCartLineEditor(item)}>
+                <button type="button" className="posui-cart-action posui-cart-action--edit" aria-label={`${localSaleLabel("แก้ไข", "Edit")}: ${item.name}`} onClick={() => openCartLineEditor(item)}>
                   <svg className="posui-edit-icon" viewBox="0 0 24 24" aria-hidden="true">
                     <path d="M4 17.5V20h2.5L17.8 8.7l-2.5-2.5L4 17.5Zm15.7-11.6c.4-.4.4-1 0-1.4l-1.2-1.2c-.4-.4-1-.4-1.4 0l-1 1 2.5 2.5 1.1-.9Z" fill="currentColor" />
                   </svg>
@@ -8164,6 +8435,8 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
           </article>
           );
         })}
+          </div>
+        </div>
       </div>
     );
   }
@@ -8186,7 +8459,8 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
   }
 
   function getQuickModeLabel() {
-    if (quickMode === "buffet_table") return lang === "th" ? "โต๊ะบุฟเฟ่" : "Buffet table";
+    if (opticalRetailActive) return "IMDC OPTICAL";
+    if (quickMode === "buffet_table") return localSaleLabel("โต๊ะบุฟเฟ่", "Buffet table");
     if (quickMode === "dine_in") return text.dineIn;
     if (quickMode === "delivery") return text.delivery;
     return text.goHome;
@@ -8295,7 +8569,7 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
     const storeAddressLine = receiptStoreAddress ? `<div class="muted">${escapeHtml(receiptStoreAddress)}</div>` : "";
     const storePhoneLine = receiptStorePhone ? `<div class="muted">${escapeHtml(receiptStorePhone)}</div>` : "";
     const paymentMethodLine = `<div class="summary-line is-heading"><span>${escapeHtml(text.paymentMethod)}</span><strong>${escapeHtml(getReceiptPaymentMethodLabel(session))}</strong></div>`;
-    const discountLine = `<div class="summary-line is-muted"><span>${escapeHtml(text.discount)}</span><strong>฿${escapeHtml(formatMoneyPlain(receiptDiscountAmount))}</strong></div>`;
+    const discountLine = `<div class="summary-line is-muted"><span>${escapeHtml(text.discount)}</span><strong>${currencySymbol}${escapeHtml(formatMoneyPlain(receiptDiscountAmount))}</strong></div>`;
     const taxSummaryLines = receiptTaxLines
       .map(
         (line) =>
@@ -8305,8 +8579,8 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
     const cashSummaryLines =
       session.payment_method === "cash"
         ? `
-    <div class="summary-line is-aux"><span>${escapeHtml(text.cashReceivedLabel)}</span><strong>฿${escapeHtml(formatMoneyPlain(session.cash_received))}</strong></div>
-    <div class="summary-line is-aux"><span>${escapeHtml(text.cashChange)}</span><strong>฿${escapeHtml(formatMoneyPlain(session.change_amount))}</strong></div>`
+    <div class="summary-line is-aux"><span>${escapeHtml(text.cashReceivedLabel)}</span><strong>${currencySymbol}${escapeHtml(formatMoneyPlain(session.cash_received))}</strong></div>
+    <div class="summary-line is-aux"><span>${escapeHtml(text.cashChange)}</span><strong>${currencySymbol}${escapeHtml(formatMoneyPlain(session.change_amount))}</strong></div>`
         : "";
 
     return `<!doctype html>
@@ -8389,7 +8663,7 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
     ${paymentMethodLine}
     ${discountLine}
     ${taxSummaryLines}
-    <div class="summary-line grand"><span>${escapeHtml(text.paymentTotalDue)}</span><strong>฿${escapeHtml(formatMoneyPlain(session.total_amount))}</strong></div>
+    <div class="summary-line grand"><span>${escapeHtml(text.paymentTotalDue)}</span><strong>${currencySymbol}${escapeHtml(formatMoneyPlain(session.total_amount))}</strong></div>
     ${cashSummaryLines}
     <div class="hr"></div>
     <div class="foot">CpIPOS</div>
@@ -8574,7 +8848,7 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
         } catch (error) {
           bluetoothFallbackReason =
             error instanceof Error && error.message
-              ? `${lang === "th" ? "เชื่อมต่อ Windows Runtime ไม่สำเร็จ" : "Windows Runtime print failed"}: ${error.message}`
+              ? `${localSaleLabel("เชื่อมต่อ Windows Runtime ไม่สำเร็จ", "Windows Runtime print failed")}: ${error.message}`
               : lang === "th"
                 ? "เชื่อมต่อ Windows Runtime ไม่สำเร็จ กำลังใช้โหมดสำรอง"
                 : "Windows Runtime print failed. Falling back.";
@@ -8616,22 +8890,22 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
           return;
         }
         if (envelope?.data?.fallback_to_browser_print === true) {
-          bluetoothFallbackReason = envelope.message ?? (lang === "th" ? "กำลังพิมพ์ผ่านโหมดสำรอง" : "Using fallback print mode.");
+          bluetoothFallbackReason = envelope.message ?? (localSaleLabel("กำลังพิมพ์ผ่านโหมดสำรอง", "Using fallback print mode."));
         }
         if (failedCount > 0) {
-          bluetoothFallbackReason = lang === "th" ? "พิมพ์ Bluetooth ไม่สำเร็จบางเครื่อง กำลังเปิดหน้าพิมพ์สำรอง" : "Bluetooth print failed on some printers. Falling back to browser print.";
+          bluetoothFallbackReason = localSaleLabel("พิมพ์ Bluetooth ไม่สำเร็จบางเครื่อง กำลังเปิดหน้าพิมพ์สำรอง", "Bluetooth print failed on some printers. Falling back to browser print.");
         } else if (printedCount === 0) {
-          bluetoothFallbackReason = lang === "th" ? "ยังไม่พบผลพิมพ์ Bluetooth กำลังเปิดหน้าพิมพ์สำรอง" : "No Bluetooth print result yet. Falling back to browser print.";
+          bluetoothFallbackReason = localSaleLabel("ยังไม่พบผลพิมพ์ Bluetooth กำลังเปิดหน้าพิมพ์สำรอง", "No Bluetooth print result yet. Falling back to browser print.");
         }
       } else if (code !== "bluetooth_printer_not_configured") {
         bluetoothFallbackReason =
           body.error?.message ??
-          (lang === "th" ? "พิมพ์ Bluetooth ไม่สำเร็จ กำลังเปิดหน้าพิมพ์สำรอง" : "Bluetooth print failed. Falling back to browser print.");
+          (localSaleLabel("พิมพ์ Bluetooth ไม่สำเร็จ กำลังเปิดหน้าพิมพ์สำรอง", "Bluetooth print failed. Falling back to browser print."));
       }
     } catch (error) {
       bluetoothFallbackReason =
         error instanceof Error && error.message
-          ? `${lang === "th" ? "พิมพ์ Bluetooth ไม่สำเร็จ" : "Bluetooth print failed"}: ${error.message}`
+          ? `${localSaleLabel("พิมพ์ Bluetooth ไม่สำเร็จ", "Bluetooth print failed")}: ${error.message}`
           : lang === "th"
             ? "พิมพ์ Bluetooth ไม่สำเร็จ กำลังเปิดหน้าพิมพ์สำรอง"
             : "Bluetooth print failed. Falling back to browser print.";
@@ -8654,7 +8928,7 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
         transport: "iframe_print"
       });
     } catch (error) {
-      pushSubmitMessage(lang === "th" ? "ไม่สามารถเปิดหน้าพิมพ์ได้" : "Unable to open print dialog.");
+      pushSubmitMessage(localSaleLabel("ไม่สามารถเปิดหน้าพิมพ์ได้", "Unable to open print dialog."));
       endPosActionTrace(printTrace, "error", {
         order_no: receiptSession.order_no,
         transport: "iframe_print",
@@ -8790,7 +9064,7 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
   function renderTableBrowser() {
     return (
       <PosTableBrowser
-        lang={lang}
+        lang={lang==="lo"?"th":lang}
         text={text}
         tableLoadError={tableLoadError}
         tableLoading={tableLoading}
@@ -8879,6 +9153,61 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
     );
   }
 
+
+  async function submitOpticalCashDeposit(amount:number,method:"cash"|"bank_transfer",customerId:string,evidence?:{reference_no:string;manager_verified:boolean},dueDate?:string):Promise<void> {
+    if(opticalDepositLockedRef.current)throw new Error("Optical payment is already processing");
+    if(!opticalRetailActive || !posCurrencyResolved || posCurrencyCode!=="LAK")
+      throw new Error("Optical cash deposits require a verified LAK store");
+    if(method==="bank_transfer" && (!evidence?.manager_verified||evidence.reference_no.trim().length<6))
+      throw new Error("Bank transfer requires independently verified bank credit and a manager's reference");
+    if(!shift?.id || !/^[0-9a-f]{8}-[0-9a-f-]{27,}$/i.test(customerId))
+      throw new Error("Select a verified Optical customer and open a shift");
+    if(!cart.length || !cart.every(row=>row.product_id&&Number.isSafeInteger(row.quantity)&&row.quantity>0))
+      throw new Error("No valid Optical products in this cart");
+    const items=cart.map(row=>({product_id:row.product_id,quantity:row.quantity}));
+    const subtotal=cart.reduce((sum,row)=>sum+Number(row.price)*row.quantity,0);
+    const discount=subtotal-total;
+    // Server-side bin prices are authoritative. No legacy recipe, tax or
+    // floating-point conversion may silently alter the deposit.
+    if(!Number.isSafeInteger(subtotal)||!Number.isSafeInteger(total)
+       ||!Number.isSafeInteger(discount)||discount<0||discount>=subtotal
+       ||!Number.isSafeInteger(amount)||amount<=0||amount>total)
+      throw new Error("Verify LAK product prices, discounts and deposit amount before proceeding");
+    if(!dueDate||!/^\d{4}-\d{2}-\d{2}$/.test(dueDate))throw new Error("กรุณาเลือกวันที่นัดรับแว่น");
+    const signature=JSON.stringify({customerId,items,subtotal,discount,total,amount,method,dueDate,evidence:evidence?.reference_no??null,branch:posScope.branchId});
+    let attempt=opticalDepositAttemptsRef.current.get(signature);
+    if(!attempt){
+      attempt={orderId:crypto.randomUUID(),paymentId:crypto.randomUUID()};
+      opticalDepositAttemptsRef.current.set(signature,attempt);
+    }
+    opticalDepositLockedRef.current=true;
+    try{
+      const decode=async(res:Response):Promise<{data?:Record<string,unknown>;error?:{message?:string}}|null>=>{
+        const payload=await res.json().catch(()=>null) as {data?:Record<string,unknown>;error?:{message?:string}}|null;
+        if(!res.ok)throw new Error(payload?.error?.message||"Optical work-order finance is not ready");
+        return payload;
+      };
+      // One server RPC opens/reserves and records the deposit in a single
+      // database transaction. A failed payment rolls back stock reservations.
+      const paid=await decode(await fetch("/api/pos/optical/deposits",{
+        method:"POST",credentials:"same-origin",headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({order_request_id:attempt.orderId,payment_request_id:attempt.paymentId,
+          customer_id:customerId,items,discount_lak:discount,amount_lak:amount,method,
+          due_date:dueDate,reference_no:evidence?.reference_no,manager_verified:evidence?.manager_verified===true})
+      }));
+      const workOrderId=paid?.data?.work_order_id;
+      if(typeof workOrderId!=="string"||typeof paid?.data?.payment_id!=="string")
+        throw new Error("Optical deposit and work order were not confirmed");
+      const remainder=Number(paid.data.remaining_amount);
+      pushSubmitMessage(`Optical ${method==="cash"?"cash":"manually verified bank"} deposit recorded: ₭${amount.toLocaleString("en-US")} · Remaining ₭${remainder.toLocaleString("en-US")}`);
+      setCart([]);
+      setOpticalLastDepositReceiptId(workOrderId);
+      opticalDepositAttemptsRef.current.delete(signature);
+    }finally{
+      opticalDepositLockedRef.current=false;
+    }
+  }
+
   function renderCartContent() {
     return (
       <>
@@ -8892,6 +9221,23 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
           onRetry={showEmergencyRetry ? handleEmergencyRetry : undefined}
           onCancelBill={canCancelActiveOrder || isEmptyOpenDineInBill ? requestCancelBill : undefined}
           onHoldBill={holdBill}
+          onOpenHeldBills={openHeldBillsPanel}
+          opticalRetail={opticalRetailActive}
+          opticalCurrencyCode={posCurrencyCode}
+          opticalLanguage={lang}
+          onOpticalCustomer={() => setOpticalCustomerOpen(true)}
+          onOpticalDeposit={opticalRetailActive && posCurrencyResolved && posCurrencyCode==="LAK" ? submitOpticalCashDeposit : undefined}
+          opticalTransferAccount={paymentAccount?.is_active?{
+            bank_name:paymentAccount.bank_name,account_name:paymentAccount.account_name,
+            account_number:paymentAccount.account_number,
+            qr_image_url:paymentAccount.qr_mode==="qr_image"?paymentAccount.qr_image_url:null
+          }:null}
+          onOpticalDepositReceipt={opticalLastDepositReceiptId ? ()=>{
+            const workOrderId=opticalLastDepositReceiptId;
+            void requestOpticalWorkOrderPrint(workOrderId)
+              .then(({queued})=>pushSubmitMessage(`ส่งใบเสร็จ Optical เข้าคิวพิมพ์ตามการตั้งค่าเครื่องพิมพ์แล้ว ${queued} ฉบับ`))
+              .catch(error=>pushSubmitMessage(error instanceof Error?error.message:"ไม่สามารถส่งใบเสร็จเข้าคิวพิมพ์"));
+          } : undefined}
           onMember={
             orderType === "delivery_manual"
               ? undefined
@@ -8911,6 +9257,7 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
           checkoutDisabled={
             isBusy ||
             !shift?.id ||
+            (opticalRetailActive && !posCurrencyResolved) ||
             (cart.length === 0 && !activeOrder && !isEmptyOpenDineInBill) ||
             (orderType === "dine_in" && (!selectedTable || !selectedTable.active_session_id)) ||
             (orderType === "delivery_manual" && (!selectedDeliveryApp || !deliveryExternalCode.trim()))
@@ -9053,7 +9400,7 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
 
       <PosShell
         topBar={
-          <div className={`posui-sales-topbar ${salesTopbarCollapsed ? "is-collapsed" : ""} ${showInlineTopbarCategories ? "has-inline-categories" : ""} ${showInlineTopbarTableControls ? "has-inline-table-controls" : ""}`}>
+          <div className={`posui-sales-topbar ${opticalRetailActive ? "is-optical-retail" : ""} ${salesTopbarCollapsed ? "is-collapsed" : ""} ${showInlineTopbarCategories ? "has-inline-categories" : ""} ${showInlineTopbarTableControls ? "has-inline-table-controls" : ""}`} data-pos-react-sales-mode={opticalRetailActive ? "optical_retail" : startupRetailKind === "general_sale" && quickMode === "home" ? "general_sale" : quickMode}>
             <div className="posui-mode-header-row">
               <button
                 type="button"
@@ -9092,11 +9439,14 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
                     aria-label={`${text.switchMode}: ${getQuickModeLabel()}`}
                   >
                     <span className="posui-mode-switch-button__icon" aria-hidden="true">
-                      <QuickModeIcon mode={quickMode === "buffet_table" ? "dine_in" : quickMode} />
+                      {opticalRetailActive ? <OpticalRetailModeIcon /> : <QuickModeIcon mode={quickMode === "buffet_table" ? "dine_in" : quickMode} />}
                     </span>
                     <span className="posui-mode-switch-button__action">{text.switchMode}</span>
                   </button>
                   <div className="posui-mode-stack-meta">
+                    {opticalRetailActive ? (
+                      <span className="rounded-lg bg-emerald-50 px-3 py-1 text-xs font-extrabold text-emerald-800" data-testid="pos-active-optical-mode">IMDC OPTICAL</span>
+                    ) : null}
                     {quickMode === "delivery" ? (
                       <button
                         type="button"
@@ -9169,7 +9519,7 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
                       </div>
                     </dl>
                     <dl className="posui-sales-meta-list posui-sales-meta-list--right">
-                      <PosRealtimeClock lang={lang} dateLabel={text.date} timeLabel={text.time} />
+                      <PosRealtimeClock lang={lang==="lo"?"th":lang} dateLabel={text.date} timeLabel={text.time} />
                       <div className="posui-sales-meta-row">
                         <dt>{text.cashierDeviceCode}</dt>
                         <dd>{devicePolicy?.code || devicePolicy?.name || "-"}</dd>
@@ -9219,13 +9569,14 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
         }
       />
 
-      <PosMemberMaintenanceModal open={memberMaintenanceOpen} lang={lang} onClose={() => setMemberMaintenanceOpen(false)} />
+      <PosOpticalCustomerModal lang={lang} open={opticalRetailActive && opticalCustomerOpen} onClose={() => setOpticalCustomerOpen(false)} />
+      <PosMemberMaintenanceModal open={memberMaintenanceOpen} lang={lang==="lo"?"th":lang} onClose={() => setMemberMaintenanceOpen(false)} />
 
       {memberPickerOpen ? (
         <div className="posui-payment-modal-backdrop" role="dialog" aria-modal="true" aria-label={text.member} onClick={() => setMemberPickerOpen(false)}>
           <section className="posui-payment-modal posui-payment-modal--review" onClick={(event) => event.stopPropagation()}>
             <header className="posui-payment-modal__header">
-              <h3>{lang === "th" ? "เลือกสมาชิก" : "Select Member"}</h3>
+              <h3>{localSaleLabel("เลือกสมาชิก", "Select Member")}</h3>
               <button type="button" className="posui-btn" onClick={() => setMemberPickerOpen(false)}>
                 {text.close}
               </button>
@@ -9238,19 +9589,19 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
                   onKeyDown={(event) => {
                     if (event.key === "Enter") void searchMembers(memberSearch);
                   }}
-                  placeholder={lang === "th" ? "ค้นหาชื่อ เบอร์โทร หรือรหัสสมาชิก" : "Search name, phone, or member code"}
+                  placeholder={localSaleLabel("ค้นหาชื่อ เบอร์โทร หรือรหัสสมาชิก", "Search name, phone, or member code")}
                   className="posui-payment-modal__input"
                 />
                 <button type="button" className="posui-btn posui-btn--primary" onClick={() => void searchMembers(memberSearch)} disabled={memberSearchLoading}>
-                  {memberSearchLoading ? "..." : lang === "th" ? "ค้นหา" : "Search"}
+                  {memberSearchLoading ? "..." : localSaleLabel("ค้นหา", "Search")}
                 </button>
                 <button type="button" className="posui-btn" onClick={() => setMemberSearch("")}>
-                  {lang === "th" ? "สแกน QR" : "Scan QR"}
+                  {localSaleLabel("สแกน QR", "Scan QR")}
                 </button>
               </div>
               {memberSearchError ? <p className="posui-payment-modal__error">{memberSearchError}</p> : null}
               <div className="grid max-h-56 gap-2 overflow-y-auto">
-                {memberSearchResults.length === 0 && !memberSearchLoading ? <p className="posui-payment-modal__hint">{lang === "th" ? "ยังไม่พบสมาชิก" : "No members found."}</p> : null}
+                {memberSearchResults.length === 0 && !memberSearchLoading ? <p className="posui-payment-modal__hint">{localSaleLabel("ยังไม่พบสมาชิก", "No members found.")}</p> : null}
                 {memberSearchResults.map((member) => {
                   const active = selectedMember?.id === member.id;
                   return (
@@ -9267,7 +9618,7 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
                         </small>
                       </span>
                       <span className="text-right text-xs font-black text-slate-700">
-                        {member.points} {lang === "th" ? "คะแนน" : "pts"} / {member.stamps} {lang === "th" ? "แต้ม" : "stamps"}
+                        {member.points} {lang === "lo" ? "ຄະແນນ" : localSaleLabel("คะแนน", "pts")} / {member.stamps} {lang === "lo" ? "ແຕ້ມ" : localSaleLabel("แต้ม", "stamps")}
                       </span>
                     </button>
                   );
@@ -9280,11 +9631,11 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
                   </p>
                   <div className="grid grid-cols-2 gap-2">
                     <label className="posui-payment-modal__input-label">
-                      {lang === "th" ? "คะแนน" : "Points"}
+                      {localSaleLabel("คะแนน", "Points")}
                       <input value={memberPointsInput} onChange={(event) => setMemberPointsInput(event.target.value)} inputMode="numeric" className="posui-payment-modal__input" />
                     </label>
                     <label className="posui-payment-modal__input-label">
-                      {lang === "th" ? "แต้ม" : "Stamps"}
+                      {localSaleLabel("แต้ม", "Stamps")}
                       <input value={memberStampsInput} onChange={(event) => setMemberStampsInput(event.target.value)} inputMode="numeric" className="posui-payment-modal__input" />
                     </label>
                   </div>
@@ -9293,10 +9644,10 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
             </div>
             <div className="posui-payment-modal__actions">
               <button type="button" className="posui-btn" onClick={() => setSelectedMember(null)}>
-                {lang === "th" ? "ล้างสมาชิก" : "Clear member"}
+                {localSaleLabel("ล้างสมาชิก", "Clear member")}
               </button>
               <button type="button" className="posui-btn posui-btn--primary" onClick={saveMemberSelection} disabled={!selectedMember}>
-                {lang === "th" ? "บันทึกสมาชิกในบิล" : "Save member to bill"}
+                {localSaleLabel("บันทึกสมาชิกในบิล", "Save member to bill")}
               </button>
             </div>
           </section>
@@ -9309,16 +9660,16 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
             <header className="posui-menu-manager__header">
               <div>
                 <h3>{text.manageMenu}</h3>
-                <p>{lang === "th" ? "จัดลำดับสินค้าบนหน้าขายเท่านั้น ไม่กระทบสต๊อกหรือสูตรวัตถุดิบ" : "Sort POS menu display only. Stock and recipes are unchanged."}</p>
+                <p>{localSaleLabel("จัดลำดับสินค้าบนหน้าขายเท่านั้น ไม่กระทบสต๊อกหรือสูตรวัตถุดิบ", "Sort POS menu display only. Stock and recipes are unchanged.")}</p>
               </div>
               <button type="button" className="posui-btn" onClick={() => setMenuManagerOpen(false)}>
                 {text.close}
               </button>
             </header>
             <div className="posui-menu-manager__tools">
-              <strong>{activeCategory || (lang === "th" ? "ทุกหมวดหมู่" : "All categories")}</strong>
+              <strong>{activeCategory || (localSaleLabel("ทุกหมวดหมู่", "All categories"))}</strong>
               <button type="button" className="posui-btn" onClick={resetMenuOrder}>
-                {lang === "th" ? "รีเซ็ตลำดับ" : "Reset order"}
+                {localSaleLabel("รีเซ็ตลำดับ", "Reset order")}
               </button>
             </div>
             <div className="posui-menu-manager__list">
@@ -9330,10 +9681,10 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
                     <small>{product.sku}</small>
                   </div>
                   <div className="posui-menu-manager__actions">
-                    <button type="button" className="posui-icon-btn" disabled={index === 0} onClick={() => moveMenuProduct(product.id, -1)} aria-label={lang === "th" ? "เลื่อนขึ้น" : "Move up"}>
+                    <button type="button" className="posui-icon-btn" disabled={index === 0} onClick={() => moveMenuProduct(product.id, -1)} aria-label={localSaleLabel("เลื่อนขึ้น", "Move up")}>
                       ↑
                     </button>
-                    <button type="button" className="posui-icon-btn" disabled={index === visibleProducts.length - 1} onClick={() => moveMenuProduct(product.id, 1)} aria-label={lang === "th" ? "เลื่อนลง" : "Move down"}>
+                    <button type="button" className="posui-icon-btn" disabled={index === visibleProducts.length - 1} onClick={() => moveMenuProduct(product.id, 1)} aria-label={localSaleLabel("เลื่อนลง", "Move down")}>
                       ↓
                     </button>
                   </div>
@@ -9374,7 +9725,7 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
             <div className="posui-mode-selector__grid">
               <button
                 type="button"
-                className={`posui-mode-option ${quickMode === "home" ? "is-active" : ""}`}
+                className={`posui-mode-option ${quickMode === "home" && !opticalRetailActive ? "is-active" : ""}`}
                 onClick={() => selectQuickMode("home")}
               >
                 <span className="posui-mode-option__icon" aria-hidden="true">
@@ -9382,7 +9733,7 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
                 </span>
                 <span className="posui-mode-option__copy">
                   <strong>{text.goHome}</strong>
-                  <small>{lang === "th" ? "รับกลับ ไม่ใช้โต๊ะ" : "Takeaway order"}</small>
+                  <small>{localSaleLabel("รับกลับ ไม่ใช้โต๊ะ", "Takeaway order")}</small>
                 </span>
                 <span className="posui-mode-option__check" aria-hidden="true">✓</span>
               </button>
@@ -9391,23 +9742,23 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
                 className={`posui-mode-option ${quickMode === "dine_in" ? "is-active" : ""} ${isQuickModeLocked("dine_in") ? "is-locked" : ""}`}
                 onClick={() => selectQuickMode("dine_in")}
                 aria-disabled={isQuickModeLocked("dine_in")}
-                title={isQuickModeLocked("dine_in") ? (lang === "th" ? "แพ็กเกจปัจจุบันยังไม่เปิดใช้งานฟีเจอร์นี้" : "This feature is not enabled in your package") : undefined}
+                title={isQuickModeLocked("dine_in") ? (localSaleLabel("แพ็กเกจปัจจุบันยังไม่เปิดใช้งานฟีเจอร์นี้", "This feature is not enabled in your package")) : undefined}
               >
                 <span className="posui-mode-option__icon" aria-hidden="true">
                   <QuickModeIcon mode="dine_in" />
                 </span>
                 <span className="posui-mode-option__copy">
                   <strong>{text.dineIn}</strong>
-                  <small>{lang === "th" ? "เลือกโต๊ะและเปิดบิล" : "Select table and open bill"}</small>
+                  <small>{localSaleLabel("เลือกโต๊ะและเปิดบิล", "Select table and open bill")}</small>
                 </span>
                 <span className="posui-mode-option__check" aria-hidden="true">✓</span>
               </button>
               <PosBuffetTableModeButton
-                label={lang === "th" ? "โต๊ะบุฟเฟ่" : "Buffet table"}
-                hint={lang === "th" ? "เปิดโต๊ะแล้วเลือกชุดราคาบุฟเฟ่" : "Open table and select buffet price"}
+                label={localSaleLabel("โต๊ะบุฟเฟ่", "Buffet table")}
+                hint={localSaleLabel("เปิดโต๊ะแล้วเลือกชุดราคาบุฟเฟ่", "Open table and select buffet price")}
                 active={quickMode === "buffet_table"}
                 locked={isQuickModeLocked("buffet_table")}
-                lockTitle={isQuickModeLocked("buffet_table") ? (lang === "th" ? "แพ็กเกจปัจจุบันยังไม่เปิดใช้งานฟีเจอร์นี้" : "This feature is not enabled in your package") : undefined}
+                lockTitle={isQuickModeLocked("buffet_table") ? (localSaleLabel("แพ็กเกจปัจจุบันยังไม่เปิดใช้งานฟีเจอร์นี้", "This feature is not enabled in your package")) : undefined}
                 icon={<QuickModeIcon mode="dine_in" />}
                 onClick={() => selectQuickMode("buffet_table")}
               />
@@ -9416,14 +9767,14 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
                 className={`posui-mode-option ${quickMode === "delivery" ? "is-active" : ""} ${isQuickModeLocked("delivery") ? "is-locked" : ""}`}
                 onClick={() => selectQuickMode("delivery")}
                 aria-disabled={isQuickModeLocked("delivery")}
-                title={isQuickModeLocked("delivery") ? (lang === "th" ? "แพ็กเกจปัจจุบันยังไม่เปิดใช้งานฟีเจอร์นี้" : "This feature is not enabled in your package") : undefined}
+                title={isQuickModeLocked("delivery") ? (localSaleLabel("แพ็กเกจปัจจุบันยังไม่เปิดใช้งานฟีเจอร์นี้", "This feature is not enabled in your package")) : undefined}
               >
                 <span className="posui-mode-option__icon" aria-hidden="true">
                   <QuickModeIcon mode="delivery" />
                 </span>
                 <span className="posui-mode-option__copy">
                   <strong>{text.delivery}</strong>
-                  <small>{lang === "th" ? "รับออเดอร์จากแอป" : "Delivery app order"}</small>
+                  <small>{localSaleLabel("รับออเดอร์จากแอป", "Delivery app order")}</small>
                 </span>
                 <span className="posui-mode-option__check" aria-hidden="true">✓</span>
               </button>
@@ -9465,7 +9816,7 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
                 placeholder="0"
               />
               <label className="posui-payment-modal__input-label" htmlFor="pos-discount-amount">
-                {text.discountAmountLabel}
+                {lang === "lo" ? `ສ່ວນຫຼຸດ (${posCurrencyCode})` : lang === "th" ? `ส่วนลด (${posCurrencyCode})` : `Discount (${posCurrencyCode})`}
               </label>
               <input
                 id="pos-discount-amount"
@@ -9654,7 +10005,7 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
         action="cancel_bill"
         targetTable="orders"
         targetId={cancelBillTargetOrder?.id ?? "00000000-0000-0000-0000-000000000000"}
-        lang={lang}
+        lang={lang==="lo"?"th":lang}
         labels={{
           pinLabel: text.pinModalLabel,
           pinKeypadHint: text.pinModalHint,
@@ -9683,7 +10034,7 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
           <section className="w-[min(420px,92vw)] rounded-3xl border border-slate-200 bg-white p-5 shadow-2xl">
             <div className="grid gap-2">
               <h3 className="text-lg font-black text-slate-950">
-                {lang === "th" ? "แจ้งเตือนการชำระเงิน" : "Payment notice"}
+                {localSaleLabel("แจ้งเตือนการชำระเงิน", "Payment notice")}
               </h3>
               <p className="text-sm font-semibold text-slate-600">{cashNoticeMessage}</p>
             </div>
@@ -9693,7 +10044,7 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
                 onClick={() => setCashNoticeMessage(null)}
                 className="h-11 rounded-2xl bg-blue-600 px-5 text-sm font-black text-white shadow-sm hover:bg-blue-700"
               >
-                {lang === "th" ? "ตกลง" : "OK"}
+                {localSaleLabel("ตกลง", "OK")}
               </button>
             </div>
           </section>
@@ -9706,7 +10057,7 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
         action="stock_adjustment"
         targetTable="stock_movements"
         targetId={stockTargetId || "stock-adjustment"}
-        lang={lang}
+        lang={lang==="lo"?"th":lang}
         labels={{
           pinLabel: text.pinModalLabel,
           pinKeypadHint: text.pinModalHint,
@@ -9741,7 +10092,7 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
         action="transfer_payment_override"
         targetTable="orders"
         targetId={transferReviewOrder?.order_id ?? "00000000-0000-0000-0000-000000000000"}
-        lang={lang}
+        lang={lang==="lo"?"th":lang}
         labels={{
           pinLabel: text.pinModalLabel,
           pinKeypadHint: text.pinModalHint,
@@ -10098,7 +10449,7 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
 
       <PosBuffetPricePickerModal
         open={buffetPicker.open}
-        lang={lang}
+        lang={lang==="lo"?"th":lang}
         tableCode={buffetPicker.table?.table_code ?? selectedTable?.table_code ?? null}
         isBusy={isBusy}
         onClose={closeBuffetPicker}
@@ -10189,6 +10540,9 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
         </div>
       ) : null}
 
+      {opticalRecalledOrder&&opticalRetailActive?<PosOpticalPickupBalanceDialog
+        data={opticalRecalledOrder} onClose={()=>setOpticalRecalledOrder(null)}
+        onSettled={orderId=>setOpticalLastDepositReceiptId(orderId)}/>:null}
       <PosHeldBillsModal
         open={heldBillsModalOpen}
         text={text}
@@ -10239,7 +10593,7 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
       ) : null}
       {stockAdjusting ? <LoadingState label={text.applyingStock} /> : null}
       {modifierDraft ? (
-        <div className="posui-payment-modal-backdrop" role="dialog" aria-modal="true" aria-label={lang === "th" ? "เลือกตัวเลือกสินค้า" : "Select product options"}>
+        <div className="posui-payment-modal-backdrop" role="dialog" aria-modal="true" aria-label={localSaleLabel("เลือกตัวเลือกสินค้า", "Select product options")}>
           <section className="posui-payment-modal posui-payment-modal--review" onClick={(event) => event.stopPropagation()}>
             <header className="posui-payment-modal__header">
               <h3>{modifierDraft.product.name}</h3>
@@ -10258,12 +10612,12 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
             </p>
             <div className="posui-payment-receipt-card">
               <div className="posui-payment-modal__input-label">
-                <span>{lang === "th" ? "วัตถุดิบที่ผูกไว้" : "Linked Ingredients"}</span>
-                {modifierIngredientsLoading ? <small>{lang === "th" ? "กำลังโหลดวัตถุดิบ..." : "Loading ingredients..."}</small> : null}
+                <span>{localSaleLabel("วัตถุดิบที่ผูกไว้", "Linked Ingredients")}</span>
+                {modifierIngredientsLoading ? <small>{localSaleLabel("กำลังโหลดวัตถุดิบ...", "Loading ingredients...")}</small> : null}
                 {modifierIngredientsError ? <small className="text-red-600">{modifierIngredientsError}</small> : null}
                 <div className="mt-2 flex flex-wrap gap-2">
                   {modifierIngredients.length === 0 && !modifierIngredientsLoading ? (
-                    <small>{lang === "th" ? "ยังไม่มีรายการวัตถุดิบให้เลือก" : "No linked ingredients available."}</small>
+                    <small>{localSaleLabel("ยังไม่มีรายการวัตถุดิบให้เลือก", "No linked ingredients available.")}</small>
                   ) : null}
                   {modifierIngredients.map((ingredient) => {
                     const selected = isIngredientSelectedInNotes(modifierDraft.notes, ingredient.name);
@@ -10299,17 +10653,17 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
                 </div>
               </div>
               <label className="posui-payment-modal__input-label">
-                {lang === "th" ? "ตัวเลือกเพิ่มเติม" : "Additional Options"}
+                {localSaleLabel("ตัวเลือกเพิ่มเติม", "Additional Options")}
                 <textarea
                   value={modifierDraft.notes}
                   onChange={(event) => setModifierDraft((current) => (current ? { ...current, notes: event.target.value } : current))}
                   rows={2}
-                  placeholder={lang === "th" ? "เช่น เพิ่มลูกชิ้น, ไม่ใส่นม..." : "e.g. extra meatballs, no milk..."}
+                  placeholder={localSaleLabel("เช่น เพิ่มลูกชิ้น, ไม่ใส่นม...", "e.g. extra meatballs, no milk...")}
                 />
               </label>
               <div className="grid gap-3 sm:grid-cols-2">
                 <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
-                  <span className="text-xs font-bold text-slate-600">{lang === "th" ? "จำนวนวัตถุดิบที่เลือก" : "Linked Ingredient Qty"}</span>
+                  <span className="text-xs font-bold text-slate-600">{localSaleLabel("จำนวนวัตถุดิบที่เลือก", "Linked Ingredient Qty")}</span>
                   <div className="mt-2 flex items-center justify-between gap-2">
                     <button type="button" className="posui-btn" disabled={!modifierHasSelectedIngredient} onClick={() => adjustLinkedIngredientQuantity(-1)}>
                       -
@@ -10321,7 +10675,7 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
                   </div>
                 </div>
                 <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
-                  <span className="text-xs font-bold text-slate-600">{lang === "th" ? "ราคาเพิ่มวัตถุดิบ" : "Extra Ingredient Price"}</span>
+                  <span className="text-xs font-bold text-slate-600">{localSaleLabel("ราคาเพิ่มวัตถุดิบ", "Extra Ingredient Price")}</span>
                   <div className="mt-2 flex items-center gap-2">
                     <button type="button" className="posui-btn" disabled={quickMode === "delivery"} onClick={() => setModifierDraft((current) => (current ? { ...current, extraPrice: Math.max(0, Number((current.extraPrice - 5).toFixed(2))) } : current))}>
                       -5
@@ -10342,16 +10696,16 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
                 </div>
               </div>
               <div className="mt-3 rounded-xl border border-orange-100 bg-orange-50 px-3 py-2 text-sm font-bold text-orange-700">
-                {lang === "th" ? "ราคาต่อหน่วยหลังรวมตัวเลือก" : "Unit price with options"}:{" "}
+                {localSaleLabel("ราคาต่อหน่วยหลังรวมตัวเลือก", "Unit price with options")}:{" "}
                 {formatMoney(getProductPriceForCurrentMode(modifierDraft.product) + (quickMode === "delivery" ? 0 : Math.max(0, modifierDraft.extraPrice)))}
               </div>
             </div>
             <div className="posui-payment-modal__actions">
               <button type="button" className="posui-btn" onClick={() => setModifierDraft(null)}>
-                {lang === "th" ? "ยกเลิก" : "Cancel"}
+                {localSaleLabel("ยกเลิก", "Cancel")}
               </button>
               <button type="button" className="posui-btn posui-btn--primary" onClick={confirmModifierDraft}>
-                {modifierDraft.editingCartLineId ? (lang === "th" ? "บันทึกการแก้ไข" : "Save Changes") : lang === "th" ? "เพิ่มลงตะกร้า" : "Add to Cart"}
+                {modifierDraft.editingCartLineId ? (localSaleLabel("บันทึกการแก้ไข", "Save Changes")) : localSaleLabel("เพิ่มลงตะกร้า", "Add to Cart")}
               </button>
             </div>
           </section>
@@ -10360,7 +10714,7 @@ export function PosSalesModule({ lang = "th" }: { lang?: Lang }) {
       <PackageLockDialog lang={lang} open={packageLockOpen} onClose={() => setPackageLockOpen(false)} />
       <PosMemberMaintenanceModal
         open={deliveryMaintenanceOpen}
-        lang={lang}
+        lang={lang==="lo"?"th":lang}
         title={text.deliveryMaintenanceTitle}
         message={text.deliveryMaintenanceMessage}
         onClose={() => setDeliveryMaintenanceOpen(false)}

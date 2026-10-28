@@ -4,6 +4,9 @@ import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
 import { useRouter, useSearchParams } from "next/navigation";
 import { PreEntryShell } from "@/components/pre-entry/pre-entry-shell";
+import { AppLanguageSwitcher } from "@/components/i18n/app-language-switcher";
+import { useAppLanguage } from "@/lib/app-language-client";
+import { loginFlowText } from "@/lib/pre-entry-language";
 import { clearPreEntryClientCache, warmRoute } from "@/lib/pre-entry-client-cache";
 
 type DeviceItem = {
@@ -18,25 +21,30 @@ type DeviceItem = {
 
 type DevicesResponse = {
   data?: {
+    tenant?:{code?:string|null;name?:string|null};
     branch: { name: string | null };
     employee?: { id: string | null; code?: string | null; name?: string | null; role?: string | null };
     devices: DeviceItem[];
     single_device_mode: boolean;
     auto_select_single_device?: boolean;
     can_override_in_use: boolean;
+    payment_review?:{status:"pending"|"under_review";submitted_at:string|null;review_due_at:string|null}|null;
+    entry_access?:{allowed:boolean;error?:{
+      code:string;title:string;message:string;expires_at?:string|null;kind?:string
+    }|null};
   } | null;
   error?: { code: string; message: string } | null;
 };
 
 type SelectDeviceResponse = {
   data?: { redirect_to: string } | null;
-  error?: { code: string; message: string } | null;
+  error?: { code: string; message: string; title?: string; expires_at?: string|null } | null;
 };
 
 type PopupState =
   | { type: "none" }
   | { type: "loading"; message: string }
-  | { type: "error"; message: string };
+  | { type: "error"; message: string; code?: string; expiresAt?: string|null };
 
 const AUTH_REQUEST_TIMEOUT_MS = process.env.NODE_ENV === "development" ? 20000 : 15000;
 const DEVICE_SELECT_REQUEST_TIMEOUT_MS = process.env.NODE_ENV === "development" ? 60000 : 45000;
@@ -69,10 +77,40 @@ function canSelectDevice(device: DeviceItem, canOverride: boolean, employeeId: s
   return false;
 }
 
+const PACKAGE_PAYMENT_REASONS = new Set(["trial_expired", "subscription_expired", "subscription_inactive", "subscription_missing"]);
+const PACKAGE_ENTRY_REASONS = new Set(["subscription_review_timeout","subscription_payment_rejected",
+ "trial_expired","subscription_expired","subscription_locked",
+ "subscription_inactive","subscription_missing","feature_not_enabled","feature_verification_unavailable"
+]);
+function entryErrorTitle(code?:string){
+ if(code==="trial_expired")return "แพ็กเกจทดลองใช้งานสิ้นสุดแล้ว";
+ if(code==="subscription_expired")return "แพ็กเกจสิ้นสุดระยะเวลาใช้งานแล้ว";
+ if(code==="subscription_locked")return "การใช้งานแพ็กเกจถูกระงับชั่วคราว";
+ if(code==="subscription_inactive")return "แพ็กเกจยังไม่พร้อมใช้งาน";
+ if(code==="subscription_missing")return "ยังไม่พบแพ็กเกจที่เปิดใช้งาน";
+ if(code==="feature_not_enabled")return "แพ็กเกจยังไม่เปิดสิทธิ์หน้าขาย";
+ if(code==="feature_verification_unavailable")return "ไม่สามารถตรวจสอบแพ็กเกจได้";
+ return "ดำเนินการไม่สำเร็จ";
+}
+function entryExpiryDate(lang:"th"|"en"|"lo",iso:string){
+ const value=new Date(iso);
+ if(!Number.isFinite(value.valueOf()))return null;
+ return new Intl.DateTimeFormat(lang==="lo"?"lo-LA":lang==="en"?"en-GB":"th-TH",{
+  timeZone:"Asia/Bangkok",year:"numeric",month:"2-digit",day:"2-digit",
+  hour:"2-digit",minute:"2-digit"
+ }).format(value);
+}
 function mapDeviceError(code?: string | null, fallback?: string | null) {
   if (code === "device_required") return "กรุณาเลือกเครื่องแคชเชียร์";
   if (code === "missing_employee_context") return "กรุณายืนยันผู้ใช้งานก่อนเลือกเครื่อง";
-  if (code === "feature_not_enabled") return "แพ็กเกจปัจจุบันยังไม่รองรับการเข้าใช้งานหน้าขาย";
+  if(code==="trial_expired")return "ระยะเวลาทดลองใช้งานครบกำหนดแล้ว กรุณาติดต่อฝ่าย Support เพื่อตรวจสอบการต่ออายุหรือเปิดใช้งานแพ็กเกจ";
+  if(code==="subscription_expired")return "แพ็กเกจครบกำหนด กรุณาตรวจสอบสถานะต่ออายุหรือการชำระเงินกับฝ่าย Support";
+  if(code==="subscription_locked")return "ระบบจำกัดการเข้าใช้งานชั่วคราว กรุณาติดต่อฝ่าย Support เพื่อตรวจสอบสถานะบัญชีและแพ็กเกจ";
+  if(code==="subscription_review_timeout"||code==="subscription_payment_rejected")return "การชำระแพ็กเกจของคุณไม่ผ่านการอนุมัติ โปรดติดต่อ Support";
+  if(code==="subscription_inactive")return "สถานะแพ็กเกจไม่ได้เปิดใช้งาน กรุณาติดต่อฝ่าย Support เพื่อยืนยันสถานะ";
+  if(code==="subscription_missing")return "กรุณาติดต่อฝ่าย Support เพื่อตรวจสอบการกำหนดแพ็กเกจของร้าน";
+  if(code==="feature_not_enabled")return "ไม่พบสิทธิ์ใช้งานหน้าขายในแพ็กเกจหรือสาขานี้ กรุณาติดต่อฝ่าย Support เพื่อตรวจสอบสิทธิ์ POS";
+  if(code==="feature_verification_unavailable")return "ไม่สามารถตรวจสอบสถานะแพ็กเกจได้ชั่วคราว กรุณาลองใหม่หรือติดต่อฝ่าย Support";
   if (code === "device_not_found") return "ไม่พบเครื่องที่เลือกในสาขานี้";
   if (code === "device_disabled") return "เครื่องที่เลือกถูกปิดใช้งาน";
   if (code === "device_offline") return "เครื่องที่เลือกออฟไลน์หรืออยู่ระหว่างบำรุงรักษา";
@@ -130,6 +168,8 @@ async function fetchJsonWithRetry<T>(input: RequestInfo | URL, init?: RequestIni
 
 function LoginDevicesPageContent() {
   const router = useRouter();
+  const {lang,setLanguage}=useAppLanguage("th");
+  const T=(value:string)=>loginFlowText(lang,value);
   const searchParams = useSearchParams();
   const flow = searchParams.get("flow") === "single" ? "single" : "multi";
   const [branchName, setBranchName] = useState("");
@@ -141,6 +181,9 @@ function LoginDevicesPageContent() {
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
+  const [entryBlocked,setEntryBlocked]=useState(false);
+  const [paymentReview,setPaymentReview]=useState<{status:"pending"|"under_review";submitted_at:string|null;review_due_at:string|null}|null>(null);
+  const [entryDenial,setEntryDenial]=useState<{code:string;message:string;expires_at?:string|null}|null>(null);
   const [popup, setPopup] = useState<PopupState>({ type: "none" });
   const loadStartedRef = useRef(false);
   const autoSubmitCodeRef = useRef("");
@@ -161,6 +204,8 @@ function LoginDevicesPageContent() {
 
         const data = body.data;
         if (!mounted) return;
+        try { if(data.tenant?.code)window.sessionStorage.setItem("cpipos_checkout_store_code",data.tenant.code); } catch {}
+        setPaymentReview(data.payment_review??null);
 
         const resolvedBranchName = data.branch.name ?? "";
         setBranchName(resolvedBranchName);
@@ -168,8 +213,18 @@ function LoginDevicesPageContent() {
         setEmployeeId(data.employee?.id ?? "");
         setDevices(data.devices);
         setCanOverride(data.can_override_in_use);
+        if(data.entry_access?.allowed===false){
+          const denial=data.entry_access.error??{code:"feature_verification_unavailable",
+            message:"ไม่สามารถตรวจสอบสถานะแพ็กเกจได้ชั่วคราว กรุณาลองใหม่หรือติดต่อฝ่าย Support",expires_at:null};
+          setEntryBlocked(true);
+          setEntryDenial(denial);
+          setError(denial.message);
+          setPopup({type:"error",message:denial.message,code:denial.code,expiresAt:denial.expires_at});
+        }else{
+          setEntryBlocked(false);setEntryDenial(null);
+        }
 
-        if (data.devices.length === 0) {
+        if (data.entry_access?.allowed!==false && data.devices.length===0) {
           const message = "ไม่พบเครื่องแคชเชียร์ที่ใช้งานได้ในสาขานี้";
           setError(message);
           setPopup({ type: "error", message });
@@ -183,7 +238,7 @@ function LoginDevicesPageContent() {
           data.devices[0];
         setSelectedCode(firstAllowed?.deviceCode ?? "");
         if (
-          data.auto_select_single_device &&
+          data.entry_access?.allowed!==false && data.auto_select_single_device &&
           firstAllowed &&
           canSelectDevice(firstAllowed, data.can_override_in_use, data.employee?.id ?? "")
         ) {
@@ -237,10 +292,44 @@ function LoginDevicesPageContent() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loading, submitting]);
   const selectedDevice = useMemo(() => devices.find((device) => device.deviceCode === selectedCode) ?? null, [devices, selectedCode]);
-  const selectedDeviceCanOpen = selectedDevice ? canSelectDevice(selectedDevice, canOverride, employeeId) : false;
+  const selectedDeviceCanOpen = !entryBlocked && (selectedDevice ? canSelectDevice(selectedDevice, canOverride, employeeId) : false);
+
+  // A validated POS OR LINE slip can restore cashier entry before IT
+  // settlement. Always ask the authoritative backend, even if the slip was
+  // uploaded in LINE after this popup first opened.
+  useEffect(()=>{
+    if(!entryBlocked)return;
+    const check=()=>{
+      void fetch("/api/auth/devices",{cache:"no-store"})
+        .then(async response=>{
+          if(!response.ok)return;
+          const body=await response.json() as DevicesResponse;
+          if(body.data?.entry_access?.allowed===true){
+            window.location.reload();
+            return;
+          }
+          setPaymentReview(body.data?.payment_review??null);
+        }).catch(()=>null);
+    };
+    const onVisible=()=>{if(document.visibilityState==="visible")check();};
+    const poll=window.setInterval(check,5_000);
+    window.addEventListener("focus",check);
+    document.addEventListener("visibilitychange",onVisible);
+    return ()=>{
+      window.clearInterval(poll);
+      window.removeEventListener("focus",check);
+      document.removeEventListener("visibilitychange",onVisible);
+    };
+  },[entryBlocked]);
 
   async function handleSelectDevice(deviceCodeOverride?: string) {
     if (submitting || loading) return;
+    if(entryBlocked){
+      const denial=entryDenial??{code:"feature_verification_unavailable",
+        message:"ไม่สามารถตรวจสอบสถานะแพ็กเกจได้ชั่วคราว กรุณาลองใหม่หรือติดต่อฝ่าย Support",expires_at:null};
+      setPopup({type:"error",message:denial.message,code:denial.code,expiresAt:denial.expires_at});
+      return;
+    }
 
     const targetDevice = deviceCodeOverride ? devices.find((device) => device.deviceCode === deviceCodeOverride) ?? null : selectedDevice;
     const targetCanOpen = targetDevice ? canSelectDevice(targetDevice, canOverride, employeeId) : false;
@@ -288,7 +377,7 @@ function LoginDevicesPageContent() {
       if (!response.ok || !body?.data?.redirect_to) {
         const message = mapDeviceError(body?.error?.code, body?.error?.message);
         setError(message);
-        setPopup({ type: "error", message });
+        setPopup({ type: "error", message, code:body?.error?.code, expiresAt:body?.error?.expires_at });
         hasFailure = true;
         return;
       }
@@ -344,6 +433,7 @@ function LoginDevicesPageContent() {
 
   return (
     <PreEntryShell mode={flow} activeStep={flow === "multi" ? 4 : 3} title="" subtitle="" layout="store" showModePill={false} showStepbar={false}>
+      <div className="store-v2-topbar"><AppLanguageSwitcher lang={lang} onChange={setLanguage} /></div>
       {branchName ? (
         <p className="ipos-employee-branch ipos-employee-branch-with-icon">
           <span className="ipos-icon-box" aria-hidden="true">
@@ -359,14 +449,14 @@ function LoginDevicesPageContent() {
               />
             </svg>
           </span>
-          <span>{noBranchMode ? "โหมดร้านเดี่ยว: ไม่มีการเลือกสาขา" : `สาขา: ${branchName}`}</span>
+          <span>{noBranchMode ? T("โหมดร้านเดี่ยว: ไม่มีการเลือกสาขา") : `${T("สาขา")}: ${branchName}`}</span>
         </p>
       ) : null}
-      {loading ? <p className="ipos-loading-text">กำลังโหลดรายการเครื่องแคชเชียร์...</p> : null}
+      {loading ? <p className="ipos-loading-text">{T("กำลังโหลดรายการเครื่องแคชเชียร์...")}</p> : null}
 
       {!loading ? (
         <div className="ipos-branch-selector-card ipos-device-selector-card">
-          <h3 className="ipos-branch-selector-title">เลือกเครื่องแคชเชียร์</h3>
+          <h3 className="ipos-branch-selector-title">{T("เลือกเครื่องแคชเชียร์")}</h3>
 
           <div className="ipos-device-grid ipos-device-grid-compact">
             {devices.map((device) => {
@@ -388,12 +478,12 @@ function LoginDevicesPageContent() {
                 >
                   <h3>{device.deviceName}</h3>
                   <p>
-                    รหัสเครื่อง <strong>{device.deviceCode}</strong>
+                    {T("รหัสเครื่อง")} <strong>{device.deviceCode}</strong>
                   </p>
                   <p>{device.counterName}</p>
-                  {device.currentUser ? <p className="ipos-device-warning">กำลังใช้งานโดย {device.currentUser.name}</p> : null}
+                  {device.currentUser ? <p className="ipos-device-warning">{T("กำลังใช้งานโดย")} {device.currentUser.name}</p> : null}
                   <div className="ipos-mt-10">
-                    <span className={`ipos-status ${device.status}`}>{statusLabel(device.status)}</span>
+                    <span className={`ipos-status ${device.status}`}>{T(statusLabel(device.status))}</span>
                   </div>
                 </button>
               );
@@ -402,14 +492,14 @@ function LoginDevicesPageContent() {
         </div>
       ) : null}
 
-      {error ? <p className="ipos-error">{error}</p> : null}
+      {error && popup.type==="none" ? <p className="ipos-error" role="status">{T(error)}</p> : null}
 
       <div className="ipos-inline-actions ipos-branch-actions">
         <button type="button" className="ipos-outline-btn" onClick={() => void handleBack()} disabled={submitting}>
-          ย้อนกลับ
+          {T("ย้อนกลับ")}
         </button>
         <button type="button" className="ipos-primary-btn ipos-btn-compact" onClick={() => void handleSelectDevice()} disabled={submitting || loading || !selectedDeviceCanOpen}>
-          {submitting ? "กำลังเข้าสู่ระบบ..." : "เปิดแคช"}
+          {submitting ? T("กำลังเข้าสู่ระบบ...") : T("เปิดแคช")}
         </button>
       </div>
 
@@ -422,19 +512,60 @@ function LoginDevicesPageContent() {
                   <Image src={SPLASH_LOGO_SRC} alt="" width={180} height={180} sizes="180px" priority />
                 </div>
                 <div className="store-v2-popup-spinner ipos-entry-splash-spinner" aria-hidden="true" />
-                <p className="store-v2-popup-title">กำลังเปิดแคช</p>
-                <p className="store-v2-popup-text">{popup.message}</p>
+                <p className="store-v2-popup-title">{T("กำลังเปิดแคช")}</p>
+                <p className="store-v2-popup-text">{T(popup.message)}</p>
               </>
             ) : (
               <>
                 <div className="store-v2-popup-error-icon" aria-hidden="true">
                   !
                 </div>
-                <p className="store-v2-popup-title">ดำเนินการไม่สำเร็จ</p>
-                <p className="store-v2-popup-text">{popup.message}</p>
-                <button type="button" className="store-v2-popup-close-btn" onClick={() => setPopup({ type: "none" })}>
-                  ปิด
-                </button>
+                <p className="store-v2-popup-title !text-slate-800" id="pos-device-entry-error-title">
+                   {T(paymentReview && popup.code && PACKAGE_ENTRY_REASONS.has(popup.code) && !["subscription_review_timeout","subscription_payment_rejected"].includes(popup.code)
+                     ? "อยู่ระหว่างรอตรวจสอบการชำระเงิน" : entryErrorTitle(popup.code))}
+                 </p>
+                 <p className="store-v2-popup-text !text-slate-600">
+                   {T(paymentReview && popup.code && PACKAGE_ENTRY_REASONS.has(popup.code) && !["subscription_review_timeout","subscription_payment_rejected"].includes(popup.code)
+                     ? "ฝ่าย IT กำลังตรวจสอบหลักฐานการชำระ หากสิทธิ์ชั่วคราวหมดอายุหรือไม่ได้รับการยืนยัน กรุณาติดต่อ Support"
+                     : popup.message)}
+                 </p>
+                 {popup.code&&PACKAGE_ENTRY_REASONS.has(popup.code)?(
+                   <div className="mt-3 w-full rounded-xl border border-amber-200 bg-amber-50 px-3 py-3 text-left text-xs leading-relaxed text-amber-900" role="status">
+                     {popup.expiresAt&&entryExpiryDate(lang,popup.expiresAt)?(
+                       <p>{T("วันสิ้นสุดสิทธิ์")}: <strong>{entryExpiryDate(lang,popup.expiresAt)}</strong></p>
+                     ):null}
+                     <p className="mt-1">
+                       {T(popup.code==="subscription_review_timeout"||popup.code==="subscription_payment_rejected"
+                       ? "การชำระแพ็กเกจของคุณไม่ผ่านการอนุมัติ โปรดติดต่อ Support"
+                       : paymentReview ? "ฝ่าย IT จะตรวจสอบภายหลัง หากไม่อนุมัติ ระบบจะล็อกและแจ้งให้ติดต่อ Support"
+                       : "ชำระเงินและแนบสลิป ระบบจะตรวจวันที่ ยอดเงิน และบัญชีผู้รับ ก่อนเปิดใช้ POS ได้ทันทีเมื่อผ่านการตรวจสอบ")}
+                     </p>
+                     {paymentReview?.review_due_at && entryExpiryDate(lang,paymentReview.review_due_at)?(
+                       <p className="mt-1">{T("กำหนดตรวจสอบโดยประมาณ")}: <strong>{entryExpiryDate(lang,paymentReview.review_due_at)}</strong></p>
+                     ):null}
+                   </div>
+                 ):null}
+                 <div className={`mt-4 grid w-full gap-2 ${popup.code==="subscription_review_timeout"||popup.code==="subscription_payment_rejected"?"grid-cols-2":"grid-cols-3"}`} role="group" aria-label={T("ตัวเลือกการช่วยเหลือ")}>
+                   {popup.code!=="subscription_review_timeout"&&popup.code!=="subscription_payment_rejected"?(
+                   <button type="button"
+                     className="flex h-11 min-w-0 items-center justify-center rounded-xl bg-blue-700 px-2 text-center text-xs font-bold !text-white hover:bg-blue-800 sm:text-sm"
+                     onClick={() => {
+                       if(popup.code && PACKAGE_PAYMENT_REASONS.has(popup.code))router.push("/preview/pos/payments/package?entry=subscription");
+                       else window.location.reload();
+                     }}>
+                     {T(popup.code && PACKAGE_PAYMENT_REASONS.has(popup.code) ? "ชำระเงิน" : "ตรวจสอบอีกครั้ง")}
+                   </button>
+                   ):null}
+                   <a href="/login/support-chat"
+                     className="flex h-11 min-w-0 items-center justify-center rounded-xl bg-emerald-700 px-2 text-center text-xs font-bold !text-white hover:bg-emerald-800 sm:text-sm">
+                     {T("ติดต่อฝ่าย Support")}
+                   </a>
+                   <button type="button"
+                     className="flex h-11 min-w-0 items-center justify-center rounded-xl border border-slate-300 bg-slate-100 px-2 text-center text-xs font-bold !text-slate-700 hover:bg-slate-200 sm:text-sm"
+                     onClick={() => setPopup({ type: "none" })}>
+                     {T("ปิด")}
+                   </button>
+                 </div>
               </>
             )}
           </div>

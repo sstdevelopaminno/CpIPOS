@@ -5,6 +5,7 @@ import { AuthTimeoutError, withAuthTimeout } from "@/lib/server/auth-timeout";
 import { mapDeviceStatus, type DeviceCandidate, type DeviceSessionOccupancy } from "@/lib/server/pre-entry-auth";
 import { hasFlowStage, readPreEntryFlowState } from "@/lib/server/pre-entry-state";
 import { resolveStoreLoginMode } from "@/lib/server/store-login-mode";
+import {evaluatePosEntryAccess} from "@/lib/server/pos-entry-access-service";
 
 type SessionRow = {
   id: string;
@@ -40,6 +41,27 @@ async function safeResolveStoreMode(tenantId: string) {
     });
     return { singleRegister: false, branchSelection: "visible" as const, maxBranches: null, maxDevices: null, packageCode: null, source: "fallback" as const };
   }
+}
+
+/** Report pending payment evidence only for a verified pre-entry tenant.
+ * Payment submission never bypasses the cashier entitlement guard.
+ */
+async function loadOpenSubscriptionPaymentReview(supabase: ReturnType<typeof getSupabaseServiceClient>, tenantId: string) {
+  const result = await supabase.from("tenant_subscription_payment_requests")
+    .select("status,submitted_at")
+    .eq("tenant_id", tenantId)
+    .in("status", ["pending", "under_review"])
+    .not("evidence_url", "is", null)
+    .order("submitted_at", { ascending: false })
+    .limit(1)
+    .maybeSingle<{status:string;submitted_at:string|null}>();
+  if (result.error || !result.data) return null;
+
+  return {
+    status: result.data.status,
+    submitted_at: result.data.submitted_at,
+    review_due_at: null
+  };
 }
 
 export async function GET() {
@@ -148,7 +170,22 @@ export async function GET() {
       } satisfies DeviceSessionOccupancy;
     });
 
-    const storeMode = await safeResolveStoreMode(flow.tenantId);
+    const [storeMode,entryAccess,paymentReview]=await Promise.all([
+      safeResolveStoreMode(flow.tenantId),
+      evaluatePosEntryAccess(supabase,flow.tenantId,flow.branchId).catch(error=>{
+        console.error("[auth/devices] package verification unavailable",{
+          tenantId:flow.tenantId,branchId:flow.branchId,
+          error:error instanceof Error?error.message:"unknown"
+        });
+        return {allowed:false as const,denial:{
+          code:"feature_verification_unavailable" as const,
+          title:"ไม่สามารถตรวจสอบแพ็กเกจได้",
+          message:"ไม่สามารถตรวจสอบสถานะแพ็กเกจได้ชั่วคราว กรุณาลองใหม่หรือติดต่อฝ่าย Support",
+          expires_at:null,kind:"verification" as const
+        }};
+      }),
+      loadOpenSubscriptionPaymentReview(supabase, flow.tenantId).catch(() => null)
+    ]);
     const devicesWithStatus = devices.map((device) => {
       const occupancy =
         occupancies.find((item) => item.device_id && item.device_id === device.id) ??
@@ -168,7 +205,7 @@ export async function GET() {
       };
     });
 
-    return withTimingHeaders(
+    const response=withTimingHeaders(
       NextResponse.json({
         data: {
           tenant: { name: flow.tenantName, code: flow.storeCode },
@@ -176,7 +213,11 @@ export async function GET() {
           employee: { id: flow.userId, code: flow.employeeCode, name: flow.employeeName, role: flow.userRole },
           devices: devicesWithStatus,
           single_device_mode: storeMode.singleRegister || devicesWithStatus.length === 1,
-          auto_select_single_device: storeMode.singleRegister && devicesWithStatus.length === 1,
+          auto_select_single_device:entryAccess.allowed && storeMode.singleRegister && devicesWithStatus.length===1,
+          payment_review: entryAccess.allowed ? null : paymentReview,
+           entry_access:entryAccess.allowed
+            ?{allowed:true as const,error:null}
+            :{allowed:false as const,error:entryAccess.denial},
           store_mode: {
             single_register: storeMode.singleRegister,
             branch_selection: storeMode.branchSelection,
@@ -189,6 +230,8 @@ export async function GET() {
       }),
       startedAt
     );
+    response.headers.set("Cache-Control","private, no-store, max-age=0");
+    return response;
   } catch (error) {
     if (error instanceof AuthTimeoutError) {
       return withTimingHeaders(

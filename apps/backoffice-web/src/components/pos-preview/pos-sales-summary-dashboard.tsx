@@ -2,13 +2,16 @@
 
 import { useEffect, useMemo, useState, useTransition, type ReactNode } from "react";
 import { PosBackButton } from "@/components/pos-preview/pos-back-button";
+import { formatSalesMoney, type SalesCurrencyCode } from "@/lib/pos-money";
 import { downloadExcelCsv, type CsvCellValue } from "@/lib/excel-csv";
 import type { Language } from "@/lib/i18n";
+import {loUi} from "@/lib/lao-pos-ui";
 import type { PosSalesSummaryPayload } from "@/lib/services/pos-sales-summary-service";
 
 type Props = {
   lang: Language;
   initialPayload: PosSalesSummaryPayload;
+  opticalMode?: boolean;
 };
 
 type ApiBody = {
@@ -40,22 +43,17 @@ const paymentOptions = [
 const inputClass =
   "h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm font-semibold text-slate-900 outline-none transition focus:border-blue-400 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400";
 
-function money(value: number, lang: Language): string {
-  return new Intl.NumberFormat(lang === "th" ? "th-TH" : "en-US", {
-    style: "currency",
-    currency: "THB",
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2
-  }).format(value);
+function money(value: number, lang: Language, code: SalesCurrencyCode): string {
+  return formatSalesMoney(value, code, lang === "lo" ? "lo-LA" : lang === "th" ? "th-TH" : "en-US");
 }
 
 function number(value: number, lang: Language): string {
-  return new Intl.NumberFormat(lang === "th" ? "th-TH" : "en-US", { maximumFractionDigits: 3 }).format(value);
+  return new Intl.NumberFormat(lang === "lo" ? "lo-LA" : lang === "th" ? "th-TH" : "en-US", { maximumFractionDigits: 3 }).format(value);
 }
 
 function dateTime(value: string | null, lang: Language): string {
   if (!value) return "-";
-  return new Intl.DateTimeFormat(lang === "th" ? "th-TH" : "en-US", {
+  return new Intl.DateTimeFormat(lang === "lo" ? "lo-LA" : lang === "th" ? "th-TH" : "en-US", {
     dateStyle: "short",
     timeStyle: "short",
     timeZone: "Asia/Bangkok"
@@ -63,20 +61,21 @@ function dateTime(value: string | null, lang: Language): string {
 }
 
 function shiftSummaryCsvHeaders(lang: Language): string[] {
-  return lang === "th"
-    ? ["เปิดกะ", "ปิดกะ", "สาขา", "พนักงาน", "เงินต้น", "เงินสด", "คาดหวัง", "เงินจริง", "ต่าง"]
+  return lang === "lo" ? ["ເປີດກະ","ປິດກະ","ສາຂາ","ພະນັກງານ","ເງິນທອນຕົ້ນກະ","ເງິນສົດ","ເງິນຄາດຫວັງ","ເງິນນັບຈິງ","ສ່ວນຕ່າງ"]
+    : lang === "th" ? ["เปิดกะ", "ปิดกะ", "สาขา", "พนักงาน", "เงินต้น", "เงินสด", "คาดหวัง", "เงินจริง", "ต่าง"]
     : ["Opened at", "Closed at", "Branch", "Cashier", "Opening cash", "Cash sales", "Expected cash", "Actual cash", "Difference"];
 }
 
 function paymentLabel(label: string, method?: string, lang: Language = "th"): string {
-  if (method === "cash") return lang === "th" ? "เงินสด" : "Cash";
-  if (method === "bank_transfer") return lang === "th" ? "โอน / QR" : "Transfer / QR";
-  if (method === "card") return lang === "th" ? "บัตรเครดิต / เดบิต" : "Credit / Debit Card";
+  if (method === "cash") return lang === "lo" ? "ເງິນສົດ" : lang === "th" ? "เงินสด" : "Cash";
+  if (method === "bank_transfer") return lang === "lo" ? "ໂອນ / QR" : lang === "th" ? "โอน / QR" : "Transfer / QR";
+  if (method === "card") return lang === "lo" ? "ບັດເຄຣດິດ / ເດບິດ" : lang === "th" ? "บัตรเครดิต / เดบิต" : "Credit / Debit Card";
   if (label.includes("เธ") || label.includes("เน")) return method === "other" ? (lang === "th" ? "อื่น ๆ" : "Other") : lang === "th" ? "ยังไม่ชำระ" : "Unpaid";
   return label || "-";
 }
 
-export function PosSalesSummaryDashboard({ lang, initialPayload }: Props) {
+export function PosSalesSummaryDashboard({ lang, initialPayload, opticalMode = false }: Props) {
+  const ui=(value:string)=>loUi(lang,value);
   const [payload, setPayload] = useState(initialPayload);
   const [dateFrom, setDateFrom] = useState(initialPayload.filters.dateFrom);
   const [dateTo, setDateTo] = useState(initialPayload.filters.dateTo);
@@ -110,16 +109,16 @@ export function PosSalesSummaryDashboard({ lang, initialPayload }: Props) {
   }, [payload.salesRows, salesRowsPage, salesRowsTotalPages]);
   const activeMoreExport = useMemo(() => buildMoreDialogExport(payload, moreDialogTab, lang), [lang, moreDialogTab, payload]);
   const kpis = [
-    { label: "ยอดขายรวม", value: money(payload.summary.grossSales, lang), tone: "text-slate-900" },
-    { label: "ยอดขายสุทธิ", value: money(payload.summary.netSales, lang), tone: "text-blue-700" },
-    { label: "จำนวนบิล", value: number(payload.summary.receiptCount, lang), tone: "text-slate-900" },
-    { label: "เงินสด", value: money(payload.summary.cashTotal, lang), tone: "text-green-700" },
-    { label: "โอน / QR", value: money(payload.summary.qrTransferTotal, lang), tone: "text-blue-700" },
-    { label: "บัตรเครดิต / เดบิต", value: money(payload.summary.cardTotal, lang), tone: "text-violet-700" },
-    { label: "ส่วนลด", value: money(payload.summary.discountTotal, lang), tone: "text-amber-700" },
+    { label: ui("ยอดขายรวม"), value: money(payload.summary.grossSales, lang, payload.currencyCode), tone: "text-slate-900" },
+    { label: ui("ยอดขายสุทธิ"), value: money(payload.summary.netSales, lang, payload.currencyCode), tone: "text-blue-700" },
+    { label: ui("จำนวนบิล"), value: number(payload.summary.receiptCount, lang), tone: "text-slate-900" },
+    { label: ui("เงินสด"), value: money(payload.summary.cashTotal, lang, payload.currencyCode), tone: "text-green-700" },
+    { label: ui("โอน / QR"), value: money(payload.summary.qrTransferTotal, lang, payload.currencyCode), tone: "text-blue-700" },
+    { label: ui("บัตรเครดิต / เดบิต"), value: money(payload.summary.cardTotal, lang, payload.currencyCode), tone: "text-violet-700" },
+    { label: ui("ส่วนลด"), value: money(payload.summary.discountTotal, lang, payload.currencyCode), tone: "text-amber-700" },
     {
-      label: "ยกเลิก / คืนเงิน",
-      value: `${money(payload.summary.cancelledTotal + payload.summary.refundTotal, lang)} (${payload.summary.cancelledCount})`,
+      label: ui("ยกเลิก / คืนเงิน"),
+      value: `${money(payload.summary.cancelledTotal + payload.summary.refundTotal, lang, payload.currencyCode)} (${payload.summary.cancelledCount})`,
       tone: "text-red-700"
     }
   ];
@@ -158,11 +157,11 @@ export function PosSalesSummaryDashboard({ lang, initialPayload }: Props) {
         dateTime(shift.closedAt, lang),
         shift.branchName,
         shift.cashierName,
-        money(shift.openingCash, lang),
-        money(shift.cashSales, lang),
-        money(shift.expectedCash, lang),
-        shift.actualCash == null ? "-" : money(shift.actualCash, lang),
-        shift.difference == null ? "-" : money(shift.difference, lang)
+        money(shift.openingCash, lang, payload.currencyCode),
+        money(shift.cashSales, lang, payload.currencyCode),
+        money(shift.expectedCash, lang, payload.currencyCode),
+        shift.actualCash == null ? "-" : money(shift.actualCash, lang, payload.currencyCode),
+        shift.difference == null ? "-" : money(shift.difference, lang, payload.currencyCode)
       ])
     ];
     downloadExcelCsv(`shift-summary-${payload.filters.dateFrom}-${payload.filters.dateTo}-page-${shiftPage}.csv`, rows);
@@ -183,10 +182,10 @@ export function PosSalesSummaryDashboard({ lang, initialPayload }: Props) {
         row.branchName,
         row.cashierName,
         paymentLabel(row.paymentLabel, row.paymentMethod, lang),
-        money(row.grossTotal, lang),
-        money(row.discount, lang),
-        money(row.tax, lang),
-        money(row.netTotal, lang),
+        money(row.grossTotal, lang, payload.currencyCode),
+        money(row.discount, lang, payload.currencyCode),
+        money(row.tax, lang, payload.currencyCode),
+        money(row.netTotal, lang, payload.currencyCode),
         statusLabel(row.status, lang)
       ])
     ];
@@ -209,18 +208,19 @@ export function PosSalesSummaryDashboard({ lang, initialPayload }: Props) {
   return (
     <section className="min-h-[calc(100vh-48px)] bg-[#f6f7f9] p-4 lg:p-5">
       <div className="mx-auto grid max-w-[1480px] gap-4">
-        <header className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm lg:p-5">
+        <header className={opticalMode ? "rounded-2xl border border-emerald-200 bg-gradient-to-r from-emerald-50 via-white to-white p-4 shadow-sm lg:p-5" : "rounded-2xl border border-slate-200 bg-white p-4 shadow-sm lg:p-5"}>
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div className="min-w-[260px]">
-              <PosBackButton lang={lang} href="/preview/pos/more" label={lang === "th" ? "กลับเมนูเพิ่มเติม" : "Back to More"} className="mb-3" />
-              <h1 className="text-2xl font-black text-slate-950 lg:text-3xl">สรุปยอดขาย</h1>
-              <p className="mt-1 max-w-3xl text-sm text-slate-600">ดูภาพรวมยอดขายตามวัน กะ พนักงาน ช่องทางชำระเงิน และสาขา</p>
+              <PosBackButton lang={lang} href="/preview/pos/more" label={lang === "lo" ? "ກັບເມນູເພີ່ມເຕີມ" : lang === "th" ? "กลับเมนูเพิ่มเติม" : "Back to More"} className="mb-3" />
+              {opticalMode ? <p className="mb-2 text-xs font-black tracking-[0.16em] text-emerald-800">CUSTOM · OPTICAL REPORTS</p> : null}
+              <h1 className="text-2xl font-black text-slate-950 lg:text-3xl">{ui("สรุปยอดขาย")}</h1>
+              <p className="mt-1 max-w-3xl text-sm text-slate-600">{ui("ดูภาพรวมยอดขายตามวัน กะ พนักงาน ช่องทางชำระเงิน และสาขา")}</p>
             </div>
             <div className="flex flex-wrap gap-2">
-              <ActionButton onClick={() => setSummaryDialogOpen(true)}>สรุปยอดขาย</ActionButton>
-              <ActionButton onClick={() => setFilterDialogOpen(true)}>คัดกรอง</ActionButton>
-              <ActionButton onClick={() => setMoreDialogOpen(true)}>ดูเพิ่มเติม</ActionButton>
-              <ActionButton onClick={() => setSalesRowsDialogOpen(true)}>รายการขาย</ActionButton>
+              <ActionButton onClick={() => setSummaryDialogOpen(true)}>{opticalMode ? ui("ดูรายละเอียดสรุป") : ui("สรุปยอดขาย")}</ActionButton>
+              <ActionButton onClick={() => setFilterDialogOpen(true)}>{ui("คัดกรอง")}</ActionButton>
+              <ActionButton onClick={() => setMoreDialogOpen(true)}>{ui("ดูเพิ่มเติม")}</ActionButton>
+              <ActionButton onClick={() => setSalesRowsDialogOpen(true)}>{ui("รายการขาย")}</ActionButton>
               <button type="button" onClick={refresh} disabled={isPending} className="h-10 rounded-lg border border-blue-200 bg-blue-600 px-4 text-sm font-bold text-white transition hover:bg-blue-700 disabled:cursor-wait disabled:opacity-70">
                 {isPending ? "กำลังโหลด" : "รีเฟรช"}
               </button>
@@ -230,43 +230,72 @@ export function PosSalesSummaryDashboard({ lang, initialPayload }: Props) {
         </header>
 
         {error ? <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">{error}</div> : null}
+        <div className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-950" data-testid="sales-summary-currency-ledger">
+          <strong>{lang==="lo"?"ສະກຸນເງິນລາຍງານປັດຈຸບັນ":lang==="th"?"สกุลเงินรายงานปัจจุบัน":"Current report currency"}: {payload.currencyCode}</strong>
+          <p className="mt-1">{lang==="lo"?"ບິນທີ່ລະບຸ THB/LAK/USD ຈະແຍກຍອດຕາມສະກຸນເງິນ. ບິນເກົ່າທີ່ບໍ່ລະບຸສະກຸນເງິນຈະບໍ່ນຳໄປລວມກັບສະກຸນອື່ນ.":lang==="th"?"แยกยอด THB/LAK/USD ตามสกุลเงินที่บันทึกจริง บิลที่ไม่ได้บันทึกสกุลเงินจะอยู่ในกลุ่มไม่ยืนยัน และไม่รวมเข้ายอดสกุลใด":"THB/LAK/USD totals are separate. Historical receipts without a recorded currency are shown as unverified and excluded from currency-specific totals."}</p>
+          <div className="mt-2 flex flex-wrap gap-3">
+            {payload.currencyBuckets.map((bucket) => (
+              <span key={bucket.currencyCode} className="rounded-lg bg-white px-3 py-2 font-bold shadow-sm">
+                {bucket.currencyCode==="UNKNOWN"?(lang==="lo"?"ບໍ່ລະບຸສະກຸນເງິນ":lang==="th"?"ไม่ระบุสกุลเงิน":"Currency unverified"):bucket.currencyCode}: {bucket.currencyCode==="UNKNOWN"?new Intl.NumberFormat("en-US",{minimumFractionDigits:2,maximumFractionDigits:2}).format(bucket.netSales):money(bucket.netSales, lang, bucket.currencyCode)} ({bucket.receiptCount} {lang==="lo"?"ບິນ":lang==="th"?"บิล":"bills"})
+              </span>
+            ))}
+          </div>
+        </div>
 
-        <Panel title="สรุปกะ">
+        {opticalMode ? (
+          <section aria-label="ภาพรวมยอดขาย Optical" className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4" data-testid="optical-sales-summary-kpis">
+            {[
+              { label: ui("ยอดขายรวม"), value: money(payload.summary.grossSales, lang, payload.currencyCode), tone: "text-slate-950" },
+              { label: ui("ยอดขายสุทธิ"), value: money(payload.summary.netSales, lang, payload.currencyCode), tone: "text-emerald-800" },
+              { label: ui("จำนวนบิล"), value: number(payload.summary.receiptCount, lang), tone: "text-slate-950" },
+              { label: ui("เงินสด / โอน"), value: `${money(payload.summary.cashTotal, lang, payload.currencyCode)} / ${money(payload.summary.qrTransferTotal, lang, payload.currencyCode)}`, tone: "text-slate-950" }
+            ].map(kpi => (
+              <article key={kpi.label} className="rounded-2xl border border-emerald-100 bg-white p-4 shadow-sm">
+                <p className="text-xs font-bold text-slate-500">{kpi.label}</p>
+                <strong className={`mt-2 block break-words text-xl font-black ${kpi.tone}`}>{kpi.value}</strong>
+                <span className="mt-2 block text-[11px] font-semibold text-emerald-700">{payload.currencyCode} · {payload.filters.dateFrom} – {payload.filters.dateTo}</span>
+              </article>
+            ))}
+          </section>
+        ) : null}
+
+        <Panel title={opticalMode ? ui("ประวัติสรุปกะ (ตามช่วงเวลาที่บันทึก)") : ui("สรุปกะ")}>
           <ScrollTable minWidth="860px">
             <thead>
               <tr>
-                <Th>เปิดกะ</Th>
-                <Th>ปิดกะ</Th>
-                <Th>สาขา</Th>
-                <Th>พนักงาน</Th>
-                <Th align="right">เงินต้น</Th>
-                <Th align="right">เงินสด</Th>
-                <Th align="right">คาดหวัง</Th>
-                <Th align="right">เงินจริง</Th>
-                <Th align="right">ต่าง</Th>
+                <Th>{ui("เปิดกะ")}</Th>
+                <Th>{ui("ปิดกะ")}</Th>
+                <Th>{ui("สาขา")}</Th>
+                <Th>{ui("พนักงาน")}</Th>
+                <Th align="right">{ui("เงินต้น")}</Th>
+                <Th align="right">{ui("เงินสด")}</Th>
+                <Th align="right">{ui("คาดหวัง")}</Th>
+                <Th align="right">{ui("เงินจริง")}</Th>
+                <Th align="right">{ui("ต่าง")}</Th>
               </tr>
             </thead>
             <tbody>
               {payload.shifts.length === 0 ? (
-                <EmptyRow colSpan={9} />
+                <EmptyRow colSpan={9} lang={lang} />
               ) : (
                 visibleShifts.map((shift) => (
-                  <tr key={shift.id} className="border-t border-slate-100">
+                  <tr key={shift.id} className="border-t border-slate-100 transition hover:bg-emerald-50/40">
                     <Td>{dateTime(shift.openedAt, lang)}</Td>
                     <Td>{dateTime(shift.closedAt, lang)}</Td>
                     <Td>{shift.branchName}</Td>
                     <Td>{shift.cashierName}</Td>
-                    <Td align="right">{money(shift.openingCash, lang)}</Td>
-                    <Td align="right">{money(shift.cashSales, lang)}</Td>
-                    <Td align="right">{money(shift.expectedCash, lang)}</Td>
-                    <Td align="right">{shift.actualCash == null ? "-" : money(shift.actualCash, lang)}</Td>
-                    <Td align="right" tone={shift.difference == null ? "normal" : shift.difference === 0 ? "good" : "bad"}>{shift.difference == null ? "-" : money(shift.difference, lang)}</Td>
+                    <Td align="right">{money(shift.openingCash, lang, payload.currencyCode)}</Td>
+                    <Td align="right">{money(shift.cashSales, lang, payload.currencyCode)}</Td>
+                    <Td align="right">{money(shift.expectedCash, lang, payload.currencyCode)}</Td>
+                    <Td align="right">{shift.actualCash == null ? "-" : money(shift.actualCash, lang, payload.currencyCode)}</Td>
+                    <Td align="right" tone={shift.difference == null ? "normal" : shift.difference === 0 ? "good" : "bad"}>{shift.difference == null ? "-" : money(shift.difference, lang, payload.currencyCode)}</Td>
                   </tr>
                 ))
               )}
             </tbody>
           </ScrollTable>
           <PaginationControls
+            lang={lang}
             page={Math.min(shiftPage, shiftTotalPages)}
             totalPages={shiftTotalPages}
             totalRows={payload.shifts.length}
@@ -275,7 +304,7 @@ export function PosSalesSummaryDashboard({ lang, initialPayload }: Props) {
           />
         </Panel>
 
-        <Dialog open={summaryDialogOpen} title="สรุปยอดขาย" onClose={() => setSummaryDialogOpen(false)} wide>
+        <Dialog lang={lang} open={summaryDialogOpen} title={ui("สรุปยอดขาย")} onClose={() => setSummaryDialogOpen(false)} wide>
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
             {kpis.map((item) => (
               <article key={item.label} className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
@@ -286,31 +315,32 @@ export function PosSalesSummaryDashboard({ lang, initialPayload }: Props) {
           </div>
         </Dialog>
 
-        <Dialog open={filterDialogOpen} title="คัดกรองข้อมูล" onClose={() => setFilterDialogOpen(false)}>
+        <Dialog lang={lang} open={filterDialogOpen} title={ui("คัดกรอง")} onClose={() => setFilterDialogOpen(false)}>
           <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-            <Field label="ตั้งแต่"><input value={dateFrom} onChange={(event) => setDateFrom(event.target.value)} type="date" className={inputClass} /></Field>
-            <Field label="ถึง"><input value={dateTo} onChange={(event) => setDateTo(event.target.value)} type="date" className={inputClass} /></Field>
-            <Field label="สาขา">
+            <Field label={lang==="en"?"From date":ui("ตั้งแต่")}><input value={dateFrom} onChange={(event) => setDateFrom(event.target.value)} type="date" className={inputClass} /></Field>
+            <Field label={lang==="en"?"To date":ui("ถึง")}><input value={dateTo} onChange={(event) => setDateTo(event.target.value)} type="date" className={inputClass} /></Field>
+            <Field label={lang==="en"?"Branch":ui("สาขา")}>
               <select value={branchId} onChange={(event) => setBranchId(event.target.value)} disabled={!payload.access.canViewMultipleBranches} className={inputClass}>
-                {payload.access.canViewMultipleBranches ? <option value="all">ทุกสาขา</option> : null}
+                {payload.access.canViewMultipleBranches ? <option value="all">{ui("ทุกสาขา")}</option> : null}
                 {payload.branchOptions.map((branch) => <option key={branch.id} value={branch.id}>{branch.name} ({branch.code})</option>)}
               </select>
             </Field>
-            <Field label="กะ"><select value={shiftId} onChange={(event) => setShiftId(event.target.value)} className={inputClass}><option value="all">ทุกกะ</option>{payload.shiftOptions.map((shift) => <option key={shift.id} value={shift.id}>{shift.label}</option>)}</select></Field>
-            <Field label="พนักงาน"><select value={cashierId} onChange={(event) => setCashierId(event.target.value)} className={inputClass}><option value="all">ทุกคน</option>{payload.cashierOptions.map((cashier) => <option key={cashier.id} value={cashier.id}>{cashier.label}</option>)}</select></Field>
-            <Field label="ชำระเงิน"><select value={paymentMethod} onChange={(event) => setPaymentMethod(event.target.value)} className={inputClass}>{paymentOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></Field>
-            <Field label="สถานะ"><select value={status} onChange={(event) => setStatus(event.target.value)} className={inputClass}>{statusOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></Field>
+            <Field label={lang==="en"?"Shift":ui("กะ")}><select value={shiftId} onChange={(event) => setShiftId(event.target.value)} className={inputClass}><option value="all">{ui("ทุกกะ")}</option>{payload.shiftOptions.map((shift) => <option key={shift.id} value={shift.id}>{shift.label}</option>)}</select></Field>
+            <Field label={lang==="en"?"Employee":ui("พนักงาน")}><select value={cashierId} onChange={(event) => setCashierId(event.target.value)} className={inputClass}><option value="all">{ui("ทุกคน")}</option>{payload.cashierOptions.map((cashier) => <option key={cashier.id} value={cashier.id}>{cashier.label}</option>)}</select></Field>
+            <Field label={lang==="en"?"Payment":ui("ชำระเงิน")}><select value={paymentMethod} onChange={(event) => setPaymentMethod(event.target.value)} className={inputClass}>{paymentOptions.map((option) => <option key={option.value} value={option.value}>{lang==="en"?({all:"All",cash:"Cash",bank_transfer:"Transfer / QR",card:"Card",other:"Other",completed:"Completed",cancelled:"Cancelled",draft:"Draft",queued:"Queued",preparing:"Preparing"}[option.value]??option.label):ui(option.label)}</option>)}</select></Field>
+            <Field label={lang==="en"?"Status":ui("สถานะ")}><select value={status} onChange={(event) => setStatus(event.target.value)} className={inputClass}>{statusOptions.map((option) => <option key={option.value} value={option.value}>{lang==="en"?({all:"All",cash:"Cash",bank_transfer:"Transfer / QR",card:"Card",other:"Other",completed:"Completed",cancelled:"Cancelled",draft:"Draft",queued:"Queued",preparing:"Preparing"}[option.value]??option.label):ui(option.label)}</option>)}</select></Field>
           </div>
-          {payload.access.selfOnly ? <p className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-700">สิทธิ์ปัจจุบันดูได้เฉพาะข้อมูลกะ/ผู้ใช้งานของตัวเอง</p> : null}
+          {payload.access.selfOnly ? <p className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-700">{ui("สิทธิ์ปัจจุบันดูได้เฉพาะข้อมูลกะ/ผู้ใช้งานของตัวเอง")}</p> : null}
           <DialogActions>
-            <ActionButton onClick={() => setFilterDialogOpen(false)}>ปิด</ActionButton>
-            <button type="button" onClick={() => { refresh(); setFilterDialogOpen(false); }} disabled={isPending} className="h-10 rounded-lg border border-blue-200 bg-blue-600 px-4 text-sm font-bold text-white transition hover:bg-blue-700 disabled:cursor-wait disabled:opacity-70">{isPending ? "กำลังโหลด" : "ใช้ตัวกรอง"}</button>
+            <ActionButton onClick={() => setFilterDialogOpen(false)}>{ui("ปิด")}</ActionButton>
+            <button type="button" onClick={() => { refresh(); setFilterDialogOpen(false); }} disabled={isPending} className="h-10 rounded-lg border border-blue-200 bg-blue-600 px-4 text-sm font-bold text-white transition hover:bg-blue-700 disabled:cursor-wait disabled:opacity-70">{isPending ? (lang==="en"?"Loading":ui("กำลังโหลด")) : (lang==="en"?"Apply filters":ui("ใช้ตัวกรอง"))}</button>
           </DialogActions>
         </Dialog>
 
         <Dialog
+          lang={lang}
           open={moreDialogOpen}
-          title="ดูเพิ่มเติม"
+          title={lang==="en"?"More details":ui("ดูเพิ่มเติม")}
           onClose={() => setMoreDialogOpen(false)}
           headerActions={<ActionButton onClick={exportMoreDialogCsv} disabled={activeMoreExport.rows.length <= 1}>Export CSV: {activeMoreExport.label}</ActionButton>}
           wide
@@ -318,7 +348,7 @@ export function PosSalesSummaryDashboard({ lang, initialPayload }: Props) {
           <div className="grid gap-4">
             <div className="flex flex-wrap gap-2 rounded-2xl border border-slate-200 bg-slate-50 p-2">
               {[{ id: "payments" as const, label: "ช่องทางชำระเงิน" }, { id: "products" as const, label: "สินค้าขายดี" }, { id: "cashiers" as const, label: "ประสิทธิภาพพนักงาน" }].map((tab) => (
-                <button key={tab.id} type="button" onClick={() => setMoreDialogTab(tab.id)} className={`h-10 rounded-xl px-4 text-sm font-black transition ${moreDialogTab === tab.id ? "bg-blue-600 text-white shadow-sm" : "bg-white text-slate-700 ring-1 ring-slate-200 hover:bg-blue-50"}`}>{tab.label}</button>
+                <button key={tab.id} type="button" onClick={() => setMoreDialogTab(tab.id)} className={`h-10 rounded-xl px-4 text-sm font-black transition ${moreDialogTab === tab.id ? "bg-blue-600 text-white shadow-sm" : "bg-white text-slate-700 ring-1 ring-slate-200 hover:bg-blue-50"}`}>{lang==="en"?({payments:"Payment methods",products:"Best products",cashiers:"Cashier performance"}[tab.id]):ui(tab.label)}</button>
               ))}
             </div>
             {moreDialogTab === "payments" ? <PaymentsPanel payload={payload} lang={lang} maxPaymentAmount={maxPaymentAmount} /> : null}
@@ -328,22 +358,24 @@ export function PosSalesSummaryDashboard({ lang, initialPayload }: Props) {
         </Dialog>
 
         <Dialog
+          lang={lang}
           open={salesRowsDialogOpen}
-          title="รายการขาย"
+          title={lang==="en"?"Sales list":ui("รายการขาย")}
           onClose={() => setSalesRowsDialogOpen(false)}
           headerActions={<ActionButton onClick={exportSalesRowsDialogCsv} disabled={payload.salesRows.length === 0}>Export CSV</ActionButton>}
           wide
         >
-          <Panel title="รายการขาย">
+          <Panel title={lang==="en"?"Sales list":ui("รายการขาย")}>
             <ScrollTable minWidth="1040px">
-              <thead><tr><Th>เลขที่บิล</Th><Th>วันเวลา</Th><Th>สาขา</Th><Th>พนักงาน</Th><Th>ชำระเงิน</Th><Th align="right">ยอดรวม</Th><Th align="right">ส่วนลด</Th><Th align="right">ภาษี</Th><Th align="right">สุทธิ</Th><Th>สถานะ</Th></tr></thead>
-              <tbody>{payload.salesRows.length === 0 ? <EmptyRow colSpan={10} /> : visibleSalesRows.map((row) => (
+              <thead><tr><Th>{ui("เลขที่บิล")}</Th><Th>{ui("วันเวลา")}</Th><Th>{ui("สาขา")}</Th><Th>{ui("พนักงาน")}</Th><Th>{ui("ชำระเงิน")}</Th><Th align="right">{ui("ยอดรวม")}</Th><Th align="right">{ui("ส่วนลด")}</Th><Th align="right">{ui("ภาษี")}</Th><Th align="right">{ui("สุทธิ")}</Th><Th>{ui("สถานะ")}</Th></tr></thead>
+              <tbody>{payload.salesRows.length === 0 ? <EmptyRow colSpan={10} lang={lang} /> : visibleSalesRows.map((row) => (
                 <tr key={row.id} className="border-t border-slate-100">
-                  <Td strong>{row.receiptNo}</Td><Td>{dateTime(row.createdAt, lang)}</Td><Td>{row.branchName}</Td><Td>{row.cashierName}</Td><Td>{paymentLabel(row.paymentLabel, row.paymentMethod, lang)}</Td><Td align="right">{money(row.grossTotal, lang)}</Td><Td align="right">{money(row.discount, lang)}</Td><Td align="right">{money(row.tax, lang)}</Td><Td align="right" strong>{money(row.netTotal, lang)}</Td><Td><StatusBadge status={row.status} lang={lang} /></Td>
+                  <Td strong>{row.receiptNo}</Td><Td>{dateTime(row.createdAt, lang)}</Td><Td>{row.branchName}</Td><Td>{row.cashierName}</Td><Td>{paymentLabel(row.paymentLabel, row.paymentMethod, lang)}</Td><Td align="right">{money(row.grossTotal, lang, payload.currencyCode)}</Td><Td align="right">{money(row.discount, lang, payload.currencyCode)}</Td><Td align="right">{money(row.tax, lang, payload.currencyCode)}</Td><Td align="right" strong>{money(row.netTotal, lang, payload.currencyCode)}</Td><Td><StatusBadge status={row.status} lang={lang} /></Td>
                 </tr>
               ))}</tbody>
             </ScrollTable>
             <PaginationControls
+            lang={lang}
               page={Math.min(salesRowsPage, salesRowsTotalPages)}
               totalPages={salesRowsTotalPages}
               totalRows={payload.salesRows.length}
@@ -369,8 +401,8 @@ function buildMoreDialogExport(payload: PosSalesSummaryPayload, tab: MoreDialogT
           product.productName,
           product.category,
           number(product.quantitySold, lang),
-          money(product.grossAmount, lang),
-          money(product.netAmount, lang)
+          money(product.grossAmount, lang, payload.currencyCode),
+          money(product.netAmount, lang, payload.currencyCode)
         ])
       ]
     };
@@ -384,10 +416,10 @@ function buildMoreDialogExport(payload: PosSalesSummaryPayload, tab: MoreDialogT
         ...payload.cashiers.map((cashier) => [
           cashier.cashierName,
           number(cashier.receiptCount, lang),
-          money(cashier.grossSales, lang),
-          money(cashier.netSales, lang),
+          money(cashier.grossSales, lang, payload.currencyCode),
+          money(cashier.netSales, lang, payload.currencyCode),
           cashier.cancelledCount,
-          money(cashier.averageReceiptValue, lang)
+          money(cashier.averageReceiptValue, lang, payload.currencyCode)
         ])
       ]
     };
@@ -397,24 +429,25 @@ function buildMoreDialogExport(payload: PosSalesSummaryPayload, tab: MoreDialogT
     slug: "payments",
     rows: [
       lang === "th" ? ["ช่องทางชำระเงิน", "จำนวนบิล", "ยอดรวม"] : ["Payment Method", "Bills", "Amount"],
-      ...payload.paymentMethods.map((method) => [paymentLabel(method.label, method.method, lang), method.receiptCount, money(method.amount, lang)])
+      ...payload.paymentMethods.map((method) => [paymentLabel(method.label, method.method, lang), method.receiptCount, money(method.amount, lang, payload.currencyCode)])
     ]
   };
 }
 
 function PaymentsPanel({ payload, lang, maxPaymentAmount }: { payload: PosSalesSummaryPayload; lang: Language; maxPaymentAmount: number }) {
-  return <Panel title="ช่องทางชำระเงิน">{payload.paymentMethods.length === 0 ? <EmptyState /> : <div className="grid gap-3">{payload.paymentMethods.map((method) => <div key={method.method}><div className="flex items-baseline justify-between gap-3"><span className="text-sm font-bold text-slate-800">{paymentLabel(method.label, method.method, lang)}</span><span className="text-sm font-black text-slate-950">{money(method.amount, lang)}</span></div><div className="mt-2 h-2 overflow-hidden rounded-full bg-slate-100"><div className="h-full rounded-full bg-blue-600" style={{ width: `${Math.max(5, (method.amount / maxPaymentAmount) * 100)}%` }} /></div><p className="mt-1 text-xs text-slate-500">{method.receiptCount} บิล</p></div>)}</div>}</Panel>;
+  return <Panel title={lang==="en"?"Payment methods":loUi(lang,"ช่องทางชำระเงิน")}>{payload.paymentMethods.length === 0 ? <EmptyState lang={lang} /> : <div className="grid gap-3">{payload.paymentMethods.map((method) => <div key={method.method}><div className="flex items-baseline justify-between gap-3"><span className="text-sm font-bold text-slate-800">{paymentLabel(method.label, method.method, lang)}</span><span className="text-sm font-black text-slate-950">{money(method.amount, lang, payload.currencyCode)}</span></div><div className="mt-2 h-2 overflow-hidden rounded-full bg-slate-100"><div className="h-full rounded-full bg-blue-600" style={{ width: `${Math.max(5, (method.amount / maxPaymentAmount) * 100)}%` }} /></div><p className="mt-1 text-xs text-slate-500">{method.receiptCount} บิล</p></div>)}</div>}</Panel>;
 }
 
 function ProductsPanel({ payload, lang }: { payload: PosSalesSummaryPayload; lang: Language }) {
-  return <Panel title="สินค้าขายดี"><ScrollTable minWidth="680px"><thead><tr><Th>สินค้า</Th><Th>หมวดหมู่</Th><Th align="right">จำนวน</Th><Th align="right">ยอดรวม</Th><Th align="right">ยอดสุทธิ</Th></tr></thead><tbody>{payload.bestSellingProducts.length === 0 ? <EmptyRow colSpan={5} /> : payload.bestSellingProducts.slice(0, 10).map((product, index) => <tr key={product.productId} className="border-t border-slate-100"><Td strong><span className="mr-2 inline-flex h-6 w-6 items-center justify-center rounded-full bg-slate-100 text-xs font-black text-slate-700">{index + 1}</span>{product.productName}</Td><Td>{product.category}</Td><Td align="right">{number(product.quantitySold, lang)}</Td><Td align="right">{money(product.grossAmount, lang)}</Td><Td align="right">{money(product.netAmount, lang)}</Td></tr>)}</tbody></ScrollTable></Panel>;
+  return <Panel title={lang==="en"?"Best products":loUi(lang,"สินค้าขายดี")}><ScrollTable minWidth="680px"><thead><tr><Th>{lang==="en"?"Product":loUi(lang,"สินค้า")}</Th><Th>{lang==="en"?"Category":loUi(lang,"หมวดหมู่")}</Th><Th align="right">{lang==="en"?"Quantity":loUi(lang,"จำนวน")}</Th><Th align="right">{lang==="en"?"Gross":loUi(lang,"ยอดรวม")}</Th><Th align="right">{lang==="en"?"Net":loUi(lang,"ยอดสุทธิ")}</Th></tr></thead><tbody>{payload.bestSellingProducts.length === 0 ? <EmptyRow colSpan={5} lang={lang} /> : payload.bestSellingProducts.slice(0, 10).map((product, index) => <tr key={product.productId} className="border-t border-slate-100"><Td strong><span className="mr-2 inline-flex h-6 w-6 items-center justify-center rounded-full bg-slate-100 text-xs font-black text-slate-700">{index + 1}</span>{product.productName}</Td><Td>{product.category}</Td><Td align="right">{number(product.quantitySold, lang)}</Td><Td align="right">{money(product.grossAmount, lang, payload.currencyCode)}</Td><Td align="right">{money(product.netAmount, lang, payload.currencyCode)}</Td></tr>)}</tbody></ScrollTable></Panel>;
 }
 
 function CashiersPanel({ payload, lang }: { payload: PosSalesSummaryPayload; lang: Language }) {
-  return <Panel title="ประสิทธิภาพพนักงาน"><ScrollTable minWidth="720px"><thead><tr><Th>พนักงาน</Th><Th align="right">บิล</Th><Th align="right">ยอดรวม</Th><Th align="right">ยอดสุทธิ</Th><Th align="right">ยกเลิก</Th><Th align="right">เฉลี่ย/บิล</Th></tr></thead><tbody>{payload.cashiers.length === 0 ? <EmptyRow colSpan={6} /> : payload.cashiers.map((cashier) => <tr key={cashier.cashierId} className="border-t border-slate-100"><Td strong>{cashier.cashierName}</Td><Td align="right">{number(cashier.receiptCount, lang)}</Td><Td align="right">{money(cashier.grossSales, lang)}</Td><Td align="right">{money(cashier.netSales, lang)}</Td><Td align="right">{cashier.cancelledCount}</Td><Td align="right">{money(cashier.averageReceiptValue, lang)}</Td></tr>)}</tbody></ScrollTable></Panel>;
+  return <Panel title={lang==="en"?"Cashier performance":loUi(lang,"ประสิทธิภาพพนักงาน")}><ScrollTable minWidth="720px"><thead><tr><Th>{lang==="en"?"Cashier":loUi(lang,"พนักงาน")}</Th><Th align="right">{lang==="en"?"Bills":loUi(lang,"บิล")}</Th><Th align="right">{lang==="en"?"Gross":loUi(lang,"ยอดรวม")}</Th><Th align="right">{lang==="en"?"Net":loUi(lang,"ยอดสุทธิ")}</Th><Th align="right">{lang==="en"?"Cancelled":loUi(lang,"ยกเลิก")}</Th><Th align="right">{lang==="en"?"Average / bill":loUi(lang,"เฉลี่ย/บิล")}</Th></tr></thead><tbody>{payload.cashiers.length === 0 ? <EmptyRow colSpan={6} lang={lang} /> : payload.cashiers.map((cashier) => <tr key={cashier.cashierId} className="border-t border-slate-100"><Td strong>{cashier.cashierName}</Td><Td align="right">{number(cashier.receiptCount, lang)}</Td><Td align="right">{money(cashier.grossSales, lang, payload.currencyCode)}</Td><Td align="right">{money(cashier.netSales, lang, payload.currencyCode)}</Td><Td align="right">{cashier.cancelledCount}</Td><Td align="right">{money(cashier.averageReceiptValue, lang, payload.currencyCode)}</Td></tr>)}</tbody></ScrollTable></Panel>;
 }
 
 function Dialog({
+  lang="th",
   open,
   title,
   onClose,
@@ -422,6 +455,7 @@ function Dialog({
   headerActions,
   wide = false
 }: {
+  lang?:Language;
   open: boolean;
   title: string;
   onClose: () => void;
@@ -430,7 +464,7 @@ function Dialog({
   wide?: boolean;
 }) {
   if (!open) return null;
-  return <div className="fixed inset-0 z-50 grid place-items-center bg-slate-950/45 p-4" role="presentation" onMouseDown={onClose}><section role="dialog" aria-modal="true" aria-label={title} className={`max-h-[86vh] w-full overflow-y-auto rounded-2xl border border-slate-200 bg-white p-4 shadow-2xl ${wide ? "max-w-6xl" : "max-w-4xl"}`} onMouseDown={(event) => event.stopPropagation()}><header className="mb-4 flex items-center justify-between gap-3 border-b border-slate-100 pb-3"><h2 className="text-lg font-black text-slate-950">{title}</h2><div className="flex items-center gap-2">{headerActions}<button type="button" onClick={onClose} aria-label="ปิด" className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 bg-white text-sm font-bold text-slate-700 transition hover:bg-slate-50">ปิด</button></div></header>{children}</section></div>;
+  return <div className="fixed inset-0 z-50 grid place-items-center bg-slate-950/45 p-4" role="presentation" onMouseDown={onClose}><section role="dialog" aria-modal="true" aria-label={title} className={`max-h-[86vh] w-full overflow-y-auto rounded-2xl border border-slate-200 bg-white p-4 shadow-2xl ${wide ? "max-w-6xl" : "max-w-4xl"}`} onMouseDown={(event) => event.stopPropagation()}><header className="mb-4 flex items-center justify-between gap-3 border-b border-slate-100 pb-3"><h2 className="text-lg font-black text-slate-950">{title}</h2><div className="flex items-center gap-2">{headerActions}<button type="button" onClick={onClose} aria-label={lang==="en"?"Close":loUi(lang,"ปิด")} className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 bg-white text-sm font-bold text-slate-700 transition hover:bg-slate-50">{lang==="en"?"Close":loUi(lang,"ปิด")}</button></div></header>{children}</section></div>;
 }
 
 function ActionButton({ children, onClick, disabled = false }: { children: ReactNode; onClick: () => void; disabled?: boolean }) {
@@ -438,12 +472,14 @@ function ActionButton({ children, onClick, disabled = false }: { children: React
 }
 
 function PaginationControls({
+  lang="th",
   page,
   totalPages,
   totalRows,
   onPrev,
   onNext
 }: {
+  lang?:Language;
   page: number;
   totalPages: number;
   totalRows: number;
@@ -453,11 +489,11 @@ function PaginationControls({
   return (
     <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-sm">
       <span className="font-semibold text-slate-500">
-        ทั้งหมด {totalRows} รายการ · หน้า {page}/{totalPages}
+        {lang==="en"?"Total":loUi(lang,"ทั้งหมด")} {totalRows} {lang==="en"?"records":loUi(lang,"รายการ")} · {lang==="en"?"page":loUi(lang,"หน้า")} {page}/{totalPages}
       </span>
       <div className="flex gap-2">
-        <ActionButton onClick={onPrev} disabled={page <= 1}>ก่อนหน้า</ActionButton>
-        <ActionButton onClick={onNext} disabled={page >= totalPages}>ถัดไป</ActionButton>
+        <ActionButton onClick={onPrev} disabled={page <= 1}>{lang==="en"?"Previous":loUi(lang,"ก่อนหน้า")}</ActionButton>
+        <ActionButton onClick={onNext} disabled={page >= totalPages}>{lang==="en"?"Next":loUi(lang,"ถัดไป")}</ActionButton>
       </div>
     </div>
   );
@@ -488,12 +524,12 @@ function Td({ children, align = "left", strong = false, tone = "normal" }: { chi
   return <td className={`px-3 py-2 ${align === "right" ? "text-right" : "text-left"} ${strong ? "font-bold text-slate-950" : toneClass}`}>{children}</td>;
 }
 
-function EmptyRow({ colSpan }: { colSpan: number }) {
-  return <tr><td colSpan={colSpan} className="px-3 py-10 text-center text-sm font-semibold text-slate-500">ยังไม่มีข้อมูลยอดขายในช่วงเวลานี้</td></tr>;
+function EmptyRow({ colSpan, lang="th" }: { colSpan: number; lang?:Language }) {
+  return <tr><td colSpan={colSpan} className="px-3 py-10 text-center text-sm font-semibold text-slate-500">{lang==="en"?"No sales in this period":loUi(lang,"ยังไม่มีข้อมูลยอดขายในช่วงเวลานี้")}</td></tr>;
 }
 
-function EmptyState() {
-  return <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-8 text-center text-sm font-semibold text-slate-500">ยังไม่มีข้อมูลยอดขายในช่วงเวลานี้</div>;
+function EmptyState({lang="th"}:{lang?:Language}) {
+  return <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-8 text-center text-sm font-semibold text-slate-500">{lang==="en"?"No sales in this period":loUi(lang,"ยังไม่มีข้อมูลยอดขายในช่วงเวลานี้")}</div>;
 }
 
 function StatusBadge({ status, lang }: { status: string; lang: Language }) {
@@ -503,7 +539,7 @@ function StatusBadge({ status, lang }: { status: string; lang: Language }) {
 }
 
 function statusLabel(status: string, lang: Language = "th") {
-  if (lang !== "th") {
+  if (lang === "en") {
     return status === "completed"
       ? "Completed"
       : status === "cancelled"
@@ -516,6 +552,7 @@ function statusLabel(status: string, lang: Language = "th") {
               ? "Preparing"
               : status;
   }
+  if(lang==="lo")return ({completed:"ສຳເລັດ",cancelled:"ຍົກເລີກ",draft:"ຮ່າງ",queued:"ລໍຖ້າ",preparing:"ກຳລັງຈັດກຽມ"} as Record<string,string>)[status]??status;
   return status === "completed"
     ? "สำเร็จ"
     : status === "cancelled"

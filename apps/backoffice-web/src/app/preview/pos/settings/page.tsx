@@ -1,4 +1,4 @@
-import { assertPosMenuPageAllowed, getTenantPosMenuOverrides } from "@/lib/server/pos-menu-policy-service";
+import { assertPosMenuPageAllowed, getTenantPosMenuOverrides, isTenantCustomPosPackage } from "@/lib/server/pos-menu-policy-service";
 import { PrintersModule } from "@/components/backoffice/printers-module";
 import { PosSettingsWorkspace } from "@/components/pos-preview/pos-settings-workspace";
 import { TableQrSettingsMenuPortal } from "@/components/pos-preview/table-qr-settings-menu-portal";
@@ -17,7 +17,7 @@ export default async function PosLanguageSettingsPage() {
   if (String(sessionScope.session.role ?? "").trim().toLowerCase() === "kitchen") {
     return (
       <section className="h-full min-h-0 flex-1 overflow-y-auto bg-slate-50 p-3 md:p-5">
-        <PrintersModule lang={lang} />
+        <PrintersModule lang={lang === "lo" ? "en" : lang} />
       </section>
     );
   }
@@ -32,6 +32,7 @@ export default async function PosLanguageSettingsPage() {
   });
   const role = String(scope.session.role ?? "").trim().toLowerCase();
   const canManageTableQr = role === "owner" || role === "manager";
+  const isCustom = canManageTableQr && await isTenantCustomPosPackage(scope.session.tenant_id);
   const settingsMenuPolicy = canManageTableQr
     ? await getTenantPosMenuOverrides(scope.session.tenant_id)
     : {};
@@ -43,7 +44,7 @@ export default async function PosLanguageSettingsPage() {
   return (
     <div className="h-full min-h-0 flex-1 bg-slate-50">
       <PosSettingsWorkspace lang={lang} initialData={initialData} />
-      {canManageTableQr ? <TableQrSettingsMenuPortal lang={lang} timelineEnabled={timelineEnabled} menuPolicy={settingsMenuPolicy} /> : null}
+      {canManageTableQr ? <TableQrSettingsMenuPortal lang={lang} timelineEnabled={timelineEnabled} menuPolicy={settingsMenuPolicy} isCustom={isCustom} /> : null}
     </div>
   );
 }

@@ -6,7 +6,11 @@ function browserEnv(value: string | undefined): string | undefined {
   return normalized.length > 0 ? normalized : undefined;
 }
 
+let browserClient: ReturnType<typeof createBrowserClient> | null = null;
+
 export function getSupabaseBrowserClient() {
+  if (browserClient) return browserClient;
+
   // NEXT_PUBLIC_* values must be referenced statically so Next.js can inline
   // them into the browser bundle. Dynamic process.env[name] access is not safe
   // for client-side code.
@@ -17,5 +21,18 @@ export function getSupabaseBrowserClient() {
     throw new Error("Missing Supabase public environment variables.");
   }
 
-  return createBrowserClient(url, anonKey);
+  let client: ReturnType<typeof createBrowserClient>;
+  client = createBrowserClient(url, anonKey, {
+    realtime: {
+      worker: true,
+      heartbeatCallback: (status: string) => {
+        if (status === "disconnected") {
+          client.realtime.connect();
+        }
+      }
+    }
+  });
+
+  browserClient = client;
+  return client;
 }

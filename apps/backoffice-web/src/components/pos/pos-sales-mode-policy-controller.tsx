@@ -8,10 +8,13 @@ const LOCK_ATTRIBUTE = "data-it-sales-mode-locked";
 const BADGE_ATTRIBUTE = "data-it-sales-mode-lock-badge";
 const STYLE_ID = "cpipos-it-sales-mode-policy-style";
 const POLICY_REFRESH_MS = 5 * 60_000;
+const CUSTOM_HIDDEN_ATTRIBUTE = "data-it-custom-mode-hidden";
 
 type FeaturesEnvelope = {
   data?: {
     sales_modes?: unknown;
+    is_custom?: boolean;
+    is_internal_test_full?: boolean;
   } | null;
 };
 
@@ -20,6 +23,7 @@ function ensurePolicyStyles() {
   const style = document.createElement("style");
   style.id = STYLE_ID;
   style.textContent = `
+    [${CUSTOM_HIDDEN_ATTRIBUTE}="1"] { display: none !important; }
     [${LOCK_ATTRIBUTE}="1"] {
       position: relative !important;
       cursor: not-allowed !important;
@@ -105,8 +109,10 @@ export function PosSalesModePolicyController() {
   useEffect(() => {
     let destroyed = false;
     let modes: PosSalesModeSettings = { ...DEFAULT_POS_SALES_MODES };
+    let isCustom = false;
     let requestSequence = 0;
     let applyFrame: number | null = null;
+    let latestSelector: HTMLElement | null = null;
 
     ensurePolicyStyles();
 
@@ -116,7 +122,19 @@ export function PosSalesModePolicyController() {
         const key = posUiModeToControlKey(element.getAttribute(MODE_ATTRIBUTE));
         if (!key) return;
         element.setAttribute("data-it-sales-mode-lock-key", key);
-        setElementLocked(element, modes[key] === false);
+        // Optical is a contract-only module and must never appear for fixed packages.
+        if (key === "optical_retail" && !isCustom) {
+          element.setAttribute(CUSTOM_HIDDEN_ATTRIBUTE, "1");
+          setElementLocked(element, false);
+          return;
+        }
+        if (isCustom && modes[key] !== true) {
+          element.setAttribute(CUSTOM_HIDDEN_ATTRIBUTE, "1");
+          setElementLocked(element, false);
+        } else {
+          element.removeAttribute(CUSTOM_HIDDEN_ATTRIBUTE);
+          setElementLocked(element, !isCustom && modes[key] === false);
+        }
       });
     };
 
@@ -128,18 +146,19 @@ export function PosSalesModePolicyController() {
       });
     };
 
-    const requestPolicy = async () => {
+    const requestPolicy = async (fresh = false) => {
       const sequence = ++requestSequence;
       try {
-        const response = await fetch("/api/pos/features", {
+        const response = await fetch(fresh ? "/api/pos/features?refresh=1" : "/api/pos/features", {
           method: "GET",
-          cache: "default",
+          cache: fresh ? "no-store" : "default",
           credentials: "same-origin"
         });
         if (!response.ok) return;
         const payload = (await response.json().catch(() => null)) as FeaturesEnvelope | null;
         if (destroyed || sequence !== requestSequence) return;
         modes = normalizePosSalesModes(payload?.data?.sales_modes);
+        isCustom = payload?.data?.is_custom === true || payload?.data?.is_internal_test_full === true;
         scheduleApplyPolicy();
       } catch {
         // Keep the last known policy. Temporary network problems must not rewrite the UI policy.
@@ -150,24 +169,47 @@ export function PosSalesModePolicyController() {
       const target = event.target instanceof Element ? event.target.closest<HTMLElement>(`[${MODE_ATTRIBUTE}]`) : null;
       if (!target) return;
       const key = posUiModeToControlKey(target.getAttribute(MODE_ATTRIBUTE));
-      if (!key || modes[key] !== false) return;
+      if (!key || (key !== "optical_retail" && modes[key] !== false) || (key === "optical_retail" && isCustom && modes[key] === true)) return;
       event.preventDefault();
       event.stopPropagation();
       event.stopImmediatePropagation();
-      setElementLocked(target, true);
+      if (isCustom) {
+        target.setAttribute(CUSTOM_HIDDEN_ATTRIBUTE, "1");
+      } else {
+        setElementLocked(target, true);
+      }
     };
 
-    const observer = new MutationObserver(() => scheduleApplyPolicy());
+    // The retail selector does its own authenticated fresh entitlement check.
+    // Share that result so the base mode cards and Optical mode never diverge.
+    const onFeaturePolicyUpdated = (event: Event) => {
+      const data = (event as CustomEvent<FeaturesEnvelope["data"]>).detail;
+      if (!data) return;
+      requestSequence += 1;
+      modes = normalizePosSalesModes(data.sales_modes);
+      isCustom = data.is_custom === true || data.is_internal_test_full === true;
+      scheduleApplyPolicy();
+    };
+    window.addEventListener("cpipos:pos-feature-policy-updated", onFeaturePolicyUpdated);
+
+    const observer = new MutationObserver(() => {
+      const selector = document.querySelector<HTMLElement>(".posui-mode-selector");
+      if (selector !== latestSelector) {
+        latestSelector = selector;
+        if (selector) void requestPolicy(true);
+      }
+      scheduleApplyPolicy();
+    });
     observer.observe(document.body, { childList: true, subtree: true });
     document.addEventListener("click", onClickCapture, true);
 
     const onVisibility = () => {
       if (document.visibilityState === "visible") {
         scheduleApplyPolicy();
-        void requestPolicy();
+        void requestPolicy(Boolean(latestSelector));
       }
     };
-    const onFocus = () => void requestPolicy();
+    const onFocus = () => void requestPolicy(Boolean(latestSelector));
     document.addEventListener("visibilitychange", onVisibility);
     window.addEventListener("focus", onFocus);
 
@@ -178,13 +220,16 @@ export function PosSalesModePolicyController() {
 
     return () => {
       destroyed = true;
+      requestSequence += 1;
       window.clearInterval(intervalId);
       if (applyFrame !== null) window.cancelAnimationFrame(applyFrame);
       observer.disconnect();
+      window.removeEventListener("cpipos:pos-feature-policy-updated", onFeaturePolicyUpdated);
       document.removeEventListener("click", onClickCapture, true);
       document.removeEventListener("visibilitychange", onVisibility);
       window.removeEventListener("focus", onFocus);
       document.querySelectorAll<HTMLElement>(`[${LOCK_ATTRIBUTE}="1"]`).forEach((element) => setElementLocked(element, false));
+      document.querySelectorAll<HTMLElement>(`[${CUSTOM_HIDDEN_ATTRIBUTE}="1"]`).forEach((element) => element.removeAttribute(CUSTOM_HIDDEN_ATTRIBUTE));
     };
   }, []);
 

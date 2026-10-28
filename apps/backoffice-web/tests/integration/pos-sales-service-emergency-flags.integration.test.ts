@@ -36,6 +36,11 @@ vi.mock("@/lib/supabase-admin", () => ({
   }
 }));
 
+// Emergency fallback tests isolate currency configuration; tender defaults to THB.
+vi.mock("@/lib/server/custom-pos-currency", () => ({
+  getTenantPosCurrencyCode: vi.fn(async () => "THB")
+}));
+
 const flagNames = [
   "POS_FORCE_DIRECT_CREATE_NON_DELIVERY",
   "POS_FORCE_DIRECT_PAYMENT_COMPLETE",
@@ -90,6 +95,8 @@ function createQueryMock(table: string, calls: Array<{ kind: string; table?: str
       return query;
     }),
     eq: vi.fn(() => query),
+    order: vi.fn(() => query),
+    limit: vi.fn(() => query),
     in: vi.fn(() => query),
     maybeSingle: vi.fn(async () => resolveMaybeSingle(table, selectedColumns)),
     single: vi.fn(async () => resolveMaybeSingle(table, selectedColumns)),

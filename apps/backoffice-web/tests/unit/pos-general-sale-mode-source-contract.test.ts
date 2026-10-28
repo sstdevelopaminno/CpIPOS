@@ -35,8 +35,9 @@ describe("POS SD general sale source contract", () => {
     expect(lookupRoute).not.toContain("export async function POST");
 
     expect(catalog).toContain("GENERAL_SALE_ADD_PRODUCT_EVENT");
-    expect(catalog).toContain("onAddProduct(product);");
-    expect(catalog).toContain('status: "added"');
+    expect(catalog).toContain("const accepted = onAddProduct(product);");
+    expect(catalog).toContain('accepted === false ? "unavailable" : "added"');
+    expect(catalog).toContain('accepted === false ? "unavailable" : "added"');
   });
 
   it("keeps the scanner table read-only toward stored cart data and delegates cart actions to React controls", () => {
@@ -61,7 +62,8 @@ describe("POS SD general sale source contract", () => {
     expect(controller).toContain('window.localStorage.setItem(GENERAL_SALE_LAYOUT_STORAGE_KEY, "table")');
     expect(controller).toContain('document.documentElement.setAttribute(GENERAL_SALE_LAYOUT_ATTRIBUTE, "table")');
     expect(controller).toContain("GENERAL_SALE_CHECKOUT_BASE_MODE");
-    expect(controller).toContain("homeButton.click();");
+    expect(controller).toContain("new Event(GENERAL_SALE_ACTIVATE_BASE_MODE_EVENT)");
+    expect(controller).not.toContain("homeButton.click();");
     expect(controller).not.toContain('data.sdLayout = "grid"');
     expect(controller).not.toContain('"สินค้า + ตะกร้า"');
     expect(controller).not.toContain('fetch("/api/pos/sales"');
@@ -76,7 +78,9 @@ describe("POS SD general sale source contract", () => {
     const featuresRoute = readRepoFile("src", "app", "api", "pos", "features", "route.ts");
 
     expect(featureMap).toContain('general_sale: "barcode_scanner_mode"');
-    expect(controller).toContain('fetch("/api/pos/features"');
+    expect(controller).toContain('fetch("/api/pos/features?refresh=1"');
+    expect(controller).toContain('cache: "no-store"');
+    expect(controller).toContain("sales_modes?.general_sale === true");
     expect(controller).toContain("POS_MODE_FEATURES.general_sale");
     expect(featuresRoute).toContain("hasBranchFeatureSafe");
     expect(controller).not.toContain("350");
@@ -87,8 +91,8 @@ describe("POS SD general sale source contract", () => {
     const previewPage = readRepoFile("src", "app", "preview", "pos", "page.tsx");
     const salesPage = readRepoFile("src", "app", "(backoffice)", "pos", "sales", "page.tsx");
 
-    expect(previewPage).toContain("<PosGeneralSaleTableController />");
-    expect(salesPage).toContain("<PosGeneralSaleTableController />");
+    expect(previewPage).toContain("<PosGeneralSaleTableController lang={lang} />");
+    expect(salesPage).toContain("<PosGeneralSaleTableController lang={lang} />");
     expect(previewPage).not.toContain("<PosGeneralSaleModeController />");
     expect(salesPage).not.toContain("<PosGeneralSaleModeController />");
   });

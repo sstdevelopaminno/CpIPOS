@@ -1,0 +1,173 @@
+name: Build CpIPOS Native Mobile Candidate
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/build-native-mobile-candidate.yml"
+
+permissions:
+  contents: write
+
+env:
+  NATIVE_REPOSITORY: sstdevelopaminno/cpipos-native-pos
+  NATIVE_SOURCE_SHA: 7aebe84db0ad82ff3dab6284429b56c88443a041
+  NATIVE_VERSION_NAME: 2.0.1-rc4
+  NATIVE_VERSION_CODE: "2000004"
+  NATIVE_RELEASE_TAG: native-mobile-v2.0.1-rc4
+  NATIVE_APK_ASSET_NAME: CpIPOS-Native-Mobile-2.0.1-rc4.apk
+  NATIVE_MANIFEST_ASSET_NAME: CpIPOS-Native-Mobile-2.0.1-rc4.manifest.json
+  ANDROID_SIGNING_CERT_SHA256: 6be0a9aef346a5b47162c8928c5018a01d0e7d81b4eb177bf2fb89922dc2a27a
+
+jobs:
+  build-native-mobile-release:
+    name: Build signed Native Mobile 2.0.1-rc4
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+
+    steps:
+      - name: Checkout release authority
+        uses: actions/checkout@v4
+
+      - name: Checkout exact Native source
+        run: |
+          set -euo pipefail
+          git clone --filter=blob:none --no-checkout "https://github.com/$NATIVE_REPOSITORY.git" native-pos
+          cd native-pos
+          git fetch --depth 1 origin "$NATIVE_SOURCE_SHA"
+          git checkout --detach "$NATIVE_SOURCE_SHA"
+          test "$(git rev-parse HEAD)" = "$NATIVE_SOURCE_SHA"
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: "platform-tools platforms;android-37.0 build-tools;37.0.0"
+
+      - name: Set up Gradle 9.5
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "9.5.0"
+
+      - name: Require existing stable Android signing secrets
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_SIGNING_KEYSTORE_BASE64 }}
+          STORE_PASSWORD: ${{ secrets.ANDROID_SIGNING_STORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_SIGNING_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_SIGNING_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          for value in "$KEYSTORE_BASE64" "$STORE_PASSWORD" "$KEY_ALIAS" "$KEY_PASSWORD"; do
+            if [ -z "$value" ]; then
+              echo "::error::Existing stable Android signing secrets are required."
+              exit 1
+            fi
+          done
+
+      - name: Materialize and verify stable signing keystore
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_SIGNING_KEYSTORE_BASE64 }}
+          STORE_PASSWORD: ${{ secrets.ANDROID_SIGNING_STORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_SIGNING_KEY_ALIAS }}
+        run: |
+          set -euo pipefail
+          signingDir="$RUNNER_TEMP/cpipos-native-signing"
+          keystorePath="$signingDir/cpipos-android-release.jks"
+          mkdir -p "$signingDir"
+          printf '%s' "$KEYSTORE_BASE64" | base64 --decode > "$keystorePath"
+          chmod 600 "$keystorePath"
+          certSha=$(keytool -list -v -keystore "$keystorePath" -storepass "$STORE_PASSWORD" -alias "$KEY_ALIAS" | awk -F': ' '/SHA256:/{gsub(":", "", $2); print tolower($2); exit}')
+          [ "$certSha" = "$ANDROID_SIGNING_CERT_SHA256" ] || {
+            echo "::error::Signing certificate mismatch: $certSha"
+            exit 1
+          }
+
+      - name: Test and build signed Native release
+        working-directory: native-pos
+        env:
+          ANDROID_RELEASE_KEYSTORE_PATH: ${{ runner.temp }}/cpipos-native-signing/cpipos-android-release.jks
+          ANDROID_RELEASE_STORE_PASSWORD: ${{ secrets.ANDROID_SIGNING_STORE_PASSWORD }}
+          ANDROID_RELEASE_KEY_ALIAS: ${{ secrets.ANDROID_SIGNING_KEY_ALIAS }}
+          ANDROID_RELEASE_KEY_PASSWORD: ${{ secrets.ANDROID_SIGNING_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          gradle :app:testDebugUnitTest :app:lintVitalRelease :app:assembleRelease --no-daemon --stacktrace             -PCPIPOS_RELEASE_VERSION_NAME="$NATIVE_VERSION_NAME"             -PCPIPOS_RELEASE_VERSION_CODE="$NATIVE_VERSION_CODE"
+
+      - name: Verify and stage signed Native APK
+        run: |
+          set -euo pipefail
+          apkPath="native-pos/app/build/outputs/apk/release/app-release.apk"
+          test -f "$apkPath"
+          apkSize=$(stat -c%s "$apkPath")
+          [ "$apkSize" -ge 1000000 ] || { echo "::error::APK size looks too small: $apkSize"; exit 1; }
+
+          apksignerPath=$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)
+          aaptPath=$(find "$ANDROID_HOME/build-tools" -type f -name aapt | sort -V | tail -n 1)
+          test -n "$apksignerPath"
+          test -n "$aaptPath"
+
+          "$apksignerPath" verify --verbose --print-certs "$apkPath"
+          certSha=$("$apksignerPath" verify --print-certs "$apkPath" | sed -n 's/^.*certificate SHA-256 digest: //p' | head -n 1 | tr -d ':' | tr '[:upper:]' '[:lower:]')
+          [ "$certSha" = "$ANDROID_SIGNING_CERT_SHA256" ] || { echo "::error::APK certificate mismatch: $certSha"; exit 1; }
+
+          badging=$("$aaptPath" dump badging "$apkPath" | head -n 1)
+          echo "$badging" | grep -q "package: name='com.cpipos.pos.next'" || { echo "::error::APK package mismatch: $badging"; exit 1; }
+          echo "$badging" | grep -q "versionCode='$NATIVE_VERSION_CODE'" || { echo "::error::versionCode mismatch: $badging"; exit 1; }
+          echo "$badging" | grep -q "versionName='$NATIVE_VERSION_NAME'" || { echo "::error::versionName mismatch: $badging"; exit 1; }
+          "$aaptPath" dump badging "$apkPath" | grep -q "sdkVersion:'26'" || { echo "::error::Native Mobile must support Android 8.0 / API 26"; exit 1; }
+          if "$aaptPath" dump badging "$apkPath" | grep -q "^application-debuggable"; then
+            echo "::error::Release APK must not be debuggable"
+            exit 1
+          fi
+
+          mkdir -p artifacts
+          cp "$apkPath" "artifacts/$NATIVE_APK_ASSET_NAME"
+          apkSha=$(sha256sum "artifacts/$NATIVE_APK_ASSET_NAME" | awk '{print $1}')
+          cat > "artifacts/$NATIVE_MANIFEST_ASSET_NAME" <<JSON
+          {
+            "channel": "native_mobile",
+            "version_name": "$NATIVE_VERSION_NAME",
+            "version_code": $NATIVE_VERSION_CODE,
+            "package_name": "com.cpipos.pos.next",
+            "asset_name": "$NATIVE_APK_ASSET_NAME",
+            "sha256": "$apkSha",
+            "signing_cert_sha256": "$ANDROID_SIGNING_CERT_SHA256",
+            "min_sdk": 26,
+            "source_repository": "$NATIVE_REPOSITORY",
+            "source_commit": "$NATIVE_SOURCE_SHA"
+          }
+          JSON
+          sha256sum "artifacts/$NATIVE_APK_ASSET_NAME"
+          cat "artifacts/$NATIVE_MANIFEST_ASSET_NAME"
+
+      - name: Upload signed Native artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: CpIPOS-Native-Mobile-2.0.1-rc4-signed
+          path: |
+            artifacts/${{ env.NATIVE_APK_ASSET_NAME }}
+            artifacts/${{ env.NATIVE_MANIFEST_ASSET_NAME }}
+          retention-days: 30
+          if-no-files-found: error
+
+      - name: Publish signed Native Mobile prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tag="$NATIVE_RELEASE_TAG"
+          apk="artifacts/$NATIVE_APK_ASSET_NAME"
+          manifest="artifacts/$NATIVE_MANIFEST_ASSET_NAME"
+          if gh release view "$tag" >/dev/null 2>&1; then
+            echo "::error::Candidate release already exists; never overwrite immutable test APKs."
+            exit 1
+          else
+            gh release create "$tag" "$apk" "$manifest" --prerelease               --target "$GITHUB_SHA"               --title "CpIPOS Native Mobile $NATIVE_VERSION_NAME"               --notes "Signed Native Android POS for phones. Android 8.0+ (API 26). Source is pinned to cpipos-native-pos $NATIVE_SOURCE_SHA. Uses the existing CpIPOS stable Android signing identity."
+          fi

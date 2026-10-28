@@ -45,3 +45,5 @@ artifacts/
 
 # ESLint cache
 .tmp-eslintcache
+# Local signed-in Playwright sessions and E2E reports: NEVER commit
+.qa/

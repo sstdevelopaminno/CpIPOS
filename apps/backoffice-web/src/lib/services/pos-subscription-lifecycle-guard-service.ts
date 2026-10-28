@@ -48,6 +48,8 @@ type GuardCacheEntry = {
 };
 
 const GUARD_ACTIVE_CACHE_TTL_MS = 5_000;
+// Fail closed and release in-flight entries if any backing query hangs.
+const GUARD_INFLIGHT_TIMEOUT_MS = 4_000;
 
 function getGuardCache() {
   const scopedGlobal = globalThis as typeof globalThis & {
@@ -103,22 +105,28 @@ function moneyValue(value: unknown): number | null {
   return Number.isFinite(parsed) && parsed>0 ? parsed : null;
 }
 
-async function loadGuardUncached(tenantId:string):Promise<PosSubscriptionLifecycleGuardData|null>{
+async function loadGuardUncached(tenantId:string,signal:AbortSignal):Promise<PosSubscriptionLifecycleGuardData|null>{
   const db=getPrimarySupabaseServiceClient();
-  const [life,contract,packages,issuer]=await Promise.all([
+  const [life,contract,packages,issuer,provisional]=await Promise.all([
     db.from("tenant_data_lifecycle")
       .select("lifecycle_status,access_locked,lock_reason,subscription_expires_at,trial_expires_at,grace_until,metadata")
-      .eq("tenant_id",tenantId).maybeSingle<Lifecycle>(),
+      .eq("tenant_id",tenantId).abortSignal(signal).maybeSingle<Lifecycle>(),
     db.from("tenant_subscription_contracts")
       .select("package_id,billing_interval,amount_per_cycle,currency,status")
-      .eq("tenant_id",tenantId).order("created_at",{ascending:false}).limit(1).maybeSingle<Contract>(),
+      .eq("tenant_id",tenantId).order("created_at",{ascending:false}).limit(1).abortSignal(signal).maybeSingle<Contract>(),
     db.from("subscription_packages")
-      .select("id,name,monthly_price,yearly_price").eq("is_active",true).limit(50).returns<Package[]>(),
+      .select("id,name,monthly_price,yearly_price").eq("is_active",true).limit(50).abortSignal(signal).returns<Package[]>(),
     db.from("it_communication_settings")
       .select("billing_bank_name,billing_bank_account_name,billing_bank_account_number")
-      .eq("id","default").maybeSingle<Issuer>()
+      .eq("id","default").abortSignal(signal).maybeSingle<Issuer>(),
+    db.from("tenant_subscription_payment_requests")
+      .select("id")
+      .eq("tenant_id",tenantId).eq("status","under_review").eq("auto_check_status","passed")
+      .not("provisional_access_granted_at","is",null).is("provisional_access_revoked_at",null)
+      
+      .order("provisional_access_granted_at",{ascending:false}).limit(1).abortSignal(signal).maybeSingle()
   ]);
-  if (life.error || contract.error || packages.error || issuer.error) return null;
+  if (life.error || contract.error || packages.error || issuer.error || provisional.error) return null;
   const lifecycle=life.data;
   const current=contract.data;
   const pkg=(packages.data??[]).find((row)=>row.id===current?.package_id);
@@ -132,15 +140,21 @@ async function loadGuardUncached(tenantId:string):Promise<PosSubscriptionLifecyc
     ? Math.ceil((Date.parse(expiry)-Date.now())/86400000) : null;
   const cycleAmount=moneyValue(current?.amount_per_cycle) ??
     moneyValue(current?.billing_interval==="yearly" ? pkg?.yearly_price : pkg?.monthly_price);
-  const locked=Boolean(!exempt && (lifecycle?.access_locked || (expiry && Date.parse(expiry)<=Date.now())));
+  const temporary=Boolean(provisional.data?.id && lifecycle?.access_locked===false &&
+    lifecycle.lock_reason==="subscription_payment_provisional_review" &&
+    lifecycle.metadata?.provisional_payment_request_id===provisional.data.id);
+  const locked=Boolean(!exempt && !temporary &&
+    (lifecycle?.access_locked || (expiry && Date.parse(expiry)<=Date.now()) ||
+     lifecycle?.lock_reason==="subscription_payment_review_timeout" ||
+     lifecycle?.lock_reason==="subscription_payment_rejected"));
   return {
     tenant_id:tenantId,
     exempt,
     locked,
     lock_reason:lifecycle?.lock_reason ?? (locked?"subscription_expired":null),
     lifecycle_status:lifecycle?.lifecycle_status ?? current?.status ?? "unknown",
-    expires_at:expiry,
-    days_remaining:daysRemaining,
+    expires_at:temporary?null:expiry,
+    days_remaining:temporary?null:daysRemaining,
     package_name:pkg?.name ?? "แพ็กเกจ",
     billing_interval:current?.billing_interval==="yearly"?"yearly":"monthly",
     amount_due:cycleAmount,
@@ -149,6 +163,22 @@ async function loadGuardUncached(tenantId:string):Promise<PosSubscriptionLifecyc
     account_name:issuer.data?.billing_bank_account_name ?? "",
     account_number:issuer.data?.billing_bank_account_number ?? ""
   };
+}
+
+/** An aborted query cannot keep a tenant's singleton print/billing lookup
+ * pinned forever in a shared Vercel instance.
+ */
+function loadGuardBounded(tenantId: string): Promise<PosSubscriptionLifecycleGuardData | null> {
+  const controller = new AbortController();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<null>((resolve) => {
+    timer = setTimeout(() => {
+      resolve(null);
+      controller.abort();
+    }, GUARD_INFLIGHT_TIMEOUT_MS);
+  });
+  return Promise.race([loadGuardUncached(tenantId, controller.signal), timeout])
+    .finally(() => { if (timer !== undefined) clearTimeout(timer); });
 }
 
 export async function loadPosSubscriptionLifecycleGuard(
@@ -169,12 +199,15 @@ export async function loadPosSubscriptionLifecycleGuard(
   const existing=inFlight.get(normalized);
   if(existing && !options?.forceFresh) return existing;
 
-  const promise=loadGuardUncached(normalized)
+  const promise=loadGuardBounded(normalized)
     .then((value)=>{
       writeGuardCache(normalized,value);
       return value;
     })
-    .finally(()=>inFlight.delete(normalized));
+    .finally(()=>{
+      // A stale timed-out query must not delete a newer in-flight request.
+      if(inFlight.get(normalized)===promise) inFlight.delete(normalized);
+    });
 
   inFlight.set(normalized,promise);
   return promise;

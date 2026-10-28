@@ -51,6 +51,8 @@ describe("dine-in Kitchen + checkout regression contract", () => {
     expect(commitBoundary).not.toContain("setEpoch(");
     expect(commitBoundary).not.toContain("key={epoch}");
     expect(commitBoundary).not.toContain("SKIP_ENTRY_GATE_SPLASH_KEY");
-    expect(commitBoundary).toContain("<PosEntryGate lang={lang} />");
+    expect(commitBoundary).not.toContain("<PosEntryGate");
+    expect(commitBoundary).not.toContain("<PosInitialSalesModeController");
+    expect(commitBoundary).toContain("<PosSalesModePreferenceEnhancer lang={lang} />");
   });
 });

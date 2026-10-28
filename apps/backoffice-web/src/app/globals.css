@@ -10161,3 +10161,13 @@ body:has(.pos-app-root) {
 .pos-settings-device-modal-scroll::-webkit-scrollbar-track {
   background: transparent;
 }
+
+/* Tenant CUSTOM appearance only. CpiPOS manufacturer logo stays intact. */
+.pos-shell-sidebar[data-custom-branded="true"] a[aria-current="page"]{
+ background:color-mix(in srgb, var(--pos-custom-accent), transparent 35%) !important;
+ border:1px solid var(--pos-custom-accent) !important;
+ box-shadow:inset 3px 0 var(--pos-custom-accent),0 4px 16px rgba(0,0,0,.16);
+}
+.pos-shell-sidebar[data-custom-branded="true"] a:hover:not([aria-disabled="true"]){
+ background-color:color-mix(in srgb, var(--pos-custom-accent),transparent 70%);
+}

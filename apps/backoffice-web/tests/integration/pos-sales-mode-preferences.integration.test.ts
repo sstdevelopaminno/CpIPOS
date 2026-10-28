@@ -1,6 +1,7 @@
 ﻿import { describe, expect, it } from "vitest";
 import {
   DEFAULT_POS_SALES_MODE_ORDER,
+  getAuthorizedCustomPosStartupMode,
   buildPosSalesModeOrderStorageKey,
   canManageBranchSalesModeOrder,
   getHiddenPosSalesModes,
@@ -27,6 +28,37 @@ describe("POS sales mode preferences", () => {
     expect(resolveProductProfile({ tenantCode: "FG0004" })).toBe("RESTAURANT_QR");
     expect(resolveProductProfile({ tenantCode: "FF0001" })).toBe("BUFFET");
     expect(resolveProductProfile({ tenantCode: "900001", tenantMetadata: { product_profile: "BUFFET" } })).toBe("BUFFET");
+  });
+
+  it("starts IMDC OPTICAL when it is the only IT-authorized CUSTOM mode", () => {
+    expect(getAuthorizedCustomPosStartupMode(
+      DEFAULT_POS_SALES_MODE_ORDER, "STANDARD",
+      { takeaway: false, dine_in: false, buffet_table: false, delivery: false, general_sale: false, optical_retail: true }
+    )).toBe("optical_retail");
+  });
+
+  it("does not enter an unauthorized home/takeaway mode when no mode is granted", () => {
+    expect(getAuthorizedCustomPosStartupMode(DEFAULT_POS_SALES_MODE_ORDER, "STANDARD", {})).toBeNull();
+  });
+
+  it("respects branch order among enabled modes rather than defaulting to home", () => {
+    expect(getAuthorizedCustomPosStartupMode(
+      ["home", "buffet_table", "dine_in", "delivery"], "STANDARD",
+      { takeaway: false, dine_in: true, buffet_table: true, optical_retail: true }
+    )).toBe("buffet_table");
+  });
+
+  it("respects product-profile restrictions even when a mode was granted", () => {
+    expect(getAuthorizedCustomPosStartupMode(
+      DEFAULT_POS_SALES_MODE_ORDER, "BUFFET",
+      { takeaway: true, dine_in: true, buffet_table: true }
+    )).toBe("buffet_table");
+  });
+
+  it("can auto-select general sale without exposing takeaway", () => {
+    expect(getAuthorizedCustomPosStartupMode(
+      DEFAULT_POS_SALES_MODE_ORDER, "STANDARD", { general_sale: true }
+    )).toBe("general_sale");
   });
 
   it("normalizes stored mode order without losing supported modes", () => {

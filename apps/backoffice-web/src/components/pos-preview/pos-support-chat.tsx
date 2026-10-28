@@ -4,6 +4,8 @@ import Image from "next/image";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { RealtimeChannel } from "@supabase/supabase-js";
 import { getSupabaseBrowserClient } from "@/lib/supabase-browser";
+import { PosSupportVoice } from "@/components/pos-preview/pos-support-voice";
+import type { SupportVoiceCall } from "@/components/support/use-support-voice-call";
 
 type Envelope<T> = { data?: T; error?: { code?: string; message?: string } };
 
@@ -111,8 +113,10 @@ async function attachmentPayload(file: File) {
   };
 }
 
-export function PosSupportChat({ storeCode, storeName }: { storeCode: string; storeName: string }) {
-  const [open, setOpen] = useState(false);
+export function PosSupportChat({ storeCode, storeName,apiBase="/api/pos/support-chat",initiallyOpen=false }: {
+  storeCode: string; storeName: string;apiBase?:string;initiallyOpen?:boolean
+}) {
+  const [open, setOpen] = useState(initiallyOpen);
   const [heads, setHeads] = useState<Head[]>([]);
   const [selectedId, setSelectedId] = useState<string>("");
   const [conversation, setConversation] = useState<Conversation | null>(null);
@@ -130,11 +134,24 @@ export function PosSupportChat({ storeCode, storeName }: { storeCode: string; st
   const messageReconcileTimerRef = useRef<number | null>(null);
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
+  const [activeCall, setActiveCall] = useState<SupportVoiceCall | null>(null);
 
   const openConversation = useMemo(
     () => heads.find((row) => row.status !== "closed") ?? null,
     [heads]
   );
+
+  const voiceActive = Boolean(
+    activeCall && ["requested", "accepted", "connecting", "connected"].includes(activeCall.status)
+  );
+
+  const closeChatWindow = useCallback(() => {
+    if (voiceActive) {
+      setError("กำลังมีสาย Support อยู่ กรุณาวางสายก่อนปิดหน้าต่างแชท");
+      return;
+    }
+    setOpen(false);
+  }, [voiceActive]);
 
   const clearGoneConversation = useCallback((id: string) => {
     setHeads((current) => current.filter((row) => row.conversation_id !== id));
@@ -142,6 +159,7 @@ export function PosSupportChat({ storeCode, storeName }: { storeCode: string; st
     setConversation((current) => current?.id === id ? null : current);
     setMessages([]);
     setRemoteTyping("");
+    setActiveCall(null);
     headSignalRef.current = "";
   }, []);
 
@@ -156,6 +174,7 @@ export function PosSupportChat({ storeCode, storeName }: { storeCode: string; st
     setAttachment(null);
     setRemoteTyping("");
     setClosingByIT(false);
+    setActiveCall(null);
     setError("");
     headSignalRef.current = "";
   }, []);
@@ -164,7 +183,7 @@ export function PosSupportChat({ storeCode, storeName }: { storeCode: string; st
     setBusy("list");
     setError("");
     try {
-      const response = await fetch("/api/pos/support-chat/conversations", { cache: "no-store" });
+      const response = await fetch(`${apiBase}/conversations`, { cache: "no-store" });
       const json = await response.json().catch(() => null) as Envelope<{ conversations: Head[] }> | null;
       if (!response.ok || !json?.data) throw new Error(json?.error?.message || "โหลดรายการแชทไม่สำเร็จ");
       setHeads(json.data.conversations);
@@ -193,8 +212,12 @@ export function PosSupportChat({ storeCode, storeName }: { storeCode: string; st
     setBusy("messages");
     setError("");
     try {
-      const response = await fetch(`/api/pos/support-chat/conversations/${id}/messages`, { cache: "no-store" });
-      const json = await response.json().catch(() => null) as Envelope<{ conversation: Conversation; messages: Message[] }> | null;
+      const response = await fetch(`${apiBase}/conversations/${id}/messages`, { cache: "no-store" });
+      const json = await response.json().catch(() => null) as Envelope<{
+        conversation: Conversation;
+        messages: Message[];
+        active_call?: SupportVoiceCall | null;
+      }> | null;
       if (response.status === 404) {
         clearGoneConversation(id);
         return;
@@ -207,12 +230,18 @@ export function PosSupportChat({ storeCode, storeName }: { storeCode: string; st
       setConversation(json.data.conversation);
       setClosingByIT(false);
       setMessages(json.data.messages);
+      setActiveCall(json.data.active_call ?? null);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "โหลดข้อความไม่สำเร็จ");
     } finally {
       setBusy("");
     }
   }, [clearGoneConversation, resetClosedConversation]);
+
+  const refreshSelectedConversation = useCallback(async () => {
+    if (!selectedId) return;
+    await loadMessages(selectedId);
+  }, [selectedId, loadMessages]);
 
   const scheduleMessageReconcile = useCallback((id: string) => {
     if (!id) return;
@@ -305,6 +334,11 @@ export function PosSupportChat({ storeCode, storeName }: { storeCode: string; st
               attachments: []
             }];
           });
+          scheduleMessageReconcile(selectedId);
+          return;
+        }
+
+        if (next.latest_sender_type === "system") {
           scheduleMessageReconcile(selectedId);
           return;
         }
@@ -413,7 +447,7 @@ export function PosSupportChat({ storeCode, storeName }: { storeCode: string; st
     setBusy("create");
     setError("");
     try {
-      const response = await fetch("/api/pos/support-chat/conversations", {
+      const response = await fetch(`${apiBase}/conversations`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ subject, contact_name: contactName })
@@ -475,7 +509,7 @@ export function PosSupportChat({ storeCode, storeName }: { storeCode: string; st
     });
 
     try {
-      const response = await fetch(`/api/pos/support-chat/conversations/${selectedId}/messages`, {
+      const response = await fetch(`${apiBase}/conversations/${selectedId}/messages`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
@@ -530,11 +564,15 @@ export function PosSupportChat({ storeCode, storeName }: { storeCode: string; st
   }
 
   async function closeConversation() {
+    if (voiceActive) {
+      setError("กรุณาวางสาย Support ก่อนจบการสนทนา");
+      return;
+    }
     if (!selectedId || !window.confirm("จบการสนทนานี้? รูปภาพที่แนบจะถูกลบทันที แต่ข้อความจะยังเก็บไว้")) return;
     setBusy("close");
     setError("");
     try {
-      const response = await fetch(`/api/pos/support-chat/conversations/${selectedId}`, {
+      const response = await fetch(`${apiBase}/conversations/${selectedId}`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ action: "close" })
@@ -568,7 +606,7 @@ export function PosSupportChat({ storeCode, storeName }: { storeCode: string; st
       </button>
 
       {open ? <div className="fixed inset-0 z-[520] grid place-items-center bg-slate-950/50 p-3 backdrop-blur-[2px]"
-        onMouseDown={(event) => { if (event.currentTarget === event.target) setOpen(false); }}>
+        onMouseDown={(event) => { if (event.currentTarget === event.target) closeChatWindow(); }}>
         <section role="dialog" aria-modal="true" className="flex h-[min(760px,92vh)] w-full max-w-4xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl">
           <header className="flex items-center gap-3 border-b border-slate-200 px-4 py-3">
             <div className="mr-auto">
@@ -577,7 +615,8 @@ export function PosSupportChat({ storeCode, storeName }: { storeCode: string; st
             </div>
             {selectedId ? <button type="button" onClick={() => void loadMessages(selectedId)}
               className="rounded-lg border border-slate-200 px-3 py-2 text-xs font-bold text-slate-600">รีเฟรช</button> : null}
-            <button type="button" onClick={() => setOpen(false)}
+            <button type="button" onClick={closeChatWindow}
+              aria-label={voiceActive ? "วางสายก่อนปิดหน้าต่าง" : "ปิดหน้าต่างแชท"}
               className="h-9 w-9 rounded-full border border-slate-200 text-xl text-slate-500">×</button>
           </header>
 
@@ -623,6 +662,16 @@ export function PosSupportChat({ storeCode, storeName }: { storeCode: string; st
                     {conversation?.assigned_role === "it_admin" ? "IT Admin" : conversation?.assigned_role === "it_support" ? "IT Support" : conversation?.subject || openConversation?.subject}
                   </div>
                 </div>
+                {conversation?.status !== "closed" && selectedId ? (
+                  <PosSupportVoice
+                    conversationId={selectedId}
+                    conversationOpen
+                    storeName={conversation?.store_name || storeName}
+                    activeCall={activeCall}
+                    onCallChange={setActiveCall}
+                    onRefresh={refreshSelectedConversation}
+                  />
+                ) : null}
                 {conversation?.status !== "closed" ? <button type="button" onClick={() => void closeConversation()}
                   disabled={busy === "close"}
                   className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-black text-slate-600">

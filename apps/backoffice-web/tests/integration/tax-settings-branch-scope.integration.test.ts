@@ -3,8 +3,13 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const getPosApiAuthContext = vi.fn();
 const loadTaxSettings = vi.fn();
 const saveTaxSettings = vi.fn();
+const requirePosApiFeature = vi.fn();
 
 vi.mock("@/lib/pos-api-auth", () => ({ getPosApiAuthContext }));
+vi.mock("@/lib/pos-api-feature-guard", () => ({
+  requirePosApiFeature,
+  featureGateFail: () => null
+}));
 vi.mock("@/lib/services/pos-settings-service", () => ({
   loadTaxSettings,
   saveTaxSettings
@@ -28,6 +33,7 @@ describe("tax settings branch scope API", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     getPosApiAuthContext.mockResolvedValue(auth);
+    requirePosApiFeature.mockResolvedValue(undefined);
   });
 
   it("loads tax settings for the owner-selected branch", async () => {

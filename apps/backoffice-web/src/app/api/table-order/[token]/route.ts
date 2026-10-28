@@ -8,6 +8,8 @@ import {
   filterTableQrMenuForBuffet
 } from "@/lib/table-qr-buffet-policy";
 import { loadTableQrMenu, loadTableQrState, resolveTableQrContext, submitTableQrOrder, submitTableQrServiceRequest } from "@/lib/table-qr-ordering";
+import { after } from "next/server";
+import { dispatchNativeQrFcm } from "@/lib/native-qr-fcm-push";
 import { assertTableQrStockAvailable, loadTableQrStockStates } from "@/lib/table-qr-stock";
 
 type SubmitPayload = {
@@ -212,6 +214,14 @@ export async function POST(request: Request, context: { params: Promise<{ token:
     if (action === "call_staff" || action === "request_checkout") {
       const qrContext = await resolveTableQrContext(token);
       const result = await submitTableQrServiceRequest({ context: qrContext, requestId, requestType: action, note: typeof body.note === "string" ? body.note.trim().slice(0, 500) : null });
+      if (!result.duplicate_request) {
+        after(() => dispatchNativeQrFcm({
+          tenantId: qrContext.tenant_id, branchId: qrContext.branch_id,
+          eventId: result.submission_id, tableId: qrContext.table_id,
+          tableCode: qrContext.table_code,
+          kind: action === "call_staff" ? "call_staff" : "request_checkout"
+        }));
+      }
       return ok({ submission_id: result.submission_id, table_code: qrContext.table_code, action, duplicate_request: result.duplicate_request }, result.duplicate_request ? 200 : 201);
     }
     if (action === "update_order") return fail("table_order_locked_after_submit", "รายการที่ยืนยันแล้วแก้ไขหรือลบจากมือถือไม่ได้ กรุณาเรียกพนักงาน", 409);
@@ -234,6 +244,14 @@ export async function POST(request: Request, context: { params: Promise<{ token:
     await assertTableQrBuffetItemsAllowed({ context: qrContext, items });
     await assertTableQrStockAvailable({ tenantId: qrContext.tenant_id, branchId: qrContext.branch_id, items });
     const result = await submitTableQrOrder({ context: qrContext, requestId, items, note: typeof body.note === "string" ? body.note.trim().slice(0, 500) : null, clientId });
+    if (!result.duplicate_request) {
+      after(() => dispatchNativeQrFcm({
+        tenantId: qrContext.tenant_id, branchId: qrContext.branch_id,
+        eventId: result.submission_id, tableId: qrContext.table_id,
+        tableCode: qrContext.table_code, kind: "order",
+        itemCount: items.reduce((sum, item) => sum + item.quantity, 0)
+      }));
+    }
     return ok({ submission_id: result.submission_id, order_no: result.order_no, table_code: qrContext.table_code, subtotal: Number(result.subtotal), tax_total: Number(result.tax_total), grand_total: Number(result.grand_total), duplicate_request: result.duplicate_request, review_status: result.review_status ?? null, kitchen_pending_review: result.kitchen_pending_review === true }, result.duplicate_request ? 200 : 201);
   } catch (error) {
     return publicError(error, { method: "POST", token, action, requestId, itemCount });

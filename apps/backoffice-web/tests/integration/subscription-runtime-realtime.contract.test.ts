@@ -13,7 +13,7 @@ describe("POS subscription runtime stability",()=>{
   it("unlocks and refreshes from tenant-scoped realtime lifecycle events",()=>{
     expect(guard).toContain('table:"tenant_subscription_runtime"');
     expect(guard).toContain('cpipos-subscription-runtime-changed');
-    expect(guard).toContain('fetch("/api/pos/billing/runtime"');
+    expect(guard).toContain("fetch(`\/api\/pos\/billing\/runtime?reason=${source}`");
     expect(migration).toContain("app.has_tenant_access(tenant_id)");
     expect(migration).toContain("alter publication supabase_realtime add table public.tenant_subscription_runtime");
   });

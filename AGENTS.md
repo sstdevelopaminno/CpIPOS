@@ -28,16 +28,14 @@ Never assume an old chat checkpoint is the current HEAD. Fetch first.
 - Never fix a bug by weakening tenant/branch isolation.
 - Validate changes under many tenants and multiple branches per tenant, not only a single shop happy path.
 
-## Primary / Trial routing
+## Primary-only data routing (effective 2026-10-21)
 
-- Primary: CpiPOS-001.
-- Trial Data Plane: CpiPOS-002.
-- `tenant_data_lifecycle.data_home` is the runtime routing authority.
-- `desired_data_home` is NOT a runtime routing signal.
-- If Trial is authoritative and cannot be reached/routed safely, fail closed.
-- Never silently fall back to Primary for authoritative Trial business operations.
-- Service-role credentials remain server-side only.
-- Do not change `data_home`, unlock a Trial tenant, or perform Trial/Primary cutover unless the task explicitly authorizes it after audit.
+- **CpiPOS-001 is the only active POS business data-plane database.** The former CpiPOS-002 Trial database no longer exists and must not be provisioned or routed to.
+- Trials remain a subscription/lifecycle state in the **Primary** database; do not equate a trial package to a separate database.
+- Current verified tenant lifecycle metadata: all five inspected rows have `data_home=primary`, `desired_data_home=primary`, `migration_status=idle`, and are not locked (2026-10-21 read-only audit).
+- `tenant_data_lifecycle.data_home` remains the authority. If any stale row unexpectedly says `trial` or `archive`, **fail closed** and investigate with IT; never silently rewrite or fall back to Primary.
+- Do not re-enable `TRIAL_DATA_ROUTING_ENABLED`, restore deleted CpiPOS-002 credentials, run old Trial recovery workflows or replay Trial SQL. Retain historical SQL solely for audit.
+- Service-role credentials are server-only. Never change `data_home` or delete production records automatically.
 
 ## UI / application doctrine
 
@@ -67,8 +65,8 @@ CpIPOS must remain responsive with many tenants and many branches.
 The canonical scope and current audit are in `docs/CpIPOS_MASTER_SYSTEM_SCOPE.md`:
 
 1. Package/subscription.
-2. Production + Trial Web App.
-3. Primary/Trial database lifecycle and Trial-to-paid migration.
+2. Production Web App with subscription trial accounts on Primary.
+3. Primary-only subscription lifecycle; historic secondary data-plane code is retired.
 4. Android Tablet + Windows apps and download delivery.
 5. Mobile application.
 6. Web App as native UI reference.

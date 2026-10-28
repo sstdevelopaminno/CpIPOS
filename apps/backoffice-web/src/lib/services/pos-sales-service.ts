@@ -5,6 +5,8 @@ import { calculateRecipeUsage, toIntegerGrams, validateStockBeforeDeduction } fr
 import { appendPosDeadLetter, POS_TIMEOUT_POLICY, PosTimeoutError, withTimeout } from "@/lib/pos-resilience";
 import { attachOrderToTableSession } from "@/lib/services/table-service";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
+import { getTenantPosCurrencyCode } from "@/lib/server/custom-pos-currency";
+import { requireOpticalRetailEntitlement } from "@/lib/server/optical-entitlement";
 
 type RpcResult<T> = {
   data: T | null;
@@ -752,6 +754,7 @@ async function executeCreatePosOrderDirectFallback(args: {
     return { ok: false as const, code: "invalid_total", status: 422, message: "Order total cannot be negative." };
   }
 
+  const currencyCode = await getTenantPosCurrencyCode(auth.tenantId);
   const orderId = crypto.randomUUID();
   const nowIso = new Date().toISOString();
   const buildBaseOrderInsertPayload = (orderNo: string) => ({
@@ -789,7 +792,8 @@ async function executeCreatePosOrderDirectFallback(args: {
       member_phone: input.member_phone ?? null,
       member_code: input.member_code ?? null,
       member_points: input.member_points ?? null,
-      member_stamps: input.member_stamps ?? null
+      member_stamps: input.member_stamps ?? null,
+      currency_code: currencyCode
     },
     status: "queued",
     created_by: auth.userId
@@ -818,7 +822,8 @@ async function executeCreatePosOrderDirectFallback(args: {
       member_phone: input.member_phone ?? null,
       member_code: input.member_code ?? null,
       member_points: input.member_points ?? null,
-      member_stamps: input.member_stamps ?? null
+      member_stamps: input.member_stamps ?? null,
+      currency_code: currencyCode
     },
     status: "queued",
     created_by: auth.userId
@@ -1370,22 +1375,31 @@ export async function executeCompletePosPaymentTransaction(args: {
   invokeRpc?: RpcInvoker;
 }) {
   const { auth, input, requestGroupId, invokeRpc = defaultRpcInvoker } = args;
-  if (POS_FORCE_DIRECT_PAYMENT_COMPLETE) {
+  const isOptical = Boolean(auth.tenantId && await requireOpticalRetailEntitlement(auth.tenantId));
+  // CUSTOM Optical must always be finalized through the single DB transaction.
+  // The legacy direct-payment fallback and pre-RPC replay never reconcile optical bins.
+  if (POS_FORCE_DIRECT_PAYMENT_COMPLETE && !isOptical) {
     return executeCompletePosPaymentDirectFallback({ auth, input, requestGroupId });
   }
-  const completedReplay = await resolveCompletedPaymentReplay({
-    auth,
-    orderId: input.order_id,
-    paymentLines: input.payment_lines,
-    requestGroupId
-  });
-  if (completedReplay) return completedReplay;
+  if (isOptical && !requestGroupId) {
+    return { ok: false as const, code: "optical_payment_idempotency_required", status: 422,
+      message: "Optical payment requires a persistent idempotency key." };
+  }
+  if (!isOptical) {
+    const completedReplay = await resolveCompletedPaymentReplay({
+      auth,
+      orderId: input.order_id,
+      paymentLines: input.payment_lines,
+      requestGroupId
+    });
+    if (completedReplay) return completedReplay;
+  }
 
   let data: PosPaymentTxRow[] | null = null;
   let error: { message: string } | null = null;
   try {
     const rpcResult = await withTimeout(
-      invokeRpc<PosPaymentTxRow[]>("complete_pos_payment_tx", {
+      invokeRpc<PosPaymentTxRow[]>(isOptical ? "optical_complete_pos_payment_tx" : "complete_pos_payment_tx", {
         p_tenant_id: auth.tenantId,
         p_branch_id: auth.branchId,
         p_order_id: input.order_id,
@@ -1447,6 +1461,11 @@ export async function executeCompletePosPaymentTransaction(args: {
         request_group_id: requestGroupId ?? null
       }
     });
+    if (isOptical) {
+      // Do not fall back to restaurant recipes after an Optical payment RPC error.
+      return { ok: false as const, code: "optical_atomic_payment_failed", status: 409,
+        message: "Optical stock and payment could not be completed together. No fallback payment was made." };
+    }
     if (parsed.code === "rpc_not_available") {
       return executeCompletePosPaymentDirectFallback({ auth, input, requestGroupId });
     }

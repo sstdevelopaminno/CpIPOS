@@ -49,7 +49,7 @@ describe("IT Admin -> tenant POS owner identity contract", () => {
   it("mounts the IT sales-mode policy in the live POS shell and blocks disabled modes", () => {
     expect(posLayout).toContain('import { PosSalesModePolicyController }');
     expect(posLayout).toContain("<PosSalesModePolicyController />");
-    expect(salesModePolicyController).toContain('fetch("/api/pos/features"');
+    expect(salesModePolicyController).toContain('fetch(fresh ? "/api/pos/features?refresh=1" : "/api/pos/features"');
     expect(salesModePolicyController).toContain('const MODE_ATTRIBUTE = "data-pos-sale-mode"');
     expect(salesModePolicyController).toContain("element.disabled = true");
     expect(salesModePolicyController).toContain("event.preventDefault()");
