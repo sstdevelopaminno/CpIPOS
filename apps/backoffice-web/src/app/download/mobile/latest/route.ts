@@ -1,13 +1,13 @@
 import { NextResponse } from "next/server";
 
-const releaseApiUrl = "https://api.github.com/repos/sstdevelopaminno/CpIPOS/releases/tags/cpipos-mobile-latest";
-const assetName = "CpIPOS-Mobile.apk";
+const releasesApiUrl = "https://api.github.com/repos/sstdevelopaminno/CpIPOS/releases?per_page=30";
+const stableNativeTagPattern = /^native-mobile-v\d+\.\d+\.\d+$/;
 
 export const dynamic = "force-dynamic";
 
 export async function GET() {
   try {
-    const response = await fetch(releaseApiUrl, {
+    const response = await fetch(releasesApiUrl, {
       cache: "no-store",
       headers: {
         Accept: "application/vnd.github+json",
@@ -16,19 +16,36 @@ export async function GET() {
     });
 
     if (!response.ok) {
-      return notReady("ไฟล์ CpIPOS Mobile APK กำลังถูกสร้างผ่าน GitHub Actions กรุณารอสักครู่แล้วลองใหม่");
+      return notReady("ยังตรวจสอบ CpIPOS Native Mobile รุ่น Stable จาก GitHub Releases ไม่ได้ กรุณาลองใหม่อีกครั้ง");
     }
 
-    const release = (await response.json()) as {
+    const releases = (await response.json()) as Array<{
+      draft?: boolean;
+      prerelease?: boolean;
+      tag_name?: string;
       assets?: Array<{
         name?: string;
         browser_download_url?: string;
       }>;
-    };
+    }>;
 
-    const asset = release.assets?.find((item) => item.name === assetName);
+    const release = releases.find(
+      (item) =>
+        !item.draft &&
+        !item.prerelease &&
+        typeof item.tag_name === "string" &&
+        stableNativeTagPattern.test(item.tag_name),
+    );
+
+    const asset = release?.assets?.find(
+      (item) =>
+        typeof item.name === "string" &&
+        item.name.startsWith("CpIPOS-Native-Mobile-") &&
+        item.name.endsWith(".apk"),
+    );
+
     if (!asset?.browser_download_url) {
-      return notReady("พบ Release แล้ว แต่ยังไม่พบไฟล์ CpIPOS-Mobile.apk กรุณารอสักครู่แล้วลองใหม่");
+      return notReady("ยังไม่พบ CpIPOS Native Mobile รุ่น Stable ที่พร้อมดาวน์โหลด กรุณาลองใหม่อีกครั้ง");
     }
 
     return NextResponse.redirect(asset.browser_download_url, 302);
