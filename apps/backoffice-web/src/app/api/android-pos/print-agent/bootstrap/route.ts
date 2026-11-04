@@ -128,7 +128,7 @@ export async function POST(request: Request) {
       .eq("branch_id", device.branch_id)
       .eq("device_code", device.device_code)
       .order("created_at", { ascending: false })
-      .limit(1)
+      .limit(20)
       .returns<PrintAgentRow[]>();
     if (existingError) throw new Error(existingError.message);
 
@@ -145,7 +145,13 @@ export async function POST(request: Request) {
     };
 
     let agent: PrintAgentRow;
-    const existing = existingRows?.[0] ?? null;
+    // Windows and Android POS may deliberately share device_code. Never rotate
+    // a Windows agent key while Android reboots / reconnects.
+    const existing = existingRows?.find((candidate) => {
+      const meta = asRecord(candidate.metadata);
+      return meta.runtime !== "windows_native_print_agent_v1" &&
+        !candidate.agent_name.startsWith("Windows Native POS ·");
+    }) ?? null;
     if (existing) {
       // Preserve the existing unique identity. Older deployments included the app version
       // in agent_name while an inactive canonical-name row could already exist. Renaming the
