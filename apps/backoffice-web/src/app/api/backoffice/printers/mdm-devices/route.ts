@@ -49,7 +49,7 @@ type TestRequest = {
 const WINDOWS_HEARTBEAT_FRESH_MS = 5 * 60_000;
 
 function windowsPrinterFromHealth(health: DeviceHealthRow | null) {
-  const version = (health?.app_version ?? "").match(/^(\\d+)\\.(\\d+)\\.(\\d+)/);
+  const version = (health?.app_version ?? "").match(/^(\d+)\.(\d+)\.(\d+)/);
   const versionParts = version ? version.slice(1).map(Number) : [];
   const printerSelectionSupported = versionParts.length === 3 &&
     (versionParts[0] > 0 || versionParts[1] > 2 || (versionParts[1] === 2 && versionParts[2] >= 0));
