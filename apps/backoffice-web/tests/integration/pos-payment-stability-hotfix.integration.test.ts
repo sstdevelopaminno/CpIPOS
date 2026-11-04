@@ -122,7 +122,9 @@ describe("POS payment stability hotfix", () => {
     const salesSource = source("src/components/pos/pos-sales-module.tsx");
     expect(modalSource).toContain("windowsNativeReceipt && onPrintReceipt");
     expect(modalSource).toContain("receiptPrintBusy");
-    expect(modalSource).toContain("disabled={!receiptSaved || receiptSaving || receiptPrintBusy}");
+    expect(modalSource).toContain("receiptAttemptedForOrder === receiptSession.order_id");
+    expect(modalSource).toContain("setReceiptAttemptedForOrder(receiptSession.order_id)");
+    expect(modalSource).toContain("disabled={!receiptSaved || receiptSaving || receiptPrintBusy || receiptAttemptedForOrder === receiptSession.order_id}");
     expect(salesSource).toContain("onPrintReceipt={handleReceiptPrint}");
     expect(salesSource).toContain("windowsNativeReceipt={windowsPrintRuntimeDetected}");
     expect(salesSource).toContain("if (hasLocalWindowsPrintBridge()) return;");
