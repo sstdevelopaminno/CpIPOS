@@ -84,7 +84,11 @@ export async function POST(req: Request) {
     }
     // An explicit printer assignment is required; an old Android profile
     // cannot be claimed or silently migrated to Windows.
-    const profiles = (profileResult.data ?? []).filter(row => asRecord(row.metadata).target_runtime === "windows_native");
+    const profiles = (profileResult.data ?? []).filter(row => {
+      const metadata = asRecord(row.metadata);
+      return metadata.target_runtime === "windows_native" &&
+        String(metadata.windows_device_code ?? "").trim().toUpperCase() === session.device_code!.toUpperCase();
+    });
     if (profiles.length === 0) return storeNoCache(fail("windows_printer_not_assigned", "Owner must assign a Windows-native printer profile first.", 409));
 
     const agentName = `Windows Native POS · ${session.device_code}`;
@@ -164,7 +168,10 @@ export async function POST(req: Request) {
           id: job.id,
           agent_attempt_id: job.agent_attempt_id,
           created_at: job.created_at,
-          order_no: typeof metadata.order_no === "string" ? metadata.order_no : null,
+          order_no: typeof asRecord(job.payload_json).order_no === "string"
+            ? String(asRecord(job.payload_json).order_no)
+            : typeof metadata.order_no === "string" ? metadata.order_no : null,
+          reprint: metadata.reprint === true,
           html,
           printer_name: connectedPrinter.selected_printer
         }]
