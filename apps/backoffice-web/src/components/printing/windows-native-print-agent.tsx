@@ -55,16 +55,18 @@ export function WindowsNativePrintAgent() {
     let stopped = false;
     let timer: ReturnType<typeof setTimeout> | null = null;
     let inFlight = false;
+    let idlePolls = 0;
     const abort = new AbortController();
 
     async function poll() {
       if (stopped || inFlight) return;
       inFlight = true;
-      let nextMs = 12_000;
+      let nextMs = idlePolls > 7 ? 30_000 : 12_000;
       try {
         const data = await command({ action: "claim" }, abort.signal);
         const jobs = (data as { jobs?: Job[] }).jobs ?? [];
         const job = jobs[0];
+        idlePolls = job ? 0 : idlePolls + 1;
         if (job && !stopped) {
           nextMs = 4_000;
           if (alreadyAttempted(job.id)) {
@@ -116,9 +118,16 @@ export function WindowsNativePrintAgent() {
       }
     }
 
+    function wake() {
+      if (stopped || inFlight) return;
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(() => { void poll(); }, 500);
+    }
+    window.addEventListener("cpi-windows-print-agent-wake", wake);
     void poll();
     return () => {
       stopped = true;
+      window.removeEventListener("cpi-windows-print-agent-wake", wake);
       abort.abort();
       if (timer) clearTimeout(timer);
     };
