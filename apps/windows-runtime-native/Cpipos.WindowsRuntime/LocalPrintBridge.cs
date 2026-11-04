@@ -381,6 +381,7 @@ internal sealed class LocalPrintBridge : IDisposable
             // not appear applied or silently reset after reboot.
             SavePrinterPreference(name);
             _defaultPrinter = name;
+            _lastError = null;
             return HttpResponseData.Json(200, new
             {
                 ok = true,
