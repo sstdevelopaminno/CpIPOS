@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { hasLocalWindowsPrintBridge, printWindowsReceiptHtml, testInstalledWindowsPrinter } from "@/lib/printing/windows-local-printer-test";
+import { hasLocalWindowsPrintBridge, printWindowsReceiptHtml, testInstalledWindowsPrinter, windowsReceiptHtmlToText } from "@/lib/printing/windows-local-printer-test";
 
 function stubWindowsRuntime(healthUrl = "http://127.0.0.1:3210/health", token = "test-token") {
   const local = new Map<string, string>();
@@ -84,7 +84,7 @@ describe("Windows direct native receipt test", () => {
 describe("manual Windows sales and historical receipt printing", () => {
   const html = "<!doctype html><html lang=\"th\"><body>ข้าวมันไก่สามเซียน</body></html>";
 
-  it("submits exactly one HTML receipt via /print with the native bridge resolving the selected printer", async () => {
+  it("submits one rendered text receipt via native .NET PrintDocument on XP-80C", async () => {
     stubWindowsRuntime();
     const calls: Array<{ url: string; init: RequestInit | undefined }> = [];
     vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
@@ -92,7 +92,7 @@ describe("manual Windows sales and historical receipt printing", () => {
       return {
         ok: true,
         json: async () => ({ ok: true, data: {
-          printed: true, html_printed: true, printer_name: "XP-80C", job_id: "CPIPOS-HTML-001"
+          printed: true, provider: "native_dotnet_print_document", printer_name: "XP-80C", job_id: "CPIPOS-HTML-001"
         } })
       } as Response;
     }));
@@ -104,10 +104,12 @@ describe("manual Windows sales and historical receipt printing", () => {
     expect(calls[0].init?.headers).toMatchObject({ "X-CpIPOS-Bridge-Token": "test-token" });
     const payload = JSON.parse(String(calls[0].init?.body));
     expect(payload).toMatchObject({
-      receipt_html: html,
       order_no: "BILL001",
       metadata: { reprint: true }
     });
+    expect(payload.text).toContain("ข้าวมันไก่สามเซียน");
+    expect(payload.text).not.toContain("<body>");
+    expect(payload).not.toHaveProperty("receipt_html");
     expect(payload).not.toHaveProperty("printer_name");
   });
 
@@ -133,7 +135,7 @@ describe("manual Windows sales and historical receipt printing", () => {
     expect(String(audit?.init?.body)).not.toContain(html);
   });
 
-  it("rejects a non-HTML spool ack rather than reporting a successful print", async () => {
+  it("rejects a response without confirmed native text spool acceptance", async () => {
     stubWindowsRuntime();
     const calls: string[] = [];
     vi.stubGlobal("fetch", vi.fn(async (url: string) => {
@@ -141,10 +143,10 @@ describe("manual Windows sales and historical receipt printing", () => {
       return String(url).startsWith("/api/pos/windows-print/")
         ? { ok: true } as Response
         : { ok: true, json: async () => ({ ok: true, data: {
-          printed: true, html_printed: false, printer_name: "XP-80C"
+          printed: true, provider: "legacy_html_only", printer_name: "XP-80C"
         } }) } as Response;
     }));
-    await expect(printWindowsReceiptHtml(html)).rejects.toThrow("ไม่ยืนยันการรับใบเสร็จ HTML");
+    await expect(printWindowsReceiptHtml(html)).rejects.toThrow("Windows PrintDocument ไม่ยืนยัน");
     expect(calls).toEqual(["http://127.0.0.1:3210/print", "/api/pos/windows-print/diagnostic"]);
   });
 
@@ -156,13 +158,21 @@ describe("manual Windows sales and historical receipt printing", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it("converts Thai receipt HTML to readable thermal-printer text with newlines", () => {
+    const receipt = '<html><style>.x{display:none}</style><body><div>ข้าวมันไก่สามเซียน</div><div>ข้าวมันไก่ &amp; น้ำซุป</div><div>รวม 120.00 บาท</div></body></html>';
+    const output = windowsReceiptHtmlToText(receipt);
+    expect(output).toContain("ข้าวมันไก่สามเซียน\nข้าวมันไก่ & น้ำซุป\nรวม 120.00 บาท");
+    expect(output).not.toContain("display:none");
+    expect(output).not.toContain("<div>");
+  });
+
   it("prevents a second sale receipt dispatch of the same order but permits PIN-authorized reprint", async () => {
     stubWindowsRuntime();
     const calls: string[] = [];
     vi.stubGlobal("fetch", vi.fn(async (url: string) => {
       calls.push(String(url));
       return { ok: true, json: async () => ({ ok: true, data: {
-        printed: true, html_printed: true, printer_name: "XP-80C", job_id: "spool-ok"
+        printed: true, provider: "native_dotnet_print_document", printer_name: "XP-80C", job_id: "spool-ok"
       } }) } as Response;
     }));
     await printWindowsReceiptHtml(html, { orderNo: "TKO-261104-001" });
