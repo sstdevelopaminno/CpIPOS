@@ -132,6 +132,7 @@ type Props = {
   receiptSaved: boolean;
   receiptAutoPrinted: boolean;
   receiptError: string | null;
+  windowsNativeReceipt?: boolean;
   cashSubmitting: boolean;
   transferSubmitting: boolean;
   transferSlipChecking: boolean;
@@ -199,6 +200,7 @@ type Props = {
   paymentNoticeSubmitting?: boolean;
   paymentNoticeError?: string | null;
   onCloseReceipt: () => void;
+  onPrintReceipt?: () => Promise<void> | void;
 };
 
 export function PosPaymentModals({
@@ -220,6 +222,7 @@ export function PosPaymentModals({
   receiptSaved,
   receiptAutoPrinted,
   receiptError,
+  windowsNativeReceipt = false,
   cashSubmitting,
   transferSubmitting,
   transferError,
@@ -260,8 +263,19 @@ export function PosPaymentModals({
   onPrintPaymentNotice,
   paymentNoticeSubmitting = false,
   paymentNoticeError = null,
-  onCloseReceipt
+  onCloseReceipt,
+  onPrintReceipt
 }: Props) {
+  const [receiptPrintBusy, setReceiptPrintBusy] = useState(false);
+  async function printReceiptOnce() {
+    if (receiptPrintBusy || !receiptSaved || receiptSaving || !receiptSession || !onPrintReceipt) return;
+    setReceiptPrintBusy(true);
+    try {
+      await onPrintReceipt();
+    } finally {
+      setReceiptPrintBusy(false);
+    }
+  }
   function resolveReceiptDiscountAmount(session: ReceiptSession): number {
     const explicitDiscount = Number(session.discount_amount ?? 0);
     if (Number.isFinite(explicitDiscount) && explicitDiscount > 0) {
@@ -312,7 +326,9 @@ export function PosPaymentModals({
       : receiptSaved
         ? receiptAutoPrinted
           ? (lang === "th" ? "บันทึกสำเร็จ และส่งพิมพ์แล้ว" : "Saved and print queued")
-          : (lang === "th" ? "บันทึกสำเร็จ กำลังรอคิวพิมพ์" : "Saved, print queue pending")
+          : windowsNativeReceipt
+            ? (lang === "th" ? "บันทึกสำเร็จ กรุณากดพิมพ์ใบเสร็จผ่าน Windows" : "Saved. Select Print Receipt on Windows.")
+            : (lang === "th" ? "บันทึกสำเร็จ กำลังรอคิวพิมพ์" : "Saved, print queue pending")
         : text.receiptSaving;
 
   function renderTaxSummaryRows(
@@ -706,6 +722,16 @@ export function PosPaymentModals({
                 ) : null}
               </footer>
             </article>
+            {onPrintReceipt ? (
+              <button
+                type="button"
+                className="posui-btn posui-btn--primary"
+                onClick={() => void printReceiptOnce()}
+                disabled={!receiptSaved || receiptSaving || receiptPrintBusy}
+              >
+                {receiptPrintBusy ? (lang === "th" ? "กำลังส่งพิมพ์..." : "Submitting to printer...") : text.receiptPrint}
+              </button>
+            ) : null}
           </section>
         </div>
       ) : null}
