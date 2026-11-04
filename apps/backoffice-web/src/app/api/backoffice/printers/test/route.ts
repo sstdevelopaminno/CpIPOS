@@ -30,6 +30,13 @@ function isFreshAgent(agent: Awaited<ReturnType<typeof listPrintAgents>>[number]
 async function assertPrinterReadyForTest(auth: Awaited<ReturnType<typeof getPrinterSettingsAuthContext>>, printerId: string) {
   const profiles = await listPrinterProfiles(auth); const profile = profiles.find((item) => item.id === printerId);
   if (!profile) throw new Error("printer_not_found"); if (!profile.enabled) throw new Error("printer_disabled");
+  // Fail closed on misnamed Windows profiles still pointing to the Android USB
+  // transport. A "queued" response would be misleading and create retries
+  // that cannot reach Windows' locally installed XP-80C.
+  const metadata = asRecord(profile.metadata);
+  if (/windows/i.test(profile.printer_name) && metadata.bridge_url === "native-agent://android-pos") {
+    throw new Error("windows_profile_routes_to_android");
+  }
   if (profile.connection_type === "NETWORK_ESC_POS" && !profile.ip_address?.trim()) throw new Error("printer_network_not_configured");
   if (!requiresPrintAgent(profile)) return profile;
   const agents = await listPrintAgents(auth); const compatibleAgents = agents.filter((agent) => agentMatchesProfile(profile, agent));
@@ -46,7 +53,7 @@ export async function POST(req: Request) {
     await assertPrinterReadyForTest(auth, printerId);
     const result = await queueAndProcessTestPrint(auth, printerId);
     await recordPrinterDeviceActionHistory(auth, printerId, "test_print_requested", { source: "printer_settings_v3", outcome: "accepted", job_status: result?.status ?? null }).catch(() => undefined);
-    const message = result?.status === "printed" ? "พิมพ์ทดสอบสำเร็จแล้ว" : "ส่งงานพิมพ์ทดสอบแล้ว Print Agent ออนไลน์และกำลังรับงาน";
+    const message = result?.status === "printed" ? "Print Agent รายงานว่าพิมพ์แล้ว (โปรดยืนยันกระดาษจริง)" : "ส่งงานพิมพ์เข้าคิวแล้ว ยังไม่ยืนยันว่ากระดาษออก";
     return ok({ printer_id: printerId, job: result, message });
   } catch (error) {
     if (auth && printerId) await recordPrinterDeviceActionHistory(auth, printerId, "test_print_failed", { source: "printer_settings_v3", outcome: "failed", error_code: error instanceof Error ? error.message : "unknown" }).catch(() => undefined);
@@ -54,6 +61,7 @@ export async function POST(req: Request) {
     if (message === "forbidden_role") return fail("forbidden_role", "Only manager, owner, or Kitchen can run test print.", 403);
     if (message === "printer_not_found") return fail("printer_not_found", "ไม่พบเครื่องพิมพ์นี้ในสาขาปัจจุบัน", 404);
     if (message === "printer_disabled") return fail("printer_disabled", "เครื่องพิมพ์นี้ถูกปิดใช้งาน กรุณาเชื่อมต่อใหม่ก่อนทดสอบ", 409);
+    if (message === "windows_profile_routes_to_android") return fail("windows_profile_routes_to_android", "โปรไฟล์ Windows ยังชี้ไป Android Print Agent โปรดทดสอบผ่าน CpiPOS Windows Web POS โดยตรง ไม่สร้างงานพิมพ์ซ้ำ", 409);
     if (message === "printer_network_not_configured") return fail("printer_not_configured", "เครื่องพิมพ์ LAN ยังไม่ได้ตั้งค่า IP กรุณาแก้ไข IP/Port ก่อนทดสอบ", 409);
     if (message === "printer_agent_not_configured") return fail("printer_agent_not_configured", "ยังไม่มี Print Agent ที่ตรงกับเครื่อง POS/เครื่องพิมพ์นี้ กรุณาเชื่อมต่อ Runtime หรือ Android Print Agent ก่อนทดสอบ", 503);
     if (message === "printer_agent_offline") return fail("printer_agent_offline", "Print Agent ของเครื่องนี้ออฟไลน์หรือไม่ได้ heartbeat ภายใน 5 นาที กรุณาเปิด/เชื่อมต่อ Print Agent แล้วลองใหม่", 503);

@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { hasLocalWindowsPrintBridge, testInstalledWindowsPrinter } from "@/lib/printing/windows-local-printer-test";
 import styles from "./printer-connection-manager-v3.module.css";
 
 type Mode = "lan" | "usb" | "bluetooth";
@@ -469,12 +470,28 @@ export function PrinterConnectionManagerV3({lang="th"}:{lang?:"th"|"en"|"lo"}) {
     setError(null);
     setNotice(null);
     try {
-      if (action === "test") await api("/api/backoffice/printers/test", { method: "POST", body: JSON.stringify({ printer_id: device.printer_profile_id }) });
+      let testNotice = "ส่งงานทดสอบเข้าคิวแล้ว ยังไม่ยืนยันว่ากระดาษออก";
+      if (action === "test") {
+        if (hasLocalWindowsPrintBridge() && device.connection_mode === "usb") {
+          // The installed Windows WebView2 app supplies a per-launch token.
+          // Never send Windows test jobs through Android Print Agent.
+          const result = await testInstalledWindowsPrinter(device.model ?? device.display_name);
+          testNotice = `Windows รับงานทดสอบที่ ${result.printer} แล้ว กรุณาตรวจว่ากระดาษออกจริง (ยังไม่ยืนยันผลการพิมพ์)`;
+        } else if (/windows/i.test(device.display_name)) {
+          throw new Error("นี่เป็นเครื่องพิมพ์ Windows กรุณาเปิดหน้าเดียวกันในโปรแกรม CpiPOS Windows Web POS เพื่อทดสอบผ่าน XP-80C โดยตรง");
+        } else {
+          const result = await api<{ job?: { status?: string } }>("/api/backoffice/printers/test", {
+            method: "POST",
+            body: JSON.stringify({ printer_id: device.printer_profile_id })
+          });
+          if (result.job?.status === "failed") throw new Error("งานพิมพ์ทดสอบล้มเหลว โปรดตรวจประวัติงานพิมพ์");
+        }
+      }
       if (action === "drawer") await api("/api/backoffice/printers/drawer-test", { method: "POST", body: JSON.stringify({ printer_id: device.printer_profile_id }) });
       if (action === "disconnect") await api("/api/backoffice/printers/devices", { method: "PATCH", body: JSON.stringify({ printer_id: device.printer_profile_id, action: "disconnect" }) });
       if (action === "delete") await api("/api/backoffice/printers/devices", { method: "DELETE", body: JSON.stringify({ printer_id: device.printer_profile_id }) });
       setNotice(action === "test"
-        ? "ส่งงานพิมพ์ทดสอบแล้ว"
+        ? testNotice
         : action === "drawer"
           ? "ส่งคำสั่งทดสอบลิ้นชักแล้ว"
           : action === "disconnect"
