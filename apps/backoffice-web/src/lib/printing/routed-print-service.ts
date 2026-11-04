@@ -284,12 +284,20 @@ export async function queueRoutedPaymentNotice(args: {
   accountLabel?: string | null;
   promptPayLabel?: string | null;
 }) {
-  const routes = await resolvePrinterRoutes({
+  const routes = (await resolvePrinterRoutes({
     auth: args.auth,
     purpose: "payment_slip",
     fallbackPurposes: ["receipt"],
     runtimeDeviceCode: args.runtimeDeviceCode,
     legacyRole: "receipt"
+  })).filter((route) => {
+    const metadata = asRecord(route.printer.metadata);
+    // Windows Native 0.2.x intentionally uses the physically proven text
+    // PrintDocument receipt path. Payment notices require an inline QR image,
+    // so queuing them to Windows would acknowledge "queued" and then be
+    // rejected by the Windows receipt worker. Fail closed here until a
+    // physically accepted Windows QR/image renderer exists.
+    return metadata.target_runtime !== "windows_native";
   });
   if (routes.length === 0) return [];
 
