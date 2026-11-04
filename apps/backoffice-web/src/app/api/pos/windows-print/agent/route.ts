@@ -77,8 +77,9 @@ export async function POST(req: Request) {
     if (health.error || profileResult.error) throw new Error(health.error?.message ?? profileResult.error?.message);
     const recent = health.data?.last_seen_at && Date.now() - Date.parse(health.data.last_seen_at) <= HEARTBEAT_MAX_AGE_MS;
     const connectedPrinter = asRecord(health.data?.peripheral_health);
-    if (!recent || connectedPrinter.selected_printer_valid !== true || connectedPrinter.selected_printer !== "XP-80C" &&
-        typeof connectedPrinter.selected_printer !== "string") {
+    if (!recent || connectedPrinter.selected_printer_valid !== true ||
+        typeof connectedPrinter.selected_printer !== "string" ||
+        !connectedPrinter.selected_printer.trim()) {
       return storeNoCache(fail("windows_agent_offline", "Windows runtime must be online with a valid installed printer.", 409));
     }
     // An explicit printer assignment is required; an old Android profile
@@ -149,7 +150,7 @@ export async function POST(req: Request) {
       const metadata = asRecord(job.metadata);
       const html = typeof metadata.payload_html === "string" ? metadata.payload_html : "";
       if (job.printer_role !== "receipt" || !html.trim() ||
-          html.length > 250_000 || job.printer_id !== profiles[0].id) {
+          html.length > 250_000 || !profiles.some(profile => profile.id === job.printer_id)) {
         await failPrintJob(agent, job.id, {
           agent_attempt_id: job.agent_attempt_id,
           retryable: false,
