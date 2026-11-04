@@ -53,7 +53,9 @@ export async function POST(req: Request) {
     if (!tenantId || !branchId || !posDeviceId) {
       return fail("missing_scope", "tenant_id, branch_id, and pos_device_id are required.", 422);
     }
-    if (!isDeviceCommandType(commandTypeRaw)) {
+    // Managed Windows printer changes require live queue enumeration and
+    // per-machine scope in /api/backoffice/printers/mdm-devices.
+    if (!isDeviceCommandType(commandTypeRaw) || commandTypeRaw === "set_printer") {
       return fail("invalid_command_type", "Unknown device command type.", 422);
     }
     const commandType: DeviceCommandType = commandTypeRaw;
