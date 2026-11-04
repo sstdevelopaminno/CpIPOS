@@ -2,6 +2,12 @@ name: Build CpIPOS Windows Runtime
 
 on:
   workflow_dispatch:
+    inputs:
+      publish_web_pos:
+        description: "Publish Windows Web POS installer to the customer release (only after hardware/printing acceptance)"
+        type: boolean
+        required: false
+        default: false
 
 permissions:
   contents: write
@@ -290,7 +296,17 @@ jobs:
               --notes "Latest CpIPOS Windows Runtime installer and portable ZIP built manually from GitHub Actions."
           }
 
-          gh release upload $tag $setupPath $webPosSetupPath $zipPath --clobber
+          # Keep existing Runtime assets unchanged. Web POS is an opt-in public release
+          # until the real Windows printer/receipt QA gate has passed.
+          $assets = @($setupPath, $zipPath)
+          if ("${{ inputs.publish_web_pos }}" -eq "true") {
+            $assets += $webPosSetupPath
+          }
+          gh release upload $tag @assets --clobber
           Write-Host "Installer URL: https://github.com/${{ github.repository }}/releases/download/$tag/$env:WINDOWS_RUNTIME_SETUP_ASSET_NAME"
-          Write-Host "Windows Web POS installer URL: https://github.com/${{ github.repository }}/releases/download/$tag/$env:WINDOWS_WEB_POS_SETUP_ASSET_NAME"
+          if ("${{ inputs.publish_web_pos }}" -eq "true") {
+            Write-Host "Windows Web POS installer URL: https://github.com/${{ github.repository }}/releases/download/$tag/$env:WINDOWS_WEB_POS_SETUP_ASSET_NAME"
+          } else {
+            Write-Host "Windows Web POS installer kept as workflow artifact only (not released before printer QA)."
+          }
           Write-Host "Portable ZIP URL: https://github.com/${{ github.repository }}/releases/download/$tag/$env:WINDOWS_RUNTIME_ZIP_ASSET_NAME"
