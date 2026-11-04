@@ -7965,6 +7965,12 @@ export function PosSalesModule({
       setBillPaymentMethod("cash");
       clearClosedBillUiState({ clearReceipt: false, tableId: cashReviewOrder.table_id ?? null, resetDelivery: true });
       pushSubmitMessage(`${text.receiptSaved}: ${cashReviewOrder.order_no}`);
+      // Wake the scoped Windows print agent immediately after the server
+      // commits a payment and its durable print job. Native XP-80C agents
+      // never use the Android queue/driver.
+      if (windowsManualReceipt && typeof window !== "undefined") {
+        window.dispatchEvent(new Event("cpi-windows-print-agent-wake"));
+      }
       runPostPaymentSideEffects(nextReceiptSession, { printQueued: windowsManualReceipt ? false : printQueued });
       if (orderType === "dine_in" || Boolean(cashReviewOrder.table_id)) {
         setQuickMode(quickMode === "buffet_table" ? "buffet_table" : "dine_in");
