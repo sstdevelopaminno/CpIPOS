@@ -175,9 +175,10 @@ async function readBridgeHealth(url: string | undefined): Promise<BridgeHealthRe
     if (!response.ok) return null;
     // Windows native LocalPrintBridge returns { ok: true, data: {...health} }.
     // Do not treat the envelope's "ok" as a valid printer; unwrap its data.
-    const body = (await response.json()) as { ok?: boolean; data?: BridgeHealthResponse };
-    if (body.ok !== true || !body.data || typeof body.data !== "object") return null;
-    return { ...body.data, ok: true };
+    const body = (await response.json()) as BridgeHealthResponse & { data?: BridgeHealthResponse };
+    if (body.ok !== true) return null;
+    const data = body.data && typeof body.data === "object" ? body.data : body;
+    return { ...data, ok: true };
   } catch {
     return null;
   }
