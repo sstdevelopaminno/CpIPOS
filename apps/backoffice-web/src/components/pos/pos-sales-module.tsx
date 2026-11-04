@@ -8788,7 +8788,10 @@ export function PosSalesModule({
 
     if (hasLocalWindowsPrintBridge()) {
       try {
-        const printed = await printWindowsReceiptHtml(receiptHtml, { orderNo: receiptSession.order_no });
+        const printed = await printWindowsReceiptHtml(receiptHtml, {
+          orderNo: receiptSession.order_no,
+          orderId: receiptSession.order_id
+        });
         setReceiptAutoPrinted(true);
         pushSubmitMessage(
           lang === "th"

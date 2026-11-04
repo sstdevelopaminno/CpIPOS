@@ -30,7 +30,8 @@ type Body = {
 };
 
 const AGENT_COLUMNS = "id,tenant_id,branch_id,device_id,device_code,agent_name,api_key_hash,status,last_seen_at,last_claim_at,app_version,metadata";
-const HEARTBEAT_MAX_AGE_MS = 180_000;
+// POS heartbeat sender reports every five minutes; allow one minute of network jitter.
+const HEARTBEAT_MAX_AGE_MS = 360_000;
 const PRINT_JOB_MAX_AGE_MS = 150_000;
 const VALID_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -152,9 +153,18 @@ export async function POST(req: Request) {
       }
       // Only explicit HTML receipts are supported in this Windows agent.
       const metadata = asRecord(job.metadata);
+      const payloadJson = asRecord(job.payload_json);
       const html = typeof metadata.payload_html === "string" ? metadata.payload_html : "";
-      if (job.printer_role !== "receipt" || !html.trim() ||
-          html.length > 250_000 || !profiles.some(profile => profile.id === job.printer_id)) {
+      const orderId = typeof job.order_id === "string" && VALID_ID.test(job.order_id) ? job.order_id : null;
+      const orderNo = typeof payloadJson.order_no === "string" ? payloadJson.order_no
+        : typeof metadata.order_no === "string" ? metadata.order_no : null;
+      // Payment notices use the receipt printer role but are NOT paid-sale receipts.
+      // Never reserve a sale receipt deduplication key for an unpaid notice.
+      const approvedSaleReceipt = metadata.payload_format === "receipt_html_v1" &&
+        metadata.document_type !== "payment_notice" && payloadJson.document_type !== "payment_notice";
+      if (job.printer_role !== "receipt" || !approvedSaleReceipt || !orderId || !orderNo?.trim() ||
+          !html.trim() || html.length > 250_000 ||
+          !profiles.some(profile => profile.id === job.printer_id)) {
         await failPrintJob(agent, job.id, {
           agent_attempt_id: job.agent_attempt_id,
           retryable: false,
@@ -163,17 +173,27 @@ export async function POST(req: Request) {
         });
         return storeNoCache(ok({ jobs: [], unsupported_job_held: true }));
       }
+      // A too-long receipt must be reviewed, never silently truncated so that
+      // totals at the end of the paper disappear while the job is ACKed.
+      if (typeof job.payload_text === "string" && job.payload_text.length > 14_000) {
+        await failPrintJob(agent, job.id, {
+          agent_attempt_id: job.agent_attempt_id,
+          retryable: false,
+          error_code: "windows_receipt_text_too_long",
+          error_message: "Receipt text exceeds the safe print limit; review the full receipt before manual printing."
+        });
+        return storeNoCache(ok({ jobs: [], oversized_job_held: true }));
+      }
       return storeNoCache(ok({
         jobs: [{
           id: job.id,
+          order_id: orderId,
           agent_attempt_id: job.agent_attempt_id,
           created_at: job.created_at,
-          order_no: typeof asRecord(job.payload_json).order_no === "string"
-            ? String(asRecord(job.payload_json).order_no)
-            : typeof metadata.order_no === "string" ? metadata.order_no : null,
+          order_no: orderNo,
           reprint: metadata.reprint === true,
           html,
-          text: typeof job.payload_text === "string" ? job.payload_text.slice(0, 14_000) : null,
+          text: typeof job.payload_text === "string" ? job.payload_text : null,
           printer_name: connectedPrinter.selected_printer
         }]
       }));

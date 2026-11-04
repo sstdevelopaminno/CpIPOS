@@ -28,10 +28,16 @@ describe("Windows print agent device and receipt safety", () => {
 
   it("server refuses stale or non-HTML jobs and never replays old failures", () => {
     const route = source("src/app/api/pos/windows-print/agent/route.ts");
-    expect(route).toContain("HEARTBEAT_MAX_AGE_MS = 180_000");
+    expect(route).toContain("HEARTBEAT_MAX_AGE_MS = 360_000");
     expect(route).toContain("PRINT_JOB_MAX_AGE_MS = 150_000");
     expect(route).toContain("windows_receipt_stale_manual_review_required");
     expect(route).toContain("windows_receipt_unsupported_payload");
+    expect(route).toContain('metadata.payload_format === "receipt_html_v1"');
+    expect(route).toContain('metadata.document_type !== "payment_notice"');
+    expect(route).toContain('payloadJson.document_type !== "payment_notice"');
+    expect(route).toContain("windows_receipt_text_too_long");
+    expect(route).not.toContain("job.payload_text.slice(0, 14_000)");
+    expect(route).toContain("order_id: orderId");
     expect(route).toContain("retryable: false");
     expect(route).toContain('origin !== new URL(req.url).origin');
     expect(route).toContain('scope.permissions.includes("receipts:view")');

@@ -5,6 +5,7 @@ import { hasLocalWindowsPrintBridge, printWindowsReceiptHtml } from "@/lib/print
 
 type Job = {
   id: string;
+  order_id: string;
   agent_attempt_id: string;
   order_no: string | null;
   reprint?: boolean;
@@ -90,6 +91,7 @@ export function WindowsNativePrintAgent() {
             try {
               const spool = await printWindowsReceiptHtml(job.html, {
                 orderNo: job.order_no,
+                orderId: job.order_id,
                 reprint: job.reprint === true,
                 plainText: job.text ?? null
               });
