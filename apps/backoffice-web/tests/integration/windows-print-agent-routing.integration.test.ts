@@ -54,6 +54,20 @@ describe("Windows print agent device and receipt safety", () => {
     expect(host).toContain("<WindowsNativePrintAgent />");
   });
 
+  it("fails closed when the local Windows attempt ledger has the wrong structure", () => {
+    const worker = source("src/components/printing/windows-native-print-agent.tsx");
+    expect(worker).toContain('Array.isArray(parsed)');
+    expect(worker).toContain('Object.prototype.hasOwnProperty.call(ledger, jobId)');
+    expect(worker).toContain('windows_attempt_ledger_corrupt');
+  });
+
+  it("never queues QR payment notices to the text-only Windows native agent", () => {
+    const routed = source("src/lib/printing/routed-print-service.ts");
+    expect(routed).toContain('purpose: "payment_slip"');
+    expect(routed).toContain('metadata.target_runtime !== "windows_native"');
+    expect(routed).toContain("physically accepted Windows QR/image renderer");
+  });
+
   it("Android bootstrap does not select and rotate the Windows agent key", () => {
     const android = source("src/app/api/android-pos/print-agent/bootstrap/route.ts");
     expect(android).toContain('meta.runtime !== "windows_native_print_agent_v1"');
