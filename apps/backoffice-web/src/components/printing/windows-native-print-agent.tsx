@@ -7,6 +7,7 @@ type Job = {
   id: string;
   agent_attempt_id: string;
   order_no: string | null;
+  reprint?: boolean;
   html: string;
 };
 type Reply = { data?: { jobs?: Job[] }; error?: { code?: string; message?: string } };
@@ -84,7 +85,10 @@ export function WindowsNativePrintAgent() {
               return;
             }
             try {
-              const spool = await printWindowsReceiptHtml(job.html, { orderNo: job.order_no });
+              const spool = await printWindowsReceiptHtml(job.html, {
+                orderNo: job.order_no,
+                reprint: job.reprint === true
+              });
               await command({
                 action: "ack", job_id: job.id, agent_attempt_id: job.agent_attempt_id,
                 provider_job_id: spool.spoolJobId
