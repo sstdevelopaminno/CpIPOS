@@ -1,0 +1,64 @@
+name: Publish CpIPOS Windows Web POS Beta Download
+
+# One-time publication of the installer produced by the verified Windows
+# workflow run. The version/tag/sha are deliberately pinned. Do not reuse
+# this file for future versions without a new review and QA.
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/publish-windows-webpos-beta.yml
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: write
+
+jobs:
+  publish-windows-webpos-beta:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      TAG: windows-webpos-v0.1.9-beta1
+      SOURCE_RUN: "41788000497"
+      SOURCE_SHA: d17a4084d380e9a396b1fc3a9b9b26f46c355f9b
+      EXPECTED_SHA256: 721e6ea0dc4b0fc5fde6d96e3af265e855f97690bd78e86a4bef94fd42fb6b77
+      EXPECTED_SIZE: "67204532"
+      ASSET_NAME: CpIPOS-WindowsWebPOS-Setup.exe
+
+    steps:
+      - name: Download the pinned signed-off test-build artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REPOSITORY" = "sstdevelopaminno/CpIPOS"
+          mkdir -p "$RUNNER_TEMP/cpipos-webpos"
+          gh run download "$SOURCE_RUN" --repo "$GITHUB_REPOSITORY" --name "CpIPOS-WindowsRuntime" --dir "$RUNNER_TEMP/cpipos-webpos"
+          file="$RUNNER_TEMP/cpipos-webpos/$ASSET_NAME"
+          test -f "$file"
+          test "$(stat -c%s "$file")" = "$EXPECTED_SIZE"
+          echo "$EXPECTED_SHA256  $file" | sha256sum --check
+          file "$file" | grep -E 'PE32\+? executable|MS Windows'
+          echo "Pinned Windows Web POS beta artifact verified."
+
+      - name: Publish an explicitly labelled pre-release only
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Release $TAG already exists. Refusing to replace an existing installer."
+            exit 1
+          fi
+
+          gh release create "$TAG" "$RUNNER_TEMP/cpipos-webpos/$ASSET_NAME" \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$SOURCE_SHA" \
+            --title "CpIPOS Windows Web POS 0.1.9 Beta (Printer QA Pending)" \
+            --prerelease \
+            --notes "BETA / TEST ONLY. Dedicated Windows WebView2 wrapper of the existing CpIPOS online POS, with native local Windows print bridge. Runs with --legacy-web-pos --windowed. Windows 10/11 x64, requires Microsoft Edge WebView2 Runtime. This installer is NOT Authenticode-signed. Printer compatibility (58/80 mm), receipt deduplication and physical-print delivery have NOT passed hardware acceptance. Do not use as a proven production installer until QA is complete. Verified build workflow: https://github.com/sstdevelopaminno/CpIPOS/actions/runs/$SOURCE_RUN. SHA-256: $EXPECTED_SHA256."
+          gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json url,assets,isPrerelease
