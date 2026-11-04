@@ -52,11 +52,22 @@ type PendingDeviceCommandRow = {
   id: string;
   command_type: string;
   issued_at: string;
+  metadata: Record<string, unknown> | null;
 };
+
+function matchesCommandSurface(metadata: Record<string, unknown> | null, runtimeVersion: string | null): boolean {
+  const rawTarget = metadata?.target_surface;
+  if (rawTarget !== "windows_runtime" && rawTarget !== "android") return true;
+  const version = (runtimeVersion ?? "").toLowerCase();
+  const isWindows = version.startsWith("cpipos-windows") || version.startsWith("windows");
+  const isAndroid = version.includes("android");
+  return rawTarget === "windows_runtime" ? isWindows : isAndroid;
+}
 
 async function deliverPendingDeviceCommands(
   supabase: ReturnType<typeof getSupabaseServiceClient>,
-  posDeviceId: string | null
+  posDeviceId: string | null,
+  runtimeVersion: string | null
 ): Promise<PendingDeviceAction[]> {
   if (!posDeviceId) return [];
 
@@ -71,7 +82,7 @@ async function deliverPendingDeviceCommands(
 
   const { data: pendingRows, error: pendingError } = await supabase
     .from("device_commands")
-    .select("id,command_type,issued_at")
+    .select("id,command_type,issued_at,metadata")
     .eq("pos_device_id", posDeviceId)
     .eq("status", "pending")
     .gt("expires_at", nowIso)
@@ -81,13 +92,17 @@ async function deliverPendingDeviceCommands(
 
   if (pendingError || !pendingRows || pendingRows.length === 0) return [];
 
-  const ids = pendingRows.map((row) => row.id);
+  // Android and Windows may share POS001. Never let the Android heartbeat
+  // consume a test command explicitly addressed to the Windows print bridge.
+  const deliverable = pendingRows.filter((row) => matchesCommandSurface(row.metadata, runtimeVersion));
+  if (deliverable.length === 0) return [];
+  const ids = deliverable.map((row) => row.id);
   await supabase
     .from("device_commands")
     .update({ status: "delivered", delivered_at: nowIso })
     .in("id", ids);
 
-  return pendingRows.map((row) => ({
+  return deliverable.map((row) => ({
     id: row.id,
     command_type: row.command_type as PendingDeviceAction["command_type"],
     issued_at: row.issued_at
@@ -246,7 +261,11 @@ export async function POST(req: Request) {
 
     if (incidentError) throw incidentError;
 
-    const pendingActions = await deliverPendingDeviceCommands(supabase, scope.session.device_id ?? null);
+    const pendingActions = await deliverPendingDeviceCommands(
+      supabase,
+      scope.session.device_id ?? null,
+      snapshot.identity.runtime_version ?? null
+    );
 
     return ok({
       accepted: true,
