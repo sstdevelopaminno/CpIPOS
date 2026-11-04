@@ -82,6 +82,7 @@ const COMMAND_LABELS: Record<DeviceCommandType, string> = {
   restart_app: "Restart POS app",
   test_network: "Test network",
   test_printer: "Test printer",
+  set_printer: "Select installed Windows printer (Printer MDM only)",
   clear_print_queue: "Clear print queue",
   restart_local_bridge: "Restart local bridge",
   restart_print_service: "Restart print service",
