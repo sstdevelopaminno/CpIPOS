@@ -18,7 +18,7 @@ The filename and shortcut keep the older technical command line `--legacy-web-po
 
 ## Build and download (after review and merge)
 
-Run **Build CpIPOS Windows Runtime** from GitHub Actions **with ref `main` explicitly selected**. This workflow builds both the pre-existing Windows Runtime package and the dedicated Windows Web POS installer. Validate both outputs in GitHub Actions artifacts before approving any public customer download or publishing a new website link. Do not overwrite or relabel the unrelated `cp-ipos-desktop` 0.3.4 installer.
+Run **Build CpIPOS Windows Runtime** from GitHub Actions **with ref `main` explicitly selected**. This workflow builds both the pre-existing Windows Runtime package and the dedicated Windows Web POS installer. The new Windows Web POS installer is uploaded as a workflow artifact, but is **not released publicly by default**. Leave `publish_web_pos=false` until printer acceptance is complete. After hardware acceptance, explicitly select `publish_web_pos=true` on the approved release run, confirm the published binary checksum, then update the company Download Center in a separate reviewed change. Do not overwrite or relabel the unrelated `cp-ipos-desktop` 0.3.4 installer.
 
 If the WebView2 Runtime is absent on the customer machine, install it from Microsoft's official WebView2 Runtime distribution. A successful setup.exe install does not itself prove WebView2 or the printer works.
 
