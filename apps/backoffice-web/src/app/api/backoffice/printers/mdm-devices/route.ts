@@ -39,7 +39,25 @@ type DeviceCommandRow = {
 
 type TestRequest = {
   device_code?: string | null;
+  target_surface?: "android" | "windows_runtime";
 };
+
+const WINDOWS_HEARTBEAT_FRESH_MS = 5 * 60_000;
+
+function windowsPrinterFromHealth(health: DeviceHealthRow | null) {
+  const peripherals = asRecord(health?.peripheral_health);
+  const runtime = asRecord(health?.runtime_health);
+  const lastSeenTime = health?.last_seen_at ? new Date(health.last_seen_at).getTime() : Number.NaN;
+  const recent = Number.isFinite(lastSeenTime) && Date.now() - lastSeenTime <= WINDOWS_HEARTBEAT_FRESH_MS;
+  return {
+    last_seen_at: health?.last_seen_at ?? null,
+    bridge_online: recent && runtime.local_bridge_online === true,
+    selected_printer: clean(peripherals.selected_printer),
+    default_printer: clean(peripherals.default_printer),
+    selected_printer_valid: peripherals.selected_printer_valid === true,
+    last_error: clean(runtime.last_error)
+  };
+}
 
 function ensureManagerOrOwner(auth: AuthContext) {
   if (auth.branchRole !== "manager" && auth.branchRole !== "owner") throw new Error("forbidden_role");
@@ -119,8 +137,13 @@ export async function GET() {
     if (healthError) throw new Error(healthError.message);
 
     const latestHealthByDevice = new Map<string, DeviceHealthRow>();
+    const windowsHealthByDevice = new Map<string, DeviceHealthRow>();
     for (const row of healthRows ?? []) {
-      if (row.pos_device_id && !latestHealthByDevice.has(row.pos_device_id)) latestHealthByDevice.set(row.pos_device_id, row);
+      if (!row.pos_device_id) continue;
+      if (!latestHealthByDevice.has(row.pos_device_id)) latestHealthByDevice.set(row.pos_device_id, row);
+      if ((row.runtime_version ?? "").toLowerCase().startsWith("cpipos-windows") && !windowsHealthByDevice.has(row.pos_device_id)) {
+        windowsHealthByDevice.set(row.pos_device_id, row);
+      }
     }
     const latestCommandByDevice = new Map<string, DeviceCommandRow>();
     for (const row of commands ?? []) {
@@ -144,6 +167,7 @@ export async function GET() {
           runtime_version: health?.runtime_version ?? null,
           app_version: health?.app_version ?? null,
           native_printer: nativePrinterFromHealth(health),
+          windows_printer: windowsPrinterFromHealth(windowsHealthByDevice.get(device.id) ?? null),
           peripheral_health: health?.peripheral_health ?? {},
           latest_test_command: latestCommand
         };
@@ -163,6 +187,10 @@ export async function POST(req: Request) {
     const body = (await req.json().catch(() => ({}))) as TestRequest;
     const deviceCode = clean(body.device_code);
     if (!deviceCode) return fail("device_code_required", "device_code is required", 422);
+    const targetSurface = body.target_surface ?? "android";
+    if (targetSurface !== "android" && targetSurface !== "windows_runtime") {
+      return fail("invalid_target_surface", "Unsupported MDM printer target.", 422);
+    }
 
     const supabase = getSupabaseServiceClient();
     const { data: device, error: deviceError } = await supabase
@@ -176,6 +204,27 @@ export async function POST(req: Request) {
 
     if (deviceError) throw new Error(deviceError.message);
     if (!device) return fail("device_not_found", "ไม่พบเครื่อง POS นี้ในสาขาปัจจุบัน", 404);
+
+    if (targetSurface === "windows_runtime") {
+      const { data: health, error: healthError } = await supabase
+        .from("pos_device_health_latest")
+        .select("pos_device_id,device_code,status,runtime_version,app_version,runtime_health,peripheral_health,metadata,captured_at,last_seen_at")
+        .eq("tenant_id", auth.tenantId!)
+        .eq("branch_id", auth.branchId!)
+        .eq("pos_device_id", device.id)
+        .like("runtime_version", "cpipos-windows%")
+        .order("last_seen_at", { ascending: false })
+        .limit(1)
+        .maybeSingle<DeviceHealthRow>();
+      if (healthError) throw new Error(healthError.message);
+      const windowsPrinter = windowsPrinterFromHealth(health);
+      if (!windowsPrinter.bridge_online) {
+        return fail("windows_print_bridge_offline", "Windows Print Bridge is not reporting online in the last 5 minutes.", 409);
+      }
+      if (!windowsPrinter.selected_printer_valid) {
+        return fail("windows_printer_not_selected", "ยังไม่พบเครื่องพิมพ์ที่ Windows Runtime เลือกอย่างถูกต้อง", 409);
+      }
+    }
 
     const now = new Date();
     const { data: command, error: insertError } = await supabase
@@ -193,6 +242,7 @@ export async function POST(req: Request) {
         metadata: {
           source: "printer_settings_mdm",
           safe_action: "test_printer_connection",
+          target_surface: targetSurface,
           device_code: device.device_code,
           device_name: device.device_name
         }
