@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type PointerEvent as ReactPointerEvent } from "react";
+import { hasLocalWindowsPrintBridge, printWindowsReceiptHtml } from "@/lib/printing/windows-local-printer-test";
 import Image from "next/image";
 import type { OrderType } from "@pos/shared-types";
 import { ErrorState, LoadingState } from "@/components/backoffice/list-state";
@@ -2359,6 +2360,10 @@ export function PosSalesModule({
   const [receiptSaving, setReceiptSaving] = useState(false);
   const [receiptSaved, setReceiptSaved] = useState(false);
   const [receiptAutoPrinted, setReceiptAutoPrinted] = useState(false);
+  const [windowsPrintRuntimeDetected, setWindowsPrintRuntimeDetected] = useState(false);
+  useEffect(() => {
+    setWindowsPrintRuntimeDetected(hasLocalWindowsPrintBridge());
+  }, []);
   const [receiptError, setReceiptError] = useState<string | null>(null);
   const [cancelBillSubmitting, setCancelBillSubmitting] = useState(false);
 
@@ -7947,16 +7952,20 @@ export function PosSalesModule({
       }
 
       const printQueued = Number(body.data?.print_jobs_queued ?? 0) > 0 || body.data?.print_jobs_deferred === true;
-      const printWarning = body.data?.print_warning ?? (printQueued ? null : "receipt_print_not_queued");
+      const windowsManualReceipt = hasLocalWindowsPrintBridge();
+      // The payment API may have queued a legacy Android print job. That is
+      // not evidence that Windows printed any receipt. Keep the manual
+      // Windows receipt action accessible until the cashier explicitly closes.
+      const printWarning = windowsManualReceipt ? null : (body.data?.print_warning ?? (printQueued ? null : "receipt_print_not_queued"));
       console.info("[pos-payment] payment_saved", { order_id: cashReviewOrder.order_id, order_no: cashReviewOrder.order_no, payment_method: "cash", print_deferred: body.data?.print_jobs_deferred === true, print_jobs_queued: body.data?.print_jobs_queued ?? 0 });
       setReceiptSaved(true);
-      setReceiptAutoPrinted(printQueued);
+      setReceiptAutoPrinted(windowsManualReceipt ? false : printQueued);
       receiptErrorRef.current = printWarning;
       setReceiptError(printWarning);
       setBillPaymentMethod("cash");
       clearClosedBillUiState({ clearReceipt: false, tableId: cashReviewOrder.table_id ?? null, resetDelivery: true });
       pushSubmitMessage(`${text.receiptSaved}: ${cashReviewOrder.order_no}`);
-      runPostPaymentSideEffects(nextReceiptSession, { printQueued });
+      runPostPaymentSideEffects(nextReceiptSession, { printQueued: windowsManualReceipt ? false : printQueued });
       if (orderType === "dine_in" || Boolean(cashReviewOrder.table_id)) {
         setQuickMode(quickMode === "buffet_table" ? "buffet_table" : "dine_in");
         setOrderType("dine_in");
@@ -8532,7 +8541,8 @@ export function PosSalesModule({
 
   function buildReceiptPrintHtml(session: ReceiptSession) {
     const pageHeightMm = Math.min(700, Math.max(120, 78 + session.items.length * 10));
-    const printableWidthMm = 48;
+    const paperWidthMm = hasLocalWindowsPrintBridge() ? 80 : 58;
+    const printableWidthMm = paperWidthMm === 80 ? 72 : 48;
     const logoUrl = getAbsoluteAssetUrl(receiptLogoPath);
     const receiptDiscountAmount = resolveReceiptDiscountAmount(session);
     const receiptTaxLines = resolveTaxLinesForReceipt(session, text.tax);
@@ -8589,8 +8599,8 @@ export function PosSalesModule({
   <meta charset="utf-8" />
   <title>${escapeHtml(receiptStoreName)} - ${escapeHtml(session.order_no)}</title>
   <style>
-    @page { size: 58mm ${pageHeightMm}mm; margin: 0; }
-    html, body { margin: 0; padding: 0; width: 58mm !important; min-height: ${pageHeightMm}mm; background: #fff; color: #000; font-family: "Noto Sans Thai", "Tahoma", "Segoe UI", sans-serif; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    @page { size: ${paperWidthMm}mm ${pageHeightMm}mm; margin: 0; }
+    html, body { margin: 0; padding: 0; width: ${paperWidthMm}mm !important; min-height: ${pageHeightMm}mm; background: #fff; color: #000; font-family: "Noto Sans Thai", "Tahoma", "Segoe UI", sans-serif; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
     * { box-sizing: border-box; }
     .receipt58 { width: ${printableWidthMm}mm; margin: 0 auto; padding: 1.2mm 0 1.8mm; min-height: ${Math.max(90, pageHeightMm - 4)}mm; font-size: 11px; line-height: 1.28; }
     .center { text-align: center; }
@@ -8633,7 +8643,7 @@ export function PosSalesModule({
     .summary-line.grand strong { font-size: 14.5px; line-height: 1; }
     .foot { margin-top: 1.5mm; font-size: 10px; text-align: center; }
     @media print {
-      html, body { width: 58mm !important; margin: 0 !important; padding: 0 !important; overflow: hidden; }
+      html, body { width: ${paperWidthMm}mm !important; margin: 0 !important; padding: 0 !important; overflow: hidden; }
       .receipt58 { width: ${printableWidthMm}mm; margin: 0 auto; }
     }
   </style>
@@ -8770,92 +8780,33 @@ export function PosSalesModule({
     const receiptHtml = buildReceiptPrintHtml(receiptSession);
     let bluetoothFallbackReason: string | null = null;
 
-    if (typeof window !== "undefined") {
-      type RuntimePayload = {
-        bridge_token?: string | null;
-        bridge_token_header?: string | null;
-        bridge_print_url?: string | null;
-        windows_printer?: string | null;
-      };
-
-      type BridgePrintResponse = {
-        ok?: boolean;
-        error?: { message?: string } | unknown;
-        data?: { printed?: boolean; printer_name?: string; job_id?: string; html_printed?: boolean } | null;
-      };
-
-      const runtime = (window as Window & { CpIPOSWindowsRuntime?: RuntimePayload }).CpIPOSWindowsRuntime ?? null;
-      const token = String(window.sessionStorage.getItem("cpi_local_bridge_token_v1") ?? runtime?.bridge_token ?? "").trim();
-      const tokenHeader = String(
-        window.sessionStorage.getItem("cpi_local_bridge_token_header_v1") ?? runtime?.bridge_token_header ?? "X-CpIPOS-Bridge-Token"
-      ).trim();
-      const printUrl = String(
-        window.localStorage.getItem("cpi_local_bridge_print_url_v1") ?? runtime?.bridge_print_url ?? "http://127.0.0.1:3210/print"
-      ).trim();
-      const printerName = String(runtime?.windows_printer ?? "").trim();
-
-      if (token && tokenHeader && printUrl) {
-        const controller = new AbortController();
-        const timeoutId = window.setTimeout(() => controller.abort(), 12000);
-
-        try {
-          const payload: Record<string, unknown> = {
-            receipt_html: receiptHtml,
-            order_no: receiptSession.order_no,
-            metadata: {
-              source: "pos_sales_module",
-              trigger: "manual_receipt_print",
-              order_no: receiptSession.order_no,
-              payment_method: receiptSession.payment_method
-            }
-          };
-
-          if (printerName) {
-            payload.printer_name = printerName;
-          }
-
-          const response = await fetch(printUrl, {
-            method: "POST",
-            cache: "no-store",
-            headers: {
-              "Content-Type": "application/json",
-              [tokenHeader]: token
-            },
-            body: JSON.stringify(payload),
-            signal: controller.signal
-          });
-
-          const result = (await response.json().catch(() => null)) as BridgePrintResponse | null;
-          if (response.ok && result?.ok !== false && !result?.error) {
-            setReceiptAutoPrinted(true);
-            pushSubmitMessage(
-              lang === "th"
-                ? `ส่งพิมพ์ใบเสร็จผ่าน Windows Runtime แล้ว: ${receiptSession.order_no}`
-                : `Receipt sent to Windows Runtime: ${receiptSession.order_no}`
-            );
-            endPosActionTrace(printTrace, "ok", {
-              order_no: receiptSession.order_no,
-              transport: "local_bridge_windows_runtime",
-              html_printed: Boolean(result?.data?.html_printed)
-            });
-            return;
-          }
-
-          bluetoothFallbackReason =
-            lang === "th"
-              ? `พิมพ์ผ่าน Windows Runtime ไม่สำเร็จ กำลังใช้โหมดสำรอง: ${receiptSession.order_no}`
-              : `Windows Runtime print failed. Falling back: ${receiptSession.order_no}`;
-        } catch (error) {
-          bluetoothFallbackReason =
-            error instanceof Error && error.message
-              ? `${localSaleLabel("เชื่อมต่อ Windows Runtime ไม่สำเร็จ", "Windows Runtime print failed")}: ${error.message}`
-              : lang === "th"
-                ? "เชื่อมต่อ Windows Runtime ไม่สำเร็จ กำลังใช้โหมดสำรอง"
-                : "Windows Runtime print failed. Falling back.";
-        } finally {
-          window.clearTimeout(timeoutId);
-        }
+    if (hasLocalWindowsPrintBridge()) {
+      try {
+        const printed = await printWindowsReceiptHtml(receiptHtml, { orderNo: receiptSession.order_no });
+        setReceiptAutoPrinted(true);
+        pushSubmitMessage(
+          lang === "th"
+            ? `Windows ส่งใบเสร็จไปยังคิว ${printed.printer} แล้ว กรุณาตรวจว่ากระดาษออกจริง: ${receiptSession.order_no}`
+            : `Receipt submitted to Windows ${printed.printer}; verify the physical paper: ${receiptSession.order_no}`
+        );
+        endPosActionTrace(printTrace, "ok", {
+          order_no: receiptSession.order_no,
+          transport: "local_bridge_windows_receipt",
+          job_id: printed.spoolJobId
+        });
+      } catch (error) {
+        // NEVER fall back to Bluetooth, browser print, or Android Print Agent
+        // on a Windows unknown outcome: receipt may have printed already.
+        setReceiptAutoPrinted(false);
+        const message = error instanceof Error ? error.message : "windows_receipt_print_failed";
+        pushSubmitMessage(message);
+        endPosActionTrace(printTrace, "error", {
+          order_no: receiptSession.order_no,
+          transport: "local_bridge_windows_receipt",
+          error: message
+        });
       }
+      return;
     }
 
     try {
@@ -9033,6 +8984,9 @@ export function PosSalesModule({
       window.clearTimeout(receiptAutoCloseTimerRef.current);
       receiptAutoCloseTimerRef.current = null;
     }
+    // On installed Windows POS the cashier must decide whether/when to print.
+    // Do not silently dismiss the receipt after the server queues an Android job.
+    if (hasLocalWindowsPrintBridge()) return;
     const elapsedMs = Math.max(0, Date.now() - (receiptModalOpenedAtRef.current || Date.now()));
     const minimumWaitMs = Math.max(0, RECEIPT_MODAL_MIN_VISIBLE_MS - elapsedMs);
     const closeDelayMs = options.printQueued ? minimumWaitMs : RECEIPT_MODAL_SAFE_TIMEOUT_MS;
@@ -10158,6 +10112,7 @@ export function PosSalesModule({
           receiptSaved={receiptSaved}
           receiptAutoPrinted={receiptAutoPrinted}
           receiptError={receiptError}
+          windowsNativeReceipt={windowsPrintRuntimeDetected}
           cashSubmitting={cashSubmitting}
           transferSubmitting={transferSubmitting}
           transferSlipChecking={transferSlipChecking}
@@ -10229,6 +10184,7 @@ export function PosSalesModule({
           paymentNoticeSubmitting={paymentNoticeSubmitting}
           paymentNoticeError={paymentNoticeError}
           onCloseReceipt={closeReceiptPopup}
+          onPrintReceipt={handleReceiptPrint}
       />
 
       {ingredientAdjustDialog ? (
