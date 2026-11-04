@@ -55,7 +55,9 @@ type PendingDeviceCommandRow = {
   metadata: Record<string, unknown> | null;
 };
 
-function matchesCommandSurface(metadata: Record<string, unknown> | null, runtimeVersion: string | null): boolean {
+function matchesCommandSurface(metadata: Record<string, unknown> | null, runtimeVersion: string | null, machineId: string): boolean {
+  const targetMachine = metadata?.target_machine_id;
+  if (typeof targetMachine === "string" && targetMachine !== machineId) return false;
   const rawTarget = metadata?.target_surface;
   if (rawTarget !== "windows_runtime" && rawTarget !== "android") return true;
   const version = (runtimeVersion ?? "").toLowerCase();
@@ -67,7 +69,8 @@ function matchesCommandSurface(metadata: Record<string, unknown> | null, runtime
 async function deliverPendingDeviceCommands(
   supabase: ReturnType<typeof getSupabaseServiceClient>,
   posDeviceId: string | null,
-  runtimeVersion: string | null
+  runtimeVersion: string | null,
+  machineId: string
 ): Promise<PendingDeviceAction[]> {
   if (!posDeviceId) return [];
 
@@ -94,7 +97,7 @@ async function deliverPendingDeviceCommands(
 
   // Android and Windows may share POS001. Never let the Android heartbeat
   // consume a test command explicitly addressed to the Windows print bridge.
-  const deliverable = pendingRows.filter((row) => matchesCommandSurface(row.metadata, runtimeVersion));
+  const deliverable = pendingRows.filter((row) => matchesCommandSurface(row.metadata, runtimeVersion, machineId));
   if (deliverable.length === 0) return [];
   const ids = deliverable.map((row) => row.id);
   await supabase
@@ -105,7 +108,10 @@ async function deliverPendingDeviceCommands(
   return deliverable.map((row) => ({
     id: row.id,
     command_type: row.command_type as PendingDeviceAction["command_type"],
-    issued_at: row.issued_at
+    issued_at: row.issued_at,
+    printer_name: row.command_type === "set_printer" && typeof row.metadata?.printer_name === "string"
+      ? row.metadata.printer_name
+      : undefined
   }));
 }
 
@@ -264,7 +270,8 @@ export async function POST(req: Request) {
     const pendingActions = await deliverPendingDeviceCommands(
       supabase,
       scope.session.device_id ?? null,
-      snapshot.identity.runtime_version ?? null
+      snapshot.identity.runtime_version ?? null,
+      snapshot.identity.machine_id
     );
 
     return ok({
