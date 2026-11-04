@@ -91,7 +91,7 @@ describe("manual Windows sales and historical receipt printing", () => {
     expect(text).toContain("TKO-261104-004");
     expect(text).toContain("฿50.00");
     expect(text).not.toContain("color:red");
-    expect(text.split("\\n").length).toBeGreaterThan(2);
+    expect(text.split("\n").length).toBeGreaterThan(2);
   });
 
   it("submits exactly one .NET text receipt via /print with the native bridge resolving the selected printer", async () => {
