@@ -1,11 +1,6 @@
 name: Build CpIPOS Windows Runtime
 
 on:
-  push:
-    branches:
-      - feature/windows-mdm-managed-printer-selection-20261104
-    paths:
-      - apps/windows-runtime-native/Cpipos.WindowsRuntime/LocalPrintBridge.cs
   workflow_dispatch:
     inputs:
       publish_web_pos:
