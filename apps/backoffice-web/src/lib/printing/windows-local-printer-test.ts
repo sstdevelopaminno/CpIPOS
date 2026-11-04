@@ -118,32 +118,24 @@ export async function printWindowsReceiptHtml(
     "X-CpIPOS-Bridge-Token": runtime.bridge_token,
     "Content-Type": "application/json"
   };
+  // The native bridge already validates the configured, installed printer.
+  // The separate GET /printers preflight caused an extra failure point before
+  // a single receipt could ever reach POST /print.
+  const nativePrinterName = typeof (runtime as Runtime & { windows_printer?: unknown }).windows_printer === "string"
+    ? String((runtime as Runtime & { windows_printer?: string }).windows_printer ?? "").trim()
+    : "";
   const controller = new AbortController();
   // WinForms HTML print can consume most of the native 30s HTTP timeout.
   // A timed-out response is indeterminate: do not retry automatically.
   const timer = window.setTimeout(() => controller.abort(), 35_000);
   try {
-    const listingResponse = await fetch("http://127.0.0.1:3210/printers", {
-      headers, cache: "no-store", signal: controller.signal
-    });
-    if (!listingResponse.ok) throw new Error("ไม่สามารถตรวจเครื่องพิมพ์ที่ Windows ติดตั้งได้");
-    const listing = (await listingResponse.json()) as BridgeResponse<{
-      resolved_printer?: string | null;
-      printers?: Array<{ name?: string; is_valid?: boolean }>;
-    }>;
-    const selectedPrinter = listing.data?.resolved_printer?.trim() ?? "";
-    if (listing.ok !== true || !selectedPrinter || !listing.data?.printers?.some(
-      (p) => p.is_valid === true && p.name === selectedPrinter
-    )) {
-      throw new Error("ยังไม่ได้เลือกเครื่องพิมพ์ Windows ที่ใช้งานได้ กรุณาตรวจ XP-80C ในตั้งค่าเครื่องพิมพ์");
-    }
     const response = await fetch("http://127.0.0.1:3210/print", {
       method: "POST",
       headers,
       cache: "no-store",
       signal: controller.signal,
       body: JSON.stringify({
-        printer_name: selectedPrinter,
+        ...(nativePrinterName ? { printer_name: nativePrinterName } : {}),
         receipt_html: content,
         order_no: options.orderNo ?? null,
         metadata: { source: "pos_windows_webview2_manual_receipt", reprint: options.reprint === true }
@@ -156,10 +148,10 @@ export async function printWindowsReceiptHtml(
       job_id?: string;
     }> | null;
     if (!response.ok || payload?.ok !== true || payload.data?.printed !== true ||
-        payload.data?.html_printed !== true || payload.data.printer_name !== selectedPrinter) {
+        payload.data?.html_printed !== true || (nativePrinterName && payload.data.printer_name !== nativePrinterName)) {
       throw new Error(payload?.error?.message ?? "Windows Print Bridge ไม่ยืนยันการรับใบเสร็จ HTML");
     }
-    return { printer: selectedPrinter, spoolJobId: payload.data.job_id ?? null };
+    return { printer: payload.data.printer_name ?? nativePrinterName, spoolJobId: payload.data.job_id ?? null };
   } catch (error) {
     if (controller.signal.aborted) {
       throw new Error("ไม่ทราบว่างานพิมพ์ถูกส่งแล้วหรือไม่ ให้ตรวจกระดาษและคิว XP-80C ก่อน ห้ามกดพิมพ์ซ้ำทันที");
