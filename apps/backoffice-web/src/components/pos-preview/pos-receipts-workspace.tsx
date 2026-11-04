@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { hasLocalWindowsPrintBridge, printWindowsReceiptHtml } from "@/lib/printing/windows-local-printer-test";
 import type { ReactNode } from "react";
 import { PosBackButton } from "@/components/pos-preview/pos-back-button";
 import type { Language } from "@/lib/i18n";
@@ -104,6 +105,8 @@ type BluetoothReprintResponseBody = {
     mode?: string;
     fallback_to_browser_print?: boolean;
     jobs?: Array<{ id: string; status: string; last_error?: string | null; printed_at?: string | null }>;
+    order_id?: string;
+    order_no?: string;
     message?: string;
   } | null;
   error?: { message?: string } | null;
@@ -649,6 +652,7 @@ export function PosReceiptsWorkspace({ lang, opticalMode = false }: { lang: Lang
         storeProfile: payload?.branch.store_profile ?? null,
         lang
       });
+      const nativeWindows = hasLocalWindowsPrintBridge();
       const response = await fetch(`/api/pos/receipts/${reprint.order.id}/reprint`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -656,12 +660,31 @@ export function PosReceiptsWorkspace({ lang, opticalMode = false }: { lang: Lang
           manager_pin: reprint.pin,
           note: reprint.note,
           order_no: reprint.order.orderNo,
-          receipt_html: receiptHtml
+          receipt_html: nativeWindows ? undefined : receiptHtml,
+          windows_local_bridge: nativeWindows
         })
       });
       const body = (await response.json().catch(() => null)) as BluetoothReprintResponseBody | null;
       if (!response.ok) {
         throw new Error(body?.error?.message ?? "Reprint failed.");
+      }
+      if (nativeWindows) {
+        if (body?.data?.mode !== "windows_local_authorized" ||
+            body.data.order_id !== reprint.order.id ||
+            body.data.order_no !== reprint.order.orderNo) {
+          throw new Error("ระบบยังไม่ได้อนุมัติการพิมพ์ย้อนหลังผ่าน Windows กรุณาตรวจสิทธิ์และรหัส PIN");
+        }
+        const sent = await printWindowsReceiptHtml(receiptHtml, {
+          orderNo: reprint.order.orderNo,
+          reprint: true
+        });
+        setReprint({
+          ...reprint,
+          status: "printed",
+          message: `ส่งใบเสร็จย้อนหลังไปยัง Windows ${sent.printer} แล้ว โปรดตรวจว่ากระดาษออกจริง`,
+          pin: ""
+        });
+        return;
       }
       if (body?.data?.fallback_to_browser_print) {
         openBrowserReceiptPrint(reprint.order);
