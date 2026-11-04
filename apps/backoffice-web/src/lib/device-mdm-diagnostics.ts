@@ -85,6 +85,7 @@ export type DeviceMdmRuntimeHealth = {
 export type DeviceMdmPeripheralHealth = {
   default_printer?: string | null;
   selected_printer?: string | null;
+  installed_printers?: string[] | null;
   selected_printer_valid?: boolean | null;
   printer_status?: string | null;
   print_queue_count?: number | null;
