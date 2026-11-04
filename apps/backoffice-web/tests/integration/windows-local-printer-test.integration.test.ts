@@ -96,6 +96,8 @@ describe("manual Windows sales and historical receipt printing", () => {
 
   it("submits exactly one .NET text receipt via /print with the native bridge resolving the selected printer", async () => {
     stubWindowsRuntime();
+    // The launch-time queue may be stale after an Owner/MDM printer selection.
+    (window as unknown as { CpIPOSWindowsRuntime: { windows_printer?: string } }).CpIPOSWindowsRuntime.windows_printer = "Old Windows Queue";
     const calls: Array<{ url: string; init: RequestInit | undefined }> = [];
     vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
       calls.push({ url: String(url), init });
@@ -133,7 +135,7 @@ describe("manual Windows sales and historical receipt printing", () => {
         json: async () => ({ ok: false, error: { message: "Printer is not installed on this Windows machine: XP-80C" } })
       } as Response;
     }));
-    await expect(printWindowsReceiptHtml(html, { orderNo: "TKO1" })).rejects.toThrow("Printer is not installed");
+    await expect(printWindowsReceiptHtml(html, { orderNo: "TKO1", orderId: "11111111-1111-4111-8111-111111111111" })).rejects.toThrow("Printer is not installed");
     expect(calls.filter((x) => x.url === "http://127.0.0.1:3210/print")).toHaveLength(1);
     const audit = calls.find((x) => x.url === "/api/pos/windows-print/diagnostic");
     expect(audit).toBeDefined();
@@ -155,7 +157,7 @@ describe("manual Windows sales and historical receipt printing", () => {
           printed: true, provider: "native_winforms_html_receipt", printer_name: "XP-80C"
         } }) } as Response;
     }));
-    await expect(printWindowsReceiptHtml(html)).rejects.toThrow("ไม่ยืนยันการรับใบเสร็จข้อความ");
+    await expect(printWindowsReceiptHtml(html, { orderNo: "TKO2", orderId: "22222222-2222-4222-8222-222222222222" })).rejects.toThrow("ไม่ยืนยันการรับใบเสร็จข้อความ");
     expect(calls).toEqual(["http://127.0.0.1:3210/print", "/api/pos/windows-print/diagnostic"]);
   });
 
@@ -176,10 +178,49 @@ describe("manual Windows sales and historical receipt printing", () => {
         printed: true, provider: "native_dotnet_print_document", printer_name: "XP-80C", job_id: "spool-ok"
       } }) } as Response;
     }));
-    await printWindowsReceiptHtml(html, { orderNo: "TKO-261104-001" });
-    await expect(printWindowsReceiptHtml(html, { orderNo: "TKO-261104-001" })).rejects.toThrow("ถูกส่งพิมพ์ไปแล้ว");
+    await printWindowsReceiptHtml(html, { orderNo: "TKO-261104-001", orderId: "33333333-3333-4333-8333-333333333333" });
+    await expect(printWindowsReceiptHtml(html, { orderNo: "TKO-261104-001", orderId: "33333333-3333-4333-8333-333333333333" })).rejects.toThrow("ถูกส่งพิมพ์ไปแล้ว");
     expect(calls).toEqual(["http://127.0.0.1:3210/print"]);
     await printWindowsReceiptHtml(html, { orderNo: "TKO-261104-001", reprint: true });
     expect(calls).toHaveLength(2);
+  });
+
+  it("allows different immutable orders with the same display number across branches", async () => {
+    stubWindowsRuntime();
+    const sent: string[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => {
+      sent.push(String(url));
+      return { ok: true, json: async () => ({ ok: true, data: {
+        printed: true, provider: "native_dotnet_print_document", printer_name: "XP-80C", job_id: "spool-ok"
+      } }) } as Response;
+    }));
+    await printWindowsReceiptHtml(html, { orderNo: "SALE-001", orderId: "44444444-4444-4444-8444-444444444444" });
+    await printWindowsReceiptHtml(html, { orderNo: "SALE-001", orderId: "55555555-5555-4555-8555-555555555555" });
+    expect(sent).toEqual(["http://127.0.0.1:3210/print", "http://127.0.0.1:3210/print"]);
+  });
+
+  it("preserves legacy v1 duplicate protection instead of forgetting previously sent receipts", async () => {
+    stubWindowsRuntime();
+    window.localStorage.setItem("cpi_windows_sale_receipts_attempted_v1", JSON.stringify({ "SALE-OLD": Date.now() }));
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    await expect(printWindowsReceiptHtml(html, {
+      orderNo: "SALE-OLD", orderId: "66666666-6666-4666-8666-666666666666"
+    })).rejects.toThrow("ถูกส่งพิมพ์ไปแล้ว");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("never sends an incomplete long receipt that drops the trailing total", async () => {
+    stubWindowsRuntime();
+    const longHtml = `<html><body><p>${"สินค้า".repeat(2900)}</p><div>ยอดรวม ฿199.00</div></body></html>`;
+    const fullText = windowsReceiptHtmlToText(longHtml);
+    expect(fullText.length).toBeGreaterThan(14_000);
+    expect(fullText).toContain("ยอดรวม ฿199.00");
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    await expect(printWindowsReceiptHtml(longHtml, {
+      orderNo: "SALE-LONG", orderId: "77777777-7777-4777-8777-777777777777"
+    })).rejects.toThrow("ใบเสร็จยาวเกิน");
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });

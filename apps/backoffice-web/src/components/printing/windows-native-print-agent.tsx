@@ -5,6 +5,7 @@ import { hasLocalWindowsPrintBridge, printWindowsReceiptHtml } from "@/lib/print
 
 type Job = {
   id: string;
+  order_id: string;
   agent_attempt_id: string;
   order_no: string | null;
   reprint?: boolean;
@@ -29,10 +30,21 @@ async function command(payload: Record<string, unknown>, signal?: AbortSignal) {
   return body?.data ?? {};
 }
 
+function readAttemptLedger(): Record<string, unknown> {
+  const parsed = JSON.parse(window.localStorage.getItem(PRINTED_ATTEMPTS_LEDGER) ?? "{}") as unknown;
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error("windows_attempt_ledger_corrupt");
+  }
+  return parsed as Record<string, unknown>;
+}
+
 function alreadyAttempted(jobId: string) {
   try {
-    const ledger = JSON.parse(window.localStorage.getItem(PRINTED_ATTEMPTS_LEDGER) ?? "{}") as Record<string, unknown>;
-    return typeof ledger[jobId] === "number";
+    const ledger = readAttemptLedger();
+    const value = ledger[jobId];
+    // Any existing key is fail-closed. Invalid/corrupt timestamps must never
+    // be interpreted as permission to spool the same leased job again.
+    return Object.prototype.hasOwnProperty.call(ledger, jobId) || typeof value === "number";
   } catch {
     // Corrupt ledger means we cannot guarantee no duplicate: fail closed.
     return true;
@@ -42,9 +54,8 @@ function alreadyAttempted(jobId: string) {
 function markAttempted(jobId: string) {
   // Write BEFORE requesting the Windows spooler. Unknown outcomes must never
   // cause an automatic duplicate on a later claim, reload, or lease expiry.
-  const raw = window.localStorage.getItem(PRINTED_ATTEMPTS_LEDGER) ?? "{}";
-  const old = JSON.parse(raw) as Record<string, unknown>;
-  const entries = Object.entries(old).filter((entry) => Number.isFinite(entry[1]));
+  const old = readAttemptLedger();
+  const entries = Object.entries(old).filter((entry) => typeof entry[1] === "number" && Number.isFinite(entry[1]));
   const recent = entries.slice(-240);
   const latest = Object.fromEntries([...recent, [jobId, Date.now()]]);
   window.localStorage.setItem(PRINTED_ATTEMPTS_LEDGER, JSON.stringify(latest));
@@ -90,6 +101,7 @@ export function WindowsNativePrintAgent() {
             try {
               const spool = await printWindowsReceiptHtml(job.html, {
                 orderNo: job.order_no,
+                orderId: job.order_id,
                 reprint: job.reprint === true,
                 plainText: job.text ?? null
               });

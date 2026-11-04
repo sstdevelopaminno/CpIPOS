@@ -28,10 +28,16 @@ describe("Windows print agent device and receipt safety", () => {
 
   it("server refuses stale or non-HTML jobs and never replays old failures", () => {
     const route = source("src/app/api/pos/windows-print/agent/route.ts");
-    expect(route).toContain("HEARTBEAT_MAX_AGE_MS = 180_000");
+    expect(route).toContain("HEARTBEAT_MAX_AGE_MS = 360_000");
     expect(route).toContain("PRINT_JOB_MAX_AGE_MS = 150_000");
     expect(route).toContain("windows_receipt_stale_manual_review_required");
     expect(route).toContain("windows_receipt_unsupported_payload");
+    expect(route).toContain('metadata.payload_format === "receipt_html_v1"');
+    expect(route).toContain('metadata.document_type !== "payment_notice"');
+    expect(route).toContain('payloadJson.document_type !== "payment_notice"');
+    expect(route).toContain("windows_receipt_text_too_long");
+    expect(route).not.toContain("job.payload_text.slice(0, 14_000)");
+    expect(route).toContain("order_id: orderId");
     expect(route).toContain("retryable: false");
     expect(route).toContain('origin !== new URL(req.url).origin');
     expect(route).toContain('scope.permissions.includes("receipts:view")');
@@ -46,6 +52,20 @@ describe("Windows print agent device and receipt safety", () => {
     expect(worker).not.toContain("localStorage.setItem(\"cpi_browser_print_agent_key");
     const host = source("src/components/printing/browser-print-agent-pos-host.tsx");
     expect(host).toContain("<WindowsNativePrintAgent />");
+  });
+
+  it("fails closed when the local Windows attempt ledger has the wrong structure", () => {
+    const worker = source("src/components/printing/windows-native-print-agent.tsx");
+    expect(worker).toContain('Array.isArray(parsed)');
+    expect(worker).toContain('Object.prototype.hasOwnProperty.call(ledger, jobId)');
+    expect(worker).toContain('windows_attempt_ledger_corrupt');
+  });
+
+  it("never queues QR payment notices to the text-only Windows native agent", () => {
+    const routed = source("src/lib/printing/routed-print-service.ts");
+    expect(routed).toContain('purpose: "payment_slip"');
+    expect(routed).toContain('metadata.target_runtime !== "windows_native"');
+    expect(routed).toContain("physically accepted Windows QR/image renderer");
   });
 
   it("Android bootstrap does not select and rotate the Windows agent key", () => {

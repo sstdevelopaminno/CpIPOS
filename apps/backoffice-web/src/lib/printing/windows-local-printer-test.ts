@@ -112,16 +112,32 @@ export function windowsReceiptHtmlToText(html: string): string {
     .split(/\r?\n/)
     .map(line => line.replace(/[ \t]+/g, " ").trim())
     .filter(line => line.length > 0)
-    .join("\n")
-    .slice(0, 14_000);
+    .join("\n");
 }
 
-const WINDOWS_SALE_PRINT_LEDGER = "cpi_windows_sale_receipts_attempted_v1";
+const WINDOWS_SALE_PRINT_LEDGER = "cpi_windows_sale_receipts_attempted_v2";
+const LEGACY_WINDOWS_SALE_PRINT_LEDGER = "cpi_windows_sale_receipts_attempted_v1";
+const MAX_WINDOWS_RECEIPT_TEXT_CHARS = 14_000;
+const WINDOWS_ORDER_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-function reserveUniqueWindowsSaleReceipt(orderNo: string) {
-  const key = orderNo.trim().slice(0, 100);
-  if (!key) throw new Error("Windows receipt order number required");
+function reserveUniqueWindowsSaleReceipt(orderNo: string, orderId: string) {
+  const legacyKey = orderNo.trim().slice(0, 100);
+  if (!legacyKey || !WINDOWS_ORDER_ID.test(orderId)) {
+    throw new Error("Windows receipt immutable order ID and order number required");
+  }
+  // Order numbers repeat across tenants and branches. A globally immutable
+  // order UUID prevents one store's receipt blocking a different store.
+  const key = orderId.toLowerCase();
   try {
+    // Preserve the pre-upgrade fail-closed protection: old attempts are not
+    // silently forgotten during the v1 -> v2 ledger migration.
+    const legacyRaw = window.localStorage.getItem(LEGACY_WINDOWS_SALE_PRINT_LEDGER);
+    const legacy = legacyRaw ? JSON.parse(legacyRaw) as Record<string, unknown> : {};
+    if (!legacy || typeof legacy !== "object" || Array.isArray(legacy)) throw new Error("corrupt");
+    if (Object.prototype.hasOwnProperty.call(legacy, legacyKey)) {
+      throw new Error("ใบเสร็จเลขที่นี้ถูกส่งพิมพ์ไปแล้ว หรือยังไม่ทราบผล ห้ามส่งซ้ำ ให้ใช้พิมพ์ย้อนหลังผ่าน PIN ผู้จัดการ");
+    }
+
     const raw = window.localStorage.getItem(WINDOWS_SALE_PRINT_LEDGER);
     const parsed = raw ? JSON.parse(raw) as Record<string, unknown> : {};
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("corrupt");
@@ -131,8 +147,9 @@ function reserveUniqueWindowsSaleReceipt(orderNo: string) {
     const recent = Object.entries(parsed)
       .filter(([name, time]) => name !== key && typeof time === "number" && Number.isFinite(time))
       .slice(-250);
-    const updated = Object.fromEntries([...recent, [key, Date.now()]]);
-    window.localStorage.setItem(WINDOWS_SALE_PRINT_LEDGER, JSON.stringify(updated));
+    window.localStorage.setItem(WINDOWS_SALE_PRINT_LEDGER, JSON.stringify(
+      Object.fromEntries([...recent, [key, Date.now()]])
+    ));
   } catch (error) {
     if (error instanceof Error && error.message.startsWith("ใบเสร็จเลขที่นี้")) throw error;
     throw new Error("ไม่สามารถบันทึกสถานะป้องกันใบเสร็จซ้ำได้ งดพิมพ์ซ้ำและใช้ใบเสร็จย้อนหลังหลังตรวจเครื่อง");
@@ -144,7 +161,7 @@ function reserveUniqueWindowsSaleReceipt(orderNo: string) {
 // The caller owns the user action; unknown outcomes must not be auto-retried.
 export async function printWindowsReceiptHtml(
   receiptHtml: string,
-  options: { orderNo?: string | null; reprint?: boolean; plainText?: string | null } = {}
+  options: { orderNo?: string | null; orderId?: string | null; reprint?: boolean; plainText?: string | null } = {}
 ): Promise<{ printer: string; spoolJobId: string | null }> {
   const runtime = windowsRuntime();
   if (!runtime?.bridge_token || !runtime.bridge_health_url) {
@@ -172,16 +189,18 @@ export async function printWindowsReceiptHtml(
   // The native bridge already validates the configured, installed printer.
   // The separate GET /printers preflight caused an extra failure point before
   // a single receipt could ever reach POST /print.
-  const nativePrinterName = typeof (runtime as Runtime & { windows_printer?: unknown }).windows_printer === "string"
-    ? String((runtime as Runtime & { windows_printer?: string }).windows_printer ?? "").trim()
-    : "";
-  const textToPrint = (options.plainText?.trim() || windowsReceiptHtmlToText(content)).slice(0, 14_000);
+  const textToPrint = options.plainText?.trim() || windowsReceiptHtmlToText(content);
   if (!textToPrint.trim()) throw new Error("Windows receipt text is empty after rendering");
+  if (textToPrint.length > MAX_WINDOWS_RECEIPT_TEXT_CHARS) {
+    throw new Error("ใบเสร็จยาวเกินขนาดที่รองรับ ต้องตรวจสอบใบเสร็จเต็มก่อนพิมพ์ ห้ามตัดยอดรวมท้ายบิล");
+  }
   // Only sale receipts are guarded here. Historical reprints are separately
   // PIN-authorized and may intentionally print a second copy.
   // This also prevents the manual button racing with the Windows cloud worker
   // for the same paid order; the native spool request is attempted at most once.
-  if (options.orderNo && options.reprint !== true) reserveUniqueWindowsSaleReceipt(options.orderNo);
+  if (options.reprint !== true) {
+    reserveUniqueWindowsSaleReceipt(options.orderNo ?? "", options.orderId ?? "");
+  }
   const controller = new AbortController();
   // WinForms HTML print can consume most of the native 30s HTTP timeout.
   // A timed-out response is indeterminate: do not retry automatically.
@@ -194,7 +213,7 @@ export async function printWindowsReceiptHtml(
       cache: "no-store",
       signal: controller.signal,
       body: JSON.stringify({
-        ...(nativePrinterName ? { printer_name: nativePrinterName } : {}),
+        // Let the bridge resolve its CURRENT printer selection, including MDM updates.
         text: textToPrint,
         order_no: options.orderNo ?? null,
         metadata: { source: "pos_windows_webview2_manual_receipt", reprint: options.reprint === true }
@@ -207,12 +226,13 @@ export async function printWindowsReceiptHtml(
       printer_name?: string;
       job_id?: string;
     }> | null;
+    const printedPrinterName = payload?.data?.printer_name;
     if (!response.ok || payload?.ok !== true || payload.data?.printed !== true ||
         payload.data?.provider !== "native_dotnet_print_document" ||
-        (nativePrinterName && payload.data.printer_name !== nativePrinterName)) {
+        typeof printedPrinterName !== "string" || !printedPrinterName.trim()) {
       throw new Error(payload?.error?.message ?? "Windows PrintDocument ไม่ยืนยันการรับใบเสร็จข้อความ");
     }
-    return { printer: payload.data.printer_name ?? nativePrinterName, spoolJobId: payload.data.job_id ?? null };
+    return { printer: printedPrinterName, spoolJobId: payload.data.job_id ?? null };
   } catch (error) {
     const unknownOutcome = controller.signal.aborted;
     const message = unknownOutcome
