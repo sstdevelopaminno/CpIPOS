@@ -27,7 +27,9 @@ internal sealed class LocalPrintBridge : IDisposable
     };
 
     private readonly int _port;
-    private readonly string _defaultPrinter;
+    // Per-user POS queue preference; never changes the OS-wide Windows default printer.
+    private string _defaultPrinter;
+    private readonly string _printerSettingsFile;
     private readonly string _bridgeToken;
     private readonly CancellationTokenSource _stopping = new();
     private readonly SemaphoreSlim _printLock = new(1, 1);
@@ -56,7 +58,8 @@ internal sealed class LocalPrintBridge : IDisposable
     public LocalPrintBridge(int port, string defaultPrinter, string bridgeToken)
     {
         _port = port;
-        _defaultPrinter = defaultPrinter.Trim();
+        _printerSettingsFile = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "CpIPOS", "WindowsWebPOS", "printer.json");
+        _defaultPrinter = string.IsNullOrWhiteSpace(defaultPrinter) ? LoadPrinterPreference() : defaultPrinter.Trim();
         _bridgeToken = bridgeToken;
     }
 
@@ -213,6 +216,7 @@ internal sealed class LocalPrintBridge : IDisposable
                         "/health",
                         "/capabilities",
                         "/printers",
+                        "/printers/select",
                         "/print/status",
                         "/print/test",
                         "/print",
@@ -227,6 +231,12 @@ internal sealed class LocalPrintBridge : IDisposable
         {
             if (!IsAuthorizedBridgeRequest(request)) return Unauthorized(corsOrigin);
             return HttpResponseData.Json(200, BuildPrintersPayload(), corsOrigin);
+        }
+
+        if (string.Equals(request.Method, "POST", StringComparison.OrdinalIgnoreCase) && request.Path == "/printers/select")
+        {
+            if (!IsAuthorizedBridgeRequest(request)) return Unauthorized(corsOrigin);
+            return HandleSelectPrinter(request, corsOrigin);
         }
 
         if (string.Equals(request.Method, "POST", StringComparison.OrdinalIgnoreCase) && request.Path == "/print/test")
@@ -251,7 +261,7 @@ internal sealed class LocalPrintBridge : IDisposable
         return HttpResponseData.Json(404, new
         {
             ok = false,
-            error = new { code = "not_found", message = "Use GET /health, GET /printers, POST /print/test, POST /print, or POST /cash-drawer/open." }
+            error = new { code = "not_found", message = "Use GET /health, GET /printers, POST /printers/select, POST /print/test, POST /print, or POST /cash-drawer/open." }
         }, corsOrigin);
     }
 
@@ -347,6 +357,76 @@ internal sealed class LocalPrintBridge : IDisposable
                 }).ToArray()
             }
         };
+    }
+
+    // Only accepts an EXACT installed Windows printer name. This is not an
+    // arbitrary OS command endpoint and does not change Windows default printer.
+    private HttpResponseData HandleSelectPrinter(HttpRequestData request, string? corsOrigin)
+    {
+        try
+        {
+            if (request.Body.Length > 4096)
+                return HttpResponseData.Json(413, new { ok = false, error = new { code = "printer_selection_too_large" } }, corsOrigin);
+
+            using var document = JsonDocument.Parse(request.Body);
+            var requested = FirstString(document.RootElement, "printer_name");
+            if (string.IsNullOrWhiteSpace(requested) || requested.Length > 128)
+                return HttpResponseData.Json(422, new { ok = false, error = new { code = "printer_name_invalid" } }, corsOrigin);
+
+            var name = GetInstalledPrinterNames().FirstOrDefault(n => string.Equals(n, requested, StringComparison.OrdinalIgnoreCase));
+            if (string.IsNullOrWhiteSpace(name) || !IsPrinterValid(name))
+                return HttpResponseData.Json(422, new { ok = false, error = new { code = "printer_not_installed", message = "Select an installed Windows printer." } }, corsOrigin);
+
+            // Save before acknowledging the cloud command. A failed disk write must
+            // not appear applied or silently reset after reboot.
+            SavePrinterPreference(name);
+            _defaultPrinter = name;
+            return HttpResponseData.Json(200, new
+            {
+                ok = true,
+                data = new { selected_printer = name, selected_printer_valid = true, persisted = true, os_default_printer_changed = false }
+            }, corsOrigin);
+        }
+        catch (JsonException)
+        {
+            return HttpResponseData.Json(400, new { ok = false, error = new { code = "invalid_json" } }, corsOrigin);
+        }
+        catch (Exception exception)
+        {
+            _lastError = exception.Message;
+            return HttpResponseData.Json(500, new { ok = false, error = new { code = "printer_config_write_failed" } }, corsOrigin);
+        }
+    }
+
+    private string LoadPrinterPreference()
+    {
+        try
+        {
+            if (!File.Exists(_printerSettingsFile)) return string.Empty;
+            using var document = JsonDocument.Parse(File.ReadAllText(_printerSettingsFile, Encoding.UTF8));
+            var configured = FirstString(document.RootElement, "printer_name");
+            return configured is { Length: <= 128 } ? configured : string.Empty;
+        }
+        catch
+        {
+            return string.Empty;
+        }
+    }
+
+    private void SavePrinterPreference(string printerName)
+    {
+        var directory = Path.GetDirectoryName(_printerSettingsFile)!;
+        Directory.CreateDirectory(directory);
+        var stagingPath = _printerSettingsFile + "." + Guid.NewGuid().ToString("N") + ".tmp";
+        try
+        {
+            File.WriteAllText(stagingPath, JsonSerializer.Serialize(new { printer_name = printerName }), Encoding.UTF8);
+            File.Move(stagingPath, _printerSettingsFile, true);
+        }
+        finally
+        {
+            if (File.Exists(stagingPath)) File.Delete(stagingPath);
+        }
     }
 
     private async Task<HttpResponseData> HandleTestPrintAsync(HttpRequestData request, string? corsOrigin, CancellationToken cancellationToken)
