@@ -79,7 +79,8 @@ export function PosDeviceHeartbeatSender() {
               followUpSnapshot = executableWithoutReload.some((action) =>
                 action.command_type === "request_diagnostics" ||
                 action.command_type === "request_diagnostics_bundle" ||
-                action.command_type === "test_printer"
+                action.command_type === "test_printer" ||
+                  action.command_type === "set_printer"
               );
             }
 

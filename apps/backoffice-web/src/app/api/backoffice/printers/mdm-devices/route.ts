@@ -20,6 +20,7 @@ type DeviceHealthRow = {
   status: string;
   runtime_version: string | null;
   app_version: string | null;
+  machine_id: string | null;
   runtime_health: Record<string, unknown> | null;
   peripheral_health: Record<string, unknown> | null;
   metadata: Record<string, unknown> | null;
@@ -40,16 +41,29 @@ type DeviceCommandRow = {
 type TestRequest = {
   device_code?: string | null;
   target_surface?: "android" | "windows_runtime";
+  action?: "test_printer" | "set_printer";
+  machine_id?: string | null;
+  printer_name?: string | null;
 };
 
 const WINDOWS_HEARTBEAT_FRESH_MS = 5 * 60_000;
 
 function windowsPrinterFromHealth(health: DeviceHealthRow | null) {
+  const version = (health?.app_version ?? "").match(/^(\d+)\.(\d+)\.(\d+)/);
+  const versionParts = version ? version.slice(1).map(Number) : [];
+  const printerSelectionSupported = versionParts.length === 3 &&
+    (versionParts[0] > 0 || versionParts[1] > 2 || (versionParts[1] === 2 && versionParts[2] >= 0));
   const peripherals = asRecord(health?.peripheral_health);
   const runtime = asRecord(health?.runtime_health);
+  const installed = Array.isArray(peripherals.installed_printers)
+    ? peripherals.installed_printers.filter((name): name is string => typeof name === "string" && name.length > 0 && name.length <= 128).slice(0, 32)
+    : [];
   const lastSeenTime = health?.last_seen_at ? new Date(health.last_seen_at).getTime() : Number.NaN;
   const recent = Number.isFinite(lastSeenTime) && Date.now() - lastSeenTime <= WINDOWS_HEARTBEAT_FRESH_MS;
   return {
+    machine_id: health?.machine_id ?? null,
+    installed_printers: installed,
+    printer_selection_supported: printerSelectionSupported,
     last_seen_at: health?.last_seen_at ?? null,
     bridge_online: recent && runtime.local_bridge_online === true,
     selected_printer: clean(peripherals.selected_printer),
@@ -112,7 +126,7 @@ export async function GET() {
         .select("id,pos_device_id,status,issued_at,delivered_at,result,metadata")
         .eq("tenant_id", auth.tenantId!)
         .eq("branch_id", auth.branchId!)
-        .eq("command_type", "test_printer")
+        .in("command_type", ["test_printer", "set_printer"])
         .order("issued_at", { ascending: false })
         .limit(100)
         .returns<DeviceCommandRow[]>()
@@ -125,7 +139,7 @@ export async function GET() {
     const { data: healthRows, error: healthError } = deviceIds.length
       ? await supabase
           .from("pos_device_health_latest")
-          .select("pos_device_id,device_code,status,runtime_version,app_version,runtime_health,peripheral_health,metadata,captured_at,last_seen_at")
+          .select("pos_device_id,device_code,status,runtime_version,app_version,machine_id,runtime_health,peripheral_health,metadata,captured_at,last_seen_at")
           .eq("tenant_id", auth.tenantId!)
           .eq("branch_id", auth.branchId!)
           .in("pos_device_id", deviceIds)
@@ -188,6 +202,13 @@ export async function POST(req: Request) {
     const deviceCode = clean(body.device_code);
     if (!deviceCode) return fail("device_code_required", "device_code is required", 422);
     const targetSurface = body.target_surface ?? "android";
+    const action = body.action ?? "test_printer";
+    if (action !== "test_printer" && action !== "set_printer") {
+      return fail("invalid_action", "Unsupported printer MDM command.", 422);
+    }
+    if (action === "set_printer" && targetSurface !== "windows_runtime") {
+      return fail("invalid_action_target", "Remote printer selection is supported for Windows only.", 422);
+    }
     if (targetSurface !== "android" && targetSurface !== "windows_runtime") {
       return fail("invalid_target_surface", "Unsupported MDM printer target.", 422);
     }
@@ -205,13 +226,20 @@ export async function POST(req: Request) {
     if (deviceError) throw new Error(deviceError.message);
     if (!device) return fail("device_not_found", "ไม่พบเครื่อง POS นี้ในสาขาปัจจุบัน", 404);
 
+    let selectedMachineId: string | null = null;
+    let selectedPrinterName: string | null = null;
     if (targetSurface === "windows_runtime") {
+      const requestedMachineId = clean(body.machine_id);
+      if (!requestedMachineId || requestedMachineId.length > 160) {
+        return fail("windows_machine_id_required", "Select a registered Windows machine.", 422);
+      }
       const { data: health, error: healthError } = await supabase
         .from("pos_device_health_latest")
-        .select("pos_device_id,device_code,status,runtime_version,app_version,runtime_health,peripheral_health,metadata,captured_at,last_seen_at")
+        .select("pos_device_id,device_code,status,runtime_version,app_version,machine_id,runtime_health,peripheral_health,metadata,captured_at,last_seen_at")
         .eq("tenant_id", auth.tenantId!)
         .eq("branch_id", auth.branchId!)
         .eq("pos_device_id", device.id)
+        .eq("machine_id", requestedMachineId)
         .like("runtime_version", "cpipos-windows%")
         .order("last_seen_at", { ascending: false })
         .limit(1)
@@ -221,7 +249,17 @@ export async function POST(req: Request) {
       if (!windowsPrinter.bridge_online) {
         return fail("windows_print_bridge_offline", "Windows Print Bridge is not reporting online in the last 5 minutes.", 409);
       }
-      if (!windowsPrinter.selected_printer_valid) {
+      selectedMachineId = requestedMachineId;
+      if (action === "set_printer") {
+        if (!windowsPrinter.printer_selection_supported) {
+          return fail("windows_runtime_upgrade_required", "Windows Web POS 0.2.0 or newer is required for remote printer selection.", 409);
+        }
+        const printerName = clean(body.printer_name);
+        if (!printerName || printerName.length > 128 || !windowsPrinter.installed_printers.includes(printerName)) {
+          return fail("printer_not_reported", "Windows has not reported this installed printer. Refresh diagnostics.", 409);
+        }
+        selectedPrinterName = printerName;
+      } else if (!windowsPrinter.selected_printer_valid) {
         return fail("windows_printer_not_selected", "ยังไม่พบเครื่องพิมพ์ที่ Windows Runtime เลือกอย่างถูกต้อง", 409);
       }
     }
@@ -233,7 +271,7 @@ export async function POST(req: Request) {
         tenant_id: auth.tenantId!,
         branch_id: auth.branchId!,
         pos_device_id: device.id,
-        command_type: "test_printer",
+        command_type: action,
         status: "pending",
         issued_by_user_id: auth.userId,
         issued_at: now.toISOString(),
@@ -241,8 +279,10 @@ export async function POST(req: Request) {
         result: {},
         metadata: {
           source: "printer_settings_mdm",
-          safe_action: "test_printer_connection",
+          safe_action: action === "set_printer" ? "select_installed_printer" : "test_printer_connection",
           target_surface: targetSurface,
+          ...(selectedMachineId ? { target_machine_id: selectedMachineId } : {}),
+          ...(selectedPrinterName ? { printer_name: selectedPrinterName } : {}),
           device_code: device.device_code,
           device_name: device.device_name
         }
@@ -259,6 +299,6 @@ export async function POST(req: Request) {
   } catch (error) {
     const message = error instanceof Error ? error.message : "unknown";
     if (message === "forbidden_role") return fail("forbidden_role", "Only manager or owner can test printers through MDM.", 403);
-    return fail("mdm_printer_test_failed", "ไม่สามารถส่งคำสั่งทดสอบเครื่องพิมพ์ผ่าน MDM ได้", 400);
+    return fail("mdm_printer_command_failed", "ไม่สามารถส่งคำสั่งจัดการเครื่องพิมพ์ผ่าน MDM ได้", 400);
   }
 }

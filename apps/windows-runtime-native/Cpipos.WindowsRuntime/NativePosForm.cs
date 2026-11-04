@@ -284,13 +284,13 @@ internal sealed class NativePosForm : Form
         var process = Process.GetCurrentProcess();
         var payload = new
         {
-            identity = new { device_code = "WINDOWS-POS", machine_id = Environment.MachineName, hostname = Environment.MachineName, runtime_version = "windows-native-pos", app_version = "0.1.9" },
+            identity = new { device_code = "WINDOWS-POS", machine_id = Environment.MachineName, hostname = Environment.MachineName, runtime_version = "windows-native-pos", app_version = "0.2.0" },
             connectivity = new { internet_online = true, server_reachable = true, network_type = "windows", last_seen_at = DateTimeOffset.UtcNow },
             system = new { os_name = "Windows", os_version = Environment.OSVersion.VersionString, uptime_seconds = Environment.TickCount64 / 1000, memory_mb = process.WorkingSet64 / 1_048_576, disk_total_gb = drive.TotalSize / 1_073_741_824, disk_free_gb = drive.AvailableFreeSpace / 1_073_741_824 },
             runtime = new { cpi_windows_runtime_running = true, local_bridge_online = true, bridge_port = _options.BridgePort, last_error = (string?)null },
             peripherals = new { selected_printer = _options.WindowsPrinter, printer_status = string.IsNullOrWhiteSpace(_options.WindowsPrinter) ? null : "configured" },
             offline_sale = new { pending_order_count = _offlineStore.LoadPendingOrders().Count },
-            metadata = new { source = "windows_native_pos_mdm", reason, update_channel = "stable", latest_allowed_version = "0.1.9", update_available = false },
+            metadata = new { source = "windows_native_pos_mdm", reason, update_channel = "stable", latest_allowed_version = "0.2.0", update_available = false },
             captured_at = DateTimeOffset.UtcNow
         };
         var actions = await _api.SendHeartbeatAsync(payload);
@@ -360,7 +360,7 @@ internal sealed class NativePosApiClient
     {
         _baseUrl = baseUrl.TrimEnd('/');
         _http = new HttpClient(new HttpClientHandler { CookieContainer = _cookies }) { Timeout = TimeSpan.FromSeconds(45) };
-        _http.DefaultRequestHeaders.UserAgent.ParseAdd("CpIPOSWindowsNativePOS/0.1.9");
+        _http.DefaultRequestHeaders.UserAgent.ParseAdd("CpIPOSWindowsNativePOS/0.2.0");
     }
 
     public async Task<List<BranchRow>> VerifyStoreAsync(string storeCode)

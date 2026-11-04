@@ -200,3 +200,98 @@ describe("executePendingActions", () => {
     expect(results).toEqual([{ id: "8", command_type: "check_update", applied: true }]);
   });
 });
+
+describe("Windows managed printer selection", () => {
+  it("reports the exact installed XP-80C queue in Windows telemetry", async () => {
+    (globalThis as { window?: unknown }).window = {
+      CpIPOSWindowsRuntime: {
+        bridge_health_url: "http://127.0.0.1:3210/health",
+        bridge_token: "unit-launch-token",
+        native_app_version: "0.2.0",
+        native_bridge_version: "cpipos-windows-native-bridge-0.2.0"
+      }
+    };
+    const requests: string[] = [];
+    globalThis.fetch = (async (url: string | URL | Request) => {
+      requests.push(String(url));
+      if (String(url).endsWith("/printers")) return {
+        ok: true,
+        json: async () => ({
+          ok: true,
+          data: { printers: [
+            { name: "XP-80C", is_valid: true },
+            { name: "Broken Print Queue", is_valid: false }
+          ] }
+        })
+      } as Response;
+      return {
+        ok: true,
+        json: async () => ({ ok: true, data: {
+          system_default_printer: "XP-80C",
+          resolved_printer: "XP-80C",
+          selected_printer_valid: true
+        } })
+      } as Response;
+    }) as typeof fetch;
+    const payload = await buildHeartbeatPayload({
+      surface: "windows_runtime",
+      deviceCode: "POS001",
+      machineId: "win-abc123",
+      startedAt: Date.now(),
+      reason: "startup"
+    });
+    expect(payload.peripherals.selected_printer).toBe("XP-80C");
+    expect(payload.peripherals.installed_printers).toEqual(["XP-80C"]);
+    expect(requests).toEqual([
+      "http://127.0.0.1:3210/health",
+      "http://127.0.0.1:3210/printers"
+    ]);
+  });
+
+  it("sends scoped remote selection to the native bridge and checks persistence", async () => {
+    (globalThis as { window?: unknown }).window = {
+      CpIPOSWindowsRuntime: {
+        bridge_health_url: "http://127.0.0.1:3210/health",
+        bridge_token: "unit-launch-token"
+      }
+    };
+    const calls: Array<{ url: string; init: RequestInit | undefined }> = [];
+    globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
+      calls.push({ url: String(url), init });
+      return { ok: true, json: async () => ({
+        ok: true,
+        data: { selected_printer: "XP-80C", persisted: true }
+      }) } as Response;
+    }) as typeof fetch;
+    const result = await executePendingActions([{
+      id: "cmd-windows-1",
+      command_type: "set_printer",
+      printer_name: "XP-80C",
+      issued_at: "2026-11-04T00:00:00Z"
+    }]);
+    expect(result).toEqual([{ id: "cmd-windows-1", command_type: "set_printer", applied: true }]);
+    expect(calls).toHaveLength(1);
+    expect(calls[0].url).toBe("http://127.0.0.1:3210/printers/select");
+    expect((calls[0].init?.headers as Record<string, string>)["X-CpIPOS-Bridge-Token"]).toBe("unit-launch-token");
+    expect(calls[0].init?.body).toBe(JSON.stringify({ printer_name: "XP-80C" }));
+  });
+
+  it("does not contact a non-loopback printer server or accept an unexpected queue", async () => {
+    (globalThis as { window?: unknown }).window = {
+      CpIPOSWindowsRuntime: {
+        bridge_health_url: "https://remote.example.com/health",
+        bridge_token: "unit-launch-token"
+      }
+    };
+    const fetchSpy = vi.fn();
+    globalThis.fetch = fetchSpy as typeof fetch;
+    const result = await executePendingActions([{
+      id: "cmd-windows-2",
+      command_type: "set_printer",
+      printer_name: "XP-80C",
+      issued_at: "2026-11-04T00:00:00Z"
+    }]);
+    expect(result[0].applied).toBe(false);
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+});

@@ -184,6 +184,38 @@ async function readBridgeHealth(url: string | undefined): Promise<BridgeHealthRe
   }
 }
 
+function fixedBridgeEndpoint(runtime: WindowsRuntimeGlobal | null, path: "/printers" | "/printers/select" | "/print/test"): string | null {
+  if (!runtime?.bridge_health_url || !runtime.bridge_token) return null;
+  try {
+    const url = new URL(runtime.bridge_health_url);
+    const port = Number(url.port);
+    if (url.protocol !== "http:" || url.hostname !== "127.0.0.1" || !Number.isInteger(port) || port < 1024 || port > 65535) return null;
+    url.pathname = path;
+    url.search = "";
+    url.hash = "";
+    return url.toString();
+  } catch {
+    return null;
+  }
+}
+
+async function readInstalledWindowsPrinters(runtime: WindowsRuntimeGlobal): Promise<string[]> {
+  const url = fixedBridgeEndpoint(runtime, "/printers");
+  if (!url) return [];
+  try {
+    const response = await fetch(url, { headers: { "X-CpIPOS-Bridge-Token": runtime.bridge_token! }, cache: "no-store" });
+    if (!response.ok) return [];
+    const envelope = (await response.json()) as { ok?: boolean; data?: { printers?: Array<{ name?: unknown; is_valid?: boolean }> } };
+    if (envelope.ok !== true || !Array.isArray(envelope.data?.printers)) return [];
+    return envelope.data.printers
+      .filter((printer) => printer && printer.is_valid === true && typeof printer.name === "string" && printer.name.trim().length > 0 && printer.name.length <= 128)
+      .map((printer) => String(printer.name))
+      .slice(0, 32);
+  } catch {
+    return [];
+  }
+}
+
 export type BuildHeartbeatPayloadInput = {
   surface: DeviceHeartbeatSurface;
   deviceCode: string;
@@ -197,6 +229,7 @@ export async function buildHeartbeatPayload(input: BuildHeartbeatPayloadInput): 
   const capturedAt = new Date().toISOString();
   const runtimeGlobal = surface === "windows_runtime" ? getWindowsRuntimeGlobal() : null;
   const bridge = runtimeGlobal ? await readBridgeHealth(runtimeGlobal.bridge_health_url) : null;
+  const installedWindowsPrinters = bridge?.ok === true && runtimeGlobal ? await readInstalledWindowsPrinters(runtimeGlobal) : [];
   const nativeDiagnostics = surface === "android" ? readAndroidDiagnostics() : null;
   const nativeApp = isRecord(nativeDiagnostics?.app) ? nativeDiagnostics.app : null;
   const nativeDevice = isRecord(nativeDiagnostics?.device) ? nativeDiagnostics.device : null;
@@ -257,6 +290,7 @@ export async function buildHeartbeatPayload(input: BuildHeartbeatPayloadInput): 
     peripherals: {
       default_printer: bridge?.system_default_printer ?? null,
       selected_printer: surface === "android" && nativeHost ? `${nativeHost}:${nativePort ?? 9100}` : bridge?.resolved_printer ?? bridge?.configured_printer ?? null,
+      installed_printers: surface === "windows_runtime" ? installedWindowsPrinters : null,
       selected_printer_valid: surface === "android" ? nativeReachable : bridge?.selected_printer_valid ?? null,
       printer_status: surface === "android"
         ? nativeReachable === true ? "normal" : nativeReachable === false ? "invalid" : nativeHost ? "unknown" : "not_configured"
@@ -345,16 +379,10 @@ function executeAndroidPrinterTest(): boolean {
 // server-supplied URLs, scripts or OS commands are evaluated.
 async function executeWindowsPrinterTest(): Promise<boolean> {
   const runtime = getWindowsRuntimeGlobal();
-  if (!runtime?.bridge_health_url || !runtime.bridge_token) return false;
+  const url = fixedBridgeEndpoint(runtime, "/print/test");
+  if (!url || !runtime?.bridge_token) return false;
   try {
-    const url = new URL(runtime.bridge_health_url);
-    if (url.protocol !== "http:" || url.hostname !== "127.0.0.1" || !url.port) return false;
-    const port = Number(url.port);
-    if (!Number.isInteger(port) || port < 1024 || port > 65535) return false;
-    url.pathname = "/print/test";
-    url.search = "";
-    url.hash = "";
-    const response = await fetch(url.toString(), {
+    const response = await fetch(url, {
       method: "POST",
       headers: { "X-CpIPOS-Bridge-Token": runtime.bridge_token, "Content-Type": "application/json" },
       body: JSON.stringify({}),
@@ -362,8 +390,29 @@ async function executeWindowsPrinterTest(): Promise<boolean> {
     });
     if (!response.ok) return false;
     const payload = (await response.json()) as { ok?: boolean; data?: { printed?: boolean } };
-    // "printed" is native spool submission, not verified paper delivery.
+    // "printed" means spooler accepted a job; physical receipt delivery remains unverified.
     return payload.ok === true && payload.data?.printed === true;
+  } catch {
+    return false;
+  }
+}
+
+async function executeWindowsPrinterSelection(printerName: string | undefined): Promise<boolean> {
+  const runtime = getWindowsRuntimeGlobal();
+  const url = fixedBridgeEndpoint(runtime, "/printers/select");
+  if (!url || !runtime?.bridge_token || !printerName || printerName.length > 128) return false;
+  try {
+    // The local bridge independently validates the exact printer queue name
+    // against Windows' installed queues and persists per-user, not OS default.
+    const response = await fetch(url, {
+      method: "POST",
+      headers: { "X-CpIPOS-Bridge-Token": runtime.bridge_token, "Content-Type": "application/json" },
+      body: JSON.stringify({ printer_name: printerName }),
+      cache: "no-store"
+    });
+    if (!response.ok) return false;
+    const payload = (await response.json()) as { ok?: boolean; data?: { selected_printer?: string; persisted?: boolean } };
+    return payload.ok === true && payload.data?.persisted === true && payload.data.selected_printer === printerName;
   } catch {
     return false;
   }
@@ -418,6 +467,13 @@ export async function executePendingActions(actions: readonly PendingDeviceActio
         const applied = surface === "windows_runtime"
           ? await executeWindowsPrinterTest()
           : surface === "android" && executeAndroidPrinterTest();
+        results.push({ id: action.id, command_type: action.command_type, applied });
+        break;
+      }
+      case "set_printer": {
+        const applied = detectSurface() === "windows_runtime"
+          ? await executeWindowsPrinterSelection(action.printer_name)
+          : false;
         results.push({ id: action.id, command_type: action.command_type, applied });
         break;
       }
