@@ -13,8 +13,10 @@ env:
   WINDOWS_RUNTIME_OUTPUT: artifacts/CpIPOS-WindowsRuntime-win-x64
   WINDOWS_RUNTIME_ZIP: artifacts/CpIPOS-WindowsRuntime-win-x64.zip
   WINDOWS_RUNTIME_SETUP: artifacts/CpIPOS-WindowsRuntime-Setup.exe
+  WINDOWS_WEB_POS_SETUP: artifacts/CpIPOS-WindowsWebPOS-Setup.exe
   WINDOWS_RUNTIME_RELEASE_TAG: windows-runtime-latest
   WINDOWS_RUNTIME_SETUP_ASSET_NAME: CpIPOS-WindowsRuntime-Setup.exe
+  WINDOWS_WEB_POS_SETUP_ASSET_NAME: CpIPOS-WindowsWebPOS-Setup.exe
   WINDOWS_RUNTIME_ZIP_ASSET_NAME: CpIPOS-WindowsRuntime-win-x64.zip
   WINDOWS_RUNTIME_VERSION: 0.1.9
 
@@ -206,6 +208,34 @@ jobs:
             throw "Installer was not created: $env:WINDOWS_RUNTIME_SETUP"
           }
 
+      - name: Build dedicated Windows Web POS installer
+        shell: pwsh
+        run: |
+          $iscc = "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
+          if (!(Test-Path $iscc)) {
+            throw "Inno Setup compiler not found: $iscc"
+          }
+
+          $webIssPath = "apps/windows-runtime-native/installer/CpIPOSWindowsWebPOS.iss"
+          $webIss = Get-Content $webIssPath -Raw
+          if (-not $webIss.Contains('Parameters: "--legacy-web-pos --windowed"')) {
+            throw "The Windows Web POS shortcut must explicitly launch the WebView2 POS"
+          }
+          if (-not $webIss.Contains('OutputBaseFilename=CpIPOS-WindowsWebPOS-Setup')) {
+            throw "Dedicated Windows Web POS installer filename is missing"
+          }
+
+          & $iscc `
+            $webIssPath `
+            "/DAppVersion=$env:WINDOWS_RUNTIME_VERSION" `
+            "/DSourceDir=$env:GITHUB_WORKSPACE\artifacts\CpIPOS-WindowsRuntime-win-x64" `
+            "/DOutputDir=$env:GITHUB_WORKSPACE\artifacts" `
+            "/DIconFile=$env:GITHUB_WORKSPACE\apps\windows-runtime-native\Cpipos.WindowsRuntime\assets\cpipos.ico"
+
+          if ($LASTEXITCODE -ne 0 -or !(Test-Path $env:WINDOWS_WEB_POS_SETUP)) {
+            throw "Windows Web POS installer was not created: $env:WINDOWS_WEB_POS_SETUP"
+          }
+
       - name: Validate installer and packaged icon
         shell: pwsh
         run: |
@@ -226,6 +256,11 @@ jobs:
             }
           }
           Write-Host "Installer ready with bundled CpIPOS icon: $setupPath ($setupSize bytes)"
+          $webSetupSize = (Get-Item $env:WINDOWS_WEB_POS_SETUP).Length
+          if ($webSetupSize -lt 1000000) {
+            throw "Web POS installer size looks too small: $webSetupSize bytes"
+          }
+          Write-Host "Windows Web POS installer ready: $env:WINDOWS_WEB_POS_SETUP ($webSetupSize bytes)"
 
       - name: Upload workflow artifacts
         uses: actions/upload-artifact@v4
@@ -233,6 +268,7 @@ jobs:
           name: CpIPOS-WindowsRuntime
           path: |
             ${{ env.WINDOWS_RUNTIME_SETUP }}
+            ${{ env.WINDOWS_WEB_POS_SETUP }}
             ${{ env.WINDOWS_RUNTIME_ZIP }}
           if-no-files-found: error
 
@@ -243,6 +279,7 @@ jobs:
         run: |
           $tag = $env:WINDOWS_RUNTIME_RELEASE_TAG
           $setupPath = $env:WINDOWS_RUNTIME_SETUP
+          $webPosSetupPath = $env:WINDOWS_WEB_POS_SETUP
           $zipPath = $env:WINDOWS_RUNTIME_ZIP
 
           gh release view $tag *> $null
@@ -253,6 +290,7 @@ jobs:
               --notes "Latest CpIPOS Windows Runtime installer and portable ZIP built manually from GitHub Actions."
           }
 
-          gh release upload $tag $setupPath $zipPath --clobber
+          gh release upload $tag $setupPath $webPosSetupPath $zipPath --clobber
           Write-Host "Installer URL: https://github.com/${{ github.repository }}/releases/download/$tag/$env:WINDOWS_RUNTIME_SETUP_ASSET_NAME"
+          Write-Host "Windows Web POS installer URL: https://github.com/${{ github.repository }}/releases/download/$tag/$env:WINDOWS_WEB_POS_SETUP_ASSET_NAME"
           Write-Host "Portable ZIP URL: https://github.com/${{ github.repository }}/releases/download/$tag/$env:WINDOWS_RUNTIME_ZIP_ASSET_NAME"
