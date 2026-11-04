@@ -49,6 +49,10 @@ type TestRequest = {
 const WINDOWS_HEARTBEAT_FRESH_MS = 5 * 60_000;
 
 function windowsPrinterFromHealth(health: DeviceHealthRow | null) {
+  const version = (health?.app_version ?? "").match(/^(\\d+)\\.(\\d+)\\.(\\d+)/);
+  const versionParts = version ? version.slice(1).map(Number) : [];
+  const printerSelectionSupported = versionParts.length === 3 &&
+    (versionParts[0] > 0 || versionParts[1] > 2 || (versionParts[1] === 2 && versionParts[2] >= 0));
   const peripherals = asRecord(health?.peripheral_health);
   const runtime = asRecord(health?.runtime_health);
   const installed = Array.isArray(peripherals.installed_printers)
@@ -59,6 +63,7 @@ function windowsPrinterFromHealth(health: DeviceHealthRow | null) {
   return {
     machine_id: health?.machine_id ?? null,
     installed_printers: installed,
+    printer_selection_supported: printerSelectionSupported,
     last_seen_at: health?.last_seen_at ?? null,
     bridge_online: recent && runtime.local_bridge_online === true,
     selected_printer: clean(peripherals.selected_printer),
@@ -246,6 +251,9 @@ export async function POST(req: Request) {
       }
       selectedMachineId = requestedMachineId;
       if (action === "set_printer") {
+        if (!windowsPrinter.printer_selection_supported) {
+          return fail("windows_runtime_upgrade_required", "Windows Web POS 0.2.0 or newer is required for remote printer selection.", 409);
+        }
         const printerName = clean(body.printer_name);
         if (!printerName || printerName.length > 128 || !windowsPrinter.installed_printers.includes(printerName)) {
           return fail("printer_not_reported", "Windows has not reported this installed printer. Refresh diagnostics.", 409);
