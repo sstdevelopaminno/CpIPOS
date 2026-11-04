@@ -128,6 +128,7 @@ export async function printWindowsReceiptHtml(
   // WinForms HTML print can consume most of the native 30s HTTP timeout.
   // A timed-out response is indeterminate: do not retry automatically.
   const timer = window.setTimeout(() => controller.abort(), 35_000);
+  let stage: "dispatch" | "response" | "timeout" = "dispatch";
   try {
     const response = await fetch("http://127.0.0.1:3210/print", {
       method: "POST",
@@ -141,6 +142,7 @@ export async function printWindowsReceiptHtml(
         metadata: { source: "pos_windows_webview2_manual_receipt", reprint: options.reprint === true }
       })
     });
+    stage = "response";
     const payload = (await response.json().catch(() => null)) as BridgeResponse<{
       printed?: boolean;
       html_printed?: boolean;
@@ -153,7 +155,28 @@ export async function printWindowsReceiptHtml(
     }
     return { printer: payload.data.printer_name ?? nativePrinterName, spoolJobId: payload.data.job_id ?? null };
   } catch (error) {
-    if (controller.signal.aborted) {
+    const unknownOutcome = controller.signal.aborted;
+    const message = unknownOutcome
+      ? "Bridge timed out; physical print status unknown"
+      : error instanceof Error ? error.message : "Windows bridge request failed";
+    // Best-effort telemetry only; it must not trigger a second print, block
+    // checkout or transmit the bridge token / receipt HTML.
+    try {
+      void fetch("/api/pos/windows-print/diagnostic", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        cache: "no-store",
+        keepalive: true,
+        body: JSON.stringify({
+          order_no: options.orderNo ?? null,
+          reprint: options.reprint === true,
+          stage: unknownOutcome ? "timeout" : stage,
+          error_message: message.slice(0, 320)
+        })
+      }).catch(() => undefined);
+    } catch { /* diagnostic must never affect print outcome */ }
+    if (unknownOutcome) {
       throw new Error("ไม่ทราบว่างานพิมพ์ถูกส่งแล้วหรือไม่ ให้ตรวจกระดาษและคิว XP-80C ก่อน ห้ามกดพิมพ์ซ้ำทันที");
     }
     throw error;
