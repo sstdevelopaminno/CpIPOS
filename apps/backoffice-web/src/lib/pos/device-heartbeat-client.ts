@@ -14,6 +14,7 @@ type WindowsRuntimeGlobal = {
   native_app_version?: string;
   native_bridge_version?: string;
   bridge_health_url?: string;
+  bridge_token?: string;
 };
 
 type AndroidMdmBridge = {
@@ -172,7 +173,12 @@ async function readBridgeHealth(url: string | undefined): Promise<BridgeHealthRe
   try {
     const response = await fetch(url, { cache: "no-store" });
     if (!response.ok) return null;
-    return (await response.json()) as BridgeHealthResponse;
+    // Windows native LocalPrintBridge returns { ok: true, data: {...health} }.
+    // Do not treat the envelope's "ok" as a valid printer; unwrap its data.
+    const body = (await response.json()) as BridgeHealthResponse & { data?: BridgeHealthResponse };
+    if (body.ok !== true) return null;
+    const data = body.data && typeof body.data === "object" ? body.data : body;
+    return { ...data, ok: true };
   } catch {
     return null;
   }
@@ -333,6 +339,36 @@ function executeAndroidPrinterTest(): boolean {
   return executeAndroidSafeCommand("test_printer_connection");
 }
 
+// The Windows WebView2 wrapper provides a per-launch bridge token only to the
+// trusted POS origin. Only contact the fixed loopback print-test endpoint.
+// This must be triggered by an authenticated, scoped MDM command; no arbitrary
+// server-supplied URLs, scripts or OS commands are evaluated.
+async function executeWindowsPrinterTest(): Promise<boolean> {
+  const runtime = getWindowsRuntimeGlobal();
+  if (!runtime?.bridge_health_url || !runtime.bridge_token) return false;
+  try {
+    const url = new URL(runtime.bridge_health_url);
+    if (url.protocol !== "http:" || url.hostname !== "127.0.0.1" || !url.port) return false;
+    const port = Number(url.port);
+    if (!Number.isInteger(port) || port < 1024 || port > 65535) return false;
+    url.pathname = "/print/test";
+    url.search = "";
+    url.hash = "";
+    const response = await fetch(url.toString(), {
+      method: "POST",
+      headers: { "X-CpIPOS-Bridge-Token": runtime.bridge_token, "Content-Type": "application/json" },
+      body: JSON.stringify({}),
+      cache: "no-store"
+    });
+    if (!response.ok) return false;
+    const payload = (await response.json()) as { ok?: boolean; data?: { printed?: boolean } };
+    // "printed" is native spool submission, not verified paper delivery.
+    return payload.ok === true && payload.data?.printed === true;
+  } catch {
+    return false;
+  }
+}
+
 function refreshDiagnosticsForRemoteDiscovery(): boolean {
   if (detectSurface() !== "android") return true;
   return executeAndroidSafeCommand("collect_diagnostics");
@@ -377,9 +413,14 @@ export async function executePendingActions(actions: readonly PendingDeviceActio
       case "test_network":
         results.push({ id: action.id, command_type: action.command_type, applied: true });
         break;
-      case "test_printer":
-        results.push({ id: action.id, command_type: action.command_type, applied: executeAndroidPrinterTest() });
+      case "test_printer": {
+        const surface = detectSurface();
+        const applied = surface === "windows_runtime"
+          ? await executeWindowsPrinterTest()
+          : surface === "android" && executeAndroidPrinterTest();
+        results.push({ id: action.id, command_type: action.command_type, applied });
         break;
+      }
       case "refresh_config": {
         const applied = await refreshWindowsRuntimeConfig();
         results.push({ id: action.id, command_type: action.command_type, applied });

@@ -121,6 +121,76 @@ describe("executePendingActions", () => {
     expect(reload).toHaveBeenCalledTimes(1);
   });
 
+  it("unwraps the Windows native bridge health envelope and reports XP-80C", async () => {
+    (globalThis as { window?: unknown }).window = {
+      CpIPOSWindowsRuntime: {
+        native_app_version: "0.1.9",
+        native_bridge_version: "cpipos-windows-native-bridge-0.1.9",
+        bridge_health_url: "http://127.0.0.1:3210/health"
+      }
+    };
+    globalThis.fetch = (async () => ({
+      ok: true,
+      json: async () => ({
+        ok: true,
+        data: {
+          bridge_version: "cpipos-windows-native-bridge-0.1.9",
+          system_default_printer: "XP-80C",
+          resolved_printer: "XP-80C",
+          selected_printer_valid: true
+        }
+      })
+    })) as typeof fetch;
+
+    const payload = await buildHeartbeatPayload({
+      surface: "windows_runtime",
+      deviceCode: "POS001",
+      machineId: "win-unit-test",
+      startedAt: Date.now(),
+      reason: "interval"
+    });
+    expect(payload.runtime.local_bridge_online).toBe(true);
+    expect(payload.peripherals.default_printer).toBe("XP-80C");
+    expect(payload.peripherals.selected_printer).toBe("XP-80C");
+    expect(payload.peripherals.selected_printer_valid).toBe(true);
+  });
+
+  it("tests Windows printer through authenticated loopback only", async () => {
+    (globalThis as { window?: unknown }).window = {
+      CpIPOSWindowsRuntime: {
+        bridge_health_url: "http://127.0.0.1:3210/health",
+        bridge_token: "per-launch-unit-token"
+      }
+    };
+    const calls: Array<{ url: string; init: RequestInit | undefined }> = [];
+    globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
+      calls.push({ url: String(url), init });
+      return { ok: true, json: async () => ({ ok: true, data: { printed: true } }) } as Response;
+    }) as typeof fetch;
+
+    const result = await executePendingActions([{ id: "win-1", command_type: "test_printer", issued_at: "2026-11-04T00:00:00Z" }]);
+    expect(result).toEqual([{ id: "win-1", command_type: "test_printer", applied: true }]);
+    expect(calls).toHaveLength(1);
+    expect(calls[0].url).toBe("http://127.0.0.1:3210/print/test");
+    expect(calls[0].init?.method).toBe("POST");
+    expect((calls[0].init?.headers as Record<string, string>)?.["X-CpIPOS-Bridge-Token"]).toBe("per-launch-unit-token");
+  });
+
+  it("rejects non-loopback printer command targets even with a token", async () => {
+    (globalThis as { window?: unknown }).window = {
+      CpIPOSWindowsRuntime: {
+        bridge_health_url: "http://remote-printer.example/health",
+        bridge_token: "per-launch-unit-token"
+      }
+    };
+    const fetchSpy = vi.fn();
+    globalThis.fetch = fetchSpy as typeof fetch;
+
+    const result = await executePendingActions([{ id: "win-2", command_type: "test_printer", issued_at: "2026-11-04T00:00:00Z" }]);
+    expect(result).toEqual([{ id: "win-2", command_type: "test_printer", applied: false }]);
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
   it("refresh_config is not applied without a Windows Runtime entitlements URL", async () => {
     const results = await executePendingActions([{ id: "7", command_type: "refresh_config", issued_at: "2026-08-06T00:00:00Z" }]);
     expect(results).toEqual([{ id: "7", command_type: "refresh_config", applied: false }]);
