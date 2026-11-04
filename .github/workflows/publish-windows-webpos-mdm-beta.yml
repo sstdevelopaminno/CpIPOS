@@ -34,12 +34,6 @@ jobs:
           test "$GITHUB_REPOSITORY" = "sstdevelopaminno/CpIPOS"
           run_json="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$SOURCE_RUN")"
           echo "$run_json" | jq -e --arg sha "$SOURCE_COMMIT" '.conclusion == "success" and .head_sha == $sha' >/dev/null
-          git merge-base --is-ancestor "$VERIFIED_MAIN_COMMIT" HEAD
-
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
       - name: Download and verify pinned Web POS installer
         env:
           GH_TOKEN: ${{ github.token }}
