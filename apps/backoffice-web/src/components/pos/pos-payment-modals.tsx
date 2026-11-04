@@ -722,7 +722,7 @@ export function PosPaymentModals({
                 ) : null}
               </footer>
             </article>
-            {onPrintReceipt ? (
+            {windowsNativeReceipt && onPrintReceipt ? (
               <button
                 type="button"
                 className="posui-btn posui-btn--primary"
