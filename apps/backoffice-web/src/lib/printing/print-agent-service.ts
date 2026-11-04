@@ -1,4 +1,5 @@
 ﻿import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
+import { agentRuntimeMatchesPrinter } from "@/lib/printing/agent-runtime-routing";
 import type { AuthContext } from "@/lib/auth-context";
 import { appendAuditLog } from "@/lib/audit-log";
 import { fail } from "@/lib/http";
@@ -170,12 +171,7 @@ function printerMatchesAgent(printer: PrinterProfileRow, agent: PrintAgentRow) {
   if (!printer.enabled) return false;
   const metadata = asRecord(printer.metadata);
   const agentMetadata = asRecord(agent.metadata);
-  const windowsProfile = metadata.target_runtime === "windows_native";
-  const windowsAgent = agentMetadata.runtime === "windows_native_print_agent_v1";
-  // A Windows XP-80C profile must never be leased to the Android native
-  // print agent, even if both have the same POS device code.
-  // Likewise the Windows worker must not claim unrelated Android profiles.
-  if (windowsProfile !== windowsAgent) return false;
+  if (!agentRuntimeMatchesPrinter(metadata.target_runtime, agentMetadata.runtime)) return false;
   const assignedAgentIds = readStringArray(
     metadata.assigned_agent_id ?? metadata.assigned_agent_ids ?? metadata.agent_id ?? metadata.agent_ids
   );
