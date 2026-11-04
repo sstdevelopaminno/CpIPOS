@@ -13,6 +13,15 @@ type NativePrinter = {
   last_command_at_ms: number | null;
 };
 
+type WindowsPrinter = {
+  last_seen_at: string | null;
+  bridge_online: boolean;
+  selected_printer: string | null;
+  default_printer: string | null;
+  selected_printer_valid: boolean;
+  last_error: string | null;
+};
+
 type TestCommand = {
   id: string;
   status: string;
@@ -34,6 +43,7 @@ type MdmDevice = {
   runtime_version: string | null;
   app_version: string | null;
   native_printer: NativePrinter;
+  windows_printer: WindowsPrinter;
   latest_test_command: TestCommand | null;
 };
 
@@ -91,16 +101,16 @@ export function PrinterMdmPanel() {
     return () => window.clearInterval(timer);
   }, [load]);
 
-  async function testPrinter(device: MdmDevice) {
-    setBusy(device.id);
+  async function testPrinter(device: MdmDevice, targetSurface: "android" | "windows_runtime") {
+    setBusy(`${device.id}:${targetSurface}`);
     setError(null);
     setNotice(null);
     try {
       await api("/api/backoffice/printers/mdm-devices", {
         method: "POST",
-        body: JSON.stringify({ device_code: device.device_code })
+        body: JSON.stringify({ device_code: device.device_code, target_surface: targetSurface })
       });
-      setNotice(`ส่งคำสั่งทดสอบเครื่องพิมพ์ไปที่ ${device.device_name} (${device.device_code}) แล้ว รอ heartbeat ของเครื่อง POS ตอบกลับ`);
+      setNotice(`ส่งคำสั่งทดสอบไปที่ ${device.device_name} (${device.device_code}) ผ่าน ${targetSurface === "windows_runtime" ? "Windows Print Bridge" : "Android MDM"} แล้ว รออุปกรณ์ตอบกลับ; ผลการส่งเข้าคิวไม่ใช่หลักฐานว่ากระดาษพิมพ์ออกสำเร็จ`);
       await load();
       window.setTimeout(() => void load(), 4_000);
       window.setTimeout(() => void load(), 10_000);
@@ -116,7 +126,7 @@ export function PrinterMdmPanel() {
       <div className={styles.header}>
         <div>
           <h2 className={styles.title}>เครื่อง POS ผ่าน MDM</h2>
-          <p className={styles.subtitle}>เชื่อมสถานะ Android POS เข้ากับเมนูเครื่องพิมพ์ และส่งได้เฉพาะคำสั่งทดสอบการเชื่อมต่อเครื่องพิมพ์แบบปลอดภัยไปยังเครื่องที่เลือก</p>
+          <p className={styles.subtitle}>ตรวจสถานะเครื่องพิมพ์ Android และ Windows จากระยะไกล พร้อมส่งคำสั่งพิมพ์ทดสอบผ่าน Print Bridge ที่ลงทะเบียนแล้วเท่านั้น (ต้องมีสิทธิ์ Owner/Manager)</p>
         </div>
         <button className={styles.refresh} onClick={() => void load()} disabled={loading}>{loading ? "กำลังโหลด..." : "รีเฟรช MDM"}</button>
       </div>
@@ -126,7 +136,8 @@ export function PrinterMdmPanel() {
 
       <div className={styles.list}>
         {devices.map((device) => {
-          const isAndroid = device.surface === "android";
+          const isAndroid = device.surface === "android" || (device.runtime_version ?? "").toLowerCase().includes("android");
+          const windowsReady = device.windows_printer?.bridge_online === true && device.windows_printer?.selected_printer_valid === true;
           const online = device.status === "online" || device.health_status === "healthy";
           return (
             <div className={styles.device} key={device.id}>
@@ -141,15 +152,28 @@ export function PrinterMdmPanel() {
               <div>
                 <div className={isAndroid ? styles.native : styles.browser}>{isAndroid ? "Android MDM / CpiposMdm" : `Surface: ${device.surface}`}</div>
                 <div className={styles.meta}>{printerState(device)}</div>
+                <div className={styles.meta}>
+                  Windows Print Bridge: {device.windows_printer?.bridge_online ? "ออนไลน์" : "ออฟไลน์ / ยังไม่พบข้อมูลใหม่"}
+                  {" · "}เครื่องพิมพ์: {device.windows_printer?.selected_printer ?? device.windows_printer?.default_printer ?? "ยังไม่เลือก"}
+                  {" · "}รายงานล่าสุด: {fmt(device.windows_printer?.last_seen_at ?? null)}
+                </div>
                 {device.latest_test_command ? <div className={styles.meta}>ทดสอบล่าสุด: {device.latest_test_command.status} · {fmt(device.latest_test_command.issued_at)}</div> : null}
               </div>
               <button
                 className={styles.test}
-                onClick={() => void testPrinter(device)}
-                disabled={!isAndroid || busy === device.id}
-                title={isAndroid ? "ส่ง test_printer_connection ผ่าน MDM" : "ต้องเปิด POS ผ่าน Android MDM WebView ก่อน"}
+                onClick={() => void testPrinter(device, "android")}
+                disabled={!isAndroid || busy !== null}
+                title={isAndroid ? "ส่งคำสั่งผ่าน Android MDM" : "ยังไม่พบ Android POS บนเครื่องนี้"}
               >
-                {busy === device.id ? "กำลังส่ง..." : "ทดสอบเครื่องพิมพ์ผ่าน MDM"}
+                {busy === `${device.id}:android` ? "กำลังส่ง..." : "ทดสอบผ่าน Android"}
+              </button>
+              <button
+                className={styles.test}
+                onClick={() => void testPrinter(device, "windows_runtime")}
+                disabled={!windowsReady || busy !== null}
+                title={windowsReady ? "ส่งคำสั่งพิมพ์ทดสอบ Windows XP-80C ผ่าน Local Bridge" : "รอ Windows Bridge รายงานเครื่องพิมพ์ที่เลือกถูกต้องก่อน"}
+              >
+                {busy === `${device.id}:windows_runtime` ? "กำลังส่ง..." : "ทดสอบผ่าน Windows"}
               </button>
             </div>
           );
