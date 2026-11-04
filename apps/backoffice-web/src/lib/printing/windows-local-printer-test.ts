@@ -96,12 +96,12 @@ export async function testInstalledWindowsPrinter(printerName: string): Promise<
  */
 export function windowsReceiptHtmlToText(html: string): string {
   return html
-    .replace(/<script\\b[^>]*>[\\s\\S]*?<\\/script>/gi, "")
-    .replace(/<style\\b[^>]*>[\\s\\S]*?<\\/style>/gi, "")
-    .replace(/<img\\b[^>]*>/gi, "")
-    .replace(/<br\\s*\\/?\\s*>|<hr\\b[^>]*>/gi, "\\n")
-    .replace(/<\\/\\s*(?:tr|div|p|main|header|footer|h[1-6]|li|section|article|table)\\s*>/gi, "\\n")
-    .replace(/<\\/?(?:td|th|span|strong)\\b[^>]*>/gi, "  ")
+    .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, "")
+    .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, "")
+    .replace(/<img\b[^>]*>/gi, "")
+    .replace(/<br\s*\/?\s*>|<hr\b[^>]*>/gi, "\n")
+    .replace(/<\/\s*(?:tr|div|p|main|header|footer|h[1-6]|li|section|article|table)\s*>/gi, "\n")
+    .replace(/<\/?(?:td|th|span|strong)\b[^>]*>/gi, "  ")
     .replace(/<[^>]+>/g, "")
     .replace(/&nbsp;|&#160;/gi, " ")
     .replace(/&amp;/gi, "&")
@@ -109,10 +109,10 @@ export function windowsReceiptHtmlToText(html: string): string {
     .replace(/&gt;/gi, ">")
     .replace(/&quot;/gi, '"')
     .replace(/&#39;|&apos;/gi, "'")
-    .split(/\\r?\\n/)
-    .map(line => line.replace(/[ \\t]+/g, " ").trim())
+    .split(/\r?\n/)
+    .map(line => line.replace(/[ \t]+/g, " ").trim())
     .filter(line => line.length > 0)
-    .join("\\n")
+    .join("\n")
     .slice(0, 14_000);
 }
 

@@ -173,6 +173,7 @@ export async function POST(req: Request) {
             : typeof metadata.order_no === "string" ? metadata.order_no : null,
           reprint: metadata.reprint === true,
           html,
+          text: typeof job.payload_text === "string" ? job.payload_text.slice(0, 14_000) : null,
           printer_name: connectedPrinter.selected_printer
         }]
       }));

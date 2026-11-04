@@ -9,6 +9,7 @@ type Job = {
   order_no: string | null;
   reprint?: boolean;
   html: string;
+  text?: string | null;
 };
 type Reply = { data?: { jobs?: Job[] }; error?: { code?: string; message?: string } };
 const PRINTED_ATTEMPTS_LEDGER = "cpi_windows_native_agent_attempted_v1";
@@ -89,7 +90,8 @@ export function WindowsNativePrintAgent() {
             try {
               const spool = await printWindowsReceiptHtml(job.html, {
                 orderNo: job.order_no,
-                reprint: job.reprint === true
+                reprint: job.reprint === true,
+                plainText: job.text ?? null
               });
               await command({
                 action: "ack", job_id: job.id, agent_attempt_id: job.agent_attempt_id,
