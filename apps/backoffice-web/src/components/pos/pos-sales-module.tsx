@@ -2360,6 +2360,10 @@ export function PosSalesModule({
   const [receiptSaving, setReceiptSaving] = useState(false);
   const [receiptSaved, setReceiptSaved] = useState(false);
   const [receiptAutoPrinted, setReceiptAutoPrinted] = useState(false);
+  const [windowsPrintRuntimeDetected, setWindowsPrintRuntimeDetected] = useState(false);
+  useEffect(() => {
+    setWindowsPrintRuntimeDetected(hasLocalWindowsPrintBridge());
+  }, []);
   const [receiptError, setReceiptError] = useState<string | null>(null);
   const [cancelBillSubmitting, setCancelBillSubmitting] = useState(false);
 
@@ -7948,16 +7952,20 @@ export function PosSalesModule({
       }
 
       const printQueued = Number(body.data?.print_jobs_queued ?? 0) > 0 || body.data?.print_jobs_deferred === true;
-      const printWarning = body.data?.print_warning ?? (printQueued ? null : "receipt_print_not_queued");
+      const windowsManualReceipt = hasLocalWindowsPrintBridge();
+      // The payment API may have queued a legacy Android print job. That is
+      // not evidence that Windows printed any receipt. Keep the manual
+      // Windows receipt action accessible until the cashier explicitly closes.
+      const printWarning = windowsManualReceipt ? null : (body.data?.print_warning ?? (printQueued ? null : "receipt_print_not_queued"));
       console.info("[pos-payment] payment_saved", { order_id: cashReviewOrder.order_id, order_no: cashReviewOrder.order_no, payment_method: "cash", print_deferred: body.data?.print_jobs_deferred === true, print_jobs_queued: body.data?.print_jobs_queued ?? 0 });
       setReceiptSaved(true);
-      setReceiptAutoPrinted(printQueued);
+      setReceiptAutoPrinted(windowsManualReceipt ? false : printQueued);
       receiptErrorRef.current = printWarning;
       setReceiptError(printWarning);
       setBillPaymentMethod("cash");
       clearClosedBillUiState({ clearReceipt: false, tableId: cashReviewOrder.table_id ?? null, resetDelivery: true });
       pushSubmitMessage(`${text.receiptSaved}: ${cashReviewOrder.order_no}`);
-      runPostPaymentSideEffects(nextReceiptSession, { printQueued });
+      runPostPaymentSideEffects(nextReceiptSession, { printQueued: windowsManualReceipt ? false : printQueued });
       if (orderType === "dine_in" || Boolean(cashReviewOrder.table_id)) {
         setQuickMode(quickMode === "buffet_table" ? "buffet_table" : "dine_in");
         setOrderType("dine_in");
@@ -8975,6 +8983,9 @@ export function PosSalesModule({
       window.clearTimeout(receiptAutoCloseTimerRef.current);
       receiptAutoCloseTimerRef.current = null;
     }
+    // On installed Windows POS the cashier must decide whether/when to print.
+    // Do not silently dismiss the receipt after the server queues an Android job.
+    if (hasLocalWindowsPrintBridge()) return;
     const elapsedMs = Math.max(0, Date.now() - (receiptModalOpenedAtRef.current || Date.now()));
     const minimumWaitMs = Math.max(0, RECEIPT_MODAL_MIN_VISIBLE_MS - elapsedMs);
     const closeDelayMs = options.printQueued ? minimumWaitMs : RECEIPT_MODAL_SAFE_TIMEOUT_MS;
@@ -10100,6 +10111,7 @@ export function PosSalesModule({
           receiptSaved={receiptSaved}
           receiptAutoPrinted={receiptAutoPrinted}
           receiptError={receiptError}
+          windowsNativeReceipt={windowsPrintRuntimeDetected}
           cashSubmitting={cashSubmitting}
           transferSubmitting={transferSubmitting}
           transferSlipChecking={transferSlipChecking}
@@ -10171,6 +10183,7 @@ export function PosSalesModule({
           paymentNoticeSubmitting={paymentNoticeSubmitting}
           paymentNoticeError={paymentNoticeError}
           onCloseReceipt={closeReceiptPopup}
+          onPrintReceipt={handleReceiptPrint}
       />
 
       {ingredientAdjustDialog ? (
