@@ -325,7 +325,8 @@ function buildReceiptPrintHtml(args: {
           change: "Change"
         };
   const pageHeightMm = Math.min(700, Math.max(120, 78 + record.items.length * 10));
-  const printableWidthMm = 48;
+  const paperWidthMm = hasLocalWindowsPrintBridge() ? 80 : 58;
+  const printableWidthMm = paperWidthMm === 80 ? 72 : 48;
   const itemRows = record.items
     .map((item) => {
       const details = parseReceiptItemDetails(item.notes);
@@ -375,8 +376,8 @@ function buildReceiptPrintHtml(args: {
   <meta charset="utf-8" />
   <title>${escapeHtml(storeName)} - ${escapeHtml(record.orderNo)}</title>
   <style>
-    @page { size: 58mm ${pageHeightMm}mm; margin: 0; }
-    html, body { margin: 0; padding: 0; width: 58mm !important; min-height: ${pageHeightMm}mm; background: #fff; color: #000; font-family: "Noto Sans Lao", "Noto Sans Thai", "Tahoma", "Segoe UI", sans-serif; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    @page { size: ${paperWidthMm}mm ${pageHeightMm}mm; margin: 0; }
+    html, body { margin: 0; padding: 0; width: ${paperWidthMm}mm !important; min-height: ${pageHeightMm}mm; background: #fff; color: #000; font-family: "Noto Sans Lao", "Noto Sans Thai", "Tahoma", "Segoe UI", sans-serif; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
     * { box-sizing: border-box; }
     .receipt58 { width: ${printableWidthMm}mm; margin: 0 auto; padding: 1.2mm 0 1.8mm; min-height: ${Math.max(90, pageHeightMm - 4)}mm; font-size: 11px; line-height: 1.28; }
     .logo-wrap { text-align: center; margin-bottom: 0.8mm; }
@@ -405,7 +406,7 @@ function buildReceiptPrintHtml(args: {
     .summary-line.grand strong { font-size: 14.5px; line-height: 1; }
     .foot { margin-top: 1.5mm; font-size: 10px; text-align: center; }
     @media print {
-      html, body { width: 58mm !important; margin: 0 !important; padding: 0 !important; overflow: hidden; }
+      html, body { width: ${paperWidthMm}mm !important; margin: 0 !important; padding: 0 !important; overflow: hidden; }
       .receipt58 { width: ${printableWidthMm}mm; margin: 0 auto; }
     }
   </style>
