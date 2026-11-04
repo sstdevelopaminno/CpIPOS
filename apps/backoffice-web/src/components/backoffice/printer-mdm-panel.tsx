@@ -14,6 +14,8 @@ type NativePrinter = {
 };
 
 type WindowsPrinter = {
+  machine_id: string | null;
+  installed_printers: string[];
   last_seen_at: string | null;
   bridge_online: boolean;
   selected_printer: string | null;
@@ -80,6 +82,7 @@ export function PrinterMdmPanel() {
   const [devices, setDevices] = useState<MdmDevice[]>([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState<string | null>(null);
+  const [printerChoice, setPrinterChoice] = useState<Record<string, string>>({});
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -108,7 +111,12 @@ export function PrinterMdmPanel() {
     try {
       await api("/api/backoffice/printers/mdm-devices", {
         method: "POST",
-        body: JSON.stringify({ device_code: device.device_code, target_surface: targetSurface })
+        body: JSON.stringify({
+          device_code: device.device_code,
+          action: "test_printer",
+          target_surface: targetSurface,
+          ...(targetSurface === "windows_runtime" ? { machine_id: device.windows_printer.machine_id } : {})
+        })
       });
       setNotice(`ส่งคำสั่งทดสอบไปที่ ${device.device_name} (${device.device_code}) ผ่าน ${targetSurface === "windows_runtime" ? "Windows Print Bridge" : "Android MDM"} แล้ว รออุปกรณ์ตอบกลับ; ผลการส่งเข้าคิวไม่ใช่หลักฐานว่ากระดาษพิมพ์ออกสำเร็จ`);
       await load();
@@ -116,6 +124,31 @@ export function PrinterMdmPanel() {
       window.setTimeout(() => void load(), 10_000);
     } catch (err) {
       setError(err instanceof Error ? err.message : "ส่งคำสั่งทดสอบไม่สำเร็จ");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function selectWindowsPrinter(device: MdmDevice, printerName: string) {
+    if (!printerName || !device.windows_printer.machine_id) return;
+    setBusy(`${device.id}:select`);
+    setError(null);
+    setNotice(null);
+    try {
+      await api("/api/backoffice/printers/mdm-devices", {
+        method: "POST",
+        body: JSON.stringify({
+          device_code: device.device_code,
+          action: "set_printer",
+          target_surface: "windows_runtime",
+          machine_id: device.windows_printer.machine_id,
+          printer_name: printerName
+        })
+      });
+      setNotice(`ส่งคำสั่งเลือก ${printerName} ไปยัง Windows ${device.device_code} แล้ว ต้องรอเครื่องตอบกลับและตรวจสอบผลก่อนใช้งานจริง`);
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "เลือกเครื่องพิมพ์จากระยะไกลไม่สำเร็จ");
     } finally {
       setBusy(null);
     }
@@ -138,6 +171,13 @@ export function PrinterMdmPanel() {
         {devices.map((device) => {
           const isAndroid = device.surface === "android" || (device.runtime_version ?? "").toLowerCase().includes("android");
           const windowsReady = device.windows_printer?.bridge_online === true && device.windows_printer?.selected_printer_valid === true;
+          const windowsOnline = device.windows_printer?.bridge_online === true;
+          const installedWindowsPrinters = device.windows_printer?.installed_printers ?? [];
+          const selectedWindowsChoice = printerChoice[device.id] ?? (
+            installedWindowsPrinters.includes(device.windows_printer.selected_printer ?? "")
+              ? device.windows_printer.selected_printer!
+              : installedWindowsPrinters[0] ?? ""
+          );
           const online = device.status === "online" || device.health_status === "healthy";
           return (
             <div className={styles.device} key={device.id}>
@@ -157,6 +197,23 @@ export function PrinterMdmPanel() {
                   {" · "}เครื่องพิมพ์: {device.windows_printer?.selected_printer ?? device.windows_printer?.default_printer ?? "ยังไม่เลือก"}
                   {" · "}รายงานล่าสุด: {fmt(device.windows_printer?.last_seen_at ?? null)}
                 </div>
+                {installedWindowsPrinters.length > 0 ? (
+                  <div className={styles.meta}>
+                    <label htmlFor={`windows-printer-${device.id}`}>เลือกเครื่องพิมพ์ Windows (เฉพาะเครื่องนี้): </label>
+                    <select
+                      id={`windows-printer-${device.id}`}
+                      value={selectedWindowsChoice}
+                      disabled={!windowsOnline || busy !== null}
+                      onChange={(event) => setPrinterChoice((current) => ({ ...current, [device.id]: event.target.value }))}
+                    >
+                      {installedWindowsPrinters.map((printer) => <option key={printer} value={printer}>{printer}</option>)}
+                    </select>
+                    {" "}
+                    <button className={styles.test} disabled={!windowsOnline || !selectedWindowsChoice || busy !== null} onClick={() => void selectWindowsPrinter(device, selectedWindowsChoice)}>
+                      {busy === `${device.id}:select` ? "กำลังส่ง..." : "บันทึกเครื่องพิมพ์"}
+                    </button>
+                  </div>
+                ) : null}
                 {device.latest_test_command ? <div className={styles.meta}>ทดสอบล่าสุด: {device.latest_test_command.status} · {fmt(device.latest_test_command.issued_at)}</div> : null}
               </div>
               <button
