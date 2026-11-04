@@ -88,6 +88,29 @@ export async function testInstalledWindowsPrinter(printerName: string): Promise<
 }
 
 
+const WINDOWS_SALE_PRINT_LEDGER = "cpi_windows_sale_receipts_attempted_v1";
+
+function reserveUniqueWindowsSaleReceipt(orderNo: string) {
+  const key = orderNo.trim().slice(0, 100);
+  if (!key) throw new Error("Windows receipt order number required");
+  try {
+    const raw = window.localStorage.getItem(WINDOWS_SALE_PRINT_LEDGER);
+    const parsed = raw ? JSON.parse(raw) as Record<string, unknown> : {};
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("corrupt");
+    if (Object.prototype.hasOwnProperty.call(parsed, key)) {
+      throw new Error("ใบเสร็จเลขที่นี้ถูกส่งพิมพ์ไปแล้ว หรือยังไม่ทราบผล ห้ามส่งซ้ำ ให้ใช้พิมพ์ย้อนหลังผ่าน PIN ผู้จัดการ");
+    }
+    const recent = Object.entries(parsed)
+      .filter(([name, time]) => name !== key && typeof time === "number" && Number.isFinite(time))
+      .slice(-250);
+    const updated = Object.fromEntries([...recent, [key, Date.now()]]);
+    window.localStorage.setItem(WINDOWS_SALE_PRINT_LEDGER, JSON.stringify(updated));
+  } catch (error) {
+    if (error instanceof Error && error.message.startsWith("ใบเสร็จเลขที่นี้")) throw error;
+    throw new Error("ไม่สามารถบันทึกสถานะป้องกันใบเสร็จซ้ำได้ งดพิมพ์ซ้ำและใช้ใบเสร็จย้อนหลังหลังตรวจเครื่อง");
+  }
+}
+
 // Manually initiated sales receipt or PIN-authorized historical reprint.
 // Never forward a receipt to the old Android Print Agent from this method.
 // The caller owns the user action; unknown outcomes must not be auto-retried.
@@ -124,6 +147,11 @@ export async function printWindowsReceiptHtml(
   const nativePrinterName = typeof (runtime as Runtime & { windows_printer?: unknown }).windows_printer === "string"
     ? String((runtime as Runtime & { windows_printer?: string }).windows_printer ?? "").trim()
     : "";
+  // Only sale receipts are guarded here. Historical reprints are separately
+  // PIN-authorized and may intentionally print a second copy.
+  // This also prevents the manual button racing with the Windows cloud worker
+  // for the same paid order; the native spool request is attempted at most once.
+  if (options.orderNo && options.reprint !== true) reserveUniqueWindowsSaleReceipt(options.orderNo);
   const controller = new AbortController();
   // WinForms HTML print can consume most of the native 30s HTTP timeout.
   // A timed-out response is indeterminate: do not retry automatically.
