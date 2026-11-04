@@ -85,6 +85,8 @@ function printerMatchesAgent(printer: PrinterProfileRow, agent: PrintAgentForCla
   const metadata = asRecord(printer.metadata);
   const agentMetadata = asRecord(agent.metadata);
   if (!agentRuntimeMatchesPrinter(metadata.target_runtime, agentMetadata.runtime)) return false;
+  if (metadata.target_runtime === "windows_native" &&
+      String(metadata.windows_device_code ?? "").trim().toUpperCase() !== agent.device_code.toUpperCase()) return false;
   const assignedAgentIds = readStringArray(
     metadata.assigned_agent_id ?? metadata.assigned_agent_ids ?? metadata.agent_id ?? metadata.agent_ids
   );
