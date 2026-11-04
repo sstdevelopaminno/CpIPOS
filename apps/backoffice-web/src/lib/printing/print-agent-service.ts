@@ -1,4 +1,5 @@
 ﻿import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
+import { agentRuntimeMatchesPrinter } from "@/lib/printing/agent-runtime-routing";
 import type { AuthContext } from "@/lib/auth-context";
 import { appendAuditLog } from "@/lib/audit-log";
 import { fail } from "@/lib/http";
@@ -169,6 +170,10 @@ function readStringArray(value: unknown): string[] {
 function printerMatchesAgent(printer: PrinterProfileRow, agent: PrintAgentRow) {
   if (!printer.enabled) return false;
   const metadata = asRecord(printer.metadata);
+  const agentMetadata = asRecord(agent.metadata);
+  if (!agentRuntimeMatchesPrinter(metadata.target_runtime, agentMetadata.runtime)) return false;
+  if (metadata.target_runtime === "windows_native" &&
+      String(metadata.windows_device_code ?? "").trim().toUpperCase() !== agent.device_code.toUpperCase()) return false;
   const assignedAgentIds = readStringArray(
     metadata.assigned_agent_id ?? metadata.assigned_agent_ids ?? metadata.agent_id ?? metadata.agent_ids
   );

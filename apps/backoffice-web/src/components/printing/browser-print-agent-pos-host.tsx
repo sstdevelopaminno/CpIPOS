@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { usePathname } from "next/navigation";
 import { BrowserBluetoothPrintAgent, BROWSER_PRINT_AGENT_BLUETOOTH_ENABLED_KEY } from "@/components/printing/browser-bluetooth-print-agent";
 import { BrowserPrintAgent } from "@/components/printing/browser-print-agent";
+import { WindowsNativePrintAgent } from "@/components/printing/windows-native-print-agent";
 import { BrowserPrintAgentAlert } from "@/components/printing/browser-print-agent-alert";
 import { BrowserPrintAgentDeployReset } from "@/components/printing/browser-print-agent-deploy-reset";
 import { BrowserPrintAgentSerialRecovery } from "@/components/printing/browser-print-agent-serial-recovery";
@@ -149,6 +150,7 @@ export function BrowserPrintAgentPosHost() {
 
   return (
     <>
+      <WindowsNativePrintAgent />
       {shouldRunWebSerialAgent ? <BrowserPrintAgentSerialSetupGuard /> : null}
       {shouldRunWebSerialAgent ? <BrowserPrintAgentDeployReset /> : null}
       {shouldRunWebSerialAgent ? <BrowserPrintAgentSerialRecovery /> : null}

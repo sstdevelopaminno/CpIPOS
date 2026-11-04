@@ -1,4 +1,5 @@
-﻿import "server-only";
+﻿import { agentRuntimeMatchesPrinter } from "@/lib/printing/agent-runtime-routing";
+import "server-only";
 
 import { getPrimarySupabaseServiceClient } from "@/lib/supabase-admin";
 import { BoundedTimeoutError, readBoundedTimeoutMs, withAbortableTimeout } from "@/lib/server/bounded-timeout";
@@ -12,6 +13,7 @@ type PrintAgentForClaim = {
   branch_id: string;
   device_code: string;
   app_version: string | null;
+  metadata?: JsonRecord | null;
 };
 
 type PrinterProfileRow = {
@@ -81,6 +83,10 @@ function readStringArray(value: unknown): string[] {
 function printerMatchesAgent(printer: PrinterProfileRow, agent: PrintAgentForClaim) {
   if (!printer.enabled) return false;
   const metadata = asRecord(printer.metadata);
+  const agentMetadata = asRecord(agent.metadata);
+  if (!agentRuntimeMatchesPrinter(metadata.target_runtime, agentMetadata.runtime)) return false;
+  if (metadata.target_runtime === "windows_native" &&
+      String(metadata.windows_device_code ?? "").trim().toUpperCase() !== agent.device_code.toUpperCase()) return false;
   const assignedAgentIds = readStringArray(
     metadata.assigned_agent_id ?? metadata.assigned_agent_ids ?? metadata.agent_id ?? metadata.agent_ids
   );

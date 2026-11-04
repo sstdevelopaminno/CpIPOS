@@ -2,8 +2,13 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { hasLocalWindowsPrintBridge, printWindowsReceiptHtml, testInstalledWindowsPrinter } from "@/lib/printing/windows-local-printer-test";
 
 function stubWindowsRuntime(healthUrl = "http://127.0.0.1:3210/health", token = "test-token") {
+  const local = new Map<string, string>();
   vi.stubGlobal("window", {
     CpIPOSWindowsRuntime: { bridge_health_url: healthUrl, bridge_token: token },
+    localStorage: {
+      getItem: (key: string) => local.get(key) ?? null,
+      setItem: (key: string, value: string) => { local.set(key, value); }
+    },
     setTimeout: globalThis.setTimeout.bind(globalThis),
     clearTimeout: globalThis.clearTimeout.bind(globalThis)
   });
@@ -149,5 +154,21 @@ describe("manual Windows sales and historical receipt printing", () => {
     vi.stubGlobal("fetch", fetchMock);
     await expect(printWindowsReceiptHtml(html)).rejects.toThrow("ไม่อนุญาตให้ส่งใบเสร็จ");
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("prevents a second sale receipt dispatch of the same order but permits PIN-authorized reprint", async () => {
+    stubWindowsRuntime();
+    const calls: string[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => {
+      calls.push(String(url));
+      return { ok: true, json: async () => ({ ok: true, data: {
+        printed: true, html_printed: true, printer_name: "XP-80C", job_id: "spool-ok"
+      } }) } as Response;
+    }));
+    await printWindowsReceiptHtml(html, { orderNo: "TKO-261104-001" });
+    await expect(printWindowsReceiptHtml(html, { orderNo: "TKO-261104-001" })).rejects.toThrow("ถูกส่งพิมพ์ไปแล้ว");
+    expect(calls).toEqual(["http://127.0.0.1:3210/print"]);
+    await printWindowsReceiptHtml(html, { orderNo: "TKO-261104-001", reprint: true });
+    expect(calls).toHaveLength(2);
   });
 });

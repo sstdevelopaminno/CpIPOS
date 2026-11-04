@@ -88,12 +88,63 @@ export async function testInstalledWindowsPrinter(printerName: string): Promise<
 }
 
 
+/**
+ * Stable text mode for 58/80mm Windows thermal printers. HTML WebBrowser.Print
+ * can report a spool success without producing paper on XP-80C; the existing
+ * native .NET PrintDocument text renderer is confirmed by physical test.
+ * Keep the final rendered Thai amounts, product names, and order number.
+ */
+export function windowsReceiptHtmlToText(html: string): string {
+  return html
+    .replace(/<script\\b[^>]*>[\\s\\S]*?<\\/script>/gi, "")
+    .replace(/<style\\b[^>]*>[\\s\\S]*?<\\/style>/gi, "")
+    .replace(/<img\\b[^>]*>/gi, "")
+    .replace(/<br\\s*\\/?\\s*>|<hr\\b[^>]*>/gi, "\\n")
+    .replace(/<\\/\\s*(?:tr|div|p|main|header|footer|h[1-6]|li|section|article|table)\\s*>/gi, "\\n")
+    .replace(/<\\/?(?:td|th|span|strong)\\b[^>]*>/gi, "  ")
+    .replace(/<[^>]+>/g, "")
+    .replace(/&nbsp;|&#160;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;|&apos;/gi, "'")
+    .split(/\\r?\\n/)
+    .map(line => line.replace(/[ \\t]+/g, " ").trim())
+    .filter(line => line.length > 0)
+    .join("\\n")
+    .slice(0, 14_000);
+}
+
+const WINDOWS_SALE_PRINT_LEDGER = "cpi_windows_sale_receipts_attempted_v1";
+
+function reserveUniqueWindowsSaleReceipt(orderNo: string) {
+  const key = orderNo.trim().slice(0, 100);
+  if (!key) throw new Error("Windows receipt order number required");
+  try {
+    const raw = window.localStorage.getItem(WINDOWS_SALE_PRINT_LEDGER);
+    const parsed = raw ? JSON.parse(raw) as Record<string, unknown> : {};
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("corrupt");
+    if (Object.prototype.hasOwnProperty.call(parsed, key)) {
+      throw new Error("ใบเสร็จเลขที่นี้ถูกส่งพิมพ์ไปแล้ว หรือยังไม่ทราบผล ห้ามส่งซ้ำ ให้ใช้พิมพ์ย้อนหลังผ่าน PIN ผู้จัดการ");
+    }
+    const recent = Object.entries(parsed)
+      .filter(([name, time]) => name !== key && typeof time === "number" && Number.isFinite(time))
+      .slice(-250);
+    const updated = Object.fromEntries([...recent, [key, Date.now()]]);
+    window.localStorage.setItem(WINDOWS_SALE_PRINT_LEDGER, JSON.stringify(updated));
+  } catch (error) {
+    if (error instanceof Error && error.message.startsWith("ใบเสร็จเลขที่นี้")) throw error;
+    throw new Error("ไม่สามารถบันทึกสถานะป้องกันใบเสร็จซ้ำได้ งดพิมพ์ซ้ำและใช้ใบเสร็จย้อนหลังหลังตรวจเครื่อง");
+  }
+}
+
 // Manually initiated sales receipt or PIN-authorized historical reprint.
 // Never forward a receipt to the old Android Print Agent from this method.
 // The caller owns the user action; unknown outcomes must not be auto-retried.
 export async function printWindowsReceiptHtml(
   receiptHtml: string,
-  options: { orderNo?: string | null; reprint?: boolean } = {}
+  options: { orderNo?: string | null; reprint?: boolean; plainText?: string | null } = {}
 ): Promise<{ printer: string; spoolJobId: string | null }> {
   const runtime = windowsRuntime();
   if (!runtime?.bridge_token || !runtime.bridge_health_url) {
@@ -124,6 +175,13 @@ export async function printWindowsReceiptHtml(
   const nativePrinterName = typeof (runtime as Runtime & { windows_printer?: unknown }).windows_printer === "string"
     ? String((runtime as Runtime & { windows_printer?: string }).windows_printer ?? "").trim()
     : "";
+  const textToPrint = (options.plainText?.trim() || windowsReceiptHtmlToText(content)).slice(0, 14_000);
+  if (!textToPrint.trim()) throw new Error("Windows receipt text is empty after rendering");
+  // Only sale receipts are guarded here. Historical reprints are separately
+  // PIN-authorized and may intentionally print a second copy.
+  // This also prevents the manual button racing with the Windows cloud worker
+  // for the same paid order; the native spool request is attempted at most once.
+  if (options.orderNo && options.reprint !== true) reserveUniqueWindowsSaleReceipt(options.orderNo);
   const controller = new AbortController();
   // WinForms HTML print can consume most of the native 30s HTTP timeout.
   // A timed-out response is indeterminate: do not retry automatically.
@@ -137,7 +195,7 @@ export async function printWindowsReceiptHtml(
       signal: controller.signal,
       body: JSON.stringify({
         ...(nativePrinterName ? { printer_name: nativePrinterName } : {}),
-        receipt_html: content,
+        text: textToPrint,
         order_no: options.orderNo ?? null,
         metadata: { source: "pos_windows_webview2_manual_receipt", reprint: options.reprint === true }
       })
@@ -145,13 +203,14 @@ export async function printWindowsReceiptHtml(
     stage = "response";
     const payload = (await response.json().catch(() => null)) as BridgeResponse<{
       printed?: boolean;
-      html_printed?: boolean;
+      provider?: string;
       printer_name?: string;
       job_id?: string;
     }> | null;
     if (!response.ok || payload?.ok !== true || payload.data?.printed !== true ||
-        payload.data?.html_printed !== true || (nativePrinterName && payload.data.printer_name !== nativePrinterName)) {
-      throw new Error(payload?.error?.message ?? "Windows Print Bridge ไม่ยืนยันการรับใบเสร็จ HTML");
+        payload.data?.provider !== "native_dotnet_print_document" ||
+        (nativePrinterName && payload.data.printer_name !== nativePrinterName)) {
+      throw new Error(payload?.error?.message ?? "Windows PrintDocument ไม่ยืนยันการรับใบเสร็จข้อความ");
     }
     return { printer: payload.data.printer_name ?? nativePrinterName, spoolJobId: payload.data.job_id ?? null };
   } catch (error) {
