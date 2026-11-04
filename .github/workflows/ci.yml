@@ -10,7 +10,6 @@ on:
       - main
       - develop
       - hotfix/**
-      - feature/windows-mdm-managed-printer-selection-20261104
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
