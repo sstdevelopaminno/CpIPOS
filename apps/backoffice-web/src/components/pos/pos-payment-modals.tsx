@@ -267,8 +267,13 @@ export function PosPaymentModals({
   onPrintReceipt
 }: Props) {
   const [receiptPrintBusy, setReceiptPrintBusy] = useState(false);
+  const [receiptAttemptedForOrder, setReceiptAttemptedForOrder] = useState<string | null>(null);
   async function printReceiptOnce() {
-    if (receiptPrintBusy || !receiptSaved || receiptSaving || !receiptSession || !onPrintReceipt) return;
+    if (receiptPrintBusy || !receiptSaved || receiptSaving || !receiptSession || !onPrintReceipt ||
+        receiptAttemptedForOrder === receiptSession.order_id) return;
+    // Fail closed on uncertain Windows spool outcomes: never send the same
+    // manual sale receipt twice from this modal. Reprints require Owner PIN.
+    setReceiptAttemptedForOrder(receiptSession.order_id);
     setReceiptPrintBusy(true);
     try {
       await onPrintReceipt();
@@ -727,7 +732,7 @@ export function PosPaymentModals({
                 type="button"
                 className="posui-btn posui-btn--primary"
                 onClick={() => void printReceiptOnce()}
-                disabled={!receiptSaved || receiptSaving || receiptPrintBusy}
+                disabled={!receiptSaved || receiptSaving || receiptPrintBusy || receiptAttemptedForOrder === receiptSession.order_id}
               >
                 {receiptPrintBusy ? (lang === "th" ? "กำลังส่งพิมพ์..." : "Submitting to printer...") : text.receiptPrint}
               </button>
