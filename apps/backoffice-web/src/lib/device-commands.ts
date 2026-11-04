@@ -5,6 +5,7 @@ export const DEVICE_COMMAND_TYPES = [
   "restart_app",
   "test_network",
   "test_printer",
+  "set_printer",
   "clear_print_queue",
   "restart_local_bridge",
   "restart_print_service",
@@ -40,4 +41,5 @@ export type PendingDeviceAction = {
   id: string;
   command_type: DeviceCommandType;
   issued_at: string;
+  printer_name?: string;
 };
