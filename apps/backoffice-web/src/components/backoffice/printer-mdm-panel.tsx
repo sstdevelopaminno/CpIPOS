@@ -16,6 +16,7 @@ type NativePrinter = {
 type WindowsPrinter = {
   machine_id: string | null;
   installed_printers: string[];
+  printer_selection_supported: boolean;
   last_seen_at: string | null;
   bridge_online: boolean;
   selected_printer: string | null;
@@ -172,6 +173,7 @@ export function PrinterMdmPanel() {
           const isAndroid = device.surface === "android" || (device.runtime_version ?? "").toLowerCase().includes("android");
           const windowsReady = device.windows_printer?.bridge_online === true && device.windows_printer?.selected_printer_valid === true;
           const windowsOnline = device.windows_printer?.bridge_online === true;
+          const selectSupported = device.windows_printer?.printer_selection_supported === true;
           const installedWindowsPrinters = device.windows_printer?.installed_printers ?? [];
           const selectedWindowsChoice = printerChoice[device.id] ?? (
             installedWindowsPrinters.includes(device.windows_printer.selected_printer ?? "")
@@ -203,16 +205,19 @@ export function PrinterMdmPanel() {
                     <select
                       id={`windows-printer-${device.id}`}
                       value={selectedWindowsChoice}
-                      disabled={!windowsOnline || busy !== null}
+                      disabled={!windowsOnline || !selectSupported || busy !== null}
                       onChange={(event) => setPrinterChoice((current) => ({ ...current, [device.id]: event.target.value }))}
                     >
                       {installedWindowsPrinters.map((printer) => <option key={printer} value={printer}>{printer}</option>)}
                     </select>
                     {" "}
-                    <button className={styles.test} disabled={!windowsOnline || !selectedWindowsChoice || busy !== null} onClick={() => void selectWindowsPrinter(device, selectedWindowsChoice)}>
+                    <button className={styles.test} disabled={!windowsOnline || !selectSupported || !selectedWindowsChoice || busy !== null} onClick={() => void selectWindowsPrinter(device, selectedWindowsChoice)}>
                       {busy === `${device.id}:select` ? "กำลังส่ง..." : "บันทึกเครื่องพิมพ์"}
                     </button>
                   </div>
+                ) : null}
+                {installedWindowsPrinters.length > 0 && !selectSupported ? (
+                  <div className={styles.meta}>เลือกเครื่องพิมพ์จากระยะไกลได้เมื่ออัปเดต Windows Web POS เป็นรุ่น 0.2.0 ขึ้นไป</div>
                 ) : null}
                 {device.latest_test_command ? <div className={styles.meta}>ทดสอบล่าสุด: {device.latest_test_command.status} · {fmt(device.latest_test_command.issued_at)}</div> : null}
               </div>
