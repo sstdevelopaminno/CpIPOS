@@ -279,6 +279,7 @@ jobs:
           if-no-files-found: error
 
       - name: Publish latest release download
+        if: github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch'
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
