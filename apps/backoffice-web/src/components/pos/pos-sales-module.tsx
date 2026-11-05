@@ -87,6 +87,10 @@ const EXTRA_LAO_SALES_LABELS: Record<string,string> = {
   "ยังตรวจสอบสกุลเงินหน้าขายไม่ได้ กรุณาเชื่อมต่อและเปิดหน้าขายใหม่": "ຍັງກວດສອບສະກຸນເງິນໜ້າຂາຍບໍ່ໄດ້ ກະລຸນາເຊື່ອມຕໍ່ ແລະເປີດໜ້າຂາຍໃໝ່",
   "จัดลำดับสินค้าบนหน้าขายเท่านั้น ไม่กระทบสต๊อกหรือสูตรวัตถุดิบ": "ຈັດລຽງສິນຄ້າສະເພາະໜ້າຂາຍ ບໍ່ປ່ຽນສະຕັອກ ຫຼືສູດວັດຖຸດິບ",
   "เปิดโต๊ะแล้วเลือกชุดราคาบุฟเฟ่": "ເປີດໂຕະແລ້ວເລືອກຊຸດລາຄາບຸບເຟ່",
+  "เลือกราคา": "ເລືອກລາຄາ",
+  "ราคาปกติ": "ລາຄາປົກກະຕິ",
+  "ราคาพิเศษ": "ລາຄາພິເສດ",
+  "สินค้านี้มีราคาพิเศษ กรุณาเลือกราคาก่อนเพิ่มลงตะกร้า": "ສິນຄ້ານີ້ມີລາຄາພິເສດ ກະລຸນາເລືອກລາຄາກ່ອນເພີ່ມໃສ່ກະຕ່າ",
 };
 
 type Lang = "th" | "en" | "lo";
@@ -108,6 +112,7 @@ type ProductRow = {
   stock_on_hand_units?: number | null;
   is_out_of_stock?: boolean;
   is_recommended?: boolean;
+  special_price?: number | null;
 };
 
 type DeliveryChannelConfigRow = {
@@ -245,6 +250,7 @@ type ModifierDraft = {
   quantity: number;
   notes: string;
   extraPrice: number;
+  useSpecialPrice: boolean;
   linkedIngredientQuantity: number;
   editingCartLineId?: string | null;
 };
@@ -3344,6 +3350,20 @@ export function PosSalesModule({
     return Number(product.price);
   }, [orderType, resolveDeliveryMappedPrice, selectedDeliveryApp]);
 
+  function getSelectableSpecialPrice(product: ProductRow): number | null {
+    if (quickMode !== "home" && quickMode !== "dine_in") return null;
+    if (product.special_price === null || product.special_price === undefined) return null;
+    const value = Number(product.special_price);
+    if (!Number.isFinite(value) || value < 0) return null;
+    return Number(value.toFixed(2));
+  }
+
+  function getProductBasePrice(product: ProductRow, useSpecialPrice: boolean): number {
+    const special = getSelectableSpecialPrice(product);
+    if (useSpecialPrice && special !== null) return special;
+    return getProductPriceForCurrentMode(product);
+  }
+
   function normalizeDeliveryCartItemsForApp(items: CartItem[], appId: DeliveryApp["id"] | null): CartItem[] {
     return items.map((item) => {
       const product = productById.get(item.product_id);
@@ -4023,7 +4043,7 @@ export function PosSalesModule({
   }, [cartDrawerOpen]);
 
   useEffect(() => {
-    if (!modifierDraft?.product.id) {
+    if (!modifierDraft?.product.id || !modifierDraft.product.has_recipe_deduction) {
       setModifierIngredients([]);
       setModifierIngredientsError("");
       setModifierIngredientsLoading(false);
@@ -4056,7 +4076,7 @@ export function PosSalesModule({
     return () => {
       cancelled = true;
     };
-  }, [modifierDraft?.product.id]);
+  }, [modifierDraft?.product.has_recipe_deduction, modifierDraft?.product.id]);
 
   useEffect(() => {
     return () => {
@@ -5534,12 +5554,21 @@ export function PosSalesModule({
     setOutOfStockNotice({ productName });
   }
 
-  function addCartLine(product: ProductRow, input?: { quantity?: number; notes?: string | null; extraPrice?: number }) {
+  function addCartLine(
+    product: ProductRow,
+    input?: { quantity?: number; notes?: string | null; extraPrice?: number; useSpecialPrice?: boolean }
+  ) {
     const stockUnits = product.stock_on_hand_units;
     const quantity = Math.max(1, Math.trunc(Number(input?.quantity ?? 1)));
     const notes = String(input?.notes ?? "").trim();
-    const hasCustomOptions = notes.length > 0 || Number(input?.extraPrice ?? 0) > 0;
-    const cartLineId = hasCustomOptions ? `${product.id}:${notes}:${Number(input?.extraPrice ?? 0).toFixed(2)}` : product.id;
+    const specialSelected = input?.useSpecialPrice === true && getSelectableSpecialPrice(product) !== null;
+    const extraPrice = Math.max(0, Number(input?.extraPrice ?? 0));
+    const hasCustomOptions = notes.length > 0 || extraPrice > 0 || specialSelected;
+    const cartLineId = specialSelected
+      ? `${product.id}:special:${notes}:${extraPrice.toFixed(2)}`
+      : hasCustomOptions
+        ? `${product.id}:${notes}:${extraPrice.toFixed(2)}`
+        : product.id;
     const cartQty = cartRef.current
       .filter((row) => row.product_id === product.id)
       .reduce((sum, row) => sum + row.quantity, 0);
@@ -5547,7 +5576,7 @@ export function PosSalesModule({
       showOutOfStockNotice(product.name);
       return false;
     }
-    const unitPrice = Number((getProductPriceForCurrentMode(product) + Math.max(0, Number(input?.extraPrice ?? 0))).toFixed(2));
+    const unitPrice = Number((getProductBasePrice(product, specialSelected) + extraPrice).toFixed(2));
     markDineInCashierCartMutation();
     setCart((current) => {
       const index = current.findIndex((row) => (row.cart_line_id ?? row.product_id) === cartLineId);
@@ -5564,12 +5593,17 @@ export function PosSalesModule({
 
   function addToCart(product: ProductRow): boolean {
     // Optical is an IT-authorized CUSTOM business workflow, not a restaurant.
-    // A frame, lens, pair or kit goes straight into the cart. Its existing
-    // recipe-backed stock unit still deducts on the real payment transaction;
-    // never open food ingredient/extra-price modifiers for this sales mode.
     if (opticalRetailActive) return addCartLine(product);
-    if (product.has_recipe_deduction) {
-      setModifierDraft({ product, quantity: 1, notes: "", extraPrice: 0, linkedIngredientQuantity: 1 });
+    const hasSpecialPrice = getSelectableSpecialPrice(product) !== null;
+    if (product.has_recipe_deduction || hasSpecialPrice) {
+      setModifierDraft({
+        product,
+        quantity: 1,
+        notes: "",
+        extraPrice: 0,
+        useSpecialPrice: false,
+        linkedIngredientQuantity: 1
+      });
       return true;
     }
     return addCartLine(product);
@@ -5664,11 +5698,16 @@ export function PosSalesModule({
   function confirmModifierDraft() {
     if (!modifierDraft) return;
     const canAddPrice = quickMode !== "delivery";
+    const specialSelected = modifierDraft.useSpecialPrice && getSelectableSpecialPrice(modifierDraft.product) !== null;
     if (modifierDraft.editingCartLineId) {
       const notes = modifierDraft.notes.trim();
       const extraPrice = canAddPrice ? Math.max(0, modifierDraft.extraPrice) : 0;
-      const unitPrice = Number((getProductPriceForCurrentMode(modifierDraft.product) + extraPrice).toFixed(2));
-      const nextLineId = notes.length > 0 || extraPrice > 0 ? `${modifierDraft.product.id}:${notes}:${extraPrice.toFixed(2)}` : modifierDraft.product.id;
+      const unitPrice = Number((getProductBasePrice(modifierDraft.product, specialSelected) + extraPrice).toFixed(2));
+      const nextLineId = specialSelected
+        ? `${modifierDraft.product.id}:special:${notes}:${extraPrice.toFixed(2)}`
+        : notes.length > 0 || extraPrice > 0
+          ? `${modifierDraft.product.id}:${notes}:${extraPrice.toFixed(2)}`
+          : modifierDraft.product.id;
       markDineInCashierCartMutation();
       setCart((current) =>
         current.map((row) =>
@@ -5687,7 +5726,8 @@ export function PosSalesModule({
       addCartLine(modifierDraft.product, {
         quantity: modifierDraft.quantity,
         notes: modifierDraft.notes,
-        extraPrice: canAddPrice ? modifierDraft.extraPrice : 0
+        extraPrice: canAddPrice ? modifierDraft.extraPrice : 0,
+        useSpecialPrice: specialSelected
       });
     }
     setModifierDraft(null);
@@ -5696,15 +5736,18 @@ export function PosSalesModule({
   function openCartLineEditor(item: CartItem) {
     const product = productById.get(item.product_id);
     if (!product) return;
-    const basePrice = getProductPriceForCurrentMode(product);
+    const lineId = item.cart_line_id ?? item.product_id;
+    const useSpecialPrice = lineId.startsWith(`${product.id}:special:`) && getSelectableSpecialPrice(product) !== null;
+    const basePrice = getProductBasePrice(product, useSpecialPrice);
     const extraPrice = quickMode === "delivery" ? 0 : Math.max(0, Number((Number(item.price ?? 0) - basePrice).toFixed(2)));
     setModifierDraft({
       product,
       quantity: item.quantity,
       notes: item.notes ?? "",
       extraPrice,
+      useSpecialPrice,
       linkedIngredientQuantity: readIngredientNoteQuantity(item.notes ?? ""),
-      editingCartLineId: item.cart_line_id ?? item.product_id
+      editingCartLineId: lineId
     });
   }
 
@@ -9287,6 +9330,8 @@ export function PosSalesModule({
   }
 
   const modifierHasSelectedIngredient = modifierDraft ? hasSelectedIngredientInNotes(modifierDraft.notes, modifierIngredients) : false;
+  const modifierSpecialPrice = modifierDraft ? getSelectableSpecialPrice(modifierDraft.product) : null;
+  const modifierBasePrice = modifierDraft ? getProductBasePrice(modifierDraft.product, modifierDraft.useSpecialPrice) : 0;
   const showInlineTopbarCategories = salesTopbarCollapsed && !showTableBrowser && !showDeliverySetup;
   const showInlineTopbarTableControls = salesTopbarCollapsed && showTableBrowser;
 
@@ -10564,15 +10609,57 @@ export function PosSalesModule({
               </button>
             </header>
             <p className="posui-payment-modal__hint">
-              {lang === "th"
-                ? quickMode === "delivery"
-                  ? "สินค้าเมนูนี้ผูกวัตถุดิบอยู่ โหมดเดลิเวอรี่บันทึกตัวเลือกได้แต่ไม่เพิ่มราคา"
-                  : "สินค้าเมนูนี้ผูกวัตถุดิบอยู่ เลือก/ระบุวัตถุดิบก่อนเพิ่มลงตะกร้า"
-                : quickMode === "delivery"
-                  ? "This recipe product can save options in delivery mode, but extra price is disabled."
-                  : "This recipe product supports options before adding to cart."}
+              {modifierSpecialPrice !== null && !modifierDraft.product.has_recipe_deduction
+                ? localSaleLabel("สินค้านี้มีราคาพิเศษ กรุณาเลือกราคาก่อนเพิ่มลงตะกร้า", "This product has a special price. Choose a price before adding it.")
+                : modifierSpecialPrice !== null
+                  ? localSaleLabel("สินค้านี้มีราคาพิเศษและผูกวัตถุดิบ เลือกราคาและตัวเลือกก่อนเพิ่มลงตะกร้า", "Choose a price and recipe options before adding this product.")
+                  : lang === "th"
+                    ? quickMode === "delivery"
+                      ? "สินค้าเมนูนี้ผูกวัตถุดิบอยู่ โหมดเดลิเวอรี่บันทึกตัวเลือกได้แต่ไม่เพิ่มราคา"
+                      : "สินค้าเมนูนี้ผูกวัตถุดิบอยู่ เลือก/ระบุวัตถุดิบก่อนเพิ่มลงตะกร้า"
+                    : quickMode === "delivery"
+                      ? "This recipe product can save options in delivery mode, but extra price is disabled."
+                      : "This recipe product supports options before adding to cart."}
             </p>
             <div className="posui-payment-receipt-card">
+              {modifierSpecialPrice !== null ? (
+                <div className="mb-3 rounded-xl border border-amber-200 bg-amber-50 p-3">
+                  <span className="text-xs font-extrabold text-amber-900">
+                    {localSaleLabel("เลือกราคา", "Choose Price")}
+                  </span>
+                  <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                    <button
+                      type="button"
+                      onClick={() => setModifierDraft((current) => (current ? { ...current, useSpecialPrice: false } : current))}
+                      aria-pressed={!modifierDraft.useSpecialPrice}
+                      className={`rounded-xl border px-3 py-3 text-left transition ${
+                        !modifierDraft.useSpecialPrice
+                          ? "border-slate-700 bg-white ring-2 ring-slate-200"
+                          : "border-slate-200 bg-white hover:border-slate-400"
+                      }`}
+                    >
+                      <span className="block text-xs font-bold text-slate-600">{localSaleLabel("ราคาปกติ", "Regular Price")}</span>
+                      <strong className="mt-1 block text-lg text-slate-950">{formatMoney(getProductPriceForCurrentMode(modifierDraft.product))}</strong>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setModifierDraft((current) => (current ? { ...current, useSpecialPrice: true } : current))}
+                      aria-pressed={modifierDraft.useSpecialPrice}
+                      className={`rounded-xl border px-3 py-3 text-left transition ${
+                        modifierDraft.useSpecialPrice
+                          ? "border-orange-500 bg-orange-50 ring-2 ring-orange-200"
+                          : "border-amber-200 bg-white hover:border-orange-400"
+                      }`}
+                    >
+                      <span className="block text-xs font-extrabold text-orange-700">{localSaleLabel("ราคาพิเศษ", "Special Price")}</span>
+                      <strong className="mt-1 block text-lg text-orange-700">{formatMoney(modifierSpecialPrice)}</strong>
+                    </button>
+                  </div>
+                </div>
+              ) : null}
+              {modifierDraft.product.has_recipe_deduction ? (
+                <>
+
               <div className="posui-payment-modal__input-label">
                 <span>{localSaleLabel("วัตถุดิบที่ผูกไว้", "Linked Ingredients")}</span>
                 {modifierIngredientsLoading ? <small>{localSaleLabel("กำลังโหลดวัตถุดิบ...", "Loading ingredients...")}</small> : null}
@@ -10657,9 +10744,12 @@ export function PosSalesModule({
                   </div>
                 </div>
               </div>
+
+                </>
+              ) : null}
               <div className="mt-3 rounded-xl border border-orange-100 bg-orange-50 px-3 py-2 text-sm font-bold text-orange-700">
                 {localSaleLabel("ราคาต่อหน่วยหลังรวมตัวเลือก", "Unit price with options")}:{" "}
-                {formatMoney(getProductPriceForCurrentMode(modifierDraft.product) + (quickMode === "delivery" ? 0 : Math.max(0, modifierDraft.extraPrice)))}
+                {formatMoney(modifierBasePrice + (quickMode === "delivery" ? 0 : Math.max(0, modifierDraft.extraPrice)))}
               </div>
             </div>
             <div className="posui-payment-modal__actions">

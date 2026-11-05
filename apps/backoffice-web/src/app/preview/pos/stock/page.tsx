@@ -10,7 +10,7 @@ import { DEFAULT_DELIVERY_CHANNEL_CONFIGS } from "@/lib/delivery-pricing";
 import { getCurrentLanguage, t } from "@/lib/i18n";
 import { requirePosPagePermission } from "@/lib/pos-page-guard";
 import { mergeCategoryCountItems } from "@/lib/pos/category-normalization";
-import { isProductRecommended } from "@/lib/pos/product-metadata";
+import { getProductSpecialPrice, isProductRecommended } from "@/lib/pos/product-metadata";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
 import { redirect } from "next/navigation";
 import Link from "next/link";
@@ -31,6 +31,7 @@ type ProductRow = {
   stock_deduction_mode?: "unit_only" | "recipe_deduction" | null;
   metadata?: Record<string, unknown> | null;
   is_recommended?: boolean;
+  special_price?: number | null;
   delivery_price_preview?: number;
   stock_on_hand_units?: number | null;
   stock_on_hand_note?: string;
@@ -228,6 +229,7 @@ export default async function PosStockPage({
     let productsData = ((productResponseWithStockMode.data ?? []) as ProductRow[]).map((row) => ({
       ...row,
       is_recommended: isProductRecommended(row.metadata),
+      special_price: getProductSpecialPrice(row.metadata),
       stock_deduction_mode: row.stock_deduction_mode ?? "unit_only"
     }));
     let productsCount = productResponseWithStockMode.count ?? 0;
@@ -242,7 +244,13 @@ export default async function PosStockPage({
         .eq("is_active", true)
         .order("updated_at", { ascending: false });
 
-      productsData = (legacyProducts.data ?? []).map((row) => ({ ...row, metadata: null, is_recommended: false, stock_deduction_mode: "unit_only" as const }));
+      productsData = (legacyProducts.data ?? []).map((row) => ({
+        ...row,
+        metadata: null,
+        is_recommended: false,
+        special_price: null,
+        stock_deduction_mode: "unit_only" as const
+      }));
       productsCount = legacyProducts.count ?? 0;
       productsError = legacyProducts.error as PostgrestErrorLike | null;
     }

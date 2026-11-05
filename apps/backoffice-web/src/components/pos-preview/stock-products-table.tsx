@@ -53,6 +53,7 @@ type ProductRow = {
   has_ingredient_recipe?: boolean;
   stock_deduction_mode?: "unit_only" | "recipe_deduction" | null;
   is_recommended?: boolean;
+  special_price?: number | null;
 };
 
 type SellableStockStatus = {
@@ -934,7 +935,7 @@ const headerTools = (
         </div>
       ) : (
         <div className="max-h-[45vh] overflow-auto rounded-xl border border-slate-200">
-          <table className="min-w-[1040px] w-full border-collapse">
+          <table className="min-w-[1140px] w-full border-collapse">
             <thead className="sticky top-0 z-10 bg-slate-50">
               <tr className="bg-slate-50">
                 <th className="border-b border-slate-200 px-3 py-2 text-left"><input type="checkbox" checked={filteredProducts.length > 0 && selectedFilteredProductIds.length === filteredProducts.length} onChange={toggleSelectAllFilteredProducts} aria-label={th ? "เลือกสินค้าทั้งหมดตามตัวกรอง" : "Select all filtered products"} className="h-4 w-4 rounded border-slate-300" /></th>
@@ -943,13 +944,14 @@ const headerTools = (
                 <th className="border-b border-slate-200 px-3 py-2 text-left text-xs font-bold text-slate-500">{th ? "สินค้า" : "Product"}</th>
                 <th className="border-b border-slate-200 px-3 py-2 text-left text-xs font-bold text-slate-500">{th ? "คงเหลือขายได้" : "Sellable Stock"}</th>
                 <th className="border-b border-slate-200 px-3 py-2 text-right text-xs font-bold text-slate-500">{th ? "ราคาหน้าร้าน" : "Store Price"}</th>
+                <th className="border-b border-slate-200 px-3 py-2 text-right text-xs font-bold text-amber-700">{th ? "ราคาพิเศษ" : "Special Price"}</th>
                 <th className="border-b border-slate-200 px-3 py-2 text-right text-xs font-bold text-slate-500">{th ? "ราคาเดลิเวอรี่" : "Delivery Price"}</th>
                 <th className="border-b border-slate-200 px-3 py-2 text-left text-xs font-bold text-slate-500">{th ? "สถานะ" : "Status"}</th>
                 <th className="border-b border-slate-200 px-3 py-2 text-left text-xs font-bold text-slate-500">{th ? "จัดการ" : "Actions"}</th>
               </tr>
             </thead>
             <tbody>
-              {filteredProducts.length === 0 ? <tr><td colSpan={9} className="px-3 py-6 text-center text-sm text-slate-500">{th ? "ไม่พบรายการสินค้าตามตัวกรองนี้" : "No products match this filter."}</td></tr> : pagedProducts.map((item) => (
+              {filteredProducts.length === 0 ? <tr><td colSpan={10} className="px-3 py-6 text-center text-sm text-slate-500">{th ? "ไม่พบรายการสินค้าตามตัวกรองนี้" : "No products match this filter."}</td></tr> : pagedProducts.map((item) => (
                 <tr key={item.id}>
                   <td className="border-b border-slate-100 px-3 py-3"><input type="checkbox" checked={selectedProductIds.includes(item.id)} onChange={() => toggleProductSelection(item.id)} aria-label={th ? `เลือกรายการสินค้า ${item.name}` : `Select product ${item.name}`} className="h-4 w-4 rounded border-slate-300" /></td>
                   <td className="border-b border-slate-100 px-3 py-3 text-sm font-semibold text-slate-700"><StockSkuReveal sku={item.sku} th={th} /></td>
@@ -957,10 +959,13 @@ const headerTools = (
                   <td className="border-b border-slate-100 px-3 py-3"><p className="text-sm font-bold text-slate-900">{item.name}</p></td>
                   <td className="border-b border-slate-100 px-3 py-3">{item.stock_on_hand_units === null ? <div className="flex items-center gap-1.5"><p className="text-sm font-bold text-slate-600">-</p>{item.has_ingredient_recipe ? <span className="inline-flex h-4 w-4 items-center justify-center rounded-full border border-emerald-300 bg-emerald-50 text-[10px] font-extrabold leading-none text-emerald-700">+</span> : null}</div> : <div className="flex items-center gap-1.5"><p className="text-sm font-bold text-slate-900">{item.stock_on_hand_units}</p>{item.has_ingredient_recipe ? <span className="inline-flex h-4 w-4 items-center justify-center rounded-full border border-emerald-300 bg-emerald-50 text-[10px] font-extrabold leading-none text-emerald-700">+</span> : null}</div>}</td>
                   <td className="border-b border-slate-100 px-3 py-3 text-right text-sm font-bold text-slate-800">{formatMoney(item.price)}</td>
+                  <td className="border-b border-slate-100 px-3 py-3 text-right text-sm font-bold text-amber-700">
+                    {item.special_price == null ? "-" : formatMoney(item.special_price)}
+                  </td>
                   <td className="border-b border-slate-100 px-3 py-3 text-right text-sm font-bold text-orange-600">{formatMoney(item.delivery_price_preview ?? item.price)}</td>
                   <td className="border-b border-slate-100 px-3 py-3">{(() => { const status = getSellableStockStatus(item.stock_on_hand_units, item.is_active, th); return <span className={`inline-flex min-h-7 items-center rounded-full border px-2.5 text-xs font-bold ${status.className}`}>{status.label}</span>; })()}</td>
                   <td className="border-b border-slate-100 px-3 py-3"><div className="flex flex-wrap items-center gap-1.5">
-                    <EditProductPopupButton th={th} compact product={{ id: item.id, name: item.name, category: item.category, price: item.price, deliveryPrice: item.delivery_price_preview ?? item.price, isRecommended: item.is_recommended === true }} categories={categoryList} ingredients={ingredientList} deliveryRates={deliveryRates} branchId={branchId} disabled={!canManageCatalog} />
+                    <EditProductPopupButton th={th} compact product={{ id: item.id, name: item.name, category: item.category, price: item.price, specialPrice: item.special_price ?? null, deliveryPrice: item.delivery_price_preview ?? item.price, isRecommended: item.is_recommended === true }} categories={categoryList} ingredients={ingredientList} deliveryRates={deliveryRates} branchId={branchId} disabled={!canManageCatalog} />
                     <StockRowActionIcons th={th} busy={busyProductId === item.id} onDelete={() => openDeactivateProductPopup(item)} onStock={() => openStockPopup(item)} disabled={!canManageCatalog} />
                   </div></td>
                 </tr>

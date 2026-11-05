@@ -12,6 +12,7 @@ import {
 } from "@/lib/delivery-pricing";
 import { fail, ok } from "@/lib/http";
 import { invalidatePosScopeRuntimeCaches } from "@/lib/pos-cache-invalidation";
+import { getProductSpecialPrice, isProductRecommended } from "@/lib/pos/product-metadata";
 import { POS_GUARDS } from "@/lib/pos-resilience";
 import { invalidatePosSalesListCacheForScope } from "@/lib/services/pos-sales-list-service";
 import { queueMissingKitchenPrintJobsForOrder } from "@/lib/services/kitchen-routing-service";
@@ -161,6 +162,7 @@ type PosProductQueryRow = {
   price?: number | null;
   is_active?: boolean | null;
   stock_deduction_mode?: "unit_only" | "recipe_deduction" | null;
+  metadata?: Record<string, unknown> | null;
   has_recipe_deduction?: boolean;
 };
 
@@ -365,6 +367,7 @@ async function resolveOrderPricing(args: {
   const normalizedItems = body.items.map((item) => ({
     product_id: String(item.product_id ?? "").trim(),
     quantity: Number(item.quantity),
+    requested_unit_price: item.unit_price,
     notes: item.notes ?? null
   }));
   if (normalizedItems.some((item) => !item.product_id || !Number.isFinite(item.quantity) || item.quantity <= 0)) {
@@ -399,8 +402,10 @@ async function resolveOrderPricing(args: {
     const pricedItems = normalizedItems.map((item) => {
       const basePrice = productMap.get(item.product_id)?.price ?? 0;
       return {
-        ...item,
-        unit_price: sanitizeUnitPrice(body.items.find((entry) => entry.product_id === item.product_id)?.unit_price, basePrice)
+        product_id: item.product_id,
+        quantity: item.quantity,
+        notes: item.notes,
+        unit_price: sanitizeUnitPrice(item.requested_unit_price, basePrice)
       };
     });
     const subtotal = roundMoney(pricedItems.reduce((sum, item) => sum + item.unit_price * item.quantity, 0));
@@ -511,7 +516,9 @@ async function resolveOrderPricing(args: {
     const basePrice = productMap.get(item.product_id)?.price ?? 0;
     const appPrice = appPriceMap.get(item.product_id);
     return {
-      ...item,
+      product_id: item.product_id,
+      quantity: item.quantity,
+      notes: item.notes,
       unit_price: sanitizeUnitPrice(appPrice, basePrice)
     };
   });
@@ -849,19 +856,19 @@ export async function GET(request: Request) {
         };
 
         const selectCandidates = [
-          { selectClause: "id,sku,name,category,price,is_active,stock_deduction_mode", filterActive: true, orderByCategory: true },
-          { selectClause: "id,sku,name,category,price,is_active", filterActive: true, orderByCategory: true },
-          { selectClause: "id,name,category,price,is_active,stock_deduction_mode", filterActive: true, orderByCategory: true },
-          { selectClause: "id,name,category,price,is_active", filterActive: true, orderByCategory: true },
-          { selectClause: "id,sku,name,price,is_active,stock_deduction_mode", filterActive: true, orderByCategory: false },
-          { selectClause: "id,sku,name,price,is_active", filterActive: true, orderByCategory: false },
-          { selectClause: "id,name,price,is_active", filterActive: true, orderByCategory: false },
-          { selectClause: "id,sku,name,category,price,stock_deduction_mode", filterActive: false, orderByCategory: true },
-          { selectClause: "id,sku,name,category,price", filterActive: false, orderByCategory: true },
-          { selectClause: "id,name,category,price", filterActive: false, orderByCategory: true },
-          { selectClause: "id,sku,name,price,stock_deduction_mode", filterActive: false, orderByCategory: false },
-          { selectClause: "id,sku,name,price", filterActive: false, orderByCategory: false },
-          { selectClause: "id,name,price", filterActive: false, orderByCategory: false }
+          { selectClause: "id,sku,name,category,price,is_active,stock_deduction_mode,metadata", filterActive: true, orderByCategory: true },
+          { selectClause: "id,sku,name,category,price,is_active,metadata", filterActive: true, orderByCategory: true },
+          { selectClause: "id,name,category,price,is_active,stock_deduction_mode,metadata", filterActive: true, orderByCategory: true },
+          { selectClause: "id,name,category,price,is_active,metadata", filterActive: true, orderByCategory: true },
+          { selectClause: "id,sku,name,price,is_active,stock_deduction_mode,metadata", filterActive: true, orderByCategory: false },
+          { selectClause: "id,sku,name,price,is_active,metadata", filterActive: true, orderByCategory: false },
+          { selectClause: "id,name,price,is_active,metadata", filterActive: true, orderByCategory: false },
+          { selectClause: "id,sku,name,category,price,stock_deduction_mode,metadata", filterActive: false, orderByCategory: true },
+          { selectClause: "id,sku,name,category,price,metadata", filterActive: false, orderByCategory: true },
+          { selectClause: "id,name,category,price,metadata", filterActive: false, orderByCategory: true },
+          { selectClause: "id,sku,name,price,stock_deduction_mode,metadata", filterActive: false, orderByCategory: false },
+          { selectClause: "id,sku,name,price,metadata", filterActive: false, orderByCategory: false },
+          { selectClause: "id,name,price,metadata", filterActive: false, orderByCategory: false }
         ] as const;
 
         let lastResult = await queryProducts(selectCandidates[0]);
@@ -973,6 +980,8 @@ export async function GET(request: Request) {
         name: String(row.name ?? ""),
         category: String(row.category ?? ""),
         price: Number(row.price ?? 0),
+        special_price: getProductSpecialPrice(row.metadata),
+        is_recommended: isProductRecommended(row.metadata),
         is_active: Boolean(row.is_active),
         stock_deduction_mode: row.stock_deduction_mode === "recipe_deduction" ? "recipe_deduction" : "unit_only",
         has_recipe_deduction: row.stock_deduction_mode === "recipe_deduction" && recipeProductIdSet.has(String(row.id)),
