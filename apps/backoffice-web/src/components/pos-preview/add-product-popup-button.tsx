@@ -230,6 +230,7 @@ export function AddProductPopupButton({
   }
 
   function closePopup() {
+    if (saving) return;
     setVisible(false);
     closeTimerRef.current = window.setTimeout(() => {
       setOpen(false);
@@ -244,6 +245,24 @@ export function AddProductPopupButton({
     setNoticeMessage(message);
     setNoticeOpen(true);
   }
+
+  useEffect(() => {
+    if (!open) return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && !saving) closePopup();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener("keydown", onKeyDown);
+    };
+  }, [open, saving]);
+
+  useEffect(() => () => {
+    if (closeTimerRef.current) window.clearTimeout(closeTimerRef.current);
+  }, []);
 
   function resetProductFormAfterSuccess() {
     setProductName("");

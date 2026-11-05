@@ -1,6 +1,6 @@
 ﻿"use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
 type Props = {
@@ -76,6 +76,7 @@ export function StockSettingsPopupButton({ th, initialAllowNegativeStock, storag
   }
 
   function closePopup() {
+    if (saving || checkingStorage) return;
     setVisible(false);
     closeTimerRef.current = window.setTimeout(() => {
       setOpen(false);
@@ -89,6 +90,24 @@ export function StockSettingsPopupButton({ th, initialAllowNegativeStock, storag
     setNoticeMessage(message);
     setNoticeOpen(true);
   }
+
+  useEffect(() => {
+    if (!open) return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && !saving && !checkingStorage) closePopup();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener("keydown", onKeyDown);
+    };
+  }, [checkingStorage, open, saving]);
+
+  useEffect(() => () => {
+    if (closeTimerRef.current) window.clearTimeout(closeTimerRef.current);
+  }, []);
 
   async function saveSettings() {
     if (!storageReadyState) {

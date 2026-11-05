@@ -280,6 +280,7 @@ export function EditProductPopupButton({
   }
 
   function closePopup() {
+    if (saving || loadingRecipe) return;
     setVisible(false);
     closeTimerRef.current = window.setTimeout(() => {
       setOpen(false);
@@ -293,6 +294,24 @@ export function EditProductPopupButton({
     setNoticeMessage(message);
     setNoticeOpen(true);
   }
+
+  useEffect(() => {
+    if (!open) return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && !saving && !loadingRecipe) closePopup();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener("keydown", onKeyDown);
+    };
+  }, [loadingRecipe, open, saving]);
+
+  useEffect(() => () => {
+    if (closeTimerRef.current) window.clearTimeout(closeTimerRef.current);
+  }, []);
 
   function toggleIngredient(ingredientId: string) {
     setIngredientLines((prev) =>
