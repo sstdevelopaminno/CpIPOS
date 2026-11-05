@@ -1,0 +1,79 @@
+name: Native Mobile v2.1.0 live downloads and auto-update smoke (one-time)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/native-mobile-210-live-download-smoke-once.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  public-release-check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Verify signed update API offers the new Stable to older 2.0.0
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 15); do
+            code=$(curl -L --silent --show-error --max-time 18 --retry 1 -o /tmp/native-policy.json -w '%{http_code}' \
+              'https://pos.cuttingpointinnovation.com/api/android-pos/native-update-policy?version_code=2000000' || true)
+            if [ "$code" = "200" ] && python3 - <<'PY'
+          import json
+          x=json.load(open('/tmp/native-policy.json'))
+          assert x['ok'] is True
+          assert x['updateAvailable'] is True
+          assert x['autoDownload'] is True
+          assert x['forceUpdate'] is False
+          assert x['versionName']=='2.1.0'
+          assert x['versionCode']==2010000
+          assert x['packageName']=='com.cpipos.pos.next'
+          assert x['signingCertSha256']=='6be0a9aef346a5b47162c8928c5018a01d0e7d81b4eb177bf2fb89922dc2a27a'
+          assert x['apkSha256']=='76b39aa3b9d6b3e7fb476a0f07de284ca4352d0bb5b5adcf0e4f9e7a345f8d16'
+          assert x['apkUrl']=='https://github.com/sstdevelopaminno/CpIPOS/releases/download/native-mobile-v2.1.0/CpIPOS-Native-Mobile-2.1.0.apk'
+          PY
+            then
+              echo "Verified signed Native 2.1.0 update offered to 2.0.0"
+              exit 0
+            fi
+            echo "Update endpoint not ready (attempt $attempt, HTTP $code); retrying"
+            sleep 8
+          done
+          echo "::error::Native stable update offer did not become valid"
+          exit 1
+
+      - name: Verify public company download page displays the exact Stable APK
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 15); do
+            code=$(curl -L --compressed --silent --show-error --max-time 20 --retry 1 \
+              -o /tmp/downloads.html -w '%{http_code}' \
+              'https://www.cuttingpointinnovation.com/downloads' || true)
+            if [ "$code" = "200" ] && grep -Fq 'CpIPOS-Native-Mobile-2.1.0.apk' /tmp/downloads.html && grep -Fq 'v2.1.0' /tmp/downloads.html; then
+              echo "Company website /downloads#android displays new verified Stable 2.1.0"
+              exit 0
+            fi
+            echo "Company site not displaying 2.1.0 yet (attempt $attempt, HTTP $code); retrying"
+            sleep 8
+          done
+          echo "::error::Public company website has not adopted Stable 2.1.0"
+          exit 1
+
+      - name: Verify POS latest download redirects to the versioned signed asset
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 10); do
+            code=$(curl --silent --show-error --max-time 20 -D /tmp/latest.headers \
+              -o /tmp/latest-body -w '%{http_code}' \
+              'https://pos.cuttingpointinnovation.com/download/mobile/latest' || true)
+            if [ "$code" = "302" ] && tr -d '\r' < /tmp/latest.headers | grep -Fiq \
+              'location: https://github.com/sstdevelopaminno/CpIPOS/releases/download/native-mobile-v2.1.0/CpIPOS-Native-Mobile-2.1.0.apk'; then
+              echo "Latest download points to exact signed 2.1.0 release"
+              exit 0
+            fi
+            sleep 8
+          done
+          echo "::error::Latest mobile download redirect did not resolve to Stable 2.1.0"
+          exit 1
