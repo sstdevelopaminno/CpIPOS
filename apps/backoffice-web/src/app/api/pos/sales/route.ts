@@ -12,6 +12,7 @@ import {
 } from "@/lib/delivery-pricing";
 import { fail, ok } from "@/lib/http";
 import { invalidatePosScopeRuntimeCaches } from "@/lib/pos-cache-invalidation";
+import { getProductSpecialPrice, isProductRecommended } from "@/lib/pos/product-metadata";
 import { POS_GUARDS } from "@/lib/pos-resilience";
 import { invalidatePosSalesListCacheForScope } from "@/lib/services/pos-sales-list-service";
 import { queueMissingKitchenPrintJobsForOrder } from "@/lib/services/kitchen-routing-service";
@@ -161,6 +162,7 @@ type PosProductQueryRow = {
   price?: number | null;
   is_active?: boolean | null;
   stock_deduction_mode?: "unit_only" | "recipe_deduction" | null;
+  metadata?: Record<string, unknown> | null;
   has_recipe_deduction?: boolean;
 };
 
@@ -849,19 +851,19 @@ export async function GET(request: Request) {
         };
 
         const selectCandidates = [
-          { selectClause: "id,sku,name,category,price,is_active,stock_deduction_mode", filterActive: true, orderByCategory: true },
-          { selectClause: "id,sku,name,category,price,is_active", filterActive: true, orderByCategory: true },
-          { selectClause: "id,name,category,price,is_active,stock_deduction_mode", filterActive: true, orderByCategory: true },
-          { selectClause: "id,name,category,price,is_active", filterActive: true, orderByCategory: true },
-          { selectClause: "id,sku,name,price,is_active,stock_deduction_mode", filterActive: true, orderByCategory: false },
-          { selectClause: "id,sku,name,price,is_active", filterActive: true, orderByCategory: false },
-          { selectClause: "id,name,price,is_active", filterActive: true, orderByCategory: false },
-          { selectClause: "id,sku,name,category,price,stock_deduction_mode", filterActive: false, orderByCategory: true },
-          { selectClause: "id,sku,name,category,price", filterActive: false, orderByCategory: true },
-          { selectClause: "id,name,category,price", filterActive: false, orderByCategory: true },
-          { selectClause: "id,sku,name,price,stock_deduction_mode", filterActive: false, orderByCategory: false },
-          { selectClause: "id,sku,name,price", filterActive: false, orderByCategory: false },
-          { selectClause: "id,name,price", filterActive: false, orderByCategory: false }
+          { selectClause: "id,sku,name,category,price,is_active,stock_deduction_mode,metadata", filterActive: true, orderByCategory: true },
+          { selectClause: "id,sku,name,category,price,is_active,metadata", filterActive: true, orderByCategory: true },
+          { selectClause: "id,name,category,price,is_active,stock_deduction_mode,metadata", filterActive: true, orderByCategory: true },
+          { selectClause: "id,name,category,price,is_active,metadata", filterActive: true, orderByCategory: true },
+          { selectClause: "id,sku,name,price,is_active,stock_deduction_mode,metadata", filterActive: true, orderByCategory: false },
+          { selectClause: "id,sku,name,price,is_active,metadata", filterActive: true, orderByCategory: false },
+          { selectClause: "id,name,price,is_active,metadata", filterActive: true, orderByCategory: false },
+          { selectClause: "id,sku,name,category,price,stock_deduction_mode,metadata", filterActive: false, orderByCategory: true },
+          { selectClause: "id,sku,name,category,price,metadata", filterActive: false, orderByCategory: true },
+          { selectClause: "id,name,category,price,metadata", filterActive: false, orderByCategory: true },
+          { selectClause: "id,sku,name,price,stock_deduction_mode,metadata", filterActive: false, orderByCategory: false },
+          { selectClause: "id,sku,name,price,metadata", filterActive: false, orderByCategory: false },
+          { selectClause: "id,name,price,metadata", filterActive: false, orderByCategory: false }
         ] as const;
 
         let lastResult = await queryProducts(selectCandidates[0]);
@@ -973,6 +975,8 @@ export async function GET(request: Request) {
         name: String(row.name ?? ""),
         category: String(row.category ?? ""),
         price: Number(row.price ?? 0),
+        special_price: getProductSpecialPrice(row.metadata),
+        is_recommended: isProductRecommended(row.metadata),
         is_active: Boolean(row.is_active),
         stock_deduction_mode: row.stock_deduction_mode === "recipe_deduction" ? "recipe_deduction" : "unit_only",
         has_recipe_deduction: row.stock_deduction_mode === "recipe_deduction" && recipeProductIdSet.has(String(row.id)),
