@@ -17,11 +17,13 @@ import { POS_GUARDS } from "@/lib/pos-resilience";
 import { invalidatePosSalesListCacheForScope } from "@/lib/services/pos-sales-list-service";
 import { queueMissingKitchenPrintJobsForOrder } from "@/lib/services/kitchen-routing-service";
 import { executeCreatePosOrderTransaction } from "@/lib/services/pos-sales-service";
+import { resolveNativeMobileSaleLines, type NativeSelectionInput } from "@/lib/services/native-mobile-modifier-pricing";
 import { calculateTaxBreakdown, loadPosNotificationSettings, loadTaxSettings } from "@/lib/services/pos-settings-service";
 import { loadReceiptStoreProfile } from "@/lib/services/store-profile-service";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
 
 type PosCreateOrderPayload = {
+  native_mobile?: boolean;
   order_id?: string;
   shift_id: string;
   order_type: OrderType;
@@ -56,6 +58,7 @@ type PosCreateOrderPayload = {
     quantity: number;
     unit_price?: number | null;
     notes?: string | null;
+    native_selection?: NativeSelectionInput;
   }>;
 };
 
@@ -1141,6 +1144,22 @@ export async function POST(req: Request) {
       }
       effectiveShiftId = latestOpenShift.id;
       usedShiftFallback = true;
+    }
+
+    // Native Mobile uses the same transaction machinery as the Web POS but
+    // cannot author its own price or bypass required ingredient selections.
+    // Existing Web/tablet orders retain their established pricing behavior.
+    if (body.native_mobile === true) {
+      if (body.order_type === "delivery_manual") {
+        return fail("native_delivery_mode_unsupported", "Native delivery pricing is unavailable.", 422);
+      }
+      const checked = await resolveNativeMobileSaleLines({
+        tenantId: auth.tenantId!,
+        branchId: auth.branchId!,
+        items: body.items
+      });
+      if (!checked.ok) return fail(checked.code, checked.code, checked.status);
+      body.items = checked.items;
     }
 
     const pricing = await resolveOrderPricing({ auth, body });
