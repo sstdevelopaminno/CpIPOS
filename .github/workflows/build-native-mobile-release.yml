@@ -140,7 +140,7 @@ jobs:
             echo "::error::Public POS API is not reachable as JSON (status $http_status)"
             exit 1
           fi
-          printf 'CPIPOS_WEB_POS_API_URL=%s\\nCPIPOS_SUPABASE_URL=%s\\nCPIPOS_SUPABASE_PUBLISHABLE_KEY=%s\\n' \
+          printf 'CPIPOS_WEB_POS_API_URL=%s\nCPIPOS_SUPABASE_URL=%s\nCPIPOS_SUPABASE_PUBLISHABLE_KEY=%s\n' \
             "$CPIPOS_PUBLIC_API_URL" "$CPIPOS_PUBLIC_SUPABASE_URL" "$CPIPOS_PUBLIC_PUBLISHABLE_KEY" > local.properties
           chmod 600 local.properties
           test -s local.properties
