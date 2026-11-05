@@ -105,8 +105,8 @@ export function validateNativeSaleLine(
  * channels. Native-specific selections are recomputed under tenant/branch
  * scope before entering the existing order transaction.
  *
- * Until atomic modifier-ingredient deltas are integrated into the RPC, reject
- * all selections linked to ingredient deltas. Never charge without stock truth.
+ * Modifier ingredient deltas are applied atomically in the updated DB order RPC;
+ * selected ingredients must belong to the same tenant and branch.
  */
 export async function resolveNativeMobileSaleLines(args: {
   tenantId: string;
@@ -160,8 +160,16 @@ export async function resolveNativeMobileSaleLines(args: {
       .eq("tenant_id", tenantId).eq("branch_id", branchId)
       .in("option_id", selectedOptionIds);
     if (ingredientsResult.error) return invalid("native_modifier_stock_schema_unavailable", 503);
-    if ((ingredientsResult.data ?? []).some((row) => Number(row.quantity_delta_per_item) !== 0)) {
-      return invalid("native_modifier_stock_transaction_not_ready", 409);
+    const modifiedIngredientIds = [...new Set((ingredientsResult.data ?? [])
+      .filter((row) => Number(row.quantity_delta_per_item) !== 0)
+      .map((row) => String(row.ingredient_id)))];
+    if (modifiedIngredientIds.length) {
+      const scoped = await db.from("ingredients").select("id")
+        .eq("tenant_id", tenantId).eq("branch_id", branchId)
+        .in("id", modifiedIngredientIds);
+      if (scoped.error || (scoped.data ?? []).length !== modifiedIngredientIds.length) {
+        return invalid("native_modifier_ingredient_not_in_branch", 409);
+      }
     }
   }
 
