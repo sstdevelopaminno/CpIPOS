@@ -33,4 +33,9 @@ describe("order and kitchen notification controls regression", () => {
     expect(policyService).toContain("invalidatePopupPolicyCache(tenantId, branchId)");
     expect(policyService.match(/invalidatePopupPolicyCache\(tenantId, branchId\)/g)?.length ?? 0).toBeGreaterThanOrEqual(2);
   });
+
+  it("stores the composite tenant/branch audit identity in text entity_id instead of UUID target_id", () => {
+    expect(policyService.match(/entityId: `\$\{tenantId\}:\$\{branchId\}`/g)?.length ?? 0).toBeGreaterThanOrEqual(2);
+    expect(policyService).not.toContain("targetId: `${tenantId}:${branchId}`");
+  });
 });
