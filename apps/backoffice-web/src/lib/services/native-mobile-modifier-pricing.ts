@@ -26,7 +26,7 @@ type Group = {
 type Option = { id: string; group_id: string; name: string; price_delta: number };
 
 export type NativeSaleCheck =
-  | { ok: true; items: Array<{ product_id: string; quantity: number; unit_price: number; notes: string | null }> }
+  | { ok: true; items: Array<{ product_id: string; quantity: number; unit_price: number; notes: string | null; native_selection: NativeSelectionInput }> }
   | { ok: false; code: string; status: number };
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -95,7 +95,8 @@ export function validateNativeSaleLine(
   ].filter(Boolean).join(" | ").slice(0, 240) || null;
   return {
     ok: true,
-    items: [{ product_id: item.product_id, quantity: item.quantity, unit_price: unitPrice, notes: note }]
+    items: [{ product_id: item.product_id, quantity: item.quantity, unit_price: unitPrice, notes: note,
+      native_selection: choice }]
   };
 }
 
@@ -164,7 +165,7 @@ export async function resolveNativeMobileSaleLines(args: {
     }
   }
 
-  const output: Array<{ product_id: string; quantity: number; unit_price: number; notes: string | null }> = [];
+  const output: Array<{ product_id: string; quantity: number; unit_price: number; notes: string | null; native_selection: NativeSelectionInput }> = [];
   for (const item of items) {
     const scopedGroups = groups.filter((group) => group.product_id === item.product_id);
     const scopedGroupIds = new Set(scopedGroups.map((group) => group.id));
