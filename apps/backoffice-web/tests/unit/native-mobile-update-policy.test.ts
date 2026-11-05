@@ -1,4 +1,6 @@
 import { describe, expect, it } from "vitest";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import {
   nativeManifestAsset,
   validNativeMobileReleaseCandidates,
@@ -28,6 +30,13 @@ const manifest: NativeMobileManifest = {
 };
 
 describe("Native Mobile stable automatic-update policy", () => {
+  it("caches external metadata server-side without caching client update state", () => {
+    const route = readFileSync(resolve(process.cwd(), "src/app/api/android-pos/native-update-policy/route.ts"), "utf8");
+    expect(route).toContain("next: { revalidate: 60 }");
+    expect(route).toContain('"Cache-Control": "private, no-store, max-age=0"');
+    expect(route).toContain("if (!valid) return unavailable()");
+  });
+
   it("only selects stable versioned releases", () => {
     expect(validNativeMobileReleaseCandidates([
       {...release, tag_name:"native-mobile-v2.1.1", prerelease: true},
