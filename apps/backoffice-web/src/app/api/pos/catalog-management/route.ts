@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { appendAuditLog } from "@/lib/audit-log";
 import { FeatureGateError, requireTenantFeature } from "@/lib/feature-gate";
 import { convertToGrams, toIntegerGrams } from "@/lib/ingredient-stock";
-import { isProductRecommended, withProductRecommendedMetadata } from "@/lib/pos/product-metadata";
+import { getProductSpecialPrice, isProductRecommended, withProductRecommendedMetadata, withProductSpecialPriceMetadata } from "@/lib/pos/product-metadata";
 import {
   PosGuardError,
   requirePermission,
@@ -283,6 +283,7 @@ export async function GET(req: Request) {
       items: products.map((row) => ({
         ...row,
         is_recommended: isProductRecommended(row.metadata),
+        special_price: getProductSpecialPrice(row.metadata),
         stock_remaining: stock.get(String(row.id)) ?? null,
         sold_30d: sold.get(String(row.id)) ?? null
       })),
@@ -327,6 +328,8 @@ export async function POST(req: Request) {
       const storePrice = Number(body.store_price ?? 0);
       const deliveryPrice = Number(body.delivery_price ?? storePrice);
       const isRecommended = body.is_recommended === true;
+      const rawSpecialPrice = body.special_price;
+      const specialPrice = rawSpecialPrice == null || rawSpecialPrice === "" ? null : Number(rawSpecialPrice);
       const useIngredientRecipe = body.use_ingredient_recipe === true;
       const ingredientLines = Array.isArray(body.ingredient_lines)
         ? body.ingredient_lines as Array<Record<string, unknown>>
@@ -336,6 +339,7 @@ export async function POST(req: Request) {
       if (!Number.isFinite(stockQuantity) || stockQuantity < 0) return fail("invalid_stock_quantity");
       if (!Number.isFinite(storePrice) || storePrice < 0) return fail("invalid_store_price");
       if (!Number.isFinite(deliveryPrice) || deliveryPrice < 0) return fail("invalid_delivery_price");
+      if (specialPrice !== null && (!Number.isFinite(specialPrice) || specialPrice < 0 || specialPrice > 99999999)) return fail("invalid_special_price");
 
       const normalizedRecipeLines = ingredientLines.map((line) => ({
         ingredientId: safeText(line.ingredient_id, 70),
@@ -364,7 +368,7 @@ export async function POST(req: Request) {
         sell_unit: "ชิ้น",
         stock_deduction_mode: "recipe_deduction",
         is_active: true,
-        metadata: withProductRecommendedMetadata(null, isRecommended)
+        metadata: withProductSpecialPriceMetadata(withProductRecommendedMetadata(null, isRecommended), specialPrice)
       }).select("id,sku,name,category,price,updated_at").single();
       if (productInsert.error || !productInsert.data) return fail("product_create_failed", 409);
 
@@ -548,8 +552,17 @@ export async function POST(req: Request) {
       if (previous.error || !previous.data) return fail("product_not_found", 404);
       if (safeText(body.updated_at, 80) !== String(previous.data.updated_at ?? "")) return fail("product_changed_reload", 409);
       const patch: Record<string, unknown> = { name, sku, category, price: Number(price.toFixed(2)) };
-      if (typeof body.is_recommended === "boolean") {
-        patch.metadata = withProductRecommendedMetadata(previous.data.metadata, body.is_recommended);
+      const specialProvided = Object.prototype.hasOwnProperty.call(body, "special_price");
+      const rawSpecialPrice = body.special_price;
+      const specialPrice = rawSpecialPrice == null || rawSpecialPrice === "" ? null : Number(rawSpecialPrice);
+      if (specialProvided && specialPrice !== null && (!Number.isFinite(specialPrice) || specialPrice < 0 || specialPrice > 99999999)) return fail("invalid_special_price");
+      if (typeof body.is_recommended === "boolean" || specialProvided) {
+        let nextMetadata: unknown = previous.data.metadata;
+        if (typeof body.is_recommended === "boolean") {
+          nextMetadata = withProductRecommendedMetadata(nextMetadata, body.is_recommended);
+        }
+        if (specialProvided) nextMetadata = withProductSpecialPriceMetadata(nextMetadata, specialPrice);
+        patch.metadata = nextMetadata;
       }
       const result = await db.from("products").update(patch)
         .eq("tenant_id", tenantId).eq("branch_id", branchId).eq("id", id)

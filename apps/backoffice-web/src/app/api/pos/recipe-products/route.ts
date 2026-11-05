@@ -33,6 +33,8 @@ export async function GET(req: Request) {
     const auth = await getPosApiAuthContext({ requireBranchScope: true, requiredPermission: "sales:enter" });
     const supabase = getSupabaseServiceClient();
     const url = new URL(req.url);
+    // Native cashier must never mistake missing modifier tables for zero required choices.
+    const strictNative = url.searchParams.get("strict_native") === "1";
     const rawProductIds = String(url.searchParams.get("product_ids") ?? "");
     const productIds = Array.from(
       new Set(
@@ -56,6 +58,7 @@ export async function GET(req: Request) {
 
     if (error) {
       if (isMissingRecipesSchemaError(error)) {
+        if (strictNative) return fail("native_recipe_schema_unavailable", "Native catalog cannot verify recipes.", 503);
         return ok({ product_ids: [] as string[], ingredients_by_product: {} });
       }
       return fail("recipe_products_query_failed", error.message, 500);
@@ -120,6 +123,9 @@ export async function GET(req: Request) {
             .in("group_id", groupIds)
             .order("sort_order", { ascending: true })
         : { data: [], error: null };
+      if (optionError && strictNative) {
+        return fail("native_modifier_options_unavailable", "Native modifier options are unavailable.", 503);
+      }
       if (optionError && !isMissingModifierSchemaError(optionError)) {
         return fail("modifier_options_query_failed", optionError.message, 500);
       }
@@ -148,6 +154,8 @@ export async function GET(req: Request) {
           options: optionsByGroup.get(String(group.id)) ?? []
         });
       }
+    } else if (strictNative) {
+      return fail("native_modifier_schema_unavailable", "Native modifier schema is unavailable.", 503);
     } else if (!isMissingModifierSchemaError(modifierGroupError)) {
       return fail("modifier_groups_query_failed", modifierGroupError.message, 500);
     }
