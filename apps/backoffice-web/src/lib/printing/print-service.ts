@@ -11,6 +11,7 @@ import type {
 import type { AuthContext } from "@/lib/auth-context";
 import { appendAuditLog } from "@/lib/audit-log";
 import { readEnv } from "@/lib/env";
+import { renderReceiptHtml } from "@/lib/printing/receipt-html-template";
 import { isRestaurantQrScope } from "@/lib/restaurant-qr-profile";
 import { loadReceiptStoreProfile, type ReceiptStoreProfile } from "@/lib/services/store-profile-service";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
@@ -1456,7 +1457,38 @@ export async function enqueuePrintJobsForOrderSnapshot(args: {
       printerRole: "receipt",
       payloadText: receiptPayload,
       payloadJson: { ...receiptStorePayload(storeProfile), branch_name: branchName, order_id: order.id, order_no: order.order_no },
-      metadata: { payload_html: renderReceiptPrintHtmlFromText({ ...receiptStoreTemplateFields(storeProfile), order_id: order.id, order_no: order.order_no, branch_name: branchName, cashier_name: sellerName, paid_at_iso: nowIso(), currency: "THB", items: items.map((item) => ({ name: item.product_name, qty: item.quantity, unit_price: item.unit_price, line_total: item.line_total })), subtotal: order.total_amount + order.discount_amount, discount_amount: order.discount_amount, tax_amount: 0, total_amount: order.total_amount, payment_method: paymentMethod, cash_received: order.cash_received ?? null, change_amount: order.change_amount ?? null, mode_label: order.mode_label ?? null, note: order.notes ?? undefined }, printer.paper_width_mm, receiptPayload) }
+      metadata: {
+        payload_format: "receipt_html_v1",
+        payload_html: renderReceiptHtml({
+          paperWidthMm: printer.paper_width_mm,
+          currencyCode: "THB",
+          languageCode: "th",
+          storeName: storeProfile?.display_name ?? storeProfile?.name ?? branchName ?? "CpIPOS",
+          branchName,
+          logoUrl: storeProfile?.logo_url ?? undefined,
+          storeAddress: storeProfile?.address ?? undefined,
+          storePhone: storeProfile?.phone ?? undefined,
+          sellerName,
+          modeLabel: order.mode_label ?? null,
+          orderNo: order.order_no,
+          paidAtIso: nowIso(),
+          items: items.map((item) => ({
+            name: item.product_name,
+            quantity: item.quantity,
+            unitPrice: item.unit_price,
+            lineTotal: item.line_total,
+            note: item.note ?? null
+          })),
+          subtotal: order.total_amount + order.discount_amount,
+          discountAmount: order.discount_amount,
+          taxAmount: 0,
+          totalAmount: order.total_amount,
+          paymentMethod,
+          cashReceived: order.cash_received ?? null,
+          changeAmount: order.change_amount ?? null,
+          note: order.notes ?? null
+        })
+      }
     });
     queuedJobs.push(job);
     await processOrQueuePrintJob(job, printer);
