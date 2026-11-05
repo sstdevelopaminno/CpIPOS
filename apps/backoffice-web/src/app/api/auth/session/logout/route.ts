@@ -36,6 +36,21 @@ function clearPosSessionCookies(response: NextResponse) {
   });
 }
 
+function resetLanguageCookies(response: NextResponse) {
+  const secure = process.env.NODE_ENV === "production";
+  for (const name of ["pos_lang", "sstipos_lang"]) {
+    response.cookies.set({
+      name,
+      value: "th",
+      httpOnly: false,
+      secure,
+      sameSite: "lax",
+      path: "/",
+      maxAge: 60 * 60 * 24 * 365
+    });
+  }
+}
+
 function jsonError(status: number, code: string, message: string) {
   return NextResponse.json({ data: null, error: { code, message } }, { status });
 }
@@ -118,6 +133,7 @@ export async function POST(request: Request) {
       error: null
     });
     clearPosSessionCookies(response);
+    resetLanguageCookies(response);
     clearPreEntryFlowState(response);
     return response;
   }
@@ -171,6 +187,7 @@ export async function POST(request: Request) {
         error: null
       });
       clearPosSessionCookies(response);
+      resetLanguageCookies(response);
       writePreEntryFlowState(response, flow);
       return response;
     }
@@ -236,6 +253,7 @@ export async function POST(request: Request) {
             error: null
           });
           clearPosSessionCookies(response);
+          if (mode === "switch_employee") resetLanguageCookies(response);
           if (mode === "switch_employee") {
             writePreEntryFlowState(
               response,
