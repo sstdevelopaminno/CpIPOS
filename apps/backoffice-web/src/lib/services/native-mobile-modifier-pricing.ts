@@ -174,5 +174,11 @@ export async function resolveNativeMobileSaleLines(args: {
     if (!checked.ok) return checked;
     output.push(...checked.items);
   }
+  // The existing dine-in DB RPC identifies a line by (product_id, notes).
+  // Reject collisions rather than silently coalescing distinct option prices.
+  const keys = output.map((line) => line.product_id + "\u001f" + (line.notes ?? ""));
+  if (new Set(keys).size !== keys.length) {
+    return invalid("native_modifier_line_identity_collision", 409);
+  }
   return { ok: true, items: output };
 }
