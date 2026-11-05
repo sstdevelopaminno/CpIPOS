@@ -21,6 +21,12 @@ function mapDrawerTestError(error: unknown) {
   if (message === "drawer_not_configured") return fail("drawer_not_configured", "Cash drawer is not enabled on the selected receipt printer or drawer controller profile.", 422);
   if (message === "drawer_reason_required") return fail("drawer_reason_required", "reason is required for cash drawer testing.", 422);
   if (message === "drawer_cooldown") return fail("drawer_cooldown", "Please wait a moment before testing the drawer again.", 429);
+  if (message === "agent_missing") return fail("print_agent_unavailable", "No Print Agent is connected to the selected printer. Start the Windows Runtime or Android POS Print Agent and try again.", 503);
+  if (message === "agent_inactive") return fail("print_agent_unavailable", "The selected printer's Print Agent is inactive. Reconnect the Runtime or Android POS Print Agent and try again.", 503);
+  if (message === "agent_stale") return fail("print_agent_unavailable", "The selected printer's Print Agent has not sent a recent heartbeat. Reconnect the device and try again.", 503);
+  if (message === "printer_device_missing") return fail("printer_device_missing", "No physical printer device is registered for the selected profile.", 409);
+  if (message === "printer_offline") return fail("printer_offline", "The selected printer device is offline. Reconnect the printer and try again.", 409);
+  if (message === "drawer_route_not_ready") return fail("drawer_route_not_ready", "The cash drawer route is not ready. Check printer/device assignment before testing.", 409);
   if (message.includes("timeout")) return fail("print_agent_unavailable", "Print agent, Runtime, drawer controller, or printer did not respond in time.", 504);
   return loggedPrintApiFail("cash drawer settings test failed", error, "drawer_test_failed", "Cash drawer test failed. Please check printer settings and retry.", 400);
 }
