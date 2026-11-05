@@ -10609,15 +10609,57 @@ export function PosSalesModule({
               </button>
             </header>
             <p className="posui-payment-modal__hint">
-              {lang === "th"
-                ? quickMode === "delivery"
-                  ? "สินค้าเมนูนี้ผูกวัตถุดิบอยู่ โหมดเดลิเวอรี่บันทึกตัวเลือกได้แต่ไม่เพิ่มราคา"
-                  : "สินค้าเมนูนี้ผูกวัตถุดิบอยู่ เลือก/ระบุวัตถุดิบก่อนเพิ่มลงตะกร้า"
-                : quickMode === "delivery"
-                  ? "This recipe product can save options in delivery mode, but extra price is disabled."
-                  : "This recipe product supports options before adding to cart."}
+              {modifierSpecialPrice !== null && !modifierDraft.product.has_recipe_deduction
+                ? localSaleLabel("สินค้านี้มีราคาพิเศษ กรุณาเลือกราคาก่อนเพิ่มลงตะกร้า", "This product has a special price. Choose a price before adding it.")
+                : modifierSpecialPrice !== null
+                  ? localSaleLabel("สินค้านี้มีราคาพิเศษและผูกวัตถุดิบ เลือกราคาและตัวเลือกก่อนเพิ่มลงตะกร้า", "Choose a price and recipe options before adding this product.")
+                  : lang === "th"
+                    ? quickMode === "delivery"
+                      ? "สินค้าเมนูนี้ผูกวัตถุดิบอยู่ โหมดเดลิเวอรี่บันทึกตัวเลือกได้แต่ไม่เพิ่มราคา"
+                      : "สินค้าเมนูนี้ผูกวัตถุดิบอยู่ เลือก/ระบุวัตถุดิบก่อนเพิ่มลงตะกร้า"
+                    : quickMode === "delivery"
+                      ? "This recipe product can save options in delivery mode, but extra price is disabled."
+                      : "This recipe product supports options before adding to cart."}
             </p>
             <div className="posui-payment-receipt-card">
+              {modifierSpecialPrice !== null ? (
+                <div className="mb-3 rounded-xl border border-amber-200 bg-amber-50 p-3">
+                  <span className="text-xs font-extrabold text-amber-900">
+                    {localSaleLabel("เลือกราคา", "Choose Price")}
+                  </span>
+                  <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                    <button
+                      type="button"
+                      onClick={() => setModifierDraft((current) => (current ? { ...current, useSpecialPrice: false } : current))}
+                      aria-pressed={!modifierDraft.useSpecialPrice}
+                      className={`rounded-xl border px-3 py-3 text-left transition ${
+                        !modifierDraft.useSpecialPrice
+                          ? "border-slate-700 bg-white ring-2 ring-slate-200"
+                          : "border-slate-200 bg-white hover:border-slate-400"
+                      }`}
+                    >
+                      <span className="block text-xs font-bold text-slate-600">{localSaleLabel("ราคาปกติ", "Regular Price")}</span>
+                      <strong className="mt-1 block text-lg text-slate-950">{formatMoney(getProductPriceForCurrentMode(modifierDraft.product))}</strong>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setModifierDraft((current) => (current ? { ...current, useSpecialPrice: true } : current))}
+                      aria-pressed={modifierDraft.useSpecialPrice}
+                      className={`rounded-xl border px-3 py-3 text-left transition ${
+                        modifierDraft.useSpecialPrice
+                          ? "border-orange-500 bg-orange-50 ring-2 ring-orange-200"
+                          : "border-amber-200 bg-white hover:border-orange-400"
+                      }`}
+                    >
+                      <span className="block text-xs font-extrabold text-orange-700">{localSaleLabel("ราคาพิเศษ", "Special Price")}</span>
+                      <strong className="mt-1 block text-lg text-orange-700">{formatMoney(modifierSpecialPrice)}</strong>
+                    </button>
+                  </div>
+                </div>
+              ) : null}
+              {modifierDraft.product.has_recipe_deduction ? (
+                <>
+
               <div className="posui-payment-modal__input-label">
                 <span>{localSaleLabel("วัตถุดิบที่ผูกไว้", "Linked Ingredients")}</span>
                 {modifierIngredientsLoading ? <small>{localSaleLabel("กำลังโหลดวัตถุดิบ...", "Loading ingredients...")}</small> : null}
@@ -10702,9 +10744,12 @@ export function PosSalesModule({
                   </div>
                 </div>
               </div>
+
+                </>
+              ) : null}
               <div className="mt-3 rounded-xl border border-orange-100 bg-orange-50 px-3 py-2 text-sm font-bold text-orange-700">
                 {localSaleLabel("ราคาต่อหน่วยหลังรวมตัวเลือก", "Unit price with options")}:{" "}
-                {formatMoney(getProductPriceForCurrentMode(modifierDraft.product) + (quickMode === "delivery" ? 0 : Math.max(0, modifierDraft.extraPrice)))}
+                {formatMoney(modifierBasePrice + (quickMode === "delivery" ? 0 : Math.max(0, modifierDraft.extraPrice)))}
               </div>
             </div>
             <div className="posui-payment-modal__actions">
