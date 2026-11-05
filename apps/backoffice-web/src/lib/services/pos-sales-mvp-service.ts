@@ -1,7 +1,7 @@
 import "server-only";
 
 import type { PaymentMethod } from "@pos/shared-types";
-import { isProductRecommended } from "@/lib/pos/product-metadata";
+import { getProductSpecialPrice, isProductRecommended } from "@/lib/pos/product-metadata";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
 
 export type SalesMvpCartItemInput = {
@@ -18,6 +18,7 @@ export type SalesMvpProductRow = {
   is_active: boolean;
   metadata?: Record<string, unknown> | null;
   is_recommended?: boolean;
+  special_price?: number | null;
 };
 
 export type CalculatedSalesTotals = {
@@ -59,7 +60,8 @@ export async function resolveBranchProducts(args: {
     ...row,
     price: Number(row.price ?? 0),
     is_active: Boolean(row.is_active),
-    is_recommended: isProductRecommended(row.metadata)
+    is_recommended: isProductRecommended(row.metadata),
+    special_price: getProductSpecialPrice(row.metadata)
   }));
   return { products };
 }
