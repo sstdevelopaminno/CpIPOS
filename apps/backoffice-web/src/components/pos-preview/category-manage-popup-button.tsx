@@ -101,6 +101,7 @@ export function CategoryManagePopupButton({ th, categories, branchId }: Props) {
   }
 
   function closePopup() {
+    if (busy) return;
     setVisible(false);
     closeTimerRef.current = window.setTimeout(() => {
       setOpen(false);
@@ -110,6 +111,24 @@ export function CategoryManagePopupButton({ th, categories, branchId }: Props) {
       setSimilarityWarning(null);
     }, 180);
   }
+
+  useEffect(() => {
+    if (!open) return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && !busy) closePopup();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener("keydown", onKeyDown);
+    };
+  }, [busy, open]);
+
+  useEffect(() => () => {
+    if (closeTimerRef.current) window.clearTimeout(closeTimerRef.current);
+  }, []);
 
   function isDuplicateName(value: string, excludeId?: string) {
     const key = normalizeCategoryKey(value);
