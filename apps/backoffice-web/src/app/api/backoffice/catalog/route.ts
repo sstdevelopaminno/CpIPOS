@@ -4,7 +4,7 @@ import { convertToGrams, toIntegerGrams } from "@/lib/ingredient-stock";
 import { featureGateFail, requirePosApiFeature } from "@/lib/pos-api-feature-guard";
 import { buildPaginationMeta, parsePagination, sanitizeSearchTerm } from "@/lib/query-params";
 import { mergeCategoryCountItems } from "@/lib/pos/category-normalization";
-import { withProductRecommendedMetadata } from "@/lib/pos/product-metadata";
+import { getProductSpecialPrice, isProductRecommended, withProductManagementMetadata } from "@/lib/pos/product-metadata";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
 
 type UpsertProductPayload = {
@@ -18,6 +18,7 @@ type UpsertProductPayload = {
   stock_deduction_mode?: "unit_only" | "recipe_deduction";
   is_active?: boolean;
   is_recommended?: boolean;
+  special_price?: number | null;
 };
 
 type UpsertIngredientPayload = {
@@ -79,6 +80,7 @@ type CreateProductWithStockSetupPayload = {
   };
   use_ingredient_recipe: boolean;
   is_recommended?: boolean;
+  special_price?: number | null;
   ingredient_lines?: Array<{
     ingredient_id: string;
     quantity: number;
@@ -101,6 +103,7 @@ type UpdateProductWithStockSetupPayload = {
   };
   use_ingredient_recipe: boolean;
   is_recommended?: boolean;
+  special_price?: number | null;
   customer_ingredient_selection_enabled?: boolean;
   ingredient_lines?: Array<{
     ingredient_id: string;
@@ -1034,6 +1037,7 @@ export async function POST(req: Request) {
       });
       const useIngredientRecipe = Boolean(body.use_ingredient_recipe);
       const isRecommended = Boolean(body.is_recommended);
+      const specialPrice = body.special_price === null || body.special_price === undefined ? null : Number(body.special_price);
       const ingredientLines = Array.isArray(body.ingredient_lines) ? body.ingredient_lines : [];
 
       if (!name || !category) {
@@ -1041,6 +1045,9 @@ export async function POST(req: Request) {
       }
       if (!Number.isFinite(storePrice) || storePrice < 0) {
         return fail("invalid_store_price", "store_price must be greater than or equal to 0.", 422);
+      }
+      if (specialPrice !== null && (!Number.isFinite(specialPrice) || specialPrice < 0)) {
+        return fail("invalid_special_price", "special_price must be null or greater than or equal to 0.", 422);
       }
       if (!Number.isFinite(deliveryPrice) || deliveryPrice < 0) {
         return fail("invalid_delivery_price", "delivery_price must be greater than or equal to 0.", 422);
@@ -1092,6 +1099,10 @@ export async function POST(req: Request) {
       }
 
       const existingProductByName = existingProductRows?.[0] as { id: string; sku?: string | null; metadata?: Record<string, unknown> | null } | undefined;
+      const createProductMetadata = withProductManagementMetadata(existingProductByName?.metadata ?? null, {
+        isRecommended,
+        specialPrice
+      });
       const baseProductInsertPayload = {
         tenant_id: auth.tenantId!,
         branch_id: scopedBranchId,
@@ -1100,7 +1111,7 @@ export async function POST(req: Request) {
         category,
         price: Number(storePrice.toFixed(2)),
         is_active: true,
-        metadata: withProductRecommendedMetadata(null, isRecommended)
+        metadata: createProductMetadata
       };
 
       const insertPayloadVariants = [
@@ -1175,7 +1186,10 @@ export async function POST(req: Request) {
 
           const updatePayloadCandidatesWithMetadata = updatePayloadCandidates.map((candidate) => ({
             ...candidate,
-            metadata: withProductRecommendedMetadata(existingProductByName?.metadata, isRecommended)
+            metadata: withProductManagementMetadata(existingProductByName?.metadata, {
+              isRecommended,
+              specialPrice
+            })
           }));
 
           let updateExistingProductError: PostgrestLikeError | null = null;
@@ -1439,6 +1453,7 @@ export async function POST(req: Request) {
       const customerIngredientSelectionEnabled =
         useIngredientRecipe && Boolean(body.customer_ingredient_selection_enabled);
       const isRecommended = Boolean(body.is_recommended);
+      const specialPrice = body.special_price === null || body.special_price === undefined ? null : Number(body.special_price);
       const ingredientLines = Array.isArray(body.ingredient_lines) ? body.ingredient_lines : [];
 
       if (!productId) {
@@ -1449,6 +1464,9 @@ export async function POST(req: Request) {
       }
       if (!Number.isFinite(storePrice) || storePrice < 0) {
         return fail("invalid_store_price", "store_price must be greater than or equal to 0.", 422);
+      }
+      if (specialPrice !== null && (!Number.isFinite(specialPrice) || specialPrice < 0)) {
+        return fail("invalid_special_price", "special_price must be null or greater than or equal to 0.", 422);
       }
       if (!Number.isFinite(deliveryPrice) || deliveryPrice < 0) {
         return fail("invalid_delivery_price", "delivery_price must be greater than or equal to 0.", 422);
@@ -1552,7 +1570,10 @@ export async function POST(req: Request) {
       const updatePayloadCandidatesWithCustomerSelection = updatePayloadCandidates.map((candidate) => ({
         ...candidate,
         customer_ingredient_selection_enabled: customerIngredientSelectionEnabled,
-        metadata: withProductRecommendedMetadata(existingProduct?.metadata, isRecommended)
+        metadata: withProductManagementMetadata(existingProduct?.metadata, {
+          isRecommended,
+          specialPrice
+        })
       }));
 
       let updateProductError: PostgrestLikeError | null = null;
@@ -1957,7 +1978,35 @@ export async function POST(req: Request) {
       const category = body.category?.trim();
       const stockMode = body.stock_deduction_mode ?? "unit_only";
       const price = Number(body.price);
-      const isRecommended = Boolean(body.is_recommended);
+      let existingMetadata: unknown = null;
+      if (body.id?.trim()) {
+        const { data: existingProductMetadata, error: existingProductMetadataError } = await supabase
+          .from("products")
+          .select("metadata")
+          .eq("tenant_id", auth.tenantId!)
+          .eq("branch_id", scopedBranchId)
+          .eq("id", body.id.trim())
+          .maybeSingle<{ metadata?: Record<string, unknown> | null }>();
+        if (existingProductMetadataError) {
+          return fail("product_query_failed", existingProductMetadataError.message, 500);
+        }
+        existingMetadata = existingProductMetadata?.metadata ?? null;
+      }
+      const isRecommended =
+        body.is_recommended === undefined ? isProductRecommended(existingMetadata) : Boolean(body.is_recommended);
+      const specialPrice =
+        body.special_price === undefined
+          ? getProductSpecialPrice(existingMetadata)
+          : body.special_price === null
+            ? null
+            : Number(body.special_price);
+      if (specialPrice !== null && (!Number.isFinite(specialPrice) || specialPrice < 0)) {
+        return fail("invalid_special_price", "special_price must be null or greater than or equal to 0.", 422);
+      }
+      const productMetadata = withProductManagementMetadata(existingMetadata, {
+        isRecommended,
+        specialPrice
+      });
 
       if (!sku || !name || !category) {
         return fail("invalid_product_fields", "sku, name and category are required.", 422);
@@ -2016,7 +2065,7 @@ export async function POST(req: Request) {
         sell_unit: "ชิ้น",
         stock_deduction_mode: stockMode,
         is_active: body.is_active ?? true,
-        metadata: withProductRecommendedMetadata(null, isRecommended)
+        metadata: productMetadata
       };
       const payloadWithoutSellUnit = {
         tenant_id: auth.tenantId!,
@@ -2027,7 +2076,7 @@ export async function POST(req: Request) {
         price: Number(price.toFixed(2)),
         stock_deduction_mode: stockMode,
         is_active: body.is_active ?? true,
-        metadata: withProductRecommendedMetadata(null, isRecommended)
+        metadata: productMetadata
       };
       const payloadWithoutStockDeductionMode = {
         tenant_id: auth.tenantId!,
@@ -2038,7 +2087,7 @@ export async function POST(req: Request) {
         price: Number(price.toFixed(2)),
         sell_unit: "ชิ้น",
         is_active: body.is_active ?? true,
-        metadata: withProductRecommendedMetadata(null, isRecommended)
+        metadata: productMetadata
       };
       const legacyPayload = {
         tenant_id: auth.tenantId!,
@@ -2048,7 +2097,7 @@ export async function POST(req: Request) {
         category,
         price: Number(price.toFixed(2)),
         is_active: body.is_active ?? true,
-        metadata: withProductRecommendedMetadata(null, isRecommended)
+        metadata: productMetadata
       };
       const LEGACY_PRODUCT_SELECT = "id,sku,name,category,price,is_active,updated_at";
 
