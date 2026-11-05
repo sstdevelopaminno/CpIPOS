@@ -116,6 +116,35 @@ jobs:
             exit 1
           }
 
+      - name: Validate publicly reachable POS API and embed client-only credentials
+        working-directory: native-pos
+        env:
+          # This is a PUBLIC client key meant to be embedded in the APK.
+          # NEVER use a Supabase service_role or secret key here.
+          CPIPOS_PUBLIC_PUBLISHABLE_KEY: sb_publishable_nGX5abZtEmd7Ynzyofop1A_caORaUII
+          CPIPOS_PUBLIC_SUPABASE_URL: https://deejlitaivfnsbwqdugy.supabase.co
+          CPIPOS_PUBLIC_API_URL: https://pos.cuttingpointinnovation.com
+        run: |
+          set -euo pipefail
+          [[ "$CPIPOS_PUBLIC_PUBLISHABLE_KEY" == sb_publishable_* ]] || {
+            echo "::error::Native release requires a public Supabase publishable key"
+            exit 1
+          }
+          # A custom company domain avoids Vercel Auth on *.vercel.app.
+          check_url="$CPIPOS_PUBLIC_API_URL/api/android-pos/native-update-policy?version_code=0"
+          http_status=$(curl --location --max-time 15 --retry 2 --silent --show-error \
+            --output "$RUNNER_TEMP/native-public-api.json" \
+            --write-out '%{http_code}' "$check_url")
+          if [[ "$http_status" != "200" && "$http_status" != "503" ]] || \
+             ! grep -q '"ok":' "$RUNNER_TEMP/native-public-api.json"; then
+            echo "::error::Public POS API is not reachable as JSON (status $http_status)"
+            exit 1
+          fi
+          printf 'CPIPOS_WEB_POS_API_URL=%s\\nCPIPOS_SUPABASE_URL=%s\\nCPIPOS_SUPABASE_PUBLISHABLE_KEY=%s\\n' \
+            "$CPIPOS_PUBLIC_API_URL" "$CPIPOS_PUBLIC_SUPABASE_URL" "$CPIPOS_PUBLIC_PUBLISHABLE_KEY" > local.properties
+          chmod 600 local.properties
+          test -s local.properties
+
       - name: Test and build signed Native release
         working-directory: native-pos
         env:
