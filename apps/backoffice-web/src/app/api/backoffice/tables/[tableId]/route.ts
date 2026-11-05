@@ -104,6 +104,32 @@ export async function PATCH(req: Request, context: { params: Promise<{ tableId: 
     }
     const updatePayload: Record<string, unknown> = {};
 
+    if (body.table_code !== undefined) {
+      const tableCode = String(body.table_code ?? "").trim();
+      if (!tableCode) {
+        return fail("invalid_table_code", "Table number is required.", 422);
+      }
+      if (tableCode.length > 64) {
+        return fail("invalid_table_code", "Table number must be 64 characters or fewer.", 422);
+      }
+      const { data: duplicateTable, error: duplicateTableError } = await supabase
+        .from("dining_tables")
+        .select("id")
+        .eq("tenant_id", auth.tenantId!)
+        .eq("branch_id", targetBranchId)
+        .eq("table_code", tableCode)
+        .neq("id", tableId)
+        .limit(1)
+        .maybeSingle<{ id: string }>();
+      if (duplicateTableError) {
+        return fail("table_code_lookup_failed", duplicateTableError.message, 500);
+      }
+      if (duplicateTable) {
+        return fail("table_code_conflict", "Table number already exists in this branch.", 409);
+      }
+      updatePayload.table_code = tableCode;
+    }
+
     if (body.zone_id !== undefined) updatePayload.zone_id = body.zone_id;
     if (body.table_name !== undefined) updatePayload.table_name = body.table_name?.trim() || null;
     if (typeof body.capacity === "number") updatePayload.capacity = Math.max(1, body.capacity);
@@ -153,6 +179,9 @@ export async function PATCH(req: Request, context: { params: Promise<{ tableId: 
       .maybeSingle();
 
     if (error) {
+      if (error.code === "23505") {
+        return fail("table_code_conflict", "Table number already exists in this branch.", 409);
+      }
       return fail("table_update_failed", error.message, 500);
     }
     if (!data) {

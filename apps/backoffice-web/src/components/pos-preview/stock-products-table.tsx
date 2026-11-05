@@ -912,7 +912,7 @@ const headerTools = (
                 <th className="border-b border-slate-200 px-3 py-2 text-left text-xs font-bold text-slate-500">{th ? "คงเหลือ" : "On Hand"}</th>
                 <th className="border-b border-slate-200 px-3 py-2 text-left text-xs font-bold text-slate-500">{th ? "หน่วย" : "Unit"}</th>
                 <th className="border-b border-slate-200 px-3 py-2 text-left text-xs font-bold text-slate-500">{th ? "สถานะ" : "Status"}</th>
-                <th className="border-b border-slate-200 px-3 py-2 text-left text-xs font-bold text-slate-500">{th ? "จัดการ" : "Actions"}</th>
+                <th className="sticky right-0 z-20 min-w-[132px] border-b border-l border-slate-200 bg-slate-50 px-3 py-2 text-left text-xs font-bold text-slate-500 shadow-[-8px_0_12px_-12px_rgba(15,23,42,0.45)]">{th ? "จัดการ" : "Actions"}</th>
               </tr>
             </thead>
             <tbody>
@@ -923,7 +923,7 @@ const headerTools = (
                   <td className="border-b border-slate-100 px-3 py-3 text-sm text-slate-800">{formatIngredientQty(item)}</td>
                   <td className="border-b border-slate-100 px-3 py-3 text-sm text-slate-600">{item.baseUnit}</td>
                   <td className="border-b border-slate-100 px-3 py-3">{(() => { const status = getIngredientStatus(item); return <span className={`inline-flex min-h-7 items-center rounded-full border px-2.5 text-xs font-bold ${status.className}`}>{status.label}</span>; })()}</td>
-                  <td className="border-b border-slate-100 px-3 py-3"><div className="flex flex-wrap items-center gap-1.5">
+                  <td className="sticky right-0 z-10 min-w-[132px] border-b border-l border-slate-100 bg-white px-3 py-3 shadow-[-8px_0_12px_-12px_rgba(15,23,42,0.45)]"><div className="flex flex-nowrap items-center gap-1.5">
                     <button type="button" onClick={() => openEditIngredientPopup(item)} disabled={busyIngredientId === item.id} title={th ? "แก้ไขวัตถุดิบ" : "Edit ingredient"} aria-label={th ? "แก้ไขวัตถุดิบ" : "Edit ingredient"} className="inline-flex min-h-8 items-center justify-center rounded-lg border border-slate-200 px-2 py-1 text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M12 20h9" /><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z" /></svg></button>
                     <button type="button" onClick={() => openDeleteIngredientPopup(item)} disabled={busyIngredientId === item.id} title={th ? "ลบวัตถุดิบ" : "Delete ingredient"} aria-label={th ? "ลบวัตถุดิบ" : "Delete ingredient"} className="inline-flex min-h-8 items-center justify-center rounded-lg border border-red-200 px-2 py-1 text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M3 6h18" /><path d="M8 6V4h8v2" /><path d="M19 6l-1 14H6L5 6" /><path d="M10 11v6" /><path d="M14 11v6" /></svg></button>
                     <button type="button" onClick={() => openIngredientStockPopup(item)} disabled={busyIngredientId === item.id} title={th ? "ปรับสต๊อกวัตถุดิบ" : "Adjust ingredient stock"} aria-label={th ? "ปรับสต๊อกวัตถุดิบ" : "Adjust ingredient stock"} className="inline-flex min-h-8 items-center justify-center rounded-lg border border-emerald-200 px-2 py-1 text-emerald-700 hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-60"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M12 5v14" /><path d="M5 12h14" /></svg></button>
@@ -935,7 +935,7 @@ const headerTools = (
         </div>
       ) : (
         <div className="max-h-[45vh] overflow-auto rounded-xl border border-slate-200">
-          <table className="min-w-[1140px] w-full border-collapse">
+          <table className="min-w-[1080px] w-full border-collapse">
             <thead className="sticky top-0 z-10 bg-slate-50">
               <tr className="bg-slate-50">
                 <th className="border-b border-slate-200 px-3 py-2 text-left"><input type="checkbox" checked={filteredProducts.length > 0 && selectedFilteredProductIds.length === filteredProducts.length} onChange={toggleSelectAllFilteredProducts} aria-label={th ? "เลือกสินค้าทั้งหมดตามตัวกรอง" : "Select all filtered products"} className="h-4 w-4 rounded border-slate-300" /></th>
@@ -964,7 +964,7 @@ const headerTools = (
                   </td>
                   <td className="border-b border-slate-100 px-3 py-3 text-right text-sm font-bold text-orange-600">{formatMoney(item.delivery_price_preview ?? item.price)}</td>
                   <td className="border-b border-slate-100 px-3 py-3">{(() => { const status = getSellableStockStatus(item.stock_on_hand_units, item.is_active, th); return <span className={`inline-flex min-h-7 items-center rounded-full border px-2.5 text-xs font-bold ${status.className}`}>{status.label}</span>; })()}</td>
-                  <td className="border-b border-slate-100 px-3 py-3"><div className="flex flex-wrap items-center gap-1.5">
+                  <td className="sticky right-0 z-10 min-w-[132px] border-b border-l border-slate-100 bg-white px-3 py-3 shadow-[-8px_0_12px_-12px_rgba(15,23,42,0.45)]"><div className="flex flex-nowrap items-center gap-1.5">
                     <EditProductPopupButton th={th} compact product={{ id: item.id, name: item.name, category: item.category, price: item.price, specialPrice: item.special_price ?? null, deliveryPrice: item.delivery_price_preview ?? item.price, isRecommended: item.is_recommended === true }} categories={categoryList} ingredients={ingredientList} deliveryRates={deliveryRates} branchId={branchId} disabled={!canManageCatalog} />
                     <StockRowActionIcons th={th} busy={busyProductId === item.id} onDelete={() => openDeactivateProductPopup(item)} onStock={() => openStockPopup(item)} disabled={!canManageCatalog} />
                   </div></td>
