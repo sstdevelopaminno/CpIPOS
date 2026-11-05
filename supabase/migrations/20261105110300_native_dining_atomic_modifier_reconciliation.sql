@@ -25,6 +25,18 @@ begin
   if not found then raise exception 'ORDER_NOT_FOUND'; end if;
   if v_order.status<>'queued' then raise exception 'ORDER_NOT_QUEUED'; end if;
   if v_order.order_type<>'dine_in' then raise exception 'ORDER_NOT_DINE_IN'; end if;
+  -- Legacy Web/tablet table editors do not yet preserve Native option snapshots.
+  -- Do not let such an edit silently erase selected ingredients or special prices.
+  if exists (
+    select 1 from public.order_items oi
+    where oi.order_id=p_order_id and oi.tenant_id=p_tenant_id and oi.branch_id=p_branch_id
+      and oi.quantity>0 and oi.metadata ? 'native_selection'
+  ) and exists (
+    select 1 from jsonb_array_elements(p_items) proposed(value)
+    where not (proposed.value ? 'native_selection')
+  ) then
+    raise exception 'NATIVE_SELECTION_SNAPSHOT_REQUIRED';
+  end if;
   if not exists(select 1 from public.shifts sh where sh.id=p_shift_id and sh.tenant_id=p_tenant_id and sh.branch_id=p_branch_id and sh.status='open') then raise exception 'SHIFT_NOT_OPEN'; end if;
   create temporary table if not exists pg_temp.dine_in_target_items(product_id uuid not null,notes text,quantity numeric(12,3) not null,unit_price numeric(12,2) not null,line_total numeric(12,2) not null,product_name text,product_active boolean not null,order_item_id uuid,existing_quantity numeric(12,3),delta numeric(12,3)) on commit drop;
   alter table pg_temp.dine_in_target_items add column if not exists native_metadata jsonb not null default '{}'::jsonb;
