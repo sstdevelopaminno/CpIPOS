@@ -114,6 +114,11 @@ export async function resolveNativeMobileSaleLines(args: {
   items: NativeOrderLineInput[];
 }): Promise<NativeSaleCheck> {
   const { tenantId, branchId, items } = args;
+  // Require explicit Production acceptance AND applied atomic SQL migrations.
+  // Older Native builds keep using existing non-configured POS endpoints.
+  if (process.env.NATIVE_ATOMIC_MENU_SALES_ENABLED !== "true") {
+    return invalid("native_atomic_menu_release_gate_not_enabled", 503);
+  }
   if (!Array.isArray(items) || items.length === 0 || items.length > 100) {
     return invalid("invalid_native_cart");
   }
