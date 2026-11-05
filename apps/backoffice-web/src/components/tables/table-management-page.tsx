@@ -659,8 +659,14 @@ export function TableManagementPage({ lang = "th", initialRole = null }: { lang?
 
   async function submitTableForm(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    const tableCode = tableForm.table_code.trim();
+    if (!tableCode) {
+      setError(lang === "th" ? "กรุณาระบุหมายเลขโต๊ะ" : "Table number is required.");
+      return;
+    }
     const payload = {
       zone_id: tableForm.zone_id || null,
+      table_code: tableCode,
       table_name: tableForm.table_name.trim() || null,
       capacity: Number(tableForm.capacity),
       status: tableForm.status,
@@ -1422,7 +1428,15 @@ export function TableManagementPage({ lang = "th", initialRole = null }: { lang?
                   onChange={(event) => setQuickCreateForm((current) => ({ ...current, zone_name: event.target.value }))}
                   placeholder={text.zoneName}
                 />
-                <input value={text.autoTableCode(nextAutoTableCode)} placeholder={text.tableCode} disabled aria-label={text.tableCode} />
+                <label className="table-editor-field">
+                  <span>{text.tableCode}</span>
+                  <input value={text.autoTableCode(nextAutoTableCode)} placeholder={text.tableCode} disabled aria-label={text.tableCode} />
+                  <small>
+                    {lang === "th"
+                      ? "เพิ่มโต๊ะใหม่จะรันหมายเลขถัดไปให้อัตโนมัติ"
+                      : "New tables automatically receive the next table number."}
+                  </small>
+                </label>
                 <input
                   value={quickCreateForm.table_name}
                   onChange={(event) => setQuickCreateForm((current) => ({ ...current, table_name: event.target.value }))}
@@ -1447,17 +1461,31 @@ export function TableManagementPage({ lang = "th", initialRole = null }: { lang?
               </form>
             ) : (
               <form onSubmit={submitTableForm} className="table-editor-dialog__form">
-                <input
-                  value={tableForm.table_code}
-                  placeholder={text.tableCode}
-                  disabled
-                  aria-label={text.tableCode}
-                />
-                <input
-                  value={tableForm.table_name}
-                  onChange={(event) => setTableForm((current) => ({ ...current, table_name: event.target.value }))}
-                  placeholder={text.tableName}
-                />
+                <label className="table-editor-field">
+                  <span>{text.tableCode}</span>
+                  <input
+                    value={tableForm.table_code}
+                    onChange={(event) => setTableForm((current) => ({ ...current, table_code: event.target.value }))}
+                    placeholder={text.tableCode}
+                    aria-label={text.tableCode}
+                    maxLength={64}
+                    autoComplete="off"
+                    required
+                  />
+                  <small>
+                    {lang === "th"
+                      ? "ระบบกำหนดเลขรันอัตโนมัติเมื่อเพิ่มโต๊ะ และแก้หมายเลขโต๊ะได้ภายหลัง"
+                      : "The table number is generated automatically on create and can be edited later."}
+                  </small>
+                </label>
+                <label className="table-editor-field">
+                  <span>{text.tableName}</span>
+                  <input
+                    value={tableForm.table_name}
+                    onChange={(event) => setTableForm((current) => ({ ...current, table_name: event.target.value }))}
+                    placeholder={text.tableName}
+                  />
+                </label>
                 <select value={tableForm.zone_id} onChange={(event) => setTableForm((current) => ({ ...current, zone_id: event.target.value }))}>
                   <option value="">{text.unassigned}</option>
                   {zones.map((zone) => (
