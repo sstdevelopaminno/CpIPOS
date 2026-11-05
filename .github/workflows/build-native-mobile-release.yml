@@ -2,32 +2,51 @@ name: Build CpIPOS Native Mobile Release
 
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - main
-    paths:
-      - ".github/workflows/build-native-mobile-release.yml"
+    inputs:
+      native_source_sha:
+        description: "Reviewed Native main commit SHA (40 lowercase hex)"
+        type: string
+        required: true
+      version_name:
+        description: "Final semantic version e.g. 2.1.0"
+        type: string
+        required: true
+      version_code:
+        description: "Monotonically increasing Android versionCode"
+        type: string
+        required: true
+      publish_stable:
+        description: "Publish the final customer APK after physical acceptance (never auto-publish)"
+        type: boolean
+        default: false
+        required: true
 
 permissions:
   contents: write
 
 env:
   NATIVE_REPOSITORY: sstdevelopaminno/cpipos-native-pos
-  NATIVE_SOURCE_SHA: 09c095232c9b2082fde73728f2fb34647788f09d
-  NATIVE_VERSION_NAME: 2.0.0
-  NATIVE_VERSION_CODE: "2000000"
-  NATIVE_RELEASE_TAG: native-mobile-v2.0.0
-  NATIVE_APK_ASSET_NAME: CpIPOS-Native-Mobile-2.0.0.apk
-  NATIVE_MANIFEST_ASSET_NAME: CpIPOS-Native-Mobile-2.0.0.manifest.json
+  NATIVE_SOURCE_SHA: ${{ inputs.native_source_sha }}
+  NATIVE_VERSION_NAME: ${{ inputs.version_name }}
+  NATIVE_VERSION_CODE: ${{ inputs.version_code }}
+  NATIVE_RELEASE_TAG: native-mobile-v${{ inputs.version_name }}
+  NATIVE_APK_ASSET_NAME: CpIPOS-Native-Mobile-${{ inputs.version_name }}.apk
+  NATIVE_MANIFEST_ASSET_NAME: CpIPOS-Native-Mobile-${{ inputs.version_name }}.manifest.json
   ANDROID_SIGNING_CERT_SHA256: 6be0a9aef346a5b47162c8928c5018a01d0e7d81b4eb177bf2fb89922dc2a27a
 
 jobs:
   build-native-mobile-release:
-    name: Build signed Native Mobile 2.0.0
+    name: Build signed Native Mobile candidate
     runs-on: ubuntu-latest
     timeout-minutes: 35
 
     steps:
+      - name: Validate reviewed, explicit release inputs
+        run: |
+          set -euo pipefail
+          [[ "$NATIVE_SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::Source must be an exact reviewed Native commit"; exit 1; }
+          [[ "$NATIVE_VERSION_NAME" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "::error::Invalid final version name"; exit 1; }
+          [[ "$NATIVE_VERSION_CODE" =~ ^[1-9][0-9]*$ ]] || { echo "::error::Invalid Android versionCode"; exit 1; }
       - name: Checkout release authority
         uses: actions/checkout@v4
 
@@ -39,6 +58,14 @@ jobs:
           git fetch --depth 1 origin "$NATIVE_SOURCE_SHA"
           git checkout --detach "$NATIVE_SOURCE_SHA"
           test "$(git rev-parse HEAD)" = "$NATIVE_SOURCE_SHA"
+          # No public release may be built from a superseded branch/commit.
+          if [ "${{ inputs.publish_stable }}" = "true" ]; then
+            git fetch --depth 1 origin main
+            [ "$(git rev-parse origin/main)" = "$NATIVE_SOURCE_SHA" ] || {
+              echo "::error::Public stable release source must match Native main HEAD"
+              exit 1
+            }
+          fi
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
@@ -150,7 +177,7 @@ jobs:
       - name: Upload signed Native artifact
         uses: actions/upload-artifact@v4
         with:
-          name: CpIPOS-Native-Mobile-2.0.0-signed
+          name: CpIPOS-Native-Mobile-${{ inputs.version_name }}-signed
           path: |
             artifacts/${{ env.NATIVE_APK_ASSET_NAME }}
             artifacts/${{ env.NATIVE_MANIFEST_ASSET_NAME }}
@@ -158,6 +185,7 @@ jobs:
           if-no-files-found: error
 
       - name: Publish stable Native Mobile release
+        if: ${{ inputs.publish_stable }}
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -166,7 +194,8 @@ jobs:
           apk="artifacts/$NATIVE_APK_ASSET_NAME"
           manifest="artifacts/$NATIVE_MANIFEST_ASSET_NAME"
           if gh release view "$tag" >/dev/null 2>&1; then
-            gh release upload "$tag" "$apk" "$manifest" --clobber
+            echo "::error::Stable release exists; never overwrite an APK customers may already have."
+            exit 1
           else
             gh release create "$tag" "$apk" "$manifest"               --target "$GITHUB_SHA"               --title "CpIPOS Native Mobile $NATIVE_VERSION_NAME"               --notes "Signed Native Android POS for phones. Android 8.0+ (API 26). Source is pinned to cpipos-native-pos $NATIVE_SOURCE_SHA. Uses the existing CpIPOS stable Android signing identity."
           fi
