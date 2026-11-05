@@ -7,7 +7,7 @@ const rootSrc = (path: string) => readFileSync(resolve(process.cwd(), "../..", p
 
 describe("ingredient unit manager", () => {
   it("persists branch-scoped unit definitions behind service-role-only RLS", () => {
-    const migration = rootSrc("supabase/migrations/20261105164000_ingredient_unit_definitions.sql");
+    const migration = rootSrc("supabase/migrations/20261105164401_ingredient_unit_definitions_20261105.sql");
     expect(migration).toContain("create table if not exists public.ingredient_unit_definitions");
     expect(migration).toContain("unique (tenant_id, branch_id, unit_value)");
     expect(migration).toContain("enable row level security");
