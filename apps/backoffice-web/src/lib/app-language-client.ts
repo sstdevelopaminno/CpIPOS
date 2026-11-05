@@ -18,18 +18,20 @@ function getBrowserLanguage(): AppLanguage {
 
 function readLanguageFromClientStorage(): AppLanguage | null {
   if (typeof window === "undefined") return null;
-  // POS and pre-entry previously wrote different keys. The POS language is
-  // authoritative when leaving the sales screen and returning to login.
+
+  // The server updates pos_lang when an employee is verified. Read cookies
+  // before localStorage so a previous employee on the same terminal cannot
+  // override the newly authenticated employee's preference.
+  const cookieEntries = document.cookie.split(";").map((entry) => entry.trim());
+  for (const key of ["pos_lang", LANGUAGE_COOKIE_KEY]) {
+    const value = cookieEntries.find((entry) => entry.startsWith(`${key}=`))?.split("=")[1];
+    if (value === "th" || value === "en" || value === "lo") return value;
+  }
+
   const posStorage = window.localStorage.getItem("pos_lang");
   if (posStorage === "th" || posStorage === "en" || posStorage === "lo") return posStorage;
   const fromStorage = window.localStorage.getItem(LANGUAGE_STORAGE_KEY);
   if (fromStorage === "th" || fromStorage === "en" || fromStorage === "lo") return fromStorage;
-  const fromCookie = document.cookie
-    .split(";")
-    .map((entry) => entry.trim())
-    .find((entry) => entry.startsWith(`${LANGUAGE_COOKIE_KEY}=`))
-    ?.split("=")[1];
-  if (fromCookie === "th" || fromCookie === "en" || fromCookie === "lo") return fromCookie;
   return null;
 }
 
