@@ -22,6 +22,7 @@ type ProductItem = {
   category: string | null;
   price: number;
   deliveryPrice: number;
+  specialPrice?: number | null;
   isRecommended?: boolean;
 };
 
@@ -148,6 +149,7 @@ export function EditProductPopupButton({
   const [isRecommended, setIsRecommended] = useState(product.isRecommended === true);
   const [stockQuantity, setStockQuantity] = useState("0");
   const [storePrice, setStorePrice] = useState(String(product.price));
+  const [specialPrice, setSpecialPrice] = useState(product.specialPrice == null ? "" : String(product.specialPrice));
   const [deliveryPrice, setDeliveryPrice] = useState(String(product.deliveryPrice));
   const [autoDeliveryPricing, setAutoDeliveryPricing] = useState(false);
   const [autoDeliveryChannel, setAutoDeliveryChannel] = useState<"line_man" | "grab" | "shopee">(
@@ -169,11 +171,12 @@ export function EditProductPopupButton({
     setCategoryName(product.category ?? "");
     setProductName(product.name);
     setStorePrice(String(product.price));
+    setSpecialPrice(product.specialPrice == null ? "" : String(product.specialPrice));
     setDeliveryPrice(String(product.deliveryPrice));
     setAutoDeliveryPricing(false);
     setAutoDeliveryChannel(normalizedDeliveryRates[0]?.channel ?? "line_man");
     setIsRecommended(product.isRecommended === true);
-  }, [normalizedDeliveryRates, product.category, product.deliveryPrice, product.isRecommended, product.name, product.price]);
+  }, [normalizedDeliveryRates, product.category, product.deliveryPrice, product.isRecommended, product.name, product.price, product.specialPrice]);
 
   useEffect(() => {
     if (!autoDeliveryPricing) return;
@@ -199,6 +202,7 @@ export function EditProductPopupButton({
     setCategoryName(product.category ?? "");
     setProductName(product.name);
     setStorePrice(String(product.price));
+    setSpecialPrice(product.specialPrice == null ? "" : String(product.specialPrice));
     setDeliveryPrice(String(product.deliveryPrice));
     setAutoDeliveryPricing(false);
     setAutoDeliveryChannel(normalizedDeliveryRates[0]?.channel ?? "line_man");
@@ -319,6 +323,7 @@ export function EditProductPopupButton({
     const resolvedName = productName.trim();
     const resolvedStock = Number(stockQuantity);
     const resolvedStorePrice = Number(storePrice);
+    const resolvedSpecialPrice = specialPrice.trim() === "" ? null : Number(specialPrice);
     const resolvedDeliveryPrice = Number(deliveryPrice);
     const deliveryPriceByChannel = normalizedDeliveryRates.reduce(
       (acc, row) => {
@@ -341,6 +346,10 @@ export function EditProductPopupButton({
     }
     if (!Number.isFinite(resolvedStorePrice) || resolvedStorePrice < 0) {
       setErrorText(th ? "ราคาหน้าร้านต้องเป็น 0 หรือมากกว่า" : "Store price must be 0 or greater.");
+      return;
+    }
+    if (resolvedSpecialPrice !== null && (!Number.isFinite(resolvedSpecialPrice) || resolvedSpecialPrice < 0)) {
+      setErrorText(th ? "ราคาพิเศษต้องเป็นค่าว่าง หรือ 0 ขึ้นไป" : "Special price must be blank or 0 or greater.");
       return;
     }
     if (autoDeliveryPricing && !Number.isFinite(resolvedStorePrice)) {
@@ -383,6 +392,7 @@ export function EditProductPopupButton({
           category: resolvedCategory,
           stock_quantity: useIngredientRecipe ? 0 : resolvedStock,
           store_price: resolvedStorePrice,
+          special_price: resolvedSpecialPrice,
           delivery_price: resolvedDeliveryPrice,
           delivery_prices_by_channel: deliveryPriceByChannel,
           is_recommended: isRecommended,
@@ -484,6 +494,11 @@ export function EditProductPopupButton({
 
               <label className="grid gap-1 text-xs font-semibold text-slate-700"><span>{th ? "ชื่อสินค้า" : "Product Name"}</span><input value={productName} onChange={(event) => setProductName(event.target.value)} className="min-h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900" /></label>
               <label className="grid gap-1 text-xs font-semibold text-slate-700"><span>{th ? "ราคาหน้าร้าน" : "Store Price"}</span><input value={storePrice} onChange={(event) => setStorePrice(event.target.value)} type="number" min={0} step="0.01" className="min-h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900" /></label>
+              <label className="grid gap-1 text-xs font-semibold text-amber-800">
+                <span>{th ? "ราคาพิเศษ" : "Special Price"}</span>
+                <input value={specialPrice} onChange={(event) => setSpecialPrice(event.target.value)} type="number" min={0} step="0.01" placeholder={th ? "เว้นว่าง = ไม่มีราคาพิเศษ" : "Blank = no special price"} className="min-h-10 rounded-lg border border-amber-300 bg-amber-50 px-3 text-sm tabular-nums text-slate-900 outline-none ring-amber-200 focus:ring-2" />
+                <small className="font-medium text-amber-700">{th ? "หน้าขายกลับบ้าน/นั่งโต๊ะจะให้เลือกราคานี้ก่อนเพิ่มลงตะกร้า" : "Takeaway/dine-in POS will offer this price before adding."}</small>
+              </label>
               <label className="grid gap-1 text-xs font-semibold text-slate-700">
                 <span>{th ? "ราคาเดลิเวอรี่" : "Delivery Price"}</span>
                 <div className="inline-flex w-fit max-w-full items-center gap-2 rounded-lg border border-slate-200 bg-white px-2 py-1 text-[11px] font-semibold text-slate-700">
