@@ -199,6 +199,14 @@ type BluetoothReceiptPrintResponseBody = {
   error?: { code?: string; message?: string } | null;
 };
 
+type RoutedShiftPrintResponseBody = {
+  data?: {
+    queued?: boolean;
+    jobs?: BluetoothPrintJob[];
+  } | null;
+  error?: { code?: string; message?: string } | null;
+};
+
 function formatMoney(value: number, lang: Lang) {
   return new Intl.NumberFormat(lang==="lo" ? "lo-LA" : lang==="th" ? "th-TH" : "en-US", {
     minimumFractionDigits: 2,
@@ -832,11 +840,11 @@ export function PosShiftHistoryModule({ lang }: { lang: Lang }) {
             allBranches: "ทุกสาขา",
             finishAndExit: "เสร็จสิ้น",
             printing: "กำลังพิมพ์...",
-            printReceipt: "พิมพ์ใบสรุปผ่าน Bluetooth",
-            printRequiredHint: "ต้องมีสถานะพิมพ์ Bluetooth สำเร็จก่อน จึงจะไปหน้าเลือกสาขาได้",
-            printSuccessHint: "พิมพ์ Bluetooth สำเร็จแล้ว สามารถออกไปหน้าเลือกสาขาได้",
+            printReceipt: "พิมพ์ใบสรุปผ่านเครื่องที่ตั้งค่าไว้",
+            printRequiredHint: "การพิมพ์เป็นทางเลือก กะถูกปิดและบันทึกแล้ว",
+            printSuccessHint: "ส่งงานพิมพ์ไปยังเครื่องที่ตั้งค่าไว้แล้ว",
             printPendingHint: "กำลังตรวจสอบสถานะพิมพ์จากเครื่องจริง...",
-            printFailedHint: "ยังไม่พบผลพิมพ์สำเร็จจาก Bluetooth กรุณาลองพิมพ์อีกครั้ง",
+            printFailedHint: "ส่งงานพิมพ์ไม่สำเร็จ กรุณาตรวจการเชื่อมต่อเครื่องพิมพ์แล้วลองใหม่",
             printJobStatus: "สถานะพิมพ์",
             receiptStore: "ร้าน",
             receiptBranch: "สาขา",
@@ -896,11 +904,11 @@ export function PosShiftHistoryModule({ lang }: { lang: Lang }) {
             allBranches: "All branches",
             finishAndExit: "Done",
             printing: "Printing...",
-            printReceipt: "Print 58mm",
-            printRequiredHint: "Bluetooth printing is optional. The shift is already closed.",
-            printSuccessHint: "Bluetooth print succeeded. You can continue to branch selection.",
+            printReceipt: "Print via configured printer",
+            printRequiredHint: "Printing is optional. The shift is already closed.",
+            printSuccessHint: "The report was sent to the configured printer.",
             printPendingHint: "Checking live printer status...",
-            printFailedHint: "No successful Bluetooth print yet. Please retry printing.",
+            printFailedHint: "Print submission failed. Check the configured printer and retry.",
             printJobStatus: "Print jobs",
             receiptStore: "Store",
             receiptBranch: "Branch",
@@ -1323,46 +1331,47 @@ export function PosShiftHistoryModule({ lang }: { lang: Lang }) {
         }
       });
 
-      const response = await fetch("/api/pos/receipts/bluetooth", {
+      const response = await fetch(`/api/pos/shifts/${closeReceipt.shift_id}/print`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          order_id: null,
-          order_no: `SHIFT-CLOSE-${closeReceipt.shift_id.slice(0, 8)}`,
-          receipt_html: receiptHtml
+          request_id: crypto.randomUUID(),
+          report_html: receiptHtml
         })
       });
-      const body = (await response.json().catch(() => null)) as BluetoothReceiptPrintResponseBody | null;
-      const envelope = body?.data ?? null;
-      const jobs = Array.isArray(envelope?.data?.jobs) ? envelope.data.jobs : [];
+      const body = (await response.json().catch(() => null)) as RoutedShiftPrintResponseBody | null;
+      const jobs = Array.isArray(body?.data?.jobs) ? body.data.jobs : [];
       setReceiptPrintJobs(jobs);
 
       const printedCount = jobs.filter((job) => job.status === "printed").length;
       const failedCount = jobs.filter((job) => job.status === "failed").length;
       const unsettledCount = jobs.filter((job) => job.status === "pending" || job.status === "printing" || job.status === "retrying").length;
-      const isSuccess = response.ok && !body?.error && envelope?.ok === true && printedCount > 0 && failedCount === 0 && unsettledCount === 0;
+      const accepted = response.ok && !body?.error && body?.data?.queued === true && jobs.length > 0 && failedCount === 0;
 
-      if (isSuccess) {
-        setReceiptPrinted(true);
-        setReceiptPrintStatus("printed");
+      if (accepted) {
+        // Wake the Windows in-session agent immediately. Android keeps its own
+        // adaptive 1/3/8/15/30-second claim loop and will pick up the same job.
+        window.dispatchEvent(new Event("cpi-windows-print-agent-wake"));
+        if (printedCount > 0 && unsettledCount === 0) {
+          setReceiptPrinted(true);
+          setReceiptPrintStatus("printed");
+        } else {
+          setReceiptPrintStatus("printing");
+        }
         return;
       }
 
-      const noPrinterCode = envelope?.code === "bluetooth_printer_not_configured";
-      const messageFromApi =
-        body?.error?.message ??
-        envelope?.message ??
-        (noPrinterCode
-          ? shiftCaption(lang, "ยังไม่ได้ตั้งค่าเครื่องพิมพ์ Bluetooth สำหรับใบเสร็จ", "Receipt printer is not configured.")
-          : shiftCaption(lang, "พิมพ์ Bluetooth ไม่สำเร็จ", "Receipt print failed."));
       setReceiptPrintStatus("failed");
-      setReceiptPrintError(messageFromApi);
+      setReceiptPrintError(
+        body?.error?.message ??
+          shiftCaption(lang, "ส่งงานพิมพ์ไม่สำเร็จ กรุณาตรวจการเชื่อมต่อเครื่องพิมพ์", "Unable to queue the shift report. Check printer connectivity.")
+      );
     } catch (printError) {
       setReceiptPrintStatus("failed");
       setReceiptPrintError(
         printError instanceof Error
           ? printError.message
-          : shiftCaption(lang, "พิมพ์ Bluetooth ไม่สำเร็จ", "Receipt print failed.")
+          : shiftCaption(lang, "ส่งงานพิมพ์ไม่สำเร็จ", "Shift report print failed.")
       );
     } finally {
       setBusy((current) => (current === "print" ? null : current));
