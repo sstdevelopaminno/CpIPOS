@@ -149,6 +149,22 @@ type DeleteCategoryPayload = {
   name: string;
 };
 
+type CreateIngredientUnitPayload = {
+  action: "create_ingredient_unit";
+  name: string;
+};
+
+type RenameIngredientUnitPayload = {
+  action: "rename_ingredient_unit";
+  unit_id: string;
+  name: string;
+};
+
+type DeleteIngredientUnitPayload = {
+  action: "delete_ingredient_unit";
+  unit_id: string;
+};
+
 type CatalogBranchScopedPayload = {
   branch_id?: string;
 };
@@ -168,7 +184,10 @@ type CatalogActionPayload =
   | BulkDeleteIngredientsPayload
   | CreateCategoryPayload
   | RenameCategoryPayload
-  | DeleteCategoryPayload;
+  | DeleteCategoryPayload
+  | CreateIngredientUnitPayload
+  | RenameIngredientUnitPayload
+  | DeleteIngredientUnitPayload;
 
 type PostgrestLikeError = {
   code?: string | null;
@@ -368,7 +387,7 @@ function normalizeRecipeQuantityUnit(unit: unknown): "gram" | "khid" | "kg" | "p
 
 function isPieceBaseUnit(value: unknown): boolean {
   const normalized = String(value ?? "").trim().toLowerCase();
-  return normalized === "piece" || normalized === "unit" || normalized === "ลูก";
+  return normalized === "piece" || normalized === "unit" || normalized === "ลูก" || normalized.startsWith("custom_piece_");
 }
 
 function toRecipeQuantityByIngredientBaseUnit(input: {
@@ -377,7 +396,11 @@ function toRecipeQuantityByIngredientBaseUnit(input: {
   ingredientBaseUnit: string;
 }): number {
   const ingredientBaseUnit = String(input.ingredientBaseUnit ?? "").trim().toLowerCase();
-  const isPieceBaseUnit = ingredientBaseUnit === "piece" || ingredientBaseUnit === "unit" || ingredientBaseUnit === "ลูก";
+  const isPieceBaseUnit =
+    ingredientBaseUnit === "piece" ||
+    ingredientBaseUnit === "unit" ||
+    ingredientBaseUnit === "ลูก" ||
+    ingredientBaseUnit.startsWith("custom_piece_");
 
   if (isPieceBaseUnit) {
     if (input.quantityUnit !== "piece") {
@@ -391,6 +414,33 @@ function toRecipeQuantityByIngredientBaseUnit(input: {
   }
 
   return toIntegerGrams(convertToGrams(input.quantity, input.quantityUnit));
+}
+
+const DEFAULT_INGREDIENT_UNITS = [
+  { unit_value: "gram", label_th: "กรัม", label_en: "gram", calculation_kind: "weight", is_system: true, sort_order: 10 },
+  { unit_value: "kg", label_th: "กิโลกรัม", label_en: "kg", calculation_kind: "weight", is_system: true, sort_order: 20 },
+  { unit_value: "khid", label_th: "ขีด", label_en: "khid", calculation_kind: "weight", is_system: true, sort_order: 30 },
+  { unit_value: "bag", label_th: "ถุง", label_en: "bag", calculation_kind: "weight", is_system: true, sort_order: 40 },
+  { unit_value: "ลูก", label_th: "ลูก", label_en: "piece (round)", calculation_kind: "count", is_system: true, sort_order: 50 },
+  { unit_value: "ชิ้น", label_th: "ชิ้น", label_en: "piece", calculation_kind: "count", is_system: true, sort_order: 60 }
+] as const;
+
+async function ensureIngredientUnitDefaults(input: {
+  supabase: ReturnType<typeof getSupabaseServiceClient>;
+  tenantId: string;
+  branchId: string;
+}) {
+  const rows = DEFAULT_INGREDIENT_UNITS.map((row) => ({
+    tenant_id: input.tenantId,
+    branch_id: input.branchId,
+    ...row
+  }));
+  const { error } = await input.supabase
+    .from("ingredient_unit_definitions")
+    .upsert(rows, { onConflict: "tenant_id,branch_id,unit_value", ignoreDuplicates: true });
+  if (error && !isMissingTableError(error, "ingredient_unit_definitions")) {
+    throw new Error(`ingredient_unit_defaults_failed:${error.message}`);
+  }
 }
 
 export async function GET(req: Request) {
@@ -414,6 +464,58 @@ export async function GET(req: Request) {
     const from = (page - 1) * pageSize;
     const to = from + pageSize - 1;
     const search = sanitizeSearchTerm(searchParams.get("search"));
+
+    if (view === "ingredient_units") {
+      await ensureIngredientUnitDefaults({
+        supabase,
+        tenantId: auth.tenantId!,
+        branchId: scopedBranchId
+      });
+      const units = await supabase
+        .from("ingredient_unit_definitions")
+        .select("id,unit_value,label_th,label_en,calculation_kind,is_system,is_active,sort_order,created_at,updated_at")
+        .eq("tenant_id", auth.tenantId!)
+        .eq("branch_id", scopedBranchId)
+        .eq("is_active", true)
+        .order("sort_order", { ascending: true })
+        .order("created_at", { ascending: true });
+      if (units.error) {
+        if (isMissingTableError(units.error, "ingredient_unit_definitions")) {
+          return ok({
+            view: "ingredient_units",
+            items: DEFAULT_INGREDIENT_UNITS.map((row, index) => ({
+              id: `legacy-${index}`,
+              ...row,
+              is_active: true
+            })),
+            storage_ready: false
+          });
+        }
+        return fail("ingredient_units_query_failed", units.error.message, 500);
+      }
+
+      const usageRows = await supabase
+        .from("ingredients")
+        .select("base_unit")
+        .eq("tenant_id", auth.tenantId!)
+        .eq("branch_id", scopedBranchId)
+        .not("name", "ilike", `${ARCHIVED_INGREDIENT_PREFIX}%`);
+      if (usageRows.error) return fail("ingredient_units_usage_query_failed", usageRows.error.message, 500);
+      const usage = new Map<string, number>();
+      for (const row of usageRows.data ?? []) {
+        const key = String(row.base_unit ?? "");
+        usage.set(key, (usage.get(key) ?? 0) + 1);
+      }
+
+      return ok({
+        view: "ingredient_units",
+        items: (units.data ?? []).map((row) => ({
+          ...row,
+          usage_count: usage.get(String(row.unit_value ?? "")) ?? 0
+        })),
+        storage_ready: true
+      });
+    }
 
     if (view === "ingredients") {
       const applyIngredientFilters = (query: any) => {
@@ -941,6 +1043,110 @@ export async function POST(req: Request) {
 
       return { ok: true as const, archived: true };
     };
+
+    if (body.action === "create_ingredient_unit") {
+      const name = String(body.name ?? "").trim().slice(0, 80);
+      if (!name) return fail("invalid_ingredient_unit_name", "Unit name is required.", 422);
+      await ensureIngredientUnitDefaults({ supabase, tenantId: auth.tenantId!, branchId: scopedBranchId });
+      const unitValue = `custom_piece_${crypto.randomUUID().replace(/-/g, "").slice(0, 12)}`;
+      const { data, error } = await supabase
+        .from("ingredient_unit_definitions")
+        .insert({
+          tenant_id: auth.tenantId!,
+          branch_id: scopedBranchId,
+          unit_value: unitValue,
+          label_th: name,
+          label_en: name,
+          calculation_kind: "count",
+          is_system: false,
+          is_active: true,
+          sort_order: 100,
+          created_by: auth.userId,
+          updated_by: auth.userId
+        })
+        .select("id,unit_value,label_th,label_en,calculation_kind,is_system,is_active,sort_order,created_at,updated_at")
+        .single();
+      if (error) {
+        if (error.code === "23505") return fail("ingredient_unit_duplicate", "Unit name already exists.", 409);
+        return fail("ingredient_unit_create_failed", error.message, 500);
+      }
+      return ok(data, 201);
+    }
+
+    if (body.action === "rename_ingredient_unit") {
+      const unitId = String(body.unit_id ?? "").trim();
+      const name = String(body.name ?? "").trim().slice(0, 80);
+      if (!unitId || !name) return fail("invalid_ingredient_unit", "unit_id and name are required.", 422);
+      const { data, error } = await supabase
+        .from("ingredient_unit_definitions")
+        .update({
+          label_th: name,
+          label_en: name,
+          updated_by: auth.userId,
+          updated_at: new Date().toISOString()
+        })
+        .eq("tenant_id", auth.tenantId!)
+        .eq("branch_id", scopedBranchId)
+        .eq("id", unitId)
+        .eq("is_active", true)
+        .select("id,unit_value,label_th,label_en,calculation_kind,is_system,is_active,sort_order,updated_at")
+        .maybeSingle();
+      if (error) {
+        if (error.code === "23505") return fail("ingredient_unit_duplicate", "Unit name already exists.", 409);
+        return fail("ingredient_unit_update_failed", error.message, 500);
+      }
+      if (!data) return fail("ingredient_unit_not_found", "Unit not found in this branch.", 404);
+      return ok(data);
+    }
+
+    if (body.action === "delete_ingredient_unit") {
+      const unitId = String(body.unit_id ?? "").trim();
+      if (!unitId) return fail("invalid_ingredient_unit_id", "unit_id is required.", 422);
+      const unit = await supabase
+        .from("ingredient_unit_definitions")
+        .select("id,unit_value,is_system")
+        .eq("tenant_id", auth.tenantId!)
+        .eq("branch_id", scopedBranchId)
+        .eq("id", unitId)
+        .eq("is_active", true)
+        .maybeSingle<{ id: string; unit_value: string; is_system: boolean }>();
+      if (unit.error) return fail("ingredient_unit_query_failed", unit.error.message, 500);
+      if (!unit.data) return fail("ingredient_unit_not_found", "Unit not found in this branch.", 404);
+
+      const usage = await supabase
+        .from("ingredients")
+        .select("id", { count: "exact", head: true })
+        .eq("tenant_id", auth.tenantId!)
+        .eq("branch_id", scopedBranchId)
+        .eq("base_unit", unit.data.unit_value)
+        .not("name", "ilike", `${ARCHIVED_INGREDIENT_PREFIX}%`);
+      if (usage.error) return fail("ingredient_unit_usage_query_failed", usage.error.message, 500);
+      const usageCount = usage.count ?? 0;
+
+      if (!unit.data.is_system && usageCount === 0) {
+        const deleted = await supabase
+          .from("ingredient_unit_definitions")
+          .delete()
+          .eq("tenant_id", auth.tenantId!)
+          .eq("branch_id", scopedBranchId)
+          .eq("id", unitId);
+        if (deleted.error) return fail("ingredient_unit_delete_failed", deleted.error.message, 500);
+        return ok({ deleted: true, deactivated: false, usage_count: 0 });
+      }
+
+      const disabled = await supabase
+        .from("ingredient_unit_definitions")
+        .update({
+          is_active: false,
+          updated_by: auth.userId,
+          updated_at: new Date().toISOString()
+        })
+        .eq("tenant_id", auth.tenantId!)
+        .eq("branch_id", scopedBranchId)
+        .eq("id", unitId);
+      if (disabled.error) return fail("ingredient_unit_delete_failed", disabled.error.message, 500);
+      return ok({ deleted: true, deactivated: true, usage_count: usageCount });
+    }
 
     if (body.action === "create_category") {
       const name = body.name.trim();
