@@ -211,8 +211,8 @@ function formatKitchenClock(now: number, lang: AppLanguage) {
   return new Intl.DateTimeFormat(locale, { dateStyle: "medium", timeStyle: "short", timeZone: lang === "lo" ? "Asia/Vientiane" : "Asia/Bangkok" }).format(new Date(now));
 }
 
-export function KitchenKds() {
-  const { lang } = useAppLanguage("th");
+export function KitchenKds({ defaultLanguage = "th" }: { defaultLanguage?: AppLanguage }) {
+  const { lang } = useAppLanguage(defaultLanguage);
   const [tickets, setTickets] = useState<KitchenTicket[]>([]);
   const [loading, setLoading] = useState(false);
   const [initialLoaded, setInitialLoaded] = useState(false);
