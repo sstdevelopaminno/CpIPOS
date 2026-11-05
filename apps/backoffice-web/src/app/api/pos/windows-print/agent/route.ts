@@ -153,13 +153,13 @@ export async function POST(req: Request) {
       // Only explicit HTML receipts are supported in this Windows agent.
       const metadata = asRecord(job.metadata);
       const html = typeof metadata.payload_html === "string" ? metadata.payload_html : "";
-      if (job.printer_role !== "receipt" || !html.trim() ||
+      if ((job.printer_role !== "receipt" && job.printer_role !== "report") || !html.trim() ||
           html.length > 250_000 || !profiles.some(profile => profile.id === job.printer_id)) {
         await failPrintJob(agent, job.id, {
           agent_attempt_id: job.agent_attempt_id,
           retryable: false,
-          error_code: "windows_receipt_unsupported_payload",
-          error_message: "Windows agent supports only approved HTML receipts on assigned printer."
+          error_code: "windows_print_unsupported_payload",
+          error_message: "Windows agent supports only approved HTML receipt/report jobs on an assigned printer."
         });
         return storeNoCache(ok({ jobs: [], unsupported_job_held: true }));
       }
