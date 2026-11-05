@@ -35,7 +35,10 @@ type BillGroup = {
   tickets: KitchenTicket[];
 };
 
-const POLL_INTERVAL_MS = 3_000;
+const ACTIVE_POLL_INTERVAL_MS = 3_000;
+const IDLE_POLL_INTERVAL_MS = 8_000;
+const HIDDEN_POLL_INTERVAL_MS = 20_000;
+const MAX_ERROR_POLL_INTERVAL_MS = 30_000;
 const SEEN_TICKET_LIMIT = 300;
 const ALERT_EVENT_TYPES = new Set(["new", "add"]);
 const ACTIVE_STATUSES: KitchenStatus[] = ["queued", "acknowledged", "preparing"];
@@ -176,6 +179,9 @@ export function KitchenKds() {
   const [alertState, setAlertState] = useState<KitchenAlertState>({ open: false, count: 0, latest: null, soundBlocked: false });
 
   const inFlightRef = useRef(false);
+  const activeTicketCountRef = useRef(0);
+  const loadFailedRef = useRef(false);
+  const queueAbortRef = useRef<AbortController | null>(null);
   const baselineReadyRef = useRef(false);
   const seenAlertKeysRef = useRef<Set<string>>(new Set());
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -259,6 +265,7 @@ export function KitchenKds() {
       for (const ticket of alertable) seenAlertKeysRef.current.add(ticketAlertKey(ticket));
       trimSeenSet(seenAlertKeysRef.current);
       baselineReadyRef.current = true;
+      activeTicketCountRef.current = nextTickets.length;
       setTickets(nextTickets);
       return;
     }
@@ -270,6 +277,7 @@ export function KitchenKds() {
       return true;
     });
     trimSeenSet(seenAlertKeysRef.current);
+    activeTicketCountRef.current = nextTickets.length;
     setTickets(nextTickets);
     if (fresh.length > 0) showNewTicketAlert(fresh[fresh.length - 1], fresh.length);
   }, [showNewTicketAlert, unlockedZone?.id]);
@@ -288,19 +296,25 @@ export function KitchenKds() {
     if (inFlightRef.current || !unlockedZone?.id) return;
     inFlightRef.current = true;
     if (!silent && !initialLoaded) setLoading(true);
+    const controller = new AbortController();
+    queueAbortRef.current = controller;
     try {
       const params = new URLSearchParams({ status: ACTIVE_STATUSES.join(","), limit: "100", zone_id: unlockedZone.id });
-      const response = await fetch(`/api/pos/kitchen/queue?${params.toString()}`, { cache: "no-store" });
+      const response = await fetch(`/api/pos/kitchen/queue?${params.toString()}`, { cache: "no-store", signal: controller.signal });
       const body = (await response.json().catch(() => null)) as QueueResponse | null;
       if (!response.ok || !body?.data) throw new Error(body?.error?.message ?? "โหลดคิวครัวไม่สำเร็จ");
+      loadFailedRef.current = false;
       applyTickets(body.data.tickets ?? []);
       setError(null);
       setInitialLoaded(true);
     } catch (loadError) {
+      if (controller.signal.aborted) return;
+      loadFailedRef.current = true;
       setError(loadError instanceof Error ? loadError.message : "โหลดคิวครัวไม่สำเร็จ");
     } finally {
+      if (queueAbortRef.current === controller) queueAbortRef.current = null;
       inFlightRef.current = false;
-      if (!silent) setLoading(false);
+      if (!silent && !controller.signal.aborted) setLoading(false);
     }
   }, [applyTickets, initialLoaded, unlockedZone?.id]);
 
@@ -338,17 +352,64 @@ export function KitchenKds() {
   useEffect(() => {
     if (!unlockedZone?.id) return;
     baselineReadyRef.current = false;
-    void load(false);
-    const poll = window.setInterval(() => {
-      if (document.visibilityState === "visible") void load(true);
-    }, POLL_INTERVAL_MS);
+    let disposed = false;
+    let pollTimer: number | null = null;
+    let errorStreak = 0;
+
+    const scheduleNextPoll = (delayMs: number) => {
+      if (disposed) return;
+      if (pollTimer !== null) window.clearTimeout(pollTimer);
+      pollTimer = window.setTimeout(() => {
+        void pollQueue();
+      }, delayMs);
+    };
+
+    const pollQueue = async () => {
+      if (disposed) return;
+      if (document.visibilityState !== "visible") {
+        scheduleNextPoll(HIDDEN_POLL_INTERVAL_MS);
+        return;
+      }
+
+      await load(true);
+      if (disposed) return;
+      if (loadFailedRef.current) errorStreak = Math.min(errorStreak + 1, 4);
+      else errorStreak = 0;
+
+      const baseDelay = activeTicketCountRef.current > 0 ? ACTIVE_POLL_INTERVAL_MS : IDLE_POLL_INTERVAL_MS;
+      const nextDelay = loadFailedRef.current
+        ? Math.min(baseDelay * 2 ** Math.max(1, errorStreak), MAX_ERROR_POLL_INTERVAL_MS)
+        : baseDelay;
+      scheduleNextPoll(nextDelay);
+    };
+
+    void load(false).finally(() => {
+      if (!disposed) {
+        scheduleNextPoll(activeTicketCountRef.current > 0 ? ACTIVE_POLL_INTERVAL_MS : IDLE_POLL_INTERVAL_MS);
+      }
+    });
+
     const clock = window.setInterval(() => setNow(Date.now()), 30_000);
-    const onFocus = () => void load(true);
+    const onFocus = () => {
+      if (pollTimer !== null) window.clearTimeout(pollTimer);
+      void pollQueue();
+    };
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        if (pollTimer !== null) window.clearTimeout(pollTimer);
+        void pollQueue();
+      }
+    };
     window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onVisibilityChange);
     return () => {
-      window.clearInterval(poll);
+      disposed = true;
+      if (pollTimer !== null) window.clearTimeout(pollTimer);
+      queueAbortRef.current?.abort();
+      queueAbortRef.current = null;
       window.clearInterval(clock);
       window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
     };
   }, [load, unlockedZone?.id]);
 
@@ -417,6 +478,7 @@ export function KitchenKds() {
       if (targetStatus === "ready") {
         setTickets((current) => current.filter((row) => row.id !== ticket.id));
       }
+      void load(true);
       setError(null);
     } catch (transitionError) {
       setTickets((current) => current.map((row) => (row.id === ticket.id ? { ...row, status: previous } : row)));
@@ -462,6 +524,7 @@ export function KitchenKds() {
     try {
       await Promise.all(group.tickets.map((ticket) => setTicketStatusRemote(ticket, "ready")));
       setTickets((current) => current.filter((row) => !ids.has(row.id)));
+      void load(true);
       setError(null);
     } catch (finishError) {
       setTickets((current) => current.map((row) => {
