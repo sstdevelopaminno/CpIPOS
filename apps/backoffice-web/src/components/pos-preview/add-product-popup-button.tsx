@@ -161,6 +161,7 @@ export function AddProductPopupButton({
   const [isRecommended, setIsRecommended] = useState(false);
   const [stockQuantity, setStockQuantity] = useState("0");
   const [storePrice, setStorePrice] = useState("0");
+  const [specialPrice, setSpecialPrice] = useState("");
   const [deliveryPrice, setDeliveryPrice] = useState("0");
   const [autoDeliveryPricing, setAutoDeliveryPricing] = useState(false);
   const [autoDeliveryChannel, setAutoDeliveryChannel] = useState<"line_man" | "grab" | "shopee">(
@@ -248,6 +249,7 @@ export function AddProductPopupButton({
     setProductName("");
     setStockQuantity("0");
     setStorePrice("0");
+    setSpecialPrice("");
     setDeliveryPrice("0");
     setAutoDeliveryPricing(false);
     setAutoDeliveryChannel(normalizedDeliveryRates[0]?.channel ?? "line_man");
@@ -367,6 +369,7 @@ export function AddProductPopupButton({
     const resolvedName = productName.trim();
     const resolvedStock = Number(stockQuantity);
     const resolvedStorePrice = Number(storePrice);
+    const resolvedSpecialPrice = specialPrice.trim() === "" ? null : Number(specialPrice);
     const resolvedDeliveryPrice = Number(deliveryPrice);
     const deliveryPriceByChannel = normalizedDeliveryRates.reduce(
       (acc, row) => {
@@ -393,6 +396,10 @@ export function AddProductPopupButton({
     }
     if (!Number.isFinite(resolvedStorePrice) || resolvedStorePrice < 0) {
       setErrorText(th ? "ราคาหน้าร้านต้องเป็น 0 หรือมากกว่า" : "Store price must be 0 or greater.");
+      return;
+    }
+    if (resolvedSpecialPrice !== null && (!Number.isFinite(resolvedSpecialPrice) || resolvedSpecialPrice < 0)) {
+      setErrorText(th ? "ราคาพิเศษต้องเป็นค่าว่าง หรือ 0 ขึ้นไป" : "Special price must be blank or 0 or greater.");
       return;
     }
     if (!Number.isFinite(resolvedDeliveryPrice) || resolvedDeliveryPrice < 0) {
@@ -425,6 +432,7 @@ export function AddProductPopupButton({
           category: resolvedCategory,
           stock_quantity: resolvedStock,
           store_price: resolvedStorePrice,
+          special_price: resolvedSpecialPrice,
           delivery_price: resolvedDeliveryPrice,
           delivery_prices_by_channel: deliveryPriceByChannel,
           is_recommended: isRecommended,
@@ -815,8 +823,24 @@ export function AddProductPopupButton({
                     />
                   </label>
 
+                  <label className="grid gap-1 text-xs font-semibold text-amber-800">
+                    <span>{th ? "5. ราคาพิเศษ" : "5. Special Price"}</span>
+                    <input
+                      value={specialPrice}
+                      onChange={(event) => setSpecialPrice(event.target.value)}
+                      type="number"
+                      min={0}
+                      step="0.01"
+                      placeholder={th ? "เว้นว่าง = ไม่มีราคาพิเศษ" : "Blank = no special price"}
+                      className="h-10 w-full rounded-lg border border-amber-300 bg-amber-50 px-3 text-base tabular-nums text-slate-900 outline-none ring-amber-200 focus:ring-2"
+                    />
+                    <small className="font-medium text-amber-700">
+                      {th ? "ถ้ากำหนด หน้าขายกลับบ้าน/นั่งโต๊ะจะให้เลือกราคาก่อนเพิ่มลงตะกร้า" : "If set, takeaway/dine-in POS asks which price to use."}
+                    </small>
+                  </label>
+
                   <label className="grid gap-1 text-xs font-semibold text-slate-700">
-                    <span>{th ? "5. สินค้าแนะนำ" : "5. Recommended"}</span>
+                    <span>{th ? "6. สินค้าแนะนำ" : "6. Recommended"}</span>
                     <span className="inline-flex min-h-10 items-center gap-2 rounded-lg border border-red-200 bg-red-50 px-3 text-sm font-bold text-red-700">
                       <input
                         type="checkbox"
@@ -829,7 +853,7 @@ export function AddProductPopupButton({
                   </label>
 
                   <label className="grid gap-1 text-xs font-semibold text-slate-700">
-                    <span>{th ? "6. ราคาเดลิเวอรี่" : "6. Delivery Price"}</span>
+                    <span>{th ? "7. ราคาเดลิเวอรี่" : "7. Delivery Price"}</span>
                     <div className="inline-flex w-fit max-w-full items-center gap-2 rounded-lg border border-slate-200 bg-white px-2 py-1 text-[11px] font-semibold text-slate-700">
                       <input
                         type="checkbox"
