@@ -46,7 +46,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: CpIPOS-Native-Mobile-2.1.0-QA-signed
-          run-id: 41987857435
+          run-id: 42006023951
           repository: sstdevelopaminno/CpIPOS
           github-token: ${{ github.token }}
           path: qa
@@ -66,7 +66,7 @@ jobs:
           assert metadata['package_name'] == 'com.cpipos.pos.next'
           assert metadata['version_code'] == 2010000
           assert metadata['version_name'] == '2.1.0'
-          assert metadata['source_commit'] == 'd4c6984beb0ead0e898cacff5276d4699fc98e76'
+          assert metadata['source_commit'] == '73a72678a9b8ef523786a33274ffdd0631dcfe29'
           assert hashlib.sha256(path.read_bytes()).hexdigest() == metadata['sha256']
           PY
           apksignerPath=$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)
