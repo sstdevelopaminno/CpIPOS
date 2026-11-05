@@ -1388,7 +1388,37 @@ export async function reprintOrderReceipt(auth: AuthContext, orderId: string, de
       printerRole: "receipt",
       payloadText: payload,
       payloadJson: receiptStorePayload(storeProfile),
-      metadata: { reprint: true, ...receiptStorePayload(storeProfile) }
+      metadata: {
+        reprint: true,
+        ...receiptStorePayload(storeProfile),
+        payload_format: "receipt_html_v1",
+        payload_html: renderReceiptHtml({
+          paperWidthMm: printer.paper_width_mm,
+          currencyCode: "THB",
+          languageCode: "th",
+          storeName: storeProfile?.display_name ?? storeProfile?.name ?? String(branchResult.data?.name ?? "CpIPOS"),
+          branchName: String(branchResult.data?.name ?? storeProfile?.display_name ?? "Branch POS"),
+          logoUrl: storeProfile?.logo_url ?? undefined,
+          storeAddress: storeProfile?.company_address ?? undefined,
+          storePhone: storeProfile?.contact_phone ?? undefined,
+          sellerName: String(cashierResult.data?.full_name ?? orderRow.created_by ?? auth.userId),
+          modeLabel: null,
+          orderNo: String(orderRow.order_no),
+          paidAtIso: orderRow.payment_completed_at ?? orderRow.created_at ?? nowIso(),
+          items: (receiptItems.length > 0 ? receiptItems : [{ name: "Reprint copy", qty: 1, unit_price: 0, line_total: 0 }]).map((item) => ({
+            name: item.name,
+            quantity: item.qty,
+            unitPrice: item.unit_price,
+            lineTotal: item.line_total
+          })),
+          discountAmount: Number(orderRow.discount_amount ?? 0),
+          taxAmount: Number(orderRow.tax_total ?? 0),
+          totalAmount,
+          paymentMethod,
+          note: null,
+          reprint: true
+        })
+      }
     });
     createdJobs.push(job);
     await processJob(job.id);
