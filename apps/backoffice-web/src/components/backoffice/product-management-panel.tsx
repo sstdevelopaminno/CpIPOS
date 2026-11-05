@@ -12,6 +12,7 @@ type ProductRow = {
   name: string;
   category: string;
   price: number;
+  special_price?: number | null;
   sell_unit: string;
   stock_deduction_mode: "unit_only" | "recipe_deduction";
   is_active: boolean;
@@ -207,6 +208,7 @@ export function ProductManagementPanel() {
         name: String(form.get("name") ?? ""),
         category: String(form.get("category") ?? ""),
         price: Number(form.get("price") ?? 0),
+        special_price: String(form.get("special_price") ?? "").trim() === "" ? null : Number(form.get("special_price")),
         sell_unit: String(form.get("sell_unit") ?? "ชิ้น"),
         stock_deduction_mode: String(form.get("stock_deduction_mode") ?? "unit_only"),
         is_active: true
@@ -245,6 +247,7 @@ export function ProductManagementPanel() {
         name: String(form.get("name") ?? ""),
         category: String(form.get("category") ?? ""),
         price: Number(form.get("price") ?? 0),
+        special_price: String(form.get("special_price") ?? "").trim() === "" ? null : Number(form.get("special_price")),
         sell_unit: String(form.get("sell_unit") ?? "ชิ้น"),
         stock_deduction_mode: String(form.get("stock_deduction_mode") ?? "unit_only"),
         is_active: String(form.get("is_active") ?? "true") === "true"
@@ -436,7 +439,7 @@ export function ProductManagementPanel() {
                             <p className="text-xs text-slate-500">{item.category}</p>
                           </td>
                           <td className="border-b border-slate-100 px-3 py-2 text-xs text-slate-700">{modeLabel(item.stock_deduction_mode)}</td>
-                          <td className="border-b border-slate-100 px-3 py-2 text-right text-sm font-bold text-slate-900">฿{money(item.price)}</td>
+                          <td className="border-b border-slate-100 px-3 py-2 text-right text-sm font-bold text-slate-900">฿{money(item.price)}{item.special_price != null ? <p className="text-xs text-emerald-700">พิเศษ ฿{money(item.special_price)}</p> : null}</td>
                           <td className="border-b border-slate-100 px-3 py-2 text-sm text-slate-700">{item.sell_unit}</td>
                           <td className="border-b border-slate-100 px-3 py-2">
                             <div className="flex flex-wrap gap-1.5">
@@ -545,6 +548,7 @@ export function ProductManagementPanel() {
               <input required name="name" placeholder="ชื่อสินค้า" className="min-h-10 rounded-lg border border-slate-300 px-3 text-sm" />
               <input required name="category" placeholder="หมวดหมู่" className="min-h-10 rounded-lg border border-slate-300 px-3 text-sm" />
               <input required name="price" type="number" min={0} step="0.01" placeholder="ราคา" className="min-h-10 rounded-lg border border-slate-300 px-3 text-sm" />
+              <input name="special_price" type="number" min={0} step="0.01" placeholder="ราคาพิเศษ (ไม่บังคับ)" className="min-h-10 rounded-lg border border-slate-300 px-3 text-sm" />
               <input name="sell_unit" defaultValue="ชิ้น" placeholder="หน่วยขาย" className="min-h-10 rounded-lg border border-slate-300 px-3 text-sm" />
               <select name="stock_deduction_mode" defaultValue="unit_only" className="min-h-10 rounded-lg border border-slate-300 px-3 text-sm">
                 <option value="unit_only">ประเภท 1: ขายแบบชิ้น</option>
@@ -713,6 +717,7 @@ export function ProductManagementPanel() {
             <input required name="name" defaultValue={editingProduct.name} className="min-h-10 rounded-lg border border-slate-300 px-3 text-sm" />
             <input required name="category" defaultValue={editingProduct.category} className="min-h-10 rounded-lg border border-slate-300 px-3 text-sm" />
             <input required name="price" type="number" min={0} step="0.01" defaultValue={editingProduct.price} className="min-h-10 rounded-lg border border-slate-300 px-3 text-sm" />
+            <input name="special_price" type="number" min={0} step="0.01" placeholder="ราคาพิเศษ (ไม่บังคับ)" defaultValue={editingProduct.special_price ?? ""} className="min-h-10 rounded-lg border border-slate-300 px-3 text-sm" />
             <input name="sell_unit" defaultValue={editingProduct.sell_unit} className="min-h-10 rounded-lg border border-slate-300 px-3 text-sm" />
             <select name="stock_deduction_mode" defaultValue={editingProduct.stock_deduction_mode} className="min-h-10 rounded-lg border border-slate-300 px-3 text-sm">
               <option value="unit_only">ประเภท 1: ขายแบบชิ้น</option>
