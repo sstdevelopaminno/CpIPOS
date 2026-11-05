@@ -4,6 +4,8 @@ import { getSupabaseServiceClient } from "@/lib/supabase-admin";
 
 export type BranchRole = "owner" | "manager" | "staff" | "accountant";
 
+export type PosPreferredLanguage = "th" | "en" | "lo";
+
 type EmployeeRow = {
   id: string;
   email: string;
@@ -11,6 +13,7 @@ type EmployeeRow = {
   is_active: boolean;
   role: BranchRole;
   employee_code: string | null;
+  preferred_language: PosPreferredLanguage;
 };
 
 export type EmployeeIdentity = {
@@ -18,6 +21,7 @@ export type EmployeeIdentity = {
   fullName: string;
   role: BranchRole;
   employeeCode: string;
+  preferredLanguage: PosPreferredLanguage;
   permissions: string[];
 };
 
@@ -66,6 +70,10 @@ function isDemoOwnerEmployeeCode(input: { email: string; role: BranchRole; codeC
 
 export function normalizeEmployeeCode(value: string) {
   return String(value ?? "").trim().toUpperCase();
+}
+
+export function normalizePreferredLanguage(value: unknown): PosPreferredLanguage {
+  return value === "en" || value === "lo" ? value : "th";
 }
 
 function normalizeEmpCandidate(value: string) {
@@ -174,6 +182,28 @@ async function loadEmployeeCodes(tenantId: string, userIds: string[]) {
   return codesByUser;
 }
 
+async function loadEmployeePreferredLanguages(tenantId: string, userIds: string[]) {
+  const supabase = getSupabaseServiceClient();
+  const languagesByUser = new Map<string, PosPreferredLanguage>();
+  if (!userIds.length) return languagesByUser;
+
+  const { data, error } = await supabase
+    .from("pos_user_profiles")
+    .select("user_id,preferred_language")
+    .eq("tenant_id", tenantId)
+    .in("user_id", userIds);
+
+  if (error) {
+    if (isMissingRelationError(error, "pos_user_profiles")) return languagesByUser;
+    throw new Error(error.message);
+  }
+
+  for (const row of (data ?? []) as Array<{ user_id: string; preferred_language: string | null }>) {
+    languagesByUser.set(row.user_id, normalizePreferredLanguage(row.preferred_language));
+  }
+  return languagesByUser;
+}
+
 async function resolveEmployeeByProfileCode(input: {
   tenantId: string;
   branchId: string;
@@ -185,7 +215,7 @@ async function resolveEmployeeByProfileCode(input: {
 
   const { data, error } = await supabase
     .from("pos_user_profiles")
-    .select("user_id,employee_code,users_profiles!inner(id,email,full_name,is_active)")
+    .select("user_id,employee_code,preferred_language,users_profiles!inner(id,email,full_name,is_active)")
     .eq("tenant_id", input.tenantId)
     .in("employee_code", candidates)
     .limit(10)
@@ -193,6 +223,7 @@ async function resolveEmployeeByProfileCode(input: {
       Array<{
       user_id: string;
       employee_code: string | null;
+      preferred_language: string | null;
       users_profiles:
         | { id: string; email: string; full_name: string; is_active: boolean }
         | Array<{ id: string; email: string; full_name: string; is_active: boolean }>;
@@ -227,6 +258,7 @@ async function resolveEmployeeByProfileCode(input: {
       fullName: profile.full_name,
       role,
       employeeCode: normalizeEmpCandidate(row.employee_code ?? candidates[0]),
+      preferredLanguage: normalizePreferredLanguage(row.preferred_language),
       permissions: roleToPermissions(role)
     };
   }
@@ -267,7 +299,11 @@ export async function resolveEmployeeByCode(input: {
     users_profiles: { id: string; email: string; full_name: string; is_active: boolean } | Array<{ id: string; email: string; full_name: string; is_active: boolean }>;
   }>;
 
-  const codeByUser = await loadEmployeeCodes(input.tenantId, rows.map((row) => row.user_id));
+  const userIds = rows.map((row) => row.user_id);
+  const [codeByUser, languageByUser] = await Promise.all([
+    loadEmployeeCodes(input.tenantId, userIds),
+    loadEmployeePreferredLanguages(input.tenantId, userIds)
+  ]);
   const employeeRows: EmployeeRow[] = rows
     .map((row) => {
       const profile = Array.isArray(row.users_profiles) ? row.users_profiles[0] : row.users_profiles;
@@ -278,7 +314,8 @@ export async function resolveEmployeeByCode(input: {
         full_name: profile.full_name,
         is_active: profile.is_active,
         role: row.role,
-        employee_code: codeByUser.get(profile.id) ?? deriveDemoEmployeeCode({ userId: profile.id, email: profile.email, role: row.role })
+        employee_code: codeByUser.get(profile.id) ?? deriveDemoEmployeeCode({ userId: profile.id, email: profile.email, role: row.role }),
+        preferred_language: languageByUser.get(profile.id) ?? "th"
       } satisfies EmployeeRow;
     })
     .filter((row): row is EmployeeRow => Boolean(row && row.is_active));
@@ -310,6 +347,7 @@ export async function resolveEmployeeByCode(input: {
     fullName: matched.full_name,
     role: matched.role,
     employeeCode: matched.employee_code || deriveEmployeeCode(matched.id),
+    preferredLanguage: matched.preferred_language,
     permissions
   };
 }
@@ -343,12 +381,16 @@ export async function resolveEmployeeByUserId(input: {
   const profile = Array.isArray(data.users_profiles) ? data.users_profiles[0] : data.users_profiles;
   if (!profile || profile.is_active === false) return null;
 
-  const codeByUser = await loadEmployeeCodes(input.tenantId, [profile.id]);
+  const [codeByUser, languageByUser] = await Promise.all([
+    loadEmployeeCodes(input.tenantId, [profile.id]),
+    loadEmployeePreferredLanguages(input.tenantId, [profile.id])
+  ]);
   return {
     userId: profile.id,
     fullName: profile.full_name,
     role: data.role,
     employeeCode: codeByUser.get(profile.id) || deriveEmployeeCode(profile.id),
+    preferredLanguage: languageByUser.get(profile.id) ?? "th",
     permissions: roleToPermissions(data.role)
   };
 }
@@ -378,7 +420,11 @@ export async function resolveEmployeeByName(input: {
     users_profiles: { id: string; email: string; full_name: string; is_active: boolean } | Array<{ id: string; email: string; full_name: string; is_active: boolean }>;
   }>;
 
-  const codeByUser = await loadEmployeeCodes(input.tenantId, rows.map((row) => row.user_id));
+  const nameUserIds = rows.map((row) => row.user_id);
+  const [codeByUser, languageByUser] = await Promise.all([
+    loadEmployeeCodes(input.tenantId, nameUserIds),
+    loadEmployeePreferredLanguages(input.tenantId, nameUserIds)
+  ]);
   const employeeRows: EmployeeRow[] = rows
     .map((row) => {
       const profile = Array.isArray(row.users_profiles) ? row.users_profiles[0] : row.users_profiles;
@@ -389,7 +435,8 @@ export async function resolveEmployeeByName(input: {
         full_name: profile.full_name,
         is_active: profile.is_active,
         role: row.role,
-        employee_code: codeByUser.get(profile.id) ?? null
+        employee_code: codeByUser.get(profile.id) ?? null,
+        preferred_language: languageByUser.get(profile.id) ?? "th"
       } satisfies EmployeeRow;
     })
     .filter((row): row is EmployeeRow => Boolean(row && row.is_active));
@@ -406,6 +453,7 @@ export async function resolveEmployeeByName(input: {
       fullName: matched.full_name,
       role: matched.role,
       employeeCode: matched.employee_code || deriveEmployeeCode(matched.id),
+      preferredLanguage: matched.preferred_language,
       permissions: roleToPermissions(matched.role)
     }
   };
