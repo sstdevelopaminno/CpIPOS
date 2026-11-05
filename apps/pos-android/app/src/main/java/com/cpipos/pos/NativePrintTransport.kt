@@ -142,7 +142,7 @@ internal class NativePrintTransport(context: Context) {
     private fun printUsb(printer: NativePrinterProfile, payload: ByteArray): NativePrintResult {
         val manager = usbManager ?: throw NativePrintException("usb_not_supported", false, "USB host is not available")
         val target = findUsbTarget(printer)
-            ?: throw NativePrintException("usb_printer_not_found", true, "No USB ESC/POS printer is connected")
+            ?: throw NativePrintException("usb_printer_not_found", false, "No USB ESC/POS printer is connected")
 
         if (!manager.hasPermission(target.device)) {
             val permissionIntent = PendingIntent.getBroadcast(
@@ -228,19 +228,19 @@ internal class NativePrintTransport(context: Context) {
 
         if (requestedDeviceName.isNotEmpty()) {
             return candidates.firstOrNull { it.device.deviceName == requestedDeviceName }
-                ?: throw NativePrintException("usb_printer_not_found", true, "Configured USB device path is not connected")
+                ?: throw NativePrintException("usb_printer_not_found", false, "Configured USB device path is not connected")
         }
 
         if (requestedSerial.isNotEmpty()) {
             val serialMatch = candidates.firstOrNull { safeUsbSerial(manager, it.device)?.equals(requestedSerial, ignoreCase = true) == true }
             return serialMatch
-                ?: throw NativePrintException("usb_printer_not_found", true, "Configured USB serial number is not connected or permission has not been granted")
+                ?: throw NativePrintException("usb_printer_not_found", false, "Configured USB serial number is not connected or permission has not been granted")
         }
 
         if (requestedIndex != null) {
             val normalizedIndex = if (requestedIndex > 0) requestedIndex - 1 else requestedIndex
             return candidates.getOrNull(normalizedIndex)
-                ?: throw NativePrintException("usb_printer_not_found", true, "Configured USB slot is outside the connected printer range")
+                ?: throw NativePrintException("usb_printer_not_found", false, "Configured USB slot is outside the connected printer range")
         }
 
         val savedBinding = readUsbBinding(printer.id)
