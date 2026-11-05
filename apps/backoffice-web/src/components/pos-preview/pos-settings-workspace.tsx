@@ -3256,19 +3256,37 @@ function CurrencySettingsPopup({ onClose, lang, canManage }: { onClose: () => vo
 }
 
 function LanguageSettingsPopup({ lang, labels, onClose }: { lang: Language; labels: Labels; onClose: () => void }) {
+  const [savingLanguage, setSavingLanguage] = useState<Language | null>(null);
+  const [languageError, setLanguageError] = useState("");
   const options: Array<{ code: Language; label: string; shortLabel: string }> = [
     { code: "th", label: labels.thai, shortLabel: "TH" },
     { code: "en", label: labels.english, shortLabel: "EN" },
     { code: "lo", label: "ລາວ", shortLabel: "LO" }
   ];
 
-  function switchLanguage(nextLang: Language) {
+  async function switchLanguage(nextLang: Language) {
     if (nextLang === lang) {
       onClose();
       return;
     }
-    persistPosLanguage(nextLang);
-    window.setTimeout(() => window.location.reload(), 80);
+    if (savingLanguage) return;
+    setSavingLanguage(nextLang);
+    setLanguageError("");
+    try {
+      const response = await fetch("/api/pos/settings/language", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ language: nextLang }),
+        cache: "no-store"
+      });
+      const payload = (await response.json().catch(() => null)) as { error?: { message?: string } | null } | null;
+      if (!response.ok) throw new Error(payload?.error?.message ?? "Unable to save language preference.");
+      persistPosLanguage(nextLang);
+      window.location.reload();
+    } catch (error) {
+      setLanguageError(error instanceof Error ? error.message : "Unable to save language preference.");
+      setSavingLanguage(null);
+    }
   }
 
   return (
@@ -3307,7 +3325,8 @@ function LanguageSettingsPopup({ lang, labels, onClose }: { lang: Language; labe
               <button
                 key={option.code}
                 type="button"
-                onClick={() => switchLanguage(option.code)}
+                onClick={() => void switchLanguage(option.code)}
+                disabled={Boolean(savingLanguage)}
                 className={`flex min-h-[72px] items-center gap-3 rounded-xl border px-4 text-left transition ${
                   active
                     ? "border-blue-500 bg-blue-50 text-blue-700"
@@ -3326,6 +3345,7 @@ function LanguageSettingsPopup({ lang, labels, onClose }: { lang: Language; labe
             );
           })}
         </div>
+        {languageError ? <p role="alert" className="mt-3 text-sm font-bold text-red-700">{languageError}</p> : null}
       </section>
     </div>
   );
