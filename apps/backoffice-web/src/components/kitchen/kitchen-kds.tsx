@@ -57,8 +57,8 @@ const KDS_TEXT = {
     items: "รายการ", alertHint: "แจ้งเตือนพร้อมเสียงจนกว่าจะกดรับทราบ", close: "ปิด", queue: "คิว", round: "รอบ",
     table: "โต๊ะ", bill: "บิล", mode: "โหมด", acknowledge: "รับทราบ", staleData: "ระบบยังคงแสดงข้อมูลล่าสุดและจะลองใหม่อัตโนมัติ",
     loadingQueue: "กำลังโหลดคิวครัว...", noOrders: "ไม่มีออเดอร์ครัวค้าง", saving: "กำลังบันทึก...", readyWholeBill: "พร้อมเสิร์ฟทั้งบิล",
-    roundNo: "รอบที่", foodItems: "รายการอาหาร", note: "หมายเหตุ", back: "ย้อนกลับ", loadFailed: kt(lang, "loadFailed"),
-    openFailed: kt(lang, "openFailed"), statusFailed: kt(lang, "statusFailed"), billFailed: kt(lang, "billFailed")
+    roundNo: "รอบที่", foodItems: "รายการอาหาร", note: "หมายเหตุ", back: "ย้อนกลับ", loadFailed: "โหลดคิวครัวไม่สำเร็จ",
+    openFailed: "เปิดจอครัวไม่สำเร็จ", statusFailed: "เปลี่ยนสถานะไม่สำเร็จ", billFailed: "อัปเดตทั้งบิลไม่สำเร็จ"
   },
   en: {
     waitingShort: "Waiting", acknowledged: "Accepted", preparing: "Preparing", ready: "Ready", cancelled: "Cancelled",
@@ -634,7 +634,7 @@ export function KitchenKds() {
 
       {alertState.soundBlocked ? (
         <button type="button" onClick={() => void armAlertSound()} className="mx-5 mt-3 shrink-0 rounded-lg border border-amber-300 bg-amber-50 px-4 py-2 text-sm font-black text-amber-800">
-          แตะเพื่อเปิดเสียงแจ้งเตือนออเดอร์ใหม่
+          {kt(lang, "enableSound")}
         </button>
       ) : null}
 
@@ -730,7 +730,7 @@ export function KitchenKds() {
                                       <span className="font-black">{item.product_name}</span>
                                       {item.notes ? <small className="block text-xs font-semibold text-orange-600">{item.notes}</small> : null}
                                     </div>
-                                    <div className="flex shrink-0 flex-col items-end gap-2"><strong className="text-lg">x{item.quantity}</strong>{item.action !== "cancel" ? <button type="button" onClick={() => void cancelItem(ticket, item)} disabled={ticketBusy || busyKeys.has(`item:${item.id}`)} className="rounded-lg border border-red-200 bg-red-50 px-2.5 py-1 text-xs font-black text-red-700 disabled:opacity-50">{"\u0e22\u0e01\u0e40\u0e25\u0e34\u0e01"}</button> : null}</div>
+                                    <div className="flex shrink-0 flex-col items-end gap-2"><strong className="text-lg">x{item.quantity}</strong>{item.action !== "cancel" ? <button type="button" onClick={() => void cancelItem(ticket, item)} disabled={ticketBusy || busyKeys.has(`item:${item.id}`)} className="rounded-lg border border-red-200 bg-red-50 px-2.5 py-1 text-xs font-black text-red-700 disabled:opacity-50">{kt(lang, "cancelled")}</button> : null}</div>
                                   </div>
                                 ))}
                               </div>
@@ -739,7 +739,7 @@ export function KitchenKds() {
                             <div className="mt-4 grid grid-cols-2 gap-2">
                               {previous ? (
                                 <button type="button" onClick={() => void transition(ticket, previous)} disabled={ticketBusy} className="rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm font-black text-slate-700 disabled:opacity-50">
-                                  ย้อนกลับ
+                                  {kt(lang, "back")}
                                 </button>
                               ) : <span />}
                               {next ? (
