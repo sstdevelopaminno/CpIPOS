@@ -12,7 +12,7 @@ permissions:
 
 env:
   NATIVE_REPOSITORY: sstdevelopaminno/cpipos-native-pos
-  NATIVE_SOURCE_SHA: d4c6984beb0ead0e898cacff5276d4699fc98e76
+  NATIVE_SOURCE_SHA: 73a72678a9b8ef523786a33274ffdd0631dcfe29
   NATIVE_VERSION_NAME: 2.1.0
   NATIVE_VERSION_CODE: '2010000'
   NATIVE_RELEASE_TAG: native-mobile-v2.1.0
