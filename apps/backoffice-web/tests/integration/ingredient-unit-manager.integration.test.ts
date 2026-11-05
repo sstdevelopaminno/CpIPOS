@@ -45,6 +45,8 @@ describe("ingredient unit manager", () => {
     expect(popup).toContain('action: "create_ingredient_unit"');
     expect(popup).toContain('action: "rename_ingredient_unit"');
     expect(popup).toContain('action: "delete_ingredient_unit"');
+    expect(popup).toContain('window.addEventListener("keydown"');
+    expect(popup).toContain("window.clearTimeout(closeTimerRef.current)");
   });
 
   it("hardens product-management modals against save/close races and stale body scroll", () => {
