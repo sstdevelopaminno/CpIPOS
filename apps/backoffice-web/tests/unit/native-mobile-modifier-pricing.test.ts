@@ -24,7 +24,7 @@ describe("Native Mobile canonical configured sale price", () => {
     const result = validateNativeSaleLine(item([OPT2], "special", 55), product, [group], options);
     expect(result.ok).toBe(true);
     if (result.ok) expect(result.items).toEqual([{
-      product_id: PRODUCT, quantity: 2, unit_price: 55, notes: "เส้นหมี่ | ไม่เผ็ด"
+      product_id: PRODUCT, quantity: 2, unit_price: 55, notes: "ราคาพิเศษ | เส้นหมี่ | ไม่เผ็ด"
     }]);
   });
 
