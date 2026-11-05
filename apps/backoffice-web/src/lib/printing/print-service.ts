@@ -1440,6 +1440,7 @@ export async function enqueuePrintJobsForOrderSnapshot(args: {
           unit_price: item.unit_price,
           line_total: item.line_total
         })),
+        subtotal: order.total_amount + order.discount_amount,
         discount_amount: order.discount_amount,
         tax_amount: 0,
         total_amount: order.total_amount,
