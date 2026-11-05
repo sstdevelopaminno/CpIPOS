@@ -244,7 +244,13 @@ export default async function PosStockPage({
         .eq("is_active", true)
         .order("updated_at", { ascending: false });
 
-      productsData = (legacyProducts.data ?? []).map((row) => ({ ...row, metadata: null, is_recommended: false, stock_deduction_mode: "unit_only" as const }));
+      productsData = (legacyProducts.data ?? []).map((row) => ({
+        ...row,
+        metadata: null,
+        is_recommended: false,
+        special_price: null,
+        stock_deduction_mode: "unit_only" as const
+      }));
       productsCount = legacyProducts.count ?? 0;
       productsError = legacyProducts.error as PostgrestErrorLike | null;
     }
