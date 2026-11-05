@@ -33,6 +33,21 @@ function runInBackground(task: () => Promise<unknown>) {
   });
 }
 
+function setLanguageCookies(response: NextResponse, language: "th" | "en" | "lo") {
+  const secure = process.env.NODE_ENV === "production";
+  for (const name of ["pos_lang", "sstipos_lang"]) {
+    response.cookies.set({
+      name,
+      value: language,
+      httpOnly: false,
+      secure,
+      sameSite: "lax",
+      path: "/",
+      maxAge: 60 * 60 * 24 * 365
+    });
+  }
+}
+
 function withTimingHeaders<T extends NextResponse>(response: T, startedAt: number): T {
   const durationMs = Date.now() - startedAt;
   response.headers.set("x-auth-api-ms", String(durationMs));
@@ -330,6 +345,7 @@ export async function POST(request: Request) {
     });
 
     writePreEntryFlowState(response, nextFlow);
+    setLanguageCookies(response, employee.preferredLanguage);
 
     runInBackground(() =>
       writeLoginAttempt({
