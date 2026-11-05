@@ -45,7 +45,7 @@ jobs:
         run: |
           set -euo pipefail
           [[ "$NATIVE_SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::Source must be an exact reviewed Native commit"; exit 1; }
-          [[ "$NATIVE_VERSION_NAME" =~ ^[0-9]+\\.[0-9]+\\.[0-9]+$ ]] || { echo "::error::Invalid final version name"; exit 1; }
+          [[ "$NATIVE_VERSION_NAME" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "::error::Invalid final version name"; exit 1; }
           [[ "$NATIVE_VERSION_CODE" =~ ^[1-9][0-9]*$ ]] || { echo "::error::Invalid Android versionCode"; exit 1; }
       - name: Checkout release authority
         uses: actions/checkout@v4
