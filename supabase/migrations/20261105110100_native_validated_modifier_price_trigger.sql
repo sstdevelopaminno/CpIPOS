@@ -90,19 +90,7 @@ begin
       v_selected_count := jsonb_array_length(v_selected);
       if v_selected_count > 24 or exists(
         select 1 from jsonb_array_elements_text(v_selected) selected(id)
-        where selected.id !~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}
-  else
-    if new.unit_price is null or new.unit_price < 0 then
-      raise exception 'INVALID_ITEM_UNIT_PRICE';
-    end if;
-    new.unit_price := round(new.unit_price::numeric, 2);
-    new.line_total := round(new.unit_price * new.quantity, 2);
-  end if;
-
-  return new;
-end;
-$function$
-
+        where selected.id !~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
       ) then
         raise exception 'INVALID_NATIVE_MODIFIER_IDS';
       end if;
