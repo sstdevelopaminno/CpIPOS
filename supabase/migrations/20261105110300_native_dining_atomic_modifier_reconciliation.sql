@@ -59,6 +59,13 @@ begin
   update public.order_items oi set metadata=coalesce(oi.metadata,'{}'::jsonb)||jsonb_build_object('kitchen_delta_quantity',abs(ti.delta),'kitchen_delta_kind','cancel') from pg_temp.dine_in_target_items ti where ti.order_item_id=oi.id and ti.delta<0 and oi.tenant_id=p_tenant_id and oi.branch_id=p_branch_id and oi.order_id=p_order_id;
   select coalesce(array_agg(oi.id order by oi.id),array[]::uuid[]) into v_cancel_item_ids from public.order_items oi where oi.tenant_id=p_tenant_id and oi.branch_id=p_branch_id and oi.order_id=p_order_id and oi.metadata->>'kitchen_delta_kind'='cancel' and coalesce((oi.metadata->>'kitchen_delta_quantity')::numeric,0)>0;
   if coalesce(array_length(v_cancel_item_ids,1),0)>0 then select md5(string_agg(id::text||':'||(metadata->>'kitchen_delta_quantity'),',' order by id)) into v_event_hash from public.order_items where id=any(v_cancel_item_ids); perform * from app.enqueue_kitchen_order(p_tenant_id,p_branch_id,p_order_id,'order:'||p_order_id::text||':pos-edit:cancel:'||v_event_hash,'cancel',v_cancel_item_ids); update public.order_items set metadata=metadata-'kitchen_delta_quantity'-'kitchen_delta_kind' where id=any(v_cancel_item_ids); end if;
+  -- Legacy Web/Tablet table changes are not affected by the Native-only stock
+  -- reconciliation. Canceled Native items retain their selection metadata.
+  if exists (
+    select 1 from public.order_items oi
+    where oi.order_id=p_order_id and oi.tenant_id=p_tenant_id
+      and oi.branch_id=p_branch_id and oi.metadata ? 'native_selection'
+  ) then
   -- Serialized under the existing queued order lock. Compare required stock
   -- with the actual sale movement ledger, including old table edits that lacked
   -- recipe deduction. A failed inventory update rolls back the entire edit.
@@ -99,6 +106,7 @@ begin
       -v_stock.delta,'POS dine-in recipe/option stock reconciliation',
       'orders',p_order_id,p_actor_user_id,null);
   end loop;
+  end if;
   update public.orders o set shift_id=p_shift_id,subtotal=v_subtotal,discount_amount=coalesce(p_discount_amount,0),gp_amount=coalesce(p_gp_amount,0),total_amount=v_total,tax_total=coalesce(p_tax_total,0),grand_total=v_total,metadata=coalesce(o.metadata,'{}'::jsonb)||jsonb_build_object('tax_lines',coalesce(p_tax_lines,'[]'::jsonb),'updated_from','pos_dine_in_rpc'),updated_at=now() where o.id=p_order_id and o.tenant_id=p_tenant_id and o.branch_id=p_branch_id and o.status='queued' returning * into v_order;
   if not found then raise exception 'ORDER_NOT_QUEUED'; end if;
   update public.table_bill_sessions s set order_id=p_order_id,status='ordering',metadata=coalesce(s.metadata,'{}'::jsonb)||jsonb_build_object('last_order_id',p_order_id,'last_order_no',v_order.order_no),updated_at=now() where s.id=v_session.id;
