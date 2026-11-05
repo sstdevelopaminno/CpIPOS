@@ -1,0 +1,45 @@
+name: Native Mobile Public API Smoke
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/build-native-mobile-release.yml"
+      - ".github/workflows/native-public-endpoint-smoke.yml"
+      - "apps/backoffice-web/src/app/api/android-pos/native-update-policy/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  public-native-update-contract:
+    name: Check public Native API without Vercel authentication
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Verify unauthenticated production Native update API
+        env:
+          API_URL: https://pos.cuttingpointinnovation.com
+        run: |
+          set -euo pipefail
+          # The malformed query is validated locally by the endpoint; it must
+          # return 422 JSON without a Supabase login or GitHub release request.
+          status=$(curl --max-time 15 --retry 3 --retry-delay 2 --silent --show-error \
+            -o /tmp/native-update.json -w '%{http_code}' \
+            "$API_URL/api/android-pos/native-update-policy?version_code=-1")
+          if [ "$status" != 422 ]; then
+            echo "::error::Native public endpoint returned $status, expected 422 JSON"
+            head -c 320 /tmp/native-update.json || true
+            exit 1
+          fi
+          jq -e '.ok == false and .reason == "invalid_version_code"' /tmp/native-update.json >/dev/null
+          # Stable release metadata may be missing between launches (503).
+          # Ensure the response is application JSON, not an SSO HTML page.
+          status=$(curl --max-time 15 --retry 3 --retry-delay 2 --silent --show-error \
+            -o /tmp/native-stable.json -w '%{http_code}' \
+            "$API_URL/api/android-pos/native-update-policy?version_code=0")
+          [[ "$status" == "200" || "$status" == "503" ]] || {
+            echo "::error::Unexpected native-update status $status"; exit 1;
+          }
+          jq -e 'has("ok") and has("updateAvailable")' /tmp/native-stable.json >/dev/null
+          echo "Native public API smoke passed (stable endpoint HTTP $status)"
