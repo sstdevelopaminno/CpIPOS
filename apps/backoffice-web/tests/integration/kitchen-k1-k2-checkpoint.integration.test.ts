@@ -81,6 +81,12 @@ describe("Kitchen K1/K2 checkpoint security and contracts", () => {
     expect(kdsSource).toContain("แจ้งเตือนพร้อมเสียงจนกว่าจะกดรับทราบ");
     expect(kdsSource).toContain("onClick={closeAlert}");
     expect(kdsSource).toContain("window.clearInterval");
+    expect(kdsSource).toContain("ACTIVE_POLL_INTERVAL_MS = 3_000");
+    expect(kdsSource).toContain("IDLE_POLL_INTERVAL_MS = 8_000");
+    expect(kdsSource).toContain("HIDDEN_POLL_INTERVAL_MS = 20_000");
+    expect(kdsSource).toContain("queueAbortRef.current?.abort()");
+    expect(kdsSource).toContain("scheduleNextPoll");
+    expect(kdsSource).not.toContain("const poll = window.setInterval");
     expect(kdsSource).toContain("/sounds/kitchen-alert.wav");
     expect(kdsSource).not.toContain("\\uFFFD");
     expect(kdsSource).not.toContain("http://");
