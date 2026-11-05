@@ -1,0 +1,106 @@
+name: Native Signed APK Upgrade Smoke (QA only)
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/native-mobile-signed-upgrade-smoke.yml"
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/native-mobile-signed-upgrade-smoke.yml"
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  signed-upgrade:
+    name: Install stable 2.0.0 then signed 2.1.0 / API ${{ matrix.api-level }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        api-level: [27, 35]
+
+    steps:
+      - name: Install Android tooling
+        uses: android-actions/setup-android@v4
+        with:
+          packages: "platform-tools platforms;android-35 build-tools;35.0.0"
+
+      - name: Download the existing public stable APK
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p qa
+          gh release download native-mobile-v2.0.0 \
+            --repo sstdevelopaminno/CpIPOS \
+            --pattern 'CpIPOS-Native-Mobile-2.0.0.apk' \
+            --dir qa
+          test -s qa/CpIPOS-Native-Mobile-2.0.0.apk
+
+      - name: Download the private signed 2.1.0 candidate (never publish)
+        uses: actions/download-artifact@v4
+        with:
+          name: CpIPOS-Native-Mobile-2.1.0-QA-signed
+          run-id: 41987857435
+          repository: sstdevelopaminno/CpIPOS
+          github-token: ${{ github.token }}
+          path: qa
+
+      - name: Validate APK digest, signing identity, version and package
+        run: |
+          set -euo pipefail
+          old=qa/CpIPOS-Native-Mobile-2.0.0.apk
+          candidate=qa/CpIPOS-Native-Mobile-2.1.0.apk
+          manifest=qa/CpIPOS-Native-Mobile-2.1.0.manifest.json
+          test -s "$old" && test -s "$candidate" && test -s "$manifest"
+          python3 - <<'PY'
+          from pathlib import Path
+          import hashlib, json
+          path = Path('qa/CpIPOS-Native-Mobile-2.1.0.apk')
+          metadata = json.loads(Path('qa/CpIPOS-Native-Mobile-2.1.0.manifest.json').read_text())
+          assert metadata['package_name'] == 'com.cpipos.pos.next'
+          assert metadata['version_code'] == 2010000
+          assert metadata['version_name'] == '2.1.0'
+          assert metadata['source_commit'] == 'd4c6984beb0ead0e898cacff5276d4699fc98e76'
+          assert hashlib.sha256(path.read_bytes()).hexdigest() == metadata['sha256']
+          PY
+          apksignerPath=$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)
+          aaptPath=$(find "$ANDROID_HOME/build-tools" -type f -name aapt | sort -V | tail -n 1)
+          "$apksignerPath" verify --print-certs "$old" > qa/old-certificate.txt
+          "$apksignerPath" verify --print-certs "$candidate" > qa/new-certificate.txt
+          oldCert=$(sed -n 's/^.*certificate SHA-256 digest: //p' qa/old-certificate.txt | head -1)
+          newCert=$(sed -n 's/^.*certificate SHA-256 digest: //p' qa/new-certificate.txt | head -1)
+          test -n "$oldCert" && test "$oldCert" = "$newCert"
+          echo "$newCert" | tr -d ':' | tr '[:upper:]' '[:lower:]' | grep -qx '6be0a9aef346a5b47162c8928c5018a01d0e7d81b4eb177bf2fb89922dc2a27a'
+          "$aaptPath" dump badging "$old" | head -n 1 | grep -q "package: name='com.cpipos.pos.next'"
+          "$aaptPath" dump badging "$candidate" | head -n 1 | grep -q "versionCode='2010000' versionName='2.1.0'"
+          rm -f qa/old-certificate.txt qa/new-certificate.txt
+
+      - name: Enable KVM for emulator
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Install over real stable APK and launch QA app
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: ${{ matrix.api-level }}
+          target: default
+          arch: x86_64
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
+          script: |
+            set -euo pipefail
+            adb install -r qa/CpIPOS-Native-Mobile-2.0.0.apk
+            adb shell pm path com.cpipos.pos.next | grep -q 'package:'
+            adb install -r qa/CpIPOS-Native-Mobile-2.1.0.apk
+            adb shell pm path com.cpipos.pos.next | grep -q 'package:'
+            adb shell dumpsys package com.cpipos.pos.next | grep -q 'versionCode=2010000'
+            adb shell dumpsys package com.cpipos.pos.next | grep -q 'versionName=2.1.0'
+            adb shell monkey -p com.cpipos.pos.next -c android.intent.category.LAUNCHER 1
