@@ -142,7 +142,7 @@ export async function POST(req: Request) {
       const name = label(body.name);
       const price = amount(body.price_delta);
       if (!name || !Number.isFinite(price) || Math.abs(price) > 999999 ||
-          Math.round(price * 100) !== price * 100) {
+          Math.abs(Math.round(price * 100) / 100 - price) > 0.000001) {
         return fail("invalid_modifier_option", "Check option name and price.", 422);
       }
       const values = {
@@ -177,7 +177,7 @@ export async function POST(req: Request) {
       if (ingredient.error || !ingredient.data) return fail("ingredient_not_in_branch", "Ingredient unavailable.", 404);
       const delta = amount(body.quantity_delta_per_item);
       if (!Number.isFinite(delta) || Math.abs(delta) > 1000000 ||
-        Math.round(delta * 1000) !== delta * 1000) {
+        Math.abs(Math.round(delta * 1000) / 1000 - delta) > 0.0000001) {
         return fail("invalid_ingredient_delta", "Use a quantity with up to three decimal places.", 422);
       }
       if (delta === 0) {
