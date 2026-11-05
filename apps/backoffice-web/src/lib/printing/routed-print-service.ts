@@ -726,7 +726,11 @@ export async function queueRoutedShiftReport(args: {
   auth: AuthContext;
   shiftId: string;
   runtimeDeviceCode?: string | null;
+  reportHtml?: string | null;
+  idempotencyKey?: string | null;
 }) {
+  const reportHtml = args.reportHtml?.trim() || null;
+  if (reportHtml && reportHtml.length > 250_000) throw new Error("shift_report_html_too_large");
   const supabase = getSupabaseServiceClient();
   const { data: shift, error: shiftError } = await supabase
     .from("shifts")
@@ -779,9 +783,20 @@ export async function queueRoutedShiftReport(args: {
       auth: args.auth,
       route,
       orderId: null,
+      idempotencyKey: args.idempotencyKey ?? null,
       printerRole: "report",
       payloadText: payload,
-      metadata: { request_source: "shift_close", shift_id: args.shiftId, paper_width_mm: route.printer.paper_width_mm }
+      payloadJson: {
+        shift_id: args.shiftId,
+        document_type: "shift_report"
+      },
+      metadata: {
+        request_source: "shift_close",
+        shift_id: args.shiftId,
+        document_type: "shift_report",
+        paper_width_mm: route.printer.paper_width_mm,
+        ...(reportHtml ? { payload_format: "shift_report_html_v1", payload_html: reportHtml } : {})
+      }
     }));
   }
   return jobs;
