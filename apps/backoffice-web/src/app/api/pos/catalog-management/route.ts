@@ -47,7 +47,7 @@ function normalizeRecipeUnit(value: unknown): "gram" | "khid" | "kg" | "piece" {
 
 function isPieceBaseUnit(value: unknown) {
   const unit = String(value ?? "").trim().toLowerCase();
-  return unit === "piece" || unit === "unit" || unit === "ลูก";
+  return unit === "piece" || unit === "unit" || unit === "ลูก" || unit.startsWith("custom_piece_");
 }
 
 function recipeQuantityForBaseUnit(input: {
