@@ -367,6 +367,7 @@ async function resolveOrderPricing(args: {
   const normalizedItems = body.items.map((item) => ({
     product_id: String(item.product_id ?? "").trim(),
     quantity: Number(item.quantity),
+    requested_unit_price: item.unit_price,
     notes: item.notes ?? null
   }));
   if (normalizedItems.some((item) => !item.product_id || !Number.isFinite(item.quantity) || item.quantity <= 0)) {
@@ -401,8 +402,10 @@ async function resolveOrderPricing(args: {
     const pricedItems = normalizedItems.map((item) => {
       const basePrice = productMap.get(item.product_id)?.price ?? 0;
       return {
-        ...item,
-        unit_price: sanitizeUnitPrice(body.items.find((entry) => entry.product_id === item.product_id)?.unit_price, basePrice)
+        product_id: item.product_id,
+        quantity: item.quantity,
+        notes: item.notes,
+        unit_price: sanitizeUnitPrice(item.requested_unit_price, basePrice)
       };
     });
     const subtotal = roundMoney(pricedItems.reduce((sum, item) => sum + item.unit_price * item.quantity, 0));
@@ -513,7 +516,9 @@ async function resolveOrderPricing(args: {
     const basePrice = productMap.get(item.product_id)?.price ?? 0;
     const appPrice = appPriceMap.get(item.product_id);
     return {
-      ...item,
+      product_id: item.product_id,
+      quantity: item.quantity,
+      notes: item.notes,
       unit_price: sanitizeUnitPrice(appPrice, basePrice)
     };
   });
