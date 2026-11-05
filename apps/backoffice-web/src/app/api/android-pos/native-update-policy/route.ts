@@ -24,7 +24,10 @@ async function getJson(url: string): Promise<unknown> {
       "Accept": "application/vnd.github+json",
       "User-Agent": "CpIPOS-Native-Mobile-Update"
     },
-    cache: "no-store",
+    // Server-side cache shields the unauthenticated public update endpoint
+    // from GitHub's 60 requests/hour IP limit. The client response itself
+    // remains no-store; newly published stable releases appear within 1 min.
+    next: { revalidate: 60 },
     signal: AbortSignal.timeout(10000)
   });
   if (!response.ok) throw new Error("update_metadata_not_available");
