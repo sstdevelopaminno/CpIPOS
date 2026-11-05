@@ -29,6 +29,20 @@ describe("Native Mobile canonical configured sale price", () => {
     }]);
   });
 
+  it("keeps different cart lines identifiable when their product and printed notes match", () => {
+    const first = item([OPT1], "regular", 65);
+    const second = item([OPT1], "regular", 65);
+    second.native_selection.cart_line_id = PRODUCT + ":second";
+    const a = validateNativeSaleLine(first, product, [group], options);
+    const b = validateNativeSaleLine(second, product, [group], options);
+    expect(a.ok).toBe(true);
+    expect(b.ok).toBe(true);
+    if (a.ok && b.ok) {
+      expect(a.items[0].notes).toEqual(b.items[0].notes);
+      expect(a.items[0].native_selection.cart_line_id).not.toEqual(b.items[0].native_selection.cart_line_id);
+    }
+  });
+
   it("rejects missing required selections and unregistered option ids", () => {
     expect(validateNativeSaleLine(item([]), product, [group], options)).toMatchObject({
       ok: false, code: "required_modifier_selection_missing"
