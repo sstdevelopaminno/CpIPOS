@@ -371,7 +371,8 @@ async function resolveOrderPricing(args: {
     product_id: String(item.product_id ?? "").trim(),
     quantity: Number(item.quantity),
     requested_unit_price: item.unit_price,
-    notes: item.notes ?? null
+    notes: item.notes ?? null,
+    native_selection: item.native_selection
   }));
   if (normalizedItems.some((item) => !item.product_id || !Number.isFinite(item.quantity) || item.quantity <= 0)) {
     return { ok: false, code: "invalid_quantity", status: 422, message: "Order item quantity must be greater than zero." };
@@ -408,7 +409,8 @@ async function resolveOrderPricing(args: {
         product_id: item.product_id,
         quantity: item.quantity,
         notes: item.notes,
-        unit_price: sanitizeUnitPrice(item.requested_unit_price, basePrice)
+        unit_price: sanitizeUnitPrice(item.requested_unit_price, basePrice),
+        ...(item.native_selection ? { native_selection: item.native_selection } : {})
       };
     });
     const subtotal = roundMoney(pricedItems.reduce((sum, item) => sum + item.unit_price * item.quantity, 0));

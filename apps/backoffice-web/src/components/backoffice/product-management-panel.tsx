@@ -3,6 +3,7 @@
 import { FormEvent, ReactNode, useMemo, useState } from "react";
 import { EmptyState, ErrorState, LoadingState } from "@/components/backoffice/list-state";
 import { PaginationControls } from "@/components/backoffice/pagination-controls";
+import { ProductModifierEditor } from "@/components/backoffice/product-modifier-editor";
 import { usePaginatedApi } from "@/components/backoffice/use-paginated-api";
 
 type ProductRow = {
@@ -11,6 +12,7 @@ type ProductRow = {
   name: string;
   category: string;
   price: number;
+  special_price?: number | null;
   sell_unit: string;
   stock_deduction_mode: "unit_only" | "recipe_deduction";
   is_active: boolean;
@@ -112,6 +114,7 @@ export function ProductManagementPanel() {
   const [actionNoticeOpen, setActionNoticeOpen] = useState(false);
   const [reloadToken, setReloadToken] = useState(0);
   const [editingProduct, setEditingProduct] = useState<ProductRow | null>(null);
+  const [modifierProduct, setModifierProduct] = useState<ProductRow | null>(null);
   const [editingIngredient, setEditingIngredient] = useState<IngredientRow | null>(null);
   const [restockIngredient, setRestockIngredient] = useState<IngredientRow | null>(null);
 
@@ -205,6 +208,7 @@ export function ProductManagementPanel() {
         name: String(form.get("name") ?? ""),
         category: String(form.get("category") ?? ""),
         price: Number(form.get("price") ?? 0),
+        special_price: String(form.get("special_price") ?? "").trim() === "" ? null : Number(form.get("special_price")),
         sell_unit: String(form.get("sell_unit") ?? "ชิ้น"),
         stock_deduction_mode: String(form.get("stock_deduction_mode") ?? "unit_only"),
         is_active: true
@@ -243,6 +247,7 @@ export function ProductManagementPanel() {
         name: String(form.get("name") ?? ""),
         category: String(form.get("category") ?? ""),
         price: Number(form.get("price") ?? 0),
+        special_price: String(form.get("special_price") ?? "").trim() === "" ? null : Number(form.get("special_price")),
         sell_unit: String(form.get("sell_unit") ?? "ชิ้น"),
         stock_deduction_mode: String(form.get("stock_deduction_mode") ?? "unit_only"),
         is_active: String(form.get("is_active") ?? "true") === "true"
@@ -434,7 +439,7 @@ export function ProductManagementPanel() {
                             <p className="text-xs text-slate-500">{item.category}</p>
                           </td>
                           <td className="border-b border-slate-100 px-3 py-2 text-xs text-slate-700">{modeLabel(item.stock_deduction_mode)}</td>
-                          <td className="border-b border-slate-100 px-3 py-2 text-right text-sm font-bold text-slate-900">฿{money(item.price)}</td>
+                          <td className="border-b border-slate-100 px-3 py-2 text-right text-sm font-bold text-slate-900">฿{money(item.price)}{item.special_price != null ? <p className="text-xs text-emerald-700">พิเศษ ฿{money(item.special_price)}</p> : null}</td>
                           <td className="border-b border-slate-100 px-3 py-2 text-sm text-slate-700">{item.sell_unit}</td>
                           <td className="border-b border-slate-100 px-3 py-2">
                             <div className="flex flex-wrap gap-1.5">
@@ -444,6 +449,13 @@ export function ProductManagementPanel() {
                                 className="rounded-lg border border-indigo-200 px-2.5 py-1 text-xs font-semibold text-indigo-700 hover:bg-indigo-50"
                               >
                                 {selectedProductId === item.id ? "กำลังแก้สูตร" : "สูตร"}
+                              </button>
+                              <button type="button" onClick={() => setModifierProduct(item)}
+
+                                className="rounded-lg border border-emerald-200 px-2.5 py-1 text-xs font-semibold text-emerald-700 hover:bg-emerald-50">
+
+                                ตัวเลือก/วัตถุดิบ
+
                               </button>
                               <button
                                 type="button"
@@ -536,6 +548,7 @@ export function ProductManagementPanel() {
               <input required name="name" placeholder="ชื่อสินค้า" className="min-h-10 rounded-lg border border-slate-300 px-3 text-sm" />
               <input required name="category" placeholder="หมวดหมู่" className="min-h-10 rounded-lg border border-slate-300 px-3 text-sm" />
               <input required name="price" type="number" min={0} step="0.01" placeholder="ราคา" className="min-h-10 rounded-lg border border-slate-300 px-3 text-sm" />
+              <input name="special_price" type="number" min={0} step="0.01" placeholder="ราคาพิเศษ (ไม่บังคับ)" className="min-h-10 rounded-lg border border-slate-300 px-3 text-sm" />
               <input name="sell_unit" defaultValue="ชิ้น" placeholder="หน่วยขาย" className="min-h-10 rounded-lg border border-slate-300 px-3 text-sm" />
               <select name="stock_deduction_mode" defaultValue="unit_only" className="min-h-10 rounded-lg border border-slate-300 px-3 text-sm">
                 <option value="unit_only">ประเภท 1: ขายแบบชิ้น</option>
@@ -691,6 +704,12 @@ export function ProductManagementPanel() {
         ) : null}
       </div>
 
+      {modifierProduct ? (
+        <Modal title={`ตัวเลือกสินค้า: ${modifierProduct.name}`} onClose={() => setModifierProduct(null)}>
+          <ProductModifierEditor productId={modifierProduct.id} />
+        </Modal>
+      ) : null}
+
       {editingProduct ? (
         <Modal title={`แก้ไขสินค้า: ${editingProduct.name}`} onClose={() => setEditingProduct(null)}>
           <form onSubmit={handleUpdateProduct} className="grid gap-2 md:grid-cols-2">
@@ -698,6 +717,7 @@ export function ProductManagementPanel() {
             <input required name="name" defaultValue={editingProduct.name} className="min-h-10 rounded-lg border border-slate-300 px-3 text-sm" />
             <input required name="category" defaultValue={editingProduct.category} className="min-h-10 rounded-lg border border-slate-300 px-3 text-sm" />
             <input required name="price" type="number" min={0} step="0.01" defaultValue={editingProduct.price} className="min-h-10 rounded-lg border border-slate-300 px-3 text-sm" />
+            <input name="special_price" type="number" min={0} step="0.01" placeholder="ราคาพิเศษ (ไม่บังคับ)" defaultValue={editingProduct.special_price ?? ""} className="min-h-10 rounded-lg border border-slate-300 px-3 text-sm" />
             <input name="sell_unit" defaultValue={editingProduct.sell_unit} className="min-h-10 rounded-lg border border-slate-300 px-3 text-sm" />
             <select name="stock_deduction_mode" defaultValue={editingProduct.stock_deduction_mode} className="min-h-10 rounded-lg border border-slate-300 px-3 text-sm">
               <option value="unit_only">ประเภท 1: ขายแบบชิ้น</option>

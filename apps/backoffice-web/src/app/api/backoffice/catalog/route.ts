@@ -831,7 +831,10 @@ export async function GET(req: Request) {
 
     return ok({
       view: "products",
-      items: data ?? [],
+      items: (data ?? []).map((product) => ({
+        ...product,
+        special_price: getProductSpecialPrice(product.metadata)
+      })),
       pagination: buildPaginationMeta(page, pageSize, count)
     });
   } catch (error) {

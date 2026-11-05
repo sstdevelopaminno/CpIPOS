@@ -26,7 +26,7 @@ type Group = {
 type Option = { id: string; group_id: string; name: string; price_delta: number };
 
 export type NativeSaleCheck =
-  | { ok: true; items: Array<{ product_id: string; quantity: number; unit_price: number; notes: string | null }> }
+  | { ok: true; items: Array<{ product_id: string; quantity: number; unit_price: number; notes: string | null; native_selection: NativeSelectionInput }> }
   | { ok: false; code: string; status: number };
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -95,7 +95,8 @@ export function validateNativeSaleLine(
   ].filter(Boolean).join(" | ").slice(0, 240) || null;
   return {
     ok: true,
-    items: [{ product_id: item.product_id, quantity: item.quantity, unit_price: unitPrice, notes: note }]
+    items: [{ product_id: item.product_id, quantity: item.quantity, unit_price: unitPrice, notes: note,
+      native_selection: choice }]
   };
 }
 
@@ -104,8 +105,8 @@ export function validateNativeSaleLine(
  * channels. Native-specific selections are recomputed under tenant/branch
  * scope before entering the existing order transaction.
  *
- * Until atomic modifier-ingredient deltas are integrated into the RPC, reject
- * all selections linked to ingredient deltas. Never charge without stock truth.
+ * Modifier ingredient deltas are applied atomically in the updated DB order RPC;
+ * selected ingredients must belong to the same tenant and branch.
  */
 export async function resolveNativeMobileSaleLines(args: {
   tenantId: string;
@@ -113,6 +114,11 @@ export async function resolveNativeMobileSaleLines(args: {
   items: NativeOrderLineInput[];
 }): Promise<NativeSaleCheck> {
   const { tenantId, branchId, items } = args;
+  // Require explicit Production acceptance AND applied atomic SQL migrations.
+  // Older Native builds keep using existing non-configured POS endpoints.
+  if (process.env.NATIVE_ATOMIC_MENU_SALES_ENABLED !== "true") {
+    return invalid("native_atomic_menu_release_gate_not_enabled", 503);
+  }
   if (!Array.isArray(items) || items.length === 0 || items.length > 100) {
     return invalid("invalid_native_cart");
   }
@@ -159,12 +165,20 @@ export async function resolveNativeMobileSaleLines(args: {
       .eq("tenant_id", tenantId).eq("branch_id", branchId)
       .in("option_id", selectedOptionIds);
     if (ingredientsResult.error) return invalid("native_modifier_stock_schema_unavailable", 503);
-    if ((ingredientsResult.data ?? []).some((row) => Number(row.quantity_delta_per_item) !== 0)) {
-      return invalid("native_modifier_stock_transaction_not_ready", 409);
+    const modifiedIngredientIds = [...new Set((ingredientsResult.data ?? [])
+      .filter((row) => Number(row.quantity_delta_per_item) !== 0)
+      .map((row) => String(row.ingredient_id)))];
+    if (modifiedIngredientIds.length) {
+      const scoped = await db.from("ingredients").select("id")
+        .eq("tenant_id", tenantId).eq("branch_id", branchId)
+        .in("id", modifiedIngredientIds);
+      if (scoped.error || (scoped.data ?? []).length !== modifiedIngredientIds.length) {
+        return invalid("native_modifier_ingredient_not_in_branch", 409);
+      }
     }
   }
 
-  const output: Array<{ product_id: string; quantity: number; unit_price: number; notes: string | null }> = [];
+  const output: Array<{ product_id: string; quantity: number; unit_price: number; notes: string | null; native_selection: NativeSelectionInput }> = [];
   for (const item of items) {
     const scopedGroups = groups.filter((group) => group.product_id === item.product_id);
     const scopedGroupIds = new Set(scopedGroups.map((group) => group.id));
@@ -172,6 +186,12 @@ export async function resolveNativeMobileSaleLines(args: {
     const checked = validateNativeSaleLine(item, productMap.get(item.product_id)!, scopedGroups, scopedOptions);
     if (!checked.ok) return checked;
     output.push(...checked.items);
+  }
+  // The existing dine-in DB RPC identifies a line by (product_id, notes).
+  // Reject collisions rather than silently coalescing distinct option prices.
+  const keys = output.map((line) => line.product_id + "\u001f" + (line.notes ?? ""));
+  if (new Set(keys).size !== keys.length) {
+    return invalid("native_modifier_line_identity_collision", 409);
   }
   return { ok: true, items: output };
 }
