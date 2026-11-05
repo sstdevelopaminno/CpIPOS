@@ -39,6 +39,8 @@ describe("Android Modern print stability release and native print contract", () 
     expect(transport).toContain('connectionType == "LOCAL_BRIDGE"');
     expect(transport).toContain('connectionType == "BLUETOOTH_BRIDGE"');
     expect(transport).toContain("usb_printer_ambiguous");
+    expect(transport).toContain('NativePrintException("usb_printer_not_found", false');
+    expect(transport).not.toContain('NativePrintException("usb_printer_not_found", true');
     expect(transport).toContain("bluetooth_printer_not_paired");
     expect(printAgent).toContain("/api/print-agent/v1/jobs/claim");
     expect(printAgent).toContain("/ack");

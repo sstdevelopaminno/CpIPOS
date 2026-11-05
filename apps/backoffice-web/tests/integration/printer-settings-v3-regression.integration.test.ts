@@ -38,6 +38,15 @@ describe("printer settings v3 regression coverage", () => {
     expect(reportFallback).toBeGreaterThan(kitchenFallback);
     expect(deviceRouteSource).not.toContain('bridge_url: mode === "lan" ? undefined : "browser-agent://web-serial"');
   });
+  it("maps offline cash-drawer agent states to actionable responses without generic runtime error logging", () => {
+    const drawerRoute = source("src/app/api/backoffice/printers/drawer-test/route.ts");
+    expect(drawerRoute).toContain('message === "agent_missing"');
+    expect(drawerRoute).toContain('message === "agent_inactive"');
+    expect(drawerRoute).toContain('message === "agent_stale"');
+    expect(drawerRoute).toContain('fail("print_agent_unavailable"');
+    expect(drawerRoute).toContain('message === "printer_offline"');
+  });
+
   it("fans out kitchen-zone routes instead of reducing them to one default printer", () => {
     const routingSource = source("src/lib/printing/printer-routing-service.ts");
     const selectionStart = routingSource.indexOf("function selectAssignmentRows");
