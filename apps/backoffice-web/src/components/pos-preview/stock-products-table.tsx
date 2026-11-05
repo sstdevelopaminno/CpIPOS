@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import { BestSellersPopupButton } from "@/components/pos-preview/best-sellers-popup-button";
@@ -10,6 +10,7 @@ import { StockSettingsPopupButton } from "@/components/pos-preview/stock-setting
 import { StockRowActionIcons } from "@/components/pos-preview/stock-row-action-icons";
 import { StockSkuReveal } from "@/components/pos-preview/stock-sku-reveal";
 import { UnitStockPopupButton } from "@/components/pos-preview/unit-stock-popup-button";
+import { IngredientUnitManagePopupButton, type IngredientUnitOption } from "@/components/pos-preview/ingredient-unit-manage-popup-button";
 import { mergeCategoryNames } from "@/lib/pos/category-normalization";
 import { fetchWithTimeout } from "@/lib/client-fetch";
 
@@ -86,14 +87,14 @@ type ApiEnvelope<T> = {
   error: { code: string; message: string } | null;
 };
 
-const INGREDIENT_BASE_UNIT_OPTIONS = [
-  { value: "gram", thLabel: "กรัม", enLabel: "gram" },
-  { value: "kg", thLabel: "กิโลกรัม", enLabel: "kg" },
-  { value: "khid", thLabel: "ขีด", enLabel: "khid" },
-  { value: "bag", thLabel: "ถุง", enLabel: "bag" },
-  { value: "ลูก", thLabel: "ลูก", enLabel: "piece (round)" },
-  { value: "ชิ้น", thLabel: "ชิ้น", enLabel: "piece" }
-] as const;
+const DEFAULT_INGREDIENT_BASE_UNIT_OPTIONS: IngredientUnitOption[] = [
+  { id: "legacy-gram", unit_value: "gram", label_th: "กรัม", label_en: "gram", calculation_kind: "weight", is_system: true, is_active: true, usage_count: 0 },
+  { id: "legacy-kg", unit_value: "kg", label_th: "กิโลกรัม", label_en: "kg", calculation_kind: "weight", is_system: true, is_active: true, usage_count: 0 },
+  { id: "legacy-khid", unit_value: "khid", label_th: "ขีด", label_en: "khid", calculation_kind: "weight", is_system: true, is_active: true, usage_count: 0 },
+  { id: "legacy-bag", unit_value: "bag", label_th: "ถุง", label_en: "bag", calculation_kind: "weight", is_system: true, is_active: true, usage_count: 0 },
+  { id: "legacy-round-piece", unit_value: "ลูก", label_th: "ลูก", label_en: "piece (round)", calculation_kind: "count", is_system: true, is_active: true, usage_count: 0 },
+  { id: "legacy-piece", unit_value: "ชิ้น", label_th: "ชิ้น", label_en: "piece", calculation_kind: "count", is_system: true, is_active: true, usage_count: 0 }
+];
 
 function normalizeIngredientBaseUnit(value: string): string {
   const normalized = String(value ?? "").trim().toLowerCase();
@@ -117,7 +118,7 @@ function getIngredientUnitGroup(baseUnit: string): keyof typeof INGREDIENT_STATU
   const normalized = String(baseUnit ?? "").trim().toLowerCase();
   if (["gram", "g", "กรัม", "ขีด", "khid", "kg", "กิโลกรัม"].includes(normalized)) return "gram";
   if (["ml", "มล.", "มล", "cc", "ซีซี", "ลิตร", "l", "liter"].includes(normalized)) return "ml";
-  if (["piece", "unit", "ลูก", "ชิ้น"].includes(normalized)) return "piece";
+  if (["piece", "unit", "ลูก", "ชิ้น"].includes(normalized) || normalized.startsWith("custom_piece_")) return "piece";
   return "default";
 }
 
@@ -188,6 +189,8 @@ export function StockProductsTable({
   const [productCategoryFilter, setProductCategoryFilter] = useState("all");
   const [ingredientSearchText, setIngredientSearchText] = useState("");
   const [ingredientUnitFilter, setIngredientUnitFilter] = useState("all");
+  const [ingredientUnitOptions, setIngredientUnitOptions] = useState<IngredientUnitOption[]>(DEFAULT_INGREDIENT_BASE_UNIT_OPTIONS);
+  const [ingredientUnitStorageReady, setIngredientUnitStorageReady] = useState(false);
   const [filterPopupOpen, setFilterPopupOpen] = useState(false);
   const [selectedProductIds, setSelectedProductIds] = useState<string[]>([]);
   const [selectedIngredientIds, setSelectedIngredientIds] = useState<string[]>([]);
@@ -198,6 +201,41 @@ export function StockProductsTable({
   const [bulkUnlinkScope, setBulkUnlinkScope] = useState<"all" | "selected" | null>(null);
   const [bulkUnlinkBusy, setBulkUnlinkBusy] = useState(false);
   const [bulkUnlinkError, setBulkUnlinkError] = useState("");
+
+  const reloadIngredientUnits = useCallback(async () => {
+    try {
+      const response = await fetchWithTimeout(
+        `/api/backoffice/catalog?view=ingredient_units&branch_id=${encodeURIComponent(branchId)}&page_size=50`,
+        { cache: "no-store" },
+        15000
+      );
+      const body = (await response.json().catch(() => null)) as ApiEnvelope<{
+        items?: IngredientUnitOption[];
+        storage_ready?: boolean;
+      }> | null;
+      if (!response.ok || body?.error) throw new Error(body?.error?.message ?? "ingredient_units_query_failed");
+      const rows = Array.isArray(body?.data?.items) ? body!.data!.items! : [];
+      setIngredientUnitOptions(rows.length > 0 ? rows : DEFAULT_INGREDIENT_BASE_UNIT_OPTIONS);
+      setIngredientUnitStorageReady(body?.data?.storage_ready === true);
+    } catch {
+      setIngredientUnitOptions(DEFAULT_INGREDIENT_BASE_UNIT_OPTIONS);
+      setIngredientUnitStorageReady(false);
+    }
+  }, [branchId]);
+
+  const ingredientUnitLabelMap = useMemo(
+    () => new Map(ingredientUnitOptions.map((unit) => [unit.unit_value, th ? unit.label_th : unit.label_en])),
+    [ingredientUnitOptions, th]
+  );
+
+  const ingredientUnitDisplayLabel = useCallback(
+    (value: string) => ingredientUnitLabelMap.get(value) ?? ingredientUnitLabelMap.get(normalizeIngredientBaseUnit(value)) ?? value,
+    [ingredientUnitLabelMap]
+  );
+
+  useEffect(() => {
+    void reloadIngredientUnits();
+  }, [reloadIngredientUnits]);
 
   const baseProductsByMode = useMemo(() => {
     if (modeFilter === "ingredients" || modeFilter === "all") return products;
@@ -237,7 +275,7 @@ export function StockProductsTable({
       const normalizedUnit = normalizeIngredientBaseUnit(item.baseUnit);
       if (ingredientUnitFilter !== "all" && normalizedUnit !== ingredientUnitFilter) return false;
       if (!keyword) return true;
-      return `${item.name} ${item.baseUnit}`.toLowerCase().includes(keyword);
+      return `${item.name} ${ingredientUnitDisplayLabel(item.baseUnit)}`.toLowerCase().includes(keyword);
     });
   }, [ingredientSearchText, ingredientUnitFilter, ingredientsSorted]);
 
@@ -587,7 +625,7 @@ export function StockProductsTable({
   function formatIngredientQty(item: IngredientItem) {
     const unit = String(item.baseUnit ?? "").toLowerCase();
     const qty = Number(item.quantityOnHand ?? 0);
-    if (unit === "piece" || unit === "unit" || unit === "ลูก") return String(Math.max(0, Math.floor(qty)));
+    if (unit === "piece" || unit === "unit" || unit === "ลูก" || unit === "ชิ้น" || unit.startsWith("custom_piece_")) return String(Math.max(0, Math.floor(qty)));
     return Number.isInteger(qty) ? String(qty) : qty.toFixed(2);
   }
 
@@ -788,6 +826,16 @@ const headerTools = (
         <CategoryManagePopupButton th={th} categories={categoryList} branchId={branchId} />
       </div>
       <div className={canManageCatalog ? "" : "pointer-events-none opacity-60"}>
+        <IngredientUnitManagePopupButton
+          th={th}
+          branchId={branchId}
+          units={ingredientUnitOptions}
+          storageReady={ingredientUnitStorageReady}
+          canManage={canManageCatalog}
+          onReload={reloadIngredientUnits}
+        />
+      </div>
+      <div className={canManageCatalog ? "" : "pointer-events-none opacity-60"}>
         <UnitStockPopupButton th={th} items={unitStockList} />
       </div>
       <div className={canManageCatalog ? "" : "pointer-events-none opacity-60"}>
@@ -853,7 +901,7 @@ const headerTools = (
                   <span>{th ? "กรองหน่วย" : "Unit Filter"}</span>
                   <select value={ingredientUnitFilter} onChange={(event) => { setIngredientUnitFilter(event.target.value); setCurrentPage(1); }} className="min-h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900">
                     <option value="all">{th ? "ทุกหน่วย" : "All units"}</option>
-                    {INGREDIENT_BASE_UNIT_OPTIONS.map((option) => <option key={option.value} value={option.value}>{th ? option.thLabel : option.enLabel}</option>)}
+                    {ingredientUnitOptions.map((option) => <option key={option.unit_value} value={option.unit_value}>{th ? option.label_th : option.label_en}</option>)}
                   </select>
                 </label>
               </div>
@@ -921,7 +969,7 @@ const headerTools = (
                   <td className="border-b border-slate-100 px-3 py-3"><input type="checkbox" checked={selectedIngredientIds.includes(item.id)} onChange={() => toggleIngredientSelection(item.id)} aria-label={th ? `เลือกรายการวัตถุดิบ ${item.name}` : `Select ingredient ${item.name}`} className="h-4 w-4 rounded border-slate-300" /></td>
                   <td className="border-b border-slate-100 px-3 py-3 text-sm font-semibold text-slate-900">{item.name}</td>
                   <td className="border-b border-slate-100 px-3 py-3 text-sm text-slate-800">{formatIngredientQty(item)}</td>
-                  <td className="border-b border-slate-100 px-3 py-3 text-sm text-slate-600">{item.baseUnit}</td>
+                  <td className="border-b border-slate-100 px-3 py-3 text-sm text-slate-600">{ingredientUnitDisplayLabel(item.baseUnit)}</td>
                   <td className="border-b border-slate-100 px-3 py-3">{(() => { const status = getIngredientStatus(item); return <span className={`inline-flex min-h-7 items-center rounded-full border px-2.5 text-xs font-bold ${status.className}`}>{status.label}</span>; })()}</td>
                   <td className="sticky right-0 z-10 min-w-[132px] border-b border-l border-slate-100 bg-white px-3 py-3 shadow-[-8px_0_12px_-12px_rgba(15,23,42,0.45)]"><div className="flex flex-nowrap items-center gap-1.5">
                     <button type="button" onClick={() => openEditIngredientPopup(item)} disabled={busyIngredientId === item.id} title={th ? "แก้ไขวัตถุดิบ" : "Edit ingredient"} aria-label={th ? "แก้ไขวัตถุดิบ" : "Edit ingredient"} className="inline-flex min-h-8 items-center justify-center rounded-lg border border-slate-200 px-2 py-1 text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M12 20h9" /><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z" /></svg></button>
@@ -1043,7 +1091,7 @@ const headerTools = (
             <div className="grid gap-3">
               <label className="grid gap-1 text-xs font-semibold text-slate-700"><span>{th ? "ชื่อวัตถุดิบ" : "Ingredient Name"}</span><input value={editingIngredientName} onChange={(event) => setEditingIngredientName(event.target.value)} type="text" className="min-h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900" /></label>
               <label className="grid gap-1 text-xs font-semibold text-slate-700"><span>{th ? "จำนวนคงเหลือ" : "Quantity on Hand"}</span><input value={editingIngredientQty} onChange={(event) => setEditingIngredientQty(event.target.value)} type="number" min={0} step="0.01" className="min-h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900" /></label>
-              <label className="grid gap-1 text-xs font-semibold text-slate-700"><span>{th ? "หน่วย" : "Unit"}</span><select value={editingIngredientUnit} onChange={(event) => setEditingIngredientUnit(event.target.value)} className="min-h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900">{INGREDIENT_BASE_UNIT_OPTIONS.map((option) => <option key={option.value} value={option.value}>{th ? option.thLabel : option.enLabel}</option>)}{!INGREDIENT_BASE_UNIT_OPTIONS.some((option) => option.value === editingIngredientUnit) && editingIngredientUnit ? <option value={editingIngredientUnit}>{th ? `ค่าเดิม: ${editingIngredientUnit}` : `Current: ${editingIngredientUnit}`}</option> : null}</select></label>
+              <label className="grid gap-1 text-xs font-semibold text-slate-700"><span>{th ? "หน่วย" : "Unit"}</span><select value={editingIngredientUnit} onChange={(event) => setEditingIngredientUnit(event.target.value)} className="min-h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900">{ingredientUnitOptions.map((option) => <option key={option.unit_value} value={option.unit_value}>{th ? option.label_th : option.label_en}</option>)}{!ingredientUnitOptions.some((option) => option.unit_value === editingIngredientUnit) && editingIngredientUnit ? <option value={editingIngredientUnit}>{th ? `ค่าเดิม: ${ingredientUnitDisplayLabel(editingIngredientUnit)}` : `Current: ${ingredientUnitDisplayLabel(editingIngredientUnit)}`}</option> : null}</select></label>
             </div>
             {editingIngredientError ? <p className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold text-red-700">{editingIngredientError}</p> : null}
             <div className="mt-4 flex justify-end gap-2"><button type="button" onClick={closeEditIngredientPopup} className="inline-flex min-h-10 items-center rounded-lg border border-slate-300 px-4 text-sm font-semibold text-slate-700 hover:bg-slate-50">{th ? "ยกเลิก" : "Cancel"}</button><button type="button" onClick={() => void submitEditIngredient()} disabled={busyIngredientId === editingIngredient.id} className="inline-flex min-h-10 items-center rounded-lg border border-blue-600 bg-blue-600 px-4 text-sm font-bold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60">{busyIngredientId === editingIngredient.id ? (th ? "กำลังบันทึก..." : "Saving...") : th ? "บันทึก" : "Save"}</button></div>
@@ -1064,7 +1112,7 @@ const headerTools = (
       {ingredientStockPopup ? (
         <div className="fixed inset-0 z-[150] grid place-items-center bg-slate-900/55 p-4" onClick={closeIngredientStockPopup}>
           <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-4 shadow-2xl" onClick={(event) => event.stopPropagation()}>
-            <div className="mb-3"><h4 className="text-base font-extrabold text-slate-900">{th ? `ปรับสต๊อก: ${ingredientStockPopup.name}` : `Adjust Stock: ${ingredientStockPopup.name}`}</h4><p className="mt-1 text-xs text-slate-500">{th ? `คงเหลือปัจจุบัน ${formatIngredientQty(ingredientStockPopup)} ${ingredientStockPopup.baseUnit}` : `Current stock: ${formatIngredientQty(ingredientStockPopup)} ${ingredientStockPopup.baseUnit}`}</p></div>
+            <div className="mb-3"><h4 className="text-base font-extrabold text-slate-900">{th ? `ปรับสต๊อก: ${ingredientStockPopup.name}` : `Adjust Stock: ${ingredientStockPopup.name}`}</h4><p className="mt-1 text-xs text-slate-500">{th ? `คงเหลือปัจจุบัน ${formatIngredientQty(ingredientStockPopup)} ${ingredientUnitDisplayLabel(ingredientStockPopup.baseUnit)}` : `Current stock: ${formatIngredientQty(ingredientStockPopup)} ${ingredientUnitDisplayLabel(ingredientStockPopup.baseUnit)}`}</p></div>
             <div className="mb-3 grid grid-cols-2 gap-2">
               <button type="button" onClick={() => { setIngredientStockPopupMode("add"); setIngredientStockPopupQty((prev) => (prev.trim() ? prev : "1")); setIngredientStockPopupError(""); }} className={`inline-flex min-h-10 items-center justify-center rounded-lg border text-sm font-bold transition ${ingredientStockPopupMode === "add" ? "border-emerald-600 bg-emerald-600 text-white" : "border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100"}`}><span className="inline-flex flex-col items-center leading-none"><span className="text-base font-extrabold">+</span><span>{th ? "เพิ่มสต๊อก" : "Add Stock"}</span></span></button>
               <button type="button" onClick={() => { setIngredientStockPopupMode("subtract"); setIngredientStockPopupQty((prev) => (prev.trim() ? prev : "1")); setIngredientStockPopupError(""); }} className={`inline-flex min-h-10 items-center justify-center rounded-lg border text-sm font-bold transition ${ingredientStockPopupMode === "subtract" ? "border-red-600 bg-red-600 text-white" : "border-red-200 bg-red-50 text-red-700 hover:bg-red-100"}`}><span className="inline-flex flex-col items-center leading-none"><span className="text-base font-extrabold">-</span><span>{th ? "ตัดสต๊อก" : "Subtract Stock"}</span></span></button>
