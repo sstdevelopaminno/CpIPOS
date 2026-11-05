@@ -87,8 +87,12 @@ export function validateNativeSaleLine(
       (!Number.isFinite(item.unit_price) || Math.abs(money(item.unit_price) - unitPrice) >= 0.01)) {
     return invalid("native_price_changed_refresh_required", 409);
   }
-  const note = [optionNames.join(", "), String(choice.note ?? "").trim()]
-    .filter(Boolean).join(" | ").slice(0, 250) || null;
+  // The existing dine-in edit RPC groups items by product and notes. A
+  // special-priced line must remain distinct from the regular-price line.
+  const note = [
+    choice.price_kind === "special" ? "ราคาพิเศษ" : "",
+    optionNames.join(", "), String(choice.note ?? "").trim()
+  ].filter(Boolean).join(" | ").slice(0, 240) || null;
   return {
     ok: true,
     items: [{ product_id: item.product_id, quantity: item.quantity, unit_price: unitPrice, notes: note }]
