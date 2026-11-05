@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useAppLanguage, type AppLanguage } from "@/lib/app-language-client";
 
 type KitchenStatus = "queued" | "acknowledged" | "preparing" | "ready" | "cancelled";
 type KitchenItem = { id: string; order_item_id: string | null; product_name: string; quantity: number; notes: string | null; action: string };
@@ -42,12 +43,55 @@ const MAX_ERROR_POLL_INTERVAL_MS = 30_000;
 const SEEN_TICKET_LIMIT = 300;
 const ALERT_EVENT_TYPES = new Set(["new", "add"]);
 const ACTIVE_STATUSES: KitchenStatus[] = ["queued", "acknowledged", "preparing"];
-const KITCHEN_STATUS_STEPS: Array<{ status: KitchenStatus; label: string }> = [
-  { status: "queued", label: "รอรับ" },
-  { status: "acknowledged", label: "รับแล้ว" },
-  { status: "preparing", label: "กำลังทำ" },
-  { status: "ready", label: "พร้อมเสิร์ฟ" }
-];
+const KITCHEN_STATUS_STEPS: KitchenStatus[] = ["queued", "acknowledged", "preparing", "ready"];
+
+const KDS_TEXT = {
+  th: {
+    waitingShort: "รอรับ", acknowledged: "รับแล้ว", preparing: "กำลังทำ", ready: "พร้อมเสิร์ฟ", cancelled: "ยกเลิก",
+    waitingOrder: "รอรับออเดอร์", receiveOrder: "รับออเดอร์", startCooking: "เริ่มทำ", newItems: "เพิ่มรายการ",
+    reprint: "พิมพ์ซ้ำ", newOrder: "ออเดอร์ใหม่", dineIn: "ทานที่ร้าน", tableQr: "QR โต๊ะ", takeaway: "กลับบ้าน",
+    delivery: "เดลิเวอรี", justNow: "เมื่อสักครู่", minute: "นาที", hour: "ชม.", openKitchen: "เปิดจอครัว",
+    kitchenIdHint: "ใส่ Kitchen ID 6 หลักเพื่อเปิดเฉพาะโซนครัวนี้", opening: "กำลังเปิด...", kitchenDisplay: "Kitchen Display",
+    online: "ครัวออนไลน์", reconnecting: "กำลังเชื่อมต่อใหม่", pendingBills: "บิลค้าง", refreshing: "กำลังรีเฟรช...",
+    refresh: "รีเฟรช", enableSound: "แตะเพื่อเปิดเสียงแจ้งเตือนออเดอร์ใหม่", newOrderAlert: "มีออเดอร์ใหม่",
+    items: "รายการ", alertHint: "แจ้งเตือนพร้อมเสียงจนกว่าจะกดรับทราบ", close: "ปิด", queue: "คิว", round: "รอบ",
+    table: "โต๊ะ", bill: "บิล", mode: "โหมด", acknowledge: "รับทราบ", staleData: "ระบบยังคงแสดงข้อมูลล่าสุดและจะลองใหม่อัตโนมัติ",
+    loadingQueue: "กำลังโหลดคิวครัว...", noOrders: "ไม่มีออเดอร์ครัวค้าง", saving: "กำลังบันทึก...", readyWholeBill: "พร้อมเสิร์ฟทั้งบิล",
+    roundNo: "รอบที่", foodItems: "รายการอาหาร", note: "หมายเหตุ", back: "ย้อนกลับ", loadFailed: kt(lang, "loadFailed"),
+    openFailed: kt(lang, "openFailed"), statusFailed: kt(lang, "statusFailed"), billFailed: kt(lang, "billFailed")
+  },
+  en: {
+    waitingShort: "Waiting", acknowledged: "Accepted", preparing: "Preparing", ready: "Ready", cancelled: "Cancelled",
+    waitingOrder: "Waiting for order", receiveOrder: "Accept order", startCooking: "Start cooking", newItems: "Added items",
+    reprint: "Reprint", newOrder: "New order", dineIn: "Dine in", tableQr: "Table QR", takeaway: "Takeaway",
+    delivery: "Delivery", justNow: "Just now", minute: "min", hour: "hr", openKitchen: "Open Kitchen Display",
+    kitchenIdHint: "Enter the 6-digit Kitchen ID for this kitchen zone.", opening: "Opening...", kitchenDisplay: "Kitchen Display",
+    online: "Kitchen online", reconnecting: "Reconnecting", pendingBills: "Pending bills", refreshing: "Refreshing...",
+    refresh: "Refresh", enableSound: "Tap to enable new-order alert sound", newOrderAlert: "New order",
+    items: "items", alertHint: "The alert sound continues until acknowledged.", close: "Close", queue: "Queue", round: "Round",
+    table: "Table", bill: "Bill", mode: "Mode", acknowledge: "Acknowledge", staleData: "Showing the latest data and retrying automatically.",
+    loadingQueue: "Loading kitchen queue...", noOrders: "No pending kitchen orders", saving: "Saving...", readyWholeBill: "Mark whole bill ready",
+    roundNo: "Round", foodItems: "Food items", note: "Note", back: "Back", loadFailed: "Failed to load kitchen queue",
+    openFailed: "Failed to open kitchen display", statusFailed: "Failed to change status", billFailed: "Failed to update the whole bill"
+  },
+  lo: {
+    waitingShort: "ລໍຖ້າຮັບ", acknowledged: "ຮັບແລ້ວ", preparing: "ກຳລັງເຮັດ", ready: "ພ້ອມເສີບ", cancelled: "ຍົກເລີກ",
+    waitingOrder: "ລໍຖ້າຮັບອໍເດີ", receiveOrder: "ຮັບອໍເດີ", startCooking: "ເລີ່ມເຮັດ", newItems: "ເພີ່ມລາຍການ",
+    reprint: "ພິມຊ້ຳ", newOrder: "ອໍເດີໃໝ່", dineIn: "ກິນທີ່ຮ້ານ", tableQr: "QR ໂຕະ", takeaway: "ກັບບ້ານ",
+    delivery: "ຈັດສົ່ງ", justNow: "ເມື່ອກີ້", minute: "ນາທີ", hour: "ຊມ.", openKitchen: "ເປີດຈໍຄົວ",
+    kitchenIdHint: "ໃສ່ Kitchen ID 6 ຫຼັກເພື່ອເປີດໂຊນຄົວນີ້", opening: "ກຳລັງເປີດ...", kitchenDisplay: "Kitchen Display",
+    online: "ຄົວອອນລາຍ", reconnecting: "ກຳລັງເຊື່ອມຕໍ່ໃໝ່", pendingBills: "ບິນຄ້າງ", refreshing: "ກຳລັງໂຫຼດ...",
+    refresh: "ໂຫຼດໃໝ່", enableSound: "ແຕະເພື່ອເປີດສຽງແຈ້ງອໍເດີໃໝ່", newOrderAlert: "ມີອໍເດີໃໝ່",
+    items: "ລາຍການ", alertHint: "ສຽງແຈ້ງເຕືອນຈະດັງຈົນກວ່າຈະກົດຮັບຮູ້", close: "ປິດ", queue: "ຄິວ", round: "ຮອບ",
+    table: "ໂຕະ", bill: "ບິນ", mode: "ໂໝດ", acknowledge: "ຮັບຮູ້", staleData: "ລະບົບຍັງສະແດງຂໍ້ມູນລ່າສຸດ ແລະຈະລອງໃໝ່ອັດຕະໂນມັດ",
+    loadingQueue: "ກຳລັງໂຫຼດຄິວຄົວ...", noOrders: "ບໍ່ມີອໍເດີຄົວຄ້າງ", saving: "ກຳລັງບັນທຶກ...", readyWholeBill: "ພ້ອມເສີບທັງບິນ",
+    roundNo: "ຮອບທີ", foodItems: "ລາຍການອາຫານ", note: "ໝາຍເຫດ", back: "ຍ້ອນກັບ", loadFailed: "ໂຫຼດຄິວຄົວບໍ່ສຳເລັດ",
+    openFailed: "ເປີດຈໍຄົວບໍ່ສຳເລັດ", statusFailed: "ປ່ຽນສະຖານະບໍ່ສຳເລັດ", billFailed: "ອັບເດດທັງບິນບໍ່ສຳເລັດ"
+  }
+} as const;
+
+type KdsTextKey = keyof typeof KDS_TEXT.th;
+const kt = (lang: AppLanguage, key: KdsTextKey) => KDS_TEXT[lang][key];
 
 function ticketAlertKey(ticket: KitchenTicket) {
   return `${ticket.id}:${ticket.event_type}:${ticket.round_no ?? 1}`;
@@ -65,12 +109,12 @@ function trimSeenSet(seen: Set<string>) {
   }
 }
 
-function ageText(createdAt: string, now: number) {
+function ageText(createdAt: string, now: number, lang: AppLanguage) {
   const ms = Math.max(0, now - new Date(createdAt).getTime());
   const minutes = Math.floor(ms / 60_000);
-  if (minutes < 1) return "เมื่อสักครู่";
-  if (minutes < 60) return `${minutes} นาที`;
-  return `${Math.floor(minutes / 60)} ชม. ${minutes % 60} นาที`;
+  if (minutes < 1) return kt(lang, "justNow");
+  if (minutes < 60) return `${minutes} ${kt(lang, "minute")}`;
+  return `${Math.floor(minutes / 60)} ${kt(lang, "hour")} ${minutes % 60} ${kt(lang, "minute")}`;
 }
 
 function nextStatus(status: KitchenStatus): KitchenStatus | null {
@@ -86,19 +130,19 @@ function previousStatus(status: KitchenStatus): KitchenStatus | null {
   return null;
 }
 
-function nextLabel(status: KitchenStatus) {
-  if (status === "queued") return "รับออเดอร์";
-  if (status === "acknowledged") return "เริ่มทำ";
-  if (status === "preparing") return "พร้อมเสิร์ฟ";
+function nextLabel(status: KitchenStatus, lang: AppLanguage) {
+  if (status === "queued") return kt(lang, "receiveOrder");
+  if (status === "acknowledged") return kt(lang, "startCooking");
+  if (status === "preparing") return kt(lang, "ready");
   return "";
 }
 
-function statusLabel(status: KitchenStatus) {
-  if (status === "queued") return "รอรับออเดอร์";
-  if (status === "acknowledged") return "รับแล้ว";
-  if (status === "preparing") return "กำลังทำ";
-  if (status === "ready") return "พร้อมเสิร์ฟ";
-  return "ยกเลิก";
+function statusLabel(status: KitchenStatus, lang: AppLanguage, short = false) {
+  if (status === "queued") return kt(lang, short ? "waitingShort" : "waitingOrder");
+  if (status === "acknowledged") return kt(lang, "acknowledged");
+  if (status === "preparing") return kt(lang, "preparing");
+  if (status === "ready") return kt(lang, "ready");
+  return kt(lang, "cancelled");
 }
 
 function statusRank(status: KitchenStatus) {
@@ -148,25 +192,27 @@ function groupStatus(tickets: KitchenTicket[]) {
   return "ready" as KitchenStatus;
 }
 
-function eventLabel(ticket: KitchenTicket) {
-  if (ticket.event_type === "add" || (ticket.round_no ?? 1) > 1) return "เพิ่มรายการ";
-  if (ticket.event_type === "reprint") return "พิมพ์ซ้ำ";
-  return "ออเดอร์ใหม่";
+function eventLabel(ticket: KitchenTicket, lang: AppLanguage) {
+  if (ticket.event_type === "add" || (ticket.round_no ?? 1) > 1) return kt(lang, "newItems");
+  if (ticket.event_type === "reprint") return kt(lang, "reprint");
+  return kt(lang, "newOrder");
 }
 
-function orderTypeLabel(orderType: string) {
-  if (orderType === "dine_in") return "ทานที่ร้าน";
-  if (orderType === "table_qr" || orderType === "qr_table") return "QR โต๊ะ";
-  if (orderType === "takeaway") return "กลับบ้าน";
-  if (orderType === "delivery") return "เดลิเวอรี";
+function orderTypeLabel(orderType: string, lang: AppLanguage) {
+  if (orderType === "dine_in") return kt(lang, "dineIn");
+  if (orderType === "table_qr" || orderType === "qr_table") return kt(lang, "tableQr");
+  if (orderType === "takeaway") return kt(lang, "takeaway");
+  if (orderType === "delivery") return kt(lang, "delivery");
   return orderType || "POS";
 }
 
-function formatKitchenClock(now: number) {
-  return new Intl.DateTimeFormat("th-TH", { dateStyle: "medium", timeStyle: "short" }).format(new Date(now));
+function formatKitchenClock(now: number, lang: AppLanguage) {
+  const locale = lang === "lo" ? "lo-LA" : lang === "en" ? "en-US" : "th-TH";
+  return new Intl.DateTimeFormat(locale, { dateStyle: "medium", timeStyle: "short", timeZone: lang === "lo" ? "Asia/Vientiane" : "Asia/Bangkok" }).format(new Date(now));
 }
 
 export function KitchenKds() {
+  const { lang } = useAppLanguage("th");
   const [tickets, setTickets] = useState<KitchenTicket[]>([]);
   const [loading, setLoading] = useState(false);
   const [initialLoaded, setInitialLoaded] = useState(false);
@@ -302,7 +348,7 @@ export function KitchenKds() {
       const params = new URLSearchParams({ status: ACTIVE_STATUSES.join(","), limit: "100", zone_id: unlockedZone.id });
       const response = await fetch(`/api/pos/kitchen/queue?${params.toString()}`, { cache: "no-store", signal: controller.signal });
       const body = (await response.json().catch(() => null)) as QueueResponse | null;
-      if (!response.ok || !body?.data) throw new Error(body?.error?.message ?? "โหลดคิวครัวไม่สำเร็จ");
+      if (!response.ok || !body?.data) throw new Error(body?.error?.message ?? kt(lang, "loadFailed"));
       loadFailedRef.current = false;
       applyTickets(body.data.tickets ?? []);
       setError(null);
@@ -310,7 +356,7 @@ export function KitchenKds() {
     } catch (loadError) {
       if (controller.signal.aborted) return;
       loadFailedRef.current = true;
-      setError(loadError instanceof Error ? loadError.message : "โหลดคิวครัวไม่สำเร็จ");
+      setError(loadError instanceof Error ? loadError.message : kt(lang, "loadFailed"));
     } finally {
       if (queueAbortRef.current === controller) queueAbortRef.current = null;
       inFlightRef.current = false;
@@ -328,7 +374,7 @@ export function KitchenKds() {
         body: JSON.stringify({ access_code: accessCode })
       });
       const body = (await response.json().catch(() => null)) as { data?: { zone?: UnlockedZone }; error?: { message?: string } } | null;
-      if (!response.ok || !body?.data?.zone) throw new Error(body?.error?.message ?? "เปิดจอครัวไม่สำเร็จ");
+      if (!response.ok || !body?.data?.zone) throw new Error(body?.error?.message ?? kt(lang, "openFailed"));
       baselineReadyRef.current = false;
       seenAlertKeysRef.current = new Set();
       closeAlert();
@@ -339,7 +385,7 @@ export function KitchenKds() {
       setError(null);
       await armAlertSound();
     } catch (unlockError) {
-      setError(unlockError instanceof Error ? unlockError.message : "เปิดจอครัวไม่สำเร็จ");
+      setError(unlockError instanceof Error ? unlockError.message : kt(lang, "openFailed"));
     } finally {
       setUnlocking(false);
     }
@@ -464,7 +510,7 @@ export function KitchenKds() {
       body: JSON.stringify({ status })
     });
     const body = (await response.json().catch(() => null)) as { error?: { message?: string } } | null;
-    if (!response.ok) throw new Error(body?.error?.message ?? "เปลี่ยนสถานะไม่สำเร็จ");
+    if (!response.ok) throw new Error(body?.error?.message ?? kt(lang, "statusFailed"));
   }
 
   async function transition(ticket: KitchenTicket, targetStatus: KitchenStatus) {
@@ -482,7 +528,7 @@ export function KitchenKds() {
       setError(null);
     } catch (transitionError) {
       setTickets((current) => current.map((row) => (row.id === ticket.id ? { ...row, status: previous } : row)));
-      setError(transitionError instanceof Error ? transitionError.message : "เปลี่ยนสถานะไม่สำเร็จ");
+      setError(transitionError instanceof Error ? transitionError.message : kt(lang, "statusFailed"));
     } finally {
       setBusy(busyKey, false);
     }
@@ -531,7 +577,7 @@ export function KitchenKds() {
         const oldStatus = previous.get(row.id);
         return oldStatus ? { ...row, status: oldStatus } : row;
       }));
-      setError(finishError instanceof Error ? finishError.message : "อัปเดตทั้งบิลไม่สำเร็จ");
+      setError(finishError instanceof Error ? finishError.message : kt(lang, "billFailed"));
     } finally {
       setBusy(busyKey, false);
     }
@@ -541,8 +587,8 @@ export function KitchenKds() {
     return (
       <section className="grid h-full min-h-0 w-full place-items-center bg-slate-100 p-4 text-slate-950">
         <div className="w-full max-w-sm rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-          <h1 className="text-2xl font-black">เปิดจอครัว</h1>
-          <p className="mt-2 text-sm font-semibold text-slate-500">ใส่ Kitchen ID 6 หลักเพื่อเปิดเฉพาะโซนครัวนี้</p>
+          <h1 className="text-2xl font-black">{kt(lang, "openKitchen")}</h1>
+          <p className="mt-2 text-sm font-semibold text-slate-500">{kt(lang, "kitchenIdHint")}</p>
           <input
             value={accessCode}
             onChange={(event) => setAccessCode(event.target.value.replace(/\D/g, "").slice(0, 6))}
@@ -553,7 +599,7 @@ export function KitchenKds() {
             placeholder="000000"
           />
           <button type="button" onClick={() => void unlockZone()} disabled={unlocking || accessCode.length !== 6} className="mt-4 w-full rounded-lg bg-blue-600 px-4 py-3 text-lg font-black text-white disabled:opacity-50">
-            {unlocking ? "กำลังเปิด..." : "เปิดจอครัว"}
+            {unlocking ? kt(lang, "opening") : kt(lang, "openKitchen")}
           </button>
           {error ? <p className="mt-3 rounded-lg bg-red-50 px-3 py-2 text-sm font-bold text-red-700">{error}</p> : null}
         </div>
@@ -571,17 +617,17 @@ export function KitchenKds() {
           <div className="flex flex-wrap items-center gap-2">
             <h1 className="text-2xl font-black">{unlockedZone.zone_name}</h1>
             <span className="text-xl font-black text-slate-300">·</span>
-            <span className="text-xl font-black">Kitchen Display</span>
+            <span className="text-xl font-black">{kt(lang, "kitchenDisplay")}</span>
           </div>
-          <p className="mt-1 text-sm font-semibold text-slate-500">{formatKitchenClock(now)}</p>
+          <p className="mt-1 text-sm font-semibold text-slate-500">{formatKitchenClock(now, lang)}</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <span className={`rounded-full px-3 py-1.5 text-xs font-black ${isOnline ? "bg-emerald-50 text-emerald-700" : "bg-red-50 text-red-700"}`}>
-            {isOnline ? "ครัวออนไลน์" : "กำลังเชื่อมต่อใหม่"}
+            {isOnline ? kt(lang, "online") : kt(lang, "reconnecting")}
           </span>
-          <span className="rounded-full bg-blue-50 px-3 py-1.5 text-xs font-black text-blue-700">บิลค้าง {activeBillCount}</span>
+          <span className="rounded-full bg-blue-50 px-3 py-1.5 text-xs font-black text-blue-700">{kt(lang, "pendingBills")} {activeBillCount}</span>
           <button type="button" onClick={() => void load(false)} disabled={loading} className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-black disabled:opacity-50">
-            {loading ? "กำลังรีเฟรช..." : "รีเฟรช"}
+            {loading ? kt(lang, "refreshing") : kt(lang, "refresh")}
           </button>
         </div>
       </header>
@@ -596,30 +642,30 @@ export function KitchenKds() {
         <div className="fixed inset-x-3 top-4 z-[150] mx-auto max-w-lg rounded-2xl border-4 border-amber-400 bg-white p-5 text-slate-950 shadow-2xl sm:top-8" role="alertdialog" aria-live="assertive">
           <div className="flex items-start justify-between gap-3">
             <div>
-              <h2 className="text-2xl font-black">มีออเดอร์ใหม่{alertState.count > 1 ? ` ${alertState.count} รายการ` : ""}</h2>
-              <p className="mt-1 text-sm font-bold text-slate-600">แจ้งเตือนพร้อมเสียงจนกว่าจะกดรับทราบ</p>
+              <h2 className="text-2xl font-black">{kt(lang, "newOrderAlert")}{alertState.count > 1 ? ` ${alertState.count} ${kt(lang, "items")}` : ""}</h2>
+              <p className="mt-1 text-sm font-bold text-slate-600">{kt(lang, "alertHint")}</p>
             </div>
-            <button type="button" onClick={closeAlert} className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-black">ปิด</button>
+            <button type="button" onClick={closeAlert} className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-black">{kt(lang, "close")}</button>
           </div>
           <div className="mt-4 grid grid-cols-2 gap-3 text-lg font-black">
-            <div className="rounded-lg bg-slate-100 p-3">คิว<br /><span className="text-3xl">{String(alertState.latest.queue_no ?? "-").padStart(2, "0")}</span></div>
-            <div className="rounded-lg bg-slate-100 p-3">รอบ<br /><span className="text-3xl">{alertState.latest.round_no ?? 1}</span></div>
-            <div className="rounded-lg bg-slate-100 p-3">โต๊ะ<br /><span>{alertState.latest.table_id ?? "-"}</span></div>
-            <div className="rounded-lg bg-slate-100 p-3">บิล<br /><span>{alertState.latest.order_no}</span></div>
-            <div className="col-span-2 rounded-lg bg-slate-100 p-3">โหมด: {orderTypeLabel(alertState.latest.order_type)}</div>
+            <div className="rounded-lg bg-slate-100 p-3">{kt(lang, "queue")}<br /><span className="text-3xl">{String(alertState.latest.queue_no ?? "-").padStart(2, "0")}</span></div>
+            <div className="rounded-lg bg-slate-100 p-3">{kt(lang, "round")}<br /><span className="text-3xl">{alertState.latest.round_no ?? 1}</span></div>
+            <div className="rounded-lg bg-slate-100 p-3">{kt(lang, "table")}<br /><span>{alertState.latest.table_id ?? "-"}</span></div>
+            <div className="rounded-lg bg-slate-100 p-3">{kt(lang, "bill")}<br /><span>{alertState.latest.order_no}</span></div>
+            <div className="col-span-2 rounded-lg bg-slate-100 p-3">{kt(lang, "mode")}: {orderTypeLabel(alertState.latest.order_type, lang)}</div>
           </div>
-          <button type="button" onClick={closeAlert} className="mt-5 w-full rounded-lg bg-blue-600 px-4 py-4 text-lg font-black text-white">รับทราบ</button>
+          <button type="button" onClick={closeAlert} className="mt-5 w-full rounded-lg bg-blue-600 px-4 py-4 text-lg font-black text-white">{kt(lang, "acknowledge")}</button>
         </div>
       ) : null}
 
-      {error ? <div className="mx-5 mt-3 shrink-0 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-800">{error} — ระบบยังคงแสดงข้อมูลล่าสุดและจะลองใหม่อัตโนมัติ</div> : null}
+      {error ? <div className="mx-5 mt-3 shrink-0 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-800">{error} — {kt(lang, "staleData")}</div> : null}
 
       {!initialLoaded && loading ? (
-        <div className="grid flex-1 place-items-center text-sm font-semibold text-slate-500">กำลังโหลดคิวครัว...</div>
+        <div className="grid flex-1 place-items-center text-sm font-semibold text-slate-500">{kt(lang, "loadingQueue")}</div>
       ) : (
         <div className="min-h-0 flex-1 overflow-hidden">
           {billGroups.length === 0 ? (
-            <div className="grid h-full place-items-center bg-slate-50 text-sm font-bold text-slate-400">ไม่มีออเดอร์ครัวค้าง</div>
+            <div className="grid h-full place-items-center bg-slate-50 text-sm font-bold text-slate-400">{kt(lang, "noOrders")}</div>
           ) : (
             <div className="flex h-full min-w-0 gap-4 overflow-x-auto overflow-y-hidden p-4">
               {billGroups.map((group) => {
@@ -631,29 +677,29 @@ export function KitchenKds() {
                     <header className="shrink-0 border-b border-slate-200 bg-white p-4">
                       <div className="flex items-start justify-between gap-3">
                         <div className="min-w-0">
-                          <p className="text-xs font-black uppercase text-slate-500">บิล {group.orderNo}</p>
-                          <h2 className="mt-1 truncate text-3xl font-black">โต๊ะ {group.tableId ?? "-"}</h2>
-                          <p className="mt-1 text-xs font-bold text-slate-500">{orderTypeLabel(group.orderType)}</p>
+                          <p className="text-xs font-black uppercase text-slate-500">{kt(lang, "bill")} {group.orderNo}</p>
+                          <h2 className="mt-1 truncate text-3xl font-black">{kt(lang, "table")} {group.tableId ?? "-"}</h2>
+                          <p className="mt-1 text-xs font-bold text-slate-500">{orderTypeLabel(group.orderType, lang)}</p>
                         </div>
                         <div className="text-right">
                           <div className="rounded-lg bg-blue-50 px-3 py-2 text-lg font-black text-blue-700">Q{group.queueNo ?? "-"}</div>
-                          <p className="mt-1 text-xs font-bold text-slate-500">{ageText(group.createdAt, now)}</p>
+                          <p className="mt-1 text-xs font-bold text-slate-500">{ageText(group.createdAt, now, lang)}</p>
                         </div>
                       </div>
                       <div className="mt-4 grid grid-cols-4 overflow-hidden rounded-lg border border-slate-200 text-center text-[11px] font-black sm:text-xs">
-                        {KITCHEN_STATUS_STEPS.map(({ status, label }, index) => {
+                        {KITCHEN_STATUS_STEPS.map((status, index) => {
                           const active = currentRank >= index;
                           return (
                             <span key={status} className={`px-1 py-2 ${statusStepClass(status, active)} ${index > 0 ? "border-l border-white/40" : ""}`}>
-                              {label}
+                              {statusLabel(status, lang, true)}
                             </span>
                           );
                         })}
                       </div>
                       <div className="mt-3 flex items-center justify-between gap-3">
-                        <span className={`rounded-full px-3 py-1 text-xs font-black ${statusBadgeClass(currentStatus)}`}>{statusLabel(currentStatus)}</span>
+                        <span className={`rounded-full px-3 py-1 text-xs font-black ${statusBadgeClass(currentStatus)}`}>{statusLabel(currentStatus, lang)}</span>
                         <button type="button" onClick={() => void finishBill(group)} disabled={groupBusy} className="rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-1.5 text-xs font-black text-emerald-800 disabled:opacity-50">
-                          {groupBusy ? "กำลังบันทึก..." : "พร้อมเสิร์ฟทั้งบิล"}
+                          {groupBusy ? kt(lang, "saving") : kt(lang, "readyWholeBill")}
                         </button>
                       </div>
                     </header>
@@ -667,15 +713,15 @@ export function KitchenKds() {
                           <section key={ticket.id} className={`rounded-xl border bg-white p-4 shadow-sm ${ticketCardClass(ticket.status)}`}>
                             <div className="flex items-start justify-between gap-2">
                               <div>
-                                <span className="rounded-full bg-amber-50 px-3 py-1 text-xs font-black text-amber-700">{eventLabel(ticket)}</span>
-                                <p className="mt-2 text-xs font-bold text-slate-500">รอบที่ {ticket.round_no ?? 1} · {ageText(ticket.created_at, now)}</p>
+                                <span className="rounded-full bg-amber-50 px-3 py-1 text-xs font-black text-amber-700">{eventLabel(ticket, lang)}</span>
+                                <p className="mt-2 text-xs font-bold text-slate-500">{kt(lang, "roundNo")} {ticket.round_no ?? 1} · {ageText(ticket.created_at, now, lang)}</p>
                               </div>
-                              <span className={`rounded-full px-2.5 py-1 text-xs font-black ${statusBadgeClass(ticket.status)}`}>{statusLabel(ticket.status)}</span>
+                              <span className={`rounded-full px-2.5 py-1 text-xs font-black ${statusBadgeClass(ticket.status)}`}>{statusLabel(ticket.status, lang)}</span>
                             </div>
                             <div className="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-3">
                               <div className="mb-2 flex items-center justify-between gap-3 text-xs font-black text-slate-500">
-                                <span>รายการอาหาร</span>
-                                <span>{ticket.items.length} รายการ</span>
+                                <span>{kt(lang, "foodItems")}</span>
+                                <span>{ticket.items.length} {kt(lang, "items")}</span>
                               </div>
                               <div className="grid gap-2">
                                 {ticket.items.map((item) => (
@@ -689,7 +735,7 @@ export function KitchenKds() {
                                 ))}
                               </div>
                             </div>
-                            {ticket.order_notes ? <p className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800">หมายเหตุ: {ticket.order_notes}</p> : null}
+                            {ticket.order_notes ? <p className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800">{kt(lang, "note")}: {ticket.order_notes}</p> : null}
                             <div className="mt-4 grid grid-cols-2 gap-2">
                               {previous ? (
                                 <button type="button" onClick={() => void transition(ticket, previous)} disabled={ticketBusy} className="rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm font-black text-slate-700 disabled:opacity-50">
@@ -698,7 +744,7 @@ export function KitchenKds() {
                               ) : <span />}
                               {next ? (
                                 <button type="button" onClick={() => void transition(ticket, next)} disabled={ticketBusy} className={`rounded-lg px-3 py-2.5 text-sm font-black text-white transition disabled:opacity-50 ${nextButtonClass(ticket.status)}`}>
-                                  {ticketBusy ? "กำลังบันทึก..." : nextLabel(ticket.status)}
+                                  {ticketBusy ? kt(lang, "saving") : nextLabel(ticket.status, lang)}
                                 </button>
                               ) : <span />}
                             </div>
