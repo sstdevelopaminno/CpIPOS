@@ -1,0 +1,105 @@
+name: Publish verified Native Mobile v2.1.0 stable (one-time)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/native-mobile-promote-210-once.yml"
+
+permissions:
+  actions: read
+  contents: write
+
+env:
+  QA_RUN_ID: "42006023951"
+  UPGRADE_SMOKE_RUN_ID: "42006769028"
+  UPGRADE_SMOKE_COMMIT: "f90793977e02ec15444503d1d9b056346f489ad1"
+  NATIVE_SOURCE_SHA: "73a72678a9b8ef523786a33274ffdd0631dcfe29"
+  VERSION: "2.1.0"
+  CODE: "2010000"
+  EXPECTED_CERT: "6be0a9aef346a5b47162c8928c5018a01d0e7d81b4eb177bf2fb89922dc2a27a"
+
+jobs:
+  promote:
+    name: Promote exact signed and emulator-tested QA APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Require successful signed QA and exact APK-overwrite emulator runs
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = "refs/heads/main"
+          test "$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$QA_RUN_ID" --jq '.conclusion')" = "success"
+          test "$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$UPGRADE_SMOKE_RUN_ID" --jq '.conclusion')" = "success"
+          test "$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$UPGRADE_SMOKE_RUN_ID" --jq '.head_sha')" = "$UPGRADE_SMOKE_COMMIT"
+          actualNative=$(git ls-remote https://github.com/sstdevelopaminno/cpipos-native-pos.git refs/heads/main | cut -f1)
+          test "$actualNative" = "$NATIVE_SOURCE_SHA"
+          if gh release view "native-mobile-v$VERSION" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "::error::Stable 2.1.0 release already exists; never overwrite a customer APK"
+            exit 1
+          fi
+
+      - name: Download signed APK and manifest from one-time QA run
+        uses: actions/download-artifact@v4
+        with:
+          name: CpIPOS-Native-Mobile-2.1.0-QA-signed
+          run-id: 42006023951
+          repository: sstdevelopaminno/CpIPOS
+          github-token: ${{ github.token }}
+          path: release
+
+      - name: Set up Android APK verification tools
+        uses: android-actions/setup-android@v4
+        with:
+          packages: "platform-tools platforms;android-35 build-tools;35.0.0"
+
+      - name: Verify original signed APK bytes, package, version, cert, and manifest
+        run: |
+          set -euo pipefail
+          test -s release/CpIPOS-Native-Mobile-2.1.0.apk
+          test -s release/CpIPOS-Native-Mobile-2.1.0.manifest.json
+          python3 - <<'PY'
+          import hashlib
+          import json
+          from pathlib import Path
+          data = json.loads(Path("release/CpIPOS-Native-Mobile-2.1.0.manifest.json").read_text())
+          apk = Path("release/CpIPOS-Native-Mobile-2.1.0.apk")
+          assert apk.stat().st_size > 1000000
+          assert data["channel"] == "native_mobile"
+          assert data["version_name"] == "2.1.0"
+          assert data["version_code"] == 2010000
+          assert data["package_name"] == "com.cpipos.pos.next"
+          assert data["asset_name"] == apk.name
+          assert data["source_repository"] == "sstdevelopaminno/cpipos-native-pos"
+          assert data["source_commit"] == "73a72678a9b8ef523786a33274ffdd0631dcfe29"
+          assert data["signing_cert_sha256"].lower() == "6be0a9aef346a5b47162c8928c5018a01d0e7d81b4eb177bf2fb89922dc2a27a"
+          assert data["min_sdk"] == 26
+          assert hashlib.sha256(apk.read_bytes()).hexdigest() == data["sha256"]
+          PY
+          signer=$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)
+          aapt=$(find "$ANDROID_HOME/build-tools" -type f -name aapt | sort -V | tail -n 1)
+          "$signer" verify --verbose --print-certs release/CpIPOS-Native-Mobile-2.1.0.apk
+          cert=$("$signer" verify --print-certs release/CpIPOS-Native-Mobile-2.1.0.apk | sed -n 's/^.*certificate SHA-256 digest: //p' | head -1 | tr -d ':' | tr '[:upper:]' '[:lower:]')
+          test "$cert" = "$EXPECTED_CERT"
+          badging=$("$aapt" dump badging release/CpIPOS-Native-Mobile-2.1.0.apk | head -1)
+          echo "$badging" | grep -q "package: name='com.cpipos.pos.next'"
+          echo "$badging" | grep -q "versionCode='2010000' versionName='2.1.0'"
+          "$aapt" dump badging release/CpIPOS-Native-Mobile-2.1.0.apk | grep -q "sdkVersion:'26'"
+          ! "$aapt" dump badging release/CpIPOS-Native-Mobile-2.1.0.apk | grep -q "^application-debuggable"
+          sha256sum release/CpIPOS-Native-Mobile-2.1.0.apk
+
+      - name: Publish this exact QA-tested APK as immutable stable release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release create native-mobile-v2.1.0 \
+            release/CpIPOS-Native-Mobile-2.1.0.apk \
+            release/CpIPOS-Native-Mobile-2.1.0.manifest.json \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --title "CpIPOS Native Mobile v2.1.0" \
+            --notes "Signed Native Android POS v2.1.0 (Android 8.0+). Includes More/Support UI fixes and authenticated IT-requested stable update checks. This is the same certificate and package as public v2.0.0, with an incremented Android versionCode. Automatic APK download verifies checksum and signature; Android still asks the operator before installing. This release passed Android 8.1/15 emulator upgrade smoke; production payment/receipt/MDM physical-device acceptance must still be tracked separately. Never uninstall or clear local application data to upgrade."
+          gh release view native-mobile-v2.1.0 --repo "$GITHUB_REPOSITORY" --json tagName,isPrerelease,assets
