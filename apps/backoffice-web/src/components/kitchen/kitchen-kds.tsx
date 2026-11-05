@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useAppLanguage, type AppLanguage } from "@/lib/app-language-client";
+import type { AppLanguage } from "@/lib/app-language-client";
 
 type KitchenStatus = "queued" | "acknowledged" | "preparing" | "ready" | "cancelled";
 type KitchenItem = { id: string; order_item_id: string | null; product_name: string; quantity: number; notes: string | null; action: string };
@@ -212,7 +212,7 @@ function formatKitchenClock(now: number, lang: AppLanguage) {
 }
 
 export function KitchenKds({ defaultLanguage = "th" }: { defaultLanguage?: AppLanguage }) {
-  const { lang } = useAppLanguage(defaultLanguage);
+  const lang = defaultLanguage;
   const [tickets, setTickets] = useState<KitchenTicket[]>([]);
   const [loading, setLoading] = useState(false);
   const [initialLoaded, setInitialLoaded] = useState(false);
