@@ -3,6 +3,7 @@
 import { FormEvent, ReactNode, useMemo, useState } from "react";
 import { EmptyState, ErrorState, LoadingState } from "@/components/backoffice/list-state";
 import { PaginationControls } from "@/components/backoffice/pagination-controls";
+import { ProductModifierEditor } from "@/components/backoffice/product-modifier-editor";
 import { usePaginatedApi } from "@/components/backoffice/use-paginated-api";
 
 type ProductRow = {
@@ -112,6 +113,7 @@ export function ProductManagementPanel() {
   const [actionNoticeOpen, setActionNoticeOpen] = useState(false);
   const [reloadToken, setReloadToken] = useState(0);
   const [editingProduct, setEditingProduct] = useState<ProductRow | null>(null);
+  const [modifierProduct, setModifierProduct] = useState<ProductRow | null>(null);
   const [editingIngredient, setEditingIngredient] = useState<IngredientRow | null>(null);
   const [restockIngredient, setRestockIngredient] = useState<IngredientRow | null>(null);
 
@@ -445,6 +447,13 @@ export function ProductManagementPanel() {
                               >
                                 {selectedProductId === item.id ? "กำลังแก้สูตร" : "สูตร"}
                               </button>
+                              <button type="button" onClick={() => setModifierProduct(item)}
+
+                                className="rounded-lg border border-emerald-200 px-2.5 py-1 text-xs font-semibold text-emerald-700 hover:bg-emerald-50">
+
+                                ตัวเลือก/วัตถุดิบ
+
+                              </button>
                               <button
                                 type="button"
                                 onClick={() => setEditingProduct(item)}
@@ -690,6 +699,12 @@ export function ProductManagementPanel() {
           </div>
         ) : null}
       </div>
+
+      {modifierProduct ? (
+        <Modal title={`ตัวเลือกสินค้า: ${modifierProduct.name}`} onClose={() => setModifierProduct(null)}>
+          <ProductModifierEditor productId={modifierProduct.id} />
+        </Modal>
+      ) : null}
 
       {editingProduct ? (
         <Modal title={`แก้ไขสินค้า: ${editingProduct.name}`} onClose={() => setEditingProduct(null)}>
