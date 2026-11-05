@@ -158,7 +158,7 @@ export async function POST(req: Request) {
         await failPrintJob(agent, job.id, {
           agent_attempt_id: job.agent_attempt_id,
           retryable: false,
-          error_code: "windows_print_unsupported_payload",
+          error_code: "windows_receipt_unsupported_payload",
           error_message: "Windows agent supports only approved HTML receipt/report jobs on an assigned printer."
         });
         return storeNoCache(ok({ jobs: [], unsupported_job_held: true }));
