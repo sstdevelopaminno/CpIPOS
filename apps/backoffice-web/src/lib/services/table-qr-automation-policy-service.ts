@@ -199,7 +199,7 @@ export async function saveStoreTableQrAutomationPolicy(
     actorRole: auth.platformRole === "it_admin" ? "it_admin" : auth.branchRole ?? "staff",
     action: "table_qr_automation_policy_updated",
     targetTable: "tenant_pos_notification_settings",
-    targetId: `${tenantId}:${branchId}`,
+    entityId: `${tenantId}:${branchId}`,
     module: "settings",
     metadata: { before: current, after: next }
   });
@@ -250,7 +250,7 @@ export async function saveItTableQrAutomationOverrides(
     actorRole: "it_admin",
     action: "table_qr_automation_override_updated",
     targetTable: "tenant_pos_notification_settings",
-    targetId: `${tenantId}:${branchId}`,
+    entityId: `${tenantId}:${branchId}`,
     module: "it_admin",
     metadata: { before, after }
   });
