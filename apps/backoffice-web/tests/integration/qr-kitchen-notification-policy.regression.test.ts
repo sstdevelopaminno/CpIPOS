@@ -14,6 +14,8 @@ const settingsUi = read("apps/backoffice-web/src/components/pos-preview/order-ki
 const kds = read("apps/backoffice-web/src/components/kitchen/kitchen-kds.tsx");
 const kdsQueue = read("apps/backoffice-web/src/app/api/pos/kitchen/queue/route.ts");
 const posAlert = read("apps/backoffice-web/src/components/pos-preview/pos-table-qr-global-alert.tsx");
+const posSales = read("apps/backoffice-web/src/components/pos/pos-sales-module.tsx");
+const cashierReviewRoute = read("apps/backoffice-web/src/app/api/pos/restaurant-qr-policy/route.ts");
 const migration = read("supabase/migrations/20261106121500_kds_popup_audio_and_qr_print_policy.sql");
 const routedPrint = read("apps/backoffice-web/src/lib/printing/routed-print-service.ts");
 
@@ -24,6 +26,10 @@ describe("QR cashier approval and Kitchen alert settings regression", () => {
     expect(profile).toContain("table_qr_cashier_review_required");
     expect(profile).toContain("resolveProductProfile");
     expect(profile).toContain("ttlMs: 10_000");
+    expect(cashierReviewRoute).toContain('requiredPermission: "sales:view"');
+    expect(cashierReviewRoute).toContain("await loadRestaurantQrKitchenFlagsForScope(");
+    expect(posSales).toContain('fetch("/api/pos/restaurant-qr-policy"');
+    expect(posSales).toContain("setRestaurantQrKitchenHardeningActive(payload.data.cashier_review_required)");
   });
 
   it("sends only changed settings so Kitchen audio changes never demand a QR entitlement", () => {
