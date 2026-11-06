@@ -1,6 +1,6 @@
 import type { AuthContext } from "@/lib/auth-context";
 import { appendAuditLog } from "@/lib/audit-log";
-import { invalidateRuntimeCacheByPrefix } from "@/lib/route-runtime-cache";
+import { invalidateRuntimeCacheByPrefix, readThroughRuntimeCache } from "@/lib/route-runtime-cache";
 import { getPrimarySupabaseServiceClient } from "@/lib/supabase-admin";
 import { invalidateRestaurantQrReviewCache, loadRestaurantQrKitchenFlagsForScope } from "@/lib/services/restaurant-qr-kitchen-profile-service";
 
@@ -182,7 +182,13 @@ export async function loadTableQrAutomationPolicyForScope(input: {
 
 export async function loadKitchenAlertSettingsForScope(input: { tenantId: string; branchId: string }): Promise<KitchenAlertSettings> {
   if (!input.tenantId || !input.branchId) throw new Error("Tenant and branch are required.");
-  return readKitchenAlerts(await readSettingsRow(input.tenantId, input.branchId));
+  const { value } = await readThroughRuntimeCache({
+    key: `kds-alert-settings:${input.tenantId}:${input.branchId}`,
+    ttlMs: 8_000,
+    staleIfErrorMs: 10_000,
+    loader: async () => readKitchenAlerts(await readSettingsRow(input.tenantId, input.branchId))
+  });
+  return value;
 }
 
 export async function saveStoreTableQrAutomationPolicy(
@@ -237,6 +243,7 @@ export async function saveStoreTableQrAutomationPolicy(
   if (error) throw new Error(`table_qr_automation_policy_save_failed:${error.message}`);
 
   invalidatePopupPolicyCache(tenantId, branchId);
+  invalidateRuntimeCacheByPrefix(`kds-alert-settings:${tenantId}:${branchId}`);
   invalidateRestaurantQrReviewCache(tenantId, branchId);
   const next = await loadTableQrAutomationPolicy(auth, branchId);
   await appendAuditLog({
