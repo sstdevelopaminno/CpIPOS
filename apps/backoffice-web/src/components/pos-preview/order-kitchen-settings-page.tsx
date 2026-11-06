@@ -7,6 +7,7 @@ import type { Language } from "@/lib/i18n";
 type OverrideMode = "inherit" | "force_on" | "force_off";
 type Policy = {
   branch_id: string;
+  kitchen_alert: { popup_enabled: boolean; sound_enabled: boolean; sound_volume: number };
   store: {
     popup_enabled: boolean;
     kitchen_auto_send_enabled: boolean;
@@ -66,6 +67,7 @@ export function OrderKitchenSettingsPage({ lang }: { lang: Language }) {
   const th = lang === "th";
   const [policy, setPolicy] = useState<Policy | null>(null);
   const [draft, setDraft] = useState<Policy["store"] | null>(null);
+  const [kitchenAlertDraft, setKitchenAlertDraft] = useState<Policy["kitchen_alert"] | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -82,6 +84,7 @@ export function OrderKitchenSettingsPage({ lang }: { lang: Language }) {
         const next = payload?.data?.policy as Policy;
         setPolicy(next);
         setDraft(next.store);
+        setKitchenAlertDraft(next.kitchen_alert);
       } catch (cause) {
         if (active) setError(cause instanceof Error ? cause.message : "Load failed");
       } finally {
@@ -92,11 +95,14 @@ export function OrderKitchenSettingsPage({ lang }: { lang: Language }) {
   }, []);
 
   const dirty = useMemo(() => {
-    if (!policy || !draft) return false;
+    if (!policy || !draft || !kitchenAlertDraft) return false;
     return draft.popup_enabled !== policy.store.popup_enabled
       || draft.kitchen_auto_send_enabled !== policy.store.kitchen_auto_send_enabled
-      || draft.kitchen_auto_print_enabled !== policy.store.kitchen_auto_print_enabled;
-  }, [draft, policy]);
+      || draft.kitchen_auto_print_enabled !== policy.store.kitchen_auto_print_enabled
+      || kitchenAlertDraft.popup_enabled !== policy.kitchen_alert.popup_enabled
+      || kitchenAlertDraft.sound_enabled !== policy.kitchen_alert.sound_enabled
+      || kitchenAlertDraft.sound_volume !== policy.kitchen_alert.sound_volume;
+  }, [draft, kitchenAlertDraft, policy]);
 
   function shown(key: keyof Policy["store"], effectiveKey: keyof Policy["effective"], forced: boolean) {
     if (!policy || !draft) return false;
@@ -104,7 +110,7 @@ export function OrderKitchenSettingsPage({ lang }: { lang: Language }) {
   }
 
   async function save() {
-    if (!draft || saving) return;
+    if (!draft || !policy || !kitchenAlertDraft || saving || !dirty) return;
     setSaving(true);
     setError("");
     setSaved(false);
@@ -113,9 +119,12 @@ export function OrderKitchenSettingsPage({ lang }: { lang: Language }) {
         method: "PATCH",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
-          popup_enabled: draft.popup_enabled,
-          kitchen_auto_send_enabled: draft.kitchen_auto_send_enabled,
-          kitchen_auto_print_enabled: draft.kitchen_auto_print_enabled
+          ...(draft.popup_enabled !== policy.store.popup_enabled && !policy.forced_by_it.popup ? { popup_enabled: draft.popup_enabled } : {}),
+          ...(draft.kitchen_auto_send_enabled !== policy.store.kitchen_auto_send_enabled && !policy.forced_by_it.kitchen_auto_send ? { kitchen_auto_send_enabled: draft.kitchen_auto_send_enabled } : {}),
+          ...(draft.kitchen_auto_print_enabled !== policy.store.kitchen_auto_print_enabled && !policy.forced_by_it.kitchen_auto_print ? { kitchen_auto_print_enabled: draft.kitchen_auto_print_enabled } : {}),
+          ...(kitchenAlertDraft.popup_enabled !== policy.kitchen_alert.popup_enabled ? { kitchen_alert_popup_enabled: kitchenAlertDraft.popup_enabled } : {}),
+          ...(kitchenAlertDraft.sound_enabled !== policy.kitchen_alert.sound_enabled ? { kitchen_alert_sound_enabled: kitchenAlertDraft.sound_enabled } : {}),
+          ...(kitchenAlertDraft.sound_volume !== policy.kitchen_alert.sound_volume ? { kitchen_alert_sound_volume: kitchenAlertDraft.sound_volume } : {})
         })
       });
       const payload = await response.json().catch(() => ({}));
@@ -123,6 +132,7 @@ export function OrderKitchenSettingsPage({ lang }: { lang: Language }) {
       const next = payload?.data?.policy as Policy;
       setPolicy(next);
       setDraft(next.store);
+      setKitchenAlertDraft(next.kitchen_alert);
       setSaved(true);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Save failed");
@@ -147,7 +157,7 @@ export function OrderKitchenSettingsPage({ lang }: { lang: Language }) {
 
       <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
         {loading ? <div className="p-8 text-center text-sm font-semibold text-slate-500">{th ? "กำลังโหลดการตั้งค่า..." : "Loading settings..."}</div> : null}
-        {!loading && policy && draft ? <>
+        {!loading && policy && draft && kitchenAlertDraft ? <>
           <SwitchRow
             title={th ? "แจ้งเตือนออเดอร์ QR บนหน้าขาย" : "QR order popup on sales screen"}
             description={th ? "เมื่อมีออเดอร์ใหม่จาก QR โต๊ะ ให้แสดง POP UP แจ้งเตือนที่หน้าขายโหมดนั่งโต๊ะ" : "Show an incoming-order popup on the dine-in sales screen."}
@@ -172,6 +182,29 @@ export function OrderKitchenSettingsPage({ lang }: { lang: Language }) {
             forcedLabel={policy.forced_by_it.kitchen_auto_print ? forcedText(policy.override.kitchen_auto_print) : undefined}
             onChange={(value) => setDraft((current) => current ? { ...current, kitchen_auto_print_enabled: value } : current)}
           />
+          <div className="border-t-4 border-slate-100 bg-blue-50 px-5 py-4">
+            <p className="text-base font-black text-slate-950">{th ? "แจ้งเตือนบนหน้าจอครัว (POS และ QR โต๊ะ)" : "Kitchen screen alerts (cashier POS and table QR)"}</p>
+            <p className="mt-1 text-sm font-medium text-slate-600">{th ? "แยกจากป๊อปอัปหน้าแคชเชียร์ ใช้เมื่อมีรายการเข้าครัวในโซนที่เปิด KDS" : "Separate from cashier popups; applies when a ticket reaches an enabled KDS zone."}</p>
+          </div>
+          <SwitchRow
+            title={th ? "แสดง POP UP ออเดอร์ใหม่ในครัว" : "Show new Kitchen ticket popup"}
+            description={th ? "แสดงเมื่อออเดอร์จากหน้าแคชเชียร์หรือ QR ส่งเข้าครัวสำเร็จ" : "Alert on kitchen tickets from cashier orders or table QR."}
+            checked={kitchenAlertDraft.popup_enabled}
+            onChange={(value) => setKitchenAlertDraft((current) => current ? { ...current, popup_enabled: value } : current)}
+          />
+          <SwitchRow
+            title={th ? "เปิดเสียงออเดอร์ใหม่ในครัว" : "Play new Kitchen ticket sound"}
+            description={th ? "เบราว์เซอร์บางเครื่องต้องแตะปุ่มเปิดเสียงที่หน้าครัวหนึ่งครั้ง" : "Some browsers require tapping Enable Sound once on the kitchen screen."}
+            checked={kitchenAlertDraft.sound_enabled}
+            onChange={(value) => setKitchenAlertDraft((current) => current ? { ...current, sound_enabled: value } : current)}
+          />
+          <label className="flex flex-col gap-2 px-5 py-5 text-sm font-bold text-slate-900">
+            <span>{th ? "ระดับเสียงแจ้งเตือนในครัว" : "Kitchen alert volume"}: {Math.round(kitchenAlertDraft.sound_volume * 100)}%</span>
+            <input type="range" min={0} max={1} step={0.05} value={kitchenAlertDraft.sound_volume}
+              disabled={!kitchenAlertDraft.sound_enabled}
+              onChange={(event) => setKitchenAlertDraft((current) => current ? { ...current, sound_volume: Number(event.target.value) } : current)}
+              aria-label={th ? "ระดับเสียงแจ้งเตือนในครัว" : "Kitchen alert volume"} />
+          </label>
         </> : null}
       </div>
 
