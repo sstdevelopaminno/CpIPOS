@@ -180,6 +180,12 @@ export async function loadTableQrAutomationPolicyForScope(input: {
   return { ...policy, cashier_review_required: flags.qr_pos_review_required };
 }
 
+export async function isQrKitchenAutomaticPrintEnabledForScope(input: { tenantId: string; branchId: string }): Promise<boolean> {
+  if (!input.tenantId || !input.branchId) throw new Error("Tenant and branch are required.");
+  const row = await readSettingsRow(input.tenantId, input.branchId);
+  return resolveTableQrOverride(row?.table_qr_kitchen_auto_print_enabled ?? true, normalizeOverride(row?.table_qr_kitchen_auto_print_override));
+}
+
 export async function loadKitchenAlertSettingsForScope(input: { tenantId: string; branchId: string }): Promise<KitchenAlertSettings> {
   if (!input.tenantId || !input.branchId) throw new Error("Tenant and branch are required.");
   const { value } = await readThroughRuntimeCache({
