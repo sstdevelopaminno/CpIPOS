@@ -16,7 +16,7 @@ const kdsQueue = read("apps/backoffice-web/src/app/api/pos/kitchen/queue/route.t
 const posAlert = read("apps/backoffice-web/src/components/pos-preview/pos-table-qr-global-alert.tsx");
 const posSales = read("apps/backoffice-web/src/components/pos/pos-sales-module.tsx");
 const cashierReviewRoute = read("apps/backoffice-web/src/app/api/pos/restaurant-qr-policy/route.ts");
-const migration = read("supabase/migrations/20261106121500_kds_popup_audio_and_qr_print_policy.sql");
+const migration = read("supabase/migrations/20261106130420_kds_popup_audio_and_qr_print_policy.sql");
 const routedPrint = read("apps/backoffice-web/src/lib/printing/routed-print-service.ts");
 
 describe("QR cashier approval and Kitchen alert settings regression", () => {
