@@ -1,5 +1,6 @@
 import { fail, ok } from "@/lib/http";
-import { isRestaurantQrInternalReviewSource, resolveRestaurantQrKitchenFlags } from "@/lib/restaurant-qr-profile";
+import { isRestaurantQrInternalReviewSource } from "@/lib/restaurant-qr-profile";
+import { loadRestaurantQrKitchenFlagsForScope } from "@/lib/services/restaurant-qr-kitchen-profile-service";
 import { getPosApiAuthContext } from "@/lib/pos-api-auth";
 import { PosGuardError } from "@/lib/pos-session-guard";
 import { readThroughRuntimeCache } from "@/lib/route-runtime-cache";
@@ -102,7 +103,7 @@ export async function GET(request: Request) {
     const auth = await getPosApiAuthContext({ requireBranchScope: true, requiredPermission: "sales:view" });
     const tenantId = auth.tenantId!;
     const branchId = auth.branchId!;
-    const flags = resolveRestaurantQrKitchenFlags({ tenantId, branchId });
+    const flags = await loadRestaurantQrKitchenFlagsForScope({ tenantId, branchId });
     const restaurantQrPendingOnly = flags.qr_pos_review_required;
     const { searchParams } = new URL(request.url);
     const sinceRaw = searchParams.get("since")?.trim() || new Date(Date.now() - 15_000).toISOString();
