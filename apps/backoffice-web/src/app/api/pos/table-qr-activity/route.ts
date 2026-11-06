@@ -6,6 +6,7 @@ import { PosGuardError } from "@/lib/pos-session-guard";
 import { readThroughRuntimeCache } from "@/lib/route-runtime-cache";
 import { loadTableQrAutomationPolicyForScope } from "@/lib/services/table-qr-automation-policy-service";
 import { getRoutedSupabaseServiceClient } from "@/lib/tenant-data-router";
+import { getPrimarySupabaseServiceClient } from "@/lib/supabase-admin";
 
 type ServiceEventType = "call_staff" | "request_checkout";
 type ActivityEventType = "order" | ServiceEventType;
@@ -78,6 +79,23 @@ function isAcknowledged(payload: Record<string, unknown> | null) {
   return typeof payload?.acknowledged_at === "string" && payload.acknowledged_at.trim().length > 0;
 }
 
+async function loadCashierNotificationSound(tenantId: string, branchId: string) {
+  const { value } = await readThroughRuntimeCache({
+    key: `pos-qr-alert-sound:${tenantId}:${branchId}`,
+    ttlMs: 10_000,
+    loader: async () => {
+      const { data, error } = await getPrimarySupabaseServiceClient()
+        .from("tenant_pos_notification_settings")
+        .select("table_qr_sound_enabled,table_qr_sound_volume")
+        .eq("tenant_id", tenantId).eq("branch_id", branchId).maybeSingle();
+      if (error) throw new Error(error.message);
+      const volume = Number(data?.table_qr_sound_volume ?? 0.8);
+      return { enabled: data?.table_qr_sound_enabled !== false, volume: Number.isFinite(volume) ? Math.max(0, Math.min(1, volume)) : 0.8 };
+    }
+  });
+  return value;
+}
+
 async function loadFoodOrderPopupEnabled(tenantId: string, branchId: string) {
   try {
     const cached = await readThroughRuntimeCache<boolean>({
@@ -109,7 +127,10 @@ export async function GET(request: Request) {
     const sinceRaw = searchParams.get("since")?.trim() || new Date(Date.now() - 15_000).toISOString();
     const since = Number.isFinite(new Date(sinceRaw).getTime()) ? new Date(sinceRaw).toISOString() : new Date(Date.now() - 15_000).toISOString();
     const supabase = getRoutedSupabaseServiceClient();
-    const foodOrderPopupEnabled = await loadFoodOrderPopupEnabled(tenantId, branchId);
+    const [foodOrderPopupEnabled, notificationSound] = await Promise.all([
+      loadFoodOrderPopupEnabled(tenantId, branchId),
+      loadCashierNotificationSound(tenantId, branchId).catch(() => ({ enabled: true, volume: 0.8 }))
+    ]);
 
     let rawRows: ActivityRow[] = [];
     let cursor = since;
@@ -194,6 +215,7 @@ export async function GET(request: Request) {
     return ok({
       events,
       cursor,
+      notification_sound: notificationSound,
       server_time: new Date().toISOString()
     });
   } catch (error) {
