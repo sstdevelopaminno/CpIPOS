@@ -6567,12 +6567,19 @@ export function PosSalesModule({
     }
   }
 
-  const [restaurantQrKitchenHardeningActive, setRestaurantQrKitchenHardeningActive] = useState(false);
+  const [restaurantQrReviewPolicy, setRestaurantQrReviewPolicy] = useState<{ scope: string; required: boolean } | null>(null);
+  const restaurantQrPolicyScope = `${posScope.tenantId ?? ""}:${posScope.branchId ?? ""}`;
+  // Fail closed while loading an unfamiliar branch: never dispatch a Dine-in
+  // ticket automatically before the effective cashier-review policy is known.
+  const restaurantQrKitchenHardeningActive = !restaurantQrReviewPolicy
+    || restaurantQrReviewPolicy.scope !== restaurantQrPolicyScope
+    || restaurantQrReviewPolicy.required;
   useEffect(() => {
     if (!posScope.tenantId || !posScope.branchId) {
-      setRestaurantQrKitchenHardeningActive(false);
+      setRestaurantQrReviewPolicy(null);
       return;
     }
+    const scope = `${posScope.tenantId}:${posScope.branchId}`;
     let live = true;
     let inFlight = false;
     const readPolicy = async () => {
@@ -6586,10 +6593,10 @@ export function PosSalesModule({
         if (!response.ok) return;
         const payload = await response.json();
         if (live && typeof payload?.data?.cashier_review_required === "boolean") {
-          setRestaurantQrKitchenHardeningActive(payload.data.cashier_review_required);
+          setRestaurantQrReviewPolicy({ scope, required: payload.data.cashier_review_required });
         }
       } catch {
-        // Keep the last confirmed policy when temporarily offline.
+        // Preserve the last confirmed same-branch policy; never assume false.
       } finally {
         inFlight = false;
       }
