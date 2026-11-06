@@ -29,7 +29,8 @@ describe("QR cashier approval and Kitchen alert settings regression", () => {
     expect(cashierReviewRoute).toContain('requiredPermission: "sales:view"');
     expect(cashierReviewRoute).toContain("await loadRestaurantQrKitchenFlagsForScope(");
     expect(posSales).toContain('fetch("/api/pos/restaurant-qr-policy"');
-    expect(posSales).toContain("setRestaurantQrKitchenHardeningActive(payload.data.cashier_review_required)");
+    expect(posSales).toContain("restaurantQrReviewPolicy.scope !== restaurantQrPolicyScope");
+    expect(posSales).toContain("setRestaurantQrReviewPolicy({ scope, required: payload.data.cashier_review_required })");
   });
 
   it("sends only changed settings so Kitchen audio changes never demand a QR entitlement", () => {
