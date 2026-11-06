@@ -18,7 +18,7 @@ type ActivityEvent = {
 };
 
 type ActivityResponse = {
-  data?: { events?: ActivityEvent[]; cursor?: string; server_time?: string };
+  data?: { events?: ActivityEvent[]; cursor?: string; server_time?: string; notification_sound?: { enabled: boolean; volume: number } };
   error?: { message?: string } | null;
 };
 
@@ -89,9 +89,11 @@ export function PosTableQrGlobalAlert({ lang }: { lang: Language }) {
   const seenEventIdsRef = useRef<Set<string>>(new Set());
   const pendingServiceAcksRef = useRef<Map<string, PendingServiceAck>>(new Map());
   const serviceAckInFlightRef = useRef<Set<string>>(new Set());
+  const notificationSoundRef = useRef({ enabled: true, volume: 0.8 });
   const event = pendingEvents[0] ?? null;
 
   const playAlert = useCallback(() => {
+    if (!notificationSoundRef.current.enabled || notificationSoundRef.current.volume <= 0) return;
     try {
       const AudioContextCtor = window.AudioContext || (window as Window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
       if (!AudioContextCtor) return;
@@ -99,7 +101,7 @@ export function PosTableQrGlobalAlert({ lang }: { lang: Language }) {
       const oscillator = context.createOscillator();
       const gain = context.createGain();
       oscillator.frequency.value = 880;
-      gain.gain.value = 0.08;
+      gain.gain.value = 0.08 * notificationSoundRef.current.volume;
       oscillator.connect(gain);
       gain.connect(context.destination);
       oscillator.start();
@@ -209,6 +211,7 @@ export function PosTableQrGlobalAlert({ lang }: { lang: Language }) {
         }
         const body = (await response.json().catch(() => null)) as ActivityResponse | null;
         if (response.ok && body?.data) {
+          notificationSoundRef.current = body.data.notification_sound ?? notificationSoundRef.current;
           const events = body.data.events ?? [];
           const cursor = body.data.cursor || body.data.server_time || since;
           cursorRef.current = cursor;
