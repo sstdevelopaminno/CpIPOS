@@ -4,9 +4,13 @@ import { invalidateRuntimeCacheByPrefix } from "@/lib/route-runtime-cache";
 import { getPrimarySupabaseServiceClient } from "@/lib/supabase-admin";
 
 export type TableQrPolicyOverride = "inherit" | "force_on" | "force_off";
+export type KitchenAlertSettings = { popup_enabled: boolean; sound_enabled: boolean; sound_volume: number };
+
+const DEFAULT_KITCHEN_ALERT_SETTINGS: KitchenAlertSettings = { popup_enabled: true, sound_enabled: true, sound_volume: 1 };
 
 export type TableQrAutomationPolicy = {
   branch_id: string;
+  kitchen_alert: KitchenAlertSettings;
   store: {
     popup_enabled: boolean;
     kitchen_auto_send_enabled: boolean;
@@ -37,6 +41,9 @@ type SettingsRow = {
   table_qr_popup_override?: string | null;
   table_qr_kitchen_auto_send_override?: string | null;
   table_qr_kitchen_auto_print_override?: string | null;
+  kitchen_alert_popup_enabled?: boolean | null;
+  kitchen_alert_sound_enabled?: boolean | null;
+  kitchen_alert_sound_volume?: number | null;
 };
 
 export type SaveStoreTableQrAutomationPolicyInput = {
@@ -44,6 +51,9 @@ export type SaveStoreTableQrAutomationPolicyInput = {
   popup_enabled?: boolean;
   kitchen_auto_send_enabled?: boolean;
   kitchen_auto_print_enabled?: boolean;
+  kitchen_alert_popup_enabled?: boolean;
+  kitchen_alert_sound_enabled?: boolean;
+  kitchen_alert_sound_volume?: number;
 };
 
 export type SaveItTableQrAutomationOverridesInput = {
@@ -83,6 +93,15 @@ function canManageStorePolicy(auth: AuthContext): boolean {
   return auth.platformRole === "it_admin" || auth.branchRole === "owner" || auth.branchRole === "manager";
 }
 
+function readKitchenAlerts(row: SettingsRow | null): KitchenAlertSettings {
+  const rawVolume = Number(row?.kitchen_alert_sound_volume ?? 1);
+  return {
+    popup_enabled: row?.kitchen_alert_popup_enabled !== false,
+    sound_enabled: row?.kitchen_alert_sound_enabled !== false,
+    sound_volume: Number.isFinite(rawVolume) ? Math.max(0, Math.min(1, rawVolume)) : 1
+  };
+}
+
 function toPolicy(branchId: string, row: SettingsRow | null): TableQrAutomationPolicy {
   const storePopup = row?.table_qr_popup_store_enabled ?? row?.table_qr_popup_enabled ?? true;
   const storeSend = row?.table_qr_kitchen_auto_send_enabled ?? true;
@@ -93,6 +112,7 @@ function toPolicy(branchId: string, row: SettingsRow | null): TableQrAutomationP
 
   return {
     branch_id: branchId,
+    kitchen_alert: readKitchenAlerts(row),
     store: {
       popup_enabled: storePopup,
       kitchen_auto_send_enabled: storeSend,
@@ -121,7 +141,7 @@ async function readSettingsRow(tenantId: string, branchId: string): Promise<Sett
   const { data, error } = await supabase
     .from("tenant_pos_notification_settings")
     .select(
-      "table_qr_popup_enabled,table_qr_popup_store_enabled,table_qr_kitchen_auto_send_enabled,table_qr_kitchen_auto_print_enabled,table_qr_popup_override,table_qr_kitchen_auto_send_override,table_qr_kitchen_auto_print_override"
+      "table_qr_popup_enabled,table_qr_popup_store_enabled,table_qr_kitchen_auto_send_enabled,table_qr_kitchen_auto_print_enabled,table_qr_popup_override,table_qr_kitchen_auto_send_override,table_qr_kitchen_auto_print_override,kitchen_alert_popup_enabled,kitchen_alert_sound_enabled,kitchen_alert_sound_volume"
     )
     .eq("tenant_id", tenantId)
     .eq("branch_id", branchId)
@@ -151,6 +171,11 @@ export async function loadTableQrAutomationPolicyForScope(input: {
   return toPolicy(branchId, row);
 }
 
+export async function loadKitchenAlertSettingsForScope(input: { tenantId: string; branchId: string }): Promise<KitchenAlertSettings> {
+  if (!input.tenantId || !input.branchId) throw new Error("Tenant and branch are required.");
+  return readKitchenAlerts(await readSettingsRow(input.tenantId, input.branchId));
+}
+
 export async function saveStoreTableQrAutomationPolicy(
   auth: AuthContext,
   input: SaveStoreTableQrAutomationPolicyInput
@@ -173,6 +198,14 @@ export async function saveStoreTableQrAutomationPolicy(
       : current.store.kitchen_auto_print_enabled;
 
   const nextEffectivePopup = resolveTableQrOverride(nextStorePopup, current.override.popup);
+  if (input.kitchen_alert_sound_volume !== undefined && (!Number.isFinite(input.kitchen_alert_sound_volume) || input.kitchen_alert_sound_volume < 0 || input.kitchen_alert_sound_volume > 1)) {
+    throw new Error("Kitchen alert volume must be between 0 and 1.");
+  }
+  const nextKitchenAlert: KitchenAlertSettings = {
+    popup_enabled: input.kitchen_alert_popup_enabled ?? current.kitchen_alert.popup_enabled,
+    sound_enabled: input.kitchen_alert_sound_enabled ?? current.kitchen_alert.sound_enabled,
+    sound_volume: input.kitchen_alert_sound_volume ?? current.kitchen_alert.sound_volume
+  };
   const nowIso = new Date().toISOString();
   const supabase = getPrimarySupabaseServiceClient();
   const { error } = await supabase.from("tenant_pos_notification_settings").upsert(
@@ -183,6 +216,9 @@ export async function saveStoreTableQrAutomationPolicy(
       table_qr_popup_enabled: nextEffectivePopup,
       table_qr_kitchen_auto_send_enabled: nextStoreSend,
       table_qr_kitchen_auto_print_enabled: nextStorePrint,
+      kitchen_alert_popup_enabled: nextKitchenAlert.popup_enabled,
+      kitchen_alert_sound_enabled: nextKitchenAlert.sound_enabled,
+      kitchen_alert_sound_volume: nextKitchenAlert.sound_volume,
       updated_at: nowIso,
       updated_by: auth.userId
     },
