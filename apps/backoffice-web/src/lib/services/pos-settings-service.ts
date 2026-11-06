@@ -6,6 +6,7 @@ import { enforceQuota } from "@/lib/feature-gate";
 import { resolveProductProfile, type ProductProfileCode } from "@/lib/product-profile-policy";
 import { resolveStoreLoginMode } from "@/lib/server/store-login-mode";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
+import { invalidateRuntimeCacheByPrefix } from "@/lib/route-runtime-cache";
 
 export type StoreSettings = {
   id: string;
@@ -993,6 +994,7 @@ export async function savePosNotificationSettings(auth: AuthContext, input: PosN
     .select("table_qr_popup_enabled,table_qr_sound_enabled,table_qr_sound_volume")
     .maybeSingle<PosNotificationSettingsRow>();
   if (error) throw new Error(error.message);
+  invalidateRuntimeCacheByPrefix(`pos-qr-alert-sound:${tenantId}:${branchId}`);
 
   runDeviceSettingsBackgroundTask("append_pos_notification_settings_audit_log", () =>
     appendAuditLog({
