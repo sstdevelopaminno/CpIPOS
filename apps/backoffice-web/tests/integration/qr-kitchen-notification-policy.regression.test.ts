@@ -63,6 +63,7 @@ describe("QR cashier approval and Kitchen alert settings regression", () => {
     expect(migration).toContain("ADD COLUMN IF NOT EXISTS kitchen_alert_popup_enabled");
     expect(migration).toContain("ADD COLUMN IF NOT EXISTS table_qr_cashier_review_required");
     expect(migration).toContain("NEW.metadata->>'source' IS DISTINCT FROM 'app.enqueue_kitchen_order'");
+    expect(migration).toContain("NEW.metadata->>'request_source' IS DISTINCT FROM 'kitchen_ticket_dispatch'");
     expect(migration).toContain("v_channel IS DISTINCT FROM 'table_qr'");
     expect(migration).toContain("= 'reprint'");
     expect(migration).toContain("RETURN NULL;");
