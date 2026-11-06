@@ -124,7 +124,12 @@ describe("Kitchen K1/K2 checkpoint security and contracts", () => {
   });
 
   it("uses authoritative QR/POS mutations and only recovers missing Kitchen print jobs", () => {
-    expect(tableQrSource).not.toContain("dispatchOrderToKitchen");
+    // Staff-reviewed QR orders now require an idempotent explicit dispatch when auto-send is OFF.
+    // The shared routing service first repairs existing tickets, avoiding a second Kitchen ticket.
+    expect(tableQrSource).toContain("await dispatchOrderToKitchen({");
+    expect(tableQrSource).toContain('eventKey: `qr-review-confirm:${args.submissionId}`');
+    expect(routingServiceSource).toContain("existing_ticket_print_repair");
+    expect(routingServiceSource).toContain('if (action === "new" && !args.orderItemIds?.length && printAuth)');
     expect(tableQrSource).not.toContain("dispatchTableQrItemsToKitchen");
     expect(tableQrSource).not.toContain(".delete()");
     expect(tableQrSource).toContain('supabase.rpc("replace_queued_dine_in_order_tx"');
