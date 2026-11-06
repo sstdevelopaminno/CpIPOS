@@ -12,6 +12,7 @@ import { getTenantPosCurrencyCode } from "@/lib/server/custom-pos-currency";
 import { getCurrentLanguage } from "@/lib/i18n";
 import { resolvePrinterRoutes, type ResolvedPrinterRoute } from "@/lib/printing/printer-routing-service";
 import { loadReceiptStoreProfile } from "@/lib/services/store-profile-service";
+import { isQrKitchenAutomaticPrintEnabledForScope } from "@/lib/services/table-qr-automation-policy-service";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
 
 type JsonRecord = Record<string, unknown>;
@@ -394,6 +395,21 @@ export async function queueRoutedKitchenTicketPrint(args: {
   if (ticketError) throw new Error(ticketError.message);
   if (itemsError) throw new Error(itemsError.message);
   if (!ticket) throw new Error("kitchen_ticket_not_found");
+
+  // Cashier and QR tickets share the printer service, but only table-QR automatic
+  // jobs honor the branch auto-print toggle. Explicit reprints are always allowed.
+  if (!args.forceReprint) {
+    const { data: order, error: orderError } = await supabase.from("orders")
+      .select("channel")
+      .eq("tenant_id", args.auth.tenantId!)
+      .eq("branch_id", args.auth.branchId!)
+      .eq("id", String((ticket as { order_id: string }).order_id))
+      .maybeSingle();
+    if (orderError) throw new Error(orderError.message);
+    if (order?.channel === "table_qr" && !(await isQrKitchenAutomaticPrintEnabledForScope({
+      tenantId: args.auth.tenantId!, branchId: args.auth.branchId!
+    }))) return [];
+  }
 
   const zoneRelation = (ticket as { kitchen_zones?: unknown }).kitchen_zones;
   const zone = Array.isArray(zoneRelation) ? zoneRelation[0] : zoneRelation;
