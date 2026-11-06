@@ -5,7 +5,7 @@ import { hasLocalWindowsPrintBridge, printWindowsReceiptHtml } from "@/lib/print
 import Image from "next/image";
 import type { OrderType } from "@pos/shared-types";
 import { ErrorState, LoadingState } from "@/components/backoffice/list-state";
-import { isRestaurantQrKitchenHardeningEnabled, resolveRestaurantQrKitchenFlags } from "@/lib/restaurant-qr-profile";
+
 import { PosHeldBillsModal } from "@/components/pos/pos-held-bills-modal";
 import { PosBuffetPricePickerModal } from "@/components/pos/pos-buffet-price-picker-modal";
 import { PosBuffetTableModeButton } from "@/components/pos/features/pos-buffet-table-mode-button";
@@ -6567,10 +6567,37 @@ export function PosSalesModule({
     }
   }
 
-  const restaurantQrKitchenHardeningActive = useMemo(() => isRestaurantQrKitchenHardeningEnabled(resolveRestaurantQrKitchenFlags({
-    tenantId: posScope.tenantId,
-    branchId: posScope.branchId
-  })), [posScope.branchId, posScope.tenantId]);
+  const [restaurantQrKitchenHardeningActive, setRestaurantQrKitchenHardeningActive] = useState(false);
+  useEffect(() => {
+    if (!posScope.tenantId || !posScope.branchId) {
+      setRestaurantQrKitchenHardeningActive(false);
+      return;
+    }
+    let live = true;
+    let inFlight = false;
+    const readPolicy = async () => {
+      if (inFlight || !live) return;
+      inFlight = true;
+      try {
+        const response = await fetch("/api/pos/restaurant-qr-policy", {
+          cache: "no-store",
+          credentials: "include"
+        });
+        if (!response.ok) return;
+        const payload = await response.json();
+        if (live && typeof payload?.data?.cashier_review_required === "boolean") {
+          setRestaurantQrKitchenHardeningActive(payload.data.cashier_review_required);
+        }
+      } catch {
+        // Keep the last confirmed policy when temporarily offline.
+      } finally {
+        inFlight = false;
+      }
+    };
+    void readPolicy();
+    const timer = window.setInterval(() => void readPolicy(), 15_000);
+    return () => { live = false; window.clearInterval(timer); };
+  }, [posScope.tenantId, posScope.branchId, shift?.id]);
 
   async function submitOrder(payload: PendingSubmit, options?: { applyUiResult?: boolean }): Promise<ActiveOrder | null> {
     const applyUiResult = options?.applyUiResult ?? true;
