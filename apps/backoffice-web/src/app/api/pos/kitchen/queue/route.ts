@@ -2,6 +2,7 @@ import { cookies } from "next/headers";
 import { fail, ok } from "@/lib/http";
 import { getKitchenApiAuthContext } from "@/lib/pos-api-auth";
 import { readKitchenZoneSession } from "@/lib/server/kitchen-zone-session";
+import { loadKitchenAlertSettingsForScope } from "@/lib/services/table-qr-automation-policy-service";
 import {
   KitchenQueueError,
   loadKitchenQueue,
@@ -30,14 +31,11 @@ export async function GET(req: Request) {
     const rawLimit = Number(searchParams.get("limit") ?? 60);
     const limit = Number.isFinite(rawLimit) ? Math.trunc(rawLimit) : 60;
 
-    const result = await loadKitchenQueue({
-      tenantId: auth.tenantId!,
-      branchId: auth.branchId!,
-      statuses,
-      zoneId,
-      limit
-    });
-    return ok(result);
+    const [result, kitchenAlert] = await Promise.all([
+      loadKitchenQueue({ tenantId: auth.tenantId!, branchId: auth.branchId!, statuses, zoneId, limit }),
+      loadKitchenAlertSettingsForScope({ tenantId: auth.tenantId!, branchId: auth.branchId! })
+    ]);
+    return ok({ ...result, kitchen_alert_settings: kitchenAlert });
   } catch (error) {
     if (error instanceof KitchenQueueError) {
       return fail(error.code, error.message, error.status);
