@@ -18,7 +18,8 @@ describe("Restaurant QR to POS to Kitchen hardening", () => {
     expect(hardeningFlags).toContain("resolveRestaurantQrKitchenFlags");
     expect(hardeningFlags).toContain('tenantCode.startsWith("FG")');
     expect(hardeningFlags).toContain('branchCode.startsWith("FG")');
-    expect(qrOrdering).toContain("resolveRestaurantQrKitchenFlags");
+    expect(qrOrdering).toContain("await loadRestaurantQrKitchenFlagsForScope(");
+    expect(qrOrdering).not.toContain("resolveRestaurantQrKitchenFlags({");
     expect(posSales).toContain("restaurantQrKitchenHardeningActive");
     expect(compatibilityAlias).toContain("resolveRestaurantQrKitchenFlags as resolveQrKitchenHardeningFlags");
   });
