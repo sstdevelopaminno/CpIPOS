@@ -866,7 +866,7 @@ async function loadAlreadyReviewedQrResult(args: {
     duplicate_request: true,
     review_status: args.submission.review_status,
     kitchen_pending_review: false,
-    kitchen_sent: args.submission.review_status !== "rejected" && Boolean(args.submission.order_id),
+    kitchen_sent: false,
     already_reviewed: true,
     review_conflict: !sameDecision
   };
@@ -929,8 +929,17 @@ export async function reviewPendingTableQrOrder(args: {
   }
 
   if (submission.order_id) {
+    const kitchen = await dispatchOrderToKitchen({
+      tenantId, branchId, orderId: submission.order_id,
+      eventKey: `qr-review-confirm:${args.submissionId}`,
+      action: "new",
+      actorUserId: args.auth.userId,
+      actorRole: "staff"
+    });
+    const kitchenSent = kitchen.ok && kitchen.routedZoneCount > 0;
     const result = await loadOrderTotalsForQrResult({ context, submissionId: submission.id, orderId: submission.order_id, duplicateRequest: true, supabase });
-    return { ...result, already_reviewed: true, review_conflict: false, kitchen_sent: true };
+    return { ...result, already_reviewed: true, review_conflict: false,
+      kitchen_sent: kitchenSent, kitchen_error: kitchenSent ? null : kitchen.ok ? "KITCHEN_ROUTE_MISSING" : kitchen.message };
   }
   if (submission.review_status !== "pending_pos_review") throw new Error("QR_REVIEW_NOT_PENDING");
 
