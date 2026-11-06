@@ -13,7 +13,7 @@ function statusFromError(error: unknown) {
   if (message.includes("Only owner or manager") || message.includes("scope mismatch")) {
     return { code: "forbidden_role", message, status: 403 };
   }
-  if (message.includes("required")) return { code: "invalid_payload", message, status: 422 };
+  if (message.includes("required") || message.includes("volume must") || message.includes("volume must be")) return { code: "invalid_payload", message, status: 422 };
   return { code: "order_kitchen_settings_failed", message, status: 500 };
 }
 
@@ -47,6 +47,9 @@ export async function PATCH(request: Request) {
       typeof body.popup_enabled === "boolean" ||
       typeof body.kitchen_auto_send_enabled === "boolean";
     const wantsKitchenPrint = typeof body.kitchen_auto_print_enabled === "boolean";
+    const wantsKitchenAlert = typeof body.kitchen_alert_popup_enabled === "boolean"
+      || typeof body.kitchen_alert_sound_enabled === "boolean"
+      || typeof body.kitchen_alert_sound_volume === "number";
 
     if (wantsQrPolicy) {
       await requirePosApiFeature(auth, "qr_table_ordering");
@@ -56,8 +59,13 @@ export async function PATCH(request: Request) {
     if (body.kitchen_auto_print_enabled === true) {
       await requirePosApiFeature(auth, "kitchen_printing");
     }
-    if (!wantsQrPolicy && !wantsKitchenPrint) {
+    if (!wantsQrPolicy && !wantsKitchenPrint && !wantsKitchenAlert) {
       return fail("invalid_payload", "At least one order/kitchen setting is required.", 422);
+    }
+    const allowedBooleanKeys = ["popup_enabled", "kitchen_auto_send_enabled", "kitchen_auto_print_enabled", "kitchen_alert_popup_enabled", "kitchen_alert_sound_enabled"] as const;
+    if (allowedBooleanKeys.some((key) => body[key] !== undefined && typeof body[key] !== "boolean")
+      || (body.kitchen_alert_sound_volume !== undefined && (typeof body.kitchen_alert_sound_volume !== "number" || !Number.isFinite(body.kitchen_alert_sound_volume) || body.kitchen_alert_sound_volume < 0 || body.kitchen_alert_sound_volume > 1))) {
+      return fail("invalid_payload", "Invalid order/kitchen setting value.", 422);
     }
     const policy = await saveStoreTableQrAutomationPolicy(auth, body);
     return ok({ policy });
