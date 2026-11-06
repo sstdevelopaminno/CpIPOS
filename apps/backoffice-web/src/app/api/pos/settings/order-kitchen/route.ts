@@ -1,7 +1,6 @@
 import { fail, ok } from "@/lib/http";
 import { getPosApiAuthContext } from "@/lib/pos-api-auth";
 import { featureGateFail, requirePosApiFeature } from "@/lib/pos-api-feature-guard";
-import { hasBranchFeature } from "@/lib/feature-gate";
 import {
   loadTableQrAutomationPolicy,
   saveStoreTableQrAutomationPolicy,
@@ -20,13 +19,8 @@ function statusFromError(error: unknown) {
 export async function GET(request: Request) {
   try {
     const auth = await getPosApiAuthContext({ requireBranchScope: true, requiredPermission: "settings:view" });
-    const [canQrOrdering, canKitchenPrinting] = await Promise.all([
-      hasBranchFeature(auth.tenantId!, auth.branchId, "qr_table_ordering"),
-      hasBranchFeature(auth.tenantId!, auth.branchId, "kitchen_printing")
-    ]);
-    if (!canQrOrdering && !canKitchenPrinting) {
-      await requirePosApiFeature(auth, "qr_table_ordering");
-    }
+    // Branch settings are readable by authorized managers even when a package
+    // lacks QR ordering or printing; PATCH still gates those features separately.
     const { searchParams } = new URL(request.url);
     const branchId = String(searchParams.get("branch_id") ?? auth.branchId ?? "").trim();
     const policy = await loadTableQrAutomationPolicy(auth, branchId);
