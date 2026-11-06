@@ -15,6 +15,7 @@ const kds = read("apps/backoffice-web/src/components/kitchen/kitchen-kds.tsx");
 const kdsQueue = read("apps/backoffice-web/src/app/api/pos/kitchen/queue/route.ts");
 const posAlert = read("apps/backoffice-web/src/components/pos-preview/pos-table-qr-global-alert.tsx");
 const migration = read("supabase/migrations/20261106121500_kds_popup_audio_and_qr_print_policy.sql");
+const routedPrint = read("apps/backoffice-web/src/lib/printing/routed-print-service.ts");
 
 describe("QR cashier approval and Kitchen alert settings regression", () => {
   it("applies the same tenant+branch cashier review policy to QR submission and cashier polling", () => {
@@ -68,5 +69,8 @@ describe("QR cashier approval and Kitchen alert settings regression", () => {
     expect(migration).toContain("= 'reprint'");
     expect(migration).toContain("RETURN NULL;");
     expect(migration).toContain("BEFORE INSERT ON public.print_jobs");
+    expect(routedPrint).toContain("if (!args.forceReprint)");
+    expect(routedPrint).toContain('order?.channel === "table_qr"');
+    expect(routedPrint).toContain("isQrKitchenAutomaticPrintEnabledForScope");
   });
 });
