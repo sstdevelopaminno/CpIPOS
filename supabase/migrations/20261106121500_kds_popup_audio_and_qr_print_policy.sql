@@ -34,7 +34,8 @@ DECLARE
   v_override text;
 BEGIN
   IF NEW.printer_role IS DISTINCT FROM 'kitchen'
-      OR NEW.metadata->>'source' IS DISTINCT FROM 'app.enqueue_kitchen_order'
+      OR (NEW.metadata->>'source' IS DISTINCT FROM 'app.enqueue_kitchen_order'
+        AND NEW.metadata->>'request_source' IS DISTINCT FROM 'kitchen_ticket_dispatch')
       OR lower(coalesce(NEW.payload_json->>'event_type','')) = 'reprint' THEN
     RETURN NEW;
   END IF;
