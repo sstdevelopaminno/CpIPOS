@@ -3,7 +3,7 @@ import { PrintersModule } from "@/components/backoffice/printers-module";
 import { PosSettingsWorkspace } from "@/components/pos-preview/pos-settings-workspace";
 import { PosPersonalSettings } from "@/components/pos-preview/pos-personal-settings";
 import { TableQrSettingsMenuPortal } from "@/components/pos-preview/table-qr-settings-menu-portal";
-import { resolveRestaurantQrKitchenFlags } from "@/lib/restaurant-qr-profile";
+import { loadRestaurantQrKitchenFlagsForScope } from "@/lib/services/restaurant-qr-kitchen-profile-service";
 import { getCurrentLanguage } from "@/lib/i18n";
 import { isCustomPosMenuVisible, isPosMenuEnabled } from "@/lib/pos-menu-policy";
 import { requirePosPagePermission } from "@/lib/pos-page-guard";
@@ -62,10 +62,10 @@ export default async function PosLanguageSettingsPage() {
   const settingsMenuPolicy = canManageTableQr
     ? await getTenantPosMenuOverrides(scope.session.tenant_id)
     : {};
-  const timelineEnabled = canManageTableQr && resolveRestaurantQrKitchenFlags({
+  const timelineEnabled = canManageTableQr && (await loadRestaurantQrKitchenFlagsForScope({
     tenantId: scope.session.tenant_id,
     branchId: scope.session.branch_id
-  }).qr_pos_review_required;
+  })).qr_pos_review_required;
 
   return (
     <div className="h-full min-h-0 flex-1 bg-slate-50">

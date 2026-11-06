@@ -1,12 +1,18 @@
 import type { AuthContext } from "@/lib/auth-context";
 import { appendAuditLog } from "@/lib/audit-log";
-import { invalidateRuntimeCacheByPrefix } from "@/lib/route-runtime-cache";
+import { invalidateRuntimeCacheByPrefix, readThroughRuntimeCache } from "@/lib/route-runtime-cache";
 import { getPrimarySupabaseServiceClient } from "@/lib/supabase-admin";
+import { invalidateRestaurantQrReviewCache, loadRestaurantQrKitchenFlagsForScope } from "@/lib/services/restaurant-qr-kitchen-profile-service";
 
 export type TableQrPolicyOverride = "inherit" | "force_on" | "force_off";
+export type KitchenAlertSettings = { popup_enabled: boolean; sound_enabled: boolean; sound_volume: number };
+
+const DEFAULT_KITCHEN_ALERT_SETTINGS: KitchenAlertSettings = { popup_enabled: true, sound_enabled: true, sound_volume: 1 };
 
 export type TableQrAutomationPolicy = {
   branch_id: string;
+  cashier_review_required: boolean;
+  kitchen_alert: KitchenAlertSettings;
   store: {
     popup_enabled: boolean;
     kitchen_auto_send_enabled: boolean;
@@ -37,6 +43,10 @@ type SettingsRow = {
   table_qr_popup_override?: string | null;
   table_qr_kitchen_auto_send_override?: string | null;
   table_qr_kitchen_auto_print_override?: string | null;
+  table_qr_cashier_review_required?: boolean | null;
+  kitchen_alert_popup_enabled?: boolean | null;
+  kitchen_alert_sound_enabled?: boolean | null;
+  kitchen_alert_sound_volume?: number | null;
 };
 
 export type SaveStoreTableQrAutomationPolicyInput = {
@@ -44,6 +54,10 @@ export type SaveStoreTableQrAutomationPolicyInput = {
   popup_enabled?: boolean;
   kitchen_auto_send_enabled?: boolean;
   kitchen_auto_print_enabled?: boolean;
+  cashier_review_required?: boolean;
+  kitchen_alert_popup_enabled?: boolean;
+  kitchen_alert_sound_enabled?: boolean;
+  kitchen_alert_sound_volume?: number;
 };
 
 export type SaveItTableQrAutomationOverridesInput = {
@@ -83,6 +97,15 @@ function canManageStorePolicy(auth: AuthContext): boolean {
   return auth.platformRole === "it_admin" || auth.branchRole === "owner" || auth.branchRole === "manager";
 }
 
+function readKitchenAlerts(row: SettingsRow | null): KitchenAlertSettings {
+  const rawVolume = Number(row?.kitchen_alert_sound_volume ?? 1);
+  return {
+    popup_enabled: row?.kitchen_alert_popup_enabled !== false,
+    sound_enabled: row?.kitchen_alert_sound_enabled !== false,
+    sound_volume: Number.isFinite(rawVolume) ? Math.max(0, Math.min(1, rawVolume)) : 1
+  };
+}
+
 function toPolicy(branchId: string, row: SettingsRow | null): TableQrAutomationPolicy {
   const storePopup = row?.table_qr_popup_store_enabled ?? row?.table_qr_popup_enabled ?? true;
   const storeSend = row?.table_qr_kitchen_auto_send_enabled ?? true;
@@ -93,6 +116,8 @@ function toPolicy(branchId: string, row: SettingsRow | null): TableQrAutomationP
 
   return {
     branch_id: branchId,
+    cashier_review_required: row?.table_qr_cashier_review_required ?? false,
+    kitchen_alert: readKitchenAlerts(row),
     store: {
       popup_enabled: storePopup,
       kitchen_auto_send_enabled: storeSend,
@@ -121,7 +146,7 @@ async function readSettingsRow(tenantId: string, branchId: string): Promise<Sett
   const { data, error } = await supabase
     .from("tenant_pos_notification_settings")
     .select(
-      "table_qr_popup_enabled,table_qr_popup_store_enabled,table_qr_kitchen_auto_send_enabled,table_qr_kitchen_auto_print_enabled,table_qr_popup_override,table_qr_kitchen_auto_send_override,table_qr_kitchen_auto_print_override"
+      "table_qr_popup_enabled,table_qr_popup_store_enabled,table_qr_kitchen_auto_send_enabled,table_qr_kitchen_auto_print_enabled,table_qr_popup_override,table_qr_kitchen_auto_send_override,table_qr_kitchen_auto_print_override,table_qr_cashier_review_required,kitchen_alert_popup_enabled,kitchen_alert_sound_enabled,kitchen_alert_sound_volume"
     )
     .eq("tenant_id", tenantId)
     .eq("branch_id", branchId)
@@ -137,7 +162,9 @@ export async function loadTableQrAutomationPolicy(
 ): Promise<TableQrAutomationPolicy> {
   const branchId = assertBranchId(auth, requestedBranchId);
   const row = await readSettingsRow(String(auth.tenantId), branchId);
-  return toPolicy(branchId, row);
+  const policy = toPolicy(branchId, row);
+  const flags = await loadRestaurantQrKitchenFlagsForScope({ tenantId: String(auth.tenantId), branchId });
+  return { ...policy, cashier_review_required: flags.qr_pos_review_required };
 }
 
 export async function loadTableQrAutomationPolicyForScope(input: {
@@ -148,7 +175,26 @@ export async function loadTableQrAutomationPolicyForScope(input: {
   const branchId = String(input.branchId ?? "").trim();
   if (!tenantId || !branchId) throw new Error("Tenant and branch are required.");
   const row = await readSettingsRow(tenantId, branchId);
-  return toPolicy(branchId, row);
+  const policy = toPolicy(branchId, row);
+  const flags = await loadRestaurantQrKitchenFlagsForScope({ tenantId, branchId });
+  return { ...policy, cashier_review_required: flags.qr_pos_review_required };
+}
+
+export async function isQrKitchenAutomaticPrintEnabledForScope(input: { tenantId: string; branchId: string }): Promise<boolean> {
+  if (!input.tenantId || !input.branchId) throw new Error("Tenant and branch are required.");
+  const row = await readSettingsRow(input.tenantId, input.branchId);
+  return resolveTableQrOverride(row?.table_qr_kitchen_auto_print_enabled ?? true, normalizeOverride(row?.table_qr_kitchen_auto_print_override));
+}
+
+export async function loadKitchenAlertSettingsForScope(input: { tenantId: string; branchId: string }): Promise<KitchenAlertSettings> {
+  if (!input.tenantId || !input.branchId) throw new Error("Tenant and branch are required.");
+  const { value } = await readThroughRuntimeCache({
+    key: `kds-alert-settings:${input.tenantId}:${input.branchId}`,
+    ttlMs: 8_000,
+    staleIfErrorMs: 10_000,
+    loader: async () => readKitchenAlerts(await readSettingsRow(input.tenantId, input.branchId))
+  });
+  return value;
 }
 
 export async function saveStoreTableQrAutomationPolicy(
@@ -160,7 +206,7 @@ export async function saveStoreTableQrAutomationPolicy(
   }
   const branchId = assertBranchId(auth, input.branch_id);
   const tenantId = String(auth.tenantId);
-  const current = toPolicy(branchId, await readSettingsRow(tenantId, branchId));
+  const current = await loadTableQrAutomationPolicy(auth, branchId);
 
   const nextStorePopup = typeof input.popup_enabled === "boolean" ? input.popup_enabled : current.store.popup_enabled;
   const nextStoreSend =
@@ -173,6 +219,14 @@ export async function saveStoreTableQrAutomationPolicy(
       : current.store.kitchen_auto_print_enabled;
 
   const nextEffectivePopup = resolveTableQrOverride(nextStorePopup, current.override.popup);
+  if (input.kitchen_alert_sound_volume !== undefined && (!Number.isFinite(input.kitchen_alert_sound_volume) || input.kitchen_alert_sound_volume < 0 || input.kitchen_alert_sound_volume > 1)) {
+    throw new Error("Kitchen alert volume must be between 0 and 1.");
+  }
+  const nextKitchenAlert: KitchenAlertSettings = {
+    popup_enabled: input.kitchen_alert_popup_enabled ?? current.kitchen_alert.popup_enabled,
+    sound_enabled: input.kitchen_alert_sound_enabled ?? current.kitchen_alert.sound_enabled,
+    sound_volume: input.kitchen_alert_sound_volume ?? current.kitchen_alert.sound_volume
+  };
   const nowIso = new Date().toISOString();
   const supabase = getPrimarySupabaseServiceClient();
   const { error } = await supabase.from("tenant_pos_notification_settings").upsert(
@@ -183,6 +237,10 @@ export async function saveStoreTableQrAutomationPolicy(
       table_qr_popup_enabled: nextEffectivePopup,
       table_qr_kitchen_auto_send_enabled: nextStoreSend,
       table_qr_kitchen_auto_print_enabled: nextStorePrint,
+      kitchen_alert_popup_enabled: nextKitchenAlert.popup_enabled,
+      kitchen_alert_sound_enabled: nextKitchenAlert.sound_enabled,
+      kitchen_alert_sound_volume: nextKitchenAlert.sound_volume,
+      ...(typeof input.cashier_review_required === "boolean" ? { table_qr_cashier_review_required: input.cashier_review_required } : {}),
       updated_at: nowIso,
       updated_by: auth.userId
     },
@@ -191,6 +249,8 @@ export async function saveStoreTableQrAutomationPolicy(
   if (error) throw new Error(`table_qr_automation_policy_save_failed:${error.message}`);
 
   invalidatePopupPolicyCache(tenantId, branchId);
+  invalidateRuntimeCacheByPrefix(`kds-alert-settings:${tenantId}:${branchId}`);
+  invalidateRestaurantQrReviewCache(tenantId, branchId);
   const next = await loadTableQrAutomationPolicy(auth, branchId);
   await appendAuditLog({
     tenantId,

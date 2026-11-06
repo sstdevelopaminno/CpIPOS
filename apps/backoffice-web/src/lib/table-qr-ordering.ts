@@ -4,11 +4,12 @@ import { createHash, createHmac, randomUUID, timingSafeEqual } from "node:crypto
 import QRCode from "qrcode";
 import type { AuthContext } from "@/lib/auth-context";
 import { readRequiredEnv } from "@/lib/env";
-import { isRestaurantQrKitchenHardeningEnabled, resolveRestaurantQrKitchenFlags } from "@/lib/restaurant-qr-profile";
+import { isRestaurantQrKitchenHardeningEnabled } from "@/lib/restaurant-qr-profile";
+import { loadRestaurantQrKitchenFlagsForScope } from "@/lib/services/restaurant-qr-kitchen-profile-service";
 import { invalidatePosBranchRuntimeCaches } from "@/lib/pos-cache-invalidation";
 import { mergeCategoryNames } from "@/lib/pos/category-normalization";
 import { isProductRecommended } from "@/lib/pos/product-metadata";
-import { queueMissingKitchenPrintJobsForOrder } from "@/lib/services/kitchen-routing-service";
+import { dispatchOrderToKitchen, queueMissingKitchenPrintJobsForOrder } from "@/lib/services/kitchen-routing-service";
 import { loadReceiptStoreProfile } from "@/lib/services/store-profile-service";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
 
@@ -740,7 +741,7 @@ export async function submitTableQrOrder(args: {
   const recentDuplicate = await loadRecentQrOrderPayloadDuplicate({ context, clientId, payloadFingerprint, supabase });
   if (recentDuplicate) return recentDuplicate;
 
-  const flags = resolveRestaurantQrKitchenFlags({
+  const flags = await loadRestaurantQrKitchenFlagsForScope({
     tenantId: context.tenant_id,
     branchId: context.branch_id,
     tenantCode: context.tenant_code,
@@ -820,11 +821,22 @@ async function loadAlreadyReviewedQrResult(args: {
   context: QrContext;
   submission: PendingQrSubmissionRow;
   action: ReviewPendingQrOrderAction;
+  actorUserId?: string;
   supabase: ReturnType<typeof getSupabaseServiceClient>;
 }) {
   if (!isTerminalQrReviewStatus(args.submission.review_status)) throw new Error("QR_REVIEW_CONFIRM_IN_PROGRESS");
   const sameDecision = isSameQrReviewDecision(args.action, args.submission.review_status);
   if ((args.submission.review_status === "accepted" || args.submission.review_status === "partially_accepted") && args.submission.order_id) {
+    const kitchen = await dispatchOrderToKitchen({
+      tenantId: args.context.tenant_id,
+      branchId: args.context.branch_id,
+      orderId: args.submission.order_id,
+      eventKey: `qr-review-confirm:${args.submission.id}`,
+      action: "new",
+      actorUserId: args.actorUserId ?? null,
+      actorRole: "staff"
+    });
+    const kitchenSent = kitchen.ok && kitchen.routedZoneCount > 0;
     const result = await loadOrderTotalsForQrResult({
       context: args.context,
       submissionId: args.submission.id,
@@ -836,7 +848,8 @@ async function loadAlreadyReviewedQrResult(args: {
       ...result,
       review_status: args.submission.review_status,
       kitchen_pending_review: false,
-      kitchen_sent: true,
+      kitchen_sent: kitchenSent,
+      kitchen_error: kitchenSent ? null : kitchen.ok ? "KITCHEN_ROUTE_MISSING" : kitchen.message,
       already_reviewed: true,
       review_conflict: !sameDecision
     };
@@ -853,7 +866,7 @@ async function loadAlreadyReviewedQrResult(args: {
     duplicate_request: true,
     review_status: args.submission.review_status,
     kitchen_pending_review: false,
-    kitchen_sent: args.submission.review_status !== "rejected" && Boolean(args.submission.order_id),
+    kitchen_sent: false,
     already_reviewed: true,
     review_conflict: !sameDecision
   };
@@ -889,7 +902,7 @@ export async function reviewPendingTableQrOrder(args: {
   }
 
   if (isTerminalQrReviewStatus(submission.review_status)) {
-    return loadAlreadyReviewedQrResult({ context, submission, action: args.action, supabase });
+    return loadAlreadyReviewedQrResult({ context, submission, action: args.action, actorUserId: args.auth.userId, supabase });
   }
 
   const payload = submission.payload && typeof submission.payload === "object" ? submission.payload : {};
@@ -910,14 +923,23 @@ export async function reviewPendingTableQrOrder(args: {
       .select("id,qr_session_id,order_id,request_id,review_status,payload,subtotal,kitchen_submission_id")
       .maybeSingle<PendingQrSubmissionRow>();
     if (rejectError) throw new Error(rejectError.message);
-    if (!rejected) return loadAlreadyReviewedQrResult({ context, submission, action: args.action, supabase });
+    if (!rejected) return loadAlreadyReviewedQrResult({ context, submission, action: args.action, actorUserId: args.auth.userId, supabase });
     invalidatePosBranchRuntimeCaches({ tenantId, branchId });
     return { submission_id: args.submissionId, review_status: "rejected", kitchen_sent: false, already_reviewed: false, review_conflict: false };
   }
 
   if (submission.order_id) {
+    const kitchen = await dispatchOrderToKitchen({
+      tenantId, branchId, orderId: submission.order_id,
+      eventKey: `qr-review-confirm:${args.submissionId}`,
+      action: "new",
+      actorUserId: args.auth.userId,
+      actorRole: "staff"
+    });
+    const kitchenSent = kitchen.ok && kitchen.routedZoneCount > 0;
     const result = await loadOrderTotalsForQrResult({ context, submissionId: submission.id, orderId: submission.order_id, duplicateRequest: true, supabase });
-    return { ...result, already_reviewed: true, review_conflict: false, kitchen_sent: true };
+    return { ...result, already_reviewed: true, review_conflict: false,
+      kitchen_sent: kitchenSent, kitchen_error: kitchenSent ? null : kitchen.ok ? "KITCHEN_ROUTE_MISSING" : kitchen.message };
   }
   if (submission.review_status !== "pending_pos_review") throw new Error("QR_REVIEW_NOT_PENDING");
 
@@ -942,7 +964,7 @@ export async function reviewPendingTableQrOrder(args: {
     .select("id")
     .maybeSingle<{ id: string }>();
   if (claimError) throw new Error(claimError.message);
-  if (!claimed) return loadAlreadyReviewedQrResult({ context, submission, action: args.action, supabase });
+  if (!claimed) return loadAlreadyReviewedQrResult({ context, submission, action: args.action, actorUserId: args.auth.userId, supabase });
 
   try {
     const { data, error } = await supabase.rpc("submit_table_qr_order_tx", {
@@ -975,9 +997,21 @@ export async function reviewPendingTableQrOrder(args: {
     if (updateError) throw new Error(updateError.message);
     if (!terminalRow) throw new Error("QR_REVIEW_CONFIRM_IN_PROGRESS");
 
-    await queueTableQrKitchenPrints({ context, orderId: row.order_id, requestId: buildQrReviewKitchenConfirmRequestId(args.submissionId) });
+    // Cashier confirmation must dispatch even when automatic QR-to-Kitchen send is OFF.
+    // Existing ticket recovery in dispatchOrderToKitchen avoids duplicate Kitchen tickets.
+    const kitchen = await dispatchOrderToKitchen({
+      tenantId, branchId, orderId: row.order_id,
+      eventKey: `qr-review-confirm:${args.submissionId}`,
+      action: "new",
+      actorUserId: args.auth.userId,
+      actorRole: "staff"
+    });
+    const kitchenSent = kitchen.ok && kitchen.routedZoneCount > 0;
+    if (kitchenSent) await queueTableQrKitchenPrints({ context, orderId: row.order_id, requestId: buildQrReviewKitchenConfirmRequestId(args.submissionId) });
     invalidatePosBranchRuntimeCaches({ tenantId, branchId });
-    return { ...row, submission_id: args.submissionId, review_status: reviewStatus, kitchen_pending_review: false, kitchen_sent: true, already_reviewed: false, review_conflict: false };
+    return { ...row, submission_id: args.submissionId, review_status: reviewStatus, kitchen_pending_review: false,
+      kitchen_sent: kitchenSent, kitchen_error: kitchenSent ? null : kitchen.ok ? "KITCHEN_ROUTE_MISSING" : kitchen.message,
+      already_reviewed: false, review_conflict: false };
   } catch (error) {
     await supabase
       .from("table_qr_orders")

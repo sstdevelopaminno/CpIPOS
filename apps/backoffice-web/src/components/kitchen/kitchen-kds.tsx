@@ -23,7 +23,8 @@ type KitchenTicket = {
   print_jobs: Array<{ id: string; status: string; last_error: string | null }>;
 };
 
-type QueueResponse = { data?: { tickets?: KitchenTicket[] }; error?: { message?: string } };
+type KitchenAlertSettings = { popup_enabled: boolean; sound_enabled: boolean; sound_volume: number };
+type QueueResponse = { data?: { tickets?: KitchenTicket[]; kitchen_alert_settings?: KitchenAlertSettings }; error?: { message?: string } };
 type UnlockedZone = { id: string; zone_code: string; zone_name: string; kds_enabled: boolean };
 type KitchenAlertState = { open: boolean; count: number; latest: KitchenTicket | null; soundBlocked: boolean };
 type BillGroup = {
@@ -42,6 +43,8 @@ const HIDDEN_POLL_INTERVAL_MS = 20_000;
 const MAX_ERROR_POLL_INTERVAL_MS = 30_000;
 const SEEN_TICKET_LIMIT = 300;
 const ALERT_EVENT_TYPES = new Set(["new", "add"]);
+const DEFAULT_KITCHEN_ALERTS: KitchenAlertSettings = { popup_enabled: true, sound_enabled: true, sound_volume: 1 };
+const INITIAL_ALERT_RECENCY_MS = 20_000;
 const ACTIVE_STATUSES: KitchenStatus[] = ["queued", "acknowledged", "preparing"];
 const KITCHEN_STATUS_STEPS: KitchenStatus[] = ["queued", "acknowledged", "preparing", "ready"];
 
@@ -223,6 +226,10 @@ export function KitchenKds({ defaultLanguage = "th" }: { defaultLanguage?: AppLa
   const [unlocking, setUnlocking] = useState(false);
   const [now, setNow] = useState(() => Date.now());
   const [alertState, setAlertState] = useState<KitchenAlertState>({ open: false, count: 0, latest: null, soundBlocked: false });
+  const [kitchenAlerts, setKitchenAlerts] = useState<KitchenAlertSettings>(DEFAULT_KITCHEN_ALERTS);
+  const [soundArmed, setSoundArmed] = useState(false);
+  const kitchenAlertsRef = useRef<KitchenAlertSettings>(DEFAULT_KITCHEN_ALERTS);
+  const initialLoadedRef = useRef(false);
 
   const inFlightRef = useRef(false);
   const activeTicketCountRef = useRef(0);
@@ -270,39 +277,49 @@ export function KitchenKds({ defaultLanguage = "th" }: { defaultLanguage?: AppLa
       await audio.play();
       audio.pause();
       audio.currentTime = 0;
-      audio.volume = 1;
+      audio.volume = kitchenAlertsRef.current.sound_volume;
+      setSoundArmed(true);
       setAlertState((current) => ({ ...current, soundBlocked: false }));
     } catch {
-      audio.volume = 1;
+      audio.volume = kitchenAlertsRef.current.sound_volume;
+      setSoundArmed(false);
       setAlertState((current) => ({ ...current, soundBlocked: true }));
     }
   }, []);
 
-  const playAlertSound = useCallback(() => {
+  const playAlertSound = useCallback((repeat: boolean) => {
+    const settings = kitchenAlertsRef.current;
+    if (!settings.sound_enabled || settings.sound_volume <= 0) {
+      stopAlertSound();
+      return;
+    }
     if (!audioRef.current) audioRef.current = new Audio("/sounds/kitchen-alert.wav");
     const audio = audioRef.current;
     audio.preload = "auto";
     audio.loop = false;
-    audio.volume = 1;
+    audio.volume = settings.sound_volume;
     const playOnce = () => {
       audio.currentTime = 0;
       void audio.play()
-        .then(() => setAlertState((current) => ({ ...current, soundBlocked: false })))
-        .catch(() => setAlertState((current) => ({ ...current, soundBlocked: true })));
+        .then(() => { setSoundArmed(true); setAlertState((current) => ({ ...current, soundBlocked: false })); })
+        .catch(() => { setSoundArmed(false); setAlertState((current) => ({ ...current, soundBlocked: true })); });
     };
     stopAlertSound();
     playOnce();
-    audioLoopTimerRef.current = window.setInterval(playOnce, 2400);
+    if (repeat) audioLoopTimerRef.current = window.setInterval(playOnce, 2400);
   }, [stopAlertSound]);
 
   const showNewTicketAlert = useCallback((ticket: KitchenTicket, increment: number) => {
-    setAlertState((current) => ({
-      open: true,
-      count: current.open ? current.count + increment : increment,
-      latest: ticket,
-      soundBlocked: current.soundBlocked
-    }));
-    playAlertSound();
+    const settings = kitchenAlertsRef.current;
+    if (settings.popup_enabled) {
+      setAlertState((current) => ({
+        open: true,
+        count: current.open ? current.count + increment : increment,
+        latest: ticket,
+        soundBlocked: current.soundBlocked
+      }));
+    }
+    if (settings.sound_enabled) playAlertSound(settings.popup_enabled);
   }, [playAlertSound]);
 
   const applyTickets = useCallback((nextTickets: KitchenTicket[]) => {
@@ -313,6 +330,10 @@ export function KitchenKds({ defaultLanguage = "th" }: { defaultLanguage?: AppLa
       baselineReadyRef.current = true;
       activeTicketCountRef.current = nextTickets.length;
       setTickets(nextTickets);
+      // Cold Kitchen opens should still alert for just-submitted tickets, not stale historical orders.
+      const recent = alertable.filter((ticket) => ticket.status === "queued"
+        && Date.now() - new Date(ticket.created_at).getTime() <= INITIAL_ALERT_RECENCY_MS);
+      if (recent.length > 0) showNewTicketAlert(recent[recent.length - 1], recent.length);
       return;
     }
 
@@ -341,7 +362,7 @@ export function KitchenKds({ defaultLanguage = "th" }: { defaultLanguage?: AppLa
   const load = useCallback(async (silent = false) => {
     if (inFlightRef.current || !unlockedZone?.id) return;
     inFlightRef.current = true;
-    if (!silent && !initialLoaded) setLoading(true);
+    if (!silent && !initialLoadedRef.current) setLoading(true);
     const controller = new AbortController();
     queueAbortRef.current = controller;
     try {
@@ -350,9 +371,16 @@ export function KitchenKds({ defaultLanguage = "th" }: { defaultLanguage?: AppLa
       const body = (await response.json().catch(() => null)) as QueueResponse | null;
       if (!response.ok || !body?.data) throw new Error(body?.error?.message ?? kt(lang, "loadFailed"));
       loadFailedRef.current = false;
+      const nextSettings = body.data.kitchen_alert_settings ?? DEFAULT_KITCHEN_ALERTS;
+      kitchenAlertsRef.current = nextSettings;
+      setKitchenAlerts((current) => current.popup_enabled === nextSettings.popup_enabled
+        && current.sound_enabled === nextSettings.sound_enabled && current.sound_volume === nextSettings.sound_volume ? current : nextSettings);
+      if (!nextSettings.sound_enabled || nextSettings.sound_volume <= 0) stopAlertSound();
+      if (!nextSettings.popup_enabled) setAlertState((current) => current.open ? { ...current, open: false, count: 0 } : current);
       applyTickets(body.data.tickets ?? []);
       setError(null);
       setInitialLoaded(true);
+      initialLoadedRef.current = true;
     } catch (loadError) {
       if (controller.signal.aborted) return;
       loadFailedRef.current = true;
@@ -362,7 +390,7 @@ export function KitchenKds({ defaultLanguage = "th" }: { defaultLanguage?: AppLa
       inFlightRef.current = false;
       if (!silent && !controller.signal.aborted) setLoading(false);
     }
-  }, [applyTickets, initialLoaded, unlockedZone?.id]);
+  }, [applyTickets, stopAlertSound, unlockedZone?.id]);
 
   async function unlockZone() {
     if (unlocking || accessCode.length !== 6) return;
@@ -380,6 +408,7 @@ export function KitchenKds({ defaultLanguage = "th" }: { defaultLanguage?: AppLa
       closeAlert();
       setTickets([]);
       setInitialLoaded(false);
+      initialLoadedRef.current = false;
       setUnlockedZone(body.data.zone);
       setAccessCode("");
       setError(null);
@@ -632,7 +661,7 @@ export function KitchenKds({ defaultLanguage = "th" }: { defaultLanguage?: AppLa
         </div>
       </header>
 
-      {alertState.soundBlocked ? (
+      {(kitchenAlerts.sound_enabled && kitchenAlerts.sound_volume > 0 && (alertState.soundBlocked || !soundArmed)) ? (
         <button type="button" onClick={() => void armAlertSound()} className="mx-5 mt-3 shrink-0 rounded-lg border border-amber-300 bg-amber-50 px-4 py-2 text-sm font-black text-amber-800">
           {kt(lang, "enableSound")}
         </button>
@@ -643,7 +672,7 @@ export function KitchenKds({ defaultLanguage = "th" }: { defaultLanguage?: AppLa
           <div className="flex items-start justify-between gap-3">
             <div>
               <h2 className="text-2xl font-black">{kt(lang, "newOrderAlert")}{alertState.count > 1 ? ` ${alertState.count} ${kt(lang, "items")}` : ""}</h2>
-              <p className="mt-1 text-sm font-bold text-slate-600">{kt(lang, "alertHint")}</p>
+              <p className="mt-1 text-sm font-bold text-slate-600">{kitchenAlerts.sound_enabled ? kt(lang, "alertHint") : (lang === "th" ? "แสดงแจ้งเตือนโดยไม่มีเสียง" : lang === "lo" ? "ແຈ້ງເຕືອນໂດຍບໍ່ມີສຽງ" : "Visual alert without sound")}</p>
             </div>
             <button type="button" onClick={closeAlert} className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-black">{kt(lang, "close")}</button>
           </div>

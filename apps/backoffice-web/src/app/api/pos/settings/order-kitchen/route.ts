@@ -1,7 +1,6 @@
 import { fail, ok } from "@/lib/http";
 import { getPosApiAuthContext } from "@/lib/pos-api-auth";
 import { featureGateFail, requirePosApiFeature } from "@/lib/pos-api-feature-guard";
-import { hasBranchFeature } from "@/lib/feature-gate";
 import {
   loadTableQrAutomationPolicy,
   saveStoreTableQrAutomationPolicy,
@@ -13,20 +12,15 @@ function statusFromError(error: unknown) {
   if (message.includes("Only owner or manager") || message.includes("scope mismatch")) {
     return { code: "forbidden_role", message, status: 403 };
   }
-  if (message.includes("required")) return { code: "invalid_payload", message, status: 422 };
+  if (message.includes("required") || message.includes("volume must") || message.includes("volume must be")) return { code: "invalid_payload", message, status: 422 };
   return { code: "order_kitchen_settings_failed", message, status: 500 };
 }
 
 export async function GET(request: Request) {
   try {
     const auth = await getPosApiAuthContext({ requireBranchScope: true, requiredPermission: "settings:view" });
-    const [canQrOrdering, canKitchenPrinting] = await Promise.all([
-      hasBranchFeature(auth.tenantId!, auth.branchId, "qr_table_ordering"),
-      hasBranchFeature(auth.tenantId!, auth.branchId, "kitchen_printing")
-    ]);
-    if (!canQrOrdering && !canKitchenPrinting) {
-      await requirePosApiFeature(auth, "qr_table_ordering");
-    }
+    // Branch settings are readable by authorized managers even when a package
+    // lacks QR ordering or printing; PATCH still gates those features separately.
     const { searchParams } = new URL(request.url);
     const branchId = String(searchParams.get("branch_id") ?? auth.branchId ?? "").trim();
     const policy = await loadTableQrAutomationPolicy(auth, branchId);
@@ -44,9 +38,13 @@ export async function PATCH(request: Request) {
     const auth = await getPosApiAuthContext({ requireBranchScope: true, requiredPermission: "settings:view" });
     const body = (await request.json().catch(() => ({}))) as SaveStoreTableQrAutomationPolicyInput;
     const wantsQrPolicy =
+      typeof body.cashier_review_required === "boolean" ||
       typeof body.popup_enabled === "boolean" ||
       typeof body.kitchen_auto_send_enabled === "boolean";
     const wantsKitchenPrint = typeof body.kitchen_auto_print_enabled === "boolean";
+    const wantsKitchenAlert = typeof body.kitchen_alert_popup_enabled === "boolean"
+      || typeof body.kitchen_alert_sound_enabled === "boolean"
+      || typeof body.kitchen_alert_sound_volume === "number";
 
     if (wantsQrPolicy) {
       await requirePosApiFeature(auth, "qr_table_ordering");
@@ -56,8 +54,13 @@ export async function PATCH(request: Request) {
     if (body.kitchen_auto_print_enabled === true) {
       await requirePosApiFeature(auth, "kitchen_printing");
     }
-    if (!wantsQrPolicy && !wantsKitchenPrint) {
+    if (!wantsQrPolicy && !wantsKitchenPrint && !wantsKitchenAlert) {
       return fail("invalid_payload", "At least one order/kitchen setting is required.", 422);
+    }
+    const allowedBooleanKeys = ["cashier_review_required", "popup_enabled", "kitchen_auto_send_enabled", "kitchen_auto_print_enabled", "kitchen_alert_popup_enabled", "kitchen_alert_sound_enabled"] as const;
+    if (allowedBooleanKeys.some((key) => body[key] !== undefined && typeof body[key] !== "boolean")
+      || (body.kitchen_alert_sound_volume !== undefined && (typeof body.kitchen_alert_sound_volume !== "number" || !Number.isFinite(body.kitchen_alert_sound_volume) || body.kitchen_alert_sound_volume < 0 || body.kitchen_alert_sound_volume > 1))) {
+      return fail("invalid_payload", "Invalid order/kitchen setting value.", 422);
     }
     const policy = await saveStoreTableQrAutomationPolicy(auth, body);
     return ok({ policy });
