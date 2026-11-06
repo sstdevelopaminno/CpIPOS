@@ -4,7 +4,8 @@ import { createHash, createHmac, randomUUID, timingSafeEqual } from "node:crypto
 import QRCode from "qrcode";
 import type { AuthContext } from "@/lib/auth-context";
 import { readRequiredEnv } from "@/lib/env";
-import { isRestaurantQrKitchenHardeningEnabled, resolveRestaurantQrKitchenFlags } from "@/lib/restaurant-qr-profile";
+import { isRestaurantQrKitchenHardeningEnabled } from "@/lib/restaurant-qr-profile";
+import { loadRestaurantQrKitchenFlagsForScope } from "@/lib/services/restaurant-qr-kitchen-profile-service";
 import { invalidatePosBranchRuntimeCaches } from "@/lib/pos-cache-invalidation";
 import { mergeCategoryNames } from "@/lib/pos/category-normalization";
 import { isProductRecommended } from "@/lib/pos/product-metadata";
@@ -740,7 +741,7 @@ export async function submitTableQrOrder(args: {
   const recentDuplicate = await loadRecentQrOrderPayloadDuplicate({ context, clientId, payloadFingerprint, supabase });
   if (recentDuplicate) return recentDuplicate;
 
-  const flags = resolveRestaurantQrKitchenFlags({
+  const flags = await loadRestaurantQrKitchenFlagsForScope({
     tenantId: context.tenant_id,
     branchId: context.branch_id,
     tenantCode: context.tenant_code,
