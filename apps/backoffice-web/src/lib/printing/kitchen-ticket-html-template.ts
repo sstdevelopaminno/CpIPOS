@@ -1,3 +1,5 @@
+import { parsePosItemNotes } from "@/lib/pos-item-notes";
+
 type KitchenTicketHtmlItem = {
   name: string;
   quantity: number;
@@ -68,9 +70,14 @@ export function renderKitchenTicketHtml(input: KitchenTicketHtmlInput) {
   const itemRows = input.items
     .map((item) => {
       const cancelItem = cancelTicket || isCancelAction(item.action);
-      const notes = item.notes?.trim()
-        ? `<div class="notes"><span>หมายเหตุ:</span> ${escapeHtml(item.notes)}</div>`
+      const parsedNotes = parsePosItemNotes(item.notes);
+      const optionNotes = parsedNotes.optionNotes
+        ? `<div class="notes"><span>ตัวเลือก:</span> ${escapeHtml(parsedNotes.optionNotes)}</div>`
         : "";
+      const detailNotes = parsedNotes.detailNote
+        ? `<div class="notes detail-notes"><span>รายละเอียด:</span> ${escapeHtml(parsedNotes.detailNote)}</div>`
+        : "";
+      const notes = optionNotes + detailNotes;
       return `<div class="item${cancelItem ? " item-cancel" : ""}">
         ${cancelItem ? `<div class="cancel-item-label">*** ยกเลิก ***</div>` : ""}
         <div class="item-main">
@@ -149,7 +156,7 @@ export function renderKitchenTicketHtml(input: KitchenTicketHtmlInput) {
     .item-cancel .qty,
     .item-cancel .name { font-size: ${input.paperWidthMm === 58 ? "1.35em" : "1.5em"}; font-weight: 900; }
     .notes { margin-left: ${input.paperWidthMm === 58 ? "3.2em" : "3.8em"}; margin-top: 2px; font-weight: 700; overflow-wrap: anywhere; }
-    .notes span { font-weight: 900; }
+    .notes span { font-weight: 900; }\n    .detail-notes { white-space: pre-line; background: #fff7ed; padding: 2px 4px; border-radius: 4px; }
     .footer { margin-top: ${input.paperWidthMm === 58 ? "5px" : "8px"}; font-size: ${input.paperWidthMm === 58 ? ".8em" : ".85em"}; border-top: 1px dashed #111; padding-top: ${input.paperWidthMm === 58 ? "4px" : "6px"}; overflow-wrap: anywhere; }
   </style>
 </head>
