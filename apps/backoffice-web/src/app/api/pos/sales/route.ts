@@ -1093,6 +1093,28 @@ export async function POST(req: Request) {
     if (!["dine_in", "takeaway", "delivery_manual"].includes(body.order_type)) {
       return fail("invalid_order_type", "Unsupported order_type.", 422);
     }
+    // A Native selection must never enter the Web pricing path without validation.
+    // This also rejects unvalidated mobile payloads with a missing/false flag.
+    if (body.native_mobile !== true && body.items.some((item) =>
+      item !== null && typeof item === "object" &&
+      Object.prototype.hasOwnProperty.call(item, "native_selection")
+    )) {
+      return fail(
+        "native_selection_requires_mobile_contract",
+        "Product selections require validated Native Mobile checkout.",
+        422
+      );
+    }
+    // The legacy takeaway update path replaces order_items in separate writes,
+    // without an atomic reversal/reapplication of recipe stock movements.
+    // Keep Native edits fail-closed until the canonical stock-safe RPC is shipped.
+    if (body.native_mobile === true && body.order_id && body.order_type !== "dine_in") {
+      return fail(
+        "native_atomic_order_update_required",
+        "Native takeaway edits require the atomic stock-reconciliation contract.",
+        409
+      );
+    }
     if (body.order_type === "dine_in" && !body.table_id) {
       return fail("table_required", "table_id is required for dine-in order.", 422);
     }
@@ -1194,7 +1216,7 @@ export async function POST(req: Request) {
     if (normalizedBody.order_id) {
       const updated = await updateQueuedPosOrder({ auth, body: normalizedBody });
       if (!updated.ok) {
-        if (normalizedBody.order_type !== "dine_in" && (updated.code === "order_not_updatable" || updated.code === "order_not_found")) {
+        if (normalizedBody.native_mobile !== true && normalizedBody.order_type !== "dine_in" && (updated.code === "order_not_updatable" || updated.code === "order_not_found")) {
           normalizedBody.order_id = undefined;
         } else {
           const response = fail(updated.code, updated.message, updated.status);
