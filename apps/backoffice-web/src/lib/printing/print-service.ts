@@ -311,7 +311,7 @@ export function renderReceiptTemplate(template: ReceiptTemplate, paperWidthMm: 5
     const name = item.name.length > 18 ? item.name.slice(0, 18) : item.name;
     lines.push(row(name, `${qty} ${money(item.line_total)}`, width));
     lines.push(`x ${money(item.unit_price)}`);
-    const itemNote = formatPosItemNotesForDisplay(item.note, "รายละเอียด");
+    const itemNote = formatPosItemNotesForDisplay((item as typeof item & { note?: string | null }).note, "รายละเอียด");
     for (const noteLine of itemNote.split("\n").filter(Boolean)) {
       lines.push(`  * ${noteLine}`.slice(0, width));
     }
