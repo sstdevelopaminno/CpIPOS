@@ -6,10 +6,6 @@ import { dispatchOrderToKitchen } from "@/lib/services/kitchen-routing-service";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
 import { getRoutedSupabaseServiceClient } from "@/lib/tenant-data-router";
 
-function isMissingColumnError(message: string, column: string): boolean {
-  return message.includes(`column "${column}"`) && message.includes("does not exist");
-}
-
 export async function POST(req: Request, context: { params: Promise<{ orderId: string }> }) {
   try {
     const auth = await getPosApiAuthContext({ requireBranchScope: true, requiredPermission: "sale:create" });
@@ -75,51 +71,44 @@ export async function POST(req: Request, context: { params: Promise<{ orderId: s
       kitchenCancelWarning = `kitchen_cancel_precheck_failed:${error instanceof Error ? error.message : "unknown_error"}`;
     }
 
-    const { data, error } = await supabase
-      .from("orders")
-      .update({
-        status: "cancelled",
-        cancelled_by: auth.userId,
-        cancelled_reason: body.reason ?? null,
-        cancellation_approval_id: cancellationApprovalId
-      })
-      .eq("tenant_id", auth.tenantId!)
-      .eq("branch_id", auth.branchId!)
-      .eq("id", orderId)
-      .eq("status", "queued")
-      .select("id,order_no,status,cancelled_reason,updated_at,table_id")
-      .maybeSingle();
-
-    let cancelledOrder = data;
+    // Restore the ingredient ledger and cancel this queued bill in ONE locked
+    // DB transaction. Never switch order.status to cancelled via a plain UPDATE:
+    // doing so previously left recipe stock deducted for cancelled POS bills.
+    const { data, error } = await supabase.rpc("cancel_queued_pos_order_and_restore_stock_tx", {
+      p_tenant_id: auth.tenantId!,
+      p_branch_id: auth.branchId!,
+      p_order_id: orderId,
+      p_actor_user_id: auth.userId,
+      p_approval_id: cancellationApprovalId,
+      p_reason: body.reason ?? "Cancelled POS bill"
+    });
     if (error) {
-      if (!isMissingColumnError(error.message, "cancellation_approval_id")) {
-        return fail("cancel_order_failed", error.message, 500);
-      }
-
-      const fallbackUpdate = await supabase
-        .from("orders")
-        .update({
-          status: "cancelled",
-          cancelled_by: auth.userId,
-          cancelled_reason: body.reason ?? null
-        })
-        .eq("tenant_id", auth.tenantId!)
-        .eq("branch_id", auth.branchId!)
-        .eq("id", orderId)
-        .eq("status", "queued")
-        .select("id,order_no,status,cancelled_reason,updated_at,table_id")
-        .maybeSingle();
-
-      if (fallbackUpdate.error) {
-        return fail("cancel_order_failed", fallbackUpdate.error.message, 500);
-      }
-      if (!fallbackUpdate.data) {
+      const message = error.message ?? "";
+      if (message.includes("ORDER_NOT_QUEUED")) {
         return fail("order_not_cancelable", "Only queued orders can be cancelled in POS flow.", 409);
       }
-      cancelledOrder = fallbackUpdate.data;
+      if (message.includes("ORDER_NOT_FOUND")) {
+        return fail("order_not_found", "Order was not found in this branch.", 404);
+      }
+      if (message.includes("CANCELLATION_APPROVAL_INVALID")) {
+        return fail("cancellation_approval_invalid", "PIN approval expired, was consumed, or does not match the order.", 403);
+      }
+      return fail("cancel_order_failed", "Unable to safely cancel this bill and restore its stock.", 503);
     }
+    const cancelledOrder = (Array.isArray(data) ? data[0] : data) as {
+      id: string;
+      order_no: string;
+      status: string;
+      cancelled_reason: string | null;
+      updated_at: string;
+      table_id: string | null;
+      restored_ingredient_count: number | null;
+      restored_quantity: number | null;
+      table_session_closed_count: number | null;
+      table_released: boolean | null;
+    } | null;
     if (!cancelledOrder) {
-      return fail("order_not_cancelable", "Only queued orders can be cancelled in POS flow.", 409);
+      return fail("cancel_order_failed", "Cancellation transaction returned no order.", 503);
     }
 
     void appendAuditLog({
@@ -132,32 +121,17 @@ export async function POST(req: Request, context: { params: Promise<{ orderId: s
       targetId: orderId,
       metadata: {
         reason: body.reason ?? null,
-        fallback_hard_cancel: Boolean(error)
+        restored_ingredient_count: cancelledOrder.restored_ingredient_count ?? 0,
+        restored_quantity: cancelledOrder.restored_quantity ?? 0,
+        table_session_closed_count: cancelledOrder.table_session_closed_count ?? 0,
+        table_released: cancelledOrder.table_released === true
       }
     });
 
-    if (cancelledOrder.table_id) {
-      const closedAt = new Date().toISOString();
-      await Promise.allSettled([
-        supabase
-          .from("table_bill_sessions")
-          .update({
-            status: "cancelled",
-            closed_by: auth.userId,
-            closed_at: closedAt
-          })
-          .eq("tenant_id", auth.tenantId!)
-          .eq("branch_id", auth.branchId!)
-          .eq("table_id", cancelledOrder.table_id)
-          .in("status", ["open", "ordering", "pending_payment"]),
-        supabase
-          .from("dining_tables")
-          .update({ status: "available" })
-          .eq("tenant_id", auth.tenantId!)
-          .eq("branch_id", auth.branchId!)
-          .eq("id", cancelledOrder.table_id)
-      ]);
-
+    // The transaction already closed only this order's table session and
+    // released the table only when no other live session remains. Do not send
+    // a second unscoped table update that might close someone else's bill.
+    if (cancelledOrder.table_id && Number(cancelledOrder.table_session_closed_count ?? 0) > 0) {
       void appendAuditLog({
         tenantId: auth.tenantId!,
         branchId: auth.branchId!,
@@ -168,7 +142,9 @@ export async function POST(req: Request, context: { params: Promise<{ orderId: s
         targetId: cancelledOrder.table_id,
         metadata: {
           order_id: orderId,
-          reason: body.reason ?? null
+          reason: body.reason ?? null,
+          table_session_closed_count: cancelledOrder.table_session_closed_count,
+          table_released: cancelledOrder.table_released === true
         }
       });
     }
