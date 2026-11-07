@@ -100,8 +100,8 @@ export async function resolveOrderPricing(args: {
   if (cleanedItems.some((item) => !item.product_id)) {
     return { ok: false, code: "invalid_items", message: "Every cart line must identify a product.", status: 422 };
   }
-  if (cleanedItems.some((item) => !Number.isSafeInteger(item.quantity) || item.quantity <= 0)) {
-    return { ok: false, code: "invalid_quantity", message: "Each item quantity must be a positive whole number.", status: 422 };
+  if (cleanedItems.some((item) => !Number.isFinite(item.quantity) || item.quantity <= 0 || item.quantity > Number.MAX_SAFE_INTEGER)) {
+    return { ok: false, code: "invalid_quantity", message: "Each item quantity must be a positive finite number within the supported range.", status: 422 };
   }
   const rawDiscount = Number(args.discountTotal ?? 0);
   if (!Number.isFinite(rawDiscount) || rawDiscount < 0) {
