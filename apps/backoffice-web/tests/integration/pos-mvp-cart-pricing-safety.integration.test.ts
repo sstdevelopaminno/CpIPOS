@@ -46,7 +46,6 @@ describe("server-authoritative POS sale / stock line consistency", () => {
       { product_id: "product-a", quantity: 1 },
       { product_id: "", quantity: 1 }
     ]],
-    ["fractional quantity", [{ product_id: "product-a", quantity: 1.5 }]],
     ["unsafe integer", [{ product_id: "product-a", quantity: Number.MAX_SAFE_INTEGER + 1 }]],
     ["negative quantity", [{ product_id: "product-a", quantity: -1 }]],
     ["not-a-number quantity", [{ product_id: "product-a", quantity: Number.NaN }]]
@@ -86,6 +85,13 @@ describe("server-authoritative POS sale / stock line consistency", () => {
       expect(result).toMatchObject({ ok: false, code: "invalid_product_price", status: 409 });
     }
   );
+
+  it("preserves legitimate fractional quantities for weight-based products", async () => {
+    scopedCatalog([{ id: "product-a", name: "Weighted fruit", price: 20, is_active: true }]);
+    const result = await price([{ product_id: "product-a", quantity: 0.5 }]);
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.totals.grand_total).toBe(10);
+  });
 
   it("calculates entire validated cart with consistent two-decimal totals", async () => {
     const { query } = scopedCatalog([
