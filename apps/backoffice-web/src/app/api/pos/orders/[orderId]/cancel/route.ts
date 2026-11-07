@@ -75,6 +75,28 @@ export async function POST(req: Request, context: { params: Promise<{ orderId: s
       kitchenCancelWarning = `kitchen_cancel_precheck_failed:${error instanceof Error ? error.message : "unknown_error"}`;
     }
 
+    // Safety gate until the queued-cancellation+stock-restore RPC is deployed.
+    // A simple orders.status UPDATE does not reverse recipe stock deductions.
+    // Stop the cancellation rather than leave a cancelled bill with depleted stock.
+    const { count: stockDeductionCount, error: stockCheckError } = await supabase
+      .from("stock_movements")
+      .select("id", { count: "exact", head: true })
+      .eq("tenant_id", auth.tenantId!)
+      .eq("branch_id", auth.branchId!)
+      .eq("ref_table", "orders")
+      .eq("ref_id", orderId)
+      .eq("movement_type", "sale_deduction");
+    if (stockCheckError) {
+      return fail("stock_cancel_precheck_failed", "Cannot verify stock ledger before cancellation.", 503);
+    }
+    if ((stockDeductionCount ?? 0) > 0) {
+      return fail(
+        "stock_safe_cancellation_required",
+        "This order has ingredient deductions. Ask a manager to void it through Sales List so stock is restored atomically.",
+        409
+      );
+    }
+
     const { data, error } = await supabase
       .from("orders")
       .update({
