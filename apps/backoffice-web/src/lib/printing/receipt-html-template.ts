@@ -155,7 +155,9 @@ export function renderReceiptHtml(input: ReceiptHtmlInput) {
     .muted { color: #222; font-size: ${layout.mutedPx}px; font-weight: 700; text-align: center; }
     .reprint { margin: 1mm 0; text-align: center; font-weight: 900; }
     .hr { border-top: 1px dashed #111; margin: 1.4mm 0; }
-    .meta-line, .summary-line { display: flex; justify-content: space-between; align-items: baseline; gap: 1mm; margin: .6mm 0; }
+    .meta-line, .summary-line { display: table; width: 100%; table-layout: fixed; border-collapse: collapse; margin: .6mm 0; }
+    .meta-line > span, .summary-line > span, .summary-line > strong { display: table-cell; vertical-align: baseline; width: 50%; }
+    .meta-line > span:last-child, .summary-line > strong { text-align: right; }
     .meta-line { font-size: ${layout.metaPx}px; }
     .meta-line span:last-child, .summary-line strong { text-align: right; }
     table { width: 100%; table-layout: fixed; border-collapse: collapse; margin-top: .6mm; }

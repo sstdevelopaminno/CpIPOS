@@ -332,7 +332,7 @@ export function PosPaymentModals({
         ? receiptAutoPrinted
           ? (lang === "th" ? "บันทึกสำเร็จ และส่งพิมพ์แล้ว" : "Saved and print queued")
           : windowsNativeReceipt
-            ? (lang === "th" ? "บันทึกสำเร็จ กรุณากดพิมพ์ใบเสร็จผ่าน Windows" : "Saved. Select Print Receipt on Windows.")
+            ? (lang === "th" ? "บันทึกสำเร็จ ระบบกำลังส่งพิมพ์ Windows อัตโนมัติ ตรวจเครื่องก่อนสั่งพิมพ์ซ้ำ" : "Saved. Windows auto-print is pending; verify the printer before any manual reprint.")
             : (lang === "th" ? "บันทึกสำเร็จ กำลังรอคิวพิมพ์" : "Saved, print queue pending")
         : text.receiptSaving;
 

@@ -169,13 +169,23 @@ export async function printWindowsReceiptHtml(
     "X-CpIPOS-Bridge-Token": runtime.bridge_token,
     "Content-Type": "application/json"
   };
+  // WinForms DocumentText uses about:blank as its page URL; relative store
+  // logo assets otherwise disappear from printed receipts. Use the current
+  // authenticated POS origin as the base, never an untrusted receipt URL.
+  const appOrigin = typeof window.location?.origin === "string" && /^https:\/\//i.test(window.location.origin)
+    ? window.location.origin
+    : null;
+  const printableHtml = appOrigin && /<img\b[^>]+src=["']\//i.test(content)
+    ? content.replace(/<head([^>]*)>/i, `<head$1><base href="${appOrigin}/" />`)
+    : content;
+  if (printableHtml.length > 250_000) throw new Error("Windows receipt HTML exceeds the print bridge limit.");
   // The native bridge already validates the configured, installed printer.
   // The separate GET /printers preflight caused an extra failure point before
   // a single receipt could ever reach POST /print.
   const nativePrinterName = typeof (runtime as Runtime & { windows_printer?: unknown }).windows_printer === "string"
     ? String((runtime as Runtime & { windows_printer?: string }).windows_printer ?? "").trim()
     : "";
-  const textToPrint = (options.plainText?.trim() || windowsReceiptHtmlToText(content)).slice(0, 14_000);
+  const textToPrint = (options.plainText?.trim() || windowsReceiptHtmlToText(printableHtml)).slice(0, 14_000);
   if (!textToPrint.trim()) throw new Error("Windows receipt text is empty after rendering");
   // Only sale receipts are guarded here. Historical reprints are separately
   // PIN-authorized and may intentionally print a second copy.
@@ -195,7 +205,7 @@ export async function printWindowsReceiptHtml(
       signal: controller.signal,
       body: JSON.stringify({
         ...(nativePrinterName ? { printer_name: nativePrinterName } : {}),
-        html: content,
+        html: printableHtml,
         text: textToPrint,
         order_no: options.orderNo ?? null,
         metadata: {

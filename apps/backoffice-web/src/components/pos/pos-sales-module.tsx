@@ -2402,6 +2402,29 @@ export function PosSalesModule({
   const [receiptSaving, setReceiptSaving] = useState(false);
   const [receiptSaved, setReceiptSaved] = useState(false);
   const [receiptAutoPrinted, setReceiptAutoPrinted] = useState(false);
+  // A durable print job may appear after the payment API responds.
+  // Windows reports spool acceptance to the active receipt dialog.
+  const receiptSessionOrderRef = useRef<string | null>(null);
+  useEffect(() => {
+    receiptSessionOrderRef.current = receiptSession?.order_no ?? null;
+  }, [receiptSession?.order_no]);
+  useEffect(() => {
+    function onWindowsReceiptResult(event: Event) {
+      const detail = (event as CustomEvent<{ orderNo?: string; status?: string }>).detail;
+      if (!detail?.orderNo || detail.orderNo !== receiptSessionOrderRef.current) return;
+      if (detail.status === "spooled") {
+        setReceiptAutoPrinted(true);
+        setReceiptError(null);
+      } else if (detail.status === "failed") {
+        setReceiptAutoPrinted(false);
+        setReceiptError(lang === "th"
+          ? "Windows ไม่ยืนยันการพิมพ์ กรุณาตรวจกระดาษและคิวพิมพ์ก่อนดำเนินการซ้ำ"
+          : "Windows print could not be confirmed. Check the physical printer before retrying.");
+      }
+    }
+    window.addEventListener("cpi-windows-print-agent-result", onWindowsReceiptResult);
+    return () => window.removeEventListener("cpi-windows-print-agent-result", onWindowsReceiptResult);
+  }, [lang]);
   const [windowsPrintRuntimeDetected, setWindowsPrintRuntimeDetected] = useState(false);
   useEffect(() => {
     setWindowsPrintRuntimeDetected(hasLocalWindowsPrintBridge());
@@ -8752,7 +8775,8 @@ export function PosSalesModule({
     .head-title { font-weight: 900; font-size: 14px; margin-bottom: 0.6mm; text-align: center; }
     .muted { color: #222; font-size: 12px; font-weight: 800; text-align: center; }
     .hr { border-top: 1px dashed #111; margin: 1.4mm 0; }
-    .meta-line { display: flex; justify-content: space-between; gap: 1mm; margin: 0.5mm 0; }
+    .meta-line { display: table; width: 100%; table-layout: fixed; margin: 0.5mm 0; }
+    .meta-line > span { display: table-cell; width: 50%; vertical-align: baseline; }
     .meta-line span:last-child { text-align: right; }
     table { width: 100%; border-collapse: collapse; margin-top: 0.6mm; }
     th, td { padding: 0.6mm 0; vertical-align: top; }
@@ -8762,7 +8786,9 @@ export function PosSalesModule({
     .unit { font-size: 10px; color: #333; line-height: 1.2; }
     .choice, .note { margin-top: 0.4mm; padding-left: 1.5mm; color: #111; font-size: 9.4px; line-height: 1.18; }
     .note { color: #333; font-style: italic; }
-    .summary-line { display: flex; justify-content: space-between; align-items: baseline; gap: 1mm; margin: 0.72mm 0; font-size: 10px; }
+    .summary-line { display: table; width: 100%; table-layout: fixed; margin: 0.72mm 0; font-size: 10px; }
+    .summary-line > span, .summary-line > strong { display: table-cell; width: 50%; vertical-align: baseline; text-align: left; }
+    .summary-line > strong { text-align: right; }
     .summary-line span { font-weight: 600; }
     .summary-line strong { font-weight: 700; white-space: nowrap; }
     .summary-line.is-heading {

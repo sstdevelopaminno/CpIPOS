@@ -139,7 +139,10 @@ export function WindowsNativePrintAgent() {
         nextMs = Date.now() < priorityPollUntil ? 1_500 : 15_000;
       } finally {
         inFlight = false;
-        if (!stopped) timer = setTimeout(() => { void poll(); }, nextMs);
+        if (!stopped) {
+          if (Date.now() < priorityPollUntil) nextMs = Math.min(nextMs, 1_000);
+          timer = setTimeout(() => { void poll(); }, nextMs);
+        }
       }
     }
 

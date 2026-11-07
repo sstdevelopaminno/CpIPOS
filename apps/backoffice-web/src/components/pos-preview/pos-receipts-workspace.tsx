@@ -385,7 +385,8 @@ function buildReceiptPrintHtml(args: {
     .head-title { font-weight: 900; font-size: 14px; margin-bottom: 0.6mm; text-align: center; }
     .muted { color: #222; font-size: 12px; font-weight: 800; text-align: center; }
     .hr { border-top: 1px dashed #111; margin: 1.4mm 0; }
-    .meta-line { display: flex; justify-content: space-between; gap: 1mm; margin: 0.5mm 0; }
+    .meta-line { display: table; width: 100%; table-layout: fixed; margin: 0.5mm 0; }
+    .meta-line > span { display: table-cell; width: 50%; vertical-align: baseline; }
     .meta-line span:last-child { text-align: right; }
     table { width: 100%; border-collapse: collapse; margin-top: 0.6mm; }
     th, td { padding: 0.6mm 0; vertical-align: top; }
@@ -395,7 +396,9 @@ function buildReceiptPrintHtml(args: {
     .unit { font-size: 10px; color: #333; line-height: 1.2; }
     .choice, .note { margin-top: 0.4mm; padding-left: 1.5mm; color: #111; font-size: 9.4px; line-height: 1.18; }
     .note { color: #333; font-style: italic; }
-    .summary-line { display: flex; justify-content: space-between; align-items: baseline; gap: 1mm; margin: 0.72mm 0; font-size: 10px; }
+    .summary-line { display: table; width: 100%; table-layout: fixed; margin: 0.72mm 0; font-size: 10px; }
+    .summary-line > span, .summary-line > strong { display: table-cell; width: 50%; vertical-align: baseline; text-align: left; }
+    .summary-line > strong { text-align: right; }
     .summary-line span { font-weight: 600; }
     .summary-line strong { font-weight: 700; white-space: nowrap; }
     .summary-line.is-heading { padding-bottom: 0.8mm; margin-bottom: 0.7mm; border-bottom: 1px dashed #111; font-size: 9.6px; }
