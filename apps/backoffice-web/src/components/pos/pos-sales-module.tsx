@@ -4260,7 +4260,12 @@ export function PosSalesModule({
     }
 
     let cancelled = false;
+    let inFlight = false;
     const pollStatus = async () => {
+      // One request can take up to 12 seconds. A fixed 2.5s interval without
+      // single-flight protection otherwise overlaps up to five payment reads.
+      if (cancelled || inFlight || document.visibilityState !== "visible") return;
+      inFlight = true;
       try {
         const { response, body } = await fetchJsonWithTimeout<
           ApiErrorBody & {
@@ -4326,14 +4331,21 @@ export function PosSalesModule({
         }
       } catch {
         // Keep polling; transient network failures should not close the payment modal.
+      } finally {
+        inFlight = false;
       }
     };
 
     void pollStatus();
     const timer = window.setInterval(() => void pollStatus(), 2500);
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "visible") void pollStatus();
+    };
+    document.addEventListener("visibilitychange", onVisibilityChange);
     return () => {
       cancelled = true;
       window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
     };
   }, [
     inetPaymentIntent?.payment_intent_id,
