@@ -1,32 +1,13 @@
 import type { OrderType } from "@pos/shared-types";
 import { getPosApiAuthContext } from "@/lib/pos-api-auth";
 import { appendAuditLog } from "@/lib/audit-log";
-import { calculateRecipeUsage, toIntegerGrams, validateStockBeforeDeduction } from "@/lib/ingredient-stock";
+import { calculateRecipeUsage, toIntegerGrams } from "@/lib/ingredient-stock";
 import { validatePosItemIngredientAdjustment } from "@/lib/pos-item-ingredient-adjustment";
 import { fail, ok } from "@/lib/http";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
 
-function isMissingColumnError(message: string, column: string): boolean {
-  const normalized = String(message ?? "").toLowerCase();
-  const target = String(column ?? "").toLowerCase();
-  if (!normalized.includes("does not exist")) return false;
-  return (
-    normalized.includes(`column "${target}"`) ||
-    normalized.includes(`column '${target}'`) ||
-    normalized.includes(`column ${target}`) ||
-    normalized.includes(`products.${target}`)
-  );
-}
-
 function shouldApplyTakeawayOnlyRecipe(orderType: OrderType): boolean {
   return orderType === "takeaway" || orderType === "delivery_manual";
-}
-
-function resolveAllowNegativeStockFallback(): boolean {
-  const flag = process.env.POS_ALLOW_NEGATIVE_STOCK;
-  if (flag === "1") return true;
-  if (flag?.toLowerCase() === "true") return true;
-  return false;
 }
 
 async function loadManualOutstandingByIngredient(args: {
@@ -49,7 +30,7 @@ async function loadManualOutstandingByIngredient(args: {
     .eq("ref_id", orderId)
     .eq("movement_type", "sale_deduction")
     .in("ingredient_id", ingredientIds)
-    .ilike("reason", `%per-item recipe%(${productId})%`);
+    .ilike("reason", `%(${productId})`);
 
   if (movementError) {
     return null;
@@ -176,252 +157,111 @@ export async function POST(req: Request, context: { params: Promise<{ orderId: s
     if (!parsed.ok) {
       return fail(parsed.code, parsed.message, parsed.status);
     }
-    const body = parsed.data;
-
     if (!orderId) {
       return fail("invalid_order_id", "orderId is required.", 422);
     }
 
-    const productId = body.product_id;
-    const quantity = body.quantity;
-    const mode = body.mode;
-
-    const { data: orderRow, error: orderError } = await supabase
-      .from("orders")
-      .select("id,order_no,order_type,status")
-      .eq("tenant_id", auth.tenantId!)
-      .eq("branch_id", auth.branchId!)
-      .eq("id", orderId)
-      .maybeSingle<{ id: string; order_no: string; order_type: OrderType; status: string }>();
-
-    if (orderError) {
-      return fail("order_query_failed", orderError.message, 500);
-    }
-    if (!orderRow) {
-      return fail("order_not_found", "Order not found in this branch.", 404);
-    }
-    if (orderRow.status === "cancelled") {
-      return fail("order_not_adjustable", "Cancelled order cannot adjust ingredient deduction.", 409);
+    const requestKey = req.headers.get("x-idempotency-key")?.trim() ?? "";
+    if (requestKey.length < 8 || requestKey.length > 180) {
+      return fail("idempotency_key_required", "A valid x-idempotency-key is required for stock adjustment.", 422);
     }
 
-    const productWithMode = await supabase
-      .from("products")
-      .select("id,name,stock_deduction_mode")
-      .eq("tenant_id", auth.tenantId!)
-      .eq("branch_id", auth.branchId!)
-      .eq("id", productId)
-      .maybeSingle<{ id: string; name: string | null; stock_deduction_mode: "unit_only" | "recipe_deduction" | null }>();
+    const body = parsed.data;
+    const { data, error } = await supabase.rpc("adjust_pos_item_recipe_stock_tx", {
+      p_tenant_id: auth.tenantId!,
+      p_branch_id: auth.branchId!,
+      p_order_id: orderId,
+      p_product_id: body.product_id,
+      p_quantity: body.quantity,
+      p_mode: body.mode,
+      p_ingredient_ids: body.ingredient_ids,
+      p_actor_user_id: auth.userId,
+      p_request_id: requestKey,
+      p_note: body.note
+    });
 
-    let productRow: { id: string; name: string | null; stock_deduction_mode?: "unit_only" | "recipe_deduction" | null } | null =
-      productWithMode.data ?? null;
-    if (productWithMode.error) {
-      if (!isMissingColumnError(productWithMode.error.message, "stock_deduction_mode")) {
-        return fail("product_query_failed", productWithMode.error.message, 500);
+    if (error) {
+      const message = error.message ?? "";
+      if (message.includes("ORDER_NOT_FOUND")) {
+        return fail("order_not_found", "Order not found in this branch.", 404);
       }
-      const productLegacy = await supabase
-        .from("products")
-        .select("id,name")
-        .eq("tenant_id", auth.tenantId!)
-        .eq("branch_id", auth.branchId!)
-        .eq("id", productId)
-        .maybeSingle<{ id: string; name: string | null }>();
-      if (productLegacy.error) {
-        return fail("product_query_failed", productLegacy.error.message, 500);
+      if (message.includes("ORDER_NOT_ADJUSTABLE")) {
+        return fail("order_not_adjustable", "Cancelled order cannot adjust ingredient deduction.", 409);
       }
-      productRow = productLegacy.data ? { ...productLegacy.data, stock_deduction_mode: null } : null;
-    }
-
-    if (!productRow) {
-      return fail("product_not_found", "Product not found in this branch.", 404);
-    }
-
-    if (productRow.stock_deduction_mode && productRow.stock_deduction_mode !== "recipe_deduction") {
-      return fail("product_not_recipe_mode", "This product is not in recipe deduction mode.", 409);
-    }
-
-    const { data: recipeRows, error: recipeError } = await supabase
-      .from("recipes")
-      .select("product_id,ingredient_id,quantity_per_item,applies_when_takeaway_only")
-      .eq("tenant_id", auth.tenantId!)
-      .eq("branch_id", auth.branchId!)
-      .eq("product_id", productId);
-
-    if (recipeError) {
-      return fail("recipe_query_failed", recipeError.message, 500);
-    }
-
-    const recipeIngredients = (recipeRows ?? [])
-      .filter((row) => {
-        const takeawayOnly = Boolean(row.applies_when_takeaway_only);
-        if (!takeawayOnly) return true;
-        return shouldApplyTakeawayOnlyRecipe(orderRow.order_type);
-      })
-      .map((row) => ({
-        productId,
-        ingredientId: String(row.ingredient_id),
-        usageInGrams: toIntegerGrams(Number(row.quantity_per_item ?? 0))
-      }))
-      .filter((line) => line.usageInGrams > 0);
-
-    if (recipeIngredients.length === 0) {
-      return fail("recipe_not_found", "No active recipe lines found for this product.", 409);
-    }
-
-    const selectedIngredientIds = body.ingredient_ids;
-    const rawUsage = calculateRecipeUsage(recipeIngredients, quantity);
-    const recipeIngredientIds = new Set(rawUsage.map((entry) => entry.ingredientId));
-    if (selectedIngredientIds.some((id) => !recipeIngredientIds.has(id))) {
-      return fail("invalid_ingredient_selection", "Selected ingredient is not part of this product recipe.", 422);
-    }
-    const usage = rawUsage.filter((entry) => selectedIngredientIds.includes(entry.ingredientId));
-    if (usage.length === 0) {
-      return fail("ingredient_selection_required", "Select at least one ingredient for this adjustment.", 422);
-    }
-    const ingredientIds = usage.map((entry) => entry.ingredientId);
-    const { data: ingredientRows, error: ingredientError } = await supabase
-      .from("ingredients")
-      .select("id,name,quantity_on_hand")
-      .eq("tenant_id", auth.tenantId!)
-      .eq("branch_id", auth.branchId!)
-      .in("id", ingredientIds);
-
-    if (ingredientError) {
-      return fail("ingredient_query_failed", ingredientError.message, 500);
-    }
-
-    let allowNegativeStock = resolveAllowNegativeStockFallback();
-    const inventorySettingsQuery = await supabase
-      .from("branch_inventory_settings")
-      .select("allow_negative_stock")
-      .eq("tenant_id", auth.tenantId!)
-      .eq("branch_id", auth.branchId!)
-      .maybeSingle<{ allow_negative_stock: boolean }>();
-
-    if (inventorySettingsQuery.error) {
-      const normalized = inventorySettingsQuery.error.message.toLowerCase();
-      const isMissingSettings = normalized.includes("could not find the table") || normalized.includes("branch_inventory_settings");
-      if (!isMissingSettings) {
-        return fail("inventory_settings_query_failed", inventorySettingsQuery.error.message, 500);
+      if (message.includes("PRODUCT_NOT_FOUND")) {
+        return fail("product_not_found", "Product not found in this branch.", 404);
       }
-    } else if (inventorySettingsQuery.data) {
-      allowNegativeStock = Boolean(inventorySettingsQuery.data.allow_negative_stock);
-    }
-
-    const ingredientMap = new Map(
-      (ingredientRows ?? []).map((row) => [
-        String(row.id),
-        {
-          id: String(row.id),
-          name: String(row.name ?? ""),
-          stockInGrams: toIntegerGrams(Number(row.quantity_on_hand ?? 0))
-        }
-      ])
-    );
-
-    const manualOutstandingByIngredient =
-      mode === "restore"
-        ? await loadManualOutstandingByIngredient({
-            supabase,
-            tenantId: auth.tenantId!,
-            branchId: auth.branchId!,
-            orderId,
-            productId,
-            ingredientIds
-          })
-        : null;
-
-    for (const entry of usage) {
-      const ingredient = ingredientMap.get(entry.ingredientId);
-      if (!ingredient) {
-        return fail("ingredient_not_found", `INGREDIENT_NOT_FOUND:${entry.ingredientId}`, 409);
+      if (message.includes("PRODUCT_NOT_RECIPE_MODE")) {
+        return fail("product_not_recipe_mode", "This product is not in recipe deduction mode.", 409);
       }
-      if (mode === "deduct") {
-        const check = validateStockBeforeDeduction(ingredient, entry.requiredGrams, { allowNegativeStock });
-        if (!check.ok) {
-          return fail("insufficient_stock", `INSUFFICIENT_STOCK:${entry.ingredientId}`, 409);
-        }
-      } else {
-        const restorable = Math.max(0, Number(manualOutstandingByIngredient?.get(entry.ingredientId) ?? 0));
-        if (restorable < entry.requiredGrams) {
-          return fail("restore_exceeds_deducted", `RESTORE_EXCEEDS_DEDUCTED:${entry.ingredientId}`, 409);
-        }
+      if (message.includes("RECIPE_NOT_FOUND")) {
+        return fail("recipe_not_found", "No active recipe lines found for this product.", 409);
       }
-    }
-
-    for (const entry of usage) {
-      const ingredient = ingredientMap.get(entry.ingredientId);
-      if (!ingredient) continue;
-      const nextStock = mode === "restore"
-        ? toIntegerGrams(ingredient.stockInGrams + entry.requiredGrams)
-        : toIntegerGrams(ingredient.stockInGrams - entry.requiredGrams);
-      const updateQuery = supabase
-        .from("ingredients")
-        .update({ quantity_on_hand: nextStock })
-        .eq("tenant_id", auth.tenantId!)
-        .eq("branch_id", auth.branchId!)
-        .eq("id", entry.ingredientId);
-      const { error: updateError } = allowNegativeStock
-        ? await updateQuery
-        : mode === "deduct"
-          ? await updateQuery.gte("quantity_on_hand", entry.requiredGrams)
-          : await updateQuery;
-      if (updateError) {
-        return fail("ingredient_update_failed", updateError.message, 500);
+      if (message.includes("INVALID_INGREDIENT_SELECTION")) {
+        return fail("invalid_ingredient_selection", "Selected ingredient is not part of this product recipe.", 422);
       }
-      ingredient.stockInGrams = nextStock;
+      if (message.includes("INGREDIENT_NOT_FOUND")) {
+        return fail("ingredient_not_found", message, 409);
+      }
+      if (message.includes("INSUFFICIENT_STOCK")) {
+        return fail("insufficient_stock", message, 409);
+      }
+      if (message.includes("RESTORE_EXCEEDS_DEDUCTED")) {
+        return fail("restore_exceeds_deducted", message, 409);
+      }
+      if (message.includes("IDEMPOTENCY_KEY_REUSED")) {
+        return fail("idempotency_key_reused", "This idempotency key was already used with a different stock-adjustment payload.", 409);
+      }
+      if (message.includes("IDEMPOTENCY_RESULT_INCOMPLETE")) {
+        return fail("idempotency_state_invalid", "The previous stock adjustment is incomplete and requires review.", 409);
+      }
+      if (message.includes("INVALID_REQUEST_KEY")) {
+        return fail("idempotency_key_required", "A valid x-idempotency-key is required for stock adjustment.", 422);
+      }
+      return fail("ingredient_adjustment_failed", "Unable to safely apply the ingredient stock adjustment.", 503);
     }
 
-    const requestKey = req.headers.get("x-idempotency-key")?.trim() || "";
-    const movementReasonBase =
-      body.note?.trim() ||
-      (mode === "restore"
-        ? `Manual per-item recipe restore from POS bill ${orderRow.order_no}`
-        : `Manual per-item recipe deduction from POS bill ${orderRow.order_no}`);
-    const movementRows = usage.map((entry) => ({
-      tenant_id: auth.tenantId!,
-      branch_id: auth.branchId!,
-      ingredient_id: entry.ingredientId,
-      movement_type: "sale_deduction" as const,
-      quantity_delta: mode === "restore" ? Math.abs(entry.requiredGrams) : -Math.abs(entry.requiredGrams),
-      reason: `${movementReasonBase} (${productId})`,
-      ref_table: "orders",
-      ref_id: orderId,
-      created_by: auth.userId,
-      request_id: requestKey ? `${requestKey}:${entry.ingredientId}` : null
-    }));
+    const rows = (Array.isArray(data) ? data : []) as Array<{
+      ingredient_id: string;
+      required_grams: number | string;
+      quantity_delta: number | string;
+      duplicate_request: boolean;
+    }>;
 
-    const { error: movementError } = await supabase.from("stock_movements").insert(movementRows);
-    if (movementError) {
-      return fail("stock_movement_insert_failed", movementError.message, 500);
+    if (rows.length === 0) {
+      return fail("ingredient_adjustment_failed", "Stock adjustment transaction returned no ingredient rows.", 503);
     }
+
+    const duplicateRequest = rows.every((row) => row.duplicate_request === true);
 
     void appendAuditLog({
       tenantId: auth.tenantId!,
       branchId: auth.branchId!,
       actorUserId: auth.userId,
       actorRole: auth.branchRole ?? auth.platformRole,
-      action: "pos_item_recipe_deduction_applied",
+      action: duplicateRequest ? "pos_item_recipe_adjustment_replayed" : "pos_item_recipe_deduction_applied",
       targetTable: "orders",
       targetId: orderId,
       metadata: {
-        order_no: orderRow.order_no,
-        order_status: orderRow.status,
-        product_id: productId,
-        mode,
-        quantity,
-        ingredients_count: usage.length
+        product_id: body.product_id,
+        mode: body.mode,
+        quantity: body.quantity,
+        ingredients_count: rows.length,
+        request_id: requestKey,
+        duplicate_request: duplicateRequest
       }
     });
 
     return ok({
       order_id: orderId,
-      order_no: orderRow.order_no,
-      product_id: productId,
-      mode,
-      quantity,
-      deductions: usage.map((entry) => ({
-        ingredient_id: entry.ingredientId,
-        required_grams: entry.requiredGrams
+      product_id: body.product_id,
+      mode: body.mode,
+      quantity: body.quantity,
+      duplicate_request: duplicateRequest,
+      deductions: rows.map((row) => ({
+        ingredient_id: String(row.ingredient_id),
+        required_grams: Number(row.required_grams ?? 0),
+        quantity_delta: Number(row.quantity_delta ?? 0)
       }))
     });
   } catch (error) {
