@@ -15,6 +15,7 @@ export type TableQrAutomationPolicy = {
   kitchen_alert: KitchenAlertSettings;
   store: {
     popup_enabled: boolean;
+    item_detail_popup_enabled: boolean;
     kitchen_auto_send_enabled: boolean;
     kitchen_auto_print_enabled: boolean;
   };
@@ -47,11 +48,13 @@ type SettingsRow = {
   kitchen_alert_popup_enabled?: boolean | null;
   kitchen_alert_sound_enabled?: boolean | null;
   kitchen_alert_sound_volume?: number | null;
+  pos_item_detail_popup_enabled?: boolean | null;
 };
 
 export type SaveStoreTableQrAutomationPolicyInput = {
   branch_id?: string;
   popup_enabled?: boolean;
+  item_detail_popup_enabled?: boolean;
   kitchen_auto_send_enabled?: boolean;
   kitchen_auto_print_enabled?: boolean;
   cashier_review_required?: boolean;
@@ -120,6 +123,7 @@ function toPolicy(branchId: string, row: SettingsRow | null): TableQrAutomationP
     kitchen_alert: readKitchenAlerts(row),
     store: {
       popup_enabled: storePopup,
+      item_detail_popup_enabled: row?.pos_item_detail_popup_enabled ?? true,
       kitchen_auto_send_enabled: storeSend,
       kitchen_auto_print_enabled: storePrint
     },
@@ -146,7 +150,7 @@ async function readSettingsRow(tenantId: string, branchId: string): Promise<Sett
   const { data, error } = await supabase
     .from("tenant_pos_notification_settings")
     .select(
-      "table_qr_popup_enabled,table_qr_popup_store_enabled,table_qr_kitchen_auto_send_enabled,table_qr_kitchen_auto_print_enabled,table_qr_popup_override,table_qr_kitchen_auto_send_override,table_qr_kitchen_auto_print_override,table_qr_cashier_review_required,kitchen_alert_popup_enabled,kitchen_alert_sound_enabled,kitchen_alert_sound_volume"
+      "table_qr_popup_enabled,table_qr_popup_store_enabled,table_qr_kitchen_auto_send_enabled,table_qr_kitchen_auto_print_enabled,table_qr_popup_override,table_qr_kitchen_auto_send_override,table_qr_kitchen_auto_print_override,table_qr_cashier_review_required,kitchen_alert_popup_enabled,kitchen_alert_sound_enabled,kitchen_alert_sound_volume,pos_item_detail_popup_enabled"
     )
     .eq("tenant_id", tenantId)
     .eq("branch_id", branchId)
@@ -180,6 +184,12 @@ export async function loadTableQrAutomationPolicyForScope(input: {
   return { ...policy, cashier_review_required: flags.qr_pos_review_required };
 }
 
+export async function loadPosItemDetailPopupEnabledForScope(input: { tenantId: string; branchId: string }): Promise<boolean> {
+  if (!input.tenantId || !input.branchId) throw new Error("Tenant and branch are required.");
+  const row = await readSettingsRow(input.tenantId, input.branchId);
+  return row?.pos_item_detail_popup_enabled ?? true;
+}
+
 export async function isQrKitchenAutomaticPrintEnabledForScope(input: { tenantId: string; branchId: string }): Promise<boolean> {
   if (!input.tenantId || !input.branchId) throw new Error("Tenant and branch are required.");
   const row = await readSettingsRow(input.tenantId, input.branchId);
@@ -209,6 +219,9 @@ export async function saveStoreTableQrAutomationPolicy(
   const current = await loadTableQrAutomationPolicy(auth, branchId);
 
   const nextStorePopup = typeof input.popup_enabled === "boolean" ? input.popup_enabled : current.store.popup_enabled;
+  const nextItemDetailPopup = typeof input.item_detail_popup_enabled === "boolean"
+    ? input.item_detail_popup_enabled
+    : current.store.item_detail_popup_enabled;
   const nextStoreSend =
     typeof input.kitchen_auto_send_enabled === "boolean"
       ? input.kitchen_auto_send_enabled
@@ -234,6 +247,7 @@ export async function saveStoreTableQrAutomationPolicy(
       tenant_id: tenantId,
       branch_id: branchId,
       table_qr_popup_store_enabled: nextStorePopup,
+      pos_item_detail_popup_enabled: nextItemDetailPopup,
       table_qr_popup_enabled: nextEffectivePopup,
       table_qr_kitchen_auto_send_enabled: nextStoreSend,
       table_qr_kitchen_auto_print_enabled: nextStorePrint,
