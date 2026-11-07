@@ -2,16 +2,9 @@ import type { OrderType } from "@pos/shared-types";
 import { getPosApiAuthContext } from "@/lib/pos-api-auth";
 import { appendAuditLog } from "@/lib/audit-log";
 import { calculateRecipeUsage, toIntegerGrams, validateStockBeforeDeduction } from "@/lib/ingredient-stock";
+import { validatePosItemIngredientAdjustment } from "@/lib/pos-item-ingredient-adjustment";
 import { fail, ok } from "@/lib/http";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
-
-type RequestBody = {
-  product_id?: string;
-  quantity?: number;
-  note?: string;
-  mode?: "deduct" | "restore";
-  ingredient_ids?: string[];
-};
 
 function isMissingColumnError(message: string, column: string): boolean {
   const normalized = String(message ?? "").toLowerCase();
@@ -34,17 +27,6 @@ function resolveAllowNegativeStockFallback(): boolean {
   if (flag === "1") return true;
   if (flag?.toLowerCase() === "true") return true;
   return false;
-}
-
-function normalizeIngredientIds(values: unknown): string[] {
-  if (!Array.isArray(values)) return [];
-  return Array.from(
-    new Set(
-      values
-        .map((value) => String(value ?? "").trim())
-        .filter(Boolean)
-    )
-  );
 }
 
 async function loadManualOutstandingByIngredient(args: {
@@ -190,22 +172,19 @@ export async function POST(req: Request, context: { params: Promise<{ orderId: s
     const auth = await getPosApiAuthContext({ requireBranchScope: true, requiredPermission: "sales:enter" });
     const supabase = getSupabaseServiceClient();
     const { orderId } = await context.params;
-    const body = (await req.json()) as RequestBody;
+    const parsed = validatePosItemIngredientAdjustment(await req.json().catch(() => null));
+    if (!parsed.ok) {
+      return fail(parsed.code, parsed.message, parsed.status);
+    }
+    const body = parsed.data;
 
     if (!orderId) {
       return fail("invalid_order_id", "orderId is required.", 422);
     }
 
-    const productId = String(body.product_id ?? "").trim();
-    if (!productId) {
-      return fail("invalid_product_id", "product_id is required.", 422);
-    }
-
-    const quantity = Number(body.quantity ?? 1);
-    if (!Number.isFinite(quantity) || quantity <= 0) {
-      return fail("invalid_quantity", "quantity must be greater than 0.", 422);
-    }
-    const mode: "deduct" | "restore" = body.mode === "restore" ? "restore" : "deduct";
+    const productId = body.product_id;
+    const quantity = body.quantity;
+    const mode = body.mode;
 
     const { data: orderRow, error: orderError } = await supabase
       .from("orders")
@@ -288,12 +267,13 @@ export async function POST(req: Request, context: { params: Promise<{ orderId: s
       return fail("recipe_not_found", "No active recipe lines found for this product.", 409);
     }
 
-    const selectedIngredientIds = normalizeIngredientIds(body.ingredient_ids);
+    const selectedIngredientIds = body.ingredient_ids;
     const rawUsage = calculateRecipeUsage(recipeIngredients, quantity);
-    const usage =
-      selectedIngredientIds.length > 0
-        ? rawUsage.filter((entry) => selectedIngredientIds.includes(entry.ingredientId))
-        : rawUsage;
+    const recipeIngredientIds = new Set(rawUsage.map((entry) => entry.ingredientId));
+    if (selectedIngredientIds.some((id) => !recipeIngredientIds.has(id))) {
+      return fail("invalid_ingredient_selection", "Selected ingredient is not part of this product recipe.", 422);
+    }
+    const usage = rawUsage.filter((entry) => selectedIngredientIds.includes(entry.ingredientId));
     if (usage.length === 0) {
       return fail("ingredient_selection_required", "Select at least one ingredient for this adjustment.", 422);
     }
