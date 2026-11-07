@@ -1,5 +1,6 @@
 import type { ReceiptTemplate } from "@pos/shared-types";
 import { renderReceiptTemplate } from "@/lib/printing/print-service";
+import { formatPosItemNotesForDisplay } from "@/lib/pos-item-notes";
 
 export type ReceiptLanguage = "th" | "en" | "lo";
 export type ReceiptCurrency = "THB" | "LAK";
@@ -7,13 +8,13 @@ export type ReceiptCurrency = "THB" | "LAK";
 const caption = {
   th: { branch: "สาขา", bill: "เลขที่บิล", date: "วันที่", seller: "ผู้ขาย", mode: "โหมด", items: "รายการ",
     subtotal: "ยอดก่อนลด", discount: "ส่วนลด", tax: "ภาษี", total: "ยอดสุทธิ",
-    payment: "ชำระเงิน", cash: "รับเงิน", change: "เงินทอน", thanks: "ขอบคุณที่ใช้บริการ", copy: "สำเนาใบเสร็จ" },
+    payment: "ชำระเงิน", cash: "รับเงิน", change: "เงินทอน", detail: "รายละเอียด", thanks: "ขอบคุณที่ใช้บริการ", copy: "สำเนาใบเสร็จ" },
   en: { branch: "Branch", bill: "Bill no.", date: "Date", seller: "Seller", mode: "Mode", items: "Items",
     subtotal: "Subtotal", discount: "Discount", tax: "Tax", total: "Net total",
-    payment: "Payment", cash: "Cash received", change: "Change", thanks: "Thank you", copy: "Receipt copy" },
+    payment: "Payment", cash: "Cash received", change: "Change", detail: "Details", thanks: "Thank you", copy: "Receipt copy" },
   lo: { branch: "ສາຂາ", bill: "ເລກໃບບິນ", date: "ວັນທີ", seller: "ຜູ້ຂາຍ", mode: "ໂໝດ", items: "ລາຍການ",
     subtotal: "ຍອດກ່ອນຫຼຸດ", discount: "ສ່ວນຫຼຸດ", tax: "ພາສີ", total: "ຍອດສຸດທິ",
-    payment: "ການຊຳລະ", cash: "ຮັບເງິນ", change: "ເງິນທອນ", thanks: "ຂອບໃຈທີ່ໃຊ້ບໍລິການ", copy: "ສຳເນົາໃບຮັບເງິນ" }
+    payment: "ການຊຳລະ", cash: "ຮັບເງິນ", change: "ເງິນທອນ", detail: "ລາຍລະອຽດ", thanks: "ຂອບໃຈທີ່ໃຊ້ບໍລິການ", copy: "ສຳເນົາໃບຮັບເງິນ" }
 } as const;
 
 export function renderLocalizedReceiptText(template: ReceiptTemplate, paper: 58 | 80, language: ReceiptLanguage, currency: ReceiptCurrency) {
@@ -62,6 +63,8 @@ export function renderLocalizedReceiptText(template: ReceiptTemplate, paper: 58 
   for (const item of template.items) {
     lines.push(String(item.name));
     lines.push(String(item.qty) + " x " + fmt(item.unit_price) + " = " + fmt(item.line_total));
+    const itemNote = formatPosItemNotesForDisplay(item.note, L.detail);
+    for (const noteLine of itemNote.split("\n").filter(Boolean)) lines.push("  * " + noteLine);
   }
   lines.push(divider);
   lines.push(label(L.subtotal, fmt(template.subtotal)));
