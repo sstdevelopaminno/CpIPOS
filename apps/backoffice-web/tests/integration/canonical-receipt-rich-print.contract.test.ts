@@ -14,7 +14,8 @@ describe("canonical receipt rich print contract", () => {
   });
 
   it("sends the actual canonical HTML to the Windows native bridge", () => {
-    expect(windowsClient).toContain("html: content");
+    expect(windowsClient).toContain("html: printableHtml");
+    expect(windowsClient).toContain("const printableHtml = appOrigin");
     expect(windowsClient).toContain('payload.data?.provider !== "native_winforms_html_receipt"');
     expect(windowsClient).toContain('payload_format: "receipt_html_v1"');
   });
