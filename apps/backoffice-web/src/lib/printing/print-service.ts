@@ -12,6 +12,7 @@ import type { AuthContext } from "@/lib/auth-context";
 import { appendAuditLog } from "@/lib/audit-log";
 import { readEnv } from "@/lib/env";
 import { renderReceiptHtml } from "@/lib/printing/receipt-html-template";
+import { formatPosItemNotesForDisplay } from "@/lib/pos-item-notes";
 import { isRestaurantQrScope } from "@/lib/restaurant-qr-profile";
 import { loadReceiptStoreProfile, type ReceiptStoreProfile } from "@/lib/services/store-profile-service";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
@@ -310,6 +311,10 @@ export function renderReceiptTemplate(template: ReceiptTemplate, paperWidthMm: 5
     const name = item.name.length > 18 ? item.name.slice(0, 18) : item.name;
     lines.push(row(name, `${qty} ${money(item.line_total)}`, width));
     lines.push(`x ${money(item.unit_price)}`);
+    const itemNote = formatPosItemNotesForDisplay(item.note, "รายละเอียด");
+    for (const noteLine of itemNote.split("\n").filter(Boolean)) {
+      lines.push(`  * ${noteLine}`.slice(0, width));
+    }
   }
 
   lines.push(line("-", width));
@@ -423,8 +428,9 @@ export function renderKitchenTicketTemplate(template: KitchenTicketTemplate, pap
 
   for (const item of template.items) {
     lines.push(`${item.qty}x ${item.name}`.slice(0, width));
-    if (item.note) {
-      lines.push(`  * ${item.note}`.slice(0, width));
+    const itemNote = formatPosItemNotesForDisplay(item.note, "รายละเอียด");
+    for (const noteLine of itemNote.split("\n").filter(Boolean)) {
+      lines.push(`  * ${noteLine}`.slice(0, width));
     }
   }
   lines.push(line("-", width));
