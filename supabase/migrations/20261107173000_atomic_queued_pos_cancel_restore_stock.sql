@@ -142,3 +142,14 @@ REVOKE ALL ON FUNCTION public.cancel_queued_pos_order_and_restore_stock_tx(
 GRANT EXECUTE ON FUNCTION public.cancel_queued_pos_order_and_restore_stock_tx(
   uuid, uuid, uuid, uuid, uuid, text
 ) TO service_role;
+
+-- Defense in depth for the older underlying privileged stock-restore function.
+-- Live privilege review found authenticated could EXECUTE app.void_order...
+-- while the public API wrapper is already restricted to service_role.
+-- Only the trusted backend should be able to trigger destructive stock reversals.
+REVOKE ALL ON FUNCTION app.void_order_and_restore_stock_tx(
+  uuid, uuid, uuid, uuid, text, boolean
+) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION app.void_order_and_restore_stock_tx(
+  uuid, uuid, uuid, uuid, text, boolean
+) TO service_role;
