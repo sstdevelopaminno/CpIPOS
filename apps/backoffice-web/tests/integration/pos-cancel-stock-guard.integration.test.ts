@@ -96,7 +96,9 @@ describe("interim POS cancel stock safety gate", () => {
       Promise.resolve({ data: null, count: 0, error: null }).then(ok)) as typeof stockLedger.then;
     const response = await requestCancel();
     expect(response.status).toBe(200);
-    const orderQuery = from.mock.results.find((r) => r.value?.update)?.value;
+    const orderIndex = from.mock.calls.findIndex(([table]) => table === "orders");
+    expect(orderIndex).toBeGreaterThanOrEqual(0);
+    const orderQuery = from.mock.results[orderIndex]?.value;
     expect(orderQuery?.eq).toHaveBeenCalledWith("status", "queued");
   });
 });
