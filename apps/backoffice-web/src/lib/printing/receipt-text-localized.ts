@@ -63,7 +63,7 @@ export function renderLocalizedReceiptText(template: ReceiptTemplate, paper: 58 
   for (const item of template.items) {
     lines.push(String(item.name));
     lines.push(String(item.qty) + " x " + fmt(item.unit_price) + " = " + fmt(item.line_total));
-    const itemNote = formatPosItemNotesForDisplay(item.note, L.detail);
+    const itemNote = formatPosItemNotesForDisplay((item as typeof item & { note?: string | null }).note, L.detail);
     for (const noteLine of itemNote.split("\n").filter(Boolean)) lines.push("  * " + noteLine);
   }
   lines.push(divider);
