@@ -85,18 +85,27 @@ export async function resolveOrderPricing(args: {
     }
   | { ok: false; code: string; message: string; status: number }
 > {
-  const cleanedItems = args.items
-    .map((item) => ({
-      product_id: String(item.product_id ?? "").trim(),
-      quantity: Number(item.quantity)
-    }))
-    .filter((item) => Boolean(item.product_id));
-
-  if (cleanedItems.length === 0) {
+  if (!Array.isArray(args.items) || args.items.length === 0) {
     return { ok: false, code: "items_required", message: "At least one item is required.", status: 422 };
   }
-  if (cleanedItems.some((item) => !Number.isFinite(item.quantity) || item.quantity <= 0)) {
-    return { ok: false, code: "invalid_quantity", message: "Each item quantity must be greater than zero.", status: 422 };
+  if (args.items.length > 500) {
+    return { ok: false, code: "invalid_items", message: "Too many cart lines in one order.", status: 422 };
+  }
+  // Never silently discard a malformed line: doing so would charge for only
+  // part of the customer's cart and deduct stock for an incomplete order.
+  const cleanedItems = args.items.map((item) => ({
+    product_id: String(item?.product_id ?? "").trim(),
+    quantity: Number(item?.quantity)
+  }));
+  if (cleanedItems.some((item) => !item.product_id)) {
+    return { ok: false, code: "invalid_items", message: "Every cart line must identify a product.", status: 422 };
+  }
+  if (cleanedItems.some((item) => !Number.isSafeInteger(item.quantity) || item.quantity <= 0)) {
+    return { ok: false, code: "invalid_quantity", message: "Each item quantity must be a positive whole number.", status: 422 };
+  }
+  const rawDiscount = Number(args.discountTotal ?? 0);
+  if (!Number.isFinite(rawDiscount) || rawDiscount < 0) {
+    return { ok: false, code: "invalid_discount", message: "Discount must be a finite non-negative amount.", status: 422 };
   }
 
   const uniqueProductIds = [...new Set(cleanedItems.map((item) => item.product_id))];
@@ -128,6 +137,9 @@ export async function resolveOrderPricing(args: {
     if (!product || !product.is_active) {
       return { ok: false, code: "product_unavailable", message: "One or more selected products are unavailable.", status: 422 };
     }
+    if (!Number.isFinite(product.price) || product.price < 0) {
+      return { ok: false, code: "invalid_product_price", message: "Product price is invalid. Refresh the catalog before selling.", status: 409 };
+    }
   }
 
   const pricedItems = cleanedItems.map((item) => {
@@ -143,8 +155,14 @@ export async function resolveOrderPricing(args: {
     };
   });
 
+  if (pricedItems.some((item) => !Number.isFinite(item.line_total))) {
+    return { ok: false, code: "invalid_total", message: "Order line amount is outside the supported range.", status: 422 };
+  }
   const subtotal = round2(pricedItems.reduce((sum, item) => sum + item.line_total, 0));
-  const discountTotal = Math.min(subtotal, sanitizeDiscount(args.discountTotal));
+  if (!Number.isFinite(subtotal)) {
+    return { ok: false, code: "invalid_total", message: "Order subtotal is outside the supported range.", status: 422 };
+  }
+  const discountTotal = Math.min(subtotal, round2(rawDiscount));
   const taxTotal = 0;
   const grandTotal = round2(subtotal - discountTotal + taxTotal);
 
