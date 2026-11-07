@@ -86,4 +86,54 @@ describe("ingredient stock conversion and deduction", () => {
     expect(formatStockDisplay(500, { locale: "en" })).toBe("500 g (5 khid)");
     expect(formatStockDisplay(50, { locale: "en" })).toBe("50 g (0.5 khid)");
   });
+
+  it("aggregates shared recipe ingredients before reducing available stock", () => {
+    const original = [
+      { id: "veg", name: "Vegetables", stockInGrams: 1000 },
+      { id: "oil", name: "Oil", stockInGrams: 150 }
+    ];
+    const result = deductStockForSale(
+      "combo",
+      3,
+      [
+        { productId: "combo", ingredientId: "veg", usageInGrams: 100 },
+        { productId: "combo", ingredientId: "veg", usageInGrams: 20 },
+        { productId: "combo", ingredientId: "oil", usageInGrams: 15 },
+        { productId: "other-product", ingredientId: "oil", usageInGrams: 999 }
+      ],
+      original
+    );
+    expect(result.deductions).toEqual([
+      { ingredientId: "veg", requiredGrams: 360, remainingGrams: 640 },
+      { ingredientId: "oil", requiredGrams: 45, remainingGrams: 105 }
+    ]);
+    expect(original).toEqual([
+      { id: "veg", name: "Vegetables", stockInGrams: 1000 },
+      { id: "oil", name: "Oil", stockInGrams: 150 }
+    ]);
+  });
+
+  it("fails the entire stock preview if one of several required ingredients is short", () => {
+    const original = [
+      { id: "veg", name: "Vegetables", stockInGrams: 1000 },
+      { id: "oil", name: "Oil", stockInGrams: 10 }
+    ];
+    expect(() => deductStockForSale(
+      "combo", 2,
+      [
+        { productId: "combo", ingredientId: "veg", usageInGrams: 50 },
+        { productId: "combo", ingredientId: "oil", usageInGrams: 20 }
+      ],
+      original
+    )).toThrowError(/INSUFFICIENT_STOCK:oil/);
+    // Pure inventory calculations must never mutate the caller's on-screen stock.
+    expect(original[0].stockInGrams).toBe(1000);
+    expect(original[1].stockInGrams).toBe(10);
+  });
+
+  it("rejects invalid recipe unit conversions instead of showing false stock availability", () => {
+    expect(() => convertToGrams(-1, "kg")).toThrowError(/INVALID_VALUE/);
+    expect(() => convertToGrams(1, "bag", { weightPerBagInGrams: 0 })).toThrowError(/INVALID_WEIGHT_PER_BAG_IN_GRAMS/);
+    expect(() => convertToGrams(Number.NaN, "g")).toThrowError(/INVALID_VALUE/);
+  });
 });
