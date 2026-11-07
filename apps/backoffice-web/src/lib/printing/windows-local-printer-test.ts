@@ -248,3 +248,64 @@ export async function printWindowsReceiptHtml(
     window.clearTimeout(timer);
   }
 }
+
+/**
+ * Execute only a server-authorized, device-bound cash-drawer print job.
+ * This endpoint is loopback-only and never retries an unknown physical
+ * outcome. Windows Native Print Agent owns the persistent attempt ledger.
+ */
+export async function openWindowsCashDrawerJob(
+  drawer?: { kickPin: 0 | 1; pulseOnMs: number; pulseOffMs: number } | null
+): Promise<{ printer: string; spoolJobId: string | null }> {
+  const runtime = windowsRuntime() as (Runtime & { windows_printer?: string }) | null;
+  if (!drawer || ![0, 1].includes(drawer.kickPin) ||
+      !Number.isInteger(drawer.pulseOnMs) || drawer.pulseOnMs < 20 || drawer.pulseOnMs > 500 ||
+      !Number.isInteger(drawer.pulseOffMs) || drawer.pulseOffMs < 20 || drawer.pulseOffMs > 500) {
+    throw new Error("Windows cash drawer command is invalid.");
+  }
+  if (!runtime?.bridge_token || !runtime.bridge_health_url) {
+    throw new Error("Windows Local Print Bridge is unavailable for the cash drawer.");
+  }
+  let bridge: URL;
+  try { bridge = new URL(runtime.bridge_health_url); }
+  catch { throw new Error("Windows Local Print Bridge URL is invalid."); }
+  if (bridge.protocol !== "http:" || bridge.hostname !== "127.0.0.1" ||
+      bridge.port !== "3210" || bridge.pathname !== "/health" ||
+      bridge.username || bridge.password || bridge.search || bridge.hash) {
+    throw new Error("Windows cash drawer must use the trusted loopback bridge.");
+  }
+  const printerName = runtime.windows_printer?.trim() ?? "";
+  const controller = new AbortController();
+  const timer = window.setTimeout(() => controller.abort(), 30_000);
+  try {
+    const response = await fetch("http://127.0.0.1:3210/cash-drawer/open", {
+      method: "POST",
+      headers: { "X-CpIPOS-Bridge-Token": runtime.bridge_token, "Content-Type": "application/json" },
+      cache: "no-store",
+      signal: controller.signal,
+      body: JSON.stringify({
+        ...(printerName ? { printer_name: printerName } : {}),
+        drawer_connection_mode: "printer-kick",
+        drawer_kick_pin: drawer.kickPin,
+        drawer_pulse_on_ms: drawer.pulseOnMs,
+        drawer_pulse_off_ms: drawer.pulseOffMs
+      })
+    });
+    const body = await response.json().catch(() => null) as BridgeResponse<{
+      opened?: boolean; provider?: string; printer_name?: string; job_id?: string;
+    }> | null;
+    if (!response.ok || body?.ok !== true || body.data?.opened !== true ||
+        body.data.provider !== "windows_raw_escpos_cash_drawer" ||
+        (printerName && body.data.printer_name !== printerName)) {
+      throw new Error(body?.error?.message ?? "Windows cash drawer spool command was not accepted.");
+    }
+    return { printer: body.data.printer_name ?? printerName, spoolJobId: body.data.job_id ?? null };
+  } catch (error) {
+    if (controller.signal.aborted) {
+      throw new Error("Cash drawer command timed out. Check the drawer before retrying manually.");
+    }
+    throw error;
+  } finally {
+    window.clearTimeout(timer);
+  }
+}
