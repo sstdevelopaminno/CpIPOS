@@ -26,16 +26,19 @@ const usageMigration = source("../../../../supabase/migrations/20260929224000_po
 const oneTimeApprovalMigration = source("../../../../supabase/migrations/20260930062000_one_time_manager_pin_approvals.sql");
 
 describe("CpiPOS AI store assistant", () => {
-  it("promotes AI to a first-class main menu and removes it from More", () => {
+  it("exposes AI from More for owner/manager while retaining IT and package gates", () => {
+    // Keep the established main.ai_assistant policy key: IT, route and APIs use it.
     expect(menuPolicy).toContain('key: "main.ai_assistant"');
     expect(menuPolicy).toContain('route: "/preview/pos/ai-assistant"');
     expect(menuPolicy).not.toContain('key: "more.ai_assistant"');
-    expect(staffMenu).toContain('isPosMenuEnabled("main.ai_assistant", menuPolicy)');
-    expect(staffMenu).toContain('const aiVisible = sessionRole === "owner" || sessionRole === "manager"');
-    expect(staffMenu).toContain('href="/preview/pos/ai-assistant"');
-    expect(staffMenu).not.toContain("moreExpanded");
-    expect(staffMenu).not.toContain("pos-more-quick-menu");
-    expect(moreWorkspace).not.toContain("CpiPOS AI ผู้ช่วยร้านค้า");
+    // AI is no longer a top-level cashier menu entry.
+    expect(staffMenu).not.toContain('href="/preview/pos/ai-assistant"');
+    expect(moreWorkspace).toContain('href: "/preview/pos/ai-assistant"');
+    expect(moreWorkspace).toContain('roles: ["owner", "manager"]');
+    expect(moreWorkspace).toContain('return !isPosMenuEnabled(posMenuKeyForRoute(href) ?? "", menuPolicy);');
+    expect(moreWorkspace).toContain('const locked = menuLocked || isLocked(item.href);');
+    expect(moreWorkspace).toContain('featureForPosRoute(href)');
+    expect(moreWorkspace).toContain('setItLockedMenu(label)');
     expect(moreWorkspace).not.toContain('featured: true');
   });
 
@@ -225,9 +228,9 @@ describe("CpiPOS AI store assistant", () => {
     expect(usageMigration).toContain("monthly_cost_limit_usd");
   });
 
-  it("keeps the promoted AI menu compact and simplifies the customer-facing AI header", () => {
+  it("keeps the relocated AI menu compact and simplifies the customer-facing AI header", () => {
     expect(staffMenu).not.toContain("bg-cyan-300/15");
-    expect(staffMenu).toContain('const aiLabel = lang === "th" ? "CpiPOS AI" : "CpiPOS AI"');
+    expect(moreWorkspace).toContain('label: { th: "CpiPOS AI", en: "CpiPOS AI" }');
     expect(aiWorkspace).not.toContain("BETA");
     expect(aiWorkspace).toContain(">CpiPOS AI</h1>");
     expect(aiWorkspace).not.toContain("CpiPOS AI ผู้ช่วยร้านค้า</h1>");
