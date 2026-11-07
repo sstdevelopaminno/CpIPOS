@@ -1601,6 +1601,7 @@ function BranchPanel({
 
 function DevicePanel({
   labels,
+  lang,
   devices,
   setDevices,
   devicesLoaded,
@@ -1614,6 +1615,7 @@ function DevicePanel({
   reportStatus
 }: {
   labels: Labels;
+  lang: Language;
   devices: PosDeviceSettings[];
   setDevices: (devices: PosDeviceSettings[] | ((current: PosDeviceSettings[]) => PosDeviceSettings[])) => void;
   devicesLoaded: boolean;
@@ -1633,6 +1635,8 @@ function DevicePanel({
   const [isDeviceFormOpen, setIsDeviceFormOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<PosDeviceSettings | null>(null);
   const [isLoading, setIsLoading] = useState(!devicesLoaded);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [reloadRequest, setReloadRequest] = useState(0);
   const [isMutating, setIsMutating] = useState(false);
   const [isScrollbarVisible, setIsScrollbarVisible] = useState(false);
   const scrollbarHideTimeoutRef = useRef<number | null>(null);
@@ -1666,34 +1670,43 @@ function DevicePanel({
   }
 
   useEffect(() => {
-    if (devicesLoaded) {
+    if (devicesLoaded && reloadRequest === 0) {
       setIsLoading(false);
       return;
     }
 
     const controller = new AbortController();
+    let timedOut = false;
+    // A stuck network request must not leave an empty, permanently loading table.
+    const timeoutId = window.setTimeout(() => {
+      timedOut = true;
+      controller.abort();
+    }, 12_000);
+    setLoadError(null);
     setIsLoading(true);
     void (async () => {
       try {
         const data = await readApiData<{ devices: PosDeviceSettings[] }>(
           await fetch("/api/pos/settings/devices", { cache: "no-store", signal: controller.signal })
         );
+        if (controller.signal.aborted) return;
+        if (!Array.isArray(data?.devices)) throw new Error("Invalid device list response.");
         setDevices(data.devices);
         setDevicesLoaded(true);
       } catch (error) {
-        if (!controller.signal.aborted) {
-          reportStatus(error instanceof Error ? error.message : labels.failed, { popup: true });
-        }
+        // Ignore a deliberate unmount; a real timeout is shown with a retry.
+        if (controller.signal.aborted && !timedOut) return;
+        setLoadError(timedOut ? labels.requestTimeout : error instanceof Error ? error.message : labels.failed);
       } finally {
-        if (!controller.signal.aborted) {
-          setIsLoading(false);
-        }
+        window.clearTimeout(timeoutId);
+        if (!controller.signal.aborted || timedOut) setIsLoading(false);
       }
     })();
     return () => {
+      window.clearTimeout(timeoutId);
       controller.abort();
     };
-  }, [devicesLoaded, labels.failed, reportStatus, setDevices, setDevicesLoaded]);
+  }, [devicesLoaded, reloadRequest, labels.failed, labels.requestTimeout, setDevices, setDevicesLoaded]);
 
   useEffect(() => {
     return () => {
@@ -1794,26 +1807,43 @@ function DevicePanel({
               </select>
             </label>
             <div className="grid justify-items-end gap-1">
-              <ActionButton onClick={openCreateDevice} disabled={!canManage || isBusy}>
-                <Icon name="terminal" />
-                {labels.devices}
-              </ActionButton>
-              {cashierDeviceLimit !== null ? (
-                <span className={`text-xs font-bold ${isCreateDeviceLimitReached ? "text-red-600" : "text-slate-500"}`}>
-                  {activeDeviceCountForCreateBranch}/{cashierDeviceLimit}
-                </span>
-              ) : null}
+              <div className="flex flex-wrap items-center justify-end gap-2">
+                <ActionButton onClick={() => setReloadRequest((current) => current + 1)} disabled={isLoading || isBusy} variant="plain">
+                  {lang === "th" ? "รีเฟรชรายการ" : lang === "lo" ? "ໂຫຼດລາຍການໃໝ່" : "Refresh list"}
+                </ActionButton>
+                <ActionButton onClick={openCreateDevice} disabled={!canManage || isBusy}>
+                  <Icon name="terminal" />
+                  {labels.devices}
+                </ActionButton>
+              </div>
+              <span aria-live="polite" className={`text-xs font-bold ${branchFilter !== "all" && isCreateDeviceLimitReached ? "text-red-600" : "text-slate-500"}`}>
+                {branchFilter === "all"
+                  ? (lang === "th" ? `ทั้งหมด ${devices.length} เครื่อง` : lang === "lo" ? `ທັງໝົດ ${devices.length} ເຄື່ອງ` : `${devices.length} devices across branches`)
+                  : cashierDeviceLimit !== null
+                    ? `${activeDeviceCountForCreateBranch}/${cashierDeviceLimit}`
+                    : (lang === "th" ? `${filteredDevices.length} เครื่อง` : lang === "lo" ? `${filteredDevices.length} ເຄື່ອງ` : `${filteredDevices.length} devices`)}
+              </span>
             </div>
           </div>
-          <div className="grid grid-cols-[1fr_140px_130px_120px] gap-3 border-b border-slate-100 bg-slate-50 px-4 py-3 text-xs font-black text-slate-500">
+          <div className="hidden grid-cols-[minmax(0,1fr)_140px_130px_120px] gap-3 border-b border-slate-100 bg-slate-50 px-4 py-3 text-xs font-black text-slate-500 sm:grid">
             <span>{labels.deviceName}</span>
             <span>{labels.branch}</span>
             <span>{labels.deviceStatus}</span>
             <span />
           </div>
+          {loadError ? (
+            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-red-100 bg-red-50 px-4 py-4" role="alert">
+              <p className="text-sm font-semibold text-red-700">
+                {lang === "th" ? "โหลดรายการเครื่องแคชเชียร์ไม่สำเร็จ" : lang === "lo" ? "ໂຫຼດລາຍຊື່ເຄື່ອງບໍ່ສຳເລັດ" : "Unable to load cashier devices"}: {loadError}
+              </p>
+              <ActionButton variant="plain" onClick={() => setReloadRequest((current) => current + 1)} disabled={isLoading}>
+                {lang === "th" ? "ลองอีกครั้ง" : lang === "lo" ? "ລອງອີກຄັ້ງ" : "Retry"}
+              </ActionButton>
+            </div>
+          ) : null}
           {isLoading ? (
             Array.from({ length: 4 }).map((_, index) => (
-              <div key={`device-loading-${index}`} className="grid grid-cols-[1fr_140px_130px_120px] items-center gap-3 border-b border-slate-100 px-4 py-4 last:border-b-0">
+              <div key={`device-loading-${index}`} className="grid grid-cols-1 items-center gap-3 border-b border-slate-100 px-4 py-4 last:border-b-0 sm:grid-cols-[minmax(0,1fr)_140px_130px_120px]">
                 <div className="grid gap-2">
                   <span className="h-4 w-44 animate-pulse rounded bg-slate-100" />
                   <span className="h-3 w-32 animate-pulse rounded bg-slate-100" />
@@ -1825,7 +1855,7 @@ function DevicePanel({
               </div>
             ))
           ) : filteredDevices.map((device) => (
-            <div key={device.id} className="grid grid-cols-[1fr_140px_130px_120px] items-center gap-3 border-b border-slate-100 px-4 py-3 last:border-b-0">
+            <div key={device.id} className="grid grid-cols-1 items-center gap-3 border-b border-slate-100 px-4 py-3 last:border-b-0 sm:grid-cols-[minmax(0,1fr)_140px_130px_120px]">
               <div className="min-w-0">
                 <p className="truncate text-sm font-black text-slate-950">{device.device_name}</p>
                 <p className="truncate text-xs font-bold text-slate-500">{device.device_code}</p>
@@ -1862,7 +1892,16 @@ function DevicePanel({
               </div>
             </div>
           ))}
-          {!isLoading && filteredDevices.length === 0 ? <div className="p-8 text-center text-sm font-bold text-slate-500">-</div> : null}
+          {!isLoading && !loadError && filteredDevices.length === 0 ? (
+            <div className="grid justify-items-center gap-2 p-8 text-center" role="status">
+              <span className="text-sm font-bold text-slate-700">
+                {lang === "th" ? "ยังไม่มีเครื่องแคชเชียร์ในรายการนี้" : lang === "lo" ? "ຍັງບໍ່ມີເຄື່ອງແຄຊເຊຍໃນລາຍການນີ້" : "No cashier devices found"}
+              </span>
+              <span className="text-xs font-medium text-slate-500">
+                {lang === "th" ? "เลือกสาขาอื่นหรือกดเพิ่มเครื่องแคชเชียร์ หากยังไม่ได้ลงทะเบียน" : lang === "lo" ? "ເລືອກສາຂາອື່ນ ຫຼື ເພີ່ມເຄື່ອງໃໝ່" : "Select another branch or register a cashier device."}
+              </span>
+            </div>
+          ) : null}
         </div>
       </div>
       {isDeviceFormOpen ? (
@@ -3628,6 +3667,7 @@ export function PosSettingsWorkspace({ lang, initialData }: { lang: Language; in
         {view === "devices" ? (
           <DevicePanel
             labels={labels}
+            lang={lang}
             devices={devices}
             setDevices={setDevices}
             devicesLoaded={devicesLoaded}
