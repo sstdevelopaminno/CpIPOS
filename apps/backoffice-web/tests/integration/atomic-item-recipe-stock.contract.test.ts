@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 
 const read = (file: string) => readFileSync(new URL(file, import.meta.url), "utf8");
 const route = read("../../src/app/api/pos/orders/[orderId]/item-ingredient-deduct/route.ts");
-const migration = read("../../../supabase/migrations/20261107135042_atomic_pos_item_recipe_stock_adjustment.sql");
+const migration = read("../../../../supabase/migrations/20261107135042_atomic_pos_item_recipe_stock_adjustment.sql");
 
 describe("atomic per-item recipe stock adjustment", () => {
   it("routes all writes through the single transaction RPC", () => {
