@@ -41,6 +41,7 @@ export async function PATCH(request: Request) {
       typeof body.cashier_review_required === "boolean" ||
       typeof body.popup_enabled === "boolean" ||
       typeof body.kitchen_auto_send_enabled === "boolean";
+    const wantsItemDetailPopup = typeof body.item_detail_popup_enabled === "boolean";
     const wantsKitchenPrint = typeof body.kitchen_auto_print_enabled === "boolean";
     const wantsKitchenAlert = typeof body.kitchen_alert_popup_enabled === "boolean"
       || typeof body.kitchen_alert_sound_enabled === "boolean"
@@ -54,10 +55,10 @@ export async function PATCH(request: Request) {
     if (body.kitchen_auto_print_enabled === true) {
       await requirePosApiFeature(auth, "kitchen_printing");
     }
-    if (!wantsQrPolicy && !wantsKitchenPrint && !wantsKitchenAlert) {
+    if (!wantsQrPolicy && !wantsItemDetailPopup && !wantsKitchenPrint && !wantsKitchenAlert) {
       return fail("invalid_payload", "At least one order/kitchen setting is required.", 422);
     }
-    const allowedBooleanKeys = ["cashier_review_required", "popup_enabled", "kitchen_auto_send_enabled", "kitchen_auto_print_enabled", "kitchen_alert_popup_enabled", "kitchen_alert_sound_enabled"] as const;
+    const allowedBooleanKeys = ["item_detail_popup_enabled", "cashier_review_required", "popup_enabled", "kitchen_auto_send_enabled", "kitchen_auto_print_enabled", "kitchen_alert_popup_enabled", "kitchen_alert_sound_enabled"] as const;
     if (allowedBooleanKeys.some((key) => body[key] !== undefined && typeof body[key] !== "boolean")
       || (body.kitchen_alert_sound_volume !== undefined && (typeof body.kitchen_alert_sound_volume !== "number" || !Number.isFinite(body.kitchen_alert_sound_volume) || body.kitchen_alert_sound_volume < 0 || body.kitchen_alert_sound_volume > 1))) {
       return fail("invalid_payload", "Invalid order/kitchen setting value.", 422);

@@ -11,6 +11,7 @@ type Policy = {
   kitchen_alert: { popup_enabled: boolean; sound_enabled: boolean; sound_volume: number };
   store: {
     popup_enabled: boolean;
+    item_detail_popup_enabled: boolean;
     kitchen_auto_send_enabled: boolean;
     kitchen_auto_print_enabled: boolean;
   };
@@ -100,6 +101,7 @@ export function OrderKitchenSettingsPage({ lang }: { lang: Language }) {
   const dirty = useMemo(() => {
     if (!policy || !draft || !kitchenAlertDraft || cashierReviewDraft === null) return false;
     return cashierReviewDraft !== policy.cashier_review_required
+      || draft.item_detail_popup_enabled !== policy.store.item_detail_popup_enabled
       || draft.popup_enabled !== policy.store.popup_enabled
       || draft.kitchen_auto_send_enabled !== policy.store.kitchen_auto_send_enabled
       || draft.kitchen_auto_print_enabled !== policy.store.kitchen_auto_print_enabled
@@ -124,6 +126,7 @@ export function OrderKitchenSettingsPage({ lang }: { lang: Language }) {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           ...(cashierReviewDraft !== policy.cashier_review_required ? { cashier_review_required: cashierReviewDraft } : {}),
+          ...(draft.item_detail_popup_enabled !== policy.store.item_detail_popup_enabled ? { item_detail_popup_enabled: draft.item_detail_popup_enabled } : {}),
           ...(draft.popup_enabled !== policy.store.popup_enabled && !policy.forced_by_it.popup ? { popup_enabled: draft.popup_enabled } : {}),
           ...(draft.kitchen_auto_send_enabled !== policy.store.kitchen_auto_send_enabled && !policy.forced_by_it.kitchen_auto_send ? { kitchen_auto_send_enabled: draft.kitchen_auto_send_enabled } : {}),
           ...(draft.kitchen_auto_print_enabled !== policy.store.kitchen_auto_print_enabled && !policy.forced_by_it.kitchen_auto_print ? { kitchen_auto_print_enabled: draft.kitchen_auto_print_enabled } : {}),
@@ -169,6 +172,20 @@ export function OrderKitchenSettingsPage({ lang }: { lang: Language }) {
             description={th ? "เปิด: เก็บออเดอร์ QR รอแคชเชียร์รับและยืนยันก่อนส่งครัว · ปิด: ใช้นโยบายส่งเข้าครัวอัตโนมัติด้านล่าง" : "On: hold QR orders for cashier review. Off: use the automatic Kitchen send rule below."}
             checked={cashierReviewDraft}
             onChange={setCashierReviewDraft}
+          />
+          <div className="border-t-4 border-slate-100 bg-orange-50 px-5 py-4">
+            <p className="text-base font-black text-slate-950">{th ? "หน้าต่างรายละเอียดสินค้า" : "Product item details"}</p>
+            <p className="mt-1 text-sm font-medium text-slate-600">
+              {th ? "ควบคุม POP UP ตอนเพิ่มสินค้าในหน้าขาย แยกจากการแจ้งเตือนออเดอร์ QR และครัว" : "Controls the item-detail popup when adding products, independently of QR and Kitchen alerts."}
+            </p>
+          </div>
+          <SwitchRow
+            title={th ? "แสดง POP UP ช่องใส่รายละเอียดสินค้า" : "Show item-details popup"}
+            description={th
+              ? "เปิด: แสดงหน้าต่างใส่หมายเหตุและเลือกราคา · ปิด: เพิ่มสินค้าทั่วไปลงตะกร้าทันที แต่สินค้าที่ผูกวัตถุดิบยังต้องเปิดหน้าต่างให้เลือก (แก้ไขรายการในตะกร้าเพื่อใส่หมายเหตุหรือเลือกราคาพิเศษได้)"
+              : "On: show notes and price options. Off: add ordinary items directly; recipe-linked ingredients still require the popup. Edit a cart item to add notes or select a special price."}
+            checked={draft.item_detail_popup_enabled}
+            onChange={(value) => setDraft((current) => current ? { ...current, item_detail_popup_enabled: value } : current)}
           />
           <SwitchRow
             title={th ? "แจ้งเตือนออเดอร์ QR บนหน้าขาย" : "QR order popup on sales screen"}

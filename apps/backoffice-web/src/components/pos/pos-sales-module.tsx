@@ -13,6 +13,7 @@ import { PosMemberMaintenanceModal } from "@/components/pos/pos-member-maintenan
 import { PosOpticalCustomerModal } from "@/components/pos/pos-optical-customer-modal";
 import { loUi } from "@/lib/lao-pos-ui";
 import { composePosItemNotes, formatPosItemNotesForDisplay, parsePosItemNotes } from "@/lib/pos-item-notes";
+import { shouldOpenPosItemDetailPopup } from "@/lib/pos-item-detail-popup-policy";
 import { PosPaymentModals } from "@/components/pos/pos-payment-modals";
 import { PosProductCatalog } from "@/components/pos/pos-product-catalog";
 import { PosRealtimeClock } from "@/components/pos/pos-realtime-clock";
@@ -2207,6 +2208,33 @@ export function PosSalesModule({
   const [sellerName, setSellerName] = useState(lang === "lo" ? "ບໍ່ຮູ້ຊື່ຜູ້ຂາຍ" : localSaleLabel("ไม่ทราบชื่อผู้ขาย", "Unknown Seller"));
   const [branchName, setBranchName] = useState(lang === "lo" ? "ບໍ່ຮູ້ສາຂາ" : localSaleLabel("ไม่ทราบสาขา", "Unknown Branch"));
   const [posScope, setPosScope] = useState<{ tenantId: string | null; branchId: string | null }>({ tenantId: null, branchId: null });
+  // A missing or stale policy preserves the original popup behavior (including offline use).
+  const [itemDetailPopupPolicy, setItemDetailPopupPolicy] = useState<{ tenantId: string; branchId: string; enabled: boolean } | null>(null);
+  const itemDetailPopupEnabled = itemDetailPopupPolicy?.tenantId === posScope.tenantId
+    && itemDetailPopupPolicy?.branchId === posScope.branchId
+    ? itemDetailPopupPolicy.enabled
+    : true;
+  useEffect(() => {
+    const tenantId = posScope.tenantId;
+    const branchId = posScope.branchId;
+    if (!tenantId || !branchId) return;
+    let active = true;
+    async function refreshItemDetailPopupPolicy() {
+      try {
+        const response = await fetch("/api/pos/sales/item-detail-popup-policy", { cache: "no-store" });
+        if (!response.ok) throw new Error("item_detail_popup_policy_read_failed");
+        const payload = await response.json();
+        const enabled = payload?.data?.item_detail_popup_enabled;
+        if (active && typeof enabled === "boolean") setItemDetailPopupPolicy({ tenantId: tenantId!, branchId: branchId!, enabled });
+      } catch {
+        // On a failed read, keep the explicit product options screen available.
+        if (active) setItemDetailPopupPolicy({ tenantId: tenantId!, branchId: branchId!, enabled: true });
+      }
+    }
+    void refreshItemDetailPopupPolicy();
+    window.addEventListener("focus", refreshItemDetailPopupPolicy);
+    return () => { active = false; window.removeEventListener("focus", refreshItemDetailPopupPolicy); };
+  }, [posScope.tenantId, posScope.branchId, shift?.id]);
   const [storeProfile, setStoreProfile] = useState<StoreProfile | null>(null);
   const [isHydrated, setIsHydrated] = useState(false);
   const [activeCategory, setActiveCategory] = useState<string>("");
@@ -5620,7 +5648,8 @@ export function PosSalesModule({
     // Optical is an IT-authorized CUSTOM business workflow, not a restaurant.
     if (opticalRetailActive) return addCartLine(product);
     const hasSpecialPrice = getSelectableSpecialPrice(product) !== null;
-    if (orderType === "dine_in" || product.has_recipe_deduction || hasSpecialPrice) {
+    if ((orderType === "dine_in" || product.has_recipe_deduction || hasSpecialPrice)
+      && shouldOpenPosItemDetailPopup(product, itemDetailPopupEnabled)) {
       setModifierDraft({
         product,
         quantity: 1,
@@ -10802,16 +10831,25 @@ export function PosSalesModule({
 
                 </>
               ) : null}
-              <label className="posui-payment-modal__input-label">
-                {localSaleLabel("รายละเอียดอื่นๆ ต่อรายการสินค้า", "Other item details")}
+              <label className="grid gap-3 rounded-2xl border border-slate-300 bg-slate-50 p-4 shadow-sm">
+                <span className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="text-sm font-extrabold text-slate-900">
+                    {localSaleLabel("รายละเอียดอื่นๆ ต่อรายการสินค้า", "Other item details")}
+                  </span>
+                  <span className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-xs font-semibold text-slate-600">
+                    {modifierDraft.detailNote.length}/500
+                  </span>
+                </span>
                 <textarea
                   value={modifierDraft.detailNote}
                   onChange={(event) => setModifierDraft((current) => (current ? { ...current, detailNote: event.target.value.slice(0, 500) } : current))}
-                  rows={2}
+                  rows={3}
                   maxLength={500}
+                  aria-label={localSaleLabel("รายละเอียดอื่นๆ ต่อรายการสินค้า", "Other item details")}
                   placeholder={localSaleLabel("เช่น ไม่ใส่ผัก, แยกน้ำ, เผ็ดน้อย...", "e.g. no vegetables, sauce on the side, mild spice...")}
+                  className="block min-h-28 w-full resize-y rounded-xl border-2 border-slate-300 bg-white px-4 py-3 text-base font-medium leading-6 text-slate-950 shadow-sm outline-none placeholder:text-slate-500 focus:border-blue-600 focus:ring-4 focus:ring-blue-100"
                 />
-                <small className="text-slate-500">
+                <small className="text-xs font-medium leading-5 text-slate-600">
                   {localSaleLabel("ข้อความนี้จะแสดงที่ครัวและบนใบเสร็จของรายการนี้", "This detail will appear in Kitchen and on this item's receipt line.")}
                 </small>
               </label>
