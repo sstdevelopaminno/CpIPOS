@@ -1417,6 +1417,7 @@ function BranchPanel({
   onBack,
   canManage,
   activeBranchId,
+  branchQuota,
   reportStatus
 }: {
   labels: Labels;
@@ -1425,6 +1426,7 @@ function BranchPanel({
   onBack: () => void;
   canManage: boolean;
   activeBranchId: string | null;
+  branchQuota: { used: number; limit: number | null; status: string | null; configured: boolean };
   reportStatus: StatusReporter;
 }) {
   const [form, setForm] = useState<BranchForm>(emptyBranchForm);
@@ -1434,10 +1436,36 @@ function BranchPanel({
     () => branches.filter((branch) => branch.is_active).sort((a, b) => a.name.localeCompare(b.name)),
     [branches]
   );
+  const [freshQuota, setFreshQuota] = useState(branchQuota);
+  const [quotaLoading, setQuotaLoading] = useState(true);
+  const reloadQuota = useCallback(async () => {
+    setQuotaLoading(true);
+    try {
+      const response = await fetch("/api/pos/settings/branches?quota=1", { cache: "no-store" });
+      const body = await response.json() as { data?: { quota?: typeof branchQuota } };
+      if (!response.ok || !body.data?.quota) throw new Error("quota_unavailable");
+      setFreshQuota(body.data.quota);
+    } catch {
+      // Fail closed when the authoritative subscription is unavailable.
+      setFreshQuota((current) => ({ ...current, configured: false }));
+    } finally { setQuotaLoading(false); }
+  }, []);
+  useEffect(() => {
+    void reloadQuota();
+  }, [reloadQuota]);
+  const branchUsed = Math.max(freshQuota.used, sortedBranches.length);
+  const quotaFull = !freshQuota.configured ||
+    !["active", "trial"].includes(freshQuota.status ?? "") ||
+    (freshQuota.limit !== null && branchUsed >= freshQuota.limit);
+  const branchQuotaNote = !freshQuota.configured
+    ? "ยังไม่พบสิทธิ์แพ็กเกจที่ยืนยันแล้ว"
+    : freshQuota.limit === null
+      ? "จำนวนสาขาตามสัญญา: ไม่จำกัด"
+      : `ใช้งาน ${branchUsed}/${freshQuota.limit} สาขา${quotaFull ? " · ใช้สิทธิ์ครบแล้ว" : ""}`;
 
   function save(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (isBusy) return;
+    if (isBusy || (!form.id && (quotaLoading || quotaFull))) return;
     const isCreating = !form.id;
     const method = form.id ? "PATCH" : "POST";
     setIsBusy(true);
@@ -1457,6 +1485,7 @@ function BranchPanel({
         );
         setForm(emptyBranchForm);
         setIsFormOpen(false);
+        if (isCreating) void reloadQuota();
         reportStatus(isCreating ? labels.branchSaved : labels.saved, { popup: true });
       } catch (error) {
         reportStatus(error instanceof Error ? error.message : labels.failed, { popup: true });
@@ -1467,6 +1496,7 @@ function BranchPanel({
   }
 
   function openCreateForm() {
+    if (quotaLoading || quotaFull) return;
     setForm(emptyBranchForm);
     setIsFormOpen(true);
   }
@@ -1491,6 +1521,7 @@ function BranchPanel({
           await fetch(`/api/pos/settings/branches?branch_id=${encodeURIComponent(branch.id)}`, { method: "DELETE" })
         );
         setBranches(branches.map((item) => (item.id === data.branch.id ? data.branch : item)));
+        void reloadQuota();
         reportStatus(labels.saved, { popup: true });
       } catch (error) {
         reportStatus(error instanceof Error ? error.message : labels.failed);
@@ -1507,10 +1538,15 @@ function BranchPanel({
         onBack={onBack}
         labels={labels}
         action={
-          <ActionButton onClick={openCreateForm} disabled={!canManage || isBusy}>
-            <Icon name="plus" />
-            {labels.addBranch}
-          </ActionButton>
+          <div className="grid justify-items-end gap-1">
+            <ActionButton onClick={openCreateForm} disabled={!canManage || isBusy || quotaLoading || quotaFull}>
+              <Icon name="plus" />
+              {labels.addBranch}
+            </ActionButton>
+            <span role="status" aria-live="polite" className={quotaFull ? "text-xs font-semibold text-amber-700" : "text-xs text-slate-500"}>
+              {quotaLoading ? "กำลังตรวจสอบสิทธิ์แพ็กเกจ..." : branchQuotaNote}
+            </span>
+          </div>
         }
       />
       <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white">
@@ -3661,6 +3697,7 @@ export function PosSettingsWorkspace({ lang, initialData }: { lang: Language; in
             onBack={() => setView("menu")}
             canManage={canManage}
             activeBranchId={initialData.metadata.branch_id}
+            branchQuota={initialData.metadata.branch_quota}
             reportStatus={reportStatus}
           />
         ) : null}

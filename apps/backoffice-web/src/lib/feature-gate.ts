@@ -436,6 +436,9 @@ export async function enforceQuota(tenantId: string, resourceType: QuotaResource
   const limits = await getTenantLimits(tenantId);
   if (isFeatureUnlockEnabled() || await getInternalItTestMode(tenantId) === "full") return limits;
 
+  if (resourceType === "branches" && !limits.contractId) {
+    throw new FeatureGateError("contract_required", "A valid subscription contract is required to add a branch.", 403);
+  }
   if (limits.contractStatus && limits.contractStatus !== "active" && limits.contractStatus !== "trial") {
     throw new FeatureGateError("contract_suspended", "Tenant contract is not active for provisioning actions.", 403);
   }
