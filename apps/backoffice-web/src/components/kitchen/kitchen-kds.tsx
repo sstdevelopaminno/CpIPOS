@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { AppLanguage } from "@/lib/app-language-client";
+import { parsePosItemNotes } from "@/lib/pos-item-notes";
 
 type KitchenStatus = "queued" | "acknowledged" | "preparing" | "ready" | "cancelled";
 type KitchenItem = { id: string; order_item_id: string | null; product_name: string; quantity: number; notes: string | null; action: string };
@@ -61,7 +62,7 @@ const KDS_TEXT = {
     items: "รายการ", alertHint: "แจ้งเตือนพร้อมเสียงจนกว่าจะกดรับทราบ", close: "ปิด", queue: "คิว", round: "รอบ",
     table: "โต๊ะ", bill: "บิล", mode: "โหมด", acknowledge: "รับทราบ", staleData: "ระบบยังคงแสดงข้อมูลล่าสุดและจะลองใหม่อัตโนมัติ",
     loadingQueue: "กำลังโหลดคิวครัว...", noOrders: "ไม่มีออเดอร์ครัวค้าง", saving: "กำลังบันทึก...", readyWholeBill: "พร้อมเสิร์ฟทั้งบิล",
-    roundNo: "รอบที่", foodItems: "รายการอาหาร", note: "หมายเหตุ", back: "ย้อนกลับ", loadFailed: "โหลดคิวครัวไม่สำเร็จ",
+    roundNo: "รอบที่", foodItems: "รายการอาหาร", note: "หมายเหตุ", itemDetail: "รายละเอียด", back: "ย้อนกลับ", loadFailed: "โหลดคิวครัวไม่สำเร็จ",
     openFailed: "เปิดจอครัวไม่สำเร็จ", statusFailed: "เปลี่ยนสถานะไม่สำเร็จ", billFailed: "อัปเดตทั้งบิลไม่สำเร็จ"
   },
   en: {
@@ -75,7 +76,7 @@ const KDS_TEXT = {
     items: "items", alertHint: "The alert sound continues until acknowledged.", close: "Close", queue: "Queue", round: "Round",
     table: "Table", bill: "Bill", mode: "Mode", acknowledge: "Acknowledge", staleData: "Showing the latest data and retrying automatically.",
     loadingQueue: "Loading kitchen queue...", noOrders: "No pending kitchen orders", saving: "Saving...", readyWholeBill: "Mark whole bill ready",
-    roundNo: "Round", foodItems: "Food items", note: "Note", back: "Back", loadFailed: "Failed to load kitchen queue",
+    roundNo: "Round", foodItems: "Food items", note: "Note", itemDetail: "Details", back: "Back", loadFailed: "Failed to load kitchen queue",
     openFailed: "Failed to open kitchen display", statusFailed: "Failed to change status", billFailed: "Failed to update the whole bill"
   },
   lo: {
@@ -89,7 +90,7 @@ const KDS_TEXT = {
     items: "ລາຍການ", alertHint: "ສຽງແຈ້ງເຕືອນຈະດັງຈົນກວ່າຈະກົດຮັບຮູ້", close: "ປິດ", queue: "ຄິວ", round: "ຮອບ",
     table: "ໂຕະ", bill: "ບິນ", mode: "ໂໝດ", acknowledge: "ຮັບຮູ້", staleData: "ລະບົບຍັງສະແດງຂໍ້ມູນລ່າສຸດ ແລະຈະລອງໃໝ່ອັດຕະໂນມັດ",
     loadingQueue: "ກຳລັງໂຫຼດຄິວຄົວ...", noOrders: "ບໍ່ມີອໍເດີຄົວຄ້າງ", saving: "ກຳລັງບັນທຶກ...", readyWholeBill: "ພ້ອມເສີບທັງບິນ",
-    roundNo: "ຮອບທີ", foodItems: "ລາຍການອາຫານ", note: "ໝາຍເຫດ", back: "ຍ້ອນກັບ", loadFailed: "ໂຫຼດຄິວຄົວບໍ່ສຳເລັດ",
+    roundNo: "ຮອບທີ", foodItems: "ລາຍການອາຫານ", note: "ໝາຍເຫດ", itemDetail: "ລາຍລະອຽດ", back: "ຍ້ອນກັບ", loadFailed: "ໂຫຼດຄິວຄົວບໍ່ສຳເລັດ",
     openFailed: "ເປີດຈໍຄົວບໍ່ສຳເລັດ", statusFailed: "ປ່ຽນສະຖານະບໍ່ສຳເລັດ", billFailed: "ອັບເດດທັງບິນບໍ່ສຳເລັດ"
   }
 } as const;
@@ -783,15 +784,19 @@ export function KitchenKds({ defaultLanguage = "th" }: { defaultLanguage?: AppLa
                                 <span>{ticket.items.length} {kt(lang, "items")}</span>
                               </div>
                               <div className="grid gap-2">
-                                {ticket.items.map((item) => (
-                                  <div key={item.id} className="flex items-start justify-between gap-3 rounded-lg bg-white px-3 py-2 shadow-sm ring-1 ring-slate-100">
-                                    <div>
-                                      <span className="font-black">{item.product_name}</span>
-                                      {item.notes ? <small className="block text-xs font-semibold text-orange-600">{item.notes}</small> : null}
+                                {ticket.items.map((item) => {
+                                  const itemNotes = parsePosItemNotes(item.notes);
+                                  return (
+                                    <div key={item.id} className="flex items-start justify-between gap-3 rounded-lg bg-white px-3 py-2 shadow-sm ring-1 ring-slate-100">
+                                      <div>
+                                        <span className="font-black">{item.product_name}</span>
+                                        {itemNotes.optionNotes ? <small className="block text-xs font-semibold text-orange-600">{itemNotes.optionNotes}</small> : null}
+                                        {itemNotes.detailNote ? <small className="mt-1 block whitespace-pre-line rounded-md bg-amber-50 px-2 py-1 text-xs font-black text-amber-800">{kt(lang, "itemDetail")}: {itemNotes.detailNote}</small> : null}
+                                      </div>
+                                      <div className="flex shrink-0 flex-col items-end gap-2"><strong className="text-lg">x{item.quantity}</strong>{item.action !== "cancel" ? <button type="button" onClick={() => void cancelItem(ticket, item)} disabled={ticketBusy || busyKeys.has(`item:${item.id}`)} className="rounded-lg border border-red-200 bg-red-50 px-2.5 py-1 text-xs font-black text-red-700 disabled:opacity-50">{kt(lang, "cancelled")}</button> : null}</div>
                                     </div>
-                                    <div className="flex shrink-0 flex-col items-end gap-2"><strong className="text-lg">x{item.quantity}</strong>{item.action !== "cancel" ? <button type="button" onClick={() => void cancelItem(ticket, item)} disabled={ticketBusy || busyKeys.has(`item:${item.id}`)} className="rounded-lg border border-red-200 bg-red-50 px-2.5 py-1 text-xs font-black text-red-700 disabled:opacity-50">{kt(lang, "cancelled")}</button> : null}</div>
-                                  </div>
-                                ))}
+                                  );
+                                })}
                               </div>
                             </div>
                             {ticket.order_notes ? <p className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800">{kt(lang, "note")}: {ticket.order_notes}</p> : null}
