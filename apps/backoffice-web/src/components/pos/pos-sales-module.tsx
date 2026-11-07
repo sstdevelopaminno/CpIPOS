@@ -5768,11 +5768,12 @@ export function PosSalesModule({
     const basePrice = getProductBasePrice(product, useSpecialPrice);
     const extraPrice = quickMode === "delivery" ? 0 : Math.max(0, Number((Number(item.price ?? 0) - basePrice).toFixed(2)));
     const parsedNotes = parsePosItemNotes(item.notes);
+    const legacyNonRecipeDetail = !product.has_recipe_deduction && !parsedNotes.detailNote ? parsedNotes.optionNotes : "";
     setModifierDraft({
       product,
       quantity: item.quantity,
-      notes: parsedNotes.optionNotes,
-      detailNote: parsedNotes.detailNote,
+      notes: product.has_recipe_deduction ? parsedNotes.optionNotes : "",
+      detailNote: parsedNotes.detailNote || legacyNonRecipeDetail,
       extraPrice,
       useSpecialPrice,
       linkedIngredientQuantity: readIngredientNoteQuantity(parsedNotes.optionNotes),
