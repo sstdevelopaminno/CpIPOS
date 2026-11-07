@@ -23,7 +23,10 @@ describe("CUSTOM Optical scanner and single-unit stock path", () => {
   it("adds each Optical SKU to React cart directly without the restaurant ingredient modal", () => {
     expect(sales).toContain("if (opticalRetailActive) return addCartLine(product)");
     expect(sales).toContain("const hasSpecialPrice = getSelectableSpecialPrice(product) !== null");
-    expect(sales).toContain("if (product.has_recipe_deduction || hasSpecialPrice) {");
+    expect(sales).toContain('if (orderType === "dine_in" || product.has_recipe_deduction || hasSpecialPrice) {');
+    expect(sales.indexOf("if (opticalRetailActive) return addCartLine(product)")).toBeLessThan(
+      sales.indexOf('if (orderType === "dine_in" || product.has_recipe_deduction || hasSpecialPrice) {')
+    );
     expect(sales).toContain("setModifierDraft({");
     expect(sales).toContain("return addCartLine(product)");
     expect(sales).toContain("stockUnits");
