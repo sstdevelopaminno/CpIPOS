@@ -9,8 +9,9 @@ const receipt = read("../../src/lib/printing/receipt-html-template.ts");
 const kitchenTicket = read("../../src/lib/printing/kitchen-ticket-html-template.ts");
 
 describe("dine-in per-item details and kitchen cancellation sync contract", () => {
-  it("opens the existing product option popup for every dine-in product", () => {
-    expect(sales).toContain('if (orderType === "dine_in" || product.has_recipe_deduction || hasSpecialPrice)');
+  it("respects the optional popup setting while preserving recipe and kitchen details", () => {
+    expect(sales).toContain('if ((orderType === "dine_in" || product.has_recipe_deduction || hasSpecialPrice)');
+    expect(sales).toContain("shouldOpenPosItemDetailPopup(product, itemDetailPopupEnabled)");
     expect(sales).toContain('detailNote: ""');
     expect(sales).toContain('localSaleLabel("รายละเอียดอื่นๆ ต่อรายการสินค้า", "Other item details")');
     expect(sales).toContain("composePosItemNotes(modifierDraft.notes, modifierDraft.detailNote)");
