@@ -205,7 +205,7 @@ export async function queueRoutedSalesReceipt(args: {
       cashier_name: sellerName,
       paid_at_iso: paidAtIso,
       currency: currencyCode,
-      items: args.items.map((item) => ({ name: item.product_name, qty: item.quantity, unit_price: item.unit_price, line_total: item.line_total })),
+      items: args.items.map((item) => ({ name: item.product_name, qty: item.quantity, unit_price: item.unit_price, line_total: item.line_total, note: item.note ?? undefined })),
       subtotal: args.order.total_amount + args.order.discount_amount,
       discount_amount: args.order.discount_amount,
       tax_amount: 0,
