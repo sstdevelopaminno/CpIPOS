@@ -72,18 +72,34 @@ function isImageDependentDocument(metadata: JsonRecord, html: string) {
   );
 }
 
+function isCanonicalRichHtmlDocument(metadata: JsonRecord, html: string) {
+  const payloadFormat = String(metadata.payload_format ?? metadata.print_format ?? "").trim().toLowerCase();
+  return (
+    metadata.force_rich_html_raster === true ||
+    payloadFormat.includes("receipt_html") ||
+    payloadFormat.includes("payment_notice_html") ||
+    payloadFormat.includes("shift_report_html") ||
+    payloadFormat.includes("subscription_receipt_html") ||
+    /class=["'][^"']*\breceipt\b[^"']*["']/i.test(html) ||
+    /class=["'][^"']*\bnotice\b[^"']*["']/i.test(html)
+  );
+}
+
 function shouldUseFastTextMode(job: {
   printer_role?: unknown;
   payload_text?: unknown;
   metadata?: JsonRecord | null;
   printer_profiles?: unknown;
 }, html: string) {
+  const metadata = job.metadata ?? {};
+  // Canonical CpIPOS receipts/reports must preserve their rich HTML layout.
+  // Text mode remains available only for documents intentionally authored as text.
+  if (isCanonicalRichHtmlDocument(metadata, html)) return false;
   const profileMetadata = printerMetadata(job);
   if (profileMetadata.prefer_text_mode !== true && profileMetadata.fast_text_mode !== true) return false;
   const role = String(job.printer_role ?? "").toLowerCase();
   if (role !== "receipt" && role !== "report") return false;
   if (typeof job.payload_text !== "string" || job.payload_text.trim().length === 0) return false;
-  const metadata = job.metadata ?? {};
   return !isImageDependentDocument(metadata, html);
 }
 
