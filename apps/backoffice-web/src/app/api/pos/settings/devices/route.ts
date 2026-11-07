@@ -20,8 +20,10 @@ function statusFromError(error: unknown) {
 
 export async function GET() {
   try {
+    // Viewing already-registered cashier terminals is part of POS settings.
+    // The enrollment entitlement applies only to POST/PATCH/DELETE; gating
+    // this GET hides existing devices from valid stores when that add-on is off.
     const auth = await getPosApiAuthContext({ requireBranchScope: true, requiredPermission: "settings:view" });
-    await requirePosApiFeature(auth, "mobile_device_enrollment");
     const devices = await loadDeviceSettings(auth);
     return ok({ devices });
   } catch (error) {
