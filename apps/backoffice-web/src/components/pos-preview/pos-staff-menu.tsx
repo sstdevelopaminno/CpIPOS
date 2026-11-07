@@ -2,12 +2,12 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { MouseEvent, useMemo } from "react";
+import { MouseEvent, useEffect, useMemo, useState } from "react";
 import { t, type Language } from "@/lib/i18n";
 import { isCustomPosMenuVisible, isPosMenuEnabled, posMenuKeyForRoute } from "@/lib/pos-menu-policy";
 import { POS_MENU_LOCK_TITLE_EN, POS_MENU_LOCK_TITLE_TH, featureForPosRoute } from "@/lib/pos-feature-map";
 
-type IconName = "sales" | "list" | "kitchen" | "shift" | "more" | "payment" | "ai" | "glasses" | "work_orders";
+type IconName = "sales" | "list" | "kitchen" | "shift" | "more" | "payment" | "ai" | "bell" | "glasses" | "work_orders";
 type PosRole = "owner" | "manager" | "staff" | "accountant" | "kitchen";
 type MenuKey = "pos_menu_sales" | "pos_menu_sales_list" | "pos_menu_shift";
 type MenuDef = {
@@ -32,6 +32,7 @@ function MenuIcon({ name }: { name: IconName }) {
   if (name === "shift") return <svg {...common}><circle cx="12" cy="12" r="8" /><line x1="12" y1="8" x2="12" y2="12" /><line x1="12" y1="12" x2="15" y2="14" /></svg>;
   if (name === "glasses") return <svg {...common}><circle cx="6.5" cy="14" r="4" /><circle cx="17.5" cy="14" r="4" /><path d="M10.5 14a1.5 1.5 0 0 1 3 0M2 12 3 7h4m10 0h4l1 5" /></svg>;
   if (name === "work_orders") return <svg {...common}><rect x="4" y="4" width="16" height="17" rx="2" /><path d="M8 2h8v4H8zM8 11h8m-8 4h8m-8 4h5" /></svg>;
+  if (name === "bell") return <svg {...common}><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4" /></svg>;
   if (name === "more") return <svg {...common}><rect x="4" y="4" width="7" height="7" rx="1.5" /><rect x="13" y="4" width="7" height="7" rx="1.5" /><rect x="4" y="13" width="7" height="7" rx="1.5" /><rect x="13" y="13" width="7" height="7" rx="1.5" /></svg>;
   if (name === "payment") return <svg {...common}><rect x="3" y="6" width="18" height="12" rx="2" /><line x1="3" y1="10" x2="21" y2="10" /><path d="M7 15h3" /><path d="M15 15h2" /></svg>;
   return <svg {...common}><path d="M12 3l1.2 3.1L16 7.3l-2.8 1.2L12 12l-1.2-3.5L8 7.3l2.8-1.2L12 3Z" /><path d="M5 13l.8 2.2L8 16l-2.2.8L5 19l-.8-2.2L2 16l2.2-.8L5 13Z" /><path d="M18 12l.9 2.4L21 15.3l-2.1.9L18 19l-.9-2.8-2.1-.9 2.1-.9L18 12Z" /></svg>;
@@ -56,7 +57,8 @@ const MORE_CHILD_ROUTES = [
   "/preview/pos/members",
   "/preview/pos/tax-invoices",
   "/preview/pos/product-sales",
-  "/preview/pos/ai-documents"
+  "/preview/pos/ai-documents",
+  "/preview/pos/ai-assistant"
 ];
 
 function resolveMenuRole(role: PosRole | null): PosRole {
@@ -113,16 +115,40 @@ export function PosStaffMenu({ lang, collapsed, orientation = "vertical", sessio
     [effectiveRole, lang, isCustom, menuPolicy, opticalMenuAllowed]
   );
   const isHorizontal = orientation === "horizontal";
-  const aiVisible = sessionRole === "owner" || sessionRole === "manager";
-  const aiLabel = lang === "th" ? "CpiPOS AI" : "CpiPOS AI";
-  const aiPolicyLocked = !isPosMenuEnabled("main.ai_assistant", menuPolicy);
-  const aiFeature = featureForPosRoute("/preview/pos/ai-assistant");
-  const aiFeatureLocked = Boolean(enabledFeatures !== null && aiFeature && enabledFeatures?.[aiFeature] === false);
   const moreVisible = effectiveRole === "owner" || effectiveRole === "manager";
   const morePolicyLocked = !isPosMenuEnabled("main.more", menuPolicy);
   const isMoreActive = pathname === "/preview/pos/more" || MORE_CHILD_ROUTES.some((route) => pathname === route || pathname.startsWith(route + "/"));
   const billingLabel = lang === "lo" ? "ຊຳລະຄ່າແພັກເກດ" : lang === "th" ? "ชำระแพ็กเกจ" : "Package Payment";
   const billingPolicyLocked = !isPosMenuEnabled("main.package_payment", menuPolicy);
+  const [unreadNewsCount, setUnreadNewsCount] = useState(0);
+  useEffect(() => {
+    let disposed = false;
+    let inFlight = false;
+    async function refreshUnread() {
+      if (disposed || inFlight) return;
+      inFlight = true;
+      try {
+        const response = await fetch("/api/pos/news", { cache: "no-store" });
+        const body = await response.json() as { data?: { unread_count?: number } };
+        if (!disposed && response.ok) setUnreadNewsCount(Math.max(0, Number(body.data?.unread_count ?? 0)));
+      } catch {
+        // Navigation remains available even during temporary notification outages.
+      } finally { inFlight = false; }
+    }
+    const handleVisible = () => { if (document.visibilityState === "visible") void refreshUnread(); };
+    void refreshUnread();
+    const interval = window.setInterval(() => { if (document.visibilityState === "visible") void refreshUnread(); }, 60_000);
+    window.addEventListener("focus", refreshUnread);
+    window.addEventListener("cpi-news-read", refreshUnread);
+    document.addEventListener("visibilitychange", handleVisible);
+    return () => {
+      disposed = true;
+      window.clearInterval(interval);
+      window.removeEventListener("focus", refreshUnread);
+      window.removeEventListener("cpi-news-read", refreshUnread);
+      document.removeEventListener("visibilitychange", handleVisible);
+    };
+  }, []);
 
   function handleNavigate(event: MouseEvent<HTMLAnchorElement>, href: string) {
     if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
@@ -159,19 +185,19 @@ export function PosStaffMenu({ lang, collapsed, orientation = "vertical", sessio
         );
       })}
 
-      {aiVisible && (!isCustom || (isCustomPosMenuVisible("main.ai_assistant", menuPolicy, true) && !aiFeatureLocked)) ? (
-        <Link
-          href="/preview/pos/ai-assistant"
-          onClick={(event) => aiPolicyLocked ? (event.preventDefault(), onLockedMenu(aiLabel)) : aiFeatureLocked ? (event.preventDefault(), onLockedFeature()) : handleNavigate(event, "/preview/pos/ai-assistant")}
-          className={entryClass({ active: pathname === "/preview/pos/ai-assistant", locked: aiPolicyLocked || aiFeatureLocked, horizontal: isHorizontal, collapsed, accent: true })}
-          title={aiPolicyLocked ? (lang === "lo" ? "ລັອກໂດຍຝ່າຍ IT" : lang === "th" ? "ล็อกโดยผู้ดูแลระบบ IT" : "Locked by IT") : aiFeatureLocked ? (lang === "th" ? POS_MENU_LOCK_TITLE_TH : POS_MENU_LOCK_TITLE_EN) : aiLabel}
-          aria-disabled={aiPolicyLocked || aiFeatureLocked}
-        >
-          <span className="inline-flex w-4 justify-center text-cyan-200" aria-hidden><MenuIcon name="ai" /></span>
-          {(!collapsed || isHorizontal) ? <span className={`${isHorizontal ? "max-w-[170px]" : "min-w-0 flex-1"} truncate text-[13px]`}>{aiLabel}</span> : null}
-          {renderLock(aiPolicyLocked || aiFeatureLocked)}
-        </Link>
-      ) : null}
+      <Link
+        href="/preview/pos/news"
+        onClick={(event) => handleNavigate(event, "/preview/pos/news")}
+        className={entryClass({ active: pathname === "/preview/pos/news", locked: false, horizontal: isHorizontal, collapsed })}
+        title={collapsed && !isHorizontal ? (lang === "en" ? "Announcements" : lang === "lo" ? "ແຈ້ງຂ່າວສານ" : "แจ้งข่าวสาร") : undefined}
+        aria-label={lang === "en" ? "Announcements" : lang === "lo" ? "ແຈ້ງຂ່າວສານ" : "แจ้งข่าวสาร"}
+      >
+        <span className={`inline-flex w-4 justify-center ${unreadNewsCount > 0 ? "text-amber-300" : "text-slate-300"}`} aria-hidden>
+          <MenuIcon name="bell" />
+        </span>
+        {(!collapsed || isHorizontal) ? <span className="truncate text-[13px]">{lang === "en" ? "Announcements" : lang === "lo" ? "ແຈ້ງຂ່າວສານ" : "แจ้งข่าวสาร"}</span> : null}
+        {unreadNewsCount > 0 ? <span aria-label={`${unreadNewsCount} unread announcements`} className="ml-auto rounded-full bg-amber-400 px-1.5 py-0.5 text-[10px] font-bold leading-none text-slate-950">{unreadNewsCount > 99 ? "99+" : unreadNewsCount}</span> : null}
+      </Link>
 
       {moreVisible && (!isCustom || isCustomPosMenuVisible("main.more", menuPolicy, true)) ? (
         <Link
