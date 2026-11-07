@@ -1443,6 +1443,7 @@ const RECEIPT_MODAL_MIN_VISIBLE_MS = 2200;
 const RECEIPT_MODAL_SAFE_TIMEOUT_MS = 8000;
 const RECEIPT_BRIDGE_REQUEST_TIMEOUT_MS = 4500;
 const DINE_IN_KITCHEN_AUTO_SEND_DELAY_MS = 1200;
+const ACTIVE_TABLE_BILL_SYNC_INTERVAL_MS = 2000;
 
 function newIdempotencyKey() {
   return `pos-sale-${crypto.randomUUID()}`;
@@ -2475,7 +2476,7 @@ export function PosSalesModule({
   const tableQrOrderAbortRef = useRef<AbortController | null>(null);
   const tableQrLatestEventByTableRef = useRef<Map<string, string>>(new Map());
   const tableQrAudioContextRef = useRef<AudioContext | null>(null);
-  const loadTableBillContextRef = useRef<(table: DiningTableItem) => Promise<void>>(async () => {
+  const loadTableBillContextRef = useRef<(table: DiningTableItem, options?: { lite?: boolean }) => Promise<void>>(async () => {
     throw new Error("table_bill_loader_not_ready");
   });
   const endpointPerfPostLastAtRef = useRef<Map<string, number>>(new Map());
@@ -3586,7 +3587,7 @@ export function PosSalesModule({
       });
   }
 
-  async function loadTableBillContext(table: DiningTableItem) {
+  async function loadTableBillContext(table: DiningTableItem, options?: { lite?: boolean }) {
     if (tableBillLoadInFlightRef.current.has(table.id)) {
       tableBillReloadPendingRef.current.add(table.id);
       return;
@@ -3598,7 +3599,7 @@ export function PosSalesModule({
     tableBillReloadPendingRef.current.delete(table.id);
     try {
       const { response, body } = await fetchJsonWithTimeout<TableBillResponseBody>(
-        buildTableBillContextUrl(table.id, { refresh: true }),
+        buildTableBillContextUrl(table.id, { refresh: true, lite: options?.lite === true }),
         { cache: "no-store" },
         12000,
         0
@@ -4688,18 +4689,24 @@ export function PosSalesModule({
       const table = selectedTableRef.current;
       if (!table?.id || table.id !== selectedTable.id) return;
       activeTableBillRefreshInFlightRef.current = true;
-      void loadTableBillContextRef.current(table)
+      void loadTableBillContextRef.current(table, { lite: true })
         .catch(() => undefined)
         .finally(() => {
           activeTableBillRefreshInFlightRef.current = false;
         });
     };
-    const interval = window.setInterval(refreshActiveTableBill, 15000);
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "visible") refreshActiveTableBill();
+    };
+    refreshActiveTableBill();
+    const interval = window.setInterval(refreshActiveTableBill, ACTIVE_TABLE_BILL_SYNC_INTERVAL_MS);
     window.addEventListener("focus", refreshActiveTableBill);
+    document.addEventListener("visibilitychange", onVisibilityChange);
     return () => {
       disposed = true;
       window.clearInterval(interval);
       window.removeEventListener("focus", refreshActiveTableBill);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
     };
   }, [activeOrder?.id, isHydrated, orderType, selectedTable?.id, tableBrowserOpen]);
 
