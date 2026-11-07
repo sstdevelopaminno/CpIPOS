@@ -1,7 +1,7 @@
 import { fail, ok } from "@/lib/http";
 import { getPosApiAuthContext } from "@/lib/pos-api-auth";
 import { featureGateFail, requirePosApiFeature } from "@/lib/pos-api-feature-guard";
-import { FeatureGateError, requireTenantFeature } from "@/lib/feature-gate";
+import { FeatureGateError, getTenantLimits, requireTenantFeature } from "@/lib/feature-gate";
 import { requireOpticalRetailEntitlement } from "@/lib/server/optical-entitlement";
 import {
   deactivateBranchSettings,
@@ -32,7 +32,11 @@ export async function GET() {
     // Branch identity is shared reference data used by device/payment/user settings.
     // Keep read access available; package-lock only branch mutations.
     const snapshot = await loadPosSettingsSnapshot(auth);
-    return ok({ branches: snapshot.branches, metadata: snapshot.metadata });
+    const limits = await getTenantLimits(auth.tenantId!);
+    return ok({ branches: snapshot.branches, metadata: snapshot.metadata, quota: {
+      used: limits.usage.branches, limit: limits.maxBranches,
+      status: limits.contractStatus, configured: limits.contractId !== null
+    } });
   } catch (error) {
     const featureError = featureGateFail(error);
     if (featureError) return featureError;

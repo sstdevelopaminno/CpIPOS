@@ -33,7 +33,11 @@ describe("POS tenant menu toggle regression", () => {
     expect(staffMenu).toContain('isPosMenuEnabled("main.more", menuPolicy)');
     expect(staffMenu).toContain("onLockedMenu(item.label)");
     expect(staffMenu).not.toContain('item.roles.includes(effectiveRole) && isPosMenuEnabled(');
-    expect(staffMenu).toContain('isPosMenuEnabled("main.ai_assistant", menuPolicy)');
+    // AI moved to More, but still resolves the original IT menu-policy key.
+    expect(staffMenu).not.toContain('href="/preview/pos/ai-assistant"');
+    expect(more).toContain('href: "/preview/pos/ai-assistant"');
+    expect(more).toContain('isPosMenuEnabled(posMenuKeyForRoute(href) ?? "", menuPolicy)');
+    expect(more).toContain('roles: ["owner", "manager"]');
     expect(staffMenu).toContain('isPosMenuEnabled("main.package_payment", menuPolicy)');
     expect(settings).toContain('menuVisible("settings.support")');
     expect(settings).toContain('menuVisible("settings.push_notifications")');

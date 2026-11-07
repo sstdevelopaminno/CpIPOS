@@ -2,7 +2,7 @@ import "server-only";
 
 import { appendAuditLog } from "@/lib/audit-log";
 import type { AuthContext } from "@/lib/auth-context";
-import { enforceQuota } from "@/lib/feature-gate";
+import { enforceQuota, getTenantLimits } from "@/lib/feature-gate";
 import { resolveProductProfile, type ProductProfileCode } from "@/lib/product-profile-policy";
 import { resolveStoreLoginMode } from "@/lib/server/store-login-mode";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
@@ -87,6 +87,7 @@ export type PosSettingsSnapshot = {
     can_manage: boolean;
     payment_accounts_ready: boolean;
     cashier_device_limit: number | null;
+    branch_quota: { used: number; limit: number | null; status: string | null; configured: boolean };
     product_profile: ProductProfileCode;
   };
 };
@@ -553,12 +554,12 @@ export async function loadPosSettingsSnapshot(auth: AuthContext): Promise<PosSet
       payment_accounts: [],
       tax_settings: DEFAULT_TAX_SETTINGS,
       notification_settings: DEFAULT_POS_NOTIFICATION_SETTINGS,
-      metadata: { tenant_id: null, branch_id: auth.branchId, can_manage: false, payment_accounts_ready: false, cashier_device_limit: null, product_profile: "STANDARD" }
+      metadata: { tenant_id: null, branch_id: auth.branchId, can_manage: false, payment_accounts_ready: false, cashier_device_limit: null, branch_quota: { used: 0, limit: null, status: null, configured: false }, product_profile: "STANDARD" }
     };
   }
 
   const supabase = getSupabaseServiceClient();
-  const [store, branchesResult, paymentResult, taxSettings, notificationSettings, storeLoginMode, profileResult] = await Promise.all([
+  const [store, branchesResult, paymentResult, taxSettings, notificationSettings, storeLoginMode, profileResult, branchLimits] = await Promise.all([
     loadStoreSettings(auth.tenantId),
     supabase.from("branches").select("id,code,name,address,is_active").eq("tenant_id", auth.tenantId).order("name", { ascending: true }),
     (async () => {
@@ -587,7 +588,8 @@ export async function loadPosSettingsSnapshot(auth: AuthContext): Promise<PosSet
     loadTaxSettings(auth),
     loadPosNotificationSettings(auth),
     resolveStoreLoginMode(auth.tenantId).catch(() => ({ maxDevices: null })),
-    supabase.from("tenants").select("code,metadata").eq("id", auth.tenantId).maybeSingle<{ code: string | null; metadata: Record<string, unknown> | null }>()
+    supabase.from("tenants").select("code,metadata").eq("id", auth.tenantId).maybeSingle<{ code: string | null; metadata: Record<string, unknown> | null }>(),
+    getTenantLimits(auth.tenantId)
   ]);
 
   if (branchesResult.error) throw new Error(branchesResult.error.message);
@@ -609,6 +611,8 @@ export async function loadPosSettingsSnapshot(auth: AuthContext): Promise<PosSet
       can_manage: canManageSettings(auth),
       payment_accounts_ready: paymentAccountsReady,
       cashier_device_limit: storeLoginMode.maxDevices,
+      branch_quota: { used: branchLimits.usage.branches, limit: branchLimits.maxBranches,
+        status: branchLimits.contractStatus, configured: branchLimits.contractId !== null },
       product_profile: resolveProductProfile({
         tenantCode: profileResult.error ? store?.code : profileResult.data?.code ?? store?.code,
         tenantMetadata: profileResult.error ? null : profileResult.data?.metadata ?? null

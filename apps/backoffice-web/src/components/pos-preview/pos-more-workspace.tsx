@@ -8,7 +8,7 @@ import { t, type Language } from "@/lib/i18n";
 import { featureForPosRoute } from "@/lib/pos-feature-map";
 import { isCustomPosMenuVisible, isPosMenuEnabled, posMenuKeyForRoute } from "@/lib/pos-menu-policy";
 
-type MoreIconName = "summary" | "receipt" | "tables" | "stock" | "members" | "kitchen" | "buffet" | "tax" | "sales" | "documents";
+type MoreIconName = "summary" | "receipt" | "tables" | "stock" | "members" | "kitchen" | "buffet" | "tax" | "sales" | "documents" | "ai";
 type PosRole = "owner" | "manager" | "staff" | "accountant";
 type MoreItem = {
   href: string;
@@ -29,6 +29,7 @@ const MORE_ITEMS: MoreItem[] = [
   { href: "/preview/pos/members", icon: "members", labelKey: "pos_menu_members", roles: ["owner", "manager", "accountant"], desc: { th: "ค้นหาและจัดการข้อมูลสมาชิกหน้าร้าน", en: "Search and manage store member records" } },
   { href: "/preview/pos/tax-invoices", icon: "tax", label: { th: "ออกใบกำกับภาษี", en: "Tax Invoices" }, roles: ["owner", "manager", "staff", "accountant"], desc: { th: "ทะเบียนผู้เสียภาษี ค้นบิลย้อนหลัง และพิมพ์ใบกำกับภาษี 58/80mm", en: "Tax recipient registry, receipt search, and 58/80mm printing" } },
   { href: "/preview/pos/product-sales", icon: "sales", label: { th: "รายการขายสินค้า", en: "Product Sales" }, roles: ["owner", "manager", "accountant"], desc: { th: "ดูสินค้าที่ขาย วันที่ ราคา จำนวน และสถานะสินค้าขายดี", en: "Review sold products, dates, prices, quantities, and best-seller status" } },
+  { href: "/preview/pos/ai-assistant", icon: "ai", label: { th: "CpiPOS AI", en: "CpiPOS AI" }, roles: ["owner", "manager"], desc: { th: "ผู้ช่วย AI วิเคราะห์ยอดขาย สต็อก และข้อมูลร้านค้า", en: "AI assistant for sales, stock and store insights" } },
   { href: "/preview/pos/ai-documents", icon: "documents", label: { th: "เก็บไฟล์เอกสาร", en: "AI Documents" }, roles: ["owner", "manager"], desc: { th: "เก็บรายงาน สรุปยอด ตาราง และแผนงานที่สร้างจาก CpiPOS AI", en: "Store reports, summaries, tables and plans created by CpiPOS AI" } }
 ];
 
@@ -42,6 +43,7 @@ const moreLao:Record<string,{label:string;desc:string}>={
  "/preview/pos/members":{label:"ສະມາຊິກ",desc:"ຄົ້ນຫາ ແລະຈັດການສະມາຊິກ"},
  "/preview/pos/tax-invoices":{label:"ອອກໃບກຳກັບພາສີ",desc:"ຄົ້ນຫາບິນເກົ່າ ແລະພິມໃບພາສີ 58/80mm"},
  "/preview/pos/product-sales":{label:"ລາຍການຂາຍສິນຄ້າ",desc:"ສິນຄ້າທີ່ຂາຍ ວັນທີ ລາຄາ ຈຳນວນ ແລະສະຖານະ"},
+ "/preview/pos/ai-assistant":{label:"CpiPOS AI",desc:"ຜູ້ຊ່ວຍ AI ວິເຄາະຍອດຂາຍ ແລະສະຕັອກ"},
  "/preview/pos/ai-documents":{label:"ເກັບໄຟລ໌ເອກະສານ",desc:"ເກັບລາຍງານ ສະຫຼຸບຍອດ ແລະແຜນງານຈາກ CpiPOS AI"}
 };
 
@@ -55,6 +57,7 @@ function MoreIcon({ name }: { name: MoreIconName }) {
   if (name === "buffet") return <svg {...common}><path d="M4 15h16M6 15a6 6 0 0 1 12 0M12 8V5M10.5 5h3M5 19h14"/></svg>;
   if (name === "tax") return <svg {...common}><path d="M6 3h9l3 3v15H6z"/><path d="M15 3v4h4M9 11h6M9 15h6"/><path d="M10 19h4"/></svg>;
   if (name === "sales") return <svg {...common}><path d="M5 4h14v16H5z"/><path d="M8 8h8M8 12h5M8 16h8"/><path d="m15 12 1.5 1.5L19 11"/></svg>;
+  if (name === "ai") return <svg {...common}><path d="M12 3l1.2 3.1L16 7.3l-2.8 1.2L12 12l-1.2-3.5L8 7.3l2.8-1.2L12 3Z" /><path d="M5 13l.8 2.2L8 16l-2.2.8L5 19l-.8-2.2L2 16l2.2-.8L5 13Z" /></svg>;
   if (name === "documents") return <svg {...common}><path d="M7 3h8l4 4v14H7z"/><path d="M15 3v5h5M10 12h6M10 16h6"/></svg>;
   return <svg {...common}><circle cx="9" cy="8" r="3"/><path d="M3.5 20c.7-3.2 2.9-5 5.5-5s4.8 1.8 5.5 5"/><circle cx="17" cy="10" r="2.2"/><path d="M14.5 17.5c.7-1.4 1.9-2.2 3.5-2.2 1.3 0 2.4.5 3.1 1.5"/></svg>;
 }
