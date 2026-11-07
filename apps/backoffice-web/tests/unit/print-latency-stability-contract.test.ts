@@ -49,7 +49,9 @@ describe("print latency stability contract", () => {
     expect(sales).toContain("tableRefreshInFlightRef");
     expect(sales).toContain("activeTableBillRefreshInFlightRef");
     expect(sales).toContain("tableBrowserOpen ? 15000 : 30000");
-    expect(sales).toContain("window.setInterval(refreshActiveTableBill, 15000)");
+    expect(sales).toContain("const ACTIVE_TABLE_BILL_SYNC_INTERVAL_MS = 2000;");
+    expect(sales).toContain("loadTableBillContextRef.current(table, { lite: true })");
+    expect(sales).toContain("window.setInterval(refreshActiveTableBill, ACTIVE_TABLE_BILL_SYNC_INTERVAL_MS)");
   });
   it("prioritizes drawer pulse claims without lowering Android compatibility", () => {
     expect(migration).toContain("open_cash_drawer' then 0 else 1");
