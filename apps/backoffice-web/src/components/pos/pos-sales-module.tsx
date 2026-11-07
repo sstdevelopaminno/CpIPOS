@@ -12,6 +12,7 @@ import { PosBuffetTableModeButton } from "@/components/pos/features/pos-buffet-t
 import { PosMemberMaintenanceModal } from "@/components/pos/pos-member-maintenance-modal";
 import { PosOpticalCustomerModal } from "@/components/pos/pos-optical-customer-modal";
 import { loUi } from "@/lib/lao-pos-ui";
+import { composePosItemNotes, formatPosItemNotesForDisplay, parsePosItemNotes } from "@/lib/pos-item-notes";
 import { PosPaymentModals } from "@/components/pos/pos-payment-modals";
 import { PosProductCatalog } from "@/components/pos/pos-product-catalog";
 import { PosRealtimeClock } from "@/components/pos/pos-realtime-clock";
@@ -249,6 +250,7 @@ type ModifierDraft = {
   product: ProductRow;
   quantity: number;
   notes: string;
+  detailNote: string;
   extraPrice: number;
   useSpecialPrice: boolean;
   linkedIngredientQuantity: number;
@@ -1549,14 +1551,14 @@ function formatQuantity(value: number): string {
 }
 
 function parseReceiptItemDetails(notes?: string | null): ReceiptItemDetails {
-  const raw = String(notes ?? "").trim();
-  if (!raw) return { choices: [], note: null };
-  const parts = raw
+  const parsed = parsePosItemNotes(notes);
+  const parts = parsed.optionNotes
     .split(",")
     .map((part) => part.trim())
     .filter(Boolean);
+  if (parsed.detailNote) return { choices: parts, note: parsed.detailNote };
   if (parts.length > 1) return { choices: parts, note: null };
-  return { choices: [], note: raw };
+  return { choices: [], note: parts[0] ?? null };
 }
 
 function sanitizeCashInput(value: string): string {
@@ -5607,11 +5609,12 @@ export function PosSalesModule({
     // Optical is an IT-authorized CUSTOM business workflow, not a restaurant.
     if (opticalRetailActive) return addCartLine(product);
     const hasSpecialPrice = getSelectableSpecialPrice(product) !== null;
-    if (product.has_recipe_deduction || hasSpecialPrice) {
+    if (orderType === "dine_in" || product.has_recipe_deduction || hasSpecialPrice) {
       setModifierDraft({
         product,
         quantity: 1,
         notes: "",
+        detailNote: "",
         extraPrice: 0,
         useSpecialPrice: false,
         linkedIngredientQuantity: 1
@@ -5711,8 +5714,9 @@ export function PosSalesModule({
     if (!modifierDraft) return;
     const canAddPrice = quickMode !== "delivery";
     const specialSelected = modifierDraft.useSpecialPrice && getSelectableSpecialPrice(modifierDraft.product) !== null;
+    const persistedNotes = composePosItemNotes(modifierDraft.notes, modifierDraft.detailNote);
     if (modifierDraft.editingCartLineId) {
-      const notes = modifierDraft.notes.trim();
+      const notes = persistedNotes ?? "";
       const extraPrice = canAddPrice ? Math.max(0, modifierDraft.extraPrice) : 0;
       const unitPrice = Number((getProductBasePrice(modifierDraft.product, specialSelected) + extraPrice).toFixed(2));
       const nextLineId = specialSelected
@@ -5737,7 +5741,7 @@ export function PosSalesModule({
     } else {
       addCartLine(modifierDraft.product, {
         quantity: modifierDraft.quantity,
-        notes: modifierDraft.notes,
+        notes: persistedNotes,
         extraPrice: canAddPrice ? modifierDraft.extraPrice : 0,
         useSpecialPrice: specialSelected
       });
@@ -5752,13 +5756,15 @@ export function PosSalesModule({
     const useSpecialPrice = lineId.startsWith(`${product.id}:special:`) && getSelectableSpecialPrice(product) !== null;
     const basePrice = getProductBasePrice(product, useSpecialPrice);
     const extraPrice = quickMode === "delivery" ? 0 : Math.max(0, Number((Number(item.price ?? 0) - basePrice).toFixed(2)));
+    const parsedNotes = parsePosItemNotes(item.notes);
     setModifierDraft({
       product,
       quantity: item.quantity,
-      notes: item.notes ?? "",
+      notes: parsedNotes.optionNotes,
+      detailNote: parsedNotes.detailNote,
       extraPrice,
       useSpecialPrice,
-      linkedIngredientQuantity: readIngredientNoteQuantity(item.notes ?? ""),
+      linkedIngredientQuantity: readIngredientNoteQuantity(parsedNotes.optionNotes),
       editingCartLineId: lineId
     });
   }
@@ -8462,7 +8468,7 @@ export function PosSalesModule({
               {opticalRetailActive?<small className="block select-text text-xs font-semibold text-emerald-800">
                 {localSaleLabel("รหัสสินค้า / SKU", "Product SKU")}: {productById.get(item.product_id)?.sku||"—"}
               </small>:null}
-              {item.notes ? <small>{item.notes}</small> : null}
+              {item.notes ? <small className="whitespace-pre-line">{formatPosItemNotesForDisplay(item.notes, localSaleLabel("รายละเอียด", "Details"))}</small> : null}
               <small>{formatMoney(item.price)}</small>
               <div className="posui-qty-row">
                 <button type="button" onClick={() => adjustQty(cartLineId, -1)} aria-label={`Decrease ${item.name}`}>
@@ -10747,15 +10753,6 @@ export function PosSalesModule({
                   })}
                 </div>
               </div>
-              <label className="posui-payment-modal__input-label">
-                {localSaleLabel("ตัวเลือกเพิ่มเติม", "Additional Options")}
-                <textarea
-                  value={modifierDraft.notes}
-                  onChange={(event) => setModifierDraft((current) => (current ? { ...current, notes: event.target.value } : current))}
-                  rows={2}
-                  placeholder={localSaleLabel("เช่น เพิ่มลูกชิ้น, ไม่ใส่นม...", "e.g. extra meatballs, no milk...")}
-                />
-              </label>
               <div className="grid gap-3 sm:grid-cols-2">
                 <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
                   <span className="text-xs font-bold text-slate-600">{localSaleLabel("จำนวนวัตถุดิบที่เลือก", "Linked Ingredient Qty")}</span>
@@ -10793,6 +10790,19 @@ export function PosSalesModule({
 
                 </>
               ) : null}
+              <label className="posui-payment-modal__input-label">
+                {localSaleLabel("รายละเอียดอื่นๆ ต่อรายการสินค้า", "Other item details")}
+                <textarea
+                  value={modifierDraft.detailNote}
+                  onChange={(event) => setModifierDraft((current) => (current ? { ...current, detailNote: event.target.value.slice(0, 500) } : current))}
+                  rows={2}
+                  maxLength={500}
+                  placeholder={localSaleLabel("เช่น ไม่ใส่ผัก, แยกน้ำ, เผ็ดน้อย...", "e.g. no vegetables, sauce on the side, mild spice...")}
+                />
+                <small className="text-slate-500">
+                  {localSaleLabel("ข้อความนี้จะแสดงที่ครัวและบนใบเสร็จของรายการนี้", "This detail will appear in Kitchen and on this item's receipt line.")}
+                </small>
+              </label>
               <div className="mt-3 rounded-xl border border-orange-100 bg-orange-50 px-3 py-2 text-sm font-bold text-orange-700">
                 {localSaleLabel("ราคาต่อหน่วยหลังรวมตัวเลือก", "Unit price with options")}:{" "}
                 {formatMoney(modifierBasePrice + (quickMode === "delivery" ? 0 : Math.max(0, modifierDraft.extraPrice)))}
