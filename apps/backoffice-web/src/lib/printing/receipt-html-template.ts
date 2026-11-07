@@ -1,3 +1,5 @@
+import { parsePosItemNotes } from "@/lib/pos-item-notes";
+
 export type ReceiptHtmlItem = {
   name: string;
   quantity: number;
@@ -101,15 +103,30 @@ export function renderReceiptHtml(input: ReceiptHtmlInput) {
     : rawModeLabel === "ใบเสร็จย้อนหลัง"
       ? L("ใบเสร็จย้อนหลัง", "Receipt history", "ໃບຮັບເງິນຍ້ອນຫຼັງ")
       : rawModeLabel;
-  const itemRows = input.items.map((item) => `
+  const itemRows = input.items.map((item) => {
+    const parsedNotes = parsePosItemNotes(item.note);
+    const optionParts = parsedNotes.optionNotes.split(",").map((part) => part.trim()).filter(Boolean);
+    const optionRows = optionParts.length > 1
+      ? optionParts.map((part) => `<div class="choice">+ ${escapeHtml(part)}</div>`).join("")
+      : "";
+    const legacyNote = !parsedNotes.detailNote && optionParts.length === 1 ? optionParts[0] : "";
+    const detailRow = parsedNotes.detailNote
+      ? `<div class="note"><strong>${L("รายละเอียด", "Details", "ລາຍລະອຽດ")}:</strong> ${escapeHtml(parsedNotes.detailNote)}</div>`
+      : legacyNote
+        ? `<div class="note">${L("หมายเหตุ", "Note", "ໝາຍເຫດ")}: ${escapeHtml(legacyNote)}</div>`
+        : "";
+    return `
     <tr>
       <td class="col-name">
         <div class="name">${escapeHtml(item.name)}</div>
-        <div class="unit">x ${escapeHtml(money(item.unitPrice, currencyCode))}${item.note ? `<div class="note">${L("หมายเหตุ", "Note", "ໝາຍເຫດ")}: ${escapeHtml(item.note)}</div>` : ""}</div>
+        <div class="unit">x ${escapeHtml(money(item.unitPrice, currencyCode))}</div>
+        ${optionRows}
+        ${detailRow}
       </td>
       <td class="col-qty">${escapeHtml(qty(item.quantity))}</td>
       <td class="col-total">${escapeHtml(money(item.lineTotal, currencyCode))}</td>
-    </tr>`).join("");
+    </tr>`;
+  }).join("");
   const logo = `<div class="logo-wrap"><img src="${escapeHtml(logoUrl)}" alt="receipt logo" /></div>`;
   const address = input.storeAddress?.trim() ? `<div class="muted">${escapeHtml(input.storeAddress)}</div>` : "";
   const phone = input.storePhone?.trim() ? `<div class="muted">${escapeHtml(input.storePhone)}</div>` : "";
@@ -148,7 +165,7 @@ export function renderReceiptHtml(input: ReceiptHtmlInput) {
     .col-total { width: ${layout.totalMm}mm; text-align: right; white-space: nowrap; }
     .name { font-weight: 700; line-height: 1.25; }
     .unit { font-size: ${layout.unitPx}px; color: #333; }
-    .note { margin-top: .35mm; color: #333; font-style: italic; }
+    .choice { margin-top: .25mm; color: #222; font-size: ${layout.unitPx}px; font-weight: 700; }\n    .note { margin-top: .35mm; color: #333; font-style: italic; white-space: pre-line; }
     .summary-line { font-size: ${layout.summaryPx}px; }
     .summary-line.is-heading { padding-bottom: .8mm; border-bottom: 1px dashed #111; }
     .summary-line.grand { margin: 1.1mm 0 .9mm; padding: .7mm 0; border-top: 1px solid #111; border-bottom: 1px solid #111; font-size: ${layout.grandPx}px; }
