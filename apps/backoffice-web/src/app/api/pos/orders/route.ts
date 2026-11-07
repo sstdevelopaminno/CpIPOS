@@ -144,6 +144,25 @@ export async function POST(request: Request) {
     };
 
     const body = (await request.json().catch(() => null)) as CreateOrderPayload | null;
+    // Legacy /orders supports only plain product+quantity lines. Native configured
+    // selections must use the canonical /sales contract; silently stripping them
+    // here could charge the wrong price or lose a customer's chosen ingredients.
+    const unsupportedLineFields = [
+      "native_selection", "modifier_option_ids", "selected_option_ids",
+      "special_price_option", "price_kind", "special_price", "unit_price",
+      "notes", "cart_line_id"
+    ];
+    if (Array.isArray(body?.items) && body.items.some((item) =>
+      item && typeof item === "object" &&
+      unsupportedLineFields.some((field) => Object.prototype.hasOwnProperty.call(item, field))
+    )) {
+      await writeOrderFailedAudit("order_line_customization_requires_sales_api");
+      return fail(
+        "order_line_customization_requires_sales_api",
+        "Per-item prices, notes and product options must use the validated POS sales checkout.",
+        422
+      );
+    }
     const pricing = await resolveOrderPricing({
       tenantId: scope.session.tenant_id,
       branchId: scope.session.branch_id,
