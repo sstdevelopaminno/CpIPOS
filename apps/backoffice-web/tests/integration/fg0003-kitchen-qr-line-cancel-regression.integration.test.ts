@@ -67,7 +67,9 @@ describe("FG0003 kitchen QR line cancellation and print priority regression", ()
     expect(posSalesSource).toContain("serverCancelledKeys.has(key)");
     expect(posSalesSource).toContain("serverCancelledKeys");
     expect(posSalesSource).toContain("refreshActiveTableBill");
-    expect(posSalesSource).toContain("buildTableBillContextUrl(table.id, { refresh: true })");
+    expect(posSalesSource).toContain("buildTableBillContextUrl(table.id, { refresh: true, lite: options?.lite === true })");
+    expect(posSalesSource).toContain("const ACTIVE_TABLE_BILL_SYNC_INTERVAL_MS = 2000;");
+    expect(posSalesSource).toContain("loadTableBillContextRef.current(table, { lite: true })");
   });
 
   it("runs midnight POS recovery without deleting live bills or paid orders", () => {
