@@ -1,5 +1,6 @@
 import { createHash, randomBytes } from "node:crypto";
 import { fail, ok } from "@/lib/http";
+import { resolveWindowsAgentJob } from "@/lib/printing/windows-print-job-policy";
 import { PosGuardError, requirePosSession } from "@/lib/pos-session-guard";
 import { getPrimarySupabaseServiceClient } from "@/lib/supabase-admin";
 import { claimPrintJobsStabilized } from "@/lib/printing/print-agent-claim-stabilized";
@@ -131,6 +132,17 @@ export async function POST(req: Request) {
     }
 
     if (body.action === "claim") {
+      // Windows agents authenticate with their device-bound POS session. Refresh
+      // the agent heartbeat on every valid claim, including empty polls. Drawer
+      // readiness must not depend on an enrollment timestamp from days ago.
+      const { error: heartbeatError } = await db.from("print_agents")
+        .update({ last_seen_at: new Date().toISOString(), app_version: "windows-native-webpos-0.2.0" })
+        .eq("id", agent.id)
+        .eq("tenant_id", session.tenant_id)
+        .eq("branch_id", session.branch_id);
+      if (heartbeatError) {
+        console.warn("[windows-print-agent] heartbeat persist failed", { code: "agent_heartbeat_unavailable" });
+      }
       const jobs = await claimPrintJobsStabilized(agent, {
         limit: 1,
         lease_seconds: 120,
@@ -150,30 +162,38 @@ export async function POST(req: Request) {
         });
         return storeNoCache(ok({ jobs: [], stale_job_held: true }));
       }
-      // Only explicit HTML receipts are supported in this Windows agent.
       const metadata = asRecord(job.metadata);
       const html = typeof metadata.payload_html === "string" ? metadata.payload_html : "";
-      if ((job.printer_role !== "receipt" && job.printer_role !== "report") || !html.trim() ||
-          html.length > 250_000 || !profiles.some(profile => profile.id === job.printer_id)) {
+      const resolved = resolveWindowsAgentJob({
+        printerRole: job.printer_role,
+        printerAssigned: profiles.some(profile => profile.id === job.printer_id),
+        metadata,
+        html
+      });
+      if (!resolved) {
         await failPrintJob(agent, job.id, {
           agent_attempt_id: job.agent_attempt_id,
           retryable: false,
           error_code: "windows_receipt_unsupported_payload",
-          error_message: "Windows agent supports only approved HTML receipt/report jobs on an assigned printer."
+          error_message: "Windows job is not an assigned HTML document or an authorized printer-kick drawer command."
         });
         return storeNoCache(ok({ jobs: [], unsupported_job_held: true }));
       }
+      const orderNo = typeof asRecord(job.payload_json).order_no === "string"
+        ? String(asRecord(job.payload_json).order_no)
+        : typeof metadata.order_no === "string" ? metadata.order_no : null;
       return storeNoCache(ok({
         jobs: [{
           id: job.id,
           agent_attempt_id: job.agent_attempt_id,
           created_at: job.created_at,
-          order_no: typeof asRecord(job.payload_json).order_no === "string"
-            ? String(asRecord(job.payload_json).order_no)
-            : typeof metadata.order_no === "string" ? metadata.order_no : null,
+          kind: resolved.kind,
+          sale_receipt: resolved.kind === "html" && resolved.saleReceipt,
+          order_no: orderNo,
           reprint: metadata.reprint === true,
-          html,
-          text: typeof job.payload_text === "string" ? job.payload_text.slice(0, 14_000) : null,
+          html: resolved.kind === "html" ? html : null,
+          text: resolved.kind === "html" && typeof job.payload_text === "string" ? job.payload_text.slice(0, 14_000) : null,
+          drawer: resolved.kind === "cash_drawer" ? resolved.drawer : null,
           printer_name: connectedPrinter.selected_printer
         }]
       }));
@@ -190,6 +210,14 @@ export async function POST(req: Request) {
         provider_job_id: body.provider_job_id?.slice(0, 120) ?? null,
         metadata: { runtime: "windows_native_print_agent_v1", status: "native_spool_accepted_not_physical" }
       });
+      const jobMetadata = asRecord(job.metadata);
+      const drawerEventId = jobMetadata.command === "open_cash_drawer" ? String(jobMetadata.cash_drawer_event_id ?? "") : "";
+      if (job.status === "printed" && VALID_ID.test(drawerEventId)) {
+        const { error: eventError } = await db.from("cash_drawer_events")
+          .update({ command_status: "sent", physical_status: "unsupported", error_code: null })
+          .eq("id", drawerEventId).eq("tenant_id", session.tenant_id).eq("branch_id", session.branch_id);
+        if (eventError) console.warn("[windows-print-agent] drawer event acknowledgement not persisted");
+      }
       return storeNoCache(ok({ status: job.status }));
     }
     const job = await failPrintJob(agent, jobId, {
@@ -199,6 +227,14 @@ export async function POST(req: Request) {
       error_message: body.error_message?.slice(0, 220) || "Windows print outcome could not be confirmed.",
       metadata: { runtime: "windows_native_print_agent_v1", manual_review_required: true }
     });
+    const jobMetadata = asRecord(job.metadata);
+    const drawerEventId = jobMetadata.command === "open_cash_drawer" ? String(jobMetadata.cash_drawer_event_id ?? "") : "";
+    if (job.status === "failed" && VALID_ID.test(drawerEventId)) {
+      const { error: eventError } = await db.from("cash_drawer_events")
+        .update({ command_status: "failed", physical_status: "unknown", error_code: body.error_code?.slice(0, 80) ?? "windows_drawer_command_failed" })
+        .eq("id", drawerEventId).eq("tenant_id", session.tenant_id).eq("branch_id", session.branch_id);
+      if (eventError) console.warn("[windows-print-agent] drawer event failure not persisted");
+    }
     return storeNoCache(ok({ status: job.status }));
   } catch (error) {
     if (error instanceof PosGuardError) return storeNoCache(fail(error.code, error.message, error.status));

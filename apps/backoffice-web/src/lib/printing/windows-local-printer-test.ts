@@ -169,13 +169,23 @@ export async function printWindowsReceiptHtml(
     "X-CpIPOS-Bridge-Token": runtime.bridge_token,
     "Content-Type": "application/json"
   };
+  // WinForms DocumentText uses about:blank as its page URL; relative store
+  // logo assets otherwise disappear from printed receipts. Use the current
+  // authenticated POS origin as the base, never an untrusted receipt URL.
+  const appOrigin = typeof window.location?.origin === "string" && /^https:\/\//i.test(window.location.origin)
+    ? window.location.origin
+    : null;
+  const printableHtml = appOrigin && /<img\b[^>]+src=["']\//i.test(content)
+    ? content.replace(/<head([^>]*)>/i, `<head$1><base href="${appOrigin}/" />`)
+    : content;
+  if (printableHtml.length > 250_000) throw new Error("Windows receipt HTML exceeds the print bridge limit.");
   // The native bridge already validates the configured, installed printer.
   // The separate GET /printers preflight caused an extra failure point before
   // a single receipt could ever reach POST /print.
   const nativePrinterName = typeof (runtime as Runtime & { windows_printer?: unknown }).windows_printer === "string"
     ? String((runtime as Runtime & { windows_printer?: string }).windows_printer ?? "").trim()
     : "";
-  const textToPrint = (options.plainText?.trim() || windowsReceiptHtmlToText(content)).slice(0, 14_000);
+  const textToPrint = (options.plainText?.trim() || windowsReceiptHtmlToText(printableHtml)).slice(0, 14_000);
   if (!textToPrint.trim()) throw new Error("Windows receipt text is empty after rendering");
   // Only sale receipts are guarded here. Historical reprints are separately
   // PIN-authorized and may intentionally print a second copy.
@@ -195,7 +205,7 @@ export async function printWindowsReceiptHtml(
       signal: controller.signal,
       body: JSON.stringify({
         ...(nativePrinterName ? { printer_name: nativePrinterName } : {}),
-        html: content,
+        html: printableHtml,
         text: textToPrint,
         order_no: options.orderNo ?? null,
         metadata: {
@@ -242,6 +252,67 @@ export async function printWindowsReceiptHtml(
     } catch { /* diagnostic must never affect print outcome */ }
     if (unknownOutcome) {
       throw new Error("ไม่ทราบว่างานพิมพ์ถูกส่งแล้วหรือไม่ ให้ตรวจกระดาษและคิว XP-80C ก่อน ห้ามกดพิมพ์ซ้ำทันที");
+    }
+    throw error;
+  } finally {
+    window.clearTimeout(timer);
+  }
+}
+
+/**
+ * Execute only a server-authorized, device-bound cash-drawer print job.
+ * This endpoint is loopback-only and never retries an unknown physical
+ * outcome. Windows Native Print Agent owns the persistent attempt ledger.
+ */
+export async function openWindowsCashDrawerJob(
+  drawer?: { kickPin: 0 | 1; pulseOnMs: number; pulseOffMs: number } | null
+): Promise<{ printer: string; spoolJobId: string | null }> {
+  const runtime = windowsRuntime() as (Runtime & { windows_printer?: string }) | null;
+  if (!drawer || ![0, 1].includes(drawer.kickPin) ||
+      !Number.isInteger(drawer.pulseOnMs) || drawer.pulseOnMs < 20 || drawer.pulseOnMs > 500 ||
+      !Number.isInteger(drawer.pulseOffMs) || drawer.pulseOffMs < 20 || drawer.pulseOffMs > 500) {
+    throw new Error("Windows cash drawer command is invalid.");
+  }
+  if (!runtime?.bridge_token || !runtime.bridge_health_url) {
+    throw new Error("Windows Local Print Bridge is unavailable for the cash drawer.");
+  }
+  let bridge: URL;
+  try { bridge = new URL(runtime.bridge_health_url); }
+  catch { throw new Error("Windows Local Print Bridge URL is invalid."); }
+  if (bridge.protocol !== "http:" || bridge.hostname !== "127.0.0.1" ||
+      bridge.port !== "3210" || bridge.pathname !== "/health" ||
+      bridge.username || bridge.password || bridge.search || bridge.hash) {
+    throw new Error("Windows cash drawer must use the trusted loopback bridge.");
+  }
+  const printerName = runtime.windows_printer?.trim() ?? "";
+  const controller = new AbortController();
+  const timer = window.setTimeout(() => controller.abort(), 30_000);
+  try {
+    const response = await fetch("http://127.0.0.1:3210/cash-drawer/open", {
+      method: "POST",
+      headers: { "X-CpIPOS-Bridge-Token": runtime.bridge_token, "Content-Type": "application/json" },
+      cache: "no-store",
+      signal: controller.signal,
+      body: JSON.stringify({
+        ...(printerName ? { printer_name: printerName } : {}),
+        drawer_connection_mode: "printer-kick",
+        drawer_kick_pin: drawer.kickPin,
+        drawer_pulse_on_ms: drawer.pulseOnMs,
+        drawer_pulse_off_ms: drawer.pulseOffMs
+      })
+    });
+    const body = await response.json().catch(() => null) as BridgeResponse<{
+      opened?: boolean; provider?: string; printer_name?: string; job_id?: string;
+    }> | null;
+    if (!response.ok || body?.ok !== true || body.data?.opened !== true ||
+        body.data.provider !== "windows_raw_escpos_cash_drawer" ||
+        (printerName && body.data.printer_name !== printerName)) {
+      throw new Error(body?.error?.message ?? "Windows cash drawer spool command was not accepted.");
+    }
+    return { printer: body.data.printer_name ?? printerName, spoolJobId: body.data.job_id ?? null };
+  } catch (error) {
+    if (controller.signal.aborted) {
+      throw new Error("Cash drawer command timed out. Check the drawer before retrying manually.");
     }
     throw error;
   } finally {

@@ -36,7 +36,8 @@ describe("routed shift report print stability", () => {
 
   it("allows the Windows in-session agent to claim approved report HTML without relaxing device assignment", () => {
     const windowsAgent = src("apps/backoffice-web/src/app/api/pos/windows-print/agent/route.ts");
-    expect(windowsAgent).toContain('job.printer_role !== "receipt" && job.printer_role !== "report"');
+    expect(windowsAgent).toContain("resolveWindowsAgentJob");
+    expect(src("apps/backoffice-web/src/lib/printing/windows-print-job-policy.ts")).toContain('["receipt", "report", "kitchen"]');
     expect(windowsAgent).toContain('metadata.target_runtime === "windows_native"');
     expect(windowsAgent).toContain("windows_device_code");
     expect(windowsAgent).toContain("profiles.some(profile => profile.id === job.printer_id)");

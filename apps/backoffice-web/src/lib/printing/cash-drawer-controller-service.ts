@@ -304,6 +304,63 @@ async function resolveCashDrawerPhysicalReadiness(
     };
   }
 
+  // The Windows Native POS reports its physical printer with its device-bound
+  // runtime heartbeat, not a separate printer_devices record. Those records
+  // may be absent or "needs_check" even while a selected XP-80C is healthy.
+  // Never apply this shortcut to Android or unassigned printers.
+  const metadata = asRecord(candidate.printer.metadata);
+  if (metadata.target_runtime === "windows_native") {
+    const runtimeCode = normalizeDeviceCode(metadata.windows_device_code);
+    if (!runtimeCode) {
+      return { configured: true, ready: false, reason: "printer_device_missing", printer_device: null, agent_status: null };
+    }
+    const primary = getPrimarySupabaseServiceClient();
+    const [healthResult, agentsResult] = await Promise.all([
+      primary.from("pos_device_health_latest")
+        .select("pos_device_id,device_code,last_seen_at,runtime_version,peripheral_health,status")
+        .eq("tenant_id", auth.tenantId!)
+        .eq("branch_id", auth.branchId!)
+        .eq("device_code", runtimeCode)
+        .like("runtime_version", "cpipos-windows%")
+        .order("last_seen_at", { ascending: false })
+        .limit(1)
+        .maybeSingle(),
+      primary.from("print_agents")
+        .select("id,device_id,device_code,status,last_seen_at,last_claim_at,app_version")
+        .eq("tenant_id", auth.tenantId!)
+        .eq("branch_id", auth.branchId!)
+        .eq("device_code", runtimeCode)
+        .order("last_seen_at", { ascending: false, nullsFirst: false })
+        .limit(10)
+    ]);
+    if (healthResult.error || agentsResult.error) {
+      throw new Error(healthResult.error?.message ?? agentsResult.error?.message);
+    }
+    const health = healthResult.data;
+    const peripherals = asRecord(health?.peripheral_health);
+    const seenAt = health?.last_seen_at ? Date.parse(health.last_seen_at) : Number.NaN;
+    const valid = Number.isFinite(seenAt) &&
+      Date.now() - seenAt <= CASH_DRAWER_AGENT_HEARTBEAT_FRESH_MS &&
+      peripherals.selected_printer_valid === true &&
+      typeof peripherals.selected_printer === "string" &&
+      peripherals.selected_printer.trim().length > 0;
+    const syntheticDevice: CashDrawerPrinterDeviceSnapshot = {
+      id: String(health?.pos_device_id ?? candidate.printer.id),
+      printer_profile_id: candidate.printer.id,
+      runtime_device_code: runtimeCode,
+      status: valid ? "healthy" : "offline",
+      is_active: Boolean(valid),
+      last_seen_at: health?.last_seen_at ?? null,
+      disconnected_at: null
+    };
+    return evaluateCashDrawerReadinessForTest({
+      configured: true,
+      printerEnabled: candidate.printer.enabled !== false,
+      printerDevice: syntheticDevice,
+      agents: (agentsResult.data ?? []) as CashDrawerPrintAgentSnapshot[]
+    });
+  }
+
   const routed = getSupabaseServiceClient();
   const { data: deviceData, error: deviceError } = await routed
     .from("printer_devices")
