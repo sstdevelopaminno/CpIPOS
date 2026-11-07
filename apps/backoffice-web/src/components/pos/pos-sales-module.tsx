@@ -2225,6 +2225,7 @@ export function PosSalesModule({
         if (!response.ok) throw new Error("item_detail_popup_policy_read_failed");
         const payload = await response.json();
         const enabled = payload?.data?.item_detail_popup_enabled;
+        if (payload?.data?.branch_id !== branchId) throw new Error("item_detail_popup_branch_mismatch");
         if (active && typeof enabled === "boolean") setItemDetailPopupPolicy({ tenantId: tenantId!, branchId: branchId!, enabled });
       } catch {
         // On a failed read, keep the explicit product options screen available.

@@ -22,6 +22,7 @@ describe("POS item-detail popup setting", () => {
     expect(sales).toContain("shouldOpenPosItemDetailPopup(product, itemDetailPopupEnabled)");
     expect(sales).toContain("function openCartLineEditor(item: CartItem)");
     expect(sales).toContain("itemDetailPopupPolicy?.branchId === posScope.branchId");
+    expect(sales).toContain("item_detail_popup_branch_mismatch");
     expect(sales).toContain("itemDetailPopupPolicy?.tenantId === posScope.tenantId");
   });
   it("persists a branch-specific setting without a QR feature entitlement", () => {
@@ -33,6 +34,7 @@ describe("POS item-detail popup setting", () => {
     expect(route).toContain("wantsItemDetailPopup");
     expect(service).toContain("pos_item_detail_popup_enabled: nextItemDetailPopup");
     expect(runtime).toContain('requiredPermission: "sales:enter"');
+    expect(runtime).toContain("branch_id: branchId");
     expect(runtime).not.toContain("qr_table_ordering");
   });
   it("renders a larger, legible notes field and a character counter", () => {
