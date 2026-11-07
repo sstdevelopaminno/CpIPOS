@@ -96,7 +96,8 @@ describe("POS cancel bill must reverse stock atomically", () => {
     const payload = await response.json();
     expect(payload.data.restored_ingredient_count).toBe(2);
     expect(payload.data.restored_quantity).toBe(350);
-    expect(rpc).toHaveBeenCalledExactlyOnceWith(
+    expect(rpc).toHaveBeenCalledTimes(1);
+    expect(rpc).toHaveBeenCalledWith(
       "cancel_queued_pos_order_and_restore_stock_tx",
       expect.objectContaining({
         p_tenant_id: "tenant-a",
