@@ -195,9 +195,14 @@ export async function printWindowsReceiptHtml(
       signal: controller.signal,
       body: JSON.stringify({
         ...(nativePrinterName ? { printer_name: nativePrinterName } : {}),
+        html: content,
         text: textToPrint,
         order_no: options.orderNo ?? null,
-        metadata: { source: "pos_windows_webview2_manual_receipt", reprint: options.reprint === true }
+        metadata: {
+          source: "pos_windows_webview2_manual_receipt",
+          payload_format: "receipt_html_v1",
+          reprint: options.reprint === true
+        }
       })
     });
     stage = "response";
@@ -208,9 +213,9 @@ export async function printWindowsReceiptHtml(
       job_id?: string;
     }> | null;
     if (!response.ok || payload?.ok !== true || payload.data?.printed !== true ||
-        payload.data?.provider !== "native_dotnet_print_document" ||
+        payload.data?.provider !== "native_winforms_html_receipt" ||
         (nativePrinterName && payload.data.printer_name !== nativePrinterName)) {
-      throw new Error(payload?.error?.message ?? "Windows PrintDocument ไม่ยืนยันการรับใบเสร็จข้อความ");
+      throw new Error(payload?.error?.message ?? "Windows HTML receipt renderer ไม่ยืนยันการรับงานพิมพ์");
     }
     return { printer: payload.data.printer_name ?? nativePrinterName, spoolJobId: payload.data.job_id ?? null };
   } catch (error) {
