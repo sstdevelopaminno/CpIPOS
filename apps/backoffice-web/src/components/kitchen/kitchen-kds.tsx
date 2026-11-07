@@ -37,6 +37,7 @@ type BillGroup = {
   tickets: KitchenTicket[];
 };
 
+const KITCHEN_QUEUE_REQUEST_TIMEOUT_MS = 12_000;
 const ACTIVE_POLL_INTERVAL_MS = 3_000;
 const IDLE_POLL_INTERVAL_MS = 8_000;
 const HIDDEN_POLL_INTERVAL_MS = 20_000;
@@ -365,6 +366,13 @@ export function KitchenKds({ defaultLanguage = "th" }: { defaultLanguage?: AppLa
     if (!silent && !initialLoadedRef.current) setLoading(true);
     const controller = new AbortController();
     queueAbortRef.current = controller;
+    let timedOut = false;
+    // A stalled network request must never lock the Kitchen queue behind
+    // inFlightRef indefinitely. Abort only the read-only queue request.
+    const timeoutId = window.setTimeout(() => {
+      timedOut = true;
+      controller.abort();
+    }, KITCHEN_QUEUE_REQUEST_TIMEOUT_MS);
     try {
       const params = new URLSearchParams({ status: ACTIVE_STATUSES.join(","), limit: "100", zone_id: unlockedZone.id });
       const response = await fetch(`/api/pos/kitchen/queue?${params.toString()}`, { cache: "no-store", signal: controller.signal });
@@ -382,13 +390,19 @@ export function KitchenKds({ defaultLanguage = "th" }: { defaultLanguage?: AppLa
       setInitialLoaded(true);
       initialLoadedRef.current = true;
     } catch (loadError) {
-      if (controller.signal.aborted) return;
+      // Component teardown or switching Kitchen zones is intentional; a
+      // timed-out request, however, is a failed poll and must back off/retry.
+      if (controller.signal.aborted && !timedOut) return;
       loadFailedRef.current = true;
-      setError(loadError instanceof Error ? loadError.message : kt(lang, "loadFailed"));
+      setError(timedOut ? kt(lang, "loadFailed")
+        : loadError instanceof Error ? loadError.message : kt(lang, "loadFailed"));
     } finally {
-      if (queueAbortRef.current === controller) queueAbortRef.current = null;
-      inFlightRef.current = false;
-      if (!silent && !controller.signal.aborted) setLoading(false);
+      window.clearTimeout(timeoutId);
+      if (queueAbortRef.current === controller) {
+        queueAbortRef.current = null;
+        inFlightRef.current = false;
+      }
+      if (!silent && (!controller.signal.aborted || timedOut)) setLoading(false);
     }
   }, [applyTickets, stopAlertSound, unlockedZone?.id]);
 
@@ -597,16 +611,32 @@ export function KitchenKds({ defaultLanguage = "th" }: { defaultLanguage?: AppLa
     setBusy(busyKey, true);
     setTickets((current) => current.map((row) => (ids.has(row.id) ? { ...row, status: "ready" as KitchenStatus } : row)));
     try {
-      await Promise.all(group.tickets.map((ticket) => setTicketStatusRemote(ticket, "ready")));
-      setTickets((current) => current.filter((row) => !ids.has(row.id)));
+      // One ticket can succeed even if another fails. Promise.all would reject
+      // early, then restoring every optimistic status would falsely display
+      // already-completed tickets as pending (risking a duplicate Kitchen action).
+      const results = await Promise.allSettled(
+        group.tickets.map((ticket) => setTicketStatusRemote(ticket, "ready"))
+      );
+      const completedIds = new Set(group.tickets
+        .filter((_, index) => results[index].status === "fulfilled")
+        .map((ticket) => ticket.id));
+      setTickets((current) => current
+        .filter((row) => !completedIds.has(row.id))
+        .map((row) => {
+          const originalStatus = previous.get(row.id);
+          return originalStatus ? { ...row, status: originalStatus } : row;
+        }));
+      const rejected = results.find((result) => result.status === "rejected");
+      if (rejected?.status === "rejected") {
+        setError(rejected.reason instanceof Error ? rejected.reason.message : kt(lang, "billFailed"));
+      } else {
+        setError(null);
+      }
+      // Re-read the server's authoritative ticket state after partial success.
       void load(true);
-      setError(null);
     } catch (finishError) {
-      setTickets((current) => current.map((row) => {
-        const oldStatus = previous.get(row.id);
-        return oldStatus ? { ...row, status: oldStatus } : row;
-      }));
       setError(finishError instanceof Error ? finishError.message : kt(lang, "billFailed"));
+      void load(true);
     } finally {
       setBusy(busyKey, false);
     }
