@@ -53,7 +53,7 @@ internal sealed class LocalPrintBridge : IDisposable
     [DllImport("winspool.drv", CharSet = CharSet.Auto, SetLastError = true)]
     private static extern bool SetDefaultPrinter(string name);
 
-    public string Version => "cpipos-windows-native-bridge-0.2.4";
+    public string Version => "cpipos-windows-native-bridge-0.2.5";
     public bool IsRunning { get; private set; }
 
     public LocalPrintBridge(int port, string defaultPrinter, string bridgeToken)
@@ -721,8 +721,34 @@ internal sealed class LocalPrintBridge : IDisposable
                         }
                         printTimeout.Token.ThrowIfCancellationRequested();
 
+                        // A desktop/default 8.5-inch WebView2 sheet can be
+                        // cropped by an XP-80C 80mm driver even when the HTML
+                        // itself is only 70-72mm wide. Send an actual thermal
+                        // media width and a content-dependent sheet height.
+                        // Never resize the printer's OS-wide settings.
+                        var pageWidthMatch = Regex.Match(
+                            htmlToPrint,
+                            @"@page\s*\{[^}]*?\bsize\s*:\s*(58|80)\s*mm",
+                            RegexOptions.IgnoreCase | RegexOptions.Singleline);
+                        var driverWidthMm = settings.DefaultPageSettings.PaperSize.Width * 0.254;
+                        var paperWidthMm = pageWidthMatch.Success
+                            ? int.Parse(pageWidthMatch.Groups[1].Value)
+                            : driverWidthMm >= 54 && driverWidthMm <= 62 ? 58 : 80;
+                        var contentHeightJson = await webView.CoreWebView2.ExecuteScriptAsync(
+                            "(()=>{const root=document.querySelector('main.receipt,main.receipt58')||document.body;" +
+                            "if(!root)return 0;return Math.ceil(Math.max(root.getBoundingClientRect().height,root.scrollHeight));})()");
+                        if (!int.TryParse(contentHeightJson, out var contentHeightPx) || contentHeightPx <= 0)
+                        {
+                            throw new InvalidOperationException("receipt_html_render_failed: cannot measure printable content.");
+                        }
+                        var sheetHeightMm = Math.Clamp(
+                            Math.Ceiling(contentHeightPx * 25.4 / 96.0) + 16, 100, 700);
                         var printerSettings = webView.CoreWebView2.Environment.CreatePrintSettings();
                         printerSettings.PrinterName = resolvedPrinter;
+                        printerSettings.MediaSize = Microsoft.Web.WebView2.Core.CoreWebView2PrintMediaSize.Custom;
+                        printerSettings.PageWidth = paperWidthMm / 25.4;
+                        printerSettings.PageHeight = sheetHeightMm / 25.4;
+                        printerSettings.ScaleFactor = 1.0;
                         printerSettings.ShouldPrintBackgrounds = true;
                         printerSettings.ShouldPrintHeaderAndFooter = false;
                         printerSettings.MarginTop = 0;

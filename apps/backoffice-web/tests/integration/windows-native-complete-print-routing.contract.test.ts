@@ -6,6 +6,29 @@ import { resolveWindowsAgentJob } from "../../src/lib/printing/windows-print-job
 const read = (path: string) => readFileSync(resolve(process.cwd(), path), "utf8");
 
 describe("Windows local POS printing: sale, reprint, kitchen, shift, notices and drawer", () => {
+  it("keeps XP-80C 80mm HTML totals inside a conservative 64mm printable width", () => {
+    const bridge = read("../windows-runtime-native/Cpipos.WindowsRuntime/LocalPrintBridge.cs");
+    const canonical = read("src/lib/printing/receipt-html-template.ts");
+    const sale = read("src/components/pos/pos-sales-module.tsx");
+    const history = read("src/components/pos-preview/pos-receipts-workspace.tsx");
+
+    expect(canonical).toContain("printableMm: 64");
+    expect(canonical).toContain("printableMm: 45");
+    for (const source of [sale, history]) {
+      expect(source).toContain("paperWidthMm === 80 ? 64 : 45");
+      expect(source).toContain("paperWidthMm === 80 ? 2 : 1");
+      expect(source).toContain("overflow-wrap: anywhere");
+      expect(source).toContain("table-layout: fixed");
+      expect(source).not.toContain("width: 16mm; text-align: right; white-space: nowrap");
+    }
+    expect(bridge).toContain("CoreWebView2PrintMediaSize.Custom");
+    expect(bridge).toContain("printerSettings.PageWidth = paperWidthMm / 25.4");
+    expect(bridge).toContain("printerSettings.PageHeight = sheetHeightMm / 25.4");
+    expect(bridge).toContain("printerSettings.ScaleFactor = 1.0");
+    expect(bridge).toContain("contentHeightPx * 25.4 / 96.0");
+  });
+
+
   it("accepts an offscreen Thai HTML receipt after DOM readiness instead of checking innerText on a Promise", () => {
     const bridge = read("../windows-runtime-native/Cpipos.WindowsRuntime/LocalPrintBridge.cs");
     expect(bridge).toContain("body.textContent");
