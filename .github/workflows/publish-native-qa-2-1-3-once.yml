@@ -1,0 +1,62 @@
+name: Publish verified Native Mobile 2.1.3 QA (one time)
+
+on:
+  workflow_run:
+    workflows: ["Build CpIPOS Native Mobile Release"]
+    types: [completed]
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  publish-reviewed-qa:
+    if: ${{ github.event.workflow_run.id == 42469145557 && github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Retrieve signed 2.1.3 candidate from exact source run
+        uses: actions/download-artifact@v4
+        with:
+          name: CpIPOS-Native-Mobile-2.1.3-signed
+          repository: sstdevelopaminno/CpIPOS
+          run-id: 42469145557
+          github-token: ${{ github.token }}
+          path: artifacts
+
+      - name: Verify immutable source metadata, cert, APK bytes and version
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json,hashlib,pathlib
+          base=pathlib.Path("artifacts")
+          manifest=json.loads((base/"CpIPOS-Native-Mobile-2.1.3.manifest.json").read_text())
+          apk=base/"CpIPOS-Native-Mobile-2.1.3.apk"
+          assert apk.is_file() and apk.stat().st_size>1000000
+          assert manifest["source_repository"]=="sstdevelopaminno/cpipos-native-pos"
+          assert manifest["source_commit"]=="35867cb81edc47ae865a806acd3c820bd5dfbb65"
+          assert manifest["version_name"]=="2.1.3" and manifest["version_code"]==2013000
+          assert manifest["package_name"]=="com.cpipos.pos.next"
+          assert manifest["signing_cert_sha256"]=="6be0a9aef346a5b47162c8928c5018a01d0e7d81b4eb177bf2fb89922dc2a27a"
+          assert manifest["asset_name"]==apk.name
+          assert hashlib.sha256(apk.read_bytes()).hexdigest()==manifest["sha256"]
+          print("Verified SHA256",manifest["sha256"],"size",apk.stat().st_size)
+          PY
+
+      - name: Create separate prerelease; never promote customer Stable
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: sstdevelopaminno/CpIPOS
+        run: |
+          set -euo pipefail
+          tag="native-mobile-v2.1.3-qa"
+          if gh release view "$tag" >/dev/null 2>&1; then
+            echo "::error::QA release already exists; refusing to overwrite a downloadable file"
+            exit 1
+          fi
+          gh release create "$tag" \
+            artifacts/CpIPOS-Native-Mobile-2.1.3.apk \
+            artifacts/CpIPOS-Native-Mobile-2.1.3.manifest.json \
+            --target "${{ github.event.workflow_run.head_sha }}" \
+            --prerelease --title "CpIPOS Native Mobile 2.1.3 QA" \
+            --notes "QA TEST DEVICE ONLY. Not production Stable and not an automatic update. Android 8.0+, existing signing certificate. Signed source: sstdevelopaminno/cpipos-native-pos@35867cb81edc47ae865a806acd3c820bd5dfbb65. Improved unsent dine-in cart clarity, kitchen send action and responsiveness; physical Windows/KDS receipt acceptance is still required."
