@@ -92,8 +92,9 @@ export function renderReceiptHtml(input: ReceiptHtmlInput) {
   const L = (thai: string, english: string, lao: string) => languageCode === "lo" ? lao : languageCode === "en" ? english : thai;
   const paper = input.paperWidthMm;
   const layout = paper === 58
-    ? { printableMm: 49, basePx: 12.75, titlePx: 16.5, mutedPx: 11.75, metaPx: 12.5, unitPx: 10.75, summaryPx: 12, grandPx: 15.5, footerPx: 11, logoMaxWidthMm: 30, logoMaxHeightMm: 11, qtyMm: 8.5, totalMm: 16.5 }
-    : { printableMm: 70, basePx: 13.5, titlePx: 19, mutedPx: 12.5, metaPx: 13.25, unitPx: 11.5, summaryPx: 12.75, grandPx: 17.5, footerPx: 11.75, logoMaxWidthMm: 42, logoMaxHeightMm: 13, qtyMm: 11, totalMm: 22 };
+    ? { printableMm: 45, basePx: 12.75, titlePx: 16.5, mutedPx: 11.75, metaPx: 12.5, unitPx: 10.75, summaryPx: 12, grandPx: 15.5, footerPx: 11, logoMaxWidthMm: 30, logoMaxHeightMm: 11, qtyMm: 8.5, totalMm: 16.5 }
+    : { printableMm: 64, basePx: 13.5, titlePx: 19, mutedPx: 12.5, metaPx: 13.25, unitPx: 11.5, summaryPx: 12.75, grandPx: 17.5, footerPx: 11.75, logoMaxWidthMm: 42, logoMaxHeightMm: 13, qtyMm: 11, totalMm: 22 };
+  const printableLeftMm = paper === 58 ? 1 : 2;
   const logoUrl = clean(input.logoUrl) ?? DEFAULT_RECEIPT_LOGO_URL;
   const storeName = clean(input.storeName) ?? clean(input.branchName) ?? "CpIPOS";
   const branchName = clean(input.branchName);
@@ -150,7 +151,7 @@ export function renderReceiptHtml(input: ReceiptHtmlInput) {
     @page { size: ${paper}mm auto; margin: 0; }
     html, body { margin: 0; padding: 0; width: ${paper}mm; background: #fff; color: #000; font-family: "Noto Sans Lao", "Noto Sans Thai", "Tahoma", "Segoe UI", sans-serif; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
     * { box-sizing: border-box; }
-    .receipt { --receipt-paper-width-mm: ${paper}; --receipt-printable-width-mm: ${layout.printableMm}; --receipt-base-font-px: ${layout.basePx}; --receipt-title-font-px: ${layout.titlePx}; --receipt-grand-font-px: ${layout.grandPx}; width: ${layout.printableMm}mm; margin: 0 auto; padding: 1.2mm 0 2mm; font-size: ${layout.basePx}px; line-height: 1.3; }
+    .receipt { --receipt-paper-width-mm: ${paper}; --receipt-printable-width-mm: ${layout.printableMm}; --receipt-base-font-px: ${layout.basePx}; --receipt-title-font-px: ${layout.titlePx}; --receipt-grand-font-px: ${layout.grandPx}; width: ${layout.printableMm}mm; margin: 0 0 0 ${printableLeftMm}mm; padding: 1.2mm 0 2mm; font-size: ${layout.basePx}px; line-height: 1.3; }
     .logo-wrap { text-align: center; margin-bottom: .8mm; }
     .logo-wrap img { max-width: ${layout.logoMaxWidthMm}mm; max-height: ${layout.logoMaxHeightMm}mm; object-fit: contain; }
     .head-title { font-weight: 900; font-size: ${layout.titlePx}px; margin-bottom: .6mm; text-align: center; }
@@ -159,18 +160,19 @@ export function renderReceiptHtml(input: ReceiptHtmlInput) {
     .hr { border-top: 1px dashed #111; margin: 1.4mm 0; }
     .meta-line, .summary-line { display: table; width: 100%; table-layout: fixed; border-collapse: collapse; margin: .6mm 0; }
     .meta-line > span, .summary-line > span, .summary-line > strong { display: table-cell; vertical-align: baseline; width: 50%; }
-    .meta-line > span:last-child, .summary-line > strong { text-align: right; }
+    .meta-line > span:last-child, .summary-line > strong { text-align: right; overflow-wrap: anywhere; word-break: break-word; }
     .meta-line { font-size: ${layout.metaPx}px; }
     .meta-line span:last-child, .summary-line strong { text-align: right; }
     table { width: 100%; table-layout: fixed; border-collapse: collapse; margin-top: .6mm; }
     th, td { padding: .6mm 0; vertical-align: top; }
     .col-name { padding-right: 1mm; overflow-wrap: anywhere; word-break: break-word; }
     .col-qty { width: ${layout.qtyMm}mm; text-align: center; }
-    .col-total { width: ${layout.totalMm}mm; text-align: right; white-space: nowrap; }
+    .col-total { width: ${layout.totalMm}mm; text-align: right; overflow-wrap: anywhere; word-break: break-word; }
     .name { font-weight: 700; line-height: 1.25; }
     .unit { font-size: ${layout.unitPx}px; color: #333; }
     .choice { margin-top: .25mm; color: #222; font-size: ${layout.unitPx}px; font-weight: 700; }\n    .note { margin-top: .35mm; color: #333; font-style: italic; white-space: pre-line; }
     .summary-line { font-size: ${layout.summaryPx}px; }
+    .summary-line strong { overflow-wrap: anywhere; word-break: break-word; }
     .summary-line.is-heading { padding-bottom: .8mm; border-bottom: 1px dashed #111; }
     .summary-line.grand { margin: 1.1mm 0 .9mm; padding: .7mm 0; border-top: 1px solid #111; border-bottom: 1px solid #111; font-size: ${layout.grandPx}px; }
     .summary-line.grand span, .summary-line.grand strong { font-weight: 900; }
