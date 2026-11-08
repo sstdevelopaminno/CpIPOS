@@ -53,7 +53,7 @@ internal sealed class LocalPrintBridge : IDisposable
     [DllImport("winspool.drv", CharSet = CharSet.Auto, SetLastError = true)]
     private static extern bool SetDefaultPrinter(string name);
 
-    public string Version => "cpipos-windows-native-bridge-0.2.3";
+    public string Version => "cpipos-windows-native-bridge-0.2.4";
     public bool IsRunning { get; private set; }
 
     public LocalPrintBridge(int port, string defaultPrinter, string bridgeToken)
@@ -655,18 +655,69 @@ internal sealed class LocalPrintBridge : IDisposable
                         webView.CoreWebView2.NavigateToString(htmlToPrint);
                         await navigation.Task.WaitAsync(TimeSpan.FromSeconds(12), printTimeout.Token);
 
-                        // Ensure fonts and image assets have been given time to load,
-                        // otherwise the logo and Thai text may differ from the POS
-                        // HTML receipt template.
-                        var rendered = await webView.CoreWebView2.ExecuteScriptAsync(
-                            "(async()=>{if(!document.body || !document.body.innerText.trim()) return false;" +
-                            "await document.fonts.ready;" +
-                            "await Promise.race([Promise.all(Array.from(document.images).map(i=>" +
-                            "i.complete?Promise.resolve():new Promise(r=>{i.onload=r;i.onerror=r;})))," +
-                            "new Promise(r=>setTimeout(r,2500))]);return true;})()");
-                        if (rendered != "true")
+                        // NavigateToString can render a receipt in an off-screen
+                        // WebView2 whose body.innerText is empty even though the
+                        // real receipt DOM and textContent are populated.
+                        // ExecuteScriptAsync may return a JSON value for the
+                        // Promise itself, not its resolved boolean. Do not
+                        // compare an async IIFE return string to "true".
+                        //
+                        // Instead, wait for an explicit WebView2 message from
+                        // the actual document after its DOM has readable text,
+                        // fonts settle and logo images complete (bounded wait).
+                        var renderNonce = Guid.NewGuid().ToString("N");
+                        var renderReady = new TaskCompletionSource<bool>(
+                            TaskCreationOptions.RunContinuationsAsynchronously);
+                        EventHandler<Microsoft.Web.WebView2.Core.CoreWebView2WebMessageReceivedEventArgs> onRenderMessage =
+                            (_, args) =>
+                            {
+                                string message;
+                                try { message = args.TryGetWebMessageAsString(); }
+                                catch { return; }
+                                if (message == "cpipos-receipt-ready:" + renderNonce)
+                                    renderReady.TrySetResult(true);
+                                else if (message == "cpipos-receipt-invalid:" + renderNonce)
+                                    renderReady.TrySetException(new InvalidOperationException(
+                                        "receipt_html_render_failed: receipt body has no text or images."));
+                                else if (message == "cpipos-receipt-error:" + renderNonce)
+                                    renderReady.TrySetException(new InvalidOperationException(
+                                        "receipt_html_render_failed: document readiness script failed."));
+                            };
+                        webView.CoreWebView2.WebMessageReceived += onRenderMessage;
+                        try
                         {
-                            throw new InvalidOperationException("receipt_html_render_failed: empty or invalid receipt.");
+                            const string readinessScript = """
+(async () => {
+  const suffix = "__RECEIPT_NONCE__";
+  const notify = status => window.chrome.webview.postMessage("cpipos-receipt-" + status + ":" + suffix);
+  try {
+    const body = document.body;
+    const text = body ? (body.textContent || "").trim() : "";
+    const hasImage = !!body && !!body.querySelector("img[src]");
+    // textContent is independent of the receipt host visibility.
+    if (!body || (!text && !hasImage)) { notify("invalid"); return; }
+    const fonts = document.fonts ? document.fonts.ready.catch(() => {}) : Promise.resolve();
+    const images = Promise.all(Array.from(body.querySelectorAll("img")).map(img =>
+      img.complete ? Promise.resolve() : new Promise(resolve => {
+        img.addEventListener("load", resolve, {once:true});
+        img.addEventListener("error", resolve, {once:true});
+      })
+    ));
+    await Promise.race([
+      Promise.all([fonts, images]),
+      new Promise(resolve => setTimeout(resolve, 2500))
+    ]);
+    notify("ready");
+  } catch (_error) { notify("error"); }
+})()
+""";
+                            await webView.CoreWebView2.ExecuteScriptAsync(
+                                readinessScript.Replace("__RECEIPT_NONCE__", renderNonce));
+                            await renderReady.Task.WaitAsync(TimeSpan.FromSeconds(8), printTimeout.Token);
+                        }
+                        finally
+                        {
+                            webView.CoreWebView2.WebMessageReceived -= onRenderMessage;
                         }
                         printTimeout.Token.ThrowIfCancellationRequested();
 
