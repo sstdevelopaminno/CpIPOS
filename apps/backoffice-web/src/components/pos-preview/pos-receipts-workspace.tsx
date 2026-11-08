@@ -6,6 +6,7 @@ import type { ReactNode } from "react";
 import { PosBackButton } from "@/components/pos-preview/pos-back-button";
 import type { Language } from "@/lib/i18n";
 import { LAO_RECEIPT_COPY } from "@/lib/printing/receipt-history-lao";
+import { parsePosItemNotes } from "@/lib/pos-item-notes";
 
 type ReceiptItem = {
   product_id: string;
@@ -176,14 +177,11 @@ function normalizeReceiptLogoPath(value: unknown): string | null {
 }
 
 function parseReceiptItemDetails(notes?: string | null) {
-  const raw = String(notes ?? "").trim();
-  if (!raw) return { choices: [] as string[], note: null as string | null };
-  const parts = raw
-    .split(",")
-    .map((part) => part.trim())
-    .filter(Boolean);
-  if (parts.length > 1) return { choices: parts, note: null };
-  return { choices: [], note: raw };
+  const parsed = parsePosItemNotes(notes);
+  const choices = parsed.optionNotes.split(",").map((part) => part.trim()).filter(Boolean);
+  if (parsed.detailNote) return { choices, note: parsed.detailNote };
+  if (choices.length > 1) return { choices, note: null };
+  return { choices: [], note: choices[0] ?? null };
 }
 
 function normalizeTaxLines(value: unknown): ReceiptTaxLine[] {
