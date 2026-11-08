@@ -53,7 +53,7 @@ BEGIN
         SELECT NULLIF(item->>'product_id', '')::uuid AS product_id,
                COALESCE(NULLIF(LEFT(BTRIM(COALESCE(item->>'notes', item->>'note', '')), 240), ''), '') AS notes_key,
                SUM(COALESCE(NULLIF(item->>'quantity', '')::numeric, 0)) AS quantity
-        FROM jsonb_array_elements(p_items) item GROUP BY 1, 2
+        FROM jsonb_array_elements(p_items) AS elem(item) GROUP BY 1, 2
       )
       SELECT 1 FROM confirmed c LEFT JOIN desired d
         ON d.product_id = c.product_id AND d.notes_key = c.notes_key
@@ -75,6 +75,37 @@ REVOKE ALL ON FUNCTION app.replace_queued_dine_in_order_pos_guarded_tx(
   uuid,uuid,uuid,uuid,uuid,uuid,jsonb,numeric,numeric,numeric,numeric,numeric,jsonb,boolean
 ) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION app.replace_queued_dine_in_order_pos_guarded_tx(
+  uuid,uuid,uuid,uuid,uuid,uuid,jsonb,numeric,numeric,numeric,numeric,numeric,jsonb,boolean
+) TO service_role;
+
+
+-- Supabase Data API exposes functions through the public schema. Keep this
+-- service-role-only wrapper aligned with the app schema transactional function.
+CREATE OR REPLACE FUNCTION public.replace_queued_dine_in_order_pos_guarded_tx(
+  p_tenant_id uuid, p_branch_id uuid, p_shift_id uuid,
+  p_actor_user_id uuid, p_order_id uuid, p_table_id uuid,
+  p_items jsonb, p_app_total_amount numeric,
+  p_discount_amount numeric DEFAULT 0, p_gp_amount numeric DEFAULT 0,
+  p_tax_total numeric DEFAULT 0, p_grand_total numeric DEFAULT NULL,
+  p_tax_lines jsonb DEFAULT '[]'::jsonb,
+  p_lock_confirmed_items boolean DEFAULT true
+)
+RETURNS TABLE(order_id uuid, order_no text, order_status text, created_at timestamptz, total_amount numeric)
+LANGUAGE sql SECURITY DEFINER
+SET search_path TO 'pg_catalog', 'public', 'app', 'extensions'
+AS $function$
+  SELECT * FROM app.replace_queued_dine_in_order_pos_guarded_tx(
+    p_tenant_id, p_branch_id, p_shift_id, p_actor_user_id,
+    p_order_id, p_table_id, p_items, p_app_total_amount,
+    p_discount_amount, p_gp_amount, p_tax_total, p_grand_total,
+    p_tax_lines, p_lock_confirmed_items
+  );
+$function$;
+
+REVOKE ALL ON FUNCTION public.replace_queued_dine_in_order_pos_guarded_tx(
+  uuid,uuid,uuid,uuid,uuid,uuid,jsonb,numeric,numeric,numeric,numeric,numeric,jsonb,boolean
+) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.replace_queued_dine_in_order_pos_guarded_tx(
   uuid,uuid,uuid,uuid,uuid,uuid,jsonb,numeric,numeric,numeric,numeric,numeric,jsonb,boolean
 ) TO service_role;
 

@@ -32,6 +32,9 @@ describe("POS lock after kitchen acknowledgement", () => {
     expect(clear).toContain("KITCHEN_CONFIRMED_ITEM_LOCKED");
     expect(cancel).toContain("KITCHEN_CONFIRMED_ITEM_LOCKED");
     expect(migration).toContain("p_lock_confirmed_items boolean DEFAULT true");
+    expect(migration).toContain("CREATE OR REPLACE FUNCTION public.replace_queued_dine_in_order_pos_guarded_tx");
+    expect(trial).toContain("CREATE OR REPLACE FUNCTION public.replace_queued_dine_in_order_pos_guarded_tx");
+    expect(migration).toContain("AS elem(item)");
     expect(trial).toContain("app.replace_queued_dine_in_order_pos_guarded_tx");
   });
 
