@@ -1,5 +1,6 @@
 import { fail, ok } from "@/lib/http";
 import { getPosApiAuthContext } from "@/lib/pos-api-auth";
+import { PosGuardError } from "@/lib/pos-session-guard";
 import { loadTableQrAutomationPolicyForScope } from "@/lib/services/table-qr-automation-policy-service";
 
 export const dynamic = "force-dynamic";
@@ -31,7 +32,8 @@ export async function GET() {
     });
     response.headers.set("Cache-Control", headers["Cache-Control"]);
     return response;
-  } catch {
+  } catch (error) {
+    if (error instanceof PosGuardError) return fail(error.code, error.message, error.status);
     return fail("native_kitchen_policy_unavailable", "Kitchen policy could not be verified.", 503);
   }
 }
