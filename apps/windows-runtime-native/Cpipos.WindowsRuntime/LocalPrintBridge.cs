@@ -728,7 +728,7 @@ internal sealed class LocalPrintBridge : IDisposable
                         // Never resize the printer's OS-wide settings.
                         var pageWidthMatch = Regex.Match(
                             htmlToPrint,
-                            @"@page\\s*\\{[^}]*?\\bsize\\s*:\\s*(58|80)\\s*mm",
+                            @"@page\s*\{[^}]*?\bsize\s*:\s*(58|80)\s*mm",
                             RegexOptions.IgnoreCase | RegexOptions.Singleline);
                         var driverWidthMm = settings.DefaultPageSettings.PaperSize.Width * 0.254;
                         var paperWidthMm = pageWidthMatch.Success
