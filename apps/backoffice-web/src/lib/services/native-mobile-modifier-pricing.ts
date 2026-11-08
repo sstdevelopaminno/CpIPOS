@@ -36,6 +36,28 @@ function invalid(code: string, status = 422): NativeSaleCheck {
   return { ok: false, code, status };
 }
 
+/**
+ * Production release gate: allow a reviewed branch-specific pilot without
+ * enabling atomic stock/order mutations for every merchant at once.
+ *
+ * Global true remains an explicit fleet-wide release switch. The allowlist
+ * accepts only canonical UUIDs and must be configured by server operators;
+ * Native clients cannot pass their own override.
+ */
+export function nativeAtomicMenuEnabledForBranch(
+  branchId: string,
+  globalGate = process.env.NATIVE_ATOMIC_MENU_SALES_ENABLED,
+  pilotBranchIds = process.env.NATIVE_ATOMIC_MENU_SALES_BRANCH_IDS
+): boolean {
+  if (!UUID.test(branchId)) return false;
+  if (globalGate === "true") return true;
+  const approved = new Set(
+    String(pilotBranchIds ?? "").split(",").map((id) => id.trim().toLowerCase())
+      .filter((id) => UUID.test(id))
+  );
+  return approved.has(branchId.toLowerCase());
+}
+
 /** Pure, testable server authority for one mobile sale line. */
 export function validateNativeSaleLine(
   item: NativeOrderLineInput,
@@ -116,7 +138,7 @@ export async function resolveNativeMobileSaleLines(args: {
   const { tenantId, branchId, items } = args;
   // Require explicit Production acceptance AND applied atomic SQL migrations.
   // Older Native builds keep using existing non-configured POS endpoints.
-  if (process.env.NATIVE_ATOMIC_MENU_SALES_ENABLED !== "true") {
+  if (!nativeAtomicMenuEnabledForBranch(branchId)) {
     return invalid("native_atomic_menu_release_gate_not_enabled", 503);
   }
   if (!Array.isArray(items) || items.length === 0 || items.length > 100) {

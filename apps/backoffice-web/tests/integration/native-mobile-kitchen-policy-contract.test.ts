@@ -17,6 +17,18 @@ describe("Native mobile kitchen delivery policy contract", () => {
     expect(policy).not.toContain("service_role");
   });
 
+  it("dispatches configured takeaway to KDS only after the confirmed sale and respects policy", () => {
+    const transactionAt = sales.indexOf("const result = await executeCreatePosOrderTransaction");
+    const dispatchedAt = sales.indexOf("native-mobile:takeaway:");
+    expect(transactionAt).toBeGreaterThan(-1);
+    expect(dispatchedAt).toBeGreaterThan(transactionAt);
+    expect(sales).toContain('normalizedBody.order_type === "takeaway"');
+    expect(sales).toContain("kitchenPolicy.effective.kitchen_auto_send_enabled");
+    expect(sales).toContain('eventKey: `native-mobile:takeaway:${createdOrderId}:new`');
+    expect(sales).toContain('action: "new"');
+    expect(sales).toContain("Native takeaway was committed but kitchen could not be confirmed");
+  });
+
   it("keeps durable sale transactions and server-owned kitchen tickets separate", () => {
     expect(sales).toContain("queueMissingKitchenPrintJobsForOrder");
     expect(routing).toContain("dispatchOrderToKitchen");
