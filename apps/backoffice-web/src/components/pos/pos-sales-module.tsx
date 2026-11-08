@@ -8143,7 +8143,7 @@ export function PosSalesModule({
     if (source.startsWith("data:image/")) return source;
     const cached = paymentNoticeQrDataUriCacheRef.current.get(source);
     if (cached) return cached;
-    const response = await fetch(source, { cache: "force-cache" });
+    const response = await fetch(source, { cache: "force-cache", signal: AbortSignal.timeout(5_000) });
     if (!response.ok) throw new Error("payment_notice_qr_fetch_failed");
     const blob = await response.blob();
     if (!blob.type.startsWith("image/")) throw new Error("payment_notice_qr_not_image");
@@ -8168,19 +8168,23 @@ export function PosSalesModule({
 
   async function printTransferPaymentNotice() {
     if (!transferReviewOrder || paymentNoticeSubmitting || transferSubmitting) return;
-    const isDineInNotice = transferReviewOrder.order_type === "dine_in" || Boolean(transferReviewOrder.table_id);
-    if (!isDineInNotice) return;
+    // Outstanding-balance notices are valid for any sale, including tables
+    // without PromptPay/INET configured. A missing/blocked QR must never
+    // silently disable the button or produce an incorrect payment QR.
     const qrSource = visibleTransferPaymentMode === "inet_nops" ? inetQrUrl : promptPayQrUrl;
-    if (!qrSource) {
-      setPaymentNoticeError(text.transferPaymentSettingsRequiredBody);
-      return;
-    }
-
     setPaymentNoticeSubmitting(true);
     setPaymentNoticeError(null);
     try {
-      const qrDataUri = await imageSourceToDataUri(qrSource);
-      if (!qrDataUri.startsWith("data:image/")) throw new Error("payment_notice_qr_required");
+      let qrDataUri: string | null = null;
+      if (qrSource) {
+        try {
+          const candidate = await imageSourceToDataUri(qrSource);
+          if (candidate.startsWith("data:image/")) qrDataUri = candidate;
+        } catch {
+          // Network/CORS/slow QR image: print an itemized, QR-free notice
+          // instead. The printed slip clearly says to ask the cashier.
+        }
+      }
       const { response, body } = await fetchJsonWithTimeout<ApiErrorBody & { data?: { print_jobs_queued?: number } }>(
         "/api/pos/payment-notice",
         {
@@ -8212,7 +8216,9 @@ export function PosSalesModule({
       );
       if (!response.ok || body.error) throw new Error(body.error?.message ?? "payment_notice_print_failed");
       if (Number(body.data?.print_jobs_queued ?? 0) <= 0) throw new Error("payment_notice_printer_not_configured");
-      pushSubmitMessage(localSaleLabel("ส่งพิมพ์ใบแจ้งชำระเงินแล้ว", "Payment notice queued"));
+      pushSubmitMessage(qrDataUri
+        ? localSaleLabel("ส่งพิมพ์ใบแจ้งชำระเงินแล้ว", "Payment notice queued")
+        : localSaleLabel("ส่งพิมพ์ใบแจ้งชำระเงินแบบไม่มี QR แล้ว กรุณารับชำระที่แคชเชียร์", "Payment notice queued without QR. Collect payment at cashier."));
     } catch (error) {
       const message = error instanceof Error ? error.message : "payment_notice_print_failed";
       setPaymentNoticeError(message);
