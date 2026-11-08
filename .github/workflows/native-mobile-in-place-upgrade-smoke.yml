@@ -40,10 +40,16 @@ jobs:
           test -s baseline/CpIPOS-Native-Mobile-2.1.0.apk
 
       - name: Independently verify candidate manifest and SHA-256
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
+          # Only the current reviewed Native main source can pass an upgrade
+          # attestation. Never greenlight a signed but superseded candidate.
+          EXPECTED_SOURCE_SHA="$(gh api repos/sstdevelopaminno/cpipos-native-pos/commits/main --jq '.sha')"
+          export EXPECTED_SOURCE_SHA
           python3 - <<'PY'
-          import hashlib, json, pathlib
+          import hashlib, json, pathlib, os
           manifests = list(pathlib.Path("candidate").rglob("CpIPOS-Native-Mobile-*.manifest.json"))
           assert len(manifests) == 1, "Exactly one signed candidate manifest required"
           meta = json.loads(manifests[0].read_text())
@@ -51,7 +57,7 @@ jobs:
           assert meta["version_code"] == 2011000
           assert meta["package_name"] == "com.cpipos.pos.next"
           assert meta["signing_cert_sha256"] == "6be0a9aef346a5b47162c8928c5018a01d0e7d81b4eb177bf2fb89922dc2a27a"
-          assert meta["source_commit"] == "49fac8bb34818ef2c67a1d0d05926f1570ef7237", "Rejected superseded Native source"
+          assert meta["source_commit"] == os.environ["EXPECTED_SOURCE_SHA"], "Rejected superseded Native source"
           apk = manifests[0].parent / meta["asset_name"]
           assert apk.is_file() and apk.stat().st_size > 1_000_000
           with apk.open("rb") as f:
