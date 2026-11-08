@@ -14,6 +14,7 @@ using System.Text.Json;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Windows.Forms;
 
 namespace Cpipos.WindowsRuntime;
 
@@ -592,7 +593,7 @@ internal sealed class LocalPrintBridge : IDisposable
         try
         {
             var resolvedPrinter = ResolvePrinterNameOrThrow(requestedPrinterName, GetInstalledPrinterNames());
-            using var settings = new PrinterSettings { PrinterName = resolvedPrinter };
+            var settings = new PrinterSettings { PrinterName = resolvedPrinter };
             if (!settings.IsValid)
             {
                 throw new InvalidOperationException("Selected Windows printer is unavailable: " + resolvedPrinter);
