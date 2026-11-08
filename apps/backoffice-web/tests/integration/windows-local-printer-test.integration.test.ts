@@ -102,7 +102,7 @@ describe("manual Windows sales and historical receipt printing", () => {
       return {
         ok: true,
         json: async () => ({ ok: true, data: {
-          printed: true, provider: "native_winforms_html_receipt", printer_name: "XP-80C", job_id: "CPIPOS-HTML-001"
+          printed: true, provider: "native_webview2_html_receipt", printer_name: "XP-80C", job_id: "CPIPOS-HTML-001"
         } })
       } as Response;
     }));
