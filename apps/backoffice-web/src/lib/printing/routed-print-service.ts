@@ -281,7 +281,7 @@ export async function queueRoutedPaymentNotice(args: {
   };
   items: PaymentNoticeItem[];
   sellerName?: string | null;
-  qrDataUri: string;
+  qrDataUri?: string | null;
   accountLabel?: string | null;
   promptPayLabel?: string | null;
 }) {
