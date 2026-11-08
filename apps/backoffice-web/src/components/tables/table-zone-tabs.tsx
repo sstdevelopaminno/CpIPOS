@@ -4,6 +4,7 @@ import { useRef, type PointerEvent } from "react";
 import type { TableZoneItem } from "@/components/tables/types";
 import type { Language } from "@/lib/i18n";
 import { getTableUiText } from "@/components/tables/table-i18n";
+import { shouldCaptureTableZoneBackgroundDrag } from "@/lib/table-zone-pointer";
 
 type Props = {
   zones: TableZoneItem[];
@@ -22,8 +23,11 @@ export function TableZoneTabs({ zones, activeZoneId, onChange, includeAll = true
     // touches on its child <button>s. WebView2/Android then retargeted the
     // synthesized click to the container, so zone tabs never changed.
     // Touch/pen scrolling already works natively via overflow-x and pan-x.
-    if (event.pointerType !== "mouse" || event.button !== 0) return;
-    if (event.target !== event.currentTarget) return;
+    if (!shouldCaptureTableZoneBackgroundDrag({
+      pointerType: event.pointerType,
+      button: event.button,
+      targetIsContainer: event.target === event.currentTarget
+    })) return;
     dragStateRef.current = {
       pointerId: event.pointerId,
       startX: event.clientX,
