@@ -52,7 +52,7 @@ internal sealed class LocalPrintBridge : IDisposable
     [DllImport("winspool.drv", CharSet = CharSet.Auto, SetLastError = true)]
     private static extern bool SetDefaultPrinter(string name);
 
-    public string Version => "cpipos-windows-native-bridge-0.2.2";
+    public string Version => "cpipos-windows-native-bridge-0.2.3";
     public bool IsRunning { get; private set; }
 
     public LocalPrintBridge(int port, string defaultPrinter, string bridgeToken)
@@ -530,7 +530,7 @@ internal sealed class LocalPrintBridge : IDisposable
                     data = new
                     {
                         printed = true,
-                        provider = "native_winforms_html_receipt",
+                        provider = "native_webview2_html_receipt",
                         printer_name = htmlResult.PrinterName,
                         job_id = htmlResult.JobId,
                         html_printed = true,
@@ -577,137 +577,163 @@ internal sealed class LocalPrintBridge : IDisposable
             }, corsOrigin);
         }
     }
+    // WebBrowser.Print() (legacy IE) returned immediately after issuing a print
+    // command. That was incorrectly reported as "printed" even when XP-80C
+    // received no Windows spool job. Use Chromium/WebView2 PrintAsync with an
+    // explicitly selected Windows printer. A successful result is still spool
+    // acceptance, NEVER proof that paper physically left the printer.
     private async Task<PrintResult> PrintHtmlAsync(string html, string requestedPrinterName, CancellationToken cancellationToken)
     {
         if (!await _printLock.WaitAsync(TimeSpan.FromSeconds(20), cancellationToken).ConfigureAwait(false))
         {
-            throw new InvalidOperationException("Print queue is busy. Please retry after the current print job finishes.");
+            throw new InvalidOperationException("Print queue is busy. Check the printer and do not retry an unknown receipt.");
         }
 
         try
         {
-            var installed = GetInstalledPrinterNames();
-            var resolvedPrinter = ResolvePrinterNameOrThrow(requestedPrinterName, installed);
-            var jobId = "CPIPOS-HTML-" + DateTimeOffset.Now.ToString("yyyyMMddHHmmssfff");
+            var resolvedPrinter = ResolvePrinterNameOrThrow(requestedPrinterName, GetInstalledPrinterNames());
+            using var settings = new PrinterSettings { PrinterName = resolvedPrinter };
+            if (!settings.IsValid)
+            {
+                throw new InvalidOperationException("Selected Windows printer is unavailable: " + resolvedPrinter);
+            }
+
             var htmlToPrint = NormalizeHtmlForReceiptPrint(html);
-
+            var jobId = "CPIPOS-HTML-" + DateTimeOffset.Now.ToString("yyyyMMddHHmmssfff");
+            var resultSource = new TaskCompletionSource<PrintResult>(TaskCreationOptions.RunContinuationsAsynchronously);
             using var printTimeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            // The bridge HTTP request expires after 30 s. Return an explicit
+            // unknown result before then, and NEVER auto-submit a second job.
             printTimeout.CancelAfter(TimeSpan.FromSeconds(25));
+            using var timeoutRegistration = printTimeout.Token.Register(() =>
+                resultSource.TrySetException(new TimeoutException(
+                    "Windows WebView2 print did not confirm spool acceptance within 25 seconds. Physical result unknown; do not retry automatically.")));
 
-            var completion = new TaskCompletionSource<PrintResult>(TaskCreationOptions.RunContinuationsAsynchronously);
-            using var registration = printTimeout.Token.Register(() =>
+            var thread = new Thread(() =>
             {
-                completion.TrySetException(new TimeoutException("HTML receipt print timed out."));
-            });
-
-            var printThread = new Thread(() =>
-            {
-                string? originalDefaultPrinter = null;
-                var defaultPrinterChanged = false;
-                System.Windows.Forms.ApplicationContext? context = null;
-                System.Windows.Forms.WebBrowser? browser = null;
-                System.Windows.Forms.Timer? timeoutTimer = null;
-
-                void Finish(Exception? error)
+                Form? host = null;
+                var finished = 0;
+                void Finish(Exception? failure)
                 {
-                    try { timeoutTimer?.Stop(); } catch { }
-
-                    try
+                    if (Interlocked.Exchange(ref finished, 1) != 0) return;
+                    if (failure != null)
                     {
-                        if (defaultPrinterChanged && !string.IsNullOrWhiteSpace(originalDefaultPrinter))
-                        {
-                            SetDefaultPrinter(originalDefaultPrinter);
-                        }
-                    }
-                    catch
-                    {
-                        // Restoring default printer should not fail the sale.
-                    }
-
-                    if (error != null)
-                    {
-                        completion.TrySetException(error);
+                        resultSource.TrySetException(failure);
                     }
                     else
                     {
-                        completion.TrySetResult(new PrintResult(jobId, resolvedPrinter));
+                        resultSource.TrySetResult(new PrintResult(jobId, resolvedPrinter));
                     }
+                    if (host is { IsDisposed: false, IsHandleCreated: true })
+                    {
+                        try { host.BeginInvoke(new Action(host.Close)); } catch { /* UI already closed */ }
+                    }
+                }
 
-                    try { context?.ExitThread(); } catch { }
+                async Task PrintOnStaAsync(Microsoft.Web.WebView2.WinForms.WebView2 webView)
+                {
+                    try
+                    {
+                        printTimeout.Token.ThrowIfCancellationRequested();
+                        var profile = Path.Combine(
+                            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                            "CpIPOS", "WindowsWebPOS", "ReceiptWebView2");
+                        Directory.CreateDirectory(profile);
+                        var environment = await Microsoft.Web.WebView2.Core.CoreWebView2Environment.CreateAsync(
+                            userDataFolder: profile);
+                        await webView.EnsureCoreWebView2Async(environment);
+                        printTimeout.Token.ThrowIfCancellationRequested();
+
+                        var navigation = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+                        webView.CoreWebView2.NavigationCompleted += (_, args) =>
+                        {
+                            if (args.IsSuccess) navigation.TrySetResult(true);
+                            else navigation.TrySetException(new InvalidOperationException(
+                                "HTML receipt failed to load in Windows WebView2: " + args.WebErrorStatus));
+                        };
+                        webView.CoreWebView2.NavigateToString(htmlToPrint);
+                        await navigation.Task.WaitAsync(TimeSpan.FromSeconds(12), printTimeout.Token);
+
+                        // Ensure fonts and image assets have been given time to load,
+                        // otherwise the logo and Thai text may differ from the POS
+                        // HTML receipt template.
+                        var rendered = await webView.CoreWebView2.ExecuteScriptAsync(
+                            "(async()=>{if(!document.body || !document.body.innerText.trim()) return false;" +
+                            "await document.fonts.ready;" +
+                            "await Promise.race([Promise.all(Array.from(document.images).map(i=>" +
+                            "i.complete?Promise.resolve():new Promise(r=>{i.onload=r;i.onerror=r;})))," +
+                            "new Promise(r=>setTimeout(r,2500))]);return true;})()");
+                        if (rendered != "true")
+                        {
+                            throw new InvalidOperationException("receipt_html_render_failed: empty or invalid receipt.");
+                        }
+                        printTimeout.Token.ThrowIfCancellationRequested();
+
+                        var printerSettings = webView.CoreWebView2.Environment.CreatePrintSettings();
+                        printerSettings.PrinterName = resolvedPrinter;
+                        printerSettings.ShouldPrintBackgrounds = true;
+                        printerSettings.ShouldPrintHeaderAndFooter = false;
+                        printerSettings.MarginTop = 0;
+                        printerSettings.MarginRight = 0;
+                        printerSettings.MarginBottom = 0;
+                        printerSettings.MarginLeft = 0;
+                        // Respect the thermal driver's configured 80 mm roll
+                        // instead of forcing A4 or an unsupported custom media.
+                        var status = await webView.CoreWebView2.PrintAsync(printerSettings);
+                        if (status != Microsoft.Web.WebView2.Core.CoreWebView2PrintStatus.Succeeded)
+                        {
+                            throw new InvalidOperationException(
+                                "Windows WebView2 printer rejected receipt: " + status + " (" + resolvedPrinter + ").");
+                        }
+                        Finish(null);
+                    }
+                    catch (Exception exception)
+                    {
+                        Finish(exception);
+                    }
                 }
 
                 try
                 {
-                    originalDefaultPrinter = GetSystemDefaultPrinter();
-
-                    if (
-                        !string.IsNullOrWhiteSpace(resolvedPrinter) &&
-                        !string.Equals(originalDefaultPrinter, resolvedPrinter, StringComparison.OrdinalIgnoreCase)
-                    )
+                    // Separate isolated WebView2 host for receipts. Do not navigate
+                    // the cashier WebView, steal focus or show a print dialog.
+                    host = new Form
                     {
-                        defaultPrinterChanged = SetDefaultPrinter(resolvedPrinter);
-                    }
-
-                    context = new System.Windows.Forms.ApplicationContext();
-                    browser = new System.Windows.Forms.WebBrowser
-                    {
-                        ScriptErrorsSuppressed = true,
-                        ScrollBarsEnabled = false,
-                        Width = 420,
-                        Height = 1800
+                        ShowInTaskbar = false,
+                        FormBorderStyle = FormBorderStyle.None,
+                        StartPosition = FormStartPosition.Manual,
+                        Location = new Point(-32000, -32000),
+                        Size = new Size(380, 1000),
+                        Opacity = 0.01
                     };
-
-                    timeoutTimer = new System.Windows.Forms.Timer { Interval = 12000 };
-                    timeoutTimer.Tick += (_, _) =>
+                    var receiptBrowser = new Microsoft.Web.WebView2.WinForms.WebView2
                     {
-                        Finish(new TimeoutException("HTML receipt render timed out."));
+                        Dock = DockStyle.Fill,
+                        DefaultBackgroundColor = Color.White
                     };
-
-                    browser.DocumentCompleted += (_, _) =>
-                    {
-                        if (browser.ReadyState != System.Windows.Forms.WebBrowserReadyState.Complete)
-                        {
-                            return;
-                        }
-
-                        try
-                        {
-                            timeoutTimer.Stop();
-                            browser.Print();
-                            Finish(null);
-                        }
-                        catch (Exception printError)
-                        {
-                            Finish(printError);
-                        }
-                    };
-
-                    timeoutTimer.Start();
-                    browser.DocumentText = htmlToPrint;
-                    System.Windows.Forms.Application.Run(context);
+                    host.Controls.Add(receiptBrowser);
+                    host.Shown += (_, _) => { _ = PrintOnStaAsync(receiptBrowser); };
+                    Application.Run(host);
                 }
-                catch (Exception error)
+                catch (Exception exception)
                 {
-                    Finish(error);
+                    Finish(exception);
                 }
                 finally
                 {
-                    try { timeoutTimer?.Dispose(); } catch { }
-                    try { browser?.Dispose(); } catch { }
+                    try { host?.Dispose(); } catch { }
                 }
             });
+            thread.IsBackground = true;
+            thread.SetApartmentState(ApartmentState.STA);
+            thread.Start();
 
-            printThread.IsBackground = true;
-            printThread.SetApartmentState(ApartmentState.STA);
-            printThread.Start();
-
-            var result = await completion.Task.ConfigureAwait(false);
-
+            var accepted = await resultSource.Task.ConfigureAwait(false);
             _printedJobs++;
             _lastError = null;
             _lastPrintAt = DateTimeOffset.Now;
             _lastPrinter = resolvedPrinter;
-            return result;
+            return accepted;
         }
         finally
         {
