@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type PointerEvent as ReactPointerEvent } from "react";
-import { hasLocalWindowsPrintBridge, printWindowsReceiptHtml } from "@/lib/printing/windows-local-printer-test";
+import { hasLocalWindowsPrintBridge } from "@/lib/printing/windows-local-printer-test";
 import Image from "next/image";
 import type { OrderType } from "@pos/shared-types";
 import { ErrorState, LoadingState } from "@/components/backoffice/list-state";
@@ -527,24 +527,6 @@ type SlipVerifyResponseBody = ApiErrorBody & {
   };
 };
 
-type BluetoothReceiptPrintResponseBody = ApiErrorBody & {
-  data?: {
-    ok?: boolean;
-    code?: string;
-    message?: string;
-    action?: string;
-    timestamp?: string;
-    data?: {
-      fallback_to_browser_print?: boolean;
-      jobs?: Array<{
-        id: string;
-        status: "pending" | "printing" | "printed" | "failed" | "retrying";
-        last_error: string | null;
-        printed_at: string | null;
-      }>;
-    };
-  };
-};
 
 type TableBillSessionPayload = {
   id: string;
@@ -8113,9 +8095,9 @@ export function PosSalesModule({
 
       const printQueued = Number(body.data?.print_jobs_queued ?? 0) > 0 || body.data?.print_jobs_deferred === true;
       const windowsManualReceipt = hasLocalWindowsPrintBridge();
-      // The payment API may have queued a legacy Android print job. That is
-      // not evidence that Windows printed any receipt. Keep the manual
-      // Windows receipt action accessible until the cashier explicitly closes.
+      // The server creates an idempotent, device-scoped receipt and drawer
+      // print job after payment. Windows agent delivery is the only automatic
+      // Windows print path; no manual receipt button or second local dispatch.
       const printWarning = windowsManualReceipt ? null : (body.data?.print_warning ?? (printQueued ? null : "receipt_print_not_queued"));
       console.info("[pos-payment] payment_saved", { order_id: cashReviewOrder.order_id, order_no: cashReviewOrder.order_no, payment_method: "cash", print_deferred: body.data?.print_jobs_deferred === true, print_jobs_queued: body.data?.print_jobs_queued ?? 0 });
       setReceiptSaved(true);
@@ -8941,122 +8923,6 @@ export function PosSalesModule({
     primeReceiptPrintFrameRef.current = primeReceiptPrintFrame;
   });
 
-  async function handleReceiptPrint() {
-    if (!receiptSession || receiptSaving) return;
-    const printTrace = beginPosActionTrace("receipt.print", {
-      order_no: receiptSession.order_no
-    });
-    const receiptHtml = buildReceiptPrintHtml(receiptSession);
-    let bluetoothFallbackReason: string | null = null;
-
-    if (hasLocalWindowsPrintBridge()) {
-      try {
-        const printed = await printWindowsReceiptHtml(receiptHtml, { orderNo: receiptSession.order_no });
-        setReceiptAutoPrinted(true);
-        pushSubmitMessage(
-          lang === "th"
-            ? `Windows ส่งใบเสร็จไปยังคิว ${printed.printer} แล้ว กรุณาตรวจว่ากระดาษออกจริง: ${receiptSession.order_no}`
-            : `Receipt submitted to Windows ${printed.printer}; verify the physical paper: ${receiptSession.order_no}`
-        );
-        endPosActionTrace(printTrace, "ok", {
-          order_no: receiptSession.order_no,
-          transport: "local_bridge_windows_receipt",
-          job_id: printed.spoolJobId
-        });
-      } catch (error) {
-        // NEVER fall back to Bluetooth, browser print, or Android Print Agent
-        // on a Windows unknown outcome: receipt may have printed already.
-        setReceiptAutoPrinted(false);
-        const message = error instanceof Error ? error.message : "windows_receipt_print_failed";
-        pushSubmitMessage(message);
-        endPosActionTrace(printTrace, "error", {
-          order_no: receiptSession.order_no,
-          transport: "local_bridge_windows_receipt",
-          error: message
-        });
-      }
-      return;
-    }
-
-    try {
-      const { response, body } = await fetchJsonWithTimeout<BluetoothReceiptPrintResponseBody>(
-        "/api/pos/receipts/bluetooth",
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            order_id: receiptSession.order_id,
-            order_no: receiptSession.order_no,
-            receipt_html: receiptHtml
-          })
-        },
-        7000,
-        0
-      );
-
-      const code = body.error?.code ?? "";
-      if (response.ok && !body.error) {
-        const envelope = body.data;
-        const jobs = Array.isArray(envelope?.data?.jobs) ? envelope!.data!.jobs! : [];
-        const printedCount = jobs.filter((job) => job.status === "printed").length;
-        const failedCount = jobs.filter((job) => job.status === "failed").length;
-        if (envelope?.ok === true && printedCount > 0 && failedCount === 0) {
-          pushSubmitMessage(lang === "th" ? `ส่งพิมพ์ Bluetooth สำเร็จ ${printedCount} เครื่อง` : `Bluetooth print sent (${printedCount} printer(s)).`);
-          endPosActionTrace(printTrace, "ok", {
-            order_no: receiptSession.order_no,
-            transport: "bluetooth_bridge",
-            printer_count: printedCount
-          });
-          return;
-        }
-        if (envelope?.data?.fallback_to_browser_print === true) {
-          bluetoothFallbackReason = envelope.message ?? (localSaleLabel("กำลังพิมพ์ผ่านโหมดสำรอง", "Using fallback print mode."));
-        }
-        if (failedCount > 0) {
-          bluetoothFallbackReason = localSaleLabel("พิมพ์ Bluetooth ไม่สำเร็จบางเครื่อง กำลังเปิดหน้าพิมพ์สำรอง", "Bluetooth print failed on some printers. Falling back to browser print.");
-        } else if (printedCount === 0) {
-          bluetoothFallbackReason = localSaleLabel("ยังไม่พบผลพิมพ์ Bluetooth กำลังเปิดหน้าพิมพ์สำรอง", "No Bluetooth print result yet. Falling back to browser print.");
-        }
-      } else if (code !== "bluetooth_printer_not_configured") {
-        bluetoothFallbackReason =
-          body.error?.message ??
-          (localSaleLabel("พิมพ์ Bluetooth ไม่สำเร็จ กำลังเปิดหน้าพิมพ์สำรอง", "Bluetooth print failed. Falling back to browser print."));
-      }
-    } catch (error) {
-      bluetoothFallbackReason =
-        error instanceof Error && error.message
-          ? `${localSaleLabel("พิมพ์ Bluetooth ไม่สำเร็จ", "Bluetooth print failed")}: ${error.message}`
-          : lang === "th"
-            ? "พิมพ์ Bluetooth ไม่สำเร็จ กำลังเปิดหน้าพิมพ์สำรอง"
-            : "Bluetooth print failed. Falling back to browser print.";
-    }
-
-    if (bluetoothFallbackReason) {
-      pushSubmitMessage(bluetoothFallbackReason);
-    }
-
-    try {
-      const frame = await primeReceiptPrintFrame(receiptSession, receiptHtml);
-      const frameWindow = frame.contentWindow;
-      if (!frameWindow) {
-        throw new Error("missing_print_frame_window");
-      }
-      frameWindow.focus();
-      frameWindow.print();
-      endPosActionTrace(printTrace, "ok", {
-        order_no: receiptSession.order_no,
-        transport: "iframe_print"
-      });
-    } catch (error) {
-      pushSubmitMessage(localSaleLabel("ไม่สามารถเปิดหน้าพิมพ์ได้", "Unable to open print dialog."));
-      endPosActionTrace(printTrace, "error", {
-        order_no: receiptSession.order_no,
-        transport: "iframe_print",
-        error: error instanceof Error ? error.message : "unknown_print_error"
-      });
-    }
-  }
-
   async function autoPrintReceiptToWindowsRuntime(session: ReceiptSession, trigger: string) {
     if (typeof window === "undefined") return;
 
@@ -9153,8 +9019,8 @@ export function PosSalesModule({
       window.clearTimeout(receiptAutoCloseTimerRef.current);
       receiptAutoCloseTimerRef.current = null;
     }
-    // On installed Windows POS the cashier must decide whether/when to print.
-    // Do not silently dismiss the receipt after the server queues an Android job.
+    // The installed Windows print agent reports spool status asynchronously.
+    // Preserve its popup until the operator sees the result, without printing again.
     if (hasLocalWindowsPrintBridge()) return;
     const elapsedMs = Math.max(0, Date.now() - (receiptModalOpenedAtRef.current || Date.now()));
     const minimumWaitMs = Math.max(0, RECEIPT_MODAL_MIN_VISIBLE_MS - elapsedMs);
@@ -10355,7 +10221,6 @@ export function PosSalesModule({
           paymentNoticeSubmitting={paymentNoticeSubmitting}
           paymentNoticeError={paymentNoticeError}
           onCloseReceipt={closeReceiptPopup}
-          onPrintReceipt={handleReceiptPrint}
       />
 
       {ingredientAdjustDialog ? (
