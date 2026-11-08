@@ -39,8 +39,10 @@ describe("POS lock after kitchen acknowledgement", () => {
   });
 
   it("checks confirmed item quantities, not simply whether an order has been dispatched", () => {
-    expect(migration).toContain("SELECT DISTINCT oi.id");
-    expect(migration).toContain("SUM(quantity) AS min_quantity");
+    expect(migration).toContain("LEAST(MAX(oi.quantity), SUM(GREATEST(kti.quantity, 0)))");
+    expect(migration).toContain("pos_ever_acknowledged");
+    expect(migration).toContain("CREATE TRIGGER trg_kitchen_ticket_pos_acceptance");
+    expect(migration).toContain("SUM(locked_quantity) AS min_quantity");
     expect(migration).toContain("COALESCE(d.quantity, 0) < c.min_quantity");
     expect(migration).toContain("('acknowledged', 'preparing', 'ready')");
     expect(migration).toContain("kds_line_cancelled");

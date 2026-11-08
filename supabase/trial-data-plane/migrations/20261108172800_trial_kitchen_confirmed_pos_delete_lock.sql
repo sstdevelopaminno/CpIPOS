@@ -3,6 +3,32 @@
 -- POS-only kitchen confirmation guard. Kitchen-side line cancellation retains
 -- its existing RPC; cashier edits and voids must use these guarded RPCs.
 -- p_lock_confirmed_items comes from the authoritative primary-DB branch setting.
+
+-- A kitchen confirmation remains recorded even if a KDS operator reopens
+-- the ticket. POS must not infer "never accepted" from a later queued status.
+CREATE OR REPLACE FUNCTION public.stamp_kitchen_ticket_pos_acceptance()
+RETURNS trigger
+LANGUAGE plpgsql SET search_path TO 'pg_catalog', 'public'
+AS $function$
+BEGIN
+  IF NEW.status::text IN ('acknowledged', 'preparing', 'ready') THEN
+    NEW.metadata := COALESCE(NEW.metadata, '{}'::jsonb)
+      || jsonb_build_object('pos_ever_acknowledged', true);
+  END IF;
+  RETURN NEW;
+END;
+$function$;
+
+DROP TRIGGER IF EXISTS trg_kitchen_ticket_pos_acceptance ON public.kitchen_tickets;
+CREATE TRIGGER trg_kitchen_ticket_pos_acceptance
+BEFORE INSERT OR UPDATE OF status ON public.kitchen_tickets
+FOR EACH ROW EXECUTE FUNCTION public.stamp_kitchen_ticket_pos_acceptance();
+
+UPDATE public.kitchen_tickets
+SET metadata = COALESCE(metadata, '{}'::jsonb) || jsonb_build_object('pos_ever_acknowledged', true)
+WHERE status::text IN ('acknowledged', 'preparing', 'ready')
+  AND COALESCE(metadata->>'pos_ever_acknowledged', 'false') <> 'true';
+
 CREATE OR REPLACE FUNCTION app.replace_queued_dine_in_order_pos_guarded_tx(
   p_tenant_id uuid, p_branch_id uuid, p_shift_id uuid,
   p_actor_user_id uuid, p_order_id uuid, p_table_id uuid,
@@ -32,7 +58,9 @@ BEGIN
     -- can still be added; unconfirmed lines with other keys remain editable.
     IF EXISTS (
       WITH confirmed_lines AS (
-        SELECT DISTINCT oi.id, oi.product_id, COALESCE(BTRIM(oi.notes), '') AS notes_key, oi.quantity
+        SELECT oi.id AS order_item_id, oi.product_id,
+               COALESCE(BTRIM(oi.notes), '') AS notes_key,
+               LEAST(MAX(oi.quantity), SUM(GREATEST(kti.quantity, 0))) AS locked_quantity
           FROM public.order_items oi
           JOIN public.kitchen_ticket_items kti
             ON kti.order_item_id = oi.id AND kti.tenant_id = oi.tenant_id AND kti.branch_id = oi.branch_id
@@ -40,11 +68,13 @@ BEGIN
             ON kt.id = kti.kitchen_ticket_id AND kt.tenant_id = oi.tenant_id AND kt.branch_id = oi.branch_id
          WHERE oi.order_id = p_order_id AND oi.tenant_id = p_tenant_id AND oi.branch_id = p_branch_id
            AND oi.quantity > 0 AND COALESCE(oi.metadata->>'bill_line_state', 'active') <> 'cancelled'
-           AND kt.status IN ('acknowledged', 'preparing', 'ready')
+           AND (kt.status::text IN ('acknowledged', 'preparing', 'ready')
+                OR COALESCE(kt.metadata->>'pos_ever_acknowledged', 'false') = 'true')
            AND kti.action <> 'cancel' AND COALESCE((kti.metadata->>'kds_line_cancelled')::boolean, false) = false
+         GROUP BY oi.id, oi.product_id, COALESCE(BTRIM(oi.notes), '')
       ),
       confirmed AS (
-        SELECT product_id, notes_key, SUM(quantity) AS min_quantity
+        SELECT product_id, notes_key, SUM(locked_quantity) AS min_quantity
         FROM confirmed_lines GROUP BY product_id, notes_key
       ),
       desired AS (
@@ -135,7 +165,8 @@ BEGIN
         ON kt.id = kti.kitchen_ticket_id AND kt.tenant_id = oi.tenant_id AND kt.branch_id = oi.branch_id
       WHERE oi.order_id = p_order_id AND oi.tenant_id = p_tenant_id AND oi.branch_id = p_branch_id
         AND oi.quantity > 0 AND COALESCE(oi.metadata->>'bill_line_state', 'active') <> 'cancelled'
-        AND kt.status IN ('acknowledged', 'preparing', 'ready')
+        AND (kt.status::text IN ('acknowledged', 'preparing', 'ready')
+             OR COALESCE(kt.metadata->>'pos_ever_acknowledged', 'false') = 'true')
         AND kti.action <> 'cancel' AND COALESCE((kti.metadata->>'kds_line_cancelled')::boolean, false) = false
     ) THEN
       RAISE EXCEPTION 'KITCHEN_CONFIRMED_ITEM_LOCKED' USING ERRCODE = 'P0001';
@@ -153,3 +184,5 @@ REVOKE ALL ON FUNCTION public.cancel_queued_pos_order_kitchen_guarded_tx(
 GRANT EXECUTE ON FUNCTION public.cancel_queued_pos_order_kitchen_guarded_tx(
   uuid,uuid,uuid,uuid,uuid,text,boolean
 ) TO service_role;
+
+NOTIFY pgrst, 'reload schema';
