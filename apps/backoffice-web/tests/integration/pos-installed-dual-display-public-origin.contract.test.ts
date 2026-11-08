@@ -27,7 +27,7 @@ describe("release candidates use the public production POS origin and independen
     expect(bridge).toContain('"https://pos.cuttingpointinnovation.com"');
     expect(bridge).toContain('X-CpIPOS-Bridge-Token');
     expect(bridge).not.toContain('"https://cp-ipos-web.vercel.app"');
-    expect(main).toContain('native_app_version = "0.2.3"');
+    expect(main).toContain('native_app_version = "0.2.4"');
   });
   it("keeps two-screen display read-only, optional and separate from cashier controls", () => {
     expect(main).toContain("Screen.AllScreens.FirstOrDefault(screen => !screen.Primary)");
@@ -38,7 +38,7 @@ describe("release candidates use the public production POS origin and independen
     expect(androidWorkflow).toContain('ANDROID_RUNTIME_VERSION_CODE: "36"');
     expect(androidWorkflow).toContain("android-runtime-modern-1.0.27-dual-screen-qa2");
     expect(androidWorkflow).toContain("-PcpiposDualScreen=true");
-    expect(windowsWorkflow).toContain("WINDOWS_RUNTIME_VERSION: 0.2.3");
-    expect(windowsWorkflow).toContain("windows-webpos-v0.2.3-print-qa1");
+    expect(windowsWorkflow).toContain("WINDOWS_RUNTIME_VERSION: 0.2.4");
+    expect(windowsWorkflow).toContain("windows-webpos-v0.2.4-print-qa1");
   });
 });
