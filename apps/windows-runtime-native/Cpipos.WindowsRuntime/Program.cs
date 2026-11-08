@@ -32,7 +32,7 @@ internal static class Program
 
 internal sealed class RuntimeOptions
 {
-    private const string ProductionAppUrl = "https://cp-ipos-web.vercel.app/login/store";
+    private const string ProductionAppUrl = "https://pos.cuttingpointinnovation.com/login/store";
 
     public string AppUrl { get; init; } = ProductionAppUrl;
     public string StoreCode { get; init; } = string.Empty;
@@ -47,9 +47,9 @@ internal sealed class RuntimeOptions
     public string BridgePrintUrl => $"http://127.0.0.1:{BridgePort}/print";
     public string BridgeHealthUrl => $"http://127.0.0.1:{BridgePort}/health";
     public string BridgePrintersUrl => $"http://127.0.0.1:{BridgePort}/printers";
-    public string WindowsRuntimeBootstrapUrl => "https://cp-ipos-web.vercel.app/api/windows-runtime/v1/bootstrap";
-    public string WindowsRuntimeEntitlementsUrl => "https://cp-ipos-web.vercel.app/api/windows-runtime/v1/entitlements";
-    public string WindowsRuntimeSyncStatusUrl => "https://cp-ipos-web.vercel.app/api/windows-runtime/v1/sync/status";
+    public string WindowsRuntimeBootstrapUrl => "https://pos.cuttingpointinnovation.com/api/windows-runtime/v1/bootstrap";
+    public string WindowsRuntimeEntitlementsUrl => "https://pos.cuttingpointinnovation.com/api/windows-runtime/v1/entitlements";
+    public string WindowsRuntimeSyncStatusUrl => "https://pos.cuttingpointinnovation.com/api/windows-runtime/v1/sync/status";
 
     public static RuntimeOptions FromArgs(string[] args)
     {
@@ -137,7 +137,7 @@ internal sealed class RuntimeOptions
     private static bool IsProductionAppUri(Uri uri)
     {
         return uri.Scheme == Uri.UriSchemeHttps &&
-               string.Equals(uri.Host, "cp-ipos-web.vercel.app", StringComparison.OrdinalIgnoreCase);
+               string.Equals(uri.Host, "pos.cuttingpointinnovation.com", StringComparison.OrdinalIgnoreCase);
     }
 
     private static bool IsLocalDevelopmentUri(Uri uri)
