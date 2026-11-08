@@ -1,0 +1,320 @@
+name: Build CpIPOS Windows Web POS 0.2.2 Public Origin Dual Display QA
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/build-windows-webpos-022-dual-screen-qa.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/build-windows-webpos-022-dual-screen-qa.yml"
+      - "apps/windows-runtime-native/**"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  WINDOWS_RUNTIME_PROJECT: apps/windows-runtime-native/Cpipos.WindowsRuntime/Cpipos.WindowsRuntime.csproj
+  WINDOWS_RUNTIME_ICON_B64: apps/windows-runtime-native/Cpipos.WindowsRuntime/assets/cpipos.ico.b64
+  WINDOWS_RUNTIME_ICON: apps/windows-runtime-native/Cpipos.WindowsRuntime/assets/cpipos.ico
+  WINDOWS_RUNTIME_OUTPUT: artifacts/CpIPOS-WindowsRuntime-win-x64
+  WINDOWS_RUNTIME_ZIP: artifacts/CpIPOS-WindowsRuntime-win-x64.zip
+  WINDOWS_RUNTIME_SETUP: artifacts/CpIPOS-WindowsRuntime-Setup.exe
+  WINDOWS_WEB_POS_SETUP: artifacts/CpIPOS-WindowsWebPOS-Setup.exe
+  WINDOWS_RUNTIME_RELEASE_TAG: windows-runtime-latest
+  WINDOWS_RUNTIME_SETUP_ASSET_NAME: CpIPOS-WindowsRuntime-Setup.exe
+  WINDOWS_WEB_POS_SETUP_ASSET_NAME: CpIPOS-WindowsWebPOS-Setup.exe
+  WINDOWS_RUNTIME_ZIP_ASSET_NAME: CpIPOS-WindowsRuntime-win-x64.zip
+  WINDOWS_RUNTIME_VERSION: 0.2.2
+
+jobs:
+  build-windows-runtime:
+    name: Build Windows Runtime Installer
+    runs-on: windows-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Restore app icon from repository
+        shell: pwsh
+        run: |
+          if (!(Test-Path $env:WINDOWS_RUNTIME_ICON_B64)) {
+            throw "Icon source not found: $env:WINDOWS_RUNTIME_ICON_B64"
+          }
+
+          $iconDir = Split-Path -Parent $env:WINDOWS_RUNTIME_ICON
+          New-Item -ItemType Directory -Force -Path $iconDir | Out-Null
+
+          $iconBase64 = (Get-Content $env:WINDOWS_RUNTIME_ICON_B64 -Raw).Trim()
+          [System.IO.File]::WriteAllBytes($env:WINDOWS_RUNTIME_ICON, [Convert]::FromBase64String($iconBase64))
+
+          if (!(Test-Path $env:WINDOWS_RUNTIME_ICON)) {
+            throw "Icon was not restored: $env:WINDOWS_RUNTIME_ICON"
+          }
+
+          $finalBytes = [System.IO.File]::ReadAllBytes($env:WINDOWS_RUNTIME_ICON)
+          if (!($finalBytes.Length -gt 6 -and $finalBytes[0] -eq 0 -and $finalBytes[1] -eq 0 -and $finalBytes[2] -eq 1 -and $finalBytes[3] -eq 0)) {
+            throw "Final app icon is not a valid Windows .ico file: $env:WINDOWS_RUNTIME_ICON"
+          }
+          Write-Host "Using uploaded CpIPOS repository icon: $env:WINDOWS_RUNTIME_ICON ($($finalBytes.Length) bytes)"
+
+      - name: Validate Windows runtime version consistency
+        shell: pwsh
+        run: |
+          $expected = $env:WINDOWS_RUNTIME_VERSION
+          $csproj = Get-Content $env:WINDOWS_RUNTIME_PROJECT -Raw
+          $mainForm = Get-Content "apps/windows-runtime-native/Cpipos.WindowsRuntime/MainForm.cs" -Raw
+          $bridge = Get-Content "apps/windows-runtime-native/Cpipos.WindowsRuntime/LocalPrintBridge.cs" -Raw
+          $installer = Get-Content "apps/windows-runtime-native/installer/CpIPOSWindowsRuntime.iss" -Raw
+
+          $csprojVersion = "<Version>$expected</Version>"
+          $nativeAppVersion = 'native_app_version = "' + $expected + '"'
+          $bridgeVersion = "cpipos-windows-native-bridge-$expected"
+          $installerVersion = '#define AppVersion "' + $expected + '"'
+
+          if (-not $csproj.Contains($csprojVersion)) { throw "csproj Version does not match $expected" }
+          if (-not $mainForm.Contains($nativeAppVersion)) { throw "MainForm native_app_version does not match $expected" }
+          if (-not $bridge.Contains($bridgeVersion)) { throw "LocalPrintBridge version does not match $expected" }
+          if (-not $installer.Contains($installerVersion)) { throw "Installer default AppVersion does not match $expected" }
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: Restore
+        shell: pwsh
+        run: dotnet restore $env:WINDOWS_RUNTIME_PROJECT
+
+      - name: Publish Windows x64 self-contained app
+        shell: pwsh
+        run: |
+          dotnet publish $env:WINDOWS_RUNTIME_PROJECT `
+            -c Release `
+            -r win-x64 `
+            --self-contained true `
+            -p:PublishSingleFile=true `
+            -p:IncludeNativeLibrariesForSelfExtract=true `
+            -p:EnableCompressionInSingleFile=true `
+            -o $env:WINDOWS_RUNTIME_OUTPUT
+
+      - name: Bundle and validate CpIPOS icon
+        shell: pwsh
+        run: |
+          $outputIconDir = Join-Path $env:WINDOWS_RUNTIME_OUTPUT "assets"
+          $outputIcon = Join-Path $outputIconDir "cpipos.ico"
+          $rootOutputIcon = Join-Path $env:WINDOWS_RUNTIME_OUTPUT "cpipos.ico"
+          New-Item -ItemType Directory -Force -Path $outputIconDir | Out-Null
+          Copy-Item -Force $env:WINDOWS_RUNTIME_ICON $outputIcon
+          Copy-Item -Force $env:WINDOWS_RUNTIME_ICON $rootOutputIcon
+
+          foreach ($path in @($outputIcon, $rootOutputIcon)) {
+            if (!(Test-Path $path)) {
+              throw "Bundled icon missing: $path"
+            }
+            $bytes = [System.IO.File]::ReadAllBytes($path)
+            if (!($bytes.Length -gt 6 -and $bytes[0] -eq 0 -and $bytes[1] -eq 0 -and $bytes[2] -eq 1 -and $bytes[3] -eq 0)) {
+              throw "Bundled icon is not a valid Windows .ico file: $path"
+            }
+            Write-Host "Bundled icon ready: $path ($($bytes.Length) bytes)"
+          }
+
+          $exePath = Join-Path $env:WINDOWS_RUNTIME_OUTPUT "Cpipos.WindowsRuntime.exe"
+          if (!(Test-Path $exePath)) {
+            throw "Published app executable missing: $exePath"
+          }
+
+          Add-Type -AssemblyName System.Drawing
+          $icon = [System.Drawing.Icon]::ExtractAssociatedIcon($exePath)
+          if ($null -eq $icon) {
+            throw "Published executable did not return an associated icon: $exePath"
+          }
+          Write-Host "Published executable associated icon size: $($icon.Width)x$($icon.Height)"
+
+      - name: Add README
+        shell: pwsh
+        run: |
+          @'
+          CpIPOS Windows Runtime
+          ======================
+
+          Recommended for customers:
+            Run CpIPOS-WindowsRuntime-Setup.exe to install CpIPOS Windows Runtime.
+
+          Store-code activation:
+            CpIPOS Web, CpIPOS Windows, and future CpIPOS mobile apps use the same store code anchor.
+            First activation must be unlocked by IT Backoffice package entitlement.
+            Temporary NDL-TH-001 demo unlock requires WINDOWS_RUNTIME_ENABLE_DEMO_STORE_CODE on the server.
+
+          Portable fallback:
+            Extract CpIPOS-WindowsRuntime-win-x64.zip and run Cpipos.WindowsRuntime.exe.
+
+          Optional command line:
+            Cpipos.WindowsRuntime.exe --store-code=NDL-TH-001
+            Cpipos.WindowsRuntime.exe --printer=MTP-II
+            Cpipos.WindowsRuntime.exe --fullscreen
+            Cpipos.WindowsRuntime.exe --windowed
+            Cpipos.WindowsRuntime.exe --devtools
+            Cpipos.WindowsRuntime.exe --url=http://localhost:3000/login/store --allow-custom-url
+
+          Local bridge inside the app:
+            http://127.0.0.1:3210/health
+            http://127.0.0.1:3210/printers
+            http://127.0.0.1:3210/print/status
+            http://127.0.0.1:3210/print/test
+            http://127.0.0.1:3210/print
+
+          Bridge security:
+          - /printers, /print/test, and /print require X-CpIPOS-Bridge-Token.
+          - The token is generated per app launch and injected into the WebView session.
+          - Production runtime URLs are restricted to https://cp-ipos-web.vercel.app unless --allow-custom-url is used for local development.
+
+          Icon behavior:
+          - CpIPOS uses the bundled assets/cpipos.ico for title bar and shortcuts.
+          - The installer also installs cpipos.ico at the app root for fallback.
+          - If Windows still shows the old icon after reinstall, clear Windows icon cache.
+
+          Notes:
+          - CpIPOS Web is still the main web app.
+          - This package is the Windows runtime for Windows POS terminals.
+          - It opens as a normal Windows window by default, with minimize/maximize/close controls.
+          - It includes a native local print bridge with serialized print jobs.
+          - Offline sales database and sync queue foundation are included as schema/contract only in this phase.
+          '@ | Set-Content -Encoding UTF8 "$env:WINDOWS_RUNTIME_OUTPUT/README-WINDOWS-RUNTIME.txt"
+
+      - name: Zip portable package
+        shell: pwsh
+        run: |
+          if (Test-Path $env:WINDOWS_RUNTIME_ZIP) {
+            Remove-Item -Force $env:WINDOWS_RUNTIME_ZIP
+          }
+          Compress-Archive -Path "$env:WINDOWS_RUNTIME_OUTPUT/*" -DestinationPath $env:WINDOWS_RUNTIME_ZIP -Force
+
+      - name: Install Inno Setup
+        shell: pwsh
+        run: choco install innosetup --no-progress -y
+
+      - name: Build Windows installer
+        shell: pwsh
+        run: |
+          $iscc = "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
+          if (!(Test-Path $iscc)) {
+            throw "Inno Setup compiler not found: $iscc"
+          }
+
+          & $iscc `
+            "apps/windows-runtime-native/installer/CpIPOSWindowsRuntime.iss" `
+            "/DAppVersion=$env:WINDOWS_RUNTIME_VERSION" `
+            "/DSourceDir=$env:GITHUB_WORKSPACE\artifacts\CpIPOS-WindowsRuntime-win-x64" `
+            "/DOutputDir=$env:GITHUB_WORKSPACE\artifacts" `
+            "/DIconFile=$env:GITHUB_WORKSPACE\apps\windows-runtime-native\Cpipos.WindowsRuntime\assets\cpipos.ico"
+
+          if (!(Test-Path $env:WINDOWS_RUNTIME_SETUP)) {
+            throw "Installer was not created: $env:WINDOWS_RUNTIME_SETUP"
+          }
+
+      - name: Build dedicated Windows Web POS installer
+        shell: pwsh
+        run: |
+          $iscc = "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
+          if (!(Test-Path $iscc)) {
+            throw "Inno Setup compiler not found: $iscc"
+          }
+
+          $webIssPath = "apps/windows-runtime-native/installer/CpIPOSWindowsWebPOS.iss"
+          $webIss = Get-Content $webIssPath -Raw
+          if (-not $webIss.Contains('Parameters: "--legacy-web-pos --windowed"')) {
+            throw "The Windows Web POS shortcut must explicitly launch the WebView2 POS"
+          }
+          if (-not $webIss.Contains('OutputBaseFilename=CpIPOS-WindowsWebPOS-Setup')) {
+            throw "Dedicated Windows Web POS installer filename is missing"
+          }
+
+          & $iscc `
+            $webIssPath `
+            "/DAppVersion=$env:WINDOWS_RUNTIME_VERSION" `
+            "/DSourceDir=$env:GITHUB_WORKSPACE\artifacts\CpIPOS-WindowsRuntime-win-x64" `
+            "/DOutputDir=$env:GITHUB_WORKSPACE\artifacts" `
+            "/DIconFile=$env:GITHUB_WORKSPACE\apps\windows-runtime-native\Cpipos.WindowsRuntime\assets\cpipos.ico"
+
+          if ($LASTEXITCODE -ne 0 -or !(Test-Path $env:WINDOWS_WEB_POS_SETUP)) {
+            throw "Windows Web POS installer was not created: $env:WINDOWS_WEB_POS_SETUP"
+          }
+
+      - name: Validate installer and packaged icon
+        shell: pwsh
+        run: |
+          $setupPath = $env:WINDOWS_RUNTIME_SETUP
+          if (!(Test-Path $setupPath)) {
+            throw "Installer missing: $setupPath"
+          }
+          $setupSize = (Get-Item $setupPath).Length
+          if ($setupSize -lt 1000000) {
+            throw "Installer size looks too small: $setupSize bytes"
+          }
+
+          $outputIcon = Join-Path $env:WINDOWS_RUNTIME_OUTPUT "assets\cpipos.ico"
+          $rootOutputIcon = Join-Path $env:WINDOWS_RUNTIME_OUTPUT "cpipos.ico"
+          foreach ($path in @($outputIcon, $rootOutputIcon)) {
+            if (!(Test-Path $path)) {
+              throw "Release package icon missing before upload: $path"
+            }
+          }
+          Write-Host "Installer ready with bundled CpIPOS icon: $setupPath ($setupSize bytes)"
+          $webSetupSize = (Get-Item $env:WINDOWS_WEB_POS_SETUP).Length
+          if ($webSetupSize -lt 1000000) {
+            throw "Web POS installer size looks too small: $webSetupSize bytes"
+          }
+          Write-Host "Windows Web POS installer ready: $env:WINDOWS_WEB_POS_SETUP ($webSetupSize bytes)"
+
+      - name: Upload workflow artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: CpIPOS-WindowsRuntime
+          path: |
+            ${{ env.WINDOWS_RUNTIME_SETUP }}
+            ${{ env.WINDOWS_WEB_POS_SETUP }}
+            ${{ env.WINDOWS_RUNTIME_ZIP }}
+          if-no-files-found: error
+
+      - name: Validate secondary-display guard and read-only customer screen
+        shell: pwsh
+        run: |
+          $main = Get-Content "apps/windows-runtime-native/Cpipos.WindowsRuntime/MainForm.cs" -Raw
+          $display = Get-Content "apps/windows-runtime-native/Cpipos.WindowsRuntime/CustomerDisplayWindow.cs" -Raw
+          if (-not $main.Contains("Screen.AllScreens.FirstOrDefault(screen => !screen.Primary)")) { throw "Windows secondary monitor detection missing" }
+          if (-not $main.Contains("SyncCustomerDisplayAsync()")) { throw "Windows customer display startup missing" }
+          if (-not $display.Contains("/customer-display/v2/native")) { throw "Customer Display V2 URL missing" }
+          if (-not $display.Contains("CoreWebView2Environment environment")) { throw "Shared authenticated WebView2 environment missing" }
+          if (-not $display.Contains("NavigationStarting")) { throw "Secondary screen navigation restriction missing" }
+          if ($display.Contains("bridge_token") -or $display.Contains("CpIPOSWindowsRuntime")) { throw "Print authorization must never be injected into customer screen" }
+
+      - name: Publish immutable Windows Web POS QA pre-release
+        if: github.ref == 'refs/heads/main'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          $tag = "windows-webpos-v0.2.2-beta1"
+          $path = $env:WINDOWS_WEB_POS_SETUP
+          if (!(Test-Path $path)) { throw "Web POS installer was not built" }
+          $hash = (Get-FileHash -Path $path -Algorithm SHA256).Hash.ToLowerInvariant()
+          $size = (Get-Item $path).Length
+          if ($size -lt 1000000) { throw "Windows installer size invalid" }
+          $sums = "artifacts/SHA256SUMS-WebPOS-0.2.2.txt"
+          "$hash  CpIPOS-WindowsWebPOS-Setup.exe" | Out-File -Encoding ascii $sums
+          gh release view $tag --repo $env:GITHUB_REPOSITORY *> $null
+          if ($LASTEXITCODE -eq 0) { throw "Existing installer release must never be overwritten" }
+          gh release create $tag $path $sums `
+            --repo $env:GITHUB_REPOSITORY `
+            --target $env:GITHUB_SHA `
+            --title "CpIPOS Windows Web POS 0.2.2 Two-Display QA" `
+            --prerelease `
+            --notes "BETA/PILOT ONLY. WebView2 main cashier + isolated same-session Customer Display V2 on a detected secondary Windows monitor; Local Print Bridge retained. Windows 10/11 x64. No Authenticode code-signing: follow Windows installer prompts. Hardware receipts (58/80mm), cash drawer, dual-screen physical QA, printer spool acknowledgement, Windows reinstall and duplicate prevention still require on-device acceptance. Earlier 0.2.0 installer remains unchanged."
+          if ($LASTEXITCODE -ne 0) { throw "GitHub QA pre-release publication failed" }
+          Write-Host "Windows Web POS QA published; SHA256=$hash size=$size"
