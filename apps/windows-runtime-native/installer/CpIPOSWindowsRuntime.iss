@@ -4,7 +4,7 @@
 #define AppIconName "cpipos.ico"
 
 #ifndef AppVersion
-#define AppVersion "0.2.3"
+#define AppVersion "0.2.4"
 #endif
 
 #ifndef SourceDir

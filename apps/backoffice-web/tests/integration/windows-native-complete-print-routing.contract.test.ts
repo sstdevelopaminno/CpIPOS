@@ -6,6 +6,19 @@ import { resolveWindowsAgentJob } from "../../src/lib/printing/windows-print-job
 const read = (path: string) => readFileSync(resolve(process.cwd(), path), "utf8");
 
 describe("Windows local POS printing: sale, reprint, kitchen, shift, notices and drawer", () => {
+  it("accepts an offscreen Thai HTML receipt after DOM readiness instead of checking innerText on a Promise", () => {
+    const bridge = read("../windows-runtime-native/Cpipos.WindowsRuntime/LocalPrintBridge.cs");
+    expect(bridge).toContain("body.textContent");
+    expect(bridge).toContain("WebMessageReceived += onRenderMessage");
+    expect(bridge).toContain("WebMessageReceived -= onRenderMessage");
+    expect(bridge).toContain("renderReady.Task.WaitAsync");
+    expect(bridge).toContain('notify("ready")');
+    expect(bridge).toContain("CoreWebView2.PrintAsync(printerSettings)");
+    expect(bridge).not.toContain('if (rendered != "true")');
+    expect(bridge).not.toContain("document.body.innerText.trim()");
+    expect(bridge).not.toContain("browser.Print();");
+  });
+
   const html = "<html><body><h1>ร้านค้า</h1></body></html>";
   const base = { printerRole: "receipt", printerAssigned: true, metadata: {}, html };
 
