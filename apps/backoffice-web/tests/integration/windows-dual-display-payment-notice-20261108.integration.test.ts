@@ -99,6 +99,7 @@ describe("payment notice button for Windows thermal routing", () => {
     expect(cashier).toContain("signal: AbortSignal.timeout(5_000)");
     expect(cashier).toContain("let qrDataUri: string | null = null");
     expect(cashier).toContain("setPaymentNoticeError(message)");
+    expect(cashier).toContain('if (hasLocalWindowsPrintBridge()) {\n        window.dispatchEvent(new Event("cpi-windows-print-agent-wake"));');
     expect(endpoint).toContain('requirePosSession()');
     expect(endpoint).toContain("qrDataUri && !validQrDataUri(qrDataUri)");
     expect(endpoint).toContain("print_jobs_queued: jobs.length");
