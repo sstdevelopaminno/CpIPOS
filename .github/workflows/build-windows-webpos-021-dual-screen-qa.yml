@@ -1,15 +1,7 @@
 name: Build CpIPOS Windows Web POS 0.2.1 Dual Display QA
 
+# Superseded QA build. Archived for provenance; never auto-publish this tag again.
 on:
-  push:
-    branches: [main]
-    paths:
-      - ".github/workflows/build-windows-webpos-021-dual-screen-qa.yml"
-  pull_request:
-    branches: [main]
-    paths:
-      - ".github/workflows/build-windows-webpos-021-dual-screen-qa.yml"
-      - "apps/windows-runtime-native/**"
   workflow_dispatch:
 
 permissions:
