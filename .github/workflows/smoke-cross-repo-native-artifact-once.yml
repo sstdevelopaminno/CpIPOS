@@ -1,0 +1,26 @@
+name: Verify public Native CI artifact handoff (one time)
+on:
+  push:
+    branches: [main]
+    paths: [.github/workflows/smoke-cross-repo-native-artifact-once.yml]
+permissions:
+  contents: read
+  actions: read
+jobs:
+  download:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Read prior publicly accessible reviewed Native CI build artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: cpipos-native-preview-debug-apk
+          repository: sstdevelopaminno/cpipos-native-pos
+          run-id: 42468780409
+          github-token: ${{ github.token }}
+          path: native-preview
+      - name: Check archive extraction succeeded, no signing key accessed
+        run: |
+          set -euo pipefail
+          test -s native-preview/app-debug.apk
+          echo "Cross-repository binary artifact handoff available to central signing workflow"
