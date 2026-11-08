@@ -607,7 +607,7 @@ export function PosPaymentModals({
                 {transferError ? <p className="posui-payment-modal__error posui-payment-modal__error--transfer">{transferError}</p> : null}
                 {paymentNoticeError ? <p className="posui-payment-modal__error posui-payment-modal__error--transfer">{paymentNoticeError}</p> : null}
                 <div className="posui-payment-modal__actions posui-payment-modal__actions--transfer">
-                  {onPrintPaymentNotice && Boolean(transferReviewOrder.table_id) ? (
+                  {onPrintPaymentNotice ? (
                     <button type="button" className="posui-btn posui-btn--payment-notice" onClick={() => void onPrintPaymentNotice()} disabled={transferSubmitting || paymentNoticeSubmitting}>
                       {paymentNoticeSubmitting ? text.submitting : (text.printPaymentNotice ?? "พิมพ์ใบแจ้งชำระเงิน")}
                     </button>
