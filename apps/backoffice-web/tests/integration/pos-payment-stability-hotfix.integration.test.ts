@@ -117,17 +117,16 @@ describe("POS payment stability hotfix", () => {
     expect(sideEffectSource).not.toContain("openCashDrawerAfterCashPayment");
   });
 
-  it("paid receipt modal retains no manual reprint for browser POS; Windows-native exception is gated", () => {
+  it("paid receipt popup never offers an extra manual print on Web or Windows", () => {
     const modalSource = source("src/components/pos/pos-payment-modals.tsx");
     const salesSource = source("src/components/pos/pos-sales-module.tsx");
-    expect(modalSource).toContain("windowsNativeReceipt && onPrintReceipt");
-    expect(modalSource).toContain("receiptPrintBusy");
-    expect(modalSource).toContain("receiptAttemptedForOrder === receiptSession.order_id");
-    expect(modalSource).toContain("setReceiptAttemptedForOrder(receiptSession.order_id)");
-    expect(modalSource).toContain("disabled={!receiptSaved || receiptSaving || receiptPrintBusy || receiptAttemptedForOrder === receiptSession.order_id}");
-    expect(salesSource).toContain("onPrintReceipt={handleReceiptPrint}");
+    expect(modalSource).not.toContain("windowsNativeReceipt && onPrintReceipt");
+    expect(modalSource).not.toContain("printReceiptOnce");
+    expect(modalSource).not.toContain("receiptAttemptedForOrder");
+    expect(salesSource).not.toContain("onPrintReceipt={handleReceiptPrint}");
     expect(salesSource).toContain("windowsNativeReceipt={windowsPrintRuntimeDetected}");
     expect(salesSource).toContain("if (hasLocalWindowsPrintBridge()) return;");
+    expect(salesSource).toContain('new Event("cpi-windows-print-agent-wake")');
   });
 
   it("dine-in transfer can print a payment notice without confirming payment", () => {
