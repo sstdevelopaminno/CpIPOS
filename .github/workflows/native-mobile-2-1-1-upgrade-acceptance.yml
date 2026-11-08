@@ -82,6 +82,27 @@ jobs:
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
 
+      - name: Prepare persistent install test script
+        run: |
+          cat > "$RUNNER_TEMP/verify-native-upgrade.sh" <<'BASH'
+          set -euo pipefail
+          original="baseline/CpIPOS-Native-Mobile-2.1.0.apk"
+          updated="$(cat candidate-apk-path.txt)"
+          adb install "$original"
+          adb shell pm path com.cpipos.pos.next | grep -q "package:"
+          before="$(adb shell dumpsys package com.cpipos.pos.next | sed -n 's/.*userId=\([0-9]*\).*/\1/p' | head -n1)"
+          test -n "$before"
+          adb install -r "$updated"
+          after="$(adb shell dumpsys package com.cpipos.pos.next | sed -n 's/.*userId=\([0-9]*\).*/\1/p' | head -n1)"
+          test "$before" = "$after" || { echo "Android app UID changed during in-place install"; exit 1; }
+          adb shell dumpsys package com.cpipos.pos.next > "$RUNNER_TEMP/native-package.txt"
+                      grep -q 'versionCode=2011000' "$RUNNER_TEMP/native-package.txt"
+          adb shell am start -n com.cpipos.pos.next/.MainActivity
+          sleep 6
+          adb shell pidof com.cpipos.pos.next >/dev/null || { echo "App exited after upgrade"; exit 1; }
+          echo "PASS API ${{ matrix.api_level }}: Stable 2.1.0 to signed 2.1.1 without uninstall or package UID change."
+          BASH
+
       - name: Verify Android installer updates the same package in place
         uses: reactivecircus/android-emulator-runner@v2
         with:
@@ -90,19 +111,4 @@ jobs:
           arch: x86_64
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
-          script: |
-            set -euo pipefail
-            original="baseline/CpIPOS-Native-Mobile-2.1.0.apk"
-            updated="$(cat candidate-apk-path.txt)"
-            adb install "$original"
-            adb shell pm list packages | grep -q '^package:com.cpipos.pos.next'
-            before="$(adb shell dumpsys package com.cpipos.pos.next | sed -n 's/.*userId=\([0-9]*\).*/\1/p' | head -n1)"
-            test -n "$before"
-            adb install -r "$updated"
-            after="$(adb shell dumpsys package com.cpipos.pos.next | sed -n 's/.*userId=\([0-9]*\).*/\1/p' | head -n1)"
-            test "$before" = "$after" || { echo "Android app UID changed during in-place install"; exit 1; }
-            adb shell dumpsys package com.cpipos.pos.next | grep -q 'versionCode=2011000'
-            adb shell am start -n com.cpipos.pos.next/.MainActivity
-            sleep 6
-            adb shell pidof com.cpipos.pos.next >/dev/null || { echo "App exited after upgrade"; exit 1; }
-            echo "PASS API ${{ matrix.api_level }}: Stable 2.1.0 to signed 2.1.1 without uninstall or package UID change."
+          script: bash "$RUNNER_TEMP/verify-native-upgrade.sh"
