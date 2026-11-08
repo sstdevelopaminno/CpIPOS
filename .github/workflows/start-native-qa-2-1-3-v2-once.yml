@@ -1,0 +1,21 @@
+name: Retry signed Native Mobile 2.1.3 QA with Gradle v6 (one time)
+on:
+  push:
+    branches: [main]
+    paths: [.github/workflows/start-native-qa-2-1-3-v2-once.yml]
+permissions:
+  actions: write
+  contents: read
+jobs:
+  dispatch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Queue verified source against repaired release workflow
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh workflow run build-native-mobile-release.yml --repo sstdevelopaminno/CpIPOS --ref main \
+            -f native_source_sha=35867cb81edc47ae865a806acd3c820bd5dfbb65 \
+            -f version_name=2.1.3 -f version_code=2013000 -f publish_stable=false
