@@ -1,10 +1,10 @@
 #define AppName "CpIPOS"
-#define AppPublisher "Cutting Point Tech Co., Ltd."
+#define AppPublisher "CUTTING POINT INNOVATION"
 #define AppExeName "Cpipos.WindowsRuntime.exe"
 #define AppIconName "cpipos.ico"
 
 #ifndef AppVersion
-#define AppVersion "0.2.0"
+#define AppVersion "0.2.1"
 #endif
 
 #ifndef SourceDir
