@@ -106,7 +106,9 @@ export function renderReceiptHtml(input: ReceiptHtmlInput) {
   const itemRows = input.items.map((item) => {
     const parsedNotes = parsePosItemNotes(item.note);
     const optionParts = parsedNotes.optionNotes.split(",").map((part) => part.trim()).filter(Boolean);
-    const optionRows = optionParts.length > 1
+    // A single modifier must remain visible when the cashier also entered
+    // a separate item detail. The old length > 1 branch silently hid it.
+    const optionRows = parsedNotes.detailNote || optionParts.length > 1
       ? optionParts.map((part) => `<div class="choice">+ ${escapeHtml(part)}</div>`).join("")
       : "";
     const legacyNote = !parsedNotes.detailNote && optionParts.length === 1 ? optionParts[0] : "";

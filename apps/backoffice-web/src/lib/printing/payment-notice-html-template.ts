@@ -1,3 +1,5 @@
+import { formatPosItemNotesForDisplay } from "@/lib/pos-item-notes";
+
 export type PaymentNoticeItem = {
   name: string;
   quantity: number;
@@ -70,7 +72,7 @@ export function renderPaymentNoticeHtml(input: PaymentNoticeHtmlInput) {
   const subtotal = input.items.reduce((sum, item) => sum + Number(item.lineTotal ?? 0), 0);
   const itemRows = input.items.map((item) => `
     <tr>
-      <td class="col-name"><strong>${escapeHtml(item.name)}</strong><div class="unit">x ${escapeHtml(money(item.unitPrice))}${item.note ? `<div>${escapeHtml(item.note)}</div>` : ""}</div></td>
+      <td class="col-name"><strong>${escapeHtml(item.name)}</strong><div class="unit">x ${escapeHtml(money(item.unitPrice))}${item.note ? `<div class="item-note">${escapeHtml(formatPosItemNotesForDisplay(item.note))}</div>` : ""}</div></td>
       <td class="col-qty">${escapeHtml(qty(item.quantity))}</td>
       <td class="col-total">${escapeHtml(money(item.lineTotal))}</td>
     </tr>`).join("");
@@ -100,6 +102,7 @@ export function renderPaymentNoticeHtml(input: PaymentNoticeHtmlInput) {
     .col-name { padding-right: 1mm; overflow-wrap: anywhere; }
     .col-qty { width: ${layout.qtyMm}mm; text-align: center; }
     .col-total { width: ${layout.totalMm}mm; text-align: right; white-space: nowrap; }
+    .item-note { white-space: pre-line; overflow-wrap: anywhere; margin-top: .3mm; }
     .unit, .foot { font-size: ${paper === 58 ? 10.75 : 11.5}px; }
     .due { margin: 1mm 0; padding: 1mm 0; border-top: 1px solid #000; border-bottom: 1px solid #000; font-size: ${layout.grandPx}px; font-weight: 900; }
     .due-before-qr { margin-bottom: 1.2mm; padding-bottom: 1mm; }
