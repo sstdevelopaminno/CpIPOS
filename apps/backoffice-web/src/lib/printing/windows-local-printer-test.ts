@@ -223,7 +223,7 @@ export async function printWindowsReceiptHtml(
       job_id?: string;
     }> | null;
     if (!response.ok || payload?.ok !== true || payload.data?.printed !== true ||
-        payload.data?.provider !== "native_winforms_html_receipt" ||
+        !["native_webview2_html_receipt", "native_winforms_html_receipt"].includes(payload.data?.provider ?? "") ||
         (nativePrinterName && payload.data.printer_name !== nativePrinterName)) {
       throw new Error(payload?.error?.message ?? "Windows HTML receipt renderer ไม่ยืนยันการรับงานพิมพ์");
     }
