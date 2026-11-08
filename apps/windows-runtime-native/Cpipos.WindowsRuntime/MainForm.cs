@@ -17,6 +17,11 @@ internal sealed class MainForm : Form
     private bool _initializing;
     private bool _coreWebView2Configured;
     private Panel? _initTimeoutPanel;
+    private CoreWebView2Environment? _sharedWebEnvironment;
+    private CustomerDisplayWindow? _customerDisplayWindow;
+    private string? _customerDisplayMonitor;
+    private bool _syncingCustomerDisplay;
+    private readonly System.Windows.Forms.Timer _displaySyncTimer = new() { Interval = 12000 };
 
     public MainForm(RuntimeOptions options, LocalPrintBridge bridge)
     {
@@ -55,6 +60,14 @@ internal sealed class MainForm : Form
 
         Shown += async (_, _) => await InitializeWebViewAsync();
         KeyDown += HandleKeyDown;
+        _displaySyncTimer.Tick += async (_, _) => await SyncCustomerDisplayAsync();
+        FormClosed += (_, _) =>
+        {
+            _displaySyncTimer.Stop();
+            _displaySyncTimer.Dispose();
+            _customerDisplayWindow?.Close();
+            _customerDisplayWindow = null;
+        };
     }
 
     private void TryLoadApplicationIcon()
@@ -116,6 +129,9 @@ internal sealed class MainForm : Form
 
             HideInitTimeoutFallback();
             await ConfigureCoreWebView2AndNavigateAsync();
+            _sharedWebEnvironment = environment;
+            await SyncCustomerDisplayAsync();
+            _displaySyncTimer.Start();
         }
         catch (TimeoutException)
         {
@@ -175,6 +191,62 @@ internal sealed class MainForm : Form
 
         await _webView.CoreWebView2.AddScriptToExecuteOnDocumentCreatedAsync(BuildRuntimeBootstrapScript());
         NavigateToApp();
+    }
+
+    private async Task SyncCustomerDisplayAsync()
+    {
+        if (!_options.UseLegacyWebPos || _syncingCustomerDisplay || IsDisposed) return;
+        var environment = _sharedWebEnvironment;
+        if (environment == null) return;
+
+        _syncingCustomerDisplay = true;
+        try
+        {
+            // Mirrored desktop modes expose only one Screen. Never attempt
+            // to open a second cashier surface on an unverified monitor.
+            var externalScreen = Screen.AllScreens.FirstOrDefault(screen => !screen.Primary);
+            if (externalScreen == null)
+            {
+                _customerDisplayWindow?.Close();
+                _customerDisplayWindow = null;
+                _customerDisplayMonitor = null;
+                return;
+            }
+            if (_customerDisplayWindow is { IsDisposed: false } &&
+                _customerDisplayMonitor == externalScreen.DeviceName)
+            {
+                if (_customerDisplayWindow.Bounds != externalScreen.Bounds)
+                    _customerDisplayWindow.Bounds = externalScreen.Bounds;
+                return;
+            }
+            _customerDisplayWindow?.Close();
+            _customerDisplayWindow = null;
+            _customerDisplayMonitor = null;
+            if (!Uri.TryCreate(_options.AppUrl, UriKind.Absolute, out var appUri))
+                return;
+
+            var window = new CustomerDisplayWindow(externalScreen);
+            try
+            {
+                window.Show(this);
+                await WithTimeoutAsync(window.StartAsync(environment, appUri), WebViewInitTimeoutMs);
+                if (IsDisposed || window.IsDisposed)
+                {
+                    window.Close();
+                    return;
+                }
+                _customerDisplayWindow = window;
+                _customerDisplayMonitor = externalScreen.DeviceName;
+                Activate(); // Restore cashier keyboard focus after opening the customer screen.
+            }
+            catch (Exception error)
+            {
+                window.Close();
+                // A secondary monitor failure must not interrupt sales/payment.
+                System.Diagnostics.Debug.WriteLine("Customer Display V2 unavailable: " + error.Message);
+            }
+        }
+        finally { _syncingCustomerDisplay = false; }
     }
 
     private static async Task<T> WithTimeoutAsync<T>(Task<T> task, int timeoutMs)
@@ -296,7 +368,7 @@ internal sealed class MainForm : Form
             identity_anchor = "store_code",
             store_code = _options.StoreCode,
             app_url = _options.AppUrl,
-            native_app_version = "0.2.0",
+            native_app_version = "0.2.1",
             native_bridge_version = _bridge.Version,
             native_bridge_available = _bridge.IsRunning,
             bridge_health_url = _options.BridgeHealthUrl,
