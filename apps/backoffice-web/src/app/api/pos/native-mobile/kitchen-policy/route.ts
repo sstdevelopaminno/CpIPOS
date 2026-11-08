@@ -26,9 +26,11 @@ export async function GET() {
       tenantId: auth.tenantId,
       branchId: auth.branchId
     });
-    return ok({
+    const response = ok({
       effective_kitchen_auto_send_enabled: policy.effective.kitchen_auto_send_enabled
-    }, 200, headers);
+    });
+    response.headers.set("Cache-Control", headers["Cache-Control"]);
+    return response;
   } catch {
     return fail("native_kitchen_policy_unavailable", "Kitchen policy could not be verified.", 503);
   }
