@@ -15,7 +15,8 @@ import { invalidatePosScopeRuntimeCaches } from "@/lib/pos-cache-invalidation";
 import { getProductSpecialPrice, isProductRecommended } from "@/lib/pos/product-metadata";
 import { POS_GUARDS } from "@/lib/pos-resilience";
 import { invalidatePosSalesListCacheForScope } from "@/lib/services/pos-sales-list-service";
-import { queueMissingKitchenPrintJobsForOrder } from "@/lib/services/kitchen-routing-service";
+import { dispatchOrderToKitchen, queueMissingKitchenPrintJobsForOrder } from "@/lib/services/kitchen-routing-service";
+import { loadTableQrAutomationPolicyForScope } from "@/lib/services/table-qr-automation-policy-service";
 import { executeCreatePosOrderTransaction } from "@/lib/services/pos-sales-service";
 import { resolveNativeMobileSaleLines, type NativeSelectionInput } from "@/lib/services/native-mobile-modifier-pricing";
 import { calculateTaxBreakdown, loadPosNotificationSettings, loadTaxSettings } from "@/lib/services/pos-settings-service";
@@ -1269,6 +1270,42 @@ export async function POST(req: Request) {
     }
 
     const createdOrderId = String((result.data as { id?: unknown; order_id?: unknown }).id ?? (result.data as { id?: unknown; order_id?: unknown }).order_id ?? "");
+    // The legacy takeaway /api/pos/orders path dispatches KDS tickets after
+    // commit. Native configured takeaway uses /api/pos/sales instead, so it
+    // needs equivalent server-owned routing or the cashier sees the order but
+    // the kitchen receives nothing. Never undo/retry the committed POS sale
+    // solely because downstream kitchen routing is offline.
+    if (normalizedBody.native_mobile === true && normalizedBody.order_type === "takeaway" && createdOrderId) {
+      try {
+        const kitchenPolicy = await loadTableQrAutomationPolicyForScope({
+          tenantId: auth.tenantId!,
+          branchId: auth.branchId!
+        });
+        if (kitchenPolicy.effective.kitchen_auto_send_enabled) {
+          const kitchenResult = await dispatchOrderToKitchen({
+            tenantId: auth.tenantId!,
+            branchId: auth.branchId!,
+            orderId: createdOrderId,
+            eventKey: `native-mobile:takeaway:${createdOrderId}:new`,
+            action: "new",
+            actorUserId: auth.userId,
+            actorRole: scope.session.role
+          });
+          if (!kitchenResult.ok || kitchenResult.routedZoneCount === 0) {
+            console.warn("[pos-sales] Native takeaway KDS needs review", {
+              order_id: createdOrderId, branch_id: auth.branchId!,
+              event_key: kitchenResult.eventKey,
+              reason: kitchenResult.ok ? "no_kitchen_zone" : kitchenResult.code
+            });
+          }
+        }
+      } catch (kitchenError) {
+        console.warn("[pos-sales] Native takeaway was committed but kitchen could not be confirmed", {
+          order_id: createdOrderId,
+          reason: kitchenError instanceof Error ? kitchenError.message : "kitchen_error"
+        });
+      }
+    }
     if (!result.data.duplicate_request) await queueKitchenPrintRecoveryForPosOrder({ auth, orderId: createdOrderId, runtimeDeviceCode: scope.session.device_code });
     invalidatePosScopeRuntimeCaches({ tenantId: auth.tenantId!, branchId: auth.branchId! });
     invalidatePosSalesListCacheForScope({ tenantId: auth.tenantId!, branchId: auth.branchId! });
