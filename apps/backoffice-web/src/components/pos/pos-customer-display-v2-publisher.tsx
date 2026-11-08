@@ -4,6 +4,7 @@ import { useEffect, useRef } from "react";
 import {
   buildCustomerDisplayV2Channel,
   CUSTOMER_DISPLAY_V2_ENABLED_KEY,
+  isIntegratedWindowsWebPos,
   CUSTOMER_DISPLAY_V2_IDLE_TIMEOUT_MS,
   CUSTOMER_DISPLAY_V2_LAST_ACTIVITY_KEY,
   CUSTOMER_DISPLAY_V2_PAID_VISIBLE_MS,
@@ -224,7 +225,7 @@ export function PosCustomerDisplayV2Publisher() {
 
     const buildAndPublish = () => {
       if (disposed) return;
-      if (window.localStorage.getItem(CUSTOMER_DISPLAY_V2_ENABLED_KEY) !== "1") return;
+      if ((window.localStorage.getItem(CUSTOMER_DISPLAY_V2_ENABLED_KEY) !== "1" && !isIntegratedWindowsWebPos())) return;
 
       const nowMs = Date.now();
       const cart = readJson<CartItem[]>(CART_KEY) ?? [];
