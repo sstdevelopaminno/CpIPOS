@@ -753,8 +753,7 @@ internal sealed class LocalPrintBridge : IDisposable
 <style id="cpipos-runtime-html-receipt-print">
 @page { margin: 0; }
 html, body {
-  margin: 0 !important;
-  padding: 0 !important;
+  /* Keep the receipt template margins/padding; do not override its 80mm layout. */
   background: #fff !important;
   color: #000 !important;
   -webkit-print-color-adjust: exact;
