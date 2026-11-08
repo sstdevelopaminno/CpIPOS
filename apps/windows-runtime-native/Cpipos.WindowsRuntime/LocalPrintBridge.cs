@@ -21,7 +21,7 @@ internal sealed class LocalPrintBridge : IDisposable
 {
     private static readonly HashSet<string> AllowedOrigins = new(StringComparer.OrdinalIgnoreCase)
     {
-        "https://cp-ipos-web.vercel.app",
+        "https://pos.cuttingpointinnovation.com",
         "http://localhost:3000",
         "http://127.0.0.1:3000"
     };
@@ -52,7 +52,7 @@ internal sealed class LocalPrintBridge : IDisposable
     [DllImport("winspool.drv", CharSet = CharSet.Auto, SetLastError = true)]
     private static extern bool SetDefaultPrinter(string name);
 
-    public string Version => "cpipos-windows-native-bridge-0.2.1";
+    public string Version => "cpipos-windows-native-bridge-0.2.2";
     public bool IsRunning { get; private set; }
 
     public LocalPrintBridge(int port, string defaultPrinter, string bridgeToken)

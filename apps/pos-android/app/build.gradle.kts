@@ -37,11 +37,11 @@ android {
         runtimeVersionCodeOverride?.let { versionCode = it }
         runtimeVersionNameOverride?.let { versionName = it }
 
-        buildConfigField("String", "CPIPOS_API_BASE_URL", "\"https://cp-ipos-web.vercel.app\"")
-        buildConfigField("String", "CPIPOS_POS_WEB_URL", "\"https://cp-ipos-web.vercel.app/login/store\"")
-        buildConfigField("String", "CPIPOS_MDM_HEARTBEAT_URL", "\"https://cp-ipos-web.vercel.app/api/android-pos/mdm/heartbeat\"")
-        buildConfigField("String", "CPIPOS_CUSTOMER_DISPLAY_V2_URL", "\"https://cp-ipos-web.vercel.app/customer-display/v2/native\"")
-        buildConfigField("String", "CPIPOS_ANDROID_POS_ALLOWED_HOST", "\"cp-ipos-web.vercel.app\"")
+        buildConfigField("String", "CPIPOS_API_BASE_URL", "\"https://pos.cuttingpointinnovation.com\"")
+        buildConfigField("String", "CPIPOS_POS_WEB_URL", "\"https://pos.cuttingpointinnovation.com/login/store\"")
+        buildConfigField("String", "CPIPOS_MDM_HEARTBEAT_URL", "\"https://pos.cuttingpointinnovation.com/api/android-pos/mdm/heartbeat\"")
+        buildConfigField("String", "CPIPOS_CUSTOMER_DISPLAY_V2_URL", "\"https://pos.cuttingpointinnovation.com/customer-display/v2/native\"")
+        buildConfigField("String", "CPIPOS_ANDROID_POS_ALLOWED_HOST", "\"pos.cuttingpointinnovation.com\"")
         buildConfigField("String", "CPIPOS_UPDATE_CHANNEL", "\"$updateChannel\"")
         buildConfigField("boolean", "CPIPOS_MANAGED_UPDATER_ENABLED", managedUpdaterEnabled.toString())
         buildConfigField(
