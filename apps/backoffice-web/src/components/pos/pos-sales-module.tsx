@@ -8216,6 +8216,11 @@ export function PosSalesModule({
       );
       if (!response.ok || body.error) throw new Error(body.error?.message ?? "payment_notice_print_failed");
       if (Number(body.data?.print_jobs_queued ?? 0) <= 0) throw new Error("payment_notice_printer_not_configured");
+      // Windows Web POS uses its own local print bridge; native Android wake
+      // alone does not trigger the Windows agent after an explicit notice.
+      if (hasLocalWindowsPrintBridge()) {
+        window.dispatchEvent(new Event("cpi-windows-print-agent-wake"));
+      }
       pushSubmitMessage(qrDataUri
         ? localSaleLabel("ส่งพิมพ์ใบแจ้งชำระเงินแล้ว", "Payment notice queued")
         : localSaleLabel("ส่งพิมพ์ใบแจ้งชำระเงินแบบไม่มี QR แล้ว กรุณารับชำระที่แคชเชียร์", "Payment notice queued without QR. Collect payment at cashier."));
