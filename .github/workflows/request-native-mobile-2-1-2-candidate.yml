@@ -1,0 +1,42 @@
+# One-time, reviewed request for a signed *candidate* only.
+# The authoritative build-native-mobile-release.yml verifies keys, digest, package and source SHA.
+# Never set publish_stable=true here: real POS/payment/printing physical acceptance is separate.
+name: Request signed Native 2.1.2 candidate
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/request-native-mobile-2-1-2-candidate.yml
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  dispatch-reviewed-candidate:
+    if: "contains(github.event.head_commit.message, 'chore(release): request signed Native 2.1.2 candidate')"
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Confirm exact approved Native main SHA
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REVIEWED_SHA: "5a01f6fa57397ce9c2ea4791621c918f8edb4380"
+        run: |
+          set -euo pipefail
+          actual="$(gh api repos/sstdevelopaminno/cpipos-native-pos/commits/main --jq '.sha')"
+          if [ "$actual" != "$REVIEWED_SHA" ]; then
+            echo "::error::Native main moved; re-review the exact source commit."
+            exit 1
+          fi
+      - name: Dispatch existing trusted signing authority (candidate only)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh workflow run build-native-mobile-release.yml \
+            --repo sstdevelopaminno/CpIPOS --ref main \
+            -f native_source_sha=5a01f6fa57397ce9c2ea4791621c918f8edb4380 \
+            -f version_name=2.1.2 \
+            -f version_code=2012000 \
+            -f publish_stable=false
