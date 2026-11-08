@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { validateNativeSaleLine } from "../../src/lib/services/native-mobile-modifier-pricing";
+import { validateNativeSaleLine, nativeAtomicMenuEnabledForBranch } from "../../src/lib/services/native-mobile-modifier-pricing";
 
 const PRODUCT = "aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa";
 const OPT1 = "bbbbbbbb-bbbb-4bbb-bbbb-bbbbbbbbbbbb";
@@ -60,5 +60,28 @@ describe("Native Mobile canonical configured sale price", () => {
       {...product, metadata: {}}, [group], options)).toMatchObject({
       ok: false, code: "special_price_not_configured"
     });
+  });
+});
+
+describe("Native Mobile atomic sale branch-scoped production release gate", () => {
+  const pilot = "0e6cb374-d97f-4fa2-a4aa-8d7247c34529";
+  const other = "00000000-0000-4000-8000-000000000001";
+
+  it("refuses all branches until explicitly approved", () => {
+    expect(nativeAtomicMenuEnabledForBranch(pilot, undefined, undefined)).toBe(false);
+    expect(nativeAtomicMenuEnabledForBranch(other, "false", "")).toBe(false);
+    expect(nativeAtomicMenuEnabledForBranch("bad", "true", pilot)).toBe(false);
+  });
+
+  it("permits only an exact configured pilot branch with global rollout disabled", () => {
+    expect(nativeAtomicMenuEnabledForBranch(pilot, "false", pilot)).toBe(true);
+    expect(nativeAtomicMenuEnabledForBranch(other, "false", pilot)).toBe(false);
+    expect(nativeAtomicMenuEnabledForBranch(other, "false", "not-a-uuid")).toBe(false);
+    expect(nativeAtomicMenuEnabledForBranch(pilot, "false", "not-a-uuid," + pilot)).toBe(true);
+  });
+
+  it("requires an explicit global true for fleet-wide enablement", () => {
+    expect(nativeAtomicMenuEnabledForBranch(other, "true", "")).toBe(true);
+    expect(nativeAtomicMenuEnabledForBranch(other, "TRUE", "")).toBe(false);
   });
 });
