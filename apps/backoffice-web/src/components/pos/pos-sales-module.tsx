@@ -8701,7 +8701,8 @@ export function PosSalesModule({
   function buildReceiptPrintHtml(session: ReceiptSession) {
     const pageHeightMm = Math.min(700, Math.max(120, 78 + session.items.length * 10));
     const paperWidthMm = hasLocalWindowsPrintBridge() ? 80 : 58;
-    const printableWidthMm = paperWidthMm === 80 ? 72 : 48;
+    const printableWidthMm = paperWidthMm === 80 ? 64 : 45;
+    const printableLeftMm = paperWidthMm === 80 ? 2 : 1;
     const logoUrl = getAbsoluteAssetUrl(receiptLogoPath);
     const receiptDiscountAmount = resolveReceiptDiscountAmount(session);
     const receiptTaxLines = resolveTaxLinesForReceipt(session, text.tax);
@@ -8761,7 +8762,7 @@ export function PosSalesModule({
     @page { size: ${paperWidthMm}mm ${pageHeightMm}mm; margin: 0; }
     html, body { margin: 0; padding: 0; width: ${paperWidthMm}mm !important; min-height: ${pageHeightMm}mm; background: #fff; color: #000; font-family: "Noto Sans Thai", "Tahoma", "Segoe UI", sans-serif; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
     * { box-sizing: border-box; }
-    .receipt58 { width: ${printableWidthMm}mm; margin: 0 auto; padding: 1.2mm 0 1.8mm; min-height: ${Math.max(90, pageHeightMm - 4)}mm; font-size: 11px; line-height: 1.28; }
+    .receipt58 { width: ${printableWidthMm}mm; margin: 0 0 0 ${printableLeftMm}mm; padding: 1.2mm 0 1.8mm; min-height: ${Math.max(90, pageHeightMm - 4)}mm; font-size: 11px; line-height: 1.28; }
     .center { text-align: center; }
     .logo-wrap { text-align: center; margin-bottom: 0.8mm; }
     .logo-wrap img { max-width: 28mm; max-height: 9mm; object-fit: contain; }
@@ -8770,11 +8771,11 @@ export function PosSalesModule({
     .hr { border-top: 1px dashed #111; margin: 1.4mm 0; }
     .meta-line { display: table; width: 100%; table-layout: fixed; margin: 0.5mm 0; }
     .meta-line > span { display: table-cell; width: 50%; vertical-align: baseline; }
-    .meta-line span:last-child { text-align: right; }
-    table { width: 100%; border-collapse: collapse; margin-top: 0.6mm; }
+    .meta-line span:last-child { text-align: right; overflow-wrap: anywhere; word-break: break-word; }
+    table { width: 100%; table-layout: fixed; border-collapse: collapse; margin-top: 0.6mm; }
     th, td { padding: 0.6mm 0; vertical-align: top; }
     .col-qty { width: 8mm; text-align: center; }
-    .col-total { width: 16mm; text-align: right; white-space: nowrap; }
+    .col-total { width: 16mm; text-align: right; overflow-wrap: anywhere; word-break: break-word; }
     .name { font-weight: 700; line-height: 1.25; }
     .unit { font-size: 10px; color: #333; line-height: 1.2; }
     .choice, .note { margin-top: 0.4mm; padding-left: 1.5mm; color: #111; font-size: 9.4px; line-height: 1.18; }
@@ -8783,7 +8784,7 @@ export function PosSalesModule({
     .summary-line > span, .summary-line > strong { display: table-cell; width: 50%; vertical-align: baseline; text-align: left; }
     .summary-line > strong { text-align: right; }
     .summary-line span { font-weight: 600; }
-    .summary-line strong { font-weight: 700; white-space: nowrap; }
+    .summary-line strong { font-weight: 700; overflow-wrap: anywhere; word-break: break-word; }
     .summary-line.is-heading {
       padding-bottom: 0.8mm;
       margin-bottom: 0.7mm;
@@ -8806,7 +8807,7 @@ export function PosSalesModule({
     .foot { margin-top: 1.5mm; font-size: 10px; text-align: center; }
     @media print {
       html, body { width: ${paperWidthMm}mm !important; margin: 0 !important; padding: 0 !important; overflow: hidden; }
-      .receipt58 { width: ${printableWidthMm}mm; margin: 0 auto; }
+      .receipt58 { width: ${printableWidthMm}mm; margin: 0 0 0 ${printableLeftMm}mm; }
     }
   </style>
 </head>
