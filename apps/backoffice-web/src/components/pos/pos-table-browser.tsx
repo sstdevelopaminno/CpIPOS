@@ -1,6 +1,6 @@
 "use client";
 
-import { memo, useEffect, useRef } from "react";
+import { memo, useCallback, useEffect, useRef } from "react";
 import { FloorPlanCanvas } from "@/components/tables/floor-plan-canvas";
 import { FloorPlanToolbar } from "@/components/tables/floor-plan-toolbar";
 import { getTableStatusLabel } from "@/components/tables/table-i18n";
@@ -77,10 +77,25 @@ function PosTableBrowserInner({
 }: Props) {
   const warmedTableIdsRef = useRef<Set<string>>(new Set());
   const prefetchRef = useRef(onTablePrefetch);
+  const selectRef = useRef(onSelectTable);
 
   useEffect(() => {
     prefetchRef.current = onTablePrefetch;
-  }, [onTablePrefetch]);
+    selectRef.current = onSelectTable;
+  }, [onSelectTable, onTablePrefetch]);
+
+  // FloorPlanCanvas memoizes each table node by table geometry/status. A
+  // changing onSelect closure would otherwise be kept from a previous mode,
+  // table session, or busy state, making taps appear frozen. Stable dispatchers
+  // always call the current handler without re-rendering every node on each
+  // POS state update.
+  const selectCurrentTable = useCallback((table: DiningTableItem) => {
+    selectRef.current(table);
+  }, []);
+  const prefetchCurrentTable = useCallback((table: DiningTableItem) => {
+    warmedTableIdsRef.current.add(table.id);
+    prefetchRef.current(table);
+  }, []);
 
   const tableEmptyMessage = tableLoadError?.includes("Request timeout") ? text.requestTimeout : tableLoadError;
   const showTableLoading = tableLoading && visibleTables.length === 0;
@@ -117,10 +132,7 @@ function PosTableBrowserInner({
     };
   }, [isBusy, selectedTableId, tableLoading, tableSwitching, visibleTables]);
 
-  const prefetchNow = (table: DiningTableItem) => {
-    warmedTableIdsRef.current.add(table.id);
-    onTablePrefetch(table);
-  };
+  const prefetchNow = prefetchCurrentTable;
 
   const renderTableEmptyState = () => (
     <div className={`posui-table-empty-state ${showTableLoadError ? "is-error" : ""}`} role="listitem" aria-live="polite">
@@ -262,8 +274,8 @@ function PosTableBrowserInner({
               zoom={tableZoom}
               pan={tablePan}
               onPanChange={setTablePan}
-              onTablePrefetch={prefetchNow}
-              onSelect={onSelectTable}
+              onTablePrefetch={prefetchCurrentTable}
+              onSelect={selectCurrentTable}
             />
           </div>
         </>
