@@ -4,6 +4,22 @@ export type CustomerDisplayV2PaymentMethod = "cash" | "bank_transfer" | null;
 export const CUSTOMER_DISPLAY_V2_IDLE_TIMEOUT_MS = 5 * 60_000;
 export const CUSTOMER_DISPLAY_V2_PAID_VISIBLE_MS = 12_000;
 export const CUSTOMER_DISPLAY_V2_ENABLED_KEY = "pos_customer_display_v2_enabled_v001";
+
+/**
+ * Windows Web POS already opens a device-local second monitor automatically.
+ * Unlike a separately paired browser display, it must not require the operator
+ * to open the manual pairing/setup page before sale items start publishing.
+ * The publish/read endpoints still enforce POS session, branch and device scope.
+ * Never auto-enable a regular browser or an unrelated Windows desktop process.
+ */
+export function isIntegratedWindowsWebPos(): boolean {
+  if (typeof window === "undefined") return false;
+  const runtime = (window as unknown as {
+    CpIPOSWindowsRuntime?: { runtime?: string };
+  }).CpIPOSWindowsRuntime;
+  return runtime?.runtime === "windows_native_webview2";
+}
+
 export const CUSTOMER_DISPLAY_V2_PAYMENT_EVENT = "pos:customer-display-v2-payment";
 export const CUSTOMER_DISPLAY_V2_PAYMENT_STORAGE_KEY = "pos_customer_display_v2_payment_v001";
 export const CUSTOMER_DISPLAY_V2_LAST_ACTIVITY_KEY = "pos_customer_display_v2_last_activity_v001";

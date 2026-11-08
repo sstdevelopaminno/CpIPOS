@@ -4,6 +4,7 @@ import { useEffect, useRef } from "react";
 import { shouldDisableNativeCustomerDisplayForDiagnostics, type NativeDisplayDiagnostics } from "@/lib/android-pos/native-device-policy";
 import {
   CUSTOMER_DISPLAY_V2_ENABLED_KEY,
+  isIntegratedWindowsWebPos,
   CUSTOMER_DISPLAY_V2_PAID_VISIBLE_MS,
   CUSTOMER_DISPLAY_V2_PAYMENT_EVENT,
   CUSTOMER_DISPLAY_V2_PAYMENT_STORAGE_KEY,
@@ -55,7 +56,7 @@ export function PosCustomerDisplayV2PaymentObserver() {
 
     const inspect = () => {
       timer = null;
-      if (disposed || window.localStorage.getItem(CUSTOMER_DISPLAY_V2_ENABLED_KEY) !== "1") return;
+      if (disposed || (window.localStorage.getItem(CUSTOMER_DISPLAY_V2_ENABLED_KEY) !== "1" && !isIntegratedWindowsWebPos())) return;
       const nowMs = Date.now();
       const nowIso = new Date(nowMs).toISOString();
       const receipt = document.querySelector<HTMLElement>(".posui-payment-modal--receipt-final");
@@ -140,7 +141,7 @@ export function PosCustomerDisplayV2PaymentObserver() {
     };
 
     const startObserverIfEnabled = () => {
-      if (disposed || observer || window.localStorage.getItem(CUSTOMER_DISPLAY_V2_ENABLED_KEY) !== "1") return;
+      if (disposed || observer || (window.localStorage.getItem(CUSTOMER_DISPLAY_V2_ENABLED_KEY) !== "1" && !isIntegratedWindowsWebPos())) return;
       observer = new MutationObserver(schedule);
       observer.observe(document.body, {
         subtree: true,
