@@ -11,7 +11,7 @@ permissions:
 
 jobs:
   publish-reviewed-qa:
-    if: ${{ github.event.workflow_run.id == 42469417160 && github.event.workflow_run.conclusion == 'success' }}
+    if: ${{ github.event.workflow_run.id == 42469662729 && github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -20,7 +20,7 @@ jobs:
         with:
           name: CpIPOS-Native-Mobile-2.1.3-signed
           repository: sstdevelopaminno/CpIPOS
-          run-id: 42469417160
+          run-id: 42469662729
           github-token: ${{ github.token }}
           path: artifacts
 
