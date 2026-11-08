@@ -7,7 +7,8 @@ const mocks = vi.hoisted(() => ({
   invalidatePosScopeRuntimeCaches: vi.fn(),
   dispatchOrderToKitchen: vi.fn(),
   getSupabaseServiceClient: vi.fn(),
-  getRoutedSupabaseServiceClient: vi.fn()
+  getRoutedSupabaseServiceClient: vi.fn(),
+  loadKitchenConditionsForScope: vi.fn()
 }));
 
 vi.mock("@/lib/pos-api-auth", () => ({ getPosApiAuthContext: mocks.getPosApiAuthContext }));
@@ -21,6 +22,9 @@ vi.mock("@/lib/services/kitchen-routing-service", () => ({
 vi.mock("@/lib/supabase-admin", () => ({ getSupabaseServiceClient: mocks.getSupabaseServiceClient }));
 vi.mock("@/lib/tenant-data-router", () => ({
   getRoutedSupabaseServiceClient: mocks.getRoutedSupabaseServiceClient
+}));
+vi.mock("@/lib/services/kitchen-conditions-service", () => ({
+  loadKitchenConditionsForScope: mocks.loadKitchenConditionsForScope
 }));
 
 function selectRows(row: unknown) {
@@ -58,6 +62,7 @@ describe("POS cancel bill must reverse stock atomically", () => {
       platformRole: "staff"
     });
     mocks.appendAuditLog.mockResolvedValue(undefined);
+    mocks.loadKitchenConditionsForScope.mockResolvedValue({ branch_id: "branch-a", lock_confirmed_items_on_pos: true });
     mocks.dispatchOrderToKitchen.mockResolvedValue({ ok: true, queuedPrintJobCount: 1 });
     dbFrom = vi.fn((table: string) => {
       if (table === "manager_pin_approvals") {
@@ -98,13 +103,14 @@ describe("POS cancel bill must reverse stock atomically", () => {
     expect(payload.data.restored_quantity).toBe(350);
     expect(rpc).toHaveBeenCalledTimes(1);
     expect(rpc).toHaveBeenCalledWith(
-      "cancel_queued_pos_order_and_restore_stock_tx",
+      "cancel_queued_pos_order_kitchen_guarded_tx",
       expect.objectContaining({
         p_tenant_id: "tenant-a",
         p_branch_id: "branch-a",
         p_order_id: orderId,
         p_actor_user_id: "employee-a",
-        p_approval_id: approvalId
+        p_approval_id: approvalId,
+        p_lock_confirmed_items: true
       })
     );
     expect(dbFrom).not.toHaveBeenCalledWith("orders");

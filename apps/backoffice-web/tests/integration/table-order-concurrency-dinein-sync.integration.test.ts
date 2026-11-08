@@ -40,7 +40,7 @@ describe("Table order concurrency and dine-in bill sync hardening", () => {
   });
 
   it("routes dine-in queued edits and empty bill cancellation through database RPCs", () => {
-    expect(posSalesRoute).toContain("replace_queued_dine_in_order_tx");
+    expect(posSalesRoute).toContain("replace_queued_dine_in_order_pos_guarded_tx");
     expect(posSalesRoute).toContain('normalizedBody.order_type !== "dine_in"');
     expect(posSalesRoute).not.toContain('table_id: body.order_type === "dine_in"');
     expect(tableService).toContain("cancel_empty_table_bill_session_tx");
