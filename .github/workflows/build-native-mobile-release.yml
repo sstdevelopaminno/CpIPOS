@@ -78,10 +78,32 @@ jobs:
         with:
           packages: "platform-tools platforms;android-37.0 build-tools;37.0.0"
 
-      - name: Set up Gradle 9.5
-        uses: gradle/actions/setup-gradle@v6
-        with:
-          gradle-version: "9.5.0"
+      - name: Install checksum-verified Gradle 9.5 from official distribution CDN
+        shell: bash
+        run: |
+          set -euo pipefail
+          archive="$RUNNER_TEMP/gradle-9.5.0-bin.zip"
+          expected="553c78f50dafcd54d65b9a444649057857469edf836431389695608536d6b746"
+          # Avoid services.gradle.org 504 on ephemeral runners; verify upstream
+          # Gradle.org official SHA-256 before running any downloaded code.
+          for url in \
+            "https://downloads.gradle.org/distributions/gradle-9.5.0-bin.zip" \
+            "https://services.gradle.org/distributions/gradle-9.5.0-bin.zip"; do
+            if curl --fail --location --retry 4 --retry-all-errors --retry-delay 3 \
+                --connect-timeout 20 --max-time 180 --silent --show-error \
+                --output "$archive" "$url"; then
+              if echo "$expected  $archive" | sha256sum --check --status; then
+                echo "Validated official Gradle 9.5.0 checksum"
+                break
+              fi
+            fi
+            rm -f "$archive"
+          done
+          test -f "$archive" || { echo "::error::Verified Gradle distribution unavailable"; exit 1; }
+          echo "$expected  $archive" | sha256sum --check
+          unzip -q "$archive" -d "$RUNNER_TEMP"
+          echo "$RUNNER_TEMP/gradle-9.5.0/bin" >> "$GITHUB_PATH"
+          "$RUNNER_TEMP/gradle-9.5.0/bin/gradle" --version
 
       - name: Require existing stable Android signing secrets
         env:
