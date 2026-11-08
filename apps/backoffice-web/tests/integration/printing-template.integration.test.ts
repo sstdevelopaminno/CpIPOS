@@ -183,7 +183,7 @@ describe("printing template generation", () => {
 
     expect(html).toContain("@page { size: 58mm auto");
     expect(html).toContain("width: 58mm");
-    expect(cssNumber(html, "--receipt-printable-width-mm")).toBe(49);
+    expect(cssNumber(html, "--receipt-printable-width-mm")).toBe(45);
     expect(cssNumber(html, "--receipt-base-font-px")).toBeCloseTo(12.75);
     expect(cssNumber(html, "--receipt-title-font-px")).toBeCloseTo(16.5);
     expect(cssNumber(html, "--receipt-grand-font-px")).toBeCloseTo(15.5);
@@ -194,7 +194,7 @@ describe("printing template generation", () => {
 
     expect(html).toContain("@page { size: 80mm auto");
     expect(html).toContain("width: 80mm");
-    expect(cssNumber(html, "--receipt-printable-width-mm")).toBe(70);
+    expect(cssNumber(html, "--receipt-printable-width-mm")).toBe(64);
     expect(cssNumber(html, "--receipt-base-font-px")).toBeCloseTo(13.5);
     expect(cssNumber(html, "--receipt-title-font-px")).toBeCloseTo(19);
     expect(cssNumber(html, "--receipt-grand-font-px")).toBeCloseTo(17.5);
