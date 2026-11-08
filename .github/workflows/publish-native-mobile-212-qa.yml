@@ -1,0 +1,64 @@
+name: Publish Native Mobile 2.1.2 QA download (one time)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/publish-native-mobile-212-qa.yml
+
+permissions:
+  actions: read
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out release authority
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - name: Download exact, already-built signed QA artifact
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.1.8
+        with:
+          name: CpIPOS-Native-Mobile-2.1.2-signed
+          repository: sstdevelopaminno/CpIPOS
+          run-id: 42456903309
+          github-token: ${{ github.token }}
+          path: qa-artifacts
+      - name: Verify immutable APK and manifest
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import hashlib, json, pathlib
+          directory=pathlib.Path('qa-artifacts')
+          apk=directory/'CpIPOS-Native-Mobile-2.1.2.apk'
+          manifest=directory/'CpIPOS-Native-Mobile-2.1.2.manifest.json'
+          payload=json.loads(manifest.read_text())
+          digest=hashlib.sha256(apk.read_bytes()).hexdigest()
+          expected='aaed4ee76ff3afd3f1ac700d68431f880af0d3e11b69b2248d4db244e01acaa9'
+          assert digest==expected==payload['sha256'], 'APK SHA-256 mismatch'
+          assert apk.stat().st_size==13648288, 'Unexpected APK size'
+          assert payload['version_name']=='2.1.2' and payload['version_code']==2012000
+          assert payload['package_name']=='com.cpipos.pos.next'
+          assert payload['signing_cert_sha256']=='6be0a9aef346a5b47162c8928c5018a01d0e7d81b4eb177bf2fb89922dc2a27a'
+          assert payload['source_commit']=='5a01f6fa57397ce9c2ea4791621c918f8edb4380'
+          print('Verified source APK and manifest: SHA-256',digest)
+          PY
+      - name: Publish immutable QA pre-release, never Stable
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tag='native-mobile-v2.1.2-qa'
+          if gh release view "$tag" >/dev/null 2>&1; then
+            echo 'QA release tag already exists: refusing to overwrite it'
+            exit 1
+          fi
+          gh release create "$tag" \
+            qa-artifacts/CpIPOS-Native-Mobile-2.1.2.apk \
+            qa-artifacts/CpIPOS-Native-Mobile-2.1.2.manifest.json \
+            --prerelease --target "$GITHUB_SHA" \
+            --title 'CpIPOS Native Mobile 2.1.2 (QA only)' \
+            --notes 'QA TEST BUILD ONLY; NOT a customer Stable or automatic update. Android 8.0+. Built in workflow run 42456903309 from cpipos-native-pos commit 5a01f6fa57397ce9c2ea4791621c918f8edb4380. APK SHA-256: aaed4ee76ff3afd3f1ac700d68431f880af0d3e11b69b2248d4db244e01acaa9. Preserve existing customer Stable 2.1.0 and update policy. Validate on a test device before installation on production devices.'
