@@ -3,6 +3,7 @@
 import Image from "next/image";
 import { useEffect, useState } from "react";
 import type { ReactNode, RefObject } from "react";
+import { parsePosItemNotes } from "@/lib/pos-item-notes";
 
 type QuickMode = "home" | "dine_in" | "delivery";
 
@@ -105,11 +106,13 @@ function ReceiptLogoImage({ src, alt, className }: { src: string; alt: string; c
 }
 
 function parseReceiptItemNotes(notes?: string | null) {
-  const raw = String(notes ?? "").trim();
-  if (!raw) return { choices: [] as string[], note: null as string | null };
-  const parts = raw.split(",").map((part) => part.trim()).filter(Boolean);
-  if (parts.length > 1) return { choices: parts, note: null };
-  return { choices: [] as string[], note: raw };
+  // Stored item detail is an encoded metadata line, not printable text.
+  // Use the same parser as the kitchen and canonical 58/80mm receipt.
+  const parsed = parsePosItemNotes(notes);
+  const options = parsed.optionNotes.split(",").map((part) => part.trim()).filter(Boolean);
+  if (parsed.detailNote) return { choices: options, note: parsed.detailNote };
+  if (options.length > 1) return { choices: options, note: null };
+  return { choices: [] as string[], note: options[0] ?? null };
 }
 
 type Props = {
@@ -200,7 +203,6 @@ type Props = {
   paymentNoticeSubmitting?: boolean;
   paymentNoticeError?: string | null;
   onCloseReceipt: () => void;
-  onPrintReceipt?: () => Promise<void> | void;
 };
 
 export function PosPaymentModals({
@@ -263,24 +265,8 @@ export function PosPaymentModals({
   onPrintPaymentNotice,
   paymentNoticeSubmitting = false,
   paymentNoticeError = null,
-  onCloseReceipt,
-  onPrintReceipt
+  onCloseReceipt
 }: Props) {
-  const [receiptPrintBusy, setReceiptPrintBusy] = useState(false);
-  const [receiptAttemptedForOrder, setReceiptAttemptedForOrder] = useState<string | null>(null);
-  async function printReceiptOnce() {
-    if (receiptPrintBusy || !receiptSaved || receiptSaving || !receiptSession || !onPrintReceipt ||
-        receiptAttemptedForOrder === receiptSession.order_id) return;
-    // Fail closed on uncertain Windows spool outcomes: never send the same
-    // manual sale receipt twice from this modal. Reprints require Owner PIN.
-    setReceiptAttemptedForOrder(receiptSession.order_id);
-    setReceiptPrintBusy(true);
-    try {
-      await onPrintReceipt();
-    } finally {
-      setReceiptPrintBusy(false);
-    }
-  }
   function resolveReceiptDiscountAmount(session: ReceiptSession): number {
     const explicitDiscount = Number(session.discount_amount ?? 0);
     if (Number.isFinite(explicitDiscount) && explicitDiscount > 0) {
@@ -727,16 +713,9 @@ export function PosPaymentModals({
                 ) : null}
               </footer>
             </article>
-            {windowsNativeReceipt && onPrintReceipt ? (
-              <button
-                type="button"
-                className="posui-btn posui-btn--primary"
-                onClick={() => void printReceiptOnce()}
-                disabled={!receiptSaved || receiptSaving || receiptPrintBusy || receiptAttemptedForOrder === receiptSession.order_id}
-              >
-                {receiptPrintBusy ? (lang === "th" ? "กำลังส่งพิมพ์..." : "Submitting to printer...") : text.receiptPrint}
-              </button>
-            ) : null}
+            {/* Receipt and cash drawer are dispatched by the paid-order print queue.
+                No second manual print from this completion popup; reprints require
+                the audited historical-receipt/PIN workflow. */}
           </section>
         </div>
       ) : null}
