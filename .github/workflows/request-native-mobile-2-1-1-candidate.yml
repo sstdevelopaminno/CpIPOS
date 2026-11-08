@@ -21,7 +21,7 @@ jobs:
       - name: Confirm exact approved Native main SHA
         env:
           GH_TOKEN: ${{ github.token }}
-          REVIEWED_SHA: "252e029bfe4d287c94bd1f72257534b6cad69331"
+          REVIEWED_SHA: "49fac8bb34818ef2c67a1d0d05926f1570ef7237"
         run: |
           set -euo pipefail
           actual="$(gh api repos/sstdevelopaminno/cpipos-native-pos/commits/main --jq '.sha')"
@@ -36,7 +36,7 @@ jobs:
           set -euo pipefail
           gh workflow run build-native-mobile-release.yml \
             --repo sstdevelopaminno/CpIPOS --ref main \
-            -f native_source_sha=252e029bfe4d287c94bd1f72257534b6cad69331 \
+            -f native_source_sha=49fac8bb34818ef2c67a1d0d05926f1570ef7237 \
             -f version_name=2.1.1 \
             -f version_code=2011000 \
             -f publish_stable=false
