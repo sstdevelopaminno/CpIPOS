@@ -1,0 +1,61 @@
+name: Smoke company-hosted APK download (one time)
+
+on:
+  push:
+    branches: [main]
+    paths: [".github/workflows/smoke-company-apk-cdn-once.yml"]
+
+permissions:
+  contents: read
+
+jobs:
+  download-company-cdn:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - name: Download the APK from company domain, not GitHub
+        shell: bash
+        run: |
+          set -euo pipefail
+          base="https://www.cuttingpointinnovation.com/downloads/apk"
+          expected="aaed4ee76ff3afd3f1ac700d68431f880af0d3e11b69b2248d4db244e01acaa9"
+          tmp="$(mktemp -d)"
+          trap 'rm -rf "$tmp"' EXIT
+          ok=0
+          for attempt in $(seq 1 12); do
+            echo "Website CDN GET attempt $attempt"
+            if curl --fail --location --silent --show-error --connect-timeout 15 --max-time 90 \
+              --dump-header "$tmp/headers" \
+              --output "$tmp/native.apk" \
+              "$base/CpIPOS-Native-Mobile-2.1.2.apk"; then
+              sha="$(sha256sum "$tmp/native.apk" | cut -d' ' -f1)"
+              size="$(stat -c%s "$tmp/native.apk")"
+              if [[ "$sha" = "$expected" && "$size" = 13648288 ]]; then
+                ok=1
+                break
+              fi
+              echo "Incorrect file integrity: SHA=$sha size=$size"
+            fi
+            sleep 10
+          done
+          [[ "$ok" = 1 ]] || { echo "::error::Company CDN did not serve correct Native Mobile APK"; exit 1; }
+          tr -d '\r' < "$tmp/headers" | grep -i '^content-disposition:.*attachment' \
+            || { echo "::error::APK attachment header absent"; exit 1; }
+          tr -d '\r' < "$tmp/headers" | grep -i '^content-type: application/vnd.android.package-archive' \
+            || { echo "::error::APK content-type header absent"; exit 1; }
+          echo "SUCCESS: Native Mobile 2.1.2 QA downloads from company domain, SHA-256 and size verified"
+
+      - name: Check remaining company APK file URLs
+        shell: bash
+        run: |
+          set -euo pipefail
+          base="https://www.cuttingpointinnovation.com/downloads/apk"
+          for path in CpIPOS-Native-Mobile-2.1.0.apk CpIPOS-Android-POS-1.0.27.apk CpIPOS-Android-POS-1.0.25.apk; do
+            echo "Testing HEAD $base/$path"
+            curl --fail --location --silent --show-error --retry 3 --retry-all-errors \
+              --connect-timeout 15 --max-time 45 --head "$base/$path" |
+              tr -d '\r' |
+              grep -i '^content-type: application/vnd.android.package-archive' \
+              || { echo "::error::Company CDN missing/incorrect file $path"; exit 1; }
+          done
+          echo "SUCCESS: All four company-domain APK URLs respond with APK content type"
