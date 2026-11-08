@@ -8,6 +8,7 @@ import { PosGuardError, requireActiveShift, requirePermission, requirePosSession
 import { queueMissingKitchenPrintJobsForOrder } from "@/lib/services/kitchen-routing-service";
 import { invalidatePosSalesListCacheForScope } from "@/lib/services/pos-sales-list-service";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
+import { loadKitchenConditionsForScope } from "@/lib/services/kitchen-conditions-service";
 
 type ClearDineInPayload = {
   order_id?: string;
@@ -34,6 +35,7 @@ function isUuid(value: string): boolean {
 }
 
 function mapRpcError(message: string) {
+  if (message.includes("KITCHEN_CONFIRMED_ITEM_LOCKED")) return { code: "kitchen_confirmed_item_locked", status: 409 };
   if (message.includes("ORDER_NOT_QUEUED")) return { code: "order_not_updatable", status: 409 };
   if (message.includes("ORDER_NOT_FOUND")) return { code: "order_not_found", status: 404 };
   if (message.includes("TABLE_BILL_ORDER_CONFLICT")) return { code: "table_bill_order_conflict", status: 409 };
@@ -96,7 +98,8 @@ export async function POST(request: Request) {
       return fail("order_not_updatable", "Only the exact queued dine-in order bound to this table can be cleared.", 409);
     }
 
-    const { data: rpcData, error: rpcError } = await supabase.rpc("replace_queued_dine_in_order_tx", {
+    const kitchenConditions = await loadKitchenConditionsForScope({ tenantId: scope.session.tenant_id, branchId: scope.session.branch_id });
+    const { data: rpcData, error: rpcError } = await supabase.rpc("replace_queued_dine_in_order_pos_guarded_tx", {
       p_tenant_id: scope.session.tenant_id,
       p_branch_id: scope.session.branch_id,
       p_shift_id: shift.id,
@@ -109,7 +112,8 @@ export async function POST(request: Request) {
       p_gp_amount: 0,
       p_tax_total: 0,
       p_grand_total: 0,
-      p_tax_lines: []
+      p_tax_lines: [],
+      p_lock_confirmed_items: kitchenConditions.lock_confirmed_items_on_pos
     });
 
     if (rpcError) {

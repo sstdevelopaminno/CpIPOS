@@ -22,6 +22,7 @@ import { resolveNativeMobileSaleLines, type NativeSelectionInput } from "@/lib/s
 import { calculateTaxBreakdown, loadPosNotificationSettings, loadTaxSettings } from "@/lib/services/pos-settings-service";
 import { loadReceiptStoreProfile } from "@/lib/services/store-profile-service";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
+import { loadKitchenConditionsForScope } from "@/lib/services/kitchen-conditions-service";
 
 type PosCreateOrderPayload = {
   native_mobile?: boolean;
@@ -584,7 +585,8 @@ async function updateQueuedPosOrder(args: {
     if (!tableId) {
       return { ok: false as const, code: "table_id_required", status: 422, message: "table_id is required for dine-in update." };
     }
-    const { data: rpcData, error: rpcError } = await supabase.rpc("replace_queued_dine_in_order_tx", {
+    const kitchenConditions = await loadKitchenConditionsForScope({ tenantId: auth.tenantId!, branchId: auth.branchId! });
+    const { data: rpcData, error: rpcError } = await supabase.rpc("replace_queued_dine_in_order_pos_guarded_tx", {
       p_tenant_id: auth.tenantId!,
       p_branch_id: auth.branchId!,
       p_shift_id: body.shift_id,
@@ -597,11 +599,13 @@ async function updateQueuedPosOrder(args: {
       p_gp_amount: body.gp_amount ?? 0,
       p_tax_total: body.tax_total ?? 0,
       p_grand_total: body.grand_total ?? null,
-      p_tax_lines: body.tax_lines ?? []
+      p_tax_lines: body.tax_lines ?? [],
+      p_lock_confirmed_items: kitchenConditions.lock_confirmed_items_on_pos
     });
     if (rpcError) {
       const message = rpcError.message || "Unable to update queued dine-in order.";
-      const code = message.includes("ORDER_NOT_QUEUED") ? "order_not_updatable"
+      const code = message.includes("KITCHEN_CONFIRMED_ITEM_LOCKED") ? "kitchen_confirmed_item_locked"
+        : message.includes("ORDER_NOT_QUEUED") ? "order_not_updatable"
         : message.includes("ORDER_NOT_FOUND") ? "order_not_found"
           : message.includes("TABLE_BILL_ORDER_CONFLICT") ? "table_bill_order_conflict"
             : message.includes("TABLE_BILL_NOT_OPEN") ? "table_bill_not_open"

@@ -81,6 +81,14 @@ export function TableQrSettingsMenuPortal({
       <span className="min-w-0"><span className="block text-base font-black text-slate-950">{lang === "th" ? "การแจ้งเตือนออเดอร์และครัว" : "Order & Kitchen Automation"}</span><span className="mt-1 block text-sm font-medium leading-5 text-slate-500">{lang === "th" ? "เปิด/ปิดแจ้งเตือน QR ส่งเข้าครัว และพิมพ์ใบครัวอัตโนมัติ" : "Control QR alerts, kitchen dispatch and automatic kitchen printing"}</span></span><span className="text-slate-400">›</span>
       {(!showOrderKitchen) ? <span aria-hidden className="text-slate-500">🔒</span> : null}
     </Link> : null}
+    {customOrderKitchenAllowed ? <Link href="/preview/pos/settings/kitchen-conditions" prefetch={false} className={`${cardClass} ${!showOrderKitchen ? "bg-slate-50 text-slate-500" : ""}`} aria-disabled={!showOrderKitchen}
+      onClick={event => { if (!showOrderKitchen) { event.preventDefault(); setItLockedMenu(lang === "th" ? "จัดการเงื่อนไขครัว" : "Kitchen Conditions"); } }}>
+      <span className="inline-flex h-10 w-10 items-center justify-center rounded-lg bg-blue-50 text-blue-700 group-hover:bg-blue-100"><OrderKitchenIcon /></span>
+      <span className="min-w-0"><span className="block text-base font-black text-slate-950">{lang === "th" ? "จัดการเงื่อนไขครัว" : "Kitchen Conditions"}</span>
+      <span className="mt-1 block text-sm font-medium leading-5 text-slate-500">{lang === "th" ? "เปิด/ปิดการล็อกรายการเมื่อครัวยืนยันแล้ว" : "Allow or block POS removal after kitchen acknowledgement"}</span></span>
+      <span className="text-slate-400">›</span>
+      {!showOrderKitchen ? <span aria-hidden className="text-slate-500">🔒</span> : null}
+    </Link> : null}
     {customTableQrAllowed ? <Link href="/preview/pos/settings/table-qr" prefetch={false} className={`${cardClass} ${!showTableQr ? "bg-slate-50 text-slate-500" : ""}`} aria-disabled={!showTableQr}
       onClick={event => { if (!showTableQr) { event.preventDefault(); setItLockedMenu(lang === "th" ? "ตั้งค่า QR โต๊ะ" : "Table QR Settings"); } }}>
       <span className="inline-flex h-10 w-10 items-center justify-center rounded-lg bg-slate-100 text-slate-700 group-hover:bg-blue-100 group-hover:text-blue-700"><TableQrMenuIcon /></span>
