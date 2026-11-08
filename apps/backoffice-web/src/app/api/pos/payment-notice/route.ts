@@ -44,7 +44,7 @@ export async function POST(req: Request) {
     const scope = await requirePosSession();
     const body = (await req.json()) as PaymentNoticePayload;
     const qrDataUri = clean(body.qr_data_uri);
-    if (!qrDataUri || !validQrDataUri(qrDataUri)) return fail("payment_notice_qr_required", "Inline QR image is required before printing payment notice.", 422);
+    if (qrDataUri && !validQrDataUri(qrDataUri)) return fail("payment_notice_qr_invalid", "The payment notice QR image is invalid.", 422);
     const orderId = clean(body.order_id);
     const orderNo = clean(body.order_no);
     if (!orderId || !orderNo) return fail("payment_notice_order_required", "order_id and order_no are required.", 422);
