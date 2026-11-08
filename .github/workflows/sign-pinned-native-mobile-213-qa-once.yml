@@ -1,0 +1,157 @@
+name: Sign reviewed Native Mobile 2.1.3 QA without Gradle (one time)
+
+on:
+  push:
+    branches: [main]
+    paths: [.github/workflows/sign-pinned-native-mobile-213-qa-once.yml]
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  sign-publish-qa:
+    runs-on: ubuntu-latest
+    timeout-minutes: 24
+    steps:
+      - name: Wait for exact reviewed unsigned Native CI run
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 75); do
+            status=$(gh api repos/sstdevelopaminno/cpipos-native-pos/actions/runs/42470372989 --jq .status)
+            if [ "$status" = completed ]; then
+              conclusion=$(gh api repos/sstdevelopaminno/cpipos-native-pos/actions/runs/42470372989 --jq .conclusion)
+              [ "$conclusion" = success ] || { echo "::error::Unsigned producer CI did not succeed: $conclusion"; exit 1; }
+              echo "Upstream Native 2.1.3 unsigned QA producer succeeded"
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "::error::Unsigned producer did not finish within bounded window"
+          exit 1
+
+      - name: Download exact unsigned APK from publicly verified Native Actions run
+        uses: actions/download-artifact@v4
+        with:
+          name: cpipos-native-mobile-2-1-3-unsigned-reviewed-source
+          repository: sstdevelopaminno/cpipos-native-pos
+          run-id: 42470372989
+          github-token: ${{ github.token }}
+          path: unsigned
+
+      - name: Verify unsigned artifact integrity before signing
+        run: |
+          set -euo pipefail
+          (cd unsigned && sed 's@qa-artifacts/@@' CpIPOS-Native-Mobile-2.1.3-unsigned.sha256 | sha256sum --check)
+          test "$(stat -c%s unsigned/CpIPOS-Native-Mobile-2.1.3-unsigned.apk)" -gt 1000000
+
+      - name: Set up Java 17 for signing certificate check
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Android build-tools only (no Gradle download)
+        uses: android-actions/setup-android@v3
+        with:
+          packages: "platform-tools platforms;android-37.0 build-tools;37.0.0"
+
+      - name: Materialize existing Stable keystore and sign reviewed binary
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_SIGNING_KEYSTORE_BASE64 }}
+          STORE_PASSWORD: ${{ secrets.ANDROID_SIGNING_STORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_SIGNING_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_SIGNING_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          for value in "$KEYSTORE_BASE64" "$STORE_PASSWORD" "$KEY_ALIAS" "$KEY_PASSWORD"; do
+            [ -n "$value" ] || { echo "::error::Existing Stable signing secret missing"; exit 1; }
+          done
+          mkdir -p signed
+          printf '%s' "$KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/qa-signing.jks"
+          chmod 600 "$RUNNER_TEMP/qa-signing.jks"
+          expected_cert="6be0a9aef346a5b47162c8928c5018a01d0e7d81b4eb177bf2fb89922dc2a27a"
+          cert=$(keytool -list -v -keystore "$RUNNER_TEMP/qa-signing.jks" -storepass "$STORE_PASSWORD" -alias "$KEY_ALIAS" |
+            awk -F': ' '/SHA256:/{gsub(":", "", $2); print tolower($2); exit}')
+          [ "$cert" = "$expected_cert" ] || { echo "::error::Signing certificate mismatch"; exit 1; }
+
+          tools=$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1 | xargs dirname)
+          test -x "$tools/apksigner" && test -x "$tools/zipalign" && test -x "$tools/aapt"
+          src="unsigned/CpIPOS-Native-Mobile-2.1.3-unsigned.apk"
+          "$tools/zipalign" -p -f 4 "$src" signed/aligned-2.1.3.apk
+          "$tools/apksigner" sign \
+            --ks "$RUNNER_TEMP/qa-signing.jks" \
+            --ks-key-alias "$KEY_ALIAS" \
+            --ks-pass env:STORE_PASSWORD \
+            --key-pass env:KEY_PASSWORD \
+            --v1-signing-enabled true --v2-signing-enabled true --v3-signing-enabled true \
+            --out signed/CpIPOS-Native-Mobile-2.1.3.apk \
+            signed/aligned-2.1.3.apk
+          "$tools/apksigner" verify --verbose --print-certs signed/CpIPOS-Native-Mobile-2.1.3.apk
+          signed_cert=$("$tools/apksigner" verify --print-certs signed/CpIPOS-Native-Mobile-2.1.3.apk |
+            sed -n 's/^.*certificate SHA-256 digest: //p' | head -n 1 | tr -d ':' | tr '[:upper:]' '[:lower:]')
+          [ "$signed_cert" = "$expected_cert" ] || { echo "::error::Signed APK certificate mismatch"; exit 1; }
+          badge=$("$tools/aapt" dump badging signed/CpIPOS-Native-Mobile-2.1.3.apk | head -n 1)
+          echo "$badge" | grep -q "package: name='com.cpipos.pos.next'"
+          echo "$badge" | grep -q "versionCode='2013000'"
+          echo "$badge" | grep -q "versionName='2.1.3'"
+          "$tools/aapt" dump badging signed/CpIPOS-Native-Mobile-2.1.3.apk | grep -q "sdkVersion:'26'"
+          if "$tools/aapt" dump badging signed/CpIPOS-Native-Mobile-2.1.3.apk | grep -q '^application-debuggable'; then
+            echo "::error::Release APK must not be debuggable"
+            exit 1
+          fi
+          sha256sum signed/CpIPOS-Native-Mobile-2.1.3.apk
+
+      - name: Write source-pinned and signed manifest
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json,hashlib,pathlib
+          apk=pathlib.Path("signed/CpIPOS-Native-Mobile-2.1.3.apk")
+          data={
+            "channel":"native_mobile_qa",
+            "version_name":"2.1.3",
+            "version_code":2013000,
+            "package_name":"com.cpipos.pos.next",
+            "asset_name":apk.name,
+            "sha256":hashlib.sha256(apk.read_bytes()).hexdigest(),
+            "signing_cert_sha256":"6be0a9aef346a5b47162c8928c5018a01d0e7d81b4eb177bf2fb89922dc2a27a",
+            "min_sdk":26,
+            "source_repository":"sstdevelopaminno/cpipos-native-pos",
+            "source_commit":"35867cb81edc47ae865a806acd3c820bd5dfbb65",
+            "unsigned_producer_run_id":42470372989
+          }
+          pathlib.Path("signed/CpIPOS-Native-Mobile-2.1.3.manifest.json").write_text(json.dumps(data,indent=2)+"\n")
+          print(json.dumps({"sha256":data["sha256"],"size":apk.stat().st_size}))
+          PY
+          rm -f signed/aligned-2.1.3.apk
+
+      - name: Publish QA prerelease (never overwrite, never customer Stable)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: sstdevelopaminno/CpIPOS
+        run: |
+          set -euo pipefail
+          tag=native-mobile-v2.1.3-qa
+          if gh release view "$tag" >/dev/null 2>&1; then
+            echo "::error::QA release already published, refusing overwrite"
+            exit 1
+          fi
+          gh release create "$tag" \
+            signed/CpIPOS-Native-Mobile-2.1.3.apk \
+            signed/CpIPOS-Native-Mobile-2.1.3.manifest.json \
+            --prerelease --target "$GITHUB_SHA" \
+            --title "CpIPOS Native Mobile 2.1.3 QA" \
+            --notes "Signed Android 8.0+ QA TEST only (not Stable/automatic update). Reviewed Native source: 35867cb81edc47ae865a806acd3c820bd5dfbb65. Tested unit, API27/API35. Test table T02 and kitchen on devices before customer rollout."
+
+      - name: Archive signed candidate for audit
+        uses: actions/upload-artifact@v4
+        with:
+          name: CpIPOS-Native-Mobile-2.1.3-signed
+          path: |
+            signed/CpIPOS-Native-Mobile-2.1.3.apk
+            signed/CpIPOS-Native-Mobile-2.1.3.manifest.json
+          retention-days: 30
+          if-no-files-found: error
