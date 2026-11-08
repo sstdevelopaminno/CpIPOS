@@ -201,13 +201,20 @@ export function PosSalesMvp({ lang }: { lang: Lang }) {
   }, []);
 
   useEffect(() => {
+    let inFlight = false;
     const timer = window.setInterval(() => {
+      // Keep the attendance display current while visible without overlapping
+      // a slow request or polling POS screens in the background.
+      if (document.visibilityState !== "visible" || inFlight) return;
+      inFlight = true;
       void (async () => {
         try {
           const snapshot = await loadAttendance();
           setAttendance(snapshot);
         } catch {
           // keep last known snapshot
+        } finally {
+          inFlight = false;
         }
       })();
     }, 20000);

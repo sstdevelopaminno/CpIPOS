@@ -4150,8 +4150,12 @@ export function PosSalesModule({
   useEffect(() => {
     if (!isHydrated) return;
     const controller = new AbortController();
-    const pollMsRaw = Number(process.env.NEXT_PUBLIC_POS_MONITOR_POLL_MS ?? "30000");
-    const pollMs = Number.isFinite(pollMsRaw) ? Math.min(120000, Math.max(15000, Math.trunc(pollMsRaw))) : 30000;
+    // Align passive monitoring with the server-side 60s snapshot cache.
+    // This does not throttle orders, payments, kitchen queues, or table sync.
+    const pollMsRaw = Number(process.env.NEXT_PUBLIC_POS_MONITOR_POLL_MS ?? "60000");
+    const pollMs = Number.isFinite(pollMsRaw) ? Math.min(120000, Math.max(15000, Math.trunc(pollMsRaw))) : 60000;
+    const MIN_MONITOR_FOCUS_GAP_MS = 15_000;
+    let lastMonitorRequestAt = 0;
 
     const canPollMonitor = () => typeof document === "undefined" || document.visibilityState === "visible";
 
@@ -4159,6 +4163,10 @@ export function PosSalesModule({
       if (!canPollMonitor()) return;
       if (!navigator.onLine) return;
       if (monitorPollInFlightRef.current) return;
+      const now = Date.now();
+      // A focus event and visibilitychange may fire together; fetch only once.
+      if (now - lastMonitorRequestAt < MIN_MONITOR_FOCUS_GAP_MS) return;
+      lastMonitorRequestAt = now;
       monitorPollInFlightRef.current = true;
       void fetchBranchMonitor(controller.signal)
         .catch(() => {
