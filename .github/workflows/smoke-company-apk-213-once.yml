@@ -1,0 +1,41 @@
+name: Smoke verify company-hosted Android 2.1.3 QA APK (one time)
+on:
+  push:
+    branches: [main]
+    paths: [.github/workflows/smoke-company-apk-213-once.yml]
+permissions:
+  contents: read
+jobs:
+  verify-download:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Verify direct company-hosted signed APK bytes and download headers
+        shell: bash
+        run: |
+          set -euo pipefail
+          file="CpIPOS-Native-Mobile-2.1.3.apk"
+          url="https://www.cuttingpointinnovation.com/downloads/apk/$file"
+          expected="0baad5e013ed3788a77e80dc79da3faabb38a8965755c1e8feb5a85a38f9f7f7"
+          expected_size=13642827
+          tmp=$(mktemp -d)
+          trap 'rm -rf "$tmp"' EXIT
+          ok=0
+          for attempt in $(seq 1 30); do
+            echo "Company CDN 2.1.3 smoke attempt $attempt"
+            if curl --location --fail --silent --show-error --max-time 70 \
+                --dump-header "$tmp/headers" --output "$tmp/$file" "$url"; then
+              sha=$(sha256sum "$tmp/$file" | awk '{print $1}')
+              size=$(stat -c%s "$tmp/$file")
+              if [ "$sha" = "$expected" ] && [ "$size" = "$expected_size" ]; then
+                ok=1
+                break
+              fi
+              echo "Unexpected APK content: sha=$sha, size=$size"
+            fi
+            sleep 10
+          done
+          [ "$ok" -eq 1 ] || { echo "::error::Direct company APK 2.1.3 download has incorrect content or is unavailable"; exit 1; }
+          tr -d '\r' < "$tmp/headers" | grep -qi '^content-type: application/vnd.android.package-archive'
+          tr -d '\r' < "$tmp/headers" | grep -qi '^content-disposition:.*attachment'
+          echo "SUCCESS: Company domain 2.1.3 QA APK downloaded directly, attachment MIME and full SHA-256 match"
