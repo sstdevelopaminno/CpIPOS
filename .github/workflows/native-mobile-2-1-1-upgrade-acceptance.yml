@@ -1,0 +1,108 @@
+name: Verify Native 2.1.1 signed customer in-place upgrade
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/native-mobile-2-1-1-upgrade-acceptance.yml
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  verify-upgrade:
+    if: "contains(github.event.head_commit.message, 'test(release): verify Native 2.1.1 customer in-place upgrade')"
+    name: Android ${{ matrix.api_level }} stable-to-candidate upgrade
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    strategy:
+      fail-fast: false
+      matrix:
+        api_level: [27, 35]
+    steps:
+      - name: Download candidate APK from the already verified signing run
+        uses: actions/download-artifact@v4
+        with:
+          run-id: 42451696208
+          github-token: ${{ github.token }}
+          path: candidate
+
+      - name: Download existing public customer Stable 2.1.0
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p baseline
+          gh release download native-mobile-v2.1.0 \
+            --repo sstdevelopaminno/CpIPOS \
+            --pattern 'CpIPOS-Native-Mobile-2.1.0.apk' --dir baseline
+          test -s baseline/CpIPOS-Native-Mobile-2.1.0.apk
+
+      - name: Independently verify candidate manifest and SHA-256
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          # Only the current reviewed Native main source can pass an upgrade
+          # attestation. Never greenlight a signed but superseded candidate.
+          EXPECTED_SOURCE_SHA="$(gh api repos/sstdevelopaminno/cpipos-native-pos/commits/main --jq '.sha')"
+          export EXPECTED_SOURCE_SHA
+          python3 - <<'PY'
+          import hashlib, json, pathlib, os
+          manifests = list(pathlib.Path("candidate").rglob("CpIPOS-Native-Mobile-*.manifest.json"))
+          assert len(manifests) == 1, "Exactly one signed candidate manifest required"
+          meta = json.loads(manifests[0].read_text())
+          assert meta["version_name"] == "2.1.1"
+          assert meta["version_code"] == 2011000
+          assert meta["package_name"] == "com.cpipos.pos.next"
+          assert meta["signing_cert_sha256"] == "6be0a9aef346a5b47162c8928c5018a01d0e7d81b4eb177bf2fb89922dc2a27a"
+          assert meta["source_commit"] == os.environ["EXPECTED_SOURCE_SHA"], "Rejected superseded Native source"
+          apk = manifests[0].parent / meta["asset_name"]
+          assert apk.is_file() and apk.stat().st_size > 1_000_000
+          with apk.open("rb") as f:
+              assert hashlib.file_digest(f, "sha256").hexdigest() == meta["sha256"]
+          pathlib.Path("candidate-apk-path.txt").write_text(str(apk))
+          PY
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: "platform-tools platforms;android-35 build-tools;35.0.0"
+
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Verify Android installer updates the same package in place
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: ${{ matrix.api_level }}
+          target: default
+          arch: x86_64
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
+          script: |
+            set -euo pipefail
+            original="baseline/CpIPOS-Native-Mobile-2.1.0.apk"
+            updated="$(cat candidate-apk-path.txt)"
+            adb install "$original"
+            adb shell pm list packages | grep -q '^package:com.cpipos.pos.next'
+            before="$(adb shell dumpsys package com.cpipos.pos.next | sed -n 's/.*userId=\([0-9]*\).*/\1/p' | head -n1)"
+            test -n "$before"
+            adb install -r "$updated"
+            after="$(adb shell dumpsys package com.cpipos.pos.next | sed -n 's/.*userId=\([0-9]*\).*/\1/p' | head -n1)"
+            test "$before" = "$after" || { echo "Android app UID changed during in-place install"; exit 1; }
+            adb shell dumpsys package com.cpipos.pos.next | grep -q 'versionCode=2011000'
+            adb shell am start -n com.cpipos.pos.next/.MainActivity
+            sleep 6
+            adb shell pidof com.cpipos.pos.next >/dev/null || { echo "App exited after upgrade"; exit 1; }
+            echo "PASS API ${{ matrix.api_level }}: Stable 2.1.0 to signed 2.1.1 without uninstall or package UID change."
