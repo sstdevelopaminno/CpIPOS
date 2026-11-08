@@ -58,4 +58,13 @@ describe("printer settings v3 regression coverage", () => {
     expect(selectionSource).toContain("} else if (!assignments.some((assignment) => assignment.is_default)) {");
     expect(routingSource.replace(/\r\n/g, "\n")).toContain("purpose,\n      runtimeDeviceCode: args.runtimeDeviceCode");
   });
+  it("routes Windows USB printers to their exact Windows agent, not Android POS001", () => {
+    const route = source("src/app/api/backoffice/printers/devices/route.ts");
+    expect(route).toContain('metadata.runtime === "windows_native_print_agent_v1"');
+    expect(route).toContain('bridge_url: "native-agent://windows-pos"');
+    expect(route).toContain("assigned_agent_ids: [agent.id]");
+    expect(route).toContain('if (matches.length !== 1) throw new Error("windows_print_agent_binding_required")');
+    expect(route).toContain("await resolvePrinterProfileMetadata(auth, body, mode, purposes, assignments)");
+  });
+
 });

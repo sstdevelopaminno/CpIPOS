@@ -159,6 +159,52 @@ function profileMetadata(body: Payload, mode: CustomerConnectionMode, purposes: 
   };
 }
 
+/**
+ * Bind a Windows USB printer to its exact native Windows print agent.
+ * Android and Windows may share a POS device code, so that code alone
+ * is insufficient to choose the USB host.
+ */
+async function resolvePrinterProfileMetadata(
+  auth: Awaited<ReturnType<typeof getPrinterSettingsAuthContext>>,
+  body: Payload,
+  mode: CustomerConnectionMode,
+  purposes: PrinterPurpose[],
+  assignments: PrinterAssignmentInput[]
+) {
+  const metadata = profileMetadata(body, mode, purposes, assignments);
+  const windowsUsb = mode === "usb" && (
+    /windows.*print.*agent/i.test(clean(body.printer_name) ?? "") ||
+    clean(body.metadata?.target_runtime) === "windows_native"
+  );
+  if (!windowsUsb) return metadata;
+
+  const requestedCode = clean(body.runtime_device_code);
+  const { data, error } = await getSupabaseServiceClient()
+    .from("print_agents")
+    .select("id,device_code,status,metadata")
+    .eq("tenant_id", auth.tenantId!)
+    .eq("branch_id", auth.branchId!)
+    .eq("status", "active");
+  if (error) throw new Error(error.message);
+  const matches = (data ?? []).filter((agent) => {
+    const metadata = asRecord(agent.metadata);
+    return metadata.runtime === "windows_native_print_agent_v1" &&
+      (!requestedCode || agent.device_code?.toUpperCase() === requestedCode.toUpperCase());
+  });
+  // Fail closed rather than guessing or reverting to Android.
+  if (matches.length !== 1) throw new Error("windows_print_agent_binding_required");
+  const agent = matches[0];
+  return {
+    ...metadata,
+    target_runtime: "windows_native",
+    bridge_url: "native-agent://windows-pos",
+    assigned_agent_ids: [agent.id],
+    agent_device_code: agent.device_code,
+    agent_device_codes: [agent.device_code],
+    windows_device_code: agent.device_code
+  };
+}
+
 function validate(body: Payload) {
   const name = clean(body.printer_name);
   const mode = body.connection_mode;
@@ -342,7 +388,7 @@ export async function POST(req: Request) {
     await validateKitchenZones(auth.tenantId!, auth.branchId!, assignments);
     const target = await resolveCreatePhysicalTarget(auth.tenantId!, auth.branchId!, body, mode);
     const bodyWithFingerprint: Payload = { ...body, device_fingerprint: target.fingerprint };
-    const metadata = profileMetadata(bodyWithFingerprint, mode, purposes, assignments);
+    const metadata = await resolvePrinterProfileMetadata(auth, bodyWithFingerprint, mode, purposes, assignments);
     const profile = await createPrinterProfile(auth, { printer_name: name, printer_role: roleFor(purposes), connection_type: connectionTypeFor(mode), ip_address: mode === "lan" ? clean(body.ip_address) : null, port: mode === "lan" ? Number(body.port || 9100) : null, paper_width_mm: paper, enabled: body.enabled ?? true, metadata });
     try {
       if (target.discoveredDeviceId) {
@@ -376,6 +422,7 @@ export async function POST(req: Request) {
   } catch (error) {
     const message = error instanceof Error ? error.message : "unknown";
     if (message === "forbidden_role") return fail("forbidden_role", "Only manager, owner, or Kitchen can configure printers.", 403);
+    if (message === "windows_print_agent_binding_required") return fail(message, "ไม่พบ Windows Print Agent ที่ตรงกับเครื่อง POS นี้ โปรดเปิด CpiPOS Windows และตรวจรหัสเครื่องก่อนบันทึก", 409);
     if (isValidationError(message)) return validationFailure(message);
     if (message.includes("duplicate key")) return fail("printer_conflict", "เครื่องพิมพ์นี้ถูกบันทึกไว้แล้ว สามารถเลือกเชื่อมต่ออีกครั้งจากประวัติได้", 409);
     return loggedPrintApiFail("printer create failed", error, "printer_create_failed", "บันทึกเครื่องพิมพ์ไม่สำเร็จ กรุณาลองใหม่", 400);
@@ -393,13 +440,14 @@ export async function PATCH(req: Request) {
     const { name, mode, paper, purposes, assignments } = validate(body);
     await validatePrinterPurposes(auth.tenantId!, assignments);
     await validateKitchenZones(auth.tenantId!, auth.branchId!, assignments);
-    const metadata = profileMetadata(body, mode, purposes, assignments);
+    const metadata = await resolvePrinterProfileMetadata(auth, body, mode, purposes, assignments);
     const profile = await updatePrinterProfile(auth, printerId, { printer_name: name, printer_role: roleFor(purposes), connection_type: connectionTypeFor(mode), ip_address: mode === "lan" ? clean(body.ip_address) : null, port: mode === "lan" ? Number(body.port || 9100) : null, paper_width_mm: paper, enabled: body.enabled ?? true, metadata });
     const device = await syncPrinterDevice(auth, { printerProfileId: profile.id, displayName: name, brand: clean(body.brand), model: clean(body.model), connectionMode: mode, paperWidthMm: paper, purposes, assignments, deviceFingerprint: buildFingerprint(body, mode), runtimeDeviceCode: clean(body.runtime_device_code), capabilities: (metadata.capabilities ?? {}) as Record<string, unknown>, metadata: { source: "printer_settings_v3" }, eventType: "updated" });
     return ok({ profile, device });
   } catch (error) {
     const message = error instanceof Error ? error.message : "unknown";
     if (message === "forbidden_role") return fail("forbidden_role", "Only manager, owner, or Kitchen can configure printers.", 403);
+    if (message === "windows_print_agent_binding_required") return fail(message, "ไม่พบ Windows Print Agent ที่ตรงกับเครื่อง POS นี้ โปรดเปิด CpiPOS Windows และตรวจรหัสเครื่องก่อนบันทึก", 409);
     if (message === "printer_not_found" || message === "printer_device_not_found") return fail("printer_not_found", "ไม่พบเครื่องพิมพ์นี้", 404);
     if (isValidationError(message)) return validationFailure(message);
     if (message.includes("duplicate key")) return fail("printer_conflict", "Printer name already exists in this branch.", 409);
