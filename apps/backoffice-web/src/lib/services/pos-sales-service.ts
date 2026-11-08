@@ -1115,6 +1115,7 @@ async function executeCompletePosPaymentDirectFallback(args: {
 export async function executeCreatePosOrderTransaction(args: {
   auth: AuthContext;
   input: {
+    native_mobile?: boolean;
     shift_id: string;
     order_type: OrderType;
     channel: string;
@@ -1148,6 +1149,7 @@ export async function executeCreatePosOrderTransaction(args: {
       quantity: number;
       unit_price?: number | null;
       notes?: string | null;
+      native_selection?: unknown;
     }>;
   };
   idempotencyKey?: string;
@@ -1156,6 +1158,15 @@ export async function executeCreatePosOrderTransaction(args: {
   const { auth, input, idempotencyKey, invokeRpc = defaultRpcInvoker } = args;
   if (!auth.tenantId || !auth.branchId) {
     return { ok: false as const, code: "missing_scope", status: 401, message: "Missing tenant/branch scope." };
+  }
+  // The legacy direct insert has no validated modifier snapshots and its
+  // stock adjustments are not the atomic Native ingredient contract. Never
+  // quietly downgrade a server-authoritative Native sale to that path.
+  const nativeAtomicRequired = input.native_mobile === true ||
+    input.items.some((item) => item.native_selection != null);
+  if (nativeAtomicRequired && shouldPreferDirectCreatePath(input.order_type)) {
+    return { ok: false as const, code: "native_atomic_rpc_required", status: 503,
+      message: "Native menu sales require the canonical atomic order transaction." };
   }
   if (shouldPreferDirectCreatePath(input.order_type)) {
     return executeCreatePosOrderDirectFallback({
@@ -1258,9 +1269,13 @@ export async function executeCreatePosOrderTransaction(args: {
       }
     });
     if (parsed.code === "rpc_not_available" || parsed.code === "rpc_compatibility_error" || parsed.code === "missing_delivery_snapshot_columns") {
+      if (nativeAtomicRequired) {
+        return { ok: false as const, code: "native_atomic_rpc_required", status: 503,
+          message: "Native order was not created: atomic stock and option transaction unavailable." };
+      }
       return executeCreatePosOrderDirectFallback({ auth, input, idempotencyKey });
     }
-    if (parsed.code === "insufficient_stock" && shouldSoftBypassInsufficientStock(input.order_type)) {
+    if (!nativeAtomicRequired && parsed.code === "insufficient_stock" && shouldSoftBypassInsufficientStock(input.order_type)) {
       return executeCreatePosOrderDirectFallback({ auth, input, idempotencyKey, softBypassInsufficientStock: true });
     }
     return { ok: false as const, ...parsed };
