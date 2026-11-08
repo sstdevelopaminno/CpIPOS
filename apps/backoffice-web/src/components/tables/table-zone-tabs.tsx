@@ -16,16 +16,19 @@ type Props = {
 export function TableZoneTabs({ zones, activeZoneId, onChange, includeAll = true, lang = "en" }: Props) {
   const text = getTableUiText(lang);
   const dragStateRef = useRef<{ pointerId: number; startX: number; scrollLeft: number } | null>(null);
-  const didDragRef = useRef(false);
 
   function startDrag(event: PointerEvent<HTMLDivElement>) {
-    if (event.pointerType === "mouse" && event.button !== 0) return;
+    // The scroll container used to capture every pointer-down, including
+    // touches on its child <button>s. WebView2/Android then retargeted the
+    // synthesized click to the container, so zone tabs never changed.
+    // Touch/pen scrolling already works natively via overflow-x and pan-x.
+    if (event.pointerType !== "mouse" || event.button !== 0) return;
+    if (event.target !== event.currentTarget) return;
     dragStateRef.current = {
       pointerId: event.pointerId,
       startX: event.clientX,
       scrollLeft: event.currentTarget.scrollLeft
     };
-    didDragRef.current = false;
     event.currentTarget.setPointerCapture(event.pointerId);
   }
 
@@ -34,23 +37,16 @@ export function TableZoneTabs({ zones, activeZoneId, onChange, includeAll = true
     if (!dragState || dragState.pointerId !== event.pointerId) return;
     const deltaX = event.clientX - dragState.startX;
     if (Math.abs(deltaX) > 4) {
-      didDragRef.current = true;
       event.currentTarget.scrollLeft = dragState.scrollLeft - deltaX;
     }
   }
 
   function endDrag(event: PointerEvent<HTMLDivElement>) {
-    if (dragStateRef.current?.pointerId === event.pointerId) {
-      dragStateRef.current = null;
-      window.setTimeout(() => {
-        didDragRef.current = false;
-      }, 0);
+    if (dragStateRef.current?.pointerId !== event.pointerId) return;
+    dragStateRef.current = null;
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
     }
-  }
-
-  function selectZone(zoneId: string) {
-    if (didDragRef.current) return;
-    onChange(zoneId);
   }
 
   return (
@@ -62,14 +58,14 @@ export function TableZoneTabs({ zones, activeZoneId, onChange, includeAll = true
       onPointerMove={moveDrag}
       onPointerUp={endDrag}
       onPointerCancel={endDrag}
-      onPointerLeave={endDrag}
-    >
+     >
       {includeAll ? (
         <button
           type="button"
           role="tab"
           className={activeZoneId === "all" ? "is-active" : ""}
-          onClick={() => selectZone("all")}
+          aria-selected={activeZoneId === "all"}
+          onClick={() => onChange("all")}
         >
           {text.all}
         </button>
@@ -80,7 +76,8 @@ export function TableZoneTabs({ zones, activeZoneId, onChange, includeAll = true
           type="button"
           role="tab"
           className={activeZoneId === zone.id ? "is-active" : ""}
-          onClick={() => selectZone(zone.id)}
+          aria-selected={activeZoneId === zone.id}
+          onClick={() => onChange(zone.id)}
           style={{
             borderColor: zone.color
           }}
