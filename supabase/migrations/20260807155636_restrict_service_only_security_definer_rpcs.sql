@@ -54,5 +54,13 @@ revoke all on function public.next_pos_order_no(uuid, uuid, text) from public;
 revoke execute on function public.next_pos_order_no(uuid, uuid, text) from anon, authenticated;
 grant execute on function public.next_pos_order_no(uuid, uuid, text) to service_role;
 
-revoke all on function public.rls_auto_enable() from public;
-revoke execute on function public.rls_auto_enable() from anon, authenticated;
+-- This optional hosted-only helper is absent from a clean migration replay.
+-- If installed, retain the existing restriction; never create a privileged stub.
+do $rlsguard$
+begin
+  if to_regprocedure('public.rls_auto_enable()') is not null then
+    revoke all on function public.rls_auto_enable() from public;
+    revoke execute on function public.rls_auto_enable() from anon, authenticated;
+  end if;
+end;
+$rlsguard$;
