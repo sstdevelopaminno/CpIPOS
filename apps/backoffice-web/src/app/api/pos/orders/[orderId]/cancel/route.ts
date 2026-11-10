@@ -5,6 +5,7 @@ import { invalidatePosScopeRuntimeCaches } from "@/lib/pos-cache-invalidation";
 import { dispatchOrderToKitchen } from "@/lib/services/kitchen-routing-service";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
 import { getRoutedSupabaseServiceClient } from "@/lib/tenant-data-router";
+import { loadKitchenConditionsForScope } from "@/lib/services/kitchen-conditions-service";
 
 export async function POST(req: Request, context: { params: Promise<{ orderId: string }> }) {
   try {
@@ -74,16 +75,21 @@ export async function POST(req: Request, context: { params: Promise<{ orderId: s
     // Restore the ingredient ledger and cancel this queued bill in ONE locked
     // DB transaction. Never switch order.status to cancelled via a plain UPDATE:
     // doing so previously left recipe stock deducted for cancelled POS bills.
-    const { data, error } = await supabase.rpc("cancel_queued_pos_order_and_restore_stock_tx", {
+    const kitchenConditions = await loadKitchenConditionsForScope({ tenantId: auth.tenantId!, branchId: auth.branchId! });
+    const { data, error } = await supabase.rpc("cancel_queued_pos_order_kitchen_guarded_tx", {
       p_tenant_id: auth.tenantId!,
       p_branch_id: auth.branchId!,
       p_order_id: orderId,
       p_actor_user_id: auth.userId,
       p_approval_id: cancellationApprovalId,
-      p_reason: body.reason ?? "Cancelled POS bill"
+      p_reason: body.reason ?? "Cancelled POS bill",
+      p_lock_confirmed_items: kitchenConditions.lock_confirmed_items_on_pos
     });
     if (error) {
       const message = error.message ?? "";
+      if (message.includes("KITCHEN_CONFIRMED_ITEM_LOCKED")) {
+        return fail("kitchen_confirmed_item_locked", "Kitchen has accepted this item; it cannot be removed or cancelled from POS.", 409);
+      }
       if (message.includes("ORDER_NOT_QUEUED")) {
         return fail("order_not_cancelable", "Only queued orders can be cancelled in POS flow.", 409);
       }
