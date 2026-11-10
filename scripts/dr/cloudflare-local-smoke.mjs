@@ -1,7 +1,7 @@
 // Local-only Cloudflare workerd smoke; no customer data or credentials.
 // Requires: node scripts/cloudflare-standby-build.mjs, then wrangler dev --local.
 const ADDRESS = "http://127.0.0.1:8787";
-const MAX_STARTUP_MS = 120_000;
+const MAX_STARTUP_MS = 45_000;
 
 export function validateLogin(result) {
   if (result.status !== 200) return "login_http_" + result.status;
