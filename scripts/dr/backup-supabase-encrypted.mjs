@@ -4,9 +4,9 @@
  * Note: Supabase CLI db dump omits managed auth/storage schemas and actual Storage objects.
  */
 import { spawn } from "node:child_process";
-import { createHash } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { createReadStream } from "node:fs";
-import { chmod, mkdir, mkdtemp, readFile, realpath, rm, stat, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, open, realpath, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -119,7 +119,7 @@ async function main() {
   await chmod(actualOutput,0o700).catch(()=>{}); // Windows ACLs need owner-level controls separately.
 
   const date = new Date().toISOString().replace(/[-:]/g,"").replace(/\..*/,"Z");
-  const base = "cpipos-" + opts.projectRef + "-" + date + (opts.includeData ? "-app-data" : "-schema-only");
+  const base = "cpipos-" + opts.projectRef + "-" + date + "-" + randomBytes(8).toString("hex") + (opts.includeData ? "-app-data" : "-schema-only");
   const target = join(actualOutput,base + ".tar.gz.age");
   const manifestFile = join(actualOutput,base + ".manifest.json");
   let scratch;
@@ -142,7 +142,15 @@ async function main() {
     await encryptArchive(scratch,files.map(f=>f.name),target,recipient);
     const encrypted = await stat(target);
     if (encrypted.size < 64) throw new Error("Encrypted archive unexpectedly small.");
-    const header=(await readFile(target)).subarray(0,25).toString("utf8");
+    const file = await open(target,"r");
+    let header;
+    try {
+      const chunk=Buffer.alloc(32);
+      const {bytesRead}=await file.read(chunk,0,chunk.length,0);
+      header=chunk.subarray(0,bytesRead).toString("utf8");
+    } finally {
+      await file.close();
+    }
     if (!header.startsWith("age-encryption.org/v1")) throw new Error("Encrypted output is not an age v1 file.");
     const manifest={
       projectRef:opts.projectRef,
