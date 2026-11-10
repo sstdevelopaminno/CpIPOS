@@ -60,8 +60,10 @@ jobs:
         run: |
           corepack enable
           corepack pnpm install --frozen-lockfile
-      - name: Build OpenNext worker (never deploy from PR)
-        run: corepack pnpm --filter backoffice-web cf:build
+      - name: Verify Edge compatibility bridge preserves POS auth matcher
+        run: node --test scripts/tests/cloudflare-standby-proxy.test.mjs
+      - name: Build OpenNext worker (Cloudflare-only Edge compatibility bridge; never deploy)
+        run: node scripts/cloudflare-standby-build.mjs
       - name: Report generated worker size
         if: success()
         run: |
