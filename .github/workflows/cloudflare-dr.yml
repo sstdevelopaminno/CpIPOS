@@ -1,6 +1,12 @@
 name: Cloudflare DR — build verification and optional incident notice
 
 on:
+  # One-time owner-requested outage-status deployment upon merge of the exact activation marker.
+  # This does NOT publish the POS app, modify DNS, or route customer traffic.
+  push:
+    branches: [main]
+    paths:
+      - "ops/cloudflare-incident-worker/activate-status-20261110.md"
   pull_request:
     branches: [main]
     paths:
@@ -83,7 +89,7 @@ jobs:
 
   deploy-incident-status:
     name: Deploy independent status notice to workers.dev
-    if: github.event_name == 'workflow_dispatch' && inputs.action == 'deploy-status' && github.ref == 'refs/heads/main'
+    if: (github.event_name == 'workflow_dispatch' && inputs.action == 'deploy-status' && github.ref == 'refs/heads/main') || (github.event_name == 'push' && github.ref == 'refs/heads/main')
     needs: verify-incident-worker
     runs-on: ubuntu-latest
     timeout-minutes: 10
