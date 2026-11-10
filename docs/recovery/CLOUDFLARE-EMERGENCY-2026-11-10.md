@@ -41,3 +41,14 @@ corepack pnpm --filter backoffice-web cf:build
 On 10 November 2026 the actual OpenNext PR build failed: `Node.js middleware is not currently supported`. Next 16's `src/proxy.ts` runs on Node, while the currently pinned Cloudflare adapter rejects it. For **Cloudflare build only**, `scripts/cloudflare-standby-build.mjs` temporarily converts the reviewed file into Edge `src/middleware.ts` by changing only the exported function name, builds OpenNext, then restores `src/proxy.ts`. The production Vercel source is unchanged. A source contract test asserts no auth, tenant, cookie or route changes during conversion. This is still **not** proof Edge session refresh works on Workers; runtime acceptance is mandatory.
 
 Run from repository root: `node scripts/cloudflare-standby-build.mjs`. Do not use the old direct `cf:build` in a checkout containing `proxy.ts` unless the Cloudflare adapter has gained compatible Node middleware support.
+
+## Optional isolated POS staging deployment (additional safe gate)
+The GitHub Action `Cloudflare DR` now offers `deploy-pos-staging` only from `main`, with explicit confirmation `TEST-ONLY`. It uses a dedicated Cloudflare Worker `cpi-pos-standby-stage` on its own `workers.dev` hostname **without any production DNS route**. This operation must be run only after an owner configures a dedicated testing Supabase tenant/project and a Cloudflare account. A build success is not permission to use production Supabase credentials.
+
+Required GitHub Actions secret names:
+- `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` (Cloudflare Worker edit permissions, least privilege).
+- `CPI_DR_TEST_SUPABASE_URL` and `CPI_DR_TEST_SUPABASE_ANON_KEY` (test database only).
+- `CPI_DR_TEST_SUPABASE_SERVICE_ROLE_KEY` (test database only, **never** production).
+- `CPI_DR_TEST_POS_SESSION_HANDOFF_SECRET` (test-only independent key).
+
+Never paste secret **values** in chats, GitHub Issues or code. After optional staging deploy, verify `/login/store` and test-tenant permissions, payment safeguards, cookies, Kitchen, print claims, CPU and Worker size before even considering live traffic. Staging is not customer recovery and does not authorize changing domain names or billing.
