@@ -20,6 +20,11 @@ on:
         options:
           - verify
           - deploy-status
+          - deploy-pos-staging
+      staging_confirmation:
+        description: "Only for deploy-pos-staging: enter TEST-ONLY to acknowledge no live customer traffic"
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -69,6 +74,9 @@ jobs:
         run: |
           ls -lh apps/backoffice-web/.open-next/worker.js
           du -sh apps/backoffice-web/.open-next
+      - name: Validate package with Wrangler dry-run (no credentials, no deployment)
+        if: success()
+        run: corepack pnpm --filter backoffice-web exec wrangler deploy --config wrangler.standby.toml --dry-run
       - name: Deployment policy
         if: always()
         run: echo "Cloudflare POS has NOT been deployed. Customer cutover requires staging tenant, runtime secrets, security and transaction acceptance."
@@ -103,3 +111,62 @@ jobs:
           corepack pnpm install --frozen-lockfile
       - name: Deploy incident notice only (no DNS, POS or database changes)
         run: corepack pnpm --filter backoffice-web exec wrangler deploy --config ../../ops/cloudflare-incident-worker/wrangler.toml
+
+  deploy-pos-staging:
+    name: Explicit test-tenant-only POS Worker deployment
+    if: github.event_name == 'workflow_dispatch' && inputs.action == 'deploy-pos-staging' && github.ref == 'refs/heads/main'
+    needs: verify-incident-worker
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: cloudflare-pos-staging
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.CPI_DR_TEST_SUPABASE_URL }}
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.CPI_DR_TEST_SUPABASE_ANON_KEY }}
+      CPI_DR_TEST_SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.CPI_DR_TEST_SUPABASE_SERVICE_ROLE_KEY }}
+      CPI_DR_TEST_POS_SESSION_HANDOFF_SECRET: ${{ secrets.CPI_DR_TEST_POS_SESSION_HANDOFF_SECRET }}
+      CPI_STAGING_CONFIRMATION: ${{ inputs.staging_confirmation }}
+      NEXT_TELEMETRY_DISABLED: "1"
+    steps:
+      - name: Confirm isolated test-only deployment and required secret presence
+        shell: bash
+        run: |
+          if [[ "$CPI_STAGING_CONFIRMATION" != "TEST-ONLY" ]]; then
+            echo "::error::Must enter TEST-ONLY. Live customer traffic and production data are prohibited."
+            exit 1
+          fi
+          for var in CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID NEXT_PUBLIC_SUPABASE_URL NEXT_PUBLIC_SUPABASE_ANON_KEY CPI_DR_TEST_SUPABASE_SERVICE_ROLE_KEY CPI_DR_TEST_POS_SESSION_HANDOFF_SECRET; do
+            if [[ -z "${!var}" ]]; then
+              echo "::error::Missing configured staging secret name: $var. No deployment attempted."
+              exit 1
+            fi
+          done
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Install locked dependencies
+        run: |
+          corepack enable
+          corepack pnpm install --frozen-lockfile
+      - name: Build reviewed Cloudflare-only Edge runtime
+        run: node scripts/cloudflare-standby-build.mjs
+      - name: Validate bundle without publishing
+        run: corepack pnpm --filter backoffice-web exec wrangler deploy --config wrangler.standby.toml --dry-run
+      - name: Deploy ONLY to separate workers.dev staging Worker
+        run: corepack pnpm --filter backoffice-web exec wrangler deploy --config wrangler.standby.toml
+      - name: Set staging runtime values securely (never print values)
+        shell: bash
+        run: |
+          set +x
+          printf '%s' "$NEXT_PUBLIC_SUPABASE_URL" | corepack pnpm --filter backoffice-web exec wrangler secret put NEXT_PUBLIC_SUPABASE_URL --config wrangler.standby.toml
+          printf '%s' "$NEXT_PUBLIC_SUPABASE_ANON_KEY" | corepack pnpm --filter backoffice-web exec wrangler secret put NEXT_PUBLIC_SUPABASE_ANON_KEY --config wrangler.standby.toml
+          printf '%s' "$CPI_DR_TEST_SUPABASE_SERVICE_ROLE_KEY" | corepack pnpm --filter backoffice-web exec wrangler secret put SUPABASE_SERVICE_ROLE_KEY --config wrangler.standby.toml
+          printf '%s' "$CPI_DR_TEST_POS_SESSION_HANDOFF_SECRET" | corepack pnpm --filter backoffice-web exec wrangler secret put POS_SESSION_HANDOFF_SECRET --config wrangler.standby.toml
+      - name: Post-deployment warning
+        run: |
+          echo "Only workers.dev staging is deployed. No DNS, Vercel alias, customer app URL or production payment callback was changed."
+          echo "Do not route real POS traffic until isolated Auth/KDS/Pay/Print/MDM tests and Cloudflare CPU/size checks pass."
