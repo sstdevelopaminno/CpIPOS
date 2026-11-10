@@ -1,0 +1,53 @@
+name: CpiPOS Vercel Pro / Cloudflare DR read-only verification
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/dr-readiness.yml"
+      - "scripts/dr/public-readiness.mjs"
+      - "scripts/tests/dr-public-readiness.test.mjs"
+      - "docs/recovery/DR-PRO-PRIMARY-CLOUDFLARE-STANDBY.md"
+  push:
+    branches: [main]
+    paths:
+      - "ops/dr/verify-post-pro-20261110.md"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dr-readiness-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  validate-checks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - run: node --test scripts/tests/dr-public-readiness.test.mjs
+
+  probe-public-routes:
+    if: github.event_name == 'workflow_dispatch' || github.event_name == 'push'
+    needs: validate-checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Read-only external availability checks (no store data)
+        run: node scripts/dr/public-readiness.mjs
+      - name: Safety reminder
+        if: always()
+        run: echo "NEVER switch DNS or promote POS backup on a public-only HTTP probe. Full tenant and transaction acceptance is mandatory."
