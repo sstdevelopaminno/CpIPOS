@@ -3,7 +3,7 @@ name = "cpi-pos-standby-stage"
 main = ".open-next/worker.js"
 compatibility_date = "2026-11-01"
 compatibility_flags = ["nodejs_compat"]
-workers_dev = true
+workers_dev = false
 
 [assets]
 directory = ".open-next/assets"
