@@ -24,16 +24,16 @@ $env:CPI_DR_SUPABASE_DB_URL = '<connection-uri-from-Supabase-Connect>'
 $env:CPI_DR_AGE_RECIPIENT = '<age-public-recipient>'
 
 # First inspect a schema-only encrypted snapshot (no tenant rows):
-node scripts/dr/backup-supabase-encrypted.mjs --project-ref deejlitaivfnsbwqdugy --output-dir 'D:\\CpiPOS-Private-DR'
+node scripts/dr/backup-supabase-encrypted.mjs --project-ref deejlitaivfnsbwqdugy --output-dir 'D:\CpiPOS-Private-DR'
 
 # Only when an authorised custodian is ready to handle sensitive customer records:
-node scripts/dr/backup-supabase-encrypted.mjs --project-ref deejlitaivfnsbwqdugy --output-dir 'D:\\CpiPOS-Private-DR' --include-data
+node scripts/dr/backup-supabase-encrypted.mjs --project-ref deejlitaivfnsbwqdugy --output-dir 'D:\CpiPOS-Private-DR' --include-data
 
 # Clear session secret after completion:
-Remove-Item Env:\\CPI_DR_SUPABASE_DB_URL
+Remove-Item Env:CPI_DR_SUPABASE_DB_URL
 ```
 
-The script refuses the wrong project reference, untrusted hostnames, a missing encryption recipient, and output paths within the Git checkout. It creates `*.tar.gz.age` plus a **non-sensitive** JSON SHA-256 manifest. It automatically removes plaintext temp SQL files after exit where possible. No scheduled cloud jobs, files in GitHub or paid branches are created.
+The script refuses the wrong project reference, untrusted hostnames, a missing encryption recipient, and output paths within the Git checkout. It creates `*.tar.gz.age` plus a **non-sensitive** JSON SHA-256 manifest. It automatically removes plaintext temp SQL files after exit where possible. No scheduled cloud jobs, database backups in GitHub or paid branches are created.
 
 ### What is NOT backed up by these dumps
 Supabase CLI `db dump` is a logical dump with Supabase-specific exclusions. It omits Supabase-managed `auth` and `storage` schemas by default, even with `--include-data`, and never includes uploaded Storage object bytes. It is **not** a complete disaster-recovery copy of customer accounts, media, Edge Functions, credentials or external payment systems. Supabase docs: https://supabase.com/docs/reference/cli/supabase-db-dump and https://supabase.com/docs/guides/platform/backups .
