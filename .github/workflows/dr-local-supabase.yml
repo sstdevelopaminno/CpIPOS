@@ -1,0 +1,50 @@
+name: CpiPOS DR — ephemeral local Supabase schema (no paid cloud resources)
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/dr-local-supabase.yml"
+      - "scripts/dr/verify-ephemeral-supabase.sh"
+      - "docs/recovery/DR-LOCAL-SUPABASE.md"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: local-supabase-dr-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ephemeral-schema:
+    name: Local-only Supabase migrations and isolation preflight
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      SUPABASE_DISABLE_TELEMETRY: "true"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Check no cloud credentials were supplied
+        shell: bash
+        run: |
+          if [[ -n "${SUPABASE_ACCESS_TOKEN:-}" || -n "${SUPABASE_DB_PASSWORD:-}" || -n "${SUPABASE_PROJECT_ID:-}" ]]; then
+            echo "::error::This DR test must never use remote Supabase credentials."
+            exit 1
+          fi
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+      - name: Show CLI version (no secret values)
+        run: supabase --version
+      - name: Run ephemeral Dockerized local Supabase with repository migrations
+        run: |
+          supabase start -x studio,mailpit,storage-api,imgproxy,realtime,edge-runtime,logflare,vector,supavisor
+      - name: Verify local-only schema and default seed safety
+        shell: bash
+        run: bash scripts/dr/verify-ephemeral-supabase.sh
+      - name: Stop and remove local containers
+        if: always()
+        run: supabase stop --no-backup || true
