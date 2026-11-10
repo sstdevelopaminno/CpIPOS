@@ -1,0 +1,72 @@
+name: Emergency Cloudflare workers.dev URL enable
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "ops/cloudflare-incident-worker/enable-workers-dev-route-20261110.md"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cloudflare-enable-incident-status-route
+  cancel-in-progress: false
+
+jobs:
+  enable-status-url:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    environment: cloudflare-standby
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - name: Enable only the existing incident Worker's workers.dev URL
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -z "$CLOUDFLARE_API_TOKEN" || -z "$CLOUDFLARE_ACCOUNT_ID" ]]; then
+            echo "::error::Cloudflare GitHub Secrets unavailable."
+            exit 1
+          fi
+
+          API="https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers"
+          ROUTE_API="$API/scripts/cpi-incident-status/subdomain"
+
+          # Scope: only the already deployed informational status Worker.
+          # Never change account-wide subdomain, company DNS, POS Worker, or app routes.
+          curl --fail-with-body --silent --show-error --request POST \
+            --header "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+            --header "Content-Type: application/json" \
+            --data '{"enabled":true,"previews_enabled":false}' \
+            "$ROUTE_API" > route-response.json
+
+          if ! jq -e '.success == true and .result.enabled == true' route-response.json >/dev/null; then
+            echo "::error::Worker production URL was not enabled by Cloudflare."
+            jq -r '[.errors[]?.message] | join(" | ")' route-response.json
+            exit 1
+          fi
+
+          curl --fail-with-body --silent --show-error \
+            --header "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+            "$ROUTE_API" > route-check.json
+          jq -e '.success == true and .result.enabled == true' route-check.json >/dev/null
+
+          curl --fail-with-body --silent --show-error \
+            --header "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+            "$API/subdomain" > account-subdomain.json
+          account_subdomain="$(jq -r '.result.subdomain // empty' account-subdomain.json)"
+          if [[ ! "$account_subdomain" =~ ^[a-z0-9-]+$ ]]; then
+            echo "::error::Cloudflare workers.dev account subdomain was not registered."
+            exit 1
+          fi
+
+          URL="https://cpi-incident-status.$account_subdomain.workers.dev"
+          echo "PUBLIC_STATUS_URL=$URL"
+          echo "Checking the informational Worker (NOT POS readiness)..."
+          curl --fail --silent --show-error --retry 4 --retry-delay 2 --retry-all-errors \
+            "$URL/health" | jq -e '.service == "CpiPOS incident notice" and .status == "incident"' >/dev/null
+          echo "RESULT=STATUS_PAGE_ROUTE_ENABLED_AND_HEALTHY; POS_NOT_RESTORED"
