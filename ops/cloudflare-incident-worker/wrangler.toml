@@ -1,0 +1,5 @@
+# Independent, no-credentials static incident site; NOT the POS application.
+name = "cpi-incident-status"
+main = "./worker.mjs"
+compatibility_date = "2026-11-01"
+workers_dev = true
