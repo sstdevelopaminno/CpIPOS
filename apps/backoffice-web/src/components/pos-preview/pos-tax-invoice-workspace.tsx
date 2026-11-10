@@ -186,6 +186,9 @@ export function PosTaxInvoiceWorkspace({ lang, role }: { lang: Language; role: s
   const [detailLoading, setDetailLoading] = useState(false);
   const [managerPin, setManagerPin] = useState("");
   const [printing, setPrinting] = useState(false);
+  const [deleteProfile, setDeleteProfile] = useState<TaxProfile | null>(null);
+  const [deletePin, setDeletePin] = useState("");
+  const [deletingProfile, setDeletingProfile] = useState(false);
 
   const canManageSeller = role === "owner" || role === "manager";
   const totalPages = Math.max(1, Math.ceil(profiles.length / PAGE_SIZE));
@@ -394,6 +397,36 @@ export function PosTaxInvoiceWorkspace({ lang, role }: { lang: Language; role: s
     }
   }
 
+  async function deleteTaxProfile() {
+    if (!deleteProfile || !canManageSeller || deletePin.trim().length < 4) return;
+    setDeletingProfile(true);
+    setError(null);
+    try {
+      const response = await fetch("/api/pos/tax-invoices", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        body: JSON.stringify({
+          action: "delete_profile",
+          profile_id: deleteProfile.id,
+          manager_pin: deletePin.trim()
+        })
+      });
+      const body = (await response.json().catch(() => null)) as ApiBody<{ deleted?: boolean }> | null;
+      if (!response.ok || body?.error || !body?.data?.deleted) {
+        throw new Error(body?.error?.message ?? "ลบทะเบียนผู้เสียภาษีไม่สำเร็จ");
+      }
+      setSuccess(`ลบรายการ ${deleteProfile.display_name} แล้ว`);
+      setDeleteProfile(null);
+      setDeletePin("");
+      await loadProfiles();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "ลบทะเบียนผู้เสียภาษีไม่สำเร็จ");
+    } finally {
+      setDeletingProfile(false);
+    }
+  }
+
   async function printInvoice() {
     if (!issueProfile || !detail) return;
     setPrinting(true);
@@ -499,9 +532,23 @@ export function PosTaxInvoiceWorkspace({ lang, role }: { lang: Language; role: s
                       <td className="px-4 py-3 text-center font-black text-slate-700">{profile.invoice_count}</td>
                       <td className="px-4 py-3 text-sm font-semibold text-slate-500">{dateTime(profile.last_issued_at, lang)}</td>
                       <td className="px-4 py-3 text-right">
-                        <button type="button" onClick={() => openIssue(profile)} className="rounded-lg bg-blue-600 px-3 py-2 text-xs font-black text-white hover:bg-blue-700">
-                          {lang === "th" ? "เลือกบิล / ออกใบกำกับ" : "Choose bill"}
-                        </button>
+                        <div className="flex justify-end gap-2">
+                          <button type="button" onClick={() => openIssue(profile)} className="rounded-lg bg-blue-600 px-3 py-2 text-xs font-black text-white hover:bg-blue-700">
+                            {lang === "th" ? "เลือกบิล / ออกใบกำกับ" : "Choose bill"}
+                          </button>
+                          {canManageSeller ? (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setDeleteProfile(profile);
+                                setDeletePin("");
+                              }}
+                              className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs font-black text-red-700 hover:bg-red-100"
+                            >
+                              {lang === "th" ? "ลบ" : "Delete"}
+                            </button>
+                          ) : null}
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -525,6 +572,54 @@ export function PosTaxInvoiceWorkspace({ lang, role }: { lang: Language; role: s
           ) : null}
         </div>
       </section>
+
+      {deleteProfile ? (
+        <div className="fixed inset-0 z-[225] grid place-items-center bg-slate-950/55 p-4" role="dialog" aria-modal="true">
+          <section className="w-full max-w-md rounded-2xl bg-white shadow-2xl">
+            <header className="border-b border-slate-200 p-5">
+              <p className="text-xs font-black uppercase tracking-[0.16em] text-red-600">Delete tax profile</p>
+              <h2 className="mt-1 text-xl font-black text-slate-950">ลบทะเบียนผู้เสียภาษี</h2>
+              <p className="mt-2 text-sm font-semibold text-slate-500">{deleteProfile.display_name}</p>
+            </header>
+            <div className="grid gap-3 p-5">
+              <p className="rounded-xl bg-amber-50 p-3 text-sm font-semibold text-amber-900">
+                ระบบจะปิดใช้งานรายการนี้จากตาราง แต่เก็บประวัติใบกำกับที่เคยออกไว้
+              </p>
+              <label className="grid gap-1.5 text-sm font-black text-slate-700">
+                PIN Owner / Manager
+                <input
+                  type="password"
+                  inputMode="numeric"
+                  value={deletePin}
+                  onChange={(event) => setDeletePin(digits(event.target.value).slice(0, 12))}
+                  className="h-11 rounded-lg border border-slate-300 px-3 text-lg font-black tracking-[0.18em]"
+                />
+              </label>
+            </div>
+            <footer className="flex justify-end gap-2 border-t border-slate-200 p-4">
+              <button
+                type="button"
+                disabled={deletingProfile}
+                onClick={() => {
+                  setDeleteProfile(null);
+                  setDeletePin("");
+                }}
+                className="rounded-lg border border-slate-300 px-4 py-2.5 font-black text-slate-700 disabled:opacity-50"
+              >
+                ยกเลิก
+              </button>
+              <button
+                type="button"
+                disabled={deletingProfile || deletePin.length < 4}
+                onClick={() => void deleteTaxProfile()}
+                className="rounded-lg bg-red-600 px-4 py-2.5 font-black text-white disabled:opacity-50"
+              >
+                {deletingProfile ? "กำลังลบ..." : "ยืนยันลบ"}
+              </button>
+            </footer>
+          </section>
+        </div>
+      ) : null}
 
       {profileOpen ? (
         <div className="fixed inset-0 z-[210] grid place-items-center bg-slate-950/50 p-4" role="dialog" aria-modal="true">
