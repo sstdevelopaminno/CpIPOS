@@ -83,6 +83,20 @@ jobs:
       - name: Validate package with Wrangler dry-run (no credentials, no deployment)
         if: success()
         run: corepack pnpm --filter backoffice-web exec wrangler deploy --config wrangler.standby.toml --dry-run
+      - name: Verify Cloudflare runtime locally (no credentials, no production writes)
+        if: success()
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --test scripts/tests/dr-cloudflare-local-smoke.test.mjs
+          corepack pnpm --filter backoffice-web exec wrangler dev --config wrangler.standby.toml --local --ip 127.0.0.1 --port 8787 --inspector-port 9278 > /tmp/pos-cf-local.log 2>&1 &
+          WORKER_PID=$!
+          trap 'kill "$WORKER_PID" 2>/dev/null || true' EXIT
+          if ! node scripts/dr/cloudflare-local-smoke.mjs; then
+            echo "::error::Local Cloudflare Worker smoke failed; POS Cloudflare staging remains blocked."
+            tail -n 80 /tmp/pos-cf-local.log
+            exit 1
+          fi
       - name: Deployment policy
         if: always()
         run: echo "Cloudflare POS has NOT been deployed. Customer cutover requires staging tenant, runtime secrets, security and transaction acceptance."
@@ -158,20 +172,84 @@ jobs:
         run: |
           corepack enable
           corepack pnpm install --frozen-lockfile
+      - name: Reject known production Supabase targets
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Connected production data planes: never reuse in a staged public Worker.
+          if [[ "$NEXT_PUBLIC_SUPABASE_URL" == *"deejlitaivfnsbwqdugy"* || "$NEXT_PUBLIC_SUPABASE_URL" == *"wznixoeezgyhtwurcswb"* ]]; then
+            echo "::error::Supabase URL belongs to an existing production project. Staging requires an independent test project."
+            exit 1
+          fi
+          if [[ ! "$NEXT_PUBLIC_SUPABASE_URL" =~ ^https://[a-z0-9-]+\.supabase\.co/?$ ]]; then
+            echo "::error::Test Supabase URL is not a standard Supabase project HTTPS URL."
+            exit 1
+          fi
       - name: Build reviewed Cloudflare-only Edge runtime
         run: node scripts/cloudflare-standby-build.mjs
       - name: Validate bundle without publishing
         run: corepack pnpm --filter backoffice-web exec wrangler deploy --config wrangler.standby.toml --dry-run
-      - name: Deploy ONLY to separate workers.dev staging Worker
-        run: corepack pnpm --filter backoffice-web exec wrangler deploy --config wrangler.standby.toml
-      - name: Set staging runtime values securely (never print values)
+      - name: Smoke test compiled runtime locally before publishing
         shell: bash
         run: |
+          set -euo pipefail
+          node --test scripts/tests/dr-cloudflare-local-smoke.test.mjs
+          corepack pnpm --filter backoffice-web exec wrangler dev --config wrangler.standby.toml --local --ip 127.0.0.1 --port 8787 --inspector-port 9278 > /tmp/pos-cf-local.log 2>&1 &
+          WORKER_PID=$!
+          trap 'kill "$WORKER_PID" 2>/dev/null || true' EXIT
+          if ! node scripts/dr/cloudflare-local-smoke.mjs; then
+            echo "::error::Local Worker smoke failed. No staging deployment attempted."
+            tail -n 80 /tmp/pos-cf-local.log
+            exit 1
+          fi
+      - name: Disable any previously public staging route before updating code
+        shell: bash
+        run: |
+          set -euo pipefail
+          API="https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/scripts/cpi-pos-standby-stage/subdomain"
+          CODE=$(curl -sS -o /tmp/stage-route.json -w '%{http_code}' -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" "$API")
+          if [[ "$CODE" == "404" ]]; then
+            echo "Staging Worker does not exist yet; no route to disable."
+          elif [[ "$CODE" == "200" ]]; then
+            jq -e '.success == true' /tmp/stage-route.json >/dev/null
+            if [[ "$(jq -r '.result.enabled // false' /tmp/stage-route.json)" == "true" ]]; then
+              curl --fail-with-body --silent --show-error -X POST -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" -H "Content-Type: application/json" -d '{"enabled":false,"previews_enabled":false}' "$API" | jq -e '.success == true' >/dev/null
+            fi
+          else
+            echo "::error::Cannot inspect staging route; HTTP $CODE. No deployment attempted."
+            exit 1
+          fi
+      - name: Deploy staging Worker privately (workers.dev disabled; no customer traffic)
+        run: corepack pnpm --filter backoffice-web exec wrangler deploy --config wrangler.standby.toml
+      - name: Configure ALL test-only secrets before enabling any public route
+        shell: bash
+        run: |
+          set -euo pipefail
           set +x
           printf '%s' "$NEXT_PUBLIC_SUPABASE_URL" | corepack pnpm --filter backoffice-web exec wrangler secret put NEXT_PUBLIC_SUPABASE_URL --config wrangler.standby.toml
           printf '%s' "$NEXT_PUBLIC_SUPABASE_ANON_KEY" | corepack pnpm --filter backoffice-web exec wrangler secret put NEXT_PUBLIC_SUPABASE_ANON_KEY --config wrangler.standby.toml
           printf '%s' "$CPI_DR_TEST_SUPABASE_SERVICE_ROLE_KEY" | corepack pnpm --filter backoffice-web exec wrangler secret put SUPABASE_SERVICE_ROLE_KEY --config wrangler.standby.toml
           printf '%s' "$CPI_DR_TEST_POS_SESSION_HANDOFF_SECRET" | corepack pnpm --filter backoffice-web exec wrangler secret put POS_SESSION_HANDOFF_SECRET --config wrangler.standby.toml
+      - name: Enable only test-stage workers.dev URL after all secret setup
+        shell: bash
+        run: |
+          set -euo pipefail
+          API_BASE="https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers"
+          curl --fail-with-body --silent --show-error -X POST -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" -H "Content-Type: application/json" -d '{"enabled":true,"previews_enabled":false}' "$API_BASE/scripts/cpi-pos-standby-stage/subdomain" | jq -e '.success == true and .result.enabled == true' >/dev/null
+          curl --fail-with-body --silent --show-error -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" "$API_BASE/subdomain" > /tmp/cpi-stage-account.json
+          SUBDOMAIN=$(jq -r '.result.subdomain // empty' /tmp/cpi-stage-account.json)
+          if [[ ! "$SUBDOMAIN" =~ ^[a-z0-9-]+$ ]]; then
+            echo "::error::Invalid workers.dev subdomain. Disable stage URL manually in Cloudflare."
+            exit 1
+          fi
+          URL="https://cpi-pos-standby-stage.$SUBDOMAIN.workers.dev/login/store"
+          echo "Public TEST-only stage login: $URL"
+          if ! curl -fLsS --max-time 20 --retry 3 --retry-delay 2 "$URL" | grep -qi 'CpIPOS'; then
+            echo "::error::Staging login failed. Disabling test Worker URL."
+            curl --silent --show-error -X POST -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" -H "Content-Type: application/json" -d '{"enabled":false,"previews_enabled":false}' "$API_BASE/scripts/cpi-pos-standby-stage/subdomain" >/dev/null || true
+            exit 1
+          fi
+          echo "STATUS=ISOLATED_TEST_STAGE_LOGIN_AVAILABLE; TRANSACTION_FAILOVER_NOT_ACCEPTED"
       - name: Post-deployment warning
         run: |
           echo "Only workers.dev staging is deployed. No DNS, Vercel alias, customer app URL or production payment callback was changed."

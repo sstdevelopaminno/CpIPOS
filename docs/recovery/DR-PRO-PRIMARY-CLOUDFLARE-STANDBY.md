@@ -53,3 +53,21 @@ Cloudflare Workers Free currently allows 100,000 requests/day and 10 ms CPU/requ
 - https://developers.cloudflare.com/workers/platform/limits/
 - https://developers.cloudflare.com/workers/framework-guides/web-apps/nextjs/
 - https://vercel.com/docs/plans/pro-plan
+
+## 2026-11-10 follow-up — no-cost Cloudflare runtime gate
+
+The CI Cloudflare DR PR build probe now launches the **compiled OpenNext Worker in local workerd** after Wrangler dry-run (no production endpoints, no Supabase credentials). The smoke test verifies:
+
+- `GET /login/store` serves the CpiPOS store login rather than an arbitrary HTML 200/paused page
+- `GET /preview/pos` without a session redirects to store login, and never opens the protected POS UI
+
+This **is not** an API/payment/kitchen transaction test and does not demonstrate the production Worker can meet the Cloudflare Free CPU limit. If this smoke fails, Cloudflare standby remains blocked, even when Vercel continues operating.
+
+The optional `deploy-pos-staging` workflow now:
+1. Rejects URLs of the two existing connected Supabase production projects (`deejlitaivfnsbwqdugy`, `wznixoeezgyhtwurcswb`). Only a **separate, owner-provisioned testing Supabase project** is allowed.
+2. Builds and probes workerd locally before any Cloudflare publish.
+3. Disables any older public stage route, then deploys private Worker code with `workers_dev = false`.
+4. Adds test-only runtime secrets **before** enabling workers.dev, and immediately probes the stage login route. A failed login probe disables the public stage URL again.
+5. Never changes the main `.com` DNS, POS production origin, Cloudflare free plan, Vercel plan or customer tenant database.
+
+**Blocker:** no independently provisioned staging Supabase project and test-only keys have been confirmed in this session. Do not substitute production credentials or enable `deploy-pos-staging` without that test project. Vercel Pro remains the authoritative service.
