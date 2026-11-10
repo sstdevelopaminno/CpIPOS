@@ -181,7 +181,7 @@ jobs:
             echo "::error::Supabase URL belongs to an existing production project. Staging requires an independent test project."
             exit 1
           fi
-          if [[ ! "$NEXT_PUBLIC_SUPABASE_URL" =~ ^https://[a-z0-9-]+\\.supabase\\.co/?$ ]]; then
+          if [[ ! "$NEXT_PUBLIC_SUPABASE_URL" =~ ^https://[a-z0-9-]+\.supabase\.co/?$ ]]; then
             echo "::error::Test Supabase URL is not a standard Supabase project HTTPS URL."
             exit 1
           fi
