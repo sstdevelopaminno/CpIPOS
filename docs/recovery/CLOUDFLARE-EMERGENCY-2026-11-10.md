@@ -36,3 +36,8 @@ corepack pnpm --filter backoffice-web cf:build
 - Cloudflare is proposed as an independent standby. Existing project includes `wrangler.toml`, `open-next.config.ts` and `cf:build` but no verified live Cloudflare POS.
 - Because customers are blocked now, the static notice is useful only for outage communications. It does **not** restore actual POS sales.
 - The primary Vercel Hobby limit will not be lifted by deploying anything to Cloudflare; a tested alternate origin is necessary, or an appropriate paid Vercel plan, before sales can resume.
+
+## Build blocker discovered and isolated workaround
+On 10 November 2026 the actual OpenNext PR build failed: `Node.js middleware is not currently supported`. Next 16's `src/proxy.ts` runs on Node, while the currently pinned Cloudflare adapter rejects it. For **Cloudflare build only**, `scripts/cloudflare-standby-build.mjs` temporarily converts the reviewed file into Edge `src/middleware.ts` by changing only the exported function name, builds OpenNext, then restores `src/proxy.ts`. The production Vercel source is unchanged. A source contract test asserts no auth, tenant, cookie or route changes during conversion. This is still **not** proof Edge session refresh works on Workers; runtime acceptance is mandatory.
+
+Run from repository root: `node scripts/cloudflare-standby-build.mjs`. Do not use the old direct `cf:build` in a checkout containing `proxy.ts` unless the Cloudflare adapter has gained compatible Node middleware support.
