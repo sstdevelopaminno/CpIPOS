@@ -1,0 +1,103 @@
+name: Cloudflare DR — build verification and optional incident notice
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/cloudflare-dr.yml"
+      - "ops/cloudflare-incident-worker/**"
+      - "apps/backoffice-web/open-next.config.ts"
+      - "apps/backoffice-web/wrangler.toml"
+      - "apps/backoffice-web/package.json"
+      - "pnpm-lock.yaml"
+  workflow_dispatch:
+    inputs:
+      action:
+        description: "Verify Cloudflare compatibility or deploy the independent incident notice"
+        type: choice
+        required: true
+        default: verify
+        options:
+          - verify
+          - deploy-status
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cloudflare-dr-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  verify-incident-worker:
+    name: Verify isolated incident worker
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - run: node --test ops/cloudflare-incident-worker/worker.test.mjs
+
+  probe-pos-cloudflare-build:
+    name: Probe OpenNext Cloudflare POS build (no deploy)
+    if: github.event_name == 'pull_request' || inputs.action == 'verify'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      NEXT_TELEMETRY_DISABLED: "1"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Enable pnpm and install locked dependencies
+        run: |
+          corepack enable
+          corepack pnpm install --frozen-lockfile
+      - name: Build OpenNext worker (never deploy from PR)
+        run: corepack pnpm --filter backoffice-web cf:build
+      - name: Report generated worker size
+        if: success()
+        run: |
+          ls -lh apps/backoffice-web/.open-next/worker.js
+          du -sh apps/backoffice-web/.open-next
+      - name: Deployment policy
+        if: always()
+        run: echo "Cloudflare POS has NOT been deployed. Customer cutover requires staging tenant, runtime secrets, security and transaction acceptance."
+
+  deploy-incident-status:
+    name: Deploy independent status notice to workers.dev
+    if: github.event_name == 'workflow_dispatch' && inputs.action == 'deploy-status' && github.ref == 'refs/heads/main'
+    needs: verify-incident-worker
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: cloudflare-standby
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Verify Cloudflare credentials are configured
+        shell: bash
+        run: |
+          if [[ -z "$CLOUDFLARE_API_TOKEN" || -z "$CLOUDFLARE_ACCOUNT_ID" ]]; then
+            echo "::error::Cloudflare account ID/API token missing from GitHub Secrets. No deployment was attempted."
+            exit 1
+          fi
+      - name: Install locked CLI dependencies
+        run: |
+          corepack enable
+          corepack pnpm install --frozen-lockfile
+      - name: Deploy incident notice only (no DNS, POS or database changes)
+        run: corepack pnpm --filter backoffice-web exec wrangler deploy --config ../../ops/cloudflare-incident-worker/wrangler.toml
