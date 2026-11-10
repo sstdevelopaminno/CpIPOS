@@ -37,9 +37,18 @@ revoke all on function public.mobile_takeaway_checkout_bill(uuid, uuid, uuid, uu
 revoke execute on function public.mobile_takeaway_checkout_bill(uuid, uuid, uuid, uuid, text, uuid, text, numeric, text, text, numeric, jsonb) from anon, authenticated;
 grant execute on function public.mobile_takeaway_checkout_bill(uuid, uuid, uuid, uuid, text, uuid, text, numeric, text, text, numeric, jsonb) to service_role;
 
-revoke all on function public.mobile_takeaway_hold_bill(uuid, uuid, uuid, uuid, uuid, text, numeric, jsonb) from public;
-revoke execute on function public.mobile_takeaway_hold_bill(uuid, uuid, uuid, uuid, uuid, text, numeric, jsonb) from anon, authenticated;
-grant execute on function public.mobile_takeaway_hold_bill(uuid, uuid, uuid, uuid, uuid, text, numeric, jsonb) to service_role;
+-- Fresh replay may not include this optional RPC (it was present in an
+-- earlier hosted deployment but is not created by the preceding migrations).
+-- Apply least-privilege grants only when that exact signature exists.
+do $
+begin
+  if to_regprocedure('public.mobile_takeaway_hold_bill(uuid, uuid, uuid, uuid, uuid, text, numeric, jsonb)') is not null then
+    revoke all on function public.mobile_takeaway_hold_bill(uuid, uuid, uuid, uuid, uuid, text, numeric, jsonb) from public;
+    revoke execute on function public.mobile_takeaway_hold_bill(uuid, uuid, uuid, uuid, uuid, text, numeric, jsonb) from anon, authenticated;
+    grant execute on function public.mobile_takeaway_hold_bill(uuid, uuid, uuid, uuid, uuid, text, numeric, jsonb) to service_role;
+  end if;
+end;
+$;
 
 revoke all on function public.next_pos_order_no(uuid, uuid, text) from public;
 revoke execute on function public.next_pos_order_no(uuid, uuid, text) from anon, authenticated;
