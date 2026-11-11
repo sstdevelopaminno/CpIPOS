@@ -28,6 +28,7 @@ describe("routed shift report print stability", () => {
     expect(route).toContain("idempotencyKey:");
     expect(route).toContain('"auto-first-close-v1"');
     expect(route).toContain('already_queued:true');
+    expect(route).toContain('autoFirst: printMode === "auto_first"');
     expect(src("apps/backoffice-web/src/lib/printing/routed-print-service.ts")).toContain('if (shift.status !== "closed") throw new Error("shift_not_closed");');
   });
 
@@ -38,6 +39,8 @@ describe("routed shift report print stability", () => {
     expect(routed).toContain('printerRole: "report"');
     expect(routed).toContain('payload_format: "shift_report_html_v1"');
     expect(routed).toContain("payload_html: reportHtml");
+    expect(routed).toContain("args.autoFirst ? routes.slice(0, 1) : routes");
+    expect(routed).toContain("args.autoFirst ? { ...route, copies: 1 } : route");
   });
 
   it("allows the Windows in-session agent to claim approved report HTML without relaxing device assignment", () => {
