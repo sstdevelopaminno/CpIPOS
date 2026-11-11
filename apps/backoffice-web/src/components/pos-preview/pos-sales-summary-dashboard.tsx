@@ -211,8 +211,8 @@ export function PosSalesSummaryDashboard({ lang, initialPayload, opticalMode = f
 
   return (
     <section className="min-h-[calc(100vh-48px)] bg-[#f6f7f9] p-4 lg:p-5">
-      <div className="mx-auto grid max-w-[1480px] gap-4">
-        <header className={opticalMode ? "rounded-2xl border border-emerald-200 bg-gradient-to-r from-emerald-50 via-white to-white p-4 shadow-sm lg:p-5" : "rounded-2xl border border-slate-200 bg-white p-4 shadow-sm lg:p-5"}>
+      <div className="mx-auto max-w-[1480px] rounded-2xl border border-slate-200 bg-white p-4 shadow-sm lg:p-5">
+        <header className="border-b border-slate-200 pb-4">
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div className="min-w-[260px]">
               <PosBackButton lang={lang} href="/preview/pos/more" label={lang === "lo" ? "ກັບເມນູເພີ່ມເຕີມ" : lang === "th" ? "กลับเมนูเพิ่มเติม" : "Back to More"} className="mb-3" />
@@ -234,21 +234,9 @@ export function PosSalesSummaryDashboard({ lang, initialPayload, opticalMode = f
           </div>
         </header>
 
-        {error ? <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">{error}</div> : null}
-        <div className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-950" data-testid="sales-summary-currency-ledger">
-          <strong>{lang==="lo"?"ສະກຸນເງິນລາຍງານປັດຈຸບັນ":lang==="th"?"สกุลเงินรายงานปัจจุบัน":"Current report currency"}: {payload.currencyCode}</strong>
-          <p className="mt-1">{lang==="lo"?"ບິນທີ່ລະບຸ THB/LAK/USD ຈະແຍກຍອດຕາມສະກຸນເງິນ. ບິນເກົ່າທີ່ບໍ່ລະບຸສະກຸນເງິນຈະບໍ່ນຳໄປລວມກັບສະກຸນອື່ນ.":lang==="th"?"แยกยอด THB/LAK/USD ตามสกุลเงินที่บันทึกจริง บิลที่ไม่ได้บันทึกสกุลเงินจะอยู่ในกลุ่มไม่ยืนยัน และไม่รวมเข้ายอดสกุลใด":"THB/LAK/USD totals are separate. Historical receipts without a recorded currency are shown as unverified and excluded from currency-specific totals."}</p>
-          <div className="mt-2 flex flex-wrap gap-3">
-            {payload.currencyBuckets.map((bucket) => (
-              <span key={bucket.currencyCode} className="rounded-lg bg-white px-3 py-2 font-bold shadow-sm">
-                {bucket.currencyCode==="UNKNOWN"?(lang==="lo"?"ບໍ່ລະບຸສະກຸນເງິນ":lang==="th"?"ไม่ระบุสกุลเงิน":"Currency unverified"):bucket.currencyCode}: {bucket.currencyCode==="UNKNOWN"?new Intl.NumberFormat("en-US",{minimumFractionDigits:2,maximumFractionDigits:2}).format(bucket.netSales):money(bucket.netSales, lang, bucket.currencyCode)} ({bucket.receiptCount} {lang==="lo"?"ບິນ":lang==="th"?"บิล":"bills"})
-              </span>
-            ))}
-          </div>
-        </div>
-
+        {error ? <div className="mt-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">{error}</div> : null}
         {opticalMode ? (
-          <section aria-label="ภาพรวมยอดขาย Optical" className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4" data-testid="optical-sales-summary-kpis">
+          <section aria-label="ภาพรวมยอดขาย Optical" className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4" data-testid="optical-sales-summary-kpis">
             {[
               { label: ui("ยอดขายรวม"), value: money(payload.summary.grossSales, lang, payload.currencyCode), tone: "text-slate-950" },
               { label: ui("ยอดขายสุทธิ"), value: money(payload.summary.netSales, lang, payload.currencyCode), tone: "text-emerald-800" },
@@ -264,7 +252,7 @@ export function PosSalesSummaryDashboard({ lang, initialPayload, opticalMode = f
           </section>
         ) : null}
 
-        <Panel title={opticalMode ? ui("ประวัติสรุปกะ (ตามช่วงเวลาที่บันทึก)") : ui("สรุปกะ")}>
+        <Panel title={opticalMode ? ui("ประวัติสรุปกะ (ตามช่วงเวลาที่บันทึก)") : ui("สรุปกะ")} flat>
           <ScrollTable minWidth="860px">
             <thead>
               <tr>
@@ -514,8 +502,8 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
   return <label className="grid gap-1 text-xs font-bold text-slate-600">{label}{children}</label>;
 }
 
-function Panel({ title, children }: { title: string; children: ReactNode }) {
-  return <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"><h2 className="text-base font-black text-slate-950">{title}</h2><div className="mt-3">{children}</div></section>;
+function Panel({ title, children, flat = false }: { title: string; children: ReactNode; flat?: boolean }) {
+  return <section className={flat ? "mt-4 border-t border-slate-200 pt-4" : "rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"}><h2 className="text-base font-black text-slate-950">{title}</h2><div className="mt-3">{children}</div></section>;
 }
 
 function ScrollTable({ minWidth, children }: { minWidth: string; children: ReactNode }) {
