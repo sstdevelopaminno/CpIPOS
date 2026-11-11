@@ -23,7 +23,8 @@ describe("tenant currency across POS reports", () => {
     expect(server).toContain('"UNKNOWN"');
     expect(server).toContain("currencyBuckets");
     expect(server).toContain("currencyCode: orderCurrencyFromMetadata(order.metadata)");
-    expect(ui).toContain('data-testid="sales-summary-currency-ledger"');
+    // The bulky banner was removed at the owner's request; currency isolation remains server-enforced.
+    expect(ui).not.toContain('data-testid="sales-summary-currency-ledger"');
     expect(ui).toContain("payload.currencyCode");
     expect(ui).not.toContain('currency: "THB"');
   });

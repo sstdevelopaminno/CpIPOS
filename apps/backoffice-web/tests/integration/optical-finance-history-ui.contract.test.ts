@@ -23,7 +23,10 @@ describe("CUSTOM Optical reports: presentation-only, normal packages unchanged",
     expect(source).toContain('data-testid="optical-sales-summary-kpis"');
     expect(source).toContain("payload.summary.grossSales");
     expect(source).toContain("payload.summary.cashTotal");
-    expect(source).toContain("payload.currencyBuckets");
+    // Currency segregation is enforced in the service and printable report;
+    // the bulky dashboard currency banner was intentionally removed.
+    expect(read("lib/services/pos-sales-summary-service.ts")).toContain("currencyBuckets");
+    expect(source).not.toContain('data-testid="sales-summary-currency-ledger"');
     expect(source).not.toContain("estimatedDeposit");
   });
   it("preserves receipt reprinting and improves empty histories",()=>{

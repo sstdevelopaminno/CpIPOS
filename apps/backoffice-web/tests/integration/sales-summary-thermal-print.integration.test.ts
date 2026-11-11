@@ -24,12 +24,12 @@ describe("Sales summary thermal report printing",()=>{
   it("shows correct paper vs XP-80T safe printable widths without clipping amounts",()=>{
     const html80=render("summary",80);
     expect(html80).toContain("@page{size:80mm auto;margin:0}");
-    expect(html80).toContain("main.receipt{width:56mm;margin:0 0 0 1mm");
+    expect(html80).toContain("main.receipt{width:56mm;margin:0 auto");
     expect(html80).toContain("฿155.00");
     expect(html80).toContain("ไม่ใช่ใบเสร็จรับเงิน");
     const html58=render("summary",58);
     expect(html58).toContain("@page{size:58mm auto;margin:0}");
-    expect(html58).toContain("main.receipt{width:42mm;margin:0 0 0 1mm");
+    expect(html58).toContain("main.receipt{width:42mm;margin:0 auto");
   });
   it("escapes server-sourced names and never sums unrelated currencies",()=>{
     const html=render("payments");

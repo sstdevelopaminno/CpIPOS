@@ -30,11 +30,12 @@ describe("CUSTOM Optical: three languages, currency history and scrolling",()=>{
  });
  it("keeps unknown history outside real THB and LAK report totals",()=>{
   const srv=read("lib/services/pos-sales-summary-service.ts");
-  const report=read("components/pos-preview/pos-sales-summary-dashboard.tsx");
+  const report=read("lib/printing/sales-summary-report-html.ts");
+  const ui=read("components/pos-preview/pos-sales-summary-dashboard.tsx");
   expect(srv).toContain('opticalCurrencyAudit?"UNKNOWN":"THB"');
   expect(srv).toContain('order.metadata?.currency_code===currencyCode');
   expect(srv).toContain('currencyBuckets');
-  expect(report).toContain('bucket.currencyCode==="UNKNOWN"');
-  expect(report).toContain('data-testid="sales-summary-currency-ledger"');
+  expect(report).toContain('payload.currencyBuckets.filter(b=>b.currencyCode!==currency)');
+  expect(ui).not.toContain('data-testid="sales-summary-currency-ledger"');
  });
 });

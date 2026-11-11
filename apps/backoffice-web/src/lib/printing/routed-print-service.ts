@@ -744,19 +744,21 @@ export async function queueRoutedShiftReport(args: {
   runtimeDeviceCode?: string | null;
   reportHtml?: string | null;
   idempotencyKey?: string | null;
+  autoFirst?: boolean;
 }) {
   const reportHtml = args.reportHtml?.trim() || null;
   if (reportHtml && reportHtml.length > 250_000) throw new Error("shift_report_html_too_large");
   const supabase = getSupabaseServiceClient();
   const { data: shift, error: shiftError } = await supabase
     .from("shifts")
-    .select("id,opening_cash,expected_cash,actual_cash,opened_at,closed_at")
+    .select("id,status,opening_cash,expected_cash,actual_cash,opened_at,closed_at")
     .eq("tenant_id", args.auth.tenantId!)
     .eq("branch_id", args.auth.branchId!)
     .eq("id", args.shiftId)
     .maybeSingle();
   if (shiftError) throw new Error(shiftError.message);
   if (!shift) throw new Error("shift_not_found");
+  if (shift.status !== "closed") throw new Error("shift_not_closed");
 
   const { data: orders, error: ordersError } = await supabase
     .from("orders")
@@ -782,7 +784,9 @@ export async function queueRoutedShiftReport(args: {
   if (routes.length === 0) return [];
 
   const jobs = [];
-  for (const route of routes) {
+  // Auto-first must print ONE physical copy on ONE assigned report printer.
+  for (const route of (args.autoFirst ? routes.slice(0, 1) : routes)) {
+    const singleRoute = args.autoFirst ? { ...route, copies: 1 } : route;
     const payload = shiftReportText({
       paperWidthMm: route.printer.paper_width_mm,
       branchName,
@@ -797,7 +801,7 @@ export async function queueRoutedShiftReport(args: {
     });
     jobs.push(...await queueOnRoute({
       auth: args.auth,
-      route,
+      route: singleRoute,
       orderId: null,
       idempotencyKey: args.idempotencyKey ?? null,
       printerRole: "report",
