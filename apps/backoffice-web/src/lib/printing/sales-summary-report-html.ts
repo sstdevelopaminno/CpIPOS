@@ -93,7 +93,7 @@ export function renderSalesPrintHtml({payload,kind,paperWidthMm,language,rowId}:
   if(!body) body='<div class="empty">-</div>';
   const otherCurrencies=payload.currencyBuckets.filter(b=>b.currencyCode!==currency);
   const note=otherCurrencies.length?'<p class="note">'+esc(l[36])+'<br/>'
-    +otherCurrencies.map(b=>esc(b.currencyCode+" ("+b.receiptCount+" bills)")).join("<br/>")+'</p>':"";
+    +otherCurrencies.map(b=>esc(b.currencyCode+" ("+b.receiptCount+" bills): "+(b.currencyCode==="UNKNOWN"?String(b.netSales):fmt(b.netSales,b.currencyCode)))).join("<br/>")+'</p>':"";
   const printableMm=paperWidthMm===80?56:42;
   const html='<!doctype html><html lang="'+language+'"><head><meta charset="utf-8"/><title>'+esc(l[headings[kind]])+'</title>'
     +'<style>@page{size:'+paperWidthMm+'mm auto;margin:0}*{box-sizing:border-box}html,body{margin:0;padding:0;width:'+paperWidthMm
