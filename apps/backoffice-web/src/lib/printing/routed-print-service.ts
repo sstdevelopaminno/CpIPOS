@@ -830,6 +830,7 @@ export async function queueRoutedSalesSummaryReport(args: {
   runtimeDeviceCode: string | null;
   requestId: string;
   kind: string;
+  requestedPaperWidth: 58 | 80;
   buildForPaper: (paper: 58 | 80) => string;
 }) {
   const safeCode = String(args.runtimeDeviceCode ?? "").trim();
@@ -852,6 +853,7 @@ export async function queueRoutedSalesSummaryReport(args: {
   // No automatic retries on unknown physical outcomes.
   const route = { ...routes[0], copies: 1 };
   const paper = route.printer.paper_width_mm === 80 ? 80 : 58;
+  if (args.requestedPaperWidth !== paper) throw new Error("sales_print_paper_width_mismatch");
   const html = args.buildForPaper(paper);
   if (!html || html.length > 200_000) throw new Error("sales_print_document_too_large");
   const plainText = html.replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, "")
