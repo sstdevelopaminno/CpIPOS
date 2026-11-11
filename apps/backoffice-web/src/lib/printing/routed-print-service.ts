@@ -744,6 +744,7 @@ export async function queueRoutedShiftReport(args: {
   runtimeDeviceCode?: string | null;
   reportHtml?: string | null;
   idempotencyKey?: string | null;
+  autoFirst?: boolean;
 }) {
   const reportHtml = args.reportHtml?.trim() || null;
   if (reportHtml && reportHtml.length > 250_000) throw new Error("shift_report_html_too_large");
@@ -783,7 +784,9 @@ export async function queueRoutedShiftReport(args: {
   if (routes.length === 0) return [];
 
   const jobs = [];
-  for (const route of routes) {
+  // Auto-first must print ONE physical copy on ONE assigned report printer.
+  for (const route of (args.autoFirst ? routes.slice(0, 1) : routes)) {
+    const singleRoute = args.autoFirst ? { ...route, copies: 1 } : route;
     const payload = shiftReportText({
       paperWidthMm: route.printer.paper_width_mm,
       branchName,
@@ -798,7 +801,7 @@ export async function queueRoutedShiftReport(args: {
     });
     jobs.push(...await queueOnRoute({
       auth: args.auth,
-      route,
+      route: singleRoute,
       orderId: null,
       idempotencyKey: args.idempotencyKey ?? null,
       printerRole: "report",
