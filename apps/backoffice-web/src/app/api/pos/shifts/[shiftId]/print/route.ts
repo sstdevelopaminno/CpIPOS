@@ -42,7 +42,8 @@ export async function POST(req: Request, context: { params: Promise<{ shiftId: s
       shiftId,
       runtimeDeviceCode: scope.session.device_code,
       reportHtml,
-      idempotencyKey: `shift-report:${shiftId}:${requestId}`
+      idempotencyKey: `shift-report:${shiftId}:${requestId}`,
+      autoFirst: printMode === "auto_first"
     });
 
     if (jobs.length === 0) {
