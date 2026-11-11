@@ -64,6 +64,7 @@ export async function POST(req: Request) {
     },filters,{fullYearReport:true});
     // A dishonest 365-day report is worse than an explicit unavailable message:
     // the data service rejects >1200 orders rather than silently clipping totals.
+    if (!payload.salesRows.length && !payload.shifts.length) return fail("sales_print_no_data","No authorized sales in this period.",422);
     const rowId = typeof input.rowId === "string" && input.rowId.length <= 80 ? input.rowId : null;
     const render = (width:58|80) => renderSalesPrintHtml({payload,kind,paperWidthMm:width,language,rowId});
     const preview = render(paper);
@@ -81,7 +82,7 @@ export async function POST(req: Request) {
     const session = await requirePosSession();
     const jobs = await queueRoutedSalesSummaryReport({
       auth, runtimeDeviceCode: session.session.device_code,
-      requestId, kind,
+      requestId, kind, requestedPaperWidth: paper,
       buildForPaper: width => render(width).html
     });
     if (!jobs.length) {
@@ -98,7 +99,7 @@ export async function POST(req: Request) {
     }
     if (code==="sales_print_invalid_dates" || code==="sales_print_range_exceeds_year"
         || code==="sales_print_row_not_in_authorized_scope" || code==="sales_print_document_too_large"
-        || code==="report_print_device_session_required") {
+        || code==="report_print_device_session_required" || code==="sales_print_paper_width_mismatch") {
       return fail(code,code,422);
     }
     return fail("sales_print_failed","Unable to prepare authorized sales report.",500);
