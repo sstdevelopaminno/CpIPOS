@@ -169,7 +169,7 @@ export function SalesSummaryPrintDialog({
             <p className="mb-2 text-sm font-bold text-slate-800">{t("ตัวอย่างใบสรุป","Report preview","ຕົວຢ່າງລາຍງານ")} ({paper} mm)</p>
             <div className="flex justify-center overflow-x-auto">
               <iframe title="Sales summary print preview" srcDoc={html} sandbox=""
-                style={{width:(paper*3.78+18)+"px",minHeight:"400px",background:"#fff",border:"1px solid #cbd5e1"}}/>
+                style={{width:(paper*3.78)+"px",height:Math.min(1280,Math.max(570,(html.match(/class="kv/g)?.length ?? 0)*31+260))+"px",background:"#fff",border:"1px solid #cbd5e1",boxShadow:"0 10px 30px rgba(15,23,42,.12)"}}/>
             </div>
           </div>:null}
         <div className="mt-4 flex flex-wrap justify-end gap-2 border-t border-slate-200 pt-3">
