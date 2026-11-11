@@ -202,6 +202,7 @@ type BluetoothReceiptPrintResponseBody = {
 type RoutedShiftPrintResponseBody = {
   data?: {
     queued?: boolean;
+    already_queued?: boolean;
     jobs?: BluetoothPrintJob[];
   } | null;
   error?: { code?: string; message?: string } | null;
@@ -781,6 +782,9 @@ export function PosShiftHistoryModule({ lang }: { lang: Lang }) {
   const [closeReceipt, setCloseReceipt] = useState<ShiftCloseReceiptData | null>(null);
   const [receiptPrintJobs, setReceiptPrintJobs] = useState<BluetoothPrintJob[]>([]);
   const [receiptPrinted, setReceiptPrinted] = useState(false);
+  const [receiptPrintBusy, setReceiptPrintBusy] = useState(false);
+  const [firstPrintDispatched, setFirstPrintDispatched] = useState(false);
+  const printInFlightRef = useRef(false);
   const [, setReceiptPrintStatus] = useState<"idle" | "printing" | "printed" | "failed">("idle");
   const [receiptPrintError, setReceiptPrintError] = useState<string | null>(null);
   const [periodPrintNotice, setPeriodPrintNotice] = useState<string | null>(null);
@@ -1195,7 +1199,11 @@ export function PosShiftHistoryModule({ lang }: { lang: Lang }) {
       setReceiptPrinted(false);
       setReceiptPrintStatus("idle");
       setReceiptPrintError(null);
+      setFirstPrintDispatched(true);
       openModal("receipt");
+      // Once the close API succeeded, dispatch only the first report.
+      // Printing must not reopen the shift or change its accounting totals.
+      void printCloseReceipt(closeBody.data, "auto_first");
       await load();
       setClosingCash("");
     } catch (closeError) {
@@ -1300,10 +1308,10 @@ export function PosShiftHistoryModule({ lang }: { lang: Lang }) {
     printWindow.document.close();
   }
 
-  async function printCloseReceipt() {
-    if (!closeReceipt || busy === "print") return;
-
-    setBusy("print");
+  async function printCloseReceipt(receiptToPrint: ShiftCloseReceiptData | null = closeReceipt, mode: "auto_first" | "manual" = "manual") {
+    if (!receiptToPrint || printInFlightRef.current) return;
+    printInFlightRef.current = true;
+    setReceiptPrintBusy(true);
     setReceiptPrintError(null);
     setReceiptPrinted(false);
     setReceiptPrintStatus("printing");
@@ -1311,7 +1319,7 @@ export function PosShiftHistoryModule({ lang }: { lang: Lang }) {
 
     try {
       const receiptHtml = buildShiftCloseReceiptHtml({
-        receipt: closeReceipt,
+        receipt: receiptToPrint,
         lang,
         labels: {
           orders: text.orders,
@@ -1331,11 +1339,12 @@ export function PosShiftHistoryModule({ lang }: { lang: Lang }) {
         }
       });
 
-      const response = await fetch(`/api/pos/shifts/${closeReceipt.shift_id}/print`, {
+      const response = await fetch(`/api/pos/shifts/${receiptToPrint.shift_id}/print`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          request_id: crypto.randomUUID(),
+          request_id: mode === "auto_first" ? "auto-first-close" : crypto.randomUUID(),
+          print_mode: mode,
           report_html: receiptHtml
         })
       });
@@ -1346,9 +1355,13 @@ export function PosShiftHistoryModule({ lang }: { lang: Lang }) {
       const printedCount = jobs.filter((job) => job.status === "printed").length;
       const failedCount = jobs.filter((job) => job.status === "failed").length;
       const unsettledCount = jobs.filter((job) => job.status === "pending" || job.status === "printing" || job.status === "retrying").length;
-      const accepted = response.ok && !body?.error && body?.data?.queued === true && jobs.length > 0 && failedCount === 0;
+      const accepted = response.ok && !body?.error && body?.data?.queued === true && (jobs.length > 0 || body.data?.already_queued === true) && failedCount === 0;
 
       if (accepted) {
+        if (body.data?.already_queued === true) {
+          setReceiptPrintStatus("printing");
+          return;
+        }
         // Wake the Windows in-session agent immediately. Android keeps its own
         // adaptive 1/3/8/15/30-second claim loop and will pick up the same job.
         window.dispatchEvent(new Event("cpi-windows-print-agent-wake"));
@@ -1374,7 +1387,8 @@ export function PosShiftHistoryModule({ lang }: { lang: Lang }) {
           : shiftCaption(lang, "ส่งงานพิมพ์ไม่สำเร็จ", "Shift report print failed.")
       );
     } finally {
-      setBusy((current) => (current === "print" ? null : current));
+      printInFlightRef.current = false;
+      setReceiptPrintBusy(false);
     }
   }
 
@@ -2003,10 +2017,10 @@ export function PosShiftHistoryModule({ lang }: { lang: Lang }) {
                   <button
                     type="button"
                     onClick={() => void printCloseReceipt()}
-                    disabled={busy === "print"}
+                    disabled={receiptPrintBusy}
                     className="min-h-10 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm font-semibold leading-5 text-slate-700 disabled:opacity-60"
                   >
-                    {busy === "print" ? text.printing : text.printReceipt}
+                    {receiptPrintBusy ? text.printing : firstPrintDispatched ? shiftCaption(lang, "พิมพ์ใบสรุปอีกครั้ง", "Print another copy") : text.printReceipt}
                   </button>
                   <button
                     type="button"
