@@ -750,13 +750,14 @@ export async function queueRoutedShiftReport(args: {
   const supabase = getSupabaseServiceClient();
   const { data: shift, error: shiftError } = await supabase
     .from("shifts")
-    .select("id,opening_cash,expected_cash,actual_cash,opened_at,closed_at")
+    .select("id,status,opening_cash,expected_cash,actual_cash,opened_at,closed_at")
     .eq("tenant_id", args.auth.tenantId!)
     .eq("branch_id", args.auth.branchId!)
     .eq("id", args.shiftId)
     .maybeSingle();
   if (shiftError) throw new Error(shiftError.message);
   if (!shift) throw new Error("shift_not_found");
+  if (shift.status !== "closed") throw new Error("shift_not_closed");
 
   const { data: orders, error: ordersError } = await supabase
     .from("orders")
