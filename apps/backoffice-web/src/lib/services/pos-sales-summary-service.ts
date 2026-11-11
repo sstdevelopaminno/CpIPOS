@@ -354,7 +354,7 @@ async function loadOrders(args: {
   }
   if (result.error) throw new Error(`orders_query_failed:${result.error.message}`);
   const orders = (result.data ?? []) as unknown as OrderRow[];
-  if (args.rejectTruncated && orders.length > ORDER_LIMIT) throw new Error("sales_report_too_many_orders_narrow_period");
+  if (args.rejectTruncated && orders.length >= 500) throw new Error("sales_report_too_many_orders_narrow_period");
   return orders;
 }
 
@@ -463,6 +463,11 @@ export async function loadPosSalesSummaryData(
   if (itemsResult.error) throw new Error(`order_items_query_failed:${itemsResult.error.message}`);
   if (shiftsResult.error) throw new Error(`shifts_query_failed:${shiftsResult.error.message}`);
   if (usersResult.error) throw new Error(`users_profiles_query_failed:${usersResult.error.message}`);
+  // Default PostgREST response caps can silently omit payments/items from a yearly report.
+  // Reject rather than printing incorrect sums. A shorter period may be selected.
+  if (options.fullYearReport && ((paymentsResult.data?.length ?? 0) >= 1000 || (itemsResult.data?.length ?? 0) >= 1000)) {
+    throw new Error("sales_report_too_many_orders_narrow_period");
+  }
 
   const paymentRows = (paymentsResult.data ?? []) as PaymentRow[];
   const orderPaymentMap = new Map<string, Array<{ key: string; label: string; amount: number }>>();
