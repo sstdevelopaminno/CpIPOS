@@ -194,7 +194,13 @@ describe("printing template generation", () => {
 
     expect(html).toContain("@page { size: 80mm auto");
     expect(html).toContain("width: 80mm");
-    expect(cssNumber(html, "--receipt-printable-width-mm")).toBe(64);
+    expect(cssNumber(html, "--receipt-printable-width-mm")).toBe(56);
+    // XP-80T uses an 80mm roll but a narrower print head/Windows imageable area.
+    // Preserve the same font sizes and reserve a safe right-side region for the driver.
+    expect(html).toContain("width: 56mm; margin: 0 0 0 1mm");
+    expect(html).toContain("table-layout: fixed");
+    expect(html).toContain("overflow-wrap: anywhere");
+    expect(html).not.toContain("width: 64mm; margin: 0 0 0 2mm");
     expect(cssNumber(html, "--receipt-base-font-px")).toBeCloseTo(13.5);
     expect(cssNumber(html, "--receipt-title-font-px")).toBeCloseTo(19);
     expect(cssNumber(html, "--receipt-grand-font-px")).toBeCloseTo(17.5);

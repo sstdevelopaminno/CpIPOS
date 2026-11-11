@@ -324,8 +324,9 @@ function buildReceiptPrintHtml(args: {
         };
   const pageHeightMm = Math.min(700, Math.max(120, 78 + record.items.length * 10));
   const paperWidthMm = hasLocalWindowsPrintBridge() ? 80 : 58;
-  const printableWidthMm = paperWidthMm === 80 ? 64 : 45;
-    const printableLeftMm = paperWidthMm === 80 ? 2 : 1;
+  // XP-80T 80mm stock has a smaller printable area; preserve right-side safe space.
+  const printableWidthMm = paperWidthMm === 80 ? 56 : 45;
+  const printableLeftMm = 1;
   const itemRows = record.items
     .map((item) => {
       const details = parseReceiptItemDetails(item.notes);

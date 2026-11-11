@@ -93,8 +93,10 @@ export function renderReceiptHtml(input: ReceiptHtmlInput) {
   const paper = input.paperWidthMm;
   const layout = paper === 58
     ? { printableMm: 45, basePx: 12.75, titlePx: 16.5, mutedPx: 11.75, metaPx: 12.5, unitPx: 10.75, summaryPx: 12, grandPx: 15.5, footerPx: 11, logoMaxWidthMm: 30, logoMaxHeightMm: 11, qtyMm: 8.5, totalMm: 16.5 }
-    : { printableMm: 64, basePx: 13.5, titlePx: 19, mutedPx: 12.5, metaPx: 13.25, unitPx: 11.5, summaryPx: 12.75, grandPx: 17.5, footerPx: 11.75, logoMaxWidthMm: 42, logoMaxHeightMm: 13, qtyMm: 11, totalMm: 22 };
-  const printableLeftMm = paper === 58 ? 1 : 2;
+    : { printableMm: 56, basePx: 13.5, titlePx: 19, mutedPx: 12.5, metaPx: 13.25, unitPx: 11.5, summaryPx: 12.75, grandPx: 17.5, footerPx: 11.75, logoMaxWidthMm: 42, logoMaxHeightMm: 13, qtyMm: 11, totalMm: 22 };
+  // XP-80T 80mm roll prints only approximately 72mm; leave additional room for Windows driver offset.
+  // Keep font sizes and all monetary values unchanged; wrap long lines instead of clipping.
+  const printableLeftMm = 1;
   const logoUrl = clean(input.logoUrl) ?? DEFAULT_RECEIPT_LOGO_URL;
   const storeName = clean(input.storeName) ?? clean(input.branchName) ?? "CpIPOS";
   const branchName = clean(input.branchName);

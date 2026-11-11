@@ -6,17 +6,18 @@ import { resolveWindowsAgentJob } from "../../src/lib/printing/windows-print-job
 const read = (path: string) => readFileSync(resolve(process.cwd(), path), "utf8");
 
 describe("Windows local POS printing: sale, reprint, kitchen, shift, notices and drawer", () => {
-  it("keeps XP-80C 80mm HTML totals inside a conservative 64mm printable width", () => {
+  it("reserves XP-80T driver offset on 80mm rolls while preserving 58mm layout", () => {
     const bridge = read("../windows-runtime-native/Cpipos.WindowsRuntime/LocalPrintBridge.cs");
     const canonical = read("src/lib/printing/receipt-html-template.ts");
     const sale = read("src/components/pos/pos-sales-module.tsx");
     const history = read("src/components/pos-preview/pos-receipts-workspace.tsx");
 
-    expect(canonical).toContain("printableMm: 64");
+    expect(canonical).toContain("printableMm: 56");
+    expect(canonical).toContain("const printableLeftMm = 1;");
     expect(canonical).toContain("printableMm: 45");
     for (const source of [sale, history]) {
-      expect(source).toContain("paperWidthMm === 80 ? 64 : 45");
-      expect(source).toContain("paperWidthMm === 80 ? 2 : 1");
+      expect(source).toContain("paperWidthMm === 80 ? 56 : 45");
+      expect(source).toContain("const printableLeftMm = 1;");
       expect(source).toContain("overflow-wrap: anywhere");
       expect(source).toContain("table-layout: fixed");
       expect(source).not.toContain("width: 16mm; text-align: right; white-space: nowrap");
