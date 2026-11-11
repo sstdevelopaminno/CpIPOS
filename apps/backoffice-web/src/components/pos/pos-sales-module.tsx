@@ -8709,8 +8709,10 @@ export function PosSalesModule({
   function buildReceiptPrintHtml(session: ReceiptSession) {
     const pageHeightMm = Math.min(700, Math.max(120, 78 + session.items.length * 10));
     const paperWidthMm = hasLocalWindowsPrintBridge() ? 80 : 58;
-    const printableWidthMm = paperWidthMm === 80 ? 64 : 45;
-    const printableLeftMm = paperWidthMm === 80 ? 2 : 1;
+    // Field photo: XP-80T 80mm Windows printer still crops the rightmost totals at 64mm.
+    // Reserve driver-offset headroom without shrinking Thai/Latin font sizes.
+    const printableWidthMm = paperWidthMm === 80 ? 56 : 45;
+    const printableLeftMm = 1;
     const logoUrl = getAbsoluteAssetUrl(receiptLogoPath);
     const receiptDiscountAmount = resolveReceiptDiscountAmount(session);
     const receiptTaxLines = resolveTaxLinesForReceipt(session, text.tax);
