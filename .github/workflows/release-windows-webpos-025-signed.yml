@@ -1,0 +1,135 @@
+name: Signed CpiPOS Windows Web POS v0.2.5 release
+on:
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: cpipos-windows-webpos-025-signing
+  cancel-in-progress: false
+
+jobs:
+  sign-and-publish:
+    if: github.repository == 'sstdevelopaminno/CpIPOS' && github.ref == 'refs/heads/main'
+    runs-on: windows-2022
+    environment: windows-code-signing-production
+    timeout-minutes: 60
+    env:
+      SOURCE_SHA: a4d66ad8d384ebe746a6b735b8840c1c673ecb6b
+      TAG: windows-webpos-v0.2.5-signed
+      OUT_DIR: artifacts/CpIPOS-WindowsRuntime-win-x64
+      SETUP: CpIPOS-WindowsWebPOS-Setup.exe
+    steps:
+      - name: Checkout approved 0.2.5 source, not latest main
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: a4d66ad8d384ebe746a6b735b8840c1c673ecb6b
+          persist-credentials: false
+
+      - name: Confirm frozen source and version
+        shell: pwsh
+        run: |
+          if ((git rev-parse HEAD).Trim() -ne $env:SOURCE_SHA) { throw 'Source SHA mismatch' }
+          $p = Get-Content 'apps/windows-runtime-native/Cpipos.WindowsRuntime/Cpipos.WindowsRuntime.csproj' -Raw
+          $i = Get-Content 'apps/windows-runtime-native/installer/CpIPOSWindowsWebPOS.iss' -Raw
+          if (!$p.Contains('<Version>0.2.5</Version>') -or !$i.Contains('#define AppVersion "0.2.5"')) { throw 'Installer/app version mismatch' }
+
+      - name: Install .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Build unsigned application from pinned code
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $icon = 'apps/windows-runtime-native/Cpipos.WindowsRuntime/assets/cpipos.ico'
+          $b64 = 'apps/windows-runtime-native/Cpipos.WindowsRuntime/assets/cpipos.ico.b64'
+          [IO.File]::WriteAllBytes($icon, [Convert]::FromBase64String((Get-Content $b64 -Raw).Trim()))
+          $project = 'apps/windows-runtime-native/Cpipos.WindowsRuntime/Cpipos.WindowsRuntime.csproj'
+          dotnet restore $project
+          if ($LASTEXITCODE -ne 0) { throw 'Restore failed' }
+          dotnet publish $project -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:EnableCompressionInSingleFile=true -o $env:OUT_DIR
+          if ($LASTEXITCODE -ne 0) { throw 'Publish failed' }
+          $exe = Join-Path $env:OUT_DIR 'Cpipos.WindowsRuntime.exe'
+          if (!(Test-Path $exe) -or (Get-Item $exe).VersionInfo.FileVersion -notlike '0.2.5*') { throw 'Compiled binary version mismatch' }
+          New-Item -ItemType Directory -Force -Path (Join-Path $env:OUT_DIR 'assets') | Out-Null
+          Copy-Item -Force $icon (Join-Path $env:OUT_DIR 'cpipos.ico')
+          Copy-Item -Force $icon (Join-Path $env:OUT_DIR 'assets/cpipos.ico')
+
+      - name: Install Inno Setup before exposing signing credential
+        shell: pwsh
+        run: |
+          choco install innosetup --no-progress -y
+          if ($LASTEXITCODE -ne 0) { throw 'Inno Setup install failed' }
+
+      - name: Sign application and installer with trusted Authenticode certificate
+        shell: pwsh
+        env:
+          PFX_B64: ${{ secrets.WINDOWS_CODESIGN_PFX_BASE64 }}
+          PFX_PASSWORD: ${{ secrets.WINDOWS_CODESIGN_PFX_PASSWORD }}
+          EXPECTED_SUBJECT: ${{ vars.WINDOWS_CODESIGN_EXPECTED_SUBJECT }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ([string]::IsNullOrWhiteSpace($env:PFX_B64) -or [string]::IsNullOrWhiteSpace($env:PFX_PASSWORD) -or [string]::IsNullOrWhiteSpace($env:EXPECTED_SUBJECT)) { throw 'No protected trusted code-signing credential. Refusing unsigned release' }
+          $pfxPath = Join-Path $env:RUNNER_TEMP 'cpipos-code-signing.pfx'
+          $cert = $null
+          try {
+            [IO.File]::WriteAllBytes($pfxPath, [Convert]::FromBase64String($env:PFX_B64))
+            $secure = ConvertTo-SecureString $env:PFX_PASSWORD -AsPlainText -Force
+            $cert = Import-PfxCertificate -FilePath $pfxPath -CertStoreLocation 'Cert:\CurrentUser\My' -Password $secure
+            if (!$cert -or !$cert.HasPrivateKey) { throw 'Certificate private key missing' }
+            if ($cert.Subject -notlike "*$($env:EXPECTED_SUBJECT)*") { throw 'Wrong verified publisher' }
+            if ($cert.NotBefore -gt (Get-Date) -or $cert.NotAfter -le (Get-Date)) { throw 'Certificate expired/not yet valid' }
+            if (@($cert.EnhancedKeyUsageList | Where-Object { $_.ObjectId -eq '1.3.6.1.5.5.7.3.3' }).Count -lt 1) { throw 'Not a Code Signing certificate' }
+            $chain = [Security.Cryptography.X509Certificates.X509Chain]::new()
+            $chain.ChainPolicy.RevocationMode = 'Online'
+            if (-not $chain.Build($cert)) { throw 'Untrusted signing chain' }
+            $kits = Join-Path (Get-Item 'Env:ProgramFiles(x86)').Value 'Windows Kits\10\bin'
+            $tool = Get-ChildItem $kits -Filter signtool.exe -Recurse -ErrorAction Stop | Where-Object { $_.FullName -match '[\\/]x64[\\/]signtool.exe$' } | Sort-Object FullName -Descending | Select-Object -First 1 -ExpandProperty FullName
+            if (!$tool) { throw 'Windows SDK signtool missing' }
+            $app = Join-Path $env:OUT_DIR 'Cpipos.WindowsRuntime.exe'
+            & $tool sign /sha1 $cert.Thumbprint /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 /d 'CpiPOS Windows Web POS' $app
+            if ($LASTEXITCODE -ne 0) { throw 'App signing failed' }
+            & $tool verify /pa /all /tw /v $app
+            if ($LASTEXITCODE -ne 0) { throw 'App signature invalid' }
+            $sig = Get-AuthenticodeSignature $app
+            if ($sig.Status -ne 'Valid' -or $sig.SignerCertificate.Thumbprint -ne $cert.Thumbprint) { throw 'App publisher mismatch' }
+            $iscc = 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe'
+            if (!(Test-Path $iscc)) { throw 'Inno compiler not installed' }
+            $root = $env:GITHUB_WORKSPACE
+            & $iscc 'apps/windows-runtime-native/installer/CpIPOSWindowsWebPOS.iss' '/DAppVersion=0.2.5' "/DSourceDir=$root\artifacts\CpIPOS-WindowsRuntime-win-x64" "/DOutputDir=$root\artifacts" "/DIconFile=$root\apps\windows-runtime-native\Cpipos.WindowsRuntime\assets\cpipos.ico"
+            if ($LASTEXITCODE -ne 0) { throw 'Installer build failed' }
+            $setup = Join-Path 'artifacts' $env:SETUP
+            if (!(Test-Path $setup) -or (Get-Item $setup).Length -lt 1000000) { throw 'Installer missing' }
+            & $tool sign /sha1 $cert.Thumbprint /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 /d 'CpiPOS Windows Web POS Installer' $setup
+            if ($LASTEXITCODE -ne 0) { throw 'Installer signing failed' }
+            & $tool verify /pa /all /tw /v $setup
+            if ($LASTEXITCODE -ne 0) { throw 'Installer signature invalid' }
+            $sig = Get-AuthenticodeSignature $setup
+            if ($sig.Status -ne 'Valid' -or $sig.SignerCertificate.Thumbprint -ne $cert.Thumbprint) { throw 'Installer publisher mismatch' }
+            $hash = (Get-FileHash -Algorithm SHA256 $setup).Hash.ToLowerInvariant()
+            "$hash  $env:SETUP" | Set-Content -Encoding ascii 'artifacts/SHA256SUMS-WindowsWebPOS-0.2.5.txt'
+            Write-Host "Signed installer SHA256: $hash"
+          } finally {
+            Remove-Item $pfxPath -Force -ErrorAction SilentlyContinue
+            if ($cert) { Remove-Item "Cert:\CurrentUser\My\$($cert.Thumbprint)" -Force -ErrorAction SilentlyContinue }
+          }
+
+      - name: Publish separate stable signed release; never overwrite unsigned QA
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          gh release view $env:TAG --repo $env:GITHUB_REPOSITORY 2>$null | Out-Null
+          if ($LASTEXITCODE -eq 0) { throw 'Signed tag already exists; refusing overwrite' }
+          @'
+          CpiPOS Windows Web POS v0.2.5 — CA-backed Authenticode signed.
+          Built from reviewed commit a4d66ad8d384ebe746a6b735b8840c1c673ecb6b.
+          Both embedded Windows runtime EXE and Inno Setup installer are signed and timestamped.
+          Fixes XP-80C thermal receipt 80mm right-edge clipping.
+          Requires Windows 10/11 x64 and Microsoft Edge WebView2.
+          A valid signature does not guarantee immediate Microsoft SmartScreen reputation.
+          '@ | Set-Content -Encoding utf8 'artifacts/release-notes.txt'
+          gh release create $env:TAG "artifacts/$env:SETUP" 'artifacts/SHA256SUMS-WindowsWebPOS-0.2.5.txt' --repo $env:GITHUB_REPOSITORY --target $env:SOURCE_SHA --title 'CpiPOS Windows Web POS v0.2.5 Authenticode Signed' --notes-file 'artifacts/release-notes.txt' --latest=false
+          if ($LASTEXITCODE -ne 0) { throw 'Signed release creation failed' }
