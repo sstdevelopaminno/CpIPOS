@@ -295,14 +295,14 @@ function buildShiftCloseReceiptHtml(args: {
   return `<!doctype html>
 <html><head><meta charset="utf-8"/>
 <style>
-@page{size:58mm auto;margin:2mm;}
-html,body{width:58mm;margin:0;padding:0;color:#000;font:11px/1.35 Tahoma,'Noto Sans Thai','Segoe UI',sans-serif;}
-main{width:54mm;margin:0 auto;padding:0.8mm 0;}
+@page{size:auto;margin:0;}
+html,body{width:100%;margin:0;padding:0;color:#000;font:11px/1.45 Tahoma,'Noto Sans Thai','Segoe UI',sans-serif;}
+main{box-sizing:border-box;width:calc(100% - 16mm);max-width:56mm;margin:0 auto;padding:2.5mm 0 4mm;overflow-wrap:anywhere;}
 h1,p{margin:0;}
-.summary p,.meta p{align-items:baseline;min-width:0;line-height:1.5}
-.summary strong,.meta strong{white-space:nowrap;text-align:right}
-.head{text-align:center;display:grid;gap:0.8mm}
-.divider{border-top:1px dashed #000;margin:1.3mm 0}
+.summary p,.meta p{align-items:baseline;min-width:0;line-height:1.55;gap:2mm;padding:0.5mm 0;border-bottom:1px dotted #ddd}
+.summary span,.meta span{min-width:0;flex:1 1 48%;overflow-wrap:anywhere}.summary strong,.meta strong{flex:0 1 52%;min-width:0;white-space:normal;overflow-wrap:anywhere;text-align:right;font-variant-numeric:tabular-nums}
+.head{text-align:center;display:grid;gap:0.8mm}.head h1{font-size:15px;font-weight:900;overflow-wrap:anywhere}
+.divider{border-top:1px dashed #777;margin:2mm 0}
 .meta{display:grid;gap:0.7mm}
 .summary{display:grid;gap:0.7mm}
 .brand{padding-top:0.6mm;margin-top:0.6mm;border-top:1px solid #000;font-weight:900;text-align:center}
@@ -719,7 +719,7 @@ const laoShiftLabels = {
   "popupTitleOpen": "ຢືນຢັນເປີດກະ",
   "popupTitleClose": "ຢືນຢັນປິດກະ",
   "popupTitleActive": "ລາຍລະອຽດກະທີ່ເປີດຢູ່",
-  "popupTitleReceipt": "ໃບສະຫຼຸບປິດກະ (58mm)",
+  "popupTitleReceipt": "ໃບສະຫຼຸບປິດກະ",
   "popupDescOpen": "ປ້ອນເງິນທອນຕົ້ນກະກ່ອນເປີດກະ",
   "popupDescClose": "ປ້ອນເງິນສົດປາຍກະກ່ອນປິດກະ",
   "popupDescActive": "ກວດສອບກະປັດຈຸບັນກ່ອນດຳເນີນການ",
@@ -833,7 +833,7 @@ export function PosShiftHistoryModule({ lang }: { lang: Lang }) {
             popupTitleOpen: "ยืนยันเปิดกะ",
             popupTitleClose: "ยืนยันปิดกะ",
             popupTitleActive: "รายละเอียดกะที่เปิดอยู่",
-            popupTitleReceipt: "ใบสรุปปิดกะ (58mm)",
+            popupTitleReceipt: "ใบสรุปปิดกะ",
             popupDescOpen: "กรอกเงินตั้งต้นก่อนเปิดกะ",
             popupDescClose: "กรอกเงินสดปลายกะก่อนปิดกะ",
             popupDescActive: "ตรวจสอบสถานะกะปัจจุบันก่อนดำเนินการ",
@@ -1967,7 +1967,7 @@ export function PosShiftHistoryModule({ lang }: { lang: Lang }) {
             ) : null}
             {modalKind === "receipt" && closeReceipt ? (
               <div className="mt-3 max-h-[min(58dvh,520px)] overflow-y-auto rounded-xl border border-slate-200 bg-slate-100 p-3">
-                <article className="posui-print-receipt58 mx-auto bg-white shadow-sm" style={{ width: "58mm", minHeight: "auto", color: "#000" }}>
+                <article className="posui-print-receipt58 mx-auto rounded-sm bg-white px-3 py-4 shadow-sm" style={{ width: "min(100%, 68mm)", minHeight: "auto", color: "#000", overflowWrap: "anywhere" }}>
                   <header className="posui-print-receipt58__head">
                     <h1>{closeReceipt.receipt.tenant_name}</h1>
                     <p>{closeReceipt.receipt.branch_name}</p>
@@ -1980,7 +1980,7 @@ export function PosShiftHistoryModule({ lang }: { lang: Lang }) {
                     <div><dt>{text.receiptCutoffAt}</dt><dd>{formatDateTime(closeReceipt.summary_cutoff_at, lang)}</dd></div>
                   </dl>
                   <div className="posui-print-receipt58__divider" />
-                  <div className="posui-print-receipt58__summary space-y-1 [&_p]:flex [&_p]:items-baseline [&_p]:justify-between [&_p]:gap-2 [&_p]:text-[11px] [&_p]:leading-5 [&_strong]:whitespace-nowrap [&_strong]:text-right">
+                  <div className="posui-print-receipt58__summary space-y-1 [&_p]:flex [&_p]:items-baseline [&_p]:justify-between [&_p]:gap-2 [&_p]:text-[11px] [&_p]:leading-5 [&_strong]:min-w-0 [&_strong]:break-words [&_strong]:whitespace-normal [&_strong]:text-right">
                     <p className="is-heading"><span>{text.orders}</span><strong>{closeReceipt.summary.order_count}</strong></p>
                     <p className="is-muted"><span>{text.cancelled}</span><strong>{closeReceipt.summary.cancelled_order_count}</strong></p>
                     <p className="is-aux"><span>{text.sales}</span><strong>{formatMoney(closeReceipt.summary.sales_total, lang)}</strong></p>
@@ -2122,7 +2122,7 @@ export function PosShiftHistoryModule({ lang }: { lang: Lang }) {
               </div>
             </dl>
             <div className="posui-print-receipt58__divider" />
-            <div className="posui-print-receipt58__summary space-y-1 [&_p]:flex [&_p]:items-baseline [&_p]:justify-between [&_p]:gap-2 [&_p]:text-[11px] [&_p]:leading-5 [&_strong]:whitespace-nowrap [&_strong]:text-right">
+            <div className="posui-print-receipt58__summary space-y-1 [&_p]:flex [&_p]:items-baseline [&_p]:justify-between [&_p]:gap-2 [&_p]:text-[11px] [&_p]:leading-5 [&_strong]:min-w-0 [&_strong]:break-words [&_strong]:whitespace-normal [&_strong]:text-right">
               <p className="is-heading">
                 <span>{text.orders}</span>
                 <strong>{closeReceipt.summary.order_count}</strong>
