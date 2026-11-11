@@ -8,7 +8,7 @@ import { hasLocalWindowsPrintBridge, printWindowsReceiptHtml } from "@/lib/print
 
 export type SalesPrintTarget = { kind: SalesPrintKind; rowId?: string | null };
 type Period = "filtered" | "day" | "month" | "year" | "range";
-type ApiReply = { data?: { html?: string; title?: string; queued?: boolean }; error?: { message?: string; code?: string } };
+type ApiReply = { data?: { html?: string; title?: string; queued?: boolean; previewHash?: string }; error?: { message?: string; code?: string } };
 const kindNames: Record<SalesPrintKind,string> = {
   summary:"สรุปยอดขาย",payments:"ช่องทางชำระเงิน",products:"สินค้าขายดี",
   cashiers:"ประสิทธิภาพพนักงาน",sales:"รายการขาย",sale_row:"บิลขายที่เลือก",shift_row:"กะที่เลือก"
@@ -33,6 +33,7 @@ export function SalesSummaryPrintDialog({
   const [paper,setPaper]=useState<58|80>(80);
   const [html,setHtml]=useState("");
   const [preparedSignature,setPreparedSignature]=useState("");
+  const [previewHash,setPreviewHash]=useState("");
   const [busy,setBusy]=useState(false);
   const [attempted,setAttempted]=useState(false);
   const [error,setError]=useState("");
@@ -67,7 +68,7 @@ export function SalesSummaryPrintDialog({
   }
   async function preview() {
     if(busy)return;
-    setBusy(true);setError("");setNotice("");setHtml("");setPreparedSignature("");setAttempted(false);
+    setBusy(true);setError("");setNotice("");setHtml("");setPreparedSignature("");setPreviewHash("");setAttempted(false);
     const current=signature;
     try{
       const response=await fetch("/api/pos/sales-summary/print",{
@@ -76,14 +77,15 @@ export function SalesSummaryPrintDialog({
         body:JSON.stringify({mode:"preview",kind,paperWidthMm:paper,language:lang,rowId:target.rowId??null,filters:reportFilters()})
       });
       const json=await response.json().catch(()=>null) as ApiReply|null;
-      if(!response.ok||!json?.data?.html)throw new Error(json?.error?.message??"สร้างตัวอย่างรายงานไม่สำเร็จ");
+      if(!response.ok||!json?.data?.html||!json.data.previewHash)throw new Error(json?.error?.message??"สร้างตัวอย่างรายงานไม่สำเร็จ");
       setHtml(json.data.html);
+      setPreviewHash(json.data.previewHash);
       setPreparedSignature(current);
     }catch(e){setError(e instanceof Error?e.message:"สร้างตัวอย่างรายงานไม่สำเร็จ")}
     finally{setBusy(false)}
   }
   async function confirm() {
-    if(!html||preparedSignature!==signature||busy||attempted)return;
+    if(!html||!previewHash||preparedSignature!==signature||busy||attempted)return;
     setBusy(true);setAttempted(true);setError("");setNotice("");
     try{
       if(hasLocalWindowsPrintBridge()){
@@ -97,7 +99,7 @@ export function SalesSummaryPrintDialog({
           headers:{"Content-Type":"application/json"},
           body:JSON.stringify({
             mode:"queue",kind,paperWidthMm:paper,language:lang,
-            rowId:target.rowId??null,filters:reportFilters(),
+            rowId:target.rowId??null,filters:reportFilters(),previewHash,
             requestId:crypto.randomUUID()
           })
         });
@@ -173,7 +175,7 @@ export function SalesSummaryPrintDialog({
         <div className="mt-4 flex flex-wrap justify-end gap-2 border-t border-slate-200 pt-3">
           <button type="button" className={outlineButton} onClick={onClose}>{t("ปิด","Close","ປິດ")}</button>
           <button type="button" className={activeButton}
-            disabled={busy||attempted||!html||preparedSignature!==signature} onClick={confirm}>
+            disabled={busy||attempted||!html||!previewHash||preparedSignature!==signature} onClick={confirm}>
             {t("ยืนยันการพิมพ์","Confirm print","ຢືນຢັນການພິມ")}
           </button>
         </div>
