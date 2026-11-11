@@ -817,3 +817,66 @@ export async function queueRoutedShiftReport(args: {
   }
   return jobs;
 }
+
+
+/**
+ * Manual management report printing for Android/agent-connected POS.
+ * Windows Web POS prints through its local loopback bridge instead.
+ * No arbitrary HTML from the request is accepted: the caller renders the
+ * server-authorized report for the printer's configured 58/80mm media.
+ */
+export async function queueRoutedSalesSummaryReport(args: {
+  auth: AuthContext;
+  runtimeDeviceCode: string | null;
+  requestId: string;
+  kind: string;
+  requestedPaperWidth: 58 | 80;
+  buildForPaper: (paper: 58 | 80) => string;
+}) {
+  const safeCode = String(args.runtimeDeviceCode ?? "").trim();
+  if (!safeCode) throw new Error("report_print_device_session_required");
+  let routes = await resolvePrinterRoutes({
+    auth: args.auth, purpose: "shift_report", fallbackPurposes: ["receipt"],
+    runtimeDeviceCode: safeCode, legacyRole: "report"
+  });
+  if (!routes.length) routes = await resolvePrinterRoutes({
+    auth: args.auth, purpose: "receipt", runtimeDeviceCode: safeCode, legacyRole: "receipt"
+  });
+  // Never send an Android report to a Windows-only print profile.
+  routes = routes.filter((route) => {
+    const meta = asRecord(route.printer.metadata);
+    return meta.target_runtime !== "windows_native" &&
+      (!route.runtimeDeviceCode || route.runtimeDeviceCode === safeCode);
+  });
+  if (!routes.length) return [];
+  // Explicit user confirmation prints exactly one report at one device.
+  // No automatic retries on unknown physical outcomes.
+  const route = { ...routes[0], copies: 1 };
+  const paper = route.printer.paper_width_mm === 80 ? 80 : 58;
+  if (args.requestedPaperWidth !== paper) throw new Error("sales_print_paper_width_mismatch");
+  const html = args.buildForPaper(paper);
+  if (!html || html.length > 200_000) throw new Error("sales_print_document_too_large");
+  const plainText = html.replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, "")
+    .replace(/<br\s*\/?>|<\/(?:div|p|h[1-6]|main)>/gi, "\n")
+    .replace(/<[^>]*>/g, " ").replace(/&amp;/g, "&").replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&#39;/g, "'")
+    .replace(/[ \t]+/g, " ").slice(0, 14_000);
+  const jobs = await queueOnRoute({
+    auth: args.auth,
+    route,
+    orderId: null,
+    idempotencyKey: "sales-summary:" + args.requestId,
+    printerRole: "report",
+    payloadText: plainText,
+    payloadJson: { document_type: "sales_summary_report", kind: args.kind },
+    metadata: {
+      request_source: "pos_sales_summary_report",
+      document_type: "sales_summary_report",
+      report_kind: args.kind,
+      paper_width_mm: paper,
+      payload_format: "sales_summary_html_v1",
+      payload_html: html
+    }
+  });
+  return jobs;
+}

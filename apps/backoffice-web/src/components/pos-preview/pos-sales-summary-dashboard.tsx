@@ -7,6 +7,8 @@ import { downloadExcelCsv, type CsvCellValue } from "@/lib/excel-csv";
 import type { Language } from "@/lib/i18n";
 import {loUi} from "@/lib/lao-pos-ui";
 import type { PosSalesSummaryPayload } from "@/lib/services/pos-sales-summary-service";
+import type { SalesPrintKind } from "@/lib/printing/sales-summary-report-html";
+import { SalesSummaryPrintDialog, type SalesPrintTarget } from "@/components/pos-preview/sales-summary-print-dialog";
 
 type Props = {
   lang: Language;
@@ -93,6 +95,8 @@ export function PosSalesSummaryDashboard({ lang, initialPayload, opticalMode = f
   const [shiftPage, setShiftPage] = useState(1);
   const [salesRowsPage, setSalesRowsPage] = useState(1);
   const [isPending, startTransition] = useTransition();
+  const [printTarget, setPrintTarget] = useState<SalesPrintTarget | null>(null);
+  const openPrint = (kind: SalesPrintKind, rowId: string | null = null) => setPrintTarget({kind,rowId});
 
   const maxPaymentAmount = useMemo(() => Math.max(1, ...payload.paymentMethods.map((row) => row.amount)), [payload.paymentMethods]);
   const shiftTotalPages = Math.max(1, Math.ceil(payload.shifts.length / SHIFT_ROWS_PER_PAGE));
@@ -217,7 +221,8 @@ export function PosSalesSummaryDashboard({ lang, initialPayload, opticalMode = f
               <p className="mt-1 max-w-3xl text-sm text-slate-600">{ui("ดูภาพรวมยอดขายตามวัน กะ พนักงาน ช่องทางชำระเงิน และสาขา")}</p>
             </div>
             <div className="flex flex-wrap gap-2">
-              <ActionButton onClick={() => setSummaryDialogOpen(true)}>{opticalMode ? ui("ดูรายละเอียดสรุป") : ui("สรุปยอดขาย")}</ActionButton>
+              <ActionButton onClick={() => openPrint("summary")}>{ui("พิมพ์สรุปยอดขาย")}</ActionButton>
+               <ActionButton onClick={() => setSummaryDialogOpen(true)}>{opticalMode ? ui("ดูรายละเอียดสรุป") : ui("สรุปยอดขาย")}</ActionButton>
               <ActionButton onClick={() => setFilterDialogOpen(true)}>{ui("คัดกรอง")}</ActionButton>
               <ActionButton onClick={() => setMoreDialogOpen(true)}>{ui("ดูเพิ่มเติม")}</ActionButton>
               <ActionButton onClick={() => setSalesRowsDialogOpen(true)}>{ui("รายการขาย")}</ActionButton>
@@ -271,12 +276,12 @@ export function PosSalesSummaryDashboard({ lang, initialPayload, opticalMode = f
                 <Th align="right">{ui("เงินสด")}</Th>
                 <Th align="right">{ui("คาดหวัง")}</Th>
                 <Th align="right">{ui("เงินจริง")}</Th>
-                <Th align="right">{ui("ต่าง")}</Th>
+                <Th align="right">{ui("ต่าง")}</Th><Th>{ui("พิมพ์")}</Th>
               </tr>
             </thead>
             <tbody>
               {payload.shifts.length === 0 ? (
-                <EmptyRow colSpan={9} lang={lang} />
+                <EmptyRow colSpan={10} lang={lang} />
               ) : (
                 visibleShifts.map((shift) => (
                   <tr key={shift.id} className="border-t border-slate-100 transition hover:bg-emerald-50/40">
@@ -288,7 +293,7 @@ export function PosSalesSummaryDashboard({ lang, initialPayload, opticalMode = f
                     <Td align="right">{money(shift.cashSales, lang, payload.currencyCode)}</Td>
                     <Td align="right">{money(shift.expectedCash, lang, payload.currencyCode)}</Td>
                     <Td align="right">{shift.actualCash == null ? "-" : money(shift.actualCash, lang, payload.currencyCode)}</Td>
-                    <Td align="right" tone={shift.difference == null ? "normal" : shift.difference === 0 ? "good" : "bad"}>{shift.difference == null ? "-" : money(shift.difference, lang, payload.currencyCode)}</Td>
+                    <Td align="right" tone={shift.difference == null ? "normal" : shift.difference === 0 ? "good" : "bad"}>{shift.difference == null ? "-" : money(shift.difference, lang, payload.currencyCode)}</Td><Td><ActionButton onClick={() => openPrint("shift_row",shift.id)}>{ui("พิมพ์")}</ActionButton></Td>
                   </tr>
                 ))
               )}
@@ -305,6 +310,7 @@ export function PosSalesSummaryDashboard({ lang, initialPayload, opticalMode = f
         </Panel>
 
         <Dialog lang={lang} open={summaryDialogOpen} title={ui("สรุปยอดขาย")} onClose={() => setSummaryDialogOpen(false)} wide>
+          <div className="mb-3 flex justify-end"><ActionButton onClick={() => openPrint("summary")}>{ui("พิมพ์")}</ActionButton></div>
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
             {kpis.map((item) => (
               <article key={item.label} className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
@@ -342,7 +348,7 @@ export function PosSalesSummaryDashboard({ lang, initialPayload, opticalMode = f
           open={moreDialogOpen}
           title={lang==="en"?"More details":ui("ดูเพิ่มเติม")}
           onClose={() => setMoreDialogOpen(false)}
-          headerActions={<ActionButton onClick={exportMoreDialogCsv} disabled={activeMoreExport.rows.length <= 1}>Export CSV: {activeMoreExport.label}</ActionButton>}
+          headerActions={<><ActionButton onClick={() => openPrint(moreDialogTab)}>{ui("พิมพ์")} {activeMoreExport.label}</ActionButton><ActionButton onClick={exportMoreDialogCsv} disabled={activeMoreExport.rows.length <= 1}>Export CSV: {activeMoreExport.label}</ActionButton></>}
           wide
         >
           <div className="grid gap-4">
@@ -362,15 +368,15 @@ export function PosSalesSummaryDashboard({ lang, initialPayload, opticalMode = f
           open={salesRowsDialogOpen}
           title={lang==="en"?"Sales list":ui("รายการขาย")}
           onClose={() => setSalesRowsDialogOpen(false)}
-          headerActions={<ActionButton onClick={exportSalesRowsDialogCsv} disabled={payload.salesRows.length === 0}>Export CSV</ActionButton>}
+          headerActions={<><ActionButton onClick={() => openPrint("sales")} disabled={payload.salesRows.length === 0}>{ui("พิมพ์รายการขาย")}</ActionButton><ActionButton onClick={exportSalesRowsDialogCsv} disabled={payload.salesRows.length === 0}>Export CSV</ActionButton></>}
           wide
         >
           <Panel title={lang==="en"?"Sales list":ui("รายการขาย")}>
             <ScrollTable minWidth="1040px">
-              <thead><tr><Th>{ui("เลขที่บิล")}</Th><Th>{ui("วันเวลา")}</Th><Th>{ui("สาขา")}</Th><Th>{ui("พนักงาน")}</Th><Th>{ui("ชำระเงิน")}</Th><Th align="right">{ui("ยอดรวม")}</Th><Th align="right">{ui("ส่วนลด")}</Th><Th align="right">{ui("ภาษี")}</Th><Th align="right">{ui("สุทธิ")}</Th><Th>{ui("สถานะ")}</Th></tr></thead>
-              <tbody>{payload.salesRows.length === 0 ? <EmptyRow colSpan={10} lang={lang} /> : visibleSalesRows.map((row) => (
+              <thead><tr><Th>{ui("เลขที่บิล")}</Th><Th>{ui("วันเวลา")}</Th><Th>{ui("สาขา")}</Th><Th>{ui("พนักงาน")}</Th><Th>{ui("ชำระเงิน")}</Th><Th align="right">{ui("ยอดรวม")}</Th><Th align="right">{ui("ส่วนลด")}</Th><Th align="right">{ui("ภาษี")}</Th><Th align="right">{ui("สุทธิ")}</Th><Th>{ui("สถานะ")}</Th><Th>{ui("พิมพ์")}</Th></tr></thead>
+              <tbody>{payload.salesRows.length === 0 ? <EmptyRow colSpan={11} lang={lang} /> : visibleSalesRows.map((row) => (
                 <tr key={row.id} className="border-t border-slate-100">
-                  <Td strong>{row.receiptNo}</Td><Td>{dateTime(row.createdAt, lang)}</Td><Td>{row.branchName}</Td><Td>{row.cashierName}</Td><Td>{paymentLabel(row.paymentLabel, row.paymentMethod, lang)}</Td><Td align="right">{money(row.grossTotal, lang, payload.currencyCode)}</Td><Td align="right">{money(row.discount, lang, payload.currencyCode)}</Td><Td align="right">{money(row.tax, lang, payload.currencyCode)}</Td><Td align="right" strong>{money(row.netTotal, lang, payload.currencyCode)}</Td><Td><StatusBadge status={row.status} lang={lang} /></Td>
+                  <Td strong>{row.receiptNo}</Td><Td>{dateTime(row.createdAt, lang)}</Td><Td>{row.branchName}</Td><Td>{row.cashierName}</Td><Td>{paymentLabel(row.paymentLabel, row.paymentMethod, lang)}</Td><Td align="right">{money(row.grossTotal, lang, payload.currencyCode)}</Td><Td align="right">{money(row.discount, lang, payload.currencyCode)}</Td><Td align="right">{money(row.tax, lang, payload.currencyCode)}</Td><Td align="right" strong>{money(row.netTotal, lang, payload.currencyCode)}</Td><Td><StatusBadge status={row.status} lang={lang} /></Td><Td><ActionButton onClick={() => openPrint("sale_row",row.id)}>{ui("พิมพ์")}</ActionButton></Td>
                 </tr>
               ))}</tbody>
             </ScrollTable>
@@ -384,6 +390,7 @@ export function PosSalesSummaryDashboard({ lang, initialPayload, opticalMode = f
             />
           </Panel>
         </Dialog>
+        {printTarget ? <SalesSummaryPrintDialog key={printTarget.kind + (printTarget.rowId ?? "")} target={printTarget} payload={payload} lang={lang} onClose={() => setPrintTarget(null)} /> : null}
       </div>
     </section>
   );
