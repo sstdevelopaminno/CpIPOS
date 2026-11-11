@@ -56,11 +56,13 @@ describe("Sales summary thermal report printing",()=>{
     const ui=readFileSync("src/components/pos-preview/sales-summary-print-dialog.tsx","utf8");
     const api=readFileSync("src/app/api/pos/sales-summary/print/route.ts","utf8");
     const service=readFileSync("src/lib/services/pos-sales-summary-service.ts","utf8");
-    expect(ui).toContain('if(!html||preparedSignature!==signature||busy||attempted)return;');
+    expect(ui).toContain('if(!html||!previewHash||preparedSignature!==signature||busy||attempted)return;');
     expect(ui).toContain("printWindowsReceiptHtml(html,{reprint:true})");
     expect(ui).toContain('mode:"queue"');
     expect(api).toContain('requiredPermission:"reports:view"');
     expect(api).toContain("fullYearReport:true");
+    expect(api).toContain("sales_print_preview_stale");
+    expect(api).toContain('createHash("sha256")');
     expect(api).not.toContain("input.report_html");
     expect(service).toContain('throw new Error("sales_report_too_many_orders_narrow_period")');
   });
