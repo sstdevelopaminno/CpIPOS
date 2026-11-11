@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { getPosApiAuthContext } from "@/lib/pos-api-auth";
 import { featureGateFail, requirePosApiFeature } from "@/lib/pos-api-feature-guard";
 import { authorizeOpticalMoreMenu } from "@/lib/server/optical-more-feature-access";
@@ -16,6 +17,7 @@ type Body = {
   language?: string;
   rowId?: string | null;
   requestId?: string;
+  previewHash?: string;
   filters?: PosSalesSummaryFilters;
 };
 
@@ -68,10 +70,14 @@ export async function POST(req: Request) {
     const rowId = typeof input.rowId === "string" && input.rowId.length <= 80 ? input.rowId : null;
     const render = (width:58|80) => renderSalesPrintHtml({payload,kind,paperWidthMm:width,language,rowId});
     const preview = render(paper);
+    const currentHash = createHash("sha256").update(preview.html).digest("hex");
     if (mode === "preview") {
-      return ok({html:preview.html,title:preview.title,paperWidthMm:paper,
+      return ok({html:preview.html,title:preview.title,paperWidthMm:paper,previewHash:currentHash,
         period:{dateFrom:payload.filters.dateFrom,dateTo:payload.filters.dateTo},
         currencyCode:payload.currencyCode});
+    }
+    if (input.previewHash !== currentHash) {
+      return fail("sales_print_preview_stale","Sales report changed since preview. Refresh the preview before confirming print.",409);
     }
     // Do not accept HTML, amounts, tenant IDs or authorization scopes from the
     // client. Re-render the full report from current, server-authorized records.
