@@ -248,15 +248,15 @@ function normalizeDateInput(input: string | null | undefined, fallback: string):
   return fallback;
 }
 
-function getDefaultFilters(input: PosSalesSummaryFilters): PosSalesSummaryPayload["filters"] {
+function getDefaultFilters(input: PosSalesSummaryFilters, maxDays = MAX_DAYS): PosSalesSummaryPayload["filters"] {
   const today = getBangkokDate(new Date());
   const sevenDaysAgo = getBangkokDate(new Date(Date.now() - 6 * 24 * 60 * 60 * 1000));
   const dateFrom = normalizeDateInput(input.dateFrom, sevenDaysAgo);
   const dateTo = normalizeDateInput(input.dateTo, today);
   const fromTime = new Date(`${dateFrom}T00:00:00+07:00`).getTime();
   const toTime = new Date(`${dateTo}T23:59:59+07:00`).getTime();
-  const rangeTooLarge = Number.isFinite(fromTime) && Number.isFinite(toTime) && toTime - fromTime > MAX_DAYS * 24 * 60 * 60 * 1000;
-  const safeDateFrom = rangeTooLarge ? getBangkokDate(new Date(toTime - (MAX_DAYS - 1) * 24 * 60 * 60 * 1000)) : dateFrom;
+  const rangeTooLarge = Number.isFinite(fromTime) && Number.isFinite(toTime) && toTime - fromTime > maxDays * 24 * 60 * 60 * 1000;
+  const safeDateFrom = rangeTooLarge ? getBangkokDate(new Date(toTime - (maxDays - 1) * 24 * 60 * 60 * 1000)) : dateFrom;
   const status = VALID_STATUS.has(String(input.status ?? "all")) ? String(input.status ?? "all") : "all";
   const paymentMethod = VALID_PAYMENT_METHOD.has(String(input.paymentMethod ?? "all")) ? String(input.paymentMethod ?? "all") : "all";
 
@@ -322,6 +322,7 @@ async function loadOrders(args: {
   branchIds: string[];
   filters: PosSalesSummaryPayload["filters"];
   selfOnlyUserId: string | null;
+  rejectTruncated?: boolean;
 }) {
   const supabase = getSupabaseServiceClient();
   const startIso = new Date(`${args.filters.dateFrom}T00:00:00+07:00`).toISOString();
@@ -335,7 +336,7 @@ async function loadOrders(args: {
       .gte("created_at", startIso)
       .lte("created_at", endIso)
       .order("created_at", { ascending: false })
-      .limit(ORDER_LIMIT);
+      .limit(ORDER_LIMIT + (args.rejectTruncated ? 1 : 0));
 
     query = args.branchIds.length === 1 ? query.eq("branch_id", args.branchIds[0]) : query.in("branch_id", args.branchIds);
     if (args.filters.status !== "all") query = query.eq("status", args.filters.status);
@@ -352,14 +353,18 @@ async function loadOrders(args: {
     result = await buildQuery(baseSelect);
   }
   if (result.error) throw new Error(`orders_query_failed:${result.error.message}`);
-  return (result.data ?? []) as unknown as OrderRow[];
+  const orders = (result.data ?? []) as unknown as OrderRow[];
+  if (args.rejectTruncated && orders.length > ORDER_LIMIT) throw new Error("sales_report_too_many_orders_narrow_period");
+  return orders;
 }
 
 export async function loadPosSalesSummaryData(
   scope: PosSalesSummaryScope,
-  inputFilters: PosSalesSummaryFilters = {}
+  inputFilters: PosSalesSummaryFilters = {},
+  options: { fullYearReport?: boolean } = {}
 ): Promise<PosSalesSummaryPayload> {
-  const filters = getDefaultFilters(inputFilters);
+  // Printing a full year must not silently shrink to the dashboard's default 120 days.
+  const filters = getDefaultFilters(inputFilters, options.fullYearReport ? 366 : MAX_DAYS);
   if (!scope.tenantId || !scope.userId) return emptyPayload(filters);
   const [currencyCode,stockMode] = await Promise.all([getTenantPosCurrencyCode(scope.tenantId),getCustomPosStockUiMode(scope.tenantId)]);
   const opticalCurrencyAudit=stockMode==="optical";
@@ -405,7 +410,8 @@ export async function loadPosSalesSummaryData(
     tenantId: scope.tenantId,
     branchIds: branchScopeIds,
     filters: nextFilters,
-    selfOnlyUserId: selfOnly ? scope.userId : null
+    selfOnlyUserId: selfOnly ? scope.userId : null,
+    rejectTruncated: options.fullYearReport === true
   });
   const allOrdersBeforeCashier = ordersRaw.filter((order) => (nextFilters.cashierId === "all" ? true : getOrderCashierId(order) === nextFilters.cashierId));
   const buckets: Record<SalesCurrencyCode | "UNKNOWN", { receiptCount: number; netSales: number }> = {
