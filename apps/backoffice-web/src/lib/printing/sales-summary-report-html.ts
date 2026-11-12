@@ -29,6 +29,12 @@ function fmt(value: number, currency: string) {
 function pair(label: string, value: unknown, strong = false) {
   return '<div class="kv'+(strong?' emph':'')+'"><span>'+esc(label)+'</span><strong>'+esc(value)+'</strong></div>';
 }
+// Keep the cancelled amount and cancelled bill count in separate visual lines.
+// A single long right-aligned string used to run beyond XP-80C printable bounds.
+function pairWithCount(label: string, value: unknown, count: number, countLabel: string) {
+  return '<div class="kv"><span>'+esc(label)+'</span><strong>'+esc(value)
+    +'<small class="kv-count">('+esc(count)+' '+esc(countLabel)+')</small></strong></div>';
+}
 function localTime(value: string | null, lang: SalesPrintLanguage) {
   if (!value) return "-";
   const d = new Date(value);
@@ -56,7 +62,7 @@ export function renderSalesPrintHtml({payload,kind,paperWidthMm,language,rowId}:
     body=pair(l[16],money(s.grossSales))+pair(l[17],money(s.netSales),true)+pair(l[15],s.receiptCount)
       +pair(l[18],money(s.cashTotal))+pair(l[19],money(s.qrTransferTotal))+pair(l[20],money(s.cardTotal))
       +pair(l[21],money(s.discountTotal))+pair(l[22],money(s.taxTotal))
-      +pair(l[23],money(s.cancelledTotal)+" ("+s.cancelledCount+")");
+      +pairWithCount(l[23],money(s.cancelledTotal),s.cancelledCount,l[15]);
   } else if(kind==="payments") {
     body=payload.paymentMethods.map(p=>pair(paymentName(p.method,l)+" ("+p.receiptCount+")",money(p.amount))).join("")
       +pair(l[17],money(s.netSales),true);
@@ -94,16 +100,22 @@ export function renderSalesPrintHtml({payload,kind,paperWidthMm,language,rowId}:
   const otherCurrencies=payload.currencyBuckets.filter(b=>b.currencyCode!==currency);
   const note=otherCurrencies.length?'<p class="note">'+esc(l[36])+'<br/>'
     +otherCurrencies.map(b=>esc(b.currencyCode+" ("+b.receiptCount+" bills): "+(b.currencyCode==="UNKNOWN"?String(b.netSales):fmt(b.netSales,b.currencyCode)))).join("<br/>")+'</p>':"";
+  // XP-80C/XP-80T drivers can shift a centered report toward the right edge.
+  // Keep the conservative 56/42mm content width but anchor it close to the
+  // physical left edge, matching the already-hardened POS receipt renderer.
   const printableMm=paperWidthMm===80?56:42;
+  const printableLeftMm=paperWidthMm===80?2:1;
+  const amountMm=paperWidthMm===80?25:20;
   const html='<!doctype html><html lang="'+language+'"><head><meta charset="utf-8"/><title>'+esc(l[headings[kind]])+'</title>'
     +'<style>@page{size:'+paperWidthMm+'mm auto;margin:0}*{box-sizing:border-box}html,body{margin:0;padding:0;width:'+paperWidthMm
-    +'mm;background:#fff;color:#000;font-family:"Noto Sans Thai","Noto Sans Lao",Tahoma,sans-serif}'
-    +'main.receipt{width:'+printableMm+'mm;margin:0 auto;padding:3mm 0 4mm;font-size:11px;line-height:1.46;overflow-wrap:anywhere}'
+    +'mm;background:#fff;color:#000;font-family:"Noto Sans Thai","Noto Sans Lao",Tahoma,sans-serif;-webkit-print-color-adjust:exact;print-color-adjust:exact}'
+    +'main.receipt{width:'+printableMm+'mm;margin:0 0 0 '+printableLeftMm+'mm;padding:3mm 0 4mm;font-size:11px;line-height:1.46;overflow-wrap:anywhere}'
     +'h1{font-size:17px;letter-spacing:.2px;text-align:center;margin:1.5mm 0 0.8mm;font-weight:900}h2{font-size:12px;text-align:center;margin:1.2mm 0 2mm;line-height:1.4}'
-    +'p.meta{margin:1.2mm 0;font-size:10px;line-height:1.5;overflow-wrap:anywhere}.kv{display:flex;align-items:baseline;justify-content:space-between;gap:2mm;padding:1.35mm 0;border-bottom:1px dashed #ccc}'
-    +'.kv span{min-width:0;flex:1 1 46%;overflow-wrap:anywhere}.kv strong{min-width:0;flex:0 1 54%;text-align:right;overflow-wrap:anywhere;font-weight:800;font-variant-numeric:tabular-nums}'
+    +'p.meta{margin:1.2mm 0;font-size:10px;line-height:1.5;overflow-wrap:anywhere}.kv{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,'+amountMm+'mm);align-items:start;gap:1.5mm;padding:1.35mm 0;border-bottom:1px dashed #ccc;break-inside:avoid}'
+    +'.kv>span{display:block;min-width:0;overflow-wrap:anywhere}.kv>strong{display:block;min-width:0;text-align:right;overflow-wrap:anywhere;font-weight:800;font-variant-numeric:tabular-nums}'
+    +'.kv-count{display:block;margin-top:.3mm;font-size:9px;font-weight:600;line-height:1.25;text-align:right}'
     +'.kv.emph{border-top:1.5px solid #111;border-bottom:1.5px solid #111;margin:1.6mm 0;font-size:13px;font-weight:900}.item{border-bottom:1px dashed #bbb;padding:1.7mm 0;break-inside:avoid}'
-    +'.item b,.item small{display:block;overflow-wrap:anywhere}.item small{font-size:9px}.note,.disclaimer{font-size:9px;margin-top:2.5mm;text-align:center;line-height:1.45}hr{border:0;border-top:1px dashed #555;margin:2.2mm 0}'
+    +'.item b,.item small{display:block;overflow-wrap:anywhere}.item small{font-size:9px}.note,.disclaimer{font-size:9px;margin-top:2.5mm;text-align:center;line-height:1.45;overflow-wrap:anywhere}hr{border:0;border-top:1px dashed #555;margin:2.2mm 0}'
     +'</style></head><body><main class="receipt"><h1>CpiPOS</h1><h2>'+esc(l[0])+'</h2>'
     +'<p class="meta">'+esc(l[9])+': '+esc(branchName)+'</p><p class="meta">'+esc(l[10])+': '+esc(f.dateFrom)+' — '+esc(f.dateTo)+'</p>'
     +'<p class="meta">'+esc(l[12])+': '+esc(currency)+'</p>'
