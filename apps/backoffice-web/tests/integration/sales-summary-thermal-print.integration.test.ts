@@ -24,12 +24,25 @@ describe("Sales summary thermal report printing",()=>{
   it("shows correct paper vs XP-80T safe printable widths without clipping amounts",()=>{
     const html80=render("summary",80);
     expect(html80).toContain("@page{size:80mm auto;margin:0}");
-    expect(html80).toContain("main.receipt{width:56mm;margin:0 auto");
+    expect(html80).toContain("main.receipt{width:56mm;margin:0 0 0 2mm");
+    expect(html80).toContain("grid-template-columns:minmax(0,1fr) minmax(0,25mm)");
     expect(html80).toContain("฿155.00");
     expect(html80).toContain("ไม่ใช่ใบเสร็จรับเงิน");
     const html58=render("summary",58);
     expect(html58).toContain("@page{size:58mm auto;margin:0}");
-    expect(html58).toContain("main.receipt{width:42mm;margin:0 auto");
+    expect(html58).toContain("main.receipt{width:42mm;margin:0 0 0 1mm");
+    expect(html58).toContain("grid-template-columns:minmax(0,1fr) minmax(0,20mm)");
+  });
+  it("keeps cancellation amounts and bill counts on separate, non-clipping lines",()=>{
+    const crowded={...sample,summary:{...sample.summary,cancelledTotal:420,cancelledCount:5,netSales:12345678.9}};
+    for(const paperWidthMm of [58,80] as const){
+      const html=renderSalesPrintHtml({payload:crowded,kind:"summary",paperWidthMm,language:"th"}).html;
+      expect(html).toContain("฿420.00<small class=\"kv-count\">(5 จำนวนบิล)</small>");
+      expect(html).toContain("฿12,345,678.90");
+      expect(html).not.toContain("฿420.00 (5)");
+      expect(html).toContain("overflow-wrap:anywhere");
+      expect(html).not.toContain("main.receipt{width:"+(paperWidthMm===80?56:42)+"mm;margin:0 auto");
+    }
   });
   it("escapes server-sourced names and never sums unrelated currencies",()=>{
     const html=render("payments");
