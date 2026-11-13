@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { PosGuardError, requirePosSession } from "@/lib/pos-session-guard";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
-import { normalizePreferredLanguage, type PosPreferredLanguage } from "@/lib/server/pre-entry-auth";
+import { deriveEmployeeCode, normalizePreferredLanguage, type PosPreferredLanguage } from "@/lib/server/pre-entry-auth";
 
 type Body = {
   language?: string;
@@ -40,6 +40,7 @@ export async function GET() {
     const language = normalizePreferredLanguage(data?.preferred_language);
     const response = NextResponse.json({ data: { language }, error: null });
     setLanguageCookies(response, language);
+    response.headers.set("cache-control", "private, no-store");
     return response;
   } catch (error) {
     if (error instanceof PosGuardError) {
@@ -74,12 +75,40 @@ export async function POST(request: Request) {
     if (error) {
       return NextResponse.json({ data: null, error: { code: "language_save_failed", message: error.message } }, { status: 500 });
     }
+    // Older POS users can sign in with a derived employee code even when no
+    // pos_user_profiles row exists. Persist their preference on first save.
     if (!data) {
-      return NextResponse.json({ data: null, error: { code: "pos_user_profile_not_found", message: "POS user profile not found." } }, { status: 404 });
+      const created = await supabase
+        .from("pos_user_profiles")
+        .insert({
+          tenant_id: scope.session.tenant_id,
+          user_id: scope.session.user_id,
+          employee_code: deriveEmployeeCode(scope.session.user_id),
+          preferred_language: language
+        })
+        .select("preferred_language")
+        .single<{ preferred_language: string }>();
+      if (created.error) {
+        if (created.error.code !== "23505") {
+          return NextResponse.json({ data: null, error: { code: "language_save_failed", message: created.error.message } }, { status: 500 });
+        }
+        // A concurrent first save may have inserted this user's profile.
+        const retried = await supabase
+          .from("pos_user_profiles")
+          .update({ preferred_language: language })
+          .eq("tenant_id", scope.session.tenant_id)
+          .eq("user_id", scope.session.user_id)
+          .select("preferred_language")
+          .maybeSingle<{ preferred_language: string }>();
+        if (retried.error || !retried.data) {
+          return NextResponse.json({ data: null, error: { code: "language_save_failed", message: "Unable to save language preference." } }, { status: 500 });
+        }
+      }
     }
 
     const response = NextResponse.json({ data: { language }, error: null });
     setLanguageCookies(response, language);
+    response.headers.set("cache-control", "private, no-store");
     return response;
   } catch (error) {
     if (error instanceof PosGuardError) {

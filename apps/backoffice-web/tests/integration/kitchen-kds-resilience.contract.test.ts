@@ -5,7 +5,7 @@ import { resolve } from "node:path";
 const code = readFileSync(
   resolve(process.cwd(), "src/components/kitchen/kitchen-kds.tsx"),
   "utf8"
-);
+).replace(/\r\n/g, "\n");
 
 describe("Kitchen KDS stall recovery and partial bill completion", () => {
   it("times out read-only queue polls instead of leaving the UI indefinitely blocked", () => {

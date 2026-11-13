@@ -4,6 +4,7 @@ import { randomUUID } from "node:crypto";
 
 import type { AuthContext } from "@/lib/auth-context";
 import { appendAuditLog } from "@/lib/audit-log";
+import { buildKitchenCancellationRemainingLines } from "@/lib/services/kitchen-cancel-payload";
 import { invalidatePosBranchRuntimeCaches } from "@/lib/pos-cache-invalidation";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
 
@@ -252,14 +253,14 @@ export async function cancelKitchenTicketItem(args: {
   if (ticketError) throw new KitchenQueueError("kitchen_ticket_query_failed", ticketError.message, 500);
   if (itemError) throw new KitchenQueueError("kitchen_ticket_item_query_failed", itemError.message, 500);
   if (!ticket || !item || item.kitchen_ticket_id !== ticket.id) throw new KitchenQueueError("kitchen_ticket_item_not_found", "Kitchen item was not found in this branch.", 404);
+  if (item.metadata?.kds_line_cancelled === true) return { ticket_id: ticket.id, item_id: item.id, order_id: ticket.order_id, duplicate: true };
   if (ticket.status === "ready" || ticket.status === "cancelled") throw new KitchenQueueError("kitchen_ticket_terminal", "Kitchen ticket is already finished.", 409);
   if (!item.order_item_id) throw new KitchenQueueError("kitchen_item_order_line_missing", "Kitchen item is not linked to an order line.", 409);
   if (item.action === "cancel") throw new KitchenQueueError("kitchen_item_already_cancel_notice", "This Kitchen line is already a cancel notice.", 409);
-  if (item.metadata?.kds_line_cancelled === true) return { ticket_id: ticket.id, item_id: item.id, order_id: ticket.order_id, duplicate: true };
 
   const [{ data: order, error: orderError }, { data: targetLine, error: targetError }, { data: itemRows, error: itemRowsError }] = await Promise.all([
     supabase.from("orders").select("id,order_no,status,order_type,shift_id,table_id,discount_amount,gp_amount").eq("tenant_id", args.auth.tenantId).eq("branch_id", args.auth.branchId).eq("id", ticket.order_id).maybeSingle<{ id: string; order_no: string; status: string; order_type: string; shift_id: string | null; table_id: string | null; discount_amount: number | null; gp_amount: number | null }>(),
-    supabase.from("order_items").select("id,quantity,metadata").eq("tenant_id", args.auth.tenantId).eq("branch_id", args.auth.branchId).eq("id", item.order_item_id).maybeSingle<{ id: string; quantity: number | null; metadata: Record<string, unknown> | null }>(),
+    supabase.from("order_items").select("id,quantity,metadata").eq("tenant_id", args.auth.tenantId).eq("branch_id", args.auth.branchId).eq("order_id", ticket.order_id).eq("id", item.order_item_id).maybeSingle<{ id: string; quantity: number | null; metadata: Record<string, unknown> | null }>(),
     supabase.from("order_items").select("id,product_id,quantity,unit_price,line_total,notes,metadata").eq("tenant_id", args.auth.tenantId).eq("branch_id", args.auth.branchId).eq("order_id", ticket.order_id)
   ]);
   if (orderError) throw new KitchenQueueError("kitchen_line_cancel_order_failed", orderError.message, 500);
@@ -270,11 +271,14 @@ export async function cancelKitchenTicketItem(args: {
   if (order.status !== "queued" || order.order_type !== "dine_in") throw new KitchenQueueError("order_not_editable", "Only active dine-in queued orders can be edited from Kitchen.", 409);
   if (!order.shift_id || !order.table_id) throw new KitchenQueueError("order_scope_incomplete", "Order is missing shift or table scope.", 409);
 
-  const remaining = (itemRows ?? [])
-    .filter((row) => String(row.id) !== item.order_item_id)
-    .filter((row) => Number(row.quantity ?? 0) > 0)
-    .filter((row) => String((row.metadata as Record<string, unknown> | null)?.bill_line_state ?? "") !== "cancelled")
-    .map((row) => ({ product_id: String(row.product_id), quantity: Number(row.quantity ?? 0), unit_price: Number(row.unit_price ?? 0), notes: row.notes ? String(row.notes) : null, note: row.notes ? String(row.notes) : null, line_total: Number(row.line_total ?? 0) }));
+  const remainingResult = buildKitchenCancellationRemainingLines(itemRows ?? [], item.order_item_id);
+  if (!remainingResult.ok) {
+    throw new KitchenQueueError(remainingResult.code,
+      remainingResult.code === "kitchen_cancel_mixed_native_bill_unsupported"
+        ? "This bill contains Native and legacy items. Cancel it from POS until the mixed-bill update contract is available."
+        : "A Native item has an invalid selection snapshot. Refresh the bill before cancelling.", 409);
+  }
+  const remaining = remainingResult.lines;
   const subtotal = roundMoney(remaining.reduce((sum, row) => sum + roundMoney(row.quantity * row.unit_price), 0));
   const discountAmount = Math.min(subtotal, Math.max(0, Number(order.discount_amount ?? 0)));
   const gpAmount = Math.min(Math.max(0, subtotal - discountAmount), Math.max(0, Number(order.gp_amount ?? 0)));
