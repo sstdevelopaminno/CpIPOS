@@ -167,6 +167,7 @@ export function PosSubscriptionCenter({ initial, isOwner, showContactActions = t
   const lastRequest = snapshot.requests[0];
   const demo = snapshot.contract.is_internal_demo;
   const billingDue = snapshot.billing_due;
+  const promotion = snapshot.promotion;
   const supportRequired = Boolean(billingDue?.support_required || billingDue?.status === "support_required");
   const selfServiceAllowed = billingDue?.self_service_payment_allowed !== false && !supportRequired;
   const hasBank = Boolean(snapshot.issuer.account_number || snapshot.issuer.promptpay_id);
@@ -462,6 +463,31 @@ export function PosSubscriptionCenter({ initial, isOwner, showContactActions = t
             {billingDue.provisional_access_expires_at ? <p><strong>{ui("เปิดชั่วคราวถึง:")}</strong> {formatDate(billingDue.provisional_access_expires_at,lang)}</p> : null}
           </div>
         </div>
+      </section> : null}
+
+      {snapshot.promotion ? <section
+        aria-label={ui("แจ้งสิทธิส่วนลดแพ็กเกจ")}
+        role="status"
+        className="rounded-2xl border border-emerald-200 bg-gradient-to-r from-emerald-50 to-blue-50 p-4 text-sm text-slate-800 shadow-sm"
+      >
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <strong className="text-base font-black text-emerald-800">🎁 ยินดีด้วย! ร้านของคุณได้รับสิทธิส่วนลดแพ็กเกจ {snapshot.promotion.percent}%</strong>
+            <p className="mt-1 font-semibold">{snapshot.promotion.title}</p>
+            <p className="mt-1 text-xs text-slate-600">ใช้ได้กับรอบบิลที่เริ่มระหว่าง {snapshot.promotion.valid_from} ถึง {snapshot.promotion.valid_until} ตามเงื่อนไขการให้สิทธิของ CpiPOS</p>
+          </div>
+          <div className="rounded-xl bg-white/90 px-4 py-2 text-right shadow-sm">
+            <p className="text-xs text-slate-500">ค่าบริการตามเงื่อนไขส่วนลด</p>
+            <p className="text-xs text-slate-500 line-through">{formatMoney(snapshot.promotion.regular_amount,snapshot.contract.currency)}</p>
+            <strong className="text-xl font-black text-emerald-700">{formatMoney(snapshot.promotion.discounted_amount,snapshot.contract.currency)}</strong>
+            <p className="text-xs text-emerald-700">ประหยัด {formatMoney(snapshot.promotion.discount_amount,snapshot.contract.currency)} ต่อรอบ</p>
+          </div>
+        </div>
+        {snapshot.promotion.applies_to_current_due
+          ? snapshot.promotion.reflected_in_current_due
+            ? <p className="mt-2 rounded-lg bg-emerald-100 p-2 text-xs font-bold text-emerald-900">ส่วนลดถูกนำไปคำนวณในรอบบิลที่แสดงแล้ว ตรวจสอบยอดคงค้างด้านบนก่อนชำระ</p>
+            : <p className="mt-2 rounded-lg bg-amber-100 p-2 text-xs text-amber-900">สิทธิได้รับอนุมัติแล้ว แต่ยอดรอบบิลปัจจุบันยังไม่ปรับ กรุณาติดต่อฝ่ายบริการก่อนชำระเงิน</p>
+          : <p className="mt-2 rounded-lg bg-blue-100 p-2 text-xs text-blue-900">สิทธิจะเริ่มมีผลเมื่อรอบบิลเข้าช่วงโปรโมชั่น ยอดที่ต้องชำระปัจจุบันยังคงอ้างอิงจากรอบบิลจริงด้านบน</p>}
       </section> : null}
 
       <section aria-label={ui("ข้อมูลแพ็กเกจปัจจุบัน")}
