@@ -129,10 +129,14 @@ export async function loadPosSubscriptionCenter(tenantId: string) {
   const todayBangkok = new Intl.DateTimeFormat("en-CA",{
     timeZone:"Asia/Bangkok",year:"numeric",month:"2-digit",day:"2-digit"
   }).format(new Date());
-  const activeDiscount = (discountResult.data ?? []).find(row =>
-    row.package_id === contract?.package_id && row.valid_until >= todayBangkok
-  ) ?? null;
   const duePeriodStart = (dueResult.data as BillingDue | null)?.next_period_start ?? null;
+  const candidateDiscounts = (discountResult.data ?? []).filter(row =>
+    row.package_id === contract?.package_id && row.valid_until >= todayBangkok
+  );
+  const activeDiscount = candidateDiscounts.find(row => Boolean(duePeriodStart &&
+    row.valid_from <= duePeriodStart && row.valid_until >= duePeriodStart))
+    ?? candidateDiscounts.find(row => row.valid_from <= todayBangkok && row.valid_until >= todayBangkok)
+    ?? candidateDiscounts[0] ?? null;
   const dueAmount = Number((dueResult.data as BillingDue | null)?.amount_due ?? NaN);
   const eligibleDue = Boolean(activeDiscount && duePeriodStart &&
     duePeriodStart >= activeDiscount.valid_from && duePeriodStart <= activeDiscount.valid_until);
