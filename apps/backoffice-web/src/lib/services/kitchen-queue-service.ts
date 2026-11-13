@@ -274,7 +274,27 @@ export async function cancelKitchenTicketItem(args: {
     .filter((row) => String(row.id) !== item.order_item_id)
     .filter((row) => Number(row.quantity ?? 0) > 0)
     .filter((row) => String((row.metadata as Record<string, unknown> | null)?.bill_line_state ?? "") !== "cancelled")
-    .map((row) => ({ product_id: String(row.product_id), quantity: Number(row.quantity ?? 0), unit_price: Number(row.unit_price ?? 0), notes: row.notes ? String(row.notes) : null, note: row.notes ? String(row.notes) : null, line_total: Number(row.line_total ?? 0) }));
+    .map((row) => {
+      // Native Android orders encode modifier/ingredient choices in a stable
+      // per-line selection snapshot. The replace RPC deliberately refuses to
+      // rewrite those lines without this snapshot to prevent lost ingredients,
+      // wrong prices, or an accidental new Kitchen order. Preserve it exactly.
+      const metadata = (row.metadata ?? {}) as Record<string, unknown>;
+      const selection = metadata.native_selection;
+      const nativeSelection = selection && typeof selection === "object" && !Array.isArray(selection)
+        && typeof (selection as Record<string, unknown>).cart_line_id === "string"
+        && String((selection as Record<string, unknown>).cart_line_id).trim()
+        ? selection : null;
+      return {
+        product_id: String(row.product_id),
+        quantity: Number(row.quantity ?? 0),
+        unit_price: Number(row.unit_price ?? 0),
+        notes: row.notes ? String(row.notes) : null,
+        note: row.notes ? String(row.notes) : null,
+        line_total: Number(row.line_total ?? 0),
+        ...(nativeSelection ? { native_selection: nativeSelection } : {})
+      };
+    });
   const subtotal = roundMoney(remaining.reduce((sum, row) => sum + roundMoney(row.quantity * row.unit_price), 0));
   const discountAmount = Math.min(subtotal, Math.max(0, Number(order.discount_amount ?? 0)));
   const gpAmount = Math.min(Math.max(0, subtotal - discountAmount), Math.max(0, Number(order.gp_amount ?? 0)));
