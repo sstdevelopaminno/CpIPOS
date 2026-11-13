@@ -584,6 +584,48 @@ async function updateQueuedPosOrder(args: {
     if (!tableId) {
       return { ok: false as const, code: "table_id_required", status: 422, message: "table_id is required for dine-in update." };
     }
+    // The Native POS stores selected ingredients and line identity in metadata.
+    // Preserve only unambiguous server-origin snapshots for unchanged selections,
+    // otherwise reject rather than erase modifiers or change variant prices.
+    let replacementItems: Array<PosCreateOrderPayload["items"][number] & {
+      native_selection?: Record<string, unknown>;
+    }> = body.items;
+    const existingLines = await supabase.from("order_items")
+      .select("id,product_id,quantity,unit_price,notes,metadata")
+      .eq("tenant_id",auth.tenantId!).eq("branch_id",auth.branchId!)
+      .eq("order_id",targetOrderId).gt("quantity",0);
+    if (existingLines.error) {
+      return { ok:false as const,code:"order_items_query_failed",status:500,message:existingLines.error.message };
+    }
+    const nativeLines = (existingLines.data ?? []).filter(row => {
+      const selection = (row.metadata as Record<string, unknown> | null)?.native_selection;
+      return selection && typeof selection==="object" && !Array.isArray(selection);
+    });
+    if (nativeLines.length > 0 && body.items.length > 0) {
+      const usedIds = new Set<string>();
+      const enriched: typeof replacementItems = [];
+      for (const line of body.items) {
+        const matches = nativeLines.filter(row =>
+          !usedIds.has(String(row.id)) &&
+          String(row.product_id)===String(line.product_id) &&
+          String(row.notes ?? "")===String(line.notes ?? "") &&
+          Math.abs(Number(row.unit_price)-Number(line.unit_price))<0.01
+        );
+        if (matches.length !== 1) {
+          return { ok:false as const,code:"native_order_line_ambiguous",status:409,
+            message:"รายการมีตัวเลือกวัตถุดิบเฉพาะหรือมีรายการซ้ำ กรุณารีเฟรชรายการและใช้เมนูยกเลิกจากครัวเพื่อป้องกันแก้ข้อมูลผิด" };
+        }
+        const matched=matches[0];
+        const selection=(matched.metadata as Record<string, unknown>)?.native_selection as Record<string, unknown>;
+        if (!selection || typeof selection.cart_line_id!=="string" || !selection.cart_line_id.trim()) {
+          return { ok:false as const,code:"native_selection_missing",status:409,
+            message:"ไม่พบข้อมูลตัวเลือกวัตถุดิบเดิม กรุณาใช้เมนูยกเลิกจากครัว" };
+        }
+        usedIds.add(String(matched.id));
+        enriched.push({...line,native_selection:selection});
+      }
+      replacementItems=enriched;
+    }
     const { data: rpcData, error: rpcError } = await supabase.rpc("replace_queued_dine_in_order_tx", {
       p_tenant_id: auth.tenantId!,
       p_branch_id: auth.branchId!,
@@ -591,7 +633,7 @@ async function updateQueuedPosOrder(args: {
       p_actor_user_id: auth.userId,
       p_order_id: targetOrderId,
       p_table_id: tableId,
-      p_items: body.items,
+      p_items: replacementItems,
       p_app_total_amount: body.app_total_amount,
       p_discount_amount: body.discount_amount ?? 0,
       p_gp_amount: body.gp_amount ?? 0,
