@@ -167,7 +167,6 @@ export function PosSubscriptionCenter({ initial, isOwner, showContactActions = t
   const lastRequest = snapshot.requests[0];
   const demo = snapshot.contract.is_internal_demo;
   const billingDue = snapshot.billing_due;
-  const promotion = snapshot.promotion;
   const supportRequired = Boolean(billingDue?.support_required || billingDue?.status === "support_required");
   const selfServiceAllowed = billingDue?.self_service_payment_allowed !== false && !supportRequired;
   const hasBank = Boolean(snapshot.issuer.account_number || snapshot.issuer.promptpay_id);
