@@ -133,7 +133,7 @@ export async function POST(request: Request) {
     const canonicalCurrentAmount = canonicalDue && (canonicalDue.payable_now || completingCanonicalOpenRequest)
       ? Number(canonicalDue.outstanding > 0 ? canonicalDue.outstanding : canonicalDue.amount_due)
       : null;
-    const expected = isAiAddon
+    let expected = isAiAddon
       ? target.ai_addon_monthly_price
       : kind === "custom_quote_request"
         ? null
@@ -146,6 +146,24 @@ export async function POST(request: Request) {
           : target.id===snapshot.contract.package_id && billingInterval === snapshot.contract.billing_interval
             ? snapshot.contract.amount_per_cycle
             : billingInterval==="yearly" ? target.yearly_price : target.monthly_price;
+    // IT-approved per-store promotions affect only the existing package/interval
+    // and the exact renewal start date. Never discount an AI addon or a changed package.
+    if (!upgrading && !isAiAddon && kind !== "custom_quote_request" &&
+        target.id === snapshot.contract.package_id &&
+        billingInterval === snapshot.contract.billing_interval &&
+        snapshot.contract.amount_per_cycle != null) {
+      const quoteStart = canonicalDue?.next_period_start ||
+        new Intl.DateTimeFormat("en-CA",{timeZone:"Asia/Bangkok",year:"numeric",month:"2-digit",day:"2-digit"}).format(new Date());
+      const quote = await db.rpc("tenant_discount_quote",{
+        p_tenant_id:scope.session.tenant_id,p_package_id:target.id,
+        p_start_date:quoteStart,p_base_amount:snapshot.contract.amount_per_cycle
+      });
+      if (quote.error) throw new Error("subscription_discount_quote_failed:" + quote.error.message);
+      const priced = Number((quote.data as {amount_due?:number}|null)?.amount_due);
+      // An open canonical invoice remains authoritative when collecting its slip.
+      if (!(kind === "payment_notice" && Number.isFinite(canonicalCurrentAmount) && Number(canonicalCurrentAmount)>0) &&
+          Number.isFinite(priced) && priced>0) expected=priced;
+    }
     if (isPayment && !snapshot.issuer.account_number && !snapshot.issuer.promptpay_id) {
       return fail("receiving_account_not_configured","Company receiving account is not configured. Contact Support.",422);
     }
