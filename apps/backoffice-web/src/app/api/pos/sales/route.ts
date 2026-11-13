@@ -587,9 +587,7 @@ async function updateQueuedPosOrder(args: {
     // The Native POS stores selected ingredients and line identity in metadata.
     // Preserve only unambiguous server-origin snapshots for unchanged selections,
     // otherwise reject rather than erase modifiers or change variant prices.
-    let replacementItems: Array<PosCreateOrderPayload["items"][number] & {
-      native_selection?: Record<string, unknown>;
-    }> = body.items;
+    let replacementItems: PosCreateOrderPayload["items"] = body.items;
     const existingLines = await supabase.from("order_items")
       .select("id,product_id,quantity,unit_price,notes,metadata")
       .eq("tenant_id",auth.tenantId!).eq("branch_id",auth.branchId!)
@@ -616,7 +614,7 @@ async function updateQueuedPosOrder(args: {
             message:"รายการมีตัวเลือกวัตถุดิบเฉพาะหรือมีรายการซ้ำ กรุณารีเฟรชรายการและใช้เมนูยกเลิกจากครัวเพื่อป้องกันแก้ข้อมูลผิด" };
         }
         const matched=matches[0];
-        const selection=(matched.metadata as Record<string, unknown>)?.native_selection as Record<string, unknown>;
+        const selection=(matched.metadata as Record<string, unknown>)?.native_selection as NonNullable<PosCreateOrderPayload["items"][number]["native_selection"]>;
         if (!selection || typeof selection.cart_line_id!=="string" || !selection.cart_line_id.trim()) {
           return { ok:false as const,code:"native_selection_missing",status:409,
             message:"ไม่พบข้อมูลตัวเลือกวัตถุดิบเดิม กรุณาใช้เมนูยกเลิกจากครัว" };
