@@ -152,6 +152,7 @@ export function PosSubscriptionLifecycleGuard({ initial }:{
 
   if(!runtime || runtime.exempt || (!showWarning && !showLocked))return null;
   const amount=money(runtime.amount_due,runtime.currency);
+  const isPaidGrace=runtime.lifecycle_status==="grace" && !runtime.exempt;
   const bankLine=[runtime.bank_name,runtime.account_name,runtime.account_number].filter(Boolean).join(" · ");
 
   if(showLocked){
@@ -161,7 +162,7 @@ export function PosSubscriptionLifecycleGuard({ initial }:{
         <div className="h-2 bg-red-500" />
         <div className="p-6 sm:p-8">
           <p className="text-xs font-black uppercase tracking-[0.18em] text-red-600">SUBSCRIPTION PAYMENT REQUIRED</p>
-          <h2 id="subscription-locked-title" className="mt-2 text-2xl font-black text-slate-950">แพ็กเกจครบกำหนดชำระแล้ว</h2>
+          <h2 id="subscription-locked-title" className="mt-2 text-2xl font-black text-slate-950">สิ้นสุดระยะผ่อนผันการชำระเงิน</h2>
           <p className="mt-2 text-sm leading-6 text-slate-600">
             ระบบงานขายถูกล็อกชั่วคราวจนกว่าฝ่าย IT จะตรวจสอบเงินเข้าและอนุมัติการต่ออายุ
             เมื่ออนุมัติแล้วหน้าจอนี้จะปลดล็อกอัตโนมัติ
@@ -169,7 +170,7 @@ export function PosSubscriptionLifecycleGuard({ initial }:{
           <div className="mt-5 grid gap-3 rounded-2xl bg-slate-50 p-4 sm:grid-cols-2">
             <div><p className="text-xs text-slate-500">แพ็กเกจ</p><strong>{runtime.package_name}</strong></div>
             <div><p className="text-xs text-slate-500">ยอดที่ต้องชำระ</p><strong className="text-red-700">{amount}</strong></div>
-            <div><p className="text-xs text-slate-500">ครบกำหนด</p><strong>{date(runtime.expires_at)}</strong></div>
+            <div><p className="text-xs text-slate-500">วันที่สิ้นสุดสิทธิ์ใช้งาน</p><strong>{date(runtime.expires_at)}</strong></div>
             <div><p className="text-xs text-slate-500">รอบชำระ</p><strong>{runtime.billing_interval==="yearly"?"รายปี":"รายเดือน"}</strong></div>
           </div>
           {bankLine ? <p className="mt-4 rounded-xl border border-blue-200 bg-blue-50 p-3 text-sm font-semibold text-blue-900">
@@ -198,11 +199,11 @@ export function PosSubscriptionLifecycleGuard({ initial }:{
       <div className="flex items-start justify-between gap-4">
         <div>
           <p className="text-xs font-black uppercase tracking-[0.15em]">PACKAGE RENEWAL REMINDER</p>
-          <h2 id="subscription-warning-title" className="mt-2 text-xl font-black text-slate-950">แพ็กเกจใกล้ครบกำหนดชำระ</h2>
+          <h2 id="subscription-warning-title" className="mt-2 text-xl font-black text-slate-950">{isPaidGrace?"ช่วงผ่อนผันการชำระเงิน":"แพ็กเกจใกล้ครบกำหนดชำระ"}</h2>
         </div>
         <button type="button" onClick={dismiss} aria-label="ปิด" className="h-9 w-9 rounded-full border border-current/20 bg-white/70 text-lg">×</button>
       </div>
-      <p className="mt-3 text-sm leading-6">เหลือ {computedDays} วัน · ครบกำหนด {date(runtime.expires_at)} · ยอด {amount}</p>
+      <p className="mt-3 text-sm leading-6">{isPaidGrace?"กรุณาต่ออายุภายในช่วงผ่อนผัน · ":"เหลืออีก "+computedDays+" วัน · "}สิ้นสุดการใช้งาน {date(runtime.expires_at)} · ยอดค่าบริการ {amount}</p>
       <div className="mt-5 grid gap-2 sm:grid-cols-2">
         <button type="button" onClick={()=>router.push("/preview/pos/payments/package")}
           className="rounded-xl bg-blue-600 px-4 py-3 text-sm font-black text-white">ต่ออายุ / แจ้งชำระเงิน</button>
