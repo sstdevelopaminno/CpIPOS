@@ -25,6 +25,7 @@ type RequestRow = { id: string; request_type: string; requested_package_id: stri
   currency: string; submitted_at: string; reviewed_at: string | null; review_note: string | null;
   evidence_url: string | null; metadata: Record<string, unknown> | null };
 type Cycle = { id: string; status: string; amount_due: number; amount_paid: number; period_start: string; period_end: string };
+type TenantDiscount = { id:string;package_id:string;title:string;percent:number;valid_from:string;valid_until:string;status:string };
 type Receipt = {
   id: string; payment_request_id: string; billing_cycle_id: string; receipt_number: string;
   issued_at: string; amount: number; currency: string; package_snapshot: Record<string, unknown> | null
@@ -74,7 +75,7 @@ function discountedAmount(base: unknown, discount: unknown): number | null {
 export async function loadPosSubscriptionCenter(tenantId: string) {
   // Commercial authority lives in CpiPOS-001, never in a trial tenant sales data plane.
   const db = getPrimarySupabaseServiceClient();
-  const [tenantResult, contractResult, lifecycleResult, issuerResult, packagesResult, aiQuotaResult, requestResult, cycleResult, receiptResult, receiptAnnotationResult, dueResult] = await Promise.all([
+  const [tenantResult, contractResult, lifecycleResult, issuerResult, packagesResult, aiQuotaResult, requestResult, cycleResult, receiptResult, receiptAnnotationResult, dueResult, discountResult] = await Promise.all([
     db.from("tenants").select("id,code,name,display_name,package_id")
       .eq("id",tenantId).maybeSingle<Tenant>(),
     db.from("tenant_subscription_contracts")
@@ -103,9 +104,11 @@ export async function loadPosSubscriptionCenter(tenantId: string) {
       .eq("tenant_id",tenantId).order("issued_at",{ascending:false}).limit(50).returns<Receipt[]>(),
     db.from("tenant_subscription_receipt_annotations")
       .select("receipt_id,correction_note,voided_at").eq("tenant_id",tenantId).returns<ReceiptAnnotation[]>(),
-    db.rpc("subscription_billing_due_state",{p_tenant_id:tenantId})
+    db.rpc("subscription_billing_due_state",{p_tenant_id:tenantId}),
+    db.from("tenant_package_discounts").select("id,package_id,title,percent,valid_from,valid_until,status")
+      .eq("tenant_id",tenantId).eq("status","active").order("valid_from",{ascending:true}).limit(20).returns<TenantDiscount[]>()
   ]);
-  for (const item of [tenantResult,contractResult,lifecycleResult,issuerResult,packagesResult,aiQuotaResult,requestResult,cycleResult,receiptResult,receiptAnnotationResult]) {
+  for (const item of [tenantResult,contractResult,lifecycleResult,issuerResult,packagesResult,aiQuotaResult,requestResult,cycleResult,receiptResult,receiptAnnotationResult,discountResult]) {
     if (item.error) throw new Error("Subscription information is temporarily unavailable.");
   }
   if (dueResult.error) {
@@ -123,6 +126,19 @@ export async function loadPosSubscriptionCenter(tenantId: string) {
     ? discountedAmount(pkg?.yearly_price,pkg?.yearly_discount_percent)
     : discountedAmount(pkg?.monthly_price,pkg?.monthly_discount_percent);
   const activePrice = amount(contract?.amount_per_cycle) ?? cyclePrice;
+  const todayBangkok = new Intl.DateTimeFormat("en-CA",{
+    timeZone:"Asia/Bangkok",year:"numeric",month:"2-digit",day:"2-digit"
+  }).format(new Date());
+  const activeDiscount = (discountResult.data ?? []).find(row =>
+    row.package_id === contract?.package_id && row.valid_until >= todayBangkok
+  ) ?? null;
+  const duePeriodStart = (dueResult.data as BillingDue | null)?.next_period_start ?? null;
+  const dueAmount = Number((dueResult.data as BillingDue | null)?.amount_due ?? NaN);
+  const eligibleDue = Boolean(activeDiscount && duePeriodStart &&
+    duePeriodStart >= activeDiscount.valid_from && duePeriodStart <= activeDiscount.valid_until);
+  const discountSaving = activeDiscount && activePrice != null
+    ? Number((activePrice * Number(activeDiscount.percent) / 100).toFixed(2)) : 0;
+  const discountPrice = activePrice != null ? Number((activePrice - discountSaving).toFixed(2)) : null;
   const expiry = isInternalDemo ? null
     : lifecycle?.lifecycle_status === "trial" || contract?.status === "trial"
       ? lifecycle?.trial_expires_at ?? contract?.ended_at ?? null
@@ -146,6 +162,19 @@ export async function loadPosSubscriptionCenter(tenantId: string) {
       max_devices: positive(contract?.max_devices ?? contract?.terminal_limit_per_branch ?? pkg?.max_devices),
       max_users: positive(contract?.max_users ?? pkg?.max_users)
     },
+    promotion: activeDiscount && activePrice != null && !isInternalDemo ? {
+      id:activeDiscount.id,
+      title:activeDiscount.title,
+      percent:Number(activeDiscount.percent),
+      valid_from:activeDiscount.valid_from,
+      valid_until:activeDiscount.valid_until,
+      regular_amount:activePrice,
+      discounted_amount:discountPrice,
+      discount_amount:discountSaving,
+      applies_to_current_due:eligibleDue,
+      reflected_in_current_due:eligibleDue && discountPrice != null &&
+        Number.isFinite(dueAmount) && Math.abs(dueAmount-discountPrice)<0.01
+    } : null,
     packages: packages.map((row)=>{
       const contactSales = row.code === "custom" || row.quota_mode === "custom" || row.metadata?.contact_sales === true;
       const aiQuota = aiQuotaByPackage.get(row.id);
