@@ -17,7 +17,7 @@ describe("POS sales and kitchen navigation badges", () => {
     expect(route).toContain('requirePermission(scope, "sales:view")');
     expect(route).toContain('includeSales: role !== "kitchen"');
     expect(route).toContain('response.headers.set("Cache-Control", "private, no-store")');
-    for (const table of ["shifts", "table_bill_sessions", "orders", "table_qr_orders", "kitchen_tickets"]) {
+    for (const table of ["shifts", "table_bill_sessions", "orders", "table_qr_orders", "kitchen_tickets", "kitchen_zones"]) {
       expect(service).toContain(`from("${table}")`);
     }
     expect(service).toContain('.eq("tenant_id", tenantId)');
@@ -28,12 +28,18 @@ describe("POS sales and kitchen navigation badges", () => {
     expect(service).toContain('.in("status", ["open", "suspended"])');
     expect(service).toContain('.is("closed_at", null)');
     expect(service).toContain('.eq("status", "queued")');
-    expect(service).toContain("review_status.eq.pending_pos_review");
+    expect(service).toContain('eq("review_status", "pending_pos_review")');
+    expect(service).toContain('.eq("kds_enabled", true)');
+    expect(service).toContain('.eq("is_active", true)');
+    expect(service).toContain('.in("zone_id", zoneIds)');
   });
 
   it("reuses the existing persistent QR acknowledgement, never food-order review status", () => {
     expect(route).not.toContain("export async function POST");
-    expect(service).toContain('event_type.eq.call_staff');
+    expect(service).toContain('.in("event_type", ["call_staff", "request_checkout"])');
+    expect(service).toContain('.is("payload->>acknowledged_at", null)');
+    expect(service).toContain("qrFoodOrders, qrServiceRequests");
+    expect(service).toContain("qrReviewSessionIds");
     expect(qrActivity).toContain('acknowledged_at: acknowledgedAt');
     expect(qrActivity).toContain('.in("event_type", ["call_staff", "request_checkout"])');
     expect(menu).toContain("operationAlerts.sales.total");
