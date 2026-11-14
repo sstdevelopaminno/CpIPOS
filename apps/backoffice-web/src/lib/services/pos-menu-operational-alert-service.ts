@@ -72,7 +72,7 @@ export async function loadPosOperationalMenuCounts(args: {
         .eq("tenant_id", tenantId).eq("branch_id", branchId)
         .in("table_session_id", [...openTableSessionIds])
         .in("event_type", ["order", "call_staff", "request_checkout"])
-        .or("review_status.eq.pending_pos_review,review_status.is.null")
+        .or("review_status.eq.pending_pos_review,event_type.eq.call_staff,event_type.eq.request_checkout")
         .order("created_at", { ascending: false }).limit(500)
       : Promise.resolve({ data: [] as PosMenuQrEvent[], error: null }),
     kitchenOrderIds.length
