@@ -30,7 +30,7 @@ export function classifyPosEntryDenial(
  // invoice due date is NOT the POS shutdown date during a granted grace window.
  // Keep free-trial expiry strict and unchanged.
  const expiry=trial
-   ?lifecycle?.trial_expires_at??contract?.ended_at??null
+   ?contract?.ended_at??lifecycle?.trial_expires_at??null
    :lifecycle?.lifecycle_status==="grace" && lifecycle.grace_until
      ? lifecycle.grace_until
      :lifecycle?.subscription_expires_at??contract?.ended_at??null;
