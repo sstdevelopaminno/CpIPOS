@@ -9995,8 +9995,17 @@ body:has(.pos-app-root) {
     padding-inline: 0;
   }
 
-  .pos-shell-sidebar--left.is-collapsed nav span:not([aria-hidden]) {
+  .pos-shell-sidebar--left.is-collapsed nav span:not([aria-hidden]):not([data-pos-operational-badge]) {
     display: none;
+  }
+
+  .pos-shell-sidebar--left.is-collapsed nav span[data-pos-operational-badge] {
+    display: inline-flex !important;
+    position: absolute;
+    z-index: 2;
+    top: 1px;
+    right: 1px;
+    margin: 0;
   }
 
   .posui-shell {
