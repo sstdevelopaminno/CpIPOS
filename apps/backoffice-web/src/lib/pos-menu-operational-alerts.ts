@@ -10,6 +10,7 @@ export type PosMenuOrder = {
 
 export type PosMenuQrEvent = {
   id: string;
+  table_id?: string | null;
   event_type: string | null;
   review_status: string | null;
   table_session_id: string | null;
@@ -81,6 +82,7 @@ export function isNewDineInKitchenTicket(
 export type PosOperationalMenuCounts = {
   sales: { pending_sales: number; pending_qr_orders: number; staff_calls: number; checkout_requests: number; total: number };
   kitchen: { new_dine_in_orders: number };
+  pending_service_requests?: Array<{ id: string; table_id: string; table_code: string; type: "call_staff" | "request_checkout" }>;
 };
 
 export const EMPTY_POS_MENU_ALERT_COUNTS: PosOperationalMenuCounts = {
