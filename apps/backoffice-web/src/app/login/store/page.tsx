@@ -199,6 +199,15 @@ export default function LoginStorePage() {
   const activeControllerRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
+    // If the POS layout sent the customer here after an invalid session,
+    // do not immediately redirect them back to the same failed route.
+    // A deliberate new login must take precedence over automatic forwarding.
+    if (new URLSearchParams(window.location.search).get("from") === "pos-session") {
+      clearPreEntryClientCache();
+      warmRoute(router, "/login/branches?flow=multi");
+      warmRoute(router, "/login/employee?flow=single");
+      return;
+    }
     let active = true;
     void fetch("/api/pos/session/current", { cache: "no-store" })
       .then((response) => {
