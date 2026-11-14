@@ -37,7 +37,7 @@ describe("POS operational navigation notification counts", () => {
 
   it("keeps QR waiter and checkout alerts until acknowledged, never counts closed tables", () => {
     expect(isAwaitingQrServiceRequest(waiter, liveSessions)).toBe(true);
-    expect(isAwaitingQrServiceRequest({ ...waiter, review_status: "accepted" }, liveSessions)).toBe(false);
+    expect(isAwaitingQrServiceRequest({ ...waiter, payload: { acknowledged_at: "2026-11-14T05:00:00Z" } }, liveSessions)).toBe(false);
     expect(isAwaitingQrServiceRequest({ ...waiter, table_session_id: "closed" }, liveSessions)).toBe(false);
     expect(isAwaitingQrServiceRequest({ ...waiter, event_type: "order" }, liveSessions)).toBe(false);
   });
