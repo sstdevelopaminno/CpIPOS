@@ -67,6 +67,7 @@ describe("POS operational navigation notification counts", () => {
         { id: "food-1", event_type: "order", review_status: "pending_pos_review", table_session_id: "session-open", order_id: null }
       ],
       openTableSessionIds: liveSessions,
+      qrReviewSessionIds: liveSessions,
       kitchenTickets: [
         { id: "kitchen-1", order_id: "order-table", order_type: "dine_in", status: "queued" },
         { id: "kitchen-2", order_id: "order-table", order_type: "dine_in", status: "acknowledged" }
