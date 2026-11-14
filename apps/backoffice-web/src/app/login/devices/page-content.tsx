@@ -263,7 +263,9 @@ function LoginDevicesPageContent() {
   useEffect(() => {
     const preload = new window.Image();
     preload.src = SPLASH_LOGO_SRC;
-    warmRoute(router, "/preview/pos");
+    // Do NOT prefetch the protected POS page before a cashier session cookie
+    // exists. The proxy will correctly redirect that prefetch to login, but
+    // caching the redirect can make successful sign-ins bounce indefinitely.
   }, [router]);
 
   useEffect(() => {
