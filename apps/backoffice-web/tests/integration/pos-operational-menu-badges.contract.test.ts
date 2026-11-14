@@ -57,6 +57,10 @@ describe("POS sales and kitchen navigation badges", () => {
     expect(menu).toContain('30_000');
     expect(menu).toContain("unreadNewsCount");
     expect(menu).toContain("unpaidBillingCount");
+    expect(menu).toContain('data-pos-operational-badge="true"');
+    const css = read("app/globals.css");
+    expect(css).toContain('nav span:not([aria-hidden]):not([data-pos-operational-badge])');
+    expect(css).toContain('nav span[data-pos-operational-badge]');
   });
 
   it("updates badges on cashier and kitchen action without forcing page reload or logout", () => {
@@ -76,6 +80,9 @@ describe("POS sales and kitchen navigation badges", () => {
     expect(menu).toContain("acknowledgeServiceFromInbox");
     expect(menu).toContain('fetch("/api/pos/table-qr-activity"');
     expect(menu).toContain("คำขอ QR รอรับทราบ");
+    expect(menu).toContain("controller.abort(), 10_000");
+    expect(menu).toContain("window.clearTimeout(timeout)");
+    expect(menu).toContain("setServiceAckBusy(null)");
     expect(qrActivity).toContain('acknowledged_at: acknowledgedAt');
   });
 });
