@@ -565,6 +565,7 @@ export function KitchenKds({ defaultLanguage = "th" }: { defaultLanguage?: AppLa
     setTickets((current) => current.map((row) => (row.id === ticket.id ? { ...row, status: targetStatus } : row)));
     try {
       await setTicketStatusRemote(ticket, targetStatus);
+      window.dispatchEvent(new Event("cpipos-pos-alerts-refresh"));
       if (targetStatus === "ready") {
         setTickets((current) => current.filter((row) => row.id !== ticket.id));
       }
@@ -628,6 +629,7 @@ export function KitchenKds({ defaultLanguage = "th" }: { defaultLanguage?: AppLa
           return originalStatus ? { ...row, status: originalStatus } : row;
         }));
       const rejected = results.find((result) => result.status === "rejected");
+      if (completedIds.size > 0) window.dispatchEvent(new Event("cpipos-pos-alerts-refresh"));
       if (rejected?.status === "rejected") {
         setError(rejected.reason instanceof Error ? rejected.reason.message : kt(lang, "billFailed"));
       } else {

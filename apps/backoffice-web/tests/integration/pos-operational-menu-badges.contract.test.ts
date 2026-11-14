@@ -1,0 +1,88 @@
+import { describe, expect, it } from "vitest";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
+
+const read = (p: string) => readFileSync(resolve(process.cwd(), "src", p), "utf8");
+const route = read("app/api/pos/alerts/menu/route.ts");
+const service = read("lib/services/pos-menu-operational-alert-service.ts");
+const menu = read("components/pos-preview/pos-staff-menu.tsx");
+const cashier = read("components/pos/pos-sales-module.tsx");
+const kitchen = read("components/kitchen/kitchen-kds.tsx");
+const qrActivity = read("app/api/pos/table-qr-activity/route.ts");
+const globalQrPopup = read("components/pos-preview/pos-table-qr-global-alert.tsx");
+
+describe("POS sales and kitchen navigation badges", () => {
+  it("checks POS session, tenant, branch, and permission before reading operational work", () => {
+    expect(route).toContain("await requirePosSession()");
+    expect(route).toContain('requirePermission(scope, "sales:view")');
+    expect(route).toContain('includeSales: role !== "kitchen"');
+    expect(route).toContain('response.headers.set("Cache-Control", "private, no-store")');
+    for (const table of ["shifts", "table_bill_sessions", "orders", "table_qr_orders", "kitchen_tickets", "kitchen_zones"]) {
+      expect(service).toContain(`from("${table}")`);
+    }
+    expect(service).toContain('.eq("tenant_id", tenantId)');
+    expect(service).toContain('.eq("branch_id", branchId)');
+  });
+
+  it("only counts active work rather than historical closed shifts and served tickets", () => {
+    expect(service).toContain('.in("status", ["open", "suspended"])');
+    expect(service).toContain('.is("closed_at", null)');
+    expect(service).toContain('.eq("status", "queued")');
+    expect(service).toContain('eq("review_status", "pending_pos_review")');
+    expect(service).toContain('.eq("kds_enabled", true)');
+    expect(service).toContain('.eq("is_active", true)');
+    expect(service).toContain('.in("zone_id", zoneIds)');
+  });
+
+  it("reuses the existing persistent QR acknowledgement, never food-order review status", () => {
+    expect(route).not.toContain("export async function POST");
+    expect(service).toContain('.in("event_type", ["call_staff", "request_checkout"])');
+    expect(service).toContain('.is("payload->>acknowledged_at", null)');
+    expect(service).toContain("qrFoodOrders, qrServiceRequests");
+    expect(service).toContain("qrReviewSessionIds");
+    expect(qrActivity).toContain('acknowledged_at: acknowledgedAt');
+    expect(qrActivity).toContain('.in("event_type", ["call_staff", "request_checkout"])');
+    expect(menu).toContain("operationAlerts.sales.total");
+    expect(cashier).toContain('fetch("/api/pos/table-qr-activity"');
+    expect(globalQrPopup).toContain('new Event("cpipos-pos-alerts-refresh")');
+    expect(route).not.toContain('from("orders").update');
+  });
+
+  it("renders two independent badges, retaining the existing news and billing counts", () => {
+    expect(menu).toContain('item.href === "/preview/pos"');
+    expect(menu).toContain('item.href === "/preview/pos/kitchen"');
+    expect(menu).toContain("operationAlerts.sales.total");
+    expect(menu).toContain("operationAlerts.kitchen.new_dine_in_orders");
+    expect(menu).toContain('fetch("/api/pos/alerts/menu", { cache: "no-store" })');
+    expect(menu).toContain('30_000');
+    expect(menu).toContain("unreadNewsCount");
+    expect(menu).toContain("unpaidBillingCount");
+    expect(menu).toContain('data-pos-operational-badge="true"');
+    const css = read("app/globals.css");
+    expect(css).toContain('nav span:not([aria-hidden]):not([data-pos-operational-badge])');
+    expect(css).toContain('nav span[data-pos-operational-badge]');
+  });
+
+  it("updates badges on cashier and kitchen action without forcing page reload or logout", () => {
+    expect(cashier).toContain("acknowledgeTableQrServiceEvent");
+    expect(cashier).toContain('table.qr_activity?.latest_event_type === "call_staff"');
+    expect(cashier).toContain('new Event("cpipos-pos-alerts-refresh")');
+    expect(kitchen).toContain('new Event("cpipos-pos-alerts-refresh")');
+    expect(menu).toContain('window.addEventListener("cpipos-pos-alerts-refresh"');
+    expect(route).not.toContain("logout");
+    expect(route).not.toContain("revoke");
+  });
+
+  it("keeps all older QR waiter calls actionable in the cashier inbox", () => {
+    expect(service).toContain("pending_service_requests: pendingServiceRequests");
+    expect(service).toContain('.is("payload->>acknowledged_at", null)');
+    expect(menu).toContain("pendingServiceRequests.map");
+    expect(menu).toContain("acknowledgeServiceFromInbox");
+    expect(menu).toContain('fetch("/api/pos/table-qr-activity"');
+    expect(menu).toContain("คำขอ QR รอรับทราบ");
+    expect(menu).toContain("controller.abort(), 10_000");
+    expect(menu).toContain("window.clearTimeout(timeout)");
+    expect(menu).toContain("setServiceAckBusy(null)");
+    expect(qrActivity).toContain('acknowledged_at: acknowledgedAt');
+  });
+});

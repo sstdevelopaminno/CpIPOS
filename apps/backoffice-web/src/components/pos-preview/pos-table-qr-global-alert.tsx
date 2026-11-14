@@ -127,6 +127,7 @@ export function PosTableQrGlobalAlert({ lang }: { lang: Language }) {
       const body = (await response.json().catch(() => null)) as ActivityResponse | null;
       if (!response.ok || !body?.data) throw new Error(body?.error?.message || "activity_ack_failed");
       pendingServiceAcksRef.current.delete(current.id);
+      window.dispatchEvent(new Event("cpipos-pos-alerts-refresh"));
       return true;
     } catch {
       pendingServiceAcksRef.current.set(current.id, { event: current, action });
@@ -223,6 +224,7 @@ export function PosTableQrGlobalAlert({ lang }: { lang: Language }) {
 
           if (fresh.length > 0) {
             sawEvent = true;
+            window.dispatchEvent(new Event("cpipos-pos-alerts-refresh"));
             setPendingEvents((current) => {
               const queuedIds = new Set(current.map((row) => row.id));
               const additions = fresh.filter((row) => !queuedIds.has(row.id));

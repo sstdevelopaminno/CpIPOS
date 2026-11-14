@@ -2869,9 +2869,33 @@ export function PosSalesModule({
     tableBillPrefetchCacheRef.current.delete(tableId);
     tableBillPrefetchCacheUpdatedAtRef.current.delete(tableId);
   }
+
+  async function acknowledgeTableQrServiceEvent(eventId: string, action: "acknowledge" | "go_to_table" = "acknowledge") {
+    if (!eventId) return;
+    try {
+      // The global QR popup and the menu badge must share the same persistent
+      // payload.acknowledged_at marker and idempotent acknowledgement route.
+      const response = await fetch("/api/pos/table-qr-activity", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ event_id: eventId, action })
+      });
+      if (response.ok) window.dispatchEvent(new Event("cpipos-pos-alerts-refresh"));
+    } catch {
+      // Never block the cashier's table workflow for a notification failure.
+      // The active request remains visible in the badge for later handling.
+    }
+  }
+
   function markTableQrActivitySeen(table: DiningTableItem) {
     const latestEventId = table.qr_activity?.latest_event_id;
     if (!latestEventId) return;
+    // Opening the corresponding table acknowledges the QR waiter / checkout
+    // request. A food-order review must remain pending until explicitly approved.
+    if (table.qr_activity?.latest_event_type === "call_staff" ||
+        table.qr_activity?.latest_event_type === "request_checkout") {
+      void acknowledgeTableQrServiceEvent(latestEventId, "go_to_table");
+    }
     setSeenTableQrActivity((current) => {
       if (current[table.id] === latestEventId) return current;
       const next = { ...current, [table.id]: latestEventId };
@@ -10547,8 +10571,13 @@ export function PosSalesModule({
               {tableQrAlert.itemCount ? <span>{tableQrAlert.itemCount} รายการ</span> : null}
               {tableQrAlert.note ? <span>{tableQrAlert.note}</span> : null}
             </div>
-            <button type="button" onClick={() => setTableQrAlert(null)} aria-label={text.clear}>
-              x
+            <button type="button" onClick={() => {
+              if (tableQrAlert.type === "call_staff" || tableQrAlert.type === "request_checkout") {
+                void acknowledgeTableQrServiceEvent(tableQrAlert.id);
+              }
+              setTableQrAlert(null);
+            }} aria-label={tableQrAlert.type === "order" ? text.clear : "รับทราบการเรียกพนักงาน"}>
+              {tableQrAlert.type === "order" ? "×" : "รับทราบ"}
             </button>
           </section>
         </div>
