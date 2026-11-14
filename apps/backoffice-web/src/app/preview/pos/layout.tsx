@@ -16,7 +16,7 @@ import { PosSupportNotifier } from "@/components/pos-preview/pos-support-notifie
 import { PosViewportGuard } from "@/components/pos-preview/pos-viewport-guard";
 import { getCurrentLanguage, t } from "@/lib/i18n";
 import { loadPosRuntimeDevicePolicyForSession } from "@/lib/pos-device-status";
-import { requirePosSession } from "@/lib/pos-session-guard";
+import { PosGuardError, requirePosSession } from "@/lib/pos-session-guard";
 import { loadPosSubscriptionLifecycleGuard } from "@/lib/services/pos-subscription-lifecycle-guard-service";
 
 export const viewport: Viewport = {
@@ -83,10 +83,52 @@ export default async function PosPreviewLayout({ children }: { children: ReactNo
   const cookieStore = await cookies();
   const { handoffName, sessionIdName } = resolvePosSessionCookieNames();
   const hasPosSession = Boolean(cookieStore.get(sessionIdName)?.value || cookieStore.get(handoffName)?.value);
-  if (!hasPosSession) redirect("/login/store");
+  if (!hasPosSession) redirect("/login/store?from=pos-session");
 
-  const scope = await requirePosSession().catch(() => null);
-  if (!scope) redirect("/login/store");
+  // A temporary database/runtime lookup failure is not an invalid customer session.
+  // Redirecting on all failures can bounce between /preview/pos and /login/store:
+  // the login screen independently checks /api/pos/session/current and sends the
+  // customer back here when it succeeds. Only real 401s should send them to login.
+  let scope: Awaited<ReturnType<typeof requirePosSession>> | null = null;
+  let sessionCheckProblem: string | null = null;
+  try {
+    scope = await requirePosSession();
+  } catch (error) {
+    if (error instanceof PosGuardError && error.status === 401) {
+      redirect("/login/store?from=pos-session");
+    }
+    sessionCheckProblem = error instanceof PosGuardError
+      ? error.code
+      : "session_check_unavailable";
+    console.warn("[pos-layout] session verification unavailable; avoiding login redirect", {
+      code: sessionCheckProblem
+    });
+  }
+  if (!scope) {
+    const isSubscriptionLocked = sessionCheckProblem === "subscription_access_locked";
+    return (
+      <main className="flex h-screen w-screen items-center justify-center bg-slate-50 p-5 text-slate-900">
+        <section role="alert" className="w-full max-w-lg rounded-2xl border border-slate-200 bg-white p-8 shadow-lg">
+          <h1 className="text-xl font-bold">
+            {isSubscriptionLocked ? "แพ็กเกจถูกระงับการใช้งาน" : "ไม่สามารถตรวจสอบการเชื่อมต่อ POS ได้ชั่วคราว"}
+          </h1>
+          <p className="mt-3 text-sm leading-6 text-slate-600">
+            {isSubscriptionLocked
+              ? "กรุณาติดต่อฝ่าย IT เพื่อตรวจสอบสถานะแพ็กเกจก่อนใช้งาน"
+              : "ระบบยังไม่ได้ยืนยันว่า Session ของท่านหมดอายุ จึงไม่สั่งออกจากระบบอัตโนมัติ"}
+          </p>
+          <div className="mt-6 flex flex-wrap gap-3">
+            <a className="rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-bold text-white" href="/preview/pos?retry=1">
+              ตรวจสอบอีกครั้ง
+            </a>
+            <a className="rounded-xl border border-slate-300 px-4 py-2.5 text-sm font-bold" href="/login/store?from=pos-session">
+              เข้าสู่ระบบใหม่
+            </a>
+          </div>
+        </section>
+      </main>
+    );
+  }
 
   const devicePolicy = await loadPosRuntimeDevicePolicyForSession(scope.session);
   const subscriptionGuard = await loadPosSubscriptionLifecycleGuard(scope.session.tenant_id).catch(() => null);
