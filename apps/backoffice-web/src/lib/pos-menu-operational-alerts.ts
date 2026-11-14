@@ -94,13 +94,14 @@ export function summarizePosOperationalMenuCounts(args: {
   openTableOrderIds: ReadonlySet<string>;
   qrEvents: readonly PosMenuQrEvent[];
   openTableSessionIds: ReadonlySet<string>;
+  qrReviewSessionIds: ReadonlySet<string>;
   kitchenTickets: readonly PosMenuKitchenTicket[];
   kitchenParentOrders: ReadonlyMap<string, { status: string; order_type: string }>;
 }): PosOperationalMenuCounts {
   const pendingSales = new Set(args.saleOrders
     .filter((row) => isOutstandingSaleOrder(row, args.activeShiftIds, args.openTableOrderIds))
     .map((row) => row.id)).size;
-  const pendingQrOrders = args.qrEvents.filter((row) => isActionableQrOrder(row, args.openTableSessionIds)).length;
+  const pendingQrOrders = args.qrEvents.filter((row) => isActionableQrOrder(row, args.qrReviewSessionIds)).length;
   const staffCalls = args.qrEvents.filter((row) => row.event_type === "call_staff" &&
     isAwaitingQrServiceRequest(row, args.openTableSessionIds)).length;
   const checkoutRequests = args.qrEvents.filter((row) => row.event_type === "request_checkout" &&
