@@ -299,23 +299,43 @@ function LoginDevicesPageContent() {
   // uploaded in LINE after this popup first opened.
   useEffect(()=>{
     if(!entryBlocked)return;
+    let alive=true;
+    let checking=false;
     const check=()=>{
+      if(!alive || checking)return;
+      checking=true;
       void fetch("/api/auth/devices",{cache:"no-store"})
         .then(async response=>{
           if(!response.ok)return;
           const body=await response.json() as DevicesResponse;
+          if(!alive)return;
           if(body.data?.entry_access?.allowed===true){
-            window.location.reload();
+            // Avoid full-page reload loops when a paid package becomes eligible.
+            // Server has verified access; update the chooser from that response.
+            const data=body.data;
+            setDevices(data.devices);
+            setCanOverride(data.can_override_in_use);
+            setEmployeeId(data.employee?.id??"");
+            setSelectedCode(current=>{
+              if(data.devices.some(device=>device.deviceCode===current))return current;
+              return data.devices.find(device=>canSelectDevice(device,data.can_override_in_use,data.employee?.id??""))?.deviceCode??data.devices[0]?.deviceCode??"";
+            });
+            setEntryBlocked(false);
+            setEntryDenial(null);
+            setError("");
+            setPaymentReview(null);
+            setPopup(previous=>previous.type==="error"?{type:"none"}:previous);
             return;
           }
           setPaymentReview(body.data?.payment_review??null);
-        }).catch(()=>null);
+        }).catch(()=>null).finally(()=>{checking=false;});
     };
     const onVisible=()=>{if(document.visibilityState==="visible")check();};
     const poll=window.setInterval(check,5_000);
     window.addEventListener("focus",check);
     document.addEventListener("visibilitychange",onVisible);
     return ()=>{
+      alive=false;
       window.clearInterval(poll);
       window.removeEventListener("focus",check);
       document.removeEventListener("visibilitychange",onVisible);
