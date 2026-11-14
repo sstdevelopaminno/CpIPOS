@@ -122,6 +122,10 @@ export function PosStaffMenu({ lang, collapsed, orientation = "vertical", sessio
   const billingPolicyLocked = !isPosMenuEnabled("main.package_payment", menuPolicy);
   const [unreadNewsCount, setUnreadNewsCount] = useState(0);
   const [unpaidBillingCount, setUnpaidBillingCount] = useState(0);
+  const [operationAlerts, setOperationAlerts] = useState({
+    sales: { pending_sales: 0, pending_qr_orders: 0, staff_calls: 0, checkout_requests: 0, total: 0 },
+    kitchen: { new_dine_in_orders: 0 }
+  });
   useEffect(() => {
     let disposed = false;
     let inFlight = false;
@@ -198,6 +202,67 @@ export function PosStaffMenu({ lang, collapsed, orientation = "vertical", sessio
     };
   }, [sessionRole]);
 
+
+  useEffect(() => {
+    if (!["owner", "manager", "staff", "kitchen"].includes(sessionRole ?? "")) return;
+    let disposed = false;
+    let inFlight = false;
+    let lastRefresh = 0;
+
+    async function refreshOperationalAlerts() {
+      if (disposed || inFlight || document.visibilityState !== "visible") return;
+      inFlight = true;
+      lastRefresh = Date.now();
+      try {
+        const response = await fetch("/api/pos/alerts/menu", { cache: "no-store" });
+        if (!response.ok) return;
+        const body = await response.json() as {
+          data?: {
+            sales?: { pending_sales?: number; pending_qr_orders?: number; staff_calls?: number; checkout_requests?: number; total?: number };
+            kitchen?: { new_dine_in_orders?: number };
+          };
+        };
+        if (disposed || !body.data) return;
+        const safe = (value: unknown) => Math.max(0, Math.trunc(Number(value) || 0));
+        const next = body.data;
+        setOperationAlerts({
+          sales: {
+            pending_sales: safe(next.sales?.pending_sales),
+            pending_qr_orders: safe(next.sales?.pending_qr_orders),
+            staff_calls: safe(next.sales?.staff_calls),
+            checkout_requests: safe(next.sales?.checkout_requests),
+            total: safe(next.sales?.total)
+          },
+          kitchen: { new_dine_in_orders: safe(next.kitchen?.new_dine_in_orders) }
+        });
+      } catch {
+        // A temporary offline POS keeps the last confirmed badges. Never sign out.
+      } finally {
+        inFlight = false;
+      }
+    }
+
+    const onFocus = () => {
+      if (Date.now() - lastRefresh > 10_000) void refreshOperationalAlerts();
+    };
+    const onVisible = () => {
+      if (document.visibilityState === "visible") onFocus();
+    };
+    void refreshOperationalAlerts();
+    // One read per visible menu per 30 seconds; no high-rate polling.
+    const interval = window.setInterval(() => { void refreshOperationalAlerts(); }, 30_000);
+    window.addEventListener("focus", onFocus);
+    window.addEventListener("cpipos-pos-alerts-refresh", refreshOperationalAlerts);
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      disposed = true;
+      window.clearInterval(interval);
+      window.removeEventListener("focus", onFocus);
+      window.removeEventListener("cpipos-pos-alerts-refresh", refreshOperationalAlerts);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, [sessionRole]);
+
   function handleNavigate(event: MouseEvent<HTMLAnchorElement>, href: string) {
     if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
     if (pathname === href) event.preventDefault();
@@ -216,6 +281,14 @@ export function PosStaffMenu({ lang, collapsed, orientation = "vertical", sessio
         const opticalBasicHistory = isCustom && opticalMenuAllowed && item.href === "/preview/pos/sales-list";
         const featureLocked = !opticalBasicHistory && Boolean(enabledFeatures !== null && item.feature && enabledFeatures?.[item.feature] === false);
         const locked = menuLocked || featureLocked;
+        const operationalCount = item.href === "/preview/pos"
+          ? operationAlerts.sales.total
+          : item.href === "/preview/pos/kitchen"
+            ? operationAlerts.kitchen.new_dine_in_orders
+            : 0;
+        const operationalTitle = item.href === "/preview/pos"
+          ? `บิลขายค้าง ${operationAlerts.sales.pending_sales} · QR รอรับ ${operationAlerts.sales.pending_qr_orders} · เรียกพนักงาน ${operationAlerts.sales.staff_calls} · ขอเช็กบิล ${operationAlerts.sales.checkout_requests}`
+          : `ออร์เดอร์โต๊ะรอครัวรับ ${operationAlerts.kitchen.new_dine_in_orders}`;
         return (
           <Link
             key={item.href}
@@ -223,11 +296,21 @@ export function PosStaffMenu({ lang, collapsed, orientation = "vertical", sessio
             aria-current={active?"page":undefined}
             onClick={(event) => menuLocked ? (event.preventDefault(), onLockedMenu(item.label)) : featureLocked ? (event.preventDefault(), onLockedFeature()) : handleNavigate(event, item.href)}
             className={entryClass({ active, locked, horizontal: isHorizontal, collapsed })}
-            title={collapsed && !isHorizontal ? item.label : menuLocked ? (lang === "lo" ? "ລັອກໂດຍຝ່າຍ IT" : lang === "th" ? "ล็อกโดยผู้ดูแลระบบ IT" : "Locked by IT") : featureLocked ? (lang === "th" ? POS_MENU_LOCK_TITLE_TH : POS_MENU_LOCK_TITLE_EN) : undefined}
+            title={menuLocked ? (lang === "lo" ? "ລັອກໂດຍຝ່າຍ IT" : lang === "th" ? "ล็อกโดยผู้ดูแลระบบ IT" : "Locked by IT") : featureLocked ? (lang === "th" ? POS_MENU_LOCK_TITLE_TH : POS_MENU_LOCK_TITLE_EN) : operationalCount > 0 ? operationalTitle : collapsed && !isHorizontal ? item.label : undefined}
             aria-disabled={locked}
           >
             <span className="inline-flex w-4 justify-center" aria-hidden><MenuIcon name={item.icon} /></span>
             {(!collapsed || isHorizontal) ? <span className="truncate text-[13px]">{item.label}</span> : null}
+            {!locked && operationalCount > 0 ? (
+              <span
+                role="status"
+                aria-label={operationalTitle}
+                title={operationalTitle}
+                className={`inline-flex min-h-5 min-w-5 shrink-0 items-center justify-center rounded-full px-1.5 text-[11px] font-extrabold leading-none text-white ${item.href === "/preview/pos" ? "bg-rose-500" : "bg-amber-500"} ${collapsed && !isHorizontal ? "absolute right-1 top-1" : "ml-auto"}`}
+              >
+                {operationalCount > 99 ? "99+" : operationalCount}
+              </span>
+            ) : null}
             {renderLock(locked)}
           </Link>
         );
