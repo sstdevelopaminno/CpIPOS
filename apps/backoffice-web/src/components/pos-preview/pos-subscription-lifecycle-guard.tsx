@@ -13,6 +13,20 @@ type RuntimeRefreshSource="realtime"|"push"|"focus"|"online"|"fallback";
 // this dedupe window so billing approvals still appear immediately.
 const PASSIVE_REFRESH_MIN_GAP_MS=15_000;
 
+// The billing worker may UPDATE a runtime row on every scheduled sweep even
+// when access, expiry and display data have not changed. Treat those Realtime
+// notifications as no-ops to prevent repeated route refreshes / modal flashes.
+function runtimeSignature(value:PosSubscriptionLifecycleGuardData|null){
+  if(!value)return "none";
+  return JSON.stringify([
+    value.tenant_id,value.exempt,value.locked,value.lock_reason,
+    value.lifecycle_status,value.expires_at,value.package_name,
+    value.billing_interval,value.amount_due,value.currency,
+    value.bank_name,value.account_name,value.account_number
+  ]);
+}
+
+
 function money(value:number|null,currency:string){
   return value==null ? "ยังไม่กำหนดราคา" :
     new Intl.NumberFormat("th-TH",{style:"currency",currency}).format(value);
@@ -36,9 +50,8 @@ export function PosSubscriptionLifecycleGuard({ initial }:{
   const [clock,setClock]=useState(()=>Date.now());
   const refreshInFlight=useRef(false);
   const lastRuntimeRefreshAt=useRef(0);
-  const runtimeSignatureRef=useRef(initial
-    ? [initial.lifecycle_status,initial.locked,initial.expires_at].join("|")
-    : "");
+  const runtimeSnapshotRef=useRef(initial);
+  const runtimeSignatureRef=useRef(runtimeSignature(initial));
 
   const refreshRuntime=useCallback(async(source:RuntimeRefreshSource)=>{
     const passive=source==="focus" || source==="fallback";
@@ -52,16 +65,24 @@ export function PosSubscriptionLifecycleGuard({ initial }:{
       const json=await response.json().catch(()=>null) as Envelope<{runtime:PosSubscriptionLifecycleGuardData|null}>|null;
       if(!response.ok || !json?.data)return;
       const next=json.data.runtime;
-      const signature=next ? [next.lifecycle_status,next.locked,next.expires_at].join("|") : "";
-      const changed=signature!==runtimeSignatureRef.current;
+      const signature=runtimeSignature(next);
+      if(signature===runtimeSignatureRef.current)return;
+      const previous=runtimeSnapshotRef.current;
+      runtimeSnapshotRef.current=next;
       runtimeSignatureRef.current=signature;
       setRuntime(next);
       setClock(Date.now());
-      setDismissed(false);
+      // Respect a customer dismissal if the reminder deadline did not change.
+      if(previous?.expires_at!==next?.expires_at)setDismissed(false);
       window.dispatchEvent(new CustomEvent("cpipos-subscription-runtime-changed",{
         detail:{runtime:next,source}
       }));
-      if(changed)router.refresh();
+      // A route-tree refresh remounts the sales and shift gates. Only an actual
+      // access transition requires rebuilding protected server components.
+      const accessChanged=previous?.locked!==next?.locked ||
+        previous?.exempt!==next?.exempt ||
+        previous?.tenant_id!==next?.tenant_id;
+      if(accessChanged)router.refresh();
     }catch{
       // Keep the last verified billing state during transient offline failures.
       // Realtime/push or the next scheduled fallback can retry safely.
@@ -71,11 +92,16 @@ export function PosSubscriptionLifecycleGuard({ initial }:{
   },[router]);
 
   useEffect(()=>{
+    // Ignore server-side revalidation that sends the same entitlement snapshot;
+    // otherwise the UI gets reset after a harmless route refresh.
+    const signature=runtimeSignature(initial);
+    if(signature===runtimeSignatureRef.current)return;
+    const previous=runtimeSnapshotRef.current;
+    runtimeSnapshotRef.current=initial;
+    runtimeSignatureRef.current=signature;
     setRuntime(initial);
-    runtimeSignatureRef.current=initial
-      ? [initial.lifecycle_status,initial.locked,initial.expires_at].join("|")
-      : "";
     setClock(Date.now());
+    if(previous?.expires_at!==initial?.expires_at)setDismissed(false);
   },[initial]);
 
   useEffect(()=>{
