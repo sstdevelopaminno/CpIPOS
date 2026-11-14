@@ -275,18 +275,22 @@ export function PosStaffMenu({ lang, collapsed, orientation = "vertical", sessio
     if (serviceAckBusy) return;
     setServiceAckBusy(id);
     setServiceAckError("");
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), 10_000);
     try {
       const response = await fetch("/api/pos/table-qr-activity", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ event_id: id, action: "acknowledge" })
+        body: JSON.stringify({ event_id: id, action: "acknowledge" }),
+        signal: controller.signal
       });
       if (!response.ok) throw new Error("ack_failed");
       setPendingServiceRequests((current) => current.filter((row) => row.id !== id));
       window.dispatchEvent(new Event("cpipos-pos-alerts-refresh"));
     } catch {
-      setServiceAckError("บันทึกรับทราบไม่สำเร็จ กรุณาลองอีกครั้ง");
+      setServiceAckError("บันทึกรับทราบไม่สำเร็จ กรุณาลองใหม่ (ระบบยกเลิกคำขอที่ค้างเกิน 10 วินาที)");
     } finally {
+      window.clearTimeout(timeout);
       setServiceAckBusy(null);
     }
   }
@@ -333,6 +337,7 @@ export function PosStaffMenu({ lang, collapsed, orientation = "vertical", sessio
             {!locked && operationalCount > 0 ? (
               <span
                 role="status"
+                data-pos-operational-badge="true"
                 aria-label={operationalTitle}
                 title={operationalTitle}
                 className={`inline-flex min-h-5 min-w-5 shrink-0 items-center justify-center rounded-full px-1.5 text-[11px] font-extrabold leading-none text-white ${item.href === "/preview/pos" ? "bg-rose-500" : "bg-amber-500"} ${collapsed && !isHorizontal ? "absolute right-1 top-1" : "ml-auto"}`}
