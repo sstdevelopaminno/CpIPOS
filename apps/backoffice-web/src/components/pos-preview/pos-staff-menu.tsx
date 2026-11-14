@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { MouseEvent, useEffect, useMemo, useState } from "react";
+import { Fragment, MouseEvent, useEffect, useMemo, useState } from "react";
 import { t, type Language } from "@/lib/i18n";
 import { isCustomPosMenuVisible, isPosMenuEnabled, posMenuKeyForRoute } from "@/lib/pos-menu-policy";
 import { POS_MENU_LOCK_TITLE_EN, POS_MENU_LOCK_TITLE_TH, featureForPosRoute } from "@/lib/pos-feature-map";
@@ -122,6 +122,12 @@ export function PosStaffMenu({ lang, collapsed, orientation = "vertical", sessio
   const billingPolicyLocked = !isPosMenuEnabled("main.package_payment", menuPolicy);
   const [unreadNewsCount, setUnreadNewsCount] = useState(0);
   const [unpaidBillingCount, setUnpaidBillingCount] = useState(0);
+  const [pendingServiceRequests, setPendingServiceRequests] = useState<Array<{
+    id: string; table_id: string; table_code: string; type: "call_staff" | "request_checkout";
+  }>>([]);
+  const [serviceInboxOpen, setServiceInboxOpen] = useState(false);
+  const [serviceAckBusy, setServiceAckBusy] = useState<string | null>(null);
+  const [serviceAckError, setServiceAckError] = useState("");
   const [operationAlerts, setOperationAlerts] = useState({
     sales: { pending_sales: 0, pending_qr_orders: 0, staff_calls: 0, checkout_requests: 0, total: 0 },
     kitchen: { new_dine_in_orders: 0 }
@@ -220,11 +226,13 @@ export function PosStaffMenu({ lang, collapsed, orientation = "vertical", sessio
           data?: {
             sales?: { pending_sales?: number; pending_qr_orders?: number; staff_calls?: number; checkout_requests?: number; total?: number };
             kitchen?: { new_dine_in_orders?: number };
+            pending_service_requests?: Array<{ id: string; table_id: string; table_code: string; type: "call_staff" | "request_checkout" }>;
           };
         };
         if (disposed || !body.data) return;
         const safe = (value: unknown) => Math.max(0, Math.trunc(Number(value) || 0));
         const next = body.data;
+        setPendingServiceRequests(next.pending_service_requests ?? []);
         setOperationAlerts({
           sales: {
             pending_sales: safe(next.sales?.pending_sales),
@@ -263,6 +271,26 @@ export function PosStaffMenu({ lang, collapsed, orientation = "vertical", sessio
     };
   }, [sessionRole]);
 
+  async function acknowledgeServiceFromInbox(id: string) {
+    if (serviceAckBusy) return;
+    setServiceAckBusy(id);
+    setServiceAckError("");
+    try {
+      const response = await fetch("/api/pos/table-qr-activity", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ event_id: id, action: "acknowledge" })
+      });
+      if (!response.ok) throw new Error("ack_failed");
+      setPendingServiceRequests((current) => current.filter((row) => row.id !== id));
+      window.dispatchEvent(new Event("cpipos-pos-alerts-refresh"));
+    } catch {
+      setServiceAckError("บันทึกรับทราบไม่สำเร็จ กรุณาลองอีกครั้ง");
+    } finally {
+      setServiceAckBusy(null);
+    }
+  }
+
   function handleNavigate(event: MouseEvent<HTMLAnchorElement>, href: string) {
     if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
     if (pathname === href) event.preventDefault();
@@ -274,6 +302,7 @@ export function PosStaffMenu({ lang, collapsed, orientation = "vertical", sessio
   }
 
   return (
+    <>
     <nav className={isHorizontal ? "flex min-w-0 flex-1 items-center gap-1 overflow-x-auto overscroll-contain" : "grid gap-1"} aria-label={t(lang, "pos_menu_staff_aria")} suppressHydrationWarning>
       {menuItems.map((item) => {
         const active = pathname === item.href;
@@ -290,8 +319,8 @@ export function PosStaffMenu({ lang, collapsed, orientation = "vertical", sessio
           ? `บิลขายค้าง ${operationAlerts.sales.pending_sales} · QR รอรับ ${operationAlerts.sales.pending_qr_orders} · เรียกพนักงาน ${operationAlerts.sales.staff_calls} · ขอเช็กบิล ${operationAlerts.sales.checkout_requests}`
           : `ออร์เดอร์โต๊ะรอครัวรับ ${operationAlerts.kitchen.new_dine_in_orders}`;
         return (
+          <Fragment key={item.href}>
           <Link
-            key={item.href}
             href={item.href}
             aria-current={active?"page":undefined}
             onClick={(event) => menuLocked ? (event.preventDefault(), onLockedMenu(item.label)) : featureLocked ? (event.preventDefault(), onLockedFeature()) : handleNavigate(event, item.href)}
@@ -313,6 +342,16 @@ export function PosStaffMenu({ lang, collapsed, orientation = "vertical", sessio
             ) : null}
             {renderLock(locked)}
           </Link>
+          {item.href === "/preview/pos" && !locked && pendingServiceRequests.length > 0 ? (
+            <button type="button"
+              onClick={() => { setServiceAckError(""); setServiceInboxOpen(true); }}
+              className={`rounded-lg px-3 py-1.5 text-left text-xs font-semibold text-amber-200 transition hover:bg-white/10 ${collapsed && !isHorizontal ? "text-center" : "pl-7"}`}
+              title="ดูรายการโต๊ะที่เรียกพนักงานและขอเช็กบิล"
+              aria-label={`ดูคำขอ QR ที่ต้องรับทราบ ${pendingServiceRequests.length} รายการ`}>
+              {collapsed && !isHorizontal ? "🔔" : `คำขอ QR รอรับทราบ ${pendingServiceRequests.length}`}
+            </button>
+          ) : null}
+          </Fragment>
         );
       })}
 
@@ -368,5 +407,38 @@ export function PosStaffMenu({ lang, collapsed, orientation = "vertical", sessio
         </Link>
       ) : null}
     </nav>
+    {serviceInboxOpen ? (
+      <div className="fixed inset-0 z-[450] flex items-center justify-center bg-slate-950/60 p-4"
+        role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setServiceInboxOpen(false); }}>
+        <section role="dialog" aria-modal="true" aria-label="คำขอเรียกพนักงานจาก QR"
+          className="flex max-h-[85vh] w-full max-w-lg flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white p-5 text-slate-900 shadow-2xl">
+          <div className="flex items-center justify-between gap-3">
+            <h2 className="text-lg font-extrabold">คำขอ QR ที่ยังรอพนักงานรับทราบ</h2>
+            <button type="button" onClick={() => setServiceInboxOpen(false)}
+              className="rounded-lg border border-slate-200 px-3 py-2 text-sm">ปิด</button>
+          </div>
+          <p className="mt-2 text-xs text-slate-600">คำขอจะหายเมื่อกดรับทราบ ไม่กระทบออร์เดอร์อาหารหรือสถานะบิล</p>
+          {serviceAckError ? <p role="alert" className="mt-2 rounded-lg bg-rose-50 p-2 text-sm text-rose-700">{serviceAckError}</p> : null}
+          <div className="mt-4 min-h-0 flex-1 space-y-2 overflow-y-auto">
+            {pendingServiceRequests.length === 0 ? (
+              <p className="rounded-xl bg-emerald-50 p-4 text-sm text-emerald-800">ไม่มีคำขอเรียกพนักงานค้างอยู่</p>
+            ) : pendingServiceRequests.map((item) => (
+              <article key={item.id} className="flex items-center justify-between gap-3 rounded-xl border border-slate-200 p-3">
+                <div className="min-w-0">
+                  <p className="font-bold">{item.type === "call_staff" ? "🔔 เรียกพนักงาน" : "💳 ขอเช็กบิล"}</p>
+                  <p className="mt-1 text-sm text-slate-600">{item.table_code}</p>
+                </div>
+                <button type="button" onClick={() => void acknowledgeServiceFromInbox(item.id)}
+                  disabled={serviceAckBusy !== null}
+                  className="shrink-0 rounded-xl bg-blue-600 px-3 py-2 text-sm font-bold text-white disabled:opacity-50">
+                  {serviceAckBusy === item.id ? "กำลังบันทึก..." : "รับทราบ"}
+                </button>
+              </article>
+            ))}
+          </div>
+        </section>
+      </div>
+    ) : null}
+    </>
   );
 }
