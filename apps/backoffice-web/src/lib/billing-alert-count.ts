@@ -26,3 +26,25 @@ export function unpaidBillingCycleIds(
     )
     .map((cycle) => cycle.id);
 }
+
+export type BillingAlertSettlement = {
+  billing_cycle_id: string;
+  amount_received: number | string | null;
+};
+
+/** Only a fully verified amount for this cycle can dismiss an unpaid badge. */
+export function fullySettledBillingCycleIds(
+  cycles: readonly BillingAlertCycle[],
+  settlements: readonly BillingAlertSettlement[]
+): ReadonlySet<string> {
+  const sums = new Map<string, number>();
+  for (const settlement of settlements) {
+    const amount = Number(settlement.amount_received ?? 0);
+    if (!Number.isFinite(amount) || amount <= 0) continue;
+    sums.set(settlement.billing_cycle_id, (sums.get(settlement.billing_cycle_id) ?? 0) + amount);
+  }
+  return new Set(cycles
+    .filter((cycle) => Number(cycle.amount_due) > 0 &&
+      (sums.get(cycle.id) ?? 0) >= Number(cycle.amount_due) - 0.005)
+    .map((cycle) => cycle.id));
+}
