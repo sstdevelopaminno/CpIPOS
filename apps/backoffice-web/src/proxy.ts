@@ -113,8 +113,15 @@ export async function proxy(request: NextRequest) {
     return NextResponse.next();
   }
 
+  // This redirect is an unauthenticated POS route recovery, not a normal
+  // store-login entry. Mark it so the login page cannot auto-forward the user
+  // to the same rejected POS route on a separate API session response.
+  // A pre-session RSC prefetch must never persist a cached login redirect.
   const loginUrl = new URL("/login/store", request.url);
-  return NextResponse.redirect(loginUrl);
+  loginUrl.searchParams.set("from", "pos-session");
+  const response = NextResponse.redirect(loginUrl);
+  response.headers.set("Cache-Control", "private, no-store, max-age=0");
+  return response;
 }
 
 export const config = {
