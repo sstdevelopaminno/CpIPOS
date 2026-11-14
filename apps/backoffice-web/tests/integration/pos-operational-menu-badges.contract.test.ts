@@ -26,7 +26,7 @@ describe("POS sales and kitchen navigation badges", () => {
     expect(service).toContain('.in("status", ["open", "suspended"])');
     expect(service).toContain('.is("closed_at", null)');
     expect(service).toContain('.eq("status", "queued")');
-    expect(service).toContain('"pending_pos_review"');
+    expect(service).toContain("review_status.eq.pending_pos_review");
   });
 
   it("acknowledges only a QR service request for an active table, without altering a food order", () => {
