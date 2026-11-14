@@ -12,7 +12,7 @@ describe("Optical CUSTOMER POS sales entry entitlement", () => {
   });
   it("never defeats an explicit feature denial or inactive contract", () => {
     expect(gate).toContain("!tenantOverride && !branchOverride");
-    expect(gate).toContain("if (!contractAllowsAccess(contract)) {");
+    expect(gate).toContain("if (!await contractAllowsAccess(contract)) {");
     expect(gate).toContain("if (branchOverride) {");
   });
   it("keeps optical access mode separate from generic sale mode and nav locks", () => {
