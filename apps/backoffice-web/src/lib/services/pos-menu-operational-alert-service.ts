@@ -51,6 +51,10 @@ export async function loadPosOperationalMenuCounts(args: {
   const kitchenTickets = (ticketResult.data ?? []) as PosMenuKitchenTicket[];
   const activeShiftIds = new Set(shifts.map((row) => row.id));
   const openTableSessionIds = new Set(sessions.map((row) => row.id));
+  // Restaurant QR food review is valid only while the table is open/ordering.
+  const qrReviewSessionIds = new Set(sessions
+    .filter((row) => row.status === "open" || row.status === "ordering")
+    .map((row) => row.id));
   const openTableOrderIds = new Set(sessions.map((row) => row.order_id).filter((id): id is string => Boolean(id)));
   const kitchenOrderIds = Array.from(new Set(kitchenTickets.map((row) => row.order_id).filter(Boolean)));
 
@@ -92,6 +96,6 @@ export async function loadPosOperationalMenuCounts(args: {
     saleOrders: [...((shiftOrders.data ?? []) as PosMenuOrder[]), ...((tableOrders.data ?? []) as PosMenuOrder[])],
     activeShiftIds, openTableOrderIds,
     qrEvents: (qrOrders.data ?? []) as PosMenuQrEvent[],
-    openTableSessionIds, kitchenTickets, kitchenParentOrders
+    openTableSessionIds, qrReviewSessionIds, kitchenTickets, kitchenParentOrders
   });
 }
