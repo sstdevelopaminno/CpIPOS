@@ -26,10 +26,20 @@ export function classifyPosEntryDenial(
      expires_at:null};
  }
  const trial=contract?contract.status==="trial":lifecycle?.lifecycle_status==="trial";
- // Never assume a missing payment from a blocked sale. "Trial ended" is not a paid invoice.
+ // The lifecycle is the billing authority for paid access. The contractual
+ // invoice due date is NOT the POS shutdown date during a granted grace window.
+ // Keep free-trial expiry strict and unchanged.
  const expiry=trial
    ?contract?.ended_at??lifecycle?.trial_expires_at??null
-   :contract?.ended_at??lifecycle?.subscription_expires_at??null;
+   :lifecycle?.lifecycle_status==="grace" && lifecycle.grace_until
+     ? lifecycle.grace_until
+     :lifecycle?.subscription_expires_at??contract?.ended_at??null;
+ // Explicit IT/security suspension always takes precedence over any grace.
+ if(!exempt&&lifecycle?.access_locked){
+   return {code:"subscription_locked",kind:"subscription",title:"การใช้งานแพ็กเกจถูกระงับชั่วคราว",
+     message:"ระบบจำกัดการเข้าใช้งานชั่วคราว กรุณาติดต่อฝ่าย Support เพื่อตรวจสอบสถานะบัญชีและแพ็กเกจ",
+     expires_at:expiry};
+ }
  if(!exempt && expiryPassed(expiry,now)){
    return trial?{
      code:"trial_expired",kind:"subscription",title:"แพ็กเกจทดลองใช้งานสิ้นสุดแล้ว",
@@ -40,11 +50,6 @@ export function classifyPosEntryDenial(
      message:"แพ็กเกจครบกำหนด กรุณาตรวจสอบสถานะต่ออายุหรือการชำระเงินกับฝ่าย Support",
      expires_at:expiry
    };
- }
- if(!exempt&&lifecycle?.access_locked){
-   return {code:"subscription_locked",kind:"subscription",title:"การใช้งานแพ็กเกจถูกระงับชั่วคราว",
-     message:"ระบบจำกัดการเข้าใช้งานชั่วคราว กรุณาติดต่อฝ่าย Support เพื่อตรวจสอบสถานะบัญชีและแพ็กเกจ",
-     expires_at:expiry};
  }
  if(!contract){
    return {code:"subscription_missing",kind:"subscription",title:"ยังไม่พบแพ็กเกจที่เปิดใช้งาน",
