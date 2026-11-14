@@ -110,7 +110,7 @@ function SummaryCard({ label, value, detail, icon, tone }: {
   label: string; value: ReactNode; detail?: string; icon: IconName;
   tone: "blue" | "green" | "purple" | "orange";
 }) {
-  return <article className={box + " flex items-start gap-3 px-4 py-4 sm:px-5"}>
+  return <article className={box + " flex h-full min-h-[104px] items-start gap-3 px-4 py-4 sm:px-5"}>
     <ToneIcon icon={icon} tone={tone} />
     <div className="min-w-0 pt-0.5">
       <p className="text-xs font-semibold text-[#71809b]">{label}</p>
@@ -268,6 +268,7 @@ export function PosSubscriptionCenter({ initial, isOwner, showContactActions = t
       const json = await response.json() as Envelope<PosSubscriptionCenterData>;
       if (!response.ok || !json.data) throw new Error(json.error?.message || "โหลดข้อมูลไม่สำเร็จ");
       setSnapshot(json.data);
+      window.dispatchEvent(new Event("cpipos-billing-alert-refresh"));
       const open = json.data.requests.find((row) => ["pending", "under_review"].includes(row.status));
       if (open) {
         setSelectedPackage(open.package_id || "");
@@ -417,14 +418,6 @@ export function PosSubscriptionCenter({ initial, isOwner, showContactActions = t
           </div>
         </div>
         <div className="flex flex-wrap items-center justify-end gap-2">
-          <span
-            role="status"
-            className="inline-flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-bold text-emerald-700"
-            title={"แหล่งข้อมูล: " + snapshot.control_plane.source + " · " + snapshot.control_plane.authority}
-          >
-            <span className="h-2 w-2 rounded-full bg-emerald-500" aria-hidden />
-            เชื่อมต่อ IT · {snapshot.control_plane.source}
-          </span>
           <button type="button" disabled={refreshing} onClick={() => void reload()}
             className="inline-flex items-center gap-2 rounded-xl border border-[#d9e4f7] bg-white px-4 py-2.5 text-sm font-bold text-blue-700 shadow-sm transition hover:bg-blue-50 disabled:opacity-50">
             <Icon name="refresh" size={16} />{refreshing ? "กำลังรีเฟรช..." : "รีเฟรชข้อมูล"}
@@ -435,9 +428,10 @@ export function PosSubscriptionCenter({ initial, isOwner, showContactActions = t
       {error ? <p role="alert" className="rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800">{error}</p> : null}
       {message ? <p role="status" className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800">{message}</p> : null}
 
+      <div className={billingDue && snapshot.promotion ? "grid items-stretch gap-4 xl:grid-cols-[minmax(0,0.88fr)_minmax(0,1.12fr)]" : "grid gap-4"}>
       {billingDue ? <section
         aria-label={ui("สถานะรอบชำระปัจจุบัน")}
-        className={"rounded-2xl border p-4 text-sm shadow-sm " +
+        className={"flex h-full min-w-0 flex-col justify-center rounded-2xl border p-4 text-sm shadow-sm " +
           (supportRequired ? "border-rose-200 bg-rose-50 text-rose-900" :
             billingDue.provisional_access_active ? "border-amber-200 bg-amber-50 text-amber-900" :
             billingDue.payable_now ? "border-blue-200 bg-blue-50 text-blue-900" :
@@ -467,15 +461,15 @@ export function PosSubscriptionCenter({ initial, isOwner, showContactActions = t
       {snapshot.promotion ? <section
         aria-label={ui("แจ้งสิทธิส่วนลดแพ็กเกจ")}
         role="status"
-        className="rounded-2xl border border-emerald-200 bg-gradient-to-r from-emerald-50 to-blue-50 p-4 text-sm text-slate-800 shadow-sm"
+        className="flex h-full min-w-0 flex-col justify-between rounded-2xl border border-emerald-200 bg-gradient-to-r from-emerald-50 to-blue-50 p-4 text-sm text-slate-800 shadow-sm"
       >
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div>
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+          <div className="min-w-0 flex-1">
             <strong className="text-base font-black text-emerald-800">🎁 ยินดีด้วย! ร้านของคุณได้รับสิทธิส่วนลดแพ็กเกจ {snapshot.promotion.percent}%</strong>
             <p className="mt-1 font-semibold">{snapshot.promotion.title}</p>
             <p className="mt-1 text-xs text-slate-600">ใช้ได้กับรอบบิลที่เริ่มระหว่าง {snapshot.promotion.valid_from} ถึง {snapshot.promotion.valid_until} ตามเงื่อนไขการให้สิทธิของ CpiPOS</p>
           </div>
-          <div className="rounded-xl bg-white/90 px-4 py-2 text-right shadow-sm">
+          <div className="w-full shrink-0 rounded-xl border border-emerald-100 bg-white px-4 py-3 text-left shadow-sm sm:w-[174px] sm:text-right">
             <p className="text-xs text-slate-500">ค่าบริการตามเงื่อนไขส่วนลด</p>
             <p className="text-xs text-slate-500 line-through">{formatMoney(snapshot.promotion.regular_amount,snapshot.contract.currency)}</p>
             <strong className="text-xl font-black text-emerald-700">{formatMoney(snapshot.promotion.discounted_amount,snapshot.contract.currency)}</strong>
@@ -488,9 +482,53 @@ export function PosSubscriptionCenter({ initial, isOwner, showContactActions = t
             : <p className="mt-2 rounded-lg bg-amber-100 p-2 text-xs text-amber-900">สิทธิได้รับอนุมัติแล้ว แต่ยอดรอบบิลปัจจุบันยังไม่ปรับ กรุณาติดต่อฝ่ายบริการก่อนชำระเงิน</p>
           : <p className="mt-2 rounded-lg bg-blue-100 p-2 text-xs text-blue-900">สิทธิจะเริ่มมีผลเมื่อรอบบิลเข้าช่วงโปรโมชั่น ยอดที่ต้องชำระปัจจุบันยังคงอ้างอิงจากรอบบิลจริงด้านบน</p>}
       </section> : null}
+      </div>
+
+      <section aria-label="การดำเนินการเกี่ยวกับแพ็กเกจ" className={box + " p-3 sm:p-4"}>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex flex-wrap items-center gap-2">
+          {[
+            ["history","ประวัติการชำระแพ็กเกจ","history"],
+            ["documents","เอกสารแพ็กเกจ","file"]
+          ].map(([key,label,icon]) => <button type="button" key={key}
+            onClick={() => openTab(key as Tab)}
+            className="inline-flex items-center gap-2 whitespace-nowrap rounded-xl border border-blue-100 bg-blue-50 px-3.5 py-2.5 text-sm font-bold text-blue-700 transition hover:bg-blue-100">
+            <Icon name={icon as IconName} size={16}/>{label}
+          </button>)}
+          {showContactActions ? <>
+            <button type="button" onClick={() => { setInfoPopup("line"); setPopupOpen(true); setLineOpen(true); }}
+              className="inline-flex items-center gap-2 whitespace-nowrap rounded-xl border border-emerald-200 bg-emerald-50 px-3.5 py-2.5 text-sm font-bold text-emerald-700 hover:bg-emerald-100">
+              LINE · QR ติดต่อบริษัท
+            </button>
+            <button type="button" onClick={() => { setInfoPopup("support"); setPopupOpen(true); }}
+              className="inline-flex items-center gap-2 whitespace-nowrap rounded-xl border border-violet-200 bg-violet-50 px-3.5 py-2.5 text-sm font-bold text-violet-700 hover:bg-violet-100">
+              <Icon name="support" size={16}/>ติดต่อสอบถาม / แจ้งปัญหา
+            </button>
+          </> : null}
+          </div>
+          <div className="flex flex-wrap items-center justify-end gap-2 lg:ml-auto">
+          <button type="button" disabled={!isOwner || demo} onClick={() => openTab("ai")}
+            className="inline-flex items-center gap-2 whitespace-nowrap rounded-xl border border-violet-200 bg-violet-50 px-4 py-2.5 text-sm font-black text-violet-700 shadow-sm transition hover:bg-violet-100 disabled:opacity-50">
+            <Icon name="crown" size={16}/>ซื้อ CpiPOS AI เพิ่ม
+          </button>
+          <button type="button" disabled={!isOwner || demo} onClick={() => openTab("packages")}
+            className="inline-flex items-center gap-2 whitespace-nowrap rounded-xl border border-blue-200 bg-white px-4 py-2.5 text-sm font-black text-blue-700 shadow-sm transition hover:bg-blue-50 disabled:opacity-50">
+            <Icon name="crown" size={16}/>เลือก / อัปเกรดแพ็กเกจ
+          </button>
+          <button type="button" disabled={!isOwner || demo} onClick={() => openTab("renew")}
+            className="inline-flex items-center gap-2 whitespace-nowrap rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-black text-white shadow-sm disabled:opacity-50">
+            <Icon name="wallet" size={16}/>ต่ออายุแพ็กเกจ
+          </button>
+          <button type="button" disabled={!isOwner || demo} onClick={() => openTab("notice")}
+            className="inline-flex items-center gap-2 whitespace-nowrap rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-black text-white shadow-sm disabled:opacity-50">
+            <Icon name="payment" size={16}/>แจ้งชำระเงิน
+          </button>
+          </div>
+        </div>
+      </section>
 
       <section aria-label={ui("ข้อมูลแพ็กเกจปัจจุบัน")}
-        className="grid gap-0 overflow-hidden rounded-2xl border border-[#cadffc] bg-[linear-gradient(115deg,#ebf5ff_0%,#f2f8ff_65%,#e8f4ff_100%)] shadow-[0_5px_20px_rgba(24,80,170,0.04)] sm:grid-cols-2 xl:grid-cols-[1.25fr_1fr_.8fr_.95fr]">
+        className="grid gap-0 overflow-hidden rounded-2xl border border-[#cadffc] bg-[linear-gradient(115deg,#ebf5ff_0%,#f2f8ff_65%,#e8f4ff_100%)] shadow-[0_5px_20px_rgba(24,80,170,0.04)] sm:grid-cols-2 xl:grid-cols-4">
         <div className="flex min-w-0 items-center gap-4 px-5 py-5">
           <span className="flex h-16 w-16 shrink-0 items-center justify-center rounded-[19px] bg-gradient-to-br from-[#3185fb] to-[#1355da] text-white shadow-lg shadow-blue-100">
             <Icon name="store" size={29} />
@@ -535,7 +573,7 @@ export function PosSubscriptionCenter({ initial, isOwner, showContactActions = t
         </div>
       </section>
 
-      <section aria-label={ui("สรุปข้อมูลแพ็กเกจ")} className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <section aria-label={ui("สรุปข้อมูลแพ็กเกจ")} className="grid auto-rows-fr gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <SummaryCard icon="calendar" tone="green" label={ui("วันคงเหลือ")} value={dayCount}
           detail={demo ? "ไม่เรียกเก็บแพ็กเกจบัญชีภายใน" :
             snapshot.contract.expires_at ? "ถึงวันที่ " + expiryLabel : "รอข้อมูลวันหมดอายุจาก IT"} />
@@ -552,45 +590,6 @@ export function PosSubscriptionCenter({ initial, isOwner, showContactActions = t
           detail={pending ? pending.kind === "renewal_intent" ? "รอการแจ้งชำระหรือ IT ตรวจสอบ" :
             "รอ IT ยืนยันยอดรับเงินจริง" :
             lastRequest ? "รายการล่าสุด " + formatDate(lastRequest.submitted_at,lang) : "ยังไม่มีรายการแจ้งชำระ"} />
-      </section>
-
-      <section className={box + " p-3 sm:p-4"}>
-        <div className="flex flex-wrap items-center gap-2">
-          {[
-            ["history","ประวัติการชำระแพ็กเกจ","history"],
-            ["documents","เอกสารแพ็กเกจ","file"]
-          ].map(([key,label,icon]) => <button type="button" key={key}
-            onClick={() => openTab(key as Tab)}
-            className="inline-flex items-center gap-2 rounded-xl border border-blue-100 bg-blue-50 px-3.5 py-2.5 text-sm font-bold text-blue-700 transition hover:bg-blue-100">
-            <Icon name={icon as IconName} size={16}/>{label}
-          </button>)}
-          {showContactActions ? <>
-            <button type="button" onClick={() => { setInfoPopup("line"); setPopupOpen(true); setLineOpen(true); }}
-              className="inline-flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-3.5 py-2.5 text-sm font-bold text-emerald-700 hover:bg-emerald-100">
-              LINE · QR ติดต่อบริษัท
-            </button>
-            <button type="button" onClick={() => { setInfoPopup("support"); setPopupOpen(true); }}
-              className="inline-flex items-center gap-2 rounded-xl border border-violet-200 bg-violet-50 px-3.5 py-2.5 text-sm font-bold text-violet-700 hover:bg-violet-100">
-              <Icon name="support" size={16}/>ติดต่อสอบถาม / แจ้งปัญหา
-            </button>
-          </> : null}
-          <button type="button" disabled={!isOwner || demo} onClick={() => openTab("ai")}
-            className="ml-auto inline-flex items-center gap-2 rounded-xl border border-violet-200 bg-violet-50 px-4 py-2.5 text-sm font-black text-violet-700 shadow-sm transition hover:bg-violet-100 disabled:opacity-50">
-            <Icon name="crown" size={16}/>ซื้อ CpiPOS AI เพิ่ม
-          </button>
-          <button type="button" disabled={!isOwner || demo} onClick={() => openTab("packages")}
-            className="inline-flex items-center gap-2 rounded-xl border border-blue-200 bg-white px-4 py-2.5 text-sm font-black text-blue-700 shadow-sm transition hover:bg-blue-50 disabled:opacity-50">
-            <Icon name="crown" size={16}/>เลือก / อัปเกรดแพ็กเกจ
-          </button>
-          <button type="button" disabled={!isOwner || demo} onClick={() => openTab("renew")}
-            className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-black text-white shadow-sm disabled:opacity-50">
-            <Icon name="wallet" size={16}/>ต่ออายุแพ็กเกจ
-          </button>
-          <button type="button" disabled={!isOwner || demo} onClick={() => openTab("notice")}
-            className="inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-black text-white shadow-sm disabled:opacity-50">
-            <Icon name="payment" size={16}/>แจ้งชำระเงิน
-          </button>
-        </div>
       </section>
 
       {pending ? <div className="flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
