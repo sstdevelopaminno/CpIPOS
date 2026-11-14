@@ -60,8 +60,12 @@ export function isAwaitingQrServiceRequest(
   row: PosMenuQrEvent,
   openTableSessions: ReadonlySet<string>
 ): boolean {
+  // The existing POS-wide QR alert uses payload.acknowledged_at as its
+  // canonical receipt marker, not the food-order review_status.
+  const acknowledgedAt = row.payload?.acknowledged_at;
+  const alreadyAcknowledged = typeof acknowledgedAt === "string" && acknowledgedAt.trim().length > 0;
   return (row.event_type === "call_staff" || row.event_type === "request_checkout") &&
-    row.review_status === null &&
+    !alreadyAcknowledged &&
     Boolean(row.table_session_id && openTableSessions.has(row.table_session_id));
 }
 
