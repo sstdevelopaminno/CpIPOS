@@ -4,6 +4,7 @@ import { isFeatureUnlockEnabled } from "@/lib/feature-unlock";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
 import { getInternalItTestMode } from "@/lib/server/internal-it-test-store";
 import { isDineInExplicitlyEnabled, isDineInLinkedFeature, isOpticalRetailExplicitlyEnabled } from "@/lib/pos-sales-modes";
+import { hasVerifiedPaidGraceAccess, type PaidGraceFeatureRuntime } from "@/lib/paid-grace-feature-access";
 
 export type QuotaResourceType = "branches" | "devices" | "users";
 
@@ -164,20 +165,26 @@ function parseLimit(value: unknown): number | null {
   return normalized > 0 ? normalized : null;
 }
 
-function contractAllowsAccess(contract: ContractRow | null): boolean {
-  if (!contract) return false;
-  if (contract.status !== "active" && contract.status !== "trial") {
-    return false;
-  }
+async function contractAllowsAccess(contract: ContractRow | null): Promise<boolean> {
+  if (!contract || (contract.status !== "active" && contract.status !== "trial")) return false;
 
-  if (contract.ended_at) {
-    const endMs = new Date(contract.ended_at).getTime();
-    if (Number.isFinite(endMs) && endMs <= Date.now()) {
-      return false;
-    }
-  }
+  const contractEndMs = contract.ended_at ? Date.parse(contract.ended_at) : NaN;
+  if (!Number.isFinite(contractEndMs) || contractEndMs > Date.now()) return true;
+  // Free trials remain strictly bound to their original end date.
+  if (contract.status === "trial") return false;
 
-  return true;
+  // Paid contracts may have an old invoice/contract end date while CpiPOS-001
+  // explicitly allows sales during its two-month payment grace period.
+  // Only accept the authoritative runtime; never infer grace from a date.
+  const { data, error } = await getSupabaseServiceClient()
+    .from("tenant_subscription_runtime")
+    .select("lifecycle_status,access_locked,lock_reason,expires_at")
+    .eq("tenant_id", contract.tenant_id)
+    .maybeSingle<PaidGraceFeatureRuntime>();
+  if (error) {
+    throw new FeatureGateError("subscription_runtime_lookup_failed", "Unable to verify paid grace access.", 503);
+  }
+  return hasVerifiedPaidGraceAccess(contract, data);
 }
 
 async function getLatestContract(tenantId: string): Promise<ContractRow | null> {
@@ -231,7 +238,7 @@ export async function hasBranchFeature(tenantId: string, branchId: string | null
   }
 
   const contract = await getLatestContract(tenantId);
-  if (!contractAllowsAccess(contract)) {
+  if (!await contractAllowsAccess(contract)) {
     writeFeatureDecisionCache(cacheKey, false);
     return false;
   }
