@@ -9,6 +9,7 @@ import { getTenantPosMenuOverrides } from "@/lib/server/pos-menu-policy-service"
 import { getInternalItTestMode } from "@/lib/server/internal-it-test-store";
 import { isCustomPosMenuVisible } from "@/lib/pos-menu-policy";
 import { OPTICAL_MORE_FEATURES } from "@/lib/server/optical-more-feature-access";
+import { hasVerifiedPaidGraceAccess, type PaidGraceFeatureRuntime } from "@/lib/paid-grace-feature-access";
 
 type ContractRow = {
   package_id: string | null;
@@ -33,13 +34,26 @@ type FeatureOverrideRow = {
   is_enabled: boolean | null;
 };
 
-function contractAllowsAccess(contract: ContractRow | null) {
-  if (!contract) return false;
-  if (contract.status !== "active" && contract.status !== "trial") return false;
-  if (!contract.ended_at) return true;
+async function contractAllowsAccess(tenantId: string, contract: ContractRow | null): Promise<boolean> {
+  if (!contract || (contract.status !== "active" && contract.status !== "trial")) return false;
 
-  const endMs = new Date(contract.ended_at).getTime();
-  return !Number.isFinite(endMs) || endMs > Date.now();
+  const endMs = contract.ended_at ? Date.parse(contract.ended_at) : NaN;
+  if (!Number.isFinite(endMs) || endMs > Date.now()) return true;
+
+  // This endpoint powers the entire POS menu. A paid invoice may become due
+  // before the authorized grace window ends; the contract end is not itself
+  // a reason to remove the store's existing package feature entitlements.
+  // Keep expired trials strict. Applies to every paid plan and billing cadence.
+  if (contract.status === "trial") return false;
+  const { data: runtime, error } = await getSupabaseServiceClient()
+    .from("tenant_subscription_runtime")
+    .select("lifecycle_status,access_locked,lock_reason,expires_at")
+    .eq("tenant_id", tenantId)
+    .maybeSingle<PaidGraceFeatureRuntime>();
+  // Do not present all features as "not included" on a transient DB failure.
+  // The caller surfaces a retryable load failure instead of false locks.
+  if (error) throw new Error("pos_menu_subscription_runtime_unavailable");
+  return hasVerifiedPaidGraceAccess(contract, runtime);
 }
 
 function salesModePolicy(
@@ -127,7 +141,7 @@ async function loadTenantFeatureSnapshot(tenantId: string, branchId: string, men
     };
   }
 
-  if (!featureCodes.length || !contractAllowsAccess(contract ?? null) || !contract?.package_id) {
+  if (!featureCodes.length || !contract?.package_id || !await contractAllowsAccess(tenantId, contract ?? null)) {
     return {
       features: Object.fromEntries(featureCodes.map((feature) => [feature, false])),
       salesModes: normalizeCustomPosSalesModes(metadata.sales_modes),
