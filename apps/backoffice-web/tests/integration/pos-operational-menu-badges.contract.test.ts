@@ -8,6 +8,8 @@ const service = read("lib/services/pos-menu-operational-alert-service.ts");
 const menu = read("components/pos-preview/pos-staff-menu.tsx");
 const cashier = read("components/pos/pos-sales-module.tsx");
 const kitchen = read("components/kitchen/kitchen-kds.tsx");
+const qrActivity = read("app/api/pos/table-qr-activity/route.ts");
+const globalQrPopup = read("components/pos-preview/pos-table-qr-global-alert.tsx");
 
 describe("POS sales and kitchen navigation badges", () => {
   it("checks POS session, tenant, branch, and permission before reading operational work", () => {
@@ -29,12 +31,14 @@ describe("POS sales and kitchen navigation badges", () => {
     expect(service).toContain("review_status.eq.pending_pos_review");
   });
 
-  it("acknowledges only a QR service request for an active table, without altering a food order", () => {
-    expect(route).toContain('SERVICE_EVENTS = new Set(["call_staff", "request_checkout"])');
-    expect(route).toContain('.in("event_type", ["call_staff", "request_checkout"])');
-    expect(route).toContain('.is("review_status", null)');
-    expect(route).toContain('review_status: "accepted"');
-    expect(route).toContain('tableSession.closed_at !== null');
+  it("reuses the existing persistent QR acknowledgement, never food-order review status", () => {
+    expect(route).not.toContain("export async function POST");
+    expect(service).toContain('event_type.eq.call_staff');
+    expect(qrActivity).toContain('acknowledged_at: acknowledgedAt');
+    expect(qrActivity).toContain('.in("event_type", ["call_staff", "request_checkout"])');
+    expect(menu).toContain("operationAlerts.sales.total");
+    expect(cashier).toContain('fetch("/api/pos/table-qr-activity"');
+    expect(globalQrPopup).toContain('new Event("cpipos-pos-alerts-refresh")');
     expect(route).not.toContain('from("orders").update');
   });
 
