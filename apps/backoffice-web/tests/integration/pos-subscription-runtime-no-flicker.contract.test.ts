@@ -12,6 +12,7 @@ describe("POS subscription billing runtime refresh does not flash the UI",()=>{
     expect(source).toContain("const signature=runtimeSignature(next);");
     expect(source).toContain("if(signature===runtimeSignatureRef.current)return;");
     expect(source).toContain("runtimeSnapshotRef.current=next;");
+    expect(source).toContain("if(!next)return;");
     expect(source).toContain("setRuntime(next);");
   });
   it("preserves a dismissed reminder while its deadline remains unchanged",()=>{
@@ -20,11 +21,12 @@ describe("POS subscription billing runtime refresh does not flash the UI",()=>{
   });
   it("does not remount sales and shift pages for non-access billing changes",()=>{
     expect(source).toContain("if(accessChanged)router.refresh();");
-    expect(source).toContain("previous?.locked!==next?.locked");
-    expect(source).toContain("previous?.exempt!==next?.exempt");
+    expect(source).toContain("previous.locked!==next.locked");
+    expect(source).toContain("previous.exempt!==next.exempt");
   });
   it("keeps client state when Next revalidation sends the same initial data",()=>{
     expect(source).toContain("const signature=runtimeSignature(initial);");
+    expect(source).toContain("if(!initial && runtimeSnapshotRef.current)return;");
     expect(source).toContain("if(signature===runtimeSignatureRef.current)return;");
   });
 });
