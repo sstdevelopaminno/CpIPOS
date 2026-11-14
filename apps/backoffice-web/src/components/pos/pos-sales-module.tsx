@@ -2870,18 +2870,20 @@ export function PosSalesModule({
     tableBillPrefetchCacheUpdatedAtRef.current.delete(tableId);
   }
 
-  async function acknowledgeTableQrServiceEvent(eventId: string) {
+  async function acknowledgeTableQrServiceEvent(eventId: string, action: "acknowledge" | "go_to_table" = "acknowledge") {
     if (!eventId) return;
     try {
-      const response = await fetch("/api/pos/alerts/menu", {
+      // The global QR popup and the menu badge must share the same persistent
+      // payload.acknowledged_at marker and idempotent acknowledgement route.
+      const response = await fetch("/api/pos/table-qr-activity", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ event_id: eventId })
+        body: JSON.stringify({ event_id: eventId, action })
       });
       if (response.ok) window.dispatchEvent(new Event("cpipos-pos-alerts-refresh"));
     } catch {
       // Never block the cashier's table workflow for a notification failure.
-      // The active request stays in the badge and can be retried.
+      // The active request remains visible in the badge for later handling.
     }
   }
 
@@ -2892,7 +2894,7 @@ export function PosSalesModule({
     // request. A food-order review must remain pending until explicitly approved.
     if (table.qr_activity?.latest_event_type === "call_staff" ||
         table.qr_activity?.latest_event_type === "request_checkout") {
-      void acknowledgeTableQrServiceEvent(latestEventId);
+      void acknowledgeTableQrServiceEvent(latestEventId, "go_to_table");
     }
     setSeenTableQrActivity((current) => {
       if (current[table.id] === latestEventId) return current;
