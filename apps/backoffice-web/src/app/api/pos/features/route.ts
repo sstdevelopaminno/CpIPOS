@@ -53,7 +53,7 @@ async function contractAllowsAccess(tenantId: string, contract: ContractRow | nu
   // Do not present all features as "not included" on a transient DB failure.
   // The caller surfaces a retryable load failure instead of false locks.
   if (error) throw new Error("pos_menu_subscription_runtime_unavailable");
-  return hasVerifiedPaidGraceAccess(contract, runtime);
+  return hasVerifiedPaidGraceAccess({ status: contract.status ?? "", ended_at: contract.ended_at }, runtime);
 }
 
 function salesModePolicy(
