@@ -16,7 +16,7 @@ describe("POS login redirect loop recovery",()=>{
   });
   it("does not immediately send a login-recovery page to the failed POS route again",()=>{
     expect(login).toContain('new URLSearchParams(window.location.search).get("from") === "pos-session"');
-    expect(login).toContain('router.replace("/preview/pos")');
+    expect(login).toContain('window.location.replace("/preview/pos")');
   });
   it("preserves database sessions and open shifts instead of logging out other stores",()=>{
     expect(layout).not.toContain('from("pos_sessions").update');
