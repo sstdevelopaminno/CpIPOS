@@ -121,6 +121,7 @@ export function PosStaffMenu({ lang, collapsed, orientation = "vertical", sessio
   const billingLabel = lang === "lo" ? "ຊຳລະຄ່າແພັກເກດ" : lang === "th" ? "ชำระแพ็กเกจ" : "Package Payment";
   const billingPolicyLocked = !isPosMenuEnabled("main.package_payment", menuPolicy);
   const [unreadNewsCount, setUnreadNewsCount] = useState(0);
+  const [unpaidBillingCount, setUnpaidBillingCount] = useState(0);
   useEffect(() => {
     let disposed = false;
     let inFlight = false;
@@ -149,6 +150,53 @@ export function PosStaffMenu({ lang, collapsed, orientation = "vertical", sessio
       document.removeEventListener("visibilitychange", handleVisible);
     };
   }, []);
+
+
+  useEffect(() => {
+    if (sessionRole !== "owner" && sessionRole !== "manager") {
+      setUnpaidBillingCount(0);
+      return;
+    }
+    let disposed = false;
+    let inFlight = false;
+    let lastFetch = 0;
+
+    async function refreshUnpaidBills() {
+      if (disposed || inFlight) return;
+      inFlight = true;
+      lastFetch = Date.now();
+      try {
+        const response = await fetch("/api/pos/billing/alert-count", { cache: "no-store" });
+        if (!response.ok) return;
+        const body = await response.json() as { data?: { unpaid_count?: number } };
+        const next = Number(body.data?.unpaid_count);
+        if (!disposed && Number.isFinite(next)) setUnpaidBillingCount(Math.max(0, Math.trunc(next)));
+      } catch {
+        // Keep the last known number if the billing API is temporarily offline.
+      } finally {
+        inFlight = false;
+      }
+    }
+    const onFocus = () => { if (Date.now() - lastFetch >= 15_000) void refreshUnpaidBills(); };
+    const onVisible = () => { if (document.visibilityState === "visible") onFocus(); };
+    void refreshUnpaidBills();
+    // Update after settlement through IT without a page reload; no rapid polling.
+    const interval = window.setInterval(() => {
+      if (document.visibilityState === "visible") void refreshUnpaidBills();
+    }, 90_000);
+    window.addEventListener("focus", onFocus);
+    window.addEventListener("cpipos-billing-alert-refresh", refreshUnpaidBills);
+    window.addEventListener("cpipos-subscription-runtime-changed", refreshUnpaidBills);
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      disposed = true;
+      window.clearInterval(interval);
+      window.removeEventListener("focus", onFocus);
+      window.removeEventListener("cpipos-billing-alert-refresh", refreshUnpaidBills);
+      window.removeEventListener("cpipos-subscription-runtime-changed", refreshUnpaidBills);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, [sessionRole]);
 
   function handleNavigate(event: MouseEvent<HTMLAnchorElement>, href: string) {
     if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
@@ -223,6 +271,16 @@ export function PosStaffMenu({ lang, collapsed, orientation = "vertical", sessio
         >
           <span className="inline-flex w-4 justify-center" aria-hidden><MenuIcon name="payment" /></span>
           {(!collapsed || isHorizontal) ? <span className="truncate text-[13px]">{billingLabel}</span> : null}
+          {unpaidBillingCount > 0 ? (
+            <span
+              role="status"
+              aria-label={`มีบิลค้างชำระ ${unpaidBillingCount} ใบ`}
+              title={`มีบิลค้างชำระ ${unpaidBillingCount} ใบ`}
+              className={`inline-flex min-h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-rose-500 px-1.5 text-[11px] font-extrabold leading-none text-white ${collapsed && !isHorizontal ? "absolute right-1 top-1" : "ml-auto"}`}
+            >
+              {unpaidBillingCount > 99 ? "99+" : unpaidBillingCount}
+            </span>
+          ) : null}
           {renderLock(billingPolicyLocked)}
         </Link>
       ) : null}

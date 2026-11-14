@@ -32,8 +32,8 @@ describe("POS subscription center (commercial billing, not cashier payments)", (
     expect(snapshot).toContain('authority: "CpIPOS-IT"');
     expect(snapshot).toContain('source: "CpiPOS-001"');
     expect(snapshot).toContain("open_request_count");
-    expect(ui).toContain("เชื่อมต่อ IT");
-    expect(ui).toContain("snapshot.control_plane.source");
+    expect(ui).not.toContain("เชื่อมต่อ IT");
+    expect(ui).not.toContain("snapshot.control_plane.source");
     expect(snapshot).not.toContain('from("orders")');
     expect(snapshot).not.toContain('from("payments")');
   });
@@ -95,7 +95,7 @@ describe("POS subscription center (commercial billing, not cashier payments)", (
     expect(snapshot).toContain("monthly_paid");
     expect(snapshot).toContain("yearly_paid");
     expect(snapshot).toContain("total_paid");
-    expect(ui).toContain("ข้อมูลเดียวกับฝั่ง IT จาก CpiPOS-001");
+    expect(ui).toContain("เมื่อฝ่ายบริการยืนยันการชำระเงินแล้ว");
     expect(ui).toContain("ยอดชำระรายเดือน");
     expect(ui).toContain("ยอดชำระรายปี");
     expect(ui).toContain("ยอดรับชำระรวม");
@@ -108,7 +108,7 @@ describe("POS subscription center (commercial billing, not cashier payments)", (
 
   it("keeps annual billing disabled until IT explicitly sets a yearly price", () => {
     expect(ui).toContain("รอบรายปียังไม่เปิดใช้งาน");
-    expect(ui).toContain("รอฝ่าย IT บันทึกราคารายปีใน CpiPOS-001 ก่อน");
+    expect(ui).toContain("กรุณารอฝ่ายบริการยืนยันราคารายปีก่อน");
     expect(ui).toContain("รายปีพร้อมใช้งาน");
     expect(ui).toContain("choice === \"yearly\" && !annualAvailable");
     expect(ui).toContain("Boolean(packageRow?.yearly_price)");
