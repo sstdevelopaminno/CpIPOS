@@ -224,6 +224,7 @@ export function PosTableQrGlobalAlert({ lang }: { lang: Language }) {
 
           if (fresh.length > 0) {
             sawEvent = true;
+            window.dispatchEvent(new Event("cpipos-pos-alerts-refresh"));
             setPendingEvents((current) => {
               const queuedIds = new Set(current.map((row) => row.id));
               const additions = fresh.filter((row) => !queuedIds.has(row.id));
