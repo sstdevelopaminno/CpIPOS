@@ -30,7 +30,7 @@ describe("POS feature snapshot keeps purchased entitlements during paid grace", 
 
   it("shares the same verified paid grace authority as the server route gate", () => {
     expect(api).toContain('from("tenant_subscription_runtime")');
-    expect(api).toContain("hasVerifiedPaidGraceAccess(contract, runtime)");
+    expect(api).toContain('hasVerifiedPaidGraceAccess({ status: contract.status ?? "", ended_at: contract.ended_at }, runtime)');
     expect(api).toContain("!await contractAllowsAccess(tenantId, contract ?? null)");
     expect(gate).toContain("hasVerifiedPaidGraceAccess(contract, data)");
     expect(api).not.toContain("!contractAllowsAccess(contract ?? null)");
