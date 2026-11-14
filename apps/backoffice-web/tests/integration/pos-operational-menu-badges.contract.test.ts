@@ -68,4 +68,14 @@ describe("POS sales and kitchen navigation badges", () => {
     expect(route).not.toContain("logout");
     expect(route).not.toContain("revoke");
   });
+
+  it("keeps all older QR waiter calls actionable in the cashier inbox", () => {
+    expect(service).toContain("pending_service_requests: pendingServiceRequests");
+    expect(service).toContain('.is("payload->>acknowledged_at", null)');
+    expect(menu).toContain("pendingServiceRequests.map");
+    expect(menu).toContain("acknowledgeServiceFromInbox");
+    expect(menu).toContain('fetch("/api/pos/table-qr-activity"');
+    expect(menu).toContain("คำขอ QR รอรับทราบ");
+    expect(qrActivity).toContain('acknowledged_at: acknowledgedAt');
+  });
 });
