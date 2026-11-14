@@ -65,6 +65,9 @@ export function PosSubscriptionLifecycleGuard({ initial }:{
       const json=await response.json().catch(()=>null) as Envelope<{runtime:PosSubscriptionLifecycleGuardData|null}>|null;
       if(!response.ok || !json?.data)return;
       const next=json.data.runtime;
+      // A timed-out/unavailable billing lookup is not proof that a verified
+      // subscription disappeared; retain the last known snapshot on failure.
+      if(!next)return;
       const signature=runtimeSignature(next);
       if(signature===runtimeSignatureRef.current)return;
       const previous=runtimeSnapshotRef.current;
@@ -79,9 +82,11 @@ export function PosSubscriptionLifecycleGuard({ initial }:{
       }));
       // A route-tree refresh remounts the sales and shift gates. Only an actual
       // access transition requires rebuilding protected server components.
-      const accessChanged=previous?.locked!==next?.locked ||
-        previous?.exempt!==next?.exempt ||
-        previous?.tenant_id!==next?.tenant_id;
+      const accessChanged=Boolean(previous && (
+        previous.locked!==next.locked ||
+        previous.exempt!==next.exempt ||
+        previous.tenant_id!==next.tenant_id
+      ));
       if(accessChanged)router.refresh();
     }catch{
       // Keep the last verified billing state during transient offline failures.
@@ -94,6 +99,8 @@ export function PosSubscriptionLifecycleGuard({ initial }:{
   useEffect(()=>{
     // Ignore server-side revalidation that sends the same entitlement snapshot;
     // otherwise the UI gets reset after a harmless route refresh.
+    // A transient server lookup failure must not wipe a verified client state.
+    if(!initial && runtimeSnapshotRef.current)return;
     const signature=runtimeSignature(initial);
     if(signature===runtimeSignatureRef.current)return;
     const previous=runtimeSnapshotRef.current;
