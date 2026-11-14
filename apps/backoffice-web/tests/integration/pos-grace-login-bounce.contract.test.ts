@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { classifyPosEntryDenial } from "../../src/lib/server/pos-entry-denial-reasons";
+import { hasVerifiedPaidGraceAccess } from "../../src/lib/paid-grace-feature-access";
 
 const read=(path:string)=>readFileSync(resolve(process.cwd(),"src",path),"utf8");
 const proxy=read("proxy.ts");
@@ -35,7 +36,6 @@ describe("POS login recovery and two-month paid access",()=>{
   });
 });
 
-import { hasVerifiedPaidGraceAccess } from "../../src/lib/paid-grace-feature-access";
 
 const featureGate = read("lib/feature-gate.ts");
 const pageGuard = read("lib/pos-page-guard.ts");
