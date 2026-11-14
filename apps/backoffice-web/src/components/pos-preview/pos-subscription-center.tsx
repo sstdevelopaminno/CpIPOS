@@ -618,7 +618,7 @@ export function PosSubscriptionCenter({ initial, isOwner, showContactActions = t
                infoPopup === "line" ? "QR LINE ติดต่อบริษัท" :
                infoPopup === "support" ? "ติดต่อสอบถาม / แจ้งปัญหา" :
                tabs.find((item)=>item.key===tab)?.label || "แพ็กเกจและการชำระเงิน"}
-            </strong><p className="text-xs text-slate-500">{ui("ข้อมูลแพ็กเกจและการชำระเงินจาก CpiPOS-001")}</p></div>
+            </strong><p className="text-xs text-slate-500">{ui("ข้อมูลแพ็กเกจและการชำระเงินของร้าน")}</p></div>
             <button type="button" onClick={closePopup} className="h-9 w-9 rounded-full border border-slate-200 bg-white text-xl text-slate-500">×</button>
           </header>
           <div className="min-h-0 flex-1 overflow-y-auto p-3 sm:p-5">
@@ -669,7 +669,7 @@ export function PosSubscriptionCenter({ initial, isOwner, showContactActions = t
                 <ToneIcon icon="crown" tone="purple" />
                 <div>
                   <h2 className="text-lg font-extrabold text-[#152541]">{ui("เลือก / อัปเกรดแพ็กเกจ")}</h2>
-                  <p className="text-xs leading-5 text-slate-500">{ui("เปรียบเทียบ Starter, Growth, Business และ CUSTOM จากข้อมูล CpiPOS-001")}</p>
+                  <p className="text-xs leading-5 text-slate-500">{ui("เปรียบเทียบ Starter, Growth, Business และ CUSTOM")}</p>
                 </div>
               </div>
               <span className="rounded-full bg-blue-50 px-3 py-1.5 text-xs font-bold text-blue-700">
@@ -867,7 +867,7 @@ export function PosSubscriptionCenter({ initial, isOwner, showContactActions = t
                 {packageRow?.contact_sales && pending?.created_by_it ? <p className="mt-2 rounded-lg bg-blue-50 px-3 py-2 text-xs font-semibold text-blue-700">
                   CUSTOM · รอบและยอดชำระตามที่ IT อนุมัติ
                 </p> : !packageRow?.yearly_price ? <p className="mt-2 rounded-lg bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-800">
-                  รอบรายปียังไม่เปิดใช้งาน · รอฝ่าย IT บันทึกราคารายปีใน CpiPOS-001 ก่อน
+                  รอบรายปียังไม่เปิดใช้งาน · กรุณารอฝ่ายบริการยืนยันราคารายปีก่อน
                 </p> : <p className="mt-2 rounded-lg bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-700">
                   รายปีพร้อมใช้งาน · {formatMoney(packageRow.yearly_price)} / ปี
                 </p>}
@@ -978,7 +978,7 @@ export function PosSubscriptionCenter({ initial, isOwner, showContactActions = t
           {tab === "history" ? <section className={box + " space-y-5 p-4 sm:p-5"}>
             <div className="flex items-center gap-3"><ToneIcon icon="history" />
               <div><h2 className="text-lg font-bold text-slate-900">{ui("ประวัติการชำระแพ็กเกจ")}</h2>
-                <p className="mt-1 text-xs text-slate-500">{ui("ข้อมูลเดียวกับฝั่ง IT จาก CpiPOS-001 เมื่อ IT อนุมัติแล้วเลขที่ใบเสร็จจะปรากฏที่นี่")}</p></div>
+                <p className="mt-1 text-xs text-slate-500">{ui("เมื่อฝ่ายบริการยืนยันการชำระเงินแล้ว เลขที่ใบเสร็จจะปรากฏที่นี่")}</p></div>
             </div>
             <div className="grid gap-2 sm:grid-cols-3">
               <div className="rounded-xl border border-blue-100 bg-blue-50 p-3">
@@ -1039,7 +1039,7 @@ export function PosSubscriptionCenter({ initial, isOwner, showContactActions = t
                 className="w-full max-w-4xl overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl">
                 <header className="flex items-center justify-between gap-3 border-b border-slate-200 px-5 py-4">
                   <div><h3 className="text-lg font-black text-slate-950">{ui("รอบบิลที่บันทึกแล้ว")}</h3>
-                    <p className="text-xs text-slate-500">ข้อมูลจาก CpiPOS-001 · {snapshot.store.name}</p></div>
+                    <p className="text-xs text-slate-500">ข้อมูลรอบบิลของร้าน · {snapshot.store.name}</p></div>
                   <button type="button" onClick={() => setBillingCyclesOpen(false)}
                     className="h-9 w-9 rounded-full border border-slate-200 text-xl text-slate-500 hover:bg-slate-50">×</button>
                 </header>
