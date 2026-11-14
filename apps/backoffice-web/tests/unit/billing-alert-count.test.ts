@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { unpaidBillingCycleIds, type BillingAlertCycle } from "../../src/lib/billing-alert-count";
+import { fullySettledBillingCycleIds, unpaidBillingCycleIds, type BillingAlertCycle } from "../../src/lib/billing-alert-count";
 
 const today = "2026-11-14";
 const sample: BillingAlertCycle[] = [
@@ -15,8 +15,18 @@ describe("customer billing alert badge", () => {
   it("does not hide the badge after a slip is merely submitted for review", () => {
     expect(unpaidBillingCycleIds(sample, today)).toHaveLength(1);
   });
-  it("clears immediately when a verified settlement exists even before cycle status catches up", () => {
-    expect(unpaidBillingCycleIds(sample, today, new Set(["due-1"]))).toEqual([]);
+  it("clears immediately when a fully verified settlement exists even before cycle status catches up", () => {
+    const settled = fullySettledBillingCycleIds(sample, [{ billing_cycle_id: "due-1", amount_received: "550.00" }]);
+    expect(unpaidBillingCycleIds(sample, today, settled)).toEqual([]);
+  });
+  it("keeps the badge after a partial settlement until the full invoice is verified", () => {
+    const partial = fullySettledBillingCycleIds(sample, [{ billing_cycle_id: "due-1", amount_received: "250.00" }]);
+    expect(unpaidBillingCycleIds(sample, today, partial)).toEqual(["due-1"]);
+    const full = fullySettledBillingCycleIds(sample, [
+      { billing_cycle_id: "due-1", amount_received: "250.00" },
+      { billing_cycle_id: "due-1", amount_received: "300.00" }
+    ]);
+    expect(unpaidBillingCycleIds(sample, today, full)).toEqual([]);
   });
   it("clears if the cycle has become paid in the billing ledger", () => {
     const rows = sample.map((item) => item.id === "due-1" ? { ...item, status: "paid", amount_paid: "550.00" } : item);
