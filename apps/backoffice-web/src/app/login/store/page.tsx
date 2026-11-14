@@ -211,7 +211,11 @@ export default function LoginStorePage() {
     let active = true;
     void fetch("/api/pos/session/current", { cache: "no-store" })
       .then((response) => {
-        if (active && response.ok) router.replace("/preview/pos");
+        if (active && response.ok) {
+          // Avoid restoring a stale unauthenticated Next.js router prefetch
+          // captured before the POS session cookie was created.
+          window.location.replace("/preview/pos");
+        }
       })
       .catch(() => {
         // No active POS session; keep the store-code form visible.
