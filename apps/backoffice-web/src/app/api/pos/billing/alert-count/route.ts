@@ -1,7 +1,7 @@
 import { fail, ok } from "@/lib/http";
 import { PosGuardError, requirePosSessionForNonSaleRecovery } from "@/lib/pos-session-guard";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
-import { unpaidBillingCycleIds, type BillingAlertCycle } from "@/lib/billing-alert-count";
+import { fullySettledBillingCycleIds, unpaidBillingCycleIds, type BillingAlertCycle, type BillingAlertSettlement } from "@/lib/billing-alert-count";
 
 export const dynamic = "force-dynamic";
 
@@ -32,11 +32,14 @@ export async function GET() {
       // asynchronous billing-cycle status reconciliation completes.
       const { data: settlements, error: settlementError } = await db
         .from("tenant_subscription_settlements")
-        .select("billing_cycle_id")
+        .select("billing_cycle_id,amount_received")
         .eq("tenant_id", scope.session.tenant_id)
         .in("billing_cycle_id", candidateIds);
       if (settlementError) throw settlementError;
-      const settled = new Set((settlements ?? []).map((row) => String(row.billing_cycle_id)));
+      const settled = fullySettledBillingCycleIds(
+        (cycles ?? []) as BillingAlertCycle[],
+        (settlements ?? []) as BillingAlertSettlement[]
+      );
       count = unpaidBillingCycleIds((cycles ?? []) as BillingAlertCycle[], bangkokToday, settled).length;
     }
 
