@@ -4,6 +4,7 @@ import { getSupabaseServiceClient } from "@/lib/supabase-admin";
 import {
   EMPTY_POS_MENU_ALERT_COUNTS,
   isLiveTableBill,
+  isAwaitingQrServiceRequest,
   summarizePosOperationalMenuCounts,
   type PosMenuKitchenTicket,
   type PosMenuOrder,
@@ -84,7 +85,7 @@ export async function loadPosOperationalMenuCounts(args: {
       : Promise.resolve({ data: [] as PosMenuOrder[], error: null }),
     includeSales && qrReviewSessionIds.size > 0
       ? db.from("table_qr_orders")
-        .select("id,event_type,review_status,table_session_id,order_id,request_id,payload")
+        .select("id,table_id,event_type,review_status,table_session_id,order_id,request_id,payload")
         .eq("tenant_id", tenantId).eq("branch_id", branchId)
         .in("table_session_id", [...qrReviewSessionIds])
         .eq("event_type", "order").eq("review_status", "pending_pos_review")
@@ -93,7 +94,7 @@ export async function loadPosOperationalMenuCounts(args: {
       : Promise.resolve({ data: [] as PosMenuQrEvent[], error: null }),
     includeSales && openTableSessionIds.size > 0
       ? db.from("table_qr_orders")
-        .select("id,event_type,review_status,table_session_id,order_id,request_id,payload")
+        .select("id,table_id,event_type,review_status,table_session_id,order_id,request_id,payload")
         .eq("tenant_id", tenantId).eq("branch_id", branchId)
         .in("table_session_id", [...openTableSessionIds])
         .in("event_type", ["call_staff", "request_checkout"])
@@ -115,10 +116,21 @@ export async function loadPosOperationalMenuCounts(args: {
       .map((row) => [row.id, { status: row.status, order_type: row.order_type }] as const)
   );
   if (!includeSales && !kitchenTickets.length) return EMPTY_POS_MENU_ALERT_COUNTS;
-  return summarizePosOperationalMenuCounts({
+  const counts = summarizePosOperationalMenuCounts({
     saleOrders: [...((shiftOrders.data ?? []) as PosMenuOrder[]), ...((tableOrders.data ?? []) as PosMenuOrder[])],
     activeShiftIds, openTableOrderIds,
     qrEvents: [...((qrFoodOrders.data ?? []) as PosMenuQrEvent[]), ...((qrServiceRequests.data ?? []) as PosMenuQrEvent[])],
     openTableSessionIds, qrReviewSessionIds, kitchenTickets, kitchenParentOrders
   });
+  const pendingServiceRequests = ((qrServiceRequests.data ?? []) as PosMenuQrEvent[])
+    .filter((row) => isAwaitingQrServiceRequest(row, openTableSessionIds) &&
+      typeof row.table_id === "string" && row.table_id.length > 0)
+    .slice(0, 50)
+    .map((row) => ({
+      id: row.id,
+      table_id: row.table_id!,
+      table_code: String(row.payload?.table_code ?? "โต๊ะ").slice(0, 50),
+      type: row.event_type as "call_staff" | "request_checkout"
+    }));
+  return { ...counts, pending_service_requests: pendingServiceRequests };
 }
