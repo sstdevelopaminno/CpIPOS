@@ -28,6 +28,29 @@ describe("POS device chooser subscription diagnostics",()=>{
   );
   expect(result).toBeNull();
  });
+ it("allows store 721206 to enter POS throughout two unpaid calendar months of paid grace",()=>{
+  const lifecycle={
+    lifecycle_status:"grace",access_locked:false,lock_reason:"subscription_payment_grace",
+    trial_expires_at:"2026-10-01T00:00:00Z",
+    subscription_expires_at:"2026-11-13T00:00:00Z",
+    grace_until:"2027-01-13T00:00:00Z"
+  };
+  const contract={status:"active",ended_at:"2026-11-13T00:00:00Z",package_id:"growth"};
+  expect(classifyPosEntryDenial(contract,lifecycle,Date.parse("2026-11-14T02:00:00Z"))).toBeNull();
+  expect(classifyPosEntryDenial(contract,lifecycle,Date.parse("2026-12-16T02:00:00Z"))).toBeNull();
+  expect(classifyPosEntryDenial(contract,lifecycle,Date.parse("2027-01-12T23:59:59Z"))).toBeNull();
+  const expired=classifyPosEntryDenial(contract,lifecycle,Date.parse("2027-01-13T00:00:00Z"));
+  expect(expired?.code).toBe("subscription_expired");
+  expect(expired?.expires_at).toBe(lifecycle.grace_until);
+ });
+ it("preserves an explicit IT suspension even during paid grace",()=>{
+  const suspended=classifyPosEntryDenial({status:"active",ended_at:"2026-11-13T00:00:00Z"},{
+    lifecycle_status:"grace",access_locked:true,lock_reason:"subscription_payment_rejected",
+    trial_expires_at:null,subscription_expires_at:"2026-11-13T00:00:00Z",
+    grace_until:"2027-01-13T00:00:00Z"
+  },Date.parse("2026-11-15T00:00:00Z"));
+  expect(suspended?.code).toBe("subscription_payment_rejected");
+ });
  it("checks subscription lifecycle before sales feature, never auto-unlocks expired tenant",()=>{
   const access=src("src/lib/server/pos-entry-access-service.ts");
   const order=access.indexOf("const lifecycleDenial=classifyPosEntryDenial");
