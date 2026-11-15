@@ -2,7 +2,7 @@ import { isFeatureUnlockEnabled } from "@/lib/feature-unlock";
 import { fail, ok } from "@/lib/http";
 import { allPosMenuFeatureCodes } from "@/lib/pos-feature-map";
 import { requirePosSession, PosGuardError } from "@/lib/pos-session-guard";
-import { DEFAULT_POS_SALES_MODES, POS_SALES_MODE_KEYS, isDineInLinkedFeature, normalizePosSalesModes, normalizeCustomPosSalesModes, type PosSalesModeSettings } from "@/lib/pos-sales-modes";
+import { isDineInLinkedFeature, normalizePosSalesModes, normalizeCustomPosSalesModes, resolvePosSalesModePolicy } from "@/lib/pos-sales-modes";
 import { readThroughRuntimeCache } from "@/lib/route-runtime-cache";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
 import { getTenantPosMenuOverrides } from "@/lib/server/pos-menu-policy-service";
@@ -54,53 +54,6 @@ async function contractAllowsAccess(tenantId: string, contract: ContractRow | nu
   // The caller surfaces a retryable load failure instead of false locks.
   if (error) throw new Error("pos_menu_subscription_runtime_unavailable");
   return hasVerifiedPaidGraceAccess({ status: contract.status ?? "", ended_at: contract.ended_at }, runtime);
-}
-
-function salesModePolicy(
-  contractMetadata: Record<string, unknown>,
-  packageMetadata: Record<string, unknown> | null | undefined
-): PosSalesModeSettings {
-  const explicit = contractMetadata.sales_modes;
-  const hasExplicit = Boolean(explicit && typeof explicit === "object" && !Array.isArray(explicit));
-  const packageDefaults = Array.isArray(packageMetadata?.default_sales_modes)
-    ? packageMetadata!.default_sales_modes.map((item) => String(item ?? "").trim())
-    : [];
-  const rawLimit = Number(packageMetadata?.sales_mode_limit ?? 0);
-  const limit = Number.isFinite(rawLimit) && rawLimit > 0
-    ? Math.min(POS_SALES_MODE_KEYS.length, Math.trunc(rawLimit))
-    : null;
-
-  let modes: PosSalesModeSettings;
-  if (hasExplicit) {
-    modes = normalizePosSalesModes(explicit);
-  } else if (packageDefaults.length) {
-    modes = { ...DEFAULT_POS_SALES_MODES };
-    for (const key of POS_SALES_MODE_KEYS) modes[key] = false;
-    for (const key of packageDefaults) {
-      if ((POS_SALES_MODE_KEYS as readonly string[]).includes(key)) {
-        modes[key as keyof PosSalesModeSettings] = true;
-      }
-    }
-  } else {
-    modes = normalizePosSalesModes(explicit);
-  }
-
-  if (limit === null) return modes;
-
-  const enabledKeys = POS_SALES_MODE_KEYS.filter((key) => modes[key]);
-  if (enabledKeys.length <= limit) return modes;
-
-  const preferred = packageDefaults.length
-    ? packageDefaults.filter((key) => (POS_SALES_MODE_KEYS as readonly string[]).includes(key))
-    : [...POS_SALES_MODE_KEYS];
-  const allowed = new Set<string>();
-  for (const key of [...preferred, ...POS_SALES_MODE_KEYS]) {
-    if (modes[key as keyof PosSalesModeSettings] && allowed.size < limit) allowed.add(key);
-  }
-
-  return Object.fromEntries(
-    POS_SALES_MODE_KEYS.map((key) => [key, allowed.has(key)])
-  ) as PosSalesModeSettings;
 }
 
 async function loadTenantFeatureSnapshot(tenantId: string, branchId: string, menuPolicy: Record<string, boolean>) {
@@ -187,7 +140,7 @@ async function loadTenantFeatureSnapshot(tenantId: string, branchId: string, men
   const isCustom = String(packagePolicyResult.data?.code ?? "").toLowerCase() === "custom";
   const salesModes = isCustom
     ? normalizeCustomPosSalesModes(metadata.sales_modes)
-    : salesModePolicy(metadata, packagePolicyResult.data?.metadata);
+    : resolvePosSalesModePolicy(metadata, packagePolicyResult.data?.metadata);
   const packageFeatures = new Map<string, boolean>();
   for (const row of (packageResult.data ?? []) as PackageFeatureRow[]) {
     packageFeatures.set(String(row.feature_code), Boolean(row.included));
@@ -214,6 +167,18 @@ async function loadTenantFeatureSnapshot(tenantId: string, branchId: string, men
       return [feature, enabled];
     })
   );
+
+  // The grocery/general-sale mode uses the secured scanner feature.
+  // Growth/Business allow IT to select this mode even when barcode_scanner_mode
+  // is not included by the package feature matrix. The selected mode supplies
+  // only its scanner dependency; explicit tenant/branch feature denials still win.
+  if (salesModes.general_sale) {
+    const branchDecision = branchOverrides.get("barcode_scanner_mode");
+    const tenantDecision = tenantOverrides.get("barcode_scanner_mode");
+    if (branchDecision === true || (branchDecision === undefined && tenantDecision !== false)) {
+      features.barcode_scanner_mode = true;
+    }
+  }
 
   if (isCustom && salesModes.optical_retail) {
     // IT-enabled management menus unlock only their own feature; explicit
