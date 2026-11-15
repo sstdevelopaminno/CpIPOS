@@ -3,7 +3,7 @@ import "server-only";
 import { isFeatureUnlockEnabled } from "@/lib/feature-unlock";
 import { getSupabaseServiceClient } from "@/lib/supabase-admin";
 import { getInternalItTestMode } from "@/lib/server/internal-it-test-store";
-import { isDineInExplicitlyEnabled, isDineInLinkedFeature, isOpticalRetailExplicitlyEnabled } from "@/lib/pos-sales-modes";
+import { isDineInExplicitlyEnabled, isDineInLinkedFeature, isOpticalRetailExplicitlyEnabled, normalizeCustomPosSalesModes, resolvePosSalesModePolicy } from "@/lib/pos-sales-modes";
 import { hasVerifiedPaidGraceAccess, type PaidGraceFeatureRuntime } from "@/lib/paid-grace-feature-access";
 
 export type QuotaResourceType = "branches" | "devices" | "users";
@@ -338,6 +338,24 @@ export async function hasBranchFeature(tenantId: string, branchId: string | null
       "optical_package_check_failed", currentPackage.error.message, 500
     );
     if (String(currentPackage.data?.code ?? "").toLowerCase() === "custom") enabled = true;
+  }
+
+  // Scanner permission must agree with GET /api/pos/features. A standard
+  // Growth store may select general_sale as one of its two modes, although
+  // barcode_scanner_mode is absent from Growth's base feature matrix.
+  // Respect the current contract, package limit and explicit overrides.
+  if (featureCode === "barcode_scanner_mode" && !enabled &&
+      !tenantOverride && !branchOverride && contract?.package_id) {
+    const packageLookup = await supabase.from("subscription_packages")
+      .select("code,metadata").eq("id", contract.package_id)
+      .maybeSingle<{ code: string; metadata: Record<string, unknown> | null }>();
+    if (packageLookup.error) throw new FeatureGateError(
+      "grocery_package_policy_check_failed", packageLookup.error.message, 500
+    );
+    const selectedModes = String(packageLookup.data?.code ?? "").toLowerCase() === "custom"
+      ? normalizeCustomPosSalesModes(contract.metadata?.sales_modes)
+      : resolvePosSalesModePolicy(contract.metadata ?? {}, packageLookup.data?.metadata);
+    if (selectedModes.general_sale) enabled = true;
   }
 
   // Dine-in cannot operate safely without table, kitchen and table-call
